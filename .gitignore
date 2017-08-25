@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+*.o
+*.so
+/build
+/drgn.egg-info
+/coverage.info
+/out
+/lldwarf/dwarfdefs.h
