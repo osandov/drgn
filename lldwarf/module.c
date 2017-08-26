@@ -176,6 +176,57 @@ static PyObject *parse_abbrev_table(PyObject *self, PyObject *args,
 	return ret;
 }
 
+static PyObject *parse_arange_table(PyObject *self, PyObject *args,
+				    PyObject *kwds)
+{
+	static char *keywords[] = {
+		"segment_size", "address_size", "buffer", "offset", NULL
+	};
+	Py_ssize_t segment_size;
+	Py_ssize_t address_size;
+	Py_buffer buffer;
+	Py_ssize_t offset = 0;
+	PyObject *ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "nny*|n:parse_arange_table",
+					 keywords, &segment_size, &address_size,
+					 &buffer, &offset))
+		return NULL;
+
+	if (offset < 0) {
+		PyErr_SetString(PyExc_ValueError, "offset cannot be negative");
+		PyBuffer_Release(&buffer);
+		return NULL;
+	}
+
+	ret = LLDwarf_ParseArangeTable(&buffer, &offset, segment_size, address_size);
+	PyBuffer_Release(&buffer);
+	return ret;
+}
+
+static PyObject *parse_arange_table_header(PyObject *self, PyObject *args,
+					   PyObject *kwds)
+{
+	static char *keywords[] = {"buffer", "offset", NULL};
+	Py_buffer buffer;
+	Py_ssize_t offset = 0;
+	PyObject *ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|n:parse_arange_table_header",
+					 keywords, &buffer, &offset))
+		return NULL;
+
+	if (offset < 0) {
+		PyErr_SetString(PyExc_ValueError, "offset cannot be negative");
+		PyBuffer_Release(&buffer);
+		return NULL;
+	}
+
+	ret = LLDwarf_ParseArangeTableHeader(&buffer, &offset);
+	PyBuffer_Release(&buffer);
+	return ret;
+}
+
 static PyObject *parse_compilation_unit_header(PyObject *self, PyObject *args,
 					       PyObject *kwds)
 {
@@ -343,8 +394,24 @@ static PyMethodDef lldwarf_methods[] = {
 	 "offset -- optional offset into the buffer"},
 	{"parse_abbrev_table", (PyCFunction)parse_abbrev_table,
 	 METH_VARARGS | METH_KEYWORDS,
-	 "parse_abbrev_table(buffer, offset=0) -> dict[code]: AbbrevDecl \n\n"
+	 "parse_abbrev_table(buffer, offset=0) -> dict[code]: AbbrevDecl\n\n"
 	 "Parse an abbreviation table.\n\n"
+	 "Arguments:\n"
+	 "buffer -- readable source buffer\n"
+	 "offset -- optional offset into the buffer"},
+	{"parse_arange_table", (PyCFunction)parse_arange_table,
+	 METH_VARARGS | METH_KEYWORDS,
+	 "parse_arange_table(segment_size, address_size, buffer, offset=0) -> list of AddressRange\n\n"
+	 "Parse an address range table.\n\n"
+	 "Arguments:\n"
+	 "segment_size -- size of a segment selector in this arange table\n"
+	 "address_size -- size of an address in this arange table\n"
+	 "buffer -- readable source buffer\n"
+	 "offset -- optional offset into the buffer"},
+	{"parse_arange_table_header", (PyCFunction)parse_arange_table_header,
+	 METH_VARARGS | METH_KEYWORDS,
+	 "parse_arange_table_header(buffer, offset=0) -> dict[code]: ArangeTableHeader\n\n"
+	 "Parse an address range table header.\n\n"
 	 "Arguments:\n"
 	 "buffer -- readable source buffer\n"
 	 "offset -- optional offset into the buffer"},
@@ -412,6 +479,14 @@ PyInit_lldwarf(void)
 	if (PyType_Ready(&AbbrevDecl_type) < 0)
 		return NULL;
 
+	AddressRange_type.tp_new = PyType_GenericNew;
+	if (PyType_Ready(&AddressRange_type) < 0)
+		return NULL;
+
+	ArangeTableHeader_type.tp_new = PyType_GenericNew;
+	if (PyType_Ready(&ArangeTableHeader_type) < 0)
+		return NULL;
+
 	CompilationUnitHeader_type.tp_new = PyType_GenericNew;
 	if (PyType_Ready(&CompilationUnitHeader_type) < 0)
 		return NULL;
@@ -439,6 +514,12 @@ PyInit_lldwarf(void)
 
 	Py_INCREF(&AbbrevDecl_type);
 	PyModule_AddObject(m, "AbbrevDecl", (PyObject *)&AbbrevDecl_type);
+
+	Py_INCREF(&AddressRange_type);
+	PyModule_AddObject(m, "AddressRange", (PyObject *)&AddressRange_type);
+
+	Py_INCREF(&ArangeTableHeader_type);
+	PyModule_AddObject(m, "ArangeTableHeader", (PyObject *)&ArangeTableHeader_type);
 
 	Py_INCREF(&CompilationUnitHeader_type);
 	PyModule_AddObject(m, "CompilationUnitHeader",

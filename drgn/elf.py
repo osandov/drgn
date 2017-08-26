@@ -191,19 +191,12 @@ def parse_elf_sections(buffer, ehdr):
     return sections
 
 
+def parse_elf_symtab(buffer, shdr):
+    symnum = shdr.sh_size // ctypes.sizeof(Elf64_Sym)
+    return (Elf64_Sym * symnum).from_buffer_copy(buffer, shdr.sh_offset)
+
+
 """
-    def symtab(self):
-        try:
-            return self._symtab
-        except AttributeError:
-            pass
-
-        shdr = self.section(b'.symtab')
-
-        symnum = shdr.sh_size // ctypes.sizeof(Elf64_Sym)
-        self._symtab = (Elf64_Sym * symnum).from_buffer_copy(self._mm, shdr.sh_offset)
-        return self._symtab
-
     def symbol(self, name, *, all=False):
         try:
             syms = self._symtab_by_name[name]

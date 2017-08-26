@@ -139,38 +139,49 @@ def dump_line_number_matrix(cu, lnp, matrix, *, indent=0):
     print(f'{prefix}}}')
 
 
+def dump_cus(dwarf_file, args):
+    for cu in dwarf_file.cu_headers():
+        die = dwarf_file.cu_die(cu)
+        try:
+            cu_name = dwarf_file.die_name(die).decode()
+        except KeyError:
+            cu_name = ''
+        for pattern in args.cu:
+            if fnmatch.fnmatch(cu_name, pattern):
+                break
+        else:
+            continue
+
+        dump_cu(dwarf_file, cu, cu_name)
+        if args.die:
+            if args.recursive:
+                dwarf_file.parse_die_children(cu, die, recurse=True)
+            dump_die(dwarf_file, cu, die, indent=2, recurse=args.recursive)
+        if (args.include_directories or args.file_names or args.lines or
+            args.line_number_program):
+            lnp = dwarf_file.cu_line_number_program_header(cu, die)
+            if args.include_directories:
+                dump_lnp_include_directories(lnp, indent=2)
+            if args.file_names:
+                dump_lnp_file_names(lnp, indent=2)
+            if args.lines:
+                matrix = dwarf_file.execute_line_number_program(lnp)
+                dump_line_number_matrix(cu, lnp, matrix, indent=2)
+            if args.line_number_program:
+                dump_lnp_header(dwarf_file, lnp, indent=2)
+                dump_lnp_ops(dwarf_file, lnp, indent=4)
+
+
 def cmd_dump(args):
     with DwarfFile(args.file) as dwarf_file:
-        for cu in dwarf_file.cu_headers():
-            die = dwarf_file.cu_die(cu)
-            try:
-                cu_name = dwarf_file.die_name(die).decode()
-            except KeyError:
-                cu_name = ''
-            for pattern in args.cu:
-                if fnmatch.fnmatch(cu_name, pattern):
-                    break
-            else:
-                continue
-
-            dump_cu(dwarf_file, cu, cu_name)
-            if args.die:
-                if args.recursive:
-                    dwarf_file.parse_die_children(cu, die, recurse=True)
-                dump_die(dwarf_file, cu, die, indent=2, recurse=args.recursive)
-            if (args.include_directories or args.file_names or args.lines or
-                args.line_number_program):
-                lnp = dwarf_file.cu_line_number_program_header(cu, die)
-                if args.include_directories:
-                    dump_lnp_include_directories(lnp, indent=2)
-                if args.file_names:
-                    dump_lnp_file_names(lnp, indent=2)
-                if args.lines:
-                    matrix = dwarf_file.execute_line_number_program(lnp)
-                    dump_line_number_matrix(cu, lnp, matrix, indent=2)
-                if args.line_number_program:
-                    dump_lnp_header(dwarf_file, lnp, indent=2)
-                    dump_lnp_ops(dwarf_file, lnp, indent=4)
+        if args.cu:
+            dump_cus(dwarf_file, args)
+        if args.symtab:
+            symbols = sorted(dwarf_file.symbols().items())
+            for name, syms in symbols:
+                print(name)
+                for sym in syms:
+                    print(f'    value=0x{sym.st_value:x} size=0x{sym.st_size:x}')
 
 def register(subparsers):
     subparser = subparsers.add_parser(
@@ -191,8 +202,7 @@ def register(subparsers):
     subparser.add_argument(
         '--line-number-program', '--lnp', action='store_true', help='also dump the line number program')
     subparser.add_argument(
-        'file', help='file to dump')
+        '--symtab', action='store_true', help='dump the symbol table')
     subparser.add_argument(
-        'cu', nargs='+', metavar='glob',
-        help='pattern matching names of compilation units to dump')
+        'file', help='file to dump')
     subparser.set_defaults(func=cmd_dump)

@@ -15,7 +15,7 @@ def out_of_date(dependencies, target):
 
 
 def gen_header():
-    import drgn.dwarf.defs as defs
+    import drgn.dwarfdefs as defs
 
     def write_enum(e):
         f.write('enum {\n')
@@ -39,7 +39,7 @@ def gen_header():
 
 class my_build_ext(build_ext):
     def run(self):
-        if out_of_date(['drgn/dwarf/defs.py', 'setup.py'], 'lldwarf/dwarfdefs.h'):
+        if out_of_date(['drgn/dwarfdefs.py', 'setup.py'], 'lldwarf/dwarfdefs.h'):
             try:
                 gen_header()
             except Exception as e:
@@ -57,6 +57,7 @@ module = Extension(
         'lldwarf/module.c',
         'lldwarf/object.c',
         'lldwarf/abbrev.c',
+        'lldwarf/arange.c',
         'lldwarf/cu.c',
         'lldwarf/die.c',
         'lldwarf/line.c',

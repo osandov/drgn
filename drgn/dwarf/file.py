@@ -1,13 +1,27 @@
 import mmap
 import drgn.lldwarf as lldwarf
 from drgn.dwarf.defs import *
-from drgn.elf import parse_elf_header, parse_elf_sections
+from drgn.elf import parse_elf_header, parse_elf_sections, parse_elf_symtab
 import os.path
 import sys
+from typing import List
 
 
 class DwarfFile:
+    """DWARF file parser
+
+    A DwarfFile manages parsing a single DWARF file, abstracting away the
+    details of reading the file.
+    """
+
     def __init__(self, path):
+        """
+        DwarfFile(path) -> new DWARF file parser
+        Create a new DWARF file parser.
+
+        Arguments:
+        path -- file path
+        """
         self._closed = False
         self._file = open(path, 'rb')
         self._mmap = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
@@ -16,6 +30,8 @@ class DwarfFile:
         self._sections = parse_elf_sections(self._mmap, self._ehdr)
 
         self._abbrev_tables = {}
+        self._cu_dies = {}
+        self._symbols = None
 
     def close(self):
         if not self._closed:
@@ -34,21 +50,49 @@ class DwarfFile:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def section(self, name):
+    def section(self, name: str):
         return self._sections[name]
 
-    def at_string(self, form, value):
+    def string_at(self, offset):
+        nul = self._mmap.find(b'\0', offset)
+        assert nul != -1  # XXX
+        return self._mmap[offset:nul]
+
+    def symbols(self):
+        if self._symbols is None:
+            symtab = self.section('.symtab')
+            strtab = self.section('.strtab')
+            symbols = {}
+            for sym in parse_elf_symtab(self._mmap, symtab):
+                if sym.st_name:
+                    sym_name = self.string_at(strtab.sh_offset + sym.st_name).decode()
+                else:
+                    sym_name = ''
+                try:
+                    symbols[sym_name].append(sym)
+                except KeyError:
+                    symbols[sym_name] = [sym]
+            self._symbols = symbols
+        return self._symbols
+
+    def symbol(self, name: str, *, all: bool=False):
+        syms = self.symbols()[name]
+        if all:
+            return syms
+        else:
+            if len(syms) > 1:
+                raise ValueError('multiple symbols with given name')
+            return syms[0]
+
+    def at_string(self, form: DW_FORM, value) -> bytes:
         if form == DW_FORM.string:
             return self._mmap[value[0]:value[0] + value[1]]
         else:
             assert form == DW_FORM.strp
             debug_str = self.section('.debug_str')
-            offset = debug_str.sh_offset + value
-            nul = self._mmap.find(b'\0', offset)
-            assert nul != -1  # XXX
-            return self._mmap[offset:nul]
+            return self.string_at(debug_str.sh_offset + value)
 
-    def at_sec_offset(self, form, value):
+    def at_sec_offset(self, form: DW_FORM, value) -> int:
         if form == DW_FORM.data4:
             # DWARF 2 and 3
             return int.from_bytes(value, sys.byteorder)
@@ -57,7 +101,7 @@ class DwarfFile:
             assert form == DW_FORM.sec_offset
             return value
 
-    def abbrev_table(self, offset):
+    def abbrev_table(self, offset: int) -> lldwarf.AbbrevDecl:
         try:
             return self._abbrev_tables[offset]
         except KeyError:
@@ -78,13 +122,29 @@ class DwarfFile:
             yield cu
             offset = cu.next_offset()
 
-    def cu_die(self, cu, *, recurse=False):
+    def cu_header(self, offset: int):
+        debug_info = self.section('.debug_info')
+        offset += debug_info.sh_offset
+        return lldwarf.parse_compilation_unit_header(self._mmap, offset)
+
+    # Debugging information entries
+
+    def cu_die(self, cu: lldwarf.CompilationUnitHeader, *,
+               recurse: bool=False) -> lldwarf.DwarfDie:
+        try:
+            return self._cu_dies[cu.offset]
+        except KeyError:
+            pass
+
         debug_info = self.section('.debug_info')
         abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
-        return lldwarf.parse_die(cu, abbrev_table, self._mmap, cu.die_offset(),
-                                 recurse=recurse)
+        die = lldwarf.parse_die(cu, abbrev_table, self._mmap, cu.die_offset(),
+                                recurse=recurse)
+        self._cu_dies[cu.offset] = die
+        return die
 
-    def parse_die_children(self, cu, die, *, recurse=False):
+    def parse_die_children(self, cu: lldwarf.CompilationUnitHeader,
+                           die: lldwarf.DwarfDie, *, recurse: bool=False) -> None:
         if not hasattr(die, 'children'):
             debug_info = self.section('.debug_info')
             abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
@@ -93,7 +153,7 @@ class DwarfFile:
                                                       offset=die.offset + die.die_length,
                                                       recurse=recurse)
 
-    def die_contains_address(self, die, address):
+    def die_contains_address(self, die: lldwarf.DwarfDie, address: int) -> bool:
         try:
             ranges_form, ranges_value = die.find(DW_AT.ranges)
             assert False
@@ -114,11 +174,11 @@ class DwarfFile:
             high_pc = high_pc_value
         return low_pc <= address < high_pc
 
-    def die_name(self, die):
+    def die_name(self, die: lldwarf.DwarfDie) -> bytes:
         form, value = die.find(DW_AT.name)
         return self.at_string(form, value)
 
-    def die_address(self, die):
+    def die_address(self, die: lldwarf.DwarfDie) -> int:
         try:
             ranges_form, ranges_value = die.find(DW_AT.ranges)
             assert False
@@ -128,8 +188,27 @@ class DwarfFile:
         assert form == DW_FORM.addr
         return value
 
-    def cu_line_number_program_header(self, cu, die):
+    # Address range tables
+
+    def arange_table_headers(self):
+        debug_aranges = self.section('.debug_aranges')
+        offset = debug_aranges.sh_offset
+        end = debug_aranges.sh_offset + debug_aranges.sh_size
+        while offset < end:
+            art = lldwarf.parse_arange_table_header(self._mmap, offset)
+            yield art
+            offset = art.next_offset()
+
+    def arange_table(self, art: lldwarf.ArangeTableHeader):
+        assert art.version == 2
+        return lldwarf.parse_arange_table(art.segment_size, art.address_size,
+                                          self._mmap, art.table_offset())
+
+    # Line number programs
+
+    def cu_line_number_program_header(self, cu: lldwarf.CompilationUnitHeader) -> lldwarf.LineNumberProgramHeader:
         debug_line = self.section('.debug_line')
+        die = self.cu_die(cu)
         try:
             form, value = die.find(DW_AT.stmt_list)
         except KeyError:
@@ -137,13 +216,15 @@ class DwarfFile:
         offset = debug_line.sh_offset + self.at_sec_offset(form, value)
         return lldwarf.parse_line_number_program_header(self._mmap, offset)
 
-    def execute_line_number_program(self, lnp):
+    def execute_line_number_program(self, lnp: lldwarf.LineNumberProgramHeader) -> List[lldwarf.LineNumberRow]:
         return lldwarf.execute_line_number_program(lnp, self._mmap,
                                                    lnp.program_offset())
 
-    def line_number_row_name(self, cu, lnp, row):
+    def line_number_row_name(self, cu: lldwarf.CompilationUnitHeader,
+                             lnp: lldwarf.LineNumberProgramHeader,
+                             row: lldwarf.LineNumberRow) -> str:
         if row.file == 0:
-            return cu_name(cu)
+            return self.die_name(self.cu_die(cu)).decode()
 
         file_name, directory_index, mtime, file_size = lnp.file_names[row.file - 1]
         file_name = file_name.decode()
@@ -153,7 +234,7 @@ class DwarfFile:
         else:
             return file_name
 
-    def decode_line_number_program(self, lnp):
+    def decode_line_number_program(self, lnp: lldwarf.LineNumberProgramHeader):
         offset = lnp.program_offset()
         end = lnp.end_offset()
         while offset < end:

@@ -1,74 +1,38 @@
-from drgn.dwarf import DwarfFile
-from drgn.dwarf.defs import DW_TAG
+from drgn.dwarf import DwarfProgram
 from drgn.ftrace import Kprobe, FtraceInstance
+import re
 import os
-import signal
 
 
-def find_cu_by_name(dwarf_file, name):
-    for cu in dwarf_file.cu_headers():
-        die = dwarf_file.cu_die(cu)
-        try:
-            cu_name = dwarf_file.die_name(die).decode()
-        except KeyError:
-            continue
-        if cu_name == name:
-            return cu, die
-    else:
-        raise ValueError('CU not found')
-
-
-def find_addresses_for_line(dwarf_file, filename, lineno):
-    cu, die = find_cu_by_name(dwarf_file, filename)
-    lnp = dwarf_file.cu_line_number_program_header(cu, die)
-    matrix = dwarf_file.execute_line_number_program(lnp)
-
-    rows = []
-    for row in matrix:
-        if (dwarf_file.line_number_row_name(cu, lnp, row) == filename and
-            row.line == lineno):
-            rows.append(row)
-    return cu, die, rows
-
-
-def best_breakpoint_address(rows):
-    for row in rows:
-        if row.is_stmt:
-            return row
-    return rows[0]
-
-
-def find_subprogram_containing_address(dwarf_file, cu, die, address):
-    dwarf_file.parse_die_children(cu, die)
-    for child in die.children:
-        if child.tag != DW_TAG.subprogram:
-            continue
-        if dwarf_file.die_contains_address(child, address):
-            return child
-    assert False  # XXX
-
-
-def create_probe(dwarf_file, filename, lineno):
-    cu, die, rows = find_addresses_for_line(dwarf_file, filename, lineno)
-    row = best_breakpoint_address(rows)
-    subprogram = find_subprogram_containing_address(dwarf_file, cu, die, row.address)
-    subprogram_name = dwarf_file.die_name(subprogram).decode()
-    subprogram_address = dwarf_file.die_address(subprogram)
-
-    name = f'drgn/{subprogram_name}_{os.getpid()}'
-    location = f'{subprogram_name}+{row.address - subprogram_address}'
-    return name, location
+def sanitize_probe_name(name: str) -> str:
+    name = re.sub('[^0-9A-Za-z]', '_', name)
+    if name[0].isdigit():
+        name = '_' + name
+    return name
 
 
 def cmd_probe(args):
-    # XXX check in argparse
-    filename, lineno = args.line.rsplit(':', 1)
-    lineno = int(lineno)
-    with DwarfFile(args.vmlinux) as dwarf_file:
-        name, location = create_probe(dwarf_file, filename, lineno)
+    if args.line or (not args.function and ':' in args.location):
+        function = None
+        filename, lineno = args.location.rsplit(':', 1)
+        # TODO: catch ValueError
+        lineno = int(lineno)
+        probe_name = sanitize_probe_name(f'{filename}_{lineno}')
+    else:
+        function = args.location
+        probe_name = sanitize_probe_name(function)
+    probe_name = f'drgn/{probe_name}'
 
-    with Kprobe(name, location) as probe, \
-         FtraceInstance(f'drgn_{os.getpid()}') as instance:
+    binary = f'/lib/modules/{os.uname().release}/build/vmlinux'
+    with DwarfProgram(binary) as dwarf_program:
+        if function is not None:
+            probe_location = function
+        else:
+            probe_location = dwarf_program.find_breakpoint_location(filename, lineno)
+
+    # TODO: deal with probe name collisions
+    with FtraceInstance(f'drgn_{os.getpid()}') as instance, \
+         Kprobe(probe_name, probe_location) as probe:
         probe.enable(instance)
         try:
             import subprocess
@@ -80,9 +44,17 @@ def cmd_probe(args):
 def register(subparsers):
     subparser = subparsers.add_parser(
         'probe')
+
     subparser.add_argument(
-            '--line', '-l', metavar='FILE:LINE',
-            help='probe a source location')
-    subparser.add_argument(
-        'vmlinux', help='vmlinux file to use')
+        'location', metavar='LOCATION',
+        help='location to probe; either a function name or file:line')
+
+    group = subparser.add_mutually_exclusive_group()
+    group.add_argument(
+        '--line', '-l', action='store_true',
+        help='force location to be treated as file:line')
+    group.add_argument(
+        '--function', '-f', action='store_true',
+        help='force location to be treated as function name')
+
     subparser.set_defaults(func=cmd_probe)

@@ -24,6 +24,28 @@ typedef struct {
 extern PyTypeObject AbbrevDecl_type;
 
 typedef struct {
+	PyObject_VAR_HEAD
+	uint64_t segment;
+	uint64_t address;
+	uint64_t length;
+} AddressRange;
+
+extern PyTypeObject AddressRange_type;
+
+typedef struct {
+	PyObject_VAR_HEAD
+	Py_ssize_t offset;
+	uint64_t unit_length;
+	uint16_t version;
+	uint64_t debug_info_offset;
+	uint8_t address_size;
+	uint8_t segment_size;
+	bool is_64_bit;
+} ArangeTableHeader;
+
+extern PyTypeObject ArangeTableHeader_type;
+
+typedef struct {
 	PyObject_HEAD
 	Py_ssize_t offset;
 	uint64_t unit_length;
@@ -123,6 +145,10 @@ int LLDwarfObject_RichCompareBool(PyObject *self, PyObject *other, int op);
 PyObject *LLDwarfObject_richcompare(PyObject *self, PyObject *other, int op);
 
 PyObject *LLDwarf_ParseAbbrevTable(Py_buffer *buffer, Py_ssize_t *offset);
+PyObject *LLDwarf_ParseArangeTable(Py_buffer *buffer, Py_ssize_t *offset,
+				   Py_ssize_t segment_size,
+				   Py_ssize_t address_size);
+PyObject *LLDwarf_ParseArangeTableHeader(Py_buffer *buffer, Py_ssize_t *offset);
 PyObject *LLDwarf_ParseCompilationUnitHeader(Py_buffer *buffer,
 					     Py_ssize_t *offset);
 PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
