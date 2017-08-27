@@ -19,12 +19,12 @@ def dump_cu(dwarf_file, cu, cu_name, *, indent=0):
     print(f'{prefix}  is_64_bit = {cu.is_64_bit}')
 
 
-def dump_die(dwarf_file, cu, die, *, indent=0, recurse=False):
+def dump_die(dwarf_file, die, *, indent=0, recurse=False):
     prefix = ' ' * indent
     print(f'{prefix}<{die.cu_offset}> {tag_name(die.tag)}')
     for name, form, value in die:
         if form == DW_FORM.string or form == DW_FORM.strp:
-            value = repr(dwarf_file.at_string(cu, form, value))[1:]
+            value = repr(dwarf_file.at_string(die.cu, form, value))[1:]
         elif form in {DW_FORM.data1, DW_FORM.data2, DW_FORM.data4, DW_FORM.data8}:
             value = repr(value)[1:]
         print(f'{prefix}  {at_name(name)} ({form_name(form)}) = {value}')
@@ -36,7 +36,7 @@ def dump_die(dwarf_file, cu, die, *, indent=0, recurse=False):
         else:
             if children is not None:
                 for child in children:
-                    dump_die(dwarf_file, cu, child, indent=indent + 2, recurse=True)
+                    dump_die(dwarf_file, child, indent=indent + 2, recurse=True)
 
 
 def dump_lnp_include_directories(lnp, *, indent=0):
@@ -152,8 +152,8 @@ def dump_cus(dwarf_file, args):
         if args.die:
             die = dwarf_file.cu_die(cu)
             if args.recursive:
-                dwarf_file.parse_die_children(cu, die, recurse=True)
-            dump_die(dwarf_file, cu, die, indent=2, recurse=args.recursive)
+                dwarf_file.parse_die_children(die, recurse=True)
+            dump_die(dwarf_file, die, indent=2, recurse=args.recursive)
         if (args.include_directories or args.file_names or args.lines or
             args.line_number_program):
             lnp = dwarf_file.cu_line_number_program_header(cu)

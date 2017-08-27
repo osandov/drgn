@@ -99,8 +99,10 @@ static PyObject *DwarfDie_new(PyTypeObject *subtype, PyObject *args,
 			      PyObject *kwds)
 {
 	static char *keywords[] = {
-		"cu_offset", "die_length", "tag", "children", "attributes", NULL
+		"cu", "parent", "cu_offset", "die_length", "tag", "children", "attributes", NULL
 	};
+	PyObject *cu;
+	PyObject *parent;
 	PyObject *cu_offset;
 	PyObject *die_length;
 	PyObject *tag;
@@ -109,9 +111,9 @@ static PyObject *DwarfDie_new(PyTypeObject *subtype, PyObject *args,
 	DwarfDie *die = NULL;
 	Py_ssize_t i, len;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOO:DwarfDie", keywords,
-					 &cu_offset, &die_length, &tag, &children,
-					 &attribs))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOOOO:DwarfDie", keywords,
+					 &cu, &parent, &cu_offset, &die_length,
+					 &tag, &children, &attribs))
 		return NULL;
 
 	tmp = PySequence_Tuple(attribs);
@@ -125,6 +127,10 @@ static PyObject *DwarfDie_new(PyTypeObject *subtype, PyObject *args,
 	die->dict = PyDict_New();
 	if (!die->dict)
 		goto err;
+	die->cu = cu;
+	Py_INCREF(cu);
+	die->parent = parent;
+	Py_INCREF(parent);
 	die->cu_offset = PyLong_AsSsize_t(cu_offset);
 	if (PyErr_Occurred()) {
 		if (PyErr_ExceptionMatches(PyExc_OverflowError))
@@ -214,8 +220,9 @@ static PyObject *DwarfDie_repr(DwarfDie *self)
 		goto out;
 
 	/* XXX: children = NULL? */
-	ret = PyUnicode_FromFormat("DwarfDie(cu_offset=%zd, die_length=%zd, tag=%llu, children=%R, attributes=%R)",
-				   self->cu_offset, self->die_length,
+	ret = PyUnicode_FromFormat("DwarfDie(cu=%R, parent=%R, cu_offset=%zd, die_length=%zd, tag=%llu, children=%R, attributes=%R)",
+				   self->cu, self->parent, self->cu_offset,
+				   self->die_length,
 				   (unsigned long long)self->tag,
 				   self->children, tmp);
 
@@ -506,7 +513,7 @@ block:
 }
 
 PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
-				   CompilationUnitHeader *cu,
+				   CompilationUnitHeader *cu, PyObject *parent,
 				   PyObject *abbrev_table, Py_ssize_t cu_offset,
 				   bool recurse)
 {
@@ -519,8 +526,9 @@ PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
 	for (;;) {
 		PyObject *child;
 
-		child = LLDwarf_ParseDie(buffer, offset, cu, abbrev_table,
-					 cu_offset, recurse, true);
+		child = LLDwarf_ParseDie(buffer, offset, cu, parent,
+					 abbrev_table, cu_offset, recurse,
+					 true);
 		if (PyErr_Occurred())
 			goto err;
 		if (!child)
@@ -540,9 +548,9 @@ err:
 }
 
 PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
-			   CompilationUnitHeader *cu, PyObject *abbrev_table,
-			   Py_ssize_t cu_offset, bool recurse,
-			   bool jump_to_sibling)
+			   CompilationUnitHeader *cu, PyObject *parent,
+			   PyObject *abbrev_table, Py_ssize_t cu_offset,
+			   bool recurse, bool jump_to_sibling)
 {
 	Py_ssize_t orig_offset;
 	DwarfDie *die;
@@ -579,6 +587,12 @@ PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 	if (!die->dict)
 		goto err;
 
+	die->cu = (PyObject *)cu;
+	Py_INCREF(cu);
+
+	die->parent = parent;
+	Py_INCREF(parent);
+
 	die->cu_offset = orig_offset - cu_offset;
 	die->tag = decl->tag;
 	die->children = NULL;
@@ -601,6 +615,7 @@ PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 		die->children = Py_None;
 	} else if (recurse || (jump_to_sibling && !sibling)) {
 		die->children = LLDwarf_ParseDieSiblings(buffer, offset, cu,
+							 (PyObject *)die,
 							 abbrev_table,
 							 cu_offset, true);
 		if (!die->children)
@@ -635,6 +650,10 @@ static PyMethodDef DwarfDie_methods[] = {
 };
 
 static PyMemberDef DwarfDie_members[] = {
+	{"cu", T_OBJECT, offsetof(DwarfDie, cu), 0,
+	 "CU this DIE was parsed from"},
+	{"parent", T_OBJECT, offsetof(DwarfDie, parent), 0,
+	 "the parent DIE of this DIE"},
 	{"cu_offset", T_UINT64T, offsetof(DwarfDie, cu_offset), 0,
 	 "offset from the beginning of the CU where this DIE starts"},
 	{"die_length", T_UINT64T, offsetof(DwarfDie, die_length), 0,
@@ -648,14 +667,17 @@ static PyMemberDef DwarfDie_members[] = {
 };
 
 #define DwarfDie_DOC	\
-	"DwarfDie(cu_offset, die_length, tag, children, attribs) -> new debugging information entry\n\n"	\
-	"Create a new DWARF debugging information entry. len(die) is the\n"		\
-	"number of attributes and die[i] is the ith attribute.\n\n"			\
-	"Arguments:\n"									\
-	"cu_offset -- integer offset\n"							\
-	"die_length -- intger length\n"							\
-	"tag -- integer tag of the DIE\n"						\
-	"children -- list of children DIEs\n"						\
+	"DwarfDie(cu, parent, cu_offset, die_length, tag, children,\n"		\
+	"         attribs) -> new debugging information entry\n\n"		\
+	"Create a new DWARF debugging information entry. len(die) is the\n"	\
+	"number of attributes and die[i] is the ith attribute.\n\n"		\
+	"Arguments:\n"								\
+	"cu -- CompilationUnitHeader\n"						\
+	"parent -- DwarfDie or None\n"						\
+	"cu_offset -- integer offset\n"						\
+	"die_length -- intger length\n"						\
+	"tag -- integer tag of the DIE\n"					\
+	"children -- list of children DIEs\n"					\
 	"attribs -- iterable of (name, form, value) triples"
 
 PyTypeObject DwarfDie_type = {

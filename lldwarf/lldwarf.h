@@ -88,6 +88,8 @@ struct DwarfAttrib {
 typedef struct {
 	PyObject_VAR_HEAD
 	PyObject *dict;
+	PyObject *cu;
+	PyObject *parent;
 	Py_ssize_t cu_offset;
 	Py_ssize_t die_length;
 	uint64_t tag;
@@ -155,13 +157,13 @@ PyObject *LLDwarf_ParseArangeTableHeader(Py_buffer *buffer, Py_ssize_t *offset);
 PyObject *LLDwarf_ParseCompilationUnitHeader(Py_buffer *buffer,
 					     Py_ssize_t *offset);
 PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
-			   CompilationUnitHeader *cu, PyObject *abbrev_table,
-			   Py_ssize_t cu_offset, bool recurse,
-			   bool jump_to_sibling);
+			   CompilationUnitHeader *cu, PyObject *parent,
+			   PyObject *abbrev_table, Py_ssize_t cu_offset,
+			   bool recurse, bool jump_to_sibling);
 PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
-				   CompilationUnitHeader *cu,
-				   PyObject *abbrev_table,
-				   Py_ssize_t cu_offset, bool recurse);
+				   CompilationUnitHeader *cu, PyObject *parent,
+				   PyObject *abbrev_table, Py_ssize_t cu_offset,
+				   bool recurse);
 PyObject *LLDwarf_ParseLineNumberProgramHeader(Py_buffer *buffer,
 					       Py_ssize_t *offset);
 PyObject *LLDwarf_ExecuteLineNumberProgram(Py_buffer *buffer,

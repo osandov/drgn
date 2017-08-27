@@ -143,7 +143,7 @@ class DwarfFile:
 
     def cu_name(self, cu: lldwarf.CompilationUnitHeader) -> bytes:
         try:
-            return self.die_name(cu, self.cu_die(cu))
+            return self.die_name(self.cu_die(cu))
         except KeyError:
             return b''
 
@@ -159,18 +159,19 @@ class DwarfFile:
         debug_info = self.section('.debug_info')
         abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
         die_offset = cu.offset + (23 if cu.is_64_bit else 11)
-        die = lldwarf.parse_die(cu, abbrev_table, cu.offset, self._mmap,
+        die = lldwarf.parse_die(cu, None, abbrev_table, cu.offset, self._mmap,
                                 die_offset, recurse=recurse)
         cu.die = die
         return die
 
-    def parse_die_children(self, cu: lldwarf.CompilationUnitHeader,
-                           die: lldwarf.DwarfDie, *, recurse: bool=False) -> None:
+    def parse_die_children(self, die: lldwarf.DwarfDie, *,
+                           recurse: bool=False) -> None:
         if not hasattr(die, 'children'):
+            cu = die.cu
             debug_info = self.section('.debug_info')
             abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
             offset = cu.offset + die.cu_offset + die.die_length
-            die.children = lldwarf.parse_die_siblings(cu, abbrev_table,
+            die.children = lldwarf.parse_die_siblings(cu, die, abbrev_table,
                                                       cu.offset, self._mmap,
                                                       offset=offset,
                                                       recurse=recurse)
@@ -196,10 +197,9 @@ class DwarfFile:
             high_pc = high_pc_value
         return low_pc <= address < high_pc
 
-    def die_name(self, cu: lldwarf.CompilationUnitHeader,
-                 die: lldwarf.DwarfDie) -> bytes:
+    def die_name(self, die: lldwarf.DwarfDie) -> bytes:
         form, value = die.find(DW_AT.name)
-        return self.at_string(cu, form, value)
+        return self.at_string(die.cu, form, value)
 
     def die_address(self, die: lldwarf.DwarfDie) -> int:
         try:

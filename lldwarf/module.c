@@ -254,21 +254,22 @@ static PyObject *parse_compilation_unit_header(PyObject *self, PyObject *args,
 static PyObject *parse_die(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"cu", "abbrev_table", "cu_offset", "buffer", "offset", "recurse", NULL,
+		"cu", "parent", "abbrev_table", "cu_offset", "buffer", "offset",
+		"recurse", NULL,
 	};
-	PyObject *cu, *abbrev_table;
+	PyObject *cu, *parent, *abbrev_table;
 	Py_ssize_t cu_offset;
 	Py_buffer buffer;
 	Py_ssize_t offset = 0;
 	int recurse = 0;
 	PyObject *ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!ny*|np:parse_die",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!OO!ny*|np:parse_die",
 					 keywords,
 					 (PyObject *)&CompilationUnitHeader_type, &cu,
-					 (PyObject *)&PyDict_Type, &abbrev_table,
-					 &cu_offset, &buffer, &offset,
-					 &recurse))
+					 &parent, (PyObject *)&PyDict_Type,
+					 &abbrev_table, &cu_offset, &buffer,
+					 &offset, &recurse))
 		return NULL;
 
 	if (offset < 0) {
@@ -278,7 +279,7 @@ static PyObject *parse_die(PyObject *self, PyObject *args, PyObject *kwds)
 	}
 
 	ret = LLDwarf_ParseDie(&buffer, &offset, (CompilationUnitHeader *)cu,
-			       abbrev_table, cu_offset, recurse, false);
+			       parent, abbrev_table, cu_offset, recurse, false);
 	if (!ret && !PyErr_Occurred()) {
 		Py_INCREF(Py_None);
 		ret = Py_None;
@@ -291,21 +292,22 @@ static PyObject *parse_die_siblings(PyObject *self, PyObject *args,
 				    PyObject *kwds)
 {
 	static char *keywords[] = {
-		"cu", "abbrev_table", "cu_offset", "buffer", "offset", "recurse", NULL,
+		"cu", "parent", "abbrev_table", "cu_offset", "buffer", "offset",
+		"recurse", NULL,
 	};
-	PyObject *cu, *abbrev_table;
+	PyObject *cu, *parent, *abbrev_table;
 	Py_ssize_t cu_offset;
 	Py_buffer buffer;
 	Py_ssize_t offset = 0;
 	int recurse = 0;
 	PyObject *ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!ny*|np:parse_die_siblings",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!OO!ny*|np:parse_die_siblings",
 					 keywords,
-					 (PyObject *)&CompilationUnitHeader_type, &cu,
-					 (PyObject *)&PyDict_Type, &abbrev_table,
-					 &cu_offset, &buffer, &offset,
-					 &recurse))
+					 (PyObject *)&CompilationUnitHeader_type,
+					 &cu, &parent, (PyObject *)&PyDict_Type,
+					 &abbrev_table, &cu_offset, &buffer,
+					 &offset, &recurse))
 		return NULL;
 
 	if (offset < 0) {
@@ -315,7 +317,7 @@ static PyObject *parse_die_siblings(PyObject *self, PyObject *args,
 	}
 
 	ret = LLDwarf_ParseDieSiblings(&buffer, &offset, (CompilationUnitHeader *)cu,
-				       abbrev_table, cu_offset, recurse);
+				       parent, abbrev_table, cu_offset, recurse);
 	PyBuffer_Release(&buffer);
 	return ret;
 }

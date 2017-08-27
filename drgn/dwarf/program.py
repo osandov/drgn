@@ -51,10 +51,10 @@ class DwarfProgram:
         symbol = dwarf_file.symbol(name)
         dwarf_file, cu = self.find_cu_by_addr(symbol.st_value)
         die = self._file.cu_die(cu)
-        dwarf_file.parse_die_children(cu, die)
+        dwarf_file.parse_die_children(die)
         for child in die.children:
             if (child.tag == DW_TAG.subprogram and
-                dwarf_file.die_name(cu, child).decode() == name):
+                dwarf_file.die_name(child).decode() == name):
                 return child
         else:
             raise ValueError('subprogram not found')
@@ -84,7 +84,7 @@ class DwarfProgram:
                                             cu: lldwarf.CompilationUnitHeader,
                                             addr: int) -> lldwarf.DwarfDie:
         die = dwarf_file.cu_die(cu)
-        dwarf_file.parse_die_children(cu, die)
+        dwarf_file.parse_die_children(die)
         for child in die.children:
             if (child.tag == DW_TAG.subprogram and
                 dwarf_file.die_contains_address(child, addr)):
@@ -99,7 +99,7 @@ class DwarfProgram:
         row = self._best_breakpoint_row(dwarf_file, cu, lnp, matrix, filename, lineno)
 
         subprogram = self._find_subprogram_containing_address(dwarf_file, cu, row.address)
-        subprogram_name = dwarf_file.die_name(cu, subprogram).decode()
+        subprogram_name = dwarf_file.die_name(subprogram).decode()
         subprogram_address = dwarf_file.die_address(subprogram)
         assert row.address >= subprogram_address
         return f'{subprogram_name}+0x{row.address - subprogram_address:x}'
