@@ -43,10 +43,10 @@ static int DwarfDie_AttribFromObject(struct DwarfAttrib *attrib, PyObject *objec
 			return -1;
 		}
 
-		attrib->offset = PyLong_AsSsize_t(PyTuple_GET_ITEM(value, 0));
+		attrib->cu_offset = PyLong_AsSsize_t(PyTuple_GET_ITEM(value, 0));
 		if (PyErr_Occurred()) {
 			if (PyErr_ExceptionMatches(PyExc_OverflowError))
-				PyErr_SetString(PyExc_OverflowError, "offset too big");
+				PyErr_SetString(PyExc_OverflowError, "cu_offset too big");
 			Py_DECREF(value);
 			return -1;
 		}
@@ -99,9 +99,9 @@ static PyObject *DwarfDie_new(PyTypeObject *subtype, PyObject *args,
 			      PyObject *kwds)
 {
 	static char *keywords[] = {
-		"offset", "die_length", "tag", "children", "attributes", NULL
+		"cu_offset", "die_length", "tag", "children", "attributes", NULL
 	};
-	PyObject *offset;
+	PyObject *cu_offset;
 	PyObject *die_length;
 	PyObject *tag;
 	PyObject *children, *attribs;
@@ -110,7 +110,7 @@ static PyObject *DwarfDie_new(PyTypeObject *subtype, PyObject *args,
 	Py_ssize_t i, len;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOO:DwarfDie", keywords,
-					 &offset, &die_length, &tag, &children,
+					 &cu_offset, &die_length, &tag, &children,
 					 &attribs))
 		return NULL;
 
@@ -122,10 +122,13 @@ static PyObject *DwarfDie_new(PyTypeObject *subtype, PyObject *args,
 	die = (DwarfDie *)subtype->tp_alloc(subtype, len);
 	if (!die)
 		goto err;
-	die->offset = PyLong_AsSsize_t(offset);
+	die->dict = PyDict_New();
+	if (!die->dict)
+		goto err;
+	die->cu_offset = PyLong_AsSsize_t(cu_offset);
 	if (PyErr_Occurred()) {
 		if (PyErr_ExceptionMatches(PyExc_OverflowError))
-			PyErr_SetString(PyExc_OverflowError, "offset too big");
+			PyErr_SetString(PyExc_OverflowError, "cu_offset too big");
 		goto err;
 	}
 	die->die_length = PyLong_AsSsize_t(die_length);
@@ -195,18 +198,6 @@ err:
 	return NULL;
 }
 
-static void DwarfDie_dealloc(DwarfDie *self)
-{
-	Py_XDECREF(self->children);
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-static int DwarfDie_traverse(DwarfDie *self, visitproc visit, void *arg)
-{
-	Py_VISIT(self->children);
-	return 0;
-}
-
 static PyObject *DwarfDie_repr(DwarfDie *self)
 {
 	PyObject *tmp, *ret = NULL;
@@ -223,8 +214,8 @@ static PyObject *DwarfDie_repr(DwarfDie *self)
 		goto out;
 
 	/* XXX: children = NULL? */
-	ret = PyUnicode_FromFormat("DwarfDie(offset=%zd, die_length=%zd, tag=%llu, children=%R, attributes=%R)",
-				   self->offset, self->die_length,
+	ret = PyUnicode_FromFormat("DwarfDie(cu_offset=%zd, die_length=%zd, tag=%llu, children=%R, attributes=%R)",
+				   self->cu_offset, self->die_length,
 				   (unsigned long long)self->tag,
 				   self->children, tmp);
 
@@ -290,7 +281,7 @@ static PyObject *DwarfDie_ObjectFromAttrib(struct DwarfAttrib *attrib)
 	case DW_FORM_block:
 	case DW_FORM_exprloc:
 	case DW_FORM_string:
-		return Py_BuildValue("nn", attrib->offset, attrib->length);
+		return Py_BuildValue("nn", attrib->cu_offset, attrib->length);
 	case DW_FORM_data1:
 		return PyBytes_FromStringAndSize(attrib->data, 1);
 	case DW_FORM_data2:
@@ -391,7 +382,7 @@ static AbbrevDecl *get_decl(PyObject *abbrev_table, uint64_t code)
 }
 
 static int LLDwarf_ParseAttrib(Py_buffer *buffer, Py_ssize_t *offset,
-			       CompilationUnitHeader *cu,
+			       CompilationUnitHeader *cu, Py_ssize_t cu_offset,
 			       struct DwarfAttrib *attrib)
 {
 	uint8_t u8;
@@ -444,7 +435,7 @@ static int LLDwarf_ParseAttrib(Py_buffer *buffer, Py_ssize_t *offset,
 block:
 		if (read_check_bounds(buffer, *offset, attrib->length) == -1)
 			return -1;
-		attrib->offset = *offset;
+		attrib->cu_offset = *offset - cu_offset;
 		*offset += attrib->length;
 		return 0;
 	/* constant */
@@ -476,7 +467,7 @@ block:
 			return 0;
 		}
 	case DW_FORM_string:
-		attrib->offset = *offset;
+		attrib->cu_offset = *offset - cu_offset;
 		if (read_strlen(buffer, offset, &attrib->length) == -1)
 			return -1;
 		return 0;
@@ -516,7 +507,8 @@ block:
 
 PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
 				   CompilationUnitHeader *cu,
-				   PyObject *abbrev_table, bool recurse)
+				   PyObject *abbrev_table, Py_ssize_t cu_offset,
+				   bool recurse)
 {
 	PyObject *children;
 
@@ -528,7 +520,7 @@ PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
 		PyObject *child;
 
 		child = LLDwarf_ParseDie(buffer, offset, cu, abbrev_table,
-					 recurse, true);
+					 cu_offset, recurse, true);
 		if (PyErr_Occurred())
 			goto err;
 		if (!child)
@@ -549,7 +541,8 @@ err:
 
 PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 			   CompilationUnitHeader *cu, PyObject *abbrev_table,
-			   bool recurse, bool jump_to_sibling)
+			   Py_ssize_t cu_offset, bool recurse,
+			   bool jump_to_sibling)
 {
 	Py_ssize_t orig_offset;
 	DwarfDie *die;
@@ -581,7 +574,12 @@ PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 		Py_DECREF(decl);
 		return NULL;
 	}
-	die->offset = orig_offset;
+
+	die->dict = PyDict_New();
+	if (!die->dict)
+		goto err;
+
+	die->cu_offset = orig_offset - cu_offset;
 	die->tag = decl->tag;
 	die->children = NULL;
 	memset(die->attribs, 0, len * sizeof(die->attribs[0]));
@@ -589,7 +587,8 @@ PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 	for (i = 0; i < len; i++) {
 		die->attribs[i].name = decl->attribs[i].name;
 		die->attribs[i].form = decl->attribs[i].form;
-		if (LLDwarf_ParseAttrib(buffer, offset, cu, &die->attribs[i]) == -1)
+		if (LLDwarf_ParseAttrib(buffer, offset, cu, cu_offset,
+					&die->attribs[i]) == -1)
 			goto err;
 		if (die->attribs[i].name == DW_AT_sibling)
 			sibling = die->attribs[i].u;
@@ -602,11 +601,12 @@ PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 		die->children = Py_None;
 	} else if (recurse || (jump_to_sibling && !sibling)) {
 		die->children = LLDwarf_ParseDieSiblings(buffer, offset, cu,
-							 abbrev_table, true);
+							 abbrev_table,
+							 cu_offset, true);
 		if (!die->children)
 			goto err;
 	} else if (jump_to_sibling) {
-		*offset = cu->offset + sibling;
+		*offset = cu_offset + sibling;
 	}
 
 	Py_DECREF(decl);
@@ -635,8 +635,8 @@ static PyMethodDef DwarfDie_methods[] = {
 };
 
 static PyMemberDef DwarfDie_members[] = {
-	{"offset", T_UINT64T, offsetof(DwarfDie, offset), 0,
-	 "offset into the buffer where this DIE starts"},
+	{"cu_offset", T_UINT64T, offsetof(DwarfDie, cu_offset), 0,
+	 "offset from the beginning of the CU where this DIE starts"},
 	{"die_length", T_UINT64T, offsetof(DwarfDie, die_length), 0,
 	 "length of this DIE"},
 	{"tag", T_UINT64T, offsetof(DwarfDie, tag), 0,
@@ -648,11 +648,11 @@ static PyMemberDef DwarfDie_members[] = {
 };
 
 #define DwarfDie_DOC	\
-	"DwarfDie(offset, die_length, tag, children, attribs) -> new debugging information entry\n\n"	\
+	"DwarfDie(cu_offset, die_length, tag, children, attribs) -> new debugging information entry\n\n"	\
 	"Create a new DWARF debugging information entry. len(die) is the\n"		\
 	"number of attributes and die[i] is the ith attribute.\n\n"			\
 	"Arguments:\n"									\
-	"offset -- integer offset\n"							\
+	"cu_offset -- integer offset\n"							\
 	"die_length -- intger length\n"							\
 	"tag -- integer tag of the DIE\n"						\
 	"children -- list of children DIEs\n"						\
@@ -663,7 +663,7 @@ PyTypeObject DwarfDie_type = {
 	"drgn.lldwarf.DwarfDie",	/* tp_name */
 	sizeof(DwarfDie),		/* tp_basicsize */
 	sizeof(struct DwarfAttrib),	/* tp_itemsize */
-	(destructor)DwarfDie_dealloc,	/* tp_dealloc */
+	LLDwarfObject_dealloc,		/* tp_dealloc */
 	NULL,				/* tp_print */
 	NULL,				/* tp_getattr */
 	NULL,				/* tp_setattr */
@@ -675,13 +675,13 @@ PyTypeObject DwarfDie_type = {
 	NULL,				/* tp_hash  */
 	NULL,				/* tp_call */
 	NULL,				/* tp_str */
-	NULL,				/* tp_getattro */
-	NULL,				/* tp_setattro */
+	PyObject_GenericGetAttr,	/* tp_getattro */
+	PyObject_GenericSetAttr,	/* tp_setattro */
 	NULL,				/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,		/* tp_flags */
 	DwarfDie_DOC,			/* tp_doc */
-	(traverseproc)DwarfDie_traverse,	/* tp_traverse */
-	NULL,				/* tp_clear */
+	LLDwarfObject_traverse,		/* tp_traverse */
+	LLDwarfObject_clear,		/* tp_clear */
 	(richcmpfunc)DwarfDie_richcompare,	/* tp_richcompare */
 	0,				/* tp_weaklistoffset */
 	NULL,				/* tp_iter */
@@ -693,7 +693,7 @@ PyTypeObject DwarfDie_type = {
 	NULL,				/* tp_dict */
 	NULL,				/* tp_descr_get */
 	NULL,				/* tp_descr_set */
-	0,				/* tp_dictoffset */
+	offsetof(DwarfDie, dict),	/* tp_dictoffset */
 	NULL,				/* tp_init */
 	NULL,				/* tp_alloc */
 	(newfunc)DwarfDie_new,		/* tp_new */

@@ -1,64 +1,6 @@
 #include "lldwarf.h"
 #include "dwarfdefs.h"
 
-static void LineNumberProgramHeader_dealloc(LineNumberProgramHeader *self)
-{
-	Py_XDECREF(self->standard_opcode_lengths);
-	Py_XDECREF(self->include_directories);
-	Py_XDECREF(self->file_names);
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-static int LineNumberProgramHeader_traverse(LineNumberProgramHeader *self,
-					    visitproc visit, void *arg)
-{
-	Py_VISIT(self->standard_opcode_lengths);
-	Py_VISIT(self->include_directories);
-	Py_VISIT(self->file_names);
-	return 0;
-}
-
-PyObject *LineNumberProgramHeader_program_offset(LineNumberProgramHeader *self)
-{
-	uint64_t before_header_length_length = self->is_64_bit ? 22 : 10;
-	uint64_t header_length;
-	Py_ssize_t ret;
-
-	if (__builtin_add_overflow(self->header_length, before_header_length_length, &header_length) ||
-	    __builtin_add_overflow(self->offset, header_length, &ret)) {
-		PyErr_SetString(PyExc_OverflowError, "program offset too large");
-		return NULL;
-	}
-
-	return PyLong_FromSsize_t(ret);
-}
-
-static Py_ssize_t lnp_end_offset(LineNumberProgramHeader *self)
-{
-	uint64_t unit_length_length = self->is_64_bit ? 12 : 4;
-	uint64_t unit_length;
-	Py_ssize_t ret;
-
-	if (__builtin_add_overflow(self->unit_length, unit_length_length, &unit_length) ||
-	    __builtin_add_overflow(self->offset, unit_length, &ret)) {
-		PyErr_SetString(PyExc_OverflowError, "end offset too large");
-		return -1;
-	}
-
-	return ret;
-}
-
-PyObject *LineNumberProgramHeader_end_offset(LineNumberProgramHeader *self)
-{
-	Py_ssize_t ret;
-
-	ret = lnp_end_offset(self);
-	if (ret == -1)
-		return NULL;
-
-	return PyLong_FromSsize_t(ret);
-}
-
 static PyObject *parse_standard_opcode_lengths(Py_buffer *buffer,
 					       Py_ssize_t *offset,
 					       uint8_t opcode_base)
@@ -195,7 +137,9 @@ PyObject *LLDwarf_ParseLineNumberProgramHeader(Py_buffer *buffer,
 	if (!lnp)
 		return NULL;
 
-	lnp->offset = *offset;
+	lnp->dict = PyDict_New();
+	if (!lnp->dict)
+		goto err;
 
 	if (read_u32(buffer, offset, &length) == -1)
 		goto err;
@@ -258,26 +202,7 @@ err:
 	return NULL;
 }
 
-static PyMethodDef LineNumberProgramHeader_methods[] = {
-	{"program_offset", (PyCFunction)LineNumberProgramHeader_program_offset,
-	 METH_NOARGS,
-	 "program_offset() -> int\n\n"
-	 "Get the offset into the file where the line number program itself\n"
-	 "starts. This is the starting offset of the line number program\n"
-	 "header plus the length of the header."},
-	{"end_offset", (PyCFunction)LineNumberProgramHeader_end_offset,
-	 METH_NOARGS,
-	 "end_offset() -> int\n\n"
-	 "Get the offset into the file where the line number program ends.\n"
-	 "This is the starting offset of the line number program header plus\n"
-	 "the length of the unit, including the header."},
-	{},
-};
-
 static PyMemberDef LineNumberProgramHeader_members[] = {
-	{"offset", T_PYSSIZET,
-	 offsetof(LineNumberProgramHeader, offset), 0,
-	 "offset into the file where this line number program starts"},
 	{"unit_length", T_UINT64T,
 	 offsetof(LineNumberProgramHeader, unit_length), 0,
 	 "length of this line number program, not including the unit_length field"},
@@ -319,7 +244,7 @@ static PyMemberDef LineNumberProgramHeader_members[] = {
 };
 
 #define LineNumberProgramHeader_DOC						\
-	"LineNumberProgramHeader(offset, unit_length, version, header_length,\n"\
+	"LineNumberProgramHeader(unit_length, version, header_length,\n"	\
 	"                        minimum_instruction_length,\n"			\
 	"                        maximum_operations_per_instruction,\n"		\
 	"                        default_is_stmt, line_base, line_range,\n"	\
@@ -328,7 +253,6 @@ static PyMemberDef LineNumberProgramHeader_members[] = {
 	"                        is_64_bit) -> new line number program header\n\n"	\
 	"Create a new DWARF line number program header.\n\n"			\
 	"Arguments:\n"								\
-	"offset -- integer offset\n"						\
 	"unit_length -- integer length\n"					\
 	"version -- integer format version\n"					\
 	"header_length -- integer length\n"					\
@@ -348,7 +272,7 @@ PyTypeObject LineNumberProgramHeader_type = {
 	"drgn.lldwarf.LineNumberProgramHeader",	/* tp_name */
 	sizeof(LineNumberProgramHeader),	/* tp_basicsize */
 	0,					/* tp_itemsize */
-	(destructor)LineNumberProgramHeader_dealloc,	/* tp_dealloc */
+	LLDwarfObject_dealloc,			/* tp_dealloc */
 	NULL,					/* tp_print */
 	NULL,					/* tp_getattr */
 	NULL,					/* tp_setattr */
@@ -360,32 +284,27 @@ PyTypeObject LineNumberProgramHeader_type = {
 	NULL,					/* tp_hash  */
 	NULL,					/* tp_call */
 	NULL,					/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
+	PyObject_GenericGetAttr,		/* tp_getattro */
+	PyObject_GenericSetAttr,		/* tp_setattro */
 	NULL,					/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,			/* tp_flags */
 	LineNumberProgramHeader_DOC,		/* tp_doc */
-	(traverseproc)LineNumberProgramHeader_traverse,	/* tp_traverse */
-	NULL,					/* tp_clear */
+	LLDwarfObject_traverse,			/* tp_traverse */
+	LLDwarfObject_clear,			/* tp_clear */
 	LLDwarfObject_richcompare,		/* tp_richcompare */
 	0,					/* tp_weaklistoffset */
 	NULL,					/* tp_iter */
 	NULL,					/* tp_iternext */
-	LineNumberProgramHeader_methods,	/* tp_methods */
+	NULL,					/* tp_methods */
 	LineNumberProgramHeader_members,	/* tp_members */
 	NULL,					/* tp_getset */
 	NULL,					/* tp_base */
 	NULL,					/* tp_dict */
 	NULL,					/* tp_descr_get */
 	NULL,					/* tp_descr_set */
-	0,					/* tp_dictoffset */
+	offsetof(LineNumberProgramHeader, dict),/* tp_dictoffset */
 	LLDwarfObject_init,			/* tp_init */
 };
-
-static void LineNumberRow_dealloc(PyObject *self)
-{
-	Py_TYPE(self)->tp_free(self);
-}
 
 static void init_state(LineNumberProgramHeader *lnp, LineNumberRow *state)
 {
@@ -580,12 +499,12 @@ static int execute_opcode(LineNumberProgramHeader *lnp, LineNumberRow *state,
 	}
 }
 
-PyObject *LLDwarf_ExecuteLineNumberProgram(LineNumberProgramHeader *lnp,
-					   Py_buffer *buffer,
-					   Py_ssize_t *offset)
+PyObject *LLDwarf_ExecuteLineNumberProgram(Py_buffer *buffer,
+					   Py_ssize_t *offset,
+					   LineNumberProgramHeader *lnp,
+					   Py_ssize_t lnp_end_offset)
 {
 	LineNumberRow state = {};
-	Py_ssize_t end_offset;
 	PyObject *matrix;
 
 	if (lnp->line_range == 0) {
@@ -595,15 +514,11 @@ PyObject *LLDwarf_ExecuteLineNumberProgram(LineNumberProgramHeader *lnp,
 
 	init_state(lnp, &state);
 
-	end_offset = lnp_end_offset(lnp);
-	if (end_offset == -1)
-		return NULL;
-
 	matrix = PyList_New(0);
 	if (!matrix)
 		return NULL;
 
-	while (*offset < end_offset) {
+	while (*offset < lnp_end_offset) {
 		uint8_t opcode;
 
 		if (read_u8(buffer, offset, &opcode))
@@ -678,7 +593,7 @@ PyTypeObject LineNumberRow_type = {
 	"dwarfbh.LineNumberRow",	/* tp_name */
 	sizeof(LineNumberRow),		/* tp_basicsize */
 	0,				/* tp_itemsize */
-	LineNumberRow_dealloc,		/* tp_dealloc */
+	LLDwarfObject_dealloc,		/* tp_dealloc */
 	NULL,				/* tp_print */
 	NULL,				/* tp_getattr */
 	NULL,				/* tp_setattr */

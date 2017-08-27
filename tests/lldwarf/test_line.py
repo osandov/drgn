@@ -2,7 +2,7 @@ import drgn.lldwarf as lldwarf
 import unittest
 
 
-def header(offset=0, unit_length=8192, version=2, header_length=57,
+def header(unit_length=8192, version=2, header_length=57,
            minimum_instruction_length=1, maximum_operations_per_instruction=1,
            default_is_stmt=True, line_base=-5, line_range=14, opcode_base=13,
            standard_opcode_lengths=None, include_directories=None,
@@ -14,10 +14,10 @@ def header(offset=0, unit_length=8192, version=2, header_length=57,
     if file_names is None:
         file_names = [(b'main.c', 0, 1, 2), (b'defs.h', 1, 2, 3)]
     return lldwarf.LineNumberProgramHeader(
-        offset, unit_length, version, header_length,
-        minimum_instruction_length, maximum_operations_per_instruction,
-        default_is_stmt, line_base, line_range, opcode_base,
-        standard_opcode_lengths, include_directories, file_names, is_64_bit)
+        unit_length, version, header_length, minimum_instruction_length,
+        maximum_operations_per_instruction, default_is_stmt, line_base,
+        line_range, opcode_base, standard_opcode_lengths, include_directories,
+        file_names, is_64_bit)
 
 
 def row(address=0, op_index=0, file=1, line=1, column=0, is_stmt=True,
@@ -27,32 +27,6 @@ def row(address=0, op_index=0, file=1, line=1, column=0, is_stmt=True,
                                  is_stmt, basic_block, end_sequence,
                                  prologue_end, epilogue_begin, isa,
                                  discriminator)
-
-
-class TestLineNumberProgramHeaderObject(unittest.TestCase):
-    def test_offset(self):
-        self.assertEqual(header().program_offset(), 67)
-        self.assertEqual(header(is_64_bit=True).program_offset(), 79)
-
-        self.assertEqual(header().end_offset(), 8196)
-        self.assertEqual(header(is_64_bit=True).end_offset(), 8204)
-
-    def test_offset_overflow(self):
-        lnp = header(header_length=2**64 - 10)
-        with self.assertRaises(OverflowError):
-            lnp.program_offset()
-
-        lnp = header(offset=2**63 - 100, header_length=90)
-        with self.assertRaises(OverflowError):
-            lnp.program_offset()
-
-        lnp = header(unit_length=2**64 - 4)
-        with self.assertRaises(OverflowError):
-            lnp.end_offset()
-
-        lnp = header(offset=2**63 - 8192)
-        with self.assertRaises(OverflowError):
-            lnp.end_offset()
 
 
 class TestParseLineNumberProgramHeader(unittest.TestCase):

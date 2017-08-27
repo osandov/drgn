@@ -34,7 +34,7 @@ extern PyTypeObject AddressRange_type;
 
 typedef struct {
 	PyObject_VAR_HEAD
-	Py_ssize_t offset;
+	PyObject *dict;
 	uint64_t unit_length;
 	uint16_t version;
 	uint64_t debug_info_offset;
@@ -47,7 +47,7 @@ extern PyTypeObject ArangeTableHeader_type;
 
 typedef struct {
 	PyObject_HEAD
-	Py_ssize_t offset;
+	PyObject *dict;
 	uint64_t unit_length;
 	uint16_t version;
 	uint64_t debug_abbrev_offset;
@@ -76,11 +76,10 @@ struct DwarfAttrib {
 
 		/*
 		 * DW_FORM_block{,1,2,4}, DW_FORM_exprloc, and DW_FORM_string.
-		 * Offset from the beginning of the buffer that the DIE was
-		 * parsed from.
+		 * Offset from the beginning of the CU.
 		 */
 		struct {
-			Py_ssize_t offset;
+			Py_ssize_t cu_offset;
 			Py_ssize_t length;
 		};
 	};
@@ -88,7 +87,8 @@ struct DwarfAttrib {
 
 typedef struct {
 	PyObject_VAR_HEAD
-	Py_ssize_t offset;
+	PyObject *dict;
+	Py_ssize_t cu_offset;
 	Py_ssize_t die_length;
 	uint64_t tag;
 	PyObject *children;
@@ -99,7 +99,7 @@ extern PyTypeObject DwarfDie_type;
 
 typedef struct {
 	PyObject_HEAD
-	Py_ssize_t offset;
+	PyObject *dict;
 	uint64_t unit_length;
 	uint16_t version;
 	uint64_t header_length;
@@ -139,6 +139,9 @@ extern PyTypeObject LineNumberRow_type;
 extern PyTypeObject TestObject_type;
 #endif
 
+void LLDwarfObject_dealloc(PyObject *self);
+int LLDwarfObject_traverse(PyObject *self, visitproc visit, void *arg);
+int LLDwarfObject_clear(PyObject *self);
 int LLDwarfObject_init(PyObject *self, PyObject *args, PyObject *kwds);
 PyObject *LLDwarfObject_repr(PyObject *self);
 int LLDwarfObject_RichCompareBool(PyObject *self, PyObject *other, int op);
@@ -153,15 +156,18 @@ PyObject *LLDwarf_ParseCompilationUnitHeader(Py_buffer *buffer,
 					     Py_ssize_t *offset);
 PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 			   CompilationUnitHeader *cu, PyObject *abbrev_table,
-			   bool recurse, bool jump_to_sibling);
+			   Py_ssize_t cu_offset, bool recurse,
+			   bool jump_to_sibling);
 PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
 				   CompilationUnitHeader *cu,
-				   PyObject *abbrev_table, bool recurse);
+				   PyObject *abbrev_table,
+				   Py_ssize_t cu_offset, bool recurse);
 PyObject *LLDwarf_ParseLineNumberProgramHeader(Py_buffer *buffer,
 					       Py_ssize_t *offset);
-PyObject *LLDwarf_ExecuteLineNumberProgram(LineNumberProgramHeader *lnp,
-					   Py_buffer *buffer,
-					   Py_ssize_t *offset);
+PyObject *LLDwarf_ExecuteLineNumberProgram(Py_buffer *buffer,
+					   Py_ssize_t *offset,
+					   LineNumberProgramHeader *lnp,
+					   Py_ssize_t lnp_end_offset);
 
 int read_uleb128(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret);
 int read_sleb128(Py_buffer *buffer, Py_ssize_t *offset, int64_t *ret);

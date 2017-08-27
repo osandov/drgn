@@ -21,10 +21,10 @@ def dump_cu(dwarf_file, cu, cu_name, *, indent=0):
 
 def dump_die(dwarf_file, cu, die, *, indent=0, recurse=False):
     prefix = ' ' * indent
-    print(f'{prefix}<{die.offset - cu.offset}> {tag_name(die.tag)}')
+    print(f'{prefix}<{die.cu_offset}> {tag_name(die.tag)}')
     for name, form, value in die:
         if form == DW_FORM.string or form == DW_FORM.strp:
-            value = repr(dwarf_file.at_string(form, value))[1:]
+            value = repr(dwarf_file.at_string(cu, form, value))[1:]
         elif form in {DW_FORM.data1, DW_FORM.data2, DW_FORM.data4, DW_FORM.data8}:
             value = repr(value)[1:]
         print(f'{prefix}  {at_name(name)} ({form_name(form)}) = {value}')
@@ -141,11 +141,7 @@ def dump_line_number_matrix(cu, lnp, matrix, *, indent=0):
 
 def dump_cus(dwarf_file, args):
     for cu in dwarf_file.cu_headers():
-        die = dwarf_file.cu_die(cu)
-        try:
-            cu_name = dwarf_file.die_name(die).decode()
-        except KeyError:
-            cu_name = ''
+        cu_name = dwarf_file.cu_name(cu).decode()
         for pattern in args.cu:
             if fnmatch.fnmatch(cu_name, pattern):
                 break
@@ -154,12 +150,13 @@ def dump_cus(dwarf_file, args):
 
         dump_cu(dwarf_file, cu, cu_name)
         if args.die:
+            die = dwarf_file.cu_die(cu)
             if args.recursive:
                 dwarf_file.parse_die_children(cu, die, recurse=True)
             dump_die(dwarf_file, cu, die, indent=2, recurse=args.recursive)
         if (args.include_directories or args.file_names or args.lines or
             args.line_number_program):
-            lnp = dwarf_file.cu_line_number_program_header(cu, die)
+            lnp = dwarf_file.cu_line_number_program_header(cu)
             if args.include_directories:
                 dump_lnp_include_directories(lnp, indent=2)
             if args.file_names:
@@ -172,6 +169,35 @@ def dump_cus(dwarf_file, args):
                 dump_lnp_ops(dwarf_file, lnp, indent=4)
 
 
+def dump_arange(dwarf_file, art, arange, *, indent=0):
+    prefix = ' ' * indent
+    print(f'{prefix}', end='')
+    if art.segment_size:
+        print(f'segment={arange.segment} ', end='')
+    print(f'address=0x{arange.address:x} length={arange.length}')
+
+
+def dump_arange_table_header(dwarf_file, art, *, indent=0):
+    prefix = ' ' * indent
+    debug_aranges = dwarf_file.section('.debug_aranges')
+    print(f'{prefix}<{art.offset - debug_aranges.sh_offset}> address range table')
+    print(f'{prefix}  unit_length = {art.unit_length}')
+    print(f'{prefix}  version = {art.version}')
+    print(f'{prefix}  debug_abbrev_offset = {art.debug_info_offset}')
+    print(f'{prefix}  address_size = {art.address_size}')
+    print(f'{prefix}  segment_size = {art.segment_size}')
+    print(f'{prefix}  is_64_bit = {art.is_64_bit}')
+    print(f'{prefix}  aranges = {{')
+    for arange in dwarf_file.arange_table(art):
+        dump_arange(dwarf_file, art, arange, indent=indent + 4)
+    print(f'{prefix}  }}')
+
+
+def dump_aranges(dwarf_file):
+    for art in dwarf_file.arange_table_headers():
+        dump_arange_table_header(dwarf_file, art)
+
+
 def cmd_dump(args):
     with DwarfFile(args.file) as dwarf_file:
         if args.cu:
@@ -182,6 +208,9 @@ def cmd_dump(args):
                 print(name)
                 for sym in syms:
                     print(f'    value=0x{sym.st_value:x} size=0x{sym.st_size:x}')
+        if args.aranges:
+            dump_aranges(dwarf_file)
+
 
 def register(subparsers):
     subparser = subparsers.add_parser(
@@ -197,6 +226,8 @@ def register(subparsers):
         '--include-directories', action='store_true', help="also dump each compilation unit's include directories")
     subparser.add_argument(
         '--file-names', action='store_true', help="also dump each compilation unit's source files")
+    subparser.add_argument(
+        '--aranges', action='store_true', help='also dump the address range tables')
     subparser.add_argument(
         '--lines', action='store_true', help='also dump the line number matrix')
     subparser.add_argument(

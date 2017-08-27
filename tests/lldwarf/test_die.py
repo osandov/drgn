@@ -92,18 +92,17 @@ class TestDieObject(unittest.TestCase):
 
     def test_repr(self):
         die = lldwarf.DwarfDie(0, 10, DW_TAG.lo_user, None, ())
-        self.assertEqual(repr(die), f'DwarfDie(offset=0, die_length=10, tag={DW_TAG.lo_user.value}, children=None, attributes=())')
+        self.assertEqual(repr(die), f'DwarfDie(cu_offset=0, die_length=10, tag={DW_TAG.lo_user.value}, children=None, attributes=())')
         die = lldwarf.DwarfDie(0, 10, DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.flag, True),))
-        self.assertEqual(repr(die), f'DwarfDie(offset=0, die_length=10, tag={DW_TAG.lo_user.value}, children=None, attributes=(({DW_AT.lo_user.value}, {DW_FORM.flag.value}, True),))')
+        self.assertEqual(repr(die), f'DwarfDie(cu_offset=0, die_length=10, tag={DW_TAG.lo_user.value}, children=None, attributes=(({DW_AT.lo_user.value}, {DW_FORM.flag.value}, True),))')
 
     def test_recursive_repr(self):
         die = lldwarf.DwarfDie(0, 10, DW_TAG.lo_user, None, ())
         die.children = [die]
-        self.assertEqual(repr(die), f'DwarfDie(offset=0, die_length=10, tag={DW_TAG.lo_user.value}, children=[DwarfDie(...)], attributes=())')
+        self.assertEqual(repr(die), f'DwarfDie(cu_offset=0, die_length=10, tag={DW_TAG.lo_user.value}, children=[DwarfDie(...)], attributes=())')
 
 
 header = lldwarf.CompilationUnitHeader(
-    offset=0,
     unit_length=200,
     version=2,
     debug_abbrev_offset=0,
@@ -113,7 +112,6 @@ header = lldwarf.CompilationUnitHeader(
 
 
 header32addr = lldwarf.CompilationUnitHeader(
-    offset=0,
     unit_length=200,
     version=2,
     debug_abbrev_offset=0,
@@ -122,7 +120,6 @@ header32addr = lldwarf.CompilationUnitHeader(
 )
 
 header64 = lldwarf.CompilationUnitHeader(
-    offset=0,
     unit_length=200,
     version=2,
     debug_abbrev_offset=0,
@@ -134,30 +131,30 @@ header64 = lldwarf.CompilationUnitHeader(
 class TestParseDie(unittest.TestCase):
     def test_negative_offset(self):
         with self.assertRaises(ValueError):
-            lldwarf.parse_die(header, {}, b'', -1)
+            lldwarf.parse_die(header, {}, 0, b'', -1)
         with self.assertRaises(ValueError):
-            lldwarf.parse_die_siblings(header, {}, b'', -1)
+            lldwarf.parse_die_siblings(header, {}, 0, b'', -1)
 
     def test_bad_cu(self):
         with self.assertRaises(TypeError):
-            lldwarf.parse_die(None, {}, b'')
+            lldwarf.parse_die(None, {}, 0, b'')
 
     def test_bad_abbrev_table(self):
         with self.assertRaises(TypeError):
-            lldwarf.parse_die(header, None, b'')
+            lldwarf.parse_die(header, None, 0, b'')
 
     def test_null(self):
-        self.assertIsNone(lldwarf.parse_die(header, {}, b'\0'))
+        self.assertIsNone(lldwarf.parse_die(header, {}, 0, b'\0'))
 
     def test_unknown_abbreviation(self):
         with self.assertRaisesRegex(ValueError, 'unknown abbreviation code'):
-            lldwarf.parse_die(header, {}, b'\x01\xff')
+            lldwarf.parse_die(header, {}, 0, b'\x01\xff')
 
     def assertDie(self, header, abbrev_table, buf, die_args):
         tag, children, attribs = die_args
         die = lldwarf.DwarfDie(0, len(buf), tag, children, attribs)
         self.assertEqual(tuple(die), tuple(attribs))
-        self.assertEqual(lldwarf.parse_die(header, abbrev_table, buf), die)
+        self.assertEqual(lldwarf.parse_die(header, abbrev_table, 0, buf), die)
 
     def test_address(self):
         abbrev_table = {
@@ -170,7 +167,6 @@ class TestParseDie(unittest.TestCase):
                        (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.addr, 2**31 - 1),)))
 
         bogus_header = lldwarf.CompilationUnitHeader(
-            offset=0,
             unit_length=200,
             version=2,
             debug_abbrev_offset=0,
@@ -178,7 +174,7 @@ class TestParseDie(unittest.TestCase):
             is_64_bit=False,
         )
         with self.assertRaisesRegex(ValueError, 'unsupported address size'):
-            lldwarf.parse_die(bogus_header, abbrev_table, b'\x01\xff')
+            lldwarf.parse_die(bogus_header, abbrev_table, 0, b'\x01\xff')
 
     def test_block(self):
         abbrev_table = {
@@ -200,7 +196,7 @@ class TestParseDie(unittest.TestCase):
         self.assertDie(header, abbrev_table, b'\x05\x0f012345678901234',
                        (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.exprloc, (2, 15)),)))
         with self.assertRaisesRegex(ValueError, 'attribute length too big'):
-            lldwarf.parse_die(header, abbrev_table, b'\x05\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01')
+            lldwarf.parse_die(header, abbrev_table, 0, b'\x05\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01')
 
     def test_data(self):
         abbrev_table = {
@@ -310,14 +306,14 @@ class TestParseDie(unittest.TestCase):
                          (DW_AT.lo_user, DW_FORM.string, (5, 4)))))
 
         with self.assertRaisesRegex(ValueError, 'unterminated string'):
-            lldwarf.parse_die(header, abbrev_table, b'\x01foo')
+            lldwarf.parse_die(header, abbrev_table, 0, b'\x01foo')
 
     def test_recursive(self):
         abbrev_table = {
             1: lldwarf.AbbrevDecl(DW_TAG.lo_user, True, ((DW_AT.lo_user, DW_FORM.udata),)),
             2: lldwarf.AbbrevDecl(DW_TAG.lo_user + 1, False, ((DW_AT.lo_user + 1, DW_FORM.sdata),)),
         }
-        die = lldwarf.parse_die(header, abbrev_table, b'\x01\x01\x02\x02\x00', recurse=True)
+        die = lldwarf.parse_die(header, abbrev_table, 0, b'\x01\x01\x02\x02\x00', recurse=True)
 
         child = lldwarf.DwarfDie(2, 2, DW_TAG.lo_user + 1, None, ((DW_AT.lo_user + 1, DW_FORM.sdata, 2),))
         parent = lldwarf.DwarfDie(0, 2, DW_TAG.lo_user, [child], ((DW_AT.lo_user, DW_FORM.udata, 1),))
@@ -329,7 +325,7 @@ class TestParseDie(unittest.TestCase):
             1: lldwarf.AbbrevDecl(DW_TAG.lo_user, False, ((DW_AT.lo_user, DW_FORM.udata),)),
             2: lldwarf.AbbrevDecl(DW_TAG.lo_user + 1, False, ((DW_AT.lo_user + 1, DW_FORM.sdata),)),
         }
-        siblings = lldwarf.parse_die_siblings(header, abbrev_table, b'\x01\x01\x02\x02\x00')
+        siblings = lldwarf.parse_die_siblings(header, abbrev_table, 0, b'\x01\x01\x02\x02\x00')
         self.assertEqual(siblings, [
             lldwarf.DwarfDie(0, 2, DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.udata, 1),)),
             lldwarf.DwarfDie(2, 2, DW_TAG.lo_user + 1, None, ((DW_AT.lo_user + 1, DW_FORM.sdata, 2),)),
@@ -340,7 +336,7 @@ class TestParseDie(unittest.TestCase):
             1: lldwarf.AbbrevDecl(DW_TAG.lo_user, True, ((DW_AT.sibling, DW_FORM.udata),)),
             2: lldwarf.AbbrevDecl(DW_TAG.lo_user + 1, False, ((DW_AT.lo_user + 1, DW_FORM.sdata),)),
         }
-        siblings = lldwarf.parse_die_siblings(header, abbrev_table, b'\x01\x04\x02\x02\x02\x03\x00')
+        siblings = lldwarf.parse_die_siblings(header, abbrev_table, 0, b'\x01\x04\x02\x02\x02\x03\x00')
         parent_die = lldwarf.DwarfDie(0, 2, DW_TAG.lo_user, None, ((DW_AT.sibling, DW_FORM.udata, 4),))
         del parent_die.children
         self.assertEqual(siblings, [

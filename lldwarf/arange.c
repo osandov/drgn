@@ -1,45 +1,5 @@
 #include "lldwarf.h"
 
-static void ArangeTableHeader_dealloc(ArangeTableHeader *self)
-{
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-PyObject *ArangeTableHeader_table_offset(ArangeTableHeader *self)
-{
-	uint64_t header_length = self->is_64_bit ? 24 : 12;
-	Py_ssize_t ret, alignment;
-
-	if (__builtin_add_overflow(self->offset, header_length, &ret)) {
-		PyErr_SetString(PyExc_OverflowError, "table offset too large");
-		return NULL;
-	}
-
-	alignment = self->segment_size + 2 * self->address_size;
-	if (ret % alignment &&
-	    __builtin_add_overflow(ret, alignment - ret % alignment, &ret)) {
-		PyErr_SetString(PyExc_OverflowError, "table offset too large");
-		return NULL;
-	}
-
-	return PyLong_FromSsize_t(ret);
-}
-
-PyObject *ArangeTableHeader_next_offset(ArangeTableHeader *self)
-{
-	uint64_t unit_length_length = self->is_64_bit ? 12 : 4;
-	uint64_t unit_length;
-	Py_ssize_t ret;
-
-	if (__builtin_add_overflow(self->unit_length, unit_length_length, &unit_length) ||
-	    __builtin_add_overflow(self->offset, unit_length, &ret)) {
-		PyErr_SetString(PyExc_OverflowError, "next offset too large");
-		return NULL;
-	}
-
-	return PyLong_FromSsize_t(ret);
-}
-
 PyObject *LLDwarf_ParseArangeTableHeader(Py_buffer *buffer, Py_ssize_t *offset)
 {
 	ArangeTableHeader *art;
@@ -49,7 +9,9 @@ PyObject *LLDwarf_ParseArangeTableHeader(Py_buffer *buffer, Py_ssize_t *offset)
 	if (!art)
 		return NULL;
 
-	art->offset = *offset;
+	art->dict = PyDict_New();
+	if (!art->dict)
+		goto err;
 
 	if (read_u32(buffer, offset, &length) == -1)
 		goto err;
@@ -91,27 +53,7 @@ err:
 	return NULL;
 }
 
-static PyMethodDef ArangeTableHeader_methods[] = {
-	{"table_offset", (PyCFunction)ArangeTableHeader_table_offset,
-	 METH_NOARGS,
-	 "table_offset() -> int\n\n"
-	 "Get the offset into the buffer where the address range table itself\n"
-	 "begins. This is the starting offset of the arange table header plus\n"
-	 "the length of the header, aligned up to a multiple of the address\n"
-	 "range tuple size."},
-	{"next_offset", (PyCFunction)ArangeTableHeader_next_offset,
-	 METH_NOARGS,
-	 "next_offset() -> int\n\n"
-	 "Get the offset into the buffer where the next address range table\n"
-	 "starts. This is the starting offset of the CU plus the length of\n"
-	 "the unit, including the header. If this is the last address range\n"
-	 "table, this offset is the end of the .debug_aranges section."},
-	{},
-};
-
 static PyMemberDef ArangeTableHeader_members[] = {
-	{"offset", T_PYSSIZET, offsetof(ArangeTableHeader, offset), 0,
-	 "offset into the buffer where this arange table starts"},
 	{"unit_length", T_UINT64T, offsetof(ArangeTableHeader, unit_length), 0,
 	 "length of this arange table, not including the unit_length field"},
 	{"version", T_UINT16T, offsetof(ArangeTableHeader, version), 0,
@@ -128,12 +70,11 @@ static PyMemberDef ArangeTableHeader_members[] = {
 };
 
 #define ArangeTableHeader_DOC							\
-	"ArangeTableHeader(offset, unit_length, version, debug_info_offset,\n"	\
+	"ArangeTableHeader(unit_length, version, debug_info_offset,\n"	\
 	"                  address_size, segment_size,\n"			\
 	"                  is_64_bit) -> new address range table header\n\n"	\
 	"Create a new DWARF address range table header.\n\n"			\
 	"Arguments:\n"								\
-	"offset -- integer offset\n"						\
 	"unit_length -- integer length\n"					\
 	"version -- integer format version\n"					\
 	"debug_info_offset -- integer offset\n"					\
@@ -146,7 +87,7 @@ PyTypeObject ArangeTableHeader_type = {
 	"drgn.lldwarf.ArangeTableHeader",	/* tp_name */
 	sizeof(ArangeTableHeader),		/* tp_basicsize */
 	0,					/* tp_itemsize */
-	(destructor)ArangeTableHeader_dealloc,	/* tp_dealloc */
+	LLDwarfObject_dealloc,			/* tp_dealloc */
 	NULL,					/* tp_print */
 	NULL,					/* tp_getattr */
 	NULL,					/* tp_setattr */
@@ -169,21 +110,16 @@ PyTypeObject ArangeTableHeader_type = {
 	0,					/* tp_weaklistoffset */
 	NULL,					/* tp_iter */
 	NULL,					/* tp_iternext */
-	ArangeTableHeader_methods,		/* tp_methods */
+	NULL,					/* tp_methods */
 	ArangeTableHeader_members,		/* tp_members */
 	NULL,					/* tp_getset */
 	NULL,					/* tp_base */
 	NULL,					/* tp_dict */
 	NULL,					/* tp_descr_get */
 	NULL,					/* tp_descr_set */
-	0,					/* tp_dictoffset */
+	offsetof(ArangeTableHeader, dict),	/* tp_dictoffset */
 	LLDwarfObject_init,			/* tp_init */
 };
-
-static void AddressRange_dealloc(AddressRange *self)
-{
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
 
 PyObject *LLDwarf_ParseArangeTable(Py_buffer *buffer, Py_ssize_t *offset,
 				   Py_ssize_t segment_size,
@@ -288,7 +224,7 @@ PyTypeObject AddressRange_type = {
 	"drgn.lldwarf.AddressRange",		/* tp_name */
 	sizeof(AddressRange),			/* tp_basicsize */
 	0,					/* tp_itemsize */
-	(destructor)AddressRange_dealloc,	/* tp_dealloc */
+	LLDwarfObject_dealloc,			/* tp_dealloc */
 	NULL,					/* tp_print */
 	NULL,					/* tp_getattr */
 	NULL,					/* tp_setattr */

@@ -2,57 +2,6 @@ import drgn.lldwarf as lldwarf
 import unittest
 
 
-class TestCompilationUnitHeaderObject(unittest.TestCase):
-    def test_offset(self):
-        header = lldwarf.CompilationUnitHeader(
-            offset=70,
-            unit_length=200,
-            version=2,
-            debug_abbrev_offset=0,
-            address_size=8,
-            is_64_bit=False,
-        )
-
-        self.assertEqual(header.die_offset(), 81)
-        self.assertEqual(header.next_offset(), 274)
-
-        header.is_64_bit = True
-        self.assertEqual(header.die_offset(), 93)
-        self.assertEqual(header.next_offset(), 282)
-
-    def test_offset_overflow(self):
-        header = lldwarf.CompilationUnitHeader(
-            offset=2**63 - 11,
-            unit_length=2**64 - 4,
-            version=2,
-            debug_abbrev_offset=0,
-            address_size=8,
-            is_64_bit=False,
-        )
-        with self.assertRaises(OverflowError):
-            header.die_offset()
-        with self.assertRaises(OverflowError):
-            header.next_offset()
-
-        header.offset = 2**63 - 8
-        header.unit_length = 4
-        with self.assertRaises(OverflowError):
-            header.next_offset()
-
-        header.offset = 2**63 - 23
-        header.unit_length = 2**64 - 12
-        header.is_64_bit = True
-        with self.assertRaises(OverflowError):
-            header.die_offset()
-        with self.assertRaises(OverflowError):
-            header.next_offset()
-
-        header.offset = 2**63 - 16
-        header.unit_length = 4
-        with self.assertRaises(OverflowError):
-            header.next_offset()
-
-
 class TestParseCompilationUnitHeader(unittest.TestCase):
     def test_negative_offset(self):
         with self.assertRaises(ValueError):
@@ -64,7 +13,6 @@ class TestParseCompilationUnitHeader(unittest.TestCase):
                b'\x00\x00\x00\x00'  # debug_abbrev_offset
                b'\x08')             # address_size
         header = lldwarf.CompilationUnitHeader(
-            offset=0,
             unit_length=200,
             version=2,
             debug_abbrev_offset=0,
@@ -85,7 +33,6 @@ class TestParseCompilationUnitHeader(unittest.TestCase):
                b'\x00\x00\x00\x00\x00\x00\x00\x00'  # debug_abbrev_offset
                b'\x08')                             # address_size
         header = lldwarf.CompilationUnitHeader(
-            offset=0,
             unit_length=200,
             version=2,
             debug_abbrev_offset=0,
@@ -106,7 +53,6 @@ class TestParseCompilationUnitHeader(unittest.TestCase):
                b'\x00\x00\x00\x00'  # debug_abbrev_offset
                b'\x08')             # address_size
         header = lldwarf.CompilationUnitHeader(
-            offset=1,
             unit_length=200,
             version=2,
             debug_abbrev_offset=0,

@@ -1,38 +1,5 @@
 #include "lldwarf.h"
 
-static void CompilationUnitHeader_dealloc(CompilationUnitHeader *self)
-{
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-PyObject *CompilationUnitHeader_die_offset(CompilationUnitHeader *self)
-{
-	Py_ssize_t header_length = self->is_64_bit ? 23 : 11;
-	Py_ssize_t ret;
-
-	if (__builtin_add_overflow(self->offset, header_length, &ret)) {
-		PyErr_SetString(PyExc_OverflowError, "DIE offset too large");
-		return NULL;
-	}
-
-	return PyLong_FromSsize_t(ret);
-}
-
-PyObject *CompilationUnitHeader_next_offset(CompilationUnitHeader *self)
-{
-	uint64_t unit_length_length = self->is_64_bit ? 12 : 4;
-	uint64_t unit_length;
-	Py_ssize_t ret;
-
-	if (__builtin_add_overflow(self->unit_length, unit_length_length, &unit_length) ||
-	    __builtin_add_overflow(self->offset, unit_length, &ret)) {
-		PyErr_SetString(PyExc_OverflowError, "next offset too large");
-		return NULL;
-	}
-
-	return PyLong_FromSsize_t(ret);
-}
-
 PyObject *LLDwarf_ParseCompilationUnitHeader(Py_buffer *buffer,
 					     Py_ssize_t *offset)
 {
@@ -43,7 +10,9 @@ PyObject *LLDwarf_ParseCompilationUnitHeader(Py_buffer *buffer,
 	if (!cu)
 		return NULL;
 
-	cu->offset = *offset;
+	cu->dict = PyDict_New();
+	if (!cu->dict)
+		goto err;
 
 	if (read_u32(buffer, offset, &length) == -1)
 		goto err;
@@ -82,25 +51,7 @@ err:
 	return NULL;
 }
 
-static PyMethodDef CompilationUnitHeader_methods[] = {
-	{"die_offset", (PyCFunction)CompilationUnitHeader_die_offset,
-	 METH_NOARGS,
-	 "die_offset() -> int\n\n"
-	 "Get the offset into the buffer where the DIE for this CU begins. This\n"
-	 "is the starting offset of the CU plus the length of the header."},
-	{"next_offset", (PyCFunction)CompilationUnitHeader_next_offset,
-	 METH_NOARGS,
-	 "next_offset() -> int\n\n"
-	 "Get the offset into the buffer where the next CU starts. This\n"
-	 "is the starting offset of the CU plus the length of the unit,\n"
-	 "including the header. If this is the last CU, this offset is the\n"
-	 "end of the .debug_info section."},
-	{},
-};
-
 static PyMemberDef CompilationUnitHeader_members[] = {
-	{"offset", T_PYSSIZET, offsetof(CompilationUnitHeader, offset), 0,
-	 "offset into the buffer where this CU starts"},
 	{"unit_length", T_UINT64T, offsetof(CompilationUnitHeader, unit_length), 0,
 	 "length of this CU, not including the unit_length field"},
 	{"version", T_UINT16T, offsetof(CompilationUnitHeader, version), 0,
@@ -115,12 +66,10 @@ static PyMemberDef CompilationUnitHeader_members[] = {
 };
 
 #define CompilationUnitHeader_DOC						\
-	"CompilationUnitHeader(offset, unit_length, version,\n"			\
-	"                      debug_abbrev_offset, address_size,\n"		\
-        "                      is_64_bit) -> new compilation unit header\n\n"	\
+	"CompilationUnitHeader(unit_length, version, debug_abbrev_offset,\n"	\
+	"                      address_size, is_64_bit) -> new compilation unit header\n\n"	\
 	"Create a new DWARF compilation unit header.\n\n"			\
 	"Arguments:\n"								\
-	"offset -- integer offset\n"						\
 	"unit_length -- integer length\n"					\
 	"version -- integer format version\n"					\
 	"debug_abbrev_offset -- integer offset\n"				\
@@ -132,7 +81,7 @@ PyTypeObject CompilationUnitHeader_type = {
 	"drgn.lldwarf.CompilationUnitHeader",	/* tp_name */
 	sizeof(CompilationUnitHeader),		/* tp_basicsize */
 	0,					/* tp_itemsize */
-	(destructor)CompilationUnitHeader_dealloc,	/* tp_dealloc */
+	LLDwarfObject_dealloc,			/* tp_dealloc */
 	NULL,					/* tp_print */
 	NULL,					/* tp_getattr */
 	NULL,					/* tp_setattr */
@@ -144,24 +93,24 @@ PyTypeObject CompilationUnitHeader_type = {
 	NULL,					/* tp_hash  */
 	NULL,					/* tp_call */
 	NULL,					/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
+	PyObject_GenericGetAttr,		/* tp_getattro */
+	PyObject_GenericSetAttr,		/* tp_setattro */
 	NULL,					/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,			/* tp_flags */
 	CompilationUnitHeader_DOC,		/* tp_doc */
-	NULL,					/* tp_traverse */
-	NULL,					/* tp_clear */
+	LLDwarfObject_traverse,			/* tp_traverse */
+	LLDwarfObject_clear,			/* tp_clear */
 	LLDwarfObject_richcompare,		/* tp_richcompare */
 	0,					/* tp_weaklistoffset */
 	NULL,					/* tp_iter */
 	NULL,					/* tp_iternext */
-	CompilationUnitHeader_methods,		/* tp_methods */
+	NULL,					/* tp_methods */
 	CompilationUnitHeader_members,		/* tp_members */
 	NULL,					/* tp_getset */
 	NULL,					/* tp_base */
 	NULL,					/* tp_dict */
 	NULL,					/* tp_descr_get */
 	NULL,					/* tp_descr_set */
-	0,					/* tp_dictoffset */
+	offsetof(CompilationUnitHeader, dict),	/* tp_dictoffset */
 	LLDwarfObject_init,			/* tp_init */
 };

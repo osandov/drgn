@@ -254,19 +254,21 @@ static PyObject *parse_compilation_unit_header(PyObject *self, PyObject *args,
 static PyObject *parse_die(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"cu", "abbrev_table", "buffer", "offset", "recurse", NULL,
+		"cu", "abbrev_table", "cu_offset", "buffer", "offset", "recurse", NULL,
 	};
 	PyObject *cu, *abbrev_table;
+	Py_ssize_t cu_offset;
 	Py_buffer buffer;
 	Py_ssize_t offset = 0;
 	int recurse = 0;
 	PyObject *ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!y*|np:parse_die",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!ny*|np:parse_die",
 					 keywords,
 					 (PyObject *)&CompilationUnitHeader_type, &cu,
 					 (PyObject *)&PyDict_Type, &abbrev_table,
-					 &buffer, &offset, &recurse))
+					 &cu_offset, &buffer, &offset,
+					 &recurse))
 		return NULL;
 
 	if (offset < 0) {
@@ -276,7 +278,7 @@ static PyObject *parse_die(PyObject *self, PyObject *args, PyObject *kwds)
 	}
 
 	ret = LLDwarf_ParseDie(&buffer, &offset, (CompilationUnitHeader *)cu,
-			       abbrev_table, recurse, false);
+			       abbrev_table, cu_offset, recurse, false);
 	if (!ret && !PyErr_Occurred()) {
 		Py_INCREF(Py_None);
 		ret = Py_None;
@@ -289,19 +291,21 @@ static PyObject *parse_die_siblings(PyObject *self, PyObject *args,
 				    PyObject *kwds)
 {
 	static char *keywords[] = {
-		"cu", "abbrev_table", "buffer", "offset", "recurse", NULL,
+		"cu", "abbrev_table", "cu_offset", "buffer", "offset", "recurse", NULL,
 	};
 	PyObject *cu, *abbrev_table;
+	Py_ssize_t cu_offset;
 	Py_buffer buffer;
 	Py_ssize_t offset = 0;
 	int recurse = 0;
 	PyObject *ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!y*|np:parse_die_siblings",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!ny*|np:parse_die_siblings",
 					 keywords,
 					 (PyObject *)&CompilationUnitHeader_type, &cu,
 					 (PyObject *)&PyDict_Type, &abbrev_table,
-					 &buffer, &offset, &recurse))
+					 &cu_offset, &buffer, &offset,
+					 &recurse))
 		return NULL;
 
 	if (offset < 0) {
@@ -311,7 +315,7 @@ static PyObject *parse_die_siblings(PyObject *self, PyObject *args,
 	}
 
 	ret = LLDwarf_ParseDieSiblings(&buffer, &offset, (CompilationUnitHeader *)cu,
-				       abbrev_table, recurse);
+				       abbrev_table, cu_offset, recurse);
 	PyBuffer_Release(&buffer);
 	return ret;
 }
@@ -344,17 +348,21 @@ static PyObject *parse_line_number_program_header(PyObject *self,
 static PyObject *execute_line_number_program(PyObject *self, PyObject *args,
 					     PyObject *kwds)
 {
-	static char *keywords[] = {"lnp", "buffer", "offset", NULL};
+	static char *keywords[] = {
+		"lnp", "lnp_end_offset", "buffer", "offset", NULL
+	};
 	PyObject *lnp;
+	Py_ssize_t lnp_end_offset;
 	Py_buffer buffer;
 	Py_ssize_t offset = 0;
 	PyObject *ret;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "O!y*|n:execute_line_number_program",
+					 "O!ny*|n:execute_line_number_program",
 					 keywords,
 					 (PyObject *)&LineNumberProgramHeader_type,
-					 &lnp, &buffer, &offset))
+					 &lnp, &lnp_end_offset, &buffer,
+					 &offset))
 		return NULL;
 
 	if (offset < 0) {
@@ -363,8 +371,9 @@ static PyObject *execute_line_number_program(PyObject *self, PyObject *args,
 		return NULL;
 	}
 
-	ret = LLDwarf_ExecuteLineNumberProgram((LineNumberProgramHeader *)lnp,
-					       &buffer, &offset);
+	ret = LLDwarf_ExecuteLineNumberProgram(&buffer, &offset,
+					       (LineNumberProgramHeader *)lnp,
+					       lnp_end_offset);
 	PyBuffer_Release(&buffer);
 	return ret;
 }
@@ -424,21 +433,23 @@ static PyMethodDef lldwarf_methods[] = {
 	 "buffer -- readable source buffer\n"
 	 "offset -- optional offset into the buffer"},
 	{"parse_die", (PyCFunction)parse_die, METH_VARARGS | METH_KEYWORDS,
-	 "parse_die(cu, abbrev_table, buffer, offset=0, recurse=False) -> DwarfDie\n\n"
+	 "parse_die(cu, abbrev_table, cu_offset, buffer, offset=0, recurse=False) -> DwarfDie\n\n"
 	 "Parse a debugging information entry.\n\n"
 	 "Arguments:\n"
 	 "cu -- compilation unit header\n"
 	 "abbrev_table -- abbreviation table\n"
+	 "cu_offset -- offset into the buffer where the CU header was parsed\n"
 	 "buffer -- readable source buffer\n"
 	 "offset -- optional offset into the buffer\n"
 	 "recurse -- boolean specifying whether to also parse the DIE's children"},
 	{"parse_die_siblings", (PyCFunction)parse_die_siblings,
 	  METH_VARARGS | METH_KEYWORDS,
-	 "parse_die_siblings(cu, abbrev_table, buffer, offset=0, recurse=False) -> DwarfDie\n\n"
+	 "parse_die_siblings(cu, abbrev_table, cu_offset, buffer, offset=0, recurse=False) -> DwarfDie\n\n"
 	 "Parse a list of sibling debugging information entries.\n\n"
 	 "Arguments:\n"
 	 "cu -- compilation unit header\n"
 	 "abbrev_table -- abbreviation table\n"
+	 "cu_offset -- offset into the buffer where the CU header was parsed\n"
 	 "buffer -- readable source buffer\n"
 	 "offset -- optional offset into the buffer\n"
 	 "recurse -- boolean specifying whether to also parse the DIEs' children"},
@@ -453,11 +464,12 @@ static PyMethodDef lldwarf_methods[] = {
 	{"execute_line_number_program",
 	 (PyCFunction)execute_line_number_program,
 	 METH_VARARGS | METH_KEYWORDS,
-	 "execute_line_number_program(lnp, buffer, offset=0) -> list of LineNumberRow\n\n"
+	 "execute_line_number_program(lnp, lnp_end_offset, buffer, offset=0) -> list of LineNumberRow\n\n"
 	 "Execute a line number program to reconstruct the line number\n"
 	 "information matrix.\n\n"
 	 "Arguments:\n"
 	 "lnp -- line number program header\n"
+	 "lnp_end_offset -- offset into the buffer where the line number program ends\n"
 	 "buffer -- readable source buffer\n"
 	 "offset -- optional offset into the buffer"},
 	{},

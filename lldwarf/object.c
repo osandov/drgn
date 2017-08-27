@@ -1,5 +1,50 @@
 #include "lldwarf.h"
 
+#define for_each_member(type, i, member)	\
+	for (i = 0; member = &type->tp_members[i], member->name; i++)
+
+#define MEMBER(self, member, type)	\
+	*(type *)((char *)(self) + (member)->offset)
+
+void LLDwarfObject_dealloc(PyObject *self)
+{
+	LLDwarfObject_clear(self);
+
+	Py_TYPE(self)->tp_free(self);
+}
+
+int LLDwarfObject_traverse(PyObject *self, visitproc visit, void *arg)
+{
+	PyTypeObject *type = (PyTypeObject *)Py_TYPE(self);
+	PyMemberDef *member;
+	int i;
+
+	if (type->tp_dictoffset != 0)
+		Py_VISIT(*(PyObject **)((char *)self + type->tp_dictoffset));
+
+	for_each_member(type, i, member) {
+		if (member->type == T_OBJECT || member->type == T_OBJECT_EX)
+			Py_VISIT(MEMBER(self, member, PyObject *));
+	}
+	return 0;
+}
+
+int LLDwarfObject_clear(PyObject *self)
+{
+	PyTypeObject *type = (PyTypeObject *)Py_TYPE(self);
+	PyMemberDef *member;
+	int i;
+
+	if (type->tp_dictoffset != 0)
+		Py_CLEAR(*(PyObject **)((char *)self + type->tp_dictoffset));
+
+	for_each_member(type, i, member) {
+		if (member->type == T_OBJECT || member->type == T_OBJECT_EX)
+			Py_CLEAR(MEMBER(self, member, PyObject *));
+	}
+	return 0;
+}
+
 static const char *type_name(PyTypeObject *type)
 {
 	const char *p;
@@ -12,7 +57,7 @@ static const char *type_name(PyTypeObject *type)
 }
 
 #define CONVERTARG(self, member, var)	\
-	*(typeof(var) *)((char *)(self) + (member)->offset) = (var);
+	MEMBER(self, member, typeof(var)) = (var)
 
 static int convertarg(PyObject *self, PyMemberDef *member, PyObject *arg)
 {
@@ -206,11 +251,17 @@ int LLDwarfObject_init(PyObject *self, PyObject *args, PyObject *kwds)
 			return -1;
 	}
 
+	if (type->tp_dictoffset != 0) {
+		PyObject *dict;
+
+		dict = PyDict_New();
+		if (!dict)
+			return -1;
+		*(PyObject **)((char *)self + type->tp_dictoffset) = dict;
+	}
+
 	return 0;
 }
-
-#define MEMBER(self, member, type)	\
-	*(type *)((char *)(self) + (member)->offset)
 
 static PyObject *repr_member(PyObject *self, PyMemberDef *member)
 {
@@ -483,20 +534,6 @@ typedef struct {
 	Py_ssize_t m_pyssizet;
 } TestObject;
 
-static void TestObject_dealloc(TestObject *self)
-{
-	Py_XDECREF(self->m_object);
-	Py_XDECREF(self->m_object_ex);
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-static int TestObject_traverse(TestObject *self, visitproc visit, void *arg)
-{
-	Py_VISIT(self->m_object);
-	Py_VISIT(self->m_object_ex);
-	return 0;
-}
-
 static PyMemberDef TestObject_members[] = {
 	{"m_short", T_SHORT, offsetof(TestObject, m_short), 0, ""},
 	{"m_int", T_INT, offsetof(TestObject, m_int), 0, ""},
@@ -524,7 +561,7 @@ PyTypeObject TestObject_type = {
 	"drgn.lldwarf._TestObject",		/* tp_name */
 	sizeof(TestObject),			/* tp_basicsize */
 	0,					/* tp_itemsize */
-	(destructor)TestObject_dealloc,		/* tp_dealloc */
+	LLDwarfObject_dealloc,			/* tp_dealloc */
 	NULL,					/* tp_print */
 	NULL,					/* tp_getattr */
 	NULL,					/* tp_setattr */
@@ -541,8 +578,8 @@ PyTypeObject TestObject_type = {
 	NULL,					/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,			/* tp_flags */
 	"Test object",				/* tp_doc */
-	(traverseproc)TestObject_traverse,	/* tp_traverse */
-	NULL,					/* tp_clear */
+	LLDwarfObject_traverse,			/* tp_traverse */
+	LLDwarfObject_clear,			/* tp_clear */
 	LLDwarfObject_richcompare,		/* tp_richcompare */
 	0,					/* tp_weaklistoffset */
 	NULL,					/* tp_iter */

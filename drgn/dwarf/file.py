@@ -7,6 +7,14 @@ import sys
 from typing import List
 
 
+def lnp_program_offset(lnp):
+    return lnp.offset + (22 if lnp.is_64_bit else 10) + lnp.header_length
+
+
+def lnp_end_offset(lnp):
+    return lnp.offset + (12 if lnp.is_64_bit else 4) + lnp.unit_length
+
+
 class DwarfFile:
     """DWARF file parser
 
@@ -30,7 +38,6 @@ class DwarfFile:
         self._sections = parse_elf_sections(self._mmap, self._ehdr)
 
         self._abbrev_tables = {}
-        self._cu_dies = {}
         self._symbols = None
 
     def close(self):
@@ -84,9 +91,11 @@ class DwarfFile:
                 raise ValueError('multiple symbols with given name')
             return syms[0]
 
-    def at_string(self, form: DW_FORM, value) -> bytes:
+    def at_string(self, cu: lldwarf.CompilationUnitHeader,
+                  form: DW_FORM, value) -> bytes:
         if form == DW_FORM.string:
-            return self._mmap[value[0]:value[0] + value[1]]
+            offset = cu.offset + value[0]
+            return self._mmap[offset:offset + value[1]]
         else:
             assert form == DW_FORM.strp
             debug_str = self.section('.debug_str')
@@ -113,34 +122,46 @@ class DwarfFile:
         self._abbrev_tables[offset] = abbrev_table
         return abbrev_table
 
+    # Compilation units
+
     def cu_headers(self):
         debug_info = self.section('.debug_info')
         offset = debug_info.sh_offset
         end = debug_info.sh_offset + debug_info.sh_size
         while offset < end:
             cu = lldwarf.parse_compilation_unit_header(self._mmap, offset)
+            cu.offset = offset
             yield cu
-            offset = cu.next_offset()
+            offset += (12 if cu.is_64_bit else 4) + cu.unit_length
 
-    def cu_header(self, offset: int):
+    def cu_header(self, offset: int) -> lldwarf.CompilationUnitHeader:
         debug_info = self.section('.debug_info')
         offset += debug_info.sh_offset
-        return lldwarf.parse_compilation_unit_header(self._mmap, offset)
+        cu = lldwarf.parse_compilation_unit_header(self._mmap, offset)
+        cu.offset = offset
+        return cu
+
+    def cu_name(self, cu: lldwarf.CompilationUnitHeader) -> bytes:
+        try:
+            return self.die_name(cu, self.cu_die(cu))
+        except KeyError:
+            return b''
 
     # Debugging information entries
 
     def cu_die(self, cu: lldwarf.CompilationUnitHeader, *,
                recurse: bool=False) -> lldwarf.DwarfDie:
         try:
-            return self._cu_dies[cu.offset]
-        except KeyError:
+            return cu.die
+        except AttributeError:
             pass
 
         debug_info = self.section('.debug_info')
         abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
-        die = lldwarf.parse_die(cu, abbrev_table, self._mmap, cu.die_offset(),
-                                recurse=recurse)
-        self._cu_dies[cu.offset] = die
+        die_offset = cu.offset + (23 if cu.is_64_bit else 11)
+        die = lldwarf.parse_die(cu, abbrev_table, cu.offset, self._mmap,
+                                die_offset, recurse=recurse)
+        cu.die = die
         return die
 
     def parse_die_children(self, cu: lldwarf.CompilationUnitHeader,
@@ -148,9 +169,10 @@ class DwarfFile:
         if not hasattr(die, 'children'):
             debug_info = self.section('.debug_info')
             abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
+            offset = cu.offset + die.cu_offset + die.die_length
             die.children = lldwarf.parse_die_siblings(cu, abbrev_table,
-                                                      self._mmap,
-                                                      offset=die.offset + die.die_length,
+                                                      cu.offset, self._mmap,
+                                                      offset=offset,
                                                       recurse=recurse)
 
     def die_contains_address(self, die: lldwarf.DwarfDie, address: int) -> bool:
@@ -174,9 +196,10 @@ class DwarfFile:
             high_pc = high_pc_value
         return low_pc <= address < high_pc
 
-    def die_name(self, die: lldwarf.DwarfDie) -> bytes:
+    def die_name(self, cu: lldwarf.CompilationUnitHeader,
+                 die: lldwarf.DwarfDie) -> bytes:
         form, value = die.find(DW_AT.name)
-        return self.at_string(form, value)
+        return self.at_string(cu, form, value)
 
     def die_address(self, die: lldwarf.DwarfDie) -> int:
         try:
@@ -196,13 +219,23 @@ class DwarfFile:
         end = debug_aranges.sh_offset + debug_aranges.sh_size
         while offset < end:
             art = lldwarf.parse_arange_table_header(self._mmap, offset)
+            art.offset = offset
             yield art
-            offset = art.next_offset()
+            offset += (12 if art.is_64_bit else 4) + art.unit_length
 
     def arange_table(self, art: lldwarf.ArangeTableHeader):
+        try:
+            return art.table
+        except AttributeError:
+            pass
+
         assert art.version == 2
+        table_offset = art.offset + (24 if art.is_64_bit else 12)
+        alignment = art.segment_size + 2 * art.address_size
+        if table_offset % alignment:
+            table_offset += (alignment - table_offset % alignment)
         return lldwarf.parse_arange_table(art.segment_size, art.address_size,
-                                          self._mmap, art.table_offset())
+                                          self._mmap, table_offset)
 
     # Line number programs
 
@@ -214,17 +247,20 @@ class DwarfFile:
         except KeyError:
             return None
         offset = debug_line.sh_offset + self.at_sec_offset(form, value)
-        return lldwarf.parse_line_number_program_header(self._mmap, offset)
+        lnp = lldwarf.parse_line_number_program_header(self._mmap, offset)
+        lnp.offset = offset
+        return lnp
 
     def execute_line_number_program(self, lnp: lldwarf.LineNumberProgramHeader) -> List[lldwarf.LineNumberRow]:
-        return lldwarf.execute_line_number_program(lnp, self._mmap,
-                                                   lnp.program_offset())
+        return lldwarf.execute_line_number_program(lnp, lnp_end_offset(lnp),
+                                                   self._mmap,
+                                                   lnp_program_offset(lnp))
 
     def line_number_row_name(self, cu: lldwarf.CompilationUnitHeader,
                              lnp: lldwarf.LineNumberProgramHeader,
                              row: lldwarf.LineNumberRow) -> str:
         if row.file == 0:
-            return self.die_name(self.cu_die(cu)).decode()
+            return self.cu_name(cu).decode()
 
         file_name, directory_index, mtime, file_size = lnp.file_names[row.file - 1]
         file_name = file_name.decode()
@@ -235,8 +271,8 @@ class DwarfFile:
             return file_name
 
     def decode_line_number_program(self, lnp: lldwarf.LineNumberProgramHeader):
-        offset = lnp.program_offset()
-        end = lnp.end_offset()
+        offset = lnp_program_offset(lnp)
+        end = lnp_end_offset(lnp)
         while offset < end:
             opcode = self._mmap[offset]
             offset += 1
