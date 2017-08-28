@@ -38,6 +38,8 @@ class DwarfFile:
         self._sections = parse_elf_sections(self._mmap, self._ehdr)
 
         self._abbrev_tables = {}
+        self._cus = {}
+        self._range_lists = {}
         self._symbols = None
 
     def close(self):
@@ -60,7 +62,7 @@ class DwarfFile:
     def section(self, name: str):
         return self._sections[name]
 
-    def string_at(self, offset):
+    def string_at(self, offset: int) -> bytes:
         nul = self._mmap.find(b'\0', offset)
         assert nul != -1  # XXX
         return self._mmap[offset:nul]
@@ -124,28 +126,32 @@ class DwarfFile:
 
     # Compilation units
 
-    def cu_headers(self):
-        debug_info = self.section('.debug_info')
-        offset = debug_info.sh_offset
-        end = debug_info.sh_offset + debug_info.sh_size
-        while offset < end:
-            cu = lldwarf.parse_compilation_unit_header(self._mmap, offset)
-            cu.offset = offset
-            yield cu
-            offset += (12 if cu.is_64_bit else 4) + cu.unit_length
-
     def cu_header(self, offset: int) -> lldwarf.CompilationUnitHeader:
+        try:
+            return self._cus[offset]
+        except KeyError:
+            pass
+
         debug_info = self.section('.debug_info')
         offset += debug_info.sh_offset
         cu = lldwarf.parse_compilation_unit_header(self._mmap, offset)
+        cu.file = self
         cu.offset = offset
         return cu
 
-    def cu_name(self, cu: lldwarf.CompilationUnitHeader) -> bytes:
+    def cu_headers(self):
+        debug_info = self.section('.debug_info')
+        offset = 0
+        while offset < debug_info.sh_size:
+            cu = self.cu_header(offset)
+            yield cu
+            offset += (12 if cu.is_64_bit else 4) + cu.unit_length
+
+    def cu_name(self, cu: lldwarf.CompilationUnitHeader) -> str:
         try:
             return self.die_name(self.cu_die(cu))
         except KeyError:
-            return b''
+            return ''
 
     # Debugging information entries
 
@@ -164,28 +170,44 @@ class DwarfFile:
         cu.die = die
         return die
 
-    def parse_die_children(self, die: lldwarf.DwarfDie, *,
-                           recurse: bool=False) -> None:
-        if not hasattr(die, 'children'):
-            cu = die.cu
-            debug_info = self.section('.debug_info')
-            abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
-            offset = cu.offset + die.cu_offset + die.die_length
-            die.children = lldwarf.parse_die_siblings(cu, die, abbrev_table,
-                                                      cu.offset, self._mmap,
-                                                      offset=offset,
-                                                      recurse=recurse)
+    def die_children(self, die: lldwarf.DwarfDie, *,
+                     recurse: bool=False) -> List[lldwarf.DwarfDie]:
+        try:
+            return die.children
+        except AttributeError:
+            pass
 
-    def die_contains_address(self, die: lldwarf.DwarfDie, address: int) -> bool:
+        cu = die.cu
+        debug_info = self.section('.debug_info')
+        abbrev_table = self.abbrev_table(cu.debug_abbrev_offset)
+        offset = cu.offset + die.cu_offset + die.die_length
+        children = lldwarf.parse_die_siblings(cu, die, abbrev_table, cu.offset,
+                                              self._mmap, offset=offset,
+                                              recurse=recurse)
+        die.children = children
+        return children
+
+    def die_contains_address(self, die: lldwarf.DwarfDie, addr: int) -> bool:
         try:
             ranges_form, ranges_value = die.find(DW_AT.ranges)
-            assert False
         except KeyError:
             pass
+        else:
+            cu = die.cu
+            base_addr = self.die_address(cu.die)
+            offset = self.at_sec_offset(ranges_form, ranges_value)
+            for range in self.range_list(cu.address_size, offset):
+                if range.start == 0xffffffffffffffff:
+                    base_addr = range.end
+                elif base_addr + range.start <= addr < base_addr + range.end:
+                    return True
+            return False
+
         try:
             low_pc_form, low_pc = die.find(DW_AT.low_pc)
         except KeyError:
             return False
+
         high_pc_form, high_pc_value = die.find(DW_AT.high_pc)
         assert low_pc_form == DW_FORM.addr
         if at_class_constant_int(high_pc_form):
@@ -195,11 +217,11 @@ class DwarfFile:
         else:
             assert high_pc_form == DW_FORM.addr
             high_pc = high_pc_value
-        return low_pc <= address < high_pc
+        return low_pc <= addr < high_pc
 
-    def die_name(self, die: lldwarf.DwarfDie) -> bytes:
+    def die_name(self, die: lldwarf.DwarfDie) -> str:
         form, value = die.find(DW_AT.name)
-        return self.at_string(die.cu, form, value)
+        return self.at_string(die.cu, form, value).decode()
 
     def die_address(self, die: lldwarf.DwarfDie) -> int:
         try:
@@ -240,6 +262,11 @@ class DwarfFile:
     # Line number programs
 
     def cu_line_number_program_header(self, cu: lldwarf.CompilationUnitHeader) -> lldwarf.LineNumberProgramHeader:
+        try:
+            return cu.lnp
+        except AttributeError:
+            pass
+
         debug_line = self.section('.debug_line')
         die = self.cu_die(cu)
         try:
@@ -249,18 +276,26 @@ class DwarfFile:
         offset = debug_line.sh_offset + self.at_sec_offset(form, value)
         lnp = lldwarf.parse_line_number_program_header(self._mmap, offset)
         lnp.offset = offset
+        cu.lnp = lnp
         return lnp
 
     def execute_line_number_program(self, lnp: lldwarf.LineNumberProgramHeader) -> List[lldwarf.LineNumberRow]:
-        return lldwarf.execute_line_number_program(lnp, lnp_end_offset(lnp),
-                                                   self._mmap,
-                                                   lnp_program_offset(lnp))
+        try:
+            return lnp.matrix
+        except AttributeError:
+            pass
+
+        matrix= lldwarf.execute_line_number_program(lnp, lnp_end_offset(lnp),
+                                                    self._mmap,
+                                                    lnp_program_offset(lnp))
+        lnp.matrix = matrix
+        return matrix
 
     def line_number_row_name(self, cu: lldwarf.CompilationUnitHeader,
                              lnp: lldwarf.LineNumberProgramHeader,
                              row: lldwarf.LineNumberRow) -> str:
         if row.file == 0:
-            return self.cu_name(cu).decode()
+            return self.cu_name(cu)
 
         file_name, directory_index, mtime, file_size = lnp.file_names[row.file - 1]
         file_name = file_name.decode()
@@ -298,3 +333,17 @@ class DwarfFile:
                 operation_advance = opcode // lnp.line_range
                 line_increment = lnp.line_base + (opcode % lnp.line_range)
                 yield 'special', opcode, (operation_advance, line_increment)
+
+    # Range lists
+
+    def range_list(self, address_size: int, offset: int) -> List[lldwarf.Range]:
+        try:
+            return self._range_lists[offset]
+        except KeyError:
+            pass
+
+        debug_ranges = self.section('.debug_ranges')
+        offset += debug_ranges.sh_offset
+        ranges = lldwarf.parse_range_list(address_size, self._mmap, offset)
+        self._range_lists[offset] = ranges
+        return ranges

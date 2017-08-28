@@ -180,10 +180,9 @@ PyObject *LLDwarf_ParseArangeTable(Py_buffer *buffer, Py_ssize_t *offset,
 		if (segment == 0 && address == 0 && length == 0)
 			break;
 
-		arange = PyMem_Malloc(sizeof(AddressRange));
+		arange = PyObject_New(AddressRange, &AddressRange_type);
 		if (!arange)
 			goto err;
-		PyObject_Init((PyObject *)arange, &AddressRange_type);
 		arange->segment = segment;
 		arange->address = address;
 		arange->length = length;

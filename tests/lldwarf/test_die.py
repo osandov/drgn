@@ -162,9 +162,9 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01\xff\xff\xff\xff\xff\xff\xff\x7f',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.addr, 2**63 - 1),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.addr, 2**63 - 1),)))
         self.assertDie(header32addr, abbrev_table, b'\x01\xff\xff\xff\x7f',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.addr, 2**31 - 1),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.addr, 2**31 - 1),)))
 
         bogus_header = lldwarf.CompilationUnitHeader(
             unit_length=200,
@@ -186,15 +186,15 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01\x04aaaa',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.block1, (2, 4)),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.block1, (2, 4)),)))
         self.assertDie(header, abbrev_table, b'\x02\x01\x00b',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.block2, (3, 1)),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.block2, (3, 1)),)))
         self.assertDie(header, abbrev_table, b'\x03\x10\x00\x00\x00' + b'z' * 16,
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.block4, (5, 16)),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.block4, (5, 16)),)))
         self.assertDie(header, abbrev_table, b'\x04\x03xyz',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.block, (2, 3)),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.block, (2, 3)),)))
         self.assertDie(header, abbrev_table, b'\x05\x0f012345678901234',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.exprloc, (2, 15)),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.exprloc, (2, 15)),)))
         with self.assertRaisesRegex(ValueError, 'attribute length too big'):
             lldwarf.parse_die(header, None, abbrev_table, 0, b'\x05\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01')
 
@@ -207,16 +207,16 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01a',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.data1, b'a'),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.data1, b'a'),)))
 
         self.assertDie(header, abbrev_table, b'\x02ab',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.data2, b'ab'),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.data2, b'ab'),)))
 
         self.assertDie(header, abbrev_table, b'\x03abcd',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.data4, b'abcd'),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.data4, b'abcd'),)))
 
         self.assertDie(header, abbrev_table, b'\x04abcdefgh',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.data8, b'abcdefgh'),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.data8, b'abcdefgh'),)))
 
     def test_constant(self):
         abbrev_table = {
@@ -225,10 +225,10 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01\x64',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.udata, 100),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.udata, 100),)))
 
         self.assertDie(header, abbrev_table, b'\x02\x7f',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.sdata, -1),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.sdata, -1),)))
 
         with self.assertRaises(OverflowError):
             lldwarf.DwarfDie(None, None, 0, 0, DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.udata, 2**64),))
@@ -244,11 +244,11 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01\x01',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.flag, True),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.flag, True),)))
         self.assertDie(header, abbrev_table, b'\x01\x00',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.flag, False),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.flag, False),)))
         self.assertDie(header, abbrev_table, b'\x02',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.flag_present, True),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.flag_present, True),)))
 
     def test_reference(self):
         abbrev_table = {
@@ -261,17 +261,17 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01\xff',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.ref1, 255),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.ref1, 255),)))
         self.assertDie(header, abbrev_table, b'\x02\x10\x27',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.ref2, 10000),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.ref2, 10000),)))
         self.assertDie(header, abbrev_table, b'\x03\x00\x00\x00\x80',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.ref4, 2**31),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.ref4, 2**31),)))
         self.assertDie(header, abbrev_table, b'\x04\x00\x00\x00\x00\x00\x00\x00\x80',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.ref8, 2**63),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.ref8, 2**63),)))
         self.assertDie(header, abbrev_table, b'\x05\x00\x00\x00\x00\x00\x00\x00\x80',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.ref_sig8, 2**63),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.ref_sig8, 2**63),)))
         self.assertDie(header, abbrev_table, b'\x06\x00',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.ref_udata, 0),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.ref_udata, 0),)))
 
     def test_sec_offset(self):
         abbrev_table = {
@@ -279,9 +279,9 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01\xff\xff\xff\x7f',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.sec_offset, 2**31 - 1),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.sec_offset, 2**31 - 1),)))
         self.assertDie(header64, abbrev_table, b'\x01\xff\xff\xff\xff\xff\xff\xff\x7f',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.sec_offset, 2**63 - 1),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.sec_offset, 2**63 - 1),)))
 
     def test_strp(self):
         abbrev_table = {
@@ -289,9 +289,9 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01\xff\xff\xff\x7f',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.strp, 2**31 - 1),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.strp, 2**31 - 1),)))
         self.assertDie(header64, abbrev_table, b'\x01\xff\xff\xff\xff\xff\xff\xff\x7f',
-                       (DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.strp, 2**63 - 1),)))
+                       (DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.strp, 2**63 - 1),)))
 
     def test_string(self):
         abbrev_table = {
@@ -301,7 +301,7 @@ class TestParseDie(unittest.TestCase):
         }
 
         self.assertDie(header, abbrev_table, b'\x01foo\0asdf\0',
-                       (DW_TAG.lo_user, None,
+                       (DW_TAG.lo_user, (),
                         ((DW_AT.lo_user, DW_FORM.string, (1, 3)),
                          (DW_AT.lo_user, DW_FORM.string, (5, 4)))))
 
@@ -328,10 +328,10 @@ class TestParseDie(unittest.TestCase):
             2: lldwarf.AbbrevDecl(DW_TAG.lo_user + 1, False, ((DW_AT.lo_user + 1, DW_FORM.sdata),)),
         }
         siblings = lldwarf.parse_die_siblings(header, None, abbrev_table, 0, b'\x01\x01\x02\x02\x00')
-        self.assertEqual(siblings, [
-            lldwarf.DwarfDie(header, None, 0, 2, DW_TAG.lo_user, None, ((DW_AT.lo_user, DW_FORM.udata, 1),)),
-            lldwarf.DwarfDie(header, None, 2, 2, DW_TAG.lo_user + 1, None, ((DW_AT.lo_user + 1, DW_FORM.sdata, 2),)),
-        ])
+        self.assertEqual(siblings, (
+            lldwarf.DwarfDie(header, None, 0, 2, DW_TAG.lo_user, (), ((DW_AT.lo_user, DW_FORM.udata, 1),)),
+            lldwarf.DwarfDie(header, None, 2, 2, DW_TAG.lo_user + 1, (), ((DW_AT.lo_user + 1, DW_FORM.sdata, 2),)),
+        ))
 
     def test_siblings_skip(self):
         abbrev_table = {
@@ -341,7 +341,7 @@ class TestParseDie(unittest.TestCase):
         siblings = lldwarf.parse_die_siblings(header, None, abbrev_table, 0, b'\x01\x04\x02\x02\x02\x03\x00')
         parent_die = lldwarf.DwarfDie(header, None, 0, 2, DW_TAG.lo_user, None, ((DW_AT.sibling, DW_FORM.udata, 4),))
         del parent_die.children
-        self.assertEqual(siblings, [
+        self.assertEqual(siblings, (
             parent_die,
-            lldwarf.DwarfDie(header, None, 4, 2, DW_TAG.lo_user + 1, None, ((DW_AT.lo_user + 1, DW_FORM.sdata, 3),)),
-        ])
+            lldwarf.DwarfDie(header, None, 4, 2, DW_TAG.lo_user + 1, (), ((DW_AT.lo_user + 1, DW_FORM.sdata, 3),)),
+        ))

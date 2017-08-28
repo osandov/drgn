@@ -1,3 +1,4 @@
+from drgn import lldwarf
 from drgn.dwarf import DwarfFile
 from drgn.dwarf.defs import *
 import fnmatch
@@ -19,7 +20,8 @@ def dump_cu(dwarf_file, cu, cu_name, *, indent=0):
     print(f'{prefix}  is_64_bit = {cu.is_64_bit}')
 
 
-def dump_die(dwarf_file, die, *, indent=0, recurse=False):
+def dump_die(dwarf_file: DwarfFile, die: lldwarf.DwarfDie, *,
+             indent: int=0, recurse: bool=False) -> None:
     prefix = ' ' * indent
     print(f'{prefix}<{die.cu_offset}> {tag_name(die.tag)}')
     for name, form, value in die:
@@ -29,14 +31,8 @@ def dump_die(dwarf_file, die, *, indent=0, recurse=False):
             value = repr(value)[1:]
         print(f'{prefix}  {at_name(name)} ({form_name(form)}) = {value}')
     if recurse:
-        try:
-            children = die.children
-        except AttributeError:
-            pass
-        else:
-            if children is not None:
-                for child in children:
-                    dump_die(dwarf_file, child, indent=indent + 2, recurse=True)
+        for child in dwarf_file.die_children(die):
+            dump_die(dwarf_file, child, indent=indent + 2, recurse=True)
 
 
 def dump_lnp_include_directories(lnp, *, indent=0):
@@ -139,9 +135,9 @@ def dump_line_number_matrix(cu, lnp, matrix, *, indent=0):
     print(f'{prefix}}}')
 
 
-def dump_cus(dwarf_file, args):
+def dump_cus(dwarf_file: DwarfFile, args) -> None:
     for cu in dwarf_file.cu_headers():
-        cu_name = dwarf_file.cu_name(cu).decode()
+        cu_name = dwarf_file.cu_name(cu)
         for pattern in args.cu:
             if fnmatch.fnmatch(cu_name, pattern):
                 break
@@ -151,8 +147,6 @@ def dump_cus(dwarf_file, args):
         dump_cu(dwarf_file, cu, cu_name)
         if args.die:
             die = dwarf_file.cu_die(cu)
-            if args.recursive:
-                dwarf_file.parse_die_children(die, recurse=True)
             dump_die(dwarf_file, die, indent=2, recurse=args.recursive)
         if (args.include_directories or args.file_names or args.lines or
             args.line_number_program):

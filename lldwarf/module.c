@@ -380,6 +380,34 @@ static PyObject *execute_line_number_program(PyObject *self, PyObject *args,
 	return ret;
 }
 
+static PyObject *parse_range_list(PyObject *self, PyObject *args,
+				  PyObject *kwds)
+{
+	static char *keywords[] = {
+		"address_size", "buffer", "offset", NULL
+	};
+	Py_ssize_t address_size;
+	Py_buffer buffer;
+	Py_ssize_t offset = 0;
+	PyObject *ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "ny*|n:execute_line_number_program",
+					 keywords, &address_size, &buffer,
+					 &offset))
+		return NULL;
+
+	if (offset < 0) {
+		PyErr_SetString(PyExc_ValueError, "offset cannot be negative");
+		PyBuffer_Release(&buffer);
+		return NULL;
+	}
+
+	ret = LLDwarf_ParseRangeList(&buffer, &offset, address_size);
+	PyBuffer_Release(&buffer);
+	return ret;
+}
+
 static PyMethodDef lldwarf_methods[] = {
 	{"parse_uleb128", (PyCFunction)parse_uleb128,
 	 METH_VARARGS | METH_KEYWORDS,
@@ -474,6 +502,15 @@ static PyMethodDef lldwarf_methods[] = {
 	 "lnp_end_offset -- offset into the buffer where the line number program ends\n"
 	 "buffer -- readable source buffer\n"
 	 "offset -- optional offset into the buffer"},
+	{"parse_range_list",
+	 (PyCFunction)parse_range_list,
+	 METH_VARARGS | METH_KEYWORDS,
+	 "parse_range_list(address_size, buffer, offset=0) -> list of Range\n\n"
+	 "Parse a range list.\n\n"
+	 "Arguments:\n"
+	 "address_size -- size of an address in this range list\n"
+	 "buffer -- readable source buffer\n"
+	 "offset -- optional offset into the buffer"},
 	{},
 };
 
@@ -489,6 +526,10 @@ PyMODINIT_FUNC
 PyInit_lldwarf(void)
 {
 	PyObject *m;
+
+	empty_tuple = PyTuple_New(0);
+	if (!empty_tuple)
+		return NULL;
 
 	if (PyType_Ready(&AbbrevDecl_type) < 0)
 		return NULL;
@@ -514,6 +555,10 @@ PyInit_lldwarf(void)
 
 	LineNumberRow_type.tp_new = PyType_GenericNew;
 	if (PyType_Ready(&LineNumberRow_type) < 0)
+		return NULL;
+
+	Range_type.tp_new = PyType_GenericNew;
+	if (PyType_Ready(&Range_type) < 0)
 		return NULL;
 
 #ifdef TEST_LLDWARFOBJECT
@@ -548,6 +593,9 @@ PyInit_lldwarf(void)
 
 	Py_INCREF(&LineNumberRow_type);
 	PyModule_AddObject(m, "LineNumberRow", (PyObject *)&LineNumberRow_type);
+
+	Py_INCREF(&Range_type);
+	PyModule_AddObject(m, "Range", (PyObject *)&Range_type);
 
 #ifdef TEST_LLDWARFOBJECT
 	Py_INCREF(&TestObject_type);

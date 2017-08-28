@@ -153,7 +153,7 @@ static PyObject *DwarfDie_new(PyTypeObject *subtype, PyObject *args,
 		Py_INCREF(Py_None);
 		die->children = Py_None;
 	} else {
-		die->children = PySequence_List(children);
+		die->children = PySequence_Tuple(children);
 		if (!die->children)
 			goto err;
 	}
@@ -517,11 +517,7 @@ PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
 				   PyObject *abbrev_table, Py_ssize_t cu_offset,
 				   bool recurse)
 {
-	PyObject *children;
-
-	children = PyList_New(0);
-	if (!children)
-		return NULL;
+	PyObject *tmp = NULL;
 
 	for (;;) {
 		PyObject *child;
@@ -533,17 +529,33 @@ PyObject *LLDwarf_ParseDieSiblings(Py_buffer *buffer, Py_ssize_t *offset,
 			goto err;
 		if (!child)
 			break;
-		if (PyList_Append(children, child) == -1) {
+		if (!tmp) {
+			tmp = PyList_New(0);
+			if (!tmp) {
+				Py_DECREF(child);
+				goto err;
+			}
+		}
+		if (PyList_Append(tmp, child) == -1) {
 			Py_DECREF(child);
 			goto err;
 		}
 		Py_DECREF(child);
 	}
 
-	return children;
+	if (tmp) {
+		PyObject *children;
+
+		children = PyList_AsTuple(tmp);
+		Py_DECREF(tmp);
+		return children;
+	} else {
+		Py_INCREF(empty_tuple);
+		return empty_tuple;
+	}
 
 err:
-	Py_DECREF(children);
+	Py_XDECREF(tmp);
 	return NULL;
 }
 
@@ -611,8 +623,8 @@ PyObject *LLDwarf_ParseDie(Py_buffer *buffer, Py_ssize_t *offset,
 	die->die_length = *offset - orig_offset;
 
 	if (!decl->children) {
-		Py_INCREF(Py_None);
-		die->children = Py_None;
+		Py_INCREF(empty_tuple);
+		die->children = empty_tuple;
 	} else if (recurse || (jump_to_sibling && !sibling)) {
 		die->children = LLDwarf_ParseDieSiblings(buffer, offset, cu,
 							 (PyObject *)die,
@@ -677,7 +689,7 @@ static PyMemberDef DwarfDie_members[] = {
 	"cu_offset -- integer offset\n"						\
 	"die_length -- intger length\n"						\
 	"tag -- integer tag of the DIE\n"					\
-	"children -- list of children DIEs\n"					\
+	"children -- tuple of children DIEs\n"					\
 	"attribs -- iterable of (name, form, value) triples"
 
 PyTypeObject DwarfDie_type = {

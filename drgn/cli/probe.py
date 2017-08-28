@@ -1,4 +1,5 @@
 from drgn.dwarf import DwarfProgram
+from drgn.dwarf.defs import *
 from drgn.ftrace import Kprobe, FtraceInstance
 import re
 import os
@@ -26,9 +27,26 @@ def cmd_probe(args):
     binary = f'/lib/modules/{os.uname().release}/build/vmlinux'
     with DwarfProgram(binary) as dwarf_program:
         if function is not None:
+            scope = dwarf_program.find_subprogram_by_name(function)
+            probe_addr = scope.cu.file.die_address(scope)
             probe_location = function
         else:
-            probe_location = dwarf_program.find_breakpoint_location(filename, lineno)
+            cu = dwarf_program.find_cu_by_name(filename)
+            row = dwarf_program.find_breakpoint(cu, filename, lineno)
+            scope = dwarf_program.find_scope_containing_address(cu, row.address)
+
+            subprogram = scope
+            while subprogram.tag != DW_TAG.subprogram:
+                subprogram = subprogram.parent
+            subprogram_name = cu.file.die_name(subprogram)
+            subprogram_addr = cu.file.die_address(subprogram)
+
+            assert row.address >= subprogram_addr
+            probe_addr = row.address
+            probe_location = f'{subprogram_name}+0x{row.address - subprogram_addr:x}'
+
+        for var in args.variables:
+            resolved = dwarf_program.resolve_variable(scope, var)
 
     # TODO: deal with probe name collisions
     with FtraceInstance(f'drgn_{os.getpid()}') as instance, \
@@ -48,6 +66,9 @@ def register(subparsers):
     subparser.add_argument(
         'location', metavar='LOCATION',
         help='location to probe; either a function name or file:line')
+
+    subparser.add_argument(
+        'variables', metavar='VAR', nargs='*', help='variables to fetch')
 
     group = subparser.add_mutually_exclusive_group()
     group.add_argument(

@@ -137,9 +137,24 @@ typedef struct {
 
 extern PyTypeObject LineNumberRow_type;
 
+typedef struct {
+	PyObject_VAR_HEAD
+	uint64_t start;
+	uint64_t end;
+} Range;
+
+extern PyTypeObject Range_type;
+
 #ifdef TEST_LLDWARFOBJECT
 extern PyTypeObject TestObject_type;
 #endif
+
+/*
+ * This tuple is used for the children attribute of any DwarfDie with no
+ * children. It's much cheaper to reuse this rather than create a new object
+ * every time, and avoids special cases like if we used None.
+ */
+PyObject *empty_tuple;
 
 void LLDwarfObject_dealloc(PyObject *self);
 int LLDwarfObject_traverse(PyObject *self, visitproc visit, void *arg);
@@ -170,6 +185,8 @@ PyObject *LLDwarf_ExecuteLineNumberProgram(Py_buffer *buffer,
 					   Py_ssize_t *offset,
 					   LineNumberProgramHeader *lnp,
 					   Py_ssize_t lnp_end_offset);
+PyObject *LLDwarf_ParseRangeList(Py_buffer *buffer, Py_ssize_t *offset,
+				 Py_ssize_t address_size);
 
 int read_uleb128(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret);
 int read_sleb128(Py_buffer *buffer, Py_ssize_t *offset, int64_t *ret);

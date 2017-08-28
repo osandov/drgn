@@ -57,10 +57,11 @@ module = Extension(
         'lldwarf/module.c',
         'lldwarf/object.c',
         'lldwarf/abbrev.c',
-        'lldwarf/arange.c',
+        'lldwarf/aranges.c',
         'lldwarf/cu.c',
         'lldwarf/die.c',
         'lldwarf/line.c',
+        'lldwarf/ranges.c',
     ],
     extra_compile_args=['-DTEST_LLDWARFOBJECT'],
 )
