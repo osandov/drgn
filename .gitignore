@@ -6,4 +6,5 @@ __pycache__
 /drgn.egg-info
 /coverage.info
 /out
-/lldwarf/dwarfdefs.h
+/drgn/dwarf.c
+/drgn/elf.c
