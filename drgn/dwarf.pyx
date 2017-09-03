@@ -43,13 +43,14 @@ cdef class DwarfProgram:
         self.ehdr = parse_elf_header(&self.buffer)
         self.sections = parse_elf_sections(&self.buffer, self.ehdr)
 
+        dummy_shdr = Elf_Shdr()
         self.debug_abbrev = self.sections['.debug_abbrev']
         self.debug_aranges = self.sections['.debug_aranges']
         self.debug_info = self.sections['.debug_info']
-        self.debug_line = self.sections['.debug_line']
-        self.debug_loc = self.sections['.debug_loc']
-        self.debug_ranges = self.sections['.debug_ranges']
-        self.debug_str = self.sections['.debug_str']
+        self.debug_line = self.sections.get('.debug_line', dummy_shdr)
+        self.debug_loc = self.sections.get('.debug_loc', dummy_shdr)
+        self.debug_ranges = self.sections.get('.debug_ranges', dummy_shdr)
+        self.debug_str = self.sections.get('.debug_str', dummy_shdr)
 
     def close(self):
         if not self._closed:
