@@ -5,91 +5,6 @@ class DW_CHILDREN(enum.IntEnum):
     yes = 1
 
 
-class DW_TAG(enum.IntEnum):
-    array_type = 0x01
-    class_type = 0x02
-    entry_point = 0x03
-    enumeration_type = 0x04
-    formal_parameter = 0x05
-    imported_declaration = 0x08
-    label = 0x0a
-    lexical_block = 0x0b
-    member = 0x0d
-    pointer_type = 0x0f
-    reference_type = 0x10
-    compile_unit = 0x11
-    string_type = 0x12
-    structure_type = 0x13
-    subroutine_type = 0x15
-    typedef = 0x16
-    union_type = 0x17
-    unspecified_parameters = 0x18
-    variant = 0x19
-    common_block = 0x1a
-    common_inclusion = 0x1b
-    inheritance = 0x1c
-    inlined_subroutine = 0x1d
-    module = 0x1e
-    ptr_to_member_type = 0x1f
-    set_type = 0x20
-    subrange_type = 0x21
-    with_stmt = 0x22
-    access_declaration = 0x23
-    base_type = 0x24
-    catch_block = 0x25
-    const_type = 0x26
-    constant = 0x27
-    enumerator = 0x28
-    file_type = 0x29
-    friend = 0x2a
-    namelist = 0x2b
-    namelist_item = 0x2c
-    packed_type = 0x2d
-    subprogram = 0x2e
-    template_type_parameter = 0x2f
-    template_value_parameter = 0x30
-    thrown_type = 0x31
-    try_block = 0x32
-    variant_part = 0x33
-    variable = 0x34
-    volatile_type = 0x35
-    dwarf_procedure = 0x36
-    restrict_type = 0x37
-    interface_type = 0x38
-    namespace = 0x39
-    imported_module = 0x3a
-    unspecified_type = 0x3b
-    partial_unit = 0x3c
-    imported_unit = 0x3d
-    # 0x3e reserved
-    condition = 0x3f
-    shared_type = 0x40
-    type_unit = 0x41
-    rvalue_reference_type = 0x42
-    template_alias = 0x43
-
-    # DWARF 5
-    atomic_type = 0x47
-
-    lo_user = 0x4080
-
-    MIPS_loop = 0x4081
-    format_label = 0x4101
-    function_template = 0x4102
-    class_template = 0x4103
-
-    GNU_BINCL = 0x4104
-    GNU_EINCL = 0x4105
-
-    GNU_template_template_param = 0x4106
-    GNU_template_parameter_pack = 0x4107
-    GNU_formal_parameter_pack = 0x4108
-    GNU_call_site = 0x4109
-    GNU_call_site_parameter = 0x410a
-
-    hi_user = 0xffff
-
-
 class DW_AT(enum.IntEnum):
     sibling = 0x01
     location = 0x02
@@ -241,6 +156,43 @@ class DW_AT(enum.IntEnum):
     hi_user = 0x3fff
 
 
+def at_name(at):
+    try:
+        return f'DW_AT_{DW_AT(at).name}'
+    except ValueError:
+        return hex(at)
+
+
+class DW_ATE(enum.IntEnum):
+    void = 0x0
+    address = 0x1
+    boolean = 0x2
+    complex_float = 0x3
+    float = 0x4
+    signed = 0x5
+    signed_char = 0x6
+    unsigned = 0x7
+    unsigned_char = 0x8
+    imaginary_float = 0x9
+    packed_decimal = 0xa
+    numeric_string = 0xb
+    edited = 0xc
+    signed_fixed = 0xd
+    unsigned_fixed = 0xe
+    decimal_float = 0xf
+    UTF = 0x10
+
+    lo_user = 0x80
+    hi_user = 0xff
+
+
+def ate_name(ate):
+    try:
+        return f'DW_ATE_{DW_ATE(ate).name}'
+    except ValueError:
+        return hex(ate)
+
+
 class DW_FORM(enum.IntEnum):
     addr = 0x01
     block2 = 0x03
@@ -269,6 +221,13 @@ class DW_FORM(enum.IntEnum):
     ref_sig8 = 0x20
 
 
+def form_name(form):
+    try:
+        return f'DW_FORM_{DW_FORM(form).name}'
+    except ValueError:
+        return hex(form)
+
+
 class DW_LNS(enum.IntEnum):
     copy = 1
     advance_pc = 2
@@ -284,6 +243,13 @@ class DW_LNS(enum.IntEnum):
     set_isa = 12
 
 
+def lns_name(lns):
+    try:
+        return f'DW_LNS_{DW_LNS(lns).name}'
+    except ValueError:
+        return hex(lns)
+
+
 class DW_LNE(enum.IntEnum):
     end_sequence = 1
     set_address = 2
@@ -292,6 +258,105 @@ class DW_LNE(enum.IntEnum):
 
     lo_user = 128
     hi_user = 255
+
+
+def lne_name(lne):
+    try:
+        return f'DW_LNE_{DW_LNE(lne).name}'
+    except ValueError:
+        return hex(lne)
+
+
+class DW_TAG(enum.IntEnum):
+    array_type = 0x01
+    class_type = 0x02
+    entry_point = 0x03
+    enumeration_type = 0x04
+    formal_parameter = 0x05
+    imported_declaration = 0x08
+    label = 0x0a
+    lexical_block = 0x0b
+    member = 0x0d
+    pointer_type = 0x0f
+    reference_type = 0x10
+    compile_unit = 0x11
+    string_type = 0x12
+    structure_type = 0x13
+    subroutine_type = 0x15
+    typedef = 0x16
+    union_type = 0x17
+    unspecified_parameters = 0x18
+    variant = 0x19
+    common_block = 0x1a
+    common_inclusion = 0x1b
+    inheritance = 0x1c
+    inlined_subroutine = 0x1d
+    module = 0x1e
+    ptr_to_member_type = 0x1f
+    set_type = 0x20
+    subrange_type = 0x21
+    with_stmt = 0x22
+    access_declaration = 0x23
+    base_type = 0x24
+    catch_block = 0x25
+    const_type = 0x26
+    constant = 0x27
+    enumerator = 0x28
+    file_type = 0x29
+    friend = 0x2a
+    namelist = 0x2b
+    namelist_item = 0x2c
+    packed_type = 0x2d
+    subprogram = 0x2e
+    template_type_parameter = 0x2f
+    template_value_parameter = 0x30
+    thrown_type = 0x31
+    try_block = 0x32
+    variant_part = 0x33
+    variable = 0x34
+    volatile_type = 0x35
+    dwarf_procedure = 0x36
+    restrict_type = 0x37
+    interface_type = 0x38
+    namespace = 0x39
+    imported_module = 0x3a
+    unspecified_type = 0x3b
+    partial_unit = 0x3c
+    imported_unit = 0x3d
+    # 0x3e reserved
+    condition = 0x3f
+    shared_type = 0x40
+    type_unit = 0x41
+    rvalue_reference_type = 0x42
+    template_alias = 0x43
+
+    # DWARF 5
+    atomic_type = 0x47
+
+    lo_user = 0x4080
+
+    MIPS_loop = 0x4081
+    format_label = 0x4101
+    function_template = 0x4102
+    class_template = 0x4103
+
+    GNU_BINCL = 0x4104
+    GNU_EINCL = 0x4105
+
+    GNU_template_template_param = 0x4106
+    GNU_template_parameter_pack = 0x4107
+    GNU_formal_parameter_pack = 0x4108
+    GNU_call_site = 0x4109
+    GNU_call_site_parameter = 0x410a
+
+    hi_user = 0xffff
+
+
+def tag_name(tag):
+    try:
+        return f'DW_TAG_{DW_TAG(tag).name}'
+    except ValueError:
+        return hex(tag)
 
 
 class DW_OP(enum.IntEnum):
@@ -467,11 +532,11 @@ class DW_OP(enum.IntEnum):
     hi_user = 0xff  # Implementation-defined range end.
 
 
-def at_name(at):
+def op_name(op):
     try:
-        return f'DW_AT_{DW_AT(at).name}'
+        return f'DW_OP_{DW_OP(op).name}'
     except ValueError:
-        return hex(at)
+        return hex(op)
 
 
 def at_class_constant(at):
@@ -500,41 +565,6 @@ def at_class_internal_reference(at):
     return (at == DW_FORM.ref1 or at == DW_FORM.ref2 or
             at == DW_FORM.ref4 or at == DW_FORM.ref8 or
             at == DW_FORM.ref_udata)
-
-
-def form_name(form):
-    try:
-        return f'DW_FORM_{DW_FORM(form).name}'
-    except ValueError:
-        return hex(form)
-
-
-def lns_name(lns):
-    try:
-        return f'DW_LNS_{DW_LNS(lns).name}'
-    except ValueError:
-        return hex(lns)
-
-
-def lne_name(lne):
-    try:
-        return f'DW_LNE_{DW_LNE(lne).name}'
-    except ValueError:
-        return hex(lne)
-
-
-def op_name(op):
-    try:
-        return f'DW_OP_{DW_OP(op).name}'
-    except ValueError:
-        return hex(op)
-
-
-def tag_name(tag):
-    try:
-        return f'DW_TAG_{DW_TAG(tag).name}'
-    except ValueError:
-        return hex(tag)
 
 
 TYPE_TAGS = {
