@@ -89,6 +89,7 @@ def dump_location_list(die, form, value, *, indent: int=0):
         print(f'{prefix}}}')
         offset += length
 
+
 def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0):
     prefix = ' ' * indent
     offset = 0

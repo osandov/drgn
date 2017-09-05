@@ -42,6 +42,16 @@ def sanitize_probe_name(name: str) -> str:
     return name
 
 
+def parse_expr(s: str) -> List:
+    expr = []
+    matches = list(re.finditer(r'(\.|->|$)', s))
+    expr.append(s[:matches[0].start()])
+    for i in range(1, len(matches)):
+        member = s[matches[i - 1].end():matches[i].start()]
+        expr.append((matches[i - 1].group(), member))
+    return expr
+
+
 def find_cu_by_addr(program: DwarfProgram, addr: int) -> CompilationUnitHeader:
     for art in program.arange_tables():
         for arange in art.table:
@@ -170,13 +180,11 @@ def dwarf_to_fetcharg_location(dwarf_location: bytes) -> str:
         raise ValueError("don't know how to evaluate location")
 
 
-def get_fetchargs(vars: List[str], path: DiePath, addr: int) -> List[str]:
+def get_fetchargs(exprs: List, path: DiePath, addr: int) -> List[str]:
     fetchargs = []
-    for var in vars:
+    for expr in exprs:
+        var = expr[0]
         resolved_var = resolve_variable(path, var).last()
-
-        var_type = unqualified_type(resolved_var.type())
-        fetcharg_type = dwarf_to_fetcharg_type(var_type)
 
         try:
             var_location = resolved_var.location(addr)
@@ -188,6 +196,33 @@ def get_fetchargs(vars: List[str], path: DiePath, addr: int) -> List[str]:
             continue
         fetcharg_location = dwarf_to_fetcharg_location(var_location)
 
+        var_type = unqualified_type(resolved_var.type())
+        for op, arg in expr[1:]:
+            if op == '.' or op == '->':
+                if op == '->':
+                    if var_type.tag != DW_TAG.pointer_type:
+                        raise ValueError(f'{var_type.name()!r} is not a pointer type')
+                    var_type = unqualified_type(var_type.type())
+                if (var_type.tag != DW_TAG.structure_type and
+                    var_type.tag != DW_TAG.class_type and
+                    var_type.tag != DW_TAG.union_type):
+                    raise ValueError(f'{var_type.name()!r} is not a struct, class, or union type')
+                for child in var_type.children():
+                    if child.tag == DW_TAG.member and child.name() == arg:
+                        if var_type.tag == DW_TAG.union_type:
+                            offset = 0
+                        else:
+                            offset = child.find_constant(DW_AT.data_member_location)
+                        var += '_' + arg
+                        var_type = unqualified_type(child.type())
+                        fetcharg_location = f'+0x{offset:x}({fetcharg_location})'
+                        break
+                else:
+                    raise ValueError(f'{var_type.name()!r} does not have a member named {arg!r}')
+            else:
+                assert False
+        fetcharg_type = dwarf_to_fetcharg_type(var_type)
+
         if fetcharg_type == 'string':
             fetchargs.append(f'{var}=+0x0({fetcharg_location}):string')
         else:
@@ -196,6 +231,8 @@ def get_fetchargs(vars: List[str], path: DiePath, addr: int) -> List[str]:
 
 
 def cmd_probe(args):
+    exprs = [parse_expr(var) for var in args.variables]
+
     if args.line or (not args.function and ':' in args.location):
         function = None
         filename, lineno = args.location.rsplit(':', 1)
@@ -215,7 +252,7 @@ def cmd_probe(args):
     with DwarfProgram(binary) as program:
         if function is not None:
             path = find_subprogram_by_name(program, function)
-            fetchargs = get_fetchargs(args.variables, path, path.last().address())
+            fetchargs = get_fetchargs(exprs, path, path.last().address())
             kprobes.append(Kprobe(probe_name, function, fetchargs))
         else:
             cu = find_cu_by_name(program, filename)
@@ -225,7 +262,7 @@ def cmd_probe(args):
 
                 subprogram_addr = subprogram.address()
                 assert row.address >= subprogram_addr
-                fetchargs = get_fetchargs(args.variables, path, row.address)
+                fetchargs = get_fetchargs(exprs, path, row.address)
                 location = f'{subprogram.name()}+0x{row.address - subprogram_addr:x}'
                 kprobes.append(Kprobe(f'{probe_name}_{i}', location, fetchargs))
 
