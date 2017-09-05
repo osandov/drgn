@@ -9,6 +9,7 @@ from drgn.ftrace import Kprobe, FtraceInstance
 import re
 import os
 import os.path
+import sys
 from typing import List, Sequence, Tuple
 
 
@@ -169,6 +170,31 @@ def dwarf_to_fetcharg_location(dwarf_location: bytes) -> str:
         raise ValueError("don't know how to evaluate location")
 
 
+def get_fetchargs(vars: List[str], path: DiePath, addr: int) -> List[str]:
+    fetchargs = []
+    for var in vars:
+        resolved_var = resolve_variable(path, var).last()
+
+        var_type = unqualified_type(resolved_var.type())
+        fetcharg_type = dwarf_to_fetcharg_type(var_type)
+
+        try:
+            var_location = resolved_var.location(addr)
+        except DwarfAttribNotFoundError:
+            print(f'warning: {var!r} was optimized out', file=sys.stderr)
+            continue
+        except DwarfLocationNotFoundError:
+            print(f'warning: {var!r} is not available at 0x{addr:x}', file=sys.stderr)
+            continue
+        fetcharg_location = dwarf_to_fetcharg_location(var_location)
+
+        if fetcharg_type == 'string':
+            fetchargs.append(f'{var}=+0x0({fetcharg_location}):string')
+        else:
+            fetchargs.append(f'{var}={fetcharg_location}:{fetcharg_type}')
+    return fetchargs
+
+
 def cmd_probe(args):
     if args.line or (not args.function and ':' in args.location):
         function = None
@@ -185,52 +211,36 @@ def cmd_probe(args):
         binary = f'/lib/modules/{os.uname().release}/build/vmlinux'
     else:
         binary = args.vmlinux
+    kprobes = []
     with DwarfProgram(binary) as program:
         if function is not None:
             path = find_subprogram_by_name(program, function)
-            probe_addr = path.last().address()
-            probe_location = function
+            fetchargs = get_fetchargs(args.variables, path, path.last().address())
+            kprobes.append(Kprobe(probe_name, function, fetchargs))
         else:
             cu = find_cu_by_name(program, filename)
-            # TODO: all rows, not just the first one
-            row = find_breakpoints(cu, filename, lineno)[0]
-            path = find_scope_containing_address(cu, row.address)
-            subprogram = find_enclosing_subprogram(path).last()
+            for i, row in enumerate(find_breakpoints(cu, filename, lineno)):
+                path = find_scope_containing_address(cu, row.address)
+                subprogram = find_enclosing_subprogram(path).last()
 
-            subprogram_addr = subprogram.address()
-            assert row.address >= subprogram_addr
-            probe_addr = row.address
-            probe_location = f'{subprogram.name()}+0x{row.address - subprogram_addr:x}'
-
-        fetchargs = []
-        for var in args.variables:
-            resolved_var = resolve_variable(path, var).last()
-
-            var_type = unqualified_type(resolved_var.type())
-            fetcharg_type = dwarf_to_fetcharg_type(var_type)
-
-            try:
-                var_location = resolved_var.location(probe_addr)
-            except DwarfAttribNotFoundError:
-                raise ValueError(f'{var!r} was optimized out')
-            except DwarfLocationNotFoundError:
-                raise ValueError(f'{var!r} is not available at the given location')
-            fetcharg_location = dwarf_to_fetcharg_location(var_location)
-
-            if fetcharg_type == 'string':
-                fetchargs.append(f'{var}=+0x0({fetcharg_location}):string')
-            else:
-                fetchargs.append(f'{var}={fetcharg_location}:{fetcharg_type}')
+                subprogram_addr = subprogram.address()
+                assert row.address >= subprogram_addr
+                fetchargs = get_fetchargs(args.variables, path, row.address)
+                location = f'{subprogram.name()}+0x{row.address - subprogram_addr:x}'
+                kprobes.append(Kprobe(f'{probe_name}_{i}', location, fetchargs))
 
     # TODO: deal with probe name collisions
-    with FtraceInstance(f'drgn_{os.getpid()}') as instance, \
-         Kprobe(probe_name, probe_location, fetchargs) as probe:
-        probe.enable(instance)
+    with FtraceInstance(f'drgn_{os.getpid()}') as instance:
         try:
+            for probe in kprobes:
+                probe.create()
+                probe.enable(instance)
             import subprocess
             subprocess.call(['cat', f'/sys/kernel/debug/tracing/instances/{instance.name}/trace_pipe'])
         finally:
-            probe.disable(instance)
+            for probe in kprobes:
+                probe.disable(instance)
+                probe.destroy()
 
 
 def register(subparsers):

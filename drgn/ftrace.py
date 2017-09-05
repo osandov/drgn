@@ -25,26 +25,35 @@ def append_tracefs(path, contents):
 
 class _Probe:
     def __init__(self, probe_name):
+        self._created = False
         self.probe_name = probe_name
 
     def __enter__(self):
+        self.create()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        s = f'-:{self.probe_name}\n'
-        append_tracefs('kprobe_events', s.encode())
+    def __exit__(self):
+        self.destroy()
+
+    def create(self):
+        raise NotImplementedError()
+
+    def destroy(self):
+        raise NotImplementedError()
 
     def enable(self, instance=None):
+        assert self._created
         if instance is None:
             write_tracefs(f'events/{self.probe_name}/enable', b'1')
         else:
             write_tracefs(f'instances/{instance.name}/events/{self.probe_name}/enable', b'1')
 
     def disable(self, instance=None):
-        if instance is None:
-            write_tracefs(f'events/{self.probe_name}/enable', b'0')
-        else:
-            write_tracefs(f'instances/{instance.name}/events/{self.probe_name}/enable', b'0')
+        if self._created:
+            if instance is None:
+                write_tracefs(f'events/{self.probe_name}/enable', b'0')
+            else:
+                write_tracefs(f'instances/{instance.name}/events/{self.probe_name}/enable', b'0')
 
 
 class Kprobe(_Probe):
@@ -56,10 +65,19 @@ class Kprobe(_Probe):
         else:
             self.fetchargs = ' '.join(fetchargs)
 
-    def __enter__(self):
-        s = f'p:{self.probe_name} {self.location} {self.fetchargs}\n'
-        append_tracefs('kprobe_events', s.encode())
-        return self
+    def __str__(self):
+        return f'p:{self.probe_name} {self.location} {self.fetchargs}'
+
+    def create(self):
+        assert not self._created
+        append_tracefs('kprobe_events', str(self).encode())
+        self._created = True
+
+    def destroy(self):
+        if self._created:
+            s = f'-:{self.probe_name}\n'
+            append_tracefs('kprobe_events', s.encode())
+            self._created = False
 
 
 class FtraceInstance:
