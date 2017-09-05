@@ -182,10 +182,19 @@ cdef class CompilationUnitHeader:
     cdef public uint8_t address_size
     cdef public bint is_64_bit
 
+    cdef str _name
+
     # XXX: PyLong_FromUnsignedLong() and PyDict_GetItemWithError() in
     # parse_die() show up very hot in profiles. It might be worth it to make
     # this a specialized data structure.
     cdef dict _abbrev_table
+
+    cpdef str name(self):
+        if self._name is not None:
+            return self._name
+
+        self._name = self.die().name()
+        return self._name
 
     cpdef Py_ssize_t end_offset(self):
         return self.offset + (12 if self.is_64_bit else 4) + self.unit_length
@@ -214,7 +223,8 @@ cdef class CompilationUnitHeader:
         cdef uint64_t stmt_list = Die.attrib_sec_offset(die.find_attrib(DW_AT_stmt_list))
         cdef Py_ssize_t offset = self.program.debug_line.sh_offset + stmt_list
         return parse_line_number_program(&self.program.buffer, &offset,
-                                         self.program)
+                                         self)
+
 
 
 cdef struct DieAttribValuePtr:
@@ -272,6 +282,23 @@ cdef class Die:
     def find(self, at):
         cdef const DieAttrib *attrib = self.find_attrib(at)
         return attrib.form, self.attrib_value(attrib)
+
+    def find_constant(self, at):
+        cdef const DieAttrib *attrib = self.find_attrib(at)
+        if attrib.form == DW_FORM_data1:
+            return (<const uint8_t *>&attrib.value.data[0])[0]
+        elif attrib.form == DW_FORM_data2:
+            return (<const uint16_t *>&attrib.value.data[0])[0]
+        elif attrib.form == DW_FORM_data4:
+            return (<const uint32_t *>&attrib.value.data[0])[0]
+        elif attrib.form == DW_FORM_data8:
+            return (<const uint64_t *>&attrib.value.data[0])[0]
+        elif attrib.form == DW_FORM_udata:
+            return attrib.value.u
+        elif attrib.form == DW_FORM_sdata:
+            return attrib.value.s
+        else:
+            raise ValueError(f'unknown form 0x{attrib.form:x} for constant')
 
     cpdef list children(self):
         # Note that _children isn't a cache; it's used for DIEs with no
@@ -512,6 +539,7 @@ cdef class Die:
 
 cdef class LineNumberProgram:
     cdef public DwarfProgram program
+    cdef public CompilationUnitHeader cu
     # Offset from the beginning of the section.
     cdef public Py_ssize_t offset
 
@@ -560,7 +588,7 @@ cdef class LineNumberProgram:
         cdef Py_ssize_t offset = self.program.debug_line.sh_offset + self.program_offset()
         cdef Py_ssize_t end = self.program.debug_line.sh_offset + self.end_offset()
 
-        cdef LineNumberRow state = LineNumberRow.__new__(LineNumberRow)
+        cdef LineNumberRow state = LineNumberRow.__new__(LineNumberRow, self)
         self.init_state(state)
 
         cdef list matrix = []
@@ -590,7 +618,7 @@ cdef class LineNumberProgram:
         read_u8(buffer, offset, &opcode)
         if opcode == DW_LNE_end_sequence:
             state.end_sequence = True
-            matrix.append(LineNumberRow.__new__(LineNumberRow, state))
+            matrix.append(LineNumberRow.__new__(LineNumberRow, self, state))
             self.init_state(state)
         elif opcode == DW_LNE_set_address:
             if op_length == 9:
@@ -620,7 +648,7 @@ cdef class LineNumberProgram:
         cdef int64_t sarg
 
         if opcode == DW_LNS_copy:
-            matrix.append(LineNumberRow.__new__(LineNumberRow, state))
+            matrix.append(LineNumberRow.__new__(LineNumberRow, self, state))
             LineNumberProgram.reset_state(state)
         elif opcode == DW_LNS_advance_pc:
             read_uleb128(buffer, offset, &arg)
@@ -658,11 +686,13 @@ cdef class LineNumberProgram:
 
         self.advance_pc(state, operation_advance)
         state.line += self.line_base + (adjusted_opcode % self.line_range)
-        matrix.append(LineNumberRow.__new__(LineNumberRow, state))
+        matrix.append(LineNumberRow.__new__(LineNumberRow, self, state))
         LineNumberProgram.reset_state(state)
 
 
 cdef class LineNumberRow:
+    cdef public LineNumberProgram lnp
+
     cdef public uint64_t address
     cdef public uint64_t file
     cdef public uint64_t line
@@ -676,7 +706,8 @@ cdef class LineNumberRow:
     cdef public bint prologue_end
     cdef public bint epilogue_begin
 
-    def __cinit__(self, LineNumberRow row=None):
+    def __cinit__(self, LineNumberProgram lnp, LineNumberRow row=None):
+        self.lnp = lnp
         if row is not None:
             self.address = row.address
             self.file = row.file
@@ -690,6 +721,19 @@ cdef class LineNumberRow:
             self.end_sequence = row.end_sequence
             self.prologue_end = row.prologue_end
             self.epilogue_begin = row.epilogue_begin
+
+    def path(self):
+        assert self.lnp is not None
+        if self.file == 0:
+            assert self.lnp.cu is not None
+            return self.lnp.cu.name()
+        else:
+            filename = self.lnp.file_names[self.file - 1]
+            if filename.directory_index > 0:
+                directory = self.lnp.include_directories[filename.directory_index - 1]
+                return directory + '/' + filename.name
+            else:
+                return filename.name
 
 
 cdef class LineNumberFilename:
@@ -1064,10 +1108,11 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
 
 cdef LineNumberProgram parse_line_number_program(Py_buffer *buffer,
                                                  Py_ssize_t *offset,
-                                                 DwarfProgram program):
+                                                 CompilationUnitHeader cu):
     cdef LineNumberProgram lnp = LineNumberProgram.__new__(LineNumberProgram)
-    lnp.program = program
-    lnp.offset = offset[0] - program.debug_line.sh_offset
+    lnp.program = cu.program
+    lnp.cu = cu
+    lnp.offset = offset[0] - cu.program.debug_line.sh_offset
 
     cdef uint32_t tmp
     read_u32(buffer, offset, &tmp)

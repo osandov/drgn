@@ -6,7 +6,9 @@ import os.path
 import sys
 
 
-def dump_cu(cu, name, *, indent=0):
+def dump_cu(cu, name=None, *, indent=0):
+    if name is None:
+        name = cu.die().name()
     prefix = ' ' * indent
     print(f'{prefix}<{cu.offset}> compilation unit', end='')
     print(f' ({name!r})')
@@ -319,22 +321,13 @@ def dump_lnp_ops(lnp: drgn.dwarf.LineNumberProgram, *, indent: int=0):
     print(f'{prefix}}}')
 
 
-def dump_line_number_matrix(lnp, matrix, cu_name, *, indent=0):
+def dump_line_number_matrix(lnp, matrix, *, indent=0):
     prefix = ' ' * indent
     print(f'{prefix}lines = {{')
     for row in matrix:
         if row.end_sequence:
             continue
-        if row.file == 0:
-            path = cu_name
-        else:
-            filename = lnp.file_names[row.file - 1]
-            if filename.directory_index > 0:
-                directory = lnp.include_directories[filename.directory_index - 1]
-                path = os.path.join(directory, filename.name)
-            else:
-                path = filename.name
-        print(f'{prefix}  0x{row.address:016x} is {repr(path)[1:-1]}:{row.line}', end='')
+        print(f'{prefix}  0x{row.address:016x} is {repr(row.path())[1:-1]}:{row.line}', end='')
 
         flags = []
         if row.is_stmt:
@@ -371,7 +364,7 @@ def dump_cus(program: DwarfProgram, args) -> None:
                 dump_lnp(lnp, indent=2)
             if args.lines:
                 matrix = lnp.execute()
-                dump_line_number_matrix(lnp, matrix, name, indent=2)
+                dump_line_number_matrix(lnp, matrix, indent=2)
 
 
 def dump_arange(program, art, arange, *, indent=0):

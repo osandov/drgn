@@ -1,12 +1,12 @@
 from copy import copy
-from drgn.dwarf import DwarfProgram, CompilationUnitHeader, Die
+from drgn.arch import DWARF_REG_TO_FETCHARG
+from drgn.dwarf import DwarfProgram, CompilationUnitHeader, Die, LineNumberRow
 from drgn.dwarfdefs import *
 from drgn.ftrace import Kprobe, FtraceInstance
 import re
 import os
-from typing import Sequence
-
-from drgn.cli.dump import dump_cu, dump_die  # XXX
+import os.path
+from typing import List, Sequence, Tuple
 
 
 class DiePath:
@@ -64,6 +64,52 @@ def find_subprogram_by_name(program: DwarfProgram, name: str) -> DiePath:
         raise ValueError('subprogram not found')
 
 
+def find_cu_by_name(program: DwarfProgram, filename: str) -> CompilationUnitHeader:
+    filename = os.path.normpath(filename)
+    for cu in program.cu_headers():
+        if os.path.normpath(cu.name()) == filename:
+            return cu
+    else:
+        raise ValueError(f'could not find {filename!r}')
+
+
+def find_breakpoints(cu: CompilationUnitHeader, filename: str,
+                     lineno: int) -> List[LineNumberRow]:
+    rows = []
+    for row in cu.line_number_program().execute():
+        if row.is_stmt and row.line == lineno and row.path() == filename:
+            rows.append(row)
+    if not rows:
+        raise ValueError(f"could not find address of {filename + ':' + str(lineno)!r}")
+    return rows
+
+
+def find_scope_containing_address(cu: CompilationUnitHeader, addr: int) -> DiePath:
+    die = cu.die()
+    path = DiePath(die)
+    assert die.contains_address(addr)
+    while True:
+        children = die.children()
+        for i, child in enumerate(children):
+            if ((child.tag == DW_TAG.subprogram or child.tag == DW_TAG.lexical_block) and
+                 child.contains_address(addr)):
+                path.append(children, i)
+                die = child
+                break
+        else:
+            return path
+
+
+def find_enclosing_subprogram(path: DiePath) -> DiePath:
+    path = copy(path)
+    while len(path.dies):
+        if path.last().tag == DW_TAG.subprogram:
+            return path
+        del path.dies[-1]
+        del path.slots[-1]
+    assert False
+
+
 def resolve_variable(path: DiePath, var: str) -> DiePath:
     path = copy(path)
     children = path.last().children()
@@ -77,7 +123,7 @@ def resolve_variable(path: DiePath, var: str) -> DiePath:
                 path.slots[-1] = i
                 return path
         del path.dies[-1]
-        del path.slot[-1]
+        del path.slots[-1]
     raise ValueError(f'could not resolve {var!r}')
 
 
@@ -88,6 +134,36 @@ def unqualified_type(die: Die) -> Die:
     while die.tag == DW_TAG.typedef or die.tag not in UNQUALIFIED_TYPE_TAGS:
         die = die.type()
     return die
+
+
+def dwarf_to_fetcharg_type(dwarf_type: Die) -> str:
+    if dwarf_type.tag == DW_TAG.base_type:
+        encoding = dwarf_type.find_constant(DW_AT.encoding)
+        if (encoding == DW_ATE.unsigned or encoding == DW_ATE.unsigned_char or
+            encoding == DW_ATE.signed or encoding == DW_ATE.signed_char):
+            # TODO: also check for bit_size and {data_,}bit_offset
+            bit_size = 8 * dwarf_type.find_constant(DW_AT.byte_size)
+            if encoding == DW_ATE.signed or encoding == DW_ATE.signed_char:
+                return f's{bit_size}'
+            else:
+                return f'u{bit_size}'
+    elif dwarf_type.tag == DW_TAG.pointer_type:
+        deref_type = unqualified_type(dwarf_type.type())
+        if deref_type.tag == DW_TAG.base_type:
+            encoding = deref_type.find_constant(DW_AT.encoding)
+            if encoding == DW_ATE.signed_char or encoding == DW_ATE.unsigned_char:
+                return 'string'
+        bit_size = 8 * dwarf_type.find_constant(DW_AT.byte_size)
+        return f'x{bit_size}'
+    else:
+        raise ValueError(f"don't know how to fetch type {tag_name(dwarf_type.tag)}")
+
+
+def dwarf_to_fetcharg_location(dwarf_location: bytes) -> str:
+    if len(dwarf_location) == 1 and DW_OP.reg0 <= dwarf_location[0] <= DW_OP.reg31:
+        return DWARF_REG_TO_FETCHARG[dwarf_location[0] - DW_OP.reg0]
+    else:
+        raise ValueError("don't know how to evaluate location")
 
 
 def cmd_probe(args):
@@ -112,33 +188,37 @@ def cmd_probe(args):
             probe_addr = path.last().address()
             probe_location = function
         else:
-            assert False, 'TODO'
-            cu = program.find_cu_by_name(filename)
-            row = program.find_breakpoint(cu, filename, lineno)
-            scope = program.find_scope_containing_address(cu, row.address)
+            cu = find_cu_by_name(program, filename)
+            # TODO: all rows, not just the first one
+            row = find_breakpoints(cu, filename, lineno)[0]
+            path = find_scope_containing_address(cu, row.address)
+            subprogram = find_enclosing_subprogram(path).last()
 
-            subprogram = scope
-            while subprogram.tag != DW_TAG.subprogram:
-                subprogram = subprogram.parent
-            subprogram_name = cu.file.die_name(subprogram)
-            subprogram_addr = cu.file.die_address(subprogram)
-
+            subprogram_addr = subprogram.address()
             assert row.address >= subprogram_addr
             probe_addr = row.address
-            probe_location = f'{subprogram_name}+0x{row.address - subprogram_addr:x}'
+            probe_location = f'{subprogram.name()}+0x{row.address - subprogram_addr:x}'
 
+        fetchargs = []
         for var in args.variables:
-            resolved = resolve_variable(path, var).last()
-            var_type = unqualified_type(resolved.type())
-            dump_die(resolved)
-            dump_die(resolved.type())
-            print(resolved.location(probe_addr))
-        print(probe_name, probe_location)
-        return
+            resolved_var = resolve_variable(path, var).last()
+
+            var_type = unqualified_type(resolved_var.type())
+            fetcharg_type = dwarf_to_fetcharg_type(var_type)
+
+            # TODO: catch no location (optimized out), or not available at that
+            # location.
+            var_location = resolved_var.location(probe_addr)
+            fetcharg_location = dwarf_to_fetcharg_location(var_location)
+
+            if fetcharg_type == 'string':
+                fetchargs.append(f'{var}=+0x0({fetcharg_location}):string')
+            else:
+                fetchargs.append(f'{var}={fetcharg_location}:{fetcharg_type}')
 
     # TODO: deal with probe name collisions
     with FtraceInstance(f'drgn_{os.getpid()}') as instance, \
-         Kprobe(probe_name, probe_location) as probe:
+         Kprobe(probe_name, probe_location, fetchargs) as probe:
         probe.enable(instance)
         try:
             import subprocess
