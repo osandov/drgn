@@ -12,6 +12,18 @@ cdef extern from "Python.h":
     cdef void *PyMem_Calloc(size_t nelem, size_t elsize)
 
 
+cdef class DwarfFormatError(Exception):
+    pass
+
+
+cdef class DwarfAttribNotFoundError(Exception):
+    pass
+
+
+cdef class DwarfLocationNotFoundError(Exception):
+    pass
+
+
 cdef class DwarfProgram:
     cdef bint _closed
 
@@ -298,7 +310,7 @@ cdef class Die:
         elif attrib.form == DW_FORM_sdata:
             return attrib.value.s
         else:
-            raise ValueError(f'unknown form 0x{attrib.form:x} for constant')
+            raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for constant')
 
     cpdef list children(self):
         # Note that _children isn't a cache; it's used for DIEs with no
@@ -318,7 +330,7 @@ cdef class Die:
     cpdef uint64_t address(self):
         cdef const DieAttrib *low_pc = self.find_attrib(DW_AT_low_pc)
         if low_pc.form != DW_FORM_addr:
-            raise ValueError(f'unknown form 0x{low_pc.form:x} for DW_AT_low_pc')
+            raise DwarfFormatError(f'unknown form 0x{low_pc.form:x} for DW_AT_low_pc')
         return low_pc.value.u
 
     cpdef Die type(self):
@@ -334,7 +346,7 @@ cdef class Die:
         elif attrib.form == DW_FORM_ref_sig8:
             raise NotImplementedError('DW_FORM_ref_sig8 is not implemented')
         else:
-            raise ValueError(f'unknown form 0x{attrib.form:x} for DW_AT_type')
+            raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for DW_AT_type')
 
         return parse_die(&self.program.buffer, &offset, self.cu,
                          self.cu.abbrev_table(), False)
@@ -361,7 +373,7 @@ cdef class Die:
 
         try:
             base_addr = self.cu.die().address()
-        except ValueError:
+        except DwarfAttribNotFoundError:
             base_addr = 0
 
         while True:
@@ -378,7 +390,7 @@ cdef class Die:
                     base_addr = end
                     continue
             else:
-                raise ValueError(f'unsupported address size {self.cu.address_size}')
+                raise DwarfFormatError(f'unsupported address size {self.cu.address_size}')
 
             if start == 0 and end == 0:
                 break
@@ -388,13 +400,13 @@ cdef class Die:
             if base_addr + start <= addr < base_addr + end:
                 return read_bytes(&self.program.buffer, &offset, lle_length)
 
-        raise ValueError(f'could not find location list entry for address 0x{addr:x}')
+        raise DwarfLocationNotFoundError(f'could not find location list entry for address 0x{addr:x}')
 
     cpdef bint contains_address(self, uint64_t addr):
         cdef const DieAttrib *ranges_attrib
         try:
             ranges_attrib = self.find_attrib(DW_AT_ranges)
-        except ValueError:
+        except DwarfAttribNotFoundError:
             pass
         else:
             return self.ranges_contains_address(ranges_attrib, addr)
@@ -404,8 +416,8 @@ cdef class Die:
         try:
             low_pc = self.address()
             high_pc = self.find_attrib(DW_AT_high_pc)
-        except ValueError:
-            raise ValueError('DIE does not have address range information')
+        except DwarfAttribNotFoundError:
+            raise DwarfAttribNotFoundError('DIE does not have address range information')
 
         if high_pc.form == DW_FORM_addr:
             return low_pc <= addr < high_pc.value.u
@@ -422,7 +434,7 @@ cdef class Die:
 
         try:
             base_addr = self.cu.die().address()
-        except ValueError:
+        except DwarfAttribNotFoundError:
             base_addr = 0
 
         while True:
@@ -439,7 +451,7 @@ cdef class Die:
                     base_addr = end
                     continue
             else:
-                raise ValueError(f'unsupported address size {self.cu.address_size}')
+                raise DwarfFormatError(f'unsupported address size {self.cu.address_size}')
 
             if start == 0 and end == 0:
                 break
@@ -454,7 +466,7 @@ cdef class Die:
             if self.attribs[i].name == name:
                 return &self.attribs[i]
         else:
-            raise ValueError('no attribute with that name')
+            raise DwarfAttribNotFoundError('no attribute with that name')
 
     cdef str attrib_string(self, const DieAttrib *attrib):
         cdef Py_ssize_t offset
@@ -468,7 +480,7 @@ cdef class Die:
             return PyUnicode_FromStringAndSize(<const char *>self.program.buffer.buf + offset,
                                                attrib.value.ptr.length)
         else:
-            raise ValueError(f'unknown form 0x{attrib.form:x} for string')
+            raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for string')
 
     @staticmethod
     cdef uint64_t attrib_uconstant(const DieAttrib *attrib):
@@ -483,7 +495,7 @@ cdef class Die:
         elif attrib.form == DW_FORM_udata:
             return attrib.value.u
         else:
-            raise ValueError(f'unknown form 0x{attrib.form:x} for unsigned constant')
+            raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for unsigned constant')
 
     @staticmethod
     cdef uint64_t attrib_sec_offset(const DieAttrib *attrib):
@@ -493,7 +505,7 @@ cdef class Die:
         elif attrib.form == DW_FORM_sec_offset:
             return attrib.value.u
         else:
-            raise ValueError(f'unknown form 0x{attrib.form:x} for section offset')
+            raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for section offset')
 
     cdef object attrib_value(self, const DieAttrib *attrib):
         cdef Py_ssize_t offset
@@ -534,7 +546,7 @@ cdef class Die:
         elif attrib.form == DW_FORM_flag_present:
             return True
         else:
-            raise ValueError(f'unknown form 0x{attrib.form:x}')
+            raise DwarfFormatError(f'unknown form 0x{attrib.form:x}')
 
 
 cdef class LineNumberProgram:
@@ -626,14 +638,14 @@ cdef class LineNumberProgram:
             elif op_length == 5:
                 read_u32_into_u64(buffer, offset, &state.address)
             else:
-                raise ValueError(f'unsupported address size {op_length}')
+                raise DwarfFormatError(f'unsupported address size {op_length}')
             state.op_index = 0
         elif opcode == DW_LNE_define_file:
             raise NotImplementedError('DW_LNE_define_file is not implemented')
         elif opcode == DW_LNE_set_discriminator:
             read_uleb128(buffer, offset, &state.discriminator)
         else:
-            raise ValueError(f'unknown extended opcode {opcode}')
+            raise DwarfFormatError(f'unknown extended opcode {opcode}')
 
     cdef advance_pc(self, LineNumberRow state, uint64_t operation_advance):
         state.address += (self.minimum_instruction_length *
@@ -678,7 +690,7 @@ cdef class LineNumberProgram:
         elif opcode == DW_LNS_set_isa:
             read_uleb128(buffer, offset, &state.isa)
         else:
-            raise ValueError(f'unknown standard opcode {opcode}')
+            raise DwarfFormatError(f'unknown standard opcode {opcode}')
 
     cdef execute_special_opcode(self, LineNumberRow state, list matrix, uint8_t opcode):
         cdef uint8_t adjusted_opcode = opcode - self.opcode_base
@@ -814,7 +826,7 @@ cdef AbbrevDecl parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
     try:
         read_uleb128(buffer, offset, code)
     except EOFError:
-        raise ValueError('abbreviation declaration code is truncated')
+        raise DwarfFormatError('abbreviation declaration code is truncated')
     if code[0] == 0:
         return None
 
@@ -823,12 +835,12 @@ cdef AbbrevDecl parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
     try:
         read_uleb128(buffer, offset, &decl.tag)
     except EOFError:
-        raise ValueError('abbreviation declaration tag is truncated')
+        raise DwarfFormatError('abbreviation declaration tag is truncated')
     cdef uint8_t children
     try:
         read_u8(buffer, offset, &children)
     except EOFError:
-        raise ValueError('abbreviation declaration children flag is truncated')
+        raise DwarfFormatError('abbreviation declaration children flag is truncated')
     decl.children = children != DW_CHILDREN_no
 
     cdef Py_ssize_t capacity = 1  # XXX: is this a good first guess?
@@ -839,11 +851,11 @@ cdef AbbrevDecl parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
         try:
             read_uleb128(buffer, offset, &name)
         except EOFError:
-            raise ValueError('abbreviation specification name is truncated')
+            raise DwarfFormatError('abbreviation specification name is truncated')
         try:
             read_uleb128(buffer, offset, &form)
         except EOFError:
-            raise ValueError('abbreviation specification form is truncated')
+            raise DwarfFormatError('abbreviation specification form is truncated')
         if name == 0 and form == 0:
             break
 
@@ -868,7 +880,7 @@ cdef dict parse_abbrev_table(Py_buffer *buffer, Py_ssize_t *offset):
         if abbrev_decl is None:
             break
         if code in table:
-            raise ValueError(f'duplicate abbreviation code {code}')
+            raise DwarfFormatError(f'duplicate abbreviation code {code}')
         table[code] = abbrev_decl
 
     return table
@@ -889,7 +901,7 @@ cdef ArangeTable parse_arange_table(Py_buffer *buffer, Py_ssize_t *offset,
 
     read_u16(buffer, offset, &art.version)
     if art.version != 2:
-        raise ValueError(f'unknown arange table version {art.version}')
+        raise DwarfFormatError(f'unknown arange table version {art.version}')
 
     if art.is_64_bit:
         read_u64(buffer, offset, &art.debug_info_offset)
@@ -900,9 +912,9 @@ cdef ArangeTable parse_arange_table(Py_buffer *buffer, Py_ssize_t *offset,
     read_u8(buffer, offset, &art.segment_size)
 
     if art.segment_size != 4 and art.segment_size != 8 and art.segment_size != 0:
-        raise ValueError(f'unsupported segment size {art.segment_size}')
+        raise DwarfFormatError(f'unsupported segment size {art.segment_size}')
     if art.address_size != 4 and art.address_size != 8:
-        raise ValueError(f'unsupported address size {art.address_size}')
+        raise DwarfFormatError(f'unsupported address size {art.address_size}')
 
     cdef Py_ssize_t align = art.segment_size + 2 * art.address_size
     if offset[0] % align:
@@ -951,7 +963,7 @@ cdef CompilationUnitHeader parse_compilation_unit_header(Py_buffer *buffer,
 
     read_u16(buffer, offset, &cu.version)
     if cu.version != 2 and cu.version != 3 and cu.version != 4:
-        raise ValueError(f'unknown CU version {cu.version}')
+        raise DwarfFormatError(f'unknown CU version {cu.version}')
 
     if cu.is_64_bit:
         read_u64(buffer, offset, &cu.debug_abbrev_offset)
@@ -975,7 +987,7 @@ cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
         elif address_size == 8:
             read_u64(buffer, offset, &attrib.value.u)
         else:
-            raise ValueError(f'unsupported address size {address_size}')
+            raise DwarfFormatError(f'unsupported address size {address_size}')
     elif (attrib.form == DW_FORM_block1 or  # block
           attrib.form == DW_FORM_block2 or
           attrib.form == DW_FORM_block4 or
@@ -989,7 +1001,7 @@ cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
         elif attrib.form == DW_FORM_exprloc:
             read_uleb128(buffer, offset, &tmp)
             if tmp > <uint64_t>PY_SSIZE_T_MAX:
-                raise ValueError('attribute length too big')
+                raise DwarfFormatError('attribute length too big')
             attrib.value.ptr.length = tmp
         read_check_bounds(buffer, offset[0], attrib.value.ptr.length)
         attrib.value.ptr.offset = offset[0] - program.debug_info.sh_offset
@@ -1033,9 +1045,9 @@ cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
     elif (attrib.form == DW_FORM_ref8 or attrib.form == DW_FORM_ref_sig8):
         read_u64(buffer, offset, &attrib.value.u)
     elif DW_FORM_indirect:
-        raise ValueError('DW_FORM_indirect is not supported')
+        raise DwarfFormatError('DW_FORM_indirect is not supported')
     else:
-        raise ValueError(f'unknown form 0x{attrib.form:x}')
+        raise DwarfFormatError(f'unknown form 0x{attrib.form:x}')
 
 
 cdef list no_children = []
@@ -1072,7 +1084,7 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
     try:
         decl = abbrev_table[code]
     except KeyError:
-        raise ValueError(f'unknown abbreviation code {code}')
+        raise DwarfFormatError(f'unknown abbreviation code {code}')
 
     die.tag = decl.tag
     die.attribs = <DieAttrib *>PyMem_Calloc(decl.num_attribs, sizeof(DieAttrib))
@@ -1124,7 +1136,7 @@ cdef LineNumberProgram parse_line_number_program(Py_buffer *buffer,
 
     read_u16(buffer, offset, &lnp.version)
     if lnp.version != 2 and lnp.version != 3 and lnp.version != 4:
-        raise ValueError(f'unknown line number program version {lnp.version}')
+        raise DwarfFormatError(f'unknown line number program version {lnp.version}')
 
     if lnp.is_64_bit:
         read_u64(buffer, offset, &lnp.header_length)
@@ -1144,7 +1156,7 @@ cdef LineNumberProgram parse_line_number_program(Py_buffer *buffer,
     read_u8(buffer, offset, &lnp.opcode_base)
 
     if lnp.opcode_base == 0:
-        raise ValueError('opcode_base is 0')
+        raise DwarfFormatError('opcode_base is 0')
     lnp.standard_opcode_lengths = []
     cdef uint8_t opcode_length
     for i in range(lnp.opcode_base - 1):

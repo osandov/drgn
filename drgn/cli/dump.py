@@ -1,5 +1,7 @@
-import drgn.dwarf
-from drgn.dwarf import DwarfProgram, parse_uleb128, parse_sleb128
+from drgn.dwarf import (
+    Die, DwarfAttribNotFoundError, DwarfProgram, DwarfProgram,
+    LineNumberProgram, LineNumberRow, parse_uleb128, parse_sleb128,
+)
 from drgn.dwarfdefs import *
 import fnmatch
 import os.path
@@ -19,13 +21,13 @@ def dump_cu(cu, name=None, *, indent=0):
     print(f'{prefix}  is_64_bit = {cu.is_64_bit}')
 
 
-def dump_die(die: drgn.dwarf.Die, *, indent: int=0, recurse: bool=False,
+def dump_die(die: Die, *, indent: int=0, recurse: bool=False,
              location: bool=False) -> None:
     prefix = ' ' * indent
     print(f'{prefix}<{die.offset}> {tag_name(die.tag)}', end='')
     try:
         name = die.name()
-    except ValueError:
+    except DwarfAttribNotFoundError:
         print()
     else:
         print(f' ({name!r})')
@@ -245,7 +247,7 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
             raise ValueError(f'unknown opcode {op_name(opcode)}')
 
 
-def dump_lnp(lnp: drgn.dwarf.LineNumberProgram, *, indent: int=0):
+def dump_lnp(lnp: LineNumberProgram, *, indent: int=0):
     prefix = ' ' * indent
     print(f'{prefix}<{lnp.offset}> line number program')
     print(f'{prefix}  unit_length = {lnp.unit_length}')
@@ -275,7 +277,7 @@ def dump_lnp(lnp: drgn.dwarf.LineNumberProgram, *, indent: int=0):
     dump_lnp_ops(lnp, indent=indent + 2)
 
 
-def dump_lnp_ops(lnp: drgn.dwarf.LineNumberProgram, *, indent: int=0):
+def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
     prefix = ' ' * indent
     print(f'{prefix}opcodes = {{')
     offset = lnp.program.debug_line.sh_offset + lnp.program_offset()

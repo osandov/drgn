@@ -1,6 +1,9 @@
 from copy import copy
 from drgn.arch import DWARF_REG_TO_FETCHARG
-from drgn.dwarf import DwarfProgram, CompilationUnitHeader, Die, LineNumberRow
+from drgn.dwarf import (
+    CompilationUnitHeader, Die, DwarfAttribNotFoundError,
+    DwarfLocationNotFoundError, DwarfProgram, LineNumberRow,
+)
 from drgn.dwarfdefs import *
 from drgn.ftrace import Kprobe, FtraceInstance
 import re
@@ -61,7 +64,7 @@ def find_subprogram_by_name(program: DwarfProgram, name: str) -> DiePath:
             path.append(children, i)
             return path
     else:
-        raise ValueError('subprogram not found')
+        raise ValueError(f'could not find {name!r}')
 
 
 def find_cu_by_name(program: DwarfProgram, filename: str) -> CompilationUnitHeader:
@@ -206,9 +209,12 @@ def cmd_probe(args):
             var_type = unqualified_type(resolved_var.type())
             fetcharg_type = dwarf_to_fetcharg_type(var_type)
 
-            # TODO: catch no location (optimized out), or not available at that
-            # location.
-            var_location = resolved_var.location(probe_addr)
+            try:
+                var_location = resolved_var.location(probe_addr)
+            except DwarfAttribNotFoundError:
+                raise ValueError(f'{var!r} was optimized out')
+            except DwarfLocationNotFoundError:
+                raise ValueError(f'{var!r} is not available at the given location')
             fetcharg_location = dwarf_to_fetcharg_location(var_location)
 
             if fetcharg_type == 'string':
