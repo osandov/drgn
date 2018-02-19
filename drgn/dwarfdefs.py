@@ -1,4 +1,5 @@
 import enum
+from drgn.dwarf import Die
 
 class DW_CHILDREN(enum.IntEnum):
     no = 0
@@ -618,3 +619,11 @@ UNQUALIFIED_TYPE_TAGS = {
     DW_TAG.union_type,
     DW_TAG.unspecified_type,
 }
+
+
+def unqualified_type(die: Die) -> Die:
+    if die.tag not in TYPE_TAGS:
+        raise ValueError('not a type DIE')
+    while die.tag == DW_TAG.typedef or die.tag not in UNQUALIFIED_TYPE_TAGS:
+        die = die.type()
+    return die

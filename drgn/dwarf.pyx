@@ -2,7 +2,6 @@ from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, Py_buffer, PyB
 from cpython.mem cimport PyMem_Realloc, PyMem_Free
 from libc.stdint cimport UINT32_MAX, UINT64_MAX
 
-from drgn.elf cimport Elf_Ehdr, Elf_Shdr, parse_elf_header, parse_elf_sections, parse_elf_symtab
 from drgn.read cimport *
 import mmap
 
@@ -24,54 +23,52 @@ cdef class DwarfLocationNotFoundError(Exception):
     pass
 
 
-cdef class DwarfProgram:
+cdef struct Section:
+    uint64_t offset
+    uint64_t size
+
+
+cdef set_section(Section *section, object section_object):
+    if section_object is not None:
+        section.offset = section_object.offset
+        section.size = section_object.size
+
+
+cdef class DwarfFile:
     cdef bint _closed
+    cdef bint _release_buffer
 
-    cdef public str path
-    cdef public object file
     cdef public object mmap
-    cdef public Elf_Ehdr ehdr
-    cdef public object sections
 
-    cdef public Elf_Shdr debug_abbrev
-    cdef public Elf_Shdr debug_aranges
-    cdef public Elf_Shdr debug_info
-    cdef public Elf_Shdr debug_line
-    cdef public Elf_Shdr debug_loc
-    cdef public Elf_Shdr debug_ranges
-    cdef public Elf_Shdr debug_str
+    cdef Section debug_abbrev
+    cdef Section debug_aranges
+    cdef Section debug_info
+    cdef Section debug_line
+    cdef Section debug_loc
+    cdef Section debug_ranges
+    cdef Section debug_str
 
     cdef Py_buffer buffer
-    cdef bint release_buffer
 
-    def __cinit__(self, path):
-        self._closed = False
-        self.path = path
-        self.file = open(path, 'rb')
-        self.mmap = mmap.mmap(self.file.fileno(), 0, access=mmap.ACCESS_READ)
+    def __cinit__(self, file, sections):
+        self.mmap = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
         PyObject_GetBuffer(self.mmap, &self.buffer, PyBUF_SIMPLE)
-        self.release_buffer = True
+        self._release_buffer = True
 
-        self.ehdr = parse_elf_header(&self.buffer)
-        self.sections = parse_elf_sections(&self.buffer, self.ehdr)
-
-        dummy_shdr = Elf_Shdr()
-        self.debug_abbrev = self.sections['.debug_abbrev']
-        self.debug_aranges = self.sections['.debug_aranges']
-        self.debug_info = self.sections['.debug_info']
-        self.debug_line = self.sections.get('.debug_line', dummy_shdr)
-        self.debug_loc = self.sections.get('.debug_loc', dummy_shdr)
-        self.debug_ranges = self.sections.get('.debug_ranges', dummy_shdr)
-        self.debug_str = self.sections.get('.debug_str', dummy_shdr)
+        set_section(&self.debug_abbrev, sections['.debug_abbrev'])
+        set_section(&self.debug_aranges, sections['.debug_aranges'])
+        set_section(&self.debug_info, sections['.debug_info'])
+        set_section(&self.debug_line, sections.get('.debug_line'))
+        set_section(&self.debug_loc, sections.get('.debug_loc'))
+        set_section(&self.debug_ranges, sections.get('.debug_ranges'))
+        set_section(&self.debug_str, sections.get('.debug_str'))
 
     def close(self):
         if not self._closed:
-            if self.release_buffer:
+            if self._release_buffer:
                 PyBuffer_Release(&self.buffer)
             if self.mmap is not None:
                 self.mmap.close()
-            if self.file is not None:
-                self.file.close()
             self._closed = True
 
     def __del__(self):
@@ -83,35 +80,14 @@ cdef class DwarfProgram:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    cpdef dict symbols(self):
-        cdef Elf_Shdr symtab = self.sections['.symtab']
-        cdef Elf_Shdr strtab = self.sections['.strtab']
-        cdef Py_ssize_t offset
-        cdef str sym_name
-
-        cdef dict symbols = {}
-        for sym in parse_elf_symtab(&self.buffer, symtab):
-            if sym.st_name:
-                offset = strtab.sh_offset + sym.st_name
-                # XXX: should limit length to the size of .strtab.
-                sym_name = read_str(&self.buffer, &offset)
-            else:
-                sym_name = ''
-
-            try:
-                symbols[sym_name].append(sym)
-            except KeyError:
-                symbols[sym_name] = [sym]
-        return symbols
-
     cpdef CompilationUnitHeader cu_header(self, Py_ssize_t offset):
         cdef Py_ssize_t orig_offset = offset
-        offset += self.debug_info.sh_offset
+        offset += self.debug_info.offset
         return parse_compilation_unit_header(&self.buffer, &offset, self)
 
     def cu_headers(self):
         cdef Py_ssize_t offset = 0
-        cdef Py_ssize_t end = self.debug_info.sh_size
+        cdef Py_ssize_t end = self.debug_info.size
         while offset < end:
             cu = self.cu_header(offset)
             yield cu
@@ -119,13 +95,13 @@ cdef class DwarfProgram:
 
     cdef ArangeTable arange_table(self, Py_ssize_t offset):
         cdef Py_ssize_t orig_offset = offset
-        offset += self.debug_aranges.sh_offset
+        offset += self.debug_aranges.offset
         cdef ArangeTable art = parse_arange_table(&self.buffer, &offset, self)
         return art
 
     def arange_tables(self):
         cdef Py_ssize_t offset = 0
-        cdef Py_ssize_t end = self.debug_aranges.sh_size
+        cdef Py_ssize_t end = self.debug_aranges.size
         while offset < end:
             art = self.arange_table(offset)
             yield art
@@ -183,7 +159,7 @@ cdef class ArangeTable:
 
 
 cdef class CompilationUnitHeader:
-    cdef public DwarfProgram program
+    cdef public DwarfFile dwarf_file
     # Offset from the beginning of .debug_info (or whatever section it was
     # parsed from).
     cdef public Py_ssize_t offset
@@ -215,26 +191,26 @@ cdef class CompilationUnitHeader:
         return self.offset + (23 if self.is_64_bit else 11)
 
     cdef dict abbrev_table(self):
-        assert self.program is not None
+        assert self.dwarf_file is not None
 
         if self._abbrev_table is not None:
             return self._abbrev_table
 
-        cdef Py_ssize_t offset = self.program.debug_abbrev.sh_offset + self.debug_abbrev_offset
-        self._abbrev_table = parse_abbrev_table(&self.program.buffer, &offset)
+        cdef Py_ssize_t offset = self.dwarf_file.debug_abbrev.offset + self.debug_abbrev_offset
+        self._abbrev_table = parse_abbrev_table(&self.dwarf_file.buffer, &offset)
         return self._abbrev_table
 
     cpdef Die die(self):
-        assert self.program is not None
-        cdef Py_ssize_t offset = self.program.debug_info.sh_offset + self.die_offset()
-        return parse_die(&self.program.buffer, &offset, self,
+        assert self.dwarf_file is not None
+        cdef Py_ssize_t offset = self.dwarf_file.debug_info.offset + self.die_offset()
+        return parse_die(&self.dwarf_file.buffer, &offset, self,
                          self.abbrev_table(), False)
 
     cpdef LineNumberProgram line_number_program(self):
         cdef Die die = self.die()
         cdef uint64_t stmt_list = Die.attrib_sec_offset(die.find_attrib(DW_AT_stmt_list))
-        cdef Py_ssize_t offset = self.program.debug_line.sh_offset + stmt_list
-        return parse_line_number_program(&self.program.buffer, &offset,
+        cdef Py_ssize_t offset = self.dwarf_file.debug_line.offset + stmt_list
+        return parse_line_number_program(&self.dwarf_file.buffer, &offset,
                                          self)
 
 
@@ -268,7 +244,7 @@ cdef struct DieAttrib:
 
 
 cdef class Die:
-    cdef public DwarfProgram program
+    cdef public DwarfFile dwarf_file
     cdef public CompilationUnitHeader cu
     # Offset from the beginning of the section.
     cdef public Py_ssize_t offset
@@ -312,6 +288,19 @@ cdef class Die:
         else:
             raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for constant')
 
+    def find_flag(self, at):
+        cdef const DieAttrib *attrib
+        try:
+            attrib = self.find_attrib(at)
+        except DwarfAttribNotFoundError:
+            return False
+        if attrib.form == DW_FORM_flag_present:
+            return True
+        elif attrib.form == DW_FORM_flag:
+            return bool(attrib.value.u)
+        else:
+            raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for flag')
+
     cpdef list children(self):
         # Note that _children isn't a cache; it's used for DIEs with no
         # children or DIEs which we had to parse the children for anyways when
@@ -319,9 +308,9 @@ cdef class Die:
         if self._children is not None:
             return self._children
 
-        assert self.program is not None and self.cu is not None
-        cdef Py_ssize_t offset = self.program.debug_info.sh_offset + self.offset + self.length
-        return parse_die_siblings(&self.program.buffer, &offset, self.cu,
+        assert self.dwarf_file is not None and self.cu is not None
+        cdef Py_ssize_t offset = self.dwarf_file.debug_info.offset + self.offset + self.length
+        return parse_die_siblings(&self.dwarf_file.buffer, &offset, self.cu,
                                   self.cu.abbrev_table())
 
     cpdef str name(self):
@@ -335,7 +324,7 @@ cdef class Die:
 
     cpdef Die type(self):
         cdef const DieAttrib *attrib = self.find_attrib(DW_AT_type)
-        cdef Py_ssize_t offset = self.program.debug_info.sh_offset
+        cdef Py_ssize_t offset = self.dwarf_file.debug_info.offset
 
         if (attrib.form == DW_FORM_ref1 or attrib.form == DW_FORM_ref2 or
             attrib.form == DW_FORM_ref4 or attrib.form == DW_FORM_ref8 or
@@ -348,7 +337,7 @@ cdef class Die:
         else:
             raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for DW_AT_type')
 
-        return parse_die(&self.program.buffer, &offset, self.cu,
+        return parse_die(&self.dwarf_file.buffer, &offset, self.cu,
                          self.cu.abbrev_table(), False)
 
     cpdef bytes location(self, uint64_t addr):
@@ -356,8 +345,8 @@ cdef class Die:
         cdef Py_ssize_t offset
 
         if attrib.form == DW_FORM_exprloc:
-            offset = self.program.debug_info.sh_offset + attrib.value.ptr.offset
-            return read_bytes(&self.program.buffer, &offset,
+            offset = self.dwarf_file.debug_info.offset + attrib.value.ptr.offset
+            return read_bytes(&self.dwarf_file.buffer, &offset,
                               attrib.value.ptr.length)
         else:
             return self.location_list_entry(attrib, addr)
@@ -369,7 +358,7 @@ cdef class Die:
         cdef uint64_t end
         cdef uint16_t lle_length
 
-        offset = self.program.debug_loc.sh_offset + Die.attrib_sec_offset(attrib)
+        offset = self.dwarf_file.debug_loc.offset + Die.attrib_sec_offset(attrib)
 
         try:
             base_addr = self.cu.die().address()
@@ -378,14 +367,14 @@ cdef class Die:
 
         while True:
             if self.cu.address_size == 4:
-                read_u32_into_u64(&self.program.buffer, &offset, &start)
-                read_u32_into_u64(&self.program.buffer, &offset, &end)
+                read_u32_into_u64(&self.dwarf_file.buffer, &offset, &start)
+                read_u32_into_u64(&self.dwarf_file.buffer, &offset, &end)
                 if start == UINT32_MAX:
                     base_addr = end
                     continue
             elif self.cu.address_size == 8:
-                read_u64(&self.program.buffer, &offset, &start)
-                read_u64(&self.program.buffer, &offset, &end)
+                read_u64(&self.dwarf_file.buffer, &offset, &start)
+                read_u64(&self.dwarf_file.buffer, &offset, &end)
                 if start == UINT64_MAX:
                     base_addr = end
                     continue
@@ -395,10 +384,10 @@ cdef class Die:
             if start == 0 and end == 0:
                 break
 
-            read_u16(&self.program.buffer, &offset, &lle_length)
+            read_u16(&self.dwarf_file.buffer, &offset, &lle_length)
 
             if base_addr + start <= addr < base_addr + end:
-                return read_bytes(&self.program.buffer, &offset, lle_length)
+                return read_bytes(&self.dwarf_file.buffer, &offset, lle_length)
 
         raise DwarfLocationNotFoundError(f'could not find location list entry for address 0x{addr:x}')
 
@@ -430,7 +419,7 @@ cdef class Die:
         cdef uint64_t start
         cdef uint64_t end
 
-        offset = self.program.debug_ranges.sh_offset + Die.attrib_sec_offset(attrib)
+        offset = self.dwarf_file.debug_ranges.offset + Die.attrib_sec_offset(attrib)
 
         try:
             base_addr = self.cu.die().address()
@@ -439,14 +428,14 @@ cdef class Die:
 
         while True:
             if self.cu.address_size == 4:
-                read_u32_into_u64(&self.program.buffer, &offset, &start)
-                read_u32_into_u64(&self.program.buffer, &offset, &end)
+                read_u32_into_u64(&self.dwarf_file.buffer, &offset, &start)
+                read_u32_into_u64(&self.dwarf_file.buffer, &offset, &end)
                 if start == UINT32_MAX:
                     base_addr = end
                     continue
             elif self.cu.address_size == 8:
-                read_u64(&self.program.buffer, &offset, &start)
-                read_u64(&self.program.buffer, &offset, &end)
+                read_u64(&self.dwarf_file.buffer, &offset, &start)
+                read_u64(&self.dwarf_file.buffer, &offset, &end)
                 if start == UINT64_MAX:
                     base_addr = end
                     continue
@@ -466,18 +455,18 @@ cdef class Die:
             if self.attribs[i].name == name:
                 return &self.attribs[i]
         else:
-            raise DwarfAttribNotFoundError('no attribute with that name')
+            raise DwarfAttribNotFoundError(f'no attribute with name 0x{name:x}')
 
     cdef str attrib_string(self, const DieAttrib *attrib):
         cdef Py_ssize_t offset
 
         if attrib.form == DW_FORM_strp:
-            offset = self.program.debug_str.sh_offset + attrib.value.u
+            offset = self.dwarf_file.debug_str.offset + attrib.value.u
             # XXX: should limit length to the size of .debug_str.
-            return read_str(&self.program.buffer, &offset)
+            return read_str(&self.dwarf_file.buffer, &offset)
         elif attrib.form == DW_FORM_string:
-            offset = self.program.debug_info.sh_offset + attrib.value.ptr.offset
-            return PyUnicode_FromStringAndSize(<const char *>self.program.buffer.buf + offset,
+            offset = self.dwarf_file.debug_info.offset + attrib.value.ptr.offset
+            return PyUnicode_FromStringAndSize(<const char *>self.dwarf_file.buffer.buf + offset,
                                                attrib.value.ptr.length)
         else:
             raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for string')
@@ -527,9 +516,9 @@ cdef class Die:
               attrib.form == DW_FORM_block or
               attrib.form == DW_FORM_exprloc or
               attrib.form == DW_FORM_string):
-            assert self.program is not None
-            offset = self.program.debug_info.sh_offset + attrib.value.ptr.offset
-            return PyBytes_FromStringAndSize(<const char *>self.program.buffer.buf + offset,
+            assert self.dwarf_file is not None
+            offset = self.dwarf_file.debug_info.offset + attrib.value.ptr.offset
+            return PyBytes_FromStringAndSize(<const char *>self.dwarf_file.buffer.buf + offset,
                                              attrib.value.ptr.length)
         elif attrib.form == DW_FORM_data1:
             return PyBytes_FromStringAndSize(attrib.value.data, 1)
@@ -550,7 +539,7 @@ cdef class Die:
 
 
 cdef class LineNumberProgram:
-    cdef public DwarfProgram program
+    cdef public DwarfFile dwarf_file
     cdef public CompilationUnitHeader cu
     # Offset from the beginning of the section.
     cdef public Py_ssize_t offset
@@ -597,8 +586,8 @@ cdef class LineNumberProgram:
         state.discriminator = 0
 
     cpdef list execute(self):
-        cdef Py_ssize_t offset = self.program.debug_line.sh_offset + self.program_offset()
-        cdef Py_ssize_t end = self.program.debug_line.sh_offset + self.end_offset()
+        cdef Py_ssize_t offset = self.dwarf_file.debug_line.offset + self.program_offset()
+        cdef Py_ssize_t end = self.dwarf_file.debug_line.offset + self.end_offset()
 
         cdef LineNumberRow state = LineNumberRow.__new__(LineNumberRow, self)
         self.init_state(state)
@@ -606,8 +595,8 @@ cdef class LineNumberProgram:
         cdef list matrix = []
         cdef uint8_t opcode
         while offset < end:
-            read_u8(&self.program.buffer, &offset, &opcode)
-            self.execute_opcode(&self.program.buffer, &offset, state, matrix, opcode)
+            read_u8(&self.dwarf_file.buffer, &offset, &opcode)
+            self.execute_opcode(&self.dwarf_file.buffer, &offset, state, matrix, opcode)
         return matrix
 
     cdef execute_opcode(self, Py_buffer *buffer, Py_ssize_t *offset,
@@ -887,9 +876,9 @@ cdef dict parse_abbrev_table(Py_buffer *buffer, Py_ssize_t *offset):
 
 
 cdef ArangeTable parse_arange_table(Py_buffer *buffer, Py_ssize_t *offset,
-                                    DwarfProgram program):
+                                    DwarfFile dwarf_file):
     cdef ArangeTable art = ArangeTable.__new__(ArangeTable)
-    art.offset = offset[0] - program.debug_aranges.sh_offset
+    art.offset = offset[0] - dwarf_file.debug_aranges.offset
 
     cdef uint32_t tmp
     read_u32(buffer, offset, &tmp)
@@ -948,10 +937,10 @@ cdef ArangeTable parse_arange_table(Py_buffer *buffer, Py_ssize_t *offset,
 
 cdef CompilationUnitHeader parse_compilation_unit_header(Py_buffer *buffer,
                                                          Py_ssize_t *offset,
-                                                         DwarfProgram program):
+                                                         DwarfFile dwarf_file):
     cdef CompilationUnitHeader cu = CompilationUnitHeader.__new__(CompilationUnitHeader)
-    cu.program = program
-    cu.offset = offset[0] - program.debug_info.sh_offset
+    cu.dwarf_file = dwarf_file
+    cu.offset = offset[0] - dwarf_file.debug_info.offset
 
     cdef uint32_t tmp
     read_u32(buffer, offset, &tmp)
@@ -976,7 +965,7 @@ cdef CompilationUnitHeader parse_compilation_unit_header(Py_buffer *buffer,
 
 
 cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
-                      DwarfProgram program, DieAttrib *attrib,
+                      DwarfFile dwarf_file, DieAttrib *attrib,
                       uint8_t address_size, bint is_64_bit):
     cdef uint64_t tmp
 
@@ -1004,7 +993,7 @@ cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
                 raise DwarfFormatError('attribute length too big')
             attrib.value.ptr.length = tmp
         read_check_bounds(buffer, offset[0], attrib.value.ptr.length)
-        attrib.value.ptr.offset = offset[0] - program.debug_info.sh_offset
+        attrib.value.ptr.offset = offset[0] - dwarf_file.debug_info.offset
         offset[0] += attrib.value.ptr.length
     # constant
     elif attrib.form == DW_FORM_data1:
@@ -1029,7 +1018,7 @@ cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
             read_u32_into_u64(buffer, offset, &attrib.value.u)
     # string
     elif attrib.form == DW_FORM_string:
-        attrib.value.ptr.offset = offset[0] - program.debug_info.sh_offset
+        attrib.value.ptr.offset = offset[0] - dwarf_file.debug_info.offset
         attrib.value.ptr.length = read_strlen(buffer, offset)
     # flag
     elif attrib.form == DW_FORM_flag_present:
@@ -1071,9 +1060,9 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
                    CompilationUnitHeader cu, dict abbrev_table,
                    bint jump_to_sibling):
     cdef Die die = Die.__new__(Die)
-    die.program = cu.program
+    die.dwarf_file = cu.dwarf_file
     die.cu = cu
-    die.offset = offset[0] - cu.program.debug_info.sh_offset
+    die.offset = offset[0] - cu.dwarf_file.debug_info.offset
 
     cdef uint64_t code
     read_uleb128(buffer, offset, &code)
@@ -1097,13 +1086,13 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
     for i in range(die.num_attribs):
         die.attribs[i].name = decl.attribs[i].name
         die.attribs[i].form = decl.attribs[i].form
-        parse_die_attrib(buffer, offset, cu.program, &die.attribs[i],
+        parse_die_attrib(buffer, offset, cu.dwarf_file, &die.attribs[i],
                          cu.address_size, cu.is_64_bit)
         if die.attribs[i].name == DW_AT_sibling:
             sibling_form = die.attribs[i].form
             sibling = die.attribs[i].value.u
 
-    die.length = offset[0] - cu.program.debug_info.sh_offset - die.offset
+    die.length = offset[0] - cu.dwarf_file.debug_info.offset - die.offset
 
     if not decl.children:
         die._children = no_children
@@ -1111,9 +1100,9 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
         die._children = parse_die_siblings(buffer, offset, cu, abbrev_table)
     elif jump_to_sibling:
         if sibling_form == DW_FORM_ref_addr:
-            offset[0] = cu.program.debug_info.sh_offset + sibling
+            offset[0] = cu.dwarf_file.debug_info.offset + sibling
         else:
-            offset[0] = cu.program.debug_info.sh_offset + cu.offset + sibling
+            offset[0] = cu.dwarf_file.debug_info.offset + cu.offset + sibling
 
     return die
 
@@ -1122,9 +1111,9 @@ cdef LineNumberProgram parse_line_number_program(Py_buffer *buffer,
                                                  Py_ssize_t *offset,
                                                  CompilationUnitHeader cu):
     cdef LineNumberProgram lnp = LineNumberProgram.__new__(LineNumberProgram)
-    lnp.program = cu.program
+    lnp.dwarf_file = cu.dwarf_file
     lnp.cu = cu
-    lnp.offset = offset[0] - cu.program.debug_line.sh_offset
+    lnp.offset = offset[0] - cu.dwarf_file.debug_line.offset
 
     cdef uint32_t tmp
     read_u32(buffer, offset, &tmp)

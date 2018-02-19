@@ -1,7 +1,6 @@
 import argparse
 
 import drgn.cli.dump
-import drgn.cli.probe
 
 
 def main():
@@ -12,7 +11,6 @@ def main():
     subparsers.required = True
 
     drgn.cli.dump.register(subparsers)
-    drgn.cli.probe.register(subparsers)
 
     args = parser.parse_args()
     args.func(args)

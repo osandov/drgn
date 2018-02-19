@@ -11,13 +11,6 @@ extensions = [
         sources=[
             'drgn/dwarf.pyx',
         ],
-        extra_compile_args=['-g', '-fno-omit-frame-pointer'],
-    ),
-    Extension(
-        name='drgn.elf',
-        sources=[
-            'drgn/elf.pyx',
-        ],
     ),
 ]
 

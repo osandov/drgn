@@ -1,5 +1,6 @@
+from drgn.elf import ElfFile
 from drgn.dwarf import (
-    Die, DwarfAttribNotFoundError, DwarfProgram, DwarfProgram,
+    Die, DwarfAttribNotFoundError, DwarfFile, DwarfFile,
     LineNumberProgram, LineNumberRow, parse_uleb128, parse_sleb128,
 )
 from drgn.dwarfdefs import *
@@ -57,9 +58,9 @@ def dump_die_location(die, form, value, *, indent: int=0):
 
 def dump_location_list(die, form, value, *, indent: int=0):
     prefix = ' ' * indent
-    buffer = die.program.mmap
+    buffer = die.dwarf_file.mmap
     address_size = die.cu.address_size
-    offset = die.program.debug_loc.sh_offset
+    offset = die.dwarf_file.debug_loc.sh_offset
     if form == DW_FORM.data4:
         offset += int.from_bytes(value, sys.byteorder)
     elif form == DW_FORM.sec_offset:
@@ -281,17 +282,17 @@ def dump_lnp(lnp: LineNumberProgram, *, indent: int=0):
 def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
     prefix = ' ' * indent
     print(f'{prefix}opcodes = {{')
-    offset = lnp.program.debug_line.sh_offset + lnp.program_offset()
-    end = lnp.program.debug_line.sh_offset + lnp.end_offset()
+    offset = lnp.dwarf_file.debug_line.sh_offset + lnp.program_offset()
+    end = lnp.dwarf_file.debug_line.sh_offset + lnp.end_offset()
     while offset < end:
-        opcode = lnp.program.mmap[offset]
+        opcode = lnp.dwarf_file.mmap[offset]
         offset += 1
         if opcode == 0:
-            length, offset = parse_uleb128(lnp.program.mmap, offset)
-            opcode = lnp.program.mmap[offset]
+            length, offset = parse_uleb128(lnp.dwarf_file.mmap, offset)
+            opcode = lnp.dwarf_file.mmap[offset]
             length -= 1
             offset += 1
-            arg = lnp.program.mmap[offset:offset + length]
+            arg = lnp.dwarf_file.mmap[offset:offset + length]
             if arg:
                 print(f'{prefix}  {lne_name(opcode)} {repr(arg)[1:]}')
             else:
@@ -299,12 +300,12 @@ def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
             offset += length
         elif opcode < lnp.opcode_base:
             if opcode == DW_LNS.fixed_advance_pc:
-                args = [int.from_bytes(lnp.program.mmap[offset:offset + 2], sys.byteorder)]
+                args = [int.from_bytes(lnp.dwarf_file.mmap[offset:offset + 2], sys.byteorder)]
                 offset += 2
             else:
                 args = []
                 for i in range(lnp.standard_opcode_lengths[opcode - 1]):
-                    arg, offset = parse_uleb128(lnp.program.mmap, offset)
+                    arg, offset = parse_uleb128(lnp.dwarf_file.mmap, offset)
                     args.append(arg)
             if len(args) > 2:
                 print(f'{prefix}  {lns_name(opcode)} {args}')
@@ -348,8 +349,8 @@ def dump_line_number_matrix(lnp, matrix, *, indent=0):
     print(f'{prefix}}}')
 
 
-def dump_cus(program: DwarfProgram, args) -> None:
-    for cu in program.cu_headers():
+def dump_cus(dwarf_file: DwarfFile, args) -> None:
+    for cu in dwarf_file.cu_headers():
         die = cu.die()
         name = die.name()
         for pattern in args.cu:
@@ -370,7 +371,7 @@ def dump_cus(program: DwarfProgram, args) -> None:
                 dump_line_number_matrix(lnp, matrix, indent=2)
 
 
-def dump_arange(program, art, arange, *, indent=0):
+def dump_arange(dwarf_file, art, arange, *, indent=0):
     prefix = ' ' * indent
     print(f'{prefix}', end='')
     if art.segment_size:
@@ -378,7 +379,7 @@ def dump_arange(program, art, arange, *, indent=0):
     print(f'address=0x{arange.address:x} length={arange.length}')
 
 
-def dump_arange_table(program, art, *, indent=0):
+def dump_arange_table(dwarf_file, art, *, indent=0):
     prefix = ' ' * indent
     print(f'{prefix}<{art.offset}> address range table')
     print(f'{prefix}  unit_length = {art.unit_length}')
@@ -389,27 +390,27 @@ def dump_arange_table(program, art, *, indent=0):
     print(f'{prefix}  is_64_bit = {art.is_64_bit}')
     print(f'{prefix}  aranges = {{')
     for arange in art.table:
-        dump_arange(program, art, arange, indent=indent + 4)
+        dump_arange(dwarf_file, art, arange, indent=indent + 4)
     print(f'{prefix}  }}')
 
 
-def dump_aranges(program):
-    for art in program.arange_tables():
-        dump_arange_table(program, art)
+def dump_aranges(dwarf_file):
+    for art in dwarf_file.arange_tables():
+        dump_arange_table(dwarf_file, art)
 
 
 def cmd_dump(args):
-    with DwarfProgram(args.file) as program:
+    with open(args.file, 'rb') as f, DwarfFile(f, ElfFile(f).sections) as dwarf_file:
         if args.cu:
-            dump_cus(program, args)
+            dump_cus(dwarf_file, args)
         if args.symtab:
-            symbols = sorted(program.symbols().items())
+            symbols = sorted(dwarf_file.symbols().items())
             for name, syms in symbols:
                 print(name)
                 for sym in syms:
                     print(f'    value=0x{sym.st_value:x} size=0x{sym.st_size:x}')
         if args.aranges:
-            dump_aranges(program)
+            dump_aranges(dwarf_file)
 
 
 def register(subparsers):
