@@ -1,14 +1,17 @@
 from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, Py_buffer, PyBUF_SIMPLE
-from cpython.mem cimport PyMem_Realloc, PyMem_Free
 from libc.stdint cimport UINT32_MAX, UINT64_MAX
 
 from drgn.read cimport *
 import mmap
 
-
 cdef extern from "Python.h":
+    void *PyMem_RawMalloc(size_t n)
+    void *PyMem_RawCalloc(size_t nelem, size_t elsize)
+    void *PyMem_RawRealloc(void *p, size_t n)
+    void PyMem_RawFree(void *p)
 
-    cdef void *PyMem_Calloc(size_t nelem, size_t elsize)
+    void *PyMem_Calloc(size_t nelem, size_t elsize)
+    void PyMem_Free(void *p)
 
 
 cdef class DwarfFormatError(Exception):
@@ -81,9 +84,11 @@ cdef class DwarfFile:
         self.close()
 
     cpdef CompilationUnitHeader cu_header(self, Py_ssize_t offset):
-        cdef Py_ssize_t orig_offset = offset
         offset += self.debug_info.offset
-        return parse_compilation_unit_header(&self.buffer, &offset, self)
+        cdef CompilationUnitHeader cu = parse_compilation_unit_header(&self.buffer, &offset, self)
+        offset = self.debug_abbrev.offset + cu.debug_abbrev_offset
+        parse_abbrev_table(&self.buffer, &offset, &cu._abbrev_table)
+        return cu
 
     def cu_headers(self):
         cdef Py_ssize_t offset = 0
@@ -94,7 +99,6 @@ cdef class DwarfFile:
             offset = cu.end_offset()
 
     cdef ArangeTable arange_table(self, Py_ssize_t offset):
-        cdef Py_ssize_t orig_offset = offset
         offset += self.debug_aranges.offset
         cdef ArangeTable art = parse_arange_table(&self.buffer, &offset, self)
         return art
@@ -106,30 +110,6 @@ cdef class DwarfFile:
             art = self.arange_table(offset)
             yield art
             offset = art.end_offset()
-
-
-cdef struct AttribSpec:
-    uint64_t name
-    uint64_t form
-
-
-cdef class AbbrevDecl:
-    cdef public uint64_t tag
-    cdef public bint children
-    # XXX: Cython doesn't support variable-size objects.
-    cdef AttribSpec *attribs
-    cdef Py_ssize_t num_attribs
-
-    def __dealloc__(self):
-        PyMem_Free(self.attribs)
-
-    def __len__(self):
-        return self.num_attribs
-
-    def __getitem__(self, i):
-        if i >= self.num_attribs:
-            raise IndexError('attribute index out of range')
-        return (self.attribs[i].name, self.attribs[i].form)
 
 
 cdef class AddressRange:
@@ -158,6 +138,26 @@ cdef class ArangeTable:
         return self.offset + (12 if self.is_64_bit else 4) + self.unit_length
 
 
+cdef struct AttribSpec:
+    uint64_t name
+    uint64_t form
+
+
+cdef struct AbbrevDecl:
+    uint64_t tag
+    bint children
+    uint64_t num_attribs
+    AttribSpec *attribs
+
+
+# Technically, abbreviation codes don't have to be sequential. In practice, GCC
+# seems to always generate sequential codes, so we can get away with a flat
+# array.
+cdef struct AbbrevTable:
+    uint64_t num_decls
+    AbbrevDecl *decls
+
+
 cdef class CompilationUnitHeader:
     cdef public DwarfFile dwarf_file
     # Offset from the beginning of .debug_info (or whatever section it was
@@ -172,10 +172,12 @@ cdef class CompilationUnitHeader:
 
     cdef str _name
 
-    # XXX: PyLong_FromUnsignedLong() and PyDict_GetItemWithError() in
-    # parse_die() show up very hot in profiles. It might be worth it to make
-    # this a specialized data structure.
-    cdef dict _abbrev_table
+    cdef AbbrevTable _abbrev_table
+
+    def __dealloc__(self):
+        for i in range(self._abbrev_table.num_decls):
+            PyMem_RawFree(self._abbrev_table.decls[i].attribs)
+        PyMem_RawFree(self._abbrev_table.decls)
 
     cpdef str name(self):
         if self._name is not None:
@@ -190,21 +192,15 @@ cdef class CompilationUnitHeader:
     cpdef Py_ssize_t die_offset(self):
         return self.offset + (23 if self.is_64_bit else 11)
 
-    cdef dict abbrev_table(self):
-        assert self.dwarf_file is not None
-
-        if self._abbrev_table is not None:
-            return self._abbrev_table
-
-        cdef Py_ssize_t offset = self.dwarf_file.debug_abbrev.offset + self.debug_abbrev_offset
-        self._abbrev_table = parse_abbrev_table(&self.dwarf_file.buffer, &offset)
-        return self._abbrev_table
+    cdef AbbrevDecl *abbrev_decl(self, uint64_t code):
+        if code < 1 or code > self._abbrev_table.num_decls:
+            return NULL
+        return &self._abbrev_table.decls[code - 1]
 
     cpdef Die die(self):
         assert self.dwarf_file is not None
         cdef Py_ssize_t offset = self.dwarf_file.debug_info.offset + self.die_offset()
-        return parse_die(&self.dwarf_file.buffer, &offset, self,
-                         self.abbrev_table(), False)
+        return parse_die(&self.dwarf_file.buffer, &offset, self, False)
 
     cpdef LineNumberProgram line_number_program(self):
         cdef Die die = self.die()
@@ -310,8 +306,7 @@ cdef class Die:
 
         assert self.dwarf_file is not None and self.cu is not None
         cdef Py_ssize_t offset = self.dwarf_file.debug_info.offset + self.offset + self.length
-        return parse_die_siblings(&self.dwarf_file.buffer, &offset, self.cu,
-                                  self.cu.abbrev_table())
+        return parse_die_siblings(&self.dwarf_file.buffer, &offset, self.cu)
 
     cpdef str name(self):
         return self.attrib_string(self.find_attrib(DW_AT_name))
@@ -337,8 +332,7 @@ cdef class Die:
         else:
             raise DwarfFormatError(f'unknown form 0x{attrib.form:x} for DW_AT_type')
 
-        return parse_die(&self.dwarf_file.buffer, &offset, self.cu,
-                         self.cu.abbrev_table(), False)
+        return parse_die(&self.dwarf_file.buffer, &offset, self.cu, False)
 
     cpdef bytes location(self, uint64_t addr):
         cdef const DieAttrib *attrib = self.find_attrib(DW_AT_location)
@@ -798,11 +792,25 @@ def parse_sleb128(s, Py_ssize_t offset):
         PyBuffer_Release(&buffer)
 
 
-cdef int realloc_attrib_specs(AttribSpec **attrib_specs, size_t n) except -1:
-    if n > PY_SSIZE_T_MAX / sizeof(AttribSpec):
+cdef int realloc_abbrev_decls(AbbrevDecl **abbrev_decls, Py_ssize_t n) except -1:
+    if n > PY_SSIZE_T_MAX / <Py_ssize_t>sizeof(AbbrevDecl):
         raise MemoryError()
 
-    cdef AttribSpec *tmp = <AttribSpec *>PyMem_Realloc(attrib_specs[0], n * sizeof(AttribSpec))
+    cdef AbbrevDecl *tmp = <AbbrevDecl *>PyMem_RawRealloc(abbrev_decls[0],
+                                                          n * sizeof(AbbrevDecl))
+    if tmp == NULL:
+        raise MemoryError()
+
+    abbrev_decls[0] = tmp
+    return 0
+
+
+cdef int realloc_attrib_specs(AttribSpec **attrib_specs, Py_ssize_t n) except -1:
+    if n > PY_SSIZE_T_MAX / <Py_ssize_t>sizeof(AttribSpec):
+        raise MemoryError()
+
+    cdef AttribSpec *tmp = <AttribSpec *>PyMem_RawRealloc(attrib_specs[0],
+                                                          n * sizeof(AttribSpec))
     if tmp == NULL:
         raise MemoryError()
 
@@ -810,16 +818,28 @@ cdef int realloc_attrib_specs(AttribSpec **attrib_specs, size_t n) except -1:
     return 0
 
 
-cdef AbbrevDecl parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
-                                  uint64_t *code):
+cdef int parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
+                           AbbrevTable *abbrev_table,
+                           uint64_t *decls_capacity) except -1:
+    cdef uint64_t code
+
     try:
-        read_uleb128(buffer, offset, code)
+        read_uleb128(buffer, offset, &code)
     except EOFError:
         raise DwarfFormatError('abbreviation declaration code is truncated')
-    if code[0] == 0:
-        return None
+    if code == 0:
+        return 0
+    if code != abbrev_table.num_decls + 1:
+        raise NotImplementedError('abbreviation table is not sequential')
 
-    cdef AbbrevDecl decl = AbbrevDecl.__new__(AbbrevDecl)
+    if abbrev_table.num_decls >= decls_capacity[0]:
+        decls_capacity[0] *= 2
+        realloc_abbrev_decls(&abbrev_table.decls, decls_capacity[0])
+
+    cdef AbbrevDecl *decl = &abbrev_table.decls[abbrev_table.num_decls]
+    decl.attribs = NULL
+    decl.num_attribs = 0
+    abbrev_table.num_decls += 1
 
     try:
         read_uleb128(buffer, offset, &decl.tag)
@@ -832,8 +852,8 @@ cdef AbbrevDecl parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
         raise DwarfFormatError('abbreviation declaration children flag is truncated')
     decl.children = children != DW_CHILDREN_no
 
-    cdef Py_ssize_t capacity = 1  # XXX: is this a good first guess?
-    realloc_attrib_specs(&decl.attribs, capacity)
+    cdef uint64_t attribs_capacity = 1  # XXX: is this a good first guess?
+    realloc_attrib_specs(&decl.attribs, attribs_capacity)
 
     cdef uint64_t name, form
     while True:
@@ -848,31 +868,30 @@ cdef AbbrevDecl parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
         if name == 0 and form == 0:
             break
 
-        if decl.num_attribs >= capacity:
-            capacity *= 2
-            realloc_attrib_specs(&decl.attribs, capacity)
+        if decl.num_attribs >= attribs_capacity:
+            attribs_capacity *= 2
+            realloc_attrib_specs(&decl.attribs, attribs_capacity)
 
         decl.attribs[decl.num_attribs].name = name
         decl.attribs[decl.num_attribs].form = form
         decl.num_attribs += 1
 
     realloc_attrib_specs(&decl.attribs, decl.num_attribs)
-    return decl
+    return 1
 
 
-cdef dict parse_abbrev_table(Py_buffer *buffer, Py_ssize_t *offset):
-    cdef dict table = {}
-    cdef uint64_t code
+cdef int parse_abbrev_table(Py_buffer *buffer, Py_ssize_t *offset,
+                            AbbrevTable *abbrev_table) except -1:
+    cdef uint64_t decls_capacity = 1  # XXX: is this a good first guess?
 
-    while True:
-        abbrev_decl = parse_abbrev_decl(buffer, offset, &code)
-        if abbrev_decl is None:
-            break
-        if code in table:
-            raise DwarfFormatError(f'duplicate abbreviation code {code}')
-        table[code] = abbrev_decl
+    abbrev_table.decls = NULL
+    abbrev_table.num_decls = 0
+    realloc_abbrev_decls(&abbrev_table.decls, decls_capacity)
 
-    return table
+    while parse_abbrev_decl(buffer, offset, abbrev_table, &decls_capacity):
+        pass
+    realloc_abbrev_decls(&abbrev_table.decls, abbrev_table.num_decls)
+    return 0
 
 
 cdef ArangeTable parse_arange_table(Py_buffer *buffer, Py_ssize_t *offset,
@@ -932,7 +951,6 @@ cdef ArangeTable parse_arange_table(Py_buffer *buffer, Py_ssize_t *offset,
         art.table.append(AddressRange.__new__(AddressRange, segment, address, length_))
 
     return art
-
 
 
 cdef CompilationUnitHeader parse_compilation_unit_header(Py_buffer *buffer,
@@ -1043,12 +1061,12 @@ cdef list no_children = []
 
 
 cdef list parse_die_siblings(Py_buffer *buffer, Py_ssize_t *offset,
-                             CompilationUnitHeader cu, dict abbrev_table):
+                             CompilationUnitHeader cu):
     cdef list children = []
     cdef Die child
 
     while True:
-        child = parse_die(buffer, offset, cu, abbrev_table, True)
+        child = parse_die(buffer, offset, cu, True)
         if child is None:
             break
         children.append(child)
@@ -1057,8 +1075,7 @@ cdef list parse_die_siblings(Py_buffer *buffer, Py_ssize_t *offset,
 
 
 cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
-                   CompilationUnitHeader cu, dict abbrev_table,
-                   bint jump_to_sibling):
+                   CompilationUnitHeader cu, bint jump_to_sibling):
     cdef Die die = Die.__new__(Die)
     die.dwarf_file = cu.dwarf_file
     die.cu = cu
@@ -1069,10 +1086,8 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
     if code == 0:
         return None
 
-    cdef AbbrevDecl decl
-    try:
-        decl = abbrev_table[code]
-    except KeyError:
+    cdef AbbrevDecl *decl = cu.abbrev_decl(code)
+    if decl == NULL:
         raise DwarfFormatError(f'unknown abbreviation code {code}')
 
     die.tag = decl.tag
@@ -1097,7 +1112,7 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
     if not decl.children:
         die._children = no_children
     elif jump_to_sibling and sibling == 0:
-        die._children = parse_die_siblings(buffer, offset, cu, abbrev_table)
+        die._children = parse_die_siblings(buffer, offset, cu)
     elif jump_to_sibling:
         if sibling_form == DW_FORM_ref_addr:
             offset[0] = cu.dwarf_file.debug_info.offset + sibling
