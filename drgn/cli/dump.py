@@ -36,7 +36,7 @@ def dump_die(die: Die, *, indent: int=0, recurse: bool=False,
         repr_value = repr(value)
         if isinstance(value, bytes):
             repr_value = repr_value[1:]
-        print(f'{prefix}  {DW_AT.str(name)} ({DW_AT.str(form)}) = {repr_value}', end='')
+        print(f'{prefix}  {DW_AT.str(name)} ({DW_FORM.str(form)}) = {repr_value}', end='')
         if location and (name == DW_AT.frame_base or name == DW_AT.location):
             dump_die_location(die, form, value, indent=indent + 2)
         else:

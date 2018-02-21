@@ -1,4 +1,6 @@
-from drgn.dwarf import DwarfFile, DwarfAttribNotFoundError, DW_AT, DW_ATE, DW_TAG
+from drgn.dwarf import (
+    DwarfFile, DwarfIndex, DwarfAttribNotFoundError, DW_AT, DW_ATE, DW_TAG,
+)
 from drgn.elf import ElfFile
 from drgn.util import parse_symbol_file
 import os
@@ -101,7 +103,10 @@ class CoredumpObject:
             address = int.from_bytes(self._read(0, size), 'little')
         else:
             address = self.address
-        offset, dwarf_type = self._members[name]
+        try:
+            offset, dwarf_type = self._members[name]
+        except KeyError:
+            raise AttributeError()
         return CoredumpObject(self.coredump, address + offset, dwarf_type)
 
     def __getattr__(self, name):
@@ -117,24 +122,9 @@ class Coredump:
         self.program_dwarf_file = DwarfFile(program_file, program_elf_file.sections)
         self.symbols = symbols
 
-        self.cu_headers = self.program_dwarf_file.cu_headers()
-        self._global_variables = {}
-        self._types = {}
-        for cu in self.cu_headers:
-            die = cu.die()
-            for child in die.children():
-                if child.tag == DW_TAG.variable:
-                    try:
-                        name = child.name()
-                    except DwarfAttribNotFoundError:
-                        continue
-                    self._global_variables[name] = child
-                elif child.is_type() and not child.find_flag(DW_AT.declaration):
-                    try:
-                        name = child.name()
-                    except DwarfAttribNotFoundError:
-                        continue
-                    self._types[child.tag, name] = child
+        self._dwarf_index = DwarfIndex()
+        for cu in self.program_dwarf_file.cu_headers():
+            self._dwarf_index.index_cu(cu)
 
     def _address_phdr(self, address):
         # TODO: sort and binary search
@@ -147,14 +137,14 @@ class Coredump:
     def _resolve_type(self, dwarf_type):
         if dwarf_type.find_flag(DW_AT.declaration):
             try:
-                dwarf_type = self._types[dwarf_type.tag, dwarf_type.name()]
+                dwarf_type = self._dwarf_index.find(dwarf_type.name(), dwarf_type.tag)
             except (DwarfAttribNotFoundError, KeyError):
                 pass
         return dwarf_type
 
     def __getitem__(self, key):
         address = self.symbols[key][-1].address
-        dwarf_type = self._global_variables[key].type()
+        dwarf_type = self._dwarf_index.find_variable(key).type()
         return CoredumpObject(self, address, dwarf_type)
 
 

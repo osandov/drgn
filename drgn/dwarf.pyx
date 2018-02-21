@@ -1,5 +1,6 @@
 from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, Py_buffer, PyBUF_SIMPLE
 from libc.stdint cimport UINT32_MAX, UINT64_MAX
+from libc.string cimport strcmp
 
 from drgn.read cimport *
 import enum
@@ -1011,6 +1012,37 @@ class DW_TAG(enum.IntEnum):
             return hex(value)
 
 
+cdef bint tag_is_type(uint64_t tag):
+    return (
+        tag == DW_TAG_array_type or
+        tag == DW_TAG_atomic_type or
+        tag == DW_TAG_base_type or
+        tag == DW_TAG_class_type or
+        tag == DW_TAG_const_type or
+        tag == DW_TAG_enumeration_type or
+        tag == DW_TAG_file_type or
+        tag == DW_TAG_interface_type or
+        tag == DW_TAG_packed_type or
+        tag == DW_TAG_pointer_type or
+        tag == DW_TAG_ptr_to_member_type or
+        tag == DW_TAG_reference_type or
+        tag == DW_TAG_restrict_type or
+        tag == DW_TAG_rvalue_reference_type or
+        tag == DW_TAG_set_type or
+        tag == DW_TAG_shared_type or
+        tag == DW_TAG_string_type or
+        tag == DW_TAG_structure_type or
+        tag == DW_TAG_subrange_type or
+        tag == DW_TAG_subroutine_type or
+        tag == DW_TAG_template_type_parameter or
+        tag == DW_TAG_thrown_type or
+        tag == DW_TAG_typedef or
+        tag == DW_TAG_union_type or
+        tag == DW_TAG_unspecified_type or
+        tag == DW_TAG_volatile_type
+    )
+
+
 cdef class DwarfFormatError(Exception):
     pass
 
@@ -1194,9 +1226,13 @@ cdef class CompilationUnitHeader:
             return NULL
         return &self._abbrev_table.decls[code - 1]
 
-    cpdef Die die(self):
+    cpdef Die die(self, Py_ssize_t offset=0):
         assert self.dwarf_file is not None
-        cdef Py_ssize_t offset = self.dwarf_file.debug_info.offset + self.die_offset()
+        if offset == 0:
+            offset = self.die_offset()
+        else:
+            offset += self.offset
+        offset += self.dwarf_file.debug_info.offset
         return parse_die(&self.dwarf_file.buffer, &offset, self, False)
 
     cpdef LineNumberProgram line_number_program(self):
@@ -1315,34 +1351,7 @@ cdef class Die:
         return low_pc.value.u
 
     def is_type(self):
-        return (
-            self.tag == DW_TAG_array_type or
-            self.tag == DW_TAG_atomic_type or
-            self.tag == DW_TAG_base_type or
-            self.tag == DW_TAG_class_type or
-            self.tag == DW_TAG_const_type or
-            self.tag == DW_TAG_enumeration_type or
-            self.tag == DW_TAG_file_type or
-            self.tag == DW_TAG_interface_type or
-            self.tag == DW_TAG_packed_type or
-            self.tag == DW_TAG_pointer_type or
-            self.tag == DW_TAG_ptr_to_member_type or
-            self.tag == DW_TAG_reference_type or
-            self.tag == DW_TAG_restrict_type or
-            self.tag == DW_TAG_rvalue_reference_type or
-            self.tag == DW_TAG_set_type or
-            self.tag == DW_TAG_shared_type or
-            self.tag == DW_TAG_string_type or
-            self.tag == DW_TAG_structure_type or
-            self.tag == DW_TAG_subrange_type or
-            self.tag == DW_TAG_subroutine_type or
-            self.tag == DW_TAG_template_type_parameter or
-            self.tag == DW_TAG_thrown_type or
-            self.tag == DW_TAG_typedef or
-            self.tag == DW_TAG_union_type or
-            self.tag == DW_TAG_unspecified_type or
-            self.tag == DW_TAG_volatile_type
-        )
+        return tag_is_type(self.tag)
 
     def is_qualified_type(self):
         return (
@@ -1375,7 +1384,7 @@ cdef class Die:
         if not self.is_type():
             raise ValueError('not a type DIE')
         die = self
-        while die.is_qualified_type():
+        while die.is_qualified_type() or die.tag == DW_TAG_typedef:
             die = die.type()
         return die
 
@@ -2235,3 +2244,146 @@ cdef LineNumberProgram parse_line_number_program(Py_buffer *buffer,
         lnp.file_names.append(file)
 
     return lnp
+
+
+cdef struct DieHashEntry:
+    DieHashEntry *next
+    char *name
+    void *cu
+    uint64_t tag
+    uint64_t offset
+
+
+# DJBX33A hash function
+cdef unsigned long name_hash(char *name):
+    cdef unsigned long hash = 5381
+    cdef Py_ssize_t i = 0
+
+    while name[i]:
+        hash = ((hash << 5) + hash) + <unsigned char>name[i]
+        i += 1
+    return hash
+
+
+cdef class DwarfIndex:
+    cdef DieHashEntry **die_hash
+    cdef unsigned long mask
+    cdef set cus
+
+    def __cinit__(self, shift=17):
+        self.cus = set()
+        if shift >= 31:
+            raise ValueError('shift is too large')
+        self.die_hash = <DieHashEntry **>PyMem_RawCalloc(1 << shift, sizeof(DieHashEntry *))
+        if self.die_hash == NULL:
+            raise MemoryError()
+        self.mask = (1 << shift) - 1
+
+    def __dealloc__(self):
+        cdef DieHashEntry *entry
+        cdef DieHashEntry *next
+
+        for i in range(self.mask + 1):
+            entry = self.die_hash[i]
+            while entry:
+                next = entry.next
+                PyMem_RawFree(entry)
+                entry = next
+        PyMem_RawFree(self.die_hash)
+
+    cdef add_die_hash_entry(self, Py_buffer *buffer, uint64_t die_offset,
+                            uint64_t tag, char *name,
+                            CompilationUnitHeader cu):
+        cdef unsigned long hash
+        cdef DieHashEntry **bucket
+        cdef DieHashEntry *entry
+
+        hash = name_hash(name)
+        bucket = &self.die_hash[hash & self.mask]
+        entry = bucket[0]
+        while entry:
+            if entry.tag == tag and strcmp(entry.name, name) == 0:
+                return
+            entry = entry.next
+
+        entry = <DieHashEntry *>PyMem_RawMalloc(sizeof(DieHashEntry))
+        if entry == NULL:
+            raise MemoryError()
+        entry.next = bucket[0]
+        entry.name = name
+        entry.cu = <void *>cu
+        entry.tag = tag
+        entry.offset = die_offset
+        bucket[0] = entry
+
+    cdef int index_die(self, Py_buffer *buffer, Py_ssize_t *offset,
+                       CompilationUnitHeader cu, int depth) except -1:
+        cdef Py_ssize_t die_offset = offset[0] - (cu.dwarf_file.debug_info.offset + cu.offset)
+
+        cdef uint64_t code
+        read_uleb128(buffer, offset, &code)
+        if code == 0:
+            return 0
+
+        cdef AbbrevDecl *decl = cu.abbrev_decl(code)
+        if decl == NULL:
+            raise DwarfFormatError(f'unknown abbreviation code {code}')
+
+        cdef DieAttrib attrib
+        cdef char *name = NULL
+        cdef uint64_t sibling_form = 0
+        cdef Py_ssize_t sibling = 0
+        cdef bint declaration = 0
+        for i in range(decl.num_attribs):
+            attrib.name = decl.attribs[i].name
+            attrib.form = decl.attribs[i].form
+            parse_die_attrib(buffer, offset, cu.dwarf_file, &attrib,
+                             cu.address_size, cu.is_64_bit)
+            if attrib.name == DW_AT_sibling:
+                sibling_form = attrib.form
+                sibling = attrib.value.u
+            elif attrib.name == DW_AT_name:
+                if attrib.form == DW_FORM_strp:
+                    name = <char *>buffer.buf + cu.dwarf_file.debug_str.offset + attrib.value.u
+                elif attrib.form == DW_FORM_string:
+                    name = <char *>buffer.buf + cu.dwarf_file.debug_info.offset + attrib.value.ptr.offset
+            elif attrib.name == DW_AT_declaration:
+                if attrib.form == DW_FORM_flag or attrib.form == DW_FORM.flag_present:
+                    declaration = attrib.value.u
+        if (depth == 1 and name != NULL and
+            (decl.tag == DW_TAG_variable or
+             (tag_is_type(decl.tag) and not declaration))):
+            self.add_die_hash_entry(buffer, die_offset, decl.tag, name, cu)
+
+        if decl.children:
+            if depth == 0 or sibling == 0:
+                while self.index_die(buffer, offset, cu, depth + 1):
+                    pass
+            else:
+                if sibling_form == DW_FORM_ref_addr:
+                    offset[0] = cu.dwarf_file.debug_info.offset + sibling
+                else:
+                    offset[0] = cu.dwarf_file.debug_info.offset + cu.offset + sibling
+
+        return 1
+
+    def index_cu(self, CompilationUnitHeader cu):
+        self.cus.add(cu)
+        cdef Py_ssize_t offset = cu.dwarf_file.debug_info.offset + cu.die_offset()
+        self.index_die(&cu.dwarf_file.buffer, &offset, cu, 0)
+
+    def find(self, str name_obj, uint64_t tag):
+        cdef bytes name_bytes = name_obj.encode('utf-8')
+        cdef char *name = name_bytes
+        cdef unsigned long hash = name_hash(name)
+        cdef DieHashEntry *entry
+
+        entry = self.die_hash[hash & self.mask]
+        while entry:
+            if entry.tag == tag and strcmp(entry.name, name) == 0:
+                return (<CompilationUnitHeader>entry.cu).die(entry.offset)
+            entry = entry.next
+        raise KeyError()
+
+    def find_variable(self, str name_obj):
+        return self.find(name_obj, DW_TAG_variable)
