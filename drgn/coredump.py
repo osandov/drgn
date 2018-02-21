@@ -1,32 +1,12 @@
-from drgn.dwarf import DwarfFile, DwarfAttribNotFoundError
-from drgn.dwarfdefs import DW_AT, DW_ATE, DW_TAG, TYPE_TAGS, unqualified_type
+from drgn.dwarf import DwarfFile, DwarfAttribNotFoundError, DW_AT, DW_ATE, DW_TAG
 from drgn.elf import ElfFile
 from drgn.util import parse_symbol_file
 import os
 
 
 TYPE_QUALIFIERS = {
-    # DW_TAG.array_type,
-    # DW_TAG.atomic_type,
-    # DW_TAG.base_type,
-    # DW_TAG.class_type,
     DW_TAG.const_type: 'const',
-    # DW_TAG.file_type,
-    # DW_TAG.interface_type,
-    # DW_TAG.packed_type,
-    # DW_TAG.pointer_type,
-    # DW_TAG.ptr_to_member_type,
-    # DW_TAG.reference_type,
     DW_TAG.restrict_type: 'restrict',
-    # DW_TAG.rvalue_reference_type,
-    # DW_TAG.set_type,
-    # DW_TAG.shared_type,
-    # DW_TAG.string_type,
-    # DW_TAG.subrange_type,
-    # DW_TAG.subroutine_type,
-    # DW_TAG.template_type_parameter,
-    # DW_TAG.thrown_type,
-    # DW_TAG.unspecified_type,
     DW_TAG.volatile_type: 'volatile',
 }
 
@@ -77,11 +57,11 @@ class CoredumpObject:
         self.coredump = coredump
         self.address = address
         self.dwarf_type = dwarf_type
-        self.unqualified_dwarf_type = unqualified_type(dwarf_type)
+        self.unqualified_dwarf_type = dwarf_type.unqualified()
         self._members = {}
         members_type = self.unqualified_dwarf_type
         if members_type.tag == DW_TAG.pointer_type:
-            members_type = coredump._resolve_type(unqualified_type(members_type.type()))
+            members_type = coredump._resolve_type(members_type.type().unqualified())
         _parse_members(self._members, members_type, 0)
 
     def __repr__(self):
@@ -149,7 +129,7 @@ class Coredump:
                     except DwarfAttribNotFoundError:
                         continue
                     self._global_variables[name] = child
-                elif child.tag in TYPE_TAGS and not child.find_flag(DW_AT.declaration):
+                elif child.is_type() and not child.find_flag(DW_AT.declaration):
                     try:
                         name = child.name()
                     except DwarfAttribNotFoundError:

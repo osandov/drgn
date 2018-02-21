@@ -1,9 +1,9 @@
 from drgn.elf import ElfFile
 from drgn.dwarf import (
     Die, DwarfAttribNotFoundError, DwarfFile, DwarfFile,
-    LineNumberProgram, LineNumberRow, parse_uleb128, parse_sleb128,
+    DW_AT, DW_FORM, DW_LNE, DW_LNS, DW_OP, DW_TAG,
+    LineNumberProgram, parse_uleb128, parse_sleb128,
 )
-from drgn.dwarfdefs import *
 import fnmatch
 import os.path
 import sys
@@ -25,7 +25,7 @@ def dump_cu(cu, name=None, *, indent=0):
 def dump_die(die: Die, *, indent: int=0, recurse: bool=False,
              location: bool=False) -> None:
     prefix = ' ' * indent
-    print(f'{prefix}<{die.offset}> {tag_name(die.tag)}', end='')
+    print(f'{prefix}<{die.offset}> {DW_TAG.str(die.tag)}', end='')
     try:
         name = die.name()
     except DwarfAttribNotFoundError:
@@ -36,7 +36,7 @@ def dump_die(die: Die, *, indent: int=0, recurse: bool=False,
         repr_value = repr(value)
         if isinstance(value, bytes):
             repr_value = repr_value[1:]
-        print(f'{prefix}  {at_name(name)} ({form_name(form)}) = {repr_value}', end='')
+        print(f'{prefix}  {DW_AT.str(name)} ({DW_AT.str(form)}) = {repr_value}', end='')
         if location and (name == DW_AT.frame_base or name == DW_AT.location):
             dump_die_location(die, form, value, indent=indent + 2)
         else:
@@ -97,7 +97,7 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
     while offset < len(value):
         opcode = value[offset]
         offset += 1
-        print(f'{prefix}{op_name(opcode)} ', end='')
+        print(f'{prefix}{DW_OP.str(opcode)} ', end='')
         if opcode == DW_OP.addr:
             print(hex(int.from_bytes(value[offset:offset + address_size], sys.byteorder)))
             offset += address_size
@@ -246,7 +246,7 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
         elif opcode == DW_OP.stack_value:
             print()
         else:
-            raise ValueError(f'unknown opcode {op_name(opcode)}')
+            raise ValueError(f'unknown opcode {DW_OP.str(opcode)}')
 
 
 def dump_lnp(lnp: LineNumberProgram, *, indent: int=0):
@@ -294,9 +294,9 @@ def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
             offset += 1
             arg = lnp.dwarf_file.mmap[offset:offset + length]
             if arg:
-                print(f'{prefix}  {lne_name(opcode)} {repr(arg)[1:]}')
+                print(f'{prefix}  {DW_LNE.str(opcode)} {repr(arg)[1:]}')
             else:
-                print(f'{prefix}  {lne_name(opcode)}')
+                print(f'{prefix}  {DW_LNE.str(opcode)}')
             offset += length
         elif opcode < lnp.opcode_base:
             if opcode == DW_LNS.fixed_advance_pc:
@@ -308,11 +308,11 @@ def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
                     arg, offset = parse_uleb128(lnp.dwarf_file.mmap, offset)
                     args.append(arg)
             if len(args) > 2:
-                print(f'{prefix}  {lns_name(opcode)} {args}')
+                print(f'{prefix}  {DW_LNS.str(opcode)} {args}')
             elif len(args) == 1:
-                print(f'{prefix}  {lns_name(opcode)} {args[0]}')
+                print(f'{prefix}  {DW_LNS.str(opcode)} {args[0]}')
             else:
-                print(f'{prefix}  {lns_name(opcode)}')
+                print(f'{prefix}  {DW_LNS.str(opcode)}')
         else:
             opcode -= lnp.opcode_base
             operation_advance = opcode // lnp.line_range
