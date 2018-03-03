@@ -2,103 +2,66 @@ from collections import namedtuple
 import re
 
 
-class TypeSpecifier:
-    def __init__(self, data_type=None, size=None, sign=None, qualifiers=None):
-        self.data_type = data_type
-        self.size = size
-        self.sign = sign
+class TypeName:
+    def __init__(self, name, qualifiers=None):
+        self.name = name
         if qualifiers is None:
             qualifiers = set()
         self.qualifiers = qualifiers
 
     def __repr__(self):
-        parts = ['TypeSpecifier(', repr(self.data_type)]
-        if self.size is not None:
-            parts.append(', size=')
-            parts.append(repr(self.size))
-        if self.sign is not None:
-            parts.append(', sign=')
-            parts.append(repr(self.sign))
+        parts = [self.__class__.__name__, '(', repr(self.name)]
         if self.qualifiers:
-            parts.append(', qualifiers=')
+            parts.append(', ')
             parts.append(repr(self.qualifiers))
         parts.append(')')
         return ''.join(parts)
 
     def __str__(self):
-        parts = []
-        if self.qualifiers:
-            parts.append(' '.join(sorted(self.qualifiers)))
-        if self.size is not None:
-            parts.append(self.size)
-        if self.sign is not None:
-            parts.append(self.sign)
-        parts.append(self.data_type)
-        return ' '.join(parts)
-
-    def __bool__(self):
-        return (self.data_type is not None or self.size is not None or
-                self.sign is not None or bool(self.qualifiers))
+        return self.declaration('')
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.__dict__ == other.__dict__
+        return (isinstance(other, self.__class__) and
+                self.__dict__ == other.__dict__)
 
-    @staticmethod
-    def SpecifierError(old_specifier, new_specifier):
-        return ValueError(f"cannot combine {new_specifier!r} with {old_specifier!r}")
+    def declaration(self, name):
+        parts = sorted(self.qualifiers)
+        parts.append(self.name)
+        if name:
+            parts.append(name)
+        return ' '.join(parts)
 
-    def add_specifier(self, specifier):
-        if specifier == 'long' or specifier == 'short':
-            if self.data_type is not None and self.data_type != 'int':
-                raise self.SpecifierError(self.data_type, specifier)
-            elif self.size == 'long' and specifier == 'long':
-                self.size = 'long long'
-            elif self.size is None:
-                self.size = specifier
-            else:
-                raise self.SpecifierError(self.size, specifier)
-        elif specifier == 'signed' or specifier == 'unsigned':
-            if (self.data_type is not None and self.data_type != 'int' and
-                self.data_type != 'char' and self.data_type != '_Complex'):
-                raise self.SpecifierError(self.data_type, specifier)
-            elif self.sign is None:
-                self.sign = specifier
-            else:
-                raise self.SpecifierError(self.sign, specifier)
+
+class TaggedType(TypeName):
+    def declaration(self, name):
+        parts = sorted(self.qualifiers)
+        parts.append(self.TAG)
+        if self.name:
+            parts.append(self.name)
         else:
-            if self.data_type is not None:
-                raise self.SpecifierError(self.data_type, specifier)
-            elif self.size is not None and specifier != 'int':
-                raise self.SpecifierError(self.size, specifier)
-            elif (self.sign is not None and specifier != 'int' and
-                  specifier != 'char' and specifier != '_Complex'):
-                raise self.SpecifierError(self.sign, specifier)
-            self.data_type = specifier
+            parts.append('<anonymous>')
+        if name:
+            parts.append(name)
+        return ' '.join(parts)
 
 
-def _type_str(type_, suffix=''):
-    if isinstance(type_, ArrayType):
-        if type_.size is None:
-            suffix += '[]'
-        else:
-            suffix += f'[{type_.size}]'
-        return _type_str(type_.type, suffix)
-    elif isinstance(type_, PointerType):
-        if type_.qualifiers:
-            if suffix:
-                suffix = ' ' + suffix
-            suffix = '* ' + ''.join(sorted(type_.qualifiers)) + suffix
-        else:
-            suffix = '*' + suffix
-        if isinstance(type_.type, ArrayType):
-            suffix = '(' + suffix + ')'
-        return _type_str(type_.type, suffix)
-    else:
-        assert isinstance(type_, TypeSpecifier)
-        return str(type_) + ' ' + suffix
+class StructTypeName(TaggedType):
+    TAG = 'struct'
 
 
-class PointerType:
+class UnionTypeName(TaggedType):
+    TAG = 'union'
+
+
+class EnumTypeName(TaggedType):
+    TAG = 'enum'
+
+
+class TypedefTypeName(TypeName):
+    pass
+
+
+class PointerTypeName(TypeName):
     def __init__(self, type, qualifiers=None):
         self.type = type
         if qualifiers is None:
@@ -106,38 +69,44 @@ class PointerType:
         self.qualifiers = qualifiers
 
     def __repr__(self):
-        parts = ['PointerType(', repr(self.type)]
+        parts = ['PointerTypeName(', repr(self.type)]
         if self.qualifiers:
             parts.append(', ')
             parts.append(repr(self.qualifiers))
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self):
-        return _type_str(self)
+    def declaration(self, name):
+        if self.qualifiers:
+            if name:
+                name = ' ' + name
+            name = '* ' + ''.join(sorted(self.qualifiers)) + name
+        else:
+            name = '*' + name
+        if isinstance(self.type, ArrayTypeName):
+            name = '(' + name + ')'
+        return self.type.declaration(name)
 
-    def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.__dict__ == other.__dict__
 
-
-class ArrayType:
+class ArrayTypeName(TypeName):
     def __init__(self, type, size=None):
         self.type = type
         self.size = size
 
     def __repr__(self):
-        parts = ['ArrayType(', repr(self.type)]
+        parts = ['ArrayTypeName(', repr(self.type)]
         if self.size is not None:
             parts.append(', ')
             parts.append(repr(self.size))
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self):
-        return _type_str(self)
-
-    def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.__dict__ == other.__dict__
+    def declaration(self, name):
+        if self.size is None:
+            name += '[]'
+        else:
+            name += f'[{self.size}]'
+        return self.type.declaration(name)
 
 
 class _TypeNameLexer:
@@ -200,60 +169,126 @@ class _TypeNameParser:
         self._lexer = lexer
 
     def parse(self):
-        type_ = self._parse_specifier_qualifier_list()
+        type_name = self._parse_specifier_qualifier_list()
         if self._lexer.peek().kind != 'EOF':
-            type_ = self._parse_abstract_declarator(type_)[0]
+            type_name = self._parse_abstract_declarator(type_name)[0]
             if self._lexer.peek().kind != 'EOF':
                 raise ValueError('extra tokens after type name')
-        return type_
+        return type_name
+
+    @staticmethod
+    def _specifier_error(old_specifier, new_specifier):
+        return ValueError(f"cannot combine {new_specifier!r} with {old_specifier!r}")
+
+    @staticmethod
+    def _add_specifier(specifiers, specifier):
+        data_type = specifiers.get('data_type')
+        size = specifiers.get('size')
+        sign = specifiers.get('sign')
+        if specifier == 'long' or specifier == 'short':
+            if size == 'long' and specifier == 'long':
+                specifier = 'long long'
+            elif size is not None:
+                raise _TypeNameParser._specifier_error(size, specifier)
+            if (data_type is not None and data_type != 'int' and
+                  (data_type != 'double' or specifier != 'long')):
+                raise _TypeNameParser._specifier_error(data_type, specifier)
+            specifiers['size'] = specifier
+        elif specifier == 'signed' or specifier == 'unsigned':
+            if (data_type is not None and data_type != 'int' and
+                    data_type != 'char'):
+                raise _TypeNameParser._specifier_error(data_type, specifier)
+            elif sign is not None:
+                raise _TypeNameParser._specifier_error(sign, specifier)
+            specifiers['sign'] = specifier
+        else:
+            if data_type is not None:
+                raise _TypeNameParser._specifier_error(data_type, specifier)
+            elif (size is not None and specifier != 'int' and
+                  (specifier != 'double' or size != 'long')):
+                raise _TypeNameParser._specifier_error(size, specifier)
+            elif (sign is not None and specifier != 'int' and
+                  specifier != 'char'):
+                raise _TypeNameParser._specifier_error(sign, specifier)
+            specifiers['data_type'] = specifier
+
+    @staticmethod
+    def _type_name_from_specifiers(specifiers, is_typedef):
+        data_type = specifiers['data_type']
+        qualifiers = specifiers.get('qualifiers')
+        if data_type.startswith('struct '):
+            return StructTypeName(data_type[7:], qualifiers)
+        elif data_type.startswith('union '):
+            return UnionTypeName(data_type[6:], qualifiers)
+        elif data_type.startswith('enum '):
+            return EnumTypeName(data_type[5:], qualifiers)
+        elif is_typedef:
+            return TypedefTypeName(data_type, qualifiers)
+        else:
+            parts = []
+            if 'size' in specifiers:
+                parts.append(specifiers['size'])
+            if ('sign' in specifiers and
+                (specifiers['sign'] != 'signed' or data_type == 'char')):
+                parts.append(specifiers['sign'])
+            parts.append(data_type)
+            return TypeName(' '.join(parts), qualifiers)
 
     def _parse_specifier_qualifier_list(self):
-        specifier = TypeSpecifier()
+        specifiers = {}
+        is_typedef = False
         while True:
             token = self._lexer.peek()
             # type-qualifier
             if token.kind == 'QUALIFIER':
                 self._lexer.pop()
-                specifier.qualifiers.add(token.value)
+                try:
+                    specifiers['qualifiers'].add(token.value)
+                except KeyError:
+                    specifiers['qualifiers'] = {token.value}
             # type-specifier
-            elif token.kind == 'SPECIFIER' or token.kind == 'IDENTIFIER':
+            elif token.kind == 'SPECIFIER':
                 self._lexer.pop()
-                specifier.add_specifier(token.value)
+                _TypeNameParser._add_specifier(specifiers, token.value)
+            elif token.kind == 'IDENTIFIER':
+                self._lexer.pop()
+                _TypeNameParser._add_specifier(specifiers, token.value)
+                is_typedef = True
             elif token.kind == 'TAG':
                 self._lexer.pop()
                 token2 = self._lexer.pop()
                 if token2.kind != 'IDENTIFIER':
                     raise ValueError(f'expected identifier after {token.value}')
-                specifier.add_specifier(token.value + ' ' + token2.value)
+                _TypeNameParser._add_specifier(specifiers, token.value + ' ' + token2.value)
             else:
                 break
-        if not specifier:
+        if not specifiers:
             raise ValueError('expected type specifier')
-        if specifier.data_type is None:
-            specifier.data_type = 'int'
-        return specifier
+        if 'data_type' not in specifiers:
+            specifiers['data_type'] = 'int'
+        return _TypeNameParser._type_name_from_specifiers(specifiers, is_typedef)
 
-    def _parse_abstract_declarator(self, type_):
+    def _parse_abstract_declarator(self, type_name):
         if self._lexer.peek().kind == 'ASTERISK':
-            type_, inner_type = self._parse_pointer(type_)
+            type_name, inner_type = self._parse_pointer(type_name)
             token = self._lexer.peek()
             if token.kind == 'LPAREN' or token.kind == 'LBRACKET':
-                type_ = self._parse_direct_abstract_declarator(type_)[0]
-            return type_, inner_type
+                type_name = self._parse_direct_abstract_declarator(type_name)[0]
+            return type_name, inner_type
         else:
-            return self._parse_direct_abstract_declarator(type_)
+            return self._parse_direct_abstract_declarator(type_name)
 
-    def _parse_pointer(self, type_):
+    def _parse_pointer(self, type_name):
         if self._lexer.peek().kind != 'ASTERISK':
             raise ValueError("expected '*'")
         inner_type = None
         while self._lexer.peek().kind == 'ASTERISK':
             self._lexer.pop()
             qualifiers = self._parse_optional_type_qualifier_list()
-            type_ = PointerType(type_, qualifiers)
+            type_name = PointerTypeName(type_name, qualifiers)
             if inner_type is None:
-                inner_type = type_
-        return type_, inner_type
+                inner_type = type_name
+        return type_name, inner_type
 
     def _parse_optional_type_qualifier_list(self):
         qualifiers = set()
@@ -265,7 +300,7 @@ class _TypeNameParser:
             qualifiers.add(token.value)
         return qualifiers
 
-    def _parse_direct_abstract_declarator(self, type_):
+    def _parse_direct_abstract_declarator(self, type_name):
         inner_type = None
         token = self._lexer.peek()
         if token.kind == 'LPAREN':
@@ -273,7 +308,7 @@ class _TypeNameParser:
             token2 = self._lexer.peek()
             if (token2.kind == 'ASTERISK' or token2.kind == 'LPAREN' or
                 token2.kind == 'LBRACKET'):
-                type_, inner_type = self._parse_abstract_declarator(type_)
+                type_name, inner_type = self._parse_abstract_declarator(type_name)
                 if self._lexer.pop().kind != 'RPAREN':
                     raise ValueError("expected ')'")
             else:
@@ -291,9 +326,9 @@ class _TypeNameParser:
                 else:
                     size = None
                 if inner_type is None:
-                    type_ = inner_type = ArrayType(type_, size)
+                    type_name = inner_type = ArrayTypeName(type_name, size)
                 else:
-                    inner_type.type = ArrayType(inner_type.type, size)
+                    inner_type.type = ArrayTypeName(inner_type.type, size)
                     inner_type = inner_type.type
                 if self._lexer.pop().kind != 'RBRACKET':
                     raise ValueError("expected ']'")
@@ -302,7 +337,7 @@ class _TypeNameParser:
             elif inner_type is None:
                 raise ValueError('expected abstract declarator')
             else:
-                return type_, inner_type
+                return type_name, inner_type
 
 
 def parse_type_name(str):

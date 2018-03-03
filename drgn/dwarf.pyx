@@ -1296,6 +1296,17 @@ cdef class Die:
         cdef const DieAttrib *attrib = &self.attribs[i]
         return (attrib.name, attrib.form, self.attrib_value(attrib))
 
+    def __eq__(self, other):
+        if not isinstance(other, Die):
+            return False
+        cdef Die other_die = other
+        return (self.dwarf_file == other_die.dwarf_file and
+                self.cu == other_die.cu and
+                self.offset == other_die.offset and
+                self.length == other_die.length and
+                self.tag == other_die.tag and
+                list(self) == list(other_die))
+
     def find(self, at):
         cdef const DieAttrib *attrib = self.find_attrib(at)
         return attrib.form, self.attrib_value(attrib)
@@ -1503,7 +1514,7 @@ cdef class Die:
             if self.attribs[i].name == name:
                 return &self.attribs[i]
         else:
-            raise DwarfAttribNotFoundError(f'no attribute with name 0x{name:x}')
+            raise DwarfAttribNotFoundError(f'no attribute with name {DW_AT.str(name)}')
 
     cdef str attrib_string(self, const DieAttrib *attrib):
         cdef Py_ssize_t offset

@@ -1,5 +1,17 @@
 import unittest
-from drgn.type import parse_type_name, ArrayType, PointerType, TypeSpecifier
+from drgn.typename import (
+    parse_type_name,
+    ArrayTypeName,
+    EnumTypeName,
+    PointerTypeName,
+    StructTypeName,
+    TypedefTypeName,
+    TypeName,
+    UnionTypeName,
+)
+
+
+# TODO: complex types
 
 
 class TestParseTypeName(unittest.TestCase):
@@ -10,63 +22,70 @@ class TestParseTypeName(unittest.TestCase):
     def test_invalid_character(self):
         self.assertRaises(ValueError, parse_type_name, '`')
 
-    def test_base_type(self):
-        self.assertEqual(parse_type_name('void'), TypeSpecifier('void'))
-        self.assertEqual(parse_type_name('char'), TypeSpecifier('char'))
-        self.assertEqual(parse_type_name('int'), TypeSpecifier('int'))
-        self.assertEqual(parse_type_name('float'), TypeSpecifier('float'))
-        self.assertEqual(parse_type_name('double'), TypeSpecifier('double'))
-        self.assertEqual(parse_type_name('_Bool'), TypeSpecifier('_Bool'))
-        self.assertEqual(parse_type_name('_Complex'), TypeSpecifier('_Complex'))
+    def test_void(self):
+        self.assertEqual(parse_type_name('void'), TypeName('void'))
+
+    def test_basic_types(self):
+        self.assertEqual(parse_type_name('char'), TypeName('char'))
+        self.assertEqual(parse_type_name('int'), TypeName('int'))
+        self.assertEqual(parse_type_name('float'), TypeName('float'))
+        self.assertEqual(parse_type_name('double'), TypeName('double'))
+        self.assertEqual(parse_type_name('_Bool'), TypeName('_Bool'))
 
     def test_size(self):
-        long_int = TypeSpecifier('int', size='long')
-        self.assertEqual(parse_type_name('long int'), long_int)
-        self.assertEqual(parse_type_name('long'), long_int)
-        self.assertEqual(parse_type_name('int long'), long_int)
+        self.assertEqual(parse_type_name('long int'), TypeName('long int'))
+        self.assertEqual(parse_type_name('long'), TypeName('long int'))
+        self.assertEqual(parse_type_name('int long'), TypeName('long int'))
 
-        long_long_int = TypeSpecifier('int', size='long long')
-        self.assertEqual(parse_type_name('long long int'), long_long_int)
-        self.assertEqual(parse_type_name('long long'), long_long_int)
-        self.assertEqual(parse_type_name('int long long'), long_long_int)
-        self.assertEqual(parse_type_name('long int long'), long_long_int)
+        self.assertEqual(parse_type_name('long long int'),
+                         TypeName('long long int'))
+        self.assertEqual(parse_type_name('long long'),
+                         TypeName('long long int'))
+        self.assertEqual(parse_type_name('int long long'),
+                         TypeName('long long int'))
+        self.assertEqual(parse_type_name('long int long'),
+                         TypeName('long long int'))
 
-        short_int = TypeSpecifier('int', size='short')
-        self.assertEqual(parse_type_name('short int'), short_int)
-        self.assertEqual(parse_type_name('short'), short_int)
-        self.assertEqual(parse_type_name('int short'), short_int)
+        self.assertEqual(parse_type_name('short int'), TypeName('short int'))
+        self.assertEqual(parse_type_name('short'), TypeName('short int'))
+        self.assertEqual(parse_type_name('int short'), TypeName('short int'))
+
+        self.assertEqual(parse_type_name('long double'),
+                         TypeName('long double'))
+        self.assertEqual(parse_type_name('double long'),
+                         TypeName('long double'))
 
         self.assertRaises(ValueError, parse_type_name, 'short long int')
         self.assertRaises(ValueError, parse_type_name, 'long long long int')
+        self.assertRaises(ValueError, parse_type_name, 'short double')
+        self.assertRaises(ValueError, parse_type_name, 'double short')
+        self.assertRaises(ValueError, parse_type_name, 'long long double')
+        self.assertRaises(ValueError, parse_type_name, 'long double long')
+        self.assertRaises(ValueError, parse_type_name, 'double long long')
         self.assertRaises(ValueError, parse_type_name, 'long char')
         self.assertRaises(ValueError, parse_type_name, 'char long')
 
     def test_sign(self):
-        signed_int = TypeSpecifier('int', sign='signed')
-        self.assertEqual(parse_type_name('signed int'), signed_int)
-        self.assertEqual(parse_type_name('signed'), signed_int)
-        self.assertEqual(parse_type_name('int signed'), signed_int)
+        self.assertEqual(parse_type_name('signed int'), TypeName('int'))
+        self.assertEqual(parse_type_name('signed'), TypeName('int'))
+        self.assertEqual(parse_type_name('int signed'), TypeName('int'))
 
-        unsigned_int = TypeSpecifier('int', sign='unsigned')
-        self.assertEqual(parse_type_name('unsigned int'), unsigned_int)
-        self.assertEqual(parse_type_name('unsigned'), unsigned_int)
-        self.assertEqual(parse_type_name('int unsigned'), unsigned_int)
+        self.assertEqual(parse_type_name('unsigned int'),
+                         TypeName('unsigned int'))
+        self.assertEqual(parse_type_name('unsigned'),
+                         TypeName('unsigned int'))
+        self.assertEqual(parse_type_name('int unsigned'),
+                         TypeName('unsigned int'))
 
-        signed_char = TypeSpecifier('char', sign='signed')
-        self.assertEqual(parse_type_name('signed char'), signed_char)
-        self.assertEqual(parse_type_name('char signed'), signed_char)
+        self.assertEqual(parse_type_name('signed char'),
+                         TypeName('signed char'))
+        self.assertEqual(parse_type_name('char signed'),
+                         TypeName('signed char'))
 
-        unsigned_char = TypeSpecifier('char', sign='unsigned')
-        self.assertEqual(parse_type_name('unsigned char'), unsigned_char)
-        self.assertEqual(parse_type_name('char unsigned'), unsigned_char)
-
-        signed_complex = TypeSpecifier('_Complex', sign='signed')
-        self.assertEqual(parse_type_name('signed _Complex'), signed_complex)
-        self.assertEqual(parse_type_name('_Complex signed'), signed_complex)
-
-        unsigned_complex = TypeSpecifier('_Complex', sign='unsigned')
-        self.assertEqual(parse_type_name('unsigned _Complex'), unsigned_complex)
-        self.assertEqual(parse_type_name('_Complex unsigned'), unsigned_complex)
+        self.assertEqual(parse_type_name('unsigned char'),
+                         TypeName('unsigned char'))
+        self.assertEqual(parse_type_name('char unsigned'),
+                         TypeName('unsigned char'))
 
         self.assertRaises(ValueError, parse_type_name, 'signed unsigned int')
         self.assertRaises(ValueError, parse_type_name, 'signed _Bool')
@@ -74,189 +93,185 @@ class TestParseTypeName(unittest.TestCase):
 
     def test_qualifiers(self):
         self.assertEqual(parse_type_name('const int'),
-                         TypeSpecifier('int', qualifiers={'const'}))
+                         TypeName('int', qualifiers={'const'}))
         self.assertEqual(parse_type_name('restrict int'),
-                         TypeSpecifier('int', qualifiers={'restrict'}))
+                         TypeName('int', qualifiers={'restrict'}))
         self.assertEqual(parse_type_name('volatile int'),
-                         TypeSpecifier('int', qualifiers={'volatile'}))
+                         TypeName('int', qualifiers={'volatile'}))
         self.assertEqual(parse_type_name('_Atomic int'),
-                         TypeSpecifier('int', qualifiers={'_Atomic'}))
+                         TypeName('int', qualifiers={'_Atomic'}))
         self.assertEqual(parse_type_name('const volatile int'),
-                         TypeSpecifier('int', qualifiers={'const', 'volatile'}))
+                         TypeName('int', qualifiers={'const', 'volatile'}))
         self.assertEqual(parse_type_name('const const int'),
-                         TypeSpecifier('int', qualifiers={'const'}))
+                         TypeName('int', qualifiers={'const'}))
 
     def test_specifiers_qualifiers(self):
         self.assertEqual(parse_type_name('long const int unsigned'),
-                         TypeSpecifier('int', size='long', sign='unsigned',
-                                       qualifiers={'const'}))
+                         TypeName('long unsigned int', qualifiers={'const'}))
 
     def test_typedef(self):
-        self.assertEqual(parse_type_name('u32'), TypeSpecifier('u32'))
+        self.assertEqual(parse_type_name('u32'), TypedefTypeName('u32'))
 
     def test_tagged_type(self):
         self.assertEqual(parse_type_name('struct point'),
-                         TypeSpecifier('struct point'))
+                         StructTypeName('point'))
         self.assertEqual(parse_type_name('union value'),
-                         TypeSpecifier('union value'))
-        self.assertEqual(parse_type_name('enum color'),
-                         TypeSpecifier('enum color'))
+                         UnionTypeName('value'))
+        self.assertEqual(parse_type_name('enum color'), EnumTypeName('color'))
 
     def test_pointer(self):
         self.assertEqual(parse_type_name('int *'),
-                         PointerType(TypeSpecifier('int')))
+                         PointerTypeName(TypeName('int')))
         self.assertEqual(parse_type_name('int * const'),
-                         PointerType(TypeSpecifier('int'), qualifiers={'const'}))
+                         PointerTypeName(TypeName('int'),
+                                         qualifiers={'const'}))
 
         self.assertEqual(parse_type_name('struct point *'),
-                         PointerType(TypeSpecifier('struct point')))
+                         PointerTypeName(StructTypeName('point')))
 
         self.assertEqual(parse_type_name('int **'),
-                         PointerType(PointerType(TypeSpecifier('int'))))
+                         PointerTypeName(PointerTypeName(TypeName('int'))))
 
         self.assertEqual(parse_type_name('int *((*))'),
-                         PointerType(PointerType(TypeSpecifier('int'))))
+                         PointerTypeName(PointerTypeName(TypeName('int'))))
 
         self.assertEqual(parse_type_name('int * const *'),
-                         PointerType(PointerType(TypeSpecifier('int'),
-                                                 qualifiers={'const'})))
+                         PointerTypeName(PointerTypeName(TypeName('int'),
+                                                         qualifiers={'const'})))
 
     def test_array(self):
         self.assertEqual(parse_type_name('int []'),
-                         ArrayType(TypeSpecifier('int'), None))
+                         ArrayTypeName(TypeName('int'), None))
         self.assertEqual(parse_type_name('int [2]'),
-                         ArrayType(TypeSpecifier('int'), 2))
+                         ArrayTypeName(TypeName('int'), 2))
         self.assertEqual(parse_type_name('int [0x10]'),
-                         ArrayType(TypeSpecifier('int'), 16))
+                         ArrayTypeName(TypeName('int'), 16))
         self.assertEqual(parse_type_name('int [010]'),
-                         ArrayType(TypeSpecifier('int'), 8))
+                         ArrayTypeName(TypeName('int'), 8))
         self.assertEqual(parse_type_name('int [2][3]'),
-                         ArrayType(ArrayType(TypeSpecifier('int'), 3), 2))
+                         ArrayTypeName(ArrayTypeName(TypeName('int'), 3), 2))
         self.assertEqual(parse_type_name('int [2][3][4]'),
-                         ArrayType(ArrayType(ArrayType(TypeSpecifier('int'), 4), 3), 2))
+                         ArrayTypeName(ArrayTypeName(ArrayTypeName(TypeName('int'), 4), 3), 2))
 
     def test_array_of_pointers(self):
         self.assertEqual(parse_type_name('int *[2][3]'),
-                         ArrayType(ArrayType(PointerType(TypeSpecifier('int')), 3), 2))
+                         ArrayTypeName(ArrayTypeName(PointerTypeName(TypeName('int')), 3), 2))
 
     def test_pointer_to_array(self):
         self.assertEqual(parse_type_name('int (*)[2]'),
-                         PointerType(ArrayType(TypeSpecifier('int'), 2)))
+                         PointerTypeName(ArrayTypeName(TypeName('int'), 2)))
         self.assertEqual(parse_type_name('int (*)[2][3]'),
-                         PointerType(ArrayType(ArrayType(TypeSpecifier('int'), 3), 2)))
+                         PointerTypeName(ArrayTypeName(ArrayTypeName(TypeName('int'), 3), 2)))
 
     def test_pointer_to_pointer_to_array(self):
         self.assertEqual(parse_type_name('int (**)[2]'),
-                         PointerType(PointerType(ArrayType(TypeSpecifier('int'), 2))))
+                         PointerTypeName(PointerTypeName(ArrayTypeName(TypeName('int'), 2))))
 
     def test_pointer_to_array_of_pointers(self):
         self.assertEqual(parse_type_name('int *(*)[2]'),
-                         PointerType(ArrayType(PointerType(TypeSpecifier('int')), 2)))
+                         PointerTypeName(ArrayTypeName(PointerTypeName(TypeName('int')), 2)))
         self.assertEqual(parse_type_name('int *((*)[2])'),
-                         PointerType(ArrayType(PointerType(TypeSpecifier('int')), 2)))
+                         PointerTypeName(ArrayTypeName(PointerTypeName(TypeName('int')), 2)))
 
     def test_array_of_pointers_to_array(self):
         self.assertEqual(parse_type_name('int (*[2])[3]'),
-                         ArrayType(PointerType(ArrayType(TypeSpecifier('int'), 3)), 2))
+                         ArrayTypeName(PointerTypeName(ArrayTypeName(TypeName('int'), 3)), 2))
 
 
 class TestTypeStr(unittest.TestCase):
-    def test_base_type(self):
-        self.assertEqual(str(TypeSpecifier('void')), 'void')
-        self.assertEqual(str(TypeSpecifier('char')), 'char')
-        self.assertEqual(str(TypeSpecifier('int')), 'int')
-        self.assertEqual(str(TypeSpecifier('float')), 'float')
-        self.assertEqual(str(TypeSpecifier('double')), 'double')
-        self.assertEqual(str(TypeSpecifier('_Bool')), '_Bool')
-        self.assertEqual(str(TypeSpecifier('_Complex')), '_Complex')
+    def test_void(self):
+        self.assertEqual(str(TypeName('void')), 'void')
+
+    def test_basic_types(self):
+        self.assertEqual(str(TypeName('char')), 'char')
+        self.assertEqual(str(TypeName('int')), 'int')
+        self.assertEqual(str(TypeName('float')), 'float')
+        self.assertEqual(str(TypeName('double')), 'double')
+        self.assertEqual(str(TypeName('_Bool')), '_Bool')
 
     def test_size(self):
-        self.assertEqual(str(TypeSpecifier('int', size='long')), 'long int')
-        self.assertEqual(str(TypeSpecifier('int', size='long long')),
-                         'long long int')
-        self.assertEqual(str(TypeSpecifier('int', size='short')), 'short int')
+        self.assertEqual(str(TypeName('long int')), 'long int')
+        self.assertEqual(str(TypeName('long long int')), 'long long int')
+        self.assertEqual(str(TypeName('short int')), 'short int')
+        self.assertEqual(str(TypeName('long double')), 'long double')
 
     def test_sign(self):
-        self.assertEqual(str(TypeSpecifier('int', sign='signed')),
-                         'signed int')
-        self.assertEqual(str(TypeSpecifier('int', sign='unsigned')),
-                         'unsigned int')
-        self.assertEqual(str(TypeSpecifier('char', sign='signed')),
-                         'signed char')
-        self.assertEqual(str(TypeSpecifier('char', sign='unsigned')),
-                         'unsigned char')
-        self.assertEqual(str(TypeSpecifier('_Complex', sign='signed')),
-                         'signed _Complex')
-        self.assertEqual(str(TypeSpecifier('_Complex', sign='unsigned')),
-                         'unsigned _Complex')
+        self.assertEqual(str(TypeName('unsigned int')), 'unsigned int')
+        self.assertEqual(str(TypeName('signed char')), 'signed char')
+        self.assertEqual(str(TypeName('unsigned char')), 'unsigned char')
 
     def test_qualifiers(self):
-        self.assertEqual(str(TypeSpecifier('int', qualifiers={'const'})),
+        self.assertEqual(str(TypeName('int', qualifiers={'const'})),
                          'const int')
-        self.assertEqual(str(TypeSpecifier('int', qualifiers={'restrict'})),
+        self.assertEqual(str(TypeName('int', qualifiers={'restrict'})),
                          'restrict int')
-        self.assertEqual(str(TypeSpecifier('int', qualifiers={'volatile'})),
+        self.assertEqual(str(TypeName('int', qualifiers={'volatile'})),
                          'volatile int')
-        self.assertEqual(str(TypeSpecifier('int', qualifiers={'_Atomic'})),
+        self.assertEqual(str(TypeName('int', qualifiers={'_Atomic'})),
                          '_Atomic int')
-        self.assertEqual(str(TypeSpecifier('int', qualifiers={'const', 'volatile'})),
+        self.assertEqual(str(TypeName('int', qualifiers={'const', 'volatile'})),
                          'const volatile int')
 
     def test_specifiers_qualifiers(self):
-        self.assertEqual(str(TypeSpecifier('int', size='long', sign='unsigned',
-                                           qualifiers={'const'})),
+        self.assertEqual(str(TypeName('long unsigned int',
+                                      qualifiers={'const'})),
                          'const long unsigned int')
+
     def test_typedef(self):
-        self.assertEqual(str(TypeSpecifier('u32')), 'u32')
+        self.assertEqual(str(TypedefTypeName('u32')), 'u32')
 
     def test_tagged_type(self):
-        self.assertEqual(str(TypeSpecifier('struct point')), 'struct point')
-        self.assertEqual(str(TypeSpecifier('union value')), 'union value')
-        self.assertEqual(str(TypeSpecifier('enum color')), 'enum color')
+        self.assertEqual(str(StructTypeName('point')), 'struct point')
+        self.assertEqual(str(UnionTypeName('value')), 'union value')
+        self.assertEqual(str(EnumTypeName('color')), 'enum color')
+
+        self.assertEqual(str(StructTypeName(None)), 'struct <anonymous>')
+        self.assertEqual(str(UnionTypeName(None)), 'union <anonymous>')
+        self.assertEqual(str(EnumTypeName(None)), 'enum <anonymous>')
 
     def test_pointer(self):
-        self.assertEqual(str(PointerType(TypeSpecifier('int'))), 'int *')
-        self.assertEqual(str(PointerType(TypeSpecifier('int'), qualifiers={'const'})),
+        self.assertEqual(str(PointerTypeName(TypeName('int'))), 'int *')
+        self.assertEqual(str(PointerTypeName(TypeName('int'), qualifiers={'const'})),
                          'int * const')
 
-        self.assertEqual(str(PointerType(TypeSpecifier('struct point'))),
+        self.assertEqual(str(PointerTypeName(TypeName('struct point'))),
                          'struct point *')
 
-        self.assertEqual(str(PointerType(PointerType(TypeSpecifier('int')))),
+        self.assertEqual(str(PointerTypeName(PointerTypeName(TypeName('int')))),
                          'int **')
 
-        self.assertEqual(str(PointerType(PointerType(TypeSpecifier('int'),
-                                                     qualifiers={'const'}))),
+        self.assertEqual(str(PointerTypeName(PointerTypeName(TypeName('int'),
+                                                             qualifiers={'const'}))),
                          'int * const *')
 
     def test_array(self):
-        self.assertEqual(str(ArrayType(TypeSpecifier('int'), None)),
+        self.assertEqual(str(ArrayTypeName(TypeName('int'), None)),
                          'int []')
-        self.assertEqual(str(ArrayType(TypeSpecifier('int'), 2)),
+        self.assertEqual(str(ArrayTypeName(TypeName('int'), 2)),
                          'int [2]')
-        self.assertEqual(str(ArrayType(ArrayType(TypeSpecifier('int'), 3), 2)),
+        self.assertEqual(str(ArrayTypeName(ArrayTypeName(TypeName('int'), 3), 2)),
                          'int [2][3]')
-        self.assertEqual(str(ArrayType(ArrayType(ArrayType(TypeSpecifier('int'), 4), 3), 2)),
+        self.assertEqual(str(ArrayTypeName(ArrayTypeName(ArrayTypeName(TypeName('int'), 4), 3), 2)),
                          'int [2][3][4]')
 
     def test_array_of_pointers(self):
-        self.assertEqual(str(ArrayType(ArrayType(PointerType(TypeSpecifier('int')), 3), 2)),
+        self.assertEqual(str(ArrayTypeName(ArrayTypeName(PointerTypeName(TypeName('int')), 3), 2)),
                          'int *[2][3]')
 
     def test_pointer_to_array(self):
-        self.assertEqual(str(PointerType(ArrayType(TypeSpecifier('int'), 2))),
+        self.assertEqual(str(PointerTypeName(ArrayTypeName(TypeName('int'), 2))),
                          'int (*)[2]')
         self.assertEqual(parse_type_name('int (*)[2][3]'),
-                         PointerType(ArrayType(ArrayType(TypeSpecifier('int'), 3), 2)))
+                         PointerTypeName(ArrayTypeName(ArrayTypeName(TypeName('int'), 3), 2)))
 
     def test_pointer_to_pointer_to_array(self):
-        self.assertEqual(str(PointerType(PointerType(ArrayType(TypeSpecifier('int'), 2)))),
+        self.assertEqual(str(PointerTypeName(PointerTypeName(ArrayTypeName(TypeName('int'), 2)))),
                          'int (**)[2]')
 
     def test_pointer_to_array_of_pointers(self):
-        self.assertEqual(str(PointerType(ArrayType(PointerType(TypeSpecifier('int')), 2))),
+        self.assertEqual(str(PointerTypeName(ArrayTypeName(PointerTypeName(TypeName('int')), 2))),
                          'int *(*)[2]')
 
     def test_array_of_pointers_to_array(self):
-        self.assertEqual(str(ArrayType(PointerType(ArrayType(TypeSpecifier('int'), 3)), 2)),
+        self.assertEqual(str(ArrayTypeName(PointerTypeName(ArrayTypeName(TypeName('int'), 3)), 2)),
                          'int (*[2])[3]')

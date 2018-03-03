@@ -2,7 +2,10 @@ from drgn.dwarf import (
     DwarfFile, DwarfIndex, DwarfAttribNotFoundError, DW_AT, DW_ATE, DW_TAG,
 )
 from drgn.elf import ElfFile
-from drgn.type import DrgnTypeFactory
+from drgn.type import (
+    PointerType,
+    TypeFactory,
+)
 from drgn.util import parse_symbol_file
 import os
 
@@ -14,25 +17,18 @@ class CoredumpObject:
         self._type = type_
 
     def __repr__(self):
-        return f'CoredumpObject(address=0x{self._address:x}, type={self._type!r})'
+        return f'CoredumpObject(address=0x{self._address:x}, type=<{self._type.type_name()}>)'
 
     def _value(self):
-        # TODO: endianness
-        if self._type.is_pointer():
+        # TODO: this should be implemented by the Type classes
+        if isinstance(self._type, PointerType):
             size = self._type.sizeof()
             address = int.from_bytes(self._coredump.read(self._address, size),
                                      'little')
-            return CoredumpObject(self._coredump, address, self._type.dereference())
-            pass
-        elif self._type.is_array():
-            # list of CoredumpObjects?
-            assert False, 'TODO'
+            return CoredumpObject(self._coredump, address, self._type.type)
         else:
-            # void?
             # char, int, float, double, _Bool, _Complex: return as Python value
-            # typedef?
-            # enum, struct, union?
-            dwarf_type = self._type._type.dwarf_type
+            dwarf_type = self._type._dwarf_type
             if dwarf_type.tag == DW_TAG.base_type:
                 encoding = dwarf_type.find_constant(DW_AT.encoding)
                 size = dwarf_type.find_constant(DW_AT.byte_size)
@@ -48,11 +44,11 @@ class CoredumpObject:
                 raise NotImplementedError()
 
     def _member(self, name):
-        if self._type.is_pointer():
+        if isinstance(self._type, PointerType):
             size = self._type.sizeof()
             address = int.from_bytes(self._coredump.read(self._address, size),
                                      'little')
-            type_ = self._type.dereference()
+            type_ = self._type.type
         else:
             address = self._address
             type_ = self._type
@@ -76,7 +72,7 @@ class Coredump:
         self._dwarf_index = DwarfIndex()
         for cu in self._program_dwarf_file.cu_headers():
             self._dwarf_index.index_cu(cu)
-        self._type_factory = DrgnTypeFactory(self._dwarf_index)
+        self._type_factory = TypeFactory(self._dwarf_index)
 
     def read(self, address, size):
         for phdr in self._core_elf_file.phdrs:
