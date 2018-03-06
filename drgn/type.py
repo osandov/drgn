@@ -10,8 +10,11 @@ from drgn.typename import (
     TypeName,
     UnionTypeName,
 )
+import enum
 import functools
 import re
+import struct
+import sys
 
 
 class Type:
@@ -41,6 +44,9 @@ class Type:
     def sizeof(self):
         raise NotImplementedError()
 
+    def read(self, buffer, offset=0):
+        raise NotImplementedError()
+
 
 class VoidType(Type):
     def type_name(self):
@@ -48,6 +54,9 @@ class VoidType(Type):
 
     def sizeof(self):
         raise ValueError("can't get size of void")
+
+    def read(self, buffer, offset=0):
+        raise ValueError("can't read void")
 
 
 class BaseType(Type):
@@ -93,15 +102,34 @@ class IntType(BaseType):
         parts.append(')')
         return ''.join(parts)
 
+    def read(self, buffer, offset=0):
+        if len(buffer) - offset < self.size:
+            raise ValueError(f'buffer must be at least {self.size} bytes')
+        return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder,
+                              signed=self.signed)
+
 
 class BoolType(BaseType):
-    pass
+    def read(self, buffer, offset=0):
+        if len(buffer) - offset < self.size:
+            raise ValueError(f'buffer must be at least {self.size} bytes')
+        return bool(int.from_bytes(buffer[offset:offset + self.size],
+                                   sys.byteorder))
 
 
 class FloatType(BaseType):
-    pass
+    def read(self, buffer, offset=0):
+        if len(buffer) - offset < self.size:
+            raise ValueError(f'buffer must be at least {self.size} bytes')
+        if self.size == 4:
+            return struct.unpack_from('f', buffer, offset)[0]
+        elif self.size == 8:
+            return struct.unpack_from('d', buffer, offset)[0]
+        else:
+            raise ValueError(f"can't read float of size {self.size}")
 
 
+# Not a real C type, but it needs a separate representation.
 class BitFieldType(Type):
     def __init__(self, type, bit_offset, bit_size):
         self.type = type
@@ -126,6 +154,23 @@ class BitFieldType(Type):
 
     def sizeof(self):
         raise ValueError("can't get size of bit field")
+
+    def read(self, buffer, offset=0):
+        size = (self.bit_offset + self.bit_size + 7) // 8
+        if len(buffer) - offset < size:
+            raise ValueError(f'buffer must be at least {size} bytes')
+
+        # XXX: this assumes little-endian
+        offset += self.bit_offset // 8
+        bit_offset = self.bit_offset % 8
+        end = offset + (bit_offset + self.bit_size + 7) // 8
+        value = int.from_bytes(buffer[offset:end], sys.byteorder)
+        value >>= bit_offset
+        value &= (1 << self.bit_size) - 1
+        signed = self.type.signed if hasattr(self.type, 'signed') else False
+        if signed and (value & (1 << (self.bit_size - 1))):
+            value -= (1 << self.bit_size)
+        return value
 
 
 class CompoundType(Type):
@@ -216,6 +261,14 @@ class CompoundType(Type):
             raise ValueError("can't get size of incomplete type")
         return self.size
 
+    def read(self, buffer, offset=0):
+        if len(buffer) - offset < self.size:
+            raise ValueError(f'buffer must be at least {self.size} bytes')
+        return OrderedDict([
+            (name, type_thunk().read(buffer, offset + member_offset))
+            for name, (member_offset, type_thunk) in self._members_by_name.items()
+        ])
+
     def members(self):
         return list(self._members_by_name)
 
@@ -237,24 +290,53 @@ class UnionType(CompoundType):
 
 
 class EnumType(Type):
-    def __init__(self, name, size, enumerators, qualifiers=None):
+    def __init__(self, name, size, signed, enumerators, qualifiers=None):
         super().__init__(qualifiers)
         self.name = name
         self.size = size
-        self._enumerators = enumerators
+        self.signed = signed
+        if enumerators is None:
+            self._enum = None
+        else:
+            self._enum = enum.IntEnum('' if name is None else name,
+                                      OrderedDict(enumerators))
+
+    def __repr__(self):
+        parts = [
+            self.__class__.__name__, '(',
+            repr(self.name), ', ',
+            repr(self.size), ', ',
+            repr(self.signed), ', ',
+            repr(None if self._enum is None else self._enum.__members__),
+        ]
+        if self.qualifiers:
+            parts.append(', ')
+            parts.append(repr(self.qualifiers))
+        parts.append(')')
+        return ''.join(parts)
 
     def __str__(self):
         parts = [str(self.type_name())]
-        if self._enumerators is not None:
+        if self._enum is not None:
             parts.append(' {\n')
-            for name, value in self._enumerators:
+            for name, value in self._enum.__members__.items():
                 parts.append('\t')
                 parts.append(name)
                 parts.append(' = ')
-                parts.append(str(value))
+                parts.append(str(value._value_))
                 parts.append(',\n')
             parts.append('}')
         return ''.join(parts)
+
+    def _dict_for_eq(self):
+        d = dict(self.__dict__)
+        if d['_enum'] is not None:
+            d['_enum'] = d['_enum'].__members__
+        return d
+
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__) and
+                self._dict_for_eq() == other._dict_for_eq())
 
     def type_name(self):
         return EnumTypeName(self.name, self.qualifiers)
@@ -263,6 +345,18 @@ class EnumType(Type):
         if self.size is None:
             raise ValueError("can't get size of incomplete type")
         return self.size
+
+    def read(self, buffer, offset=0):
+        if self._enum is None:
+            raise ValueError("can't read incomplete enum type")
+        if len(buffer) - offset < self.size:
+            raise ValueError(f'buffer must be at least {self.size} bytes')
+        value = int.from_bytes(buffer[offset:offset + self.size],
+                               sys.byteorder, signed=self.signed)
+        try:
+            return self._enum(value)
+        except ValueError:
+            return value
 
 
 class TypedefType(Type):
@@ -295,6 +389,9 @@ class TypedefType(Type):
     def sizeof(self):
         return self.type.sizeof()
 
+    def read(self, buffer, offset=0):
+        return self.type.read(buffer, offset)
+
 
 class PointerType(Type):
     def __init__(self, size, type, qualifiers=None):
@@ -320,6 +417,11 @@ class PointerType(Type):
     def sizeof(self):
         return self.size
 
+    def read(self, buffer, offset=0):
+        if len(buffer) - offset < self.size:
+            raise ValueError(f'buffer must be at least {self.size} bytes')
+        return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder)
+
 
 class ArrayType(Type):
     def __init__(self, type, length=None):
@@ -336,6 +438,18 @@ class ArrayType(Type):
         if self.length is None:
             raise ValueError("can't get size of incomplete array type")
         return self.length * self.type.sizeof()
+
+    def read(self, buffer, offset=0):
+        if self.length is None:
+            raise ValueError("can't read incomplete array type")
+        element_size = self.type.sizeof()
+        size = self.length * element_size
+        if len(buffer) - offset < size:
+            raise ValueError(f'buffer must be at least {size} bytes')
+        return [
+            self.type.read(buffer, element_offset)
+            for element_offset in range(offset, offset + size, element_size)
+        ]
 
 
 class TypeFactory:
@@ -426,9 +540,17 @@ class TypeFactory:
         elif dwarf_type.tag == DW_TAG.enumeration_type:
             if dwarf_type.find_flag(DW_AT.declaration):
                 size = None
+                signed = None
                 enumerators = None
             else:
                 size = dwarf_type.find_constant(DW_AT.byte_size)
+                encoding = dwarf_type.find_constant(DW_AT.encoding)
+                if encoding == DW_ATE.signed:
+                    signed = True
+                elif encoding == DW_ATE.unsigned:
+                    signed = False
+                else:
+                    raise NotImplementedError(DW_ATE.str(encoding))
                 enumerators = []
                 for child in dwarf_type.children():
                     if child.tag != DW_TAG.enumerator:
@@ -440,7 +562,7 @@ class TypeFactory:
                 name = dwarf_type.name()
             except DwarfAttribNotFoundError:
                 name = None
-            return EnumType(name, size, enumerators, qualifiers)
+            return EnumType(name, size, signed, enumerators, qualifiers)
         elif dwarf_type.tag == DW_TAG.typedef:
             return TypedefType(dwarf_type.name(),
                                self.from_dwarf_type(dwarf_type.type()),

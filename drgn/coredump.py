@@ -20,34 +20,13 @@ class CoredumpObject:
         return f'CoredumpObject(address=0x{self._address:x}, type=<{self._type.type_name()}>)'
 
     def _value(self):
-        # TODO: this should be implemented by the Type classes
-        if isinstance(self._type, PointerType):
-            size = self._type.sizeof()
-            address = int.from_bytes(self._coredump.read(self._address, size),
-                                     'little')
-            return CoredumpObject(self._coredump, address, self._type.type)
-        else:
-            # char, int, float, double, _Bool, _Complex: return as Python value
-            dwarf_type = self._type._dwarf_type
-            if dwarf_type.tag == DW_TAG.base_type:
-                encoding = dwarf_type.find_constant(DW_AT.encoding)
-                size = dwarf_type.find_constant(DW_AT.byte_size)
-                b = self._coredump.read(self._address, size)
-                if encoding == DW_ATE.signed:
-                    return int.from_bytes(b, 'little', signed=True)
-                elif encoding == DW_ATE.unsigned:
-                    size = dwarf_type.find_constant(DW_AT.byte_size)
-                    return int.from_bytes(b, 'little')
-                else:
-                    raise NotImplementedError()
-            else:
-                raise NotImplementedError()
+        buffer = self._coredump.read(self._address, self._type.sizeof())
+        return self._type.read(buffer)
 
     def _member(self, name):
         if isinstance(self._type, PointerType):
-            size = self._type.sizeof()
-            address = int.from_bytes(self._coredump.read(self._address, size),
-                                     'little')
+            buffer = self._coredump.read(self._address, self._type.sizeof())
+            address = self._type.read(buffer)
             type_ = self._type.type
         else:
             address = self._address
