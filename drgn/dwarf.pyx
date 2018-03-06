@@ -1307,6 +1307,13 @@ cdef class Die:
                 self.tag == other_die.tag and
                 list(self) == list(other_die))
 
+    def __contains__(self, item):
+        for i in range(self.num_attribs):
+            if self.attribs[i].name == item:
+                return True
+        return False
+
+
     def find(self, at):
         cdef const DieAttrib *attrib = self.find_attrib(at)
         return attrib.form, self.attrib_value(attrib)

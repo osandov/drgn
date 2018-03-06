@@ -32,29 +32,29 @@ class TypeName:
         return ' '.join(parts)
 
 
-class TaggedType(TypeName):
+def _tagged_declaration(keyword, tag, name, qualifiers):
+    parts = sorted(qualifiers)
+    parts.append(keyword)
+    if tag:
+        parts.append(tag)
+    if name:
+        parts.append(name)
+    return ' '.join(parts)
+
+
+class StructTypeName(TypeName):
     def declaration(self, name):
-        parts = sorted(self.qualifiers)
-        parts.append(self.TAG)
-        if self.name:
-            parts.append(self.name)
-        else:
-            parts.append('<anonymous>')
-        if name:
-            parts.append(name)
-        return ' '.join(parts)
+        return _tagged_declaration('struct', self.name, name, self.qualifiers)
 
 
-class StructTypeName(TaggedType):
-    TAG = 'struct'
+class UnionTypeName(TypeName):
+    def declaration(self, name):
+        return _tagged_declaration('union', self.name, name, self.qualifiers)
 
 
-class UnionTypeName(TaggedType):
-    TAG = 'union'
-
-
-class EnumTypeName(TaggedType):
-    TAG = 'enum'
+class EnumTypeName(TypeName):
+    def declaration(self, name):
+        return _tagged_declaration('enum', self.name, name, self.qualifiers)
 
 
 class TypedefTypeName(TypeName):

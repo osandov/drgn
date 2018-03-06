@@ -8,8 +8,11 @@ from drgn.dwarf import DwarfFile, DwarfIndex
 from drgn.elf import ElfFile
 from drgn.type import (
     ArrayType,
-    BaseType,
+    BitFieldType,
+    BoolType,
     EnumType,
+    FloatType,
+    IntType,
     PointerType,
     StructType,
     TypedefType,
@@ -19,143 +22,352 @@ from drgn.type import (
 )
 
 
+point_type = StructType('point', 8, [
+    ('x', 0, lambda: IntType('int', 4, True)),
+    ('y', 4, lambda: IntType('int', 4, True)),
+])
+anonymous_point_type = StructType(None, 8, [
+    ('x', 0, lambda: IntType('int', 4, True)),
+    ('y', 4, lambda: IntType('int', 4, True)),
+])
+const_anonymous_point_type = StructType(None, 8, [
+    ('x', 0, lambda: IntType('int', 4, True)),
+    ('y', 4, lambda: IntType('int', 4, True)),
+], {'const'})
+line_segment_type = StructType('line_segment', 16, [
+    ('a', 0, lambda: point_type),
+    ('b', 8, lambda: point_type),
+])
+pointer_size = ctypes.sizeof(ctypes.c_void_p)
+
+
+
+class TestType(unittest.TestCase):
+    def test_int_type(self):
+        type_ = IntType('int', 4, True)
+        self.assertEqual(str(type_), 'int')
+        self.assertEqual(type_.sizeof(), 4)
+
+    def test_float(self):
+        type_ = FloatType('double', 8)
+        self.assertEqual(str(type_), 'double')
+        self.assertEqual(type_.sizeof(), 8)
+
+    def test_bool(self):
+        type_ = BoolType('_Bool', 1)
+        self.assertEqual(str(type_), '_Bool')
+        self.assertEqual(type_.sizeof(), 1)
+
+    def test_qualifiers(self):
+        type_ = IntType('int', 4, True, {'const'})
+        self.assertEqual(str(type_), 'const int')
+        self.assertEqual(type_.sizeof(), 4)
+
+        type_.qualifiers.add('volatile')
+        self.assertEqual(str(type_), 'const volatile int')
+        self.assertEqual(type_.sizeof(), 4)
+
+    def test_typedef(self):
+        type_ = TypedefType('INT', IntType('int', 4, True))
+        self.assertEqual(str(type_), 'typedef int INT')
+        self.assertEqual(type_.sizeof(), 4)
+
+        type_ = TypedefType('string', PointerType(pointer_size, IntType('char', 1, True)))
+        self.assertEqual(str(type_), 'typedef char *string')
+        self.assertEqual(type_.sizeof(), pointer_size)
+
+        type_ = TypedefType('CINT', IntType('int', 4, True, {'const'}))
+        self.assertEqual(str(type_), 'typedef const int CINT')
+        self.assertEqual(type_.sizeof(), 4)
+
+        type_ = TypedefType('INT', IntType('int', 4, True), {'const'})
+        self.assertEqual(str(type_), 'const typedef int INT')
+        self.assertEqual(type_.sizeof(), 4)
+
+    def test_struct(self):
+        self.assertEqual(str(point_type), """\
+struct point {
+	int x;
+	int y;
+}""")
+        self.assertEqual(point_type.sizeof(), 8)
+        self.assertEqual(point_type.members(), ['x', 'y'])
+        self.assertEqual(point_type.offsetof('x'), 0)
+        self.assertEqual(point_type.offsetof('y'), 4)
+        self.assertEqual(point_type.typeof('x'), IntType('int', 4, True))
+        self.assertEqual(point_type.typeof('y'), IntType('int', 4, True))
+
+        self.assertEqual(str(line_segment_type), """\
+struct line_segment {
+	struct point a;
+	struct point b;
+}""")
+
+        self.assertEqual(str(anonymous_point_type), """\
+struct {
+	int x;
+	int y;
+}""")
+
+        type_ = StructType('line_segment', 16, [
+            (None, 0, lambda: const_anonymous_point_type),
+            ('b', 8, lambda: const_anonymous_point_type),
+        ], {'const', 'volatile'})
+        self.assertEqual(str(type_), """\
+const volatile struct line_segment {
+	const struct {
+		int x;
+		int y;
+	};
+	const struct {
+		int x;
+		int y;
+	} b;
+}""")
+
+        type_ = StructType('foo', None, None)
+        self.assertEqual(str(type_), 'struct foo')
+        self.assertRaises(ValueError, type_.sizeof)
+
+        type_ = StructType(None, 12, [
+            ('x', 0, lambda: IntType('int', 4, True)),
+            (None, 4, lambda: StructType('point', 8, [
+                ('y', 0, lambda: IntType('int', 4, True)),
+                ('z', 4, lambda: IntType('int', 4, True)),
+            ])),
+        ])
+        self.assertEqual(type_.members(), ['x', 'y', 'z'])
+        self.assertEqual(type_.offsetof('x'), 0)
+        self.assertEqual(type_.offsetof('y'), 4)
+        self.assertEqual(type_.offsetof('z'), 8)
+        self.assertEqual(type_.typeof('x'), IntType('int', 4, True))
+        self.assertEqual(type_.typeof('y'), IntType('int', 4, True))
+        self.assertEqual(type_.typeof('z'), IntType('int', 4, True))
+
+    def test_bit_field(self):
+        type_ = StructType(None, 8, [
+            ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
+            ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
+            ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
+        ])
+        self.assertEqual(str(type_), """\
+struct {
+	int x : 4;
+	const int y : 28;
+	int z : 5;
+}""")
+
+        type_ = BitFieldType(IntType('int', 4, True), 0, 4)
+        self.assertEqual(str(type_), 'int : 4')
+        self.assertRaises(ValueError, type_.type_name)
+        self.assertRaises(ValueError, type_.sizeof)
+
+    def test_union(self):
+        type_ = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ])
+        self.assertEqual(str(type_), """\
+union value {
+	int i;
+	float f;
+}""")
+        self.assertEqual(type_.sizeof(), 4)
+
+        type_ = UnionType('value', 8, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+            ('p', 0, lambda: point_type),
+        ])
+        self.assertEqual(str(type_), """\
+union value {
+	int i;
+	float f;
+	struct point p;
+}""")
+
+        type_ = UnionType('foo', None, None)
+        self.assertEqual(str(type_), 'union foo')
+        self.assertRaises(ValueError, type_.sizeof)
+
+    def test_enum(self):
+        type_ = EnumType('color', 4, [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
+        self.assertEqual(str(type_), """\
+enum color {
+	RED = 0,
+	GREEN = 1,
+	BLUE = 2,
+}""")
+        self.assertEqual(type_.sizeof(), 4)
+
+        type_.qualifiers.add('const')
+        self.assertEqual(str(type_), """\
+const enum color {
+	RED = 0,
+	GREEN = 1,
+	BLUE = 2,
+}""")
+
+        type_.qualifiers.add('volatile')
+        self.assertEqual(str(type_), """\
+const volatile enum color {
+	RED = 0,
+	GREEN = 1,
+	BLUE = 2,
+}""")
+
+        type_ = EnumType(None, 4, [('RED', 10), ('GREEN', 11), ('BLUE', -1)])
+        self.assertEqual(str(type_), """\
+enum {
+	RED = 10,
+	GREEN = 11,
+	BLUE = -1,
+}""")
+
+        type_ = EnumType('foo', None, None)
+        self.assertEqual(str(type_), 'enum foo')
+        self.assertRaises(ValueError, type_.sizeof)
+
+    def test_pointer(self):
+        type_ = PointerType(pointer_size, IntType('int', 4, True))
+        self.assertEqual(str(type_), 'int *')
+        self.assertEqual(type_.sizeof(), pointer_size)
+
+        type_ = PointerType(pointer_size, IntType('int', 4, True), {'const'})
+        self.assertEqual(str(type_), 'int * const')
+
+        type_ = PointerType(pointer_size, point_type)
+        self.assertEqual(str(type_), 'struct point *')
+
+        type_ = PointerType(pointer_size, PointerType(pointer_size, IntType('int', 4, True)))
+        self.assertEqual(str(type_), 'int **')
+
+        type_ = PointerType(pointer_size, VoidType())
+        self.assertEqual(str(type_), 'void *')
+
+    def test_array(self):
+        type_ = ArrayType(IntType('int', 4, True), 2)
+        self.assertEqual(str(type_), 'int [2]')
+        self.assertEqual(type_.sizeof(), 8)
+
+        type_ = ArrayType(ArrayType(IntType('int', 4, True), 3), 2)
+        self.assertEqual(str(type_), 'int [2][3]')
+
+        type_ = ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4), 3), 2)
+        self.assertEqual(str(type_), 'int [2][3][4]')
+
+    def test_incomplete_array(self):
+        type_ = ArrayType(IntType('int', 4, True), None)
+        self.assertEqual(str(type_), 'int []')
+        self.assertRaises(ValueError, type_.sizeof)
+
+        type_ = ArrayType(ArrayType(IntType('int', 4, True), 2), None)
+        self.assertEqual(str(type_), 'int [][2]')
+
+
 class TestFromDwarfType(unittest.TestCase):
     def setUp(self):
         self.tmp_dir = tempfile.TemporaryDirectory()
 
     def tearDown(self):
-        if hasattr(self, 'dwarf_file'):
-            self.dwarf_file.close()
-        if hasattr(self, 'program_file'):
-            self.program_file.close()
         self.tmp_dir.cleanup()
 
-    def compile_and_run(self, source_code):
-        if hasattr(self, 'type_factory'):
-            del self.type_factory
-        if hasattr(self, 'dwarf_index'):
-            del self.dwarf_index
-        if hasattr(self, 'dwarf_file'):
-            self.dwarf_file.close()
-            del self.dwarf_file
-        if hasattr(self, 'program_file'):
-            self.program_file.close()
-            del self.program_file
-
+    def compile_type(self, decl):
         program_path = os.path.join(self.tmp_dir.name, 'test')
         source_path = program_path + '.c'
         with open(source_path, 'w') as f:
-            f.write(source_code)
+            f.write(decl)
+            f.write(';\nint main(void) { return 0; }\n')
         subprocess.check_call(['gcc', '-g', '-o', program_path, source_path])
-        self.program_file = open(program_path, 'rb')
-        elf_file = ElfFile(self.program_file)
-        self.dwarf_file = DwarfFile(self.program_file, elf_file.sections)
-        self.dwarf_index = DwarfIndex()
-        for cu in self.dwarf_file.cu_headers():
-            self.dwarf_index.index_cu(cu)
-        self.type_factory = TypeFactory(self.dwarf_index)
-        return subprocess.check_output([program_path])
-
-    def assertType(self, decl, type_name, callback):
-        do_sizeof = 'extern' not in decl
-        lines = [
-            '#include <stdio.h>',
-            '',
-            decl + ';',
-            '',
-            'int main(void)',
-            '{',
-        ]
-        if do_sizeof:
-            lines.append('\tprintf("%zu\\n", sizeof(x));')
-        lines.append('\treturn 0;')
-        lines.append('}')
-        lines.append('')
-        output = self.compile_and_run('\n'.join(lines))
-        dwarf_type = self.dwarf_index.find_variable('x').type()
-        type_ = self.type_factory.from_dwarf_type(dwarf_type)
-
-        self.assertEqual(type_, callback(self.type_factory, dwarf_type))
-        self.assertEqual(str(type_), type_name)
-        if do_sizeof:
-            self.assertEqual(type_.sizeof(), int(output))
-        else:
-            self.assertRaises(ValueError, type_.sizeof)
+        with open(program_path, 'rb') as program_file:
+            elf_file = ElfFile(program_file)
+            dwarf_file = DwarfFile(program_file, elf_file.sections)
+            dwarf_index = DwarfIndex()
+            for cu in dwarf_file.cu_headers():
+                dwarf_index.index_cu(cu)
+            type_factory = TypeFactory(dwarf_index)
+            dwarf_type = dwarf_index.find_variable('x').type()
+            return type_factory.from_dwarf_type(dwarf_type)
 
     def test_char(self):
-        self.assertType('char x', 'char', BaseType)
-        self.assertType('signed char x', 'signed char', BaseType)
-        self.assertType('unsigned char x', 'unsigned char', BaseType)
+        self.assertEqual(self.compile_type('char x'),
+                        IntType('char', 1, True))
+        self.assertEqual(self.compile_type('signed char x'),
+                        IntType('signed char', 1, True))
+        self.assertEqual(self.compile_type('unsigned char x'),
+                        IntType('unsigned char', 1, False))
 
     def test_short(self):
-        self.assertType('short x', 'short int', BaseType)
-        self.assertType('signed short x', 'short int', BaseType)
-        self.assertType('unsigned short int x', 'short unsigned int', BaseType)
+        self.assertEqual(self.compile_type('short x'),
+                        IntType('short int', 2, True))
+        self.assertEqual(self.compile_type('signed short x'),
+                        IntType('short int', 2, True))
+        self.assertEqual(self.compile_type('unsigned short x'),
+                        IntType('short unsigned int', 2, False))
 
     def test_int(self):
-        self.assertType('int x', 'int', BaseType)
-        self.assertType('signed int x', 'int', BaseType)
-        self.assertType('unsigned int x', 'unsigned int', BaseType)
+        self.assertEqual(self.compile_type('int x'),
+                        IntType('int', 4, True))
+        self.assertEqual(self.compile_type('signed int x'),
+                        IntType('int', 4, True))
+        self.assertEqual(self.compile_type('unsigned int x'),
+                        IntType('unsigned int', 4, False))
 
     def test_long(self):
-        self.assertType('long x', 'long int', BaseType)
-        self.assertType('signed long x', 'long int', BaseType)
-        self.assertType('unsigned long int x', 'long unsigned int', BaseType)
+        self.assertEqual(self.compile_type('long x'),
+                        IntType('long int', 8, True))
+        self.assertEqual(self.compile_type('signed long x'),
+                        IntType('long int', 8, True))
+        self.assertEqual(self.compile_type('unsigned long x'),
+                        IntType('long unsigned int', 8, False))
 
     def test_long_long(self):
-        self.assertType('long long x', 'long long int', BaseType)
-        self.assertType('signed long long x', 'long long int', BaseType)
-        self.assertType('unsigned long long int x', 'long long unsigned int',
-                        BaseType)
+        self.assertEqual(self.compile_type('long long x'),
+                        IntType('long long int', 8, True))
+        self.assertEqual(self.compile_type('signed long long x'),
+                        IntType('long long int', 8, True))
+        self.assertEqual(self.compile_type('unsigned long long x'),
+                        IntType('long long unsigned int', 8, False))
 
     def test_float(self):
-        self.assertType('float x', 'float', BaseType)
-        self.assertType('double x', 'double', BaseType)
-        self.assertType('long double x', 'long double', BaseType)
+        self.assertEqual(self.compile_type('float x'),
+                         FloatType('float', 4))
+        self.assertEqual(self.compile_type('double x'),
+                         FloatType('double', 8))
+        self.assertEqual(self.compile_type('long double x'),
+                         FloatType('long double', 16))
 
     def test_bool(self):
-        self.assertType('_Bool x', '_Bool', BaseType)
+        self.assertEqual(self.compile_type('_Bool x'), BoolType('_Bool', 1))
 
     def test_qualifiers(self):
         # restrict is only valid in function parameters, and GCC doesn't seem
         # to create a type for _Atomic.
-        self.assertType('const int x', 'const int',
-                        lambda factory, dwarf_type:
-                        BaseType(factory, dwarf_type.unqualified(), {'const'}))
-        self.assertType('volatile int x', 'volatile int',
-                        lambda factory, dwarf_type:
-                        BaseType(factory, dwarf_type.unqualified(), {'volatile'}))
-        self.assertType('const volatile int x', 'const volatile int',
-                        lambda factory, dwarf_type:
-                        BaseType(factory, dwarf_type.unqualified(),
-                                 {'const', 'volatile'}))
+        self.assertEqual(self.compile_type('const int x'),
+                        IntType('int', 4, True, {'const'}))
+        self.assertEqual(self.compile_type('volatile int x'),
+                        IntType('int', 4, True, {'volatile'}))
+        self.assertEqual(self.compile_type('const volatile int x'),
+                        IntType('int', 4, True, {'const', 'volatile'}))
 
     def test_typedef(self):
-        size = ctypes.sizeof(ctypes.c_void_p)
-
-        self.assertType('typedef int INT; INT x', 'typedef int INT',
-                        lambda factory, dwarf_type:
-                        TypedefType(BaseType(factory, dwarf_type.unqualified()), 'INT'))
-        self.assertType('typedef char *string; string x', 'typedef char *string',
-                        lambda factory, dwarf_type:
-                        TypedefType(PointerType(BaseType(factory, dwarf_type.unqualified().type()), size), 'string'))
+        self.assertEqual(self.compile_type('typedef int INT; INT x'),
+                         TypedefType('INT', IntType('int', 4, True)))
+        self.assertEqual(self.compile_type('typedef char *string; string x'),
+                        TypedefType('string', PointerType(pointer_size, IntType('char', 1, True))))
+        self.assertEqual(self.compile_type('typedef const int CINT; CINT x'),
+                         TypedefType('CINT', IntType('int', 4, True, {'const'})))
+        self.assertEqual(self.compile_type('typedef int INT; const INT x'),
+                         TypedefType('INT', IntType('int', 4, True), {'const'}))
 
     def test_struct(self):
-        self.assertType("""\
+        self.assertEqual(self.compile_type("""\
 struct point {
 	int x;
 	int y;
-};
+} x;"""), point_type)
 
-struct point x;""", """\
-struct point {
-	int x;
-	int y;
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type))
-
-        self.assertType("""\
+        self.assertEqual(self.compile_type("""\
 struct point {
 	int x;
 	int y;
@@ -164,71 +376,56 @@ struct point {
 struct line_segment {
 	struct point a;
 	struct point b;
-};
+} x;"""), line_segment_type)
 
-struct line_segment x;""", """\
-struct line_segment {
-	struct point a;
-	struct point b;
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type))
-
-        self.assertType("""\
+        self.assertEqual(self.compile_type("""\
 struct {
 	int x;
 	int y;
-} x;""", """\
-struct {
-	int x;
-	int y;
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type))
+} x;"""), anonymous_point_type)
 
-        self.assertType("""\
-const struct point {
+        self.assertEqual(self.compile_type("""\
+const struct line_segment {
 	const struct {
 		int x;
 		int y;
 	};
-} x;""", """\
-const struct point {
 	const struct {
 		int x;
 		int y;
-	};
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type.unqualified(), {'const'}))
+	} b;
+} x;"""), StructType('line_segment', 16, [
+    (None, 0, lambda: const_anonymous_point_type),
+    ('b', 8, lambda: const_anonymous_point_type),
+], {'const'}))
 
-    def test_bit_fields(self):
-        self.assertType("""\
+    def test_incomplete_struct(self):
+        self.assertEqual(self.compile_type('struct foo; extern struct foo x'),
+                         StructType('foo', None, None))
+
+    def test_bit_field(self):
+        self.assertEqual(self.compile_type("""\
 struct {
 	int x : 4;
-	int y : 4;
-} x;""", """\
-struct {
-	int x : 4;
-	int y : 4;
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type))
+	const int y : 28;
+	int z : 5;
+} x;"""), StructType(None, 8, [
+    ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
+    ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
+    ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
+]))
 
     def test_union(self):
-        self.assertType("""\
+        self.assertEqual(self.compile_type("""\
 union value {
 	int i;
 	float f;
-} x;""", """\
-union value {
-	int i;
-	float f;
-}""",
-                        lambda factory, dwarf_type:
-                        UnionType(factory, dwarf_type))
+} x;"""), UnionType('value', 4, [
+    ('i', 0, lambda: IntType('int', 4, True)),
+    ('f', 0, lambda: FloatType('float', 4)),
+]))
 
-        self.assertType("""\
+        self.assertEqual(self.compile_type("""\
 struct point {
 	int x;
 	int y;
@@ -238,145 +435,64 @@ union value {
 	int i;
 	float f;
 	struct point p;
-} x;""", """\
-union value {
-	int i;
-	float f;
-	struct point p;
-}""",
-                        lambda factory, dwarf_type:
-                        UnionType(factory, dwarf_type))
+} x;"""), UnionType('value', 8, [
+    ('i', 0, lambda: IntType('int', 4, True)),
+    ('f', 0, lambda: FloatType('float', 4)),
+    ('p', 0, lambda: point_type),
+]))
 
-    def test_anonymous_field(self):
-        self.assertType("""\
-struct tagged_union {
-	int type;
-	union {
-		int i;
-		double d;
-	};
-} x;""", """\
-struct tagged_union {
-	int type;
-	union {
-		int i;
-		double d;
-	};
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type))
-
-        self.assertType("""\
-struct tagged_union {
-	int type;
-	union {
-		int i;
-		double d;
-	} value;
-} x;""", """\
-struct tagged_union {
-	int type;
-	union {
-		int i;
-		double d;
-	} value;
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type))
+    def test_incomplete_union(self):
+        self.assertEqual(self.compile_type('union foo; extern union foo x'),
+                         UnionType('foo', None, None))
 
     def test_enum(self):
-        self.assertType("""\
+        self.assertEqual(self.compile_type("""\
 enum color {
 	RED,
 	GREEN,
 	BLUE,
-} x;""", """\
-enum color {
-	RED = 0,
-	GREEN = 1,
-	BLUE = 2,
-}""",
-                        lambda factory, dwarf_type:
-                        EnumType(factory, dwarf_type))
-        self.assertType("""\
+} x;"""), EnumType('color', 4, [('RED', 0), ('GREEN', 1), ('BLUE', 2)]))
+
+        self.assertEqual(self.compile_type("""\
 enum {
 	RED = 10,
 	GREEN,
 	BLUE = -1,
-} x;""", """\
-enum {
-	RED = 10,
-	GREEN = 11,
-	BLUE = -1,
-}""",
-                        lambda factory, dwarf_type:
-                        EnumType(factory, dwarf_type))
-        self.assertType("""\
-struct point {
-	enum {
-		RED,
-		GREEN,
-		BLUE,
-	} color;
-	int x, y;
-} x;""", """\
-struct point {
-	enum {
-		RED = 0,
-		GREEN = 1,
-		BLUE = 2,
-	} color;
-	int x;
-	int y;
-}""",
-                        lambda factory, dwarf_type:
-                        StructType(factory, dwarf_type))
+} x;"""), EnumType(None, 4, [('RED', 10), ('GREEN', 11), ('BLUE', -1)]))
 
+    def test_incomplete_enum(self):
+        self.assertEqual(self.compile_type('enum foo; extern enum foo x'),
+                         EnumType('foo', None, None))
 
     def test_pointer(self):
-        size = ctypes.sizeof(ctypes.c_void_p)
+        self.assertEqual(self.compile_type('int *x'),
+                         PointerType(pointer_size, IntType('int', 4, True)))
 
-        self.assertType('int *x', 'int *',
-                        lambda factory, dwarf_type:
-                        PointerType(BaseType(factory, dwarf_type.type()), size))
+        self.assertEqual(self.compile_type('int * const x'),
+                         PointerType(pointer_size, IntType('int', 4, True), {'const'}))
 
-        self.assertType('int * const x', 'int * const',
-                        lambda factory, dwarf_type:
-                        PointerType(BaseType(factory, dwarf_type.unqualified().type()), size, {'const'}))
-
-        self.assertType("""\
+        self.assertEqual(self.compile_type("""\
 struct point {
 	int x;
 	int y;
-};
+} *x;"""), PointerType(pointer_size, point_type))
 
-struct point *x;""", 'struct point *',
-                        lambda factory, dwarf_type:
-                        PointerType(StructType(factory, dwarf_type.type()), size))
+        self.assertEqual(self.compile_type('int **x'),
+                         PointerType(pointer_size, PointerType(pointer_size, IntType('int', 4, True))))
 
-        self.assertType('int **x', 'int **',
-                        lambda factory, dwarf_type:
-                        PointerType(PointerType(BaseType(factory, dwarf_type.type().type()), size), size))
-
-        self.assertType('void *x', 'void *',
-                        lambda factory, dwarf_type:
-                        PointerType(VoidType(), size))
+        self.assertEqual(self.compile_type('void *x'),
+                         PointerType(pointer_size, VoidType()))
 
     def test_array(self):
-        self.assertType('int x[2]', 'int [2]',
-                        lambda factory, dwarf_type:
-                        ArrayType(BaseType(factory, dwarf_type.type()), 2))
-        self.assertType('int x[2][3]', 'int [2][3]',
-                        lambda factory, dwarf_type:
-                        ArrayType(ArrayType(BaseType(factory, dwarf_type.type()), 3), 2))
-        self.assertType('int x[2][3][4]', 'int [2][3][4]',
-                        lambda factory, dwarf_type:
-                        ArrayType(ArrayType(ArrayType(BaseType(factory, dwarf_type.type()), 4), 3), 2))
+        self.assertEqual(self.compile_type('int x[2]'),
+                        ArrayType(IntType('int', 4, True), 2))
+        self.assertEqual(self.compile_type('int x[2][3]'),
+                        ArrayType(ArrayType(IntType('int', 4, True), 3), 2))
+        self.assertEqual(self.compile_type('int x[2][3][4]'),
+                        ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4), 3), 2))
 
     def test_incomplete_array(self):
-        self.assertType('extern int x[]', 'int []',
-                        lambda factory, dwarf_type:
-                        ArrayType(BaseType(factory, dwarf_type.type()), None))
-        self.assertType('extern int x[][2]', 'int [][2]',
-                        lambda factory, dwarf_type:
-                        ArrayType(ArrayType(BaseType(factory, dwarf_type.type()), 2), None))
+        self.assertEqual(self.compile_type('extern int x[]'),
+                        ArrayType(IntType('int', 4, True), None))
+        self.assertEqual(self.compile_type('extern int x[][2]'),
+                        ArrayType(ArrayType(IntType('int', 4, True), 2), None))

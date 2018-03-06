@@ -225,9 +225,9 @@ class TestTypeStr(unittest.TestCase):
         self.assertEqual(str(UnionTypeName('value')), 'union value')
         self.assertEqual(str(EnumTypeName('color')), 'enum color')
 
-        self.assertEqual(str(StructTypeName(None)), 'struct <anonymous>')
-        self.assertEqual(str(UnionTypeName(None)), 'union <anonymous>')
-        self.assertEqual(str(EnumTypeName(None)), 'enum <anonymous>')
+        self.assertEqual(str(StructTypeName(None)), 'struct')
+        self.assertEqual(str(UnionTypeName(None)), 'union')
+        self.assertEqual(str(EnumTypeName(None)), 'enum')
 
     def test_pointer(self):
         self.assertEqual(str(PointerTypeName(TypeName('int'))), 'int *')
