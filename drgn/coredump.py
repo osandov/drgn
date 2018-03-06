@@ -3,6 +3,7 @@ from drgn.dwarf import (
 )
 from drgn.elf import ElfFile
 from drgn.type import (
+    ArrayType,
     PointerType,
     TypeFactory,
 )
@@ -34,6 +35,19 @@ class CoredumpObject:
         member_type = type_.typeof(name)
         offset = type_.offsetof(name)
         return CoredumpObject(self._coredump, address + offset, member_type)
+
+    def __getitem__(self, item):
+        if isinstance(self._type, PointerType):
+            buffer = self._coredump.read(self._address, self._type.sizeof())
+            address = self._type.read(buffer)
+            offset = item.__index__() * self._type.type.sizeof()
+        elif isinstance(self._type, ArrayType):
+            address = self._address
+            offset = item.__index__() * self._type.type.sizeof()
+        else:
+            raise ValueError('not an array or pointer')
+        return CoredumpObject(self._coredump, address + offset,
+                              self._type.type)
 
     def __getattr__(self, name):
         return self._member(name)
