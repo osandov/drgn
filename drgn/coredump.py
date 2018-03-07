@@ -1,12 +1,7 @@
-from drgn.dwarf import (
-    DwarfFile, DwarfIndex, DwarfAttribNotFoundError, DW_AT, DW_ATE, DW_TAG,
-)
+from drgn.dwarf import DwarfFile, DwarfIndex
 from drgn.elf import ElfFile
-from drgn.type import (
-    ArrayType,
-    PointerType,
-    TypeFactory,
-)
+from drgn.type import ArrayType, PointerType, Type, TypeFactory
+from drgn.typename import TypeName
 from drgn.util import parse_symbol_file
 import os
 
@@ -35,6 +30,15 @@ class CoredumpObject:
         member_type = type_.typeof(name)
         offset = type_.offsetof(name)
         return CoredumpObject(self._coredump, address + offset, member_type)
+
+    def _cast(self, type):
+        if isinstance(type, TypeName):
+            type = self._coredump._type_factory.from_type_name(type)
+        elif isinstance(type, str):
+            type = self._coredump._type_factory.from_type_string(type)
+        elif not isinstance(type, Type):
+            raise ValueError('type must be Type, TypeName, or string')
+        return CoredumpObject(self._coredump, self._address, type)
 
     def __getitem__(self, item):
         if isinstance(self._type, PointerType):
