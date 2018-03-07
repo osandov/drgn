@@ -598,3 +598,101 @@ struct point {
                         ArrayType(IntType('int', 4, True), None))
         self.assertEqual(self.compile_type('extern int x[][2]'),
                         ArrayType(ArrayType(IntType('int', 4, True), 2), None))
+
+
+class TestFromTypeString(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            program_path = os.path.join(tmp_dir, 'test')
+            source_path = program_path + '.c'
+            with open(source_path, 'w') as f:
+                f.write("""\
+int i;
+
+struct point {
+	int x, y;
+} u;
+
+union value {
+	int i;
+	float f;
+} v;
+
+enum color {
+	RED,
+	GREEN,
+	BLUE,
+} e;
+
+typedef struct point point;
+
+point t;
+
+int main(void)
+{
+	return 0;
+}
+""")
+            subprocess.check_call(['gcc', '-g', '-o', program_path, source_path])
+            cls.program_file = open(program_path, 'rb')
+            elf_file = ElfFile(cls.program_file)
+            dwarf_file = DwarfFile(cls.program_file, elf_file.sections)
+            dwarf_index = DwarfIndex()
+            for cu in dwarf_file.cu_headers():
+                dwarf_index.index_cu(cu)
+            cls.type_factory = TypeFactory(dwarf_index)
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, 'program_file'):
+            cls.program_file.close()
+
+    def test_void_type(self):
+        self.assertEqual(self.type_factory.from_type_string('void'),
+                         VoidType())
+        self.assertEqual(self.type_factory.from_type_string('const void'),
+                         VoidType({'const'}))
+
+    def test_base_type(self):
+        self.assertEqual(self.type_factory.from_type_string('int'),
+                         IntType('int', 4, True))
+        self.assertEqual(self.type_factory.from_type_string('volatile int'),
+                         IntType('int', 4, True, {'volatile'}))
+
+    def test_struct_type(self):
+        self.assertEqual(self.type_factory.from_type_string('struct point'),
+                         point_type)
+
+    def test_union_type(self):
+        self.assertEqual(self.type_factory.from_type_string('union value'),
+                         UnionType('value', 4, [
+                             ('i', 0, lambda: IntType('int', 4, True)),
+                             ('f', 0, lambda: FloatType('float', 4)),
+                         ]))
+
+    def test_enum_type(self):
+        self.assertEqual(self.type_factory.from_type_string('enum color'),
+                         EnumType('color', 4, False, [
+                             ('RED', 0),
+                             ('GREEN', 1),
+                             ('BLUE', 2)
+                         ]))
+
+    def test_typedef_type(self):
+        self.assertEqual(self.type_factory.from_type_string('point'),
+                         TypedefType('point', point_type))
+        self.assertEqual(self.type_factory.from_type_string('const point'),
+                         TypedefType('point', point_type, {'const'}))
+
+    def test_pointer_type(self):
+        self.assertEqual(self.type_factory.from_type_string('int *'),
+                         PointerType(pointer_size, IntType('int', 4, True)))
+        self.assertEqual(self.type_factory.from_type_string('int * const'),
+                         PointerType(pointer_size, IntType('int', 4, True), {'const'}))
+
+    def test_array_type(self):
+        self.assertEqual(self.type_factory.from_type_string('int [4]'),
+                         ArrayType(IntType('int', 4, True), 4))
+        self.assertEqual(self.type_factory.from_type_string('int []'),
+                         ArrayType(IntType('int', 4, True), None))

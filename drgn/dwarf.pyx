@@ -2287,6 +2287,7 @@ cdef class DwarfIndex:
     cdef DieHashEntry **die_hash
     cdef unsigned long mask
     cdef set cus
+    cdef public object address_size
 
     def __cinit__(self, shift=17):
         self.cus = set()
@@ -2296,6 +2297,7 @@ cdef class DwarfIndex:
         if self.die_hash == NULL:
             raise MemoryError()
         self.mask = (1 << shift) - 1
+        self.address_size = None
 
     def __dealloc__(self):
         cdef DieHashEntry *entry
@@ -2386,6 +2388,10 @@ cdef class DwarfIndex:
         return 1
 
     def index_cu(self, CompilationUnitHeader cu):
+        if self.address_size is None:
+            self.address_size = cu.address_size
+        else:
+            assert cu.address_size == self.address_size
         self.cus.add(cu)
         cdef Py_ssize_t offset = cu.dwarf_file.debug_info.offset + cu.die_offset()
         self.index_die(&cu.dwarf_file.buffer, &offset, cu, 0)

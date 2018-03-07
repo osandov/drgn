@@ -32,6 +32,15 @@ class TypeName:
         return ' '.join(parts)
 
 
+class VoidTypeName(TypeName):
+    def __init__(self, qualifiers=None):
+        super().__init__('void', qualifiers)
+
+
+class BasicTypeName(TypeName):
+    pass
+
+
 def _tagged_declaration(keyword, tag, name, qualifiers):
     parts = sorted(qualifiers)
     parts.append(keyword)
@@ -224,6 +233,8 @@ class _TypeNameParser:
             return EnumTypeName(data_type[5:], qualifiers)
         elif is_typedef:
             return TypedefTypeName(data_type, qualifiers)
+        elif specifiers['data_type'] == 'void':
+            return VoidTypeName(qualifiers)
         else:
             parts = []
             if 'size' in specifiers:
@@ -232,7 +243,7 @@ class _TypeNameParser:
                 (specifiers['sign'] != 'signed' or data_type == 'char')):
                 parts.append(specifiers['sign'])
             parts.append(data_type)
-            return TypeName(' '.join(parts), qualifiers)
+            return BasicTypeName(' '.join(parts), qualifiers)
 
     def _parse_specifier_qualifier_list(self):
         specifiers = {}

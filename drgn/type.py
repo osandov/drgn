@@ -3,12 +3,13 @@ from drgn.dwarf import DwarfAttribNotFoundError, DW_AT, DW_ATE, DW_TAG
 from drgn.typename import (
     parse_type_name,
     ArrayTypeName,
+    BasicTypeName,
     EnumTypeName,
     PointerTypeName,
     StructTypeName,
     TypedefTypeName,
-    TypeName,
     UnionTypeName,
+    VoidTypeName,
 )
 import enum
 import functools
@@ -50,7 +51,7 @@ class Type:
 
 class VoidType(Type):
     def type_name(self):
-        return TypeName('void')
+        return VoidTypeName(self.qualifiers)
 
     def sizeof(self):
         raise ValueError("can't get size of void")
@@ -59,7 +60,7 @@ class VoidType(Type):
         raise ValueError("can't read void")
 
 
-class BaseType(Type):
+class BasicType(Type):
     def __init__(self, name, size, qualifiers=None):
         super().__init__(qualifiers)
         self.name = name
@@ -78,13 +79,13 @@ class BaseType(Type):
         return ''.join(parts)
 
     def type_name(self):
-        return TypeName(self.name, self.qualifiers)
+        return BasicTypeName(self.name, self.qualifiers)
 
     def sizeof(self):
         return self.size
 
 
-class IntType(BaseType):
+class IntType(BasicType):
     def __init__(self, name, size, signed, qualifiers=None):
         super().__init__(name, size, qualifiers)
         self.signed = signed
@@ -109,7 +110,7 @@ class IntType(BaseType):
                               signed=self.signed)
 
 
-class BoolType(BaseType):
+class BoolType(BasicType):
     def read(self, buffer, offset=0):
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
@@ -117,7 +118,7 @@ class BoolType(BaseType):
                                    sys.byteorder))
 
 
-class FloatType(BaseType):
+class FloatType(BasicType):
     def read(self, buffer, offset=0):
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
@@ -424,26 +425,26 @@ class PointerType(Type):
 
 
 class ArrayType(Type):
-    def __init__(self, type, length=None):
+    def __init__(self, type, size=None):
         self.type = type
-        self.length = length
+        self.size = size
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.type!r}, {self.length!r})'
+        return f'{self.__class__.__name__}({self.type!r}, {self.size!r})'
 
     def type_name(self):
-        return ArrayTypeName(self.type.type_name(), self.length)
+        return ArrayTypeName(self.type.type_name(), self.size)
 
     def sizeof(self):
-        if self.length is None:
+        if self.size is None:
             raise ValueError("can't get size of incomplete array type")
-        return self.length * self.type.sizeof()
+        return self.size * self.type.sizeof()
 
     def read(self, buffer, offset=0):
-        if self.length is None:
+        if self.size is None:
             raise ValueError("can't read incomplete array type")
         element_size = self.type.sizeof()
-        size = self.length * element_size
+        size = self.size * element_size
         if len(buffer) - offset < size:
             raise ValueError(f'buffer must be at least {size} bytes')
         return [
@@ -466,8 +467,11 @@ class TypeFactory:
                           die.find_constant(DW_AT.bit_offset))
         return BitFieldType(type_, bit_offset, bit_size)
 
-    def from_dwarf_type(self, dwarf_type):
-        qualifiers = set()
+    def from_dwarf_type(self, dwarf_type, qualifiers=None):
+        if qualifiers is None:
+            qualifiers = set()
+        else:
+            qualifiers = set(qualifiers)
         while True:
             if dwarf_type.tag == DW_TAG.const_type:
                 qualifiers.add('const')
@@ -589,3 +593,31 @@ class TypeFactory:
             return type_
         else:
             raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
+
+    def from_type_name(self, type_name):
+        if isinstance(type_name, VoidTypeName):
+            return VoidType(type_name.qualifiers)
+        elif isinstance(type_name, PointerTypeName):
+            type_ = self.from_type_name(type_name.type)
+            return PointerType(self._dwarf_index.address_size, type_,
+                               type_name.qualifiers)
+        elif isinstance(type_name, ArrayTypeName):
+            return ArrayType(self.from_type_name(type_name.type),
+                             type_name.size)
+        elif isinstance(type_name, BasicTypeName):
+            tag = DW_TAG.base_type
+        elif isinstance(type_name, StructTypeName):
+            tag = DW_TAG.structure_type
+        elif isinstance(type_name, UnionTypeName):
+            tag = DW_TAG.union_type
+        elif isinstance(type_name, EnumTypeName):
+            tag = DW_TAG.enumeration_type
+        elif isinstance(type_name, TypedefTypeName):
+            tag = DW_TAG.typedef
+        else:
+            assert False
+        dwarf_type = self._dwarf_index.find(type_name.name, tag)
+        return self.from_dwarf_type(dwarf_type, type_name.qualifiers)
+
+    def from_type_string(self, s):
+        return self.from_type_name(parse_type_name(s))
