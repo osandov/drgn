@@ -1,6 +1,21 @@
 from drgn.dwarf import DwarfFile, DwarfIndex
 from drgn.elf import ElfFile
-from drgn.type import ArrayType, PointerType, Type, TypeFactory
+from drgn.type import (
+    ArrayType,
+    BasicType,
+    CompoundType,
+    BitFieldType,
+    BoolType,
+    EnumType,
+    FloatType,
+    IntType,
+    PointerType,
+    StructType,
+    TypedefType,
+    TypeFactory,
+    UnionType,
+    VoidType,
+)
 from drgn.typename import TypeName
 from drgn.util import parse_symbol_file
 import os
@@ -11,22 +26,29 @@ class CoredumpObject:
         self._coredump = coredump
         self._address = address
         self._type = type_
+        while isinstance(type_, TypedefType):
+            type_ = type_.type
+        self._real_type = type_
 
     def __repr__(self):
         return f'CoredumpObject(address=0x{self._address:x}, type=<{self._type.type_name()}>)'
 
+    def __str__(self):
+        buffer = self._coredump.read(self._address, self._real_type.sizeof())
+        return self._real_type.format(buffer)
+
     def _value(self):
-        buffer = self._coredump.read(self._address, self._type.sizeof())
-        return self._type.read(buffer)
+        buffer = self._coredump.read(self._address, self._real_type.sizeof())
+        return self._real_type.read(buffer)
 
     def _member(self, name):
-        if isinstance(self._type, PointerType):
-            buffer = self._coredump.read(self._address, self._type.sizeof())
-            address = self._type.read(buffer)
-            type_ = self._type.type
+        if isinstance(self._real_type, PointerType):
+            buffer = self._coredump.read(self._address, self._real_type.sizeof())
+            address = self._real_type.read(buffer)
+            type_ = self._real_type.type
         else:
             address = self._address
-            type_ = self._type
+            type_ = self._real_type
         member_type = type_.typeof(name)
         offset = type_.offsetof(name)
         return CoredumpObject(self._coredump, address + offset, member_type)
@@ -41,17 +63,17 @@ class CoredumpObject:
         return CoredumpObject(self._coredump, self._address, type)
 
     def __getitem__(self, item):
-        if isinstance(self._type, PointerType):
-            buffer = self._coredump.read(self._address, self._type.sizeof())
-            address = self._type.read(buffer)
-            offset = item.__index__() * self._type.type.sizeof()
-        elif isinstance(self._type, ArrayType):
+        if isinstance(self._real_type, PointerType):
+            buffer = self._coredump.read(self._address, self._real_type.sizeof())
+            address = self._real_type.read(buffer)
+            offset = item.__index__() * self._real_type.type.sizeof()
+        elif isinstance(self._real_type, ArrayType):
             address = self._address
-            offset = item.__index__() * self._type.type.sizeof()
+            offset = item.__index__() * self._real_type.type.sizeof()
         else:
             raise ValueError('not an array or pointer')
         return CoredumpObject(self._coredump, address + offset,
-                              self._type.type)
+                              self._real_type.type)
 
     def __getattr__(self, name):
         return self._member(name)
