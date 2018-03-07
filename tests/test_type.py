@@ -51,6 +51,7 @@ class TestType(unittest.TestCase):
         self.assertEqual(str(type_), 'void')
         self.assertRaises(ValueError, type_.sizeof)
         self.assertRaises(ValueError, type_.read, b'')
+        self.assertRaises(ValueError, type_.format, b'')
 
     def test_int(self):
         type_ = IntType('int', 4, True)
@@ -58,6 +59,8 @@ class TestType(unittest.TestCase):
         self.assertEqual(type_.sizeof(), 4)
         buffer = (99).to_bytes(4, sys.byteorder)
         self.assertEqual(type_.read(buffer), 99)
+        self.assertEqual(type_.format(buffer), '(int)99')
+        self.assertEqual(type_.format(buffer, cast=False), '99')
         buffer = b'\0\0' + (-1).to_bytes(4, sys.byteorder, signed=True)
         self.assertEqual(type_.read(buffer, 2), -1)
         self.assertRaises(ValueError, type_.read, buffer, 3)
@@ -88,7 +91,9 @@ class TestType(unittest.TestCase):
         self.assertEqual(str(type_), '_Bool')
         self.assertEqual(type_.sizeof(), 1)
         self.assertEqual(type_.read(b'\0'), 0)
+        self.assertEqual(type_.format(b'\0'), '(_Bool)0')
         self.assertEqual(type_.read(b'\0\x01', 1), 1)
+        self.assertEqual(type_.format(b'\x01'), '(_Bool)1')
         self.assertRaises(ValueError, type_.read, b'')
         self.assertRaises(ValueError, type_.read, b'\0', 1)
 
@@ -107,6 +112,7 @@ class TestType(unittest.TestCase):
         self.assertEqual(str(type_), 'typedef int INT')
         self.assertEqual(type_.sizeof(), 4)
         self.assertEqual(type_.read(b'\0\0\0\0'), 0)
+        self.assertEqual(type_.format(b'\0\0\0\0'), '(INT)0')
 
         type_ = TypedefType('string', PointerType(pointer_size, IntType('char', 1, True)))
         self.assertEqual(str(type_), 'typedef char *string')
@@ -144,6 +150,11 @@ struct point {
             ('x', 99),
             ('y', -1),
         ]))
+        self.assertEqual(point_type.format(b'\0' + buffer, 1), """\
+(struct point){
+	.x = (int)99,
+	.y = (int)-1,
+}""")
         self.assertRaises(ValueError, point_type.read, buffer[:7])
         self.assertRaises(ValueError, point_type.read, buffer, 1)
 
@@ -222,11 +233,16 @@ struct {
             ('y', 100000000),
             ('z', -1),
         ]))
+        self.assertEqual(type_.format(buffer), """\
+{
+	.x = (int)7,
+	.y = (const int)100000000,
+	.z = (int)-1,
+}""")
 
         type_ = BitFieldType(IntType('int', 4, True), 0, 4)
         self.assertEqual(str(type_), 'int : 4')
         self.assertRaises(ValueError, type_.type_name)
-        self.assertRaises(ValueError, type_.sizeof)
 
     def test_union(self):
         type_ = UnionType('value', 4, [
@@ -241,13 +257,18 @@ union value {
         self.assertEqual(type_.sizeof(), 4)
         buffer = b'\x00\x00\x80?'
         self.assertEqual(type_.read(buffer), OrderedDict([
-            ('i', int.from_bytes(buffer, sys.byteorder)),
+            ('i', 1065353216),
             ('f', 1.0),
         ]))
         self.assertEqual(type_.read(b'\0' + buffer, 1), OrderedDict([
-            ('i', int.from_bytes(buffer, sys.byteorder)),
+            ('i', 1065353216),
             ('f', 1.0),
         ]))
+        self.assertEqual(type_.format(buffer), """\
+(union value){
+	.i = (int)1065353216,
+	.f = (float)1.0,
+}""")
 
         type_ = UnionType('value', 8, [
             ('i', 0, lambda: IntType('int', 4, True)),
@@ -282,8 +303,10 @@ enum color {
         self.assertEqual(type_.read(buffer), type_._enum.RED)
         buffer = (1).to_bytes(4, sys.byteorder)
         self.assertEqual(type_.read(b'\0' + buffer, 1), type_._enum.GREEN)
+        self.assertEqual(type_.format(b'\0' + buffer, 1), '(enum color)GREEN')
         buffer = (4).to_bytes(4, sys.byteorder)
         self.assertEqual(type_.read(b'\0\0\0' + buffer, 3), 4)
+        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), '(enum color)4')
         self.assertRaises(ValueError, type_.read, buffer, 3)
         self.assertRaises(ValueError, type_.read, b'')
 
@@ -328,6 +351,7 @@ enum {
         buffer = (0x7fffffff).to_bytes(pointer_size, sys.byteorder)
         self.assertEqual(type_.read(buffer), 0x7fffffff)
         self.assertEqual(type_.read(b'\0' + buffer, 1), 0x7fffffff)
+        self.assertEqual(type_.format(b'\0' + buffer, 1), '(int *)0x7fffffff')
 
         type_ = PointerType(pointer_size, IntType('int', 4, True), {'const'})
         self.assertEqual(str(type_), 'int * const')
@@ -349,6 +373,24 @@ enum {
                   (-1).to_bytes(4, sys.byteorder, signed=True))
         self.assertEqual(type_.read(buffer), [99, -1])
         self.assertEqual(type_.read(b'\0\0\0' + buffer, 3), [99, -1])
+        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), """\
+(int [2]){
+	99,
+	-1,
+}""")
+        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
+                  (0).to_bytes(4, sys.byteorder, signed=True))
+        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), """\
+(int [2]){
+	99,
+}""")
+        buffer = ((0).to_bytes(4, sys.byteorder, signed=True) +
+                  (-1).to_bytes(4, sys.byteorder, signed=True))
+        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), """\
+(int [2]){
+	0,
+	-1,
+}""")
         self.assertRaises(ValueError, type_.read, buffer, 3)
 
         type_ = ArrayType(ArrayType(IntType('int', 4, True), 3), 2)
@@ -362,6 +404,7 @@ enum {
         self.assertEqual(str(type_), 'int []')
         self.assertRaises(ValueError, type_.sizeof)
         self.assertRaises(ValueError, type_.read, b'')
+        self.assertEqual(type_.format(b''), '(int []){}')
 
         type_ = ArrayType(ArrayType(IntType('int', 4, True), 2), None)
         self.assertEqual(str(type_), 'int [][2]')

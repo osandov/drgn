@@ -48,6 +48,9 @@ class Type:
     def read(self, buffer, offset=0):
         raise NotImplementedError()
 
+    def format(self, buffer, offset=0, *, cast=True):
+        raise NotImplementedError()
+
 
 class VoidType(Type):
     def type_name(self):
@@ -57,6 +60,9 @@ class VoidType(Type):
         raise ValueError("can't get size of void")
 
     def read(self, buffer, offset=0):
+        raise ValueError("can't read void")
+
+    def format(self, buffer, offset=0, *, cast=True):
         raise ValueError("can't read void")
 
 
@@ -83,6 +89,14 @@ class BasicType(Type):
 
     def sizeof(self):
         return self.size
+
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast:
+            parts = ['(', str(self.type_name()), ')']
+        else:
+            parts = []
+        parts.append(str(self.read(buffer, offset)))
+        return ''.join(parts)
 
 
 class IntType(BasicType):
@@ -116,6 +130,14 @@ class BoolType(BasicType):
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return bool(int.from_bytes(buffer[offset:offset + self.size],
                                    sys.byteorder))
+
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast:
+            parts = ['(', str(self), ')']
+        else:
+            parts = []
+        parts.append(str(int(self.read(buffer, offset))))
+        return ''.join(parts)
 
 
 class FloatType(BasicType):
@@ -154,12 +176,12 @@ class BitFieldType(Type):
         raise ValueError("can't get type of bit field")
 
     def sizeof(self):
-        raise ValueError("can't get size of bit field")
+        # Not really, but for convenience.
+        return (self.bit_offset + self.bit_size + 7) // 8
 
     def read(self, buffer, offset=0):
-        size = (self.bit_offset + self.bit_size + 7) // 8
-        if len(buffer) - offset < size:
-            raise ValueError(f'buffer must be at least {size} bytes')
+        if len(buffer) - offset < self.sizeof():
+            raise ValueError(f'buffer must be at least {self.sizeof()} bytes')
 
         # XXX: this assumes little-endian
         offset += self.bit_offset // 8
@@ -172,6 +194,14 @@ class BitFieldType(Type):
         if signed and (value & (1 << (self.bit_size - 1))):
             value -= (1 << self.bit_size)
         return value
+
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast:
+            parts = ['(', str(self.type.type_name()), ')']
+        else:
+            parts = []
+        parts.append(str(self.read(buffer, offset)))
+        return ''.join(parts)
 
 
 class CompoundType(Type):
@@ -270,6 +300,22 @@ class CompoundType(Type):
             for name, (member_offset, type_thunk) in self._members_by_name.items()
         ])
 
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast and self.name:
+            parts = ['(', str(self.type_name()), ')']
+        else:
+            parts = []
+        parts.append('{\n')
+        for name, (member_offset, type_thunk) in self._members_by_name.items():
+            parts.append('\t.')
+            parts.append(name)
+            parts.append(' = ')
+            member_format = type_thunk().format(buffer, offset + member_offset)
+            parts.append(member_format.replace('\n', '\n\t'))
+            parts.append(',\n')
+        parts.append('}')
+        return ''.join(parts)
+
     def members(self):
         return list(self._members_by_name)
 
@@ -359,6 +405,18 @@ class EnumType(Type):
         except ValueError:
             return value
 
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast:
+            parts = ['(', str(self.type_name()), ')']
+        else:
+            parts = []
+        value = self.read(buffer, offset)
+        if isinstance(value, self._enum):
+            parts.append(value._name_)
+        else:
+            parts.append(str(value))
+        return ''.join(parts)
+
 
 class TypedefType(Type):
     def __init__(self, name, type, qualifiers=None):
@@ -393,6 +451,14 @@ class TypedefType(Type):
     def read(self, buffer, offset=0):
         return self.type.read(buffer, offset)
 
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast:
+            parts = ['(', str(self.type_name()), ')']
+        else:
+            parts = []
+        parts.append(self.type.format(buffer, offset, cast=False))
+        return ''.join(parts)
+
 
 class PointerType(Type):
     def __init__(self, size, type, qualifiers=None):
@@ -423,6 +489,14 @@ class PointerType(Type):
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder)
 
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast:
+            parts = ['(', str(self), ')']
+        else:
+            parts = []
+        parts.append(hex(self.read(buffer, offset)))
+        return ''.join(parts)
+
 
 class ArrayType(Type):
     def __init__(self, type, size=None):
@@ -451,6 +525,40 @@ class ArrayType(Type):
             self.type.read(buffer, element_offset)
             for element_offset in range(offset, offset + size, element_size)
         ]
+
+    def format(self, buffer, offset=0, *, cast=True):
+        if cast:
+            parts = ['(', str(self.type_name()), ')']
+        else:
+            parts = []
+        if self.size is None:
+            parts.append('{}')
+        else:
+            element_size = self.type.sizeof()
+            size = self.size * element_size
+            elements = []
+            format_element = False
+            for element_offset in range(offset + size - element_size,
+                                        offset - element_size, -element_size):
+                if not format_element:
+                    for byte_offset in range(element_offset,
+                                             element_offset + element_size):
+                        if buffer[byte_offset]:
+                            format_element = True
+                            break
+                if format_element:
+                    elements.append(self.type.format(buffer, element_offset,
+                                                     cast=False))
+
+            parts.append('{')
+            if elements:
+                parts.append('\n')
+                for element in reversed(elements):
+                    parts.append('\t')
+                    parts.append(element)
+                    parts.append(',\n')
+            parts.append('}')
+        return ''.join(parts)
 
 
 class TypeFactory:
@@ -591,6 +699,9 @@ class TypeFactory:
                     type_ = ArrayType(type_, size)
             assert isinstance(type_, ArrayType)
             return type_
+        elif dwarf_type.tag == DW_TAG.subroutine_type:
+            return PointerType(self._dwarf_index.address_size, VoidType(),
+                               qualifiers)
         else:
             raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
 
