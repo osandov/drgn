@@ -2,22 +2,13 @@ from drgn.dwarf import DwarfFile, DwarfIndex
 from drgn.elf import ElfFile
 from drgn.type import (
     ArrayType,
-    BasicType,
-    CompoundType,
-    BitFieldType,
-    BoolType,
-    EnumType,
-    FloatType,
-    IntType,
     PointerType,
-    StructType,
     TypedefType,
     TypeFactory,
-    UnionType,
-    VoidType,
 )
 from drgn.typename import TypeName
 from drgn.util import parse_symbol_file
+import itertools
 import os
 
 
@@ -40,6 +31,24 @@ class CoredumpObject:
     def _value(self):
         buffer = self._coredump.read(self._address, self._real_type.sizeof())
         return self._real_type.read(buffer)
+
+    def _string(self):
+        if isinstance(self._real_type, PointerType):
+            addresses = itertools.count(self._value())
+        elif isinstance(self._real_type, ArrayType):
+            if self._real_type.size is None:
+                addresses = itertools.count(self._address)
+            else:
+                addresses = range(self._address, self._address + self._real_type.size)
+        else:
+            raise ValueError('not an array or pointer')
+        b = bytearray()
+        for address in addresses:
+            byte = self._coredump.read(address, 1)[0]
+            if not byte:
+                break
+            b.append(byte)
+        return bytes(b)
 
     def _member(self, name):
         if isinstance(self._real_type, PointerType):
