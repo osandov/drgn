@@ -43,8 +43,7 @@ class CoredumpObject:
 
     def _member(self, name):
         if isinstance(self._real_type, PointerType):
-            buffer = self._coredump.read(self._address, self._real_type.sizeof())
-            address = self._real_type.read(buffer)
+            address = self._value()
             type_ = self._real_type.type
         else:
             address = self._address
@@ -61,6 +60,18 @@ class CoredumpObject:
         elif not isinstance(type, Type):
             raise ValueError('type must be Type, TypeName, or string')
         return CoredumpObject(self._coredump, self._address, type)
+
+    def _containerof(self, type, member):
+        if isinstance(type, TypeName):
+            type = self._coredump._type_factory.from_type_name(type)
+        elif isinstance(type, str):
+            type = self._coredump._type_factory.from_type_string(type)
+        elif not isinstance(type, Type):
+            raise ValueError('type must be Type, TypeName, or string')
+        if not isinstance(self._real_type, PointerType):
+            raise ValueError('containerof is only valid on pointers')
+        address = self._value() - type.offsetof(member)
+        return CoredumpObject(self._coredump, address, type)
 
     def __getitem__(self, item):
         if isinstance(self._real_type, PointerType):
@@ -101,7 +112,6 @@ class Coredump:
             raise ValueError(f'could not find memory segment containing 0x{address:x}')
         return os.pread(self._core_file.fileno(), size,
                         phdr.p_offset + address - phdr.p_vaddr)
-
 
     def __getitem__(self, key):
         address = self.symbols[key][-1].address
