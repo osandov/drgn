@@ -44,7 +44,6 @@ line_segment_type = StructType('line_segment', 16, [
 pointer_size = ctypes.sizeof(ctypes.c_void_p)
 
 
-
 class TestType(unittest.TestCase):
     def test_void(self):
         type_ = VoidType()
@@ -392,12 +391,21 @@ enum {
 	-1,
 }""")
         self.assertRaises(ValueError, type_.read, buffer, 3)
+        self.assertRaises(ValueError, type_.format, buffer, 3)
 
         type_ = ArrayType(ArrayType(IntType('int', 4, True), 3), 2)
         self.assertEqual(str(type_), 'int [2][3]')
 
         type_ = ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4), 3), 2)
         self.assertEqual(str(type_), 'int [2][3][4]')
+
+    def test_array_with_empty_element(self):
+        type_ = ArrayType(StructType('empty', 0, []), 2)
+        self.assertEqual(str(type_), 'struct empty [2]')
+        self.assertEqual(type_.sizeof(), 0)
+        self.assertEqual(type_.read(b''), [OrderedDict(), OrderedDict()])
+        self.assertEqual(type_.format(b''), '(struct empty [2]){}')
+        self.assertRaises(ValueError, type_.format, b'', 1)
 
     def test_incomplete_array(self):
         type_ = ArrayType(IntType('int', 4, True), None)

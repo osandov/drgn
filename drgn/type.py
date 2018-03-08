@@ -522,8 +522,8 @@ class ArrayType(Type):
         if len(buffer) - offset < size:
             raise ValueError(f'buffer must be at least {size} bytes')
         return [
-            self.type.read(buffer, element_offset)
-            for element_offset in range(offset, offset + size, element_size)
+            self.type.read(buffer, offset + i * element_size)
+            for i in range(self.size)
         ]
 
     def format(self, buffer, offset=0, *, cast=True):
@@ -536,10 +536,12 @@ class ArrayType(Type):
         else:
             element_size = self.type.sizeof()
             size = self.size * element_size
+            if len(buffer) - offset < size:
+                raise ValueError(f'buffer must be at least {size} bytes')
             elements = []
             format_element = False
-            for element_offset in range(offset + size - element_size,
-                                        offset - element_size, -element_size):
+            for i in range(self.size - 1, -1, -1):
+                element_offset = offset + i * element_size
                 if not format_element:
                     for byte_offset in range(element_offset,
                                              element_offset + element_size):
