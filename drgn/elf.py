@@ -1,6 +1,8 @@
 from collections import namedtuple, OrderedDict
 import struct
 from types import SimpleNamespace
+import zlib
+
 
 # Automatically generated from elf.h
 EI_NIDENT = (16)
@@ -828,7 +830,26 @@ class ElfFile:
         return self._symbols_by_name
 
     def read_section(self, shdr):
-        buf = bytearray(shdr.sh_size)
+        ehdr = self.ehdr()
         self.file.seek(shdr.sh_offset)
-        self.file.readinto(buf)
+        if shdr.sh_flags & SHF_COMPRESSED:
+            if ehdr.e_ident[EI_DATA] == ELFDATA2LSB:
+                fmt = '<'
+            else:
+                fmt = '>'
+
+            if ehdr.e_ident[EI_CLASS] == ELFCLASS64:
+                fmt += 'LxxxxQQ'
+                ch_size = 24
+            else:
+                assert False
+            buf = self.file.read(struct.calcsize(fmt))
+            ch_type, ch_size, ch_addralign = struct.unpack(fmt, buf)
+            buf = self.file.read(shdr.sh_size - len(buf))
+            if ch_type == ELFCOMPRESS_ZLIB:
+                buf = zlib.decompress(buf)
+            else:
+                raise NotImplementedError(f'unknown compression type {ch_type}')
+        else:
+            buf = self.file.read(shdr.sh_size)
         return buf
