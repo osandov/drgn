@@ -604,7 +604,7 @@ class TypeFactory:
 
         if dwarf_type.tag == DW_TAG.base_type:
             encoding = dwarf_type.find_constant(DW_AT.encoding)
-            size = dwarf_type.find_constant(DW_AT.byte_size)
+            size = dwarf_type.size()
             if encoding == DW_ATE.boolean:
                 return BoolType(dwarf_type.name(), size, qualifiers)
             elif encoding == DW_ATE.float:
@@ -623,7 +623,7 @@ class TypeFactory:
                 size = None
                 members = None
             else:
-                size = dwarf_type.find_constant(DW_AT.byte_size)
+                size = dwarf_type.size()
                 members = []
                 for child in dwarf_type.children():
                     if child.tag != DW_TAG.member:
@@ -657,7 +657,7 @@ class TypeFactory:
                 signed = None
                 enumerators = None
             else:
-                size = dwarf_type.find_constant(DW_AT.byte_size)
+                size = dwarf_type.size()
                 encoding = dwarf_type.find_constant(DW_AT.encoding)
                 if encoding == DW_ATE.signed:
                     signed = True
@@ -682,7 +682,7 @@ class TypeFactory:
                                self.from_dwarf_type(dwarf_type.type()),
                                qualifiers)
         elif dwarf_type.tag == DW_TAG.pointer_type:
-            size = dwarf_type.find_constant(DW_AT.byte_size)
+            size = dwarf_type.size()
             try:
                 deref_type = dwarf_type.type()
             except DwarfAttribNotFoundError:

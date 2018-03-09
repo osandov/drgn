@@ -1434,6 +1434,9 @@ cdef class Die:
     cpdef str name(self):
         return self.find_string(DW_AT_name)
 
+    def size(self):
+        return self.find_constant(DW_AT_byte_size)
+
     cpdef uint64_t address(self):
         cdef const DieAttrib *low_pc = self.find_attrib(DW_AT_low_pc)
         if low_pc.form != DW_FORM_addr:
