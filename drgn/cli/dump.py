@@ -400,7 +400,8 @@ def dump_aranges(dwarf_file):
 
 
 def cmd_dump(args):
-    with open(args.file, 'rb') as f, DwarfFile(f, ElfFile(f).sections) as dwarf_file:
+    with open(args.file, 'rb') as f:
+        dwarf_file = DwarfFile(f, ElfFile(f).sections)
         if args.cu:
             dump_cus(dwarf_file, args)
         if args.symtab:
