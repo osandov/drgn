@@ -674,22 +674,17 @@ Elf_Phdr = namedtuple('Elf_Phdr', [
 ])
 
 
-Section = namedtuple('Section', ['offset', 'size'])
-Symbol = namedtuple('Symbol', ['address'])
-
-
 class ElfFile:
     def __init__(self, file):
         self.file = file
         self._ehdr = None
         self._shdrs = None
         self._shstrtab_shdr = None
-        self._sections = None
+        self._shdrs_by_name = None
         self._phdrs = None
-        self._symtab = None
         self._symbols = None
+        self._symbols_by_name = None
 
-    @property
     def ehdr(self):
         if self._ehdr is None:
             self.file.seek(0)
@@ -718,10 +713,9 @@ class ElfFile:
             self._ehdr = Elf_Ehdr._make(struct.unpack_from(fmt, buf))
         return self._ehdr
 
-    @property
     def shdrs(self):
         if self._shdrs is None:
-            ehdr = self.ehdr
+            ehdr = self.ehdr()
             self.file.seek(ehdr.e_shoff)
             # TODO: e_shnum == 0
             buf = self.file.read(ehdr.e_shnum * ehdr.e_shentsize)
@@ -738,11 +732,10 @@ class ElfFile:
             self._shdrs = [Elf_Shdr._make(x) for x in struct.iter_unpack(fmt, buf)]
         return self._shdrs
 
-    @property
     def shstrtab_shdr(self):
         if self._shstrtab_shdr is None:
-            ehdr = self.ehdr
-            shdrs = self.shdrs
+            ehdr = self.ehdr()
+            shdrs = self.shdrs()
             if ehdr.e_shstrndx == SHN_UNDEF:
                 raise ValueError('no string table index in ELF header')
             elif ehdr.e_shstrndx == SHN_XINDEX:
@@ -756,42 +749,30 @@ class ElfFile:
             self._shstrtab_shdr = shdr
         return self._shstrtab_shdr
 
-    def shdrs_with_type(self, sh_type):
-        return [shdr for shdr in self.shdrs if shdr.sh_type == sh_type]
-
-    def shdr_with_type(self, sh_type):
-        shdrs = self.shdrs_with_type(sh_type)
-        if len(shdrs) == 0:
-            raise ValueError(f'no shdrs with type {sh_type}')
-        elif len(shdrs) > 1:
-            raise ValueError(f'multiple shdrs with type {sh_type}')
-        else:
-            return shdrs[0]
-
-    @property
-    def sections(self):
-        if self._sections is None:
-            shstrtab_shdr = self.shstrtab_shdr
+    def shdrs_by_name(self):
+        if self._shdrs_by_name is None:
+            shstrtab_shdr = self.shstrtab_shdr()
             self.file.seek(shstrtab_shdr.sh_offset)
             shstrtab = self.file.read(shstrtab_shdr.sh_size)
-            shdrs = self.shdrs
-            sections = {}
+            shdrs = self.shdrs()
+            shdrs_by_name = {}
             for shdr in shdrs:
                 if not shdr.sh_name:
                     continue
                 end = shstrtab.index(b'\0', shdr.sh_name)
-                section_name = shstrtab[shdr.sh_name:end].decode()
-                if section_name in sections:
-                    raise ValueError(f'duplicate section name {section_name!r}')
-                sections[section_name] = Section(offset=shdr.sh_offset,
-                                                 size=shdr.sh_size)
-            self._sections = sections
-        return self._sections
+                name = shstrtab[shdr.sh_name:end].decode()
+                if name in shdrs_by_name:
+                    raise ValueError(f'duplicate section name {name!r}')
+                shdrs_by_name[name] = shdr
+            self._shdrs_by_name = shdrs_by_name
+        return self._shdrs_by_name
 
-    @property
+    def shdr(self, name):
+        return self.shdrs_by_name()[name]
+
     def phdrs(self):
         if self._phdrs is None:
-            ehdr = self.ehdr
+            ehdr = self.ehdr()
             self.file.seek(ehdr.e_phoff)
             buf = self.file.read(ehdr.e_phnum * ehdr.e_phentsize)
 
@@ -807,13 +788,12 @@ class ElfFile:
             self._phdrs = [Elf_Phdr._make(x) for x in struct.iter_unpack(fmt, buf)]
         return self._phdrs
 
-    @property
-    def symtab(self):
-        if self._symtab is None:
-            ehdr = self.ehdr
-            section = self.sections['.symtab']
-            self.file.seek(section.offset)
-            buf = self.file.read(section.size)
+    def symbols(self):
+        if self._symbols is None:
+            ehdr = self.ehdr()
+            shdr = self.shdr('.symtab')
+            self.file.seek(shdr.sh_offset)
+            buf = self.file.read(shdr.sh_size)
 
             if ehdr.e_ident[EI_DATA] == ELFDATA2LSB:
                 fmt = '<'
@@ -824,27 +804,31 @@ class ElfFile:
                 fmt += 'LBBHQQ'
             else:
                 assert False
-            self._symtab = [Elf_Sym._make(x) for x in struct.iter_unpack(fmt, buf)]
-        return self._symtab
-
-    @property
-    def symbols(self):
-        if self._symbols is None:
-            strtab_section = self.sections['.strtab']
-            self.file.seek(strtab_section.offset)
-            strtab = self.file.read(strtab_section.size)
-            symtab = self.symtab
-            symbols = {}
-            for sym in symtab:
-                if sym.st_name:
-                    end = strtab.index(b'\0', sym.st_name)
-                    sym_name = strtab[sym.st_name:end].decode()
-                else:
-                    sym_name = ''
-                symbol = Symbol(address=sym.st_value)
-                try:
-                    symbols[sym_name].append(symbol)
-                except KeyError:
-                    symbols[sym_name] = [symbol]
-            self._symbols = symbols
+            self._symbols = [Elf_Sym._make(x) for x in struct.iter_unpack(fmt, buf)]
         return self._symbols
+
+    def symbols_by_name(self):
+        if self._symbols_by_name is None:
+            strtab_shdr = self.shdr('.strtab')
+            self.file.seek(strtab_shdr.sh_offset)
+            strtab = self.file.read(strtab_shdr.sh_size)
+            symbols = self.symbols()
+            symbols_by_name = {}
+            for symbol in symbols_by_name:
+                if symbol.st_name:
+                    end = strtab.index(b'\0', symbol.st_name)
+                    name = strtab[symbol.st_name:end].decode()
+                else:
+                    name = ''
+                try:
+                    symbols_by_name[name].append(symbol)
+                except KeyError:
+                    symbols_by_name[name] = [symbol]
+            self._symbols_by_name = symbols_by_name
+        return self._symbols_by_name
+
+    def read_section(self, shdr):
+        buf = bytearray(shdr.sh_size)
+        self.file.seek(shdr.sh_offset)
+        self.file.readinto(buf)
+        return buf

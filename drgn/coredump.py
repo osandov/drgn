@@ -104,8 +104,7 @@ class Coredump:
         self._core_file = core_file
         self._core_elf_file = ElfFile(core_file)
         self._program_file = program_file
-        program_elf_file = ElfFile(program_file)
-        self._program_dwarf_file = DwarfFile(program_file, program_elf_file.sections)
+        self._program_dwarf_file = DwarfFile.from_file(program_file)
         self.symbols = symbols
 
         self._dwarf_index = DwarfIndex()
@@ -114,7 +113,7 @@ class Coredump:
         self._type_factory = TypeFactory(self._dwarf_index)
 
     def read(self, address, size):
-        for phdr in self._core_elf_file.phdrs:
+        for phdr in self._core_elf_file.phdrs():
             if phdr.p_vaddr <= address <= phdr.p_vaddr + phdr.p_memsz:
                 break
         else:
@@ -123,7 +122,7 @@ class Coredump:
                         phdr.p_offset + address - phdr.p_vaddr)
 
     def __getitem__(self, key):
-        address = self.symbols[key][-1].address
+        address = self.symbols[key][-1]
         dwarf_type = self._dwarf_index.find_variable(key).type()
         type_ = self._type_factory.from_dwarf_type(dwarf_type)
         return CoredumpObject(self, address, type_)

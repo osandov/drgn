@@ -1,4 +1,3 @@
-from drgn.elf import ElfFile
 from drgn.dwarf import (
     Die, DwarfAttribNotFoundError, DwarfFile, DwarfFile,
     DW_AT, DW_FORM, DW_LNE, DW_LNS, DW_OP, DW_TAG,
@@ -401,15 +400,9 @@ def dump_aranges(dwarf_file):
 
 def cmd_dump(args):
     with open(args.file, 'rb') as f:
-        dwarf_file = DwarfFile(f, ElfFile(f).sections)
+        dwarf_file = DwarfFile.from_file(f)
         if args.cu:
             dump_cus(dwarf_file, args)
-        if args.symtab:
-            symbols = sorted(dwarf_file.symbols().items())
-            for name, syms in symbols:
-                print(name)
-                for sym in syms:
-                    print(f'    value=0x{sym.st_value:x} size=0x{sym.st_size:x}')
         if args.aranges:
             dump_aranges(dwarf_file)
 
@@ -437,7 +430,5 @@ def register(subparsers):
         help='also dump the line number program')
     subparser.add_argument(
         '--lines', action='store_true', help='also dump the line number matrix')
-    subparser.add_argument(
-        '--symtab', action='store_true', help='dump the symbol table')
     subparser.add_argument('file', help='file to dump')
     subparser.set_defaults(func=cmd_dump)

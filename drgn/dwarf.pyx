@@ -4,6 +4,7 @@ from libc.stdint cimport UINT32_MAX, UINT64_MAX
 from libc.string cimport strcmp
 
 from drgn.read cimport *
+from drgn.elf import ElfFile
 import enum
 import mmap
 
@@ -1069,24 +1070,31 @@ SECTIONS = [
 cdef class DwarfFile:
     cdef dict sections
 
-    def __init__(self, file, sections):
-        self.sections = {}
-        for section_name in SECTIONS:
+    def __init__(self, sections):
+        self.sections = sections
+
+    @staticmethod
+    def from_elf_file(elf_file):
+        sections = {}
+        for section in SECTIONS:
             try:
-                section = sections[section_name]
+                shdr = elf_file.shdr(section)
             except KeyError:
                 continue
-            file.seek(section.offset)
-            self.sections[section_name] = file.read(section.size)
+            sections[section] = elf_file.read_section(shdr)
+        return DwarfFile(sections)
 
-    cdef get_section_buffer(self, str name, Py_buffer *buffer):
-        cdef bytes data
+    @staticmethod
+    def from_file(file):
+        return DwarfFile.from_elf_file(ElfFile(file))
 
+    cdef int get_section_buffer(self, str name, Py_buffer *buffer) except -1:
         try:
             data = self.sections[name]
         except KeyError:
             raise DwarfFormatError(f'no {name} section')
         PyObject_GetBuffer(data, buffer, PyBUF_SIMPLE)
+        return 0
 
     cdef CompilationUnitHeader cu_header(self, Py_buffer *debug_info_buffer,
                                          Py_buffer *debug_abbrev_buffer,

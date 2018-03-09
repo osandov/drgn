@@ -8,7 +8,6 @@ import tempfile
 import unittest
 
 from drgn.dwarf import DwarfFile, DwarfIndex
-from drgn.elf import ElfFile
 from drgn.type import (
     ArrayType,
     BitFieldType,
@@ -433,8 +432,7 @@ class TestFromDwarfType(unittest.TestCase):
             f.write(';\nint main(void) { return 0; }\n')
         subprocess.check_call(['gcc', '-g', '-o', program_path, source_path])
         with open(program_path, 'rb') as program_file:
-            elf_file = ElfFile(program_file)
-            dwarf_file = DwarfFile(program_file, elf_file.sections)
+            dwarf_file = DwarfFile.from_file(program_file)
             dwarf_index = DwarfIndex()
             for cu in dwarf_file.cu_headers():
                 dwarf_index.index_cu(cu)
@@ -687,8 +685,7 @@ int main(void)
 """)
             subprocess.check_call(['gcc', '-g', '-o', program_path, source_path])
             cls.program_file = open(program_path, 'rb')
-            elf_file = ElfFile(cls.program_file)
-            dwarf_file = DwarfFile(cls.program_file, elf_file.sections)
+            dwarf_file = DwarfFile.from_file(cls.program_file)
             dwarf_index = DwarfIndex()
             for cu in dwarf_file.cu_headers():
                 dwarf_index.index_cu(cu)
