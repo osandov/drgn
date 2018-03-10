@@ -1,12 +1,11 @@
 from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, Py_buffer, PyBUF_SIMPLE
 from cpython.mem cimport PyMem_Realloc, PyMem_Free
+from drgn.readwrite cimport *
 from libc.stdint cimport UINT32_MAX, UINT64_MAX
 from libc.string cimport strcmp
 
-from drgn.read cimport *
 from drgn.elf import ElfFile
 import enum
-import mmap
 
 
 cdef extern from "Python.h":
@@ -1714,7 +1713,7 @@ cdef class LineNumberProgram:
                                  LineNumberRow state, list matrix):
         cdef uint64_t op_length
         read_uleb128(buffer, offset, &op_length)
-        read_check_bounds(buffer, offset[0], op_length)
+        check_bounds(buffer, offset[0], op_length)
         cdef Py_ssize_t end = offset[0] + op_length
 
         cdef uint8_t opcode
@@ -2116,7 +2115,7 @@ cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset, DieAttrib *attrib,
             if tmp > <uint64_t>PY_SSIZE_T_MAX:
                 raise DwarfFormatError('attribute length too big')
             attrib.value.ptr.length = tmp
-        read_check_bounds(buffer, offset[0], attrib.value.ptr.length)
+        check_bounds(buffer, offset[0], attrib.value.ptr.length)
         attrib.value.ptr.offset = offset[0]
         offset[0] += attrib.value.ptr.length
     # constant

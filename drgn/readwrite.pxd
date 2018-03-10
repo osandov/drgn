@@ -10,21 +10,21 @@ cdef extern from "Python.h":
     bytes PyBytes_FromStringAndSize(const char *v, Py_ssize_t size)
 
 
-cdef inline read_check_bounds(Py_buffer *buffer, Py_ssize_t offset, Py_ssize_t size):
+cdef inline check_bounds(Py_buffer *buffer, Py_ssize_t offset, Py_ssize_t size):
     if buffer.len < size or offset > buffer.len - size:
         raise EOFError()
 
 
 cdef inline read_buffer(Py_buffer *buffer, Py_ssize_t *offset, void *ret,
                         Py_ssize_t size):
-    read_check_bounds(buffer, offset[0], size)
+    check_bounds(buffer, offset[0], size)
     memcpy(ret, <const char *>buffer.buf + offset[0], size)
     offset[0] += size
 
 
 cdef inline bytes read_bytes(Py_buffer *buffer, Py_ssize_t *offset,
                              Py_ssize_t size):
-    read_check_bounds(buffer, offset[0], size)
+    check_bounds(buffer, offset[0], size)
     cdef bytes ret = PyBytes_FromStringAndSize(<const char *>buffer.buf + offset[0], size)
     offset[0] += size
     return ret
@@ -56,69 +56,83 @@ cdef inline Py_ssize_t read_strlen(Py_buffer *buffer, Py_ssize_t *offset) except
 
 
 cdef inline read_s8(Py_buffer *buffer, Py_ssize_t *offset, int8_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(int8_t))
+    check_bounds(buffer, offset[0], sizeof(int8_t))
     ret[0] = (<const int8_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(int8_t)
 
 
+cdef inline read_s64(Py_buffer *buffer, Py_ssize_t *offset, int64_t *ret):
+    check_bounds(buffer, offset[0], sizeof(int64_t))
+    ret[0] = (<const int64_t *>(<const char *>buffer.buf + offset[0]))[0]
+    offset[0] += sizeof(int64_t)
+
+
 cdef inline read_u8(Py_buffer *buffer, Py_ssize_t *offset, uint8_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint8_t))
+    check_bounds(buffer, offset[0], sizeof(uint8_t))
     ret[0] = (<const uint8_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint8_t)
 
 
 cdef inline read_u16(Py_buffer *buffer, Py_ssize_t *offset, uint16_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint16_t))
+    check_bounds(buffer, offset[0], sizeof(uint16_t))
     ret[0] = (<const uint16_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint16_t)
 
 
 cdef inline read_u32(Py_buffer *buffer, Py_ssize_t *offset, uint32_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint32_t))
+    check_bounds(buffer, offset[0], sizeof(uint32_t))
     ret[0] = (<const uint32_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint32_t)
 
 
 cdef inline read_u64(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint64_t))
+    check_bounds(buffer, offset[0], sizeof(uint64_t))
     ret[0] = (<const uint64_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint64_t)
 
 
 cdef inline read_u8_into_u64(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint8_t))
+    check_bounds(buffer, offset[0], sizeof(uint8_t))
     ret[0] = (<const uint8_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint8_t)
 
 
 cdef inline read_u16_into_u64(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint16_t))
+    check_bounds(buffer, offset[0], sizeof(uint16_t))
     ret[0] = (<const uint16_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint16_t)
 
 
 cdef inline read_u32_into_u64(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint32_t))
+    check_bounds(buffer, offset[0], sizeof(uint32_t))
     ret[0] = (<const uint32_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint32_t)
 
 
 cdef inline read_u8_into_ssize_t(Py_buffer *buffer, Py_ssize_t *offset,
                                  Py_ssize_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint8_t))
+    check_bounds(buffer, offset[0], sizeof(uint8_t))
     ret[0] = (<const uint8_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint8_t)
 
 
 cdef inline read_u16_into_ssize_t(Py_buffer *buffer, Py_ssize_t *offset,
                                   Py_ssize_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint16_t))
+    check_bounds(buffer, offset[0], sizeof(uint16_t))
     ret[0] = (<const uint16_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint16_t)
 
 
 cdef inline read_u32_into_ssize_t(Py_buffer *buffer, Py_ssize_t *offset,
                                   Py_ssize_t *ret):
-    read_check_bounds(buffer, offset[0], sizeof(uint32_t))
+    check_bounds(buffer, offset[0], sizeof(uint32_t))
     ret[0] = (<const uint32_t *>(<const char *>buffer.buf + offset[0]))[0]
     offset[0] += sizeof(uint32_t)
+
+cdef inline write_u32(Py_buffer *buffer, Py_ssize_t offset, uint32_t value):
+    check_bounds(buffer, offset, sizeof(uint32_t))
+    (<uint32_t*>(buffer.buf + offset))[0] = value
+
+cdef inline write_u64(Py_buffer *buffer, Py_ssize_t offset, uint64_t value):
+    check_bounds(buffer, offset, sizeof(uint64_t))
+    (<uint64_t*>(buffer.buf + offset))[0] = value

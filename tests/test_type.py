@@ -425,14 +425,14 @@ class TestFromDwarfType(unittest.TestCase):
         self.tmp_dir.cleanup()
 
     def compile_type(self, decl):
-        program_path = os.path.join(self.tmp_dir.name, 'test')
-        source_path = program_path + '.c'
+        object_path = os.path.join(self.tmp_dir.name, 'test')
+        source_path = object_path + '.c'
         with open(source_path, 'w') as f:
             f.write(decl)
             f.write(';\nint main(void) { return 0; }\n')
-        subprocess.check_call(['gcc', '-g', '-o', program_path, source_path])
-        with open(program_path, 'rb') as program_file:
-            dwarf_file = DwarfFile.from_file(program_file)
+        subprocess.check_call(['gcc', '-g', '-c', '-o', object_path, source_path])
+        with open(object_path, 'rb') as object_file:
+            dwarf_file = DwarfFile.from_file(object_file)
             dwarf_index = DwarfIndex()
             for cu in dwarf_file.cu_headers():
                 dwarf_index.index_cu(cu)
@@ -653,8 +653,8 @@ class TestFromTypeString(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            program_path = os.path.join(tmp_dir, 'test')
-            source_path = program_path + '.c'
+            object_path = os.path.join(tmp_dir, 'test')
+            source_path = object_path + '.c'
             with open(source_path, 'w') as f:
                 f.write("""\
 int i;
@@ -683,9 +683,9 @@ int main(void)
 	return 0;
 }
 """)
-            subprocess.check_call(['gcc', '-g', '-o', program_path, source_path])
-            cls.program_file = open(program_path, 'rb')
-            dwarf_file = DwarfFile.from_file(cls.program_file)
+            subprocess.check_call(['gcc', '-g', '-c', '-o', object_path, source_path])
+            cls.object_file = open(object_path, 'rb')
+            dwarf_file = DwarfFile.from_file(cls.object_file)
             dwarf_index = DwarfIndex()
             for cu in dwarf_file.cu_headers():
                 dwarf_index.index_cu(cu)
@@ -693,8 +693,8 @@ int main(void)
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'program_file'):
-            cls.program_file.close()
+        if hasattr(cls, 'object_file'):
+            cls.object_file.close()
 
     def test_void_type(self):
         self.assertEqual(self.type_factory.from_type_string('void'),

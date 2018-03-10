@@ -12,6 +12,12 @@ extensions = [
             'drgn/dwarf.pyx',
         ],
     ),
+    Extension(
+        name='drgn.elf',
+        sources=[
+            'drgn/elf.pyx',
+        ],
+    ),
 ]
 
 setup(
