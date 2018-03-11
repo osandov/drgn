@@ -8,6 +8,10 @@ from types import SimpleNamespace
 import zlib
 
 
+cdef extern from "stdint.h":
+    uint32_t UINT32_C(uint32_t)
+
+
 # Automatically generated from elf.h
 cdef enum:
     EI_NIDENT = (16)
@@ -958,7 +962,7 @@ class ElfFile:
                         read_u64(&reloc_buffer, &offset, &r_info)
                         read_s64(&reloc_buffer, &offset, &r_addend)
                         r_sym = r_info >> 32
-                        r_type = r_info & 0xffffffff
+                        r_type = r_info & UINT32_C(0xffffffff)
 
                         # sizeof(Elf64_Sym) * r_sym + offsetof(Elf64_Sym, st_value)
                         symtab_offset = 24 * r_sym + 8
