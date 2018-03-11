@@ -16,6 +16,10 @@ cdef extern from "Python.h":
     void *PyMem_Calloc(size_t nelem, size_t elsize)
 
 
+cdef extern from "stdint.h":
+    int64_t INT64_C(int64_t)
+
+
 cdef enum:
     DW_AT_sibling = 0x1
     DW_AT_location = 0x2
@@ -1218,9 +1222,9 @@ cdef class CompilationUnitHeader:
     cpdef Py_ssize_t die_offset(self):
         return self.offset + (23 if self.is_64_bit else 11)
 
-    cdef AbbrevDecl *abbrev_decl(self, uint64_t code):
+    cdef AbbrevDecl *abbrev_decl(self, uint64_t code) except NULL:
         if code < 1 or code > self._abbrev_table.num_decls:
-            return NULL
+            raise DwarfFormatError(f'unknown abbreviation code {code}')
         return &self._abbrev_table.decls[code - 1]
 
     cpdef Die die(self, Py_ssize_t offset=0):
@@ -1845,7 +1849,8 @@ cdef class LineNumberFilename:
     cdef public uint64_t file_size
 
 
-cdef read_uleb128(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret):
+cdef inline int read_uleb128(Py_buffer *buffer, Py_ssize_t *offset,
+                             uint64_t *ret) except -1:
     cdef int shift = 0
     cdef uint8_t byte
 
@@ -1858,9 +1863,11 @@ cdef read_uleb128(Py_buffer *buffer, Py_ssize_t *offset, uint64_t *ret):
         shift += 7
         if not (byte & 0x80):
             break
+    return 0
 
 
-cdef read_sleb128(Py_buffer *buffer, Py_ssize_t *offset, int64_t *ret):
+cdef inline int read_sleb128(Py_buffer *buffer, Py_ssize_t *offset,
+                             int64_t *ret) except -1:
     cdef int shift = 0
     cdef uint8_t byte
 
@@ -1874,7 +1881,8 @@ cdef read_sleb128(Py_buffer *buffer, Py_ssize_t *offset, int64_t *ret):
         if not (byte & 0x80):
             break
     if shift < 64 and (byte & 0x40):
-        ret[0] |= -(<int64_t>1 << shift)
+        ret[0] |= -(INT64_C(1) << shift)
+    return 0
 
 
 def parse_uleb128(s, Py_ssize_t offset):
@@ -2088,8 +2096,9 @@ cdef CompilationUnitHeader parse_compilation_unit_header(Py_buffer *buffer,
     return cu
 
 
-cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset, DieAttrib *attrib,
-                      uint8_t address_size, bint is_64_bit):
+cdef inline int parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
+                                 DieAttrib *attrib, uint8_t address_size,
+                                 bint is_64_bit) except -1:
     cdef uint64_t tmp
 
     # address
@@ -2160,6 +2169,7 @@ cdef parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset, DieAttrib *attrib,
         raise DwarfFormatError('DW_FORM_indirect is not supported')
     else:
         raise DwarfFormatError(f'unknown form 0x{attrib.form:x}')
+    return 0
 
 
 cdef list no_children = []
@@ -2191,8 +2201,6 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
         return None
 
     cdef AbbrevDecl *decl = cu.abbrev_decl(code)
-    if decl == NULL:
-        raise DwarfFormatError(f'unknown abbreviation code {code}')
 
     die.tag = decl.tag
     die.attribs = <DieAttrib *>PyMem_Calloc(decl.num_attribs, sizeof(DieAttrib))
@@ -2304,19 +2312,19 @@ cdef struct DieHashEntry:
 
 
 # DJBX33A hash function
-cdef unsigned long name_hash(char *name):
-    cdef unsigned long hash = 5381
+cdef uint32_t name_hash(char *name):
+    cdef uint32_t hash = 5381
     cdef Py_ssize_t i = 0
 
     while name[i]:
-        hash = ((hash << 5) + hash) + <unsigned char>name[i]
+        hash = ((hash << 5) + hash) + <uint8_t>name[i]
         i += 1
     return hash
 
 
 cdef class DwarfIndex:
     cdef DieHashEntry **die_hash
-    cdef unsigned long mask
+    cdef uint32_t mask
     cdef set cus
     cdef public object address_size
 
@@ -2334,18 +2342,19 @@ cdef class DwarfIndex:
         cdef DieHashEntry *entry
         cdef DieHashEntry *next
 
-        for i in range(self.mask + 1):
-            entry = self.die_hash[i]
-            while entry:
-                next = entry.next
-                PyMem_RawFree(entry)
-                entry = next
-        PyMem_RawFree(self.die_hash)
+        if self.die_hash != NULL:
+            for i in range(self.mask + 1):
+                entry = self.die_hash[i]
+                while entry:
+                    next = entry.next
+                    PyMem_RawFree(entry)
+                    entry = next
+            PyMem_RawFree(self.die_hash)
 
-    cdef add_die_hash_entry(self, Py_buffer *buffer, uint64_t die_offset,
-                            uint64_t tag, char *name,
-                            CompilationUnitHeader cu):
-        cdef unsigned long hash
+    cdef int add_die_hash_entry(self, Py_buffer *buffer, uint64_t die_offset,
+                                uint64_t tag, char *name,
+                                CompilationUnitHeader cu) except -1:
+        cdef uint32_t hash
         cdef DieHashEntry **bucket
         cdef DieHashEntry *entry
 
@@ -2354,7 +2363,7 @@ cdef class DwarfIndex:
         entry = bucket[0]
         while entry:
             if entry.tag == tag and strcmp(entry.name, name) == 0:
-                return
+                return 0
             entry = entry.next
 
         entry = <DieHashEntry *>PyMem_RawMalloc(sizeof(DieHashEntry))
@@ -2366,6 +2375,7 @@ cdef class DwarfIndex:
         entry.tag = tag
         entry.offset = die_offset
         bucket[0] = entry
+        return 0
 
     cdef int index_die(self, Py_buffer *buffer, Py_buffer *debug_str_buffer,
                        Py_ssize_t *offset, CompilationUnitHeader cu,
@@ -2378,8 +2388,6 @@ cdef class DwarfIndex:
             return 0
 
         cdef AbbrevDecl *decl = cu.abbrev_decl(code)
-        if decl == NULL:
-            raise DwarfFormatError(f'unknown abbreviation code {code}')
 
         cdef DieAttrib attrib
         cdef char *name = NULL
