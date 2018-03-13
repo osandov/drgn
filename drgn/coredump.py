@@ -1,4 +1,3 @@
-from drgn.dwarf import DwarfFile, DwarfIndex
 from drgn.elf import ElfFile
 from drgn.type import (
     ArrayType,
@@ -7,7 +6,6 @@ from drgn.type import (
     TypeFactory,
 )
 from drgn.typename import TypeName
-from drgn.util import parse_symbol_file
 import itertools
 import os
 
@@ -100,17 +98,12 @@ class CoredumpObject:
 
 
 class Coredump:
-    def __init__(self, core_file, program_file, symbols=None):
+    def __init__(self, core_file, dwarf_index, symbols):
         self._core_file = core_file
         self._core_elf_file = ElfFile(core_file)
-        self._program_file = program_file
-        self._program_dwarf_file = DwarfFile.from_file(program_file)
-        self.symbols = symbols
-
-        self._dwarf_index = DwarfIndex()
-        for cu in self._program_dwarf_file.cu_headers():
-            self._dwarf_index.index_cu(cu)
+        self._dwarf_index = dwarf_index
         self._type_factory = TypeFactory(self._dwarf_index)
+        self._symbols = symbols
 
     def read(self, address, size):
         for phdr in self._core_elf_file.phdrs():
@@ -122,16 +115,7 @@ class Coredump:
                         phdr.p_offset + address - phdr.p_vaddr)
 
     def __getitem__(self, key):
-        address = self.symbols[key][-1]
+        address = self._symbols[key][-1]
         dwarf_type = self._dwarf_index.find_variable(key).type()
         type_ = self._type_factory.from_dwarf_type(dwarf_type)
         return CoredumpObject(self, address, type_)
-
-
-def kcore(vmlinux_path):
-    # TODO: cleanup
-    core_file = open('/proc/kcore', 'rb')
-    program_file = open(vmlinux_path, 'rb')
-    with open('/proc/kallsyms', 'r') as f:
-        symbols = parse_symbol_file(f)
-    return Coredump(core_file, program_file, symbols)
