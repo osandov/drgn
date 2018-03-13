@@ -1,7 +1,7 @@
 from drgn.dwarf import (
     Die, DwarfAttribNotFoundError, DwarfFile, DwarfFile,
     DW_AT, DW_FORM, DW_LNE, DW_LNS, DW_OP, DW_TAG,
-    LineNumberProgram, parse_uleb128, parse_sleb128,
+    LineNumberProgram, parse_uleb128_and_offset, parse_sleb128_and_offset,
 )
 import fnmatch
 import os.path
@@ -138,10 +138,10 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
             offset += 8
             print(hex(const))
         elif opcode == DW_OP.constu:
-            const, offset = parse_uleb128(value, offset)
+            const, offset = parse_uleb128_and_offset(value, offset)
             print(hex(const))
         elif opcode == DW_OP.consts:
-            const, offset = parse_sleb128(value, offset)
+            const, offset = parse_sleb128_and_offset(value, offset)
             print(hex(const))
         elif (opcode == DW_OP.dup or
               opcode == DW_OP.drop or
@@ -165,7 +165,7 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
               opcode == DW_OP.plus):
             print()
         elif opcode == DW_OP.plus_uconst:
-            addend, offset = parse_uleb128(value, offset)
+            addend, offset = parse_uleb128_and_offset(value, offset)
             print(hex(addend))
         elif (opcode == DW_OP.shl or
               opcode == DW_OP.shr or
@@ -194,20 +194,20 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
         elif DW_OP.reg0 <= opcode <= DW_OP.reg31:
             print()
         elif DW_OP.breg0 <= opcode <= DW_OP.breg31:
-            reg_offset, offset = parse_sleb128(value, offset)
+            reg_offset, offset = parse_sleb128_and_offset(value, offset)
             print(hex(reg_offset))
         elif opcode == DW_OP.regx:
-            register, offset = parse_uleb128(value, offset)
+            register, offset = parse_uleb128_and_offset(value, offset)
             print(hex(register))
         elif opcode == DW_OP.fbreg:
-            reg_offset, offset = parse_sleb128(value, offset)
+            reg_offset, offset = parse_sleb128_and_offset(value, offset)
             print(hex(reg_offset))
         elif opcode == DW_OP.bregx:
-            register, offset = parse_uleb128(value, offset)
-            reg_offset, offset = parse_sleb128(value, offset)
+            register, offset = parse_uleb128_and_offset(value, offset)
+            reg_offset, offset = parse_sleb128_and_offset(value, offset)
             print(hex(register), hex(reg_offset))
         elif opcode == DW_OP.piece:
-            size, offset = parse_uleb128(value, offset)
+            size, offset = parse_uleb128_and_offset(value, offset)
             print(hex(size))
         elif opcode == DW_OP.deref_size:
             print(hex(value[offset]))
@@ -235,11 +235,11 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
               opcode == DW_OP.call_frame_cfa):
             print()
         elif opcode == DW_OP.bit_piece:
-            piece_size, offset = parse_uleb128(value, offset)
-            piece_offset, offset = parse_uleb128(value, offset)
+            piece_size, offset = parse_uleb128_and_offset(value, offset)
+            piece_offset, offset = parse_uleb128_and_offset(value, offset)
             print(hex(piece_size), hex(piece_offset))
         elif opcode == DW_OP.implicit_value:
-            size, offset = parse_uleb128(value, offset)
+            size, offset = parse_uleb128_and_offset(value, offset)
             print(hex(size), repr(value[offset:offset + size])[1:])
             offset += size
         elif opcode == DW_OP.stack_value:
@@ -287,7 +287,7 @@ def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
         opcode = lnp.dwarf_file.mmap[offset]
         offset += 1
         if opcode == 0:
-            length, offset = parse_uleb128(lnp.dwarf_file.mmap, offset)
+            length, offset = parse_uleb128_and_offset(lnp.dwarf_file.mmap, offset)
             opcode = lnp.dwarf_file.mmap[offset]
             length -= 1
             offset += 1
@@ -304,7 +304,7 @@ def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
             else:
                 args = []
                 for i in range(lnp.standard_opcode_lengths[opcode - 1]):
-                    arg, offset = parse_uleb128(lnp.dwarf_file.mmap, offset)
+                    arg, offset = parse_uleb128_and_offset(lnp.dwarf_file.mmap, offset)
                     args.append(arg)
             if len(args) > 2:
                 print(f'{prefix}  {DW_LNS.str(opcode)} {args}')

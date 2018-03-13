@@ -18,7 +18,7 @@ cdef extern from "Python.h":
 
 
 cdef extern from "stdint.h":
-    int64_t INT64_C(int64_t)
+    uint64_t UINT64_C(uint64_t)
 
 
 cdef enum:
@@ -1876,17 +1876,17 @@ cdef inline int read_sleb128(Py_buffer *buffer, Py_ssize_t *offset,
     while True:
         read_u8(buffer, offset, &byte)
         if shift == 63 and byte != 0 and byte != 0x7f:
-            raise OverflowError('ULEB128 overflowed unsigned 64-bit integer')
-        ret[0] |= <int64_t>(byte & 0x7f) << shift
+            raise OverflowError('SLEB128 overflowed signed 64-bit integer')
+        ret[0] |= <uint64_t>(byte & 0x7f) << shift
         shift += 7
         if not (byte & 0x80):
             break
     if shift < 64 and (byte & 0x40):
-        ret[0] |= -(INT64_C(1) << shift)
+        ret[0] |= ~(UINT64_C(1) << shift) + 1
     return 0
 
 
-def parse_uleb128(s, Py_ssize_t offset):
+def parse_uleb128_and_offset(s, Py_ssize_t offset):
     cdef uint64_t ret
     cdef Py_buffer buffer
     PyObject_GetBuffer(s, &buffer, PyBUF_SIMPLE)
@@ -1897,7 +1897,7 @@ def parse_uleb128(s, Py_ssize_t offset):
         PyBuffer_Release(&buffer)
 
 
-def parse_sleb128(s, Py_ssize_t offset):
+def parse_sleb128_and_offset(s, Py_ssize_t offset):
     cdef int64_t ret
     cdef Py_buffer buffer
     PyObject_GetBuffer(s, &buffer, PyBUF_SIMPLE)
@@ -1906,6 +1906,14 @@ def parse_sleb128(s, Py_ssize_t offset):
         return ret, offset
     finally:
         PyBuffer_Release(&buffer)
+
+
+def parse_uleb128(s, Py_ssize_t offset=0):
+    return parse_uleb128_and_offset(s, offset)[0]
+
+
+def parse_sleb128(s, Py_ssize_t offset=0):
+    return parse_sleb128_and_offset(s, offset)[0]
 
 
 cdef int realloc_abbrev_decls(AbbrevDecl **abbrev_decls, Py_ssize_t n) except -1:
