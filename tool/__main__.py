@@ -1,6 +1,6 @@
 import argparse
 
-import drgn.tool.dump
+from . import dump
 
 
 def main():
@@ -10,7 +10,7 @@ def main():
         title='command', description='command to run', dest='command')
     subparsers.required = True
 
-    drgn.tool.dump.register(subparsers)
+    dump.register(subparsers)
 
     args = parser.parse_args()
     args.func(args)
