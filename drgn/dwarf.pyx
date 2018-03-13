@@ -1,11 +1,12 @@
 from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, Py_buffer, PyBUF_SIMPLE
 from cpython.mem cimport PyMem_Realloc, PyMem_Free
-from drgn.readwrite cimport *
 from libc.stdint cimport UINT32_MAX, UINT64_MAX
 from libc.string cimport strcmp
 
-from drgn.elf import ElfFile
 import enum
+
+from .elf import ElfFile
+from .readwrite cimport *
 
 
 cdef extern from "Python.h":
@@ -1743,7 +1744,7 @@ cdef class LineNumberProgram:
 
     cdef advance_pc(self, LineNumberRow state, uint64_t operation_advance):
         state.address += (self.minimum_instruction_length *
-                          ((state.op_index + operation_advance) /
+                          ((state.op_index + operation_advance) //
                             self.maximum_operations_per_instruction))
         state.op_index = ((state.op_index + operation_advance) %
                            self.maximum_operations_per_instruction)
@@ -1771,9 +1772,9 @@ cdef class LineNumberProgram:
         elif opcode == DW_LNS_set_basic_block:
             state.basic_block = True
         elif opcode == DW_LNS_const_add_pc:
-            self.advance_pc(state, (255 - self.opcode_base) / self.line_range)
+            self.advance_pc(state, (255 - self.opcode_base) // self.line_range)
         elif opcode == DW_LNS_fixed_advance_pc:
-            self.advance_pc(state, (255 - self.opcode_base) / self.line_range)
+            self.advance_pc(state, (255 - self.opcode_base) // self.line_range)
             read_u16_into_u64(buffer, offset, &arg)
             state.address += arg
             state.op_index = 0
@@ -1788,7 +1789,7 @@ cdef class LineNumberProgram:
 
     cdef execute_special_opcode(self, LineNumberRow state, list matrix, uint8_t opcode):
         cdef uint8_t adjusted_opcode = opcode - self.opcode_base
-        cdef uint8_t operation_advance = adjusted_opcode / self.line_range
+        cdef uint8_t operation_advance = adjusted_opcode // self.line_range
 
         self.advance_pc(state, operation_advance)
         state.line += self.line_base + (adjusted_opcode % self.line_range)
@@ -1908,7 +1909,7 @@ def parse_sleb128(s, Py_ssize_t offset):
 
 
 cdef int realloc_abbrev_decls(AbbrevDecl **abbrev_decls, Py_ssize_t n) except -1:
-    if n > PY_SSIZE_T_MAX / <Py_ssize_t>sizeof(AbbrevDecl):
+    if n > PY_SSIZE_T_MAX // <Py_ssize_t>sizeof(AbbrevDecl):
         raise MemoryError()
 
     cdef AbbrevDecl *tmp = <AbbrevDecl *>PyMem_Realloc(abbrev_decls[0],
@@ -1921,7 +1922,7 @@ cdef int realloc_abbrev_decls(AbbrevDecl **abbrev_decls, Py_ssize_t n) except -1
 
 
 cdef int realloc_attrib_specs(AttribSpec **attrib_specs, Py_ssize_t n) except -1:
-    if n > PY_SSIZE_T_MAX / <Py_ssize_t>sizeof(AttribSpec):
+    if n > PY_SSIZE_T_MAX // <Py_ssize_t>sizeof(AttribSpec):
         raise MemoryError()
 
     cdef AttribSpec *tmp = <AttribSpec *>PyMem_Realloc(attrib_specs[0],

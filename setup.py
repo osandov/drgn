@@ -22,5 +22,5 @@ extensions = [
 
 setup(
     name='drgn',
-    ext_modules=cythonize(extensions),
+    ext_modules=cythonize(extensions, language_level=3),
 )

@@ -1,11 +1,12 @@
 from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, Py_buffer, PyBUF_SIMPLE, PyBUF_WRITABLE
-from drgn.readwrite cimport *
 
 from collections import namedtuple, OrderedDict
 import struct
 import sys
 from types import SimpleNamespace
 import zlib
+
+from .readwrite cimport *
 
 
 cdef extern from "stdint.h":
