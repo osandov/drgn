@@ -906,11 +906,14 @@ class ElfFile:
             ch_type, ch_size, ch_addralign = struct.unpack(fmt, buf)
             buf = self.file.read(shdr.sh_size - len(buf))
             if ch_type == ELFCOMPRESS_ZLIB:
-                buf = zlib.decompress(buf)
+                # It'd be nice if zlib returned a bytearray to us directly, but
+                # it doesn't so we're forced to do a copy here.
+                buf = bytearray(zlib.decompress(buf))
             else:
                 raise NotImplementedError(f'unknown compression type {ch_type}')
         else:
-            buf = self.file.read(shdr.sh_size)
+            buf = bytearray(shdr.sh_size)
+            self.file.readinto(buf)
 
         shdrs = self.shdrs()
         index = shdrs.index(shdr)
@@ -920,7 +923,6 @@ class ElfFile:
         else:
             return buf
 
-        buf = bytearray(buf)
         self.apply_relocations(reloc_shdr, buf)
 
         return buf
