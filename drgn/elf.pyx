@@ -727,12 +727,19 @@ Elf_Phdr = namedtuple('Elf_Phdr', [
 ])
 
 
-Elf_Rela = namedtuple('Elf_Rela', [
-    'r_offset',
-    'r_sym',
-    'r_type',
-    'r_addend',
-])
+cdef struct Elf64_Rela:
+    uint64_t r_offset
+    uint64_t r_info
+    int64_t r_addend
+
+
+cdef struct Elf64_Sym:
+    uint32_t st_name
+    uint8_t st_info
+    uint8_t st_other
+    uint16_t st_shndx
+    uint64_t st_value
+    uint64_t st_size
 
 
 class ElfFile:
@@ -939,16 +946,11 @@ class ElfFile:
         cdef Py_buffer buffer
         cdef Py_buffer reloc_buffer
         cdef Py_buffer symtab_buffer
-        cdef Py_ssize_t offset = 0
-        cdef Py_ssize_t end = reloc_shdr.sh_size
-        cdef Py_ssize_t symtab_offset
-        cdef uint64_t r_offset
-        cdef uint64_t r_info
+        cdef const Elf64_Rela *relocs
         cdef uint32_t r_sym
         cdef uint32_t r_type
-        cdef int64_t r_addend
-        cdef uint32_t reloc_value32
-        cdef uint64_t reloc_value64
+        cdef const Elf64_Sym *syms
+        cdef Py_ssize_t num_syms
 
         PyObject_GetBuffer(buf, &buffer, PyBUF_WRITABLE)
         try:
@@ -959,26 +961,25 @@ class ElfFile:
                 symtab_buf = self.read_section(symtab_shdr)
                 PyObject_GetBuffer(symtab_buf, &symtab_buffer, PyBUF_SIMPLE)
                 try:
-                    offset = 0
-                    while offset < end:
-                        read_u64(&reloc_buffer, &offset, &r_offset)
-                        read_u64(&reloc_buffer, &offset, &r_info)
-                        read_s64(&reloc_buffer, &offset, &r_addend)
-                        r_sym = r_info >> 32
-                        r_type = r_info & UINT32_C(0xffffffff)
+                    relocs = <const Elf64_Rela *>reloc_buffer.buf
+                    syms = <const Elf64_Sym *>symtab_buffer.buf
+                    num_syms = symtab_buffer.len // sizeof(Elf64_Sym)
+                    for i in range(reloc_buffer.len // sizeof(Elf64_Rela)):
+                        r_sym = relocs[i].r_info >> 32
+                        r_type = relocs[i].r_info & UINT32_C(0xffffffff)
 
-                        # sizeof(Elf64_Sym) * r_sym + offsetof(Elf64_Sym, st_value)
-                        symtab_offset = 24 * r_sym + 8
                         if r_type == R_X86_64_NONE:
                             continue
                         elif r_type == R_X86_64_32:
-                            read_u32(&symtab_buffer, &symtab_offset, &reloc_value32)
-                            reloc_value32 += r_addend
-                            write_u32(&buffer, r_offset, reloc_value32)
+                            if r_sym >= num_syms:
+                                raise EOFError()
+                            write_u32(&buffer, relocs[i].r_offset,
+                                      syms[r_sym].st_value + relocs[i].r_addend)
                         elif r_type == R_X86_64_64:
-                            read_u64(&symtab_buffer, &symtab_offset, &reloc_value64)
-                            reloc_value64 += r_addend
-                            write_u64(&buffer, r_offset, reloc_value64)
+                            if r_sym >= num_syms:
+                                raise EOFError()
+                            write_u64(&buffer, relocs[i].r_offset,
+                                      syms[r_sym].st_value + relocs[i].r_addend)
                         else:
                             raise NotImplementedError(r_type)
                 finally:
