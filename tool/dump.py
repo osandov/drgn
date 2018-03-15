@@ -1,7 +1,7 @@
 from drgn.dwarf import (
-    Die, DwarfAttribNotFoundError, DwarfFile, DwarfFile,
-    DW_AT, DW_FORM, DW_LNE, DW_LNS, DW_OP, DW_TAG,
-    LineNumberProgram, parse_uleb128_and_offset, parse_sleb128_and_offset,
+    Die, DwarfAttribNotFoundError, DwarfFile, DwarfFile, DW_AT, DW_FORM,
+    DW_LNE, DW_LNS, DW_OP, DW_TAG, parse_uleb128_and_offset,
+    parse_sleb128_and_offset,
 )
 import fnmatch
 import os.path
@@ -248,106 +248,6 @@ def dump_expression(value, address_size: int, is_64_bit: bool, *, indent: int=0)
             raise ValueError(f'unknown opcode {DW_OP.str(opcode)}')
 
 
-def dump_lnp(lnp: LineNumberProgram, *, indent: int=0):
-    prefix = ' ' * indent
-    print(f'{prefix}<{lnp.offset}> line number program')
-    print(f'{prefix}  unit_length = {lnp.unit_length}')
-    print(f'{prefix}  version = {lnp.version}')
-    print(f'{prefix}  header_length = {lnp.header_length}')
-    print(f'{prefix}  minimum_instruction_length = {lnp.minimum_instruction_length}')
-    print(f'{prefix}  maximum_operations_per_instruction = {lnp.maximum_operations_per_instruction}')
-    print(f'{prefix}  default_is_stmt = {lnp.default_is_stmt}')
-    print(f'{prefix}  line_base = {lnp.line_base}')
-    print(f'{prefix}  line_range = {lnp.line_range}')
-    print(f'{prefix}  opcode_base = {lnp.opcode_base}')
-    print(f'{prefix}  standard_opcode_lengths = {lnp.standard_opcode_lengths}')
-    print(f'{prefix}  include_directories = {{')
-    for directory in lnp.include_directories:
-        print(f'{prefix}    {directory!r},')
-    print(f'{prefix}  }}')
-    print(f'{prefix}  file_names = {{')
-    for filename in lnp.file_names:
-        if filename.directory_index > 0:
-            directory = lnp.include_directories[filename.directory_index - 1]
-            path = os.path.join(directory, filename.name)
-        else:
-            path = filename.name
-        print(f'{prefix}    {path!r},')
-    print(f'{prefix}  }}')
-    print(f'{prefix}  is_64_bit = {lnp.is_64_bit}')
-    dump_lnp_ops(lnp, indent=indent + 2)
-
-
-def dump_lnp_ops(lnp: LineNumberProgram, *, indent: int=0):
-    prefix = ' ' * indent
-    print(f'{prefix}opcodes = {{')
-    offset = lnp.dwarf_file.debug_line.sh_offset + lnp.program_offset()
-    end = lnp.dwarf_file.debug_line.sh_offset + lnp.end_offset()
-    while offset < end:
-        opcode = lnp.dwarf_file.mmap[offset]
-        offset += 1
-        if opcode == 0:
-            length, offset = parse_uleb128_and_offset(lnp.dwarf_file.mmap, offset)
-            opcode = lnp.dwarf_file.mmap[offset]
-            length -= 1
-            offset += 1
-            arg = lnp.dwarf_file.mmap[offset:offset + length]
-            if arg:
-                print(f'{prefix}  {DW_LNE.str(opcode)} {repr(arg)[1:]}')
-            else:
-                print(f'{prefix}  {DW_LNE.str(opcode)}')
-            offset += length
-        elif opcode < lnp.opcode_base:
-            if opcode == DW_LNS.fixed_advance_pc:
-                args = [int.from_bytes(lnp.dwarf_file.mmap[offset:offset + 2], sys.byteorder)]
-                offset += 2
-            else:
-                args = []
-                for i in range(lnp.standard_opcode_lengths[opcode - 1]):
-                    arg, offset = parse_uleb128_and_offset(lnp.dwarf_file.mmap, offset)
-                    args.append(arg)
-            if len(args) > 2:
-                print(f'{prefix}  {DW_LNS.str(opcode)} {args}')
-            elif len(args) == 1:
-                print(f'{prefix}  {DW_LNS.str(opcode)} {args[0]}')
-            else:
-                print(f'{prefix}  {DW_LNS.str(opcode)}')
-        else:
-            opcode -= lnp.opcode_base
-            operation_advance = opcode // lnp.line_range
-            line_increment = lnp.line_base + (opcode % lnp.line_range)
-            print(f'{prefix}  special op+={operation_advance} ', end='')
-            if line_increment < 0:
-                print(f'line-={-line_increment}')
-            else:
-                print(f'line+={line_increment}')
-    print(f'{prefix}}}')
-
-
-def dump_line_number_matrix(lnp, matrix, *, indent=0):
-    prefix = ' ' * indent
-    print(f'{prefix}lines = {{')
-    for row in matrix:
-        if row.end_sequence:
-            continue
-        print(f'{prefix}  0x{row.address:016x} is {repr(row.path())[1:-1]}:{row.line}', end='')
-
-        flags = []
-        if row.is_stmt:
-            flags.append('is_stmt')
-        if row.basic_block:
-            flags.append('basic_block')
-        if row.prologue_end:
-            flags.append('prologue_end')
-        if row.epilogue_begin:
-            flags.append('epilogue_begin')
-        if flags:
-            print(f" ({', '.join(flags)})")
-        else:
-            print()
-    print(f'{prefix}}}')
-
-
 def dump_cus(dwarf_file: DwarfFile, args) -> None:
     for cu in dwarf_file.cu_headers():
         die = cu.die()
@@ -370,41 +270,11 @@ def dump_cus(dwarf_file: DwarfFile, args) -> None:
                 dump_line_number_matrix(lnp, matrix, indent=2)
 
 
-def dump_arange(dwarf_file, art, arange, *, indent=0):
-    prefix = ' ' * indent
-    print(f'{prefix}', end='')
-    if art.segment_size:
-        print(f'segment={arange.segment} ', end='')
-    print(f'address=0x{arange.address:x} length={arange.length}')
-
-
-def dump_arange_table(dwarf_file, art, *, indent=0):
-    prefix = ' ' * indent
-    print(f'{prefix}<{art.offset}> address range table')
-    print(f'{prefix}  unit_length = {art.unit_length}')
-    print(f'{prefix}  version = {art.version}')
-    print(f'{prefix}  debug_info_offset = {art.debug_info_offset}')
-    print(f'{prefix}  address_size = {art.address_size}')
-    print(f'{prefix}  segment_size = {art.segment_size}')
-    print(f'{prefix}  is_64_bit = {art.is_64_bit}')
-    print(f'{prefix}  aranges = {{')
-    for arange in art.table:
-        dump_arange(dwarf_file, art, arange, indent=indent + 4)
-    print(f'{prefix}  }}')
-
-
-def dump_aranges(dwarf_file):
-    for art in dwarf_file.arange_tables():
-        dump_arange_table(dwarf_file, art)
-
-
 def cmd_dump(args):
     with open(args.file, 'rb') as f:
         dwarf_file = DwarfFile.from_file(f)
         if args.cu:
             dump_cus(dwarf_file, args)
-        if args.aranges:
-            dump_aranges(dwarf_file)
 
 
 def register(subparsers):
@@ -422,13 +292,5 @@ def register(subparsers):
     subparser.add_argument(
         '--location', action='store_true',
         help='also dump DIE locations')
-    subparser.add_argument(
-        '--aranges', action='store_true',
-        help='also dump the address range tables')
-    subparser.add_argument(
-        '--line-number-program', '--lnp', action='store_true',
-        help='also dump the line number program')
-    subparser.add_argument(
-        '--lines', action='store_true', help='also dump the line number matrix')
     subparser.add_argument('file', help='file to dump')
     subparser.set_defaults(func=cmd_dump)

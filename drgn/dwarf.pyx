@@ -1062,9 +1062,7 @@ cdef class DwarfLocationNotFoundError(Exception):
 
 SECTIONS = [
     '.debug_abbrev',
-    '.debug_aranges',
     '.debug_info',
-    '.debug_line',
     '.debug_loc',
     '.debug_ranges',
     '.debug_str',
@@ -1104,9 +1102,12 @@ cdef class DwarfFile:
                                          Py_buffer *debug_abbrev_buffer,
                                          Py_ssize_t offset):
         cdef CompilationUnitHeader cu
-        cu = parse_compilation_unit_header(debug_info_buffer, &offset, self)
+        cu = parse_compilation_unit_header(<const char *>debug_info_buffer.buf,
+                                           debug_info_buffer.len, &offset,
+                                           self)
         offset = cu.debug_abbrev_offset
-        parse_abbrev_table(debug_abbrev_buffer, &offset, &cu._abbrev_table)
+        parse_abbrev_table(<const char *>debug_abbrev_buffer.buf,
+                           debug_abbrev_buffer.len, &offset, &cu._abbrev_table)
         return cu
 
     def cu_headers(self):
@@ -1128,45 +1129,6 @@ cdef class DwarfFile:
                 PyBuffer_Release(&debug_abbrev_buffer)
         finally:
             PyBuffer_Release(&debug_info_buffer)
-
-    def arange_tables(self):
-        cdef Py_buffer buffer
-        cdef Py_ssize_t offset = 0
-
-        self.get_section_buffer('.debug_aranges', &buffer)
-        try:
-            while offset < buffer.len:
-                art = parse_arange_table(&buffer, &offset)
-                yield art
-                offset = art.end_offset()
-        finally:
-            PyBuffer_Release(&buffer)
-
-
-cdef class AddressRange:
-    cdef public uint64_t segment
-    cdef public uint64_t address
-    cdef public uint64_t length
-
-    def __cinit__(self, uint64_t segment, uint64_t address, uint64_t length):
-        self.segment = segment
-        self.address = address
-        self.length = length
-
-
-cdef class ArangeTable:
-    # Offset from the beginning of the section.
-    cdef public Py_ssize_t offset
-    cdef public uint64_t unit_length
-    cdef public uint16_t version
-    cdef public uint64_t debug_info_offset
-    cdef public uint8_t address_size
-    cdef public uint8_t segment_size
-    cdef public bint is_64_bit
-    cdef public list table
-
-    cpdef Py_ssize_t end_offset(self):
-        return self.offset + (12 if self.is_64_bit else 4) + self.unit_length
 
 
 cdef struct AttribSpec:
@@ -1238,19 +1200,8 @@ cdef class CompilationUnitHeader:
 
         self.dwarf_file.get_section_buffer('.debug_info', &buffer)
         try:
-            return parse_die(&buffer, &offset, self, False)
-        finally:
-            PyBuffer_Release(&buffer)
-
-    cpdef LineNumberProgram line_number_program(self):
-        cdef Py_buffer buffer
-        cdef Py_ssize_t offset
-
-        offset = self.die().find_sec_offset(DW_AT_stmt_list)
-
-        self.dwarf_file.get_section_buffer('.debug_line', &buffer)
-        try:
-            return parse_line_number_program(&buffer, &offset, self)
+            return parse_die(<const char *>buffer.buf, buffer.len, &offset,
+                             self, False)
         finally:
             PyBuffer_Release(&buffer)
 
@@ -1363,7 +1314,8 @@ cdef class Die:
             offset = attrib.value.ptr.offset
             self.cu.dwarf_file.get_section_buffer('.debug_info', &buffer)
             try:
-                return read_bytes(&buffer, &offset, attrib.value.ptr.length)
+                return read_bytes(<const char *>buffer.buf, buffer.len,
+                                  &offset, attrib.value.ptr.length)
             finally:
                 PyBuffer_Release(&buffer)
         elif attrib.form == DW_FORM_data1:
@@ -1413,7 +1365,7 @@ cdef class Die:
             offset = attrib.value.u
             self.cu.dwarf_file.get_section_buffer('.debug_str', &buffer)
             try:
-                return read_str(&buffer, &offset)
+                return read_str(<const char *>buffer.buf, buffer.len, &offset)
             finally:
                 PyBuffer_Release(&buffer)
         elif attrib.form == DW_FORM_string:
@@ -1503,7 +1455,8 @@ cdef class Die:
 
         self.cu.dwarf_file.get_section_buffer('.debug_info', &buffer)
         try:
-            return parse_die_siblings(&buffer, &offset, self.cu)
+            return parse_die_siblings(<const char *>buffer.buf, buffer.len,
+                                      &offset, self.cu)
         finally:
             PyBuffer_Release(&buffer)
 
@@ -1534,14 +1487,18 @@ cdef class Die:
         try:
             while True:
                 if self.cu.address_size == 4:
-                    read_u32_into_u64(&buffer, &offset, &start)
-                    read_u32_into_u64(&buffer, &offset, &end)
+                    read_u32_into_u64(<const char *>buffer.buf, buffer.len,
+                                      &offset, &start)
+                    read_u32_into_u64(<const char *>buffer.buf, buffer.len,
+                                      &offset, &end)
                     if start == UINT32_MAX:
                         base_addr = end
                         continue
                 elif self.cu.address_size == 8:
-                    read_u64(&buffer, &offset, &start)
-                    read_u64(&buffer, &offset, &end)
+                    read_u64(<const char *>buffer.buf, buffer.len, &offset,
+                             &start)
+                    read_u64(<const char *>buffer.buf, buffer.len, &offset,
+                             &end)
                     if start == UINT64_MAX:
                         base_addr = end
                         continue
@@ -1551,10 +1508,12 @@ cdef class Die:
                 if start == 0 and end == 0:
                     break
 
-                read_u16(&buffer, &offset, &lle_length)
+                read_u16(<const char *>buffer.buf, buffer.len, &offset,
+                         &lle_length)
 
                 if base_addr + start <= addr < base_addr + end:
-                    return read_bytes(&buffer, &offset, lle_length)
+                    return read_bytes(<const char *>buffer.buf, buffer.len,
+                                      &offset, lle_length)
         finally:
             PyBuffer_Release(&buffer)
 
@@ -1615,14 +1574,18 @@ cdef class Die:
         try:
             while True:
                 if self.cu.address_size == 4:
-                    read_u32_into_u64(&buffer, &offset, &start)
-                    read_u32_into_u64(&buffer, &offset, &end)
+                    read_u32_into_u64(<const char *>buffer.buf, buffer.len,
+                                      &offset, &start)
+                    read_u32_into_u64(<const char *>buffer.buf, buffer.len,
+                                      &offset, &end)
                     if start == UINT32_MAX:
                         base_addr = end
                         continue
                 elif self.cu.address_size == 8:
-                    read_u64(&buffer, &offset, &start)
-                    read_u64(&buffer, &offset, &end)
+                    read_u64(<const char *>buffer.buf, buffer.len, &offset,
+                             &start)
+                    read_u64(<const char *>buffer.buf, buffer.len, &offset,
+                             &end)
                     if start == UINT64_MAX:
                         base_addr = end
                         continue
@@ -1640,224 +1603,14 @@ cdef class Die:
         return False
 
 
-cdef class LineNumberProgram:
-    cdef public CompilationUnitHeader cu
-    # Offset from the beginning of the section.
-    cdef public Py_ssize_t offset
-
-    cdef public uint64_t unit_length
-    cdef public uint16_t version
-    cdef public uint64_t header_length
-    cdef public uint8_t minimum_instruction_length
-    cdef public uint8_t maximum_operations_per_instruction
-    cdef public bint default_is_stmt
-    cdef public int8_t line_base
-    cdef public uint8_t line_range
-    cdef public uint8_t opcode_base
-    cdef public list standard_opcode_lengths
-    cdef public list include_directories
-    cdef public list file_names
-    cdef public bint is_64_bit
-
-    cpdef Py_ssize_t program_offset(self):
-        return self.offset + (22 if self.is_64_bit else 10) + self.header_length
-
-    cpdef Py_ssize_t end_offset(self):
-        return self.offset + (12 if self.is_64_bit else 4) + self.unit_length
-
-    cdef init_state(self, LineNumberRow state):
-        state.address = 0
-        state.op_index = 0
-        state.file = 1
-        state.line = 1
-        state.column = 0
-        state.is_stmt = self.default_is_stmt
-        state.basic_block = False
-        state.end_sequence = False
-        state.prologue_end = False
-        state.epilogue_begin = False
-        state.isa = 0
-        state.discriminator = 0
-
-    @staticmethod
-    cdef reset_state(LineNumberRow state):
-        state.basic_block = False
-        state.prologue_end = False
-        state.epilogue_begin = False
-        state.discriminator = 0
-
-    cpdef list execute(self):
-        cdef Py_buffer buffer
-        cdef Py_ssize_t offset = self.program_offset()
-        cdef Py_ssize_t end = self.end_offset()
-
-        cdef LineNumberRow state = LineNumberRow.__new__(LineNumberRow, self)
-        self.init_state(state)
-
-        cdef list matrix = []
-        cdef uint8_t opcode
-        self.cu.dwarf_file.get_section_buffer('.debug_line', &buffer)
-        try:
-            while offset < end:
-                read_u8(&buffer, &offset, &opcode)
-                self.execute_opcode(&buffer, &offset, state, matrix, opcode)
-        finally:
-            PyBuffer_Release(&buffer)
-        return matrix
-
-    cdef execute_opcode(self, Py_buffer *buffer, Py_ssize_t *offset,
-                        LineNumberRow state, list matrix, uint8_t opcode):
-        if opcode == 0:
-            self.execute_extended_opcode(buffer, offset, state, matrix)
-        elif opcode < self.opcode_base:
-            self.execute_standard_opcode(buffer, offset, state, matrix, opcode)
-        else:
-            self.execute_special_opcode(state, matrix, opcode)
-
-    cdef execute_extended_opcode(self, Py_buffer *buffer, Py_ssize_t *offset,
-                                 LineNumberRow state, list matrix):
-        cdef uint64_t op_length
-        read_uleb128(buffer, offset, &op_length)
-        check_bounds(buffer, offset[0], op_length)
-        cdef Py_ssize_t end = offset[0] + op_length
-
-        cdef uint8_t opcode
-        read_u8(buffer, offset, &opcode)
-        if opcode == DW_LNE_end_sequence:
-            state.end_sequence = True
-            matrix.append(LineNumberRow.__new__(LineNumberRow, self, state))
-            self.init_state(state)
-        elif opcode == DW_LNE_set_address:
-            if op_length == 9:
-                read_u64(buffer, offset, &state.address)
-            elif op_length == 5:
-                read_u32_into_u64(buffer, offset, &state.address)
-            else:
-                raise DwarfFormatError(f'unsupported address size {op_length}')
-            state.op_index = 0
-        elif opcode == DW_LNE_define_file:
-            raise NotImplementedError('DW_LNE_define_file is not implemented')
-        elif opcode == DW_LNE_set_discriminator:
-            read_uleb128(buffer, offset, &state.discriminator)
-        else:
-            raise DwarfFormatError(f'unknown extended opcode {DW_LNE.str(opcode)}')
-
-    cdef advance_pc(self, LineNumberRow state, uint64_t operation_advance):
-        state.address += (self.minimum_instruction_length *
-                          ((state.op_index + operation_advance) //
-                            self.maximum_operations_per_instruction))
-        state.op_index = ((state.op_index + operation_advance) %
-                           self.maximum_operations_per_instruction)
-
-    cdef execute_standard_opcode(self, Py_buffer *buffer, Py_ssize_t *offset,
-                                 LineNumberRow state, list matrix, uint8_t opcode):
-        cdef uint64_t arg
-        cdef int64_t sarg
-
-        if opcode == DW_LNS_copy:
-            matrix.append(LineNumberRow.__new__(LineNumberRow, self, state))
-            LineNumberProgram.reset_state(state)
-        elif opcode == DW_LNS_advance_pc:
-            read_uleb128(buffer, offset, &arg)
-            self.advance_pc(state, arg)
-        elif opcode == DW_LNS_advance_line:
-            read_sleb128(buffer, offset, &sarg)
-            state.line += sarg
-        elif opcode == DW_LNS_set_file:
-            read_uleb128(buffer, offset, &state.file)
-        elif opcode == DW_LNS_set_column:
-            read_uleb128(buffer, offset, &state.column)
-        elif opcode == DW_LNS_negate_stmt:
-            state.is_stmt = not state.is_stmt
-        elif opcode == DW_LNS_set_basic_block:
-            state.basic_block = True
-        elif opcode == DW_LNS_const_add_pc:
-            self.advance_pc(state, (255 - self.opcode_base) // self.line_range)
-        elif opcode == DW_LNS_fixed_advance_pc:
-            self.advance_pc(state, (255 - self.opcode_base) // self.line_range)
-            read_u16_into_u64(buffer, offset, &arg)
-            state.address += arg
-            state.op_index = 0
-        elif opcode == DW_LNS_set_prologue_end:
-            state.prologue_end = True
-        elif opcode == DW_LNS_set_epilogue_begin:
-            state.epilogue_begin = True
-        elif opcode == DW_LNS_set_isa:
-            read_uleb128(buffer, offset, &state.isa)
-        else:
-            raise DwarfFormatError(f'unknown standard opcode {DW_LNS.str(opcode)}')
-
-    cdef execute_special_opcode(self, LineNumberRow state, list matrix, uint8_t opcode):
-        cdef uint8_t adjusted_opcode = opcode - self.opcode_base
-        cdef uint8_t operation_advance = adjusted_opcode // self.line_range
-
-        self.advance_pc(state, operation_advance)
-        state.line += self.line_base + (adjusted_opcode % self.line_range)
-        matrix.append(LineNumberRow.__new__(LineNumberRow, self, state))
-        LineNumberProgram.reset_state(state)
-
-
-cdef class LineNumberRow:
-    cdef public LineNumberProgram lnp
-
-    cdef public uint64_t address
-    cdef public uint64_t file
-    cdef public uint64_t line
-    cdef public uint64_t column
-    cdef public uint64_t isa
-    cdef public uint64_t discriminator
-    cdef public uint8_t op_index
-    cdef public bint is_stmt
-    cdef public bint basic_block
-    cdef public bint end_sequence
-    cdef public bint prologue_end
-    cdef public bint epilogue_begin
-
-    def __cinit__(self, LineNumberProgram lnp, LineNumberRow row=None):
-        self.lnp = lnp
-        if row is not None:
-            self.address = row.address
-            self.file = row.file
-            self.line = row.line
-            self.column = row.column
-            self.isa = row.isa
-            self.discriminator = row.discriminator
-            self.op_index = row.op_index
-            self.is_stmt = row.is_stmt
-            self.basic_block = row.basic_block
-            self.end_sequence = row.end_sequence
-            self.prologue_end = row.prologue_end
-            self.epilogue_begin = row.epilogue_begin
-
-    def path(self):
-        assert self.lnp is not None
-        if self.file == 0:
-            assert self.lnp.cu is not None
-            return self.lnp.cu.name()
-        else:
-            filename = self.lnp.file_names[self.file - 1]
-            if filename.directory_index > 0:
-                directory = self.lnp.include_directories[filename.directory_index - 1]
-                return directory + '/' + filename.name
-            else:
-                return filename.name
-
-
-cdef class LineNumberFilename:
-    cdef public str name
-    cdef public uint64_t directory_index
-    cdef public uint64_t mtime
-    cdef public uint64_t file_size
-
-
-cdef inline int read_uleb128(Py_buffer *buffer, Py_ssize_t *offset,
-                             uint64_t *ret) except -1:
+cdef inline int read_uleb128(const char *buffer, Py_ssize_t buffer_size,
+                             Py_ssize_t *offset, uint64_t *ret) except -1:
     cdef int shift = 0
     cdef uint8_t byte
 
     ret[0] = 0
     while True:
-        read_u8(buffer, offset, &byte)
+        read_u8(buffer, buffer_size, offset, &byte)
         if shift == 63 and byte > 1:
             raise OverflowError('ULEB128 overflowed unsigned 64-bit integer')
         ret[0] |= <uint64_t>(byte & 0x7f) << shift
@@ -1867,14 +1620,14 @@ cdef inline int read_uleb128(Py_buffer *buffer, Py_ssize_t *offset,
     return 0
 
 
-cdef inline int read_sleb128(Py_buffer *buffer, Py_ssize_t *offset,
-                             int64_t *ret) except -1:
+cdef inline int read_sleb128(const char *buffer, Py_ssize_t buffer_size,
+                             Py_ssize_t *offset, int64_t *ret) except -1:
     cdef int shift = 0
     cdef uint8_t byte
 
     ret[0] = 0
     while True:
-        read_u8(buffer, offset, &byte)
+        read_u8(buffer, buffer_size, offset, &byte)
         if shift == 63 and byte != 0 and byte != 0x7f:
             raise OverflowError('SLEB128 overflowed signed 64-bit integer')
         ret[0] |= <uint64_t>(byte & 0x7f) << shift
@@ -1891,7 +1644,7 @@ def parse_uleb128_and_offset(s, Py_ssize_t offset):
     cdef Py_buffer buffer
     PyObject_GetBuffer(s, &buffer, PyBUF_SIMPLE)
     try:
-        read_uleb128(&buffer, &offset, &ret)
+        read_uleb128(<const char *>buffer.buf, buffer.len, &offset, &ret)
         return ret, offset
     finally:
         PyBuffer_Release(&buffer)
@@ -1902,7 +1655,7 @@ def parse_sleb128_and_offset(s, Py_ssize_t offset):
     cdef Py_buffer buffer
     PyObject_GetBuffer(s, &buffer, PyBUF_SIMPLE)
     try:
-        read_sleb128(&buffer, &offset, &ret)
+        read_sleb128(<const char *>buffer.buf, buffer.len, &offset, &ret)
         return ret, offset
     finally:
         PyBuffer_Release(&buffer)
@@ -1942,13 +1695,13 @@ cdef int realloc_attrib_specs(AttribSpec **attrib_specs, Py_ssize_t n) except -1
     return 0
 
 
-cdef int parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
-                           AbbrevTable *abbrev_table,
+cdef int parse_abbrev_decl(const char *buffer, Py_ssize_t buffer_size,
+                           Py_ssize_t *offset, AbbrevTable *abbrev_table,
                            uint64_t *decls_capacity) except -1:
     cdef uint64_t code
 
     try:
-        read_uleb128(buffer, offset, &code)
+        read_uleb128(buffer, buffer_size, offset, &code)
     except EOFError:
         raise DwarfFormatError('abbreviation declaration code is truncated')
     if code == 0:
@@ -1966,12 +1719,12 @@ cdef int parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
     abbrev_table.num_decls += 1
 
     try:
-        read_uleb128(buffer, offset, &decl.tag)
+        read_uleb128(buffer, buffer_size, offset, &decl.tag)
     except EOFError:
         raise DwarfFormatError('abbreviation declaration tag is truncated')
     cdef uint8_t children
     try:
-        read_u8(buffer, offset, &children)
+        read_u8(buffer, buffer_size, offset, &children)
     except EOFError:
         raise DwarfFormatError('abbreviation declaration children flag is truncated')
     decl.children = children != DW_CHILDREN_no
@@ -1982,11 +1735,11 @@ cdef int parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
     cdef uint64_t name, form
     while True:
         try:
-            read_uleb128(buffer, offset, &name)
+            read_uleb128(buffer, buffer_size, offset, &name)
         except EOFError:
             raise DwarfFormatError('abbreviation specification name is truncated')
         try:
-            read_uleb128(buffer, offset, &form)
+            read_uleb128(buffer, buffer_size, offset, &form)
         except EOFError:
             raise DwarfFormatError('abbreviation specification form is truncated')
         if name == 0 and form == 0:
@@ -2004,7 +1757,8 @@ cdef int parse_abbrev_decl(Py_buffer *buffer, Py_ssize_t *offset,
     return 1
 
 
-cdef int parse_abbrev_table(Py_buffer *buffer, Py_ssize_t *offset,
+cdef int parse_abbrev_table(const char *buffer, Py_ssize_t buffer_size,
+                            Py_ssize_t *offset,
                             AbbrevTable *abbrev_table) except -1:
     cdef uint64_t decls_capacity = 1  # XXX: is this a good first guess?
 
@@ -2012,71 +1766,15 @@ cdef int parse_abbrev_table(Py_buffer *buffer, Py_ssize_t *offset,
     abbrev_table.num_decls = 0
     realloc_abbrev_decls(&abbrev_table.decls, decls_capacity)
 
-    while parse_abbrev_decl(buffer, offset, abbrev_table, &decls_capacity):
+    while parse_abbrev_decl(buffer, buffer_size, offset, abbrev_table,
+                            &decls_capacity):
         pass
     realloc_abbrev_decls(&abbrev_table.decls, abbrev_table.num_decls)
     return 0
 
 
-cdef ArangeTable parse_arange_table(Py_buffer *buffer, Py_ssize_t *offset):
-    cdef ArangeTable art = ArangeTable.__new__(ArangeTable)
-    art.offset = offset[0]
-
-    cdef uint32_t tmp
-    read_u32(buffer, offset, &tmp)
-    art.is_64_bit = tmp == 0xffffffffUL
-    if art.is_64_bit:
-        read_u64(buffer, offset, &art.unit_length)
-    else:
-        art.unit_length = tmp
-
-    read_u16(buffer, offset, &art.version)
-    if art.version != 2:
-        raise DwarfFormatError(f'unknown arange table version {art.version}')
-
-    if art.is_64_bit:
-        read_u64(buffer, offset, &art.debug_info_offset)
-    else:
-        read_u32_into_u64(buffer, offset, &art.debug_info_offset)
-
-    read_u8(buffer, offset, &art.address_size)
-    read_u8(buffer, offset, &art.segment_size)
-
-    if art.segment_size != 4 and art.segment_size != 8 and art.segment_size != 0:
-        raise DwarfFormatError(f'unsupported segment size {art.segment_size}')
-    if art.address_size != 4 and art.address_size != 8:
-        raise DwarfFormatError(f'unsupported address size {art.address_size}')
-
-    cdef Py_ssize_t align = art.segment_size + 2 * art.address_size
-    if offset[0] % align:
-        offset[0] += align - (offset[0] % align)
-
-    cdef uint64_t segment, address, length_
-    art.table = []
-    while True:
-        if art.segment_size == 4:
-            read_u32_into_u64(buffer, offset, &segment)
-        elif art.segment_size == 8:
-            read_u64(buffer, offset, &segment)
-        else:  # art.segment_size == 0
-            segment = 0
-
-        if art.address_size == 4:
-            read_u32_into_u64(buffer, offset, &address)
-            read_u32_into_u64(buffer, offset, &length_)
-        else:  # art.address_size == 8
-            read_u64(buffer, offset, &address)
-            read_u64(buffer, offset, &length_)
-
-        if segment == 0 and address == 0 and length_ == 0:
-            break
-
-        art.table.append(AddressRange.__new__(AddressRange, segment, address, length_))
-
-    return art
-
-
-cdef CompilationUnitHeader parse_compilation_unit_header(Py_buffer *buffer,
+cdef CompilationUnitHeader parse_compilation_unit_header(const char *buffer,
+                                                         Py_ssize_t buffer_size,
                                                          Py_ssize_t *offset,
                                                          DwarfFile dwarf_file):
     cdef CompilationUnitHeader cu = CompilationUnitHeader.__new__(CompilationUnitHeader)
@@ -2084,38 +1782,40 @@ cdef CompilationUnitHeader parse_compilation_unit_header(Py_buffer *buffer,
     cu.offset = offset[0]
 
     cdef uint32_t tmp
-    read_u32(buffer, offset, &tmp)
+    read_u32(buffer, buffer_size, offset, &tmp)
     cu.is_64_bit = tmp == 0xffffffffUL
     if cu.is_64_bit:
-        read_u64(buffer, offset, &cu.unit_length)
+        read_u64(buffer, buffer_size, offset, &cu.unit_length)
     else:
         cu.unit_length = tmp
 
-    read_u16(buffer, offset, &cu.version)
+    read_u16(buffer, buffer_size, offset, &cu.version)
     if cu.version != 2 and cu.version != 3 and cu.version != 4:
         raise DwarfFormatError(f'unknown CU version {cu.version}')
 
     if cu.is_64_bit:
-        read_u64(buffer, offset, &cu.debug_abbrev_offset)
+        read_u64(buffer, buffer_size, offset,
+                 &cu.debug_abbrev_offset)
     else:
-        read_u32_into_u64(buffer, offset, &cu.debug_abbrev_offset)
+        read_u32_into_u64(buffer, buffer_size, offset, &cu.debug_abbrev_offset)
 
-    read_u8(buffer, offset, &cu.address_size)
+    read_u8(buffer, buffer_size, offset, &cu.address_size)
 
     return cu
 
 
-cdef inline int parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
-                                 DieAttrib *attrib, uint8_t address_size,
+cdef inline int parse_die_attrib(const char *buffer, Py_ssize_t buffer_size,
+                                 Py_ssize_t *offset, DieAttrib *attrib,
+                                 uint8_t address_size,
                                  bint is_64_bit) except -1:
     cdef uint64_t tmp
 
     # address
     if attrib.form == DW_FORM_addr:
         if address_size == 4:
-            read_u32_into_u64(buffer, offset, &attrib.value.u)
+            read_u32_into_u64(buffer, buffer_size, offset, &attrib.value.u)
         elif address_size == 8:
-            read_u64(buffer, offset, &attrib.value.u)
+            read_u64(buffer, buffer_size, offset, &attrib.value.u)
         else:
             raise DwarfFormatError(f'unsupported address size {address_size}')
     elif (attrib.form == DW_FORM_block1 or  # block
@@ -2123,57 +1823,60 @@ cdef inline int parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
           attrib.form == DW_FORM_block4 or
           attrib.form == DW_FORM_exprloc):  # exprloc
         if attrib.form == DW_FORM_block1:
-            read_u8_into_ssize_t(buffer, offset, &attrib.value.ptr.length)
+            read_u8_into_ssize_t(buffer, buffer_size, offset,
+                                 &attrib.value.ptr.length)
         elif attrib.form == DW_FORM_block2:
-            read_u16_into_ssize_t(buffer, offset, &attrib.value.ptr.length)
+            read_u16_into_ssize_t(buffer, buffer_size, offset,
+                                  &attrib.value.ptr.length)
         elif attrib.form == DW_FORM_block4:
-            read_u32_into_ssize_t(buffer, offset, &attrib.value.ptr.length)
+            read_u32_into_ssize_t(buffer, buffer_size, offset,
+                                  &attrib.value.ptr.length)
         elif attrib.form == DW_FORM_exprloc:
-            read_uleb128(buffer, offset, &tmp)
+            read_uleb128(buffer, buffer_size, offset, &tmp)
             if tmp > <uint64_t>PY_SSIZE_T_MAX:
                 raise DwarfFormatError('attribute length too big')
             attrib.value.ptr.length = tmp
-        check_bounds(buffer, offset[0], attrib.value.ptr.length)
+        check_bounds(buffer_size, offset[0], attrib.value.ptr.length)
         attrib.value.ptr.offset = offset[0]
         offset[0] += attrib.value.ptr.length
     # constant
     elif attrib.form == DW_FORM_data1:
-        read_buffer(buffer, offset, &attrib.value.data, 1)
+        read_buffer(buffer, buffer_size, offset, &attrib.value.data, 1)
     elif attrib.form == DW_FORM_data2:
-        read_buffer(buffer, offset, &attrib.value.data, 2)
+        read_buffer(buffer, buffer_size, offset, &attrib.value.data, 2)
     elif attrib.form == DW_FORM_data4:
-        read_buffer(buffer, offset, &attrib.value.data, 4)
+        read_buffer(buffer, buffer_size, offset, &attrib.value.data, 4)
     elif attrib.form == DW_FORM_data8:
-        read_buffer(buffer, offset, &attrib.value.data, 8)
+        read_buffer(buffer, buffer_size, offset, &attrib.value.data, 8)
     elif attrib.form == DW_FORM_sdata:
-        read_sleb128(buffer, offset, &attrib.value.s)
+        read_sleb128(buffer, buffer_size, offset, &attrib.value.s)
     elif (attrib.form == DW_FORM_udata or     # constant
           attrib.form == DW_FORM_ref_udata):  # reference
-        read_uleb128(buffer, offset, &attrib.value.u)
+        read_uleb128(buffer, buffer_size, offset, &attrib.value.u)
     elif (attrib.form == DW_FORM_ref_addr or    # reference
           attrib.form == DW_FORM_sec_offset or  # lineptr, loclistptr, macptr, rangelistptr
           attrib.form == DW_FORM_strp):         # string
         if is_64_bit:
-            read_u64(buffer, offset, &attrib.value.u)
+            read_u64(buffer, buffer_size, offset, &attrib.value.u)
         else:
-            read_u32_into_u64(buffer, offset, &attrib.value.u)
+            read_u32_into_u64(buffer, buffer_size, offset, &attrib.value.u)
     # string
     elif attrib.form == DW_FORM_string:
         attrib.value.ptr.offset = offset[0]
-        attrib.value.ptr.length = read_strlen(buffer, offset)
+        attrib.value.ptr.length = read_strlen(buffer, buffer_size, offset)
     # flag
     elif attrib.form == DW_FORM_flag_present:
         attrib.value.u = 1
     elif (attrib.form == DW_FORM_flag or  # flag
           attrib.form == DW_FORM_ref1):   # reference
-        read_u8_into_u64(buffer, offset, &attrib.value.u)
+        read_u8_into_u64(buffer, buffer_size, offset, &attrib.value.u)
     # reference
     elif attrib.form == DW_FORM_ref2:
-        read_u16_into_u64(buffer, offset, &attrib.value.u)
+        read_u16_into_u64(buffer, buffer_size, offset, &attrib.value.u)
     elif attrib.form == DW_FORM_ref4:
-        read_u32_into_u64(buffer, offset, &attrib.value.u)
+        read_u32_into_u64(buffer, buffer_size, offset, &attrib.value.u)
     elif (attrib.form == DW_FORM_ref8 or attrib.form == DW_FORM_ref_sig8):
-        read_u64(buffer, offset, &attrib.value.u)
+        read_u64(buffer, buffer_size, offset, &attrib.value.u)
     elif DW_FORM_indirect:
         raise DwarfFormatError('DW_FORM_indirect is not supported')
     else:
@@ -2184,13 +1887,13 @@ cdef inline int parse_die_attrib(Py_buffer *buffer, Py_ssize_t *offset,
 cdef list no_children = []
 
 
-cdef list parse_die_siblings(Py_buffer *buffer, Py_ssize_t *offset,
-                             CompilationUnitHeader cu):
+cdef list parse_die_siblings(const char *buffer, Py_ssize_t buffer_size,
+                             Py_ssize_t *offset, CompilationUnitHeader cu):
     cdef list children = []
     cdef Die child
 
     while True:
-        child = parse_die(buffer, offset, cu, True)
+        child = parse_die(buffer, buffer_size, offset, cu, True)
         if child is None:
             break
         children.append(child)
@@ -2198,14 +1901,15 @@ cdef list parse_die_siblings(Py_buffer *buffer, Py_ssize_t *offset,
     return children
 
 
-cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
-                   CompilationUnitHeader cu, bint jump_to_sibling):
+cdef Die parse_die(const char *buffer, Py_ssize_t buffer_size,
+                   Py_ssize_t *offset, CompilationUnitHeader cu,
+                   bint jump_to_sibling):
     cdef Die die = Die.__new__(Die)
     die.cu = cu
     die.offset = offset[0]
 
     cdef uint64_t code
-    read_uleb128(buffer, offset, &code)
+    read_uleb128(buffer, buffer_size, offset, &code)
     if code == 0:
         return None
 
@@ -2222,8 +1926,8 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
     for i in range(die.num_attribs):
         die.attribs[i].name = decl.attribs[i].name
         die.attribs[i].form = decl.attribs[i].form
-        parse_die_attrib(buffer, offset, &die.attribs[i], cu.address_size,
-                         cu.is_64_bit)
+        parse_die_attrib(buffer, buffer_size, offset, &die.attribs[i],
+                         cu.address_size, cu.is_64_bit)
         if die.attribs[i].name == DW_AT_sibling:
             sibling_form = die.attribs[i].form
             sibling = die.attribs[i].value.u
@@ -2233,7 +1937,7 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
     if not decl.children:
         die._children = no_children
     elif jump_to_sibling and sibling == 0:
-        die._children = parse_die_siblings(buffer, offset, cu)
+        die._children = parse_die_siblings(buffer, buffer_size, offset, cu)
     elif jump_to_sibling:
         if sibling_form == DW_FORM_ref_addr:
             offset[0] = sibling
@@ -2241,75 +1945,6 @@ cdef Die parse_die(Py_buffer *buffer, Py_ssize_t *offset,
             offset[0] = cu.offset + sibling
 
     return die
-
-
-cdef LineNumberProgram parse_line_number_program(Py_buffer *buffer,
-                                                 Py_ssize_t *offset,
-                                                 CompilationUnitHeader cu):
-    cdef LineNumberProgram lnp = LineNumberProgram.__new__(LineNumberProgram)
-    lnp.cu = cu
-    lnp.offset = offset[0]
-
-    cdef uint32_t tmp
-    read_u32(buffer, offset, &tmp)
-    lnp.is_64_bit = tmp == 0xffffffffUL
-    if lnp.is_64_bit:
-        read_u64(buffer, offset, &lnp.unit_length)
-    else:
-        lnp.unit_length = tmp
-
-    read_u16(buffer, offset, &lnp.version)
-    if lnp.version != 2 and lnp.version != 3 and lnp.version != 4:
-        raise DwarfFormatError(f'unknown line number program version {lnp.version}')
-
-    if lnp.is_64_bit:
-        read_u64(buffer, offset, &lnp.header_length)
-    else:
-        read_u32_into_u64(buffer, offset, &lnp.header_length)
-
-    read_u8(buffer, offset, &lnp.minimum_instruction_length)
-    if lnp.version >= 4:
-        read_u8(buffer, offset, &lnp.maximum_operations_per_instruction)
-    else:
-        lnp.maximum_operations_per_instruction = 1
-    cdef uint8_t default_is_stmt
-    read_u8(buffer, offset, &default_is_stmt)
-    lnp.default_is_stmt = default_is_stmt
-    read_s8(buffer, offset, &lnp.line_base)
-    read_u8(buffer, offset, &lnp.line_range)
-    read_u8(buffer, offset, &lnp.opcode_base)
-
-    if lnp.opcode_base == 0:
-        raise DwarfFormatError('opcode_base is 0')
-    lnp.standard_opcode_lengths = []
-    cdef uint8_t opcode_length
-    for i in range(lnp.opcode_base - 1):
-        read_u8(buffer, offset, &opcode_length)
-        lnp.standard_opcode_lengths.append(opcode_length)
-
-    lnp.include_directories = []
-    cdef str directory
-    while True:
-        directory = read_str(buffer, offset)
-        if not directory:
-            break
-        lnp.include_directories.append(directory)
-
-    lnp.file_names = []
-    cdef str name
-    cdef LineNumberFilename file
-    while True:
-        name = read_str(buffer, offset)
-        if not name:
-            break
-        file = LineNumberFilename.__new__(LineNumberFilename)
-        file.name = name
-        read_uleb128(buffer, offset, &file.directory_index)
-        read_uleb128(buffer, offset, &file.mtime)
-        read_uleb128(buffer, offset, &file.file_size)
-        lnp.file_names.append(file)
-
-    return lnp
 
 
 cdef struct DieHashEntry:
@@ -2392,7 +2027,7 @@ cdef class DwarfIndex:
         cdef Py_ssize_t die_offset = offset[0] - cu.offset
 
         cdef uint64_t code
-        read_uleb128(buffer, offset, &code)
+        read_uleb128(<const char *>buffer.buf, buffer.len, offset, &code)
         if code == 0:
             return 0
 
@@ -2406,8 +2041,8 @@ cdef class DwarfIndex:
         for i in range(decl.num_attribs):
             attrib.name = decl.attribs[i].name
             attrib.form = decl.attribs[i].form
-            parse_die_attrib(buffer, offset, &attrib, cu.address_size,
-                             cu.is_64_bit)
+            parse_die_attrib(<const char *>buffer.buf, buffer.len, offset,
+                             &attrib, cu.address_size, cu.is_64_bit)
             if attrib.name == DW_AT_sibling:
                 sibling_form = attrib.form
                 sibling = attrib.value.u

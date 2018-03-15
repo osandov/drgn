@@ -973,13 +973,15 @@ class ElfFile:
                         elif r_type == R_X86_64_32:
                             if r_sym >= num_syms:
                                 raise EOFError()
-                            write_u32(&buffer, relocs[i].r_offset,
-                                      syms[r_sym].st_value + relocs[i].r_addend)
+                            write_u32(<char *>buffer.buf, buffer.len,
+                                      relocs[i].r_offset, syms[r_sym].st_value
+                                      + relocs[i].r_addend)
                         elif r_type == R_X86_64_64:
                             if r_sym >= num_syms:
                                 raise EOFError()
-                            write_u64(&buffer, relocs[i].r_offset,
-                                      syms[r_sym].st_value + relocs[i].r_addend)
+                            write_u64(<char *>buffer.buf, buffer.len,
+                                      relocs[i].r_offset, syms[r_sym].st_value
+                                      + relocs[i].r_addend)
                         else:
                             raise NotImplementedError(r_type)
                 finally:
