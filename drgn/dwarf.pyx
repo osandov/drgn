@@ -1209,10 +1209,10 @@ cdef class DwarfFile:
         PyObject_GetBuffer(data, buffer, PyBUF_SIMPLE)
         return 0
 
-    cdef CompilationUnitHeader cu_header(self, Py_buffer *debug_info_buffer,
-                                         Py_buffer *debug_abbrev_buffer,
-                                         Py_ssize_t offset):
-        cdef CompilationUnitHeader cu
+    cdef CompilationUnit cu_header(self, Py_buffer *debug_info_buffer,
+                                   Py_buffer *debug_abbrev_buffer,
+                                   Py_ssize_t offset):
+        cdef CompilationUnit cu
         cu = parse_compilation_unit_header(<const char *>debug_info_buffer.buf,
                                            debug_info_buffer.len, &offset,
                                            self)
@@ -1237,7 +1237,7 @@ cdef class DwarfFile:
             PyBuffer_Release(&debug_info_buffer)
 
     def cu_headers(self):
-        cdef CompilationUnitHeader cu
+        cdef CompilationUnit cu
         cdef Py_buffer debug_info_buffer
         cdef Py_buffer debug_abbrev_buffer
         cdef Py_ssize_t offset = 0
@@ -1277,7 +1277,7 @@ cdef struct AbbrevTable:
     AbbrevDecl *decls
 
 
-cdef class CompilationUnitHeader:
+cdef class CompilationUnit:
     cdef public DwarfFile dwarf_file
     # Offset from the beginning of .debug_info (or whatever section it was
     # parsed from).
@@ -1361,7 +1361,7 @@ cdef struct DieAttrib:
 
 
 cdef class Die:
-    cdef public CompilationUnitHeader cu
+    cdef public CompilationUnit cu
     # Offset from the beginning of the section.
     cdef public Py_ssize_t offset
     cdef public Py_ssize_t length
@@ -1743,11 +1743,11 @@ cdef int parse_abbrev_table(const char *buffer, Py_ssize_t buffer_size,
     return 0
 
 
-cdef CompilationUnitHeader parse_compilation_unit_header(const char *buffer,
-                                                         Py_ssize_t buffer_size,
-                                                         Py_ssize_t *offset,
-                                                         DwarfFile dwarf_file):
-    cdef CompilationUnitHeader cu = CompilationUnitHeader.__new__(CompilationUnitHeader)
+cdef CompilationUnit parse_compilation_unit_header(const char *buffer,
+                                                   Py_ssize_t buffer_size,
+                                                   Py_ssize_t *offset,
+                                                   DwarfFile dwarf_file):
+    cdef CompilationUnit cu = CompilationUnit.__new__(CompilationUnit)
     cu.dwarf_file = dwarf_file
     cu.offset = offset[0]
 
@@ -1858,7 +1858,7 @@ cdef list no_children = []
 
 
 cdef list parse_die_siblings(const char *buffer, Py_ssize_t buffer_size,
-                             Py_ssize_t *offset, CompilationUnitHeader cu):
+                             Py_ssize_t *offset, CompilationUnit cu):
     cdef list children = []
     cdef Die child
 
@@ -1872,7 +1872,7 @@ cdef list parse_die_siblings(const char *buffer, Py_ssize_t buffer_size,
 
 
 cdef Die parse_die(const char *buffer, Py_ssize_t buffer_size,
-                   Py_ssize_t *offset, CompilationUnitHeader cu,
+                   Py_ssize_t *offset, CompilationUnit cu,
                    bint jump_to_sibling):
     cdef Die die = Die.__new__(Die)
     die.cu = cu
