@@ -473,17 +473,11 @@ if __name__ == '__main__':
             print()
             print()
         first = False
-        print('cdef enum:')
-        for value_name, value in values:
-            print(f'    {name}_{value_name} = 0x{value:x}')
-        print()
-        print()
         print(f'class {name}(enum.IntEnum):')
         for value_name, value in values:
-            orig_value_name = value_name
             if value_name in ['import', 'not', 'and', 'or']:
                 value_name += '_'
-            print(f'    {value_name} = {name}_{orig_value_name}')
+            print(f'    {value_name} = 0x{value:x}')
         print()
         print('    @classmethod')
         print('    def str(cls, value):')

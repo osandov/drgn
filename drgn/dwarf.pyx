@@ -191,292 +191,148 @@ cdef inline int read_sleb128(const char *buffer, Py_ssize_t buffer_size,
     return 0
 
 
-cdef enum:
-    DW_AT_sibling = 0x1
-    DW_AT_location = 0x2
-    DW_AT_name = 0x3
-    DW_AT_ordering = 0x9
-    DW_AT_subscr_data = 0xa
-    DW_AT_byte_size = 0xb
-    DW_AT_bit_offset = 0xc
-    DW_AT_bit_size = 0xd
-    DW_AT_element_list = 0xf
-    DW_AT_stmt_list = 0x10
-    DW_AT_low_pc = 0x11
-    DW_AT_high_pc = 0x12
-    DW_AT_language = 0x13
-    DW_AT_member = 0x14
-    DW_AT_discr = 0x15
-    DW_AT_discr_value = 0x16
-    DW_AT_visibility = 0x17
-    DW_AT_import = 0x18
-    DW_AT_string_length = 0x19
-    DW_AT_common_reference = 0x1a
-    DW_AT_comp_dir = 0x1b
-    DW_AT_const_value = 0x1c
-    DW_AT_containing_type = 0x1d
-    DW_AT_default_value = 0x1e
-    DW_AT_inline = 0x20
-    DW_AT_is_optional = 0x21
-    DW_AT_lower_bound = 0x22
-    DW_AT_producer = 0x25
-    DW_AT_prototyped = 0x27
-    DW_AT_return_addr = 0x2a
-    DW_AT_start_scope = 0x2c
-    DW_AT_bit_stride = 0x2e
-    DW_AT_upper_bound = 0x2f
-    DW_AT_abstract_origin = 0x31
-    DW_AT_accessibility = 0x32
-    DW_AT_address_class = 0x33
-    DW_AT_artificial = 0x34
-    DW_AT_base_types = 0x35
-    DW_AT_calling_convention = 0x36
-    DW_AT_count = 0x37
-    DW_AT_data_member_location = 0x38
-    DW_AT_decl_column = 0x39
-    DW_AT_decl_file = 0x3a
-    DW_AT_decl_line = 0x3b
-    DW_AT_declaration = 0x3c
-    DW_AT_discr_list = 0x3d
-    DW_AT_encoding = 0x3e
-    DW_AT_external = 0x3f
-    DW_AT_frame_base = 0x40
-    DW_AT_friend = 0x41
-    DW_AT_identifier_case = 0x42
-    DW_AT_macro_info = 0x43
-    DW_AT_namelist_item = 0x44
-    DW_AT_priority = 0x45
-    DW_AT_segment = 0x46
-    DW_AT_specification = 0x47
-    DW_AT_static_link = 0x48
-    DW_AT_type = 0x49
-    DW_AT_use_location = 0x4a
-    DW_AT_variable_parameter = 0x4b
-    DW_AT_virtuality = 0x4c
-    DW_AT_vtable_elem_location = 0x4d
-    DW_AT_allocated = 0x4e
-    DW_AT_associated = 0x4f
-    DW_AT_data_location = 0x50
-    DW_AT_byte_stride = 0x51
-    DW_AT_entry_pc = 0x52
-    DW_AT_use_UTF8 = 0x53
-    DW_AT_extension = 0x54
-    DW_AT_ranges = 0x55
-    DW_AT_trampoline = 0x56
-    DW_AT_call_column = 0x57
-    DW_AT_call_file = 0x58
-    DW_AT_call_line = 0x59
-    DW_AT_description = 0x5a
-    DW_AT_binary_scale = 0x5b
-    DW_AT_decimal_scale = 0x5c
-    DW_AT_small = 0x5d
-    DW_AT_decimal_sign = 0x5e
-    DW_AT_digit_count = 0x5f
-    DW_AT_picture_string = 0x60
-    DW_AT_mutable = 0x61
-    DW_AT_threads_scaled = 0x62
-    DW_AT_explicit = 0x63
-    DW_AT_object_pointer = 0x64
-    DW_AT_endianity = 0x65
-    DW_AT_elemental = 0x66
-    DW_AT_pure = 0x67
-    DW_AT_recursive = 0x68
-    DW_AT_signature = 0x69
-    DW_AT_main_subprogram = 0x6a
-    DW_AT_data_bit_offset = 0x6b
-    DW_AT_const_expr = 0x6c
-    DW_AT_enum_class = 0x6d
-    DW_AT_linkage_name = 0x6e
-    DW_AT_noreturn = 0x87
-    DW_AT_lo_user = 0x2000
-    DW_AT_MIPS_fde = 0x2001
-    DW_AT_MIPS_loop_begin = 0x2002
-    DW_AT_MIPS_tail_loop_begin = 0x2003
-    DW_AT_MIPS_epilog_begin = 0x2004
-    DW_AT_MIPS_loop_unroll_factor = 0x2005
-    DW_AT_MIPS_software_pipeline_depth = 0x2006
-    DW_AT_MIPS_linkage_name = 0x2007
-    DW_AT_MIPS_stride = 0x2008
-    DW_AT_MIPS_abstract_name = 0x2009
-    DW_AT_MIPS_clone_origin = 0x200a
-    DW_AT_MIPS_has_inlines = 0x200b
-    DW_AT_MIPS_stride_byte = 0x200c
-    DW_AT_MIPS_stride_elem = 0x200d
-    DW_AT_MIPS_ptr_dopetype = 0x200e
-    DW_AT_MIPS_allocatable_dopetype = 0x200f
-    DW_AT_MIPS_assumed_shape_dopetype = 0x2010
-    DW_AT_MIPS_assumed_size = 0x2011
-    DW_AT_sf_names = 0x2101
-    DW_AT_src_info = 0x2102
-    DW_AT_mac_info = 0x2103
-    DW_AT_src_coords = 0x2104
-    DW_AT_body_begin = 0x2105
-    DW_AT_body_end = 0x2106
-    DW_AT_GNU_vector = 0x2107
-    DW_AT_GNU_guarded_by = 0x2108
-    DW_AT_GNU_pt_guarded_by = 0x2109
-    DW_AT_GNU_guarded = 0x210a
-    DW_AT_GNU_pt_guarded = 0x210b
-    DW_AT_GNU_locks_excluded = 0x210c
-    DW_AT_GNU_exclusive_locks_required = 0x210d
-    DW_AT_GNU_shared_locks_required = 0x210e
-    DW_AT_GNU_odr_signature = 0x210f
-    DW_AT_GNU_template_name = 0x2110
-    DW_AT_GNU_call_site_value = 0x2111
-    DW_AT_GNU_call_site_data_value = 0x2112
-    DW_AT_GNU_call_site_target = 0x2113
-    DW_AT_GNU_call_site_target_clobbered = 0x2114
-    DW_AT_GNU_tail_call = 0x2115
-    DW_AT_GNU_all_tail_call_sites = 0x2116
-    DW_AT_GNU_all_call_sites = 0x2117
-    DW_AT_GNU_all_source_call_sites = 0x2118
-    DW_AT_GNU_macros = 0x2119
-    DW_AT_GNU_deleted = 0x211a
-    DW_AT_hi_user = 0x3fff
-
-
 class DW_AT(enum.IntEnum):
-    sibling = DW_AT_sibling
-    location = DW_AT_location
-    name = DW_AT_name
-    ordering = DW_AT_ordering
-    subscr_data = DW_AT_subscr_data
-    byte_size = DW_AT_byte_size
-    bit_offset = DW_AT_bit_offset
-    bit_size = DW_AT_bit_size
-    element_list = DW_AT_element_list
-    stmt_list = DW_AT_stmt_list
-    low_pc = DW_AT_low_pc
-    high_pc = DW_AT_high_pc
-    language = DW_AT_language
-    member = DW_AT_member
-    discr = DW_AT_discr
-    discr_value = DW_AT_discr_value
-    visibility = DW_AT_visibility
-    import_ = DW_AT_import
-    string_length = DW_AT_string_length
-    common_reference = DW_AT_common_reference
-    comp_dir = DW_AT_comp_dir
-    const_value = DW_AT_const_value
-    containing_type = DW_AT_containing_type
-    default_value = DW_AT_default_value
-    inline = DW_AT_inline
-    is_optional = DW_AT_is_optional
-    lower_bound = DW_AT_lower_bound
-    producer = DW_AT_producer
-    prototyped = DW_AT_prototyped
-    return_addr = DW_AT_return_addr
-    start_scope = DW_AT_start_scope
-    bit_stride = DW_AT_bit_stride
-    upper_bound = DW_AT_upper_bound
-    abstract_origin = DW_AT_abstract_origin
-    accessibility = DW_AT_accessibility
-    address_class = DW_AT_address_class
-    artificial = DW_AT_artificial
-    base_types = DW_AT_base_types
-    calling_convention = DW_AT_calling_convention
-    count = DW_AT_count
-    data_member_location = DW_AT_data_member_location
-    decl_column = DW_AT_decl_column
-    decl_file = DW_AT_decl_file
-    decl_line = DW_AT_decl_line
-    declaration = DW_AT_declaration
-    discr_list = DW_AT_discr_list
-    encoding = DW_AT_encoding
-    external = DW_AT_external
-    frame_base = DW_AT_frame_base
-    friend = DW_AT_friend
-    identifier_case = DW_AT_identifier_case
-    macro_info = DW_AT_macro_info
-    namelist_item = DW_AT_namelist_item
-    priority = DW_AT_priority
-    segment = DW_AT_segment
-    specification = DW_AT_specification
-    static_link = DW_AT_static_link
-    type = DW_AT_type
-    use_location = DW_AT_use_location
-    variable_parameter = DW_AT_variable_parameter
-    virtuality = DW_AT_virtuality
-    vtable_elem_location = DW_AT_vtable_elem_location
-    allocated = DW_AT_allocated
-    associated = DW_AT_associated
-    data_location = DW_AT_data_location
-    byte_stride = DW_AT_byte_stride
-    entry_pc = DW_AT_entry_pc
-    use_UTF8 = DW_AT_use_UTF8
-    extension = DW_AT_extension
-    ranges = DW_AT_ranges
-    trampoline = DW_AT_trampoline
-    call_column = DW_AT_call_column
-    call_file = DW_AT_call_file
-    call_line = DW_AT_call_line
-    description = DW_AT_description
-    binary_scale = DW_AT_binary_scale
-    decimal_scale = DW_AT_decimal_scale
-    small = DW_AT_small
-    decimal_sign = DW_AT_decimal_sign
-    digit_count = DW_AT_digit_count
-    picture_string = DW_AT_picture_string
-    mutable = DW_AT_mutable
-    threads_scaled = DW_AT_threads_scaled
-    explicit = DW_AT_explicit
-    object_pointer = DW_AT_object_pointer
-    endianity = DW_AT_endianity
-    elemental = DW_AT_elemental
-    pure = DW_AT_pure
-    recursive = DW_AT_recursive
-    signature = DW_AT_signature
-    main_subprogram = DW_AT_main_subprogram
-    data_bit_offset = DW_AT_data_bit_offset
-    const_expr = DW_AT_const_expr
-    enum_class = DW_AT_enum_class
-    linkage_name = DW_AT_linkage_name
-    noreturn = DW_AT_noreturn
-    lo_user = DW_AT_lo_user
-    MIPS_fde = DW_AT_MIPS_fde
-    MIPS_loop_begin = DW_AT_MIPS_loop_begin
-    MIPS_tail_loop_begin = DW_AT_MIPS_tail_loop_begin
-    MIPS_epilog_begin = DW_AT_MIPS_epilog_begin
-    MIPS_loop_unroll_factor = DW_AT_MIPS_loop_unroll_factor
-    MIPS_software_pipeline_depth = DW_AT_MIPS_software_pipeline_depth
-    MIPS_linkage_name = DW_AT_MIPS_linkage_name
-    MIPS_stride = DW_AT_MIPS_stride
-    MIPS_abstract_name = DW_AT_MIPS_abstract_name
-    MIPS_clone_origin = DW_AT_MIPS_clone_origin
-    MIPS_has_inlines = DW_AT_MIPS_has_inlines
-    MIPS_stride_byte = DW_AT_MIPS_stride_byte
-    MIPS_stride_elem = DW_AT_MIPS_stride_elem
-    MIPS_ptr_dopetype = DW_AT_MIPS_ptr_dopetype
-    MIPS_allocatable_dopetype = DW_AT_MIPS_allocatable_dopetype
-    MIPS_assumed_shape_dopetype = DW_AT_MIPS_assumed_shape_dopetype
-    MIPS_assumed_size = DW_AT_MIPS_assumed_size
-    sf_names = DW_AT_sf_names
-    src_info = DW_AT_src_info
-    mac_info = DW_AT_mac_info
-    src_coords = DW_AT_src_coords
-    body_begin = DW_AT_body_begin
-    body_end = DW_AT_body_end
-    GNU_vector = DW_AT_GNU_vector
-    GNU_guarded_by = DW_AT_GNU_guarded_by
-    GNU_pt_guarded_by = DW_AT_GNU_pt_guarded_by
-    GNU_guarded = DW_AT_GNU_guarded
-    GNU_pt_guarded = DW_AT_GNU_pt_guarded
-    GNU_locks_excluded = DW_AT_GNU_locks_excluded
-    GNU_exclusive_locks_required = DW_AT_GNU_exclusive_locks_required
-    GNU_shared_locks_required = DW_AT_GNU_shared_locks_required
-    GNU_odr_signature = DW_AT_GNU_odr_signature
-    GNU_template_name = DW_AT_GNU_template_name
-    GNU_call_site_value = DW_AT_GNU_call_site_value
-    GNU_call_site_data_value = DW_AT_GNU_call_site_data_value
-    GNU_call_site_target = DW_AT_GNU_call_site_target
-    GNU_call_site_target_clobbered = DW_AT_GNU_call_site_target_clobbered
-    GNU_tail_call = DW_AT_GNU_tail_call
-    GNU_all_tail_call_sites = DW_AT_GNU_all_tail_call_sites
-    GNU_all_call_sites = DW_AT_GNU_all_call_sites
-    GNU_all_source_call_sites = DW_AT_GNU_all_source_call_sites
-    GNU_macros = DW_AT_GNU_macros
-    GNU_deleted = DW_AT_GNU_deleted
-    hi_user = DW_AT_hi_user
+    sibling = 0x1
+    location = 0x2
+    name = 0x3
+    ordering = 0x9
+    subscr_data = 0xa
+    byte_size = 0xb
+    bit_offset = 0xc
+    bit_size = 0xd
+    element_list = 0xf
+    stmt_list = 0x10
+    low_pc = 0x11
+    high_pc = 0x12
+    language = 0x13
+    member = 0x14
+    discr = 0x15
+    discr_value = 0x16
+    visibility = 0x17
+    import_ = 0x18
+    string_length = 0x19
+    common_reference = 0x1a
+    comp_dir = 0x1b
+    const_value = 0x1c
+    containing_type = 0x1d
+    default_value = 0x1e
+    inline = 0x20
+    is_optional = 0x21
+    lower_bound = 0x22
+    producer = 0x25
+    prototyped = 0x27
+    return_addr = 0x2a
+    start_scope = 0x2c
+    bit_stride = 0x2e
+    upper_bound = 0x2f
+    abstract_origin = 0x31
+    accessibility = 0x32
+    address_class = 0x33
+    artificial = 0x34
+    base_types = 0x35
+    calling_convention = 0x36
+    count = 0x37
+    data_member_location = 0x38
+    decl_column = 0x39
+    decl_file = 0x3a
+    decl_line = 0x3b
+    declaration = 0x3c
+    discr_list = 0x3d
+    encoding = 0x3e
+    external = 0x3f
+    frame_base = 0x40
+    friend = 0x41
+    identifier_case = 0x42
+    macro_info = 0x43
+    namelist_item = 0x44
+    priority = 0x45
+    segment = 0x46
+    specification = 0x47
+    static_link = 0x48
+    type = 0x49
+    use_location = 0x4a
+    variable_parameter = 0x4b
+    virtuality = 0x4c
+    vtable_elem_location = 0x4d
+    allocated = 0x4e
+    associated = 0x4f
+    data_location = 0x50
+    byte_stride = 0x51
+    entry_pc = 0x52
+    use_UTF8 = 0x53
+    extension = 0x54
+    ranges = 0x55
+    trampoline = 0x56
+    call_column = 0x57
+    call_file = 0x58
+    call_line = 0x59
+    description = 0x5a
+    binary_scale = 0x5b
+    decimal_scale = 0x5c
+    small = 0x5d
+    decimal_sign = 0x5e
+    digit_count = 0x5f
+    picture_string = 0x60
+    mutable = 0x61
+    threads_scaled = 0x62
+    explicit = 0x63
+    object_pointer = 0x64
+    endianity = 0x65
+    elemental = 0x66
+    pure = 0x67
+    recursive = 0x68
+    signature = 0x69
+    main_subprogram = 0x6a
+    data_bit_offset = 0x6b
+    const_expr = 0x6c
+    enum_class = 0x6d
+    linkage_name = 0x6e
+    noreturn = 0x87
+    lo_user = 0x2000
+    MIPS_fde = 0x2001
+    MIPS_loop_begin = 0x2002
+    MIPS_tail_loop_begin = 0x2003
+    MIPS_epilog_begin = 0x2004
+    MIPS_loop_unroll_factor = 0x2005
+    MIPS_software_pipeline_depth = 0x2006
+    MIPS_linkage_name = 0x2007
+    MIPS_stride = 0x2008
+    MIPS_abstract_name = 0x2009
+    MIPS_clone_origin = 0x200a
+    MIPS_has_inlines = 0x200b
+    MIPS_stride_byte = 0x200c
+    MIPS_stride_elem = 0x200d
+    MIPS_ptr_dopetype = 0x200e
+    MIPS_allocatable_dopetype = 0x200f
+    MIPS_assumed_shape_dopetype = 0x2010
+    MIPS_assumed_size = 0x2011
+    sf_names = 0x2101
+    src_info = 0x2102
+    mac_info = 0x2103
+    src_coords = 0x2104
+    body_begin = 0x2105
+    body_end = 0x2106
+    GNU_vector = 0x2107
+    GNU_guarded_by = 0x2108
+    GNU_pt_guarded_by = 0x2109
+    GNU_guarded = 0x210a
+    GNU_pt_guarded = 0x210b
+    GNU_locks_excluded = 0x210c
+    GNU_exclusive_locks_required = 0x210d
+    GNU_shared_locks_required = 0x210e
+    GNU_odr_signature = 0x210f
+    GNU_template_name = 0x2110
+    GNU_call_site_value = 0x2111
+    GNU_call_site_data_value = 0x2112
+    GNU_call_site_target = 0x2113
+    GNU_call_site_target_clobbered = 0x2114
+    GNU_tail_call = 0x2115
+    GNU_all_tail_call_sites = 0x2116
+    GNU_all_call_sites = 0x2117
+    GNU_all_source_call_sites = 0x2118
+    GNU_macros = 0x2119
+    GNU_deleted = 0x211a
+    hi_user = 0x3fff
 
     @classmethod
     def str(cls, value):
@@ -486,48 +342,26 @@ class DW_AT(enum.IntEnum):
             return hex(value)
 
 
-cdef enum:
-    DW_ATE_void = 0x0
-    DW_ATE_address = 0x1
-    DW_ATE_boolean = 0x2
-    DW_ATE_complex_float = 0x3
-    DW_ATE_float = 0x4
-    DW_ATE_signed = 0x5
-    DW_ATE_signed_char = 0x6
-    DW_ATE_unsigned = 0x7
-    DW_ATE_unsigned_char = 0x8
-    DW_ATE_imaginary_float = 0x9
-    DW_ATE_packed_decimal = 0xa
-    DW_ATE_numeric_string = 0xb
-    DW_ATE_edited = 0xc
-    DW_ATE_signed_fixed = 0xd
-    DW_ATE_unsigned_fixed = 0xe
-    DW_ATE_decimal_float = 0xf
-    DW_ATE_UTF = 0x10
-    DW_ATE_lo_user = 0x80
-    DW_ATE_hi_user = 0xff
-
-
 class DW_ATE(enum.IntEnum):
-    void = DW_ATE_void
-    address = DW_ATE_address
-    boolean = DW_ATE_boolean
-    complex_float = DW_ATE_complex_float
-    float = DW_ATE_float
-    signed = DW_ATE_signed
-    signed_char = DW_ATE_signed_char
-    unsigned = DW_ATE_unsigned
-    unsigned_char = DW_ATE_unsigned_char
-    imaginary_float = DW_ATE_imaginary_float
-    packed_decimal = DW_ATE_packed_decimal
-    numeric_string = DW_ATE_numeric_string
-    edited = DW_ATE_edited
-    signed_fixed = DW_ATE_signed_fixed
-    unsigned_fixed = DW_ATE_unsigned_fixed
-    decimal_float = DW_ATE_decimal_float
-    UTF = DW_ATE_UTF
-    lo_user = DW_ATE_lo_user
-    hi_user = DW_ATE_hi_user
+    void = 0x0
+    address = 0x1
+    boolean = 0x2
+    complex_float = 0x3
+    float = 0x4
+    signed = 0x5
+    signed_char = 0x6
+    unsigned = 0x7
+    unsigned_char = 0x8
+    imaginary_float = 0x9
+    packed_decimal = 0xa
+    numeric_string = 0xb
+    edited = 0xc
+    signed_fixed = 0xd
+    unsigned_fixed = 0xe
+    decimal_float = 0xf
+    UTF = 0x10
+    lo_user = 0x80
+    hi_user = 0xff
 
     @classmethod
     def str(cls, value):
@@ -537,14 +371,9 @@ class DW_ATE(enum.IntEnum):
             return hex(value)
 
 
-cdef enum:
-    DW_CHILDREN_no = 0x0
-    DW_CHILDREN_yes = 0x1
-
-
 class DW_CHILDREN(enum.IntEnum):
-    no = DW_CHILDREN_no
-    yes = DW_CHILDREN_yes
+    no = 0x0
+    yes = 0x1
 
     @classmethod
     def str(cls, value):
@@ -554,60 +383,32 @@ class DW_CHILDREN(enum.IntEnum):
             return hex(value)
 
 
-cdef enum:
-    DW_FORM_addr = 0x1
-    DW_FORM_block2 = 0x3
-    DW_FORM_block4 = 0x4
-    DW_FORM_data2 = 0x5
-    DW_FORM_data4 = 0x6
-    DW_FORM_data8 = 0x7
-    DW_FORM_string = 0x8
-    DW_FORM_block = 0x9
-    DW_FORM_block1 = 0xa
-    DW_FORM_data1 = 0xb
-    DW_FORM_flag = 0xc
-    DW_FORM_sdata = 0xd
-    DW_FORM_strp = 0xe
-    DW_FORM_udata = 0xf
-    DW_FORM_ref_addr = 0x10
-    DW_FORM_ref1 = 0x11
-    DW_FORM_ref2 = 0x12
-    DW_FORM_ref4 = 0x13
-    DW_FORM_ref8 = 0x14
-    DW_FORM_ref_udata = 0x15
-    DW_FORM_indirect = 0x16
-    DW_FORM_sec_offset = 0x17
-    DW_FORM_exprloc = 0x18
-    DW_FORM_flag_present = 0x19
-    DW_FORM_ref_sig8 = 0x20
-
-
 class DW_FORM(enum.IntEnum):
-    addr = DW_FORM_addr
-    block2 = DW_FORM_block2
-    block4 = DW_FORM_block4
-    data2 = DW_FORM_data2
-    data4 = DW_FORM_data4
-    data8 = DW_FORM_data8
-    string = DW_FORM_string
-    block = DW_FORM_block
-    block1 = DW_FORM_block1
-    data1 = DW_FORM_data1
-    flag = DW_FORM_flag
-    sdata = DW_FORM_sdata
-    strp = DW_FORM_strp
-    udata = DW_FORM_udata
-    ref_addr = DW_FORM_ref_addr
-    ref1 = DW_FORM_ref1
-    ref2 = DW_FORM_ref2
-    ref4 = DW_FORM_ref4
-    ref8 = DW_FORM_ref8
-    ref_udata = DW_FORM_ref_udata
-    indirect = DW_FORM_indirect
-    sec_offset = DW_FORM_sec_offset
-    exprloc = DW_FORM_exprloc
-    flag_present = DW_FORM_flag_present
-    ref_sig8 = DW_FORM_ref_sig8
+    addr = 0x1
+    block2 = 0x3
+    block4 = 0x4
+    data2 = 0x5
+    data4 = 0x6
+    data8 = 0x7
+    string = 0x8
+    block = 0x9
+    block1 = 0xa
+    data1 = 0xb
+    flag = 0xc
+    sdata = 0xd
+    strp = 0xe
+    udata = 0xf
+    ref_addr = 0x10
+    ref1 = 0x11
+    ref2 = 0x12
+    ref4 = 0x13
+    ref8 = 0x14
+    ref_udata = 0x15
+    indirect = 0x16
+    sec_offset = 0x17
+    exprloc = 0x18
+    flag_present = 0x19
+    ref_sig8 = 0x20
 
     @classmethod
     def str(cls, value):
@@ -617,22 +418,13 @@ class DW_FORM(enum.IntEnum):
             return hex(value)
 
 
-cdef enum:
-    DW_LNE_end_sequence = 0x1
-    DW_LNE_set_address = 0x2
-    DW_LNE_define_file = 0x3
-    DW_LNE_set_discriminator = 0x4
-    DW_LNE_lo_user = 0x80
-    DW_LNE_hi_user = 0xff
-
-
 class DW_LNE(enum.IntEnum):
-    end_sequence = DW_LNE_end_sequence
-    set_address = DW_LNE_set_address
-    define_file = DW_LNE_define_file
-    set_discriminator = DW_LNE_set_discriminator
-    lo_user = DW_LNE_lo_user
-    hi_user = DW_LNE_hi_user
+    end_sequence = 0x1
+    set_address = 0x2
+    define_file = 0x3
+    set_discriminator = 0x4
+    lo_user = 0x80
+    hi_user = 0xff
 
     @classmethod
     def str(cls, value):
@@ -642,34 +434,19 @@ class DW_LNE(enum.IntEnum):
             return hex(value)
 
 
-cdef enum:
-    DW_LNS_copy = 0x1
-    DW_LNS_advance_pc = 0x2
-    DW_LNS_advance_line = 0x3
-    DW_LNS_set_file = 0x4
-    DW_LNS_set_column = 0x5
-    DW_LNS_negate_stmt = 0x6
-    DW_LNS_set_basic_block = 0x7
-    DW_LNS_const_add_pc = 0x8
-    DW_LNS_fixed_advance_pc = 0x9
-    DW_LNS_set_prologue_end = 0xa
-    DW_LNS_set_epilogue_begin = 0xb
-    DW_LNS_set_isa = 0xc
-
-
 class DW_LNS(enum.IntEnum):
-    copy = DW_LNS_copy
-    advance_pc = DW_LNS_advance_pc
-    advance_line = DW_LNS_advance_line
-    set_file = DW_LNS_set_file
-    set_column = DW_LNS_set_column
-    negate_stmt = DW_LNS_negate_stmt
-    set_basic_block = DW_LNS_set_basic_block
-    const_add_pc = DW_LNS_const_add_pc
-    fixed_advance_pc = DW_LNS_fixed_advance_pc
-    set_prologue_end = DW_LNS_set_prologue_end
-    set_epilogue_begin = DW_LNS_set_epilogue_begin
-    set_isa = DW_LNS_set_isa
+    copy = 0x1
+    advance_pc = 0x2
+    advance_line = 0x3
+    set_file = 0x4
+    set_column = 0x5
+    negate_stmt = 0x6
+    set_basic_block = 0x7
+    const_add_pc = 0x8
+    fixed_advance_pc = 0x9
+    set_prologue_end = 0xa
+    set_epilogue_begin = 0xb
+    set_isa = 0xc
 
     @classmethod
     def str(cls, value):
@@ -679,344 +456,174 @@ class DW_LNS(enum.IntEnum):
             return hex(value)
 
 
-cdef enum:
-    DW_OP_addr = 0x3
-    DW_OP_deref = 0x6
-    DW_OP_const1u = 0x8
-    DW_OP_const1s = 0x9
-    DW_OP_const2u = 0xa
-    DW_OP_const2s = 0xb
-    DW_OP_const4u = 0xc
-    DW_OP_const4s = 0xd
-    DW_OP_const8u = 0xe
-    DW_OP_const8s = 0xf
-    DW_OP_constu = 0x10
-    DW_OP_consts = 0x11
-    DW_OP_dup = 0x12
-    DW_OP_drop = 0x13
-    DW_OP_over = 0x14
-    DW_OP_pick = 0x15
-    DW_OP_swap = 0x16
-    DW_OP_rot = 0x17
-    DW_OP_xderef = 0x18
-    DW_OP_abs = 0x19
-    DW_OP_and = 0x1a
-    DW_OP_div = 0x1b
-    DW_OP_minus = 0x1c
-    DW_OP_mod = 0x1d
-    DW_OP_mul = 0x1e
-    DW_OP_neg = 0x1f
-    DW_OP_not = 0x20
-    DW_OP_or = 0x21
-    DW_OP_plus = 0x22
-    DW_OP_plus_uconst = 0x23
-    DW_OP_shl = 0x24
-    DW_OP_shr = 0x25
-    DW_OP_shra = 0x26
-    DW_OP_xor = 0x27
-    DW_OP_bra = 0x28
-    DW_OP_eq = 0x29
-    DW_OP_ge = 0x2a
-    DW_OP_gt = 0x2b
-    DW_OP_le = 0x2c
-    DW_OP_lt = 0x2d
-    DW_OP_ne = 0x2e
-    DW_OP_skip = 0x2f
-    DW_OP_lit0 = 0x30
-    DW_OP_lit1 = 0x31
-    DW_OP_lit2 = 0x32
-    DW_OP_lit3 = 0x33
-    DW_OP_lit4 = 0x34
-    DW_OP_lit5 = 0x35
-    DW_OP_lit6 = 0x36
-    DW_OP_lit7 = 0x37
-    DW_OP_lit8 = 0x38
-    DW_OP_lit9 = 0x39
-    DW_OP_lit10 = 0x3a
-    DW_OP_lit11 = 0x3b
-    DW_OP_lit12 = 0x3c
-    DW_OP_lit13 = 0x3d
-    DW_OP_lit14 = 0x3e
-    DW_OP_lit15 = 0x3f
-    DW_OP_lit16 = 0x40
-    DW_OP_lit17 = 0x41
-    DW_OP_lit18 = 0x42
-    DW_OP_lit19 = 0x43
-    DW_OP_lit20 = 0x44
-    DW_OP_lit21 = 0x45
-    DW_OP_lit22 = 0x46
-    DW_OP_lit23 = 0x47
-    DW_OP_lit24 = 0x48
-    DW_OP_lit25 = 0x49
-    DW_OP_lit26 = 0x4a
-    DW_OP_lit27 = 0x4b
-    DW_OP_lit28 = 0x4c
-    DW_OP_lit29 = 0x4d
-    DW_OP_lit30 = 0x4e
-    DW_OP_lit31 = 0x4f
-    DW_OP_reg0 = 0x50
-    DW_OP_reg1 = 0x51
-    DW_OP_reg2 = 0x52
-    DW_OP_reg3 = 0x53
-    DW_OP_reg4 = 0x54
-    DW_OP_reg5 = 0x55
-    DW_OP_reg6 = 0x56
-    DW_OP_reg7 = 0x57
-    DW_OP_reg8 = 0x58
-    DW_OP_reg9 = 0x59
-    DW_OP_reg10 = 0x5a
-    DW_OP_reg11 = 0x5b
-    DW_OP_reg12 = 0x5c
-    DW_OP_reg13 = 0x5d
-    DW_OP_reg14 = 0x5e
-    DW_OP_reg15 = 0x5f
-    DW_OP_reg16 = 0x60
-    DW_OP_reg17 = 0x61
-    DW_OP_reg18 = 0x62
-    DW_OP_reg19 = 0x63
-    DW_OP_reg20 = 0x64
-    DW_OP_reg21 = 0x65
-    DW_OP_reg22 = 0x66
-    DW_OP_reg23 = 0x67
-    DW_OP_reg24 = 0x68
-    DW_OP_reg25 = 0x69
-    DW_OP_reg26 = 0x6a
-    DW_OP_reg27 = 0x6b
-    DW_OP_reg28 = 0x6c
-    DW_OP_reg29 = 0x6d
-    DW_OP_reg30 = 0x6e
-    DW_OP_reg31 = 0x6f
-    DW_OP_breg0 = 0x70
-    DW_OP_breg1 = 0x71
-    DW_OP_breg2 = 0x72
-    DW_OP_breg3 = 0x73
-    DW_OP_breg4 = 0x74
-    DW_OP_breg5 = 0x75
-    DW_OP_breg6 = 0x76
-    DW_OP_breg7 = 0x77
-    DW_OP_breg8 = 0x78
-    DW_OP_breg9 = 0x79
-    DW_OP_breg10 = 0x7a
-    DW_OP_breg11 = 0x7b
-    DW_OP_breg12 = 0x7c
-    DW_OP_breg13 = 0x7d
-    DW_OP_breg14 = 0x7e
-    DW_OP_breg15 = 0x7f
-    DW_OP_breg16 = 0x80
-    DW_OP_breg17 = 0x81
-    DW_OP_breg18 = 0x82
-    DW_OP_breg19 = 0x83
-    DW_OP_breg20 = 0x84
-    DW_OP_breg21 = 0x85
-    DW_OP_breg22 = 0x86
-    DW_OP_breg23 = 0x87
-    DW_OP_breg24 = 0x88
-    DW_OP_breg25 = 0x89
-    DW_OP_breg26 = 0x8a
-    DW_OP_breg27 = 0x8b
-    DW_OP_breg28 = 0x8c
-    DW_OP_breg29 = 0x8d
-    DW_OP_breg30 = 0x8e
-    DW_OP_breg31 = 0x8f
-    DW_OP_regx = 0x90
-    DW_OP_fbreg = 0x91
-    DW_OP_bregx = 0x92
-    DW_OP_piece = 0x93
-    DW_OP_deref_size = 0x94
-    DW_OP_xderef_size = 0x95
-    DW_OP_nop = 0x96
-    DW_OP_push_object_address = 0x97
-    DW_OP_call2 = 0x98
-    DW_OP_call4 = 0x99
-    DW_OP_call_ref = 0x9a
-    DW_OP_form_tls_address = 0x9b
-    DW_OP_call_frame_cfa = 0x9c
-    DW_OP_bit_piece = 0x9d
-    DW_OP_implicit_value = 0x9e
-    DW_OP_stack_value = 0x9f
-    DW_OP_GNU_push_tls_address = 0xe0
-    DW_OP_GNU_uninit = 0xf0
-    DW_OP_GNU_encoded_addr = 0xf1
-    DW_OP_GNU_implicit_pointer = 0xf2
-    DW_OP_GNU_entry_value = 0xf3
-    DW_OP_GNU_const_type = 0xf4
-    DW_OP_GNU_regval_type = 0xf5
-    DW_OP_GNU_deref_type = 0xf6
-    DW_OP_GNU_convert = 0xf7
-    DW_OP_GNU_reinterpret = 0xf9
-    DW_OP_GNU_parameter_ref = 0xfa
-    DW_OP_lo_user = 0xe0
-    DW_OP_hi_user = 0xff
-
-
 class DW_OP(enum.IntEnum):
-    addr = DW_OP_addr
-    deref = DW_OP_deref
-    const1u = DW_OP_const1u
-    const1s = DW_OP_const1s
-    const2u = DW_OP_const2u
-    const2s = DW_OP_const2s
-    const4u = DW_OP_const4u
-    const4s = DW_OP_const4s
-    const8u = DW_OP_const8u
-    const8s = DW_OP_const8s
-    constu = DW_OP_constu
-    consts = DW_OP_consts
-    dup = DW_OP_dup
-    drop = DW_OP_drop
-    over = DW_OP_over
-    pick = DW_OP_pick
-    swap = DW_OP_swap
-    rot = DW_OP_rot
-    xderef = DW_OP_xderef
-    abs = DW_OP_abs
-    and_ = DW_OP_and
-    div = DW_OP_div
-    minus = DW_OP_minus
-    mod = DW_OP_mod
-    mul = DW_OP_mul
-    neg = DW_OP_neg
-    not_ = DW_OP_not
-    or_ = DW_OP_or
-    plus = DW_OP_plus
-    plus_uconst = DW_OP_plus_uconst
-    shl = DW_OP_shl
-    shr = DW_OP_shr
-    shra = DW_OP_shra
-    xor = DW_OP_xor
-    bra = DW_OP_bra
-    eq = DW_OP_eq
-    ge = DW_OP_ge
-    gt = DW_OP_gt
-    le = DW_OP_le
-    lt = DW_OP_lt
-    ne = DW_OP_ne
-    skip = DW_OP_skip
-    lit0 = DW_OP_lit0
-    lit1 = DW_OP_lit1
-    lit2 = DW_OP_lit2
-    lit3 = DW_OP_lit3
-    lit4 = DW_OP_lit4
-    lit5 = DW_OP_lit5
-    lit6 = DW_OP_lit6
-    lit7 = DW_OP_lit7
-    lit8 = DW_OP_lit8
-    lit9 = DW_OP_lit9
-    lit10 = DW_OP_lit10
-    lit11 = DW_OP_lit11
-    lit12 = DW_OP_lit12
-    lit13 = DW_OP_lit13
-    lit14 = DW_OP_lit14
-    lit15 = DW_OP_lit15
-    lit16 = DW_OP_lit16
-    lit17 = DW_OP_lit17
-    lit18 = DW_OP_lit18
-    lit19 = DW_OP_lit19
-    lit20 = DW_OP_lit20
-    lit21 = DW_OP_lit21
-    lit22 = DW_OP_lit22
-    lit23 = DW_OP_lit23
-    lit24 = DW_OP_lit24
-    lit25 = DW_OP_lit25
-    lit26 = DW_OP_lit26
-    lit27 = DW_OP_lit27
-    lit28 = DW_OP_lit28
-    lit29 = DW_OP_lit29
-    lit30 = DW_OP_lit30
-    lit31 = DW_OP_lit31
-    reg0 = DW_OP_reg0
-    reg1 = DW_OP_reg1
-    reg2 = DW_OP_reg2
-    reg3 = DW_OP_reg3
-    reg4 = DW_OP_reg4
-    reg5 = DW_OP_reg5
-    reg6 = DW_OP_reg6
-    reg7 = DW_OP_reg7
-    reg8 = DW_OP_reg8
-    reg9 = DW_OP_reg9
-    reg10 = DW_OP_reg10
-    reg11 = DW_OP_reg11
-    reg12 = DW_OP_reg12
-    reg13 = DW_OP_reg13
-    reg14 = DW_OP_reg14
-    reg15 = DW_OP_reg15
-    reg16 = DW_OP_reg16
-    reg17 = DW_OP_reg17
-    reg18 = DW_OP_reg18
-    reg19 = DW_OP_reg19
-    reg20 = DW_OP_reg20
-    reg21 = DW_OP_reg21
-    reg22 = DW_OP_reg22
-    reg23 = DW_OP_reg23
-    reg24 = DW_OP_reg24
-    reg25 = DW_OP_reg25
-    reg26 = DW_OP_reg26
-    reg27 = DW_OP_reg27
-    reg28 = DW_OP_reg28
-    reg29 = DW_OP_reg29
-    reg30 = DW_OP_reg30
-    reg31 = DW_OP_reg31
-    breg0 = DW_OP_breg0
-    breg1 = DW_OP_breg1
-    breg2 = DW_OP_breg2
-    breg3 = DW_OP_breg3
-    breg4 = DW_OP_breg4
-    breg5 = DW_OP_breg5
-    breg6 = DW_OP_breg6
-    breg7 = DW_OP_breg7
-    breg8 = DW_OP_breg8
-    breg9 = DW_OP_breg9
-    breg10 = DW_OP_breg10
-    breg11 = DW_OP_breg11
-    breg12 = DW_OP_breg12
-    breg13 = DW_OP_breg13
-    breg14 = DW_OP_breg14
-    breg15 = DW_OP_breg15
-    breg16 = DW_OP_breg16
-    breg17 = DW_OP_breg17
-    breg18 = DW_OP_breg18
-    breg19 = DW_OP_breg19
-    breg20 = DW_OP_breg20
-    breg21 = DW_OP_breg21
-    breg22 = DW_OP_breg22
-    breg23 = DW_OP_breg23
-    breg24 = DW_OP_breg24
-    breg25 = DW_OP_breg25
-    breg26 = DW_OP_breg26
-    breg27 = DW_OP_breg27
-    breg28 = DW_OP_breg28
-    breg29 = DW_OP_breg29
-    breg30 = DW_OP_breg30
-    breg31 = DW_OP_breg31
-    regx = DW_OP_regx
-    fbreg = DW_OP_fbreg
-    bregx = DW_OP_bregx
-    piece = DW_OP_piece
-    deref_size = DW_OP_deref_size
-    xderef_size = DW_OP_xderef_size
-    nop = DW_OP_nop
-    push_object_address = DW_OP_push_object_address
-    call2 = DW_OP_call2
-    call4 = DW_OP_call4
-    call_ref = DW_OP_call_ref
-    form_tls_address = DW_OP_form_tls_address
-    call_frame_cfa = DW_OP_call_frame_cfa
-    bit_piece = DW_OP_bit_piece
-    implicit_value = DW_OP_implicit_value
-    stack_value = DW_OP_stack_value
-    GNU_push_tls_address = DW_OP_GNU_push_tls_address
-    GNU_uninit = DW_OP_GNU_uninit
-    GNU_encoded_addr = DW_OP_GNU_encoded_addr
-    GNU_implicit_pointer = DW_OP_GNU_implicit_pointer
-    GNU_entry_value = DW_OP_GNU_entry_value
-    GNU_const_type = DW_OP_GNU_const_type
-    GNU_regval_type = DW_OP_GNU_regval_type
-    GNU_deref_type = DW_OP_GNU_deref_type
-    GNU_convert = DW_OP_GNU_convert
-    GNU_reinterpret = DW_OP_GNU_reinterpret
-    GNU_parameter_ref = DW_OP_GNU_parameter_ref
-    lo_user = DW_OP_lo_user
-    hi_user = DW_OP_hi_user
+    addr = 0x3
+    deref = 0x6
+    const1u = 0x8
+    const1s = 0x9
+    const2u = 0xa
+    const2s = 0xb
+    const4u = 0xc
+    const4s = 0xd
+    const8u = 0xe
+    const8s = 0xf
+    constu = 0x10
+    consts = 0x11
+    dup = 0x12
+    drop = 0x13
+    over = 0x14
+    pick = 0x15
+    swap = 0x16
+    rot = 0x17
+    xderef = 0x18
+    abs = 0x19
+    and_ = 0x1a
+    div = 0x1b
+    minus = 0x1c
+    mod = 0x1d
+    mul = 0x1e
+    neg = 0x1f
+    not_ = 0x20
+    or_ = 0x21
+    plus = 0x22
+    plus_uconst = 0x23
+    shl = 0x24
+    shr = 0x25
+    shra = 0x26
+    xor = 0x27
+    bra = 0x28
+    eq = 0x29
+    ge = 0x2a
+    gt = 0x2b
+    le = 0x2c
+    lt = 0x2d
+    ne = 0x2e
+    skip = 0x2f
+    lit0 = 0x30
+    lit1 = 0x31
+    lit2 = 0x32
+    lit3 = 0x33
+    lit4 = 0x34
+    lit5 = 0x35
+    lit6 = 0x36
+    lit7 = 0x37
+    lit8 = 0x38
+    lit9 = 0x39
+    lit10 = 0x3a
+    lit11 = 0x3b
+    lit12 = 0x3c
+    lit13 = 0x3d
+    lit14 = 0x3e
+    lit15 = 0x3f
+    lit16 = 0x40
+    lit17 = 0x41
+    lit18 = 0x42
+    lit19 = 0x43
+    lit20 = 0x44
+    lit21 = 0x45
+    lit22 = 0x46
+    lit23 = 0x47
+    lit24 = 0x48
+    lit25 = 0x49
+    lit26 = 0x4a
+    lit27 = 0x4b
+    lit28 = 0x4c
+    lit29 = 0x4d
+    lit30 = 0x4e
+    lit31 = 0x4f
+    reg0 = 0x50
+    reg1 = 0x51
+    reg2 = 0x52
+    reg3 = 0x53
+    reg4 = 0x54
+    reg5 = 0x55
+    reg6 = 0x56
+    reg7 = 0x57
+    reg8 = 0x58
+    reg9 = 0x59
+    reg10 = 0x5a
+    reg11 = 0x5b
+    reg12 = 0x5c
+    reg13 = 0x5d
+    reg14 = 0x5e
+    reg15 = 0x5f
+    reg16 = 0x60
+    reg17 = 0x61
+    reg18 = 0x62
+    reg19 = 0x63
+    reg20 = 0x64
+    reg21 = 0x65
+    reg22 = 0x66
+    reg23 = 0x67
+    reg24 = 0x68
+    reg25 = 0x69
+    reg26 = 0x6a
+    reg27 = 0x6b
+    reg28 = 0x6c
+    reg29 = 0x6d
+    reg30 = 0x6e
+    reg31 = 0x6f
+    breg0 = 0x70
+    breg1 = 0x71
+    breg2 = 0x72
+    breg3 = 0x73
+    breg4 = 0x74
+    breg5 = 0x75
+    breg6 = 0x76
+    breg7 = 0x77
+    breg8 = 0x78
+    breg9 = 0x79
+    breg10 = 0x7a
+    breg11 = 0x7b
+    breg12 = 0x7c
+    breg13 = 0x7d
+    breg14 = 0x7e
+    breg15 = 0x7f
+    breg16 = 0x80
+    breg17 = 0x81
+    breg18 = 0x82
+    breg19 = 0x83
+    breg20 = 0x84
+    breg21 = 0x85
+    breg22 = 0x86
+    breg23 = 0x87
+    breg24 = 0x88
+    breg25 = 0x89
+    breg26 = 0x8a
+    breg27 = 0x8b
+    breg28 = 0x8c
+    breg29 = 0x8d
+    breg30 = 0x8e
+    breg31 = 0x8f
+    regx = 0x90
+    fbreg = 0x91
+    bregx = 0x92
+    piece = 0x93
+    deref_size = 0x94
+    xderef_size = 0x95
+    nop = 0x96
+    push_object_address = 0x97
+    call2 = 0x98
+    call4 = 0x99
+    call_ref = 0x9a
+    form_tls_address = 0x9b
+    call_frame_cfa = 0x9c
+    bit_piece = 0x9d
+    implicit_value = 0x9e
+    stack_value = 0x9f
+    GNU_push_tls_address = 0xe0
+    GNU_uninit = 0xf0
+    GNU_encoded_addr = 0xf1
+    GNU_implicit_pointer = 0xf2
+    GNU_entry_value = 0xf3
+    GNU_const_type = 0xf4
+    GNU_regval_type = 0xf5
+    GNU_deref_type = 0xf6
+    GNU_convert = 0xf7
+    GNU_reinterpret = 0xf9
+    GNU_parameter_ref = 0xfa
+    lo_user = 0xe0
+    hi_user = 0xff
 
     @classmethod
     def str(cls, value):
@@ -1026,158 +633,81 @@ class DW_OP(enum.IntEnum):
             return hex(value)
 
 
-cdef enum:
-    DW_TAG_array_type = 0x1
-    DW_TAG_class_type = 0x2
-    DW_TAG_entry_point = 0x3
-    DW_TAG_enumeration_type = 0x4
-    DW_TAG_formal_parameter = 0x5
-    DW_TAG_imported_declaration = 0x8
-    DW_TAG_label = 0xa
-    DW_TAG_lexical_block = 0xb
-    DW_TAG_member = 0xd
-    DW_TAG_pointer_type = 0xf
-    DW_TAG_reference_type = 0x10
-    DW_TAG_compile_unit = 0x11
-    DW_TAG_string_type = 0x12
-    DW_TAG_structure_type = 0x13
-    DW_TAG_subroutine_type = 0x15
-    DW_TAG_typedef = 0x16
-    DW_TAG_union_type = 0x17
-    DW_TAG_unspecified_parameters = 0x18
-    DW_TAG_variant = 0x19
-    DW_TAG_common_block = 0x1a
-    DW_TAG_common_inclusion = 0x1b
-    DW_TAG_inheritance = 0x1c
-    DW_TAG_inlined_subroutine = 0x1d
-    DW_TAG_module = 0x1e
-    DW_TAG_ptr_to_member_type = 0x1f
-    DW_TAG_set_type = 0x20
-    DW_TAG_subrange_type = 0x21
-    DW_TAG_with_stmt = 0x22
-    DW_TAG_access_declaration = 0x23
-    DW_TAG_base_type = 0x24
-    DW_TAG_catch_block = 0x25
-    DW_TAG_const_type = 0x26
-    DW_TAG_constant = 0x27
-    DW_TAG_enumerator = 0x28
-    DW_TAG_file_type = 0x29
-    DW_TAG_friend = 0x2a
-    DW_TAG_namelist = 0x2b
-    DW_TAG_namelist_item = 0x2c
-    DW_TAG_packed_type = 0x2d
-    DW_TAG_subprogram = 0x2e
-    DW_TAG_template_type_parameter = 0x2f
-    DW_TAG_template_value_parameter = 0x30
-    DW_TAG_thrown_type = 0x31
-    DW_TAG_try_block = 0x32
-    DW_TAG_variant_part = 0x33
-    DW_TAG_variable = 0x34
-    DW_TAG_volatile_type = 0x35
-    DW_TAG_dwarf_procedure = 0x36
-    DW_TAG_restrict_type = 0x37
-    DW_TAG_interface_type = 0x38
-    DW_TAG_namespace = 0x39
-    DW_TAG_imported_module = 0x3a
-    DW_TAG_unspecified_type = 0x3b
-    DW_TAG_partial_unit = 0x3c
-    DW_TAG_imported_unit = 0x3d
-    DW_TAG_condition = 0x3f
-    DW_TAG_shared_type = 0x40
-    DW_TAG_type_unit = 0x41
-    DW_TAG_rvalue_reference_type = 0x42
-    DW_TAG_template_alias = 0x43
-    DW_TAG_atomic_type = 0x47
-    DW_TAG_lo_user = 0x4080
-    DW_TAG_MIPS_loop = 0x4081
-    DW_TAG_format_label = 0x4101
-    DW_TAG_function_template = 0x4102
-    DW_TAG_class_template = 0x4103
-    DW_TAG_GNU_BINCL = 0x4104
-    DW_TAG_GNU_EINCL = 0x4105
-    DW_TAG_GNU_template_template_param = 0x4106
-    DW_TAG_GNU_template_parameter_pack = 0x4107
-    DW_TAG_GNU_formal_parameter_pack = 0x4108
-    DW_TAG_GNU_call_site = 0x4109
-    DW_TAG_GNU_call_site_parameter = 0x410a
-    DW_TAG_hi_user = 0xffff
-
-
 class DW_TAG(enum.IntEnum):
-    array_type = DW_TAG_array_type
-    class_type = DW_TAG_class_type
-    entry_point = DW_TAG_entry_point
-    enumeration_type = DW_TAG_enumeration_type
-    formal_parameter = DW_TAG_formal_parameter
-    imported_declaration = DW_TAG_imported_declaration
-    label = DW_TAG_label
-    lexical_block = DW_TAG_lexical_block
-    member = DW_TAG_member
-    pointer_type = DW_TAG_pointer_type
-    reference_type = DW_TAG_reference_type
-    compile_unit = DW_TAG_compile_unit
-    string_type = DW_TAG_string_type
-    structure_type = DW_TAG_structure_type
-    subroutine_type = DW_TAG_subroutine_type
-    typedef = DW_TAG_typedef
-    union_type = DW_TAG_union_type
-    unspecified_parameters = DW_TAG_unspecified_parameters
-    variant = DW_TAG_variant
-    common_block = DW_TAG_common_block
-    common_inclusion = DW_TAG_common_inclusion
-    inheritance = DW_TAG_inheritance
-    inlined_subroutine = DW_TAG_inlined_subroutine
-    module = DW_TAG_module
-    ptr_to_member_type = DW_TAG_ptr_to_member_type
-    set_type = DW_TAG_set_type
-    subrange_type = DW_TAG_subrange_type
-    with_stmt = DW_TAG_with_stmt
-    access_declaration = DW_TAG_access_declaration
-    base_type = DW_TAG_base_type
-    catch_block = DW_TAG_catch_block
-    const_type = DW_TAG_const_type
-    constant = DW_TAG_constant
-    enumerator = DW_TAG_enumerator
-    file_type = DW_TAG_file_type
-    friend = DW_TAG_friend
-    namelist = DW_TAG_namelist
-    namelist_item = DW_TAG_namelist_item
-    packed_type = DW_TAG_packed_type
-    subprogram = DW_TAG_subprogram
-    template_type_parameter = DW_TAG_template_type_parameter
-    template_value_parameter = DW_TAG_template_value_parameter
-    thrown_type = DW_TAG_thrown_type
-    try_block = DW_TAG_try_block
-    variant_part = DW_TAG_variant_part
-    variable = DW_TAG_variable
-    volatile_type = DW_TAG_volatile_type
-    dwarf_procedure = DW_TAG_dwarf_procedure
-    restrict_type = DW_TAG_restrict_type
-    interface_type = DW_TAG_interface_type
-    namespace = DW_TAG_namespace
-    imported_module = DW_TAG_imported_module
-    unspecified_type = DW_TAG_unspecified_type
-    partial_unit = DW_TAG_partial_unit
-    imported_unit = DW_TAG_imported_unit
-    condition = DW_TAG_condition
-    shared_type = DW_TAG_shared_type
-    type_unit = DW_TAG_type_unit
-    rvalue_reference_type = DW_TAG_rvalue_reference_type
-    template_alias = DW_TAG_template_alias
-    atomic_type = DW_TAG_atomic_type
-    lo_user = DW_TAG_lo_user
-    MIPS_loop = DW_TAG_MIPS_loop
-    format_label = DW_TAG_format_label
-    function_template = DW_TAG_function_template
-    class_template = DW_TAG_class_template
-    GNU_BINCL = DW_TAG_GNU_BINCL
-    GNU_EINCL = DW_TAG_GNU_EINCL
-    GNU_template_template_param = DW_TAG_GNU_template_template_param
-    GNU_template_parameter_pack = DW_TAG_GNU_template_parameter_pack
-    GNU_formal_parameter_pack = DW_TAG_GNU_formal_parameter_pack
-    GNU_call_site = DW_TAG_GNU_call_site
-    GNU_call_site_parameter = DW_TAG_GNU_call_site_parameter
-    hi_user = DW_TAG_hi_user
+    array_type = 0x1
+    class_type = 0x2
+    entry_point = 0x3
+    enumeration_type = 0x4
+    formal_parameter = 0x5
+    imported_declaration = 0x8
+    label = 0xa
+    lexical_block = 0xb
+    member = 0xd
+    pointer_type = 0xf
+    reference_type = 0x10
+    compile_unit = 0x11
+    string_type = 0x12
+    structure_type = 0x13
+    subroutine_type = 0x15
+    typedef = 0x16
+    union_type = 0x17
+    unspecified_parameters = 0x18
+    variant = 0x19
+    common_block = 0x1a
+    common_inclusion = 0x1b
+    inheritance = 0x1c
+    inlined_subroutine = 0x1d
+    module = 0x1e
+    ptr_to_member_type = 0x1f
+    set_type = 0x20
+    subrange_type = 0x21
+    with_stmt = 0x22
+    access_declaration = 0x23
+    base_type = 0x24
+    catch_block = 0x25
+    const_type = 0x26
+    constant = 0x27
+    enumerator = 0x28
+    file_type = 0x29
+    friend = 0x2a
+    namelist = 0x2b
+    namelist_item = 0x2c
+    packed_type = 0x2d
+    subprogram = 0x2e
+    template_type_parameter = 0x2f
+    template_value_parameter = 0x30
+    thrown_type = 0x31
+    try_block = 0x32
+    variant_part = 0x33
+    variable = 0x34
+    volatile_type = 0x35
+    dwarf_procedure = 0x36
+    restrict_type = 0x37
+    interface_type = 0x38
+    namespace = 0x39
+    imported_module = 0x3a
+    unspecified_type = 0x3b
+    partial_unit = 0x3c
+    imported_unit = 0x3d
+    condition = 0x3f
+    shared_type = 0x40
+    type_unit = 0x41
+    rvalue_reference_type = 0x42
+    template_alias = 0x43
+    atomic_type = 0x47
+    lo_user = 0x4080
+    MIPS_loop = 0x4081
+    format_label = 0x4101
+    function_template = 0x4102
+    class_template = 0x4103
+    GNU_BINCL = 0x4104
+    GNU_EINCL = 0x4105
+    GNU_template_template_param = 0x4106
+    GNU_template_parameter_pack = 0x4107
+    GNU_formal_parameter_pack = 0x4108
+    GNU_call_site = 0x4109
+    GNU_call_site_parameter = 0x410a
+    hi_user = 0xffff
 
     @classmethod
     def str(cls, value):
@@ -1185,6 +715,45 @@ class DW_TAG(enum.IntEnum):
             return f'DW_TAG_{cls(value).name}'
         except ValueError:
             return hex(value)
+
+
+TYPE_TAGS = {
+    DW_TAG.array_type,
+    DW_TAG.atomic_type,
+    DW_TAG.base_type,
+    DW_TAG.class_type,
+    DW_TAG.const_type,
+    DW_TAG.enumeration_type,
+    DW_TAG.file_type,
+    DW_TAG.interface_type,
+    DW_TAG.packed_type,
+    DW_TAG.pointer_type,
+    DW_TAG.ptr_to_member_type,
+    DW_TAG.reference_type,
+    DW_TAG.restrict_type,
+    DW_TAG.rvalue_reference_type,
+    DW_TAG.set_type,
+    DW_TAG.shared_type,
+    DW_TAG.string_type,
+    DW_TAG.structure_type,
+    DW_TAG.subrange_type,
+    DW_TAG.subroutine_type,
+    DW_TAG.template_type_parameter,
+    DW_TAG.thrown_type,
+    DW_TAG.typedef,
+    DW_TAG.union_type,
+    DW_TAG.unspecified_type,
+    DW_TAG.volatile_type,
+}
+
+QUALIFIED_TYPE_TAGS = {
+    DW_TAG.atomic_type,
+    DW_TAG.const_type,
+    DW_TAG.packed_type,
+    DW_TAG.restrict_type,
+    DW_TAG.shared_type,
+    DW_TAG.volatile_type,
+}
 
 
 cdef class DwarfFormatError(Exception):
@@ -1408,10 +977,10 @@ cdef class Die:
 
     @staticmethod
     cdef uint64_t attrib_sec_offset(const DieAttrib *attrib):
-        if attrib.form == DW_FORM_data4:
+        if attrib.form == DW_FORM.data4:
             # DWARF 2 and 3
             return (<const uint32_t *>&attrib.value.data[0])[0]
-        elif attrib.form == DW_FORM_sec_offset:
+        elif attrib.form == DW_FORM.sec_offset:
             return attrib.value.u
         else:
             raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for section offset')
@@ -1420,23 +989,23 @@ cdef class Die:
         cdef Py_buffer buffer
         cdef Py_ssize_t offset
 
-        if (attrib.form == DW_FORM_addr or
-                attrib.form == DW_FORM_udata or
-                attrib.form == DW_FORM_ref_udata or
-                attrib.form == DW_FORM_ref1 or
-                attrib.form == DW_FORM_ref2 or
-                attrib.form == DW_FORM_ref4 or
-                attrib.form == DW_FORM_ref8 or
-                attrib.form == DW_FORM_ref_sig8 or
-                attrib.form == DW_FORM_sec_offset or
-                attrib.form == DW_FORM_strp):
+        if (attrib.form == DW_FORM.addr or
+                attrib.form == DW_FORM.udata or
+                attrib.form == DW_FORM.ref_udata or
+                attrib.form == DW_FORM.ref1 or
+                attrib.form == DW_FORM.ref2 or
+                attrib.form == DW_FORM.ref4 or
+                attrib.form == DW_FORM.ref8 or
+                attrib.form == DW_FORM.ref_sig8 or
+                attrib.form == DW_FORM.sec_offset or
+                attrib.form == DW_FORM.strp):
             return attrib.value.u
-        elif (attrib.form == DW_FORM_block1 or
-              attrib.form == DW_FORM_block2 or
-              attrib.form == DW_FORM_block4 or
-              attrib.form == DW_FORM_block or
-              attrib.form == DW_FORM_exprloc or
-              attrib.form == DW_FORM_string):
+        elif (attrib.form == DW_FORM.block1 or
+              attrib.form == DW_FORM.block2 or
+              attrib.form == DW_FORM.block4 or
+              attrib.form == DW_FORM.block or
+              attrib.form == DW_FORM.exprloc or
+              attrib.form == DW_FORM.string):
             offset = attrib.value.ptr.offset
             self.cu.dwarf_file.get_section_buffer('.debug_info', &buffer)
             try:
@@ -1444,19 +1013,19 @@ cdef class Die:
                                   &offset, attrib.value.ptr.length)
             finally:
                 PyBuffer_Release(&buffer)
-        elif attrib.form == DW_FORM_data1:
+        elif attrib.form == DW_FORM.data1:
             return PyBytes_FromStringAndSize(attrib.value.data, 1)
-        elif attrib.form == DW_FORM_data2:
+        elif attrib.form == DW_FORM.data2:
             return PyBytes_FromStringAndSize(attrib.value.data, 2)
-        elif attrib.form == DW_FORM_data4:
+        elif attrib.form == DW_FORM.data4:
             return PyBytes_FromStringAndSize(attrib.value.data, 4)
-        elif attrib.form == DW_FORM_data8:
+        elif attrib.form == DW_FORM.data8:
             return PyBytes_FromStringAndSize(attrib.value.data, 8)
-        elif attrib.form == DW_FORM_sdata:
+        elif attrib.form == DW_FORM.sdata:
             return attrib.value.s
-        elif attrib.form == DW_FORM_flag:
+        elif attrib.form == DW_FORM.flag:
             return bool(attrib.value.u)
-        elif attrib.form == DW_FORM_flag_present:
+        elif attrib.form == DW_FORM.flag_present:
             return True
         else:
             raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)}')
@@ -1467,17 +1036,17 @@ cdef class Die:
 
     def find_constant(self, at):
         cdef const DieAttrib *attrib = self.find_attrib(at)
-        if attrib.form == DW_FORM_data1:
+        if attrib.form == DW_FORM.data1:
             return (<const uint8_t *>&attrib.value.data[0])[0]
-        elif attrib.form == DW_FORM_data2:
+        elif attrib.form == DW_FORM.data2:
             return (<const uint16_t *>&attrib.value.data[0])[0]
-        elif attrib.form == DW_FORM_data4:
+        elif attrib.form == DW_FORM.data4:
             return (<const uint32_t *>&attrib.value.data[0])[0]
-        elif attrib.form == DW_FORM_data8:
+        elif attrib.form == DW_FORM.data8:
             return (<const uint64_t *>&attrib.value.data[0])[0]
-        elif attrib.form == DW_FORM_udata:
+        elif attrib.form == DW_FORM.udata:
             return attrib.value.u
-        elif attrib.form == DW_FORM_sdata:
+        elif attrib.form == DW_FORM.sdata:
             return attrib.value.s
         else:
             raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for constant')
@@ -1487,14 +1056,14 @@ cdef class Die:
         cdef Py_buffer buffer
         cdef Py_ssize_t offset
 
-        if attrib.form == DW_FORM_strp:
+        if attrib.form == DW_FORM.strp:
             offset = attrib.value.u
             self.cu.dwarf_file.get_section_buffer('.debug_str', &buffer)
             try:
                 return read_str(<const char *>buffer.buf, buffer.len, &offset)
             finally:
                 PyBuffer_Release(&buffer)
-        elif attrib.form == DW_FORM_string:
+        elif attrib.form == DW_FORM.string:
             self.cu.dwarf_file.get_section_buffer('.debug_info', &buffer)
             try:
                 return PyUnicode_FromStringAndSize(<const char *>buffer.buf + attrib.value.ptr.offset,
@@ -1514,29 +1083,29 @@ cdef class Die:
             attrib = self.find_attrib(at)
         except DwarfAttribNotFoundError:
             return False
-        if attrib.form == DW_FORM_flag_present:
+        if attrib.form == DW_FORM.flag_present:
             return True
-        elif attrib.form == DW_FORM_flag:
+        elif attrib.form == DW_FORM.flag:
             return bool(attrib.value.u)
         else:
             raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for flag')
 
     cpdef str name(self):
-        return self.find_string(DW_AT_name)
+        return self.find_string(DW_AT.name)
 
     def size(self):
-        return self.find_constant(DW_AT_byte_size)
+        return self.find_constant(DW_AT.byte_size)
 
     def type(self):
-        cdef const DieAttrib *attrib = self.find_attrib(DW_AT_type)
+        cdef const DieAttrib *attrib = self.find_attrib(DW_AT.type)
 
-        if (attrib.form == DW_FORM_ref1 or attrib.form == DW_FORM_ref2 or
-                attrib.form == DW_FORM_ref4 or attrib.form == DW_FORM_ref8 or
-                attrib.form == DW_FORM_ref_udata):
+        if (attrib.form == DW_FORM.ref1 or attrib.form == DW_FORM.ref2 or
+                attrib.form == DW_FORM.ref4 or attrib.form == DW_FORM.ref8 or
+                attrib.form == DW_FORM.ref_udata):
             return self.cu.die(attrib.value.u)
-        elif attrib.form == DW_FORM_ref_addr:
+        elif attrib.form == DW_FORM.ref_addr:
             raise NotImplementedError('DW_FORM_ref_addr is not implemented')
-        elif attrib.form == DW_FORM_ref_sig8:
+        elif attrib.form == DW_FORM.ref_sig8:
             raise NotImplementedError('DW_FORM_ref_sig8 is not implemented')
         else:
             raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for DW_AT_type')
@@ -1561,50 +1130,16 @@ cdef class Die:
             PyBuffer_Release(&buffer)
 
     def is_type(self):
-        return (
-            self.tag == DW_TAG_array_type or
-            self.tag == DW_TAG_atomic_type or
-            self.tag == DW_TAG_base_type or
-            self.tag == DW_TAG_class_type or
-            self.tag == DW_TAG_const_type or
-            self.tag == DW_TAG_enumeration_type or
-            self.tag == DW_TAG_file_type or
-            self.tag == DW_TAG_interface_type or
-            self.tag == DW_TAG_packed_type or
-            self.tag == DW_TAG_pointer_type or
-            self.tag == DW_TAG_ptr_to_member_type or
-            self.tag == DW_TAG_reference_type or
-            self.tag == DW_TAG_restrict_type or
-            self.tag == DW_TAG_rvalue_reference_type or
-            self.tag == DW_TAG_set_type or
-            self.tag == DW_TAG_shared_type or
-            self.tag == DW_TAG_string_type or
-            self.tag == DW_TAG_structure_type or
-            self.tag == DW_TAG_subrange_type or
-            self.tag == DW_TAG_subroutine_type or
-            self.tag == DW_TAG_template_type_parameter or
-            self.tag == DW_TAG_thrown_type or
-            self.tag == DW_TAG_typedef or
-            self.tag == DW_TAG_union_type or
-            self.tag == DW_TAG_unspecified_type or
-            self.tag == DW_TAG_volatile_type
-        )
+        return self.tag in TYPE_TAGS
 
     def is_qualified_type(self):
-        return (
-            self.tag == DW_TAG_atomic_type or
-            self.tag == DW_TAG_const_type or
-            self.tag == DW_TAG_packed_type or
-            self.tag == DW_TAG_restrict_type or
-            self.tag == DW_TAG_shared_type or
-            self.tag == DW_TAG_volatile_type
-        )
+        return self.tag in QUALIFIED_TYPE_TAGS
 
     def unqualified(self):
         if not self.is_type():
             raise ValueError('not a type DIE')
         die = self
-        while die.is_qualified_type() or die.tag == DW_TAG_typedef:
+        while die.is_qualified_type() or die.tag == DW_TAG.typedef:
             die = die.type()
         return die
 
@@ -1697,7 +1232,7 @@ cdef int parse_abbrev_decl(const char *buffer, Py_ssize_t buffer_size,
         read_u8(buffer, buffer_size, offset, &children)
     except EOFError:
         raise DwarfFormatError('abbreviation declaration children flag is truncated')
-    decl.children = children != DW_CHILDREN_no
+    decl.children = children != DW_CHILDREN.no
 
     cdef uint64_t attribs_capacity = 1  # XXX: is this a good first guess?
     realloc_attrib_specs(&decl.attribs, attribs_capacity)
@@ -1781,27 +1316,27 @@ cdef inline int parse_die_attrib(const char *buffer, Py_ssize_t buffer_size,
     cdef uint64_t tmp
 
     # address
-    if attrib.form == DW_FORM_addr:
+    if attrib.form == DW_FORM.addr:
         if address_size == 4:
             read_u32_into_u64(buffer, buffer_size, offset, &attrib.value.u)
         elif address_size == 8:
             read_u64(buffer, buffer_size, offset, &attrib.value.u)
         else:
             raise DwarfFormatError(f'unsupported address size {address_size}')
-    elif (attrib.form == DW_FORM_block1 or  # block
-          attrib.form == DW_FORM_block2 or
-          attrib.form == DW_FORM_block4 or
-          attrib.form == DW_FORM_exprloc):  # exprloc
-        if attrib.form == DW_FORM_block1:
+    elif (attrib.form == DW_FORM.block1 or  # block
+          attrib.form == DW_FORM.block2 or
+          attrib.form == DW_FORM.block4 or
+          attrib.form == DW_FORM.exprloc):  # exprloc
+        if attrib.form == DW_FORM.block1:
             read_u8_into_ssize_t(buffer, buffer_size, offset,
                                  &attrib.value.ptr.length)
-        elif attrib.form == DW_FORM_block2:
+        elif attrib.form == DW_FORM.block2:
             read_u16_into_ssize_t(buffer, buffer_size, offset,
                                   &attrib.value.ptr.length)
-        elif attrib.form == DW_FORM_block4:
+        elif attrib.form == DW_FORM.block4:
             read_u32_into_ssize_t(buffer, buffer_size, offset,
                                   &attrib.value.ptr.length)
-        elif attrib.form == DW_FORM_exprloc:
+        elif attrib.form == DW_FORM.exprloc:
             read_uleb128(buffer, buffer_size, offset, &tmp)
             if tmp > <uint64_t>PY_SSIZE_T_MAX:
                 raise DwarfFormatError('attribute length too big')
@@ -1810,44 +1345,44 @@ cdef inline int parse_die_attrib(const char *buffer, Py_ssize_t buffer_size,
         attrib.value.ptr.offset = offset[0]
         offset[0] += attrib.value.ptr.length
     # constant
-    elif attrib.form == DW_FORM_data1:
+    elif attrib.form == DW_FORM.data1:
         read_buffer(buffer, buffer_size, offset, &attrib.value.data, 1)
-    elif attrib.form == DW_FORM_data2:
+    elif attrib.form == DW_FORM.data2:
         read_buffer(buffer, buffer_size, offset, &attrib.value.data, 2)
-    elif attrib.form == DW_FORM_data4:
+    elif attrib.form == DW_FORM.data4:
         read_buffer(buffer, buffer_size, offset, &attrib.value.data, 4)
-    elif attrib.form == DW_FORM_data8:
+    elif attrib.form == DW_FORM.data8:
         read_buffer(buffer, buffer_size, offset, &attrib.value.data, 8)
-    elif attrib.form == DW_FORM_sdata:
+    elif attrib.form == DW_FORM.sdata:
         read_sleb128(buffer, buffer_size, offset, &attrib.value.s)
-    elif (attrib.form == DW_FORM_udata or     # constant
-          attrib.form == DW_FORM_ref_udata):  # reference
+    elif (attrib.form == DW_FORM.udata or     # constant
+          attrib.form == DW_FORM.ref_udata):  # reference
         read_uleb128(buffer, buffer_size, offset, &attrib.value.u)
-    elif (attrib.form == DW_FORM_ref_addr or    # reference
-          attrib.form == DW_FORM_sec_offset or  # lineptr, loclistptr, macptr, rangelistptr
-          attrib.form == DW_FORM_strp):         # string
+    elif (attrib.form == DW_FORM.ref_addr or    # reference
+          attrib.form == DW_FORM.sec_offset or  # lineptr, loclistptr, macptr, rangelistptr
+          attrib.form == DW_FORM.strp):         # string
         if is_64_bit:
             read_u64(buffer, buffer_size, offset, &attrib.value.u)
         else:
             read_u32_into_u64(buffer, buffer_size, offset, &attrib.value.u)
     # string
-    elif attrib.form == DW_FORM_string:
+    elif attrib.form == DW_FORM.string:
         attrib.value.ptr.offset = offset[0]
         attrib.value.ptr.length = read_strlen(buffer, buffer_size, offset)
     # flag
-    elif attrib.form == DW_FORM_flag_present:
+    elif attrib.form == DW_FORM.flag_present:
         attrib.value.u = 1
-    elif (attrib.form == DW_FORM_flag or  # flag
-          attrib.form == DW_FORM_ref1):   # reference
+    elif (attrib.form == DW_FORM.flag or  # flag
+          attrib.form == DW_FORM.ref1):   # reference
         read_u8_into_u64(buffer, buffer_size, offset, &attrib.value.u)
     # reference
-    elif attrib.form == DW_FORM_ref2:
+    elif attrib.form == DW_FORM.ref2:
         read_u16_into_u64(buffer, buffer_size, offset, &attrib.value.u)
-    elif attrib.form == DW_FORM_ref4:
+    elif attrib.form == DW_FORM.ref4:
         read_u32_into_u64(buffer, buffer_size, offset, &attrib.value.u)
-    elif (attrib.form == DW_FORM_ref8 or attrib.form == DW_FORM_ref_sig8):
+    elif (attrib.form == DW_FORM.ref8 or attrib.form == DW_FORM.ref_sig8):
         read_u64(buffer, buffer_size, offset, &attrib.value.u)
-    elif DW_FORM_indirect:
+    elif DW_FORM.indirect:
         raise DwarfFormatError('DW_FORM_indirect is not supported')
     else:
         raise DwarfFormatError(f'unknown form 0x{attrib.form:x}')
@@ -1898,7 +1433,7 @@ cdef Die parse_die(const char *buffer, Py_ssize_t buffer_size,
         die.attribs[i].form = decl.attribs[i].form
         parse_die_attrib(buffer, buffer_size, offset, &die.attribs[i],
                          cu.address_size, cu.is_64_bit)
-        if die.attribs[i].name == DW_AT_sibling:
+        if die.attribs[i].name == DW_AT.sibling:
             sibling_form = die.attribs[i].form
             sibling = die.attribs[i].value.u
 
@@ -1909,7 +1444,7 @@ cdef Die parse_die(const char *buffer, Py_ssize_t buffer_size,
     elif jump_to_sibling and sibling == 0:
         die._children = parse_die_siblings(buffer, buffer_size, offset, cu)
     elif jump_to_sibling:
-        if sibling_form == DW_FORM_ref_addr:
+        if sibling_form == DW_FORM.ref_addr:
             offset[0] = sibling
         else:
             offset[0] = cu.offset + sibling
