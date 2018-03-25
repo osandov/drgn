@@ -7,7 +7,8 @@ import sys
 import tempfile
 import unittest
 
-from drgn.dwarf import DwarfFile, DwarfIndex
+from drgn.dwarfindex import DwarfIndex
+from drgn.dwarf import DW_TAG
 from drgn.type import (
     ArrayType,
     BitFieldType,
@@ -430,15 +431,11 @@ class TestFromDwarfType(unittest.TestCase):
         with open(source_path, 'w') as f:
             f.write(decl)
             f.write(';\nint main(void) { return 0; }\n')
-        subprocess.check_call(['gcc', '-g', '-c', '-o', object_path, source_path])
-        with open(object_path, 'rb') as object_file:
-            dwarf_file = DwarfFile.from_file(object_file)
-            dwarf_index = DwarfIndex()
-            for cu in dwarf_file.cu_headers():
-                dwarf_index.index_cu(cu)
-            type_factory = TypeFactory(dwarf_index)
-            dwarf_type = dwarf_index.find_variable('x').type()
-            return type_factory.from_dwarf_type(dwarf_type)
+        subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
+        dwarf_index = DwarfIndex([object_path])
+        type_factory = TypeFactory(dwarf_index)
+        dwarf_type = dwarf_index.find('x', DW_TAG.variable).type()
+        return type_factory.from_dwarf_type(dwarf_type)
 
     def test_char(self):
         self.assertEqual(self.compile_type('char x'),
@@ -683,18 +680,9 @@ int main(void)
 	return 0;
 }
 """)
-            subprocess.check_call(['gcc', '-g', '-c', '-o', object_path, source_path])
-            cls.object_file = open(object_path, 'rb')
-            dwarf_file = DwarfFile.from_file(cls.object_file)
-            dwarf_index = DwarfIndex()
-            for cu in dwarf_file.cu_headers():
-                dwarf_index.index_cu(cu)
+            subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
+            dwarf_index = DwarfIndex([object_path])
             cls.type_factory = TypeFactory(dwarf_index)
-
-    @classmethod
-    def tearDownClass(cls):
-        if hasattr(cls, 'object_file'):
-            cls.object_file.close()
 
     def test_void_type(self):
         self.assertEqual(self.type_factory.from_type_string('void'),

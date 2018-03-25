@@ -17,7 +17,6 @@ constant_prefixes = [
     'GRP_',
     'PF_',
     'PT_',
-    'R_X86_64',
     'SHF_',
     'SHN_',
     'SHT_',
@@ -36,7 +35,6 @@ if __name__ == '__main__':
                          elf_h, re.MULTILINE)
 
     print('# Automatically generated from elf.h')
-    print('cdef enum:')
     for constant, value in matches:
         if value.startswith("'"):
             assert len(value) == 3 and value.endswith("'")
@@ -46,6 +44,6 @@ if __name__ == '__main__':
         if constant == 'DT_PROCNUM':
             value = next(match[1] for match in matches if match[0] == value)
         # Special case for SHF_EXCLUDE.
-        # if value == '(1U << 31)':
-            # value = '(1 << 31)'
-        print(f'    {constant} = {value}')
+        if value == '(1U << 31)':
+            value = '(1 << 31)'
+        print(f'{constant} = {value}')

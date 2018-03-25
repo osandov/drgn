@@ -599,7 +599,7 @@ class TypeFactory:
             try:
                 dwarf_type = self._dwarf_index.find(dwarf_type.name(),
                                                     dwarf_type.tag)
-            except (DwarfAttribNotFoundError, KeyError):
+            except (DwarfAttribNotFoundError, ValueError):
                 pass
 
         if dwarf_type.tag == DW_TAG.base_type:

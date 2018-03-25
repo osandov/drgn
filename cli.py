@@ -7,7 +7,7 @@ import runpy
 import sys
 
 from drgn.coredump import Coredump
-from drgn.dwarf import DwarfFile, DwarfIndex
+from drgn.dwarfindex import DwarfIndex
 from drgn.util import parse_symbol_file
 
 
@@ -70,12 +70,7 @@ def main():
 
     if not args.script:
         print('Reading symbols...')
-    dwarf_index = DwarfIndex()
-    for path in paths:
-        with open(path, 'rb') as f:
-            dwarf_file = DwarfFile.from_file(f)
-            for cu in dwarf_file.cu_headers():
-                dwarf_index.index_cu(cu)
+    dwarf_index = DwarfIndex(paths)
 
     with open('/proc/kallsyms', 'r') as f:
         symbols = parse_symbol_file(f)

@@ -5,22 +5,23 @@ from setuptools.extension import Extension
 from Cython.Build import cythonize
 
 
-extensions = [
+extensions = cythonize([
     Extension(
         name='drgn.dwarf',
         sources=[
             'drgn/dwarf.pyx',
         ],
     ),
+], language_level=3) + [
     Extension(
-        name='drgn.elf',
+        name='drgn.dwarfindex',
         sources=[
-            'drgn/elf.pyx',
+            'drgn/dwarfindex.c',
         ],
     ),
 ]
 
 setup(
     name='drgn',
-    ext_modules=cythonize(extensions, language_level=3),
+    ext_modules=extensions,
 )

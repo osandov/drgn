@@ -1,3 +1,4 @@
+from drgn.dwarf import DW_TAG
 from drgn.elf import ElfFile
 from drgn.type import (
     ArrayType,
@@ -116,6 +117,6 @@ class Coredump:
 
     def __getitem__(self, key):
         address = self._symbols[key][-1]
-        dwarf_type = self._dwarf_index.find_variable(key).type()
+        dwarf_type = self._dwarf_index.find(key, DW_TAG.variable).type()
         type_ = self._type_factory.from_dwarf_type(dwarf_type)
         return CoredumpObject(self, address, type_)
