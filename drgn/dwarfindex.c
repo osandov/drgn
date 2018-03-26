@@ -755,10 +755,8 @@ static inline uint32_t name_hash(const char *name)
 	return hash;
 }
 
-__attribute__((noinline))
-static int add_die_hash_entry(DwarfIndex *self, const char *name,
-				     uint64_t tag, struct compilation_unit *cu,
-				     const char *ptr)
+static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
+			      struct compilation_unit *cu, const char *ptr)
 {
 	struct die_hash_entry *entry;
 	uint32_t i, orig_i;
@@ -1207,7 +1205,7 @@ static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
 				return NULL;
 		}
 
-		method_name = PyUnicode_FromString("cu");
+		method_name = PyUnicode_FromString("compilation_unit");
 		cu_obj = PyObject_CallMethodObjArgs(entry->cu->file->obj,
 						    method_name, cu_offset,
 						    NULL);

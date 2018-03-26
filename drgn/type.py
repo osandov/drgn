@@ -636,7 +636,7 @@ class TypeFactory:
                         offset = child.find_constant(DW_AT.data_member_location)
                     else:
                         offset = 0
-                    if DW_AT.bit_size in child:
+                    if child.has_attrib(DW_AT.bit_size):
                         type_thunk = functools.partial(self._from_dwarf_bit_field,
                                                        child)
                     else:

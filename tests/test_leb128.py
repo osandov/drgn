@@ -1,4 +1,4 @@
-from drgn.dwarf import parse_sleb128, parse_uleb128
+from drgn.dwarf import _Reader
 import unittest
 
 
@@ -16,13 +16,15 @@ def encode_uleb128(value):
 """
 
 
-class TestLeb128(unittest.TestCase):
-    def test_negative_offset(self):
-        with self.assertRaises(EOFError):
-            parse_uleb128(b'', -1)
-        with self.assertRaises(EOFError):
-            parse_sleb128(b'', -1)
+def parse_uleb128(b):
+    return _Reader(b).read_uleb128()
 
+
+def parse_sleb128(b):
+    return _Reader(b).read_sleb128()
+
+
+class TestLeb128(unittest.TestCase):
     def test_truncated(self):
         cases = [
             b'',
@@ -57,16 +59,6 @@ class TestLeb128(unittest.TestCase):
         self.assertEqual(parse_uleb128(b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01'),
                          2**64 - 1)
 
-    def test_uleb128_overflow(self):
-        cases = [
-            b'\x80\x80\x80\x80\x80\x80\x80\x80\x80\x02',  # 2**64
-            b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\x03',  # 2**65 - 1
-            b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x03',  # 2**72 - 1
-        ]
-        for encoded in cases:
-            with self.subTest(encoded=encoded), self.assertRaises(OverflowError):
-                parse_uleb128(encoded)
-
     def test_sleb128(self):
         self.assertEqual(parse_sleb128(b'\x00'), 0)
         self.assertEqual(parse_sleb128(b'\x02'), 2)
@@ -85,12 +77,3 @@ class TestLeb128(unittest.TestCase):
                          -2**63)
         self.assertEqual(parse_sleb128(b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f'),
                          -1)
-
-    def test_sleb128_overflow(self):
-        cases = [
-            b'\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01',  # 2**63
-            b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01',  # 2**64 - 1
-        ]
-        for encoded in cases:
-            with self.subTest(encoded=encoded), self.assertRaises(OverflowError):
-                parse_sleb128(encoded)

@@ -1,4 +1,5 @@
 __pycache__
+.mypy_cache
 *.pyc
 *.o
 *.so
@@ -6,5 +7,3 @@ __pycache__
 /drgn.egg-info
 /coverage.info
 /out
-/drgn/dwarf.c
-/drgn/elf.c
