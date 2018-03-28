@@ -881,10 +881,7 @@ sibling_ref:
 					return -1;
 				}
 				name = &debug_str_buffer[strp];
-				if (!memchr(name, 0, debug_str_end - name)) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
+				__builtin_prefetch(name);
 				continue;
 			case DW_FORM_string:
 				if (*ptr >= end) {
@@ -1079,6 +1076,7 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 	}
 
 	for (i = 0; i < self->num_files; i++) {
+		const struct section *debug_str;
 		PyObject *path;
 		size_t j;
 
@@ -1105,6 +1103,14 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 					      &self->files[i].rela_sections[j],
 					      &self->files[i].symtab) == -1)
 				return -1;
+		}
+
+		debug_str = &self->files[i].debug_sections[DEBUG_STR];
+		if (debug_str->size == 0 ||
+		    debug_str->buffer[debug_str->size - 1] != '\0') {
+			PyErr_SetString(DwarfFormatError,
+					".debug_str is not null terminated");
+			return -1;
 		}
 
 		if (read_cus(self, &self->files[i]) == -1)
