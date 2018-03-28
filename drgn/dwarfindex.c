@@ -190,28 +190,32 @@ static inline int read_sleb128(const char **ptr, const char *end, int64_t *value
 	return 0;
 }
 
-struct attrib_spec {
-	uint64_t name;
-	uint64_t form;
+enum {
+	ATTRIB_BLOCK1 = 243,
+	ATTRIB_BLOCK2 = 244,
+	ATTRIB_BLOCK4 = 245,
+	ATTRIB_EXPRLOC = 246,
+	ATTRIB_LEB128 = 247,
+	ATTRIB_STRING = 248,
+	ATTRIB_SIBLING_REF1 = 249,
+	ATTRIB_SIBLING_REF2 = 250,
+	ATTRIB_SIBLING_REF4 = 251,
+	ATTRIB_SIBLING_REF8 = 252,
+	ATTRIB_SIBLING_REF_UDATA = 253,
+	ATTRIB_NAME_STRP = 254,
+	ATTRIB_NAME_STRING = 255,
+	ATTRIB_MIN_CMD = ATTRIB_BLOCK1,
 };
 
 struct abbrev_decl {
-	uint64_t tag;
-	bool children;
-	struct attrib_spec *attribs;
-	size_t num_attribs;
-};
-
-struct compilation_unit_header {
-	uint64_t unit_length;
-	uint16_t version;
-	uint64_t debug_abbrev_offset;
-	uint8_t address_size;
-	bool is_64_bit;
+	uint8_t *cmds;
 };
 
 struct compilation_unit {
 	const char *ptr;
+	uint64_t unit_length;
+	uint16_t version;
+	uint64_t debug_abbrev_offset;
 	uint8_t address_size;
 	bool is_64_bit;
 	/*
@@ -543,7 +547,7 @@ static int realloc_cus(struct compilation_unit **cus, size_t n)
 }
 
 static int read_compilation_unit_header(const char *ptr, const char *end,
-					struct compilation_unit_header *cu)
+					struct compilation_unit *cu)
 {
 	uint32_t tmp;
 
@@ -595,33 +599,16 @@ static int realloc_abbrev_decls(struct abbrev_decl **abbrev_decls, size_t n)
 	return 0;
 }
 
-static int realloc_attrib_specs(struct attrib_spec **attrib_specs, size_t n)
-{
-	struct attrib_spec *tmp;
-
-	if (n > SIZE_MAX / sizeof(**attrib_specs)) {
-		PyErr_NoMemory();
-		return -1;
-	}
-
-	tmp = realloc(*attrib_specs, n * sizeof(**attrib_specs));
-	if (!tmp) {
-		PyErr_NoMemory();
-		return -1;
-	}
-
-	*attrib_specs = tmp;
-	return 0;
-}
-
 static int read_abbrev_decl(const char **ptr, const char *end,
 			    struct compilation_unit *cu,
 			    uint64_t *decls_capacity)
 {
 	struct abbrev_decl *decl;
-	size_t attribs_capacity;
+	size_t cmds_capacity;
+	size_t num_cmds;
 	uint8_t children;
 	uint64_t code;
+	uint64_t tag;
 
 	if (read_uleb128(ptr, end, &code) == -1)
 		return -1;
@@ -643,19 +630,31 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 	}
 
 	decl = &cu->abbrev_decls[cu->num_abbrev_decls++];
-	decl->attribs = NULL;
-	decl->num_attribs = 0;
+	decl->cmds = NULL;
 
-	if (read_uleb128(ptr, end, &decl->tag) == -1)
+	if (read_uleb128(ptr, end, &tag) == -1)
 		return -1;
+	if (tag != DW_TAG_base_type &&
+	    tag != DW_TAG_class_type &&
+	    tag != DW_TAG_enumeration_type &&
+	    tag != DW_TAG_structure_type &&
+	    tag != DW_TAG_typedef &&
+	    tag != DW_TAG_union_type &&
+	    tag != DW_TAG_variable)
+		tag = 0;
 	if (read_u8(ptr, end, &children) == -1)
 		return -1;
-	decl->children = children != DW_CHILDREN_no;
 
-	attribs_capacity = 0;
+	cmds_capacity = 8;
+	decl->cmds = malloc(cmds_capacity * sizeof(uint8_t));
+	if (!decl->cmds) {
+		PyErr_NoMemory();
+		return -1;
+	}
+	num_cmds = 0;
 	for (;;) {
-		struct attrib_spec *attrib;
 		uint64_t name, form;
+		uint8_t cmd;
 
 		if (read_uleb128(ptr, end, &name) == -1)
 			return -1;
@@ -664,24 +663,137 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 		if (name == 0 && form == 0)
 			break;
 
-		if (decl->num_attribs >= attribs_capacity) {
-			if (attribs_capacity == 0)
-				attribs_capacity = 1;
-			else
-				attribs_capacity *= 2;
-			if (realloc_attrib_specs(&decl->attribs,
-						 attribs_capacity) == -1)
-				return -1;
+		if (name == DW_AT_sibling) {
+			switch (form) {
+			case DW_FORM_ref1:
+				cmd = ATTRIB_SIBLING_REF1;
+				goto append_cmd;
+			case DW_FORM_ref2:
+				cmd = ATTRIB_SIBLING_REF2;
+				goto append_cmd;
+			case DW_FORM_ref4:
+				cmd = ATTRIB_SIBLING_REF4;
+				goto append_cmd;
+			case DW_FORM_ref8:
+				cmd = ATTRIB_SIBLING_REF8;
+				goto append_cmd;
+			case DW_FORM_ref_udata:
+				cmd = ATTRIB_SIBLING_REF_UDATA;
+				goto append_cmd;
+			default:
+				break;
+			}
+		} else if (name == DW_AT_name && tag) {
+			switch (form) {
+			case DW_FORM_strp:
+				cmd = ATTRIB_NAME_STRP;
+				goto append_cmd;
+			case DW_FORM_string:
+				cmd = ATTRIB_NAME_STRING;
+				goto append_cmd;
+			default:
+				break;
+			}
+		} else if (name == DW_AT_declaration &&
+			   tag != DW_TAG_variable) {
+			/*
+			 * Ignore type declarations. In theory, this could be
+			 * DW_FORM_flag with a value of zero, but in practice,
+			 * GCC always uses DW_FORM_flag_present.
+			 */
+			tag = 0;
 		}
 
-		attrib = &decl->attribs[decl->num_attribs++];
-		attrib->name = name;
-		attrib->form = form;
+		switch (form) {
+		case DW_FORM_addr:
+			cmd = cu->address_size;
+			break;
+		case DW_FORM_data1:
+		case DW_FORM_ref1:
+		case DW_FORM_flag:
+			cmd = 1;
+			break;
+		case DW_FORM_data2:
+		case DW_FORM_ref2:
+			cmd = 2;
+			break;
+		case DW_FORM_data4:
+		case DW_FORM_ref4:
+			cmd = 4;
+			break;
+		case DW_FORM_data8:
+		case DW_FORM_ref8:
+		case DW_FORM_ref_sig8:
+			cmd = 8;
+			break;
+		case DW_FORM_block1:
+			cmd = ATTRIB_BLOCK1;
+			goto append_cmd;
+		case DW_FORM_block2:
+			cmd = ATTRIB_BLOCK2;
+			goto append_cmd;
+		case DW_FORM_block4:
+			cmd = ATTRIB_BLOCK4;
+			goto append_cmd;
+		case DW_FORM_exprloc:
+			cmd = ATTRIB_EXPRLOC;
+			goto append_cmd;
+		case DW_FORM_sdata:
+		case DW_FORM_udata:
+		case DW_FORM_ref_udata:
+			cmd = ATTRIB_LEB128;
+			goto append_cmd;
+		case DW_FORM_ref_addr:
+		case DW_FORM_sec_offset:
+		case DW_FORM_strp:
+			cmd = cu->is_64_bit ? 8 : 4;
+			break;
+		case DW_FORM_string:
+			cmd = ATTRIB_STRING;
+			goto append_cmd;
+		case DW_FORM_flag_present:
+			continue;
+		case DW_FORM_indirect:
+			PyErr_SetString(PyExc_NotImplementedError,
+					"DW_FORM_indirect is not implemented");
+			return -1;
+		default:
+			PyErr_Format(DwarfFormatError,
+				     "unknown attribute form %0x" PRIx64, form);
+			return -1;
+		}
+
+		if (num_cmds && decl->cmds[num_cmds - 1] < ATTRIB_MIN_CMD) {
+			if ((uint16_t)decl->cmds[num_cmds - 1] + cmd < ATTRIB_MIN_CMD) {
+				decl->cmds[num_cmds - 1] += cmd;
+				continue;
+			} else {
+				cmd = (uint16_t)decl->cmds[num_cmds - 1] + cmd - ATTRIB_MIN_CMD + 1;
+				decl->cmds[num_cmds - 1] = ATTRIB_MIN_CMD - 1;
+			}
+		}
+
+append_cmd:
+		if (num_cmds + 3 >= cmds_capacity) {
+			uint8_t *tmp;
+
+			cmds_capacity *= 2;
+			tmp = realloc(decl->cmds,
+				      cmds_capacity * sizeof(uint8_t));
+			if (!tmp) {
+				PyErr_NoMemory();
+				return -1;
+			}
+			decl->cmds = tmp;
+		}
+		decl->cmds[num_cmds++] = cmd;
 	}
+	decl->cmds[num_cmds++] = 0;
+	decl->cmds[num_cmds++] = tag;
+	decl->cmds[num_cmds] = children;
 
 	return 1;
 }
-
 
 static int read_abbrev_table(const char *ptr, const char *end,
 			     struct compilation_unit *cu)
@@ -710,7 +822,6 @@ static int read_cus(DwarfIndex *self, struct file *file)
 	size_t capacity = 0;
 
 	while (ptr < debug_info_end) {
-		struct compilation_unit_header cu_header;
 		struct compilation_unit *cu;
 
 		if (file->num_cus >= capacity) {
@@ -724,23 +835,20 @@ static int read_cus(DwarfIndex *self, struct file *file)
 
 		cu = &file->cus[file->num_cus];
 
-		if (read_compilation_unit_header(ptr, debug_info_end,
-						 &cu_header) == -1)
+		if (read_compilation_unit_header(ptr, debug_info_end, cu) == -1)
 			return -1;
 		cu->ptr = ptr;
-		cu->address_size = cu_header.address_size;
-		cu->is_64_bit = cu_header.is_64_bit;
 		cu->abbrev_decls = NULL;
 		cu->num_abbrev_decls = 0;
 		cu->file = file;
 		file->num_cus++;
-		self->address_size = cu_header.address_size;
+		self->address_size = cu->address_size;
 
-		if (read_abbrev_table(&debug_abbrev->buffer[cu_header.debug_abbrev_offset],
+		if (read_abbrev_table(&debug_abbrev->buffer[cu->debug_abbrev_offset],
 				      debug_abbrev_end, cu) == -1)
 			return -1;
 
-		ptr += (cu_header.is_64_bit ? 12 : 4) + cu_header.unit_length;
+		ptr += (cu->is_64_bit ? 12 : 4) + cu->unit_length;
 	}
 	return 0;
 }
@@ -784,9 +892,7 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 static int index_die(DwarfIndex *self, const char **ptr, struct file *file,
 		     struct compilation_unit *cu, unsigned int depth)
 {
-	const struct section *debug_info = &file->debug_sections[DEBUG_INFO];
-	const char *debug_info_buffer = debug_info->buffer;
-	const char *end = &debug_info_buffer[debug_info->size];
+	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
 	const struct section *debug_str = &file->debug_sections[DEBUG_STR];
 	const char *debug_str_buffer = debug_str->buffer;
 	const char *debug_str_end = &debug_str_buffer[debug_str->size];
@@ -794,9 +900,11 @@ static int index_die(DwarfIndex *self, const char **ptr, struct file *file,
 	const char *die_ptr = *ptr;
 	const char *sibling = NULL;
 	const char *name = NULL;
-	bool declaration = false;
 	uint64_t code;
-	size_t i;
+	uint8_t *cmdp;
+	uint8_t cmd;
+	uint64_t tag;
+	uint8_t children;
 
 	if (read_uleb128(ptr, end, &code) == -1)
 		return -1;
@@ -810,147 +918,29 @@ static int index_die(DwarfIndex *self, const char **ptr, struct file *file,
 	}
 	decl = &cu->abbrev_decls[code - 1];
 
-	for (i = 0; i < decl->num_attribs; i++) {
-		size_t skip;
+	cmdp = decl->cmds;
+	while ((cmd = *cmdp++)) {
+		uint64_t skip;
+		uint64_t tmp;
 
-		if (decl->attribs[i].name == DW_AT_sibling && depth > 0) {
-			size_t tmp;
-
-			switch (decl->attribs[i].form) {
-			case DW_FORM_ref1:
-				if (read_u8_into_size_t(ptr, end, &tmp) == -1)
-					return -1;
-				goto sibling_ref;
-			case DW_FORM_ref2:
-				if (read_u16_into_size_t(ptr, end, &tmp) == -1)
-					return -1;
-				goto sibling_ref;
-			case DW_FORM_ref4:
-				if (read_u32_into_size_t(ptr, end, &tmp) == -1)
-					return -1;
-				goto sibling_ref;
-			case DW_FORM_ref8:
-				if (read_u64_into_size_t(ptr, end, &tmp) == -1)
-					return -1;
-				goto sibling_ref;
-			case DW_FORM_ref_udata:
-				if (read_uleb128_into_size_t(ptr, end, &tmp) == -1)
-					return -1;
-sibling_ref:
-				if (!in_bounds(cu->ptr, end, tmp)) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				sibling = &cu->ptr[tmp];
-				__builtin_prefetch(sibling);
-				continue;
-			case DW_FORM_ref_addr:
-				if (read_u64(ptr, end, &tmp) == -1)
-					return -1;
-				if (!in_bounds(debug_info_buffer, end, tmp)) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				sibling = &debug_info_buffer[tmp];
-				__builtin_prefetch(sibling);
-				continue;
-			}
-		} else if (decl->attribs[i].name == DW_AT_name &&
-			   depth == 1 && (decl->tag == DW_TAG_base_type ||
-					  decl->tag == DW_TAG_class_type ||
-					  decl->tag == DW_TAG_enumeration_type ||
-					  decl->tag == DW_TAG_structure_type ||
-					  decl->tag == DW_TAG_typedef ||
-					  decl->tag == DW_TAG_union_type ||
-					  decl->tag == DW_TAG_variable)) {
-			const char *nul;
-			size_t strp;
-
-			switch (decl->attribs[i].form) {
-			case DW_FORM_strp:
-				if (cu->is_64_bit) {
-					if (read_u64_into_size_t(ptr, end, &strp) == -1)
-						return -1;
-				} else {
-					if (read_u32_into_size_t(ptr, end, &strp) == -1)
-						return -1;
-				}
-				if (!in_bounds(debug_str_buffer, debug_str_end,
-					       strp)) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				name = &debug_str_buffer[strp];
-				__builtin_prefetch(name);
-				continue;
-			case DW_FORM_string:
-				if (*ptr >= end) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				nul = memchr(*ptr, 0, end - *ptr);
-				if (!nul) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				name = *ptr;
-				*ptr = nul + 1;
-				continue;
-			}
-		} else if (decl->attribs[i].name == DW_AT_declaration) {
-			switch (decl->attribs[i].form) {
-			case DW_FORM_flag:
-				if (read_u8_into_bool(ptr, end,
-						      &declaration) == -1)
-					return -1;
-				continue;
-			case DW_FORM_flag_present:
-				declaration = true;
-				continue;
-			}
-		}
-
-		switch (decl->attribs[i].form) {
-		case DW_FORM_addr:
-			skip = cu->address_size;
-			break;
-		case DW_FORM_data1:
-		case DW_FORM_ref1:
-		case DW_FORM_flag:
-			skip = 1;
-			break;
-		case DW_FORM_data2:
-		case DW_FORM_ref2:
-			skip = 2;
-			break;
-		case DW_FORM_data4:
-		case DW_FORM_ref4:
-			skip = 4;
-			break;
-		case DW_FORM_data8:
-		case DW_FORM_ref8:
-		case DW_FORM_ref_sig8:
-			skip = 8;
-			break;
-		case DW_FORM_block1:
+		switch (cmd) {
+		case ATTRIB_BLOCK1:
 			if (read_u8_into_size_t(ptr, end, &skip) == -1)
 				return -1;
-			break;
-		case DW_FORM_block2:
+			goto skip;
+		case ATTRIB_BLOCK2:
 			if (read_u16_into_size_t(ptr, end, &skip) == -1)
 				return -1;
-			break;
-		case DW_FORM_block4:
+			goto skip;
+		case ATTRIB_BLOCK4:
 			if (read_u32_into_size_t(ptr, end, &skip) == -1)
 				return -1;
-			break;
-		case DW_FORM_exprloc:
+			goto skip;
+		case ATTRIB_EXPRLOC:
 			if (read_uleb128_into_size_t(ptr, end, &skip) == -1)
 				return -1;
-			break;
-		case DW_FORM_sdata:
-		case DW_FORM_udata:
-		case DW_FORM_ref_udata:
+			goto skip;
+		case ATTRIB_LEB128:
 			for (;;) {
 				if (*ptr >= end) {
 					PyErr_SetNone(PyExc_EOFError);
@@ -959,13 +949,11 @@ sibling_ref:
 				if (!(*(const uint8_t *)(*ptr)++ & 0x80))
 					break;
 			}
-			continue;
-		case DW_FORM_ref_addr:
-		case DW_FORM_sec_offset:
-		case DW_FORM_strp:
-			skip = cu->is_64_bit ? 8 : 4;
 			break;
-		case DW_FORM_string:
+		case ATTRIB_NAME_STRING:
+			name = *ptr;
+			/* fallthrough */
+		case ATTRIB_STRING:
 			{
 				const char *nul;
 
@@ -980,35 +968,69 @@ sibling_ref:
 				}
 				*ptr = nul + 1;
 			}
-			continue;
-		case DW_FORM_flag_present:
-			continue;
-		case DW_FORM_indirect:
-			PyErr_SetString(PyExc_NotImplementedError,
-					"DW_FORM_indirect is not implemented");
-			return -1;
+			break;
+		case ATTRIB_SIBLING_REF1:
+			if (read_u8_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling_ref;
+		case ATTRIB_SIBLING_REF2:
+			if (read_u16_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling_ref;
+		case ATTRIB_SIBLING_REF4:
+			if (read_u32_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling_ref;
+		case ATTRIB_SIBLING_REF8:
+			if (read_u64_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling_ref;
+		case ATTRIB_SIBLING_REF_UDATA:
+			if (read_uleb128_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+sibling_ref:
+			if (!in_bounds(cu->ptr, end, tmp)) {
+				PyErr_SetNone(PyExc_EOFError);
+				return -1;
+			}
+			sibling = &cu->ptr[tmp];
+			__builtin_prefetch(sibling);
+			break;
+		case ATTRIB_NAME_STRP:
+			if (cu->is_64_bit) {
+				if (read_u64_into_size_t(ptr, end, &tmp) == -1)
+					return -1;
+			} else {
+				if (read_u32_into_size_t(ptr, end, &tmp) == -1)
+					return -1;
+			}
+			if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
+				PyErr_SetNone(PyExc_EOFError);
+				return -1;
+			}
+			name = &debug_str_buffer[tmp];
+			__builtin_prefetch(name);
+			break;
 		default:
-			PyErr_Format(DwarfFormatError,
-				     "unknown attribute form %0x" PRIx64,
-				     decl->attribs[i].form);
-			return -1;
+			skip = cmd;
+skip:
+			if (!in_bounds(*ptr, end, skip)) {
+				PyErr_SetNone(PyExc_EOFError);
+				return -1;
+			}
+			*ptr += skip;
+			break;
 		}
-
-		if (!in_bounds(*ptr, end, skip)) {
-			PyErr_SetNone(PyExc_EOFError);
-			return -1;
-		}
-		*ptr += skip;
-		__builtin_prefetch(*ptr);
 	}
 
-	if (name && (decl->tag == DW_TAG_variable || !declaration)) {
-		if (add_die_hash_entry(self, name, decl->tag, cu,
-				       die_ptr) == -1)
+	tag = *cmdp++;
+	if (depth == 1 && name && tag) {
+		if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
 			return -1;
 	}
 
-	if (decl->children) {
+	children = *cmdp;
+	if (children) {
 		if (sibling) {
 			*ptr = sibling;
 		} else {
@@ -1044,7 +1066,7 @@ static void DwarfIndex_dealloc(DwarfIndex *self)
 	for (i = 0; i < self->num_files; i++) {
 		for (j = 0; j < self->files[i].num_cus; j++) {
 			for (k = 0; k < self->files[i].cus[j].num_abbrev_decls; k++)
-				free(self->files[i].cus[j].abbrev_decls[k].attribs);
+				free(self->files[i].cus[j].abbrev_decls[k].cmds);
 			free(self->files[i].cus[j].abbrev_decls);
 		}
 		free(self->files[i].cus);
