@@ -759,7 +759,7 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			return -1;
 		default:
 			PyErr_Format(DwarfFormatError,
-				     "unknown attribute form %0x" PRIx64, form);
+				     "unknown attribute form %" PRIu64, form);
 			return -1;
 		}
 
@@ -889,174 +889,167 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 	}
 }
 
-static int index_die(DwarfIndex *self, const char **ptr, struct file *file,
-		     struct compilation_unit *cu, unsigned int depth)
-{
-	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
-	const struct section *debug_str = &file->debug_sections[DEBUG_STR];
-	const char *debug_str_buffer = debug_str->buffer;
-	const char *debug_str_end = &debug_str_buffer[debug_str->size];
-	const struct abbrev_decl *decl;
-	const char *die_ptr = *ptr;
-	const char *sibling = NULL;
-	const char *name = NULL;
-	uint64_t code;
-	uint8_t *cmdp;
-	uint8_t cmd;
-	uint64_t tag;
-	uint8_t children;
-
-	if (read_uleb128(ptr, end, &code) == -1)
-		return -1;
-	if (code == 0)
-		return 0;
-
-	if (code < 1 || code > cu->num_abbrev_decls) {
-		PyErr_Format(DwarfFormatError,
-			     "unknown abbreviation code 0x%" PRIx64, code);
-		return -1;
-	}
-	decl = &cu->abbrev_decls[code - 1];
-
-	cmdp = decl->cmds;
-	while ((cmd = *cmdp++)) {
-		uint64_t skip;
-		uint64_t tmp;
-
-		switch (cmd) {
-		case ATTRIB_BLOCK1:
-			if (read_u8_into_size_t(ptr, end, &skip) == -1)
-				return -1;
-			goto skip;
-		case ATTRIB_BLOCK2:
-			if (read_u16_into_size_t(ptr, end, &skip) == -1)
-				return -1;
-			goto skip;
-		case ATTRIB_BLOCK4:
-			if (read_u32_into_size_t(ptr, end, &skip) == -1)
-				return -1;
-			goto skip;
-		case ATTRIB_EXPRLOC:
-			if (read_uleb128_into_size_t(ptr, end, &skip) == -1)
-				return -1;
-			goto skip;
-		case ATTRIB_LEB128:
-			for (;;) {
-				if (*ptr >= end) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				if (!(*(const uint8_t *)(*ptr)++ & 0x80))
-					break;
-			}
-			break;
-		case ATTRIB_NAME_STRING:
-			name = *ptr;
-			/* fallthrough */
-		case ATTRIB_STRING:
-			{
-				const char *nul;
-
-				if (*ptr >= end) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				nul = memchr(*ptr, 0, end - *ptr);
-				if (!nul) {
-					PyErr_SetNone(PyExc_EOFError);
-					return -1;
-				}
-				*ptr = nul + 1;
-			}
-			break;
-		case ATTRIB_SIBLING_REF1:
-			if (read_u8_into_size_t(ptr, end, &tmp) == -1)
-				return -1;
-			goto sibling_ref;
-		case ATTRIB_SIBLING_REF2:
-			if (read_u16_into_size_t(ptr, end, &tmp) == -1)
-				return -1;
-			goto sibling_ref;
-		case ATTRIB_SIBLING_REF4:
-			if (read_u32_into_size_t(ptr, end, &tmp) == -1)
-				return -1;
-			goto sibling_ref;
-		case ATTRIB_SIBLING_REF8:
-			if (read_u64_into_size_t(ptr, end, &tmp) == -1)
-				return -1;
-			goto sibling_ref;
-		case ATTRIB_SIBLING_REF_UDATA:
-			if (read_uleb128_into_size_t(ptr, end, &tmp) == -1)
-				return -1;
-sibling_ref:
-			if (!in_bounds(cu->ptr, end, tmp)) {
-				PyErr_SetNone(PyExc_EOFError);
-				return -1;
-			}
-			sibling = &cu->ptr[tmp];
-			__builtin_prefetch(sibling);
-			break;
-		case ATTRIB_NAME_STRP:
-			if (cu->is_64_bit) {
-				if (read_u64_into_size_t(ptr, end, &tmp) == -1)
-					return -1;
-			} else {
-				if (read_u32_into_size_t(ptr, end, &tmp) == -1)
-					return -1;
-			}
-			if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
-				PyErr_SetNone(PyExc_EOFError);
-				return -1;
-			}
-			name = &debug_str_buffer[tmp];
-			__builtin_prefetch(name);
-			break;
-		default:
-			skip = cmd;
-skip:
-			if (!in_bounds(*ptr, end, skip)) {
-				PyErr_SetNone(PyExc_EOFError);
-				return -1;
-			}
-			*ptr += skip;
-			break;
-		}
-	}
-
-	tag = *cmdp++;
-	if (depth == 1 && name && tag) {
-		if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
-			return -1;
-	}
-
-	children = *cmdp;
-	if (children) {
-		if (sibling) {
-			*ptr = sibling;
-		} else {
-			for (;;) {
-				int ret;
-
-				ret = index_die(self, ptr, file, cu, depth + 1);
-				if (ret == 0)
-					break;
-				else if (ret != 1)
-					return ret;
-			}
-		}
-	}
-
-	return 1;
-}
-
 static int index_cu(DwarfIndex *self, struct file *file,
 		    struct compilation_unit *cu)
 {
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
-	int ret;
+	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
+	const struct section *debug_str = &file->debug_sections[DEBUG_STR];
+	const char *debug_str_buffer = debug_str->buffer;
+	const char *debug_str_end = &debug_str_buffer[debug_str->size];
+	unsigned int depth = 0;
 
-	ret = index_die(self, &ptr, file, cu, 0);
-	return (ret == 1 ? 0 : ret);
+	for (;;) {
+		const struct abbrev_decl *decl;
+		const char *die_ptr = ptr;
+		const char *sibling = NULL;
+		const char *name = NULL;
+		uint64_t code;
+		uint8_t *cmdp;
+		uint8_t cmd;
+		uint64_t tag;
+		uint8_t children;
+
+		if (read_uleb128(&ptr, end, &code) == -1)
+			return -1;
+		if (code == 0) {
+			if (!--depth)
+				break;
+			continue;
+		}
+
+		if (code < 1 || code > cu->num_abbrev_decls) {
+			PyErr_Format(DwarfFormatError,
+				     "unknown abbreviation code %" PRIu64,
+				     code);
+			return -1;
+		}
+		decl = &cu->abbrev_decls[code - 1];
+
+		cmdp = decl->cmds;
+		while ((cmd = *cmdp++)) {
+			uint64_t skip;
+			uint64_t tmp;
+
+			switch (cmd) {
+			case ATTRIB_BLOCK1:
+				if (read_u8_into_size_t(&ptr, end, &skip) == -1)
+					return -1;
+				goto skip;
+			case ATTRIB_BLOCK2:
+				if (read_u16_into_size_t(&ptr, end, &skip) == -1)
+					return -1;
+				goto skip;
+			case ATTRIB_BLOCK4:
+				if (read_u32_into_size_t(&ptr, end, &skip) == -1)
+					return -1;
+				goto skip;
+			case ATTRIB_EXPRLOC:
+				if (read_uleb128_into_size_t(&ptr, end, &skip) == -1)
+					return -1;
+				goto skip;
+			case ATTRIB_LEB128:
+				for (;;) {
+					if (ptr >= end) {
+						PyErr_SetNone(PyExc_EOFError);
+						return -1;
+					}
+					if (!(*(const uint8_t *)ptr++ & 0x80))
+						break;
+				}
+				break;
+			case ATTRIB_NAME_STRING:
+				name = ptr;
+				/* fallthrough */
+			case ATTRIB_STRING:
+				{
+					const char *nul;
+
+					if (ptr >= end) {
+						PyErr_SetNone(PyExc_EOFError);
+						return -1;
+					}
+					nul = memchr(ptr, 0, end - ptr);
+					if (!nul) {
+						PyErr_SetNone(PyExc_EOFError);
+						return -1;
+					}
+					ptr = nul + 1;
+				}
+				break;
+			case ATTRIB_SIBLING_REF1:
+				if (read_u8_into_size_t(&ptr, end, &tmp) == -1)
+					return -1;
+				goto sibling_ref;
+			case ATTRIB_SIBLING_REF2:
+				if (read_u16_into_size_t(&ptr, end, &tmp) == -1)
+					return -1;
+				goto sibling_ref;
+			case ATTRIB_SIBLING_REF4:
+				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
+					return -1;
+				goto sibling_ref;
+			case ATTRIB_SIBLING_REF8:
+				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
+					return -1;
+				goto sibling_ref;
+			case ATTRIB_SIBLING_REF_UDATA:
+				if (read_uleb128_into_size_t(&ptr, end, &tmp) == -1)
+					return -1;
+	sibling_ref:
+				if (!in_bounds(cu->ptr, end, tmp)) {
+					PyErr_SetNone(PyExc_EOFError);
+					return -1;
+				}
+				sibling = &cu->ptr[tmp];
+				__builtin_prefetch(sibling);
+				break;
+			case ATTRIB_NAME_STRP:
+				if (cu->is_64_bit) {
+					if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
+						return -1;
+				} else {
+					if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
+						return -1;
+				}
+				if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
+					PyErr_SetNone(PyExc_EOFError);
+					return -1;
+				}
+				name = &debug_str_buffer[tmp];
+				__builtin_prefetch(name);
+				break;
+			default:
+				skip = cmd;
+	skip:
+				if (!in_bounds(ptr, end, skip)) {
+					PyErr_SetNone(PyExc_EOFError);
+					return -1;
+				}
+				ptr += skip;
+				break;
+			}
+		}
+
+		tag = *cmdp++;
+		if (depth == 1 && name && tag) {
+			if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
+				return -1;
+		}
+
+		children = *cmdp;
+		if (children) {
+			if (sibling) {
+				ptr = sibling;
+			} else {
+				depth++;
+			}
+		} else if (depth == 0) {
+			break;
+		}
+	}
+
+	return 0;
 }
 
 static void DwarfIndex_dealloc(DwarfIndex *self)
