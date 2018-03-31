@@ -39,25 +39,6 @@ static inline bool in_bounds(const char *ptr, const char *end, size_t size)
 	return ptr <= end && (size_t)(end - ptr) >= size;
 }
 
-static inline int read_strlen(const char **ptr, const char *end, size_t *value)
-{
-	const char *p, *nul;
-
-	if (*ptr >= end) {
-		PyErr_SetNone(PyExc_EOFError);
-		return -1;
-	}
-
-	nul = memchr(*ptr, 0, end - *ptr);
-	if (!nul) {
-		PyErr_SetNone(PyExc_EOFError);
-		return -1;
-	}
-	*value = nul - p;
-	*ptr = nul + 1;
-	return 0;
-}
-
 #define DEFINE_READ(size)						\
 static inline int read_u##size(const char **ptr, const char *end,	\
 			       uint##size##_t *value)			\
@@ -159,34 +140,6 @@ static inline int read_uleb128_into_size_t(const char **ptr, const char *end,
 		return -1;
 	}
 	*value = tmp;
-	return 0;
-}
-
-static inline int read_sleb128(const char **ptr, const char *end, int64_t *value)
-{
-	int shift = 0;
-	uint8_t byte;
-
-	*value = 0;
-	for (;;) {
-		if (*ptr >= end) {
-			PyErr_SetNone(PyExc_EOFError);
-			return -1;
-		}
-		byte = *(const uint8_t *)*ptr;
-		(*ptr)++;
-		if (shift == 63 && byte != 0 && byte != UINT8_C(0x7f)) {
-			PyErr_SetString(PyExc_OverflowError,
-					"SLEB128 overflowed signed 64-bit integer");
-			return -1;
-		}
-		*value |= (uint64_t)(byte & 0x7f) << shift;
-		shift += 7;
-		if (!(byte & 0x80))
-			break;
-	}
-	if (shift < 64 && (byte & 0x40))
-		*value |= ~(UINT64_C(1) << shift) + 1;
 	return 0;
 }
 
