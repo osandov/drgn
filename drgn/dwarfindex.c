@@ -207,7 +207,14 @@ enum {
 	ATTRIB_MIN_CMD = ATTRIB_BLOCK1,
 };
 
-struct abbrev_decl {
+struct abbrev_table {
+	/*
+	 * Technically, abbreviation codes don't have to be sequential. In
+	 * practice, GCC seems to always generate sequential codes starting at
+	 * one, so we can get away with a flat array.
+	 */
+	uint32_t *decls;
+	size_t num_decls;
 	uint8_t *cmds;
 };
 
@@ -218,13 +225,6 @@ struct compilation_unit {
 	uint64_t debug_abbrev_offset;
 	uint8_t address_size;
 	bool is_64_bit;
-	/*
-	 * Technically, abbreviation codes don't have to be sequential. In
-	 * practice, GCC seems to always generate sequential codes starting at
-	 * one, so we can get away with a flat array.
-	 */
-	struct abbrev_decl *abbrev_decls;
-	size_t num_abbrev_decls;
 	struct file *file;
 };
 
@@ -580,57 +580,75 @@ static int read_compilation_unit_header(const char *ptr, const char *end,
 	return read_u8(&ptr, end, &cu->address_size);
 }
 
-static int realloc_abbrev_decls(struct abbrev_decl **abbrev_decls, size_t n)
+static int read_cus(DwarfIndex *self, struct file *file)
 {
-	struct abbrev_decl *tmp;
+	const struct section *debug_info = &file->debug_sections[DEBUG_INFO];
+	const char *ptr = debug_info->buffer;
+	const char *debug_info_end = &ptr[debug_info->size];
+	size_t capacity = 0;
 
-	if (n > SIZE_MAX / sizeof(**abbrev_decls)) {
-		PyErr_NoMemory();
-		return -1;
+	while (ptr < debug_info_end) {
+		struct compilation_unit *cu;
+
+		if (file->num_cus >= capacity) {
+			if (capacity == 0)
+				capacity = 2;
+			else
+				capacity *= 2;
+			if (realloc_cus(&file->cus, capacity) == -1)
+				return -1;
+		}
+
+		cu = &file->cus[file->num_cus];
+
+		if (read_compilation_unit_header(ptr, debug_info_end, cu) == -1)
+			return -1;
+		cu->ptr = ptr;
+		cu->file = file;
+		file->num_cus++;
+		self->address_size = cu->address_size;
+
+		ptr += (cu->is_64_bit ? 12 : 4) + cu->unit_length;
 	}
-
-	tmp = realloc(*abbrev_decls, n * sizeof(**abbrev_decls));
-	if (!tmp) {
-		PyErr_NoMemory();
-		return -1;
-	}
-
-	*abbrev_decls = tmp;
 	return 0;
 }
 
 static int read_abbrev_decl(const char **ptr, const char *end,
-			    struct compilation_unit *cu,
-			    uint64_t *decls_capacity)
+			    const struct compilation_unit *cu,
+			    struct abbrev_table *table, size_t *decls_capacity,
+			    size_t *num_cmds, size_t *cmds_capacity)
 {
-	struct abbrev_decl *decl;
-	size_t cmds_capacity;
-	size_t num_cmds;
 	uint8_t children;
 	uint64_t code;
 	uint64_t tag;
+	bool first = true;
 
 	if (read_uleb128(ptr, end, &code) == -1)
 		return -1;
 	if (code == 0)
 		return 0;
-	if (code != cu->num_abbrev_decls + 1) {
+	if (code != table->num_decls + 1) {
 		PyErr_SetString(PyExc_NotImplementedError,
 				"abbreviation table is not sequential");
 		return -1;
 	}
 
-	if (cu->num_abbrev_decls >= *decls_capacity) {
+	if (table->num_decls >= *decls_capacity) {
+		uint32_t *tmp;
+
 		if (*decls_capacity == 0)
 			*decls_capacity = 1;
 		else
 			*decls_capacity *= 2;
-		if (realloc_abbrev_decls(&cu->abbrev_decls, *decls_capacity) == -1)
+		tmp = realloc(table->decls, *decls_capacity * sizeof(uint32_t));
+		if (!tmp) {
+			PyErr_NoMemory();
 			return -1;
+		}
+		table->decls = tmp;
 	}
 
-	decl = &cu->abbrev_decls[cu->num_abbrev_decls++];
-	decl->cmds = NULL;
+	table->decls[table->num_decls++] = *num_cmds;
 
 	if (read_uleb128(ptr, end, &tag) == -1)
 		return -1;
@@ -645,13 +663,6 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 	if (read_u8(ptr, end, &children) == -1)
 		return -1;
 
-	cmds_capacity = 8;
-	decl->cmds = malloc(cmds_capacity * sizeof(uint8_t));
-	if (!decl->cmds) {
-		PyErr_NoMemory();
-		return -1;
-	}
-	num_cmds = 0;
 	for (;;) {
 		uint64_t name, form;
 		uint8_t cmd;
@@ -763,96 +774,65 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			return -1;
 		}
 
-		if (num_cmds && decl->cmds[num_cmds - 1] < ATTRIB_MIN_CMD) {
-			if ((uint16_t)decl->cmds[num_cmds - 1] + cmd < ATTRIB_MIN_CMD) {
-				decl->cmds[num_cmds - 1] += cmd;
+		if (!first && table->cmds[*num_cmds - 1] < ATTRIB_MIN_CMD) {
+			if ((uint16_t)table->cmds[*num_cmds - 1] + cmd < ATTRIB_MIN_CMD) {
+				table->cmds[*num_cmds - 1] += cmd;
 				continue;
 			} else {
-				cmd = (uint16_t)decl->cmds[num_cmds - 1] + cmd - ATTRIB_MIN_CMD + 1;
-				decl->cmds[num_cmds - 1] = ATTRIB_MIN_CMD - 1;
+				cmd = (uint16_t)table->cmds[*num_cmds - 1] + cmd - ATTRIB_MIN_CMD + 1;
+				table->cmds[*num_cmds - 1] = ATTRIB_MIN_CMD - 1;
 			}
 		}
 
 append_cmd:
-		if (num_cmds + 3 >= cmds_capacity) {
+		first = false;
+		if (*num_cmds + 3 >= *cmds_capacity) {
 			uint8_t *tmp;
 
-			cmds_capacity *= 2;
-			tmp = realloc(decl->cmds,
-				      cmds_capacity * sizeof(uint8_t));
+			if (*cmds_capacity == 0)
+				*cmds_capacity = 16;
+			else
+				*cmds_capacity *= 2;
+			tmp = realloc(table->cmds,
+				      *cmds_capacity * sizeof(uint8_t));
 			if (!tmp) {
 				PyErr_NoMemory();
 				return -1;
 			}
-			decl->cmds = tmp;
+			table->cmds = tmp;
 		}
-		decl->cmds[num_cmds++] = cmd;
+		table->cmds[(*num_cmds)++] = cmd;
 	}
-	decl->cmds[num_cmds++] = 0;
-	decl->cmds[num_cmds++] = tag;
-	decl->cmds[num_cmds] = children;
+	table->cmds[(*num_cmds)++] = 0;
+	table->cmds[(*num_cmds)++] = tag;
+	table->cmds[(*num_cmds)++] = children;
 
 	return 1;
 }
 
 static int read_abbrev_table(const char *ptr, const char *end,
-			     struct compilation_unit *cu)
+			     const struct compilation_unit *cu,
+			     struct abbrev_table *table)
 {
 	size_t decls_capacity = 0;
+	size_t num_cmds = 0;
+	size_t cmds_capacity = 0;
 
-	cu->abbrev_decls = NULL;
-	cu->num_abbrev_decls = 0;
+	table->decls = NULL;
+	table->num_decls = 0;
+	table->cmds = NULL;
 
 	for (;;) {
 		int ret;
 
-		ret = read_abbrev_decl(&ptr, end, cu, &decls_capacity);
+		ret = read_abbrev_decl(&ptr, end, cu, table, &decls_capacity,
+				       &num_cmds, &cmds_capacity);
 		if (ret != 1)
 			return ret;
 	}
 }
 
-static int read_cus(DwarfIndex *self, struct file *file)
-{
-	const struct section *debug_info = &file->debug_sections[DEBUG_INFO];
-	const char *ptr = debug_info->buffer;
-	const char *debug_info_end = &ptr[debug_info->size];
-	const struct section *debug_abbrev = &file->debug_sections[DEBUG_ABBREV];
-	const char *debug_abbrev_end = &debug_abbrev->buffer[debug_abbrev->size];
-	size_t capacity = 0;
-
-	while (ptr < debug_info_end) {
-		struct compilation_unit *cu;
-
-		if (file->num_cus >= capacity) {
-			if (capacity == 0)
-				capacity = 2;
-			else
-				capacity *= 2;
-			if (realloc_cus(&file->cus, capacity) == -1)
-				return -1;
-		}
-
-		cu = &file->cus[file->num_cus];
-
-		if (read_compilation_unit_header(ptr, debug_info_end, cu) == -1)
-			return -1;
-		cu->ptr = ptr;
-		cu->abbrev_decls = NULL;
-		cu->num_abbrev_decls = 0;
-		cu->file = file;
-		file->num_cus++;
-		self->address_size = cu->address_size;
-
-		if (read_abbrev_table(&debug_abbrev->buffer[cu->debug_abbrev_offset],
-				      debug_abbrev_end, cu) == -1)
-			return -1;
-
-		ptr += (cu->is_64_bit ? 12 : 4) + cu->unit_length;
-	}
-	return 0;
-}
-
+/* DJBX33A hash function */
 static inline uint32_t name_hash(const char *name)
 {
 	uint32_t hash = 5381;
@@ -892,6 +872,9 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 static int index_cu(DwarfIndex *self, struct file *file,
 		    struct compilation_unit *cu)
 {
+	struct abbrev_table abbrev_table;
+	const struct section *debug_abbrev = &file->debug_sections[DEBUG_ABBREV];
+	const char *debug_abbrev_end = &debug_abbrev->buffer[debug_abbrev->size];
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
 	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
 	const struct section *debug_str = &file->debug_sections[DEBUG_STR];
@@ -899,8 +882,11 @@ static int index_cu(DwarfIndex *self, struct file *file,
 	const char *debug_str_end = &debug_str_buffer[debug_str->size];
 	unsigned int depth = 0;
 
+	if (read_abbrev_table(&debug_abbrev->buffer[cu->debug_abbrev_offset],
+			      debug_abbrev_end, cu, &abbrev_table) == -1)
+		goto err;
+
 	for (;;) {
-		const struct abbrev_decl *decl;
 		const char *die_ptr = ptr;
 		const char *sibling = NULL;
 		const char *name = NULL;
@@ -911,22 +897,21 @@ static int index_cu(DwarfIndex *self, struct file *file,
 		uint8_t children;
 
 		if (read_uleb128(&ptr, end, &code) == -1)
-			return -1;
+			goto err;
 		if (code == 0) {
 			if (!--depth)
 				break;
 			continue;
 		}
 
-		if (code < 1 || code > cu->num_abbrev_decls) {
+		if (code < 1 || code > abbrev_table.num_decls) {
 			PyErr_Format(DwarfFormatError,
 				     "unknown abbreviation code %" PRIu64,
 				     code);
-			return -1;
+			goto err;
 		}
-		decl = &cu->abbrev_decls[code - 1];
+		cmdp = &abbrev_table.cmds[abbrev_table.decls[code - 1]];
 
-		cmdp = decl->cmds;
 		while ((cmd = *cmdp++)) {
 			uint64_t skip;
 			uint64_t tmp;
@@ -934,25 +919,25 @@ static int index_cu(DwarfIndex *self, struct file *file,
 			switch (cmd) {
 			case ATTRIB_BLOCK1:
 				if (read_u8_into_size_t(&ptr, end, &skip) == -1)
-					return -1;
+					goto err;
 				goto skip;
 			case ATTRIB_BLOCK2:
 				if (read_u16_into_size_t(&ptr, end, &skip) == -1)
-					return -1;
+					goto err;
 				goto skip;
 			case ATTRIB_BLOCK4:
 				if (read_u32_into_size_t(&ptr, end, &skip) == -1)
-					return -1;
+					goto err;
 				goto skip;
 			case ATTRIB_EXPRLOC:
 				if (read_uleb128_into_size_t(&ptr, end, &skip) == -1)
-					return -1;
+					goto err;
 				goto skip;
 			case ATTRIB_LEB128:
 				for (;;) {
 					if (ptr >= end) {
 						PyErr_SetNone(PyExc_EOFError);
-						return -1;
+						goto err;
 					}
 					if (!(*(const uint8_t *)ptr++ & 0x80))
 						break;
@@ -967,39 +952,39 @@ static int index_cu(DwarfIndex *self, struct file *file,
 
 					if (ptr >= end) {
 						PyErr_SetNone(PyExc_EOFError);
-						return -1;
+						goto err;
 					}
 					nul = memchr(ptr, 0, end - ptr);
 					if (!nul) {
 						PyErr_SetNone(PyExc_EOFError);
-						return -1;
+						goto err;
 					}
 					ptr = nul + 1;
 				}
 				break;
 			case ATTRIB_SIBLING_REF1:
 				if (read_u8_into_size_t(&ptr, end, &tmp) == -1)
-					return -1;
+					goto err;
 				goto sibling_ref;
 			case ATTRIB_SIBLING_REF2:
 				if (read_u16_into_size_t(&ptr, end, &tmp) == -1)
-					return -1;
+					goto err;
 				goto sibling_ref;
 			case ATTRIB_SIBLING_REF4:
 				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
-					return -1;
+					goto err;
 				goto sibling_ref;
 			case ATTRIB_SIBLING_REF8:
 				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
-					return -1;
+					goto err;
 				goto sibling_ref;
 			case ATTRIB_SIBLING_REF_UDATA:
 				if (read_uleb128_into_size_t(&ptr, end, &tmp) == -1)
-					return -1;
+					goto err;
 	sibling_ref:
 				if (!in_bounds(cu->ptr, end, tmp)) {
 					PyErr_SetNone(PyExc_EOFError);
-					return -1;
+					goto err;
 				}
 				sibling = &cu->ptr[tmp];
 				__builtin_prefetch(sibling);
@@ -1007,14 +992,14 @@ static int index_cu(DwarfIndex *self, struct file *file,
 			case ATTRIB_NAME_STRP:
 				if (cu->is_64_bit) {
 					if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
-						return -1;
+						goto err;
 				} else {
 					if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
-						return -1;
+						goto err;
 				}
 				if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
 					PyErr_SetNone(PyExc_EOFError);
-					return -1;
+					goto err;
 				}
 				name = &debug_str_buffer[tmp];
 				__builtin_prefetch(name);
@@ -1024,7 +1009,7 @@ static int index_cu(DwarfIndex *self, struct file *file,
 	skip:
 				if (!in_bounds(ptr, end, skip)) {
 					PyErr_SetNone(PyExc_EOFError);
-					return -1;
+					goto err;
 				}
 				ptr += skip;
 				break;
@@ -1034,34 +1019,35 @@ static int index_cu(DwarfIndex *self, struct file *file,
 		tag = *cmdp++;
 		if (depth == 1 && name && tag) {
 			if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
-				return -1;
+				goto err;
 		}
 
 		children = *cmdp;
 		if (children) {
-			if (sibling) {
+			if (sibling)
 				ptr = sibling;
-			} else {
+			else
 				depth++;
-			}
 		} else if (depth == 0) {
 			break;
 		}
 	}
 
+	free(abbrev_table.decls);
+	free(abbrev_table.cmds);
 	return 0;
+
+err:
+	free(abbrev_table.decls);
+	free(abbrev_table.cmds);
+	return -1;
 }
 
 static void DwarfIndex_dealloc(DwarfIndex *self)
 {
-	size_t i, j, k;
+	size_t i;
 
 	for (i = 0; i < self->num_files; i++) {
-		for (j = 0; j < self->files[i].num_cus; j++) {
-			for (k = 0; k < self->files[i].cus[j].num_abbrev_decls; k++)
-				free(self->files[i].cus[j].abbrev_decls[k].cmds);
-			free(self->files[i].cus[j].abbrev_decls);
-		}
 		free(self->files[i].cus);
 		munmap(self->files[i].map, self->files[i].size);
 		Py_XDECREF(self->files[i].obj);
