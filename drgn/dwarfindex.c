@@ -191,18 +191,19 @@ static inline int read_sleb128(const char **ptr, const char *end, int64_t *value
 }
 
 enum {
-	ATTRIB_BLOCK1 = 243,
-	ATTRIB_BLOCK2 = 244,
-	ATTRIB_BLOCK4 = 245,
-	ATTRIB_EXPRLOC = 246,
-	ATTRIB_LEB128 = 247,
-	ATTRIB_STRING = 248,
-	ATTRIB_SIBLING_REF1 = 249,
-	ATTRIB_SIBLING_REF2 = 250,
-	ATTRIB_SIBLING_REF4 = 251,
-	ATTRIB_SIBLING_REF8 = 252,
-	ATTRIB_SIBLING_REF_UDATA = 253,
-	ATTRIB_NAME_STRP = 254,
+	ATTRIB_BLOCK1 = 242,
+	ATTRIB_BLOCK2 = 243,
+	ATTRIB_BLOCK4 = 244,
+	ATTRIB_EXPRLOC = 245,
+	ATTRIB_LEB128 = 246,
+	ATTRIB_STRING = 247,
+	ATTRIB_SIBLING_REF1 = 248,
+	ATTRIB_SIBLING_REF2 = 249,
+	ATTRIB_SIBLING_REF4 = 250,
+	ATTRIB_SIBLING_REF8 = 251,
+	ATTRIB_SIBLING_REF_UDATA = 252,
+	ATTRIB_NAME_STRP4 = 253,
+	ATTRIB_NAME_STRP8 = 254,
 	ATTRIB_NAME_STRING = 255,
 	ATTRIB_MIN_CMD = ATTRIB_BLOCK1,
 };
@@ -697,7 +698,10 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 		} else if (name == DW_AT_name && tag) {
 			switch (form) {
 			case DW_FORM_strp:
-				cmd = ATTRIB_NAME_STRP;
+				if (cu->is_64_bit)
+					cmd = ATTRIB_NAME_STRP8;
+				else
+					cmd = ATTRIB_NAME_STRP4;
 				goto append_cmd;
 			case DW_FORM_string:
 				cmd = ATTRIB_NAME_STRING;
@@ -964,23 +968,23 @@ static int index_cu(DwarfIndex *self, struct file *file,
 			case ATTRIB_SIBLING_REF1:
 				if (read_u8_into_size_t(&ptr, end, &tmp) == -1)
 					goto err;
-				goto sibling_ref;
+				goto sibling;
 			case ATTRIB_SIBLING_REF2:
 				if (read_u16_into_size_t(&ptr, end, &tmp) == -1)
 					goto err;
-				goto sibling_ref;
+				goto sibling;
 			case ATTRIB_SIBLING_REF4:
 				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
 					goto err;
-				goto sibling_ref;
+				goto sibling;
 			case ATTRIB_SIBLING_REF8:
 				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
 					goto err;
-				goto sibling_ref;
+				goto sibling;
 			case ATTRIB_SIBLING_REF_UDATA:
 				if (read_uleb128_into_size_t(&ptr, end, &tmp) == -1)
 					goto err;
-sibling_ref:
+sibling:
 				if (!in_bounds(cu->ptr, end, tmp)) {
 					PyErr_SetNone(PyExc_EOFError);
 					goto err;
@@ -988,14 +992,14 @@ sibling_ref:
 				sibling = &cu->ptr[tmp];
 				__builtin_prefetch(sibling);
 				break;
-			case ATTRIB_NAME_STRP:
-				if (cu->is_64_bit) {
-					if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
-						goto err;
-				} else {
-					if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
-						goto err;
-				}
+			case ATTRIB_NAME_STRP4:
+				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
+					goto err;
+				goto strp;
+			case ATTRIB_NAME_STRP8:
+				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
+					goto err;
+strp:
 				if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
 					PyErr_SetNone(PyExc_EOFError);
 					goto err;
