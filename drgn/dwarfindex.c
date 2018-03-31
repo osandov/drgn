@@ -786,11 +786,11 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 
 append_cmd:
 		first = false;
-		if (*num_cmds + 3 >= *cmds_capacity) {
+		if (*num_cmds + 2 >= *cmds_capacity) {
 			uint8_t *tmp;
 
 			if (*cmds_capacity == 0)
-				*cmds_capacity = 16;
+				*cmds_capacity = 32;
 			else
 				*cmds_capacity *= 2;
 			tmp = realloc(table->cmds,
@@ -804,8 +804,8 @@ append_cmd:
 		table->cmds[(*num_cmds)++] = cmd;
 	}
 	table->cmds[(*num_cmds)++] = 0;
-	table->cmds[(*num_cmds)++] = tag;
-	table->cmds[(*num_cmds)++] = children;
+	/* Low bits are the tag, high bit is the children flag. */
+	table->cmds[(*num_cmds)++] = tag | ((!!children) << 7);
 
 	return 1;
 }
@@ -894,7 +894,6 @@ static int index_cu(DwarfIndex *self, struct file *file,
 		uint8_t *cmdp;
 		uint8_t cmd;
 		uint64_t tag;
-		uint8_t children;
 
 		if (read_uleb128(&ptr, end, &code) == -1)
 			goto err;
@@ -981,7 +980,7 @@ static int index_cu(DwarfIndex *self, struct file *file,
 			case ATTRIB_SIBLING_REF_UDATA:
 				if (read_uleb128_into_size_t(&ptr, end, &tmp) == -1)
 					goto err;
-	sibling_ref:
+sibling_ref:
 				if (!in_bounds(cu->ptr, end, tmp)) {
 					PyErr_SetNone(PyExc_EOFError);
 					goto err;
@@ -1006,7 +1005,7 @@ static int index_cu(DwarfIndex *self, struct file *file,
 				break;
 			default:
 				skip = cmd;
-	skip:
+skip:
 				if (!in_bounds(ptr, end, skip)) {
 					PyErr_SetNone(PyExc_EOFError);
 					goto err;
@@ -1016,14 +1015,14 @@ static int index_cu(DwarfIndex *self, struct file *file,
 			}
 		}
 
-		tag = *cmdp++;
+		tag = *cmdp & 0x7f;
 		if (depth == 1 && name && tag) {
 			if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
 				goto err;
 		}
 
-		children = *cmdp;
-		if (children) {
+		/* High bit set means this DIE has children. */
+		if (*cmdp & 0x80) {
 			if (sibling)
 				ptr = sibling;
 			else
