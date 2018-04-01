@@ -194,8 +194,6 @@ struct file {
 	struct section symtab;
 	struct section debug_sections[NUM_DEBUG_SECTIONS];
 	struct section rela_sections[NUM_DEBUG_SECTIONS];
-	struct compilation_unit *cus;
-	size_t num_cus;
 	/* DwarfFile object or NULL if it has not been initialized yet. */
 	PyObject *obj;
 	/* dict mapping cu offsets to CUs */
@@ -213,6 +211,8 @@ typedef struct {
 	PyObject_HEAD
 	struct file *files;
 	size_t num_files;
+	struct compilation_unit *cus;
+	size_t num_cus;
 	struct die_hash_entry die_hash[DIE_HASH_SIZE];
 	int address_size;
 } DwarfIndex;
@@ -534,32 +534,30 @@ static int read_compilation_unit_header(const char *ptr, const char *end,
 	return read_u8(&ptr, end, &cu->address_size);
 }
 
-static int read_cus(DwarfIndex *self, struct file *file)
+static int read_cus(DwarfIndex *self, struct file *file, size_t *cus_capacity)
 {
 	const struct section *debug_info = &file->debug_sections[DEBUG_INFO];
 	const char *ptr = debug_info->buffer;
 	const char *debug_info_end = &ptr[debug_info->size];
-	size_t capacity = 0;
 
 	while (ptr < debug_info_end) {
 		struct compilation_unit *cu;
 
-		if (file->num_cus >= capacity) {
-			if (capacity == 0)
-				capacity = 2;
+		if (self->num_cus >= *cus_capacity) {
+			if (*cus_capacity == 0)
+				*cus_capacity = 1;
 			else
-				capacity *= 2;
-			if (realloc_cus(&file->cus, capacity) == -1)
+				*cus_capacity *= 2;
+			if (realloc_cus(&self->cus, *cus_capacity) == -1)
 				return -1;
 		}
 
-		cu = &file->cus[file->num_cus];
+		cu = &self->cus[self->num_cus++];
 
 		if (read_compilation_unit_header(ptr, debug_info_end, cu) == -1)
 			return -1;
 		cu->ptr = ptr;
 		cu->file = file;
-		file->num_cus++;
 		self->address_size = cu->address_size;
 
 		ptr += (cu->is_64_bit ? 12 : 4) + cu->unit_length;
@@ -826,15 +824,14 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 	}
 }
 
-static int index_cu(DwarfIndex *self, struct file *file,
-		    struct compilation_unit *cu)
+static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 {
 	struct abbrev_table abbrev_table;
-	const struct section *debug_abbrev = &file->debug_sections[DEBUG_ABBREV];
+	const struct section *debug_abbrev = &cu->file->debug_sections[DEBUG_ABBREV];
 	const char *debug_abbrev_end = &debug_abbrev->buffer[debug_abbrev->size];
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
 	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
-	const struct section *debug_str = &file->debug_sections[DEBUG_STR];
+	const struct section *debug_str = &cu->file->debug_sections[DEBUG_STR];
 	const char *debug_str_buffer = debug_str->buffer;
 	const char *debug_str_end = &debug_str_buffer[debug_str->size];
 	unsigned int depth = 0;
@@ -1004,12 +1001,12 @@ static void DwarfIndex_dealloc(DwarfIndex *self)
 	size_t i;
 
 	for (i = 0; i < self->num_files; i++) {
-		free(self->files[i].cus);
 		munmap(self->files[i].map, self->files[i].size);
 		Py_XDECREF(self->files[i].obj);
 		Py_XDECREF(self->files[i].cu_objs);
 	}
 	free(self->files);
+	free(self->cus);
 
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
@@ -1018,6 +1015,7 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"paths", NULL};
 	PyObject *paths;
+	size_t cus_capacity = 0;
 	size_t i;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:DwarfIndex",
@@ -1070,14 +1068,13 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 			return -1;
 		}
 
-		if (read_cus(self, &self->files[i]) == -1)
+		if (read_cus(self, &self->files[i], &cus_capacity) == -1)
 			return -1;
+	}
 
-		for (j = 0; j < self->files[i].num_cus; j++) {
-			if (index_cu(self, &self->files[i],
-				     &self->files[i].cus[j]) == -1)
-				return -1;
-		}
+	for (i = 0; i < self->num_cus; i++) {
+		if (index_cu(self, &self->cus[i]) == -1)
+			return -1;
 	}
 
 	return 0;
