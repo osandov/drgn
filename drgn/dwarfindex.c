@@ -21,6 +21,45 @@ static PyObject *ElfFormatError;
 #define DIE_HASH_SIZE (1 << DIE_HASH_SHIFT)
 #define DIE_HASH_MASK ((1 << DIE_HASH_SHIFT) - 1)
 
+/*
+ * XXX: hacky way to make sure everywhere we raise an exception does so with the
+ * GIL held.
+ */
+#define PyErr_Format(...) ({				\
+	PyGILState_STATE _state = PyGILState_Ensure();	\
+	PyErr_Format(__VA_ARGS__);			\
+	PyGILState_Release(_state);			\
+	NULL;						\
+})
+
+#define PyErr_NoMemory(...) ({				\
+	PyGILState_STATE _state = PyGILState_Ensure();	\
+	PyErr_NoMemory(__VA_ARGS__);			\
+	PyGILState_Release(_state);			\
+	NULL;						\
+})
+
+#define PyErr_SetFromErrnoWithFilenameObject(...) ({		\
+	PyGILState_STATE _state = PyGILState_Ensure();		\
+	PyErr_SetFromErrnoWithFilenameObject(__VA_ARGS__);	\
+	PyGILState_Release(_state);				\
+	NULL;							\
+})
+
+#define PyErr_SetNone(...) ({				\
+	PyGILState_STATE _state = PyGILState_Ensure();	\
+	PyErr_SetNone(__VA_ARGS__);			\
+	PyGILState_Release(_state);			\
+	NULL;						\
+})
+
+#define PyErr_SetString(...) ({				\
+	PyGILState_STATE _state = PyGILState_Ensure();	\
+	PyErr_SetString(__VA_ARGS__);			\
+	PyGILState_Release(_state);			\
+	NULL;						\
+})
+
 enum {
 	DEBUG_ABBREV,
 	DEBUG_INFO,
@@ -806,15 +845,25 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 
 	i = orig_i = name_hash(name) & DIE_HASH_MASK;
 	for (;;) {
+		const char *entry_name;
+		uint64_t entry_tag;
+
 		entry = &self->die_hash[i];
-		if (!entry->name) {
-			entry->name = name;
-			entry->tag = tag;
+		entry_name = __atomic_load_n(&entry->name, __ATOMIC_SEQ_CST);
+		if (!entry_name &&
+		    __atomic_compare_exchange_n(&entry->name, &entry_name, name,
+						false, __ATOMIC_SEQ_CST,
+						__ATOMIC_SEQ_CST)) {
+			__atomic_store_n(&entry->tag, tag, __ATOMIC_SEQ_CST);
 			entry->cu = cu;
 			entry->ptr = ptr;
 			return 0;
 		}
-		if (entry->tag == tag && strcmp(entry->name, name) == 0)
+		do {
+			entry_tag = __atomic_load_n(&entry->tag,
+						    __ATOMIC_SEQ_CST);
+		} while (!entry_tag);
+		if (tag == entry_tag && strcmp(name, entry_name) == 0)
 			return 0;
 		i = (i + 1) & DIE_HASH_MASK;
 		if (i == orig_i) {
@@ -1011,6 +1060,47 @@ static void DwarfIndex_dealloc(DwarfIndex *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static int index_cus(DwarfIndex *self)
+{
+	PyObject *type = NULL, *value = NULL, *traceback = NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+
+#pragma omp parallel
+	{
+		PyGILState_STATE state = PyGILState_Ensure();
+		size_t i;
+
+		Py_BEGIN_ALLOW_THREADS
+
+#pragma omp for schedule(dynamic)
+		for (i = 0; i < self->num_cus; i++) {
+			if (type)
+				continue;
+			if (index_cu(self, &self->cus[i]) == -1) {
+				Py_BLOCK_THREADS
+				if (type)
+					PyErr_Clear();
+				else
+					PyErr_Fetch(&type, &value, &traceback);
+				Py_UNBLOCK_THREADS
+			}
+		}
+
+		Py_END_ALLOW_THREADS
+
+		PyGILState_Release(state);
+	}
+
+	Py_END_ALLOW_THREADS
+
+	if (type) {
+		PyErr_Restore(type, value, traceback);
+		return -1;
+	}
+	return 0;
+}
+
 static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"paths", NULL};
@@ -1072,12 +1162,7 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 			return -1;
 	}
 
-	for (i = 0; i < self->num_cus; i++) {
-		if (index_cu(self, &self->cus[i]) == -1)
-			return -1;
-	}
-
-	return 0;
+	return index_cus(self);
 }
 
 static PyObject *create_file_object(DwarfIndex *self, struct file *file)
@@ -1272,6 +1357,8 @@ PyInit_dwarfindex(void)
 {
 	PyObject *name;
 	PyObject *m;
+
+	PyEval_InitThreads();
 
 	name = PyUnicode_FromString("drgn.dwarf");
 	if (!name)

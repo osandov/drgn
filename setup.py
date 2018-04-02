@@ -11,6 +11,8 @@ extensions = [
         sources=[
             'drgn/dwarfindex.c',
         ],
+        extra_compile_args=['-fopenmp'],
+        extra_link_args=['-fopenmp'],
     ),
 ]
 
