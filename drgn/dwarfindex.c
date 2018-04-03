@@ -1,4 +1,3 @@
-#include <dwarf.h>
 #include <elf.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -12,6 +11,50 @@
 
 #include <Python.h>
 #include "structmember.h"
+
+enum {
+	DW_TAG_class_type = 0x2,
+	DW_TAG_enumeration_type = 0x4,
+	DW_TAG_structure_type = 0x13,
+	DW_TAG_typedef = 0x16,
+	DW_TAG_union_type = 0x17,
+	DW_TAG_base_type = 0x24,
+	DW_TAG_variable = 0x34,
+};
+
+enum {
+	DW_AT_sibling = 0x1,
+	DW_AT_name = 0x3,
+	DW_AT_declaration = 0x3c,
+};
+
+enum {
+	DW_FORM_addr = 0x1,
+	DW_FORM_block2 = 0x3,
+	DW_FORM_block4 = 0x4,
+	DW_FORM_data2 = 0x5,
+	DW_FORM_data4 = 0x6,
+	DW_FORM_data8 = 0x7,
+	DW_FORM_string = 0x8,
+	DW_FORM_block = 0x9,
+	DW_FORM_block1 = 0xa,
+	DW_FORM_data1 = 0xb,
+	DW_FORM_flag = 0xc,
+	DW_FORM_sdata = 0xd,
+	DW_FORM_strp = 0xe,
+	DW_FORM_udata = 0xf,
+	DW_FORM_ref_addr = 0x10,
+	DW_FORM_ref1 = 0x11,
+	DW_FORM_ref2 = 0x12,
+	DW_FORM_ref4 = 0x13,
+	DW_FORM_ref8 = 0x14,
+	DW_FORM_ref_udata = 0x15,
+	DW_FORM_indirect = 0x16,
+	DW_FORM_sec_offset = 0x17,
+	DW_FORM_exprloc = 0x18,
+	DW_FORM_flag_present = 0x19,
+	DW_FORM_ref_sig8 = 0x20,
+};
 
 static PyObject *DwarfFile;
 static PyObject *DwarfFormatError;
