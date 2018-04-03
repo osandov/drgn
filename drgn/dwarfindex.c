@@ -642,6 +642,27 @@ static int read_cus(DwarfIndex *self, struct file *file, size_t *cus_capacity)
 	return 0;
 }
 
+static int append_cmd(struct abbrev_table *table, uint8_t cmd, size_t *num_cmds,
+		      size_t *cmds_capacity)
+{
+	if (*num_cmds >= *cmds_capacity) {
+		uint8_t *tmp;
+
+		if (*cmds_capacity == 0)
+			*cmds_capacity = 32;
+		else
+			*cmds_capacity *= 2;
+		tmp = realloc(table->cmds, *cmds_capacity * sizeof(uint8_t));
+		if (!tmp) {
+			PyErr_NoMemory();
+			return -1;
+		}
+		table->cmds = tmp;
+	}
+	table->cmds[(*num_cmds)++] = cmd;
+	return 0;
+}
+
 static int read_abbrev_decl(const char **ptr, const char *end,
 			    const struct compilation_unit *cu,
 			    struct abbrev_table *table, size_t *decls_capacity,
@@ -818,26 +839,15 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 
 append_cmd:
 		first = false;
-		if (*num_cmds + 2 >= *cmds_capacity) {
-			uint8_t *tmp;
-
-			if (*cmds_capacity == 0)
-				*cmds_capacity = 32;
-			else
-				*cmds_capacity *= 2;
-			tmp = realloc(table->cmds,
-				      *cmds_capacity * sizeof(uint8_t));
-			if (!tmp) {
-				PyErr_NoMemory();
-				return -1;
-			}
-			table->cmds = tmp;
-		}
-		table->cmds[(*num_cmds)++] = cmd;
+		if (append_cmd(table, cmd, num_cmds, cmds_capacity) == -1)
+			return -1;
 	}
-	table->cmds[(*num_cmds)++] = 0;
+	if (append_cmd(table, 0, num_cmds, cmds_capacity) == -1)
+		return -1;
 	/* Low bits are the tag, high bit is the children flag. */
-	table->cmds[(*num_cmds)++] = tag | ((!!children) << 7);
+	if (append_cmd(table, tag | ((!!children) << 7), num_cmds,
+		       cmds_capacity) == -1)
+		return -1;
 
 	return 1;
 }
