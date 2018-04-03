@@ -457,65 +457,60 @@ static int read_sections(struct file *file)
 	return 0;
 }
 
-static int apply_relocations(struct section *section,
-			     struct section *rela_section,
-			     struct section *symtab)
+static int apply_relocation(struct section *section,
+			    struct section *rela_section,
+			    struct section *symtab, size_t i)
 {
-	const Elf64_Rela *relocs;
-	size_t num_relocs;
+	const Elf64_Rela *reloc;
 	const Elf64_Sym *syms;
 	size_t num_syms;
 	uint32_t r_sym;
 	uint32_t r_type;
-	size_t i;
 	char *p;
 
-	relocs = (Elf64_Rela *)rela_section->buffer;
-	num_relocs = rela_section->size / sizeof(Elf64_Rela);
+	reloc = &((Elf64_Rela *)rela_section->buffer)[i];
 	syms = (Elf64_Sym *)symtab->buffer;
 	num_syms = symtab->size / sizeof(Elf64_Rela);
 
-	for (i = 0; i < num_relocs; i++) {
-		p = section->buffer + relocs[i].r_offset;
-		r_sym = relocs[i].r_info >> 32;
-		r_type = relocs[i].r_info & UINT32_C(0xffffffff);
-		switch (r_type) {
-		case R_X86_64_NONE:
-			break;
-		case R_X86_64_32:
-			if (r_sym >= num_syms) {
-				PyErr_Format(ElfFormatError,
-					     "invalid relocation symbol");
-				return -1;
-			}
-			if (relocs[i].r_offset > SIZE_MAX - sizeof(uint32_t) ||
-			    relocs[i].r_offset + sizeof(uint32_t) > section->size) {
-				PyErr_Format(ElfFormatError,
-					     "invalid relocation offset");
-				return -1;
-			}
-			*(uint32_t *)p = syms[r_sym].st_value + relocs[i].r_addend;
-			break;
-		case R_X86_64_64:
-			if (r_sym >= num_syms) {
-				PyErr_Format(ElfFormatError,
-					     "invalid relocation symbol");
-				return -1;
-			}
-			if (relocs[i].r_offset > SIZE_MAX - sizeof(uint64_t) ||
-			    relocs[i].r_offset + sizeof(uint64_t) > section->size) {
-				PyErr_Format(ElfFormatError,
-					     "invalid relocation offset");
-				return -1;
-			}
-			*(uint64_t *)p = syms[r_sym].st_value + relocs[i].r_addend;
-			break;
-		default:
-			PyErr_Format(PyExc_NotImplementedError,
-				     "unimplemented relocation type %" PRIu32,
-				     r_type);
+	p = section->buffer + reloc->r_offset;
+	r_sym = reloc->r_info >> 32;
+	r_type = reloc->r_info & UINT32_C(0xffffffff);
+	switch (r_type) {
+	case R_X86_64_NONE:
+		break;
+	case R_X86_64_32:
+		if (r_sym >= num_syms) {
+			PyErr_Format(ElfFormatError,
+				     "invalid relocation symbol");
 			return -1;
 		}
+		if (reloc->r_offset > SIZE_MAX - sizeof(uint32_t) ||
+		    reloc->r_offset + sizeof(uint32_t) > section->size) {
+			PyErr_Format(ElfFormatError,
+				     "invalid relocation offset");
+			return -1;
+		}
+		*(uint32_t *)p = syms[r_sym].st_value + reloc->r_addend;
+		break;
+	case R_X86_64_64:
+		if (r_sym >= num_syms) {
+			PyErr_Format(ElfFormatError,
+				     "invalid relocation symbol");
+			return -1;
+		}
+		if (reloc->r_offset > SIZE_MAX - sizeof(uint64_t) ||
+		    reloc->r_offset + sizeof(uint64_t) > section->size) {
+			PyErr_Format(ElfFormatError,
+				     "invalid relocation offset");
+			return -1;
+		}
+		*(uint64_t *)p = syms[r_sym].st_value + reloc->r_addend;
+		break;
+	default:
+		PyErr_Format(PyExc_NotImplementedError,
+			     "unimplemented relocation type %" PRIu32,
+			     r_type);
+		return -1;
 	}
 	return 0;
 }
@@ -1060,6 +1055,98 @@ static void DwarfIndex_dealloc(DwarfIndex *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static int apply_all_relocations(DwarfIndex *self)
+{
+	PyObject *type = NULL, *value = NULL, *traceback = NULL;
+	size_t total_num_relocs;
+	size_t i;
+
+	Py_BEGIN_ALLOW_THREADS
+
+	total_num_relocs = 0;
+	for (i = 0; i < self->num_files; i++) {
+		size_t j;
+
+		for (j = 0; j < NUM_DEBUG_SECTIONS; j++) {
+			total_num_relocs += (self->files[i].rela_sections[j].size /
+					     sizeof(Elf64_Rela));
+		}
+	}
+
+#pragma omp parallel
+	{
+		PyGILState_STATE state = PyGILState_Ensure();
+		size_t file_idx, section_idx = 0, reloc_idx = 0;
+		size_t i;
+		bool first = true;
+		size_t num_relocs = 0;
+
+		Py_BEGIN_ALLOW_THREADS
+
+#pragma omp for
+		for (i = 0; i < total_num_relocs; i++) {
+			if (type)
+				continue;
+			if (first) {
+				size_t cur = 0;
+
+				for (file_idx = 0; file_idx < self->num_files; file_idx++) {
+					for (section_idx = 0; section_idx < NUM_DEBUG_SECTIONS; section_idx++) {
+						num_relocs = (self->files[file_idx].rela_sections[section_idx].size /
+							      sizeof(Elf64_Rela));
+						if (cur + num_relocs > i) {
+							reloc_idx = i - cur;
+							goto done;
+						} else {
+							cur += num_relocs;
+						}
+					}
+				}
+done:
+				first = false;
+			}
+
+			if (apply_relocation(&self->files[file_idx].debug_sections[section_idx],
+					     &self->files[file_idx].rela_sections[section_idx],
+					     &self->files[file_idx].symtab, reloc_idx) == -1) {
+				Py_BLOCK_THREADS
+				if (type)
+					PyErr_Clear();
+				else
+					PyErr_Fetch(&type, &value, &traceback);
+				Py_UNBLOCK_THREADS
+				continue;
+			}
+
+			if (file_idx < self->num_files) {
+				reloc_idx++;
+				while (reloc_idx >= num_relocs) {
+					reloc_idx = 0;
+					if (++section_idx >= NUM_DEBUG_SECTIONS) {
+						section_idx = 0;
+						if (++file_idx >= self->num_files)
+							break;
+					}
+					num_relocs = (self->files[file_idx].rela_sections[section_idx].size /
+						      sizeof(Elf64_Rela));
+				}
+			}
+		}
+
+		Py_END_ALLOW_THREADS
+
+		PyGILState_Release(state);
+	}
+
+	Py_END_ALLOW_THREADS
+
+	if (type) {
+		PyErr_Restore(type, value, traceback);
+		return -1;
+	}
+	return 0;
+}
+
 static int index_cus(DwarfIndex *self)
 {
 	PyObject *type = NULL, *value = NULL, *traceback = NULL;
@@ -1121,9 +1208,7 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 	}
 
 	for (i = 0; i < self->num_files; i++) {
-		const struct section *debug_str;
 		PyObject *path;
-		size_t j;
 
 		self->files[i].cu_objs = PyDict_New();
 		if (!self->files[i].cu_objs)
@@ -1142,13 +1227,14 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 
 		if (read_sections(&self->files[i]) == -1)
 			return -1;
+	}
 
-		for (j = 0; j < NUM_DEBUG_SECTIONS; j++) {
-			if (apply_relocations(&self->files[i].debug_sections[j],
-					      &self->files[i].rela_sections[j],
-					      &self->files[i].symtab) == -1)
-				return -1;
-		}
+	if (apply_all_relocations(self) == -1)
+		return -1;
+
+
+	for (i = 0; i < self->num_files; i++) {
+		const struct section *debug_str;
 
 		debug_str = &self->files[i].debug_sections[DEBUG_STR];
 		if (debug_str->size == 0 ||
