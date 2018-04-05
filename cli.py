@@ -6,7 +6,7 @@ import platform
 import runpy
 import sys
 
-from drgn.coredump import Coredump
+from drgn.coredump import Coredump, CoredumpObject
 from drgn.dwarfindex import DwarfIndex
 from drgn.util import parse_symbol_file
 
@@ -76,17 +76,18 @@ def main():
         symbols = parse_symbol_file(f)
 
     with open('/proc/kcore', 'rb') as core_file:
-        core = Coredump(core_file, dwarf_index, symbols)
+        init_globals = {
+            'core': Coredump(core_file, dwarf_index, symbols),
+            'CoredumpObject': CoredumpObject,
+        }
         if args.script:
             sys.argv = args.script
-            runpy.run_path(args.script[0], init_globals={'core': core},
+            runpy.run_path(args.script[0], init_globals=init_globals,
                            run_name='__main__')
         else:
-            code.interact(banner='', exitmsg='', local={
-                'core': core,
-                '__name__': '__name__',
-                '__doc__': None,
-            })
+            init_globals['__name__'] = '__main__'
+            init_globals['__doc__'] = None
+            code.interact(banner='', exitmsg='', local=init_globals)
 
 if __name__ == '__main__':
     main()
