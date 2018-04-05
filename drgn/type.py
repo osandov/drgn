@@ -8,6 +8,7 @@ from drgn.typename import (
     PointerTypeName,
     StructTypeName,
     TypedefTypeName,
+    TypeName,
     UnionTypeName,
     VoidTypeName,
 )
@@ -563,174 +564,169 @@ class ArrayType(Type):
         return ''.join(parts)
 
 
-class TypeFactory:
-    def __init__(self, dwarf_index):
-        self._dwarf_index = dwarf_index
+def _from_dwarf_bit_field(dwarf_index, die):
+    type_ = from_dwarf_type(dwarf_index, die.type())
+    bit_size = die.find_constant(DW_AT.bit_size)
+    try:
+        bit_offset = die.find_constant(DW_AT.data_bit_offset)
+    except DwarfAttribNotFoundError:
+        bit_offset = (8 * type_.sizeof() - bit_size -
+                      die.find_constant(DW_AT.bit_offset))
+    return BitFieldType(type_, bit_offset, bit_size)
 
-    def _from_dwarf_bit_field(self, die):
-        type_ = self.from_dwarf_type(die.type())
-        bit_size = die.find_constant(DW_AT.bit_size)
-        try:
-            bit_offset = die.find_constant(DW_AT.data_bit_offset)
-        except DwarfAttribNotFoundError:
-            bit_offset = (8 * type_.sizeof() - bit_size -
-                          die.find_constant(DW_AT.bit_offset))
-        return BitFieldType(type_, bit_offset, bit_size)
 
-    def from_dwarf_type(self, dwarf_type, qualifiers=None):
-        if qualifiers is None:
-            qualifiers = set()
+def from_dwarf_type(dwarf_index, dwarf_type, qualifiers=None):
+    if qualifiers is None:
+        qualifiers = set()
+    else:
+        qualifiers = set(qualifiers)
+    while True:
+        if dwarf_type.tag == DW_TAG.const_type:
+            qualifiers.add('const')
+        elif dwarf_type.tag == DW_TAG.restrict_type:
+            qualifiers.add('restrict')
+        elif dwarf_type.tag == DW_TAG.volatile_type:
+            qualifiers.add('volatile')
+        elif dwarf_type.tag == DW_TAG.atomic_type:
+            qualifiers.add('_Atomic')
         else:
-            qualifiers = set(qualifiers)
-        while True:
-            if dwarf_type.tag == DW_TAG.const_type:
-                qualifiers.add('const')
-            elif dwarf_type.tag == DW_TAG.restrict_type:
-                qualifiers.add('restrict')
-            elif dwarf_type.tag == DW_TAG.volatile_type:
-                qualifiers.add('volatile')
-            elif dwarf_type.tag == DW_TAG.atomic_type:
-                qualifiers.add('_Atomic')
-            else:
-                break
-            dwarf_type = dwarf_type.type()
+            break
+        dwarf_type = dwarf_type.type()
 
+    if dwarf_type.find_flag(DW_AT.declaration):
+        try:
+            dwarf_type = dwarf_index.find(dwarf_type.name(), dwarf_type.tag)
+        except (DwarfAttribNotFoundError, ValueError):
+            pass
+
+    if dwarf_type.tag == DW_TAG.base_type:
+        encoding = dwarf_type.find_constant(DW_AT.encoding)
+        size = dwarf_type.size()
+        if encoding == DW_ATE.boolean:
+            return BoolType(dwarf_type.name(), size, qualifiers)
+        elif encoding == DW_ATE.float:
+            return FloatType(dwarf_type.name(), size, qualifiers)
+        elif (encoding == DW_ATE.signed or
+              encoding == DW_ATE.signed_char):
+            return IntType(dwarf_type.name(), size, True, qualifiers)
+        elif (encoding == DW_ATE.unsigned or
+              encoding == DW_ATE.unsigned_char):
+            return IntType(dwarf_type.name(), size, False, qualifiers)
+        else:
+            raise NotImplementedError(DW_ATE.str(encoding))
+    elif (dwarf_type.tag == DW_TAG.structure_type or
+          dwarf_type.tag == DW_TAG.union_type):
         if dwarf_type.find_flag(DW_AT.declaration):
-            try:
-                dwarf_type = self._dwarf_index.find(dwarf_type.name(),
-                                                    dwarf_type.tag)
-            except (DwarfAttribNotFoundError, ValueError):
-                pass
-
-        if dwarf_type.tag == DW_TAG.base_type:
-            encoding = dwarf_type.find_constant(DW_AT.encoding)
+            size = None
+            members = None
+        else:
             size = dwarf_type.size()
-            if encoding == DW_ATE.boolean:
-                return BoolType(dwarf_type.name(), size, qualifiers)
-            elif encoding == DW_ATE.float:
-                return FloatType(dwarf_type.name(), size, qualifiers)
-            elif (encoding == DW_ATE.signed or
-                  encoding == DW_ATE.signed_char):
-                return IntType(dwarf_type.name(), size, True, qualifiers)
-            elif (encoding == DW_ATE.unsigned or
-                  encoding == DW_ATE.unsigned_char):
-                return IntType(dwarf_type.name(), size, False, qualifiers)
+            members = []
+            for child in dwarf_type.children():
+                if child.tag != DW_TAG.member:
+                    continue
+                try:
+                    name = child.name()
+                except DwarfAttribNotFoundError:
+                    name = None
+                if dwarf_type.tag == DW_TAG.structure_type:
+                    offset = child.find_constant(DW_AT.data_member_location)
+                else:
+                    offset = 0
+                if child.has_attrib(DW_AT.bit_size):
+                    type_thunk = functools.partial(_from_dwarf_bit_field,
+                                                   dwarf_index, child)
+                else:
+                    type_thunk = functools.partial(from_dwarf_type,
+                                                   dwarf_index, child.type())
+                members.append((name, offset, type_thunk))
+        try:
+            name = dwarf_type.name()
+        except DwarfAttribNotFoundError:
+            name = None
+        if dwarf_type.tag == DW_TAG.structure_type:
+            return StructType(name, size, members, qualifiers)
+        else:
+            return UnionType(name, size, members, qualifiers)
+    elif dwarf_type.tag == DW_TAG.enumeration_type:
+        if dwarf_type.find_flag(DW_AT.declaration):
+            size = None
+            signed = None
+            enumerators = None
+        else:
+            size = dwarf_type.size()
+            encoding = dwarf_type.find_constant(DW_AT.encoding)
+            if encoding == DW_ATE.signed:
+                signed = True
+            elif encoding == DW_ATE.unsigned:
+                signed = False
             else:
                 raise NotImplementedError(DW_ATE.str(encoding))
-        elif (dwarf_type.tag == DW_TAG.structure_type or
-              dwarf_type.tag == DW_TAG.union_type):
-            if dwarf_type.find_flag(DW_AT.declaration):
-                size = None
-                members = None
-            else:
-                size = dwarf_type.size()
-                members = []
-                for child in dwarf_type.children():
-                    if child.tag != DW_TAG.member:
-                        continue
-                    try:
-                        name = child.name()
-                    except DwarfAttribNotFoundError:
-                        name = None
-                    if dwarf_type.tag == DW_TAG.structure_type:
-                        offset = child.find_constant(DW_AT.data_member_location)
-                    else:
-                        offset = 0
-                    if child.has_attrib(DW_AT.bit_size):
-                        type_thunk = functools.partial(self._from_dwarf_bit_field,
-                                                       child)
-                    else:
-                        type_thunk = functools.partial(self.from_dwarf_type,
-                                                       child.type())
-                    members.append((name, offset, type_thunk))
-            try:
-                name = dwarf_type.name()
-            except DwarfAttribNotFoundError:
-                name = None
-            if dwarf_type.tag == DW_TAG.structure_type:
-                return StructType(name, size, members, qualifiers)
-            else:
-                return UnionType(name, size, members, qualifiers)
-        elif dwarf_type.tag == DW_TAG.enumeration_type:
-            if dwarf_type.find_flag(DW_AT.declaration):
-                size = None
-                signed = None
-                enumerators = None
-            else:
-                size = dwarf_type.size()
-                encoding = dwarf_type.find_constant(DW_AT.encoding)
-                if encoding == DW_ATE.signed:
-                    signed = True
-                elif encoding == DW_ATE.unsigned:
-                    signed = False
-                else:
-                    raise NotImplementedError(DW_ATE.str(encoding))
-                enumerators = []
-                for child in dwarf_type.children():
-                    if child.tag != DW_TAG.enumerator:
-                        continue
-                    name = child.name()
-                    value = child.find_constant(DW_AT.const_value)
-                    enumerators.append((name, value))
-            try:
-                name = dwarf_type.name()
-            except DwarfAttribNotFoundError:
-                name = None
-            return EnumType(name, size, signed, enumerators, qualifiers)
-        elif dwarf_type.tag == DW_TAG.typedef:
-            return TypedefType(dwarf_type.name(),
-                               self.from_dwarf_type(dwarf_type.type()),
-                               qualifiers)
-        elif dwarf_type.tag == DW_TAG.pointer_type:
-            size = dwarf_type.size()
-            try:
-                deref_type = dwarf_type.type()
-            except DwarfAttribNotFoundError:
-                type_ = VoidType()
-            else:
-                type_ = self.from_dwarf_type(deref_type)
-            return PointerType(size, type_, qualifiers)
-        elif dwarf_type.tag == DW_TAG.array_type:
-            type_ = self.from_dwarf_type(dwarf_type.type())
-            for child in reversed(dwarf_type.children()):
-                if child.tag == DW_TAG.subrange_type:
-                    try:
-                        size = child.find_constant(DW_AT.upper_bound) + 1
-                    except DwarfAttribNotFoundError:
-                        size = None
-                    type_ = ArrayType(type_, size)
-            assert isinstance(type_, ArrayType)
-            return type_
-        elif dwarf_type.tag == DW_TAG.subroutine_type:
-            return PointerType(self._dwarf_index.address_size, VoidType(),
-                               qualifiers)
+            enumerators = []
+            for child in dwarf_type.children():
+                if child.tag != DW_TAG.enumerator:
+                    continue
+                name = child.name()
+                value = child.find_constant(DW_AT.const_value)
+                enumerators.append((name, value))
+        try:
+            name = dwarf_type.name()
+        except DwarfAttribNotFoundError:
+            name = None
+        return EnumType(name, size, signed, enumerators, qualifiers)
+    elif dwarf_type.tag == DW_TAG.typedef:
+        return TypedefType(dwarf_type.name(),
+                           from_dwarf_type(dwarf_index, dwarf_type.type()),
+                           qualifiers)
+    elif dwarf_type.tag == DW_TAG.pointer_type:
+        size = dwarf_type.size()
+        try:
+            deref_type = dwarf_type.type()
+        except DwarfAttribNotFoundError:
+            type_ = VoidType()
         else:
-            raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
+            type_ = from_dwarf_type(dwarf_index, deref_type)
+        return PointerType(size, type_, qualifiers)
+    elif dwarf_type.tag == DW_TAG.array_type:
+        type_ = from_dwarf_type(dwarf_index, dwarf_type.type())
+        for child in reversed(dwarf_type.children()):
+            if child.tag == DW_TAG.subrange_type:
+                try:
+                    size = child.find_constant(DW_AT.upper_bound) + 1
+                except DwarfAttribNotFoundError:
+                    size = None
+                type_ = ArrayType(type_, size)
+        assert isinstance(type_, ArrayType)
+        return type_
+    elif dwarf_type.tag == DW_TAG.subroutine_type:
+        return PointerType(dwarf_index.address_size, VoidType(), qualifiers)
+    else:
+        raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
 
-    def from_type_name(self, type_name):
-        if isinstance(type_name, VoidTypeName):
-            return VoidType(type_name.qualifiers)
-        elif isinstance(type_name, PointerTypeName):
-            type_ = self.from_type_name(type_name.type)
-            return PointerType(self._dwarf_index.address_size, type_,
-                               type_name.qualifiers)
-        elif isinstance(type_name, ArrayTypeName):
-            return ArrayType(self.from_type_name(type_name.type),
-                             type_name.size)
-        elif isinstance(type_name, BasicTypeName):
-            tag = DW_TAG.base_type
-        elif isinstance(type_name, StructTypeName):
-            tag = DW_TAG.structure_type
-        elif isinstance(type_name, UnionTypeName):
-            tag = DW_TAG.union_type
-        elif isinstance(type_name, EnumTypeName):
-            tag = DW_TAG.enumeration_type
-        elif isinstance(type_name, TypedefTypeName):
-            tag = DW_TAG.typedef
-        else:
-            assert False
-        dwarf_type = self._dwarf_index.find(type_name.name, tag)
-        return self.from_dwarf_type(dwarf_type, type_name.qualifiers)
 
-    def from_type_string(self, s):
-        return self.from_type_name(parse_type_name(s))
+def from_dwarf_type_name(dwarf_index, type_name):
+    if not isinstance(type_name, TypeName):
+        type_name = parse_type_name(type_name)
+    if isinstance(type_name, VoidTypeName):
+        return VoidType(type_name.qualifiers)
+    elif isinstance(type_name, PointerTypeName):
+        type_ = from_dwarf_type_name(dwarf_index, type_name.type)
+        return PointerType(dwarf_index.address_size, type_,
+                           type_name.qualifiers)
+    elif isinstance(type_name, ArrayTypeName):
+        return ArrayType(from_dwarf_type_name(dwarf_index, type_name.type),
+                         type_name.size)
+    elif isinstance(type_name, BasicTypeName):
+        tag = DW_TAG.base_type
+    elif isinstance(type_name, StructTypeName):
+        tag = DW_TAG.structure_type
+    elif isinstance(type_name, UnionTypeName):
+        tag = DW_TAG.union_type
+    elif isinstance(type_name, EnumTypeName):
+        tag = DW_TAG.enumeration_type
+    elif isinstance(type_name, TypedefTypeName):
+        tag = DW_TAG.typedef
+    else:
+        assert False
+    dwarf_type = dwarf_index.find(type_name.name, tag)
+    return from_dwarf_type(dwarf_index, dwarf_type, type_name.qualifiers)

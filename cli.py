@@ -1,13 +1,17 @@
 import code
 import argparse
 import glob
+import os
 import os.path
 import platform
 import runpy
 import sys
 
 from drgn.coredump import Coredump, CoredumpObject
+from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
+from drgn.elf import ElfFile
+import drgn.type
 from drgn.util import parse_symbol_file
 
 
@@ -76,8 +80,30 @@ def main():
         symbols = parse_symbol_file(f)
 
     with open('/proc/kcore', 'rb') as core_file:
+        core_elf_file = ElfFile(core_file)
+
+        def lookup_type(type_name):
+            return drgn.type.from_dwarf_type_name(dwarf_index, type_name)
+
+        def lookup_variable(name):
+            address = symbols[name][-1]
+            dwarf_type = dwarf_index.find(name, DW_TAG.variable).type()
+            type_ = drgn.type.from_dwarf_type(dwarf_index, dwarf_type)
+            return address, type_
+
+        def read_memory(address, size):
+            for phdr in core_elf_file.phdrs():
+                if phdr.p_vaddr <= address <= phdr.p_vaddr + phdr.p_memsz:
+                    break
+            else:
+                raise ValueError(f'could not find memory segment containing 0x{address:x}')
+            return os.pread(core_file.fileno(), size,
+                            phdr.p_offset + address - phdr.p_vaddr)
+
         init_globals = {
-            'core': Coredump(core_file, dwarf_index, symbols),
+            'core': Coredump(lookup_type_fn=lookup_type,
+                             lookup_variable_fn=lookup_variable,
+                             read_memory_fn=read_memory),
             'CoredumpObject': CoredumpObject,
         }
         if args.script:

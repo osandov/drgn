@@ -1,15 +1,11 @@
-from drgn.dwarf import DW_TAG
-from drgn.elf import ElfFile
 from drgn.type import (
     ArrayType,
     CompoundType,
     PointerType,
+    Type,
     TypedefType,
-    TypeFactory,
 )
-from drgn.typename import TypeName
 import itertools
-import os
 
 
 class CoredumpObject:
@@ -142,12 +138,8 @@ class CoredumpObject:
         Return a copy of this object casted to another type. The given type is
         usually a string, but it can also be a Type or TypeName object.
         """
-        if isinstance(type, TypeName):
-            type = self.coredump_._type_factory.from_type_name(type)
-        elif isinstance(type, str):
-            type = self.coredump_._type_factory.from_type_string(type)
-        elif not isinstance(type, Type):
-            raise ValueError('type must be Type, TypeName, or string')
+        if not isinstance(type, Type):
+            type = self.coredump_.find_type(type)
         return CoredumpObject(self.coredump_, self.address_, type)
 
     def container_of_(self, type, member):
@@ -159,12 +151,8 @@ class CoredumpObject:
 
         This is only valid for pointers.
         """
-        if isinstance(type, TypeName):
-            type = self.coredump_._type_factory.from_type_name(type)
-        elif isinstance(type, str):
-            type = self.coredump_._type_factory.from_type_string(type)
-        elif not isinstance(type, Type):
-            raise ValueError('type must be Type, TypeName, or string')
+        if not isinstance(type, Type):
+            type = self.coredump_.find_type(type)
         if not isinstance(self._real_type, PointerType):
             raise ValueError('containerof is only valid on pointers')
         address = self.value_() - type.offsetof(member)
@@ -176,27 +164,10 @@ class Coredump:
     A Coredump object represents a crashed or running program to be debugged.
     """
 
-    def __init__(self, core_file, dwarf_index, symbols):
-        self._core_file = core_file
-        self._core_elf_file = ElfFile(core_file)
-        self._dwarf_index = dwarf_index
-        self._type_factory = TypeFactory(self._dwarf_index)
-        self._symbols = symbols
-
-    def read(self, address, size):
-        """
-        Return size bytes of memory starting at address in the coredump.
-
-        >>> core.read(0xffffffffbe012b40, 16)
-        b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'
-        """
-        for phdr in self._core_elf_file.phdrs():
-            if phdr.p_vaddr <= address <= phdr.p_vaddr + phdr.p_memsz:
-                break
-        else:
-            raise ValueError(f'could not find memory segment containing 0x{address:x}')
-        return os.pread(self._core_file.fileno(), size,
-                        phdr.p_offset + address - phdr.p_vaddr)
+    def __init__(self, *, lookup_type_fn, lookup_variable_fn, read_memory_fn):
+        self._lookup_type = lookup_type_fn
+        self._read_memory = read_memory_fn
+        self._lookup_variable = lookup_variable_fn
 
     def __getitem__(self, name):
         """
@@ -206,7 +177,21 @@ class Coredump:
         >>> core['init_task']
         CoredumpObject(address=0xffffffffbe012480, type=<struct task_struct>)
         """
-        address = self._symbols[name][-1]
-        dwarf_type = self._dwarf_index.find(name, DW_TAG.variable).type()
-        type_ = self._type_factory.from_dwarf_type(dwarf_type)
+        address, type_ = self._lookup_variable(name)
         return CoredumpObject(self, address, type_)
+
+    def find_type(self, name):
+        """
+        Return a Type object for the type with the given name. The name is
+        usually a string, but it can also be a TypeName object.
+        """
+        return self._lookup_type(name)
+
+    def read(self, address, size):
+        """
+        Return size bytes of memory starting at address in the coredump.
+
+        >>> core.read(0xffffffffbe012b40, 16)
+        b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'
+        """
+        return self._read_memory(address, size)

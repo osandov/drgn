@@ -19,9 +19,10 @@ from drgn.type import (
     PointerType,
     StructType,
     TypedefType,
-    TypeFactory,
     UnionType,
     VoidType,
+    from_dwarf_type,
+    from_dwarf_type_name,
 )
 
 
@@ -433,9 +434,8 @@ class TestFromDwarfType(unittest.TestCase):
             f.write(';\nint main(void) { return 0; }\n')
         subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
         dwarf_index = DwarfIndex([object_path])
-        type_factory = TypeFactory(dwarf_index)
         dwarf_type = dwarf_index.find('x', DW_TAG.variable).type()
-        return type_factory.from_dwarf_type(dwarf_type)
+        return from_dwarf_type(dwarf_index, dwarf_type)
 
     def test_char(self):
         self.assertEqual(self.compile_type('char x'),
@@ -646,7 +646,7 @@ struct point {
                         ArrayType(ArrayType(IntType('int', 4, True), 2), None))
 
 
-class TestFromTypeString(unittest.TestCase):
+class TestFromDwarfTypeName(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -681,34 +681,33 @@ int main(void)
 }
 """)
             subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
-            dwarf_index = DwarfIndex([object_path])
-            cls.type_factory = TypeFactory(dwarf_index)
+            cls.dwarf_index = DwarfIndex([object_path])
 
     def test_void_type(self):
-        self.assertEqual(self.type_factory.from_type_string('void'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'void'),
                          VoidType())
-        self.assertEqual(self.type_factory.from_type_string('const void'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'const void'),
                          VoidType({'const'}))
 
     def test_base_type(self):
-        self.assertEqual(self.type_factory.from_type_string('int'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int'),
                          IntType('int', 4, True))
-        self.assertEqual(self.type_factory.from_type_string('volatile int'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'volatile int'),
                          IntType('int', 4, True, {'volatile'}))
 
     def test_struct_type(self):
-        self.assertEqual(self.type_factory.from_type_string('struct point'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'struct point'),
                          point_type)
 
     def test_union_type(self):
-        self.assertEqual(self.type_factory.from_type_string('union value'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'union value'),
                          UnionType('value', 4, [
                              ('i', 0, lambda: IntType('int', 4, True)),
                              ('f', 0, lambda: FloatType('float', 4)),
                          ]))
 
     def test_enum_type(self):
-        self.assertEqual(self.type_factory.from_type_string('enum color'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'enum color'),
                          EnumType('color', 4, False, [
                              ('RED', 0),
                              ('GREEN', 1),
@@ -716,19 +715,19 @@ int main(void)
                          ]))
 
     def test_typedef_type(self):
-        self.assertEqual(self.type_factory.from_type_string('point'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'point'),
                          TypedefType('point', point_type))
-        self.assertEqual(self.type_factory.from_type_string('const point'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'const point'),
                          TypedefType('point', point_type, {'const'}))
 
     def test_pointer_type(self):
-        self.assertEqual(self.type_factory.from_type_string('int *'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int *'),
                          PointerType(pointer_size, IntType('int', 4, True)))
-        self.assertEqual(self.type_factory.from_type_string('int * const'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int * const'),
                          PointerType(pointer_size, IntType('int', 4, True), {'const'}))
 
     def test_array_type(self):
-        self.assertEqual(self.type_factory.from_type_string('int [4]'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int [4]'),
                          ArrayType(IntType('int', 4, True), 4))
-        self.assertEqual(self.type_factory.from_type_string('int []'),
+        self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int []'),
                          ArrayType(IntType('int', 4, True), None))
