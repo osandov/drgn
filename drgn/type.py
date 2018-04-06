@@ -561,8 +561,8 @@ class ArrayType(Type):
         return self.size * self.type.sizeof()
 
     def read(self, buffer: bytes, offset: int = 0) -> List:
-        if self.size is None:
-            raise ValueError("can't read incomplete array type")
+        if not self.size:
+            return []
         element_size = self.type.sizeof()
         size = self.size * element_size
         if len(buffer) - offset < size:

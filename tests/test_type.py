@@ -412,7 +412,7 @@ enum {
         type_ = ArrayType(IntType('int', 4, True), None)
         self.assertEqual(str(type_), 'int []')
         self.assertRaises(ValueError, type_.sizeof)
-        self.assertRaises(ValueError, type_.read, b'')
+        self.assertEqual(type_.read(b''), [])
         self.assertEqual(type_.format(b''), '(int []){}')
 
         type_ = ArrayType(ArrayType(IntType('int', 4, True), 2), None)
