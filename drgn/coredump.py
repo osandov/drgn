@@ -43,7 +43,10 @@ class CoredumpObject:
 
     def __getattr__(self, name: str) -> 'CoredumpObject':
         """Implement self.name. Shortcurt for self.member_(name)"""
-        return self.member_(name)
+        try:
+            return self.member_(name)
+        except ValueError as e:
+            raise AttributeError(*e.args) from None
 
     def __getitem__(self, idx: Any) -> 'CoredumpObject':
         """
@@ -135,7 +138,7 @@ class CoredumpObject:
             address = self.address_
             type_ = self._real_type
         if not isinstance(type_, CompoundType):
-            raise AttributeError()
+            raise ValueError('not a struct or union')
         member_type = type_.typeof(name)
         offset = type_.offsetof(name)
         return CoredumpObject(self.coredump_, address + offset, member_type)

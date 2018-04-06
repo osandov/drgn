@@ -352,10 +352,16 @@ class CompoundType(Type):
         return list(self._members_by_name)
 
     def offsetof(self, member: str) -> int:
-        return self._members_by_name[member][0]
+        try:
+            return self._members_by_name[member][0]
+        except KeyError:
+            raise ValueError(f'{str(self.type_name())!r} has no member {member!r}') from None
 
     def typeof(self, member: str) -> Type:
-        return self._members_by_name[member][1]()
+        try:
+            return self._members_by_name[member][1]()
+        except KeyError:
+            raise ValueError(f'{str(self.type_name())!r} has no member {member!r}') from None
 
 
 class StructType(CompoundType):
