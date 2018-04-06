@@ -250,21 +250,19 @@ class CompoundType(Type):
                 self._index_members_by_name(type_thunk()._members,
                                             offset + member_offset)
 
-    def _eager_members(self) -> Optional[List[Tuple[str, int, Type]]]:
-        if self._members is None:
-            return None
-        return [
-            (name, offset, type_thunk()) for name, offset, type_thunk in
-            self._members
-        ]
-
     def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.name), ', ',
             repr(self.size), ', ',
-            repr(self._eager_members()),
         ]
+        if self._members is None:
+            parts.append(repr(None))
+        else:
+            parts.append('[')
+            parts.append(', '.join(f'({name!r}, {offset}, ...)' for
+                                   name, offset, type_thunk in self._members))
+            parts.append(']')
         if self.qualifiers:
             parts.append(', ')
             parts.append(repr(self.qualifiers))
@@ -297,6 +295,14 @@ class CompoundType(Type):
                 parts.append(';\n')
             parts.append('}')
         return ''.join(parts)
+
+    def _eager_members(self) -> Optional[List[Tuple[str, int, Type]]]:
+        if self._members is None:
+            return None
+        return [
+            (name, offset, type_thunk()) for name, offset, type_thunk in
+            self._members
+        ]
 
     def _dict_for_eq(self) -> Dict:
         # Compare the result of the type thunks rather than the thunks
