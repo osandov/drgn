@@ -1,5 +1,8 @@
-def parse_symbol_file(file):
-    symbols = {}
+from typing import Dict, List, TextIO
+
+
+def parse_symbol_file(file: TextIO) -> Dict[str, List[int]]:
+    symbols: Dict[str, List[int]] = {}
     for line in file:
         fields = line.split()
         name = fields[2]

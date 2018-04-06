@@ -5,7 +5,9 @@ from drgn.type import (
     Type,
     TypedefType,
 )
+from drgn.type import TypeName
 import itertools
+from typing import Any, Callable, Iterable, Tuple, Union
 
 
 class CoredumpObject:
@@ -31,7 +33,7 @@ class CoredumpObject:
     conflict.
     """
 
-    def __init__(self, coredump, address, type):
+    def __init__(self, coredump: 'Coredump', address: int, type: Type) -> None:
         self.coredump_ = coredump
         self.address_ = address
         self.type_ = type
@@ -39,33 +41,38 @@ class CoredumpObject:
             type = type.type
         self._real_type = type
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> 'CoredumpObject':
         """Implement self.name. Shortcurt for self.member_(name)"""
         return self.member_(name)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: Any) -> 'CoredumpObject':
         """
         Implement self[idx]. Return a CoredumpObject representing an array
         element at the given index.
 
         This is only valid for pointers and arrays.
         """
+        try:
+            i = idx.__index__()
+        except AttributeError:
+            raise TypeError('index must be integer')
         if isinstance(self._real_type, PointerType):
             buffer = self.coredump_.read(self.address_, self._real_type.sizeof())
             address = self._real_type.read(buffer)
-            offset = idx.__index__() * self._real_type.type.sizeof()
+            type_ = self._real_type.type
         elif isinstance(self._real_type, ArrayType):
             address = self.address_
-            offset = idx.__index__() * self._real_type.type.sizeof()
+            # Duplicated here to work around mypy issue #4864.
+            type_ = self._real_type.type
         else:
             raise ValueError('not an array or pointer')
-        return CoredumpObject(self.coredump_, address + offset,
-                              self._real_type.type)
+        offset = i * type_.sizeof()
+        return CoredumpObject(self.coredump_, address + offset, type_)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'CoredumpObject(address=0x{self.address_:x}, type=<{self.type_.type_name()}>)'
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         Implement str(self). Return a string representation of the value of
         this object in C syntax.
@@ -73,7 +80,7 @@ class CoredumpObject:
         buffer = self.coredump_.read(self.address_, self._real_type.sizeof())
         return self._real_type.format(buffer)
 
-    def value_(self):
+    def value_(self) -> Any:
         """
         Return the value of this object as a Python object.
 
@@ -86,7 +93,7 @@ class CoredumpObject:
         buffer = self.coredump_.read(self.address_, self._real_type.sizeof())
         return self._real_type.read(buffer)
 
-    def string_(self):
+    def string_(self) -> bytes:
         """
         Return the null-terminated string pointed to by this object as bytes.
 
@@ -94,7 +101,7 @@ class CoredumpObject:
         """
 
         if isinstance(self._real_type, PointerType):
-            addresses = itertools.count(self.value_())
+            addresses: Iterable[int] = itertools.count(self.value_())
         elif isinstance(self._real_type, ArrayType):
             if self._real_type.size is None:
                 addresses = itertools.count(self.address_)
@@ -110,7 +117,7 @@ class CoredumpObject:
             b.append(byte)
         return bytes(b)
 
-    def member_(self, name):
+    def member_(self, name: str) -> 'CoredumpObject':
         """
         Return a CoredumpObject representing the given structure or union
         member.
@@ -133,7 +140,7 @@ class CoredumpObject:
         offset = type_.offsetof(name)
         return CoredumpObject(self.coredump_, address + offset, member_type)
 
-    def cast_(self, type):
+    def cast_(self, type: Union[str, Type, TypeName]) -> 'CoredumpObject':
         """
         Return a copy of this object casted to another type. The given type is
         usually a string, but it can also be a Type or TypeName object.
@@ -142,7 +149,8 @@ class CoredumpObject:
             type = self.coredump_.find_type(type)
         return CoredumpObject(self.coredump_, self.address_, type)
 
-    def container_of_(self, type, member):
+    def container_of_(self, type: Union[str, Type, TypeName],
+                      member: str) -> 'CoredumpObject':
         """
         Return the containing object of the object pointed to by this object.
         The given type is the type of the containing object, and the given
@@ -153,6 +161,8 @@ class CoredumpObject:
         """
         if not isinstance(type, Type):
             type = self.coredump_.find_type(type)
+        if not isinstance(type, CompoundType):
+            raise ValueError('containerof is only valid with struct or union types')
         if not isinstance(self._real_type, PointerType):
             raise ValueError('containerof is only valid on pointers')
         address = self.value_() - type.offsetof(member)
@@ -164,12 +174,14 @@ class Coredump:
     A Coredump object represents a crashed or running program to be debugged.
     """
 
-    def __init__(self, *, lookup_type_fn, lookup_variable_fn, read_memory_fn):
+    def __init__(self, *, lookup_type_fn: Callable[[Union[str, TypeName]], Type],
+                 lookup_variable_fn: Callable[[str], Tuple[int, Type]],
+                 read_memory_fn: Callable[[int, int], bytes]) -> None:
         self._lookup_type = lookup_type_fn
         self._read_memory = read_memory_fn
         self._lookup_variable = lookup_variable_fn
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str) -> CoredumpObject:
         """
         Implement self[name]. Return a CoredumpObject representing the variable
         with the given name.
@@ -180,14 +192,14 @@ class Coredump:
         address, type_ = self._lookup_variable(name)
         return CoredumpObject(self, address, type_)
 
-    def find_type(self, name):
+    def find_type(self, name: Union[str, TypeName]) -> Type:
         """
         Return a Type object for the type with the given name. The name is
         usually a string, but it can also be a TypeName object.
         """
         return self._lookup_type(name)
 
-    def read(self, address, size):
+    def read(self, address: int, size: int) -> bytes:
         """
         Return size bytes of memory starting at address in the coredump.
 

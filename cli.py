@@ -6,16 +6,19 @@ import os.path
 import platform
 import runpy
 import sys
+from typing import List, Tuple, Union
 
 from drgn.coredump import Coredump, CoredumpObject
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
-from drgn.elf import ElfFile
+from drgn.elf import parse_elf_phdrs
 import drgn.type
+from drgn.type import Type
+from drgn.typename import TypeName
 from drgn.util import parse_symbol_file
 
 
-def find_vmlinux(release):
+def find_vmlinux(release: str) -> str:
     paths = [
         f'/usr/lib/debug/lib/modules/{release}/vmlinux',
         f'/boot/vmlinux-{release}',
@@ -28,7 +31,7 @@ def find_vmlinux(release):
         raise ValueError()
 
 
-def find_modules(release):
+def find_modules(release: str) -> List[str]:
     patterns = [
         f'/usr/lib/debug/lib/modules/{release}/kernel/**/*.ko.debug',
         f'/lib/modules/{release}/kernel/**/*.ko',
@@ -41,7 +44,7 @@ def find_modules(release):
         return []
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(prog='drgn')
     parser.add_argument(
         '-k', '--kernel', action='store_true',
@@ -80,19 +83,19 @@ def main():
         symbols = parse_symbol_file(f)
 
     with open('/proc/kcore', 'rb') as core_file:
-        core_elf_file = ElfFile(core_file)
+        phdrs = parse_elf_phdrs(core_file)
 
-        def lookup_type(type_name):
+        def lookup_type(type_name: Union[str, TypeName]) -> Type:
             return drgn.type.from_dwarf_type_name(dwarf_index, type_name)
 
-        def lookup_variable(name):
+        def lookup_variable(name: str) -> Tuple[int, Type]:
             address = symbols[name][-1]
             dwarf_type = dwarf_index.find(name, DW_TAG.variable).type()
             type_ = drgn.type.from_dwarf_type(dwarf_index, dwarf_type)
             return address, type_
 
-        def read_memory(address, size):
-            for phdr in core_elf_file.phdrs():
+        def read_memory(address: int, size: int) -> bytes:
+            for phdr in phdrs:
                 if phdr.p_vaddr <= address <= phdr.p_vaddr + phdr.p_memsz:
                     break
             else:
@@ -113,7 +116,8 @@ def main():
         else:
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
-            code.interact(banner='', exitmsg='', local=init_globals)
+            code.interact(banner='', exitmsg='', local=init_globals)  # type: ignore
+                                                                      # typeshed issue #2024
 
 if __name__ == '__main__':
     main()

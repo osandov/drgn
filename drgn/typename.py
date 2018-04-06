@@ -1,15 +1,17 @@
 from collections import namedtuple
 import re
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 
 class TypeName:
-    def __init__(self, name, qualifiers=None):
+    def __init__(self, name: str,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         self.name = name
         if qualifiers is None:
             qualifiers = set()
         self.qualifiers = qualifiers
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [self.__class__.__name__, '(', repr(self.name)]
         if self.qualifiers:
             parts.append(', ')
@@ -17,14 +19,14 @@ class TypeName:
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.declaration('')
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         return (isinstance(other, self.__class__) and
                 self.__dict__ == other.__dict__)
 
-    def declaration(self, name):
+    def declaration(self, name: str) -> str:
         parts = sorted(self.qualifiers)
         parts.append(self.name)
         if name:
@@ -33,7 +35,8 @@ class TypeName:
 
 
 class VoidTypeName(TypeName):
-    def __init__(self, qualifiers=None):
+    def __init__(self,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         super().__init__('void', qualifiers)
 
 
@@ -41,7 +44,8 @@ class BasicTypeName(TypeName):
     pass
 
 
-def _tagged_declaration(keyword, tag, name, qualifiers):
+def _tagged_declaration(keyword: str, tag: str, name: str,
+                        qualifiers: Set[str]) -> str:
     parts = sorted(qualifiers)
     parts.append(keyword)
     if tag:
@@ -52,17 +56,17 @@ def _tagged_declaration(keyword, tag, name, qualifiers):
 
 
 class StructTypeName(TypeName):
-    def declaration(self, name):
+    def declaration(self, name: str) -> str:
         return _tagged_declaration('struct', self.name, name, self.qualifiers)
 
 
 class UnionTypeName(TypeName):
-    def declaration(self, name):
+    def declaration(self, name: str) -> str:
         return _tagged_declaration('union', self.name, name, self.qualifiers)
 
 
 class EnumTypeName(TypeName):
-    def declaration(self, name):
+    def declaration(self, name: str) -> str:
         return _tagged_declaration('enum', self.name, name, self.qualifiers)
 
 
@@ -71,13 +75,14 @@ class TypedefTypeName(TypeName):
 
 
 class PointerTypeName(TypeName):
-    def __init__(self, type, qualifiers=None):
+    def __init__(self, type: TypeName,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         self.type = type
         if qualifiers is None:
             qualifiers = set()
         self.qualifiers = qualifiers
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = ['PointerTypeName(', repr(self.type)]
         if self.qualifiers:
             parts.append(', ')
@@ -85,7 +90,7 @@ class PointerTypeName(TypeName):
         parts.append(')')
         return ''.join(parts)
 
-    def declaration(self, name):
+    def declaration(self, name: str) -> str:
         if self.qualifiers:
             if name:
                 name = ' ' + name
@@ -98,11 +103,11 @@ class PointerTypeName(TypeName):
 
 
 class ArrayTypeName(TypeName):
-    def __init__(self, type, size=None):
+    def __init__(self, type: TypeName, size: Optional[int] = None) -> None:
         self.type = type
         self.size = size
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = ['ArrayTypeName(', repr(self.type)]
         if self.size is not None:
             parts.append(', ')
@@ -110,7 +115,7 @@ class ArrayTypeName(TypeName):
         parts.append(')')
         return ''.join(parts)
 
-    def declaration(self, name):
+    def declaration(self, name: str) -> str:
         if self.size is None:
             name += '[]'
         else:
@@ -118,28 +123,34 @@ class ArrayTypeName(TypeName):
         return self.type.declaration(name)
 
 
+_TOKEN_REGEX = re.compile('|'.join('(?P<%s>%s)' % pair for pair in [
+    ('SPECIFIER',  r'void|char|short|int|long|float|double|signed|unsigned|_Bool|_Complex'),
+    ('QUALIFIER',  r'const|restrict|volatile|_Atomic'),
+    ('TAG',        r'enum|struct|union'),
+    ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
+    ('NUMBER',     r'(?:0x)?[0-9]+'),
+    ('LPAREN',     r'\('),
+    ('RPAREN',     r'\)'),
+    ('LBRACKET',   r'\['),
+    ('RBRACKET',   r']'),
+    ('ASTERISK',   r'\*'),
+    ('SKIP',       r'[ \t\n\r\f\v]+'),
+    ('MISMATCH',   r'.'),
+]))
+
+
+class _Token(NamedTuple):
+    kind: str
+    value: Union[str, int]
+
+
 class _TypeNameLexer:
-    TOKEN_REGEX = re.compile('|'.join('(?P<%s>%s)' % pair for pair in [
-        ('SPECIFIER',  r'void|char|short|int|long|float|double|signed|unsigned|_Bool|_Complex'),
-        ('QUALIFIER',  r'const|restrict|volatile|_Atomic'),
-        ('TAG',        r'enum|struct|union'),
-        ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
-        ('NUMBER',     r'(?:0x)?[0-9]+'),
-        ('LPAREN',     r'\('),
-        ('RPAREN',     r'\)'),
-        ('LBRACKET',   r'\['),
-        ('RBRACKET',   r']'),
-        ('ASTERISK',   r'\*'),
-        ('SKIP',       r'[ \t\n\r\f\v]+'),
-        ('MISMATCH',   r'.'),
-    ]))
-    Token = namedtuple('Token', ['kind', 'value'])
 
-    def __init__(self, str):
-        self._tokens = _TypeNameLexer.TOKEN_REGEX.finditer(str)
-        self._stack = []
+    def __init__(self, s: str) -> None:
+        self._tokens = _TOKEN_REGEX.finditer(s)
+        self._stack: List[_Token] = []
 
-    def pop(self):
+    def pop(self) -> _Token:
         if self._stack:
             return self._stack.pop()
 
@@ -147,7 +158,7 @@ class _TypeNameLexer:
             try:
                 match = next(self._tokens)
             except StopIteration:
-                return _TypeNameLexer.Token('EOF', None)
+                return _Token('EOF', None)
             kind = match.lastgroup
             value = match.group(kind)
             if kind == 'SKIP':
@@ -157,27 +168,29 @@ class _TypeNameLexer:
             else:
                 if kind == 'NUMBER':
                     if value.startswith('0x'):
-                        value = int(value, 16)
+                        number = int(value, 16)
                     elif value.startswith('0'):
-                        value = int(value, 8)
+                        number = int(value, 8)
                     else:
-                        value = int(value, 10)
-                return _TypeNameLexer.Token(kind, value)
+                        number = int(value, 10)
+                    return _Token(kind, number)
+                else:
+                    return _Token(kind, value)
 
-    def push(self, token):
+    def push(self, token: _Token) -> None:
         self._stack.append(token)
 
-    def peek(self):
+    def peek(self) -> _Token:
         token = self.pop()
         self.push(token)
         return token
 
 
 class _TypeNameParser:
-    def __init__(self, lexer):
+    def __init__(self, lexer: _TypeNameLexer) -> None:
         self._lexer = lexer
 
-    def parse(self):
+    def parse(self) -> TypeName:
         type_name = self._parse_specifier_qualifier_list()
         if self._lexer.peek().kind != 'EOF':
             type_name = self._parse_abstract_declarator(type_name)[0]
@@ -186,11 +199,11 @@ class _TypeNameParser:
         return type_name
 
     @staticmethod
-    def _specifier_error(old_specifier, new_specifier):
+    def _specifier_error(old_specifier: str, new_specifier: str) -> Exception:
         return ValueError(f"cannot combine {new_specifier!r} with {old_specifier!r}")
 
     @staticmethod
-    def _add_specifier(specifiers, specifier):
+    def _add_specifier(specifiers: Dict[str, Any], specifier: str) -> None:
         data_type = specifiers.get('data_type')
         size = specifiers.get('size')
         sign = specifiers.get('sign')
@@ -222,7 +235,8 @@ class _TypeNameParser:
             specifiers['data_type'] = specifier
 
     @staticmethod
-    def _type_name_from_specifiers(specifiers, is_typedef):
+    def _type_name_from_specifiers(specifiers: Dict[str, Any],
+                                   is_typedef: bool) -> TypeName:
         data_type = specifiers['data_type']
         qualifiers = specifiers.get('qualifiers')
         if data_type.startswith('struct '):
@@ -245,8 +259,8 @@ class _TypeNameParser:
             parts.append(data_type)
             return BasicTypeName(' '.join(parts), qualifiers)
 
-    def _parse_specifier_qualifier_list(self):
-        specifiers = {}
+    def _parse_specifier_qualifier_list(self) -> TypeName:
+        specifiers: Dict[str, Any] = {}
         is_typedef = False
         while True:
             token = self._lexer.peek()
@@ -260,9 +274,11 @@ class _TypeNameParser:
             # type-specifier
             elif token.kind == 'SPECIFIER':
                 self._lexer.pop()
+                assert isinstance(token.value, str)
                 _TypeNameParser._add_specifier(specifiers, token.value)
             elif token.kind == 'IDENTIFIER':
                 self._lexer.pop()
+                assert isinstance(token.value, str)
                 _TypeNameParser._add_specifier(specifiers, token.value)
                 is_typedef = True
             elif token.kind == 'TAG':
@@ -270,6 +286,8 @@ class _TypeNameParser:
                 token2 = self._lexer.pop()
                 if token2.kind != 'IDENTIFIER':
                     raise ValueError(f'expected identifier after {token.value}')
+                assert isinstance(token.value, str)
+                assert isinstance(token2.value, str)
                 _TypeNameParser._add_specifier(specifiers, token.value + ' ' + token2.value)
             else:
                 break
@@ -279,7 +297,8 @@ class _TypeNameParser:
             specifiers['data_type'] = 'int'
         return _TypeNameParser._type_name_from_specifiers(specifiers, is_typedef)
 
-    def _parse_abstract_declarator(self, type_name):
+    def _parse_abstract_declarator(
+            self, type_name: TypeName) -> Tuple[TypeName, Union[ArrayTypeName, PointerTypeName, None]]:
         if self._lexer.peek().kind == 'ASTERISK':
             type_name, inner_type = self._parse_pointer(type_name)
             token = self._lexer.peek()
@@ -289,7 +308,7 @@ class _TypeNameParser:
         else:
             return self._parse_direct_abstract_declarator(type_name)
 
-    def _parse_pointer(self, type_name):
+    def _parse_pointer(self, type_name: TypeName) -> Tuple[TypeName, Optional[PointerTypeName]]:
         if self._lexer.peek().kind != 'ASTERISK':
             raise ValueError("expected '*'")
         inner_type = None
@@ -301,17 +320,19 @@ class _TypeNameParser:
                 inner_type = type_name
         return type_name, inner_type
 
-    def _parse_optional_type_qualifier_list(self):
+    def _parse_optional_type_qualifier_list(self) -> Set[str]:
         qualifiers = set()
         while True:
             token = self._lexer.peek()
             if token.kind != 'QUALIFIER':
                 break
             self._lexer.pop()
+            assert isinstance(token.value, str)
             qualifiers.add(token.value)
         return qualifiers
 
-    def _parse_direct_abstract_declarator(self, type_name):
+    def _parse_direct_abstract_declarator(
+            self, type_name: TypeName) -> Tuple[TypeName, Union[ArrayTypeName, PointerTypeName, None]]:
         inner_type = None
         token = self._lexer.peek()
         if token.kind == 'LPAREN':
@@ -333,6 +354,7 @@ class _TypeNameParser:
                 token = self._lexer.peek()
                 if token.kind == 'NUMBER':
                     self._lexer.pop()
+                    assert isinstance(token.value, int)
                     size = token.value
                 else:
                     size = None
@@ -351,5 +373,5 @@ class _TypeNameParser:
                 return type_name, inner_type
 
 
-def parse_type_name(str):
-    return _TypeNameParser(_TypeNameLexer(str)).parse()
+def parse_type_name(s: str) -> TypeName:
+    return _TypeNameParser(_TypeNameLexer(s)).parse()

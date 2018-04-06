@@ -1,5 +1,13 @@
 from collections import OrderedDict
-from drgn.dwarf import DwarfAttribNotFoundError, DW_AT, DW_ATE, DW_TAG
+from drgn.dwarfindex import DwarfIndex
+from drgn.dwarf import (
+    Die,
+    DwarfAttribNotFoundError,
+    DwarfFormatError,
+    DW_AT,
+    DW_ATE,
+    DW_TAG,
+)
 from drgn.typename import (
     parse_type_name,
     ArrayTypeName,
@@ -17,15 +25,16 @@ import functools
 import re
 import struct
 import sys
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 
 class Type:
-    def __init__(self, qualifiers=None):
+    def __init__(self, qualifiers: Optional[Set[str]] = None) -> None:
         if qualifiers is None:
             qualifiers = set()
         self.qualifiers = qualifiers
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [self.__class__.__name__, '(']
         if self.qualifiers:
             parts.append(', ')
@@ -33,47 +42,50 @@ class Type:
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.type_name())
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         return (isinstance(other, self.__class__) and
                 self.__dict__ == other.__dict__)
 
-    def type_name(self):
+    def type_name(self) -> TypeName:
         raise NotImplementedError()
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         raise NotImplementedError()
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> Any:
         raise NotImplementedError()
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         raise NotImplementedError()
 
 
 class VoidType(Type):
-    def type_name(self):
+    def type_name(self) -> VoidTypeName:
         return VoidTypeName(self.qualifiers)
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         raise ValueError("can't get size of void")
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> Any:
         raise ValueError("can't read void")
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         raise ValueError("can't read void")
 
 
 class BasicType(Type):
-    def __init__(self, name, size, qualifiers=None):
+    def __init__(self, name: str, size: int,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.size = size
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.name), ', ',
@@ -85,13 +97,14 @@ class BasicType(Type):
         parts.append(')')
         return ''.join(parts)
 
-    def type_name(self):
+    def type_name(self) -> BasicTypeName:
         return BasicTypeName(self.name, self.qualifiers)
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         return self.size
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -101,11 +114,12 @@ class BasicType(Type):
 
 
 class IntType(BasicType):
-    def __init__(self, name, size, signed, qualifiers=None):
+    def __init__(self, name: str, size: int, signed: bool,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         super().__init__(name, size, qualifiers)
         self.signed = signed
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.name), ', ',
@@ -118,7 +132,7 @@ class IntType(BasicType):
         parts.append(')')
         return ''.join(parts)
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> int:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder,
@@ -126,13 +140,14 @@ class IntType(BasicType):
 
 
 class BoolType(BasicType):
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> bool:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return bool(int.from_bytes(buffer[offset:offset + self.size],
                                    sys.byteorder))
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self), ')']
         else:
@@ -142,7 +157,7 @@ class BoolType(BasicType):
 
 
 class FloatType(BasicType):
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> float:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
         if self.size == 4:
@@ -155,12 +170,13 @@ class FloatType(BasicType):
 
 # Not a real C type, but it needs a separate representation.
 class BitFieldType(Type):
-    def __init__(self, type, bit_offset, bit_size):
+    def __init__(self, type: IntType, bit_offset: int, bit_size: int,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         self.type = type
         self.bit_offset = bit_offset
         self.bit_size = bit_size
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.type), ', ',
@@ -169,18 +185,18 @@ class BitFieldType(Type):
         ]
         return ''.join(parts)
 
-    def __str__(self):
+    def __str__(self) -> str:
         parts = [str(self.type.type_name()), ':', repr(self.bit_size)]
         return ' '.join(parts)
 
-    def type_name(self):
+    def type_name(self) -> TypeName:
         raise ValueError("can't get type of bit field")
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         # Not really, but for convenience.
         return (self.bit_offset + self.bit_size + 7) // 8
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> int:
         if len(buffer) - offset < self.sizeof():
             raise ValueError(f'buffer must be at least {self.sizeof()} bytes')
 
@@ -196,7 +212,8 @@ class BitFieldType(Type):
             value -= (1 << self.bit_size)
         return value
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type.type_name()), ')']
         else:
@@ -205,8 +222,13 @@ class BitFieldType(Type):
         return ''.join(parts)
 
 
+_TypeThunk = Callable[[], Type]
+
+
 class CompoundType(Type):
-    def __init__(self, name, size, members, qualifiers=None):
+    def __init__(self, name: str, size: int,
+                 members: Optional[List[Tuple[str, int, _TypeThunk]]],
+                 qualifiers: Optional[Set[str]] = None) -> None:
         super().__init__(qualifiers)
         # List of name, offset, type_thunk. type_thunk is a callable taking no
         # parameters which returns the type of the member. This lets us lazily
@@ -215,11 +237,12 @@ class CompoundType(Type):
         self.name = name
         self.size = size
         self._members = members
-        self._members_by_name = OrderedDict()
+        # XXX
+        self._members_by_name: Dict[str, Tuple[int, _TypeThunk]] = OrderedDict()
         if members:
             self._index_members_by_name(members, 0)
 
-    def _index_members_by_name(self, members, offset):
+    def _index_members_by_name(self, members: Any, offset: int) -> None:
         for name, member_offset, type_thunk in members:
             if name:
                 self._members_by_name[name] = (offset + member_offset, type_thunk)
@@ -227,7 +250,7 @@ class CompoundType(Type):
                 self._index_members_by_name(type_thunk()._members,
                                             offset + member_offset)
 
-    def _eager_members(self):
+    def _eager_members(self) -> Optional[List[Tuple[str, int, Type]]]:
         if self._members is None:
             return None
         return [
@@ -235,7 +258,7 @@ class CompoundType(Type):
             self._members
         ]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.name), ', ',
@@ -248,7 +271,7 @@ class CompoundType(Type):
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self):
+    def __str__(self) -> str:
         parts = [str(self.type_name())]
         if self._members is not None:
             parts.append(' {\n')
@@ -263,7 +286,7 @@ class CompoundType(Type):
                         parts.append(name)
                 else:
                     if isinstance(member_type, BitFieldType):
-                        member_type_name = member_type.type.type_name()
+                        member_type_name: TypeName = member_type.type.type_name()
                     else:
                         member_type_name = member_type.type_name()
                     parts.append('\t')
@@ -275,7 +298,7 @@ class CompoundType(Type):
             parts.append('}')
         return ''.join(parts)
 
-    def _dict_for_eq(self):
+    def _dict_for_eq(self) -> Dict:
         # Compare the result of the type thunks rather than the thunks
         # themselves. __eq__ is only used for testing, so it's okay to eagerly
         # evaluate the struct member types.
@@ -284,16 +307,17 @@ class CompoundType(Type):
         del d['_members_by_name']
         return d
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         return (isinstance(other, self.__class__) and
-                self._dict_for_eq() == other._dict_for_eq())
+                self._dict_for_eq() == other._dict_for_eq())  # type: ignore
+                                                              # mypy issue #3061
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         if self.size is None:
             raise ValueError("can't get size of incomplete type")
         return self.size
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> Dict:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return OrderedDict([
@@ -301,7 +325,8 @@ class CompoundType(Type):
             for name, (member_offset, type_thunk) in self._members_by_name.items()
         ])
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast and self.name:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -317,28 +342,30 @@ class CompoundType(Type):
         parts.append('}')
         return ''.join(parts)
 
-    def members(self):
+    def members(self) -> List[str]:
         return list(self._members_by_name)
 
-    def offsetof(self, member):
+    def offsetof(self, member: str) -> int:
         return self._members_by_name[member][0]
 
-    def typeof(self, member):
+    def typeof(self, member: str) -> Type:
         return self._members_by_name[member][1]()
 
 
 class StructType(CompoundType):
-    def type_name(self):
+    def type_name(self) -> StructTypeName:
         return StructTypeName(self.name, self.qualifiers)
 
 
 class UnionType(CompoundType):
-    def type_name(self):
+    def type_name(self) -> UnionTypeName:
         return UnionTypeName(self.name, self.qualifiers)
 
 
 class EnumType(Type):
-    def __init__(self, name, size, signed, enumerators, qualifiers=None):
+    def __init__(self, name: str, size: int, signed: bool,
+                 enumerators: Optional[List[Tuple[str, int]]],
+                 qualifiers: Optional[Set[str]] = None) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.size = size
@@ -346,10 +373,10 @@ class EnumType(Type):
         if enumerators is None:
             self._enum = None
         else:
-            self._enum = enum.IntEnum('' if name is None else name,
-                                      OrderedDict(enumerators))
+            self._enum = enum.IntEnum('' if name is None else name, enumerators)  # type: ignore
+                                                                                  # mypy issue #4865.
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.name), ', ',
@@ -363,7 +390,7 @@ class EnumType(Type):
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self):
+    def __str__(self) -> str:
         parts = [str(self.type_name())]
         if self._enum is not None:
             parts.append(' {\n')
@@ -376,25 +403,26 @@ class EnumType(Type):
             parts.append('}')
         return ''.join(parts)
 
-    def _dict_for_eq(self):
+    def _dict_for_eq(self) -> Dict:
         d = dict(self.__dict__)
         if d['_enum'] is not None:
             d['_enum'] = d['_enum'].__members__
         return d
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         return (isinstance(other, self.__class__) and
-                self._dict_for_eq() == other._dict_for_eq())
+                self._dict_for_eq() == other._dict_for_eq())  # type: ignore
+                                                              # mypy issue #3061
 
-    def type_name(self):
+    def type_name(self) -> EnumTypeName:
         return EnumTypeName(self.name, self.qualifiers)
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         if self.size is None:
             raise ValueError("can't get size of incomplete type")
         return self.size
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> Union[enum.IntEnum, int]:
         if self._enum is None:
             raise ValueError("can't read incomplete enum type")
         if len(buffer) - offset < self.size:
@@ -406,7 +434,8 @@ class EnumType(Type):
         except ValueError:
             return value
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -420,12 +449,13 @@ class EnumType(Type):
 
 
 class TypedefType(Type):
-    def __init__(self, name, type, qualifiers=None):
+    def __init__(self, name: str, type: Type,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.type = type
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.name), ', ',
@@ -437,22 +467,23 @@ class TypedefType(Type):
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self):
+    def __str__(self) -> str:
         parts = sorted(self.qualifiers)  # Not real C syntax, but it gets the point across
         parts.append('typedef')
         parts.append(self.type.type_name().declaration(self.name))
         return ' '.join(parts)
 
-    def type_name(self):
+    def type_name(self) -> TypedefTypeName:
         return TypedefTypeName(self.name, self.qualifiers)
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         return self.type.sizeof()
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> Any:
         return self.type.read(buffer, offset)
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -462,12 +493,13 @@ class TypedefType(Type):
 
 
 class PointerType(Type):
-    def __init__(self, size, type, qualifiers=None):
+    def __init__(self, size: int, type: Type,
+                 qualifiers: Optional[Set[str]] = None) -> None:
         super().__init__(qualifiers)
         self.size = size
         self.type = type
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.type), ', ',
@@ -479,18 +511,19 @@ class PointerType(Type):
         parts.append(')')
         return ''.join(parts)
 
-    def type_name(self):
+    def type_name(self) -> PointerTypeName:
         return PointerTypeName(self.type.type_name(), self.qualifiers)
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         return self.size
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> int:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder)
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self), ')']
         else:
@@ -500,22 +533,22 @@ class PointerType(Type):
 
 
 class ArrayType(Type):
-    def __init__(self, type, size=None):
+    def __init__(self, type: Type, size: Optional[int] = None) -> None:
         self.type = type
         self.size = size
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.type!r}, {self.size!r})'
 
-    def type_name(self):
+    def type_name(self) -> ArrayTypeName:
         return ArrayTypeName(self.type.type_name(), self.size)
 
-    def sizeof(self):
+    def sizeof(self) -> int:
         if self.size is None:
             raise ValueError("can't get size of incomplete array type")
         return self.size * self.type.sizeof()
 
-    def read(self, buffer, offset=0):
+    def read(self, buffer: bytes, offset: int = 0) -> List:
         if self.size is None:
             raise ValueError("can't read incomplete array type")
         element_size = self.type.sizeof()
@@ -527,7 +560,8 @@ class ArrayType(Type):
             for i in range(self.size)
         ]
 
-    def format(self, buffer, offset=0, *, cast=True):
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -564,8 +598,10 @@ class ArrayType(Type):
         return ''.join(parts)
 
 
-def _from_dwarf_bit_field(dwarf_index, die):
+def _from_dwarf_bit_field(dwarf_index: DwarfIndex, die: Die) -> Type:
     type_ = from_dwarf_type(dwarf_index, die.type())
+    if not isinstance(type_, IntType):
+        raise DwarfFormatError('bit field type is not integer')
     bit_size = die.find_constant(DW_AT.bit_size)
     try:
         bit_offset = die.find_constant(DW_AT.data_bit_offset)
@@ -575,7 +611,8 @@ def _from_dwarf_bit_field(dwarf_index, die):
     return BitFieldType(type_, bit_offset, bit_size)
 
 
-def from_dwarf_type(dwarf_index, dwarf_type, qualifiers=None):
+def from_dwarf_type(dwarf_index: DwarfIndex, dwarf_type: Die,
+                    qualifiers: Optional[Set[str]] = None) -> Type:
     if qualifiers is None:
         qualifiers = set()
     else:
@@ -645,9 +682,11 @@ def from_dwarf_type(dwarf_index, dwarf_type, qualifiers=None):
         except DwarfAttribNotFoundError:
             name = None
         if dwarf_type.tag == DW_TAG.structure_type:
-            return StructType(name, size, members, qualifiers)
+            return StructType(name, size, members, qualifiers)  # type: ignore
+                                                                # mypy issue #1484
         else:
-            return UnionType(name, size, members, qualifiers)
+            return UnionType(name, size, members, qualifiers)  # type: ignore
+                                                               # mypy issue #1484
     elif dwarf_type.tag == DW_TAG.enumeration_type:
         if dwarf_type.find_flag(DW_AT.declaration):
             size = None
@@ -683,7 +722,7 @@ def from_dwarf_type(dwarf_index, dwarf_type, qualifiers=None):
         try:
             deref_type = dwarf_type.type()
         except DwarfAttribNotFoundError:
-            type_ = VoidType()
+            type_: Type = VoidType()
         else:
             type_ = from_dwarf_type(dwarf_index, deref_type)
         return PointerType(size, type_, qualifiers)
@@ -704,7 +743,8 @@ def from_dwarf_type(dwarf_index, dwarf_type, qualifiers=None):
         raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
 
 
-def from_dwarf_type_name(dwarf_index, type_name):
+def from_dwarf_type_name(dwarf_index: DwarfIndex,
+                         type_name: Union[str, TypeName]) -> Type:
     if not isinstance(type_name, TypeName):
         type_name = parse_type_name(type_name)
     if isinstance(type_name, VoidTypeName):
