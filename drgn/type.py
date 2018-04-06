@@ -612,6 +612,8 @@ class ArrayType(Type):
 
 def _from_dwarf_bit_field(dwarf_index: DwarfIndex, die: Die) -> Type:
     type_ = from_dwarf_type(dwarf_index, die.type())
+    while isinstance(type_, TypedefType):
+        type_ = type_.type
     if not isinstance(type_, IntType):
         raise DwarfFormatError('bit field type is not integer')
     bit_size = die.find_constant(DW_AT.bit_size)
