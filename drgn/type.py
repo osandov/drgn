@@ -337,15 +337,18 @@ class CompoundType(Type):
             parts = ['(', str(self.type_name()), ')']
         else:
             parts = []
-        parts.append('{\n')
-        for name, (member_offset, type_thunk) in self._members_by_name.items():
-            parts.append('\t.')
-            parts.append(name)
-            parts.append(' = ')
-            member_format = type_thunk().format(buffer, offset + member_offset)
-            parts.append(member_format.replace('\n', '\n\t'))
-            parts.append(',\n')
-        parts.append('}')
+        if self._members_by_name:
+            parts.append('{\n')
+            for name, (member_offset, type_thunk) in self._members_by_name.items():
+                parts.append('\t.')
+                parts.append(name)
+                parts.append(' = ')
+                member_format = type_thunk().format(buffer, offset + member_offset)
+                parts.append(member_format.replace('\n', '\n\t'))
+                parts.append(',\n')
+            parts.append('}')
+        else:
+            parts.append('{}')
         return ''.join(parts)
 
     def members(self) -> List[str]:

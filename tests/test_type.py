@@ -205,6 +205,10 @@ const volatile struct line_segment {
         self.assertEqual(type_.typeof('y'), IntType('int', 4, True))
         self.assertEqual(type_.typeof('z'), IntType('int', 4, True))
 
+        type_ = StructType('foo', 0, [])
+        self.assertEqual(type_.members(), [])
+        self.assertEqual(type_.format(b''), '(struct foo){}')
+
     def test_bit_field(self):
         type_ = StructType(None, 8, [
             ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
