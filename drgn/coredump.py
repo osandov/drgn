@@ -149,7 +149,7 @@ class CoredumpObject:
         usually a string, but it can also be a Type or TypeName object.
         """
         if not isinstance(type, Type):
-            type = self.coredump_.find_type(type)
+            type = self.coredump_.type(type)
         return CoredumpObject(self.coredump_, self.address_, type)
 
     def container_of_(self, type: Union[str, Type, TypeName],
@@ -163,7 +163,7 @@ class CoredumpObject:
         This is only valid for pointers.
         """
         if not isinstance(type, Type):
-            type = self.coredump_.find_type(type)
+            type = self.coredump_.type(type)
         if not isinstance(type, CompoundType):
             raise ValueError('containerof is only valid with struct or union types')
         if not isinstance(self._real_type, PointerType):
@@ -186,21 +186,22 @@ class Coredump:
 
     def __getitem__(self, name: str) -> CoredumpObject:
         """
-        Implement self[name]. Return a CoredumpObject representing the variable
-        with the given name.
+        Implement self[name]. This is equivalent to self.variable(name) and is
+        provided for convenience.
 
         >>> core['init_task']
         CoredumpObject(address=0xffffffffbe012480, type=<struct task_struct>)
         """
-        address, type_ = self._lookup_variable(name)
-        return CoredumpObject(self, address, type_)
+        return self.variable(name)
 
-    def find_type(self, name: Union[str, TypeName]) -> Type:
+    def object(self, address: int, type: Union[str, Type, TypeName]) -> CoredumpObject:
         """
-        Return a Type object for the type with the given name. The name is
-        usually a string, but it can also be a TypeName object.
+        Return a CoredumpObject with the given address of the given type. The
+        type can be a string, Type object, or TypeName object.
         """
-        return self._lookup_type(name)
+        if not isinstance(type, Type):
+            type = self.type(type)
+        return CoredumpObject(self, address, type)
 
     def read(self, address: int, size: int) -> bytes:
         """
@@ -210,3 +211,17 @@ class Coredump:
         b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'
         """
         return self._read_memory(address, size)
+
+    def type(self, name: Union[str, TypeName]) -> Type:
+        """
+        Return a Type object for the type with the given name. The name is
+        usually a string, but it can also be a TypeName object.
+        """
+        return self._lookup_type(name)
+
+    def variable(self, name: str) -> CoredumpObject:
+        """
+        Return a CoredumpObject representing the variable with the given name.
+        """
+        address, type_ = self._lookup_variable(name)
+        return CoredumpObject(self, address, type_)

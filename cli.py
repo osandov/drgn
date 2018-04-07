@@ -6,9 +6,9 @@ import os.path
 import platform
 import runpy
 import sys
-from typing import List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
-from drgn.coredump import Coredump, CoredumpObject
+from drgn.coredump import Coredump
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
 from drgn.elf import parse_elf_phdrs
@@ -103,11 +103,10 @@ def main() -> None:
             return os.pread(core_file.fileno(), size,
                             phdr.p_offset + address - phdr.p_vaddr)
 
-        init_globals = {
+        init_globals: Dict[str, Any] = {
             'core': Coredump(lookup_type_fn=lookup_type,
                              lookup_variable_fn=lookup_variable,
                              read_memory_fn=read_memory),
-            'CoredumpObject': CoredumpObject,
         }
         if args.script:
             sys.argv = args.script
