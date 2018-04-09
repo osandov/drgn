@@ -4,6 +4,7 @@ from drgn.typename import (
     ArrayTypeName,
     BasicTypeName,
     EnumTypeName,
+    FunctionTypeName,
     PointerTypeName,
     StructTypeName,
     TypedefTypeName,
@@ -281,3 +282,49 @@ class TestTypeStr(unittest.TestCase):
     def test_array_of_pointers_to_array(self):
         self.assertEqual(str(ArrayTypeName(PointerTypeName(ArrayTypeName(BasicTypeName('int'), 3)), 2)),
                          'int (*[2])[3]')
+
+    def test_pointer_to_function(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None)]))),
+                         'int (*)(int)')
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), 'x')]))),
+                         'int (*)(int x)')
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None), (BasicTypeName('float'), None)]))),
+                         'int (*)(int, float)')
+
+    def test_pointer_to_function_returning_pointer(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int')), [(BasicTypeName('int'), None)]))),
+                         'int *(*)(int)')
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int')), [(PointerTypeName(BasicTypeName('int')), None)]))),
+                         'int *(*)(int *)')
+
+    def test_pointer_to_function_returning_pointer_to_const(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int', qualifiers={'const'})), [(BasicTypeName('int'), None)]))),
+                         'const int *(*)(int)')
+
+    def test_pointer_to_function_returning_const_pointer(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int'), qualifiers={'const'}), [(BasicTypeName('int'), None)]))),
+                         'int * const (*)(int)')
+
+    def test_const_pointer_to_function_returning_pointer(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int')), [(BasicTypeName('int'), None)]), qualifiers={'const'})),
+                         'int *(* const)(int)')
+
+    def test_array_of_pointers_to_functions(self):
+        self.assertEqual(str(ArrayTypeName(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None)])), 4)),
+                         'int (*[4])(int)')
+
+    def test_array_of_const_pointers_to_functions(self):
+        self.assertEqual(str(ArrayTypeName(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None)]), qualifiers={'const'}), None)),
+                         'int (* const [])(int)')
+
+    def test_pointer_to_variadic_function(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None)], variadic=True))),
+                         'int (*)(int, ...)')
+
+    def test_pointer_to_function_with_no_parameter_specification(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(BasicTypeName('int'), None))),
+                         'int (*)()')
+
+    def test_pointer_to_function_with_no_parameters(self):
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(BasicTypeName('int'), []))),
+                         'int (*)(void)')

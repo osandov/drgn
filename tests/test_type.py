@@ -15,6 +15,7 @@ from drgn.type import (
     BoolType,
     EnumType,
     FloatType,
+    FunctionType,
     IntType,
     PointerType,
     StructType,
@@ -648,6 +649,26 @@ struct point {
                         ArrayType(IntType('int', 4, True), None))
         self.assertEqual(self.compile_type('extern int x[][2]'),
                         ArrayType(ArrayType(IntType('int', 4, True), 2), None))
+
+    def test_pointer_to_function(self):
+        self.assertEqual(self.compile_type('int (*x)(int)'),
+                         PointerType(pointer_size, FunctionType(IntType('int', 4, True), [(IntType('int', 4, True), None)])))
+
+    def test_pointer_to_function(self):
+        self.assertEqual(self.compile_type('int (*x)(int)'),
+                         PointerType(pointer_size, FunctionType(IntType('int', 4, True), [(IntType('int', 4, True), None)])))
+
+    def test_pointer_to_variadic_function(self):
+        self.assertEqual(self.compile_type('int (*x)(int, ...)'),
+                         PointerType(pointer_size, FunctionType(IntType('int', 4, True), [(IntType('int', 4, True), None)], variadic=True)))
+
+    def test_pointer_to_function_with_no_parameter_specification(self):
+        self.assertEqual(self.compile_type('int (*x)()'),
+                         PointerType(pointer_size, FunctionType(IntType('int', 4, True), None)))
+
+    def test_pointer_to_function_with_no_parameters(self):
+        self.assertEqual(self.compile_type('int (*x)(void)'),
+                         PointerType(pointer_size, FunctionType(IntType('int', 4, True), [])))
 
 
 class TestFromDwarfTypeName(unittest.TestCase):

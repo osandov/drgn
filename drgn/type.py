@@ -13,6 +13,7 @@ from drgn.typename import (
     ArrayTypeName,
     BasicTypeName,
     EnumTypeName,
+    FunctionTypeName,
     PointerTypeName,
     StructTypeName,
     TypedefTypeName,
@@ -517,8 +518,8 @@ class PointerType(Type):
     def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
-            repr(self.type), ', ',
-            repr(self.size),
+            repr(self.size), ', ',
+            repr(self.type),
         ]
         if self.qualifiers:
             parts.append(', ')
@@ -611,6 +612,45 @@ class ArrayType(Type):
                     parts.append(',\n')
             parts.append('}')
         return ''.join(parts)
+
+
+class FunctionType(Type):
+    def __init__(self, return_type: Type,
+                 parameters: Optional[List[Tuple[Type, Optional[str]]]] = None,
+                 variadic: bool = False) -> None:
+        self.return_type = return_type
+        self.parameters = parameters
+        self.variadic = variadic
+
+    def __repr__(self) -> str:
+        parts = [
+            self.__class__.__name__, '(',
+            repr(self.return_type), ', ',
+            repr(self.parameters), ', ',
+            repr(self.variadic),
+            ')',
+        ]
+        return ''.join(parts)
+
+    def type_name(self) -> TypeName:
+        if self.parameters is None:
+            parameters = None
+        else:
+            parameters = [(type_.type_name(), name) for type_, name
+                          in self.parameters]
+        return FunctionTypeName(self.return_type.type_name(), parameters,
+                                self.variadic)
+
+    def sizeof(self) -> int:
+        raise ValueError("can't get size of function")
+
+    def read(self, buffer: bytes, offset: int = 0) -> Any:
+        raise ValueError("can't read function")
+
+    def format(self, buffer: bytes, offset: int = 0, *,
+               cast: bool = True) -> str:
+        raise ValueError("can't read function")
+
 
 
 def _from_dwarf_bit_field(dwarf_index: DwarfIndex, die: Die) -> Type:
@@ -755,7 +795,28 @@ def from_dwarf_type(dwarf_index: DwarfIndex, dwarf_type: Die,
         assert isinstance(type_, ArrayType)
         return type_
     elif dwarf_type.tag == DW_TAG.subroutine_type:
-        return PointerType(dwarf_index.address_size, VoidType(), qualifiers)
+        try:
+            return_type = from_dwarf_type(dwarf_index, dwarf_type.type())
+        except DwarfAttribNotFoundError:
+            return_type = VoidType()
+        parameters: Optional[List[Tuple[Type, Optional[str]]]] = []
+        variadic = False
+        for child in dwarf_type.children():
+            if child.tag == DW_TAG.formal_parameter:
+                if parameters is None or variadic:
+                    raise DwarfFormatError('formal parameter after unspecified parameters')
+                parameter_type = from_dwarf_type(dwarf_index, child.type())
+                try:
+                    parameter_name = child.name()
+                except DwarfAttribNotFoundError:
+                    parameter_name = None
+                parameters.append((parameter_type, parameter_name))
+            elif child.tag == DW_TAG.unspecified_parameters:
+                if parameters:
+                    variadic = True
+                else:
+                    parameters = None
+        return FunctionType(return_type, parameters, variadic)
     else:
         raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
 

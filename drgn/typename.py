@@ -97,7 +97,7 @@ class PointerTypeName(TypeName):
             name = '* ' + ''.join(sorted(self.qualifiers)) + name
         else:
             name = '*' + name
-        if isinstance(self.type, ArrayTypeName):
+        if isinstance(self.type, (ArrayTypeName, FunctionTypeName)):
             name = '(' + name + ')'
         return self.type.declaration(name)
 
@@ -121,6 +121,42 @@ class ArrayTypeName(TypeName):
         else:
             name += f'[{self.size}]'
         return self.type.declaration(name)
+
+
+class FunctionTypeName(TypeName):
+    def __init__(self, return_type: TypeName,
+                 parameters: Optional[List[Tuple[TypeName, Optional[str]]]] = None,
+                 variadic: bool = False) -> None:
+        self.return_type = return_type
+        self.parameters = parameters
+        self.variadic = variadic
+
+    def __repr__(self) -> str:
+        parts = [
+            'FunctionTypeName(',
+            repr(self.return_type), ', ',
+            repr(self.parameters), ', ',
+            repr(self.variadic),
+            ')',
+        ]
+        return ''.join(parts)
+
+    def declaration(self, name: str) -> str:
+        if not name:
+            raise ValueError('function must have name')
+        parts = [self.return_type.declaration(name), '(']
+        if self.parameters is not None:
+            if self.parameters or self.variadic:
+                parameters = []
+                for parameter_type, parameter_name in self.parameters:
+                    parameters.append(parameter_type.declaration(parameter_name or ''))
+                if self.variadic:
+                    parameters.append('...')
+                parts.append(', '.join(parameters))
+            else:
+                parts.append('void')
+        parts.append(')')
+        return ''.join(parts)
 
 
 _TOKEN_REGEX = re.compile('|'.join('(?P<%s>%s)' % pair for pair in [
