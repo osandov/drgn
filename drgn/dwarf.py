@@ -1,4 +1,5 @@
 import enum
+import functools
 import struct
 import sys
 from typing import (
@@ -706,6 +707,7 @@ class CompilationUnit:
     def die_offset(self) -> int:
         return self.offset + (23 if self.is_64_bit else 11)
 
+    @functools.lru_cache()
     def die(self, offset: Optional[int] = None) -> 'Die':
         reader = self.dwarf_file._get_section_reader('.debug_info')
         if offset is None:

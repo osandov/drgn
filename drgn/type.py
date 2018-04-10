@@ -616,6 +616,7 @@ def _from_dwarf_bit_field(dwarf_index: DwarfIndex, die: Die) -> Type:
     return BitFieldType(type_, bit_offset, bit_size)
 
 
+@functools.lru_cache()
 def from_dwarf_type(dwarf_index: DwarfIndex, dwarf_type: Die,
                     qualifiers: FrozenSet[str] = frozenset()) -> Type:
     extra_qualifiers = set()
@@ -768,6 +769,7 @@ def from_dwarf_type(dwarf_index: DwarfIndex, dwarf_type: Die,
         raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
 
 
+@functools.lru_cache()
 def from_dwarf_type_name(dwarf_index: DwarfIndex,
                          type_name: Union[str, TypeName]) -> Type:
     if not isinstance(type_name, TypeName):
