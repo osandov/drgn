@@ -79,8 +79,7 @@ class CoredumpObject:
         Implement str(self). Return a string representation of the value of
         this object in C syntax.
         """
-        buffer = self.coredump_.read(self.address_, self._real_type.sizeof())
-        return self._real_type.format(buffer)
+        return self.type_.pretty(self.value_())
 
     def value_(self) -> Any:
         """

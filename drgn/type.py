@@ -59,9 +59,12 @@ class Type:
     def read(self, buffer: bytes, offset: int = 0) -> Any:
         raise NotImplementedError()
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Any, cast: bool = True) -> str:
         raise NotImplementedError()
+
+    def read_pretty(self, buffer: bytes, offset: int = 0, *,
+                    cast: bool = True) -> str:
+        return self.pretty(self.read(buffer, offset), cast)
 
 
 class VoidType(Type):
@@ -74,9 +77,8 @@ class VoidType(Type):
     def read(self, buffer: bytes, offset: int = 0) -> Any:
         raise ValueError("can't read void")
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
-        raise ValueError("can't read void")
+    def pretty(self, value: Any, cast: bool = True) -> str:
+        raise ValueError("can't format void")
 
 
 class BasicType(Type):
@@ -104,14 +106,12 @@ class BasicType(Type):
     def sizeof(self) -> int:
         return self.size
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
-            parts = ['(', str(self.type_name()), ')']
+            parts = ['(', str(self.type_name()), ')', str(value)]
+            return ''.join(parts)
         else:
-            parts = []
-        parts.append(str(self.read(buffer, offset)))
-        return ''.join(parts)
+            return str(value)
 
 
 class IntType(BasicType):
@@ -147,14 +147,12 @@ class BoolType(BasicType):
         return bool(int.from_bytes(buffer[offset:offset + self.size],
                                    sys.byteorder))
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
-            parts = ['(', str(self), ')']
+            parts = ['(', str(self.type_name()), ')', str(int(value))]
+            return ''.join(parts)
         else:
-            parts = []
-        parts.append(str(int(self.read(buffer, offset))))
-        return ''.join(parts)
+            return str(int(value))
 
 
 class FloatType(BasicType):
@@ -213,14 +211,12 @@ class BitFieldType(Type):
             value -= (1 << self.bit_size)
         return value
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Dict, cast: bool = True) -> str:
         if cast:
-            parts = ['(', str(self.type.type_name()), ')']
+            parts = ['(', str(self.type.type_name()), ')', str(value)]
+            return ''.join(parts)
         else:
-            parts = []
-        parts.append(str(self.read(buffer, offset)))
-        return ''.join(parts)
+            return str(value)
 
 
 _TypeThunk = Callable[[], Type]
@@ -332,8 +328,9 @@ class CompoundType(Type):
             for name, (member_offset, type_thunk) in self._members_by_name.items()
         ])
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Dict, cast: bool = True) -> str:
+        if value.keys() != self._members_by_name.keys():
+            raise ValueError('value members do not match type members')
         if cast and self.name:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -344,8 +341,8 @@ class CompoundType(Type):
                 parts.append('\t.')
                 parts.append(name)
                 parts.append(' = ')
-                member_format = type_thunk().format(buffer, offset + member_offset)
-                parts.append(member_format.replace('\n', '\n\t'))
+                member_pretty = type_thunk().pretty(value[name])
+                parts.append(member_pretty.replace('\n', '\n\t'))
                 parts.append(',\n')
             parts.append('}')
         else:
@@ -450,13 +447,17 @@ class EnumType(Type):
         except ValueError:
             return value
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
             parts = []
-        value = self.read(buffer, offset)
+        if not isinstance(value, self._enum):
+            value = int(value)
+            try:
+                value = self._enum(value)
+            except ValueError:
+                pass
         if isinstance(value, self._enum):
             parts.append(value._name_)
         else:
@@ -498,14 +499,14 @@ class TypedefType(Type):
     def read(self, buffer: bytes, offset: int = 0) -> Any:
         return self.type.read(buffer, offset)
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
-            parts = ['(', str(self.type_name()), ')']
+            parts = ['(', str(self.type_name()), ')',
+                     self.type.pretty(value, cast=False)]
+            return ''.join(parts)
         else:
-            parts = []
-        parts.append(self.type.format(buffer, offset, cast=False))
-        return ''.join(parts)
+            return self.type.pretty(value, cast=False)
+
 
 
 class PointerType(Type):
@@ -538,14 +539,12 @@ class PointerType(Type):
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder)
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
-            parts = ['(', str(self), ')']
+            parts = ['(', str(self.type_name()), ')', hex(value)]
+            return ''.join(parts)
         else:
-            parts = []
-        parts.append(hex(self.read(buffer, offset)))
-        return ''.join(parts)
+            return hex(value)
 
 
 class ArrayType(Type):
@@ -576,33 +575,22 @@ class ArrayType(Type):
             for i in range(self.size)
         ]
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
+    def pretty(self, value: List, cast: bool = True) -> str:
+        if (self.size or 0) != len(value):
+            raise ValueError('list size does not match type size')
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
             parts = []
-        if self.size is None:
+        if not self.size:
             parts.append('{}')
         else:
-            element_size = self.type.sizeof()
-            size = self.size * element_size
-            if len(buffer) - offset < size:
-                raise ValueError(f'buffer must be at least {size} bytes')
             elements = []
             format_element = False
-            for i in range(self.size - 1, -1, -1):
-                element_offset = offset + i * element_size
-                if not format_element:
-                    for byte_offset in range(element_offset,
-                                             element_offset + element_size):
-                        if buffer[byte_offset]:
-                            format_element = True
-                            break
+            for element in reversed(value):
+                format_element = format_element or bool(element)
                 if format_element:
-                    elements.append(self.type.format(buffer, element_offset,
-                                                     cast=False))
-
+                    elements.append(self.type.pretty(element, cast=False))
             parts.append('{')
             if elements:
                 parts.append('\n')
@@ -647,9 +635,8 @@ class FunctionType(Type):
     def read(self, buffer: bytes, offset: int = 0) -> Any:
         raise ValueError("can't read function")
 
-    def format(self, buffer: bytes, offset: int = 0, *,
-               cast: bool = True) -> str:
-        raise ValueError("can't read function")
+    def pretty(self, value: Any, cast: bool = True) -> str:
+        raise ValueError("can't format function")
 
 
 

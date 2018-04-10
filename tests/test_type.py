@@ -52,7 +52,7 @@ class TestType(unittest.TestCase):
         self.assertEqual(str(type_), 'void')
         self.assertRaises(ValueError, type_.sizeof)
         self.assertRaises(ValueError, type_.read, b'')
-        self.assertRaises(ValueError, type_.format, b'')
+        self.assertRaises(ValueError, type_.read_pretty, b'')
 
     def test_int(self):
         type_ = IntType('int', 4, True)
@@ -60,8 +60,8 @@ class TestType(unittest.TestCase):
         self.assertEqual(type_.sizeof(), 4)
         buffer = (99).to_bytes(4, sys.byteorder)
         self.assertEqual(type_.read(buffer), 99)
-        self.assertEqual(type_.format(buffer), '(int)99')
-        self.assertEqual(type_.format(buffer, cast=False), '99')
+        self.assertEqual(type_.read_pretty(buffer), '(int)99')
+        self.assertEqual(type_.read_pretty(buffer, cast=False), '99')
         buffer = b'\0\0' + (-1).to_bytes(4, sys.byteorder, signed=True)
         self.assertEqual(type_.read(buffer, 2), -1)
         self.assertRaises(ValueError, type_.read, buffer, 3)
@@ -92,9 +92,9 @@ class TestType(unittest.TestCase):
         self.assertEqual(str(type_), '_Bool')
         self.assertEqual(type_.sizeof(), 1)
         self.assertEqual(type_.read(b'\0'), 0)
-        self.assertEqual(type_.format(b'\0'), '(_Bool)0')
+        self.assertEqual(type_.read_pretty(b'\0'), '(_Bool)0')
         self.assertEqual(type_.read(b'\0\x01', 1), 1)
-        self.assertEqual(type_.format(b'\x01'), '(_Bool)1')
+        self.assertEqual(type_.read_pretty(b'\x01'), '(_Bool)1')
         self.assertRaises(ValueError, type_.read, b'')
         self.assertRaises(ValueError, type_.read, b'\0', 1)
 
@@ -113,7 +113,7 @@ class TestType(unittest.TestCase):
         self.assertEqual(str(type_), 'typedef int INT')
         self.assertEqual(type_.sizeof(), 4)
         self.assertEqual(type_.read(b'\0\0\0\0'), 0)
-        self.assertEqual(type_.format(b'\0\0\0\0'), '(INT)0')
+        self.assertEqual(type_.read_pretty(b'\0\0\0\0'), '(INT)0')
 
         type_ = TypedefType('string', PointerType(pointer_size, IntType('char', 1, True)))
         self.assertEqual(str(type_), 'typedef char *string')
@@ -151,7 +151,7 @@ struct point {
             ('x', 99),
             ('y', -1),
         ]))
-        self.assertEqual(point_type.format(b'\0' + buffer, 1), """\
+        self.assertEqual(point_type.read_pretty(b'\0' + buffer, 1), """\
 (struct point){
 	.x = (int)99,
 	.y = (int)-1,
@@ -208,7 +208,7 @@ const volatile struct line_segment {
 
         type_ = StructType('foo', 0, [])
         self.assertEqual(type_.members(), [])
-        self.assertEqual(type_.format(b''), '(struct foo){}')
+        self.assertEqual(type_.read_pretty(b''), '(struct foo){}')
 
     def test_bit_field(self):
         type_ = StructType(None, 8, [
@@ -238,7 +238,7 @@ struct {
             ('y', 100000000),
             ('z', -1),
         ]))
-        self.assertEqual(type_.format(buffer), """\
+        self.assertEqual(type_.read_pretty(buffer), """\
 {
 	.x = (int)7,
 	.y = (const int)100000000,
@@ -269,7 +269,7 @@ union value {
             ('i', 1065353216),
             ('f', 1.0),
         ]))
-        self.assertEqual(type_.format(buffer), """\
+        self.assertEqual(type_.read_pretty(buffer), """\
 (union value){
 	.i = (int)1065353216,
 	.f = (float)1.0,
@@ -308,10 +308,10 @@ enum color {
         self.assertEqual(type_.read(buffer), type_._enum.RED)
         buffer = (1).to_bytes(4, sys.byteorder)
         self.assertEqual(type_.read(b'\0' + buffer, 1), type_._enum.GREEN)
-        self.assertEqual(type_.format(b'\0' + buffer, 1), '(enum color)GREEN')
+        self.assertEqual(type_.read_pretty(b'\0' + buffer, 1), '(enum color)GREEN')
         buffer = (4).to_bytes(4, sys.byteorder)
         self.assertEqual(type_.read(b'\0\0\0' + buffer, 3), 4)
-        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), '(enum color)4')
+        self.assertEqual(type_.read_pretty(b'\0\0\0' + buffer, 3), '(enum color)4')
         self.assertRaises(ValueError, type_.read, buffer, 3)
         self.assertRaises(ValueError, type_.read, b'')
 
@@ -356,7 +356,7 @@ enum {
         buffer = (0x7fffffff).to_bytes(pointer_size, sys.byteorder)
         self.assertEqual(type_.read(buffer), 0x7fffffff)
         self.assertEqual(type_.read(b'\0' + buffer, 1), 0x7fffffff)
-        self.assertEqual(type_.format(b'\0' + buffer, 1), '(int *)0x7fffffff')
+        self.assertEqual(type_.read_pretty(b'\0' + buffer, 1), '(int *)0x7fffffff')
 
         type_ = PointerType(pointer_size, IntType('int', 4, True), {'const'})
         self.assertEqual(str(type_), 'int * const')
@@ -378,26 +378,26 @@ enum {
                   (-1).to_bytes(4, sys.byteorder, signed=True))
         self.assertEqual(type_.read(buffer), [99, -1])
         self.assertEqual(type_.read(b'\0\0\0' + buffer, 3), [99, -1])
-        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), """\
+        self.assertEqual(type_.read_pretty(b'\0\0\0' + buffer, 3), """\
 (int [2]){
 	99,
 	-1,
 }""")
         buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
                   (0).to_bytes(4, sys.byteorder, signed=True))
-        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), """\
+        self.assertEqual(type_.read_pretty(b'\0\0\0' + buffer, 3), """\
 (int [2]){
 	99,
 }""")
         buffer = ((0).to_bytes(4, sys.byteorder, signed=True) +
                   (-1).to_bytes(4, sys.byteorder, signed=True))
-        self.assertEqual(type_.format(b'\0\0\0' + buffer, 3), """\
+        self.assertEqual(type_.read_pretty(b'\0\0\0' + buffer, 3), """\
 (int [2]){
 	0,
 	-1,
 }""")
         self.assertRaises(ValueError, type_.read, buffer, 3)
-        self.assertRaises(ValueError, type_.format, buffer, 3)
+        self.assertRaises(ValueError, type_.read_pretty, buffer, 3)
 
         type_ = ArrayType(ArrayType(IntType('int', 4, True), 3), 2)
         self.assertEqual(str(type_), 'int [2][3]')
@@ -410,15 +410,15 @@ enum {
         self.assertEqual(str(type_), 'struct empty [2]')
         self.assertEqual(type_.sizeof(), 0)
         self.assertEqual(type_.read(b''), [OrderedDict(), OrderedDict()])
-        self.assertEqual(type_.format(b''), '(struct empty [2]){}')
-        self.assertRaises(ValueError, type_.format, b'', 1)
+        self.assertEqual(type_.read_pretty(b''), '(struct empty [2]){}')
+        self.assertRaises(ValueError, type_.read_pretty, b'', 1)
 
     def test_incomplete_array(self):
         type_ = ArrayType(IntType('int', 4, True), None)
         self.assertEqual(str(type_), 'int []')
         self.assertRaises(ValueError, type_.sizeof)
         self.assertEqual(type_.read(b''), [])
-        self.assertEqual(type_.format(b''), '(int []){}')
+        self.assertEqual(type_.read_pretty(b''), '(int []){}')
 
         type_ = ArrayType(ArrayType(IntType('int', 4, True), 2), None)
         self.assertEqual(str(type_), 'int [][2]')
