@@ -7,17 +7,18 @@ from drgn.type import (
 )
 from drgn.type import TypeName
 import itertools
-from typing import Any, Callable, Iterable, Tuple, Union
+from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
 
 class CoredumpObject:
     """
-    CoredumpObject(coredump, address, type) -> new object
+    CoredumpObject(coredump, address, type, value=None) -> new object
 
-    A CoredumpObject represents an object in the memory of a program. It has
-    three members: coredump_, the program this object is from; address_, the
-    location in memory where this object resides in the program; and type_, the
-    type of this object in the program.
+    A CoredumpObject either represents an object in the memory of a program (an
+    "lvalue") or a temporary computed value (an "rvalue"). It has three
+    members: coredump_, the program this object is from; address_, the location
+    in memory where this object resides in the program (or None if it is not an
+    lvalue); and type_, the type of this object in the program.
 
     CoredumpObjects try to behave transparently like the object they represent
     in C. E.g., structure members can be accessed with the dot (".") operator
@@ -33,13 +34,19 @@ class CoredumpObject:
     conflict.
     """
 
-    def __init__(self, coredump: 'Coredump', address: int, type: Type) -> None:
+    def __init__(self, coredump: 'Coredump', address: Optional[int],
+                 type: Type, value: Any = None) -> None:
+        if address is not None and value is not None:
+            raise ValueError('object cannot have address and value')
+        if address is None and value is None:
+            raise ValueError('object must have either address or value')
         self.coredump_ = coredump
         self.address_ = address
         self.type_ = type
         while isinstance(type, TypedefType):
             type = type.type
         self._real_type = type
+        self._value = value
 
     def __getattr__(self, name: str) -> 'CoredumpObject':
         """Implement self.name. Shortcurt for self.member_(name)"""
@@ -72,7 +79,19 @@ class CoredumpObject:
         return CoredumpObject(self.coredump_, address + offset, type_)
 
     def __repr__(self) -> str:
-        return f'CoredumpObject(address=0x{self.address_:x}, type=<{self.type_.type_name()}>)'
+        parts = [
+            'CoredumpObject(address=',
+            'None' if self.address_ is None else hex(self.address_), ', ',
+            'type=<', str(self.type_.type_name()), '>',
+        ]
+        if self._value is not None:
+            parts.append(', value=')
+            if isinstance(self._real_type, PointerType):
+                parts.append(hex(self._value))
+            else:
+                parts.append(repr(self._value))
+        parts.append(')')
+        return ''.join(parts)
 
     def __str__(self) -> str:
         """
@@ -88,9 +107,12 @@ class CoredumpObject:
         For basic types (int, bool, etc.), this returns an object of the
         directly corresponding Python type. For pointers, this returns the
         address value of the pointer. For enums, this returns an enum.IntEnum
-        object. For structures and unions, this returns an OrderedDict of
-        members. For arrays, this returns a list of values.
+        object or an int. For structures and unions, this returns an
+        OrderedDict of members. For arrays, this returns a list of values.
         """
+        if self._value is not None:
+            return self._value
+        assert self.address_ is not None
         buffer = self.coredump_.read(self.address_, self._real_type.sizeof())
         return self._real_type.read(buffer)
 
@@ -148,7 +170,7 @@ class CoredumpObject:
         """
         if not isinstance(type, Type):
             type = self.coredump_.type(type)
-        return CoredumpObject(self.coredump_, self.address_, type)
+        return CoredumpObject(self.coredump_, self.address_, type, self._value)
 
     def container_of_(self, type: Union[str, Type, TypeName],
                       member: str) -> 'CoredumpObject':
@@ -167,7 +189,10 @@ class CoredumpObject:
         if not isinstance(self._real_type, PointerType):
             raise ValueError('container_of is only valid on pointers')
         address = self.value_() - type.offsetof(member)
-        return CoredumpObject(self.coredump_, address, type)
+        return CoredumpObject(self.coredump_, None,
+                              PointerType(self._real_type.size, type,
+                                          self._real_type.qualifiers),
+                              address)
 
 
 class Coredump:
@@ -192,14 +217,15 @@ class Coredump:
         """
         return self.variable(name)
 
-    def object(self, address: int, type: Union[str, Type, TypeName]) -> CoredumpObject:
+    def object(self, address: int, type: Union[str, Type, TypeName],
+               value: Any = None) -> CoredumpObject:
         """
         Return a CoredumpObject with the given address of the given type. The
         type can be a string, Type object, or TypeName object.
         """
         if not isinstance(type, Type):
             type = self.type(type)
-        return CoredumpObject(self, address, type)
+        return CoredumpObject(self, address, type, value)
 
     def read(self, address: int, size: int) -> bytes:
         """
