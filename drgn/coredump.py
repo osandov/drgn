@@ -60,8 +60,7 @@ class CoredumpObject:
         except AttributeError:
             raise TypeError('index must be integer')
         if isinstance(self._real_type, PointerType):
-            buffer = self.coredump_.read(self.address_, self._real_type.sizeof())
-            address = self._real_type.read(buffer)
+            address = self.value_()
             type_ = self._real_type.type
         elif isinstance(self._real_type, ArrayType):
             address = self.address_
