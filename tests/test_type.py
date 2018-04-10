@@ -38,7 +38,7 @@ anonymous_point_type = StructType(None, 8, [
 const_anonymous_point_type = StructType(None, 8, [
     ('x', 0, lambda: IntType('int', 4, True)),
     ('y', 4, lambda: IntType('int', 4, True)),
-], {'const'})
+], frozenset({'const'}))
 line_segment_type = StructType('line_segment', 16, [
     ('a', 0, lambda: point_type),
     ('b', 8, lambda: point_type),
@@ -315,7 +315,7 @@ enum color {
         self.assertRaises(ValueError, type_.read, buffer, 3)
         self.assertRaises(ValueError, type_.read, b'')
 
-        type_.qualifiers.add('const')
+        type_.qualifiers = frozenset({'const'})
         self.assertEqual(str(type_), """\
 const enum color {
 	RED = 0,
@@ -323,7 +323,7 @@ const enum color {
 	BLUE = 2,
 }""")
 
-        type_.qualifiers.add('volatile')
+        type_.qualifiers = frozenset({'const', 'volatile'})
         self.assertEqual(str(type_), """\
 const volatile enum color {
 	RED = 0,
@@ -654,10 +654,6 @@ struct point {
         self.assertEqual(self.compile_type('int (*x)(int)'),
                          PointerType(pointer_size, FunctionType(IntType('int', 4, True), [(IntType('int', 4, True), None)])))
 
-    def test_pointer_to_function(self):
-        self.assertEqual(self.compile_type('int (*x)(int)'),
-                         PointerType(pointer_size, FunctionType(IntType('int', 4, True), [(IntType('int', 4, True), None)])))
-
     def test_pointer_to_variadic_function(self):
         self.assertEqual(self.compile_type('int (*x)(int, ...)'),
                          PointerType(pointer_size, FunctionType(IntType('int', 4, True), [(IntType('int', 4, True), None)], variadic=True)))
@@ -712,13 +708,13 @@ int main(void)
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'void'),
                          VoidType())
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'const void'),
-                         VoidType({'const'}))
+                         VoidType(frozenset({'const'})))
 
     def test_base_type(self):
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int'),
                          IntType('int', 4, True))
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'volatile int'),
-                         IntType('int', 4, True, {'volatile'}))
+                         IntType('int', 4, True, frozenset({'volatile'})))
 
     def test_struct_type(self):
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'struct point'),
@@ -743,13 +739,13 @@ int main(void)
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'point'),
                          TypedefType('point', point_type))
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'const point'),
-                         TypedefType('point', point_type, {'const'}))
+                         TypedefType('point', point_type, frozenset({'const'})))
 
     def test_pointer_type(self):
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int *'),
                          PointerType(pointer_size, IntType('int', 4, True)))
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int * const'),
-                         PointerType(pointer_size, IntType('int', 4, True), {'const'}))
+                         PointerType(pointer_size, IntType('int', 4, True), frozenset({'const'})))
 
     def test_array_type(self):
         self.assertEqual(from_dwarf_type_name(self.dwarf_index, 'int [4]'),

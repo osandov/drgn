@@ -26,13 +26,11 @@ import functools
 import re
 import struct
 import sys
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple, Union
 
 
 class Type:
-    def __init__(self, qualifiers: Optional[Set[str]] = None) -> None:
-        if qualifiers is None:
-            qualifiers = set()
+    def __init__(self, qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.qualifiers = qualifiers
 
     def __repr__(self) -> str:
@@ -83,7 +81,7 @@ class VoidType(Type):
 
 class BasicType(Type):
     def __init__(self, name: str, size: int,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.size = size
@@ -116,7 +114,7 @@ class BasicType(Type):
 
 class IntType(BasicType):
     def __init__(self, name: str, size: int, signed: bool,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(name, size, qualifiers)
         self.signed = signed
 
@@ -170,7 +168,7 @@ class FloatType(BasicType):
 # Not a real C type, but it needs a separate representation.
 class BitFieldType(Type):
     def __init__(self, type: IntType, bit_offset: int, bit_size: int,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.type = type
         self.bit_offset = bit_offset
         self.bit_size = bit_size
@@ -225,7 +223,7 @@ _TypeThunk = Callable[[], Type]
 class CompoundType(Type):
     def __init__(self, name: str, size: int,
                  members: Optional[List[Tuple[str, int, _TypeThunk]]],
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         # List of name, offset, type_thunk. type_thunk is a callable taking no
         # parameters which returns the type of the member. This lets us lazily
@@ -378,7 +376,7 @@ class UnionType(CompoundType):
 class EnumType(Type):
     def __init__(self, name: str, size: int, signed: bool,
                  enumerators: Optional[List[Tuple[str, int]]],
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.size = size
@@ -467,7 +465,7 @@ class EnumType(Type):
 
 class TypedefType(Type):
     def __init__(self, name: str, type: Type,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.type = type
@@ -511,7 +509,7 @@ class TypedefType(Type):
 
 class PointerType(Type):
     def __init__(self, size: int, type: Type,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         self.size = size
         self.type = type
@@ -656,23 +654,22 @@ def _from_dwarf_bit_field(dwarf_index: DwarfIndex, die: Die) -> Type:
 
 
 def from_dwarf_type(dwarf_index: DwarfIndex, dwarf_type: Die,
-                    qualifiers: Optional[Set[str]] = None) -> Type:
-    if qualifiers is None:
-        qualifiers = set()
-    else:
-        qualifiers = set(qualifiers)
+                    qualifiers: FrozenSet[str] = frozenset()) -> Type:
+    extra_qualifiers = set()
     while True:
         if dwarf_type.tag == DW_TAG.const_type:
-            qualifiers.add('const')
+            extra_qualifiers.add('const')
         elif dwarf_type.tag == DW_TAG.restrict_type:
-            qualifiers.add('restrict')
+            extra_qualifiers.add('restrict')
         elif dwarf_type.tag == DW_TAG.volatile_type:
-            qualifiers.add('volatile')
+            extra_qualifiers.add('volatile')
         elif dwarf_type.tag == DW_TAG.atomic_type:
-            qualifiers.add('_Atomic')
+            extra_qualifiers.add('_Atomic')
         else:
             break
         dwarf_type = dwarf_type.type()
+    if extra_qualifiers:
+        qualifiers = qualifiers.union(extra_qualifiers)
 
     if dwarf_type.find_flag(DW_AT.declaration):
         try:

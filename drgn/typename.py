@@ -1,14 +1,21 @@
 from collections import namedtuple
 import re
-from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    FrozenSet,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Union,
+)
 
 
 class TypeName:
     def __init__(self, name: str,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.name = name
-        if qualifiers is None:
-            qualifiers = set()
         self.qualifiers = qualifiers
 
     def __repr__(self) -> str:
@@ -35,8 +42,7 @@ class TypeName:
 
 
 class VoidTypeName(TypeName):
-    def __init__(self,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+    def __init__(self, qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__('void', qualifiers)
 
 
@@ -45,7 +51,7 @@ class BasicTypeName(TypeName):
 
 
 def _tagged_declaration(keyword: str, tag: str, name: str,
-                        qualifiers: Set[str]) -> str:
+                        qualifiers: FrozenSet[str]) -> str:
     parts = sorted(qualifiers)
     parts.append(keyword)
     if tag:
@@ -76,10 +82,8 @@ class TypedefTypeName(TypeName):
 
 class PointerTypeName(TypeName):
     def __init__(self, type: TypeName,
-                 qualifiers: Optional[Set[str]] = None) -> None:
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.type = type
-        if qualifiers is None:
-            qualifiers = set()
         self.qualifiers = qualifiers
 
     def __repr__(self) -> str:
@@ -274,7 +278,10 @@ class _TypeNameParser:
     def _type_name_from_specifiers(specifiers: Dict[str, Any],
                                    is_typedef: bool) -> TypeName:
         data_type = specifiers['data_type']
-        qualifiers = specifiers.get('qualifiers')
+        try:
+            qualifiers = frozenset(specifiers['qualifiers'])
+        except KeyError:
+            qualifiers = frozenset()
         if data_type.startswith('struct '):
             return StructTypeName(data_type[7:], qualifiers)
         elif data_type.startswith('union '):
@@ -356,7 +363,7 @@ class _TypeNameParser:
                 inner_type = type_name
         return type_name, inner_type
 
-    def _parse_optional_type_qualifier_list(self) -> Set[str]:
+    def _parse_optional_type_qualifier_list(self) -> FrozenSet[str]:
         qualifiers = set()
         while True:
             token = self._lexer.peek()
@@ -365,7 +372,7 @@ class _TypeNameParser:
             self._lexer.pop()
             assert isinstance(token.value, str)
             qualifiers.add(token.value)
-        return qualifiers
+        return frozenset(qualifiers)
 
     def _parse_direct_abstract_declarator(
             self, type_name: TypeName) -> Tuple[TypeName, Union[ArrayTypeName, PointerTypeName, None]]:
