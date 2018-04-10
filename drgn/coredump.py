@@ -164,9 +164,9 @@ class CoredumpObject:
         if not isinstance(type, Type):
             type = self.coredump_.type(type)
         if not isinstance(type, CompoundType):
-            raise ValueError('containerof is only valid with struct or union types')
+            raise ValueError('container_of is only valid with struct or union types')
         if not isinstance(self._real_type, PointerType):
-            raise ValueError('containerof is only valid on pointers')
+            raise ValueError('container_of is only valid on pointers')
         address = self.value_() - type.offsetof(member)
         return CoredumpObject(self.coredump_, address, type)
 
