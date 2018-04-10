@@ -8,10 +8,10 @@ import runpy
 import sys
 from typing import Any, Dict, List, Tuple, Union
 
-from drgn.coredump import Coredump
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
 from drgn.elf import parse_elf_phdrs
+from drgn.program import Program
 import drgn.type
 from drgn.type import Type
 from drgn.typename import TypeName
@@ -104,9 +104,9 @@ def main() -> None:
                             phdr.p_offset + address - phdr.p_vaddr)
 
         init_globals: Dict[str, Any] = {
-            'core': Coredump(lookup_type_fn=lookup_type,
-                             lookup_variable_fn=lookup_variable,
-                             read_memory_fn=read_memory),
+            'prog': Program(lookup_type_fn=lookup_type,
+                            lookup_variable_fn=lookup_variable,
+                            read_memory_fn=read_memory),
         }
         if args.script:
             sys.argv = args.script

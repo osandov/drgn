@@ -10,17 +10,17 @@ import itertools
 from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
 
-class CoredumpObject:
+class ProgramObject:
     """
-    CoredumpObject(coredump, address, type, value=None) -> new object
+    ProgramObject(program, address, type, value=None) -> new object
 
-    A CoredumpObject either represents an object in the memory of a program (an
+    A ProgramObject either represents an object in the memory of a program (an
     "lvalue") or a temporary computed value (an "rvalue"). It has three
-    members: coredump_, the program this object is from; address_, the location
+    members: program_, the program this object is from; address_, the location
     in memory where this object resides in the program (or None if it is not an
     lvalue); and type_, the type of this object in the program.
 
-    CoredumpObjects try to behave transparently like the object they represent
+    ProgramObjects try to behave transparently like the object they represent
     in C. E.g., structure members can be accessed with the dot (".") operator
     and arrays can be subscripted with "[]". Note that because the structure
     dereference operator ("->") is not valid syntax in Python, "." is also used
@@ -28,19 +28,19 @@ class CoredumpObject:
     operator ("*") is not valid syntax in Python, so pointers can be
     dereferenced with "[0]" (e.g., write "p[0]" instead of "*p").
 
-    CoredumpObject members and methods are named with a trailing underscore to
+    ProgramObject members and methods are named with a trailing underscore to
     avoid conflicting with structure or union members. The helper methods
     always take precedence over structure members; use member_() if there is a
     conflict.
     """
 
-    def __init__(self, coredump: 'Coredump', address: Optional[int],
+    def __init__(self, program: 'Program', address: Optional[int],
                  type: Type, value: Any = None) -> None:
         if address is not None and value is not None:
             raise ValueError('object cannot have address and value')
         if address is None and value is None:
             raise ValueError('object must have either address or value')
-        self.coredump_ = coredump
+        self.program_ = program
         self.address_ = address
         self.type_ = type
         while isinstance(type, TypedefType):
@@ -48,16 +48,16 @@ class CoredumpObject:
         self._real_type = type
         self._value = value
 
-    def __getattr__(self, name: str) -> 'CoredumpObject':
+    def __getattr__(self, name: str) -> 'ProgramObject':
         """Implement self.name. Shortcurt for self.member_(name)"""
         try:
             return self.member_(name)
         except ValueError as e:
             raise AttributeError(*e.args) from None
 
-    def __getitem__(self, idx: Any) -> 'CoredumpObject':
+    def __getitem__(self, idx: Any) -> 'ProgramObject':
         """
-        Implement self[idx]. Return a CoredumpObject representing an array
+        Implement self[idx]. Return a ProgramObject representing an array
         element at the given index.
 
         This is only valid for pointers and arrays.
@@ -76,11 +76,11 @@ class CoredumpObject:
         else:
             raise ValueError('not an array or pointer')
         offset = i * type_.sizeof()
-        return CoredumpObject(self.coredump_, address + offset, type_)
+        return ProgramObject(self.program_, address + offset, type_)
 
     def __repr__(self) -> str:
         parts = [
-            'CoredumpObject(address=',
+            'ProgramObject(address=',
             'None' if self.address_ is None else hex(self.address_), ', ',
             'type=<', str(self.type_.type_name()), '>',
         ]
@@ -113,7 +113,7 @@ class CoredumpObject:
         if self._value is not None:
             return self._value
         assert self.address_ is not None
-        buffer = self.coredump_.read(self.address_, self._real_type.sizeof())
+        buffer = self.program_.read(self.address_, self._real_type.sizeof())
         return self._real_type.read(buffer)
 
     def string_(self) -> bytes:
@@ -134,21 +134,21 @@ class CoredumpObject:
             raise ValueError('not an array or pointer')
         b = bytearray()
         for address in addresses:
-            byte = self.coredump_.read(address, 1)[0]
+            byte = self.program_.read(address, 1)[0]
             if not byte:
                 break
             b.append(byte)
         return bytes(b)
 
-    def member_(self, name: str) -> 'CoredumpObject':
+    def member_(self, name: str) -> 'ProgramObject':
         """
-        Return a CoredumpObject representing the given structure or union
+        Return a ProgramObject representing the given structure or union
         member.
 
         This is only valid for structs, unions, and pointers to either.
         Normally the dot operator (".") can be used to accomplish the same
         thing, but this method can be used if there is a name conflict with a
-        CoredumpObject member or method.
+        ProgramObject member or method.
         """
 
         if isinstance(self._real_type, PointerType):
@@ -161,19 +161,19 @@ class CoredumpObject:
             raise ValueError('not a struct or union')
         member_type = type_.typeof(name)
         offset = type_.offsetof(name)
-        return CoredumpObject(self.coredump_, address + offset, member_type)
+        return ProgramObject(self.program_, address + offset, member_type)
 
-    def cast_(self, type: Union[str, Type, TypeName]) -> 'CoredumpObject':
+    def cast_(self, type: Union[str, Type, TypeName]) -> 'ProgramObject':
         """
         Return a copy of this object casted to another type. The given type is
         usually a string, but it can also be a Type or TypeName object.
         """
         if not isinstance(type, Type):
-            type = self.coredump_.type(type)
-        return CoredumpObject(self.coredump_, self.address_, type, self._value)
+            type = self.program_.type(type)
+        return ProgramObject(self.program_, self.address_, type, self._value)
 
     def container_of_(self, type: Union[str, Type, TypeName],
-                      member: str) -> 'CoredumpObject':
+                      member: str) -> 'ProgramObject':
         """
         Return the containing object of the object pointed to by this object.
         The given type is the type of the containing object, and the given
@@ -183,21 +183,21 @@ class CoredumpObject:
         This is only valid for pointers.
         """
         if not isinstance(type, Type):
-            type = self.coredump_.type(type)
+            type = self.program_.type(type)
         if not isinstance(type, CompoundType):
             raise ValueError('container_of is only valid with struct or union types')
         if not isinstance(self._real_type, PointerType):
             raise ValueError('container_of is only valid on pointers')
         address = self.value_() - type.offsetof(member)
-        return CoredumpObject(self.coredump_, None,
-                              PointerType(self._real_type.size, type,
-                                          self._real_type.qualifiers),
-                              address)
+        return ProgramObject(self.program_, None,
+                             PointerType(self._real_type.size, type,
+                                         self._real_type.qualifiers),
+                             address)
 
 
-class Coredump:
+class Program:
     """
-    A Coredump object represents a crashed or running program to be debugged.
+    A Program object represents a crashed or running program to be debugged.
     """
 
     def __init__(self, *, lookup_type_fn: Callable[[Union[str, TypeName]], Type],
@@ -207,31 +207,31 @@ class Coredump:
         self._read_memory = read_memory_fn
         self._lookup_variable = lookup_variable_fn
 
-    def __getitem__(self, name: str) -> CoredumpObject:
+    def __getitem__(self, name: str) -> ProgramObject:
         """
         Implement self[name]. This is equivalent to self.variable(name) and is
         provided for convenience.
 
-        >>> core['init_task']
-        CoredumpObject(address=0xffffffffbe012480, type=<struct task_struct>)
+        >>> prog['init_task']
+        ProgramObject(address=0xffffffffbe012480, type=<struct task_struct>)
         """
         return self.variable(name)
 
     def object(self, address: int, type: Union[str, Type, TypeName],
-               value: Any = None) -> CoredumpObject:
+               value: Any = None) -> ProgramObject:
         """
-        Return a CoredumpObject with the given address of the given type. The
+        Return a ProgramObject with the given address of the given type. The
         type can be a string, Type object, or TypeName object.
         """
         if not isinstance(type, Type):
             type = self.type(type)
-        return CoredumpObject(self, address, type, value)
+        return ProgramObject(self, address, type, value)
 
     def read(self, address: int, size: int) -> bytes:
         """
-        Return size bytes of memory starting at address in the coredump.
+        Return size bytes of memory starting at address in the program.
 
-        >>> core.read(0xffffffffbe012b40, 16)
+        >>> prog.read(0xffffffffbe012b40, 16)
         b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'
         """
         return self._read_memory(address, size)
@@ -243,9 +243,9 @@ class Coredump:
         """
         return self._lookup_type(name)
 
-    def variable(self, name: str) -> CoredumpObject:
+    def variable(self, name: str) -> ProgramObject:
         """
-        Return a CoredumpObject representing the variable with the given name.
+        Return a ProgramObject representing the variable with the given name.
         """
         address, type_ = self._lookup_variable(name)
-        return CoredumpObject(self, address, type_)
+        return ProgramObject(self, address, type_)
