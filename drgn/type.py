@@ -44,10 +44,6 @@ class Type:
     def __str__(self) -> str:
         return str(self.type_name())
 
-    def __eq__(self, other: Any) -> bool:
-        return (isinstance(other, self.__class__) and
-                self.__dict__ == other.__dict__)
-
     def type_name(self) -> TypeName:
         raise NotImplementedError()
 
@@ -291,28 +287,6 @@ class CompoundType(Type):
             parts.append('}')
         return ''.join(parts)
 
-    def _eager_members(self) -> Optional[List[Tuple[str, int, Type]]]:
-        if self._members is None:
-            return None
-        return [
-            (name, offset, type_thunk()) for name, offset, type_thunk in
-            self._members
-        ]
-
-    def _dict_for_eq(self) -> Dict:
-        # Compare the result of the type thunks rather than the thunks
-        # themselves. __eq__ is only used for testing, so it's okay to eagerly
-        # evaluate the struct member types.
-        d = dict(self.__dict__)
-        d['_members'] = self._eager_members()
-        del d['_members_by_name']
-        return d
-
-    def __eq__(self, other: Any) -> bool:
-        return (isinstance(other, self.__class__) and
-                self._dict_for_eq() == other._dict_for_eq())  # type: ignore
-                                                              # mypy issue #3061
-
     def sizeof(self) -> int:
         if self.size is None:
             raise ValueError("can't get size of incomplete type")
@@ -413,17 +387,6 @@ class EnumType(Type):
                 parts.append(',\n')
             parts.append('}')
         return ''.join(parts)
-
-    def _dict_for_eq(self) -> Dict:
-        d = dict(self.__dict__)
-        if d['_enum'] is not None:
-            d['_enum'] = d['_enum'].__members__
-        return d
-
-    def __eq__(self, other: Any) -> bool:
-        return (isinstance(other, self.__class__) and
-                self._dict_for_eq() == other._dict_for_eq())  # type: ignore
-                                                              # mypy issue #3061
 
     def type_name(self) -> EnumTypeName:
         return EnumTypeName(self.name, self.qualifiers)

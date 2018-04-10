@@ -29,10 +29,6 @@ class TypeName:
     def __str__(self) -> str:
         return self.declaration('')
 
-    def __eq__(self, other: Any) -> bool:
-        return (isinstance(other, self.__class__) and
-                self.__dict__ == other.__dict__)
-
     def declaration(self, name: str) -> str:
         parts = sorted(self.qualifiers)
         parts.append(self.name)

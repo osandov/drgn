@@ -19,12 +19,43 @@ from drgn.type import (
     IntType,
     PointerType,
     StructType,
+    Type,
     TypedefType,
     UnionType,
     VoidType,
     from_dwarf_type,
     from_dwarf_type_name,
 )
+
+
+def compound_type_dict_for_eq(type_):
+    # Compare the result of the type thunks rather than the thunks themselves.
+    d = dict(type_.__dict__)
+    if d['_members'] is not None:
+        d['_members'] = [
+            (name, offset, type_thunk()) for name, offset, type_thunk in
+            d['_members']
+        ]
+    del d['_members_by_name']
+    return d
+
+
+def enum_type_dict_for_eq(type_):
+    d = dict(type_.__dict__)
+    if d['_enum'] is not None:
+        d['_enum'] = d['_enum'].__members__
+    return d
+
+
+def type_eq(self, other):
+    if not isinstance(other, self.__class__):
+        return False
+    if isinstance(self, (StructType, UnionType)):
+        return compound_type_dict_for_eq(self) == compound_type_dict_for_eq(other)
+    elif isinstance(self, EnumType):
+        return enum_type_dict_for_eq(self) == enum_type_dict_for_eq(other)
+    else:
+        return self.__dict__ == other.__dict__
 
 
 point_type = StructType('point', 8, [
@@ -47,6 +78,12 @@ pointer_size = ctypes.sizeof(ctypes.c_void_p)
 
 
 class TestType(unittest.TestCase):
+    def setUp(self):
+        Type.__eq__ = type_eq
+
+    def tearDown(self):
+        del Type.__eq__
+
     def test_void(self):
         type_ = VoidType()
         self.assertEqual(str(type_), 'void')
@@ -426,10 +463,12 @@ enum {
 
 class TestFromDwarfType(unittest.TestCase):
     def setUp(self):
+        Type.__eq__ = type_eq
         self.tmp_dir = tempfile.TemporaryDirectory()
 
     def tearDown(self):
         self.tmp_dir.cleanup()
+        del Type.__eq__
 
     def compile_type(self, decl):
         object_path = os.path.join(self.tmp_dir.name, 'test')
@@ -668,6 +707,12 @@ struct point {
 
 
 class TestFromDwarfTypeName(unittest.TestCase):
+    def setUp(self):
+        Type.__eq__ = type_eq
+
+    def tearDown(self):
+        del Type.__eq__
+
     @classmethod
     def setUpClass(cls):
         with tempfile.TemporaryDirectory() as tmp_dir:

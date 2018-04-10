@@ -8,6 +8,7 @@ from drgn.typename import (
     PointerTypeName,
     StructTypeName,
     TypedefTypeName,
+    TypeName,
     UnionTypeName,
     VoidTypeName,
 )
@@ -16,7 +17,18 @@ from drgn.typename import (
 # TODO: complex types
 
 
+def type_name_eq(self, other):
+    return (isinstance(other, self.__class__) and
+            self.__dict__ == other.__dict__)
+
+
 class TestParseTypeName(unittest.TestCase):
+    def setUp(self):
+        TypeName.__eq__ = type_name_eq
+
+    def tearDown(self):
+        del TypeName.__eq__
+
     def test_empty(self):
         self.assertRaises(ValueError, parse_type_name, '')
         self.assertRaises(ValueError, parse_type_name, '  ')
@@ -268,8 +280,6 @@ class TestTypeStr(unittest.TestCase):
     def test_pointer_to_array(self):
         self.assertEqual(str(PointerTypeName(ArrayTypeName(BasicTypeName('int'), 2))),
                          'int (*)[2]')
-        self.assertEqual(parse_type_name('int (*)[2][3]'),
-                         PointerTypeName(ArrayTypeName(ArrayTypeName(BasicTypeName('int'), 3), 2)))
 
     def test_pointer_to_pointer_to_array(self):
         self.assertEqual(str(PointerTypeName(PointerTypeName(ArrayTypeName(BasicTypeName('int'), 2)))),
