@@ -30,6 +30,29 @@ from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple, Union
 
 
 class Type:
+    """
+    A Type object represents a C type.
+
+    repr() (the default at the interactive prompt) returns a Python
+    representation of the type.
+    >>> prog['init_task'].fs.root.type_
+    StructType('path', 16, [('mnt', 0, ...), ('dentry', 8, ...)])
+
+    str() (which is used by print()) returns a representation of the type in C
+    syntax.
+    >>> print(prog['init_task'].fs.root.type_)
+    struct path {
+            struct vfsmount *mnt;
+            struct dentry *dentry;
+    }
+
+    A Type can have qualifiers as is the case in C.
+    >>> prog['jiffies'].type_.qualifiers
+    frozenset({'volatile'})
+
+    There are several Type subclasses representing more specific types.
+    """
+
     def __init__(self, qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.qualifiers = qualifiers
 
@@ -48,20 +71,32 @@ class Type:
         raise NotImplementedError()
 
     def sizeof(self) -> int:
+        """Return sizeof(type)."""
         raise NotImplementedError()
 
     def read(self, buffer: bytes, offset: int = 0) -> Any:
+        """Return the buffer at the given offset interpreted as this type."""
         raise NotImplementedError()
 
     def pretty(self, value: Any, cast: bool = True) -> str:
+        """
+        Return a representation of the value returned from self.read() in C
+        syntax, optionally with an explicit cast to the name of this type.
+        """
         raise NotImplementedError()
 
     def read_pretty(self, buffer: bytes, offset: int = 0, *,
                     cast: bool = True) -> str:
+        """Return self.pretty(self.read(...))."""
         return self.pretty(self.read(buffer, offset), cast)
 
 
 class VoidType(Type):
+    """
+    A VoidType represents C's void. It can have qualifiers. See help(Type) for
+    more information.
+    """
+
     def type_name(self) -> VoidTypeName:
         return VoidTypeName(self.qualifiers)
 
@@ -76,6 +111,16 @@ class VoidType(Type):
 
 
 class BasicType(Type):
+    """
+    A BasicType represents a primitive data type. It has a name, a size, and
+    qualifiers. See help(Type) for more information.
+
+    >>> print(prog['init_task'].prio.type_.name)
+    int
+    >>> print(prog['init_task'].prio.type_.size)
+    4
+    """
+
     def __init__(self, name: str, size: int,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
@@ -109,6 +154,14 @@ class BasicType(Type):
 
 
 class IntType(BasicType):
+    """
+    An IntType represents an integral type. It has a name, size, signedness,
+    and qualifiers. See help(BasicType) and help(Type) for more information.
+
+    >>> print(prog['init_task'].prio.type_.signed)
+    True
+    """
+
     def __init__(self, name: str, size: int, signed: bool,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(name, size, qualifiers)
@@ -135,6 +188,11 @@ class IntType(BasicType):
 
 
 class BoolType(BasicType):
+    """
+    A BoolType represents a boolean type. It has a name, size, and qualifiers.
+    See help(BasicType) and help(Type) for more information.
+    """
+
     def read(self, buffer: bytes, offset: int = 0) -> bool:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
@@ -150,6 +208,11 @@ class BoolType(BasicType):
 
 
 class FloatType(BasicType):
+    """
+    A FloatType represents a floating-point type. It has a name, size, and
+    qualifiers. See help(BasicType) and help(Type) for more information.
+    """
+
     def read(self, buffer: bytes, offset: int = 0) -> float:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
@@ -161,8 +224,23 @@ class FloatType(BasicType):
             raise ValueError(f"can't read float of size {self.size}")
 
 
-# Not a real C type, but it needs a separate representation.
 class BitFieldType(Type):
+    """
+    A BitFieldType is not a real C type. It represents a bit field. It has an
+    underlying IntType, a bit offset, and a bit size.
+
+    >>> prog['init_task'].in_execve.type_
+    BitFieldType(IntType('unsigned int', 4, False), 0, 1)
+    >>> print(prog['init_task'].in_execve.type_)
+    unsigned int : 1
+    >>> prog['init_task'].in_execve.type_.type
+    IntType('unsigned int', 4, False)
+    >>> prog['init_task'].in_execve.type_.bit_size
+    1
+    >>> prog['init_task'].in_execve.type_.bit_offset
+    0
+    """
+
     def __init__(self, type: IntType, bit_offset: int, bit_size: int,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.type = type
@@ -183,7 +261,7 @@ class BitFieldType(Type):
         return ' '.join(parts)
 
     def type_name(self) -> TypeName:
-        raise ValueError("can't get type of bit field")
+        raise ValueError("can't get type name of bit field")
 
     def sizeof(self) -> int:
         # Not really, but for convenience.
@@ -217,6 +295,11 @@ _TypeThunk = Callable[[], Type]
 
 
 class CompoundType(Type):
+    """
+    A CompoundType represents a type with members. It has a name, a size,
+    members, and qualifiers. See help(Type) for more information.
+    """
+
     def __init__(self, name: str, size: int,
                  members: Optional[List[Tuple[str, int, _TypeThunk]]],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
@@ -228,7 +311,6 @@ class CompoundType(Type):
         self.name = name
         self.size = size
         self._members = members
-        # XXX
         self._members_by_name: Dict[str, Tuple[int, _TypeThunk]] = OrderedDict()
         if members:
             self._index_members_by_name(members, 0)
@@ -322,15 +404,33 @@ class CompoundType(Type):
         return ''.join(parts)
 
     def members(self) -> List[str]:
+        """
+        Return a list of member names.
+
+        >>> prog['init_task'].fs.root.type_.members()
+        ['mnt', 'dentry']
+        """
         return list(self._members_by_name)
 
     def offsetof(self, member: str) -> int:
+        """
+        Return offsetof(type, member).
+
+        >>> print(prog['init_task'].fs.root.type_.offsetof('dentry'))
+        8
+        """
         try:
             return self._members_by_name[member][0]
         except KeyError:
             raise ValueError(f'{str(self.type_name())!r} has no member {member!r}') from None
 
     def typeof(self, member: str) -> Type:
+        """
+        Return typeof(type.member).
+
+        >>> print(prog['init_task'].fs.root.type_.typeof('dentry'))
+        struct dentry *
+        """
         try:
             return self._members_by_name[member][1]()
         except KeyError:
@@ -338,16 +438,70 @@ class CompoundType(Type):
 
 
 class StructType(CompoundType):
+    """
+    A StructType represents a struct type. See help(CompoundType) and
+    help(Type) for more information.
+
+    >>> prog['init_task'].fs.root.type_
+    StructType('path', 16, [('mnt', 0, ...), ('dentry', 8, ...)])
+    >>> print(prog['init_task'].fs.root.type_)
+    struct path {
+            struct vfsmount *mnt;
+            struct dentry *dentry;
+    }
+    """
+
     def type_name(self) -> StructTypeName:
         return StructTypeName(self.name, self.qualifiers)
 
 
 class UnionType(CompoundType):
+    """
+    A UnionType represents a union type. See help(CompoundType) and help(Type)
+    for more information.
+
+    >>> prog['init_task'].rcu_read_unlock_special.type_
+    UnionType('rcu_special', 4, [('b', 0, ...), ('s', 0, ...)])
+    >>> print(prog['init_task'].rcu_read_unlock_special.type_)
+    union rcu_special {
+            struct {
+                    u8 blocked;
+                    u8 need_qs;
+                    u8 exp_need_qs;
+                    u8 pad;
+            } b;
+            u32 s;
+    }
+    """
+
     def type_name(self) -> UnionTypeName:
         return UnionTypeName(self.name, self.qualifiers)
 
 
 class EnumType(Type):
+    """
+    An EnumType has a name, size, signedness, enumerators (as a Python
+    enum.IntEnum), and qualifiers. See help(Type) for more information.
+
+    >>> print(prog.type('enum pid_type'))
+    enum pid_type {
+            PIDTYPE_PID = 0,
+            PIDTYPE_PGID = 1,
+            PIDTYPE_SID = 2,
+            PIDTYPE_MAX = 3,
+            __PIDTYPE_TGID = 4,
+    }
+    >>> print(prog.type('enum pid_type').enum)
+    <enum 'pid_type'>
+    >>> from pprint import pprint
+    >>> pprint(prog.type('enum pid_type').enum.__members__)
+    mappingproxy(OrderedDict([('PIDTYPE_PID', <pid_type.PIDTYPE_PID: 0>),
+                              ('PIDTYPE_PGID', <pid_type.PIDTYPE_PGID: 1>),
+                              ('PIDTYPE_SID', <pid_type.PIDTYPE_SID: 2>),
+                              ('PIDTYPE_MAX', <pid_type.PIDTYPE_MAX: 3>),
+                              ('__PIDTYPE_TGID', <pid_type.__PIDTYPE_TGID: 4>)]))
+    """
+
     def __init__(self, name: str, size: int, signed: bool,
                  enumerators: Optional[List[Tuple[str, int]]],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
@@ -356,9 +510,9 @@ class EnumType(Type):
         self.size = size
         self.signed = signed
         if enumerators is None:
-            self._enum = None
+            self.enum = None
         else:
-            self._enum = enum.IntEnum('' if name is None else name, enumerators)  # type: ignore
+            self.enum = enum.IntEnum('' if name is None else name, enumerators)  # type: ignore
                                                                                   # mypy issue #4865.
 
     def __repr__(self) -> str:
@@ -367,7 +521,7 @@ class EnumType(Type):
             repr(self.name), ', ',
             repr(self.size), ', ',
             repr(self.signed), ', ',
-            repr(None if self._enum is None else self._enum.__members__),
+            repr(None if self.enum is None else self.enum.__members__),
         ]
         if self.qualifiers:
             parts.append(', ')
@@ -377,9 +531,9 @@ class EnumType(Type):
 
     def __str__(self) -> str:
         parts = [str(self.type_name())]
-        if self._enum is not None:
+        if self.enum is not None:
             parts.append(' {\n')
-            for name, value in self._enum.__members__.items():
+            for name, value in self.enum.__members__.items():
                 parts.append('\t')
                 parts.append(name)
                 parts.append(' = ')
@@ -397,14 +551,14 @@ class EnumType(Type):
         return self.size
 
     def read(self, buffer: bytes, offset: int = 0) -> Union[enum.IntEnum, int]:
-        if self._enum is None:
+        if self.enum is None:
             raise ValueError("can't read incomplete enum type")
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
         value = int.from_bytes(buffer[offset:offset + self.size],
                                sys.byteorder, signed=self.signed)
         try:
-            return self._enum(value)
+            return self.enum(value)
         except ValueError:
             return value
 
@@ -413,13 +567,13 @@ class EnumType(Type):
             parts = ['(', str(self.type_name()), ')']
         else:
             parts = []
-        if not isinstance(value, self._enum):
+        if not isinstance(value, self.enum):
             value = int(value)
             try:
-                value = self._enum(value)
+                value = self.enum(value)
             except ValueError:
                 pass
-        if isinstance(value, self._enum):
+        if isinstance(value, self.enum):
             parts.append(value._name_)
         else:
             parts.append(str(value))
@@ -427,6 +581,18 @@ class EnumType(Type):
 
 
 class TypedefType(Type):
+    """
+    A TypedefType has a name, an underlying type, and additional qualifiers.
+    See help(Type) for more information.
+
+    >>> prog.type('u32')
+    TypedefType('u32', IntType('unsigned int', 4, False))
+    >>> print(prog.type('u32'))
+    typedef unsigned int u32
+    >>> prog.type('u32').type
+    IntType('unsigned int', 4, False)
+    """
+
     def __init__(self, name: str, type: Type,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
@@ -471,6 +637,20 @@ class TypedefType(Type):
 
 
 class PointerType(Type):
+    """
+    A PointerType has a size, underlying type, and qualifiers. See help(Type)
+    for more information.
+
+    >>> prog['init_task'].stack.type_
+    PointerType(8, VoidType())
+    >>> print(prog['init_task'].stack.type_)
+    void *
+    >>> prog['init_task'].stack.type_.size
+    8
+    >>> prog['init_task'].stack.type_.type
+    VoidType()
+    """
+
     def __init__(self, size: int, type: Type,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
@@ -509,6 +689,20 @@ class PointerType(Type):
 
 
 class ArrayType(Type):
+    """
+    An ArrayType has an element type and a size. See help(Type) for more
+    information.
+
+    >>> prog['init_task'].comm.type_
+    ArrayType(IntType('char', 1, True), 16)
+    >>> print(prog['init_task'].comm.type_)
+    char [16]
+    >>> prog['init_task'].comm.type_.type
+    IntType('char', 1, True)
+    >>> prog['init_task'].comm.type_.size
+    16
+    """
+
     def __init__(self, type: Type, size: Optional[int] = None) -> None:
         self.type = type
         self.size = size
@@ -564,6 +758,21 @@ class ArrayType(Type):
 
 
 class FunctionType(Type):
+    """
+    A FunctionType has a return type and parameters, and may be variadic. It is
+    often the unerlying type of a PointerType or TypedefType. See help(Type)
+    for more information.
+
+    >>> print(prog.type('dio_submit_t'))
+    typedef void dio_submit_t(struct bio *, struct inode *, loff_t)
+    >>> prog.type('dio_submit_t').type.return_type
+    VoidType()
+    >>> prog.type('dio_submit_t').type.parameters[2]
+    (TypedefType('loff_t', TypedefType('__kernel_loff_t', IntType('long long int', 8, True))), None)
+    >>> prog.type('dio_submit_t').type.variadic
+    False
+    """
+
     def __init__(self, return_type: Type,
                  parameters: Optional[List[Tuple[Type, Optional[str]]]] = None,
                  variadic: bool = False) -> None:

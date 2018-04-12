@@ -12,21 +12,36 @@ from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
 class ProgramObject:
     """
-    ProgramObject(program, address, type, value=None) -> new object
-
     A ProgramObject either represents an object in the memory of a program (an
     "lvalue") or a temporary computed value (an "rvalue"). It has three
     members: program_, the program this object is from; address_, the location
     in memory where this object resides in the program (or None if it is not an
     lvalue); and type_, the type of this object in the program.
 
+    repr() (the default at the interactive prompt) of a ProgramObject returns a
+    Python representation of the object.
+    >>> prog['jiffies']
+    ProgramObject(address=0xffffffffbf005000, type=<volatile long unsigned int>)
+
+    str() (which is used by print()) returns a representation of the object in
+    C syntax.
+    >>> print(prog['jiffies'])
+    (volatile long unsigned int)4326237045
+
     ProgramObjects try to behave transparently like the object they represent
     in C. E.g., structure members can be accessed with the dot (".") operator
-    and arrays can be subscripted with "[]". Note that because the structure
-    dereference operator ("->") is not valid syntax in Python, "." is also used
-    to access members of pointers to structures. Similarly, the indirection
-    operator ("*") is not valid syntax in Python, so pointers can be
-    dereferenced with "[0]" (e.g., write "p[0]" instead of "*p").
+    and arrays can be subscripted with "[]".
+
+    >>> print(prog['init_task'].pid)
+    (pid_t)0
+    >>> print(prog['init_task'].comm[0])
+    (char)115
+
+    Note that because the structure dereference operator ("->") is not valid
+    syntax in Python, "." is also used to access members of pointers to
+    structures. Similarly, the indirection operator ("*") is not valid syntax
+    in Python, so pointers can be dereferenced with "[0]" (e.g., write "p[0]"
+    instead of "*p").
 
     ProgramObject members and methods are named with a trailing underscore to
     avoid conflicting with structure or union members. The helper methods
@@ -197,7 +212,8 @@ class ProgramObject:
 
 class Program:
     """
-    A Program object represents a crashed or running program to be debugged.
+    A Program object represents a crashed or running program. It can be used to
+    lookup type definitions, access variables, and read arbitrary memory.
     """
 
     def __init__(self, *, lookup_type_fn: Callable[[Union[str, TypeName]], Type],

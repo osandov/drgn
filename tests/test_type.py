@@ -42,8 +42,8 @@ def compound_type_dict_for_eq(type_):
 
 def enum_type_dict_for_eq(type_):
     d = dict(type_.__dict__)
-    if d['_enum'] is not None:
-        d['_enum'] = d['_enum'].__members__
+    if d['enum'] is not None:
+        d['enum'] = d['enum'].__members__
     return d
 
 
@@ -342,9 +342,9 @@ enum color {
 }""")
         self.assertEqual(type_.sizeof(), 4)
         buffer = (0).to_bytes(4, sys.byteorder)
-        self.assertEqual(type_.read(buffer), type_._enum.RED)
+        self.assertEqual(type_.read(buffer), type_.enum.RED)
         buffer = (1).to_bytes(4, sys.byteorder)
-        self.assertEqual(type_.read(b'\0' + buffer, 1), type_._enum.GREEN)
+        self.assertEqual(type_.read(b'\0' + buffer, 1), type_.enum.GREEN)
         self.assertEqual(type_.read_pretty(b'\0' + buffer, 1), '(enum color)GREEN')
         buffer = (4).to_bytes(4, sys.byteorder)
         self.assertEqual(type_.read(b'\0\0\0' + buffer, 3), 4)
