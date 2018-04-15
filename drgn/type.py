@@ -1,3 +1,6 @@
+# Copyright 2018 - Omar Sandoval
+# SPDX-License-Identifier: GPL-3.0+
+
 from collections import OrderedDict
 from drgn.dwarfindex import DwarfIndex
 from drgn.dwarf import (

@@ -1,3 +1,6 @@
+# Copyright 2018 - Omar Sandoval
+# SPDX-License-Identifier: GPL-3.0+
+
 import code
 import argparse
 import glob

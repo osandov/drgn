@@ -1,3 +1,6 @@
+# Copyright 2018 - Omar Sandoval
+# SPDX-License-Identifier: GPL-3.0+
+
 from drgn.type import (
     ArrayType,
     CompoundType,

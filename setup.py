@@ -24,5 +24,6 @@ setup(
     },
     author='Omar Sandoval',
     author_email='osandov@osandov.com',
+    license='GPL-3.0+',
     description='Scriptable debugger',
 )

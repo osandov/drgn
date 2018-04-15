@@ -1,3 +1,6 @@
+// Copyright 2018 - Omar Sandoval
+// SPDX-License-Identifier: GPL-3.0+
+
 #include <elf.h>
 #include <fcntl.h>
 #include <inttypes.h>
