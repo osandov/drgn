@@ -1,8 +1,8 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-import code
 import argparse
+import code
 import glob
 import os
 import os.path
@@ -11,6 +11,7 @@ import runpy
 import sys
 from typing import Any, Dict, List, Tuple, Union
 
+from drgn import __version__
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
 from drgn.elf import parse_elf_phdrs
@@ -48,7 +49,10 @@ def find_modules(release: str) -> List[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog='drgn')
+    python_version = '.'.join(str(v) for v in sys.version_info[:3])
+    version = f'drgn {__version__} (using Python {python_version})'
+    parser = argparse.ArgumentParser(
+        prog='drgn', description='Scriptable debugger')
     parser.add_argument(
         '-k', '--kernel', action='store_true',
         help='debug the kernel instead of a userspace program')
@@ -57,7 +61,8 @@ def main() -> None:
         help='use the given executable file')
     parser.add_argument(
         'script', metavar='ARG', type=str, nargs='*',
-        help='script to execute instead of running an interactive shell')
+        help='script to execute instead of running in interactive mode')
+    parser.add_argument('--version', action='version', version=version)
 
     args = parser.parse_args()
 
@@ -78,8 +83,6 @@ def main() -> None:
               file=sys.stderr)
     paths.append(args.executable)
 
-    if not args.script:
-        print('Reading symbols...')
     dwarf_index = DwarfIndex(paths)
 
     with open('/proc/kallsyms', 'r') as f:
@@ -118,8 +121,8 @@ def main() -> None:
         else:
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
-            code.interact(banner='', exitmsg='', local=init_globals)  # type: ignore
-                                                                      # typeshed issue #2024
+            code.interact(banner=version, exitmsg='', local=init_globals)  # type: ignore
+                                                                           # typeshed issue #2024
 
 if __name__ == '__main__':
     main()

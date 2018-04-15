@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from drgn import __version__
 from setuptools import setup, find_packages
 from setuptools.extension import Extension
 
@@ -17,6 +18,7 @@ extensions = [
 
 setup(
     name='drgn',
+    version=__version__,
     packages=find_packages(exclude=['scripts', 'tests']),
     ext_modules=extensions,
     entry_points={
