@@ -1133,14 +1133,14 @@ static int apply_all_relocations(DwarfIndex *self)
 	{
 		PyGILState_STATE state = PyGILState_Ensure();
 		size_t file_idx, section_idx = 0, reloc_idx = 0;
-		size_t i;
+		size_t k;
 		bool first = true;
 		size_t num_relocs = 0;
 
 		Py_BEGIN_ALLOW_THREADS
 
 #pragma omp for
-		for (i = 0; i < total_num_relocs; i++) {
+		for (k = 0; k < total_num_relocs; k++) {
 			if (type)
 				continue;
 			if (first) {
@@ -1150,8 +1150,8 @@ static int apply_all_relocations(DwarfIndex *self)
 					for (section_idx = 0; section_idx < NUM_DEBUG_SECTIONS; section_idx++) {
 						num_relocs = (self->files[file_idx].rela_sections[section_idx].size /
 							      sizeof(Elf64_Rela));
-						if (cur + num_relocs > i) {
-							reloc_idx = i - cur;
+						if (cur + num_relocs > k) {
+							reloc_idx = k - cur;
 							goto done;
 						} else {
 							cur += num_relocs;
