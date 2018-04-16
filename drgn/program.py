@@ -1,6 +1,8 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""Program debugging library"""
+
 from drgn.type import (
     ArrayType,
     CompoundType,
@@ -23,11 +25,13 @@ class ProgramObject:
 
     repr() (the default at the interactive prompt) of a ProgramObject returns a
     Python representation of the object.
+
     >>> prog['jiffies']
     ProgramObject(address=0xffffffffbf005000, type=<volatile long unsigned int>)
 
     str() (which is used by print()) returns a representation of the object in
     C syntax.
+
     >>> print(prog['jiffies'])
     (volatile long unsigned int)4326237045
 

@@ -1,6 +1,17 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""
+Source program type representation
+
+Types in a program are represented by objects of the Type class and its
+subclasses. Different subclasses have different members describing the type,
+like its name, qualifiers, signedness, etc. All subclasses of Type support
+pretty-printing with str(type_obj) and getting the size in bytes with
+type_obj.sizeof(). See the class documentation for more details, especially
+help(Type).
+"""
+
 from collections import OrderedDict
 from drgn.dwarfindex import DwarfIndex
 from drgn.dwarf import (
@@ -43,6 +54,7 @@ class Type:
 
     str() (which is used by print()) returns a representation of the type in C
     syntax.
+
     >>> print(prog['init_task'].fs.root.type_)
     struct path {
             struct vfsmount *mnt;
@@ -50,6 +62,7 @@ class Type:
     }
 
     A Type can have qualifiers as is the case in C.
+
     >>> prog['jiffies'].type_.qualifiers
     frozenset({'volatile'})
 
@@ -78,19 +91,32 @@ class Type:
         raise NotImplementedError()
 
     def read(self, buffer: bytes, offset: int = 0) -> Any:
-        """Return the buffer at the given offset interpreted as this type."""
+        """
+        Return the buffer at the given offset interpreted as this type.
+
+        This is used internally by drgn and typically doesn't need to be used
+        directly.
+        """
         raise NotImplementedError()
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         """
         Return a representation of the value returned from self.read() in C
         syntax, optionally with an explicit cast to the name of this type.
+
+        This is used internally by drgn and typically doesn't need to be used
+        directly.
         """
         raise NotImplementedError()
 
     def read_pretty(self, buffer: bytes, offset: int = 0, *,
                     cast: bool = True) -> str:
-        """Return self.pretty(self.read(...))."""
+        """
+        Return self.pretty(self.read(...)).
+
+        This is used internally by drgn and typically doesn't need to be used
+        directly.
+        """
         return self.pretty(self.read(buffer, offset), cast)
 
 

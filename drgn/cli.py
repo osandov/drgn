@@ -11,7 +11,7 @@ import runpy
 import sys
 from typing import Any, Dict, List, Tuple, Union
 
-from drgn import __version__
+import drgn
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
 from drgn.elf import parse_elf_phdrs
@@ -50,7 +50,7 @@ def find_modules(release: str) -> List[str]:
 
 def main() -> None:
     python_version = '.'.join(str(v) for v in sys.version_info[:3])
-    version = f'drgn {__version__} (using Python {python_version})'
+    version = f'drgn {drgn.__version__} (using Python {python_version})'
     parser = argparse.ArgumentParser(
         prog='drgn', description='Scriptable debugger')
     parser.add_argument(
@@ -113,6 +113,7 @@ def main() -> None:
             'prog': Program(lookup_type_fn=lookup_type,
                             lookup_variable_fn=lookup_variable,
                             read_memory_fn=read_memory),
+            'drgn': drgn,
         }
         if args.script:
             sys.argv = args.script
@@ -121,8 +122,9 @@ def main() -> None:
         else:
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
-            code.interact(banner=version, exitmsg='', local=init_globals)  # type: ignore
-                                                                           # typeshed issue #2024
+            banner = version + '\nFor help, type help(drgn).'
+            code.interact(banner=banner, exitmsg='', local=init_globals)  # type: ignore
+                                                                          # typeshed issue #2024
 
 if __name__ == '__main__':
     main()
