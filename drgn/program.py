@@ -121,6 +121,15 @@ class ProgramObject:
         offset = i * type_.sizeof()
         return ProgramObject(self.program_, address + offset, type_)
 
+    def __iter__(self) -> Iterable['ProgramObject']:
+        if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
+            raise ValueError(f'{str(self.type_.type_name())!r} is not iterable')
+        address = self.address_
+        type_ = self._real_type.type
+        for i in range(self._real_type.size):
+            address = self.address_ + i * type_.sizeof()
+            yield ProgramObject(self.program_, address, type_)
+
     def __repr__(self) -> str:
         parts = [
             'ProgramObject(address=',
