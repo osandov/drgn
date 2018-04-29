@@ -70,6 +70,16 @@ class ProgramObject:
         self._real_type = type
         self._value = value
 
+    def __dir__(self) -> Iterable[str]:
+        attrs = list(super().__dir__())
+        if isinstance(self._real_type, PointerType):
+            type_ = self._real_type.type
+        else:
+            type_ = self._real_type
+        if isinstance(type_, CompoundType):
+            attrs.extend(type_.members())
+        return attrs
+
     def __getattr__(self, name: str) -> 'ProgramObject':
         """Implement self.name. Shortcurt for self.member_(name)"""
         try:
