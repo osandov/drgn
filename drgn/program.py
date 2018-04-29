@@ -93,6 +93,11 @@ class ProgramObject:
         except ValueError as e:
             raise AttributeError(*e.args) from None
 
+    def __len__(self) -> int:
+        if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
+            raise ValueError(f'{str(self.type_.type_name())!r} has no len()')
+        return self._real_type.size
+
     def __getitem__(self, idx: Any) -> 'ProgramObject':
         """
         Implement self[idx]. Return a ProgramObject representing an array
