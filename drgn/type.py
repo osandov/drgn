@@ -779,8 +779,7 @@ class ArrayType(Type):
             if elements:
                 parts.append('\n')
                 for element in reversed(elements):
-                    parts.append('\t')
-                    parts.append(element)
+                    parts.append(re.sub('^', '\t', element, flags=re.MULTILINE))
                     parts.append(',\n')
             parts.append('}')
         return ''.join(parts)

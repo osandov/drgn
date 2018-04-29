@@ -460,6 +460,30 @@ enum {
         type_ = ArrayType(ArrayType(IntType('int', 4, True), 2), None)
         self.assertEqual(str(type_), 'int [][2]')
 
+    def test_array_of_structs(self):
+        type_ = ArrayType(point_type, 2)
+        self.assertEqual(str(type_), 'struct point [2]')
+        self.assertEqual(type_.sizeof(), 16)
+        buffer = ((1).to_bytes(4, sys.byteorder, signed=True) +
+                  (2).to_bytes(4, sys.byteorder, signed=True) +
+                  (3).to_bytes(4, sys.byteorder, signed=True) +
+                  (4).to_bytes(4, sys.byteorder, signed=True))
+        self.assertEqual(type_.read(buffer), [
+            OrderedDict([('x', 1), ('y', 2)]),
+            OrderedDict([('x', 3), ('y', 4)]),
+        ])
+        self.assertEqual(type_.read_pretty(buffer), """\
+(struct point [2]){
+	{
+		.x = (int)1,
+		.y = (int)2,
+	},
+	{
+		.x = (int)3,
+		.y = (int)4,
+	},
+}""")
+
 
 class TestFromDwarfType(unittest.TestCase):
     def setUp(self):
