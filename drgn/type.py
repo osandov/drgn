@@ -880,17 +880,18 @@ def from_dwarf_type(dwarf_index: DwarfIndex, dwarf_type: Die,
 
     if dwarf_type.tag == DW_TAG.base_type:
         encoding = dwarf_type.find_constant(DW_AT.encoding)
+        name = str(parse_type_name(dwarf_type.name()))
         size = dwarf_type.size()
         if encoding == DW_ATE.boolean:
-            return BoolType(dwarf_type.name(), size, qualifiers)
+            return BoolType(name, size, qualifiers)
         elif encoding == DW_ATE.float:
-            return FloatType(dwarf_type.name(), size, qualifiers)
+            return FloatType(name, size, qualifiers)
         elif (encoding == DW_ATE.signed or
               encoding == DW_ATE.signed_char):
-            return IntType(dwarf_type.name(), size, True, qualifiers)
+            return IntType(name, size, True, qualifiers)
         elif (encoding == DW_ATE.unsigned or
               encoding == DW_ATE.unsigned_char):
-            return IntType(dwarf_type.name(), size, False, qualifiers)
+            return IntType(name, size, False, qualifiers)
         else:
             raise NotImplementedError(DW_ATE.str(encoding))
     elif (dwarf_type.tag == DW_TAG.structure_type or

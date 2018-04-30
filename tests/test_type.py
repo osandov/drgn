@@ -515,11 +515,11 @@ class TestFromDwarfType(unittest.TestCase):
 
     def test_short(self):
         self.assertEqual(self.compile_type('short x'),
-                        IntType('short int', 2, True))
+                        IntType('short', 2, True))
         self.assertEqual(self.compile_type('signed short x'),
-                        IntType('short int', 2, True))
+                        IntType('short', 2, True))
         self.assertEqual(self.compile_type('unsigned short x'),
-                        IntType('short unsigned int', 2, False))
+                        IntType('unsigned short', 2, False))
 
     def test_int(self):
         self.assertEqual(self.compile_type('int x'),
@@ -530,20 +530,19 @@ class TestFromDwarfType(unittest.TestCase):
                         IntType('unsigned int', 4, False))
 
     def test_long(self):
-        self.assertEqual(self.compile_type('long x'),
-                        IntType('long int', 8, True))
+        self.assertEqual(self.compile_type('long x'), IntType('long', 8, True))
         self.assertEqual(self.compile_type('signed long x'),
-                        IntType('long int', 8, True))
+                        IntType('long', 8, True))
         self.assertEqual(self.compile_type('unsigned long x'),
-                        IntType('long unsigned int', 8, False))
+                         IntType('unsigned long', 8, False))
 
     def test_long_long(self):
         self.assertEqual(self.compile_type('long long x'),
-                        IntType('long long int', 8, True))
+                         IntType('long long', 8, True))
         self.assertEqual(self.compile_type('signed long long x'),
-                        IntType('long long int', 8, True))
+                         IntType('long long', 8, True))
         self.assertEqual(self.compile_type('unsigned long long x'),
-                        IntType('long long unsigned int', 8, False))
+                         IntType('unsigned long long', 8, False))
 
     def test_float(self):
         self.assertEqual(self.compile_type('float x'),
@@ -551,6 +550,8 @@ class TestFromDwarfType(unittest.TestCase):
         self.assertEqual(self.compile_type('double x'),
                          FloatType('double', 8))
         self.assertEqual(self.compile_type('long double x'),
+                         FloatType('long double', 16))
+        self.assertEqual(self.compile_type('double long x'),
                          FloatType('long double', 16))
 
     def test_bool(self):
