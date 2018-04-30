@@ -293,12 +293,19 @@ class _TypeNameParser:
             return VoidTypeName(qualifiers)
         else:
             parts = []
+            # First, the sign specifier. "signed" is the default for "int", so
+            # omit it.
+            if ('sign' in specifiers and
+                (specifiers['sign'] != 'signed' or data_type != 'int')):
+                parts.append(specifiers['sign'])
+            # Then, the size specifier.
             if 'size' in specifiers:
                 parts.append(specifiers['size'])
-            if ('sign' in specifiers and
-                (specifiers['sign'] != 'signed' or data_type == 'char')):
-                parts.append(specifiers['sign'])
-            parts.append(data_type)
+            # Finally, the data type. Omit it for "short", "long", "long long",
+            # and the unsigned variants of those. Note that we include it for
+            # "unsigned int".
+            if 'size' not in specifiers or data_type != 'int':
+                parts.append(data_type)
             return BasicTypeName(' '.join(parts), qualifiers)
 
     def _parse_specifier_qualifier_list(self) -> TypeName:

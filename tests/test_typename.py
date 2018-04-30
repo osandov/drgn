@@ -47,26 +47,22 @@ class TestParseTypeName(unittest.TestCase):
         self.assertEqual(parse_type_name('_Bool'), BasicTypeName('_Bool'))
 
     def test_size(self):
-        self.assertEqual(parse_type_name('long int'),
-                         BasicTypeName('long int'))
-        self.assertEqual(parse_type_name('long'), BasicTypeName('long int'))
-        self.assertEqual(parse_type_name('int long'),
-                         BasicTypeName('long int'))
+        self.assertEqual(parse_type_name('long int'), BasicTypeName('long'))
+        self.assertEqual(parse_type_name('long'), BasicTypeName('long'))
+        self.assertEqual(parse_type_name('int long'), BasicTypeName('long'))
 
         self.assertEqual(parse_type_name('long long int'),
-                         BasicTypeName('long long int'))
+                         BasicTypeName('long long'))
         self.assertEqual(parse_type_name('long long'),
-                         BasicTypeName('long long int'))
+                         BasicTypeName('long long'))
         self.assertEqual(parse_type_name('int long long'),
-                         BasicTypeName('long long int'))
+                         BasicTypeName('long long'))
         self.assertEqual(parse_type_name('long int long'),
-                         BasicTypeName('long long int'))
+                         BasicTypeName('long long'))
 
-        self.assertEqual(parse_type_name('short int'),
-                         BasicTypeName('short int'))
-        self.assertEqual(parse_type_name('short'), BasicTypeName('short int'))
-        self.assertEqual(parse_type_name('int short'),
-                         BasicTypeName('short int'))
+        self.assertEqual(parse_type_name('short int'), BasicTypeName('short'))
+        self.assertEqual(parse_type_name('short'), BasicTypeName('short'))
+        self.assertEqual(parse_type_name('int short'), BasicTypeName('short'))
 
         self.assertEqual(parse_type_name('long double'),
                          BasicTypeName('long double'))
@@ -88,6 +84,8 @@ class TestParseTypeName(unittest.TestCase):
         self.assertEqual(parse_type_name('signed'), BasicTypeName('int'))
         self.assertEqual(parse_type_name('int signed'), BasicTypeName('int'))
 
+        self.assertEqual(parse_type_name('unsigned'),
+                         BasicTypeName('unsigned int'))
         self.assertEqual(parse_type_name('unsigned int'),
                          BasicTypeName('unsigned int'))
         self.assertEqual(parse_type_name('unsigned'),
@@ -125,7 +123,7 @@ class TestParseTypeName(unittest.TestCase):
 
     def test_specifiers_qualifiers(self):
         self.assertEqual(parse_type_name('long const int unsigned'),
-                         BasicTypeName('long unsigned int',
+                         BasicTypeName('unsigned long',
                                        qualifiers=frozenset({'const'})))
 
     def test_typedef(self):
@@ -209,9 +207,9 @@ class TestTypeStr(unittest.TestCase):
         self.assertEqual(str(BasicTypeName('_Bool')), '_Bool')
 
     def test_size(self):
-        self.assertEqual(str(BasicTypeName('long int')), 'long int')
-        self.assertEqual(str(BasicTypeName('long long int')), 'long long int')
-        self.assertEqual(str(BasicTypeName('short int')), 'short int')
+        self.assertEqual(str(BasicTypeName('long')), 'long')
+        self.assertEqual(str(BasicTypeName('long long')), 'long long')
+        self.assertEqual(str(BasicTypeName('short')), 'short')
         self.assertEqual(str(BasicTypeName('long double')), 'long double')
 
     def test_sign(self):
@@ -232,9 +230,9 @@ class TestTypeStr(unittest.TestCase):
                          'const volatile int')
 
     def test_specifiers_qualifiers(self):
-        self.assertEqual(str(BasicTypeName('long unsigned int',
+        self.assertEqual(str(BasicTypeName('unsigned long',
                                       qualifiers=frozenset({'const'}))),
-                         'const long unsigned int')
+                         'const unsigned long')
 
     def test_typedef(self):
         self.assertEqual(str(TypedefTypeName('u32')), 'u32')
