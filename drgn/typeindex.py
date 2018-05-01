@@ -165,6 +165,7 @@ class DwarfTypeIndex(TypeIndex):
             if dwarf_type.find_flag(DW_AT.declaration):
                 size = None
                 signed = None
+                compatible = None
                 enumerators = None
             else:
                 size = dwarf_type.size()
@@ -182,11 +183,13 @@ class DwarfTypeIndex(TypeIndex):
                     name = child.name()
                     value = child.find_constant(DW_AT.const_value)
                     enumerators.append((name, value))
+                compatible = str(parse_type_name(dwarf_type.type().name()))
             try:
                 name = dwarf_type.name()
             except DwarfAttribNotFoundError:
                 name = None
-            return EnumType(name, size, signed, enumerators, qualifiers)
+            return EnumType(name, size, signed, enumerators, compatible,
+                            qualifiers)
         elif dwarf_type.tag == DW_TAG.typedef:
             return TypedefType(dwarf_type.name(),
                                self.find_dwarf_type(dwarf_type.type()),

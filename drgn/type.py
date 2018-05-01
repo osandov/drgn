@@ -158,7 +158,7 @@ class ArithmeticType(Type):
         parts.append(')')
         return ''.join(parts)
 
-    def type_name(self) -> BasicTypeName:
+    def type_name(self) -> TypeName:
         return BasicTypeName(self.name, self.qualifiers)
 
     def sizeof(self) -> int:
@@ -503,10 +503,11 @@ class UnionType(CompoundType):
         return UnionTypeName(self.name, self.qualifiers)
 
 
-class EnumType(Type):
+class EnumType(IntType):
     """
     An EnumType has a name, size, signedness, enumerators (as a Python
-    enum.IntEnum), and qualifiers. See help(Type) for more information.
+    enum.IntEnum), a name of a compatible integer type, and qualifiers. See
+    help(IntType) and help(Type) for more information.
 
     >>> print(prog.type('enum pid_type'))
     enum pid_type {
@@ -525,20 +526,21 @@ class EnumType(Type):
                               ('PIDTYPE_SID', <pid_type.PIDTYPE_SID: 2>),
                               ('PIDTYPE_MAX', <pid_type.PIDTYPE_MAX: 3>),
                               ('__PIDTYPE_TGID', <pid_type.__PIDTYPE_TGID: 4>)]))
+    >>> prog.type('enum pid_type').compatible
+    'unsigned int'
     """
 
     def __init__(self, name: str, size: int, signed: bool,
                  enumerators: Optional[List[Tuple[str, int]]],
+                 compatible: Optional[str],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
-        super().__init__(qualifiers)
-        self.name = name
-        self.size = size
-        self.signed = signed
+        super().__init__(name, size, signed, qualifiers)
         if enumerators is None:
             self.enum = None
         else:
             self.enum = enum.IntEnum('' if name is None else name, enumerators)  # type: ignore
-                                                                                  # mypy issue #4865.
+                                                                                 # mypy issue #4865.
+        self.compatible = compatible
 
     def __repr__(self) -> str:
         parts = [
@@ -546,7 +548,8 @@ class EnumType(Type):
             repr(self.name), ', ',
             repr(self.size), ', ',
             repr(self.signed), ', ',
-            repr(None if self.enum is None else self.enum.__members__),
+            repr(None if self.enum is None else self.enum.__members__), ', ',
+            repr(self.compatible),
         ]
         if self.qualifiers:
             parts.append(', ')

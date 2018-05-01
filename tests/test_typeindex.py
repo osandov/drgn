@@ -214,18 +214,18 @@ enum color {
 	RED,
 	GREEN,
 	BLUE,
-} x;"""), EnumType('color', 4, False, [('RED', 0), ('GREEN', 1), ('BLUE', 2)]))
+} x;"""), EnumType('color', 4, False, [('RED', 0), ('GREEN', 1), ('BLUE', 2)], 'unsigned int'))
 
         self.assertEqual(self.compile_type("""\
 enum {
 	RED = 10,
 	GREEN,
 	BLUE = -1,
-} x;"""), EnumType(None, 4, True, [('RED', 10), ('GREEN', 11), ('BLUE', -1)]))
+} x;"""), EnumType(None, 4, True, [('RED', 10), ('GREEN', 11), ('BLUE', -1)], 'int'))
 
     def test_incomplete_enum(self):
         self.assertEqual(self.compile_type('enum foo; extern enum foo x'),
-                         EnumType('foo', None, None, None))
+                         EnumType('foo', None, None, None, None))
 
     def test_pointer(self):
         self.assertEqual(self.compile_type('int *x'),
@@ -343,7 +343,7 @@ int main(void)
                              ('RED', 0),
                              ('GREEN', 1),
                              ('BLUE', 2)
-                         ]))
+                         ], 'unsigned int'))
 
     def test_typedef_type(self):
         self.assertEqual(self.type_index.find_type('point'),

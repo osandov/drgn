@@ -327,7 +327,7 @@ union value {
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ])
+        ], 'unsigned int')
         self.assertEqual(str(type_), """\
 enum color {
 	RED = 0,
@@ -366,7 +366,7 @@ const volatile enum color {
             ('RED', 10),
             ('GREEN', 11),
             ('BLUE', -1)
-        ])
+        ], 'int')
         self.assertEqual(str(type_), """\
 enum {
 	RED = 10,
@@ -376,7 +376,7 @@ enum {
         buffer = (-1).to_bytes(4, sys.byteorder, signed=True)
         self.assertEqual(type_.read(buffer), -1)
 
-        type_ = EnumType('foo', None, None, None)
+        type_ = EnumType('foo', None, None, None, None)
         self.assertEqual(str(type_), 'enum foo')
         self.assertRaises(ValueError, type_.sizeof)
 
