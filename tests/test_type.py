@@ -477,3 +477,90 @@ enum {
 		.y = (int)4,
 	},
 }""")
+
+
+class TestTypeUnqualified(TypeTestCase):
+    def assertUnqualified(self, type, unqualified_type):
+        self.assertEqual(type.unqualified(), unqualified_type)
+        self.assertEqual(type.unqualified().unqualified(), unqualified_type)
+
+    def test_void(self):
+        self.assertUnqualified(VoidType(frozenset({'const'})), VoidType())
+
+    def test_int(self):
+        self.assertUnqualified(IntType('int', 4, True, frozenset({'const'})),
+                               IntType('int', 4, True))
+
+    def test_bool(self):
+        self.assertUnqualified(BoolType('_Bool', 1, frozenset({'const'})),
+                               BoolType('_Bool', 1))
+
+    def test_float(self):
+        self.assertUnqualified(FloatType('double', 8, frozenset({'const'})),
+                               FloatType('double', 8))
+
+    def test_bit_field(self):
+        self.assertUnqualified(BitFieldType(IntType('int', 4, True, frozenset({'const'})), 0, 4),
+                               BitFieldType(IntType('int', 4, True), 0, 4))
+
+    def test_struct(self):
+        const_point_type = StructType('point', 8, [
+            ('x', 0, lambda: IntType('int', 4, True)),
+            ('y', 4, lambda: IntType('int', 4, True)),
+        ], frozenset({'const'}))
+        self.assertUnqualified(const_point_type, point_type)
+
+    def test_union(self):
+        union_type = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ])
+        const_union_type = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ], frozenset({'const'}))
+        self.assertUnqualified(const_union_type, union_type)
+
+    def test_enum(self):
+        enum_type = EnumType(None, 4, True, [
+            ('RED', 10),
+            ('GREEN', 11),
+            ('BLUE', -1)
+        ], 'int')
+        const_enum_type = EnumType(None, 4, True, [
+            ('RED', 10),
+            ('GREEN', 11),
+            ('BLUE', -1)
+        ], 'int', frozenset({'const'}))
+        self.assertUnqualified(const_enum_type, enum_type)
+
+    def test_typedef(self):
+        const_typedef_type = TypedefType(
+            'u32', IntType('unsigned int', 4, False), frozenset({'const'}))
+        typedef_const_type = TypedefType('u32', IntType('unsigned int', 4, False, frozenset({'const'})))
+        const_typedef_const_type = TypedefType(
+            'u32', IntType('unsigned int', 4, False, frozenset({'const'})),
+            frozenset({'const'}))
+        typedef_type = TypedefType('u32', IntType('unsigned int', 4, False))
+
+        self.assertUnqualified(const_typedef_type, typedef_type)
+        self.assertUnqualified(typedef_const_type,
+                               IntType('unsigned int', 4, False))
+        self.assertUnqualified(const_typedef_const_type,
+                               IntType('unsigned int', 4, False))
+
+    def test_pointer(self):
+        const_pointer_type = PointerType(
+            8, IntType('unsigned int', 4, False), frozenset({'const'}))
+        pointer_type = PointerType(8, IntType('unsigned int', 4, False))
+        self.assertUnqualified(const_pointer_type, pointer_type)
+
+        const_pointer_const_type = PointerType(
+            8, IntType('unsigned int', 4, False, frozenset({'const'})),
+            frozenset({'const'}))
+        pointer_const_type = PointerType(8, IntType('unsigned int', 4, False, frozenset({'const'})))
+        self.assertUnqualified(const_pointer_const_type, pointer_const_type)
+
+    def test_array(self):
+        type = ArrayType(IntType('int', 4, True), 2)
+        self.assertUnqualified(type, type)
