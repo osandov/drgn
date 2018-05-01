@@ -129,10 +129,10 @@ class VoidType(Type):
         raise ValueError("can't format void")
 
 
-class BasicType(Type):
+class ArithmeticType(Type):
     """
-    A BasicType represents a primitive data type. It has a name, a size, and
-    qualifiers. See help(Type) for more information.
+    An ArithmeticType represents an integer or floating-point data type. It has
+    a name, a size, and qualifiers. See help(Type) for more information.
 
     >>> print(prog['init_task'].prio.type_.name)
     int
@@ -172,10 +172,11 @@ class BasicType(Type):
             return str(value)
 
 
-class IntType(BasicType):
+class IntType(ArithmeticType):
     """
     An IntType represents an integral type. It has a name, size, signedness,
-    and qualifiers. See help(BasicType) and help(Type) for more information.
+    and qualifiers. See help(ArithmeticType) and help(Type) for more
+    information.
 
     >>> print(prog['init_task'].prio.type_.signed)
     True
@@ -209,7 +210,8 @@ class IntType(BasicType):
 class BoolType(IntType):
     """
     A BoolType represents a boolean type. It has a name, size, and qualifiers.
-    See help(IntType), help(BasicType), and help(Type) for more information.
+    See help(IntType), help(ArithmeticType), and help(Type) for more
+    information.
     """
 
     def __init__(self, name: str, size: int,
@@ -230,10 +232,10 @@ class BoolType(IntType):
             return str(int(value))
 
 
-class FloatType(BasicType):
+class FloatType(ArithmeticType):
     """
     A FloatType represents a floating-point type. It has a name, size, and
-    qualifiers. See help(BasicType) and help(Type) for more information.
+    qualifiers. See help(ArithmeticType) and help(Type) for more information.
     """
 
     def read(self, buffer: bytes, offset: int = 0) -> float:
