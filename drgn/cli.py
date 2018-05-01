@@ -16,8 +16,8 @@ from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
 from drgn.elf import parse_elf_phdrs
 from drgn.program import Program
-import drgn.type
 from drgn.type import Type
+from drgn.typeindex import DwarfTypeIndex
 from drgn.typename import TypeName
 from drgn.util import parse_symbol_file
 
@@ -84,6 +84,7 @@ def main() -> None:
     paths.append(args.executable)
 
     dwarf_index = DwarfIndex(paths)
+    type_index = DwarfTypeIndex(dwarf_index)
 
     with open('/proc/kallsyms', 'r') as f:
         symbols = parse_symbol_file(f)
@@ -91,14 +92,10 @@ def main() -> None:
     with open('/proc/kcore', 'rb') as core_file:
         phdrs = parse_elf_phdrs(core_file)
 
-        def lookup_type(type_name: Union[str, TypeName]) -> Type:
-            return drgn.type.from_dwarf_type_name(dwarf_index, type_name)
-
         def lookup_variable(name: str) -> Tuple[int, Type]:
             address = symbols[name][-1]
             dwarf_type = dwarf_index.find(name, DW_TAG.variable).type()
-            type_ = drgn.type.from_dwarf_type(dwarf_index, dwarf_type)
-            return address, type_
+            return address, type_index.find_dwarf_type(dwarf_type)
 
         def read_memory(address: int, size: int) -> bytes:
             for phdr in phdrs:
@@ -110,7 +107,7 @@ def main() -> None:
                             phdr.p_offset + address - phdr.p_vaddr)
 
         init_globals: Dict[str, Any] = {
-            'prog': Program(lookup_type_fn=lookup_type,
+            'prog': Program(lookup_type_fn=type_index.find_type,
                             lookup_variable_fn=lookup_variable,
                             read_memory_fn=read_memory),
             'drgn': drgn,
