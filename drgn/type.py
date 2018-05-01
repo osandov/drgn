@@ -206,11 +206,15 @@ class IntType(BasicType):
                               signed=self.signed)
 
 
-class BoolType(BasicType):
+class BoolType(IntType):
     """
     A BoolType represents a boolean type. It has a name, size, and qualifiers.
-    See help(BasicType) and help(Type) for more information.
+    See help(IntType), help(BasicType), and help(Type) for more information.
     """
+
+    def __init__(self, name: str, size: int,
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+        super().__init__(name, size, False, qualifiers)
 
     def read(self, buffer: bytes, offset: int = 0) -> bool:
         if len(buffer) - offset < self.size:
