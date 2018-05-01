@@ -65,9 +65,7 @@ class ProgramObject:
         self.program_ = program
         self.address_ = address
         self.type_ = type
-        while isinstance(type, TypedefType):
-            type = type.type
-        self._real_type = type
+        self._real_type = type.real_type()
         self._value = value
 
     def __dir__(self) -> Iterable[str]:

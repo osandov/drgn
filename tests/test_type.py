@@ -96,6 +96,7 @@ class TestType(TypeTestCase):
         buffer = b'\0\0' + (-1).to_bytes(4, sys.byteorder, signed=True)
         self.assertEqual(type_.read(buffer, 2), -1)
         self.assertRaises(ValueError, type_.read, buffer, 3)
+        self.assertEqual(type_.real_type(), type_)
 
         type_ = IntType('unsigned long', 8, False)
         buffer = b'\0' + (99).to_bytes(8, sys.byteorder)
@@ -159,6 +160,11 @@ class TestType(TypeTestCase):
         self.assertEqual(str(type_), 'const typedef int INT')
         self.assertEqual(type_.sizeof(), 4)
         self.assertEqual(type_.read(b'\0\0\0\0'), 0)
+
+        type1 = TypedefType('INT', IntType('int', 4, True))
+        type2 = TypedefType('InT', type1)
+        self.assertEqual(type1.real_type(), IntType('int', 4, True))
+        self.assertEqual(type2.real_type(), IntType('int', 4, True))
 
     def test_struct(self):
         self.assertEqual(str(point_type), """\

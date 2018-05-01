@@ -119,6 +119,16 @@ class Type:
         """
         raise NotImplementedError()
 
+    def real_type(self) -> 'Type':
+        """
+        Return the non-typedef type underlying this type if it is a typedef, or
+        this type otherwise.
+
+        In other words, if this type is a typedef, get its underlying type,
+        recursively.
+        """
+        return self
+
 
 class VoidType(Type):
     """
@@ -736,6 +746,12 @@ class TypedefType(Type):
             return TypedefType(self.name, self.type)
         else:
             return self
+
+    def real_type(self) -> Type:
+        type_ = self.type
+        while isinstance(type_, TypedefType):
+            type_ = type_.type
+        return type_
 
 
 class PointerType(Type):
