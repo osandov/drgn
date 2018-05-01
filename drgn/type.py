@@ -309,7 +309,7 @@ class BitFieldType(Type):
     0
     """
 
-    def __init__(self, type: IntType, bit_offset: int, bit_size: int,
+    def __init__(self, type: IntType, bit_offset: Optional[int], bit_size: int,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.type = type
         self.bit_offset = bit_offset
@@ -338,6 +338,8 @@ class BitFieldType(Type):
     def read(self, buffer: bytes, offset: int = 0) -> int:
         if len(buffer) - offset < self.sizeof():
             raise ValueError(f'buffer must be at least {self.sizeof()} bytes')
+        if self.bit_offset is None:
+            raise ValueError(f"can't read bit-field type")
 
         # XXX: this assumes little-endian
         offset += self.bit_offset // 8

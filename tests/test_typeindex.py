@@ -362,3 +362,266 @@ int main(void)
                          ArrayType(IntType('int', 4, True), 4))
         self.assertEqual(self.type_index.find_type('int []'),
                          ArrayType(IntType('int', 4, True), None))
+
+
+class TestUsualArithmeticConversions(TypeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            object_path = os.path.join(tmp_dir, 'test')
+            source_path = object_path + '.c'
+            with open(source_path, 'w') as f:
+                f.write("""\
+int i;
+unsigned int u;
+
+int main(void)
+{
+	return 0;
+}
+""")
+            subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o',
+                                   object_path, source_path])
+            cls.type_index = DwarfTypeIndex(DwarfIndex([object_path]))
+
+    def assertPromotes(self, type, expected_type):
+        self.assertEqual(self.type_index.integer_promotions(type),
+                         expected_type)
+
+    def assertConverts(self, type1, type2, expected_type):
+        self.assertEqual(self.type_index.usual_arithmetic_conversions(type1, type2),
+                         expected_type)
+        self.assertEqual(self.type_index.usual_arithmetic_conversions(type2, type1),
+                         expected_type)
+
+    def test_char_promotions(self):
+        self.assertPromotes(IntType('char', 1, True), IntType('int', 4, True))
+        self.assertPromotes(IntType('signed char', 1, True),
+                            IntType('int', 4, True))
+        self.assertPromotes(IntType('unsigned char', 1, False),
+                            IntType('int', 4, True))
+
+    def test_short_promotions(self):
+        self.assertPromotes(IntType('short', 2, True), IntType('int', 4, True))
+        self.assertPromotes(IntType('unsigned short', 2, False),
+                            IntType('int', 4, True))
+
+    def test_bool_promotions(self):
+        self.assertPromotes(BoolType('_Bool', 1), IntType('int', 4, True))
+
+    def test_enum_promotions(self):
+        type_ = EnumType('color', 4, True, [
+            ('RED', 0),
+            ('GREEN', 1),
+            ('BLUE', 2)
+        ], 'int')
+        self.assertPromotes(type_, IntType('int', 4, True))
+
+        type_ = EnumType('color', 4, False, [
+            ('RED', 0),
+            ('GREEN', 1),
+            ('BLUE', 2)
+        ], 'unsigned int')
+        self.assertPromotes(type_, IntType('unsigned int', 4, False))
+
+        type_ = EnumType('color', 8, False, [
+            ('RED', 0),
+            ('GREEN', 1),
+            ('BLUE', 2)
+        ], 'unsigned long')
+        self.assertPromotes(type_, IntType('unsigned long', 8, False))
+
+    def test_int_promotions(self):
+        self.assertPromotes(IntType('int', 4, True), IntType('int', 4, True))
+        self.assertPromotes(IntType('unsigned int', 4, False),
+                            IntType('unsigned int', 4, False))
+
+    def test_long_promotions(self):
+        self.assertPromotes(IntType('long', 8, True), IntType('long', 8, True))
+        self.assertPromotes(IntType('unsigned long', 8, False),
+                            IntType('unsigned long', 8, False))
+
+    def test_long_long_promotions(self):
+        self.assertPromotes(IntType('long long', 8, True), IntType('long long', 8, True))
+        self.assertPromotes(IntType('unsigned long long', 8, False),
+                            IntType('unsigned long long', 8, False))
+
+    def test_bit_field_promotions(self):
+        self.assertPromotes(BitFieldType(IntType('int', 4, True), 0, 4),
+                            IntType('int', 4, True))
+        self.assertPromotes(BitFieldType(IntType('long', 8, True), 0, 4),
+                            IntType('int', 4, True))
+
+        self.assertPromotes(BitFieldType(IntType('int', 4, True), 0, 32),
+                            IntType('int', 4, True))
+        self.assertPromotes(BitFieldType(IntType('long', 8, True), 0, 32),
+                            IntType('int', 4, True))
+
+        self.assertPromotes(BitFieldType(IntType('unsigned int', 4, True), 0, 4),
+                            IntType('int', 4, True))
+        self.assertPromotes(BitFieldType(IntType('unsigned long', 8, True), 0, 4),
+                            IntType('int', 4, True))
+
+        self.assertPromotes(BitFieldType(IntType('unsigned int', 4, False), 0, 32),
+                            IntType('unsigned int', 4, False))
+        self.assertPromotes(BitFieldType(IntType('unsigned long', 8, False), 0, 32),
+                            IntType('unsigned int', 4, False))
+
+        self.assertPromotes(BitFieldType(IntType('long', 8, False), 0, 40),
+                            BitFieldType(IntType('long', 8, False), None, 40))
+        self.assertPromotes(BitFieldType(IntType('unsigned long', 8, False), 0, 40),
+                            BitFieldType(IntType('unsigned long', 8, False), None, 40))
+
+    def test_typedef_promotions(self):
+        type_ = TypedefType('SHORT', IntType('short', 2, True))
+        self.assertPromotes(type_, IntType('int', 4, True))
+
+        type_ = TypedefType('INT', IntType('int', 4, True))
+        self.assertPromotes(type_, type_)
+
+        type_ = TypedefType('LONG', IntType('long', 8, True))
+        self.assertPromotes(type_, type_)
+
+    def test_other_promotions(self):
+        self.assertPromotes(FloatType('long double', 16),
+                            FloatType('long double', 16))
+
+    def test_long_double(self):
+        self.assertConverts(FloatType('long double', 16),
+                            FloatType('double', 8),
+                            FloatType('long double', 16))
+        self.assertConverts(IntType('int', 4, True),
+                            FloatType('long double', 16),
+                            FloatType('long double', 16))
+
+    def test_double(self):
+        self.assertConverts(FloatType('double', 8),
+                            FloatType('float', 4),
+                            FloatType('double', 8))
+        self.assertConverts(IntType('long', 8, True),
+                            FloatType('double', 8),
+                            FloatType('double', 8))
+
+    def test_float(self):
+        self.assertConverts(FloatType('int', 4),
+                            FloatType('float', 4),
+                            FloatType('float', 4))
+        self.assertConverts(FloatType('float', 4),
+                            FloatType('long long', 8),
+                            FloatType('float', 4))
+
+    def test_same(self):
+        self.assertConverts(IntType('int', 4, True),
+                            IntType('int', 4, True),
+                            IntType('int', 4, True))
+
+    def test_same_sign(self):
+        self.assertConverts(IntType('long', 8, True),
+                            IntType('long long', 8, True),
+                            IntType('long long', 8, True))
+
+        self.assertConverts(IntType('unsigned long', 4, False),
+                            IntType('unsigned int', 4, False),
+                            IntType('unsigned long', 4, False))
+
+    def test_unsigned_rank(self):
+        self.assertConverts(IntType('long', 8, True),
+                            IntType('unsigned long long', 8, False),
+                            IntType('unsigned long long', 8, False))
+        self.assertConverts(IntType('unsigned int', 4, False),
+                            IntType('int', 4, True),
+                            IntType('unsigned int', 4, False))
+
+    def test_signed_range(self):
+        self.assertConverts(IntType('long', 8, True),
+                            IntType('unsigned int', 4, False),
+                            IntType('long', 8, True))
+        self.assertConverts(IntType('unsigned long', 4, False),
+                            IntType('long long', 8, True),
+                            IntType('long long', 8, True))
+
+    def test_corresponding_unsigned(self):
+        self.assertConverts(IntType('long', 4, True),
+                            IntType('unsigned int', 4, False),
+                            IntType('unsigned long', 4, False))
+        self.assertConverts(IntType('long long', 8, True),
+                            IntType('unsigned long', 8, False),
+                            IntType('unsigned long long', 8, False))
+
+    def test_qualified(self):
+        self.assertConverts(IntType('int', 4, True, frozenset({'const'})),
+                            IntType('int', 4, True, frozenset({'const'})),
+                            IntType('int', 4, True))
+
+    def test_typedef(self):
+        typedef_type = TypedefType('u32', IntType('unsigned int', 4, False))
+        self.assertConverts(typedef_type, typedef_type, typedef_type)
+
+        const_typedef_type = TypedefType(
+            'u32', IntType('unsigned int', 4, False), frozenset({'const'}))
+        self.assertConverts(const_typedef_type, const_typedef_type, typedef_type)
+
+        const_typedef_const_type = TypedefType(
+            'u32', IntType('unsigned int', 4, False, frozenset({'const'})),
+            frozenset({'const'}))
+
+        self.assertConverts(const_typedef_const_type, const_typedef_const_type,
+                            IntType('unsigned int', 4, False))
+
+    def test_bool(self):
+        self.assertConverts(BoolType('_Bool', 1), IntType('int', 4, True),
+                            IntType('int', 4, True))
+
+    def test_bit_field(self):
+        self.assertConverts(BitFieldType(IntType('int', 4, True), None, 4),
+                            BitFieldType(IntType('int', 4, True), None, 4),
+                            IntType('int', 4, True))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 4),
+                            BitFieldType(IntType('long', 8, True), None, 4),
+                            IntType('int', 4, True))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            BitFieldType(IntType('long', 8, True), None, 40),
+                            BitFieldType(IntType('long', 8, True), None, 40))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            BitFieldType(IntType('long', 8, True), None, 33),
+                            BitFieldType(IntType('long', 8, True), None, 40))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            BitFieldType(IntType('long long', 8, True), None, 33),
+                            BitFieldType(IntType('long', 8, True), None, 40))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            BitFieldType(IntType('long long', 8, True), None, 40),
+                            BitFieldType(IntType('long long', 8, True), None, 40))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            BitFieldType(IntType('unsigned long', 8, False), None, 33),
+                            BitFieldType(IntType('long', 8, True), None, 40))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            BitFieldType(IntType('unsigned long', 8, False), None, 40),
+                            BitFieldType(IntType('unsigned long', 8, False), None, 40))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            IntType('int', 4, True),
+                            BitFieldType(IntType('long', 8, True), None, 40))
+
+        self.assertConverts(BitFieldType(IntType('long', 8, True), None, 40),
+                            IntType('long', 8, True),
+                            IntType('long', 8, True))
+
+    def test_enum(self):
+        type_ = EnumType('color', 4, True, [
+            ('RED', 0),
+            ('GREEN', 1),
+            ('BLUE', 2)
+        ], 'int')
+        self.assertConverts(type_, IntType('int', 4, True),
+                            IntType('int', 4, True))
+
+        type_ = TypedefType('COLOR', type_)
+        self.assertConverts(type_, IntType('int', 4, True),
+                            IntType('int', 4, True))

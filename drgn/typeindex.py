@@ -14,6 +14,7 @@ from drgn.dwarf import (
 )
 from drgn.dwarfindex import DwarfIndex
 from drgn.type import (
+    ArithmeticType,
     ArrayType,
     BitFieldType,
     BoolType,
@@ -42,6 +43,85 @@ from drgn.typename import (
 )
 
 
+_INTEGER_CONVERSION_RANKS = {
+    '_Bool': 0,
+    'char': 1,
+    'signed char': 1,
+    'unsigned char': 1,
+    'short': 2,
+    'unsigned short': 2,
+    'int': 3,
+    'unsigned int': 3,
+    'long': 4,
+    'unsigned long': 4,
+    'long long': 5,
+    'unsigned long long': 5,
+}
+
+_INT_CONVERSION_RANK = _INTEGER_CONVERSION_RANKS['int']
+
+
+def _integer_conversion_rank(type: Union[IntType, BitFieldType]) -> int:
+    if isinstance(type, BitFieldType):
+        return _integer_conversion_rank(type.type)
+    else:
+        name = type.name
+    return _INTEGER_CONVERSION_RANKS[name]
+
+
+def _can_represent_all_values(type1: Type, type2: Type) -> bool:
+    # Return whether type1 can represent all values of type2.
+
+    if (not isinstance(type1, (IntType, BitFieldType)) or
+            not isinstance(type2, (IntType, BitFieldType))):
+        raise TypeError()
+
+    if isinstance(type1, BitFieldType):
+        width1 = type1.bit_size
+        signed1 = type1.type.signed
+    else:
+        width1 = 8 * type1.size
+        signed1 = type1.signed
+
+    if isinstance(type2, BitFieldType):
+        width2 = type2.bit_size
+        signed2 = type2.type.signed
+    else:
+        width2 = 8 * type2.size
+        signed2 = type2.signed
+
+    if signed1 == signed2:
+        return width1 >= width2
+    elif signed1 and not signed2:
+        return width1 > width2
+    else:  # not signed1 and signed2
+        return False
+
+
+def _corresponding_unsigned_type(type_: Type) -> Type:
+    if isinstance(type_, BitFieldType):
+        if type_.type.signed:
+            underlying_type = _corresponding_unsigned_type(type_.type)
+            assert isinstance(underlying_type, IntType)
+            return BitFieldType(underlying_type, None, type_.bit_size)
+        else:
+            return type_
+    elif isinstance(type_, BoolType):
+        return type_
+    elif isinstance(type_, EnumType):
+        if type_.signed:
+            return IntType('unsigned ' + type_.compatible, type_.size, False)
+        else:
+            return type_
+    elif isinstance(type_, IntType):
+        if type_.signed:
+            return IntType('unsigned ' + type_.name, type_.size, False)
+        else:
+            return type_
+    else:
+        raise TypeError()
+
+
 class TypeIndex:
     def _find_type(self, type_name: TypeName) -> Type:
         raise NotImplementedError()
@@ -51,6 +131,143 @@ class TypeIndex:
         if not isinstance(type_name, TypeName):
             type_name = parse_type_name(type_name)
         return self._find_type(type_name)
+
+    def integer_promotions(self, type: Type) -> Type:
+        # Integer promotions are performed on types whose integer conversion
+        # rank is less than or equal to the rank of int and unsigned int and
+        # bit-fields.
+
+        real_type = type.real_type()
+
+        if isinstance(real_type, EnumType):
+            type = real_type = IntType(real_type.compatible, real_type.size,
+                                       real_type.signed)
+
+        if isinstance(real_type, BitFieldType):
+            int_type = self.find_type('int')
+            unsigned_int_type = self.find_type('unsigned int')
+            if _can_represent_all_values(int_type, real_type):
+                return int_type
+            elif _can_represent_all_values(unsigned_int_type, real_type):
+                return unsigned_int_type
+            else:
+                # GCC does not promote a bit-field to its full type, but Clang
+                # does. The GCC behavior seems more correct in terms of the
+                # standard.
+                return BitFieldType(real_type.type, None, real_type.bit_size)
+
+        if (not isinstance(real_type, IntType) or
+                real_type.name == 'int' or real_type.name == 'unsigned int' or
+                _integer_conversion_rank(real_type) > _INT_CONVERSION_RANK):
+            return type
+
+        int_type = self.find_type('int')
+        if _can_represent_all_values(int_type, real_type):
+            # If int can represent all values of the original type, then the
+            # result is int.
+            return int_type
+        else:
+            # Otherwise, the result is unsigned int.
+            return self.find_type('unsigned int')
+
+    def usual_arithmetic_conversions(self, type1: Type, type2: Type) -> Type:
+        type1 = type1.unqualified()
+        type2 = type2.unqualified()
+        real_type1 = type1.real_type()
+        real_type2 = type2.real_type()
+
+        if (not isinstance(real_type1, (ArithmeticType, BitFieldType)) or
+                not isinstance(real_type2, (ArithmeticType, BitFieldType))):
+            raise TypeError('operands must be arithmetic types or bit fields')
+
+        # If either operand is long double, then the result is long double.
+        if isinstance(real_type1, FloatType) and real_type1.name == 'long double':
+            return type1
+        if isinstance(real_type2, FloatType) and real_type2.name == 'long double':
+            return type2
+        # If either operand is double, then the result is double.
+        if isinstance(real_type1, FloatType) and real_type1.name == 'double':
+            return type1
+        if isinstance(real_type2, FloatType) and real_type2.name == 'double':
+            return type2
+        # Otherwise, if either operand is float, then the result is float.
+        if isinstance(real_type1, FloatType) and real_type1.name == 'float':
+            return type1
+        if isinstance(real_type2, FloatType) and real_type2.name == 'float':
+            return type2
+
+        # Otherwise, the integer promotions are performed before applying the
+        # following rules.
+        type1 = self.integer_promotions(type1)
+        type2 = self.integer_promotions(type2)
+        real_type1 = type1.real_type()
+        real_type2 = type2.real_type()
+
+        assert isinstance(real_type1, (IntType, BitFieldType))
+        assert isinstance(real_type2, (IntType, BitFieldType))
+
+        # If both operands have the same type, then no further conversions are
+        # needed.
+        if (isinstance(real_type1, IntType) and isinstance(real_type2, IntType) and
+                real_type1.name == real_type2.name):
+            # We can return either type1 or type2 here; it only makes a
+            # difference for typedefs. Arbitrarily pick type2 because that's
+            # what GCC seems to do (Clang always just throws away the typedef).
+            return type2
+
+        rank1 = _integer_conversion_rank(real_type1)
+        rank2 = _integer_conversion_rank(real_type2)
+        signed1 = real_type1.type.signed if isinstance(real_type1, BitFieldType) else real_type1.signed
+        signed2 = real_type2.type.signed if isinstance(real_type2, BitFieldType) else real_type2.signed
+
+        if (isinstance(real_type1, BitFieldType) or
+                isinstance(real_type2, BitFieldType)):
+            if isinstance(real_type1, BitFieldType):
+                width1 = real_type1.bit_size
+            else:
+                width1 = 8 * real_type1.size
+
+            if isinstance(real_type2, BitFieldType):
+                width2 = real_type2.bit_size
+            else:
+                width2 = 8 * real_type2.size
+
+            if width1 > width2:
+                return type1
+            elif width2 > width1:
+                return type2
+
+        # Otherwise, if both operands have signed integer types or both have
+        # unsigned integer types, then the result is the type of the operand
+        # with the greater rank.
+        if signed1 == signed2:
+            if rank1 > rank2:
+                return type1
+            else:
+                return type2
+
+        # Otherwise, if the operand that has unsigned integer type has rank greater
+        # or equal to the rank of the type of the other operand, then the result is
+        # the unsigned integer type.
+        if not signed1 and rank1 >= rank2:
+            return type1
+        if not signed2 and rank2 >= rank1:
+            return type2
+
+        # Otherwise, if the type of the operand with signed integer type can
+        # represent all of the values of the type of the operand with unsigned
+        # integer type, then the result is the signed integer type.
+        if signed1 and _can_represent_all_values(real_type1, real_type2):
+            return type1
+        if signed2 and _can_represent_all_values(real_type2, real_type1):
+            return type2
+
+        # Otherwise, then the result is is the unsigned integer type corresponding
+        # to the type of the operand with signed integer type.
+        if signed1:
+            return _corresponding_unsigned_type(real_type1)
+        else:  # signed2
+            return _corresponding_unsigned_type(real_type2)
 
 
 class DwarfTypeIndex(TypeIndex):
