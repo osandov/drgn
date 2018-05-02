@@ -14,6 +14,8 @@ help(Type).
 
 from collections import OrderedDict
 import enum
+import math
+import numbers
 import re
 import struct
 import sys
@@ -109,6 +111,10 @@ class Type:
         """
         return self.pretty(self.read(buffer, offset), cast)
 
+    def convert(self, value: Any) -> Any:
+        """Return the given value converted to a valid value of this type."""
+        raise TypeError(f'cannot convert to {self}')
+
     def unqualified(self) -> 'Type':
         """
         Return this type with no qualifiers.
@@ -147,6 +153,9 @@ class VoidType(Type):
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         raise ValueError("can't format void")
+
+    def convert(self, value: Any) -> None:
+        return None
 
     def unqualified(self) -> 'VoidType':
         if not self.qualifiers:
@@ -200,6 +209,13 @@ class ArithmeticType(Type):
         raise NotImplementedError()
 
 
+def _int_convert(value: int, bit_size: int, signed: bool) -> int:
+    value %= 1 << bit_size
+    if signed and (value & (1 << (bit_size - 1))):
+        value -= 1 << bit_size
+    return value
+
+
 class IntType(ArithmeticType):
     """
     An IntType represents an integral type. It has a name, size, signedness,
@@ -234,6 +250,11 @@ class IntType(ArithmeticType):
         return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder,
                               signed=self.signed)
 
+    def convert(self, value: Any) -> int:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        return _int_convert(math.trunc(value), 8 * self.size, self.signed)
+
     def unqualified(self) -> 'IntType':
         if not self.qualifiers:
             return self
@@ -264,6 +285,11 @@ class BoolType(IntType):
         else:
             return str(int(value))
 
+    def convert(self, value: Any) -> bool:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        return bool(value)
+
     def unqualified(self) -> 'BoolType':
         if not self.qualifiers:
             return self
@@ -285,6 +311,18 @@ class FloatType(ArithmeticType):
             return struct.unpack_from('d', buffer, offset)[0]
         else:
             raise ValueError(f"can't read float of size {self.size}")
+
+    def convert(self, value: Any) -> float:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        value = float(value)
+        if self.size == 4:
+            # Python doesn't have a native float32 type.
+            return struct.unpack('f', struct.pack('f', value))[0]
+        elif self.size == 8:
+            return value
+        else:
+            raise ValueError(f"can't convert to float of size {self.size}")
 
     def unqualified(self) -> 'FloatType':
         if not self.qualifiers:
@@ -359,6 +397,11 @@ class BitFieldType(Type):
             return ''.join(parts)
         else:
             return str(value)
+
+    def convert(self, value: Any) -> int:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        return _int_convert(math.trunc(value), self.bit_size, self.type.signed)
 
     def unqualified(self) -> 'BitFieldType':
         if not self.type.qualifiers:
@@ -671,6 +714,15 @@ class EnumType(IntType):
             parts.append(str(value))
         return ''.join(parts)
 
+    def convert(self, value: Any) -> Union[enum.IntEnum, int]:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        value = _int_convert(math.trunc(value), 8 * self.size, self.signed)
+        try:
+            return self.enum(value)
+        except ValueError:
+            return value
+
     def unqualified(self) -> 'EnumType':
         if not self.qualifiers:
             return self
@@ -732,6 +784,9 @@ class TypedefType(Type):
             return ''.join(parts)
         else:
             return self.type.pretty(value, cast=False)
+
+    def convert(self, value: Any) -> Any:
+        return self.type.convert(value)
 
     def unqualified(self) -> Type:
         type_ = self.type
@@ -806,6 +861,11 @@ class PointerType(Type):
             return ''.join(parts)
         else:
             return hex(value)
+
+    def convert(self, value: Any) -> int:
+        if not isinstance(value, numbers.Integral):
+            raise TypeError(f'cannot convert to {self}')
+        return _int_convert(int(value), 8 * self.size, False)
 
     def unqualified(self) -> 'PointerType':
         if not self.qualifiers:

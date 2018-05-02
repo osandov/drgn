@@ -1,5 +1,6 @@
 from collections import OrderedDict
 import ctypes
+import math
 import struct
 import sys
 import unittest
@@ -570,3 +571,162 @@ class TestTypeUnqualified(TypeTestCase):
     def test_array(self):
         type = ArrayType(IntType('int', 4, True), 2)
         self.assertUnqualified(type, type)
+
+
+class TestConvert(unittest.TestCase):
+    def test_void(self):
+        self.assertIsNone(VoidType().convert(4))
+
+    def test_int(self):
+        type_ = IntType('unsigned int', 4, False)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert(None)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert('0')
+        self.assertEqual(type_.convert(0), 0)
+        self.assertEqual(type_.convert(4096), 4096)
+        self.assertEqual(type_.convert(999999), 999999)
+        self.assertEqual(type_.convert(2**32 - 1), 2**32 - 1)
+        self.assertEqual(type_.convert(2**32 + 4), 4)
+        self.assertEqual(type_.convert(-1), 2**32 - 1)
+        self.assertEqual(type_.convert(-2 * 2**32), 0)
+        self.assertEqual(type_.convert(-4 * 2**32 - 1), 2**32 - 1)
+        self.assertEqual(type_.convert(-2**31), 2**31)
+        self.assertEqual(type_.convert(1.5), 1)
+
+        type_ = IntType('int', 4, True)
+        self.assertEqual(type_.convert(0), 0)
+        self.assertEqual(type_.convert(4096), 4096)
+        self.assertEqual(type_.convert(999999), 999999)
+        self.assertEqual(type_.convert(2**32 - 1), -1)
+        self.assertEqual(type_.convert(2**32 + 4), 4)
+        self.assertEqual(type_.convert(-1), -1)
+        self.assertEqual(type_.convert(-2 * 2**32), 0)
+        self.assertEqual(type_.convert(-4 * 2**32 - 1), -1)
+        self.assertEqual(type_.convert(-2**31), -2**31)
+        self.assertEqual(type_.convert(2**31), -2**31)
+        self.assertEqual(type_.convert(2**31 - 1), 2**31 - 1)
+        self.assertEqual(type_.convert(-1.5), -1)
+
+    def test_bool(self):
+        type_ = BoolType('_Bool', 1)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert(None)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert('')
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert('0')
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert([1, 2, 3])
+        self.assertEqual(type_.convert(0), False)
+        self.assertEqual(type_.convert(1), True)
+        self.assertEqual(type_.convert(-1), True)
+        self.assertEqual(type_.convert(0.0), False)
+        self.assertEqual(type_.convert(-0.0), False)
+        self.assertEqual(type_.convert(-0.0), False)
+        self.assertEqual(type_.convert(0.5), True)
+        self.assertEqual(type_.convert(-0.5), True)
+        self.assertEqual(type_.convert(float('nan')), True)
+
+    def test_float(self):
+        type_ = FloatType('double', 8)
+        self.assertEqual(type_.convert(0.0), 0.0)
+        self.assertEqual(type_.convert(0.5), 0.5)
+        self.assertEqual(type_.convert(-0.5), -0.5)
+        self.assertEqual(type_.convert(55), 55.0)
+        self.assertEqual(type_.convert(float('inf')), float('inf'))
+        self.assertEqual(type_.convert(float('-inf')), float('-inf'))
+        self.assertTrue(math.isnan(type_.convert(float('nan'))))
+
+        type_ = FloatType('float', 4)
+        self.assertEqual(type_.convert(0.0), 0.0)
+        self.assertEqual(type_.convert(0.5), 0.5)
+        self.assertEqual(type_.convert(-0.5), -0.5)
+        self.assertEqual(type_.convert(55), 55.0)
+        self.assertEqual(type_.convert(float('inf')), float('inf'))
+        self.assertEqual(type_.convert(float('-inf')), float('-inf'))
+        self.assertTrue(math.isnan(type_.convert(float('nan'))))
+        self.assertEqual(type_.convert(1e-50), 0.0)
+
+    def test_bit_field(self):
+        type_ = BitFieldType(IntType('unsigned int', 4, False), 0, 4)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert(None)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert('0')
+        self.assertEqual(type_.convert(0), 0)
+        self.assertEqual(type_.convert(10), 10)
+        self.assertEqual(type_.convert(15), 15)
+        self.assertEqual(type_.convert(20), 4)
+        self.assertEqual(type_.convert(-1), 15)
+        self.assertEqual(type_.convert(32), 0)
+        self.assertEqual(type_.convert(-17), 15)
+        self.assertEqual(type_.convert(-8), 8)
+        self.assertEqual(type_.convert(1.5), 1)
+
+        type_ = BitFieldType(IntType('int', 4, True), 0, 4)
+        self.assertEqual(type_.convert(0), 0)
+        self.assertEqual(type_.convert(10), -6)
+        self.assertEqual(type_.convert(15), -1)
+        self.assertEqual(type_.convert(20), 4)
+        self.assertEqual(type_.convert(-1), -1)
+        self.assertEqual(type_.convert(32), 0)
+        self.assertEqual(type_.convert(-17), -1)
+        self.assertEqual(type_.convert(-8), -8)
+        self.assertEqual(type_.convert(1.5), 1)
+
+    def test_no_convert(self):
+        union_type = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ])
+        array_type = ArrayType(IntType('int', 4, True), 2)
+        incomplete_array_type = ArrayType(IntType('int', 4, True), None)
+        for type_ in [point_type, union_type, array_type,
+                      incomplete_array_type]:
+            with self.subTest(type=type_):
+                with self.assertRaisesRegex(TypeError, 'cannot convert'):
+                    point_type.convert(None)
+                with self.assertRaisesRegex(TypeError, 'cannot convert'):
+                    point_type.convert({})
+                with self.assertRaisesRegex(TypeError, 'cannot convert'):
+                    point_type.convert(1)
+
+    def test_enum(self):
+        type_ = EnumType('color', 4, False, [
+            ('RED', 0),
+            ('GREEN', 1),
+            ('BLUE', 2)
+        ], 'unsigned int')
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert(None)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert('0')
+        self.assertEqual(type_.convert(1), type_.enum.GREEN)
+        self.assertEqual(type_.convert(3), 3)
+        self.assertEqual(type_.convert(-1), 2**32 - 1)
+        self.assertEqual(type_.convert(0.1), type_.enum.RED)
+
+    def test_typedef(self):
+        type_ = TypedefType('u32', IntType('unsigned int', 4, False))
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert(None)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert('0')
+        self.assertEqual(type_.convert(0), 0)
+        self.assertEqual(type_.convert(2**32 - 1), 2**32 - 1)
+        self.assertEqual(type_.convert(-1), 2**32 - 1)
+
+    def test_pointer(self):
+        type_ = PointerType(8, VoidType())
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert(None)
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert('0')
+        with self.assertRaisesRegex(TypeError, 'cannot convert'):
+            type_.convert(0.0)
+        self.assertEqual(type_.convert(0), 0)
+        self.assertEqual(type_.convert(0xffffffff93000000), 0xffffffff93000000)
+        self.assertEqual(type_.convert(2**64 - 1), 2**64 - 1)
+        self.assertEqual(type_.convert(-1), 2**64 - 1)
+        self.assertEqual(type_.convert(2**64 + 1), 1)
