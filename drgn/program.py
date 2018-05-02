@@ -66,6 +66,8 @@ class ProgramObject:
         self.address_ = address
         self.type_ = type
         self._real_type = type.real_type()
+        if value is not None:
+            value = self._real_type.convert(value)
         self._value = value
 
     def __dir__(self) -> Iterable[str]:
