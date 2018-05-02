@@ -613,7 +613,7 @@ class UnionType(CompoundType):
 class EnumType(IntType):
     """
     An EnumType has a name, size, signedness, enumerators (as a Python
-    enum.IntEnum), a name of a compatible integer type, and qualifiers. See
+    enum.IntEnum), the name of its compatible integer type, and qualifiers. See
     help(IntType) and help(Type) for more information.
 
     >>> print(prog.type('enum pid_type'))
@@ -633,13 +633,13 @@ class EnumType(IntType):
                               ('PIDTYPE_SID', <pid_type.PIDTYPE_SID: 2>),
                               ('PIDTYPE_MAX', <pid_type.PIDTYPE_MAX: 3>),
                               ('__PIDTYPE_TGID', <pid_type.__PIDTYPE_TGID: 4>)]))
-    >>> prog.type('enum pid_type').compatible
+    >>> prog.type('enum pid_type').compatible_name
     'unsigned int'
     """
 
     def __init__(self, name: str, size: int, signed: bool,
                  enumerators: Optional[List[Tuple[str, int]]],
-                 compatible: Optional[str],
+                 compatible_name: Optional[str],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(name, size, signed, qualifiers)
         if enumerators is None:
@@ -647,7 +647,7 @@ class EnumType(IntType):
         else:
             self.enum = enum.IntEnum('' if name is None else name, enumerators)  # type: ignore
                                                                                  # mypy issue #4865.
-        self.compatible = compatible
+        self.compatible_name = compatible_name
 
     def __repr__(self) -> str:
         parts = [
@@ -656,7 +656,7 @@ class EnumType(IntType):
             repr(self.size), ', ',
             repr(self.signed), ', ',
             repr(None if self.enum is None else self.enum.__members__), ', ',
-            repr(self.compatible),
+            repr(self.compatible_name),
         ]
         if self.qualifiers:
             parts.append(', ')
@@ -728,7 +728,7 @@ class EnumType(IntType):
             return self
         return EnumType(self.name, self.size, self.signed,
                         None if self.enum is None else self.enum.__members__,
-                        self.compatible)
+                        self.compatible_name)
 
 
 class TypedefType(Type):

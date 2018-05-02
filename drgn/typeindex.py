@@ -110,7 +110,8 @@ def _corresponding_unsigned_type(type_: Type) -> Type:
         return type_
     elif isinstance(type_, EnumType):
         if type_.signed:
-            return IntType('unsigned ' + type_.compatible, type_.size, False)
+            return IntType('unsigned ' + type_.compatible_name, type_.size,
+                           False)
         else:
             return type_
     elif isinstance(type_, IntType):
@@ -140,8 +141,8 @@ class TypeIndex:
         real_type = type.real_type()
 
         if isinstance(real_type, EnumType):
-            type = real_type = IntType(real_type.compatible, real_type.size,
-                                       real_type.signed)
+            type = real_type = IntType(real_type.compatible_name,
+                                       real_type.size, real_type.signed)
 
         if isinstance(real_type, BitFieldType):
             int_type = self.find_type('int')
@@ -382,7 +383,7 @@ class DwarfTypeIndex(TypeIndex):
             if dwarf_type.find_flag(DW_AT.declaration):
                 size = None
                 signed = None
-                compatible = None
+                compatible_name = None
                 enumerators = None
             else:
                 size = dwarf_type.size()
@@ -400,12 +401,12 @@ class DwarfTypeIndex(TypeIndex):
                     name = child.name()
                     value = child.find_constant(DW_AT.const_value)
                     enumerators.append((name, value))
-                compatible = str(parse_type_name(dwarf_type.type().name()))
+                compatible_name = str(parse_type_name(dwarf_type.type().name()))
             try:
                 name = dwarf_type.name()
             except DwarfAttribNotFoundError:
                 name = None
-            return EnumType(name, size, signed, enumerators, compatible,
+            return EnumType(name, size, signed, enumerators, compatible_name,
                             qualifiers)
         elif dwarf_type.tag == DW_TAG.typedef:
             return TypedefType(dwarf_type.name(),
