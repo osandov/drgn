@@ -4,15 +4,20 @@
 """Program debugging library"""
 
 from drgn.type import (
+    ArithmeticType,
+    BitFieldType,
     ArrayType,
     CompoundType,
+    IntType,
     PointerType,
     Type,
     TypedefType,
 )
 from drgn.typename import TypeName
 from drgn.typeindex import TypeIndex
+import functools
 import itertools
+import math
 from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
 
@@ -246,6 +251,71 @@ class ProgramObject:
                              PointerType(self._real_type.size, type,
                                          self._real_type.qualifiers),
                              address)
+
+    def _check_arithmetic_type(self) -> None:
+        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+            raise TypeError('not an arithmetic type')
+
+    def _check_integer_type(self) -> None:
+        if not isinstance(self._real_type, (IntType, BitFieldType)):
+            raise TypeError('not an integer type')
+
+    def _unary_type(self, integer: bool = False) -> Type:
+        return self.program_._type_index.integer_promotions(self.type_.unqualified())
+
+    def __bool__(self) -> bool:
+        if not isinstance(self._real_type, (ArithmeticType, BitFieldType,
+                                            PointerType)):
+            raise TypeError('not an arithmetic or pointer type')
+        return bool(self.value_())
+
+    def __neg__(self) -> 'ProgramObject':
+        self._check_arithmetic_type()
+        return ProgramObject(self.program_, None, self._unary_type(),
+                             -self.value_())
+
+    def __pos__(self) -> 'ProgramObject':
+        self._check_arithmetic_type()
+        return ProgramObject(self.program_, None, self._unary_type(),
+                             +self.value_())
+
+    def __abs__(self) -> 'ProgramObject':
+        self._check_arithmetic_type()
+        return ProgramObject(self.program_, None, self._unary_type(),
+                             abs(self.value_()))
+
+    def __invert__(self) -> 'ProgramObject':
+        self._check_integer_type()
+        return ProgramObject(self.program_, None, self._unary_type(),
+                             ~self.value_())
+
+    def __int__(self) -> int:
+        self._check_arithmetic_type()
+        return int(self.value_())
+
+    def __float__(self) -> float:
+        self._check_arithmetic_type()
+        return float(self.value_())
+
+    def __index__(self) -> int:
+        self._check_integer_type()
+        return self.value_()
+
+    def __round__(self, ndigits: Optional[int] = None) -> Union[int, float]:
+        self._check_arithmetic_type()
+        return round(self.value_(), ndigits)
+
+    def __trunc__(self) -> int:
+        self._check_arithmetic_type()
+        return math.trunc(self.value_())
+
+    def __floor__(self) -> int:
+        self._check_arithmetic_type()
+        return math.floor(self.value_())
+
+    def __ceil__(self) -> int:
+        self._check_arithmetic_type()
+        return math.ceil(self.value_())
 
 
 class Program:
