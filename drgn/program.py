@@ -10,7 +10,8 @@ from drgn.type import (
     Type,
     TypedefType,
 )
-from drgn.type import TypeName
+from drgn.typename import TypeName
+from drgn.typeindex import TypeIndex
 import itertools
 from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
@@ -253,10 +254,10 @@ class Program:
     lookup type definitions, access variables, and read arbitrary memory.
     """
 
-    def __init__(self, *, lookup_type_fn: Callable[[Union[str, TypeName]], Type],
+    def __init__(self, *, type_index: TypeIndex,
                  lookup_variable_fn: Callable[[str], Tuple[int, Type]],
                  read_memory_fn: Callable[[int, int], bytes]) -> None:
-        self._lookup_type = lookup_type_fn
+        self._type_index = type_index
         self._read_memory = read_memory_fn
         self._lookup_variable = lookup_variable_fn
 
@@ -294,7 +295,7 @@ class Program:
         Return a Type object for the type with the given name. The name is
         usually a string, but it can also be a TypeName object.
         """
-        return self._lookup_type(name)
+        return self._type_index.find_type(name)
 
     def variable(self, name: str) -> ProgramObject:
         """

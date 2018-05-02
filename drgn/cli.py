@@ -107,7 +107,7 @@ def main() -> None:
                             phdr.p_offset + address - phdr.p_vaddr)
 
         init_globals: Dict[str, Any] = {
-            'prog': Program(lookup_type_fn=type_index.find_type,
+            'prog': Program(type_index=type_index,
                             lookup_variable_fn=lookup_variable,
                             read_memory_fn=read_memory),
             'drgn': drgn,
