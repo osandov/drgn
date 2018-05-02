@@ -268,7 +268,7 @@ class Program:
         """
         return self.variable(name)
 
-    def object(self, address: int, type: Union[str, Type, TypeName],
+    def object(self, address: Optional[int], type: Union[str, Type, TypeName],
                value: Any = None) -> ProgramObject:
         """
         Return a ProgramObject with the given address of the given type. The
