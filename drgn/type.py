@@ -272,6 +272,9 @@ class BoolType(IntType):
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(name, size, False, qualifiers)
 
+    def __repr__(self) -> str:
+        return ArithmeticType.__repr__(self)
+
     def read(self, buffer: bytes, offset: int = 0) -> bool:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
