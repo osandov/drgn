@@ -139,8 +139,10 @@ class TypeIndex:
         if isinstance(value, bool):
             return self.find_type('_Bool')
         elif isinstance(value, numbers.Integral):
+            value = int(value)
             for type_name in ['int', 'long', 'long long']:
                 type_ = self.find_type(type_name)
+                assert isinstance(type_, IntType)
                 if -(1 << (8 * type_.size - 1)) <= value < (1 << (8 * type_.size - 1)):
                     return type_
                 elif 0 <= value < (1 << 8 * type_.size):
