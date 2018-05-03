@@ -189,9 +189,7 @@ class TypeIndex:
             # Otherwise, the result is unsigned int.
             return self.find_type('unsigned int')
 
-    def usual_arithmetic_conversions(self, type1: Type, type2: Type) -> Type:
-        type1 = type1.unqualified()
-        type2 = type2.unqualified()
+    def common_real_type(self, type1: Type, type2: Type) -> Type:
         real_type1 = type1.real_type()
         real_type2 = type2.real_type()
 
