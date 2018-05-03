@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0+
 
 import functools
-from typing import FrozenSet, List, Optional, Tuple, Union
+import itertools
+from typing import Dict, FrozenSet, List, Optional, Tuple, Union
 
 from drgn.dwarf import (
     Die,
@@ -271,13 +272,51 @@ class TypeIndex:
             return _corresponding_unsigned_type(real_type2)
 
 
+# Mapping from canonical base type name to all possible ways to specify the
+# same type.
+_BASE_TYPES = {}
+for specifiers in [
+    ['_Bool'],
+    ['char'],
+    ['signed', 'char'],
+    ['unsigned', 'char'],
+    ['short', 'int'],
+    ['short', 'unsigned', 'int'],
+    ['int'],
+    ['unsigned', 'int'],
+    ['long', 'int'],
+    ['long', 'unsigned', 'int'],
+    ['long long', 'int'],
+    ['long long', 'unsigned', 'int'],
+    ['float'],
+    ['double'],
+    ['long', 'double'],
+]:
+    spellings = []
+    for permutation in itertools.permutations(specifiers):
+        spellings.append(' '.join(permutation))
+    if len(specifiers) > 1 and specifiers[-1] == 'int':
+        for permutation in itertools.permutations(specifiers[:-1]):
+            spellings.append(' '.join(permutation))
+    _BASE_TYPES[str(parse_type_name(' '.join(specifiers)))] = spellings
+
+
 class DwarfTypeIndex(TypeIndex):
     def __init__(self, dwarf_index: DwarfIndex) -> None:
         super().__init__()
         self._dwarf_index = dwarf_index
         self._address_size = dwarf_index.address_size
+        self._base_types: Dict[str, Die] = {}
+        for type_name, spellings in _BASE_TYPES.items():
+            for spelling in spellings:
+                try:
+                    self._base_types[type_name] = self._dwarf_index.find(spelling, DW_TAG.base_type)
+                    break
+                except ValueError:
+                    pass
 
     def _find_type(self, type_name: TypeName) -> Type:
+        dwarf_type = None
         if isinstance(type_name, VoidTypeName):
             return VoidType(type_name.qualifiers)
         elif isinstance(type_name, PointerTypeName):
@@ -288,6 +327,10 @@ class DwarfTypeIndex(TypeIndex):
             return ArrayType(self.find_type(type_name.type), type_name.size)
         elif isinstance(type_name, BasicTypeName):
             tag = DW_TAG.base_type
+            try:
+                dwarf_type = self._base_types[type_name.name]
+            except KeyError:
+                pass
         elif isinstance(type_name, StructTypeName):
             tag = DW_TAG.structure_type
         elif isinstance(type_name, UnionTypeName):
@@ -298,7 +341,8 @@ class DwarfTypeIndex(TypeIndex):
             tag = DW_TAG.typedef
         else:
             assert False
-        dwarf_type = self._dwarf_index.find(type_name.name, tag)
+        if dwarf_type is None:
+            dwarf_type = self._dwarf_index.find(type_name.name, tag)
         return self.find_dwarf_type(dwarf_type, type_name.qualifiers)
 
     @functools.lru_cache()

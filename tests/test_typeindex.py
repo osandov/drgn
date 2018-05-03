@@ -285,11 +285,15 @@ class TestDwarfTypeIndexFindType(TypeTestCase):
             source_path = object_path + '.c'
             with open(source_path, 'w') as f:
                 f.write("""\
+char c;
+signed char sc;
+unsigned char uc;
 int i;
+unsigned long long ull;
 
 struct point {
 	int x, y;
-} u;
+} p;
 
 union value {
 	int i;
@@ -323,8 +327,31 @@ int main(void)
     def test_base_type(self):
         self.assertEqual(self.type_index.find_type('int'),
                          IntType('int', 4, True))
+        self.assertEqual(self.type_index.find_type('signed int'),
+                         IntType('int', 4, True))
+        self.assertEqual(self.type_index.find_type('int signed'),
+                         IntType('int', 4, True))
         self.assertEqual(self.type_index.find_type('volatile int'),
                          IntType('int', 4, True, frozenset({'volatile'})))
+
+        self.assertEqual(self.type_index.find_type('char'),
+                         IntType('char', 1, True))
+        self.assertEqual(self.type_index.find_type('signed char'),
+                         IntType('signed char', 1, True))
+        self.assertEqual(self.type_index.find_type('char signed'),
+                         IntType('signed char', 1, True))
+        self.assertEqual(self.type_index.find_type('unsigned char'),
+                         IntType('unsigned char', 1, False))
+        self.assertEqual(self.type_index.find_type('char unsigned'),
+                         IntType('unsigned char', 1, False))
+
+        self.assertEqual(self.type_index.find_type('unsigned long long'),
+                         IntType('unsigned long long', 8, False))
+        self.assertEqual(self.type_index.find_type('long long unsigned int'),
+                         IntType('unsigned long long', 8, False))
+        self.assertEqual(self.type_index.find_type('long long int unsigned'),
+                         IntType('unsigned long long', 8, False))
+
 
     def test_struct_type(self):
         self.assertEqual(self.type_index.find_type('struct point'),
