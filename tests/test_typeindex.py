@@ -5,7 +5,7 @@ import unittest
 
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
-from drgn.typeindex import DwarfTypeIndex
+from drgn.typeindex import DwarfTypeIndex, TypeIndex
 from drgn.type import (
     ArrayType,
     BitFieldType,
@@ -29,6 +29,69 @@ from tests.test_type import (
     point_type,
     TypeTestCase,
 )
+
+
+BASE_TYPES = {
+    '_Bool': BoolType('_Bool', 1),
+    'int': IntType('int', 4, True),
+    'unsigned int': IntType('unsigned int', 4, False),
+    'long': IntType('long', 8, True),
+    'unsigned long': IntType('unsigned long', 8, False),
+    'long long': IntType('long long', 8, True),
+    'unsigned long long': IntType('unsigned long long', 8, False),
+    'double': FloatType('double', 8),
+}
+
+
+class TestTypeIndex(TypeTestCase):
+    def setUp(self):
+        super().setUp()
+        self.type_index = TypeIndex()
+        self.type_index.find_type = BASE_TYPES.get
+
+    def test_literal_bool(self):
+        self.assertEqual(self.type_index.literal_type(True),
+                         BASE_TYPES['_Bool'])
+        self.assertEqual(self.type_index.literal_type(False),
+                         BASE_TYPES['_Bool'])
+
+    def test_literal_int(self):
+        self.assertEqual(self.type_index.literal_type(0), BASE_TYPES['int'])
+        self.assertEqual(self.type_index.literal_type(-2**31),
+                         BASE_TYPES['int'])
+        self.assertEqual(self.type_index.literal_type(2**31 - 1),
+                         BASE_TYPES['int'])
+
+        self.assertEqual(self.type_index.literal_type(2**31),
+                         BASE_TYPES['unsigned int'])
+        self.assertEqual(self.type_index.literal_type(2**32 - 1),
+                         BASE_TYPES['unsigned int'])
+
+        self.assertEqual(self.type_index.literal_type(-2**31 - 1),
+                         BASE_TYPES['long'])
+        self.assertEqual(self.type_index.literal_type(-2**63),
+                         BASE_TYPES['long'])
+        self.assertEqual(self.type_index.literal_type(2**32),
+                         BASE_TYPES['long'])
+        self.assertEqual(self.type_index.literal_type(2**63 - 1),
+                         BASE_TYPES['long'])
+
+        self.assertEqual(self.type_index.literal_type(2**63),
+                         BASE_TYPES['unsigned long'])
+        self.assertEqual(self.type_index.literal_type(2**64 - 1),
+                         BASE_TYPES['unsigned long'])
+
+    def test_literal_float(self):
+        self.assertEqual(self.type_index.literal_type(0.0),
+                         BASE_TYPES['double'])
+        self.assertEqual(self.type_index.literal_type(float('inf')),
+                         BASE_TYPES['double'])
+        self.assertEqual(self.type_index.literal_type(float('nan')),
+                         BASE_TYPES['double'])
+
+    def test_literal_error(self):
+        self.assertRaises(TypeError, self.type_index.literal_type, None)
+        self.assertRaises(TypeError, self.type_index.literal_type, 2**128)
 
 
 class TestDwarfTypeIndexFindDwarfType(TypeTestCase):

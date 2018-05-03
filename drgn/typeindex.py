@@ -3,7 +3,8 @@
 
 import functools
 import itertools
-from typing import Dict, FrozenSet, List, Optional, Tuple, Union
+import numbers
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
 
 from drgn.dwarf import (
     Die,
@@ -133,6 +134,22 @@ class TypeIndex:
         if not isinstance(type_name, TypeName):
             type_name = parse_type_name(type_name)
         return self._find_type(type_name)
+
+    def literal_type(self, value: Any) -> Any:
+        if isinstance(value, bool):
+            return self.find_type('_Bool')
+        elif isinstance(value, numbers.Integral):
+            for type_name in ['int', 'long', 'long long']:
+                type_ = self.find_type(type_name)
+                if -(1 << (8 * type_.size - 1)) <= value < (1 << (8 * type_.size - 1)):
+                    return type_
+                elif 0 <= value < (1 << 8 * type_.size):
+                    return _corresponding_unsigned_type(type_)
+            raise TypeError('integer is too large')
+        elif isinstance(value, numbers.Real):
+            return self.find_type('double')
+        else:
+            raise TypeError()
 
     def integer_promotions(self, type: Type) -> Type:
         # Integer promotions are performed on types whose integer conversion
