@@ -133,7 +133,16 @@ class TypeIndex:
     def find_type(self, type_name: Union[str, TypeName]) -> Type:
         if not isinstance(type_name, TypeName):
             type_name = parse_type_name(type_name)
-        return self._find_type(type_name)
+        if isinstance(type_name, VoidTypeName):
+            return VoidType(type_name.qualifiers)
+        elif isinstance(type_name, PointerTypeName):
+            return PointerType(self._address_size,
+                               self.find_type(type_name.type),
+                               type_name.qualifiers)
+        elif isinstance(type_name, ArrayTypeName):
+            return ArrayType(self.find_type(type_name.type), type_name.size)
+        else:
+            return self._find_type(type_name)
 
     def literal_type(self, value: Any) -> Any:
         if isinstance(value, bool):
@@ -334,15 +343,7 @@ class DwarfTypeIndex(TypeIndex):
 
     def _find_type(self, type_name: TypeName) -> Type:
         dwarf_type = None
-        if isinstance(type_name, VoidTypeName):
-            return VoidType(type_name.qualifiers)
-        elif isinstance(type_name, PointerTypeName):
-            return PointerType(self._address_size,
-                               self.find_type(type_name.type),
-                               type_name.qualifiers)
-        elif isinstance(type_name, ArrayTypeName):
-            return ArrayType(self.find_type(type_name.type), type_name.size)
-        elif isinstance(type_name, BasicTypeName):
+        if isinstance(type_name, BasicTypeName):
             tag = DW_TAG.base_type
             try:
                 dwarf_type = self._base_types[type_name.name]

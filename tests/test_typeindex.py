@@ -5,7 +5,6 @@ import unittest
 
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
-from drgn.typeindex import DwarfTypeIndex, TypeIndex
 from drgn.type import (
     ArrayType,
     BitFieldType,
@@ -21,6 +20,8 @@ from drgn.type import (
     UnionType,
     VoidType,
 )
+from drgn.typeindex import DwarfTypeIndex, TypeIndex
+from drgn.typename import BasicTypeName, TypeName
 from tests.test_type import (
     anonymous_point_type,
     const_anonymous_point_type,
@@ -31,7 +32,7 @@ from tests.test_type import (
 )
 
 
-BASE_TYPES = {
+TYPES = {
     '_Bool': BoolType('_Bool', 1),
     'char': IntType('char', 1, True),
     'signed char': IntType('signed char', 1, True),
@@ -50,264 +51,254 @@ BASE_TYPES = {
 }
 
 
-class TestTypeIndex(TypeTestCase):
+class MockTypeIndex(TypeIndex):
+    def _find_type(self, type_name: TypeName) -> Type:
+        if isinstance(type_name, BasicTypeName):
+            try:
+                return TYPES[type_name.name]
+            except KeyError:
+                pass
+        raise ValueError('type not found')
+
+
+class TypeIndexTestCase(TypeTestCase):
     def setUp(self):
         super().setUp()
-        self.type_index = TypeIndex()
-        self.type_index.find_type = BASE_TYPES.get
+        self.type_index = MockTypeIndex()
 
+
+class TestTypeIndexLiteralType(TypeIndexTestCase):
+    def test_bool(self):
+        self.assertEqual(self.type_index.literal_type(True), TYPES['_Bool'])
+        self.assertEqual(self.type_index.literal_type(False), TYPES['_Bool'])
+
+    def test_int(self):
+        self.assertEqual(self.type_index.literal_type(0), TYPES['int'])
+        self.assertEqual(self.type_index.literal_type(-2**31), TYPES['int'])
+        self.assertEqual(self.type_index.literal_type(2**31 - 1), TYPES['int'])
+
+        self.assertEqual(self.type_index.literal_type(2**31),
+                         TYPES['unsigned int'])
+        self.assertEqual(self.type_index.literal_type(2**32 - 1),
+                         TYPES['unsigned int'])
+
+        self.assertEqual(self.type_index.literal_type(-2**31 - 1),
+                         TYPES['long'])
+        self.assertEqual(self.type_index.literal_type(-2**63), TYPES['long'])
+        self.assertEqual(self.type_index.literal_type(2**32), TYPES['long'])
+        self.assertEqual(self.type_index.literal_type(2**63 - 1),
+                         TYPES['long'])
+
+        self.assertEqual(self.type_index.literal_type(2**63),
+                         TYPES['unsigned long'])
+        self.assertEqual(self.type_index.literal_type(2**64 - 1),
+                         TYPES['unsigned long'])
+
+    def test_float(self):
+        self.assertEqual(self.type_index.literal_type(0.0), TYPES['double'])
+        self.assertEqual(self.type_index.literal_type(float('inf')),
+                         TYPES['double'])
+        self.assertEqual(self.type_index.literal_type(float('nan')),
+                         TYPES['double'])
+
+    def test_error(self):
+        self.assertRaises(TypeError, self.type_index.literal_type, None)
+        self.assertRaises(TypeError, self.type_index.literal_type, 2**128)
+
+
+class TestTypeIndexIntegerPromotions(TypeIndexTestCase):
     def assertPromotes(self, type, expected_type):
         self.assertEqual(self.type_index.integer_promotions(type),
                          expected_type)
 
-    def assertCommon(self, type1, type2, expected_type):
-        self.assertEqual(self.type_index.common_real_type(type1, type2),
-                         expected_type)
-        self.assertEqual(self.type_index.common_real_type(type2, type1),
-                         expected_type)
+    def test_char(self):
+        self.assertPromotes(TYPES['char'], TYPES['int'])
+        self.assertPromotes(TYPES['signed char'], TYPES['int'])
+        self.assertPromotes(TYPES['unsigned char'], TYPES['int'])
 
-    def test_literal_bool(self):
-        self.assertEqual(self.type_index.literal_type(True),
-                         BASE_TYPES['_Bool'])
-        self.assertEqual(self.type_index.literal_type(False),
-                         BASE_TYPES['_Bool'])
+    def test_short(self):
+        self.assertPromotes(TYPES['short'], TYPES['int'])
+        self.assertPromotes(TYPES['unsigned short'], TYPES['int'])
 
-    def test_literal_int(self):
-        self.assertEqual(self.type_index.literal_type(0), BASE_TYPES['int'])
-        self.assertEqual(self.type_index.literal_type(-2**31),
-                         BASE_TYPES['int'])
-        self.assertEqual(self.type_index.literal_type(2**31 - 1),
-                         BASE_TYPES['int'])
+    def test_bool(self):
+        self.assertPromotes(TYPES['_Bool'], TYPES['int'])
 
-        self.assertEqual(self.type_index.literal_type(2**31),
-                         BASE_TYPES['unsigned int'])
-        self.assertEqual(self.type_index.literal_type(2**32 - 1),
-                         BASE_TYPES['unsigned int'])
-
-        self.assertEqual(self.type_index.literal_type(-2**31 - 1),
-                         BASE_TYPES['long'])
-        self.assertEqual(self.type_index.literal_type(-2**63),
-                         BASE_TYPES['long'])
-        self.assertEqual(self.type_index.literal_type(2**32),
-                         BASE_TYPES['long'])
-        self.assertEqual(self.type_index.literal_type(2**63 - 1),
-                         BASE_TYPES['long'])
-
-        self.assertEqual(self.type_index.literal_type(2**63),
-                         BASE_TYPES['unsigned long'])
-        self.assertEqual(self.type_index.literal_type(2**64 - 1),
-                         BASE_TYPES['unsigned long'])
-
-    def test_literal_float(self):
-        self.assertEqual(self.type_index.literal_type(0.0),
-                         BASE_TYPES['double'])
-        self.assertEqual(self.type_index.literal_type(float('inf')),
-                         BASE_TYPES['double'])
-        self.assertEqual(self.type_index.literal_type(float('nan')),
-                         BASE_TYPES['double'])
-
-    def test_literal_error(self):
-        self.assertRaises(TypeError, self.type_index.literal_type, None)
-        self.assertRaises(TypeError, self.type_index.literal_type, 2**128)
-
-    def test_char_promotions(self):
-        self.assertPromotes(BASE_TYPES['char'], BASE_TYPES['int'])
-        self.assertPromotes(BASE_TYPES['signed char'], BASE_TYPES['int'])
-        self.assertPromotes(BASE_TYPES['unsigned char'], BASE_TYPES['int'])
-
-    def test_short_promotions(self):
-        self.assertPromotes(BASE_TYPES['short'], BASE_TYPES['int'])
-        self.assertPromotes(BASE_TYPES['unsigned short'], BASE_TYPES['int'])
-
-    def test_bool_promotions(self):
-        self.assertPromotes(BASE_TYPES['_Bool'], BASE_TYPES['int'])
-
-    def test_enum_promotions(self):
+    def test_enum(self):
         type_ = EnumType('color', 4, True, [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
         ], 'int')
-        self.assertPromotes(type_, BASE_TYPES['int'])
+        self.assertPromotes(type_, TYPES['int'])
 
         type_ = EnumType('color', 4, False, [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
         ], 'unsigned int')
-        self.assertPromotes(type_, BASE_TYPES['unsigned int'])
+        self.assertPromotes(type_, TYPES['unsigned int'])
 
         type_ = EnumType('color', 8, False, [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
         ], 'unsigned long')
-        self.assertPromotes(type_, BASE_TYPES['unsigned long'])
+        self.assertPromotes(type_, TYPES['unsigned long'])
 
-    def test_int_promotions(self):
-        self.assertPromotes(BASE_TYPES['int'], BASE_TYPES['int'])
-        self.assertPromotes(BASE_TYPES['unsigned int'],
-                            BASE_TYPES['unsigned int'])
+    def test_int(self):
+        self.assertPromotes(TYPES['int'], TYPES['int'])
+        self.assertPromotes(TYPES['unsigned int'], TYPES['unsigned int'])
 
-    def test_long_promotions(self):
-        self.assertPromotes(BASE_TYPES['long'], BASE_TYPES['long'])
-        self.assertPromotes(BASE_TYPES['unsigned long'],
-                            BASE_TYPES['unsigned long'])
+    def test_long(self):
+        self.assertPromotes(TYPES['long'], TYPES['long'])
+        self.assertPromotes(TYPES['unsigned long'], TYPES['unsigned long'])
 
-    def test_long_long_promotions(self):
-        self.assertPromotes(BASE_TYPES['long long'], BASE_TYPES['long long'])
-        self.assertPromotes(BASE_TYPES['unsigned long long'],
-                            BASE_TYPES['unsigned long long'])
+    def test_long_long(self):
+        self.assertPromotes(TYPES['long long'], TYPES['long long'])
+        self.assertPromotes(TYPES['unsigned long long'],
+                            TYPES['unsigned long long'])
 
-    def test_bit_field_promotions(self):
-        self.assertPromotes(BitFieldType(BASE_TYPES['int'], 0, 4),
-                            BASE_TYPES['int'])
-        self.assertPromotes(BitFieldType(BASE_TYPES['long'], 0, 4),
-                            BASE_TYPES['int'])
+    def test_bit_field(self):
+        self.assertPromotes(BitFieldType(TYPES['int'], 0, 4), TYPES['int'])
+        self.assertPromotes(BitFieldType(TYPES['long'], 0, 4),
+                            TYPES['int'])
 
-        self.assertPromotes(BitFieldType(BASE_TYPES['int'], 0, 32),
-                            BASE_TYPES['int'])
-        self.assertPromotes(BitFieldType(BASE_TYPES['long'], 0, 32),
-                            BASE_TYPES['int'])
+        self.assertPromotes(BitFieldType(TYPES['int'], 0, 32), TYPES['int'])
+        self.assertPromotes(BitFieldType(TYPES['long'], 0, 32), TYPES['int'])
 
-        self.assertPromotes(BitFieldType(BASE_TYPES['unsigned int'], 0, 4),
-                            BASE_TYPES['int'])
-        self.assertPromotes(BitFieldType(BASE_TYPES['unsigned long'], 0, 4),
-                            BASE_TYPES['int'])
+        self.assertPromotes(BitFieldType(TYPES['unsigned int'], 0, 4),
+                            TYPES['int'])
+        self.assertPromotes(BitFieldType(TYPES['unsigned long'], 0, 4),
+                            TYPES['int'])
 
-        self.assertPromotes(BitFieldType(BASE_TYPES['unsigned int'], 0, 32),
-                            BASE_TYPES['unsigned int'])
-        self.assertPromotes(BitFieldType(BASE_TYPES['unsigned long'], 0, 32),
-                            BASE_TYPES['unsigned int'])
+        self.assertPromotes(BitFieldType(TYPES['unsigned int'], 0, 32),
+                            TYPES['unsigned int'])
+        self.assertPromotes(BitFieldType(TYPES['unsigned long'], 0, 32),
+                            TYPES['unsigned int'])
 
-        self.assertPromotes(BitFieldType(BASE_TYPES['long'], 0, 40),
-                            BitFieldType(BASE_TYPES['long'], None, 40))
-        self.assertPromotes(BitFieldType(BASE_TYPES['unsigned long'], 0, 40),
-                            BitFieldType(BASE_TYPES['unsigned long'], None, 40))
+        self.assertPromotes(BitFieldType(TYPES['long'], 0, 40),
+                            BitFieldType(TYPES['long'], None, 40))
+        self.assertPromotes(BitFieldType(TYPES['unsigned long'], 0, 40),
+                            BitFieldType(TYPES['unsigned long'], None, 40))
 
-    def test_typedef_promotions(self):
-        type_ = TypedefType('SHORT', BASE_TYPES['short'])
-        self.assertPromotes(type_, BASE_TYPES['int'])
+    def test_typedef(self):
+        type_ = TypedefType('SHORT', TYPES['short'])
+        self.assertPromotes(type_, TYPES['int'])
 
-        type_ = TypedefType('INT', BASE_TYPES['int'])
+        type_ = TypedefType('INT', TYPES['int'])
         self.assertPromotes(type_, type_)
 
-        type_ = TypedefType('LONG', BASE_TYPES['long'])
+        type_ = TypedefType('LONG', TYPES['long'])
         self.assertPromotes(type_, type_)
 
-    def test_other_promotions(self):
-        self.assertPromotes(BASE_TYPES['double'], BASE_TYPES['double'])
-        self.assertPromotes(BASE_TYPES['long double'],
-                            BASE_TYPES['long double'])
+    def test_other(self):
+        self.assertPromotes(TYPES['double'], TYPES['double'])
+        self.assertPromotes(TYPES['long double'], TYPES['long double'])
 
-    def test_long_double_conversions(self):
-        self.assertCommon(BASE_TYPES['long double'], BASE_TYPES['double'],
-                          BASE_TYPES['long double'])
-        self.assertCommon(BASE_TYPES['int'], BASE_TYPES['long double'],
-                          BASE_TYPES['long double'])
 
-    def test_double_conversions(self):
-        self.assertCommon(BASE_TYPES['double'], BASE_TYPES['float'],
-                          BASE_TYPES['double'])
-        self.assertCommon(BASE_TYPES['long'], BASE_TYPES['double'],
-                          BASE_TYPES['double'])
+class TestTypeIndexCommonRealType(TypeIndexTestCase):
+    def assertCommon(self, type1, type2, expected_type):
+        self.assertEqual(self.type_index.common_real_type(type1, type2),
+                         expected_type)
+        self.assertEqual(self.type_index.common_real_type(type2, type1),
+                         expected_type)
 
-    def test_float_conversions(self):
-        self.assertCommon(BASE_TYPES['int'], BASE_TYPES['float'],
-                          BASE_TYPES['float'])
-        self.assertCommon(BASE_TYPES['float'], BASE_TYPES['long long'],
-                          BASE_TYPES['float'])
+    def test_long_double(self):
+        self.assertCommon(TYPES['long double'], TYPES['double'],
+                          TYPES['long double'])
+        self.assertCommon(TYPES['int'], TYPES['long double'],
+                          TYPES['long double'])
 
-    def test_same_conversions(self):
-        self.assertCommon(BASE_TYPES['int'], BASE_TYPES['int'],
-                          BASE_TYPES['int'])
+    def test_double(self):
+        self.assertCommon(TYPES['double'], TYPES['float'], TYPES['double'])
+        self.assertCommon(TYPES['long'], TYPES['double'], TYPES['double'])
 
-    def test_same_sign_conversions(self):
-        self.assertCommon(BASE_TYPES['long'], BASE_TYPES['long long'],
-                          BASE_TYPES['long long'])
+    def test_float(self):
+        self.assertCommon(TYPES['int'], TYPES['float'], TYPES['float'])
+        self.assertCommon(TYPES['float'], TYPES['long long'], TYPES['float'])
+
+    def test_same(self):
+        self.assertCommon(TYPES['int'], TYPES['int'], TYPES['int'])
+
+    def test_same_sign(self):
+        self.assertCommon(TYPES['long'], TYPES['long long'],
+                          TYPES['long long'])
 
         self.assertCommon(IntType('unsigned long', 4, False),
-                          BASE_TYPES['unsigned int'],
+                          TYPES['unsigned int'],
                           IntType('unsigned long', 4, False))
 
-    def test_unsigned_rank_conversions(self):
-        self.assertCommon(BASE_TYPES['long'], BASE_TYPES['unsigned long long'],
-                          BASE_TYPES['unsigned long long'])
-        self.assertCommon(BASE_TYPES['unsigned int'], BASE_TYPES['int'],
-                          BASE_TYPES['unsigned int'])
+    def test_unsigned_rank(self):
+        self.assertCommon(TYPES['long'], TYPES['unsigned long long'],
+                          TYPES['unsigned long long'])
+        self.assertCommon(TYPES['unsigned int'], TYPES['int'],
+                          TYPES['unsigned int'])
 
-    def test_signed_range_conversions(self):
-        self.assertCommon(BASE_TYPES['long'], BASE_TYPES['unsigned int'],
-                          BASE_TYPES['long'])
+    def test_signed_range(self):
+        self.assertCommon(TYPES['long'], TYPES['unsigned int'], TYPES['long'])
         self.assertCommon(IntType('unsigned long', 4, False),
-                          BASE_TYPES['long long'],
-                          BASE_TYPES['long long'])
+                          TYPES['long long'], TYPES['long long'])
 
-    def test_corresponding_unsigned_conversions(self):
-        self.assertCommon(IntType('long', 4, True), BASE_TYPES['unsigned int'],
+    def test_corresponding_unsigned(self):
+        self.assertCommon(IntType('long', 4, True), TYPES['unsigned int'],
                           IntType('unsigned long', 4, False))
-        self.assertCommon(BASE_TYPES['long long'], BASE_TYPES['unsigned long'],
-                          BASE_TYPES['unsigned long long'])
+        self.assertCommon(TYPES['long long'], TYPES['unsigned long'],
+                          TYPES['unsigned long long'])
 
-    def test_typedef_conversions(self):
-        typedef_type = TypedefType('u32', BASE_TYPES['unsigned int'])
+    def test_typedef(self):
+        typedef_type = TypedefType('u32', TYPES['unsigned int'])
         self.assertCommon(typedef_type, typedef_type, typedef_type)
 
-    def test_bool_conversions(self):
-        self.assertCommon(BoolType('_Bool', 1), BASE_TYPES['int'],
-                          BASE_TYPES['int'])
+    def test_bool(self):
+        self.assertCommon(BoolType('_Bool', 1), TYPES['int'], TYPES['int'])
 
-    def test_bit_field_conversions(self):
-        self.assertCommon(BitFieldType(BASE_TYPES['int'], None, 4),
-                          BitFieldType(BASE_TYPES['int'], None, 4),
-                          BASE_TYPES['int'])
+    def test_bit_field(self):
+        self.assertCommon(BitFieldType(TYPES['int'], None, 4),
+                          BitFieldType(TYPES['int'], None, 4), TYPES['int'])
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 4),
-                          BitFieldType(BASE_TYPES['long'], None, 4),
-                          BASE_TYPES['int'])
+        self.assertCommon(BitFieldType(TYPES['long'], None, 4),
+                          BitFieldType(TYPES['long'], None, 4), TYPES['int'])
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BitFieldType(BASE_TYPES['long'], None, 40),
-                          BitFieldType(BASE_TYPES['long'], None, 40))
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40),
+                          BitFieldType(TYPES['long'], None, 40),
+                          BitFieldType(TYPES['long'], None, 40))
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BitFieldType(BASE_TYPES['long'], None, 33),
-                          BitFieldType(BASE_TYPES['long'], None, 40))
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40),
+                          BitFieldType(TYPES['long'], None, 33),
+                          BitFieldType(TYPES['long'], None, 40))
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BitFieldType(BASE_TYPES['long long'], None, 33),
-                          BitFieldType(BASE_TYPES['long'], None, 40))
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40),
+                          BitFieldType(TYPES['long long'], None, 33),
+                          BitFieldType(TYPES['long'], None, 40))
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BitFieldType(BASE_TYPES['long long'], None, 40),
-                          BitFieldType(BASE_TYPES['long long'], None, 40))
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40),
+                          BitFieldType(TYPES['long long'], None, 40),
+                          BitFieldType(TYPES['long long'], None, 40))
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BitFieldType(BASE_TYPES['unsigned long'], None, 33),
-                          BitFieldType(BASE_TYPES['long'], None, 40))
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40),
+                          BitFieldType(TYPES['unsigned long'], None, 33),
+                          BitFieldType(TYPES['long'], None, 40))
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BitFieldType(BASE_TYPES['unsigned long'], None, 40),
-                          BitFieldType(BASE_TYPES['unsigned long'], None, 40))
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40),
+                          BitFieldType(TYPES['unsigned long'], None, 40),
+                          BitFieldType(TYPES['unsigned long'], None, 40))
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BASE_TYPES['int'],
-                          BitFieldType(BASE_TYPES['long'], None, 40))
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40), TYPES['int'],
+                          BitFieldType(TYPES['long'], None, 40))
 
-        self.assertCommon(BitFieldType(BASE_TYPES['long'], None, 40),
-                          BASE_TYPES['long'],
-                          BASE_TYPES['long'])
+        self.assertCommon(BitFieldType(TYPES['long'], None, 40), TYPES['long'],
+                          TYPES['long'])
 
-    def test_enum_conversions(self):
+    def test_enum(self):
         type_ = EnumType('color', 4, True, [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
         ], 'int')
-        self.assertCommon(type_, BASE_TYPES['int'], BASE_TYPES['int'])
+        self.assertCommon(type_, TYPES['int'], TYPES['int'])
 
         type_ = TypedefType('COLOR', type_)
-        self.assertCommon(type_, BASE_TYPES['int'], BASE_TYPES['int'])
+        self.assertCommon(type_, TYPES['int'], TYPES['int'])
 
 
 class TestDwarfTypeIndexFindDwarfType(TypeTestCase):
