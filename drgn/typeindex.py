@@ -126,6 +126,9 @@ def _corresponding_unsigned_type(type_: Type) -> Type:
 
 
 class TypeIndex:
+    def __init__(self, address_size: int) -> None:
+        self._address_size = address_size
+
     def _find_type(self, type_name: TypeName) -> Type:
         raise NotImplementedError()
 
@@ -136,13 +139,16 @@ class TypeIndex:
         if isinstance(type_name, VoidTypeName):
             return VoidType(type_name.qualifiers)
         elif isinstance(type_name, PointerTypeName):
-            return PointerType(self._address_size,
-                               self.find_type(type_name.type),
-                               type_name.qualifiers)
+            return self.pointer(self.find_type(type_name.type),
+                                type_name.qualifiers)
         elif isinstance(type_name, ArrayTypeName):
             return ArrayType(self.find_type(type_name.type), type_name.size)
         else:
             return self._find_type(type_name)
+
+    def pointer(self, type_: Type,
+                qualifiers: FrozenSet[str] = frozenset()) -> PointerType:
+        return PointerType(self._address_size, type_, qualifiers)
 
     def literal_type(self, value: Any) -> Any:
         if isinstance(value, bool):
@@ -329,9 +335,8 @@ for specifiers in [
 
 class DwarfTypeIndex(TypeIndex):
     def __init__(self, dwarf_index: DwarfIndex) -> None:
-        super().__init__()
+        super().__init__(dwarf_index.address_size)
         self._dwarf_index = dwarf_index
-        self._address_size = dwarf_index.address_size
         self._base_types: Dict[str, Die] = {}
         for type_name, spellings in _BASE_TYPES.items():
             for spelling in spellings:

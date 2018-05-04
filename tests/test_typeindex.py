@@ -52,6 +52,9 @@ TYPES = {
 
 
 class MockTypeIndex(TypeIndex):
+    def __init__(self):
+        super().__init__(8)
+
     def _find_type(self, type_name: TypeName) -> Type:
         if isinstance(type_name, BasicTypeName):
             try:
