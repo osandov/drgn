@@ -142,9 +142,12 @@ class TypeIndex:
             return self.pointer(self.find_type(type_name.type),
                                 type_name.qualifiers)
         elif isinstance(type_name, ArrayTypeName):
-            return ArrayType(self.find_type(type_name.type), type_name.size)
+            return self.array(self.find_type(type_name.type), type_name.size)
         else:
             return self._find_type(type_name)
+
+    def array(self, type_: Type, size: Optional[int]) -> ArrayType:
+        return ArrayType(type_, size)
 
     def pointer(self, type_: Type,
                 qualifiers: FrozenSet[str] = frozenset()) -> PointerType:
