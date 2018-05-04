@@ -230,6 +230,17 @@ class ProgramObject:
             type = self.program_.type(type)
         return ProgramObject(self.program_, self.address_, type, self._value)
 
+    def address_of_(self) -> 'ProgramObject':
+        """
+        Return an object pointing to this object. Corresponds to the address-of
+        ("&") operator in C.
+        """
+        if self.address_ is None:
+            raise ValueError('cannot take address of rvalue')
+        return ProgramObject(self.program_, None,
+                             self.program_._type_index.pointer(self.type_),
+                             self.address_)
+
     def container_of_(self, type: Union[str, Type, TypeName],
                       member: str) -> 'ProgramObject':
         """
