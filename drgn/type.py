@@ -135,6 +135,22 @@ class Type:
         """
         return self
 
+    def is_arithmetic(self) -> bool:
+        """
+        Return whether this type is an arithmetic type. This is true for
+        instances of ArithmeticType, BitFieldType, and TypedefType if the
+        underlying type is one of those.
+        """
+        return False
+
+    def is_integer(self) -> bool:
+        """
+        Return whether this type is an integer type. This is true for instances
+        of IntType, BitFieldType, and TypedefType if the underlying type is one
+        of those.
+        """
+        return False
+
 
 class VoidType(Type):
     """
@@ -208,6 +224,9 @@ class ArithmeticType(Type):
     def unqualified(self) -> 'ArithmeticType':
         raise NotImplementedError()
 
+    def is_arithmetic(self) -> bool:
+        return True
+
 
 def _int_convert(value: int, bit_size: int, signed: bool) -> int:
     value %= 1 << bit_size
@@ -259,6 +278,9 @@ class IntType(ArithmeticType):
         if not self.qualifiers:
             return self
         return IntType(self.name, self.size, self.signed)
+
+    def is_integer(self) -> bool:
+        return True
 
 
 class BoolType(IntType):
@@ -411,6 +433,12 @@ class BitFieldType(Type):
             return self
         return BitFieldType(self.type.unqualified(), self.bit_offset,
                             self.bit_size)
+
+    def is_arithmetic(self) -> bool:
+        return True
+
+    def is_integer(self) -> bool:
+        return True
 
 
 _TypeThunk = Callable[[], Type]
@@ -812,6 +840,12 @@ class TypedefType(Type):
         while isinstance(type_, TypedefType):
             type_ = type_.type
         return type_
+
+    def is_arithmetic(self) -> bool:
+        return self.type.is_arithmetic()
+
+    def is_integer(self) -> bool:
+        return self.type.is_integer()
 
 
 class PointerType(Type):

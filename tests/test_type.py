@@ -85,6 +85,8 @@ class TestType(TypeTestCase):
         self.assertRaises(ValueError, type_.sizeof)
         self.assertRaises(ValueError, type_.read, b'')
         self.assertRaises(ValueError, type_.read_pretty, b'')
+        self.assertFalse(type_.is_arithmetic())
+        self.assertFalse(type_.is_integer())
 
     def test_int(self):
         type_ = IntType('int', 4, True)
@@ -98,6 +100,8 @@ class TestType(TypeTestCase):
         self.assertEqual(type_.read(buffer, 2), -1)
         self.assertRaises(ValueError, type_.read, buffer, 3)
         self.assertEqual(type_.real_type(), type_)
+        self.assertTrue(type_.is_arithmetic())
+        self.assertTrue(type_.is_integer())
 
         type_ = IntType('unsigned long', 8, False)
         buffer = b'\0' + (99).to_bytes(8, sys.byteorder)
@@ -113,6 +117,8 @@ class TestType(TypeTestCase):
         self.assertEqual(type_.read(buffer), 3.14)
         self.assertEqual(type_.read(b'\0' + buffer, 1), 3.14)
         self.assertRaises(ValueError, type_.read, buffer, 1)
+        self.assertTrue(type_.is_arithmetic())
+        self.assertFalse(type_.is_integer())
 
         type_ = FloatType('float', 4)
         buffer = struct.pack('f', 1.5)
@@ -147,10 +153,14 @@ class TestType(TypeTestCase):
         self.assertEqual(type_.sizeof(), 4)
         self.assertEqual(type_.read(b'\0\0\0\0'), 0)
         self.assertEqual(type_.read_pretty(b'\0\0\0\0'), '(INT)0')
+        self.assertTrue(type_.is_arithmetic())
+        self.assertTrue(type_.is_integer())
 
         type_ = TypedefType('string', PointerType(pointer_size, IntType('char', 1, True)))
         self.assertEqual(str(type_), 'typedef char *string')
         self.assertEqual(type_.sizeof(), pointer_size)
+        self.assertFalse(type_.is_arithmetic())
+        self.assertFalse(type_.is_integer())
 
         type_ = TypedefType('CINT', IntType('int', 4, True, {'const'}))
         self.assertEqual(str(type_), 'typedef const int CINT')
@@ -286,6 +296,7 @@ struct {
         type_ = BitFieldType(IntType('int', 4, True), 0, 4)
         self.assertEqual(str(type_), 'int : 4')
         self.assertRaises(ValueError, type_.type_name)
+        self.assertTrue(type_.is_arithmetic())
 
     def test_union(self):
         type_ = UnionType('value', 4, [
