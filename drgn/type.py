@@ -115,16 +115,6 @@ class Type:
         """Return the given value converted to a valid value of this type."""
         raise TypeError(f'cannot convert to {self}')
 
-    def unqualified(self) -> 'Type':
-        """
-        Return this type with no qualifiers.
-
-        For most types, this returns a type of the same class with the
-        qualifiers removed. For typedefs, this may return the underlying type
-        with qualifiers removed if the underlying type is qualified.
-        """
-        raise NotImplementedError()
-
     def real_type(self) -> 'Type':
         """
         Return the non-typedef type underlying this type if it is a typedef, or
@@ -173,11 +163,6 @@ class VoidType(Type):
     def convert(self, value: Any) -> None:
         return None
 
-    def unqualified(self) -> 'VoidType':
-        if not self.qualifiers:
-            return self
-        return VoidType()
-
 
 class ArithmeticType(Type):
     """
@@ -220,9 +205,6 @@ class ArithmeticType(Type):
             return ''.join(parts)
         else:
             return str(value)
-
-    def unqualified(self) -> 'ArithmeticType':
-        raise NotImplementedError()
 
     def is_arithmetic(self) -> bool:
         return True
@@ -274,11 +256,6 @@ class IntType(ArithmeticType):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(math.trunc(value), 8 * self.size, self.signed)
 
-    def unqualified(self) -> 'IntType':
-        if not self.qualifiers:
-            return self
-        return IntType(self.name, self.size, self.signed)
-
     def is_integer(self) -> bool:
         return True
 
@@ -315,11 +292,6 @@ class BoolType(IntType):
             raise TypeError(f'cannot convert to {self}')
         return bool(value)
 
-    def unqualified(self) -> 'BoolType':
-        if not self.qualifiers:
-            return self
-        return BoolType(self.name, self.size)
-
 
 class FloatType(ArithmeticType):
     """
@@ -348,11 +320,6 @@ class FloatType(ArithmeticType):
             return value
         else:
             raise ValueError(f"can't convert to float of size {self.size}")
-
-    def unqualified(self) -> 'FloatType':
-        if not self.qualifiers:
-            return self
-        return FloatType(self.name, self.size)
 
 
 class BitFieldType(Type):
@@ -427,12 +394,6 @@ class BitFieldType(Type):
         if not isinstance(value, numbers.Real):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(math.trunc(value), self.bit_size, self.type.signed)
-
-    def unqualified(self) -> 'BitFieldType':
-        if not self.type.qualifiers:
-            return self
-        return BitFieldType(self.type.unqualified(), self.bit_offset,
-                            self.bit_size)
 
     def is_arithmetic(self) -> bool:
         return True
@@ -524,9 +485,6 @@ class CompoundType(Type):
             raise ValueError("can't get size of incomplete type")
         return self.size
 
-    def unqualified(self) -> 'CompoundType':
-        raise NotImplementedError()
-
     def read(self, buffer: bytes, offset: int = 0) -> Dict:
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
@@ -607,11 +565,6 @@ class StructType(CompoundType):
     def type_name(self) -> StructTypeName:
         return StructTypeName(self.name, self.qualifiers)
 
-    def unqualified(self) -> 'StructType':
-        if not self.qualifiers:
-            return self
-        return StructType(self.name, self.size, self._members)
-
 
 class UnionType(CompoundType):
     """
@@ -634,11 +587,6 @@ class UnionType(CompoundType):
 
     def type_name(self) -> UnionTypeName:
         return UnionTypeName(self.name, self.qualifiers)
-
-    def unqualified(self) -> 'UnionType':
-        if not self.qualifiers:
-            return self
-        return UnionType(self.name, self.size, self._members)
 
 
 class EnumType(IntType):
@@ -754,13 +702,6 @@ class EnumType(IntType):
         except ValueError:
             return value
 
-    def unqualified(self) -> 'EnumType':
-        if not self.qualifiers:
-            return self
-        return EnumType(self.name, self.size, self.signed,
-                        None if self.enum is None else self.enum.__members__,
-                        self.compatible_name)
-
 
 class TypedefType(Type):
     """
@@ -818,22 +759,6 @@ class TypedefType(Type):
 
     def convert(self, value: Any) -> Any:
         return self.type.convert(value)
-
-    def unqualified(self) -> Type:
-        type_ = self.type
-        have_qualifiers = False
-        while isinstance(type_, TypedefType):
-            if type_.qualifiers:
-                have_qualifiers = True
-            type_ = type_.type
-        if hasattr(type_, 'qualifiers') and type_.qualifiers:
-            have_qualifiers = True
-        if have_qualifiers:
-            return type_.unqualified()
-        elif self.qualifiers:
-            return TypedefType(self.name, self.type)
-        else:
-            return self
 
     def real_type(self) -> Type:
         type_ = self.type
@@ -904,11 +829,6 @@ class PointerType(Type):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(int(value), 8 * self.size, False)
 
-    def unqualified(self) -> 'PointerType':
-        if not self.qualifiers:
-            return self
-        return PointerType(self.size, self.type)
-
 
 class ArrayType(Type):
     """
@@ -977,9 +897,6 @@ class ArrayType(Type):
             parts.append('}')
         return ''.join(parts)
 
-    def unqualified(self) -> 'ArrayType':
-        return self
-
 
 class FunctionType(Type):
     """
@@ -1031,6 +948,3 @@ class FunctionType(Type):
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         raise ValueError("can't format function")
-
-    def unqualified(self) -> 'FunctionType':
-        return self
