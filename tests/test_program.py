@@ -14,12 +14,12 @@ class TestProgramObject(TypeIndexTestCase):
         def program_object_equality_func(a, b, msg=None):
             if a.program_ != b.program_:
                 raise self.failureException(msg or 'objects have different program')
+            if a.type_ != b.type_:
+                raise self.failureException(msg or f'objects types differ: {a.type_!r} != {b.type_!r}')
             if a.address_ != b.address_:
                 a_address = 'None' if a.address_ is None else hex(a.address_)
                 b_address = 'None' if b.address_ is None else hex(b.address_)
                 raise self.failureException(msg or f'object addresses differ: {a_address} != {b_address}')
-            if a.type_ != b.type_:
-                raise self.failureException(msg or f'objects types differ: {a.type_!r} != {b.type_!r}')
             if a._value != b._value:
                 raise self.failureException(msg or f'object values differ: {a._value!r} != {b._value!r}')
         self.addTypeEqualityFunc(ProgramObject, program_object_equality_func)
@@ -38,27 +38,28 @@ class TestProgramObject(TypeIndexTestCase):
         super().tearDown()
 
     def test_constructor(self):
-        self.assertRaises(ValueError, ProgramObject, self.program, None,
+        self.assertRaises(ValueError, ProgramObject, self.program,
                           TYPES['int'], None)
-        self.assertRaises(ValueError, ProgramObject, self.program, 0xffff0000,
-                          TYPES['int'], 1)
+        self.assertRaises(ValueError, ProgramObject, self.program,
+                          TYPES['int'], 0xffff0000, 1)
 
     def test_rvalue(self):
-        obj = self.program.object(None, TYPES['int'], 2**31)
+        obj = self.program.object(TYPES['int'], None, 2**31)
         self.assertEqual(obj.value_(), -2**31)
 
     def test_cast(self):
-        obj = self.program.object(None, TYPES['int'], -1)
+        obj = self.program.object(TYPES['int'], None, -1)
         cast_obj = obj.cast_('unsigned int')
         self.assertEqual(cast_obj,
-                         ProgramObject(self.program, None, TYPES['unsigned int'], 2**32 - 1))
+                         ProgramObject(self.program, TYPES['unsigned int'],
+                                       None, 2**32 - 1))
 
-        obj = self.program.object(None, TYPES['double'], 1.0)
+        obj = self.program.object(TYPES['double'], None, 1.0)
         self.assertRaises(TypeError, obj.cast_, self.type_index.pointer(TYPES['int']))
 
     def test_int(self):
-        int_obj = self.program.object(0xffff0000, TYPES['int'])
-        bool_obj = self.program.object(0xffff0000, TYPES['_Bool'])
+        int_obj = self.program.object(TYPES['int'], 0xffff0000)
+        bool_obj = self.program.object(TYPES['_Bool'], 0xffff0000)
         for obj in [int_obj, bool_obj]:
             self.assertRaises(ValueError, len, obj)
             with self.assertRaises(ValueError):
@@ -69,9 +70,9 @@ class TestProgramObject(TypeIndexTestCase):
             self.assertEqual(obj.value_(), 1)
             self.assertTrue(bool(obj))
             # _Bool should be the same because of integer promotions.
-            self.assertEqual(-obj, ProgramObject(self.program, None, TYPES['int'], -1))
-            self.assertEqual(+obj, ProgramObject(self.program, None, TYPES['int'], 1))
-            self.assertEqual(~obj, ProgramObject(self.program, None, TYPES['int'], -2))
+            self.assertEqual(-obj, ProgramObject(self.program, TYPES['int'], None, -1))
+            self.assertEqual(+obj, ProgramObject(self.program, TYPES['int'], None, 1))
+            self.assertEqual(~obj, ProgramObject(self.program, TYPES['int'], None, -2))
             self.assertEqual(int(obj), 1)
             self.assertEqual(float(obj), 1.0)
             self.assertEqual(obj.__index__(), 1)
@@ -80,14 +81,15 @@ class TestProgramObject(TypeIndexTestCase):
             self.assertEqual(math.floor(obj), 1)
             self.assertEqual(math.ceil(obj), 1)
 
-        obj = self.program.object(0xffff0000, IntType('int', 4, True, frozenset({'const'})))
-        self.assertEqual(+obj, ProgramObject(self.program, None, TYPES['int'], 1))
+        obj = self.program.object(IntType('int', 4, True, frozenset({'const'})),
+                                  0xffff0000)
+        self.assertEqual(+obj, ProgramObject(self.program, TYPES['int'], None, 1))
 
     def test_float(self):
-        obj = self.program.object(None, TYPES['double'], 1.5)
+        obj = self.program.object(TYPES['double'], None, 1.5)
         self.assertTrue(bool(obj))
-        self.assertEqual(-obj, ProgramObject(self.program, None, TYPES['double'], -1.5))
-        self.assertEqual(+obj, ProgramObject(self.program, None, TYPES['double'], 1.5))
+        self.assertEqual(-obj, ProgramObject(self.program, TYPES['double'], None, -1.5))
+        self.assertEqual(+obj, ProgramObject(self.program, TYPES['double'], None, 1.5))
         with self.assertRaises(TypeError):
             ~obj
         self.assertEqual(int(obj), 1)
@@ -101,10 +103,10 @@ class TestProgramObject(TypeIndexTestCase):
 
     def test_pointer(self):
         pointer_type = self.type_index.pointer(TYPES['int'])
-        obj = self.program.object(None, pointer_type, 0xffff0000)
-        element0 = ProgramObject(self.program, 0xffff0000, TYPES['int'])
-        element1 = ProgramObject(self.program, 0xffff0004, TYPES['int'])
-        element2 = ProgramObject(self.program, 0xffff0008, TYPES['int'])
+        obj = self.program.object(pointer_type, None, 0xffff0000)
+        element0 = ProgramObject(self.program, TYPES['int'], 0xffff0000)
+        element1 = ProgramObject(self.program, TYPES['int'], 0xffff0004)
+        element2 = ProgramObject(self.program, TYPES['int'], 0xffff0008)
         self.assertRaises(ValueError, len, obj)
         self.assertEqual(obj[0], element0)
         self.assertEqual(obj[1], element1)
@@ -112,11 +114,11 @@ class TestProgramObject(TypeIndexTestCase):
         self.assertRaises(ValueError, next, iter(obj))
 
         pointer_type = self.type_index.pointer(TYPES['char'])
-        obj = self.program.object(None, pointer_type, 0xffff0008)
+        obj = self.program.object(pointer_type, None, 0xffff0008)
         self.assertEqual(obj.string_(), b'hello')
         self.assertTrue(bool(obj))
 
-        obj = self.program.object(None, pointer_type, 0x0)
+        obj = self.program.object(pointer_type, None, 0x0)
         self.assertFalse(bool(obj))
         with self.assertRaises(TypeError):
             +obj
@@ -132,15 +134,17 @@ class TestProgramObject(TypeIndexTestCase):
             obj.member_('foo')
 
         cast_obj = obj.cast_('unsigned long')
-        self.assertEqual(cast_obj, ProgramObject(self.program, None, TYPES['unsigned long'], 0))
+        self.assertEqual(cast_obj,
+                         ProgramObject(self.program, TYPES['unsigned long'],
+                                       None, 0))
         self.assertRaises(TypeError, obj.__index__)
 
     def test_array(self):
         array_type = self.type_index.array(TYPES['int'], 2)
-        obj = self.program.object(0xffff0000, array_type)
-        element0 = ProgramObject(self.program, 0xffff0000, TYPES['int'])
-        element1 = ProgramObject(self.program, 0xffff0004, TYPES['int'])
-        element2 = ProgramObject(self.program, 0xffff0008, TYPES['int'])
+        obj = self.program.object(array_type, 0xffff0000)
+        element0 = ProgramObject(self.program, TYPES['int'], 0xffff0000)
+        element1 = ProgramObject(self.program, TYPES['int'], 0xffff0004)
+        element2 = ProgramObject(self.program, TYPES['int'], 0xffff0008)
         self.assertEqual(len(obj), 2)
         self.assertEqual(obj[0], element0)
         self.assertEqual(obj[1], element1)
@@ -151,7 +155,7 @@ class TestProgramObject(TypeIndexTestCase):
         self.assertEqual(obj.value_(), [1, 2])
 
         array_type = self.type_index.array(TYPES['int'], None)
-        obj = self.program.object(0xffff0000, array_type)
+        obj = self.program.object(array_type, 0xffff0000)
         self.assertRaises(ValueError, len, obj)
         self.assertEqual(obj[0], element0)
         self.assertEqual(obj[1], element1)
@@ -159,27 +163,29 @@ class TestProgramObject(TypeIndexTestCase):
         self.assertRaises(ValueError, next, iter(obj))
 
         array_type = self.type_index.array(TYPES['char'], 2)
-        obj = self.program.object(0xffff0008, array_type)
+        obj = self.program.object(array_type, 0xffff0008)
         self.assertEqual(obj.string_(), b'he')
 
         array_type = self.type_index.array(TYPES['char'], 8)
-        obj = self.program.object(0xffff0008, array_type)
+        obj = self.program.object(array_type, 0xffff0008)
         self.assertEqual(obj.string_(), b'hello')
 
     def test_struct(self):
-        struct_obj = self.program.object(0xffff0000, point_type)
+        struct_obj = self.program.object(point_type, 0xffff0000)
         pointer_type = self.type_index.pointer(point_type)
-        pointer_obj = self.program.object(None, pointer_type, 0xffff0000)
-        element0 = ProgramObject(self.program, 0xffff0000, TYPES['int'])
-        element1 = ProgramObject(self.program, 0xffff0004, TYPES['int'])
+        pointer_obj = self.program.object(pointer_type, None, 0xffff0000)
+        element0 = ProgramObject(self.program, TYPES['int'], 0xffff0000)
+        element1 = ProgramObject(self.program, TYPES['int'], 0xffff0004)
 
         for obj in [struct_obj, pointer_obj]:
             self.assertEqual(obj.x, element0)
             self.assertEqual(obj.y, element1)
             with self.assertRaises(AttributeError):
                 obj.z
-            self.assertEqual(obj.member_('x'), ProgramObject(self.program, 0xffff0000, TYPES['int']))
-            self.assertEqual(obj.member_('y'), ProgramObject(self.program, 0xffff0004, TYPES['int']))
+            self.assertEqual(obj.member_('x'),
+                             ProgramObject(self.program, TYPES['int'], 0xffff0000))
+            self.assertEqual(obj.member_('y'),
+                             ProgramObject(self.program, TYPES['int'], 0xffff0004))
             self.assertRaises(ValueError, obj.member_, 'z')
             self.assertIn('x', dir(obj))
             self.assertIn('y', dir(obj))
@@ -189,26 +195,27 @@ class TestProgramObject(TypeIndexTestCase):
 
         element1_ptr = element1.address_of_()
         self.assertEqual(element1_ptr,
-                         ProgramObject(self.program, None,
+                         ProgramObject(self.program,
                                        self.type_index.pointer(TYPES['int']),
-                                       0xffff0004))
+                                       None, 0xffff0004))
         self.assertEqual(element1_ptr.container_of_(point_type, 'y'), pointer_obj)
 
         struct_type = StructType('test', 8, [
             ('address_', 0, lambda: TYPES['unsigned long']),
         ])
-        struct_obj = self.program.object(0xffff0000, struct_type)
+        struct_obj = self.program.object(struct_type, 0xffff0000)
         self.assertEqual(struct_obj.address_, 0xffff0000)
         self.assertEqual(struct_obj.member_('address_'),
-                         ProgramObject(self.program, 0xffff0000, TYPES['unsigned long']))
+                         ProgramObject(self.program, TYPES['unsigned long'],
+                                       0xffff0000))
 
     def test_relational(self):
-        one = self.program.object(None, TYPES['int'], 1)
-        two = self.program.object(None, TYPES['int'], 2)
-        three = self.program.object(None, TYPES['int'], 3)
-        ptr0 = self.program.object(None, self.type_index.pointer(TYPES['int']),
+        one = self.program.object(TYPES['int'], None, 1)
+        two = self.program.object(TYPES['int'], None, 2)
+        three = self.program.object(TYPES['int'], None, 3)
+        ptr0 = self.program.object(self.type_index.pointer(TYPES['int']), None,
                                    0xffff0000)
-        ptr1 = self.program.object(None, self.type_index.pointer(TYPES['int']),
+        ptr1 = self.program.object(self.type_index.pointer(TYPES['int']), None,
                                    0xffff0004)
 
         self.assertTrue(one < two)
@@ -239,24 +246,24 @@ class TestProgramObject(TypeIndexTestCase):
         self.assertTrue(three >= two)
         self.assertFalse(ptr0 >= ptr1)
 
-        negative_one = self.program.object(None, TYPES['int'], -1)
-        unsigned_zero = self.program.object(None, TYPES['unsigned int'], 0)
+        negative_one = self.program.object(TYPES['int'], None, -1)
+        unsigned_zero = self.program.object(TYPES['unsigned int'], None, 0)
         # The usual arithmetic conversions convert -1 to an unsigned int.
         self.assertFalse(negative_one < unsigned_zero)
 
-        self.assertTrue(self.program.object(None, TYPES['int'], 1) ==
-                        self.program.object(None, TYPES['_Bool'], 1))
+        self.assertTrue(self.program.object(TYPES['int'], None, 1) ==
+                        self.program.object(TYPES['_Bool'], None, 1))
 
         self.assertRaises(TypeError, operator.lt, ptr0, one)
 
     def _test_arithmetic(self, op, lhs, rhs, result, integral=True,
                          floating_point=False):
         def INT(value):
-            return self.program.object(None, TYPES['int'], value)
+            return self.program.object(TYPES['int'], None, value)
         def LONG(value):
-            return self.program.object(None, TYPES['long'], value)
+            return self.program.object(TYPES['long'], None, value)
         def DOUBLE(value):
-            return self.program.object(None, TYPES['double'], value)
+            return self.program.object(TYPES['double'], None, value)
 
         if integral:
             self.assertEqual(op(INT(lhs), INT(rhs)), INT(result))
@@ -279,11 +286,10 @@ class TestProgramObject(TypeIndexTestCase):
 
     def _test_pointer_type_errors(self, op):
         def INT(value):
-            return self.program.object(None, TYPES['int'], value)
+            return self.program.object(TYPES['int'], None, value)
         def POINTER(value):
-            return self.program.object(None,
-                                       self.type_index.pointer(TYPES['int']),
-                                       value)
+            return self.program.object(self.type_index.pointer(TYPES['int']),
+                                       None, value)
 
         self.assertRaises(TypeError, op, INT(1), POINTER(1))
         self.assertRaises(TypeError, op, POINTER(1), INT(1))
@@ -291,9 +297,9 @@ class TestProgramObject(TypeIndexTestCase):
 
     def _test_floating_type_errors(self, op):
         def INT(value):
-            return self.program.object(None, TYPES['int'], value)
+            return self.program.object(TYPES['int'], None, value)
         def DOUBLE(value):
-            return self.program.object(None, TYPES['double'], value)
+            return self.program.object(TYPES['double'], None, value)
 
         self.assertRaises(TypeError, op, INT(1), DOUBLE(1))
         self.assertRaises(TypeError, op, DOUBLE(1), INT(1))
@@ -301,11 +307,11 @@ class TestProgramObject(TypeIndexTestCase):
 
     def _test_shift(self, op, lhs, rhs, result):
         def BOOL(value):
-            return self.program.object(None, TYPES['_Bool'], value)
+            return self.program.object(TYPES['_Bool'], None, value)
         def INT(value):
-            return self.program.object(None, TYPES['int'], value)
+            return self.program.object(TYPES['int'], None, value)
         def LONG(value):
-            return self.program.object(None, TYPES['long'], value)
+            return self.program.object(TYPES['long'], None, value)
 
         self.assertEqual(op(INT(lhs), INT(rhs)), INT(result))
         self.assertEqual(op(INT(lhs), LONG(rhs)), INT(result))
@@ -322,10 +328,10 @@ class TestProgramObject(TypeIndexTestCase):
     def test_add(self):
         self._test_arithmetic(operator.add, 2, 2, 4, floating_point=True)
 
-        one = self.program.object(None, TYPES['int'], 1)
-        ptr = self.program.object(None, self.type_index.pointer(TYPES['int']),
+        one = self.program.object(TYPES['int'], None, 1)
+        ptr = self.program.object(self.type_index.pointer(TYPES['int']), None,
                                   0xffff0000)
-        ptr1 = self.program.object(None, self.type_index.pointer(TYPES['int']),
+        ptr1 = self.program.object(self.type_index.pointer(TYPES['int']), None,
                                    0xffff0004)
         self.assertEqual(ptr + one, ptr1)
         self.assertEqual(one + ptr, ptr1)
@@ -338,14 +344,14 @@ class TestProgramObject(TypeIndexTestCase):
     def test_sub(self):
         self._test_arithmetic(operator.sub, 4, 2, 2, floating_point=True)
 
-        ptr = self.program.object(None, self.type_index.pointer(TYPES['int']),
+        ptr = self.program.object(self.type_index.pointer(TYPES['int']), None,
                                   0xffff0000)
-        ptr1 = self.program.object(None, self.type_index.pointer(TYPES['int']),
+        ptr1 = self.program.object(self.type_index.pointer(TYPES['int']), None,
                                    0xffff0004)
         self.assertEqual(ptr1 - ptr,
-                         ProgramObject(self.program, None, TYPES['ptrdiff_t'], 1))
+                         ProgramObject(self.program, TYPES['ptrdiff_t'], None, 1))
         self.assertEqual(ptr - ptr1,
-                         ProgramObject(self.program, None, TYPES['ptrdiff_t'], -1))
+                         ProgramObject(self.program, TYPES['ptrdiff_t'], None, -1))
         self.assertEqual(ptr - 0, ptr)
         self.assertEqual(ptr1 - 1, ptr)
         self.assertRaises(TypeError, operator.sub, 1, ptr)
