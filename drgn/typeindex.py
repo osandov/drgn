@@ -272,7 +272,7 @@ class TypeIndex:
 
         if (not isinstance(real_type1, (ArithmeticType, BitFieldType)) or
                 not isinstance(real_type2, (ArithmeticType, BitFieldType))):
-            raise TypeError('operands must be arithmetic types or bit fields')
+            raise TypeError('operands must have arithmetic types')
 
         # If either operand is long double, then the result is long double.
         if isinstance(real_type1, FloatType) and real_type1.name == 'long double':

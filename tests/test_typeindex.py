@@ -21,7 +21,7 @@ from drgn.type import (
     VoidType,
 )
 from drgn.typeindex import DwarfTypeIndex, TypeIndex
-from drgn.typename import BasicTypeName, TypeName
+from drgn.typename import BasicTypeName, TypeName, TypedefTypeName
 from tests.test_type import (
     anonymous_point_type,
     const_anonymous_point_type,
@@ -48,7 +48,9 @@ TYPES = {
     'float': FloatType('float', 4),
     'double': FloatType('double', 8),
     'long double': FloatType('long double', 16),
+    'ptrdiff_t': FloatType('long double', 16),
 }
+TYPES['ptrdiff_t'] = TypedefType('ptrdiff_t', TYPES['long'])
 
 
 class MockTypeIndex(TypeIndex):
@@ -56,7 +58,7 @@ class MockTypeIndex(TypeIndex):
         super().__init__(8)
 
     def _find_type(self, type_name: TypeName) -> Type:
-        if isinstance(type_name, BasicTypeName):
+        if isinstance(type_name, (BasicTypeName, TypedefTypeName)):
             try:
                 return TYPES[type_name.name]
             except KeyError:
