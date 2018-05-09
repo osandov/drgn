@@ -18,7 +18,6 @@ from drgn.elf import parse_elf_phdrs
 from drgn.program import Program
 from drgn.type import Type
 from drgn.typeindex import DwarfTypeIndex
-from drgn.typename import TypeName
 from drgn.util import parse_symbol_file
 
 
@@ -117,11 +116,27 @@ def main() -> None:
             runpy.run_path(args.script[0], init_globals=init_globals,
                            run_name='__main__')
         else:
+            import atexit
+            import readline
+            import rlcompleter
+
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
+
+            histfile = os.path.expanduser('~/.drgn_history')
+            try:
+                readline.read_history_file(histfile)
+            except FileNotFoundError:
+                pass
+            readline.parse_and_bind('tab: complete')
+            readline.set_history_length(1000)
+            atexit.register(readline.write_history_file, histfile)
+
+            readline.set_completer(rlcompleter.Completer(init_globals).complete)  # type: ignore
+                                                                                  # typeshed issue #2105
+
             banner = version + '\nFor help, type help(drgn).'
-            code.interact(banner=banner, exitmsg='', local=init_globals)  # type: ignore
-                                                                          # typeshed issue #2024
+            code.interact(banner=banner, exitmsg='', local=init_globals)
 
 if __name__ == '__main__':
     main()
