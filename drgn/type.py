@@ -363,7 +363,11 @@ class BitFieldType(Type):
 
     def sizeof(self) -> int:
         # Not really, but for convenience.
-        return (self.bit_offset + self.bit_size + 7) // 8
+        if self.bit_offset is None:
+            bit_offset = 0
+        else:
+            bit_offset = self.bit_offset
+        return (bit_offset + self.bit_size + 7) // 8
 
     def read(self, buffer: bytes, offset: int = 0) -> int:
         if len(buffer) - offset < self.sizeof():
@@ -681,13 +685,13 @@ class EnumType(IntType):
             parts = ['(', str(self.type_name()), ')']
         else:
             parts = []
-        if not isinstance(value, self.enum):
+        if self.enum is not None and not isinstance(value, self.enum):
             value = int(value)
             try:
                 value = self.enum(value)
             except ValueError:
                 pass
-        if isinstance(value, self.enum):
+        if self.enum is not None and isinstance(value, self.enum):
             parts.append(value._name_)
         else:
             parts.append(str(value))
@@ -697,10 +701,12 @@ class EnumType(IntType):
         if not isinstance(value, numbers.Real):
             raise TypeError(f'cannot convert to {self}')
         value = _int_convert(math.trunc(value), 8 * self.size, self.signed)
-        try:
-            return self.enum(value)
-        except ValueError:
-            return value
+        if self.enum is not None:
+            try:
+                value = self.enum(value)
+            except ValueError:
+                pass
+        return value
 
 
 class TypedefType(Type):
