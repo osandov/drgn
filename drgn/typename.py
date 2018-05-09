@@ -180,7 +180,7 @@ _TOKEN_REGEX = re.compile('|'.join('(?P<%s>%s)' % pair for pair in [
 
 class _Token(NamedTuple):
     kind: str
-    value: Union[str, int]
+    value: Union[str, int, None]
 
 
 class _TypeNameLexer:
@@ -404,7 +404,7 @@ class _TypeNameParser:
                 if token.kind == 'NUMBER':
                     self._lexer.pop()
                     assert isinstance(token.value, int)
-                    size = token.value
+                    size: Optional[int] = token.value
                 else:
                     size = None
                 if inner_type is None:
