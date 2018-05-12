@@ -717,7 +717,9 @@ class CompilationUnit:
             reader.offset = self.die_offset()
         else:
             reader.offset = self.offset + offset
-        return _parse_die(reader, self, False)
+        die = _parse_die(reader, self, False)
+        assert die is not None
+        return die
 
 
 class DieAttrib(NamedTuple):
@@ -961,7 +963,7 @@ def _parse_die(reader: _Reader, cu: CompilationUnit,
                jump_to_sibling: bool) -> Optional[Die]:
     offset = reader.offset
     code = reader.read_uleb128()
-    if code == 0:
+    if jump_to_sibling and code == 0:
         return None
     try:
         decl = cu.abbrev_table[code]
@@ -980,12 +982,14 @@ def _parse_die(reader: _Reader, cu: CompilationUnit,
     length = reader.offset - offset
 
     if not decl.children:
-        children: List[Die] = []
-    elif jump_to_sibling and sibling == 0:
+        children: Optional[List[Die]] = []
+    elif jump_to_sibling and sibling is None:
         children = _parse_die_siblings(reader, cu)
     else:
         children = None
-        if jump_to_sibling:
+        # sibling is not None is always True here if jump_to_sibling is True,
+        # but mypy isn't smart enough to figure that out so we spell it out.
+        if jump_to_sibling and sibling is not None:
             assert isinstance(sibling.value, int)
             if sibling.form == DW_FORM.ref_addr:
                 reader.offset = sibling.value
