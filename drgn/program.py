@@ -144,7 +144,7 @@ class ProgramObject:
     def __iter__(self) -> Iterable['ProgramObject']:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
             raise ValueError(f'{str(self.type_.type_name())!r} is not iterable')
-        address = self.address_
+        assert self.address_ is not None  # Array rvalues are not allowed
         type_ = self._real_type.type
         for i in range(self._real_type.size):
             address = self.address_ + i * type_.sizeof()
@@ -197,6 +197,7 @@ class ProgramObject:
         if isinstance(self._real_type, PointerType):
             addresses: Iterable[int] = itertools.count(self.value_())
         elif isinstance(self._real_type, ArrayType):
+            assert self.address_ is not None  # Array rvalues are not allowed
             if self._real_type.size is None:
                 addresses = itertools.count(self.address_)
             else:
