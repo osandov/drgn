@@ -294,6 +294,10 @@ class TestTypeIndexIntegerPromotions(TypeIndexTestCase):
         type_ = TypedefType('LONG', TYPES['long'])
         self.assertPromotes(type_, type_)
 
+    def test_other(self):
+        self.assertPromotes(TYPES['float'], TYPES['float'])
+        self.assertPromotes(TYPES['double'], TYPES['double'])
+
 
 class TestTypeIndexCommonRealType(TypeIndexTestCase):
     def assertCommon(self, type1, type2, expected_type):

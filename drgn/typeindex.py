@@ -4,7 +4,17 @@
 import functools
 import itertools
 import numbers
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union, overload
+from typing import (
+    Any,
+    Dict,
+    FrozenSet,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    overload,
+)
 
 from drgn.dwarf import (
     Die,
@@ -43,10 +53,6 @@ from drgn.typename import (
     UnionTypeName,
     VoidTypeName,
 )
-
-
-_IntegerOperandType = Union[IntType, BitFieldType, EnumType, TypedefType]
-_RealOperandType = Union[ArithmeticType, BitFieldType, EnumType, TypedefType]
 
 
 _INTEGER_CONVERSION_RANKS = {
@@ -243,16 +249,19 @@ class TypeIndex:
         else:
             raise TypeError()
 
-    def integer_promotions(self, type_: _IntegerOperandType) -> _IntegerOperandType:
+    def integer_promotions(self, type_: Type) -> Type:
         # Integer promotions are performed on types whose integer conversion
         # rank is less than or equal to the rank of int and unsigned int and
         # bit-fields. GCC and Clang always convert enums to their compatible
         # type.
 
+        if not isinstance(type_, (IntType, BitFieldType, EnumType, TypedefType)):
+            return type_
+
         real_type = type_.real_type()
 
         if not isinstance(real_type, (IntType, BitFieldType, EnumType)):
-            raise ValueError('cannot promote non-integer type')
+            return type_
 
         if isinstance(real_type, BitFieldType):
             int_type = self.find_type('int')
@@ -291,10 +300,13 @@ class TypeIndex:
         assert isinstance(unsigned_int_type, IntType)
         return unsigned_int_type
 
-    def common_real_type(self, type1: _RealOperandType,
-                         type2: _RealOperandType) -> _RealOperandType:
+    def common_real_type(self, type1: Type, type2: Type) -> Type:
         real_type1 = type1.real_type()
         real_type2 = type2.real_type()
+
+        if (not isinstance(real_type1, (ArithmeticType, BitFieldType, EnumType)) or
+                not isinstance(real_type2, (ArithmeticType, BitFieldType, EnumType))):
+            raise TypeError('operands must have real types')
 
         float1 = real_type1.name if isinstance(real_type1, FloatType) else None
         float2 = real_type2.name if isinstance(real_type2, FloatType) else None
@@ -316,18 +328,14 @@ class TypeIndex:
                 return type2
             raise ValueError('unknown floating-point types')
 
-        assert isinstance(type1, (IntType, BitFieldType, EnumType, TypedefType))
-        assert isinstance(type2, (IntType, BitFieldType, EnumType, TypedefType))
-
         # Otherwise, the integer promotions are performed before applying the
         # following rules.
-        type1 = self.integer_promotions(type1)
-        type2 = self.integer_promotions(type2)
-        real_type1 = type1.real_type()
-        real_type2 = type2.real_type()
-
-        assert isinstance(real_type1, (IntType, BitFieldType))
-        assert isinstance(real_type2, (IntType, BitFieldType))
+        type1 = cast(Union[IntType, BitFieldType, TypedefType],
+                     self.integer_promotions(type1))
+        type2 = cast(Union[IntType, BitFieldType, TypedefType],
+                     self.integer_promotions(type2))
+        real_type1 = cast(Union[IntType, BitFieldType], type1.real_type())
+        real_type2 = cast(Union[IntType, BitFieldType], type2.real_type())
 
         # If both operands have the same type, then no further conversions are
         # needed.
@@ -377,8 +385,9 @@ class TypeIndex:
         if not signed2 and rank2 >= rank1:
             return type2
 
-        assert isinstance(real_type1, (IntType, BitFieldType))
-        assert isinstance(real_type2, (IntType, BitFieldType))
+        # Not sure why mypy needs to be reminded here.
+        real_type1 = cast(Union[IntType, BitFieldType], real_type1)
+        real_type2 = cast(Union[IntType, BitFieldType], real_type2)
 
         # Otherwise, if the type of the operand with signed integer type can
         # represent all of the values of the type of the operand with unsigned
