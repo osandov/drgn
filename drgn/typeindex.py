@@ -4,7 +4,7 @@
 import functools
 import itertools
 import numbers
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union, overload
 
 from drgn.dwarf import (
     Die,
@@ -101,18 +101,20 @@ def _can_represent_all_values(type1: Union[IntType, BitFieldType],
         return False
 
 
+@overload
+def _corresponding_unsigned_type(type_: IntType) -> IntType: ...
+@overload
+def _corresponding_unsigned_type(type_: BitFieldType) -> BitFieldType: ...
 def _corresponding_unsigned_type(type_: Union[IntType, BitFieldType]) -> Union[IntType, BitFieldType]:
     if isinstance(type_, BitFieldType):
         if type_.type.signed:
             underlying_type = _corresponding_unsigned_type(type_.type)
-            assert isinstance(underlying_type, IntType)
             return BitFieldType(underlying_type, None, type_.bit_size)
         else:
             return type_
     elif isinstance(type_, BoolType):
         return type_
     else:
-        assert isinstance(type_, IntType)
         if type_.signed:
             return IntType('unsigned ' + type_.name, type_.size, False)
         else:
@@ -154,6 +156,27 @@ class TypeIndex:
             pass
         return self.find_type('long')
 
+    @overload
+    def operand_type(self, type_: VoidType) -> VoidType: ...
+    @overload
+    def operand_type(self, type_: BoolType) -> BoolType: ...
+    @overload
+    def operand_type(self, type_: IntType) -> IntType: ...
+    @overload
+    def operand_type(self, type_: FloatType) -> FloatType: ...
+    @overload
+    def operand_type(self, type_: BitFieldType) -> BitFieldType: ...
+    @overload
+    def operand_type(self, type_: EnumType) -> EnumType: ...
+    @overload
+    def operand_type(self, type_: StructType) -> StructType: ...
+    @overload
+    def operand_type(self, type_: UnionType) -> UnionType: ...
+    @overload
+    def operand_type(self, type_: Union[PointerType, ArrayType, FunctionType]) -> PointerType:
+        ...
+    @overload
+    def operand_type(self, type_: Type) -> Type: ...
     def operand_type(self, type_: Type) -> Type:
         if isinstance(type_, VoidType):
             if type_.qualifiers:
@@ -161,10 +184,6 @@ class TypeIndex:
         elif isinstance(type_, BoolType):
             if type_.qualifiers:
                 return BoolType(type_.name, type_.size)
-        elif isinstance(type_, EnumType):
-            if type_.qualifiers:
-                return EnumType(type_.name, type_.type,
-                                None if type_.enum is None else type_.enum.__members__)
         elif isinstance(type_, IntType):
             if type_.qualifiers:
                 return IntType(type_.name, type_.size, type_.signed)
@@ -173,9 +192,12 @@ class TypeIndex:
                 return FloatType(type_.name, type_.size)
         elif isinstance(type_, BitFieldType):
             if type_.type.qualifiers:
-                type2 = self.operand_type(type_.type)
-                assert isinstance(type2, IntType)
-                return BitFieldType(type2, type_.bit_offset, type_.bit_size)
+                int_type = self.operand_type(type_.type)
+                return BitFieldType(int_type, type_.bit_offset, type_.bit_size)
+        elif isinstance(type_, EnumType):
+            if type_.qualifiers:
+                return EnumType(type_.name, type_.type,
+                                None if type_.enum is None else type_.enum.__members__)
         elif isinstance(type_, StructType):
             if type_.qualifiers:
                 return StructType(type_.name, type_.size, type_._members)
@@ -464,6 +486,8 @@ class DwarfTypeIndex(TypeIndex):
             except (DwarfAttribNotFoundError, ValueError):
                 pass
 
+        name: Optional[str]
+        size: Optional[int]
         if dwarf_type.tag == DW_TAG.base_type:
             encoding = dwarf_type.find_constant(DW_AT.encoding)
             name = str(parse_type_name(dwarf_type.name()))
@@ -517,23 +541,24 @@ class DwarfTypeIndex(TypeIndex):
                 return UnionType(name, size, members, qualifiers)  # type: ignore
                                                                    # mypy issue #1484
         elif dwarf_type.tag == DW_TAG.enumeration_type:
-            if dwarf_type.find_flag(DW_AT.declaration):
-                int_type = None
-                enumerators = None
-            else:
-                int_type = self.find_dwarf_type(dwarf_type.type())
-                enumerators = []
-                for child in dwarf_type.children():
-                    if child.tag != DW_TAG.enumerator:
-                        continue
-                    name = child.name()
-                    value = child.find_constant(DW_AT.const_value)
-                    enumerators.append((name, value))
             try:
                 name = dwarf_type.name()
             except DwarfAttribNotFoundError:
                 name = None
-            return EnumType(name, int_type, enumerators, qualifiers)
+            if dwarf_type.find_flag(DW_AT.declaration):
+                return EnumType(name, None, None, qualifiers)
+            else:
+                int_type = self.find_dwarf_type(dwarf_type.type())
+                if not isinstance(int_type, IntType):
+                    raise DwarfFormatError('enum compatible type is not an integer type')
+                enumerators = []
+                for child in dwarf_type.children():
+                    if child.tag != DW_TAG.enumerator:
+                        continue
+                    enumerator_name = child.name()
+                    enumerator_value = child.find_constant(DW_AT.const_value)
+                    enumerators.append((enumerator_name, enumerator_value))
+                return EnumType(name, int_type, enumerators, qualifiers)
         elif dwarf_type.tag == DW_TAG.typedef:
             return TypedefType(dwarf_type.name(),
                                self.find_dwarf_type(dwarf_type.type()),
@@ -556,7 +581,8 @@ class DwarfTypeIndex(TypeIndex):
                     except DwarfAttribNotFoundError:
                         size = None
                     type_ = ArrayType(type_, size)
-            assert isinstance(type_, ArrayType)
+            if not isinstance(type_, ArrayType):
+                raise DwarfFormatError('array type does not have any subranges')
             return type_
         elif dwarf_type.tag == DW_TAG.subroutine_type:
             try:
@@ -571,7 +597,7 @@ class DwarfTypeIndex(TypeIndex):
                         raise DwarfFormatError('formal parameter after unspecified parameters')
                     parameter_type = self.find_dwarf_type(child.type())
                     try:
-                        parameter_name = child.name()
+                        parameter_name: Optional[str] = child.name()
                     except DwarfAttribNotFoundError:
                         parameter_name = None
                     parameters.append((parameter_type, parameter_name))
