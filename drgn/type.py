@@ -412,10 +412,11 @@ _TypeThunk = Callable[[], Type]
 class CompoundType(Type):
     """
     A CompoundType represents a type with members. It has a name, a size,
-    members, and qualifiers. See help(Type) for more information.
+    members, and qualifiers. The name may be None, which indicates an anonymous
+    type. See help(Type) for more information.
     """
 
-    def __init__(self, name: str, size: int,
+    def __init__(self, name: Optional[str], size: Optional[int],
                  members: Optional[List[Tuple[str, int, _TypeThunk]]],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
@@ -490,6 +491,8 @@ class CompoundType(Type):
         return self.size
 
     def read(self, buffer: bytes, offset: int = 0) -> Dict:
+        if self.size is None:
+            raise ValueError("can't read incomplete type")
         if len(buffer) - offset < self.size:
             raise ValueError(f'buffer must be at least {self.size} bytes')
         return OrderedDict([
@@ -672,7 +675,7 @@ class EnumType(Type):
 
     def read(self, buffer: bytes, offset: int = 0) -> Union[enum.IntEnum, int]:
         if self.type is None or self.enum is None:
-            raise ValueError("can't read incomplete enum type")
+            raise ValueError("can't read incomplete type")
         value = self.type.read(buffer, offset)
         try:
             return self.enum(value)

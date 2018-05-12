@@ -16,7 +16,7 @@ from typing import (
 
 
 class TypeName:
-    def __init__(self, name: str,
+    def __init__(self, name: Optional[str],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.name = name
         self.qualifiers = qualifiers
@@ -34,6 +34,7 @@ class TypeName:
 
     def declaration(self, name: str) -> str:
         parts = sorted(self.qualifiers)
+        assert self.name is not None
         parts.append(self.name)
         if name:
             parts.append(name)
@@ -46,14 +47,18 @@ class VoidTypeName(TypeName):
 
 
 class BasicTypeName(TypeName):
-    pass
+    name: str
+
+    def __init__(self, name: str,
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+        super().__init__(name, qualifiers)
 
 
-def _tagged_declaration(keyword: str, tag: str, name: str,
+def _tagged_declaration(keyword: str, tag: Optional[str], name: str,
                         qualifiers: FrozenSet[str]) -> str:
     parts = sorted(qualifiers)
     parts.append(keyword)
-    if tag:
+    if tag is not None:
         parts.append(tag)
     if name:
         parts.append(name)

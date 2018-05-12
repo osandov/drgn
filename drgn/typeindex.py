@@ -465,6 +465,8 @@ class DwarfTypeIndex(TypeIndex):
             tag = DW_TAG.typedef
         else:
             assert False
+        if type_name.name is None:
+            raise ValueError("can't find anonymous type")
         if dwarf_type is None:
             dwarf_type = self._dwarf_index.find(type_name.name, tag)
         return self.find_dwarf_type(dwarf_type, type_name.qualifiers)
