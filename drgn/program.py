@@ -282,7 +282,8 @@ class ProgramObject:
                 (not integer and not self._real_type.is_arithmetic())):
             raise TypeError(f"invalid operand to unary {op_name} ('{self.type_}')")
         type_ = self.program_._type_index.operand_type(self.type_)
-        type_ = self.program_._type_index.integer_promotions(type_)
+        if self._real_type.is_integer():
+            type_ = self.program_._type_index.integer_promotions(type_)
         return ProgramObject(self.program_, type_, None, op(self.value_()))
 
     def _binary_operands(self, lhs: Any, rhs: Any) -> Tuple[Any, Type, Any, Type]:
@@ -315,7 +316,7 @@ class ProgramObject:
     def _arithmetic_operator(self, op: Callable, op_name: str,
                              lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
-        if not lhs_type.is_arithmetic() and not rhs_type.is_arithmetic():
+        if not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic():
             raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
         lhs_type = self.program_._type_index.operand_type(lhs_type)
         rhs_type = self.program_._type_index.operand_type(rhs_type)

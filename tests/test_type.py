@@ -341,11 +341,11 @@ union value {
         self.assertRaises(ValueError, type_.sizeof)
 
     def test_enum(self):
-        type_ = EnumType('color', 4, False, [
+        type_ = EnumType('color', IntType('unsigned int', 4, False), [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], 'unsigned int')
+        ])
         self.assertEqual(str(type_), """\
 enum color {
 	RED = 0,
@@ -380,11 +380,11 @@ const volatile enum color {
 	BLUE = 2,
 }""")
 
-        type_ = EnumType(None, 4, True, [
+        type_ = EnumType(None, IntType('int', 4, True), [
             ('RED', 10),
             ('GREEN', 11),
             ('BLUE', -1)
-        ], 'int')
+        ])
         self.assertEqual(str(type_), """\
 enum {
 	RED = 10,
@@ -394,7 +394,7 @@ enum {
         buffer = (-1).to_bytes(4, sys.byteorder, signed=True)
         self.assertEqual(type_.read(buffer), -1)
 
-        type_ = EnumType('foo', None, None, None, None)
+        type_ = EnumType('foo', None, None)
         self.assertEqual(str(type_), 'enum foo')
         self.assertRaises(ValueError, type_.sizeof)
 
@@ -617,11 +617,11 @@ class TestConvert(unittest.TestCase):
                     point_type.convert(1)
 
     def test_enum(self):
-        type_ = EnumType('color', 4, False, [
+        type_ = EnumType('color', IntType('unsigned int', 4, False), [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], 'unsigned int')
+        ])
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
             type_.convert(None)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):

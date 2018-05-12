@@ -128,8 +128,8 @@ class Type:
     def is_arithmetic(self) -> bool:
         """
         Return whether this type is an arithmetic type. This is true for
-        instances of ArithmeticType, BitFieldType, and TypedefType if the
-        underlying type is one of those.
+        instances of ArithmeticType, EnumType, BitFieldType, and TypedefType if
+        the underlying type is one of those.
         """
         return False
 
@@ -593,11 +593,13 @@ class UnionType(CompoundType):
         return UnionTypeName(self.name, self.qualifiers)
 
 
-class EnumType(IntType):
+class EnumType(Type):
     """
-    An EnumType has a name, size, signedness, enumerators (as a Python
-    enum.IntEnum), the name of its compatible integer type, and qualifiers. See
-    help(IntType) and help(Type) for more information.
+    An EnumType has a name, compatible integer type, enumerators (as a Python
+    enum.IntEnum), and qualifiers. The name may be None, which indicates an
+    anonymous enum type. The compatible integer type and enumerators may be
+    None, which indicates an incomplete enum type. See help(Type) for more
+    information.
 
     >>> print(prog.type('enum pid_type'))
     enum pid_type {
@@ -616,30 +618,30 @@ class EnumType(IntType):
                               ('PIDTYPE_SID', <pid_type.PIDTYPE_SID: 2>),
                               ('PIDTYPE_MAX', <pid_type.PIDTYPE_MAX: 3>),
                               ('__PIDTYPE_TGID', <pid_type.__PIDTYPE_TGID: 4>)]))
-    >>> prog.type('enum pid_type').compatible_name
-    'unsigned int'
+    >>> prog.type('enum pid_type').type
+    IntType('unsigned int', 4, False)
     """
 
-    def __init__(self, name: str, size: int, signed: bool,
+    def __init__(self, name: Optional[str], type: Optional[IntType],
                  enumerators: Optional[List[Tuple[str, int]]],
-                 compatible_name: Optional[str],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
-        super().__init__(name, size, signed, qualifiers)
+        if type is None != enumerators is None:
+            raise ValueError('incomplete enum type must not have type or enumerators')
+        super().__init__(qualifiers)
+        self.name = name
+        self.type = type
         if enumerators is None:
             self.enum = None
         else:
             self.enum = enum.IntEnum('' if name is None else name, enumerators)  # type: ignore
                                                                                  # mypy issue #4865.
-        self.compatible_name = compatible_name
 
     def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
             repr(self.name), ', ',
-            repr(self.size), ', ',
-            repr(self.signed), ', ',
-            repr(None if self.enum is None else self.enum.__members__), ', ',
-            repr(self.compatible_name),
+            repr(self.type), ', ',
+            repr(None if self.enum is None else self.enum.__members__),
         ]
         if self.qualifiers:
             parts.append(', ')
@@ -664,17 +666,14 @@ class EnumType(IntType):
         return EnumTypeName(self.name, self.qualifiers)
 
     def sizeof(self) -> int:
-        if self.size is None:
+        if self.type is None:
             raise ValueError("can't get size of incomplete type")
-        return self.size
+        return self.type.sizeof()
 
     def read(self, buffer: bytes, offset: int = 0) -> Union[enum.IntEnum, int]:
-        if self.enum is None:
+        if self.type is None or self.enum is None:
             raise ValueError("can't read incomplete enum type")
-        if len(buffer) - offset < self.size:
-            raise ValueError(f'buffer must be at least {self.size} bytes')
-        value = int.from_bytes(buffer[offset:offset + self.size],
-                               sys.byteorder, signed=self.signed)
+        value = self.type.read(buffer, offset)
         try:
             return self.enum(value)
         except ValueError:
@@ -698,15 +697,20 @@ class EnumType(IntType):
         return ''.join(parts)
 
     def convert(self, value: Any) -> Union[enum.IntEnum, int]:
+        if self.type is None or self.enum is None:
+            raise ValueError("can't convert to incomplete enum type")
         if not isinstance(value, numbers.Real):
             raise TypeError(f'cannot convert to {self}')
-        value = _int_convert(math.trunc(value), 8 * self.size, self.signed)
+        value = self.type.convert(value)
         if self.enum is not None:
             try:
                 value = self.enum(value)
             except ValueError:
                 pass
         return value
+
+    def is_arithmetic(self) -> bool:
+        return True
 
 
 class TypedefType(Type):

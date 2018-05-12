@@ -45,6 +45,10 @@ from drgn.typename import (
 )
 
 
+_IntegerOperandType = Union[IntType, BitFieldType, EnumType, TypedefType]
+_RealOperandType = Union[ArithmeticType, BitFieldType, EnumType, TypedefType]
+
+
 _INTEGER_CONVERSION_RANKS = {
     '_Bool': 0,
     'char': 1,
@@ -63,20 +67,17 @@ _INTEGER_CONVERSION_RANKS = {
 _INT_CONVERSION_RANK = _INTEGER_CONVERSION_RANKS['int']
 
 
-def _integer_conversion_rank(type: Union[IntType, BitFieldType]) -> int:
-    if isinstance(type, BitFieldType):
-        return _integer_conversion_rank(type.type)
+def _integer_conversion_rank(type_: Union[IntType, BitFieldType]) -> int:
+    if isinstance(type_, BitFieldType):
+        return _integer_conversion_rank(type_.type)
     else:
-        name = type.name
+        name = type_.name
     return _INTEGER_CONVERSION_RANKS[name]
 
 
-def _can_represent_all_values(type1: Type, type2: Type) -> bool:
+def _can_represent_all_values(type1: Union[IntType, BitFieldType],
+                              type2: Union[IntType, BitFieldType]) -> bool:
     # Return whether type1 can represent all values of type2.
-
-    if (not isinstance(type1, (IntType, BitFieldType)) or
-            not isinstance(type2, (IntType, BitFieldType))):
-        raise TypeError()
 
     if isinstance(type1, BitFieldType):
         width1 = type1.bit_size
@@ -100,7 +101,7 @@ def _can_represent_all_values(type1: Type, type2: Type) -> bool:
         return False
 
 
-def _corresponding_unsigned_type(type_: Type) -> Type:
+def _corresponding_unsigned_type(type_: Union[IntType, BitFieldType]) -> Union[IntType, BitFieldType]:
     if isinstance(type_, BitFieldType):
         if type_.type.signed:
             underlying_type = _corresponding_unsigned_type(type_.type)
@@ -110,19 +111,12 @@ def _corresponding_unsigned_type(type_: Type) -> Type:
             return type_
     elif isinstance(type_, BoolType):
         return type_
-    elif isinstance(type_, EnumType):
-        if type_.signed:
-            return IntType('unsigned ' + type_.compatible_name, type_.size,
-                           False)
-        else:
-            return type_
-    elif isinstance(type_, IntType):
+    else:
+        assert isinstance(type_, IntType)
         if type_.signed:
             return IntType('unsigned ' + type_.name, type_.size, False)
         else:
             return type_
-    else:
-        raise TypeError()
 
 
 class TypeIndex:
@@ -169,9 +163,8 @@ class TypeIndex:
                 return BoolType(type_.name, type_.size)
         elif isinstance(type_, EnumType):
             if type_.qualifiers:
-                return EnumType(type_.name, type_.size, type_.signed,
-                                None if type_.enum is None else type_.enum.__members__,
-                                type_.compatible_name)
+                return EnumType(type_.name, type_.type,
+                                None if type_.enum is None else type_.enum.__members__)
         elif isinstance(type_, IntType):
             if type_.qualifiers:
                 return IntType(type_.name, type_.size, type_.signed)
@@ -228,67 +221,81 @@ class TypeIndex:
         else:
             raise TypeError()
 
-    def integer_promotions(self, type: Type) -> Type:
+    def integer_promotions(self, type_: _IntegerOperandType) -> _IntegerOperandType:
         # Integer promotions are performed on types whose integer conversion
         # rank is less than or equal to the rank of int and unsigned int and
-        # bit-fields.
+        # bit-fields. GCC and Clang always convert enums to their compatible
+        # type.
 
-        real_type = type.real_type()
+        real_type = type_.real_type()
 
-        if isinstance(real_type, EnumType):
-            type = real_type = IntType(real_type.compatible_name,
-                                       real_type.size, real_type.signed)
+        if not isinstance(real_type, (IntType, BitFieldType, EnumType)):
+            raise ValueError('cannot promote non-integer type')
 
         if isinstance(real_type, BitFieldType):
             int_type = self.find_type('int')
-            unsigned_int_type = self.find_type('unsigned int')
+            assert isinstance(int_type, IntType)
             if _can_represent_all_values(int_type, real_type):
                 return int_type
-            elif _can_represent_all_values(unsigned_int_type, real_type):
-                return unsigned_int_type
-            else:
-                # GCC does not promote a bit-field to its full type, but Clang
-                # does. The GCC behavior seems more correct in terms of the
-                # standard.
-                return BitFieldType(real_type.type, None, real_type.bit_size)
 
-        if (not isinstance(real_type, IntType) or
-                real_type.name == 'int' or real_type.name == 'unsigned int' or
+            unsigned_int_type = self.find_type('unsigned int')
+            assert isinstance(unsigned_int_type, IntType)
+            if _can_represent_all_values(unsigned_int_type, real_type):
+                return unsigned_int_type
+
+            # GCC does not promote a bit-field to its full type, but Clang
+            # does. The GCC behavior seems more correct in terms of the
+            # standard.
+            return BitFieldType(real_type.type, None, real_type.bit_size)
+
+        if isinstance(real_type, EnumType):
+            if real_type.type is None:
+                raise ValueError('operand cannot have incomplete enum type')
+            type_ = real_type = real_type.type
+
+        if (real_type.name == 'int' or real_type.name == 'unsigned int' or
                 _integer_conversion_rank(real_type) > _INT_CONVERSION_RANK):
-            return type
+            return type_
 
         int_type = self.find_type('int')
+        assert isinstance(int_type, IntType)
         if _can_represent_all_values(int_type, real_type):
             # If int can represent all values of the original type, then the
             # result is int.
             return int_type
-        else:
-            # Otherwise, the result is unsigned int.
-            return self.find_type('unsigned int')
 
-    def common_real_type(self, type1: Type, type2: Type) -> Type:
+        # Otherwise, the result is unsigned int.
+        unsigned_int_type = self.find_type('unsigned int')
+        assert isinstance(unsigned_int_type, IntType)
+        return unsigned_int_type
+
+    def common_real_type(self, type1: _RealOperandType,
+                         type2: _RealOperandType) -> _RealOperandType:
         real_type1 = type1.real_type()
         real_type2 = type2.real_type()
 
-        if (not isinstance(real_type1, (ArithmeticType, BitFieldType)) or
-                not isinstance(real_type2, (ArithmeticType, BitFieldType))):
-            raise TypeError('operands must have arithmetic types')
+        float1 = real_type1.name if isinstance(real_type1, FloatType) else None
+        float2 = real_type2.name if isinstance(real_type2, FloatType) else None
+        if float1 is not None or float2 is not None:
+            # If either operand is long double, then the result is long double.
+            if float1 == 'long double':
+                return type1
+            if float2 == 'long double':
+                return type2
+            # If either operand is double, then the result is double.
+            if float1 == 'double':
+                return type1
+            if float2 == 'double':
+                return type2
+            # Otherwise, if either operand is float, then the result is float.
+            if float1 == 'float':
+                return type1
+            if float2 == 'float':
+                return type2
+            raise ValueError('unknown floating-point types')
 
-        # If either operand is long double, then the result is long double.
-        if isinstance(real_type1, FloatType) and real_type1.name == 'long double':
-            return type1
-        if isinstance(real_type2, FloatType) and real_type2.name == 'long double':
-            return type2
-        # If either operand is double, then the result is double.
-        if isinstance(real_type1, FloatType) and real_type1.name == 'double':
-            return type1
-        if isinstance(real_type2, FloatType) and real_type2.name == 'double':
-            return type2
-        # Otherwise, if either operand is float, then the result is float.
-        if isinstance(real_type1, FloatType) and real_type1.name == 'float':
-            return type1
-        if isinstance(real_type2, FloatType) and real_type2.name == 'float':
-            return type2
+        assert isinstance(type1, (IntType, BitFieldType, EnumType, TypedefType))
+        assert isinstance(type2, (IntType, BitFieldType, EnumType, TypedefType))
 
         # Otherwise, the integer promotions are performed before applying the
         # following rules.
@@ -347,6 +354,9 @@ class TypeIndex:
             return type1
         if not signed2 and rank2 >= rank1:
             return type2
+
+        assert isinstance(real_type1, (IntType, BitFieldType))
+        assert isinstance(real_type2, (IntType, BitFieldType))
 
         # Otherwise, if the type of the operand with signed integer type can
         # represent all of the values of the type of the operand with unsigned
@@ -508,19 +518,10 @@ class DwarfTypeIndex(TypeIndex):
                                                                    # mypy issue #1484
         elif dwarf_type.tag == DW_TAG.enumeration_type:
             if dwarf_type.find_flag(DW_AT.declaration):
-                size = None
-                signed = None
-                compatible_name = None
+                int_type = None
                 enumerators = None
             else:
-                size = dwarf_type.size()
-                encoding = dwarf_type.find_constant(DW_AT.encoding)
-                if encoding == DW_ATE.signed:
-                    signed = True
-                elif encoding == DW_ATE.unsigned:
-                    signed = False
-                else:
-                    raise NotImplementedError(DW_ATE.str(encoding))
+                int_type = self.find_dwarf_type(dwarf_type.type())
                 enumerators = []
                 for child in dwarf_type.children():
                     if child.tag != DW_TAG.enumerator:
@@ -528,13 +529,11 @@ class DwarfTypeIndex(TypeIndex):
                     name = child.name()
                     value = child.find_constant(DW_AT.const_value)
                     enumerators.append((name, value))
-                compatible_name = str(parse_type_name(dwarf_type.type().name()))
             try:
                 name = dwarf_type.name()
             except DwarfAttribNotFoundError:
                 name = None
-            return EnumType(name, size, signed, enumerators, compatible_name,
-                            qualifiers)
+            return EnumType(name, int_type, enumerators, qualifiers)
         elif dwarf_type.tag == DW_TAG.typedef:
             return TypedefType(dwarf_type.name(),
                                self.find_dwarf_type(dwarf_type.type()),

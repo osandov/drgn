@@ -116,16 +116,16 @@ class TestTypeIndexOperand(TypeIndexTestCase):
         self.assertOperandType(const_union_type, union_type)
 
     def test_enum(self):
-        enum_type = EnumType(None, 4, True, [
+        enum_type = EnumType(None, IntType('int', 4, True), [
             ('RED', 10),
             ('GREEN', 11),
             ('BLUE', -1)
-        ], 'int')
-        const_enum_type = EnumType(None, 4, True, [
+        ])
+        const_enum_type = EnumType(None, IntType('int', 4, True), [
             ('RED', 10),
             ('GREEN', 11),
             ('BLUE', -1)
-        ], 'int', frozenset({'const'}))
+        ], frozenset({'const'}))
         self.assertOperandType(const_enum_type, enum_type)
 
     def test_typedef(self):
@@ -227,25 +227,25 @@ class TestTypeIndexIntegerPromotions(TypeIndexTestCase):
         self.assertPromotes(TYPES['_Bool'], TYPES['int'])
 
     def test_enum(self):
-        type_ = EnumType('color', 4, True, [
+        type_ = EnumType('color', IntType('int', 4, True), [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], 'int')
+        ])
         self.assertPromotes(type_, TYPES['int'])
 
-        type_ = EnumType('color', 4, False, [
+        type_ = EnumType('color', IntType('unsigned int', 4, False), [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], 'unsigned int')
+        ])
         self.assertPromotes(type_, TYPES['unsigned int'])
 
-        type_ = EnumType('color', 8, False, [
+        type_ = EnumType('color', IntType('unsigned long', 8, False), [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], 'unsigned long')
+        ])
         self.assertPromotes(type_, TYPES['unsigned long'])
 
     def test_int(self):
@@ -293,10 +293,6 @@ class TestTypeIndexIntegerPromotions(TypeIndexTestCase):
 
         type_ = TypedefType('LONG', TYPES['long'])
         self.assertPromotes(type_, type_)
-
-    def test_other(self):
-        self.assertPromotes(TYPES['double'], TYPES['double'])
-        self.assertPromotes(TYPES['long double'], TYPES['long double'])
 
 
 class TestTypeIndexCommonRealType(TypeIndexTestCase):
@@ -393,11 +389,11 @@ class TestTypeIndexCommonRealType(TypeIndexTestCase):
                           TYPES['long'])
 
     def test_enum(self):
-        type_ = EnumType('color', 4, True, [
+        type_ = EnumType('color', IntType('int', 4, True), [
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], 'int')
+        ])
         self.assertCommon(type_, TYPES['int'], TYPES['int'])
 
         type_ = TypedefType('COLOR', type_)
@@ -587,18 +583,18 @@ enum color {
 	RED,
 	GREEN,
 	BLUE,
-} x;"""), EnumType('color', 4, False, [('RED', 0), ('GREEN', 1), ('BLUE', 2)], 'unsigned int'))
+} x;"""), EnumType('color', IntType('unsigned int', 4, False), [('RED', 0), ('GREEN', 1), ('BLUE', 2)]))
 
         self.assertEqual(self.compile_type("""\
 enum {
 	RED = 10,
 	GREEN,
 	BLUE = -1,
-} x;"""), EnumType(None, 4, True, [('RED', 10), ('GREEN', 11), ('BLUE', -1)], 'int'))
+} x;"""), EnumType(None, IntType('int', 4, True), [('RED', 10), ('GREEN', 11), ('BLUE', -1)]))
 
     def test_incomplete_enum(self):
         self.assertEqual(self.compile_type('enum foo; extern enum foo x'),
-                         EnumType('foo', None, None, None, None))
+                         EnumType('foo', None, None))
 
     def test_pointer(self):
         self.assertEqual(self.compile_type('int *x'),
@@ -739,11 +735,11 @@ int main(void)
 
     def test_enum_type(self):
         self.assertEqual(self.type_index.find_type('enum color'),
-                         EnumType('color', 4, False, [
+                         EnumType('color', IntType('unsigned int', 4, False), [
                              ('RED', 0),
                              ('GREEN', 1),
                              ('BLUE', 2)
-                         ], 'unsigned int'))
+                         ]))
 
     def test_typedef_type(self):
         self.assertEqual(self.type_index.find_type('point'),
