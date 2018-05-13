@@ -8,11 +8,13 @@ from typing import (
     Dict,
     FrozenSet,
     List,
-    NamedTuple,
     Optional,
     Tuple,
     Union,
 )
+
+
+from drgn.lexer import Lexer, Token
 
 
 class TypeName:
@@ -183,55 +185,8 @@ _TOKEN_REGEX = re.compile('|'.join('(?P<%s>%s)' % pair for pair in [
 ]))
 
 
-class _Token(NamedTuple):
-    kind: str
-    value: Union[str, int, None]
-
-
-class _TypeNameLexer:
-
-    def __init__(self, s: str) -> None:
-        self._tokens = _TOKEN_REGEX.finditer(s)
-        self._stack: List[_Token] = []
-
-    def pop(self) -> _Token:
-        if self._stack:
-            return self._stack.pop()
-
-        while True:
-            try:
-                match = next(self._tokens)
-            except StopIteration:
-                return _Token('EOF', None)
-            kind = match.lastgroup
-            value = match.group(kind)
-            if kind == 'SKIP':
-                pass
-            elif kind == 'MISMATCH':
-                raise ValueError('invalid character')
-            else:
-                if kind == 'NUMBER':
-                    if value.startswith('0x'):
-                        number = int(value, 16)
-                    elif value.startswith('0'):
-                        number = int(value, 8)
-                    else:
-                        number = int(value, 10)
-                    return _Token(kind, number)
-                else:
-                    return _Token(kind, value)
-
-    def push(self, token: _Token) -> None:
-        self._stack.append(token)
-
-    def peek(self) -> _Token:
-        token = self.pop()
-        self.push(token)
-        return token
-
-
 class _TypeNameParser:
-    def __init__(self, lexer: _TypeNameLexer) -> None:
+    def __init__(self, lexer: Lexer) -> None:
         self._lexer = lexer
 
     def parse(self) -> TypeName:
@@ -427,5 +382,5 @@ class _TypeNameParser:
                 return type_name, inner_type
 
 
-def parse_type_name(s: str) -> TypeName:
-    return _TypeNameParser(_TypeNameLexer(s)).parse()
+def parse_type_name(string: str) -> TypeName:
+    return _TypeNameParser(Lexer(_TOKEN_REGEX, string)).parse()
