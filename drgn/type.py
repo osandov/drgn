@@ -549,7 +549,7 @@ class CompoundType(Type):
             real_type = type_.real_type()
             if op == '.':
                 if not isinstance(real_type, CompoundType):
-                    raise ValueError('{str(type_.type_name())!r} is not a struct or union')
+                    raise ValueError(f'{str(type_.type_name())!r} is not a struct or union')
                 try:
                     member_offset, type_thunk = real_type._members_by_name[cast(str, value)]
                 except KeyError:
@@ -558,7 +558,7 @@ class CompoundType(Type):
                 offset += member_offset
             else:  # op == '[]'
                 if not isinstance(real_type, ArrayType):
-                    raise ValueError('{str(type_.type_name())!r} is not an array')
+                    raise ValueError(f'{str(type_.type_name())!r} is not an array')
                 type_ = real_type.type
                 offset += cast(int, value) * type_.sizeof()
         return type_, offset
