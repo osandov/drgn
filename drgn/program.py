@@ -529,17 +529,28 @@ class ProgramObject:
             raise TypeError(f"can't convert {self.type_} to index")
         return self.value_()
 
-    def __round__(self, ndigits: Optional[int] = None) -> Union[int, float]:
-        return round(self.__float__(), ndigits)
+    def __round__(self, ndigits: Optional[int] = None) -> Union[int, 'ProgramObject']:
+        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+            raise TypeError(f"can't round {self.type_}")
+        if ndigits is None:
+            return round(self.value_())
+        return ProgramObject(self.program_, self.type_, None,
+                             round(self.value_(), ndigits))
 
     def __trunc__(self) -> int:
-        return math.trunc(self.__float__())
+        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+            raise TypeError(f"can't round {self.type_}")
+        return math.trunc(self.value_())
 
     def __floor__(self) -> int:
-        return math.floor(self.__float__())
+        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+            raise TypeError(f"can't round {self.type_}")
+        return math.floor(self.value_())
 
     def __ceil__(self) -> int:
-        return math.ceil(self.__float__())
+        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+            raise TypeError(f"can't round {self.type_}")
+        return math.ceil(self.value_())
 
 
 class Program:
