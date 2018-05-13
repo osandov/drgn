@@ -67,6 +67,9 @@ line_segment_type = StructType('line_segment', 16, [
     ('a', 0, lambda: point_type),
     ('b', 8, lambda: point_type),
 ])
+quadrilateral_type = StructType('quadrilateral', 16, [
+    ('points', 0, lambda: ArrayType(point_type, 4)),
+])
 pointer_size = ctypes.sizeof(ctypes.c_void_p)
 
 
@@ -212,6 +215,26 @@ struct line_segment {
 	struct point a;
 	struct point b;
 }""")
+        self.assertEqual(line_segment_type.offsetof('a.x'), 0)
+        self.assertEqual(line_segment_type.offsetof('a.y'), 4)
+        self.assertEqual(line_segment_type.offsetof('b.x'), 8)
+        self.assertEqual(line_segment_type.offsetof('b.y'), 12)
+        self.assertRaisesRegex(ValueError, 'no member',
+                               line_segment_type.offsetof, 'c')
+        self.assertRaisesRegex(ValueError, 'not a struct or union',
+                               line_segment_type.offsetof, 'a.x.z')
+        self.assertRaisesRegex(ValueError, 'not an array',
+                               line_segment_type.offsetof, 'a[0]')
+
+        self.assertEqual(str(quadrilateral_type), """\
+struct quadrilateral {
+	struct point points[4];
+}""")
+        for i in range(5):
+            self.assertEqual(quadrilateral_type.offsetof(f'points[{i}].x'),
+                             8 * i)
+            self.assertEqual(quadrilateral_type.offsetof(f'points[{i}].y'),
+                             8 * i + 4)
 
         self.assertEqual(str(anonymous_point_type), """\
 struct {

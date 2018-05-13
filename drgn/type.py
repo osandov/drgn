@@ -19,8 +19,19 @@ import numbers
 import re
 import struct
 import sys
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
+from drgn.memberdesignator import parse_member_designator
 from drgn.typename import (
     ArrayTypeName,
     BasicTypeName,
@@ -530,6 +541,28 @@ class CompoundType(Type):
         """
         return list(self._members_by_name)
 
+    def _member(self, member: str) -> Tuple[Type, int]:
+        designator = parse_member_designator(member)
+        type_: Type = self
+        offset = 0
+        for op, value in designator:
+            real_type = type_.real_type()
+            if op == '.':
+                if not isinstance(real_type, CompoundType):
+                    raise ValueError('{str(type_.type_name())!r} is not a struct or union')
+                try:
+                    member_offset, type_thunk = real_type._members_by_name[cast(str, value)]
+                except KeyError:
+                    raise ValueError(f'{str(type_.type_name())!r} has no member {value!r}') from None
+                type_ = type_thunk()
+                offset += member_offset
+            else:  # op == '[]'
+                if not isinstance(real_type, ArrayType):
+                    raise ValueError('{str(type_.type_name())!r} is not an array')
+                type_ = real_type.type
+                offset += cast(int, value) * type_.sizeof()
+        return type_, offset
+
     def offsetof(self, member: str) -> int:
         """
         Return offsetof(type, member).
@@ -537,10 +570,7 @@ class CompoundType(Type):
         >>> print(prog['init_task'].fs.root.type_.offsetof('dentry'))
         8
         """
-        try:
-            return self._members_by_name[member][0]
-        except KeyError:
-            raise ValueError(f'{str(self.type_name())!r} has no member {member!r}') from None
+        return self._member(member)[1]
 
     def typeof(self, member: str) -> Type:
         """
@@ -549,10 +579,7 @@ class CompoundType(Type):
         >>> print(prog['init_task'].fs.root.type_.typeof('dentry'))
         struct dentry *
         """
-        try:
-            return self._members_by_name[member][1]()
-        except KeyError:
-            raise ValueError(f'{str(self.type_name())!r} has no member {member!r}') from None
+        return self._member(member)[0]
 
 
 class StructType(CompoundType):
