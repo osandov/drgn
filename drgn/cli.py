@@ -118,7 +118,8 @@ def main() -> None:
         else:
             import atexit
             import readline
-            import rlcompleter
+
+            from drgn.rlcompleter import Completer
 
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
@@ -132,11 +133,12 @@ def main() -> None:
             readline.set_history_length(1000)
             atexit.register(readline.write_history_file, histfile)
 
-            readline.set_completer(rlcompleter.Completer(init_globals).complete)  # type: ignore
-                                                                                  # typeshed issue #2105
+            readline.set_completer(Completer(init_globals).complete)
+            atexit.register(lambda: readline.set_completer(None))
 
             banner = version + '\nFor help, type help(drgn).'
             code.interact(banner=banner, exitmsg='', local=init_globals)
+
 
 if __name__ == '__main__':
     main()
