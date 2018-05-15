@@ -477,6 +477,17 @@ enum {
         type_ = ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4), 3), 2)
         self.assertEqual(str(type_), 'int [2][3][4]')
 
+    def test_char_array(self):
+        type_ = ArrayType(IntType('char', 1, True), 4)
+        self.assertEqual(type_.read_pretty(b'hello\0'), '(char [4])"hell"')
+        self.assertEqual(type_.read_pretty(b'hi\0\0'), '(char [4])"hi"')
+
+        type_ = ArrayType(IntType('char', 1, True), 8)
+        self.assertEqual(type_.read_pretty(b'hello\0world\0'), '(char [8])"hello"')
+
+        type_ = ArrayType(IntType('char', 1, True), 0)
+        self.assertEqual(type_.read_pretty(b'hi\0'), '(char [0]){}')
+
     def test_array_with_empty_element(self):
         type_ = ArrayType(StructType('empty', 0, []), 2)
         self.assertEqual(str(type_), 'struct empty [2]')

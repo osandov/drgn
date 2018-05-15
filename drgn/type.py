@@ -44,6 +44,7 @@ from drgn.typename import (
     UnionTypeName,
     VoidTypeName,
 )
+from drgn.util import c_string
 
 
 class Type:
@@ -919,8 +920,15 @@ class ArrayType(Type):
             parts = ['(', str(self.type_name()), ')']
         else:
             parts = []
+
         if not self.size:
             parts.append('{}')
+        elif isinstance(self.type, IntType) and self.type.name.endswith('char'):
+            try:
+                i = value.index(0)
+            except ValueError:
+                i = len(value)
+            parts.append(c_string(value[:i]))
         else:
             elements = []
             format_element = False
