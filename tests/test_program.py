@@ -3,7 +3,7 @@ import operator
 import unittest
 
 from drgn.program import Program, ProgramObject
-from drgn.type import IntType, StructType
+from drgn.type import ArrayType, IntType, StructType
 from tests.test_type import point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES
 
@@ -28,9 +28,10 @@ class TestProgramObject(TypeIndexTestCase):
             raise NotImplementedError()
         def read_memory(address, size):
             address -= 0xffff0000
-            assert address >= 0
-            assert address + size <= len(mem)
-            return mem[address:address + size]
+            if address >= 0 and address + size <= len(mem):
+                return mem[address:address + size]
+            else:
+                raise ValueError('Bad address')
         self.program = Program(type_index=self.type_index,
                                lookup_variable_fn=lookup_variable,
                                read_memory_fn=read_memory)
@@ -56,6 +57,34 @@ class TestProgramObject(TypeIndexTestCase):
 
         obj = self.program.object(TYPES['double'], None, 1.0)
         self.assertRaises(TypeError, obj.cast_, self.type_index.pointer(TYPES['int']))
+
+    def test_str(self):
+        obj = self.program.object(TYPES['int'], None, 1)
+        self.assertEqual(str(obj), '(int)1')
+
+        obj = self.program.object(self.type_index.pointer(TYPES['void']), None, 0xffff0000)
+        self.assertEqual(str(obj), '(void *)0xffff0000')
+
+        obj = self.program.object(self.type_index.pointer(TYPES['int']), None, 0xffff0000)
+        self.assertEqual(str(obj), '*(int *)0xffff0000 = 1')
+
+        obj = self.program.object(self.type_index.pointer(TYPES['int']), None, 0x0)
+        self.assertEqual(str(obj), '(int *)0x0')
+
+        obj = self.program.object(self.type_index.pointer(TYPES['char']), None, 0xffff0008)
+        self.assertEqual(str(obj), '(char *)0xffff0008 = "hello"')
+
+        obj = self.program.object(self.type_index.pointer(TYPES['char']), None, 0x0)
+        self.assertEqual(str(obj), '(char *)0x0')
+
+        obj = self.program.object(self.type_index.pointer(TYPES['char']), None, 0xffff000f)
+        self.assertEqual(str(obj), '(char *)0xffff000f = ""')
+
+        obj = self.program.object(ArrayType(TYPES['char'], 8), 0xffff0008)
+        self.assertEqual(str(obj), '(char [8])"hello"')
+
+        obj = self.program.object(ArrayType(TYPES['char'], 4), 0xffff0008)
+        self.assertEqual(str(obj), '(char [4])"hell"')
 
     def test_int(self):
         int_obj = self.program.object(TYPES['int'], 0xffff0000)

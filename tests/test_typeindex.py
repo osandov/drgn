@@ -33,6 +33,7 @@ from tests.test_type import (
 
 
 TYPES = {
+    'void': VoidType(),
     '_Bool': BoolType('_Bool', 1),
     'char': IntType('char', 1, True),
     'signed char': IntType('signed char', 1, True),

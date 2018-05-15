@@ -3,6 +3,12 @@
 
 """Program debugging library"""
 
+import functools
+import itertools
+import math
+import operator
+from typing import Any, Callable, Iterable, Optional, Tuple, Union
+
 from drgn.type import (
     ArithmeticType,
     BitFieldType,
@@ -15,11 +21,7 @@ from drgn.type import (
 )
 from drgn.typename import TypeName
 from drgn.typeindex import TypeIndex
-import functools
-import itertools
-import math
-import operator
-from typing import Any, Callable, Iterable, Optional, Tuple, Union
+from drgn.util import c_string
 
 
 def _c_modulo(a: int, b: int) -> int:
@@ -172,7 +174,26 @@ class ProgramObject:
         Implement str(self). Return a string representation of the value of
         this object in C syntax.
         """
-        return self.type_.pretty(self.value_())
+        string = self.type_.pretty(self.value_())
+        if (isinstance(self._real_type, PointerType) and
+                isinstance(self._real_type.type, IntType) and
+                self._real_type.type.name.endswith('char')):
+            try:
+                deref_string = c_string(self.string_())
+            except ValueError:
+                pass
+            else:
+                return f'{string} = {deref_string}'
+        elif isinstance(self._real_type, PointerType):
+            try:
+                deref = self.__getitem__(0)
+                deref_string = deref._real_type.pretty(deref.value_(),
+                                                       cast=False)
+            except ValueError:
+                pass
+            else:
+                return f'*{string} = {deref_string}'
+        return string
 
     def value_(self) -> Any:
         """
