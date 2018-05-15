@@ -26,7 +26,7 @@ def displayhook(value: Any) -> None:
     if value is None:
         return
     builtins._ = None
-    text = str(value) if isinstance(value, ProgramObject) else repr(value)
+    text = str(value) if isinstance(value, (ProgramObject, Type)) else repr(value)
     try:
         sys.stdout.write(text)
     except UnicodeEncodeError:

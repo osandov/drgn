@@ -53,7 +53,7 @@ class Type:
 
     repr() (the default at the interactive prompt) returns a Python
     representation of the type.
-    >>> prog['init_task'].fs.root.type_
+    >>> print(repr(prog['init_task'].fs.root.type_))
     StructType('path', 16, [('mnt', 0, ...), ('dentry', 8, ...)])
 
     str() (which is used by print()) returns a representation of the type in C
@@ -339,11 +339,11 @@ class BitFieldType(Type):
     A BitFieldType is not a real C type. It represents a bit field. It has an
     underlying IntType, a bit offset, and a bit size.
 
-    >>> prog['init_task'].in_execve.type_
+    >>> print(repr(prog['init_task'].in_execve.type_))
     BitFieldType(IntType('unsigned int', 4, False), 0, 1)
     >>> print(prog['init_task'].in_execve.type_)
     unsigned int : 1
-    >>> prog['init_task'].in_execve.type_.type
+    >>> print(repr(prog['init_task'].in_execve.type_.type))
     IntType('unsigned int', 4, False)
     >>> prog['init_task'].in_execve.type_.bit_size
     1
@@ -588,7 +588,7 @@ class StructType(CompoundType):
     A StructType represents a struct type. See help(CompoundType) and
     help(Type) for more information.
 
-    >>> prog['init_task'].fs.root.type_
+    >>> print(repr(prog['init_task'].fs.root.type_))
     StructType('path', 16, [('mnt', 0, ...), ('dentry', 8, ...)])
     >>> print(prog['init_task'].fs.root.type_)
     struct path {
@@ -606,7 +606,7 @@ class UnionType(CompoundType):
     A UnionType represents a union type. See help(CompoundType) and help(Type)
     for more information.
 
-    >>> prog['init_task'].rcu_read_unlock_special.type_
+    >>> print(repr(prog['init_task'].rcu_read_unlock_special.type_))
     UnionType('rcu_special', 4, [('b', 0, ...), ('s', 0, ...)])
     >>> print(prog['init_task'].rcu_read_unlock_special.type_)
     union rcu_special {
@@ -649,7 +649,7 @@ class EnumType(Type):
                               ('PIDTYPE_SID', <pid_type.PIDTYPE_SID: 2>),
                               ('PIDTYPE_MAX', <pid_type.PIDTYPE_MAX: 3>),
                               ('__PIDTYPE_TGID', <pid_type.__PIDTYPE_TGID: 4>)]))
-    >>> prog.type('enum pid_type').type
+    >>> print(repr(prog.type('enum pid_type').type))
     IntType('unsigned int', 4, False)
     """
 
@@ -749,11 +749,11 @@ class TypedefType(Type):
     A TypedefType has a name, an underlying type, and additional qualifiers.
     See help(Type) for more information.
 
-    >>> prog.type('u32')
+    >>> print(repr(prog.type('u32')))
     TypedefType('u32', IntType('unsigned int', 4, False))
     >>> print(prog.type('u32'))
     typedef unsigned int u32
-    >>> prog.type('u32').type
+    >>> print(repr(prog.type('u32').type))
     IntType('unsigned int', 4, False)
     """
 
@@ -819,13 +819,13 @@ class PointerType(Type):
     A PointerType has a size, underlying type, and qualifiers. See help(Type)
     for more information.
 
-    >>> prog['init_task'].stack.type_
+    >>> print(repr(prog['init_task'].stack.type_))
     PointerType(8, VoidType())
     >>> print(prog['init_task'].stack.type_)
     void *
     >>> prog['init_task'].stack.type_.size
     8
-    >>> prog['init_task'].stack.type_.type
+    >>> print(repr(prog['init_task'].stack.type_.type))
     VoidType()
     """
 
@@ -876,11 +876,11 @@ class ArrayType(Type):
     An ArrayType has an element type and a size. See help(Type) for more
     information.
 
-    >>> prog['init_task'].comm.type_
+    >>> print(repr(prog['init_task'].comm.type_))
     ArrayType(IntType('char', 1, True), 16)
     >>> print(prog['init_task'].comm.type_)
     char [16]
-    >>> prog['init_task'].comm.type_.type
+    >>> print(repr(prog['init_task'].comm.type_.type))
     IntType('char', 1, True)
     >>> prog['init_task'].comm.type_.size
     16
@@ -954,7 +954,7 @@ class FunctionType(Type):
 
     >>> print(prog.type('dio_submit_t'))
     typedef void dio_submit_t(struct bio *, struct inode *, loff_t)
-    >>> prog.type('dio_submit_t').type.return_type
+    >>> print(repr(prog.type('dio_submit_t').type.return_type))
     VoidType()
     >>> prog.type('dio_submit_t').type.parameters[2]
     (TypedefType('loff_t', TypedefType('__kernel_loff_t', IntType('long long int', 8, True))), None)
