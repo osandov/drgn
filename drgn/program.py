@@ -37,17 +37,20 @@ class ProgramObject:
     object in the program; and address_, the location in memory where this
     object resides in the program (or None if it is not an lvalue).
 
-    repr() (the default at the interactive prompt) of a ProgramObject returns a
-    Python representation of the object.
+    repr() of a ProgramObject returns a Python representation of the object.
 
-    >>> prog['jiffies']
+    >>> print(repr(prog['jiffies']))
     ProgramObject(type=<volatile long unsigned int>, address=0xffffffffbf005000)
 
-    str() (which is used by print()) returns a representation of the object in
-    C syntax.
+    str() returns a representation of the object in C syntax.
 
     >>> print(prog['jiffies'])
     (volatile long unsigned int)4326237045
+
+    Note that the drgn CLI is set up so that ProgramObjects are displayed with
+    str() instead of repr(), which is the default behavior of Python's
+    interactive mode. This means that the call to print() in the second example
+    above is not necessary.
 
     ProgramObjects support C operators wherever possible. E.g., structure
     members can be accessed with the dot (".") operator, arrays can be
@@ -58,7 +61,7 @@ class ProgramObject:
     (pid_t)0
     >>> print(prog['init_task'].comm[0])
     (char)115
-    >>> prog['init_task'].nsproxy.mnt_ns.mounts + 1
+    >>> print(repr(prog['init_task'].nsproxy.mnt_ns.mounts + 1))
     ProgramObject(type=<unsigned int>, address=None, value=34)
     >>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0
     False

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0+
 
 import argparse
+import builtins
 import code
 import glob
 import os
@@ -15,10 +16,28 @@ import drgn
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
 from drgn.elf import parse_elf_phdrs
-from drgn.program import Program
+from drgn.program import Program, ProgramObject
 from drgn.type import Type
 from drgn.typeindex import DwarfTypeIndex
 from drgn.util import parse_symbol_file
+
+
+def displayhook(value: Any) -> None:
+    if value is None:
+        return
+    builtins._ = None
+    text = str(value) if isinstance(value, ProgramObject) else repr(value)
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        encoded = text.encode(sys.stdout.encoding, 'backslashreplace')
+        if hasattr(sys.stdout, 'buffer'):
+            sys.stdout.buffer.write(encoded)
+        else:
+            text = encoded.decode(sys.stdout.encoding, 'strict')
+            sys.stdout.write(text)
+    sys.stdout.write('\n')
+    builtins._ = value
 
 
 def find_vmlinux(release: str) -> str:
@@ -135,6 +154,8 @@ def main() -> None:
 
             readline.set_completer(Completer(init_globals).complete)
             atexit.register(lambda: readline.set_completer(None))
+
+            sys.displayhook = displayhook
 
             banner = version + '\nFor help, type help(drgn).'
             code.interact(banner=banner, exitmsg='', local=init_globals)
