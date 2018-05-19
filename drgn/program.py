@@ -306,7 +306,7 @@ class ProgramObject:
         if ((integer and not self._real_type.is_integer()) or
                 (not integer and not self._real_type.is_arithmetic())):
             raise TypeError(f"invalid operand to unary {op_name} ('{self.type_}')")
-        type_ = self.program_._type_index.operand_type(self.type_)
+        type_ = self.type_.operand_type()
         if self._real_type.is_integer():
             type_ = self.program_._type_index.integer_promotions(type_)
         return ProgramObject(self.program_, type_, None, op(self.value_()))
@@ -343,8 +343,8 @@ class ProgramObject:
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic():
             raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
-        lhs_type = self.program_._type_index.operand_type(lhs_type)
-        rhs_type = self.program_._type_index.operand_type(rhs_type)
+        lhs_type = lhs_type.operand_type()
+        rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
         return ProgramObject(self.program_, type_, None, op(lhs, rhs))
@@ -354,8 +354,8 @@ class ProgramObject:
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_integer() or not rhs_type.is_integer():
             raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
-        lhs_type = self.program_._type_index.operand_type(lhs_type)
-        rhs_type = self.program_._type_index.operand_type(rhs_type)
+        lhs_type = lhs_type.operand_type()
+        rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
         return ProgramObject(self.program_, type_, None, op(lhs, rhs))
@@ -365,8 +365,8 @@ class ProgramObject:
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_integer() or not rhs_type.is_integer():
             raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
-        lhs_type = self.program_._type_index.operand_type(lhs_type)
-        rhs_type = self.program_._type_index.operand_type(rhs_type)
+        lhs_type = lhs_type.operand_type()
+        rhs_type = rhs_type.operand_type()
         lhs_type = self.program_._type_index.integer_promotions(lhs_type)
         rhs_type = self.program_._type_index.integer_promotions(rhs_type)
         return ProgramObject(self.program_, lhs_type, None, op(lhs, rhs))
@@ -381,8 +381,8 @@ class ProgramObject:
                 (not lhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
             raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
-        lhs_type = self.program_._type_index.operand_type(lhs_type)
-        rhs_type = self.program_._type_index.operand_type(rhs_type)
+        lhs_type = lhs_type.operand_type()
+        rhs_type = rhs_type.operand_type()
         if not lhs_pointer:
             type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                                  rhs, rhs_type)
@@ -400,8 +400,8 @@ class ProgramObject:
                 (not lhs_pointer and not rhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
             raise TypeError(f"invalid operands to binary + ('{lhs_type}' and '{rhs_type}')")
-        lhs_type = self.program_._type_index.operand_type(lhs_type)
-        rhs_type = self.program_._type_index.operand_type(rhs_type)
+        lhs_type = lhs_type.operand_type()
+        rhs_type = rhs_type.operand_type()
         if lhs_pointer:
             assert isinstance(lhs_type, PointerType)
             return ProgramObject(self.program_, lhs_type, None,
@@ -431,8 +431,8 @@ class ProgramObject:
                 (not lhs_pointer and not rhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
             raise TypeError(f"invalid operands to binary - ('{lhs_type}' and '{rhs_type}')")
-        lhs_type = self.program_._type_index.operand_type(lhs_type)
-        rhs_type = self.program_._type_index.operand_type(rhs_type)
+        lhs_type = lhs_type.operand_type()
+        rhs_type = rhs_type.operand_type()
         if lhs_pointer and rhs_pointer:
             return ProgramObject(self.program_,
                                  self.program_._type_index.ptrdiff_t(),

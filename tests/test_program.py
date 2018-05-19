@@ -3,7 +3,7 @@ import operator
 import unittest
 
 from drgn.program import Program, ProgramObject
-from drgn.type import ArrayType, IntType, StructType
+from drgn.type import IntType, StructType
 from tests.test_type import point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES
 
@@ -80,10 +80,10 @@ class TestProgramObject(TypeIndexTestCase):
         obj = self.program.object(self.type_index.pointer(TYPES['char']), None, 0xffff000f)
         self.assertEqual(str(obj), '(char *)0xffff000f = ""')
 
-        obj = self.program.object(ArrayType(TYPES['char'], 8), 0xffff0008)
+        obj = self.program.object(self.type_index.array(TYPES['char'], 8), 0xffff0008)
         self.assertEqual(str(obj), '(char [8])"hello"')
 
-        obj = self.program.object(ArrayType(TYPES['char'], 4), 0xffff0008)
+        obj = self.program.object(self.type_index.array(TYPES['char'], 4), 0xffff0008)
         self.assertEqual(str(obj), '(char [4])"hell"')
 
     def test_int(self):

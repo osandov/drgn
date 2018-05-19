@@ -138,6 +138,13 @@ class Type:
         """
         return self
 
+    def operand_type(self) -> 'Type':
+        """
+        Return the type that this type is converted to when used in an
+        expression.
+        """
+        raise NotImplementedError()
+
     def is_arithmetic(self) -> bool:
         """
         Return whether this type is an arithmetic type. This is true for
@@ -175,6 +182,11 @@ class VoidType(Type):
 
     def convert(self, value: Any) -> None:
         return None
+
+    def operand_type(self) -> 'VoidType':
+        if self.qualifiers:
+            return VoidType()
+        return self
 
 
 class ArithmeticType(Type):
@@ -269,6 +281,11 @@ class IntType(ArithmeticType):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(math.trunc(value), 8 * self.size, self.signed)
 
+    def operand_type(self) -> 'IntType':
+        if self.qualifiers:
+            return IntType(self.name, self.size, self.signed)
+        return self
+
     def is_integer(self) -> bool:
         return True
 
@@ -305,6 +322,11 @@ class BoolType(IntType):
             raise TypeError(f'cannot convert to {self}')
         return bool(value)
 
+    def operand_type(self) -> 'BoolType':
+        if self.qualifiers:
+            return BoolType(self.name, self.size)
+        return self
+
 
 class FloatType(ArithmeticType):
     """
@@ -333,6 +355,11 @@ class FloatType(ArithmeticType):
             return value
         else:
             raise ValueError(f"can't convert to float of size {self.size}")
+
+    def operand_type(self) -> 'FloatType':
+        if self.qualifiers:
+            return FloatType(self.name, self.size)
+        return self
 
 
 class BitFieldType(Type):
@@ -411,6 +438,12 @@ class BitFieldType(Type):
         if not isinstance(value, numbers.Real):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(math.trunc(value), self.bit_size, self.type.signed)
+
+    def operand_type(self) -> 'BitFieldType':
+        if self.type.qualifiers:
+            return BitFieldType(self.type.operand_type(), self.bit_offset,
+                                self.bit_size)
+        return self
 
     def is_arithmetic(self) -> bool:
         return True
@@ -602,6 +635,11 @@ class StructType(CompoundType):
     def type_name(self) -> StructTypeName:
         return StructTypeName(self.name, self.qualifiers)
 
+    def operand_type(self) -> 'StructType':
+        if self.qualifiers:
+            return StructType(self.name, self.size, self._members)
+        return self
+
 
 class UnionType(CompoundType):
     """
@@ -624,6 +662,11 @@ class UnionType(CompoundType):
 
     def type_name(self) -> UnionTypeName:
         return UnionTypeName(self.name, self.qualifiers)
+
+    def operand_type(self) -> 'UnionType':
+        if self.qualifiers:
+            return UnionType(self.name, self.size, self._members)
+        return self
 
 
 class EnumType(Type):
@@ -742,6 +785,12 @@ class EnumType(Type):
                 pass
         return value
 
+    def operand_type(self) -> 'EnumType':
+        if self.qualifiers:
+            return EnumType(self.name, self.type,
+                            None if self.enum is None else self.enum.__members__)
+        return self
+
     def is_arithmetic(self) -> bool:
         return True
 
@@ -809,6 +858,18 @@ class TypedefType(Type):
             type_ = type_.type
         return type_
 
+    def operand_type(self) -> Type:
+        type_ = self.type
+        while isinstance(type_, TypedefType):
+            if type_.qualifiers:
+                return type_.real_type().operand_type()
+            type_ = type_.type
+        if isinstance(type_, (ArrayType, FunctionType)) or type_.qualifiers:
+            return type_.operand_type()
+        if self.qualifiers:
+            return TypedefType(self.name, self.type)
+        return self
+
     def is_arithmetic(self) -> bool:
         return self.type.is_arithmetic()
 
@@ -872,28 +933,37 @@ class PointerType(Type):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(int(value), 8 * self.size, False)
 
+    def operand_type(self) -> 'PointerType':
+        if self.qualifiers:
+            return PointerType(self.size, self.type)
+        return self
+
 
 class ArrayType(Type):
     """
-    An ArrayType has an element type and a size. See help(Type) for more
-    information.
+    An ArrayType has an element type, a size, and a size of the pointer type
+    that this type can be converted to. See help(Type) for more information.
 
     >>> print(repr(prog['init_task'].comm.type_))
-    ArrayType(IntType('char', 1, True), 16)
+    ArrayType(IntType('char', 1, True), 16, 8)
     >>> print(prog['init_task'].comm.type_)
     char [16]
     >>> print(repr(prog['init_task'].comm.type_.type))
     IntType('char', 1, True)
     >>> prog['init_task'].comm.type_.size
     16
+    >>> prog['init_task'].comm.type_.pointer_size
+    8
     """
 
-    def __init__(self, type: Type, size: Optional[int] = None) -> None:
+    def __init__(self, type: Type, size: Optional[int],
+                 pointer_size: int) -> None:
         self.type = type
         self.size = size
+        self.pointer_size = pointer_size
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.type!r}, {self.size!r})'
+        return f'{self.__class__.__name__}({self.type!r}, {self.size!r}, {self.pointer_size!r})'
 
     def type_name(self) -> ArrayTypeName:
         return ArrayTypeName(self.type.type_name(), self.size)
@@ -947,15 +1017,21 @@ class ArrayType(Type):
             parts.append('}')
         return ''.join(parts)
 
+    def operand_type(self) -> 'PointerType':
+        return PointerType(self.pointer_size, self.type)
+
 
 class FunctionType(Type):
     """
-    A FunctionType has a return type and parameters, and may be variadic. It is
-    often the underlying type of a PointerType or TypedefType. See help(Type)
-    for more information.
+    A FunctionType has a return type and parameters, and may be variadic. It
+    also has the size of the pointer type that this type can be converted to.
+    It is often the underlying type of a PointerType or TypedefType. See
+    help(Type) for more information.
 
     >>> print(prog.type('dio_submit_t'))
     typedef void dio_submit_t(struct bio *, struct inode *, loff_t)
+    >>> prog.type('dio_submit_t').type.pointer_size
+    8
     >>> print(repr(prog.type('dio_submit_t').type.return_type))
     VoidType()
     >>> prog.type('dio_submit_t').type.parameters[2]
@@ -964,9 +1040,10 @@ class FunctionType(Type):
     False
     """
 
-    def __init__(self, return_type: Type,
+    def __init__(self, pointer_size: int, return_type: Type,
                  parameters: Optional[List[Tuple[Type, Optional[str]]]] = None,
                  variadic: bool = False) -> None:
+        self.pointer_size = pointer_size
         self.return_type = return_type
         self.parameters = parameters
         self.variadic = variadic
@@ -998,3 +1075,6 @@ class FunctionType(Type):
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         raise ValueError("can't format function")
+
+    def operand_type(self) -> 'PointerType':
+        return PointerType(self.pointer_size, self)

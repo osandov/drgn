@@ -11,6 +11,7 @@ from drgn.type import (
     BoolType,
     EnumType,
     FloatType,
+    FunctionType,
     IntType,
     PointerType,
     StructType,
@@ -51,6 +52,7 @@ def type_eq(self, other):
         return self.__dict__ == other.__dict__
 
 
+pointer_size = ctypes.sizeof(ctypes.c_void_p)
 point_type = StructType('point', 8, [
     ('x', 0, lambda: IntType('int', 4, True)),
     ('y', 4, lambda: IntType('int', 4, True)),
@@ -68,9 +70,8 @@ line_segment_type = StructType('line_segment', 16, [
     ('b', 8, lambda: point_type),
 ])
 quadrilateral_type = StructType('quadrilateral', 16, [
-    ('points', 0, lambda: ArrayType(point_type, 4)),
+    ('points', 0, lambda: ArrayType(point_type, 4, pointer_size)),
 ])
-pointer_size = ctypes.sizeof(ctypes.c_void_p)
 
 
 class TypeTestCase(unittest.TestCase):
@@ -443,7 +444,7 @@ enum {
         self.assertEqual(str(type_), 'void *')
 
     def test_array(self):
-        type_ = ArrayType(IntType('int', 4, True), 2)
+        type_ = ArrayType(IntType('int', 4, True), 2, pointer_size)
         self.assertEqual(str(type_), 'int [2]')
         self.assertEqual(type_.sizeof(), 8)
         buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
@@ -471,25 +472,25 @@ enum {
         self.assertRaises(ValueError, type_.read, buffer, 3)
         self.assertRaises(ValueError, type_.read_pretty, buffer, 3)
 
-        type_ = ArrayType(ArrayType(IntType('int', 4, True), 3), 2)
+        type_ = ArrayType(ArrayType(IntType('int', 4, True), 3, pointer_size), 2, pointer_size)
         self.assertEqual(str(type_), 'int [2][3]')
 
-        type_ = ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4), 3), 2)
+        type_ = ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4, pointer_size), 3, pointer_size), 2, pointer_size)
         self.assertEqual(str(type_), 'int [2][3][4]')
 
     def test_char_array(self):
-        type_ = ArrayType(IntType('char', 1, True), 4)
+        type_ = ArrayType(IntType('char', 1, True), 4, pointer_size)
         self.assertEqual(type_.read_pretty(b'hello\0'), '(char [4])"hell"')
         self.assertEqual(type_.read_pretty(b'hi\0\0'), '(char [4])"hi"')
 
-        type_ = ArrayType(IntType('char', 1, True), 8)
+        type_ = ArrayType(IntType('char', 1, True), 8, pointer_size)
         self.assertEqual(type_.read_pretty(b'hello\0world\0'), '(char [8])"hello"')
 
-        type_ = ArrayType(IntType('char', 1, True), 0)
+        type_ = ArrayType(IntType('char', 1, True), 0, pointer_size)
         self.assertEqual(type_.read_pretty(b'hi\0'), '(char [0]){}')
 
     def test_array_with_empty_element(self):
-        type_ = ArrayType(StructType('empty', 0, []), 2)
+        type_ = ArrayType(StructType('empty', 0, []), 2, pointer_size)
         self.assertEqual(str(type_), 'struct empty [2]')
         self.assertEqual(type_.sizeof(), 0)
         self.assertEqual(type_.read(b''), [OrderedDict(), OrderedDict()])
@@ -497,17 +498,17 @@ enum {
         self.assertRaises(ValueError, type_.read_pretty, b'', 1)
 
     def test_incomplete_array(self):
-        type_ = ArrayType(IntType('int', 4, True), None)
+        type_ = ArrayType(IntType('int', 4, True), None, pointer_size)
         self.assertEqual(str(type_), 'int []')
         self.assertRaises(ValueError, type_.sizeof)
         self.assertEqual(type_.read(b''), [])
         self.assertEqual(type_.read_pretty(b''), '(int []){}')
 
-        type_ = ArrayType(ArrayType(IntType('int', 4, True), 2), None)
+        type_ = ArrayType(ArrayType(IntType('int', 4, True), 2, pointer_size), None, pointer_size)
         self.assertEqual(str(type_), 'int [][2]')
 
     def test_array_of_structs(self):
-        type_ = ArrayType(point_type, 2)
+        type_ = ArrayType(point_type, 2, pointer_size)
         self.assertEqual(str(type_), 'struct point [2]')
         self.assertEqual(type_.sizeof(), 16)
         buffer = ((1).to_bytes(4, sys.byteorder, signed=True) +
@@ -638,8 +639,8 @@ class TestConvert(unittest.TestCase):
             ('i', 0, lambda: IntType('int', 4, True)),
             ('f', 0, lambda: FloatType('float', 4)),
         ])
-        array_type = ArrayType(IntType('int', 4, True), 2)
-        incomplete_array_type = ArrayType(IntType('int', 4, True), None)
+        array_type = ArrayType(IntType('int', 4, True), 2, pointer_size)
+        incomplete_array_type = ArrayType(IntType('int', 4, True), None, pointer_size)
         for type_ in [point_type, union_type, array_type,
                       incomplete_array_type]:
             with self.subTest(type=type_):
@@ -688,3 +689,101 @@ class TestConvert(unittest.TestCase):
         self.assertEqual(type_.convert(2**64 - 1), 2**64 - 1)
         self.assertEqual(type_.convert(-1), 2**64 - 1)
         self.assertEqual(type_.convert(2**64 + 1), 1)
+
+
+class TestOperandType(TypeTestCase):
+    def assertOperandType(self, type_, expected):
+        for i in range(2):
+            type_ = type_.operand_type()
+            self.assertEqual(type_, expected)
+
+    def test_void(self):
+        self.assertOperandType(VoidType(frozenset({'const'})), VoidType())
+
+    def test_int(self):
+        self.assertOperandType(IntType('int', 4, True, frozenset({'const'})),
+                               IntType('int', 4, True))
+
+    def test_bool(self):
+        self.assertOperandType(BoolType('_Bool', 1, frozenset({'const'})),
+                               BoolType('_Bool', 1))
+
+    def test_float(self):
+        self.assertOperandType(FloatType('double', 8, frozenset({'const'})),
+                               FloatType('double', 8))
+
+    def test_bit_field(self):
+        self.assertOperandType(BitFieldType(IntType('int', 4, True, frozenset({'const'})), 0, 4),
+                               BitFieldType(IntType('int', 4, True), 0, 4))
+
+    def test_struct(self):
+        const_point_type = StructType('point', 8, [
+            ('x', 0, lambda: IntType('int', 4, True)),
+            ('y', 4, lambda: IntType('int', 4, True)),
+        ], frozenset({'const'}))
+        self.assertOperandType(const_point_type, point_type)
+
+    def test_union(self):
+        union_type = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ])
+        const_union_type = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ], frozenset({'const'}))
+        self.assertOperandType(const_union_type, union_type)
+
+    def test_enum(self):
+        enum_type = EnumType(None, IntType('int', 4, True), [
+            ('RED', 10),
+            ('GREEN', 11),
+            ('BLUE', -1)
+        ])
+        const_enum_type = EnumType(None, IntType('int', 4, True), [
+            ('RED', 10),
+            ('GREEN', 11),
+            ('BLUE', -1)
+        ], frozenset({'const'}))
+        self.assertOperandType(const_enum_type, enum_type)
+
+    def test_typedef(self):
+        const_typedef_type = TypedefType(
+            'u32', IntType('unsigned int', 4, False), frozenset({'const'}))
+        typedef_const_type = TypedefType('u32', IntType('unsigned int', 4, False, frozenset({'const'})))
+        const_typedef_const_type = TypedefType(
+            'u32', IntType('unsigned int', 4, False, frozenset({'const'})),
+            frozenset({'const'}))
+        typedef_type = TypedefType('u32', IntType('unsigned int', 4, False))
+
+        self.assertOperandType(const_typedef_type, typedef_type)
+        self.assertOperandType(typedef_const_type,
+                               IntType('unsigned int', 4, False))
+        self.assertOperandType(const_typedef_const_type,
+                               IntType('unsigned int', 4, False))
+
+    def test_pointer(self):
+        const_pointer_type = PointerType(
+            8, IntType('unsigned int', 4, False), frozenset({'const'}))
+        pointer_type = PointerType(8, IntType('unsigned int', 4, False))
+        self.assertOperandType(const_pointer_type, pointer_type)
+
+        const_pointer_const_type = PointerType(
+            8, IntType('unsigned int', 4, False, frozenset({'const'})),
+            frozenset({'const'}))
+        pointer_const_type = PointerType(8, IntType('unsigned int', 4, False, frozenset({'const'})))
+        self.assertOperandType(const_pointer_const_type, pointer_const_type)
+
+    def test_array(self):
+        type_ = ArrayType(IntType('int', 4, True), 2, pointer_size)
+        self.assertOperandType(type_, PointerType(pointer_size, type_.type))
+
+        typedef_type = TypedefType('pair_t', type_)
+        self.assertOperandType(typedef_type, PointerType(pointer_size, type_.type))
+
+    def test_function(self):
+        type_ = FunctionType(pointer_size, VoidType, [])
+        self.assertOperandType(type_, PointerType(pointer_size, type_))
+
+        typedef_type = TypedefType('callback_t', type_)
+        self.assertOperandType(typedef_type, PointerType(pointer_size, type_))

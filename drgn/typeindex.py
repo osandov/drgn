@@ -149,7 +149,7 @@ class TypeIndex:
             return self._find_type(type_name)
 
     def array(self, type_: Type, size: Optional[int]) -> ArrayType:
-        return ArrayType(type_, size)
+        return ArrayType(type_, size, self._address_size)
 
     def pointer(self, type_: Type,
                 qualifiers: FrozenSet[str] = frozenset()) -> PointerType:
@@ -161,75 +161,6 @@ class TypeIndex:
         except ValueError:
             pass
         return self.find_type('long')
-
-    @overload
-    def operand_type(self, type_: VoidType) -> VoidType: ...
-    @overload
-    def operand_type(self, type_: BoolType) -> BoolType: ...
-    @overload
-    def operand_type(self, type_: IntType) -> IntType: ...
-    @overload
-    def operand_type(self, type_: FloatType) -> FloatType: ...
-    @overload
-    def operand_type(self, type_: BitFieldType) -> BitFieldType: ...
-    @overload
-    def operand_type(self, type_: EnumType) -> EnumType: ...
-    @overload
-    def operand_type(self, type_: StructType) -> StructType: ...
-    @overload
-    def operand_type(self, type_: UnionType) -> UnionType: ...
-    @overload
-    def operand_type(self, type_: Union[PointerType, ArrayType, FunctionType]) -> PointerType:
-        ...
-    @overload
-    def operand_type(self, type_: Type) -> Type: ...
-    def operand_type(self, type_: Type) -> Type:
-        if isinstance(type_, VoidType):
-            if type_.qualifiers:
-                return VoidType()
-        elif isinstance(type_, BoolType):
-            if type_.qualifiers:
-                return BoolType(type_.name, type_.size)
-        elif isinstance(type_, IntType):
-            if type_.qualifiers:
-                return IntType(type_.name, type_.size, type_.signed)
-        elif isinstance(type_, FloatType):
-            if type_.qualifiers:
-                return FloatType(type_.name, type_.size)
-        elif isinstance(type_, BitFieldType):
-            if type_.type.qualifiers:
-                int_type = self.operand_type(type_.type)
-                return BitFieldType(int_type, type_.bit_offset, type_.bit_size)
-        elif isinstance(type_, EnumType):
-            if type_.qualifiers:
-                return EnumType(type_.name, type_.type,
-                                None if type_.enum is None else type_.enum.__members__)
-        elif isinstance(type_, StructType):
-            if type_.qualifiers:
-                return StructType(type_.name, type_.size, type_._members)
-        elif isinstance(type_, UnionType):
-            if type_.qualifiers:
-                return UnionType(type_.name, type_.size, type_._members)
-        elif isinstance(type_, TypedefType):
-            type2 = type_.type
-            while isinstance(type2, TypedefType):
-                if type2.qualifiers:
-                    return self.operand_type(type2.real_type())
-                type2 = type2.type
-            if isinstance(type2, (ArrayType, FunctionType)) or type2.qualifiers:
-                return self.operand_type(type2)
-            if type_.qualifiers:
-                return TypedefType(type_.name, type_.type)
-        elif isinstance(type_, PointerType):
-            if type_.qualifiers:
-                return PointerType(type_.size, type_.type)
-        elif isinstance(type_, ArrayType):
-            return self.pointer(type_.type)
-        elif isinstance(type_, FunctionType):
-            return self.pointer(type_)
-        else:
-            assert False
-        return type_
 
     def literal_type(self, value: Any) -> Any:
         if isinstance(value, bool):
@@ -591,7 +522,7 @@ class DwarfTypeIndex(TypeIndex):
                         size = child.find_constant(DW_AT.upper_bound) + 1
                     except DwarfAttribNotFoundError:
                         size = None
-                    type_ = ArrayType(type_, size)
+                    type_ = ArrayType(type_, size, self._address_size)
             if not isinstance(type_, ArrayType):
                 raise DwarfFormatError('array type does not have any subranges')
             return type_
@@ -617,7 +548,8 @@ class DwarfTypeIndex(TypeIndex):
                         variadic = True
                     else:
                         parameters = None
-            return FunctionType(return_type, parameters, variadic)
+            return FunctionType(self._address_size, return_type, parameters,
+                                variadic)
         else:
             raise NotImplementedError(DW_TAG.str(dwarf_type.tag))
 
