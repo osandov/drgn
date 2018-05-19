@@ -7,7 +7,7 @@ import functools
 import itertools
 import math
 import operator
-from typing import Any, Callable, Iterable, Optional, Tuple, Union
+from typing import cast, Any, Callable, Iterable, Optional, Tuple, Union
 
 from drgn.type import (
     ArithmeticType,
@@ -312,10 +312,11 @@ class ProgramObject:
         return ProgramObject(self.program_, type_, None, op(self.value_()))
 
     def _binary_operands(self, lhs: Any, rhs: Any) -> Tuple[Any, Type, Any, Type]:
-        if (isinstance(lhs, ProgramObject) and isinstance(rhs, ProgramObject) and
-                lhs.program_ is not rhs.program_):
+        lhs_obj = isinstance(lhs, ProgramObject)
+        rhs_obj = isinstance(rhs, ProgramObject)
+        if lhs_obj and rhs_obj and lhs.program_ is not rhs.program_:
             raise ValueError('operands are from different programs')
-        if isinstance(lhs, ProgramObject):
+        if lhs_obj:
             lhs_type = lhs.type_
             if isinstance(lhs._real_type, ArrayType):
                 lhs = lhs.address_
@@ -323,7 +324,7 @@ class ProgramObject:
                 lhs = lhs.value_()
         else:
             lhs_type = self.program_._type_index.literal_type(lhs)
-        if isinstance(rhs, ProgramObject):
+        if rhs_obj:
             rhs_type = rhs.type_
             if isinstance(rhs._real_type, ArrayType):
                 rhs = rhs.address_
@@ -373,10 +374,9 @@ class ProgramObject:
 
     def _relational_operator(self, op: Callable, op_name: str,
                              other: Any) -> bool:
-        lhs_pointer = isinstance(self._real_type, (ArrayType, PointerType))
-        rhs_pointer = (isinstance(other, ProgramObject) and
-                       isinstance(other._real_type, (ArrayType, PointerType)))
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(self, other)
+        lhs_pointer = lhs_type.is_pointer()
+        rhs_pointer = rhs_type.is_pointer()
         if ((lhs_pointer != rhs_pointer) or
                 (not lhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
@@ -389,11 +389,9 @@ class ProgramObject:
         return op(lhs, rhs)
 
     def _add(self, lhs: Any, rhs: Any) -> 'ProgramObject':
-        lhs_pointer = (isinstance(lhs, ProgramObject) and
-                       isinstance(lhs._real_type, (ArrayType, PointerType)))
-        rhs_pointer = (isinstance(rhs, ProgramObject) and
-                       isinstance(rhs._real_type, (ArrayType, PointerType)))
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
+        lhs_pointer = lhs_type.is_pointer()
+        rhs_pointer = rhs_type.is_pointer()
         if ((lhs_pointer and rhs_pointer) or
                 (lhs_pointer and not rhs_type.is_integer()) or
                 (rhs_pointer and not lhs_type.is_integer()) or
@@ -416,15 +414,13 @@ class ProgramObject:
             return ProgramObject(self.program_, type_, None, lhs + rhs)
 
     def _sub(self, lhs: Any, rhs: Any) -> 'ProgramObject':
-        lhs_pointer = (isinstance(lhs, ProgramObject) and
-                       isinstance(lhs._real_type, (ArrayType, PointerType)))
-        if lhs_pointer:
-            lhs_sizeof = lhs._real_type.type.sizeof()
-        rhs_pointer = (isinstance(rhs, ProgramObject) and
-                       isinstance(rhs._real_type, (ArrayType, PointerType)))
-        if rhs_pointer:
-            rhs_sizeof = rhs._real_type.type.sizeof()
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
+        lhs_pointer = lhs_type.is_pointer()
+        if lhs_pointer:
+            lhs_sizeof = cast(PointerType, lhs_type).type.sizeof()
+        rhs_pointer = rhs_type.is_pointer()
+        if rhs_pointer:
+            rhs_sizeof = cast(PointerType, rhs_type).type.sizeof()
         if ((lhs_pointer and rhs_pointer and lhs_sizeof != rhs_sizeof) or
                 (lhs_pointer and not rhs_pointer and not rhs_type.is_integer()) or
                 (rhs_pointer and not lhs_pointer) or
