@@ -14,6 +14,7 @@ help(Type).
 
 from collections import OrderedDict
 import enum
+import functools
 import math
 import numbers
 import re
@@ -542,6 +543,7 @@ class CompoundType(Type):
         """
         return list(self._members_by_name)
 
+    @functools.lru_cache()
     def _member(self, member: str) -> Tuple[Type, int]:
         designator = parse_member_designator(member)
         type_: Type = self
