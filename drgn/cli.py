@@ -114,9 +114,8 @@ def main() -> None:
         return address, type_index.find_dwarf_type(dwarf_type)
 
     init_globals: Dict[str, Any] = {
-        'prog': Program(type_index=type_index,
-                        lookup_variable_fn=lookup_variable,
-                        read_memory_fn=core_reader.read),
+        'prog': Program(reader=core_reader, type_index=type_index,
+                        lookup_variable_fn=lookup_variable),
         'drgn': drgn,
     }
     if args.script:

@@ -2,8 +2,10 @@ import math
 import operator
 import unittest
 
+from drgn.corereader import CoreReader
 from drgn.program import Program, ProgramObject
 from drgn.type import IntType, StructType
+from tests.test_corereader import make_elf_file, tmpfile
 from tests.test_type import point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES
 
@@ -23,18 +25,15 @@ class TestProgramObject(TypeIndexTestCase):
             if a._value != b._value:
                 raise self.failureException(msg or f'object values differ: {a._value!r} != {b._value!r}')
         self.addTypeEqualityFunc(ProgramObject, program_object_equality_func)
-        mem = b'\x01\x00\x00\x00\x02\x00\x00\x00hello\x00\x00\x00'
+        elf_file = make_elf_file([
+            (0xffff0000, b'\x01\x00\x00\x00\x02\x00\x00\x00hello\x00\x00\x00'),
+        ])
+        with tmpfile(elf_file) as file:
+            core_reader = CoreReader(file.name)
         def lookup_variable(name):
             raise NotImplementedError()
-        def read_memory(address, size):
-            address -= 0xffff0000
-            if address >= 0 and address + size <= len(mem):
-                return mem[address:address + size]
-            else:
-                raise ValueError('Bad address')
-        self.program = Program(type_index=self.type_index,
-                               lookup_variable_fn=lookup_variable,
-                               read_memory_fn=read_memory)
+        self.program = Program(reader=core_reader, type_index=self.type_index,
+                               lookup_variable_fn=lookup_variable)
     def tearDown(self):
         super().tearDown()
 

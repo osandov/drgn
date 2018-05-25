@@ -20,6 +20,7 @@ import numbers
 import re
 import struct
 import sys
+from types import MethodType
 from typing import (
     Any,
     Callable,
@@ -32,6 +33,7 @@ from typing import (
     cast,
 )
 
+from drgn.corereader import CoreReader
 from drgn.memberdesignator import parse_member_designator
 from drgn.typename import (
     ArrayTypeName,
@@ -46,6 +48,31 @@ from drgn.typename import (
     VoidTypeName,
 )
 from drgn.util import c_string
+
+
+_INT_READ = {
+    (1, False): CoreReader.read_u8,
+    (2, False): CoreReader.read_u16,
+    (4, False): CoreReader.read_u32,
+    (8, False): CoreReader.read_u64,
+    (1, True): CoreReader.read_s8,
+    (2, True): CoreReader.read_s16,
+    (4, True): CoreReader.read_s32,
+    (8, True): CoreReader.read_s64,
+}
+
+_BOOL_READ = {
+    1: CoreReader.read_bool,
+    2: CoreReader.read_bool16,
+    4: CoreReader.read_bool32,
+    8: CoreReader.read_bool64,
+}
+
+_FLOAT_READ = {
+    4: CoreReader.read_float,
+    8: CoreReader.read_double,
+    16: CoreReader.read_long_double,
+}
 
 
 class Type:
@@ -95,9 +122,9 @@ class Type:
         """Return sizeof(type)."""
         raise NotImplementedError()
 
-    def read(self, buffer: bytes, offset: int = 0) -> Any:
+    def read(self, reader: CoreReader, address: int) -> Any:
         """
-        Return the buffer at the given offset interpreted as this type.
+        Read memory at the given address interpreted as this type.
 
         This is used internally by drgn and typically doesn't need to be used
         directly.
@@ -114,7 +141,7 @@ class Type:
         """
         raise NotImplementedError()
 
-    def read_pretty(self, buffer: bytes, offset: int = 0, *,
+    def read_pretty(self, reader: CoreReader, address: int, *,
                     cast: bool = True) -> str:
         """
         Return self.pretty(self.read(...)).
@@ -122,7 +149,7 @@ class Type:
         This is used internally by drgn and typically doesn't need to be used
         directly.
         """
-        return self.pretty(self.read(buffer, offset), cast)
+        return self.pretty(self.read(reader, address), cast)
 
     def convert(self, value: Any) -> Any:
         """Return the given value converted to a valid value of this type."""
@@ -182,7 +209,7 @@ class VoidType(Type):
     def sizeof(self) -> int:
         raise ValueError("can't get size of void")
 
-    def read(self, buffer: bytes, offset: int = 0) -> Any:
+    def read(self, reader: CoreReader, address: int) -> Any:
         raise ValueError("can't read void")
 
     def pretty(self, value: Any, cast: bool = True) -> str:
@@ -264,6 +291,7 @@ class IntType(ArithmeticType):
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(name, size, qualifiers)
         self.signed = signed
+        setattr(self, 'read', _INT_READ[size, signed])
 
     def __repr__(self) -> str:
         parts = [
@@ -277,12 +305,6 @@ class IntType(ArithmeticType):
             parts.append(repr(self.qualifiers))
         parts.append(')')
         return ''.join(parts)
-
-    def read(self, buffer: bytes, offset: int = 0) -> int:
-        if len(buffer) - offset < self.size:
-            raise ValueError(f'buffer must be at least {self.size} bytes')
-        return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder,
-                              signed=self.signed)
 
     def convert(self, value: Any) -> int:
         if not isinstance(value, numbers.Real):
@@ -308,15 +330,10 @@ class BoolType(IntType):
     def __init__(self, name: str, size: int,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(name, size, False, qualifiers)
+        setattr(self, 'read', _BOOL_READ[size])
 
     def __repr__(self) -> str:
         return ArithmeticType.__repr__(self)
-
-    def read(self, buffer: bytes, offset: int = 0) -> bool:
-        if len(buffer) - offset < self.size:
-            raise ValueError(f'buffer must be at least {self.size} bytes')
-        return bool(int.from_bytes(buffer[offset:offset + self.size],
-                                   sys.byteorder))
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
@@ -342,15 +359,10 @@ class FloatType(ArithmeticType):
     qualifiers. See help(ArithmeticType) and help(Type) for more information.
     """
 
-    def read(self, buffer: bytes, offset: int = 0) -> float:
-        if len(buffer) - offset < self.size:
-            raise ValueError(f'buffer must be at least {self.size} bytes')
-        if self.size == 4:
-            return struct.unpack_from('f', buffer, offset)[0]
-        elif self.size == 8:
-            return struct.unpack_from('d', buffer, offset)[0]
-        else:
-            raise ValueError(f"can't read float of size {self.size}")
+    def __init__(self, name: str, size: int,
+                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+        super().__init__(name, size, qualifiers)
+        setattr(self, 'read', _FLOAT_READ[size])
 
     def convert(self, value: Any) -> float:
         if not isinstance(value, numbers.Real):
@@ -417,20 +429,19 @@ class BitFieldType(Type):
             bit_offset = self.bit_offset
         return (bit_offset + self.bit_size + 7) // 8
 
-    def read(self, buffer: bytes, offset: int = 0) -> int:
-        if len(buffer) - offset < self.sizeof():
-            raise ValueError(f'buffer must be at least {self.sizeof()} bytes')
+    def read(self, reader: CoreReader, address: int) -> int:
         if self.bit_offset is None:
-            raise ValueError(f"can't read bit-field type")
+            raise ValueError("can't read bit-field type")
 
         # XXX: this assumes little-endian
-        offset += self.bit_offset // 8
+        buffer = reader.read(address, self.sizeof())
+        offset = self.bit_offset // 8
         bit_offset = self.bit_offset % 8
         end = offset + (bit_offset + self.bit_size + 7) // 8
         value = int.from_bytes(buffer[offset:end], sys.byteorder)
         value >>= bit_offset
         value &= (1 << self.bit_size) - 1
-        signed = self.type.signed if hasattr(self.type, 'signed') else False
+        signed = self.type.signed
         if signed and (value & (1 << (self.bit_size - 1))):
             value -= (1 << self.bit_size)
         return value
@@ -544,13 +555,11 @@ class CompoundType(Type):
             raise ValueError("can't get size of incomplete type")
         return self.size
 
-    def read(self, buffer: bytes, offset: int = 0) -> Dict:
+    def read(self, reader: CoreReader, address: int) -> Dict:
         if self.size is None:
             raise ValueError("can't read incomplete type")
-        if len(buffer) - offset < self.size:
-            raise ValueError(f'buffer must be at least {self.size} bytes')
         return OrderedDict([
-            (name, type_thunk().read(buffer, offset + member_offset))
+            (name, type_thunk().read(reader, address + member_offset))
             for name, (member_offset, type_thunk) in self._members_by_name.items()
         ])
 
@@ -754,10 +763,10 @@ class EnumType(Type):
             raise ValueError("can't get size of incomplete type")
         return self.type.sizeof()
 
-    def read(self, buffer: bytes, offset: int = 0) -> Union[enum.IntEnum, int]:
+    def read(self, reader: CoreReader, address: int) -> Union[enum.IntEnum, int]:
         if self.type is None or self.enum is None:
             raise ValueError("can't read incomplete type")
-        value = self.type.read(buffer, offset)
+        value = self.type.read(reader, address)
         try:
             return self.enum(value)
         except ValueError:
@@ -846,8 +855,8 @@ class TypedefType(Type):
     def sizeof(self) -> int:
         return self.type.sizeof()
 
-    def read(self, buffer: bytes, offset: int = 0) -> Any:
-        return self.type.read(buffer, offset)
+    def read(self, reader: CoreReader, address: int) -> Any:
+        return self.type.read(reader, address)
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
@@ -908,6 +917,7 @@ class PointerType(Type):
         super().__init__(qualifiers)
         self.size = size
         self.type = type
+        setattr(self, 'read',_INT_READ[size, False])
 
     def __repr__(self) -> str:
         parts = [
@@ -926,11 +936,6 @@ class PointerType(Type):
 
     def sizeof(self) -> int:
         return self.size
-
-    def read(self, buffer: bytes, offset: int = 0) -> int:
-        if len(buffer) - offset < self.size:
-            raise ValueError(f'buffer must be at least {self.size} bytes')
-        return int.from_bytes(buffer[offset:offset + self.size], sys.byteorder)
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
@@ -987,15 +992,12 @@ class ArrayType(Type):
             raise ValueError("can't get size of incomplete array type")
         return self.size * self.type.sizeof()
 
-    def read(self, buffer: bytes, offset: int = 0) -> List:
+    def read(self, reader: CoreReader, address: int) -> List:
         if not self.size:
             return []
         element_size = self.type.sizeof()
-        size = self.size * element_size
-        if len(buffer) - offset < size:
-            raise ValueError(f'buffer must be at least {size} bytes')
         return [
-            self.type.read(buffer, offset + i * element_size)
+            self.type.read(reader, address + i * element_size)
             for i in range(self.size)
         ]
 
@@ -1087,7 +1089,7 @@ class FunctionType(Type):
     def sizeof(self) -> int:
         raise ValueError("can't get size of function")
 
-    def read(self, buffer: bytes, offset: int = 0) -> Any:
+    def read(self, reader: CoreReader, address: int) -> Dict:
         raise ValueError("can't read function")
 
     def pretty(self, value: Any, cast: bool = True) -> str:

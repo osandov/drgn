@@ -9,6 +9,7 @@ import math
 import operator
 from typing import cast, Any, Callable, Iterable, Optional, Tuple, Union
 
+from drgn.corereader import CoreReader
 from drgn.type import (
     ArithmeticType,
     BitFieldType,
@@ -207,9 +208,8 @@ class ProgramObject:
         """
         if self._value is not None:
             return self._value
-        assert self.address_ is not None
-        buffer = self.program_.read(self.address_, self._real_type.sizeof())
-        return self._real_type.read(buffer)
+        return self._real_type.read(self.program_._reader,
+                                    cast(int, self.address_))
 
     def string_(self) -> bytes:
         """
@@ -579,11 +579,11 @@ class Program:
     lookup type definitions, access variables, and read arbitrary memory.
     """
 
-    def __init__(self, *, type_index: TypeIndex,
-                 lookup_variable_fn: Callable[[str], Tuple[int, Type]],
-                 read_memory_fn: Callable[[int, int], bytes]) -> None:
+    def __init__(self, *, reader: CoreReader,
+                 type_index: TypeIndex,
+                 lookup_variable_fn: Callable[[str], Tuple[int, Type]]) -> None:
+        self._reader = reader
         self._type_index = type_index
-        self._read_memory = read_memory_fn
         self._lookup_variable = lookup_variable_fn
 
     def __getitem__(self, name: str) -> ProgramObject:
@@ -613,7 +613,7 @@ class Program:
         >>> prog.read(0xffffffffbe012b40, 16)
         b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'
         """
-        return self._read_memory(address, size)
+        return self._reader.read(address, size)
 
     def type(self, name: Union[str, TypeName]) -> Type:
         """

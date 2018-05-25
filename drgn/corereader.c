@@ -297,6 +297,48 @@ static PyObject *CoreReader_read(CoreReader *self, PyObject *args,
 	return buffer;
 }
 
+#define CoreReader_READ(name, type, converter)					\
+static PyObject *CoreReader_read_##name(CoreReader *self, PyObject *args,	\
+					PyObject *kwds)				\
+{										\
+	static char *keywords[] = {"address", NULL};				\
+	uint64_t address;							\
+	type value;								\
+										\
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "K:read_" #name, keywords,	\
+					 &address))				\
+		return NULL;							\
+										\
+	if (read_core(self, &value, address, sizeof(value)) == -1)		\
+		return NULL;							\
+										\
+	return converter(value);						\
+}
+
+CoreReader_READ(u8, uint8_t, PyLong_FromUnsignedLong)
+CoreReader_READ(u16, uint16_t, PyLong_FromUnsignedLong)
+CoreReader_READ(u32, uint32_t, PyLong_FromUnsignedLong)
+CoreReader_READ(u64, uint64_t, PyLong_FromUnsignedLongLong)
+CoreReader_READ(s8, int8_t, PyLong_FromLong)
+CoreReader_READ(s16, int16_t, PyLong_FromLong)
+CoreReader_READ(s32, int32_t, PyLong_FromLong)
+CoreReader_READ(s64, int64_t, PyLong_FromLongLong)
+CoreReader_READ(bool, int8_t, PyBool_FromLong)
+CoreReader_READ(bool16, int16_t, PyBool_FromLong)
+CoreReader_READ(bool32, int32_t, PyBool_FromLong)
+CoreReader_READ(bool64, int64_t, PyBool_FromLong)
+CoreReader_READ(float, float, PyFloat_FromDouble)
+CoreReader_READ(double, double, PyFloat_FromDouble)
+CoreReader_READ(long_double, long double, PyFloat_FromDouble)
+
+#define CoreReader_READ_METHOD(name, description)		\
+	{"read_" #name, (PyCFunction)CoreReader_read_##name,	\
+	 METH_VARARGS | METH_KEYWORDS,				\
+	 "read_" #name "(address)\n\n"				\
+	 "Read " description " from memory.\n\n"		\
+	 "Arguments:\n"						\
+	 "address -- address to read at\n"}
+
 #define CoreReader_DOC	\
 	"CoreReader(path) -> new core file reader"
 
@@ -308,6 +350,21 @@ static PyMethodDef CoreReader_methods[] = {
 	 "Arguments:\n"
 	 "address -- address to read at\n"
 	 "size -- number of bytes to read"},
+	CoreReader_READ_METHOD(u8, "an unsigned 8-bit integer"),
+	CoreReader_READ_METHOD(u16, "an unsigned 16-bit integer"),
+	CoreReader_READ_METHOD(u32, "an unsigned 32-bit integer"),
+	CoreReader_READ_METHOD(u64, "an unsigned 64-bit integer"),
+	CoreReader_READ_METHOD(s8, "a signed 8-bit integer"),
+	CoreReader_READ_METHOD(s16, "a signed 16-bit integer"),
+	CoreReader_READ_METHOD(s32, "a signed 32-bit integer"),
+	CoreReader_READ_METHOD(s64, "a signed 64-bit integer"),
+	CoreReader_READ_METHOD(bool, "an 8-bit boolean"),
+	CoreReader_READ_METHOD(bool16, "a 16-bit boolean"),
+	CoreReader_READ_METHOD(bool32, "a 32-bit boolean"),
+	CoreReader_READ_METHOD(bool64, "a 64-bit boolean"),
+	CoreReader_READ_METHOD(float, "a 32-bit floating-point number"),
+	CoreReader_READ_METHOD(double, "a 64-bit floating-point number"),
+	CoreReader_READ_METHOD(long_double, "an 80-bit floating-point number"),
 	{},
 };
 
