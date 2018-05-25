@@ -1,6 +1,8 @@
 // Copyright 2018 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
+#define PY_SSIZE_T_CLEAN
+
 #include <elf.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -1521,22 +1523,12 @@ PyInit_dwarfindex(void)
 		Py_DECREF(m);
 		return NULL;
 	}
-	Py_DECREF(m);
-
-	name = PyUnicode_FromString("drgn.elf");
-	if (!name)
-		return NULL;
-
-	m = PyImport_Import(name);
-	Py_DECREF(name);
-	if (!m)
-		return NULL;
-
 	ElfFormatError = PyObject_GetAttrString(m, "ElfFormatError");
 	if (!ElfFormatError) {
 		Py_DECREF(m);
 		return NULL;
 	}
+
 	Py_DECREF(m);
 
 	m = PyModule_Create(&dwarfindexmodule);

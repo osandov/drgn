@@ -583,6 +583,10 @@ class DwarfAttribNotFoundError(Exception):
     pass
 
 
+class ElfFormatError(Exception):
+    pass
+
+
 class _Reader:
     u8 = struct.Struct('B')
     u16 = struct.Struct('H')

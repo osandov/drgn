@@ -14,6 +14,12 @@ extensions = [
         extra_compile_args=['-fopenmp'],
         extra_link_args=['-fopenmp'],
     ),
+    Extension(
+        name='drgn.corereader',
+        sources=[
+            'drgn/corereader.c',
+        ],
+    ),
 ]
 
 setup(

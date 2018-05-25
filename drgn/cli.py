@@ -13,9 +13,9 @@ import sys
 from typing import Any, Dict, List, Tuple, Union
 
 import drgn
+from drgn.corereader import CoreReader
 from drgn.dwarf import DW_TAG
 from drgn.dwarfindex import DwarfIndex
-from drgn.elf import parse_elf_phdrs
 from drgn.program import Program, ProgramObject
 from drgn.type import Type
 from drgn.typeindex import DwarfTypeIndex
@@ -107,58 +107,47 @@ def main() -> None:
     with open('/proc/kallsyms', 'r') as f:
         symbols = parse_symbol_file(f)
 
-    with open('/proc/kcore', 'rb') as core_file:
-        phdrs = parse_elf_phdrs(core_file)
+    core_reader = CoreReader('/proc/kcore')
+    def lookup_variable(name: str) -> Tuple[int, Type]:
+        address = symbols[name][-1]
+        dwarf_type = dwarf_index.find(name, DW_TAG.variable).type()
+        return address, type_index.find_dwarf_type(dwarf_type)
 
-        def lookup_variable(name: str) -> Tuple[int, Type]:
-            address = symbols[name][-1]
-            dwarf_type = dwarf_index.find(name, DW_TAG.variable).type()
-            return address, type_index.find_dwarf_type(dwarf_type)
+    init_globals: Dict[str, Any] = {
+        'prog': Program(type_index=type_index,
+                        lookup_variable_fn=lookup_variable,
+                        read_memory_fn=core_reader.read),
+        'drgn': drgn,
+    }
+    if args.script:
+        sys.argv = args.script
+        runpy.run_path(args.script[0], init_globals=init_globals,
+                       run_name='__main__')
+    else:
+        import atexit
+        import readline
 
-        def read_memory(address: int, size: int) -> bytes:
-            for phdr in phdrs:
-                if phdr.p_vaddr <= address <= phdr.p_vaddr + phdr.p_memsz:
-                    break
-            else:
-                raise ValueError(f'could not find memory segment containing 0x{address:x}')
-            return os.pread(core_file.fileno(), size,
-                            phdr.p_offset + address - phdr.p_vaddr)
+        from drgn.rlcompleter import Completer
 
-        init_globals: Dict[str, Any] = {
-            'prog': Program(type_index=type_index,
-                            lookup_variable_fn=lookup_variable,
-                            read_memory_fn=read_memory),
-            'drgn': drgn,
-        }
-        if args.script:
-            sys.argv = args.script
-            runpy.run_path(args.script[0], init_globals=init_globals,
-                           run_name='__main__')
-        else:
-            import atexit
-            import readline
+        init_globals['__name__'] = '__main__'
+        init_globals['__doc__'] = None
 
-            from drgn.rlcompleter import Completer
+        histfile = os.path.expanduser('~/.drgn_history')
+        try:
+            readline.read_history_file(histfile)
+        except FileNotFoundError:
+            pass
+        readline.parse_and_bind('tab: complete')
+        readline.set_history_length(1000)
+        atexit.register(readline.write_history_file, histfile)
 
-            init_globals['__name__'] = '__main__'
-            init_globals['__doc__'] = None
+        readline.set_completer(Completer(init_globals).complete)
+        atexit.register(lambda: readline.set_completer(None))
 
-            histfile = os.path.expanduser('~/.drgn_history')
-            try:
-                readline.read_history_file(histfile)
-            except FileNotFoundError:
-                pass
-            readline.parse_and_bind('tab: complete')
-            readline.set_history_length(1000)
-            atexit.register(readline.write_history_file, histfile)
+        sys.displayhook = displayhook
 
-            readline.set_completer(Completer(init_globals).complete)
-            atexit.register(lambda: readline.set_completer(None))
-
-            sys.displayhook = displayhook
-
-            banner = version + '\nFor help, type help(drgn).'
-            code.interact(banner=banner, exitmsg='', local=init_globals)
+        banner = version + '\nFor help, type help(drgn).'
+        code.interact(banner=banner, exitmsg='', local=init_globals)
 
 
 if __name__ == '__main__':
