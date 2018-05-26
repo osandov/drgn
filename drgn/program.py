@@ -108,16 +108,13 @@ class ProgramObject:
 
     def __getattr__(self, name: str) -> 'ProgramObject':
         """Implement self.name. Shortcut for self.member_(name)."""
-        if isinstance(self._real_type, PointerType):
-            type_ = self._real_type.type
-        else:
-            type_ = self._real_type
-        if not isinstance(type_, CompoundType):
-            raise AttributeError(f'{self.__class__.__name__!r} object has no attribute {name!r}')
         try:
             return self.member_(name)
         except ValueError as e:
-            raise AttributeError(*e.args) from None
+            if e.args == ('not a struct or union',):
+                raise AttributeError(f'{self.__class__.__name__!r} object has no attribute {name!r}') from None
+            else:
+                raise AttributeError(*e.args) from None
 
     def __len__(self) -> int:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:

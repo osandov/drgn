@@ -110,6 +110,10 @@ class TestProgramObject(TypeIndexTestCase):
             self.assertEqual(math.floor(obj), 1)
             self.assertEqual(math.ceil(obj), 1)
 
+        self.assertRaisesRegex(AttributeError,
+                               "'ProgramObject' object has no attribute 'foo'",
+                               getattr, int_obj, 'foo')
+
         obj = self.program.object(IntType('int', 4, True, frozenset({'const'})),
                                   0xffff0000)
         self.assertEqual(+obj, ProgramObject(self.program, TYPES['int'], None, 1))
@@ -210,13 +214,16 @@ class TestProgramObject(TypeIndexTestCase):
         for obj in [struct_obj, pointer_obj]:
             self.assertEqual(obj.x, element0)
             self.assertEqual(obj.y, element1)
-            with self.assertRaises(AttributeError):
-                obj.z
             self.assertEqual(obj.member_('x'),
                              ProgramObject(self.program, TYPES['int'], 0xffff0000))
             self.assertEqual(obj.member_('y'),
                              ProgramObject(self.program, TYPES['int'], 0xffff0004))
-            self.assertRaises(ValueError, obj.member_, 'z')
+            self.assertRaisesRegex(AttributeError,
+                                   "'struct point' has no member 'z'",
+                                   getattr, obj, 'z')
+            self.assertRaisesRegex(ValueError,
+                                   "'struct point' has no member 'z'",
+                                   obj.member_, 'z')
             self.assertIn('x', dir(obj))
             self.assertIn('y', dir(obj))
             self.assertTrue(hasattr(obj, 'x'))
