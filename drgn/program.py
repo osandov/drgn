@@ -99,7 +99,7 @@ class ProgramObject:
     def __dir__(self) -> Iterable[str]:
         attrs = list(super().__dir__())
         if isinstance(self._real_type, PointerType):
-            type_ = self._real_type.type
+            type_ = self._real_type.type.real_type()
         else:
             type_ = self._real_type
         if isinstance(type_, CompoundType):
@@ -246,14 +246,13 @@ class ProgramObject:
 
         if isinstance(self._real_type, PointerType):
             address = self.value_()
-            type_ = self._real_type.type
+            type_ = self._real_type.type.real_type()
         else:
             address = self.address_
             type_ = self._real_type
         try:
+            # mypy doesn't understand the except AttributeError.
             member_type, offset = type_.member(name)  # type: ignore
-                                                      # mypy doesn't understand
-                                                      # the except AttributeError
         except AttributeError:
             raise ValueError('not a struct or union')
         return ProgramObject(self.program_, member_type, address + offset)
@@ -290,11 +289,15 @@ class ProgramObject:
         """
         if not isinstance(type, Type):
             type = self.program_.type(type)
-        if not isinstance(type, CompoundType):
-            raise ValueError('container_of is only valid with struct or union types')
         if not isinstance(self._real_type, PointerType):
             raise ValueError('container_of is only valid on pointers')
-        address = self.value_() - type.offsetof(member)
+        real_type = type.real_type()
+        try:
+            # mypy doesn't understand the except AttributeError.
+            offset = real_type.offsetof(member)  # type: ignore
+        except AttributeError:
+            raise ValueError('container_of is only valid with struct or union types')
+        address = self.value_() - offset
         return ProgramObject(self.program_,
                              PointerType(self._real_type.size, type,
                                          self._real_type.qualifiers),

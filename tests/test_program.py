@@ -4,7 +4,7 @@ import unittest
 
 from drgn.corereader import CoreReader
 from drgn.program import Program, ProgramObject
-from drgn.type import IntType, StructType
+from drgn.type import IntType, StructType, TypedefType
 from tests.test_corereader import make_elf_file, tmpfile
 from tests.test_type import point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES
@@ -206,12 +206,17 @@ class TestProgramObject(TypeIndexTestCase):
 
     def test_struct(self):
         struct_obj = self.program.object(point_type, 0xffff0000)
+        typedef_type = TypedefType('POINT', point_type)
+        typedef_obj = self.program.object(typedef_type, 0xffff0000)
         pointer_type = self.type_index.pointer(point_type)
         pointer_obj = self.program.object(pointer_type, None, 0xffff0000)
+        typedef_pointer_type = self.type_index.pointer(typedef_type)
+        typedef_pointer_obj = self.program.object(typedef_pointer_type, None,
+                                                  0xffff0000)
         element0 = ProgramObject(self.program, TYPES['int'], 0xffff0000)
         element1 = ProgramObject(self.program, TYPES['int'], 0xffff0004)
 
-        for obj in [struct_obj, pointer_obj]:
+        for obj in [struct_obj, typedef_obj, pointer_obj, typedef_pointer_obj]:
             self.assertEqual(obj.x, element0)
             self.assertEqual(obj.y, element1)
             self.assertEqual(obj.member_('x'),
@@ -236,6 +241,8 @@ class TestProgramObject(TypeIndexTestCase):
                                        self.type_index.pointer(TYPES['int']),
                                        None, 0xffff0004))
         self.assertEqual(element1_ptr.container_of_(point_type, 'y'), pointer_obj)
+        self.assertEqual(element1_ptr.container_of_(typedef_type, 'y'),
+                         typedef_pointer_obj)
 
         struct_type = StructType('test', 8, [
             ('address_', 0, lambda: TYPES['unsigned long']),
