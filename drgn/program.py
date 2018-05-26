@@ -250,10 +250,12 @@ class ProgramObject:
         else:
             address = self.address_
             type_ = self._real_type
-        if not isinstance(type_, CompoundType):
+        try:
+            member_type, offset = type_.member(name)  # type: ignore
+                                                      # mypy doesn't understand
+                                                      # the except AttributeError
+        except AttributeError:
             raise ValueError('not a struct or union')
-        member_type = type_.typeof(name)
-        offset = type_.offsetof(name)
         return ProgramObject(self.program_, member_type, address + offset)
 
     def cast_(self, type: Union[str, Type, TypeName]) -> 'ProgramObject':

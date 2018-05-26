@@ -594,7 +594,12 @@ class CompoundType(Type):
         return list(self._members_by_name)
 
     @functools.lru_cache()
-    def _member(self, member: str) -> Tuple[Type, int]:
+    def member(self, member: str) -> Tuple[Type, int]:
+        """
+        Return self.typeof(member), self.offsetof(member). This is slightly
+        more efficient than calling them both individually if you need both the
+        type and offset.
+        """
         designator = parse_member_designator(member)
         type_: Type = self
         offset = 0
@@ -623,7 +628,7 @@ class CompoundType(Type):
         >>> print(prog['init_task'].fs.root.type_.offsetof('dentry'))
         8
         """
-        return self._member(member)[1]
+        return self.member(member)[1]
 
     def typeof(self, member: str) -> Type:
         """
@@ -632,7 +637,7 @@ class CompoundType(Type):
         >>> print(prog['init_task'].fs.root.type_.typeof('dentry'))
         struct dentry *
         """
-        return self._member(member)[0]
+        return self.member(member)[0]
 
 
 class StructType(CompoundType):
