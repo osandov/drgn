@@ -114,8 +114,10 @@ class ProgramObject:
         except ValueError as e:
             if e.args == ('not a struct or union',):
                 raise AttributeError(f'{self.__class__.__name__!r} object has no attribute {name!r}') from None
+            elif e.args and 'has no member' in e.args[0]:
+                raise AttributeError(e.args[0]) from None
             else:
-                raise AttributeError(*e.args) from None
+                raise
 
     def __len__(self) -> int:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
