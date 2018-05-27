@@ -82,7 +82,8 @@ class ProgramObject:
     conflict.
     """
 
-    def __init__(self, program: 'Program', type: Type, address: Optional[int],
+    def __init__(self, program: 'Program', type: Type,
+                 address: Optional[int] = None,
                  value: Any = None) -> None:
         if address is not None and value is not None:
             raise ValueError('object cannot have address and value')
@@ -155,9 +156,11 @@ class ProgramObject:
 
     def __repr__(self) -> str:
         parts = [
-            'ProgramObject(type=<', str(self.type_.type_name()), '>, address=',
-            'None' if self.address_ is None else hex(self.address_),
+            'ProgramObject(type=<', str(self.type_.type_name()), '>'
         ]
+        if self.address_ is not None:
+            parts.append(', address=')
+            parts.append(hex(self.address_))
         if self._value is not None:
             parts.append(', value=')
             if isinstance(self._real_type, PointerType):
@@ -598,7 +601,8 @@ class Program:
         """
         return self.variable(name)
 
-    def object(self, type: Union[str, Type, TypeName], address: Optional[int],
+    def object(self, type: Union[str, Type, TypeName],
+               address: Optional[int] = None,
                value: Any = None) -> ProgramObject:
         """
         Return a ProgramObject with the given address of the given type. The

@@ -27,7 +27,6 @@ Variables are represented by drgn.program.ProgramObject objects. Try
 >>> import drgn.program
 >>> help(drgn.program.ProgramObject)
 
-
 Types are represented by drgn.type.Type objects. Try
 
 >>> import drgn.type
