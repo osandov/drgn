@@ -614,6 +614,15 @@ class Program:
             type = self.type(type)
         return ProgramObject(self, type, address, value)
 
+    def null(self, type: Union[str, Type, TypeName]) -> ProgramObject:
+        """
+        Return a ProgramObject representing NULL cast to the given type. The
+        type can be a string, Type object, or TypeName object.
+        """
+        if not isinstance(type, Type):
+            type = self.type(type)
+        return ProgramObject(self, type, value=0)
+
     def read(self, address: int, size: int) -> bytes:
         """
         Return size bytes of memory starting at address in the program.
