@@ -25,7 +25,7 @@ from drgn.util import parse_symbol_file
 def displayhook(value: Any) -> None:
     if value is None:
         return
-    builtins._ = None
+    setattr(builtins, '_', None)
     text = str(value) if isinstance(value, (ProgramObject, Type)) else repr(value)
     try:
         sys.stdout.write(text)
@@ -37,7 +37,7 @@ def displayhook(value: Any) -> None:
             text = encoded.decode(sys.stdout.encoding, 'strict')
             sys.stdout.write(text)
     sys.stdout.write('\n')
-    builtins._ = value
+    setattr(builtins, '_', value)
 
 
 def find_vmlinux(release: str) -> str:
