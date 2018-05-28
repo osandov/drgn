@@ -212,7 +212,7 @@ class _TypeNameParser:
             elif size is not None:
                 raise _TypeNameParser._specifier_error(size, specifier)
             if (data_type is not None and data_type != 'int' and
-                  (data_type != 'double' or specifier != 'long')):
+                    (data_type != 'double' or specifier != 'long')):
                 raise _TypeNameParser._specifier_error(data_type, specifier)
             specifiers['size'] = specifier
         elif specifier == 'signed' or specifier == 'unsigned':
@@ -256,7 +256,7 @@ class _TypeNameParser:
             # First, the sign specifier. "signed" is the default for "int", so
             # omit it.
             if ('sign' in specifiers and
-                (specifiers['sign'] != 'signed' or data_type != 'int')):
+                    (specifiers['sign'] != 'signed' or data_type != 'int')):
                 parts.append(specifiers['sign'])
             # Then, the size specifier.
             if 'size' in specifiers:
@@ -348,7 +348,7 @@ class _TypeNameParser:
             self._lexer.pop()
             token2 = self._lexer.peek()
             if (token2.kind == 'ASTERISK' or token2.kind == 'LPAREN' or
-                token2.kind == 'LBRACKET'):
+                    token2.kind == 'LBRACKET'):
                 type_name, inner_type = self._parse_abstract_declarator(type_name)
                 if self._lexer.pop().kind != 'RPAREN':
                     raise ValueError("expected ')'")

@@ -18,7 +18,6 @@ class _State(enum.IntEnum):
     RBRACKET = 5
 
 
-
 _TOKEN_REGEX = re.compile('|'.join('(?P<%s>%s)' % pair for pair in [
     ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
     ('NUMBER',     r'(?:0x)?[0-9]+'),

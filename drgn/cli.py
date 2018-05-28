@@ -108,6 +108,7 @@ def main() -> None:
         symbols = parse_symbol_file(f)
 
     core_reader = CoreReader('/proc/kcore')
+
     def lookup_variable(name: str) -> Tuple[int, Type]:
         address = symbols[name][-1]
         dwarf_type = dwarf_index.find(name, DW_TAG.variable).type()

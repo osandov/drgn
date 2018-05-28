@@ -723,7 +723,7 @@ class EnumType(Type):
     def __init__(self, name: Optional[str], type: Optional[IntType],
                  enumerators: Optional[List[Tuple[str, int]]],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
-        if type is None != enumerators is None:
+        if (type is None) != (enumerators is None):
             raise ValueError('incomplete enum type must not have type or enumerators')
         super().__init__(qualifiers)
         self.name = name
@@ -922,7 +922,7 @@ class PointerType(Type):
         super().__init__(qualifiers)
         self.size = size
         self.type = type
-        setattr(self, 'read',_INT_READ[size, False])
+        setattr(self, 'read', _INT_READ[size, False])
 
     def __repr__(self) -> str:
         parts = [
