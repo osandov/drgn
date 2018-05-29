@@ -22,6 +22,7 @@ from drgn.helpers.kernel.fs import *
 from drgn.helpers.kernel.idr import *
 from drgn.helpers.kernel.list import *
 from drgn.helpers.kernel.percpu import *
+from drgn.helpers.kernel.pid import *
 from drgn.helpers.kernel.radixtree import *
 from drgn.helpers.kernel.rbtree import *
 
@@ -32,6 +33,7 @@ __all__ = (
     idr.__all__ +
     list.__all__ +
     percpu.__all__ +
+    pid.__all__ +
     radixtree.__all__ +
     rbtree.__all__
 )
