@@ -35,6 +35,15 @@ def escape_character(c: int, escape_single_quote: bool = False,
         return f'\\x{c:02x}'
 
 
+def escape_string(buffer: Iterable[int], escape_single_quote: bool = False,
+                  escape_double_quote: bool = False,
+                  escape_backslash: bool = False) -> str:
+    return ''.join(escape_character(c, escape_single_quote=escape_single_quote,
+                                    escape_double_quote=escape_double_quote,
+                                    escape_backslash=escape_backslash)
+                   for c in buffer)
+
+
 def c_string(buffer: Iterable[int]) -> str:
     parts = ['"']
     parts.extend(escape_character(c, escape_double_quote=True,
