@@ -17,7 +17,7 @@ __all__ = [
     'dentry_path',
     'inode_path',
     'inode_paths',
-    'mounts',
+    'for_each_mount',
     'print_mounts',
 ]
 
@@ -100,10 +100,10 @@ def inode_paths(inode):
     )
 
 
-def mounts(prog_or_ns):
+def for_each_mount(prog_or_ns):
     """
-    mounts()
-    mounts(struct mnt_namespace *)
+    for_each_mount()
+    for_each_mount(struct mnt_namespace *)
 
     Return an iterator over all of the mounts in a given namespace. If given a
     Program object instead, the initial mount namespace is used. The generated
@@ -132,11 +132,11 @@ def print_mounts(prog_or_ns):
     print_mounts()
     print_mounts(struct mnt_namespace *)
 
-    Print the mount table of a given namespace. See mounts() for the behavior
-    of the prog_or_ns argument. The format is similar to /proc/mounts but
-    prints the value of each struct mount *.
+    Print the mount table of a given namespace. See for_each_mount() for the
+    behavior of the prog_or_ns argument. The format is similar to /proc/mounts
+    but prints the value of each struct mount *.
     """
-    for src, dst, fstype, mnt in mounts(prog_or_ns):
+    for src, dst, fstype, mnt in for_each_mount(prog_or_ns):
         src = escape_string(src, escape_backslash=True)
         dst = escape_string(dst, escape_backslash=True)
         fstype = escape_string(fstype, escape_backslash=True)
