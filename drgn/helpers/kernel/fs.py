@@ -11,6 +11,7 @@ This module provides helpers for working with the Linux virtual filesystem
 from drgn.helpers.kernel.list import hlist_for_each_entry, list_for_each_entry
 from drgn.program import Program
 from drgn.util import escape_string
+import os
 
 __all__ = [
     'd_path',
@@ -100,44 +101,60 @@ def inode_paths(inode):
     )
 
 
-def for_each_mount(prog_or_ns):
+def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
     """
-    for_each_mount()
-    for_each_mount(struct mnt_namespace *)
+    for_each_mount(struct mnt_namespace *, char *src, char *dst, char *fstype)
 
     Return an iterator over all of the mounts in a given namespace. If given a
-    Program object instead, the initial mount namespace is used. The generated
-    values are (source, destination, filesystem type, struct mount *) tuples.
+    Program object instead, the initial mount namespace is used. The returned
+    mounts can be filtered by source, destination, or filesystem type, all of
+    which are encoded using os.fsencode().
+
+    The generated values are (source, destination, filesystem type, struct
+    mount *) tuples. The source, destination, and filesystem type are returned
+    as bytes.
     """
     if isinstance(prog_or_ns, Program):
         ns = prog_or_ns['init_task'].nsproxy.mnt_ns
     else:
         ns = prog_or_ns
+    if src is not None:
+        src = os.fsencode(src)
+    if dst is not None:
+        dst = os.fsencode(dst)
+    if fstype:
+        fstype = os.fsencode(fstype)
     for mnt in list_for_each_entry('struct mount', ns.list.address_of_(),
                                    'mnt_list'):
-        src = mnt.mnt_devname.string_()
-        dst = d_path(mnt, mnt.mnt.mnt_root)
+        mnt_src = mnt.mnt_devname.string_()
+        if src is not None and mnt_src != src:
+            continue
+        mnt_dst = d_path(mnt, mnt.mnt.mnt_root)
+        if dst is not None and mnt_dst != dst:
+            continue
         sb = mnt.mnt.mnt_sb.read_once_()
-        fstype = sb.s_type.name.string_()
+        mnt_fstype = sb.s_type.name.string_()
         subtype = sb.s_subtype.read_once_()
         if subtype:
             subtype = subtype.string_()
             if subtype:
-                fstype += b'.' + subtype
-        yield src, dst, fstype, mnt
+                mnt_fstype += b'.' + subtype
+        if fstype is not None and mnt_fstype != fstype:
+            continue
+        yield mnt_src, mnt_dst, mnt_fstype, mnt
 
 
-def print_mounts(prog_or_ns):
+def print_mounts(prog_or_ns, src=None, dst=None, fstype=None):
     """
-    print_mounts()
-    print_mounts(struct mnt_namespace *)
+    print_mounts(struct mnt_namespace *, char *src, char *dst, char *fstype)
 
-    Print the mount table of a given namespace. See for_each_mount() for the
-    behavior of the prog_or_ns argument. The format is similar to /proc/mounts
-    but prints the value of each struct mount *.
+    Print the mount table of a given namespace. The arguments are the same as
+    for_each_mount(). The output format is similar to /proc/mounts but prints
+    the value of each struct mount *.
     """
-    for src, dst, fstype, mnt in for_each_mount(prog_or_ns):
-        src = escape_string(src, escape_backslash=True)
-        dst = escape_string(dst, escape_backslash=True)
-        fstype = escape_string(fstype, escape_backslash=True)
-        print(f'{src} {dst} {fstype} ({mnt.type_.type_name()})0x{mnt.value_():x}')
+    for mnt_src, mnt_dst, mnt_fstype, mnt in for_each_mount(prog_or_ns, src,
+                                                            dst, fstype):
+        mnt_src = escape_string(mnt_src, escape_backslash=True)
+        mnt_dst = escape_string(mnt_dst, escape_backslash=True)
+        mnt_fstype = escape_string(mnt_fstype, escape_backslash=True)
+        print(f'{mnt_src} {mnt_dst} {mnt_fstype} ({mnt.type_.type_name()})0x{mnt.value_():x}')
