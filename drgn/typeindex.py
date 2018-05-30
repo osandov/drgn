@@ -490,16 +490,30 @@ class DwarfTypeIndex(TypeIndex):
             if dwarf_type.find_flag(DW_AT.declaration):
                 return EnumType(name, None, None, qualifiers)
             else:
-                int_type = self.find_dwarf_type(dwarf_type.type())
-                if not isinstance(int_type, IntType):
-                    raise DwarfFormatError('enum compatible type is not an integer type')
+                size = dwarf_type.size()
+                signed_max = 2**(size - 1) - 1
+                signed = True
                 enumerators = []
                 for child in dwarf_type.children():
                     if child.tag != DW_TAG.enumerator:
                         continue
                     enumerator_name = child.name()
                     enumerator_value = child.find_constant(DW_AT.const_value)
+                    if enumerator_value > signed_max:
+                        signed = False
                     enumerators.append((enumerator_name, enumerator_value))
+                int_type: Type
+                try:
+                    type_die = dwarf_type.type()
+                except DwarfAttribNotFoundError:
+                    # GCC before 5.1 did not include DW_AT_type for
+                    # DW_TAG_enumeration_type DIEs, so we have to fabricate
+                    # one.
+                    int_type = IntType('', size, signed)
+                else:
+                    int_type = self.find_dwarf_type(type_die)
+                    if not isinstance(int_type, IntType):
+                        raise DwarfFormatError('enum compatible type is not an integer type')
                 return EnumType(name, int_type, enumerators, qualifiers)
         elif dwarf_type.tag == DW_TAG.typedef:
             return TypedefType(dwarf_type.name(),
