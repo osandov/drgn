@@ -15,7 +15,7 @@ __all__ = [
     'find_pid',
     'for_each_pid',
     'pid_task',
-    'task',
+    'find_task',
     'for_each_task',
 ]
 
@@ -23,7 +23,6 @@ __all__ = [
 def find_pid(prog_or_ns, nr):
     """
     struct pid *find_pid(struct pid_namespace *, int)
-    struct pid *find_pid(int)
 
     Return the struct pid for the given PID in the given namespace. If given a
     Program object instead, the initial PID namespace is used.
@@ -54,7 +53,6 @@ def find_pid(prog_or_ns, nr):
 
 def for_each_pid(prog_or_ns):
     """
-    for_each_pid()
     for_each_pid(struct pid_namespace *)
 
     Return an iterator over all of the PIDs in the given namespace. If given a
@@ -96,10 +94,9 @@ def pid_task(pid, pid_type):
     return first.container_of_('struct task_struct', f'pids[{pid_type}].node')
 
 
-def task(prog_or_ns, pid):
+def find_task(prog_or_ns, pid):
     """
-    struct task_struct *task(int)
-    struct task_struct *task(struct pid_namespace *, int)
+    struct task_struct *find_task(struct pid_namespace *, int pid)
 
     Return the task with the given PID in the given namespace. If given a
     Program object instead, the initial PID namespace is used.
@@ -114,7 +111,6 @@ def task(prog_or_ns, pid):
 
 def for_each_task(prog_or_ns):
     """
-    for_each_task()
     for_each_task(struct pid_namespace *)
 
     Return an iterator over all of the tasks visible in the given namespace. If
