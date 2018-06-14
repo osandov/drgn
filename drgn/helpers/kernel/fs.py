@@ -23,7 +23,7 @@ __all__ = [
 ]
 
 
-def d_path(path_or_mnt, dentry=None):
+def d_path(path_or_vfsmnt, dentry=None):
     """
     char *d_path(struct path *)
     char *d_path(struct vfsmount *, struct dentry *)
@@ -31,13 +31,14 @@ def d_path(path_or_mnt, dentry=None):
     Return the full path of a dentry given a struct path or a mount and a
     dentry.
     """
-    type_name = str(path_or_mnt.type_.type_name())
+    type_name = str(path_or_vfsmnt.type_.type_name())
     if type_name == 'struct path' or type_name == 'struct path *':
-        mnt = path_or_mnt.mnt.read_once_()
-        dentry = path_or_mnt.dentry.read_once_()
+        vfsmnt = path_or_vfsmnt.mnt
+        dentry = path_or_vfsmnt.dentry.read_once_()
     else:
-        mnt = path_or_mnt.read_once_()
+        vfsmnt = path_or_vfsmnt
         dentry = dentry.read_once_()
+    mnt = vfsmnt.container_of_('struct mount', 'mnt')
 
     components = []
     while True:
@@ -48,10 +49,10 @@ def d_path(path_or_mnt, dentry=None):
             components.append(dentry.d_name.name.string_())
             components.append(b'/')
             dentry = d_parent
-        dentry = mnt.mnt_mountpoint
         mnt_parent = mnt.mnt_parent.read_once_()
         if mnt == mnt_parent:
             break
+        dentry = mnt.mnt_mountpoint
         mnt = mnt_parent
     if components:
         return b''.join(reversed(components))
@@ -129,7 +130,7 @@ def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
         mnt_src = mnt.mnt_devname.string_()
         if src is not None and mnt_src != src:
             continue
-        mnt_dst = d_path(mnt, mnt.mnt.mnt_root)
+        mnt_dst = d_path(mnt.mnt.address_of_(), mnt.mnt.mnt_root)
         if dst is not None and mnt_dst != dst:
             continue
         sb = mnt.mnt.mnt_sb.read_once_()
