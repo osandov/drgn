@@ -40,6 +40,10 @@ def d_path(path_or_vfsmnt, dentry=None):
         dentry = dentry.read_once_()
     mnt = vfsmnt.container_of_('struct mount', 'mnt')
 
+    d_op = dentry.d_op.read_once_()
+    if d_op and d_op.d_dname:
+        return None
+
     components = []
     while True:
         while True:
