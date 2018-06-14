@@ -20,6 +20,9 @@ __all__ = [
     'inode_paths',
     'for_each_mount',
     'print_mounts',
+    'fget',
+    'for_each_file',
+    'print_files',
 ]
 
 
@@ -163,3 +166,45 @@ def print_mounts(prog_or_ns, src=None, dst=None, fstype=None):
         mnt_dst = escape_string(mnt_dst, escape_backslash=True)
         mnt_fstype = escape_string(mnt_fstype, escape_backslash=True)
         print(f'{mnt_src} {mnt_dst} {mnt_fstype} ({mnt.type_.type_name()})0x{mnt.value_():x}')
+
+
+def fget(task, fd):
+    """
+    struct file *fget(struct task_struct *, int fd)
+
+    Return the kernel file descriptor (struct file *) of the fd of a given
+    task.
+    """
+    return task.files.fdt.fd[fd]
+
+
+def for_each_file(task):
+    """
+    for_each_file(struct task_struct *)
+
+    Return an iterator over all of the files open in a given task. The
+    generated values are (fd, path, struct file *) tuples. The path is returned
+    as bytes.
+    """
+    fdt = task.files.fdt.read_once_()
+    bits_per_long = 8 * fdt.open_fds.type_.type.sizeof()
+    for i in range((fdt.max_fds.value_() + bits_per_long - 1) // bits_per_long):
+        word = fdt.open_fds[i].value_()
+        for j in range(bits_per_long):
+            if word & (1 << j):
+                fd = i * bits_per_long + j
+                file = fdt.fd[fd].read_once_()
+                yield fd, d_path(file.f_path), file
+
+
+def print_files(task):
+    """
+    print_files(struct task_struct *)
+
+    Print the open files of a given task.
+    """
+    for fd, path, file in for_each_file(task):
+        if path is None:
+            path = file.f_inode.i_sb.s_type.name.string_()
+        path = escape_string(path, escape_backslash=True)
+        print(f'{fd} {path} ({file.type_.type_name()})0x{file.value_():x}')
