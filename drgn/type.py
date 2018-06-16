@@ -107,7 +107,6 @@ class Type:
     def __repr__(self) -> str:
         parts = [self.__class__.__name__, '(']
         if self.qualifiers:
-            parts.append(', ')
             parts.append(repr(self.qualifiers))
         parts.append(')')
         return ''.join(parts)
