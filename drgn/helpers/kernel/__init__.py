@@ -18,6 +18,7 @@ Alternatively, in interactive mode, the following is the most convenient:
 """
 
 from drgn.helpers.kernel.cpumask import *
+from drgn.helpers.kernel.device import *
 from drgn.helpers.kernel.fs import *
 from drgn.helpers.kernel.idr import *
 from drgn.helpers.kernel.list import *
@@ -30,6 +31,7 @@ from drgn.helpers.kernel.rbtree import *
 
 __all__ = (
     cpumask.__all__ +
+    device.__all__ +
     fs.__all__ +
     idr.__all__ +
     list.__all__ +
