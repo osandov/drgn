@@ -536,6 +536,10 @@ struct point {
         self.assertEqual(self.compile_type('extern int x[][2]'),
                         ArrayType(ArrayType(IntType('int', 4, True), 2, pointer_size), None, pointer_size))
 
+    def test_pointer_to_const_void(self):
+        self.assertEqual(self.compile_type('const void *x'),
+                         PointerType(pointer_size, VoidType(frozenset({'const'}))))
+
     def test_pointer_to_function(self):
         self.assertEqual(self.compile_type('int (*x)(int)'),
                          PointerType(pointer_size, FunctionType(pointer_size, IntType('int', 4, True), [(IntType('int', 4, True), None)])))

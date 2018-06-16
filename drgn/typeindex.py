@@ -417,7 +417,10 @@ class DwarfTypeIndex(TypeIndex):
                 extra_qualifiers.add('_Atomic')
             else:
                 break
-            dwarf_type = dwarf_type.type()
+            try:
+                dwarf_type = dwarf_type.type()
+            except DwarfAttribNotFoundError:
+                return VoidType(qualifiers.union(extra_qualifiers))
         if extra_qualifiers:
             qualifiers = qualifiers.union(extra_qualifiers)
 
