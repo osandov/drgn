@@ -3,10 +3,11 @@
 
 import enum
 import functools
+import os
 import struct
 import sys
 from typing import (
-    Dict, Iterator, List, NamedTuple, Optional, Text, Tuple, Union,
+    Dict, Iterator, List, NamedTuple, Optional, Sequence, Text, Tuple, Union,
 )
 
 
@@ -588,6 +589,7 @@ class ElfFormatError(Exception):
 
 
 class _Reader:
+    s8 = struct.Struct('b')
     u8 = struct.Struct('B')
     u16 = struct.Struct('H')
     u32 = struct.Struct('I')
@@ -622,6 +624,9 @@ class _Reader:
         ret = s.unpack_from(self.view, self.offset)
         self.offset += s.size
         return ret
+
+    def read_s8(self) -> int:
+        return self.read_struct(self.s8)[0]
 
     def read_u8(self) -> int:
         return self.read_struct(self.u8)[0]
@@ -725,6 +730,49 @@ class CompilationUnit:
         assert die is not None
         return die
 
+    @functools.lru_cache()
+    def lnp(self) -> 'LineNumberProgram':
+        reader = self.dwarf_file._get_section_reader('.debug_line')
+        reader.offset = self.die().find_ptr(DW_AT.stmt_list)
+        return _parse_line_number_program(reader, self.dwarf_file)
+
+
+class LineNumberProgram:
+    def __init__(self, dwarf_file: DwarfFile, offset: int, unit_length: int,
+                 version: int, header_length: int,
+                 minimum_instruction_length: int,
+                 maximum_operations_per_instruction: int,
+                 default_is_stmt: bool, line_base: int, line_range: int,
+                 opcode_base: int, standard_opcode_lengths: Sequence[int],
+                 include_directories: List[str],
+                 file_names: List[Tuple[str, int, int, int]],
+                 is_64_bit: bool) -> None:
+        self.dwarf_file = dwarf_file
+        self.offset = offset
+        self.unit_length = unit_length
+        self.version = version
+        self.header_length = header_length
+        self.minimum_instruction_length = minimum_instruction_length
+        self.maximum_operations_per_instruction = maximum_operations_per_instruction
+        self.default_is_stmt = default_is_stmt
+        self.line_base = line_base
+        self.line_range = line_range
+        self.opcode_base = opcode_base
+        self.standard_opcode_lengths = standard_opcode_lengths
+        self.include_directories = include_directories
+        self.file_names = file_names
+        self.is_64_bit = is_64_bit
+
+    def file_name(self, index: int) -> 'str':
+        if index <= 0 or index > len(self.file_names):
+            raise IndexError('file name index out of range')
+        path, directory_index, _, _ = self.file_names[index - 1]
+        if directory_index:
+            directory = self.include_directories[directory_index - 1]
+            return os.path.join(directory, path)
+        else:
+            return path
+
 
 class DieAttrib(NamedTuple):
     name: int
@@ -795,6 +843,18 @@ class Die:
         else:
             raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for flag')
 
+    def find_ptr(self, at: DW_AT) -> int:
+        attrib = self.find(at)
+        if attrib.form == DW_FORM.sec_offset:
+            assert isinstance(attrib.value, int)
+            return attrib.value
+        elif (attrib.form == DW_FORM.data4 or
+              attrib.form == DW_FORM.data8):
+            assert isinstance(attrib.value, bytes)
+            return int.from_bytes(attrib.value, sys.byteorder)
+        else:
+            raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for ptr')
+
     def name(self) -> str:
         return self.find_string(DW_AT.name)
 
@@ -825,6 +885,18 @@ class Die:
         reader = self.cu.dwarf_file._get_section_reader('.debug_info')
         reader.offset = self.offset + self.length
         return _parse_die_siblings(reader, self.cu)
+
+    def decl(self) -> Tuple[str, Optional[int], Optional[int]]:
+        file = self.cu.lnp().file_name(self.find_constant(DW_AT.decl_file))
+        try:
+            line = self.find_constant(DW_AT.decl_line)
+        except DwarfAttribNotFoundError:
+            line = 0
+        try:
+            column = self.find_constant(DW_AT.decl_column)
+        except DwarfAttribNotFoundError:
+            column = 0
+        return (file, line if line else None, column if column else None)
 
     def is_type(self) -> bool:
         return self.tag in TYPE_TAGS
@@ -1001,3 +1073,59 @@ def _parse_die(reader: _Reader, cu: CompilationUnit,
                 reader.offset = cu.offset + sibling.value
 
     return Die(cu, offset, length, decl.tag, attribs, children)
+
+
+def _parse_line_number_program(reader: _Reader, dwarf_file: DwarfFile) -> LineNumberProgram:
+    offset = reader.offset
+    unit_length = reader.read_u32()
+    if unit_length == 0xffffffff:
+        is_64_bit = True
+        unit_length = reader.read_u64()
+    else:
+        is_64_bit = False
+
+    version = reader.read_u16()
+    if not 2 <= version <= 4:
+        raise DwarfFormatError(f'unknown line number program version {version}')
+
+    if is_64_bit:
+        header_length = reader.read_u64()
+    else:
+        header_length = reader.read_u32()
+
+    minimum_instruction_length = reader.read_u8()
+    if version >= 4:
+        maximum_operations_per_instruction = reader.read_u8()
+    else:
+        maximum_operations_per_instruction = 1
+    default_is_stmt = bool(reader.read_u8())
+    line_base = reader.read_s8()
+    line_range = reader.read_u8()
+    opcode_base = reader.read_u8()
+    standard_opcode_lengths = reader.read_bytes(opcode_base - 1)
+
+    include_directories = []
+    while True:
+        path = reader.read_c_string()
+        if not path:
+            break
+        include_directories.append(os.fsdecode(path))
+
+    file_names = []
+    while True:
+        path = reader.read_c_string()
+        if not path:
+            break
+        directory = reader.read_uleb128()
+        if directory > len(include_directories):
+            raise DwarfFormatError(f'file name directory index {directory} out of range')
+        mtime = reader.read_uleb128()
+        size = reader.read_uleb128()
+        file_names.append((os.fsdecode(path), directory, mtime, size))
+
+    return LineNumberProgram(dwarf_file, offset, unit_length, version,
+                             header_length, minimum_instruction_length,
+                             maximum_operations_per_instruction,
+                             default_is_stmt, line_base, line_range,
+                             opcode_base, standard_opcode_lengths,
+                             include_directories, file_names, is_64_bit)
