@@ -779,6 +779,9 @@ class DieAttrib(NamedTuple):
     form: int
     value: Union[int, bytes]
 
+    def __repr__(self) -> str:
+        return f'DieAttrib({DW_AT.str(self.name)}, {DW_FORM.str(self.form)}, {self.value!r})'
+
 
 class Die:
     def __init__(self, cu: CompilationUnit, offset: int, length: int,
