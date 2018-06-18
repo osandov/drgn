@@ -29,6 +29,14 @@ enum {
 };
 
 enum {
+	/* Maximum number of bits used by the tags we care about. */
+	TAG_BITS = 6,
+	TAG_MASK = (1 << TAG_BITS) - 1,
+	/* The remaining bits can be used for other purposes. */
+	TAG_FLAG_CHILDREN = 0x80,
+};
+
+enum {
 	DW_AT_sibling = 0x1,
 	DW_AT_name = 0x3,
 	DW_AT_declaration = 0x3c,
@@ -675,9 +683,10 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			    struct abbrev_table *table, size_t *decls_capacity,
 			    size_t *num_cmds, size_t *cmds_capacity)
 {
-	uint8_t children;
 	uint64_t code;
 	uint64_t tag;
+	uint8_t children;
+	uint8_t flags = 0;
 	bool first = true;
 
 	if (read_uleb128(ptr, end, &code) == -1)
@@ -719,6 +728,8 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 		tag = 0;
 	if (read_u8(ptr, end, &children) == -1)
 		return -1;
+	if (children)
+		flags |= TAG_FLAG_CHILDREN;
 
 	for (;;) {
 		uint64_t name, form;
@@ -851,9 +862,7 @@ append_cmd:
 	}
 	if (append_cmd(table, 0, num_cmds, cmds_capacity) == -1)
 		return -1;
-	/* Low bits are the tag, high bit is the children flag. */
-	if (append_cmd(table, tag | ((!!children) << 7), num_cmds,
-		       cmds_capacity) == -1)
+	if (append_cmd(table, tag | flags, num_cmds, cmds_capacity) == -1)
 		return -1;
 
 	return 1;
@@ -1073,14 +1082,13 @@ skip:
 			}
 		}
 
-		tag = *cmdp & 0x7f;
+		tag = *cmdp & TAG_MASK;
 		if (depth == 1 && name && tag) {
 			if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
 				goto err;
 		}
 
-		/* High bit set means this DIE has children. */
-		if (*cmdp & 0x80) {
+		if (*cmdp & TAG_FLAG_CHILDREN) {
 			if (sibling)
 				ptr = sibling;
 			else
