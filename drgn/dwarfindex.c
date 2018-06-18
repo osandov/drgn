@@ -3,6 +3,7 @@
 
 #define PY_SSIZE_T_CLEAN
 
+#include <assert.h>
 #include <elf.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -231,21 +232,22 @@ static inline int read_uleb128_into_size_t(const char **ptr, const char *end,
 }
 
 enum {
-	ATTRIB_BLOCK1 = 242,
-	ATTRIB_BLOCK2 = 243,
-	ATTRIB_BLOCK4 = 244,
-	ATTRIB_EXPRLOC = 245,
-	ATTRIB_LEB128 = 246,
-	ATTRIB_STRING = 247,
-	ATTRIB_SIBLING_REF1 = 248,
-	ATTRIB_SIBLING_REF2 = 249,
-	ATTRIB_SIBLING_REF4 = 250,
-	ATTRIB_SIBLING_REF8 = 251,
-	ATTRIB_SIBLING_REF_UDATA = 252,
-	ATTRIB_NAME_STRP4 = 253,
-	ATTRIB_NAME_STRP8 = 254,
-	ATTRIB_NAME_STRING = 255,
-	ATTRIB_MIN_CMD = ATTRIB_BLOCK1,
+	CMD_MAX_SKIP = 241,
+	ATTRIB_BLOCK1,
+	ATTRIB_BLOCK2,
+	ATTRIB_BLOCK4,
+	ATTRIB_EXPRLOC,
+	ATTRIB_LEB128,
+	ATTRIB_STRING,
+	ATTRIB_SIBLING_REF1,
+	ATTRIB_SIBLING_REF2,
+	ATTRIB_SIBLING_REF4,
+	ATTRIB_SIBLING_REF8,
+	ATTRIB_SIBLING_REF_UDATA,
+	ATTRIB_NAME_STRP4,
+	ATTRIB_NAME_STRP8,
+	ATTRIB_NAME_STRING,
+	ATTRIB_MAX_CMD = ATTRIB_NAME_STRING,
 };
 
 struct abbrev_table {
@@ -832,13 +834,13 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			return -1;
 		}
 
-		if (!first && table->cmds[*num_cmds - 1] < ATTRIB_MIN_CMD) {
-			if ((uint16_t)table->cmds[*num_cmds - 1] + cmd < ATTRIB_MIN_CMD) {
+		if (!first && table->cmds[*num_cmds - 1] < CMD_MAX_SKIP) {
+			if ((uint16_t)table->cmds[*num_cmds - 1] + cmd <= CMD_MAX_SKIP) {
 				table->cmds[*num_cmds - 1] += cmd;
 				continue;
 			} else {
-				cmd = (uint16_t)table->cmds[*num_cmds - 1] + cmd - ATTRIB_MIN_CMD + 1;
-				table->cmds[*num_cmds - 1] = ATTRIB_MIN_CMD - 1;
+				cmd = (uint16_t)table->cmds[*num_cmds - 1] + cmd - CMD_MAX_SKIP;
+				table->cmds[*num_cmds - 1] = CMD_MAX_SKIP;
 			}
 		}
 
@@ -1501,6 +1503,9 @@ PyInit_dwarfindex(void)
 {
 	PyObject *name;
 	PyObject *m;
+
+	static_assert(ATTRIB_MAX_CMD == UINT8_MAX,
+		      "maximum DWARF attribute command is invalid");
 
 	PyEval_InitThreads();
 
