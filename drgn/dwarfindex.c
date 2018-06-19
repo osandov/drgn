@@ -120,6 +120,7 @@ static PyObject *ElfFormatError;
 enum {
 	DEBUG_ABBREV,
 	DEBUG_INFO,
+	DEBUG_LINE,
 	DEBUG_STR,
 	NUM_DEBUG_SECTIONS,
 };
@@ -127,6 +128,7 @@ enum {
 static const char *section_names[NUM_DEBUG_SECTIONS] = {
 	[DEBUG_ABBREV] = ".debug_abbrev",
 	[DEBUG_INFO] = ".debug_info",
+	[DEBUG_LINE] = ".debug_line",
 	[DEBUG_STR] = ".debug_str",
 };
 
@@ -458,6 +460,9 @@ static int read_sections(struct file *file)
 			else if (max_name_len > strlen(".debug_info") &&
 				 strcmp(name, ".debug_info") == 0)
 				section = &file->debug_sections[DEBUG_INFO];
+			else if (max_name_len > strlen(".debug_line") &&
+				 strcmp(name, ".debug_line") == 0)
+				section = &file->debug_sections[DEBUG_LINE];
 			else if (max_name_len > strlen(".debug_str") &&
 				 strcmp(name, ".debug_str") == 0)
 				section = &file->debug_sections[DEBUG_STR];
