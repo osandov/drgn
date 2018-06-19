@@ -78,6 +78,30 @@ static PyObject *ElfFormatError;
 #define DIE_HASH_SIZE (1 << DIE_HASH_SHIFT)
 #define DIE_HASH_MASK ((1 << DIE_HASH_SHIFT) - 1)
 
+/* int resize_array(T **ptr, size_t n); */
+#define resize_array(ptr, n) ({					\
+	typeof(ptr) _ptr = ptr;					\
+	size_t _n = n;						\
+	int _ret;						\
+								\
+	if (_n > SIZE_MAX / sizeof(**_ptr)) {			\
+		PyErr_NoMemory();				\
+		_ret = -1;					\
+	} else {						\
+		typeof(*_ptr) _tmp;				\
+								\
+		_tmp = realloc(*_ptr, _n * sizeof(**_ptr));	\
+		if (_tmp) {					\
+			*_ptr = _tmp;				\
+			_ret = 0;				\
+		} else {					\
+			PyErr_NoMemory();			\
+			_ret = -1;				\
+		}						\
+	}							\
+	_ret;							\
+})
+
 /*
  * XXX: hacky way to make sure everywhere we raise an exception does so with the
  * GIL held.
@@ -578,25 +602,6 @@ static int apply_relocation(struct section *section,
 	return 0;
 }
 
-static int realloc_cus(struct compilation_unit **cus, size_t n)
-{
-	struct compilation_unit *tmp;
-
-	if (n > SIZE_MAX / sizeof(**cus)) {
-		PyErr_NoMemory();
-		return -1;
-	}
-
-	tmp = realloc(*cus, n * sizeof(**cus));
-	if (!tmp) {
-		PyErr_NoMemory();
-		return -1;
-	}
-
-	*cus = tmp;
-	return 0;
-}
-
 static int read_compilation_unit_header(const char *ptr, const char *end,
 					struct compilation_unit *cu)
 {
@@ -645,7 +650,7 @@ static int read_cus(DwarfIndex *self, struct file *file, size_t *cus_capacity)
 				*cus_capacity = 1;
 			else
 				*cus_capacity *= 2;
-			if (realloc_cus(&self->cus, *cus_capacity) == -1)
+			if (resize_array(&self->cus, *cus_capacity) == -1)
 				return -1;
 		}
 
@@ -666,18 +671,12 @@ static int append_cmd(struct abbrev_table *table, uint8_t cmd, size_t *num_cmds,
 		      size_t *cmds_capacity)
 {
 	if (*num_cmds >= *cmds_capacity) {
-		uint8_t *tmp;
-
 		if (*cmds_capacity == 0)
 			*cmds_capacity = 32;
 		else
 			*cmds_capacity *= 2;
-		tmp = realloc(table->cmds, *cmds_capacity * sizeof(uint8_t));
-		if (!tmp) {
-			PyErr_NoMemory();
+		if (resize_array(&table->cmds, *cmds_capacity) == -1)
 			return -1;
-		}
-		table->cmds = tmp;
 	}
 	table->cmds[(*num_cmds)++] = cmd;
 	return 0;
@@ -705,20 +704,13 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 	}
 
 	if (table->num_decls >= *decls_capacity) {
-		uint32_t *tmp;
-
 		if (*decls_capacity == 0)
 			*decls_capacity = 1;
 		else
 			*decls_capacity *= 2;
-		tmp = realloc(table->decls, *decls_capacity * sizeof(uint32_t));
-		if (!tmp) {
-			PyErr_NoMemory();
+		if (resize_array(&table->decls, *decls_capacity) == -1)
 			return -1;
-		}
-		table->decls = tmp;
 	}
-
 	table->decls[table->num_decls++] = *num_cmds;
 
 	if (read_uleb128(ptr, end, &tag) == -1)
