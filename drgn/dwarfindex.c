@@ -873,10 +873,6 @@ static int read_abbrev_table(const char *ptr, const char *end,
 	size_t num_cmds = 0;
 	size_t cmds_capacity = 0;
 
-	table->decls = NULL;
-	table->num_decls = 0;
-	table->cmds = NULL;
-
 	for (;;) {
 		int ret;
 
@@ -936,7 +932,7 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 
 static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 {
-	struct abbrev_table abbrev_table;
+	struct abbrev_table abbrev_table = {};
 	const struct section *debug_abbrev = &cu->file->debug_sections[DEBUG_ABBREV];
 	const char *debug_abbrev_end = &debug_abbrev->buffer[debug_abbrev->size];
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
@@ -945,10 +941,11 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 	const char *debug_str_buffer = debug_str->buffer;
 	const char *debug_str_end = &debug_str_buffer[debug_str->size];
 	unsigned int depth = 0;
+	int ret = -1;
 
 	if (read_abbrev_table(&debug_abbrev->buffer[cu->debug_abbrev_offset],
 			      debug_abbrev_end, cu, &abbrev_table) == -1)
-		goto err;
+		goto out;
 
 	for (;;) {
 		const char *die_ptr = ptr;
@@ -960,7 +957,7 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 		uint64_t tag;
 
 		if (read_uleb128(&ptr, end, &code) == -1)
-			goto err;
+			goto out;
 		if (code == 0) {
 			if (!--depth)
 				break;
@@ -971,7 +968,7 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 			PyErr_Format(DwarfFormatError,
 				     "unknown abbreviation code %" PRIu64,
 				     code);
-			goto err;
+			goto out;
 		}
 		cmdp = &abbrev_table.cmds[abbrev_table.decls[code - 1]];
 
@@ -982,25 +979,25 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 			switch (cmd) {
 			case ATTRIB_BLOCK1:
 				if (read_u8_into_size_t(&ptr, end, &skip) == -1)
-					goto err;
+					goto out;
 				goto skip;
 			case ATTRIB_BLOCK2:
 				if (read_u16_into_size_t(&ptr, end, &skip) == -1)
-					goto err;
+					goto out;
 				goto skip;
 			case ATTRIB_BLOCK4:
 				if (read_u32_into_size_t(&ptr, end, &skip) == -1)
-					goto err;
+					goto out;
 				goto skip;
 			case ATTRIB_EXPRLOC:
 				if (read_uleb128_into_size_t(&ptr, end, &skip) == -1)
-					goto err;
+					goto out;
 				goto skip;
 			case ATTRIB_LEB128:
 				for (;;) {
 					if (ptr >= end) {
 						PyErr_SetNone(PyExc_EOFError);
-						goto err;
+						goto out;
 					}
 					if (!(*(const uint8_t *)ptr++ & 0x80))
 						break;
@@ -1015,54 +1012,54 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 
 					if (ptr >= end) {
 						PyErr_SetNone(PyExc_EOFError);
-						goto err;
+						goto out;
 					}
 					nul = memchr(ptr, 0, end - ptr);
 					if (!nul) {
 						PyErr_SetNone(PyExc_EOFError);
-						goto err;
+						goto out;
 					}
 					ptr = nul + 1;
 				}
 				break;
 			case ATTRIB_SIBLING_REF1:
 				if (read_u8_into_size_t(&ptr, end, &tmp) == -1)
-					goto err;
+					goto out;
 				goto sibling;
 			case ATTRIB_SIBLING_REF2:
 				if (read_u16_into_size_t(&ptr, end, &tmp) == -1)
-					goto err;
+					goto out;
 				goto sibling;
 			case ATTRIB_SIBLING_REF4:
 				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
-					goto err;
+					goto out;
 				goto sibling;
 			case ATTRIB_SIBLING_REF8:
 				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
-					goto err;
+					goto out;
 				goto sibling;
 			case ATTRIB_SIBLING_REF_UDATA:
 				if (read_uleb128_into_size_t(&ptr, end, &tmp) == -1)
-					goto err;
+					goto out;
 sibling:
 				if (!in_bounds(cu->ptr, end, tmp)) {
 					PyErr_SetNone(PyExc_EOFError);
-					goto err;
+					goto out;
 				}
 				sibling = &cu->ptr[tmp];
 				__builtin_prefetch(sibling);
 				break;
 			case ATTRIB_NAME_STRP4:
 				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
-					goto err;
+					goto out;
 				goto strp;
 			case ATTRIB_NAME_STRP8:
 				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
-					goto err;
+					goto out;
 strp:
 				if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
 					PyErr_SetNone(PyExc_EOFError);
-					goto err;
+					goto out;
 				}
 				name = &debug_str_buffer[tmp];
 				__builtin_prefetch(name);
@@ -1072,7 +1069,7 @@ strp:
 skip:
 				if (!in_bounds(ptr, end, skip)) {
 					PyErr_SetNone(PyExc_EOFError);
-					goto err;
+					goto out;
 				}
 				ptr += skip;
 				break;
@@ -1082,7 +1079,7 @@ skip:
 		tag = *cmdp & TAG_MASK;
 		if (depth == 1 && name && tag) {
 			if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
-				goto err;
+				goto out;
 		}
 
 		if (*cmdp & TAG_FLAG_CHILDREN) {
@@ -1095,14 +1092,11 @@ skip:
 		}
 	}
 
+	ret = 0;
+out:
 	free(abbrev_table.decls);
 	free(abbrev_table.cmds);
-	return 0;
-
-err:
-	free(abbrev_table.decls);
-	free(abbrev_table.cmds);
-	return -1;
+	return ret;
 }
 
 static void DwarfIndex_dealloc(DwarfIndex *self)
