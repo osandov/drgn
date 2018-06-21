@@ -1344,43 +1344,13 @@ out:
 	return file_obj;
 }
 
-static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
-				 *kwds)
+static PyObject *die_object_from_entry(DwarfIndex *self, struct die_hash_entry *entry)
 {
-	static char *keywords[] = {"name", "tag", NULL};
-	struct die_hash_entry *entry;
-	const char *name;
 	PyObject *method_name;
 	PyObject *cu_offset;
 	PyObject *cu_obj;
 	PyObject *die_offset;
 	PyObject *die_obj;
-	unsigned long long tag;
-	uint32_t i, orig_i;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sK:find", keywords, &name,
-					 &tag))
-		return NULL;
-
-	i = orig_i = name_hash(name) & DIE_HASH_MASK;
-	for (;;) {
-		entry = &self->die_hash[i];
-		if (!entry->name) {
-			entry = NULL;
-			break;
-		}
-		if (entry->tag == tag && strcmp(entry->name, name) == 0)
-			break;
-		i = (i + 1) & DIE_HASH_MASK;
-		if (i == orig_i) {
-			entry = NULL;
-			break;
-		}
-	}
-	if (!entry) {
-		PyErr_SetString(PyExc_ValueError, "DIE not found");
-		return NULL;
-	}
 
 	cu_offset = PyLong_FromUnsignedLongLong(entry->cu->ptr -
 						entry->cu->file->debug_sections[DEBUG_INFO].buffer);
@@ -1429,6 +1399,42 @@ static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
 	Py_DECREF(method_name);
 	Py_DECREF(die_offset);
 	return die_obj;
+}
+
+static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
+				 *kwds)
+{
+	static char *keywords[] = {"name", "tag", NULL};
+	struct die_hash_entry *entry;
+	const char *name;
+	unsigned long long tag;
+	uint32_t i, orig_i;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sK:find", keywords, &name,
+					 &tag))
+		return NULL;
+
+	i = orig_i = name_hash(name) & DIE_HASH_MASK;
+	for (;;) {
+		entry = &self->die_hash[i];
+		if (!entry->name) {
+			entry = NULL;
+			break;
+		}
+		if (entry->tag == tag && strcmp(entry->name, name) == 0)
+			break;
+		i = (i + 1) & DIE_HASH_MASK;
+		if (i == orig_i) {
+			entry = NULL;
+			break;
+		}
+	}
+	if (!entry) {
+		PyErr_SetString(PyExc_ValueError, "DIE not found");
+		return NULL;
+	}
+
+	return die_object_from_entry(self, entry);
 }
 
 #define DwarfIndex_DOC	\
