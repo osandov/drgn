@@ -324,7 +324,7 @@ class TestDwarfTypeIndexFindDwarfType(TypeTestCase):
             f.write(';\nint main(void) { return 0; }\n')
         subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
         dwarf_index = DwarfIndex([object_path])
-        dwarf_type = dwarf_index.find('x', DW_TAG.variable).type()
+        dwarf_type = dwarf_index.find('x', DW_TAG.variable)[0].type()
         return DwarfTypeIndex(dwarf_index).find_dwarf_type(dwarf_type)
 
     def test_char(self):

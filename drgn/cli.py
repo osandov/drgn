@@ -111,7 +111,7 @@ def main() -> None:
 
     def lookup_variable(name: str) -> Tuple[int, Type]:
         address = symbols[name][-1]
-        dwarf_type = dwarf_index.find(name, DW_TAG.variable).type()
+        dwarf_type = dwarf_index.find(name, DW_TAG.variable)[0].type()
         return address, type_index.find_dwarf_type(dwarf_type)
 
     init_globals: Dict[str, Any] = {

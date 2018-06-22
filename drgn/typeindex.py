@@ -373,7 +373,8 @@ class DwarfTypeIndex(TypeIndex):
         for type_name, spellings in _BASE_TYPES.items():
             for spelling in spellings:
                 try:
-                    self._base_types[type_name] = self._dwarf_index.find(spelling, DW_TAG.base_type)
+                    self._base_types[type_name] = self._dwarf_index.find(spelling,
+                                                                         DW_TAG.base_type)[0]
                     break
                 except ValueError:
                     pass
@@ -399,7 +400,7 @@ class DwarfTypeIndex(TypeIndex):
         if type_name.name is None:
             raise ValueError("can't find anonymous type")
         if dwarf_type is None:
-            dwarf_type = self._dwarf_index.find(type_name.name, tag)
+            dwarf_type = self._dwarf_index.find(type_name.name, tag)[0]
         return self.find_dwarf_type(dwarf_type, type_name.qualifiers)
 
     @functools.lru_cache()
@@ -427,7 +428,7 @@ class DwarfTypeIndex(TypeIndex):
         if dwarf_type.find_flag(DW_AT.declaration):
             try:
                 dwarf_type = self._dwarf_index.find(dwarf_type.name(),
-                                                    dwarf_type.tag)
+                                                    dwarf_type.tag)[0]
             except (DwarfAttribNotFoundError, ValueError):
                 pass
 

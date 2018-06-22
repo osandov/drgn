@@ -12,15 +12,19 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/random.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
 #include <Python.h>
 #include "structmember.h"
 
+#include "siphash.h"
+
 enum {
 	DW_TAG_class_type = 0x2,
 	DW_TAG_enumeration_type = 0x4,
+	DW_TAG_compile_unit = 0x11,
 	DW_TAG_structure_type = 0x13,
 	DW_TAG_typedef = 0x16,
 	DW_TAG_union_type = 0x17,
@@ -39,6 +43,8 @@ enum {
 enum {
 	DW_AT_sibling = 0x1,
 	DW_AT_name = 0x3,
+	DW_AT_stmt_list = 0x10,
+	DW_AT_decl_file = 0x3a,
 	DW_AT_declaration = 0x3c,
 };
 
@@ -118,6 +124,13 @@ static PyObject *ElfFormatError;
 	PyErr_NoMemory(__VA_ARGS__);			\
 	PyGILState_Release(_state);			\
 	NULL;						\
+})
+
+#define PyErr_SetFromErrno(...) ({		\
+	PyGILState_STATE _state = PyGILState_Ensure();		\
+	PyErr_SetFromErrno(__VA_ARGS__);	\
+	PyGILState_Release(_state);				\
+	NULL;							\
 })
 
 #define PyErr_SetFromErrnoWithFilenameObject(...) ({		\
@@ -222,6 +235,59 @@ DEFINE_READ(16);
 DEFINE_READ(32);
 DEFINE_READ(64);
 
+static inline int skip_string(const char **ptr, const char *end)
+{
+	const char *nul;
+
+	if (*ptr >= end) {
+		PyErr_SetNone(PyExc_EOFError);
+		return -1;
+	}
+
+	nul = memchr(*ptr, 0, end - *ptr);
+	if (!nul) {
+		PyErr_SetNone(PyExc_EOFError);
+		return -1;
+	}
+
+	*ptr = nul + 1;
+	return 0;
+}
+
+static inline int read_string(const char **ptr, const char *end,
+			      const char **value, size_t *len)
+{
+	const char *nul;
+
+	if (*ptr >= end) {
+		PyErr_SetNone(PyExc_EOFError);
+		return -1;
+	}
+
+	nul = memchr(*ptr, 0, end - *ptr);
+	if (!nul) {
+		PyErr_SetNone(PyExc_EOFError);
+		return -1;
+	}
+
+	*value = *ptr;
+	*len = nul - *ptr;
+	*ptr = nul + 1;
+	return 0;
+}
+
+static inline int skip_leb128(const char **ptr, const char *end)
+{
+	for (;;) {
+		if (*ptr >= end) {
+			PyErr_SetNone(PyExc_EOFError);
+			return -1;
+		}
+		if (!(*(const uint8_t *)(*ptr)++ & 0x80))
+			return 0;
+	}
+}
+
 static inline int read_uleb128(const char **ptr, const char *end,
 			       uint64_t *value)
 {
@@ -266,7 +332,7 @@ static inline int read_uleb128_into_size_t(const char **ptr, const char *end,
 }
 
 enum {
-	CMD_MAX_SKIP = 241,
+	CMD_MAX_SKIP = 234,
 	ATTRIB_BLOCK1,
 	ATTRIB_BLOCK2,
 	ATTRIB_BLOCK4,
@@ -281,7 +347,14 @@ enum {
 	ATTRIB_NAME_STRP4,
 	ATTRIB_NAME_STRP8,
 	ATTRIB_NAME_STRING,
-	ATTRIB_MAX_CMD = ATTRIB_NAME_STRING,
+	ATTRIB_STMT_LIST_LINEPTR4,
+	ATTRIB_STMT_LIST_LINEPTR8,
+	ATTRIB_DECL_FILE_DATA1,
+	ATTRIB_DECL_FILE_DATA2,
+	ATTRIB_DECL_FILE_DATA4,
+	ATTRIB_DECL_FILE_DATA8,
+	ATTRIB_DECL_FILE_UDATA,
+	ATTRIB_MAX_CMD = ATTRIB_DECL_FILE_UDATA,
 };
 
 struct abbrev_table {
@@ -293,6 +366,11 @@ struct abbrev_table {
 	uint32_t *decls;
 	size_t num_decls;
 	uint8_t *cmds;
+};
+
+struct file_name_table {
+	uint64_t *file_name_hashes;
+	size_t num_files;
 };
 
 struct compilation_unit {
@@ -326,6 +404,7 @@ struct file {
 struct die_hash_entry {
 	const char *name;
 	uint64_t tag;
+	uint64_t file_name_hash;
 	struct compilation_unit *cu;
 	const char *ptr;
 };
@@ -717,6 +796,7 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 		return -1;
 	if (tag != DW_TAG_base_type &&
 	    tag != DW_TAG_class_type &&
+	    tag != DW_TAG_compile_unit &&
 	    tag != DW_TAG_enumeration_type &&
 	    tag != DW_TAG_structure_type &&
 	    tag != DW_TAG_typedef &&
@@ -759,7 +839,8 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			default:
 				break;
 			}
-		} else if (name == DW_AT_name && tag) {
+		} else if (name == DW_AT_name && tag &&
+			   tag != DW_TAG_compile_unit) {
 			switch (form) {
 			case DW_FORM_strp:
 				if (cu->is_64_bit)
@@ -781,6 +862,51 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			 * GCC always uses DW_FORM_flag_present.
 			 */
 			tag = 0;
+		} else if (name == DW_AT_stmt_list &&
+			   tag == DW_TAG_compile_unit) {
+			switch (form) {
+			case DW_FORM_data4:
+				cmd = ATTRIB_STMT_LIST_LINEPTR4;
+				goto append_cmd;
+			case DW_FORM_data8:
+				cmd = ATTRIB_STMT_LIST_LINEPTR8;
+				goto append_cmd;
+			case DW_FORM_sec_offset:
+				if (cu->is_64_bit)
+					cmd = ATTRIB_STMT_LIST_LINEPTR8;
+				else
+					cmd = ATTRIB_STMT_LIST_LINEPTR4;
+				goto append_cmd;
+			default:
+				break;
+			}
+		} else if (name == DW_AT_decl_file && tag &&
+			   tag != DW_TAG_compile_unit) {
+			switch (form) {
+			case DW_FORM_data1:
+				cmd = ATTRIB_DECL_FILE_DATA1;
+				goto append_cmd;
+			case DW_FORM_data2:
+				cmd = ATTRIB_DECL_FILE_DATA2;
+				goto append_cmd;
+			case DW_FORM_data4:
+				cmd = ATTRIB_DECL_FILE_DATA4;
+				goto append_cmd;
+			case DW_FORM_data8:
+				cmd = ATTRIB_DECL_FILE_DATA8;
+				goto append_cmd;
+			/*
+			 * decl_file must be positive, so if the compiler uses
+			 * DW_FORM_sdata for some reason, just treat it as
+			 * udata.
+			 */
+			case DW_FORM_sdata:
+			case DW_FORM_udata:
+				cmd = ATTRIB_DECL_FILE_UDATA;
+				goto append_cmd;
+			default:
+				break;
+			}
 		}
 
 		switch (form) {
@@ -883,6 +1009,208 @@ static int read_abbrev_table(const char *ptr, const char *end,
 	}
 }
 
+static int skip_lnp_header(const char **ptr, const char *end)
+{
+	uint32_t tmp;
+	bool is_64_bit;
+	uint16_t version;
+	uint8_t opcode_base;
+
+	if (read_u32(ptr, end, &tmp) == -1)
+		return -1;
+	is_64_bit = tmp == UINT32_C(0xffffffff);
+	if (is_64_bit)
+		*ptr += sizeof(uint64_t);
+
+	if (read_u16(ptr, end, &version) == -1)
+		return -1;
+	if (version != 2 && version != 3 && version != 4) {
+		PyErr_Format(DwarfFormatError, "unknown DWARF version %" PRIu16,
+			     version);
+		return -1;
+	}
+
+	/*
+	 * header_length
+	 * minimum_instruction_length
+	 * maximum_operations_per_instruction (DWARF 4 only)
+	 * default_is_stmt
+	 * line_base
+	 * line_range
+	 */
+	*ptr += (is_64_bit ? 8 : 4) + 4 + (version >= 4);
+
+	if (read_u8(ptr, end, &opcode_base) == -1)
+		return -1;
+	/* standard_opcode_lengths */
+	*ptr += opcode_base - 1;
+
+	return 0;
+}
+
+/*
+ * Hash the canonical path of a directory. We always include a trailing slash.
+ * We also reverse the path components (e.g., "a/b/c" becomes "c/b/a/" and
+ * "/a/b" becomes "b/a//"). This makes it possible to handle ".." in one pass.
+ */
+static void hash_directory(struct siphash *hash, const char *path,
+			   size_t path_len)
+{
+	unsigned int dot_dot = 0;
+
+	if (!path_len)
+		return;
+
+	while (path_len) {
+		size_t component_len = 0;
+
+		/* Skip slashes. */
+		if (path[path_len - 1] == '/') {
+			path_len--;
+			continue;
+		}
+
+		/* Skip "." components. */
+		if (path_len == 1 && path[0] == '.')
+			break;
+		if (path_len >= 2 && path[path_len - 2] == '/' &&
+		     path[path_len - 1] == '.') {
+			path_len -= 2;
+			continue;
+		}
+
+		/* Count ".." components. */
+		if (path_len == 2 && path[0] == '.' && path[1] == '.') {
+			dot_dot++;
+			break;
+		}
+		if (path_len >= 3 && path[path_len - 3] == '/' &&
+		    path[path_len - 2] == '.' && path[path_len - 1] == '.') {
+			path_len -= 3;
+			dot_dot++;
+			continue;
+		}
+
+		/* Hash or skip other components. */
+		while (path[path_len - 1] != '/') {
+			path_len--;
+			component_len++;
+			if (!path_len)
+				break;
+		}
+		if (dot_dot) {
+			dot_dot--;
+			continue;
+		}
+		siphash_update(hash, &path[path_len], component_len);
+		siphash_update(hash, "/", 1);
+	}
+
+	if (path[0] == '/') {
+		/* Absolute path. */
+		siphash_update(hash, "/", 1);
+	} else {
+		/*
+		 * Leftover ".." components must be above the current directory,
+		 * but only if this wasn't an absolute path.
+		 */
+		while (dot_dot) {
+			siphash_update(hash, "../", 3);
+			dot_dot--;
+		}
+	}
+
+}
+
+static int read_file_name_table(DwarfIndex *self, struct compilation_unit *cu,
+				size_t stmt_list, struct file_name_table *table)
+{
+	const struct section *debug_line = &cu->file->debug_sections[DEBUG_LINE];
+	const char *end = &debug_line->buffer[debug_line->size];
+	const char *ptr = &debug_line->buffer[stmt_list];
+	struct siphash *directories = NULL;
+	size_t num_directories = 0;
+	size_t directories_capacity = 0;
+	size_t files_capacity = 0;
+	int ret = -1;
+
+	if (skip_lnp_header(&ptr, end) == -1)
+		return -1;
+
+	for (;;) {
+		struct siphash *hash;
+		const char *path;
+		size_t path_len;
+
+		if (read_string(&ptr, end, &path, &path_len) == -1)
+			goto out;
+		if (!path_len)
+			break;
+
+		if (num_directories >= directories_capacity) {
+			if (directories_capacity == 0)
+				directories_capacity = 16;
+			else
+				directories_capacity *= 2;
+			if (resize_array(&directories,
+					 directories_capacity) == -1)
+				goto out;
+		}
+
+		hash = &directories[num_directories++];
+		siphash_init(hash);
+		hash_directory(hash, path, path_len);
+	}
+
+	for (;;) {
+		const char *path;
+		size_t path_len;
+		uint64_t directory_index;
+		struct siphash hash;
+
+		if (read_string(&ptr, end, &path, &path_len) == -1)
+			goto out;
+		if (!path_len)
+			break;
+
+		if (read_uleb128(&ptr, end, &directory_index) == -1)
+			goto out;
+		/* mtime, size */
+		if (skip_leb128(&ptr, end) == -1 ||
+		    skip_leb128(&ptr, end) == -1)
+			goto out;
+
+		if (directory_index > num_directories) {
+			PyErr_Format(DwarfFormatError,
+				     "directory index %" PRIu64 " is invalid",
+				     directory_index);
+			goto out;
+		}
+
+		if (directory_index)
+			hash = directories[directory_index - 1];
+		else
+			siphash_init(&hash);
+		siphash_update(&hash, path, path_len);
+
+		if (table->num_files >= files_capacity) {
+			if (files_capacity == 0)
+				files_capacity = 16;
+			else
+				files_capacity *= 2;
+			if (resize_array(&table->file_name_hashes,
+					 files_capacity) == -1)
+				goto out;
+		}
+		table->file_name_hashes[table->num_files++] = siphash_final(&hash);
+	}
+
+	ret = 0;
+out:
+	free(directories);
+	return ret;
+}
+
 /* DJBX33A hash function */
 static inline uint32_t name_hash(const char *name)
 {
@@ -895,6 +1223,7 @@ static inline uint32_t name_hash(const char *name)
 }
 
 static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
+			      uint64_t file_name_hash,
 			      struct compilation_unit *cu, const char *ptr)
 {
 	struct die_hash_entry *entry;
@@ -911,16 +1240,19 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 		    __atomic_compare_exchange_n(&entry->name, &entry_name, name,
 						false, __ATOMIC_SEQ_CST,
 						__ATOMIC_SEQ_CST)) {
-			__atomic_store_n(&entry->tag, tag, __ATOMIC_SEQ_CST);
 			entry->cu = cu;
 			entry->ptr = ptr;
+			entry->file_name_hash = file_name_hash;
+			__atomic_store_n(&entry->tag, tag, __ATOMIC_SEQ_CST);
 			return 0;
 		}
 		do {
 			entry_tag = __atomic_load_n(&entry->tag,
 						    __ATOMIC_SEQ_CST);
 		} while (!entry_tag);
-		if (tag == entry_tag && strcmp(name, entry_name) == 0)
+		if (tag == entry_tag &&
+		    file_name_hash == entry->file_name_hash &&
+		    strcmp(name, entry_name) == 0)
 			return 0;
 		i = (i + 1) & DIE_HASH_MASK;
 		if (i == orig_i) {
@@ -933,6 +1265,7 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 {
 	struct abbrev_table abbrev_table = {};
+	struct file_name_table file_name_table = {};
 	const struct section *debug_abbrev = &cu->file->debug_sections[DEBUG_ABBREV];
 	const char *debug_abbrev_end = &debug_abbrev->buffer[debug_abbrev->size];
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
@@ -951,6 +1284,8 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 		const char *die_ptr = ptr;
 		const char *sibling = NULL;
 		const char *name = NULL;
+		size_t stmt_list = SIZE_MAX;
+		size_t decl_file = 0;
 		uint64_t code;
 		uint8_t *cmdp;
 		uint8_t cmd;
@@ -994,33 +1329,15 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 					goto out;
 				goto skip;
 			case ATTRIB_LEB128:
-				for (;;) {
-					if (ptr >= end) {
-						PyErr_SetNone(PyExc_EOFError);
-						goto out;
-					}
-					if (!(*(const uint8_t *)ptr++ & 0x80))
-						break;
-				}
+				if (skip_leb128(&ptr, end) == -1)
+					goto out;
 				break;
 			case ATTRIB_NAME_STRING:
 				name = ptr;
 				/* fallthrough */
 			case ATTRIB_STRING:
-				{
-					const char *nul;
-
-					if (ptr >= end) {
-						PyErr_SetNone(PyExc_EOFError);
-						goto out;
-					}
-					nul = memchr(ptr, 0, end - ptr);
-					if (!nul) {
-						PyErr_SetNone(PyExc_EOFError);
-						goto out;
-					}
-					ptr = nul + 1;
-				}
+				if (skip_string(&ptr, end) == -1)
+					goto out;
 				break;
 			case ATTRIB_SIBLING_REF1:
 				if (read_u8_into_size_t(&ptr, end, &tmp) == -1)
@@ -1064,6 +1381,34 @@ strp:
 				name = &debug_str_buffer[tmp];
 				__builtin_prefetch(name);
 				break;
+			case ATTRIB_STMT_LIST_LINEPTR4:
+				if (read_u32_into_size_t(&ptr, end, &stmt_list) == -1)
+					goto out;
+				break;
+			case ATTRIB_STMT_LIST_LINEPTR8:
+				if (read_u64_into_size_t(&ptr, end, &stmt_list) == -1)
+					goto out;
+				break;
+			case ATTRIB_DECL_FILE_DATA1:
+				if (read_u8_into_size_t(&ptr, end, &decl_file) == -1)
+					goto out;
+				break;
+			case ATTRIB_DECL_FILE_DATA2:
+				if (read_u16_into_size_t(&ptr, end, &decl_file) == -1)
+					goto out;
+				break;
+			case ATTRIB_DECL_FILE_DATA4:
+				if (read_u32_into_size_t(&ptr, end, &decl_file) == -1)
+					goto out;
+				break;
+			case ATTRIB_DECL_FILE_DATA8:
+				if (read_u64_into_size_t(&ptr, end, &decl_file) == -1)
+					goto out;
+				break;
+			case ATTRIB_DECL_FILE_UDATA:
+				if (read_uleb128_into_size_t(&ptr, end, &decl_file) == -1)
+					goto out;
+				break;
 			default:
 				skip = cmd;
 skip:
@@ -1077,8 +1422,26 @@ skip:
 		}
 
 		tag = *cmdp & TAG_MASK;
-		if (depth == 1 && name && tag) {
-			if (add_die_hash_entry(self, name, tag, cu, die_ptr) == -1)
+		if (tag == DW_TAG_compile_unit) {
+			if (depth == 0 && stmt_list != SIZE_MAX &&
+			    read_file_name_table(self, cu, stmt_list,
+						 &file_name_table) == -1)
+				goto out;
+		} else if (depth == 1 && name && tag) {
+			uint64_t file_name_hash;
+
+			if (decl_file > file_name_table.num_files) {
+				PyErr_Format(DwarfFormatError,
+					     "invalid DW_AT_decl_file %" PRIu64,
+					     decl_file);
+				goto out;
+			}
+			if (decl_file)
+				file_name_hash = file_name_table.file_name_hashes[decl_file - 1];
+			else
+				file_name_hash = 0;
+			if (add_die_hash_entry(self, name, tag, file_name_hash,
+					       cu, die_ptr) == -1)
 				goto out;
 		}
 
@@ -1094,6 +1457,7 @@ skip:
 
 	ret = 0;
 out:
+	free(file_name_table.file_name_hashes);
 	free(abbrev_table.decls);
 	free(abbrev_table.cmds);
 	return ret;
@@ -1409,6 +1773,7 @@ static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
 	const char *name;
 	unsigned long long tag;
 	uint32_t i, orig_i;
+	PyObject *dies = NULL;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sK:find", keywords, &name,
 					 &tag))
@@ -1417,24 +1782,38 @@ static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
 	i = orig_i = name_hash(name) & DIE_HASH_MASK;
 	for (;;) {
 		entry = &self->die_hash[i];
-		if (!entry->name) {
-			entry = NULL;
+		if (!entry->name)
 			break;
-		}
-		if (entry->tag == tag && strcmp(entry->name, name) == 0)
-			break;
-		i = (i + 1) & DIE_HASH_MASK;
-		if (i == orig_i) {
-			entry = NULL;
-			break;
-		}
-	}
-	if (!entry) {
-		PyErr_SetString(PyExc_ValueError, "DIE not found");
-		return NULL;
-	}
 
-	return die_object_from_entry(self, entry);
+		if (entry->tag == tag && strcmp(entry->name, name) == 0) {
+			PyObject *die;
+
+			if (!dies) {
+				dies = PyList_New(0);
+				if (!dies)
+					goto err;
+			}
+			die = die_object_from_entry(self, entry);
+			if (!die)
+				goto err;
+			if (PyList_Append(dies, die) == -1) {
+				Py_DECREF(die);
+				goto err;
+			}
+			Py_DECREF(die);
+		}
+
+		i = (i + 1) & DIE_HASH_MASK;
+		if (i == orig_i)
+			break;
+	}
+	if (!dies)
+		PyErr_SetString(PyExc_ValueError, "DIE not found");
+	return dies;
+
+err:
+	Py_XDECREF(dies);
+	return NULL;
 }
 
 #define DwarfIndex_DOC	\
