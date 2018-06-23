@@ -858,14 +858,8 @@ class Die:
         else:
             raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for ptr')
 
-    def name(self) -> str:
-        return self.find_string(DW_AT.name)
-
-    def size(self) -> int:
-        return self.find_constant(DW_AT.byte_size)
-
-    def type(self) -> 'Die':
-        attrib = self.find(DW_AT.type)
+    def find_die(self, at: DW_AT) -> 'Die':
+        attrib = self.find(at)
         if (attrib.form == DW_FORM.ref1 or attrib.form == DW_FORM.ref2 or
                 attrib.form == DW_FORM.ref4 or attrib.form == DW_FORM.ref8 or
                 attrib.form == DW_FORM.ref_udata):
@@ -876,7 +870,19 @@ class Die:
         elif attrib.form == DW_FORM.ref_sig8:
             raise NotImplementedError('DW_FORM_ref_sig8 is not implemented')
         else:
-            raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for DW_AT_type')
+            raise DwarfFormatError(f'unknown form {DW_FORM.str(attrib.form)} for reference')
+
+    def name(self) -> str:
+        return self.find_string(DW_AT.name)
+
+    def size(self) -> int:
+        return self.find_constant(DW_AT.byte_size)
+
+    def specification(self) -> 'Die':
+        return self.find_die(DW_AT.specification)
+
+    def type(self) -> 'Die':
+        return self.find_die(DW_AT.type)
 
     def children(self) -> List['Die']:
         # Note that _children isn't a cache; it's used for DIEs with no

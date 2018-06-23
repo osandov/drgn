@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Tuple, Union
 
 import drgn
 from drgn.corereader import CoreReader
-from drgn.dwarf import DW_TAG
+from drgn.dwarf import DW_TAG, DwarfAttribNotFoundError
 from drgn.dwarfindex import DwarfIndex
 from drgn.program import Program, ProgramObject
 from drgn.type import Type
@@ -111,7 +111,11 @@ def main() -> None:
 
     def lookup_variable(name: str) -> Tuple[int, Type]:
         address = symbols[name][-1]
-        dwarf_type = dwarf_index.find(name, DW_TAG.variable)[0].type()
+        variable = dwarf_index.find(name, DW_TAG.variable)[0]
+        try:
+            dwarf_type = variable.type()
+        except DwarfAttribNotFoundError:
+            dwarf_type = variable.specification().type()
         return address, type_index.find_dwarf_type(dwarf_type)
 
     init_globals: Dict[str, Any] = {
