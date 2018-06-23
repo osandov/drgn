@@ -37,6 +37,7 @@ enum {
 	TAG_BITS = 6,
 	TAG_MASK = (1 << TAG_BITS) - 1,
 	/* The remaining bits can be used for other purposes. */
+	TAG_FLAG_DECLARATION = 0x40,
 	TAG_FLAG_CHILDREN = 0x80,
 };
 
@@ -46,6 +47,7 @@ enum {
 	DW_AT_stmt_list = 0x10,
 	DW_AT_decl_file = 0x3a,
 	DW_AT_declaration = 0x3c,
+	DW_AT_specification = 0x47,
 };
 
 enum {
@@ -332,7 +334,7 @@ static inline int read_uleb128_into_size_t(const char **ptr, const char *end,
 }
 
 enum {
-	CMD_MAX_SKIP = 234,
+	CMD_MAX_SKIP = 229,
 	ATTRIB_BLOCK1,
 	ATTRIB_BLOCK2,
 	ATTRIB_BLOCK4,
@@ -354,7 +356,12 @@ enum {
 	ATTRIB_DECL_FILE_DATA4,
 	ATTRIB_DECL_FILE_DATA8,
 	ATTRIB_DECL_FILE_UDATA,
-	ATTRIB_MAX_CMD = ATTRIB_DECL_FILE_UDATA,
+	ATTRIB_SPECIFICATION_REF1,
+	ATTRIB_SPECIFICATION_REF2,
+	ATTRIB_SPECIFICATION_REF4,
+	ATTRIB_SPECIFICATION_REF8,
+	ATTRIB_SPECIFICATION_REF_UDATA,
+	ATTRIB_MAX_CMD = ATTRIB_SPECIFICATION_REF_UDATA,
 };
 
 struct abbrev_table {
@@ -854,14 +861,6 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			default:
 				break;
 			}
-		} else if (name == DW_AT_declaration &&
-			   tag != DW_TAG_variable) {
-			/*
-			 * Ignore type declarations. In theory, this could be
-			 * DW_FORM_flag with a value of zero, but in practice,
-			 * GCC always uses DW_FORM_flag_present.
-			 */
-			tag = 0;
 		} else if (name == DW_AT_stmt_list &&
 			   tag == DW_TAG_compile_unit) {
 			switch (form) {
@@ -903,6 +902,34 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 			case DW_FORM_sdata:
 			case DW_FORM_udata:
 				cmd = ATTRIB_DECL_FILE_UDATA;
+				goto append_cmd;
+			default:
+				break;
+			}
+		} else if (name == DW_AT_declaration) {
+			/*
+			 * In theory, this could be DW_FORM_flag with a value of
+			 * zero, but in practice, GCC always uses
+			 * DW_FORM_flag_present.
+			 */
+			flags |= TAG_FLAG_DECLARATION;
+		} else if (name == DW_AT_specification && tag &&
+			   tag != DW_TAG_compile_unit) {
+			switch (form) {
+			case DW_FORM_ref1:
+				cmd = ATTRIB_SPECIFICATION_REF1;
+				goto append_cmd;
+			case DW_FORM_ref2:
+				cmd = ATTRIB_SPECIFICATION_REF2;
+				goto append_cmd;
+			case DW_FORM_ref4:
+				cmd = ATTRIB_SPECIFICATION_REF4;
+				goto append_cmd;
+			case DW_FORM_ref8:
+				cmd = ATTRIB_SPECIFICATION_REF8;
+				goto append_cmd;
+			case DW_FORM_ref_udata:
+				cmd = ATTRIB_SPECIFICATION_REF_UDATA;
 				goto append_cmd;
 			default:
 				break;
@@ -1267,6 +1294,7 @@ struct die {
 	const char *name;
 	size_t stmt_list;
 	size_t decl_file;
+	const char *specification;
 	uint8_t flags;
 };
 
@@ -1395,6 +1423,33 @@ strp:
 			if (read_uleb128_into_size_t(ptr, end, &die->decl_file) == -1)
 				return -1;
 			break;
+		case ATTRIB_SPECIFICATION_REF1:
+			if (read_u8_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto specification;
+		case ATTRIB_SPECIFICATION_REF2:
+			if (read_u16_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto specification;
+		case ATTRIB_SPECIFICATION_REF4:
+			if (read_u32_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto specification;
+		case ATTRIB_SPECIFICATION_REF8:
+			if (read_u64_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto specification;
+		case ATTRIB_SPECIFICATION_REF_UDATA:
+			if (read_uleb128_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+specification:
+			if (!in_bounds(cu->ptr, end, tmp)) {
+				PyErr_SetNone(PyExc_EOFError);
+				return -1;
+			}
+			die->specification = &cu->ptr[tmp];
+			__builtin_prefetch(die->specification);
+			break;
 		default:
 			skip = cmd;
 skip:
@@ -1454,23 +1509,40 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 			    read_file_name_table(self, cu, die.stmt_list,
 						 &file_name_table) == -1)
 				goto out;
-		} else if (depth == 1 && die.name && tag) {
+		} else if (depth == 1 && tag &&
+			   !(die.flags & TAG_FLAG_DECLARATION)) {
 			uint64_t file_name_hash;
 
-			if (die.decl_file > file_name_table.num_files) {
-				PyErr_Format(DwarfFormatError,
-					     "invalid DW_AT_decl_file %" PRIu64,
-					     die.decl_file);
-				goto out;
+			if (die.specification && (!die.name || !die.decl_file)) {
+				struct die decl = {};
+				const char *decl_ptr = die.specification;
+
+				if (read_die(cu, &abbrev_table, &decl_ptr, end,
+					     debug_str_buffer, debug_str_end,
+					     &decl) == -1)
+					goto out;
+				if (!die.name && decl.name)
+					die.name = decl.name;
+				if (!die.decl_file && decl.decl_file)
+					die.decl_file = decl.decl_file;
 			}
-			if (die.decl_file)
-				file_name_hash = file_name_table.file_name_hashes[die.decl_file - 1];
-			else
-				file_name_hash = 0;
-			if (add_die_hash_entry(self, die.name, tag,
-					       file_name_hash, cu,
-					       die_ptr) == -1)
-				goto out;
+
+			if (die.name) {
+				if (die.decl_file > file_name_table.num_files) {
+					PyErr_Format(DwarfFormatError,
+						     "invalid DW_AT_decl_file %" PRIu64,
+						     die.decl_file);
+					goto out;
+				}
+				if (die.decl_file)
+					file_name_hash = file_name_table.file_name_hashes[die.decl_file - 1];
+				else
+					file_name_hash = 0;
+				if (add_die_hash_entry(self, die.name, tag,
+						       file_name_hash, cu,
+						       die_ptr) == -1)
+					goto out;
+			}
 		}
 
 		if (die.flags & TAG_FLAG_CHILDREN) {

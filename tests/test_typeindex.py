@@ -439,7 +439,7 @@ const struct line_segment {
 ], {'const'}))
 
     def test_incomplete_struct(self):
-        self.assertEqual(self.compile_type('struct foo; extern struct foo x'),
+        self.assertEqual(self.compile_type('struct foo; struct foo *x').type,
                          StructType('foo', None, None))
 
     def test_bit_field(self):
@@ -481,7 +481,7 @@ union value {
 ]))
 
     def test_incomplete_union(self):
-        self.assertEqual(self.compile_type('union foo; extern union foo x'),
+        self.assertEqual(self.compile_type('union foo; union foo *x').type,
                          UnionType('foo', None, None))
 
     def test_enum(self):
@@ -500,7 +500,7 @@ enum {
 } x;"""), EnumType(None, IntType('int', 4, True), [('RED', 10), ('GREEN', 11), ('BLUE', -1)]))
 
     def test_incomplete_enum(self):
-        self.assertEqual(self.compile_type('enum foo; extern enum foo x'),
+        self.assertEqual(self.compile_type('enum foo; enum foo *x').type,
                          EnumType('foo', None, None))
 
     def test_pointer(self):
@@ -531,9 +531,9 @@ struct point {
                         ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4, pointer_size), 3, pointer_size), 2, pointer_size))
 
     def test_incomplete_array(self):
-        self.assertEqual(self.compile_type('extern int x[]'),
+        self.assertEqual(self.compile_type('int (*x)[]').type,
                         ArrayType(IntType('int', 4, True), None, pointer_size))
-        self.assertEqual(self.compile_type('extern int x[][2]'),
+        self.assertEqual(self.compile_type('int (*x)[][2]').type,
                         ArrayType(ArrayType(IntType('int', 4, True), 2, pointer_size), None, pointer_size))
 
     def test_pointer_to_const_void(self):
