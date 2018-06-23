@@ -1262,6 +1262,156 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 	}
 }
 
+struct die {
+	const char *sibling;
+	const char *name;
+	size_t stmt_list;
+	size_t decl_file;
+	uint8_t flags;
+};
+
+static int read_die(struct compilation_unit *cu,
+		    const struct abbrev_table *abbrev_table,
+		    const char **ptr, const char *end,
+		    const char *debug_str_buffer, const char *debug_str_end,
+		    struct die *die)
+{
+	uint64_t code;
+	uint8_t *cmdp;
+	uint8_t cmd;
+
+	if (read_uleb128(ptr, end, &code) == -1)
+		return -1;
+	if (code == 0)
+		return 0;
+
+	if (code < 1 || code > abbrev_table->num_decls) {
+		PyErr_Format(DwarfFormatError,
+			     "unknown abbreviation code %" PRIu64,
+			     code);
+		return -1;
+	}
+	cmdp = &abbrev_table->cmds[abbrev_table->decls[code - 1]];
+
+	while ((cmd = *cmdp++)) {
+		uint64_t skip;
+		uint64_t tmp;
+
+		switch (cmd) {
+		case ATTRIB_BLOCK1:
+			if (read_u8_into_size_t(ptr, end, &skip) == -1)
+				return -1;
+			goto skip;
+		case ATTRIB_BLOCK2:
+			if (read_u16_into_size_t(ptr, end, &skip) == -1)
+				return -1;
+			goto skip;
+		case ATTRIB_BLOCK4:
+			if (read_u32_into_size_t(ptr, end, &skip) == -1)
+				return -1;
+			goto skip;
+		case ATTRIB_EXPRLOC:
+			if (read_uleb128_into_size_t(ptr, end, &skip) == -1)
+				return -1;
+			goto skip;
+		case ATTRIB_LEB128:
+			if (skip_leb128(ptr, end) == -1)
+				return -1;
+			break;
+		case ATTRIB_NAME_STRING:
+			die->name = *ptr;
+			/* fallthrough */
+		case ATTRIB_STRING:
+			if (skip_string(ptr, end) == -1)
+				return -1;
+			break;
+		case ATTRIB_SIBLING_REF1:
+			if (read_u8_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling;
+		case ATTRIB_SIBLING_REF2:
+			if (read_u16_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling;
+		case ATTRIB_SIBLING_REF4:
+			if (read_u32_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling;
+		case ATTRIB_SIBLING_REF8:
+			if (read_u64_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto sibling;
+		case ATTRIB_SIBLING_REF_UDATA:
+			if (read_uleb128_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+sibling:
+			if (!in_bounds(cu->ptr, end, tmp)) {
+				PyErr_SetNone(PyExc_EOFError);
+				return -1;
+			}
+			die->sibling = &cu->ptr[tmp];
+			__builtin_prefetch(die->sibling);
+			break;
+		case ATTRIB_NAME_STRP4:
+			if (read_u32_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+			goto strp;
+		case ATTRIB_NAME_STRP8:
+			if (read_u64_into_size_t(ptr, end, &tmp) == -1)
+				return -1;
+strp:
+			if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
+				PyErr_SetNone(PyExc_EOFError);
+				return -1;
+			}
+			die->name = &debug_str_buffer[tmp];
+			__builtin_prefetch(die->name);
+			break;
+		case ATTRIB_STMT_LIST_LINEPTR4:
+			if (read_u32_into_size_t(ptr, end, &die->stmt_list) == -1)
+				return -1;
+			break;
+		case ATTRIB_STMT_LIST_LINEPTR8:
+			if (read_u64_into_size_t(ptr, end, &die->stmt_list) == -1)
+				return -1;
+			break;
+		case ATTRIB_DECL_FILE_DATA1:
+			if (read_u8_into_size_t(ptr, end, &die->decl_file) == -1)
+				return -1;
+			break;
+		case ATTRIB_DECL_FILE_DATA2:
+			if (read_u16_into_size_t(ptr, end, &die->decl_file) == -1)
+				return -1;
+			break;
+		case ATTRIB_DECL_FILE_DATA4:
+			if (read_u32_into_size_t(ptr, end, &die->decl_file) == -1)
+				return -1;
+			break;
+		case ATTRIB_DECL_FILE_DATA8:
+			if (read_u64_into_size_t(ptr, end, &die->decl_file) == -1)
+				return -1;
+			break;
+		case ATTRIB_DECL_FILE_UDATA:
+			if (read_uleb128_into_size_t(ptr, end, &die->decl_file) == -1)
+				return -1;
+			break;
+		default:
+			skip = cmd;
+skip:
+			if (!in_bounds(*ptr, end, skip)) {
+				PyErr_SetNone(PyExc_EOFError);
+				return -1;
+			}
+			*ptr += skip;
+			break;
+		}
+	}
+
+	die->flags = *cmdp;
+
+	return 1;
+}
+
 static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 {
 	struct abbrev_table abbrev_table = {};
@@ -1281,173 +1431,51 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 		goto out;
 
 	for (;;) {
+		struct die die = {
+			.stmt_list = SIZE_MAX,
+		};
 		const char *die_ptr = ptr;
-		const char *sibling = NULL;
-		const char *name = NULL;
-		size_t stmt_list = SIZE_MAX;
-		size_t decl_file = 0;
-		uint64_t code;
-		uint8_t *cmdp;
-		uint8_t cmd;
 		uint64_t tag;
+		int ret2;
 
-		if (read_uleb128(&ptr, end, &code) == -1)
+		ret2 = read_die(cu, &abbrev_table, &ptr, end, debug_str_buffer,
+				debug_str_end, &die);
+		if (ret2 == -1)
 			goto out;
-		if (code == 0) {
+		if (ret2 == 0) {
 			if (!--depth)
 				break;
 			continue;
 		}
 
-		if (code < 1 || code > abbrev_table.num_decls) {
-			PyErr_Format(DwarfFormatError,
-				     "unknown abbreviation code %" PRIu64,
-				     code);
-			goto out;
-		}
-		cmdp = &abbrev_table.cmds[abbrev_table.decls[code - 1]];
-
-		while ((cmd = *cmdp++)) {
-			uint64_t skip;
-			uint64_t tmp;
-
-			switch (cmd) {
-			case ATTRIB_BLOCK1:
-				if (read_u8_into_size_t(&ptr, end, &skip) == -1)
-					goto out;
-				goto skip;
-			case ATTRIB_BLOCK2:
-				if (read_u16_into_size_t(&ptr, end, &skip) == -1)
-					goto out;
-				goto skip;
-			case ATTRIB_BLOCK4:
-				if (read_u32_into_size_t(&ptr, end, &skip) == -1)
-					goto out;
-				goto skip;
-			case ATTRIB_EXPRLOC:
-				if (read_uleb128_into_size_t(&ptr, end, &skip) == -1)
-					goto out;
-				goto skip;
-			case ATTRIB_LEB128:
-				if (skip_leb128(&ptr, end) == -1)
-					goto out;
-				break;
-			case ATTRIB_NAME_STRING:
-				name = ptr;
-				/* fallthrough */
-			case ATTRIB_STRING:
-				if (skip_string(&ptr, end) == -1)
-					goto out;
-				break;
-			case ATTRIB_SIBLING_REF1:
-				if (read_u8_into_size_t(&ptr, end, &tmp) == -1)
-					goto out;
-				goto sibling;
-			case ATTRIB_SIBLING_REF2:
-				if (read_u16_into_size_t(&ptr, end, &tmp) == -1)
-					goto out;
-				goto sibling;
-			case ATTRIB_SIBLING_REF4:
-				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
-					goto out;
-				goto sibling;
-			case ATTRIB_SIBLING_REF8:
-				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
-					goto out;
-				goto sibling;
-			case ATTRIB_SIBLING_REF_UDATA:
-				if (read_uleb128_into_size_t(&ptr, end, &tmp) == -1)
-					goto out;
-sibling:
-				if (!in_bounds(cu->ptr, end, tmp)) {
-					PyErr_SetNone(PyExc_EOFError);
-					goto out;
-				}
-				sibling = &cu->ptr[tmp];
-				__builtin_prefetch(sibling);
-				break;
-			case ATTRIB_NAME_STRP4:
-				if (read_u32_into_size_t(&ptr, end, &tmp) == -1)
-					goto out;
-				goto strp;
-			case ATTRIB_NAME_STRP8:
-				if (read_u64_into_size_t(&ptr, end, &tmp) == -1)
-					goto out;
-strp:
-				if (!in_bounds(debug_str_buffer, debug_str_end, tmp)) {
-					PyErr_SetNone(PyExc_EOFError);
-					goto out;
-				}
-				name = &debug_str_buffer[tmp];
-				__builtin_prefetch(name);
-				break;
-			case ATTRIB_STMT_LIST_LINEPTR4:
-				if (read_u32_into_size_t(&ptr, end, &stmt_list) == -1)
-					goto out;
-				break;
-			case ATTRIB_STMT_LIST_LINEPTR8:
-				if (read_u64_into_size_t(&ptr, end, &stmt_list) == -1)
-					goto out;
-				break;
-			case ATTRIB_DECL_FILE_DATA1:
-				if (read_u8_into_size_t(&ptr, end, &decl_file) == -1)
-					goto out;
-				break;
-			case ATTRIB_DECL_FILE_DATA2:
-				if (read_u16_into_size_t(&ptr, end, &decl_file) == -1)
-					goto out;
-				break;
-			case ATTRIB_DECL_FILE_DATA4:
-				if (read_u32_into_size_t(&ptr, end, &decl_file) == -1)
-					goto out;
-				break;
-			case ATTRIB_DECL_FILE_DATA8:
-				if (read_u64_into_size_t(&ptr, end, &decl_file) == -1)
-					goto out;
-				break;
-			case ATTRIB_DECL_FILE_UDATA:
-				if (read_uleb128_into_size_t(&ptr, end, &decl_file) == -1)
-					goto out;
-				break;
-			default:
-				skip = cmd;
-skip:
-				if (!in_bounds(ptr, end, skip)) {
-					PyErr_SetNone(PyExc_EOFError);
-					goto out;
-				}
-				ptr += skip;
-				break;
-			}
-		}
-
-		tag = *cmdp & TAG_MASK;
+		tag = die.flags & TAG_MASK;
 		if (tag == DW_TAG_compile_unit) {
-			if (depth == 0 && stmt_list != SIZE_MAX &&
-			    read_file_name_table(self, cu, stmt_list,
+			if (depth == 0 && die.stmt_list != SIZE_MAX &&
+			    read_file_name_table(self, cu, die.stmt_list,
 						 &file_name_table) == -1)
 				goto out;
-		} else if (depth == 1 && name && tag) {
+		} else if (depth == 1 && die.name && tag) {
 			uint64_t file_name_hash;
 
-			if (decl_file > file_name_table.num_files) {
+			if (die.decl_file > file_name_table.num_files) {
 				PyErr_Format(DwarfFormatError,
 					     "invalid DW_AT_decl_file %" PRIu64,
-					     decl_file);
+					     die.decl_file);
 				goto out;
 			}
-			if (decl_file)
-				file_name_hash = file_name_table.file_name_hashes[decl_file - 1];
+			if (die.decl_file)
+				file_name_hash = file_name_table.file_name_hashes[die.decl_file - 1];
 			else
 				file_name_hash = 0;
-			if (add_die_hash_entry(self, name, tag, file_name_hash,
-					       cu, die_ptr) == -1)
+			if (add_die_hash_entry(self, die.name, tag,
+					       file_name_hash, cu,
+					       die_ptr) == -1)
 				goto out;
 		}
 
-		if (*cmdp & TAG_FLAG_CHILDREN) {
-			if (sibling)
-				ptr = sibling;
+		if (die.flags & TAG_FLAG_CHILDREN) {
+			if (die.sibling)
+				ptr = die.sibling;
 			else
 				depth++;
 		} else if (depth == 0) {
