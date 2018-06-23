@@ -1235,20 +1235,20 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 		uint64_t entry_tag;
 
 		entry = &self->die_hash[i];
-		entry_name = __atomic_load_n(&entry->name, __ATOMIC_SEQ_CST);
+		entry_name = __atomic_load_n(&entry->name, __ATOMIC_RELAXED);
 		if (!entry_name &&
 		    __atomic_compare_exchange_n(&entry->name, &entry_name, name,
-						false, __ATOMIC_SEQ_CST,
-						__ATOMIC_SEQ_CST)) {
+						false, __ATOMIC_RELAXED,
+						__ATOMIC_RELAXED)) {
 			entry->cu = cu;
 			entry->ptr = ptr;
 			entry->file_name_hash = file_name_hash;
-			__atomic_store_n(&entry->tag, tag, __ATOMIC_SEQ_CST);
+			__atomic_store_n(&entry->tag, tag, __ATOMIC_RELEASE);
 			return 0;
 		}
 		do {
 			entry_tag = __atomic_load_n(&entry->tag,
-						    __ATOMIC_SEQ_CST);
+						    __ATOMIC_ACQUIRE);
 		} while (!entry_tag);
 		if (tag == entry_tag &&
 		    file_name_hash == entry->file_name_hash &&
