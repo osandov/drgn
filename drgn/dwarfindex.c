@@ -93,7 +93,8 @@ static PyObject *ElfFormatError;
 	int _ret;						\
 								\
 	if (_n > SIZE_MAX / sizeof(**_ptr)) {			\
-		PyErr_NoMemory();				\
+		if (!PyErr_Occurred())				\
+			PyErr_NoMemory();			\
 		_ret = -1;					\
 	} else {						\
 		typeof(*_ptr) _tmp;				\
@@ -103,7 +104,8 @@ static PyObject *ElfFormatError;
 			*_ptr = _tmp;				\
 			_ret = 0;				\
 		} else {					\
-			PyErr_NoMemory();			\
+			if (!PyErr_Occurred())			\
+				PyErr_NoMemory();		\
 			_ret = -1;				\
 		}						\
 	}							\
@@ -422,6 +424,7 @@ typedef struct {
 	size_t num_files;
 	struct compilation_unit *cus;
 	size_t num_cus;
+	size_t cus_capacity;
 	struct die_hash_entry die_hash[DIE_HASH_SIZE];
 	int address_size;
 } DwarfIndex;
@@ -722,7 +725,7 @@ static int read_compilation_unit_header(const char *ptr, const char *end,
 	return read_u8(&ptr, end, &cu->address_size);
 }
 
-static int read_cus(DwarfIndex *self, struct file *file, size_t *cus_capacity)
+static int read_cus(DwarfIndex *self, struct file *file)
 {
 	const struct section *debug_info = &file->debug_sections[DEBUG_INFO];
 	const char *ptr = debug_info->buffer;
@@ -731,13 +734,16 @@ static int read_cus(DwarfIndex *self, struct file *file, size_t *cus_capacity)
 	while (ptr < debug_info_end) {
 		struct compilation_unit *cu;
 
-		if (self->num_cus >= *cus_capacity) {
-			if (*cus_capacity == 0)
-				*cus_capacity = 1;
+		if (self->num_cus >= self->cus_capacity) {
+			size_t capacity = self->cus_capacity;
+
+			if (capacity == 0)
+				capacity = 1;
 			else
-				*cus_capacity *= 2;
-			if (resize_array(&self->cus, *cus_capacity) == -1)
+				capacity *= 2;
+			if (resize_array(&self->cus, capacity) == -1)
 				return -1;
+			self->cus_capacity = capacity;
 		}
 
 		cu = &self->cus[self->num_cus++];
@@ -1580,7 +1586,7 @@ static void DwarfIndex_dealloc(DwarfIndex *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static int apply_all_relocations(DwarfIndex *self)
+static int apply_relocations(struct file *files, size_t num_files)
 {
 	PyObject *type = NULL, *value = NULL, *traceback = NULL;
 	size_t total_num_relocs;
@@ -1589,11 +1595,11 @@ static int apply_all_relocations(DwarfIndex *self)
 	Py_BEGIN_ALLOW_THREADS
 
 	total_num_relocs = 0;
-	for (i = 0; i < self->num_files; i++) {
+	for (i = 0; i < num_files; i++) {
 		size_t j;
 
 		for (j = 0; j < NUM_DEBUG_SECTIONS; j++) {
-			total_num_relocs += (self->files[i].rela_sections[j].size /
+			total_num_relocs += (files[i].rela_sections[j].size /
 					     sizeof(Elf64_Rela));
 		}
 	}
@@ -1615,9 +1621,9 @@ static int apply_all_relocations(DwarfIndex *self)
 			if (first) {
 				size_t cur = 0;
 
-				for (file_idx = 0; file_idx < self->num_files; file_idx++) {
+				for (file_idx = 0; file_idx < num_files; file_idx++) {
 					for (section_idx = 0; section_idx < NUM_DEBUG_SECTIONS; section_idx++) {
-						num_relocs = (self->files[file_idx].rela_sections[section_idx].size /
+						num_relocs = (files[file_idx].rela_sections[section_idx].size /
 							      sizeof(Elf64_Rela));
 						if (cur + num_relocs > k) {
 							reloc_idx = k - cur;
@@ -1631,9 +1637,9 @@ done:
 				first = false;
 			}
 
-			if (apply_relocation(&self->files[file_idx].debug_sections[section_idx],
-					     &self->files[file_idx].rela_sections[section_idx],
-					     &self->files[file_idx].symtab, reloc_idx) == -1) {
+			if (apply_relocation(&files[file_idx].debug_sections[section_idx],
+					     &files[file_idx].rela_sections[section_idx],
+					     &files[file_idx].symtab, reloc_idx) == -1) {
 				Py_BLOCK_THREADS
 				if (type)
 					PyErr_Clear();
@@ -1643,16 +1649,16 @@ done:
 				continue;
 			}
 
-			if (file_idx < self->num_files) {
+			if (file_idx < num_files) {
 				reloc_idx++;
 				while (reloc_idx >= num_relocs) {
 					reloc_idx = 0;
 					if (++section_idx >= NUM_DEBUG_SECTIONS) {
 						section_idx = 0;
-						if (++file_idx >= self->num_files)
+						if (++file_idx >= num_files)
 							break;
 					}
-					num_relocs = (self->files[file_idx].rela_sections[section_idx].size /
+					num_relocs = (files[file_idx].rela_sections[section_idx].size /
 						      sizeof(Elf64_Rela));
 				}
 			}
@@ -1672,7 +1678,8 @@ done:
 	return 0;
 }
 
-static int index_cus(DwarfIndex *self)
+static int index_cus(DwarfIndex *self, struct compilation_unit *cus,
+		     size_t num_cus)
 {
 	PyObject *type = NULL, *value = NULL, *traceback = NULL;
 
@@ -1686,10 +1693,10 @@ static int index_cus(DwarfIndex *self)
 		Py_BEGIN_ALLOW_THREADS
 
 #pragma omp for schedule(dynamic)
-		for (i = 0; i < self->num_cus; i++) {
+		for (i = 0; i < num_cus; i++) {
 			if (type)
 				continue;
-			if (index_cu(self, &self->cus[i]) == -1) {
+			if (index_cu(self, &cus[i]) == -1) {
 				Py_BLOCK_THREADS
 				if (type)
 					PyErr_Clear();
@@ -1713,51 +1720,50 @@ static int index_cus(DwarfIndex *self)
 	return 0;
 }
 
-static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
+static PyObject *DwarfIndex_add(DwarfIndex *self, PyObject *args)
 {
-	static char *keywords[] = {"paths", NULL};
-	PyObject *paths;
-	size_t cus_capacity = 0;
+	size_t old_num_files = self->num_files;
+	size_t old_num_cus = self->num_cus;
 	size_t i;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:DwarfIndex",
-					 keywords, &PyList_Type, &paths))
-		return -1;
+	self->num_files += PyTuple_GET_SIZE(args);
 
-	self->num_files = PyList_GET_SIZE(paths);
-	self->files = calloc(self->num_files, sizeof(self->files[0]));
-	if (!self->files) {
-		self->num_files = 0;
-		PyErr_NoMemory();
-		return -1;
+	if (resize_array(&self->files, self->num_files) == -1) {
+		self->num_files = old_num_files;
+		return NULL;
 	}
 
-	for (i = 0; i < self->num_files; i++) {
+	memset(&self->files[old_num_files], 0,
+	       (self->num_files - old_num_files) * sizeof(self->files[0]));
+
+	for (i = old_num_files; i < self->num_files; i++) {
+		PyObject *arg = PyTuple_GET_ITEM(args, i - old_num_files);
 		PyObject *path;
 
 		self->files[i].cu_objs = PyDict_New();
 		if (!self->files[i].cu_objs)
-			return -1;
+			goto err;
 
-		path = PyUnicode_EncodeFSDefault(PyList_GET_ITEM(paths, i));
+		path = PyUnicode_EncodeFSDefault(arg);
 		if (!path)
-			return -1;
+			goto err;
 		if (open_file(&self->files[i], PyBytes_AS_STRING(path))) {
 			PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError,
-							     PyList_GET_ITEM(paths, i));
+							     arg);
 			Py_DECREF(path);
-			return -1;
+			goto err;
 		}
 		Py_DECREF(path);
 
 		if (read_sections(&self->files[i]) == -1)
-			return -1;
+			goto err;
 	}
 
-	if (apply_all_relocations(self) == -1)
-		return -1;
+	if (apply_relocations(&self->files[old_num_files],
+			      self->num_files - old_num_files) == -1)
+		goto err;
 
-	for (i = 0; i < self->num_files; i++) {
+	for (i = old_num_files; i < self->num_files; i++) {
 		const struct section *debug_str;
 
 		debug_str = &self->files[i].debug_sections[DEBUG_STR];
@@ -1765,14 +1771,30 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 		    debug_str->buffer[debug_str->size - 1] != '\0') {
 			PyErr_SetString(DwarfFormatError,
 					".debug_str is not null terminated");
-			return -1;
+			goto err;
 		}
 
-		if (read_cus(self, &self->files[i], &cus_capacity) == -1)
-			return -1;
+		if (read_cus(self, &self->files[i]) == -1)
+			goto err;
 	}
 
-	return index_cus(self);
+	/*
+	 * Once we start indexing, the DIE hash table will reference the new
+	 * CUs, so we can't free the new files or CUs if there's an error.
+	 */
+	if (index_cus(self, &self->cus[old_num_cus],
+		      self->num_cus - old_num_cus) == -1)
+		return NULL;
+
+	Py_RETURN_NONE;
+
+err:
+	self->num_cus = old_num_cus;
+	for (i = old_num_files; i < self->num_files; i++)
+		Py_XDECREF(self->files[self->num_files + i].cu_objs);
+	resize_array(&self->files, old_num_files);
+	self->num_files = old_num_files;
+	return NULL;
 }
 
 static PyObject *create_file_object(DwarfIndex *self, struct file *file)
@@ -1917,9 +1939,15 @@ err:
 }
 
 #define DwarfIndex_DOC	\
-	"DwarfIndex(paths) -> new DWARF debugging information index"
+	"DwarfIndex() -> new DWARF debugging information index"
 
 static PyMethodDef DwarfIndex_methods[] = {
+	{"add", (PyCFunction)DwarfIndex_add,
+	 METH_VARARGS,
+	 "add(*paths)\n\n"
+	 "Index the debugging information of the files with the given paths.\n\n"
+	 "Arguments:\n"
+	 "paths -- paths to index"},
 	{"find", (PyCFunction)DwarfIndex_find,
 	 METH_VARARGS | METH_KEYWORDS,
 	 "find(name, tag)\n\n"
@@ -1966,13 +1994,6 @@ static PyTypeObject DwarfIndex_type = {
 	NULL,				/* tp_iternext */
 	DwarfIndex_methods,		/* tp_methods */
 	DwarfIndex_members,		/* tp_members */
-	NULL,				/* tp_getset */
-	NULL,				/* tp_base */
-	NULL,				/* tp_dict */
-	NULL,				/* tp_descr_get */
-	NULL,				/* tp_descr_set */
-	0,				/* tp_dictoffset */
-	(initproc)DwarfIndex_init,	/* tp_init */
 };
 
 static struct PyModuleDef dwarfindexmodule = {

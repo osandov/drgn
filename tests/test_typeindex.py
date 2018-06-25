@@ -323,7 +323,8 @@ class TestDwarfTypeIndexFindDwarfType(TypeTestCase):
             f.write(decl)
             f.write(';\nint main(void) { return 0; }\n')
         subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
-        dwarf_index = DwarfIndex([object_path])
+        dwarf_index = DwarfIndex()
+        dwarf_index.add(object_path)
         dwarf_type = dwarf_index.find('x', DW_TAG.variable)[0].type()
         return DwarfTypeIndex(dwarf_index).find_dwarf_type(dwarf_type)
 
@@ -596,7 +597,9 @@ int main(void)
 }
 """)
             subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
-            cls.type_index = DwarfTypeIndex(DwarfIndex([object_path]))
+            dwarf_index = DwarfIndex()
+            dwarf_index.add(object_path)
+            cls.type_index = DwarfTypeIndex(dwarf_index)
 
     def test_void_type(self):
         self.assertEqual(self.type_index.find_type('void'),

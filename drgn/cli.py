@@ -95,13 +95,14 @@ def main() -> None:
         except ValueError:
             sys.exit('Could not find vmlinux file; install the proper debuginfo package or use --executable')
 
-    paths = find_modules(release)
-    if not paths and not args.script:
+    modules = find_modules(release)
+    if not modules and not args.script:
         print('Could not find kernel modules; continuing anyways',
               file=sys.stderr)
-    paths.append(args.executable)
 
-    dwarf_index = DwarfIndex(paths)
+    dwarf_index = DwarfIndex()
+    dwarf_index.add(args.executable)
+    dwarf_index.add(*modules)
     type_index = DwarfTypeIndex(dwarf_index)
 
     with open('/proc/kallsyms', 'r') as f:
