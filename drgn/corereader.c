@@ -15,7 +15,8 @@
 static PyObject *ElfFormatError;
 
 struct segment {
-	uint64_t address;
+	uint64_t virt_address;
+	uint64_t phys_address;
 	uint64_t size;
 	off_t offset;
 };
@@ -180,7 +181,8 @@ static int CoreReader_init(CoreReader *self, PyObject *args, PyObject *kwds)
 	}
 
 	for (i = 0; i < ehdr.e_phnum; i++) {
-		segments[i].address = phdrs[i].p_vaddr;
+		segments[i].virt_address = phdrs[i].p_vaddr;
+		segments[i].phys_address = phdrs[i].p_paddr;
 		segments[i].size = phdrs[i].p_memsz;
 		segments[i].offset = phdrs[i].p_offset;
 	}
@@ -213,12 +215,13 @@ static CoreReader *CoreReader_new(PyTypeObject *subtype, PyObject *args,
 }
 
 static int read_core(CoreReader *self, void *buf, uint64_t address,
-		     uint64_t count)
+		     uint64_t count, int physical)
 {
 	char *p = buf;
 
 	while (count) {
 		struct segment *segment;
+		uint64_t segment_address;
 		uint64_t segment_offset;
 		off_t read_offset;
 		size_t read_count;
@@ -230,8 +233,12 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 		 */
 		for (i = self->num_segments - 1; i >= 0; i--) {
 			segment = &self->segments[i];
-			if (segment->address <= address &&
-			    address < segment->address + segment->size)
+			segment_address = (physical ? segment->phys_address :
+					   segment->virt_address);
+			if (segment_address == (uint64_t)-1)
+				continue;
+			if (segment_address <= address &&
+			    address < segment_address + segment->size)
 				break;
 		}
 		if (i < 0) {
@@ -251,7 +258,7 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 			*segment = tmp;
 		}
 
-		segment_offset = address - segment->address;
+		segment_offset = address - segment_address;
 		if (segment->size - segment_offset < count)
 			read_count = segment->size - segment_offset;
 		else
@@ -272,12 +279,13 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 static PyObject *CoreReader_read(CoreReader *self, PyObject *args,
 				 PyObject *kwds)
 {
-	static char *keywords[] = {"address", "size", NULL};
+	static char *keywords[] = {"address", "size", "physical", NULL};
 	uint64_t address, size;
+	int physical = 0;
 	PyObject *buffer;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "KK:read", keywords, &address,
-					 &size))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "KK|p:read", keywords,
+					 &address, &size, &physical))
 		return NULL;
 
 	if (size > PY_SSIZE_T_MAX) {
@@ -289,7 +297,8 @@ static PyObject *CoreReader_read(CoreReader *self, PyObject *args,
 	if (!buffer)
 		return NULL;
 
-	if (read_core(self, PyBytes_AS_STRING(buffer), address, size) == -1) {
+	if (read_core(self, PyBytes_AS_STRING(buffer), address, size,
+		      physical) == -1) {
 		Py_DECREF(buffer);
 		return NULL;
 	}
@@ -301,15 +310,16 @@ static PyObject *CoreReader_read(CoreReader *self, PyObject *args,
 static PyObject *CoreReader_read_##name(CoreReader *self, PyObject *args,	\
 					PyObject *kwds)				\
 {										\
-	static char *keywords[] = {"address", NULL};				\
+	static char *keywords[] = {"address", "physical", NULL};		\
 	uint64_t address;							\
+	int physical = 0;							\
 	type value;								\
 										\
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "K:read_" #name, keywords,	\
-					 &address))				\
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "K|p:read_" #name,		\
+					 keywords, &address, &physical))	\
 		return NULL;							\
 										\
-	if (read_core(self, &value, address, sizeof(value)) == -1)		\
+	if (read_core(self, &value, address, sizeof(value), physical) == -1)	\
 		return NULL;							\
 										\
 	return converter(value);						\
@@ -334,10 +344,11 @@ CoreReader_READ(long_double, long double, PyFloat_FromDouble)
 #define CoreReader_READ_METHOD(name, description)		\
 	{"read_" #name, (PyCFunction)CoreReader_read_##name,	\
 	 METH_VARARGS | METH_KEYWORDS,				\
-	 "read_" #name "(address)\n\n"				\
+	 "read_" #name "(address, physical=False)\n\n"		\
 	 "Read " description " from memory.\n\n"		\
 	 "Arguments:\n"						\
-	 "address -- address to read at\n"}
+	 "address -- address to read at\n"			\
+	 "physical -- whether address is a physical memory address"}
 
 #define CoreReader_DOC	\
 	"CoreReader(path) -> new core file reader"
@@ -345,11 +356,12 @@ CoreReader_READ(long_double, long double, PyFloat_FromDouble)
 static PyMethodDef CoreReader_methods[] = {
 	{"read", (PyCFunction)CoreReader_read,
 	 METH_VARARGS | METH_KEYWORDS,
-	 "read(address, size)\n\n"
+	 "read(address, size, physical=False)\n\n"
 	 "Read memory.\n\n"
 	 "Arguments:\n"
 	 "address -- address to read at\n"
-	 "size -- number of bytes to read"},
+	 "size -- number of bytes to read\n"
+	 "physical -- whether address is a physical memory address"},
 	CoreReader_READ_METHOD(u8, "an unsigned 8-bit integer"),
 	CoreReader_READ_METHOD(u16, "an unsigned 16-bit integer"),
 	CoreReader_READ_METHOD(u32, "an unsigned 32-bit integer"),

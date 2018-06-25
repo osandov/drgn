@@ -631,14 +631,15 @@ class Program:
             type = self.type(type)
         return ProgramObject(self, type, value=0)
 
-    def read(self, address: int, size: int) -> bytes:
+    def read(self, address: int, size: int, physical: bool = False) -> bytes:
         """
-        Return size bytes of memory starting at address in the program.
+        Return size bytes of memory starting at address (virtual by default or
+        physical) in the program.
 
         >>> prog.read(0xffffffffbe012b40, 16)
         b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'
         """
-        return self._reader.read(address, size)
+        return self._reader.read(address, size, physical)
 
     def type(self, name: Union[str, TypeName]) -> Type:
         """
