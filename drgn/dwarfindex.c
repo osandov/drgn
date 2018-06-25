@@ -387,7 +387,7 @@ struct compilation_unit {
 	uint64_t debug_abbrev_offset;
 	uint8_t address_size;
 	bool is_64_bit;
-	struct file *file;
+	uint32_t file;
 };
 
 struct section {
@@ -410,9 +410,9 @@ struct file {
 
 struct die_hash_entry {
 	const char *name;
-	uint64_t tag;
 	uint64_t file_name_hash;
-	struct compilation_unit *cu;
+	uint8_t tag;
+	uint32_t cu;
 	const char *ptr;
 };
 
@@ -745,7 +745,7 @@ static int read_cus(DwarfIndex *self, struct file *file, size_t *cus_capacity)
 		if (read_compilation_unit_header(ptr, debug_info_end, cu) == -1)
 			return -1;
 		cu->ptr = ptr;
-		cu->file = file;
+		cu->file = file - self->files;
 		self->address_size = cu->address_size;
 
 		ptr += (cu->is_64_bit ? 12 : 4) + cu->unit_length;
@@ -1152,7 +1152,8 @@ static void hash_directory(struct siphash *hash, const char *path,
 static int read_file_name_table(DwarfIndex *self, struct compilation_unit *cu,
 				size_t stmt_list, struct file_name_table *table)
 {
-	const struct section *debug_line = &cu->file->debug_sections[DEBUG_LINE];
+	struct file *file = &self->files[cu->file];
+	const struct section *debug_line = &file->debug_sections[DEBUG_LINE];
 	const char *end = &debug_line->buffer[debug_line->size];
 	const char *ptr = &debug_line->buffer[stmt_list];
 	struct siphash *directories = NULL;
@@ -1267,7 +1268,7 @@ static int add_die_hash_entry(DwarfIndex *self, const char *name, uint64_t tag,
 		    __atomic_compare_exchange_n(&entry->name, &entry_name, name,
 						false, __ATOMIC_RELAXED,
 						__ATOMIC_RELAXED)) {
-			entry->cu = cu;
+			entry->cu = cu - self->cus;
 			entry->ptr = ptr;
 			entry->file_name_hash = file_name_hash;
 			__atomic_store_n(&entry->tag, tag, __ATOMIC_RELEASE);
@@ -1471,11 +1472,12 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 {
 	struct abbrev_table abbrev_table = {};
 	struct file_name_table file_name_table = {};
-	const struct section *debug_abbrev = &cu->file->debug_sections[DEBUG_ABBREV];
+	struct file *file = &self->files[cu->file];
+	const struct section *debug_abbrev = &file->debug_sections[DEBUG_ABBREV];
 	const char *debug_abbrev_end = &debug_abbrev->buffer[debug_abbrev->size];
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
 	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
-	const struct section *debug_str = &cu->file->debug_sections[DEBUG_STR];
+	const struct section *debug_str = &file->debug_sections[DEBUG_STR];
 	const char *debug_str_buffer = debug_str->buffer;
 	const char *debug_str_end = &debug_str_buffer[debug_str->size];
 	unsigned int depth = 0;
@@ -1755,7 +1757,6 @@ static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
 	if (apply_all_relocations(self) == -1)
 		return -1;
 
-
 	for (i = 0; i < self->num_files; i++) {
 		const struct section *debug_str;
 
@@ -1810,37 +1811,36 @@ out:
 
 static PyObject *die_object_from_entry(DwarfIndex *self, struct die_hash_entry *entry)
 {
+	struct compilation_unit *cu = &self->cus[entry->cu];
+	struct file *file = &self->files[cu->file];
 	PyObject *method_name;
 	PyObject *cu_offset;
 	PyObject *cu_obj;
 	PyObject *die_offset;
 	PyObject *die_obj;
 
-	cu_offset = PyLong_FromUnsignedLongLong(entry->cu->ptr -
-						entry->cu->file->debug_sections[DEBUG_INFO].buffer);
+	cu_offset = PyLong_FromUnsignedLongLong(cu->ptr -
+						file->debug_sections[DEBUG_INFO].buffer);
 	if (!cu_offset)
 		return NULL;
-	cu_obj = PyDict_GetItem(entry->cu->file->cu_objs, cu_offset);
+	cu_obj = PyDict_GetItem(file->cu_objs, cu_offset);
 	if (!cu_obj) {
-		if (!entry->cu->file->obj) {
-			entry->cu->file->obj = create_file_object(self,
-								  entry->cu->file);
-			if (!entry->cu->file->obj)
+		if (!file->obj) {
+			file->obj = create_file_object(self, file);
+			if (!file->obj)
 				return NULL;
 		}
 
 		method_name = PyUnicode_FromString("compilation_unit");
-		cu_obj = PyObject_CallMethodObjArgs(entry->cu->file->obj,
-						    method_name, cu_offset,
-						    NULL);
+		cu_obj = PyObject_CallMethodObjArgs(file->obj, method_name,
+						    cu_offset, NULL);
 		Py_DECREF(method_name);
 		if (!cu_obj) {
 			Py_DECREF(cu_offset);
 			return NULL;
 		}
 
-		if (PyDict_SetItem(entry->cu->file->cu_objs, cu_offset,
-				   cu_obj) == -1) {
+		if (PyDict_SetItem(file->cu_objs, cu_offset, cu_obj) == -1) {
 			Py_DECREF(cu_offset);
 			Py_DECREF(cu_obj);
 			return NULL;
@@ -1849,7 +1849,7 @@ static PyObject *die_object_from_entry(DwarfIndex *self, struct die_hash_entry *
 	}
 	Py_DECREF(cu_offset);
 
-	die_offset = PyLong_FromUnsignedLongLong(entry->ptr - entry->cu->ptr);
+	die_offset = PyLong_FromUnsignedLongLong(entry->ptr - cu->ptr);
 	if (!die_offset)
 		return NULL;
 
