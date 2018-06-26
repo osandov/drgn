@@ -10,6 +10,8 @@ from typing import (
     Dict, Iterator, List, NamedTuple, Optional, Sequence, Text, Tuple, Union,
 )
 
+from drgn.elf import ElfFile
+
 
 class DW_AT(enum.IntEnum):
     sibling = 0x1
@@ -584,10 +586,6 @@ class DwarfAttribNotFoundError(Exception):
     pass
 
 
-class ElfFormatError(Exception):
-    pass
-
-
 class _Reader:
     s8 = struct.Struct('b')
     u8 = struct.Struct('B')
@@ -666,8 +664,23 @@ class _Reader:
 
 
 class DwarfFile:
-    def __init__(self, sections: Dict[str, bytes]) -> None:
-        self.sections = sections
+    _SECTIONS = [
+        '.debug_abbrev',
+        '.debug_info',
+        '.debug_line',
+        '.debug_str',
+    ]
+
+    def __init__(self, elf_file: ElfFile) -> None:
+        self.elf_file = elf_file
+        self.sections: Dict[str, bytes] = {}
+        for section in DwarfFile._SECTIONS:
+            try:
+                shdr = self.elf_file.sections[section]
+            except KeyError:
+                continue
+            data = self.elf_file.data[shdr.sh_offset:shdr.sh_offset + shdr.sh_size]
+            self.sections[section] = data
 
     def _get_section_reader(self, name: str) -> _Reader:
         try:

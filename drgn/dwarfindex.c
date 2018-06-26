@@ -80,6 +80,7 @@ enum {
 
 static PyObject *DwarfFile;
 static PyObject *DwarfFormatError;
+static PyObject *ElfFile;
 static PyObject *ElfFormatError;
 
 #define DIE_HASH_SHIFT 17
@@ -1799,36 +1800,21 @@ err:
 
 static PyObject *create_file_object(DwarfIndex *self, struct file *file)
 {
-	PyObject *file_obj = NULL;
-	PyObject *sections;
-	int i;
+	PyObject *mview, *elf_file, *dwarf_file;
 
-	sections = PyDict_New();
-	if (!sections)
+	/* XXX: need to reference count self */
+	mview = PyMemoryView_FromMemory(file->map, file->size, PyBUF_READ);
+	if (!mview)
 		return NULL;
 
-	for (i = 0; i < NUM_DEBUG_SECTIONS; i++) {
-		PyObject *mview;
+	elf_file = PyObject_CallFunctionObjArgs(ElfFile, mview, NULL);
+	Py_DECREF(mview);
+	if (!elf_file)
+		return NULL;
 
-		/* XXX: need to reference count self */
-		mview = PyMemoryView_FromMemory(file->debug_sections[i].buffer,
-						file->debug_sections[i].size,
-						PyBUF_READ);
-		if (!mview)
-			goto out;
-
-		if (PyDict_SetItemString(sections, section_names[i],
-					 mview) == -1) {
-			Py_DECREF(mview);
-			goto out;
-		}
-		Py_DECREF(mview);
-	}
-
-	file_obj = PyObject_CallFunctionObjArgs(DwarfFile, sections, NULL);
-out:
-	Py_DECREF(sections);
-	return file_obj;
+	dwarf_file = PyObject_CallFunctionObjArgs(DwarfFile, elf_file, NULL);
+	Py_DECREF(elf_file);
+	return dwarf_file;
 }
 
 static PyObject *die_object_from_entry(DwarfIndex *self, struct die_hash_entry *entry)
@@ -2033,6 +2019,24 @@ PyInit_dwarfindex(void)
 		Py_DECREF(m);
 		return NULL;
 	}
+
+	Py_DECREF(m);
+
+	name = PyUnicode_FromString("drgn.elf");
+	if (!name)
+		return NULL;
+
+	m = PyImport_Import(name);
+	Py_DECREF(name);
+	if (!m)
+		return NULL;
+
+	ElfFile = PyObject_GetAttrString(m, "ElfFile");
+	if (!ElfFile) {
+		Py_DECREF(m);
+		return NULL;
+	}
+
 	ElfFormatError = PyObject_GetAttrString(m, "ElfFormatError");
 	if (!ElfFormatError) {
 		Py_DECREF(m);

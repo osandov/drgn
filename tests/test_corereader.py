@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from drgn.corereader import CoreReader
-from drgn.dwarf import ElfFormatError
+from drgn.elf import ElfFormatError
 
 
 @contextlib.contextmanager

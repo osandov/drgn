@@ -476,7 +476,7 @@ PyInit_corereader(void)
 	PyObject *name;
 	PyObject *m;
 
-	name = PyUnicode_FromString("drgn.dwarf");
+	name = PyUnicode_FromString("drgn.elf");
 	if (!name)
 		return NULL;
 
