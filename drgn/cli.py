@@ -7,8 +7,9 @@ import code
 import glob
 import os
 import os.path
-import platform
+import re
 import runpy
+import struct
 import sys
 from typing import Any, Dict, List, Tuple, Union
 
@@ -66,6 +67,31 @@ def find_modules(release: str) -> List[str]:
         return []
 
 
+def parse_vmcoreinfo(data: bytes) -> Dict[str, Any]:
+    # VMCOREINFO is an ELF note, so the first 12 bytes are the Elf{32,64}_Nhdr
+    # (it's the same in both formats). The type isn't set to anything
+    # meaningful by the kernel, so we just ignore it.
+    namesz, descsz = struct.unpack_from('=II', data)
+
+    if namesz != 11 or data[12:23] != b'VMCOREINFO\0':
+        raise ValueError('VMCOREINFO is invalid')
+
+    fields = {}
+    # The name is padded up to 4 bytes, so the descriptor starts at byte 24.
+    for line in data[24:24 + descsz].splitlines():
+        tokens = line.split(b'=', 1)
+        key = tokens[0].decode('ascii')
+        value: Any
+        if re.match(r'PAGESIZE|LENGTH\(|NUMBER\(|OFFSET\(|SIZE\(', key):
+            value = int(tokens[1], 10)
+        elif re.match(r'KERNELOFFSET|SYMBOL\(', key):
+            value = int(tokens[1], 16)
+        else:
+            value = tokens[1].decode('ascii')
+        fields[key] = value
+    return fields
+
+
 def main() -> None:
     python_version = '.'.join(str(v) for v in sys.version_info[:3])
     version = f'drgn {drgn.__version__} (using Python {python_version})'
@@ -87,28 +113,35 @@ def main() -> None:
     if not args.kernel:
         sys.exit('Only --kernel mode is currently implemented')
 
-    release = platform.release()
-
-    if args.executable is None:
-        try:
-            args.executable = find_vmlinux(release)
-        except ValueError:
-            sys.exit('Could not find vmlinux file; install the proper debuginfo package or use --executable')
-
-    modules = find_modules(release)
-    if not modules and not args.script:
-        print('Could not find kernel modules; continuing anyways',
-              file=sys.stderr)
-
-    dwarf_index = DwarfIndex()
-    dwarf_index.add(args.executable)
-    dwarf_index.add(*modules)
-    type_index = DwarfTypeIndex(dwarf_index)
-
     with open('/proc/kallsyms', 'r') as f:
         symbols = parse_symbol_file(f)
 
     with CoreReader('/proc/kcore') as core_reader:
+        with open('/sys/kernel/vmcoreinfo', 'r') as f:
+            tokens = f.read().split()
+            vmcoreinfo_address = int(tokens[0], 16)
+            vmcoreinfo_size = int(tokens[1], 16)
+        vmcoreinfo_data = core_reader.read(vmcoreinfo_address, vmcoreinfo_size,
+                                           physical=True)
+        vmcoreinfo = parse_vmcoreinfo(vmcoreinfo_data)
+
+        release = vmcoreinfo['OSRELEASE']
+        if args.executable is None:
+            try:
+                args.executable = find_vmlinux(release)
+            except ValueError:
+                sys.exit('Could not find vmlinux file; install the proper debuginfo package or use --executable')
+
+        dwarf_index = DwarfIndex()
+        dwarf_index.add(args.executable)
+        modules = find_modules(release)
+        if not modules and not args.script:
+            print('Could not find kernel modules; continuing anyways',
+                  file=sys.stderr)
+        dwarf_index.add(*modules)
+
+        type_index = DwarfTypeIndex(dwarf_index)
+
         def lookup_variable(name: str) -> Tuple[int, Type]:
             address = symbols[name][-1]
             variable = dwarf_index.find(name, DW_TAG.variable)[0]
