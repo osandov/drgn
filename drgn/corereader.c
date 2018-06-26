@@ -73,11 +73,20 @@ static int pread_all(int fd, void *buf, size_t count, off_t offset)
 	return 0;
 }
 
-static void CoreReader_dealloc(CoreReader *self)
+static void close_reader(CoreReader *self)
 {
 	free(self->segments);
-	close(self->fd);
+	self->segments = NULL;
 
+	if (self->fd != -1) {
+		close(self->fd);
+		self->fd = -1;
+	}
+}
+
+static void CoreReader_dealloc(CoreReader *self)
+{
+	close_reader(self);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -212,6 +221,31 @@ static CoreReader *CoreReader_new(PyTypeObject *subtype, PyObject *args,
 	if (reader)
 		reader->fd = -1;
 	return reader;
+}
+
+static PyObject *CoreReader_close(CoreReader *self)
+{
+	close_reader(self);
+	Py_RETURN_NONE;
+}
+
+static PyObject *CoreReader_enter(PyObject *self)
+{
+	Py_INCREF(self);
+	return self;
+}
+
+static PyObject *CoreReader_exit(CoreReader *self, PyObject *args,
+				 PyObject *kwds)
+{
+	static char *keywords[] = {"exc_type", "exc_value", "traceback", NULL};
+	PyObject *exc_type, *exc_value, *traceback;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO:__exit__", keywords,
+					 &exc_type, &exc_value, &traceback))
+		return NULL;
+
+	return CoreReader_close(self);
 }
 
 static int read_core(CoreReader *self, void *buf, uint64_t address,
@@ -354,6 +388,14 @@ CoreReader_READ(long_double, long double, PyFloat_FromDouble)
 	"CoreReader(path) -> new core file reader"
 
 static PyMethodDef CoreReader_methods[] = {
+	{"close", (PyCFunction)CoreReader_close,
+	 METH_NOARGS,
+	 "close()\n\n"
+	 "Close a core file reader."},
+	{"__enter__", (PyCFunction)CoreReader_enter,
+	 METH_NOARGS},
+	{"__exit__", (PyCFunction)CoreReader_exit,
+	 METH_VARARGS | METH_KEYWORDS},
 	{"read", (PyCFunction)CoreReader_read,
 	 METH_VARARGS | METH_KEYWORDS,
 	 "read(address, size, physical=False)\n\n"
