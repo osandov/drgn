@@ -646,7 +646,7 @@ static int apply_relocation(struct section *section,
 
 	reloc = &((Elf64_Rela *)rela_section->buffer)[i];
 	syms = (Elf64_Sym *)symtab->buffer;
-	num_syms = symtab->size / sizeof(Elf64_Rela);
+	num_syms = symtab->size / sizeof(Elf64_Sym);
 
 	p = section->buffer + reloc->r_offset;
 	r_sym = reloc->r_info >> 32;
