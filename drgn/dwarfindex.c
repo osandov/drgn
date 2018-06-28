@@ -409,6 +409,7 @@ struct file {
 	PyObject *obj;
 	/* dict mapping cu offsets to CUs */
 	PyObject *cu_objs;
+	PyObject *path;
 };
 
 struct die_hash_entry {
@@ -1580,6 +1581,7 @@ static void DwarfIndex_dealloc(DwarfIndex *self)
 		munmap(self->files[i].map, self->files[i].size);
 		Py_XDECREF(self->files[i].obj);
 		Py_XDECREF(self->files[i].cu_objs);
+		Py_XDECREF(self->files[i].path);
 	}
 	free(self->files);
 	free(self->cus);
@@ -1756,6 +1758,9 @@ static PyObject *DwarfIndex_add(DwarfIndex *self, PyObject *args)
 		}
 		Py_DECREF(path);
 
+		Py_INCREF(arg);
+		self->files[i].path = arg;
+
 		if (read_sections(&self->files[i]) == -1)
 			goto err;
 	}
@@ -1791,8 +1796,10 @@ static PyObject *DwarfIndex_add(DwarfIndex *self, PyObject *args)
 
 err:
 	self->num_cus = old_num_cus;
-	for (i = old_num_files; i < self->num_files; i++)
-		Py_XDECREF(self->files[self->num_files + i].cu_objs);
+	for (i = old_num_files; i < self->num_files; i++) {
+		Py_XDECREF(self->files[i].path);
+		Py_XDECREF(self->files[i].cu_objs);
+	}
 	resize_array(&self->files, old_num_files);
 	self->num_files = old_num_files;
 	return NULL;
@@ -1807,7 +1814,8 @@ static PyObject *create_file_object(DwarfIndex *self, struct file *file)
 	if (!mview)
 		return NULL;
 
-	elf_file = PyObject_CallFunctionObjArgs(ElfFile, mview, NULL);
+	elf_file = PyObject_CallFunctionObjArgs(ElfFile, file->path, mview,
+						NULL);
 	Py_DECREF(mview);
 	if (!elf_file)
 		return NULL;

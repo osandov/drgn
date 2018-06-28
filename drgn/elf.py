@@ -184,7 +184,8 @@ class Elf_Sym(NamedTuple):
 
 
 class ElfFile:
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, path: str, data: bytes) -> None:
+        self.path = path
         self.data = data
         self.ehdr = self._ehdr()
         self.shdrs = self._shdrs()
