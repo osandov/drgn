@@ -13,21 +13,19 @@ from typing import (
 from drgn.elf import ElfFile
 
 
+# Automatically generated from dwarf.h
 class DW_AT(enum.IntEnum):
     sibling = 0x1
     location = 0x2
     name = 0x3  # type: ignore
     ordering = 0x9
-    subscr_data = 0xa
     byte_size = 0xb
     bit_offset = 0xc
     bit_size = 0xd
-    element_list = 0xf
     stmt_list = 0x10
     low_pc = 0x11
     high_pc = 0x12
     language = 0x13
-    member = 0x14
     discr = 0x15
     discr_value = 0x16
     visibility = 0x17
@@ -109,7 +107,35 @@ class DW_AT(enum.IntEnum):
     const_expr = 0x6c
     enum_class = 0x6d
     linkage_name = 0x6e
+    string_length_bit_size = 0x6f
+    string_length_byte_size = 0x70
+    rank = 0x71
+    str_offsets_base = 0x72
+    addr_base = 0x73
+    rnglists_base = 0x74
+    dwo_name = 0x76
+    reference = 0x77
+    rvalue_reference = 0x78
+    macros = 0x79
+    call_all_calls = 0x7a
+    call_all_source_calls = 0x7b
+    call_all_tail_calls = 0x7c
+    call_return_pc = 0x7d
+    call_value = 0x7e
+    call_origin = 0x7f
+    call_parameter = 0x80
+    call_pc = 0x81
+    call_tail_call = 0x82
+    call_target = 0x83
+    call_target_clobbered = 0x84
+    call_data_location = 0x85
+    call_data_value = 0x86
     noreturn = 0x87
+    alignment = 0x88
+    export_symbols = 0x89
+    deleted = 0x8a
+    defaulted = 0x8b
+    loclists_base = 0x8c
     lo_user = 0x2000
     MIPS_fde = 0x2001
     MIPS_loop_begin = 0x2002
@@ -152,8 +178,16 @@ class DW_AT(enum.IntEnum):
     GNU_all_tail_call_sites = 0x2116
     GNU_all_call_sites = 0x2117
     GNU_all_source_call_sites = 0x2118
+    GNU_locviews = 0x2137
+    GNU_entry_view = 0x2138
     GNU_macros = 0x2119
     GNU_deleted = 0x211a
+    GNU_dwo_name = 0x2130
+    GNU_dwo_id = 0x2131
+    GNU_ranges_base = 0x2132
+    GNU_addr_base = 0x2133
+    GNU_pubnames = 0x2134
+    GNU_pubtypes = 0x2135
     hi_user = 0x3fff
 
     @classmethod
@@ -182,6 +216,8 @@ class DW_ATE(enum.IntEnum):
     unsigned_fixed = 0xe
     decimal_float = 0xf
     UTF = 0x10
+    UCS = 0x11
+    ASCII = 0x12
     lo_user = 0x80
     hi_user = 0xff
 
@@ -230,7 +266,29 @@ class DW_FORM(enum.IntEnum):
     sec_offset = 0x17
     exprloc = 0x18
     flag_present = 0x19
+    strx = 0x1a
+    addrx = 0x1b
+    ref_sup4 = 0x1c
+    strp_sup = 0x1d
+    data16 = 0x1e
+    line_strp = 0x1f
     ref_sig8 = 0x20
+    implicit_const = 0x21
+    loclistx = 0x22
+    rnglistx = 0x23
+    ref_sup8 = 0x24
+    strx1 = 0x25
+    strx2 = 0x26
+    strx3 = 0x27
+    strx4 = 0x28
+    addrx1 = 0x29
+    addrx2 = 0x2a
+    addrx3 = 0x2b
+    addrx4 = 0x2c
+    GNU_addr_index = 0x1f01
+    GNU_str_index = 0x1f02
+    GNU_ref_alt = 0x1f20
+    GNU_strp_alt = 0x1f21
 
     @classmethod
     def str(cls, value: int) -> Text:
@@ -433,6 +491,16 @@ class DW_OP(enum.IntEnum):
     bit_piece = 0x9d
     implicit_value = 0x9e
     stack_value = 0x9f
+    implicit_pointer = 0xa0
+    addrx = 0xa1
+    constx = 0xa2
+    entry_value = 0xa3
+    const_type = 0xa4
+    regval_type = 0xa5
+    deref_type = 0xa6
+    xderef_type = 0xa7
+    convert = 0xa8
+    reinterpret = 0xa9
     GNU_push_tls_address = 0xe0
     GNU_uninit = 0xf0
     GNU_encoded_addr = 0xf1
@@ -444,6 +512,9 @@ class DW_OP(enum.IntEnum):
     GNU_convert = 0xf7
     GNU_reinterpret = 0xf9
     GNU_parameter_ref = 0xfa
+    GNU_addr_index = 0xfb
+    GNU_const_index = 0xfc
+    GNU_variable_value = 0xfd
     lo_user = 0xe0
     hi_user = 0xff
 
@@ -516,7 +587,14 @@ class DW_TAG(enum.IntEnum):
     type_unit = 0x41
     rvalue_reference_type = 0x42
     template_alias = 0x43
+    coarray_type = 0x44
+    generic_subrange = 0x45
+    dynamic_type = 0x46
     atomic_type = 0x47
+    call_site = 0x48
+    call_site_parameter = 0x49
+    skeleton_unit = 0x4a
+    immutable_type = 0x4b
     lo_user = 0x4080
     MIPS_loop = 0x4081
     format_label = 0x4101
