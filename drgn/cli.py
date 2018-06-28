@@ -20,7 +20,6 @@ from drgn.dwarfindex import DwarfIndex
 from drgn.program import Program, ProgramObject
 from drgn.type import Type
 from drgn.typeindex import DwarfTypeIndex
-from drgn.util import parse_symbol_file
 
 
 def displayhook(value: Any) -> None:
@@ -113,10 +112,9 @@ def main() -> None:
     if not args.kernel:
         sys.exit('Only --kernel mode is currently implemented')
 
-    with open('/proc/kallsyms', 'r') as f:
-        symbols = parse_symbol_file(f)
-
     with CoreReader('/proc/kcore') as core_reader:
+        from drgn.helpers.kernel import list_for_each_entry
+
         with open('/sys/kernel/vmcoreinfo', 'r') as f:
             tokens = f.read().split()
             vmcoreinfo_address = int(tokens[0], 16)
@@ -133,18 +131,43 @@ def main() -> None:
                 sys.exit('Could not find vmlinux file; install the proper debuginfo package or use --executable')
 
         dwarf_index = DwarfIndex()
-        dwarf_index.add(args.executable)
         modules = find_modules(release)
         if not modules and not args.script:
             print('Could not find kernel modules; continuing anyways',
                   file=sys.stderr)
-        dwarf_index.add(*modules)
+        dwarf_index.add(args.executable, *modules)
 
         type_index = DwarfTypeIndex(dwarf_index)
 
-        def lookup_variable(name: str) -> Tuple[int, Type]:
-            address = symbols[name][-1]
+        def lookup_variable(prog: Program, name: str) -> Tuple[int, Type]:
             variable = dwarf_index.find(name, DW_TAG.variable)[0]
+            address = variable.location()
+            elf_file = variable.cu.dwarf_file.elf_file
+            file_name = os.path.basename(elf_file.path).split('.', 1)[0]
+            if file_name == 'vmlinux':
+                address += vmcoreinfo['KERNELOFFSET']
+            else:
+                module_name = file_name.replace('-', '_').encode('ascii')
+                for mod in list_for_each_entry('struct module',
+                                               prog['modules'].address_of_(), 'list'):
+                    if mod.name.string_() == module_name:
+                        break
+                else:
+                    raise ValueError(f'{module_name.decode()} is not loaded')
+                for sym in elf_file.symbols[name]:
+                    if sym.st_value == address:
+                        break
+                else:
+                    raise ValueError(f'Could not find {name} symbol')
+                section_name = elf_file.shdrs[sym.st_shndx].name.encode()
+                mod_sects = mod.sect_attrs.attrs
+                for i in range(mod.sect_attrs.nsections):
+                    attr = mod.sect_attrs.attrs[i]
+                    if attr.name.string_() == section_name:
+                        address += attr.address.value_()
+                        break
+                else:
+                    raise ValueError(f'Could not find module section {section_name.decode()}')
             try:
                 dwarf_type = variable.type()
             except DwarfAttribNotFoundError:

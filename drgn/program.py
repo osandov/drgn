@@ -596,7 +596,8 @@ class Program:
 
     def __init__(self, *, reader: CoreReader,
                  type_index: TypeIndex,
-                 lookup_variable_fn: Callable[[str], Tuple[int, Type]]) -> None:
+                 lookup_variable_fn: Callable[['Program', str],
+                                              Tuple[int, Type]]) -> None:
         self._reader = reader
         self._type_index = type_index
         self._lookup_variable = lookup_variable_fn
@@ -652,5 +653,5 @@ class Program:
         """
         Return a ProgramObject representing the variable with the given name.
         """
-        address, type_ = self._lookup_variable(name)
+        address, type_ = self._lookup_variable(self, name)
         return ProgramObject(self, type_, address)

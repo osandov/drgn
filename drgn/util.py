@@ -1,7 +1,7 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-from typing import Dict, Iterable, List, TextIO
+from typing import Iterable
 
 
 def escape_character(c: int, escape_single_quote: bool = False,
@@ -51,19 +51,3 @@ def c_string(buffer: Iterable[int]) -> str:
                  for c in buffer)
     parts.append('"')
     return ''.join(parts)
-
-
-def parse_symbol_file(file: TextIO) -> Dict[str, List[int]]:
-    symbols: Dict[str, List[int]] = {}
-    for line in file:
-        fields = line.split()
-        name = fields[2]
-        if fields[0] == '(null)':
-            address = 0
-        else:
-            address = int(fields[0], 16)
-        try:
-            symbols[name].append(address)
-        except KeyError:
-            symbols[name] = [address]
-    return symbols

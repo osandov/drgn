@@ -891,6 +891,13 @@ class Die:
     def size(self) -> int:
         return self.find_constant(DW_AT.byte_size)
 
+    def location(self) -> int:
+        attrib = self.find(DW_AT.location)
+        assert isinstance(attrib.value, bytes)
+        if attrib.value[0] != DW_OP.addr:
+            raise NotImplementedError('only DW_OP_addr is implemented')
+        return int.from_bytes(attrib.value[1:], sys.byteorder)
+
     def specification(self) -> 'Die':
         return self.find_die(DW_AT.specification)
 
