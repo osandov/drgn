@@ -1909,12 +1909,12 @@ static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
 	static char *keywords[] = {"name", "tag", NULL};
 	struct die_hash_entry *entry;
 	const char *name;
-	unsigned long long tag;
+	unsigned long long tag = 0;
 	uint32_t i, orig_i;
 	PyObject *dies = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sK:find", keywords, &name,
-					 &tag))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s|K:find", keywords,
+					 &name, &tag))
 		return NULL;
 
 	i = orig_i = name_hash(name) & DIE_HASH_MASK;
@@ -1923,7 +1923,8 @@ static PyObject *DwarfIndex_find(DwarfIndex *self, PyObject *args, PyObject
 		if (!entry->name)
 			break;
 
-		if (entry->tag == tag && strcmp(entry->name, name) == 0) {
+		if ((!tag || entry->tag == tag) &&
+		    strcmp(entry->name, name) == 0) {
 			PyObject *die;
 
 			if (!dies) {
@@ -1966,11 +1967,11 @@ static PyMethodDef DwarfIndex_methods[] = {
 	 "paths -- paths to index"},
 	{"find", (PyCFunction)DwarfIndex_find,
 	 METH_VARARGS | METH_KEYWORDS,
-	 "find(name, tag)\n\n"
-	 "Find an indexed DWARF DIE.\n\n"
+	 "find(name, tag=0)\n\n"
+	 "Find DWARF DIEs with the given name and tag.\n\n"
 	 "Arguments:\n"
 	 "name -- string name of the DIE\n"
-	 "tag -- int tag of the DIE"},
+	 "tag -- int tag of the DIE, or zero for any tag"},
 	{},
 };
 
