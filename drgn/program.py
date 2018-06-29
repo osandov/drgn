@@ -66,7 +66,7 @@ class ProgramObject:
     >>> print(prog['init_task'].comm[0])
     (char)115
     >>> print(repr(prog['init_task'].nsproxy.mnt_ns.mounts + 1))
-    ProgramObject(type=<unsigned int>, address=None, value=34)
+    ProgramObject(type=<unsigned int>, value=34)
     >>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0
     False
 
@@ -83,20 +83,19 @@ class ProgramObject:
     conflict.
     """
 
-    def __init__(self, program: 'Program', type: Type,
-                 address: Optional[int] = None,
-                 value: Any = None) -> None:
+    def __init__(self, program: 'Program', type: Type, *,
+                 value: Any = None, address: Optional[int] = None) -> None:
         if address is not None and value is not None:
             raise ValueError('object cannot have address and value')
         if address is None and value is None:
             raise ValueError('object must have either address or value')
         self.program_ = program
-        self.address_ = address
         self.type_ = type
         self._real_type = type.real_type()
         if value is not None:
             value = self._real_type.convert(value)
         self._value = value
+        self.address_ = address
 
     def __dir__(self) -> Iterable[str]:
         attrs = list(super().__dir__())
@@ -146,7 +145,7 @@ class ProgramObject:
         else:
             raise ValueError('not an array or pointer')
         offset = i * type_.sizeof()
-        return ProgramObject(self.program_, type_, address + offset)
+        return ProgramObject(self.program_, type_, address=address + offset)
 
     def __iter__(self) -> Iterable['ProgramObject']:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
@@ -155,21 +154,21 @@ class ProgramObject:
         type_ = self._real_type.type
         for i in range(self._real_type.size):
             address = self.address_ + i * type_.sizeof()
-            yield ProgramObject(self.program_, type_, address)
+            yield ProgramObject(self.program_, type_, address=address)
 
     def __repr__(self) -> str:
         parts = [
             'ProgramObject(type=<', str(self.type_.type_name()), '>'
         ]
-        if self.address_ is not None:
-            parts.append(', address=')
-            parts.append(hex(self.address_))
         if self._value is not None:
             parts.append(', value=')
             if isinstance(self._real_type, PointerType):
                 parts.append(hex(self._value))
             else:
                 parts.append(repr(self._value))
+        if self.address_ is not None:
+            parts.append(', address=')
+            parts.append(hex(self.address_))
         parts.append(')')
         return ''.join(parts)
 
@@ -261,7 +260,7 @@ class ProgramObject:
             member_type, offset = type_.member(name)  # type: ignore
         except AttributeError:
             raise ValueError('not a struct or union')
-        return ProgramObject(self.program_, member_type, address + offset)
+        return ProgramObject(self.program_, member_type, address=address + offset)
 
     def cast_(self, type: Union[str, Type, TypeName]) -> 'ProgramObject':
         """
@@ -270,7 +269,8 @@ class ProgramObject:
         """
         if not isinstance(type, Type):
             type = self.program_.type(type)
-        return ProgramObject(self.program_, type, self.address_, self._value)
+        return ProgramObject(self.program_, type, value=self._value,
+                             address=self.address_)
 
     def address_of_(self) -> 'ProgramObject':
         """
@@ -281,7 +281,7 @@ class ProgramObject:
             raise ValueError('cannot take address of rvalue')
         return ProgramObject(self.program_,
                              self.program_._type_index.pointer(self.type_),
-                             None, self.address_)
+                             value=self.address_)
 
     def container_of_(self, type: Union[str, Type, TypeName],
                       member: str) -> 'ProgramObject':
@@ -307,7 +307,7 @@ class ProgramObject:
         return ProgramObject(self.program_,
                              PointerType(self._real_type.size, type,
                                          self._real_type.qualifiers),
-                             None, address)
+                             value=address)
 
     def read_once_(self) -> 'ProgramObject':
         """
@@ -325,7 +325,7 @@ class ProgramObject:
         type_ = self.type_.operand_type()
         if self._real_type.is_integer():
             type_ = self.program_._type_index.integer_promotions(type_)
-        return ProgramObject(self.program_, type_, None, op(self.value_()))
+        return ProgramObject(self.program_, type_, value=op(self.value_()))
 
     def _binary_operands(self, lhs: Any, rhs: Any) -> Tuple[Any, Type, Any, Type]:
         lhs_obj = isinstance(lhs, ProgramObject)
@@ -364,7 +364,7 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
-        return ProgramObject(self.program_, type_, None, op(lhs, rhs))
+        return ProgramObject(self.program_, type_, value=op(lhs, rhs))
 
     def _integer_operator(self, op: Callable, op_name: str,
                           lhs: Any, rhs: Any) -> 'ProgramObject':
@@ -375,7 +375,7 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
-        return ProgramObject(self.program_, type_, None, op(lhs, rhs))
+        return ProgramObject(self.program_, type_, value=op(lhs, rhs))
 
     def _shift_operator(self, op: Callable, op_name: str,
                         lhs: Any, rhs: Any) -> 'ProgramObject':
@@ -386,7 +386,7 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         lhs_type = self.program_._type_index.integer_promotions(lhs_type)
         rhs_type = self.program_._type_index.integer_promotions(rhs_type)
-        return ProgramObject(self.program_, lhs_type, None, op(lhs, rhs))
+        return ProgramObject(self.program_, lhs_type, value=op(lhs, rhs))
 
     def _relational_operator(self, op: Callable, op_name: str,
                              other: Any) -> bool:
@@ -418,16 +418,16 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         if lhs_pointer:
             assert isinstance(lhs_type, PointerType)
-            return ProgramObject(self.program_, lhs_type, None,
-                                 lhs + lhs_type.type.sizeof() * rhs)
+            return ProgramObject(self.program_, lhs_type,
+                                 value=lhs + lhs_type.type.sizeof() * rhs)
         elif rhs_pointer:
             assert isinstance(rhs_type, PointerType)
-            return ProgramObject(self.program_, rhs_type, None,
-                                 rhs + rhs_type.type.sizeof() * lhs)
+            return ProgramObject(self.program_, rhs_type,
+                                 value=rhs + rhs_type.type.sizeof() * lhs)
         else:
             type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                                  rhs, rhs_type)
-            return ProgramObject(self.program_, type_, None, lhs + rhs)
+            return ProgramObject(self.program_, type_, value=lhs + rhs)
 
     def _sub(self, lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
@@ -448,14 +448,14 @@ class ProgramObject:
         if lhs_pointer and rhs_pointer:
             return ProgramObject(self.program_,
                                  self.program_._type_index.ptrdiff_t(),
-                                 None, (lhs - rhs) // lhs_sizeof)
+                                 value=(lhs - rhs) // lhs_sizeof)
         elif lhs_pointer:
-            return ProgramObject(self.program_, lhs_type, None,
-                                 lhs - lhs_sizeof * rhs)
+            return ProgramObject(self.program_, lhs_type,
+                                 value=lhs - lhs_sizeof * rhs)
         else:
             type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                                  rhs, rhs_type)
-            return ProgramObject(self.program_, type_, None, lhs - rhs)
+            return ProgramObject(self.program_, type_, value=lhs - rhs)
 
     def __add__(self, other: Any) -> 'ProgramObject':
         return self._add(self, other)
@@ -570,8 +570,8 @@ class ProgramObject:
             raise TypeError(f"can't round {self.type_}")
         if ndigits is None:
             return round(self.value_())
-        return ProgramObject(self.program_, self.type_, None,
-                             round(self.value_(), ndigits))
+        return ProgramObject(self.program_, self.type_,
+                             value=round(self.value_(), ndigits))
 
     def __trunc__(self) -> int:
         if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
@@ -611,16 +611,16 @@ class Program:
         """
         return self.variable(name)
 
-    def object(self, type: Union[str, Type, TypeName],
-               address: Optional[int] = None,
-               value: Any = None) -> ProgramObject:
+    def object(self, type: Union[str, Type, TypeName], *,
+               value: Any = None,
+               address: Optional[int] = None) -> ProgramObject:
         """
-        Return a ProgramObject with the given address of the given type. The
-        type can be a string, Type object, or TypeName object.
+        Return a ProgramObject of the given type with the given value or
+        address. The type can be a string, Type object, or TypeName object.
         """
         if not isinstance(type, Type):
             type = self.type(type)
-        return ProgramObject(self, type, address, value)
+        return ProgramObject(self, type, value=value, address=address)
 
     def null(self, type: Union[str, Type, TypeName]) -> ProgramObject:
         """
@@ -663,5 +663,5 @@ class Program:
         defined in. If no filename is given, it is undefined which one is
         returned.
         """
-        type_, address, value = self._variable_index.find(name, filename)
-        return ProgramObject(self, type_, address, value)
+        type_, value, address = self._variable_index.find(name, filename)
+        return ProgramObject(self, type_, value=value, address=address)

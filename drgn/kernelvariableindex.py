@@ -46,7 +46,7 @@ class KernelVariableIndex(VariableIndex):
             raise ValueError(f'could not find {name!r} in {filename!r}')
 
     def find(self, name: str,
-             filename: Optional[str] = None) -> Tuple[Type, Optional[int], Any]:
+             filename: Optional[str] = None) -> Tuple[Type, Any, Optional[int]]:
         die = self._find_die(name, filename)
         if die.tag == DW_TAG.variable:
             address = die.location()
@@ -81,7 +81,7 @@ class KernelVariableIndex(VariableIndex):
                 dwarf_type = die.type()
             except DwarfAttribNotFoundError:
                 dwarf_type = die.specification().type()
-            return self._type_index.find_dwarf_type(dwarf_type), address, None
+            return self._type_index.find_dwarf_type(dwarf_type), None, address
         else:  # die.tag == DW_TAG.enumeration_type
             type_ = cast(EnumType, self._type_index.find_dwarf_type(die))
-            return type_, None, getattr(type_.enum, name)
+            return type_, getattr(type_.enum, name), None

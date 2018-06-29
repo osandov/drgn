@@ -12,5 +12,5 @@ class VariableIndex:
         self._type_index = type_index
 
     def find(self, name: str,
-             filename: Optional[str] = None) -> Tuple[Type, Optional[int], Any]:
+             filename: Optional[str] = None) -> Tuple[Type, Any, Optional[int]]:
         raise NotImplementedError()
