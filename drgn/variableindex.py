@@ -1,10 +1,10 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from drgn.type import Type
-from drgn.typeindex import TypeIndex
+from drgn.typeindex import DwarfTypeIndex, TypeIndex
 
 
 class VariableIndex:
@@ -12,5 +12,5 @@ class VariableIndex:
         self._type_index = type_index
 
     def find(self, name: str,
-             filename: Optional[str] = None) -> Tuple[int, Type]:
+             filename: Optional[str] = None) -> Tuple[Type, Optional[int], Any]:
         raise NotImplementedError()

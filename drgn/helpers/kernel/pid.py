@@ -105,8 +105,7 @@ def find_task(prog_or_ns, pid):
         prog = prog_or_ns
     else:
         prog = prog_or_ns.program_
-    PIDTYPE_PID = prog.type('enum pid_type').enum.PIDTYPE_PID
-    return pid_task(find_pid(prog_or_ns, pid), PIDTYPE_PID)
+    return pid_task(find_pid(prog_or_ns, pid), prog['PIDTYPE_PID'].value_())
 
 
 def for_each_task(prog_or_ns):
@@ -121,7 +120,7 @@ def for_each_task(prog_or_ns):
         prog = prog_or_ns
     else:
         prog = prog_or_ns.program_
-    PIDTYPE_PID = prog.type('enum pid_type').enum.PIDTYPE_PID
+    PIDTYPE_PID = prog['PIDTYPE_PID'].value_()
     for pid in for_each_pid(prog_or_ns):
         task = pid_task(pid, PIDTYPE_PID)
         if task:

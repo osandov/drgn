@@ -663,5 +663,5 @@ class Program:
         defined in. If no filename is given, it is undefined which one is
         returned.
         """
-        address, type_ = self._variable_index.find(name, filename)
-        return ProgramObject(self, type_, address)
+        type_, address, value = self._variable_index.find(name, filename)
+        return ProgramObject(self, type_, address, value)
