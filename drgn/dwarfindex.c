@@ -29,6 +29,7 @@ enum {
 	DW_TAG_typedef = 0x16,
 	DW_TAG_union_type = 0x17,
 	DW_TAG_base_type = 0x24,
+	DW_TAG_enumerator = 0x28,
 	DW_TAG_variable = 0x34,
 };
 
@@ -813,6 +814,7 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 	    tag != DW_TAG_class_type &&
 	    tag != DW_TAG_compile_unit &&
 	    tag != DW_TAG_enumeration_type &&
+	    tag != DW_TAG_enumerator &&
 	    tag != DW_TAG_structure_type &&
 	    tag != DW_TAG_typedef &&
 	    tag != DW_TAG_union_type &&
@@ -834,7 +836,11 @@ static int read_abbrev_decl(const char **ptr, const char *end,
 		if (name == 0 && form == 0)
 			break;
 
-		if (name == DW_AT_sibling) {
+		if (name == DW_AT_sibling && tag != DW_TAG_enumeration_type) {
+			/*
+			 * Not for DW_TAG_enumeration_type because we need to
+			 * descend into any DW_TAG_enumerator children.
+			 */
 			switch (form) {
 			case DW_FORM_ref1:
 				cmd = ATTRIB_SIBLING_REF1;
@@ -1489,6 +1495,7 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 	const char *debug_str_buffer = debug_str->buffer;
 	const char *debug_str_end = &debug_str_buffer[debug_str->size];
 	unsigned int depth = 0;
+	const char *enum_die_ptr = NULL;
 	int ret = -1;
 
 	if (read_abbrev_table(&debug_abbrev->buffer[cu->debug_abbrev_offset],
@@ -1508,7 +1515,10 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 		if (ret2 == -1)
 			goto out;
 		if (ret2 == 0) {
-			if (!--depth)
+			depth--;
+			if (depth == 1)
+				enum_die_ptr = NULL;
+			else if (depth == 0)
 				break;
 			continue;
 		}
@@ -1519,9 +1529,20 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 			    read_file_name_table(self, cu, die.stmt_list,
 						 &file_name_table) == -1)
 				goto out;
-		} else if (depth == 1 && tag &&
-			   !(die.flags & TAG_FLAG_DECLARATION)) {
+		} else if (tag && !(die.flags & TAG_FLAG_DECLARATION)) {
 			uint64_t file_name_hash;
+
+			/*
+			 * NB: the enumerator name points to the
+			 * enumeration_type DIE instead of the enumerator DIE.
+			 */
+			if (depth == 1 && tag == DW_TAG_enumeration_type)
+				enum_die_ptr = die_ptr;
+			else if (depth == 2 && tag == DW_TAG_enumerator &&
+				 enum_die_ptr)
+				die_ptr = enum_die_ptr;
+			else if (depth != 1)
+				goto next;
 
 			if (die.specification && (!die.name || !die.decl_file)) {
 				struct die decl = {};
@@ -1555,6 +1576,7 @@ static int index_cu(DwarfIndex *self, struct compilation_unit *cu)
 			}
 		}
 
+next:
 		if (die.flags & TAG_FLAG_CHILDREN) {
 			if (die.sibling)
 				ptr = die.sibling;
