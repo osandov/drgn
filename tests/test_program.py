@@ -30,10 +30,8 @@ class TestProgramObject(TypeIndexTestCase):
         ])
         with tmpfile(elf_file) as file:
             core_reader = CoreReader(file.name)
-        def lookup_variable(name):
-            raise NotImplementedError()
         self.program = Program(reader=core_reader, type_index=self.type_index,
-                               lookup_variable_fn=lookup_variable)
+                               variable_index=None)
     def tearDown(self):
         super().tearDown()
 

@@ -23,6 +23,7 @@ from drgn.type import (
 from drgn.typename import TypeName
 from drgn.typeindex import TypeIndex
 from drgn.util import c_string
+from drgn.variableindex import VariableIndex
 
 
 def _c_modulo(a: int, b: int) -> int:
@@ -594,13 +595,11 @@ class Program:
     lookup type definitions, access variables, and read arbitrary memory.
     """
 
-    def __init__(self, *, reader: CoreReader,
-                 type_index: TypeIndex,
-                 lookup_variable_fn: Callable[['Program', str],
-                                              Tuple[int, Type]]) -> None:
+    def __init__(self, *, reader: CoreReader, type_index: TypeIndex,
+                 variable_index: VariableIndex) -> None:
         self._reader = reader
         self._type_index = type_index
-        self._lookup_variable = lookup_variable_fn
+        self._variable_index = variable_index
 
     def __getitem__(self, name: str) -> ProgramObject:
         """
@@ -658,5 +657,5 @@ class Program:
         """
         Return a ProgramObject representing the variable with the given name.
         """
-        address, type_ = self._lookup_variable(self, name)
+        address, type_ = self._variable_index.find(name)
         return ProgramObject(self, type_, address)
