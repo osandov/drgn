@@ -642,12 +642,17 @@ class Program:
         """
         return self._reader.read(address, size, physical)
 
-    def type(self, name: Union[str, TypeName]) -> Type:
+    def type(self, name: Union[str, TypeName],
+             filename: Optional[str] = None) -> Type:
         """
         Return a Type object for the type with the given name. The name is
         usually a string, but it can also be a TypeName object.
+
+        If there are multiple types with the given name, they can be
+        distinguished by passing the filename that the desired type was defined
+        in. If no filename is given, it is undefined which one is returned.
         """
-        return self._type_index.find_type(name)
+        return self._type_index.find_type(name, filename)
 
     def variable(self, name: str) -> ProgramObject:
         """

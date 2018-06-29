@@ -131,22 +131,25 @@ class TypeIndex:
     def __init__(self, address_size: int) -> None:
         self._address_size = address_size
 
-    def _find_type(self, type_name: TypeName) -> Type:
+    def _find_type(self, type_name: TypeName,
+                   filename: Optional[str]) -> Type:
         raise NotImplementedError()
 
     @functools.lru_cache()
-    def find_type(self, type_name: Union[str, TypeName]) -> Type:
+    def find_type(self, type_name: Union[str, TypeName],
+                  filename: Optional[str] = None) -> Type:
         if not isinstance(type_name, TypeName):
             type_name = parse_type_name(type_name)
         if isinstance(type_name, VoidTypeName):
             return VoidType(type_name.qualifiers)
         elif isinstance(type_name, PointerTypeName):
-            return self.pointer(self.find_type(type_name.type),
+            return self.pointer(self.find_type(type_name.type, filename),
                                 type_name.qualifiers)
         elif isinstance(type_name, ArrayTypeName):
-            return self.array(self.find_type(type_name.type), type_name.size)
+            return self.array(self.find_type(type_name.type, filename),
+                              type_name.size)
         else:
-            return self._find_type(type_name)
+            return self._find_type(type_name, filename)
 
     def array(self, type_: Type, size: Optional[int]) -> ArrayType:
         return ArrayType(type_, size, self._address_size)
@@ -379,7 +382,7 @@ class DwarfTypeIndex(TypeIndex):
                 except ValueError:
                     pass
 
-    def _find_type(self, type_name: TypeName) -> Type:
+    def _find_type(self, type_name: TypeName, filename: Optional[str]) -> Type:
         dwarf_type = None
         if isinstance(type_name, BasicTypeName):
             tag = DW_TAG.base_type
@@ -400,7 +403,18 @@ class DwarfTypeIndex(TypeIndex):
         if type_name.name is None:
             raise ValueError("can't find anonymous type")
         if dwarf_type is None:
-            dwarf_type = self._dwarf_index.find(type_name.name, tag)[0]
+            try:
+                dies = self._dwarf_index.find(type_name.name, tag)
+            except ValueError:
+                raise ValueError(f'could not find {str(type_name)!r}') from None
+            for dwarf_type in dies:
+                try:
+                    if filename is None or dwarf_type.decl_file() == filename:
+                        break
+                except DwarfAttribNotFoundError:
+                    continue
+            else:
+                raise ValueError(f'could not find {str(type_name)!r} in {filename!r}')
         return self.find_dwarf_type(dwarf_type, type_name.qualifiers)
 
     @functools.lru_cache()

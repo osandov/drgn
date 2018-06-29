@@ -4,6 +4,7 @@
 import enum
 import functools
 import os
+import os.path
 import struct
 import sys
 from typing import (
@@ -860,9 +861,8 @@ class LineNumberProgram:
         path, directory_index, _, _ = self.file_names[index - 1]
         if directory_index:
             directory = self.include_directories[directory_index - 1]
-            return os.path.join(directory, path)
-        else:
-            return path
+            path = os.path.join(directory, path)
+        return os.path.normpath(path)
 
 
 class DieAttrib(NamedTuple):
@@ -993,8 +993,11 @@ class Die:
         reader.offset = self.offset + self.length
         return _parse_die_siblings(reader, self.cu)
 
+    def decl_file(self) -> str:
+        return self.cu.lnp().file_name(self.find_constant(DW_AT.decl_file))
+
     def decl(self) -> Tuple[str, Optional[int], Optional[int]]:
-        file = self.cu.lnp().file_name(self.find_constant(DW_AT.decl_file))
+        file = self.decl_file()
         try:
             line = self.find_constant(DW_AT.decl_line)
         except DwarfAttribNotFoundError:

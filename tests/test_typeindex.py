@@ -58,7 +58,7 @@ class MockTypeIndex(TypeIndex):
     def __init__(self):
         super().__init__(8)
 
-    def _find_type(self, type_name: TypeName) -> Type:
+    def _find_type(self, type_name, filename=None):
         if isinstance(type_name, (BasicTypeName, TypedefTypeName)):
             try:
                 return TYPES[type_name.name]
