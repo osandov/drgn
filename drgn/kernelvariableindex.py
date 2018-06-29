@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0+
 
 import os.path
-from typing import Tuple
+from typing import Optional, Tuple
 
 from drgn.dwarf import DW_TAG, DwarfAttribNotFoundError
 from drgn.helpers.kernel import list_for_each_entry
@@ -27,8 +27,20 @@ class KernelVariableIndex(VariableIndex):
     def set_program(self, program: Program) -> None:
         self._prog = program
 
-    def find(self, name: str) -> Tuple[int, Type]:
-        variable = self._dwarf_index.find(name, DW_TAG.variable)[0]
+    def find(self, name: str,
+             filename: Optional[str] = None) -> Tuple[int, Type]:
+        try:
+            dies = self._dwarf_index.find(name, DW_TAG.variable)
+        except ValueError:
+            raise ValueError(f'could not find {name!r}') from None
+        for variable in dies:
+            try:
+                if filename is None or variable.decl_file() == filename:
+                    break
+            except DwarfAttribNotFoundError:
+                continue
+        else:
+            raise ValueError(f'could not find {name!r} in {filename!r}')
         address = variable.location()
         elf_file = variable.cu.dwarf_file.elf_file
         file_name = os.path.basename(elf_file.path).split('.', 1)[0]

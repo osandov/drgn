@@ -653,9 +653,15 @@ class Program:
         """
         return self._type_index.find_type(name, filename)
 
-    def variable(self, name: str) -> ProgramObject:
+    def variable(self, name: str,
+                 filename: Optional[str] = None) -> ProgramObject:
         """
         Return a ProgramObject representing the variable with the given name.
+
+        If there are multiple variables with the given name, they can be
+        distinguished by passing the filename that the desired variable was
+        defined in. If no filename is given, it is undefined which one is
+        returned.
         """
-        address, type_ = self._variable_index.find(name)
+        address, type_ = self._variable_index.find(name, filename)
         return ProgramObject(self, type_, address)
