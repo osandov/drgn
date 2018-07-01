@@ -253,7 +253,7 @@ class ElfFile:
             else:
                 section_name = ''
             # mypy claims 'Too many arguments for "Elf_Shdr"'
-            shdrs.append(Elf_Shdr(*raw_shdr, section_name)) # type: ignore
+            shdrs.append(Elf_Shdr(*raw_shdr, section_name))  # type: ignore
         return shdrs
 
     @property
