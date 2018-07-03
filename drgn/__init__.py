@@ -31,6 +31,11 @@ Types are represented by drgn.type.Type objects. Try
 
 >>> import drgn.type
 >>> help(drgn.type)
+
+Various helpers are provided for particular types of programs. Try
+
+>>> import drgn.helpers
+>>> help(drgn.helpers)
 """
 
 __version__ = '0.1.0'

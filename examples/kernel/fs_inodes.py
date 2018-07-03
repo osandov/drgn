@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+
+"""
+List the paths of all inodes cached in a given filesystem
+"""
+
+from drgn.helpers.kernel.fs import for_each_mount, inode_path
+from drgn.helpers.kernel.list import list_for_each_entry
+import os
+import sys
+
+
+if len(sys.argv) == 1:
+    path = '/'
+else:
+    path = sys.argv[1]
+
+mnt = None
+for src, dst, fstype, mnt in for_each_mount(prog, dst=path):
+    pass
+if mnt is None:
+    sys.exit(f'No filesystem mounted at {path}')
+
+sb = mnt.mnt.mnt_sb
+
+for inode in list_for_each_entry('struct inode', sb.s_inodes.address_of_(),
+                                 'i_sb_list'):
+    try:
+        print(os.fsdecode(inode_path(inode)))
+    except ValueError:
+        continue
