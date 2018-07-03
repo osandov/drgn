@@ -79,12 +79,8 @@ def dentry_path(dentry):
         if dentry == d_parent:
             break
         components.append(dentry.d_name.name.string_())
-        components.append(b'/')
         dentry = d_parent
-    if components:
-        return b''.join(reversed(components))
-    else:
-        return b'/'
+    return b'/'.join(reversed(components))
 
 
 def inode_path(inode):
