@@ -76,7 +76,7 @@ def for_each_pid(prog_or_ns):
                                              'pid_chain'):
                 if upid.ns == ns:
                     yield upid.container_of_('struct pid',
-                                             f'numbers[{ns.level.value_()}]')
+                                             f'numbers[{int(ns.level)}]')
 
 
 def pid_task(pid, pid_type):
@@ -91,7 +91,7 @@ def pid_task(pid, pid_type):
     first = pid.tasks[0].first
     if not first:
         return pid.program_.null('struct task_struct *')
-    return first.container_of_('struct task_struct', f'pids[{pid_type}].node')
+    return first.container_of_('struct task_struct', f'pids[{int(pid_type)}].node')
 
 
 def find_task(prog_or_ns, pid):
@@ -105,7 +105,7 @@ def find_task(prog_or_ns, pid):
         prog = prog_or_ns
     else:
         prog = prog_or_ns.program_
-    return pid_task(find_pid(prog_or_ns, pid), prog['PIDTYPE_PID'].value_())
+    return pid_task(find_pid(prog_or_ns, pid), prog['PIDTYPE_PID'])
 
 
 def for_each_task(prog_or_ns):
