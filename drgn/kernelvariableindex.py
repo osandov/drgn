@@ -4,6 +4,7 @@
 import os.path
 from typing import cast, Any, Optional, Tuple
 
+from drgn.elf import ET_EXEC
 from drgn.dwarf import Die, DW_TAG, DwarfAttribNotFoundError
 from drgn.helpers.kernel import list_for_each_entry
 from drgn.type import Type, EnumType
@@ -51,10 +52,12 @@ class KernelVariableIndex(VariableIndex):
         if die.tag == DW_TAG.variable:
             address = die.location()
             elf_file = die.cu.dwarf_file.elf_file
-            file_name = os.path.basename(elf_file.path).split('.', 1)[0]
-            if file_name == 'vmlinux':
+            # vmlinux is an executable file, kernel modules are relocatable
+            # files.
+            if elf_file.ehdr.e_type == ET_EXEC:
                 address += self._kaslr_offset
             else:
+                file_name = os.path.basename(elf_file.path).split('.', 1)[0]
                 module_name = file_name.replace('-', '_').encode('ascii')
                 for mod in list_for_each_entry('struct module',
                                                self._prog['modules'].address_of_(),

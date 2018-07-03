@@ -8,6 +8,7 @@ constant_prefixes = [
     'ELFCLASS',
     'ELFDATA',
     'ELFMAG',
+    'ET_',
     'EV_',
     'SHN_',
     'SHT_',
