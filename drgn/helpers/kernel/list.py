@@ -12,7 +12,9 @@ __all__ = [
     'list_empty',
     'list_is_singular',
     'list_for_each',
+    'list_for_each_reverse',
     'list_for_each_entry',
+    'list_for_each_entry_reverse',
     'hlist_empty',
     'hlist_for_each',
     'hlist_for_each_entry',
@@ -53,6 +55,19 @@ def list_for_each(head):
         pos = pos.next.read_once_()
 
 
+def list_for_each_reverse(head):
+    """
+    list_for_each_reverse(struct list_head *)
+
+    Return an iterator over all of the nodes in a list in reverse order.
+    """
+    head = head.read_once_()
+    pos = head.prev.read_once_()
+    while pos != head:
+        yield pos
+        pos = pos.prev.read_once_()
+
+
 def list_for_each_entry(type, head, member):
     """
     list_for_each_entry(type, struct list_head *, member)
@@ -61,6 +76,17 @@ def list_for_each_entry(type, head, member):
     entry and the struct list_head member in that type.
     """
     for pos in list_for_each(head):
+        yield pos.container_of_(type, member)
+
+
+def list_for_each_entry_reverse(type, head, member):
+    """
+    list_for_each_entry_reverse(type, struct list_head *, member)
+
+    Return an iterator over all of the entries in a list in reverse order,
+    given the type of the entry and the struct list_head member in that type.
+    """
+    for pos in list_for_each_reverse(head):
         yield pos.container_of_(type, member)
 
 
