@@ -51,7 +51,7 @@ def make_elf_file(segments=None):
             segment[0], # p_vaddr
             0xffffffffffffffff, # p_paddr
             len(segment[1]), # p_filesz
-            len(segment[1]), # p_memsz
+            segment[2] if len(segment) >= 3 else len(segment[1]), # p_memsz
             4096, # p_align
         )
         buf.extend(segment[1])
@@ -130,3 +130,13 @@ class TestCoreReader(unittest.TestCase):
         with tmpfile(elf_file) as file:
             core_reader = CoreReader(file.name)
             self.assertEqual(core_reader.read(0xffff0000, len(data)), data)
+
+    def test_zero_filled_segment(self):
+        data = b'hello, world!'
+        elf_file = make_elf_file([(0xffff0000, data, len(data) + 4)])
+        with tmpfile(elf_file) as file:
+            core_reader = CoreReader(file.name)
+            self.assertEqual(core_reader.read(0xffff0000, len(data) + 4),
+                             data + bytes(4))
+            self.assertEqual(core_reader.read(0xffff0000 + len(data), 4),
+                             bytes(4))

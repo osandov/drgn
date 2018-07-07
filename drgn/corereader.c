@@ -12,6 +12,8 @@
 
 #include <Python.h>
 
+#define min(a, b) ((a) < (b) ? (a) : (b))
+
 static PyObject *ElfFormatError;
 
 typedef struct {
@@ -234,7 +236,7 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 		uint64_t segment_address;
 		uint64_t segment_offset;
 		off_t read_offset;
-		size_t read_count;
+		size_t read_count, zero_count;
 		int i;
 
 		/*
@@ -271,19 +273,25 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 		}
 
 		segment_offset = address - segment_address;
-		if (phdr->p_memsz - segment_offset < count)
-			read_count = phdr->p_memsz - segment_offset;
+		if (segment_offset < phdr->p_filesz)
+			read_count = min(phdr->p_filesz - segment_offset, count);
 		else
-			read_count = count;
+			read_count = 0;
+		if (segment_offset + read_count < phdr->p_memsz)
+			zero_count = min(phdr->p_memsz - segment_offset - read_count,
+					 count - read_count);
+		else
+			zero_count = 0;
 		read_offset = phdr->p_offset + segment_offset;
 		if (pread_all(self->fd, p, read_count, read_offset) == -1) {
 			PyErr_SetFromErrno(PyExc_OSError);
 			return -1;
 		}
+		memset(p + read_count, 0, zero_count);
 
-		p += read_count;
-		count -= read_count;
-		address += read_count;
+		p += read_count + zero_count;
+		count -= read_count + zero_count;
+		address += read_count + zero_count;
 	}
 	return 0;
 }
