@@ -226,6 +226,99 @@ static PyObject *CoreReader_exit(CoreReader *self, PyObject *args,
 	return CoreReader_close(self);
 }
 
+static PyObject *read_note(CoreReader *self, size_t n, off_t *off)
+{
+	PyObject *bytes;
+	size_t skip;
+
+	if (!n)
+		return PyBytes_FromStringAndSize(NULL, 0);
+
+	bytes = PyBytes_FromStringAndSize(NULL, n - 1);
+	if (!bytes)
+		return NULL;
+
+	if (read_all(self->fd, PyBytes_AS_STRING(bytes), n - 1) == -1) {
+		Py_DECREF(bytes);
+		return NULL;
+	}
+	*off += n - 1;
+
+	/* One for the NUL byte, then align to 4 bytes. */
+	skip = 1 + (n % 4 ? 4 - n % 4 : 0);
+	if (lseek(self->fd, skip, SEEK_CUR) == -1) {
+		PyErr_SetFromErrno(PyExc_OSError);
+		Py_DECREF(bytes);
+		return NULL;
+	}
+	*off += skip;
+
+	return bytes;
+}
+
+static PyObject *CoreReader_notes(CoreReader *self)
+{
+	PyObject *list;
+	int i;
+
+	list = PyList_New(0);
+	if (!list)
+		return NULL;
+
+	for (i = 0; i < self->phnum; i++) {
+		Elf64_Phdr *phdr = &self->phdrs[i];
+		off_t off;
+
+		if (phdr->p_type != PT_NOTE)
+			continue;
+
+		if (lseek(self->fd, phdr->p_offset, SEEK_SET) == -1) {
+			PyErr_SetFromErrno(PyExc_OSError);
+			goto err;
+		}
+		off = phdr->p_offset;
+
+		while (off - phdr->p_offset + sizeof(Elf64_Nhdr) <
+		       phdr->p_filesz) {
+			PyObject *name, *desc, *item;
+			Elf64_Nhdr nhdr;
+
+			if (read_all(self->fd, &nhdr, sizeof(nhdr)) == -1) {
+				PyErr_SetFromErrno(PyExc_OSError);
+				goto err;
+			}
+			off += sizeof(nhdr);
+
+			name = read_note(self, nhdr.n_namesz, &off);
+			if (!name)
+				goto err;
+			desc = read_note(self, nhdr.n_descsz, &off);
+			if (!desc) {
+				Py_DECREF(name);
+				goto err;
+			}
+
+			item = Py_BuildValue("OIO", name,
+					     (unsigned int)nhdr.n_type, desc);
+			Py_DECREF(desc);
+			Py_DECREF(name);
+			if (!item)
+				goto err;
+
+			if (PyList_Append(list, item) == -1) {
+				Py_DECREF(item);
+				goto err;
+			}
+			Py_DECREF(item);
+		}
+	}
+
+	return list;
+err:
+	Py_DECREF(list);
+	return NULL;
+}
+
 static int read_core(CoreReader *self, void *buf, uint64_t address,
 		     uint64_t count, int physical)
 {
@@ -382,6 +475,11 @@ static PyMethodDef CoreReader_methods[] = {
 	 METH_NOARGS},
 	{"__exit__", (PyCFunction)CoreReader_exit,
 	 METH_VARARGS | METH_KEYWORDS},
+	{"notes", (PyCFunction)CoreReader_notes,
+	 METH_NOARGS,
+	 "notes()\n\n"
+	 "Return a list of ELF notes in this core file as a list of (name, type, data)\n"
+	 "tuples, where name and data are bytes and type is an int."},
 	{"read", (PyCFunction)CoreReader_read,
 	 METH_VARARGS | METH_KEYWORDS,
 	 "read(address, size, physical=False)\n\n"
