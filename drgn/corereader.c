@@ -14,18 +14,11 @@
 
 static PyObject *ElfFormatError;
 
-struct segment {
-	uint64_t virt_address;
-	uint64_t phys_address;
-	uint64_t size;
-	off_t offset;
-};
-
 typedef struct {
 	PyObject_HEAD
 	int fd;
-	int num_segments;
-	struct segment *segments;
+	int phnum;
+	Elf64_Phdr *phdrs;
 } CoreReader;
 
 static int read_all(int fd, void *buf, size_t count)
@@ -75,8 +68,8 @@ static int pread_all(int fd, void *buf, size_t count, off_t offset)
 
 static void close_reader(CoreReader *self)
 {
-	free(self->segments);
-	self->segments = NULL;
+	free(self->phdrs);
+	self->phdrs = NULL;
 
 	if (self->fd != -1) {
 		close(self->fd);
@@ -95,9 +88,7 @@ static int CoreReader_init(CoreReader *self, PyObject *args, PyObject *kwds)
 	static char *keywords[] = {"path", NULL};
 	PyObject *path_obj, *path;
 	Elf64_Phdr *phdrs = NULL;
-	struct segment *segments = NULL;
 	Elf64_Ehdr ehdr;
-	unsigned int i;
 	int fd;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:CoreReader", keywords,
@@ -156,15 +147,9 @@ static int CoreReader_init(CoreReader *self, PyObject *args, PyObject *kwds)
 		goto err;
 	}
 
-	if (ehdr.e_phnum == 0) {
-		PyErr_SetString(ElfFormatError, "ELF file has no segments");
-		goto err;
-	}
-
 	/* Don't need to worry about overflow because e_phnum is 16 bits. */
 	phdrs = malloc(ehdr.e_phnum * sizeof(*phdrs));
-	segments = malloc(ehdr.e_phnum * sizeof(*segments));
-	if (!phdrs || !segments) {
+	if (!phdrs) {
 		PyErr_NoMemory();
 		goto err;
 	}
@@ -189,24 +174,15 @@ static int CoreReader_init(CoreReader *self, PyObject *args, PyObject *kwds)
 		goto err;
 	}
 
-	for (i = 0; i < ehdr.e_phnum; i++) {
-		segments[i].virt_address = phdrs[i].p_vaddr;
-		segments[i].phys_address = phdrs[i].p_paddr;
-		segments[i].size = phdrs[i].p_memsz;
-		segments[i].offset = phdrs[i].p_offset;
-	}
-
-	free(phdrs);
-	free(self->segments);
+	free(self->phdrs);
 	close(self->fd);
 	self->fd = fd;
-	self->segments = segments;
-	self->num_segments = ehdr.e_phnum;
+	self->phdrs = phdrs;
+	self->phnum = ehdr.e_phnum;
 
 	return 0;
 
 err:
-	free(segments);
 	free(phdrs);
 	close(fd);
 	return -1;
@@ -254,7 +230,7 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 	char *p = buf;
 
 	while (count) {
-		struct segment *segment;
+		Elf64_Phdr *phdr;
 		uint64_t segment_address;
 		uint64_t segment_offset;
 		off_t read_offset;
@@ -265,14 +241,16 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 		 * The most recently used segments are at the end of the list,
 		 * so search backwards.
 		 */
-		for (i = self->num_segments - 1; i >= 0; i--) {
-			segment = &self->segments[i];
-			segment_address = (physical ? segment->phys_address :
-					   segment->virt_address);
+		for (i = self->phnum - 1; i >= 0; i--) {
+			phdr = &self->phdrs[i];
+			if (phdr->p_type != PT_LOAD)
+				continue;
+			segment_address = (physical ? phdr->p_paddr :
+					   phdr->p_vaddr);
 			if (segment_address == (uint64_t)-1)
 				continue;
 			if (segment_address <= address &&
-			    address < segment_address + segment->size)
+			    address < segment_address + phdr->p_memsz)
 				break;
 		}
 		if (i < 0) {
@@ -283,21 +261,21 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 		}
 
 		/* Move the used segment to the end of the list. */
-		if (i != self->num_segments - 1) {
-			struct segment tmp = *segment;
+		if (i != self->phnum - 1) {
+			Elf64_Phdr tmp = *phdr;
 
-			memmove(&self->segments[i], &self->segments[i + 1],
-				(self->num_segments - i - 1) * sizeof(*self->segments));
-			segment = &self->segments[self->num_segments - 1];
-			*segment = tmp;
+			memmove(&self->phdrs[i], &self->phdrs[i + 1],
+				(self->phnum - i - 1) * sizeof(*self->phdrs));
+			phdr = &self->phdrs[self->phnum - 1];
+			*phdr = tmp;
 		}
 
 		segment_offset = address - segment_address;
-		if (segment->size - segment_offset < count)
-			read_count = segment->size - segment_offset;
+		if (phdr->p_memsz - segment_offset < count)
+			read_count = phdr->p_memsz - segment_offset;
 		else
 			read_count = count;
-		read_offset = segment->offset + segment_offset;
+		read_offset = phdr->p_offset + segment_offset;
 		if (pread_all(self->fd, p, read_count, read_offset) == -1) {
 			PyErr_SetFromErrno(PyExc_OSError);
 			return -1;

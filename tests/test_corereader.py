@@ -85,12 +85,6 @@ class TestCoreReader(unittest.TestCase):
             self.assertRaisesRegex(ElfFormatError, 'ELF header is truncated',
                                    CoreReader, file.name)
 
-    def test_no_segments(self):
-        elf_file = make_elf_file([])
-        with tmpfile(elf_file) as file:
-            self.assertRaisesRegex(ElfFormatError, 'ELF file has no segments',
-                                   CoreReader, file.name)
-
     def test_program_header_table_overflow(self):
         elf_file = make_elf_file()
         elf_file[32:40] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
