@@ -35,11 +35,13 @@ Or, pick your favorite Python package installation method.
 Getting Started
 ---------------
 
-To debug the running kernel, run `sudo drgn -k`. `drgn` has an interactive mode
-and a script mode. If no arguments are passed, `drgn` runs in interactive mode;
-otherwise, the given script is run with the given arguments. `drgn` is actually
-just the Python interpreter initialized with a `prog` object representing the
-debugged program:
+To debug the running kernel, run `sudo drgn -k`. To debug a kernel core dump,
+add `-c $PATH`.
+
+`drgn` has an interactive mode and a script mode. If no arguments are passed,
+`drgn` runs in interactive mode; otherwise, the given script is run with the
+given arguments. `drgn` is actually just the Python interpreter initialized
+with a `prog` object representing the debugged program:
 
 ```
 $ sudo drgn -k

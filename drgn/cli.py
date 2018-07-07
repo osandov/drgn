@@ -66,18 +66,25 @@ def find_modules(release: str) -> List[str]:
         return []
 
 
+def read_vmcoreinfo_from_sysfs(core_reader: CoreReader) -> bytes:
+    with open('/sys/kernel/vmcoreinfo', 'r') as f:
+        tokens = f.read().split()
+        address = int(tokens[0], 16)
+        size = int(tokens[1], 16)
+    note = core_reader.read(address, size, physical=True)
+    # The first 12 bytes are the Elf{32,64}_Nhdr (it's the same in both
+    # formats). We can ignore the type.
+    namesz, descsz = struct.unpack_from('=II', note)
+    if namesz != 11 or note[12:22] != b'VMCOREINFO':
+        sys.exit('VMCOREINFO is invalid')
+    # The name is padded up to 4 bytes, so the descriptor starts at
+    # byte 24.
+    return note[24:24 + descsz]
+
+
 def parse_vmcoreinfo(data: bytes) -> Dict[str, Any]:
-    # VMCOREINFO is an ELF note, so the first 12 bytes are the Elf{32,64}_Nhdr
-    # (it's the same in both formats). The type isn't set to anything
-    # meaningful by the kernel, so we just ignore it.
-    namesz, descsz = struct.unpack_from('=II', data)
-
-    if namesz != 11 or data[12:23] != b'VMCOREINFO\0':
-        raise ValueError('VMCOREINFO is invalid')
-
     fields = {}
-    # The name is padded up to 4 bytes, so the descriptor starts at byte 24.
-    for line in data[24:24 + descsz].splitlines():
+    for line in data.splitlines():
         tokens = line.split(b'=', 1)
         key = tokens[0].decode('ascii')
         value: Any
@@ -100,6 +107,9 @@ def main() -> None:
         '-k', '--kernel', action='store_true',
         help='debug the kernel instead of a userspace program')
     parser.add_argument(
+        '-c', '--core', metavar='PATH', type=str,
+        help='use the given core file (default: /proc/kcore in kernel mode)')
+    parser.add_argument(
         '-e', '--executable', metavar='PATH', type=str,
         help='use the given executable file')
     parser.add_argument(
@@ -112,13 +122,18 @@ def main() -> None:
     if not args.kernel:
         sys.exit('Only --kernel mode is currently implemented')
 
-    with CoreReader('/proc/kcore') as core_reader:
-        with open('/sys/kernel/vmcoreinfo', 'r') as f:
-            tokens = f.read().split()
-            vmcoreinfo_address = int(tokens[0], 16)
-            vmcoreinfo_size = int(tokens[1], 16)
-        vmcoreinfo_data = core_reader.read(vmcoreinfo_address, vmcoreinfo_size,
-                                           physical=True)
+    if args.core is None:
+        args.core = '/proc/kcore'
+
+    with CoreReader(args.core) as core_reader:
+        if os.path.abspath(args.core) == '/proc/kcore':
+            vmcoreinfo_data = read_vmcoreinfo_from_sysfs(core_reader)
+        else:
+            for name, _, vmcoreinfo_data in core_reader.notes():
+                if name == b'VMCOREINFO':
+                    break
+            else:
+                sys.exit('Could not find VMCOREINFO note; not a kernel vmcore?')
         vmcoreinfo = parse_vmcoreinfo(vmcoreinfo_data)
 
         release = vmcoreinfo['OSRELEASE']
