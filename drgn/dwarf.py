@@ -750,7 +750,8 @@ class DwarfFile:
         '.debug_str',
     ]
 
-    def __init__(self, elf_file: ElfFile) -> None:
+    def __init__(self, path: str, elf_file: ElfFile) -> None:
+        self.path = path
         self.elf_file = elf_file
         self.sections: Dict[str, bytes] = {}
         for section in DwarfFile._SECTIONS:
@@ -758,8 +759,8 @@ class DwarfFile:
                 shdr = self.elf_file.sections[section]
             except KeyError:
                 continue
-            data = self.elf_file.data[shdr.sh_offset:shdr.sh_offset + shdr.sh_size]
-            self.sections[section] = data
+            self.elf_file.file.seek(shdr.sh_offset)
+            self.sections[section] = self.elf_file.file.read(shdr.sh_size)
 
     def _get_section_reader(self, name: str) -> _Reader:
         try:

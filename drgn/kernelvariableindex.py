@@ -51,13 +51,14 @@ class KernelVariableIndex(VariableIndex):
         die = self._find_die(name, filename)
         if die.tag == DW_TAG.variable:
             address = die.location()
-            elf_file = die.cu.dwarf_file.elf_file
+            dwarf_file = die.cu.dwarf_file
+            elf_file = dwarf_file.elf_file
             # vmlinux is an executable file, kernel modules are relocatable
             # files.
             if elf_file.ehdr.e_type == ET_EXEC:
                 address += self._kaslr_offset
             else:
-                file_name = os.path.basename(elf_file.path).split('.', 1)[0]
+                file_name = os.path.basename(dwarf_file.path).split('.', 1)[0]
                 module_name = file_name.replace('-', '_').encode('ascii')
                 for mod in list_for_each_entry('struct module',
                                                self._prog['modules'].address_of_(),

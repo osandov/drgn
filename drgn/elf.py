@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 import struct
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import BinaryIO, Dict, List, NamedTuple, Optional
 
 
 # Automatically generated from elf.h
@@ -194,38 +194,40 @@ class Elf_Sym(NamedTuple):
 
 
 class ElfFile:
-    def __init__(self, path: str, data: bytes) -> None:
-        self.path = path
-        self.data = data
+    def __init__(self, file: BinaryIO) -> None:
+        self.file = file
         self.ehdr = self._ehdr()
-        self.shdrs = self._shdrs()
-        self.sections = {shdr.name: shdr for shdr in self.shdrs}
+        self._shdrs: Optional[List[Elf_Shdr]] = None
+        self._sections: Optional[Dict[str, Elf_Shdr]] = None
         self._symbols: Optional[Dict[str, List[Elf_Sym]]] = None
 
     def _ehdr(self) -> Elf_Ehdr:
-        if (self.data[EI_MAG0] != ELFMAG0 or self.data[EI_MAG1] != ELFMAG1 or
-                self.data[EI_MAG2] != ELFMAG2 or self.data[EI_MAG3] != ELFMAG3):
-            raise ValueError('not an ELF file')
+        self.file.seek(0)
+        e_ident = self.file.read(16)
+        if (e_ident[EI_MAG0] != ELFMAG0 or e_ident[EI_MAG1] != ELFMAG1 or
+                e_ident[EI_MAG2] != ELFMAG2 or e_ident[EI_MAG3] != ELFMAG3):
+            raise ElfFormatError('not an ELF file')
 
-        if self.data[EI_VERSION] != EV_CURRENT:
-            raise ValueError('ELF version is not EV_CURRENT')
+        if e_ident[EI_VERSION] != EV_CURRENT:
+            raise ElfFormatError('ELF version is not EV_CURRENT')
 
-        if self.data[EI_DATA] == ELFDATA2LSB:
+        if e_ident[EI_DATA] == ELFDATA2LSB:
             fmt = '<'
-        elif self.data[EI_DATA] == ELFDATA2MSB:
+        elif e_ident[EI_DATA] == ELFDATA2MSB:
             fmt = '>'
         else:
-            raise ValueError(f'unknown ELF data encoding {self.data[EI_DATA]}')
+            raise ElfFormatError(f'unknown ELF data encoding {e_ident[EI_DATA]}')
 
-        if self.data[EI_CLASS] == ELFCLASS64:
-            fmt += '16sHHLQQQLHHHHHH'
-        elif self.data[EI_CLASS] == ELFCLASS32:
+        if e_ident[EI_CLASS] == ELFCLASS64:
+            fmt += 'HHLQQQLHHHHHH'
+        elif e_ident[EI_CLASS] == ELFCLASS32:
             raise NotImplementedError('32-bit ELF is not implemented')
         else:
-            raise ValueError(f'unknown ELF class {self.data[EI_CLASS]}')
-        return Elf_Ehdr._make(struct.unpack_from(fmt, self.data))
+            raise ElfFormatError(f'unknown ELF class {e_ident[EI_CLASS]}')
+        buf = self.file.read(struct.calcsize(fmt))
+        return Elf_Ehdr(e_ident, *struct.unpack(fmt, buf))
 
-    def _shdrs(self) -> List[Elf_Shdr]:
+    def _parse_shdrs(self) -> None:
         if self.ehdr.e_ident[EI_DATA] == ELFDATA2LSB:
             fmt = '<'
         else:
@@ -237,22 +239,26 @@ class ElfFile:
             assert False
 
         # TODO: e_shnum == 0
-        buf = self.data[self.ehdr.e_shoff:
-                        self.ehdr.e_shoff + self.ehdr.e_shnum * self.ehdr.e_shentsize]
+        self.file.seek(self.ehdr.e_shoff)
+        buf = self.file.read(self.ehdr.e_shnum * self.ehdr.e_shentsize)
         raw_shdrs = list(struct.iter_unpack(fmt, buf))
 
         if self.ehdr.e_shstrndx == SHN_UNDEF:
-            raise ValueError('no string table index in ELF header')
+            raise ElfFormatError('no string table index in ELF header')
         elif self.ehdr.e_shstrndx == SHN_XINDEX:
             sh_link = raw_shdrs[0][6]
             shstrtab_shdr = raw_shdrs[sh_link]
         else:
             if self.ehdr.e_shstrndx >= SHN_LORESERVE:
-                raise ValueError('invalid string table index in ELF header')
+                raise ElfFormatError('invalid string table index in ELF header')
             shstrtab_shdr = raw_shdrs[self.ehdr.e_shstrndx]
         sh_offset = shstrtab_shdr[4]
         sh_size = shstrtab_shdr[5]
-        shstrtab = bytes(self.data[sh_offset:sh_offset + sh_size])
+        self.file.seek(sh_offset)
+        # We call bytes() here because self.file might actually be a
+        # MemoryViewIO, which returns a memoryview, which doesn't have an
+        # index() method.
+        shstrtab = bytes(self.file.read(sh_size))
 
         shdrs = []
         for raw_shdr in raw_shdrs:
@@ -264,7 +270,23 @@ class ElfFile:
                 section_name = ''
             # mypy claims 'Too many arguments for "Elf_Shdr"'
             shdrs.append(Elf_Shdr(*raw_shdr, section_name))  # type: ignore
-        return shdrs
+
+        self._shdrs = shdrs
+        self._sections = {shdr.name: shdr for shdr in shdrs}
+
+    @property
+    def shdrs(self) -> List[Elf_Shdr]:
+        if self._shdrs is None:
+            self._parse_shdrs()
+            assert self._shdrs is not None
+        return self._shdrs
+
+    @property
+    def sections(self) -> Dict[str, Elf_Shdr]:
+        if self._sections is None:
+            self._parse_shdrs()
+            assert self._sections is not None
+        return self._sections
 
     @property
     def symbols(self) -> Dict[str, List[Elf_Sym]]:
@@ -280,12 +302,14 @@ class ElfFile:
                 assert False
 
             shdr = self.sections['.symtab']
-            buf = self.data[shdr.sh_offset:shdr.sh_offset + shdr.sh_size]
+            self.file.seek(shdr.sh_offset)
+            buf = self.file.read(shdr.sh_size)
             symtab = [Elf_Sym._make(sym) for sym in struct.iter_unpack(fmt, buf)]
 
             strtab_shdr = self.sections['.strtab']
-            strtab = bytes(self.data[strtab_shdr.sh_offset:
-                                     strtab_shdr.sh_offset + strtab_shdr.sh_size])
+            self.file.seek(strtab_shdr.sh_offset)
+            # See comment in shdrs() about why we call bytes().
+            strtab = bytes(self.file.read(strtab_shdr.sh_size))
             symbols: Dict[str, List[Elf_Sym]] = {}
             for sym in symtab:
                 if not sym.st_name:

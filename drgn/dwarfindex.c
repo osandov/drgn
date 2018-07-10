@@ -82,6 +82,7 @@ static PyObject *DwarfFile;
 static PyObject *DwarfFormatError;
 static PyObject *ElfFile;
 static PyObject *ElfFormatError;
+static PyObject *MemoryViewIO;
 
 #define DIE_HASH_SHIFT 17
 #define DIE_HASH_SIZE (1 << DIE_HASH_SHIFT)
@@ -1828,20 +1829,25 @@ err:
 
 static PyObject *create_file_object(DwarfIndex *self, struct file *file)
 {
-	PyObject *mview, *elf_file, *dwarf_file;
+	PyObject *mview, *io, *elf_file, *dwarf_file;
 
 	/* XXX: need to reference count self */
 	mview = PyMemoryView_FromMemory(file->map, file->size, PyBUF_READ);
 	if (!mview)
 		return NULL;
 
-	elf_file = PyObject_CallFunctionObjArgs(ElfFile, file->path, mview,
-						NULL);
+	io = PyObject_CallFunctionObjArgs(MemoryViewIO, mview, NULL);
 	Py_DECREF(mview);
+	if (!io)
+		return NULL;
+
+	elf_file = PyObject_CallFunctionObjArgs(ElfFile, io, NULL);
+	Py_DECREF(io);
 	if (!elf_file)
 		return NULL;
 
-	dwarf_file = PyObject_CallFunctionObjArgs(DwarfFile, elf_file, NULL);
+	dwarf_file = PyObject_CallFunctionObjArgs(DwarfFile, file->path,
+						  elf_file, NULL);
 	Py_DECREF(elf_file);
 	return dwarf_file;
 }
@@ -2019,10 +2025,91 @@ static struct PyModuleDef dwarfindexmodule = {
 	-1,
 };
 
+static int import_dwarf(void)
+{
+	PyObject *name;
+	PyObject *m;
+
+	name = PyUnicode_FromString("drgn.dwarf");
+	if (!name)
+		return -1;
+
+	m = PyImport_Import(name);
+	Py_DECREF(name);
+	if (!m)
+		return -1;
+
+	DwarfFile = PyObject_GetAttrString(m, "DwarfFile");
+	if (!DwarfFile) {
+		Py_DECREF(m);
+		return -1;
+	}
+	DwarfFormatError = PyObject_GetAttrString(m, "DwarfFormatError");
+	if (!DwarfFormatError) {
+		Py_DECREF(m);
+		return -1;
+	}
+
+	Py_DECREF(m);
+	return 0;
+}
+
+static int import_elf(void)
+{
+	PyObject *name;
+	PyObject *m;
+
+	name = PyUnicode_FromString("drgn.elf");
+	if (!name)
+		return -1;
+
+	m = PyImport_Import(name);
+	Py_DECREF(name);
+	if (!m)
+		return -1;
+
+	ElfFile = PyObject_GetAttrString(m, "ElfFile");
+	if (!ElfFile) {
+		Py_DECREF(m);
+		return -1;
+	}
+	ElfFormatError = PyObject_GetAttrString(m, "ElfFormatError");
+	if (!ElfFormatError) {
+		Py_DECREF(m);
+		return -1;
+	}
+
+	Py_DECREF(m);
+	return 0;
+}
+
+static int import_memoryviewio(void)
+{
+	PyObject *name;
+	PyObject *m;
+
+	name = PyUnicode_FromString("drgn.memoryviewio");
+	if (!name)
+		return -1;
+
+	m = PyImport_Import(name);
+	Py_DECREF(name);
+	if (!m)
+		return -1;
+
+	MemoryViewIO = PyObject_GetAttrString(m, "MemoryViewIO");
+	if (!MemoryViewIO) {
+		Py_DECREF(m);
+		return -1;
+	}
+
+	Py_DECREF(m);
+	return 0;
+}
+
 PyMODINIT_FUNC
 PyInit_dwarfindex(void)
 {
-	PyObject *name;
 	PyObject *m;
 
 	static_assert(ATTRIB_MAX_CMD == UINT8_MAX,
@@ -2030,50 +2117,9 @@ PyInit_dwarfindex(void)
 
 	PyEval_InitThreads();
 
-	name = PyUnicode_FromString("drgn.dwarf");
-	if (!name)
+	if (import_dwarf() == -1 || import_elf() == -1 ||
+	    import_memoryviewio() == -1)
 		return NULL;
-
-	m = PyImport_Import(name);
-	Py_DECREF(name);
-	if (!m)
-		return NULL;
-
-	DwarfFile = PyObject_GetAttrString(m, "DwarfFile");
-	if (!DwarfFile) {
-		Py_DECREF(m);
-		return NULL;
-	}
-	DwarfFormatError = PyObject_GetAttrString(m, "DwarfFormatError");
-	if (!DwarfFormatError) {
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	Py_DECREF(m);
-
-	name = PyUnicode_FromString("drgn.elf");
-	if (!name)
-		return NULL;
-
-	m = PyImport_Import(name);
-	Py_DECREF(name);
-	if (!m)
-		return NULL;
-
-	ElfFile = PyObject_GetAttrString(m, "ElfFile");
-	if (!ElfFile) {
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	ElfFormatError = PyObject_GetAttrString(m, "ElfFormatError");
-	if (!ElfFormatError) {
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	Py_DECREF(m);
 
 	m = PyModule_Create(&dwarfindexmodule);
 	if (!m)
