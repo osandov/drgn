@@ -91,6 +91,26 @@ SHT_LOPROC = 0x70000000
 SHT_HIPROC = 0x7fffffff
 SHT_LOUSER = 0x80000000
 SHT_HIUSER = 0x8fffffff
+PT_NULL = 0
+PT_LOAD = 1
+PT_DYNAMIC = 2
+PT_INTERP = 3
+PT_NOTE = 4
+PT_SHLIB = 5
+PT_PHDR = 6
+PT_TLS = 7
+PT_NUM = 8
+PT_LOOS = 0x60000000
+PT_GNU_EH_FRAME = 0x6474e550
+PT_GNU_STACK = 0x6474e551
+PT_GNU_RELRO = 0x6474e552
+PT_LOSUNW = 0x6ffffffa
+PT_SUNWBSS = 0x6ffffffa
+PT_SUNWSTACK = 0x6ffffffb
+PT_HISUNW = 0x6fffffff
+PT_HIOS = 0x6fffffff
+PT_LOPROC = 0x70000000
+PT_HIPROC = 0x7fffffff
 SHN_MIPS_ACOMMON = 0xff00
 SHN_MIPS_TEXT = 0xff01
 SHN_MIPS_DATA = 0xff02
@@ -135,16 +155,43 @@ SHT_MIPS_WHIRL = 0x70000026
 SHT_MIPS_EH_REGION = 0x70000027
 SHT_MIPS_XLATE_OLD = 0x70000028
 SHT_MIPS_PDR_EXCEPTION = 0x70000029
+PT_MIPS_REGINFO = 0x70000000
+PT_MIPS_RTPROC = 0x70000001
+PT_MIPS_OPTIONS = 0x70000002
+PT_MIPS_ABIFLAGS = 0x70000003
 SHN_PARISC_ANSI_COMMON = 0xff00
 SHN_PARISC_HUGE_COMMON = 0xff01
 SHT_PARISC_EXT = 0x70000000
 SHT_PARISC_UNWIND = 0x70000001
 SHT_PARISC_DOC = 0x70000002
+PT_HP_TLS = (PT_LOOS + 0x0)
+PT_HP_CORE_NONE = (PT_LOOS + 0x1)
+PT_HP_CORE_VERSION = (PT_LOOS + 0x2)
+PT_HP_CORE_KERNEL = (PT_LOOS + 0x3)
+PT_HP_CORE_COMM = (PT_LOOS + 0x4)
+PT_HP_CORE_PROC = (PT_LOOS + 0x5)
+PT_HP_CORE_LOADABLE = (PT_LOOS + 0x6)
+PT_HP_CORE_STACK = (PT_LOOS + 0x7)
+PT_HP_CORE_SHM = (PT_LOOS + 0x8)
+PT_HP_CORE_MMF = (PT_LOOS + 0x9)
+PT_HP_PARALLEL = (PT_LOOS + 0x10)
+PT_HP_FASTBIND = (PT_LOOS + 0x11)
+PT_HP_OPT_ANNOT = (PT_LOOS + 0x12)
+PT_HP_HSL_ANNOT = (PT_LOOS + 0x13)
+PT_HP_STACK = (PT_LOOS + 0x14)
+PT_PARISC_ARCHEXT = 0x70000000
+PT_PARISC_UNWIND = 0x70000001
 SHT_ALPHA_DEBUG = 0x70000001
 SHT_ALPHA_REGINFO = 0x70000002
+PT_ARM_EXIDX = (PT_LOPROC + 1)
 SHT_ARM_EXIDX = (SHT_LOPROC + 1)
 SHT_ARM_PREEMPTMAP = (SHT_LOPROC + 2)
 SHT_ARM_ATTRIBUTES = (SHT_LOPROC + 3)
+PT_IA_64_ARCHEXT = (PT_LOPROC + 0)
+PT_IA_64_UNWIND = (PT_LOPROC + 1)
+PT_IA_64_HP_OPT_ANOT = (PT_LOOS + 0x12)
+PT_IA_64_HP_HSL_ANOT = (PT_LOOS + 0x13)
+PT_IA_64_HP_STACK = (PT_LOOS + 0x14)
 SHT_IA_64_EXT = (SHT_LOPROC + 0)
 SHT_IA_64_UNWIND = (SHT_LOPROC + 1)
 
@@ -170,6 +217,17 @@ class Elf_Ehdr(NamedTuple):
     e_shstrndx: int
 
 
+class Elf_Phdr(NamedTuple):
+    p_type: int
+    p_flags: int
+    p_offset: int
+    p_vaddr: int
+    p_paddr: int
+    p_filesz: int
+    p_memsz: int
+    p_align: int
+
+
 class Elf_Shdr(NamedTuple):
     sh_name: int
     sh_type: int
@@ -193,10 +251,17 @@ class Elf_Sym(NamedTuple):
     st_size: int
 
 
+class Elf_Note(NamedTuple):
+    name: bytes
+    type: int
+    data: bytes
+
+
 class ElfFile:
     def __init__(self, file: BinaryIO) -> None:
         self.file = file
         self.ehdr = self._ehdr()
+        self._phdrs: Optional[List[Elf_Phdr]] = None
         self._shdrs: Optional[List[Elf_Shdr]] = None
         self._sections: Optional[Dict[str, Elf_Shdr]] = None
         self._symbols: Optional[Dict[str, List[Elf_Sym]]] = None
@@ -226,6 +291,54 @@ class ElfFile:
             raise ElfFormatError(f'unknown ELF class {e_ident[EI_CLASS]}')
         buf = self.file.read(struct.calcsize(fmt))
         return Elf_Ehdr(e_ident, *struct.unpack(fmt, buf))
+
+    def notes(self) -> List[Elf_Note]:
+        if self.ehdr.e_ident[EI_DATA] == ELFDATA2LSB:
+            fmt = '<'
+        else:
+            fmt = '>'
+        fmt += 'III'  # Same for Elf32 and Elf64
+
+        list = []
+        for phdr in self.phdrs:
+            if phdr.p_type != PT_NOTE:
+                continue
+            self.file.seek(phdr.p_offset)
+            buf = self.file.read(phdr.p_filesz)
+            off = 0
+            while off < len(buf):
+                namesz, descsz, type_ = struct.unpack_from(fmt, buf, off)
+                off += 12
+                if namesz:
+                    name = buf[off:off + namesz - 1]
+                    off += (namesz + 3) & ~3
+                else:
+                    name = b''
+                if descsz:
+                    desc = buf[off:off + descsz - 1]
+                    off += (descsz + 3) & ~3
+                else:
+                    desc = b''
+                list.append(Elf_Note(name, type_, desc))
+        return list
+
+    @property
+    def phdrs(self) -> List[Elf_Phdr]:
+        if self._phdrs is None:
+            if self.ehdr.e_ident[EI_DATA] == ELFDATA2LSB:
+                fmt = '<'
+            else:
+                fmt = '>'
+
+            if self.ehdr.e_ident[EI_CLASS] == ELFCLASS64:
+                fmt += 'LLQQQQQQ'
+            else:
+                assert False
+
+            self.file.seek(self.ehdr.e_phoff)
+            buf = self.file.read(self.ehdr.e_phnum * self.ehdr.e_phentsize)
+            self._phdrs = [Elf_Phdr._make(x) for x in struct.iter_unpack(fmt, buf)]
+        return self._phdrs
 
     def _parse_shdrs(self) -> None:
         if self.ehdr.e_ident[EI_DATA] == ELFDATA2LSB:

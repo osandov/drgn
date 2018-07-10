@@ -10,6 +10,7 @@ constant_prefixes = [
     'ELFMAG',
     'ET_',
     'EV_',
+    'PT_',
     'SHN_',
     'SHT_',
 ]

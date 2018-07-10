@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Tuple, Union
 import drgn
 from drgn.corereader import CoreReader
 from drgn.dwarfindex import DwarfIndex
+from drgn.elf import ElfFile, ET_CORE, PT_LOAD
 from drgn.kernelvariableindex import KernelVariableIndex
 from drgn.program import Program, ProgramObject
 from drgn.type import Type
@@ -125,11 +126,20 @@ def main() -> None:
     if args.core is None:
         args.core = '/proc/kcore'
 
-    with CoreReader(args.core) as core_reader:
+    with open(args.core, 'rb') as core_file:
+        core_elf_file = ElfFile(core_file)
+        if core_elf_file.ehdr.e_type != ET_CORE:
+            sys.exit('ELF file is not a core dump')
+
+        # p_offset, p_vaddr, p_paddr, p_filesz, p_memsz
+        segments = [phdr[2:7] for phdr in core_elf_file.phdrs
+                    if phdr.p_type == PT_LOAD]
+        core_reader = CoreReader(core_file.fileno(), segments)
+
         if os.path.abspath(args.core) == '/proc/kcore':
             vmcoreinfo_data = read_vmcoreinfo_from_sysfs(core_reader)
         else:
-            for name, _, vmcoreinfo_data in core_reader.notes():
+            for name, _, vmcoreinfo_data in core_elf_file.notes():
                 if name == b'VMCOREINFO':
                     break
             else:

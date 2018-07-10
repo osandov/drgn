@@ -1,11 +1,11 @@
 import math
 import operator
+import tempfile
 import unittest
 
 from drgn.corereader import CoreReader
 from drgn.program import Program, ProgramObject
 from drgn.type import IntType, StructType, TypedefType
-from tests.test_corereader import make_elf_file, tmpfile
 from tests.test_type import point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES
 
@@ -25,14 +25,16 @@ class TestProgramObject(TypeIndexTestCase):
             if a._value != b._value:
                 raise self.failureException(msg or f'object values differ: {a._value!r} != {b._value!r}')
         self.addTypeEqualityFunc(ProgramObject, program_object_equality_func)
-        elf_file = make_elf_file([
-            (0xffff0000, b'\x01\x00\x00\x00\x02\x00\x00\x00hello\x00\x00\x00'),
-        ])
-        with tmpfile(elf_file) as file:
-            core_reader = CoreReader(file.name)
+        buffer = b'\x01\x00\x00\x00\x02\x00\x00\x00hello\x00\x00\x00'
+        segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
+        self.tmpfile = tempfile.TemporaryFile()
+        self.tmpfile.write(buffer)
+        self.tmpfile.flush()
+        core_reader = CoreReader(self.tmpfile.fileno(), segments)
         self.program = Program(reader=core_reader, type_index=self.type_index,
                                variable_index=None)
     def tearDown(self):
+        self.tmpfile.close()
         super().tearDown()
 
     def test_constructor(self):

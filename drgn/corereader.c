@@ -14,36 +14,20 @@
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
-static PyObject *ElfFormatError;
+struct segment {
+	uint64_t offset;
+	uint64_t vaddr;
+	uint64_t paddr;
+	uint64_t filesz;
+	uint64_t memsz;
+};
 
 typedef struct {
 	PyObject_HEAD
 	int fd;
-	int phnum;
-	Elf64_Phdr *phdrs;
+	int num_segments;
+	struct segment *segments;
 } CoreReader;
-
-static int read_all(int fd, void *buf, size_t count)
-{
-	char *p = buf;
-
-	while (count) {
-		ssize_t ret;
-
-		ret = read(fd, p, count);
-		if (ret == -1) {
-			if (errno == EINTR)
-				continue;
-			return -1;
-		} else if (ret == 0) {
-			errno = ENODATA;
-			return -1;
-		}
-		p += ret;
-		count -= ret;
-	}
-	return 0;
-}
 
 static int pread_all(int fd, void *buf, size_t count, off_t offset)
 {
@@ -68,125 +52,83 @@ static int pread_all(int fd, void *buf, size_t count, off_t offset)
 	return 0;
 }
 
-static void close_reader(CoreReader *self)
-{
-	free(self->phdrs);
-	self->phdrs = NULL;
-
-	if (self->fd != -1) {
-		close(self->fd);
-		self->fd = -1;
-	}
-}
-
 static void CoreReader_dealloc(CoreReader *self)
 {
-	close_reader(self);
+	free(self->segments);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static int CoreReader_init(CoreReader *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = {"path", NULL};
-	PyObject *path_obj, *path;
-	Elf64_Phdr *phdrs = NULL;
-	Elf64_Ehdr ehdr;
+	static const char *errmsg = "segment must be (offset, vaddr, paddr, filesz, memsz)";
+	static char *keywords[] = {"fd", "segments", NULL};
 	int fd;
+	PyObject *segments_list;
+	struct segment *segments;
+	int num_segments, i;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:CoreReader", keywords,
-					 &path_obj))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "iO!:CoreReader", keywords,
+					 &fd, &PyList_Type, &segments_list))
 		return -1;
 
-	if (!PyUnicode_FSConverter(path_obj, &path))
-		return -1;
-
-	fd = open(PyBytes_AsString(path), O_RDONLY);
-	if (fd == -1) {
-		PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path_obj);
-		Py_DECREF(path);
-		return -1;
-	}
-	Py_DECREF(path);
-
-	if (read_all(fd, ehdr.e_ident, EI_NIDENT) == -1) {
-		if (errno == ENODATA)
-			PyErr_SetString(ElfFormatError, "not an ELF file");
-		else
-			PyErr_SetFromErrno(PyExc_OSError);
-		goto err;
-	}
-
-	if (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
-	    ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
-	    ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
-	    ehdr.e_ident[EI_MAG3] != ELFMAG3) {
-		PyErr_SetString(ElfFormatError, "not an ELF file");
-		goto err;
-	}
-
-	if (ehdr.e_ident[EI_VERSION] != EV_CURRENT) {
-		PyErr_Format(ElfFormatError, "ELF version %u is not EV_CURRENT",
-			     (unsigned int)ehdr.e_ident[EI_VERSION]);
+	if (PyList_GET_SIZE(segments_list) > INT_MAX) {
+		PyErr_SetString(PyExc_OverflowError, "too many segments");
 		return -1;
 	}
 
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-	if (ehdr.e_ident[EI_DATA] != ELFDATA2LSB) {
-#else
-	if (ehdr.e_ident[EI_DATA] != ELFDATA2MSB) {
-#endif
-		PyErr_SetString(PyExc_NotImplementedError,
-				"ELF file endianness does not match machine");
-		return -1;
-	}
-
-	if (read_all(fd, (char *)&ehdr + EI_NIDENT,
-		      sizeof(Elf64_Ehdr) - EI_NIDENT) == -1) {
-		if (errno == ENODATA)
-			PyErr_SetString(ElfFormatError, "ELF header is truncated");
-		else
-			PyErr_SetFromErrno(PyExc_OSError);
-		goto err;
-	}
-
-	/* Don't need to worry about overflow because e_phnum is 16 bits. */
-	phdrs = malloc(ehdr.e_phnum * sizeof(*phdrs));
-	if (!phdrs) {
+	num_segments = PyList_GET_SIZE(segments_list);
+	segments = calloc(num_segments, sizeof(*segments));
+	if (!segments) {
 		PyErr_NoMemory();
-		goto err;
+		return -1;
 	}
 
-	if ((off_t)ehdr.e_phoff < 0) {
-		PyErr_SetString(ElfFormatError,
-				"ELF program header table is beyond EOF");
-		goto err;
+	for (i = 0; i < num_segments; i++) {
+		struct segment *segment = &segments[i];
+		PyObject *segment_obj;
+
+		segment_obj = PySequence_Fast(PyList_GET_ITEM(segments_list, i),
+					      errmsg);
+		if (!segment_obj)
+			goto err;
+
+		if (PySequence_Fast_GET_SIZE(segment_obj) != 5) {
+			PyErr_SetString(PyExc_ValueError, errmsg);
+			Py_DECREF(segment_obj);
+			goto err;
+		}
+
+#define GET_MEMBER(var, idx) do {					\
+	PyObject *tmp_obj;						\
+	unsigned long long tmp;						\
+									\
+	tmp_obj = PySequence_Fast_GET_ITEM(segment_obj, idx);		\
+	tmp = PyLong_AsUnsignedLongLong(tmp_obj);			\
+	if (tmp == (unsigned long long)-1 && PyErr_Occurred()) {	\
+		Py_DECREF(segment_obj);					\
+		goto err;						\
+	}								\
+	var = tmp;							\
+} while (0);
+		GET_MEMBER(segment->offset, 0);
+		GET_MEMBER(segment->vaddr, 1);
+		GET_MEMBER(segment->paddr, 2);
+		GET_MEMBER(segment->filesz, 3);
+		GET_MEMBER(segment->memsz, 4);
+#undef GET_MEMBER
+
+		Py_DECREF(segment_obj);
 	}
 
-	if (lseek(fd, ehdr.e_phoff, SEEK_SET) == -1) {
-		PyErr_SetFromErrno(PyExc_OSError);
-		goto err;
-	}
-
-	if (read_all(fd, phdrs, ehdr.e_phnum * sizeof(*phdrs)) == -1) {
-		if (errno == ENODATA)
-			PyErr_SetString(ElfFormatError,
-					"ELF program header table is beyond EOF");
-		else
-			PyErr_SetFromErrno(PyExc_OSError);
-		goto err;
-	}
-
-	free(self->phdrs);
-	close(self->fd);
+	free(self->segments);
 	self->fd = fd;
-	self->phdrs = phdrs;
-	self->phnum = ehdr.e_phnum;
+	self->segments = segments;
+	self->num_segments = num_segments;
 
 	return 0;
 
 err:
-	free(phdrs);
-	close(fd);
+	free(segments);
 	return -1;
 }
 
@@ -201,131 +143,13 @@ static CoreReader *CoreReader_new(PyTypeObject *subtype, PyObject *args,
 	return reader;
 }
 
-static PyObject *CoreReader_close(CoreReader *self)
-{
-	close_reader(self);
-	Py_RETURN_NONE;
-}
-
-static PyObject *CoreReader_enter(PyObject *self)
-{
-	Py_INCREF(self);
-	return self;
-}
-
-static PyObject *CoreReader_exit(CoreReader *self, PyObject *args,
-				 PyObject *kwds)
-{
-	static char *keywords[] = {"exc_type", "exc_value", "traceback", NULL};
-	PyObject *exc_type, *exc_value, *traceback;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO:__exit__", keywords,
-					 &exc_type, &exc_value, &traceback))
-		return NULL;
-
-	return CoreReader_close(self);
-}
-
-static PyObject *read_note(CoreReader *self, size_t n, off_t *off)
-{
-	PyObject *bytes;
-	size_t skip;
-
-	if (!n)
-		return PyBytes_FromStringAndSize(NULL, 0);
-
-	bytes = PyBytes_FromStringAndSize(NULL, n - 1);
-	if (!bytes)
-		return NULL;
-
-	if (read_all(self->fd, PyBytes_AS_STRING(bytes), n - 1) == -1) {
-		Py_DECREF(bytes);
-		return NULL;
-	}
-	*off += n - 1;
-
-	/* One for the NUL byte, then align to 4 bytes. */
-	skip = 1 + (n % 4 ? 4 - n % 4 : 0);
-	if (lseek(self->fd, skip, SEEK_CUR) == -1) {
-		PyErr_SetFromErrno(PyExc_OSError);
-		Py_DECREF(bytes);
-		return NULL;
-	}
-	*off += skip;
-
-	return bytes;
-}
-
-static PyObject *CoreReader_notes(CoreReader *self)
-{
-	PyObject *list;
-	int i;
-
-	list = PyList_New(0);
-	if (!list)
-		return NULL;
-
-	for (i = 0; i < self->phnum; i++) {
-		Elf64_Phdr *phdr = &self->phdrs[i];
-		off_t off;
-
-		if (phdr->p_type != PT_NOTE)
-			continue;
-
-		if (lseek(self->fd, phdr->p_offset, SEEK_SET) == -1) {
-			PyErr_SetFromErrno(PyExc_OSError);
-			goto err;
-		}
-		off = phdr->p_offset;
-
-		while (off - phdr->p_offset + sizeof(Elf64_Nhdr) <
-		       phdr->p_filesz) {
-			PyObject *name, *desc, *item;
-			Elf64_Nhdr nhdr;
-
-			if (read_all(self->fd, &nhdr, sizeof(nhdr)) == -1) {
-				PyErr_SetFromErrno(PyExc_OSError);
-				goto err;
-			}
-			off += sizeof(nhdr);
-
-			name = read_note(self, nhdr.n_namesz, &off);
-			if (!name)
-				goto err;
-			desc = read_note(self, nhdr.n_descsz, &off);
-			if (!desc) {
-				Py_DECREF(name);
-				goto err;
-			}
-
-			item = Py_BuildValue("OIO", name,
-					     (unsigned int)nhdr.n_type, desc);
-			Py_DECREF(desc);
-			Py_DECREF(name);
-			if (!item)
-				goto err;
-
-			if (PyList_Append(list, item) == -1) {
-				Py_DECREF(item);
-				goto err;
-			}
-			Py_DECREF(item);
-		}
-	}
-
-	return list;
-err:
-	Py_DECREF(list);
-	return NULL;
-}
-
 static int read_core(CoreReader *self, void *buf, uint64_t address,
 		     uint64_t count, int physical)
 {
 	char *p = buf;
 
 	while (count) {
-		Elf64_Phdr *phdr;
+		struct segment *segment;
 		uint64_t segment_address;
 		uint64_t segment_offset;
 		off_t read_offset;
@@ -336,16 +160,14 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 		 * The most recently used segments are at the end of the list,
 		 * so search backwards.
 		 */
-		for (i = self->phnum - 1; i >= 0; i--) {
-			phdr = &self->phdrs[i];
-			if (phdr->p_type != PT_LOAD)
-				continue;
-			segment_address = (physical ? phdr->p_paddr :
-					   phdr->p_vaddr);
+		for (i = self->num_segments - 1; i >= 0; i--) {
+			segment = &self->segments[i];
+			segment_address = (physical ? segment->paddr :
+					   segment->vaddr);
 			if (segment_address == (uint64_t)-1)
 				continue;
 			if (segment_address <= address &&
-			    address < segment_address + phdr->p_memsz)
+			    address < segment_address + segment->memsz)
 				break;
 		}
 		if (i < 0) {
@@ -356,26 +178,27 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 		}
 
 		/* Move the used segment to the end of the list. */
-		if (i != self->phnum - 1) {
-			Elf64_Phdr tmp = *phdr;
+		if (i != self->num_segments - 1) {
+			struct segment tmp = *segment;
 
-			memmove(&self->phdrs[i], &self->phdrs[i + 1],
-				(self->phnum - i - 1) * sizeof(*self->phdrs));
-			phdr = &self->phdrs[self->phnum - 1];
-			*phdr = tmp;
+			memmove(&self->segments[i], &self->segments[i + 1],
+				(self->num_segments - i - 1) *
+				sizeof(*self->segments));
+			segment = &self->segments[self->num_segments - 1];
+			*segment = tmp;
 		}
 
 		segment_offset = address - segment_address;
-		if (segment_offset < phdr->p_filesz)
-			read_count = min(phdr->p_filesz - segment_offset, count);
+		if (segment_offset < segment->filesz)
+			read_count = min(segment->filesz - segment_offset, count);
 		else
 			read_count = 0;
-		if (segment_offset + read_count < phdr->p_memsz)
-			zero_count = min(phdr->p_memsz - segment_offset - read_count,
+		if (segment_offset + read_count < segment->memsz)
+			zero_count = min(segment->memsz - segment_offset - read_count,
 					 count - read_count);
 		else
 			zero_count = 0;
-		read_offset = phdr->p_offset + segment_offset;
+		read_offset = segment->offset + segment_offset;
 		if (pread_all(self->fd, p, read_count, read_offset) == -1) {
 			PyErr_SetFromErrno(PyExc_OSError);
 			return -1;
@@ -464,22 +287,9 @@ CoreReader_READ(long_double, long double, PyFloat_FromDouble)
 	 "physical -- whether address is a physical memory address"}
 
 #define CoreReader_DOC	\
-	"CoreReader(path) -> new core file reader"
+	"CoreReader(fd, segments) -> new core file reader"
 
 static PyMethodDef CoreReader_methods[] = {
-	{"close", (PyCFunction)CoreReader_close,
-	 METH_NOARGS,
-	 "close()\n\n"
-	 "Close a core file reader."},
-	{"__enter__", (PyCFunction)CoreReader_enter,
-	 METH_NOARGS},
-	{"__exit__", (PyCFunction)CoreReader_exit,
-	 METH_VARARGS | METH_KEYWORDS},
-	{"notes", (PyCFunction)CoreReader_notes,
-	 METH_NOARGS,
-	 "notes()\n\n"
-	 "Return a list of ELF notes in this core file as a list of (name, type, data)\n"
-	 "tuples, where name and data are bytes and type is an int."},
 	{"read", (PyCFunction)CoreReader_read,
 	 METH_VARARGS | METH_KEYWORDS,
 	 "read(address, size, physical=False)\n\n"
@@ -557,25 +367,7 @@ static struct PyModuleDef corereadermodule = {
 PyMODINIT_FUNC
 PyInit_corereader(void)
 {
-	PyObject *name;
 	PyObject *m;
-
-	name = PyUnicode_FromString("drgn.elf");
-	if (!name)
-		return NULL;
-
-	m = PyImport_Import(name);
-	Py_DECREF(name);
-	if (!m)
-		return NULL;
-
-	ElfFormatError = PyObject_GetAttrString(m, "ElfFormatError");
-	if (!ElfFormatError) {
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	Py_DECREF(m);
 
 	m = PyModule_Create(&corereadermodule);
 	if (!m)

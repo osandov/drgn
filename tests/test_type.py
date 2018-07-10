@@ -21,7 +21,7 @@ from drgn.type import (
     UnionType,
     VoidType,
 )
-from tests.test_corereader import make_elf_file, tmpfile
+from tests.test_corereader import tmpfile
 
 
 def compound_type_dict_for_eq(type_):
@@ -637,23 +637,21 @@ class TestOperandType(TypeTestCase):
 class TestTypeRead(unittest.TestCase):
     def test_void(self):
         type_ = VoidType()
-        with tmpfile(make_elf_file()) as file:
-            reader = CoreReader(file.name)
-        self.assertRaises(ValueError, type_.read, reader, 0x0)
-        self.assertRaises(ValueError, type_.read_pretty, reader, 0x0)
+        with tmpfile(b'') as file:
+            reader = CoreReader(file.fileno(), [])
+            self.assertRaises(ValueError, type_.read, reader, 0x0)
+            self.assertRaises(ValueError, type_.read_pretty, reader, 0x0)
 
     def assertReads(self, type_, buffer, expected_value,
                     expected_pretty_cast, expected_pretty_nocast):
-        elf_file = make_elf_file([
-            (0xffff0000, buffer),
-        ])
-        with tmpfile(elf_file) as file:
-            reader = CoreReader(file.name)
-        self.assertEqual(type_.read(reader, 0xffff0000), expected_value)
-        self.assertEqual(type_.read_pretty(reader, 0xffff0000),
-                         expected_pretty_cast)
-        self.assertEqual(type_.read_pretty(reader, 0xffff0000, cast=False),
-                         expected_pretty_nocast)
+        segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
+        with tmpfile(buffer) as file:
+            reader = CoreReader(file.fileno(), segments)
+            self.assertEqual(type_.read(reader, 0xffff0000), expected_value)
+            self.assertEqual(type_.read_pretty(reader, 0xffff0000),
+                             expected_pretty_cast)
+            self.assertEqual(type_.read_pretty(reader, 0xffff0000, cast=False),
+                             expected_pretty_nocast)
 
     def test_int(self):
         type_ = IntType('int', 4, True)
