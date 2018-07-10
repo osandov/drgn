@@ -20,7 +20,8 @@ from drgn.elf import ElfFile, ET_CORE, PT_LOAD
 from drgn.kernelvariableindex import KernelVariableIndex
 from drgn.program import Program, ProgramObject
 from drgn.type import Type
-from drgn.typeindex import DwarfTypeIndex
+from drgn.typeindex import DwarfTypeIndex, TypeIndex
+from drgn.variableindex import VariableIndex
 
 
 def displayhook(value: Any) -> None:
@@ -51,7 +52,7 @@ def find_vmlinux(release: str) -> str:
         if os.path.exists(path):
             return path
     else:
-        raise ValueError()
+        raise ValueError('could not find vmlinux file')
 
 
 def find_modules(release: str) -> List[str]:
@@ -99,6 +100,34 @@ def parse_vmcoreinfo(data: bytes) -> Dict[str, Any]:
     return fields
 
 
+def index_kernel(vmcoreinfo: Dict[str, Any],
+                 verbose: bool) -> Tuple[TypeIndex, VariableIndex]:
+    vmlinux = find_vmlinux(vmcoreinfo['OSRELEASE'])
+    modules = find_modules(vmcoreinfo['OSRELEASE'])
+    if not modules and verbose:
+        print('Could not find kernel modules; continuing anyways',
+              file=sys.stderr)
+    dwarf_index = DwarfIndex(vmlinux, *modules)
+    indexed_files = dwarf_index.files
+    if len(indexed_files) < len(modules) + 1:
+        if vmlinux not in indexed_files:
+            raise ValueError('vmlinux does not have debugging symbols')
+        elif verbose:
+            missing = set(modules) - set(indexed_files)
+            num_missing = len(missing)
+            print(f"Missing symbols for {num_missing} module{'' if num_missing == 1 else 's'}:",
+                  file=sys.stderr)
+            for i, m in enumerate(sorted(missing)):
+                if i == 5:
+                    print('...', file=sys.stderr)
+                    break
+                print(m, file=sys.stderr)
+    type_index = DwarfTypeIndex(dwarf_index)
+    variable_index = KernelVariableIndex(type_index,
+                                         vmcoreinfo.get('KERNELOFFSET', 0))
+    return type_index, variable_index
+
+
 def main() -> None:
     python_version = '.'.join(str(v) for v in sys.version_info[:3])
     version = f'drgn {drgn.__version__} (using Python {python_version})'
@@ -110,9 +139,6 @@ def main() -> None:
     parser.add_argument(
         '-c', '--core', metavar='PATH', type=str,
         help='use the given core file (default: /proc/kcore in kernel mode)')
-    parser.add_argument(
-        '-e', '--executable', metavar='PATH', type=str,
-        help='use the given executable file')
     parser.add_argument(
         'script', metavar='ARG', type=str, nargs='*',
         help='script to execute instead of running in interactive mode')
@@ -144,26 +170,15 @@ def main() -> None:
                     break
             else:
                 sys.exit('Could not find VMCOREINFO note; not a kernel vmcore?')
+
         vmcoreinfo = parse_vmcoreinfo(vmcoreinfo_data)
+        type_index, variable_index = index_kernel(vmcoreinfo,
+                                                  verbose=not args.script)
 
-        release = vmcoreinfo['OSRELEASE']
-        if args.executable is None:
-            try:
-                args.executable = find_vmlinux(release)
-            except ValueError:
-                sys.exit('Could not find vmlinux file; install the proper debuginfo package or use --executable')
-
-        modules = find_modules(release)
-        if not modules and not args.script:
-            print('Could not find kernel modules; continuing anyways',
-                  file=sys.stderr)
-        dwarf_index = DwarfIndex(args.executable, *modules)
-        type_index = DwarfTypeIndex(dwarf_index)
-        variable_index = KernelVariableIndex(type_index,
-                                             vmcoreinfo.get('KERNELOFFSET', 0))
         prog = Program(reader=core_reader, type_index=type_index,
                        variable_index=variable_index)
-        variable_index.set_program(prog)
+        if isinstance(variable_index, KernelVariableIndex):
+            variable_index.set_program(prog)
 
         init_globals: Dict[str, Any] = {'drgn': drgn, 'prog': prog}
         if args.script:

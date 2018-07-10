@@ -169,13 +169,6 @@ enum {
 	NUM_DEBUG_SECTIONS,
 };
 
-static const char *section_names[NUM_DEBUG_SECTIONS] = {
-	[DEBUG_ABBREV] = ".debug_abbrev",
-	[DEBUG_INFO] = ".debug_info",
-	[DEBUG_LINE] = ".debug_line",
-	[DEBUG_STR] = ".debug_str",
-};
-
 static inline bool in_bounds(const char *ptr, const char *end, size_t size)
 {
 	return ptr <= end && (size_t)(end - ptr) >= size;
@@ -597,16 +590,11 @@ static int read_sections(struct file *file)
 		section->size = shdrs[i].sh_size;
 	}
 
-	if (!file->symtab.buffer) {
-		PyErr_SetString(DwarfFormatError, "missing .symtab");
-		return -1;
-	}
+	if (!file->symtab.buffer)
+		return 0;
 	for (i = 0; i < NUM_DEBUG_SECTIONS; i++) {
-		if (!file->debug_sections[i].buffer) {
-			PyErr_Format(DwarfFormatError, "missing %s",
-				     section_names[i]);
-			return -1;
-		}
+		if (!file->debug_sections[i].buffer)
+			return 0;
 	}
 
 	for (i = 0; i < ehdr->e_shnum; i++) {
@@ -634,7 +622,7 @@ static int read_sections(struct file *file)
 		section->buffer = file->map + shdrs[i].sh_offset;
 		section->size = shdrs[i].sh_size;
 	}
-	return 0;
+	return 1;
 }
 
 static int apply_relocation(struct section *section,
@@ -1748,32 +1736,32 @@ static int index_cus(DwarfIndex *self, struct compilation_unit *cus,
 
 static PyObject *DwarfIndex_add(DwarfIndex *self, PyObject *args)
 {
+	size_t num_args = PyTuple_GET_SIZE(args);
 	size_t old_num_files = self->num_files;
 	size_t old_num_cus = self->num_cus;
 	size_t i;
 
-	self->num_files += PyTuple_GET_SIZE(args);
-
-	if (resize_array(&self->files, self->num_files) == -1) {
-		self->num_files = old_num_files;
+	if (resize_array(&self->files, self->num_files + num_args) == -1)
 		return NULL;
-	}
 
 	memset(&self->files[old_num_files], 0,
-	       (self->num_files - old_num_files) * sizeof(self->files[0]));
+	       num_args * sizeof(self->files[0]));
 
-	for (i = old_num_files; i < self->num_files; i++) {
-		PyObject *arg = PyTuple_GET_ITEM(args, i - old_num_files);
+	for (i = 0; i < num_args; i++) {
+		PyObject *arg = PyTuple_GET_ITEM(args, i);
+		struct file *file;
 		PyObject *path;
+		int ret;
 
-		self->files[i].cu_objs = PyDict_New();
-		if (!self->files[i].cu_objs)
+		file = &self->files[self->num_files++];
+		file->cu_objs = PyDict_New();
+		if (!file->cu_objs)
 			goto err;
 
 		path = PyUnicode_EncodeFSDefault(arg);
 		if (!path)
 			goto err;
-		if (open_file(&self->files[i], PyBytes_AS_STRING(path))) {
+		if (open_file(file, PyBytes_AS_STRING(path))) {
 			PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError,
 							     arg);
 			Py_DECREF(path);
@@ -1782,11 +1770,24 @@ static PyObject *DwarfIndex_add(DwarfIndex *self, PyObject *args)
 		Py_DECREF(path);
 
 		Py_INCREF(arg);
-		self->files[i].path = arg;
+		file->path = arg;
 
-		if (read_sections(&self->files[i]) == -1)
+		ret = read_sections(file);
+		if (ret == -1) {
 			goto err;
+		} else if (!ret) {
+			Py_DECREF(file->path);
+			Py_DECREF(file->cu_objs);
+			memset(file, 0, sizeof(*file));
+			self->num_files--;
+		}
 	}
+
+	if (self->num_files != old_num_files + num_args &&
+	    resize_array(&self->files, self->num_files) == -1)
+		goto err;
+	if (self->num_files == old_num_files)
+		Py_RETURN_NONE;
 
 	if (apply_relocations(&self->files[old_num_files],
 			      self->num_files - old_num_files) == -1)
@@ -2021,7 +2022,7 @@ static PyMemberDef DwarfIndex_members[] = {
 
 static PyGetSetDef DwarfIndex_getset[] = {
 	{"files", (getter)DwarfIndex_files, NULL,
-	 "list of file paths which were indexed", NULL},
+	 "list of file paths which were indexed, excluding those without debugging symbols"},
 	{},
 };
 
