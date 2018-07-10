@@ -101,14 +101,15 @@ static PyObject *MemoryViewIO;
 	} else {						\
 		typeof(*_ptr) _tmp;				\
 								\
+		errno = 0;					\
 		_tmp = realloc(*_ptr, _n * sizeof(**_ptr));	\
-		if (_tmp) {					\
-			*_ptr = _tmp;				\
-			_ret = 0;				\
-		} else {					\
+		if (errno) {					\
 			if (!PyErr_Occurred())			\
 				PyErr_NoMemory();		\
 			_ret = -1;				\
+		} else {					\
+			*_ptr = _tmp;				\
+			_ret = 0;				\
 		}						\
 	}							\
 	_ret;							\
