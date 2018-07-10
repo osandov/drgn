@@ -1976,6 +1976,23 @@ err:
 	return NULL;
 }
 
+static PyObject *DwarfIndex_files(DwarfIndex *self, void *arg)
+{
+	PyObject *list;
+	size_t i;
+
+	list = PyList_New(self->num_files);
+	if (!list)
+		return NULL;
+
+	for (i = 0; i < self->num_files; i++) {
+		Py_INCREF(self->files[i].path);
+		PyList_SET_ITEM(list, i, self->files[i].path);
+	}
+
+	return list;
+}
+
 #define DwarfIndex_DOC	\
 	"DwarfIndex(*paths) -> new DWARF debugging information index"
 
@@ -1999,6 +2016,12 @@ static PyMethodDef DwarfIndex_methods[] = {
 static PyMemberDef DwarfIndex_members[] = {
 	{"address_size", T_INT, offsetof(DwarfIndex, address_size),
 	 READONLY, "size in bytes of a pointer"},
+	{},
+};
+
+static PyGetSetDef DwarfIndex_getset[] = {
+	{"files", (getter)DwarfIndex_files, NULL,
+	 "list of file paths which were indexed", NULL},
 	{},
 };
 
@@ -2032,7 +2055,7 @@ static PyTypeObject DwarfIndex_type = {
 	NULL,				/* tp_iternext */
 	DwarfIndex_methods,		/* tp_methods */
 	DwarfIndex_members,		/* tp_members */
-	NULL,				/* tp_getset */
+	DwarfIndex_getset,		/* tp_getset */
 	NULL,				/* tp_base */
 	NULL,				/* tp_dict */
 	NULL,				/* tp_descr_get */
