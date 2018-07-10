@@ -1,7 +1,8 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-from typing import Iterable, NamedTuple
+import re
+from typing import Iterable, List, NamedTuple
 
 
 class FileMapping(NamedTuple):
@@ -9,6 +10,23 @@ class FileMapping(NamedTuple):
     start: int
     end: int
     file_offset: int
+
+
+def parse_proc_maps(path: str) -> List[FileMapping]:
+    with open(path, 'r') as f:
+        s = f.read()
+
+    l = []
+    for match in re.finditer(r'^([0-9a-fA-F]+)-([0-9a-fA-F]+)\s+\S+\s+([0-9a-fA-F]+)\s+\S+\s+\S+\s+(\S+)$',
+                             s, re.MULTILINE):
+        path = match.group(4)
+        if not path.startswith('/'):
+            continue
+        start = int(match.group(1), 16)
+        end = int(match.group(2), 16)
+        file_offset = int(match.group(3), 16)
+        l.append(FileMapping(path, start, end, file_offset))
+    return l
 
 
 def escape_character(c: int, escape_single_quote: bool = False,

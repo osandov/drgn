@@ -21,7 +21,7 @@ from drgn.kernelvariableindex import KernelVariableIndex
 from drgn.program import Program, ProgramObject
 from drgn.type import Type
 from drgn.typeindex import DwarfTypeIndex, TypeIndex
-from drgn.util import FileMapping
+from drgn.util import FileMapping, parse_proc_maps
 from drgn.variableindex import UserspaceVariableIndex, VariableIndex
 
 
@@ -148,6 +148,9 @@ def main() -> None:
     group.add_argument(
         '-k', '--kernel', action='store_const', const='/proc/kcore', dest='core',
         help='debug the running kernel')
+    group.add_argument(
+        '-p', '--pid', metavar='PID',
+        help='debug the running program with the given PID')
     parser.add_argument(
         'script', metavar='ARG', type=str, nargs='*',
         help='script to execute instead of running in interactive mode')
@@ -155,39 +158,54 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if args.pid is not None:
+        args.core = f'/proc/{args.pid}/mem'
+
     with open(args.core, 'rb') as core_file:
-        core_elf_file = ElfFile(core_file)
-        if core_elf_file.ehdr.e_type != ET_CORE:
-            sys.exit('ELF file is not a core dump')
-
-        # p_offset, p_vaddr, p_paddr, p_filesz, p_memsz
-        segments = [phdr[2:7] for phdr in core_elf_file.phdrs
-                    if phdr.p_type == PT_LOAD]
-        core_reader = CoreReader(core_file.fileno(), segments)
-
         nt_file_data = None
         vmcoreinfo_data = None
-        if os.path.abspath(args.core) == '/proc/kcore':
-            vmcoreinfo_data = read_vmcoreinfo_from_sysfs(core_reader)
+        segments: List[Tuple[int, int, int, int, int]]
+        if args.pid is None:
+            core_elf_file = ElfFile(core_file)
+            if core_elf_file.ehdr.e_type != ET_CORE:
+                sys.exit('ELF file is not a core dump')
+
+            # p_offset, p_vaddr, p_paddr, p_filesz, p_memsz
+            segments = [phdr[2:7] for phdr in core_elf_file.phdrs
+                        if phdr.p_type == PT_LOAD]
         else:
-            for note in core_elf_file.notes():
-                if note.name == b'CORE' and note.type == NT_FILE:
-                    nt_file_data = note.data
-                    break
-                elif note.name == b'VMCOREINFO':
-                    vmcoreinfo_data = note.data
-                    break
+            if sys.maxsize >= 2**32:
+                max_address = 2**64 - 1
+            else:
+                max_address = 2**32 - 1
+            segments = [(0, 0, 0, max_address, max_address)]
+        core_reader = CoreReader(core_file.fileno(), segments)
+
+        if args.pid is None:
+            if os.path.abspath(args.core) == '/proc/kcore':
+                vmcoreinfo_data = read_vmcoreinfo_from_sysfs(core_reader)
+            else:
+                for note in core_elf_file.notes():
+                    if note.name == b'CORE' and note.type == NT_FILE:
+                        nt_file_data = note.data
+                        break
+                    elif note.name == b'VMCOREINFO':
+                        vmcoreinfo_data = note.data
+                        break
 
         if vmcoreinfo_data is not None:
             vmcoreinfo = parse_vmcoreinfo(vmcoreinfo_data)
             type_index, variable_index = index_kernel(
                 vmcoreinfo, verbose=not args.script)
-        elif nt_file_data is not None:
-            file_mappings = core_elf_file.parse_nt_file(nt_file_data)
+        else:
+            if args.pid is None:
+                if nt_file_data is None:
+                    sys.exit('Core dump has no NT_FILE or VMCOREINFO note')
+                file_mappings = core_elf_file.parse_nt_file(nt_file_data)
+            else:
+                file_mappings = parse_proc_maps(f'/proc/{args.pid}/maps')
             type_index, variable_index = index_program(
                 file_mappings, verbose=not args.script)
-        else:
-            sys.exit('Core dump has no NT_FILE or VMCOREINFO note')
 
         prog = Program(reader=core_reader, type_index=type_index,
                        variable_index=variable_index)
