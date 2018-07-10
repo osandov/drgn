@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0+
 
 from collections import namedtuple
+import os
 import struct
-from typing import BinaryIO, Dict, List, NamedTuple, Optional
+from typing import BinaryIO, Dict, List, NamedTuple, Optional, Tuple
+
+from drgn.util import FileMapping
 
 
 # Automatically generated from elf.h
@@ -111,6 +114,65 @@ PT_HISUNW = 0x6fffffff
 PT_HIOS = 0x6fffffff
 PT_LOPROC = 0x70000000
 PT_HIPROC = 0x7fffffff
+NT_PRSTATUS = 1
+NT_FPREGSET = 2
+NT_PRPSINFO = 3
+NT_PRXREG = 4
+NT_TASKSTRUCT = 4
+NT_PLATFORM = 5
+NT_AUXV = 6
+NT_GWINDOWS = 7
+NT_ASRS = 8
+NT_PSTATUS = 10
+NT_PSINFO = 13
+NT_PRCRED = 14
+NT_UTSNAME = 15
+NT_LWPSTATUS = 16
+NT_LWPSINFO = 17
+NT_PRFPXREG = 20
+NT_SIGINFO = 0x53494749
+NT_FILE = 0x46494c45
+NT_PRXFPREG = 0x46e62b7f
+NT_PPC_VMX = 0x100
+NT_PPC_SPE = 0x101
+NT_PPC_VSX = 0x102
+NT_PPC_TAR = 0x103
+NT_PPC_PPR = 0x104
+NT_PPC_DSCR = 0x105
+NT_PPC_EBB = 0x106
+NT_PPC_PMU = 0x107
+NT_PPC_TM_CGPR = 0x108
+NT_PPC_TM_CFPR = 0x109
+NT_PPC_TM_CVMX = 0x10a
+NT_PPC_TM_CVSX = 0x10b
+NT_PPC_TM_SPR = 0x10c
+NT_PPC_TM_CTAR = 0x10d
+NT_PPC_TM_CPPR = 0x10e
+NT_PPC_TM_CDSCR = 0x10f
+NT_386_TLS = 0x200
+NT_386_IOPERM = 0x201
+NT_X86_XSTATE = 0x202
+NT_S390_HIGH_GPRS = 0x300
+NT_S390_TIMER = 0x301
+NT_S390_TODCMP = 0x302
+NT_S390_TODPREG = 0x303
+NT_S390_CTRS = 0x304
+NT_S390_PREFIX = 0x305
+NT_S390_LAST_BREAK = 0x306
+NT_S390_SYSTEM_CALL = 0x307
+NT_S390_TDB = 0x308
+NT_ARM_VFP = 0x400
+NT_ARM_TLS = 0x401
+NT_ARM_HW_BREAK = 0x402
+NT_ARM_HW_WATCH = 0x403
+NT_ARM_SYSTEM_CALL = 0x404
+NT_ARM_SVE = 0x405
+NT_VERSION = 1
+NT_GNU_ABI_TAG = 1
+NT_GNU_HWCAP = 2
+NT_GNU_BUILD_ID = 3
+NT_GNU_GOLD_VERSION = 4
+NT_GNU_PROPERTY_TYPE_0 = 5
 SHN_MIPS_ACOMMON = 0xff00
 SHN_MIPS_TEXT = 0xff01
 SHN_MIPS_DATA = 0xff02
@@ -435,3 +497,32 @@ class ElfFile:
                     symbols[symbol_name] = [sym]
             self._symbols = symbols
         return self._symbols
+
+    def parse_nt_file(self, data: bytes) -> List[FileMapping]:
+        if self.ehdr.e_ident[EI_DATA] == ELFDATA2LSB:
+            fmt = '<'
+        else:
+            fmt = '>'
+
+        if self.ehdr.e_ident[EI_CLASS] == ELFCLASS64:
+            header_fmt = fmt + 'QQ'
+            fmt += 'QQQ'
+        else:
+            header_fmt = fmt + 'II'
+            fmt += 'III'
+        header_size = struct.calcsize(header_fmt)
+
+        count, page_size = struct.unpack_from(header_fmt, data)
+        i = header_size + struct.calcsize(fmt) * count
+        list = []
+        for start, end, offset in struct.iter_unpack('=QQQ', data[header_size:i]):
+            if i >= len(data):
+                raise ElfFormatError('invalid NT_FILE note')
+            try:
+                j = data.index(b'\0', i)
+            except ValueError:
+                j = len(data)
+            path = os.fsdecode(data[i:j])
+            i = j + 1
+            list.append(FileMapping(path, start, end, page_size * offset))
+        return list

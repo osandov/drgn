@@ -16,12 +16,13 @@ from typing import Any, Dict, List, Tuple, Union
 import drgn
 from drgn.corereader import CoreReader
 from drgn.dwarfindex import DwarfIndex
-from drgn.elf import ElfFile, ET_CORE, PT_LOAD
+from drgn.elf import ElfFile, ET_CORE, NT_FILE, PT_LOAD
 from drgn.kernelvariableindex import KernelVariableIndex
 from drgn.program import Program, ProgramObject
 from drgn.type import Type
 from drgn.typeindex import DwarfTypeIndex, TypeIndex
-from drgn.variableindex import VariableIndex
+from drgn.util import FileMapping
+from drgn.variableindex import UserspaceVariableIndex, VariableIndex
 
 
 def displayhook(value: Any) -> None:
@@ -78,7 +79,7 @@ def read_vmcoreinfo_from_sysfs(core_reader: CoreReader) -> bytes:
     # formats). We can ignore the type.
     namesz, descsz = struct.unpack_from('=II', note)
     if namesz != 11 or note[12:22] != b'VMCOREINFO':
-        sys.exit('VMCOREINFO is invalid')
+        sys.exit('VMCOREINFO in /sys/kernel/vmcoreinfo is invalid')
     # The name is padded up to 4 bytes, so the descriptor starts at
     # byte 24.
     return note[24:24 + descsz]
@@ -128,29 +129,31 @@ def index_kernel(vmcoreinfo: Dict[str, Any],
     return type_index, variable_index
 
 
+def index_program(file_mappings: List[FileMapping],
+                  verbose: bool) -> Tuple[TypeIndex, VariableIndex]:
+    dwarf_index = DwarfIndex(*{mapping.path for mapping in file_mappings})
+    type_index = DwarfTypeIndex(dwarf_index)
+    return type_index, UserspaceVariableIndex(type_index, file_mappings)
+
+
 def main() -> None:
     python_version = '.'.join(str(v) for v in sys.version_info[:3])
     version = f'drgn {drgn.__version__} (using Python {python_version})'
     parser = argparse.ArgumentParser(
         prog='drgn', description='Scriptable debugger')
-    parser.add_argument(
-        '-k', '--kernel', action='store_true',
-        help='debug the kernel instead of a userspace program')
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         '-c', '--core', metavar='PATH', type=str,
-        help='use the given core file (default: /proc/kcore in kernel mode)')
+        help='debug the given core dump')
+    group.add_argument(
+        '-k', '--kernel', action='store_const', const='/proc/kcore', dest='core',
+        help='debug the running kernel')
     parser.add_argument(
         'script', metavar='ARG', type=str, nargs='*',
         help='script to execute instead of running in interactive mode')
     parser.add_argument('--version', action='version', version=version)
 
     args = parser.parse_args()
-
-    if not args.kernel:
-        sys.exit('Only --kernel mode is currently implemented')
-
-    if args.core is None:
-        args.core = '/proc/kcore'
 
     with open(args.core, 'rb') as core_file:
         core_elf_file = ElfFile(core_file)
@@ -162,18 +165,29 @@ def main() -> None:
                     if phdr.p_type == PT_LOAD]
         core_reader = CoreReader(core_file.fileno(), segments)
 
+        nt_file_data = None
+        vmcoreinfo_data = None
         if os.path.abspath(args.core) == '/proc/kcore':
             vmcoreinfo_data = read_vmcoreinfo_from_sysfs(core_reader)
         else:
-            for name, _, vmcoreinfo_data in core_elf_file.notes():
-                if name == b'VMCOREINFO':
+            for note in core_elf_file.notes():
+                if note.name == b'CORE' and note.type == NT_FILE:
+                    nt_file_data = note.data
                     break
-            else:
-                sys.exit('Could not find VMCOREINFO note; not a kernel vmcore?')
+                elif note.name == b'VMCOREINFO':
+                    vmcoreinfo_data = note.data
+                    break
 
-        vmcoreinfo = parse_vmcoreinfo(vmcoreinfo_data)
-        type_index, variable_index = index_kernel(vmcoreinfo,
-                                                  verbose=not args.script)
+        if vmcoreinfo_data is not None:
+            vmcoreinfo = parse_vmcoreinfo(vmcoreinfo_data)
+            type_index, variable_index = index_kernel(
+                vmcoreinfo, verbose=not args.script)
+        elif nt_file_data is not None:
+            file_mappings = core_elf_file.parse_nt_file(nt_file_data)
+            type_index, variable_index = index_program(
+                file_mappings, verbose=not args.script)
+        else:
+            sys.exit('Core dump has no NT_FILE or VMCOREINFO note')
 
         prog = Program(reader=core_reader, type_index=type_index,
                        variable_index=variable_index)

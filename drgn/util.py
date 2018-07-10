@@ -1,7 +1,14 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-from typing import Iterable
+from typing import Iterable, NamedTuple
+
+
+class FileMapping(NamedTuple):
+    path: str
+    start: int
+    end: int
+    file_offset: int
 
 
 def escape_character(c: int, escape_single_quote: bool = False,

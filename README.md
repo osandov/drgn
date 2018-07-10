@@ -5,8 +5,8 @@ drgn
 which use the types and data of the program being debugged.
 
 `drgn` was developed for debugging the Linux kernel (as an alternative to the
-`crash` utility). Currently, it only supports debugging the kernel, but in the
-future it will support debugging userspace programs, as well.
+`crash` utility), but it can also debug userspace program written in C. C++
+support is planned.
 
 Installation
 ------------
@@ -35,8 +35,8 @@ Or, pick your favorite Python package installation method.
 Getting Started
 ---------------
 
-To debug the running kernel, run `sudo drgn -k`. To debug a kernel core dump,
-add `-c $PATH`.
+To debug the running kernel, run `sudo drgn -k`. To debug a core dump (either a
+kernel vmcore or a userspace core dump), run `drgn -c $PATH`.
 
 `drgn` has an interactive mode and a script mode. If no arguments are passed,
 `drgn` runs in interactive mode; otherwise, the given script is run with the
