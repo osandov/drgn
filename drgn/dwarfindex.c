@@ -1827,6 +1827,21 @@ err:
 	return NULL;
 }
 
+static int DwarfIndex_init(DwarfIndex *self, PyObject *args, PyObject *kwds)
+{
+	PyObject *ret;
+
+	if (kwds && PyDict_Size(kwds)) {
+		PyErr_SetString(PyExc_TypeError,
+				"DwarfIndex() takes no keyword arguments");
+		return -1;
+	}
+
+	ret = DwarfIndex_add(self, args);
+	Py_XDECREF(ret);
+	return ret ? 0 : -1;
+}
+
 static PyObject *create_file_object(DwarfIndex *self, struct file *file)
 {
 	PyObject *mview, *io, *elf_file, *dwarf_file;
@@ -1961,7 +1976,7 @@ err:
 }
 
 #define DwarfIndex_DOC	\
-	"DwarfIndex() -> new DWARF debugging information index"
+	"DwarfIndex(*paths) -> new DWARF debugging information index"
 
 static PyMethodDef DwarfIndex_methods[] = {
 	{"add", (PyCFunction)DwarfIndex_add,
@@ -2016,6 +2031,13 @@ static PyTypeObject DwarfIndex_type = {
 	NULL,				/* tp_iternext */
 	DwarfIndex_methods,		/* tp_methods */
 	DwarfIndex_members,		/* tp_members */
+	NULL,				/* tp_getset */
+	NULL,				/* tp_base */
+	NULL,				/* tp_dict */
+	NULL,				/* tp_descr_get */
+	NULL,				/* tp_descr_set */
+	0,				/* tp_dictoffset */
+	(initproc)DwarfIndex_init,	/* tp_init */
 };
 
 static struct PyModuleDef dwarfindexmodule = {

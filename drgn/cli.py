@@ -153,12 +153,11 @@ def main() -> None:
             except ValueError:
                 sys.exit('Could not find vmlinux file; install the proper debuginfo package or use --executable')
 
-        dwarf_index = DwarfIndex()
         modules = find_modules(release)
         if not modules and not args.script:
             print('Could not find kernel modules; continuing anyways',
                   file=sys.stderr)
-        dwarf_index.add(args.executable, *modules)
+        dwarf_index = DwarfIndex(args.executable, *modules)
         type_index = DwarfTypeIndex(dwarf_index)
         variable_index = KernelVariableIndex(type_index,
                                              vmcoreinfo.get('KERNELOFFSET', 0))
