@@ -171,9 +171,11 @@ static int read_core(CoreReader *self, void *buf, uint64_t address,
 				break;
 		}
 		if (i < 0) {
-			PyErr_Format(PyExc_ValueError,
-				     "could not find memory segment containing %p",
-				     (void *)address);
+			char errmsg[60];
+
+			sprintf(errmsg, "could not find memory segment containing 0x%" PRIx64,
+				address);
+			PyErr_SetString(PyExc_ValueError, errmsg);
 			return -1;
 		}
 
