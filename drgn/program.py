@@ -10,16 +10,7 @@ import operator
 from typing import cast, Any, Callable, Iterable, Optional, Tuple, Union
 
 from drgn.corereader import CoreReader
-from drgn.type import (
-    ArithmeticType,
-    BitFieldType,
-    ArrayType,
-    CompoundType,
-    IntType,
-    PointerType,
-    Type,
-    TypedefType,
-)
+from drgn.type import ArrayType, CompoundType, IntType, PointerType, Type
 from drgn.typename import TypeName
 from drgn.typeindex import TypeIndex
 from drgn.util import c_string
@@ -536,8 +527,8 @@ class ProgramObject:
         return self._relational_operator(operator.ge, '>=', other)
 
     def __bool__(self) -> bool:
-        if not isinstance(self._real_type, (ArithmeticType, BitFieldType,
-                                            PointerType)):
+        if (not self._real_type.is_arithmetic() and
+                not self._real_type.is_pointer()):
             raise TypeError(f"invalid operand to bool() ('{self.type_}')")
         return bool(self.value_())
 
@@ -551,22 +542,22 @@ class ProgramObject:
         return self._unary_operator(operator.invert, '~', True)
 
     def __int__(self) -> int:
-        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+        if not self._real_type.is_arithmetic():
             raise TypeError(f"can't convert {self.type_} to int")
         return int(self.value_())
 
     def __float__(self) -> float:
-        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+        if not self._real_type.is_arithmetic():
             raise TypeError(f"can't convert {self.type_} to float")
         return float(self.value_())
 
     def __index__(self) -> int:
-        if not isinstance(self._real_type, (IntType, BitFieldType)):
+        if not self._real_type.is_integer():
             raise TypeError(f"can't convert {self.type_} to index")
         return self.value_()
 
     def __round__(self, ndigits: Optional[int] = None) -> Union[int, 'ProgramObject']:
-        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+        if not self._real_type.is_arithmetic():
             raise TypeError(f"can't round {self.type_}")
         if ndigits is None:
             return round(self.value_())
@@ -574,17 +565,17 @@ class ProgramObject:
                              value=round(self.value_(), ndigits))
 
     def __trunc__(self) -> int:
-        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+        if not self._real_type.is_arithmetic():
             raise TypeError(f"can't round {self.type_}")
         return math.trunc(self.value_())
 
     def __floor__(self) -> int:
-        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+        if not self._real_type.is_arithmetic():
             raise TypeError(f"can't round {self.type_}")
         return math.floor(self.value_())
 
     def __ceil__(self) -> int:
-        if not isinstance(self._real_type, (ArithmeticType, BitFieldType)):
+        if not self._real_type.is_arithmetic():
             raise TypeError(f"can't round {self.type_}")
         return math.ceil(self.value_())
 
