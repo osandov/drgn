@@ -867,7 +867,7 @@ class TypedefType(Type):
     def __str__(self) -> str:
         parts = sorted(self.qualifiers)  # Not real C syntax, but it gets the point across
         parts.append('typedef')
-        if isinstance(self.type, CompoundType) and not self.type.name:
+        if isinstance(self.type, (CompoundType, EnumType)) and not self.type.name:
             parts.append(str(self.type))
             parts.append(self.name)
         else:

@@ -79,6 +79,12 @@ color_type = EnumType('color', IntType('unsigned int', 4, False), [
     ('GREEN', 1),
     ('BLUE', 2)
 ])
+const_anonymous_color_type = EnumType(None, IntType('unsigned int', 4, False), [
+    ('RED', 0),
+    ('GREEN', -1),
+    ('BLUE', -2)
+], frozenset({'const'}))
+anonymous_color_type = const_anonymous_color_type.unqualified()
 
 
 class TypeTestCase(unittest.TestCase):
@@ -160,6 +166,14 @@ typedef struct {
 	int y;
 } Point""")
         self.assertEqual(str(type2), 'typedef Point POINT')
+
+        type1 = TypedefType('Color', anonymous_color_type)
+        self.assertEqual(str(type1), """\
+typedef enum {
+	RED = 0,
+	GREEN = -1,
+	BLUE = -2,
+} Color""")
 
     def test_struct(self):
         self.assertEqual(str(point_type), """\
@@ -323,16 +337,11 @@ const volatile enum color {
 	BLUE = 2,
 }""")
 
-        type_ = EnumType(None, IntType('int', 4, True), [
-            ('RED', 10),
-            ('GREEN', 11),
-            ('BLUE', -1)
-        ])
-        self.assertEqual(str(type_), """\
+        self.assertEqual(str(anonymous_color_type), """\
 enum {
-	RED = 10,
-	GREEN = 11,
-	BLUE = -1,
+	RED = 0,
+	GREEN = -1,
+	BLUE = -2,
 }""")
 
         type_ = EnumType('foo', None, None)
@@ -598,17 +607,7 @@ class TestUnqualifiedAndOperandType(TypeTestCase):
         self.assertBoth(const_union_type, union_type)
 
     def test_enum(self):
-        enum_type = EnumType(None, IntType('int', 4, True), [
-            ('RED', 10),
-            ('GREEN', 11),
-            ('BLUE', -1)
-        ])
-        const_enum_type = EnumType(None, IntType('int', 4, True), [
-            ('RED', 10),
-            ('GREEN', 11),
-            ('BLUE', -1)
-        ], frozenset({'const'}))
-        self.assertBoth(const_enum_type, enum_type)
+        self.assertBoth(const_anonymous_color_type, anonymous_color_type)
 
     def test_typedef(self):
         const_typedef_type = TypedefType(
