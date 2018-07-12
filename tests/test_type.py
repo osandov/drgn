@@ -545,37 +545,46 @@ class TestConvert(unittest.TestCase):
         self.assertEqual(type_.convert(2**64 + 1), 1)
 
 
-class TestOperandType(TypeTestCase):
+class TestUnqualifiedAndOperandType(TypeTestCase):
+    def assertUnqualifiedType(self, type_, expected):
+        for i in range(2):
+            type_ = type_.unqualified()
+            self.assertEqual(type_, expected)
+
     def assertOperandType(self, type_, expected):
         for i in range(2):
             type_ = type_.operand_type()
             self.assertEqual(type_, expected)
 
+    def assertBoth(self, type_, expected):
+        self.assertUnqualifiedType(type_, expected)
+        self.assertOperandType(type_, expected)
+
     def test_void(self):
-        self.assertOperandType(VoidType(frozenset({'const'})), VoidType())
+        self.assertBoth(VoidType(frozenset({'const'})), VoidType())
 
     def test_int(self):
-        self.assertOperandType(IntType('int', 4, True, frozenset({'const'})),
-                               IntType('int', 4, True))
+        self.assertBoth(IntType('int', 4, True, frozenset({'const'})),
+                        IntType('int', 4, True))
 
     def test_bool(self):
-        self.assertOperandType(BoolType('_Bool', 1, frozenset({'const'})),
-                               BoolType('_Bool', 1))
+        self.assertBoth(BoolType('_Bool', 1, frozenset({'const'})),
+                        BoolType('_Bool', 1))
 
     def test_float(self):
-        self.assertOperandType(FloatType('double', 8, frozenset({'const'})),
-                               FloatType('double', 8))
+        self.assertBoth(FloatType('double', 8, frozenset({'const'})),
+                        FloatType('double', 8))
 
     def test_bit_field(self):
-        self.assertOperandType(BitFieldType(IntType('int', 4, True, frozenset({'const'})), 0, 4),
-                               BitFieldType(IntType('int', 4, True), 0, 4))
+        self.assertBoth(BitFieldType(IntType('int', 4, True, frozenset({'const'})), 0, 4),
+                        BitFieldType(IntType('int', 4, True), 0, 4))
 
     def test_struct(self):
         const_point_type = StructType('point', 8, [
             ('x', 0, lambda: IntType('int', 4, True)),
             ('y', 4, lambda: IntType('int', 4, True)),
         ], frozenset({'const'}))
-        self.assertOperandType(const_point_type, point_type)
+        self.assertBoth(const_point_type, point_type)
 
     def test_union(self):
         union_type = UnionType('value', 4, [
@@ -586,7 +595,7 @@ class TestOperandType(TypeTestCase):
             ('i', 0, lambda: IntType('int', 4, True)),
             ('f', 0, lambda: FloatType('float', 4)),
         ], frozenset({'const'}))
-        self.assertOperandType(const_union_type, union_type)
+        self.assertBoth(const_union_type, union_type)
 
     def test_enum(self):
         enum_type = EnumType(None, IntType('int', 4, True), [
@@ -599,7 +608,7 @@ class TestOperandType(TypeTestCase):
             ('GREEN', 11),
             ('BLUE', -1)
         ], frozenset({'const'}))
-        self.assertOperandType(const_enum_type, enum_type)
+        self.assertBoth(const_enum_type, enum_type)
 
     def test_typedef(self):
         const_typedef_type = TypedefType(
@@ -610,9 +619,14 @@ class TestOperandType(TypeTestCase):
             frozenset({'const'}))
         typedef_type = TypedefType('u32', IntType('unsigned int', 4, False))
 
+        self.assertUnqualifiedType(const_typedef_type, typedef_type)
         self.assertOperandType(const_typedef_type, typedef_type)
+
+        self.assertUnqualifiedType(typedef_const_type, typedef_const_type)
         self.assertOperandType(typedef_const_type,
                                IntType('unsigned int', 4, False))
+
+        self.assertUnqualifiedType(const_typedef_const_type, typedef_const_type)
         self.assertOperandType(const_typedef_const_type,
                                IntType('unsigned int', 4, False))
 
@@ -630,16 +644,20 @@ class TestOperandType(TypeTestCase):
 
     def test_array(self):
         type_ = ArrayType(IntType('int', 4, True), 2, pointer_size)
+        self.assertUnqualifiedType(type_, type_)
         self.assertOperandType(type_, PointerType(pointer_size, type_.type))
 
         typedef_type = TypedefType('pair_t', type_)
+        self.assertUnqualifiedType(typedef_type, typedef_type)
         self.assertOperandType(typedef_type, PointerType(pointer_size, type_.type))
 
     def test_function(self):
         type_ = FunctionType(pointer_size, VoidType, [])
+        self.assertUnqualifiedType(type_, type_)
         self.assertOperandType(type_, PointerType(pointer_size, type_))
 
         typedef_type = TypedefType('callback_t', type_)
+        self.assertUnqualifiedType(typedef_type, typedef_type)
         self.assertOperandType(typedef_type, PointerType(pointer_size, type_))
 
 

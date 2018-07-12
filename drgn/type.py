@@ -164,12 +164,18 @@ class Type:
         """
         return self
 
+    def unqualified(self) -> 'Type':
+        """
+        Return this type without qualifiers.
+        """
+        raise NotImplementedError()
+
     def operand_type(self) -> 'Type':
         """
         Return the type that this type is converted to when used in an
         expression.
         """
-        raise NotImplementedError()
+        return self.unqualified()
 
     def is_arithmetic(self) -> bool:
         """
@@ -217,7 +223,7 @@ class VoidType(Type):
     def convert(self, value: Any) -> None:
         return None
 
-    def operand_type(self) -> 'VoidType':
+    def unqualified(self) -> 'VoidType':
         if self.qualifiers:
             return VoidType()
         return self
@@ -310,7 +316,7 @@ class IntType(ArithmeticType):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(math.trunc(value), 8 * self.size, self.signed)
 
-    def operand_type(self) -> 'IntType':
+    def unqualified(self) -> 'IntType':
         if self.qualifiers:
             return IntType(self.name, self.size, self.signed)
         return self
@@ -346,7 +352,7 @@ class BoolType(IntType):
             raise TypeError(f'cannot convert to {self}')
         return bool(value)
 
-    def operand_type(self) -> 'BoolType':
+    def unqualified(self) -> 'BoolType':
         if self.qualifiers:
             return BoolType(self.name, self.size)
         return self
@@ -375,7 +381,7 @@ class FloatType(ArithmeticType):
         else:
             raise ValueError(f"can't convert to float of size {self.size}")
 
-    def operand_type(self) -> 'FloatType':
+    def unqualified(self) -> 'FloatType':
         if self.qualifiers:
             return FloatType(self.name, self.size)
         return self
@@ -457,9 +463,9 @@ class BitFieldType(Type):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(math.trunc(value), self.bit_size, self.type.signed)
 
-    def operand_type(self) -> 'BitFieldType':
+    def unqualified(self) -> 'BitFieldType':
         if self.type.qualifiers:
-            return BitFieldType(self.type.operand_type(), self.bit_offset,
+            return BitFieldType(self.type.unqualified(), self.bit_offset,
                                 self.bit_size)
         return self
 
@@ -656,7 +662,7 @@ class StructType(CompoundType):
     def type_name(self) -> StructTypeName:
         return StructTypeName(self.name, self.qualifiers)
 
-    def operand_type(self) -> 'StructType':
+    def unqualified(self) -> 'StructType':
         if self.qualifiers:
             return StructType(self.name, self.size, self._members)
         return self
@@ -684,7 +690,7 @@ class UnionType(CompoundType):
     def type_name(self) -> UnionTypeName:
         return UnionTypeName(self.name, self.qualifiers)
 
-    def operand_type(self) -> 'UnionType':
+    def unqualified(self) -> 'UnionType':
         if self.qualifiers:
             return UnionType(self.name, self.size, self._members)
         return self
@@ -806,7 +812,7 @@ class EnumType(Type):
                 pass
         return value
 
-    def operand_type(self) -> 'EnumType':
+    def unqualified(self) -> 'EnumType':
         if self.qualifiers:
             return EnumType(self.name, self.type,
                             None if self.enum is None else self.enum.__members__)
@@ -883,6 +889,11 @@ class TypedefType(Type):
             type_ = type_.type
         return type_
 
+    def unqualified(self) -> 'TypedefType':
+        if self.qualifiers:
+            return TypedefType(self.name, self.type)
+        return self
+
     def operand_type(self) -> Type:
         type_ = self.type
         while isinstance(type_, TypedefType):
@@ -957,7 +968,7 @@ class PointerType(Type):
             raise TypeError(f'cannot convert to {self}')
         return _int_convert(int(value), 8 * self.size, False)
 
-    def operand_type(self) -> 'PointerType':
+    def unqualified(self) -> 'PointerType':
         if self.qualifiers:
             return PointerType(self.size, self.type)
         return self
@@ -1041,6 +1052,9 @@ class ArrayType(Type):
             parts.append('}')
         return ''.join(parts)
 
+    def unqualified(self) -> 'ArrayType':
+        return self
+
     def operand_type(self) -> 'PointerType':
         return PointerType(self.pointer_size, self.type)
 
@@ -1102,6 +1116,9 @@ class FunctionType(Type):
 
     def pretty(self, value: Any, cast: bool = True) -> str:
         raise ValueError("can't format function")
+
+    def unqualified(self) -> 'FunctionType':
+        return self
 
     def operand_type(self) -> 'PointerType':
         return PointerType(self.pointer_size, self)
