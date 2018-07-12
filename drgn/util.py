@@ -1,8 +1,10 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+import glob
+import os.path
 import re
-from typing import Iterable, List, NamedTuple
+from typing import Any, Dict, Iterable, List, NamedTuple
 
 
 class FileMapping(NamedTuple):
@@ -27,6 +29,48 @@ def parse_proc_maps(path: str) -> List[FileMapping]:
         file_offset = int(match.group(3), 16)
         l.append(FileMapping(path, start, end, file_offset))
     return l
+
+
+def find_vmlinux_debuginfo(release: str) -> str:
+    paths = [
+        f'/usr/lib/debug/lib/modules/{release}/vmlinux',
+        f'/boot/vmlinux-{release}',
+        f'/lib/modules/{release}/build/vmlinux',
+    ]
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    else:
+        raise ValueError('could not find vmlinux file')
+
+
+def find_modules_debuginfo(release: str) -> List[str]:
+    patterns = [
+        f'/usr/lib/debug/lib/modules/{release}/kernel/**/*.ko.debug',
+        f'/lib/modules/{release}/kernel/**/*.ko',
+    ]
+    for pattern in patterns:
+        paths = glob.glob(pattern, recursive=True)
+        if paths:
+            return paths
+    else:
+        return []
+
+
+def parse_vmcoreinfo(data: bytes) -> Dict[str, Any]:
+    fields = {}
+    for line in data.splitlines():
+        tokens = line.split(b'=', 1)
+        key = tokens[0].decode('ascii')
+        value: Any
+        if re.match(r'PAGESIZE|LENGTH\(|NUMBER\(|OFFSET\(|SIZE\(', key):
+            value = int(tokens[1], 10)
+        elif re.match(r'KERNELOFFSET|SYMBOL\(', key):
+            value = int(tokens[1], 16)
+        else:
+            value = tokens[1].decode('ascii')
+        fields[key] = value
+    return fields
 
 
 def escape_character(c: int, escape_single_quote: bool = False,
