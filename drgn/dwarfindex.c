@@ -426,6 +426,46 @@ typedef struct {
 	int address_size;
 } DwarfIndex;
 
+static void DwarfIndex_dealloc(DwarfIndex *self)
+{
+	size_t i;
+
+	for (i = 0; i < self->num_files; i++) {
+		munmap(self->files[i].map, self->files[i].size);
+		Py_XDECREF(self->files[i].obj);
+		Py_XDECREF(self->files[i].cu_objs);
+		Py_XDECREF(self->files[i].path);
+	}
+	free(self->files);
+	free(self->cus);
+
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int DwarfIndex_traverse(DwarfIndex *self, visitproc visit, void *arg)
+{
+	size_t i;
+
+	for (i = 0; i < self->num_files; i++) {
+		Py_VISIT(self->files[i].obj);
+		Py_VISIT(self->files[i].cu_objs);
+		Py_VISIT(self->files[i].path);
+	}
+	return 0;
+}
+
+static int DwarfIndex_clear(DwarfIndex *self)
+{
+	size_t i;
+
+	for (i = 0; i < self->num_files; i++) {
+		Py_CLEAR(self->files[i].obj);
+		Py_CLEAR(self->files[i].cu_objs);
+		Py_CLEAR(self->files[i].path);
+	}
+	return 0;
+}
+
 static int open_file(struct file *file, const char *path)
 {
 	int saved_errno;
@@ -1584,22 +1624,6 @@ out:
 	return ret;
 }
 
-static void DwarfIndex_dealloc(DwarfIndex *self)
-{
-	size_t i;
-
-	for (i = 0; i < self->num_files; i++) {
-		munmap(self->files[i].map, self->files[i].size);
-		Py_XDECREF(self->files[i].obj);
-		Py_XDECREF(self->files[i].cu_objs);
-		Py_XDECREF(self->files[i].path);
-	}
-	free(self->files);
-	free(self->cus);
-
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
 static int apply_relocations(struct file *files, size_t num_files)
 {
 	PyObject *type = NULL, *value = NULL, *traceback = NULL;
@@ -2048,8 +2072,8 @@ static PyTypeObject DwarfIndex_type = {
 	NULL,				/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,		/* tp_flags */
 	DwarfIndex_DOC,			/* tp_doc */
-	NULL,				/* tp_traverse */
-	NULL,				/* tp_clear */
+	(traverseproc)DwarfIndex_traverse,/* tp_traverse */
+	(inquiry)DwarfIndex_clear,	/* tp_clear */
 	NULL,				/* tp_richcompare */
 	0,				/* tp_weaklistoffset */
 	NULL,				/* tp_iter */
