@@ -177,6 +177,13 @@ class Type:
         """
         return self.unqualified()
 
+    def is_anonymous(self) -> bool:
+        """
+        Return whether this is an anonymous type (i.e., a struct, union, or
+        enum type without a tag).
+        """
+        return False
+
     def is_arithmetic(self) -> bool:
         """
         Return whether this type is an arithmetic type. This is true for
@@ -545,8 +552,7 @@ class CompoundType(Type):
             parts.append(' {\n')
             for name, member_offset, type_thunk in self._members:
                 member_type = type_thunk()
-                if (isinstance(member_type, (StructType, UnionType, EnumType)) and
-                        not member_type.name):
+                if member_type.is_anonymous():
                     decl = re.sub('^', '\t', str(member_type), flags=re.MULTILINE)
                     parts.append(decl)
                     if name:
@@ -654,6 +660,9 @@ class CompoundType(Type):
         struct dentry *
         """
         return self.member(member)[0]
+
+    def is_anonymous(self) -> bool:
+        return not self.name
 
 
 class StructType(CompoundType):
@@ -829,6 +838,9 @@ class EnumType(Type):
                             None if self.enum is None else self.enum.__members__)
         return self
 
+    def is_anonymous(self) -> bool:
+        return not self.name
+
     def is_arithmetic(self) -> bool:
         return True
 
@@ -867,7 +879,7 @@ class TypedefType(Type):
     def __str__(self) -> str:
         parts = sorted(self.qualifiers)  # Not real C syntax, but it gets the point across
         parts.append('typedef')
-        if isinstance(self.type, (CompoundType, EnumType)) and not self.type.name:
+        if self.type.is_anonymous():
             parts.append(str(self.type))
             parts.append(self.name)
         else:
