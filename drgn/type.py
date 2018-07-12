@@ -390,7 +390,7 @@ class FloatType(ArithmeticType):
 class BitFieldType(Type):
     """
     A BitFieldType is not a real C type. It represents a bit field. It has an
-    underlying IntType, a bit offset, and a bit size.
+    underlying integer type, a bit offset, and a bit size.
 
     >>> print(repr(prog['init_task'].in_execve.type_))
     BitFieldType(IntType('unsigned int', 4, False), 0, 1)
@@ -404,9 +404,19 @@ class BitFieldType(Type):
     0
     """
 
-    def __init__(self, type: IntType, bit_offset: Optional[int], bit_size: int,
+    def __init__(self, type: Type, bit_offset: Optional[int], bit_size: int,
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         self.type = type
+        real_type = type.real_type()
+        self._int_type: IntType
+        if isinstance(real_type, IntType):
+            self._int_type = real_type
+        elif isinstance(real_type, EnumType):
+            if real_type.type is None:
+                raise ValueError('bit field type is incomplete enum')
+            self._int_type = real_type.type
+        else:
+            raise ValueError('bit field type is not integer')
         self.bit_offset = bit_offset
         self.bit_size = bit_size
 
@@ -446,7 +456,7 @@ class BitFieldType(Type):
         value = int.from_bytes(buffer[offset:end], sys.byteorder)
         value >>= bit_offset
         value &= (1 << self.bit_size) - 1
-        signed = self.type.signed
+        signed = self._int_type.signed
         if signed and (value & (1 << (self.bit_size - 1))):
             value -= (1 << self.bit_size)
         return value
@@ -461,7 +471,8 @@ class BitFieldType(Type):
     def convert(self, value: Any) -> int:
         if not isinstance(value, numbers.Real):
             raise TypeError(f'cannot convert to {self}')
-        return _int_convert(math.trunc(value), self.bit_size, self.type.signed)
+        return _int_convert(math.trunc(value), self.bit_size,
+                            self._int_type.signed)
 
     def unqualified(self) -> 'BitFieldType':
         if self.type.qualifiers:

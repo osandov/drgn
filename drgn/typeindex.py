@@ -75,7 +75,7 @@ _INT_CONVERSION_RANK = _INTEGER_CONVERSION_RANKS['int']
 
 def _integer_conversion_rank(type_: Union[IntType, BitFieldType]) -> int:
     if isinstance(type_, BitFieldType):
-        return _integer_conversion_rank(type_.type)
+        return _integer_conversion_rank(type_._int_type)
     else:
         name = type_.name
     return _INTEGER_CONVERSION_RANKS[name]
@@ -87,14 +87,14 @@ def _can_represent_all_values(type1: Union[IntType, BitFieldType],
 
     if isinstance(type1, BitFieldType):
         width1 = type1.bit_size
-        signed1 = type1.type.signed
+        signed1 = type1._int_type.signed
     else:
         width1 = 8 * type1.size
         signed1 = type1.signed
 
     if isinstance(type2, BitFieldType):
         width2 = type2.bit_size
-        signed2 = type2.type.signed
+        signed2 = type2._int_type.signed
     else:
         width2 = 8 * type2.size
         signed2 = type2.signed
@@ -113,8 +113,8 @@ def _corresponding_unsigned_type(type_: IntType) -> IntType: ...
 def _corresponding_unsigned_type(type_: BitFieldType) -> BitFieldType: ...
 def _corresponding_unsigned_type(type_: Union[IntType, BitFieldType]) -> Union[IntType, BitFieldType]:
     if isinstance(type_, BitFieldType):
-        if type_.type.signed:
-            underlying_type = _corresponding_unsigned_type(type_.type)
+        if type_._int_type.signed:
+            underlying_type = _corresponding_unsigned_type(type_._int_type)
             return BitFieldType(underlying_type, None, type_.bit_size)
         else:
             return type_
@@ -282,8 +282,8 @@ class TypeIndex:
 
         rank1 = _integer_conversion_rank(real_type1)
         rank2 = _integer_conversion_rank(real_type2)
-        signed1 = real_type1.type.signed if isinstance(real_type1, BitFieldType) else real_type1.signed
-        signed2 = real_type2.type.signed if isinstance(real_type2, BitFieldType) else real_type2.signed
+        signed1 = real_type1._int_type.signed if isinstance(real_type1, BitFieldType) else real_type1.signed
+        signed2 = real_type2._int_type.signed if isinstance(real_type2, BitFieldType) else real_type2.signed
 
         if (isinstance(real_type1, BitFieldType) or
                 isinstance(real_type2, BitFieldType)):
@@ -587,10 +587,6 @@ class DwarfTypeIndex(TypeIndex):
 
     def _from_dwarf_bit_field(self, die: Die) -> Type:
         type_ = self.find_dwarf_type(die.type())
-        while isinstance(type_, TypedefType):
-            type_ = type_.type
-        if not isinstance(type_, IntType):
-            raise DwarfFormatError('bit field type is not integer')
         bit_size = die.find_constant(DW_AT.bit_size)
         try:
             bit_offset = die.find_constant(DW_AT.data_bit_offset)
