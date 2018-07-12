@@ -850,7 +850,11 @@ class TypedefType(Type):
     def __str__(self) -> str:
         parts = sorted(self.qualifiers)  # Not real C syntax, but it gets the point across
         parts.append('typedef')
-        parts.append(self.type.type_name().declaration(self.name))
+        if isinstance(self.type, CompoundType) and not self.type.name:
+            parts.append(str(self.type))
+            parts.append(self.name)
+        else:
+            parts.append(self.type.type_name().declaration(self.name))
         return ' '.join(parts)
 
     def type_name(self) -> TypedefTypeName:

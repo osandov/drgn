@@ -152,6 +152,15 @@ class TestType(TypeTestCase):
         self.assertEqual(type1.real_type(), IntType('int', 4, True))
         self.assertEqual(type2.real_type(), IntType('int', 4, True))
 
+        type1 = TypedefType('Point', anonymous_point_type)
+        type2 = TypedefType('POINT', type1)
+        self.assertEqual(str(type1), """\
+typedef struct {
+	int x;
+	int y;
+} Point""")
+        self.assertEqual(str(type2), 'typedef Point POINT')
+
     def test_struct(self):
         self.assertEqual(str(point_type), """\
 struct point {
