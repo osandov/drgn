@@ -1,9 +1,9 @@
 from os import PathLike
-from typing import Any, List, Sequence, Tuple, Union
+from typing import Any, BinaryIO, List, Sequence, Tuple, Union
 
 
 class CoreReader:
-    def __init__(self, fd: int,
+    def __init__(self, file: BinaryIO,
                  segments: Sequence[Tuple[int, int, int, int, int]]) -> None: ...
     def close(self) -> None: ...
     def __enter__(self) -> CoreReader: ...

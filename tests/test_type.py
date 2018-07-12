@@ -638,7 +638,7 @@ class TestTypeRead(unittest.TestCase):
     def test_void(self):
         type_ = VoidType()
         with tmpfile(b'') as file:
-            reader = CoreReader(file.fileno(), [])
+            reader = CoreReader(file, [])
             self.assertRaises(ValueError, type_.read, reader, 0x0)
             self.assertRaises(ValueError, type_.read_pretty, reader, 0x0)
 
@@ -646,7 +646,7 @@ class TestTypeRead(unittest.TestCase):
                     expected_pretty_cast, expected_pretty_nocast):
         segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
         with tmpfile(buffer) as file:
-            reader = CoreReader(file.fileno(), segments)
+            reader = CoreReader(file, segments)
             self.assertEqual(type_.read(reader, 0xffff0000), expected_value)
             self.assertEqual(type_.read_pretty(reader, 0xffff0000),
                              expected_pretty_cast)

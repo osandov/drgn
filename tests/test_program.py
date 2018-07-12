@@ -27,14 +27,19 @@ class TestProgramObject(TypeIndexTestCase):
         self.addTypeEqualityFunc(ProgramObject, program_object_equality_func)
         buffer = b'\x01\x00\x00\x00\x02\x00\x00\x00hello\x00\x00\x00'
         segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
-        self.tmpfile = tempfile.TemporaryFile()
-        self.tmpfile.write(buffer)
-        self.tmpfile.flush()
-        core_reader = CoreReader(self.tmpfile.fileno(), segments)
-        self.program = Program(reader=core_reader, type_index=self.type_index,
-                               variable_index=None)
+        tmpfile = tempfile.TemporaryFile()
+        try:
+            tmpfile.write(buffer)
+            tmpfile.flush()
+            core_reader = CoreReader(tmpfile, segments)
+            self.program = Program(reader=core_reader, type_index=self.type_index,
+                                   variable_index=None)
+        except:
+            tmpfile.close()
+            raise
     def tearDown(self):
-        self.tmpfile.close()
+        if hasattr(self, 'program'):
+            self.program.close()
         super().tearDown()
 
     def test_constructor(self):

@@ -24,6 +24,7 @@ struct segment {
 
 typedef struct {
 	PyObject_HEAD
+	PyObject *file;
 	int fd;
 	int num_segments;
 	struct segment *segments;
@@ -55,21 +56,48 @@ static int pread_all(int fd, void *buf, size_t count, off_t offset)
 static void CoreReader_dealloc(CoreReader *self)
 {
 	free(self->segments);
+	Py_XDECREF(self->file);
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int CoreReader_traverse(CoreReader *self, visitproc visit, void *arg)
+{
+	Py_VISIT(self->file);
+	return 0;
+}
+
+static int CoreReader_clear(CoreReader *self)
+{
+	Py_CLEAR(self->file);
+	return 0;
 }
 
 static int CoreReader_init(CoreReader *self, PyObject *args, PyObject *kwds)
 {
 	static const char *errmsg = "segment must be (offset, vaddr, paddr, filesz, memsz)";
-	static char *keywords[] = {"fd", "segments", NULL};
-	int fd;
+	static char *keywords[] = {"file", "segments", NULL};
+	PyObject *file, *fd_obj;
+	long fd;
 	PyObject *segments_list;
 	struct segment *segments;
 	int num_segments, i;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "iO!:CoreReader", keywords,
-					 &fd, &PyList_Type, &segments_list))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!:CoreReader", keywords,
+					 &file, &PyList_Type, &segments_list))
 		return -1;
+
+	fd_obj = PyObject_CallMethod(file, "fileno", "()");
+	if (!fd_obj)
+		return -1;
+
+	fd = PyLong_AsLong(fd_obj);
+	Py_DECREF(fd_obj);
+	if (fd == -1 && PyErr_Occurred())
+		return -1;
+	if (fd < 0 || fd > INT_MAX) {
+		PyErr_SetString(PyExc_ValueError, "invalid file descriptor");
+		return -1;
+	}
 
 	if (PyList_GET_SIZE(segments_list) > INT_MAX) {
 		PyErr_SetString(PyExc_OverflowError, "too many segments");
@@ -121,6 +149,9 @@ static int CoreReader_init(CoreReader *self, PyObject *args, PyObject *kwds)
 	}
 
 	free(self->segments);
+	Py_XDECREF(self->file);
+	Py_INCREF(file);
+	self->file = file;
 	self->fd = fd;
 	self->segments = segments;
 	self->num_segments = num_segments;
@@ -143,10 +174,50 @@ static CoreReader *CoreReader_new(PyTypeObject *subtype, PyObject *args,
 	return reader;
 }
 
+static PyObject *CoreReader_close(CoreReader *self)
+{
+	PyObject *ret;
+
+	if (!self->file)
+		Py_RETURN_NONE;
+
+	ret = PyObject_CallMethod(self->file, "close", "()");
+	if (ret) {
+		Py_DECREF(self->file);
+		self->file = NULL;
+		self->fd = -1;
+	}
+	return ret;
+}
+
+static PyObject *CoreReader_enter(PyObject *self)
+{
+	Py_INCREF(self);
+	return self;
+}
+
+static PyObject *CoreReader_exit(CoreReader *self, PyObject *args,
+				 PyObject *kwds)
+{
+	static char *keywords[] = {"exc_type", "exc_value", "traceback", NULL};
+	PyObject *exc_type, *exc_value, *traceback;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO:__exit__", keywords,
+					 &exc_type, &exc_value, &traceback))
+		return NULL;
+
+	return CoreReader_close(self);
+}
+
 static int read_core(CoreReader *self, void *buf, uint64_t address,
 		     uint64_t count, int physical)
 {
 	char *p = buf;
+
+	if (self->fd == -1) {
+		PyErr_SetString(PyExc_ValueError, "read on closed CoreReader");
+		return -1;
+	}
 
 	while (count) {
 		struct segment *segment;
@@ -289,9 +360,17 @@ CoreReader_READ(long_double, long double, PyFloat_FromDouble)
 	 "physical -- whether address is a physical memory address"}
 
 #define CoreReader_DOC	\
-	"CoreReader(fd, segments) -> new core file reader"
+	"CoreReader(file, segments) -> new core file reader"
 
 static PyMethodDef CoreReader_methods[] = {
+	{"close", (PyCFunction)CoreReader_close,
+	 METH_NOARGS,
+	 "close()\n\n"
+	 "Close the file underlying this reader."},
+	{"__enter__", (PyCFunction)CoreReader_enter,
+	 METH_NOARGS},
+	{"__exit__", (PyCFunction)CoreReader_exit,
+	 METH_VARARGS | METH_KEYWORDS},
 	{"read", (PyCFunction)CoreReader_read,
 	 METH_VARARGS | METH_KEYWORDS,
 	 "read(address, size, physical=False)\n\n"
@@ -338,10 +417,10 @@ static PyTypeObject CoreReader_type = {
 	NULL,				/* tp_getattro */
 	NULL,				/* tp_setattro */
 	NULL,				/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,		/* tp_flags */
+	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,/* tp_flags */
 	CoreReader_DOC,			/* tp_doc */
-	NULL,				/* tp_traverse */
-	NULL,				/* tp_clear */
+	(traverseproc)CoreReader_traverse,/* tp_traverse */
+	(inquiry)CoreReader_clear,	/* tp_clear */
 	NULL,				/* tp_richcompare */
 	0,				/* tp_weaklistoffset */
 	NULL,				/* tp_iter */

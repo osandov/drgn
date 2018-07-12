@@ -179,7 +179,7 @@ def main() -> None:
             else:
                 max_address = 2**32 - 1
             segments = [(0, 0, 0, max_address, max_address)]
-        core_reader = CoreReader(core_file.fileno(), segments)
+        core_reader = CoreReader(core_file, segments)
 
         if args.pid is None:
             if os.path.abspath(args.core) == '/proc/kcore':

@@ -591,6 +591,25 @@ class Program:
         self._reader = reader
         self._type_index = type_index
         self._variable_index = variable_index
+        # Ugly hack for KernelVariableIndex.
+        try:
+            set_program = variable_index.set_program  # type: ignore
+        except AttributeError:
+            pass
+        else:
+            set_program(self)
+
+    def __enter__(self) -> 'Program':
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """
+        Close resources associated with this Program.
+        """
+        self._reader.close()
 
     def __getitem__(self, name: str) -> ProgramObject:
         """
