@@ -276,6 +276,17 @@ struct {
         self.assertRaises(ValueError, type_.type_name)
         self.assertTrue(type_.is_arithmetic())
 
+        type_ = BitFieldType(color_type, 0, 4)
+        self.assertEqual(str(type_), 'enum color : 4')
+
+        type_ = BitFieldType(anonymous_color_type, 0, 4)
+        self.assertEqual(str(type_), """\
+enum {
+	RED = 0,
+	GREEN = -1,
+	BLUE = -2,
+} : 4""")
+
     def test_union(self):
         type_ = UnionType('value', 4, [
             ('i', 0, lambda: IntType('int', 4, True)),
@@ -393,6 +404,22 @@ enum {
         type_ = ArrayType(point_type, 2, pointer_size)
         self.assertEqual(str(type_), 'struct point [2]')
         self.assertEqual(type_.sizeof(), 16)
+
+    def test_array_of_anonymous(self):
+        type_ = ArrayType(anonymous_point_type, 2, pointer_size)
+        self.assertEqual(str(type_), """\
+struct {
+	int x;
+	int y;
+} [2]""")
+
+        type_ = ArrayType(anonymous_color_type, 2, pointer_size)
+        self.assertEqual(str(type_), """\
+enum {
+	RED = 0,
+	GREEN = -1,
+	BLUE = -2,
+} [2]""")
 
 
 class TestConvert(unittest.TestCase):

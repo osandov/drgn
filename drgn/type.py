@@ -112,10 +112,13 @@ class Type:
         return ''.join(parts)
 
     def __str__(self) -> str:
-        return str(self.type_name())
+        return self.declaration('')
 
     def type_name(self) -> TypeName:
         raise NotImplementedError()
+
+    def declaration(self, name: str) -> str:
+        return self.type_name().declaration(name)
 
     def sizeof(self) -> int:
         """Return sizeof(type)."""
@@ -436,12 +439,16 @@ class BitFieldType(Type):
         ]
         return ''.join(parts)
 
-    def __str__(self) -> str:
-        parts = [str(self.type.type_name()), ':', repr(self.bit_size)]
-        return ' '.join(parts)
-
     def type_name(self) -> TypeName:
         raise ValueError("can't get type name of bit field")
+
+    def declaration(self, name: str) -> str:
+        if name:
+            name += ' : '
+        else:
+            name = ': '
+        name += str(self.bit_size)
+        return self.type.declaration(name)
 
     def sizeof(self) -> int:
         # Not really, but for convenience.
@@ -505,7 +512,7 @@ class CompoundType(Type):
     """
 
     def __init__(self, name: Optional[str], size: Optional[int],
-                 members: Optional[List[Tuple[str, int, _TypeThunk]]],
+                 members: Optional[List[Tuple[Optional[str], int, _TypeThunk]]],
                  qualifiers: FrozenSet[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         # List of name, offset, type_thunk. type_thunk is a callable taking no
@@ -552,25 +559,20 @@ class CompoundType(Type):
             parts.append(' {\n')
             for name, member_offset, type_thunk in self._members:
                 member_type = type_thunk()
-                if member_type.is_anonymous():
-                    decl = re.sub('^', '\t', str(member_type), flags=re.MULTILINE)
-                    parts.append(decl)
-                    if name:
-                        parts.append(' ')
-                        parts.append(name)
-                else:
-                    if isinstance(member_type, BitFieldType):
-                        member_type_name: TypeName = member_type.type.type_name()
-                    else:
-                        member_type_name = member_type.type_name()
-                    parts.append('\t')
-                    parts.append(member_type_name.declaration(name))
-                    if isinstance(member_type, BitFieldType):
-                        parts.append(' : ')
-                        parts.append(str(member_type.bit_size))
+                decl = re.sub('^', '\t', member_type.declaration(name or ''),
+                              flags=re.MULTILINE)
+                parts.append(decl)
                 parts.append(';\n')
             parts.append('}')
         return ''.join(parts)
+
+    def declaration(self, name: str) -> str:
+        if self.is_anonymous():
+            parts = [str(self)]
+            if name:
+                parts.append(name)
+            return ' '.join(parts)
+        return super().declaration(name)
 
     def sizeof(self) -> int:
         if self.size is None:
@@ -788,6 +790,14 @@ class EnumType(Type):
     def type_name(self) -> EnumTypeName:
         return EnumTypeName(self.name, self.qualifiers)
 
+    def declaration(self, name: str) -> str:
+        if self.is_anonymous():
+            parts = [str(self)]
+            if name:
+                parts.append(name)
+            return ' '.join(parts)
+        return super().declaration(name)
+
     def sizeof(self) -> int:
         if self.type is None:
             raise ValueError("can't get size of incomplete type")
@@ -879,11 +889,7 @@ class TypedefType(Type):
     def __str__(self) -> str:
         parts = sorted(self.qualifiers)  # Not real C syntax, but it gets the point across
         parts.append('typedef')
-        if self.type.is_anonymous():
-            parts.append(str(self.type))
-            parts.append(self.name)
-        else:
-            parts.append(self.type.type_name().declaration(self.name))
+        parts.append(self.type.declaration(self.name))
         return ' '.join(parts)
 
     def type_name(self) -> TypedefTypeName:
@@ -1028,6 +1034,13 @@ class ArrayType(Type):
 
     def type_name(self) -> ArrayTypeName:
         return ArrayTypeName(self.type.type_name(), self.size)
+
+    def declaration(self, name: str) -> str:
+        if self.size is None:
+            name += '[]'
+        else:
+            name += f'[{self.size}]'
+        return self.type.declaration(name)
 
     def sizeof(self) -> int:
         if self.size is None:
