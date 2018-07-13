@@ -377,7 +377,7 @@ class ElfFile:
                 else:
                     name = b''
                 if descsz:
-                    desc = buf[off:off + descsz - 1]
+                    desc = buf[off:off + descsz]
                     off += (descsz + 3) & ~3
                 else:
                     desc = b''
@@ -516,12 +516,10 @@ class ElfFile:
         i = header_size + struct.calcsize(fmt) * count
         list = []
         for start, end, offset in struct.iter_unpack('=QQQ', data[header_size:i]):
-            if i >= len(data):
-                raise ElfFormatError('invalid NT_FILE note')
             try:
                 j = data.index(b'\0', i)
             except ValueError:
-                j = len(data)
+                raise ElfFormatError('invalid NT_FILE note')
             path = os.fsdecode(data[i:j])
             i = j + 1
             list.append(FileMapping(path, start, end, page_size * offset))
