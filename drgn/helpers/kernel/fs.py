@@ -8,10 +8,11 @@ This module provides helpers for working with the Linux virtual filesystem
 (VFS) layer, including mounts, dentries, and inodes.
 """
 
+import os
+
+from drgn.internal.util import escape_string
 from drgn.helpers.kernel.list import hlist_for_each_entry, list_for_each_entry
 from drgn.program import Program
-from drgn.util import escape_string
-import os
 
 __all__ = [
     'd_path',

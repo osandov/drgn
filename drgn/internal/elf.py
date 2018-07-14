@@ -1,12 +1,14 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""ELF parsing library"""
+
 from collections import namedtuple
 import os
 import struct
 from typing import BinaryIO, Dict, List, NamedTuple, Optional, Tuple
 
-from drgn.util import FileMapping
+from drgn.internal.util import FileMapping
 
 
 # Automatically generated from elf.h

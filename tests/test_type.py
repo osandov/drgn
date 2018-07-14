@@ -5,7 +5,7 @@ import struct
 import sys
 import unittest
 
-from drgn.corereader import CoreReader
+from drgn.internal.corereader import CoreReader
 from drgn.type import (
     ArrayType,
     BitFieldType,
@@ -66,7 +66,7 @@ anonymous_point_type = StructType(None, 8, [
 const_anonymous_point_type = StructType(None, 8, [
     ('x', 0, lambda: IntType('int', 4, True)),
     ('y', 4, lambda: IntType('int', 4, True)),
-], frozenset({'const'}))
+], {'const'})
 line_segment_type = StructType('line_segment', 16, [
     ('a', 0, lambda: point_type),
     ('b', 8, lambda: point_type),
@@ -83,7 +83,7 @@ const_anonymous_color_type = EnumType(None, IntType('unsigned int', 4, False), [
     ('RED', 0),
     ('GREEN', -1),
     ('BLUE', -2)
-], frozenset({'const'}))
+], {'const'})
 anonymous_color_type = const_anonymous_color_type.unqualified()
 
 
@@ -128,7 +128,7 @@ class TestType(TypeTestCase):
         self.assertEqual(str(type_), 'const int')
         self.assertEqual(type_.sizeof(), 4)
 
-        type_.qualifiers.add('volatile')
+        type_ = IntType('int', 4, True, {'const', 'volatile'})
         self.assertEqual(str(type_), 'const volatile int')
         self.assertEqual(type_.sizeof(), 4)
 
@@ -328,7 +328,7 @@ enum color {
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], qualifiers=frozenset({'const'}))
+        ], qualifiers={'const'})
         self.assertEqual(str(type_), """\
 const enum color {
 	RED = 0,
@@ -340,7 +340,7 @@ const enum color {
             ('RED', 0),
             ('GREEN', 1),
             ('BLUE', 2)
-        ], qualifiers=frozenset({'const', 'volatile'}))
+        ], qualifiers={'const', 'volatile'})
         self.assertEqual(str(type_), """\
 const volatile enum color {
 	RED = 0,
@@ -424,105 +424,105 @@ enum {
 
 class TestConvert(unittest.TestCase):
     def test_void(self):
-        self.assertIsNone(VoidType().convert(4))
+        self.assertIsNone(VoidType()._convert(4))
 
     def test_int(self):
         type_ = IntType('unsigned int', 4, False)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert(None)
+            type_._convert(None)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert('0')
-        self.assertEqual(type_.convert(0), 0)
-        self.assertEqual(type_.convert(4096), 4096)
-        self.assertEqual(type_.convert(999999), 999999)
-        self.assertEqual(type_.convert(2**32 - 1), 2**32 - 1)
-        self.assertEqual(type_.convert(2**32 + 4), 4)
-        self.assertEqual(type_.convert(-1), 2**32 - 1)
-        self.assertEqual(type_.convert(-2 * 2**32), 0)
-        self.assertEqual(type_.convert(-4 * 2**32 - 1), 2**32 - 1)
-        self.assertEqual(type_.convert(-2**31), 2**31)
-        self.assertEqual(type_.convert(1.5), 1)
+            type_._convert('0')
+        self.assertEqual(type_._convert(0), 0)
+        self.assertEqual(type_._convert(4096), 4096)
+        self.assertEqual(type_._convert(999999), 999999)
+        self.assertEqual(type_._convert(2**32 - 1), 2**32 - 1)
+        self.assertEqual(type_._convert(2**32 + 4), 4)
+        self.assertEqual(type_._convert(-1), 2**32 - 1)
+        self.assertEqual(type_._convert(-2 * 2**32), 0)
+        self.assertEqual(type_._convert(-4 * 2**32 - 1), 2**32 - 1)
+        self.assertEqual(type_._convert(-2**31), 2**31)
+        self.assertEqual(type_._convert(1.5), 1)
 
         type_ = IntType('int', 4, True)
-        self.assertEqual(type_.convert(0), 0)
-        self.assertEqual(type_.convert(4096), 4096)
-        self.assertEqual(type_.convert(999999), 999999)
-        self.assertEqual(type_.convert(2**32 - 1), -1)
-        self.assertEqual(type_.convert(2**32 + 4), 4)
-        self.assertEqual(type_.convert(-1), -1)
-        self.assertEqual(type_.convert(-2 * 2**32), 0)
-        self.assertEqual(type_.convert(-4 * 2**32 - 1), -1)
-        self.assertEqual(type_.convert(-2**31), -2**31)
-        self.assertEqual(type_.convert(2**31), -2**31)
-        self.assertEqual(type_.convert(2**31 - 1), 2**31 - 1)
-        self.assertEqual(type_.convert(-1.5), -1)
+        self.assertEqual(type_._convert(0), 0)
+        self.assertEqual(type_._convert(4096), 4096)
+        self.assertEqual(type_._convert(999999), 999999)
+        self.assertEqual(type_._convert(2**32 - 1), -1)
+        self.assertEqual(type_._convert(2**32 + 4), 4)
+        self.assertEqual(type_._convert(-1), -1)
+        self.assertEqual(type_._convert(-2 * 2**32), 0)
+        self.assertEqual(type_._convert(-4 * 2**32 - 1), -1)
+        self.assertEqual(type_._convert(-2**31), -2**31)
+        self.assertEqual(type_._convert(2**31), -2**31)
+        self.assertEqual(type_._convert(2**31 - 1), 2**31 - 1)
+        self.assertEqual(type_._convert(-1.5), -1)
 
     def test_bool(self):
         type_ = BoolType('_Bool', 1)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert(None)
+            type_._convert(None)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert('')
+            type_._convert('')
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert('0')
+            type_._convert('0')
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert([1, 2, 3])
-        self.assertEqual(type_.convert(0), False)
-        self.assertEqual(type_.convert(1), True)
-        self.assertEqual(type_.convert(-1), True)
-        self.assertEqual(type_.convert(0.0), False)
-        self.assertEqual(type_.convert(-0.0), False)
-        self.assertEqual(type_.convert(-0.0), False)
-        self.assertEqual(type_.convert(0.5), True)
-        self.assertEqual(type_.convert(-0.5), True)
-        self.assertEqual(type_.convert(float('nan')), True)
+            type_._convert([1, 2, 3])
+        self.assertEqual(type_._convert(0), False)
+        self.assertEqual(type_._convert(1), True)
+        self.assertEqual(type_._convert(-1), True)
+        self.assertEqual(type_._convert(0.0), False)
+        self.assertEqual(type_._convert(-0.0), False)
+        self.assertEqual(type_._convert(-0.0), False)
+        self.assertEqual(type_._convert(0.5), True)
+        self.assertEqual(type_._convert(-0.5), True)
+        self.assertEqual(type_._convert(float('nan')), True)
 
     def test_float(self):
         type_ = FloatType('double', 8)
-        self.assertEqual(type_.convert(0.0), 0.0)
-        self.assertEqual(type_.convert(0.5), 0.5)
-        self.assertEqual(type_.convert(-0.5), -0.5)
-        self.assertEqual(type_.convert(55), 55.0)
-        self.assertEqual(type_.convert(float('inf')), float('inf'))
-        self.assertEqual(type_.convert(float('-inf')), float('-inf'))
-        self.assertTrue(math.isnan(type_.convert(float('nan'))))
+        self.assertEqual(type_._convert(0.0), 0.0)
+        self.assertEqual(type_._convert(0.5), 0.5)
+        self.assertEqual(type_._convert(-0.5), -0.5)
+        self.assertEqual(type_._convert(55), 55.0)
+        self.assertEqual(type_._convert(float('inf')), float('inf'))
+        self.assertEqual(type_._convert(float('-inf')), float('-inf'))
+        self.assertTrue(math.isnan(type_._convert(float('nan'))))
 
         type_ = FloatType('float', 4)
-        self.assertEqual(type_.convert(0.0), 0.0)
-        self.assertEqual(type_.convert(0.5), 0.5)
-        self.assertEqual(type_.convert(-0.5), -0.5)
-        self.assertEqual(type_.convert(55), 55.0)
-        self.assertEqual(type_.convert(float('inf')), float('inf'))
-        self.assertEqual(type_.convert(float('-inf')), float('-inf'))
-        self.assertTrue(math.isnan(type_.convert(float('nan'))))
-        self.assertEqual(type_.convert(1e-50), 0.0)
+        self.assertEqual(type_._convert(0.0), 0.0)
+        self.assertEqual(type_._convert(0.5), 0.5)
+        self.assertEqual(type_._convert(-0.5), -0.5)
+        self.assertEqual(type_._convert(55), 55.0)
+        self.assertEqual(type_._convert(float('inf')), float('inf'))
+        self.assertEqual(type_._convert(float('-inf')), float('-inf'))
+        self.assertTrue(math.isnan(type_._convert(float('nan'))))
+        self.assertEqual(type_._convert(1e-50), 0.0)
 
     def test_bit_field(self):
         type_ = BitFieldType(IntType('unsigned int', 4, False), 0, 4)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert(None)
+            type_._convert(None)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert('0')
-        self.assertEqual(type_.convert(0), 0)
-        self.assertEqual(type_.convert(10), 10)
-        self.assertEqual(type_.convert(15), 15)
-        self.assertEqual(type_.convert(20), 4)
-        self.assertEqual(type_.convert(-1), 15)
-        self.assertEqual(type_.convert(32), 0)
-        self.assertEqual(type_.convert(-17), 15)
-        self.assertEqual(type_.convert(-8), 8)
-        self.assertEqual(type_.convert(1.5), 1)
+            type_._convert('0')
+        self.assertEqual(type_._convert(0), 0)
+        self.assertEqual(type_._convert(10), 10)
+        self.assertEqual(type_._convert(15), 15)
+        self.assertEqual(type_._convert(20), 4)
+        self.assertEqual(type_._convert(-1), 15)
+        self.assertEqual(type_._convert(32), 0)
+        self.assertEqual(type_._convert(-17), 15)
+        self.assertEqual(type_._convert(-8), 8)
+        self.assertEqual(type_._convert(1.5), 1)
 
         type_ = BitFieldType(IntType('int', 4, True), 0, 4)
-        self.assertEqual(type_.convert(0), 0)
-        self.assertEqual(type_.convert(10), -6)
-        self.assertEqual(type_.convert(15), -1)
-        self.assertEqual(type_.convert(20), 4)
-        self.assertEqual(type_.convert(-1), -1)
-        self.assertEqual(type_.convert(32), 0)
-        self.assertEqual(type_.convert(-17), -1)
-        self.assertEqual(type_.convert(-8), -8)
-        self.assertEqual(type_.convert(1.5), 1)
+        self.assertEqual(type_._convert(0), 0)
+        self.assertEqual(type_._convert(10), -6)
+        self.assertEqual(type_._convert(15), -1)
+        self.assertEqual(type_._convert(20), 4)
+        self.assertEqual(type_._convert(-1), -1)
+        self.assertEqual(type_._convert(32), 0)
+        self.assertEqual(type_._convert(-17), -1)
+        self.assertEqual(type_._convert(-8), -8)
+        self.assertEqual(type_._convert(1.5), 1)
 
     def test_no_convert(self):
         union_type = UnionType('value', 4, [
@@ -535,11 +535,11 @@ class TestConvert(unittest.TestCase):
                       incomplete_array_type]:
             with self.subTest(type=type_):
                 with self.assertRaisesRegex(TypeError, 'cannot convert'):
-                    point_type.convert(None)
+                    point_type._convert(None)
                 with self.assertRaisesRegex(TypeError, 'cannot convert'):
-                    point_type.convert({})
+                    point_type._convert({})
                 with self.assertRaisesRegex(TypeError, 'cannot convert'):
-                    point_type.convert(1)
+                    point_type._convert(1)
 
     def test_enum(self):
         type_ = EnumType('color', IntType('unsigned int', 4, False), [
@@ -548,37 +548,37 @@ class TestConvert(unittest.TestCase):
             ('BLUE', 2)
         ])
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert(None)
+            type_._convert(None)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert('0')
-        self.assertEqual(type_.convert(1), type_.enum.GREEN)
-        self.assertEqual(type_.convert(3), 3)
-        self.assertEqual(type_.convert(-1), 2**32 - 1)
-        self.assertEqual(type_.convert(0.1), type_.enum.RED)
+            type_._convert('0')
+        self.assertEqual(type_._convert(1), type_.enum.GREEN)
+        self.assertEqual(type_._convert(3), 3)
+        self.assertEqual(type_._convert(-1), 2**32 - 1)
+        self.assertEqual(type_._convert(0.1), type_.enum.RED)
 
     def test_typedef(self):
         type_ = TypedefType('u32', IntType('unsigned int', 4, False))
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert(None)
+            type_._convert(None)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert('0')
-        self.assertEqual(type_.convert(0), 0)
-        self.assertEqual(type_.convert(2**32 - 1), 2**32 - 1)
-        self.assertEqual(type_.convert(-1), 2**32 - 1)
+            type_._convert('0')
+        self.assertEqual(type_._convert(0), 0)
+        self.assertEqual(type_._convert(2**32 - 1), 2**32 - 1)
+        self.assertEqual(type_._convert(-1), 2**32 - 1)
 
     def test_pointer(self):
         type_ = PointerType(8, VoidType())
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert(None)
+            type_._convert(None)
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert('0')
+            type_._convert('0')
         with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_.convert(0.0)
-        self.assertEqual(type_.convert(0), 0)
-        self.assertEqual(type_.convert(0xffffffff93000000), 0xffffffff93000000)
-        self.assertEqual(type_.convert(2**64 - 1), 2**64 - 1)
-        self.assertEqual(type_.convert(-1), 2**64 - 1)
-        self.assertEqual(type_.convert(2**64 + 1), 1)
+            type_._convert(0.0)
+        self.assertEqual(type_._convert(0), 0)
+        self.assertEqual(type_._convert(0xffffffff93000000), 0xffffffff93000000)
+        self.assertEqual(type_._convert(2**64 - 1), 2**64 - 1)
+        self.assertEqual(type_._convert(-1), 2**64 - 1)
+        self.assertEqual(type_._convert(2**64 + 1), 1)
 
 
 class TestUnqualifiedAndOperandType(TypeTestCase):
@@ -597,29 +597,29 @@ class TestUnqualifiedAndOperandType(TypeTestCase):
         self.assertOperandType(type_, expected)
 
     def test_void(self):
-        self.assertBoth(VoidType(frozenset({'const'})), VoidType())
+        self.assertBoth(VoidType({'const'}), VoidType())
 
     def test_int(self):
-        self.assertBoth(IntType('int', 4, True, frozenset({'const'})),
+        self.assertBoth(IntType('int', 4, True, {'const'}),
                         IntType('int', 4, True))
 
     def test_bool(self):
-        self.assertBoth(BoolType('_Bool', 1, frozenset({'const'})),
+        self.assertBoth(BoolType('_Bool', 1, {'const'}),
                         BoolType('_Bool', 1))
 
     def test_float(self):
-        self.assertBoth(FloatType('double', 8, frozenset({'const'})),
+        self.assertBoth(FloatType('double', 8, {'const'}),
                         FloatType('double', 8))
 
     def test_bit_field(self):
-        self.assertBoth(BitFieldType(IntType('int', 4, True, frozenset({'const'})), 0, 4),
+        self.assertBoth(BitFieldType(IntType('int', 4, True, {'const'}), 0, 4),
                         BitFieldType(IntType('int', 4, True), 0, 4))
 
     def test_struct(self):
         const_point_type = StructType('point', 8, [
             ('x', 0, lambda: IntType('int', 4, True)),
             ('y', 4, lambda: IntType('int', 4, True)),
-        ], frozenset({'const'}))
+        ], {'const'})
         self.assertBoth(const_point_type, point_type)
 
     def test_union(self):
@@ -630,7 +630,7 @@ class TestUnqualifiedAndOperandType(TypeTestCase):
         const_union_type = UnionType('value', 4, [
             ('i', 0, lambda: IntType('int', 4, True)),
             ('f', 0, lambda: FloatType('float', 4)),
-        ], frozenset({'const'}))
+        ], {'const'})
         self.assertBoth(const_union_type, union_type)
 
     def test_enum(self):
@@ -638,11 +638,10 @@ class TestUnqualifiedAndOperandType(TypeTestCase):
 
     def test_typedef(self):
         const_typedef_type = TypedefType(
-            'u32', IntType('unsigned int', 4, False), frozenset({'const'}))
-        typedef_const_type = TypedefType('u32', IntType('unsigned int', 4, False, frozenset({'const'})))
+            'u32', IntType('unsigned int', 4, False), {'const'})
+        typedef_const_type = TypedefType('u32', IntType('unsigned int', 4, False, {'const'}))
         const_typedef_const_type = TypedefType(
-            'u32', IntType('unsigned int', 4, False, frozenset({'const'})),
-            frozenset({'const'}))
+            'u32', IntType('unsigned int', 4, False, {'const'}), {'const'})
         typedef_type = TypedefType('u32', IntType('unsigned int', 4, False))
 
         self.assertUnqualifiedType(const_typedef_type, typedef_type)
@@ -658,14 +657,13 @@ class TestUnqualifiedAndOperandType(TypeTestCase):
 
     def test_pointer(self):
         const_pointer_type = PointerType(
-            8, IntType('unsigned int', 4, False), frozenset({'const'}))
+            8, IntType('unsigned int', 4, False), {'const'})
         pointer_type = PointerType(8, IntType('unsigned int', 4, False))
         self.assertOperandType(const_pointer_type, pointer_type)
 
         const_pointer_const_type = PointerType(
-            8, IntType('unsigned int', 4, False, frozenset({'const'})),
-            frozenset({'const'}))
-        pointer_const_type = PointerType(8, IntType('unsigned int', 4, False, frozenset({'const'})))
+            8, IntType('unsigned int', 4, False, {'const'}), {'const'})
+        pointer_const_type = PointerType(8, IntType('unsigned int', 4, False, {'const'}))
         self.assertOperandType(const_pointer_const_type, pointer_const_type)
 
     def test_array(self):
@@ -692,18 +690,18 @@ class TestTypeRead(unittest.TestCase):
         type_ = VoidType()
         with tmpfile(b'') as file:
             reader = CoreReader(file, [])
-            self.assertRaises(ValueError, type_.read, reader, 0x0)
-            self.assertRaises(ValueError, type_.read_pretty, reader, 0x0)
+            self.assertRaises(ValueError, type_._read, reader, 0x0)
+            self.assertRaises(ValueError, type_._read_pretty, reader, 0x0)
 
     def assertReads(self, type_, buffer, expected_value,
                     expected_pretty_cast, expected_pretty_nocast):
         segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
         with tmpfile(buffer) as file:
             reader = CoreReader(file, segments)
-            self.assertEqual(type_.read(reader, 0xffff0000), expected_value)
-            self.assertEqual(type_.read_pretty(reader, 0xffff0000),
+            self.assertEqual(type_._read(reader, 0xffff0000), expected_value)
+            self.assertEqual(type_._read_pretty(reader, 0xffff0000),
                              expected_pretty_cast)
-            self.assertEqual(type_.read_pretty(reader, 0xffff0000, cast=False),
+            self.assertEqual(type_._read_pretty(reader, 0xffff0000, cast=False),
                              expected_pretty_nocast)
 
     def test_int(self):
@@ -711,7 +709,7 @@ class TestTypeRead(unittest.TestCase):
         self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99, '(int)99',
                          '99')
 
-        type_ = IntType('int', 4, True, qualifiers=frozenset({'const'}))
+        type_ = IntType('int', 4, True, qualifiers={'const'})
         self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99,
                          '(const int)99', '99')
 
@@ -734,11 +732,11 @@ class TestTypeRead(unittest.TestCase):
         self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99, '(INT)99',
                          '99')
 
-        type_ = TypedefType('CINT', IntType('int', 4, True, qualifiers=frozenset({'const'})))
+        type_ = TypedefType('CINT', IntType('int', 4, True, qualifiers={'const'}))
         self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99,
                          '(CINT)99', '99')
 
-        type_ = TypedefType('INT', IntType('int', 4, True), qualifiers=frozenset({'const'}))
+        type_ = TypedefType('INT', IntType('int', 4, True), qualifiers={'const'})
         self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99,
                          '(const INT)99', '99')
 

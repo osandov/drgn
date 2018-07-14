@@ -1,10 +1,7 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-"""
-Readline completer based on the standard library rlcompleter that allows
-expressions containing [key], where key is an integer or string.
-"""
+"""Improved readline completer"""
 
 import builtins
 import re
@@ -34,6 +31,11 @@ _EXPR_RE = re.compile(r"""
 
 
 class Completer:
+    """
+    This is a readline completer based on rlcompleter.Completer from the
+    standard library. It allows expressions containing [key], where key is an
+    integer or string.
+    """
     def __init__(self, namespace: Dict[str, Any]) -> None:
         self._namespace = namespace
         # _EXPR_RE can match these characters, so don't treat them as

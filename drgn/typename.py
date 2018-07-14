@@ -1,27 +1,39 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-from collections import namedtuple
+"""
+Parsed type names
+
+This module provides parsing and representation of type names.
+"""
+
 import re
 from typing import (
     Any,
     Dict,
-    FrozenSet,
+    Iterable,
     List,
     Optional,
     Tuple,
     Union,
 )
 
-
-from drgn.lexer import Lexer, Token
+from drgn.internal.lexer import Lexer
 
 
 class TypeName:
+    """
+    A TypeName represents the parsed name of a type. Types can have a name,
+    qualifiers, or other attributes, depending on the subclass.
+
+    >>> BasicTypeName('int', {'const'}).qualifiers
+    frozenset({'const'})
+    """
+
     def __init__(self, name: Optional[str],
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         self.name = name
-        self.qualifiers = qualifiers
+        self.qualifiers = frozenset(qualifiers)
 
     def __repr__(self) -> str:
         parts = [self.__class__.__name__, '(', repr(self.name)]
@@ -35,6 +47,13 @@ class TypeName:
         return self.declaration('')
 
     def declaration(self, name: str) -> str:
+        """
+        Return a C statement which would declare a variable of the given name
+        to have this type.
+
+        >>> print(BasicTypeName('int').declaration('counter'))
+        int counter
+        """
         parts = sorted(self.qualifiers)
         assert self.name is not None
         parts.append(self.name)
@@ -44,20 +63,45 @@ class TypeName:
 
 
 class VoidTypeName(TypeName):
-    def __init__(self, qualifiers: FrozenSet[str] = frozenset()) -> None:
+    """
+    A VoidTypeName is the name of the C void type. It has a name (which is
+    always void) and qualifiers.
+
+    >>> VoidTypeName().name
+    'void'
+    """
+
+    name: str
+
+    def __init__(self, qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__('void', qualifiers)
+
+    def __repr__(self):
+        parts = [self.__class__.__name__, '(']
+        if self.qualifiers:
+            parts.append(repr(self.qualifiers))
+        parts.append(')')
+        return ''.join(parts)
 
 
 class BasicTypeName(TypeName):
+    """
+    A BasicTypeName is the name of a basic C type (e.g., char, unsigned long,
+    _Bool). It has a name and qualifiers.
+
+    >>> BasicTypeName('int').name
+    'int'
+    """
+
     name: str
 
     def __init__(self, name: str,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(name, qualifiers)
 
 
 def _tagged_declaration(keyword: str, tag: Optional[str], name: str,
-                        qualifiers: FrozenSet[str]) -> str:
+                        qualifiers: Iterable[str]) -> str:
     parts = sorted(qualifiers)
     parts.append(keyword)
     if tag is not None:
@@ -68,29 +112,78 @@ def _tagged_declaration(keyword: str, tag: Optional[str], name: str,
 
 
 class StructTypeName(TypeName):
+    """
+    A StructTypeName is the name of a struct type. It has a name (which may be
+    None if the struct is anonymous) and qualifiers.
+
+    >>> StructTypeName('foo').name
+    'foo'
+    >>> StructTypeName(None).name
+    None
+    """
+
     def declaration(self, name: str) -> str:
         return _tagged_declaration('struct', self.name, name, self.qualifiers)
 
 
 class UnionTypeName(TypeName):
+    """
+    A UnionTypeName is the name of a union type. It has a name (which may be
+    None if the union is anonymous) and qualifiers.
+
+    >>> UnionTypeName('foo').name
+    'foo'
+    >>> UnionTypeName(None).name
+    None
+    """
+
     def declaration(self, name: str) -> str:
         return _tagged_declaration('union', self.name, name, self.qualifiers)
 
 
 class EnumTypeName(TypeName):
+    """
+    A EnumTypeName is the name of a enum type. It has a name (which may be
+    None if the enum is anonymous) and qualifiers.
+
+    >>> EnumTypeName('foo').name
+    'foo'
+    >>> EnumTypeName(None).name
+    None
+    """
+
     def declaration(self, name: str) -> str:
         return _tagged_declaration('enum', self.name, name, self.qualifiers)
 
 
 class TypedefTypeName(TypeName):
-    pass
+    """
+    A TypedefTypeName is the name of a typedef. It has a name and qualifiers.
+
+    >>> TypedefTypeName('ptrdiff_t').name
+    'ptrdiff_t'
+    """
+
+    name: str
+
+    def __init__(self, name: str,
+                 qualifiers: Iterable[str] = frozenset()) -> None:
+        super().__init__(name, qualifiers)
 
 
 class PointerTypeName(TypeName):
+    """
+    A PointerTypeName is the name of a pointer type. It has a referenced type
+    name and qualifiers.
+
+    >>> PointerTypeName(BasicTypeName('int')).type
+    BasicTypeName('int')
+    """
+
     def __init__(self, type: TypeName,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         self.type = type
-        self.qualifiers = qualifiers
+        self.qualifiers = frozenset(qualifiers)
 
     def __repr__(self) -> str:
         parts = ['PointerTypeName(', repr(self.type)]
@@ -113,7 +206,20 @@ class PointerTypeName(TypeName):
 
 
 class ArrayTypeName(TypeName):
-    def __init__(self, type: TypeName, size: Optional[int] = None) -> None:
+    """
+    An ArrayTypeName is the name of an array type. It has an element type name
+    and a size, which may be None for a flexible array type.
+
+    >>> array_type_name = ArrayTypeName(BasicTypeName('int'), 2)
+    >>> array_type_name.type
+    BasicTypeName('int')
+    >>> array_type_name.size
+    2
+    >>> ArrayTypeName(BasicTypeName('int'), None).size
+    None
+    """
+
+    def __init__(self, type: TypeName, size: Optional[int]) -> None:
         self.type = type
         self.size = size
 
@@ -134,6 +240,29 @@ class ArrayTypeName(TypeName):
 
 
 class FunctionTypeName(TypeName):
+    """
+    A FunctionTypeName is the name of a function type. It has a return type
+    name, a list of parameters (which may be None if the function definition
+    had no parameter specification), and may be variadic. If it is not None,
+    the list of parameters is a list of tuples of the parameter type name and
+    the parameter name, which may be None.
+
+    >>> function_type_name = FunctionTypeName(VoidTypeName(), [(BasicTypeName('int'), 'status')])
+    >>> function_type_name.return_type
+    VoidType()
+    >>> function_type_name.parameters
+    [(BasicTypeName('int'), 'status')]
+    >>> function_type_name.variadic
+    False
+    >>> print(function_type_name.declaration('_exit'))
+    void _exit(int status)
+    >>> function_type_name = FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None)], True)
+    >>> function_type_name.variadic
+    True
+    >>> print(function_type_name.declaration('sum'))
+    int sum(int, ...)
+    """
+
     def __init__(self, return_type: TypeName,
                  parameters: Optional[List[Tuple[TypeName, Optional[str]]]] = None,
                  variadic: bool = False) -> None:
@@ -238,7 +367,7 @@ class _TypeNameParser:
                                    is_typedef: bool) -> TypeName:
         data_type = specifiers['data_type']
         try:
-            qualifiers = frozenset(specifiers['qualifiers'])
+            qualifiers = specifiers['qualifiers']
         except KeyError:
             qualifiers = frozenset()
         if data_type.startswith('struct '):
@@ -329,7 +458,7 @@ class _TypeNameParser:
                 inner_type = type_name
         return type_name, inner_type
 
-    def _parse_optional_type_qualifier_list(self) -> FrozenSet[str]:
+    def _parse_optional_type_qualifier_list(self) -> Iterable[str]:
         qualifiers = set()
         while True:
             token = self._lexer.peek()
@@ -338,7 +467,7 @@ class _TypeNameParser:
             self._lexer.pop()
             assert isinstance(token.value, str)
             qualifiers.add(token.value)
-        return frozenset(qualifiers)
+        return qualifiers
 
     def _parse_direct_abstract_declarator(
             self, type_name: TypeName) -> Tuple[TypeName, Union[ArrayTypeName, PointerTypeName, None]]:
@@ -383,4 +512,16 @@ class _TypeNameParser:
 
 
 def parse_type_name(string: str) -> TypeName:
+    """
+    Parse a type name using C type name syntax (i.e., cast syntax).
+
+    >>> parse_type_name('int')
+    BasicTypeName('int')
+    >>> parse_type_name('const int')
+    BasicTypeName('int', frozenset({'const'})
+    >>> parse_type_name('char [8]')
+    ArrayTypeName(BasicTypeName('char'), 8)
+    >>> parse_type_name('void *')
+    PointerTypeName(VoidTypeName())
+    """
     return _TypeNameParser(Lexer(_TOKEN_REGEX, string)).parse()

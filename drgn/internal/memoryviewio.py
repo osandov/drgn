@@ -1,12 +1,20 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""memoryview BufferedIOBase"""
+
 import io
 from typing import Optional
 
 
-# Based on BytesIO from Lib/_pyio.py in CPython.
 class MemoryViewIO(io.BufferedIOBase):
+    """
+    BufferedIOBase implementation wrapping a memoryview
+
+    This is similar to io.BytesIO (and is in fact based on the Python
+    implementation from Lib/_pyio.py in CPython), but it avoids making copies.
+    """
+
     def __init__(self, mem: memoryview) -> None:
         self._mem = mem
         self._pos = 0

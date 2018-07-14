@@ -1,10 +1,10 @@
 import os.path
 import subprocess
 import tempfile
-import unittest
 
-from drgn.dwarf import DW_TAG
-from drgn.dwarfindex import DwarfIndex
+from drgn.internal.dwarf import DW_TAG
+from drgn.internal.dwarfindex import DwarfIndex
+from drgn.internal.dwarftypeindex import DwarfTypeIndex
 from drgn.type import (
     ArrayType,
     BitFieldType,
@@ -20,7 +20,7 @@ from drgn.type import (
     UnionType,
     VoidType,
 )
-from drgn.typeindex import DwarfTypeIndex, TypeIndex
+from drgn.typeindex import TypeIndex
 from drgn.typename import BasicTypeName, TypeName, TypedefTypeName
 from tests.test_type import (
     anonymous_point_type,
@@ -49,7 +49,6 @@ TYPES = {
     'float': FloatType('float', 4),
     'double': FloatType('double', 8),
     'long double': FloatType('long double', 16),
-    'ptrdiff_t': FloatType('long double', 16),
 }
 TYPES['ptrdiff_t'] = TypedefType('ptrdiff_t', TYPES['long'])
 
@@ -75,46 +74,46 @@ class TypeIndexTestCase(TypeTestCase):
 
 class TestTypeIndexLiteralType(TypeIndexTestCase):
     def test_bool(self):
-        self.assertEqual(self.type_index.literal_type(True), TYPES['_Bool'])
-        self.assertEqual(self.type_index.literal_type(False), TYPES['_Bool'])
+        self.assertEqual(self.type_index._literal_type(True), TYPES['_Bool'])
+        self.assertEqual(self.type_index._literal_type(False), TYPES['_Bool'])
 
     def test_int(self):
-        self.assertEqual(self.type_index.literal_type(0), TYPES['int'])
-        self.assertEqual(self.type_index.literal_type(-2**31), TYPES['int'])
-        self.assertEqual(self.type_index.literal_type(2**31 - 1), TYPES['int'])
+        self.assertEqual(self.type_index._literal_type(0), TYPES['int'])
+        self.assertEqual(self.type_index._literal_type(-2**31), TYPES['int'])
+        self.assertEqual(self.type_index._literal_type(2**31 - 1), TYPES['int'])
 
-        self.assertEqual(self.type_index.literal_type(2**31),
+        self.assertEqual(self.type_index._literal_type(2**31),
                          TYPES['unsigned int'])
-        self.assertEqual(self.type_index.literal_type(2**32 - 1),
+        self.assertEqual(self.type_index._literal_type(2**32 - 1),
                          TYPES['unsigned int'])
 
-        self.assertEqual(self.type_index.literal_type(-2**31 - 1),
+        self.assertEqual(self.type_index._literal_type(-2**31 - 1),
                          TYPES['long'])
-        self.assertEqual(self.type_index.literal_type(-2**63), TYPES['long'])
-        self.assertEqual(self.type_index.literal_type(2**32), TYPES['long'])
-        self.assertEqual(self.type_index.literal_type(2**63 - 1),
+        self.assertEqual(self.type_index._literal_type(-2**63), TYPES['long'])
+        self.assertEqual(self.type_index._literal_type(2**32), TYPES['long'])
+        self.assertEqual(self.type_index._literal_type(2**63 - 1),
                          TYPES['long'])
 
-        self.assertEqual(self.type_index.literal_type(2**63),
+        self.assertEqual(self.type_index._literal_type(2**63),
                          TYPES['unsigned long'])
-        self.assertEqual(self.type_index.literal_type(2**64 - 1),
+        self.assertEqual(self.type_index._literal_type(2**64 - 1),
                          TYPES['unsigned long'])
 
     def test_float(self):
-        self.assertEqual(self.type_index.literal_type(0.0), TYPES['double'])
-        self.assertEqual(self.type_index.literal_type(float('inf')),
+        self.assertEqual(self.type_index._literal_type(0.0), TYPES['double'])
+        self.assertEqual(self.type_index._literal_type(float('inf')),
                          TYPES['double'])
-        self.assertEqual(self.type_index.literal_type(float('nan')),
+        self.assertEqual(self.type_index._literal_type(float('nan')),
                          TYPES['double'])
 
     def test_error(self):
-        self.assertRaises(TypeError, self.type_index.literal_type, None)
-        self.assertRaises(TypeError, self.type_index.literal_type, 2**128)
+        self.assertRaises(TypeError, self.type_index._literal_type, None)
+        self.assertRaises(TypeError, self.type_index._literal_type, 2**128)
 
 
 class TestTypeIndexIntegerPromotions(TypeIndexTestCase):
     def assertPromotes(self, type, expected_type):
-        self.assertEqual(self.type_index.integer_promotions(type),
+        self.assertEqual(self.type_index._integer_promotions(type),
                          expected_type)
 
     def test_char(self):
@@ -204,9 +203,9 @@ class TestTypeIndexIntegerPromotions(TypeIndexTestCase):
 
 class TestTypeIndexCommonRealType(TypeIndexTestCase):
     def assertCommon(self, type1, type2, expected_type):
-        self.assertEqual(self.type_index.common_real_type(type1, type2),
+        self.assertEqual(self.type_index._common_real_type(type1, type2),
                          expected_type)
-        self.assertEqual(self.type_index.common_real_type(type2, type1),
+        self.assertEqual(self.type_index._common_real_type(type2, type1),
                          expected_type)
 
     def test_long_double(self):
@@ -326,7 +325,7 @@ class TestDwarfTypeIndexFindDwarfType(TypeTestCase):
         dwarf_index = DwarfIndex()
         dwarf_index.add(object_path)
         dwarf_type = dwarf_index.find('x', DW_TAG.variable)[0].type()
-        return DwarfTypeIndex(dwarf_index).find_dwarf_type(dwarf_type)
+        return DwarfTypeIndex(dwarf_index)._from_dwarf_type(dwarf_type)
 
     def test_char(self):
         self.assertEqual(self.compile_type('char x'),
@@ -539,7 +538,7 @@ struct point {
 
     def test_pointer_to_const_void(self):
         self.assertEqual(self.compile_type('const void *x'),
-                         PointerType(pointer_size, VoidType(frozenset({'const'}))))
+                         PointerType(pointer_size, VoidType({'const'})))
 
     def test_pointer_to_function(self):
         self.assertEqual(self.compile_type('int (*x)(int)'),
@@ -602,53 +601,53 @@ int main(void)
             cls.type_index = DwarfTypeIndex(dwarf_index)
 
     def test_void_type(self):
-        self.assertEqual(self.type_index.find_type('void'),
+        self.assertEqual(self.type_index.find('void'),
                          VoidType())
-        self.assertEqual(self.type_index.find_type('const void'),
-                         VoidType(frozenset({'const'})))
+        self.assertEqual(self.type_index.find('const void'),
+                         VoidType({'const'}))
 
     def test_base_type(self):
-        self.assertEqual(self.type_index.find_type('int'),
+        self.assertEqual(self.type_index.find('int'),
                          IntType('int', 4, True))
-        self.assertEqual(self.type_index.find_type('signed int'),
+        self.assertEqual(self.type_index.find('signed int'),
                          IntType('int', 4, True))
-        self.assertEqual(self.type_index.find_type('int signed'),
+        self.assertEqual(self.type_index.find('int signed'),
                          IntType('int', 4, True))
-        self.assertEqual(self.type_index.find_type('volatile int'),
-                         IntType('int', 4, True, frozenset({'volatile'})))
+        self.assertEqual(self.type_index.find('volatile int'),
+                         IntType('int', 4, True, {'volatile'}))
 
-        self.assertEqual(self.type_index.find_type('char'),
+        self.assertEqual(self.type_index.find('char'),
                          IntType('char', 1, True))
-        self.assertEqual(self.type_index.find_type('signed char'),
+        self.assertEqual(self.type_index.find('signed char'),
                          IntType('signed char', 1, True))
-        self.assertEqual(self.type_index.find_type('char signed'),
+        self.assertEqual(self.type_index.find('char signed'),
                          IntType('signed char', 1, True))
-        self.assertEqual(self.type_index.find_type('unsigned char'),
+        self.assertEqual(self.type_index.find('unsigned char'),
                          IntType('unsigned char', 1, False))
-        self.assertEqual(self.type_index.find_type('char unsigned'),
+        self.assertEqual(self.type_index.find('char unsigned'),
                          IntType('unsigned char', 1, False))
 
-        self.assertEqual(self.type_index.find_type('unsigned long long'),
+        self.assertEqual(self.type_index.find('unsigned long long'),
                          IntType('unsigned long long', 8, False))
-        self.assertEqual(self.type_index.find_type('long long unsigned int'),
+        self.assertEqual(self.type_index.find('long long unsigned int'),
                          IntType('unsigned long long', 8, False))
-        self.assertEqual(self.type_index.find_type('long long int unsigned'),
+        self.assertEqual(self.type_index.find('long long int unsigned'),
                          IntType('unsigned long long', 8, False))
 
 
     def test_struct_type(self):
-        self.assertEqual(self.type_index.find_type('struct point'),
+        self.assertEqual(self.type_index.find('struct point'),
                          point_type)
 
     def test_union_type(self):
-        self.assertEqual(self.type_index.find_type('union value'),
+        self.assertEqual(self.type_index.find('union value'),
                          UnionType('value', 4, [
                              ('i', 0, lambda: IntType('int', 4, True)),
                              ('f', 0, lambda: FloatType('float', 4)),
                          ]))
 
     def test_enum_type(self):
-        self.assertEqual(self.type_index.find_type('enum color'),
+        self.assertEqual(self.type_index.find('enum color'),
                          EnumType('color', IntType('unsigned int', 4, False), [
                              ('RED', 0),
                              ('GREEN', 1),
@@ -656,19 +655,19 @@ int main(void)
                          ]))
 
     def test_typedef_type(self):
-        self.assertEqual(self.type_index.find_type('point'),
+        self.assertEqual(self.type_index.find('point'),
                          TypedefType('point', point_type))
-        self.assertEqual(self.type_index.find_type('const point'),
-                         TypedefType('point', point_type, frozenset({'const'})))
+        self.assertEqual(self.type_index.find('const point'),
+                         TypedefType('point', point_type, {'const'}))
 
     def test_pointer_type(self):
-        self.assertEqual(self.type_index.find_type('int *'),
+        self.assertEqual(self.type_index.find('int *'),
                          PointerType(pointer_size, IntType('int', 4, True)))
-        self.assertEqual(self.type_index.find_type('int * const'),
-                         PointerType(pointer_size, IntType('int', 4, True), frozenset({'const'})))
+        self.assertEqual(self.type_index.find('int * const'),
+                         PointerType(pointer_size, IntType('int', 4, True), {'const'}))
 
     def test_array_type(self):
-        self.assertEqual(self.type_index.find_type('int [4]'),
+        self.assertEqual(self.type_index.find('int [4]'),
                          ArrayType(IntType('int', 4, True), 4, pointer_size))
-        self.assertEqual(self.type_index.find_type('int []'),
+        self.assertEqual(self.type_index.find('int []'),
                          ArrayType(IntType('int', 4, True), None, pointer_size))

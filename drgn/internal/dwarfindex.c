@@ -2052,41 +2052,41 @@ static PyGetSetDef DwarfIndex_getset[] = {
 
 static PyTypeObject DwarfIndex_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"drgn.dwarfindex.DwarfIndex",	/* tp_name */
-	sizeof(DwarfIndex),		/* tp_basicsize */
-	0,				/* tp_itemsize */
-	(destructor)DwarfIndex_dealloc,	/* tp_dealloc */
-	NULL,				/* tp_print */
-	NULL,				/* tp_getattr */
-	NULL,				/* tp_setattr */
-	NULL,				/* tp_as_async */
-	NULL,				/* tp_repr */
-	NULL,				/* tp_as_number */
-	NULL,				/* tp_as_sequence */
-	NULL,				/* tp_as_mapping */
-	NULL,				/* tp_hash  */
-	NULL,				/* tp_call */
-	NULL,				/* tp_str */
-	NULL,				/* tp_getattro */
-	NULL,				/* tp_setattro */
-	NULL,				/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,		/* tp_flags */
-	DwarfIndex_DOC,			/* tp_doc */
-	(traverseproc)DwarfIndex_traverse,/* tp_traverse */
-	(inquiry)DwarfIndex_clear,	/* tp_clear */
-	NULL,				/* tp_richcompare */
-	0,				/* tp_weaklistoffset */
-	NULL,				/* tp_iter */
-	NULL,				/* tp_iternext */
-	DwarfIndex_methods,		/* tp_methods */
-	DwarfIndex_members,		/* tp_members */
-	DwarfIndex_getset,		/* tp_getset */
-	NULL,				/* tp_base */
-	NULL,				/* tp_dict */
-	NULL,				/* tp_descr_get */
-	NULL,				/* tp_descr_set */
-	0,				/* tp_dictoffset */
-	(initproc)DwarfIndex_init,	/* tp_init */
+	"drgn.internal.dwarfindex.DwarfIndex",	/* tp_name */
+	sizeof(DwarfIndex),			/* tp_basicsize */
+	0,					/* tp_itemsize */
+	(destructor)DwarfIndex_dealloc,		/* tp_dealloc */
+	NULL,					/* tp_print */
+	NULL,					/* tp_getattr */
+	NULL,					/* tp_setattr */
+	NULL,					/* tp_as_async */
+	NULL,					/* tp_repr */
+	NULL,					/* tp_as_number */
+	NULL,					/* tp_as_sequence */
+	NULL,					/* tp_as_mapping */
+	NULL,					/* tp_hash  */
+	NULL,					/* tp_call */
+	NULL,					/* tp_str */
+	NULL,					/* tp_getattro */
+	NULL,					/* tp_setattro */
+	NULL,					/* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,			/* tp_flags */
+	DwarfIndex_DOC,				/* tp_doc */
+	(traverseproc)DwarfIndex_traverse,	/* tp_traverse */
+	(inquiry)DwarfIndex_clear,		/* tp_clear */
+	NULL,					/* tp_richcompare */
+	0,					/* tp_weaklistoffset */
+	NULL,					/* tp_iter */
+	NULL,					/* tp_iternext */
+	DwarfIndex_methods,			/* tp_methods */
+	DwarfIndex_members,			/* tp_members */
+	DwarfIndex_getset,			/* tp_getset */
+	NULL,					/* tp_base */
+	NULL,					/* tp_dict */
+	NULL,					/* tp_descr_get */
+	NULL,					/* tp_descr_set */
+	0,					/* tp_dictoffset */
+	(initproc)DwarfIndex_init,		/* tp_init */
 };
 
 static struct PyModuleDef dwarfindexmodule = {
@@ -2101,7 +2101,7 @@ static int import_dwarf(void)
 	PyObject *name;
 	PyObject *m;
 
-	name = PyUnicode_FromString("drgn.dwarf");
+	name = PyUnicode_FromString("drgn.internal.dwarf");
 	if (!name)
 		return -1;
 
@@ -2130,7 +2130,7 @@ static int import_elf(void)
 	PyObject *name;
 	PyObject *m;
 
-	name = PyUnicode_FromString("drgn.elf");
+	name = PyUnicode_FromString("drgn.internal.elf");
 	if (!name)
 		return -1;
 
@@ -2159,7 +2159,7 @@ static int import_memoryviewio(void)
 	PyObject *name;
 	PyObject *m;
 
-	name = PyUnicode_FromString("drgn.memoryviewio");
+	name = PyUnicode_FromString("drgn.internal.memoryviewio");
 	if (!name)
 		return -1;
 

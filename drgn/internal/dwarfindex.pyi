@@ -1,5 +1,6 @@
-from drgn.dwarf import Die
 from typing import List
+
+from drgn.internal.dwarf import Die
 
 
 class DwarfIndex:

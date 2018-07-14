@@ -1,30 +1,47 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""
+drgn library interface
+
+drgn can be used as a command line tool or as a library. This module provides
+the latter.
+"""
+
 import os.path
 import platform
 import struct
 import sys
 from typing import cast, Any, Dict, Generator, Iterable, List, Optional, Tuple
 
-from drgn.corereader import CoreReader
-from drgn.dwarfindex import DwarfIndex
-from drgn.elf import ElfFile, ET_CORE, NT_FILE, PT_LOAD
-from drgn.kernelvariableindex import KernelVariableIndex
-from drgn.program import Program
-from drgn.typeindex import DwarfTypeIndex, TypeIndex
-from drgn.util import (
+from drgn.internal.corereader import CoreReader
+from drgn.internal.dwarfindex import DwarfIndex
+from drgn.internal.dwarftypeindex import DwarfTypeIndex
+from drgn.internal.elf import ElfFile, ET_CORE, NT_FILE, PT_LOAD
+from drgn.internal.kernelvariableindex import KernelVariableIndex
+from drgn.internal.userspacevariableindex import UserspaceVariableIndex
+from drgn.internal.variableindex import VariableIndex
+from drgn.internal.util import (
     FileMapping,
-    find_vmlinux_debuginfo,
     find_modules_debuginfo,
+    find_vmlinux_debuginfo,
     parse_proc_maps,
     parse_vmcoreinfo,
 )
-from drgn.variableindex import UserspaceVariableIndex, VariableIndex
+from drgn.program import Program
+from drgn.typeindex import TypeIndex
 
 
 def kernel_type_index(release: Optional[str] = None,
                       verbose: bool = False) -> TypeIndex:
+    """
+    Create a drgn.typeindex.TypeIndex for the given kernel release, or the
+    running kernel if the release is None or not given. See type_index().
+
+    This will fail if vmlinux does not have debugging symbols. It will continue
+    if it cannot find the kernel modules or they do not have debugging symbols
+    (silently unless verbose is True).
+    """
     if release is None:
         release = platform.release()
     vmlinux = find_vmlinux_debuginfo(release)
@@ -50,8 +67,17 @@ def kernel_type_index(release: Optional[str] = None,
     return DwarfTypeIndex(dwarf_index)
 
 
-def program_type_index(paths: Iterable[str],
-                       verbose: bool = False) -> TypeIndex:
+def type_index(paths: Iterable[str], verbose: bool = False) -> TypeIndex:
+    """
+    Create a drgn.typeindex.TypeIndex with the debugging information from the
+    given files.
+
+    If verbose is True, this will print messages to stderr about not being able
+    to find debugging symbols, etc.
+
+    This is useful for building tools which need type information but don't
+    need any of the runtime debugging capabilities provided by drgn.
+    """
     dwarf_index = DwarfIndex(*paths)
     return DwarfTypeIndex(dwarf_index)
 
@@ -74,6 +100,24 @@ def _read_vmcoreinfo_from_sysfs(core_reader: CoreReader) -> Dict[str, Any]:
 
 def program(core: Optional[str] = None, pid: Optional[int] = None,
             verbose: bool = False) -> Program:
+    """
+    Create a drgn.program.Program object from a coredump or a running program.
+
+    If core is given, a Program for the coredump at the given path is created.
+    If pid is given, a Program for the running program with the given PID is
+    created. Exactly one of these must be passed.
+
+    If verbose is True, this will print messages to stderr about not being able
+    to find debugging symbols, etc.
+
+    This should usually be used as a context manager so that all resources are
+    cleaned up:
+
+    >>> with drgn.lib.program(core='/proc/kcore') as prog:
+    ...     pass
+    >>> with drgn.lib.program(pid=6750) as prog:
+    ...     pass
+    """
     if core is None and pid is None:
         raise ValueError('either core or pid should be given')
     if core is not None and pid is not None:
@@ -123,21 +167,21 @@ def program(core: Optional[str] = None, pid: Optional[int] = None,
 
         variable_index: VariableIndex
         if vmcoreinfo is not None:
-            type_index = kernel_type_index(vmcoreinfo['OSRELEASE'], verbose)
+            type_index_ = kernel_type_index(vmcoreinfo['OSRELEASE'], verbose)
             kaslr_offset = vmcoreinfo.get('KERNELOFFSET', 0)
-            variable_index = KernelVariableIndex(cast(DwarfTypeIndex, type_index),
+            variable_index = KernelVariableIndex(cast(DwarfTypeIndex, type_index_),
                                                  kaslr_offset)
         else:
             if pid is not None:
                 file_mappings = parse_proc_maps(f'/proc/{pid}/maps')
             elif file_mappings is None:
                 raise ValueError('core dump has no NT_FILE or VMCOREINFO note')
-            type_index = program_type_index({mapping.path for mapping in file_mappings},
-                                            verbose)
-            variable_index = UserspaceVariableIndex(cast(DwarfTypeIndex, type_index),
+            type_index_ = type_index({mapping.path for mapping in file_mappings},
+                                    verbose)
+            variable_index = UserspaceVariableIndex(cast(DwarfTypeIndex, type_index_),
                                                     file_mappings)
 
-        return Program(reader=core_reader, type_index=type_index,
+        return Program(reader=core_reader, type_index=type_index_,
                        variable_index=variable_index)
     except:
         core_reader.close()

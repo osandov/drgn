@@ -31,7 +31,7 @@ def find_pid(prog_or_ns, nr):
         prog = prog_or_ns
         ns = prog_or_ns['init_pid_ns'].address_of_()
     else:
-        prog = prog_or_ns.program_
+        prog = prog_or_ns.prog_
         ns = prog_or_ns
     if hasattr(ns, 'idr'):
         return idr_find(ns.idr, nr).cast_('struct pid *')
@@ -63,7 +63,7 @@ def for_each_pid(prog_or_ns):
         prog = prog_or_ns
         ns = prog_or_ns['init_pid_ns'].address_of_()
     else:
-        prog = prog_or_ns.program_
+        prog = prog_or_ns.prog_
         ns = prog_or_ns
     if hasattr(ns, 'idr'):
         for nr, entry in idr_for_each(ns.idr):
@@ -87,10 +87,10 @@ def pid_task(pid, pid_type):
     type.
     """
     if not pid:
-        return pid.program_.null('struct task_struct *')
+        return pid.prog_.null('struct task_struct *')
     first = pid.tasks[0].first
     if not first:
-        return pid.program_.null('struct task_struct *')
+        return pid.prog_.null('struct task_struct *')
     return first.container_of_('struct task_struct', f'pids[{int(pid_type)}].node')
 
 
@@ -104,7 +104,7 @@ def find_task(prog_or_ns, pid):
     if isinstance(prog_or_ns, Program):
         prog = prog_or_ns
     else:
-        prog = prog_or_ns.program_
+        prog = prog_or_ns.prog_
     return pid_task(find_pid(prog_or_ns, pid), prog['PIDTYPE_PID'])
 
 
@@ -119,7 +119,7 @@ def for_each_task(prog_or_ns):
     if isinstance(prog_or_ns, Program):
         prog = prog_or_ns
     else:
-        prog = prog_or_ns.program_
+        prog = prog_or_ns.prog_
     PIDTYPE_PID = prog['PIDTYPE_PID'].value_()
     for pid in for_each_pid(prog_or_ns):
         task = pid_task(pid, PIDTYPE_PID)

@@ -1,6 +1,6 @@
 import unittest
 
-from drgn.memberdesignator import parse_member_designator
+from drgn.internal.memberdesignator import parse_member_designator
 
 
 class TestParseMemberDesignator(unittest.TestCase):

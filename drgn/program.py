@@ -1,20 +1,25 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
-"""Program debugging library"""
+"""
+Program debugging library
 
-import functools
+This module provides the two main interfaces provided by drgn -- the Program
+class, which represents the program being debugged, and the ProgramObject
+class, which represents an object (i.e., variable or value) in that program.
+"""
+
 import itertools
 import math
 import operator
 from typing import cast, Any, Callable, Iterable, Optional, Tuple, Union
 
-from drgn.corereader import CoreReader
+from drgn.internal.corereader import CoreReader
+from drgn.internal.util import c_string
+from drgn.internal.variableindex import VariableIndex
 from drgn.type import ArrayType, CompoundType, IntType, PointerType, Type
-from drgn.typename import TypeName
 from drgn.typeindex import TypeIndex
-from drgn.util import c_string
-from drgn.variableindex import VariableIndex
+from drgn.typename import TypeName
 
 
 def _c_modulo(a: int, b: int) -> int:
@@ -28,7 +33,7 @@ class ProgramObject:
     """
     A ProgramObject either represents an object in the memory of a program (an
     "lvalue") or a temporary computed value (an "rvalue"). It has three
-    members: program_, the program this object is from; type_, the type of this
+    members: prog_, the program this object is from; type_, the type of this
     object in the program; and address_, the location in memory where this
     object resides in the program (or None if it is not an lvalue).
 
@@ -43,9 +48,9 @@ class ProgramObject:
     (volatile long unsigned int)4326237045
 
     Note that the drgn CLI is set up so that ProgramObjects are displayed with
-    str() instead of repr(), which is the default behavior of Python's
-    interactive mode. This means that the call to print() in the second example
-    above is not necessary.
+    str() instead of repr() (the latter is the default behavior of Python's
+    interactive mode). This means that in the drgn CLI, the call to print() in
+    the second example above is not necessary.
 
     ProgramObjects support C operators wherever possible. E.g., structure
     members can be accessed with the dot (".") operator, arrays can be
@@ -74,17 +79,17 @@ class ProgramObject:
     conflict.
     """
 
-    def __init__(self, program: 'Program', type: Type, *,
-                 value: Any = None, address: Optional[int] = None) -> None:
+    def __init__(self, prog: 'Program', type: Type, *, value: Any = None,
+                 address: Optional[int] = None) -> None:
         if address is not None and value is not None:
             raise ValueError('object cannot have address and value')
         if address is None and value is None:
             raise ValueError('object must have either address or value')
-        self.program_ = program
+        self.prog_ = prog
         self.type_ = type
         self._real_type = type.real_type()
         if value is not None:
-            value = self._real_type.convert(value)
+            value = self._real_type._convert(value)
         self._value = value
         self.address_ = address
 
@@ -136,7 +141,7 @@ class ProgramObject:
         else:
             raise ValueError('not an array or pointer')
         offset = i * type_.sizeof()
-        return ProgramObject(self.program_, type_, address=address + offset)
+        return ProgramObject(self.prog_, type_, address=address + offset)
 
     def __iter__(self) -> Iterable['ProgramObject']:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
@@ -145,7 +150,7 @@ class ProgramObject:
         type_ = self._real_type.type
         for i in range(self._real_type.size):
             address = self.address_ + i * type_.sizeof()
-            yield ProgramObject(self.program_, type_, address=address)
+            yield ProgramObject(self.prog_, type_, address=address)
 
     def __repr__(self) -> str:
         parts = [
@@ -168,7 +173,7 @@ class ProgramObject:
         Implement str(self). Return a string representation of the value of
         this object in C syntax.
         """
-        string = self.type_.pretty(self.value_())
+        string = self.type_._pretty(self.value_())
         if (isinstance(self._real_type, PointerType) and
                 isinstance(self._real_type.type, IntType) and
                 self._real_type.type.name.endswith('char')):
@@ -181,8 +186,8 @@ class ProgramObject:
         elif isinstance(self._real_type, PointerType):
             try:
                 deref = self.__getitem__(0)
-                deref_string = deref._real_type.pretty(deref.value_(),
-                                                       cast=False)
+                deref_string = deref._real_type._pretty(deref.value_(),
+                                                        cast=False)
             except ValueError:
                 pass
             else:
@@ -201,8 +206,8 @@ class ProgramObject:
         """
         if self._value is not None:
             return self._value
-        return self._real_type.read(self.program_._reader,
-                                    cast(int, self.address_))
+        return self._real_type._read(self.prog_._reader,
+                                     cast(int, self.address_))
 
     def string_(self) -> bytes:
         """
@@ -210,7 +215,6 @@ class ProgramObject:
 
         This is only valid for pointers and arrays.
         """
-
         if isinstance(self._real_type, PointerType):
             addresses: Iterable[int] = itertools.count(self.value_())
         elif isinstance(self._real_type, ArrayType):
@@ -223,7 +227,7 @@ class ProgramObject:
             raise ValueError('not an array or pointer')
         b = bytearray()
         for address in addresses:
-            byte = self.program_.read(address, 1)[0]
+            byte = self.prog_.read(address, 1)[0]
             if not byte:
                 break
             b.append(byte)
@@ -239,7 +243,6 @@ class ProgramObject:
         thing, but this method can be used if there is a name conflict with a
         ProgramObject member or method.
         """
-
         if isinstance(self._real_type, PointerType):
             address = self.value_()
             type_ = self._real_type.type.real_type()
@@ -251,7 +254,7 @@ class ProgramObject:
             member_type, offset = type_.member(name)  # type: ignore
         except AttributeError:
             raise ValueError('not a struct or union')
-        return ProgramObject(self.program_, member_type, address=address + offset)
+        return ProgramObject(self.prog_, member_type, address=address + offset)
 
     def cast_(self, type: Union[str, Type, TypeName]) -> 'ProgramObject':
         """
@@ -259,8 +262,8 @@ class ProgramObject:
         usually a string, but it can also be a Type or TypeName object.
         """
         if not isinstance(type, Type):
-            type = self.program_.type(type)
-        return ProgramObject(self.program_, type, value=self._value,
+            type = self.prog_.type(type)
+        return ProgramObject(self.prog_, type, value=self._value,
                              address=self.address_)
 
     def address_of_(self) -> 'ProgramObject':
@@ -270,8 +273,8 @@ class ProgramObject:
         """
         if self.address_ is None:
             raise ValueError('cannot take address of rvalue')
-        return ProgramObject(self.program_,
-                             self.program_._type_index.pointer(self.type_),
+        return ProgramObject(self.prog_,
+                             self.prog_._type_index.pointer(self.type_),
                              value=self.address_)
 
     def container_of_(self, type: Union[str, Type, TypeName],
@@ -285,7 +288,7 @@ class ProgramObject:
         This is only valid for pointers.
         """
         if not isinstance(type, Type):
-            type = self.program_.type(type)
+            type = self.prog_.type(type)
         if not isinstance(self._real_type, PointerType):
             raise ValueError('container_of is only valid on pointers')
         real_type = type.real_type()
@@ -295,7 +298,7 @@ class ProgramObject:
         except AttributeError:
             raise ValueError('container_of is only valid with struct or union types')
         address = self.value_() - offset
-        return ProgramObject(self.program_,
+        return ProgramObject(self.prog_,
                              PointerType(self._real_type.size, type,
                                          self._real_type.qualifiers),
                              value=address)
@@ -306,7 +309,7 @@ class ProgramObject:
         be useful if the object can change in the running program. This loosely
         corresponds to the READ_ONCE() macro used in the Linux kernel.
         """
-        return ProgramObject(self.program_, self.type_, value=self.value_())
+        return ProgramObject(self.prog_, self.type_, value=self.value_())
 
     def _unary_operator(self, op: Callable, op_name: str,
                         integer: bool = False) -> 'ProgramObject':
@@ -315,13 +318,13 @@ class ProgramObject:
             raise TypeError(f"invalid operand to unary {op_name} ('{self.type_}')")
         type_ = self.type_.operand_type()
         if self._real_type.is_integer():
-            type_ = self.program_._type_index.integer_promotions(type_)
-        return ProgramObject(self.program_, type_, value=op(self.value_()))
+            type_ = self.prog_._type_index._integer_promotions(type_)
+        return ProgramObject(self.prog_, type_, value=op(self.value_()))
 
     def _binary_operands(self, lhs: Any, rhs: Any) -> Tuple[Any, Type, Any, Type]:
         lhs_obj = isinstance(lhs, ProgramObject)
         rhs_obj = isinstance(rhs, ProgramObject)
-        if lhs_obj and rhs_obj and lhs.program_ is not rhs.program_:
+        if lhs_obj and rhs_obj and lhs.prog_ is not rhs.prog_:
             raise ValueError('operands are from different programs')
         if lhs_obj:
             lhs_type = lhs.type_
@@ -330,7 +333,7 @@ class ProgramObject:
             else:
                 lhs = lhs.value_()
         else:
-            lhs_type = self.program_._type_index.literal_type(lhs)
+            lhs_type = self.prog_._type_index._literal_type(lhs)
         if rhs_obj:
             rhs_type = rhs.type_
             if isinstance(rhs._real_type, ArrayType):
@@ -338,13 +341,13 @@ class ProgramObject:
             else:
                 rhs = rhs.value_()
         else:
-            rhs_type = self.program_._type_index.literal_type(rhs)
+            rhs_type = self.prog_._type_index._literal_type(rhs)
         return lhs, lhs_type, rhs, rhs_type
 
     def _usual_arithmetic_conversions(self, lhs: Any, lhs_type: Type,
                                       rhs: Any, rhs_type: Type) -> Tuple[Type, Any, Any]:
-        type_ = self.program_._type_index.common_real_type(lhs_type, rhs_type)
-        return type_, type_.convert(lhs), type_.convert(rhs)
+        type_ = self.prog_._type_index._common_real_type(lhs_type, rhs_type)
+        return type_, type_._convert(lhs), type_._convert(rhs)
 
     def _arithmetic_operator(self, op: Callable, op_name: str,
                              lhs: Any, rhs: Any) -> 'ProgramObject':
@@ -355,7 +358,7 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
-        return ProgramObject(self.program_, type_, value=op(lhs, rhs))
+        return ProgramObject(self.prog_, type_, value=op(lhs, rhs))
 
     def _integer_operator(self, op: Callable, op_name: str,
                           lhs: Any, rhs: Any) -> 'ProgramObject':
@@ -366,7 +369,7 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
-        return ProgramObject(self.program_, type_, value=op(lhs, rhs))
+        return ProgramObject(self.prog_, type_, value=op(lhs, rhs))
 
     def _shift_operator(self, op: Callable, op_name: str,
                         lhs: Any, rhs: Any) -> 'ProgramObject':
@@ -375,9 +378,9 @@ class ProgramObject:
             raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
-        lhs_type = self.program_._type_index.integer_promotions(lhs_type)
-        rhs_type = self.program_._type_index.integer_promotions(rhs_type)
-        return ProgramObject(self.program_, lhs_type, value=op(lhs, rhs))
+        lhs_type = self.prog_._type_index._integer_promotions(lhs_type)
+        rhs_type = self.prog_._type_index._integer_promotions(rhs_type)
+        return ProgramObject(self.prog_, lhs_type, value=op(lhs, rhs))
 
     def _relational_operator(self, op: Callable, op_name: str,
                              other: Any) -> bool:
@@ -409,16 +412,16 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         if lhs_pointer:
             assert isinstance(lhs_type, PointerType)
-            return ProgramObject(self.program_, lhs_type,
+            return ProgramObject(self.prog_, lhs_type,
                                  value=lhs + lhs_type.type.sizeof() * rhs)
         elif rhs_pointer:
             assert isinstance(rhs_type, PointerType)
-            return ProgramObject(self.program_, rhs_type,
+            return ProgramObject(self.prog_, rhs_type,
                                  value=rhs + rhs_type.type.sizeof() * lhs)
         else:
             type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                                  rhs, rhs_type)
-            return ProgramObject(self.program_, type_, value=lhs + rhs)
+            return ProgramObject(self.prog_, type_, value=lhs + rhs)
 
     def _sub(self, lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
@@ -437,16 +440,16 @@ class ProgramObject:
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         if lhs_pointer and rhs_pointer:
-            return ProgramObject(self.program_,
-                                 self.program_._type_index.ptrdiff_t(),
+            return ProgramObject(self.prog_,
+                                 self.prog_._type_index._ptrdiff_t(),
                                  value=(lhs - rhs) // lhs_sizeof)
         elif lhs_pointer:
-            return ProgramObject(self.program_, lhs_type,
+            return ProgramObject(self.prog_, lhs_type,
                                  value=lhs - lhs_sizeof * rhs)
         else:
             type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                                  rhs, rhs_type)
-            return ProgramObject(self.program_, type_, value=lhs - rhs)
+            return ProgramObject(self.prog_, type_, value=lhs - rhs)
 
     def __add__(self, other: Any) -> 'ProgramObject':
         return self._add(self, other)
@@ -561,7 +564,7 @@ class ProgramObject:
             raise TypeError(f"can't round {self.type_}")
         if ndigits is None:
             return round(self.value_())
-        return ProgramObject(self.program_, self.type_,
+        return ProgramObject(self.prog_, self.type_,
                              value=round(self.value_(), ndigits))
 
     def __trunc__(self) -> int:
@@ -608,6 +611,14 @@ class Program:
     def close(self) -> None:
         """
         Close resources associated with this Program.
+
+        After this is called, other methods on this object must not be called.
+        A Program may also be used as a context manager, in which case it will
+        be closed automatically.
+
+        Note that this method is only useful when using drgn as a library; when
+        using the drgn CLI, the main Program object is created and closed
+        automatically.
         """
         self._reader.close()
 
@@ -636,6 +647,8 @@ class Program:
         """
         Return a ProgramObject representing NULL cast to the given type. The
         type can be a string, Type object, or TypeName object.
+
+        This is equivalent to self.object(type, value=0).
         """
         if not isinstance(type, Type):
             type = self.type(type)
@@ -643,8 +656,9 @@ class Program:
 
     def read(self, address: int, size: int, physical: bool = False) -> bytes:
         """
-        Return size bytes of memory starting at address (virtual by default or
-        physical) in the program.
+        Return size bytes of memory starting at address in the program. The
+        address may be virtual (the default) or physical if the program
+        supports it.
 
         >>> prog.read(0xffffffffbe012b40, 16)
         b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'
@@ -661,15 +675,16 @@ class Program:
         distinguished by passing the filename that the desired type was defined
         in. If no filename is given, it is undefined which one is returned.
         """
-        return self._type_index.find_type(name, filename)
+        return self._type_index.find(name, filename)
 
     def variable(self, name: str,
-                 filename: Optional[str] = None) -> ProgramObject:
+                   filename: Optional[str] = None) -> ProgramObject:
         """
-        Return a ProgramObject representing the variable with the given name.
+        Return a ProgramObject representing the variable or enumerator with the
+        given name.
 
-        If there are multiple variables with the given name, they can be
-        distinguished by passing the filename that the desired variable was
+        If there are multiple identifiers with the given name, they can be
+        distinguished by passing the filename that the desired identifier was
         defined in. If no filename is given, it is undefined which one is
         returned.
         """

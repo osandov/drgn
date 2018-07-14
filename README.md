@@ -20,7 +20,7 @@ $ python3 setup.py build_ext -i
 Then, you can either run it locally:
 
 ```
-$ python3 -m drgn.cli --help
+$ python3 -m drgn --help
 ```
 
 Or install it and run it:
@@ -35,14 +35,19 @@ Or, pick your favorite Python package installation method.
 Getting Started
 ---------------
 
+`drgn` can be used as a command line tool or as a library. For the latter, see
+the `drgn.lib` module. The rest of this section describes using the CLI; the
+CLI is basically a wrapper around the library which provides a nice interface,
+including history and tab completion.
+
 To debug the running kernel, run `sudo drgn -k`. To debug a running program,
 run `sudo drgn -p $PID`. To debug a core dump (either a kernel vmcore or a
 userspace core dump), run `drgn -c $PATH`.
 
-`drgn` has an interactive mode and a script mode. If no arguments are passed,
-`drgn` runs in interactive mode; otherwise, the given script is run with the
-given arguments. `drgn` is actually just the Python interpreter initialized
-with a `prog` object representing the debugged program:
+The `drgn` CLI has an interactive mode and a script mode. If no arguments are
+passed, `drgn` runs in interactive mode; otherwise, the given script is run
+with the given arguments. The `drgn` CLI is actually just the Python
+interpreter initialized with a `prog` object representing the debugged program:
 
 ```
 $ sudo drgn -k

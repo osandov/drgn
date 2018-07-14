@@ -1,6 +1,9 @@
 // Copyright 2018 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
+#ifndef _SIPHASH_H
+#define _SIPHASH_H
+
 #include <stdint.h>
 #include <string.h>
 
@@ -141,3 +144,5 @@ static inline uint64_t siphash_final(struct siphash *hash)
 
 	return hash->v0 ^ hash->v1 ^ hash->v2  ^ hash->v3;
 }
+
+#endif /* _SIPHASH_H */

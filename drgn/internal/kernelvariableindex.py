@@ -1,22 +1,25 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""Index of variables for the Linux kernel"""
+
 import os.path
-from typing import Tuple
 
-from drgn.elf import ET_EXEC
-from drgn.dwarf import Die, DwarfAttribNotFoundError
 from drgn.helpers.kernel import list_for_each_entry
-from drgn.type import Type
-from drgn.typeindex import DwarfTypeIndex
+from drgn.internal.dwarf import Die, DwarfAttribNotFoundError
+from drgn.internal.dwarftypeindex import DwarfTypeIndex
+from drgn.internal.dwarfvariableindex import DwarfVariableIndex
+from drgn.internal.elf import ET_EXEC
 from drgn.program import Program
-from drgn.variableindex import DwarfVariableIndex
+from drgn.type import Type
 
-
-# This would ideally just go in variableindex.py, but then we end up with
-# circular imports between program.py and variableindex.py.
 
 class KernelVariableIndex(DwarfVariableIndex):
+    """
+    This class is an implementation of VariableIndex for the Linux kernel. It
+    supports KASLR and kernel modules.
+    """
+
     def __init__(self, type_index: DwarfTypeIndex, kaslr_offset: int = 0) -> None:
         super().__init__(type_index)
         self._kaslr_offset = kaslr_offset

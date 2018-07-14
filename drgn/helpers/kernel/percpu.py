@@ -23,8 +23,8 @@ def per_cpu_ptr(ptr, cpu):
 
     Return the per-CPU pointer for a given CPU.
     """
-    offset = ptr.program_['__per_cpu_offset'][cpu].value_()
-    return ptr.program_.object(ptr.type_, value=ptr.value_() + offset)
+    offset = ptr.prog_['__per_cpu_offset'][cpu].value_()
+    return ptr.prog_.object(ptr.type_, value=ptr.value_() + offset)
 
 
 def percpu_counter_sum(fbc):
@@ -35,6 +35,6 @@ def percpu_counter_sum(fbc):
     """
     ret = fbc.count.value_()
     ptr = fbc.counters
-    for cpu in for_each_online_cpu(fbc.program_):
+    for cpu in for_each_online_cpu(fbc.prog_):
         ret += per_cpu_ptr(ptr, cpu)[0].value_()
     return ret

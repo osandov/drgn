@@ -109,22 +109,22 @@ class TestParseTypeName(unittest.TestCase):
 
     def test_qualifiers(self):
         self.assertEqual(parse_type_name('const int'),
-                         BasicTypeName('int', qualifiers=frozenset({'const'})))
+                         BasicTypeName('int', qualifiers={'const'}))
         self.assertEqual(parse_type_name('restrict int'),
-                         BasicTypeName('int', qualifiers=frozenset({'restrict'})))
+                         BasicTypeName('int', qualifiers={'restrict'}))
         self.assertEqual(parse_type_name('volatile int'),
-                         BasicTypeName('int', qualifiers=frozenset({'volatile'})))
+                         BasicTypeName('int', qualifiers={'volatile'}))
         self.assertEqual(parse_type_name('_Atomic int'),
-                         BasicTypeName('int', qualifiers=frozenset({'_Atomic'})))
+                         BasicTypeName('int', qualifiers={'_Atomic'}))
         self.assertEqual(parse_type_name('const volatile int'),
-                         BasicTypeName('int', qualifiers=frozenset({'const', 'volatile'})))
+                         BasicTypeName('int', qualifiers={'const', 'volatile'}))
         self.assertEqual(parse_type_name('const const int'),
-                         BasicTypeName('int', qualifiers=frozenset({'const'})))
+                         BasicTypeName('int', qualifiers={'const'}))
 
     def test_specifiers_qualifiers(self):
         self.assertEqual(parse_type_name('long const int unsigned'),
                          BasicTypeName('unsigned long',
-                                       qualifiers=frozenset({'const'})))
+                                       qualifiers={'const'}))
 
     def test_typedef(self):
         self.assertEqual(parse_type_name('u32'), TypedefTypeName('u32'))
@@ -141,7 +141,7 @@ class TestParseTypeName(unittest.TestCase):
                          PointerTypeName(BasicTypeName('int')))
         self.assertEqual(parse_type_name('int * const'),
                          PointerTypeName(BasicTypeName('int'),
-                                         qualifiers=frozenset({'const'})))
+                                         qualifiers={'const'}))
 
         self.assertEqual(parse_type_name('struct point *'),
                          PointerTypeName(StructTypeName('point')))
@@ -154,7 +154,7 @@ class TestParseTypeName(unittest.TestCase):
 
         self.assertEqual(parse_type_name('int * const *'),
                          PointerTypeName(PointerTypeName(BasicTypeName('int'),
-                                                         qualifiers=frozenset({'const'}))))
+                                                         qualifiers={'const'})))
 
     def test_array(self):
         self.assertEqual(parse_type_name('int []'),
@@ -218,20 +218,19 @@ class TestTypeStr(unittest.TestCase):
         self.assertEqual(str(BasicTypeName('unsigned char')), 'unsigned char')
 
     def test_qualifiers(self):
-        self.assertEqual(str(BasicTypeName('int', qualifiers=frozenset({'const'}))),
+        self.assertEqual(str(BasicTypeName('int', qualifiers={'const'})),
                          'const int')
-        self.assertEqual(str(BasicTypeName('int', qualifiers=frozenset({'restrict'}))),
+        self.assertEqual(str(BasicTypeName('int', qualifiers={'restrict'})),
                          'restrict int')
-        self.assertEqual(str(BasicTypeName('int', qualifiers=frozenset({'volatile'}))),
+        self.assertEqual(str(BasicTypeName('int', qualifiers={'volatile'})),
                          'volatile int')
-        self.assertEqual(str(BasicTypeName('int', qualifiers=frozenset({'_Atomic'}))),
+        self.assertEqual(str(BasicTypeName('int', qualifiers={'_Atomic'})),
                          '_Atomic int')
-        self.assertEqual(str(BasicTypeName('int', qualifiers=frozenset({'const', 'volatile'}))),
+        self.assertEqual(str(BasicTypeName('int', qualifiers={'const', 'volatile'})),
                          'const volatile int')
 
     def test_specifiers_qualifiers(self):
-        self.assertEqual(str(BasicTypeName('unsigned long',
-                                      qualifiers=frozenset({'const'}))),
+        self.assertEqual(str(BasicTypeName('unsigned long', qualifiers={'const'})),
                          'const unsigned long')
 
     def test_typedef(self):
@@ -248,7 +247,7 @@ class TestTypeStr(unittest.TestCase):
 
     def test_pointer(self):
         self.assertEqual(str(PointerTypeName(BasicTypeName('int'))), 'int *')
-        self.assertEqual(str(PointerTypeName(BasicTypeName('int'), qualifiers=frozenset({'const'}))),
+        self.assertEqual(str(PointerTypeName(BasicTypeName('int'), qualifiers={'const'})),
                          'int * const')
 
         self.assertEqual(str(PointerTypeName(BasicTypeName('struct point'))),
@@ -258,7 +257,7 @@ class TestTypeStr(unittest.TestCase):
                          'int **')
 
         self.assertEqual(str(PointerTypeName(PointerTypeName(BasicTypeName('int'),
-                                                             qualifiers=frozenset({'const'})))),
+                                                             qualifiers={'const'}))),
                          'int * const *')
 
     def test_array(self):
@@ -306,15 +305,15 @@ class TestTypeStr(unittest.TestCase):
                          'int *(*)(int *)')
 
     def test_pointer_to_function_returning_pointer_to_const(self):
-        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int', qualifiers=frozenset({'const'}))), [(BasicTypeName('int'), None)]))),
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int', qualifiers={'const'})), [(BasicTypeName('int'), None)]))),
                          'const int *(*)(int)')
 
     def test_pointer_to_function_returning_const_pointer(self):
-        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int'), qualifiers=frozenset({'const'})), [(BasicTypeName('int'), None)]))),
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int'), qualifiers={'const'}), [(BasicTypeName('int'), None)]))),
                          'int * const (*)(int)')
 
     def test_const_pointer_to_function_returning_pointer(self):
-        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int')), [(BasicTypeName('int'), None)]), qualifiers=frozenset({'const'}))),
+        self.assertEqual(str(PointerTypeName(FunctionTypeName(PointerTypeName(BasicTypeName('int')), [(BasicTypeName('int'), None)]), qualifiers={'const'})),
                          'int *(* const)(int)')
 
     def test_array_of_pointers_to_functions(self):
@@ -322,7 +321,7 @@ class TestTypeStr(unittest.TestCase):
                          'int (*[4])(int)')
 
     def test_array_of_const_pointers_to_functions(self):
-        self.assertEqual(str(ArrayTypeName(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None)]), qualifiers=frozenset({'const'})), None)),
+        self.assertEqual(str(ArrayTypeName(PointerTypeName(FunctionTypeName(BasicTypeName('int'), [(BasicTypeName('int'), None)]), qualifiers={'const'}), None)),
                          'int (* const [])(int)')
 
     def test_pointer_to_variadic_function(self):

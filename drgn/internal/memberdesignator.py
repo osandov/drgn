@@ -1,11 +1,13 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""C syntax member designator parser"""
+
 import enum
 import re
 from typing import cast, List, Tuple, Union
 
-from drgn.lexer import Lexer, Token
+from drgn.internal.lexer import Lexer
 
 
 @enum.unique

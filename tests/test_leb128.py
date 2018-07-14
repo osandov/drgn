@@ -1,5 +1,6 @@
-from drgn.dwarf import _Reader
 import unittest
+
+from drgn.internal.dwarf import _Reader
 
 
 """

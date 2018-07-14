@@ -1,8 +1,4 @@
-#!/usr/bin/env python3
-
-"""
-An implementation of lsmod(8) using drgn
-"""
+"""An implementation of lsmod(8) using drgn"""
 
 from drgn.helpers.kernel.list import list_for_each_entry
 

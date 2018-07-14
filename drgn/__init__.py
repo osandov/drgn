@@ -36,6 +36,9 @@ Various helpers are provided for particular types of programs. Try
 
 >>> import drgn.helpers
 >>> help(drgn.helpers)
+
+The drgn.internal package contains the drgn internals. Everything in that
+package should be considered implementation details and should not be used.
 """
 
 __version__ = '0.1.0'

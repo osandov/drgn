@@ -1,8 +1,4 @@
-#!/usr/bin/env python3
-
-"""
-A simplified implementation of ps(1) using drgn
-"""
+"""A simplified implementation of ps(1) using drgn"""
 
 from drgn.helpers.kernel.pid import for_each_task
 

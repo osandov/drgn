@@ -25,7 +25,7 @@ from typing import (
     Any,
     Callable,
     Dict,
-    FrozenSet,
+    Iterable,
     List,
     Optional,
     Tuple,
@@ -33,8 +33,9 @@ from typing import (
     cast,
 )
 
-from drgn.corereader import CoreReader
-from drgn.memberdesignator import parse_member_designator
+from drgn.internal.corereader import CoreReader
+from drgn.internal.memberdesignator import parse_member_designator
+from drgn.internal.util import c_string
 from drgn.typename import (
     ArrayTypeName,
     BasicTypeName,
@@ -47,7 +48,6 @@ from drgn.typename import (
     UnionTypeName,
     VoidTypeName,
 )
-from drgn.util import c_string
 
 
 _INT_READ = {
@@ -101,8 +101,8 @@ class Type:
     There are several Type subclasses representing more specific types.
     """
 
-    def __init__(self, qualifiers: FrozenSet[str] = frozenset()) -> None:
-        self.qualifiers = qualifiers
+    def __init__(self, qualifiers: Iterable[str] = frozenset()) -> None:
+        self.qualifiers = frozenset(qualifiers)
 
     def __repr__(self) -> str:
         parts = [self.__class__.__name__, '(']
@@ -115,47 +115,19 @@ class Type:
         return self.declaration('')
 
     def type_name(self) -> TypeName:
+        """Get the name of this type as a drgn.typename.TypeName."""
         raise NotImplementedError()
 
     def declaration(self, name: str) -> str:
+        """
+        Return a C statement which would declare a variable of the given name
+        to have this type.
+        """
         return self.type_name().declaration(name)
 
     def sizeof(self) -> int:
         """Return sizeof(type)."""
         raise NotImplementedError()
-
-    def read(self, reader: CoreReader, address: int) -> Any:
-        """
-        Read memory at the given address interpreted as this type.
-
-        This is used internally by drgn and typically doesn't need to be used
-        directly.
-        """
-        raise NotImplementedError()
-
-    def pretty(self, value: Any, cast: bool = True) -> str:
-        """
-        Return a representation of the value returned from self.read() in C
-        syntax, optionally with an explicit cast to the name of this type.
-
-        This is used internally by drgn and typically doesn't need to be used
-        directly.
-        """
-        raise NotImplementedError()
-
-    def read_pretty(self, reader: CoreReader, address: int, *,
-                    cast: bool = True) -> str:
-        """
-        Return self.pretty(self.read(...)).
-
-        This is used internally by drgn and typically doesn't need to be used
-        directly.
-        """
-        return self.pretty(self.read(reader, address), cast)
-
-    def convert(self, value: Any) -> Any:
-        """Return the given value converted to a valid value of this type."""
-        raise TypeError(f'cannot convert to {self}')
 
     def real_type(self) -> 'Type':
         """
@@ -168,9 +140,7 @@ class Type:
         return self
 
     def unqualified(self) -> 'Type':
-        """
-        Return this type without qualifiers.
-        """
+        """Return this type without qualifiers."""
         raise NotImplementedError()
 
     def operand_type(self) -> 'Type':
@@ -211,6 +181,33 @@ class Type:
         """
         return False
 
+    def _convert(self, value: Any) -> Any:
+        """Return the given value converted to a valid value of this type."""
+        raise TypeError(f'cannot convert to {self}')
+
+    def _read(self, reader: CoreReader, address: int) -> Any:
+        """
+        Read memory at the given address interpreted as this type.
+
+        This is used internally by drgn and typically doesn't need to be used
+        directly.
+        """
+        raise NotImplementedError()
+
+    def _pretty(self, value: Any, cast: bool = True) -> str:
+        """
+        Return a representation of the value returned from self._read() in C
+        syntax, optionally with an explicit cast to the name of this type.
+        """
+        raise NotImplementedError()
+
+    def _read_pretty(self, reader: CoreReader, address: int, *,
+                     cast: bool = True) -> str:
+        """
+        Return self._pretty(self._read(...)).
+        """
+        return self._pretty(self._read(reader, address), cast)
+
 
 class VoidType(Type):
     """
@@ -224,19 +221,19 @@ class VoidType(Type):
     def sizeof(self) -> int:
         raise ValueError("can't get size of void")
 
-    def read(self, reader: CoreReader, address: int) -> Any:
-        raise ValueError("can't read void")
-
-    def pretty(self, value: Any, cast: bool = True) -> str:
-        raise ValueError("can't format void")
-
-    def convert(self, value: Any) -> None:
-        return None
-
     def unqualified(self) -> 'VoidType':
         if self.qualifiers:
             return VoidType()
         return self
+
+    def _convert(self, value: Any) -> None:
+        return None
+
+    def _read(self, reader: CoreReader, address: int) -> Any:
+        raise ValueError("can't read void")
+
+    def _pretty(self, value: Any, cast: bool = True) -> str:
+        raise ValueError("can't format void")
 
 
 class ArithmeticType(Type):
@@ -251,7 +248,7 @@ class ArithmeticType(Type):
     """
 
     def __init__(self, name: str, size: int,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.size = size
@@ -274,15 +271,15 @@ class ArithmeticType(Type):
     def sizeof(self) -> int:
         return self.size
 
-    def pretty(self, value: Any, cast: bool = True) -> str:
+    def is_arithmetic(self) -> bool:
+        return True
+
+    def _pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')', str(value)]
             return ''.join(parts)
         else:
             return str(value)
-
-    def is_arithmetic(self) -> bool:
-        return True
 
 
 def _int_convert(value: int, bit_size: int, signed: bool) -> int:
@@ -303,10 +300,10 @@ class IntType(ArithmeticType):
     """
 
     def __init__(self, name: str, size: int, signed: bool,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(name, size, qualifiers)
         self.signed = signed
-        setattr(self, 'read', _INT_READ[size, signed])
+        setattr(self, '_read', _INT_READ[size, signed])
 
     def __repr__(self) -> str:
         parts = [
@@ -321,11 +318,6 @@ class IntType(ArithmeticType):
         parts.append(')')
         return ''.join(parts)
 
-    def convert(self, value: Any) -> int:
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        return _int_convert(math.trunc(value), 8 * self.size, self.signed)
-
     def unqualified(self) -> 'IntType':
         if self.qualifiers:
             return IntType(self.name, self.size, self.signed)
@@ -333,6 +325,11 @@ class IntType(ArithmeticType):
 
     def is_integer(self) -> bool:
         return True
+
+    def _convert(self, value: Any) -> int:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        return _int_convert(math.trunc(value), 8 * self.size, self.signed)
 
 
 class BoolType(IntType):
@@ -343,29 +340,29 @@ class BoolType(IntType):
     """
 
     def __init__(self, name: str, size: int,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(name, size, False, qualifiers)
-        setattr(self, 'read', _BOOL_READ[size])
+        setattr(self, '_read', _BOOL_READ[size])
 
     def __repr__(self) -> str:
         return ArithmeticType.__repr__(self)
-
-    def pretty(self, value: Any, cast: bool = True) -> str:
-        if cast:
-            parts = ['(', str(self.type_name()), ')', str(int(value))]
-            return ''.join(parts)
-        else:
-            return str(int(value))
-
-    def convert(self, value: Any) -> bool:
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        return bool(value)
 
     def unqualified(self) -> 'BoolType':
         if self.qualifiers:
             return BoolType(self.name, self.size)
         return self
+
+    def _convert(self, value: Any) -> bool:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        return bool(value)
+
+    def _pretty(self, value: Any, cast: bool = True) -> str:
+        if cast:
+            parts = ['(', str(self.type_name()), ')', str(int(value))]
+            return ''.join(parts)
+        else:
+            return str(int(value))
 
 
 class FloatType(ArithmeticType):
@@ -375,11 +372,16 @@ class FloatType(ArithmeticType):
     """
 
     def __init__(self, name: str, size: int,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(name, size, qualifiers)
-        setattr(self, 'read', _FLOAT_READ[size])
+        setattr(self, '_read', _FLOAT_READ[size])
 
-    def convert(self, value: Any) -> float:
+    def unqualified(self) -> 'FloatType':
+        if self.qualifiers:
+            return FloatType(self.name, self.size)
+        return self
+
+    def _convert(self, value: Any) -> float:
         if not isinstance(value, numbers.Real):
             raise TypeError(f'cannot convert to {self}')
         value = float(value)
@@ -390,11 +392,6 @@ class FloatType(ArithmeticType):
             return value
         else:
             raise ValueError(f"can't convert to float of size {self.size}")
-
-    def unqualified(self) -> 'FloatType':
-        if self.qualifiers:
-            return FloatType(self.name, self.size)
-        return self
 
 
 class BitFieldType(Type):
@@ -415,7 +412,7 @@ class BitFieldType(Type):
     """
 
     def __init__(self, type: Type, bit_offset: Optional[int], bit_size: int,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         self.type = type
         real_type = type.real_type()
         self._int_type: IntType
@@ -458,7 +455,25 @@ class BitFieldType(Type):
             bit_offset = self.bit_offset
         return (bit_offset + self.bit_size + 7) // 8
 
-    def read(self, reader: CoreReader, address: int) -> int:
+    def unqualified(self) -> 'BitFieldType':
+        if self.type.qualifiers:
+            return BitFieldType(self.type.unqualified(), self.bit_offset,
+                                self.bit_size)
+        return self
+
+    def is_arithmetic(self) -> bool:
+        return True
+
+    def is_integer(self) -> bool:
+        return True
+
+    def _convert(self, value: Any) -> int:
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f'cannot convert to {self}')
+        return _int_convert(math.trunc(value), self.bit_size,
+                            self._int_type.signed)
+
+    def _read(self, reader: CoreReader, address: int) -> int:
         if self.bit_offset is None:
             raise ValueError("can't read bit-field type")
 
@@ -475,30 +490,12 @@ class BitFieldType(Type):
             value -= (1 << self.bit_size)
         return value
 
-    def pretty(self, value: Dict, cast: bool = True) -> str:
+    def _pretty(self, value: Dict, cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type.type_name()), ')', str(value)]
             return ''.join(parts)
         else:
             return str(value)
-
-    def convert(self, value: Any) -> int:
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        return _int_convert(math.trunc(value), self.bit_size,
-                            self._int_type.signed)
-
-    def unqualified(self) -> 'BitFieldType':
-        if self.type.qualifiers:
-            return BitFieldType(self.type.unqualified(), self.bit_offset,
-                                self.bit_size)
-        return self
-
-    def is_arithmetic(self) -> bool:
-        return True
-
-    def is_integer(self) -> bool:
-        return True
 
 
 _TypeThunk = Callable[[], Type]
@@ -513,7 +510,7 @@ class CompoundType(Type):
 
     def __init__(self, name: Optional[str], size: Optional[int],
                  members: Optional[List[Tuple[Optional[str], int, _TypeThunk]]],
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         # List of name, offset, type_thunk. type_thunk is a callable taking no
         # parameters which returns the type of the member. This lets us lazily
@@ -579,15 +576,18 @@ class CompoundType(Type):
             raise ValueError("can't get size of incomplete type")
         return self.size
 
-    def read(self, reader: CoreReader, address: int) -> Dict:
+    def is_anonymous(self) -> bool:
+        return not self.name
+
+    def _read(self, reader: CoreReader, address: int) -> Dict:
         if self.size is None:
             raise ValueError("can't read incomplete type")
         return OrderedDict([
-            (name, type_thunk().read(reader, address + member_offset))
+            (name, type_thunk()._read(reader, address + member_offset))
             for name, (member_offset, type_thunk) in self._members_by_name.items()
         ])
 
-    def pretty(self, value: Dict, cast: bool = True) -> str:
+    def _pretty(self, value: Dict, cast: bool = True) -> str:
         if value.keys() != self._members_by_name.keys():
             raise ValueError('value members do not match type members')
         if cast and self.name:
@@ -600,7 +600,7 @@ class CompoundType(Type):
                 parts.append('\t.')
                 parts.append(name)
                 parts.append(' = ')
-                member_pretty = type_thunk().pretty(value[name])
+                member_pretty = type_thunk()._pretty(value[name])
                 parts.append(member_pretty.replace('\n', '\n\t'))
                 parts.append(',\n')
             parts.append('}')
@@ -662,9 +662,6 @@ class CompoundType(Type):
         struct dentry *
         """
         return self.member(member)[0]
-
-    def is_anonymous(self) -> bool:
-        return not self.name
 
 
 class StructType(CompoundType):
@@ -749,7 +746,7 @@ class EnumType(Type):
 
     def __init__(self, name: Optional[str], type: Optional[IntType],
                  enumerators: Optional[List[Tuple[str, int]]],
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         if (type is None) != (enumerators is None):
             raise ValueError('incomplete enum type must not have type or enumerators')
         super().__init__(qualifiers)
@@ -803,16 +800,28 @@ class EnumType(Type):
             raise ValueError("can't get size of incomplete type")
         return self.type.sizeof()
 
-    def read(self, reader: CoreReader, address: int) -> Union[enum.IntEnum, int]:
+    def unqualified(self) -> 'EnumType':
+        if self.qualifiers:
+            return EnumType(self.name, self.type,
+                            None if self.enum is None else self.enum.__members__)
+        return self
+
+    def is_anonymous(self) -> bool:
+        return not self.name
+
+    def is_arithmetic(self) -> bool:
+        return True
+
+    def _read(self, reader: CoreReader, address: int) -> Union[enum.IntEnum, int]:
         if self.type is None or self.enum is None:
             raise ValueError("can't read incomplete type")
-        value = self.type.read(reader, address)
+        value = self.type._read(reader, address)
         try:
             return self.enum(value)
         except ValueError:
             return value
 
-    def pretty(self, value: Any, cast: bool = True) -> str:
+    def _pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -829,30 +838,18 @@ class EnumType(Type):
             parts.append(str(value))
         return ''.join(parts)
 
-    def convert(self, value: Any) -> Union[enum.IntEnum, int]:
+    def _convert(self, value: Any) -> Union[enum.IntEnum, int]:
         if self.type is None or self.enum is None:
             raise ValueError("can't convert to incomplete enum type")
         if not isinstance(value, numbers.Real):
             raise TypeError(f'cannot convert to {self}')
-        value = self.type.convert(value)
+        value = self.type._convert(value)
         if self.enum is not None:
             try:
                 value = self.enum(value)
             except ValueError:
                 pass
         return value
-
-    def unqualified(self) -> 'EnumType':
-        if self.qualifiers:
-            return EnumType(self.name, self.type,
-                            None if self.enum is None else self.enum.__members__)
-        return self
-
-    def is_anonymous(self) -> bool:
-        return not self.name
-
-    def is_arithmetic(self) -> bool:
-        return True
 
 
 class TypedefType(Type):
@@ -869,7 +866,7 @@ class TypedefType(Type):
     """
 
     def __init__(self, name: str, type: Type,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         self.name = name
         self.type = type
@@ -897,20 +894,6 @@ class TypedefType(Type):
 
     def sizeof(self) -> int:
         return self.type.sizeof()
-
-    def read(self, reader: CoreReader, address: int) -> Any:
-        return self.type.read(reader, address)
-
-    def pretty(self, value: Any, cast: bool = True) -> str:
-        if cast:
-            parts = ['(', str(self.type_name()), ')',
-                     self.type.pretty(value, cast=False)]
-            return ''.join(parts)
-        else:
-            return self.type.pretty(value, cast=False)
-
-    def convert(self, value: Any) -> Any:
-        return self.type.convert(value)
 
     def real_type(self) -> Type:
         type_ = self.type
@@ -944,6 +927,20 @@ class TypedefType(Type):
     def is_pointer(self) -> bool:
         return self.type.is_pointer()
 
+    def _read(self, reader: CoreReader, address: int) -> Any:
+        return self.type._read(reader, address)
+
+    def _pretty(self, value: Any, cast: bool = True) -> str:
+        if cast:
+            parts = ['(', str(self.type_name()), ')',
+                     self.type._pretty(value, cast=False)]
+            return ''.join(parts)
+        else:
+            return self.type._pretty(value, cast=False)
+
+    def _convert(self, value: Any) -> Any:
+        return self.type._convert(value)
+
 
 class PointerType(Type):
     """
@@ -961,11 +958,11 @@ class PointerType(Type):
     """
 
     def __init__(self, size: int, type: Type,
-                 qualifiers: FrozenSet[str] = frozenset()) -> None:
+                 qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(qualifiers)
         self.size = size
         self.type = type
-        setattr(self, 'read', _INT_READ[size, False])
+        setattr(self, '_read', _INT_READ[size, False])
 
     def __repr__(self) -> str:
         parts = [
@@ -985,18 +982,6 @@ class PointerType(Type):
     def sizeof(self) -> int:
         return self.size
 
-    def pretty(self, value: Any, cast: bool = True) -> str:
-        if cast:
-            parts = ['(', str(self.type_name()), ')', hex(value)]
-            return ''.join(parts)
-        else:
-            return hex(value)
-
-    def convert(self, value: Any) -> int:
-        if not isinstance(value, numbers.Integral):
-            raise TypeError(f'cannot convert to {self}')
-        return _int_convert(int(value), 8 * self.size, False)
-
     def unqualified(self) -> 'PointerType':
         if self.qualifiers:
             return PointerType(self.size, self.type)
@@ -1004,6 +989,18 @@ class PointerType(Type):
 
     def is_pointer(self) -> bool:
         return True
+
+    def _pretty(self, value: Any, cast: bool = True) -> str:
+        if cast:
+            parts = ['(', str(self.type_name()), ')', hex(value)]
+            return ''.join(parts)
+        else:
+            return hex(value)
+
+    def _convert(self, value: Any) -> int:
+        if not isinstance(value, numbers.Integral):
+            raise TypeError(f'cannot convert to {self}')
+        return _int_convert(int(value), 8 * self.size, False)
 
 
 class ArrayType(Type):
@@ -1047,16 +1044,25 @@ class ArrayType(Type):
             raise ValueError("can't get size of incomplete array type")
         return self.size * self.type.sizeof()
 
-    def read(self, reader: CoreReader, address: int) -> List:
+    def _read(self, reader: CoreReader, address: int) -> List:
         if not self.size:
             return []
         element_size = self.type.sizeof()
         return [
-            self.type.read(reader, address + i * element_size)
+            self.type._read(reader, address + i * element_size)
             for i in range(self.size)
         ]
 
-    def pretty(self, value: List, cast: bool = True) -> str:
+    def unqualified(self) -> 'ArrayType':
+        return self
+
+    def operand_type(self) -> 'PointerType':
+        return PointerType(self.pointer_size, self.type)
+
+    def is_pointer(self) -> bool:
+        return True
+
+    def _pretty(self, value: List, cast: bool = True) -> str:
         if (self.size or 0) != len(value):
             raise ValueError('list size does not match type size')
         if cast:
@@ -1078,7 +1084,7 @@ class ArrayType(Type):
             for element in reversed(value):
                 format_element = format_element or bool(element)
                 if format_element:
-                    elements.append(self.type.pretty(element, cast=False))
+                    elements.append(self.type._pretty(element, cast=False))
             parts.append('{')
             if elements:
                 parts.append('\n')
@@ -1087,15 +1093,6 @@ class ArrayType(Type):
                     parts.append(',\n')
             parts.append('}')
         return ''.join(parts)
-
-    def unqualified(self) -> 'ArrayType':
-        return self
-
-    def operand_type(self) -> 'PointerType':
-        return PointerType(self.pointer_size, self.type)
-
-    def is_pointer(self) -> bool:
-        return True
 
 
 class FunctionType(Type):
@@ -1147,12 +1144,6 @@ class FunctionType(Type):
     def sizeof(self) -> int:
         raise ValueError("can't get size of function")
 
-    def read(self, reader: CoreReader, address: int) -> Dict:
-        raise ValueError("can't read function")
-
-    def pretty(self, value: Any, cast: bool = True) -> str:
-        raise ValueError("can't format function")
-
     def unqualified(self) -> 'FunctionType':
         return self
 
@@ -1161,3 +1152,9 @@ class FunctionType(Type):
 
     def is_pointer(self) -> bool:
         return True
+
+    def _read(self, reader: CoreReader, address: int) -> Dict:
+        raise ValueError("can't read function")
+
+    def _pretty(self, value: Any, cast: bool = True) -> str:
+        raise ValueError("can't format function")

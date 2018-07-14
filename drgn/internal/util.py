@@ -1,6 +1,8 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""Miscellaneous helper functions"""
+
 import glob
 import os.path
 import re

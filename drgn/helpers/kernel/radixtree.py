@@ -22,8 +22,8 @@ def _is_internal_node(node):
 
 
 def _internal_node(node):
-    return node.program_.object(node.type_,
-                                value=node.value_() & ~_RADIX_TREE_INTERNAL_NODE)
+    return node.prog_.object(node.type_,
+                             value=node.value_() & ~_RADIX_TREE_INTERNAL_NODE)
 
 
 def radix_tree_lookup(root, index):

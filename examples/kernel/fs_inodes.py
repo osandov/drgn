@@ -1,8 +1,4 @@
-#!/usr/bin/env python3
-
-"""
-List the paths of all inodes cached in a given filesystem
-"""
+"""List the paths of all inodes cached in a given filesystem"""
 
 from drgn.helpers.kernel.fs import for_each_mount, inode_path
 from drgn.helpers.kernel.list import list_for_each_entry

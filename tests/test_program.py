@@ -1,9 +1,8 @@
 import math
 import operator
 import tempfile
-import unittest
 
-from drgn.corereader import CoreReader
+from drgn.internal.corereader import CoreReader
 from drgn.program import Program, ProgramObject
 from drgn.type import IntType, StructType, TypedefType
 from tests.test_type import point_type
@@ -14,7 +13,7 @@ class TestProgramObject(TypeIndexTestCase):
     def setUp(self):
         super().setUp()
         def program_object_equality_func(a, b, msg=None):
-            if a.program_ != b.program_:
+            if a.prog_ is not b.prog_:
                 raise self.failureException(msg or 'objects have different program')
             if a.type_ != b.type_:
                 raise self.failureException(msg or f'objects types differ: {a.type_!r} != {b.type_!r}')
@@ -119,7 +118,7 @@ class TestProgramObject(TypeIndexTestCase):
                                "'ProgramObject' object has no attribute 'foo'",
                                getattr, int_obj, 'foo')
 
-        obj = self.program.object(IntType('int', 4, True, frozenset({'const'})),
+        obj = self.program.object(IntType('int', 4, True, {'const'}),
                                   address=0xffff0000)
         self.assertEqual(+obj, self.program.object(TYPES['int'], value=1))
 

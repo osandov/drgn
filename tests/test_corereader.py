@@ -2,7 +2,7 @@ import contextlib
 import tempfile
 import unittest
 
-from drgn.corereader import CoreReader
+from drgn.internal.corereader import CoreReader
 
 
 @contextlib.contextmanager

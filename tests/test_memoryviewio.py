@@ -1,6 +1,6 @@
 import unittest
 
-from drgn.memoryviewio import MemoryViewIO
+from drgn.internal.memoryviewio import MemoryViewIO
 
 
 class TestCoreReader(unittest.TestCase):

@@ -7,17 +7,17 @@ from setuptools.extension import Extension
 
 extensions = [
     Extension(
-        name='drgn.dwarfindex',
+        name='drgn.internal.dwarfindex',
         sources=[
-            'drgn/dwarfindex.c',
+            'drgn/internal/dwarfindex.c',
         ],
         extra_compile_args=['-fopenmp'],
         extra_link_args=['-fopenmp'],
     ),
     Extension(
-        name='drgn.corereader',
+        name='drgn.internal.corereader',
         sources=[
-            'drgn/corereader.c',
+            'drgn/internal/corereader.c',
         ],
     ),
 ]
@@ -25,13 +25,13 @@ extensions = [
 setup(
     name='drgn',
     version=__version__,
-    packages=find_packages(exclude=['scripts', 'tests']),
+    packages=find_packages(exclude=['examples', 'scripts', 'tests']),
     ext_modules=extensions,
     entry_points={
-        'console_scripts': ['drgn=drgn.cli.main'],
+        'console_scripts': ['drgn=drgn.internal.cli:main'],
     },
     author='Omar Sandoval',
     author_email='osandov@osandov.com',
     license='GPL-3.0+',
-    description='Scriptable debugger',
+    description='Scriptable debugger library',
 )

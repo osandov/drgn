@@ -1,6 +1,8 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""drgn command line interface"""
+
 import argparse
 import builtins
 import code
@@ -68,7 +70,7 @@ def main() -> None:
             import atexit
             import readline
 
-            from drgn.rlcompleter import Completer
+            from drgn.internal.rlcompleter import Completer
 
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
@@ -89,7 +91,3 @@ def main() -> None:
 
             banner = version + '\nFor help, type help(drgn).'
             code.interact(banner=banner, exitmsg='', local=init_globals)
-
-
-if __name__ == '__main__':
-    main()

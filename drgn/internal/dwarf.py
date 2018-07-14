@@ -1,6 +1,8 @@
 # Copyright 2018 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
+"""DWARF parsing library"""
+
 import enum
 import functools
 import os
@@ -11,7 +13,7 @@ from typing import (
     Dict, Iterator, List, NamedTuple, Optional, Sequence, Text, Tuple, Union,
 )
 
-from drgn.elf import ElfFile
+from drgn.internal.elf import ElfFile
 
 
 # Automatically generated from dwarf.h

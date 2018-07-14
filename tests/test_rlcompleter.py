@@ -2,7 +2,7 @@ import itertools
 from types import SimpleNamespace
 import unittest
 
-from drgn.rlcompleter import Completer
+from drgn.internal.rlcompleter import Completer
 
 
 class TestRlCompleter(unittest.TestCase):

@@ -54,7 +54,7 @@ def page_to_pfn(page):
 
     Get the page frame number (PFN) of a page.
     """
-    return (page - _vmemmap(page.program_)).cast_('unsigned long')
+    return (page - _vmemmap(page.prog_)).cast_('unsigned long')
 
 
 def pfn_to_page(prog_or_pfn, pfn=None):
@@ -65,7 +65,7 @@ def pfn_to_page(prog_or_pfn, pfn=None):
     as a ProgramObject or a Program and the PFN as an int.
     """
     if pfn is None:
-        prog = prog_or_pfn.program_
+        prog = prog_or_pfn.prog_
         pfn = prog_or_pfn
     else:
         prog = prog_or_pfn
@@ -81,7 +81,7 @@ def virt_to_pfn(prog_or_addr, addr=None):
     int.
     """
     if addr is None:
-        prog = prog_or_addr.program_
+        prog = prog_or_addr.prog_
         addr = prog_or_addr.value_()
     else:
         prog = prog_or_addr
@@ -97,7 +97,7 @@ def pfn_to_virt(prog_or_pfn, pfn=None):
     an int.
     """
     if pfn is None:
-        prog = prog_or_pfn.program_
+        prog = prog_or_pfn.prog_
         pfn = prog_or_pfn.value_()
     else:
         prog = prog_or_pfn
