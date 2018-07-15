@@ -608,14 +608,22 @@ class CompoundType(Type):
             parts.append('{}')
         return ''.join(parts)
 
-    def members(self) -> List[str]:
+    def member_names(self) -> List[str]:
         """
         Return a list of member names.
 
-        >>> prog['init_task'].fs.root.type_.members()
+        >>> prog['init_task'].fs.root.type_.member_names()
         ['mnt', 'dentry']
         """
         return list(self._members_by_name)
+
+    def members(self) -> Iterable[Tuple[str, Type, int]]:
+        """
+        Return an iterator of all of the members of this type, as (name, type,
+        offset) tuples.
+        """
+        for name, (offset, type_thunk) in self._members_by_name.items():
+            yield name, type_thunk(), offset
 
     @functools.lru_cache()
     def member(self, member: str) -> Tuple[Type, int]:

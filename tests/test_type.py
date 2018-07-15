@@ -182,7 +182,11 @@ struct point {
 	int y;
 }""")
         self.assertEqual(point_type.sizeof(), 8)
-        self.assertEqual(point_type.members(), ['x', 'y'])
+        self.assertEqual(point_type.member_names(), ['x', 'y'])
+        self.assertEqual(list(point_type.members()), [
+            ('x', IntType('int', 4, True), 0),
+            ('y', IntType('int', 4, True), 4),
+        ])
         self.assertEqual(point_type.offsetof('x'), 0)
         self.assertEqual(point_type.offsetof('y'), 4)
         self.assertEqual(point_type.typeof('x'), IntType('int', 4, True))
@@ -247,7 +251,12 @@ const volatile struct line_segment {
                 ('z', 4, lambda: IntType('int', 4, True)),
             ])),
         ])
-        self.assertEqual(type_.members(), ['x', 'y', 'z'])
+        self.assertEqual(type_.member_names(), ['x', 'y', 'z'])
+        self.assertEqual(list(type_.members()), [
+            ('x', IntType('int', 4, True), 0),
+            ('y', IntType('int', 4, True), 4),
+            ('z', IntType('int', 4, True), 8),
+        ])
         self.assertEqual(type_.offsetof('x'), 0)
         self.assertEqual(type_.offsetof('y'), 4)
         self.assertEqual(type_.offsetof('z'), 8)
@@ -256,7 +265,8 @@ const volatile struct line_segment {
         self.assertEqual(type_.typeof('z'), IntType('int', 4, True))
 
         type_ = StructType('foo', 0, [])
-        self.assertEqual(type_.members(), [])
+        self.assertEqual(type_.member_names(), [])
+        self.assertEqual(list(type_.members()), [])
 
     def test_bit_field(self):
         type_ = StructType(None, 8, [

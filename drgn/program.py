@@ -100,7 +100,7 @@ class ProgramObject:
         else:
             type_ = self._real_type
         if isinstance(type_, CompoundType):
-            attrs.extend(type_.members())
+            attrs.extend(type_.member_names())
         return attrs
 
     def __getattr__(self, name: str) -> 'ProgramObject':

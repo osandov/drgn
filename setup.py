@@ -7,6 +7,12 @@ from setuptools.extension import Extension
 
 extensions = [
     Extension(
+        name='drgn.internal.corereader',
+        sources=[
+            'drgn/internal/corereader.c',
+        ],
+    ),
+    Extension(
         name='drgn.internal.dwarfindex',
         sources=[
             'drgn/internal/dwarfindex.c',
@@ -15,9 +21,9 @@ extensions = [
         extra_link_args=['-fopenmp'],
     ),
     Extension(
-        name='drgn.internal.corereader',
+        name='drgn.internal.thunk',
         sources=[
-            'drgn/internal/corereader.c',
+            'drgn/internal/thunk.c',
         ],
     ),
 ]

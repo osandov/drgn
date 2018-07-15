@@ -16,6 +16,7 @@ from drgn.internal.dwarf import (
     DW_TAG,
 )
 from drgn.internal.dwarfindex import DwarfIndex
+from drgn.internal.thunk import thunk
 from drgn.type import (
     ArrayType,
     BitFieldType,
@@ -196,22 +197,18 @@ class DwarfTypeIndex(TypeIndex):
                     else:
                         offset = 0
                     if child.has_attrib(DW_AT.bit_size):
-                        type_thunk = functools.partial(self._from_dwarf_bit_field,
-                                                       child)
+                        type_thunk = thunk(self._from_dwarf_bit_field, child)
                     else:
-                        type_thunk = functools.partial(self._from_dwarf_type,
-                                                       child.type())
+                        type_thunk = thunk(self._from_dwarf_type, child.type())
                     members.append((name, offset, type_thunk))
             try:
                 name = dwarf_type.name()
             except DwarfAttribNotFoundError:
                 name = None
             if dwarf_type.tag == DW_TAG.structure_type:
-                return StructType(name, size, members, qualifiers)  # type: ignore
-                                                                    # mypy issue #1484
+                return StructType(name, size, members, qualifiers)
             else:
-                return UnionType(name, size, members, qualifiers)  # type: ignore
-                                                                   # mypy issue #1484
+                return UnionType(name, size, members, qualifiers)
         elif dwarf_type.tag == DW_TAG.enumeration_type:
             try:
                 name = dwarf_type.name()
