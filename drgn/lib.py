@@ -177,7 +177,7 @@ def program(core: Optional[str] = None, pid: Optional[int] = None,
             elif file_mappings is None:
                 raise ValueError('core dump has no NT_FILE or VMCOREINFO note')
             type_index_ = type_index({mapping.path for mapping in file_mappings},
-                                    verbose)
+                                     verbose)
             variable_index = UserspaceVariableIndex(cast(DwarfTypeIndex, type_index_),
                                                     file_mappings)
 

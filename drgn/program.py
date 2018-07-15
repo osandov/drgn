@@ -678,7 +678,7 @@ class Program:
         return self._type_index.find(name, filename)
 
     def variable(self, name: str,
-                   filename: Optional[str] = None) -> ProgramObject:
+                 filename: Optional[str] = None) -> ProgramObject:
         """
         Return a ProgramObject representing the variable or enumerator with the
         given name.
