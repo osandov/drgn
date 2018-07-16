@@ -15,8 +15,6 @@ help(Type).
 from collections import OrderedDict
 import enum
 import functools
-import math
-import numbers
 import re
 import struct
 import sys
@@ -283,7 +281,7 @@ class ArithmeticType(Type):
 
 
 def _int_convert(value: int, bit_size: int, signed: bool) -> int:
-    value %= 1 << bit_size
+    value &= (1 << bit_size) - 1
     if signed and (value & (1 << (bit_size - 1))):
         value -= 1 << bit_size
     return value
@@ -327,9 +325,11 @@ class IntType(ArithmeticType):
         return True
 
     def _convert(self, value: Any) -> int:
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        return _int_convert(math.trunc(value), 8 * self.size, self.signed)
+        try:
+            value = value.__int__()
+        except AttributeError:
+            raise TypeError(f'cannot convert to {self}') from None
+        return _int_convert(value, 8 * self.size, self.signed)
 
 
 class BoolType(IntType):
@@ -353,9 +353,10 @@ class BoolType(IntType):
         return self
 
     def _convert(self, value: Any) -> bool:
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        return bool(value)
+        try:
+            return bool(value + 0)
+        except TypeError:
+            raise TypeError(f'cannot convert to {self}') from None
 
     def _pretty(self, value: Any, cast: bool = True) -> str:
         if cast:
@@ -382,9 +383,10 @@ class FloatType(ArithmeticType):
         return self
 
     def _convert(self, value: Any) -> float:
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        value = float(value)
+        try:
+            value = value.__float__()
+        except AttributeError:
+            raise TypeError(f'cannot convert to {self}') from None
         if self.size == 4:
             # Python doesn't have a native float32 type.
             return struct.unpack('f', struct.pack('f', value))[0]
@@ -468,10 +470,11 @@ class BitFieldType(Type):
         return True
 
     def _convert(self, value: Any) -> int:
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        return _int_convert(math.trunc(value), self.bit_size,
-                            self._int_type.signed)
+        try:
+            value = value.__int__()
+        except AttributeError:
+            raise TypeError(f'cannot convert to {self}') from None
+        return _int_convert(value, self.bit_size, self._int_type.signed)
 
     def _read(self, reader: CoreReader, address: int) -> int:
         if self.bit_offset is None:
@@ -849,15 +852,14 @@ class EnumType(Type):
     def _convert(self, value: Any) -> Union[enum.IntEnum, int]:
         if self.type is None or self.enum is None:
             raise ValueError("can't convert to incomplete enum type")
-        if not isinstance(value, numbers.Real):
-            raise TypeError(f'cannot convert to {self}')
-        value = self.type._convert(value)
-        if self.enum is not None:
-            try:
-                value = self.enum(value)
-            except ValueError:
-                pass
-        return value
+        try:
+            value = self.type._convert(value)
+        except TypeError:
+            raise TypeError(f'cannot convert to {self}') from None
+        try:
+            return self.enum(value)
+        except ValueError:
+            return value
 
 
 class TypedefType(Type):
@@ -1006,9 +1008,10 @@ class PointerType(Type):
             return hex(value)
 
     def _convert(self, value: Any) -> int:
-        if not isinstance(value, numbers.Integral):
-            raise TypeError(f'cannot convert to {self}')
-        return _int_convert(int(value), 8 * self.size, False)
+        try:
+            return value & ((1 << (8 * self.size)) - 1)
+        except TypeError:
+            raise TypeError(f'cannot convert to {self}') from None
 
 
 class ArrayType(Type):
