@@ -292,19 +292,18 @@ class ProgramObject:
         """
         if not isinstance(type, Type):
             type = self.prog_.type(type)
-        if not isinstance(self._real_type, PointerType):
+        self_real_type = self._real_type
+        if not isinstance(self_real_type, PointerType):
             raise ValueError('container_of is only valid on pointers')
-        real_type = type.real_type()
         try:
             # mypy doesn't understand the except AttributeError.
-            offset = real_type.offsetof(member)  # type: ignore
+            offset = type.real_type().offsetof(member)  # type: ignore
         except AttributeError:
             raise ValueError('container_of is only valid with struct or union types')
-        address = self.value_() - offset
         return ProgramObject(self.prog_,
-                             PointerType(self._real_type.size, type,
-                                         self._real_type.qualifiers),
-                             value=address)
+                             PointerType(self_real_type.size, type,
+                                         self_real_type.qualifiers),
+                             value=self.value_() - offset)
 
     def read_once_(self) -> 'ProgramObject':
         """
