@@ -81,17 +81,20 @@ class ProgramObject:
 
     def __init__(self, prog: 'Program', type: Type, *, value: Any = None,
                  address: Optional[int] = None) -> None:
-        if address is not None and value is not None:
-            raise ValueError('object cannot have address and value')
-        if address is None and value is None:
-            raise ValueError('object must have either address or value')
         self.prog_ = prog
         self.type_ = type
-        self._real_type = type.real_type()
-        if value is not None:
-            value = self._real_type._convert(value)
-        self._value = value
-        self.address_ = address
+        real_type = type.real_type()
+        self._real_type = real_type
+        if value is None:
+            if address is None:
+                raise ValueError('object must have either address or value')
+            self._value = None
+            self.address_: Optional[int] = address
+        elif address is not None:
+            raise ValueError('object cannot have address and value')
+        else:
+            self._value = real_type._convert(value)
+            self.address_ = None
 
     def __dir__(self) -> Iterable[str]:
         attrs = list(super().__dir__())
