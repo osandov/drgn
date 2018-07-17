@@ -79,7 +79,7 @@ color_type = EnumType('color', IntType('unsigned int', 4, False), [
     ('GREEN', 1),
     ('BLUE', 2)
 ])
-const_anonymous_color_type = EnumType(None, IntType('unsigned int', 4, False), [
+const_anonymous_color_type = EnumType(None, IntType('int', 4, True), [
     ('RED', 0),
     ('GREEN', -1),
     ('BLUE', -2)
