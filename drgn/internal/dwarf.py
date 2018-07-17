@@ -837,7 +837,7 @@ class CompilationUnit:
         assert die is not None
         return die
 
-    def _die_siblings(self, offset: int):
+    def _die_siblings(self, offset: int) -> List['Die']:
         reader = self.dwarf_file._get_section_reader('.debug_info')
         reader.offset = offset
         return _parse_die_siblings(reader, self)
@@ -895,7 +895,7 @@ class DieAttrib(NamedTuple):
 
 
 class Die:
-    _no_children = []
+    _no_children: List['Die'] = []
 
     def __init__(self, cu: CompilationUnit, tag: int, attribs: List[DieAttrib],
                  children: Optional[Callable[[], List['Die']]] = None) -> None:

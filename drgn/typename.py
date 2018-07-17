@@ -76,7 +76,7 @@ class VoidTypeName(TypeName):
     def __init__(self, qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__('void', qualifiers)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [self.__class__.__name__, '(']
         if self.qualifiers:
             parts.append(repr(self.qualifiers))
