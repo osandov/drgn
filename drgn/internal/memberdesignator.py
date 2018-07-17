@@ -66,7 +66,7 @@ def parse_member_designator(string: str) -> List[Tuple[str, Union[str, int]]]:
             if token.kind == 'RBRACKET':
                 state = _State.RBRACKET
             else:
-                raise ValueError("expected '.' or '[' after identifier")
-        else:
+                raise ValueError("expected ']' after number")
+        else:  # pragma: no cover
             assert False
     return designator

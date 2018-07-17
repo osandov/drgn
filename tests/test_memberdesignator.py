@@ -52,3 +52,7 @@ class TestParseMemberDesignator(unittest.TestCase):
     def test_double_rbracket(self):
         self.assertRaisesRegex(ValueError, r"^expected '\.' or '\[' after ']'$",
                                parse_member_designator, 'foo[0]]')
+
+    def test_missing_rbracket(self):
+        self.assertRaisesRegex(ValueError, r"^expected ']' after number$",
+                               parse_member_designator, 'foo[0')
