@@ -1,9 +1,10 @@
 __pycache__
-.mypy_cache
 *.pyc
 *.o
 *.so
+/.coverage
+/.mypy_cache
 /build
-/drgn.egg-info
 /coverage.info
-/out
+/drgn.egg-info
+/htmlcov
