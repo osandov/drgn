@@ -10,10 +10,19 @@ import os.path
 import struct
 import sys
 from typing import (
-    Dict, Iterator, List, NamedTuple, Optional, Sequence, Text, Tuple, Union,
+    Callable,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Text,
+    Tuple,
+    Union,
 )
 
 from drgn.internal.elf import ElfFile
+from drgn.internal.thunk import thunk
 
 
 # Automatically generated from dwarf.h
@@ -805,6 +814,9 @@ class CompilationUnit:
         self.is_64_bit = is_64_bit
         self.abbrev_table = abbrev_table
 
+    def __repr__(self) -> str:
+        return f'CompilationUnit({self.offset}, ...)'
+
     def name(self) -> str:
         return self.die().name()
 
@@ -824,6 +836,11 @@ class CompilationUnit:
         die = _parse_die(reader, self, False)
         assert die is not None
         return die
+
+    def _die_siblings(self, offset: int):
+        reader = self.dwarf_file._get_section_reader('.debug_info')
+        reader.offset = offset
+        return _parse_die_siblings(reader, self)
 
     @functools.lru_cache()
     def lnp(self) -> 'LineNumberProgram':
@@ -878,15 +895,20 @@ class DieAttrib(NamedTuple):
 
 
 class Die:
-    def __init__(self, cu: CompilationUnit, offset: int, length: int,
-                 tag: int, attribs: List[DieAttrib],
-                 children: Optional[List['Die']]) -> None:
+    _no_children = []
+
+    def __init__(self, cu: CompilationUnit, tag: int, attribs: List[DieAttrib],
+                 children: Optional[Callable[[], List['Die']]] = None) -> None:
         self.cu = cu
-        self.offset = offset
-        self.length = length
         self.tag = tag
         self.attribs = attribs
-        self._children = children
+        if children is None:
+            self.children = lambda: Die._no_children
+        else:
+            self.children = children
+
+    def __repr__(self) -> str:
+        return f'Die({self.cu!r}, {DW_TAG.str(self.tag)}, {self.attribs!r}, ...)'
 
     def has_attrib(self, at: DW_AT) -> bool:
         for attrib in self.attribs:
@@ -984,17 +1006,6 @@ class Die:
 
     def type(self) -> 'Die':
         return self.find_die(DW_AT.type)
-
-    def children(self) -> List['Die']:
-        # Note that _children isn't a cache; it's used for DIEs with no
-        # children or DIEs which we had to parse the children for anyways when
-        # we were parsing a list of siblings.
-        if self._children is not None:
-            return self._children
-
-        reader = self.cu.dwarf_file._get_section_reader('.debug_info')
-        reader.offset = self.offset + self.length
-        return _parse_die_siblings(reader, self.cu)
 
     def decl_file(self) -> str:
         return self.cu.lnp().file_name(self.find_constant(DW_AT.decl_file))
@@ -1150,7 +1161,6 @@ def _parse_die_siblings(reader: _Reader, cu: CompilationUnit) -> List[Die]:
 
 def _parse_die(reader: _Reader, cu: CompilationUnit,
                jump_to_sibling: bool) -> Optional[Die]:
-    offset = reader.offset
     code = reader.read_uleb128()
     if jump_to_sibling and code == 0:
         return None
@@ -1168,14 +1178,13 @@ def _parse_die(reader: _Reader, cu: CompilationUnit,
             sibling = attrib
         attribs.append(attrib)
 
-    length = reader.offset - offset
-
     if not decl.children:
-        children: Optional[List[Die]] = []
+        children_callable = None
     elif jump_to_sibling and sibling is None:
         children = _parse_die_siblings(reader, cu)
+        children_callable = lambda: children
     else:
-        children = None
+        children_callable = thunk(cu._die_siblings, reader.offset)
         # sibling is not None is always True here if jump_to_sibling is True,
         # but mypy isn't smart enough to figure that out so we spell it out.
         if jump_to_sibling and sibling is not None:
@@ -1185,7 +1194,7 @@ def _parse_die(reader: _Reader, cu: CompilationUnit,
             else:
                 reader.offset = cu.offset + sibling.value
 
-    return Die(cu, offset, length, decl.tag, attribs, children)
+    return Die(cu, decl.tag, attribs, children_callable)
 
 
 def _parse_line_number_program(reader: _Reader, dwarf_file: DwarfFile) -> LineNumberProgram:
