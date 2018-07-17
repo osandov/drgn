@@ -1,8 +1,14 @@
 import os.path
-import subprocess
-import tempfile
+from unittest.mock import Mock
 
-from drgn.internal.dwarf import DW_TAG
+from drgn.internal.dwarf import (
+    Die,
+    DieAttrib,
+    DwarfAttribNotFoundError,
+    DW_AT,
+    DW_FORM,
+    DW_TAG,
+)
 from drgn.internal.dwarfindex import DwarfIndex
 from drgn.internal.dwarftypeindex import DwarfTypeIndex
 from drgn.type import (
@@ -20,8 +26,9 @@ from drgn.type import (
     VoidType,
 )
 from tests.test_type import (
+    anonymous_color_type,
     anonymous_point_type,
-    const_anonymous_point_type,
+    color_type,
     line_segment_type,
     pointer_size,
     point_type,
@@ -29,368 +36,746 @@ from tests.test_type import (
 )
 
 
-class TestDwarfTypeIndexFindDwarfType(TypeTestCase):
+class MockDwarfIndex:
+    def __init__(self, dies):
+        self._dies = dies
+        self.address_size = 8
+
+    def find(self, name, tag=0):
+        result = []
+        for die in self._dies:
+            try:
+                if (tag == 0 or die.tag == tag) and die.name() == name:
+                    result.append(die)
+            except DwarfAttribNotFoundError:
+                continue
+        if not result:
+            raise ValueError()
+        return result
+
+
+class TestDwarfTypeIndex(TypeTestCase):
     def setUp(self):
         super().setUp()
-        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.dies = []
+        self.dwarf_index = MockDwarfIndex(self.dies)
+
+        self.type_index = DwarfTypeIndex(self.dwarf_index)
+        self.cu = Mock()
+        self.cu.die = self.dies.__getitem__
 
     def tearDown(self):
-        self.tmp_dir.cleanup()
         super().tearDown()
 
-    def compile_type(self, decl):
-        object_path = os.path.join(self.tmp_dir.name, 'test')
-        source_path = object_path + '.c'
-        with open(source_path, 'w') as f:
-            f.write(decl)
-            f.write(';\nint main(void) { return 0; }\n')
-        subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
-        dwarf_index = DwarfIndex()
-        dwarf_index.add(object_path)
-        dwarf_type = dwarf_index.find('x', DW_TAG.variable)[0].type()
-        return DwarfTypeIndex(dwarf_index)._from_dwarf_type(dwarf_type)
+    def assertFromDwarfType(self, offset, type_):
+        self.assertEqual(self.type_index._from_dwarf_type(self.cu.die(offset)),
+                         type_)
 
-    def test_char(self):
-        self.assertEqual(self.compile_type('char x'),
-                        IntType('char', 1, True))
-        self.assertEqual(self.compile_type('signed char x'),
-                        IntType('signed char', 1, True))
-        self.assertEqual(self.compile_type('unsigned char x'),
-                        IntType('unsigned char', 1, False))
-
-    def test_short(self):
-        self.assertEqual(self.compile_type('short x'),
-                        IntType('short', 2, True))
-        self.assertEqual(self.compile_type('signed short x'),
-                        IntType('short', 2, True))
-        self.assertEqual(self.compile_type('unsigned short x'),
-                        IntType('unsigned short', 2, False))
-
-    def test_int(self):
-        self.assertEqual(self.compile_type('int x'),
-                        IntType('int', 4, True))
-        self.assertEqual(self.compile_type('signed int x'),
-                        IntType('int', 4, True))
-        self.assertEqual(self.compile_type('unsigned int x'),
-                        IntType('unsigned int', 4, False))
-
-    def test_long(self):
-        self.assertEqual(self.compile_type('long x'), IntType('long', 8, True))
-        self.assertEqual(self.compile_type('signed long x'),
-                        IntType('long', 8, True))
-        self.assertEqual(self.compile_type('unsigned long x'),
-                         IntType('unsigned long', 8, False))
-
-    def test_long_long(self):
-        self.assertEqual(self.compile_type('long long x'),
-                         IntType('long long', 8, True))
-        self.assertEqual(self.compile_type('signed long long x'),
-                         IntType('long long', 8, True))
-        self.assertEqual(self.compile_type('unsigned long long x'),
-                         IntType('unsigned long long', 8, False))
-
-    def test_float(self):
-        self.assertEqual(self.compile_type('float x'),
-                         FloatType('float', 4))
-        self.assertEqual(self.compile_type('double x'),
-                         FloatType('double', 8))
-        self.assertEqual(self.compile_type('long double x'),
-                         FloatType('long double', 16))
-        self.assertEqual(self.compile_type('double long x'),
-                         FloatType('long double', 16))
-
-    def test_bool(self):
-        self.assertEqual(self.compile_type('_Bool x'), BoolType('_Bool', 1))
-
-    def test_qualifiers(self):
-        # restrict is only valid in function parameters, and GCC doesn't seem
-        # to create a type for _Atomic.
-        self.assertEqual(self.compile_type('const int x'),
-                        IntType('int', 4, True, {'const'}))
-        self.assertEqual(self.compile_type('volatile int x'),
-                        IntType('int', 4, True, {'volatile'}))
-        self.assertEqual(self.compile_type('const volatile int x'),
-                        IntType('int', 4, True, {'const', 'volatile'}))
-
-    def test_typedef(self):
-        self.assertEqual(self.compile_type('typedef int INT; INT x'),
-                         TypedefType('INT', IntType('int', 4, True)))
-        self.assertEqual(self.compile_type('typedef char *string; string x'),
-                        TypedefType('string', PointerType(pointer_size, IntType('char', 1, True))))
-        self.assertEqual(self.compile_type('typedef const int CINT; CINT x'),
-                         TypedefType('CINT', IntType('int', 4, True, {'const'})))
-        self.assertEqual(self.compile_type('typedef int INT; const INT x'),
-                         TypedefType('INT', IntType('int', 4, True), {'const'}))
-
-    def test_struct(self):
-        self.assertEqual(self.compile_type("""\
-struct point {
-	int x;
-	int y;
-} x;"""), point_type)
-
-        self.assertEqual(self.compile_type("""\
-struct point {
-	int x;
-	int y;
-};
-
-struct line_segment {
-	struct point a;
-	struct point b;
-} x;"""), line_segment_type)
-
-        self.assertEqual(self.compile_type("""\
-struct {
-	int x;
-	int y;
-} x;"""), anonymous_point_type)
-
-        self.assertEqual(self.compile_type("""\
-const struct line_segment {
-	const struct {
-		int x;
-		int y;
-	};
-	const struct {
-		int x;
-		int y;
-	} b;
-} x;"""), StructType('line_segment', 16, [
-    (None, 0, lambda: const_anonymous_point_type),
-    ('b', 8, lambda: const_anonymous_point_type),
-], {'const'}))
-
-    def test_incomplete_struct(self):
-        self.assertEqual(self.compile_type('struct foo; struct foo *x').type,
-                         StructType('foo', None, None))
-
-    def test_bit_field(self):
-        self.assertEqual(self.compile_type("""\
-struct {
-	int x : 4;
-	const int y : 28;
-	int z : 5;
-} x;"""), StructType(None, 8, [
-    ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
-    ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
-    ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
-]))
-
-    def test_union(self):
-        self.assertEqual(self.compile_type("""\
-union value {
-	int i;
-	float f;
-} x;"""), UnionType('value', 4, [
-    ('i', 0, lambda: IntType('int', 4, True)),
-    ('f', 0, lambda: FloatType('float', 4)),
-]))
-
-        self.assertEqual(self.compile_type("""\
-struct point {
-	int x;
-	int y;
-};
-
-union value {
-	int i;
-	float f;
-	struct point p;
-} x;"""), UnionType('value', 8, [
-    ('i', 0, lambda: IntType('int', 4, True)),
-    ('f', 0, lambda: FloatType('float', 4)),
-    ('p', 0, lambda: point_type),
-]))
-
-    def test_incomplete_union(self):
-        self.assertEqual(self.compile_type('union foo; union foo *x').type,
-                         UnionType('foo', None, None))
-
-    def test_enum(self):
-        self.assertEqual(self.compile_type("""\
-enum color {
-	RED,
-	GREEN,
-	BLUE,
-} x;"""), EnumType('color', IntType('unsigned int', 4, False), [('RED', 0), ('GREEN', 1), ('BLUE', 2)]))
-
-        self.assertEqual(self.compile_type("""\
-enum {
-	RED = 10,
-	GREEN,
-	BLUE = -1,
-} x;"""), EnumType(None, IntType('int', 4, True), [('RED', 10), ('GREEN', 11), ('BLUE', -1)]))
-
-    def test_incomplete_enum(self):
-        self.assertEqual(self.compile_type('enum foo; enum foo *x').type,
-                         EnumType('foo', None, None))
-
-    def test_pointer(self):
-        self.assertEqual(self.compile_type('int *x'),
-                         PointerType(pointer_size, IntType('int', 4, True)))
-
-        self.assertEqual(self.compile_type('int * const x'),
-                         PointerType(pointer_size, IntType('int', 4, True), {'const'}))
-
-        self.assertEqual(self.compile_type("""\
-struct point {
-	int x;
-	int y;
-} *x;"""), PointerType(pointer_size, point_type))
-
-        self.assertEqual(self.compile_type('int **x'),
-                         PointerType(pointer_size, PointerType(pointer_size, IntType('int', 4, True))))
-
-        self.assertEqual(self.compile_type('void *x'),
-                         PointerType(pointer_size, VoidType()))
-
-    def test_array(self):
-        self.assertEqual(self.compile_type('int x[2]'),
-                        ArrayType(IntType('int', 4, True), 2, pointer_size))
-        self.assertEqual(self.compile_type('int x[2][3]'),
-                        ArrayType(ArrayType(IntType('int', 4, True), 3, pointer_size), 2, pointer_size))
-        self.assertEqual(self.compile_type('int x[2][3][4]'),
-                        ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4, pointer_size), 3, pointer_size), 2, pointer_size))
-
-    def test_incomplete_array(self):
-        self.assertEqual(self.compile_type('int (*x)[]').type,
-                        ArrayType(IntType('int', 4, True), None, pointer_size))
-        self.assertEqual(self.compile_type('int (*x)[][2]').type,
-                        ArrayType(ArrayType(IntType('int', 4, True), 2, pointer_size), None, pointer_size))
-
-    def test_pointer_to_const_void(self):
-        self.assertEqual(self.compile_type('const void *x'),
-                         PointerType(pointer_size, VoidType({'const'})))
-
-    def test_pointer_to_function(self):
-        self.assertEqual(self.compile_type('int (*x)(int)'),
-                         PointerType(pointer_size, FunctionType(pointer_size, IntType('int', 4, True), [(IntType('int', 4, True), None)])))
-
-    def test_pointer_to_variadic_function(self):
-        self.assertEqual(self.compile_type('int (*x)(int, ...)'),
-                         PointerType(pointer_size, FunctionType(pointer_size, IntType('int', 4, True), [(IntType('int', 4, True), None)], variadic=True)))
-
-    def test_pointer_to_function_with_no_parameter_specification(self):
-        self.assertEqual(self.compile_type('int (*x)()'),
-                         PointerType(pointer_size, FunctionType(pointer_size, IntType('int', 4, True), None)))
-
-    def test_pointer_to_function_with_no_parameters(self):
-        self.assertEqual(self.compile_type('int (*x)(void)'),
-                         PointerType(pointer_size, FunctionType(pointer_size, IntType('int', 4, True), [])))
-
-
-class TestDwarfTypeIndexFindType(TypeTestCase):
-    @classmethod
-    def setUpClass(cls):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            object_path = os.path.join(tmp_dir, 'test')
-            source_path = object_path + '.c'
-            with open(source_path, 'w') as f:
-                f.write("""\
-char c;
-signed char sc;
-unsigned char uc;
-int i;
-unsigned long long ull;
-
-struct point {
-	int x, y;
-} p;
-
-union value {
-	int i;
-	float f;
-} v;
-
-enum color {
-	RED,
-	GREEN,
-	BLUE,
-} e;
-
-typedef struct point point;
-
-point t;
-
-int main(void)
-{
-	return 0;
-}
-""")
-            subprocess.check_call(['gcc', '-g', '-gz=none', '-c', '-o', object_path, source_path])
-            dwarf_index = DwarfIndex()
-            dwarf_index.add(object_path)
-            cls.type_index = DwarfTypeIndex(dwarf_index)
-
-    def test_void_type(self):
-        self.assertEqual(self.type_index.find('void'),
-                         VoidType())
+    def test_void(self):
+        self.assertEqual(self.type_index.find('void'), VoidType())
         self.assertEqual(self.type_index.find('const void'),
                          VoidType({'const'}))
 
-    def test_base_type(self):
-        self.assertEqual(self.type_index.find('int'),
-                         IntType('int', 4, True))
-        self.assertEqual(self.type_index.find('signed int'),
-                         IntType('int', 4, True))
-        self.assertEqual(self.type_index.find('int signed'),
-                         IntType('int', 4, True))
-        self.assertEqual(self.type_index.find('volatile int'),
-                         IntType('int', 4, True, {'volatile'}))
+    def test_char(self):
+        self.dies[:] = [
+            # char
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x01'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x06'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'char'),
+            ]),
+            # signed char
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x01'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x06'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'signed char'),
+            ]),
+            # unsigned char
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x01'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'unsigned char'),
+            ]),
+        ]
+
+        self.assertFromDwarfType(0, IntType('char', 1, True))
+        self.assertFromDwarfType(1, IntType('signed char', 1, True))
+        self.assertFromDwarfType(2, IntType('unsigned char', 1, False))
 
         self.assertEqual(self.type_index.find('char'),
                          IntType('char', 1, True))
-        self.assertEqual(self.type_index.find('signed char'),
-                         IntType('signed char', 1, True))
-        self.assertEqual(self.type_index.find('char signed'),
-                         IntType('signed char', 1, True))
-        self.assertEqual(self.type_index.find('unsigned char'),
-                         IntType('unsigned char', 1, False))
-        self.assertEqual(self.type_index.find('char unsigned'),
-                         IntType('unsigned char', 1, False))
 
-        self.assertEqual(self.type_index.find('unsigned long long'),
-                         IntType('unsigned long long', 8, False))
-        self.assertEqual(self.type_index.find('long long unsigned int'),
-                         IntType('unsigned long long', 8, False))
-        self.assertEqual(self.type_index.find('long long int unsigned'),
-                         IntType('unsigned long long', 8, False))
+    def test_short(self):
+        self.dies[:] = [
+            # short
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x02'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'short'),
+            ]),
+            # signed short
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x02'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'signed short'),
+            ]),
+            # unsigned short
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x02'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x07'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'unsigned short'),
+            ]),
+        ]
 
+        self.assertFromDwarfType(0, IntType('short', 2, True))
+        self.assertFromDwarfType(1, IntType('short', 2, True))
+        self.assertFromDwarfType(2, IntType('unsigned short', 2, False))
 
-    def test_struct_type(self):
+    def test_int(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # signed int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'signed int'),
+            ]),
+            # unsigned int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x07'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'unsigned int'),
+            ]),
+        ]
+
+        self.assertFromDwarfType(0, IntType('int', 4, True))
+        self.assertFromDwarfType(1, IntType('int', 4, True))
+        self.assertFromDwarfType(2, IntType('unsigned int', 4, False))
+
+    def test_long(self):
+        self.dies[:] = [
+            # long
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'long'),
+            ]),
+            # signed long
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'signed long'),
+            ]),
+            # unsigned long
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x07'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'unsigned long'),
+            ]),
+        ]
+
+        self.assertFromDwarfType(0, IntType('long', 8, True))
+        self.assertFromDwarfType(1, IntType('long', 8, True))
+        self.assertFromDwarfType(2, IntType('unsigned long', 8, False))
+
+    def test_long_long(self):
+        self.dies[:] = [
+            # long long
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'long long'),
+            ]),
+            # signed long long
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'signed long long'),
+            ]),
+            # unsigned long long
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x07'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'unsigned long long'),
+            ]),
+        ]
+
+        self.assertFromDwarfType(0, IntType('long long', 8, True))
+        self.assertFromDwarfType(1, IntType('long long', 8, True))
+        self.assertFromDwarfType(2, IntType('unsigned long long', 8, False))
+
+    def test_float(self):
+        self.dies[:] = [
+            # float
+            Die(None, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'float'),
+            ]),
+            # double
+            Die(None, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'double'),
+            ]),
+            # long double
+            Die(None, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x10'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'long double'),
+            ]),
+            # double long
+            Die(None, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x10'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'double long'),
+            ]),
+        ]
+
+        self.assertFromDwarfType(0, FloatType('float', 4))
+        self.assertFromDwarfType(1, FloatType('double', 8))
+        self.assertFromDwarfType(2, FloatType('long double', 16))
+        self.assertFromDwarfType(3, FloatType('long double', 16))
+
+    def test_bool(self):
+        self.dies[:] = [
+            # _Bool
+            Die(None, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x01'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x02'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'_Bool'),
+            ]),
+        ]
+        self.assertFromDwarfType(0, BoolType('_Bool', 1))
+
+    def test_qualifiers(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # const int
+            Die(self.cu, DW_TAG.const_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # volatile int
+            Die(self.cu, DW_TAG.volatile_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # volatile const int
+            Die(self.cu, DW_TAG.volatile_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 1),
+            ]),
+            # _Atomic volatile const int
+            Die(self.cu, DW_TAG.atomic_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 3),
+            ]),
+            # restrict int
+            Die(self.cu, DW_TAG.restrict_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # const void
+            Die(self.cu, DW_TAG.const_type, []),
+        ]
+
+        self.assertFromDwarfType(1, IntType('int', 4, True, {'const'}))
+        self.assertFromDwarfType(2, IntType('int', 4, True, {'volatile'}))
+        self.assertFromDwarfType(3, IntType('int', 4, True, {'const', 'volatile'}))
+        self.assertFromDwarfType(4, IntType('int', 4, True, {'_Atomic', 'const', 'volatile'}))
+        self.assertFromDwarfType(5, IntType('int', 4, True, {'restrict'}))
+        self.assertFromDwarfType(6, VoidType({'const'}))
+
+        self.assertEqual(self.type_index._from_dwarf_type(self.cu.die(1),
+                                                          frozenset({'volatile'})),
+                         IntType('int', 4, True, {'const', 'volatile'}))
+        self.assertEqual(self.type_index._from_dwarf_type(self.cu.die(6),
+                                                          frozenset({'volatile'})),
+                         VoidType({'const', 'volatile'}))
+
+    def test_typedef(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # const int
+            Die(self.cu, DW_TAG.const_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # typedef int INT
+            Die(self.cu, DW_TAG.typedef, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'INT'),
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # const INT
+            Die(self.cu, DW_TAG.const_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 2),
+            ]),
+            # typedef const int CINT
+            Die(self.cu, DW_TAG.typedef, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'CINT'),
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 1),
+            ]),
+        ]
+
+        typedef_type = TypedefType('INT', IntType('int', 4, True))
+
+        self.assertFromDwarfType(2, typedef_type)
+        self.assertFromDwarfType(3, TypedefType('INT', IntType('int', 4, True), {'const'}))
+        self.assertFromDwarfType(4, TypedefType('CINT', IntType('int', 4, True, {'const'})))
+
+        self.assertEqual(self.type_index.find('INT'), typedef_type)
+
+    def test_struct(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # struct point {
+            #     int x, y;
+            # };
+            Die(self.cu, DW_TAG.structure_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'point'),
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+            ], lambda: [
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'x'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'y'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x04'),
+                ]),
+            ]),
+            # struct line_segment {
+            #     struct point a, b;
+            # };
+            Die(self.cu, DW_TAG.structure_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'line_segment'),
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x10'),
+            ], lambda: [
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'a'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'b'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x08'),
+                ]),
+            ]),
+            # struct {
+            #     int x, y;
+            # };
+            Die(self.cu, DW_TAG.structure_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+            ], lambda: [
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'x'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'y'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x04'),
+                ]),
+            ]),
+            # struct foo;
+            Die(self.cu, DW_TAG.structure_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'foo'),
+                DieAttrib(DW_AT.declaration, DW_FORM.flag_present, 1),
+            ]),
+        ]
+
+        self.assertFromDwarfType(1, point_type)
+        self.assertFromDwarfType(2, line_segment_type)
+        self.assertFromDwarfType(3, anonymous_point_type)
+        self.assertFromDwarfType(4, StructType('foo', None, None))
+
         self.assertEqual(self.type_index.find('struct point'),
                          point_type)
 
-    def test_union_type(self):
-        self.assertEqual(self.type_index.find('union value'),
-                         UnionType('value', 4, [
-                             ('i', 0, lambda: IntType('int', 4, True)),
-                             ('f', 0, lambda: FloatType('float', 4)),
-                         ]))
+    def test_bit_field(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # const int
+            Die(self.cu, DW_TAG.const_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # struct {
+            #     int x : 4;
+            #     const int y : 28;
+            #     int z : 5;
+            # };
+            Die(self.cu, DW_TAG.structure_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+            ], lambda: [
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'x'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                    DieAttrib(DW_AT.bit_size, DW_FORM.data1, b'\x04'),
+                    DieAttrib(DW_AT.bit_offset, DW_FORM.data1, b'\x1c'),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'y'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                    DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                    DieAttrib(DW_AT.bit_size, DW_FORM.data1, b'\x1c'),
+                    DieAttrib(DW_AT.bit_offset, DW_FORM.data1, b'\x00'),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'z'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                    DieAttrib(DW_AT.bit_size, DW_FORM.data1, b'\x05'),
+                    DieAttrib(DW_AT.bit_offset, DW_FORM.data1, b'\x1b'),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x04'),
+                ]),
+            ]),
+        ]
 
-    def test_enum_type(self):
-        self.assertEqual(self.type_index.find('enum color'),
-                         EnumType('color', IntType('unsigned int', 4, False), [
-                             ('RED', 0),
-                             ('GREEN', 1),
-                             ('BLUE', 2)
-                         ]))
+        self.assertFromDwarfType(2, StructType(None, 8, [
+            ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
+            ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
+            ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
+        ]))
 
-    def test_typedef_type(self):
-        self.assertEqual(self.type_index.find('point'),
-                         TypedefType('point', point_type))
-        self.assertEqual(self.type_index.find('const point'),
-                         TypedefType('point', point_type, {'const'}))
+    def test_union(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # float
+            Die(None, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'float'),
+            ]),
+            # union value {
+            #    int i;
+            #    float f;
+            # };
+            Die(self.cu, DW_TAG.union_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'value'),
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+            ], lambda: [
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'i'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.member, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'f'),
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                    DieAttrib(DW_AT.data_member_location, DW_FORM.data1, b'\x00'),
+                ]),
+            ]),
+            # union foo;
+            Die(self.cu, DW_TAG.union_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'foo'),
+                DieAttrib(DW_AT.declaration, DW_FORM.flag_present, 1),
+            ]),
+        ]
 
-    def test_pointer_type(self):
-        self.assertEqual(self.type_index.find('int *'),
-                         PointerType(pointer_size, IntType('int', 4, True)))
-        self.assertEqual(self.type_index.find('int * const'),
-                         PointerType(pointer_size, IntType('int', 4, True), {'const'}))
+        value_type = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ])
 
-    def test_array_type(self):
-        self.assertEqual(self.type_index.find('int [4]'),
-                         ArrayType(IntType('int', 4, True), 4, pointer_size))
+        self.assertFromDwarfType(2, value_type)
+        self.assertFromDwarfType(3, UnionType('foo', None, None))
+
+        self.assertEqual(self.type_index.find('union value'), value_type)
+
+    def test_enum(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # unsigned int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x07'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'unsigned int'),
+            ]),
+            # enum color {
+            #     RED,
+            #     GREEN,
+            #     BLUE,
+            # };
+            Die(self.cu, DW_TAG.enumeration_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'color'),
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 1),
+            ], lambda: [
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'RED'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'GREEN'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.data1, b'\x01'),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'BLUE'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.data1, b'\x02'),
+                ]),
+            ]),
+            # enum {
+            #     RED = 0,
+            #     GREEN = -1,
+            #     BLUE = -2,
+            # };
+            Die(self.cu, DW_TAG.enumeration_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'RED'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.sdata, 0),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'GREEN'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.sdata, -1),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'BLUE'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.sdata, -2),
+                ]),
+            ]),
+            # These two are the same as the two above, but without DW_AT_type,
+            # like generated by GCC before 5.1.
+            Die(self.cu, DW_TAG.enumeration_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'color'),
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+            ], lambda: [
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'RED'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.data1, b'\x00'),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'GREEN'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.data1, b'\x01'),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'BLUE'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.data1, b'\x02'),
+                ]),
+            ]),
+            Die(self.cu, DW_TAG.enumeration_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+            ], lambda: [
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'RED'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.sdata, 0),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'GREEN'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.sdata, -1),
+                ]),
+                Die(self.cu, DW_TAG.enumerator, [
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'BLUE'),
+                    DieAttrib(DW_AT.const_value, DW_FORM.sdata, -2),
+                ]),
+            ]),
+            Die(self.cu, DW_TAG.enumeration_type, [
+                DieAttrib(DW_AT.name, DW_FORM.string, b'foo'),
+                DieAttrib(DW_AT.declaration, DW_FORM.flag_present, 1),
+            ]),
+        ]
+
+        self.assertFromDwarfType(2, color_type)
+        self.assertFromDwarfType(3, anonymous_color_type)
+        self.assertFromDwarfType(4, EnumType('color', IntType('', 4, False), [
+            ('RED', 0),
+            ('GREEN', 1),
+            ('BLUE', 2)
+        ]))
+        self.assertFromDwarfType(5, EnumType(None, IntType('', 4, True), [
+            ('RED', 0),
+            ('GREEN', -1),
+            ('BLUE', -2)
+        ]))
+        self.assertFromDwarfType(6, EnumType('foo', None, None))
+
+        self.assertEqual(self.type_index.find('enum color'), color_type)
+
+    def test_pointer(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # const int
+            Die(self.cu, DW_TAG.const_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # int *
+            Die(self.cu, DW_TAG.pointer_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+            # int * const
+            Die(self.cu, DW_TAG.const_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 2),
+            ]),
+            # void *
+            Die(self.cu, DW_TAG.pointer_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x08'),
+            ]),
+        ]
+
+        self.assertFromDwarfType(2, PointerType(8, IntType('int', 4, True)))
+        self.assertFromDwarfType(3, PointerType(8, IntType('int', 4, True), {'const'}))
+        self.assertFromDwarfType(4, PointerType(8, VoidType()))
+
+        self.assertEqual(self.type_index.find('void *'), PointerType(8, VoidType()))
+
+    def test_array(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # int [2]
+            Die(self.cu, DW_TAG.array_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.subrange_type, [
+                    DieAttrib(DW_AT.upper_bound, DW_FORM.data1, b'\x01'),
+                ]),
+            ]),
+            # int [2][3]
+            Die(self.cu, DW_TAG.array_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.subrange_type, [
+                    DieAttrib(DW_AT.upper_bound, DW_FORM.data1, b'\x01'),
+                ]),
+                Die(self.cu, DW_TAG.subrange_type, [
+                    DieAttrib(DW_AT.upper_bound, DW_FORM.data1, b'\x02'),
+                ]),
+            ]),
+            # int [2][3][4]
+            Die(self.cu, DW_TAG.array_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.subrange_type, [
+                    DieAttrib(DW_AT.upper_bound, DW_FORM.data1, b'\x01'),
+                ]),
+                Die(self.cu, DW_TAG.subrange_type, [
+                    DieAttrib(DW_AT.upper_bound, DW_FORM.data1, b'\x02'),
+                ]),
+                Die(self.cu, DW_TAG.subrange_type, [
+                    DieAttrib(DW_AT.upper_bound, DW_FORM.data1, b'\x03'),
+                ]),
+            ]),
+            # int []
+            Die(self.cu, DW_TAG.array_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.subrange_type, []),
+            ]),
+            # int [][2]
+            Die(self.cu, DW_TAG.array_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.subrange_type, []),
+                Die(self.cu, DW_TAG.subrange_type, [
+                    DieAttrib(DW_AT.upper_bound, DW_FORM.data1, b'\x01'),
+                ]),
+            ]),
+        ]
+
+        self.assertFromDwarfType(1, ArrayType(IntType('int', 4, True), 2, 8))
+        self.assertFromDwarfType(2, ArrayType(ArrayType(IntType('int', 4, True), 3, 8), 2, 8))
+        self.assertFromDwarfType(3, ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4, 8), 3, 8), 2, 8))
+        self.assertFromDwarfType(4, ArrayType(IntType('int', 4, True), None, 8))
+        self.assertFromDwarfType(5, ArrayType(ArrayType(IntType('int', 4, True), 2, 8), None, 8))
+
         self.assertEqual(self.type_index.find('int []'),
-                         ArrayType(IntType('int', 4, True), None, pointer_size))
+                         ArrayType(IntType('int', 4, True), None, 8))
+
+    def test_function(self):
+        self.dies[:] = [
+            # int
+            Die(self.cu, DW_TAG.base_type, [
+                DieAttrib(DW_AT.byte_size, DW_FORM.data1, b'\x04'),
+                DieAttrib(DW_AT.encoding, DW_FORM.data1, b'\x05'),
+                DieAttrib(DW_AT.name, DW_FORM.string, b'int'),
+            ]),
+            # int foo(int)
+            Die(self.cu, DW_TAG.subroutine_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.formal_parameter, [
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                ]),
+            ]),
+            # int foo(int x)
+            Die(self.cu, DW_TAG.subroutine_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.formal_parameter, [
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DieAttrib(DW_AT.name, DW_FORM.string, b'x'),
+                ]),
+            ]),
+            # int foo(int, ...)
+            Die(self.cu, DW_TAG.subroutine_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.formal_parameter, [
+                    DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                ]),
+                Die(self.cu, DW_TAG.unspecified_parameters, []),
+            ]),
+            # int foo()
+            Die(self.cu, DW_TAG.subroutine_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ], lambda: [
+                Die(self.cu, DW_TAG.unspecified_parameters, []),
+            ]),
+            # int foo(void)
+            Die(self.cu, DW_TAG.subroutine_type, [
+                DieAttrib(DW_AT.type, DW_FORM.ref4, 0),
+            ]),
+        ]
+
+        self.assertFromDwarfType(1, FunctionType(8, IntType('int', 4, True), [(IntType('int', 4, True), None)]))
+        self.assertFromDwarfType(2, FunctionType(8, IntType('int', 4, True), [(IntType('int', 4, True), 'x')]))
+        self.assertFromDwarfType(3, FunctionType(8, IntType('int', 4, True), [(IntType('int', 4, True), None)], variadic=True))
+        self.assertFromDwarfType(4, FunctionType(8, IntType('int', 4, True), None))
+        self.assertFromDwarfType(5, FunctionType(8, IntType('int', 4, True), []))
