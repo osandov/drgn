@@ -703,60 +703,168 @@ class TestTypeRead(unittest.TestCase):
             self.assertRaises(ValueError, type_._read, reader, 0x0)
             self.assertRaises(ValueError, type_._read_pretty, reader, 0x0)
 
-    def assertReads(self, type_, buffer, expected_value,
-                    expected_pretty_cast, expected_pretty_nocast):
+    def assertRead(self, type_, buffer, expected_value):
         segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
         with tmpfile(buffer) as file:
             reader = CoreReader(file, segments)
             self.assertEqual(type_._read(reader, 0xffff0000), expected_value)
-            self.assertEqual(type_._read_pretty(reader, 0xffff0000),
-                             expected_pretty_cast)
-            self.assertEqual(type_._read_pretty(reader, 0xffff0000, cast=False),
-                             expected_pretty_nocast)
 
     def test_int(self):
         type_ = IntType('int', 4, True)
-        self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99, '(int)99',
-                         '99')
+        self.assertRead(type_, (99).to_bytes(4, sys.byteorder), 99)
 
         type_ = IntType('int', 4, True, qualifiers={'const'})
-        self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99,
-                         '(const int)99', '99')
+        self.assertRead(type_, (99).to_bytes(4, sys.byteorder), 99)
 
     def test_float(self):
         type_ = FloatType('double', 8)
-        self.assertReads(type_, struct.pack('d', 3.14), 3.14, '(double)3.14',
-                         '3.14')
+        self.assertRead(type_, struct.pack('d', 3.14), 3.14)
 
         type_ = FloatType('float', 4)
-        self.assertReads(type_, struct.pack('f', 1.5), 1.5, '(float)1.5',
-                         '1.5')
+        self.assertRead(type_, struct.pack('f', 1.5), 1.5)
 
     def test_bool(self):
         type_ = BoolType('_Bool', 1)
-        self.assertReads(type_, b'\0', False, '(_Bool)0', '0')
-        self.assertReads(type_, b'\1', True, '(_Bool)1', '1')
+        self.assertRead(type_, b'\0', False)
+        self.assertRead(type_, b'\1', True)
 
     def test_typedef(self):
         type_ = TypedefType('INT', IntType('int', 4, True))
-        self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99, '(INT)99',
-                         '99')
-
-        type_ = TypedefType('CINT', IntType('int', 4, True, qualifiers={'const'}))
-        self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99,
-                         '(CINT)99', '99')
-
-        type_ = TypedefType('INT', IntType('int', 4, True), qualifiers={'const'})
-        self.assertReads(type_, (99).to_bytes(4, sys.byteorder), 99,
-                         '(const INT)99', '99')
+        self.assertRead(type_, (99).to_bytes(4, sys.byteorder), 99)
 
     def test_struct(self):
         buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
                   (-1).to_bytes(4, sys.byteorder, signed=True))
-        self.assertReads(point_type, buffer, OrderedDict([
-            ('x', 99),
-            ('y', -1),
-        ]), """\
+        self.assertRead(point_type, buffer, OrderedDict([('x', 99), ('y', -1)]))
+
+        type_ = StructType('foo', 0, [])
+        self.assertRead(type_, b'', OrderedDict())
+
+    def test_bit_field(self):
+        type_ = StructType('bits', 8, [
+            ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
+            ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
+            ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
+        ])
+
+        buffer = b'\x07\x10\x5e\x5f\x1f\0\0\0'
+        self.assertRead(type_.typeof('x'), buffer, 7)
+        self.assertRead(type_.typeof('y'), buffer, 100000000)
+        self.assertRead(type_.typeof('z'), buffer[4:], -1)
+        self.assertRead(type_, buffer,
+                        OrderedDict([('x', 7), ('y', 100000000), ('z', -1)]))
+
+    def test_union(self):
+        type_ = UnionType('value', 4, [
+            ('i', 0, lambda: IntType('int', 4, True)),
+            ('f', 0, lambda: FloatType('float', 4)),
+        ])
+        self.assertRead(type_, b'\x00\x00\x80?',
+                        OrderedDict([('i', 1065353216), ('f', 1.0)]))
+
+    def test_enum(self):
+        self.assertRead(color_type, (0).to_bytes(4, sys.byteorder),
+                        color_type.enum.RED)
+        self.assertRead(color_type, (1).to_bytes(4, sys.byteorder),
+                        color_type.enum.GREEN)
+        self.assertRead(color_type, (4).to_bytes(4, sys.byteorder), 4)
+
+    def test_pointer(self):
+        type_ = PointerType(8, IntType('int', 4, True))
+        self.assertRead(type_, (0x7fffffff).to_bytes(8, sys.byteorder),
+                        0x7fffffff)
+
+    def test_array(self):
+        type_ = ArrayType(IntType('int', 4, True), 2, 8)
+
+        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
+                  (-1).to_bytes(4, sys.byteorder, signed=True))
+        self.assertRead(type_, buffer, [99, -1])
+
+        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
+                  (0).to_bytes(4, sys.byteorder, signed=True))
+        self.assertRead(type_, buffer, [99, 0])
+
+        buffer = ((0).to_bytes(4, sys.byteorder, signed=True) +
+                  (-1).to_bytes(4, sys.byteorder, signed=True))
+        self.assertRead(type_, buffer, [0, -1])
+
+        type_ = ArrayType(StructType('empty', 0, []), 2, 8)
+        self.assertRead(type_, b'', [OrderedDict(), OrderedDict()])
+
+        type_ = ArrayType(IntType('int', 4, True), None, 8)
+        self.assertRead(type_, b'', [])
+
+        type_ = ArrayType(point_type, 2, 8)
+        buffer = ((1).to_bytes(4, sys.byteorder, signed=True) +
+                  (2).to_bytes(4, sys.byteorder, signed=True) +
+                  (3).to_bytes(4, sys.byteorder, signed=True) +
+                  (4).to_bytes(4, sys.byteorder, signed=True))
+        self.assertRead(type_, buffer, [
+            OrderedDict([('x', 1), ('y', 2)]),
+            OrderedDict([('x', 3), ('y', 4)]),
+        ])
+
+
+class TestPretty(unittest.TestCase):
+    def assertPretty(self, type_, value, expected_pretty_cast,
+                     expected_pretty_nocast, columns=0):
+        if isinstance(columns, int):
+            columns = [columns]
+        for c in columns:
+            with self.subTest(columns=c):
+                self.assertEqual(type_._pretty(value, cast=True, columns=c),
+                                 expected_pretty_cast)
+                self.assertEqual(type_._pretty(value, cast=False, columns=c),
+                                 expected_pretty_nocast)
+
+    def assertPrettyCast(self, type_, value, expected, columns=0):
+        if isinstance(columns, int):
+            columns = [columns]
+        for c in columns:
+            with self.subTest(columns=c):
+                self.assertEqual(type_._pretty(value, cast=True, columns=c),
+                                 expected)
+
+    def assertPrettyNoCast(self, type_, value, expected, columns=0):
+        if isinstance(columns, int):
+            columns = [columns]
+        for c in columns:
+            with self.subTest(columns=c):
+                self.assertEqual(type_._pretty(value, cast=False, columns=c),
+                                 expected)
+
+    def test_int(self):
+        type_ = IntType('int', 4, True)
+        self.assertPretty(type_, 99, '(int)99', '99')
+
+        type_ = IntType('int', 4, True, qualifiers={'const'})
+        self.assertPretty(type_, 99, '(const int)99', '99')
+
+    def test_float(self):
+        type_ = FloatType('double', 8)
+        self.assertPretty(type_, 3.14, '(double)3.14', '3.14')
+
+        type_ = FloatType('float', 4)
+        self.assertPretty(type_, 1.5, '(float)1.5', '1.5')
+
+    def test_bool(self):
+        type_ = BoolType('_Bool', 1)
+        self.assertPretty(type_, False, '(_Bool)0', '0')
+        self.assertPretty(type_, True, '(_Bool)1', '1')
+
+    def test_typedef(self):
+        type_ = TypedefType('INT', IntType('int', 4, True))
+        self.assertPretty(type_, 99, '(INT)99', '99')
+
+        type_ = TypedefType('CINT', IntType('int', 4, True, qualifiers={'const'}))
+        self.assertPretty(type_, 99, '(CINT)99', '99')
+
+        type_ = TypedefType('INT', IntType('int', 4, True), qualifiers={'const'})
+        self.assertPretty(type_, 99, '(const INT)99', '99')
+
+    def test_struct(self):
+        self.assertPretty(point_type, {'x': 99, 'y': -1}, """\
 (struct point){
 	.x = (int)99,
 	.y = (int)-1,
@@ -767,7 +875,7 @@ class TestTypeRead(unittest.TestCase):
 }""")
 
         type_ = StructType('foo', 0, [])
-        self.assertReads(type_, b'', OrderedDict(),  '(struct foo){}', '{}')
+        self.assertPretty(type_, {},  '(struct foo){}', '{}')
 
     def test_bit_field(self):
         type_ = StructType('bits', 8, [
@@ -777,15 +885,11 @@ class TestTypeRead(unittest.TestCase):
         ])
 
         buffer = b'\x07\x10\x5e\x5f\x1f\0\0\0'
-        self.assertReads(type_.typeof('x'), buffer, 7, '(int)7', '7')
-        self.assertReads(type_.typeof('y'), buffer, 100000000,
-                         '(const int)100000000', '100000000')
-        self.assertReads(type_.typeof('z'), buffer[4:], -1, '(int)-1', '-1')
-        self.assertReads(type_, buffer, OrderedDict([
-            ('x', 7),
-            ('y', 100000000),
-            ('z', -1),
-        ]), """\
+        self.assertPretty(type_.typeof('x'), 7, '(int)7', '7')
+        self.assertPretty(type_.typeof('y'), 100000000, '(const int)100000000',
+                          '100000000')
+        self.assertPretty(type_.typeof('z'), -1, '(int)-1', '-1')
+        self.assertPretty(type_, {'x': 7, 'y': 100000000, 'z': -1}, """\
 (struct bits){
 	.x = (int)7,
 	.y = (const int)100000000,
@@ -802,10 +906,7 @@ class TestTypeRead(unittest.TestCase):
             ('i', 0, lambda: IntType('int', 4, True)),
             ('f', 0, lambda: FloatType('float', 4)),
         ])
-        self.assertReads(type_, b'\x00\x00\x80?', OrderedDict([
-            ('i', 1065353216),
-            ('f', 1.0),
-        ]), """\
+        self.assertPretty(type_, {'i': 1065353216, 'f': 1.0}, """\
 (union value){
 	.i = (int)1065353216,
 	.f = (float)1.0,
@@ -816,75 +917,209 @@ class TestTypeRead(unittest.TestCase):
 }""")
 
     def test_enum(self):
-        buffer = (0).to_bytes(4, sys.byteorder)
-        self.assertReads(color_type, buffer, color_type.enum.RED,
-                         '(enum color)RED', 'RED')
-        buffer = (1).to_bytes(4, sys.byteorder)
-        self.assertReads(color_type, buffer, color_type.enum.GREEN,
+        self.assertPretty(color_type, color_type.enum.RED, '(enum color)RED',
+                         'RED')
+        self.assertPretty(color_type, 0, '(enum color)RED', 'RED')
+        self.assertPretty(color_type, color_type.enum.GREEN,
                          '(enum color)GREEN', 'GREEN')
-        buffer = (4).to_bytes(4, sys.byteorder)
-        self.assertReads(color_type, buffer, 4, '(enum color)4', '4')
+        self.assertPretty(color_type, 4, '(enum color)4', '4')
 
     def test_pointer(self):
-        type_ = PointerType(pointer_size, IntType('int', 4, True))
-        buffer = (0x7fffffff).to_bytes(pointer_size, sys.byteorder)
-        self.assertReads(type_, buffer, 0x7fffffff, '(int *)0x7fffffff',
-                         '0x7fffffff')
+        type_ = PointerType(8, IntType('int', 4, True))
+        self.assertPretty(type_, 0x7fffffff, '(int *)0x7fffffff', '0x7fffffff')
 
-    def test_array(self):
-        type_ = ArrayType(IntType('int', 4, True), 2, pointer_size)
+    def test_basic_array(self):
+        type_ = ArrayType(IntType('int', 4, True), 5, 8)
 
-        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
-                  (-1).to_bytes(4, sys.byteorder, signed=True))
-        self.assertReads(type_, buffer, [99, -1], """\
-(int [2]){
-	99,
-	-1,
-}""", """\
+        self.assertPrettyNoCast(type_, 5 * [1], "{ 1, 1, 1, 1, 1, }",
+                                columns=18)
+        self.assertPrettyNoCast(type_, 5 * [1], """\
 {
-	99,
-	-1,
+	1, 1, 1,
+	1, 1,
+}""", columns=range(16, 18))
+        self.assertPrettyNoCast(type_, 5 * [1], """\
+{
+	1, 1,
+	1, 1,
+	1,
+}""", columns=range(13, 16))
+        self.assertPrettyNoCast(type_, 5 * [1], """\
+{
+	1,
+	1,
+	1,
+	1,
+	1,
+}""", columns=range(13))
+
+        self.assertPrettyCast(type_, 5 * [1], "(int [5]){ 1, 1, 1, 1, 1, }",
+                              columns=27)
+        self.assertPrettyCast(type_, 5 * [1], """\
+(int [5]){
+	1, 1, 1, 1, 1,
+}""", columns=range(22, 27))
+        self.assertPrettyCast(type_, 5 * [1], """\
+(int [5]){
+	1, 1, 1, 1,
+	1,
+}""", columns=range(19, 22))
+        self.assertPrettyCast(type_, 5 * [1], """\
+(int [5]){
+	1, 1, 1,
+	1, 1,
+}""", columns=range(16, 19))
+        self.assertPrettyCast(type_, 5 * [1], """\
+(int [5]){
+	1, 1,
+	1, 1,
+	1,
+}""", columns=range(13, 16))
+        self.assertPrettyCast(type_, 5 * [1], """\
+(int [5]){
+	1,
+	1,
+	1,
+	1,
+	1,
+}""", columns=range(13))
+
+    def test_nested_array(self):
+        type_ = ArrayType(ArrayType(IntType('int', 4, True), 5, 8), 2, 8)
+
+        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]],
+                                "{ { 1, 1, 1, 1, 1, }, { 2, 2, 2, 2, 2, }, }",
+                                columns=43)
+        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
+{
+	{ 1, 1, 1, 1, 1, },
+	{ 2, 2, 2, 2, 2, },
+}""", columns=range(27, 43))
+        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
+{
+	{
+		1, 1, 1,
+		1, 1,
+	},
+	{
+		2, 2, 2,
+		2, 2,
+	},
+}""", columns=range(24, 27))
+        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
+{
+	{
+		1, 1,
+		1, 1,
+		1,
+	},
+	{
+		2, 2,
+		2, 2,
+		2,
+	},
+}""", columns=range(21, 24))
+        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
+{
+	{
+		1,
+		1,
+		1,
+		1,
+		1,
+	},
+	{
+		2,
+		2,
+		2,
+		2,
+		2,
+	},
+}""", columns=range(21))
+
+        self.assertPrettyCast(type_, [5 * [1], 5 * [2]],
+                              "(int [2][5]){ { 1, 1, 1, 1, 1, }, { 2, 2, 2, 2, 2, }, }",
+                                columns=55)
+        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
+(int [2][5]){
+	{ 1, 1, 1, 1, 1, },
+	{ 2, 2, 2, 2, 2, },
+}""", columns=range(27, 43))
+        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
+(int [2][5]){
+	{
+		1, 1, 1,
+		1, 1,
+	},
+	{
+		2, 2, 2,
+		2, 2,
+	},
+}""", columns=range(24, 27))
+        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
+(int [2][5]){
+	{
+		1, 1,
+		1, 1,
+		1,
+	},
+	{
+		2, 2,
+		2, 2,
+		2,
+	},
+}""", columns=range(21, 24))
+        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
+(int [2][5]){
+	{
+		1,
+		1,
+		1,
+		1,
+		1,
+	},
+	{
+		2,
+		2,
+		2,
+		2,
+		2,
+	},
+}""", columns=range(21))
+
+    def test_array_member(self):
+        type_ = StructType(None, 20,
+                           [('arr', 0, lambda: ArrayType(IntType('int', 4, True), 5, 8))])
+
+        self.assertEqual(type_._pretty({'arr': 5 * [1]}, cast=False, columns=43), """\
+{
+	.arr = (int [5]){ 1, 1, 1, 1, 1, },
 }""")
 
-        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
-                  (0).to_bytes(4, sys.byteorder, signed=True))
-        self.assertReads(type_, buffer, [99, 0], """\
-(int [2]){
-	99,
-}""", """\
+        self.assertEqual(type_._pretty({'arr': 5 * [1]}, cast=False, columns=42), """\
 {
-	99,
+	.arr = (int [5]){
+		1, 1, 1, 1, 1,
+	},
 }""")
 
-        buffer = ((0).to_bytes(4, sys.byteorder, signed=True) +
-                  (-1).to_bytes(4, sys.byteorder, signed=True))
-        self.assertReads(type_, buffer, [0, -1], """\
-(int [2]){
-	0,
-	-1,
-}""", """\
+        self.assertEqual(type_._pretty({'arr': 5 * [1]}, cast=False, columns=18), """\
 {
-	0,
-	-1,
+	.arr = (int [5]){
+		1,
+		1,
+		1,
+		1,
+		1,
+	},
 }""")
 
-        type_ = ArrayType(StructType('empty', 0, []), 2, pointer_size)
-        self.assertReads(type_, b'', [OrderedDict(), OrderedDict()],
-                         '(struct empty [2]){}', '{}')
+    def test_array_of_struct(self):
+        type_ = ArrayType(point_type, 2, 8)
 
-        type_ = ArrayType(IntType('int', 4, True), None, pointer_size)
-        self.assertReads(type_, b'', [],  '(int []){}', '{}')
-
-        type_ = ArrayType(point_type, 2, pointer_size)
-        buffer = ((1).to_bytes(4, sys.byteorder, signed=True) +
-                  (2).to_bytes(4, sys.byteorder, signed=True) +
-                  (3).to_bytes(4, sys.byteorder, signed=True) +
-                  (4).to_bytes(4, sys.byteorder, signed=True))
-        self.assertReads(type_, buffer, [
-            OrderedDict([('x', 1), ('y', 2)]),
-            OrderedDict([('x', 3), ('y', 4)]),
-        ], """\
-(struct point [2]){
+        self.assertEqual(type_._pretty([{'x': 1, 'y': 2}, {'x': 3, 'y': 4}],
+                                        cast=False, columns=20), """\
+{
 	{
 		.x = (int)1,
 		.y = (int)2,
@@ -893,28 +1128,33 @@ class TestTypeRead(unittest.TestCase):
 		.x = (int)3,
 		.y = (int)4,
 	},
-}""", """\
-{
-	{
-		.x = (int)1,
-		.y = (int)2,
-	},
-	{
-		.x = (int)3,
-		.y = (int)4,
-	},
 }""")
+
+        type_ = ArrayType(StructType('empty', 0, []), 2, 8)
+        self.assertPretty(type_, [{}, {}], '(struct empty [2]){}', '{}')
+
+    def test_zero_length_array(self):
+        type_ = ArrayType(IntType('int', 4, True), None, 8)
+        self.assertPretty(type_, [], '(int []){}', '{}')
+
+        type_ = ArrayType(IntType('int', 4, True), 0, 8)
+        self.assertPretty(type_, [], '(int [0]){}', '{}')
+
+    def test_array_zeroes(self):
+        type_ = ArrayType(IntType('int', 4, True), 2, 8)
+
+        self.assertPretty(type_, [0, 0], "(int [2]){}", "{}", columns=80)
+        self.assertPretty(type_, [99, 0], "(int [2]){ 99, }", "{ 99, }", columns=80)
+        self.assertPretty(type_, [0, 99], "(int [2]){ 0, 99, }", "{ 0, 99, }", columns=80)
 
     def test_char_array(self):
-        type_ = ArrayType(IntType('char', 1, True), 4, pointer_size)
-        self.assertReads(type_, b'hello\0', list(b'hell'), '(char [4])"hell"',
-                         '"hell"')
-        self.assertReads(type_, b'hi\0\0', list(b'hi\0\0'), '(char [4])"hi"',
-                         '"hi"')
+        type_ = ArrayType(IntType('char', 1, True), 4, 8)
+        self.assertPretty(type_, list(b'hell'), '(char [4])"hell"', '"hell"')
+        self.assertPretty(type_, list(b'hi\0\0'), '(char [4])"hi"', '"hi"')
 
-        type_ = ArrayType(IntType('char', 1, True), 8, pointer_size)
-        self.assertReads(type_, b'hello\0world\0', list(b'hello\0wo'),
-                         '(char [8])"hello"', '"hello"')
+        type_ = ArrayType(IntType('char', 1, True), 8, 8)
+        self.assertPretty(type_, list(b'hello\0wo'), '(char [8])"hello"',
+                          '"hello"')
 
-        type_ = ArrayType(IntType('char', 1, True), 0, pointer_size)
-        self.assertReads(type_, b'hi\0', [], '(char [0]){}', '{}')
+        type_ = ArrayType(IntType('char', 1, True), 0, 8)
+        self.assertPretty(type_, [], '(char [0]){}', '{}')
