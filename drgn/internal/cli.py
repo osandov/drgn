@@ -8,6 +8,7 @@ import builtins
 import code
 import os.path
 import runpy
+import shutil
 import sys
 from typing import Any, Dict
 
@@ -21,7 +22,13 @@ def displayhook(value: Any) -> None:
     if value is None:
         return
     setattr(builtins, '_', None)
-    text = str(value) if isinstance(value, (ProgramObject, Type)) else repr(value)
+    if isinstance(value, ProgramObject):
+        columns = shutil.get_terminal_size((0, 0)).columns
+        text = f'{value:.{columns}}'
+    elif isinstance(value, Type):
+        text = str(value)
+    else:
+        text = repr(value)
     try:
         sys.stdout.write(text)
     except UnicodeEncodeError:
