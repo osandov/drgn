@@ -1147,6 +1147,26 @@ class TestPretty(unittest.TestCase):
         self.assertPretty(type_, [99, 0], "(int [2]){ 99, }", "{ 99, }", columns=80)
         self.assertPretty(type_, [0, 99], "(int [2]){ 0, 99, }", "{ 0, 99, }", columns=80)
 
+        type_ = ArrayType(ArrayType(IntType('int', 4, True), 3, 8), 2, 8)
+        self.assertPretty(type_, [[1, 0, 0], [0, 0, 0]],
+                          "(int [2][3]){ { 1, }, }",
+                          "{ { 1, }, }", columns=80)
+
+        type_ = ArrayType(point_type, 2, 8)
+        self.assertPretty(type_, [{'x': 1, 'y': 2}, {'x': 0, 'y': 0}], """\
+(struct point [2]){
+	{
+		.x = (int)1,
+		.y = (int)2,
+	},
+}""", """\
+{
+	{
+		.x = (int)1,
+		.y = (int)2,
+	},
+}""")
+
     def test_char_array(self):
         type_ = ArrayType(IntType('char', 1, True), 4, 8)
         self.assertPretty(type_, list(b'hell'), '(char [4])"hell"', '"hell"')

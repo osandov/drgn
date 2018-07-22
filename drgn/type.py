@@ -1092,6 +1092,15 @@ class ArrayType(Type):
     def is_pointer(self) -> bool:
         return True
 
+    @staticmethod
+    def _is_zero_element(element: Any) -> bool:
+        if isinstance(element, list):
+            return all(ArrayType._is_zero_element(x) for x in element)
+        elif isinstance(element, dict):
+            return all(ArrayType._is_zero_element(x) for x in element.values())
+        else:
+            return not element
+
     def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
                 one_line_columns: Optional[int] = None) -> str:
         if one_line_columns is None:
@@ -1113,10 +1122,10 @@ class ArrayType(Type):
             parts.append(c_string(value[:i]))
         else:
             # Remove trailing zero elements.
-            if value and not value[-1]:
+            if value and ArrayType._is_zero_element(value[-1]):
                 # Make a copy for the first one.
                 value = value[:-1]
-                while value and not value[-1]:
+                while value and ArrayType._is_zero_element(value[-1]):
                     # Once we have a copy, we can delete the rest.
                     del value[-1]
             if not value:
