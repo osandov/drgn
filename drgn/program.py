@@ -171,12 +171,16 @@ class ProgramObject:
         parts.append(')')
         return ''.join(parts)
 
-    def __str__(self) -> str:
-        """
-        Implement str(self). Return a string representation of the value of
-        this object in C syntax.
-        """
-        string = self.type_._pretty(self.value_())
+    def __format__(self, format_spec: str) -> str:
+        columns = 0
+        if format_spec:
+            if format_spec[0] != '.':
+                raise ValueError('Format specifier can only include precision')
+            try:
+                columns = int(format_spec[1:], 10)
+            except ValueError:
+                raise ValueError('Format specifier missing precision') from None
+        string = self.type_._pretty(self.value_(), columns=columns)
         if (isinstance(self._real_type, PointerType) and
                 isinstance(self._real_type.type, IntType) and
                 self._real_type.type.name.endswith('char')):
@@ -189,13 +193,21 @@ class ProgramObject:
         elif isinstance(self._real_type, PointerType):
             try:
                 deref = self.__getitem__(0)
-                deref_string = deref._real_type._pretty(deref.value_(),
-                                                        cast=False)
+                deref_string = deref._real_type._pretty(
+                    deref.value_(), cast=False, columns=columns,
+                    one_line_columns=columns - len(string) - 4)
             except ValueError:
                 pass
             else:
                 return f'*{string} = {deref_string}'
         return string
+
+    def __str__(self) -> str:
+        """
+        Implement str(self). Return a string representation of the value of
+        this object in C syntax.
+        """
+        return self.__format__('')
 
     def value_(self) -> Any:
         """
