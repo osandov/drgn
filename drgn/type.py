@@ -201,13 +201,6 @@ class Type:
         """
         raise NotImplementedError()
 
-    def _read_pretty(self, reader: CoreReader, address: int, *,
-                     cast: bool = True) -> str:
-        """
-        Return self._pretty(self._read(...)).
-        """
-        return self._pretty(self._read(reader, address), cast)
-
 
 class VoidType(Type):
     """

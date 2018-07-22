@@ -701,7 +701,6 @@ class TestTypeRead(unittest.TestCase):
         with tmpfile(b'') as file:
             reader = CoreReader(file, [])
             self.assertRaises(ValueError, type_._read, reader, 0x0)
-            self.assertRaises(ValueError, type_._read_pretty, reader, 0x0)
 
     def assertRead(self, type_, buffer, expected_value):
         segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
