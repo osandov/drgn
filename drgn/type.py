@@ -171,11 +171,11 @@ class Type:
         """
         return False
 
-    def is_pointer(self) -> bool:
+    def is_pointer_operand(self) -> bool:
         """
         Return whether this type is a pointer type or implicitly converts to
-        one (array types, function types, and typedefs with an underlying type
-        of one of these).
+        one when used in an expression (array types, function types, and
+        typedefs with an underlying type of one of these).
         """
         return False
 
@@ -938,8 +938,8 @@ class TypedefType(Type):
     def is_integer(self) -> bool:
         return self.type.is_integer()
 
-    def is_pointer(self) -> bool:
-        return self.type.is_pointer()
+    def is_pointer_operand(self) -> bool:
+        return self.type.is_pointer_operand()
 
     def _read(self, reader: CoreReader, address: int) -> Any:
         return self.type._read(reader, address)
@@ -1008,7 +1008,7 @@ class PointerType(Type):
             return PointerType(self.size, self.type)
         return self
 
-    def is_pointer(self) -> bool:
+    def is_pointer_operand(self) -> bool:
         return True
 
     def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
@@ -1082,7 +1082,7 @@ class ArrayType(Type):
     def operand_type(self) -> 'PointerType':
         return PointerType(self.pointer_size, self.type)
 
-    def is_pointer(self) -> bool:
+    def is_pointer_operand(self) -> bool:
         return True
 
     @staticmethod
@@ -1236,7 +1236,7 @@ class FunctionType(Type):
     def operand_type(self) -> 'PointerType':
         return PointerType(self.pointer_size, self)
 
-    def is_pointer(self) -> bool:
+    def is_pointer_operand(self) -> bool:
         return True
 
     def _read(self, reader: CoreReader, address: int) -> Dict:

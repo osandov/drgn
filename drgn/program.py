@@ -399,8 +399,8 @@ class ProgramObject:
     def _relational_operator(self, op: Callable, op_name: str,
                              other: Any) -> bool:
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(self, other)
-        lhs_pointer = lhs_type.is_pointer()
-        rhs_pointer = rhs_type.is_pointer()
+        lhs_pointer = lhs_type.is_pointer_operand()
+        rhs_pointer = rhs_type.is_pointer_operand()
         if ((lhs_pointer != rhs_pointer) or
                 (not lhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
@@ -414,8 +414,8 @@ class ProgramObject:
 
     def _add(self, lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
-        lhs_pointer = lhs_type.is_pointer()
-        rhs_pointer = rhs_type.is_pointer()
+        lhs_pointer = lhs_type.is_pointer_operand()
+        rhs_pointer = rhs_type.is_pointer_operand()
         if ((lhs_pointer and rhs_pointer) or
                 (lhs_pointer and not rhs_type.is_integer()) or
                 (rhs_pointer and not lhs_type.is_integer()) or
@@ -439,10 +439,10 @@ class ProgramObject:
 
     def _sub(self, lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
-        lhs_pointer = lhs_type.is_pointer()
+        lhs_pointer = lhs_type.is_pointer_operand()
         if lhs_pointer:
             lhs_sizeof = cast(PointerType, lhs_type).type.sizeof()
-        rhs_pointer = rhs_type.is_pointer()
+        rhs_pointer = rhs_type.is_pointer_operand()
         if rhs_pointer:
             rhs_sizeof = cast(PointerType, rhs_type).type.sizeof()
         if ((lhs_pointer and rhs_pointer and lhs_sizeof != rhs_sizeof) or
@@ -545,7 +545,7 @@ class ProgramObject:
 
     def __bool__(self) -> bool:
         if (not self._real_type.is_arithmetic() and
-                not self._real_type.is_pointer()):
+                not self._real_type.is_pointer_operand()):
             raise TypeError(f"invalid operand to bool() ('{self.type_}')")
         return bool(self.value_())
 
