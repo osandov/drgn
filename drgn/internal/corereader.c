@@ -315,6 +315,63 @@ static PyObject *CoreReader_read(CoreReader *self, PyObject *args,
 	return buffer;
 }
 
+static PyObject *CoreReader_read_c_string(CoreReader *self, PyObject *args,
+					  PyObject *kwds)
+{
+	static char *keywords[] = {"address", "maxsize", "physical", NULL};
+	uint64_t address;
+	Py_ssize_t maxsize = -1;
+	int physical = 0;
+	PyObject *buffer;
+	size_t size = 0, capacity = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "K|Kp:read_c_string",
+					 keywords, &address, &maxsize,
+					 &physical))
+		return NULL;
+
+	buffer = PyBytes_FromStringAndSize(NULL, 0);
+	if (!buffer)
+		return NULL;
+
+	while (maxsize != 0) {
+		char c;
+
+		if (read_core(self, &c, address, 1, physical)) {
+			Py_DECREF(buffer);
+			return NULL;
+		}
+		if (!c)
+			break;
+
+		if (size >= capacity) {
+			if (capacity == 0) {
+				/*
+				 * CPython has a singleton zero-length bytes
+				 * object which we obviously can't resize.
+				 */
+				Py_DECREF(buffer);
+				capacity = 1;
+				buffer = PyBytes_FromStringAndSize(NULL, capacity);
+			} else {
+				capacity *= 2;
+				_PyBytes_Resize(&buffer, capacity);
+			}
+			if (!buffer)
+				return NULL;
+		}
+		PyBytes_AS_STRING(buffer)[size++] = c;
+
+		address++;
+		if (maxsize > 0)
+			maxsize--;
+	}
+
+	if (size != capacity)
+		_PyBytes_Resize(&buffer, size);
+	return buffer;
+}
+
 #define CoreReader_READ(name, type, converter)					\
 static PyObject *CoreReader_read_##name(CoreReader *self, PyObject *args,	\
 					PyObject *kwds)				\
@@ -378,6 +435,16 @@ static PyMethodDef CoreReader_methods[] = {
 	 "Arguments:\n"
 	 "address -- address to read at\n"
 	 "size -- number of bytes to read\n"
+	 "physical -- whether address is a physical memory address"},
+	{"read_c_string", (PyCFunction)CoreReader_read_c_string,
+	 METH_VARARGS | METH_KEYWORDS,
+	 "read_c_string(address, maxsize=-1, physical=False)\n\n"
+	 "Read a null-terminated string from memory, not including the NUL\n"
+	 "byte.\n\n"
+	 "Arguments:\n"
+	 "address -- address to read at\n"
+	 "maxsize -- maximum size of string, including the NUL byte;\n"
+	 "           unlimited if negative (the default)\n"
 	 "physical -- whether address is a physical memory address"},
 	CoreReader_READ_METHOD(u8, "an unsigned 8-bit integer"),
 	CoreReader_READ_METHOD(u16, "an unsigned 16-bit integer"),

@@ -9,7 +9,6 @@ class, which represents the program being debugged, and the ProgramObject
 class, which represents an object (i.e., variable or value) in that program.
 """
 
-import itertools
 import math
 import operator
 from typing import cast, Any, Callable, Iterable, Optional, Tuple, Union
@@ -231,22 +230,13 @@ class ProgramObject:
         This is only valid for pointers and arrays.
         """
         if isinstance(self._real_type, PointerType):
-            addresses: Iterable[int] = itertools.count(self.value_())
+            return self.prog_._reader.read_c_string(self.value_())
         elif isinstance(self._real_type, ArrayType):
             assert self.address_ is not None  # Array rvalues are not allowed
-            if self._real_type.size is None:
-                addresses = itertools.count(self.address_)
-            else:
-                addresses = range(self.address_, self.address_ + self._real_type.size)
+            return self.prog_._reader.read_c_string(
+                self.address_, maxsize=self._real_type.size or -1)
         else:
             raise ValueError('not an array or pointer')
-        b = bytearray()
-        for address in addresses:
-            byte = self.prog_.read(address, 1)[0]
-            if not byte:
-                break
-            b.append(byte)
-        return bytes(b)
 
     def member_(self, name: str) -> 'ProgramObject':
         """

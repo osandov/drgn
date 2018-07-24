@@ -32,6 +32,27 @@ class TestCoreReader(unittest.TestCase):
             core_reader = CoreReader(file, segments)
             self.assertEqual(core_reader.read(0xffff0000, len(data)), data)
 
+    def test_c_string(self):
+        data = b'hello\0world!'
+        segments = [(0, 0xffff0000, 0x0, len(data), len(data))]
+        with tmpfile(data) as file:
+            core_reader = CoreReader(file, segments)
+            self.assertEqual(core_reader.read_c_string(0xffff0000), b'hello')
+
+            self.assertEqual(core_reader.read_c_string(0xffff0000, 4), b'hell')
+            self.assertEqual(core_reader.read_c_string(0xffff0000, 5), b'hello')
+            self.assertEqual(core_reader.read_c_string(0xffff0000, 6), b'hello')
+            self.assertEqual(core_reader.read_c_string(0xffff0000, 7), b'hello')
+
+            self.assertEqual(core_reader.read_c_string(0x0, 0), b'')
+            self.assertEqual(core_reader.read_c_string(0xffff0000, 0), b'')
+
+            self.assertEqual(core_reader.read_c_string(0xffff0008, 2), b'rl')
+            self.assertRaisesRegex(ValueError, 'could not find memory segment',
+                                   core_reader.read_c_string, 0xffff0008)
+            self.assertRaisesRegex(ValueError, 'could not find memory segment',
+                                   core_reader.read_c_string, 0xffff0008, 8)
+
     def test_bad_address(self):
         data = b'hello, world!'
         segments = [(0, 0xffff0000, 0x0, len(data), len(data))]
