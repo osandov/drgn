@@ -609,10 +609,18 @@ class CompoundType(Type):
                 parts.append('\t.')
                 parts.append(name)
                 parts.append(' = ')
-                member_pretty = type_thunk()._pretty(
+                member_type = type_thunk()
+                member_real_type = member_type.real_type()
+                if (not isinstance(member_real_type, PointerType) or
+                        member_real_type._is_c_string()):
+                    member_reader = reader
+                else:
+                    member_reader = None
+                member_pretty = member_type._pretty(
                     value[name], columns=columns - 8,
                     # 9 for '\t.' + name + 3 for ' = ' + 1 for ','.
-                    one_line_columns=columns - len(name) - 13)
+                    one_line_columns=columns - len(name) - 13,
+                    reader=member_reader)
                 parts.append(member_pretty.replace('\n', '\n\t'))
                 parts.append(',\n')
             parts.append('}')
@@ -1022,6 +1030,10 @@ class PointerType(Type):
     def is_pointer_operand(self) -> bool:
         return True
 
+    def _is_c_string(self) -> bool:
+        return (isinstance(self.type, IntType) and
+                self.type.name.endswith('char'))
+
     def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
                 one_line_columns: Optional[int] = None,
                 reader: Optional[CoreReader] = None) -> str:
@@ -1030,8 +1042,7 @@ class PointerType(Type):
         else:
             parts = [hex(value)]
         if reader is not None:
-            if (isinstance(self.type, IntType) and
-                    self.type.name.endswith('char')):
+            if self._is_c_string():
                 try:
                     deref_string = c_string(reader.read_c_string(value))
                 except ValueError:
@@ -1045,7 +1056,7 @@ class PointerType(Type):
                         self.type._read(reader, value), cast=False,
                         columns=columns,
                         one_line_columns=columns - sum(len(part) for part in parts) - 4,
-                    )
+                        reader=reader)
                 except ValueError:
                     pass
                 else:
@@ -1161,6 +1172,11 @@ class ArrayType(Type):
                 parts.append('{}')
                 return ''.join(parts)
 
+            element_real_type = self.type.real_type()
+            if (isinstance(element_real_type, PointerType) and
+                    not element_real_type._is_c_string()):
+                reader = None
+
             parts.append('{')
             parts = [''.join(parts), ' ']
             current_columns = one_line_columns - len(parts[0]) - 1
@@ -1168,7 +1184,7 @@ class ArrayType(Type):
                 # Account for the comma, space, and final closing brace.
                 element_pretty = self.type._pretty(
                     element, cast=False, columns=columns - 8,
-                    one_line_columns=current_columns - 3)
+                    one_line_columns=current_columns - 3, reader=reader)
                 if ('\n' in element_pretty or
                         current_columns - len(element_pretty) < 3):
                     break
@@ -1188,7 +1204,7 @@ class ArrayType(Type):
                 slack = 1 if current_columns == columns - 8 else 2
                 element_pretty = self.type._pretty(
                     element, cast=False, columns=columns - 8,
-                    one_line_columns=current_columns - slack)
+                    one_line_columns=current_columns - slack, reader=reader)
                 if ('\n' in element_pretty or
                         current_columns - len(element_pretty) < slack):
                     if current_columns != columns - 8:
@@ -1196,7 +1212,8 @@ class ArrayType(Type):
                         current_columns = columns - 8
                         element_pretty = self.type._pretty(
                             element, cast=False, columns=columns - 8,
-                            one_line_columns=current_columns - 1)
+                            one_line_columns=current_columns - 1,
+                            reader=reader)
                     parts.append(element_pretty.replace('\n', '\n\t'))
                     parts.append(',')
                     if '\n' in element_pretty:
