@@ -192,8 +192,9 @@ class Type:
         """
         raise NotImplementedError()
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         """
         Return a representation of the value returned from self._read() in C
         syntax, optionally with an explicit cast to the name of this type. A
@@ -225,8 +226,9 @@ class VoidType(Type):
     def _read(self, reader: CoreReader, address: int) -> Any:
         raise ValueError("can't read void")
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         raise ValueError("can't format void")
 
 
@@ -268,8 +270,9 @@ class ArithmeticType(Type):
     def is_arithmetic(self) -> bool:
         return True
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')', str(value)]
             return ''.join(parts)
@@ -355,8 +358,9 @@ class BoolType(IntType):
         except TypeError:
             raise TypeError(f'cannot convert to {self}') from None
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')', str(int(value))]
             return ''.join(parts)
@@ -491,8 +495,9 @@ class BitFieldType(Type):
             value -= (1 << self.bit_size)
         return value
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if cast:
             parts = ['(', str(self.type.type_name()), ')', str(value)]
             return ''.join(parts)
@@ -589,8 +594,9 @@ class CompoundType(Type):
             for name, (member_offset, type_thunk) in self._members_by_name.items()
         ])
 
-    def _pretty(self, value: Dict, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if value.keys() != self._members_by_name.keys():
             raise ValueError('value members do not match type members')
         if cast and self.name:
@@ -835,8 +841,9 @@ class EnumType(Type):
         except ValueError:
             return value
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')']
         else:
@@ -944,20 +951,24 @@ class TypedefType(Type):
     def _read(self, reader: CoreReader, address: int) -> Any:
         return self.type._read(reader, address)
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if cast:
             if one_line_columns is None:
                 one_line_columns = columns
             cast_str = str(self.type_name())
             pretty = self.type._pretty(
                 value, cast=False, columns=columns,
-                one_line_columns=one_line_columns - len(cast_str) - 2)
+                one_line_columns=one_line_columns - len(cast_str) - 2,
+                reader=reader,
+            )
             parts = ['(', cast_str, ')', pretty]
             return ''.join(parts)
         else:
             return self.type._pretty(value, cast=False, columns=columns,
-                                     one_line_columns=one_line_columns)
+                                     one_line_columns=one_line_columns,
+                                     reader=reader)
 
     def _convert(self, value: Any) -> Any:
         return self.type._convert(value)
@@ -1011,13 +1022,37 @@ class PointerType(Type):
     def is_pointer_operand(self) -> bool:
         return True
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if cast:
             parts = ['(', str(self.type_name()), ')', hex(value)]
-            return ''.join(parts)
         else:
-            return hex(value)
+            parts = [hex(value)]
+        if reader is not None:
+            if (isinstance(self.type, IntType) and
+                    self.type.name.endswith('char')):
+                try:
+                    deref_string = c_string(reader.read_c_string(value))
+                except ValueError:
+                    pass
+                else:
+                    parts.append(' = ')
+                    parts.append(deref_string)
+            else:
+                try:
+                    deref_string = self.type._pretty(
+                        self.type._read(reader, value), cast=False,
+                        columns=columns,
+                        one_line_columns=columns - sum(len(part) for part in parts) - 4,
+                    )
+                except ValueError:
+                    pass
+                else:
+                    parts.insert(0, '*')
+                    parts.append(' = ')
+                    parts.append(deref_string)
+        return ''.join(parts)
 
     def _convert(self, value: Any) -> int:
         try:
@@ -1067,15 +1102,6 @@ class ArrayType(Type):
             raise ValueError("can't get size of incomplete array type")
         return self.size * self.type.sizeof()
 
-    def _read(self, reader: CoreReader, address: int) -> List:
-        if not self.size:
-            return []
-        element_size = self.type.sizeof()
-        return [
-            self.type._read(reader, address + i * element_size)
-            for i in range(self.size)
-        ]
-
     def unqualified(self) -> 'ArrayType':
         return self
 
@@ -1084,6 +1110,15 @@ class ArrayType(Type):
 
     def is_pointer_operand(self) -> bool:
         return True
+
+    def _read(self, reader: CoreReader, address: int) -> List:
+        if not self.size:
+            return []
+        element_size = self.type.sizeof()
+        return [
+            self.type._read(reader, address + i * element_size)
+            for i in range(self.size)
+        ]
 
     @staticmethod
     def _is_zero_element(element: Any) -> bool:
@@ -1094,8 +1129,9 @@ class ArrayType(Type):
         else:
             return not element
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         if one_line_columns is None:
             one_line_columns = columns
         if (self.size or 0) != len(value):
@@ -1242,6 +1278,7 @@ class FunctionType(Type):
     def _read(self, reader: CoreReader, address: int) -> Dict:
         raise ValueError("can't read function")
 
-    def _pretty(self, value: Any, cast: bool = True, columns: int = 0,
-                one_line_columns: Optional[int] = None) -> str:
+    def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
+                one_line_columns: Optional[int] = None,
+                reader: Optional[CoreReader] = None) -> str:
         raise ValueError("can't format function")

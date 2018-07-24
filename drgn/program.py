@@ -14,9 +14,8 @@ import operator
 from typing import cast, Any, Callable, Iterable, Optional, Tuple, Union
 
 from drgn.internal.corereader import CoreReader
-from drgn.internal.util import c_string
 from drgn.internal.variableindex import VariableIndex
-from drgn.type import ArrayType, CompoundType, IntType, PointerType, Type
+from drgn.type import ArrayType, CompoundType, PointerType, Type
 from drgn.typeindex import TypeIndex
 from drgn.typename import TypeName
 
@@ -179,27 +178,8 @@ class ProgramObject:
                 columns = int(format_spec[1:], 10)
             except ValueError:
                 raise ValueError('Format specifier missing precision') from None
-        string = self.type_._pretty(self.value_(), columns=columns)
-        if (isinstance(self._real_type, PointerType) and
-                isinstance(self._real_type.type, IntType) and
-                self._real_type.type.name.endswith('char')):
-            try:
-                deref_string = c_string(self.string_())
-            except ValueError:
-                pass
-            else:
-                return f'{string} = {deref_string}'
-        elif isinstance(self._real_type, PointerType):
-            try:
-                deref = self.__getitem__(0)
-                deref_string = deref._real_type._pretty(
-                    deref.value_(), cast=False, columns=columns,
-                    one_line_columns=columns - len(string) - 4)
-            except ValueError:
-                pass
-            else:
-                return f'*{string} = {deref_string}'
-        return string
+        return self.type_._pretty(self.value_(), columns=columns,
+                                  reader=self.prog_._reader)
 
     def __str__(self) -> str:
         """
