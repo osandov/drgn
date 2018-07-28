@@ -10,6 +10,7 @@ the latter.
 
 import os.path
 import platform
+import re
 import struct
 import sys
 from typing import cast, Any, Dict, Generator, Iterable, List, Optional, Tuple
@@ -80,6 +81,30 @@ def type_index(paths: Iterable[str], verbose: bool = False) -> TypeIndex:
     """
     dwarf_index = DwarfIndex(*paths)
     return DwarfTypeIndex(dwarf_index)
+
+
+def _get_fallback_vmcoreinfo() -> Dict[str, Any]:
+    # This fallback path is just for kernels before v4.11, so it's not as nice
+    # as it could be.
+    release = platform.release()
+    vmlinux = find_vmlinux_debuginfo(release)
+    with open(vmlinux, 'rb') as f:
+        elf_file = ElfFile(f)
+        try:
+            elf_symbol = elf_file.symbols['_stext'][0].st_value
+        except (KeyError, IndexError):
+            raise ValueError('could not find _stext symbol in vmlinux') from None
+    with open('/proc/kallsyms', 'r') as f:
+        kallsyms = f.read()
+    kallsyms_match = re.search(r'^([0-9a-fA-F]+) . _stext$', kallsyms,
+                               re.MULTILINE)
+    if not kallsyms_match:
+        raise ValueError('could not find _stext symbol in /proc/kallsyms')
+    kallsyms_symbol = int(kallsyms_match.group(1), 16)
+    return {
+        'OSRELEASE': release,
+        'KERNELOFFSET': kallsyms_symbol - elf_symbol,
+    }
 
 
 def _read_vmcoreinfo_from_sysfs(core_reader: CoreReader) -> Dict[str, Any]:
@@ -155,7 +180,14 @@ def program(core: Optional[str] = None, pid: Optional[int] = None,
     try:
         if pid is None:
             if os.path.abspath(core) == '/proc/kcore':
-                vmcoreinfo = _read_vmcoreinfo_from_sysfs(core_reader)
+                # Before Linux kernel commit 464920104bf7 ("/proc/kcore: update
+                # physical address for kcore ram and text") (in v4.11), p_paddr
+                # in /proc/kcore is always zero, so we don't have an easy way
+                # to use the physical address in sysfs.
+                if all(phdr.p_paddr == 0 for phdr in core_elf_file.phdrs):
+                    vmcoreinfo = _get_fallback_vmcoreinfo()
+                else:
+                    vmcoreinfo = _read_vmcoreinfo_from_sysfs(core_reader)
             else:
                 for note in core_elf_file.notes():
                     if note.name == b'CORE' and note.type == NT_FILE:
