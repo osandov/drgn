@@ -130,7 +130,8 @@ class DwarfTypeIndex(TypeIndex):
 
     @functools.lru_cache()
     def _from_dwarf_type(self, dwarf_type: Die,
-                         qualifiers: Iterable[str] = frozenset()) -> Type:
+                         qualifiers: Iterable[str] = frozenset(),
+                         may_be_flexible_array: bool = True) -> Type:
         extra_qualifiers = set()
         while True:
             if dwarf_type.tag == DW_TAG.const_type:
@@ -184,10 +185,10 @@ class DwarfTypeIndex(TypeIndex):
                 members = None
             else:
                 size = dwarf_type.size()
+                member_dies = [child for child in dwarf_type.children()
+                               if child.tag == DW_TAG.member]
                 members = []
-                for child in dwarf_type.children():
-                    if child.tag != DW_TAG.member:
-                        continue
+                for i, child in enumerate(member_dies):
                     try:
                         name = child.name()
                     except DwarfAttribNotFoundError:
@@ -199,7 +200,11 @@ class DwarfTypeIndex(TypeIndex):
                     if child.has_attrib(DW_AT.bit_size):
                         type_thunk = thunk(self._from_dwarf_bit_field, child)
                     else:
-                        type_thunk = thunk(self._from_dwarf_type, child.type())
+                        type_thunk = thunk(
+                            self._from_dwarf_type, child.type(),
+                            may_be_flexible_array=(
+                                dwarf_type.tag != DW_TAG.union_type and
+                                i != 0 and i == len(member_dies) - 1))
                     members.append((name, offset, type_thunk))
             try:
                 name = dwarf_type.name()
@@ -243,29 +248,50 @@ class DwarfTypeIndex(TypeIndex):
                         raise DwarfFormatError('enum compatible type is not an integer type')
                 return EnumType(name, int_type, enumerators, qualifiers)
         elif dwarf_type.tag == DW_TAG.typedef:
-            return TypedefType(dwarf_type.name(),
-                               self._from_dwarf_type(dwarf_type.type()),
-                               qualifiers)
+            type_: Type = self._from_dwarf_type(
+                dwarf_type.type(), may_be_flexible_array=may_be_flexible_array)
+            return TypedefType(dwarf_type.name(), type_, qualifiers)
         elif dwarf_type.tag == DW_TAG.pointer_type:
             size = dwarf_type.size()
             try:
                 deref_type = dwarf_type.type()
             except DwarfAttribNotFoundError:
-                type_: Type = VoidType()
+                type_ = VoidType()
             else:
                 type_ = self._from_dwarf_type(deref_type)
             return PointerType(size, type_, qualifiers)
         elif dwarf_type.tag == DW_TAG.array_type:
-            type_ = self._from_dwarf_type(dwarf_type.type())
-            for child in reversed(dwarf_type.children()):
+            dimensions = []
+            for child in dwarf_type.children():
                 if child.tag == DW_TAG.subrange_type:
-                    try:
-                        size = child.find_constant(DW_AT.upper_bound) + 1
-                    except DwarfAttribNotFoundError:
-                        size = None
-                    type_ = ArrayType(type_, size, self._address_size)
-            if not isinstance(type_, ArrayType):
-                raise DwarfFormatError('array type does not have any subranges')
+                    if child.tag == DW_TAG.subrange_type:
+                        try:
+                            size = child.find_constant(DW_AT.upper_bound) + 1
+                        except DwarfAttribNotFoundError:
+                            try:
+                                # Clang emits DW_AT_count instead of
+                                # DW_AT_upper_bound.
+                                size = child.find_constant(DW_AT.count)
+                            except DwarfAttribNotFoundError:
+                                size = None
+                    dimensions.append(size)
+            if not dimensions:
+                dimensions.append(None)
+            # GCC currently doesn't make it possible to distinguish between
+            # zero-length and flexible arrays. Zero-length arrays are allowed
+            # in a few places where flexible arrays aren't: in a union, in an
+            # array, as the only member of a structure, and in the middle of a
+            # structure. In those cases, we know that this member is not a
+            # flexible array, even if it appears to be so from the debug info.
+            # In other cases, we have no way to tell which was used in the
+            # source, so assume it is a flexible array.
+            for i, size in enumerate(dimensions):
+                if size is None and (i != 0 or not may_be_flexible_array):
+                    dimensions[i] = 0
+            dimensions.reverse()
+            type_ = self._from_dwarf_type(dwarf_type.type())
+            for size in dimensions:
+                type_ = ArrayType(type_, size, self._address_size)
             return type_
         elif dwarf_type.tag == DW_TAG.subroutine_type:
             try:
