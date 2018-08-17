@@ -86,5 +86,6 @@ Licensed under the GPLv3 or later
 Acknowledgements
 ----------------
 
-`drgn` is so named because dragons eat [dwarves](http://dwarfstd.org/). [See
-also](https://giraffesgiraffes.bandcamp.com/track/drgnfkr-2).
+`drgn` is named after
+[this](https://giraffesgiraffes.bandcamp.com/track/drgnfkr-2) because dragons
+eat [dwarves](http://dwarfstd.org/).
