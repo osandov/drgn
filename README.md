@@ -5,7 +5,7 @@ drgn
 which use the types and data of the program being debugged.
 
 `drgn` was developed for debugging the Linux kernel (as an alternative to the
-`crash` utility), but it can also debug userspace program written in C. C++
+`crash` utility), but it can also debug userspace programs written in C. C++
 support is planned.
 
 Installation
@@ -40,9 +40,10 @@ the `drgn.lib` module. The rest of this section describes using the CLI; the
 CLI is basically a wrapper around the library which provides a nice interface,
 including history and tab completion.
 
-To debug the running kernel, run `sudo drgn -k`. To debug a running program,
-run `sudo drgn -p $PID`. To debug a core dump (either a kernel vmcore or a
-userspace core dump), run `drgn -c $PATH`.
+To debug the running kernel, run `sudo drgn -k` (or `sudo python3 -m drgn -k`
+if running locally). To debug a running program, run `sudo drgn -p $PID`. To
+debug a core dump (either a kernel vmcore or a userspace core dump), run
+`drgn -c $PATH`.
 
 The `drgn` CLI has an interactive mode and a script mode. If no arguments are
 passed, `drgn` runs in interactive mode; otherwise, the given script is run
@@ -85,5 +86,5 @@ Licensed under the GPLv3 or later
 Acknowledgements
 ----------------
 
-`drgn` is so named because dragons eat [dwarves](http://dwarfstd.org/). It is
-also named after [a song](https://giraffesgiraffes.bandcamp.com/track/drgnfkr-2).
+`drgn` is so named because dragons eat [dwarves](http://dwarfstd.org/). [See
+also](https://giraffesgiraffes.bandcamp.com/track/drgnfkr-2).
