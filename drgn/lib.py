@@ -94,8 +94,8 @@ def _get_fallback_vmcoreinfo() -> Dict[str, Any]:
             elf_symbol = elf_file.symbols['_stext'][0].st_value
         except (KeyError, IndexError):
             raise ValueError('could not find _stext symbol in vmlinux') from None
-    with open('/proc/kallsyms', 'r') as f:
-        kallsyms = f.read()
+    with open('/proc/kallsyms', 'r') as kallsyms_file:
+        kallsyms = kallsyms_file.read()
     kallsyms_match = re.search(r'^([0-9a-fA-F]+) . _stext$', kallsyms,
                                re.MULTILINE)
     if not kallsyms_match:
