@@ -109,7 +109,7 @@ class ProgramObject:
         try:
             return self.member_(name)
         except ValueError as e:
-            if e.args == ('not a struct or union',):
+            if len(e.args) == 1 and 'struct or union' in e.args[0]:
                 raise AttributeError(f'{self.__class__.__name__!r} object has no attribute {name!r}') from None
             elif e.args and 'has no member' in e.args[0]:
                 raise AttributeError(e.args[0]) from None
@@ -118,7 +118,7 @@ class ProgramObject:
 
     def __len__(self) -> int:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
-            raise ValueError(f'{str(self.type_.type_name())!r} has no len()')
+            raise ValueError(f'{self.type_.name!r} has no len()')
         return self._real_type.size
 
     def __getitem__(self, idx: Any) -> 'ProgramObject':
@@ -140,13 +140,13 @@ class ProgramObject:
             # Duplicated here to work around mypy issue #4864.
             type_ = self._real_type.type
         else:
-            raise ValueError('not an array or pointer')
+            raise ValueError(f'subscripted value must be an array or pointer, not {self.type_.name!r}')
         offset = i * type_.sizeof()
         return ProgramObject(self.prog_, type_, address=address + offset)
 
     def __iter__(self) -> Iterable['ProgramObject']:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
-            raise ValueError(f'{str(self.type_.type_name())!r} is not iterable')
+            raise ValueError(f'{self.type_.name!r} is not iterable')
         assert self.address_ is not None  # Array rvalues are not allowed
         type_ = self._real_type.type
         for i in range(self._real_type.size):
@@ -154,9 +154,7 @@ class ProgramObject:
             yield ProgramObject(self.prog_, type_, address=address)
 
     def __repr__(self) -> str:
-        parts = [
-            'ProgramObject(type=<', str(self.type_.type_name()), '>'
-        ]
+        parts = ['ProgramObject(type=<', self.type_.name, '>']
         if self._value is not None:
             parts.append(', value=')
             if isinstance(self._real_type, PointerType):
@@ -216,7 +214,7 @@ class ProgramObject:
             return self.prog_._reader.read_c_string(
                 self.address_, maxsize=self._real_type.size or -1)
         else:
-            raise ValueError('not an array or pointer')
+            raise ValueError(f'string_() value must be an array or pointer, not {self.type_.name!r}')
 
     def member_(self, name: str) -> 'ProgramObject':
         """
@@ -238,7 +236,7 @@ class ProgramObject:
             # mypy doesn't understand the except AttributeError.
             member_type, offset = type_.member(name)  # type: ignore
         except AttributeError:
-            raise ValueError('not a struct or union')
+            raise ValueError(f'member access must be on a struct or union, not {self.type_.name!r}') from None
         return ProgramObject(self.prog_, member_type, address=address + offset)
 
     def cast_(self, type: Union[str, Type, TypeName]) -> 'ProgramObject':
@@ -276,12 +274,12 @@ class ProgramObject:
             type = self.prog_.type(type)
         self_real_type = self._real_type
         if not isinstance(self_real_type, PointerType):
-            raise ValueError('container_of is only valid on pointers')
+            raise ValueError(f'container_of_() value must be a pointer, not {self._real_type.name!r}')
         try:
             # mypy doesn't understand the except AttributeError.
             offset = type.real_type().offsetof(member)  # type: ignore
         except AttributeError:
-            raise ValueError('container_of is only valid with struct or union types')
+            raise ValueError(f'container_of_() type must be a struct or union type, not {type.name!r}')
         return ProgramObject(self.prog_,
                              PointerType(self_real_type.size, type,
                                          self_real_type.qualifiers),
@@ -299,7 +297,7 @@ class ProgramObject:
                         integer: bool = False) -> 'ProgramObject':
         if ((integer and not self._real_type.is_integer()) or
                 (not integer and not self._real_type.is_arithmetic())):
-            raise TypeError(f"invalid operand to unary {op_name} ('{self.type_}')")
+            raise TypeError(f'invalid operand to unary {op_name} ({self.type_.name!r})')
         type_ = self.type_.operand_type()
         if self._real_type.is_integer():
             type_ = self.prog_._type_index._integer_promotions(type_)
@@ -337,7 +335,7 @@ class ProgramObject:
                              lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic():
-            raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
+            raise TypeError(f'invalid operands to binary {op_name} ({lhs_type.name!r} and {rhs_type.name!r})')
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
@@ -348,7 +346,7 @@ class ProgramObject:
                           lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_integer() or not rhs_type.is_integer():
-            raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
+            raise TypeError(f'invalid operands to binary {op_name} ({lhs_type.name!r} and {rhs_type.name!r})')
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
@@ -359,7 +357,7 @@ class ProgramObject:
                         lhs: Any, rhs: Any) -> 'ProgramObject':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_integer() or not rhs_type.is_integer():
-            raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
+            raise TypeError(f'invalid operands to binary {op_name} ({lhs_type.name!r} and {rhs_type.name!r})')
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         lhs_type = self.prog_._type_index._integer_promotions(lhs_type)
@@ -374,7 +372,7 @@ class ProgramObject:
         if ((lhs_pointer != rhs_pointer) or
                 (not lhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
-            raise TypeError(f"invalid operands to binary {op_name} ('{lhs_type}' and '{rhs_type}')")
+            raise TypeError(f'invalid operands to binary {op_name} ({lhs_type.name!r} and {rhs_type.name!r})')
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         if not lhs_pointer:
@@ -391,7 +389,7 @@ class ProgramObject:
                 (rhs_pointer and not lhs_type.is_integer()) or
                 (not lhs_pointer and not rhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
-            raise TypeError(f"invalid operands to binary + ('{lhs_type}' and '{rhs_type}')")
+            raise TypeError(f'invalid operands to binary + ({lhs_type.name!r} and {rhs_type.name!r})')
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         if lhs_pointer:
@@ -420,7 +418,7 @@ class ProgramObject:
                 (rhs_pointer and not lhs_pointer) or
                 (not lhs_pointer and not rhs_pointer and
                  (not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic()))):
-            raise TypeError(f"invalid operands to binary - ('{lhs_type}' and '{rhs_type}')")
+            raise TypeError(f'invalid operands to binary - ({lhs_type.name!r} and {rhs_type.name!r})')
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         if lhs_pointer and rhs_pointer:
@@ -516,7 +514,7 @@ class ProgramObject:
     def __bool__(self) -> bool:
         if (not self._real_type.is_arithmetic() and
                 not self._real_type.is_pointer_operand()):
-            raise TypeError(f"invalid operand to bool() ('{self.type_}')")
+            raise TypeError(f'invalid operand to bool() ({self.type_.name!r})')
         return bool(self.value_())
 
     def __neg__(self) -> 'ProgramObject':
@@ -530,22 +528,22 @@ class ProgramObject:
 
     def __int__(self) -> int:
         if not self._real_type.is_arithmetic():
-            raise TypeError(f"can't convert {self.type_} to int")
+            raise TypeError(f'cannot convert {self.type_.name!r} to int')
         return int(self.value_())
 
     def __float__(self) -> float:
         if not self._real_type.is_arithmetic():
-            raise TypeError(f"can't convert {self.type_} to float")
+            raise TypeError(f'cannot convert {self.type_.name!r} to float')
         return float(self.value_())
 
     def __index__(self) -> int:
         if not self._real_type.is_integer():
-            raise TypeError(f"can't convert {self.type_} to index")
+            raise TypeError(f'cannot convert {self.type_.name!r} to index')
         return self.value_()
 
     def __round__(self, ndigits: Optional[int] = None) -> Union[int, 'ProgramObject']:
         if not self._real_type.is_arithmetic():
-            raise TypeError(f"can't round {self.type_}")
+            raise TypeError(f'cannot round {self.type_.name!r}')
         if ndigits is None:
             return round(self.value_())
         return ProgramObject(self.prog_, self.type_,
@@ -553,17 +551,17 @@ class ProgramObject:
 
     def __trunc__(self) -> int:
         if not self._real_type.is_arithmetic():
-            raise TypeError(f"can't round {self.type_}")
+            raise TypeError(f'cannot round {self.type_.name!r}')
         return math.trunc(self.value_())
 
     def __floor__(self) -> int:
         if not self._real_type.is_arithmetic():
-            raise TypeError(f"can't round {self.type_}")
+            raise TypeError(f'cannot round {self.type_.name!r}')
         return math.floor(self.value_())
 
     def __ceil__(self) -> int:
         if not self._real_type.is_arithmetic():
-            raise TypeError(f"can't round {self.type_}")
+            raise TypeError(f'cannot round {self.type_.name!r}')
         return math.ceil(self.value_())
 
 

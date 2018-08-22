@@ -91,6 +91,11 @@ class Type:
             struct dentry *dentry;
     }
 
+    A Type has an unqualififed name.
+
+    >>> prog['jiffies'].type_.name
+    'unsigned long'
+
     A Type can have qualifiers as is the case in C.
 
     >>> prog['jiffies'].type_.qualifiers
@@ -98,6 +103,8 @@ class Type:
 
     There are several Type subclasses representing more specific types.
     """
+
+    name: str
 
     def __init__(self, qualifiers: Iterable[str] = frozenset()) -> None:
         self.qualifiers = frozenset(qualifiers)
@@ -181,7 +188,7 @@ class Type:
 
     def _convert(self, value: Any) -> Any:
         """Return the given value converted to a valid value of this type."""
-        raise TypeError(f'cannot convert to {self}')
+        raise TypeError(f'cannot convert to {self.name!r}')
 
     def _read(self, reader: CoreReader, address: int) -> Any:
         """
@@ -208,6 +215,8 @@ class VoidType(Type):
     A VoidType represents C's void. It can have qualifiers. See help(Type) for
     more information.
     """
+
+    name = 'void'
 
     def type_name(self) -> VoidTypeName:
         return VoidTypeName(self.qualifiers)
@@ -328,7 +337,7 @@ class IntType(ArithmeticType):
         try:
             value = value.__int__()
         except AttributeError:
-            raise TypeError(f'cannot convert to {self}') from None
+            raise TypeError(f'cannot convert to {self.name!r}') from None
         return _int_convert(value, 8 * self.size, self.signed)
 
 
@@ -356,7 +365,7 @@ class BoolType(IntType):
         try:
             return bool(value + 0)
         except TypeError:
-            raise TypeError(f'cannot convert to {self}') from None
+            raise TypeError(f'cannot convert to {self.name!r}') from None
 
     def _pretty(self, value: Any, *, cast: bool = True, columns: int = 0,
                 one_line_columns: Optional[int] = None,
@@ -388,14 +397,14 @@ class FloatType(ArithmeticType):
         try:
             value = value.__float__()
         except AttributeError:
-            raise TypeError(f'cannot convert to {self}') from None
+            raise TypeError(f'cannot convert to {self.name!r}') from None
         if self.size == 4:
             # Python doesn't have a native float32 type.
             return struct.unpack('f', struct.pack('f', value))[0]
         elif self.size == 8:
             return value
         else:
-            raise ValueError(f"can't convert to float of size {self.size}")
+            raise ValueError(f'cannot convert to float of size {self.size}')
 
 
 class BitFieldType(Type):
@@ -440,6 +449,10 @@ class BitFieldType(Type):
         ]
         return ''.join(parts)
 
+    @property
+    def name(self) -> str:  # type: ignore  # mypy issue 4125
+        return f'{self.type.name} : {self.bit_size}'
+
     def type_name(self) -> TypeName:
         raise ValueError("can't get type name of bit field")
 
@@ -475,7 +488,7 @@ class BitFieldType(Type):
         try:
             value = value.__int__()
         except AttributeError:
-            raise TypeError(f'cannot convert to {self}') from None
+            raise TypeError(f'cannot convert to {self.name}') from None
         return _int_convert(value, self.bit_size, self._int_type.signed)
 
     def _read(self, reader: CoreReader, address: int) -> int:
@@ -706,6 +719,10 @@ class StructType(CompoundType):
     }
     """
 
+    @property
+    def name(self) -> str:  # type: ignore  # mypy issue 4125
+        return 'struct ' + (self.tag or '<anonymous>')
+
     def type_name(self) -> StructTypeName:
         return StructTypeName(self.tag, self.qualifiers)
 
@@ -733,6 +750,10 @@ class UnionType(CompoundType):
             u32 s;
     }
     """
+
+    @property
+    def name(self) -> str:  # type: ignore  # mypy issue 4125
+        return 'union ' + (self.tag or '<anonymous>')
 
     def type_name(self) -> UnionTypeName:
         return UnionTypeName(self.tag, self.qualifiers)
@@ -783,8 +804,7 @@ class EnumType(Type):
         if enumerators is None:
             self.enum = None
         else:
-            self.enum = enum.IntEnum(tag or '', enumerators)  # type: ignore
-                                                              # mypy issue #4865.
+            self.enum = enum.IntEnum(tag or '', enumerators)  # type: ignore  # mypy issue #4865
 
     def __repr__(self) -> str:
         parts = [
@@ -811,6 +831,10 @@ class EnumType(Type):
                 parts.append(',\n')
             parts.append('}')
         return ''.join(parts)
+
+    @property
+    def name(self) -> str:  # type: ignore  # mypy issue 4125
+        return 'enum ' + (self.tag or '<anonymous>')
 
     def type_name(self) -> EnumTypeName:
         return EnumTypeName(self.tag, self.qualifiers)
@@ -870,11 +894,11 @@ class EnumType(Type):
 
     def _convert(self, value: Any) -> Union[enum.IntEnum, int]:
         if self.type is None or self.enum is None:
-            raise ValueError("can't convert to incomplete enum type")
+            raise ValueError('cannot convert to incomplete enum type')
         try:
             value = self.type._convert(value)
         except TypeError:
-            raise TypeError(f'cannot convert to {self}') from None
+            raise TypeError(f'cannot convert to {self.name!r}') from None
         try:
             return self.enum(value)
         except ValueError:
@@ -1016,6 +1040,10 @@ class PointerType(Type):
         parts.append(')')
         return ''.join(parts)
 
+    @property
+    def name(self) -> str:  # type: ignore  # mypy issue 4125
+        return self.type_name().declaration('')
+
     def type_name(self) -> PointerTypeName:
         return PointerTypeName(self.type.type_name(), self.qualifiers)
 
@@ -1069,7 +1097,7 @@ class PointerType(Type):
         try:
             return value & ((1 << (8 * self.size)) - 1)
         except TypeError:
-            raise TypeError(f'cannot convert to {self}') from None
+            raise TypeError(f'cannot convert to {self.name!r}') from None
 
 
 class ArrayType(Type):
@@ -1097,6 +1125,10 @@ class ArrayType(Type):
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.type!r}, {self.size!r}, {self.pointer_size!r})'
+
+    @property
+    def name(self) -> str:  # type: ignore  # mypy issue 4125
+        return self.type_name().declaration('')
 
     def type_name(self) -> ArrayTypeName:
         return ArrayTypeName(self.type.type_name(), self.size)
@@ -1270,6 +1302,10 @@ class FunctionType(Type):
             ')',
         ]
         return ''.join(parts)
+
+    @property
+    def name(self) -> str:  # type: ignore  # mypy issue 4125
+        return self.type_name().declaration('')
 
     def type_name(self) -> TypeName:
         if self.parameters is None:

@@ -183,7 +183,7 @@ class TypeIndex:
         elif isinstance(value, numbers.Real):
             return self.find('double')
         else:
-            raise TypeError()
+            raise TypeError(f'cannot create {type(value).__name__} literal')
 
     def _integer_promotions(self, type_: Type) -> Type:
         # Integer promotions are performed on types whose integer conversion
