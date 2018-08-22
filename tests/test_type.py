@@ -368,6 +368,8 @@ enum {
         type_ = EnumType('foo', None, None)
         self.assertEqual(str(type_), 'enum foo')
         self.assertRaises(ValueError, type_.sizeof)
+        self.assertTrue(type_.is_arithmetic())
+        self.assertTrue(type_.is_integer())
 
     def test_pointer(self):
         type_ = PointerType(pointer_size, IntType('int', 4, True))

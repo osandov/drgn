@@ -5,7 +5,7 @@ import tempfile
 from drgn.internal.corereader import CoreReader
 from drgn.program import Program, ProgramObject
 from drgn.type import IntType, StructType, TypedefType
-from tests.test_type import point_type
+from tests.test_type import color_type, point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES
 
 
@@ -254,6 +254,11 @@ class TestProgramObject(TypeIndexTestCase):
         self.assertEqual(struct_obj.member_('address_'),
                          self.program.object(TYPES['unsigned long'],
                                              address=0xffff0000))
+    def test_enum(self):
+        enum_obj = self.program.object(color_type, value=0)
+        self.assertEqual(enum_obj.value_(), color_type.enum.RED)
+        self.assertIsInstance(enum_obj.value_(), color_type.enum)
+        self.assertEqual([1, 2, 3][enum_obj], 1)
 
     def test_relational(self):
         one = self.program.object(TYPES['int'], value=1)

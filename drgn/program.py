@@ -539,7 +539,7 @@ class ProgramObject:
     def __index__(self) -> int:
         if not self._real_type.is_integer():
             raise TypeError(f'cannot convert {self.type_.name!r} to index')
-        return self.value_()
+        return int(self.value_())
 
     def __round__(self, ndigits: Optional[int] = None) -> Union[int, 'ProgramObject']:
         if not self._real_type.is_arithmetic():

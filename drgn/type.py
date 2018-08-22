@@ -173,8 +173,8 @@ class Type:
     def is_integer(self) -> bool:
         """
         Return whether this type is an integer type. This is true for instances
-        of IntType, BitFieldType, and TypedefType if the underlying type is one
-        of those.
+        of IntType, EnumType, BitFieldType, and TypedefType if the underlying
+        type is one of those.
         """
         return False
 
@@ -862,6 +862,9 @@ class EnumType(Type):
         return not self.tag
 
     def is_arithmetic(self) -> bool:
+        return True
+
+    def is_integer(self) -> bool:
         return True
 
     def _read(self, reader: CoreReader, address: int) -> Union[enum.IntEnum, int]:
