@@ -510,21 +510,21 @@ _TypeThunk = Callable[[], Type]
 
 class CompoundType(Type):
     """
-    A CompoundType represents a type with members. It has a name, a size,
-    members, and qualifiers. The name may be None, which indicates an anonymous
+    A CompoundType represents a type with members. It has a tag, a size,
+    members, and qualifiers. The tag may be None, which indicates an anonymous
     type. See help(Type) for more information.
     """
 
-    def __init__(self, name: Optional[str], size: Optional[int],
+    def __init__(self, tag: Optional[str], size: Optional[int],
                  members: Optional[List[Tuple[Optional[str], int, _TypeThunk]]],
                  qualifiers: Iterable[str] = frozenset()) -> None:
         super().__init__(qualifiers)
+        self.tag = tag
+        self.size = size
         # List of name, offset, type_thunk. type_thunk is a callable taking no
         # parameters which returns the type of the member. This lets us lazily
         # evaluate member types, which is necessary because structs may be very
         # deeply nested.
-        self.name = name
-        self.size = size
         self._members = members
         self._members_by_name: Dict[str, Tuple[int, _TypeThunk]] = OrderedDict()
         if members:
@@ -541,7 +541,7 @@ class CompoundType(Type):
     def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
-            repr(self.name), ', ',
+            repr(self.tag), ', ',
             repr(self.size), ', ',
         ]
         if self._members is None:
@@ -584,7 +584,7 @@ class CompoundType(Type):
         return self.size
 
     def is_anonymous(self) -> bool:
-        return not self.name
+        return not self.tag
 
     def _read(self, reader: CoreReader, address: int) -> Dict:
         if self.size is None:
@@ -599,7 +599,7 @@ class CompoundType(Type):
                 reader: Optional[CoreReader] = None) -> str:
         if value.keys() != self._members_by_name.keys():
             raise ValueError('value members do not match type members')
-        if cast and self.name:
+        if cast and self.tag:
             parts = ['(', str(self.type_name()), ')']
         else:
             parts = []
@@ -707,11 +707,11 @@ class StructType(CompoundType):
     """
 
     def type_name(self) -> StructTypeName:
-        return StructTypeName(self.name, self.qualifiers)
+        return StructTypeName(self.tag, self.qualifiers)
 
     def unqualified(self) -> 'StructType':
         if self.qualifiers:
-            return StructType(self.name, self.size, self._members)
+            return StructType(self.tag, self.size, self._members)
         return self
 
 
@@ -735,18 +735,18 @@ class UnionType(CompoundType):
     """
 
     def type_name(self) -> UnionTypeName:
-        return UnionTypeName(self.name, self.qualifiers)
+        return UnionTypeName(self.tag, self.qualifiers)
 
     def unqualified(self) -> 'UnionType':
         if self.qualifiers:
-            return UnionType(self.name, self.size, self._members)
+            return UnionType(self.tag, self.size, self._members)
         return self
 
 
 class EnumType(Type):
     """
-    An EnumType has a name, compatible integer type, enumerators (as a Python
-    enum.IntEnum), and qualifiers. The name may be None, which indicates an
+    An EnumType has a tag, compatible integer type, enumerators (as a Python
+    enum.IntEnum), and qualifiers. The tag may be None, which indicates an
     anonymous enum type. The compatible integer type and enumerators may be
     None, which indicates an incomplete enum type. See help(Type) for more
     information.
@@ -772,24 +772,24 @@ class EnumType(Type):
     IntType('unsigned int', 4, False)
     """
 
-    def __init__(self, name: Optional[str], type: Optional[IntType],
+    def __init__(self, tag: Optional[str], type: Optional[IntType],
                  enumerators: Optional[List[Tuple[str, int]]],
                  qualifiers: Iterable[str] = frozenset()) -> None:
         if (type is None) != (enumerators is None):
             raise ValueError('incomplete enum type must not have type or enumerators')
         super().__init__(qualifiers)
-        self.name = name
+        self.tag = tag
         self.type = type
         if enumerators is None:
             self.enum = None
         else:
-            self.enum = enum.IntEnum('' if name is None else name, enumerators)  # type: ignore
-                                                                                 # mypy issue #4865.
+            self.enum = enum.IntEnum(tag or '', enumerators)  # type: ignore
+                                                              # mypy issue #4865.
 
     def __repr__(self) -> str:
         parts = [
             self.__class__.__name__, '(',
-            repr(self.name), ', ',
+            repr(self.tag), ', ',
             repr(self.type), ', ',
             repr(None if self.enum is None else self.enum.__members__),
         ]
@@ -813,7 +813,7 @@ class EnumType(Type):
         return ''.join(parts)
 
     def type_name(self) -> EnumTypeName:
-        return EnumTypeName(self.name, self.qualifiers)
+        return EnumTypeName(self.tag, self.qualifiers)
 
     def declaration(self, name: str) -> str:
         if self.is_anonymous():
@@ -830,12 +830,12 @@ class EnumType(Type):
 
     def unqualified(self) -> 'EnumType':
         if self.qualifiers:
-            return EnumType(self.name, self.type,
+            return EnumType(self.tag, self.type,
                             None if self.enum is None else self.enum.__members__)
         return self
 
     def is_anonymous(self) -> bool:
-        return not self.name
+        return not self.tag
 
     def is_arithmetic(self) -> bool:
         return True
