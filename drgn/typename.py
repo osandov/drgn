@@ -30,18 +30,11 @@ class TypeName:
     frozenset({'const'})
     """
 
-    def __init__(self, name: Optional[str],
-                 qualifiers: Iterable[str] = frozenset()) -> None:
-        self.name = name
+    def __init__(self, qualifiers: Iterable[str] = frozenset()) -> None:
         self.qualifiers = frozenset(qualifiers)
 
     def __repr__(self) -> str:
-        parts = [self.__class__.__name__, '(', repr(self.name)]
-        if self.qualifiers:
-            parts.append(', ')
-            parts.append(repr(self.qualifiers))
-        parts.append(')')
-        return ''.join(parts)
+        raise NotImplementedError()
 
     def __str__(self) -> str:
         return self.declaration('')
@@ -54,27 +47,34 @@ class TypeName:
         >>> print(BasicTypeName('int').declaration('counter'))
         int counter
         """
-        parts = sorted(self.qualifiers)
-        assert self.name is not None
-        parts.append(self.name)
-        if name:
-            parts.append(name)
-        return ' '.join(parts)
+        raise NotImplementedError()
+
+
+def _named_repr(class_name: str, name: Any, qualifiers: Iterable[str]) -> str:
+    parts = [class_name, '(', repr(name)]
+    if qualifiers:
+        parts.append(', ')
+        parts.append(repr(qualifiers))
+    parts.append(')')
+    return ''.join(parts)
+
+
+def _named_declaration(type_name: str, name: str,
+                       qualifiers: Iterable[str]) -> str:
+    parts = sorted(qualifiers)
+    parts.append(type_name)
+    if name:
+        parts.append(name)
+    return ' '.join(parts)
 
 
 class VoidTypeName(TypeName):
     """
-    A VoidTypeName is the name of the C void type. It has a name (which is
-    always void) and qualifiers.
-
-    >>> VoidTypeName().name
-    'void'
+    A VoidTypeName is the name of the C void type. It has qualifiers.
     """
 
-    name: str
-
     def __init__(self, qualifiers: Iterable[str] = frozenset()) -> None:
-        super().__init__('void', qualifiers)
+        super().__init__(qualifiers)
 
     def __repr__(self) -> str:
         parts = [self.__class__.__name__, '(']
@@ -82,6 +82,9 @@ class VoidTypeName(TypeName):
             parts.append(repr(self.qualifiers))
         parts.append(')')
         return ''.join(parts)
+
+    def declaration(self, name: str) -> str:
+        return _named_declaration('void', name, self.qualifiers)
 
 
 class BasicTypeName(TypeName):
@@ -93,11 +96,16 @@ class BasicTypeName(TypeName):
     'int'
     """
 
-    name: str
-
     def __init__(self, name: str,
                  qualifiers: Iterable[str] = frozenset()) -> None:
-        super().__init__(name, qualifiers)
+        super().__init__(qualifiers)
+        self.name = name
+
+    def __repr__(self) -> str:
+        return _named_repr(self.__class__.__name__, self.name, self.qualifiers)
+
+    def declaration(self, name: str) -> str:
+        return _named_declaration(self.name, name, self.qualifiers)
 
 
 def _tagged_declaration(keyword: str, tag: Optional[str], name: str,
@@ -113,47 +121,71 @@ def _tagged_declaration(keyword: str, tag: Optional[str], name: str,
 
 class StructTypeName(TypeName):
     """
-    A StructTypeName is the name of a struct type. It has a name (which may be
+    A StructTypeName is the name of a struct type. It has a tag (which may be
     None if the struct is anonymous) and qualifiers.
 
-    >>> StructTypeName('foo').name
+    >>> StructTypeName('foo').tag
     'foo'
-    >>> StructTypeName(None).name
+    >>> StructTypeName(None).tag
     None
     """
 
+    def __init__(self, tag: Optional[str],
+                 qualifiers: Iterable[str] = frozenset()) -> None:
+        super().__init__(qualifiers)
+        self.tag = tag
+
+    def __repr__(self) -> str:
+        return _named_repr(self.__class__.__name__, self.tag, self.qualifiers)
+
     def declaration(self, name: str) -> str:
-        return _tagged_declaration('struct', self.name, name, self.qualifiers)
+        return _tagged_declaration('struct', self.tag, name, self.qualifiers)
 
 
 class UnionTypeName(TypeName):
     """
-    A UnionTypeName is the name of a union type. It has a name (which may be
+    A UnionTypeName is the name of a union type. It has a tag (which may be
     None if the union is anonymous) and qualifiers.
 
-    >>> UnionTypeName('foo').name
+    >>> UnionTypeName('foo').tag
     'foo'
-    >>> UnionTypeName(None).name
+    >>> UnionTypeName(None).tag
     None
     """
 
+    def __init__(self, tag: Optional[str],
+                 qualifiers: Iterable[str] = frozenset()) -> None:
+        super().__init__(qualifiers)
+        self.tag = tag
+
+    def __repr__(self) -> str:
+        return _named_repr(self.__class__.__name__, self.tag, self.qualifiers)
+
     def declaration(self, name: str) -> str:
-        return _tagged_declaration('union', self.name, name, self.qualifiers)
+        return _tagged_declaration('union', self.tag, name, self.qualifiers)
 
 
 class EnumTypeName(TypeName):
     """
-    A EnumTypeName is the name of a enum type. It has a name (which may be
-    None if the enum is anonymous) and qualifiers.
+    A EnumTypeName is the name of a enum type. It has a tag (which may be None
+    if the enum is anonymous) and qualifiers.
 
-    >>> EnumTypeName('foo').name
+    >>> EnumTypeName('foo').tag
     'foo'
-    >>> EnumTypeName(None).name
+    >>> EnumTypeName(None).tag
     None
     """
 
+    def __init__(self, tag: Optional[str],
+                 qualifiers: Iterable[str] = frozenset()) -> None:
+        super().__init__(qualifiers)
+        self.tag = tag
+
+    def __repr__(self) -> str:
+        return _named_repr(self.__class__.__name__, self.tag, self.qualifiers)
+
     def declaration(self, name: str) -> str:
-        return _tagged_declaration('enum', self.name, name, self.qualifiers)
+        return _tagged_declaration('enum', self.tag, name, self.qualifiers)
 
 
 class TypedefTypeName(TypeName):
@@ -164,11 +196,16 @@ class TypedefTypeName(TypeName):
     'ptrdiff_t'
     """
 
-    name: str
-
     def __init__(self, name: str,
                  qualifiers: Iterable[str] = frozenset()) -> None:
-        super().__init__(name, qualifiers)
+        super().__init__(qualifiers)
+        self.name = name
+
+    def __repr__(self) -> str:
+        return _named_repr(self.__class__.__name__, self.name, self.qualifiers)
+
+    def declaration(self, name: str) -> str:
+        return _named_declaration(self.name, name, self.qualifiers)
 
 
 class PointerTypeName(TypeName):
@@ -182,11 +219,11 @@ class PointerTypeName(TypeName):
 
     def __init__(self, type: TypeName,
                  qualifiers: Iterable[str] = frozenset()) -> None:
+        super().__init__(qualifiers)
         self.type = type
-        self.qualifiers = frozenset(qualifiers)
 
     def __repr__(self) -> str:
-        parts = ['PointerTypeName(', repr(self.type)]
+        parts = [self.__class__.__name__, '(', repr(self.type)]
         if self.qualifiers:
             parts.append(', ')
             parts.append(repr(self.qualifiers))
@@ -224,7 +261,7 @@ class ArrayTypeName(TypeName):
         self.size = size
 
     def __repr__(self) -> str:
-        parts = ['ArrayTypeName(', repr(self.type)]
+        parts = [self.__class__.__name__, '(', repr(self.type)]
         if self.size is not None:
             parts.append(', ')
             parts.append(repr(self.size))
@@ -272,7 +309,7 @@ class FunctionTypeName(TypeName):
 
     def __repr__(self) -> str:
         parts = [
-            'FunctionTypeName(',
+            self.__class__.__name__, '(',
             repr(self.return_type), ', ',
             repr(self.parameters), ', ',
             repr(self.variadic),

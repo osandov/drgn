@@ -95,27 +95,33 @@ class DwarfTypeIndex(TypeIndex):
 
     def _find_type(self, type_name: TypeName, filename: Optional[str]) -> Type:
         dwarf_type = None
+        name: Optional[str]
         if isinstance(type_name, BasicTypeName):
             tag = DW_TAG.base_type
+            name = type_name.name
             try:
-                dwarf_type = self._base_types[type_name.name]
+                dwarf_type = self._base_types[name]
             except KeyError:
                 pass
         elif isinstance(type_name, StructTypeName):
             tag = DW_TAG.structure_type
+            name = type_name.tag
         elif isinstance(type_name, UnionTypeName):
             tag = DW_TAG.union_type
+            name = type_name.tag
         elif isinstance(type_name, EnumTypeName):
             tag = DW_TAG.enumeration_type
+            name = type_name.tag
         elif isinstance(type_name, TypedefTypeName):
             tag = DW_TAG.typedef
+            name = type_name.name
         else:
             assert False
-        if type_name.name is None:
+        if name is None:
             raise ValueError("can't find anonymous type")
         if dwarf_type is None:
             try:
-                dies = self._dwarf_index.find(type_name.name, tag)
+                dies = self._dwarf_index.find(name, tag)
             except ValueError:
                 raise ValueError(f'could not find {str(type_name)!r}') from None
             for dwarf_type in dies:
