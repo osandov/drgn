@@ -81,6 +81,7 @@ License
 -------
 
 Copyright 2018 - Omar Sandoval
+
 Licensed under the GPLv3 or later
 
 Acknowledgements
