@@ -179,23 +179,25 @@ def program(core: Optional[str] = None, pid: Optional[int] = None,
 
     try:
         if pid is None:
-            if os.path.abspath(core) == '/proc/kcore':
-                # Before Linux kernel commit 464920104bf7 ("/proc/kcore: update
-                # physical address for kcore ram and text") (in v4.11), p_paddr
-                # in /proc/kcore is always zero, so we don't have an easy way
-                # to use the physical address in sysfs.
-                if all(phdr.p_paddr == 0 for phdr in core_elf_file.phdrs):
-                    vmcoreinfo = _get_fallback_vmcoreinfo()
-                else:
+            for note in core_elf_file.notes():
+                if note.name == b'CORE' and note.type == NT_FILE:
+                    file_mappings = core_elf_file.parse_nt_file(note.data)
+                    break
+                elif note.name == b'VMCOREINFO':
+                    vmcoreinfo = parse_vmcoreinfo(note.data)
+                    break
+            # Before Linux kernel commit 23c85094fe18 ("proc/kcore: add
+            # vmcoreinfo note to /proc/kcore") (in v4.19), we can't get the
+            # vmcoreinfo note from /proc/kcore itself. Since Linux kernel
+            # commit 464920104bf7 ("/proc/kcore: update physical address for
+            # kcore ram and text") (in v4.11), we can read from the physical
+            # address of vmcoreinfo exported in sysfs. Before that, p_paddr in
+            # /proc/kcore is always zero, so we have to use a hackier fallback.
+            if os.path.abspath(core) == '/proc/kcore' and vmcoreinfo is None:
+                if any(phdr.p_paddr != 0 for phdr in core_elf_file.phdrs):
                     vmcoreinfo = _read_vmcoreinfo_from_sysfs(core_reader)
-            else:
-                for note in core_elf_file.notes():
-                    if note.name == b'CORE' and note.type == NT_FILE:
-                        file_mappings = core_elf_file.parse_nt_file(note.data)
-                        break
-                    elif note.name == b'VMCOREINFO':
-                        vmcoreinfo = parse_vmcoreinfo(note.data)
-                        break
+                else:
+                    vmcoreinfo = _get_fallback_vmcoreinfo()
 
         variable_index: VariableIndex
         if vmcoreinfo is not None:
