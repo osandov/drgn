@@ -37,9 +37,9 @@ class DwarfVariableIndex(VariableIndex):
                 except DwarfAttribNotFoundError:
                     continue
         if filename is None:
-            raise ValueError(f'could not find {name!r}')
+            raise KeyError(f'could not find {name!r}')
         else:
-            raise ValueError(f'could not find {name!r} in {filename!r}')
+            raise KeyError(f'could not find {name!r} in {filename!r}')
 
     def _find_variable_address(self, name: str, die: Die) -> int:
         raise NotImplementedError()

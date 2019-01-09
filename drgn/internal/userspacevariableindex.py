@@ -35,7 +35,7 @@ class UserspaceVariableIndex(DwarfVariableIndex):
             if phdr.p_vaddr <= address < phdr.p_vaddr + phdr.p_memsz:
                 break
         else:
-            raise ValueError(f'Could not find segment containing {name}')
+            raise KeyError(f'Could not find segment containing {name}')
         file_offset = phdr.p_offset + address - phdr.p_vaddr
 
         for mapping in self._file_mappings:
@@ -45,4 +45,4 @@ class UserspaceVariableIndex(DwarfVariableIndex):
                     mapping.file_offset + mapping_size):
                 return mapping.start + file_offset - mapping.file_offset
         else:
-            raise ValueError(f'Could not find file mapping containing {name}')
+            raise KeyError(f'Could not find file mapping containing {name}')

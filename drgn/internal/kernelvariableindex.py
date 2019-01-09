@@ -47,12 +47,12 @@ class KernelVariableIndex(DwarfVariableIndex):
             if mod.name.string_() == module_name:
                 break
         else:
-            raise ValueError(f'{module_name.decode()} is not loaded')
+            raise KeyError(f'{module_name.decode()} is not loaded')
         for sym in elf_file.symbols[name]:
             if sym.st_value == address:
                 break
         else:
-            raise ValueError(f'Could not find {name} symbol')
+            raise KeyError(f'Could not find {name} symbol')
         section_name = elf_file.shdrs[sym.st_shndx].name.encode()
         mod_sects = mod.sect_attrs.attrs
         for i in range(mod.sect_attrs.nsections):
@@ -60,4 +60,4 @@ class KernelVariableIndex(DwarfVariableIndex):
             if attr.name.string_() == section_name:
                 return address + attr.address.value_()
         else:
-            raise ValueError(f'Could not find module section {section_name.decode()}')
+            raise KeyError(f'Could not find module section {section_name.decode()}')
