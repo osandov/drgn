@@ -91,7 +91,12 @@ def pid_task(pid, pid_type):
     first = pid.tasks[0].first
     if not first:
         return pid.prog_.null('struct task_struct *')
-    return first.container_of_('struct task_struct', f'pids[{int(pid_type)}].node')
+    try:
+        return first.container_of_('struct task_struct',
+                                   f'pid_links[{int(pid_type)}]')
+    except ValueError:
+        return first.container_of_('struct task_struct',
+                                   f'pids[{int(pid_type)}].node')
 
 
 def find_task(prog_or_ns, pid):

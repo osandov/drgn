@@ -5,7 +5,7 @@
 Linux kernel radix tree helpers
 
 This module provides helpers for working with radix trees from
-"linux/radix-tree.h". Note that it does not support multiorder radix trees yet.
+"linux/radix-tree.h".
 """
 
 __all__ = [
@@ -14,16 +14,23 @@ __all__ = [
 ]
 
 _RADIX_TREE_ENTRY_MASK = 3
-_RADIX_TREE_INTERNAL_NODE = 1
 
 
-def _is_internal_node(node):
-    return (node.value_() & _RADIX_TREE_ENTRY_MASK) == _RADIX_TREE_INTERNAL_NODE
+def _is_internal_node(node, internal_node):
+    return (node.value_() & _RADIX_TREE_ENTRY_MASK) == internal_node
 
 
-def _internal_node(node):
-    return node.prog_.object(node.type_,
-                             value=node.value_() & ~_RADIX_TREE_INTERNAL_NODE)
+def _entry_to_node(node, internal_node):
+    return node.prog_.object(node.type_, value=node.value_() & ~internal_node)
+
+
+def _radix_tree_root_node(root):
+    try:
+        node = root.xa_head
+    except AttributeError:
+        return root.rnode.read_once_(), 1
+    else:
+        return node.cast_('struct xa_node *').read_once_(), 2
 
 
 def radix_tree_lookup(root, index):
@@ -33,12 +40,12 @@ def radix_tree_lookup(root, index):
     Look up the entry at a given index in a radix tree. If it is not found,
     this returns a NULL object.
     """
-    node = root.rnode.read_once_()
+    node, RADIX_TREE_INTERNAL_NODE = _radix_tree_root_node(root)
     RADIX_TREE_MAP_MASK = node.type_.type.typeof('slots').size - 1
     while True:
-        if not _is_internal_node(node):
+        if not _is_internal_node(node, RADIX_TREE_INTERNAL_NODE):
             break
-        parent = _internal_node(node)
+        parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
         offset = (index >> parent.shift) & RADIX_TREE_MAP_MASK
         node = parent.slots[offset].cast_(parent.type_).read_once_()
     return node.cast_('void *')
@@ -51,12 +58,13 @@ def radix_tree_for_each(root):
     Return an iterator over all of the entries in a radix tree. The generated
     values are (index, entry) tuples.
     """
+    node, RADIX_TREE_INTERNAL_NODE = _radix_tree_root_node(root)
     def aux(node, index):
-        if _is_internal_node(node):
-            parent = _internal_node(node)
+        if _is_internal_node(node, RADIX_TREE_INTERNAL_NODE):
+            parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
             for i, slot in enumerate(parent.slots):
                 yield from aux(slot.cast_(parent.type_).read_once_(),
                                index + (i << parent.shift.value_()))
         elif node:
             yield index, node.cast_('void *')
-    yield from aux(root.rnode.read_once_(), 0)
+    yield from aux(node, 0)
