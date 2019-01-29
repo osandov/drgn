@@ -590,6 +590,10 @@ class Program:
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         self.close()
 
+    def _is_kernel(self) -> bool:
+        from drgn.internal.kernelvariableindex import KernelVariableIndex
+        return isinstance(self._variable_index, KernelVariableIndex)
+
     def close(self) -> None:
         """
         Close resources associated with this Program.

@@ -12,7 +12,8 @@ following are both valid:
 >>> from drgn.helpers.kernel.list import list_for_each_entry
 >>> from drgn.helpers.kernel import list_for_each_entry
 
-Alternatively, in interactive mode, the following is the most convenient:
+In interactive mode, the following is done automatically when debugging the
+kernel:
 
 >>> from drgn.helpers.kernel import *
 """

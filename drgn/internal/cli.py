@@ -6,6 +6,7 @@
 import argparse
 import builtins
 import code
+import importlib
 import os.path
 import runpy
 import shutil
@@ -97,4 +98,9 @@ def main() -> None:
             sys.displayhook = displayhook
 
             banner = version + '\nFor help, type help(drgn).'
+            if prog._is_kernel():
+                banner += '\n>>> from drgn.helpers.kernel import *'
+                module = importlib.import_module('drgn.helpers.kernel')
+                for name in module.__dict__['__all__']:
+                    init_globals[name] = getattr(module, name)
             code.interact(banner=banner, exitmsg='', local=init_globals)
