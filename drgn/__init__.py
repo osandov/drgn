@@ -22,10 +22,10 @@ or
 
 to learn more about how to use it.
 
-Variables are represented by drgn.program.ProgramObject objects. Try
+Variables are represented by drgn.program.Object objects. Try
 
 >>> import drgn.program
->>> help(drgn.program.ProgramObject)
+>>> help(drgn.program.Object)
 
 Types are represented by drgn.type.Type objects. Try
 

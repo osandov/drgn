@@ -15,7 +15,7 @@ from typing import Any, Dict
 
 import drgn
 from drgn.lib import program
-from drgn.program import ProgramObject
+from drgn.program import Object
 from drgn.type import Type
 
 
@@ -23,7 +23,7 @@ def displayhook(value: Any) -> None:
     if value is None:
         return
     setattr(builtins, '_', None)
-    if isinstance(value, ProgramObject):
+    if isinstance(value, Object):
         columns = shutil.get_terminal_size((0, 0)).columns
         text = f'{value:.{columns}}'
     elif isinstance(value, Type):

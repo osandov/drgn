@@ -8,7 +8,7 @@ This module provides helpers for working with Linux devices, including the
 kernel encoding of dev_t.
 """
 
-from drgn.program import ProgramObject
+from drgn.program import Object
 
 __all__ = [
     'MAJOR',
@@ -29,7 +29,7 @@ def MAJOR(dev):
     Return the major ID of a kernel dev_t.
     """
     major = dev >> _MINORBITS
-    if isinstance(major, ProgramObject):
+    if isinstance(major, Object):
         return major.cast_('unsigned int')
     return major
 
@@ -41,7 +41,7 @@ def MINOR(dev):
     Return the major ID of a kernel dev_t.
     """
     minor = dev & _MINORMASK
-    if isinstance(minor, ProgramObject):
+    if isinstance(minor, Object):
         return minor.cast_('unsigned int')
     return minor
 
@@ -53,6 +53,6 @@ def MKDEV(major, minor):
     Return a kernel dev_t from the major and minor IDs.
     """
     dev = (major << _MINORBITS) | minor
-    if isinstance(dev, ProgramObject):
+    if isinstance(dev, Object):
         return dev.cast_('dev_t')
     return dev

@@ -5,8 +5,8 @@
 Program debugging library
 
 This module provides the two main interfaces provided by drgn -- the Program
-class, which represents the program being debugged, and the ProgramObject
-class, which represents an object (i.e., variable or value) in that program.
+class, which represents the program being debugged, and the Object class, which
+represents an object (i.e., variable or value) in that program.
 """
 
 import math
@@ -27,40 +27,39 @@ def _c_modulo(a: int, b: int) -> int:
         return -(-a % abs(b))
 
 
-class ProgramObject:
+class Object:
     """
-    A ProgramObject either represents an object in the memory of a program (an
+    A Object either represents an object in the memory of a program (an
     "lvalue") or a temporary computed value (an "rvalue"). It has three
     members: prog_, the program this object is from; type_, the type of this
     object in the program; and address_, the location in memory where this
     object resides in the program (or None if it is not an lvalue).
 
-    repr() of a ProgramObject returns a Python representation of the object.
+    repr() of an Object returns a Python representation of the object.
 
     >>> print(repr(prog['jiffies']))
-    ProgramObject(type=<volatile long unsigned int>, address=0xffffffffbf005000)
+    Object(type=<volatile long unsigned int>, address=0xffffffffbf005000)
 
     str() returns a representation of the object in C syntax.
 
     >>> print(prog['jiffies'])
     (volatile long unsigned int)4326237045
 
-    Note that the drgn CLI is set up so that ProgramObjects are displayed with
-    str() instead of repr() (the latter is the default behavior of Python's
+    Note that the drgn CLI is set up so that Objects are displayed with str()
+    instead of repr() (the latter is the default behavior of Python's
     interactive mode). This means that in the drgn CLI, the call to print() in
     the second example above is not necessary.
 
-    ProgramObjects support C operators wherever possible. E.g., structure
-    members can be accessed with the dot (".") operator, arrays can be
-    subscripted with "[]", arithmetic can be performed, and objects can be
-    compared.
+    Objects support C operators wherever possible. E.g., structure members can
+    be accessed with the dot (".") operator, arrays can be subscripted with
+    "[]", arithmetic can be performed, and objects can be compared.
 
     >>> print(prog['init_task'].pid)
     (pid_t)0
     >>> print(prog['init_task'].comm[0])
     (char)115
     >>> print(repr(prog['init_task'].nsproxy.mnt_ns.mounts + 1))
-    ProgramObject(type=<unsigned int>, value=34)
+    Object(type=<unsigned int>, value=34)
     >>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0
     False
 
@@ -71,10 +70,9 @@ class ProgramObject:
     instead of "*p"). The address-of operator ("&") is available as the
     address_of_() method.
 
-    ProgramObject members and methods are named with a trailing underscore to
-    avoid conflicting with structure or union members. The helper methods
-    always take precedence over structure members; use member_() if there is a
-    conflict.
+    Object members and methods are named with a trailing underscore to avoid
+    conflicting with structure or union members. The helper methods always take
+    precedence over structure members; use member_() if there is a conflict.
     """
 
     def __init__(self, prog: 'Program', type: Type, *, value: Any = None,
@@ -104,7 +102,7 @@ class ProgramObject:
             attrs.extend(type_.member_names())
         return attrs
 
-    def __getattr__(self, name: str) -> 'ProgramObject':
+    def __getattr__(self, name: str) -> 'Object':
         """Implement self.name. Shortcut for self.member_(name)."""
         try:
             return self.member_(name)
@@ -121,10 +119,10 @@ class ProgramObject:
             raise ValueError(f'{self.type_.name!r} has no len()')
         return self._real_type.size
 
-    def __getitem__(self, idx: Any) -> 'ProgramObject':
+    def __getitem__(self, idx: Any) -> 'Object':
         """
-        Implement self[idx]. Return a ProgramObject representing an array
-        element at the given index.
+        Implement self[idx]. Return an Object representing an array element at
+        the given index.
 
         This is only valid for pointers and arrays.
         """
@@ -142,19 +140,19 @@ class ProgramObject:
         else:
             raise ValueError(f'subscripted value must be an array or pointer, not {self.type_.name!r}')
         offset = i * type_.sizeof()
-        return ProgramObject(self.prog_, type_, address=address + offset)
+        return Object(self.prog_, type_, address=address + offset)
 
-    def __iter__(self) -> Iterable['ProgramObject']:
+    def __iter__(self) -> Iterable['Object']:
         if not isinstance(self._real_type, ArrayType) or self._real_type.size is None:
             raise ValueError(f'{self.type_.name!r} is not iterable')
         assert self.address_ is not None  # Array rvalues are not allowed
         type_ = self._real_type.type
         for i in range(self._real_type.size):
             address = self.address_ + i * type_.sizeof()
-            yield ProgramObject(self.prog_, type_, address=address)
+            yield Object(self.prog_, type_, address=address)
 
     def __repr__(self) -> str:
-        parts = ['ProgramObject(type=<', self.type_.name, '>']
+        parts = ['Object(type=<', self.type_.name, '>']
         if self._value is not None:
             parts.append(', value=')
             if isinstance(self._real_type, PointerType):
@@ -216,15 +214,14 @@ class ProgramObject:
         else:
             raise ValueError(f'string_() value must be an array or pointer, not {self.type_.name!r}')
 
-    def member_(self, name: str) -> 'ProgramObject':
+    def member_(self, name: str) -> 'Object':
         """
-        Return a ProgramObject representing the given structure or union
-        member.
+        Return an Object representing the given structure or union member.
 
         This is only valid for structs, unions, and pointers to either.
         Normally the dot operator (".") can be used to accomplish the same
-        thing, but this method can be used if there is a name conflict with a
-        ProgramObject member or method.
+        thing, but this method can be used if there is a name conflict with an
+        Object member or method.
         """
         if isinstance(self._real_type, PointerType):
             address = self.value_()
@@ -237,31 +234,30 @@ class ProgramObject:
             member_type, offset = type_.member(name)  # type: ignore
         except AttributeError:
             raise ValueError(f'member access must be on a struct or union, not {self.type_.name!r}') from None
-        return ProgramObject(self.prog_, member_type, address=address + offset)
+        return Object(self.prog_, member_type, address=address + offset)
 
-    def cast_(self, type: Union[str, Type, TypeName]) -> 'ProgramObject':
+    def cast_(self, type: Union[str, Type, TypeName]) -> 'Object':
         """
         Return a copy of this object casted to another type. The given type is
         usually a string, but it can also be a Type or TypeName object.
         """
         if not isinstance(type, Type):
             type = self.prog_.type(type)
-        return ProgramObject(self.prog_, type, value=self._value,
-                             address=self.address_)
+        return Object(self.prog_, type, value=self._value,
+                      address=self.address_)
 
-    def address_of_(self) -> 'ProgramObject':
+    def address_of_(self) -> 'Object':
         """
         Return an object pointing to this object. Corresponds to the address-of
         ("&") operator in C.
         """
         if self.address_ is None:
             raise ValueError('cannot take address of rvalue')
-        return ProgramObject(self.prog_,
-                             self.prog_._type_index.pointer(self.type_),
-                             value=self.address_)
+        return Object(self.prog_, self.prog_._type_index.pointer(self.type_),
+                      value=self.address_)
 
     def container_of_(self, type: Union[str, Type, TypeName],
-                      member: str) -> 'ProgramObject':
+                      member: str) -> 'Object':
         """
         Return the containing object of the object pointed to by this object.
         The given type is the type of the containing object, and the given
@@ -280,32 +276,32 @@ class ProgramObject:
             offset = type.real_type().offsetof(member)  # type: ignore
         except AttributeError:
             raise ValueError(f'container_of_() type must be a struct or union type, not {type.name!r}')
-        return ProgramObject(self.prog_,
-                             PointerType(self_real_type.size, type,
-                                         self_real_type.qualifiers),
-                             value=self.value_() - offset)
+        return Object(self.prog_,
+                      PointerType(self_real_type.size, type,
+                                  self_real_type.qualifiers),
+                      value=self.value_() - offset)
 
-    def read_once_(self) -> 'ProgramObject':
+    def read_once_(self) -> 'Object':
         """
         Read the value of this object once and return it as an rvalue. This can
         be useful if the object can change in the running program. This loosely
         corresponds to the READ_ONCE() macro used in the Linux kernel.
         """
-        return ProgramObject(self.prog_, self.type_, value=self.value_())
+        return Object(self.prog_, self.type_, value=self.value_())
 
     def _unary_operator(self, op: Callable, op_name: str,
-                        integer: bool = False) -> 'ProgramObject':
+                        integer: bool = False) -> 'Object':
         if ((integer and not self._real_type.is_integer()) or
                 (not integer and not self._real_type.is_arithmetic())):
             raise TypeError(f'invalid operand to unary {op_name} ({self.type_.name!r})')
         type_ = self.type_.operand_type()
         if self._real_type.is_integer():
             type_ = self.prog_._type_index._integer_promotions(type_)
-        return ProgramObject(self.prog_, type_, value=op(self.value_()))
+        return Object(self.prog_, type_, value=op(self.value_()))
 
     def _binary_operands(self, lhs: Any, rhs: Any) -> Tuple[Any, Type, Any, Type]:
-        lhs_obj = isinstance(lhs, ProgramObject)
-        rhs_obj = isinstance(rhs, ProgramObject)
+        lhs_obj = isinstance(lhs, Object)
+        rhs_obj = isinstance(rhs, Object)
         if lhs_obj and rhs_obj and lhs.prog_ is not rhs.prog_:
             raise ValueError('operands are from different programs')
         if lhs_obj:
@@ -331,8 +327,8 @@ class ProgramObject:
         type_ = self.prog_._type_index._common_real_type(lhs_type, rhs_type)
         return type_, type_._convert(lhs), type_._convert(rhs)
 
-    def _arithmetic_operator(self, op: Callable, op_name: str,
-                             lhs: Any, rhs: Any) -> 'ProgramObject':
+    def _arithmetic_operator(self, op: Callable, op_name: str, lhs: Any,
+                             rhs: Any) -> 'Object':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_arithmetic() or not rhs_type.is_arithmetic():
             raise TypeError(f'invalid operands to binary {op_name} ({lhs_type.name!r} and {rhs_type.name!r})')
@@ -340,10 +336,10 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
-        return ProgramObject(self.prog_, type_, value=op(lhs, rhs))
+        return Object(self.prog_, type_, value=op(lhs, rhs))
 
     def _integer_operator(self, op: Callable, op_name: str,
-                          lhs: Any, rhs: Any) -> 'ProgramObject':
+                          lhs: Any, rhs: Any) -> 'Object':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_integer() or not rhs_type.is_integer():
             raise TypeError(f'invalid operands to binary {op_name} ({lhs_type.name!r} and {rhs_type.name!r})')
@@ -351,10 +347,10 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                              rhs, rhs_type)
-        return ProgramObject(self.prog_, type_, value=op(lhs, rhs))
+        return Object(self.prog_, type_, value=op(lhs, rhs))
 
-    def _shift_operator(self, op: Callable, op_name: str,
-                        lhs: Any, rhs: Any) -> 'ProgramObject':
+    def _shift_operator(self, op: Callable, op_name: str, lhs: Any,
+                        rhs: Any) -> 'Object':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         if not lhs_type.is_integer() or not rhs_type.is_integer():
             raise TypeError(f'invalid operands to binary {op_name} ({lhs_type.name!r} and {rhs_type.name!r})')
@@ -362,7 +358,7 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         lhs_type = self.prog_._type_index._integer_promotions(lhs_type)
         rhs_type = self.prog_._type_index._integer_promotions(rhs_type)
-        return ProgramObject(self.prog_, lhs_type, value=op(lhs, rhs))
+        return Object(self.prog_, lhs_type, value=op(lhs, rhs))
 
     def _relational_operator(self, op: Callable, op_name: str,
                              other: Any) -> bool:
@@ -380,7 +376,7 @@ class ProgramObject:
                                                                  rhs, rhs_type)
         return op(lhs, rhs)
 
-    def _add(self, lhs: Any, rhs: Any) -> 'ProgramObject':
+    def _add(self, lhs: Any, rhs: Any) -> 'Object':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         lhs_pointer = lhs_type.is_pointer_operand()
         rhs_pointer = rhs_type.is_pointer_operand()
@@ -394,18 +390,18 @@ class ProgramObject:
         rhs_type = rhs_type.operand_type()
         if lhs_pointer:
             assert isinstance(lhs_type, PointerType)
-            return ProgramObject(self.prog_, lhs_type,
-                                 value=lhs + lhs_type.type.sizeof() * rhs)
+            return Object(self.prog_, lhs_type,
+                          value=lhs + lhs_type.type.sizeof() * rhs)
         elif rhs_pointer:
             assert isinstance(rhs_type, PointerType)
-            return ProgramObject(self.prog_, rhs_type,
-                                 value=rhs + rhs_type.type.sizeof() * lhs)
+            return Object(self.prog_, rhs_type,
+                          value=rhs + rhs_type.type.sizeof() * lhs)
         else:
             type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                                  rhs, rhs_type)
-            return ProgramObject(self.prog_, type_, value=lhs + rhs)
+            return Object(self.prog_, type_, value=lhs + rhs)
 
-    def _sub(self, lhs: Any, rhs: Any) -> 'ProgramObject':
+    def _sub(self, lhs: Any, rhs: Any) -> 'Object':
         lhs, lhs_type, rhs, rhs_type = self._binary_operands(lhs, rhs)
         lhs_pointer = lhs_type.is_pointer_operand()
         if lhs_pointer:
@@ -422,75 +418,73 @@ class ProgramObject:
         lhs_type = lhs_type.operand_type()
         rhs_type = rhs_type.operand_type()
         if lhs_pointer and rhs_pointer:
-            return ProgramObject(self.prog_,
-                                 self.prog_._type_index._ptrdiff_t(),
-                                 value=(lhs - rhs) // lhs_sizeof)
+            return Object(self.prog_, self.prog_._type_index._ptrdiff_t(),
+                          value=(lhs - rhs) // lhs_sizeof)
         elif lhs_pointer:
-            return ProgramObject(self.prog_, lhs_type,
-                                 value=lhs - lhs_sizeof * rhs)
+            return Object(self.prog_, lhs_type, value=lhs - lhs_sizeof * rhs)
         else:
             type_, lhs, rhs = self._usual_arithmetic_conversions(lhs, lhs_type,
                                                                  rhs, rhs_type)
-            return ProgramObject(self.prog_, type_, value=lhs - rhs)
+            return Object(self.prog_, type_, value=lhs - rhs)
 
-    def __add__(self, other: Any) -> 'ProgramObject':
+    def __add__(self, other: Any) -> 'Object':
         return self._add(self, other)
 
-    def __sub__(self, other: Any) -> 'ProgramObject':
+    def __sub__(self, other: Any) -> 'Object':
         return self._sub(self, other)
 
-    def __mul__(self, other: Any) -> 'ProgramObject':
+    def __mul__(self, other: Any) -> 'Object':
         return self._arithmetic_operator(operator.mul, '*', self, other)
 
-    def __truediv__(self, other: Any) -> 'ProgramObject':
+    def __truediv__(self, other: Any) -> 'Object':
         return self._arithmetic_operator(operator.truediv, '/', self, other)
 
-    def __mod__(self, other: Any) -> 'ProgramObject':
+    def __mod__(self, other: Any) -> 'Object':
         return self._integer_operator(_c_modulo, '%', self, other)
 
-    def __lshift__(self, other: Any) -> 'ProgramObject':
+    def __lshift__(self, other: Any) -> 'Object':
         return self._shift_operator(operator.lshift, '<<', self, other)
 
-    def __rshift__(self, other: Any) -> 'ProgramObject':
+    def __rshift__(self, other: Any) -> 'Object':
         return self._shift_operator(operator.rshift, '>>', self, other)
 
-    def __and__(self, other: Any) -> 'ProgramObject':
+    def __and__(self, other: Any) -> 'Object':
         return self._integer_operator(operator.and_, '&', self, other)
 
-    def __xor__(self, other: Any) -> 'ProgramObject':
+    def __xor__(self, other: Any) -> 'Object':
         return self._integer_operator(operator.xor, '^', self, other)
 
-    def __or__(self, other: Any) -> 'ProgramObject':
+    def __or__(self, other: Any) -> 'Object':
         return self._integer_operator(operator.or_, '|', self, other)
 
-    def __radd__(self, other: Any) -> 'ProgramObject':
+    def __radd__(self, other: Any) -> 'Object':
         return self._add(other, self)
 
-    def __rsub__(self, other: Any) -> 'ProgramObject':
+    def __rsub__(self, other: Any) -> 'Object':
         return self._sub(other, self)
 
-    def __rmul__(self, other: Any) -> 'ProgramObject':
+    def __rmul__(self, other: Any) -> 'Object':
         return self._arithmetic_operator(operator.mul, '*', other, self)
 
-    def __rtruediv__(self, other: Any) -> 'ProgramObject':
+    def __rtruediv__(self, other: Any) -> 'Object':
         return self._arithmetic_operator(operator.truediv, '/', other, self)
 
-    def __rmod__(self, other: Any) -> 'ProgramObject':
+    def __rmod__(self, other: Any) -> 'Object':
         return self._integer_operator(_c_modulo, '%', other, self)
 
-    def __rlshift__(self, other: Any) -> 'ProgramObject':
+    def __rlshift__(self, other: Any) -> 'Object':
         return self._shift_operator(operator.lshift, '<<', other, self)
 
-    def __rrshift__(self, other: Any) -> 'ProgramObject':
+    def __rrshift__(self, other: Any) -> 'Object':
         return self._shift_operator(operator.rshift, '>>', other, self)
 
-    def __rand__(self, other: Any) -> 'ProgramObject':
+    def __rand__(self, other: Any) -> 'Object':
         return self._integer_operator(operator.and_, '&', other, self)
 
-    def __rxor__(self, other: Any) -> 'ProgramObject':
+    def __rxor__(self, other: Any) -> 'Object':
         return self._integer_operator(operator.xor, '^', other, self)
 
-    def __ror__(self, other: Any) -> 'ProgramObject':
+    def __ror__(self, other: Any) -> 'Object':
         return self._integer_operator(operator.or_, '|', other, self)
 
     def __lt__(self, other: Any) -> bool:
@@ -517,13 +511,13 @@ class ProgramObject:
             raise TypeError(f'invalid operand to bool() ({self.type_.name!r})')
         return bool(self.value_())
 
-    def __neg__(self) -> 'ProgramObject':
+    def __neg__(self) -> 'Object':
         return self._unary_operator(operator.neg, '-')
 
-    def __pos__(self) -> 'ProgramObject':
+    def __pos__(self) -> 'Object':
         return self._unary_operator(operator.pos, '+')
 
-    def __invert__(self) -> 'ProgramObject':
+    def __invert__(self) -> 'Object':
         return self._unary_operator(operator.invert, '~', True)
 
     def __int__(self) -> int:
@@ -541,13 +535,13 @@ class ProgramObject:
             raise TypeError(f'cannot convert {self.type_.name!r} to index')
         return int(self.value_())
 
-    def __round__(self, ndigits: Optional[int] = None) -> Union[int, 'ProgramObject']:
+    def __round__(self, ndigits: Optional[int] = None) -> Union[int, 'Object']:
         if not self._real_type.is_arithmetic():
             raise TypeError(f'cannot round {self.type_.name!r}')
         if ndigits is None:
             return round(self.value_())
-        return ProgramObject(self.prog_, self.type_,
-                             value=round(self.value_(), ndigits))
+        return Object(self.prog_, self.type_,
+                      value=round(self.value_(), ndigits))
 
     def __trunc__(self) -> int:
         if not self._real_type.is_arithmetic():
@@ -608,37 +602,36 @@ class Program:
         """
         self._reader.close()
 
-    def __getitem__(self, name: str) -> ProgramObject:
+    def __getitem__(self, name: str) -> Object:
         """
         Implement self[name]. This is equivalent to self.variable(name) and is
         provided for convenience.
 
         >>> prog['init_task']
-        ProgramObject(type=<struct task_struct>, address=0xffffffffbe012480)
+        Object(type=<struct task_struct>, address=0xffffffffbe012480)
         """
         return self.variable(name)
 
-    def object(self, type: Union[str, Type, TypeName], *,
-               value: Any = None,
-               address: Optional[int] = None) -> ProgramObject:
+    def object(self, type: Union[str, Type, TypeName], *, value: Any = None,
+               address: Optional[int] = None) -> Object:
         """
-        Return a ProgramObject of the given type with the given value or
-        address. The type can be a string, Type object, or TypeName object.
+        Return an Object of the given type with the given value or address. The
+        type can be a string, Type object, or TypeName object.
         """
         if not isinstance(type, Type):
             type = self.type(type)
-        return ProgramObject(self, type, value=value, address=address)
+        return Object(self, type, value=value, address=address)
 
-    def null(self, type: Union[str, Type, TypeName]) -> ProgramObject:
+    def null(self, type: Union[str, Type, TypeName]) -> Object:
         """
-        Return a ProgramObject representing NULL cast to the given type. The
-        type can be a string, Type object, or TypeName object.
+        Return an Object representing NULL cast to the given type. The type can
+        be a string, Type object, or TypeName object.
 
         This is equivalent to self.object(type, value=0).
         """
         if not isinstance(type, Type):
             type = self.type(type)
-        return ProgramObject(self, type, value=0)
+        return Object(self, type, value=0)
 
     def read(self, address: int, size: int, physical: bool = False) -> bytes:
         """
@@ -663,11 +656,10 @@ class Program:
         """
         return self._type_index.find(name, filename)
 
-    def variable(self, name: str,
-                 filename: Optional[str] = None) -> ProgramObject:
+    def variable(self, name: str, filename: Optional[str] = None) -> Object:
         """
-        Return a ProgramObject representing the variable or enumerator with the
-        given name.
+        Return an Object representing the variable or enumerator with the given
+        name.
 
         If there are multiple identifiers with the given name, they can be
         distinguished by passing the filename that the desired identifier was
@@ -675,4 +667,4 @@ class Program:
         returned.
         """
         type_, value, address = self._variable_index.find(name, filename)
-        return ProgramObject(self, type_, value=value, address=address)
+        return Object(self, type_, value=value, address=address)

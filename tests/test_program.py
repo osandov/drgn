@@ -3,13 +3,13 @@ import operator
 import tempfile
 
 from drgn.internal.corereader import CoreReader
-from drgn.program import Program, ProgramObject
+from drgn.program import Program, Object
 from drgn.type import IntType, StructType, TypedefType
 from tests.test_type import color_type, point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES
 
 
-class TestProgramObject(TypeIndexTestCase):
+class TestObject(TypeIndexTestCase):
     def setUp(self):
         super().setUp()
         def program_object_equality_func(a, b, msg=None):
@@ -23,7 +23,7 @@ class TestProgramObject(TypeIndexTestCase):
                 raise self.failureException(msg or f'object addresses differ: {a_address} != {b_address}')
             if a._value != b._value:
                 raise self.failureException(msg or f'object values differ: {a._value!r} != {b._value!r}')
-        self.addTypeEqualityFunc(ProgramObject, program_object_equality_func)
+        self.addTypeEqualityFunc(Object, program_object_equality_func)
         buffer = b'\x01\x00\x00\x00\x02\x00\x00\x00hello\x00\x00\x00'
         segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
         tmpfile = tempfile.TemporaryFile()
@@ -42,10 +42,9 @@ class TestProgramObject(TypeIndexTestCase):
         super().tearDown()
 
     def test_constructor(self):
-        self.assertRaises(ValueError, ProgramObject, self.program,
-                          TYPES['int'])
-        self.assertRaises(ValueError, ProgramObject, self.program,
-                          TYPES['int'], address=1, value=0xffff0000)
+        self.assertRaises(ValueError, Object, self.program, TYPES['int'])
+        self.assertRaises(ValueError, Object, self.program, TYPES['int'],
+                          address=1, value=0xffff0000)
 
     def test_rvalue(self):
         obj = self.program.object(TYPES['int'], value=2**31)
@@ -115,7 +114,7 @@ class TestProgramObject(TypeIndexTestCase):
             self.assertEqual(math.ceil(obj), 1)
 
         self.assertRaisesRegex(AttributeError,
-                               "'ProgramObject' object has no attribute 'foo'",
+                               "'Object' object has no attribute 'foo'",
                                getattr, int_obj, 'foo')
 
         obj = self.program.object(IntType('int', 4, True, {'const'}),

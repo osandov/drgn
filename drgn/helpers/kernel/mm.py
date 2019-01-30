@@ -62,7 +62,7 @@ def pfn_to_page(prog_or_pfn, pfn=None):
     struct page *pfn_to_page(unsigned long)
 
     Get the page with the given page frame number (PFN). This can take the PFN
-    as a ProgramObject or a Program and the PFN as an int.
+    as an Object or a Program and the PFN as an int.
     """
     if pfn is None:
         prog = prog_or_pfn.prog_
@@ -77,8 +77,7 @@ def virt_to_pfn(prog_or_addr, addr=None):
     unsigned long virt_to_pfn(void *)
 
     Get the page frame number (PFN) of a directly mapped virtual address. This
-    can take the address as a ProgramObject or a Program and the address as an
-    int.
+    can take the address as an Object or a Program and the address as an int.
     """
     if addr is None:
         prog = prog_or_addr.prog_
@@ -93,8 +92,8 @@ def pfn_to_virt(prog_or_pfn, pfn=None):
     void *pfn_to_virt(unsigned long)
 
     Get the directly mapped virtual address of the given page frame number
-    (PFN). This can take the PFN as a ProgramObject or a Program and the PFN as
-    an int.
+    (PFN). This can take the PFN as an Object or a Program and the PFN as an
+    int.
     """
     if pfn is None:
         prog = prog_or_pfn.prog_
@@ -118,6 +117,6 @@ def virt_to_page(prog_or_addr, addr=None):
     struct page *virt_to_page(void *)
 
     Get the page containing a directly mapped virtual address. This can take
-    the address as a ProgramObject or a Program and the address as an int.
+    the address as an Object or a Program and the address as an int.
     """
     return pfn_to_page(virt_to_pfn(prog_or_addr, addr))
