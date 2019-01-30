@@ -10,9 +10,9 @@ This module provides helpers for working with the Linux virtual filesystem
 
 import os
 
+from drgn import Program
 from drgn.internal.util import escape_string
 from drgn.helpers.kernel.list import hlist_for_each_entry, list_for_each_entry
-from drgn.program import Program
 
 __all__ = [
     'd_path',

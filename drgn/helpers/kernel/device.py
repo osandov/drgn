@@ -8,7 +8,7 @@ This module provides helpers for working with Linux devices, including the
 kernel encoding of dev_t.
 """
 
-from drgn.program import Object
+from drgn import Object
 
 __all__ = [
     'MAJOR',

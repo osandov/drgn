@@ -16,7 +16,7 @@ class VariableIndex:
 
     This is an abstract base class which is implemented by an internal class
     depending on the format of the debugging information available; it should
-    not be created directly. It is used internally by drgn.program.Program.
+    not be created directly. It is used internally by drgn.Program.
     """
 
     def __init__(self, type_index: TypeIndex) -> None:

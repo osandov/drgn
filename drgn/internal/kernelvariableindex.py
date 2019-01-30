@@ -10,7 +10,7 @@ from drgn.internal.dwarf import Die, DwarfAttribNotFoundError
 from drgn.internal.dwarftypeindex import DwarfTypeIndex
 from drgn.internal.dwarfvariableindex import DwarfVariableIndex
 from drgn.internal.elf import ET_EXEC
-from drgn.program import Program
+from drgn.internal.program import Program
 from drgn.type import Type
 
 

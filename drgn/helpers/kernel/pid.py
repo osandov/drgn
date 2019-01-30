@@ -7,9 +7,9 @@ Linux kernel process ID helpers
 This module provides helpers for looking up process IDs.
 """
 
+from drgn import Program
 from drgn.helpers.kernel.idr import idr_find, idr_for_each
 from drgn.helpers.kernel.list import hlist_for_each_entry
-from drgn.program import Program
 
 __all__ = [
     'find_pid',

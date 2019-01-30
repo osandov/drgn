@@ -2,8 +2,8 @@ import math
 import operator
 import tempfile
 
+from drgn import Program, Object
 from drgn.internal.corereader import CoreReader
-from drgn.program import Program, Object
 from drgn.type import IntType, StructType, TypedefType
 from tests.test_type import color_type, point_type
 from tests.test_typeindex import TypeIndexTestCase, TYPES

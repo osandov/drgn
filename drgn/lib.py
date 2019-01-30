@@ -20,6 +20,7 @@ from drgn.internal.dwarfindex import DwarfIndex
 from drgn.internal.dwarftypeindex import DwarfTypeIndex
 from drgn.internal.elf import ElfFile, ET_CORE, NT_FILE, PT_LOAD
 from drgn.internal.kernelvariableindex import KernelVariableIndex
+from drgn.internal.program import Program
 from drgn.internal.userspacevariableindex import UserspaceVariableIndex
 from drgn.internal.variableindex import VariableIndex
 from drgn.internal.util import (
@@ -29,7 +30,6 @@ from drgn.internal.util import (
     parse_proc_maps,
     parse_vmcoreinfo,
 )
-from drgn.program import Program
 from drgn.typeindex import TypeIndex
 
 
@@ -126,7 +126,7 @@ def _read_vmcoreinfo_from_sysfs(core_reader: CoreReader) -> Dict[str, Any]:
 def program(core: Optional[str] = None, pid: Optional[int] = None,
             verbose: bool = False) -> Program:
     """
-    Create a drgn.program.Program object from a coredump or a running program.
+    Create a drgn.Program object from a coredump or a running program.
 
     If core is given, a Program for the coredump at the given path is created.
     If pid is given, a Program for the running program with the given PID is

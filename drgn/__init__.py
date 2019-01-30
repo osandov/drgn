@@ -8,7 +8,7 @@ drgn is a scriptable debugger. It is built on top of Python, so if you don't
 know at least a little bit of Python, go learn it first.
 
 drgn supports an interactive mode and a script mode. Both are simply a Python
-interpreter initialized with a special drgn.program.Program object named "prog"
+interpreter initialized with a special drgn.Program object named "prog"
 that represents the program which is being debugged.
 
 In interactive mode, try
@@ -17,15 +17,14 @@ In interactive mode, try
 
 or
 
->>> import drgn.program
->>> help(drgn.program.Program)
+>>> help(drgn.Program)
 
 to learn more about how to use it.
 
-Variables are represented by drgn.program.Object objects. Try
+Objects in the program (i.e., variables and values) are represented by
+drgn.Object. Try
 
->>> import drgn.program
->>> help(drgn.program.Object)
+>>> help(drgn.Object)
 
 Types are represented by drgn.type.Type objects. Try
 
@@ -40,5 +39,7 @@ Various helpers are provided for particular types of programs. Try
 The drgn.internal package contains the drgn internals. Everything in that
 package should be considered implementation details and should not be used.
 """
+
+from drgn.internal.program import Object, Program
 
 __version__ = '0.1.0'
