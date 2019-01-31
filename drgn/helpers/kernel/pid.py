@@ -7,7 +7,7 @@ Linux kernel process ID helpers
 This module provides helpers for looking up process IDs.
 """
 
-from drgn import Program
+from drgn import Program, NULL
 from drgn.helpers.kernel.idr import idr_find, idr_for_each
 from drgn.helpers.kernel.list import hlist_for_each_entry
 
@@ -48,7 +48,7 @@ def find_pid(prog_or_ns, nr):
                 if upid.nr == nr and upid.ns == ns:
                     return upid.container_of_('struct pid',
                                               f'numbers[{ns.level.value_()}]')
-        return prog.null('struct pid *')
+        return NULL(prog, 'struct pid *')
 
 
 def for_each_pid(prog_or_ns):
@@ -87,10 +87,10 @@ def pid_task(pid, pid_type):
     type.
     """
     if not pid:
-        return pid.prog_.null('struct task_struct *')
+        return NULL(pid.prog_, 'struct task_struct *')
     first = pid.tasks[0].first
     if not first:
-        return pid.prog_.null('struct task_struct *')
+        return NULL(pid.prog_, 'struct task_struct *')
     try:
         return first.container_of_('struct task_struct',
                                    f'pid_links[{int(pid_type)}]')

@@ -8,6 +8,9 @@ This module provides helpers for working with radix trees from
 "linux/radix-tree.h".
 """
 
+from drgn import Object
+
+
 __all__ = [
     'radix_tree_lookup',
     'radix_tree_for_each',
@@ -21,7 +24,7 @@ def _is_internal_node(node, internal_node):
 
 
 def _entry_to_node(node, internal_node):
-    return node.prog_.object(node.type_, value=node.value_() & ~internal_node)
+    return Object(node.prog_, node.type_, value=node.value_() & ~internal_node)
 
 
 def _radix_tree_root_node(root):

@@ -40,6 +40,20 @@ The drgn.internal package contains the drgn internals. Everything in that
 package should be considered implementation details and should not be used.
 """
 
+from typing import Union
+
 from drgn.internal.program import Object, Program
+from drgn.type import Type
+from drgn.typename import TypeName
+
+
+def NULL(prog: Program, type: Union[str, Type, TypeName]) -> Object:
+    """
+    Return an Object representing NULL cast to the given type. The type can be
+    a string, Type object, or TypeName object.
+
+    This is equivalent to Object(prog, type, value=0).
+    """
+    return Object(prog, type, value=0)
 
 __version__ = '0.1.0'

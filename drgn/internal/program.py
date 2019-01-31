@@ -29,11 +29,19 @@ def _c_modulo(a: int, b: int) -> int:
 
 class Object:
     """
-    A Object either represents an object in the memory of a program (an
-    "lvalue") or a temporary computed value (an "rvalue"). It has three
-    members: prog_, the program this object is from; type_, the type of this
-    object in the program; and address_, the location in memory where this
-    object resides in the program (or None if it is not an lvalue).
+    An Object represents a variable or value in a program. The object may be in
+    the memory of the program (an "lvalue").
+
+    >>> Object(prog, 'int', address=0xffffffffc09031a0)
+
+    It can also be a temporary computed value (an "rvalue").
+
+    >>> Object(prog, 'int', value=4)
+
+    An Object has three members: prog_, the program this object is from; type_,
+    the type of this object in the program; and address_, the location in
+    memory where this object resides in the program (or None if it is an
+    rvalue).
 
     repr() of an Object returns a Python representation of the object.
 
@@ -75,8 +83,10 @@ class Object:
     precedence over structure members; use member_() if there is a conflict.
     """
 
-    def __init__(self, prog: 'Program', type: Type, *, value: Any = None,
-                 address: Optional[int] = None) -> None:
+    def __init__(self, prog: 'Program', type: Union[str, Type, TypeName], *,
+                 value: Any = None, address: Optional[int] = None) -> None:
+        if not isinstance(type, Type):
+            type = prog.type(type)
         self.prog_ = prog
         self.type_ = type
         real_type = type.real_type()
@@ -611,27 +621,6 @@ class Program:
         Object(type=<struct task_struct>, address=0xffffffffbe012480)
         """
         return self.variable(name)
-
-    def object(self, type: Union[str, Type, TypeName], *, value: Any = None,
-               address: Optional[int] = None) -> Object:
-        """
-        Return an Object of the given type with the given value or address. The
-        type can be a string, Type object, or TypeName object.
-        """
-        if not isinstance(type, Type):
-            type = self.type(type)
-        return Object(self, type, value=value, address=address)
-
-    def null(self, type: Union[str, Type, TypeName]) -> Object:
-        """
-        Return an Object representing NULL cast to the given type. The type can
-        be a string, Type object, or TypeName object.
-
-        This is equivalent to self.object(type, value=0).
-        """
-        if not isinstance(type, Type):
-            type = self.type(type)
-        return Object(self, type, value=0)
 
     def read(self, address: int, size: int, physical: bool = False) -> bytes:
         """

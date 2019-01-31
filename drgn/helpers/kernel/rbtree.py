@@ -8,6 +8,9 @@ This module provides helpers for working with red-black trees from
 "linux/rbtree.h"
 """
 
+from drgn import Object
+
+
 __all__ = [
     'RB_EMPTY_NODE',
     'rb_parent',
@@ -37,8 +40,8 @@ def rb_parent(node):
 
     Return the parent node of a red-black tree node.
     """
-    return node.prog_.object(node.type_,
-                             value=node.__rb_parent_color.value_() & ~3)
+    return Object(node.prog_, node.type_,
+                  value=node.__rb_parent_color.value_() & ~3)
 
 
 def rb_first(root):
@@ -85,7 +88,7 @@ def rb_next(node):
     node = node.read_once_()
 
     if RB_EMPTY_NODE(node):
-        return node.prog_.null(node.type_)
+        return NULL(node.prog_, node.type_)
 
     next = node.rb_right.read_once_()
     if next:
@@ -113,7 +116,7 @@ def rb_prev(node):
     node = node.read_once_()
 
     if RB_EMPTY_NODE(node):
-        return node.prog_.null(node.type_)
+        return NULL(node.prog_, node.type_)
 
     next = node.rb_left.read_once_()
     if next:

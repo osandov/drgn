@@ -68,7 +68,7 @@ def main() -> None:
         args.core = f'/proc/{args.pid}/mem'
 
     with program(args.core, args.pid, verbose=not args.script) as prog:
-        init_globals: Dict[str, Any] = {'drgn': drgn, 'prog': prog}
+        init_globals: Dict[str, Any] = {'prog': prog}
         if args.script:
             sys.argv = args.script
             runpy.run_path(args.script[0], init_globals=init_globals,
@@ -79,6 +79,9 @@ def main() -> None:
 
             from drgn.internal.rlcompleter import Completer
 
+            init_globals['drgn'] = drgn
+            init_globals['Object'] = drgn.Object
+            init_globals['NULL'] = drgn.NULL
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
 
@@ -96,7 +99,10 @@ def main() -> None:
 
             sys.displayhook = displayhook
 
-            banner = version + '\nFor help, type help(drgn).'
+            banner = version + """
+For help, type help(drgn).
+>>> import drgn
+>>> from drgn import Object, NULL"""
             if prog._is_kernel():
                 banner += '\n>>> from drgn.helpers.kernel import *'
                 module = importlib.import_module('drgn.helpers.kernel')

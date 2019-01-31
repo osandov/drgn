@@ -8,6 +8,9 @@ This module provides helpers for working with the Linux memory management (mm)
 subsystem. Only x86-64 support is currently implemented.
 """
 
+from drgn import Object
+
+
 __all__ = [
     'for_each_page',
     'page_to_pfn',
@@ -25,7 +28,7 @@ def _vmemmap(prog):
         return prog['vmemmap_base'].cast_('struct page *')
     except KeyError:
         # x86-64
-        return prog.object('struct page *', value=0xffffea0000000000)
+        return Object(prog, 'struct page *', value=0xffffea0000000000)
 
 
 def _page_offset(prog):
@@ -84,7 +87,7 @@ def virt_to_pfn(prog_or_addr, addr=None):
         addr = prog_or_addr.value_()
     else:
         prog = prog_or_addr
-    return prog.object('unsigned long', value=(addr - _page_offset(prog)) >> 12)
+    return Object(prog, 'unsigned long', value=(addr - _page_offset(prog)) >> 12)
 
 
 def pfn_to_virt(prog_or_pfn, pfn=None):
@@ -100,7 +103,7 @@ def pfn_to_virt(prog_or_pfn, pfn=None):
         pfn = prog_or_pfn.value_()
     else:
         prog = prog_or_pfn
-    return prog.object('void *', value=(pfn << 12) + _page_offset(prog))
+    return Object(prog, 'void *', value=(pfn << 12) + _page_offset(prog))
 
 
 def page_to_virt(page):

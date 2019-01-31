@@ -8,6 +8,7 @@ This module provides helpers for working with per-CPU allocations from
 "linux/percpu.h" and per-CPU counters from "linux/percpu_counter.h".
 """
 
+from drgn import Object
 from drgn.helpers.kernel.cpumask import for_each_online_cpu
 
 
@@ -24,7 +25,7 @@ def per_cpu_ptr(ptr, cpu):
     Return the per-CPU pointer for a given CPU.
     """
     offset = ptr.prog_['__per_cpu_offset'][cpu].value_()
-    return ptr.prog_.object(ptr.type_, value=ptr.value_() + offset)
+    return Object(ptr.prog_, ptr.type_, value=ptr.value_() + offset)
 
 
 def percpu_counter_sum(fbc):
