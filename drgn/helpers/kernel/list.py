@@ -52,7 +52,7 @@ def list_for_each(head):
     Return an iterator over all of the nodes in a list.
     """
     head = read_once(head)
-    pos = head.read_once(next)
+    pos = read_once(head.next)
     while pos != head:
         yield pos
         pos = read_once(pos.next)
