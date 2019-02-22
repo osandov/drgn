@@ -43,8 +43,32 @@ package should be considered implementation details and should not be used.
 from typing import Union
 
 from drgn.internal.program import Object, Program
-from drgn.type import Type
+from drgn.type import Type, PointerType
 from drgn.typename import TypeName
+
+
+def container_of(ptr: Object, type: Union[str, Type, TypeName],
+                 member: str) -> Object:
+    """
+    Return the containing object of the object pointed to by the given pointer
+    object. The given type is the type of the containing object, and the given
+    member is the name of the member in that type. This corresponds to the
+    container_of() macro in C.
+    """
+    if not isinstance(type, Type):
+        type = ptr.prog_.type(type)
+    real_type = ptr._real_type
+    if not isinstance(real_type, PointerType):
+        raise ValueError(f'container_of() argument must be a pointer, not {ptr._real_type.name!r}')
+    try:
+        # mypy doesn't understand the except AttributeError.
+        offset = type.real_type().offsetof(member)  # type: ignore
+    except AttributeError:
+        raise ValueError(f'container_of() type must be a struct or union type, not {type.name!r}')
+    return Object(ptr.prog_,
+                  PointerType(real_type.size, type,
+                              real_type.qualifiers),
+                  value=ptr.value_() - offset)
 
 
 def NULL(prog: Program, type: Union[str, Type, TypeName]) -> Object:
@@ -55,5 +79,6 @@ def NULL(prog: Program, type: Union[str, Type, TypeName]) -> Object:
     This is equivalent to Object(prog, type, value=0).
     """
     return Object(prog, type, value=0)
+
 
 __version__ = '0.1.0'

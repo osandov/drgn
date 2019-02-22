@@ -10,7 +10,7 @@ This module provides helpers for working with the Linux virtual filesystem
 
 import os
 
-from drgn import Program
+from drgn import container_of, Program
 from drgn.internal.util import escape_string
 from drgn.helpers.kernel.list import hlist_for_each_entry, list_for_each_entry
 
@@ -42,7 +42,7 @@ def d_path(path_or_vfsmnt, dentry=None):
     else:
         vfsmnt = path_or_vfsmnt
         dentry = dentry.read_once_()
-    mnt = vfsmnt.container_of_('struct mount', 'mnt')
+    mnt = container_of(vfsmnt, 'struct mount', 'mnt')
 
     d_op = dentry.d_op.read_once_()
     if d_op and d_op.d_dname:
@@ -90,7 +90,8 @@ def inode_path(inode):
 
     Return any path of an inode from the root of its filesystem.
     """
-    return dentry_path(inode.i_dentry.first.container_of_('struct dentry', 'd_u.d_alias'))
+    return dentry_path(container_of(inode.i_dentry.first, 'struct dentry',
+                                    'd_u.d_alias'))
 
 
 def inode_paths(inode):

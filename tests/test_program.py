@@ -2,7 +2,7 @@ import math
 import operator
 import tempfile
 
-from drgn import NULL, Object, Program
+from drgn import container_of, NULL, Object, Program
 from drgn.internal.corereader import CoreReader
 from drgn.type import IntType, StructType, TypedefType
 from tests.test_type import color_type, point_type
@@ -242,8 +242,8 @@ class TestObject(TypeIndexTestCase):
                          Object(self.prog,
                                 self.type_index.pointer(TYPES['int']),
                                 value=0xffff0004))
-        self.assertEqual(element1_ptr.container_of_(point_type, 'y'), pointer_obj)
-        self.assertEqual(element1_ptr.container_of_(typedef_type, 'y'),
+        self.assertEqual(container_of(element1_ptr, point_type, 'y'), pointer_obj)
+        self.assertEqual(container_of(element1_ptr, typedef_type, 'y'),
                          typedef_pointer_obj)
 
         struct_type = StructType('test', 8, [

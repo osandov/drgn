@@ -80,8 +80,8 @@ def main() -> None:
             from drgn.internal.rlcompleter import Completer
 
             init_globals['drgn'] = drgn
-            init_globals['Object'] = drgn.Object
-            init_globals['NULL'] = drgn.NULL
+            for attr in ['container_of', 'Object', 'NULL']:
+                init_globals[attr] = getattr(drgn, attr)
             init_globals['__name__'] = '__main__'
             init_globals['__doc__'] = None
 
@@ -102,7 +102,7 @@ def main() -> None:
             banner = version + """
 For help, type help(drgn).
 >>> import drgn
->>> from drgn import Object, NULL"""
+>>> from drgn import container_of, Object, NULL"""
             if prog._is_kernel():
                 banner += '\n>>> from drgn.helpers.kernel import *'
                 module = importlib.import_module('drgn.helpers.kernel')

@@ -7,7 +7,7 @@ Linux kernel process ID helpers
 This module provides helpers for looking up process IDs.
 """
 
-from drgn import Program, NULL
+from drgn import container_of, NULL, Program
 from drgn.helpers.kernel.idr import idr_find, idr_for_each
 from drgn.helpers.kernel.list import hlist_for_each_entry
 
@@ -46,8 +46,8 @@ def find_pid(prog_or_ns, nr):
                                              pid_hash[i].address_of_(),
                                              'pid_chain'):
                 if upid.nr == nr and upid.ns == ns:
-                    return upid.container_of_('struct pid',
-                                              f'numbers[{ns.level.value_()}]')
+                    return container_of(upid, 'struct pid',
+                                        f'numbers[{ns.level.value_()}]')
         return NULL(prog, 'struct pid *')
 
 
@@ -75,8 +75,8 @@ def for_each_pid(prog_or_ns):
                                              pid_hash[i].address_of_(),
                                              'pid_chain'):
                 if upid.ns == ns:
-                    yield upid.container_of_('struct pid',
-                                             f'numbers[{int(ns.level)}]')
+                    yield container_of(upid, 'struct pid',
+                                       f'numbers[{int(ns.level)}]')
 
 
 def pid_task(pid, pid_type):
@@ -92,11 +92,11 @@ def pid_task(pid, pid_type):
     if not first:
         return NULL(pid.prog_, 'struct task_struct *')
     try:
-        return first.container_of_('struct task_struct',
-                                   f'pid_links[{int(pid_type)}]')
+        return container_of(first, 'struct task_struct',
+                            f'pid_links[{int(pid_type)}]')
     except ValueError:
-        return first.container_of_('struct task_struct',
-                                   f'pids[{int(pid_type)}].node')
+        return container_of(first, 'struct task_struct',
+                            f'pids[{int(pid_type)}].node')
 
 
 def find_task(prog_or_ns, pid):

@@ -8,6 +8,9 @@ This module provides helpers for working with the doubly-linked list
 implementations in "linux/list.h".
 """
 
+from drgn import container_of
+
+
 __all__ = [
     'list_empty',
     'list_is_singular',
@@ -76,7 +79,7 @@ def list_for_each_entry(type, head, member):
     entry and the struct list_head member in that type.
     """
     for pos in list_for_each(head):
-        yield pos.container_of_(type, member)
+        yield container_of(pos, type, member)
 
 
 def list_for_each_entry_reverse(type, head, member):
@@ -87,7 +90,7 @@ def list_for_each_entry_reverse(type, head, member):
     given the type of the entry and the struct list_head member in that type.
     """
     for pos in list_for_each_reverse(head):
-        yield pos.container_of_(type, member)
+        yield container_of(pos, type, member)
 
 
 def hlist_empty(head):
@@ -119,4 +122,4 @@ def hlist_for_each_entry(type, head, member):
     the entry and the struct hlist_node member in that type.
     """
     for pos in hlist_for_each(head):
-        yield pos.container_of_(type, member)
+        yield container_of(pos, type, member)

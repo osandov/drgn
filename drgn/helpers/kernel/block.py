@@ -8,6 +8,7 @@ This module provides helpers for working with the Linux block layer, including
 disks (struct gendisk) and partitions (struct hd_struct).
 """
 
+from drgn import container_of
 from drgn.internal.util import escape_string
 from drgn.helpers.kernel.device import MAJOR, MINOR
 from drgn.helpers.kernel.list import list_for_each_entry
@@ -32,7 +33,7 @@ def for_each_disk(prog):
     disk_type = prog['disk_type'].address_of_()
     for device in list_for_each_entry('struct device', devices, 'knode_class.n_node'):
         if device.type == disk_type:
-            obj = device.container_of_('struct gendisk', 'part0.__dev')
+            obj = container_of(device, 'struct gendisk', 'part0.__dev')
             dev = device.devt.value_()
             yield MAJOR(dev), MINOR(dev), device.kobj.name.string_(), obj
 
@@ -58,7 +59,7 @@ def for_each_partition(prog):
     """
     devices = prog['block_class'].p.klist_devices.k_list.address_of_()
     for device in list_for_each_entry('struct device', devices, 'knode_class.n_node'):
-        obj = device.container_of_('struct hd_struct', '__dev')
+        obj = container_of(device, 'struct hd_struct', '__dev')
         dev = device.devt.value_()
         yield MAJOR(dev), MINOR(dev), device.kobj.name.string_(), obj
 

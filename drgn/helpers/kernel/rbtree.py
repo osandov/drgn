@@ -8,7 +8,7 @@ This module provides helpers for working with red-black trees from
 "linux/rbtree.h"
 """
 
-from drgn import Object
+from drgn import container_of, Object
 
 
 __all__ = [
@@ -158,7 +158,7 @@ def rbtree_inorder_for_each_entry(type, root, member):
     are returned in sort order.
     """
     for node in rbtree_inorder_for_each(root):
-        yield node.container_of_(type, member)
+        yield container_of(node, type, member)
 
 
 def rb_find(type, root, member, key, cmp):
@@ -176,7 +176,7 @@ def rb_find(type, root, member, key, cmp):
     """
     node = root.rb_node.read_once_()
     while node:
-        entry = node.container_of_(type, member)
+        entry = container_of(node, type, member)
         ret = cmp(key, entry)
         if ret < 0:
             node = node.rb_left.read_once_()

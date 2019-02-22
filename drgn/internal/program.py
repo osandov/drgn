@@ -266,31 +266,6 @@ class Object:
         return Object(self.prog_, self.prog_._type_index.pointer(self.type_),
                       value=self.address_)
 
-    def container_of_(self, type: Union[str, Type, TypeName],
-                      member: str) -> 'Object':
-        """
-        Return the containing object of the object pointed to by this object.
-        The given type is the type of the containing object, and the given
-        member is the name of this object in that type. This corresponds to the
-        container_of() macro in C.
-
-        This is only valid for pointers.
-        """
-        if not isinstance(type, Type):
-            type = self.prog_.type(type)
-        self_real_type = self._real_type
-        if not isinstance(self_real_type, PointerType):
-            raise ValueError(f'container_of_() value must be a pointer, not {self._real_type.name!r}')
-        try:
-            # mypy doesn't understand the except AttributeError.
-            offset = type.real_type().offsetof(member)  # type: ignore
-        except AttributeError:
-            raise ValueError(f'container_of_() type must be a struct or union type, not {type.name!r}')
-        return Object(self.prog_,
-                      PointerType(self_real_type.size, type,
-                                  self_real_type.qualifiers),
-                      value=self.value_() - offset)
-
     def read_once_(self) -> 'Object':
         """
         Read the value of this object once and return it as an rvalue. This can
