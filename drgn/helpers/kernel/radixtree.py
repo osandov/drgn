@@ -8,7 +8,7 @@ This module provides helpers for working with radix trees from
 "linux/radix-tree.h".
 """
 
-from drgn import Object
+from drgn import cast, Object
 
 
 __all__ = [
@@ -33,7 +33,7 @@ def _radix_tree_root_node(root):
     except AttributeError:
         return root.rnode.read_once_(), 1
     else:
-        return node.cast_('struct xa_node *').read_once_(), 2
+        return cast('struct xa_node *', node).read_once_(), 2
 
 
 def radix_tree_lookup(root, index):
@@ -50,8 +50,8 @@ def radix_tree_lookup(root, index):
             break
         parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
         offset = (index >> parent.shift) & RADIX_TREE_MAP_MASK
-        node = parent.slots[offset].cast_(parent.type_).read_once_()
-    return node.cast_('void *')
+        node = cast(parent.type_, parent.slots[offset]).read_once_()
+    return cast('void *', node)
 
 
 def radix_tree_for_each(root):
@@ -66,8 +66,8 @@ def radix_tree_for_each(root):
         if _is_internal_node(node, RADIX_TREE_INTERNAL_NODE):
             parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
             for i, slot in enumerate(parent.slots):
-                yield from aux(slot.cast_(parent.type_).read_once_(),
+                yield from aux(cast(parent.type_, slot).read_once_(),
                                index + (i << parent.shift.value_()))
         elif node:
-            yield index, node.cast_('void *')
+            yield index, cast('void *', node)
     yield from aux(node, 0)

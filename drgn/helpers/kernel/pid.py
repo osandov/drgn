@@ -7,7 +7,7 @@ Linux kernel process ID helpers
 This module provides helpers for looking up process IDs.
 """
 
-from drgn import container_of, NULL, Program
+from drgn import cast, container_of, NULL, Program
 from drgn.helpers.kernel.idr import idr_find, idr_for_each
 from drgn.helpers.kernel.list import hlist_for_each_entry
 
@@ -34,7 +34,7 @@ def find_pid(prog_or_ns, nr):
         prog = prog_or_ns.prog_
         ns = prog_or_ns
     if hasattr(ns, 'idr'):
-        return idr_find(ns.idr, nr).cast_('struct pid *')
+        return cast('struct pid *', idr_find(ns.idr, nr))
     else:
         # We could implement pid_hashfn() and only search that bucket, but it's
         # different for 32-bit and 64-bit systems, and it has changed at least
@@ -67,7 +67,7 @@ def for_each_pid(prog_or_ns):
         ns = prog_or_ns
     if hasattr(ns, 'idr'):
         for nr, entry in idr_for_each(ns.idr):
-            yield entry.cast_('struct pid *')
+            yield cast('struct pid *', entry)
     else:
         pid_hash = prog['pid_hash']
         for i in range(1 << prog['pidhash_shift'].value_()):

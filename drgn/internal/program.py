@@ -246,16 +246,6 @@ class Object:
             raise ValueError(f'member access must be on a struct or union, not {self.type_.name!r}') from None
         return Object(self.prog_, member_type, address=address + offset)
 
-    def cast_(self, type: Union[str, Type, TypeName]) -> 'Object':
-        """
-        Return a copy of this object casted to another type. The given type is
-        usually a string, but it can also be a Type or TypeName object.
-        """
-        if not isinstance(type, Type):
-            type = self.prog_.type(type)
-        return Object(self.prog_, type, value=self._value,
-                      address=self.address_)
-
     def address_of_(self) -> 'Object':
         """
         Return an object pointing to this object. Corresponds to the address-of

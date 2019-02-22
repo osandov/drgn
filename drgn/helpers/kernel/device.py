@@ -8,7 +8,7 @@ This module provides helpers for working with Linux devices, including the
 kernel encoding of dev_t.
 """
 
-from drgn import Object
+from drgn import cast, Object
 
 __all__ = [
     'MAJOR',
@@ -30,7 +30,7 @@ def MAJOR(dev):
     """
     major = dev >> _MINORBITS
     if isinstance(major, Object):
-        return major.cast_('unsigned int')
+        return cast('unsigned int', major)
     return major
 
 
@@ -42,7 +42,7 @@ def MINOR(dev):
     """
     minor = dev & _MINORMASK
     if isinstance(minor, Object):
-        return minor.cast_('unsigned int')
+        return cast('unsigned int', minor)
     return minor
 
 
@@ -54,5 +54,5 @@ def MKDEV(major, minor):
     """
     dev = (major << _MINORBITS) | minor
     if isinstance(dev, Object):
-        return dev.cast_('dev_t')
+        return cast('dev_t', dev)
     return dev

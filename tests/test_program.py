@@ -2,7 +2,7 @@ import math
 import operator
 import tempfile
 
-from drgn import container_of, NULL, Object, Program
+from drgn import cast, container_of, NULL, Object, Program
 from drgn.internal.corereader import CoreReader
 from drgn.type import IntType, StructType, TypedefType
 from tests.test_type import color_type, point_type
@@ -52,12 +52,12 @@ class TestObject(TypeIndexTestCase):
 
     def test_cast(self):
         obj = Object(self.prog, TYPES['int'], value=-1)
-        cast_obj = obj.cast_('unsigned int')
+        cast_obj = cast('unsigned int', obj)
         self.assertEqual(cast_obj,
                          Object(self.prog, TYPES['unsigned int'], value=2**32 - 1))
 
         obj = Object(self.prog, TYPES['double'], value=1.0)
-        self.assertRaises(TypeError, obj.cast_, self.type_index.pointer(TYPES['int']))
+        self.assertRaises(TypeError, cast, self.type_index.pointer(TYPES['int']), obj)
 
     def test_str(self):
         obj = Object(self.prog, TYPES['int'], value=1)
@@ -170,7 +170,7 @@ class TestObject(TypeIndexTestCase):
         with self.assertRaises(ValueError):
             obj.member_('foo')
 
-        cast_obj = obj.cast_('unsigned long')
+        cast_obj = cast('unsigned long', obj)
         self.assertEqual(cast_obj,
                          Object(self.prog, TYPES['unsigned long'], value=0))
         self.assertRaises(TypeError, obj.__index__)

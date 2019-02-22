@@ -47,6 +47,16 @@ from drgn.type import Type, PointerType
 from drgn.typename import TypeName
 
 
+def cast(type: Union[str, Type, TypeName], obj: Object) -> Object:
+        """
+        Return a copy of the given object casted to another type. The given
+        type is usually a string, but it can also be a Type or TypeName object.
+        """
+        if not isinstance(type, Type):
+            type = obj.prog_.type(type)
+        return Object(obj.prog_, type, value=obj._value, address=obj.address_)
+
+
 def container_of(ptr: Object, type: Union[str, Type, TypeName],
                  member: str) -> Object:
     """

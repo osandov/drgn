@@ -8,7 +8,7 @@ This module provides helpers for working with the Linux memory management (mm)
 subsystem. Only x86-64 support is currently implemented.
 """
 
-from drgn import Object
+from drgn import cast, Object
 
 
 __all__ = [
@@ -25,7 +25,7 @@ __all__ = [
 def _vmemmap(prog):
     try:
         # KASAN
-        return prog['vmemmap_base'].cast_('struct page *')
+        return cast('struct page *', prog['vmemmap_base'])
     except KeyError:
         # x86-64
         return Object(prog, 'struct page *', value=0xffffea0000000000)
@@ -57,7 +57,7 @@ def page_to_pfn(page):
 
     Get the page frame number (PFN) of a page.
     """
-    return (page - _vmemmap(page.prog_)).cast_('unsigned long')
+    return cast('unsigned long', page - _vmemmap(page.prog_))
 
 
 def pfn_to_page(prog_or_pfn, pfn=None):
