@@ -256,14 +256,6 @@ class Object:
         return Object(self.prog_, self.prog_._type_index.pointer(self.type_),
                       value=self.address_)
 
-    def read_once_(self) -> 'Object':
-        """
-        Read the value of this object once and return it as an rvalue. This can
-        be useful if the object can change in the running program. This loosely
-        corresponds to the READ_ONCE() macro used in the Linux kernel.
-        """
-        return Object(self.prog_, self.type_, value=self.value_())
-
     def _unary_operator(self, op: Callable, op_name: str,
                         integer: bool = False) -> 'Object':
         if ((integer and not self._real_type.is_integer()) or

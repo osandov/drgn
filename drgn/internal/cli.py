@@ -80,7 +80,8 @@ def main() -> None:
             from drgn.internal.rlcompleter import Completer
 
             init_globals['drgn'] = drgn
-            drgn_globals = ['cast', 'container_of', 'NULL', 'Object']
+            drgn_globals = ['cast', 'container_of', 'NULL', 'Object',
+                            'read_once']
             for attr in drgn_globals:
                 init_globals[attr] = getattr(drgn, attr)
             init_globals['__name__'] = '__main__'

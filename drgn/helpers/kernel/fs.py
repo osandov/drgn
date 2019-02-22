@@ -10,7 +10,7 @@ This module provides helpers for working with the Linux virtual filesystem
 
 import os
 
-from drgn import container_of, Program
+from drgn import container_of, Program, read_once
 from drgn.internal.util import escape_string
 from drgn.helpers.kernel.list import hlist_for_each_entry, list_for_each_entry
 
@@ -38,26 +38,26 @@ def d_path(path_or_vfsmnt, dentry=None):
     type_name = str(path_or_vfsmnt.type_.type_name())
     if type_name == 'struct path' or type_name == 'struct path *':
         vfsmnt = path_or_vfsmnt.mnt
-        dentry = path_or_vfsmnt.dentry.read_once_()
+        dentry = read_once(path_or_vfsmnt.dentry)
     else:
         vfsmnt = path_or_vfsmnt
-        dentry = dentry.read_once_()
+        dentry = read_once(dentry)
     mnt = container_of(vfsmnt, 'struct mount', 'mnt')
 
-    d_op = dentry.d_op.read_once_()
+    d_op = read_once(dentry.d_op)
     if d_op and d_op.d_dname:
         return None
 
     components = []
     while True:
         while True:
-            d_parent = dentry.d_parent.read_once_()
+            d_parent = read_once(dentry.d_parent)
             if dentry == d_parent:
                 break
             components.append(dentry.d_name.name.string_())
             components.append(b'/')
             dentry = d_parent
-        mnt_parent = mnt.mnt_parent.read_once_()
+        mnt_parent = read_once(mnt.mnt_parent)
         if mnt == mnt_parent:
             break
         dentry = mnt.mnt_mountpoint
@@ -76,7 +76,7 @@ def dentry_path(dentry):
     """
     components = []
     while True:
-        d_parent = dentry.d_parent.read_once_()
+        d_parent = read_once(dentry.d_parent)
         if dentry == d_parent:
             break
         components.append(dentry.d_name.name.string_())
@@ -138,9 +138,9 @@ def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
         mnt_dst = d_path(mnt.mnt.address_of_(), mnt.mnt.mnt_root)
         if dst is not None and mnt_dst != dst:
             continue
-        sb = mnt.mnt.mnt_sb.read_once_()
+        sb = read_once(mnt.mnt.mnt_sb)
         mnt_fstype = sb.s_type.name.string_()
-        subtype = sb.s_subtype.read_once_()
+        subtype = read_once(sb.s_subtype)
         if subtype:
             subtype = subtype.string_()
             if subtype:
@@ -184,14 +184,14 @@ def for_each_file(task):
     generated values are (fd, path, struct file *) tuples. The path is returned
     as bytes.
     """
-    fdt = task.files.fdt.read_once_()
+    fdt = read_once(task.files.fdt)
     bits_per_long = 8 * fdt.open_fds.type_.type.sizeof()
     for i in range((fdt.max_fds.value_() + bits_per_long - 1) // bits_per_long):
         word = fdt.open_fds[i].value_()
         for j in range(bits_per_long):
             if word & (1 << j):
                 fd = i * bits_per_long + j
-                file = fdt.fd[fd].read_once_()
+                file = read_once(fdt.fd[fd])
                 yield fd, d_path(file.f_path), file
 
 

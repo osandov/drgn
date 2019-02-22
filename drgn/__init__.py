@@ -91,4 +91,13 @@ def NULL(prog: Program, type: Union[str, Type, TypeName]) -> Object:
     return Object(prog, type, value=0)
 
 
+def read_once(obj: Object) -> Object:
+    """
+    Read the value of the given object once and return it as an rvalue. This
+    can be useful if the object can change in the running program. This loosely
+    corresponds to the READ_ONCE() macro used in the Linux kernel.
+    """
+    return Object(obj.prog_, obj.type_, value=obj.value_())
+
+
 __version__ = '0.1.0'

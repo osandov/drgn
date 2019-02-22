@@ -8,7 +8,7 @@ This module provides helpers for working with red-black trees from
 "linux/rbtree.h"
 """
 
-from drgn import container_of, Object
+from drgn import container_of, Object, read_once
 
 
 __all__ = [
@@ -51,11 +51,11 @@ def rb_first(root):
     Return the first node (in sort order) in a red-black tree, or a NULL object
     if the tree is empty.
     """
-    node = root.rb_node.read_once_()
+    node = read_once(root.rb_node)
     if not node:
         return node
     while True:
-        next = node.rb_left.read_once_()
+        next = read_once(node.rb_left)
         if not next:
             return node
         node = next
@@ -68,11 +68,11 @@ def rb_last(root):
     Return the last node (in sort order) in a red-black tree, or a NULL object
     if the tree is empty.
     """
-    node = root.rb_node.read_once_()
+    node = read_once(root.rb_node)
     if not node:
         return node
     while True:
-        next = node.rb_right.read_once_()
+        next = read_once(node.rb_right)
         if not next:
             return node
         node = next
@@ -85,24 +85,24 @@ def rb_next(node):
     Return the next node (in sort order) after a red-black node, or a NULL
     object if the node is the last node in the tree or is empty.
     """
-    node = node.read_once_()
+    node = read_once(node)
 
     if RB_EMPTY_NODE(node):
         return NULL(node.prog_, node.type_)
 
-    next = node.rb_right.read_once_()
+    next = read_once(node.rb_right)
     if next:
         node = next
         while True:
-            next = node.rb_left.read_once_()
+            next = read_once(node.rb_left)
             if not next:
                 return node
             node = next
 
-    parent = rb_parent(node).read_once_()
+    parent = read_once(rb_parent(node))
     while parent and node == parent.rb_right:
         node = parent
-        parent = rb_parent(node).read_once_()
+        parent = read_once(rb_parent(node))
     return parent
 
 
@@ -113,24 +113,24 @@ def rb_prev(node):
     Return the previous node (in sort order) before a red-black node, or a NULL
     object if the node is the first node in the tree or is empty.
     """
-    node = node.read_once_()
+    node = read_once(node)
 
     if RB_EMPTY_NODE(node):
         return NULL(node.prog_, node.type_)
 
-    next = node.rb_left.read_once_()
+    next = read_once(node.rb_left)
     if next:
         node = next
         while True:
-            next = node.rb_right.read_once_()
+            next = read_once(node.rb_right)
             if not next:
                 return node
             node = next
 
-    parent = rb_parent(node).read_once_()
+    parent = read_once(rb_parent(node))
     while parent and node == parent.rb_left:
         node = parent
-        parent = rb_parent(node).read_once_()
+        parent = read_once(rb_parent(node))
     return parent
 
 
@@ -143,10 +143,10 @@ def rbtree_inorder_for_each(root):
     """
     def aux(node):
         if node:
-            yield from aux(node.rb_left.read_once_())
+            yield from aux(read_once(node.rb_left))
             yield node
-            yield from aux(node.rb_right.read_once_())
-    yield from aux(root.rb_node.read_once_())
+            yield from aux(read_once(node.rb_right))
+    yield from aux(read_once(root.rb_node))
 
 
 def rbtree_inorder_for_each_entry(type, root, member):
@@ -174,14 +174,14 @@ def rb_find(type, root, member, key, cmp):
     Note that this function does not have an analogue in the Linux kernel
     source code, as tree searches are all open-coded.
     """
-    node = root.rb_node.read_once_()
+    node = read_once(root.rb_node)
     while node:
         entry = container_of(node, type, member)
         ret = cmp(key, entry)
         if ret < 0:
-            node = node.rb_left.read_once_()
+            node = read_once(node.rb_left)
         elif ret > 0:
-            node = node.rb_right.read_once_()
+            node = read_once(node.rb_right)
         else:
             return entry
     return node
