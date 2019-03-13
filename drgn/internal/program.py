@@ -256,6 +256,13 @@ class Object:
         return Object(self.prog_, self.prog_._type_index.pointer(self.type_),
                       value=self.address_)
 
+    def read_(self) -> 'Object':
+        """
+        Read the value of the given object and return it as an rvalue. This can
+        be useful if the object can change in the running program.
+        """
+        return Object(self.prog_, self.type_, value=self.value_())
+
     def _unary_operator(self, op: Callable, op_name: str,
                         integer: bool = False) -> 'Object':
         if ((integer and not self._real_type.is_integer()) or

@@ -8,7 +8,7 @@ This module provides helpers for working with the doubly-linked list
 implementations in "linux/list.h".
 """
 
-from drgn import container_of, read_once
+from drgn import container_of
 
 
 __all__ = [
@@ -30,7 +30,7 @@ def list_empty(head):
 
     Return whether a list is empty.
     """
-    head = read_once(head)
+    head = head.read_()
     return head.next == head
 
 
@@ -40,7 +40,7 @@ def list_is_singular(head):
 
     Return whether a list has only one element.
     """
-    head = read_once(head)
+    head = head.read_()
     next = head.next
     return next != head and next == head.prev
 
@@ -51,11 +51,11 @@ def list_for_each(head):
 
     Return an iterator over all of the nodes in a list.
     """
-    head = read_once(head)
-    pos = read_once(head.next)
+    head = head.read_()
+    pos = head.next.read_()
     while pos != head:
         yield pos
-        pos = read_once(pos.next)
+        pos = pos.next.read_()
 
 
 def list_for_each_reverse(head):
@@ -64,11 +64,11 @@ def list_for_each_reverse(head):
 
     Return an iterator over all of the nodes in a list in reverse order.
     """
-    head = read_once(head)
-    pos = read_once(head.prev)
+    head = head.read_()
+    pos = head.prev.read_()
     while pos != head:
         yield pos
-        pos = read_once(pos.prev)
+        pos = pos.prev.read_()
 
 
 def list_for_each_entry(type, head, member):
@@ -108,10 +108,10 @@ def hlist_for_each(head):
 
     Return an iterator over all of the nodes in a hash list.
     """
-    pos = read_once(head.first)
+    pos = head.first.read_()
     while pos:
         yield pos
-        pos = read_once(pos.next)
+        pos = pos.next.read_()
 
 
 def hlist_for_each_entry(type, head, member):

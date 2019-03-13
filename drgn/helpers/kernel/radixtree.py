@@ -8,7 +8,7 @@ This module provides helpers for working with radix trees from
 "linux/radix-tree.h".
 """
 
-from drgn import cast, Object, read_once
+from drgn import cast, Object
 
 
 __all__ = [
@@ -31,9 +31,9 @@ def _radix_tree_root_node(root):
     try:
         node = root.xa_head
     except AttributeError:
-        return read_once(root.rnode), 1
+        return root.rnode.read_(), 1
     else:
-        return read_once(cast('struct xa_node *', node)), 2
+        return cast('struct xa_node *', node).read_(), 2
 
 
 def radix_tree_lookup(root, index):
@@ -50,7 +50,7 @@ def radix_tree_lookup(root, index):
             break
         parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
         offset = (index >> parent.shift) & RADIX_TREE_MAP_MASK
-        node = read_once(cast(parent.type_, parent.slots[offset]))
+        node = cast(parent.type_, parent.slots[offset]).read_()
     return cast('void *', node)
 
 
@@ -66,7 +66,7 @@ def radix_tree_for_each(root):
         if _is_internal_node(node, RADIX_TREE_INTERNAL_NODE):
             parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
             for i, slot in enumerate(parent.slots):
-                yield from aux(read_once(cast(parent.type_, slot)),
+                yield from aux(cast(parent.type_, slot).read_(),
                                index + (i << parent.shift.value_()))
         elif node:
             yield index, cast('void *', node)
