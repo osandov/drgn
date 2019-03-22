@@ -1,1181 +1,633 @@
-from collections import OrderedDict
-import ctypes
-import math
-import struct
-import sys
 import unittest
 
-from drgn.internal.corereader import CoreReader
-from drgn.type import (
-    ArrayType,
-    BitFieldType,
-    BoolType,
-    EnumType,
-    FloatType,
-    FunctionType,
-    IntType,
-    PointerType,
-    StructType,
-    Type,
-    TypedefType,
-    UnionType,
-    VoidType,
+import drgn
+from drgn import (
+    array_type,
+    bool_type,
+    complex_type,
+    enum_type,
+    float_type,
+    function_type,
+    int_type,
+    pointer_type,
+    Qualifiers,
+    struct_type,
+    TypeKind,
+    typedef_type,
+    union_type,
+    void_type,
 )
-from tests.test_corereader import tmpfile
 
 
-def compound_type_dict_for_eq(type_):
-    # Compare the result of the type thunks rather than the thunks themselves.
-    d = dict(type_.__dict__)
-    if d['_members'] is not None:
-        d['_members'] = [
-            (name, offset, type_thunk()) for name, offset, type_thunk in
-            d['_members']
-        ]
-    del d['_members_by_name']
-    return d
-
-
-def enum_type_dict_for_eq(type_):
-    d = dict(type_.__dict__)
-    if d['enum'] is not None:
-        d['enum'] = d['enum'].__members__
-    return d
-
-
-def type_eq(self, other):
-    if not isinstance(other, self.__class__):
-        return False
-    if isinstance(self, (StructType, UnionType)):
-        return compound_type_dict_for_eq(self) == compound_type_dict_for_eq(other)
-    elif isinstance(self, EnumType):
-        return enum_type_dict_for_eq(self) == enum_type_dict_for_eq(other)
-    else:
-        return self.__dict__ == other.__dict__
-
-
-pointer_size = ctypes.sizeof(ctypes.c_void_p)
-point_type = StructType('point', 8, [
-    ('x', 0, lambda: IntType('int', 4, True)),
-    ('y', 4, lambda: IntType('int', 4, True)),
-])
-anonymous_point_type = StructType(None, 8, [
-    ('x', 0, lambda: IntType('int', 4, True)),
-    ('y', 4, lambda: IntType('int', 4, True)),
-])
-const_anonymous_point_type = StructType(None, 8, [
-    ('x', 0, lambda: IntType('int', 4, True)),
-    ('y', 4, lambda: IntType('int', 4, True)),
-], {'const'})
-line_segment_type = StructType('line_segment', 16, [
-    ('a', 0, lambda: point_type),
-    ('b', 8, lambda: point_type),
-])
-quadrilateral_type = StructType('quadrilateral', 16, [
-    ('points', 0, lambda: ArrayType(point_type, 4, pointer_size)),
-])
-color_type = EnumType('color', IntType('unsigned int', 4, False), [
-    ('RED', 0),
-    ('GREEN', 1),
-    ('BLUE', 2)
-])
-const_anonymous_color_type = EnumType(None, IntType('int', 4, True), [
-    ('RED', 0),
-    ('GREEN', -1),
-    ('BLUE', -2)
-], {'const'})
-anonymous_color_type = const_anonymous_color_type.unqualified()
-
-
-class TypeTestCase(unittest.TestCase):
-    def setUp(self):
-        Type.__eq__ = type_eq
-
-    def tearDown(self):
-        del Type.__eq__
-
-
-class TestType(TypeTestCase):
+class TestType(unittest.TestCase):
     def test_void(self):
-        type_ = VoidType()
-        self.assertEqual(str(type_), 'void')
-        self.assertRaises(ValueError, type_.sizeof)
-        self.assertFalse(type_.is_arithmetic())
-        self.assertFalse(type_.is_integer())
+        t = void_type()
+        self.assertEqual(t.kind, TypeKind.VOID)
+        self.assertEqual(t, void_type())
+        self.assertFalse(t.is_complete())
+        self.assertEqual(repr(t), 'void_type()')
 
     def test_int(self):
-        type_ = IntType('int', 4, True)
-        self.assertEqual(str(type_), 'int')
-        self.assertEqual(type_.sizeof(), 4)
-        self.assertEqual(type_.real_type(), type_)
-        self.assertTrue(type_.is_arithmetic())
-        self.assertTrue(type_.is_integer())
+        t = int_type('int', 4, True)
+        self.assertEqual(t.kind, TypeKind.INT)
+        self.assertEqual(t.name, 'int')
+        self.assertEqual(t.size, 4)
+        self.assertTrue(t.is_signed)
+        self.assertTrue(t.is_complete())
 
-    def test_float(self):
-        type_ = FloatType('double', 8)
-        self.assertEqual(str(type_), 'double')
-        self.assertEqual(type_.sizeof(), 8)
-        self.assertTrue(type_.is_arithmetic())
-        self.assertFalse(type_.is_integer())
+        self.assertEqual(t, int_type('int', 4, True))
+        self.assertNotEqual(t, int_type('long', 4, True))
+        self.assertNotEqual(t, int_type('int', 2, True))
+        self.assertNotEqual(t, int_type('int', 4, False))
+
+        self.assertEqual(repr(t), "int_type(name='int', size=4, is_signed=True)")
+
+        self.assertRaises(TypeError, int_type, None, 4, True)
 
     def test_bool(self):
-        type_ = BoolType('_Bool', 1)
-        self.assertEqual(str(type_), '_Bool')
-        self.assertEqual(type_.sizeof(), 1)
+        t = bool_type('_Bool', 1)
+        self.assertEqual(t.kind, TypeKind.BOOL)
+        self.assertEqual(t.name, '_Bool')
+        self.assertEqual(t.size, 1)
+        self.assertTrue(t.is_complete())
 
-    def test_qualifiers(self):
-        type_ = IntType('int', 4, True, {'const'})
-        self.assertEqual(str(type_), 'const int')
-        self.assertEqual(type_.sizeof(), 4)
+        self.assertEqual(t, bool_type('_Bool', 1))
+        self.assertNotEqual(t, bool_type('bool', 1))
+        self.assertNotEqual(t, bool_type('_Bool', 2))
 
-        type_ = IntType('int', 4, True, {'const', 'volatile'})
-        self.assertEqual(str(type_), 'const volatile int')
-        self.assertEqual(type_.sizeof(), 4)
+        self.assertEqual(repr(t), "bool_type(name='_Bool', size=1)")
 
-    def test_typedef(self):
-        type_ = TypedefType('INT', IntType('int', 4, True))
-        self.assertEqual(str(type_), 'typedef int INT')
-        self.assertEqual(type_.sizeof(), 4)
-        self.assertTrue(type_.is_arithmetic())
-        self.assertTrue(type_.is_integer())
+        self.assertRaises(TypeError, bool_type, None, 1)
 
-        type_ = TypedefType('string', PointerType(pointer_size, IntType('char', 1, True)))
-        self.assertEqual(str(type_), 'typedef char *string')
-        self.assertEqual(type_.sizeof(), pointer_size)
-        self.assertFalse(type_.is_arithmetic())
-        self.assertFalse(type_.is_integer())
+    def test_float(self):
+        t = float_type('float', 4)
+        self.assertEqual(t.kind, TypeKind.FLOAT)
+        self.assertEqual(t.name, 'float')
+        self.assertEqual(t.size, 4)
+        self.assertTrue(t.is_complete())
 
-        type_ = TypedefType('CINT', IntType('int', 4, True, {'const'}))
-        self.assertEqual(str(type_), 'typedef const int CINT')
-        self.assertEqual(type_.sizeof(), 4)
+        self.assertEqual(t, float_type('float', 4))
+        self.assertNotEqual(t, float_type('double', 4))
+        self.assertNotEqual(t, float_type('float', 8))
 
-        type_ = TypedefType('INT', IntType('int', 4, True), {'const'})
-        self.assertEqual(str(type_), 'const typedef int INT')
-        self.assertEqual(type_.sizeof(), 4)
+        self.assertEqual(repr(t), "float_type(name='float', size=4)")
 
-        type1 = TypedefType('INT', IntType('int', 4, True))
-        type2 = TypedefType('InT', type1)
-        self.assertEqual(type1.real_type(), IntType('int', 4, True))
-        self.assertEqual(type2.real_type(), IntType('int', 4, True))
+        self.assertRaises(TypeError, float_type, None, 4)
 
-        type1 = TypedefType('Point', anonymous_point_type)
-        type2 = TypedefType('POINT', type1)
-        self.assertEqual(str(type1), """\
-typedef struct {
-	int x;
-	int y;
-} Point""")
-        self.assertEqual(str(type2), 'typedef Point POINT')
+    def test_complex(self):
+        t = complex_type('double _Complex', 16, float_type('double', 8))
+        self.assertEqual(t.kind, TypeKind.COMPLEX)
+        self.assertEqual(t.name, 'double _Complex')
+        self.assertEqual(t.size, 16)
+        self.assertEqual(t.type, float_type('double', 8))
+        self.assertTrue(t.is_complete())
 
-        type1 = TypedefType('Color', anonymous_color_type)
-        self.assertEqual(str(type1), """\
-typedef enum {
-	RED = 0,
-	GREEN = -1,
-	BLUE = -2,
-} Color""")
+        self.assertEqual(t, complex_type('double _Complex', 16, float_type('double', 8)))
+        self.assertNotEqual(t, complex_type('float _Complex', 16, float_type('double', 8)))
+        self.assertNotEqual(t, complex_type('double _Complex', 32, float_type('double', 8)))
+        self.assertNotEqual(t, complex_type('double _Complex', 16, float_type('float', 4)))
+
+        self.assertEqual(repr(t), "complex_type(name='double _Complex', size=16, type=float_type(name='double', size=8))")
+
+        self.assertRaises(TypeError, complex_type, None, 16, float_type('double', 8))
+        self.assertRaises(TypeError, complex_type, 'double _Complex', 16, None)
+        self.assertRaisesRegex(ValueError,
+                               'must be floating-point or integer type',
+                               complex_type, 'double _Complex', 16,
+                               void_type())
+        self.assertRaisesRegex(ValueError, 'must be unqualified',
+                               complex_type, 'double _Complex', 16,
+                               float_type('double', 8, Qualifiers.CONST))
+
 
     def test_struct(self):
-        self.assertEqual(str(point_type), """\
-struct point {
-	int x;
-	int y;
-}""")
-        self.assertEqual(point_type.sizeof(), 8)
-        self.assertEqual(point_type.member_names(), ['x', 'y'])
-        self.assertEqual(list(point_type.members()), [
-            ('x', IntType('int', 4, True), 0),
-            ('y', IntType('int', 4, True), 4),
-        ])
-        self.assertEqual(point_type.offsetof('x'), 0)
-        self.assertEqual(point_type.offsetof('y'), 4)
-        self.assertEqual(point_type.typeof('x'), IntType('int', 4, True))
-        self.assertEqual(point_type.typeof('y'), IntType('int', 4, True))
+        t = struct_type('point', 8, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+        ))
+        self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertEqual(t.tag, 'point')
+        self.assertEqual(t.size, 8)
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 0),
+            (int_type('int', 4, True), 'y', 32, 0),
+        ))
+        self.assertTrue(t.is_complete())
 
-        self.assertEqual(str(line_segment_type), """\
-struct line_segment {
-	struct point a;
-	struct point b;
-}""")
-        self.assertEqual(line_segment_type.offsetof('a.x'), 0)
-        self.assertEqual(line_segment_type.offsetof('a.y'), 4)
-        self.assertEqual(line_segment_type.offsetof('b.x'), 8)
-        self.assertEqual(line_segment_type.offsetof('b.y'), 12)
-        self.assertRaisesRegex(ValueError, 'no member',
-                               line_segment_type.offsetof, 'c')
-        self.assertRaisesRegex(ValueError, 'not a struct or union',
-                               line_segment_type.offsetof, 'a.x.z')
-        self.assertRaisesRegex(ValueError, 'not an array',
-                               line_segment_type.offsetof, 'a[0]')
+        self.assertEqual(t, struct_type('point', 8, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+        )))
+        # Different tag.
+        self.assertNotEqual(t, struct_type('pt', 8, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+        )))
+        # Different size.
+        self.assertNotEqual(t, struct_type('point', 16, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+        )))
+        # One is anonymous.
+        self.assertNotEqual(t, struct_type(None, 8, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+        )))
+        # Different members.
+        self.assertNotEqual(t, struct_type('point', 8, (
+            (int_type('long', 8, True), 'x', 0),
+            (int_type('long', 8, True), 'y', 64),
+        )))
+        # Different number of members.
+        self.assertNotEqual(t, struct_type('point', 8, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+            (int_type('int', 4, True), 'z', 64),
+        )))
+        # One member is anonymous.
+        self.assertNotEqual(t, struct_type('point', 8, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), None, 32),
+        )))
+        # One is incomplete.
+        self.assertNotEqual(t, struct_type('point'))
 
-        self.assertEqual(str(quadrilateral_type), """\
-struct quadrilateral {
-	struct point points[4];
-}""")
-        for i in range(5):
-            self.assertEqual(quadrilateral_type.offsetof(f'points[{i}].x'),
-                             8 * i)
-            self.assertEqual(quadrilateral_type.offsetof(f'points[{i}].y'),
-                             8 * i + 4)
+        self.assertEqual(repr(t), "struct_type(tag='point', size=8, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='int', size=4, is_signed=True), 'y', 32, 0)))")
 
-        self.assertEqual(str(anonymous_point_type), """\
-struct {
-	int x;
-	int y;
-}""")
+        t = struct_type(None, 8, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+        ))
+        self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertIsNone(t.tag)
+        self.assertEqual(t.size, 8)
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 0),
+            (int_type('int', 4, True), 'y', 32, 0),
+        ))
+        self.assertTrue(t.is_complete())
 
-        type_ = StructType('line_segment', 16, [
-            (None, 0, lambda: const_anonymous_point_type),
-            ('b', 8, lambda: const_anonymous_point_type),
-        ], {'const', 'volatile'})
-        self.assertEqual(str(type_), """\
-const volatile struct line_segment {
-	const struct {
-		int x;
-		int y;
-	};
-	const struct {
-		int x;
-		int y;
-	} b;
-}""")
+        t = struct_type('color', 0, ())
+        self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertEqual(t.tag, 'color')
+        self.assertEqual(t.size, 0)
+        self.assertEqual(t.members, ())
+        self.assertTrue(t.is_complete())
+        self.assertEqual(repr(t), "struct_type(tag='color', size=0, members=())")
 
-        type_ = StructType('foo', None, None)
-        self.assertEqual(str(type_), 'struct foo')
-        self.assertRaises(ValueError, type_.sizeof)
+        t = struct_type('color')
+        self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertEqual(t.tag, 'color')
+        self.assertIsNone(t.size)
+        self.assertIsNone(t.members)
+        self.assertFalse(t.is_complete())
+        self.assertEqual(repr(t), "struct_type(tag='color', size=None, members=None)")
 
-        type_ = StructType(None, 12, [
-            ('x', 0, lambda: IntType('int', 4, True)),
-            (None, 4, lambda: StructType('point', 8, [
-                ('y', 0, lambda: IntType('int', 4, True)),
-                ('z', 4, lambda: IntType('int', 4, True)),
-            ])),
-        ])
-        self.assertEqual(type_.member_names(), ['x', 'y', 'z'])
-        self.assertEqual(list(type_.members()), [
-            ('x', IntType('int', 4, True), 0),
-            ('y', IntType('int', 4, True), 4),
-            ('z', IntType('int', 4, True), 8),
-        ])
-        self.assertEqual(type_.offsetof('x'), 0)
-        self.assertEqual(type_.offsetof('y'), 4)
-        self.assertEqual(type_.offsetof('z'), 8)
-        self.assertEqual(type_.typeof('x'), IntType('int', 4, True))
-        self.assertEqual(type_.typeof('y'), IntType('int', 4, True))
-        self.assertEqual(type_.typeof('z'), IntType('int', 4, True))
+        t = struct_type(None, None, None)
+        self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertEqual(t.tag, None)
+        self.assertIsNone(t.size)
+        self.assertIsNone(t.members)
+        self.assertFalse(t.is_complete())
+        self.assertEqual(repr(t), "struct_type(tag=None, size=None, members=None)")
 
-        type_ = StructType('foo', 0, [])
-        self.assertEqual(type_.member_names(), [])
-        self.assertEqual(list(type_.members()), [])
+        self.assertRaises(TypeError, struct_type, 4)
+        self.assertRaisesRegex(ValueError, 'must not have size', struct_type,
+                               'point', 8, None)
+        self.assertRaisesRegex(ValueError, 'must have size', struct_type,
+                               'point', None, ())
+        self.assertRaisesRegex(TypeError, 'must be sequence or None',
+                               struct_type, 'point', 8, 4)
+        self.assertRaisesRegex(TypeError, 'must be.*sequence', struct_type,
+                               'point', 8, (4))
+        self.assertRaisesRegex(ValueError, 'must be.*sequence', struct_type,
+                               'point', 8, ((),))
+        self.assertRaisesRegex(TypeError, 'must be string or None',
+                               struct_type, 'point', 8,
+                               ((int_type('int', 4, True), 4, 0),))
+        self.assertRaisesRegex(TypeError, 'must be integer', struct_type,
+                               'point', 8,
+                               ((int_type('int', 4, True), 'x', None),))
+        self.assertRaisesRegex(TypeError, 'must be Type', struct_type, 'point',
+                               8, ((None, 'x', 0),))
 
-    def test_bit_field(self):
-        type_ = StructType(None, 8, [
-            ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
-            ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
-            ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
-        ])
-        self.assertEqual(str(type_), """\
-struct {
-	int x : 4;
-	const int y : 28;
-	int z : 5;
-}""")
-
-        type_ = BitFieldType(IntType('int', 4, True), 0, 4)
-        self.assertEqual(str(type_), 'int : 4')
-        self.assertRaises(ValueError, type_.type_name)
-        self.assertTrue(type_.is_arithmetic())
-
-        type_ = BitFieldType(color_type, 0, 4)
-        self.assertEqual(str(type_), 'enum color : 4')
-
-        type_ = BitFieldType(anonymous_color_type, 0, 4)
-        self.assertEqual(str(type_), """\
-enum {
-	RED = 0,
-	GREEN = -1,
-	BLUE = -2,
-} : 4""")
-
-    def test_union(self):
-        type_ = UnionType('value', 4, [
-            ('i', 0, lambda: IntType('int', 4, True)),
-            ('f', 0, lambda: FloatType('float', 4)),
-        ])
-        self.assertEqual(str(type_), """\
-union value {
-	int i;
-	float f;
-}""")
-        self.assertEqual(type_.sizeof(), 4)
-
-        type_ = UnionType('value', 8, [
-            ('i', 0, lambda: IntType('int', 4, True)),
-            ('f', 0, lambda: FloatType('float', 4)),
-            ('p', 0, lambda: point_type),
-        ])
-        self.assertEqual(str(type_), """\
-union value {
-	int i;
-	float f;
-	struct point p;
-}""")
-
-        type_ = UnionType('foo', None, None)
-        self.assertEqual(str(type_), 'union foo')
-        self.assertRaises(ValueError, type_.sizeof)
-
-    def test_enum(self):
-        self.assertEqual(str(color_type), """\
-enum color {
-	RED = 0,
-	GREEN = 1,
-	BLUE = 2,
-}""")
-        self.assertEqual(color_type.sizeof(), 4)
-
-        type_ = EnumType('color', IntType('unsigned int', 4, False), [
-            ('RED', 0),
-            ('GREEN', 1),
-            ('BLUE', 2)
-        ], qualifiers={'const'})
-        self.assertEqual(str(type_), """\
-const enum color {
-	RED = 0,
-	GREEN = 1,
-	BLUE = 2,
-}""")
-
-        type_ = EnumType('color', IntType('unsigned int', 4, False), [
-            ('RED', 0),
-            ('GREEN', 1),
-            ('BLUE', 2)
-        ], qualifiers={'const', 'volatile'})
-        self.assertEqual(str(type_), """\
-const volatile enum color {
-	RED = 0,
-	GREEN = 1,
-	BLUE = 2,
-}""")
-
-        self.assertEqual(str(anonymous_color_type), """\
-enum {
-	RED = 0,
-	GREEN = -1,
-	BLUE = -2,
-}""")
-
-        type_ = EnumType('foo', None, None)
-        self.assertEqual(str(type_), 'enum foo')
-        self.assertRaises(ValueError, type_.sizeof)
-        self.assertTrue(type_.is_arithmetic())
-        self.assertTrue(type_.is_integer())
-
-    def test_pointer(self):
-        type_ = PointerType(pointer_size, IntType('int', 4, True))
-        self.assertEqual(str(type_), 'int *')
-        self.assertEqual(type_.sizeof(), pointer_size)
-
-        type_ = PointerType(pointer_size, IntType('int', 4, True), {'const'})
-        self.assertEqual(str(type_), 'int * const')
-
-        type_ = PointerType(pointer_size, point_type)
-        self.assertEqual(str(type_), 'struct point *')
-
-        type_ = PointerType(pointer_size, PointerType(pointer_size, IntType('int', 4, True)))
-        self.assertEqual(str(type_), 'int **')
-
-        type_ = PointerType(pointer_size, VoidType())
-        self.assertEqual(str(type_), 'void *')
-
-    def test_array(self):
-        type_ = ArrayType(IntType('int', 4, True), 2, pointer_size)
-        self.assertEqual(str(type_), 'int [2]')
-        self.assertEqual(type_.sizeof(), 8)
-
-        type_ = ArrayType(ArrayType(IntType('int', 4, True), 3, pointer_size), 2, pointer_size)
-        self.assertEqual(str(type_), 'int [2][3]')
-
-        type_ = ArrayType(ArrayType(ArrayType(IntType('int', 4, True), 4, pointer_size), 3, pointer_size), 2, pointer_size)
-        self.assertEqual(str(type_), 'int [2][3][4]')
-
-    def test_array_with_empty_element(self):
-        type_ = ArrayType(StructType('empty', 0, []), 2, pointer_size)
-        self.assertEqual(str(type_), 'struct empty [2]')
-        self.assertEqual(type_.sizeof(), 0)
-
-    def test_incomplete_array(self):
-        type_ = ArrayType(IntType('int', 4, True), None, pointer_size)
-        self.assertEqual(str(type_), 'int []')
-        self.assertRaises(ValueError, type_.sizeof)
-
-        type_ = ArrayType(ArrayType(IntType('int', 4, True), 2, pointer_size), None, pointer_size)
-        self.assertEqual(str(type_), 'int [][2]')
-
-    def test_array_of_structs(self):
-        type_ = ArrayType(point_type, 2, pointer_size)
-        self.assertEqual(str(type_), 'struct point [2]')
-        self.assertEqual(type_.sizeof(), 16)
-
-    def test_array_of_anonymous(self):
-        type_ = ArrayType(anonymous_point_type, 2, pointer_size)
-        self.assertEqual(str(type_), """\
-struct {
-	int x;
-	int y;
-} [2]""")
-
-        type_ = ArrayType(anonymous_color_type, 2, pointer_size)
-        self.assertEqual(str(type_), """\
-enum {
-	RED = 0,
-	GREEN = -1,
-	BLUE = -2,
-} [2]""")
-
-
-class TestConvert(unittest.TestCase):
-    def test_void(self):
-        self.assertIsNone(VoidType()._convert(4))
-
-    def test_int(self):
-        type_ = IntType('unsigned int', 4, False)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert(None)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert('0')
-        self.assertEqual(type_._convert(0), 0)
-        self.assertEqual(type_._convert(4096), 4096)
-        self.assertEqual(type_._convert(999999), 999999)
-        self.assertEqual(type_._convert(2**32 - 1), 2**32 - 1)
-        self.assertEqual(type_._convert(2**32 + 4), 4)
-        self.assertEqual(type_._convert(-1), 2**32 - 1)
-        self.assertEqual(type_._convert(-2 * 2**32), 0)
-        self.assertEqual(type_._convert(-4 * 2**32 - 1), 2**32 - 1)
-        self.assertEqual(type_._convert(-2**31), 2**31)
-        self.assertEqual(type_._convert(1.5), 1)
-
-        type_ = IntType('int', 4, True)
-        self.assertEqual(type_._convert(0), 0)
-        self.assertEqual(type_._convert(4096), 4096)
-        self.assertEqual(type_._convert(999999), 999999)
-        self.assertEqual(type_._convert(2**32 - 1), -1)
-        self.assertEqual(type_._convert(2**32 + 4), 4)
-        self.assertEqual(type_._convert(-1), -1)
-        self.assertEqual(type_._convert(-2 * 2**32), 0)
-        self.assertEqual(type_._convert(-4 * 2**32 - 1), -1)
-        self.assertEqual(type_._convert(-2**31), -2**31)
-        self.assertEqual(type_._convert(2**31), -2**31)
-        self.assertEqual(type_._convert(2**31 - 1), 2**31 - 1)
-        self.assertEqual(type_._convert(-1.5), -1)
-
-    def test_bool(self):
-        type_ = BoolType('_Bool', 1)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert(None)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert('')
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert('0')
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert([1, 2, 3])
-        self.assertEqual(type_._convert(0), False)
-        self.assertEqual(type_._convert(1), True)
-        self.assertEqual(type_._convert(-1), True)
-        self.assertEqual(type_._convert(0.0), False)
-        self.assertEqual(type_._convert(-0.0), False)
-        self.assertEqual(type_._convert(-0.0), False)
-        self.assertEqual(type_._convert(0.5), True)
-        self.assertEqual(type_._convert(-0.5), True)
-        self.assertEqual(type_._convert(float('nan')), True)
-
-    def test_float(self):
-        type_ = FloatType('double', 8)
-        self.assertEqual(type_._convert(0.0), 0.0)
-        self.assertEqual(type_._convert(0.5), 0.5)
-        self.assertEqual(type_._convert(-0.5), -0.5)
-        self.assertEqual(type_._convert(55), 55.0)
-        self.assertEqual(type_._convert(float('inf')), float('inf'))
-        self.assertEqual(type_._convert(float('-inf')), float('-inf'))
-        self.assertTrue(math.isnan(type_._convert(float('nan'))))
-
-        type_ = FloatType('float', 4)
-        self.assertEqual(type_._convert(0.0), 0.0)
-        self.assertEqual(type_._convert(0.5), 0.5)
-        self.assertEqual(type_._convert(-0.5), -0.5)
-        self.assertEqual(type_._convert(55), 55.0)
-        self.assertEqual(type_._convert(float('inf')), float('inf'))
-        self.assertEqual(type_._convert(float('-inf')), float('-inf'))
-        self.assertTrue(math.isnan(type_._convert(float('nan'))))
-        self.assertEqual(type_._convert(1e-50), 0.0)
-
-    def test_bit_field(self):
-        type_ = BitFieldType(IntType('unsigned int', 4, False), 0, 4)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert(None)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert('0')
-        self.assertEqual(type_._convert(0), 0)
-        self.assertEqual(type_._convert(10), 10)
-        self.assertEqual(type_._convert(15), 15)
-        self.assertEqual(type_._convert(20), 4)
-        self.assertEqual(type_._convert(-1), 15)
-        self.assertEqual(type_._convert(32), 0)
-        self.assertEqual(type_._convert(-17), 15)
-        self.assertEqual(type_._convert(-8), 8)
-        self.assertEqual(type_._convert(1.5), 1)
-
-        type_ = BitFieldType(IntType('int', 4, True), 0, 4)
-        self.assertEqual(type_._convert(0), 0)
-        self.assertEqual(type_._convert(10), -6)
-        self.assertEqual(type_._convert(15), -1)
-        self.assertEqual(type_._convert(20), 4)
-        self.assertEqual(type_._convert(-1), -1)
-        self.assertEqual(type_._convert(32), 0)
-        self.assertEqual(type_._convert(-17), -1)
-        self.assertEqual(type_._convert(-8), -8)
-        self.assertEqual(type_._convert(1.5), 1)
-
-    def test_no_convert(self):
-        union_type = UnionType('value', 4, [
-            ('i', 0, lambda: IntType('int', 4, True)),
-            ('f', 0, lambda: FloatType('float', 4)),
-        ])
-        array_type = ArrayType(IntType('int', 4, True), 2, pointer_size)
-        incomplete_array_type = ArrayType(IntType('int', 4, True), None, pointer_size)
-        for type_ in [point_type, union_type, array_type,
-                      incomplete_array_type]:
-            with self.subTest(type=type_):
-                with self.assertRaisesRegex(TypeError, 'cannot convert'):
-                    point_type._convert(None)
-                with self.assertRaisesRegex(TypeError, 'cannot convert'):
-                    point_type._convert({})
-                with self.assertRaisesRegex(TypeError, 'cannot convert'):
-                    point_type._convert(1)
-
-    def test_enum(self):
-        type_ = EnumType('color', IntType('unsigned int', 4, False), [
-            ('RED', 0),
-            ('GREEN', 1),
-            ('BLUE', 2)
-        ])
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert(None)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert('0')
-        self.assertEqual(type_._convert(1), type_.enum.GREEN)
-        self.assertEqual(type_._convert(3), 3)
-        self.assertEqual(type_._convert(-1), 2**32 - 1)
-        self.assertEqual(type_._convert(0.1), type_.enum.RED)
-
-    def test_typedef(self):
-        type_ = TypedefType('u32', IntType('unsigned int', 4, False))
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert(None)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert('0')
-        self.assertEqual(type_._convert(0), 0)
-        self.assertEqual(type_._convert(2**32 - 1), 2**32 - 1)
-        self.assertEqual(type_._convert(-1), 2**32 - 1)
-
-    def test_pointer(self):
-        type_ = PointerType(8, VoidType())
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert(None)
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert('0')
-        with self.assertRaisesRegex(TypeError, 'cannot convert'):
-            type_._convert(0.0)
-        self.assertEqual(type_._convert(0), 0)
-        self.assertEqual(type_._convert(0xffffffff93000000), 0xffffffff93000000)
-        self.assertEqual(type_._convert(2**64 - 1), 2**64 - 1)
-        self.assertEqual(type_._convert(-1), 2**64 - 1)
-        self.assertEqual(type_._convert(2**64 + 1), 1)
-
-
-class TestUnqualifiedAndOperandType(TypeTestCase):
-    def assertUnqualifiedType(self, type_, expected):
-        for i in range(2):
-            type_ = type_.unqualified()
-            self.assertEqual(type_, expected)
-
-    def assertOperandType(self, type_, expected):
-        for i in range(2):
-            type_ = type_.operand_type()
-            self.assertEqual(type_, expected)
-
-    def assertBoth(self, type_, expected):
-        self.assertUnqualifiedType(type_, expected)
-        self.assertOperandType(type_, expected)
-
-    def test_void(self):
-        self.assertBoth(VoidType({'const'}), VoidType())
-
-    def test_int(self):
-        self.assertBoth(IntType('int', 4, True, {'const'}),
-                        IntType('int', 4, True))
-
-    def test_bool(self):
-        self.assertBoth(BoolType('_Bool', 1, {'const'}),
-                        BoolType('_Bool', 1))
-
-    def test_float(self):
-        self.assertBoth(FloatType('double', 8, {'const'}),
-                        FloatType('double', 8))
-
-    def test_bit_field(self):
-        self.assertBoth(BitFieldType(IntType('int', 4, True, {'const'}), 0, 4),
-                        BitFieldType(IntType('int', 4, True), 0, 4))
-
-    def test_struct(self):
-        const_point_type = StructType('point', 8, [
-            ('x', 0, lambda: IntType('int', 4, True)),
-            ('y', 4, lambda: IntType('int', 4, True)),
-        ], {'const'})
-        self.assertBoth(const_point_type, point_type)
+        # Bit size.
+        t = struct_type('point', 8, (
+            (int_type('int', 4, True), 'x', 0, 4),
+            (int_type('int', 4, True), 'y', 32, 4),
+        ))
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 4),
+            (int_type('int', 4, True), 'y', 32, 4),
+        ))
 
     def test_union(self):
-        union_type = UnionType('value', 4, [
-            ('i', 0, lambda: IntType('int', 4, True)),
-            ('f', 0, lambda: FloatType('float', 4)),
-        ])
-        const_union_type = UnionType('value', 4, [
-            ('i', 0, lambda: IntType('int', 4, True)),
-            ('f', 0, lambda: FloatType('float', 4)),
-        ], {'const'})
-        self.assertBoth(const_union_type, union_type)
+        t = union_type('option', 4, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False), 'y'),
+        ))
+        self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertEqual(t.tag, 'option')
+        self.assertEqual(t.size, 4)
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 0),
+            (int_type('unsigned int', 4, False), 'y', 0, 0),
+        ))
+        self.assertTrue(t.is_complete())
+
+        self.assertEqual(t, union_type('option', 4, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False), 'y'),
+        )))
+        # Different tag.
+        self.assertNotEqual(t, union_type('pt', 4, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False), 'y'),
+        )))
+        # Different size.
+        self.assertNotEqual(t, union_type('option', 8, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False), 'y'),
+        )))
+        # One is anonymous.
+        self.assertNotEqual(t, union_type(None, 4, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False), 'y'),
+        )))
+        # Different members.
+        self.assertNotEqual(t, union_type('option', 4, (
+            (int_type('long', 8, True), 'x'),
+            (int_type('unsigned long', 8, False), 'y'),
+        )))
+        # Different number of members.
+        self.assertNotEqual(t, union_type('option', 4, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False), 'y'),
+            (float_type('float', 4), 'z'),
+        )))
+        # One member is anonymous.
+        self.assertNotEqual(t, union_type('option', 4, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False),),
+        )))
+        # One is incomplete.
+        self.assertNotEqual(t, union_type('option'))
+
+        self.assertEqual(repr(t), "union_type(tag='option', size=4, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='unsigned int', size=4, is_signed=False), 'y', 0, 0)))")
+
+        t = union_type(None, 4, (
+            (int_type('int', 4, True), 'x'),
+            (int_type('unsigned int', 4, False), 'y'),
+        ))
+        self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertIsNone(t.tag)
+        self.assertEqual(t.size, 4)
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 0),
+            (int_type('unsigned int', 4, False), 'y', 0, 0),
+        ))
+        self.assertTrue(t.is_complete())
+
+        t = union_type('color', 0, ())
+        self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertEqual(t.tag, 'color')
+        self.assertEqual(t.size, 0)
+        self.assertEqual(t.members, ())
+        self.assertTrue(t.is_complete())
+        self.assertEqual(repr(t), "union_type(tag='color', size=0, members=())")
+
+        t = union_type('color')
+        self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertEqual(t.tag, 'color')
+        self.assertIsNone(t.size)
+        self.assertIsNone(t.members)
+        self.assertFalse(t.is_complete())
+        self.assertEqual(repr(t), "union_type(tag='color', size=None, members=None)")
+
+        t = union_type(None, None, None)
+        self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertEqual(t.tag, None)
+        self.assertIsNone(t.size)
+        self.assertIsNone(t.members)
+        self.assertFalse(t.is_complete())
+        self.assertEqual(repr(t), "union_type(tag=None, size=None, members=None)")
+
+        self.assertRaises(TypeError, union_type, 4)
+        self.assertRaisesRegex(ValueError, 'must not have size', union_type,
+                               'option', 8, None)
+        self.assertRaisesRegex(ValueError, 'must have size', union_type,
+                               'option', None, ())
+        self.assertRaisesRegex(TypeError, 'must be sequence or None',
+                               union_type, 'option', 8, 4)
+        self.assertRaisesRegex(TypeError, 'must be.*sequence', union_type,
+                               'option', 8, (4,))
+        self.assertRaisesRegex(ValueError, 'must be.*sequence', union_type,
+                               'option', 8, ((),))
+        self.assertRaisesRegex(TypeError, 'must be string or None', union_type,
+                               'option', 8,
+                               ((int_type('int', 4, True), 4),))
+        self.assertRaisesRegex(TypeError, 'must be integer', union_type,
+                               'option', 8,
+                               ((int_type('int', 4, True), 'x', None),))
+        self.assertRaisesRegex(TypeError, 'must be Type', union_type, 'option',
+                               8, ((None, 'x'),))
+
+        # Bit size.
+        t = union_type('option', 4, (
+            (int_type('int', 4, True), 'x', 0, 4),
+            (int_type('unsigned int', 4, False), 'y', 0, 4),
+        ))
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 4),
+            (int_type('unsigned int', 4, False), 'y', 0, 4),
+        ))
 
     def test_enum(self):
-        self.assertBoth(const_anonymous_color_type, anonymous_color_type)
+        t = enum_type('color', int_type('unsigned int', 4, False),
+                      (('RED', 0), ('GREEN', 1), ('BLUE', 2)))
+        self.assertEqual(t.kind, TypeKind.ENUM)
+        self.assertEqual(t.tag, 'color')
+        self.assertEqual(t.type,
+                         int_type('unsigned int', 4, False))
+        self.assertEqual(t.enumerators,
+                         (('RED', 0), ('GREEN', 1), ('BLUE', 2)))
+        self.assertTrue(t.is_complete())
+
+        self.assertEqual(t, enum_type(
+            'color', int_type('unsigned int', 4, False),
+            (('RED', 0), ('GREEN', 1), ('BLUE', 2))))
+        # Different tag.
+        self.assertNotEqual(t, enum_type(
+            'COLOR', int_type('unsigned int', 4, False),
+            (('RED', 0), ('GREEN', 1), ('BLUE', 2))))
+        # One is anonymous.
+        self.assertNotEqual(t, enum_type(
+            None, int_type('unsigned int', 4, False),
+            (('RED', 0), ('GREEN', 1), ('BLUE', 2))))
+        # Different compatible type.
+        self.assertNotEqual(t, enum_type(
+            'color', int_type('int', 4, True),
+            (('RED', 0), ('GREEN', 1), ('BLUE', 2))))
+        # Different enumerators.
+        self.assertNotEqual(t, enum_type(
+            'color', int_type('unsigned int', 4, False),
+            (('RED', 0), ('YELLOW', 1), ('BLUE', 2))))
+        # Different number of enumerators.
+        self.assertNotEqual(t, enum_type(
+            'color', int_type('unsigned int', 4, False),
+            (('RED', 0), ('GREEN', 1))))
+        # One is incomplete.
+        self.assertNotEqual(t, enum_type('color'))
+
+        self.assertEqual(repr(t),
+                         "enum_type(tag='color', type=int_type(name='unsigned int', size=4, is_signed=False), enumerators=(('RED', 0), ('GREEN', 1), ('BLUE', 2)))")
+
+        t = enum_type('color', None, None)
+        self.assertEqual(t.kind, TypeKind.ENUM)
+        self.assertEqual(t.tag, 'color')
+        self.assertIsNone(t.type)
+        self.assertIsNone(t.enumerators)
+        self.assertFalse(t.is_complete())
+
+        self.assertEqual(repr(t), "enum_type(tag='color', type=None, enumerators=None)")
+
+        # A type with no enumerators isn't valid in C, but we allow it.
+        t = enum_type('color', int_type('unsigned int', 4, False), ())
+        self.assertEqual(t.kind, TypeKind.ENUM)
+        self.assertEqual(t.tag, 'color')
+        self.assertEqual(t.type,
+                         int_type('unsigned int', 4, False))
+        self.assertEqual(t.enumerators, ())
+        self.assertTrue(t.is_complete())
+
+        self.assertEqual(repr(t),
+                         "enum_type(tag='color', type=int_type(name='unsigned int', size=4, is_signed=False), enumerators=())")
+
+        self.assertRaisesRegex(TypeError, 'must be Type',
+                               enum_type, 'color', 4, ())
+        self.assertRaisesRegex(ValueError, 'must be integer type',
+                               enum_type, 'color', void_type(), ())
+        self.assertRaisesRegex(ValueError, 'must be unqualified',
+                               enum_type, 'color',
+                               int_type('unsigned int', 4, True,
+                                        Qualifiers.CONST), ())
+        self.assertRaisesRegex(ValueError, 'must not have compatible type',
+                               enum_type, 'color',
+                               int_type('unsigned int', 4, False), None)
+        self.assertRaisesRegex(ValueError, 'must have compatible type',
+                               enum_type, 'color', None, ())
+        self.assertRaisesRegex(TypeError, 'must be sequence or None',
+                               enum_type, 'color',
+                               int_type('unsigned int', 4, False), 4)
+        self.assertRaisesRegex(TypeError, 'must be.*sequence',
+                               enum_type, 'color',
+                               int_type('unsigned int', 4, False), (4,))
+        self.assertRaisesRegex(ValueError, 'must be.*sequence',
+                               enum_type, 'color',
+                               int_type('unsigned int', 4, False), ((),))
+        self.assertRaisesRegex(TypeError, 'must be string',
+                               enum_type, 'color',
+                               int_type('unsigned int', 4, False),
+                               ((None, 0),))
+        self.assertRaisesRegex(TypeError, 'must be integer',
+                               enum_type, 'color',
+                               int_type('unsigned int', 4, False),
+                               (('RED', None),))
 
     def test_typedef(self):
-        const_typedef_type = TypedefType(
-            'u32', IntType('unsigned int', 4, False), {'const'})
-        typedef_const_type = TypedefType('u32', IntType('unsigned int', 4, False, {'const'}))
-        const_typedef_const_type = TypedefType(
-            'u32', IntType('unsigned int', 4, False, {'const'}), {'const'})
-        typedef_type = TypedefType('u32', IntType('unsigned int', 4, False))
+        t = typedef_type('INT', int_type('int', 4, True))
+        self.assertEqual(t.kind, TypeKind.TYPEDEF)
+        self.assertEqual(t.name, 'INT')
+        self.assertEqual(t.type, int_type('int', 4, True))
+        self.assertTrue(t.is_complete())
 
-        self.assertUnqualifiedType(const_typedef_type, typedef_type)
-        self.assertOperandType(const_typedef_type, typedef_type)
+        self.assertEqual(t, typedef_type(
+            'INT', int_type('int', 4, True)))
+        # Qualified type argument.
+        self.assertEqual(t, typedef_type(
+            'INT', int_type('int', 4, True)))
+        # Different name.
+        self.assertNotEqual(t, typedef_type(
+            'integer', int_type('int', 4, True)))
+        # Different type.
+        self.assertNotEqual(t, typedef_type(
+            'integer', int_type('unsigned int', 4, False)))
+        self.assertNotEqual(t, typedef_type(
+            'INT', int_type('int', 4, True, Qualifiers.CONST)))
 
-        self.assertUnqualifiedType(typedef_const_type, typedef_const_type)
-        self.assertOperandType(typedef_const_type,
-                               IntType('unsigned int', 4, False))
+        self.assertEqual(repr(t), "typedef_type(name='INT', type=int_type(name='int', size=4, is_signed=True))")
 
-        self.assertUnqualifiedType(const_typedef_const_type, typedef_const_type)
-        self.assertOperandType(const_typedef_const_type,
-                               IntType('unsigned int', 4, False))
+        t = typedef_type('VOID', void_type())
+        self.assertFalse(t.is_complete())
+
+        self.assertRaises(TypeError, typedef_type, None,
+                          int_type('int', 4, True))
+        self.assertRaises(TypeError, typedef_type, 'INT', 4)
 
     def test_pointer(self):
-        const_pointer_type = PointerType(
-            8, IntType('unsigned int', 4, False), {'const'})
-        pointer_type = PointerType(8, IntType('unsigned int', 4, False))
-        self.assertOperandType(const_pointer_type, pointer_type)
+        t = pointer_type(8, int_type('int', 4, True))
+        self.assertEqual(t.kind, TypeKind.POINTER)
+        self.assertEqual(t.size, 8)
+        self.assertEqual(t.type, int_type('int', 4, True))
+        self.assertTrue(t.is_complete())
 
-        const_pointer_const_type = PointerType(
-            8, IntType('unsigned int', 4, False, {'const'}), {'const'})
-        pointer_const_type = PointerType(8, IntType('unsigned int', 4, False, {'const'}))
-        self.assertOperandType(const_pointer_const_type, pointer_const_type)
+        self.assertEqual(t, pointer_type(8, int_type('int', 4, True)))
+        # Qualified type argument.
+        self.assertEqual(t, pointer_type(8, int_type('int', 4, True)))
+        # Different size.
+        self.assertNotEqual(t, pointer_type(4, int_type('int', 4, True)))
+        # Different type.
+        self.assertNotEqual(t, pointer_type(8, void_type()))
+        self.assertNotEqual(t, pointer_type(8, void_type(Qualifiers.CONST)))
+
+        self.assertEqual(repr(t), "pointer_type(size=8, type=int_type(name='int', size=4, is_signed=True))")
+
+        self.assertRaises(TypeError, pointer_type, None,
+                          int_type('int', 4, True))
+        self.assertRaises(TypeError, pointer_type, 8, 4)
 
     def test_array(self):
-        type_ = ArrayType(IntType('int', 4, True), 2, pointer_size)
-        self.assertUnqualifiedType(type_, type_)
-        self.assertOperandType(type_, PointerType(pointer_size, type_.type))
+        t = array_type(10, int_type('int', 4, True))
+        self.assertEqual(t.kind, TypeKind.ARRAY)
+        self.assertEqual(t.length, 10)
+        self.assertEqual(t.type, int_type('int', 4, True))
+        self.assertTrue(t.is_complete())
 
-        typedef_type = TypedefType('pair_t', type_)
-        self.assertUnqualifiedType(typedef_type, typedef_type)
-        self.assertOperandType(typedef_type, PointerType(pointer_size, type_.type))
+        self.assertEqual(t, array_type(10, int_type('int', 4, True)))
+        # Qualified type argument.
+        self.assertEqual(t, array_type(
+            10, int_type('int', 4, True)))
+        # Different length.
+        self.assertNotEqual(t, array_type(4, int_type('int', 4, True)))
+        # Different type.
+        self.assertNotEqual(t, array_type(10, void_type()))
+        self.assertNotEqual(t, array_type(10, void_type(Qualifiers.CONST)))
+
+        self.assertEqual(repr(t), "array_type(length=10, type=int_type(name='int', size=4, is_signed=True))")
+
+        t = array_type(0, int_type('int', 4, True))
+        self.assertEqual(t.kind, TypeKind.ARRAY)
+        self.assertEqual(t.length, 0)
+        self.assertEqual(t.type, int_type('int', 4, True))
+        self.assertTrue(t.is_complete())
+
+        t = array_type(None, int_type('int', 4, True))
+        self.assertEqual(t.kind, TypeKind.ARRAY)
+        self.assertIsNone(t.length)
+        self.assertEqual(t.type, int_type('int', 4, True))
+        self.assertFalse(t.is_complete())
+
+        self.assertRaises(TypeError, array_type, 10, 4)
 
     def test_function(self):
-        type_ = FunctionType(pointer_size, VoidType, [])
-        self.assertUnqualifiedType(type_, type_)
-        self.assertOperandType(type_, PointerType(pointer_size, type_))
-
-        typedef_type = TypedefType('callback_t', type_)
-        self.assertUnqualifiedType(typedef_type, typedef_type)
-        self.assertOperandType(typedef_type, PointerType(pointer_size, type_))
-
-
-class TestTypeRead(unittest.TestCase):
-    def test_void(self):
-        type_ = VoidType()
-        with tmpfile(b'') as file:
-            reader = CoreReader(file, [])
-            self.assertRaises(ValueError, type_._read, reader, 0x0)
-
-    def assertRead(self, type_, buffer, expected_value):
-        segments = [(0, 0xffff0000, 0x0, len(buffer), len(buffer))]
-        with tmpfile(buffer) as file:
-            reader = CoreReader(file, segments)
-            self.assertEqual(type_._read(reader, 0xffff0000), expected_value)
-
-    def test_int(self):
-        type_ = IntType('int', 4, True)
-        self.assertRead(type_, (99).to_bytes(4, sys.byteorder), 99)
-
-        type_ = IntType('int', 4, True, qualifiers={'const'})
-        self.assertRead(type_, (99).to_bytes(4, sys.byteorder), 99)
-
-    def test_float(self):
-        type_ = FloatType('double', 8)
-        self.assertRead(type_, struct.pack('d', 3.14), 3.14)
-
-        type_ = FloatType('float', 4)
-        self.assertRead(type_, struct.pack('f', 1.5), 1.5)
-
-    def test_bool(self):
-        type_ = BoolType('_Bool', 1)
-        self.assertRead(type_, b'\0', False)
-        self.assertRead(type_, b'\1', True)
-
-    def test_typedef(self):
-        type_ = TypedefType('INT', IntType('int', 4, True))
-        self.assertRead(type_, (99).to_bytes(4, sys.byteorder), 99)
-
-    def test_struct(self):
-        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
-                  (-1).to_bytes(4, sys.byteorder, signed=True))
-        self.assertRead(point_type, buffer, OrderedDict([('x', 99), ('y', -1)]))
-
-        type_ = StructType('foo', 0, [])
-        self.assertRead(type_, b'', OrderedDict())
-
-    def test_bit_field(self):
-        type_ = StructType('bits', 8, [
-            ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
-            ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
-            ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
-        ])
-
-        buffer = b'\x07\x10\x5e\x5f\x1f\0\0\0'
-        self.assertRead(type_.typeof('x'), buffer, 7)
-        self.assertRead(type_.typeof('y'), buffer, 100000000)
-        self.assertRead(type_.typeof('z'), buffer[4:], -1)
-        self.assertRead(type_, buffer,
-                        OrderedDict([('x', 7), ('y', 100000000), ('z', -1)]))
-
-    def test_union(self):
-        type_ = UnionType('value', 4, [
-            ('i', 0, lambda: IntType('int', 4, True)),
-            ('f', 0, lambda: FloatType('float', 4)),
-        ])
-        self.assertRead(type_, b'\x00\x00\x80?',
-                        OrderedDict([('i', 1065353216), ('f', 1.0)]))
-
-    def test_enum(self):
-        self.assertRead(color_type, (0).to_bytes(4, sys.byteorder),
-                        color_type.enum.RED)
-        self.assertRead(color_type, (1).to_bytes(4, sys.byteorder),
-                        color_type.enum.GREEN)
-        self.assertRead(color_type, (4).to_bytes(4, sys.byteorder), 4)
-
-    def test_pointer(self):
-        type_ = PointerType(8, IntType('int', 4, True))
-        self.assertRead(type_, (0x7fffffff).to_bytes(8, sys.byteorder),
-                        0x7fffffff)
-
-    def test_array(self):
-        type_ = ArrayType(IntType('int', 4, True), 2, 8)
-
-        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
-                  (-1).to_bytes(4, sys.byteorder, signed=True))
-        self.assertRead(type_, buffer, [99, -1])
-
-        buffer = ((99).to_bytes(4, sys.byteorder, signed=True) +
-                  (0).to_bytes(4, sys.byteorder, signed=True))
-        self.assertRead(type_, buffer, [99, 0])
-
-        buffer = ((0).to_bytes(4, sys.byteorder, signed=True) +
-                  (-1).to_bytes(4, sys.byteorder, signed=True))
-        self.assertRead(type_, buffer, [0, -1])
-
-        type_ = ArrayType(StructType('empty', 0, []), 2, 8)
-        self.assertRead(type_, b'', [OrderedDict(), OrderedDict()])
-
-        type_ = ArrayType(IntType('int', 4, True), None, 8)
-        self.assertRead(type_, b'', [])
-
-        type_ = ArrayType(point_type, 2, 8)
-        buffer = ((1).to_bytes(4, sys.byteorder, signed=True) +
-                  (2).to_bytes(4, sys.byteorder, signed=True) +
-                  (3).to_bytes(4, sys.byteorder, signed=True) +
-                  (4).to_bytes(4, sys.byteorder, signed=True))
-        self.assertRead(type_, buffer, [
-            OrderedDict([('x', 1), ('y', 2)]),
-            OrderedDict([('x', 3), ('y', 4)]),
-        ])
-
-
-class TestPretty(unittest.TestCase):
-    def assertPretty(self, type_, value, expected_pretty_cast,
-                     expected_pretty_nocast, columns=0):
-        if isinstance(columns, int):
-            columns = [columns]
-        for c in columns:
-            with self.subTest(columns=c):
-                self.assertEqual(type_._pretty(value, cast=True, columns=c),
-                                 expected_pretty_cast)
-                self.assertEqual(type_._pretty(value, cast=False, columns=c),
-                                 expected_pretty_nocast)
-
-    def assertPrettyCast(self, type_, value, expected, columns=0):
-        if isinstance(columns, int):
-            columns = [columns]
-        for c in columns:
-            with self.subTest(columns=c):
-                self.assertEqual(type_._pretty(value, cast=True, columns=c),
-                                 expected)
-
-    def assertPrettyNoCast(self, type_, value, expected, columns=0):
-        if isinstance(columns, int):
-            columns = [columns]
-        for c in columns:
-            with self.subTest(columns=c):
-                self.assertEqual(type_._pretty(value, cast=False, columns=c),
-                                 expected)
-
-    def test_int(self):
-        type_ = IntType('int', 4, True)
-        self.assertPretty(type_, 99, '(int)99', '99')
-
-        type_ = IntType('int', 4, True, qualifiers={'const'})
-        self.assertPretty(type_, 99, '(const int)99', '99')
-
-    def test_float(self):
-        type_ = FloatType('double', 8)
-        self.assertPretty(type_, 3.14, '(double)3.14', '3.14')
-
-        type_ = FloatType('float', 4)
-        self.assertPretty(type_, 1.5, '(float)1.5', '1.5')
-
-    def test_bool(self):
-        type_ = BoolType('_Bool', 1)
-        self.assertPretty(type_, False, '(_Bool)0', '0')
-        self.assertPretty(type_, True, '(_Bool)1', '1')
-
-    def test_typedef(self):
-        type_ = TypedefType('INT', IntType('int', 4, True))
-        self.assertPretty(type_, 99, '(INT)99', '99')
-
-        type_ = TypedefType('CINT', IntType('int', 4, True, qualifiers={'const'}))
-        self.assertPretty(type_, 99, '(CINT)99', '99')
-
-        type_ = TypedefType('INT', IntType('int', 4, True), qualifiers={'const'})
-        self.assertPretty(type_, 99, '(const INT)99', '99')
-
-    def test_struct(self):
-        self.assertPretty(point_type, {'x': 99, 'y': -1}, """\
-(struct point){
-	.x = (int)99,
-	.y = (int)-1,
-}""", """\
-{
-	.x = (int)99,
-	.y = (int)-1,
-}""")
-
-        type_ = StructType('foo', 0, [])
-        self.assertPretty(type_, {},  '(struct foo){}', '{}')
-
-    def test_bit_field(self):
-        type_ = StructType('bits', 8, [
-            ('x', 0, lambda: BitFieldType(IntType('int', 4, True), 0, 4)),
-            ('y', 0, lambda: BitFieldType(IntType('int', 4, True, {'const'}), 4, 28)),
-            ('z', 4, lambda: BitFieldType(IntType('int', 4, True), 0, 5)),
-        ])
-
-        buffer = b'\x07\x10\x5e\x5f\x1f\0\0\0'
-        self.assertPretty(type_.typeof('x'), 7, '(int)7', '7')
-        self.assertPretty(type_.typeof('y'), 100000000, '(const int)100000000',
-                          '100000000')
-        self.assertPretty(type_.typeof('z'), -1, '(int)-1', '-1')
-        self.assertPretty(type_, {'x': 7, 'y': 100000000, 'z': -1}, """\
-(struct bits){
-	.x = (int)7,
-	.y = (const int)100000000,
-	.z = (int)-1,
-}""", """\
-{
-	.x = (int)7,
-	.y = (const int)100000000,
-	.z = (int)-1,
-}""")
-
-    def test_union(self):
-        type_ = UnionType('value', 4, [
-            ('i', 0, lambda: IntType('int', 4, True)),
-            ('f', 0, lambda: FloatType('float', 4)),
-        ])
-        self.assertPretty(type_, {'i': 1065353216, 'f': 1.0}, """\
-(union value){
-	.i = (int)1065353216,
-	.f = (float)1.0,
-}""", """\
-{
-	.i = (int)1065353216,
-	.f = (float)1.0,
-}""")
-
-    def test_enum(self):
-        self.assertPretty(color_type, color_type.enum.RED, '(enum color)RED',
-                         'RED')
-        self.assertPretty(color_type, 0, '(enum color)RED', 'RED')
-        self.assertPretty(color_type, color_type.enum.GREEN,
-                         '(enum color)GREEN', 'GREEN')
-        self.assertPretty(color_type, 4, '(enum color)4', '4')
-
-    def test_pointer(self):
-        type_ = PointerType(8, IntType('int', 4, True))
-        self.assertPretty(type_, 0x7fffffff, '(int *)0x7fffffff', '0x7fffffff')
-
-    def test_basic_array(self):
-        type_ = ArrayType(IntType('int', 4, True), 5, 8)
-
-        self.assertPrettyNoCast(type_, 5 * [1], "{ 1, 1, 1, 1, 1, }",
-                                columns=18)
-        self.assertPrettyNoCast(type_, 5 * [1], """\
-{
-	1, 1, 1,
-	1, 1,
-}""", columns=range(16, 18))
-        self.assertPrettyNoCast(type_, 5 * [1], """\
-{
-	1, 1,
-	1, 1,
-	1,
-}""", columns=range(13, 16))
-        self.assertPrettyNoCast(type_, 5 * [1], """\
-{
-	1,
-	1,
-	1,
-	1,
-	1,
-}""", columns=range(13))
-
-        self.assertPrettyCast(type_, 5 * [1], "(int [5]){ 1, 1, 1, 1, 1, }",
-                              columns=27)
-        self.assertPrettyCast(type_, 5 * [1], """\
-(int [5]){
-	1, 1, 1, 1, 1,
-}""", columns=range(22, 27))
-        self.assertPrettyCast(type_, 5 * [1], """\
-(int [5]){
-	1, 1, 1, 1,
-	1,
-}""", columns=range(19, 22))
-        self.assertPrettyCast(type_, 5 * [1], """\
-(int [5]){
-	1, 1, 1,
-	1, 1,
-}""", columns=range(16, 19))
-        self.assertPrettyCast(type_, 5 * [1], """\
-(int [5]){
-	1, 1,
-	1, 1,
-	1,
-}""", columns=range(13, 16))
-        self.assertPrettyCast(type_, 5 * [1], """\
-(int [5]){
-	1,
-	1,
-	1,
-	1,
-	1,
-}""", columns=range(13))
-
-    def test_nested_array(self):
-        type_ = ArrayType(ArrayType(IntType('int', 4, True), 5, 8), 2, 8)
-
-        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]],
-                                "{ { 1, 1, 1, 1, 1, }, { 2, 2, 2, 2, 2, }, }",
-                                columns=43)
-        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
-{
-	{ 1, 1, 1, 1, 1, },
-	{ 2, 2, 2, 2, 2, },
-}""", columns=range(27, 43))
-        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
-{
-	{
-		1, 1, 1,
-		1, 1,
-	},
-	{
-		2, 2, 2,
-		2, 2,
-	},
-}""", columns=range(24, 27))
-        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
-{
-	{
-		1, 1,
-		1, 1,
-		1,
-	},
-	{
-		2, 2,
-		2, 2,
-		2,
-	},
-}""", columns=range(21, 24))
-        self.assertPrettyNoCast(type_, [5 * [1], 5 * [2]], """\
-{
-	{
-		1,
-		1,
-		1,
-		1,
-		1,
-	},
-	{
-		2,
-		2,
-		2,
-		2,
-		2,
-	},
-}""", columns=range(21))
-
-        self.assertPrettyCast(type_, [5 * [1], 5 * [2]],
-                              "(int [2][5]){ { 1, 1, 1, 1, 1, }, { 2, 2, 2, 2, 2, }, }",
-                                columns=55)
-        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
-(int [2][5]){
-	{ 1, 1, 1, 1, 1, },
-	{ 2, 2, 2, 2, 2, },
-}""", columns=range(27, 43))
-        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
-(int [2][5]){
-	{
-		1, 1, 1,
-		1, 1,
-	},
-	{
-		2, 2, 2,
-		2, 2,
-	},
-}""", columns=range(24, 27))
-        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
-(int [2][5]){
-	{
-		1, 1,
-		1, 1,
-		1,
-	},
-	{
-		2, 2,
-		2, 2,
-		2,
-	},
-}""", columns=range(21, 24))
-        self.assertPrettyCast(type_, [5 * [1], 5 * [2]], """\
-(int [2][5]){
-	{
-		1,
-		1,
-		1,
-		1,
-		1,
-	},
-	{
-		2,
-		2,
-		2,
-		2,
-		2,
-	},
-}""", columns=range(21))
-
-    def test_array_member(self):
-        type_ = StructType(None, 20,
-                           [('arr', 0, lambda: ArrayType(IntType('int', 4, True), 5, 8))])
-
-        self.assertEqual(type_._pretty({'arr': 5 * [1]}, cast=False, columns=43), """\
-{
-	.arr = (int [5]){ 1, 1, 1, 1, 1, },
-}""")
-
-        self.assertEqual(type_._pretty({'arr': 5 * [1]}, cast=False, columns=42), """\
-{
-	.arr = (int [5]){
-		1, 1, 1, 1, 1,
-	},
-}""")
-
-        self.assertEqual(type_._pretty({'arr': 5 * [1]}, cast=False, columns=18), """\
-{
-	.arr = (int [5]){
-		1,
-		1,
-		1,
-		1,
-		1,
-	},
-}""")
-
-    def test_array_of_struct(self):
-        type_ = ArrayType(point_type, 2, 8)
-
-        self.assertEqual(type_._pretty([{'x': 1, 'y': 2}, {'x': 3, 'y': 4}],
-                                        cast=False, columns=20), """\
-{
-	{
-		.x = (int)1,
-		.y = (int)2,
-	},
-	{
-		.x = (int)3,
-		.y = (int)4,
-	},
-}""")
-
-        type_ = ArrayType(StructType('empty', 0, []), 2, 8)
-        self.assertPretty(type_, [{}, {}], '(struct empty [2]){}', '{}')
-
-    def test_zero_length_array(self):
-        type_ = ArrayType(IntType('int', 4, True), None, 8)
-        self.assertPretty(type_, [], '(int []){}', '{}')
-
-        type_ = ArrayType(IntType('int', 4, True), 0, 8)
-        self.assertPretty(type_, [], '(int [0]){}', '{}')
-
-    def test_array_zeroes(self):
-        type_ = ArrayType(IntType('int', 4, True), 2, 8)
-
-        self.assertPretty(type_, [0, 0], "(int [2]){}", "{}", columns=80)
-        self.assertPretty(type_, [99, 0], "(int [2]){ 99, }", "{ 99, }", columns=80)
-        self.assertPretty(type_, [0, 99], "(int [2]){ 0, 99, }", "{ 0, 99, }", columns=80)
-
-        type_ = ArrayType(ArrayType(IntType('int', 4, True), 3, 8), 2, 8)
-        self.assertPretty(type_, [[1, 0, 0], [0, 0, 0]],
-                          "(int [2][3]){ { 1, }, }",
-                          "{ { 1, }, }", columns=80)
-
-        type_ = ArrayType(point_type, 2, 8)
-        self.assertPretty(type_, [{'x': 1, 'y': 2}, {'x': 0, 'y': 0}], """\
-(struct point [2]){
-	{
-		.x = (int)1,
-		.y = (int)2,
-	},
-}""", """\
-{
-	{
-		.x = (int)1,
-		.y = (int)2,
-	},
-}""")
-
-    def test_char_array(self):
-        type_ = ArrayType(IntType('char', 1, True), 4, 8)
-        self.assertPretty(type_, list(b'hell'), '(char [4])"hell"', '"hell"')
-        self.assertPretty(type_, list(b'hi\0\0'), '(char [4])"hi"', '"hi"')
-
-        type_ = ArrayType(IntType('char', 1, True), 8, 8)
-        self.assertPretty(type_, list(b'hello\0wo'), '(char [8])"hello"',
-                          '"hello"')
-
-        type_ = ArrayType(IntType('char', 1, True), 0, 8)
-        self.assertPretty(type_, [], '(char [0]){}', '{}')
+        t = function_type(void_type(), ((int_type('int', 4, True), 'n'),))
+        self.assertEqual(t.kind, TypeKind.FUNCTION)
+        self.assertEqual(t.type, void_type())
+        self.assertEqual(t.parameters, (
+            (int_type('int', 4, True), 'n'),))
+        self.assertFalse(t.is_variadic)
+        self.assertTrue(t.is_complete())
+
+        self.assertEqual(t, function_type(
+            void_type(), ((int_type('int', 4, True), 'n'),)))
+        # Different return type.
+        self.assertNotEqual(t, function_type(
+            int_type('int', 4, True),
+            ((int_type('int', 4, True), 'n'),)))
+        # Different parameter name.
+        self.assertNotEqual(t, function_type(
+            void_type(), ((int_type('int', 4, True), 'x'),)))
+        # Unnamed parameter.
+        self.assertNotEqual(t, function_type(
+            void_type(), ((int_type('int', 4, True),),)))
+        # Different number of parameters.
+        self.assertNotEqual(t, function_type(
+            void_type(),
+            ((int_type('int', 4, True), 'n'),
+             (pointer_type(8, void_type()), 'p'))))
+        # One is variadic.
+        self.assertNotEqual(t, function_type(
+            void_type(), ((int_type('int', 4, True), 'n'),), True))
+
+        self.assertEqual(repr(t), "function_type(type=void_type(), parameters=((int_type(name='int', size=4, is_signed=True), 'n'),), is_variadic=False)")
+
+        self.assertFalse(function_type(void_type(), (), False).is_variadic)
+        self.assertTrue(function_type(void_type(), (), True).is_variadic)
+
+        self.assertRaisesRegex(TypeError, 'must be Type', function_type, None,
+                               ())
+        self.assertRaisesRegex(TypeError, 'must be sequence', function_type,
+                               void_type(), None)
+        self.assertRaisesRegex(TypeError, 'must be.*sequence', function_type,
+                               void_type(), (4,))
+        self.assertRaisesRegex(ValueError, 'must be.*sequence', function_type,
+                               void_type, ((),))
+        self.assertRaisesRegex(TypeError, 'must be string or None',
+                               function_type, void_type(),
+                               ((int_type('int', 4, True), 4),))
+        self.assertRaisesRegex(TypeError, 'must be Type', function_type,
+                               void_type(), ((None, 'n'),))
+
+    def test_cycle(self):
+        t1 = struct_type('foo', 8, ((lambda: pointer_type(8, t1), 'next'),))
+        t2 = struct_type('foo', 8, ((lambda: pointer_type(8, t2), 'next'),))
+        t3, t4 = (struct_type('foo', 8, ((lambda: pointer_type(8, t4), 'next'),)),
+                  struct_type('foo', 8, ((lambda: pointer_type(8, t3), 'next'),)))
+        self.assertEqual(t1, t2)
+        self.assertEqual(t2, t3)
+        self.assertEqual(t3, t4)
+
+        self.assertEqual(repr(t1), "struct_type(tag='foo', size=8, members=((pointer_type(size=8, type=struct_type(tag='foo', ...)), 'next', 0, 0),))")
+
+    def test_cycle2(self):
+        t1 = struct_type('list_head', 16, (
+            (lambda: pointer_type(8, t1), 'next'),
+            (lambda: pointer_type(8, t1), 'prev', 8),
+        ))
+        t2 = struct_type('list_head', 16, (
+            (lambda: pointer_type(8, t2), 'next'),
+            (lambda: pointer_type(8, t2), 'prev', 8),
+        ))
+        self.assertEqual(t1, t2)
+
+        self.assertEqual(repr(t1), "struct_type(tag='list_head', size=16, members=((pointer_type(size=8, type=struct_type(tag='list_head', ...)), 'next', 0, 0), (pointer_type(size=8, type=struct_type(tag='list_head', ...)), 'prev', 8, 0)))")
+
+    def test_infinite(self):
+        f = lambda: struct_type('foo', 0, ((f, 'next'),))
+        self.assertRaises(RecursionError, repr, f())
+        with self.assertRaisesRegex(RecursionError, 'maximum.*depth'):
+            f() == f()
+
+    def test_bad_thunk(self):
+        t1 = struct_type('foo', 16, (
+            (lambda: exec('raise Exception("test")'), 'bar'),
+        ))
+        with self.assertRaisesRegex(Exception, 'test'):
+            t1.members
+        t1 = struct_type('foo', 16, (
+            (lambda: 0, 'bar'),
+        ))
+        with self.assertRaisesRegex(TypeError, 'type callable must return Type'):
+            t1.members
+
+    def test_qualifiers(self):
+        self.assertEqual(void_type().qualifiers, Qualifiers(0))
+
+        t = void_type(Qualifiers.CONST | Qualifiers.VOLATILE)
+        self.assertEqual(t.qualifiers, Qualifiers.CONST | Qualifiers.VOLATILE)
+        self.assertEqual(repr(t), 'void_type(qualifiers=<Qualifiers.VOLATILE|CONST: 3>)')
+
+        self.assertEqual(t.qualified(Qualifiers.ATOMIC),
+                         void_type(Qualifiers.ATOMIC))
+        self.assertEqual(t.unqualified(), void_type())
+        self.assertEqual(t.qualified(Qualifiers(0)), t.unqualified())
+
+        self.assertRaisesRegex(TypeError, 'qualifiers must be Qualifiers',
+                               void_type, 1.5)
+
+    def test_cmp(self):
+        self.assertEqual(void_type(), void_type())
+        self.assertEqual(void_type(Qualifiers.CONST),
+                         void_type(Qualifiers.CONST))
+        self.assertNotEqual(void_type(), void_type(Qualifiers.CONST))
+        self.assertNotEqual(void_type(), int_type('int', 4, True))

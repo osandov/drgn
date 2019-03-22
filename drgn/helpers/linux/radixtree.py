@@ -44,7 +44,7 @@ def radix_tree_lookup(root, index):
     this returns a NULL object.
     """
     node, RADIX_TREE_INTERNAL_NODE = _radix_tree_root_node(root)
-    RADIX_TREE_MAP_MASK = node.type_.type.typeof('slots').size - 1
+    RADIX_TREE_MAP_MASK = node.slots.type_.length - 1
     while True:
         if not _is_internal_node(node, RADIX_TREE_INTERNAL_NODE):
             break

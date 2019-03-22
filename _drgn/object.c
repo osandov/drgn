@@ -1,0 +1,2070 @@
+// Copyright 2018-2019 - Omar Sandoval
+// SPDX-License-Identifier: GPL-3.0+
+
+#include <limits.h>
+
+#include "drgnpy.h"
+#include "../libdrgn/error.h"
+#include "../libdrgn/object.h"
+#include "../libdrgn/serialize.h"
+#include "../libdrgn/type.h"
+
+static inline Program *DrgnObject_prog(DrgnObject *obj)
+{
+	return container_of(obj->obj.prog, Program, prog);
+}
+
+static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
+				  PyObject *kwds)
+{
+	PyObject *arg;
+
+	if (PyTuple_GET_SIZE(args) < 1) {
+		PyErr_SetString(PyExc_TypeError,
+				"Object() missing required argument 'prog' (pos 1)");
+		return NULL;
+	}
+	arg = PyTuple_GET_ITEM(args, 0);
+	if (!PyObject_TypeCheck(arg, &Program_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"Object() argument 1 must be Program");
+		return NULL;
+	}
+	return DrgnObject_alloc((Program *)arg);
+}
+
+static void DrgnObject_dealloc(DrgnObject *self)
+{
+	Py_DECREF(DrgnObject_prog(self));
+	drgn_object_deinit(&self->obj);
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
+		    struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+
+	if (PyObject_TypeCheck(type_obj, &DrgnType_type)) {
+		if (Program_hold_type(prog, (DrgnType *)type_obj) == -1)
+			return -1;
+		ret->type = ((DrgnType *)type_obj)->type;
+		ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
+	} else if (PyUnicode_Check(type_obj)) {
+		const char *name;
+
+		name = PyUnicode_AsUTF8(type_obj);
+		if (!name)
+			return -1;
+		err = drgn_program_find_type(&prog->prog, name, NULL, ret);
+		if (err) {
+			set_drgn_error(err);
+			return -1;
+		}
+	} else if (can_be_none && type_obj == Py_None) {
+		ret->type = NULL;
+		ret->qualifiers = 0;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				can_be_none ?
+				"type must be Type, str, or None" :
+				"type must be Type or str");
+		return -1;
+	}
+	return 0;
+}
+
+static unsigned long long index_arg(PyObject *obj, const char *msg)
+{
+	if (PyLong_Check(obj)) {
+		return PyLong_AsUnsignedLongLong(obj);
+	} else if (PyIndex_Check(obj)) {
+		PyObject *index_obj;
+		unsigned long long ret;
+
+		index_obj = PyNumber_Index(obj);
+		if (!index_obj)
+			return -1;
+		ret = PyLong_AsUnsignedLongLong(index_obj);
+		Py_DECREF(index_obj);
+		return ret;
+	} else {
+		PyErr_SetString(PyExc_TypeError, msg);
+		return -1;
+	}
+}
+
+static int DrgnObject_literal(struct drgn_object *res, PyObject *literal)
+{
+	struct drgn_error *err;
+
+	if (PyBool_Check(literal)) {
+		err = drgn_object_bool_literal(res, literal == Py_True);
+	} else if (PyLong_Check(literal)) {
+		unsigned long long uvalue;
+		bool is_negative;
+
+		is_negative = Py_SIZE(literal) < 0;
+		if (is_negative) {
+			literal = PyNumber_Negative(literal);
+			if (!literal)
+				return -1;
+		}
+		uvalue = PyLong_AsUnsignedLongLong(literal);
+		if (is_negative)
+			Py_DECREF(literal);
+		if (uvalue == (unsigned long long)-1 && PyErr_Occurred())
+			return -1;
+		err = drgn_object_integer_literal(res, uvalue);
+		if (!err && is_negative)
+			err = drgn_object_neg(res, res);
+	} else if (PyFloat_Check(literal)) {
+		err = drgn_object_float_literal(res,
+						PyFloat_AS_DOUBLE(literal));
+	} else {
+		return 1;
+	}
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+	return 0;
+}
+
+static void *set_error_type_name(const char *format,
+				 struct drgn_qualified_type qualified_type)
+{
+	set_drgn_error(drgn_qualified_type_error(format, qualified_type));
+	return NULL;
+}
+
+static int serialize_py_object(struct drgn_program *prog, char *buf,
+			       uint64_t buf_bit_size, uint64_t bit_offset,
+			       PyObject *value_obj,
+			       struct drgn_object_type *type,
+			       bool little_endian);
+
+static int serialize_compound_value(struct drgn_program *prog, char *buf,
+				    uint64_t buf_bit_size, uint64_t bit_offset,
+				    PyObject *value_obj,
+				    struct drgn_object_type *type,
+				    bool little_endian)
+{
+	struct drgn_error *err;
+	PyObject *tmp, *items;
+	Py_ssize_t num_items, i;
+	int ret = -1;
+
+	if (!PyMapping_Check(value_obj)) {
+		set_error_type_name("'%s' value must be dictionary or mapping",
+				    drgn_object_type_qualified(type));
+		return -1;
+	}
+
+	tmp = PyMapping_Items(value_obj);
+	if (!tmp)
+		return -1;
+
+	/*
+	 * Since Python 3.7, PyMapping_Items() always returns a list. However,
+	 * before that, it could also return a tuple.
+	 */
+	items = PySequence_Fast(tmp, "items must be sequence");
+	Py_DECREF(tmp);
+	if (!items)
+		return -1;
+
+	num_items = PySequence_Fast_GET_SIZE(items);
+	for (i = 0; i < num_items; i++) {
+		PyObject *item, *key;
+		const char *member_name;
+		struct drgn_member_value *member;
+		struct drgn_qualified_type qualified_type;
+		struct drgn_object_type member_type;
+
+		item = PySequence_Fast_GET_ITEM(items, i);
+		if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 2) {
+			PyErr_SetString(PyExc_TypeError, "invalid item");
+			goto out;
+		}
+		key = PyTuple_GET_ITEM(item, 0);
+		if (!PyUnicode_Check(key)) {
+			PyErr_SetString(PyExc_TypeError,
+					"member key must be string");
+			goto out;
+		}
+		member_name = PyUnicode_AsUTF8(key);
+		if (!member_name)
+			goto out;
+
+		err = drgn_program_find_member(prog, type->underlying_type,
+					       member_name, strlen(member_name),
+					       &member);
+		if (err) {
+			set_drgn_error(err);
+			goto out;
+		}
+
+		err = drgn_lazy_type_evaluate(member->type, &qualified_type);
+		if (err) {
+			set_drgn_error(err);
+			goto out;
+		}
+		member_type.type = qualified_type.type;
+		member_type.qualifiers = qualified_type.qualifiers;
+		member_type.underlying_type =
+			drgn_underlying_type(member_type.type);
+		member_type.bit_field_size = member->bit_field_size;
+
+		if (serialize_py_object(prog, buf, buf_bit_size,
+					bit_offset + member->bit_offset,
+					PyTuple_GET_ITEM(item, 1),
+					&member_type, little_endian) == -1)
+			goto out;
+	}
+
+	ret = 0;
+out:
+	Py_DECREF(items);
+	return ret;
+}
+
+static int serialize_array_value(struct drgn_program *prog, char *buf,
+				 uint64_t buf_bit_size, uint64_t bit_offset,
+				 PyObject *value_obj,
+				 struct drgn_object_type *type,
+				 bool little_endian)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	struct drgn_object_type element_type;
+	uint64_t element_bit_size, length;
+	PyObject *seq;
+	size_t seq_length, i;
+
+	qualified_type = drgn_type_type(type->underlying_type);
+	element_type.type = qualified_type.type;
+	element_type.qualifiers = qualified_type.qualifiers;
+	element_type.underlying_type = drgn_underlying_type(element_type.type);
+	element_type.bit_field_size = 0;
+	err = drgn_type_bit_size(element_type.underlying_type,
+				 &element_bit_size);
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+
+	length = drgn_type_length(type->underlying_type);
+	if (length > PY_SSIZE_T_MAX) {
+		PyErr_NoMemory();
+		return -1;
+	}
+
+	seq = PySequence_Fast(value_obj, "");
+	if (!seq) {
+		if (PyErr_ExceptionMatches(PyExc_TypeError)) {
+			set_error_type_name("'%s' value must be iterable",
+					    drgn_object_type_qualified(type));
+		}
+		return -1;
+	}
+	seq_length = PySequence_Fast_GET_SIZE(seq);
+	if (seq_length > length) {
+		Py_DECREF(seq);
+		PyErr_SetString(PyExc_ValueError,
+				"too many items in array value");
+		return -1;
+	}
+
+	for (i = 0; i < seq_length; i++) {
+		if (serialize_py_object(prog, buf, buf_bit_size,
+					bit_offset + i * element_bit_size,
+					PySequence_Fast_GET_ITEM(seq, i),
+					&element_type, little_endian) == -1) {
+			Py_DECREF(seq);
+			return -1;
+		}
+	}
+
+	Py_DECREF(seq);
+	return 0;
+}
+
+static int serialize_py_object(struct drgn_program *prog, char *buf,
+			       uint64_t buf_bit_size, uint64_t bit_offset,
+			       PyObject *value_obj,
+			       struct drgn_object_type *type,
+			       bool little_endian)
+{
+	struct drgn_error *err;
+	enum drgn_object_kind kind;
+	uint64_t bit_size, bit_end;
+
+	err = drgn_object_type_kind_and_size(type, &kind, &bit_size);
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+
+	err = sanity_check_object(kind, type->bit_field_size, bit_size);
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+
+	if (__builtin_add_overflow(bit_offset, bit_size, &bit_end) ||
+	    bit_end > buf_bit_size) {
+		err = drgn_error_create(DRGN_ERROR_FAULT,
+					"out of bounds of value");
+		set_drgn_error(err);
+		return -1;
+	}
+
+	switch (kind) {
+	case DRGN_OBJECT_SIGNED:
+	case DRGN_OBJECT_UNSIGNED: {
+		union {
+			int64_t svalue;
+			uint64_t uvalue;
+		} tmp;
+
+		if (!PyNumber_Check(value_obj)) {
+			set_error_type_name("'%s' value must be number",
+					    drgn_object_type_qualified(type));
+			return -1;
+		}
+		tmp.uvalue = PyLong_AsUnsignedLongLongMask(value_obj);
+		if (tmp.uvalue == (unsigned long long)-1 && PyErr_Occurred())
+			return -1;
+		if (kind == DRGN_OBJECT_SIGNED)
+			tmp.svalue = truncate_signed(tmp.svalue, bit_size);
+		else
+			tmp.uvalue = truncate_unsigned(tmp.uvalue, bit_size);
+		serialize_bits(buf, bit_offset, tmp.uvalue, bit_size,
+			       little_endian);
+		return 0;
+	}
+	case DRGN_OBJECT_FLOAT: {
+		union {
+			uint64_t uvalue;
+			double fvalue64;
+			float fvalue32;
+		} tmp;
+		double fvalue;
+
+		if (!PyNumber_Check(value_obj)) {
+			set_error_type_name("'%s' value must be number",
+					    drgn_object_type_qualified(type));
+			return -1;
+		}
+		fvalue = PyFloat_AsDouble(value_obj);
+		if (fvalue == -1.0 && PyErr_Occurred())
+			return -1;
+		if (bit_size == 64)
+			tmp.fvalue64 = fvalue;
+		else
+			tmp.fvalue32 = fvalue;
+		serialize_bits(buf, bit_offset, tmp.uvalue, bit_size,
+			       little_endian);
+		return 0;
+	}
+	case DRGN_OBJECT_BUFFER:
+		switch (drgn_type_kind(type->underlying_type)) {
+		case DRGN_TYPE_COMPLEX:
+			PyErr_SetString(PyExc_NotImplementedError,
+					"creating complex object is not implemented");
+			return -1;
+		case DRGN_TYPE_STRUCT:
+		case DRGN_TYPE_UNION:
+			return serialize_compound_value(prog, buf, buf_bit_size,
+							bit_offset, value_obj,
+							type, little_endian);
+		case DRGN_TYPE_ARRAY:
+			return serialize_array_value(prog, buf, buf_bit_size,
+						     bit_offset, value_obj,
+						     type, little_endian);
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+	DRGN_UNREACHABLE();
+}
+
+static int buffer_object_from_value(struct drgn_object *res,
+				    struct drgn_qualified_type qualified_type,
+				    PyObject *value_obj, uint64_t bit_offset,
+				    enum drgn_byte_order byte_order)
+{
+	struct drgn_error *err;
+	union drgn_value value;
+	struct drgn_object_type type;
+	enum drgn_object_kind kind;
+	uint64_t bit_size, size;
+	char *buf;
+
+	err = drgn_byte_order_to_little_endian(res->prog, byte_order,
+					       &value.little_endian);
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+
+	err = drgn_object_set_common(qualified_type, 0, &type, &kind,
+				     &bit_size);
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+
+	if (bit_offset >= 8) {
+		PyErr_SetString(PyExc_ValueError,
+				"bit offset must be less than 8");
+		return -1;
+	}
+	if (bit_size > UINT64_MAX - bit_offset) {
+		PyErr_SetString(PyExc_OverflowError, "object is too large");
+		return -1;
+	}
+
+	size = drgn_value_size(bit_size, bit_offset);
+	if (size > SIZE_MAX) {
+		PyErr_NoMemory();
+		return -1;
+	}
+	if (size <= sizeof(value.ibuf)) {
+		buf = value.ibuf;
+	} else {
+		buf = malloc(size);
+		if (!buf) {
+			PyErr_NoMemory();
+			return -1;
+		}
+		value.bufp = buf;
+	}
+	memset(buf, 0, size);
+	value.bit_offset = bit_offset;
+
+	if (serialize_py_object(res->prog, buf, bit_offset + bit_size,
+				bit_offset, value_obj, &type,
+				value.little_endian) == -1) {
+		if (buf != value.ibuf)
+			free(buf);
+		return -1;
+	}
+
+	drgn_object_reinit(res, &type, kind, bit_size, false);
+	res->value = value;
+	return 0;
+}
+
+static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {
+		"prog", "type", "value", "address", "byteorder",
+		"bit_offset", "bit_field_size",NULL,
+	};
+	struct drgn_error *err;
+	Program *prog;
+	PyObject *type_obj = Py_None, *value_obj = Py_None;
+	PyObject *address_obj = Py_None, *byteorder_obj = Py_None;
+	PyObject *bit_offset_obj = Py_None, *bit_field_size_obj = Py_None;
+	enum drgn_byte_order byte_order;
+	unsigned long long bit_offset;
+	unsigned long long bit_field_size;
+	struct drgn_qualified_type qualified_type;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O$OOOOO:Object",
+					 keywords, &Program_type, &prog,
+					 &type_obj, &value_obj, &address_obj,
+					 &byteorder_obj, &bit_offset_obj,
+					 &bit_field_size_obj))
+		return -1;
+
+	if (&prog->prog != self->obj.prog) {
+		PyErr_SetString(PyExc_ValueError,
+				"cannot change object program");
+		return -1;
+	}
+
+	if (type_arg(DrgnObject_prog(self), type_obj, true,
+		     &qualified_type) == -1)
+		return -1;
+
+	if (parse_optional_byteorder(byteorder_obj, &byte_order) == -1)
+		return -1;
+
+	if (bit_offset_obj == Py_None) {
+		bit_offset = 0;
+	} else {
+		bit_offset = index_arg(bit_offset_obj,
+				       "bit offset must be integer or None");
+		if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
+			return -1;
+	}
+
+	if (bit_field_size_obj == Py_None) {
+		bit_field_size = 0;
+	} else {
+		bit_field_size = index_arg(bit_field_size_obj,
+					   "bit field size must be integer or None");
+		if (bit_field_size == (unsigned long long)-1 &&
+		    PyErr_Occurred())
+			return -1;
+		if (bit_field_size == 0) {
+			PyErr_SetString(PyExc_ValueError,
+					"bit field size cannot be zero");
+			return -1;
+		}
+	}
+
+	if (address_obj != Py_None && value_obj != Py_None) {
+		PyErr_SetString(PyExc_ValueError,
+				"object cannot have address and value");
+		return -1;
+	} else if (address_obj != Py_None) {
+		unsigned long long address;
+
+		if (!qualified_type.type) {
+			PyErr_SetString(PyExc_ValueError,
+					"reference must have type");
+			return -1;
+		}
+
+		address = index_arg(address_obj, "address must be integer");
+		if (address == (unsigned long long)-1 && PyErr_Occurred())
+			return -1;
+
+		err = drgn_object_set_reference(&self->obj, qualified_type,
+						address, bit_offset,
+						bit_field_size, byte_order);
+	} else if (value_obj != Py_None && !qualified_type.type) {
+		int ret;
+
+		if (byteorder_obj != Py_None) {
+			PyErr_SetString(PyExc_ValueError,
+					"literal cannot have byteorder");
+			return -1;
+		}
+		if (bit_offset_obj != Py_None) {
+			PyErr_SetString(PyExc_ValueError,
+					"literal cannot have bit offset");
+			return -1;
+		}
+		if (bit_field_size_obj != Py_None) {
+			PyErr_SetString(PyExc_ValueError,
+					"literal cannot be bit field");
+			return -1;
+		}
+
+		ret = DrgnObject_literal(&self->obj, value_obj);
+		if (ret == -1) {
+			return -1;
+		} else if (ret) {
+			PyErr_Format(PyExc_TypeError,
+				     "cannot create %s literal",
+				     Py_TYPE(value_obj)->tp_name);
+			return -1;
+		}
+		err = NULL;
+	} else if (value_obj != Py_None) {
+		enum drgn_object_kind kind;
+
+		kind = drgn_type_object_kind(qualified_type.type);
+		if (!drgn_object_kind_is_complete(kind)) {
+			err = drgn_error_incomplete_type("cannot create object with %s type",
+							 qualified_type.type);
+			set_drgn_error(err);
+			return -1;
+
+		}
+		if (bit_field_size && kind != DRGN_OBJECT_SIGNED &&
+		    kind != DRGN_OBJECT_UNSIGNED) {
+			PyErr_SetString(PyExc_ValueError,
+					"bit field must be integer");
+			return -1;
+		}
+		if (kind != DRGN_OBJECT_BUFFER) {
+			if (byteorder_obj != Py_None) {
+				PyErr_SetString(PyExc_ValueError,
+						"primitive value cannot have byteorder");
+				return -1;
+			}
+			if (bit_offset_obj != Py_None) {
+				PyErr_SetString(PyExc_ValueError,
+						"primitive value cannot have bit offset");
+				return -1;
+			}
+		}
+
+		switch (kind) {
+		case DRGN_OBJECT_BUFFER:
+			if (buffer_object_from_value(&self->obj, qualified_type,
+						     value_obj, bit_offset,
+						     byte_order) == -1)
+				return -1;
+			err = NULL;
+			break;
+		case DRGN_OBJECT_SIGNED:
+		case DRGN_OBJECT_UNSIGNED: {
+			union {
+				int64_t svalue;
+				uint64_t uvalue;
+			} tmp;
+
+			if (!PyNumber_Check(value_obj)) {
+				set_error_type_name("'%s' value must be number",
+						    qualified_type);
+				return -1;
+			}
+			tmp.uvalue = PyLong_AsUnsignedLongLongMask(value_obj);
+			if (tmp.uvalue == (unsigned long long)-1 &&
+			    PyErr_Occurred())
+				return -1;
+			if (kind == DRGN_OBJECT_SIGNED) {
+				err = drgn_object_set_signed(&self->obj,
+							     qualified_type,
+							     tmp.svalue,
+							     bit_field_size);
+			} else {
+				err = drgn_object_set_unsigned(&self->obj,
+							       qualified_type,
+							       tmp.uvalue,
+							       bit_field_size);
+			}
+			break;
+		}
+		case DRGN_OBJECT_FLOAT: {
+			double fvalue;
+
+			if (!PyNumber_Check(value_obj)) {
+				set_error_type_name("'%s' value must be number",
+						    qualified_type);
+				return -1;
+			}
+			fvalue = PyFloat_AsDouble(value_obj);
+			if (fvalue == -1.0 && PyErr_Occurred())
+				return -1;
+			err = drgn_object_set_float(&self->obj, qualified_type,
+						    fvalue);
+			break;
+		}
+		default:
+			DRGN_UNREACHABLE();
+		}
+	} else {
+		PyErr_SetString(PyExc_ValueError,
+				"object must have either address or value");
+		return -1;
+	}
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+	return 0;
+}
+
+static PyObject *DrgnObject_value_impl(struct drgn_object *obj);
+
+static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
+					   struct drgn_type *underlying_type)
+{
+	struct drgn_error *err;
+	PyObject *dict;
+	struct drgn_object member;
+	struct drgn_type_member *members;
+	size_t num_members, i;
+
+	if (!drgn_type_is_complete(underlying_type)) {
+		PyErr_Format(PyExc_TypeError,
+			     "cannot get value of incomplete %s",
+			     drgn_type_kind(underlying_type) ==
+			     DRGN_TYPE_STRUCT ? "struct" : "union");
+		return NULL;
+	}
+
+	dict = PyDict_New();
+	if (!dict)
+		return NULL;
+
+	drgn_object_init(&member, obj->prog);
+	members = drgn_type_members(underlying_type);
+	num_members = drgn_type_num_members(underlying_type);
+	for (i = 0; i < num_members; i++) {
+		struct drgn_qualified_type member_type;
+		PyObject *member_value;
+		int ret;
+
+		err = drgn_member_type(&members[i], &member_type);
+		if (err) {
+			set_drgn_error(err);
+			Py_CLEAR(dict);
+			goto out;
+		}
+
+		err = drgn_object_slice(&member, obj, member_type,
+					members[i].bit_offset,
+					members[i].bit_field_size);
+		if (err) {
+			set_drgn_error(err);
+			Py_CLEAR(dict);
+			goto out;
+		}
+
+		member_value = DrgnObject_value_impl(&member);
+		if (!member_value) {
+			Py_CLEAR(dict);
+			goto out;
+		}
+
+		if (members[i].name) {
+			ret = PyDict_SetItemString(dict, members[i].name,
+						   member_value);
+		} else {
+			ret = PyDict_Update(dict, member_value);
+		}
+		Py_DECREF(member_value);
+		if (ret) {
+			Py_CLEAR(dict);
+			goto out;
+		}
+	}
+
+out:
+	drgn_object_deinit(&member);
+	return dict;
+}
+
+static PyObject *DrgnObject_array_value(struct drgn_object *obj,
+					struct drgn_type *underlying_type)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type element_type;
+	uint64_t element_bit_size, length, i;
+	PyObject *list;
+	struct drgn_object element;
+
+	element_type = drgn_type_type(underlying_type);
+	err = drgn_type_bit_size(element_type.type, &element_bit_size);
+	if (err)
+		return set_drgn_error(err);
+
+	length = drgn_type_length(underlying_type);
+	if (length > PY_SSIZE_T_MAX) {
+		PyErr_NoMemory();
+		return NULL;
+	}
+
+	list = PyList_New(length);
+	if (!list)
+		return NULL;
+
+	drgn_object_init(&element, obj->prog);
+	for (i = 0; i < length; i++) {
+		PyObject *element_value;
+
+		err = drgn_object_slice(&element, obj, element_type,
+					i * element_bit_size, 0);
+		if (err) {
+			set_drgn_error(err);
+			Py_CLEAR(list);
+			goto out;
+		}
+
+		element_value = DrgnObject_value_impl(&element);
+		if (!element_value) {
+			Py_CLEAR(list);
+			goto out;
+		}
+
+		PyList_SET_ITEM(list, i, element_value);
+	}
+
+out:
+	drgn_object_deinit(&element);
+	return list;
+}
+
+static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
+{
+	struct drgn_error *err;
+	struct drgn_type *underlying_type;
+
+	if (!drgn_object_kind_is_complete(obj->kind)) {
+		err = drgn_error_incomplete_type("cannot read object with %s type",
+						 obj->type);
+		set_drgn_error(err);
+		return NULL;
+	}
+
+	underlying_type = drgn_underlying_type(obj->type);
+	switch (obj->kind) {
+	case DRGN_OBJECT_SIGNED: {
+		int64_t svalue;
+
+		err = drgn_object_read_signed(obj, &svalue);
+		if (err)
+			return set_drgn_error(err);
+		return PyLong_FromLongLong(svalue);
+	}
+	case DRGN_OBJECT_UNSIGNED: {
+		uint64_t uvalue;
+
+		err = drgn_object_read_unsigned(obj, &uvalue);
+		if (err)
+			return set_drgn_error(err);
+		if (drgn_type_kind(underlying_type) == DRGN_TYPE_BOOL)
+			return PyBool_FromLong(!!uvalue);
+		else
+			return PyLong_FromUnsignedLongLong(uvalue);
+	}
+	case DRGN_OBJECT_FLOAT: {
+		double fvalue;
+
+		err = drgn_object_read_float(obj, &fvalue);
+		if (err)
+			return set_drgn_error(err);
+		return PyFloat_FromDouble(fvalue);
+	}
+	case DRGN_OBJECT_BUFFER:
+		switch (drgn_type_kind(underlying_type)) {
+		case DRGN_TYPE_COMPLEX:
+			PyErr_SetString(PyExc_NotImplementedError,
+					"reading complex type is not implemented");
+			return NULL;
+		case DRGN_TYPE_STRUCT:
+		case DRGN_TYPE_UNION:
+			return DrgnObject_compound_value(obj, underlying_type);
+		case DRGN_TYPE_ARRAY:
+			return DrgnObject_array_value(obj, underlying_type);
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+	DRGN_UNREACHABLE();
+}
+
+static PyObject *DrgnObject_value(DrgnObject *self)
+{
+	return DrgnObject_value_impl(&self->obj);
+}
+
+static PyObject *DrgnObject_string(DrgnObject *self)
+{
+	struct drgn_error *err;
+	char *str;
+	PyObject *ret;
+
+	err = drgn_object_read_c_string(&self->obj, &str);
+	if (err)
+		return set_drgn_error(err);
+
+	ret = PyBytes_FromString(str);
+	free(str);
+	return ret;
+}
+
+static DrgnObject *DrgnObject_address_of(DrgnObject *self)
+{
+	struct drgn_error *err;
+	DrgnObject *res;
+
+	res = DrgnObject_alloc(DrgnObject_prog(self));
+	if (!res)
+		return NULL;
+
+	err = drgn_object_address_of(&res->obj, &self->obj);
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+static DrgnObject *DrgnObject_read(DrgnObject *self)
+{
+	struct drgn_error *err;
+	DrgnObject *res;
+
+	if (!self->obj.is_reference) {
+		Py_INCREF(self);
+		return self;
+	}
+
+	res = DrgnObject_alloc(DrgnObject_prog(self));
+	if (!res)
+		return NULL;
+
+	err = drgn_object_read(&res->obj, &self->obj);
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+static PyObject *DrgnObject_repr(DrgnObject *self)
+{
+	struct drgn_error *err;
+	PyObject *parts, *tmp, *sep, *ret = NULL;
+	char *type_name;
+
+	parts = PyList_New(0);
+	if (!parts)
+		return NULL;
+
+	err = drgn_pretty_print_type_name(drgn_object_qualified_type(&self->obj),
+					  &type_name);
+	if (err) {
+		set_drgn_error(err);
+		goto out;
+	}
+	tmp = PyUnicode_FromString(type_name);
+	free(type_name);
+	if (!tmp)
+		goto out;
+
+	if (append_format(parts, "Object(prog, %R, ", tmp) == -1) {
+		Py_DECREF(tmp);
+		goto out;
+	}
+	Py_DECREF(tmp);
+
+	if (self->obj.is_reference) {
+		char buf[17];
+
+		snprintf(buf, sizeof(buf), "%" PRIx64,
+			 self->obj.reference.address);
+		if (append_format(parts, "address=0x%s", buf) == -1)
+			goto out;
+	} else {
+		PyObject *value_obj;
+
+		value_obj = DrgnObject_value(self);
+		if (!value_obj)
+			goto out;
+		if (append_format(parts, "value=%R", value_obj) == -1) {
+			Py_DECREF(value_obj);
+			goto out;
+		}
+		Py_DECREF(value_obj);
+	}
+
+	if (self->obj.is_reference || self->obj.kind == DRGN_OBJECT_BUFFER) {
+		bool little_endian;
+
+		if (self->obj.is_reference)
+			little_endian = self->obj.reference.little_endian;
+		else
+			little_endian = self->obj.value.little_endian;
+		if (little_endian !=
+		    drgn_program_is_little_endian(self->obj.prog) &&
+		    append_format(parts, ", byteorder='%s'",
+				  little_endian ? "little" : "big") == -1)
+			goto out;
+	}
+
+	if (self->obj.is_reference || self->obj.kind == DRGN_OBJECT_BUFFER) {
+		uint8_t bit_offset;
+
+		if (self->obj.is_reference)
+			bit_offset = self->obj.reference.bit_offset;
+		else
+			bit_offset = self->obj.value.bit_offset;
+		if (bit_offset &&
+		    append_format(parts, ", bit_offset=%d", bit_offset) == -1)
+			goto out;
+	}
+
+	if (self->obj.is_bit_field &&
+	    append_format(parts, ", bit_field_size=%llu",
+			  (unsigned long long)self->obj.bit_size) == -1)
+		goto out;
+
+	if (append_string(parts, ")") == -1)
+		goto out;
+
+	sep = PyUnicode_New(0, 0);
+	if (!sep)
+		goto out;
+	ret = PyUnicode_Join(sep, parts);
+	Py_DECREF(sep);
+out:
+	Py_DECREF(parts);
+	return ret;
+}
+
+static PyObject *DrgnObject_str(DrgnObject *self)
+{
+	struct drgn_error *err;
+	char *str;
+	PyObject *ret;
+
+	err = drgn_pretty_print_object(&self->obj, SIZE_MAX, &str);
+	if (err)
+		return set_drgn_error(err);
+
+	ret = PyUnicode_FromString(str);
+	free(str);
+	return ret;
+}
+
+static PyObject *DrgnObject_format(DrgnObject *self, PyObject *arg)
+{
+	struct drgn_error *err;
+	const char *format_spec;
+	size_t columns = SIZE_MAX;
+	char *end, *str;
+	PyObject *ret;
+
+	format_spec = PyUnicode_AsUTF8(arg);
+	if (!format_spec)
+		return NULL;
+
+	if (format_spec[0] == '.') {
+		unsigned long tmp;
+
+		if (format_spec[1] == '-') {
+			PyErr_SetString(PyExc_ValueError,
+					"Format specifier precision must be non-negative");
+			return NULL;
+		}
+
+		errno = 0;
+		tmp = strtoul(format_spec + 1, &end, 10);
+		if (tmp == ULONG_MAX && errno == ERANGE) {
+			PyErr_SetString(PyExc_OverflowError,
+					"Format specifier precision is too large");
+			return NULL;
+		}
+		columns = tmp;
+	} else {
+		end = (char *)format_spec;
+	}
+	if (*end) {
+		PyErr_SetString(PyExc_ValueError,
+				"Format specifier can only include precision");
+		return NULL;
+	}
+
+	err = drgn_pretty_print_object(&self->obj, columns, &str);
+	if (err)
+		return set_drgn_error(err);
+
+	ret = PyUnicode_FromString(str);
+	free(str);
+	return ret;
+}
+
+static Program *DrgnObject_get_prog(DrgnObject *self, void *arg)
+{
+	Py_INCREF(DrgnObject_prog(self));
+	return DrgnObject_prog(self);
+}
+
+static PyObject *DrgnObject_get_type(DrgnObject *self, void *arg)
+{
+	return DrgnType_wrap(drgn_object_qualified_type(&self->obj),
+			     (PyObject *)DrgnObject_prog(self));
+}
+
+static PyObject *DrgnObject_get_address(DrgnObject *self, void *arg)
+{
+	if (self->obj.is_reference)
+		return PyLong_FromUnsignedLongLong(self->obj.reference.address);
+	else
+		Py_RETURN_NONE;
+}
+
+static PyObject *DrgnObject_get_byteorder(DrgnObject *self, void *arg)
+{
+	if (self->obj.is_reference)
+		return byteorder_string(self->obj.reference.little_endian);
+	else if (self->obj.kind == DRGN_OBJECT_BUFFER)
+		return byteorder_string(self->obj.value.little_endian);
+	else
+		Py_RETURN_NONE;
+}
+
+static PyObject *DrgnObject_get_bit_offset(DrgnObject *self, void *arg)
+{
+	if (self->obj.is_reference)
+		return PyLong_FromLong(self->obj.reference.bit_offset);
+	else if (self->obj.kind == DRGN_OBJECT_BUFFER)
+		return PyLong_FromLong(self->obj.value.bit_offset);
+	else
+		Py_RETURN_NONE;
+}
+
+static PyObject *DrgnObject_get_bit_field_size(DrgnObject *self, void *arg)
+{
+	if (self->obj.is_bit_field)
+		return PyLong_FromUnsignedLongLong(self->obj.bit_size);
+	else
+		Py_RETURN_NONE;
+}
+
+static int DrgnObject_binary_operand(PyObject *self, PyObject *other,
+				     struct drgn_object **obj,
+				     struct drgn_object *tmp)
+{
+	if (PyObject_TypeCheck(self, &DrgnObject_type)) {
+		*obj = &((DrgnObject *)self)->obj;
+		return 0;
+	} else {
+		*obj = tmp;
+		/* If self isn't a DrgnObject, then other must be. */
+		drgn_object_init(tmp, ((DrgnObject *)other)->obj.prog);
+		return DrgnObject_literal(tmp, self);
+	}
+}
+
+#define DrgnObject_BINARY_OP(op)					\
+static PyObject *DrgnObject_##op(PyObject *left, PyObject *right)	\
+{									\
+	struct drgn_error *err;						\
+	struct drgn_object *lhs, lhs_tmp, *rhs, rhs_tmp;		\
+	DrgnObject *res = NULL;						\
+	int ret;							\
+									\
+	ret = DrgnObject_binary_operand(left, right, &lhs, &lhs_tmp);	\
+	if (ret)							\
+		goto out;						\
+	ret = DrgnObject_binary_operand(right, left, &rhs, &rhs_tmp);	\
+	if (ret)							\
+		goto out_lhs;						\
+									\
+	res = DrgnObject_alloc(container_of(lhs->prog, Program, prog));	\
+	if (!res) {							\
+		ret = -1;						\
+		goto out_rhs;						\
+	}								\
+									\
+	err = drgn_object_##op(&res->obj, lhs, rhs);			\
+	if (err) {							\
+		set_drgn_error(err);					\
+		Py_DECREF(res);						\
+		ret = -1;						\
+		goto out_rhs;						\
+	}								\
+									\
+out_rhs:								\
+	if (rhs == &rhs_tmp)						\
+		drgn_object_deinit(&rhs_tmp);				\
+out_lhs:								\
+	if (lhs == &lhs_tmp)						\
+		drgn_object_deinit(&lhs_tmp);				\
+out:									\
+	if (ret == -1)							\
+		return NULL;						\
+	else if (ret)							\
+		Py_RETURN_NOTIMPLEMENTED;				\
+	else								\
+		return (PyObject *)res;					\
+}
+DrgnObject_BINARY_OP(add)
+DrgnObject_BINARY_OP(sub)
+DrgnObject_BINARY_OP(mul)
+DrgnObject_BINARY_OP(div)
+DrgnObject_BINARY_OP(mod)
+DrgnObject_BINARY_OP(lshift)
+DrgnObject_BINARY_OP(rshift)
+DrgnObject_BINARY_OP(and)
+DrgnObject_BINARY_OP(or)
+DrgnObject_BINARY_OP(xor)
+#undef DrgnObject_BINARY_OP
+
+#define DrgnObject_UNARY_OP(op)				\
+static DrgnObject *DrgnObject_##op(DrgnObject *self)	\
+{							\
+	struct drgn_error *err;				\
+	DrgnObject *res;				\
+							\
+	res = DrgnObject_alloc(DrgnObject_prog(self));	\
+	if (!res)					\
+		return NULL;				\
+							\
+	err = drgn_object_##op(&res->obj, &self->obj);	\
+	if (err) {					\
+		set_drgn_error(err);			\
+		Py_DECREF(res);				\
+		return NULL;				\
+	}						\
+	return res;					\
+}
+DrgnObject_UNARY_OP(pos)
+DrgnObject_UNARY_OP(neg)
+DrgnObject_UNARY_OP(not)
+#undef DrgnObject_UNARY_OP
+
+static int DrgnObject_bool(DrgnObject *self)
+{
+	struct drgn_error *err;
+	bool ret;
+
+	err = drgn_object_bool(&self->obj, &ret);
+	if (err) {
+		set_drgn_error(err);
+		return -1;
+	}
+	return ret;
+}
+
+static PyObject *DrgnObject_int(DrgnObject *self)
+{
+	struct drgn_error *err;
+	union drgn_value value_mem;
+	const union drgn_value *value;
+	PyObject *ret;
+
+	if (!drgn_type_is_scalar(self->obj.type)) {
+		return set_error_type_name("cannot convert '%s' to int",
+					   drgn_object_qualified_type(&self->obj));
+	}
+
+	err = drgn_object_read_value(&self->obj, &value_mem, &value);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+
+	switch (self->obj.kind) {
+	case DRGN_OBJECT_SIGNED:
+		ret = PyLong_FromLongLong(value->svalue);
+		break;
+	case DRGN_OBJECT_UNSIGNED:
+		ret = PyLong_FromUnsignedLongLong(value->uvalue);
+		break;
+	case DRGN_OBJECT_FLOAT:
+		ret = PyLong_FromDouble(value->fvalue);
+		break;
+	default:
+		DRGN_UNREACHABLE();
+	}
+	drgn_object_deinit_value(&self->obj, value);
+	return ret;
+}
+
+static PyObject *DrgnObject_float(DrgnObject *self)
+{
+	struct drgn_error *err;
+	union drgn_value value_mem;
+	const union drgn_value *value;
+	PyObject *ret;
+
+	if (!drgn_type_is_arithmetic(self->obj.type)) {
+		return set_error_type_name("cannot convert '%s' to float",
+					   drgn_object_qualified_type(&self->obj));
+	}
+
+	err = drgn_object_read_value(&self->obj, &value_mem, &value);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+
+	switch (self->obj.kind) {
+	case DRGN_OBJECT_SIGNED:
+		ret = PyFloat_FromDouble(value->svalue);
+		break;
+	case DRGN_OBJECT_UNSIGNED:
+		ret = PyFloat_FromDouble(value->uvalue);
+		break;
+	case DRGN_OBJECT_FLOAT:
+		ret = PyFloat_FromDouble(value->fvalue);
+		break;
+	default:
+		DRGN_UNREACHABLE();
+	}
+	drgn_object_deinit_value(&self->obj, value);
+	return ret;
+}
+
+static PyObject *DrgnObject_index(DrgnObject *self)
+{
+	struct drgn_error *err;
+	struct drgn_type *underlying_type;
+	union drgn_value value_mem;
+	const union drgn_value *value;
+	PyObject *ret;
+
+	underlying_type = drgn_underlying_type(self->obj.type);
+	if (!drgn_type_is_integer(underlying_type) &&
+	    drgn_type_kind(underlying_type) != DRGN_TYPE_POINTER) {
+		return set_error_type_name("cannot convert '%s' to index",
+					   drgn_object_qualified_type(&self->obj));
+	}
+
+	err = drgn_object_read_value(&self->obj, &value_mem, &value);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+
+	switch (self->obj.kind) {
+	case DRGN_OBJECT_SIGNED:
+		ret = PyLong_FromLongLong(value->svalue);
+		break;
+	case DRGN_OBJECT_UNSIGNED:
+		ret = PyLong_FromUnsignedLongLong(value->uvalue);
+		break;
+	default:
+		DRGN_UNREACHABLE();
+	}
+	drgn_object_deinit_value(&self->obj, value);
+	return ret;
+}
+
+static PyObject *DrgnObject_round(DrgnObject *self, PyObject *args,
+				  PyObject *kwds)
+{
+	static char *keywords[] = {"ndigits", NULL};
+	PyObject *ndigits = Py_None, *value, *ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:round", keywords,
+					 &ndigits))
+		return NULL;
+
+	if (!drgn_type_is_arithmetic(self->obj.type)) {
+		return set_error_type_name("cannot round '%s'",
+					   drgn_object_qualified_type(&self->obj));
+	}
+
+	value = DrgnObject_value(self);
+	if (!value)
+		return NULL;
+
+	if (ndigits == Py_None) {
+		ret = PyObject_CallMethod(value, "__round__", NULL);
+		Py_DECREF(value);
+	} else {
+		PyObject *args, *kwds, *tmp, *type;
+
+		tmp = PyObject_CallMethod(value, "__round__", "O", ndigits);
+		Py_DECREF(value);
+		if (!tmp)
+			return NULL;
+		value = tmp;
+
+		kwds = PyDict_New();
+		if (!kwds) {
+			Py_DECREF(value);
+			return NULL;
+		}
+
+		if (PyDict_SetItemString(kwds, "value", value) == -1) {
+			Py_DECREF(value);
+			return NULL;
+		}
+		Py_DECREF(value);
+
+		type = DrgnObject_get_type(self, NULL);
+		if (!type) {
+			Py_DECREF(kwds);
+			return NULL;
+		}
+		args = Py_BuildValue("OO", DrgnObject_prog(self), type);
+		Py_DECREF(type);
+		if (!args) {
+			Py_DECREF(kwds);
+			return NULL;
+		}
+
+		ret = PyObject_Call((PyObject *)&DrgnObject_type, args, kwds);
+		Py_DECREF(args);
+		Py_DECREF(kwds);
+	}
+	return ret;
+}
+
+#define DrgnObject_round_method(func)					\
+static PyObject *DrgnObject_##func(DrgnObject *self)			\
+{									\
+	struct drgn_error *err;						\
+	union drgn_value value_mem;					\
+	const union drgn_value *value;					\
+	PyObject *ret;							\
+									\
+	if (!drgn_type_is_arithmetic(self->obj.type)) {			\
+		return set_error_type_name("cannot round '%s'",		\
+					   drgn_object_qualified_type(&self->obj));\
+	}								\
+									\
+	err = drgn_object_read_value(&self->obj, &value_mem, &value);	\
+	if (err) {							\
+		set_drgn_error(err);					\
+		return NULL;						\
+	}								\
+									\
+	switch (self->obj.kind) {					\
+	case DRGN_OBJECT_SIGNED:					\
+		ret = PyLong_FromLongLong(value->svalue);		\
+		break;							\
+	case DRGN_OBJECT_UNSIGNED:					\
+		ret = PyLong_FromUnsignedLongLong(value->uvalue);	\
+		break;							\
+	case DRGN_OBJECT_FLOAT:						\
+		ret = PyLong_FromDouble(func(value->fvalue));		\
+		break;							\
+	default:							\
+		DRGN_UNREACHABLE();					\
+	}								\
+	drgn_object_deinit_value(&self->obj, value);			\
+	return ret;							\
+}
+DrgnObject_round_method(trunc)
+DrgnObject_round_method(floor)
+DrgnObject_round_method(ceil)
+
+static PyObject *DrgnObject_richcompare(PyObject *left, PyObject *right, int op)
+{
+	struct drgn_error *err;
+	struct drgn_object *lhs, lhs_tmp, *rhs, rhs_tmp;
+	int ret, cmp;
+
+	ret = DrgnObject_binary_operand(left, right, &lhs, &lhs_tmp);
+	if (ret)
+		goto out;
+	ret = DrgnObject_binary_operand(right, left, &rhs, &rhs_tmp);
+	if (ret)
+		goto out_lhs;
+
+	err = drgn_object_cmp(lhs, rhs, &cmp);
+	if (err) {
+		set_drgn_error(err);
+		ret = -1;
+	}
+
+	if (rhs == &rhs_tmp)
+		drgn_object_deinit(&rhs_tmp);
+out_lhs:
+	if (lhs == &lhs_tmp)
+		drgn_object_deinit(&lhs_tmp);
+out:
+	if (ret == -1)
+		return NULL;
+	else if (ret)
+		Py_RETURN_NOTIMPLEMENTED;
+	else
+		Py_RETURN_RICHCOMPARE(cmp, 0, op);
+}
+
+static DrgnObject *DrgnObject_member(DrgnObject *self, PyObject *args,
+				     PyObject *kwds)
+{
+	static char *keywords[] = {"name", NULL};
+	struct drgn_error *err;
+	const char *name;
+	DrgnObject *res;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s:member_", keywords,
+					 &name))
+		return NULL;
+
+	res = DrgnObject_alloc(DrgnObject_prog(self));
+	if (!res)
+		return NULL;
+
+	if (self->obj.kind == DRGN_OBJECT_UNSIGNED) {
+		err = drgn_object_member_dereference(&res->obj, &self->obj,
+						     name);
+	} else {
+		err = drgn_object_member(&res->obj, &self->obj, name);
+	}
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
+{
+	struct drgn_error *err;
+	PyObject *attr;
+	PyObject *exc_type, *exc_value, *exc_traceback;
+	const char *name;
+	DrgnObject *res;
+
+	attr = PyObject_GenericGetAttr((PyObject *)self, attr_name);
+	if (attr || !PyErr_ExceptionMatches(PyExc_AttributeError))
+		return attr;
+	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
+
+	name = PyUnicode_AsUTF8(attr_name);
+	if (!name) {
+		res = NULL;
+		goto out;
+	}
+
+	res = DrgnObject_alloc(DrgnObject_prog(self));
+	if (!res)
+		goto out;
+
+	if (self->obj.kind == DRGN_OBJECT_UNSIGNED) {
+		err = drgn_object_member_dereference(&res->obj, &self->obj,
+						     name);
+	} else {
+		err = drgn_object_member(&res->obj, &self->obj, name);
+	}
+	if (err) {
+		Py_CLEAR(res);
+		if (err->code == DRGN_ERROR_TYPE) {
+			/*
+			 * If the object isn't a structure or union, raise the
+			 * original AttributeError.
+			 */
+			PyErr_Restore(exc_type, exc_value, exc_traceback);
+			return NULL;
+		} else if (err->code == DRGN_ERROR_LOOKUP) {
+			PyErr_SetString(PyExc_AttributeError, err->message);
+			drgn_error_destroy(err);
+		} else {
+			set_drgn_error(err);
+		}
+		goto out;
+	}
+out:
+	Py_XDECREF(exc_traceback);
+	Py_XDECREF(exc_value);
+	Py_DECREF(exc_type);
+	return (PyObject *)res;
+}
+
+static Py_ssize_t DrgnObject_length(DrgnObject *self)
+{
+	struct drgn_type *underlying_type;
+	uint64_t length;
+
+	underlying_type = drgn_underlying_type(self->obj.type);
+	if (drgn_type_kind(underlying_type) != DRGN_TYPE_ARRAY ||
+	    !drgn_type_is_complete(underlying_type)) {
+		set_error_type_name("'%s' has no len()",
+				    drgn_object_qualified_type(&self->obj));
+		return -1;
+	}
+	length = drgn_type_length(underlying_type);
+	if (length > PY_SSIZE_T_MAX) {
+		PyErr_SetString(PyExc_OverflowError, "length is too large");
+		return -1;
+	}
+	return length;
+}
+
+static DrgnObject *DrgnObject_subscript_impl(DrgnObject *self,
+					     uint64_t index)
+{
+	struct drgn_error *err;
+	DrgnObject *res;
+
+	res = DrgnObject_alloc(DrgnObject_prog(self));
+	if (!res)
+		return NULL;
+
+	err = drgn_object_subscript(&res->obj, &self->obj, index);
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+static DrgnObject *DrgnObject_subscript(DrgnObject *self, PyObject *key)
+{
+	unsigned long long index;
+
+	index = index_arg(key, "index must be integer");
+	if (index == (unsigned long long)-1 && PyErr_Occurred())
+		return NULL;
+	return DrgnObject_subscript_impl(self, index);
+}
+
+static ObjectIterator *DrgnObject_iter(DrgnObject *self)
+{
+	struct drgn_type *underlying_type;
+	ObjectIterator *it;
+
+	underlying_type = drgn_underlying_type(self->obj.type);
+	if (drgn_type_kind(underlying_type) != DRGN_TYPE_ARRAY ||
+	    !drgn_type_is_complete(underlying_type)) {
+		set_error_type_name("'%s' is not iterable",
+				    drgn_object_qualified_type(&self->obj));
+		return NULL;
+	}
+
+	it = (ObjectIterator *)ObjectIterator_type.tp_alloc(&ObjectIterator_type,
+							    0);
+	if (!it)
+		return NULL;
+	it->obj = self;
+	Py_INCREF(self);
+	it->length = drgn_type_length(underlying_type);
+	return it;
+}
+
+static int add_to_dir(PyObject *dir, struct drgn_type *type)
+{
+	struct drgn_error *err;
+	struct drgn_type_member *members;
+	size_t num_members, i;
+
+	type = drgn_underlying_type(type);
+	if (!drgn_type_has_members(type))
+		return 0;
+
+	members = drgn_type_members(type);
+	num_members = drgn_type_num_members(type);
+	for (i = 0; i < num_members; i++) {
+		struct drgn_type_member *member;
+
+		member = &members[i];
+		if (member->name) {
+			PyObject *str;
+
+			str = PyUnicode_FromString(member->name);
+			if (!str)
+				return -1;
+			if (PyList_Append(dir, str) == -1) {
+				Py_DECREF(str);
+				return -1;
+			}
+			Py_DECREF(str);
+		} else {
+			struct drgn_qualified_type member_type;
+
+			err = drgn_member_type(member, &member_type);
+			if (err) {
+				set_drgn_error(err);
+				return -1;
+			}
+			if (add_to_dir(dir, member_type.type) == -1)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+static PyObject *DrgnObject_dir(DrgnObject *self)
+{
+	_Py_IDENTIFIER(__dir__);
+	PyObject *method, *dir;
+	struct drgn_type *type;
+
+	method = _PyObject_GetAttrId((PyObject *)Py_TYPE(self)->tp_base,
+				     &PyId___dir__);
+	if (!method)
+		return NULL;
+
+	dir = PyObject_CallFunctionObjArgs(method, self, NULL);
+	Py_DECREF(method);
+	if (!dir)
+		return NULL;
+
+	type = drgn_underlying_type(self->obj.type);
+	if (drgn_type_kind(type) == DRGN_TYPE_POINTER)
+		type = drgn_type_type(type).type;
+	if (add_to_dir(dir, type) == -1) {
+		Py_DECREF(dir);
+		return NULL;
+	}
+
+	return dir;
+}
+
+static PyGetSetDef DrgnObject_getset[] = {
+	{"prog_", (getter)DrgnObject_get_prog, NULL,
+"Program\n"
+"\n"
+"Program that this object is from"},
+	{"type_", (getter)DrgnObject_get_type, NULL,
+"Type\n"
+"\n"
+"Type of this object"},
+	{"address_", (getter)DrgnObject_get_address, NULL,
+"Optional[int]\n"
+"\n"
+"Address of this object if it is a reference, None if it is a value"},
+	{"byteorder_", (getter)DrgnObject_get_byteorder, NULL,
+"Optional[str]\n"
+"\n"
+"Byte order of this object (either 'little' or 'big') if it is a\n"
+"reference or a non-primitive value, None otherwise"},
+	{"bit_offset_", (getter)DrgnObject_get_bit_offset, NULL,
+"Optional[int]\n"
+"\n"
+"Offset in bits from this object's address to the beginning of the object\n"
+"if it is a reference or a non-primitive value, None otherwise"},
+	{"bit_field_size_", (getter)DrgnObject_get_bit_field_size, NULL,
+"Optional[int]\n"
+"\n"
+"Size in bits of this object if it is a bit field, None if not"},
+	{},
+};
+
+static PyMethodDef DrgnObject_methods[] = {
+	{"__getitem__", (PyCFunction)DrgnObject_subscript,
+	 METH_O | METH_COEXIST,
+"__getitem__(self, idx) -> Object\n"
+"\n"
+"Implement self[idx]. Return an Object representing the array element at\n"
+"the given index.\n"
+"\n"
+"This is only valid for pointers and arrays."},
+	{"value_", (PyCFunction)DrgnObject_value, METH_NOARGS,
+"value_(self) -> Any\n"
+"\n"
+"Return the value of this object as a Python object.\n"
+"\n"
+"For basic types (int, bool, etc.), this returns an object of the\n"
+"directly corresponding Python type. For pointers, this returns the\n"
+"address value of the pointer. For enums, this returns an int. For\n"
+"structures and unions, this returns a dict of members. For arrays, this\n"
+"returns a list of values."},
+	{"string_", (PyCFunction)DrgnObject_string, METH_NOARGS,
+"string_(self) -> bytes\n"
+"\n"
+"Return the null-terminated string pointed to by this object as bytes.\n"
+"\n"
+"This is only valid for pointers and arrays."},
+	{"member_", (PyCFunction)DrgnObject_member,
+	 METH_VARARGS | METH_KEYWORDS,
+"member_(self, name: str) -> Object\n"
+"\n"
+"Return an Object representing the given structure or union member.\n"
+"\n"
+"This is only valid for structs, unions, and pointers to either. Normally\n"
+"the dot operator (\".\") can be used to accomplish the same thing, but\n"
+"this method can be used if there is a name conflict with an Object\n"
+"member or method."},
+	{"address_of_", (PyCFunction)DrgnObject_address_of, METH_NOARGS,
+"address_of_(self) -> Object\n"
+"\n"
+"Return an Object pointing to this object.\n"
+"\n"
+"This corresponds to the address-of (\"&\") operator in C. It is only\n"
+"possible for reference objects, as value objects don't have an address\n"
+"in the program."},
+	{"read_", (PyCFunction)DrgnObject_read,
+	 METH_NOARGS,
+"read_(self) -> Object\n"
+"\n"
+"Read this object (which may be a reference or a value) and return it as\n"
+"a value object. This is useful if the object can change in the running\n"
+"program (but of course nothing stops the program from modifying the\n"
+"object while it is being read)."},
+	{"__round__", (PyCFunction)DrgnObject_round,
+	 METH_VARARGS | METH_KEYWORDS},
+	{"__trunc__", (PyCFunction)DrgnObject_trunc, METH_NOARGS},
+	{"__floor__", (PyCFunction)DrgnObject_floor, METH_NOARGS},
+	{"__ceil__", (PyCFunction)DrgnObject_ceil, METH_NOARGS},
+	{"__dir__", (PyCFunction)DrgnObject_dir,
+	 METH_NOARGS,
+"dir() implementation which includes structure and union members."},
+	{"__format__", (PyCFunction)DrgnObject_format,
+	 METH_O,
+"Object formatter."},
+	{},
+};
+
+static PyNumberMethods DrgnObject_as_number = {
+	(binaryfunc)DrgnObject_add,	/* nb_add */
+	(binaryfunc)DrgnObject_sub,	/* nb_subtract */
+	(binaryfunc)DrgnObject_mul,	/* nb_multiply */
+	(binaryfunc)DrgnObject_mod,	/* nb_remainder */
+	NULL,				/* nb_divmod */
+	NULL,				/* nb_power */
+	(unaryfunc)DrgnObject_neg,	/* nb_negative */
+	(unaryfunc)DrgnObject_pos,	/* nb_positive */
+	NULL,				/* nb_absolute */
+	(inquiry)DrgnObject_bool,	/* nb_bool */
+	(unaryfunc)DrgnObject_not,	/* nb_invert */
+	(binaryfunc)DrgnObject_lshift,	/* nb_lshift */
+	(binaryfunc)DrgnObject_rshift,	/* nb_rshift */
+	(binaryfunc)DrgnObject_and,	/* nb_and */
+	(binaryfunc)DrgnObject_xor,	/* nb_xor */
+	(binaryfunc)DrgnObject_or,	/* nb_or */
+	(unaryfunc)DrgnObject_int,	/* nb_int */
+	NULL,				/* nb_reserved */
+	(unaryfunc)DrgnObject_float,	/* nb_float */
+	NULL,				/* nb_inplace_add */
+	NULL,				/* nb_inplace_subtract */
+	NULL,				/* nb_inplace_multiply */
+	NULL,				/* nb_inplace_remainder */
+	NULL,				/* nb_inplace_power */
+	NULL,				/* nb_inplace_lshift */
+	NULL,				/* nb_inplace_rshift */
+	NULL,				/* nb_inplace_and */
+	NULL,				/* nb_inplace_xor */
+	NULL,				/* nb_inplace_or */
+	NULL,				/* nb_floor_divide */
+	(binaryfunc)DrgnObject_div,	/* nb_true_divide */
+	NULL,				/* nb_inplace_floor_divide */
+	NULL,				/* nb_inplace_true_divide */
+	(unaryfunc)DrgnObject_index,	/* nb_index */
+};
+
+static PyMappingMethods DrgnObject_as_mapping = {
+	(lenfunc)DrgnObject_length,		/* mp_length */
+	(binaryfunc)DrgnObject_subscript,	/* mp_subscript */
+};
+
+#define DrgnObject_DOC								\
+"An Object represents a symbol or value in a program. The object may be\n"	\
+"in the memory of the program (a \"reference\").\n"				\
+"\n"										\
+">>> Object(prog, 'int', address=0xffffffffc09031a0)\n"				\
+"\n"										\
+"It can also be a temporary computed value (a \"value\").\n"			\
+"\n"										\
+">>> Object(prog, 'int', value=4)\n"						\
+"\n"										\
+"All Object instances have two members: prog_, the program that the\n"		\
+"object is from; and type_, the type of the object. Reference objects\n"	\
+"have an address_ member. Objects may also have a byteorder_,\n"		\
+"bit_offset_, and bit_field_size.\n"						\
+"\n"										\
+"repr() of an Object returns a Python representation of the object.\n"		\
+"\n"										\
+">>> print(repr(prog['jiffies']))\n"						\
+"Object(prog, 'volatile long unsigned int', address=0xffffffffbf005000)\n"	\
+"\n"										\
+"str() returns a representation of the object in programming language\n"	\
+"syntax.\n"									\
+"\n"										\
+">>> print(prog['jiffies'])\n"							\
+"(volatile long unsigned int)4326237045\n"					\
+"\n"										\
+"Note that the drgn CLI is set up so that Objects are displayed with\n"		\
+"str() instead of repr() (the latter is the default behavior of Python's\n"	\
+"interactive mode). This means that in the drgn CLI, the call to print()\n"	\
+"in the second example above is not necessary.\n"				\
+"\n"										\
+"Objects support their programming language's operators wherever\n"		\
+"possible. E.g., structure members can be accessed with the dot (\".\")\n"	\
+"operator, arrays can be subscripted with \"[]\", arithmetic can be\n"		\
+"performed, and objects can be compared.\n"					\
+"\n"										\
+">>> print(prog['init_task'].pid)\n"						\
+"(pid_t)0\n"									\
+">>> print(prog['init_task'].comm[0])\n"					\
+"(char)115\n"									\
+">>> print(repr(prog['init_task'].nsproxy.mnt_ns.mounts + 1))\n"		\
+"Object(prog, 'unsigned int', value=34)\n"					\
+">>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0\n"			\
+"False\n"									\
+"\n"										\
+"Note that because the C structure dereference operator (\"->\") is not\n"	\
+"valid syntax in Python, \".\" is also used to access members of pointers\n"	\
+"to structures. Similarly, the indirection operator (\"*\") is not valid\n"	\
+"syntax in Python, so pointers can be dereferenced with \"[0]\" (e.g.,\n"	\
+"write \"p[0]\" instead of \"*p\"). The address-of operator (\"&\") is\n"	\
+"available as the address_of_() method.\n"					\
+"\n"										\
+"Object members and methods are named with a trailing underscore to avoid\n"	\
+"conflicting with structure or union members. The helper methods always\n"	\
+"take precedence over structure members; use member_() if there is a\n"		\
+"conflict."
+
+PyTypeObject DrgnObject_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	"_drgn.Object",				/* tp_name */
+	sizeof(DrgnObject),			/* tp_basicsize */
+	0,					/* tp_itemsize */
+	(destructor)DrgnObject_dealloc,		/* tp_dealloc */
+	NULL,					/* tp_print */
+	NULL,					/* tp_getattr */
+	NULL,					/* tp_setattr */
+	NULL,					/* tp_as_async */
+	(reprfunc)DrgnObject_repr,		/* tp_repr */
+	&DrgnObject_as_number,			/* tp_as_number */
+	NULL,					/* tp_as_sequence */
+	&DrgnObject_as_mapping,			/* tp_as_mapping */
+	NULL,					/* tp_hash  */
+	NULL,					/* tp_call */
+	(reprfunc)DrgnObject_str,		/* tp_str */
+	(getattrofunc)DrgnObject_getattro,	/* tp_getattro */
+	NULL,					/* tp_setattro */
+	NULL,					/* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,			/* tp_flags */
+	DrgnObject_DOC,				/* tp_doc */
+	NULL,					/* tp_traverse */
+	NULL,					/* tp_clear */
+	DrgnObject_richcompare,			/* tp_richcompare */
+	0,					/* tp_weaklistoffset */
+	(getiterfunc)DrgnObject_iter,		/* tp_iter */
+	NULL,					/* tp_iternext */
+	DrgnObject_methods,			/* tp_methods */
+	NULL,					/* tp_members */
+	DrgnObject_getset,			/* tp_getset */
+	NULL,					/* tp_base */
+	NULL,					/* tp_dict */
+	NULL,					/* tp_descr_get */
+	NULL,					/* tp_descr_set */
+	0,					/* tp_dictoffset */
+	(initproc)DrgnObject_init,		/* tp_init */
+	NULL,					/* tp_alloc */
+	(newfunc)DrgnObject_new,		/* tp_new */
+
+};
+
+DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"type", "obj", NULL};
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	PyObject *type_obj;
+	DrgnObject *obj, *res;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!:cast", keywords,
+					 &type_obj, &DrgnObject_type, &obj))
+		return NULL;
+
+	if (type_arg(DrgnObject_prog(obj), type_obj, false,
+		     &qualified_type) == -1)
+		return NULL;
+
+	res = DrgnObject_alloc(DrgnObject_prog(obj));
+	if (!res)
+		return NULL;
+
+	err = drgn_object_cast(&res->obj, qualified_type, &obj->obj);
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"type", "obj", "byteorder", NULL};
+	struct drgn_error *err;
+	PyObject *type_obj;
+	struct drgn_qualified_type qualified_type;
+	PyObject *byteorder_obj = Py_None;
+	enum drgn_byte_order byte_order;
+	DrgnObject *obj, *res;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!|O:reinterpret",
+					 keywords, &type_obj, &DrgnObject_type,
+					 &obj, &byteorder_obj))
+		return NULL;
+
+	if (type_arg(DrgnObject_prog(obj), type_obj, false,
+		     &qualified_type) == -1)
+		return NULL;
+
+	if (parse_optional_byteorder(byteorder_obj, &byte_order) == -1)
+		return NULL;
+
+	res = DrgnObject_alloc(DrgnObject_prog(obj));
+	if (!res)
+		return NULL;
+
+	err = drgn_object_reinterpret(&res->obj, qualified_type, byte_order,
+				      &obj->obj);
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
+				    PyObject *kwds)
+{
+	static char *keywords[] = {"ptr", "type", "member", NULL};
+	struct drgn_error *err;
+	DrgnObject *obj, *res;
+	PyObject *type_obj;
+	struct drgn_qualified_type qualified_type;
+	const char *member_designator;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!Os:container_of",
+					 keywords, &DrgnObject_type, &obj,
+					 &type_obj, &member_designator))
+		return NULL;
+
+	if (type_arg(DrgnObject_prog(obj), type_obj, false,
+		     &qualified_type) == -1)
+		return NULL;
+
+	res = DrgnObject_alloc(DrgnObject_prog(obj));
+	if (!res)
+		return NULL;
+
+	err = drgn_object_container_of(&res->obj, &obj->obj, qualified_type,
+				       member_designator);
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+static void ObjectIterator_dealloc(ObjectIterator *self)
+{
+	Py_DECREF(self->obj);
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static DrgnObject *ObjectIterator_next(ObjectIterator *self)
+{
+	if (self->index >= self->length)
+		return NULL;
+	return DrgnObject_subscript_impl(self->obj, self->index++);
+}
+
+static PyObject *ObjectIterator_length_hint(ObjectIterator *self)
+{
+	return PyLong_FromUnsignedLongLong(self->length);
+}
+
+static PyMethodDef ObjectIterator_methods[] = {
+	{"__length_hint__", (PyCFunction)ObjectIterator_length_hint,
+	 METH_NOARGS},
+	{},
+};
+
+PyTypeObject ObjectIterator_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	"_drgn._ObjectIterator",		/* tp_name */
+	sizeof(ObjectIterator),			/* tp_basicsize */
+	0,					/* tp_itemsize */
+	(destructor)ObjectIterator_dealloc,	/* tp_dealloc */
+	NULL,					/* tp_print */
+	NULL,					/* tp_getattr */
+	NULL,					/* tp_setattr */
+	NULL,					/* tp_as_async */
+	NULL,					/* tp_repr */
+	NULL,					/* tp_as_number */
+	NULL,					/* tp_as_sequence */
+	NULL,					/* tp_as_mapping */
+	NULL,					/* tp_hash  */
+	NULL,					/* tp_call */
+	NULL,					/* tp_str */
+	NULL,					/* tp_getattro */
+	NULL,					/* tp_setattro */
+	NULL,					/* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,			/* tp_flags */
+	NULL,					/* tp_doc */
+	NULL,					/* tp_traverse */
+	NULL,					/* tp_clear */
+	NULL,					/* tp_richcompare */
+	0,					/* tp_weaklistoffset */
+	PyObject_SelfIter,			/* tp_iter */
+	(iternextfunc)ObjectIterator_next,	/* tp_iternext */
+	ObjectIterator_methods,			/* tp_methods */
+};

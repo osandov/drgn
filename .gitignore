@@ -1,10 +1,11 @@
-__pycache__
 *.pyc
-*.o
 *.so
 /.coverage
 /.mypy_cache
+/_drgn/constants.c
 /build
 /coverage.info
+/dist
 /drgn.egg-info
 /htmlcov
+__pycache__

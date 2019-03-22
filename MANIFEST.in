@@ -1,0 +1,10 @@
+include _drgn/drgnpy.h
+exclude _drgn/constants.c
+include libdrgn/*.h
+include libdrgn/aclocal.m4
+include libdrgn/configure.ac libdrgn/configure
+include libdrgn/Makefile.am libdrgn/Makefile.in libdrgn/Makefile
+graft libdrgn/build-aux
+exclude libdrgn/build-aux/.gitignore
+graft libdrgn/m4
+recursive-include tests *.py

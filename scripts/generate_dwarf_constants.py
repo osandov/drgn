@@ -29,7 +29,13 @@ if __name__ == '__main__':
         except KeyError:
             enums[enum] = [(name, int(value, 0))]
 
-    print('# Automatically generated from dwarf.h')
+    print("""\
+# Automatically generated from dwarf.h
+
+import enum
+from typing import Text
+
+""")
     first = True
     for enum in prefixes:
         assert enums[enum]

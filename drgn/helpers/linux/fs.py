@@ -11,7 +11,7 @@ This module provides helpers for working with the Linux virtual filesystem
 import os
 
 from drgn import container_of, Program
-from drgn.internal.util import escape_string
+from drgn.helpers import escape_string
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = [
@@ -185,7 +185,7 @@ def for_each_file(task):
     as bytes.
     """
     fdt = task.files.fdt.read_()
-    bits_per_long = 8 * fdt.open_fds.type_.type.sizeof()
+    bits_per_long = 8 * fdt.open_fds.type_.type.size
     for i in range((fdt.max_fds.value_() + bits_per_long - 1) // bits_per_long):
         word = fdt.open_fds[i].value_()
         for j in range(bits_per_long):

@@ -1,4 +1,4 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """drgn command line interface"""
@@ -14,8 +14,6 @@ import sys
 from typing import Any, Dict
 
 import drgn
-from drgn.lib import program
-from drgn.type import Type
 
 
 def displayhook(value: Any) -> None:
@@ -25,7 +23,7 @@ def displayhook(value: Any) -> None:
     if isinstance(value, drgn.Object):
         columns = shutil.get_terminal_size((0, 0)).columns
         text = f'{value:.{columns}}'
-    elif isinstance(value, Type):
+    elif isinstance(value, drgn.Type):
         text = str(value)
     else:
         text = repr(value)
@@ -52,10 +50,9 @@ def main() -> None:
         '-c', '--core', metavar='PATH', type=str,
         help='debug the given core dump')
     group.add_argument(
-        '-k', '--kernel', action='store_const', const='/proc/kcore', dest='core',
-        help='debug the running kernel')
+        '-k', '--kernel', action='store_true', help='debug the running kernel')
     group.add_argument(
-        '-p', '--pid', metavar='PID',
+        '-p', '--pid', metavar='PID', type=int,
         help='debug the running program with the given PID')
     parser.add_argument(
         'script', metavar='ARG', type=str, nargs='*',
@@ -64,49 +61,54 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.pid is not None:
-        args.core = f'/proc/{args.pid}/mem'
+    verbose = not args.script
+    if args.core is not None:
+        prog = drgn.program_from_core_dump(args.core, verbose)
+    elif args.kernel:
+        prog = drgn.program_from_kernel(verbose)
+    elif args.pid is not None:
+        prog = drgn.program_from_pid(args.pid)
 
-    with program(args.core, args.pid, verbose=not args.script) as prog:
-        init_globals: Dict[str, Any] = {'prog': prog}
-        if args.script:
-            sys.argv = args.script
-            runpy.run_path(args.script[0], init_globals=init_globals,
-                           run_name='__main__')
-        else:
-            import atexit
-            import readline
+    init_globals: Dict[str, Any] = {'prog': prog}
+    if args.script:
+        sys.argv = args.script
+        runpy.run_path(args.script[0], init_globals=init_globals,
+                       run_name='__main__')
+    else:
+        import atexit
+        import readline
 
-            from drgn.internal.rlcompleter import Completer
+        from drgn.internal.rlcompleter import Completer
 
-            init_globals['drgn'] = drgn
-            drgn_globals = ['cast', 'container_of', 'NULL', 'Object']
-            for attr in drgn_globals:
-                init_globals[attr] = getattr(drgn, attr)
-            init_globals['__name__'] = '__main__'
-            init_globals['__doc__'] = None
+        init_globals['drgn'] = drgn
+        drgn_globals = ['cast', 'container_of', 'NULL', 'Object',
+                        'reinterpret']
+        for attr in drgn_globals:
+            init_globals[attr] = getattr(drgn, attr)
+        init_globals['__name__'] = '__main__'
+        init_globals['__doc__'] = None
 
-            histfile = os.path.expanduser('~/.drgn_history')
-            try:
-                readline.read_history_file(histfile)
-            except FileNotFoundError:
-                pass
-            readline.parse_and_bind('tab: complete')
-            readline.set_history_length(1000)
-            atexit.register(readline.write_history_file, histfile)
+        histfile = os.path.expanduser('~/.drgn_history')
+        try:
+            readline.read_history_file(histfile)
+        except FileNotFoundError:
+            pass
+        readline.parse_and_bind('tab: complete')
+        readline.set_history_length(1000)
+        atexit.register(readline.write_history_file, histfile)
 
-            readline.set_completer(Completer(init_globals).complete)
-            atexit.register(lambda: readline.set_completer(None))
+        readline.set_completer(Completer(init_globals).complete)
+        atexit.register(lambda: readline.set_completer(None))
 
-            sys.displayhook = displayhook
+        sys.displayhook = displayhook
 
-            banner = version + """
+        banner = version + """
 For help, type help(drgn).
 >>> import drgn
 >>> from drgn import """ + ', '.join(drgn_globals)
-            if prog._is_kernel():
-                banner += '\n>>> from drgn.helpers.linux import *'
-                module = importlib.import_module('drgn.helpers.linux')
-                for name in module.__dict__['__all__']:
-                    init_globals[name] = getattr(module, name)
-            code.interact(banner=banner, exitmsg='', local=init_globals)
+        if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
+            banner += '\n>>> from drgn.helpers.linux import *'
+            module = importlib.import_module('drgn.helpers.linux')
+            for name in module.__dict__['__all__']:
+                init_globals[name] = getattr(module, name)
+        code.interact(banner=banner, exitmsg='', local=init_globals)

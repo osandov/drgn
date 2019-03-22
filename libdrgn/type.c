@@ -1,0 +1,750 @@
+#include <string.h>
+
+#include "internal.h"
+#include "hash_table.h"
+#include "language.h"
+#include "type.h"
+#include "type_index.h"
+
+void drgn_type_thunk_free(struct drgn_type_thunk *thunk)
+{
+	thunk->free_fn(thunk);
+}
+
+struct drgn_error *drgn_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
+					   struct drgn_qualified_type *qualified_type)
+{
+	if (drgn_lazy_type_is_evaluated(lazy_type)) {
+		qualified_type->type = lazy_type->type;
+		qualified_type->qualifiers = lazy_type->qualifiers;
+	} else {
+		struct drgn_error *err;
+		struct drgn_type_thunk *thunk_ptr = lazy_type->thunk;
+		struct drgn_type_thunk thunk = *thunk_ptr;
+
+		err = thunk.evaluate_fn(thunk_ptr, qualified_type);
+		if (err)
+			return err;
+		drgn_lazy_type_init_evaluated(lazy_type, qualified_type->type,
+					      qualified_type->qualifiers);
+		thunk.free_fn(thunk_ptr);
+	}
+	return NULL;
+}
+
+void drgn_lazy_type_deinit(struct drgn_lazy_type *lazy_type)
+{
+	if (!drgn_lazy_type_is_evaluated(lazy_type))
+		drgn_type_thunk_free(lazy_type->thunk);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_member_type(struct drgn_type_member *member,
+		 struct drgn_qualified_type *ret)
+{
+	return drgn_lazy_type_evaluate(&member->type, ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_parameter_type(struct drgn_type_parameter *parameter,
+		    struct drgn_qualified_type *ret)
+{
+	return drgn_lazy_type_evaluate(&parameter->type, ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_type drgn_void_type = {
+	{ .kind = DRGN_TYPE_VOID, .c_type = C_TYPE_VOID, },
+};
+
+void drgn_int_type_init(struct drgn_type *type, const char *name, uint64_t size,
+			bool is_signed)
+{
+	enum drgn_c_type_kind c_type;
+
+	assert(name);
+	type->_private.kind = DRGN_TYPE_INT;
+	type->_private.is_complete = true;
+	c_type = c_parse_specifier_list(name);
+	if (C_TYPE_MIN_INTEGER <= c_type && c_type <= C_TYPE_MAX_INTEGER &&
+	    c_type != C_TYPE_BOOL &&
+	    (c_type == C_TYPE_CHAR || is_signed == c_type_is_signed(c_type))) {
+		type->_private.c_type = c_type;
+		type->_private.name = c_type_spelling[c_type];
+	} else {
+		type->_private.c_type = C_TYPE_UNKNOWN;
+		type->_private.name = name;
+	}
+	type->_private.size = size;
+	type->_private.is_signed = is_signed;
+}
+
+void drgn_bool_type_init(struct drgn_type *type, const char *name,
+			 uint64_t size)
+{
+	assert(name);
+	type->_private.kind = DRGN_TYPE_BOOL;
+	type->_private.is_complete = true;
+	if (c_parse_specifier_list(name) == C_TYPE_BOOL) {
+		type->_private.c_type = C_TYPE_BOOL;
+		type->_private.name = c_type_spelling[C_TYPE_BOOL];
+	} else {
+		type->_private.c_type = C_TYPE_UNKNOWN;
+		type->_private.name = name;
+	}
+	type->_private.size = size;
+}
+
+void drgn_float_type_init(struct drgn_type *type, const char *name,
+			  uint64_t size)
+{
+	enum drgn_c_type_kind c_type;
+
+	assert(name);
+	type->_private.kind = DRGN_TYPE_FLOAT;
+	type->_private.is_complete = true;
+	c_type = c_parse_specifier_list(name);
+	if (C_TYPE_MIN_FLOATING <= c_type && c_type <= C_TYPE_MAX_FLOATING) {
+		type->_private.c_type = c_type;
+		type->_private.name = c_type_spelling[c_type];
+	} else {
+		type->_private.c_type = C_TYPE_UNKNOWN;
+		type->_private.name = name;
+	}
+	type->_private.size = size;
+}
+
+void drgn_complex_type_init(struct drgn_type *type, const char *name,
+			    uint64_t size, struct drgn_type *real_type)
+{
+	assert(name);
+	assert(real_type);
+	assert(drgn_type_kind(real_type) == DRGN_TYPE_FLOAT ||
+	       drgn_type_kind(real_type) == DRGN_TYPE_INT);
+	type->_private.kind = DRGN_TYPE_COMPLEX;
+	type->_private.is_complete = true;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.name = name;
+	type->_private.size = size;
+	type->_private.type = real_type;
+	type->_private.qualifiers = 0;
+}
+
+void drgn_struct_type_init(struct drgn_type *type, const char *tag,
+			   uint64_t size, size_t num_members)
+{
+	type->_private.kind = DRGN_TYPE_STRUCT;
+	type->_private.is_complete = true;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.tag = tag;
+	type->_private.size = size;
+	type->_private.num_members = num_members;
+}
+
+void drgn_struct_type_init_incomplete(struct drgn_type *type, const char *tag)
+{
+	type->_private.kind = DRGN_TYPE_STRUCT;
+	type->_private.is_complete = false;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.tag = tag;
+	type->_private.size = 0;
+	type->_private.num_members = 0;
+}
+
+void drgn_union_type_init(struct drgn_type *type, const char *tag,
+			  uint64_t size, size_t num_members)
+{
+	type->_private.kind = DRGN_TYPE_UNION;
+	type->_private.is_complete = true;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.tag = tag;
+	type->_private.size = size;
+	type->_private.num_members = num_members;
+}
+
+void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag)
+{
+	type->_private.kind = DRGN_TYPE_UNION;
+	type->_private.is_complete = false;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.tag = tag;
+	type->_private.size = 0;
+	type->_private.num_members = 0;
+}
+
+void drgn_enum_type_init(struct drgn_type *type, const char *tag,
+			 struct drgn_type *compatible_type,
+			 size_t num_enumerators)
+{
+	assert(drgn_type_kind(compatible_type) == DRGN_TYPE_INT);
+	type->_private.kind = DRGN_TYPE_ENUM;
+	type->_private.is_complete = true;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.tag = tag;
+	type->_private.type = compatible_type;
+	type->_private.qualifiers = 0;
+	type->_private.num_enumerators = num_enumerators;
+}
+
+void drgn_enum_type_init_incomplete(struct drgn_type *type, const char *tag)
+{
+	type->_private.kind = DRGN_TYPE_ENUM;
+	type->_private.is_complete = false;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.tag = tag;
+	type->_private.type = NULL;
+	type->_private.qualifiers = 0;
+	type->_private.num_enumerators = 0;
+}
+
+void drgn_typedef_type_init(struct drgn_type *type, const char *name,
+			    struct drgn_qualified_type aliased_type)
+{
+	type->_private.kind = DRGN_TYPE_TYPEDEF;
+	type->_private.is_complete = drgn_type_is_complete(aliased_type.type);
+	if (strcmp(name, "ptrdiff_t") == 0)
+		type->_private.c_type = C_TYPE_PTRDIFF_T;
+	else
+		type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.name = name;
+	type->_private.type = aliased_type.type;
+	type->_private.qualifiers = aliased_type.qualifiers;
+}
+
+void drgn_pointer_type_init(struct drgn_type *type, uint64_t size,
+			    struct drgn_qualified_type referenced_type)
+{
+	type->_private.kind = DRGN_TYPE_POINTER;
+	type->_private.is_complete = true;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.size = size;
+	type->_private.type = referenced_type.type;
+	type->_private.qualifiers = referenced_type.qualifiers;
+}
+
+void drgn_array_type_init(struct drgn_type *type, uint64_t length,
+			  struct drgn_qualified_type element_type)
+{
+	type->_private.kind = DRGN_TYPE_ARRAY;
+	type->_private.is_complete = true;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.length = length;
+	type->_private.type = element_type.type;
+	type->_private.qualifiers = element_type.qualifiers;
+}
+
+void drgn_array_type_init_incomplete(struct drgn_type *type,
+				     struct drgn_qualified_type element_type)
+{
+	type->_private.kind = DRGN_TYPE_ARRAY;
+	type->_private.is_complete = false;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.length = 0;
+	type->_private.type = element_type.type;
+	type->_private.qualifiers = element_type.qualifiers;
+}
+
+void drgn_function_type_init(struct drgn_type *type,
+			     struct drgn_qualified_type return_type,
+			     size_t num_parameters, bool is_variadic)
+{
+	type->_private.kind = DRGN_TYPE_FUNCTION;
+	type->_private.is_complete = true;
+	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.type = return_type.type;
+	type->_private.qualifiers = return_type.qualifiers;
+	type->_private.num_parameters = num_parameters;
+	type->_private.is_variadic = is_variadic;
+}
+
+struct drgn_type_pair {
+	struct drgn_type *a;
+	struct drgn_type *b;
+};
+
+static struct hash_pair
+hash_pair_drgn_type_pair(const struct drgn_type_pair *pair)
+{
+	return hash_pair_from_avalanching_hash(hash_combine((uintptr_t)pair->a,
+							    (uintptr_t)pair->b));
+}
+
+static bool drgn_type_pair_eq(const struct drgn_type_pair *a,
+			      const struct drgn_type_pair *b)
+{
+	return a->a == b->a && a->b == b->b;
+}
+
+DEFINE_HASH_SET(drgn_type_pair_set, struct drgn_type_pair,
+		hash_pair_drgn_type_pair, drgn_type_pair_eq)
+
+static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
+					    struct drgn_type *b,
+					    struct drgn_type_pair_set *set,
+					    bool *ret);
+
+static struct drgn_error *drgn_qualified_type_eq_impl(struct drgn_qualified_type *a,
+						      struct drgn_qualified_type *b,
+						      struct drgn_type_pair_set *set,
+						      bool *ret)
+{
+	if (a->qualifiers != b->qualifiers) {
+		*ret = false;
+		return NULL;
+	}
+	return drgn_type_eq_impl(a->type, b->type, set, ret);
+}
+
+static struct drgn_error *drgn_type_members_eq(struct drgn_type *a,
+					       struct drgn_type *b,
+					       struct drgn_type_pair_set *set,
+					       bool *ret)
+{
+	struct drgn_type_member *members_a, *members_b;
+	size_t num_a, num_b, i;
+
+	num_a = drgn_type_num_members(a);
+	num_b = drgn_type_num_members(b);
+	if (num_a != num_b)
+		goto out_false;
+
+	members_a = drgn_type_members(a);
+	members_b = drgn_type_members(b);
+	for (i = 0; i < num_a; i++) {
+		struct drgn_qualified_type type_a, type_b;
+		struct drgn_error *err;
+
+		if (members_a[i].bit_offset != members_b[i].bit_offset ||
+		    members_a[i].bit_field_size != members_b[i].bit_field_size)
+			goto out_false;
+		if (!members_a[i].name && !members_b[i].name)
+			continue;
+		if (!members_a[i].name || !members_b[i].name ||
+		    strcmp(members_a[i].name, members_b[i].name) != 0)
+			goto out_false;
+
+		err = drgn_member_type(&members_a[i], &type_a);
+		if (err)
+			return err;
+		err = drgn_member_type(&members_b[i], &type_b);
+		if (err)
+			return err;
+		err = drgn_qualified_type_eq_impl(&type_a, &type_b, set, ret);
+		if (err)
+			return err;
+		if (!*ret)
+			return NULL;
+	}
+
+	*ret = true;
+	return NULL;
+
+out_false:
+	*ret = false;
+	return NULL;
+}
+
+static bool drgn_type_enumerators_eq(struct drgn_type *a, struct drgn_type *b)
+{
+	const struct drgn_type_enumerator *enumerators_a, *enumerators_b;
+	size_t num_a, num_b, i;
+
+	num_a = drgn_type_num_enumerators(a);
+	num_b = drgn_type_num_enumerators(b);
+	if (num_a != num_b)
+		return false;
+
+	enumerators_a = drgn_type_enumerators(a);
+	enumerators_b = drgn_type_enumerators(b);
+	for (i = 0; i < num_a; i++) {
+		if (strcmp(enumerators_a[i].name, enumerators_b[i].name) != 0)
+			return false;
+		if (enumerators_a[i].uvalue != enumerators_b[i].uvalue)
+			return false;
+	}
+	return true;
+}
+
+static struct drgn_error *drgn_type_parameters_eq(struct drgn_type *a,
+						  struct drgn_type *b,
+						  struct drgn_type_pair_set *set,
+						  bool *ret)
+{
+	struct drgn_type_parameter *parameters_a, *parameters_b;
+	size_t num_a, num_b, i;
+
+	num_a = drgn_type_num_parameters(a);
+	num_b = drgn_type_num_parameters(b);
+	if (num_a != num_b)
+		goto out_false;
+
+	parameters_a = drgn_type_parameters(a);
+	parameters_b = drgn_type_parameters(b);
+	for (i = 0; i < num_a; i++) {
+		struct drgn_qualified_type type_a, type_b;
+		struct drgn_error *err;
+
+		if (!parameters_a[i].name && !parameters_b[i].name)
+			continue;
+		if (!parameters_a[i].name || !parameters_b[i].name ||
+		    strcmp(parameters_a[i].name, parameters_b[i].name) != 0)
+			goto out_false;
+
+		err = drgn_parameter_type(&parameters_a[i], &type_a);
+		if (err)
+			return err;
+		err = drgn_parameter_type(&parameters_b[i], &type_b);
+		if (err)
+			return err;
+		err = drgn_qualified_type_eq_impl(&type_a, &type_b, set, ret);
+		if (err)
+			return err;
+		if (!*ret)
+			return NULL;
+	}
+
+	*ret = true;
+	return NULL;
+
+out_false:
+	*ret = false;
+	return NULL;
+}
+
+static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
+					    struct drgn_type *b,
+					    struct drgn_type_pair_set *set,
+					    bool *ret)
+{
+	struct drgn_type_pair pair = { a, b };
+	struct drgn_error *err;
+	struct hash_pair hp;
+
+	if (drgn_type_pair_set_size(set) >= 1000) {
+		return drgn_error_create(DRGN_ERROR_RECURSION,
+					 "maximum type comparison depth exceeded");
+	}
+
+	/*
+	 * Handle cycles by assuming that types which we are already comparing
+	 * are equal.
+	 */
+	hp = drgn_type_pair_set_hash(&pair);
+	if (drgn_type_pair_set_search_hashed(set, &pair, hp)) {
+		*ret = true;
+		return NULL;
+	}
+	if (!drgn_type_pair_set_insert_searched(set, &pair, hp))
+		return &drgn_enomem;
+
+	if (a == b)
+		goto out_true;
+	if (!a || !b)
+		goto out_false;
+
+	if (drgn_type_kind(a) != drgn_type_kind(b) ||
+	    drgn_type_is_complete(a) != drgn_type_is_complete(b))
+		goto out_false;
+
+	if (drgn_type_has_name(a) &&
+	    strcmp(drgn_type_name(a), drgn_type_name(b)) != 0)
+		goto out_false;
+	if (drgn_type_has_tag(a)) {
+		const char *tag_a, *tag_b;
+
+		tag_a = drgn_type_tag(a);
+		tag_b = drgn_type_tag(b);
+		if ((!tag_a != !tag_b) || (tag_a && strcmp(tag_a, tag_b) != 0))
+			goto out_false;
+	}
+	if (drgn_type_has_size(a) && drgn_type_size(a) != drgn_type_size(b))
+		goto out_false;
+	if (drgn_type_has_length(a) &&
+	    drgn_type_length(a) != drgn_type_length(b))
+		goto out_false;
+	if (drgn_type_has_is_signed(a) &&
+	    drgn_type_is_signed(a) != drgn_type_is_signed(b))
+		goto out_false;
+	if (drgn_type_has_type(a)) {
+		struct drgn_qualified_type type_a, type_b;
+
+		type_a = drgn_type_type(a);
+		type_b = drgn_type_type(b);
+		err = drgn_qualified_type_eq_impl(&type_a, &type_b, set, ret);
+		if (err || !*ret)
+			goto out;
+	}
+	if (drgn_type_has_members(a)) {
+		err = drgn_type_members_eq(a, b, set, ret);
+		if (err || !*ret)
+			goto out;
+	}
+	if (drgn_type_has_enumerators(a) && !drgn_type_enumerators_eq(a, b))
+		goto out_false;
+	if (drgn_type_has_parameters(a)) {
+		err = drgn_type_parameters_eq(a, b, set, ret);
+		if (err || !*ret)
+			goto out;
+	}
+	if (drgn_type_has_is_variadic(a) &&
+	    drgn_type_is_variadic(a) != drgn_type_is_variadic(b))
+		goto out_false;
+
+out_true:
+	*ret = true;
+	err = NULL;
+	goto out;
+out_false:
+	*ret = false;
+	err = NULL;
+out:
+	drgn_type_pair_set_delete_hashed(set, &pair, hp);
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_type_eq(struct drgn_type *a,
+					       struct drgn_type *b, bool *ret)
+{
+	struct drgn_type_pair_set set;
+	struct drgn_error *err;
+
+	drgn_type_pair_set_init(&set);
+	err = drgn_type_eq_impl(a, b, &set, ret);
+	drgn_type_pair_set_deinit(&set);
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_qualified_type_eq(struct drgn_qualified_type a,
+		       struct drgn_qualified_type b, bool *ret)
+{
+	if (a.qualifiers != b.qualifiers) {
+		*ret = false;
+		return NULL;
+	}
+	return drgn_type_eq(a.type, b.type, ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_pretty_print_type_name(struct drgn_qualified_type qualified_type,
+			    char **ret)
+{
+	return drgn_language_c.pretty_print_type_name(qualified_type, ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_pretty_print_type(struct drgn_qualified_type qualified_type, char **ret)
+{
+	return drgn_language_c.pretty_print_type(qualified_type, ret);
+}
+
+bool drgn_type_is_integer(struct drgn_type *type)
+{
+	switch (drgn_type_kind(type)) {
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_ENUM:
+		return true;
+	case DRGN_TYPE_TYPEDEF:
+		return drgn_type_is_integer(drgn_type_type(type).type);
+	default:
+		return false;
+	}
+}
+
+bool drgn_type_is_arithmetic(struct drgn_type *type)
+{
+	switch (drgn_type_kind(type)) {
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_FLOAT:
+	case DRGN_TYPE_ENUM:
+		return true;
+	case DRGN_TYPE_TYPEDEF:
+		return drgn_type_is_arithmetic(drgn_type_type(type).type);
+	default:
+		return false;
+	}
+}
+
+bool drgn_type_is_scalar(struct drgn_type *type)
+{
+	switch (drgn_type_kind(type)) {
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_FLOAT:
+	case DRGN_TYPE_ENUM:
+	case DRGN_TYPE_POINTER:
+		return true;
+	case DRGN_TYPE_TYPEDEF:
+		return drgn_type_is_scalar(drgn_type_type(type).type);
+	default:
+		return false;
+	}
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
+						   uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	switch (drgn_type_kind(type)) {
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_FLOAT:
+	case DRGN_TYPE_COMPLEX:
+	case DRGN_TYPE_POINTER:
+		*ret = drgn_type_size(type);
+		return NULL;
+	case DRGN_TYPE_STRUCT:
+		if (!drgn_type_is_complete(type)) {
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "cannot get size of incomplete structure type");
+		}
+		*ret = drgn_type_size(type);
+		return NULL;
+	case DRGN_TYPE_UNION:
+		if (!drgn_type_is_complete(type)) {
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "cannot get size of incomplete union type");
+		}
+		*ret = drgn_type_size(type);
+		return NULL;
+	case DRGN_TYPE_ENUM:
+		if (!drgn_type_is_complete(type)) {
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "cannot get size of incomplete enumerated type");
+		}
+		/* fallthrough */
+	case DRGN_TYPE_TYPEDEF:
+		return drgn_type_sizeof(drgn_type_type(type).type, ret);
+	case DRGN_TYPE_ARRAY:
+		if (!drgn_type_is_complete(type)) {
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "cannot get size of incomplete array type");
+		}
+
+		err = drgn_type_sizeof(drgn_type_type(type).type, ret);
+		if (err)
+			return err;
+		if (__builtin_mul_overflow(*ret, drgn_type_length(type), ret)) {
+			return drgn_error_create(DRGN_ERROR_OVERFLOW,
+						 "type size is too large");
+		}
+		return NULL;
+	case DRGN_TYPE_VOID:
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "cannot get size of void type");
+	case DRGN_TYPE_FUNCTION:
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "cannot get size of function type");
+	}
+	DRGN_UNREACHABLE();
+}
+
+struct drgn_error *drgn_type_bit_size(struct drgn_type *type, uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	err = drgn_type_sizeof(type, ret);
+	if (err)
+		return err;
+	if (__builtin_mul_overflow(*ret, 8, ret)) {
+		return drgn_error_create(DRGN_ERROR_OVERFLOW,
+					 "type bit size is too large");
+	}
+	return NULL;
+}
+
+enum drgn_object_kind drgn_type_object_kind(struct drgn_type *type)
+{
+	switch (drgn_type_kind(type)) {
+	case DRGN_TYPE_INT:
+		return (drgn_type_is_signed(type) ? DRGN_OBJECT_SIGNED :
+			DRGN_OBJECT_UNSIGNED);
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_POINTER:
+		return DRGN_OBJECT_UNSIGNED;
+	case DRGN_TYPE_FLOAT:
+		return DRGN_OBJECT_FLOAT;
+	case DRGN_TYPE_COMPLEX:
+		return DRGN_OBJECT_BUFFER;
+	case DRGN_TYPE_STRUCT:
+	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_ARRAY:
+		return (drgn_type_is_complete(type) ? DRGN_OBJECT_BUFFER :
+			DRGN_OBJECT_INCOMPLETE_BUFFER);
+	case DRGN_TYPE_ENUM:
+		if (!drgn_type_is_complete(type))
+			return DRGN_OBJECT_INCOMPLETE_INTEGER;
+		/* fallthrough */
+	case DRGN_TYPE_TYPEDEF:
+		return drgn_type_object_kind(drgn_type_type(type).type);
+	case DRGN_TYPE_VOID:
+	case DRGN_TYPE_FUNCTION:
+		return DRGN_OBJECT_NONE;
+	}
+	DRGN_UNREACHABLE();
+}
+
+struct drgn_error *drgn_type_error(const char *format, struct drgn_type *type)
+{
+	struct drgn_qualified_type qualified_type = { type };
+
+	return drgn_qualified_type_error(format, qualified_type);
+}
+
+struct drgn_error *
+drgn_qualified_type_error(const char *format,
+			  struct drgn_qualified_type qualified_type)
+{
+	struct drgn_error *err;
+	char *name;
+
+	err = drgn_pretty_print_type_name(qualified_type, &name);
+	if (err)
+		return err;
+	err = drgn_error_format(DRGN_ERROR_TYPE, format, name);
+	free(name);
+	return err;
+}
+
+struct drgn_error *drgn_error_incomplete_type(const char *format,
+					      struct drgn_type *type)
+{
+	switch (drgn_type_kind(drgn_underlying_type(type))) {
+	case DRGN_TYPE_STRUCT:
+		return drgn_error_format(DRGN_ERROR_TYPE, format,
+					 "incomplete structure");
+	case DRGN_TYPE_UNION:
+		return drgn_error_format(DRGN_ERROR_TYPE, format,
+					 "incomplete union");
+	case DRGN_TYPE_ENUM:
+		return drgn_error_format(DRGN_ERROR_TYPE, format,
+					 "incomplete enumerated");
+	case DRGN_TYPE_ARRAY:
+		return drgn_error_format(DRGN_ERROR_TYPE, format,
+					 "incomplete array");
+	case DRGN_TYPE_FUNCTION:
+		return drgn_error_format(DRGN_ERROR_TYPE, format, "function");
+	case DRGN_TYPE_VOID:
+		return drgn_error_format(DRGN_ERROR_TYPE, format, "void");
+	default:
+		DRGN_UNREACHABLE();
+	}
+}
+
+struct drgn_error *drgn_error_member_not_found(struct drgn_type *type,
+					       const char *member_name)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type = { type };
+	char *name;
+
+	err = drgn_pretty_print_type_name(qualified_type, &name);
+	if (err)
+		return err;
+	err = drgn_error_format(DRGN_ERROR_LOOKUP, "'%s' has no member '%s'",
+				name, member_name);
+	free(name);
+	return err;
+}

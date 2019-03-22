@@ -94,7 +94,7 @@ def pid_task(pid, pid_type):
     try:
         return container_of(first, 'struct task_struct',
                             f'pid_links[{int(pid_type)}]')
-    except ValueError:
+    except LookupError:
         return container_of(first, 'struct task_struct',
                             f'pids[{int(pid_type)}].node')
 
