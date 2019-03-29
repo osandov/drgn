@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from drgn import __version__
+import re
 from setuptools import setup, find_packages
 from setuptools.extension import Extension
 
@@ -28,9 +28,14 @@ extensions = [
     ),
 ]
 
+
+with open('drgn/__init__.py', 'r') as f:
+    version = re.search(r"__version__\s*=\s*'([^']+)'", f.read()).group(1)
+
+
 setup(
     name='drgn',
-    version=__version__,
+    version=version,
     packages=find_packages(exclude=['examples', 'scripts', 'tests']),
     ext_modules=extensions,
     entry_points={
