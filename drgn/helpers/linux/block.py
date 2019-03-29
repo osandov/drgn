@@ -10,8 +10,8 @@ disks (struct gendisk) and partitions (struct hd_struct).
 
 from drgn import container_of
 from drgn.internal.util import escape_string
-from drgn.helpers.kernel.device import MAJOR, MINOR
-from drgn.helpers.kernel.list import list_for_each_entry
+from drgn.helpers.linux.device import MAJOR, MINOR
+from drgn.helpers.linux.list import list_for_each_entry
 
 __all__ = [
     'for_each_disk',

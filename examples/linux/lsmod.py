@@ -1,6 +1,6 @@
 """An implementation of lsmod(8) using drgn"""
 
-from drgn.helpers.kernel.list import list_for_each_entry
+from drgn.helpers.linux.list import list_for_each_entry
 
 
 print('Module                  Size  Used by')

@@ -1,7 +1,7 @@
 """List the paths of all inodes cached in a given filesystem"""
 
-from drgn.helpers.kernel.fs import for_each_mount, inode_path
-from drgn.helpers.kernel.list import list_for_each_entry
+from drgn.helpers.linux.fs import for_each_mount, inode_path
+from drgn.helpers.linux.list import list_for_each_entry
 import os
 import sys
 import time

@@ -8,8 +8,8 @@ This module provides helpers for looking up process IDs.
 """
 
 from drgn import cast, container_of, NULL, Program
-from drgn.helpers.kernel.idr import idr_find, idr_for_each
-from drgn.helpers.kernel.list import hlist_for_each_entry
+from drgn.helpers.linux.idr import idr_find, idr_for_each
+from drgn.helpers.linux.list import hlist_for_each_entry
 
 __all__ = [
     'find_pid',

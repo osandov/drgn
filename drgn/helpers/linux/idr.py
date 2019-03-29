@@ -10,7 +10,7 @@ currently only supports Linux v4.11+; before this, IDRs were not based on radix
 trees.
 """
 
-from drgn.helpers.kernel.radixtree import radix_tree_for_each, radix_tree_lookup
+from drgn.helpers.linux.radixtree import radix_tree_for_each, radix_tree_lookup
 
 
 __all__ = [

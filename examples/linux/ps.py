@@ -1,6 +1,6 @@
 """A simplified implementation of ps(1) using drgn"""
 
-from drgn.helpers.kernel.pid import for_each_task
+from drgn.helpers.linux.pid import for_each_task
 
 
 print('PID        COMM')

@@ -5,7 +5,7 @@
 
 import os.path
 
-from drgn.helpers.kernel import list_for_each_entry
+from drgn.helpers.linux import list_for_each_entry
 from drgn.internal.dwarf import Die, DwarfAttribNotFoundError
 from drgn.internal.dwarftypeindex import DwarfTypeIndex
 from drgn.internal.dwarfvariableindex import DwarfVariableIndex

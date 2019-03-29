@@ -9,7 +9,7 @@ This module provides helpers for working with per-CPU allocations from
 """
 
 from drgn import Object
-from drgn.helpers.kernel.cpumask import for_each_online_cpu
+from drgn.helpers.linux.cpumask import for_each_online_cpu
 
 
 __all__ = [

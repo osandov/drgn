@@ -12,7 +12,7 @@ import os
 
 from drgn import container_of, Program
 from drgn.internal.util import escape_string
-from drgn.helpers.kernel.list import hlist_for_each_entry, list_for_each_entry
+from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = [
     'd_path',

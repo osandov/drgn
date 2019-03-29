@@ -64,7 +64,7 @@ struct list_head {
 }
 >>> prog['init_task'].pid
 (pid_t)0
->>> from drgn.helpers.kernel import list_for_each_entry
+>>> from drgn.helpers.linux import list_for_each_entry
 >>> for mod in list_for_each_entry('struct module', prog['modules'].address_of_(), 'list'):
 ...    if mod.refcnt.counter > 10:
 ...        print(mod.name)
@@ -75,7 +75,7 @@ struct list_head {
 ```
 
 See the in-program documentation in interactive mode with `help(drgn)` for more
-information. See `examples` and `drgn/helpers/kernel` for some examples.
+information. See `examples` and `drgn/helpers` for some examples.
 
 License
 -------

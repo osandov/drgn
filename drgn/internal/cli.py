@@ -105,8 +105,8 @@ For help, type help(drgn).
 >>> import drgn
 >>> from drgn import """ + ', '.join(drgn_globals)
             if prog._is_kernel():
-                banner += '\n>>> from drgn.helpers.kernel import *'
-                module = importlib.import_module('drgn.helpers.kernel')
+                banner += '\n>>> from drgn.helpers.linux import *'
+                module = importlib.import_module('drgn.helpers.linux')
                 for name in module.__dict__['__all__']:
                     init_globals[name] = getattr(module, name)
             code.interact(banner=banner, exitmsg='', local=init_globals)
