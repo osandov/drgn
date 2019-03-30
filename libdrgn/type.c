@@ -648,7 +648,7 @@ struct drgn_error *drgn_type_bit_size(struct drgn_type *type, uint64_t *ret)
 	err = drgn_type_sizeof(type, ret);
 	if (err)
 		return err;
-	if (__builtin_mul_overflow(*ret, 8, ret)) {
+	if (__builtin_mul_overflow(*ret, 8U, ret)) {
 		return drgn_error_create(DRGN_ERROR_OVERFLOW,
 					 "type bit size is too large");
 	}

@@ -27,17 +27,17 @@ static DrgnType *DrgnType_new(enum drgn_qualifiers qualifiers, size_t nmemb,
 			      size_t size)
 {
 	DrgnType *type_obj;
-	Py_ssize_t nitems;
+	size_t bytes;
 
-	if (__builtin_mul_overflow(nmemb, size, &nitems) ||
-	    __builtin_add_overflow(nitems, sizeof(struct drgn_type), &nitems) ||
-	    __builtin_add_overflow(nitems, DrgnType_type.tp_itemsize - 1,
-				   &nitems)) {
+	if (__builtin_mul_overflow(nmemb, size, &bytes) ||
+	    __builtin_add_overflow(bytes, sizeof(struct drgn_type), &bytes) ||
+	    __builtin_add_overflow(bytes, sizeof(void *) - 1, &bytes) ||
+	    bytes / sizeof(void *) > PY_SSIZE_T_MAX - sizeof(DrgnType)) {
 		PyErr_NoMemory();
 		return NULL;
 	}
-	nitems /= DrgnType_type.tp_itemsize;
-	type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type, nitems);
+	type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type,
+						      bytes / sizeof(void *));
 	if (!type_obj)
 		return NULL;
 	type_obj->qualifiers = qualifiers;

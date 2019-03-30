@@ -542,12 +542,12 @@ static struct drgn_error *parse_nt_file(const char *desc, size_t descsz,
 	if (is_64_bit) {
 		if (!read_u64(&p, end, bswap, &count) ||
 		    !read_u64(&p, end, bswap, &page_size) ||
-		    __builtin_mul_overflow(count, 24, &paths_offset))
+		    __builtin_mul_overflow(count, 24U, &paths_offset))
 			goto invalid;
 	} else {
 		if (!read_u32_into_u64(&p, end, bswap, &count) ||
 		    !read_u32_into_u64(&p, end, bswap, &page_size) ||
-		    __builtin_mul_overflow(count, 12, &paths_offset))
+		    __builtin_mul_overflow(count, 12U, &paths_offset))
 			goto invalid;
 	}
 
