@@ -4,19 +4,11 @@ from enum import auto
 import os
 from typing import BinaryIO, NamedTuple, Optional, Sequence, Union
 
-import _drgn
 import drgn
 from drgn.internal.mock import MockType
+from tests import _drgn_pydll, _drgn_cdll
 from tests.libelf import _Elf, Elf
 from tests.libdw import _Dwarf_Die, Die, Dwarf
-
-
-_libc = ctypes.CDLL('libc.so.6')
-_libc.free.restype = None
-_libc.free.argtypes = [ctypes.c_void_p]
-
-_drgn_pydll = ctypes.PyDLL(_drgn.__file__)
-_drgn_cdll = ctypes.CDLL(_drgn.__file__)
 
 
 class _drgn_error(ctypes.Structure):

@@ -5,7 +5,8 @@
  * Wrapper functions for testing.
  *
  * In order to test a few internal interfaces that don't have Python bindings,
- * we export these wrappers, which are accessed via ctypes.
+ * we export some wrappers for those interfaces and for some required
+ * libelf/libdw helpers. These wrappers are accessed via ctypes.
  */
 
 #include "drgnpy.h"
@@ -17,6 +18,79 @@
 #include "../libdrgn/object_index.h"
 #include "../libdrgn/serialize.h"
 #include "../libdrgn/type_index.h"
+
+DRGNPY_PUBLIC const char *drgn_test_elf_errmsg(int error)
+{
+	return elf_errmsg(error);
+}
+
+DRGNPY_PUBLIC Elf *drgn_test_elf_memory(char *image, size_t size)
+{
+	return elf_memory(image, size);
+}
+
+DRGNPY_PUBLIC int drgn_test_elf_end(Elf *elf)
+{
+	return elf_end(elf);
+}
+
+DRGNPY_PUBLIC const char *drgn_test_dwarf_errmsg(int error)
+{
+	return dwarf_errmsg(error);
+}
+
+DRGNPY_PUBLIC Dwarf *drgn_test_dwarf_begin_elf(Elf *elf, unsigned int cmd,
+					       Elf_Scn *scngrp)
+{
+	return dwarf_begin_elf(elf, cmd, scngrp);
+}
+
+DRGNPY_PUBLIC int drgn_test_dwarf_end(Dwarf *dwarf)
+{
+	return dwarf_end(dwarf);
+}
+
+DRGNPY_PUBLIC int drgn_test_dwarf_nextcu(Dwarf *dwarf, uint64_t off,
+					 uint64_t *next_off,
+					 size_t *header_sizep,
+					 uint64_t *abbrev_offsetp,
+					 uint8_t *address_sizep,
+					 uint8_t *offset_sizep)
+{
+	Dwarf_Off dwarf_next_off, dwarf_abbrev_offset;
+	int ret;
+
+	ret = dwarf_nextcu(dwarf, off, &dwarf_next_off, header_sizep,
+			   &dwarf_abbrev_offset, address_sizep, offset_sizep);
+	if (ret)
+		return ret;
+	if (next_off)
+		*next_off = dwarf_next_off;
+	if (abbrev_offsetp)
+		*abbrev_offsetp = dwarf_abbrev_offset;
+	return 0;
+}
+
+DRGNPY_PUBLIC Dwarf_Die *drgn_test_dwarf_offdie(Dwarf *dbg, uint64_t offset,
+						Dwarf_Die *result)
+{
+	return dwarf_offdie(dbg, offset, result);
+}
+
+DRGNPY_PUBLIC int drgn_test_dwarf_tag(Dwarf_Die *die)
+{
+	return dwarf_tag(die);
+}
+
+DRGNPY_PUBLIC int drgn_test_dwarf_child(Dwarf_Die *die, Dwarf_Die *result)
+{
+	return dwarf_child(die, result);
+}
+
+DRGNPY_PUBLIC int drgn_test_dwarf_siblingof(Dwarf_Die *die, Dwarf_Die *result)
+{
+	return dwarf_siblingof(die, result);
+}
 
 DRGNPY_PUBLIC struct drgn_error *
 drgn_test_dwarf_index_create(int flags, struct drgn_dwarf_index **ret)
