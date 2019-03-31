@@ -363,12 +363,15 @@ struct drgn_type {
 			size_t num_members;
 			struct drgn_type *type;
 		};
-		union {
-			struct drgn_type_member members[0];
-			struct drgn_type_enumerator enumerators[0];
-			struct drgn_type_parameter parameters[0];
-		};
 	} _private;
+	/*
+	 * An array of struct drgn_type_member, struct drgn_type_enumerator, or
+	 * struct drgn_type_parameter may follow. We can't use flexible array
+	 * members for these because they are not allowed in a union or nested
+	 * structure; we can't use GCC's zero length array extension because
+	 * that triggers false positives in Clang's AddressSanitizer. Instead,
+	 * these are accessed internally with drgn_type_payload().
+	 */
 };
 
 /**
@@ -504,6 +507,11 @@ static inline const char *drgn_type_tag(struct drgn_type *type)
 	return type->_private.tag;
 }
 
+static inline void *drgn_type_payload(struct drgn_type *type)
+{
+	return (char *)type + sizeof(*type);
+}
+
 /**
  * Get whether a kind of type has members. This is true for structure and union
  * types.
@@ -524,7 +532,7 @@ static inline bool drgn_type_has_members(struct drgn_type *type)
 static inline struct drgn_type_member *drgn_type_members(struct drgn_type *type)
 {
 	assert(drgn_type_has_members(type));
-	return type->_private.members;
+	return drgn_type_payload(type);
 }
 /**
  * Get the number of members of a type. @ref drgn_type_has_members() must be
@@ -601,7 +609,7 @@ static inline struct drgn_type_enumerator *
 drgn_type_enumerators(struct drgn_type *type)
 {
 	assert(drgn_type_has_enumerators(type));
-	return type->_private.enumerators;
+	return drgn_type_payload(type);
 }
 /**
  * Get the number of enumerators of a type. @ref drgn_type_has_enumerators()
@@ -652,7 +660,7 @@ static inline bool drgn_type_has_parameters(struct drgn_type *type)
 static inline struct drgn_type_parameter *drgn_type_parameters(struct drgn_type *type)
 {
 	assert(drgn_type_has_parameters(type));
-	return type->_private.parameters;
+	return drgn_type_payload(type);
 }
 /**
  * Get the number of parameters of a type. @ref drgn_type_has_parameters() must

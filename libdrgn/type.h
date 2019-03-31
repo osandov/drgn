@@ -232,12 +232,12 @@ static inline void drgn_type_member_init(struct drgn_type *type, size_t i,
 					 const char *name, uint64_t bit_offset,
 					 uint64_t bit_field_size)
 {
-	struct drgn_type_member *member = &type->_private.members[i];
+	struct drgn_type_member *members = drgn_type_payload(type);
 
-	member->type = member_type;
-	member->name = name;
-	member->bit_offset = bit_offset;
-	member->bit_field_size = bit_field_size;
+	members[i].type = member_type;
+	members[i].name = name;
+	members[i].bit_offset = bit_offset;
+	members[i].bit_field_size = bit_field_size;
 }
 
 /**
@@ -250,9 +250,9 @@ static inline void drgn_type_member_init(struct drgn_type *type, size_t i,
  */
 static inline void drgn_type_member_deinit(struct drgn_type *type, size_t i)
 {
-	struct drgn_type_member *member = &type->_private.members[i];
+	struct drgn_type_member *members = drgn_type_payload(type);
 
-	drgn_lazy_type_deinit(&member->type);
+	drgn_lazy_type_deinit(&members[i].type);
 }
 
 /**
@@ -310,11 +310,10 @@ static inline void drgn_type_enumerator_init_signed(struct drgn_type *type,
 						    const char *name,
 						    int64_t svalue)
 {
-	struct drgn_type_enumerator *enumerator;
+	struct drgn_type_enumerator *enumerators = drgn_type_payload(type);
 
-	enumerator = &type->_private.enumerators[i];
-	enumerator->name = name;
-	enumerator->svalue = svalue;
+	enumerators[i].name = name;
+	enumerators[i].svalue = svalue;
 }
 
 /**
@@ -330,11 +329,10 @@ static inline void drgn_type_enumerator_init_unsigned(struct drgn_type *type,
 						      const char *name,
 						      uint64_t uvalue)
 {
-	struct drgn_type_enumerator *enumerator;
+	struct drgn_type_enumerator *enumerators = drgn_type_payload(type);
 
-	enumerator = &type->_private.enumerators[i];
-	enumerator->name = name;
-	enumerator->uvalue = uvalue;
+	enumerators[i].name = name;
+	enumerators[i].uvalue = uvalue;
 }
 
 /**
@@ -419,10 +417,10 @@ static inline void
 drgn_type_parameter_init(struct drgn_type *type, size_t i,
 			 struct drgn_lazy_type parameter_type, const char *name)
 {
-	struct drgn_type_parameter *parameter = &type->_private.parameters[i];
+	struct drgn_type_parameter *parameters = drgn_type_payload(type);
 
-	parameter->type = parameter_type;
-	parameter->name = name;
+	parameters[i].type = parameter_type;
+	parameters[i].name = name;
 }
 
 /**
@@ -435,9 +433,9 @@ drgn_type_parameter_init(struct drgn_type *type, size_t i,
  */
 static inline void drgn_type_parameter_deinit(struct drgn_type *type, size_t i)
 {
-	struct drgn_type_parameter *parameter = &type->_private.parameters[i];
+	struct drgn_type_parameter *parameters = drgn_type_payload(type);
 
-	drgn_lazy_type_deinit(&parameter->type);
+	drgn_lazy_type_deinit(&parameters[i].type);
 }
 
 /**
