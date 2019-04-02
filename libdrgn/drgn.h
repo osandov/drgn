@@ -924,8 +924,12 @@ struct drgn_error *drgn_program_read_c_string(struct drgn_program *prog,
  *
  * @param[in] prog Program.
  * @param[in] name Name of the type.
- * @param[in] filename Exact filename containing the type definition, or @c NULL
- * for any definition.
+ * @param[in] filename Filename containing the type definition. This is matched
+ * from right to left, so a type defined in <tt>/usr/include/stdio.h</tt> will
+ * match <tt>stdio.h</tt>, <tt>include/stdio.h</tt>,
+ * <tt>usr/include/stdio.h</tt>, and <tt>/usr/include/stdio.h</tt>. An empty or
+ * @c NULL @p filename matches any definition. If multiple definitions match,
+ * one is returned arbitrarily.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
@@ -953,8 +957,8 @@ enum drgn_find_object_flags {
  *
  * @param[in] prog Program.
  * @param[in] name Name of the object.
- * @param[in] filename Exact filename containing the object definition, or @c
- * NULL for any definition.
+ * @param[in] filename Filename containing the object definition. This is
+ * interpreted the same way as for @ref drgn_program_find_type().
  * @param[in] flags Flags indicating what kind of object to look for.
  * @param[out] ret Returned object. It must have already been initialized with
  * @ref drgn_object_init().

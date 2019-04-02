@@ -1,3 +1,4 @@
+import os.path
 import unittest
 
 from drgn import (
@@ -537,7 +538,7 @@ class TestDwarfTypeIndex(unittest.TestCase):
                 [
                     DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
-                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, 'bar.c'),
+                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, 'bar/baz.c'),
                 ],
                 [
                     DwarfDie(
@@ -566,20 +567,36 @@ class TestDwarfTypeIndex(unittest.TestCase):
         ))
 
         tindex = self.type_index(dies)
-        self.assertEqual(tindex.find('struct point', 'foo.c'), point_type)
-        self.assertEqual(tindex.find('struct point', 'bar.c'),
-                         other_point_type)
+        for dir in ['', 'src', 'usr/src', '/usr/src']:
+            with self.subTest(dir=dir):
+                self.assertEqual(tindex.find('struct point',
+                                             os.path.join(dir, 'foo.c')),
+                                 point_type)
+        for dir in ['', 'bar', 'src/bar', 'usr/src/bar', '/usr/src/bar']:
+            with self.subTest(dir=dir):
+                self.assertEqual(tindex.find('struct point',
+                                             os.path.join(dir, 'baz.c')),
+                                 other_point_type)
 
-        dies[len(base_type_dies)].attribs[-1] = DwarfAttrib(DW_AT.decl_file,
-                                                            DW_FORM.udata,
-                                                            'xy/foo.h')
-        dies[len(base_type_dies) + 1].attribs[-1] = DwarfAttrib(DW_AT.decl_file,
-                                                                DW_FORM.udata,
-                                                                'ab/foo.h')
+        dies[len(base_type_dies)].attribs[-1] = DwarfAttrib(
+            DW_AT.decl_file, DW_FORM.udata, 'xy/foo.h')
+        dies[len(base_type_dies) + 1].attribs[-1] = DwarfAttrib(
+            DW_AT.decl_file, DW_FORM.udata, '/usr/include/ab/foo.h')
         tindex = self.type_index(dies)
-        self.assertEqual(tindex.find('struct point', 'xy/foo.h'), point_type)
-        self.assertEqual(tindex.find('struct point', 'ab/foo.h'),
-                         other_point_type)
+        for dir in ['xy', 'src/xy', 'usr/src/xy', '/usr/src/xy']:
+            with self.subTest(dir=dir):
+                self.assertEqual(tindex.find('struct point',
+                                             os.path.join(dir, 'foo.h')),
+                                 point_type)
+        for dir in ['ab', 'include/ab', 'usr/include/ab', '/usr/include/ab']:
+            with self.subTest(dir=dir):
+                self.assertEqual(tindex.find('struct point',
+                                             os.path.join(dir, 'foo.h')),
+                                 other_point_type)
+        for filename in [None, 'foo.h']:
+            with self.subTest(filename=filename):
+                self.assertIn(tindex.find('struct point', filename),
+                              (point_type, other_point_type))
 
     def test_bit_field(self):
         dies = [

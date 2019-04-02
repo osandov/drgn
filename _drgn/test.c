@@ -215,10 +215,10 @@ DRGNPY_PUBLIC bool drgn_test_path_iterator_next(struct path_iterator *it,
 	return path_iterator_next(it, component, component_len);
 }
 
-DRGNPY_PUBLIC bool drgn_test_normalized_path_eq(const char *path1,
-						const char *path2)
+DRGNPY_PUBLIC bool drgn_test_path_ends_with(struct path_iterator *haystack,
+					    struct path_iterator *needle)
 {
-	return normalized_path_eq(path1, path2);
+	return path_ends_with(haystack, needle);
 }
 
 DRGNPY_PUBLIC void drgn_test_serialize_bits(void *buf, uint64_t bit_offset,

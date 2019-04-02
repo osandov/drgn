@@ -195,14 +195,34 @@ static inline bool elf_is_little_endian(Elf *elf)
 bool die_matches_filename(Dwarf_Die *die, const char *filename);
 
 /**
+ * Path iterator input component.
+ *
+ *
+ */
+struct path_iterator_component {
+	/**
+	 * Path component.
+	 *
+	 * This can contain "/".
+	 */
+	const char *path;
+	/** Length of @ref path_iterator_component::path. */
+	size_t len;
+};
+
+/**
  * Path component iterator.
  *
- * This iterates over the components of a file path, normalizing it in the
- * process (i.e., collapsing redundant "/" separators and "." and ".."
- * components).
+ * This iterates over the components of a file path, joining multiple components
+ * and normalizing the result. Normalization:
  *
- * In order to do this in O(n) time and O(1) space, components are emitted in @b
- * reverse. So, "a/b/c" is emitted in the order "c", "b", "a".
+ * - Collapses redundant "/" separators.
+ * - Removes "." components.
+ * - Removes ".." components when possible.
+ *
+ * Components are emitted in @b reverse. So, "a/b/c" is emitted in the order
+ * "c", "b", "a" (this allows the implementation to operate in O(n) time and
+ * O(1) space).
  *
  * Absolute paths have an implicit empty component, so "/a/b" is emitted as "b",
  * "a", "".
@@ -218,15 +238,17 @@ bool die_matches_filename(Dwarf_Die *die, const char *filename);
  * A empty path does not emit any components.
  */
 struct path_iterator {
-	/** Path to iterate. */
-	const char *path;
 	/**
-	 * Length of the portion of the path which has not been consumed.
+	 * Array of input components.
 	 *
-	 * Initialize this to the length of the path (e.g.,
-	 * <tt>strlen(path)</tt> if the path is null-terminated).
+	 * The input components are treated as if they were joined with a "/".
+	 * @ref path_iterator_component::path and @ref
+	 * path_iterator_component::len should be initialized for each
+	 * component. The latter will be modified as the path is iterated.
 	 */
-	size_t len;
+	struct path_iterator_component *components;
+	/** Number of components in @ref path_iterator::components. */
+	size_t num_components;
 	/**
 	 * Current number of ".." components.
 	 *
@@ -252,14 +274,16 @@ bool path_iterator_next(struct path_iterator *it, const char **component,
 			size_t *component_len);
 
 /**
- * Return whether two paths, when normalized, are equal.
+ * Return whether the path @p haystack ends with the path @p needle once both
+ * are normalized.
  *
- * A normalized path is a path with all redundant "/" separators and "." and
- * ".." components removed. E.g., "a/./b" is equal to "a//c/../b".
+ * The unit of comparison is a path component, not a character. Thus, "ab/cd/ef"
+ * ends with "cd/ef", but not "d/ef".
  *
  * @sa path_iterator
  */
-bool normalized_path_eq(const char *path1, const char *path2);
+bool path_ends_with(struct path_iterator *haystack,
+		    struct path_iterator *needle);
 
 /** @} */
 

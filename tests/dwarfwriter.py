@@ -183,6 +183,7 @@ def compile_dwarf(dies, little_endian=True, bits=64):
         dies = (dies,)
     assert all(isinstance(die, DwarfDie) for die in dies)
     cu_die = DwarfDie(DW_TAG.compile_unit, [
+        DwarfAttrib(DW_AT.comp_dir, DW_FORM.string, '/usr/src'),
         DwarfAttrib(DW_AT.stmt_list, DW_FORM.sec_offset, 0),
     ], dies)
 

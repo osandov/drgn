@@ -2,7 +2,7 @@ import itertools
 import os.path
 import unittest
 
-from tests.libdrgn import PathIterator, normalized_path_eq
+from tests.libdrgn import PathIterator, path_ends_with
 
 
 # normpath("//") returns "//". See https://bugs.python.org/issue26329.
@@ -14,64 +14,100 @@ def my_normpath(path):
         return path
 
 
+# Given a sequence of components, generate all of the possible combinations of
+# joining or not joining those components with '/'.
+def join_combinations(components):
+    if len(components) > 1:
+        for join in itertools.product([False, True],
+                                      repeat=len(components) - 1):
+            combination = [components[0]]
+            for i in range(1, len(components)):
+                if join[i - 1]:
+                    combination[-1] += '/' + components[i]
+                else:
+                    combination.append(components[i])
+            yield combination
+    else:
+        yield components
+
+
 class TestPathIterator(unittest.TestCase):
+    def assertComponents(self, path_components, expected, combinations=True):
+        if combinations:
+            cases = join_combinations(path_components)
+        else:
+            cases = (path_components,)
+        for case in cases:
+            with self.subTest(case=case):
+                self.assertEqual(list(PathIterator(*case)), expected)
+
     def test_empty(self):
+        self.assertEqual(list(PathIterator()), [])
         self.assertEqual(list(PathIterator('')), [])
+        self.assertEqual(list(PathIterator('', '')), [])
 
     def test_simple(self):
-        self.assertEqual(list(PathIterator('a')), ['a'])
-        self.assertEqual(list(PathIterator('abc/def')), ['def', 'abc'])
+        self.assertComponents(('a',), ['a'])
+        self.assertComponents(('abc', 'def'), ['def', 'abc'])
+        self.assertComponents(('abc', 'def', 'ghi'), ['ghi', 'def', 'abc'])
 
     def test_root(self):
-        self.assertEqual(list(PathIterator('/')), [''])
+        self.assertComponents(('/',), [''])
+        self.assertComponents(('/', ''), [''])
+        self.assertComponents(('', '/'), [''])
+        self.assertComponents(('', '/', ''), [''])
 
     def test_absolute(self):
-        self.assertEqual(list(PathIterator('/root')), ['root', ''])
-        self.assertEqual(list(PathIterator('/home/user')), ['user', 'home', ''])
+        self.assertComponents(('/root',), ['root', ''])
+        self.assertComponents(('/./usr',), ['usr', ''])
+        self.assertComponents(('/home', 'user'), ['user', 'home', ''])
+        self.assertComponents(('foo', '/root'), ['root', ''],
+                              combinations=False)
 
     def test_redundant_slash(self):
-        self.assertEqual(list(PathIterator('a/')), ['a'])
-        self.assertEqual(list(PathIterator('a//')), ['a'])
-        self.assertEqual(list(PathIterator('//')), [''])
-        self.assertEqual(list(PathIterator('//a')), ['a', ''])
-        self.assertEqual(list(PathIterator('///a')), ['a', ''])
+        self.assertComponents(('a/',), ['a'])
+        self.assertComponents(('a//',), ['a'])
+        self.assertComponents(('//',), [''])
+        self.assertComponents(('//a',), ['a', ''])
+        self.assertComponents(('///a',), ['a', ''])
 
     def test_dot(self):
-        self.assertEqual(list(PathIterator('a/.')), ['a'])
-        self.assertEqual(list(PathIterator('a/./')), ['a'])
-        self.assertEqual(list(PathIterator('./a')), ['a'])
-        self.assertEqual(list(PathIterator('./a/./')), ['a'])
+        self.assertComponents(('a', '.'), ['a'])
+        self.assertComponents(('.', 'a'), ['a'])
+        self.assertComponents(('.', 'a', '.'), ['a'])
 
     def test_dot_dot(self):
-        self.assertEqual(list(PathIterator('a/b/..')), ['a'])
-        self.assertEqual(list(PathIterator('a/../b')), ['b'])
+        self.assertComponents(('a', 'b', '..'), ['a'])
+        self.assertComponents(('a', '..', 'b'), ['b'])
 
-    def test_dot_dot_above_current_directory(self):
-        self.assertEqual(list(PathIterator('../one/two')), ['two', 'one', '..'])
-        self.assertEqual(list(PathIterator('one/../../two')), ['two', '..'])
-        self.assertEqual(list(PathIterator('one/two/../../..')), ['..'])
+    def test_relative_dot_dot(self):
+        self.assertComponents(('..', 'one', 'two'), ['two', 'one', '..'])
+        self.assertComponents(('one', '..', '..', 'two'), ['two', '..'])
+        self.assertComponents(('one', 'two', '..', '..', '..'), ['..'])
 
     def test_dot_dot_above_root(self):
-        self.assertEqual(list(PathIterator('/../one/two')), ['two', 'one', ''])
-        self.assertEqual(list(PathIterator('/one/../../two')), ['two', ''])
-        self.assertEqual(list(PathIterator('/one/two/../../..')), [''])
+        self.assertComponents(('/..', 'one', 'two'), ['two', 'one', ''])
+        self.assertComponents(('/one', '..', '..', 'two'), ['two', ''])
+        self.assertComponents(('/one', 'two', '..', '..', '..'), [''])
 
     def test_current_directory(self):
-        self.assertEqual(list(PathIterator('.')), [])
-        self.assertEqual(list(PathIterator('./')), [])
-        self.assertEqual(list(PathIterator('./.')), [])
-        self.assertEqual(list(PathIterator('foo/..')), [])
-        self.assertEqual(list(PathIterator('a/b/../..')), [])
+        self.assertComponents(('.',), [])
+        self.assertComponents(('', '.'), [], combinations=False)
+        self.assertComponents(('.', ''), [])
+        self.assertComponents(('.', '.'), [])
+        self.assertComponents(('foo', '..'), [])
+        self.assertComponents(('a', 'b', '..', '..'), [])
 
-    def test_normalized_path_eq(self):
-        paths = [
-            'a', 'abc/def', '/', '/root', '/home/user', 'a/', 'a//', '//',
-            '//a', '///a', 'a/.', 'a/./', './a', './a/./', 'a/b/..', 'a/../b',
-            '../one/two', 'one/../../two', 'one/two/../../..', '/../one/two',
-            '/one/../../two', '/one/two/../../..', '.', './', './.', 'foo/..',
-            'a/b/../..',
-        ]
-        for a, b in itertools.product(paths, paths):
-            with self.subTest(a=a, b=b):
-                self.assertEqual(normalized_path_eq(a, b),
-                                 my_normpath(a) == my_normpath(b))
+    def test_path_ends_with(self):
+        self.assertTrue(path_ends_with(PathIterator('ab/cd/ef'),
+                                       PathIterator('ef')))
+        self.assertTrue(path_ends_with(PathIterator('ab/cd/ef'),
+                                       PathIterator('cd/ef')))
+        self.assertFalse(path_ends_with(PathIterator('ab/cd/ef'),
+                                        PathIterator('d/ef')))
+        self.assertFalse(path_ends_with(PathIterator('ab/cd', '/ef'),
+                                        PathIterator('cd/ef')))
+        self.assertTrue(path_ends_with(PathIterator('/abc'),
+                                       PathIterator('abc')))
+        self.assertFalse(path_ends_with(PathIterator('abc'),
+                                        PathIterator('/abc')))

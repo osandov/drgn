@@ -1,6 +1,7 @@
 // Copyright 2018-2019 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <dwarf.h>
 #include <string.h>
 
 #include "internal.h"
@@ -8,59 +9,65 @@
 bool path_iterator_next(struct path_iterator *it, const char **component,
 			size_t *component_len)
 {
-	if (!it->len) {
-empty:
-		if (it->dot_dot) {
-			/*
-			 * Leftover ".." components must be above the current
-			 * directory.
-			 */
-			it->dot_dot--;
-			*component = "..";
-			*component_len = 2;
-			return true;
-		}
-		return false;
-	}
+	while (it->num_components) {
+		struct path_iterator_component *cur;
 
-	while (it->len) {
-		/* Skip slashes. */
-		if (it->path[it->len - 1] == '/') {
-			it->len--;
+		cur = &it->components[it->num_components - 1];
+		if (!cur->len) {
+			it->num_components--;
+			continue;
+		}
+
+		if (cur->path[cur->len - 1] == '/') {
+			if (cur->len == 1) {
+				/*
+				 * This is an absolute path. Emit an empty
+				 * component. Components joined before this one
+				 * and remaining ".." components are not
+				 * meaningful.
+				 */
+				it->num_components = 0;
+				it->dot_dot = 0;
+				*component = "";
+				*component_len = 0;
+				return true;
+			}
+			/* Skip redundant slashes. */
+			cur->len--;
 			continue;
 		}
 
 		/* Skip "." components. */
-		if (it->len == 1 && it->path[0] == '.') {
-			it->len--;
-			break;
+		if (cur->len == 1 && cur->path[0] == '.') {
+			it->num_components--;
+			continue;
 		}
-		if (it->len >= 2 && it->path[it->len - 2] == '/' &&
-		    it->path[it->len - 1] == '.') {
-			it->len -= 2;
+		if (cur->len >= 2 && cur->path[cur->len - 2] == '/' &&
+		    cur->path[cur->len - 1] == '.') {
+			cur->len -= 1;
 			continue;
 		}
 
 		/* Count ".." components. */
-		if (it->len == 2 && it->path[0] == '.' && it->path[1] == '.') {
-			it->len -= 2;
+		if (cur->len == 2 && cur->path[0] == '.' && cur->path[1] == '.') {
+			it->num_components--;
 			it->dot_dot++;
-			break;
+			continue;
 		}
-		if (it->len >= 3 && it->path[it->len - 3] == '/' &&
-		    it->path[it->len - 2] == '.' &&
-		    it->path[it->len - 1] == '.') {
-			it->len -= 3;
+		if (cur->len >= 3 && cur->path[cur->len - 3] == '/' &&
+		    cur->path[cur->len - 2] == '.' &&
+		    cur->path[cur->len - 1] == '.') {
+			cur->len -= 2;
 			it->dot_dot++;
 			continue;
 		}
 
 		/* Emit or skip other components. */
 		*component_len = 0;
-		while (it->path[it->len - 1] != '/') {
-			it->len--;
+		while (cur->path[cur->len - 1] != '/') {
+			cur->len--;
 			(*component_len)++;
-			if (!it->len)
+			if (!cur->len)
 				break;
 		}
 		if (it->dot_dot) {
@@ -68,60 +75,85 @@ empty:
 			continue;
 		}
 
-		*component = &it->path[it->len];
+		*component = &cur->path[cur->len];
 		return true;
 	}
 
-	if (it->path[0] == '/') {
+	if (it->dot_dot) {
 		/*
-		 * This is an absolute path. Emit an empty component. ".."
-		 * components above this path are not meaningful.
+		 * Leftover ".." components must be above the current
+		 * directory.
 		 */
-		it->dot_dot = 0;
-		*component = "";
-		*component_len = 0;
+		it->dot_dot--;
+		*component = "..";
+		*component_len = 2;
 		return true;
 	}
-	goto empty;
+	return false;
 }
 
-bool normalized_path_eq(const char *path1, const char *path2)
+bool path_ends_with(struct path_iterator *haystack,
+		    struct path_iterator *needle)
 {
-	struct path_iterator it = {
-		.path = path1,
-		.len = strlen(path1),
-	};
-	struct path_iterator it2 = {
-		.path = path2,
-		.len = strlen(path2),
-	};
-
 	for (;;) {
-		const char *component1, *component2;
-		size_t component_len1, component_len2;
-		bool more1, more2;
+		const char *h_component, *n_component;
+		size_t h_component_len, n_component_len;
 
-		more1 = path_iterator_next(&it, &component1, &component_len1);
-		more2 = path_iterator_next(&it2, &component2, &component_len2);
-
-		if (!more1 && !more2)
+		if (!path_iterator_next(needle, &n_component, &n_component_len))
 			return true;
-		else if (!more1 || !more2)
+
+		if (!path_iterator_next(haystack, &h_component,
+					&h_component_len))
 			return false;
 
-		if (component_len1 != component_len2 ||
-		    memcmp(component1, component2, component_len1) != 0)
+		if (h_component_len != n_component_len ||
+		    memcmp(h_component, n_component, h_component_len) != 0)
 			return false;
 	}
 }
 
 bool die_matches_filename(Dwarf_Die *die, const char *filename)
 {
-	const char *die_filename;
+	struct path_iterator_component die_components[2];
+	struct path_iterator die_path = {
+		.components = die_components,
+	};
+	struct path_iterator needle = {
+		.components = (struct path_iterator_component [1]){},
+		.num_components = 1,
+	};
+	Dwarf_Die cu_die;
+	Dwarf_Attribute attr_mem;
+	Dwarf_Attribute *attr;
+	const char *path;
 
-	if (!filename)
+	if (!filename || !filename[0])
 		return true;
 
-	die_filename = dwarf_decl_file(die);
-	return die_filename && normalized_path_eq(die_filename, filename);
+	attr = dwarf_attr_integrate(dwarf_diecu(die, &cu_die, NULL, NULL),
+				    DW_AT_comp_dir, &attr_mem);
+	path = dwarf_formstring(attr);
+	if (path) {
+		die_path.components[die_path.num_components].path =
+			path;
+		die_path.components[die_path.num_components].len =
+			strlen(path);
+		die_path.num_components++;
+	}
+
+	path = dwarf_decl_file(die);
+	if (!path)
+		return false;
+	/*
+	 * If the declaration file name is absolute, the compilation directory
+	 * component will be ignored.
+	 */
+	die_path.components[die_path.num_components].path = path;
+	die_path.components[die_path.num_components].len = strlen(path);
+	die_path.num_components++;
+
+	needle.components[0].path = filename;
+	needle.components[0].len = strlen(filename);
+
+	return path_ends_with(&die_path, &needle);
 }

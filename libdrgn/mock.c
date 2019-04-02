@@ -83,9 +83,25 @@ drgn_mock_memory_reader_create(struct drgn_mock_memory_segment *segments,
 
 static bool filename_matches(const char *entry_filename, const char *filename)
 {
-	return (!filename ||
-		(entry_filename &&
-		 normalized_path_eq(entry_filename, filename)));
+	struct path_iterator haystack = {
+		.components = (struct path_iterator_component [1]){},
+		.num_components = 1,
+	};
+	struct path_iterator needle = {
+		.components = (struct path_iterator_component [1]){},
+		.num_components = 1,
+	};
+
+	if (!filename || !filename[0])
+		return true;
+	if (!entry_filename)
+		return true;
+
+	haystack.components[0].path = entry_filename;
+	haystack.components[0].len = strlen(entry_filename);
+	needle.components[1].path = filename;
+	needle.components[1].len = strlen(filename);
+	return path_ends_with(&haystack, &needle);
 }
 
 static struct drgn_error *

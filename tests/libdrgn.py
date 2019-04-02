@@ -29,10 +29,17 @@ def _check_err(err):
         return _drgn_pydll.set_drgn_error(err)
 
 
-class _path_iterator(ctypes.Structure):
+class _path_iterator_component(ctypes.Structure):
     _fields_ = [
         ('path', ctypes.c_char_p),
         ('len', ctypes.c_size_t),
+    ]
+
+
+class _path_iterator(ctypes.Structure):
+    _fields_ = [
+        ('components', ctypes.POINTER(_path_iterator_component)),
+        ('num_components', ctypes.c_size_t),
         ('dot_dot', ctypes.c_size_t),
     ]
 
@@ -46,9 +53,13 @@ _drgn_cdll.drgn_test_path_iterator_next.argtypes = [
 
 
 class PathIterator:
-    def __init__(self, path):
-        path = os.fsencode(path)
-        self._it = _path_iterator(path, len(path))
+    def __init__(self, *paths):
+        components = (_path_iterator_component * len(paths))()
+        for i, path in enumerate(paths):
+            path = os.fsencode(path)
+            components[i].path = path
+            components[i].len = len(path)
+        self._it = _path_iterator(components, len(paths))
 
     def __iter__(self):
         return self
@@ -65,15 +76,15 @@ class PathIterator:
             raise StopIteration()
 
 
-_drgn_cdll.drgn_test_normalized_path_eq.restype = ctypes.c_bool
-_drgn_cdll.drgn_test_normalized_path_eq.argtypes = [
-    ctypes.c_char_p, ctypes.c_char_p,
+_drgn_cdll.drgn_test_path_ends_with.restype = ctypes.c_bool
+_drgn_cdll.drgn_test_path_ends_with.argtypes = [
+    ctypes.POINTER(_path_iterator), ctypes.POINTER(_path_iterator),
 ]
 
 
-def normalized_path_eq(path1, path2):
-    return _drgn_cdll.drgn_test_normalized_path_eq(os.fsencode(path1),
-                                                   os.fsencode(path2))
+def path_ends_with(path1: PathIterator, path2: PathIterator):
+    return _drgn_cdll.drgn_test_path_ends_with(ctypes.pointer(path1._it),
+                                               ctypes.pointer(path2._it))
 
 
 class _drgn_type(ctypes.Structure):
