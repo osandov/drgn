@@ -7,6 +7,7 @@ import argparse
 import builtins
 import code
 import importlib
+import os
 import os.path
 import runpy
 import shutil
@@ -66,8 +67,8 @@ def main() -> None:
         prog = drgn.program_from_core_dump(args.core, verbose)
     elif args.kernel:
         prog = drgn.program_from_kernel(verbose)
-    elif args.pid is not None:
-        prog = drgn.program_from_pid(args.pid)
+    else:
+        prog = drgn.program_from_pid(args.pid or os.getpid())
 
     init_globals: Dict[str, Any] = {'prog': prog}
     if args.script:
