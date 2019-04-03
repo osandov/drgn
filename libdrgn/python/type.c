@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "drgnpy.h"
-#include "../libdrgn/type.h"
+#include "../type.h"
 
 static const char *drgn_type_kind_str(struct drgn_type *type)
 {

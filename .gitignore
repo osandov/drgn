@@ -2,7 +2,6 @@
 *.so
 /.coverage
 /.mypy_cache
-/_drgn/constants.c
 /build
 /coverage.info
 /dist

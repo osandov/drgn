@@ -1,3 +1,4 @@
 *
 !/.gitignore
+!/gen_constants.py
 !/version.sh

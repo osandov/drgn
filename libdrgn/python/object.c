@@ -4,10 +4,10 @@
 #include <limits.h>
 
 #include "drgnpy.h"
-#include "../libdrgn/error.h"
-#include "../libdrgn/object.h"
-#include "../libdrgn/serialize.h"
-#include "../libdrgn/type.h"
+#include "../error.h"
+#include "../object.h"
+#include "../serialize.h"
+#include "../type.h"
 
 static inline Program *DrgnObject_prog(DrgnObject *obj)
 {

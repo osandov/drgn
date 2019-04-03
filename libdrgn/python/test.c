@@ -11,13 +11,13 @@
 
 #include "drgnpy.h"
 
-#include "../libdrgn/internal.h"
-#include "../libdrgn/dwarf_index.h"
-#include "../libdrgn/lexer.h"
-#include "../libdrgn/memory_reader.h"
-#include "../libdrgn/object_index.h"
-#include "../libdrgn/serialize.h"
-#include "../libdrgn/type_index.h"
+#include "../internal.h"
+#include "../dwarf_index.h"
+#include "../lexer.h"
+#include "../memory_reader.h"
+#include "../object_index.h"
+#include "../serialize.h"
+#include "../type_index.h"
 
 DRGNPY_PUBLIC const char *drgn_test_elf_errmsg(int error)
 {

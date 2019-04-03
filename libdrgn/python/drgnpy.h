@@ -9,8 +9,8 @@
 #include <Python.h>
 #include "structmember.h"
 
-#include "../libdrgn/drgn.h"
-#include "../libdrgn/program.h"
+#include "../drgn.h"
+#include "../program.h"
 
 /* These were added in Python 3.7. */
 #ifndef Py_UNREACHABLE
