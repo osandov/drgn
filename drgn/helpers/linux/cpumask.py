@@ -1,10 +1,12 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel CPU mask helpers
+CPU Masks
+---------
 
-This module provides helpers for working with CPU masks from "linux/cpumask.h".
+The ``drgn.helpers.linux.cpumask`` module provides helpers for working with CPU
+masks from :linux:`include/linux/cpumask.h`.
 """
 
 __all__ = [
@@ -17,9 +19,11 @@ __all__ = [
 
 def for_each_cpu(mask):
     """
-    for_each_cpu(struct cpumask)
+    .. c:function:: for_each_cpu(struct cpumask mask)
 
-    Return an iterator over all of the CPUs in the given mask, as ints.
+    Iterate over all of the CPUs in the given mask.
+
+    :rtype: Iterator[int]
     """
     bits = mask.bits
     word_bits = 8 * bits.type_.type.sizeof()
@@ -32,26 +36,26 @@ def for_each_cpu(mask):
 
 def for_each_possible_cpu(prog):
     """
-    for_each_possible_cpu()
+    Iterate over all possible CPUs.
 
-    Return an iterator over all possible CPUs, as ints.
+    :rtype: Iterator[int]
     """
     return for_each_cpu(prog['__cpu_possible_mask'])
 
 
 def for_each_online_cpu(prog):
     """
-    for_each_online_cpu()
+    Iterate over all online CPUs.
 
-    Return an iterator over all online CPUs, as ints.
+    :rtype: Iterator[int]
     """
     return for_each_cpu(prog['__cpu_online_mask'])
 
 
 def for_each_present_cpu(prog):
     """
-    for_each_present_cpu()
+    Iterate over all present CPUs.
 
-    Return an iterator over all present CPUs, as ints.
+    :rtype: Iterator[int]
     """
     return for_each_cpu(prog['__cpu_present_mask'])

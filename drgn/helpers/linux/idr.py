@@ -1,13 +1,14 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel IDR helpers
+IDR
+---
 
-This module provides helpers for working with the IDR data structure in
-"linux/idr.h". An IDR provides a mapping from an ID to a pointer. This
-currently only supports Linux v4.11+; before this, IDRs were not based on radix
-trees.
+The ``drgn.helpers.linux.idr`` module provides helpers for working with the IDR
+data structure in :linux:`include/linux/idr.h`. An IDR provides a mapping from
+an ID to a pointer. This currently only supports Linux v4.11+; before this,
+IDRs were not based on radix trees.
 """
 
 from drgn.helpers.linux.radixtree import radix_tree_for_each, radix_tree_lookup
@@ -21,10 +22,10 @@ __all__ = [
 
 def idr_find(idr, id):
     """
-    void *idr_find(struct idr *, unsigned long id)
+    .. c:function:: void *idr_find(struct idr *idr, unsigned long id)
 
     Look up the entry with the given id in an IDR. If it is not found, this
-    returns a NULL object.
+    returns a ``NULL`` object.
     """
     # idr_base was added in v4.16.
     try:
@@ -36,10 +37,12 @@ def idr_find(idr, id):
 
 def idr_for_each(idr):
     """
-    idr_for_each(struct idr *)
+    .. c:function:: idr_for_each(struct idr *idr)
 
-    Return an iterator over all of the entries in an IDR. The generated values
-    are (index, entry) tuples.
+    Iterate over all of the entries in an IDR.
+
+    :return: Iterator of (index, ``void *``) tuples.
+    :rtype: Iterator[tuple[int, Object]]
     """
     try:
         base = idr.idr_base.value_()

@@ -464,7 +464,7 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
 		"prog", "type", "value", "address", "byteorder",
-		"bit_offset", "bit_field_size",NULL,
+		"bit_offset", "bit_field_size", NULL,
 	};
 	struct drgn_error *err;
 	Program *prog;
@@ -1691,96 +1691,40 @@ static PyObject *DrgnObject_dir(DrgnObject *self)
 }
 
 static PyGetSetDef DrgnObject_getset[] = {
-	{"prog_", (getter)DrgnObject_get_prog, NULL,
-"Program\n"
-"\n"
-"Program that this object is from"},
-	{"type_", (getter)DrgnObject_get_type, NULL,
-"Type\n"
-"\n"
-"Type of this object"},
+	{"prog_", (getter)DrgnObject_get_prog, NULL, drgn_Object_prog__DOC},
+	{"type_", (getter)DrgnObject_get_type, NULL, drgn_Object_type__DOC},
 	{"address_", (getter)DrgnObject_get_address, NULL,
-"Optional[int]\n"
-"\n"
-"Address of this object if it is a reference, None if it is a value"},
+	 drgn_Object_address__DOC},
 	{"byteorder_", (getter)DrgnObject_get_byteorder, NULL,
-"Optional[str]\n"
-"\n"
-"Byte order of this object (either 'little' or 'big') if it is a\n"
-"reference or a non-primitive value, None otherwise"},
+	 drgn_Object_byteorder__DOC},
 	{"bit_offset_", (getter)DrgnObject_get_bit_offset, NULL,
-"Optional[int]\n"
-"\n"
-"Offset in bits from this object's address to the beginning of the object\n"
-"if it is a reference or a non-primitive value, None otherwise"},
+	 drgn_Object_bit_offset__DOC},
 	{"bit_field_size_", (getter)DrgnObject_get_bit_field_size, NULL,
-"Optional[int]\n"
-"\n"
-"Size in bits of this object if it is a bit field, None if not"},
+	 drgn_Object_bit_field_size__DOC},
 	{},
 };
 
 static PyMethodDef DrgnObject_methods[] = {
 	{"__getitem__", (PyCFunction)DrgnObject_subscript,
-	 METH_O | METH_COEXIST,
-"__getitem__(self, idx) -> Object\n"
-"\n"
-"Implement self[idx]. Return an Object representing the array element at\n"
-"the given index.\n"
-"\n"
-"This is only valid for pointers and arrays."},
+	 METH_O | METH_COEXIST, drgn_Object___getitem___DOC},
 	{"value_", (PyCFunction)DrgnObject_value, METH_NOARGS,
-"value_(self) -> Any\n"
-"\n"
-"Return the value of this object as a Python object.\n"
-"\n"
-"For basic types (int, bool, etc.), this returns an object of the\n"
-"directly corresponding Python type. For pointers, this returns the\n"
-"address value of the pointer. For enums, this returns an int. For\n"
-"structures and unions, this returns a dict of members. For arrays, this\n"
-"returns a list of values."},
+	 drgn_Object_value__DOC},
 	{"string_", (PyCFunction)DrgnObject_string, METH_NOARGS,
-"string_(self) -> bytes\n"
-"\n"
-"Return the null-terminated string pointed to by this object as bytes.\n"
-"\n"
-"This is only valid for pointers and arrays."},
+	 drgn_Object_string__DOC},
 	{"member_", (PyCFunction)DrgnObject_member,
-	 METH_VARARGS | METH_KEYWORDS,
-"member_(self, name: str) -> Object\n"
-"\n"
-"Return an Object representing the given structure or union member.\n"
-"\n"
-"This is only valid for structs, unions, and pointers to either. Normally\n"
-"the dot operator (\".\") can be used to accomplish the same thing, but\n"
-"this method can be used if there is a name conflict with an Object\n"
-"member or method."},
+	 METH_VARARGS | METH_KEYWORDS, drgn_Object_member__DOC},
 	{"address_of_", (PyCFunction)DrgnObject_address_of, METH_NOARGS,
-"address_of_(self) -> Object\n"
-"\n"
-"Return an Object pointing to this object.\n"
-"\n"
-"This corresponds to the address-of (\"&\") operator in C. It is only\n"
-"possible for reference objects, as value objects don't have an address\n"
-"in the program."},
-	{"read_", (PyCFunction)DrgnObject_read,
-	 METH_NOARGS,
-"read_(self) -> Object\n"
-"\n"
-"Read this object (which may be a reference or a value) and return it as\n"
-"a value object. This is useful if the object can change in the running\n"
-"program (but of course nothing stops the program from modifying the\n"
-"object while it is being read)."},
+	 drgn_Object_address_of__DOC},
+	{"read_", (PyCFunction)DrgnObject_read, METH_NOARGS,
+	 drgn_Object_read__DOC},
 	{"__round__", (PyCFunction)DrgnObject_round,
 	 METH_VARARGS | METH_KEYWORDS},
 	{"__trunc__", (PyCFunction)DrgnObject_trunc, METH_NOARGS},
 	{"__floor__", (PyCFunction)DrgnObject_floor, METH_NOARGS},
 	{"__ceil__", (PyCFunction)DrgnObject_ceil, METH_NOARGS},
-	{"__dir__", (PyCFunction)DrgnObject_dir,
-	 METH_NOARGS,
+	{"__dir__", (PyCFunction)DrgnObject_dir, METH_NOARGS,
 "dir() implementation which includes structure and union members."},
-	{"__format__", (PyCFunction)DrgnObject_format,
-	 METH_O,
+	{"__format__", (PyCFunction)DrgnObject_format, METH_O,
 "Object formatter."},
 	{},
 };
@@ -1827,63 +1771,6 @@ static PyMappingMethods DrgnObject_as_mapping = {
 	(binaryfunc)DrgnObject_subscript,	/* mp_subscript */
 };
 
-#define DrgnObject_DOC								\
-"An Object represents a symbol or value in a program. The object may be\n"	\
-"in the memory of the program (a \"reference\").\n"				\
-"\n"										\
-">>> Object(prog, 'int', address=0xffffffffc09031a0)\n"				\
-"\n"										\
-"It can also be a temporary computed value (a \"value\").\n"			\
-"\n"										\
-">>> Object(prog, 'int', value=4)\n"						\
-"\n"										\
-"All Object instances have two members: prog_, the program that the\n"		\
-"object is from; and type_, the type of the object. Reference objects\n"	\
-"have an address_ member. Objects may also have a byteorder_,\n"		\
-"bit_offset_, and bit_field_size.\n"						\
-"\n"										\
-"repr() of an Object returns a Python representation of the object.\n"		\
-"\n"										\
-">>> print(repr(prog['jiffies']))\n"						\
-"Object(prog, 'volatile long unsigned int', address=0xffffffffbf005000)\n"	\
-"\n"										\
-"str() returns a representation of the object in programming language\n"	\
-"syntax.\n"									\
-"\n"										\
-">>> print(prog['jiffies'])\n"							\
-"(volatile long unsigned int)4326237045\n"					\
-"\n"										\
-"Note that the drgn CLI is set up so that Objects are displayed with\n"		\
-"str() instead of repr() (the latter is the default behavior of Python's\n"	\
-"interactive mode). This means that in the drgn CLI, the call to print()\n"	\
-"in the second example above is not necessary.\n"				\
-"\n"										\
-"Objects support their programming language's operators wherever\n"		\
-"possible. E.g., structure members can be accessed with the dot (\".\")\n"	\
-"operator, arrays can be subscripted with \"[]\", arithmetic can be\n"		\
-"performed, and objects can be compared.\n"					\
-"\n"										\
-">>> print(prog['init_task'].pid)\n"						\
-"(pid_t)0\n"									\
-">>> print(prog['init_task'].comm[0])\n"					\
-"(char)115\n"									\
-">>> print(repr(prog['init_task'].nsproxy.mnt_ns.mounts + 1))\n"		\
-"Object(prog, 'unsigned int', value=34)\n"					\
-">>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0\n"			\
-"False\n"									\
-"\n"										\
-"Note that because the C structure dereference operator (\"->\") is not\n"	\
-"valid syntax in Python, \".\" is also used to access members of pointers\n"	\
-"to structures. Similarly, the indirection operator (\"*\") is not valid\n"	\
-"syntax in Python, so pointers can be dereferenced with \"[0]\" (e.g.,\n"	\
-"write \"p[0]\" instead of \"*p\"). The address-of operator (\"&\") is\n"	\
-"available as the address_of_() method.\n"					\
-"\n"										\
-"Object members and methods are named with a trailing underscore to avoid\n"	\
-"conflicting with structure or union members. The helper methods always\n"	\
-"take precedence over structure members; use member_() if there is a\n"		\
-"conflict."
-
 PyTypeObject DrgnObject_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	"_drgn.Object",				/* tp_name */
@@ -1905,7 +1792,7 @@ PyTypeObject DrgnObject_type = {
 	NULL,					/* tp_setattro */
 	NULL,					/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	DrgnObject_DOC,				/* tp_doc */
+	drgn_Object_DOC,			/* tp_doc */
 	NULL,					/* tp_traverse */
 	NULL,					/* tp_clear */
 	DrgnObject_richcompare,			/* tp_richcompare */
@@ -1925,6 +1812,30 @@ PyTypeObject DrgnObject_type = {
 	(newfunc)DrgnObject_new,		/* tp_new */
 
 };
+
+PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"prog", "type", NULL};
+	PyObject *prog_obj, *type_obj;
+	PyObject *a, *k, *ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO:NULL", keywords,
+					 &prog_obj, &type_obj))
+		return NULL;
+
+	a = Py_BuildValue("OO", prog_obj, type_obj);
+	if (!a)
+		return NULL;
+	k = Py_BuildValue("{s:i}", "value", 0);
+	if (!k) {
+		Py_DECREF(a);
+		return NULL;
+	}
+	ret = PyObject_Call((PyObject *)&DrgnObject_type, a, k);
+	Py_DECREF(k);
+	Py_DECREF(a);
+	return ret;
+}
 
 DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds)
 {

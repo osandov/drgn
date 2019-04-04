@@ -551,72 +551,35 @@ static PyObject *DrgnType_getter(DrgnType *self, struct DrgnType_Attr *attr)
 
 static PyGetSetDef DrgnType_getset[] = {
 	{"_ptr", (getter)DrgnType_get_ptr, NULL,
-"int\n"
+"Address of underlying ``struct drgn_type``.\n"
 "\n"
-"address of underlying struct drgn_type"},
+"This is used for testing.\n"
+"\n"
+":vartype: int"},
 	{"kind", (getter)DrgnType_getter, NULL,
-"TypeKind\n"
-"\n"
-"kind of this type", &DrgnType_attr_kind},
-	{"qualifiers", (getter)DrgnType_getter, NULL,
-"Qualifiers\n"
-"\n"
-"bitmask of this type's qualifiers", &DrgnType_attr_qualifiers},
-	{"name", (getter)DrgnType_getter, NULL,
-"str\n"
-"\n"
-"name of this integer, boolean, floating-point, complex, or typedef type\n",
+	 drgn_Type_kind_DOC, &DrgnType_attr_kind},
+	{"qualifiers", (getter)DrgnType_getter, NULL, drgn_Type_qualifiers_DOC,
+	 &DrgnType_attr_qualifiers},
+	{"name", (getter)DrgnType_getter, NULL, drgn_Type_name_DOC,
 	 &DrgnType_attr_name},
-	{"tag", (getter)DrgnType_getter, NULL,
-"Optional[str]\n"
-"\n"
-"tag of this structure, union, or enumerated type or None if this is an\n"
-"anonymous type", &DrgnType_attr_tag},
-	{"size", (getter)DrgnType_getter, NULL,
-"Optional[int]\n"
-"\n"
-"size in bytes of this integer, boolean, floating-point, complex,\n"
-"structure, union, or pointer type, or None if this is an incomplete\n"
-"structure or union type", &DrgnType_attr_size},
-	{"length", (getter)DrgnType_getter, NULL,
-"Optional[int]\n"
-"\n"
-"number of elements in this array type or None if this is an incomplete\n"
-"array type", &DrgnType_attr_length},
-	{"is_signed", (getter)DrgnType_getter, NULL,
-"bool\n"
-"\n"
-"whether this integer type is signed", &DrgnType_attr_is_signed},
-	{"type", (getter)DrgnType_getter, NULL,
-"Optional[Type]\n"
-"\n"
-"type underlying this type (i.e., the type denoted by a typedef type, the\n"
-"compatible integer type of an enumerated type [which is None if this is\n"
-"an incomplete type], the type referenced by a pointer type, the element\n"
-"type of an array, or the return type of a function type)\n",
+	{"tag", (getter)DrgnType_getter, NULL, drgn_Type_tag_DOC,
+	 &DrgnType_attr_tag},
+	{"size", (getter)DrgnType_getter, NULL, drgn_Type_size_DOC,
+	 &DrgnType_attr_size},
+	{"length", (getter)DrgnType_getter, NULL, drgn_Type_length_DOC,
+	 &DrgnType_attr_length},
+	{"is_signed", (getter)DrgnType_getter, NULL, drgn_Type_is_signed_DOC,
+	 &DrgnType_attr_is_signed},
+	{"type", (getter)DrgnType_getter, NULL, drgn_Type_type_DOC,
 	 &DrgnType_attr_type},
-	{"members", (getter)DrgnType_getter, NULL,
-"Optional[List[Tuple[Type, Optional[str], int, int]]]\n"
-"\n"
-"list of members of this structure or union type as (type, name, bit\n"
-"offset, bit field size) tuples, or None if this is an incomplete type",
+	{"members", (getter)DrgnType_getter, NULL, drgn_Type_members_DOC,
 	 &DrgnType_attr_members},
 	{"enumerators", (getter)DrgnType_getter, NULL,
-"Optional[List[Tuple[str, int]]]\n"
-"\n"
-"list of enumeration constants of this enumerated type as (name, value)\n"
-"tuples, or None if this is an incomplete type",
-	 &DrgnType_attr_enumerators},
-	{"parameters", (getter)DrgnType_getter, NULL,
-"List[Tuple[Type, Optional[str]]]\n"
-"\n"
-"list of parameters of this function type as (type, name) tuples",
+	 drgn_Type_enumerators_DOC, &DrgnType_attr_enumerators},
+	{"parameters", (getter)DrgnType_getter, NULL, drgn_Type_parameters_DOC,
 	 &DrgnType_attr_parameters},
 	{"is_variadic", (getter)DrgnType_getter, NULL,
-"bool\n"
-"\n"
-"whether this function type takes a variable number of arguments",
-	 &DrgnType_attr_is_variadic},
+	 drgn_Type_is_variadic_DOC, &DrgnType_attr_is_variadic},
 	{},
 };
 
@@ -979,23 +942,29 @@ static PyObject *DrgnType_is_complete(DrgnType *self)
 
 static int qualifiers_converter(PyObject *arg, void *result)
 {
-	PyObject *value;
 	unsigned long qualifiers;
 
-	if (!PyObject_TypeCheck(arg, (PyTypeObject *)Qualifiers_class)) {
-		PyErr_SetString(PyExc_TypeError,
-				"qualifiers must be Qualifiers");
-		return 0;
+	if (arg == Py_None) {
+		qualifiers = 0;
+	} else {
+		PyObject *value;
+
+		if (!PyObject_TypeCheck(arg,
+					(PyTypeObject *)Qualifiers_class)) {
+			PyErr_SetString(PyExc_TypeError,
+					"qualifiers must be Qualifiers or None");
+			return 0;
+		}
+
+		value = PyObject_GetAttrString(arg, "value");
+		if (!value)
+			return 0;
+
+		qualifiers = PyLong_AsUnsignedLong(value);
+		Py_DECREF(value);
+		if (qualifiers == (unsigned long)-1 && PyErr_Occurred())
+			return 0;
 	}
-
-	value = PyObject_GetAttrString(arg, "value");
-	if (!value)
-		return 0;
-
-	qualifiers = PyLong_AsUnsignedLong(value);
-	Py_DECREF(value);
-	if (qualifiers == (unsigned long)-1 && PyErr_Occurred())
-		return 0;
 	*(unsigned char *)result = qualifiers;
 	return 1;
 }
@@ -1053,38 +1022,15 @@ static PyObject *DrgnType_richcompare(DrgnType *self, PyObject *other, int op)
 		Py_RETURN_FALSE;
 }
 
-#define DrgnType_DOC								\
-"Type descriptor\n"								\
-"\n"										\
-"A Type object represents a type in a program. Each kind of type (e.g.,\n"	\
-"integer, structure) has different descriptors (e.g., name, size). Types\n"	\
-"can also have qualifiers (e.g., constant, atomic). Accessing a\n"		\
-"descriptor which does not apply to a type raises an exception.\n"		\
-"\n"										\
-"This class cannot be constructed directly. Instead, use one of the\n"		\
-"*_type() factory functions."
-
 static PyMethodDef DrgnType_methods[] = {
 	{"type_name", (PyCFunction)DrgnType_type_name, METH_NOARGS,
-"type_name(self) -> str\n"
-"\n"
-"Get a descriptive full name of this type."},
+	 drgn_Type_type_name_DOC},
 	{"is_complete", (PyCFunction)DrgnType_is_complete, METH_NOARGS,
-"is_complete(self) -> bool\n"
-"\n"
-"Get whether this type is complete (i.e., the type definition is known).\n"
-"This is always False for void types. It may be False for structure,\n"
-"union, enumerated, and array types, as well as typedef types where the\n"
-"underlying type is one of those. Otherwise, it is always True."},
+	 drgn_Type_is_complete_DOC},
 	{"qualified", (PyCFunction)DrgnType_qualified,
-	 METH_VARARGS | METH_KEYWORDS,
-"qualified(self, qualifiers: Qualifiers) -> Type\n"
-"\n"
-"Return a copy of this type with different qualifiers."},
+	 METH_VARARGS | METH_KEYWORDS, drgn_Type_qualified_DOC},
 	{"unqualified", (PyCFunction)DrgnType_unqualified, METH_NOARGS,
-"unqualified(self) -> Type\n"
-"\n"
-"Return a copy of this type with no qualifiers."},
+	 drgn_Type_unqualified_DOC},
 	{},
 };
 
@@ -1116,7 +1062,7 @@ PyTypeObject DrgnType_type = {
 	NULL,					/* tp_setattro */
 	NULL,					/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,/* tp_flags */
-	DrgnType_DOC,				/* tp_doc */
+	drgn_Type_DOC,				/* tp_doc */
 	(traverseproc)DrgnType_traverse,	/* tp_traverse */
 	(inquiry)DrgnType_clear,		/* tp_clear */
 	(richcmpfunc)DrgnType_richcompare,	/* tp_richcompare */

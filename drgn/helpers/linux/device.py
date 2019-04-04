@@ -1,14 +1,15 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel device helpers
+Devices
+-------
 
-This module provides helpers for working with Linux devices, including the
-kernel encoding of dev_t.
+The ``drgn.helpers.linux.device`` module provides helpers for working with
+Linux devices, including the kernel encoding of ``dev_t``.
 """
 
-from drgn import cast, Object
+from drgn import Object, cast
 
 __all__ = [
     'MAJOR',
@@ -24,9 +25,9 @@ _MINORMASK = ((1 << _MINORBITS) - 1)
 
 def MAJOR(dev):
     """
-    unsigned int MAJOR(dev_t)
+    .. c:function:: unsigned int MAJOR(dev_t dev)
 
-    Return the major ID of a kernel dev_t.
+    Return the major ID of a kernel ``dev_t``.
     """
     major = dev >> _MINORBITS
     if isinstance(major, Object):
@@ -36,9 +37,9 @@ def MAJOR(dev):
 
 def MINOR(dev):
     """
-    unsigned int MINOR(dev_t)
+    .. c:function:: unsigned int MINOR(dev_t dev)
 
-    Return the major ID of a kernel dev_t.
+    Return the minor ID of a kernel ``dev_t``.
     """
     minor = dev & _MINORMASK
     if isinstance(minor, Object):
@@ -48,9 +49,9 @@ def MINOR(dev):
 
 def MKDEV(major, minor):
     """
-    dev_t MKDEV(unsigned int major, unsigned int minor)
+    .. c:function:: dev_t MKDEV(unsigned int major, unsigned int minor)
 
-    Return a kernel dev_t from the major and minor IDs.
+    Return a kernel ``dev_t`` from the major and minor IDs.
     """
     dev = (major << _MINORBITS) | minor
     if isinstance(dev, Object):

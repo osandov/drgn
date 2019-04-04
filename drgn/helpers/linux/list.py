@@ -1,11 +1,13 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel linked list helpers
+Linked Lists
+------------
 
-This module provides helpers for working with the doubly-linked list
-implementations in "linux/list.h".
+The ``drgn.helpers.linux.list`` module provides helpers for working with the
+doubly-linked list implementations (``struct list_head`` and ``struct
+hlist_head``) in :linux:`include/linux/list.h`.
 """
 
 from drgn import container_of
@@ -26,7 +28,7 @@ __all__ = [
 
 def list_empty(head):
     """
-    bool list_empty(struct list_head *)
+    .. c:function:: bool list_empty(struct list_head *head)
 
     Return whether a list is empty.
     """
@@ -36,7 +38,7 @@ def list_empty(head):
 
 def list_is_singular(head):
     """
-    bool list_is_singular(struct list_head *)
+    .. c:function:: bool list_is_singular(struct list_head *head)
 
     Return whether a list has only one element.
     """
@@ -47,9 +49,11 @@ def list_is_singular(head):
 
 def list_for_each(head):
     """
-    list_for_each(struct list_head *)
+    .. c:function:: list_for_each(struct list_head *head)
 
-    Return an iterator over all of the nodes in a list.
+    Iterate over all of the nodes in a list.
+
+    :return: Iterator of ``struct list_head *`` objects.
     """
     head = head.read_()
     pos = head.next.read_()
@@ -60,9 +64,11 @@ def list_for_each(head):
 
 def list_for_each_reverse(head):
     """
-    list_for_each_reverse(struct list_head *)
+    .. c:function:: list_for_each_reverse(struct list_head *head)
 
-    Return an iterator over all of the nodes in a list in reverse order.
+    Iterate over all of the nodes in a list in reverse order.
+
+    :return: Iterator of ``struct list_head *`` objects.
     """
     head = head.read_()
     pos = head.prev.read_()
@@ -73,10 +79,12 @@ def list_for_each_reverse(head):
 
 def list_for_each_entry(type, head, member):
     """
-    list_for_each_entry(type, struct list_head *, member)
+    .. c:function:: list_for_each_entry(type, struct list_head *head, member)
 
-    Return an iterator over all of the entries in a list, given the type of the
-    entry and the struct list_head member in that type.
+    Iterate over all of the entries in a list, given the type of the entry and
+    the ``struct list_head`` member in that type.
+
+    :return: Iterator of ``type *`` objects.
     """
     for pos in list_for_each(head):
         yield container_of(pos, type, member)
@@ -84,10 +92,12 @@ def list_for_each_entry(type, head, member):
 
 def list_for_each_entry_reverse(type, head, member):
     """
-    list_for_each_entry_reverse(type, struct list_head *, member)
+    .. c:function:: list_for_each_entry_reverse(type, struct list_head *head, member)
 
-    Return an iterator over all of the entries in a list in reverse order,
-    given the type of the entry and the struct list_head member in that type.
+    Iterate over all of the entries in a list in reverse order, given the type
+    of the entry and the ``struct list_head`` member in that type.
+
+    :return: Iterator of ``type *`` objects.
     """
     for pos in list_for_each_reverse(head):
         yield container_of(pos, type, member)
@@ -95,7 +105,7 @@ def list_for_each_entry_reverse(type, head, member):
 
 def hlist_empty(head):
     """
-    bool hlist_empty(struct hlist_head *)
+    .. c:function:: bool hlist_empty(struct hlist_head *head)
 
     Return whether a hash list is empty.
     """
@@ -104,9 +114,11 @@ def hlist_empty(head):
 
 def hlist_for_each(head):
     """
-    hlist_for_each(struct hlist_head *)
+    .. c:function:: hlist_for_each(struct hlist_head *head)
 
-    Return an iterator over all of the nodes in a hash list.
+    Iterate over all of the nodes in a hash list.
+
+    :return: Iterator of ``struct hlist_node *`` objects.
     """
     pos = head.first.read_()
     while pos:
@@ -116,10 +128,12 @@ def hlist_for_each(head):
 
 def hlist_for_each_entry(type, head, member):
     """
-    hlist_for_each_entry(type, struct hlist_head *, member)
+    .. c:function:: hlist_for_each_entry(type, struct hlist_head *head, member)
 
-    Return an iterator over all of the entries in a has list, given the type of
-    the entry and the struct hlist_node member in that type.
+    Iterate over all of the entries in a has list, given the type of the entry
+    and the ``struct hlist_node`` member in that type.
+
+    :return: Iterator of ``type *`` objects.
     """
     for pos in hlist_for_each(head):
         yield container_of(pos, type, member)

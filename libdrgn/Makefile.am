@@ -55,7 +55,10 @@ if WITH_PYTHON
 noinst_LTLIBRARIES += _drgn.la
 endif
 
-_drgn_la_SOURCES = python/drgnpy.h \
+CLEANFILES = python/constants.c python/docstrings.c
+
+_drgn_la_SOURCES = python/docstrings.h \
+		   python/drgnpy.h \
 		   python/module.c \
 		   python/object.c \
 		   python/program.c \
@@ -63,17 +66,23 @@ _drgn_la_SOURCES = python/drgnpy.h \
 		   python/type.c \
 		   python/util.c
 
-nodist__drgn_la_SOURCES = python/constants.c
+nodist__drgn_la_SOURCES = python/constants.c python/docstrings.c
 
 _drgn_la_CFLAGS = $(PYTHON_CFLAGS) -D_GNU_SOURCE -fvisibility=hidden
 _drgn_la_LDFLAGS = -avoid-version -module -shared -rpath $(pkgpyexecdir) \
 		   -Wl,--exclude-libs,ALL
 _drgn_la_LIBADD = libdrgnimpl.la
 
-$(top_builddir)/python/constants.c: $(top_srcdir)/drgn.h $(top_srcdir)/build-aux/gen_constants.py
-	$(PYTHON) $(top_srcdir)/build-aux/gen_constants.py $(top_srcdir)/python < $< > $@
+GEN_CONSTANTS = $(top_srcdir)/build-aux/gen_constants.py
+GEN_DOCSTRINGS = $(top_srcdir)/build-aux/gen_docstrings.py
 
-EXTRA_DIST = $(top_srcdir)/build-aux/gen_constants.py
+$(top_builddir)/python/constants.c: $(top_srcdir)/drgn.h $(GEN_CONSTANTS)
+	$(PYTHON) $(GEN_CONSTANTS) $(top_srcdir)/python < $< > $@
+
+$(top_builddir)/python/docstrings.c: $(top_srcdir)/../docs/api_reference.rst $(GEN_DOCSTRINGS)
+	$(PYTHON) $(GEN_DOCSTRINGS) < $< > $@
+
+EXTRA_DIST = $(GEN_CONSTANTS) $(GEN_DOCSTRINGS)
 
 # This target lists all of the files that need to be distributed for setup.py
 # sdist. It is based on the automake distdir target.

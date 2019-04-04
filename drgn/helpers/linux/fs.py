@@ -1,26 +1,28 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel filesystem helpers
+Virtual Filesystem Layer
+------------------------
 
-This module provides helpers for working with the Linux virtual filesystem
-(VFS) layer, including mounts, dentries, and inodes.
+The ``drgn.helpers.linux.fs`` module provides helpers for working with the
+Linux virtual filesystem (VFS) layer, including mounts, dentries, and inodes.
 """
 
 import os
-import typing
 
 from drgn import Object, Program, container_of
 from drgn.helpers import escape_string
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = [
-    'Mount',
     'd_path',
     'dentry_path',
     'inode_path',
     'inode_paths',
+    'mount_src',
+    'mount_dst',
+    'mount_fstype',
     'for_each_mount',
     'print_mounts',
     'fget',
@@ -31,10 +33,10 @@ __all__ = [
 
 def d_path(path_or_vfsmnt, dentry=None):
     """
-    char *d_path(struct path *)
-    char *d_path(struct vfsmount *, struct dentry *)
+    .. c:function:: char *d_path(struct path *path)
+    .. c:function:: char *d_path(struct vfsmount *vfsmnt, struct dentry *dentry)
 
-    Return the full path of a dentry given a struct path or a mount and a
+    Return the full path of a dentry given a ``struct path *`` or a mount and a
     dentry.
     """
     type_name = str(path_or_vfsmnt.type_.type_name())
@@ -72,7 +74,7 @@ def d_path(path_or_vfsmnt, dentry=None):
 
 def dentry_path(dentry):
     """
-    char *dentry_path(struct dentry *)
+    .. c:function:: char *dentry_path(struct dentry *dentry)
 
     Return the path of a dentry from the root of its filesystem.
     """
@@ -88,7 +90,7 @@ def dentry_path(dentry):
 
 def inode_path(inode):
     """
-    char *inode_path(struct inode *)
+    .. c:function:: char *inode_path(struct inode *inode)
 
     Return any path of an inode from the root of its filesystem.
     """
@@ -98,34 +100,70 @@ def inode_path(inode):
 
 def inode_paths(inode):
     """
-    inode_paths(struct inode *)
+    .. c:function:: inode_paths(struct inode *inode)
 
     Return an iterator over all of the paths of an inode from the root of its
     filesystem.
+
+    :rtype: Iterator[bytes]
     """
     return (
         dentry_path(dentry) for dentry in
-        hlist_for_each_entry('struct dentry', inode.i_dentry.address_of_(), 'd_u.d_alias')
+        hlist_for_each_entry('struct dentry', inode.i_dentry.address_of_(),
+                             'd_u.d_alias')
     )
 
 
-class Mount(typing.NamedTuple):
-    """A mounted filesystem. mount is a struct mount * object."""
-    src: bytes
-    dst: bytes
-    fstype: bytes
-    mount: Object
+def mount_src(mnt):
+    """
+    .. c:function:: char *mount_src(struct mount *mnt)
+
+    Get the source device name for a mount.
+
+    :rtype: bytes
+    """
+    return mnt.mnt_devname.string_()
+
+
+def mount_dst(mnt):
+    """
+    .. c:function:: char *mount_dst(struct mount *mnt)
+
+    Get the path of a mount point.
+
+    :rtype: bytes
+    """
+    return d_path(mnt.mnt.address_of_(), mnt.mnt.mnt_root)
+
+
+def mount_fstype(mnt):
+    """
+    .. c:function:: char *mount_fstype(struct mount *mnt)
+
+    Get the filesystem type of a mount.
+
+    :rtype: bytes
+    """
+    sb = mnt.mnt.mnt_sb.read_()
+    fstype = sb.s_type.name.string_()
+    subtype = sb.s_subtype.read_()
+    if subtype:
+        subtype = subtype.string_()
+        if subtype:
+            fstype += b'.' + subtype
+    return fstype
 
 
 def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
     """
-    for_each_mount(struct mnt_namespace *, char *src, char *dst,
-                   char *fstype) -> Iterator[Mount]
+    .. c:function:: for_each_mount(struct mnt_namespace *ns, char *src, char *dst, char *fstype)
 
-    Return an iterator over all of the mounts in a given namespace. If given a
-    Program object instead, the initial mount namespace is used. The returned
+    Iterate over all of the mounts in a given namespace. If given a
+    :class:`Program` instead, the initial mount namespace is used. returned
     mounts can be filtered by source, destination, or filesystem type, all of
-    which are encoded using os.fsencode().
+    which are encoded using :func:`os.fsencode()`.
+
+    :return: Iterator of ``struct mount *`` objects.
     """
     if isinstance(prog_or_ns, Program):
         ns = prog_or_ns['init_task'].nsproxy.mnt_ns
@@ -139,57 +177,44 @@ def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
         fstype = os.fsencode(fstype)
     for mnt in list_for_each_entry('struct mount', ns.list.address_of_(),
                                    'mnt_list'):
-        mnt_src = mnt.mnt_devname.string_()
-        if src is not None and mnt_src != src:
-            continue
-        mnt_dst = d_path(mnt.mnt.address_of_(), mnt.mnt.mnt_root)
-        if dst is not None and mnt_dst != dst:
-            continue
-        sb = mnt.mnt.mnt_sb.read_()
-        mnt_fstype = sb.s_type.name.string_()
-        subtype = sb.s_subtype.read_()
-        if subtype:
-            subtype = subtype.string_()
-            if subtype:
-                mnt_fstype += b'.' + subtype
-        if fstype is not None and mnt_fstype != fstype:
-            continue
-        yield Mount(mnt_src, mnt_dst, mnt_fstype, mnt)
+        if ((src is None or mount_src(mnt) == src) and
+                (dst is None or mount_dst(mnt) == dst) and
+                (fstype is None or mount_fstype(mnt) == fstype)):
+            yield mnt
 
 
 def print_mounts(prog_or_ns, src=None, dst=None, fstype=None):
     """
-    print_mounts(struct mnt_namespace *, char *src, char *dst, char *fstype)
+    .. c:function:: print_mounts(struct mnt_namespace *ns, char *src, char *dst, char *fstype)
 
     Print the mount table of a given namespace. The arguments are the same as
-    for_each_mount(). The output format is similar to /proc/mounts but prints
-    the value of each struct mount *.
+    :func:`for_each_mount()`. The output format is similar to ``/proc/mounts``
+    but prints the value of each ``struct mount *``.
     """
-    for mnt_src, mnt_dst, mnt_fstype, mnt in for_each_mount(prog_or_ns, src,
-                                                            dst, fstype):
-        mnt_src = escape_string(mnt_src, escape_backslash=True)
-        mnt_dst = escape_string(mnt_dst, escape_backslash=True)
-        mnt_fstype = escape_string(mnt_fstype, escape_backslash=True)
+    for mnt in for_each_mount(prog_or_ns, src, dst, fstype):
+        mnt_src = escape_string(mount_src(mnt), escape_backslash=True)
+        mnt_dst = escape_string(mount_dst(mnt), escape_backslash=True)
+        mnt_fstype = escape_string(mount_fstype(mnt), escape_backslash=True)
         print(f'{mnt_src} {mnt_dst} {mnt_fstype} ({mnt.type_.type_name()})0x{mnt.value_():x}')
 
 
 def fget(task, fd):
     """
-    struct file *fget(struct task_struct *, int fd)
+    .. c:function:: struct file *fget(struct task_struct *task, int fd)
 
-    Return the kernel file descriptor (struct file *) of the fd of a given
-    task.
+    Return the kernel file descriptor of the fd of a given task.
     """
     return task.files.fdt.fd[fd]
 
 
 def for_each_file(task):
     """
-    for_each_file(struct task_struct *)
+    .. c:function:: for_each_file(struct task_struct *task)
 
-    Return an iterator over all of the files open in a given task. The
-    generated values are (fd, path, struct file *) tuples. The path is returned
-    as bytes.
+    Iterate over all of the files open in a given task.
+
+    :return: Iterator of (fd, ``struct file *``) tuples.
+    :rtype: Iterator[tuple[int, Object]]
     """
     fdt = task.files.fdt.read_()
     bits_per_long = 8 * fdt.open_fds.type_.type.size
@@ -199,16 +224,17 @@ def for_each_file(task):
             if word & (1 << j):
                 fd = i * bits_per_long + j
                 file = fdt.fd[fd].read_()
-                yield fd, d_path(file.f_path), file
+                yield fd, file
 
 
 def print_files(task):
     """
-    print_files(struct task_struct *)
+    .. c:function:: print_files(struct task_struct *task)
 
     Print the open files of a given task.
     """
-    for fd, path, file in for_each_file(task):
+    for fd, file in for_each_file(task):
+        path = d_path(file.f_path)
         if path is None:
             path = file.f_inode.i_sb.s_type.name.string_()
         path = escape_string(path, escape_backslash=True)

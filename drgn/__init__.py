@@ -40,18 +40,17 @@ that package should be considered implementation details and should not
 be used.
 """
 
-from typing import Union
-
 from _drgn import (
-    __version__,
     FaultError,
     FileFormatError,
+    NULL,
     Object,
     Program,
     ProgramFlags,
     Qualifiers,
     Type,
     TypeKind,
+    __version__,
     array_type,
     bool_type,
     cast,
@@ -102,13 +101,3 @@ __all__ = [
     'union_type',
     'void_type',
 ]
-
-
-def NULL(prog: Program, type: Union[str, Type]) -> Object:
-    """
-    Return an Object representing NULL cast to the given type. The type can
-    be a string or a Type object.
-
-    This is equivalent to Object(prog, type, value=0).
-    """
-    return Object(prog, type, value=0)

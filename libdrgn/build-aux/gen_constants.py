@@ -1,3 +1,6 @@
+# Copyright 2018-2019 - Omar Sandoval
+# SPDX-License-Identifier: GPL-3.0+
+
 import os.path
 import re
 import sys

@@ -9,6 +9,7 @@
 #include <Python.h>
 #include "structmember.h"
 
+#include "docstrings.h"
 #include "../drgn.h"
 #include "../program.h"
 
@@ -117,6 +118,7 @@ static inline DrgnObject *DrgnObject_alloc(Program *prog)
 
 int Program_hold_type(Program *prog, DrgnType *type);
 
+PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,

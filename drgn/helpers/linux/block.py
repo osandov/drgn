@@ -1,92 +1,110 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel block layer helpers
+Block Layer
+-----------
 
-This module provides helpers for working with the Linux block layer, including
-disks (struct gendisk) and partitions (struct hd_struct).
+The ``drgn.helpers.linux.block`` module provides helpers for working with the
+Linux block layer, including disks (``struct gendisk``) and partitions
+(``struct hd_struct``).
 """
-
-import typing
 
 from drgn import Object, container_of
 from drgn.helpers import escape_string
-from drgn.helpers.linux.device import MAJOR, MINOR
+from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry
 
 __all__ = [
-    'Disk',
-    'Partition',
+    'disk_devt',
+    'disk_name',
     'for_each_disk',
     'print_disks',
+    'part_devt',
+    'part_name',
     'for_each_partition',
     'print_partitions',
 ]
 
 
-class Disk(typing.NamedTuple):
-    """A disk. gendisk is a struct gendisk * object."""
-    major: int
-    minor: int
-    name: bytes
-    gendisk: Object
+def disk_devt(disk):
+    """
+    .. c:function:: dev_t disk_devt(struct gendisk *disk)
+
+    Get a disk's device number.
+    """
+    return MKDEV(disk.major, disk.first_minor)
+
+
+def disk_name(disk):
+    """
+    .. c:function:: char *disk_name(struct gendisk *disk)
+
+    Get the name of a disk (e.g., ``sda``).
+
+    :rtype: bytes
+    """
+    return disk.disk_name.string_()
 
 
 def for_each_disk(prog):
     """
-    for_each_disk() -> Iterator[Disk]
+    Iterate over all disks in the system.
 
-    Return an iterator over all disks in the system.
+    :return: Iterator of ``struct gendisk *`` objects.
     """
     devices = prog['block_class'].p.klist_devices.k_list.address_of_()
     disk_type = prog['disk_type'].address_of_()
-    for device in list_for_each_entry('struct device', devices, 'knode_class.n_node'):
+    for device in list_for_each_entry('struct device', devices,
+                                      'knode_class.n_node'):
         if device.type == disk_type:
-            obj = container_of(device, 'struct gendisk', 'part0.__dev')
-            dev = device.devt.value_()
-            yield Disk(MAJOR(dev), MINOR(dev), device.kobj.name.string_(), obj)
+            yield container_of(device, 'struct gendisk', 'part0.__dev')
 
 
 def print_disks(prog):
+    """Print all of the disks in the system."""
+    for disk in for_each_disk(prog):
+        major = disk.major.value_()
+        minor = disk.first_minor.value_()
+        name = escape_string(disk_name(disk), escape_backslash=True)
+        print(f'{major}:{minor} {name} ({disk.type_.type_name()})0x{disk.value_():x}')
+
+
+def part_devt(part):
     """
-    print_disks()
+    .. c:function:: dev_t part_devt(struct hd_struct *part)
 
-    Print all of the disks in the system.
+    Get a partition's device number.
     """
-    for major, minor, name, obj in for_each_disk(prog):
-        name = escape_string(name, escape_backslash=True)
-        print(f'{major}:{minor} {name} ({obj.type_.type_name()})0x{obj.value_():x}')
+    return part.__dev.devt
 
 
-class Partition(typing.NamedTuple):
-    """A disk partition. hd_struct is a struct hd_struct * object."""
-    major: int
-    minor: int
-    name: bytes
-    hd_struct: Object
+def part_name(part):
+    """
+    .. c:function:: char *part_name(struct hd_struct *part)
+
+    Get the name of a partition (e.g., ``sda1``).
+
+    :rtype: bytes
+    """
+    return part.__dev.kobj.name.string_()
 
 
 def for_each_partition(prog):
     """
-    for_each_partition() -> Iterator[Partition]
+    Iterate over all partitions in the system.
 
-    Return an iterator over all partitions in the system.
+    :return: Iterator of ``struct hd_struct *`` objects.
     """
     devices = prog['block_class'].p.klist_devices.k_list.address_of_()
-    for device in list_for_each_entry('struct device', devices, 'knode_class.n_node'):
-        obj = container_of(device, 'struct hd_struct', '__dev')
-        dev = device.devt.value_()
-        yield Partition(MAJOR(dev), MINOR(dev), device.kobj.name.string_(),
-                        obj)
+    for device in list_for_each_entry('struct device', devices,
+                                      'knode_class.n_node'):
+        yield container_of(device, 'struct hd_struct', '__dev')
 
 
 def print_partitions(prog):
-    """
-    print_partitions()
-
-    Print all of the partitions in the system.
-    """
-    for major, minor, name, obj in for_each_partition(prog):
-        name = escape_string(name, escape_backslash=True)
-        print(f'{major}:{minor} {name} ({obj.type_.type_name()})0x{obj.value_():x}')
+    """Print all of the partitions in the system."""
+    for part in for_each_partition(prog):
+        devt = part_devt(part).value_()
+        name = escape_string(part_name(part), escape_backslash=True)
+        print(f'{MAJOR(devt)}:{MINOR(devt)} {name} ({part.type_.type_name()})0x{part.value_():x}')

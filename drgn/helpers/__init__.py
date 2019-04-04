@@ -1,11 +1,18 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Common program helpers
+Helpers
+-------
 
-This package contains subpackages which provide helpers for working with
-particular types of programs.
+The ``drgn.helpers`` package contains subpackages which provide helpers for
+working with particular types of programs. Currently, there are only helpers
+for the Linux kernel. In the future, there may be helpers for, e.g., glibc and
+libstdc++.
+
+Parameter types and return types are :class:`drgn.Object` unless noted
+otherwise. Many helpers include a C function signature indicating the expected
+object types.
 """
 
 from typing import Iterable

@@ -1,14 +1,15 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel radix tree helpers
+Radix Trees
+-----------
 
-This module provides helpers for working with radix trees from
-"linux/radix-tree.h".
+The ``drgn.helpers.linux.radixtree`` module provides helpers for working with
+radix trees from :linux:`include/linux/radix-tree.h`.
 """
 
-from drgn import cast, Object
+from drgn import Object, cast
 
 
 __all__ = [
@@ -38,10 +39,10 @@ def _radix_tree_root_node(root):
 
 def radix_tree_lookup(root, index):
     """
-    void *radix_tree_lookup(struct radix_tree_root *, unsigned long index)
+    .. c:function:: void *radix_tree_lookup(struct radix_tree_root *root, unsigned long index)
 
     Look up the entry at a given index in a radix tree. If it is not found,
-    this returns a NULL object.
+    this returns a ``NULL`` object.
     """
     node, RADIX_TREE_INTERNAL_NODE = _radix_tree_root_node(root)
     RADIX_TREE_MAP_MASK = node.slots.type_.length - 1
@@ -56,10 +57,12 @@ def radix_tree_lookup(root, index):
 
 def radix_tree_for_each(root):
     """
-    radix_tree_for_each(struct radix_tree_root *)
+    .. c:function:: radix_tree_for_each(struct radix_tree_root *root)
 
-    Return an iterator over all of the entries in a radix tree. The generated
-    values are (index, entry) tuples.
+    Iterate over all of the entries in a radix tree.
+
+    :return: Iterator of (index, ``void *``) tuples.
+    :rtype: Iterator[tuple[int, Object]]
     """
     node, RADIX_TREE_INTERNAL_NODE = _radix_tree_root_node(root)
     def aux(node, index):

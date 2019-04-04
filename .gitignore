@@ -5,6 +5,7 @@
 /build
 /coverage.info
 /dist
+/docs/_build
 /drgn.egg-info
 /htmlcov
 __pycache__

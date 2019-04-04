@@ -1,13 +1,15 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel process ID helpers
+Process IDS
+-----------
 
-This module provides helpers for looking up process IDs.
+The ``drgn.helpers.linux.pid`` module provides helpers for looking up process
+IDs and processes.
 """
 
-from drgn import cast, container_of, NULL, Program
+from drgn import NULL, Program, cast, container_of
 from drgn.helpers.linux.idr import idr_find, idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry
 
@@ -22,10 +24,11 @@ __all__ = [
 
 def find_pid(prog_or_ns, nr):
     """
-    struct pid *find_pid(struct pid_namespace *, int)
+    .. c:function:: struct pid *find_pid(struct pid_namespace *ns, int nr)
 
-    Return the struct pid for the given PID in the given namespace. If given a
-    Program object instead, the initial PID namespace is used.
+    Return the ``struct pid *`` for the given PID number in the given
+    namespace. If given a :class:`Program` instead, the initial PID namespace
+    is used.
     """
     if isinstance(prog_or_ns, Program):
         prog = prog_or_ns
@@ -53,11 +56,12 @@ def find_pid(prog_or_ns, nr):
 
 def for_each_pid(prog_or_ns):
     """
-    for_each_pid(struct pid_namespace *)
+    .. c:function:: for_each_pid(struct pid_namespace *ns)
 
-    Return an iterator over all of the PIDs in the given namespace. If given a
-    Program object instead, the initial PID namespace is used. The generated
-    values are struct pid * objects.
+    Iterate over all of the PIDs in the given namespace. If given a
+    :class:`Program` instead, the initial PID namespace is used.
+
+    :return: Iterator of ``struct pid *`` objects.
     """
     if isinstance(prog_or_ns, Program):
         prog = prog_or_ns
@@ -81,10 +85,10 @@ def for_each_pid(prog_or_ns):
 
 def pid_task(pid, pid_type):
     """
-    struct task_struct *pid_task(struct pid *, enum pid_type)
+    .. c:function:: struct task_struct *pid_task(struct pid *pid, enum pid_type pid_type)
 
-    Return the struct task_struct containing the given struct pid of the given
-    type.
+    Return the ``struct task_struct *`` containing the given ``struct pid *``
+    of the given type.
     """
     if not pid:
         return NULL(pid.prog_, 'struct task_struct *')
@@ -101,10 +105,10 @@ def pid_task(pid, pid_type):
 
 def find_task(prog_or_ns, pid):
     """
-    struct task_struct *find_task(struct pid_namespace *, int pid)
+    .. c:function:: struct task_struct *find_task(struct pid_namespace *ns, int pid)
 
     Return the task with the given PID in the given namespace. If given a
-    Program object instead, the initial PID namespace is used.
+    :class:`Program` instead, the initial PID namespace is used.
     """
     if isinstance(prog_or_ns, Program):
         prog = prog_or_ns
@@ -115,11 +119,12 @@ def find_task(prog_or_ns, pid):
 
 def for_each_task(prog_or_ns):
     """
-    for_each_task(struct pid_namespace *)
+    .. c:function:: for_each_task(struct pid_namespace *ns)
 
-    Return an iterator over all of the tasks visible in the given namespace. If
-    given a Program object instead, the initial PID namespace is used. The
-    generated values are struct task_struct * objects.
+    Iterate over all of the tasks visible in the given namespace. If given a
+    :class:`Program` instead, the initial PID namespace is used.
+
+    :return: Iterator of ``struct task_struct *`` objects.
     """
     if isinstance(prog_or_ns, Program):
         prog = prog_or_ns

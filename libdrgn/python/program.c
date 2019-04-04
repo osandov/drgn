@@ -291,103 +291,26 @@ static PyObject *Program_get_byteorder(Program *self, void *arg)
 
 static PyMethodDef Program_methods[] = {
 	{"__getitem__", (PyCFunction)Program_subscript, METH_O | METH_COEXIST,
-"__getitem__(self, name) -> Object\n"
-"\n"
-"Implement self[name]. Return an Object (variable, constant, or function)\n"
-"with the given name.\n"
-"\n"
-"If there are multiple objects with the same name, one is returned\n"
-"arbitrarily. In this case, the constant(), function(), or variable()\n"
-"methods can be used instead."},
+	 drgn_Program___getitem___DOC},
 	{"read", (PyCFunction)Program_read, METH_VARARGS | METH_KEYWORDS,
-"read(self, address: int, size: int, physical: bool = False) -> bytes\n"
-"\n"
-"Return size bytes of memory starting at address in the program. The\n"
-"address may be virtual (the default) or physical if the program supports\n"
-"it.\n"
-"\n"
-">>> prog.read(0xffffffffbe012b40, 16)\n"
-"b'swapper/0\\x00\\x00\\x00\\x00\\x00\\x00\\x00'"},
+	 drgn_Program_read_DOC},
 	{"type", (PyCFunction)Program_find_type, METH_VARARGS | METH_KEYWORDS,
-"type(self, name: str, filename: Optional[str] = None) -> Type\n"
-"\n"
-"Return a Type object for the type with the given name.\n"
-"\n"
-"If there are multiple types with the given name, they can be\n"
-"distinguished by passing the filename that the desired identifier was\n"
-"defined in. If no filename is given, it is undefined which one is\n"
-"returned.\n"
-"\n"
-"If no matches are found, this raises a LookupError.\n"
-"\n"
-">>> prog.type('long')\n"
-"int_type(name='long', size=8, is_signed=True)"},
+	 drgn_Program_type_DOC},
 	{"constant", (PyCFunction)Program_constant,
-	 METH_VARARGS | METH_KEYWORDS,
-"constant(self, name: str, filename: Optional[str] = None) -> Object\n"
-"\n"
-"Return an Object representing the constant (e.g., enumeration constant\n"
-"or macro) with the given name.\n"
-"\n"
-"If there are multiple constants with the given name, they can be\n"
-"distinguished by passing the filename that the desired constant was\n"
-"defined in. If no filename is given, it is undefined which one is\n"
-"returned.\n"
-"\n"
-"If no matches are found, this raises a LookupError.\n"
-"\n"
-"Note that support for macro constants is not yet implemented for DWARF\n"
-"files, and most compilers don't generate macro debugging information\n"
-"by default anyways.\n"
-"\n"
-">>> prog.constant('PIDTYPE_MAX')\n"
-"Object(prog, 'enum pid_type', value=4)"},
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_constant_DOC},
 	{"function", (PyCFunction)Program_function,
-	 METH_VARARGS | METH_KEYWORDS,
-"function(self, name: str, filename: Optional[str] = None) -> Object\n"
-"\n"
-"Return an Object representing the function with the given name.\n"
-"\n"
-"If there are multiple functions with the given name, they can be\n"
-"distinguished by passing the filename that the desired function was\n"
-"defined in. If no filename is given, it is undefined which one is\n"
-"returned.\n"
-"\n"
-"If no matches are found, this raises a LookupError.\n"
-"\n"
-">>> prog.function('schedule')\n"
-"Object(prog, 'void (void)', address=0xffffffff94392370)"},
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_function_DOC},
 	{"variable", (PyCFunction)Program_variable,
-	 METH_VARARGS | METH_KEYWORDS,
-"variable(self, name: str, filename: Optional[str] = None) -> Object\n"
-"\n"
-"Return an Object representing the variable with the given name.\n"
-"\n"
-"If there are multiple variables with the given name, they can be\n"
-"distinguished by passing the filename that the desired variable was\n"
-"defined in. If no filename is given, it is undefined which one is\n"
-"returned.\n"
-"\n"
-"If no matches are found, this raises a LookupError.\n"
-"\n"
-">>> prog.variable('jiffies')\n"
-"Object(prog, 'volatile unsigned long', address=0xffffffff94c05000)"},
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_variable_DOC},
 	{},
 };
 
 static PyGetSetDef Program_getset[] = {
-	{"flags", (getter)Program_get_flags, NULL,
-"ProgramFlags\n"
-"\n"
-"flags which apply to this program"},
+	{"flags", (getter)Program_get_flags, NULL, drgn_Program_flags_DOC},
 	{"word_size", (getter)Program_get_word_size, NULL,
-"int\n"
-"\n"
-"size of a word in this program in bytes"},
+	 drgn_Program_word_size_DOC},
 	{"byteorder", (getter)Program_get_byteorder, NULL,
-"str\n"
-"\n"
-"byte order in this program (either 'little' or 'big')"},
+	 drgn_Program_byteorder_DOC},
 	{},
 };
 
@@ -395,20 +318,6 @@ static PyMappingMethods Program_as_mapping = {
 	NULL,				/* mp_length */
 	(binaryfunc)Program_subscript,	/* mp_subscript */
 };
-
-#define Program_DOC								\
-"A Program represents a crashed or running program. It can be used to lookup\n"	\
-"type definitions, access variables, and read arbitrary memory.\n"		\
-"\n"										\
-"The main functionality of a Program is looking up objects (i.e.,\n"		\
-"variables, constants, or functions). This is done with the \"[]\"\n"		\
-"operator.\n"									\
-"\n"										\
-">>> print(prog['pid_max'])\n"							\
-"(int)32768\n"									\
-"\n"										\
-"A Program cannot be constructed directly. Instead, use\n"			\
-"program_from_core_dump(), program_from_kernel(), or program_from_pid()."
 
 PyTypeObject Program_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
@@ -431,7 +340,7 @@ PyTypeObject Program_type = {
 	NULL,					/* tp_setattro */
 	NULL,					/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,/* tp_flags */
-	Program_DOC,				/* tp_doc */
+	drgn_Program_DOC,			/* tp_doc */
 	(traverseproc)Program_traverse,		/* tp_traverse */
 	(inquiry)Program_clear,			/* tp_clear */
 	NULL,					/* tp_richcompare */

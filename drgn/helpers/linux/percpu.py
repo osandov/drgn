@@ -1,11 +1,13 @@
-# Copyright 2018 - Omar Sandoval
+# Copyright 2018-2019 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
-Linux kernel per-CPU helpers
+Per-CPU
+-------
 
-This module provides helpers for working with per-CPU allocations from
-"linux/percpu.h" and per-CPU counters from "linux/percpu_counter.h".
+The ``drgn.helpers.linux.percpu`` module provides helpers for working with
+per-CPU allocations from :linux:`include/linux/percpu.h` and per-CPU counters
+from :linux:`include/linux/percpu_counter.h`.
 """
 
 from drgn import Object
@@ -20,7 +22,7 @@ __all__ = [
 
 def per_cpu_ptr(ptr, cpu):
     """
-    type *per_cpu_ptr(type __percpu *ptr, int cpu)
+    .. c:function:: type *per_cpu_ptr(type __percpu *ptr, int cpu)
 
     Return the per-CPU pointer for a given CPU.
     """
@@ -30,7 +32,7 @@ def per_cpu_ptr(ptr, cpu):
 
 def percpu_counter_sum(fbc):
     """
-    s64 percpu_counter_sum(struct percpu_counter *fbc)
+    .. c:function:: s64 percpu_counter_sum(struct percpu_counter *fbc)
 
     Return the sum of a per-CPU counter.
     """

@@ -1,0 +1,284 @@
+User Guide
+==========
+
+Quick Start
+-----------
+
+.. include:: ../README.rst
+    :start-after: start-quick-start
+    :end-before: end-quick-start
+
+Core Concepts
+-------------
+
+.. highlight:: pycon
+
+Programs
+^^^^^^^^
+
+A program being debugged is represented by an instance of the
+:class:`drgn.Program` class. The drgn CLI is initialized with a ``Program``
+named ``prog``; unless you are using the drgn library directly, this is usually
+the only ``Program`` you will need.
+
+A ``Program`` is used to look up type definitions, access variables, and read
+arbitrary memory::
+
+    >>> prog.type('unsigned long')
+    int_type(name='unsigned long', size=8, is_signed=False)
+    >>> prog['jiffies']
+    Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
+    >>> prog.read(0xffffffffbe411e10, 16)
+    b'swapper/0\x00\x00\x00\x00\x00\x00\x00'
+
+The :meth:`drgn.Program.type()`, :meth:`drgn.Program.variable()`,
+:meth:`drgn.Program.constant()`, and :meth:`drgn.Program.function()` methods
+look up those various things in a program. :meth:`drgn.Program.read()` reads
+memory from the program's address space. The :meth:`[]
+<drgn.Program.__getitem__>` operator looks up a variable, constant, or
+function::
+
+    >>> prog['jiffies'] == prog.variable('jiffies')
+    True
+
+It is usually more convenient to use the ``[]`` operator rather than the
+``variable()``, ``constant()``, or ``function()`` methods unless the program
+has multiple objects with the same name, in which case the methods provide more
+control.
+
+Objects
+^^^^^^^
+
+Variables, constants, functions, and computed values are all called *objects*
+in drgn. Objects are represented by the :class:`drgn.Object` class. An object
+may exist in the memory of the program (a *reference*)::
+
+    >>> Object(prog, 'int', address=0xffffffffc09031a0)
+
+Or, an object may be a temporary computed value (a *value*)::
+
+    >>> Object(prog, 'int', value=4)
+
+What makes drgn scripts expressive is that objects can be used almost exactly
+like they would be in the program's own source code. For example, structure
+members can be accessed with the dot (``.``) operator, arrays can be
+subscripted with ``[]``, arithmetic can be performed, and objects can be
+compared::
+
+    >>> print(prog['init_task'].comm[0])
+    (char)115
+    >>> print(repr(prog['init_task'].nsproxy.mnt_ns.mounts + 1))
+    Object(prog, 'unsigned int', value=34)
+    >>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0
+    False
+
+A common use case is converting a ``drgn.Object`` to a Python value so it can
+be used by a standard Python library. There are a few ways to do this:
+
+* The :meth:`drgn.Object.value_()` method gets the value of the object with the
+  directly corresponding Python type (i.e., integers and pointers become
+  ``int``, floating-point types become ``float``, booleans become ``bool``,
+  arrays become ``list``, structures and unions become ``dict``).
+* The :meth:`drgn.Object.string_()` method gets a null-terminated string as
+  ``bytes`` from an array or pointer.
+* The :class:`int() <int>`, :class:`float() <float>`, and :class:`bool()
+  <bool>` functions do an explicit conversion to that Python type.
+
+Objects have several attributes; the most important are
+:attr:`drgn.Object.prog_` and :attr:`drgn.Object.type_`. The former is the
+:class:`drgn.Program` that the object is from, and the latter is the
+:class:`drgn.Type` of the object.
+
+Note that all attributes and methods of the ``Object`` class end with an
+underscore (``_``) in order to avoid conflicting with structure or union
+members. The ``Object`` attributes and methods always take precedence; use
+:meth:`drgn.Object.member_()` if there is a conflict.
+
+References vs. Values
+"""""""""""""""""""""
+
+The main difference between reference objects and value objects is how they are
+evaluated. References are read from the program's memory every time they are
+evaluated; values simply return the stored value (:meth:`drgn.Object.read_()`
+reads a reference object and returns it as a value object)::
+
+    >>> import time
+    >>> jiffies = prog['jiffies']
+    >>> jiffies.value_()
+    4391639989
+    >>> time.sleep(1)
+    >>> jiffies.value_()
+    4391640290
+    >>> jiffies2 = jiffies.read_()
+    >>> jiffies2.value_()
+    4391640291
+    >>> time.sleep(1)
+    >>> jiffies2.value_()
+    4391640291
+    >>> jiffies.value_()
+    4391640593
+
+References have a :attr:`drgn.Object.address_` attribute, which is the object's
+address as a Python ``int``. This is slightly different from the
+:meth:`drgn.Object.address_of_()` method, which returns the address as a
+``drgn.Object``. Of course, both references and values can have a pointer type;
+``address_`` refers to the address of the pointer object itself, and
+:meth:`drgn.Object.value_()` refers to the value of the pointer (i.e., the
+address it points to)::
+
+    >>> address = prog['jiffies'].address_
+    >>> type(address)
+    <class 'int'>
+    >>> print(hex(address))
+    0xffffffffbe405000
+    >>> jiffiesp = prog['jiffies'].address_of_()
+    >>> jiffiesp
+    Object(prog, 'volatile unsigned long *', value=0xffffffffbe405000)
+    >>> print(hex(jiffiesp.value_()))
+    0xffffffffbe405000
+
+Types
+^^^^^
+
+drgn automatically obtains type definitions from the program. Types are
+represented by the :class:`drgn.Type` class and created by various factory
+functions like :func:`int_type()`::
+
+    >>> prog.type('int')
+    int_type(name='int', size=4, is_signed=True)
+
+You won't usually need to work with types directly, but see
+:ref:`api-reference-types` if you do.
+
+Helpers
+^^^^^^^
+
+Some programs have common data structures that you may want to examine. For
+example, consider linked lists in the Linux kernel:
+
+.. code-block:: c
+
+    struct list_head {
+        struct list_head *next, *prev;
+    };
+
+    #define list_for_each(pos, head) \
+        for (pos = (head)->next; pos != (head); pos = pos->next)
+
+When working with these lists, you'd probably want to define a function:
+
+.. code-block:: python3
+
+    def list_for_each(head):
+        pos = head.next
+        while pos != head:
+            yield pos
+            pos = pos.next
+
+Then, you could use it like so for any list you need to look at::
+
+    >>> for pos in list_for_each(head):
+    ...     do_something_with(pos)
+
+Of course, it would be a waste of time and effort for everyone to have to
+define these helpers for themselves, so drgn includes a collection of helpers
+for many use cases. See :doc:`helpers`.
+
+Command Line Interface
+----------------------
+
+The drgn CLI is basically a wrapper around the drgn library which automatically
+creates a :class:`drgn.Program`. The CLI can be run in interactive mode or
+script mode.
+
+Script Mode
+^^^^^^^^^^^
+
+Script mode is useful for reusable scripts. Simply pass the path to the script
+along with any arguments:
+
+.. code-block:: console
+
+    $ cat script.py
+    import sys
+    from drgn.helpers.linux import find_task
+
+    pid = int(sys.argv[1])
+    uid = find_task(prog, pid).cred.uid.val.value_()
+    print(f'PID {pid} is being run by UID {uid}')
+    $ sudo drgn -k script.py 601
+    PID 601 is being run by UID 1000
+
+It's even possible to run drgn scripts directly with the proper `shebang
+<https://en.wikipedia.org/wiki/Shebang_(Unix)>`_::
+
+    $ cat script2.py
+    #!/usr/bin/drgn -k
+
+    mounts = prog['init_task'].nsproxy.mnt_ns.mounts.value_()
+    print(f'You have {mounts} filesystems mounted')
+    $ sudo ./script2.py
+    You have 36 filesystems mounted
+
+You usually shouldn't depend on an executable being installed at a specific
+absolute path. With newer versions of GNU coreutils (since v8.30), you can
+use |env -S|_:
+
+.. |env -S| replace:: ``env --split-string``
+.. _env -S: https://www.gnu.org/software/coreutils/manual/html_node/env-invocation.html#g_t_002dS_002f_002d_002dsplit_002dstring-usage-in-scripts
+
+.. code-block:: sh
+
+    #!/usr/bin/env -S drgn -k
+
+Interactive Mode
+^^^^^^^^^^^^^^^^
+
+Interactive mode uses the Python interpreter's `interactive mode
+<https://docs.python.org/3/tutorial/interpreter.html#interactive-mode>`_ and
+adds a few nice features, including:
+
+* History
+* Tab completion
+* Automatic import of relevant helpers
+* Pretty printing of objects and types
+
+The default behavior of the Python `REPL
+<https://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop>`_ is to
+print the output of :func:`repr()`. For :class:`drgn.Object` and
+:class:`drgn.Type`, this is a raw representation::
+
+    >>> print(repr(prog['jiffies']))
+    Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
+    >>> print(repr(prog.type('atomic_t')))
+    typedef_type(name='atomic_t', type=struct_type(tag=None, size=4, members=((int_type(name='int', size=4, is_signed=True), 'counter', 0, 0),)))
+
+The standard :func:`print()` function uses the output of :func:`str()`. For
+drgn objects and types, this is a representation in programming language
+syntax::
+
+    >>> print(prog['jiffies'])
+    (volatile unsigned long)4395387628
+    >>> print(prog.type('atomic_t'))
+    typedef struct {
+            int counter;
+    } atomic_t
+
+In interactive mode, the drgn CLI automatically uses ``str()`` instead of
+``repr()`` for objects and types, so you don't need to call ``print()``
+explicitly::
+
+    $ sudo drgn -k
+    >>> prog['jiffies']
+    (volatile unsigned long)4395387628
+    >>> prog.type('atomic_t')
+    typedef struct {
+            int counter;
+    } atomic_t
+
+Next Steps
+----------
+
+Refer to the :doc:`api_reference`. Look through the :doc:`helpers`. Browse
+through the official `examples
+<https://github.com/osandov/drgn/tree/master/examples>`_.
