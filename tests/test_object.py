@@ -501,6 +501,18 @@ class TestValue(ObjectTestCase):
         self.assertRaisesRegex(LookupError, "has no member 'z'", Object,
                                self.prog, point_type, value={'z': 999})
 
+    def test_pointer(self):
+        obj = Object(self.prog, 'int *', value=0xffff0000)
+        self.assertIsNone(obj.address_)
+        self.assertEqual(obj.value_(), 0xffff0000)
+        self.assertEqual(repr(obj), "Object(prog, 'int *', value=0xffff0000)")
+
+        obj = Object(self.prog, typedef_type('INTP', self.prog.type('int *')),
+                     value=0xffff0000)
+        self.assertIsNone(obj.address_)
+        self.assertEqual(obj.value_(), 0xffff0000)
+        self.assertEqual(repr(obj), "Object(prog, 'INTP', value=0xffff0000)")
+
     def test_array(self):
         obj = Object(self.prog, 'int [2]', value=[1, 2])
         self.assertEqual(obj[0], Object(self.prog, 'int', value=1))

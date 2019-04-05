@@ -947,14 +947,24 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 	} else {
 		PyObject *value_obj;
 
+		if (append_string(parts, "value=") == -1)
+			goto out;
 		value_obj = DrgnObject_value(self);
 		if (!value_obj)
 			goto out;
-		if (append_format(parts, "value=%R", value_obj) == -1) {
-			Py_DECREF(value_obj);
+		if (drgn_type_kind(drgn_underlying_type(self->obj.type)) ==
+		    DRGN_TYPE_POINTER)
+			tmp = PyNumber_ToBase(value_obj, 16);
+		else
+			tmp = PyObject_Repr(value_obj);
+		Py_DECREF(value_obj);
+		if (!tmp)
+			goto out;
+		if (PyList_Append(parts, tmp) == -1) {
+			Py_DECREF(tmp);
 			goto out;
 		}
-		Py_DECREF(value_obj);
+		Py_DECREF(tmp);
 	}
 
 	if (self->obj.is_reference || self->obj.kind == DRGN_OBJECT_BUFFER) {
