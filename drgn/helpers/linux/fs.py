@@ -9,12 +9,14 @@ This module provides helpers for working with the Linux virtual filesystem
 """
 
 import os
+import typing
 
-from drgn import container_of, Program
+from drgn import Object, Program, container_of
 from drgn.helpers import escape_string
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = [
+    'Mount',
     'd_path',
     'dentry_path',
     'inode_path',
@@ -107,18 +109,23 @@ def inode_paths(inode):
     )
 
 
+class Mount(typing.NamedTuple):
+    """A mounted filesystem. mount is a struct mount * object."""
+    src: bytes
+    dst: bytes
+    fstype: bytes
+    mount: Object
+
+
 def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
     """
-    for_each_mount(struct mnt_namespace *, char *src, char *dst, char *fstype)
+    for_each_mount(struct mnt_namespace *, char *src, char *dst,
+                   char *fstype) -> Iterator[Mount]
 
     Return an iterator over all of the mounts in a given namespace. If given a
     Program object instead, the initial mount namespace is used. The returned
     mounts can be filtered by source, destination, or filesystem type, all of
     which are encoded using os.fsencode().
-
-    The generated values are (source, destination, filesystem type, struct
-    mount *) tuples. The source, destination, and filesystem type are returned
-    as bytes.
     """
     if isinstance(prog_or_ns, Program):
         ns = prog_or_ns['init_task'].nsproxy.mnt_ns
@@ -147,7 +154,7 @@ def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
                 mnt_fstype += b'.' + subtype
         if fstype is not None and mnt_fstype != fstype:
             continue
-        yield mnt_src, mnt_dst, mnt_fstype, mnt
+        yield Mount(mnt_src, mnt_dst, mnt_fstype, mnt)
 
 
 def print_mounts(prog_or_ns, src=None, dst=None, fstype=None):
