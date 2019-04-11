@@ -13,13 +13,16 @@ else:
     path = sys.argv[1]
 
 mnt = None
-for src, dst, fstype, mnt in for_each_mount(prog, dst=path):
+for mnt in for_each_mount(prog, dst=path):
     pass
 if mnt is None:
     sys.exit(f'No filesystem mounted at {path}')
 
 sb = mnt.mnt.mnt_sb
 
-start = time.monotonic()
-print(sum(1 for _ in list_for_each_entry('struct inode', sb.s_inodes.address_of_(), 'i_sb_list')))
-print(time.monotonic() - start)
+for inode in list_for_each_entry('struct inode', sb.s_inodes.address_of_(),
+                                 'i_sb_list'):
+    try:
+        print(os.fsdecode(inode_path(inode)))
+    except ValueError:
+        continue
