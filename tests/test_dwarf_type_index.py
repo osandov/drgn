@@ -3,7 +3,6 @@ import unittest
 
 from drgn import (
     array_type,
-    bool_type,
     complex_type,
     enum_type,
     FileFormatError,
@@ -201,6 +200,7 @@ base_type_dies += (DwarfDie(
         DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(long_die)),
     ),
 ),)
+
 
 class TestDwarfTypeIndex(unittest.TestCase):
     @staticmethod
@@ -982,7 +982,7 @@ class TestDwarfTypeIndex(unittest.TestCase):
         self.assertFromDwarf(
             dies, typedef_type('INT', int_type('int', 4, True)))
 
-        name = dies[0].attribs.pop(0)
+        dies[0].attribs.pop(0)
         self.assertRaisesRegex(FileFormatError,
                                'DW_TAG_typedef has missing or invalid DW_AT_name',
                                self.type_from_dwarf, dies)
@@ -998,7 +998,7 @@ class TestDwarfTypeIndex(unittest.TestCase):
         ]
         self.assertFromDwarf(dies, typedef_type('VOID', void_type()))
 
-        name = dies[0].attribs.pop(0)
+        dies[0].attribs.pop(0)
         self.assertRaisesRegex(FileFormatError,
                                'DW_TAG_typedef has missing or invalid DW_AT_name',
                                self.type_from_dwarf, dies)

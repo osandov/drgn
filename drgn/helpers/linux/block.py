@@ -10,7 +10,7 @@ Linux block layer, including disks (``struct gendisk``) and partitions
 (``struct hd_struct``).
 """
 
-from drgn import Object, container_of
+from drgn import container_of
 from drgn.helpers import escape_string
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry

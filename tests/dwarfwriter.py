@@ -117,9 +117,9 @@ def _compile_debug_line(buf, cu_die, little_endian):
     offset = len(buf)
     byteorder = 'little' if little_endian else 'big'
 
-    buf.extend(b'\0\0\0\0') # unit_length
+    buf.extend(b'\0\0\0\0')  # unit_length
     buf.extend((4).to_bytes(2, byteorder))  # version
-    buf.extend(b'\0\0\0\0') # header_length
+    buf.extend(b'\0\0\0\0')  # header_length
     buf.append(1)  # minimum_instruction_length
     buf.append(1)  # maximum_operations_per_instruction
     buf.append(1)  # default_is_stmt

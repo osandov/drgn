@@ -1,4 +1,3 @@
-import copy
 import unittest
 
 from drgn import (
@@ -6,9 +5,8 @@ from drgn import (
     FileFormatError,
     function_type,
     int_type,
-    Type,
 )
-from tests.dwarf import DW_AT, DW_ATE, DW_FORM, DW_TAG
+from tests.dwarf import DW_AT, DW_FORM, DW_TAG
 from tests.dwarfwriter import compile_dwarf, DwarfDie, DwarfAttrib
 from tests.libdrgn import (
     DwarfIndex,
@@ -19,7 +17,6 @@ from tests.libdrgn import (
 )
 import tests.libelf as libelf
 from tests.test_dwarf_type_index import int_die, unsigned_int_die
-from tests.test_type_index import color_type
 
 
 class TestDwarfObjectIndex(unittest.TestCase):

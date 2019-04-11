@@ -48,7 +48,6 @@ class TestSerialize(unittest.TestCase):
         for bit_size in range(1, 65):
             value = VALUE & ((1 << bit_size) - 1)
             for bit_offset in range(8):
-                size = (bit_offset + bit_size + 7) // 8
                 for little_endian in [True, False]:
                     expected0, expected1 = py_serialize_bits(value, bit_offset,
                                                              bit_size,

@@ -17,7 +17,6 @@ def parse_rst(input_file):
         SimpleNamespace(name='', state='CONTENT', lines=None,
                         directive_indentation='', content_indentation='')
     ]
-    state = None
     for line in input_file:
         line = line.rstrip()
         indentation = re.match(r'\s*', line).group()

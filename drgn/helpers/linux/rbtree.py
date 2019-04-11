@@ -9,7 +9,7 @@ The ``drgn.helpers.linux.rbtree`` module provides helpers for working with
 red-black trees from :linux:`include/linux/rbtree.h`.
 """
 
-from drgn import Object, container_of
+from drgn import Object, NULL, container_of
 
 
 __all__ = [

@@ -8,7 +8,7 @@ import drgn
 from drgn.internal.mock import MockType
 from tests import _drgn_pydll, _drgn_cdll
 from tests.libelf import _Elf, Elf
-from tests.libdw import _Dwarf_Die, Die, Dwarf
+from tests.libdw import _Dwarf_Die, Die
 
 
 class _drgn_error(ctypes.Structure):
@@ -380,7 +380,6 @@ def _partial_object_wrap(pobj, parent):
     else:
         return PartialObject(type_, address=pobj.address,
                              little_endian=pobj.little_endian)
-
 
 
 class _drgn_object_index(ctypes.Structure):

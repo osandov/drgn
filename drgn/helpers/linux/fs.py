@@ -11,7 +11,7 @@ Linux virtual filesystem (VFS) layer, including mounts, dentries, and inodes.
 
 import os
 
-from drgn import Object, Program, container_of
+from drgn import Program, container_of
 from drgn.helpers import escape_string
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 

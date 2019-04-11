@@ -1,6 +1,5 @@
 import unittest
 
-import drgn
 from drgn import (
     array_type,
     bool_type,
@@ -98,7 +97,6 @@ class TestType(unittest.TestCase):
         self.assertRaisesRegex(ValueError, 'must be unqualified',
                                complex_type, 'double _Complex', 16,
                                float_type('double', 8, Qualifiers.CONST))
-
 
     def test_struct(self):
         t = struct_type('point', 8, (

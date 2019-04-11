@@ -75,7 +75,7 @@ class my_sdist(sdist):
         # pypa/setuptools#436 or the autotools output being out of date),
         # require the repository to be clean (no unknown or ignored files).
         # This check can be disabled with --force.
-        if not self.force and subprocess.check_output(['git', 'clean', '-dnx']):
+        if (not self.force and subprocess.check_output(['git', 'clean', '-dnx'])):
             raise DistutilsSetupError('repository has untracked or ignored files; '
                                       'please run git clean -dfx or use --force')
         super().run()

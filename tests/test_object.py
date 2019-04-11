@@ -55,11 +55,11 @@ class ObjectTestCase(unittest.TestCase):
             exc_a = exc_b = False
             try:
                 value_a = a.value_()
-            except Exception as e:
+            except Exception:
                 exc_a = True
             try:
                 value_b = b.value_()
-            except Exception as e:
+            except Exception:
                 exc_b = True
             if exc_a and not exc_b:
                 raise self.failureException(msg or f'exception raised while reading {a!r}')
@@ -594,6 +594,7 @@ class TestInvalidBitField(ObjectTestCase):
                                'bit field size is larger than type size',
                                Object, self.prog, 'unsigned int', address=0,
                                bit_field_size=64)
+
     def test_float(self):
         self.assertRaisesRegex(ValueError, 'bit field must be integer',
                                Object, self.prog, 'float', value=0,
@@ -1532,7 +1533,6 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(Object(self.prog, 'int [0]', address=0)),
                          '(int [0]){}')
 
-
     def test_array_zeroes(self):
         segment = bytearray(16)
         prog = mock_program(8, 'little', segments=[
@@ -1773,7 +1773,7 @@ class TestGenericOperators(ObjectTestCase):
             Object(prog, 'int *', value=0xffff0000),
         ]
         for obj in strings:
-                self.assertEqual(obj.string_(), b'hello')
+            self.assertEqual(obj.string_(), b'hello')
 
         self.assertRaisesRegex(TypeError, 'must be an array or pointer',
                                Object(prog, 'int', value=1).string_)
