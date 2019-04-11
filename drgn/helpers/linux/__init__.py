@@ -30,29 +30,13 @@ Translates to the following code in Python:
         do_something_with(pos)
 """
 
-from drgn.helpers.linux.block import *
-from drgn.helpers.linux.cpumask import *
-from drgn.helpers.linux.device import *
-from drgn.helpers.linux.fs import *
-from drgn.helpers.linux.idr import *
-from drgn.helpers.linux.list import *
-from drgn.helpers.linux.mm import *
-from drgn.helpers.linux.percpu import *
-from drgn.helpers.linux.pid import *
-from drgn.helpers.linux.radixtree import *
-from drgn.helpers.linux.rbtree import *
+import importlib
+import pkgutil
 
 
-__all__ = (
-    block.__all__ +
-    cpumask.__all__ +
-    device.__all__ +
-    fs.__all__ +
-    idr.__all__ +
-    list.__all__ +
-    mm.__all__ +
-    percpu.__all__ +
-    pid.__all__ +
-    radixtree.__all__ +
-    rbtree.__all__
-)
+__all__ = []
+for module_info in pkgutil.iter_modules(__path__, prefix=__name__ + '.'):
+    submodule = importlib.import_module(module_info.name)
+    __all__.extend(submodule.__all__)
+    for name in submodule.__all__:
+        globals()[name] = getattr(submodule, name)
