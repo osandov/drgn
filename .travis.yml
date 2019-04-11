@@ -1,0 +1,22 @@
+dist: xenial
+
+language: python
+python:
+  - '3.7'
+  - '3.6'
+install:
+script: python setup.py test
+
+env:
+  global:
+    - OMP_NUM_THREADS=4
+  matrix:
+    - CC=gcc
+    - CC=clang
+
+addons:
+  apt:
+    packages:
+      - libelf-dev
+      - libdw-dev
+      - libomp-dev

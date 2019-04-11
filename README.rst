@@ -1,6 +1,10 @@
 drgn
 ====
 
+.. image:: https://travis-ci.org/osandov/drgn.svg?branch=master
+    :target: https://travis-ci.org/osandov/drgn
+    :alt: Build Status
+
 .. image:: https://readthedocs.org/projects/drgn/badge/?version=latest
     :target: https://drgn.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
