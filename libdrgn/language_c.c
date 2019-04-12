@@ -2796,7 +2796,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 
 		type = type_ret->underlying_type;
 		*is_pointer_ret = drgn_type_kind(type) == DRGN_TYPE_POINTER;
-		if (*is_pointer_ret) {
+		if (*is_pointer_ret && referenced_size_ret) {
 			err = drgn_type_sizeof(drgn_type_type(type).type,
 					       referenced_size_ret);
 			if (err)
@@ -2846,19 +2846,15 @@ static struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
 	struct drgn_error *err;
 	struct drgn_object_type lhs_type, rhs_type;
 	bool lhs_pointer, rhs_pointer;
-	uint64_t lhs_size, rhs_size;
 
-	err = c_operand_type(lhs, &lhs_type, &lhs_pointer, &lhs_size);
+	err = c_operand_type(lhs, &lhs_type, &lhs_pointer, NULL);
 	if (err)
 		return err;
-	err = c_operand_type(rhs, &rhs_type, &rhs_pointer, &rhs_size);
+	err = c_operand_type(rhs, &rhs_type, &rhs_pointer, NULL);
 	if (err)
 		return err;
 
 	if (lhs_pointer && rhs_pointer) {
-		if (!c_pointers_similar(&lhs_type, &rhs_type, lhs_size,
-					rhs_size))
-			goto type_error;
 		return drgn_op_cmp_pointers(lhs, rhs, ret);
 	} else if (lhs_pointer || rhs_pointer) {
 		goto type_error;

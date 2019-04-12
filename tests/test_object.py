@@ -955,43 +955,64 @@ class TestCOperators(ObjectTestCase):
         one = self.int(1)
         two = self.int(2)
         three = self.int(3)
-        ptr0 = Object(self.prog, 'int *', value=0xffff0000)
-        ptr1 = Object(self.prog, 'int *', value=0xffff0004)
 
         self.assertTrue(one < two)
         self.assertFalse(two < two)
         self.assertFalse(three < two)
-        self.assertTrue(ptr0 < ptr1)
 
         self.assertTrue(one <= two)
         self.assertTrue(two <= two)
         self.assertFalse(three <= two)
-        self.assertTrue(ptr0 <= ptr1)
 
         self.assertTrue(one == one)
         self.assertFalse(one == two)
-        self.assertFalse(ptr0 == ptr1)
 
         self.assertFalse(one != one)
         self.assertTrue(one != two)
-        self.assertTrue(ptr0 != ptr1)
 
         self.assertFalse(one > two)
         self.assertFalse(two > two)
         self.assertTrue(three > two)
-        self.assertFalse(ptr0 > ptr1)
 
         self.assertFalse(one >= two)
         self.assertTrue(two >= two)
         self.assertTrue(three >= two)
-        self.assertFalse(ptr0 >= ptr1)
 
         # The usual arithmetic conversions convert -1 to an unsigned int.
         self.assertFalse(self.int(-1) < self.unsigned_int(0))
 
         self.assertTrue(self.int(1) == self.bool(1))
 
-        self.assertRaises(TypeError, operator.lt, ptr0, one)
+    def test_ptr_relational(self):
+        ptr0 = Object(self.prog, 'int *', value=0xffff0000)
+        ptr1 = Object(self.prog, 'int *', value=0xffff0004)
+        fptr1 = Object(self.prog, 'float *', value=0xffff0004)
+
+        self.assertTrue(ptr0 < ptr1)
+        self.assertTrue(ptr0 < fptr1)
+        self.assertFalse(ptr1 < fptr1)
+
+        self.assertTrue(ptr0 <= ptr1)
+        self.assertTrue(ptr0 <= fptr1)
+        self.assertTrue(ptr1 <= fptr1)
+
+        self.assertFalse(ptr0 == ptr1)
+        self.assertFalse(ptr0 == fptr1)
+        self.assertTrue(ptr1 == fptr1)
+
+        self.assertTrue(ptr0 != ptr1)
+        self.assertTrue(ptr0 != fptr1)
+        self.assertFalse(ptr1 != fptr1)
+
+        self.assertFalse(ptr0 > ptr1)
+        self.assertFalse(ptr0 > fptr1)
+        self.assertFalse(ptr1 > fptr1)
+
+        self.assertFalse(ptr0 >= ptr1)
+        self.assertFalse(ptr0 >= fptr1)
+        self.assertTrue(ptr1 >= fptr1)
+
+        self.assertRaises(TypeError, operator.lt, ptr0, self.int(1))
 
     def test_add(self):
         self._test_arithmetic(operator.add, 1, 2, 3, floating_point=True)
