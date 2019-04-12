@@ -813,12 +813,14 @@ can be used just like types obtained from :meth:`Program.type()`.
 
     :param tag: :attr:`Type.tag`
     :type tag: str or None
-    :param int size: :attr:`Type.size`
-    :param list[tuple] members: :attr:`Type.members`. The type of a member may
-        be given as a callable returning a ``Type``; it will be called the
-        first time that the member is accessed. The name, bit offset, and bit
-        field size may be omitted; they default to ``None``, 0, and 0,
-        respectively.
+    :param size: :attr:`Type.size`; ``None`` if this is an incomplete type.
+    :type size: int or None
+    :param members: :attr:`Type.members`; ``None`` if this is an incomplete
+        type. The type of a member may be given as a callable returning a
+        ``Type``; it will be called the first time that the member is accessed.
+        The name, bit offset, and bit field size may be omitted; they default
+        to ``None``, 0, and 0, respectively.
+    :type members: list[tuple] or None
     :param qualifiers: :attr:`Type.qualifiers`
     :type qualifiers: Qualifiers or None
     :rtype: Type
