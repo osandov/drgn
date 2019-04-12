@@ -2814,6 +2814,19 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	return NULL;
 }
 
+static struct drgn_error *c_op_cast(struct drgn_object *res,
+				    struct drgn_qualified_type qualified_type,
+				    const struct drgn_object *obj)
+{
+	struct drgn_error *err;
+	struct drgn_object_type type;
+
+	err = c_operand_type(obj, &type, NULL, NULL);
+	if (err)
+		return err;
+	return drgn_op_cast(res, qualified_type, obj, &type);
+}
+
 /*
  * It's too expensive to check that two pointer types are compatible, so we just
  * check that they refer to the same kind of type with equal size.
@@ -3077,6 +3090,7 @@ const struct drgn_language drgn_language_c = {
 	.integer_literal = c_integer_literal,
 	.bool_literal = c_bool_literal,
 	.float_literal = c_float_literal,
+	.op_cast = c_op_cast,
 	.op_bool = c_op_bool,
 	.op_cmp = c_op_cmp,
 	.op_add = c_op_add,

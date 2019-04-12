@@ -94,6 +94,10 @@ struct drgn_language {
 	 */
 	struct drgn_error *(*float_literal)(struct drgn_object *res,
 					    double fvalue);
+	/** Implement @ref drgn_object_cast(). */
+	struct drgn_error *(*op_cast)(struct drgn_object *res,
+				      struct drgn_qualified_type qualified_type,
+				      const struct drgn_object *obj);
 	struct drgn_error *(*op_bool)(const struct drgn_object *obj, bool *ret);
 	struct drgn_error *(*op_cmp)(const struct drgn_object *lhs,
 				     const struct drgn_object *rhs, int *ret);

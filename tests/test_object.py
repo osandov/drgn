@@ -890,6 +890,23 @@ class TestCCommonRealType(ObjectTestCase):
 
 
 class TestCOperators(ObjectTestCase):
+    def test_cast_array(self):
+        obj = Object(self.prog, 'int []', address=0xffff0000)
+        self.assertEqual(cast('int *', obj),
+                         Object(self.prog, 'int *', value=0xffff0000))
+        self.assertEqual(cast('void *', obj),
+                         Object(self.prog, 'void *', value=0xffff0000))
+        self.assertEqual(cast('unsigned long', obj),
+                         Object(self.prog, 'unsigned long', value=0xffff0000))
+        self.assertRaisesRegex(TypeError, r"cannot convert 'int \*' to 'int \[2]'",
+                               cast, 'int [2]', obj)
+
+    def test_cast_function(self):
+        func = Object(self.prog,
+                      function_type(void_type(), (), False), address=0xffff0000)
+        self.assertEqual(cast('void *', func),
+                         Object(self.prog, 'void *', value=0xffff0000))
+
     def _test_arithmetic(self, op, lhs, rhs, result, integral=True,
                          floating_point=False):
         if integral:

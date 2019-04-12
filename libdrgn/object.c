@@ -1042,96 +1042,13 @@ drgn_object_cast(struct drgn_object *res,
 		 struct drgn_qualified_type qualified_type,
 		 const struct drgn_object *obj)
 {
-	struct drgn_error *err;
-	struct drgn_object_type type;
-	enum drgn_object_kind kind;
-	uint64_t bit_size;
+	const struct drgn_language *lang = &drgn_language_c;
 
 	if (res->prog != obj->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
 	}
-
-	err = drgn_object_set_common(qualified_type, 0, &type, &kind,
-				     &bit_size);
-	if (err)
-		goto err;
-
-	if (!drgn_object_kind_is_complete(kind)) {
-		return drgn_error_incomplete_type("cannot cast to %s type",
-						  type.type);
-	}
-
-	switch (kind) {
-	case DRGN_OBJECT_BUFFER: {
-		bool eq;
-
-		err = drgn_type_eq(obj->type, qualified_type.type, &eq);
-		if (err)
-			goto err;
-		if (!eq)
-			goto type_error;
-		err = drgn_object_read(res, obj);
-		if (err)
-			return err;
-		res->qualifiers = type.qualifiers;
-		return NULL;
-	}
-	case DRGN_OBJECT_SIGNED: {
-		int64_t svalue;
-
-		err = drgn_object_convert_signed(obj, bit_size, &svalue);
-		if (err)
-			goto err;
-		return drgn_object_set_signed_internal(res, &type, bit_size,
-						       svalue);
-	}
-	case DRGN_OBJECT_UNSIGNED: {
-		uint64_t uvalue;
-
-		err = drgn_object_convert_unsigned(obj, bit_size, &uvalue);
-		if (err)
-			goto err;
-		return drgn_object_set_unsigned_internal(res, &type, bit_size,
-							 uvalue);
-	}
-	case DRGN_OBJECT_FLOAT: {
-		double fvalue;
-
-		err = drgn_object_convert_float(obj, &fvalue);
-		if (err)
-			goto err;
-		return drgn_object_set_float_internal(res, &type, bit_size,
-						      fvalue);
-	}
-	default:
-		goto type_error;
-	}
-
-err:
-	if (err->code == DRGN_ERROR_TYPE) {
-		char *old_type_name, *new_type_name;
-
-		drgn_error_destroy(err);
-type_error:
-		err = drgn_pretty_print_type_name(drgn_object_qualified_type(obj),
-						  &old_type_name);
-		if (err)
-			return err;
-		err = drgn_pretty_print_type_name(qualified_type,
-						  &new_type_name);
-		if (err) {
-			free(old_type_name);
-			return err;
-		}
-
-		err = drgn_error_format(DRGN_ERROR_TYPE,
-					"cannot convert '%s' to '%s'",
-					old_type_name, new_type_name);
-		free(new_type_name);
-		free(old_type_name);
-	}
-	return err;
+	return lang->op_cast(res, qualified_type, obj);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1558,6 +1475,136 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "invalid operand type for pointer arithmetic");
 	}
+}
+
+static struct drgn_error *drgn_error_cast(struct drgn_object_type *to,
+					  struct drgn_object_type *from)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type to_qualified_type = {
+		.type = to->type,
+		.qualifiers = to->qualifiers,
+	};
+	struct drgn_qualified_type from_qualified_type = {
+		.type = from->type,
+		.qualifiers = from->qualifiers,
+	};
+	char *to_type_name, *from_type_name;
+
+	err = drgn_pretty_print_type_name(to_qualified_type, &to_type_name);
+	if (err) {
+		return err;
+	}
+	err = drgn_pretty_print_type_name(from_qualified_type, &from_type_name);
+	if (err) {
+		free(from_type_name);
+		return err;
+	}
+	err = drgn_error_format(DRGN_ERROR_TYPE,
+				"cannot convert '%s' to '%s'",
+				from_type_name, to_type_name);
+	free(from_type_name);
+	free(to_type_name);
+	return err;
+}
+
+struct drgn_error *drgn_op_cast(struct drgn_object *res,
+				struct drgn_qualified_type qualified_type,
+				const struct drgn_object *obj,
+				struct drgn_object_type *obj_type)
+{
+	struct drgn_error *err;
+	struct drgn_object_type type;
+	enum drgn_object_kind kind;
+	uint64_t bit_size;
+	bool is_pointer;
+
+	err = drgn_object_set_common(qualified_type, 0, &type, &kind,
+				     &bit_size);
+	if (err)
+		goto err;
+
+	if (!drgn_object_kind_is_complete(kind)) {
+		return drgn_error_incomplete_type("cannot cast to %s type",
+						  type.type);
+	}
+
+	is_pointer = (drgn_type_kind(obj_type->underlying_type) ==
+		      DRGN_TYPE_POINTER);
+	switch (kind) {
+	case DRGN_OBJECT_BUFFER: {
+		bool eq;
+
+		if (is_pointer)
+			goto type_error;
+
+		err = drgn_type_eq(obj->type, qualified_type.type, &eq);
+		if (err)
+			goto err;
+		if (!eq)
+			goto type_error;
+		err = drgn_object_read(res, obj);
+		if (err)
+			return err;
+		res->qualifiers = type.qualifiers;
+		return NULL;
+	}
+	case DRGN_OBJECT_SIGNED: {
+		union {
+			int64_t svalue;
+			uint64_t uvalue;
+		} tmp;
+
+		if (is_pointer) {
+			err = pointer_operand(obj, &tmp.uvalue);
+		} else {
+			err = drgn_object_convert_signed(obj, bit_size,
+							 &tmp.svalue);
+		}
+		if (err)
+			goto err;
+		return drgn_object_set_signed_internal(res, &type, bit_size,
+						       tmp.svalue);
+	}
+	case DRGN_OBJECT_UNSIGNED: {
+		uint64_t uvalue;
+
+		if (is_pointer) {
+			err = pointer_operand(obj, &uvalue);
+		} else {
+			err = drgn_object_convert_unsigned(obj, bit_size,
+							   &uvalue);
+		}
+		if (err)
+			goto err;
+		return drgn_object_set_unsigned_internal(res, &type, bit_size,
+							 uvalue);
+	}
+	case DRGN_OBJECT_FLOAT: {
+		double fvalue;
+
+		if (is_pointer)
+			goto type_error;
+
+		err = drgn_object_convert_float(obj, &fvalue);
+		if (err)
+			goto err;
+		return drgn_object_set_float_internal(res, &type, bit_size,
+						      fvalue);
+	}
+	default:
+		goto type_error;
+	}
+
+err:
+	if (err->code == DRGN_ERROR_TYPE) {
+		drgn_error_destroy(err);
+		goto type_error;
+	}
+	return err;
+
+type_error:
+	return drgn_error_cast(&type, obj_type);
 }
 
 /*

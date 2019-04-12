@@ -293,6 +293,17 @@ drgn_unary_op_impl drgn_op_neg_impl;
 drgn_unary_op_impl drgn_op_not_impl;
 
 /**
+ * Implement object type casting.
+ *
+ * If @p obj_type is a pointer type and @c obj is a buffer, then the reference
+ * address of @p obj is used.
+ */
+struct drgn_error *drgn_op_cast(struct drgn_object *res,
+				struct drgn_qualified_type qualified_type,
+				const struct drgn_object *obj,
+				struct drgn_object_type *obj_type);
+
+/**
  * Implement object comparison for signed, unsigned, and floating-point objects.
  *
  * This converts @p lhs and @p rhs to @p type before comparing.
