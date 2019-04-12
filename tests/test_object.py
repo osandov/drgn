@@ -1050,6 +1050,13 @@ class TestCOperators(ObjectTestCase):
         self.assertRaises(TypeError, operator.add, ptr, 2.0)
         self.assertRaises(TypeError, operator.add, 2.0, ptr)
 
+        void_ptr = Object(self.prog, 'void *', value=0xffff0000)
+        void_ptr1 = Object(self.prog, 'void *', value=0xffff0001)
+        self.assertEqual(void_ptr + self.int(1), void_ptr1)
+        self.assertEqual(self.unsigned_int(1) + void_ptr, void_ptr1)
+        self.assertEqual(void_ptr + 1, void_ptr1)
+        self.assertEqual(1 + void_ptr, void_ptr1)
+
     def test_sub(self):
         self._test_arithmetic(operator.sub, 4, 2, 2, floating_point=True)
 
@@ -1065,6 +1072,15 @@ class TestCOperators(ObjectTestCase):
         self.assertEqual(arr - self.int(1), ptr)
         self.assertRaises(TypeError, operator.sub, self.int(1), ptr)
         self.assertRaises(TypeError, operator.sub, ptr, 1.0)
+
+        void_ptr = Object(self.prog, 'void *', value=0xffff0000)
+        void_ptr1 = Object(self.prog, 'void *', value=0xffff0001)
+        self.assertEqual(void_ptr1 - void_ptr,
+                         Object(self.prog, 'ptrdiff_t', value=1))
+        self.assertEqual(void_ptr - void_ptr1,
+                         Object(self.prog, 'ptrdiff_t', value=-1))
+        self.assertEqual(void_ptr - self.int(0), void_ptr)
+        self.assertEqual(void_ptr1 - self.int(1), void_ptr)
 
     def test_mul(self):
         self._test_arithmetic(operator.mul, 2, 3, 6, floating_point=True)

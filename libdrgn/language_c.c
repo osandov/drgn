@@ -2797,10 +2797,18 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 		type = type_ret->underlying_type;
 		*is_pointer_ret = drgn_type_kind(type) == DRGN_TYPE_POINTER;
 		if (*is_pointer_ret && referenced_size_ret) {
-			err = drgn_type_sizeof(drgn_type_type(type).type,
-					       referenced_size_ret);
-			if (err)
-				return err;
+			struct drgn_type *referenced_type;
+
+			referenced_type =
+				drgn_underlying_type(drgn_type_type(type).type);
+			if (drgn_type_kind(referenced_type) == DRGN_TYPE_VOID) {
+				*referenced_size_ret = 1;
+			} else {
+				err = drgn_type_sizeof(referenced_type,
+						       referenced_size_ret);
+				if (err)
+					return err;
+			}
 		}
 	}
 	return NULL;
