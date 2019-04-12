@@ -1662,6 +1662,11 @@ class TestGenericOperators(ObjectTestCase):
                                "cannot convert 'struct point' to 'enum color'",
                                cast, color_type, obj)
 
+    def test_cast_invalid(self):
+        obj = Object(self.prog, 'int', value=1)
+        self.assertRaisesRegex(TypeError, 'cannot cast to void type', cast,
+                               'void', obj)
+
     def test_reinterpret_reference(self):
         obj = Object(self.prog, 'int', address=0xffff0000)
         self.assertEqual(reinterpret('int', obj), obj)

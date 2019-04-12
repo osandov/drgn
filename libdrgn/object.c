@@ -1059,7 +1059,7 @@ drgn_object_cast(struct drgn_object *res,
 
 	if (!drgn_object_kind_is_complete(kind)) {
 		return drgn_error_incomplete_type("cannot cast to %s type",
-						  obj->type);
+						  type.type);
 	}
 
 	switch (kind) {
