@@ -59,6 +59,8 @@ extern const char drgn_Program_flags_DOC[];
 #define drgn_Program_flags_DOC (char *)drgn_Program_flags_DOC
 extern const char drgn_Program_function_DOC[];
 #define drgn_Program_function_DOC (char *)drgn_Program_function_DOC
+extern const char drgn_Program_pointer_type_DOC[];
+#define drgn_Program_pointer_type_DOC (char *)drgn_Program_pointer_type_DOC
 extern const char drgn_Program_read_DOC[];
 #define drgn_Program_read_DOC (char *)drgn_Program_read_DOC
 extern const char drgn_Program_type_DOC[];

@@ -940,7 +940,7 @@ static PyObject *DrgnType_is_complete(DrgnType *self)
 	return PyBool_FromLong(drgn_type_is_complete(self->type));
 }
 
-static int qualifiers_converter(PyObject *arg, void *result)
+int qualifiers_converter(PyObject *arg, void *result)
 {
 	unsigned long qualifiers;
 

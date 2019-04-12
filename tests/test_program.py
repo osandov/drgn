@@ -1,6 +1,6 @@
 import unittest
 
-from drgn import FaultError, ProgramFlags
+from drgn import FaultError, ProgramFlags, Qualifiers
 from drgn.internal.mock import MockMemorySegment, mock_program
 
 
@@ -51,3 +51,12 @@ class TestProgram(unittest.TestCase):
 
     def test_flags(self):
         self.assertIsInstance(mock_program(8, 'little').flags, ProgramFlags)
+
+    def test_pointer_type(self):
+        prog = mock_program(8, 'little')
+        self.assertEqual(prog.pointer_type(prog.type('int')),
+                         prog.type('int *'))
+        self.assertEqual(prog.pointer_type('int'),
+                         prog.type('int *'))
+        self.assertEqual(prog.pointer_type(prog.type('int'), Qualifiers.CONST),
+                         prog.type('int * const'))

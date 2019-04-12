@@ -116,6 +116,16 @@ Programs
         :raises LookupError: if no types with the given name are found in
             the given file
 
+    .. attribute:: pointer_type(type, qualifiers=None)
+
+        Create a pointer type which points to the given type.
+
+        :param type: The referenced type.
+        :type type: str or Type
+        :param qualifiers: :attr:`Type.qualifiers`
+        :type qualifiers: Qualifiers or None
+        :rtype: Type
+
     .. attribute:: read(address, size, physical=False)
 
         Read *size* bytes of memory starting at *address* in the program. The
@@ -846,8 +856,10 @@ can be used just like types obtained from :meth:`Program.type()`.
 
     Create a new pointer type. It has kind :attr:`TypeKind.POINTER`,
 
+    You can usually use :meth:`Program:pointer_type()` instead.
+
     :param int size: :attr:`Type.size`
-    :param Type type: The referenced type (:attr:`Type.type`)
+    :param type: The referenced type (:attr:`Type.type`)
     :param qualifiers: :attr:`Type.qualifiers`
     :type qualifiers: Qualifiers or None
     :rtype: Type

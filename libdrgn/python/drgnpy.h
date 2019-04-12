@@ -116,7 +116,9 @@ static inline DrgnObject *DrgnObject_alloc(Program *prog)
 	return ret;
 }
 
-int Program_hold_type(Program *prog, DrgnType *type);
+int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
+		     struct drgn_qualified_type *ret);
+int qualifiers_converter(PyObject *arg, void *result);
 
 PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds);

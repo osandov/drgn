@@ -40,40 +40,6 @@ static void DrgnObject_dealloc(DrgnObject *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static int type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
-		    struct drgn_qualified_type *ret)
-{
-	struct drgn_error *err;
-
-	if (PyObject_TypeCheck(type_obj, &DrgnType_type)) {
-		if (Program_hold_type(prog, (DrgnType *)type_obj) == -1)
-			return -1;
-		ret->type = ((DrgnType *)type_obj)->type;
-		ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
-	} else if (PyUnicode_Check(type_obj)) {
-		const char *name;
-
-		name = PyUnicode_AsUTF8(type_obj);
-		if (!name)
-			return -1;
-		err = drgn_program_find_type(&prog->prog, name, NULL, ret);
-		if (err) {
-			set_drgn_error(err);
-			return -1;
-		}
-	} else if (can_be_none && type_obj == Py_None) {
-		ret->type = NULL;
-		ret->qualifiers = 0;
-	} else {
-		PyErr_SetString(PyExc_TypeError,
-				can_be_none ?
-				"type must be Type, str, or None" :
-				"type must be Type or str");
-		return -1;
-	}
-	return 0;
-}
-
 static unsigned long long index_arg(PyObject *obj, const char *msg)
 {
 	if (PyLong_Check(obj)) {
@@ -489,8 +455,8 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 		return -1;
 	}
 
-	if (type_arg(DrgnObject_prog(self), type_obj, true,
-		     &qualified_type) == -1)
+	if (Program_type_arg(DrgnObject_prog(self), type_obj, true,
+			     &qualified_type) == -1)
 		return -1;
 
 	if (parse_optional_byteorder(byteorder_obj, &byte_order) == -1)
@@ -1849,8 +1815,8 @@ DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds)
 					 &type_obj, &DrgnObject_type, &obj))
 		return NULL;
 
-	if (type_arg(DrgnObject_prog(obj), type_obj, false,
-		     &qualified_type) == -1)
+	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,
+			     &qualified_type) == -1)
 		return NULL;
 
 	res = DrgnObject_alloc(DrgnObject_prog(obj));
@@ -1881,8 +1847,8 @@ DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds)
 					 &obj, &byteorder_obj))
 		return NULL;
 
-	if (type_arg(DrgnObject_prog(obj), type_obj, false,
-		     &qualified_type) == -1)
+	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,
+			     &qualified_type) == -1)
 		return NULL;
 
 	if (parse_optional_byteorder(byteorder_obj, &byte_order) == -1)
@@ -1917,8 +1883,8 @@ DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 					 &type_obj, &member_designator))
 		return NULL;
 
-	if (type_arg(DrgnObject_prog(obj), type_obj, false,
-		     &qualified_type) == -1)
+	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,
+			     &qualified_type) == -1)
 		return NULL;
 
 	res = DrgnObject_alloc(DrgnObject_prog(obj));

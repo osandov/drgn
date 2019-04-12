@@ -35,7 +35,7 @@ static int Program_hold_object(Program *prog, PyObject *obj)
 	return ret;
 }
 
-int Program_hold_type(Program *prog, DrgnType *type)
+static int Program_hold_type(Program *prog, DrgnType *type)
 {
 	PyObject *parent;
 
@@ -44,6 +44,40 @@ int Program_hold_type(Program *prog, DrgnType *type)
 		return Program_hold_object(prog, parent);
 	else
 		return 0;
+}
+
+int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
+		     struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+
+	if (PyObject_TypeCheck(type_obj, &DrgnType_type)) {
+		if (Program_hold_type(prog, (DrgnType *)type_obj) == -1)
+			return -1;
+		ret->type = ((DrgnType *)type_obj)->type;
+		ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
+	} else if (PyUnicode_Check(type_obj)) {
+		const char *name;
+
+		name = PyUnicode_AsUTF8(type_obj);
+		if (!name)
+			return -1;
+		err = drgn_program_find_type(&prog->prog, name, NULL, ret);
+		if (err) {
+			set_drgn_error(err);
+			return -1;
+		}
+	} else if (can_be_none && type_obj == Py_None) {
+		ret->type = NULL;
+		ret->qualifiers = 0;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				can_be_none ?
+				"type must be Type, str, or None" :
+				"type must be Type or str");
+		return -1;
+	}
+	return 0;
 }
 
 static void mock_program_deinit(struct drgn_program *prog)
@@ -165,6 +199,37 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 		set_drgn_error(err);
 		return NULL;
 	}
+	return DrgnType_wrap(qualified_type, (PyObject *)self);
+}
+
+static PyObject *Program_pointer_type(Program *self, PyObject *args,
+				      PyObject *kwds)
+{
+	static char *keywords[] = {"type", "qualifiers", NULL};
+	struct drgn_error *err;
+	PyObject *referenced_type_obj;
+	struct drgn_qualified_type referenced_type;
+	unsigned char qualifiers = 0;
+	struct drgn_qualified_type qualified_type;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O&:pointer_type",
+					 keywords, &referenced_type_obj,
+					 qualifiers_converter, &qualifiers))
+		return NULL;
+
+	if (Program_type_arg(self, referenced_type_obj, false,
+			     &referenced_type) == -1)
+		return NULL;
+
+	err = drgn_type_index_pointer_type(self->prog.tindex,
+					   drgn_program_word_size(&self->prog),
+					   referenced_type,
+					   &qualified_type.type);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+	qualified_type.qualifiers = qualifiers;
 	return DrgnType_wrap(qualified_type, (PyObject *)self);
 }
 
@@ -296,6 +361,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_read_DOC},
 	{"type", (PyCFunction)Program_find_type, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_type_DOC},
+	{"pointer_type", (PyCFunction)Program_pointer_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_pointer_type_DOC},
 	{"constant", (PyCFunction)Program_constant,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_constant_DOC},
 	{"function", (PyCFunction)Program_function,
