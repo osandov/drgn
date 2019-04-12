@@ -1014,6 +1014,24 @@ class TestCOperators(ObjectTestCase):
 
         self.assertRaises(TypeError, operator.lt, ptr0, self.int(1))
 
+        func = Object(self.prog,
+                      function_type(void_type(), (), False), address=0xffff0000)
+        self.assertTrue(func == func)
+        self.assertTrue(func == ptr0)
+
+        array = Object(self.prog, 'int [8]', address=0xffff0000)
+        self.assertTrue(array == array)
+        self.assertTrue(array != ptr1)
+
+        incomplete = Object(self.prog, 'int []', address=0xffff0000)
+        self.assertTrue(incomplete == incomplete)
+        self.assertTrue(incomplete == ptr0)
+
+        self.assertRaises(TypeError, operator.eq,
+                          Object(self.prog, struct_type('foo', None, None),
+                                 address=0xffff0000),
+                          ptr0)
+
     def test_add(self):
         self._test_arithmetic(operator.add, 1, 2, 3, floating_point=True)
 

@@ -1546,6 +1546,8 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 	case DRGN_OBJECT_UNSIGNED:
 		return drgn_object_value_unsigned(ptr, ret);
 	case DRGN_OBJECT_BUFFER:
+	case DRGN_OBJECT_NONE:
+	case DRGN_OBJECT_INCOMPLETE_BUFFER:
 		if (!ptr->is_reference) {
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "cannot take address of value");
