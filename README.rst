@@ -11,11 +11,11 @@ drgn
 
 .. start-introduction
 
-drgn is a debugger-as-a-library. In contrast to existing debuggers like `GDB
-<https://www.gnu.org/software/gdb/>`_ which focus on breakpoint-based
-debugging, drgn excels in live introspection. drgn exposes the types and
-variables in a program for easy, expressive scripting in Python. For example,
-you can debug the Linux kernel:
+drgn (pronounced "dragon") is a debugger-as-a-library. In contrast to existing
+debuggers like `GDB <https://www.gnu.org/software/gdb/>`_ which focus on
+breakpoint-based debugging, drgn excels in live introspection. drgn exposes the
+types and variables in a program for easy, expressive scripting in Python. For
+example, you can debug the Linux kernel:
 
 .. code-block:: pycon
 
