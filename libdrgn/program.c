@@ -1002,32 +1002,19 @@ static struct drgn_error *open_kernel_files(struct drgn_dwarf_index *dindex,
 	return NULL;
 }
 
-DEFINE_HASH_MAP(path_elf_map, const char *, Elf *, c_string_hash, c_string_eq)
-
 static struct drgn_error *open_userspace_files(struct drgn_dwarf_index *dindex,
 					       struct file_mapping *mappings,
 					       size_t num_mappings)
 {
 	struct drgn_error *err;
-	struct path_elf_map opened;
 	size_t i;
 	bool success = false;
 
-	path_elf_map_init(&opened);
 	for (i = 0; i < num_mappings; i++) {
-		const char *path;
-		struct hash_pair hp;
-		Elf **value, *elf;
-
-		path = mappings[i].path;
-		hp = path_elf_map_hash(&path);
-		value = path_elf_map_search_hashed(&opened, &path, hp);
-		if (value) {
-			mappings[i].elf = *value;
-			continue;
-		}
-		err = drgn_dwarf_index_open(dindex, path, &elf);
+		err = drgn_dwarf_index_open(dindex, mappings[i].path,
+					    &mappings[i].elf);
 		if (err) {
+			mappings[i].elf = NULL;
 			if ((err->code == DRGN_ERROR_OS &&
 			     err->errnum == ENOENT) ||
 			    err == &drgn_not_elf ||
@@ -1037,21 +1024,13 @@ static struct drgn_error *open_userspace_files(struct drgn_dwarf_index *dindex,
 			}
 			return err;
 		}
-		if (!path_elf_map_insert_searched(&opened, &path, &elf, hp)) {
-			err = &drgn_enomem;
-			goto out;
-		}
 		success = true;
 	}
-	if (success) {
-		err = NULL;
-	} else {
-		err = drgn_error_create(DRGN_ERROR_MISSING_DEBUG,
-					"no debug information found");
+	if (!success) {
+		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG,
+					 "no debug information found");
 	}
-out:
-	path_elf_map_deinit(&opened);
-	return err;
+	return NULL;
 }
 
 static void free_file_mappings(struct file_mapping *mappings,

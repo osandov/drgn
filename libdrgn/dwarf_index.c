@@ -125,17 +125,18 @@ struct compilation_unit {
 };
 
 struct debug_file {
-	bool failed;
+	Elf_Data *sections[NUM_SECTIONS];
 	/* Other byte order. */
 	bool bswap;
+	bool failed;
+	int fd;
 	/*
-	 * If this is -1, then we didn't open the file and don't own the Elf
+	 * If this is NULL, then we didn't open the file and don't own the Elf
 	 * handle.
 	 */
-	int fd;
+	const char *path;
 	Elf *elf;
 	Dwarf *dwarf;
-	Elf_Data *sections[NUM_SECTIONS];
 	Elf_Data *rela_sections[NUM_SECTIONS];
 	struct debug_file *next;
 };
@@ -199,9 +200,13 @@ static inline size_t hash_pair_to_shard(struct hash_pair hp)
 		(((size_t)1 << SHARD_BITS) - 1));
 }
 
+DEFINE_HASH_MAP(debug_file_map, const char *, struct debug_file *,
+		c_string_hash, c_string_eq)
+
 struct drgn_dwarf_index {
 	/* DRGN_DWARF_INDEX_* flags passed to drgn_dwarf_index_create(). */
 	int flags;
+	struct debug_file_map files;
 	struct debug_file *opened_first, *opened_last;
 	struct debug_file *indexed_first, *indexed_last;
 	/* The index is sharded to reduce lock contention. */
@@ -269,8 +274,8 @@ static void free_shards(struct drgn_dwarf_index *dindex, size_t n)
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		die_map_deinit(&dindex->shards[i].map);
 		free(dindex->shards[i].entries);
+		die_map_deinit(&dindex->shards[i].map);
 		omp_destroy_lock(&dindex->shards[i].lock);
 	}
 }
@@ -279,6 +284,7 @@ struct drgn_error *
 drgn_dwarf_index_create(int flags, struct drgn_dwarf_index **ret)
 {
 	static const size_t initial_shard_capacity = max(1024 >> SHARD_BITS, 1);
+	struct drgn_error *err;
 	struct drgn_dwarf_index *dindex;
 	size_t i;
 
@@ -290,36 +296,36 @@ drgn_dwarf_index_create(int flags, struct drgn_dwarf_index **ret)
 	if (!dindex)
 		return &drgn_enomem;
 	dindex->flags = flags;
+	debug_file_map_init(&dindex->files);
 	dindex->opened_first = dindex->opened_last = NULL;
 	dindex->indexed_first = dindex->indexed_last = NULL;
 	for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
 		struct dwarf_index_shard *shard = &dindex->shards[i];
 
 		omp_init_lock(&shard->lock);
-		shard->entries = malloc_array(initial_shard_capacity,
-					      sizeof(*shard->entries));
-		if (!shard->entries) {
-			omp_destroy_lock(&shard->lock);
-			free_shards(dindex, i);
-			free(dindex);
-			return NULL;
-		}
+		die_map_init(&shard->map);
 		shard->num_entries = 0;
 		shard->entries_capacity = initial_shard_capacity;
-		die_map_init(&shard->map);
-		if (!die_map_reserve(&shard->map, initial_shard_capacity)) {
-			free(shard->entries);
-			omp_destroy_lock(&shard->lock);
-			free_shards(dindex, i);
-			free(dindex);
-			return NULL;
+		shard->entries = malloc_array(initial_shard_capacity,
+					      sizeof(*shard->entries));
+		if (!shard->entries ||
+		    !die_map_reserve(&shard->map, initial_shard_capacity)) {
+			free_shards(dindex, i + 1);
+			err = &drgn_enomem;
+			goto err;
 		}
 	}
 	*ret = dindex;
 	return NULL;
+
+err:
+	debug_file_map_deinit(&dindex->files);
+	free(dindex);
+	return err;
 }
 
-static void free_files(struct debug_file *files)
+static void free_files(struct drgn_dwarf_index *dindex,
+		       struct debug_file *files)
 {
 	struct debug_file *file, *next;
 
@@ -327,9 +333,11 @@ static void free_files(struct debug_file *files)
 	while (file) {
 		next = file->next;
 		dwarf_end(file->dwarf);
-		if (file->fd != -1) {
+		if (file->path) {
 			elf_end(file->elf);
 			close(file->fd);
+			debug_file_map_delete(&dindex->files, &file->path);
+			free((char *)file->path);
 		}
 		free(file);
 		file = next;
@@ -340,8 +348,9 @@ void drgn_dwarf_index_destroy(struct drgn_dwarf_index *dindex)
 {
 	if (dindex) {
 		free_shards(dindex, ARRAY_SIZE(dindex->shards));
-		free_files(dindex->opened_first);
-		free_files(dindex->indexed_first);
+		free_files(dindex, dindex->opened_first);
+		free_files(dindex, dindex->indexed_first);
+		debug_file_map_deinit(&dindex->files);
 		free(dindex);
 	}
 }
@@ -450,11 +459,30 @@ struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 					 const char *path, Elf **elf)
 {
 	struct drgn_error *err;
+	const char *key;
+	struct hash_pair hp;
+	struct debug_file_map_pos pos;
 	struct debug_file *file;
 
+	key = realpath(path, NULL);
+	if (!key)
+		return drgn_error_create_os(errno, path, "realpath");
+
+	hp = debug_file_map_hash(&path);
+	pos = debug_file_map_search_pos(&dindex->files, &key, hp);
+	if (pos.item) {
+		free((char *)key);
+		file = pos.item->value;
+		goto out;
+	}
+
 	file = calloc(1, sizeof(*file));
-	if (!file)
-		return &drgn_enomem;
+	if (!file) {
+		err = &drgn_enomem;
+		goto err_key;
+	}
+
+	file->path = key;
 
 	file->fd = open(path, O_RDONLY);
 	if (file->fd == -1) {
@@ -470,25 +498,37 @@ struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 		goto err_fd;
 	}
 
+	pos = debug_file_map_insert_searched_pos(&dindex->files, &key, &file,
+						 hp);
+	if (!pos.item) {
+		err = &drgn_enomem;
+		goto err_elf;
+	}
+
 	err = read_sections(file);
 	if (err)
-		goto err_elf;
+		goto err_hash;
 
 	if (dindex->opened_last)
 		dindex->opened_last->next = file;
 	else
 		dindex->opened_first = file;
 	dindex->opened_last = file;
+out:
 	if (elf)
 		*elf = file->elf;
 	return NULL;
 
+err_hash:
+	debug_file_map_delete_pos(&dindex->files, pos, hp);
 err_elf:
 	elf_end(file->elf);
 err_fd:
 	close(file->fd);
 err_file:
 	free(file);
+err_key:
+	free((char *)key);
 	return err;
 }
 
@@ -502,7 +542,6 @@ struct drgn_error *drgn_dwarf_index_open_elf(struct drgn_dwarf_index *dindex,
 	if (!file)
 		return &drgn_enomem;
 
-	file->fd = -1;
 	file->elf = elf;
 
 	err = read_sections(file);
@@ -1739,7 +1778,7 @@ struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex)
 	first = NULL;
 
 out:
-	free_files(first);
+	free_files(dindex, first);
 	free(cus);
 	return err;
 }
