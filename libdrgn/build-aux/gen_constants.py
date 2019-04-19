@@ -57,7 +57,7 @@ int add_module_constants(PyObject *m)
 		goto out;
 	}}
 	Py_DECREF(tmp);
-	tmp = PyUnicode_FromString("Program flags.");
+	tmp = PyUnicode_FromString(drgn_ProgramFlags_DOC);
 	if (!tmp)
 		goto out;
 	if (PyObject_SetAttrString(ProgramFlags_class, "__doc__", tmp) == -1)
@@ -84,7 +84,7 @@ int add_module_constants(PyObject *m)
 		goto out;
 	}}
 	Py_DECREF(tmp);
-	tmp = PyUnicode_FromString("Type qualifiers.");
+	tmp = PyUnicode_FromString(drgn_Qualifiers_DOC);
 	if (!tmp)
 		goto out;
 	if (PyObject_SetAttrString(Qualifiers_class, "__doc__", tmp) == -1)
@@ -111,7 +111,7 @@ int add_module_constants(PyObject *m)
 		goto out;
 	}}
 	Py_DECREF(tmp);
-	tmp = PyUnicode_FromString("Kind of type.");
+	tmp = PyUnicode_FromString(drgn_TypeKind_DOC);
 	if (!tmp)
 		goto out;
 	if (PyObject_SetAttrString(TypeKind_class, "__doc__", tmp) == -1)
