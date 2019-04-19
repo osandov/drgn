@@ -79,6 +79,7 @@ typedef struct {
 	bool inited;
 } Program;
 
+extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
 extern PyObject *TypeKind_class;

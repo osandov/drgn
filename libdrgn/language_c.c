@@ -846,10 +846,10 @@ c_pretty_print_enum_object(const struct drgn_object *obj,
 
 static bool is_character_type(struct drgn_type *type)
 {
-	switch (drgn_type_c_type(type)) {
-	case C_TYPE_CHAR:
-	case C_TYPE_SIGNED_CHAR:
-	case C_TYPE_UNSIGNED_CHAR:
+	switch (drgn_type_primitive(type)) {
+	case DRGN_C_TYPE_CHAR:
+	case DRGN_C_TYPE_SIGNED_CHAR:
+	case DRGN_C_TYPE_UNSIGNED_CHAR:
 		return true;
 	default:
 		return false;
@@ -1611,26 +1611,6 @@ static const char *specifier_spelling[NUM_SPECIFIER_STATES] = {
 	[SPECIFIER_LONG_DOUBLE] = "long double",
 };
 
-const char *c_type_spelling[C_TYPE_NUM] = {
-	[C_TYPE_CHAR] = "char",
-	[C_TYPE_SIGNED_CHAR] = "signed char",
-	[C_TYPE_UNSIGNED_CHAR] = "unsigned char",
-	[C_TYPE_SHORT] = "short",
-	[C_TYPE_UNSIGNED_SHORT] = "unsigned short",
-	[C_TYPE_INT] = "int",
-	[C_TYPE_UNSIGNED_INT] = "unsigned int",
-	[C_TYPE_LONG] = "long",
-	[C_TYPE_UNSIGNED_LONG] = "unsigned long",
-	[C_TYPE_LONG_LONG] = "long long",
-	[C_TYPE_UNSIGNED_LONG_LONG] = "unsigned long long",
-	[C_TYPE_BOOL] = "_Bool",
-	[C_TYPE_FLOAT] = "float",
-	[C_TYPE_DOUBLE] = "double",
-	[C_TYPE_LONG_DOUBLE] = "long double",
-	[C_TYPE_PTRDIFF_T] = "ptrdiff_t",
-	[C_TYPE_VOID] = "void",
-};
-
 static const enum drgn_qualifiers qualifier_from_token[MAX_QUALIFIER_TOKEN + 1] = {
 	[C_TOKEN_CONST] = DRGN_QUALIFIER_CONST,
 	[C_TOKEN_RESTRICT] = DRGN_QUALIFIER_RESTRICT,
@@ -1638,7 +1618,8 @@ static const enum drgn_qualifiers qualifier_from_token[MAX_QUALIFIER_TOKEN + 1] 
 	[C_TOKEN_ATOMIC] = DRGN_QUALIFIER_ATOMIC,
 };
 
-static const enum c_type_specifier specifier_transition[NUM_SPECIFIER_STATES][MAX_SPECIFIER_TOKEN + 1] = {
+static const enum c_type_specifier
+specifier_transition[NUM_SPECIFIER_STATES][MAX_SPECIFIER_TOKEN + 1] = {
 	[SPECIFIER_NONE] = {
 		[C_TOKEN_VOID] = SPECIFIER_VOID,
 		[C_TOKEN_CHAR] = SPECIFIER_CHAR,
@@ -1752,46 +1733,46 @@ static const enum c_type_specifier specifier_transition[NUM_SPECIFIER_STATES][MA
 	[SPECIFIER_LONG_DOUBLE] = {},
 };
 
-static const enum drgn_c_type_kind specifier_kind[NUM_SPECIFIER_STATES] = {
-	[SPECIFIER_VOID] = C_TYPE_VOID,
-	[SPECIFIER_CHAR] = C_TYPE_CHAR,
-	[SPECIFIER_SIGNED_CHAR] = C_TYPE_SIGNED_CHAR,
-	[SPECIFIER_UNSIGNED_CHAR] = C_TYPE_UNSIGNED_CHAR,
-	[SPECIFIER_SHORT] = C_TYPE_SHORT,
-	[SPECIFIER_SHORT_INT] = C_TYPE_SHORT,
-	[SPECIFIER_SIGNED_SHORT_INT] = C_TYPE_SHORT,
-	[SPECIFIER_UNSIGNED_SHORT_INT] = C_TYPE_UNSIGNED_SHORT,
-	[SPECIFIER_SIGNED_SHORT] = C_TYPE_SHORT,
-	[SPECIFIER_UNSIGNED_SHORT] = C_TYPE_UNSIGNED_SHORT,
-	[SPECIFIER_INT] = C_TYPE_INT,
-	[SPECIFIER_SIGNED_INT] = C_TYPE_INT,
-	[SPECIFIER_UNSIGNED_INT] = C_TYPE_UNSIGNED_INT,
-	[SPECIFIER_LONG] = C_TYPE_LONG,
-	[SPECIFIER_LONG_INT] = C_TYPE_LONG,
-	[SPECIFIER_SIGNED_LONG] = C_TYPE_LONG,
-	[SPECIFIER_UNSIGNED_LONG] = C_TYPE_UNSIGNED_LONG,
-	[SPECIFIER_SIGNED_LONG_INT] = C_TYPE_LONG,
-	[SPECIFIER_UNSIGNED_LONG_INT] = C_TYPE_UNSIGNED_LONG,
-	[SPECIFIER_LONG_LONG] = C_TYPE_LONG_LONG,
-	[SPECIFIER_LONG_LONG_INT] = C_TYPE_LONG_LONG,
-	[SPECIFIER_SIGNED_LONG_LONG_INT] = C_TYPE_LONG_LONG,
-	[SPECIFIER_UNSIGNED_LONG_LONG_INT] = C_TYPE_UNSIGNED_LONG_LONG,
-	[SPECIFIER_SIGNED_LONG_LONG] = C_TYPE_LONG_LONG,
-	[SPECIFIER_UNSIGNED_LONG_LONG] = C_TYPE_UNSIGNED_LONG_LONG,
-	[SPECIFIER_SIGNED] = C_TYPE_INT,
-	[SPECIFIER_UNSIGNED] = C_TYPE_UNSIGNED_INT,
-	[SPECIFIER_BOOL] = C_TYPE_BOOL,
-	[SPECIFIER_FLOAT] = C_TYPE_FLOAT,
-	[SPECIFIER_DOUBLE] = C_TYPE_DOUBLE,
-	[SPECIFIER_LONG_DOUBLE] = C_TYPE_LONG_DOUBLE,
+static const enum drgn_primitive_type specifier_kind[NUM_SPECIFIER_STATES] = {
+	[SPECIFIER_VOID] = DRGN_C_TYPE_VOID,
+	[SPECIFIER_CHAR] = DRGN_C_TYPE_CHAR,
+	[SPECIFIER_SIGNED_CHAR] = DRGN_C_TYPE_SIGNED_CHAR,
+	[SPECIFIER_UNSIGNED_CHAR] = DRGN_C_TYPE_UNSIGNED_CHAR,
+	[SPECIFIER_SHORT] = DRGN_C_TYPE_SHORT,
+	[SPECIFIER_SHORT_INT] = DRGN_C_TYPE_SHORT,
+	[SPECIFIER_SIGNED_SHORT_INT] = DRGN_C_TYPE_SHORT,
+	[SPECIFIER_UNSIGNED_SHORT_INT] = DRGN_C_TYPE_UNSIGNED_SHORT,
+	[SPECIFIER_SIGNED_SHORT] = DRGN_C_TYPE_SHORT,
+	[SPECIFIER_UNSIGNED_SHORT] = DRGN_C_TYPE_UNSIGNED_SHORT,
+	[SPECIFIER_INT] = DRGN_C_TYPE_INT,
+	[SPECIFIER_SIGNED_INT] = DRGN_C_TYPE_INT,
+	[SPECIFIER_UNSIGNED_INT] = DRGN_C_TYPE_UNSIGNED_INT,
+	[SPECIFIER_LONG] = DRGN_C_TYPE_LONG,
+	[SPECIFIER_LONG_INT] = DRGN_C_TYPE_LONG,
+	[SPECIFIER_SIGNED_LONG] = DRGN_C_TYPE_LONG,
+	[SPECIFIER_UNSIGNED_LONG] = DRGN_C_TYPE_UNSIGNED_LONG,
+	[SPECIFIER_SIGNED_LONG_INT] = DRGN_C_TYPE_LONG,
+	[SPECIFIER_UNSIGNED_LONG_INT] = DRGN_C_TYPE_UNSIGNED_LONG,
+	[SPECIFIER_LONG_LONG] = DRGN_C_TYPE_LONG_LONG,
+	[SPECIFIER_LONG_LONG_INT] = DRGN_C_TYPE_LONG_LONG,
+	[SPECIFIER_SIGNED_LONG_LONG_INT] = DRGN_C_TYPE_LONG_LONG,
+	[SPECIFIER_UNSIGNED_LONG_LONG_INT] = DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+	[SPECIFIER_SIGNED_LONG_LONG] = DRGN_C_TYPE_LONG_LONG,
+	[SPECIFIER_UNSIGNED_LONG_LONG] = DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+	[SPECIFIER_SIGNED] = DRGN_C_TYPE_INT,
+	[SPECIFIER_UNSIGNED] = DRGN_C_TYPE_UNSIGNED_INT,
+	[SPECIFIER_BOOL] = DRGN_C_TYPE_BOOL,
+	[SPECIFIER_FLOAT] = DRGN_C_TYPE_FLOAT,
+	[SPECIFIER_DOUBLE] = DRGN_C_TYPE_DOUBLE,
+	[SPECIFIER_LONG_DOUBLE] = DRGN_C_TYPE_LONG_DOUBLE,
 };
 
-enum drgn_c_type_kind c_parse_specifier_list(const char *s)
+enum drgn_primitive_type c_parse_specifier_list(const char *s)
 {
 	struct drgn_error *err;
 	struct drgn_lexer lexer;
 	enum c_type_specifier specifier = SPECIFIER_NONE;
-	enum drgn_c_type_kind kind = C_TYPE_UNKNOWN;
+	enum drgn_primitive_type primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
 	drgn_lexer_init(&lexer, drgn_lexer_c, s);
 
@@ -1815,10 +1796,10 @@ enum drgn_c_type_kind c_parse_specifier_list(const char *s)
 			goto out;
 	}
 
-	kind = specifier_kind[specifier];
+	primitive = specifier_kind[specifier];
 out:
 	drgn_lexer_deinit(&lexer);
-	return kind;
+	return primitive;
 }
 
 static struct drgn_error *
@@ -1916,11 +1897,15 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 		} else if (tag_token == C_TOKEN_ENUM) {
 			kind = DRGN_TYPE_ENUM;
 		} else if (identifier) {
-			if (strncmp(identifier, "ptrdiff_t",
+			if (strncmp(identifier, "size_t",
+				    strlen("size_t")) == 0) {
+				ret->type = tindex->primitive_types[DRGN_C_TYPE_SIZE_T];
+				ret->qualifiers = 0;
+				goto out;
+			} else if (strncmp(identifier, "ptrdiff_t",
 				    strlen("ptrdiff_t")) == 0) {
-				drgn_type_index_find_c_type(tindex,
-							    C_TYPE_PTRDIFF_T,
-							    ret);
+				ret->type = tindex->primitive_types[DRGN_C_TYPE_PTRDIFF_T];
+				ret->qualifiers = 0;
 				goto out;
 			} else {
 				kind = DRGN_TYPE_TYPEDEF;
@@ -1936,8 +1921,8 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 		if (err)
 			return err;
 	} else {
-		drgn_type_index_find_c_type(tindex, specifier_kind[specifier],
-					    ret);
+		ret->type = tindex->primitive_types[specifier_kind[specifier]];
+		ret->qualifiers = 0;
 	}
 out:
 	ret->qualifiers |= qualifiers;
@@ -2387,7 +2372,7 @@ out:
 static struct drgn_error *c_integer_literal(struct drgn_object *res,
 					    uint64_t uvalue)
 {
-	struct drgn_type **c_types = res->prog->tindex->c_types;
+	struct drgn_type **types = res->prog->tindex->primitive_types;
 	struct drgn_qualified_type qualified_type;
 	unsigned int bits;
 
@@ -2396,15 +2381,15 @@ static struct drgn_error *c_integer_literal(struct drgn_object *res,
 	bits = uvalue ? 64 - __builtin_clzll(uvalue) : 0;
 
 	qualified_type.qualifiers = 0;
-	if (bits < 8 * drgn_type_size(c_types[C_TYPE_INT])) {
-		qualified_type.type = c_types[C_TYPE_INT];
-	} else if (bits < 8 * drgn_type_size(c_types[C_TYPE_LONG])) {
-		qualified_type.type = c_types[C_TYPE_LONG];
-	} else if (bits < 8 * drgn_type_size(c_types[C_TYPE_LONG_LONG])) {
-		qualified_type.type = c_types[C_TYPE_LONG_LONG];
+	if (bits < 8 * drgn_type_size(types[DRGN_C_TYPE_INT])) {
+		qualified_type.type = types[DRGN_C_TYPE_INT];
+	} else if (bits < 8 * drgn_type_size(types[DRGN_C_TYPE_LONG])) {
+		qualified_type.type = types[DRGN_C_TYPE_LONG];
+	} else if (bits < 8 * drgn_type_size(types[DRGN_C_TYPE_LONG_LONG])) {
+		qualified_type.type = types[DRGN_C_TYPE_LONG_LONG];
 	} else if (bits <=
-		   8 * drgn_type_size(c_types[C_TYPE_UNSIGNED_LONG_LONG])) {
-		qualified_type.type = c_types[C_TYPE_UNSIGNED_LONG_LONG];
+		   8 * drgn_type_size(types[DRGN_C_TYPE_UNSIGNED_LONG_LONG])) {
+		qualified_type.type = types[DRGN_C_TYPE_UNSIGNED_LONG_LONG];
 		return drgn_object_set_unsigned(res, qualified_type, uvalue, 0);
 	} else {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -2416,7 +2401,7 @@ static struct drgn_error *c_integer_literal(struct drgn_object *res,
 static struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
 {
 	struct drgn_qualified_type qualified_type = {
-		res->prog->tindex->c_types[C_TYPE_INT],
+		res->prog->tindex->primitive_types[DRGN_C_TYPE_INT],
 	};
 
 	return drgn_object_set_signed(res, qualified_type, bvalue, 0);
@@ -2426,25 +2411,25 @@ static struct drgn_error *c_float_literal(struct drgn_object *res,
 					  double fvalue)
 {
 	struct drgn_qualified_type qualified_type = {
-		res->prog->tindex->c_types[C_TYPE_DOUBLE],
+		res->prog->tindex->primitive_types[DRGN_C_TYPE_DOUBLE],
 	};
 
 	return drgn_object_set_float(res, qualified_type, fvalue);
 }
 
-static const int c_integer_conversion_rank[C_TYPE_MAX_INTEGER + 1] = {
-	[C_TYPE_BOOL] = 0,
-	[C_TYPE_CHAR] = 1,
-	[C_TYPE_SIGNED_CHAR] = 1,
-	[C_TYPE_UNSIGNED_CHAR] = 1,
-	[C_TYPE_SHORT] = 2,
-	[C_TYPE_UNSIGNED_SHORT] = 2,
-	[C_TYPE_INT] = 3,
-	[C_TYPE_UNSIGNED_INT] = 3,
-	[C_TYPE_LONG] = 4,
-	[C_TYPE_UNSIGNED_LONG] = 4,
-	[C_TYPE_LONG_LONG] = 5,
-	[C_TYPE_UNSIGNED_LONG_LONG] = 5,
+static const int c_integer_conversion_rank[] = {
+	[DRGN_C_TYPE_BOOL] = 0,
+	[DRGN_C_TYPE_CHAR] = 1,
+	[DRGN_C_TYPE_SIGNED_CHAR] = 1,
+	[DRGN_C_TYPE_UNSIGNED_CHAR] = 1,
+	[DRGN_C_TYPE_SHORT] = 2,
+	[DRGN_C_TYPE_UNSIGNED_SHORT] = 2,
+	[DRGN_C_TYPE_INT] = 3,
+	[DRGN_C_TYPE_UNSIGNED_INT] = 3,
+	[DRGN_C_TYPE_LONG] = 4,
+	[DRGN_C_TYPE_UNSIGNED_LONG] = 4,
+	[DRGN_C_TYPE_LONG_LONG] = 5,
+	[DRGN_C_TYPE_UNSIGNED_LONG_LONG] = 5,
 };
 
 static bool c_can_represent_all_values(struct drgn_type *type1,
@@ -2483,7 +2468,7 @@ static bool c_can_represent_all_values(struct drgn_type *type1,
 static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 					       struct drgn_object_type *type)
 {
-	enum drgn_c_type_kind c_type;
+	enum drgn_primitive_type primitive;
 
 	switch (drgn_type_kind(type->underlying_type)) {
 	case DRGN_TYPE_ENUM:
@@ -2502,7 +2487,7 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 		return NULL;
 	}
 
-	c_type = drgn_type_c_type(type->underlying_type);
+	primitive = drgn_type_primitive(type->underlying_type);
 	/*
 	 * Integer promotions are performed on types whose integer conversion
 	 * rank is less than or equal to the rank of int and unsigned int.
@@ -2526,37 +2511,38 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 	 * promotes it to the full width, but GCC does not. We implement the GCC
 	 * behavior of preserving the width.
 	 */
-	if (c_type == C_TYPE_UNKNOWN || type->bit_field_size) {
-		if (c_can_represent_all_values(tindex->c_types[C_TYPE_INT],
+	if (primitive == DRGN_NOT_PRIMITIVE_TYPE || type->bit_field_size) {
+		if (c_can_represent_all_values(tindex->primitive_types[DRGN_C_TYPE_INT],
 					       0, type->underlying_type,
 					       type->bit_field_size)) {
 			type->type = type->underlying_type =
-				tindex->c_types[C_TYPE_INT];
+				tindex->primitive_types[DRGN_C_TYPE_INT];
 			type->bit_field_size = 0;
-		} else if (c_can_represent_all_values(tindex->c_types[C_TYPE_UNSIGNED_INT],
+		} else if (c_can_represent_all_values(tindex->primitive_types[DRGN_C_TYPE_UNSIGNED_INT],
 						      0, type->underlying_type,
 						      type->bit_field_size)) {
 			type->type = type->underlying_type =
-				tindex->c_types[C_TYPE_UNSIGNED_INT];
+				tindex->primitive_types[DRGN_C_TYPE_UNSIGNED_INT];
 			type->bit_field_size = 0;
 		}
 		return NULL;
 	}
 
-	if (c_type == C_TYPE_INT || c_type == C_TYPE_UNSIGNED_INT ||
-	    c_integer_conversion_rank[c_type] >
-	    c_integer_conversion_rank[C_TYPE_INT])
+	if (primitive == DRGN_C_TYPE_INT ||
+	    primitive == DRGN_C_TYPE_UNSIGNED_INT ||
+	    c_integer_conversion_rank[primitive] >
+	    c_integer_conversion_rank[DRGN_C_TYPE_INT])
 		return NULL;
 
 	/*
 	 * If int can represent all values of the original type, then the result
 	 * is int. Otherwise, the result is unsigned int.
 	 */
-	if (c_can_represent_all_values(tindex->c_types[C_TYPE_INT], 0,
-				       type->underlying_type, 0))
-		type->type = tindex->c_types[C_TYPE_INT];
+	if (c_can_represent_all_values(tindex->primitive_types[DRGN_C_TYPE_INT],
+				       0, type->underlying_type, 0))
+		type->type = tindex->primitive_types[DRGN_C_TYPE_INT];
 	else
-		type->type = tindex->c_types[C_TYPE_UNSIGNED_INT];
+		type->type = tindex->primitive_types[DRGN_C_TYPE_UNSIGNED_INT];
 	type->underlying_type = type->type;
 	return NULL;
 }
@@ -2567,7 +2553,7 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 					     struct drgn_object_type *ret)
 {
 	struct drgn_error *err;
-	enum drgn_c_type_kind c_type1, c_type2;
+	enum drgn_primitive_type primitive1, primitive2;
 	bool is_float1, is_float2;
 	bool is_signed1, is_signed2;
 	int rank_cmp;
@@ -2596,8 +2582,8 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 			goto ret1;
 		else if (size2 > size1)
 			goto ret2;
-		else if (drgn_type_c_type(type1->underlying_type) >
-			 drgn_type_c_type(type2->underlying_type))
+		else if (drgn_type_primitive(type1->underlying_type) >
+			 drgn_type_primitive(type2->underlying_type))
 			goto ret1;
 		else
 			goto ret2;
@@ -2643,10 +2629,11 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 			goto ret1;
 	}
 
-	c_type1 = drgn_type_c_type(type1->underlying_type);
-	c_type2 = drgn_type_c_type(type2->underlying_type);
+	primitive1 = drgn_type_primitive(type1->underlying_type);
+	primitive2 = drgn_type_primitive(type2->underlying_type);
 
-	if (c_type1 != C_TYPE_UNKNOWN && c_type2 != C_TYPE_UNKNOWN) {
+	if (primitive1 != DRGN_NOT_PRIMITIVE_TYPE &&
+	    primitive2 != DRGN_NOT_PRIMITIVE_TYPE) {
 		/*
 		 * If both operands have the same type, then no further
 		 * conversions are needed.
@@ -2656,12 +2643,12 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 		 * that's what GCC seems to do (Clang always throws away the
 		 * typedef).
 		 */
-		if (c_type1 == c_type2)
+		if (primitive1 == primitive2)
 			goto ret2;
 
 		/* Ranks are small, so this won't overflow. */
-		rank_cmp = (c_integer_conversion_rank[c_type1] -
-			    c_integer_conversion_rank[c_type2]);
+		rank_cmp = (c_integer_conversion_rank[primitive1] -
+			    c_integer_conversion_rank[primitive2]);
 	} else {
 		/*
 		 * We don't know the rank of non-standard integer types.
@@ -2680,10 +2667,10 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 
 		size1 = drgn_type_size(type1->underlying_type);
 		size2 = drgn_type_size(type2->underlying_type);
-		if (size1 == size2 && c_type1 == C_TYPE_UNKNOWN &&
-		    c_type2 == C_TYPE_UNKNOWN)
+		if (size1 == size2 && primitive1 == DRGN_NOT_PRIMITIVE_TYPE &&
+		    primitive2 == DRGN_NOT_PRIMITIVE_TYPE)
 			rank_cmp = 0;
-		else if ((size1 == size2 && c_type2 != C_TYPE_UNKNOWN) ||
+		else if ((size1 == size2 && primitive2 != DRGN_NOT_PRIMITIVE_TYPE) ||
 			 size1 < size2)
 			rank_cmp = -1;
 		else
@@ -2734,12 +2721,12 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 	 * all values of the unsigned integer type.
 	 */
 	if (is_signed1) {
-		assert(c_type1 != C_TYPE_UNKNOWN);
-		ret->type = tindex->c_types[c_type1 + 1];
+		assert(primitive1 != DRGN_NOT_PRIMITIVE_TYPE);
+		ret->type = tindex->primitive_types[primitive1 + 1];
 	} else {
 		assert(is_signed2);
-		assert(c_type2 != C_TYPE_UNKNOWN);
-		ret->type = tindex->c_types[c_type2 + 1];
+		assert(primitive2 != DRGN_NOT_PRIMITIVE_TYPE);
+		ret->type = tindex->primitive_types[primitive2 + 1];
 	}
 	ret->underlying_type = ret->type;
 	ret->bit_field_size = 0;
@@ -2957,7 +2944,7 @@ static struct drgn_error *c_op_sub(struct drgn_object *res,
 
 	if (lhs_pointer && rhs_pointer) {
 		struct drgn_type *ptrdiff_type =
-			lhs->prog->tindex->c_types[C_TYPE_PTRDIFF_T];
+			lhs->prog->tindex->primitive_types[DRGN_C_TYPE_PTRDIFF_T];
 		struct drgn_object_type type = {
 			.type = ptrdiff_type,
 			.underlying_type = ptrdiff_type,

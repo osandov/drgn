@@ -67,8 +67,8 @@ DEFINE_HASH_SET_TYPES(drgn_array_type_set, struct drgn_type *)
 struct drgn_type_index {
 	/** Operation dispatch table. */
 	const struct drgn_type_index_ops *ops;
-	/** Cached standard C types (excluding C_TYPE_VOID). */
-	struct drgn_type *c_types[C_TYPE_NUM - 1];
+	/** Cached primitive types. */
+	struct drgn_type *primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
 	/** Cache of created pointer types. */
 	struct drgn_pointer_type_set pointer_types;
 	/** Cache of created array types. */
@@ -79,16 +79,13 @@ struct drgn_type_index {
 	bool little_endian;
 };
 
-_Static_assert(C_TYPE_VOID == C_TYPE_NUM - 1,
-	       "C_TYPE_VOID must be last c_type");
-
 /**
  * Initialize the common part of a @ref drgn_type_index.
  *
  * This should only be called by type index implementations. It initializes @ref
- * drgn_type_index::c_types to a default set of types based on @p word_size. The
- * implementation should override the C types with the definitions that it
- * finds.
+ * drgn_type_index::primitive_types to a default set of types based on @p
+ * word_size. The implementation should override the C types with the
+ * definitions that it finds.
  *
  * @param[in] tindex Type index to initialize.
  * @param[in] ops Operation dispatch table.
@@ -201,19 +198,6 @@ struct drgn_error *
 drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 				      struct drgn_qualified_type element_type,
 				      struct drgn_type **ret);
-
-/**
- * Find a standard C type.
- *
- * This never fails; types which are not found fall back to a default.
- *
- * @param[in] tindex Type index.
- * @param[in] kind Which type to find.
- * @param[out] ret Returned type.
- */
-void drgn_type_index_find_c_type(struct drgn_type_index *tindex,
-				 enum drgn_c_type_kind kind,
-				 struct drgn_qualified_type *ret);
 
 /**
  * Find a parsed type in a @ref drgn_type_index.

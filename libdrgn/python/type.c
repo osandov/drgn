@@ -219,6 +219,14 @@ static PyObject *DrgnType_get_kind(DrgnType *self)
 				     drgn_type_kind(self->type));
 }
 
+static PyObject *DrgnType_get_primitive(DrgnType *self)
+{
+	if (drgn_type_primitive(self->type) == DRGN_NOT_PRIMITIVE_TYPE)
+		Py_RETURN_NONE;
+	return PyObject_CallFunction(PrimitiveType_class, "k",
+				     drgn_type_primitive(self->type));
+}
+
 static PyObject *DrgnType_get_qualifiers(DrgnType *self)
 {
 	return PyObject_CallFunction(Qualifiers_class, "k",
@@ -516,6 +524,7 @@ static struct DrgnType_Attr DrgnType_attr_##name = {	\
 }
 
 DrgnType_ATTR(kind);
+DrgnType_ATTR(primitive);
 DrgnType_ATTR(qualifiers);
 DrgnType_ATTR(name);
 DrgnType_ATTR(tag);
@@ -558,6 +567,8 @@ static PyGetSetDef DrgnType_getset[] = {
 ":vartype: int"},
 	{"kind", (getter)DrgnType_getter, NULL,
 	 drgn_Type_kind_DOC, &DrgnType_attr_kind},
+	{"primitive", (getter)DrgnType_getter, NULL, drgn_Type_primitive_DOC,
+	 &DrgnType_attr_primitive},
 	{"qualifiers", (getter)DrgnType_getter, NULL, drgn_Type_qualifiers_DOC,
 	 &DrgnType_attr_qualifiers},
 	{"name", (getter)DrgnType_getter, NULL, drgn_Type_name_DOC,

@@ -281,6 +281,35 @@ enum drgn_type_kind {
 	DRGN_TYPE_FUNCTION,
 } __attribute__((packed));
 
+/** Primitive types known to drgn. */
+enum drgn_primitive_type {
+	/* Primitive C types. */
+	DRGN_C_TYPE_VOID,
+	DRGN_C_TYPE_CHAR,
+	DRGN_C_TYPE_SIGNED_CHAR,
+	DRGN_C_TYPE_UNSIGNED_CHAR,
+	DRGN_C_TYPE_SHORT,
+	DRGN_C_TYPE_UNSIGNED_SHORT,
+	DRGN_C_TYPE_INT,
+	DRGN_C_TYPE_UNSIGNED_INT,
+	DRGN_C_TYPE_LONG,
+	DRGN_C_TYPE_UNSIGNED_LONG,
+	DRGN_C_TYPE_LONG_LONG,
+	DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+	DRGN_C_TYPE_BOOL,
+	DRGN_C_TYPE_FLOAT,
+	DRGN_C_TYPE_DOUBLE,
+	DRGN_C_TYPE_LONG_DOUBLE,
+	DRGN_C_TYPE_SIZE_T,
+	DRGN_C_TYPE_PTRDIFF_T,
+	DRGN_PRIMITIVE_TYPE_NUM,
+	DRGN_NOT_PRIMITIVE_TYPE = DRGN_PRIMITIVE_TYPE_NUM,
+	/*
+	 * Make sure to update api_reference.rst and type.c when adding anything
+	 * here.
+	 */
+} __attribute__((packed));
+
 /** Member of a structure or union type. */
 struct drgn_type_member {
 	/**
@@ -340,7 +369,7 @@ struct drgn_type {
 	struct {
 		enum drgn_type_kind kind;
 		bool is_complete;
-		uint8_t c_type;
+		enum drgn_primitive_type primitive;
 		/* These are the qualifiers for the wrapped type, not this type. */
 		enum drgn_qualifiers qualifiers;
 		/*
@@ -392,6 +421,13 @@ struct drgn_qualified_type {
 static inline enum drgn_type_kind drgn_type_kind(struct drgn_type *type)
 {
 	return type->_private.kind;
+}
+
+/** Get the primitive type corresponding to a @ref drgn_type. */
+static inline enum drgn_primitive_type
+drgn_type_primitive(struct drgn_type *type)
+{
+	return type->_private.primitive;
 }
 
 /**

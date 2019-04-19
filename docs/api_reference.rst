@@ -551,6 +551,13 @@ Types
 
         :vartype: TypeKind
 
+    .. attribute:: primitive
+
+        If this is a primitive type (e.g., ``int`` or ``double``), the kind of
+        primitive type. Otherwise, ``None``.
+
+        :vartype: PrimitiveType or None
+
     .. attribute:: qualifiers
 
         Bitmask of this type's qualifier.
@@ -728,6 +735,47 @@ Types
     .. attribute:: FUNCTION
 
         Function type.
+
+.. class:: PrimitiveType
+
+    ``PrimitiveType`` is a :class:`enum.Enum` of the primitive types known to
+    drgn.
+
+    .. attribute:: C_VOID
+
+    .. attribute:: C_CHAR
+
+    .. attribute:: C_SIGNED_CHAR
+
+    .. attribute:: C_UNSIGNED_CHAR
+
+    .. attribute:: C_SHORT
+
+    .. attribute:: C_UNSIGNED_SHORT
+
+    .. attribute:: C_INT
+
+    .. attribute:: C_UNSIGNED_INT
+
+    .. attribute:: C_LONG
+
+    .. attribute:: C_UNSIGNED_LONG
+
+    .. attribute:: C_LONG_LONG
+
+    .. attribute:: C_UNSIGNED_LONG_LONG
+
+    .. attribute:: C_BOOL
+
+    .. attribute:: C_FLOAT
+
+    .. attribute:: C_DOUBLE
+
+    .. attribute:: C_LONG_DOUBLE
+
+    .. attribute:: C_SIZE_T
+
+    .. attribute:: C_PTRDIFF_T
 
 .. class:: Qualifiers
 

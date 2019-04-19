@@ -193,13 +193,24 @@ base_type_dies = (
     double_die,
     long_double_die,
 )
-base_type_dies += (DwarfDie(
-    DW_TAG.typedef,
-    (
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'ptrdiff_t'),
-        DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(long_die)),
+base_type_dies += (
+    DwarfDie(
+        DW_TAG.typedef,
+        (
+            DwarfAttrib(DW_AT.name, DW_FORM.string, 'size_t'),
+            DwarfAttrib(DW_AT.type, DW_FORM.ref4,
+                        base_type_dies.index(unsigned_long_die)),
+        ),
     ),
-),)
+    DwarfDie(
+        DW_TAG.typedef,
+        (
+            DwarfAttrib(DW_AT.name, DW_FORM.string, 'ptrdiff_t'),
+            DwarfAttrib(DW_AT.type, DW_FORM.ref4,
+                        base_type_dies.index(long_die)),
+        ),
+    ),
+)
 
 
 class TestDwarfTypeIndex(unittest.TestCase):

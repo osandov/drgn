@@ -1,6 +1,9 @@
 import unittest
 
 from drgn import (
+    PrimitiveType,
+    Qualifiers,
+    TypeKind,
     array_type,
     bool_type,
     complex_type,
@@ -9,9 +12,7 @@ from drgn import (
     function_type,
     int_type,
     pointer_type,
-    Qualifiers,
     struct_type,
-    TypeKind,
     typedef_type,
     union_type,
     void_type,
@@ -22,6 +23,7 @@ class TestType(unittest.TestCase):
     def test_void(self):
         t = void_type()
         self.assertEqual(t.kind, TypeKind.VOID)
+        self.assertEqual(t.primitive, PrimitiveType.C_VOID)
         self.assertEqual(t, void_type())
         self.assertFalse(t.is_complete())
         self.assertEqual(repr(t), 'void_type()')
@@ -29,6 +31,7 @@ class TestType(unittest.TestCase):
     def test_int(self):
         t = int_type('int', 4, True)
         self.assertEqual(t.kind, TypeKind.INT)
+        self.assertEqual(t.primitive, PrimitiveType.C_INT)
         self.assertEqual(t.name, 'int')
         self.assertEqual(t.size, 4)
         self.assertTrue(t.is_signed)
@@ -43,9 +46,13 @@ class TestType(unittest.TestCase):
 
         self.assertRaises(TypeError, int_type, None, 4, True)
 
+        self.assertIsNone(int_type('my_int', 4, True).primitive)
+        self.assertIsNone(int_type('int', 4, False).primitive)
+
     def test_bool(self):
         t = bool_type('_Bool', 1)
         self.assertEqual(t.kind, TypeKind.BOOL)
+        self.assertEqual(t.primitive, PrimitiveType.C_BOOL)
         self.assertEqual(t.name, '_Bool')
         self.assertEqual(t.size, 1)
         self.assertTrue(t.is_complete())
@@ -60,6 +67,7 @@ class TestType(unittest.TestCase):
 
     def test_float(self):
         t = float_type('float', 4)
+        self.assertEqual(t.primitive, PrimitiveType.C_FLOAT)
         self.assertEqual(t.kind, TypeKind.FLOAT)
         self.assertEqual(t.name, 'float')
         self.assertEqual(t.size, 4)
@@ -76,6 +84,7 @@ class TestType(unittest.TestCase):
     def test_complex(self):
         t = complex_type('double _Complex', 16, float_type('double', 8))
         self.assertEqual(t.kind, TypeKind.COMPLEX)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.name, 'double _Complex')
         self.assertEqual(t.size, 16)
         self.assertEqual(t.type, float_type('double', 8))
@@ -104,6 +113,7 @@ class TestType(unittest.TestCase):
             (int_type('int', 4, True), 'y', 32),
         ))
         self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'point')
         self.assertEqual(t.size, 8)
         self.assertEqual(t.members, (
@@ -157,6 +167,7 @@ class TestType(unittest.TestCase):
             (int_type('int', 4, True), 'y', 32),
         ))
         self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertIsNone(t.primitive)
         self.assertIsNone(t.tag)
         self.assertEqual(t.size, 8)
         self.assertEqual(t.members, (
@@ -167,6 +178,7 @@ class TestType(unittest.TestCase):
 
         t = struct_type('color', 0, ())
         self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'color')
         self.assertEqual(t.size, 0)
         self.assertEqual(t.members, ())
@@ -175,6 +187,7 @@ class TestType(unittest.TestCase):
 
         t = struct_type('color')
         self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'color')
         self.assertIsNone(t.size)
         self.assertIsNone(t.members)
@@ -183,6 +196,7 @@ class TestType(unittest.TestCase):
 
         t = struct_type(None, None, None)
         self.assertEqual(t.kind, TypeKind.STRUCT)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, None)
         self.assertIsNone(t.size)
         self.assertIsNone(t.members)
@@ -225,6 +239,7 @@ class TestType(unittest.TestCase):
             (int_type('unsigned int', 4, False), 'y'),
         ))
         self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'option')
         self.assertEqual(t.size, 4)
         self.assertEqual(t.members, (
@@ -278,6 +293,7 @@ class TestType(unittest.TestCase):
             (int_type('unsigned int', 4, False), 'y'),
         ))
         self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertIsNone(t.primitive)
         self.assertIsNone(t.tag)
         self.assertEqual(t.size, 4)
         self.assertEqual(t.members, (
@@ -288,6 +304,7 @@ class TestType(unittest.TestCase):
 
         t = union_type('color', 0, ())
         self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'color')
         self.assertEqual(t.size, 0)
         self.assertEqual(t.members, ())
@@ -296,6 +313,7 @@ class TestType(unittest.TestCase):
 
         t = union_type('color')
         self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'color')
         self.assertIsNone(t.size)
         self.assertIsNone(t.members)
@@ -304,6 +322,7 @@ class TestType(unittest.TestCase):
 
         t = union_type(None, None, None)
         self.assertEqual(t.kind, TypeKind.UNION)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, None)
         self.assertIsNone(t.size)
         self.assertIsNone(t.members)
@@ -344,6 +363,7 @@ class TestType(unittest.TestCase):
         t = enum_type('color', int_type('unsigned int', 4, False),
                       (('RED', 0), ('GREEN', 1), ('BLUE', 2)))
         self.assertEqual(t.kind, TypeKind.ENUM)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'color')
         self.assertEqual(t.type,
                          int_type('unsigned int', 4, False))
@@ -382,6 +402,7 @@ class TestType(unittest.TestCase):
 
         t = enum_type('color', None, None)
         self.assertEqual(t.kind, TypeKind.ENUM)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'color')
         self.assertIsNone(t.type)
         self.assertIsNone(t.enumerators)
@@ -392,6 +413,7 @@ class TestType(unittest.TestCase):
         # A type with no enumerators isn't valid in C, but we allow it.
         t = enum_type('color', int_type('unsigned int', 4, False), ())
         self.assertEqual(t.kind, TypeKind.ENUM)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, 'color')
         self.assertEqual(t.type,
                          int_type('unsigned int', 4, False))
@@ -435,6 +457,7 @@ class TestType(unittest.TestCase):
     def test_typedef(self):
         t = typedef_type('INT', int_type('int', 4, True))
         self.assertEqual(t.kind, TypeKind.TYPEDEF)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.name, 'INT')
         self.assertEqual(t.type, int_type('int', 4, True))
         self.assertTrue(t.is_complete())
@@ -462,9 +485,18 @@ class TestType(unittest.TestCase):
                           int_type('int', 4, True))
         self.assertRaises(TypeError, typedef_type, 'INT', 4)
 
+        self.assertEqual(
+            typedef_type('size_t',
+                         int_type('unsigned long', 8, False)).primitive,
+            PrimitiveType.C_SIZE_T)
+        self.assertEqual(
+            typedef_type('ptrdiff_t', int_type('long', 8, True)).primitive,
+            PrimitiveType.C_PTRDIFF_T)
+
     def test_pointer(self):
         t = pointer_type(8, int_type('int', 4, True))
         self.assertEqual(t.kind, TypeKind.POINTER)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.size, 8)
         self.assertEqual(t.type, int_type('int', 4, True))
         self.assertTrue(t.is_complete())
@@ -487,6 +519,7 @@ class TestType(unittest.TestCase):
     def test_array(self):
         t = array_type(10, int_type('int', 4, True))
         self.assertEqual(t.kind, TypeKind.ARRAY)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.length, 10)
         self.assertEqual(t.type, int_type('int', 4, True))
         self.assertTrue(t.is_complete())
@@ -505,12 +538,14 @@ class TestType(unittest.TestCase):
 
         t = array_type(0, int_type('int', 4, True))
         self.assertEqual(t.kind, TypeKind.ARRAY)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.length, 0)
         self.assertEqual(t.type, int_type('int', 4, True))
         self.assertTrue(t.is_complete())
 
         t = array_type(None, int_type('int', 4, True))
         self.assertEqual(t.kind, TypeKind.ARRAY)
+        self.assertIsNone(t.primitive)
         self.assertIsNone(t.length)
         self.assertEqual(t.type, int_type('int', 4, True))
         self.assertFalse(t.is_complete())
@@ -520,6 +555,7 @@ class TestType(unittest.TestCase):
     def test_function(self):
         t = function_type(void_type(), ((int_type('int', 4, True), 'n'),))
         self.assertEqual(t.kind, TypeKind.FUNCTION)
+        self.assertIsNone(t.primitive)
         self.assertEqual(t.type, void_type())
         self.assertEqual(t.parameters, (
             (int_type('int', 4, True), 'n'),))

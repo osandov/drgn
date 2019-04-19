@@ -6,6 +6,114 @@
 #include "type.h"
 #include "type_index.h"
 
+const char * const * const
+drgn_primitive_type_spellings[DRGN_PRIMITIVE_TYPE_NUM] = {
+	[DRGN_C_TYPE_VOID] = (const char * []){ "void", NULL, },
+	[DRGN_C_TYPE_CHAR] = (const char * []){ "char", NULL, },
+	[DRGN_C_TYPE_SIGNED_CHAR] = (const char * []){
+		"signed char", "char signed", NULL,
+	},
+	[DRGN_C_TYPE_UNSIGNED_CHAR] = (const char * []){
+		"unsigned char", "char unsigned", NULL,
+	},
+	[DRGN_C_TYPE_SHORT] = (const char * []){
+		"short", "signed short", "short signed", "short int",
+		"int short", "signed short int", "signed int short",
+		"short signed int", "short int signed", "int signed short",
+		"int short signed", NULL,
+	},
+	[DRGN_C_TYPE_UNSIGNED_SHORT] = (const char * []){
+		"unsigned short", "short unsigned", "unsigned short int",
+		"unsigned int short", "short unsigned int",
+		"short int unsigned", "int unsigned short",
+		"int short unsigned", NULL,
+	},
+	[DRGN_C_TYPE_INT] = (const char * []){
+		"int", "signed", "signed int", "int signed", NULL,
+	},
+	[DRGN_C_TYPE_UNSIGNED_INT] = (const char * []){
+		"unsigned int", "int unsigned", "unsigned", NULL,
+	},
+	[DRGN_C_TYPE_LONG] = (const char * []){
+		"long", "signed long", "long signed", "long int", "int long",
+		"signed long int", "signed int long", "long signed int",
+		"long int signed", "int signed long", "int long signed", NULL,
+	},
+	[DRGN_C_TYPE_UNSIGNED_LONG] = (const char * []){
+		"unsigned long", "long unsigned", "unsigned long int",
+		"unsigned int long", "long unsigned int", "long int unsigned",
+		"int unsigned long", "int long unsigned", NULL,
+	},
+	[DRGN_C_TYPE_LONG_LONG] = (const char * []){
+		"long long", "signed long long", "long signed long",
+		"long long signed", "long long int", "long int long",
+		"int long long", "signed long long int", "signed long int long",
+		"signed int long long", "long signed long int",
+		"long signed int long", "long long signed int",
+		"long long int signed", "long int signed long",
+		"long int long signed", "int signed long long",
+		"int long signed long", "int long long signed", NULL,
+	},
+	[DRGN_C_TYPE_UNSIGNED_LONG_LONG] = (const char * []){
+		"unsigned long long", "long unsigned long",
+		"long long unsigned", "unsigned long long int",
+		"unsigned long int long", "unsigned int long long",
+		"long unsigned long int", "long unsigned int long",
+		"long long unsigned int", "long long int unsigned",
+		"long int unsigned long", "long int long unsigned",
+		"int unsigned long long", "int long unsigned long",
+		"int long long unsigned", NULL,
+	},
+	[DRGN_C_TYPE_BOOL] = (const char * []){ "_Bool", NULL, },
+	[DRGN_C_TYPE_FLOAT] = (const char * []){ "float", NULL, },
+	[DRGN_C_TYPE_DOUBLE] = (const char * []){ "double", NULL, },
+	[DRGN_C_TYPE_LONG_DOUBLE] = (const char * []){
+		"long double", "double long", NULL,
+	},
+	[DRGN_C_TYPE_SIZE_T] = (const char * []){ "size_t", NULL, },
+	[DRGN_C_TYPE_PTRDIFF_T] = (const char * []){ "ptrdiff_t", NULL, },
+};
+
+const enum drgn_type_kind
+drgn_primitive_type_kind[DRGN_PRIMITIVE_TYPE_NUM + 1] = {
+	[DRGN_C_TYPE_CHAR] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_SIGNED_CHAR] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_UNSIGNED_CHAR] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_SHORT] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_UNSIGNED_SHORT] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_INT] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_UNSIGNED_INT] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_LONG] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_UNSIGNED_LONG] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_LONG_LONG] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_UNSIGNED_LONG_LONG] = DRGN_TYPE_INT,
+	[DRGN_C_TYPE_BOOL] = DRGN_TYPE_BOOL,
+	[DRGN_C_TYPE_FLOAT] = DRGN_TYPE_FLOAT,
+	[DRGN_C_TYPE_DOUBLE] = DRGN_TYPE_FLOAT,
+	[DRGN_C_TYPE_LONG_DOUBLE] = DRGN_TYPE_FLOAT,
+	[DRGN_C_TYPE_SIZE_T] = DRGN_TYPE_TYPEDEF,
+	[DRGN_C_TYPE_PTRDIFF_T] = DRGN_TYPE_TYPEDEF,
+	[DRGN_C_TYPE_VOID] = DRGN_TYPE_VOID,
+	[DRGN_NOT_PRIMITIVE_TYPE] = -1,
+};
+
+/** Return whether a primitive type is always a signed integer type. */
+static inline bool
+drgn_primitive_type_is_signed(enum drgn_primitive_type primitive)
+{
+	switch (primitive) {
+	case DRGN_C_TYPE_SIGNED_CHAR:
+	case DRGN_C_TYPE_SHORT:
+	case DRGN_C_TYPE_INT:
+	case DRGN_C_TYPE_LONG:
+	case DRGN_C_TYPE_LONG_LONG:
+	case DRGN_C_TYPE_PTRDIFF_T:
+		return true;
+	default:
+		return false;
+	}
+}
+
 void drgn_type_thunk_free(struct drgn_type_thunk *thunk)
 {
 	thunk->free_fn(thunk);
@@ -53,25 +161,26 @@ drgn_parameter_type(struct drgn_type_parameter *parameter,
 }
 
 LIBDRGN_PUBLIC struct drgn_type drgn_void_type = {
-	{ .kind = DRGN_TYPE_VOID, .c_type = C_TYPE_VOID, },
+	{ .kind = DRGN_TYPE_VOID, .primitive = DRGN_C_TYPE_VOID, },
 };
 
 void drgn_int_type_init(struct drgn_type *type, const char *name, uint64_t size,
 			bool is_signed)
 {
-	enum drgn_c_type_kind c_type;
+	enum drgn_primitive_type primitive;
 
 	assert(name);
 	type->_private.kind = DRGN_TYPE_INT;
 	type->_private.is_complete = true;
-	c_type = c_parse_specifier_list(name);
-	if (C_TYPE_MIN_INTEGER <= c_type && c_type <= C_TYPE_MAX_INTEGER &&
-	    c_type != C_TYPE_BOOL &&
-	    (c_type == C_TYPE_CHAR || is_signed == c_type_is_signed(c_type))) {
-		type->_private.c_type = c_type;
-		type->_private.name = c_type_spelling[c_type];
+	primitive = c_parse_specifier_list(name);
+	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_INT &&
+	    (primitive == DRGN_C_TYPE_CHAR ||
+	     is_signed == drgn_primitive_type_is_signed(primitive))) {
+		type->_private.primitive = primitive;
+		type->_private.name =
+			drgn_primitive_type_spellings[primitive][0];
 	} else {
-		type->_private.c_type = C_TYPE_UNKNOWN;
+		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 		type->_private.name = name;
 	}
 	type->_private.size = size;
@@ -84,11 +193,12 @@ void drgn_bool_type_init(struct drgn_type *type, const char *name,
 	assert(name);
 	type->_private.kind = DRGN_TYPE_BOOL;
 	type->_private.is_complete = true;
-	if (c_parse_specifier_list(name) == C_TYPE_BOOL) {
-		type->_private.c_type = C_TYPE_BOOL;
-		type->_private.name = c_type_spelling[C_TYPE_BOOL];
+	if (c_parse_specifier_list(name) == DRGN_C_TYPE_BOOL) {
+		type->_private.primitive = DRGN_C_TYPE_BOOL;
+		type->_private.name =
+			drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0];
 	} else {
-		type->_private.c_type = C_TYPE_UNKNOWN;
+		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 		type->_private.name = name;
 	}
 	type->_private.size = size;
@@ -97,17 +207,18 @@ void drgn_bool_type_init(struct drgn_type *type, const char *name,
 void drgn_float_type_init(struct drgn_type *type, const char *name,
 			  uint64_t size)
 {
-	enum drgn_c_type_kind c_type;
+	enum drgn_primitive_type primitive;
 
 	assert(name);
 	type->_private.kind = DRGN_TYPE_FLOAT;
 	type->_private.is_complete = true;
-	c_type = c_parse_specifier_list(name);
-	if (C_TYPE_MIN_FLOATING <= c_type && c_type <= C_TYPE_MAX_FLOATING) {
-		type->_private.c_type = c_type;
-		type->_private.name = c_type_spelling[c_type];
+	primitive = c_parse_specifier_list(name);
+	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_FLOAT) {
+		type->_private.primitive = primitive;
+		type->_private.name =
+			drgn_primitive_type_spellings[primitive][0];
 	} else {
-		type->_private.c_type = C_TYPE_UNKNOWN;
+		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 		type->_private.name = name;
 	}
 	type->_private.size = size;
@@ -122,7 +233,7 @@ void drgn_complex_type_init(struct drgn_type *type, const char *name,
 	       drgn_type_kind(real_type) == DRGN_TYPE_INT);
 	type->_private.kind = DRGN_TYPE_COMPLEX;
 	type->_private.is_complete = true;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.name = name;
 	type->_private.size = size;
 	type->_private.type = real_type;
@@ -134,7 +245,7 @@ void drgn_struct_type_init(struct drgn_type *type, const char *tag,
 {
 	type->_private.kind = DRGN_TYPE_STRUCT;
 	type->_private.is_complete = true;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = size;
 	type->_private.num_members = num_members;
@@ -144,7 +255,7 @@ void drgn_struct_type_init_incomplete(struct drgn_type *type, const char *tag)
 {
 	type->_private.kind = DRGN_TYPE_STRUCT;
 	type->_private.is_complete = false;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = 0;
 	type->_private.num_members = 0;
@@ -155,7 +266,7 @@ void drgn_union_type_init(struct drgn_type *type, const char *tag,
 {
 	type->_private.kind = DRGN_TYPE_UNION;
 	type->_private.is_complete = true;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = size;
 	type->_private.num_members = num_members;
@@ -165,7 +276,7 @@ void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag)
 {
 	type->_private.kind = DRGN_TYPE_UNION;
 	type->_private.is_complete = false;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = 0;
 	type->_private.num_members = 0;
@@ -178,7 +289,7 @@ void drgn_enum_type_init(struct drgn_type *type, const char *tag,
 	assert(drgn_type_kind(compatible_type) == DRGN_TYPE_INT);
 	type->_private.kind = DRGN_TYPE_ENUM;
 	type->_private.is_complete = true;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.type = compatible_type;
 	type->_private.qualifiers = 0;
@@ -189,7 +300,7 @@ void drgn_enum_type_init_incomplete(struct drgn_type *type, const char *tag)
 {
 	type->_private.kind = DRGN_TYPE_ENUM;
 	type->_private.is_complete = false;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.type = NULL;
 	type->_private.qualifiers = 0;
@@ -201,10 +312,12 @@ void drgn_typedef_type_init(struct drgn_type *type, const char *name,
 {
 	type->_private.kind = DRGN_TYPE_TYPEDEF;
 	type->_private.is_complete = drgn_type_is_complete(aliased_type.type);
-	if (strcmp(name, "ptrdiff_t") == 0)
-		type->_private.c_type = C_TYPE_PTRDIFF_T;
+	if (strcmp(name, "size_t") == 0)
+		type->_private.primitive = DRGN_C_TYPE_SIZE_T;
+	else if (strcmp(name, "ptrdiff_t") == 0)
+		type->_private.primitive = DRGN_C_TYPE_PTRDIFF_T;
 	else
-		type->_private.c_type = C_TYPE_UNKNOWN;
+		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.name = name;
 	type->_private.type = aliased_type.type;
 	type->_private.qualifiers = aliased_type.qualifiers;
@@ -215,7 +328,7 @@ void drgn_pointer_type_init(struct drgn_type *type, uint64_t size,
 {
 	type->_private.kind = DRGN_TYPE_POINTER;
 	type->_private.is_complete = true;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.size = size;
 	type->_private.type = referenced_type.type;
 	type->_private.qualifiers = referenced_type.qualifiers;
@@ -226,7 +339,7 @@ void drgn_array_type_init(struct drgn_type *type, uint64_t length,
 {
 	type->_private.kind = DRGN_TYPE_ARRAY;
 	type->_private.is_complete = true;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.length = length;
 	type->_private.type = element_type.type;
 	type->_private.qualifiers = element_type.qualifiers;
@@ -237,7 +350,7 @@ void drgn_array_type_init_incomplete(struct drgn_type *type,
 {
 	type->_private.kind = DRGN_TYPE_ARRAY;
 	type->_private.is_complete = false;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.length = 0;
 	type->_private.type = element_type.type;
 	type->_private.qualifiers = element_type.qualifiers;
@@ -249,7 +362,7 @@ void drgn_function_type_init(struct drgn_type *type,
 {
 	type->_private.kind = DRGN_TYPE_FUNCTION;
 	type->_private.is_complete = true;
-	type->_private.c_type = C_TYPE_UNKNOWN;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.type = return_type.type;
 	type->_private.qualifiers = return_type.qualifiers;
 	type->_private.num_parameters = num_parameters;

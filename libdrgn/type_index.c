@@ -72,68 +72,99 @@ static bool drgn_array_type_eq(struct drgn_type * const *ap,
 DEFINE_HASH_SET_FUNCTIONS(drgn_array_type_set, struct drgn_type *,
 			  drgn_array_type_hash, drgn_array_type_eq)
 
-/* Default long, unsigned long, and ptrdiff_t are 64 bits. */
-static struct drgn_type default_c_types[ARRAY_SIZE(((struct drgn_type_index *)0)->c_types)];
-/* 32-bit version of long, unsigned long, and ptrdiff_t. */
-static struct drgn_type default_c_types_32bit[3];
+/* Default long, unsigned long, size_t, and ptrdiff_t are 64 bits. */
+static struct drgn_type default_primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
+/* 32-bit version of long, unsigned long, size_t, and ptrdiff_t. */
+static struct drgn_type default_primitive_types_32bit[4];
 
 __attribute__((constructor(200)))
-static void default_c_types_init(void)
+static void default_primitive_types_init(void)
 {
 	struct drgn_qualified_type qualified_type;
 	size_t i;
 
-	drgn_int_type_init(&default_c_types[C_TYPE_CHAR],
-			   c_type_spelling[C_TYPE_CHAR], 1, true);
-	drgn_int_type_init(&default_c_types[C_TYPE_SIGNED_CHAR],
-			   c_type_spelling[C_TYPE_SIGNED_CHAR], 1, true);
-	drgn_int_type_init(&default_c_types[C_TYPE_UNSIGNED_CHAR],
-			   c_type_spelling[C_TYPE_UNSIGNED_CHAR], 1, false);
-	drgn_int_type_init(&default_c_types[C_TYPE_SHORT],
-			   c_type_spelling[C_TYPE_SHORT], 2, true);
-	drgn_int_type_init(&default_c_types[C_TYPE_UNSIGNED_SHORT],
-			   c_type_spelling[C_TYPE_UNSIGNED_SHORT], 2, false);
-	drgn_int_type_init(&default_c_types[C_TYPE_INT],
-			   c_type_spelling[C_TYPE_INT], 4, true);
-	drgn_int_type_init(&default_c_types[C_TYPE_UNSIGNED_INT],
-			   c_type_spelling[C_TYPE_UNSIGNED_INT], 4, false);
-	drgn_int_type_init(&default_c_types[C_TYPE_LONG],
-			   c_type_spelling[C_TYPE_LONG], 8, true);
-	drgn_int_type_init(&default_c_types[C_TYPE_UNSIGNED_LONG],
-			   c_type_spelling[C_TYPE_UNSIGNED_LONG], 8, false);
-	drgn_int_type_init(&default_c_types[C_TYPE_LONG_LONG],
-			   c_type_spelling[C_TYPE_LONG_LONG], 8, true);
-	drgn_int_type_init(&default_c_types[C_TYPE_UNSIGNED_LONG_LONG],
-			   c_type_spelling[C_TYPE_UNSIGNED_LONG_LONG], 8,
-			   false);
-	drgn_bool_type_init(&default_c_types[C_TYPE_BOOL],
-			    c_type_spelling[C_TYPE_BOOL], 1);
-	drgn_float_type_init(&default_c_types[C_TYPE_FLOAT],
-			     c_type_spelling[C_TYPE_FLOAT], 4);
-	drgn_float_type_init(&default_c_types[C_TYPE_DOUBLE],
-			     c_type_spelling[C_TYPE_DOUBLE], 8);
-	drgn_float_type_init(&default_c_types[C_TYPE_LONG_DOUBLE],
-			     c_type_spelling[C_TYPE_LONG_DOUBLE], 16);
-	qualified_type.type = &default_c_types[C_TYPE_LONG];
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_CHAR],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_CHAR][0],
+			   1, true);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_SIGNED_CHAR],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_SIGNED_CHAR][0],
+			   1, true);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_CHAR],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_CHAR][0],
+			   1, false);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_SHORT],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_SHORT][0],
+			   2, true);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_SHORT],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_SHORT][0],
+			   2, false);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_INT],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_INT][0], 4,
+			   true);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_INT],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_INT][0],
+			   4, false);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_LONG],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG][0],
+			   8, true);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG][0],
+			   8, false);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_LONG_LONG],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG_LONG][0],
+			   8, true);
+	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG_LONG],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG_LONG][0],
+			   8, false);
+	drgn_bool_type_init(&default_primitive_types[DRGN_C_TYPE_BOOL],
+			    drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0],
+			    1);
+	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_FLOAT],
+			     drgn_primitive_type_spellings[DRGN_C_TYPE_FLOAT][0],
+			     4);
+	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_DOUBLE],
+			     drgn_primitive_type_spellings[DRGN_C_TYPE_DOUBLE][0],
+			     8);
+	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_LONG_DOUBLE],
+			     drgn_primitive_type_spellings[DRGN_C_TYPE_LONG_DOUBLE][0],
+			     16);
+	qualified_type.type = &default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG];
 	qualified_type.qualifiers = 0;
-	drgn_typedef_type_init(&default_c_types[C_TYPE_PTRDIFF_T],
-			       c_type_spelling[C_TYPE_PTRDIFF_T],
+	drgn_typedef_type_init(&default_primitive_types[DRGN_C_TYPE_SIZE_T],
+			       drgn_primitive_type_spellings[DRGN_C_TYPE_SIZE_T][0],
 			       qualified_type);
-	for (i = 0; i < ARRAY_SIZE(default_c_types); i++)
-		assert(drgn_type_c_type(&default_c_types[i]) == i);
+	qualified_type.type = &default_primitive_types[DRGN_C_TYPE_LONG];
+	drgn_typedef_type_init(&default_primitive_types[DRGN_C_TYPE_PTRDIFF_T],
+			       drgn_primitive_type_spellings[DRGN_C_TYPE_PTRDIFF_T][0],
+			       qualified_type);
+	for (i = 0; i < ARRAY_SIZE(default_primitive_types); i++) {
+		if (drgn_primitive_type_kind[i] == DRGN_TYPE_VOID)
+			continue;
+		assert(drgn_type_primitive(&default_primitive_types[i]) == i);
+	}
 
-	drgn_int_type_init(&default_c_types_32bit[0],
-			   c_type_spelling[C_TYPE_LONG], 4, true);
-	drgn_int_type_init(&default_c_types_32bit[1],
-			   c_type_spelling[C_TYPE_UNSIGNED_LONG], 4, false);
-	qualified_type.type = &default_c_types_32bit[0];
-	drgn_typedef_type_init(&default_c_types_32bit[2],
-			       c_type_spelling[C_TYPE_PTRDIFF_T],
+	drgn_int_type_init(&default_primitive_types_32bit[0],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG][0],
+			   4, true);
+	drgn_int_type_init(&default_primitive_types_32bit[1],
+			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG][0],
+			   4, false);
+	qualified_type.type = &default_primitive_types_32bit[1];
+	drgn_typedef_type_init(&default_primitive_types_32bit[2],
+			       drgn_primitive_type_spellings[DRGN_C_TYPE_SIZE_T][0],
 			       qualified_type);
-	assert(drgn_type_c_type(&default_c_types_32bit[0]) == C_TYPE_LONG);
-	assert(drgn_type_c_type(&default_c_types_32bit[1]) ==
-	       C_TYPE_UNSIGNED_LONG);
-	assert(drgn_type_c_type(&default_c_types_32bit[2]) == C_TYPE_PTRDIFF_T);
+	qualified_type.type = &default_primitive_types_32bit[0];
+	drgn_typedef_type_init(&default_primitive_types_32bit[3],
+			       drgn_primitive_type_spellings[DRGN_C_TYPE_PTRDIFF_T][0],
+			       qualified_type);
+	assert(drgn_type_primitive(&default_primitive_types_32bit[0]) ==
+	       DRGN_C_TYPE_LONG);
+	assert(drgn_type_primitive(&default_primitive_types_32bit[1]) ==
+	       DRGN_C_TYPE_UNSIGNED_LONG);
+	assert(drgn_type_primitive(&default_primitive_types_32bit[2]) ==
+	       DRGN_C_TYPE_SIZE_T);
+	assert(drgn_type_primitive(&default_primitive_types_32bit[3]) ==
+	       DRGN_C_TYPE_PTRDIFF_T);
 }
 
 void drgn_type_index_init(struct drgn_type_index *tindex,
@@ -149,15 +180,25 @@ void drgn_type_index_init(struct drgn_type_index *tindex,
 	tindex->word_size = word_size;
 	tindex->little_endian = little_endian;
 
-	for (i = 0; i < ARRAY_SIZE(tindex->c_types); i++) {
-		if (word_size == 4 && i == C_TYPE_LONG)
-			tindex->c_types[i] = &default_c_types_32bit[0];
-		else if (word_size == 4 && i == C_TYPE_UNSIGNED_LONG)
-			tindex->c_types[i] = &default_c_types_32bit[1];
-		else if (word_size == 4 && i == C_TYPE_PTRDIFF_T)
-			tindex->c_types[i] = &default_c_types_32bit[2];
-		else
-			tindex->c_types[i] = &default_c_types[i];
+	for (i = 0; i < ARRAY_SIZE(tindex->primitive_types); i++) {
+		if (drgn_primitive_type_kind[i] == DRGN_TYPE_VOID) {
+			tindex->primitive_types[i] = &drgn_void_type;
+		} else if (word_size == 4 && i == DRGN_C_TYPE_LONG) {
+			tindex->primitive_types[i] =
+				&default_primitive_types_32bit[0];
+		} else if (word_size == 4 && i == DRGN_C_TYPE_UNSIGNED_LONG) {
+			tindex->primitive_types[i] =
+				&default_primitive_types_32bit[1];
+		} else if (word_size == 4 && i == DRGN_C_TYPE_SIZE_T) {
+			tindex->primitive_types[i] =
+				&default_primitive_types_32bit[2];
+		} else if (word_size == 4 && i == DRGN_C_TYPE_PTRDIFF_T) {
+			tindex->primitive_types[i] =
+				&default_primitive_types_32bit[3];
+		} else {
+			tindex->primitive_types[i] =
+				&default_primitive_types[i];
+		}
 	}
 }
 
@@ -273,19 +314,6 @@ drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 
 	drgn_array_type_init_incomplete(&key, element_type);
 	return drgn_type_index_array_type_internal(tindex, &key, ret);
-}
-
-void drgn_type_index_find_c_type(struct drgn_type_index *tindex,
-				 enum drgn_c_type_kind kind,
-				 struct drgn_qualified_type *ret)
-{
-	if (kind == C_TYPE_VOID) {
-		ret->type = &drgn_void_type;
-		ret->qualifiers = 0;
-	} else {
-		ret->type = tindex->c_types[kind];
-		ret->qualifiers = 0;
-	}
 }
 
 struct drgn_error *

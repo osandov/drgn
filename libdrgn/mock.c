@@ -176,11 +176,11 @@ drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
 
 	for (i = 0; i < mtindex->num_types; i++) {
 		struct drgn_type *type = mtindex->types[i].type;
-		enum drgn_c_type_kind kind;
+		enum drgn_primitive_type primitive;
 
-		kind = drgn_type_c_type(type);
-		if (kind < ARRAY_SIZE(mtindex->tindex.c_types))
-			mtindex->tindex.c_types[kind] = type;
+		primitive = drgn_type_primitive(type);
+		if (primitive != DRGN_NOT_PRIMITIVE_TYPE)
+			mtindex->tindex.primitive_types[primitive] = type;
 	}
 
 	*ret = mtindex;

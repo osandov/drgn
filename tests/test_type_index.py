@@ -82,6 +82,10 @@ class TestTypeIndex(unittest.TestCase):
             for spelling in spellings(['long', 'double']):
                 self.assertEqual(tindex.find(spelling),
                                  float_type('long double', 16))
+            self.assertEqual(tindex.find('size_t'),
+                             typedef_type('size_t',
+                                          int_type('unsigned long', word_size,
+                                                   False)))
             self.assertEqual(tindex.find('ptrdiff_t'),
                              typedef_type('ptrdiff_t',
                                           int_type('long', word_size, True)))

@@ -9,6 +9,8 @@ import sys
 def gen_constants(input_file, output_file, header_directory=None):
     drgn_h = input_file.read()
 
+    primitive_types = re.findall(r'^\s*DRGN_(C)_TYPE_([a-zA-Z0-9_]+)\s*[=,]',
+                                 drgn_h, flags=re.MULTILINE)
     program_flags = re.findall(r'^\s*DRGN_PROGRAM_([a-zA-Z0-9_]+)\s*[=,]',
                                drgn_h, flags=re.MULTILINE)
     program_flags.remove('ENDIAN')
@@ -22,6 +24,7 @@ def gen_constants(input_file, output_file, header_directory=None):
 
 #include "{os.path.join(header_directory or '', 'drgnpy.h')}"
 
+PyObject *PrimitiveType_class;
 PyObject *ProgramFlags_class;
 PyObject *Qualifiers_class;
 PyObject *TypeKind_class;
@@ -35,6 +38,32 @@ int add_module_constants(PyObject *m)
 	enum_module = PyImport_ImportModule("enum");
 	if (!enum_module)
 		return -1;
+
+	tmp = PyList_New({len(primitive_types)});
+	if (!tmp)
+		goto out;
+""")
+    for i, (lang, primitive_type) in enumerate(primitive_types):
+        output_file.write(f"""\
+	item = Py_BuildValue("sk", "{lang}_{primitive_type}", DRGN_{lang}_TYPE_{primitive_type});
+	if (!item)
+		goto out;
+	PyList_SET_ITEM(tmp, {i}, item);
+""")
+    output_file.write(f"""\
+	PrimitiveType_class = PyObject_CallMethod(enum_module, "Enum", "sO", "PrimitiveType", tmp);
+	if (!PrimitiveType_class)
+		goto out;
+	if (PyModule_AddObject(m, "PrimitiveType", PrimitiveType_class) == -1) {{
+		Py_CLEAR(PrimitiveType_class);
+		goto out;
+	}}
+	Py_DECREF(tmp);
+	tmp = PyUnicode_FromString(drgn_PrimitiveType_DOC);
+	if (!tmp)
+		goto out;
+	if (PyObject_SetAttrString(PrimitiveType_class, "__doc__", tmp) == -1)
+		goto out;
 
 	tmp = PyList_New({len(program_flags)});
 	if (!tmp)

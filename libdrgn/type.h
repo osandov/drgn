@@ -455,65 +455,32 @@ void drgn_function_type_init(struct drgn_type *type,
 
 /** @} */
 
-
-/** The standard C types. */
-enum drgn_c_type_kind {
-	C_TYPE_CHAR,
-	C_TYPE_MIN_INTEGER = C_TYPE_CHAR,
-	C_TYPE_SIGNED_CHAR,
-	C_TYPE_UNSIGNED_CHAR,
-	C_TYPE_SHORT,
-	C_TYPE_UNSIGNED_SHORT,
-	C_TYPE_INT,
-	C_TYPE_UNSIGNED_INT,
-	C_TYPE_LONG,
-	C_TYPE_UNSIGNED_LONG,
-	C_TYPE_LONG_LONG,
-	C_TYPE_UNSIGNED_LONG_LONG,
-	C_TYPE_BOOL,
-	C_TYPE_MAX_INTEGER = C_TYPE_BOOL,
-	C_TYPE_FLOAT,
-	C_TYPE_MIN_FLOATING = C_TYPE_FLOAT,
-	C_TYPE_DOUBLE,
-	C_TYPE_LONG_DOUBLE,
-	C_TYPE_MAX_FLOATING = C_TYPE_LONG_DOUBLE,
-	C_TYPE_PTRDIFF_T,
-	C_TYPE_MIN_TYPEDEF = C_TYPE_PTRDIFF_T,
-	C_TYPE_MAX_TYPEDEF = C_TYPE_PTRDIFF_T,
-	C_TYPE_VOID,
-	C_TYPE_NUM,
-	/** Not a standard C type. */
-	C_TYPE_UNKNOWN = C_TYPE_NUM,
-};
+/**
+ * Names of primitive types.
+ *
+ * In some languages, like C, the same primitive type can be spelled in multiple
+ * ways. For example, "int" can also be spelled "signed int" or "int signed".
+ *
+ * This maps each @ref drgn_primitive_type to a ``NULL``-terminated array of the
+ * different ways to spell that type. The spelling at index zero is the
+ * preferred spelling.
+ */
+const char * const * const
+drgn_primitive_type_spellings[DRGN_PRIMITIVE_TYPE_NUM];
 
 /**
- * Return whether a C integer type is signed.
- *
- * This is only valid if
- * <tt>C_TYPE_MIN_INTEGER <= kind && kind <= C_TYPE_MAX_INTEGER &&
- *  kind != C_TYPE_CHAR && kind != C_TYPE_BOOL</tt>.
+ * Mapping from a @ref drgn_type_primitive to the corresponding @ref
+ * drgn_type_kind.
  */
-static inline bool c_type_is_signed(enum drgn_c_type_kind kind)
-{
-	return (kind & 1) == (C_TYPE_SIGNED_CHAR & 1);
-}
-
-/** Canonical names of standard C types. */
-extern const char *c_type_spelling[C_TYPE_NUM];
+const enum drgn_type_kind drgn_primitive_type_kind[DRGN_PRIMITIVE_TYPE_NUM + 1];
 
 /**
- * Parse the name of an unqualified standard C type.
+ * Parse the name of an unqualified primitive C type.
  *
- * @return The type, or @ref C_TYPE_UNKNOWN if @p s is not the name of a
- * standard C type.
+ * @return The type, or @ref DRGN_NOT_PRIMITIVE_TYPE if @p s is not the name of
+ * a primitive C type.
  */
-enum drgn_c_type_kind c_parse_specifier_list(const char *s);
-
-/** Get the standard C type corresponding to a @ref drgn_type. */
-static inline enum drgn_c_type_kind drgn_type_c_type(struct drgn_type *type)
-{
-	return type->_private.c_type;
-}
+enum drgn_primitive_type c_parse_specifier_list(const char *s);
 
 /**
  * Get the type of a @ref drgn_type with all typedefs removed.
