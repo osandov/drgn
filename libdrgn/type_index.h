@@ -73,7 +73,7 @@ struct drgn_type_index {
 	struct drgn_pointer_type_set pointer_types;
 	/** Cache of created array types. */
 	struct drgn_array_type_set array_types;
-	/** Default size of a pointer in bytes. */
+	/** Size of a pointer in bytes. */
 	uint8_t word_size;
 	/** Default endianness of types. */
 	bool little_endian;
@@ -144,20 +144,18 @@ drgn_type_index_find(struct drgn_type_index *tindex, const char *name,
  * Create a pointer type.
  *
  * The created type is cached for the lifetime of the @ref drgn_type_index. If
- * the same @p size and @p referenced_type are passed, the same type will be
- * returned.
+ * the same @p referenced_type is passed, the same type will be returned.
  *
  * If this succeeds, @p referenced_type must remain valid until @p tindex is
  * destroyed.
  *
  * @param[in] tindex Type index.
- * @param[in] size Size of the type in bytes.
  * @param[in] referenced_type Type referenced by the pointer type.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_type_index_pointer_type(struct drgn_type_index *tindex, uint64_t size,
+drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 			     struct drgn_qualified_type referenced_type,
 			     struct drgn_type **ret);
 

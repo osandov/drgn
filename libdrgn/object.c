@@ -1270,7 +1270,6 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 	}
 
 	err = drgn_type_index_pointer_type(obj->prog->tindex,
-					   drgn_program_word_size(obj->prog),
 					   drgn_object_qualified_type(obj),
 					   &qualified_type.type);
 	if (err)
@@ -1397,9 +1396,8 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	err = drgn_type_index_pointer_type(obj->prog->tindex,
-					   drgn_program_word_size(obj->prog),
-					   qualified_type, &result_type.type);
+	err = drgn_type_index_pointer_type(obj->prog->tindex, qualified_type,
+					   &result_type.type);
 	if (err)
 		return err;
 	result_type.qualifiers = 0;

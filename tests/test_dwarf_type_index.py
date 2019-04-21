@@ -1031,7 +1031,6 @@ class TestDwarfTypeIndex(unittest.TestCase):
             DwarfDie(
                 DW_TAG.pointer_type,
                 [
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                 ],
             ),
@@ -1039,13 +1038,7 @@ class TestDwarfTypeIndex(unittest.TestCase):
         ]
         self.assertFromDwarf(dies, pointer_type(8, int_type('int', 4, True)))
 
-        byte_size = dies[0].attribs.pop(0)
-        self.assertRaisesRegex(FileFormatError,
-                               'DW_TAG_pointer_type has missing or invalid DW_AT_byte_size',
-                               self.type_from_dwarf, dies)
-        dies[0].attribs.insert(0, byte_size)
-
-        del dies[0].attribs[1]
+        del dies[0].attribs[0]
         self.assertFromDwarf(dies, pointer_type(8, void_type()))
 
     def test_array(self):

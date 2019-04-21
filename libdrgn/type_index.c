@@ -13,28 +13,24 @@
 static struct hash_pair
 drgn_pointer_type_hash(struct drgn_type * const *key)
 {
-	struct drgn_type *type = *key;
 	struct drgn_qualified_type referenced_type;
 	size_t hash;
 
-	referenced_type = drgn_type_type(type);
-	hash = hash_combine(hash_combine((uintptr_t)referenced_type.type,
-					 referenced_type.qualifiers),
-			    drgn_type_size(type));
+	referenced_type = drgn_type_type(*key);
+	hash = hash_combine((uintptr_t)referenced_type.type,
+			    referenced_type.qualifiers);
 	return hash_pair_from_avalanching_hash(hash);
 }
 
-static bool drgn_pointer_type_eq(struct drgn_type * const *ap,
-				 struct drgn_type * const *bp)
+static bool drgn_pointer_type_eq(struct drgn_type * const *a,
+				 struct drgn_type * const *b)
 {
-	struct drgn_type *a = *ap, *b = *bp;
 	struct drgn_qualified_type referenced_a, referenced_b;
 
-	referenced_a = drgn_type_type(a);
-	referenced_b = drgn_type_type(b);
+	referenced_a = drgn_type_type(*a);
+	referenced_b = drgn_type_type(*b);
 	return (referenced_a.type == referenced_b.type &&
-		referenced_a.qualifiers == referenced_b.qualifiers &&
-		drgn_type_size(a) == drgn_type_size(b));
+		referenced_a.qualifiers == referenced_b.qualifiers);
 }
 
 DEFINE_HASH_SET_FUNCTIONS(drgn_pointer_type_set, struct drgn_type *,
@@ -262,7 +258,7 @@ out:
 }
 
 struct drgn_error *
-drgn_type_index_pointer_type(struct drgn_type_index *tindex, uint64_t size,
+drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 			     struct drgn_qualified_type referenced_type,
 			     struct drgn_type **ret)
 {
@@ -270,7 +266,7 @@ drgn_type_index_pointer_type(struct drgn_type_index *tindex, uint64_t size,
 	struct drgn_pointer_type_set_pos pos;
 	struct hash_pair hp;
 
-	drgn_pointer_type_init(type, size, referenced_type);
+	drgn_pointer_type_init(type, tindex->word_size, referenced_type);
 	hp = drgn_pointer_type_set_hash(&type);
 	pos = drgn_pointer_type_set_search_pos(&tindex->pointer_types, &type,
 					       hp);

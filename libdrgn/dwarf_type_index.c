@@ -877,21 +877,14 @@ drgn_pointer_type_from_dwarf(struct drgn_dwarf_type_index *dtindex,
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type referenced_type;
-	int size;
-
-	size = dwarf_bytesize(die);
-	if (size == -1) {
-		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
-					 "DW_TAG_pointer_type has missing or invalid DW_AT_byte_size");
-	}
 
 	err = drgn_type_from_dwarf_child(dtindex, die, "DW_TAG_pointer_type",
 					 true, &referenced_type);
 	if (err)
 		return err;
 
-	return drgn_type_index_pointer_type(&dtindex->tindex, size,
-					    referenced_type, ret);
+	return drgn_type_index_pointer_type(&dtindex->tindex, referenced_type,
+					    ret);
 }
 
 struct array_dimension {
