@@ -1346,10 +1346,10 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 				       obj->type);
 	}
 
-	err = drgn_program_find_member(obj->prog,
-				       drgn_type_type(underlying_type).type,
-				       member_name, strlen(member_name),
-				       &member);
+	err = drgn_type_index_find_member(obj->prog->tindex,
+					  drgn_type_type(underlying_type).type,
+					  member_name, strlen(member_name),
+					  &member);
 	if (err)
 		return err;
 

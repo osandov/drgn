@@ -2274,10 +2274,11 @@ static struct drgn_error *c_bit_offset(struct drgn_program *prog,
 				struct drgn_member_value *member;
 				struct drgn_qualified_type member_type;
 
-				err = drgn_program_find_member(prog, type,
-							       token.value,
-							       token.len,
-							       &member);
+				err = drgn_type_index_find_member(prog->tindex,
+								  type,
+								  token.value,
+								  token.len,
+								  &member);
 				if (err)
 					goto out;
 				if (__builtin_add_overflow(bit_offset,

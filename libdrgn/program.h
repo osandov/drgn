@@ -12,7 +12,6 @@
 #ifndef DRGN_PROGRAM_H
 #define DRGN_PROGRAM_H
 
-#include "hash_table.h"
 #include "memory_reader.h"
 #include "object_index.h"
 #include "type_index.h"
@@ -26,37 +25,6 @@
  *
  * @{
  */
-
-/** <tt>(type, member name)</tt> pair. */
-struct drgn_member_key {
-	struct drgn_type *type;
-	const char *name;
-	size_t name_len;
-};
-
-/** Type, offset, and bit field size of a type member. */
-struct drgn_member_value {
-	struct drgn_lazy_type *type;
-	uint64_t bit_offset, bit_field_size;
-};
-
-#ifdef DOXYGEN
-/**
- * @struct drgn_member_map
- *
- * Map of compound type members.
- *
- * The key is a @ref drgn_member_key, and the value is a @ref drgn_member_value.
- *
- * @struct drgn_type_set
- *
- * Set of types compared by address.
- */
-#else
-DEFINE_HASH_MAP_TYPES(drgn_member_map, struct drgn_member_key,
-		      struct drgn_member_value)
-DEFINE_HASH_SET_TYPES(drgn_type_set, struct drgn_type *)
-#endif
 
 /** The important parts of the VMCOREINFO note of a Linux kernel core. */
 struct vmcoreinfo {
@@ -99,13 +67,6 @@ struct drgn_program {
 	struct drgn_memory_reader *reader;
 	struct drgn_type_index *tindex;
 	struct drgn_object_index *oindex;
-	/** Cache for @ref drgn_program_find_member(). */
-	struct drgn_member_map members;
-	/**
-	 * Set of types which have been already cached in @ref
-	 * drgn_program::members.
-	 */
-	struct drgn_type_set members_cached;
 	union {
 		struct vmcoreinfo vmcoreinfo;
 		struct {
@@ -197,28 +158,6 @@ static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)
 {
 	return drgn_program_word_size(prog) == 8 ? UINT64_MAX : UINT32_MAX;
 }
-
-/**
- * Find the type, offset, and bit field size of a type member.
- *
- * This matches the members of the type itself as well as the members of any
- * unnamed members of the type.
- *
- * This caches all members of @p type for subsequent calls. Therefore, @p type
- * must remain valid until @p prog is destroyed.
- *
- * @param[in] prog Program containing the type.
- * @param[in] type Compound type to search in.
- * @param[in] member_name Name of member.
- * @param[in] member_name_len Length of @p member_name
- * @param[out] ret Returned member information.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_program_find_member(struct drgn_program *prog,
-					    struct drgn_type *type,
-					    const char *member_name,
-					    size_t member_name_len,
-					    struct drgn_member_value **ret);
 
 /** @} */
 

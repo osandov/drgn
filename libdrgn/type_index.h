@@ -50,6 +50,37 @@ struct drgn_type_index_ops {
 DEFINE_HASH_SET_TYPES(drgn_pointer_type_set, struct drgn_type *)
 DEFINE_HASH_SET_TYPES(drgn_array_type_set, struct drgn_type *)
 
+/** <tt>(type, member name)</tt> pair. */
+struct drgn_member_key {
+	struct drgn_type *type;
+	const char *name;
+	size_t name_len;
+};
+
+/** Type, offset, and bit field size of a type member. */
+struct drgn_member_value {
+	struct drgn_lazy_type *type;
+	uint64_t bit_offset, bit_field_size;
+};
+
+#ifdef DOXYGEN
+/**
+ * @struct drgn_member_map
+ *
+ * Map of compound type members.
+ *
+ * The key is a @ref drgn_member_key, and the value is a @ref drgn_member_value.
+ *
+ * @struct drgn_type_set
+ *
+ * Set of types compared by address.
+ */
+#else
+DEFINE_HASH_MAP_TYPES(drgn_member_map, struct drgn_member_key,
+		      struct drgn_member_value)
+DEFINE_HASH_SET_TYPES(drgn_type_set, struct drgn_type *)
+#endif
+
 /**
  * Abstract type index.
  *
@@ -73,6 +104,13 @@ struct drgn_type_index {
 	struct drgn_pointer_type_set pointer_types;
 	/** Cache of created array types. */
 	struct drgn_array_type_set array_types;
+	/** Cache for @ref drgn_type_index_find_member(). */
+	struct drgn_member_map members;
+	/**
+	 * Set of types which have been already cached in @ref
+	 * drgn_type_index::members.
+	 */
+	struct drgn_type_set members_cached;
 	/** Size of a pointer in bytes. */
 	uint8_t word_size;
 	/** Default endianness of types. */
@@ -221,6 +259,27 @@ drgn_type_index_find_internal(struct drgn_type_index *tindex,
 {
 	return tindex->ops->find(tindex, kind, name, name_len, filename, ret);
 }
+
+/**
+ * Find the type, offset, and bit field size of a type member.
+ *
+ * This matches the members of the type itself as well as the members of any
+ * unnamed members of the type.
+ *
+ * This caches all members of @p type for subsequent calls.
+ *
+ * @param[in] tindex Type index.
+ * @param[in] type Compound type to search in.
+ * @param[in] member_name Name of member.
+ * @param[in] member_name_len Length of @p member_name
+ * @param[out] ret Returned member information.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
+					       struct drgn_type *type,
+					       const char *member_name,
+					       size_t member_name_len,
+					       struct drgn_member_value **ret);
 
 /**
  * Create a @ref drgn_error for a type which could not be found in a @ref

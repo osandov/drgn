@@ -68,6 +68,32 @@ static bool drgn_array_type_eq(struct drgn_type * const *ap,
 DEFINE_HASH_SET_FUNCTIONS(drgn_array_type_set, struct drgn_type *,
 			  drgn_array_type_hash, drgn_array_type_eq)
 
+static struct hash_pair drgn_member_hash_pair(const struct drgn_member_key *key)
+{
+	size_t hash;
+
+	if (key->name)
+		hash = cityhash_size_t(key->name, key->name_len);
+	else
+		hash = 0;
+	hash = hash_combine((uintptr_t)key->type, hash);
+	return hash_pair_from_avalanching_hash(hash);
+}
+
+static bool drgn_member_eq(const struct drgn_member_key *a,
+			   const struct drgn_member_key *b)
+{
+	return (a->type == b->type && a->name_len == b->name_len &&
+		(!a->name_len || memcmp(a->name, b->name, a->name_len) == 0));
+}
+
+DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, struct drgn_member_key,
+			  struct drgn_member_value, drgn_member_hash_pair,
+			  drgn_member_eq)
+
+DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, struct drgn_type *,
+			  hash_pair_ptr_type, hash_table_scalar_eq)
+
 void drgn_type_index_init(struct drgn_type_index *tindex,
 			  const struct drgn_type_index_ops *ops,
 			  uint8_t word_size, bool little_endian)
@@ -76,6 +102,8 @@ void drgn_type_index_init(struct drgn_type_index *tindex,
 	tindex->ops = ops;
 	drgn_pointer_type_set_init(&tindex->pointer_types);
 	drgn_array_type_set_init(&tindex->array_types);
+	drgn_member_map_init(&tindex->members);
+	drgn_type_set_init(&tindex->members_cached);
 	tindex->word_size = word_size;
 	tindex->little_endian = little_endian;
 }
@@ -106,6 +134,8 @@ static void free_array_types(struct drgn_type_index *tindex)
 
 void drgn_type_index_deinit(struct drgn_type_index *tindex)
 {
+	drgn_member_map_deinit(&tindex->members);
+	drgn_type_set_deinit(&tindex->members_cached);
 	free_array_types(tindex);
 	free_pointer_types(tindex);
 }
@@ -339,6 +369,113 @@ drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 
 	drgn_array_type_init_incomplete(&key, element_type);
 	return drgn_type_index_array_type_internal(tindex, &key, ret);
+}
+
+static struct drgn_error *
+drgn_type_index_cache_members(struct drgn_type_index *tindex,
+			      struct drgn_type *outer_type,
+			      struct drgn_type *type, uint64_t bit_offset)
+{
+	struct drgn_error *err;
+	struct drgn_type_member *members;
+	size_t num_members, i;
+
+	if (!drgn_type_has_members(type))
+		return NULL;
+
+	members = drgn_type_members(type);
+	num_members = drgn_type_num_members(type);
+	for (i = 0; i < num_members; i++) {
+		struct drgn_type_member *member;
+
+		member = &members[i];
+		if (member->name) {
+			struct drgn_member_key key = {
+				.type = outer_type,
+				.name = member->name,
+				.name_len = strlen(member->name),
+			};
+			struct drgn_member_value value = {
+				.type = &member->type,
+				.bit_offset = bit_offset + member->bit_offset,
+				.bit_field_size = member->bit_field_size,
+			};
+
+			if (!drgn_member_map_insert(&tindex->members, &key,
+						    &value))
+				return &drgn_enomem;
+		} else {
+			struct drgn_qualified_type member_type;
+
+			err = drgn_member_type(member, &member_type);
+			if (err)
+				return err;
+			err = drgn_type_index_cache_members(tindex, outer_type,
+							    member_type.type,
+							    bit_offset +
+							    member->bit_offset);
+			if (err)
+				return err;
+		}
+	}
+	return NULL;
+}
+
+struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
+					       struct drgn_type *type,
+					       const char *member_name,
+					       size_t member_name_len,
+					       struct drgn_member_value **ret)
+{
+	struct drgn_error *err;
+	const struct drgn_member_key key = {
+		.type = drgn_underlying_type(type),
+		.name = member_name,
+		.name_len = member_name_len,
+	};
+	struct hash_pair hp, cached_hp;
+	struct drgn_member_value *value;
+
+	hp = drgn_member_map_hash(&key);
+	value = drgn_member_map_search_hashed(&tindex->members, &key, hp);
+	if (value) {
+		*ret = value;
+		return NULL;
+	}
+
+	/*
+	 * Cache miss. One of the following is true:
+	 *
+	 * 1. The type isn't a structure or union, which is a type error.
+	 * 2. The type hasn't been cached, which means we need to cache it and
+	 *    check again.
+	 * 3. The type has already been cached, which means the member doesn't
+	 *    exist.
+	 */
+	if (!drgn_type_has_members(key.type)) {
+		return drgn_type_error("'%s' is not a structure or union",
+				       type);
+	}
+	cached_hp = drgn_type_set_hash(&key.type);
+	if (drgn_type_set_search_hashed(&tindex->members_cached, &key.type,
+					cached_hp))
+		return drgn_error_member_not_found(type, member_name);
+
+	err = drgn_type_index_cache_members(tindex, key.type, key.type, 0);
+	if (err)
+		return err;
+
+	if (!drgn_type_set_insert_searched(&tindex->members_cached, &key.type,
+					   cached_hp))
+		return &drgn_enomem;
+
+	value = drgn_member_map_search_hashed(&tindex->members, &key, hp);
+	if (value) {
+		*ret = value;
+		return NULL;
+	}
+
+	return drgn_error_member_not_found(type, member_name);
 }
 
 struct drgn_error *

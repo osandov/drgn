@@ -144,8 +144,7 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 	for (i = 0; i < num_items; i++) {
 		PyObject *item, *key;
 		const char *member_name;
-		struct drgn_member_value *member;
-		struct drgn_qualified_type qualified_type;
+		struct drgn_member_info member;
 		struct drgn_object_type member_type;
 
 		item = PySequence_Fast_GET_ITEM(items, i);
@@ -163,27 +162,21 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 		if (!member_name)
 			goto out;
 
-		err = drgn_program_find_member(prog, type->underlying_type,
-					       member_name, strlen(member_name),
-					       &member);
+		err = drgn_program_member_info(prog, type->underlying_type,
+					       member_name, &member);
 		if (err) {
 			set_drgn_error(err);
 			goto out;
 		}
 
-		err = drgn_lazy_type_evaluate(member->type, &qualified_type);
-		if (err) {
-			set_drgn_error(err);
-			goto out;
-		}
-		member_type.type = qualified_type.type;
-		member_type.qualifiers = qualified_type.qualifiers;
+		member_type.type = member.qualified_type.type;
+		member_type.qualifiers = member.qualified_type.qualifiers;
 		member_type.underlying_type =
 			drgn_underlying_type(member_type.type);
-		member_type.bit_field_size = member->bit_field_size;
+		member_type.bit_field_size = member.bit_field_size;
 
 		if (serialize_py_object(prog, buf, buf_bit_size,
-					bit_offset + member->bit_offset,
+					bit_offset + member.bit_offset,
 					PyTuple_GET_ITEM(item, 1),
 					&member_type, little_endian) == -1)
 			goto out;

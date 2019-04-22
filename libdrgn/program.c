@@ -29,32 +29,6 @@
 #define NT_FILE 0x46494c45
 #endif
 
-static struct hash_pair drgn_member_hash_pair(const struct drgn_member_key *key)
-{
-	size_t hash;
-
-	if (key->name)
-		hash = cityhash_size_t(key->name, key->name_len);
-	else
-		hash = 0;
-	hash = hash_combine((uintptr_t)key->type, hash);
-	return hash_pair_from_avalanching_hash(hash);
-}
-
-static bool drgn_member_eq(const struct drgn_member_key *a,
-			   const struct drgn_member_key *b)
-{
-	return (a->type == b->type && a->name_len == b->name_len &&
-		(!a->name_len || memcmp(a->name, b->name, a->name_len) == 0));
-}
-
-DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, struct drgn_member_key,
-			  struct drgn_member_value, drgn_member_hash_pair,
-			  drgn_member_eq)
-
-DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, struct drgn_type *,
-			  hash_pair_ptr_type, hash_table_scalar_eq)
-
 LIBDRGN_PUBLIC enum drgn_program_flags
 drgn_program_flags(struct drgn_program *prog)
 {
@@ -80,8 +54,6 @@ void drgn_program_init(struct drgn_program *prog,
 	prog->reader = reader;
 	prog->tindex = tindex;
 	prog->oindex = oindex;
-	drgn_member_map_init(&prog->members);
-	drgn_type_set_init(&prog->members_cached);
 	prog->deinit_fn = deinit_fn;
 	prog->flags = 0;
 }
@@ -90,9 +62,6 @@ void drgn_program_deinit(struct drgn_program *prog)
 {
 	if (prog->deinit_fn)
 		prog->deinit_fn(prog);
-
-	drgn_type_set_deinit(&prog->members_cached);
-	drgn_member_map_deinit(&prog->members);
 
 	drgn_object_index_destroy(prog->oindex);
 	drgn_type_index_destroy(prog->tindex);
@@ -1629,114 +1598,6 @@ drgn_program_element_info(struct drgn_program *prog, struct drgn_type *type,
 	return drgn_type_bit_size(ret->qualified_type.type, &ret->bit_size);
 }
 
-static struct drgn_error *
-drgn_program_cache_members(struct drgn_program *prog,
-			   struct drgn_type *outer_type,
-			   struct drgn_type *type,
-			   uint64_t bit_offset)
-{
-	struct drgn_error *err;
-	struct drgn_type_member *members;
-	size_t num_members, i;
-
-	if (!drgn_type_has_members(type))
-		return NULL;
-
-	members = drgn_type_members(type);
-	num_members = drgn_type_num_members(type);
-	for (i = 0; i < num_members; i++) {
-		struct drgn_type_member *member;
-
-		member = &members[i];
-		if (member->name) {
-			struct drgn_member_key key = {
-				.type = outer_type,
-				.name = member->name,
-				.name_len = strlen(member->name),
-			};
-			struct drgn_member_value value = {
-				.type = &member->type,
-				.bit_offset = bit_offset + member->bit_offset,
-				.bit_field_size = member->bit_field_size,
-			};
-
-			if (!drgn_member_map_insert(&prog->members, &key,
-						    &value))
-				return &drgn_enomem;
-		} else {
-			struct drgn_qualified_type member_type;
-
-			err = drgn_member_type(member, &member_type);
-			if (err)
-				return err;
-			err = drgn_program_cache_members(prog, outer_type,
-							 member_type.type,
-							 bit_offset +
-							 member->bit_offset);
-			if (err)
-				return err;
-		}
-	}
-	return NULL;
-}
-
-struct drgn_error *drgn_program_find_member(struct drgn_program *prog,
-					    struct drgn_type *type,
-					    const char *member_name,
-					    size_t member_name_len,
-					    struct drgn_member_value **ret)
-{
-	struct drgn_error *err;
-	const struct drgn_member_key key = {
-		.type = drgn_underlying_type(type),
-		.name = member_name,
-		.name_len = member_name_len,
-	};
-	struct hash_pair hp, cached_hp;
-	struct drgn_member_value *value;
-
-	hp = drgn_member_map_hash(&key);
-	value = drgn_member_map_search_hashed(&prog->members, &key, hp);
-	if (value) {
-		*ret = value;
-		return NULL;
-	}
-
-	/*
-	 * Cache miss. One of the following is true:
-	 *
-	 * 1. The type isn't a structure or union, which is a type error.
-	 * 2. The type hasn't been cached, which means we need to cache it and
-	 *    check again.
-	 * 3. The type has already been cached, which means the member doesn't
-	 *    exist.
-	 */
-	if (!drgn_type_has_members(key.type)) {
-		return drgn_type_error("'%s' is not a structure or union",
-				       type);
-	}
-	cached_hp = drgn_type_set_hash(&key.type);
-	if (drgn_type_set_search_hashed(&prog->members_cached, &key.type,
-					cached_hp))
-		return drgn_error_member_not_found(type, member_name);
-
-	err = drgn_program_cache_members(prog, key.type, key.type, 0);
-	if (err)
-		return err;
-
-	if (!drgn_type_set_insert_searched(&prog->members_cached, &key.type,
-					   cached_hp))
-		return &drgn_enomem;
-
-	value = drgn_member_map_search_hashed(&prog->members, &key, hp);
-	if (value) {
-		*ret = value;
-		return NULL;
-	}
-
-	return drgn_error_member_not_found(type, member_name);
-}
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_member_info(struct drgn_program *prog, struct drgn_type *type,
 			 const char *member_name, struct drgn_member_info *ret)
@@ -1744,8 +1605,8 @@ drgn_program_member_info(struct drgn_program *prog, struct drgn_type *type,
 	struct drgn_error *err;
 	struct drgn_member_value *member;
 
-	err = drgn_program_find_member(prog, type, member_name,
-				       strlen(member_name), &member);
+	err = drgn_type_index_find_member(prog->tindex, type, member_name,
+					  strlen(member_name), &member);
 	if (err)
 		return err;
 
