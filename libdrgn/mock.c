@@ -158,7 +158,6 @@ drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
 			    struct drgn_mock_type_index **ret)
 {
 	struct drgn_mock_type_index *mtindex;
-	size_t i;
 
 	if (word_size != 4 && word_size != 8) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -173,15 +172,6 @@ drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
 			     word_size, little_endian);
 	mtindex->types = types;
 	mtindex->num_types = num_types;
-
-	for (i = 0; i < mtindex->num_types; i++) {
-		struct drgn_type *type = mtindex->types[i].type;
-		enum drgn_primitive_type primitive;
-
-		primitive = drgn_type_primitive(type);
-		if (primitive != DRGN_NOT_PRIMITIVE_TYPE)
-			mtindex->tindex.primitive_types[primitive] = type;
-	}
 
 	*ret = mtindex;
 	return NULL;

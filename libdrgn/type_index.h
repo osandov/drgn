@@ -82,10 +82,7 @@ struct drgn_type_index {
 /**
  * Initialize the common part of a @ref drgn_type_index.
  *
- * This should only be called by type index implementations. It initializes @ref
- * drgn_type_index::primitive_types to a default set of types based on @p
- * word_size. The implementation should override the C types with the
- * definitions that it finds.
+ * This should only be called by type index implementations.
  *
  * @param[in] tindex Type index to initialize.
  * @param[in] ops Operation dispatch table.
@@ -116,6 +113,11 @@ static inline void drgn_type_index_destroy(struct drgn_type_index *tindex)
 	if (tindex)
 		tindex->ops->destroy(tindex);
 }
+
+struct drgn_error *
+drgn_type_index_find_primitive(struct drgn_type_index *tindex,
+			       enum drgn_primitive_type type,
+			       struct drgn_type **ret);
 
 /**
  * Find a type in a @ref drgn_type_index.

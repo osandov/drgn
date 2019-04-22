@@ -72,6 +72,48 @@ static bool drgn_array_type_eq(struct drgn_type * const *ap,
 DEFINE_HASH_SET_FUNCTIONS(drgn_array_type_set, struct drgn_type *,
 			  drgn_array_type_hash, drgn_array_type_eq)
 
+void drgn_type_index_init(struct drgn_type_index *tindex,
+			  const struct drgn_type_index_ops *ops,
+			  uint8_t word_size, bool little_endian)
+{
+	memset(tindex, 0, sizeof(*tindex));
+	tindex->ops = ops;
+	drgn_pointer_type_set_init(&tindex->pointer_types);
+	drgn_array_type_set_init(&tindex->array_types);
+	tindex->word_size = word_size;
+	tindex->little_endian = little_endian;
+}
+
+static void free_pointer_types(struct drgn_type_index *tindex)
+{
+	struct drgn_pointer_type_set_pos pos;
+
+	pos = drgn_pointer_type_set_first_pos(&tindex->pointer_types);
+	while (pos.item) {
+		free(*pos.item);
+		drgn_pointer_type_set_next_pos(&pos);
+	}
+	drgn_pointer_type_set_deinit(&tindex->pointer_types);
+}
+
+static void free_array_types(struct drgn_type_index *tindex)
+{
+	struct drgn_array_type_set_pos pos;
+
+	pos = drgn_array_type_set_first_pos(&tindex->array_types);
+	while (pos.item) {
+		free(*pos.item);
+		drgn_array_type_set_next_pos(&pos);
+	}
+	drgn_array_type_set_deinit(&tindex->array_types);
+}
+
+void drgn_type_index_deinit(struct drgn_type_index *tindex)
+{
+	free_array_types(tindex);
+	free_pointer_types(tindex);
+}
+
 /* Default long, unsigned long, size_t, and ptrdiff_t are 64 bits. */
 static struct drgn_type default_primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
 /* 32-bit version of long, unsigned long, size_t, and ptrdiff_t. */
@@ -167,69 +209,56 @@ static void default_primitive_types_init(void)
 	       DRGN_C_TYPE_PTRDIFF_T);
 }
 
-void drgn_type_index_init(struct drgn_type_index *tindex,
-			  const struct drgn_type_index_ops *ops,
-			  uint8_t word_size, bool little_endian)
+struct drgn_error *
+drgn_type_index_find_primitive(struct drgn_type_index *tindex,
+			       enum drgn_primitive_type type,
+			       struct drgn_type **ret)
 {
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	enum drgn_type_kind kind;
+	const char * const *spellings;
 	size_t i;
 
-	memset(tindex, 0, sizeof(*tindex));
-	tindex->ops = ops;
-	drgn_pointer_type_set_init(&tindex->pointer_types);
-	drgn_array_type_set_init(&tindex->array_types);
-	tindex->word_size = word_size;
-	tindex->little_endian = little_endian;
+	if (tindex->primitive_types[type]) {
+		*ret = tindex->primitive_types[type];
+		return NULL;
+	}
 
-	for (i = 0; i < ARRAY_SIZE(tindex->primitive_types); i++) {
-		if (drgn_primitive_type_kind[i] == DRGN_TYPE_VOID) {
-			tindex->primitive_types[i] = &drgn_void_type;
-		} else if (word_size == 4 && i == DRGN_C_TYPE_LONG) {
-			tindex->primitive_types[i] =
-				&default_primitive_types_32bit[0];
-		} else if (word_size == 4 && i == DRGN_C_TYPE_UNSIGNED_LONG) {
-			tindex->primitive_types[i] =
-				&default_primitive_types_32bit[1];
-		} else if (word_size == 4 && i == DRGN_C_TYPE_SIZE_T) {
-			tindex->primitive_types[i] =
-				&default_primitive_types_32bit[2];
-		} else if (word_size == 4 && i == DRGN_C_TYPE_PTRDIFF_T) {
-			tindex->primitive_types[i] =
-				&default_primitive_types_32bit[3];
-		} else {
-			tindex->primitive_types[i] =
-				&default_primitive_types[i];
+	kind = drgn_primitive_type_kind[type];
+	if (kind == DRGN_TYPE_VOID) {
+		*ret = &drgn_void_type;
+		goto out;
+	}
+
+	spellings = drgn_primitive_type_spellings[type];
+	for (i = 0; spellings[i]; i++) {
+		err = drgn_type_index_find_internal(tindex, kind, spellings[i],
+						    strlen(spellings[i]), NULL,
+						    &qualified_type);
+		if (err && err->code == DRGN_ERROR_LOOKUP) {
+			drgn_error_destroy(err);
+		} else if (err) {
+			return err;
+		} else if (drgn_type_primitive(qualified_type.type) == type) {
+			*ret = qualified_type.type;
+			goto out;
 		}
 	}
-}
 
-static void free_pointer_types(struct drgn_type_index *tindex)
-{
-	struct drgn_pointer_type_set_pos pos;
-
-	pos = drgn_pointer_type_set_first_pos(&tindex->pointer_types);
-	while (pos.item) {
-		free(*pos.item);
-		drgn_pointer_type_set_next_pos(&pos);
-	}
-	drgn_pointer_type_set_deinit(&tindex->pointer_types);
-}
-
-static void free_array_types(struct drgn_type_index *tindex)
-{
-	struct drgn_array_type_set_pos pos;
-
-	pos = drgn_array_type_set_first_pos(&tindex->array_types);
-	while (pos.item) {
-		free(*pos.item);
-		drgn_array_type_set_next_pos(&pos);
-	}
-	drgn_array_type_set_deinit(&tindex->array_types);
-}
-
-void drgn_type_index_deinit(struct drgn_type_index *tindex)
-{
-	free_array_types(tindex);
-	free_pointer_types(tindex);
+	if (tindex->word_size == 4 && type == DRGN_C_TYPE_LONG)
+		*ret = &default_primitive_types_32bit[0];
+	else if (tindex->word_size == 4 && type == DRGN_C_TYPE_UNSIGNED_LONG)
+		*ret = &default_primitive_types_32bit[1];
+	else if (tindex->word_size == 4 && type == DRGN_C_TYPE_SIZE_T)
+		*ret = &default_primitive_types_32bit[2];
+	else if (tindex->word_size == 4 && type == DRGN_C_TYPE_PTRDIFF_T)
+		*ret = &default_primitive_types_32bit[3];
+	else
+		*ret = &default_primitive_types[type];
+out:
+	tindex->primitive_types[type] = *ret;
+	return NULL;
 }
 
 struct drgn_error *

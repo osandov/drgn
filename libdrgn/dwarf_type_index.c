@@ -1290,6 +1290,11 @@ drgn_dwarf_type_index_find(struct drgn_type_index *tindex,
 	uint64_t tag;
 
 	switch (kind) {
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_FLOAT:
+		tag = DW_TAG_base_type;
+		break;
 	case DRGN_TYPE_STRUCT:
 		tag = DW_TAG_structure_type;
 		break;
@@ -1310,62 +1315,21 @@ drgn_dwarf_type_index_find(struct drgn_type_index *tindex,
 	drgn_dwarf_index_iterator_init(&it, dtindex->dindex, name, name_len,
 				       &tag, 1);
 	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
-		if (die_matches_filename(&die, filename))
-			return drgn_type_from_dwarf(dtindex, &die, ret);
-	}
-	if (err && err->code != DRGN_ERROR_STOP)
-		return err;
-	return drgn_type_index_not_found_error(kind, name, name_len, filename);
-}
-
-static struct drgn_error *
-drgn_dwarf_type_index_iterate_primitive_types(struct drgn_dwarf_type_index *dtindex,
-					      struct drgn_dwarf_index_iterator *it)
-{
-	struct drgn_error *err;
-	Dwarf_Die die;
-	struct drgn_qualified_type qualified_type;
-	enum drgn_primitive_type primitive;
-
-	while (!(err = drgn_dwarf_index_iterator_next(it, &die))) {
-		err = drgn_type_from_dwarf(dtindex, &die, &qualified_type);
-		if (err)
-			return err;
-
-		primitive = drgn_type_primitive(qualified_type.type);
-		if (primitive != DRGN_NOT_PRIMITIVE_TYPE) {
-			dtindex->tindex.primitive_types[primitive] =
-				qualified_type.type;
+		if (die_matches_filename(&die, filename)) {
+			err = drgn_type_from_dwarf(dtindex, &die, ret);
+			if (err)
+				return err;
+			/*
+			 * For DW_TAG_base_type, we need to check that the type
+			 * we found was the right kind.
+			 */
+			if (drgn_type_kind(ret->type) == kind)
+				return NULL;
 		}
 	}
 	if (err && err->code != DRGN_ERROR_STOP)
 		return err;
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_dwarf_type_index_find_primitive_types(struct drgn_dwarf_type_index *dtindex)
-{
-	struct drgn_error *err;
-	uint64_t tag;
-	struct drgn_dwarf_index_iterator it;
-
-	tag = DW_TAG_base_type;
-	drgn_dwarf_index_iterator_init(&it, dtindex->dindex, NULL, 0, &tag, 1);
-	err = drgn_dwarf_type_index_iterate_primitive_types(dtindex, &it);
-	if (err)
-		return err;
-
-	tag = DW_TAG_typedef;
-	drgn_dwarf_index_iterator_init(&it, dtindex->dindex, "size_t",
-				       strlen("size_t"), &tag, 1);
-	err = drgn_dwarf_type_index_iterate_primitive_types(dtindex, &it);
-	if (err)
-		return err;
-
-	drgn_dwarf_index_iterator_init(&it, dtindex->dindex, "ptrdiff_t",
-				       strlen("ptrdiff_t"), &tag, 1);
-	return drgn_dwarf_type_index_iterate_primitive_types(dtindex, &it);
+	return drgn_type_index_not_found_error(kind, name, name_len, filename);
 }
 
 static void drgn_dwarf_type_index_destroy(struct drgn_type_index *tindex)
@@ -1396,7 +1360,6 @@ struct drgn_error *
 drgn_dwarf_type_index_create(struct drgn_dwarf_index *dindex,
 			     struct drgn_dwarf_type_index **ret)
 {
-	struct drgn_error *err;
 	struct drgn_dwarf_type_index *dtindex;
 
 	dtindex = malloc(sizeof(*dtindex));
@@ -1410,12 +1373,6 @@ drgn_dwarf_type_index_create(struct drgn_dwarf_index *dindex,
 	dwarf_type_map_init(&dtindex->cant_be_incomplete_array_map);
 	dtindex->dindex = dindex;
 	dtindex->depth = 0;
-
-	err = drgn_dwarf_type_index_find_primitive_types(dtindex);
-	if (err) {
-		drgn_type_index_destroy(&dtindex->tindex);
-		return err;
-	}
 
 	*ret = dtindex;
 	return NULL;

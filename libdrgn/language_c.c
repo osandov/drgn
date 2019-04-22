@@ -1899,12 +1899,20 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 		} else if (identifier) {
 			if (strncmp(identifier, "size_t",
 				    strlen("size_t")) == 0) {
-				ret->type = tindex->primitive_types[DRGN_C_TYPE_SIZE_T];
+				err = drgn_type_index_find_primitive(tindex,
+								     DRGN_C_TYPE_SIZE_T,
+								     &ret->type);
+				if (err)
+					return err;
 				ret->qualifiers = 0;
 				goto out;
 			} else if (strncmp(identifier, "ptrdiff_t",
 				    strlen("ptrdiff_t")) == 0) {
-				ret->type = tindex->primitive_types[DRGN_C_TYPE_PTRDIFF_T];
+				err = drgn_type_index_find_primitive(tindex,
+								     DRGN_C_TYPE_PTRDIFF_T,
+								     &ret->type);
+				if (err)
+					return err;
 				ret->qualifiers = 0;
 				goto out;
 			} else {
@@ -1921,7 +1929,11 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 		if (err)
 			return err;
 	} else {
-		ret->type = tindex->primitive_types[specifier_kind[specifier]];
+		err = drgn_type_index_find_primitive(tindex,
+						     specifier_kind[specifier],
+						     &ret->type);
+		if (err)
+			return err;
 		ret->qualifiers = 0;
 	}
 out:
@@ -2372,48 +2384,70 @@ out:
 static struct drgn_error *c_integer_literal(struct drgn_object *res,
 					    uint64_t uvalue)
 {
-	struct drgn_type **types = res->prog->tindex->primitive_types;
-	struct drgn_qualified_type qualified_type;
+	static const enum drgn_primitive_type types[] = {
+		DRGN_C_TYPE_INT,
+		DRGN_C_TYPE_LONG,
+		DRGN_C_TYPE_LONG_LONG,
+		DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+	};
+	struct drgn_error *err;
 	unsigned int bits;
+	struct drgn_qualified_type qualified_type;
+	size_t i;
 
 	_Static_assert(sizeof(unsigned long long) == 8,
 		       "unsigned long long is not 64 bits");
 	bits = uvalue ? 64 - __builtin_clzll(uvalue) : 0;
 
 	qualified_type.qualifiers = 0;
-	if (bits < 8 * drgn_type_size(types[DRGN_C_TYPE_INT])) {
-		qualified_type.type = types[DRGN_C_TYPE_INT];
-	} else if (bits < 8 * drgn_type_size(types[DRGN_C_TYPE_LONG])) {
-		qualified_type.type = types[DRGN_C_TYPE_LONG];
-	} else if (bits < 8 * drgn_type_size(types[DRGN_C_TYPE_LONG_LONG])) {
-		qualified_type.type = types[DRGN_C_TYPE_LONG_LONG];
-	} else if (bits <=
-		   8 * drgn_type_size(types[DRGN_C_TYPE_UNSIGNED_LONG_LONG])) {
-		qualified_type.type = types[DRGN_C_TYPE_UNSIGNED_LONG_LONG];
-		return drgn_object_set_unsigned(res, qualified_type, uvalue, 0);
-	} else {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "integer literal is too large");
+	for (i = 0; i < ARRAY_SIZE(types); i++) {
+		err = drgn_type_index_find_primitive(res->prog->tindex,
+						     types[i],
+						     &qualified_type.type);
+		if (err)
+			return err;
+
+		if (drgn_type_is_signed(qualified_type.type) &&
+		    bits < 8 * drgn_type_size(qualified_type.type)) {
+			return drgn_object_set_signed(res,
+						      qualified_type,
+						      uvalue, 0);
+		} else if (!drgn_type_is_signed(qualified_type.type) &&
+			   bits <= 8 * drgn_type_size(qualified_type.type)) {
+			return drgn_object_set_unsigned(res, qualified_type,
+							uvalue, 0);
+		}
 	}
-	return drgn_object_set_signed(res, qualified_type, uvalue, 0);
+	return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+				 "integer literal is too large");
 }
 
 static struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
 {
-	struct drgn_qualified_type qualified_type = {
-		res->prog->tindex->primitive_types[DRGN_C_TYPE_INT],
-	};
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
 
+	err = drgn_type_index_find_primitive(res->prog->tindex,
+					     DRGN_C_TYPE_INT,
+					     &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = 0;
 	return drgn_object_set_signed(res, qualified_type, bvalue, 0);
 }
 
 static struct drgn_error *c_float_literal(struct drgn_object *res,
 					  double fvalue)
 {
-	struct drgn_qualified_type qualified_type = {
-		res->prog->tindex->primitive_types[DRGN_C_TYPE_DOUBLE],
-	};
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
 
+	err = drgn_type_index_find_primitive(res->prog->tindex,
+					     DRGN_C_TYPE_DOUBLE,
+					     &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = 0;
 	return drgn_object_set_float(res, qualified_type, fvalue);
 }
 
@@ -2468,7 +2502,9 @@ static bool c_can_represent_all_values(struct drgn_type *type1,
 static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 					       struct drgn_object_type *type)
 {
+	struct drgn_error *err;
 	enum drgn_primitive_type primitive;
+	struct drgn_type *int_type;
 
 	switch (drgn_type_kind(type->underlying_type)) {
 	case DRGN_TYPE_ENUM:
@@ -2511,18 +2547,29 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 	 * promotes it to the full width, but GCC does not. We implement the GCC
 	 * behavior of preserving the width.
 	 */
-	if (primitive == DRGN_NOT_PRIMITIVE_TYPE || type->bit_field_size) {
-		if (c_can_represent_all_values(tindex->primitive_types[DRGN_C_TYPE_INT],
-					       0, type->underlying_type,
+	if (primitive >= ARRAY_SIZE(c_integer_conversion_rank) ||
+	    type->bit_field_size) {
+		err = drgn_type_index_find_primitive(tindex, DRGN_C_TYPE_INT,
+						     &int_type);
+		if (err)
+			return err;
+		if (c_can_represent_all_values(int_type, 0,
+					       type->underlying_type,
 					       type->bit_field_size)) {
-			type->type = type->underlying_type =
-				tindex->primitive_types[DRGN_C_TYPE_INT];
+			type->type = type->underlying_type = int_type;
 			type->bit_field_size = 0;
-		} else if (c_can_represent_all_values(tindex->primitive_types[DRGN_C_TYPE_UNSIGNED_INT],
-						      0, type->underlying_type,
-						      type->bit_field_size)) {
-			type->type = type->underlying_type =
-				tindex->primitive_types[DRGN_C_TYPE_UNSIGNED_INT];
+			return NULL;
+		}
+
+		err = drgn_type_index_find_primitive(tindex,
+						     DRGN_C_TYPE_UNSIGNED_INT,
+						     &int_type);
+		if (err)
+			return err;
+		if (c_can_represent_all_values(int_type, 0,
+					       type->underlying_type,
+					       type->bit_field_size)) {
+			type->type = type->underlying_type = int_type;
 			type->bit_field_size = 0;
 		}
 		return NULL;
@@ -2538,13 +2585,48 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 	 * If int can represent all values of the original type, then the result
 	 * is int. Otherwise, the result is unsigned int.
 	 */
-	if (c_can_represent_all_values(tindex->primitive_types[DRGN_C_TYPE_INT],
-				       0, type->underlying_type, 0))
-		type->type = tindex->primitive_types[DRGN_C_TYPE_INT];
-	else
-		type->type = tindex->primitive_types[DRGN_C_TYPE_UNSIGNED_INT];
+	err = drgn_type_index_find_primitive(tindex, DRGN_C_TYPE_INT,
+					     &int_type);
+	if (err)
+		return err;
+	if (c_can_represent_all_values(int_type, 0, type->underlying_type, 0)) {
+		type->type = int_type;
+	} else {
+		err = drgn_type_index_find_primitive(tindex,
+						     DRGN_C_TYPE_UNSIGNED_INT,
+						     &type->type);
+		if (err)
+			return err;
+	}
 	type->underlying_type = type->type;
 	return NULL;
+}
+
+static struct drgn_error *
+c_corresponding_unsigned_type(struct drgn_type_index *tindex,
+			      enum drgn_primitive_type type,
+			      struct drgn_type **ret)
+{
+	switch (type) {
+	/*
+	 * char, signed char, and short are promoted to int, so we don't need to
+	 * handle them here.
+	 */
+	case DRGN_C_TYPE_INT:
+		return drgn_type_index_find_primitive(tindex,
+						      DRGN_C_TYPE_UNSIGNED_INT,
+						      ret);
+	case DRGN_C_TYPE_LONG:
+		return drgn_type_index_find_primitive(tindex,
+						      DRGN_C_TYPE_UNSIGNED_LONG,
+						      ret);
+	case DRGN_C_TYPE_LONG_LONG:
+		return drgn_type_index_find_primitive(tindex,
+						      DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+						      ret);
+	default:
+		DRGN_UNREACHABLE();
+	}
 }
 
 static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
@@ -2720,14 +2802,11 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 	 * rank, then it must have greater size and thus be able to represent
 	 * all values of the unsigned integer type.
 	 */
-	if (is_signed1) {
-		assert(primitive1 != DRGN_NOT_PRIMITIVE_TYPE);
-		ret->type = tindex->primitive_types[primitive1 + 1];
-	} else {
-		assert(is_signed2);
-		assert(primitive2 != DRGN_NOT_PRIMITIVE_TYPE);
-		ret->type = tindex->primitive_types[primitive2 + 1];
-	}
+	err = c_corresponding_unsigned_type(tindex,
+					    is_signed1 ? primitive1 : primitive2,
+					    &ret->type);
+	if (err)
+		return err;
 	ret->underlying_type = ret->type;
 	ret->bit_field_size = 0;
 	return NULL;
@@ -2943,13 +3022,14 @@ static struct drgn_error *c_op_sub(struct drgn_object *res,
 		return err;
 
 	if (lhs_pointer && rhs_pointer) {
-		struct drgn_type *ptrdiff_type =
-			lhs->prog->tindex->primitive_types[DRGN_C_TYPE_PTRDIFF_T];
-		struct drgn_object_type type = {
-			.type = ptrdiff_type,
-			.underlying_type = ptrdiff_type,
-		};
+		struct drgn_object_type type = {};
 
+		err = drgn_type_index_find_primitive(lhs->prog->tindex,
+						     DRGN_C_TYPE_PTRDIFF_T,
+						     &type.type);
+		if (err)
+			return err;
+		type.underlying_type = drgn_underlying_type(type.type);
 		if (!c_pointers_similar(&lhs_type, &rhs_type, lhs_size,
 					rhs_size))
 			goto type_error;
