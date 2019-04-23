@@ -80,28 +80,14 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 	return 0;
 }
 
-static void mock_program_deinit(struct drgn_program *prog)
+static void cleanup_buffers(void *arg)
 {
-	Program *self = container_of(prog, Program, prog);
-	struct drgn_mock_memory_reader *mreader;
-	struct drgn_mock_type_index *mtindex;
-	struct drgn_mock_object_index *moindex;
+	Program *self = arg;
 	size_t i;
 
-	moindex = container_of(self->prog.oindex, struct drgn_mock_object_index,
-			       oindex);
-	free(moindex->objects);
-
-	mtindex = container_of(self->prog.tindex, struct drgn_mock_type_index,
-			       tindex);
-	free(mtindex->types);
-
-	mreader = container_of(self->prog.reader,
-			       struct drgn_mock_memory_reader, reader);
-	for (i = 0; i < mreader->num_segments; i++)
+	for (i = 0; i < self->num_buffers; i++)
 		PyBuffer_Release(&self->buffers[i]);
 	free(self->buffers);
-	free(mreader->segments);
 }
 
 static void Program_dealloc(Program *self)
@@ -704,14 +690,35 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 
 	err = drgn_program_init_mock(&prog->prog, word_size, little_endian,
 				     segments, num_segments, types, num_types,
-				     objects, num_objects, mock_program_deinit);
+				     objects, num_objects);
 	if (err) {
 		set_drgn_error(err);
 		goto err;
 	}
+	err = drgn_program_add_cleanup(&prog->prog, free, segments);
+	if (err)
+		goto err;
+	err = drgn_program_add_cleanup(&prog->prog, free, types);
+	if (err)
+		goto err_cleanup_segments;
+	err = drgn_program_add_cleanup(&prog->prog, free, objects);
+	if (err)
+		goto err_cleanup_types;
+	prog->num_buffers = num_segments;
+	err = drgn_program_add_cleanup(&prog->prog, cleanup_buffers, prog);
+	if (err) {
+		drgn_program_deinit(&prog->prog);
+		goto err_cleanup_objects;
+	}
 	prog->inited = true;
 	return prog;
 
+err_cleanup_objects:
+	drgn_program_remove_cleanup(&prog->prog, free, objects);
+err_cleanup_types:
+	drgn_program_remove_cleanup(&prog->prog, free, types);
+err_cleanup_segments:
+	drgn_program_remove_cleanup(&prog->prog, free, segments);
 err:
 	for (i = 0; i < num_segments; i++)
 		PyBuffer_Release(&prog->buffers[i]);

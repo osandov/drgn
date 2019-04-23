@@ -48,24 +48,65 @@ LIBDRGN_PUBLIC bool drgn_program_is_little_endian(struct drgn_program *prog)
 void drgn_program_init(struct drgn_program *prog,
 		       struct drgn_memory_reader *reader,
 		       struct drgn_type_index *tindex,
-		       struct drgn_object_index *oindex,
-		       void (*deinit_fn)(struct drgn_program *prog))
+		       struct drgn_object_index *oindex)
 {
 	prog->reader = reader;
 	prog->tindex = tindex;
 	prog->oindex = oindex;
-	prog->deinit_fn = deinit_fn;
+	prog->cleanup = NULL;
 	prog->flags = 0;
 }
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
-	if (prog->deinit_fn)
-		prog->deinit_fn(prog);
+	struct drgn_cleanup *cleanup;
 
 	drgn_object_index_destroy(prog->oindex);
 	drgn_type_index_destroy(prog->tindex);
 	drgn_memory_reader_destroy(prog->reader);
+
+	cleanup = prog->cleanup;
+	while (cleanup) {
+		struct drgn_cleanup *next;
+
+		next = cleanup->next;
+		cleanup->cb(cleanup->arg);
+		free(cleanup);
+		cleanup = next;
+	}
+}
+
+struct drgn_error *drgn_program_add_cleanup(struct drgn_program *prog,
+					    void (*cb)(void *), void *arg)
+{
+	struct drgn_cleanup *cleanup;
+
+	cleanup = malloc(sizeof(*cleanup));
+	if (!cleanup)
+		return &drgn_enomem;
+	cleanup->cb = cb;
+	cleanup->arg = arg;
+	cleanup->next = prog->cleanup;
+	prog->cleanup = cleanup;
+	return NULL;
+}
+
+bool drgn_program_remove_cleanup(struct drgn_program *prog, void (*cb)(void *),
+				 void *arg)
+{
+	struct drgn_cleanup **cleanupp = &prog->cleanup;
+
+	while (*cleanupp) {
+		struct drgn_cleanup *cleanup = *cleanupp;
+
+		if (cleanup->cb == cb && cleanup->arg == arg) {
+			*cleanupp = cleanup->next;
+			free(cleanup);
+			return true;
+		}
+		cleanupp = &cleanup->next;
+	}
+	return false;
 }
 
 static struct drgn_error *get_module_name(Elf_Scn *modinfo_scn,
@@ -1012,22 +1053,21 @@ static void free_file_mappings(struct file_mapping *mappings,
 	free(mappings);
 }
 
-static void drgn_program_deinit_dwarf(struct drgn_program *prog)
+static void cleanup_fd(void *arg)
 {
-	struct drgn_dwarf_type_index *dtindex;
-	struct drgn_dwarf_index *dindex;
-	struct drgn_memory_file_reader *freader;
+	close((intptr_t)arg);
+}
 
-	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
-		free_file_mappings(prog->mappings, prog->num_mappings);
+static void cleanup_dwarf_index(void *arg)
+{
+	drgn_dwarf_index_destroy(arg);
+}
 
-	dtindex = container_of(prog->tindex, struct drgn_dwarf_type_index,
-			       tindex);
-	dindex = dtindex->dindex;
-	drgn_dwarf_index_destroy(dindex);
-	freader = container_of(prog->reader, struct drgn_memory_file_reader,
-			       reader);
-	close(freader->fd);
+static void cleanup_file_mappings(void *arg)
+{
+	struct drgn_program *prog = arg;
+
+	free_file_mappings(prog->mappings, prog->num_mappings);
 }
 
 #define PROGRAM_DWARF_INDEX_FLAGS (DRGN_DWARF_INDEX_TYPES |		\
@@ -1259,7 +1299,13 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		goto out_dtindex;
 
 	drgn_program_init(prog, &freader->reader, &dtindex->tindex,
-			  &doindex->oindex, drgn_program_deinit_dwarf);
+			  &doindex->oindex);
+	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
+	if (err)
+		goto out_program;
+	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
+	if (err)
+		goto out_cleanup_fd;
 	doindex->prog = prog;
 	if (have_vmcoreinfo) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
@@ -1269,9 +1315,19 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		prog->mappings = mappings;
 		prog->num_mappings = num_mappings;
 		doindex->relocation_hook = userspace_relocation_hook;
+		err = drgn_program_add_cleanup(prog, cleanup_file_mappings,
+					       prog);
+		if (err)
+			goto out_cleanup_dindex;
 	}
 	return NULL;
 
+out_cleanup_dindex:
+	drgn_program_remove_cleanup(prog, cleanup_dwarf_index, dindex);
+out_cleanup_fd:
+	drgn_program_remove_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
+out_program:
+	drgn_program_deinit(prog);
 out_dtindex:
 	drgn_type_index_destroy(&dtindex->tindex);
 out_dindex:
@@ -1401,13 +1457,28 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 		goto out_dtindex;
 
 	drgn_program_init(prog, &freader->reader, &dtindex->tindex,
-			  &doindex->oindex, drgn_program_deinit_dwarf);
+			  &doindex->oindex);
 	doindex->prog = prog;
 	prog->mappings = mappings;
 	prog->num_mappings = num_mappings;
 	doindex->relocation_hook = userspace_relocation_hook;
+	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
+	if (err)
+		goto out_program;
+	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
+	if (err)
+		goto out_cleanup_fd;
+	err = drgn_program_add_cleanup(prog, cleanup_file_mappings, prog);
+	if (err)
+		goto out_cleanup_dindex;
 	return NULL;
 
+out_cleanup_dindex:
+	drgn_program_remove_cleanup(prog, cleanup_dwarf_index, dindex);
+out_cleanup_fd:
+	drgn_program_remove_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
+out_program:
+	drgn_program_deinit(prog);
 out_dtindex:
 	drgn_type_index_destroy(&dtindex->tindex);
 out_dindex:

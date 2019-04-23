@@ -62,6 +62,12 @@ struct file_mapping {
 	uint64_t file_offset;
 };
 
+struct drgn_cleanup {
+	void (*cb)(void *);
+	void *arg;
+	struct drgn_cleanup *next;
+};
+
 struct drgn_program {
 	/** @privatesection */
 	struct drgn_memory_reader *reader;
@@ -74,8 +80,7 @@ struct drgn_program {
 			size_t num_mappings;
 		};
 	};
-	/** Destructor. See @ref drgn_program_init(). */
-	void (*deinit_fn)(struct drgn_program *);
+	struct drgn_cleanup *cleanup;
 	enum drgn_program_flags flags;
 };
 
@@ -88,14 +93,48 @@ struct drgn_program {
  * @param[in] reader Memory reader to use.
  * @param[in] tindex Type index to use.
  * @param[in] oindex Object index to use.
- * @param[in] deinit_fn Destructor called by @ref drgn_program_deinit() before
  * anything else is deinitialized.
  */
 void drgn_program_init(struct drgn_program *prog,
 		       struct drgn_memory_reader *reader,
 		       struct drgn_type_index *tindex,
-		       struct drgn_object_index *oindex,
-		       void (*deinit_fn)(struct drgn_program *));
+		       struct drgn_object_index *oindex);
+
+/**
+ * Deinitialize a @ref drgn_program.
+ *
+ * This should only be used if the program was created directly with
+ * <tt>drgn_program_init_*</tt>. If the program was created with
+ * <tt>drgn_program_from_*</tt>, this shouldn't be used, as it is called by @ref
+ * drgn_program_destroy().
+ *
+ * @param[in] prog Program to deinitialize.
+ */
+void drgn_program_deinit(struct drgn_program *prog);
+
+/**
+ * Add a callback to be called when @ref drgn_program_deinit() is called.
+ *
+ * The callbacks are called in reverse order of the order they were added in.
+ *
+ * @param[in] cb Callback.
+ * @param[in] arg Argument to callback.
+ */
+struct drgn_error *drgn_program_add_cleanup(struct drgn_program *prog,
+					    void (*cb)(void *), void *arg);
+
+/**
+ * Remove a cleanup callback previously added by @ref
+ * drgn_program_add_cleanup().
+ *
+ * This removes the most recently added callback with the given @p cb and @p
+ * arg.
+ *
+ * @return @c true if a callback with the given argument was present, @c false
+ * if not.
+ */
+bool drgn_program_remove_cleanup(struct drgn_program *prog, void (*cb)(void *),
+				 void *arg);
 
 /**
  * Implement @ref drgn_program_from_core_dump() on an allocated @ref
@@ -130,7 +169,6 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
  * @param[in] num_types See @ref drgn_mock_type_index_create().
  * @param[in] objects See @ref drgn_mock_object_index_create().
  * @param[in] num_objects See @ref drgn_mock_object_index_create().
- * @param[in] deinit_fn See @ref drgn_program_init().
  */
 struct drgn_error *
 drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
@@ -138,20 +176,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		       struct drgn_mock_memory_segment *segments,
 		       size_t num_segments, struct drgn_mock_type *types,
 		       size_t num_types, struct drgn_mock_object *objects,
-		       size_t num_objects,
-		       void (*deinit_fn)(struct drgn_program *));
-
-/**
- * Deinitialize a @ref drgn_program.
- *
- * This should only be used if the program was created directly with
- * <tt>drgn_program_init_*</tt>. If the program was created with
- * <tt>drgn_program_from_*</tt>, this shouldn't be used, as it is called by @ref
- * drgn_program_destroy().
- *
- * @param[in] prog Program to deinitialize.
- */
-void drgn_program_deinit(struct drgn_program *prog);
+		       size_t num_objects);
 
 /** Return the maximum word value for a program. */
 static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)

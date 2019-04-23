@@ -262,8 +262,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		       struct drgn_mock_memory_segment *segments,
 		       size_t num_segments, struct drgn_mock_type *types,
 		       size_t num_types, struct drgn_mock_object *objects,
-		       size_t num_objects,
-		       void (*deinit_fn)(struct drgn_program *))
+		       size_t num_objects)
 {
 	struct drgn_error *err;
 	struct drgn_mock_memory_reader *mreader;
@@ -284,7 +283,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		goto err_tindex;
 
 	drgn_program_init(prog, &mreader->reader, &mtindex->tindex,
-			  &moindex->oindex, deinit_fn);
+			  &moindex->oindex);
 	return NULL;
 
 err_tindex:

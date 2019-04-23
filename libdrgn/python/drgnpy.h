@@ -76,6 +76,7 @@ typedef struct {
 	struct drgn_program prog;
 	PyObject *objects;
 	Py_buffer *buffers;
+	size_t num_buffers;
 	bool inited;
 } Program;
 
