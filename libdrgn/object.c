@@ -336,9 +336,9 @@ drgn_object_set_buffer_internal(struct drgn_object *res,
 		res->value.bit_offset = bit_offset;
 		res->value.little_endian = little_endian;
 	} else {
+		drgn_object_reinit(res, type, kind, bit_size, false);
 		drgn_value_deserialize(&res->value, buf, bit_offset, kind,
 				       bit_size, little_endian);
-		drgn_object_reinit(res, type, kind, bit_size, false);
 	}
 	return NULL;
 }

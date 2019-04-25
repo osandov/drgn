@@ -1324,8 +1324,8 @@ class TestCPretty(ObjectTestCase):
                 (int_type('int', 4, True), 'baz', 32),
             )), None, 64),
         ))
-        self.assertEqual(str(Object(prog, type_, address=0xffff0000)),
-                         """\
+        obj = Object(prog, type_, address=0xffff0000)
+        expected = """\
 (struct foo){
 	.point = (struct point){
 		.x = (int)99,
@@ -1333,7 +1333,38 @@ class TestCPretty(ObjectTestCase):
 	},
 	.bar = (int)12345,
 	.baz = (int)0,
-}""")
+}"""
+        self.assertEqual(str(obj), expected)
+        self.assertEqual(str(obj.read_()), expected)
+
+        segment = ((99).to_bytes(8, 'little') +
+                   (-1).to_bytes(8, 'little', signed=True) +
+                   (12345).to_bytes(8, 'little', signed=True) +
+                   (0).to_bytes(8, 'little', signed=True))
+        prog = mock_program(8, 'little', segments=[
+            MockMemorySegment(segment, virt_addr=0xffff0000),
+        ])
+
+        type_ = struct_type('foo', 32, (
+            (struct_type('long_point', 16, (
+                (int_type('long', 8, True), 'x'),
+                (int_type('long', 8, True), 'y', 64),
+            )), 'point'),
+            (int_type('long', 8, True), 'bar', 128),
+            (int_type('long', 8, True), 'baz', 192),
+        ))
+        obj = Object(prog, type_, address=0xffff0000)
+        expected = """\
+(struct foo){
+	.point = (struct long_point){
+		.x = (long)99,
+		.y = (long)-1,
+	},
+	.bar = (long)12345,
+	.baz = (long)0,
+}"""
+        self.assertEqual(str(obj), expected)
+        self.assertEqual(str(obj.read_()), expected)
 
         type_ = struct_type('foo', 0, ())
         self.assertEqual(str(Object(prog, type_, address=0)), '(struct foo){}')
