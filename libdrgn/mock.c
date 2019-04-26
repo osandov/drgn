@@ -48,7 +48,9 @@ drgn_mock_type_index_find(struct drgn_type_index *tindex,
 	size_t i;
 
 	mtindex = container_of(tindex, struct drgn_mock_type_index, tindex);
-	for (i = 0; i < mtindex->num_types; i++) {
+	if (!mtindex->types)
+		goto not_found;
+	for (i = 0; mtindex->types[i].type; i++) {
 		struct drgn_type *type = mtindex->types[i].type;
 		const char *type_filename = mtindex->types[i].filename;
 		const char *type_name;
@@ -69,6 +71,7 @@ drgn_mock_type_index_find(struct drgn_type_index *tindex,
 		ret->qualifiers = 0;
 		return NULL;
 	}
+not_found:
 	return drgn_type_index_not_found_error(kind, name, name_len, filename);
 }
 
@@ -88,7 +91,7 @@ static const struct drgn_type_index_ops drgn_mock_type_index_ops = {
 
 struct drgn_error *
 drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
-			    struct drgn_mock_type *types, size_t num_types,
+			    struct drgn_mock_type *types,
 			    struct drgn_mock_type_index **ret)
 {
 	struct drgn_mock_type_index *mtindex;
@@ -105,7 +108,6 @@ drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
 	drgn_type_index_init(&mtindex->tindex, &drgn_mock_type_index_ops,
 			     word_size, little_endian);
 	mtindex->types = types;
-	mtindex->num_types = num_types;
 
 	*ret = mtindex;
 	return NULL;
@@ -121,8 +123,9 @@ drgn_mock_symbol_index_find(struct drgn_symbol_index *sindex,
 	size_t i;
 
 	msindex = container_of(sindex, struct drgn_mock_symbol_index, sindex);
-
-	for (i = 0; i < msindex->num_symbols; i++) {
+	if (!msindex->symbols)
+		goto not_found;
+	for (i = 0; msindex->symbols[i].name; i++) {
 		const struct drgn_mock_symbol *obj = &msindex->symbols[i];
 		struct drgn_type *underlying_type;
 		bool is_function;
@@ -154,6 +157,7 @@ drgn_mock_symbol_index_find(struct drgn_symbol_index *sindex,
 			return NULL;
 		}
 	}
+not_found:
 	return drgn_symbol_index_not_found_error(name, filename, flags);
 }
 
@@ -172,7 +176,6 @@ static const struct drgn_symbol_index_ops drgn_mock_symbol_index_ops = {
 
 struct drgn_error *
 drgn_mock_symbol_index_create(struct drgn_mock_symbol *symbols,
-			      size_t num_symbols,
 			      struct drgn_mock_symbol_index **ret)
 {
 	struct drgn_mock_symbol_index *msindex;
@@ -183,7 +186,6 @@ drgn_mock_symbol_index_create(struct drgn_mock_symbol *symbols,
 
 	msindex->sindex.ops = &drgn_mock_symbol_index_ops;
 	msindex->symbols = symbols;
-	msindex->num_symbols = num_symbols;
 
 	*ret = msindex;
 	return NULL;
@@ -194,8 +196,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		       bool little_endian,
 		       struct drgn_mock_memory_segment *segments,
 		       size_t num_segments, struct drgn_mock_type *types,
-		       size_t num_types, struct drgn_mock_symbol *symbols,
-		       size_t num_symbols)
+		       struct drgn_mock_symbol *symbols)
 {
 	struct drgn_error *err;
 	struct drgn_memory_reader *reader;
@@ -220,11 +221,11 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 	}
 
 	err = drgn_mock_type_index_create(word_size, little_endian, types,
-					  num_types, &mtindex);
+					  &mtindex);
 	if (err)
 		goto err_reader;
 
-	err = drgn_mock_symbol_index_create(symbols, num_symbols, &msindex);
+	err = drgn_mock_symbol_index_create(symbols, &msindex);
 	if (err)
 		goto err_tindex;
 

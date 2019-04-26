@@ -228,7 +228,7 @@ class _drgn_mock_type(ctypes.Structure):
 _drgn_cdll.drgn_test_mock_type_index_create.restype = ctypes.POINTER(_drgn_error)
 _drgn_cdll.drgn_test_mock_type_index_create.argtypes = [
     ctypes.c_uint8, ctypes.c_bool, ctypes.POINTER(_drgn_mock_type),
-    ctypes.c_size_t, ctypes.POINTER(ctypes.POINTER(_drgn_type_index)),
+    ctypes.POINTER(ctypes.POINTER(_drgn_type_index)),
 ]
 
 
@@ -241,7 +241,7 @@ class MockTypeIndex(TypeIndex):
             little_endian = False
         else:
             raise ValueError("byteorder must be either 'little' or 'big'")
-        self._types = (_drgn_mock_type * len(types))()
+        self._types = (_drgn_mock_type * (len(types) + 1))()
         self._type_objs = []
         for i, mock_type in enumerate(types):
             self._type_objs.append(mock_type.type)
@@ -252,8 +252,7 @@ class MockTypeIndex(TypeIndex):
             self._types[i].filename = filename
         tindex = ctypes.POINTER(_drgn_type_index)()
         _check_err(_drgn_cdll.drgn_test_mock_type_index_create(
-            word_size, little_endian, self._types, len(types),
-            ctypes.pointer(tindex)))
+            word_size, little_endian, self._types, ctypes.pointer(tindex)))
         super().__init__(tindex)
 
 

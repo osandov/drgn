@@ -240,14 +240,14 @@ drgn_test_dwarf_type_index_create(struct drgn_dwarf_index *dindex,
 
 DRGNPY_PUBLIC struct drgn_error *
 drgn_test_mock_type_index_create(uint8_t word_size, bool little_endian,
-				 struct drgn_mock_type *types, size_t num_types,
+				 struct drgn_mock_type *types,
 				 struct drgn_type_index **ret)
 {
 	struct drgn_error *err;
 	struct drgn_mock_type_index *mtindex;
 
 	err = drgn_mock_type_index_create(word_size, little_endian, types,
-					  num_types, &mtindex);
+					  &mtindex);
 	if (err)
 		return err;
 

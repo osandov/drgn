@@ -188,22 +188,19 @@ struct drgn_mock_symbol_index {
 	struct drgn_symbol_index sindex;
 	/** Indexed symbols. */
 	struct drgn_mock_symbol *symbols;
-	/** Number of symbols. */
-	size_t num_symbols;
 };
 
 /**
  * Create a @ref drgn_mock_symbol_index.
  *
- * @param[in] symbols Symbols to index. This will not be freed when the
- * symbol index is destroyed.
- * @param[in] num_symbols Number of symbols to index.
+ * @param[in] symbols Symbols to index, terminated by an element with @ref
+ * drgn_mock_symbol::name set to @c NULL. This will not be freed when the symbol
+ * index is destroyed.
  * @param[out] ret Returned symbol index.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_mock_symbol_index_create(struct drgn_mock_symbol *symbols,
-			      size_t num_symbols,
 			      struct drgn_mock_symbol_index **ret);
 
 struct drgn_program;

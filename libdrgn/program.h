@@ -166,17 +166,14 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
  * @param[in] segments See @ref drgn_mock_memory_reader_create().
  * @param[in] num_segments See @ref drgn_mock_memory_reader_create().
  * @param[in] types See @ref drgn_mock_type_index_create().
- * @param[in] num_types See @ref drgn_mock_type_index_create().
  * @param[in] symbols See @ref drgn_mock_symbol_index_create().
- * @param[in] num_symbols See @ref drgn_mock_symbol_index_create().
  */
 struct drgn_error *
 drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		       bool little_endian,
 		       struct drgn_mock_memory_segment *segments,
 		       size_t num_segments, struct drgn_mock_type *types,
-		       size_t num_types, struct drgn_mock_symbol *symbols,
-		       size_t num_symbols);
+		       struct drgn_mock_symbol *symbols);
 
 /** Return the maximum word value for a program. */
 static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)

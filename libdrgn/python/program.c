@@ -473,7 +473,7 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 	PyObject *types_obj = Py_None;
 	PyObject *symbols_obj = Py_None;
 	PyObject *segments_seq = NULL, *types_seq = NULL, *symbols_seq = NULL;
-	size_t num_segments = 0, num_types = 0, num_symbols = 0;
+	size_t num_segments = 0;
 	struct drgn_mock_memory_segment *segments = NULL;
 	struct drgn_mock_type *types = NULL;
 	struct drgn_mock_symbol *symbols = NULL;
@@ -539,12 +539,14 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 	}
 
 	if (types_obj != Py_None) {
+		size_t num_types;
+
 		types_seq = PySequence_Fast(types_obj,
 					    "types must be sequence");
 		if (!types_seq)
 			goto err;
 		num_types = PySequence_Fast_GET_SIZE(types_seq);
-		types = calloc(num_types, sizeof(*types));
+		types = calloc(num_types + 1, sizeof(*types));
 		if (!types) {
 			PyErr_NoMemory();
 			goto err;
@@ -585,11 +587,13 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 	}
 
 	if (symbols_obj != Py_None) {
+		size_t num_symbols;
+
 		symbols_seq = PySequence_Fast(symbols_obj, "symbols must be sequence");
 		if (!symbols_seq)
 			goto err;
 		num_symbols = PySequence_Fast_GET_SIZE(symbols_seq);
-		symbols = calloc(num_symbols, sizeof(*symbols));
+		symbols = calloc(num_symbols + 1, sizeof(*symbols));
 		if (!symbols) {
 			PyErr_NoMemory();
 			goto err;
@@ -674,8 +678,7 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 	}
 
 	err = drgn_program_init_mock(&prog->prog, word_size, little_endian,
-				     segments, num_segments, types, num_types,
-				     symbols, num_symbols);
+				     segments, num_segments, types, symbols);
 	if (err) {
 		set_drgn_error(err);
 		goto err;

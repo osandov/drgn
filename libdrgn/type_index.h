@@ -322,8 +322,6 @@ struct drgn_mock_type_index {
 	struct drgn_type_index tindex;
 	/** Indexed types. */
 	struct drgn_mock_type *types;
-	/** Number of types. */
-	size_t num_types;
 };
 
 /**
@@ -331,15 +329,15 @@ struct drgn_mock_type_index {
  *
  * @param[in] word_size See @ref drgn_type_index_init().
  * @param[in] little_endian See @ref drgn_type_index_init().
- * @param[in] types Types to index. This will not be freed when the type index
- * is destroyed.
- * @param[in] num_types Number of types.
+ * @param[in] types Types to index, terminated by an element with @ref
+ * drgn_mock_type::type set to @c NULL. This will not be freed when the type
+ * index is destroyed.
  * @param[out] ret Returned type index.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
-			    struct drgn_mock_type *types, size_t num_types,
+			    struct drgn_mock_type *types,
 			    struct drgn_mock_type_index **ret);
 
 /** Cached type in a @ref drgn_dwarf_type_index. */
