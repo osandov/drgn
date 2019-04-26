@@ -172,42 +172,6 @@ DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_c(struct drgn_lexer *lexer,
 	return drgn_lexer_c(lexer, token);
 }
 
-DRGNPY_PUBLIC void
-drgn_test_memory_reader_destroy(struct drgn_memory_reader *reader)
-{
-	drgn_memory_reader_destroy(reader);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_memory_reader_read(struct drgn_memory_reader *reader, void *buf,
-			     uint64_t address, size_t count, bool physical)
-{
-	return drgn_memory_reader_read(reader, buf, address, count, physical);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_memory_file_reader_create(int fd, struct drgn_memory_reader **ret)
-{
-	struct drgn_error *err;
-	struct drgn_memory_file_reader *freader;
-
-	err = drgn_memory_file_reader_create(fd, &freader);
-	if (err)
-		return err;
-	*ret = &freader->reader;
-	return NULL;
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_memory_file_reader_add_segment(struct drgn_memory_reader *reader,
-					 const struct drgn_memory_file_segment *segment)
-{
-	struct drgn_memory_file_reader *freader;
-
-	freader = container_of(reader, struct drgn_memory_file_reader, reader);
-	return drgn_memory_file_reader_add_segment(freader, segment);
-}
-
 DRGNPY_PUBLIC bool drgn_test_path_iterator_next(struct path_iterator *it,
 						const char **component,
 						size_t *component_len)

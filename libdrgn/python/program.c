@@ -21,27 +21,13 @@ static Program *Program_alloc(void)
 	return prog;
 }
 
-static int Program_hold_object(Program *prog, PyObject *obj)
-{
-	PyObject *key;
-	int ret;
-
-	key = PyLong_FromVoidPtr(obj);
-	if (!key)
-		return -1;
-
-	ret = PyDict_SetItem(prog->objects, key, obj);
-	Py_DECREF(key);
-	return ret;
-}
-
 static int Program_hold_type(Program *prog, DrgnType *type)
 {
 	PyObject *parent;
 
 	parent = DrgnType_parent(type);
 	if (parent && parent != (PyObject *)prog)
-		return Program_hold_object(prog, parent);
+		return hold_object(prog->objects, parent);
 	else
 		return 0;
 }
@@ -448,7 +434,7 @@ static int mock_get_filename(Program *prog, PyObject *mock_obj,
 			return -1;
 		}
 		Py_DECREF(filename_obj);
-		if (Program_hold_object(prog, encoded_obj) == -1) {
+		if (hold_object(prog->objects, encoded_obj) == -1) {
 			Py_DECREF(encoded_obj);
 			return -1;
 		}
@@ -584,7 +570,7 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 						"mock type must be unqualified");
 				goto err;
 			}
-			if (Program_hold_object(prog, tmp) == -1) {
+			if (hold_object(prog->objects, tmp) == -1) {
 				Py_DECREF(tmp);
 				goto err;
 			}
@@ -641,7 +627,7 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 				Py_DECREF(tmp);
 				goto err;
 			}
-			if (Program_hold_object(prog, tmp) == -1) {
+			if (hold_object(prog->objects, tmp) == -1) {
 				Py_DECREF(tmp);
 				goto err;
 			}

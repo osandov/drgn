@@ -7,77 +7,11 @@
 #include "internal.h"
 #include "program.h"
 
-static struct drgn_error *
-drgn_mock_memory_reader_read(struct drgn_memory_reader *reader, void *buf,
-			     uint64_t address, size_t count, bool physical)
+static struct drgn_error *drgn_mock_memory_read(void *buf, uint64_t address,
+						size_t count, bool physical,
+						uint64_t offset, void *arg)
 {
-	struct drgn_mock_memory_reader *mreader;
-	char *p = buf;
-
-	mreader = container_of(reader, struct drgn_mock_memory_reader, reader);
-	while (count) {
-		struct drgn_mock_memory_segment *segment;
-		uint64_t segment_address;
-		uint64_t segment_offset;
-		size_t copy_count;
-		size_t i;
-
-		for (i = 0; i < mreader->num_segments; i++) {
-			segment = &mreader->segments[i];
-			segment_address = (physical ? segment->phys_addr :
-					   segment->virt_addr);
-			if (segment_address <= address &&
-			    address < segment_address + segment->size)
-				break;
-		}
-		if (i >= mreader->num_segments) {
-			return drgn_error_format(DRGN_ERROR_FAULT,
-						 "could not find memory segment containing 0x%" PRIx64,
-						 address);
-		}
-
-		segment_offset = address - segment_address;
-		copy_count = min(segment->size - segment_offset,
-				 (uint64_t)count);
-		memcpy(p, (const char *)segment->buf + segment_offset,
-		       copy_count);
-
-		p += copy_count;
-		count -= copy_count;
-		address += copy_count;
-	}
-	return NULL;
-}
-
-static void drgn_mock_memory_reader_destroy(struct drgn_memory_reader *reader)
-{
-	struct drgn_mock_memory_reader *mreader;
-
-	mreader = container_of(reader, struct drgn_mock_memory_reader, reader);
-	free(mreader);
-}
-
-static const struct drgn_memory_reader_ops drgn_mock_memory_reader_ops = {
-	.destroy = drgn_mock_memory_reader_destroy,
-	.read = drgn_mock_memory_reader_read,
-};
-
-struct drgn_error *
-drgn_mock_memory_reader_create(struct drgn_mock_memory_segment *segments,
-			       size_t num_segments,
-			       struct drgn_mock_memory_reader **ret)
-{
-	struct drgn_mock_memory_reader *mreader;
-
-	mreader = malloc(sizeof(*mreader));
-	if (!mreader)
-		return &drgn_enomem;
-
-	mreader->reader.ops = &drgn_mock_memory_reader_ops;
-	mreader->segments = segments;
-	mreader->num_segments = num_segments;
-
-	*ret = mreader;
+	memcpy(buf, (char *)arg + offset, count);
 	return NULL;
 }
 
@@ -265,13 +199,26 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		       size_t num_objects)
 {
 	struct drgn_error *err;
-	struct drgn_mock_memory_reader *mreader;
+	struct drgn_memory_reader *reader;
 	struct drgn_mock_type_index *mtindex;
 	struct drgn_mock_object_index *moindex;
+	size_t i;
 
-	err = drgn_mock_memory_reader_create(segments, num_segments, &mreader);
+	err = drgn_memory_reader_create(&reader);
 	if (err)
 		return err;
+
+	for (i = 0; i < num_segments; i++) {
+		struct drgn_mock_memory_segment *segment = &segments[i];
+
+		err = drgn_memory_reader_add_segment(reader, segment->virt_addr,
+						     segment->phys_addr,
+						     segment->size,
+						     drgn_mock_memory_read,
+						     (void *)segment->buf);
+		if (err)
+			goto err_reader;
+	}
 
 	err = drgn_mock_type_index_create(word_size, little_endian, types,
 					  num_types, &mtindex);
@@ -282,13 +229,12 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 	if (err)
 		goto err_tindex;
 
-	drgn_program_init(prog, &mreader->reader, &mtindex->tindex,
-			  &moindex->oindex);
+	drgn_program_init(prog, reader, &mtindex->tindex, &moindex->oindex);
 	return NULL;
 
 err_tindex:
 	drgn_type_index_destroy(&mtindex->tindex);
 err_reader:
-	drgn_memory_reader_destroy(&mreader->reader);
+	drgn_memory_reader_destroy(reader);
 	return err;
 }

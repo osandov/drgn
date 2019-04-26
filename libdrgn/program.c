@@ -1091,14 +1091,16 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	int fd;
 	Elf *elf;
 	GElf_Ehdr ehdr_mem, *ehdr;
-	size_t phnum, i;
+	size_t phnum, i, num_file_segments;
+	struct drgn_memory_file_segment *file_segments = NULL;
+	struct drgn_memory_file_segment *current_file_segment;
 	struct file_mapping *mappings = NULL;
 	size_t num_mappings = 0, mappings_capacity = 0;
 	struct vmcoreinfo vmcoreinfo;
 	bool is_64_bit, have_nt_file = false;
 	bool have_nt_taskstruct = false, have_vmcoreinfo = false;
 	bool have_non_zero_phys_addr = false, is_proc_kcore;
-	struct drgn_memory_file_reader *freader;
+	struct drgn_memory_reader *reader;
 	struct drgn_dwarf_index *dindex;
 	struct drgn_dwarf_type_index *dtindex;
 	struct drgn_dwarf_object_index *doindex;
@@ -1134,10 +1136,37 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		goto out_elf;
 	}
 
-	err = drgn_memory_file_reader_create(fd, &freader);
+	/*
+	 * First pass: count the number of loadable segments and check if p_addr
+	 * is valid.
+	 */
+	num_file_segments = 0;
+	for (i = 0; i < phnum; i++) {
+		GElf_Phdr phdr_mem, *phdr;
+
+		phdr = gelf_getphdr(elf, i, &phdr_mem);
+		if (!phdr) {
+			err = drgn_error_libelf();
+			goto out_elf;
+		}
+
+		if (phdr->p_type == PT_LOAD) {
+			if (phdr->p_paddr)
+				have_non_zero_phys_addr = true;
+			num_file_segments++;
+		}
+	}
+
+	err = drgn_memory_reader_create(&reader);
 	if (err)
 		goto out_elf;
 
+	file_segments = malloc_array(num_file_segments, sizeof(*file_segments));
+	if (!file_segments)
+		goto out_reader;
+	current_file_segment = file_segments;
+
+	/* Second pass: add the segments and parse notes. */
 	for (i = 0; i < phnum; i++) {
 		GElf_Phdr phdr_mem, *phdr;
 
@@ -1148,20 +1177,30 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		}
 
 		if (phdr->p_type == PT_LOAD) {
-			struct drgn_memory_file_segment segment = {
-				.file_offset = phdr->p_offset,
-				.virt_addr = phdr->p_vaddr,
-				.phys_addr = phdr->p_paddr,
-				.file_size = phdr->p_filesz,
-				.mem_size = phdr->p_memsz,
-			};
+			uint64_t phys_addr;
 
-			if (segment.phys_addr)
-				have_non_zero_phys_addr = true;
-			err = drgn_memory_file_reader_add_segment(freader,
-								  &segment);
+			/*
+			 * If this happens, then the number of segments changed
+			 * since the first pass. That's probably impossible, but
+			 * skip it just in case.
+			 */
+			if (current_file_segment ==
+			    file_segments + num_file_segments)
+				continue;
+			current_file_segment->file_offset = phdr->p_offset;
+			current_file_segment->file_size = phdr->p_filesz;
+			current_file_segment->fd = fd;
+			phys_addr = (have_non_zero_phys_addr ? phdr->p_paddr :
+				     UINT64_MAX);
+			err = drgn_memory_reader_add_segment(reader,
+							     phdr->p_vaddr,
+							     phys_addr,
+							     phdr->p_memsz,
+							     drgn_read_memory_file,
+							     current_file_segment);
 			if (err)
 				goto out_mappings;
+			current_file_segment++;
 		} else if (phdr->p_type == PT_NOTE) {
 			Elf_Data *data;
 			size_t offset;
@@ -1190,8 +1229,8 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 						err = parse_nt_file(desc,
 								    nhdr.n_descsz,
 								    is_64_bit,
-								    &mappings,
-								    &num_mappings,
+								    &prog->mappings,
+								    &prog->num_mappings,
 								    &mappings_capacity);
 						if (err)
 							goto out_mappings;
@@ -1217,11 +1256,6 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	if (mappings_capacity > num_mappings) {
 		/* We don't care if this fails. */
 		resize_array(&mappings, num_mappings);
-	}
-
-	if (!have_non_zero_phys_addr) {
-		for (i = 0; i < freader->num_segments; i++)
-			freader->segments[i].phys_addr = UINT64_MAX;
 	}
 
 	if (have_vmcoreinfo) {
@@ -1261,7 +1295,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		 */
 		if (!have_vmcoreinfo) {
 			if (have_non_zero_phys_addr) {
-				err = read_vmcoreinfo_from_sysfs(&freader->reader,
+				err = read_vmcoreinfo_from_sysfs(reader,
 								 &vmcoreinfo);
 			} else {
 				err = get_fallback_vmcoreinfo(&vmcoreinfo);
@@ -1298,14 +1332,16 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	if (err)
 		goto out_dtindex;
 
-	drgn_program_init(prog, &freader->reader, &dtindex->tindex,
-			  &doindex->oindex);
+	drgn_program_init(prog, reader, &dtindex->tindex, &doindex->oindex);
 	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 	if (err)
 		goto out_program;
-	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
+	err = drgn_program_add_cleanup(prog, free, file_segments);
 	if (err)
 		goto out_cleanup_fd;
+	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
+	if (err)
+		goto out_cleanup_file_segments;
 	doindex->prog = prog;
 	if (have_vmcoreinfo) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
@@ -1324,6 +1360,8 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 
 out_cleanup_dindex:
 	drgn_program_remove_cleanup(prog, cleanup_dwarf_index, dindex);
+out_cleanup_file_segments:
+	drgn_program_remove_cleanup(prog, free, file_segments);
 out_cleanup_fd:
 	drgn_program_remove_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 out_program:
@@ -1334,7 +1372,9 @@ out_dindex:
 	drgn_dwarf_index_destroy(dindex);
 out_mappings:
 	free_file_mappings(mappings, num_mappings);
-	drgn_memory_reader_destroy(&freader->reader);
+	free(file_segments);
+out_reader:
+	drgn_memory_reader_destroy(reader);
 out_elf:
 	elf_end(elf);
 out_fd:
@@ -1406,16 +1446,10 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	struct drgn_error *err;
 	char buf[64];
 	int fd;
-	struct drgn_memory_file_segment segment = {
-		.file_offset = 0,
-		.virt_addr = 0,
-		.phys_addr = UINT64_MAX,
-		.file_size = OFF_MAX,
-		.mem_size = OFF_MAX,
-	};
+	struct drgn_memory_file_segment *file_segment;
 	struct file_mapping *mappings = NULL;
 	size_t num_mappings = 0;
-	struct drgn_memory_file_reader *freader;
+	struct drgn_memory_reader *reader;
 	struct drgn_dwarf_index *dindex;
 	struct drgn_dwarf_type_index *dtindex;
 	struct drgn_dwarf_object_index *doindex;
@@ -1425,11 +1459,22 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	if (fd == -1)
 		return drgn_error_create_os(errno, buf, "open");
 
-	err = drgn_memory_file_reader_create(fd, &freader);
-	if (err)
+	file_segment = malloc(sizeof(*file_segment));
+	if (!file_segment) {
+		err = &drgn_enomem;
 		goto out_fd;
+	}
+	file_segment->file_offset = 0;
+	file_segment->file_size = UINT64_MAX;
+	file_segment->fd = fd;
 
-	err = drgn_memory_file_reader_add_segment(freader, &segment);
+	err = drgn_memory_reader_create(&reader);
+	if (err)
+		goto out_file_segment;
+
+	err = drgn_memory_reader_add_segment(reader, 0, UINT64_MAX, UINT64_MAX,
+					     drgn_read_memory_file,
+					     file_segment);
 	if (err)
 		goto out_reader;
 
@@ -1456,8 +1501,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		goto out_dtindex;
 
-	drgn_program_init(prog, &freader->reader, &dtindex->tindex,
-			  &doindex->oindex);
+	drgn_program_init(prog, reader, &dtindex->tindex, &doindex->oindex);
 	doindex->prog = prog;
 	prog->mappings = mappings;
 	prog->num_mappings = num_mappings;
@@ -1465,9 +1509,12 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 	if (err)
 		goto out_program;
-	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
+	err = drgn_program_add_cleanup(prog, free, file_segment);
 	if (err)
 		goto out_cleanup_fd;
+	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
+	if (err)
+		goto out_cleanup_file_segment;
 	err = drgn_program_add_cleanup(prog, cleanup_file_mappings, prog);
 	if (err)
 		goto out_cleanup_dindex;
@@ -1475,6 +1522,8 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 
 out_cleanup_dindex:
 	drgn_program_remove_cleanup(prog, cleanup_dwarf_index, dindex);
+out_cleanup_file_segment:
+	drgn_program_remove_cleanup(prog, free, file_segment);
 out_cleanup_fd:
 	drgn_program_remove_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 out_program:
@@ -1486,7 +1535,9 @@ out_dindex:
 out_mappings:
 	free_file_mappings(mappings, num_mappings);
 out_reader:
-	drgn_memory_reader_destroy(&freader->reader);
+	drgn_memory_reader_destroy(reader);
+out_file_segment:
+	free(file_segment);
 out_fd:
 	close(fd);
 	return err;

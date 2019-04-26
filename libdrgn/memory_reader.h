@@ -23,49 +23,100 @@
  *
  * Memory reading interface.
  *
- * @ref drgn_memory_reader provides a common interface for reading from the
- * memory of a program.
+ * @ref drgn_memory_reader provides a common interface for registering regions
+ * of memory in a program and reading from memory.
  *
  * @{
  */
 
-struct drgn_memory_reader;
+struct drgn_memory_segment;
 
-/** Memory reader operations. */
-struct drgn_memory_reader_ops {
-	/** Implements @ref drgn_memory_reader_destroy(). */
-	void (*destroy)(struct drgn_memory_reader *reader);
-	/** Implements @ref drgn_memory_reader_read(). */
-	struct drgn_error *(*read)(struct drgn_memory_reader *reader, void *buf,
-				   uint64_t address, size_t count,
-				   bool physical);
+/**
+ * Callback implementing a memory read.
+ *
+ * @param[out] buf Buffer to read into.
+ * @param[in] address Address which we are reading from.
+ * @param[in] count Number of bytes to read.
+ * @param[in] physical Whether @c address is physical.
+ * @param[in] offset Offset in bytes of @p address from the beginning of the
+ * segment.
+ * @param[in] arg Argument passed to @ref drgn_memory_reader_add_segment().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
+						  size_t count, bool physical,
+						  uint64_t offset, void *arg);
+
+/** Memory segment in a @ref drgn_memory_reader. */
+struct drgn_memory_segment {
+	/**
+	 * Virtual address of the segment in memory. If @c UINT64_MAX, the
+	 * segment does not have a known virtual address.
+	 */
+	uint64_t virt_addr;
+	/**
+	 * Physical address of the segment in memory. If @c UINT64_MAX, the
+	 * segment does not have a known physical address.
+	 */
+	uint64_t phys_addr;
+	/** Size of the segment in bytes. */
+	uint64_t size;
+	/** Read callback. */
+	drgn_memory_read_fn read_fn;
+	/** Argument to pass to @ref drgn_memory_segment::read_fn. */
+	void *arg;
 };
 
 /**
- * Abstract memory reader.
+ * Memory reader.
  *
- * A memory reader can be backed by a few things:
- *   - A file (@ref drgn_memory_file_reader).
- *   - Arbitrary memory (@ref drgn_mock_memory_reader).
- *
- * It is read from with @ref drgn_memory_reader_read() and freed with @ref
- * drgn_memory_reader_destroy().
+ * A memory reader maps the segments of memory in an address space to callbacks
+ * which can be used to read memory from those segments.
  */
 struct drgn_memory_reader {
-	/** Operation dispatch table. */
-	const struct drgn_memory_reader_ops *ops;
+	/** Memory segments. */
+	struct drgn_memory_segment *segments;
+	/** Number of segments. */
+	size_t num_segments;
+	/** Allocated number of segments. */
+	size_t capacity;
 };
 
 /**
- * Free a @ref drgn_memory_reader.
+ * Initialize a @ref drgn_memory_reader.
  *
- * @param[in] reader Memory reader to destroy.
+ * The reader is initialized with no segments.
  */
-static inline void drgn_memory_reader_destroy(struct drgn_memory_reader *reader)
-{
-	if (reader)
-		reader->ops->destroy(reader);
-}
+void drgn_memory_reader_init(struct drgn_memory_reader *reader);
+
+/** Deinitialize a @ref drgn_memory_reader. */
+void drgn_memory_reader_deinit(struct drgn_memory_reader *reader);
+
+struct drgn_error *drgn_memory_reader_create(struct drgn_memory_reader **ret);
+
+void drgn_memory_reader_destroy(struct drgn_memory_reader *reader);
+
+/**
+ * Register a segment of memory in a @ref drgn_memory_reader.
+ *
+ * If the segment overlaps a previously registered segment, the new segment
+ * takes precedence.
+ *
+ * @param[in] reader Reader to add segment to.
+ * @param[in] virt_addr Virtual address of segment, or @c UINT64_MAX if the
+ * segment does not have a virtual address.
+ * @param[in] phys_addr Physical address of segment, or @c UINT64_MAX if the
+ * segment does not have a physical address.
+ * @param[in] size Size of the segment in bytes.
+ * @param[in] read_fn Callback to read from segment.
+ * @param[in] arg Argument to pass to @p read_fn.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
+			       uint64_t virt_addr, uint64_t phys_addr,
+			       uint64_t size, drgn_memory_read_fn read_fn,
+			       void *arg);
 
 /**
  * Read from a @ref drgn_memory_reader.
@@ -74,18 +125,33 @@ static inline void drgn_memory_reader_destroy(struct drgn_memory_reader *reader)
  * @param[out] buf Buffer to read into.
  * @param[in] address Starting address in memory to read.
  * @param[in] count Number of bytes to read.
- * @param[in] physical Whether @c address is physical. A reader may support only
- * virtual or physical addresses or both.
+ * @param[in] physical Whether @c address is physical.
  * @return @c NULL on success, non-@c NULL on error.
  */
-static inline struct drgn_error *
-drgn_memory_reader_read(struct drgn_memory_reader *reader, void *buf,
-			uint64_t address, size_t count, bool physical)
-{
-	return reader->ops->read(reader, buf, address, count, physical);
-}
+struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
+					   void *buf, uint64_t address,
+					   size_t count, bool physical);
 
-/** Memory segment in a @ref drgn_mock_memory_reader. */
+/** Argument for @ref drgn_read_memory_file(). */
+struct drgn_memory_file_segment {
+	/** Offset in the file where the segment starts. */
+	uint64_t file_offset;
+	/**
+	 * Size of the segment in the file. This may be less than the size of
+	 * the segment in memory, in which case the remaining bytes are treated
+	 * as if they contained zeroes.
+	 */
+	uint64_t file_size;
+	/** File descriptor. */
+	int fd;
+};
+
+/** @ref drgn_memory_read_fn which reads from a file. */
+struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
+					 size_t count, bool physical,
+					 uint64_t offset, void *arg);
+
+/** Memory segment for testing. */
 struct drgn_mock_memory_segment {
 	/**
 	 * Virtual address of the segment in memory. If @c UINT64_MAX, the
@@ -102,108 +168,6 @@ struct drgn_mock_memory_segment {
 	/** Segment memory. */
 	const void *buf;
 };
-
-/**
- * Memory reader backed by arbitrary memory.
- *
- * This is mostly useful for testing. It is created with @ref
- * drgn_mock_memory_reader_create().
- */
-struct drgn_mock_memory_reader {
-	/** Abstract memory reader. */
-	struct drgn_memory_reader reader;
-	/** Memory segments. */
-	struct drgn_mock_memory_segment *segments;
-	/** Number of segments. */
-	size_t num_segments;
-};
-
-/**
- * Create a @ref drgn_mock_memory_reader.
- *
- * @param[in] segments Memory segments. This will not be freed when the reader
- * is destroyed.
- * @param[in] num_segments Number of segments.
- * @param[out] ret Returned memory reader.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_mock_memory_reader_create(struct drgn_mock_memory_segment *segments,
-			       size_t num_segments,
-			       struct drgn_mock_memory_reader **ret);
-
-/** Memory segment in a @ref drgn_memory_file_reader. */
-struct drgn_memory_file_segment {
-	/** Offset in the file where the segment starts. */
-	uint64_t file_offset;
-	/**
-	 * Virtual address of the segment in memory. If @c UINT64_MAX, the
-	 * segment does not have a known virtual address.
-	 */
-	uint64_t virt_addr;
-	/**
-	 * Physical address of the segment in memory. If @c UINT64_MAX, the
-	 * segment does not have a known physical address.
-	 */
-	uint64_t phys_addr;
-	/** Size of the segment in the file. */
-	uint64_t file_size;
-	/**
-	 * Size of the segment in memory. If greater than @ref
-	 * drgn_memory_file_segment::file_size, the remainder of the segment is
-	 * treated as if it contained zeroes.
-	 */
-	uint64_t mem_size;
-};
-
-/**
- * Memory file reader.
- *
- * This is a concrete @ref drgn_memory_reader which is backed by a file. This
- * may be, for example, an ELF core dump file, or a flat file like
- * <tt>/proc/$pid/mem</tt>. It is created with @ref
- * drgn_memory_file_reader_create(). Segments are added with @ref
- * drgn_memory_file_reader_add_segment().
- */
-struct drgn_memory_file_reader {
-	/** Abstract memory reader. */
-	struct drgn_memory_reader reader;
-	/** Memory segments. */
-	struct drgn_memory_file_segment *segments;
-	/** Number of segments. */
-	size_t num_segments;
-	/** Capacity of @c segments. */
-	size_t capacity;
-	/** File descriptor. */
-	int fd;
-};
-
-/**
- * Create a @ref drgn_memory_file_reader.
- *
- * This creates a memory file reader with no segments.
- *
- * @param[in] fd File descriptor referring to the file. It will not be closed
- * when the reader is destroyed.
- * @param[out] ret Returned memory reader.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_memory_file_reader_create(int fd, struct drgn_memory_file_reader **ret);
-
-/**
- * Add a memory segment to a @ref drgn_memory_file_reader.
- *
- * If there are overlapping segments, then the most recently added segment is
- * used.
- *
- * @param[in] freader Memory file reader.
- * @param[in] segment Memory segment to add.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_memory_file_reader_add_segment(struct drgn_memory_file_reader *freader,
-				    const struct drgn_memory_file_segment *segment);
 
 /** @} */
 

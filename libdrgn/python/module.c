@@ -106,6 +106,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		goto err;
 	PyModule_AddObject(m, "FileFormatError", FileFormatError);
 
+	if (PyType_Ready(&MemoryReader_type) < 0)
+		goto err;
+	Py_INCREF(&MemoryReader_type);
+	PyModule_AddObject(m, "MemoryReader", (PyObject *)&MemoryReader_type);
+
 	if (PyType_Ready(&DrgnObject_type) < 0)
 		goto err;
 	Py_INCREF(&DrgnObject_type);

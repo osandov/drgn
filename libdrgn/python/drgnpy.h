@@ -67,6 +67,12 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_memory_reader reader;
+	PyObject *objects;
+} MemoryReader;
+
+typedef struct {
+	PyObject_HEAD
 	DrgnObject *obj;
 	uint64_t length, index;
 } ObjectIterator;
@@ -86,10 +92,31 @@ extern PyObject *Qualifiers_class;
 extern PyObject *TypeKind_class;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
+extern PyTypeObject MemoryReader_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Program_type;
 extern PyObject *FaultError;
 extern PyObject *FileFormatError;
+
+/* Keep a reference to @p obj in the dictionary @p objects. */
+static inline int hold_object(PyObject *objects, PyObject *obj)
+{
+	PyObject *key;
+	int ret;
+
+	if (!objects) {
+		PyErr_SetString(PyExc_ValueError, "object is not initialized");
+		return -1;
+	}
+
+	key = PyLong_FromVoidPtr(obj);
+	if (!key)
+		return -1;
+
+	ret = PyDict_SetItem(objects, key, obj);
+	Py_DECREF(key);
+	return ret;
+}
 
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
