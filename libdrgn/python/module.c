@@ -3,59 +3,8 @@
 
 #include "drgnpy.h"
 
-static PyObject *FaultError;
-static PyObject *FileFormatError;
-
-DRGNPY_PUBLIC PyObject *set_drgn_error(struct drgn_error *err)
-{
-	if (err == DRGN_ERROR_PYTHON)
-		return NULL;
-
-	switch (err->code) {
-	case DRGN_ERROR_NO_MEMORY:
-		PyErr_NoMemory();
-		break;
-	case DRGN_ERROR_INVALID_ARGUMENT:
-		PyErr_SetString(PyExc_ValueError, err->message);
-		break;
-	case DRGN_ERROR_OVERFLOW:
-		PyErr_SetString(PyExc_OverflowError, err->message);
-		break;
-	case DRGN_ERROR_RECURSION:
-		PyErr_SetString(PyExc_RecursionError, err->message);
-		break;
-	case DRGN_ERROR_OS:
-		errno = err->errnum;
-		PyErr_SetFromErrnoWithFilename(PyExc_OSError, err->path);
-		break;
-	case DRGN_ERROR_ELF_FORMAT:
-	case DRGN_ERROR_DWARF_FORMAT:
-	case DRGN_ERROR_MISSING_DEBUG:
-		PyErr_SetString(FileFormatError, err->message);
-		break;
-	case DRGN_ERROR_SYNTAX:
-		PyErr_SetString(PyExc_SyntaxError, err->message);
-		break;
-	case DRGN_ERROR_LOOKUP:
-		PyErr_SetString(PyExc_LookupError, err->message);
-		break;
-	case DRGN_ERROR_FAULT:
-		PyErr_SetString(FaultError, err->message);
-		break;
-	case DRGN_ERROR_TYPE:
-		PyErr_SetString(PyExc_TypeError, err->message);
-		break;
-	case DRGN_ERROR_ZERO_DIVISION:
-		PyErr_SetString(PyExc_ZeroDivisionError, err->message);
-		break;
-	default:
-		PyErr_SetString(PyExc_Exception, err->message);
-		break;
-	}
-
-	drgn_error_destroy(err);
-	return NULL;
-}
+PyObject *FaultError;
+PyObject *FileFormatError;
 
 static PyMethodDef drgn_methods[] = {
 	{"NULL", (PyCFunction)DrgnObject_NULL, METH_VARARGS | METH_KEYWORDS,

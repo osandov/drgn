@@ -59,6 +59,7 @@ CLEANFILES = python/constants.c python/docstrings.c
 
 _drgn_la_SOURCES = python/docstrings.h \
 		   python/drgnpy.h \
+		   python/error.c \
 		   python/module.c \
 		   python/object.c \
 		   python/program.c \

@@ -72,30 +72,6 @@ DRGNPY_PUBLIC PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type,
 	return (PyObject *)type_obj;
 }
 
-_Py_IDENTIFIER(drgn_in_python);
-
-static int set_drgn_in_python(void)
-{
-	PyObject *dict;
-
-	dict = PyThreadState_GetDict();
-	if (!dict)
-		return 0;
-	return _PyDict_SetItemId(dict, &PyId_drgn_in_python, Py_True);
-}
-
-static void clear_drgn_in_python(void)
-{
-	PyObject *exc_type, *exc_value, *exc_traceback;
-	PyObject *dict;
-
-	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-	dict = PyThreadState_GetDict();
-	if (dict)
-		_PyDict_SetItemId(dict, &PyId_drgn_in_python, Py_False);
-	PyErr_Restore(exc_type, exc_value, exc_traceback);
-}
-
 struct py_type_thunk {
 	struct drgn_type_thunk thunk;
 	PyObject **pending;
@@ -106,6 +82,7 @@ static int py_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
 				 struct drgn_qualified_type *qualified_type)
 {
 	struct drgn_error *err;
+	bool clear;
 
 	/* Avoid the thread state overhead if we can. */
 	if (drgn_lazy_type_is_evaluated(lazy_type)) {
@@ -113,53 +90,15 @@ static int py_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
 		return 0;
 	}
 
-	if (set_drgn_in_python() == -1)
-		return -1;
+	clear = set_drgn_in_python();
 	err = drgn_lazy_type_evaluate(lazy_type, qualified_type);
-	clear_drgn_in_python();
+	if (clear)
+		clear_drgn_in_python();
 	if (err) {
 		set_drgn_error(err);
 		return -1;
 	}
 	return 0;
-}
-
-static struct drgn_error *drgn_error_from_python(void)
-{
-	PyObject *exc_type, *exc_value, *exc_traceback, *exc_message;
-	const char *type, *message;
-	struct drgn_error *err;
-
-	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-	if (!exc_type)
-		return NULL;
-	type = ((PyTypeObject *)exc_type)->tp_name;
-	if (exc_value) {
-		exc_message = PyObject_Str(exc_value);
-		message = exc_message ? PyUnicode_AsUTF8(exc_message) : NULL;
-		if (!message) {
-			err = drgn_error_format(DRGN_ERROR_OTHER,
-						"%s: <exception str() failed>", type);
-			goto out;
-		}
-	} else {
-		exc_message = NULL;
-		message = "";
-	}
-
-	if (message[0]) {
-		err = drgn_error_format(DRGN_ERROR_OTHER, "%s: %s", type,
-					message);
-	} else {
-		err = drgn_error_create(DRGN_ERROR_OTHER, type);
-	}
-
-out:
-	Py_XDECREF(exc_message);
-	Py_XDECREF(exc_traceback);
-	Py_XDECREF(exc_value);
-	Py_DECREF(exc_type);
-	return err;
 }
 
 static struct drgn_error *py_type_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
@@ -168,7 +107,7 @@ static struct drgn_error *py_type_thunk_evaluate_fn(struct drgn_type_thunk *thun
 	struct py_type_thunk *t = (struct py_type_thunk *)thunk;
 	PyGILState_STATE gstate;
 	struct drgn_error *err;
-	PyObject *obj, *dict;
+	PyObject *obj;
 
 	gstate = PyGILState_Ensure();
 	obj = PyObject_CallObject(t->callable, NULL);
@@ -188,11 +127,7 @@ static struct drgn_error *py_type_thunk_evaluate_fn(struct drgn_type_thunk *thun
 	return NULL;
 
 err:
-	dict = PyThreadState_GetDict();
-	if (dict && _PyDict_GetItemId(dict, &PyId_drgn_in_python) == Py_True)
-		err = DRGN_ERROR_PYTHON;
-	else
-		err = drgn_error_from_python();
+	err = drgn_error_from_python();
 	PyGILState_Release(gstate);
 	return err;
 }
@@ -1009,20 +944,21 @@ static PyObject *DrgnType_richcompare(DrgnType *self, PyObject *other, int op)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type1, qualified_type2;
+	bool clear;
 	bool ret;
 
 	if (!PyObject_TypeCheck(other, &DrgnType_type) ||
 	    (op != Py_EQ && op != Py_NE))
 		Py_RETURN_NOTIMPLEMENTED;
 
-	if (set_drgn_in_python() == -1)
-		return NULL;
+	clear = set_drgn_in_python();
 	qualified_type1.type = self->type;
 	qualified_type1.qualifiers = self->qualifiers;
 	qualified_type2.type = ((DrgnType *)other)->type;
 	qualified_type2.qualifiers = ((DrgnType *)other)->qualifiers;
 	err = drgn_qualified_type_eq(qualified_type1, qualified_type2, &ret);
-	clear_drgn_in_python();
+	if (clear)
+		clear_drgn_in_python();
 	if (err)
 		return set_drgn_error(err);
 	if (op == Py_NE)

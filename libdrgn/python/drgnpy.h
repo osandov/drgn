@@ -88,6 +88,8 @@ extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Program_type;
+extern PyObject *FaultError;
+extern PyObject *FileFormatError;
 
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
@@ -96,6 +98,10 @@ int parse_byteorder(const char *s, bool *ret);
 int parse_optional_byteorder(PyObject *obj, enum drgn_byte_order *ret);
 
 int add_module_constants(PyObject *m);
+
+bool set_drgn_in_python(void);
+void clear_drgn_in_python(void);
+struct drgn_error *drgn_error_from_python(void);
 PyObject *set_drgn_error(struct drgn_error *err);
 
 static inline PyObject *DrgnType_parent(DrgnType *type)
@@ -146,11 +152,5 @@ DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds);
-
-/*
- * This fake error is returned from a libdrgn callback if there is an active
- * Python exception.
- */
-#define DRGN_ERROR_PYTHON ((struct drgn_error *)-1)
 
 #endif /* DRGNPY_H */
