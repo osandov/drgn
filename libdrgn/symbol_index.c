@@ -4,19 +4,18 @@
 #include <string.h>
 
 #include "internal.h"
-#include "object_index.h"
+#include "symbol_index.h"
 #include "type.h"
 
-struct drgn_error *
-drgn_partial_object_from_enumerator(struct drgn_partial_object *pobj,
-				    const char *name)
+struct drgn_error *drgn_symbol_from_enumerator(struct drgn_symbol *sym,
+					       const char *name)
 {
-	struct drgn_type *type = pobj->qualified_type.type;
+	struct drgn_type *type = sym->qualified_type.type;
 	size_t num_enumerators, i;
 	const struct drgn_type_enumerator *enumerators;
 
-	pobj->is_enumerator = true;
-	pobj->little_endian = __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
+	sym->is_enumerator = true;
+	sym->little_endian = __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
 	enumerators = drgn_type_enumerators(type);
 	num_enumerators = drgn_type_num_enumerators(type);
 	for (i = 0; i < num_enumerators; i++) {
@@ -24,9 +23,9 @@ drgn_partial_object_from_enumerator(struct drgn_partial_object *pobj,
 			continue;
 
 		if (drgn_enum_type_is_signed(type))
-			pobj->svalue = enumerators[i].svalue;
+			sym->svalue = enumerators[i].svalue;
 		else
-			pobj->svalue = enumerators[i].uvalue;
+			sym->svalue = enumerators[i].uvalue;
 		return NULL;
 	}
 	return drgn_error_format(DRGN_ERROR_LOOKUP,
@@ -36,7 +35,7 @@ drgn_partial_object_from_enumerator(struct drgn_partial_object *pobj,
 }
 
 struct drgn_error *
-drgn_object_index_not_found_error(const char *name, const char *filename,
+drgn_symbol_index_not_found_error(const char *name, const char *filename,
 				  enum drgn_find_object_flags flags)
 {
 	const char *kind;

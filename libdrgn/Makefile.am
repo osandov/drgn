@@ -7,7 +7,7 @@ noinst_LTLIBRARIES = libdrgnimpl.la
 libdrgnimpl_la_SOURCES = cityhash.h \
 			 dwarf_index.c \
 			 dwarf_index.h \
-			 dwarf_object_index.c \
+			 dwarf_symbol_index.c \
 			 dwarf_type_index.c \
 			 error.c \
 			 error.h \
@@ -24,8 +24,6 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 mock.c \
 			 object.c \
 			 object.h \
-			 object_index.c \
-			 object_index.h \
 			 path.c \
 			 program.c \
 			 program.h \
@@ -35,6 +33,8 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 siphash.h \
 			 string_builder.c \
 			 string_builder.h \
+			 symbol_index.c \
+			 symbol_index.h \
 			 type.c \
 			 type.h \
 			 type_index.c \

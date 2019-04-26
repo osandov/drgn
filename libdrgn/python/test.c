@@ -15,7 +15,7 @@
 #include "../dwarf_index.h"
 #include "../lexer.h"
 #include "../memory_reader.h"
-#include "../object_index.h"
+#include "../symbol_index.h"
 #include "../serialize.h"
 #include "../type_index.h"
 
@@ -256,32 +256,32 @@ drgn_test_mock_type_index_create(uint8_t word_size, bool little_endian,
 }
 
 DRGNPY_PUBLIC void
-drgn_test_object_index_destroy(struct drgn_object_index *oindex)
+drgn_test_symbol_index_destroy(struct drgn_symbol_index *sindex)
 {
-	drgn_object_index_destroy(oindex);
+	drgn_symbol_index_destroy(sindex);
 }
 
 DRGNPY_PUBLIC struct drgn_error *
-drgn_test_object_index_find(struct drgn_object_index *oindex,
+drgn_test_symbol_index_find(struct drgn_symbol_index *sindex,
 			    const char *name, const char *filename,
 			    enum drgn_find_object_flags flags,
-			    struct drgn_partial_object *ret)
+			    struct drgn_symbol *ret)
 {
-	return drgn_object_index_find(oindex, name, filename, flags, ret);
+	return drgn_symbol_index_find(sindex, name, filename, flags, ret);
 }
 
 DRGNPY_PUBLIC struct drgn_error *
-drgn_test_dwarf_object_index_create(struct drgn_type_index *tindex,
-				    struct drgn_object_index **ret)
+drgn_test_dwarf_symbol_index_create(struct drgn_type_index *tindex,
+				    struct drgn_symbol_index **ret)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_type_index *dtindex;
-	struct drgn_dwarf_object_index *doindex;
+	struct drgn_dwarf_symbol_index *dsindex;
 
 	dtindex = container_of(tindex, struct drgn_dwarf_type_index, tindex);
-	err = drgn_dwarf_object_index_create(dtindex, &doindex);
+	err = drgn_dwarf_symbol_index_create(dtindex, &dsindex);
 	if (err)
 		return err;
-	*ret = &doindex->oindex;
+	*ret = &dsindex->sindex;
 	return NULL;
 }

@@ -112,18 +112,18 @@ drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
 }
 
 static struct drgn_error *
-drgn_mock_object_index_find(struct drgn_object_index *oindex,
+drgn_mock_symbol_index_find(struct drgn_symbol_index *sindex,
 			    const char *name, const char *filename,
 			    enum drgn_find_object_flags flags,
-			    struct drgn_partial_object *ret)
+			    struct drgn_symbol *ret)
 {
-	struct drgn_mock_object_index *moindex;
+	struct drgn_mock_symbol_index *msindex;
 	size_t i;
 
-	moindex = container_of(oindex, struct drgn_mock_object_index, oindex);
+	msindex = container_of(sindex, struct drgn_mock_symbol_index, sindex);
 
-	for (i = 0; i < moindex->num_objects; i++) {
-		const struct drgn_mock_object *obj = &moindex->objects[i];
+	for (i = 0; i < msindex->num_symbols; i++) {
+		const struct drgn_mock_symbol *obj = &msindex->symbols[i];
 		struct drgn_type *underlying_type;
 		bool is_function;
 
@@ -146,8 +146,7 @@ drgn_mock_object_index_find(struct drgn_object_index *oindex,
 
 		ret->qualified_type = obj->qualified_type;
 		if (obj->is_enumerator) {
-			return drgn_partial_object_from_enumerator(ret,
-								   obj->name);
+			return drgn_symbol_from_enumerator(ret, obj->name);
 		} else {
 			ret->is_enumerator = false;
 			ret->little_endian = obj->little_endian;
@@ -155,38 +154,38 @@ drgn_mock_object_index_find(struct drgn_object_index *oindex,
 			return NULL;
 		}
 	}
-	return drgn_object_index_not_found_error(name, filename, flags);
+	return drgn_symbol_index_not_found_error(name, filename, flags);
 }
 
-static void drgn_mock_object_index_destroy(struct drgn_object_index *oindex)
+static void drgn_mock_symbol_index_destroy(struct drgn_symbol_index *sindex)
 {
-	struct drgn_mock_object_index *moindex;
+	struct drgn_mock_symbol_index *msindex;
 
-	moindex = container_of(oindex, struct drgn_mock_object_index, oindex);
-	free(moindex);
+	msindex = container_of(sindex, struct drgn_mock_symbol_index, sindex);
+	free(msindex);
 }
 
-static const struct drgn_object_index_ops drgn_mock_object_index_ops = {
-	.destroy = drgn_mock_object_index_destroy,
-	.find = drgn_mock_object_index_find,
+static const struct drgn_symbol_index_ops drgn_mock_symbol_index_ops = {
+	.destroy = drgn_mock_symbol_index_destroy,
+	.find = drgn_mock_symbol_index_find,
 };
 
 struct drgn_error *
-drgn_mock_object_index_create(struct drgn_mock_object *objects,
-			      size_t num_objects,
-			      struct drgn_mock_object_index **ret)
+drgn_mock_symbol_index_create(struct drgn_mock_symbol *symbols,
+			      size_t num_symbols,
+			      struct drgn_mock_symbol_index **ret)
 {
-	struct drgn_mock_object_index *moindex;
+	struct drgn_mock_symbol_index *msindex;
 
-	moindex = malloc(sizeof(*moindex));
-	if (!moindex)
+	msindex = malloc(sizeof(*msindex));
+	if (!msindex)
 		return &drgn_enomem;
 
-	moindex->oindex.ops = &drgn_mock_object_index_ops;
-	moindex->objects = objects;
-	moindex->num_objects = num_objects;
+	msindex->sindex.ops = &drgn_mock_symbol_index_ops;
+	msindex->symbols = symbols;
+	msindex->num_symbols = num_symbols;
 
-	*ret = moindex;
+	*ret = msindex;
 	return NULL;
 }
 
@@ -195,13 +194,13 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		       bool little_endian,
 		       struct drgn_mock_memory_segment *segments,
 		       size_t num_segments, struct drgn_mock_type *types,
-		       size_t num_types, struct drgn_mock_object *objects,
-		       size_t num_objects)
+		       size_t num_types, struct drgn_mock_symbol *symbols,
+		       size_t num_symbols)
 {
 	struct drgn_error *err;
 	struct drgn_memory_reader *reader;
 	struct drgn_mock_type_index *mtindex;
-	struct drgn_mock_object_index *moindex;
+	struct drgn_mock_symbol_index *msindex;
 	size_t i;
 
 	err = drgn_memory_reader_create(&reader);
@@ -225,11 +224,11 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 	if (err)
 		goto err_reader;
 
-	err = drgn_mock_object_index_create(objects, num_objects, &moindex);
+	err = drgn_mock_symbol_index_create(symbols, num_symbols, &msindex);
 	if (err)
 		goto err_tindex;
 
-	drgn_program_init(prog, reader, &mtindex->tindex, &moindex->oindex);
+	drgn_program_init(prog, reader, &mtindex->tindex, &msindex->sindex);
 	return NULL;
 
 err_tindex:

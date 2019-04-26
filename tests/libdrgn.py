@@ -257,7 +257,7 @@ class MockTypeIndex(TypeIndex):
         super().__init__(tindex)
 
 
-class _drgn_partial_object_union(ctypes.Union):
+class _drgn_symbol_union(ctypes.Union):
     _fields_ = [
         ('address', ctypes.c_uint64),
         ('svalue', ctypes.c_int64),
@@ -265,17 +265,17 @@ class _drgn_partial_object_union(ctypes.Union):
     ]
 
 
-class _drgn_partial_object(ctypes.Structure):
+class _drgn_symbol(ctypes.Structure):
     _anonymous_ = ('u',)
     _fields_ = [
         ('type', _drgn_qualified_type),
         ('is_enumerator', ctypes.c_bool),
         ('little_endian', ctypes.c_bool),
-        ('u', _drgn_partial_object_union),
+        ('u', _drgn_symbol_union),
     ]
 
 
-class PartialObject(NamedTuple):
+class Symbol(NamedTuple):
     type: drgn.Type
     is_enumerator: bool = False
     value: Optional[int] = None
@@ -283,28 +283,28 @@ class PartialObject(NamedTuple):
     little_endian: Optional[bool] = None
 
 
-def _partial_object_wrap(pobj, parent):
-    type_ = _drgn_pydll.DrgnType_wrap(pobj.type, parent)
-    if pobj.is_enumerator:
-        value = pobj.svalue if type_.type.is_signed else pobj.uvalue
-        return PartialObject(type_, is_enumerator=True, value=value)
+def _symbol_wrap(sym, parent):
+    type_ = _drgn_pydll.DrgnType_wrap(sym.type, parent)
+    if sym.is_enumerator:
+        value = sym.svalue if type_.type.is_signed else sym.uvalue
+        return Symbol(type_, is_enumerator=True, value=value)
     else:
-        return PartialObject(type_, address=pobj.address,
-                             little_endian=pobj.little_endian)
+        return Symbol(type_, address=sym.address,
+                      little_endian=sym.little_endian)
 
 
-class _drgn_object_index(ctypes.Structure):
+class _drgn_symbol_index(ctypes.Structure):
     pass
 
 
-_drgn_cdll.drgn_test_object_index_find.restype = ctypes.POINTER(_drgn_error)
-_drgn_cdll.drgn_test_object_index_find.argtypes = [
-    ctypes.POINTER(_drgn_object_index), ctypes.c_char_p, ctypes.c_char_p,
-    ctypes.c_uint, ctypes.POINTER(_drgn_partial_object),
+_drgn_cdll.drgn_test_symbol_index_find.restype = ctypes.POINTER(_drgn_error)
+_drgn_cdll.drgn_test_symbol_index_find.argtypes = [
+    ctypes.POINTER(_drgn_symbol_index), ctypes.c_char_p, ctypes.c_char_p,
+    ctypes.c_uint, ctypes.POINTER(_drgn_symbol),
 ]
-_drgn_cdll.drgn_test_object_index_destroy.restype = None
-_drgn_cdll.drgn_test_object_index_destroy.argtypes = [
-    ctypes.POINTER(_drgn_object_index),
+_drgn_cdll.drgn_test_symbol_index_destroy.restype = None
+_drgn_cdll.drgn_test_symbol_index_destroy.argtypes = [
+    ctypes.POINTER(_drgn_symbol_index),
 ]
 
 
@@ -315,38 +315,38 @@ class FindObjectFlags(enum.Flag):
     ANY = (1 << 3) - 1
 
 
-class ObjectIndex:
-    def __init__(self, oindex):
-        self._oindex = oindex
+class SymbolIndex:
+    def __init__(self, sindex):
+        self._sindex = sindex
 
     def __del__(self):
-        if hasattr(self, '_oindex'):
-            _drgn_cdll.drgn_test_object_index_destroy(self._oindex)
+        if hasattr(self, '_sindex'):
+            _drgn_cdll.drgn_test_symbol_index_destroy(self._sindex)
 
     def find(self, name: str, filename: Optional[str] = None,
-             flags=FindObjectFlags.ANY) -> PartialObject:
-        pobj = _drgn_partial_object()
-        _check_err(_drgn_cdll.drgn_test_object_index_find(
-            self._oindex, name.encode(),
+             flags=FindObjectFlags.ANY) -> Symbol:
+        sym = _drgn_symbol()
+        _check_err(_drgn_cdll.drgn_test_symbol_index_find(
+            self._sindex, name.encode(),
             None if filename is None else os.fsencode(filename), flags.value,
-            ctypes.pointer(pobj)))
-        return _partial_object_wrap(pobj, self)
+            ctypes.pointer(sym)))
+        return _symbol_wrap(sym, self)
 
 
-_drgn_cdll.drgn_test_dwarf_object_index_create.restype = ctypes.POINTER(_drgn_error)
-_drgn_cdll.drgn_test_dwarf_object_index_create.argtypes = [
+_drgn_cdll.drgn_test_dwarf_symbol_index_create.restype = ctypes.POINTER(_drgn_error)
+_drgn_cdll.drgn_test_dwarf_symbol_index_create.argtypes = [
     ctypes.POINTER(_drgn_type_index),
-    ctypes.POINTER(ctypes.POINTER(_drgn_object_index)),
+    ctypes.POINTER(ctypes.POINTER(_drgn_symbol_index)),
 ]
 
 
-class DwarfObjectIndex(ObjectIndex):
+class DwarfSymbolIndex(SymbolIndex):
     def __init__(self, dtindex: DwarfTypeIndex):
-        oindex = ctypes.POINTER(_drgn_object_index)()
-        _check_err(_drgn_cdll.drgn_test_dwarf_object_index_create(
-            dtindex._tindex, ctypes.pointer(oindex)))
+        sindex = ctypes.POINTER(_drgn_symbol_index)()
+        _check_err(_drgn_cdll.drgn_test_dwarf_symbol_index_create(
+            dtindex._tindex, ctypes.pointer(sindex)))
         self._dtindex = dtindex
-        super().__init__(oindex)
+        super().__init__(sindex)
 
 
 class _drgn_token(ctypes.Structure):

@@ -463,8 +463,7 @@ static int mock_get_bool(PyObject *mock_obj, const char *name, bool *ret)
 Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"word_size", "byteorder", "segments", "types", "variables",
-		NULL,
+		"word_size", "byteorder", "segments", "types", "symbols", NULL,
 	};
 	struct drgn_error *err;
 	unsigned char word_size;
@@ -472,19 +471,19 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 	bool little_endian;
 	PyObject *segments_obj = Py_None;
 	PyObject *types_obj = Py_None;
-	PyObject *objects_obj = Py_None;
-	PyObject *segments_seq = NULL, *types_seq = NULL, *objects_seq = NULL;
-	size_t num_segments = 0, num_types = 0, num_objects = 0;
+	PyObject *symbols_obj = Py_None;
+	PyObject *segments_seq = NULL, *types_seq = NULL, *symbols_seq = NULL;
+	size_t num_segments = 0, num_types = 0, num_symbols = 0;
 	struct drgn_mock_memory_segment *segments = NULL;
 	struct drgn_mock_type *types = NULL;
-	struct drgn_mock_object *objects = NULL;
+	struct drgn_mock_symbol *symbols = NULL;
 	Program *prog;
 	size_t i;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "bs|OOO:mock_program",
 					 keywords, &word_size, &byteorder,
 					 &segments_obj, &types_obj,
-					 &objects_obj))
+					 &symbols_obj))
 		return NULL;
 
 	if (parse_byteorder(byteorder, &little_endian) == -1)
@@ -585,27 +584,27 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 		types_seq = NULL;
 	}
 
-	if (objects_obj != Py_None) {
-		objects_seq = PySequence_Fast(objects_obj, "objects must be sequence");
-		if (!objects_seq)
+	if (symbols_obj != Py_None) {
+		symbols_seq = PySequence_Fast(symbols_obj, "symbols must be sequence");
+		if (!symbols_seq)
 			goto err;
-		num_objects = PySequence_Fast_GET_SIZE(objects_seq);
-		objects = calloc(num_objects, sizeof(*objects));
-		if (!objects) {
+		num_symbols = PySequence_Fast_GET_SIZE(symbols_seq);
+		symbols = calloc(num_symbols, sizeof(*symbols));
+		if (!symbols) {
 			PyErr_NoMemory();
 			goto err;
 		}
-		for (i = 0; i < num_objects; i++) {
-			PyObject *object_obj, *tmp;
+		for (i = 0; i < num_symbols; i++) {
+			PyObject *symbol_obj, *tmp;
 
-			object_obj = PySequence_Fast_GET_ITEM(objects_seq, i);
+			symbol_obj = PySequence_Fast_GET_ITEM(symbols_seq, i);
 
-			tmp = PyObject_GetAttrString(object_obj, "type");
+			tmp = PyObject_GetAttrString(symbol_obj, "type");
 			if (!tmp)
 				goto err;
 			if (!PyObject_TypeCheck(tmp, &DrgnType_type)) {
 				PyErr_SetString(PyExc_TypeError,
-						"mock object type must be Type");
+						"mock symbol type must be Type");
 				Py_DECREF(tmp);
 				goto err;
 			}
@@ -613,17 +612,17 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 				Py_DECREF(tmp);
 				goto err;
 			}
-			objects[i].qualified_type.type =
+			symbols[i].qualified_type.type =
 				((DrgnType *)tmp)->type;
-			objects[i].qualified_type.qualifiers =
+			symbols[i].qualified_type.qualifiers =
 				((DrgnType *)tmp)->qualifiers;
 			Py_DECREF(tmp);
 
-			tmp = PyObject_GetAttrString(object_obj, "name");
+			tmp = PyObject_GetAttrString(symbol_obj, "name");
 			if (!tmp)
 				goto err;
-			objects[i].name = PyUnicode_AsUTF8(tmp);
-			if (!objects[i].name) {
+			symbols[i].name = PyUnicode_AsUTF8(tmp);
+			if (!symbols[i].name) {
 				Py_DECREF(tmp);
 				goto err;
 			}
@@ -633,18 +632,18 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 			}
 			Py_DECREF(tmp);
 
-			if (mock_get_filename(prog, object_obj,
-					      &objects[i].filename) == -1)
+			if (mock_get_filename(prog, symbol_obj,
+					      &symbols[i].filename) == -1)
 				goto err;
 
-			if (mock_get_bool(object_obj, "is_enumerator",
-					  &objects[i].is_enumerator) == -1)
+			if (mock_get_bool(symbol_obj, "is_enumerator",
+					  &symbols[i].is_enumerator) == -1)
 				goto err;
 
-			if (objects[i].is_enumerator)
+			if (symbols[i].is_enumerator)
 				continue;
 
-			tmp = PyObject_GetAttrString(object_obj, "byteorder");
+			tmp = PyObject_GetAttrString(symbol_obj, "byteorder");
 			if (tmp) {
 				enum drgn_byte_order byte_order;
 
@@ -654,10 +653,10 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 					goto err;
 				}
 				if (byte_order == DRGN_PROGRAM_ENDIAN) {
-					objects[i].little_endian =
+					symbols[i].little_endian =
 						little_endian;
 				} else {
-					objects[i].little_endian =
+					symbols[i].little_endian =
 						byte_order == DRGN_LITTLE_ENDIAN;
 				}
 				Py_DECREF(tmp);
@@ -666,17 +665,17 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 			} else {
 				goto err;
 			}
-			if (mock_get_address(object_obj, "address", false,
-					     &objects[i].address) == -1)
+			if (mock_get_address(symbol_obj, "address", false,
+					     &symbols[i].address) == -1)
 				goto err;
 		}
-		Py_DECREF(objects_seq);
-		objects_seq = NULL;
+		Py_DECREF(symbols_seq);
+		symbols_seq = NULL;
 	}
 
 	err = drgn_program_init_mock(&prog->prog, word_size, little_endian,
 				     segments, num_segments, types, num_types,
-				     objects, num_objects);
+				     symbols, num_symbols);
 	if (err) {
 		set_drgn_error(err);
 		goto err;
@@ -687,20 +686,20 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 	err = drgn_program_add_cleanup(&prog->prog, free, types);
 	if (err)
 		goto err_cleanup_segments;
-	err = drgn_program_add_cleanup(&prog->prog, free, objects);
+	err = drgn_program_add_cleanup(&prog->prog, free, symbols);
 	if (err)
 		goto err_cleanup_types;
 	prog->num_buffers = num_segments;
 	err = drgn_program_add_cleanup(&prog->prog, cleanup_buffers, prog);
 	if (err) {
 		drgn_program_deinit(&prog->prog);
-		goto err_cleanup_objects;
+		goto err_cleanup_symbols;
 	}
 	prog->inited = true;
 	return prog;
 
-err_cleanup_objects:
-	drgn_program_remove_cleanup(&prog->prog, free, objects);
+err_cleanup_symbols:
+	drgn_program_remove_cleanup(&prog->prog, free, symbols);
 err_cleanup_types:
 	drgn_program_remove_cleanup(&prog->prog, free, types);
 err_cleanup_segments:
@@ -708,11 +707,11 @@ err_cleanup_segments:
 err:
 	for (i = 0; i < num_segments; i++)
 		PyBuffer_Release(&prog->buffers[i]);
-	free(objects);
+	free(symbols);
 	free(types);
 	free(segments);
 	free(prog->buffers);
-	Py_XDECREF(objects_seq);
+	Py_XDECREF(symbols_seq);
 	Py_XDECREF(types_seq);
 	Py_XDECREF(segments_seq);
 	Py_DECREF(prog);

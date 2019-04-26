@@ -19,7 +19,7 @@
 #include "dwarf_index.h"
 #include "language.h"
 #include "memory_reader.h"
-#include "object_index.h"
+#include "symbol_index.h"
 #include "program.h"
 #include "read.h"
 #include "type_index.h"
@@ -48,11 +48,11 @@ LIBDRGN_PUBLIC bool drgn_program_is_little_endian(struct drgn_program *prog)
 void drgn_program_init(struct drgn_program *prog,
 		       struct drgn_memory_reader *reader,
 		       struct drgn_type_index *tindex,
-		       struct drgn_object_index *oindex)
+		       struct drgn_symbol_index *sindex)
 {
 	prog->reader = reader;
 	prog->tindex = tindex;
-	prog->oindex = oindex;
+	prog->sindex = sindex;
 	prog->cleanup = NULL;
 	prog->flags = 0;
 }
@@ -61,7 +61,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 {
 	struct drgn_cleanup *cleanup;
 
-	drgn_object_index_destroy(prog->oindex);
+	drgn_symbol_index_destroy(prog->sindex);
 	drgn_type_index_destroy(prog->tindex);
 	drgn_memory_reader_destroy(prog->reader);
 
@@ -348,7 +348,7 @@ out:
 
 static struct drgn_error *
 kernel_relocation_hook(struct drgn_program *prog, const char *name,
-		       Dwarf_Die *die, struct drgn_partial_object *pobj)
+		       Dwarf_Die *die, struct drgn_symbol *sym)
 {
 	struct drgn_error *err;
 	Elf *elf;
@@ -366,7 +366,7 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 
 	/* vmlinux is executable, kernel modules are relocatable. */
 	if (ehdr->e_type == ET_EXEC) {
-		pobj->address += prog->vmcoreinfo.kaslr_offset;
+		sym->address += prog->vmcoreinfo.kaslr_offset;
 		return NULL;
 	}
 
@@ -407,7 +407,7 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 
 	/* Find the name of the section containing the symbol. */
 	err = get_symbol_section_name(elf, shstrndx, symtab_scn, name,
-				      pobj->address, &section_name);
+				      sym->address, &section_name);
 	if (err)
 		return err;
 
@@ -426,13 +426,13 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 	if (err)
 		return err;
 
-	pobj->address += section_address;
+	sym->address += section_address;
 	return NULL;
 }
 
 static struct drgn_error *
 userspace_relocation_hook(struct drgn_program *prog, const char *name,
-			  Dwarf_Die *die, struct drgn_partial_object *pobj)
+			  Dwarf_Die *die, struct drgn_symbol *sym)
 {
 	Elf *elf;
 	size_t phnum, i;
@@ -450,9 +450,9 @@ userspace_relocation_hook(struct drgn_program *prog, const char *name,
 			return drgn_error_libelf();
 
 		if (phdr->p_type == PT_LOAD &&
-		    phdr->p_vaddr <= pobj->address &&
-		    pobj->address < phdr->p_vaddr + phdr->p_memsz) {
-			file_offset = (phdr->p_offset + pobj->address -
+		    phdr->p_vaddr <= sym->address &&
+		    sym->address < phdr->p_vaddr + phdr->p_memsz) {
+			file_offset = (phdr->p_offset + sym->address -
 				       phdr->p_vaddr);
 			break;
 		}
@@ -471,8 +471,8 @@ userspace_relocation_hook(struct drgn_program *prog, const char *name,
 		if (mapping->elf == elf &&
 		    mapping->file_offset <= file_offset &&
 		    file_offset < mapping->file_offset + mapping_size) {
-			pobj->address = (mapping->start + file_offset -
-					 mapping->file_offset);
+			sym->address = (mapping->start + file_offset -
+					mapping->file_offset);
 			return NULL;
 		}
 	}
@@ -1103,7 +1103,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	struct drgn_memory_reader *reader;
 	struct drgn_dwarf_index *dindex;
 	struct drgn_dwarf_type_index *dtindex;
-	struct drgn_dwarf_object_index *doindex;
+	struct drgn_dwarf_symbol_index *dsindex;
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1)
@@ -1328,11 +1328,11 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	if (err)
 		goto out_dindex;
 
-	err = drgn_dwarf_object_index_create(dtindex, &doindex);
+	err = drgn_dwarf_symbol_index_create(dtindex, &dsindex);
 	if (err)
 		goto out_dtindex;
 
-	drgn_program_init(prog, reader, &dtindex->tindex, &doindex->oindex);
+	drgn_program_init(prog, reader, &dtindex->tindex, &dsindex->sindex);
 	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 	if (err)
 		goto out_program;
@@ -1342,15 +1342,15 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
 	if (err)
 		goto out_cleanup_file_segments;
-	doindex->prog = prog;
+	dsindex->prog = prog;
 	if (have_vmcoreinfo) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 		prog->vmcoreinfo = vmcoreinfo;
-		doindex->relocation_hook = kernel_relocation_hook;
+		dsindex->relocation_hook = kernel_relocation_hook;
 	} else {
 		prog->mappings = mappings;
 		prog->num_mappings = num_mappings;
-		doindex->relocation_hook = userspace_relocation_hook;
+		dsindex->relocation_hook = userspace_relocation_hook;
 		err = drgn_program_add_cleanup(prog, cleanup_file_mappings,
 					       prog);
 		if (err)
@@ -1452,7 +1452,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	struct drgn_memory_reader *reader;
 	struct drgn_dwarf_index *dindex;
 	struct drgn_dwarf_type_index *dtindex;
-	struct drgn_dwarf_object_index *doindex;
+	struct drgn_dwarf_symbol_index *dsindex;
 
 	sprintf(buf, "/proc/%ld/mem", (long)pid);
 	fd = open(buf, O_RDONLY);
@@ -1497,15 +1497,15 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		goto out_dindex;
 
-	err = drgn_dwarf_object_index_create(dtindex, &doindex);
+	err = drgn_dwarf_symbol_index_create(dtindex, &dsindex);
 	if (err)
 		goto out_dtindex;
 
-	drgn_program_init(prog, reader, &dtindex->tindex, &doindex->oindex);
-	doindex->prog = prog;
+	drgn_program_init(prog, reader, &dtindex->tindex, &dsindex->sindex);
+	dsindex->prog = prog;
 	prog->mappings = mappings;
 	prog->num_mappings = num_mappings;
-	doindex->relocation_hook = userspace_relocation_hook;
+	dsindex->relocation_hook = userspace_relocation_hook;
 	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 	if (err)
 		goto out_program;
@@ -1677,29 +1677,28 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 			 struct drgn_object *ret)
 {
 	struct drgn_error *err;
-	struct drgn_partial_object pobj;
+	struct drgn_symbol sym;
 
 	if (ret->prog != prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "object is from wrong program");
 	}
 
-	err = drgn_object_index_find(prog->oindex, name, filename, flags,
-				     &pobj);
+	err = drgn_symbol_index_find(prog->sindex, name, filename, flags, &sym);
 	if (err)
 		return err;
-	if (pobj.is_enumerator) {
-		if (drgn_enum_type_is_signed(pobj.qualified_type.type)) {
-			return drgn_object_set_signed(ret, pobj.qualified_type,
-						      pobj.svalue, 0);
+	if (sym.is_enumerator) {
+		if (drgn_enum_type_is_signed(sym.qualified_type.type)) {
+			return drgn_object_set_signed(ret, sym.qualified_type,
+						      sym.svalue, 0);
 		} else {
-			return drgn_object_set_unsigned(ret, pobj.qualified_type,
-							pobj.uvalue, 0);
+			return drgn_object_set_unsigned(ret, sym.qualified_type,
+							sym.uvalue, 0);
 		}
 	} else {
-		return drgn_object_set_reference(ret, pobj.qualified_type,
-						 pobj.address, 0, 0,
-						 pobj.little_endian);
+		return drgn_object_set_reference(ret, sym.qualified_type,
+						 sym.address, 0, 0,
+						 sym.little_endian);
 	}
 }
 

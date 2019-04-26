@@ -10,23 +10,23 @@ from tests.dwarf import DW_AT, DW_FORM, DW_TAG
 from tests.dwarfwriter import compile_dwarf, DwarfDie, DwarfAttrib
 from tests.libdrgn import (
     DwarfIndex,
+    DwarfSymbolIndex,
     DwarfTypeIndex,
-    DwarfObjectIndex,
     FindObjectFlags,
-    PartialObject,
+    Symbol,
 )
 import tests.libelf as libelf
 from tests.test_dwarf_type_index import int_die, unsigned_int_die
 
 
-class TestDwarfObjectIndex(unittest.TestCase):
+class TestDwarfSymbolIndex(unittest.TestCase):
     @staticmethod
-    def object_index(dies):
+    def symbol_index(dies):
         dindex = DwarfIndex()
         dindex.open(libelf.elf_memory(compile_dwarf(dies), mutable=True))
         dindex.update()
         dtindex = DwarfTypeIndex(dindex)
-        return DwarfObjectIndex(dtindex)
+        return DwarfSymbolIndex(dtindex)
 
     def test_constant(self):
         dies = [
@@ -75,23 +75,23 @@ class TestDwarfObjectIndex(unittest.TestCase):
 
         type_ = enum_type('color', int_type('int', 4, True),
                           [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
-        oindex = self.object_index(dies)
-        self.assertEqual(oindex.find('BLUE'),
-                         PartialObject(type=type_, is_enumerator=True, value=2))
+        sindex = self.symbol_index(dies)
+        self.assertEqual(sindex.find('BLUE'),
+                         Symbol(type=type_, is_enumerator=True, value=2))
 
         dies[0] = unsigned_int_die
         type_ = enum_type('color', int_type('unsigned int', 4, False),
                           [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
-        oindex = self.object_index(dies)
-        self.assertEqual(oindex.find('GREEN'),
-                         PartialObject(type=type_, is_enumerator=True, value=1))
+        sindex = self.symbol_index(dies)
+        self.assertEqual(sindex.find('GREEN'),
+                         Symbol(type=type_, is_enumerator=True, value=1))
 
         del dies[1].attribs[0]
         type_ = enum_type(None, int_type('unsigned int', 4, False),
                           [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
-        oindex = self.object_index(dies)
-        self.assertEqual(oindex.find('RED', flags=FindObjectFlags.CONSTANT),
-                         PartialObject(type=type_, is_enumerator=True, value=0))
+        sindex = self.symbol_index(dies)
+        self.assertEqual(sindex.find('RED', flags=FindObjectFlags.CONSTANT),
+                         Symbol(type=type_, is_enumerator=True, value=0))
 
     def test_function(self):
         dies = [
@@ -114,20 +114,20 @@ class TestDwarfObjectIndex(unittest.TestCase):
         type_ = function_type(int_type('int', 4, True),
                               ((int_type('int', 1, True),),), False)
 
-        oindex = self.object_index(dies)
-        self.assertEqual(oindex.find('abs'),
-                         PartialObject(type=type_, address=0x7fc3eb9b1c30,
+        sindex = self.symbol_index(dies)
+        self.assertEqual(sindex.find('abs'),
+                         Symbol(type=type_, address=0x7fc3eb9b1c30,
                                        little_endian=True))
-        self.assertEqual(oindex.find('abs', flags=FindObjectFlags.FUNCTION),
-                         oindex.find('abs'))
+        self.assertEqual(sindex.find('abs', flags=FindObjectFlags.FUNCTION),
+                         sindex.find('abs'))
         self.assertRaisesRegex(LookupError, 'could not find variable',
-                               oindex.find, 'abs',
+                               sindex.find, 'abs',
                                flags=FindObjectFlags.VARIABLE)
 
         del dies[1].attribs[2]
-        oindex = self.object_index(dies)
+        sindex = self.symbol_index(dies)
         self.assertRaisesRegex(LookupError, 'could not find address',
-                               oindex.find, 'abs')
+                               sindex.find, 'abs')
 
     def test_variable(self):
         dies = [
@@ -143,28 +143,28 @@ class TestDwarfObjectIndex(unittest.TestCase):
             ),
         ]
 
-        oindex = self.object_index(dies)
-        self.assertEqual(oindex.find('x'),
-                         PartialObject(type=int_type('int', 4, True),
-                                       address=0xffffffff01020304,
-                                       little_endian=True))
-        self.assertEqual(oindex.find('x', flags=FindObjectFlags.VARIABLE),
-                         oindex.find('x'))
+        sindex = self.symbol_index(dies)
+        self.assertEqual(sindex.find('x'),
+                         Symbol(type=int_type('int', 4, True),
+                                address=0xffffffff01020304,
+                                little_endian=True))
+        self.assertEqual(sindex.find('x', flags=FindObjectFlags.VARIABLE),
+                         sindex.find('x'))
         self.assertRaisesRegex(LookupError, 'could not find constant',
-                               oindex.find, 'x',
+                               sindex.find, 'x',
                                flags=FindObjectFlags.CONSTANT)
 
         del dies[1].attribs[2]
-        oindex = self.object_index(dies)
+        sindex = self.symbol_index(dies)
         self.assertRaisesRegex(LookupError, 'could not find address',
-                               oindex.find, 'x')
+                               sindex.find, 'x')
 
         dies[1].attribs.insert(
             2, DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b'\xe0'))
-        oindex = self.object_index(dies)
+        sindex = self.symbol_index(dies)
         self.assertRaisesRegex(FileFormatError, 'unimplemented operation',
-                               oindex.find, 'x')
+                               sindex.find, 'x')
 
     def test_not_found(self):
-        oindex = self.object_index([int_die])
-        self.assertRaisesRegex(LookupError, 'could not find', oindex.find, 'y')
+        sindex = self.symbol_index([int_die])
+        self.assertRaisesRegex(LookupError, 'could not find', sindex.find, 'y')
