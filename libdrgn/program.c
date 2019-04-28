@@ -1362,15 +1362,15 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	err = drgn_program_add_cleanup(prog, cleanup_dwarf_info_cache, dicache);
 	if (err)
 		goto out_cleanup_dindex;
-	dsindex->prog = prog;
+	dicache->prog = prog;
 	if (have_vmcoreinfo) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 		prog->vmcoreinfo = vmcoreinfo;
-		dsindex->relocation_hook = kernel_relocation_hook;
+		dicache->relocation_hook = kernel_relocation_hook;
 	} else {
 		prog->mappings = mappings;
 		prog->num_mappings = num_mappings;
-		dsindex->relocation_hook = userspace_relocation_hook;
+		dicache->relocation_hook = userspace_relocation_hook;
 		err = drgn_program_add_cleanup(prog, cleanup_file_mappings,
 					       prog);
 		if (err)
@@ -1537,10 +1537,10 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 		goto out_dtcache;
 
 	drgn_program_init(prog, reader, tindex, &dsindex->sindex);
-	dsindex->prog = prog;
 	prog->mappings = mappings;
 	prog->num_mappings = num_mappings;
-	dsindex->relocation_hook = userspace_relocation_hook;
+	dicache->prog = prog;
+	dicache->relocation_hook = userspace_relocation_hook;
 	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 	if (err)
 		goto out_program;

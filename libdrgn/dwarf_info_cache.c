@@ -1343,6 +1343,8 @@ drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 	dwarf_type_map_init(&dicache->cant_be_incomplete_array_map);
 	dicache->dindex = dindex;
 	dicache->depth = 0;
+	dicache->prog = NULL;
+	dicache->relocation_hook = NULL;
 	*ret = dicache;
 	return NULL;
 }

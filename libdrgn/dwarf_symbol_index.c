@@ -45,8 +45,9 @@ drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_symbol_index *dsindex,
 	ret->is_enumerator = false;
 	ret->address = low_pc;
 	ret->little_endian = dwarf_die_is_little_endian(die);
-	if (dsindex->relocation_hook) {
-		err = dsindex->relocation_hook(dsindex->prog, name, die, ret);
+	if (dsindex->dicache->relocation_hook) {
+		err = dsindex->dicache->relocation_hook(dsindex->dicache->prog,
+							name, die, ret);
 		if (err)
 			return err;
 	}
@@ -85,8 +86,9 @@ drgn_symbol_from_dwarf_variable(struct drgn_dwarf_symbol_index *dsindex,
 	ret->is_enumerator = false;
 	ret->address = loc[0].number;
 	ret->little_endian = dwarf_die_is_little_endian(die);
-	if (dsindex->relocation_hook) {
-		err = dsindex->relocation_hook(dsindex->prog, name, die, ret);
+	if (dsindex->dicache->relocation_hook) {
+		err = dsindex->dicache->relocation_hook(dsindex->dicache->prog,
+							name, die, ret);
 		if (err)
 			return err;
 	}
@@ -164,8 +166,6 @@ drgn_dwarf_symbol_index_create(struct drgn_dwarf_info_cache *dicache,
 		return &drgn_enomem;
 	dsindex->sindex.ops = &drgn_dwarf_symbol_index_ops;
 	dsindex->dicache = dicache;
-	dsindex->prog = NULL;
-	dsindex->relocation_hook = NULL;
 
 	*ret = dsindex;
 	return NULL;
