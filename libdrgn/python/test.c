@@ -12,12 +12,8 @@
 #include "drgnpy.h"
 
 #include "../internal.h"
-#include "../dwarf_index.h"
 #include "../lexer.h"
-#include "../memory_reader.h"
-#include "../symbol_index.h"
 #include "../serialize.h"
-#include "../type_index.h"
 
 DRGNPY_PUBLIC const char *drgn_test_elf_errmsg(int error)
 {
@@ -90,37 +86,6 @@ DRGNPY_PUBLIC int drgn_test_dwarf_child(Dwarf_Die *die, Dwarf_Die *result)
 DRGNPY_PUBLIC int drgn_test_dwarf_siblingof(Dwarf_Die *die, Dwarf_Die *result)
 {
 	return dwarf_siblingof(die, result);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_dwarf_index_create(int flags, struct drgn_dwarf_index **ret)
-{
-	return drgn_dwarf_index_create(flags, ret);
-}
-
-DRGNPY_PUBLIC void
-drgn_test_dwarf_index_destroy(struct drgn_dwarf_index *dindex)
-{
-	return drgn_dwarf_index_destroy(dindex);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_dwarf_index_open(struct drgn_dwarf_index *dindex, const char *path,
-			   Elf **elf)
-{
-	return drgn_dwarf_index_open(dindex, path, elf);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_dwarf_index_open_elf(struct drgn_dwarf_index *dindex, Elf *elf)
-{
-	return drgn_dwarf_index_open_elf(dindex, elf);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_dwarf_index_update(struct drgn_dwarf_index *dindex)
-{
-	return drgn_dwarf_index_update(dindex);
 }
 
 DRGNPY_PUBLIC void drgn_test_lexer_init(struct drgn_lexer *lexer,
@@ -198,90 +163,4 @@ DRGNPY_PUBLIC uint64_t drgn_test_deserialize_bits(const void *buf,
 						  bool little_endian)
 {
 	return deserialize_bits(buf, bit_offset, bit_size, little_endian);
-}
-
-DRGNPY_PUBLIC void drgn_test_type_index_destroy(struct drgn_type_index *tindex)
-{
-	return drgn_type_index_destroy(tindex);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_type_index_find(struct drgn_type_index *tindex, const char *name,
-			  const char *filename, struct drgn_qualified_type *ret)
-{
-	return drgn_type_index_find(tindex, name, filename, &drgn_language_c,
-				    ret);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_type_from_dwarf(struct drgn_type_index *tindex, Dwarf_Die *die,
-			  struct drgn_qualified_type *ret)
-{
-	struct drgn_dwarf_type_index *dtindex;
-
-	dtindex = container_of(tindex, struct drgn_dwarf_type_index, tindex);
-	return drgn_type_from_dwarf(dtindex, die, ret);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_dwarf_type_index_create(struct drgn_dwarf_index *dindex,
-				  struct drgn_type_index **ret)
-{
-	struct drgn_error *err;
-	struct drgn_dwarf_type_index *dtindex;
-
-	err = drgn_dwarf_type_index_create(dindex, &dtindex);
-	if (err)
-		return err;
-
-	*ret = &dtindex->tindex;
-	return NULL;
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_mock_type_index_create(uint8_t word_size, bool little_endian,
-				 struct drgn_mock_type *types,
-				 struct drgn_type_index **ret)
-{
-	struct drgn_error *err;
-	struct drgn_mock_type_index *mtindex;
-
-	err = drgn_mock_type_index_create(word_size, little_endian, types,
-					  &mtindex);
-	if (err)
-		return err;
-
-	*ret = &mtindex->tindex;
-	return NULL;
-}
-
-DRGNPY_PUBLIC void
-drgn_test_symbol_index_destroy(struct drgn_symbol_index *sindex)
-{
-	drgn_symbol_index_destroy(sindex);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_symbol_index_find(struct drgn_symbol_index *sindex,
-			    const char *name, const char *filename,
-			    enum drgn_find_object_flags flags,
-			    struct drgn_symbol *ret)
-{
-	return drgn_symbol_index_find(sindex, name, filename, flags, ret);
-}
-
-DRGNPY_PUBLIC struct drgn_error *
-drgn_test_dwarf_symbol_index_create(struct drgn_type_index *tindex,
-				    struct drgn_symbol_index **ret)
-{
-	struct drgn_error *err;
-	struct drgn_dwarf_type_index *dtindex;
-	struct drgn_dwarf_symbol_index *dsindex;
-
-	dtindex = container_of(tindex, struct drgn_dwarf_type_index, tindex);
-	err = drgn_dwarf_symbol_index_create(dtindex, &dsindex);
-	if (err)
-		return err;
-	*ret = &dsindex->sindex;
-	return NULL;
 }

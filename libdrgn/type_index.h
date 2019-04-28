@@ -32,21 +32,6 @@
  * @{
  */
 
-struct drgn_language;
-struct drgn_type_index;
-
-/** Type index operations. */
-struct drgn_type_index_ops {
-	/** Implements @ref drgn_type_index_destroy(). */
-	void (*destroy)(struct drgn_type_index *tindex);
-	/** Implements @ref drgn_type_index_find_internal(). */
-	struct drgn_error *(*find)(struct drgn_type_index *tindex,
-				   enum drgn_type_kind kind,
-				   const char *name, size_t name_len,
-				   const char *filename,
-				   struct drgn_qualified_type *ret);
-};
-
 DEFINE_HASH_SET_TYPES(drgn_pointer_type_set, struct drgn_type *)
 DEFINE_HASH_SET_TYPES(drgn_array_type_set, struct drgn_type *)
 
@@ -82,12 +67,42 @@ DEFINE_HASH_SET_TYPES(drgn_type_set, struct drgn_type *)
 #endif
 
 /**
- * Abstract type index.
+ * Callback for finding a type.
  *
- * A type index is used to find types by name and cache the results. It is
- * usually backed by debugging information (@ref drgn_dwarf_type_index). It can
- * also be backed by manually-created types for testing (@ref
- * drgn_mock_type_index).
+ * If the type is found, this should fill in @p ret and return @c NULL. If not,
+ * this should set <tt>ret->type</tt> to @c NULL return @c NULL.
+ *
+ * @param[in] kind Kind of type.
+ * @param[in] name Name of type (or tag, for structs, unions, and enums). This
+ * is @em not null-terminated.
+ * @param[in] name_len Length of @p name.
+ * @param[in] filename Filename containing the type definition or @c NULL. This
+ * should be matched with @ref path_ends_with().
+ * @param[in] arg Argument passed to @ref drgn_type_index_add_finder().
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+typedef struct drgn_error *
+(*drgn_type_find_fn)(enum drgn_type_kind kind, const char *name,
+		     size_t name_len, const char *filename, void *arg,
+		     struct drgn_qualified_type *ret);
+
+/** Registered callback in a @ref drgn_type_index. */
+struct drgn_type_finder {
+	/** The callback. */
+	drgn_type_find_fn fn;
+	/** Argument to pass to @ref drgn_type_finder::fn. */
+	void *arg;
+	/** Next callback to try. */
+	struct drgn_type_finder *next;
+};
+
+/**
+ * Type index.
+ *
+ * A type index is used to find types by name and cache the results. The types
+ * are found using callbacks which are registered with @ref
+ * drgn_type_index_add_finder().
  *
  * @ref drgn_type_index_find() searches for a type. @ref
  * drgn_type_index_pointer_type(), @ref drgn_type_index_array_type(), and @ref
@@ -96,9 +111,9 @@ DEFINE_HASH_SET_TYPES(drgn_type_set, struct drgn_type *)
  * drgn_type_index_destroy().
  */
 struct drgn_type_index {
-	/** Operation dispatch table. */
-	const struct drgn_type_index_ops *ops;
-	/** Cached primitive types. */
+	/** Callbacks for finding types. */
+	struct drgn_type_finder *finders;
+	/** Cache of primitive types. */
 	struct drgn_type *primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
 	/** Cache of created pointer types. */
 	struct drgn_pointer_type_set pointer_types;
@@ -118,44 +133,61 @@ struct drgn_type_index {
 };
 
 /**
- * Initialize the common part of a @ref drgn_type_index.
- *
- * This should only be called by type index implementations.
+ * Initialize a @ref drgn_type_index.
  *
  * @param[in] tindex Type index to initialize.
- * @param[in] ops Operation dispatch table.
- * @param[in] word_size Default size of a pointer in bytes.
+ * @param[in] word_size Size of a pointer in bytes.
  * @param[in] little_endian Default endianness of types.
  */
-void drgn_type_index_init(struct drgn_type_index *tindex,
-			  const struct drgn_type_index_ops *ops,
-			  uint8_t word_size, bool little_endian);
+void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size,
+			  bool little_endian);
 
-/**
- * Free the common part of a @ref drgn_type_index.
- *
- * This should only be called by implementations of @ref
- * drgn_type_index_ops::destroy().
- *
- * @param[in] tindex Type index to deinitialize.
- */
+/** Deinitialize a @ref drgn_type_index. */
 void drgn_type_index_deinit(struct drgn_type_index *tindex);
 
-/**
- * Free a @ref drgn_type_index.
- *
- * @param[in] tindex Type index to destroy.
- */
-static inline void drgn_type_index_destroy(struct drgn_type_index *tindex)
-{
-	if (tindex)
-		tindex->ops->destroy(tindex);
-}
+struct drgn_error *drgn_type_index_create(uint8_t word_size, bool little_endian,
+					  struct drgn_type_index **ret);
 
+void drgn_type_index_destroy(struct drgn_type_index *tindex);
+
+/**
+ * Register a type finding callback.
+ *
+ * Callbacks are called in reverse order of the order they were added in until
+ * the type is found. So, more recently added callbacks take precedence.
+ *
+ * @param[in] fn The callback.
+ * @param[in] arg Argument to pass to @p fn.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_index_add_finder(struct drgn_type_index *tindex,
+					      drgn_type_find_fn fn, void *arg);
+
+/** Find a primitive type in a @ref drgn_type_index. */
 struct drgn_error *
 drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 			       enum drgn_primitive_type type,
 			       struct drgn_type **ret);
+
+/**
+ * Find a parsed type in a @ref drgn_type_index.
+ *
+ * This should only be called by implementations of @ref
+ * drgn_language::find_type().
+ *
+ * @param[in] kind Kind of type to find. Must be @ref DRGN_TYPE_STRUCT, @ref
+ * DRGN_TYPE_UNION, @ref DRGN_TYPE_ENUM, or @ref DRGN_TYPE_TYPEDEF.
+ * @param[in] name Name of the type.
+ * @param[in] name_len Length of @p name in bytes.
+ * @param[in] filename See @ref drgn_type_index_find().
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_type_index_find_parsed(struct drgn_type_index *tindex,
+			    enum drgn_type_kind kind, const char *name,
+			    size_t name_len, const char *filename,
+			    struct drgn_qualified_type *ret);
 
 /**
  * Find a type in a @ref drgn_type_index.
@@ -238,29 +270,6 @@ drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 				      struct drgn_type **ret);
 
 /**
- * Find a parsed type in a @ref drgn_type_index.
- *
- * This should only be called by implementations of @ref
- * drgn_language::find_type().
- *
- * @param[in] kind Kind of type to find. Must be @ref DRGN_TYPE_STRUCT, @ref
- * DRGN_TYPE_UNION, @ref DRGN_TYPE_ENUM, or @ref DRGN_TYPE_TYPEDEF.
- * @param[in] name Name of the type.
- * @param[in] name_len Length of @p name in bytes.
- * @param[in] filename See @ref drgn_type_index_find().
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-static inline struct drgn_error *
-drgn_type_index_find_internal(struct drgn_type_index *tindex,
-			      enum drgn_type_kind kind, const char *name,
-			      size_t name_len, const char *filename,
-			      struct drgn_qualified_type *ret)
-{
-	return tindex->ops->find(tindex, kind, name, name_len, filename, ret);
-}
-
-/**
  * Find the type, offset, and bit field size of a type member.
  *
  * This matches the members of the type itself as well as the members of any
@@ -281,25 +290,7 @@ struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
 					       size_t member_name_len,
 					       struct drgn_member_value **ret);
 
-/**
- * Create a @ref drgn_error for a type which could not be found in a @ref
- * drgn_type_index.
- *
- * This is a helper for implementations of @ref drgn_type_index_ops::find().
- *
- * @param[in] kind Kind of type which could not be found. Must be @ref
- * DRGN_TYPE_STRUCT, @ref DRGN_TYPE_UNION, @ref DRGN_TYPE_ENUM, or @ref
- * DRGN_TYPE_TYPEDEF.
- * @param[in] name Name of the type.
- * @param[in] name_len Length of @p name in bytes.
- * @param[in] filename Filename that was searched in or @c NULL.
- */
-struct drgn_error *
-drgn_type_index_not_found_error(enum drgn_type_kind kind, const char *name,
-				size_t name_len, const char *filename)
-	__attribute__((returns_nonnull));
-
-/** Type indexed by a @ref drgn_mock_type_index. */
+/** Type index entry for testing. */
 struct drgn_mock_type {
 	/** Type. */
 	struct drgn_type *type;
@@ -311,36 +302,7 @@ struct drgn_mock_type {
 	const char *filename;
 };
 
-/**
- * Type index backed by manually-defined types.
- *
- * This is mostly useful for testing. It is created with @ref
- * drgn_mock_type_index_create().
- */
-struct drgn_mock_type_index {
-	/** Abstract type index. */
-	struct drgn_type_index tindex;
-	/** Indexed types. */
-	struct drgn_mock_type *types;
-};
-
-/**
- * Create a @ref drgn_mock_type_index_create.
- *
- * @param[in] word_size See @ref drgn_type_index_init().
- * @param[in] little_endian See @ref drgn_type_index_init().
- * @param[in] types Types to index, terminated by an element with @ref
- * drgn_mock_type::type set to @c NULL. This will not be freed when the type
- * index is destroyed.
- * @param[out] ret Returned type index.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
-			    struct drgn_mock_type *types,
-			    struct drgn_mock_type_index **ret);
-
-/** Cached type in a @ref drgn_dwarf_type_index. */
+/** Cached type in a @ref drgn_dwarf_type_cache. */
 struct drgn_dwarf_type {
 	struct drgn_type *type;
 	enum drgn_qualifiers qualifiers;
@@ -359,10 +321,14 @@ DEFINE_HASH_MAP_TYPES(dwarf_type_map, const void *, struct drgn_dwarf_type);
 
 struct drgn_dwarf_index;
 
-/** Type index backed by DWARF debugging information. */
-struct drgn_dwarf_type_index {
-	/** Abstract type index. */
-	struct drgn_type_index tindex;
+/**
+ * Cache of types from DWARF debugging information.
+ *
+ * This is the argument for @ref drgn_dwarf_type_find().
+ */
+struct drgn_dwarf_type_cache {
+	/** Type index. */
+	struct drgn_type_index *tindex;
 	/** Index of DWARF debugging information. */
 	struct drgn_dwarf_index *dindex;
 	/**
@@ -383,16 +349,20 @@ struct drgn_dwarf_type_index {
 	int depth;
 };
 
-/**
- * Create a @ref drgn_dwarf_type_index.
- *
- * @param[in] dindex Index of DWARF debugging information.
- * @param[out] ret Returned type index.
- * @return @c NULL on success, non-@c NULL on error.
- */
+/** Create a @ref drgn_dwarf_type_cache. */
 struct drgn_error *
-drgn_dwarf_type_index_create(struct drgn_dwarf_index *dindex,
-			     struct drgn_dwarf_type_index **ret);
+drgn_dwarf_type_cache_create(struct drgn_type_index *tindex,
+			     struct drgn_dwarf_index *dindex,
+			     struct drgn_dwarf_type_cache **ret);
+
+/** Destroy a @ref drgn_dwarf_type_cache. */
+void drgn_dwarf_type_cache_destroy(struct drgn_dwarf_type_cache *dtcache);
+
+/** @ref drgn_type_find_fn() that uses DWARF debugging information. */
+struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
+					const char *name, size_t name_len,
+					const char *filename, void *arg,
+					struct drgn_qualified_type *ret);
 
 /**
  * Parse a type from a DWARF debugging information entry.
@@ -412,7 +382,7 @@ drgn_dwarf_type_index_create(struct drgn_dwarf_index *dindex,
  * DW_AT_count or DW_AT_upper_bound is ambiguous; we return an incomplete array
  * type.
  *
- * @param[in] dtindex DWARF type index.
+ * @param[in] dtcache DWARF type cache.
  * @param[in] die DIE to parse.
  * @param[in] can_be_incomplete_array Whether the type can be an incomplete
  * array type. If this is @c false and the type appears to be an incomplete
@@ -424,7 +394,7 @@ drgn_dwarf_type_index_create(struct drgn_dwarf_index *dindex,
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_type_from_dwarf_internal(struct drgn_dwarf_type_index *dtindex,
+drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
 			      Dwarf_Die *die, bool can_be_incomplete_array,
 			      bool *is_incomplete_array_ret,
 			      struct drgn_qualified_type *ret);
@@ -432,16 +402,16 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_type_index *dtindex,
 /**
  * Parse a type from a DWARF debugging information entry.
  *
- * @param[in] dtindex DWARF type index.
+ * @param[in] dtcache DWARF type cache.
  * @param[in] die DIE to parse.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 static inline struct drgn_error *
-drgn_type_from_dwarf(struct drgn_dwarf_type_index *dtindex, Dwarf_Die *die,
+drgn_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
 		     struct drgn_qualified_type *ret)
 {
-	return drgn_type_from_dwarf_internal(dtindex, die, true, NULL, ret);
+	return drgn_type_from_dwarf_internal(dtcache, die, true, NULL, ret);
 }
 
 /**
@@ -452,7 +422,7 @@ drgn_type_from_dwarf(struct drgn_dwarf_type_index *dtindex, Dwarf_Die *die,
  * drgn_type_from_dwarf_internal().
  */
 struct drgn_error *
-drgn_type_from_dwarf_child_internal(struct drgn_dwarf_type_index *dtindex,
+drgn_type_from_dwarf_child_internal(struct drgn_dwarf_type_cache *dtcache,
 				    Dwarf_Die *parent_die, const char *tag_name,
 				    bool can_be_void,
 				    bool can_be_incomplete_array,
@@ -463,7 +433,7 @@ drgn_type_from_dwarf_child_internal(struct drgn_dwarf_type_index *dtindex,
  * Parse a type from the @c DW_AT_type attribute of a DWARF debugging
  * information entry.
  *
- * @param[in] dtindex DWARF type index.
+ * @param[in] dtcache DWARF type cache.
  * @param[in] parent_die Parent DIE.
  * @param[in] can_be_void Whether the @c DW_AT_type attribute may be missing,
  * which is interpreted as a void type. If this is false and the @c DW_AT_type
@@ -474,11 +444,11 @@ drgn_type_from_dwarf_child_internal(struct drgn_dwarf_type_index *dtindex,
  * @return @c NULL on success, non-@c NULL on error.
  */
 static inline struct drgn_error *
-drgn_type_from_dwarf_child(struct drgn_dwarf_type_index *dtindex,
+drgn_type_from_dwarf_child(struct drgn_dwarf_type_cache *dtcache,
 			   Dwarf_Die *parent_die, const char *tag_name,
 			   bool can_be_void, struct drgn_qualified_type *ret)
 {
-	return drgn_type_from_dwarf_child_internal(dtindex, parent_die,
+	return drgn_type_from_dwarf_child_internal(dtcache, parent_die,
 						   tag_name, can_be_void, true,
 						   NULL, ret);
 }

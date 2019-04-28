@@ -12,9 +12,10 @@ from drgn import (
     struct_type,
     typedef_type,
     union_type,
+    void_type,
 )
 from drgn.internal.mock import MockType
-from tests.libdrgn import MockTypeIndex
+from _drgn import TypeIndex
 
 
 point_type = struct_type('point', 8, (
@@ -34,15 +35,54 @@ color_type = enum_type('color', int_type('unsigned int', 4, False),
 pid_type = typedef_type('pid_t', int_type('int', 4, True))
 
 
+def mock_type_index(word_size, types):
+    def mock_type_index_find(kind, name, filename):
+        if filename:
+            return None
+        for type in types:
+            if type.kind == kind:
+                try:
+                    type_name = type.name
+                except AttributeError:
+                    try:
+                        type_name = type.tag
+                    except AttributeError:
+                        continue
+                if type_name == name:
+                    return type
+        return None
+    tindex = TypeIndex(word_size)
+    tindex.add_finder(mock_type_index_find)
+    return tindex
+
+
 class TestTypeIndex(unittest.TestCase):
-    def test_c_types(self):
+    def test_invalid_finder(self):
+        self.assertRaises(TypeError, TypeIndex(8).add_finder, 'foo')
+
+        tindex = TypeIndex(8)
+        tindex.add_finder(lambda kind, name, filename: 'foo')
+        self.assertRaises(TypeError, tindex.find, 'int')
+
+    def test_wrong_kind(self):
+        tindex = TypeIndex(8)
+        tindex.add_finder(lambda kind, name, filename: void_type())
+        self.assertRaises(TypeError, tindex.find, 'int')
+
+    def test_not_found(self):
+        tindex = TypeIndex(8)
+        self.assertRaises(LookupError, tindex.find, 'struct foo')
+        tindex.add_finder(lambda kind, name, filename: None)
+        self.assertRaises(LookupError, tindex.find, 'struct foo')
+
+    def test_default_primitive_types(self):
         def spellings(tokens, num_optional=0):
             for i in range(len(tokens) - num_optional, len(tokens) + 1):
                 for perm in itertools.permutations(tokens[:i]):
                     yield ' '.join(perm)
 
         for word_size in [8, 4]:
-            tindex = MockTypeIndex(word_size, 'little', [])
+            tindex = TypeIndex(word_size)
             self.assertEqual(tindex.find('_Bool'), bool_type('_Bool', 1))
             self.assertEqual(tindex.find('char'), int_type('char', 1, True))
             for spelling in spellings(['signed', 'char']):
@@ -90,23 +130,25 @@ class TestTypeIndex(unittest.TestCase):
                              typedef_type('ptrdiff_t',
                                           int_type('long', word_size, True)))
 
-    def test_tagged_type(self):
-        tindex = MockTypeIndex(8, 'little', [
-            MockType(point_type),
-            MockType(option_type),
-            MockType(color_type),
+    def test_primitive_type(self):
+        tindex = mock_type_index(8, [
+            int_type('long', 4, True),
+            int_type('unsigned long', 4, True),
         ])
+        self.assertEqual(tindex.find('long'), int_type('long', 4, True))
+        # unsigned long with signed=True isn't valid, so it should be ignored.
+        self.assertEqual(tindex.find('unsigned long'),
+                         int_type('unsigned long', 8, False))
 
-        self.assertEqual(tindex.find('struct point'), point_type)
-        self.assertEqual(tindex.find('union option'), option_type)
-        self.assertEqual(tindex.find('enum color'), color_type)
+    def test_tagged_type(self):
+        tindex = mock_type_index(8, [point_type, option_type, color_type])
 
     def test_typedef(self):
-        tindex = MockTypeIndex(8, 'little', [MockType(pid_type)])
+        tindex = mock_type_index(8, [pid_type])
         self.assertEqual(tindex.find('pid_t'), pid_type)
 
     def test_pointer(self):
-        tindex = MockTypeIndex(8, 'little', [])
+        tindex = TypeIndex(8)
         self.assertEqual(tindex.find('int *'),
                          pointer_type(8, int_type('int', 4, True)))
         self.assertEqual(tindex.find('const int *'),
@@ -121,7 +163,7 @@ class TestTypeIndex(unittest.TestCase):
                          pointer_type(8, pointer_type(8, int_type('int', 4, True), Qualifiers.CONST)))
 
     def test_array(self):
-        tindex = MockTypeIndex(8, 'little', [])
+        tindex = TypeIndex(8)
         self.assertEqual(tindex.find('int []'),
                          array_type(None, int_type('int', 4, True)))
         self.assertEqual(tindex.find('int [20]'),
@@ -136,30 +178,30 @@ class TestTypeIndex(unittest.TestCase):
                          array_type(2, array_type(3, array_type(4, int_type('int', 4, True)))))
 
     def test_array_of_pointers(self):
-        tindex = MockTypeIndex(8, 'little', [])
+        tindex = TypeIndex(8)
         self.assertEqual(tindex.find('int *[2][3]'),
                          array_type(2, array_type(3, pointer_type(8, int_type('int', 4, True)))))
 
     def test_pointer_to_array(self):
-        tindex = MockTypeIndex(8, 'little', [])
+        tindex = TypeIndex(8)
         self.assertEqual(tindex.find('int (*)[2]'),
                          pointer_type(8, array_type(2, int_type('int', 4, True))))
         self.assertEqual(tindex.find('int (*)[2][3]'),
                          pointer_type(8, array_type(2, array_type(3, int_type('int', 4, True)))))
 
     def test_pointer_to_pointer_to_array(self):
-        tindex = MockTypeIndex(8, 'little', [])
+        tindex = TypeIndex(8)
         self.assertEqual(tindex.find('int (**)[2]'),
                          pointer_type(8, pointer_type(8, array_type(2, int_type('int', 4, True)))))
 
     def test_pointer_to_array_of_pointers(self):
-        tindex = MockTypeIndex(8, 'little', [])
+        tindex = TypeIndex(8)
         self.assertEqual(tindex.find('int *(*)[2]'),
                          pointer_type(8, array_type(2, pointer_type(8, int_type('int', 4, True)))))
         self.assertEqual(tindex.find('int *((*)[2])'),
                          pointer_type(8, array_type(2, pointer_type(8, int_type('int', 4, True)))))
 
     def test_array_of_pointers_to_array(self):
-        tindex = MockTypeIndex(8, 'little', [])
+        tindex = TypeIndex(8)
         self.assertEqual(tindex.find('int (*[2])[3]'),
                          array_type(2, pointer_type(8, array_type(3, int_type('int', 4, True)))))

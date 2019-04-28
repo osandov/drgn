@@ -129,6 +129,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	Py_INCREF(&DrgnType_type);
 	PyModule_AddObject(m, "Type", (PyObject *)&DrgnType_type);
 
+	if (PyType_Ready(&TypeIndex_type) < 0)
+		goto err;
+	Py_INCREF(&TypeIndex_type);
+	PyModule_AddObject(m, "TypeIndex", (PyObject *)&TypeIndex_type);
+
 	return m;
 
 err:

@@ -192,6 +192,11 @@ static inline bool elf_is_little_endian(Elf *elf)
 	return elf_getident(elf, NULL)[EI_DATA] == ELFDATA2LSB;
 }
 
+static inline bool dwarf_die_is_little_endian(Dwarf_Die *die)
+{
+	return elf_is_little_endian(dwarf_getelf(dwarf_cu_getdwarf(die->cu)));
+}
+
 bool die_matches_filename(Dwarf_Die *die, const char *filename);
 
 /**

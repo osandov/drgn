@@ -455,6 +455,9 @@ void drgn_function_type_init(struct drgn_type *type,
 
 /** @} */
 
+/** Mapping from @ref drgn_type_kind to the spelling of that kind. */
+extern const char * const drgn_type_kind_spelling[];
+
 /**
  * Names of primitive types.
  *
@@ -465,14 +468,15 @@ void drgn_function_type_init(struct drgn_type *type,
  * different ways to spell that type. The spelling at index zero is the
  * preferred spelling.
  */
-const char * const * const
+extern const char * const * const
 drgn_primitive_type_spellings[DRGN_PRIMITIVE_TYPE_NUM];
 
 /**
  * Mapping from a @ref drgn_type_primitive to the corresponding @ref
  * drgn_type_kind.
  */
-const enum drgn_type_kind drgn_primitive_type_kind[DRGN_PRIMITIVE_TYPE_NUM + 1];
+extern const enum drgn_type_kind
+drgn_primitive_type_kind[DRGN_PRIMITIVE_TYPE_NUM + 1];
 
 /**
  * Parse the name of an unqualified primitive C type.

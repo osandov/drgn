@@ -38,27 +38,27 @@ static bool filename_matches(const char *entry_filename, const char *filename)
 	return path_ends_with(&haystack, &needle);
 }
 
-static struct drgn_error *
-drgn_mock_type_index_find(struct drgn_type_index *tindex,
-			  enum drgn_type_kind kind, const char *name,
-			  size_t name_len, const char *filename,
-			  struct drgn_qualified_type *ret)
+static struct drgn_error *drgn_mock_type_find(enum drgn_type_kind kind,
+					      const char *name, size_t name_len,
+					      const char *filename, void *arg,
+					      struct drgn_qualified_type *ret)
 {
-	struct drgn_mock_type_index *mtindex;
+	struct drgn_mock_type *types = arg;
 	size_t i;
 
-	mtindex = container_of(tindex, struct drgn_mock_type_index, tindex);
-	if (!mtindex->types)
-		goto not_found;
-	for (i = 0; mtindex->types[i].type; i++) {
-		struct drgn_type *type = mtindex->types[i].type;
-		const char *type_filename = mtindex->types[i].filename;
+	if (!types) {
+		ret->type = NULL;
+		return NULL;
+	}
+	for (i = 0; types[i].type; i++) {
+		struct drgn_type *type = types[i].type;
+		const char *type_filename = types[i].filename;
 		const char *type_name;
 
 		if (drgn_type_kind(type) != kind)
 			continue;
 
-		if (kind == DRGN_TYPE_TYPEDEF)
+		if (drgn_type_has_name(type))
 			type_name = drgn_type_name(type);
 		else
 			type_name = drgn_type_tag(type);
@@ -71,45 +71,7 @@ drgn_mock_type_index_find(struct drgn_type_index *tindex,
 		ret->qualifiers = 0;
 		return NULL;
 	}
-not_found:
-	return drgn_type_index_not_found_error(kind, name, name_len, filename);
-}
-
-static void drgn_mock_type_index_destroy(struct drgn_type_index *tindex)
-{
-	struct drgn_mock_type_index *mtindex;
-
-	mtindex = container_of(tindex, struct drgn_mock_type_index, tindex);
-	drgn_type_index_deinit(tindex);
-	free(mtindex);
-}
-
-static const struct drgn_type_index_ops drgn_mock_type_index_ops = {
-	.find = drgn_mock_type_index_find,
-	.destroy = drgn_mock_type_index_destroy,
-};
-
-struct drgn_error *
-drgn_mock_type_index_create(uint8_t word_size, bool little_endian,
-			    struct drgn_mock_type *types,
-			    struct drgn_mock_type_index **ret)
-{
-	struct drgn_mock_type_index *mtindex;
-
-	if (word_size != 4 && word_size != 8) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "type index word size must be 4 or 8");
-	}
-
-	mtindex = malloc(sizeof(*mtindex));
-	if (!mtindex)
-		return &drgn_enomem;
-
-	drgn_type_index_init(&mtindex->tindex, &drgn_mock_type_index_ops,
-			     word_size, little_endian);
-	mtindex->types = types;
-
-	*ret = mtindex;
+	ret->type = NULL;
 	return NULL;
 }
 
@@ -200,7 +162,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 {
 	struct drgn_error *err;
 	struct drgn_memory_reader *reader;
-	struct drgn_mock_type_index *mtindex;
+	struct drgn_type_index *tindex;
 	struct drgn_mock_symbol_index *msindex;
 	size_t i;
 
@@ -220,20 +182,23 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 			goto err_reader;
 	}
 
-	err = drgn_mock_type_index_create(word_size, little_endian, types,
-					  &mtindex);
+	err = drgn_type_index_create(word_size, little_endian, &tindex);
 	if (err)
 		goto err_reader;
+
+	err = drgn_type_index_add_finder(tindex, drgn_mock_type_find, types);
+	if (err)
+		goto err_tindex;
 
 	err = drgn_mock_symbol_index_create(symbols, &msindex);
 	if (err)
 		goto err_tindex;
 
-	drgn_program_init(prog, reader, &mtindex->tindex, &msindex->sindex);
+	drgn_program_init(prog, reader, tindex, &msindex->sindex);
 	return NULL;
 
 err_tindex:
-	drgn_type_index_destroy(&mtindex->tindex);
+	drgn_type_index_destroy(tindex);
 err_reader:
 	drgn_memory_reader_destroy(reader);
 	return err;

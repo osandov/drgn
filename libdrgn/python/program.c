@@ -21,24 +21,13 @@ static Program *Program_alloc(void)
 	return prog;
 }
 
-static int Program_hold_type(Program *prog, DrgnType *type)
-{
-	PyObject *parent;
-
-	parent = DrgnType_parent(type);
-	if (parent && parent != (PyObject *)prog)
-		return hold_object(prog->objects, parent);
-	else
-		return 0;
-}
-
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 		     struct drgn_qualified_type *ret)
 {
 	struct drgn_error *err;
 
 	if (PyObject_TypeCheck(type_obj, &DrgnType_type)) {
-		if (Program_hold_type(prog, (DrgnType *)type_obj) == -1)
+		if (hold_drgn_type(prog->objects, (DrgnType *)type_obj) == -1)
 			return -1;
 		ret->type = ((DrgnType *)type_obj)->type;
 		ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
@@ -126,7 +115,7 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 	return buf;
 }
 
-static int filename_converter(PyObject *obj, void *result)
+int filename_converter(PyObject *obj, void *result)
 {
 	if (obj == NULL) {
 		Py_XDECREF(*(PyObject **)result);
@@ -171,7 +160,7 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 		set_drgn_error(err);
 		return NULL;
 	}
-	return DrgnType_wrap(qualified_type, (PyObject *)self);
+	return DrgnType_wrap(qualified_type, self->objects);
 }
 
 static PyObject *Program_pointer_type(Program *self, PyObject *args,
@@ -200,7 +189,7 @@ static PyObject *Program_pointer_type(Program *self, PyObject *args,
 		return NULL;
 	}
 	qualified_type.qualifiers = qualifiers;
-	return DrgnType_wrap(qualified_type, (PyObject *)self);
+	return DrgnType_wrap(qualified_type, self->objects);
 }
 
 static DrgnObject *Program_find_object(Program *self, const char *name,
@@ -612,7 +601,8 @@ Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds)
 				Py_DECREF(tmp);
 				goto err;
 			}
-			if (Program_hold_type(prog, (DrgnType *)tmp) == -1) {
+			if (hold_drgn_type(prog->objects,
+					   (DrgnType *)tmp) == -1) {
 				Py_DECREF(tmp);
 				goto err;
 			}

@@ -54,7 +54,7 @@ struct drgn_language {
 	 * Implement @ref drgn_type_index_find().
 	 *
 	 * This should parse @p name and call @ref
-	 * drgn_type_index_find_internal().
+	 * drgn_type_index_find_parsed().
 	 */
 	struct drgn_error *(*find_type)(struct drgn_type_index *tindex,
 					const char *name, const char *filename,

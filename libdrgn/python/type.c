@@ -6,21 +6,7 @@
 
 static const char *drgn_type_kind_str(struct drgn_type *type)
 {
-	static const char * const strs[] = {
-		[DRGN_TYPE_VOID] = "void",
-		[DRGN_TYPE_INT] = "int",
-		[DRGN_TYPE_BOOL] = "bool",
-		[DRGN_TYPE_FLOAT] = "float",
-		[DRGN_TYPE_COMPLEX] = "complex",
-		[DRGN_TYPE_STRUCT] = "struct",
-		[DRGN_TYPE_UNION] = "union",
-		[DRGN_TYPE_ENUM] = "enum",
-		[DRGN_TYPE_TYPEDEF] = "typedef",
-		[DRGN_TYPE_POINTER] = "pointer",
-		[DRGN_TYPE_ARRAY] = "array",
-		[DRGN_TYPE_FUNCTION] = "function",
-	};
-	return strs[drgn_type_kind(type)];
+	return drgn_type_kind_spelling[drgn_type_kind(type)];
 }
 
 static DrgnType *DrgnType_new(enum drgn_qualifiers qualifiers, size_t nmemb,

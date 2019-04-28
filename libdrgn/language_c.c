@@ -1923,9 +1923,9 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 						 "expected type specifier");
 		}
 
-		err = drgn_type_index_find_internal(tindex, kind, identifier,
-						    identifier_len, filename,
-						    ret);
+		err = drgn_type_index_find_parsed(tindex, kind, identifier,
+						  identifier_len, filename,
+						  ret);
 		if (err)
 			return err;
 	} else {

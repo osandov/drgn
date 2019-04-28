@@ -8,7 +8,7 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 dwarf_index.c \
 			 dwarf_index.h \
 			 dwarf_symbol_index.c \
-			 dwarf_type_index.c \
+			 dwarf_type_cache.c \
 			 error.c \
 			 error.h \
 			 hash_table.c \
@@ -66,6 +66,7 @@ _drgn_la_SOURCES = python/docstrings.h \
 		   python/program.c \
 		   python/test.c \
 		   python/type.c \
+		   python/type_index.c \
 		   python/util.c
 
 nodist__drgn_la_SOURCES = python/constants.c python/docstrings.c

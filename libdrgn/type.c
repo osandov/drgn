@@ -6,6 +6,21 @@
 #include "type.h"
 #include "type_index.h"
 
+const char * const drgn_type_kind_spelling[] = {
+	[DRGN_TYPE_VOID] = "void",
+	[DRGN_TYPE_INT] = "int",
+	[DRGN_TYPE_BOOL] = "bool",
+	[DRGN_TYPE_FLOAT] = "float",
+	[DRGN_TYPE_COMPLEX] = "complex",
+	[DRGN_TYPE_STRUCT] = "struct",
+	[DRGN_TYPE_UNION] = "union",
+	[DRGN_TYPE_ENUM] = "enum",
+	[DRGN_TYPE_TYPEDEF] = "typedef",
+	[DRGN_TYPE_POINTER] = "pointer",
+	[DRGN_TYPE_ARRAY] = "array",
+	[DRGN_TYPE_FUNCTION] = "function",
+};
+
 const char * const * const
 drgn_primitive_type_spellings[DRGN_PRIMITIVE_TYPE_NUM] = {
 	[DRGN_C_TYPE_VOID] = (const char * []){ "void", NULL, },

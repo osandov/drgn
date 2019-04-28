@@ -204,19 +204,18 @@ drgn_mock_symbol_index_create(struct drgn_mock_symbol *symbols,
 			      struct drgn_mock_symbol_index **ret);
 
 struct drgn_program;
-struct drgn_dwarf_type_index;
 
 /** Symbol index backed by DWARF debugging information. */
 struct drgn_dwarf_symbol_index {
 	/** Abstract symbol index. */
 	struct drgn_symbol_index sindex;
 	/**
-	 * DWARF type index.
+	 * DWARF type cache.
 	 *
 	 * Used to lookup types and DWARF information through @ref
-	 * drgn_dwarf_type_index::dindex.
+	 * drgn_dwarf_type_cache::dindex.
 	 */
-	struct drgn_dwarf_type_index *dtindex;
+	struct drgn_dwarf_type_cache *dtcache;
 	/** Program to pass to @c relocation_hook(). */
 	struct drgn_program *prog;
 	/**
@@ -249,7 +248,7 @@ struct drgn_dwarf_symbol_index {
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_dwarf_symbol_index_create(struct drgn_dwarf_type_index *dtindex,
+drgn_dwarf_symbol_index_create(struct drgn_dwarf_type_cache *dcache,
 			       struct drgn_dwarf_symbol_index **ret);
 
 /** @} */

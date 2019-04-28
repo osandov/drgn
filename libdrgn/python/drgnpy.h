@@ -86,6 +86,12 @@ typedef struct {
 	bool inited;
 } Program;
 
+typedef struct {
+	PyObject_HEAD
+	struct drgn_type_index tindex;
+	PyObject *objects;
+} TypeIndex;
+
 extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
@@ -95,8 +101,17 @@ extern PyTypeObject DrgnType_type;
 extern PyTypeObject MemoryReader_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Program_type;
+extern PyTypeObject TypeIndex_type;
 extern PyObject *FaultError;
 extern PyObject *FileFormatError;
+
+static inline PyObject *DrgnType_parent(DrgnType *type)
+{
+	if (type->type == type->_type)
+		return (PyObject *)type;
+	else
+		return type->parent;
+}
 
 /* Keep a reference to @p obj in the dictionary @p objects. */
 static inline int hold_object(PyObject *objects, PyObject *obj)
@@ -118,6 +133,17 @@ static inline int hold_object(PyObject *objects, PyObject *obj)
 	return ret;
 }
 
+static inline int hold_drgn_type(PyObject *objects, DrgnType *type)
+{
+	PyObject *parent;
+
+	parent = DrgnType_parent(type);
+	if (parent && parent != objects)
+		return hold_object(objects, parent);
+	else
+		return 0;
+}
+
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
 PyObject *byteorder_string(bool little_endian);
@@ -130,14 +156,6 @@ bool set_drgn_in_python(void);
 void clear_drgn_in_python(void);
 struct drgn_error *drgn_error_from_python(void);
 PyObject *set_drgn_error(struct drgn_error *err);
-
-static inline PyObject *DrgnType_parent(DrgnType *type)
-{
-	if (type->type == type->_type)
-		return (PyObject *)type;
-	else
-		return type->parent;
-}
 
 static inline DrgnObject *DrgnObject_alloc(Program *prog)
 {
@@ -153,6 +171,7 @@ static inline DrgnObject *DrgnObject_alloc(Program *prog)
 
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 		     struct drgn_qualified_type *ret);
+int filename_converter(PyObject *obj, void *result);
 int qualifiers_converter(PyObject *arg, void *result);
 
 PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds);

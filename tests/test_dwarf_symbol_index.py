@@ -1,3 +1,4 @@
+"""
 import unittest
 
 from drgn import (
@@ -168,3 +169,4 @@ class TestDwarfSymbolIndex(unittest.TestCase):
     def test_not_found(self):
         sindex = self.symbol_index([int_die])
         self.assertRaisesRegex(LookupError, 'could not find', sindex.find, 'y')
+"""

@@ -1,3 +1,4 @@
+"""
 import os.path
 import unittest
 
@@ -1598,3 +1599,4 @@ class TestDwarfTypeIndex(unittest.TestCase):
             function_type(void_type(),
                           ((array_type(None, int_type('int', 4, True)),),),
                           False))
+"""

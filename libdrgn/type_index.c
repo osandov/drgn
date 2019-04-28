@@ -94,12 +94,12 @@ DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, struct drgn_member_key,
 DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, struct drgn_type *,
 			  hash_pair_ptr_type, hash_table_scalar_eq)
 
-void drgn_type_index_init(struct drgn_type_index *tindex,
-			  const struct drgn_type_index_ops *ops,
-			  uint8_t word_size, bool little_endian)
+void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size,
+			  bool little_endian)
 {
-	memset(tindex, 0, sizeof(*tindex));
-	tindex->ops = ops;
+	assert(word_size == 8 || word_size == 4);
+	tindex->finders = NULL;
+	memset(tindex->primitive_types, 0, sizeof(tindex->primitive_types));
 	drgn_pointer_type_set_init(&tindex->pointer_types);
 	drgn_array_type_set_init(&tindex->array_types);
 	drgn_member_map_init(&tindex->members);
@@ -134,10 +134,54 @@ static void free_array_types(struct drgn_type_index *tindex)
 
 void drgn_type_index_deinit(struct drgn_type_index *tindex)
 {
+	struct drgn_type_finder *finder;
+
 	drgn_member_map_deinit(&tindex->members);
 	drgn_type_set_deinit(&tindex->members_cached);
 	free_array_types(tindex);
 	free_pointer_types(tindex);
+
+	finder = tindex->finders;
+	while (finder) {
+		struct drgn_type_finder *next = finder->next;
+
+		free(finder);
+		finder = next;
+	}
+}
+
+struct drgn_error *drgn_type_index_create(uint8_t word_size, bool little_endian,
+					  struct drgn_type_index **ret)
+{
+	struct drgn_type_index *tindex;
+
+	tindex = malloc(sizeof(*tindex));
+	if (!tindex)
+		return &drgn_enomem;
+	drgn_type_index_init(tindex, word_size, little_endian);
+	*ret = tindex;
+	return NULL;
+}
+
+void drgn_type_index_destroy(struct drgn_type_index *tindex)
+{
+	drgn_type_index_deinit(tindex);
+	free(tindex);
+}
+
+struct drgn_error *drgn_type_index_add_finder(struct drgn_type_index *tindex,
+					      drgn_type_find_fn fn, void *arg)
+{
+	struct drgn_type_finder *finder;
+
+	finder = malloc(sizeof(*finder));
+	if (!finder)
+		return &drgn_enomem;
+	finder->fn = fn;
+	finder->arg = arg;
+	finder->next = tindex->finders;
+	tindex->finders = finder;
+	return NULL;
 }
 
 /* Default long, unsigned long, size_t, and ptrdiff_t are 64 bits. */
@@ -235,6 +279,39 @@ static void default_primitive_types_init(void)
 	       DRGN_C_TYPE_PTRDIFF_T);
 }
 
+/*
+ * Like @ref drgn_type_index_find_parsed(), but sets <tt>ret->type</tt> to NULL
+ * and returns @c NULL if the type is not found instead of returning a @ref
+ * DRGN_ERROR_LOOKUP error.
+ */
+static struct drgn_error *
+drgn_type_index_find_parsed_internal(struct drgn_type_index *tindex,
+				     enum drgn_type_kind kind, const char *name,
+				     size_t name_len, const char *filename,
+				     struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+	struct drgn_type_finder *finder;
+
+	finder = tindex->finders;
+	while (finder) {
+		err = finder->fn(kind, name, name_len, filename, finder->arg,
+				 ret);
+		if (err)
+			return err;
+		if (ret->type) {
+			if (drgn_type_kind(ret->type) != kind) {
+				return drgn_error_create(DRGN_ERROR_TYPE,
+							 "type find callback returned wrong kind of type");
+			}
+			return NULL;
+		}
+		finder = finder->next;
+	}
+	ret->type = NULL;
+	return NULL;
+}
+
 struct drgn_error *
 drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 			       enum drgn_primitive_type type,
@@ -259,14 +336,15 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 
 	spellings = drgn_primitive_type_spellings[type];
 	for (i = 0; spellings[i]; i++) {
-		err = drgn_type_index_find_internal(tindex, kind, spellings[i],
-						    strlen(spellings[i]), NULL,
-						    &qualified_type);
-		if (err && err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
-		} else if (err) {
+		err = drgn_type_index_find_parsed_internal(tindex, kind,
+							   spellings[i],
+							   strlen(spellings[i]),
+							   NULL,
+							   &qualified_type);
+		if (err) {
 			return err;
-		} else if (drgn_type_primitive(qualified_type.type) == type) {
+		} else if (qualified_type.type &&
+			   drgn_type_primitive(qualified_type.type) == type) {
 			*ret = qualified_type.type;
 			goto out;
 		}
@@ -285,6 +363,35 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 out:
 	tindex->primitive_types[type] = *ret;
 	return NULL;
+}
+
+struct drgn_error *
+drgn_type_index_find_parsed(struct drgn_type_index *tindex,
+			    enum drgn_type_kind kind, const char *name,
+			    size_t name_len, const char *filename,
+			    struct drgn_qualified_type *ret)
+{
+	struct drgn_error *err;
+	int precision;
+
+	err = drgn_type_index_find_parsed_internal(tindex, kind, name, name_len,
+						   filename, ret);
+	if (err)
+		return err;
+	else if (ret->type)
+		return NULL;
+
+	precision = name_len < INT_MAX ? (int)name_len : INT_MAX;
+	if (filename) {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "could not find '%s %.*s' in '%s'",
+					 drgn_type_kind_spelling[kind], precision, name,
+					 filename);
+	} else {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "could not find '%s %.*s'",
+					 drgn_type_kind_spelling[kind], precision, name);
+	}
 }
 
 struct drgn_error *
@@ -476,29 +583,4 @@ struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
 	}
 
 	return drgn_error_member_not_found(type, member_name);
-}
-
-struct drgn_error *
-drgn_type_index_not_found_error(enum drgn_type_kind kind,
-				const char *name, size_t name_len,
-				const char *filename)
-{
-	static const char *type_kind_spelling[] = {
-		[DRGN_TYPE_STRUCT] = "struct",
-		[DRGN_TYPE_UNION] = "union",
-		[DRGN_TYPE_ENUM] = "enum",
-		[DRGN_TYPE_TYPEDEF] = "typedef",
-	};
-	int precision = name_len < INT_MAX ? (int)name_len : INT_MAX;
-
-	if (filename) {
-		return drgn_error_format(DRGN_ERROR_LOOKUP,
-					 "could not find '%s %.*s' in '%s'",
-					 type_kind_spelling[kind], precision, name,
-					 filename);
-	} else {
-		return drgn_error_format(DRGN_ERROR_LOOKUP,
-					 "could not find '%s %.*s'",
-					 type_kind_spelling[kind], precision, name);
-	}
 }
