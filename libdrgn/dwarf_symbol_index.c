@@ -7,6 +7,7 @@
 
 #include "internal.h"
 #include "dwarf_index.h"
+#include "dwarf_info_cache.h"
 #include "symbol_index.h"
 #include "type_index.h"
 
@@ -18,7 +19,7 @@ drgn_symbol_from_dwarf_enumerator(struct drgn_dwarf_symbol_index *dsindex,
 	struct drgn_error *err;
 
 	assert(dwarf_tag(die) == DW_TAG_enumeration_type);
-	err = drgn_type_from_dwarf(dsindex->dtcache, die, &ret->qualified_type);
+	err = drgn_type_from_dwarf(dsindex->dicache, die, &ret->qualified_type);
 	if (err)
 		return err;
 	return drgn_symbol_from_enumerator(ret, name);
@@ -32,7 +33,7 @@ drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_symbol_index *dsindex,
 	struct drgn_error *err;
 	Dwarf_Addr low_pc;
 
-	err = drgn_type_from_dwarf(dsindex->dtcache, die, &ret->qualified_type);
+	err = drgn_type_from_dwarf(dsindex->dicache, die, &ret->qualified_type);
 	if (err)
 		return err;
 
@@ -63,7 +64,7 @@ drgn_symbol_from_dwarf_variable(struct drgn_dwarf_symbol_index *dsindex,
 	Dwarf_Op *loc;
 	size_t nloc;
 
-	err = drgn_type_from_dwarf_child(dsindex->dtcache, die,
+	err = drgn_type_from_dwarf_child(dsindex->dicache, die,
 					 "DW_TAG_variable", true,
 					 &ret->qualified_type);
 	if (err)
@@ -114,7 +115,7 @@ drgn_dwarf_symbol_index_find(struct drgn_symbol_index *sindex, const char *name,
 		tags[num_tags++] = DW_TAG_variable;
 
 	dsindex = container_of(sindex, struct drgn_dwarf_symbol_index, sindex);
-	drgn_dwarf_index_iterator_init(&it, dsindex->dtcache->dindex, name,
+	drgn_dwarf_index_iterator_init(&it, dsindex->dicache->dindex, name,
 				       strlen(name), tags, num_tags);
 	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
 		if (!die_matches_filename(&die, filename))
@@ -153,7 +154,7 @@ static const struct drgn_symbol_index_ops drgn_dwarf_symbol_index_ops = {
 };
 
 struct drgn_error *
-drgn_dwarf_symbol_index_create(struct drgn_dwarf_type_cache *dtcache,
+drgn_dwarf_symbol_index_create(struct drgn_dwarf_info_cache *dicache,
 			       struct drgn_dwarf_symbol_index **ret)
 {
 	struct drgn_dwarf_symbol_index *dsindex;
@@ -162,7 +163,7 @@ drgn_dwarf_symbol_index_create(struct drgn_dwarf_type_cache *dtcache,
 	if (!dsindex)
 		return &drgn_enomem;
 	dsindex->sindex.ops = &drgn_dwarf_symbol_index_ops;
-	dsindex->dtcache = dtcache;
+	dsindex->dicache = dicache;
 	dsindex->prog = NULL;
 	dsindex->relocation_hook = NULL;
 

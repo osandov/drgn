@@ -7,8 +7,9 @@ noinst_LTLIBRARIES = libdrgnimpl.la
 libdrgnimpl_la_SOURCES = cityhash.h \
 			 dwarf_index.c \
 			 dwarf_index.h \
+			 dwarf_info_cache.c \
+			 dwarf_info_cache.h \
 			 dwarf_symbol_index.c \
-			 dwarf_type_cache.c \
 			 error.c \
 			 error.h \
 			 hash_table.c \

@@ -1,13 +1,14 @@
 // Copyright 2018-2019 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
-#include <elfutils/libdw.h>
 #include <dwarf.h>
+#include <elfutils/libdw.h>
 #include <libelf.h>
 #include <string.h>
 
 #include "internal.h"
 #include "dwarf_index.h"
+#include "dwarf_info_cache.h"
 #include "hash_table.h"
 #include "type_index.h"
 
@@ -23,7 +24,7 @@ DEFINE_HASH_MAP_FUNCTIONS(dwarf_type_map, const void *, struct drgn_dwarf_type,
 
 struct drgn_type_from_dwarf_thunk {
 	struct drgn_type_thunk thunk;
-	struct drgn_dwarf_type_cache *dtcache;
+	struct drgn_dwarf_info_cache *dicache;
 	Dwarf_Die die;
 	bool can_be_incomplete_array;
 };
@@ -99,7 +100,7 @@ drgn_type_from_dwarf_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
 	struct drgn_type_from_dwarf_thunk *t;
 
 	t = container_of(thunk, struct drgn_type_from_dwarf_thunk, thunk);
-	return drgn_type_from_dwarf_internal(t->dtcache, &t->die,
+	return drgn_type_from_dwarf_internal(t->dicache, &t->die,
 					     t->can_be_incomplete_array, NULL,
 					     ret);
 }
@@ -110,7 +111,7 @@ static void drgn_type_from_dwarf_thunk_free_fn(struct drgn_type_thunk *thunk)
 }
 
 static struct drgn_error *
-drgn_lazy_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
+drgn_lazy_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			  Dwarf_Die *parent_die, bool can_be_void,
 			  bool can_be_incomplete_array, const char *tag_name,
 			  struct drgn_lazy_type *ret)
@@ -142,7 +143,7 @@ drgn_lazy_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 
 	thunk->thunk.evaluate_fn = drgn_type_from_dwarf_thunk_evaluate_fn;
 	thunk->thunk.free_fn = drgn_type_from_dwarf_thunk_free_fn;
-	thunk->dtcache = dtcache;
+	thunk->dicache = dicache;
 	thunk->die = type_die;
 	thunk->can_be_incomplete_array = can_be_incomplete_array;
 	drgn_lazy_type_init_thunk(ret, &thunk->thunk);
@@ -150,7 +151,7 @@ drgn_lazy_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 }
 
 struct drgn_error *
-drgn_type_from_dwarf_child_internal(struct drgn_dwarf_type_cache *dtcache,
+drgn_type_from_dwarf_child_internal(struct drgn_dwarf_info_cache *dicache,
 				    Dwarf_Die *parent_die, const char *tag_name,
 				    bool can_be_void,
 				    bool can_be_incomplete_array,
@@ -178,13 +179,13 @@ drgn_type_from_dwarf_child_internal(struct drgn_dwarf_type_cache *dtcache,
 					 "%s has invalid DW_AT_type", tag_name);
 	}
 
-	return drgn_type_from_dwarf_internal(dtcache, &type_die,
+	return drgn_type_from_dwarf_internal(dicache, &type_die,
 					     can_be_incomplete_array,
 					     is_incomplete_array_ret, ret);
 }
 
 static struct drgn_error *
-drgn_base_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
+drgn_base_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 			  struct drgn_type **ret)
 {
 	struct drgn_type *type;
@@ -243,7 +244,7 @@ drgn_base_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
 			return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
 						 "DW_TAG_base_type has missing or invalid DW_AT_type");
 		}
-		err = drgn_type_from_dwarf(dtcache, &child, &real_type);
+		err = drgn_type_from_dwarf(dicache, &child, &real_type);
 		if (err)
 			return err;
 		if (drgn_type_kind(real_type.type) != DRGN_TYPE_FLOAT &&
@@ -270,7 +271,7 @@ drgn_base_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
  * type, it returns a DRGN_ERROR_STOP error. Otherwise, it returns an error.
  */
 static struct drgn_error *
-drgn_dwarf_type_cache_find_complete(struct drgn_dwarf_type_cache *dtcache,
+drgn_dwarf_info_cache_find_complete(struct drgn_dwarf_info_cache *dicache,
 				    uint64_t tag, const char *name,
 				    struct drgn_type **ret)
 {
@@ -279,7 +280,7 @@ drgn_dwarf_type_cache_find_complete(struct drgn_dwarf_type_cache *dtcache,
 	Dwarf_Die die;
 	struct drgn_qualified_type qualified_type;
 
-	drgn_dwarf_index_iterator_init(&it, dtcache->dindex, name, strlen(name),
+	drgn_dwarf_index_iterator_init(&it, dicache->dindex, name, strlen(name),
 				       &tag, 1);
 	/*
 	 * Find a matching DIE. Note that drgn_dwarf_index does not contain DIEs
@@ -298,7 +299,7 @@ drgn_dwarf_type_cache_find_complete(struct drgn_dwarf_type_cache *dtcache,
 	else if (err->code != DRGN_ERROR_STOP)
 		return err;
 
-	err = drgn_type_from_dwarf(dtcache, &die, &qualified_type);
+	err = drgn_type_from_dwarf(dicache, &die, &qualified_type);
 	if (err)
 		return err;
 	*ret = qualified_type.type;
@@ -411,7 +412,7 @@ parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
 	return NULL;
 }
 
-static struct drgn_error *parse_member(struct drgn_dwarf_type_cache *dtcache,
+static struct drgn_error *parse_member(struct drgn_dwarf_info_cache *dicache,
 				       Dwarf_Die *die, struct drgn_type *type,
 				       size_t i, bool little_endian)
 {
@@ -447,7 +448,7 @@ static struct drgn_error *parse_member(struct drgn_dwarf_type_cache *dtcache,
 		bit_field_size = 0;
 	}
 
-	err = drgn_lazy_type_from_dwarf(dtcache, die, false, false,
+	err = drgn_lazy_type_from_dwarf(dicache, die, false, false,
 					"DW_TAG_member", &member_type);
 	if (err)
 		return err;
@@ -465,7 +466,7 @@ static struct drgn_error *parse_member(struct drgn_dwarf_type_cache *dtcache,
 }
 
 static struct drgn_error *
-drgn_compound_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
+drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			      Dwarf_Die *die, bool is_struct,
 			      struct drgn_type **ret, bool *should_free)
 {
@@ -498,7 +499,7 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 					 is_struct ? "structure" : "union");
 	}
 	if (declaration && tag) {
-		err = drgn_dwarf_type_cache_find_complete(dtcache,
+		err = drgn_dwarf_info_cache_find_complete(dicache,
 							  is_struct ?
 							  DW_TAG_structure_type :
 							  DW_TAG_union_type,
@@ -549,7 +550,7 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 				}
 			}
 
-			err = parse_member(dtcache, &child, type, num_members,
+			err = parse_member(dicache, &child, type, num_members,
 					   little_endian);
 			if (err)
 				goto err;
@@ -682,7 +683,7 @@ static void fallback_enum_compatible_types_init(void)
  * DIEs, either, so we also have to guess at the sign.
  */
 static struct drgn_error *
-enum_compatible_type_fallback(struct drgn_dwarf_type_cache *dtcache,
+enum_compatible_type_fallback(struct drgn_dwarf_info_cache *dicache,
 			      Dwarf_Die *die, bool is_signed,
 			      struct drgn_type **ret)
 {
@@ -715,7 +716,7 @@ enum_compatible_type_fallback(struct drgn_dwarf_type_cache *dtcache,
 }
 
 static struct drgn_error *
-drgn_enum_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
+drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 			  struct drgn_type **ret, bool *should_free)
 {
 	struct drgn_error *err;
@@ -745,7 +746,7 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
 					 "DW_TAG_enumeration_type has invalid DW_AT_declaration");
 	}
 	if (declaration && tag) {
-		err = drgn_dwarf_type_cache_find_complete(dtcache,
+		err = drgn_dwarf_info_cache_find_complete(dicache,
 							  DW_TAG_enumeration_type,
 							  tag, ret);
 		if (!err) {
@@ -810,14 +811,14 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
 					"DW_TAG_enumeration_type has invalid DW_AT_type");
 		goto err;
 	} else if (r) {
-		err = enum_compatible_type_fallback(dtcache, die, is_signed,
+		err = enum_compatible_type_fallback(dicache, die, is_signed,
 						    &compatible_type);
 		if (err)
 			goto err;
 	} else {
 		struct drgn_qualified_type qualified_compatible_type;
 
-		err = drgn_type_from_dwarf(dtcache, &child,
+		err = drgn_type_from_dwarf(dicache, &child,
 					   &qualified_compatible_type);
 		if (err)
 			goto err;
@@ -839,7 +840,7 @@ err:
 }
 
 static struct drgn_error *
-drgn_typedef_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
+drgn_typedef_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			     Dwarf_Die *die, bool can_be_incomplete_array,
 			     bool *is_incomplete_array_ret,
 			     struct drgn_type **ret)
@@ -859,7 +860,7 @@ drgn_typedef_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 	if (!type)
 		return &drgn_enomem;
 
-	err = drgn_type_from_dwarf_child_internal(dtcache, die,
+	err = drgn_type_from_dwarf_child_internal(dicache, die,
 						  "DW_TAG_typedef", true,
 						  can_be_incomplete_array,
 						  is_incomplete_array_ret,
@@ -875,18 +876,18 @@ drgn_typedef_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 }
 
 static struct drgn_error *
-drgn_pointer_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
+drgn_pointer_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			     Dwarf_Die *die, struct drgn_type **ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type referenced_type;
 
-	err = drgn_type_from_dwarf_child(dtcache, die, "DW_TAG_pointer_type",
+	err = drgn_type_from_dwarf_child(dicache, die, "DW_TAG_pointer_type",
 					 true, &referenced_type);
 	if (err)
 		return err;
 
-	return drgn_type_index_pointer_type(dtcache->tindex, referenced_type,
+	return drgn_type_index_pointer_type(dicache->tindex, referenced_type,
 					    ret);
 }
 
@@ -934,7 +935,7 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 }
 
 static struct drgn_error *
-drgn_array_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
+drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			   Dwarf_Die *die, bool can_be_incomplete_array,
 			   bool *is_incomplete_array_ret,
 			   struct drgn_type **ret)
@@ -980,7 +981,7 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 		dimensions[num_dimensions++].is_complete = false;
 	}
 
-	err = drgn_type_from_dwarf_child_internal(dtcache, die,
+	err = drgn_type_from_dwarf_child_internal(dicache, die,
 						  "DW_TAG_array_type", false,
 						  false, NULL, &element_type);
 	if (err)
@@ -992,14 +993,14 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 
 		dimension = &dimensions[--num_dimensions];
 		if (dimension->is_complete) {
-			err = drgn_type_index_array_type(dtcache->tindex,
+			err = drgn_type_index_array_type(dicache->tindex,
 							 dimension->length,
 							 element_type, &type);
 		} else if (num_dimensions || !can_be_incomplete_array) {
-			err = drgn_type_index_array_type(dtcache->tindex, 0,
+			err = drgn_type_index_array_type(dicache->tindex, 0,
 							 element_type, &type);
 		} else {
-			err = drgn_type_index_incomplete_array_type(dtcache->tindex,
+			err = drgn_type_index_incomplete_array_type(dicache->tindex,
 								    element_type,
 								    &type);
 		}
@@ -1018,7 +1019,7 @@ out:
 }
 
 static struct drgn_error *
-parse_formal_parameter(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
+parse_formal_parameter(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 		       struct drgn_type *type, size_t i)
 {
 	struct drgn_error *err;
@@ -1038,7 +1039,7 @@ parse_formal_parameter(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
 		name = NULL;
 	}
 
-	err = drgn_lazy_type_from_dwarf(dtcache, die, false, true,
+	err = drgn_lazy_type_from_dwarf(dicache, die, false, true,
 					"DW_TAG_formal_parameter",
 					&parameter_type);
 	if (err)
@@ -1049,7 +1050,7 @@ parse_formal_parameter(struct drgn_dwarf_type_cache *dtcache, Dwarf_Die *die,
 }
 
 static struct drgn_error *
-drgn_function_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
+drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			      Dwarf_Die *die, struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -1095,7 +1096,7 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 				}
 			}
 
-			err = parse_formal_parameter(dtcache, &child, type,
+			err = parse_formal_parameter(dicache, &child, type,
 						     num_parameters);
 			if (err)
 				goto err;
@@ -1122,7 +1123,7 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_type_cache *dtcache,
 				  sizeof(struct drgn_type_parameter));
 	}
 
-	err = drgn_type_from_dwarf_child(dtcache, die, tag_name, true,
+	err = drgn_type_from_dwarf_child(dicache, die, tag_name, true,
 					 &return_type);
 	if (err)
 		goto err;
@@ -1139,7 +1140,7 @@ err:
 }
 
 struct drgn_error *
-drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
+drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
 			      Dwarf_Die *die, bool can_be_incomplete_array,
 			      bool *is_incomplete_array_ret,
 			      struct drgn_qualified_type *ret)
@@ -1150,16 +1151,16 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
 	struct drgn_dwarf_type *value, dwarf_type;
 	struct dwarf_type_map *map;
 
-	if (dtcache->depth >= 1000) {
+	if (dicache->depth >= 1000) {
 		return drgn_error_create(DRGN_ERROR_RECURSION,
 					 "maximum DWARF type parsing depth exceeded");
 	}
 
 	hp = dwarf_type_map_hash(&key);
-	value = dwarf_type_map_search_hashed(&dtcache->map, &key, hp);
+	value = dwarf_type_map_search_hashed(&dicache->map, &key, hp);
 	if (value) {
 		if (!can_be_incomplete_array && value->is_incomplete_array) {
-			map = &dtcache->cant_be_incomplete_array_map;
+			map = &dicache->cant_be_incomplete_array_map;
 			value = dwarf_type_map_search_hashed(map, &key, hp);
 		}
 		if (value) {
@@ -1170,7 +1171,7 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
 	}
 
 	ret->qualifiers = 0;
-	dtcache->depth++;
+	dicache->depth++;
 	dwarf_type.is_incomplete_array = false;
 	switch (dwarf_tag(die)) {
 	case DW_TAG_const_type:
@@ -1179,53 +1180,53 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
 		 * unqualified type.
 		 */
 		dwarf_type.should_free = false;
-		err = drgn_type_from_dwarf_child(dtcache, die,
+		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_const_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_CONST;
 		break;
 	case DW_TAG_restrict_type:
 		dwarf_type.should_free = false;
-		err = drgn_type_from_dwarf_child(dtcache, die,
+		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_restrict_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_RESTRICT;
 		break;
 	case DW_TAG_volatile_type:
 		dwarf_type.should_free = false;
-		err = drgn_type_from_dwarf_child(dtcache, die,
+		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_volatile_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_VOLATILE;
 		break;
 	case DW_TAG_atomic_type:
 		dwarf_type.should_free = false;
-		err = drgn_type_from_dwarf_child(dtcache, die,
+		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_atomic_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_ATOMIC;
 		break;
 	case DW_TAG_base_type:
 		dwarf_type.should_free = true;
-		err = drgn_base_type_from_dwarf(dtcache, die, &ret->type);
+		err = drgn_base_type_from_dwarf(dicache, die, &ret->type);
 		break;
 	case DW_TAG_structure_type:
-		err = drgn_compound_type_from_dwarf(dtcache, die, true,
+		err = drgn_compound_type_from_dwarf(dicache, die, true,
 						    &ret->type,
 						    &dwarf_type.should_free);
 		break;
 	case DW_TAG_union_type:
-		err = drgn_compound_type_from_dwarf(dtcache, die, false,
+		err = drgn_compound_type_from_dwarf(dicache, die, false,
 						    &ret->type,
 						    &dwarf_type.should_free);
 		break;
 	case DW_TAG_enumeration_type:
-		err = drgn_enum_type_from_dwarf(dtcache, die, &ret->type,
+		err = drgn_enum_type_from_dwarf(dicache, die, &ret->type,
 						&dwarf_type.should_free);
 		break;
 	case DW_TAG_typedef:
 		dwarf_type.should_free = true;
-		err = drgn_typedef_type_from_dwarf(dtcache, die,
+		err = drgn_typedef_type_from_dwarf(dicache, die,
 						   can_be_incomplete_array,
 						   &dwarf_type.is_incomplete_array,
 						   &ret->type);
@@ -1233,12 +1234,12 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
 	case DW_TAG_pointer_type:
 		/* Pointer types are owned by the type index. */
 		dwarf_type.should_free = false;
-		err = drgn_pointer_type_from_dwarf(dtcache, die, &ret->type);
+		err = drgn_pointer_type_from_dwarf(dicache, die, &ret->type);
 		break;
 	case DW_TAG_array_type:
 		/* Array types are owned by the type index. */
 		dwarf_type.should_free = false;
-		err = drgn_array_type_from_dwarf(dtcache, die,
+		err = drgn_array_type_from_dwarf(dicache, die,
 						 can_be_incomplete_array,
 						 &dwarf_type.is_incomplete_array,
 						 &ret->type);
@@ -1246,7 +1247,7 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
 	case DW_TAG_subroutine_type:
 	case DW_TAG_subprogram:
 		dwarf_type.should_free = true;
-		err = drgn_function_type_from_dwarf(dtcache, die, &ret->type);
+		err = drgn_function_type_from_dwarf(dicache, die, &ret->type);
 		break;
 	default:
 		err = drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
@@ -1254,16 +1255,16 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_type_cache *dtcache,
 					dwarf_tag(die));
 		break;
 	}
-	dtcache->depth--;
+	dicache->depth--;
 	if (err)
 		return err;
 
 	dwarf_type.type = ret->type;
 	dwarf_type.qualifiers = ret->qualifiers;
 	if (!can_be_incomplete_array && dwarf_type.is_incomplete_array)
-		map = &dtcache->cant_be_incomplete_array_map;
+		map = &dicache->cant_be_incomplete_array_map;
 	else
-		map = &dtcache->map;
+		map = &dicache->map;
 	if (!dwarf_type_map_insert_searched(map, &key, &dwarf_type, hp)) {
 		drgn_dwarf_type_free(&dwarf_type);
 		return &drgn_enomem;
@@ -1279,7 +1280,7 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 					struct drgn_qualified_type *ret)
 {
 	struct drgn_error *err;
-	struct drgn_dwarf_type_cache *dtcache = arg;
+	struct drgn_dwarf_info_cache *dicache = arg;
 	struct drgn_dwarf_index_iterator it;
 	Dwarf_Die die;
 	uint64_t tag;
@@ -1306,11 +1307,11 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 		DRGN_UNREACHABLE();
 	}
 
-	drgn_dwarf_index_iterator_init(&it, dtcache->dindex, name, name_len,
+	drgn_dwarf_index_iterator_init(&it, dicache->dindex, name, name_len,
 				       &tag, 1);
 	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
 		if (die_matches_filename(&die, filename)) {
-			err = drgn_type_from_dwarf(dtcache, &die, ret);
+			err = drgn_type_from_dwarf(dicache, &die, ret);
 			if (err)
 				return err;
 			/*
@@ -1328,36 +1329,36 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 }
 
 struct drgn_error *
-drgn_dwarf_type_cache_create(struct drgn_type_index *tindex,
+drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 			     struct drgn_dwarf_index *dindex,
-			     struct drgn_dwarf_type_cache **ret)
+			     struct drgn_dwarf_info_cache **ret)
 {
-	struct drgn_dwarf_type_cache *dtcache;
+	struct drgn_dwarf_info_cache *dicache;
 
-	dtcache = malloc(sizeof(*dtcache));
-	if (!dtcache)
+	dicache = malloc(sizeof(*dicache));
+	if (!dicache)
 		return &drgn_enomem;
-	dtcache->tindex = tindex;
-	dwarf_type_map_init(&dtcache->map);
-	dwarf_type_map_init(&dtcache->cant_be_incomplete_array_map);
-	dtcache->dindex = dindex;
-	dtcache->depth = 0;
-	*ret = dtcache;
+	dicache->tindex = tindex;
+	dwarf_type_map_init(&dicache->map);
+	dwarf_type_map_init(&dicache->cant_be_incomplete_array_map);
+	dicache->dindex = dindex;
+	dicache->depth = 0;
+	*ret = dicache;
 	return NULL;
 }
 
-void drgn_dwarf_type_cache_destroy(struct drgn_dwarf_type_cache *dtcache)
+void drgn_dwarf_info_cache_destroy(struct drgn_dwarf_info_cache *dicache)
 {
 	struct dwarf_type_map_pos pos;
 
-	for (pos = dwarf_type_map_first_pos(&dtcache->map);
+	for (pos = dwarf_type_map_first_pos(&dicache->map);
 	     pos.item; dwarf_type_map_next_pos(&pos))
 		drgn_dwarf_type_free(&pos.item->value);
 	/* Arrays don't need to be freed, but typedefs do. */
-	for (pos = dwarf_type_map_first_pos(&dtcache->cant_be_incomplete_array_map);
+	for (pos = dwarf_type_map_first_pos(&dicache->cant_be_incomplete_array_map);
 	     pos.item; dwarf_type_map_next_pos(&pos))
 		drgn_dwarf_type_free(&pos.item->value);
-	dwarf_type_map_deinit(&dtcache->cant_be_incomplete_array_map);
-	dwarf_type_map_deinit(&dtcache->map);
-	free(dtcache);
+	dwarf_type_map_deinit(&dicache->cant_be_incomplete_array_map);
+	dwarf_type_map_deinit(&dicache->map);
+	free(dicache);
 }

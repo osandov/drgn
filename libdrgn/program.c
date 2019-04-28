@@ -17,6 +17,7 @@
 
 #include "internal.h"
 #include "dwarf_index.h"
+#include "dwarf_info_cache.h"
 #include "language.h"
 #include "memory_reader.h"
 #include "symbol_index.h"
@@ -1063,9 +1064,9 @@ static void cleanup_dwarf_index(void *arg)
 	drgn_dwarf_index_destroy(arg);
 }
 
-static void cleanup_dwarf_type_cache(void *arg)
+static void cleanup_dwarf_info_cache(void *arg)
 {
-	drgn_dwarf_type_cache_destroy(arg);
+	drgn_dwarf_info_cache_destroy(arg);
 }
 
 static void cleanup_file_mappings(void *arg)
@@ -1108,7 +1109,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	struct drgn_memory_reader *reader;
 	struct drgn_dwarf_index *dindex;
 	struct drgn_type_index *tindex;
-	struct drgn_dwarf_type_cache *dtcache;
+	struct drgn_dwarf_info_cache *dicache;
 	struct drgn_dwarf_symbol_index *dsindex;
 
 	fd = open(path, O_RDONLY);
@@ -1336,15 +1337,15 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	if (err)
 		goto out_dindex;
 
-	err = drgn_dwarf_type_cache_create(tindex, dindex, &dtcache);
+	err = drgn_dwarf_info_cache_create(tindex, dindex, &dicache);
 	if (err)
 		goto out_tindex;
 
-	err = drgn_type_index_add_finder(tindex, drgn_dwarf_type_find, dtcache);
+	err = drgn_type_index_add_finder(tindex, drgn_dwarf_type_find, dicache);
 	if (err)
 		goto out_dtcache;
 
-	err = drgn_dwarf_symbol_index_create(dtcache, &dsindex);
+	err = drgn_dwarf_symbol_index_create(dicache, &dsindex);
 	if (err)
 		goto out_dtcache;
 
@@ -1358,7 +1359,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
 	if (err)
 		goto out_cleanup_file_segments;
-	err = drgn_program_add_cleanup(prog, cleanup_dwarf_type_cache, dtcache);
+	err = drgn_program_add_cleanup(prog, cleanup_dwarf_info_cache, dicache);
 	if (err)
 		goto out_cleanup_dindex;
 	dsindex->prog = prog;
@@ -1378,7 +1379,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	return NULL;
 
 out_cleanup_dtcache:
-	drgn_program_remove_cleanup(prog, cleanup_dwarf_type_cache, dtcache);
+	drgn_program_remove_cleanup(prog, cleanup_dwarf_info_cache, dicache);
 out_cleanup_dindex:
 	drgn_program_remove_cleanup(prog, cleanup_dwarf_index, dindex);
 out_cleanup_file_segments:
@@ -1388,7 +1389,7 @@ out_cleanup_fd:
 out_program:
 	drgn_program_deinit(prog);
 out_dtcache:
-	drgn_dwarf_type_cache_destroy(dtcache);
+	drgn_dwarf_info_cache_destroy(dicache);
 out_tindex:
 	drgn_type_index_destroy(tindex);
 out_dindex:
@@ -1475,7 +1476,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	struct drgn_memory_reader *reader;
 	struct drgn_dwarf_index *dindex;
 	struct drgn_type_index *tindex;
-	struct drgn_dwarf_type_cache *dtcache;
+	struct drgn_dwarf_info_cache *dicache;
 	struct drgn_dwarf_symbol_index *dsindex;
 
 	sprintf(buf, "/proc/%ld/mem", (long)pid);
@@ -1523,15 +1524,15 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		goto out_dindex;
 
-	err = drgn_dwarf_type_cache_create(tindex, dindex, &dtcache);
+	err = drgn_dwarf_info_cache_create(tindex, dindex, &dicache);
 	if (err)
 		goto out_tindex;
 
-	err = drgn_type_index_add_finder(tindex, drgn_dwarf_type_find, dtcache);
+	err = drgn_type_index_add_finder(tindex, drgn_dwarf_type_find, dicache);
 	if (err)
 		goto out_dtcache;
 
-	err = drgn_dwarf_symbol_index_create(dtcache, &dsindex);
+	err = drgn_dwarf_symbol_index_create(dicache, &dsindex);
 	if (err)
 		goto out_dtcache;
 
@@ -1549,7 +1550,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	err = drgn_program_add_cleanup(prog, cleanup_dwarf_index, dindex);
 	if (err)
 		goto out_cleanup_file_segment;
-	err = drgn_program_add_cleanup(prog, cleanup_dwarf_type_cache, dtcache);
+	err = drgn_program_add_cleanup(prog, cleanup_dwarf_info_cache, dicache);
 	if (err)
 		goto out_cleanup_dindex;
 	err = drgn_program_add_cleanup(prog, cleanup_file_mappings, prog);
@@ -1558,7 +1559,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	return NULL;
 
 out_cleanup_dtcache:
-	drgn_program_remove_cleanup(prog, cleanup_dwarf_type_cache, dtcache);
+	drgn_program_remove_cleanup(prog, cleanup_dwarf_info_cache, dicache);
 out_cleanup_dindex:
 	drgn_program_remove_cleanup(prog, cleanup_dwarf_index, dindex);
 out_cleanup_file_segment:
@@ -1568,7 +1569,7 @@ out_cleanup_fd:
 out_program:
 	drgn_program_deinit(prog);
 out_dtcache:
-	drgn_dwarf_type_cache_destroy(dtcache);
+	drgn_dwarf_info_cache_destroy(dicache);
 out_tindex:
 	drgn_type_index_destroy(tindex);
 out_dindex:
