@@ -42,9 +42,13 @@ Programs
         Implement ``self[name]``. Get the object (variable, constant, or
         function) with the given name.
 
+        This is equivalent to ``prog.object(name, FindObjectFlags.ANY)`` except
+        that this raises :exc:`KeyError` instead of :exc:`LookupError` if no
+        objects with the given name are found.
+
         If there are multiple objects with the same name, one is returned
         arbitrarily. In this case, the :meth:`variable()`, :meth:`constant()`,
-        or :meth:`function()` methods can be used instead.
+        :meth:`function()`, or :meth:`object()` methods can be used instead.
 
         >>> prog['jiffies']
         Object(prog, 'volatile unsigned long', address=0xffffffff94c05000)
@@ -58,6 +62,9 @@ Programs
 
         >>> prog.variable('jiffies')
         Object(prog, 'volatile unsigned long', address=0xffffffff94c05000)
+
+        This is equivalent to ``prog.object(name, FindObjectFlags.VARIABLE,
+        filename)``.
 
         :param str name: The variable name.
         :param filename: The source code file that contains the definition. See
@@ -78,6 +85,9 @@ Programs
         >>> prog.constant('PIDTYPE_MAX')
         Object(prog, 'enum pid_type', value=4)
 
+        This is equivalent to ``prog.object(name, FindObjectFlags.CONSTANT,
+        filename)``.
+
         :param str name: The constant name.
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
@@ -93,12 +103,29 @@ Programs
         >>> prog.function('schedule')
         Object(prog, 'void (void)', address=0xffffffff94392370)
 
+        This is equivalent to ``prog.object(name, FindObjectFlags.FUNCTION,
+        filename)``.
+
         :param str name: The function name.
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
         :type filename: str or None
         :rtype: Object
         :raises LookupError: if no functions with the given name are found in
+            the given file
+
+    .. attribute:: object(name, flags, filename=None)
+
+        Get the object (variable, constant, or function) with the given name.
+
+        :param str name: The object name.
+        :param FindObjectFlags flags: Flags indicating what kind of object to
+            look for.
+        :param filename: The source code file that contains the definition. See
+            :ref:`api-filenames`.
+        :type filename: str or None
+        :rtype: Object
+        :raises LookupError: if no objects with the given name are found in
             the given file
 
     .. attribute:: type(name, filename=None)
@@ -155,18 +182,33 @@ Programs
 
         The program is the Linux kernel.
 
+.. class:: FindObjectFlags
+
+    ``FindObjectFlags`` is an :class:`enum.IntFlag` of flags for
+    :meth:`Program.object()`. These can be combined to search for multiple
+    kinds of objects at once.
+
+    .. attribute:: CONSTANT
+
+    .. attribute:: FUNCTION
+
+    .. attribute:: VARIABLE
+
+    .. attribute:: ANY
+
 .. _api-filenames:
 
 Filenames
 ^^^^^^^^^
 
-The :meth:`Program.type()`, :meth:`Program.variable()`,
-:meth:`Program.constant()`, and :meth:`Program.function()` methods all take a
-*filename* parameter to distinguish between multiple definitions with the same
-name. The filename refers to the source code file that contains the definition.
-``None`` matches any definition. Otherwise, the filename is matched from right
-to left, so ``'stdio.h'``, ``'include/stdio.h'``, ``'usr/include/stdio.h'``,
-and ``'/usr/include/stdio.h'`` would all match a definition in
+The :meth:`Program.type()`, :meth:`Program.object()`,
+:meth:`Program.variable()`, :meth:`Program.constant()`, and
+:meth:`Program.function()` methods all take a *filename* parameter to
+distinguish between multiple definitions with the same name. The filename
+refers to the source code file that contains the definition. ``None`` matches
+any definition. Otherwise, the filename is matched from right to left, so
+``'stdio.h'``, ``'include/stdio.h'``, ``'usr/include/stdio.h'``, and
+``'/usr/include/stdio.h'`` would all match a definition in
 ``/usr/include/stdio.h``. If multiple definitions match, one is returned
 arbitrarily.
 

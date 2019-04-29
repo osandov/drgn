@@ -15,6 +15,16 @@ extern const char drgn_FaultError_DOC[];
 #define drgn_FaultError_DOC (char *)drgn_FaultError_DOC
 extern const char drgn_FileFormatError_DOC[];
 #define drgn_FileFormatError_DOC (char *)drgn_FileFormatError_DOC
+extern const char drgn_FindObjectFlags_DOC[];
+#define drgn_FindObjectFlags_DOC (char *)drgn_FindObjectFlags_DOC
+extern const char drgn_FindObjectFlags_ANY_DOC[];
+#define drgn_FindObjectFlags_ANY_DOC (char *)drgn_FindObjectFlags_ANY_DOC
+extern const char drgn_FindObjectFlags_CONSTANT_DOC[];
+#define drgn_FindObjectFlags_CONSTANT_DOC (char *)drgn_FindObjectFlags_CONSTANT_DOC
+extern const char drgn_FindObjectFlags_FUNCTION_DOC[];
+#define drgn_FindObjectFlags_FUNCTION_DOC (char *)drgn_FindObjectFlags_FUNCTION_DOC
+extern const char drgn_FindObjectFlags_VARIABLE_DOC[];
+#define drgn_FindObjectFlags_VARIABLE_DOC (char *)drgn_FindObjectFlags_VARIABLE_DOC
 extern const char drgn_NULL_DOC[];
 #define drgn_NULL_DOC (char *)drgn_NULL_DOC
 extern const char drgn_Object_DOC[];
@@ -97,6 +107,8 @@ extern const char drgn_Program_flags_DOC[];
 #define drgn_Program_flags_DOC (char *)drgn_Program_flags_DOC
 extern const char drgn_Program_function_DOC[];
 #define drgn_Program_function_DOC (char *)drgn_Program_function_DOC
+extern const char drgn_Program_object_DOC[];
+#define drgn_Program_object_DOC (char *)drgn_Program_object_DOC
 extern const char drgn_Program_pointer_type_DOC[];
 #define drgn_Program_pointer_type_DOC (char *)drgn_Program_pointer_type_DOC
 extern const char drgn_Program_read_DOC[];

@@ -92,6 +92,7 @@ typedef struct {
 	PyObject *objects;
 } TypeIndex;
 
+extern PyObject *FindObjectFlags_class;
 extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;

@@ -43,6 +43,7 @@ be used.
 from _drgn import (
     FaultError,
     FileFormatError,
+    FindObjectFlags,
     NULL,
     Object,
     PrimitiveType,
@@ -76,6 +77,7 @@ from _drgn import (
 __all__ = [
     'FaultError',
     'FileFormatError',
+    'FindObjectFlags',
     'NULL',
     'Object',
     'PrimitiveType',

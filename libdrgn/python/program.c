@@ -215,6 +215,32 @@ static DrgnObject *Program_find_object(Program *self, const char *name,
 	return ret;
 }
 
+static DrgnObject *Program_object(Program *self, PyObject *args,
+				  PyObject *kwds)
+{
+	static char *keywords[] = {"name", "flags", "filename", NULL};
+	const char *name;
+	PyObject *flags_obj, *flags_value_obj;
+	long flags;
+	PyObject *filename_obj = NULL;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sO!|O&:object", keywords,
+					 &name, FindObjectFlags_class,
+					 &flags_obj, filename_converter,
+					 &filename_obj))
+		return NULL;
+
+	flags_value_obj = PyObject_GetAttrString(flags_obj, "value");
+	if (!flags_value_obj)
+		return NULL;
+	flags = PyLong_AsLong(flags_value_obj);
+	Py_DECREF(flags_value_obj);
+	if (flags == -1 && PyErr_Occurred())
+		return NULL;
+
+	return Program_find_object(self, name, filename_obj, flags);
+}
+
 static DrgnObject *Program_constant(Program *self, PyObject *args,
 				    PyObject *kwds)
 {
@@ -322,6 +348,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_type_DOC},
 	{"pointer_type", (PyCFunction)Program_pointer_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_pointer_type_DOC},
+	{"object", (PyCFunction)Program_object, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_object_DOC},
 	{"constant", (PyCFunction)Program_constant,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_constant_DOC},
 	{"function", (PyCFunction)Program_function,
