@@ -154,7 +154,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 			goto err_reader;
 	}
 
-	err = drgn_type_index_create(word_size, little_endian, &tindex);
+	err = drgn_type_index_create(word_size, &tindex);
 	if (err)
 		goto err_reader;
 
@@ -172,6 +172,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		goto err_sindex;
 
 	drgn_program_init(prog, reader, tindex, sindex);
+	prog->little_endian = little_endian;
 	return NULL;
 
 err_sindex:

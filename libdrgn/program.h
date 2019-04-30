@@ -82,6 +82,7 @@ struct drgn_program {
 	};
 	struct drgn_cleanup *cleanup;
 	enum drgn_program_flags flags;
+	bool little_endian;
 };
 
 /**

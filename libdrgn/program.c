@@ -43,7 +43,7 @@ LIBDRGN_PUBLIC uint8_t drgn_program_word_size(struct drgn_program *prog)
 
 LIBDRGN_PUBLIC bool drgn_program_is_little_endian(struct drgn_program *prog)
 {
-	return prog->tindex->little_endian;
+	return prog->little_endian;
 }
 
 void drgn_program_init(struct drgn_program *prog,
@@ -1332,7 +1332,6 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		goto out_dindex;
 
 	err = drgn_type_index_create(drgn_dwarf_index_word_size(dindex),
-				     drgn_dwarf_index_is_little_endian(dindex),
 				     &tindex);
 	if (err)
 		goto out_dindex;
@@ -1355,6 +1354,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		goto out_dtcache;
 
 	drgn_program_init(prog, reader, tindex, sindex);
+	prog->little_endian = drgn_dwarf_index_is_little_endian(dindex);
 	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 	if (err)
 		goto out_program;
@@ -1526,7 +1526,6 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 		goto out_dindex;
 
 	err = drgn_type_index_create(drgn_dwarf_index_word_size(dindex),
-				     drgn_dwarf_index_is_little_endian(dindex),
 				     &tindex);
 	if (err)
 		goto out_dindex;
@@ -1549,6 +1548,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 		goto out_dtcache;
 
 	drgn_program_init(prog, reader, tindex, sindex);
+	prog->little_endian = drgn_dwarf_index_is_little_endian(dindex);
 	prog->mappings = mappings;
 	prog->num_mappings = num_mappings;
 	dicache->prog = prog;

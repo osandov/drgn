@@ -128,8 +128,6 @@ struct drgn_type_index {
 	struct drgn_type_set members_cached;
 	/** Size of a pointer in bytes. */
 	uint8_t word_size;
-	/** Default endianness of types. */
-	bool little_endian;
 };
 
 /**
@@ -137,15 +135,13 @@ struct drgn_type_index {
  *
  * @param[in] tindex Type index to initialize.
  * @param[in] word_size Size of a pointer in bytes.
- * @param[in] little_endian Default endianness of types.
  */
-void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size,
-			  bool little_endian);
+void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size);
 
 /** Deinitialize a @ref drgn_type_index. */
 void drgn_type_index_deinit(struct drgn_type_index *tindex);
 
-struct drgn_error *drgn_type_index_create(uint8_t word_size, bool little_endian,
+struct drgn_error *drgn_type_index_create(uint8_t word_size,
 					  struct drgn_type_index **ret);
 
 void drgn_type_index_destroy(struct drgn_type_index *tindex);

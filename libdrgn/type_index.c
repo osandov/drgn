@@ -94,8 +94,7 @@ DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, struct drgn_member_key,
 DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, struct drgn_type *,
 			  hash_pair_ptr_type, hash_table_scalar_eq)
 
-void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size,
-			  bool little_endian)
+void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size)
 {
 	assert(word_size == 8 || word_size == 4);
 	tindex->finders = NULL;
@@ -105,7 +104,6 @@ void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size,
 	drgn_member_map_init(&tindex->members);
 	drgn_type_set_init(&tindex->members_cached);
 	tindex->word_size = word_size;
-	tindex->little_endian = little_endian;
 }
 
 static void free_pointer_types(struct drgn_type_index *tindex)
@@ -150,7 +148,7 @@ void drgn_type_index_deinit(struct drgn_type_index *tindex)
 	}
 }
 
-struct drgn_error *drgn_type_index_create(uint8_t word_size, bool little_endian,
+struct drgn_error *drgn_type_index_create(uint8_t word_size,
 					  struct drgn_type_index **ret)
 {
 	struct drgn_type_index *tindex;
@@ -158,7 +156,7 @@ struct drgn_error *drgn_type_index_create(uint8_t word_size, bool little_endian,
 	tindex = malloc(sizeof(*tindex));
 	if (!tindex)
 		return &drgn_enomem;
-	drgn_type_index_init(tindex, word_size, little_endian);
+	drgn_type_index_init(tindex, word_size);
 	*ret = tindex;
 	return NULL;
 }
