@@ -629,3 +629,5 @@ class TestType(unittest.TestCase):
                          void_type(Qualifiers.CONST))
         self.assertNotEqual(void_type(), void_type(Qualifiers.CONST))
         self.assertNotEqual(void_type(), int_type('int', 4, True))
+        self.assertNotEqual(void_type(), 1)
+        self.assertNotEqual(1, void_type())
