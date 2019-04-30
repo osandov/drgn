@@ -42,6 +42,26 @@ int append_format(PyObject *parts, const char *format, ...)
 	return ret;
 }
 
+unsigned long long index_arg(PyObject *obj, const char *msg)
+{
+	if (PyLong_Check(obj)) {
+		return PyLong_AsUnsignedLongLong(obj);
+	} else if (PyIndex_Check(obj)) {
+		PyObject *index_obj;
+		unsigned long long ret;
+
+		index_obj = PyNumber_Index(obj);
+		if (!index_obj)
+			return -1;
+		ret = PyLong_AsUnsignedLongLong(index_obj);
+		Py_DECREF(index_obj);
+		return ret;
+	} else {
+		PyErr_SetString(PyExc_TypeError, msg);
+		return -1;
+	}
+}
+
 PyObject *byteorder_string(bool little_endian)
 {
 	_Py_IDENTIFIER(little);

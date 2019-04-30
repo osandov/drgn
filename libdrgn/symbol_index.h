@@ -29,6 +29,29 @@
  * @{
  */
 
+/** Kind of symbol. */
+enum drgn_symbol_kind {
+	/**
+	 * A symbol with an address in the program. @ref drgn_symbol::address is
+	 * set to the address.
+	 */
+	DRGN_SYMBOL_ADDRESS,
+	/**
+	 * A symbol with a constant value. One of @ref drgn_symbol::svalue, @ref
+	 * drgn_symbol::uvalue, or @ref drgn_symbol::fvalue is set, depending on
+	 * @ref drgn_symbol::type.
+	 */
+	DRGN_SYMBOL_CONSTANT,
+	/**
+	 * An enumerator. No address or value is set.
+	 *
+	 * A symbol with this kind may be returned by a @ref
+	 * drgn_symbol_find_fn(), but it is always converted to a constant
+	 * before being returned by @ref drgn_symbol_index_find().
+	 */
+	DRGN_SYMBOL_ENUMERATOR,
+} __attribute__((packed));
+
 /**
  * An indexed symbol in a program.
  *
@@ -36,70 +59,97 @@
  * converted to a @ref drgn_object.
  */
 struct drgn_symbol {
-	/** The type of the symbol. */
-	struct drgn_qualified_type qualified_type;
+	/** Type of this symbol. */
+	struct drgn_type *type;
+	/** Qualifiers on @ref drgn_symbol::type. */
+	enum drgn_qualifiers qualifiers;
+	/** Kind of this symbol. */
+	enum drgn_symbol_kind kind;
 	/**
-	 * Whether the symbol is an enumerator.
+	 * Whether the symbol is little-endian.
 	 *
-	 * If this is @c true, then @ref drgn_symbol::qualified_type must be an
-	 * enumerated type, and either @ref drgn_symbol::svalue or @ref
-	 * drgn_symbol::uvalue is set (based on the signedness of @ref
-	 * drgn_symbol::qualified_type). Otherwise, @ref drgn_symbol::address is
-	 * set.
+	 * This is ignored for constants and enumerators.
 	 */
-	bool is_enumerator;
-	/** Whether the symbol is little-endian. */
 	bool little_endian;
 	union {
-		/** If not an enumerator, the address of the symbol. */
+		/**
+		 * If not a constant or enumerator, the address of the symbol.
+		 */
 		uint64_t address;
-		/** If a signed enumerator, the value. */
+		/** If a signed constant, the value. */
 		int64_t svalue;
-		/** If an unsigned enumerator, the value. */
+		/** If an unsigned constant, the value. */
 		uint64_t uvalue;
+		/** If a floating-point constant, the value. */
+		double fvalue;
 	};
 };
 
-struct drgn_symbol_index;
+/**
+ * Callback for finding a symbol.
+ *
+ * If the symbol is found, this should fill in @p ret and return @c NULL. If
+ * not, this should set <tt>ret->type</tt> to @c NULL return @c NULL.
+ *
+ * @param[in] name Name of symbol. This is @em not null-terminated.
+ * @param[in] name_len Length of @p name.
+ * @param[in] filename Filename containing the symbol definition or @c NULL.
+ * This should be matched with @ref path_ends_with().
+ * @param[in] arg Argument passed to @ref drgn_symbol_index_add_finder().
+ * @param[out] ret Returned symbol.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+typedef struct drgn_error *
+(*drgn_symbol_find_fn)(const char *name, size_t name_len, const char *filename,
+		       enum drgn_find_object_flags flags, void *arg,
+		       struct drgn_symbol *ret);
 
-/** Symbol index operations. */
-struct drgn_symbol_index_ops {
-	/** Implements @ref drgn_symbol_index_destroy(). */
-	void (*destroy)(struct drgn_symbol_index *sindex);
-	/** Implements @ref drgn_symbol_index_find(). */
-	struct drgn_error *(*find)(struct drgn_symbol_index *sindex,
-				   const char *name, const char *filename,
-				   enum drgn_find_object_flags flags,
-				   struct drgn_symbol *ret);
+/** Registered callback in a @ref drgn_symbol_index. */
+struct drgn_symbol_finder {
+	/** The callback. */
+	drgn_symbol_find_fn fn;
+	/** Argument to pass to @ref drgn_symbol_finder::fn. */
+	void *arg;
+	/** Next callback to try. */
+	struct drgn_symbol_finder *next;
 };
 
 /**
- * Abstract symbol index.
+ * Symbol index.
  *
- * A symbol index is used to find symbols (symbols and constants) by name. It is
- * usually backed by debugging information (@ref drgn_dwarf_symbol_index). It
- * can also be backed by manually-created symbols for testing (@ref
- * drgn_mock_symbol_index). It is destroyed with @ref
- * drgn_symbol_index_destroy().
- *
- * @ref drgn_symbol_index_find() searches for an symbol.
+ * A symbol index is used to find symbols (variables, constants, and functions)
+ * by name. The types are found using callbacks which are registered with @ref
+ * drgn_symbol_index_add_finder(). @ref drgn_symbol_index_find() searches for an
+ * symbol.
  */
 struct drgn_symbol_index {
-	/** Operation dispatch table. */
-	const struct drgn_symbol_index_ops *ops;
+	/** Callbacks for finding symbols. */
+	struct drgn_symbol_finder *finders;
 };
 
+/** Initialize a @ref drgn_symbol_index. */
+void drgn_symbol_index_init(struct drgn_symbol_index *sindex);
+
+/** Deinitialize a @ref drgn_symbol_index. */
+void drgn_symbol_index_deinit(struct drgn_symbol_index *sindex);
+
+struct drgn_error *drgn_symbol_index_create(struct drgn_symbol_index **ret);
+
+void drgn_symbol_index_destroy(struct drgn_symbol_index *sindex);
+
 /**
- * Free a @ref drgn_symbol_index.
+ * Register a symbol finding callback.
  *
- * @param[in] sindex Symbol index to destroy.
+ * Callbacks are called in reverse order of the order they were added in until
+ * the symbol is found. So, more recently added callbacks take precedence.
+ *
+ * @param[in] fn The callback.
+ * @param[in] arg Argument to pass to @p fn.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-static inline void
-drgn_symbol_index_destroy(struct drgn_symbol_index *sindex)
-{
-	if (sindex)
-		sindex->ops->destroy(sindex);
-}
+struct drgn_error *
+drgn_symbol_index_add_finder(struct drgn_symbol_index *sindex,
+			     drgn_symbol_find_fn fn, void *arg);
 
 /**
  * Find a symbol in a @ref drgn_symbol_index.
@@ -112,52 +162,13 @@ drgn_symbol_index_destroy(struct drgn_symbol_index *sindex)
  * @param[out] ret Returned symbol.
  * @return @c NULL on success, non-@c NULL on error.
  */
-static inline struct drgn_error *
-drgn_symbol_index_find(struct drgn_symbol_index *sindex, const char *name,
-		       const char *filename, enum drgn_find_object_flags flags,
-		       struct drgn_symbol *ret)
-{
-	if ((flags & ~DRGN_FIND_OBJECT_ANY) || !flags) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "invalid find object flags");
-	}
+struct drgn_error *drgn_symbol_index_find(struct drgn_symbol_index *sindex,
+					  const char *name,
+					  const char *filename,
+					  enum drgn_find_object_flags flags,
+					  struct drgn_symbol *ret);
 
-	return sindex->ops->find(sindex, name, filename, flags, ret);
-}
-
-/**
- * Initialize a @ref drgn_symbol with an enumerated type.
- *
- * This is a helper for implementations of @ref drgn_symbol_index_ops::find().
- *
- * @c sym->qualified_type should already be initialized. This will initialize @c
- * sym->svalue or @c sym->uvalue to the value of the enumerator with the given
- * name in that type.
- *
- * @param[in,out] sym Symbol to initialize.
- * @param[in] name Name of enumerator to find.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_symbol_from_enumerator(struct drgn_symbol *sym,
-					       const char *name);
-
-/**
- * Create a @ref drgn_error for a symbol which could not be found in a @ref
- * drgn_symbol_index.
- *
- * This is a helper for implementations of @ref drgn_symbol_index_ops::find().
- *
- * @param[in] name Name of the symbol.
- * @param[in] filename Filename that was searched in or @c NULL.
- * @param[in] flags Flags that were passed to @ref
- * drgn_symbol_index_ops::find().
- */
-struct drgn_error *
-drgn_symbol_index_not_found_error(const char *name, const char *filename,
-				  enum drgn_find_object_flags flags)
-	__attribute__((returns_nonnull));
-
-/** Symbol indexed in a @ref drgn_mock_symbol_index. */
+/** Symbol index entry for testing. */
 struct drgn_mock_symbol {
 	/** Name of the symbol. */
 	const char *name;
@@ -176,53 +187,6 @@ struct drgn_mock_symbol {
 	/** See @ref drgn_symbol::address. */
 	uint64_t address;
 };
-
-/**
- * Symbol index backed by manually-defined symbols.
- *
- * This is mostly useful for testing. It is created with @ref
- * drgn_mock_symbol_index_create().
- */
-struct drgn_mock_symbol_index {
-	/** Abstract symbol index. */
-	struct drgn_symbol_index sindex;
-	/** Indexed symbols. */
-	struct drgn_mock_symbol *symbols;
-};
-
-/**
- * Create a @ref drgn_mock_symbol_index.
- *
- * @param[in] symbols Symbols to index, terminated by an element with @ref
- * drgn_mock_symbol::name set to @c NULL. This will not be freed when the symbol
- * index is destroyed.
- * @param[out] ret Returned symbol index.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_mock_symbol_index_create(struct drgn_mock_symbol *symbols,
-			      struct drgn_mock_symbol_index **ret);
-
-struct drgn_program;
-
-/** Symbol index backed by DWARF debugging information. */
-struct drgn_dwarf_symbol_index {
-	/** Abstract symbol index. */
-	struct drgn_symbol_index sindex;
-	/** Debugging information cache. */
-	struct drgn_dwarf_info_cache *dicache;
-};
-
-/**
- * Create a @ref drgn_dwarf_symbol_index.
- *
- * @param[in] dtindex DWARF type index.
- * @param[out] ret Returned symbol index.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_dwarf_symbol_index_create(struct drgn_dwarf_info_cache *dcache,
-			       struct drgn_dwarf_symbol_index **ret);
 
 /** @} */
 

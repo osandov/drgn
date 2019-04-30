@@ -166,7 +166,7 @@ static PyObject *TypeIndex_find(TypeIndex *self, PyObject *args, PyObject *kwds)
 		set_drgn_error(err);
 		return NULL;
 	}
-	return DrgnType_wrap(qualified_type, (PyObject *)self);
+	return DrgnType_wrap(qualified_type, self->objects);
 }
 
 static PyMethodDef TypeIndex_methods[] = {

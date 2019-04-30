@@ -88,6 +88,18 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_symbol sym;
+	DrgnType *type_obj;
+} Symbol;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_symbol_index sindex;
+	PyObject *objects;
+} SymbolIndex;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_type_index tindex;
 	PyObject *objects;
 } TypeIndex;
@@ -102,6 +114,8 @@ extern PyTypeObject DrgnType_type;
 extern PyTypeObject MemoryReader_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Program_type;
+extern PyTypeObject Symbol_type;
+extern PyTypeObject SymbolIndex_type;
 extern PyTypeObject TypeIndex_type;
 extern PyObject *FaultError;
 extern PyObject *FileFormatError;
@@ -147,6 +161,7 @@ static inline int hold_drgn_type(PyObject *objects, DrgnType *type)
 
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
+unsigned long long index_arg(PyObject *obj, const char *msg);
 PyObject *byteorder_string(bool little_endian);
 int parse_byteorder(const char *s, bool *ret);
 int parse_optional_byteorder(PyObject *obj, enum drgn_byte_order *ret);
@@ -157,6 +172,8 @@ bool set_drgn_in_python(void);
 void clear_drgn_in_python(void);
 struct drgn_error *drgn_error_from_python(void);
 PyObject *set_drgn_error(struct drgn_error *err);
+void *set_error_type_name(const char *format,
+			  struct drgn_qualified_type qualified_type);
 
 static inline DrgnObject *DrgnObject_alloc(Program *prog)
 {

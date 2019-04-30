@@ -9,7 +9,6 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 dwarf_index.h \
 			 dwarf_info_cache.c \
 			 dwarf_info_cache.h \
-			 dwarf_symbol_index.c \
 			 error.c \
 			 error.h \
 			 hash_table.c \
@@ -65,6 +64,8 @@ _drgn_la_SOURCES = python/docstrings.h \
 		   python/module.c \
 		   python/object.c \
 		   python/program.c \
+		   python/symbol.c \
+		   python/symbol_index.c \
 		   python/test.c \
 		   python/type.c \
 		   python/type_index.c \

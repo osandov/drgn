@@ -116,94 +116,11 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 					const char *filename, void *arg,
 					struct drgn_qualified_type *ret);
 
-/**
- * Parse a type from a DWARF debugging information entry.
- *
- * This is the same as @ref drgn_type_from_dwarf() except that it can be used to
- * work around a bug in GCC < 9.0 that zero length array types are encoded the
- * same as incomplete array types. There are a few places where GCC allows
- * zero-length arrays but not incomplete arrays:
- *
- * - As the type of a member of a structure with only one member.
- * - As the type of a structure member other than the last member.
- * - As the type of a union member.
- * - As the element type of an array.
- *
- * In these cases, we know that what appears to be an incomplete array type must
- * actually have a length of zero. In other cases, a subrange DIE without
- * DW_AT_count or DW_AT_upper_bound is ambiguous; we return an incomplete array
- * type.
- *
- * @param[in] dicache Debugging information cache.
- * @param[in] die DIE to parse.
- * @param[in] can_be_incomplete_array Whether the type can be an incomplete
- * array type. If this is @c false and the type appears to be an incomplete
- * array type, its length is set to zero instead.
- * @param[out] is_incomplete_array_ret Whether the encoded type is an incomplete
- * array type or a typedef of an incomplete array type (regardless of @p
- * can_be_incomplete_array).
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
+/** @ref drgn_symbol_find_fn() that uses DWARF debugging information. */
 struct drgn_error *
-drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
-			      Dwarf_Die *die, bool can_be_incomplete_array,
-			      bool *is_incomplete_array_ret,
-			      struct drgn_qualified_type *ret);
-
-/**
- * Parse a type from a DWARF debugging information entry.
- *
- * @param[in] dicache Debugging information cache.
- * @param[in] die DIE to parse.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-static inline struct drgn_error *
-drgn_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
-		     struct drgn_qualified_type *ret)
-{
-	return drgn_type_from_dwarf_internal(dicache, die, true, NULL, ret);
-}
-
-/**
- * Parse a type from the @c DW_AT_type attribute of a DWARF debugging
- * information entry.
- *
- * See @ref drgn_type_from_dwarf_child() and @ref
- * drgn_type_from_dwarf_internal().
- */
-struct drgn_error *
-drgn_type_from_dwarf_child_internal(struct drgn_dwarf_info_cache *dicache,
-				    Dwarf_Die *parent_die, const char *tag_name,
-				    bool can_be_void,
-				    bool can_be_incomplete_array,
-				    bool *is_incomplete_array_ret,
-				    struct drgn_qualified_type *ret);
-
-/**
- * Parse a type from the @c DW_AT_type attribute of a DWARF debugging
- * information entry.
- *
- * @param[in] dicache Debugging information cache.
- * @param[in] parent_die Parent DIE.
- * @param[in] can_be_void Whether the @c DW_AT_type attribute may be missing,
- * which is interpreted as a void type. If this is false and the @c DW_AT_type
- * attribute is missing, an error is returned.
- * @param[in] tag_name Spelling of the DWARF tag of @p parent_die. Used for
- * error messages.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-static inline struct drgn_error *
-drgn_type_from_dwarf_child(struct drgn_dwarf_info_cache *dicache,
-			   Dwarf_Die *parent_die, const char *tag_name,
-			   bool can_be_void, struct drgn_qualified_type *ret)
-{
-	return drgn_type_from_dwarf_child_internal(dicache, parent_die,
-						   tag_name, can_be_void, true,
-						   NULL, ret);
-}
+drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
+		       enum drgn_find_object_flags flags, void *arg,
+		       struct drgn_symbol *ret);
 
 /** @} */
 

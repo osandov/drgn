@@ -76,26 +76,26 @@ static struct drgn_error *drgn_mock_type_find(enum drgn_type_kind kind,
 }
 
 static struct drgn_error *
-drgn_mock_symbol_index_find(struct drgn_symbol_index *sindex,
-			    const char *name, const char *filename,
-			    enum drgn_find_object_flags flags,
-			    struct drgn_symbol *ret)
+drgn_mock_symbol_find(const char *name, size_t name_len, const char *filename,
+		      enum drgn_find_object_flags flags, void *arg,
+		      struct drgn_symbol *ret)
 {
-	struct drgn_mock_symbol_index *msindex;
+	struct drgn_mock_symbol *symbols = arg;
 	size_t i;
 
-	msindex = container_of(sindex, struct drgn_mock_symbol_index, sindex);
-	if (!msindex->symbols)
-		goto not_found;
-	for (i = 0; msindex->symbols[i].name; i++) {
-		const struct drgn_mock_symbol *obj = &msindex->symbols[i];
+	if (!symbols) {
+		ret->type = NULL;
+		return NULL;
+	}
+	for (i = 0; symbols[i].name; i++) {
+		const struct drgn_mock_symbol *sym = &symbols[i];
 		struct drgn_type *underlying_type;
 		bool is_function;
 
-		underlying_type = drgn_underlying_type(obj->qualified_type.type);
+		underlying_type = drgn_underlying_type(sym->qualified_type.type);
 		is_function = (drgn_type_kind(underlying_type) ==
 			       DRGN_TYPE_FUNCTION);
-		if (obj->is_enumerator) {
+		if (sym->is_enumerator) {
 		    if (!(flags & DRGN_FIND_OBJECT_CONSTANT))
 			    continue;
 		} else if (is_function) {
@@ -105,51 +105,23 @@ drgn_mock_symbol_index_find(struct drgn_symbol_index *sindex,
 			    continue;
 		}
 
-		if (strcmp(obj->name, name) != 0 ||
-		    !filename_matches(obj->filename, filename))
+		if (strncmp(sym->name, name, name_len) != 0 ||
+		    sym->name[name_len] ||
+		    !filename_matches(sym->filename, filename))
 			continue;
 
-		ret->qualified_type = obj->qualified_type;
-		if (obj->is_enumerator) {
-			return drgn_symbol_from_enumerator(ret, obj->name);
+		ret->type = sym->qualified_type.type;
+		ret->qualifiers = sym->qualified_type.qualifiers;
+		if (sym->is_enumerator) {
+			ret->kind = DRGN_SYMBOL_ENUMERATOR;
 		} else {
-			ret->is_enumerator = false;
-			ret->little_endian = obj->little_endian;
-			ret->address = obj->address;
-			return NULL;
+			ret->kind = DRGN_SYMBOL_ADDRESS;
+			ret->little_endian = sym->little_endian;
+			ret->address = sym->address;
 		}
+		return NULL;
 	}
-not_found:
-	return drgn_symbol_index_not_found_error(name, filename, flags);
-}
-
-static void drgn_mock_symbol_index_destroy(struct drgn_symbol_index *sindex)
-{
-	struct drgn_mock_symbol_index *msindex;
-
-	msindex = container_of(sindex, struct drgn_mock_symbol_index, sindex);
-	free(msindex);
-}
-
-static const struct drgn_symbol_index_ops drgn_mock_symbol_index_ops = {
-	.destroy = drgn_mock_symbol_index_destroy,
-	.find = drgn_mock_symbol_index_find,
-};
-
-struct drgn_error *
-drgn_mock_symbol_index_create(struct drgn_mock_symbol *symbols,
-			      struct drgn_mock_symbol_index **ret)
-{
-	struct drgn_mock_symbol_index *msindex;
-
-	msindex = malloc(sizeof(*msindex));
-	if (!msindex)
-		return &drgn_enomem;
-
-	msindex->sindex.ops = &drgn_mock_symbol_index_ops;
-	msindex->symbols = symbols;
-
-	*ret = msindex;
+	ret->type = NULL;
 	return NULL;
 }
 
@@ -163,7 +135,7 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 	struct drgn_error *err;
 	struct drgn_memory_reader *reader;
 	struct drgn_type_index *tindex;
-	struct drgn_mock_symbol_index *msindex;
+	struct drgn_symbol_index *sindex;
 	size_t i;
 
 	err = drgn_memory_reader_create(&reader);
@@ -190,13 +162,20 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 	if (err)
 		goto err_tindex;
 
-	err = drgn_mock_symbol_index_create(symbols, &msindex);
+	err = drgn_symbol_index_create(&sindex);
 	if (err)
 		goto err_tindex;
 
-	drgn_program_init(prog, reader, tindex, &msindex->sindex);
+	err = drgn_symbol_index_add_finder(sindex, drgn_mock_symbol_find,
+					   symbols);
+	if (err)
+		goto err_sindex;
+
+	drgn_program_init(prog, reader, tindex, sindex);
 	return NULL;
 
+err_sindex:
+	drgn_symbol_index_destroy(sindex);
 err_tindex:
 	drgn_type_index_destroy(tindex);
 err_reader:

@@ -40,26 +40,6 @@ static void DrgnObject_dealloc(DrgnObject *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static unsigned long long index_arg(PyObject *obj, const char *msg)
-{
-	if (PyLong_Check(obj)) {
-		return PyLong_AsUnsignedLongLong(obj);
-	} else if (PyIndex_Check(obj)) {
-		PyObject *index_obj;
-		unsigned long long ret;
-
-		index_obj = PyNumber_Index(obj);
-		if (!index_obj)
-			return -1;
-		ret = PyLong_AsUnsignedLongLong(index_obj);
-		Py_DECREF(index_obj);
-		return ret;
-	} else {
-		PyErr_SetString(PyExc_TypeError, msg);
-		return -1;
-	}
-}
-
 static int DrgnObject_literal(struct drgn_object *res, PyObject *literal)
 {
 	struct drgn_error *err;
@@ -95,13 +75,6 @@ static int DrgnObject_literal(struct drgn_object *res, PyObject *literal)
 		return -1;
 	}
 	return 0;
-}
-
-static void *set_error_type_name(const char *format,
-				 struct drgn_qualified_type qualified_type)
-{
-	set_drgn_error(drgn_qualified_type_error(format, qualified_type));
-	return NULL;
 }
 
 static int serialize_py_object(struct drgn_program *prog, char *buf,
@@ -1041,7 +1014,7 @@ static Program *DrgnObject_get_prog(DrgnObject *self, void *arg)
 static PyObject *DrgnObject_get_type(DrgnObject *self, void *arg)
 {
 	return DrgnType_wrap(drgn_object_qualified_type(&self->obj),
-			     (PyObject *)DrgnObject_prog(self));
+			     DrgnObject_prog(self)->objects);
 }
 
 static PyObject *DrgnObject_get_address(DrgnObject *self, void *arg)

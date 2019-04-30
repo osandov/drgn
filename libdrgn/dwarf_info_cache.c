@@ -10,6 +10,7 @@
 #include "dwarf_index.h"
 #include "dwarf_info_cache.h"
 #include "hash_table.h"
+#include "symbol_index.h"
 #include "type_index.h"
 
 #if !_ELFUTILS_PREREQ(0, 162)
@@ -93,6 +94,56 @@ static int dwarf_flag(Dwarf_Die *die, unsigned int name, bool *ret)
 	return dwarf_formflag(attr, ret);
 }
 
+/**
+ * Parse a type from a DWARF debugging information entry.
+ *
+ * This is the same as @ref drgn_type_from_dwarf() except that it can be used to
+ * work around a bug in GCC < 9.0 that zero length array types are encoded the
+ * same as incomplete array types. There are a few places where GCC allows
+ * zero-length arrays but not incomplete arrays:
+ *
+ * - As the type of a member of a structure with only one member.
+ * - As the type of a structure member other than the last member.
+ * - As the type of a union member.
+ * - As the element type of an array.
+ *
+ * In these cases, we know that what appears to be an incomplete array type must
+ * actually have a length of zero. In other cases, a subrange DIE without
+ * DW_AT_count or DW_AT_upper_bound is ambiguous; we return an incomplete array
+ * type.
+ *
+ * @param[in] dicache Debugging information cache.
+ * @param[in] die DIE to parse.
+ * @param[in] can_be_incomplete_array Whether the type can be an incomplete
+ * array type. If this is @c false and the type appears to be an incomplete
+ * array type, its length is set to zero instead.
+ * @param[out] is_incomplete_array_ret Whether the encoded type is an incomplete
+ * array type or a typedef of an incomplete array type (regardless of @p
+ * can_be_incomplete_array).
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+static struct drgn_error *
+drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
+			      Dwarf_Die *die, bool can_be_incomplete_array,
+			      bool *is_incomplete_array_ret,
+			      struct drgn_qualified_type *ret);
+
+/**
+ * Parse a type from a DWARF debugging information entry.
+ *
+ * @param[in] dicache Debugging information cache.
+ * @param[in] die DIE to parse.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+static inline struct drgn_error *
+drgn_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
+		     struct drgn_qualified_type *ret)
+{
+	return drgn_type_from_dwarf_internal(dicache, die, true, NULL, ret);
+}
+
 static struct drgn_error *
 drgn_type_from_dwarf_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
 				       struct drgn_qualified_type *ret)
@@ -150,6 +201,13 @@ drgn_lazy_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	return NULL;
 }
 
+/**
+ * Parse a type from the @c DW_AT_type attribute of a DWARF debugging
+ * information entry.
+ *
+ * See @ref drgn_type_from_dwarf_child() and @ref
+ * drgn_type_from_dwarf_internal().
+ */
 struct drgn_error *
 drgn_type_from_dwarf_child_internal(struct drgn_dwarf_info_cache *dicache,
 				    Dwarf_Die *parent_die, const char *tag_name,
@@ -182,6 +240,30 @@ drgn_type_from_dwarf_child_internal(struct drgn_dwarf_info_cache *dicache,
 	return drgn_type_from_dwarf_internal(dicache, &type_die,
 					     can_be_incomplete_array,
 					     is_incomplete_array_ret, ret);
+}
+
+/**
+ * Parse a type from the @c DW_AT_type attribute of a DWARF debugging
+ * information entry.
+ *
+ * @param[in] dicache Debugging information cache.
+ * @param[in] parent_die Parent DIE.
+ * @param[in] can_be_void Whether the @c DW_AT_type attribute may be missing,
+ * which is interpreted as a void type. If this is false and the @c DW_AT_type
+ * attribute is missing, an error is returned.
+ * @param[in] tag_name Spelling of the DWARF tag of @p parent_die. Used for
+ * error messages.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+static inline struct drgn_error *
+drgn_type_from_dwarf_child(struct drgn_dwarf_info_cache *dicache,
+			   Dwarf_Die *parent_die, const char *tag_name,
+			   bool can_be_void, struct drgn_qualified_type *ret)
+{
+	return drgn_type_from_dwarf_child_internal(dicache, parent_die,
+						   tag_name, can_be_void, true,
+						   NULL, ret);
 }
 
 static struct drgn_error *
@@ -1139,7 +1221,7 @@ err:
 	return err;
 }
 
-struct drgn_error *
+static struct drgn_error *
 drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
 			      Dwarf_Die *die, bool can_be_incomplete_array,
 			      bool *is_incomplete_array_ret,
@@ -1320,6 +1402,133 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 			 */
 			if (drgn_type_kind(ret->type) == kind)
 				return NULL;
+		}
+	}
+	if (err && err->code != DRGN_ERROR_STOP)
+		return err;
+	ret->type = NULL;
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
+				  Dwarf_Die *die, const char *name,
+				  struct drgn_symbol *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	Dwarf_Addr low_pc;
+
+	err = drgn_type_from_dwarf(dicache, die, &qualified_type);
+	if (err)
+		return err;
+	ret->type = qualified_type.type;
+	ret->qualifiers = qualified_type.qualifiers;
+
+	ret->kind = DRGN_SYMBOL_ADDRESS;
+	if (dwarf_lowpc(die, &low_pc) == -1) {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "could not find address of '%s'",
+					 name);
+	}
+	ret->address = low_pc;
+	ret->little_endian = dwarf_die_is_little_endian(die);
+	if (dicache->relocation_hook) {
+		err = dicache->relocation_hook(dicache->prog, name, die, ret);
+		if (err)
+			return err;
+	}
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_symbol_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
+				Dwarf_Die *die, const char *name,
+				struct drgn_symbol *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	Dwarf_Attribute attr_mem;
+	Dwarf_Attribute *attr;
+	Dwarf_Op *loc;
+	size_t nloc;
+
+	err = drgn_type_from_dwarf_child(dicache, die, "DW_TAG_variable", true,
+					 &qualified_type);
+	if (err)
+		return err;
+	ret->type = qualified_type.type;
+	ret->qualifiers = qualified_type.qualifiers;
+
+	ret->kind = DRGN_SYMBOL_ADDRESS;
+	if (!(attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "could not find address of '%s'",
+					 name);
+	}
+	if (dwarf_getlocation(attr, &loc, &nloc))
+		return drgn_error_libdw();
+
+	if (nloc != 1 || loc[0].atom != DW_OP_addr) {
+		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
+					 "DW_AT_location has unimplemented operation");
+	}
+	ret->address = loc[0].number;
+	ret->little_endian = dwarf_die_is_little_endian(die);
+	if (dicache->relocation_hook) {
+		err = dicache->relocation_hook(dicache->prog, name, die, ret);
+		if (err)
+			return err;
+	}
+	return NULL;
+}
+
+struct drgn_error *
+drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
+		       enum drgn_find_object_flags flags, void *arg,
+		       struct drgn_symbol *ret)
+{
+	struct drgn_error *err;
+	struct drgn_dwarf_info_cache *dicache = arg;
+	uint64_t tags[3];
+	size_t num_tags;
+	struct drgn_dwarf_index_iterator it;
+	Dwarf_Die die;
+
+	num_tags = 0;
+	if (flags & DRGN_FIND_OBJECT_CONSTANT)
+		tags[num_tags++] = DW_TAG_enumerator;
+	if (flags & DRGN_FIND_OBJECT_FUNCTION)
+		tags[num_tags++] = DW_TAG_subprogram;
+	if (flags & DRGN_FIND_OBJECT_VARIABLE)
+		tags[num_tags++] = DW_TAG_variable;
+
+	drgn_dwarf_index_iterator_init(&it, dicache->dindex, name, strlen(name),
+				       tags, num_tags);
+	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
+		if (!die_matches_filename(&die, filename))
+			continue;
+		switch (dwarf_tag(&die)) {
+		case DW_TAG_enumeration_type: {
+			struct drgn_qualified_type qualified_type;
+
+			ret->kind = DRGN_SYMBOL_ENUMERATOR;
+			err = drgn_type_from_dwarf(dicache, &die,
+						   &qualified_type);
+			if (err)
+				return err;
+			ret->type = qualified_type.type;
+			ret->qualifiers = qualified_type.qualifiers;
+			return NULL;
+		}
+		case DW_TAG_subprogram:
+			return drgn_symbol_from_dwarf_subprogram(dicache, &die,
+								 name, ret);
+		case DW_TAG_variable:
+			return drgn_symbol_from_dwarf_variable(dicache, &die,
+							       name, ret);
+		default:
+			DRGN_UNREACHABLE();
 		}
 	}
 	if (err && err->code != DRGN_ERROR_STOP)
