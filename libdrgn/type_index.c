@@ -94,16 +94,15 @@ DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, struct drgn_member_key,
 DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, struct drgn_type *,
 			  hash_pair_ptr_type, hash_table_scalar_eq)
 
-void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size)
+void drgn_type_index_init(struct drgn_type_index *tindex)
 {
-	assert(word_size == 8 || word_size == 4);
 	tindex->finders = NULL;
 	memset(tindex->primitive_types, 0, sizeof(tindex->primitive_types));
 	drgn_pointer_type_set_init(&tindex->pointer_types);
 	drgn_array_type_set_init(&tindex->array_types);
 	drgn_member_map_init(&tindex->members);
 	drgn_type_set_init(&tindex->members_cached);
-	tindex->word_size = word_size;
+	tindex->word_size = 0;
 }
 
 static void free_pointer_types(struct drgn_type_index *tindex)
@@ -156,7 +155,8 @@ struct drgn_error *drgn_type_index_create(uint8_t word_size,
 	tindex = malloc(sizeof(*tindex));
 	if (!tindex)
 		return &drgn_enomem;
-	drgn_type_index_init(tindex, word_size);
+	drgn_type_index_init(tindex);
+	tindex->word_size = word_size;
 	*ret = tindex;
 	return NULL;
 }
@@ -348,16 +348,34 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 		}
 	}
 
-	if (tindex->word_size == 4 && type == DRGN_C_TYPE_LONG)
-		*ret = &default_primitive_types_32bit[0];
-	else if (tindex->word_size == 4 && type == DRGN_C_TYPE_UNSIGNED_LONG)
-		*ret = &default_primitive_types_32bit[1];
-	else if (tindex->word_size == 4 && type == DRGN_C_TYPE_SIZE_T)
-		*ret = &default_primitive_types_32bit[2];
-	else if (tindex->word_size == 4 && type == DRGN_C_TYPE_PTRDIFF_T)
-		*ret = &default_primitive_types_32bit[3];
+	switch (type) {
+	case DRGN_C_TYPE_LONG:
+		i = 0;
+		break;
+	case DRGN_C_TYPE_UNSIGNED_LONG:
+		i = 1;
+		break;
+	case DRGN_C_TYPE_SIZE_T:
+		i = 2;
+		break;
+	case DRGN_C_TYPE_PTRDIFF_T:
+		i = 3;
+		break;
+	default:
+		*ret = &default_primitive_types[type];
+		goto out;
+	}
+
+	if (!tindex->word_size) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "word size has not been set");
+	}
+
+	if (tindex->word_size == 4)
+		*ret = &default_primitive_types_32bit[i];
 	else
 		*ret = &default_primitive_types[type];
+
 out:
 	tindex->primitive_types[type] = *ret;
 	return NULL;
@@ -400,6 +418,11 @@ drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 	struct drgn_type key, *type = &key;
 	struct drgn_pointer_type_set_pos pos;
 	struct hash_pair hp;
+
+	if (!tindex->word_size) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "word size has not been set");
+	}
 
 	drgn_pointer_type_init(type, tindex->word_size, referenced_type);
 	hp = drgn_pointer_type_set_hash(&type);

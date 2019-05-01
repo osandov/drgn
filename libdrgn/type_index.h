@@ -126,7 +126,11 @@ struct drgn_type_index {
 	 * drgn_type_index::members.
 	 */
 	struct drgn_type_set members_cached;
-	/** Size of a pointer in bytes. */
+	/**
+	 * Size of a pointer in bytes.
+	 *
+	 * This is zero if it has not been set yet.
+	 */
 	uint8_t word_size;
 };
 
@@ -134,9 +138,8 @@ struct drgn_type_index {
  * Initialize a @ref drgn_type_index.
  *
  * @param[in] tindex Type index to initialize.
- * @param[in] word_size Size of a pointer in bytes.
  */
-void drgn_type_index_init(struct drgn_type_index *tindex, uint8_t word_size);
+void drgn_type_index_init(struct drgn_type_index *tindex);
 
 /** Deinitialize a @ref drgn_type_index. */
 void drgn_type_index_deinit(struct drgn_type_index *tindex);

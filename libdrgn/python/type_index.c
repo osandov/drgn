@@ -28,7 +28,8 @@ static int TypeIndex_init(TypeIndex *self, PyObject *args, PyObject *kwds)
 	}
 	if (self->tindex.word_size)
 		drgn_type_index_deinit(&self->tindex);
-	drgn_type_index_init(&self->tindex, word_size);
+	drgn_type_index_init(&self->tindex);
+	self->tindex.word_size = word_size;
 	return 0;
 }
 
