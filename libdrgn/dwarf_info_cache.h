@@ -57,10 +57,8 @@ struct drgn_symbol;
  * drgn_dwarf_symbol_find().
  */
 struct drgn_dwarf_info_cache {
-	/** Type index. */
-	struct drgn_type_index *tindex;
 	/** Index of DWARF debugging information. */
-	struct drgn_dwarf_index *dindex;
+	struct drgn_dwarf_index dindex;
 	/**
 	 * Cache of parsed types.
 	 *
@@ -77,6 +75,8 @@ struct drgn_dwarf_info_cache {
 	struct dwarf_type_map cant_be_incomplete_array_map;
 	/** Current parsing recursion depth. */
 	int depth;
+	/** Type index. */
+	struct drgn_type_index *tindex;
 	/** Program to pass to @c relocation_hook(). */
 	struct drgn_program *prog;
 	/**
@@ -104,7 +104,6 @@ struct drgn_dwarf_info_cache {
 /** Create a @ref drgn_dwarf_info_cache. */
 struct drgn_error *
 drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
-			     struct drgn_dwarf_index *dindex,
 			     struct drgn_dwarf_info_cache **ret);
 
 /** Destroy a @ref drgn_dwarf_info_cache. */

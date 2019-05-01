@@ -362,8 +362,8 @@ drgn_dwarf_info_cache_find_complete(struct drgn_dwarf_info_cache *dicache,
 	Dwarf_Die die;
 	struct drgn_qualified_type qualified_type;
 
-	drgn_dwarf_index_iterator_init(&it, dicache->dindex, name, strlen(name),
-				       &tag, 1);
+	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name,
+				       strlen(name), &tag, 1);
 	/*
 	 * Find a matching DIE. Note that drgn_dwarf_index does not contain DIEs
 	 * with DW_AT_declaration, so this will always be a complete type.
@@ -1389,7 +1389,7 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 		DRGN_UNREACHABLE();
 	}
 
-	drgn_dwarf_index_iterator_init(&it, dicache->dindex, name, name_len,
+	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name, name_len,
 				       &tag, 1);
 	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
 		if (die_matches_filename(&die, filename)) {
@@ -1503,8 +1503,8 @@ drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
 	if (flags & DRGN_FIND_OBJECT_VARIABLE)
 		tags[num_tags++] = DW_TAG_variable;
 
-	drgn_dwarf_index_iterator_init(&it, dicache->dindex, name, strlen(name),
-				       tags, num_tags);
+	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name,
+				       strlen(name), tags, num_tags);
 	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
 		if (!die_matches_filename(&die, filename))
 			continue;
@@ -1539,19 +1539,27 @@ drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
 
 struct drgn_error *
 drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
-			     struct drgn_dwarf_index *dindex,
 			     struct drgn_dwarf_info_cache **ret)
 {
+	struct drgn_error *err;
 	struct drgn_dwarf_info_cache *dicache;
 
 	dicache = malloc(sizeof(*dicache));
 	if (!dicache)
 		return &drgn_enomem;
-	dicache->tindex = tindex;
+	err = drgn_dwarf_index_init(&dicache->dindex,
+				    DRGN_DWARF_INDEX_TYPES |
+				    DRGN_DWARF_INDEX_VARIABLES |
+				    DRGN_DWARF_INDEX_ENUMERATORS |
+				    DRGN_DWARF_INDEX_FUNCTIONS);
+	if (err) {
+		free(dicache);
+		return err;
+	}
 	dwarf_type_map_init(&dicache->map);
 	dwarf_type_map_init(&dicache->cant_be_incomplete_array_map);
-	dicache->dindex = dindex;
 	dicache->depth = 0;
+	dicache->tindex = tindex;
 	dicache->prog = NULL;
 	dicache->relocation_hook = NULL;
 	*ret = dicache;
@@ -1571,5 +1579,6 @@ void drgn_dwarf_info_cache_destroy(struct drgn_dwarf_info_cache *dicache)
 		drgn_dwarf_type_free(&pos.item->value);
 	dwarf_type_map_deinit(&dicache->cant_be_incomplete_array_map);
 	dwarf_type_map_deinit(&dicache->map);
+	drgn_dwarf_index_deinit(&dicache->dindex);
 	free(dicache);
 }

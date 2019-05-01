@@ -14,10 +14,12 @@
 
 #include <elfutils/libdw.h>
 #include <libelf.h>
+#include <omp.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "drgn.h"
+#include "hash_table.h"
 
 /**
  * @ingroup Internals
@@ -41,30 +43,8 @@
  * @{
  */
 
-/**
- * @struct drgn_dwarf_index
- *
- * Fast index of DWARF debugging information.
- *
- * This interface indexes DWARF debugging information by name and tag,
- * deduplicating information which exists in multiple compilation units or
- * files. It is much faster for this task than other generic DWARF parsing
- * libraries.
- *
- * A new DWARF index is created by @ref drgn_dwarf_index_create(). It is freed
- * by @ref drgn_dwarf_index_destroy().
- *
- * Indexing happens in two steps: the files to index are opened using @ref
- * drgn_dwarf_index_open(), then they all are parsed and indexed by @ref
- * drgn_dwarf_index_update(). The update step is parallelized across CPUs, so it
- * is most efficient to open as many files as possible before indexing them all
- * at once in parallel.
- *
- * Searches in the index are done with a @ref drgn_dwarf_index_iterator.
- */
-struct drgn_dwarf_index;
-
-enum {
+/** Flags for a @ref drgn_dwarf_index_flags. */
+enum drgn_dwarf_index_flags {
 	/**
 	 * Index global type information. This excludes incomplete types (i.e.,
 	 * types with @c DW_AT_declaration).
@@ -83,27 +63,75 @@ enum {
 	DRGN_DWARF_INDEX_ALL = (1 << 4) - 1,
 };
 
-/**
- * Allocate a new, empty DWARF index.
- *
- * @param[in] flags Bitmask of <tt>DRGN_DWARF_INDEX_*</tt> flags indicating what
- * to index.
- * @param[out] ret Returned index.
- * @return @c NULL on success or non-@c NULL on error, in which case the
- * contents of @c dindex are undefined.
- */
-struct drgn_error *drgn_dwarf_index_create(int flags,
-					   struct drgn_dwarf_index **ret);
+struct drgn_dwarf_index_die;
+struct drgn_dwarf_index_file;
+
+DEFINE_HASH_MAP_TYPES(drgn_dwarf_index_file_map, const char *,
+		      struct drgn_dwarf_index_file *)
+
+DEFINE_HASH_MAP_TYPES(drgn_dwarf_index_die_map, struct string, size_t)
+
+struct drgn_dwarf_index_shard {
+	/** @privatesection */
+	omp_lock_t lock;
+	struct drgn_dwarf_index_die_map map;
+	/*
+	 * We store all entries in a shard as a single array, which is more
+	 * cache friendly.
+	 */
+	struct drgn_dwarf_index_die *dies;
+	size_t num_entries, entries_capacity;
+};
+
+#define DRGN_DWARF_INDEX_SHARD_BITS 8
 
 /**
- * Free all of the resources used by a DWARF index.
+ * Fast index of DWARF debugging information.
+ *
+ * This interface indexes DWARF debugging information by name and tag,
+ * deduplicating information which exists in multiple compilation units or
+ * files. It is much faster for this task than other generic DWARF parsing
+ * libraries.
+ *
+ * A new DWARF index is created by @ref drgn_dwarf_index_create(). It is freed
+ * by @ref drgn_dwarf_index_destroy().
+ *
+ * Indexing happens in two steps: the files to index are opened using @ref
+ * drgn_dwarf_index_open(), then they all are parsed and indexed by @ref
+ * drgn_dwarf_index_update(). The update step is parallelized across CPUs, so it
+ * is most efficient to open as many files as possible before indexing them all
+ * at once in parallel.
+ *
+ * Searches in the index are done with a @ref drgn_dwarf_index_iterator.
+ */
+struct drgn_dwarf_index {
+	/** @privatesection */
+	/* DRGN_DWARF_INDEX_* flags passed to drgn_dwarf_index_create(). */
+	enum drgn_dwarf_index_flags flags;
+	struct drgn_dwarf_index_file_map files;
+	struct drgn_dwarf_index_file *opened_first, *opened_last;
+	struct drgn_dwarf_index_file *indexed_first, *indexed_last;
+	/* The index is sharded to reduce lock contention. */
+	struct drgn_dwarf_index_shard shards[1 << DRGN_DWARF_INDEX_SHARD_BITS];
+};
+
+/**
+ * Initialize a @ref drgn_dwarf_index.
+ *
+ * @param[in] flags Bitmask of @ref drgn_dwarf_index_flags indicating what to
+ * index.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
+					 enum drgn_dwarf_index_flags flags);
+
+/**
+ * Deinitialize a @ref drgn_dwarf_index.
  *
  * After this is called, anything belonging to the index should no longer be
  * accessed.
- *
- * @param[in] dindex Index to free.
  */
-void drgn_dwarf_index_destroy(struct drgn_dwarf_index *dindex);
+void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex);
 
 /**
  * Open a file and add it to a DWARF index.
