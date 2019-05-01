@@ -851,7 +851,7 @@ struct drgn_object;
  */
 struct drgn_program;
 
-/** Flags which apply tho a @ref drgn_program. */
+/** Flags which apply to a @ref drgn_program. */
 enum drgn_program_flags {
 	/** The program is the Linux kernel. */
 	DRGN_PROGRAM_IS_LINUX_KERNEL = (1 << 0),

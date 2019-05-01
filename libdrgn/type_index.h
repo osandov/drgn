@@ -144,11 +144,6 @@ void drgn_type_index_init(struct drgn_type_index *tindex);
 /** Deinitialize a @ref drgn_type_index. */
 void drgn_type_index_deinit(struct drgn_type_index *tindex);
 
-struct drgn_error *drgn_type_index_create(uint8_t word_size,
-					  struct drgn_type_index **ret);
-
-void drgn_type_index_destroy(struct drgn_type_index *tindex);
-
 /**
  * Register a type finding callback.
  *

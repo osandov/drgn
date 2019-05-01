@@ -970,7 +970,7 @@ c_pretty_print_pointer_object(const struct drgn_object *obj,
 	    one_line_columns = 0;
 
 	if (is_c_string) {
-		err = c_pretty_print_string(obj->prog->reader, uvalue,
+		err = c_pretty_print_string(&obj->prog->reader, uvalue,
 					    UINT64_MAX, sb);
 	} else {
 		struct drgn_object dereferenced;
@@ -1027,7 +1027,7 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 
 	if (length && is_character_type(element_type.type)) {
 		if (obj->is_reference) {
-			return c_pretty_print_string(obj->prog->reader,
+			return c_pretty_print_string(&obj->prog->reader,
 						     obj->reference.address,
 						     length, sb);
 		} else {
@@ -2274,7 +2274,7 @@ static struct drgn_error *c_bit_offset(struct drgn_program *prog,
 				struct drgn_member_value *member;
 				struct drgn_qualified_type member_type;
 
-				err = drgn_type_index_find_member(prog->tindex,
+				err = drgn_type_index_find_member(&prog->tindex,
 								  type,
 								  token.value,
 								  token.len,
@@ -2401,7 +2401,7 @@ static struct drgn_error *c_integer_literal(struct drgn_object *res,
 
 	qualified_type.qualifiers = 0;
 	for (i = 0; i < ARRAY_SIZE(types); i++) {
-		err = drgn_type_index_find_primitive(res->prog->tindex,
+		err = drgn_type_index_find_primitive(&res->prog->tindex,
 						     types[i],
 						     &qualified_type.type);
 		if (err)
@@ -2427,7 +2427,7 @@ static struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
 
-	err = drgn_type_index_find_primitive(res->prog->tindex,
+	err = drgn_type_index_find_primitive(&res->prog->tindex,
 					     DRGN_C_TYPE_INT,
 					     &qualified_type.type);
 	if (err)
@@ -2442,7 +2442,7 @@ static struct drgn_error *c_float_literal(struct drgn_object *res,
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
 
-	err = drgn_type_index_find_primitive(res->prog->tindex,
+	err = drgn_type_index_find_primitive(&res->prog->tindex,
 					     DRGN_C_TYPE_DOUBLE,
 					     &qualified_type.type);
 	if (err)
@@ -2829,7 +2829,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	*type_ret = drgn_object_type(obj);
 	switch (drgn_type_kind(type_ret->underlying_type)) {
 	case DRGN_TYPE_ARRAY:
-		err = drgn_type_index_pointer_type(obj->prog->tindex,
+		err = drgn_type_index_pointer_type(&obj->prog->tindex,
 						   drgn_type_type(type_ret->underlying_type),
 						   &type_ret->type);
 		if (err)
@@ -2842,7 +2842,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			.qualifiers = type_ret->qualifiers,
 		};
 
-		err = drgn_type_index_pointer_type(obj->prog->tindex,
+		err = drgn_type_index_pointer_type(&obj->prog->tindex,
 						   function_type,
 						   &type_ret->type);
 		if (err)
@@ -2949,7 +2949,7 @@ static struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(lhs->prog->tindex, &lhs_type,
+		err = c_common_real_type(&lhs->prog->tindex, &lhs_type,
 					 &rhs_type, &type);
 		if (err)
 			return err;
@@ -2991,7 +2991,7 @@ static struct drgn_error *c_op_add(struct drgn_object *res,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(lhs->prog->tindex, &lhs_type,
+		err = c_common_real_type(&lhs->prog->tindex, &lhs_type,
 					 &rhs_type, &type);
 		if (err)
 			return err;
@@ -3022,7 +3022,7 @@ static struct drgn_error *c_op_sub(struct drgn_object *res,
 	if (lhs_pointer && rhs_pointer) {
 		struct drgn_object_type type = {};
 
-		err = drgn_type_index_find_primitive(lhs->prog->tindex,
+		err = drgn_type_index_find_primitive(&lhs->prog->tindex,
 						     DRGN_C_TYPE_PTRDIFF_T,
 						     &type.type);
 		if (err)
@@ -3043,8 +3043,8 @@ static struct drgn_error *c_op_sub(struct drgn_object *res,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(lhs->prog->tindex, &lhs_type, &rhs_type,
-					 &type);
+		err = c_common_real_type(&lhs->prog->tindex, &lhs_type,
+					 &rhs_type, &type);
 		if (err)
 			return err;
 
@@ -3074,7 +3074,7 @@ static struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
 		return drgn_error_binary_op("binary "#op, &lhs_type,		\
 					    &rhs_type);				\
 										\
-	err = c_common_real_type(lhs->prog->tindex, &lhs_type, &rhs_type,	\
+	err = c_common_real_type(&lhs->prog->tindex, &lhs_type, &rhs_type,	\
 				 &type);					\
 	if (err)								\
 		return err;							\
@@ -3108,10 +3108,10 @@ static struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
 		return drgn_error_binary_op("binary " #op, &lhs_type,		\
 					    &rhs_type);				\
 										\
-	err = c_integer_promotions(lhs->prog->tindex, &lhs_type);		\
+	err = c_integer_promotions(&lhs->prog->tindex, &lhs_type);		\
 	if (err)								\
 		return err;							\
-	err = c_integer_promotions(lhs->prog->tindex, &rhs_type);		\
+	err = c_integer_promotions(&lhs->prog->tindex, &rhs_type);		\
 	if (err)								\
 		return err;							\
 										\
@@ -3134,7 +3134,7 @@ static struct drgn_error *c_op_##op_name(struct drgn_object *res,	\
 	if (!drgn_type_is_##check(type.underlying_type))		\
 		return drgn_error_unary_op("unary " #op, &type);	\
 									\
-	err = c_integer_promotions(obj->prog->tindex, &type);		\
+	err = c_integer_promotions(&obj->prog->tindex, &type);		\
 	if (err)							\
 		return err;						\
 									\

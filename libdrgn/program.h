@@ -70,47 +70,23 @@ struct drgn_cleanup {
 
 struct drgn_program {
 	/** @privatesection */
-	struct drgn_memory_reader *reader;
-	struct drgn_type_index *tindex;
-	struct drgn_symbol_index *sindex;
-	union {
-		struct vmcoreinfo vmcoreinfo;
-		struct {
-			struct file_mapping *mappings;
-			size_t num_mappings;
-		};
+	struct drgn_memory_reader reader;
+	struct drgn_type_index tindex;
+	struct drgn_symbol_index sindex;
+	struct vmcoreinfo vmcoreinfo;
+	struct {
+		struct file_mapping *mappings;
+		size_t num_mappings;
 	};
 	struct drgn_cleanup *cleanup;
 	enum drgn_program_flags flags;
 	bool little_endian;
 };
 
-/**
- * Initialize the common part of a @ref drgn_program.
- *
- * This should only be called by @ref drgn_program initializers.
- *
- * @param[in] prog Program to initialize.
- * @param[in] reader Memory reader to use.
- * @param[in] tindex Type index to use.
- * @param[in] sindex Symbol index to use.
- * anything else is deinitialized.
- */
-void drgn_program_init(struct drgn_program *prog,
-		       struct drgn_memory_reader *reader,
-		       struct drgn_type_index *tindex,
-		       struct drgn_symbol_index *sindex);
+/** Initialize a @ref drgn_program. */
+void drgn_program_init(struct drgn_program *prog);
 
-/**
- * Deinitialize a @ref drgn_program.
- *
- * This should only be used if the program was created directly with
- * <tt>drgn_program_init_*</tt>. If the program was created with
- * <tt>drgn_program_from_*</tt>, this shouldn't be used, as it is called by @ref
- * drgn_program_destroy().
- *
- * @param[in] prog Program to deinitialize.
- */
+/** Deinitialize a @ref drgn_program. */
 void drgn_program_deinit(struct drgn_program *prog);
 
 /**

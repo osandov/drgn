@@ -133,53 +133,36 @@ drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
 		       struct drgn_mock_symbol *symbols)
 {
 	struct drgn_error *err;
-	struct drgn_memory_reader *reader;
-	struct drgn_type_index *tindex;
-	struct drgn_symbol_index *sindex;
 	size_t i;
 
-	err = drgn_memory_reader_create(&reader);
-	if (err)
-		return err;
+	drgn_program_init(prog);
+	prog->tindex.word_size = word_size;
+	prog->little_endian = little_endian;
 
 	for (i = 0; i < num_segments; i++) {
 		struct drgn_mock_memory_segment *segment = &segments[i];
 
-		err = drgn_memory_reader_add_segment(reader, segment->virt_addr,
+		err = drgn_memory_reader_add_segment(&prog->reader,
+						     segment->virt_addr,
 						     segment->phys_addr,
 						     segment->size,
 						     drgn_mock_memory_read,
 						     (void *)segment->buf);
 		if (err)
-			goto err_reader;
+			goto err;
 	}
-
-	err = drgn_type_index_create(word_size, &tindex);
+	err = drgn_type_index_add_finder(&prog->tindex, drgn_mock_type_find,
+					 types);
 	if (err)
-		goto err_reader;
-
-	err = drgn_type_index_add_finder(tindex, drgn_mock_type_find, types);
-	if (err)
-		goto err_tindex;
-
-	err = drgn_symbol_index_create(&sindex);
-	if (err)
-		goto err_tindex;
-
-	err = drgn_symbol_index_add_finder(sindex, drgn_mock_symbol_find,
+		goto err;
+	err = drgn_symbol_index_add_finder(&prog->sindex, drgn_mock_symbol_find,
 					   symbols);
 	if (err)
-		goto err_sindex;
+		goto err;
 
-	drgn_program_init(prog, reader, tindex, sindex);
-	prog->little_endian = little_endian;
 	return NULL;
 
-err_sindex:
-	drgn_symbol_index_destroy(sindex);
-err_tindex:
-	drgn_type_index_destroy(tindex);
-err_reader:
-	drgn_memory_reader_destroy(reader);
+err:
+	drgn_program_deinit(prog);
 	return err;
 }

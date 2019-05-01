@@ -182,7 +182,7 @@ static PyObject *Program_pointer_type(Program *self, PyObject *args,
 			     &referenced_type) == -1)
 		return NULL;
 
-	err = drgn_type_index_pointer_type(self->prog.tindex, referenced_type,
+	err = drgn_type_index_pointer_type(&self->prog.tindex, referenced_type,
 					   &qualified_type.type);
 	if (err) {
 		set_drgn_error(err);

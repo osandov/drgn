@@ -92,10 +92,6 @@ void drgn_memory_reader_init(struct drgn_memory_reader *reader);
 /** Deinitialize a @ref drgn_memory_reader. */
 void drgn_memory_reader_deinit(struct drgn_memory_reader *reader);
 
-struct drgn_error *drgn_memory_reader_create(struct drgn_memory_reader **ret);
-
-void drgn_memory_reader_destroy(struct drgn_memory_reader *reader);
-
 /**
  * Register a segment of memory in a @ref drgn_memory_reader.
  *

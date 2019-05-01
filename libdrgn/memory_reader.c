@@ -19,24 +19,6 @@ void drgn_memory_reader_deinit(struct drgn_memory_reader *reader)
 	free(reader->segments);
 }
 
-struct drgn_error *drgn_memory_reader_create(struct drgn_memory_reader **ret)
-{
-	struct drgn_memory_reader *reader;
-
-	reader = malloc(sizeof(*reader));
-	if (!reader)
-		return &drgn_enomem;
-	drgn_memory_reader_init(reader);
-	*ret = reader;
-	return NULL;
-}
-
-void drgn_memory_reader_destroy(struct drgn_memory_reader *reader)
-{
-	drgn_memory_reader_deinit(reader);
-	free(reader);
-}
-
 struct drgn_error *
 drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			       uint64_t virt_addr, uint64_t phys_addr,

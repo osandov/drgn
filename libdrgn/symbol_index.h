@@ -133,10 +133,6 @@ void drgn_symbol_index_init(struct drgn_symbol_index *sindex);
 /** Deinitialize a @ref drgn_symbol_index. */
 void drgn_symbol_index_deinit(struct drgn_symbol_index *sindex);
 
-struct drgn_error *drgn_symbol_index_create(struct drgn_symbol_index **ret);
-
-void drgn_symbol_index_destroy(struct drgn_symbol_index *sindex);
-
 /**
  * Register a symbol finding callback.
  *

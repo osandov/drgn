@@ -147,26 +147,6 @@ void drgn_type_index_deinit(struct drgn_type_index *tindex)
 	}
 }
 
-struct drgn_error *drgn_type_index_create(uint8_t word_size,
-					  struct drgn_type_index **ret)
-{
-	struct drgn_type_index *tindex;
-
-	tindex = malloc(sizeof(*tindex));
-	if (!tindex)
-		return &drgn_enomem;
-	drgn_type_index_init(tindex);
-	tindex->word_size = word_size;
-	*ret = tindex;
-	return NULL;
-}
-
-void drgn_type_index_destroy(struct drgn_type_index *tindex)
-{
-	drgn_type_index_deinit(tindex);
-	free(tindex);
-}
-
 struct drgn_error *drgn_type_index_add_finder(struct drgn_type_index *tindex,
 					      drgn_type_find_fn fn, void *arg)
 {

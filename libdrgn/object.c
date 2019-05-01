@@ -581,7 +581,7 @@ drgn_object_read_reference(const struct drgn_object *obj,
 			if (!buf)
 				return &drgn_enomem;
 		}
-		err = drgn_memory_reader_read(obj->prog->reader, buf,
+		err = drgn_memory_reader_read(&obj->prog->reader, buf,
 					      obj->reference.address, size,
 					      false);
 		if (err) {
@@ -598,7 +598,7 @@ drgn_object_read_reference(const struct drgn_object *obj,
 		char buf[9];
 
 		assert(size <= sizeof(buf));
-		err = drgn_memory_reader_read(obj->prog->reader, buf,
+		err = drgn_memory_reader_read(&obj->prog->reader, buf,
 					      obj->reference.address, size,
 					      false);
 		if (err)
@@ -1269,7 +1269,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 					 "cannot take address of bit field");
 	}
 
-	err = drgn_type_index_pointer_type(obj->prog->tindex,
+	err = drgn_type_index_pointer_type(&obj->prog->tindex,
 					   drgn_object_qualified_type(obj),
 					   &qualified_type.type);
 	if (err)
@@ -1346,7 +1346,7 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 				       obj->type);
 	}
 
-	err = drgn_type_index_find_member(obj->prog->tindex,
+	err = drgn_type_index_find_member(&obj->prog->tindex,
 					  drgn_type_type(underlying_type).type,
 					  member_name, strlen(member_name),
 					  &member);
@@ -1396,7 +1396,7 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	err = drgn_type_index_pointer_type(obj->prog->tindex, qualified_type,
+	err = drgn_type_index_pointer_type(&obj->prog->tindex, qualified_type,
 					   &result_type.type);
 	if (err)
 		return err;

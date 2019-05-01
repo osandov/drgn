@@ -25,24 +25,6 @@ void drgn_symbol_index_deinit(struct drgn_symbol_index *sindex)
 	}
 }
 
-struct drgn_error *drgn_symbol_index_create(struct drgn_symbol_index **ret)
-{
-	struct drgn_symbol_index *sindex;
-
-	sindex = malloc(sizeof(*sindex));
-	if (!sindex)
-		return &drgn_enomem;
-	drgn_symbol_index_init(sindex);
-	*ret = sindex;
-	return NULL;
-}
-
-void drgn_symbol_index_destroy(struct drgn_symbol_index *sindex)
-{
-	drgn_symbol_index_deinit(sindex);
-	free(sindex);
-}
-
 struct drgn_error *
 drgn_symbol_index_add_finder(struct drgn_symbol_index *sindex,
 			     drgn_symbol_find_fn fn, void *arg)
