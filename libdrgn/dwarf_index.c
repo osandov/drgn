@@ -1783,20 +1783,6 @@ out:
 	return err;
 }
 
-uint8_t drgn_dwarf_index_word_size(struct drgn_dwarf_index *dindex)
-{
-	if (!dindex->indexed_first)
-		return sizeof(void *);
-	return elf_word_size(dindex->indexed_first->elf);
-}
-
-bool drgn_dwarf_index_is_little_endian(struct drgn_dwarf_index *dindex)
-{
-	if (!dindex->indexed_first)
-		return __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
-	return elf_is_little_endian(dindex->indexed_first->elf);
-}
-
 void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 				    struct drgn_dwarf_index *dindex,
 				    const char *name, size_t name_len,

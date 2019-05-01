@@ -159,28 +159,6 @@ struct drgn_error *drgn_dwarf_index_open_elf(struct drgn_dwarf_index *dindex,
 struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex);
 
 /**
- * Return the word size of the indexed debugging information.
- *
- * If nothing has been indexed, this returns the word size of the host
- * architecture.
- *
- * @param[in] dindex DWARF index.
- * @return Word size in bytes.
- */
-uint8_t drgn_dwarf_index_word_size(struct drgn_dwarf_index *dindex);
-
-/**
- * Return the endianness of the indexed debugging information.
- *
- * If nothing has been indexed, this returns the endianness of the host
- * architecture.
- *
- * @param[in] dindex DWARF index.
- * @return Whether the debugging information is little-endian.
- */
-bool drgn_dwarf_index_is_little_endian(struct drgn_dwarf_index *dindex);
-
-/**
  * Iterator over DWARF debugging information.
  *
  * An iterator is initialized with @ref drgn_dwarf_index_iterator_init(). It is

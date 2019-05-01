@@ -1103,7 +1103,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	struct file_mapping *mappings = NULL;
 	size_t num_mappings = 0, mappings_capacity = 0;
 	struct vmcoreinfo vmcoreinfo;
-	bool is_64_bit, have_nt_file = false;
+	bool is_64_bit, is_little_endian, have_nt_file = false;
 	bool have_nt_taskstruct = false, have_vmcoreinfo = false;
 	bool have_non_zero_phys_addr = false, is_proc_kcore;
 	struct drgn_memory_reader *reader;
@@ -1137,6 +1137,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	}
 
 	is_64_bit = ehdr->e_ident[EI_CLASS] == ELFCLASS64;
+	is_little_endian = ehdr->e_ident[EI_DATA] == ELFDATA2LSB;
 
 	if (elf_getphdrnum(elf, &phnum) != 0) {
 		err = drgn_error_libelf();
@@ -1331,8 +1332,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	if (err)
 		goto out_dindex;
 
-	err = drgn_type_index_create(drgn_dwarf_index_word_size(dindex),
-				     &tindex);
+	err = drgn_type_index_create(is_64_bit ? 8 : 4, &tindex);
 	if (err)
 		goto out_dindex;
 
@@ -1354,7 +1354,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 		goto out_dtcache;
 
 	drgn_program_init(prog, reader, tindex, sindex);
-	prog->little_endian = drgn_dwarf_index_is_little_endian(dindex);
+	prog->little_endian = is_little_endian;
 	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
 	if (err)
 		goto out_program;
@@ -1525,8 +1525,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		goto out_dindex;
 
-	err = drgn_type_index_create(drgn_dwarf_index_word_size(dindex),
-				     &tindex);
+	err = drgn_type_index_create(sizeof(void *), &tindex);
 	if (err)
 		goto out_dindex;
 
@@ -1548,7 +1547,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 		goto out_dtcache;
 
 	drgn_program_init(prog, reader, tindex, sindex);
-	prog->little_endian = drgn_dwarf_index_is_little_endian(dindex);
+	prog->little_endian = __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
 	prog->mappings = mappings;
 	prog->num_mappings = num_mappings;
 	dicache->prog = prog;
