@@ -13,7 +13,11 @@ import os
 
 from drgn import Program, container_of
 from drgn.helpers import escape_string
-from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
+from drgn.helpers.linux.list import (
+    hlist_empty,
+    hlist_for_each_entry,
+    list_for_each_entry,
+)
 
 __all__ = [
     'd_path',
@@ -94,6 +98,8 @@ def inode_path(inode):
 
     Return any path of an inode from the root of its filesystem.
     """
+    if hlist_empty(inode.i_dentry):
+        return None
     return dentry_path(container_of(inode.i_dentry.first, 'struct dentry',
                                     'd_u.d_alias'))
 
