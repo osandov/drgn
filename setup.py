@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import contextlib
 import re
 import os.path
 from distutils.dir_util import mkpath
@@ -24,15 +25,28 @@ class my_build_ext(build_ext):
     help_options = []
 
     def _run_autotools(self):
-        if not os.path.exists('libdrgn/configure'):
-            subprocess.check_call(['autoreconf', '-i', 'libdrgn'])
+        makefile_in = 'libdrgn/Makefile.in'
+        if not os.path.exists(makefile_in):
+            try:
+                subprocess.check_call(['autoreconf', '-i', 'libdrgn'])
+            except Exception:
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(makefile_in)
+                raise
+
         mkpath(self.build_temp)
-        if not os.path.exists(os.path.join(self.build_temp, 'Makefile')):
+        makefile = os.path.join(self.build_temp, 'Makefile')
+        if not os.path.exists(makefile):
             args = [
                 os.path.relpath('libdrgn/configure', self.build_temp),
                 '--disable-static', '--with-python=' + sys.executable,
             ]
-            subprocess.check_call(args, cwd=self.build_temp)
+            try:
+                subprocess.check_call(args, cwd=self.build_temp)
+            except Exception:
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(makefile)
+                raise
 
     def get_source_files(self):
         self._run_autotools()
