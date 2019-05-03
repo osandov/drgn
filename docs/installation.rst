@@ -20,7 +20,7 @@ Arch Linux::
 
 Debian/Ubuntu::
 
-    $ sudo apt-get install autoconf automake libtool make gcc pkgconf libelf-dev libdw-dev python3 python3-setuptools
+    $ sudo apt-get install autoconf automake libtool make gcc pkgconf libelf-dev libdw-dev python3 python3-dev python3-setuptools
 
 Note that Debian, Ubuntu Trusty, and Ubuntu Xenial ship Python versions which
 are too old, so a newer version must be installed manually.
@@ -33,7 +33,7 @@ also be required::
 
 Fedora::
 
-    $ sudo dnf install autoconf automake libtool make gcc pkgconf elfutils-devel python3 python3-setuptools
+    $ sudo dnf install autoconf automake libtool make gcc pkgconf elfutils-devel python3 python3-devel python3-setuptools
 
 Then, drgn can be built and installed::
 
