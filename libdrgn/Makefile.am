@@ -40,15 +40,15 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 type_index.c \
 			 type_index.h
 
-libdrgnimpl_la_CFLAGS = -D_GNU_SOURCE -fvisibility=hidden -fopenmp \
-			$(libelf_CFLAGS) $(libdw_CFLAGS)
-libdrgnimpl_la_LDFLAGS = -fvisibility=hidden -fopenmp
+libdrgnimpl_la_CFLAGS = -fvisibility=hidden -fopenmp $(libelf_CFLAGS) \
+			$(libdw_CFLAGS)
+libdrgnimpl_la_CPPFLAGS = -D_GNU_SOURCE
 libdrgnimpl_la_LIBADD = $(libelf_LIBS) $(libdw_LIBS)
 
 lib_LTLIBRARIES = libdrgn.la
 
 libdrgn_la_SOURCES =
-libdrgn_la_LDFLAGS = -fvisibility=hidden -version-info 0:0:0
+libdrgn_la_LDFLAGS = -version-info 0:0:0
 libdrgn_la_LIBADD = libdrgnimpl.la
 
 if WITH_PYTHON
@@ -68,9 +68,10 @@ _drgn_la_SOURCES = python/docstrings.h \
 
 nodist__drgn_la_SOURCES = python/constants.c python/docstrings.c
 
-_drgn_la_CFLAGS = $(PYTHON_CFLAGS) -D_GNU_SOURCE -fvisibility=hidden
-_drgn_la_LDFLAGS = -avoid-version -module -shared -rpath $(pkgpyexecdir) \
-		   -Wl,--exclude-libs,ALL
+_drgn_la_CFLAGS = -fvisibility=hidden
+_drgn_la_CPPFLAGS = $(PYTHON_CPPFLAGS) -D_GNU_SOURCE
+_drgn_la_LDFLAGS = -Wl,--exclude-libs,ALL -avoid-version -module -shared \
+		   -rpath $(pkgpyexecdir)
 _drgn_la_LIBADD = libdrgnimpl.la
 
 GEN_CONSTANTS = $(top_srcdir)/build-aux/gen_constants.py
