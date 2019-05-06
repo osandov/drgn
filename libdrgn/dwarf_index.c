@@ -349,24 +349,23 @@ void drgn_dwarf_index_destroy(struct drgn_dwarf_index *dindex)
 static struct drgn_error *read_sections(struct debug_file *file)
 {
 	struct drgn_error *err;
-	const char *e_ident;
+	GElf_Ehdr ehdr_mem, *ehdr;
 	size_t shstrndx;
 	Elf_Scn *scn = NULL;
 	size_t section_index[NUM_SECTIONS] = {};
 	size_t i;
 
-	e_ident = elf_getident(file->elf, NULL);
-	if (!e_ident)
+	ehdr = gelf_getehdr(file->elf, &ehdr_mem);
+	if (!ehdr)
 		return &drgn_not_elf;
 
-	file->bswap = (e_ident[EI_DATA] !=
+	file->bswap = (ehdr->e_ident[EI_DATA] !=
 		       (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
 			ELFDATA2LSB : ELFDATA2MSB));
 
 	if (elf_getshdrstrndx(file->elf, &shstrndx))
 		return drgn_error_libelf();
 
-	/* First pass: get the symbol table and all debug sections. */
 	while ((scn = elf_nextscn(file->elf, scn))) {
 		GElf_Shdr *shdr, shdr_mem;
 		const char *scnname;
@@ -404,7 +403,10 @@ static struct drgn_error *read_sections(struct debug_file *file)
 		}
 	}
 
-	/* Second pass: get the relocation sections. */
+	if (ehdr->e_type != ET_REL)
+		return NULL;
+
+	/* Make a second pass to get the relocation sections, if needed. */
 	while ((scn = elf_nextscn(file->elf, scn))) {
 		GElf_Shdr *shdr, shdr_mem;
 
@@ -422,7 +424,7 @@ static struct drgn_error *read_sections(struct debug_file *file)
 			if (shdr->sh_info != section_index[i])
 				continue;
 
-			if (e_ident[EI_CLASS] != ELFCLASS64) {
+			if (ehdr->e_ident[EI_CLASS] != ELFCLASS64) {
 				return drgn_error_create(DRGN_ERROR_ELF_FORMAT,
 							 "32-bit ELF relocations are not implemented");
 			}
