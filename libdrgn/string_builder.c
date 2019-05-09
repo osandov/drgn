@@ -24,21 +24,17 @@ struct drgn_error *string_builder_finalize(struct string_builder *sb,
 struct drgn_error *string_builder_reserve(struct string_builder *sb,
 					  size_t capacity)
 {
-	size_t new_capacity = sb->capacity;
 	char *tmp;
 
-	if (capacity <= new_capacity)
+	if (capacity <= sb->capacity)
 		return NULL;
 
-	if (new_capacity == 0)
-		new_capacity = 1;
-	while (capacity > new_capacity)
-		new_capacity *= 2;
-	tmp = realloc(sb->str, new_capacity);
+	capacity = next_power_of_two(capacity);
+	tmp = realloc(sb->str, capacity);
 	if (!tmp)
 		return &drgn_enomem;
 	sb->str = tmp;
-	sb->capacity = new_capacity;
+	sb->capacity = capacity;
 	return NULL;
 }
 

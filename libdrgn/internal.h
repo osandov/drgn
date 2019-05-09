@@ -140,6 +140,11 @@ _Static_assert(sizeof(off_t) == 8 || sizeof(off_t) == 4,
 	(typeof(unique_x))1;					\
 })
 
+/**
+ * Return the smallest power of two greater than or equal to @p x.
+ *
+ * Note that zero is not a power of two, so <tt>next_power_of_two(0) == 1</tt>.
+ */
 #define next_power_of_two(x) __next_power_of_two(x, __UNIQUE_ID(__x))
 
 #define for_each_bit(i, mask)	\
