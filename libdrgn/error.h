@@ -40,6 +40,14 @@ extern struct drgn_error drgn_stop;
 /** Not an ELF file. */
 extern struct drgn_error drgn_not_elf;
 
+/**
+ * Create a @ref drgn_error from a string that does not need to be duplicated.
+ *
+ * If there is a failure to allocate memory for the error, @p message is freed
+ * and @ref drgn_enomem is returned instead.
+ */
+struct drgn_error *drgn_error_create_nodup(int code, char *message);
+
 /** Create a @ref drgn_error from the libelf error indicator. */
 struct drgn_error *drgn_error_libelf(void)
 	__attribute__((returns_nonnull));
