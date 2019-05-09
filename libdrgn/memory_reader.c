@@ -111,11 +111,19 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 	struct drgn_memory_file_segment *file_segment = arg;
 	char *p = buf;
 	uint64_t file_offset = file_segment->file_offset + offset;
+	size_t file_count;
 
-	while (count) {
+	if (offset < file_segment->file_size) {
+		file_count = min((uint64_t)count,
+				 file_segment->file_size - offset);
+		count -= file_count;
+	} else {
+		file_count = 0;
+	}
+	while (file_count) {
 		ssize_t ret;
 
-		ret = pread(file_segment->fd, p, count, file_offset);
+		ret = pread(file_segment->fd, p, file_count, file_offset);
 		if (ret == -1) {
 			if (errno == EINTR)
 				continue;
@@ -125,8 +133,9 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 						 "short read from memory file");
 		}
 		p += ret;
-		count -= ret;
+		file_count -= ret;
 		file_offset += ret;
 	}
+	memset(p, 0, count);
 	return NULL;
 }
