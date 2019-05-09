@@ -593,30 +593,21 @@ static struct drgn_error *
 c_pretty_print_type_name(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb;
-
-	err = string_builder_init(&sb);
-	if (err)
-		return err;
+	struct string_builder sb = {};
 
 	err = c_pretty_print_type_name_impl(qualified_type, &sb);
 	if (err) {
 		free(sb.str);
 		return err;
 	}
-	*ret = sb.str;
-	return NULL;
+	return string_builder_finalize(&sb, ret);
 }
 
 static struct drgn_error *
 c_pretty_print_type(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb;
-
-	err = string_builder_init(&sb);
-	if (err)
-		return err;
+	struct string_builder sb = {};
 
 	if (drgn_type_is_complete(qualified_type.type))
 		err = c_define_type(qualified_type, 0, &sb);
@@ -626,8 +617,7 @@ c_pretty_print_type(struct drgn_qualified_type qualified_type, char **ret)
 		free(sb.str);
 		return err;
 	}
-	*ret = sb.str;
-	return NULL;
+	return string_builder_finalize(&sb, ret);
 }
 
 static struct drgn_error *
@@ -1005,7 +995,6 @@ no_dereference:
 		memmove(&sb->str[old_len], &sb->str[old_len + 1],
 			sb->len - old_len);
 	}
-	sb->str[sb->len] = '\0';
 	return NULL;
 }
 
@@ -1160,6 +1149,7 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 					 * It would've fit on the previous line.
 					 * Move it over.
 					 */
+					/* TODO */
 					if (remaining_columns != start_columns) {
 						sb->str[newline++] = ' ';
 						remaining_columns--;
@@ -1298,11 +1288,7 @@ static struct drgn_error *c_pretty_print_object(const struct drgn_object *obj,
 						size_t columns, char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb;
-
-	err = string_builder_init(&sb);
-	if (err)
-		return err;
+	struct string_builder sb = {};
 
 	err = c_pretty_print_object_impl(obj, true, true, 0, columns,
 					 max(columns, (size_t)1), &sb);
@@ -1310,8 +1296,7 @@ static struct drgn_error *c_pretty_print_object(const struct drgn_object *obj,
 		free(sb.str);
 		return err;
 	}
-	*ret = sb.str;
-	return NULL;
+	return string_builder_finalize(&sb, ret);
 }
 
 /* This obviously incomplete since we only handle the tokens we care about. */

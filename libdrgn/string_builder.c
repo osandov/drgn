@@ -8,14 +8,16 @@
 #include "internal.h"
 #include "string_builder.h"
 
-struct drgn_error *string_builder_init(struct string_builder *sb)
+struct drgn_error *string_builder_finalize(struct string_builder *sb,
+					   char **ret)
 {
-	sb->len = 0;
-	sb->capacity = 16;
-	sb->str = malloc(sb->capacity);
-	if (!sb->str)
-		return &drgn_enomem;
-	sb->str[0] = '\0';
+	struct drgn_error *err;
+
+	err = string_builder_reserve(sb, sb->len + 1);
+	if (err)
+		return err;
+	sb->str[sb->len] = '\0';
+	*ret = sb->str;
 	return NULL;
 }
 
@@ -25,10 +27,12 @@ struct drgn_error *string_builder_reserve(struct string_builder *sb,
 	size_t new_capacity = sb->capacity;
 	char *tmp;
 
-	if (capacity < new_capacity)
+	if (capacity <= new_capacity)
 		return NULL;
 
-	while (capacity >= new_capacity)
+	if (new_capacity == 0)
+		new_capacity = 1;
+	while (capacity > new_capacity)
 		new_capacity *= 2;
 	tmp = realloc(sb->str, new_capacity);
 	if (!tmp)
@@ -46,7 +50,6 @@ struct drgn_error *string_builder_appendc(struct string_builder *sb, char c)
 	if (err)
 		return err;
 	sb->str[sb->len++] = c;
-	sb->str[sb->len] = '\0';
 	return NULL;
 }
 
@@ -61,7 +64,6 @@ struct drgn_error *string_builder_appendn(struct string_builder *sb,
 		return err;
 	memcpy(&sb->str[sb->len], str, len);
 	sb->len += len;
-	sb->str[sb->len] = '\0';
 	return NULL;
 }
 
@@ -81,11 +83,14 @@ again:
 		return drgn_error_create_os(errno, NULL, "vsnprintf");
 	if (sb->len + len < sb->capacity) {
 		sb->len += len;
-		sb->str[sb->len] = '\0';
 		return NULL;
 	}
 
-	err = string_builder_reserve(sb, sb->len + len);
+	/*
+	 * vsnprintf() always null-terminates the string, so we have to allocate
+	 * an extra character.
+	 */
+	err = string_builder_reserve(sb, sb->len + len + 1);
 	if (err)
 		return err;
 	goto again;

@@ -40,37 +40,43 @@ struct string_builder {
 	/**
 	 * Current string buffer.
 	 *
-	 * This is always null-terminated. This may be reallocated when
-	 * appending. It must be freed with @c free() when it will no longer be
-	 * used.
+	 * This may be reallocated when appending. It must be freed with @c
+	 * free() when it will no longer be used. It should be initialized to @c
+	 * NULL.
 	 */
 	char *str;
-	/** Length of @c str not including the null terminator. */
+	/**
+	 * Length of @c str.
+	 *
+	 * It should be initialized to zero.
+	 */
 	size_t len;
-	/** Allocated size of @c str. */
+	/**
+	 * Allocated size of @c str.
+	 *
+	 * It should be initialized to zero.
+	 */
 	size_t capacity;
 };
 
 /**
- * Initialize a @ref string_builder.
+ * Null-terminate and return a string from a @ref string_builder.
  *
- * The string will be initialized with a length of zero, but @ref
- * string_builder::str may be non-@c NULL and must be freed.
+ * On success, the string builder must be reinitialized before being reused.
  *
- * @param[out] sb String builder to initialize.
+ * @param[out] ret Returned string.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *string_builder_init(struct string_builder *sb);
+struct drgn_error *string_builder_finalize(struct string_builder *sb,
+					   char **ret);
 
 /**
  * Resize the buffer of a @ref string_builder.
  *
- * On success, the allocated size of the string buffer is at least
- * <tt>capacity + 1</tt>.
+ * On success, the allocated size of the string buffer is at least @p capacity.
  *
  * @param[in] sb String builder.
- * @param[in] capacity New minimum size of the string buffer not including the
- * null terminator.
+ * @param[in] capacity New minimum size of the string buffer.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *string_builder_reserve(struct string_builder *sb,
