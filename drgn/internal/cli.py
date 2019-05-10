@@ -60,6 +60,14 @@ def main() -> None:
         '-p', '--pid', metavar='PID', type=int,
         help='debug the running process with the given PID')
 
+    symbol_group = parser.add_argument_group('debugging symbols')
+    symbol_group.add_argument(
+        '-s', '--symbols', metavar='PATH', type=str, action='append',
+        help='load additional debugging symbols from the given file; this may option may be given more than once')
+    symbol_group.add_argument(
+        '--no-default-symbols', dest='default_symbols', action='store_false',
+        help="don't load any debugging symbols that were not explicitly added with -s")
+
     parser.add_argument(
         '-q', '--quiet', action='store_true',
         help="don't print non-fatal warnings (e.g., about missing debugging information)")
@@ -77,11 +85,21 @@ def main() -> None:
         prog.set_kernel()
     else:
         prog.set_pid(args.pid or os.getpid())
-    try:
-        prog.open_default_debug_info()
-    except drgn.MissingDebugInfoError as e:
-        if not args.quiet:
-            print(str(e), file=sys.stderr)
+    if args.default_symbols:
+        try:
+            prog.open_default_debug_info()
+        except drgn.MissingDebugInfoError as e:
+            if not args.quiet:
+                print(str(e), file=sys.stderr)
+    for path in (args.symbols or []):
+        try:
+            prog.open_debug_info(path)
+        except (drgn.FileFormatError, drgn.MissingDebugInfoError) as e:
+            if not args.quiet:
+                print(f'{path}: {e}', file=sys.stderr)
+        except OSError as e:
+            if not args.quiet:
+                print(e, file=sys.stderr)
     prog.load_debug_info()
 
     init_globals: Dict[str, Any] = {'prog': prog}
