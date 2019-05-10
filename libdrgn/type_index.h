@@ -94,6 +94,8 @@ struct drgn_type_index {
 	struct drgn_type_finder *finders;
 	/** Cache of primitive types. */
 	struct drgn_type *primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
+	struct drgn_type default_size_t;
+	struct drgn_type default_ptrdiff_t;
 	/** Cache of created pointer types. */
 	struct drgn_pointer_type_set pointer_types;
 	/** Cache of created array types. */

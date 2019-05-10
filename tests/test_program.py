@@ -30,6 +30,7 @@ from tests.elf import ET, PT
 from tests.elfwriter import ElfSection, create_elf_file
 
 
+MOCK_32BIT_ARCH = Architecture.IS_LITTLE_ENDIAN
 MOCK_ARCH = Architecture.IS_64_BIT | Architecture.IS_LITTLE_ENDIAN
 
 
@@ -43,7 +44,7 @@ def mock_memory_read(data, address, count, physical, offset):
     return data[offset:offset + count]
 
 
-def mock_program(*, arch=MOCK_ARCH, segments=None, types=None, symbols=None):
+def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, symbols=None):
     def mock_find_type(kind, name, filename):
         if filename:
             return None
@@ -227,11 +228,7 @@ class TestTypes(unittest.TestCase):
                     yield ' '.join(perm)
 
         for word_size in [8, 4]:
-            if word_size == 8:
-                arch = MOCK_ARCH | Architecture.IS_64_BIT
-            else:
-                arch = MOCK_ARCH & ~Architecture.IS_64_BIT
-            prog = mock_program(arch=arch)
+            prog = mock_program(MOCK_ARCH if word_size == 8 else MOCK_32BIT_ARCH)
             self.assertEqual(prog.type('_Bool'), bool_type('_Bool', 1))
             self.assertEqual(prog.type('char'), int_type('char', 1, True))
             for spelling in spellings(['signed', 'char']):
@@ -288,6 +285,43 @@ class TestTypes(unittest.TestCase):
         # unsigned long with signed=True isn't valid, so it should be ignored.
         self.assertEqual(prog.type('unsigned long'),
                          int_type('unsigned long', 8, False))
+
+    def test_size_t_and_ptrdiff_t(self):
+        # 64-bit architecture with 4-byte long/unsigned long.
+        prog = mock_program(types=[
+            int_type('long', 4, True),
+            int_type('unsigned long', 4, False),
+        ])
+        self.assertEqual(prog.type('size_t'),
+                         typedef_type('size_t', prog.type('unsigned long long')))
+        self.assertEqual(prog.type('ptrdiff_t'),
+                         typedef_type('ptrdiff_t', prog.type('long long')))
+
+        # 32-bit architecture with 8-byte long/unsigned long.
+        prog = mock_program(MOCK_32BIT_ARCH, types=[
+            int_type('long', 8, True),
+            int_type('unsigned long', 8, False),
+        ])
+        self.assertEqual(prog.type('size_t'),
+                         typedef_type('size_t', prog.type('unsigned int')))
+        self.assertEqual(prog.type('ptrdiff_t'),
+                         typedef_type('ptrdiff_t', prog.type('int')))
+
+        # Nonsense sizes.
+        prog = mock_program(types=[
+            int_type('int', 1, True),
+            int_type('unsigned int', 1, False),
+            int_type('long', 1, True),
+            int_type('unsigned long', 1, False),
+            int_type('long long', 2, True),
+            int_type('unsigned long long', 2, False),
+        ])
+        self.assertRaisesRegex(ValueError,
+                               'no suitable integer type for size_t',
+                               prog.type, 'size_t')
+        self.assertRaisesRegex(ValueError,
+                               'no suitable integer type for ptrdiff_t',
+                               prog.type, 'ptrdiff_t')
 
     def test_tagged_type(self):
         prog = mock_program(types=[point_type, option_type, color_type])

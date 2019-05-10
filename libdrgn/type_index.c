@@ -171,15 +171,15 @@ void drgn_type_index_remove_finder(struct drgn_type_index *tindex)
 	tindex->finders = finder;
 }
 
-/* Default long, unsigned long, size_t, and ptrdiff_t are 64 bits. */
+/* Default long and unsigned long are 64 bits. */
 static struct drgn_type default_primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
-/* 32-bit version of long, unsigned long, size_t, and ptrdiff_t. */
-static struct drgn_type default_primitive_types_32bit[4];
+/* 32-bit versions of long and unsigned long. */
+static struct drgn_type default_long_32bit;
+static struct drgn_type default_unsigned_long_32bit;
 
 __attribute__((constructor(200)))
 static void default_primitive_types_init(void)
 {
-	struct drgn_qualified_type qualified_type;
 	size_t i;
 
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_CHAR],
@@ -227,43 +227,24 @@ static void default_primitive_types_init(void)
 	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_LONG_DOUBLE],
 			     drgn_primitive_type_spellings[DRGN_C_TYPE_LONG_DOUBLE][0],
 			     16);
-	qualified_type.type = &default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG];
-	qualified_type.qualifiers = 0;
-	drgn_typedef_type_init(&default_primitive_types[DRGN_C_TYPE_SIZE_T],
-			       drgn_primitive_type_spellings[DRGN_C_TYPE_SIZE_T][0],
-			       qualified_type);
-	qualified_type.type = &default_primitive_types[DRGN_C_TYPE_LONG];
-	drgn_typedef_type_init(&default_primitive_types[DRGN_C_TYPE_PTRDIFF_T],
-			       drgn_primitive_type_spellings[DRGN_C_TYPE_PTRDIFF_T][0],
-			       qualified_type);
 	for (i = 0; i < ARRAY_SIZE(default_primitive_types); i++) {
-		if (drgn_primitive_type_kind[i] == DRGN_TYPE_VOID)
+		if (drgn_primitive_type_kind[i] == DRGN_TYPE_VOID ||
+		    i == DRGN_C_TYPE_SIZE_T || i == DRGN_C_TYPE_PTRDIFF_T)
 			continue;
 		assert(drgn_type_primitive(&default_primitive_types[i]) == i);
 	}
 
-	drgn_int_type_init(&default_primitive_types_32bit[0],
+	drgn_int_type_init(&default_long_32bit,
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG][0],
 			   4, true);
-	drgn_int_type_init(&default_primitive_types_32bit[1],
+	assert(drgn_type_primitive(&default_long_32bit) ==
+	       DRGN_C_TYPE_LONG);
+
+	drgn_int_type_init(&default_unsigned_long_32bit,
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG][0],
 			   4, false);
-	qualified_type.type = &default_primitive_types_32bit[1];
-	drgn_typedef_type_init(&default_primitive_types_32bit[2],
-			       drgn_primitive_type_spellings[DRGN_C_TYPE_SIZE_T][0],
-			       qualified_type);
-	qualified_type.type = &default_primitive_types_32bit[0];
-	drgn_typedef_type_init(&default_primitive_types_32bit[3],
-			       drgn_primitive_type_spellings[DRGN_C_TYPE_PTRDIFF_T][0],
-			       qualified_type);
-	assert(drgn_type_primitive(&default_primitive_types_32bit[0]) ==
-	       DRGN_C_TYPE_LONG);
-	assert(drgn_type_primitive(&default_primitive_types_32bit[1]) ==
+	assert(drgn_type_primitive(&default_unsigned_long_32bit) ==
 	       DRGN_C_TYPE_UNSIGNED_LONG);
-	assert(drgn_type_primitive(&default_primitive_types_32bit[2]) ==
-	       DRGN_C_TYPE_SIZE_T);
-	assert(drgn_type_primitive(&default_primitive_types_32bit[3]) ==
-	       DRGN_C_TYPE_PTRDIFF_T);
 }
 
 /*
@@ -337,33 +318,67 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 		}
 	}
 
-	switch (type) {
-	case DRGN_C_TYPE_LONG:
-		i = 0;
-		break;
-	case DRGN_C_TYPE_UNSIGNED_LONG:
-		i = 1;
-		break;
-	case DRGN_C_TYPE_SIZE_T:
-		i = 2;
-		break;
-	case DRGN_C_TYPE_PTRDIFF_T:
-		i = 3;
-		break;
-	default:
-		*ret = &default_primitive_types[type];
-		goto out;
+	/* long and unsigned long default to the word size. */
+	if (type == DRGN_C_TYPE_LONG || type == DRGN_C_TYPE_UNSIGNED_LONG) {
+		if (!tindex->word_size) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "word size has not been set");
+		}
+		if (tindex->word_size == 4) {
+			*ret = (type == DRGN_C_TYPE_LONG ?
+				&default_long_32bit :
+				&default_unsigned_long_32bit);
+			goto out;
+		}
+	}
+	/*
+	 * size_t and ptrdiff_t default to typedefs of whatever integer type
+	 * matches the word size.
+	 */
+	if (type == DRGN_C_TYPE_SIZE_T || type == DRGN_C_TYPE_PTRDIFF_T) {
+		static enum drgn_primitive_type integer_types[2][3] = {
+			{
+				DRGN_C_TYPE_UNSIGNED_LONG,
+				DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+				DRGN_C_TYPE_UNSIGNED_INT,
+			},
+			{
+				DRGN_C_TYPE_LONG,
+				DRGN_C_TYPE_LONG_LONG,
+				DRGN_C_TYPE_INT,
+			},
+		};
+
+		if (!tindex->word_size) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "word size has not been set");
+		}
+		for (i = 0; i < 3; i++) {
+			enum drgn_primitive_type integer_type;
+
+			integer_type = integer_types[type == DRGN_C_TYPE_PTRDIFF_T][i];
+			err = drgn_type_index_find_primitive(tindex,
+							     integer_type,
+							     &qualified_type.type);
+			if (err)
+				return err;
+			if (drgn_type_size(qualified_type.type) ==
+			    tindex->word_size) {
+				qualified_type.qualifiers = 0;
+				*ret = (type == DRGN_C_TYPE_SIZE_T ?
+					&tindex->default_size_t :
+					&tindex->default_ptrdiff_t);
+				drgn_typedef_type_init(*ret, spellings[0],
+						       qualified_type);
+				goto out;
+			}
+		}
+		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					 "no suitable integer type for %s",
+					 spellings[0]);
 	}
 
-	if (!tindex->word_size) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "word size has not been set");
-	}
-
-	if (tindex->word_size == 4)
-		*ret = &default_primitive_types_32bit[i];
-	else
-		*ret = &default_primitive_types[type];
+	*ret = &default_primitive_types[type];
 
 out:
 	tindex->primitive_types[type] = *ret;
