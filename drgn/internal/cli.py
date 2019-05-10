@@ -56,6 +56,9 @@ def main() -> None:
         '-p', '--pid', metavar='PID', type=int,
         help='debug the running program with the given PID')
     parser.add_argument(
+        '-q', '--quiet', action='store_true',
+        help="don't print non-fatal warnings (e.g., about missing debugging information)")
+    parser.add_argument(
         'script', metavar='ARG', type=str, nargs='*',
         help='script to execute instead of running in interactive mode')
     parser.add_argument('--version', action='version', version=version)
@@ -72,7 +75,7 @@ def main() -> None:
     try:
         prog.open_default_debug_info()
     except drgn.MissingDebugInfoError as e:
-        if not args.script:
+        if not args.quiet:
             print(str(e), file=sys.stderr)
     prog.load_debug_info()
 
