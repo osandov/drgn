@@ -15,6 +15,8 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 hash_table.h \
 			 internal.c \
 			 internal.h \
+			 kmod.c \
+			 kmod.h \
 			 language.h \
 			 language_c.c \
 			 lexer.c \

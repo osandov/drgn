@@ -18,6 +18,7 @@
 #include "internal.h"
 #include "dwarf_index.h"
 #include "dwarf_info_cache.h"
+#include "kmod.h"
 #include "language.h"
 #include "memory_reader.h"
 #include "program.h"
@@ -1016,139 +1017,6 @@ static struct drgn_error *get_symbol_section_name(Elf *elf, size_t shstrndx,
 	return NULL;
 }
 
-static struct drgn_error *find_module(struct drgn_object *mod,
-				      const char *module_name)
-{
-	struct drgn_error *err;
-	struct drgn_qualified_type module_type;
-	struct drgn_object node, mod_name;
-	uint64_t head;
-
-	err = drgn_program_find_type(mod->prog, "struct module", NULL,
-				     &module_type);
-	if (err)
-		return err;
-
-	drgn_object_init(&node, mod->prog);
-	drgn_object_init(&mod_name, mod->prog);
-
-	err = drgn_program_find_object(mod->prog, "modules", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, &node);
-	if (err)
-		goto out;
-	err = drgn_object_address_of(&node, &node);
-	if (err)
-		goto out;
-	err = drgn_object_read(&node, &node);
-	if (err)
-		goto out;
-	err = drgn_object_read_unsigned(&node, &head);
-	if (err)
-		goto out;
-
-	for (;;) {
-		uint64_t addr;
-		char *name;
-
-		err = drgn_object_member_dereference(&node, &node, "next");
-		if (err)
-			goto out;
-		err = drgn_object_read(&node, &node);
-		if (err)
-			goto out;
-		err = drgn_object_read_unsigned(&node, &addr);
-		if (err)
-			goto out;
-		if (addr == head) {
-			err = drgn_error_format(DRGN_ERROR_LOOKUP,
-						"%s is not loaded",
-						module_name);
-			goto out;
-		}
-
-		err = drgn_object_container_of(mod, &node, module_type, "list");
-		if (err)
-			goto out;
-		err = drgn_object_member_dereference(&mod_name, mod, "name");
-		if (err)
-			goto out;
-
-		err = drgn_object_read_c_string(&mod_name, &name);
-		if (err)
-			goto out;
-		if (strcmp(name, module_name) == 0) {
-			free(name);
-			break;
-		}
-		free(name);
-	}
-
-	err = NULL;
-out:
-	drgn_object_deinit(&mod_name);
-	drgn_object_deinit(&node);
-	return err;
-}
-
-static struct drgn_error *find_section_address(struct drgn_object *mod,
-					       const char *section_name,
-					       uint64_t *ret)
-{
-	struct drgn_error *err;
-	struct drgn_object attrs, attr, tmp;
-	uint64_t i, nsections;
-
-	drgn_object_init(&attrs, mod->prog);
-	drgn_object_init(&attr, mod->prog);
-	drgn_object_init(&tmp, mod->prog);
-
-	err = drgn_object_member_dereference(&attrs, mod, "sect_attrs");
-	if (err)
-		goto out;
-	err = drgn_object_member_dereference(&tmp, &attrs, "nsections");
-	if (err)
-		goto out;
-	err = drgn_object_read_unsigned(&tmp, &nsections);
-	if (err)
-		goto out;
-	err = drgn_object_member_dereference(&attrs, &attrs, "attrs");
-	if (err)
-		goto out;
-
-	for (i = 0; i < nsections; i++) {
-		char *name;
-
-		err = drgn_object_subscript(&attr, &attrs, i);
-		if (err)
-			goto out;
-		err = drgn_object_member(&tmp, &attr, "name");
-		if (err)
-			goto out;
-
-		err = drgn_object_read_c_string(&tmp, &name);
-		if (err)
-			goto out;
-		if (strcmp(name, section_name) == 0) {
-			free(name);
-			err = drgn_object_member(&tmp, &attr, "address");
-			if (err)
-				goto out;
-			err = drgn_object_read_unsigned(&tmp, ret);
-			goto out;
-		}
-		free(name);
-	}
-
-	err = drgn_error_format(DRGN_ERROR_LOOKUP,
-				"could not find module section %s",
-				section_name);
-out:
-	drgn_object_deinit(&tmp);
-	drgn_object_deinit(&attr);
-	drgn_object_deinit(&attrs);
-	return err;
-}
-
 static struct drgn_error *
 kernel_relocation_hook(struct drgn_program *prog, const char *name,
 		       Dwarf_Die *die, struct drgn_symbol *sym)
@@ -1159,7 +1027,6 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 	size_t shstrndx;
 	Elf_Scn *scn, *modinfo_scn = NULL, *symtab_scn = NULL;
 	const char *section_name, *module_name;
-	struct drgn_object mod;
 	uint64_t section_address;
 
 	elf = dwarf_getelf(dwarf_cu_getdwarf(die->cu));
@@ -1203,32 +1070,19 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 					 "could not find .symtab section");
 	}
 
-	/* Find the name of the module in .modinfo. */
 	err = get_module_name(modinfo_scn, &module_name);
 	if (err)
 		return err;
 
-	/* Find the name of the section containing the symbol. */
 	err = get_symbol_section_name(elf, shstrndx, symtab_scn, name,
 				      sym->address, &section_name);
 	if (err)
 		return err;
 
-	drgn_object_init(&mod, prog);
-
-	/* Find the (struct module *) from its name. */
-	err = find_module(&mod, module_name);
-	if (err) {
-		drgn_object_deinit(&mod);
-		return err;
-	}
-
-	/* Find the section's base address from its name. */
-	err = find_section_address(&mod, section_name, &section_address);
-	drgn_object_deinit(&mod);
+	err = kernel_module_section_address(prog, module_name, section_name,
+					    &section_address);
 	if (err)
 		return err;
-
 	sym->address += section_address;
 	return NULL;
 }
