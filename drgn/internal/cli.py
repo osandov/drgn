@@ -46,15 +46,20 @@ def main() -> None:
     version = f'drgn {drgn.__version__} (using Python {python_version})'
     parser = argparse.ArgumentParser(
         prog='drgn', description='Scriptable debugger')
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
+
+    program_group = parser.add_argument_group(
+        title='program selection',
+        description='one of the following is required',
+    ).add_mutually_exclusive_group(required=True)
+    program_group.add_argument(
         '-c', '--core', metavar='PATH', type=str,
         help='debug the given core dump')
-    group.add_argument(
+    program_group.add_argument(
         '-k', '--kernel', action='store_true', help='debug the running kernel')
-    group.add_argument(
+    program_group.add_argument(
         '-p', '--pid', metavar='PID', type=int,
-        help='debug the running program with the given PID')
+        help='debug the running process with the given PID')
+
     parser.add_argument(
         '-q', '--quiet', action='store_true',
         help="don't print non-fatal warnings (e.g., about missing debugging information)")
