@@ -1149,7 +1149,6 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 					 * It would've fit on the previous line.
 					 * Move it over.
 					 */
-					/* TODO */
 					if (remaining_columns != start_columns) {
 						sb->str[newline++] = ' ';
 						remaining_columns--;

@@ -907,7 +907,7 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 		else
 			little_endian = self->obj.value.little_endian;
 		if (little_endian !=
-		    drgn_program_is_little_endian(self->obj.prog) &&
+		    !!(self->obj.prog->arch & DRGN_ARCH_IS_LITTLE_ENDIAN) &&
 		    append_format(parts, ", byteorder='%s'",
 				  little_endian ? "little" : "big") == -1)
 			goto out;

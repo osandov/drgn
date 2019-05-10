@@ -6,7 +6,7 @@ API Reference
 Programs
 --------
 
-.. class:: Program
+.. class:: Program(arch=Architecture.AUTO)
 
     A ``Program`` represents a crashed or running program. It can be used to
     lookup type definitions, access variables, and read arbitrary memory.
@@ -15,8 +15,10 @@ Programs
     variables, constants, or functions). This is usually done with the
     :meth:`[] <__getitem__>` operator.
 
-    This class cannot be constructed directly. Instead, use one of the
-    :ref:`api-program-constructors`.
+    This class can be constructed directly, but it is usually more convenient
+    to use one of the :ref:`api-program-constructors`.
+
+    :param Architecture arch: The architecture of the program.
 
     .. attribute:: flags
 
@@ -24,20 +26,13 @@ Programs
 
         :vartype: ProgramFlags
 
-    .. attribute:: word_size
+    .. attribute:: arch
 
-        Size of a word in this program in bytes.
+        Architecture of this program.
 
-        :vartype: int
+        :vartype: Architecture
 
-    .. attribute:: byteorder
-
-        Byte order (a.k.a. endianness) in this program (either ``'little'``
-        or ``'big'``).
-
-        :vartype: str
-
-    .. attribute:: __getitem__(name)
+    .. method:: __getitem__(name)
 
         Implement ``self[name]``. Get the object (variable, constant, or
         function) with the given name.
@@ -56,7 +51,7 @@ Programs
         :param str name: The object name.
         :rtype: Object
 
-    .. attribute:: variable(name, filename=None)
+    .. method:: variable(name, filename=None)
 
         Get the variable with the given name.
 
@@ -74,7 +69,7 @@ Programs
         :raises LookupError: if no variables with the given name are found in
             the given file
 
-    .. attribute:: constant(name, filename=None)
+    .. method:: constant(name, filename=None)
 
         Get the constant (e.g., enumeration constant) with the given name.
 
@@ -96,7 +91,7 @@ Programs
         :raises LookupError: if no constants with the given name are found in
             the given file
 
-    .. attribute:: function(name, filename=None)
+    .. method:: function(name, filename=None)
 
         Get the function with the given name.
 
@@ -114,7 +109,7 @@ Programs
         :raises LookupError: if no functions with the given name are found in
             the given file
 
-    .. attribute:: object(name, flags, filename=None)
+    .. method:: object(name, flags, filename=None)
 
         Get the object (variable, constant, or function) with the given name.
 
@@ -128,7 +123,7 @@ Programs
         :raises LookupError: if no objects with the given name are found in
             the given file
 
-    .. attribute:: type(name, filename=None)
+    .. method:: type(name, filename=None)
 
         Get the type with the given name.
 
@@ -143,7 +138,7 @@ Programs
         :raises LookupError: if no types with the given name are found in
             the given file
 
-    .. attribute:: pointer_type(type, qualifiers=None)
+    .. method:: pointer_type(type, qualifiers=None)
 
         Create a pointer type which points to the given type.
 
@@ -153,7 +148,7 @@ Programs
         :type qualifiers: Qualifiers or None
         :rtype: Type
 
-    .. attribute:: read(address, size, physical=False)
+    .. method:: read(address, size, physical=False)
 
         Read *size* bytes of memory starting at *address* in the program. The
         address may be virtual (the default) or physical if the program
@@ -173,18 +168,156 @@ Programs
             address (physical or virtual) is not supported by the program
         :raises ValueError: if *size* is negative
 
+    .. method:: add_memory_segment(virt_addr, phys_addr, size, read_fn)
+
+        Define a region of memory in the program.
+
+        If it overlaps a previously registered segment, the new segment takes
+        precedence.
+
+        :param virt_addr: The virtual address of the segment, or ``None`` if
+            the segment does not have a virtual address.
+        :type virt_addr: int or None
+        :param phys_addr: The physical address of the segment, or ``None`` if
+            the segment does not have a physical address.
+        :type phys_addr: int or None
+        :param int size: Size of the segment in bytes.
+        :param read_fn: Callable to call to read memory from the segment. It is
+            passed the address being read from, the number of bytes to read,
+            whether the address is physical, and the offset in bytes from the
+            beginning of the segment: ``(address, count, physical, offset)``.
+            It should return the requested number of bytes as :class:`bytes` or
+            another :ref:`buffer <python:binaryseq>` type.
+
+    .. method:: add_type_finder(fn)
+
+        Register a callback for finding types in the program.
+
+        Callbacks are called in reverse order of the order they were added
+        until the type is found. So, more recently added callbacks take
+        precedence.
+
+        :param fn: Callable taking a :class:`TypeKind`, name (:class:`str`),
+            and filename (:class:`str` or ``None``): ``(kind, name,
+            filename)``. The filename should be matched with
+            :func:`filename_matches()`. This should return a :class:`Type`.
+
+    .. method:: add_symbol_finder(fn)
+
+        Register a callback for finding symbols in the program.
+
+        Callbacks are called in reverse order of the order they were added
+        until the symbol is found. So, more recently added callbacks take
+        precedence.
+
+        :param fn: Callable taking a name (:class:`str`),
+            :class:`FindObjectFlags`, and filename (:class:`str` or ``None``):
+            ``(name, flags, filename)``. The filename should be matched with
+            :func:`filename_matches()`. This should return a :class:`Symbol`.
+
+    .. method:: set_core_dump(path)
+
+        Set the program to a core dump.
+
+        This loads the memory segments from the core dump and determines the
+        mapped executable and libraries. It does not load any debugging
+        symbols; see :meth:`open_debug_info()`.
+
+        :param str path: Core dump file path.
+
+    .. method:: set_kernel()
+
+        Set the program to the running operating system kernel.
+
+        This loads the memory of the running kernel and thus requires root
+        privileges. It does not load any debugging symbols; see
+        :meth:`open_debug_info()`.
+
+    .. method:: set_pid(pid)
+
+        Set the program to a running process.
+
+        This loads the memory of the process and determines the mapped
+        executable and libraries. It does not load any debugging symbols; see
+        :meth:`open_debug_info()`.
+
+        :param int pid: Process ID.
+
+    .. method:: open_debug_info(path)
+
+        Open debugging information for an executable or library.
+
+        This opens the file and checks that it has debugging information, but
+        it does not parse or load the debugging information. The debugging
+        information must be loaded later with :meth:`load_debug_info()`. If
+        there are multiple files, it is more efficient to first open them all
+        and then load them all at once.
+
+        :param path: Path of binary file.
+        :type path: str, bytes, or os.PathLike
+        :raises MissingDebugInfoError: if the file does not contain debugging
+            information
+
+    .. method:: open_default_debug_info()
+
+        Open debugging information which can automatically be found from the
+        program.
+
+        For the Linux kernel, this tries to open ``vmlinux`` and kernel modules
+        from a few standard locations.
+
+        For userspace programs, this tries to open the executable and any
+        loaded libraries.
+
+        The debugging information must be loaded later with
+        :meth:`load_debug_info()`.
+
+        :raises MissingDebugInfoError: if debugging information was not
+            available for some files; other files with debugging information
+            are still opened if this is raised
+
+    .. method:: load_debug_info()
+
+        Parse and load debugging information which was previously opened with
+        :meth:`open_debug_info()` or :meth:`open_default_debug_info()`.
+
+        This loads the debugging information of all files which were opened
+        since the last call to :meth:`load_debug_info()`.
+
 .. class:: ProgramFlags
 
-    ``ProgramFlags`` is an :class:`enum.IntFlag` of flags that can apply to a
+    ``ProgramFlags`` is an :class:`enum.Flag` of flags that can apply to a
     :class:`Program` (e.g., about what kind of program it is).
 
     .. attribute:: IS_LINUX_KERNEL
 
         The program is the Linux kernel.
 
+.. class:: Architecture
+
+    ``Architecture`` is an :class:`enum.Flag` of flags describing the target
+    architecture of a :class:`Program`.
+
+    .. attribute:: IS_64_BIT
+
+        Architecture is 64-bit.
+
+    .. attribute:: IS_LITTLE_ENDIAN
+
+        Architecture is little-endian.
+
+    .. attribute:: HOST
+
+        Architecture of the host system.
+
+    .. attribute:: AUTO
+
+        Determine architecture automatically from core dump and/or symbol
+        files.
+
 .. class:: FindObjectFlags
 
-    ``FindObjectFlags`` is an :class:`enum.IntFlag` of flags for
+    ``FindObjectFlags`` is an :class:`enum.Flag` of flags for
     :meth:`Program.object()`. These can be combined to search for multiple
     kinds of objects at once.
 
@@ -205,12 +338,26 @@ The :meth:`Program.type()`, :meth:`Program.object()`,
 :meth:`Program.variable()`, :meth:`Program.constant()`, and
 :meth:`Program.function()` methods all take a *filename* parameter to
 distinguish between multiple definitions with the same name. The filename
-refers to the source code file that contains the definition. ``None`` matches
-any definition. Otherwise, the filename is matched from right to left, so
-``'stdio.h'``, ``'include/stdio.h'``, ``'usr/include/stdio.h'``, and
-``'/usr/include/stdio.h'`` would all match a definition in
-``/usr/include/stdio.h``. If multiple definitions match, one is returned
+refers to the source code file that contains the definition. It is matched with
+:func:`filename_matches()`. If multiple definitions match, one is returned
 arbitrarily.
+
+.. function:: filename_matches(haystack, needle)
+
+    Return whether a filename containing a definition (*haystack*) matches a
+    filename being searched for (*needle*).
+
+    The filename is matched from right to left, so ``'stdio.h'``,
+    ``'include/stdio.h'``, ``'usr/include/stdio.h'``, and
+    ``'/usr/include/stdio.h'`` would all match a definition in
+    ``/usr/include/stdio.h``. If *needle* is ``None`` or empty, it matches any
+    definition. If *haystack* is ``None`` or empty, it only matches if *needle*
+    is also ``None`` or empty.
+
+    :param haystack: Path of file containing definition.
+    :type haystack: str or None
+    :param needle: Filename to match.
+    :type needle: str or None
 
 .. _api-program-constructors:
 
@@ -221,23 +368,19 @@ The drgn command line interface automatically creates a :class:`Program` named
 ``prog``. However, drgn may also be used as a library without the CLI, in which
 case a ``Program`` must be created manually.
 
-.. function:: program_from_core_dump(path, verbose=False)
+.. function:: program_from_core_dump(path)
 
     Create a :class:`Program` from a core dump file. The type of program (e.g.,
     userspace or kernel) is determined automatically.
 
     :param str path: Core dump file path.
-    :param bool verbose: Whether to print non-fatal errors to stderr (e.g.,
-        about not being able to find debugging symbols).
     :rtype: Program
 
-.. function:: program_from_kernel(verbose=False)
+.. function:: program_from_kernel()
 
     Create a :class:`Program` from the running operating system kernel. This
     requires root privileges.
 
-    :param bool verbose: Whether to print non-fatal errors to stderr (e.g.,
-        about not being able to find kernel modules or debugging symbols).
     :rtype: Program
 
 .. function:: program_from_pid(pid)
@@ -558,6 +701,61 @@ Objects
         structure or union type
     :raises LookupError: If the type does not have a member with the given name
 
+.. class:: Symbol(type, *, value=None, address=None, is_enumerator=False, byteorder=None)
+
+    A ``Symbol`` represents a variable, constant, or function loaded from a
+    program's debugging information. It is returned by a symbol finder (see
+    :meth:`Program.add_symbol_finder()`) and then converted to an
+    :class:`Object`.
+
+    Exactly one of *value*, *address*, or *is_enumerator* must be given. If
+    *value* is given, then the symbol is a constant with the given value. If
+    *address* is given, then the symbol is a variable or function at the given
+    address, and *byteorder* must also be given. If *is_enumerator* is
+    ``True``, then the symbol is an enumerator constant; its value will be
+    determined from the given type based on the name that was passed to the
+    symbol finder.
+
+    :param Type type: The type of the symbol.
+    :param value: The constant value of the symbol.
+    :type value: int or float
+    :param int address: The address of the symbol in the program.
+    :param bool is_enumerator: Whether the symbol is an enumerator.
+    :param str byteorder: The byte order of the symbol. This is only valid for
+        non-constants. It should be ``'little'`` or ``'big'``.
+
+    .. attribute:: type
+
+        Type of this symbol
+
+        :vartype: Type
+
+    .. attribute:: value
+
+        Value of this symbol if it is a constant, ``None`` otherwise.
+
+        :vartype: int, float, or None
+
+    .. attribute:: address
+
+        Address of this symbol if it is a variable or function, ``None``
+        otherwise.
+
+        :vartype: int or None
+
+    .. attribute:: is_enumerator
+
+        Whether this symbol is an enumerator.
+
+        :vartype: bool
+
+    .. attribute:: byteorder
+
+        Byte order of this symbol (either ``'little'`` or ``'big'``) if it is a
+        variable or function, ``None`` otherwise.
+
+        :vartype: str or None
+
 .. _api-reference-types:
 
 Types
@@ -821,7 +1019,7 @@ Types
 
 .. class:: Qualifiers
 
-    ``Qualifiers`` is an :class:`enum.IntFlag` of type qualifiers.
+    ``Qualifiers`` is an :class:`enum.Flag` of type qualifiers.
 
     .. attribute:: CONST
 
@@ -992,5 +1190,10 @@ Exceptions
 
 .. exception:: FileFormatError
 
-    This is error raised when a file cannot be parsed according to its expected
+    This error is raised when a file cannot be parsed according to its expected
     format (e.g., ELF or DWARF).
+
+.. exception:: MissingDebugInfoError
+
+    This error is raised when one or more files in a program do not have debug
+    information.

@@ -155,22 +155,6 @@ struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 					 const char *path, Elf **elf);
 
 /**
- * Add a previously opened ELF file to a DWARF index.
- *
- * This is equivalent to @ref drgn_dwarf_index_open() except that the ELF file
- * was previously opened. The DWARF index does not take ownership of @c elf
- * (i.e., it will not call @c elf_end()). The contents of @c elf will be
- * modified in memory; therefore, it should be opened with @c
- * ELF_C_READ_MMAP_PRIVATE.
- *
- * @param[in] dindex DWARF index.
- * @param[in] elf ELF file.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_dwarf_index_open_elf(struct drgn_dwarf_index *dindex,
-					     Elf *elf);
-
-/**
  * Index newly opened files.
  *
  * This function does the second part of indexing a file: it applies ELF

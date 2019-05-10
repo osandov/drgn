@@ -1,12 +1,111 @@
+import ctypes
+import functools
+import itertools
+import os
+import tempfile
+from typing import NamedTuple, Optional
 import unittest
 
-from drgn import FaultError, ProgramFlags, Qualifiers
-from drgn.internal.mock import MockMemorySegment, mock_program
+from drgn import (
+    Architecture,
+    FaultError,
+    FileFormatError,
+    FindObjectFlags,
+    Program,
+    ProgramFlags,
+    Qualifiers,
+    Symbol,
+    TypeKind,
+    array_type,
+    bool_type,
+    float_type,
+    function_type,
+    int_type,
+    pointer_type,
+    typedef_type,
+    void_type,
+)
+from tests import color_type, option_type, pid_type, point_type
+from tests.elf import ET, PT
+from tests.elfwriter import ElfSection, create_elf_file
+
+
+MOCK_ARCH = Architecture.IS_64_BIT | Architecture.IS_LITTLE_ENDIAN
+
+
+class MockMemorySegment(NamedTuple):
+    buf: bytes
+    virt_addr: Optional[int] = None
+    phys_addr: Optional[int] = None
+
+
+def mock_memory_read(data, address, count, physical, offset):
+    return data[offset:offset + count]
+
+
+def mock_program(*, arch=MOCK_ARCH, segments=None, types=None, symbols=None):
+    def mock_find_type(kind, name, filename):
+        if filename:
+            return None
+        for type in types:
+            if type.kind == kind:
+                try:
+                    type_name = type.name
+                except AttributeError:
+                    try:
+                        type_name = type.tag
+                    except AttributeError:
+                        continue
+                if type_name == name:
+                    return type
+        return None
+
+    def mock_symbol_find(name, flags, filename):
+        if filename:
+            return None
+        for sym_name, sym in symbols:
+            if sym_name == name:
+                if sym.value is not None or sym.is_enumerator:
+                    if flags & FindObjectFlags.CONSTANT:
+                        break
+                elif sym.type.kind == TypeKind.FUNCTION:
+                    if flags & FindObjectFlags.FUNCTION:
+                        break
+                elif flags & FindObjectFlags.VARIABLE:
+                    break
+        else:
+            return None
+        return sym
+
+    prog = Program(arch)
+    if segments is not None:
+        for segment in segments:
+            prog.add_memory_segment(
+                segment.virt_addr, segment.phys_addr, len(segment.buf),
+                functools.partial(mock_memory_read, segment.buf))
+    if types is not None:
+        prog.add_type_finder(mock_find_type)
+    if symbols is not None:
+        prog.add_symbol_finder(mock_symbol_find)
+    return prog
 
 
 class TestProgram(unittest.TestCase):
+    def test_set_pid(self):
+        # Debug the running Python interpreter itself.
+        prog = Program()
+        self.assertEqual(prog.arch, Architecture.AUTO)
+        prog.set_pid(os.getpid())
+        self.assertEqual(prog.arch, Architecture.HOST)
+        data = b'hello, world!'
+        buf = ctypes.create_string_buffer(data)
+        self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
+        self.assertRaisesRegex(ValueError,
+                               'program was already set to core dump or PID',
+                               prog.set_pid, os.getpid())
+
     def test_lookup_error(self):
-        prog = mock_program(8, 'little')
+        prog = mock_program()
         self.assertRaisesRegex(LookupError, "^could not find constant 'foo'$",
                                prog.constant, 'foo')
         self.assertRaisesRegex(LookupError,
@@ -32,31 +131,346 @@ class TestProgram(unittest.TestCase):
         # Even for non-strings.
         self.assertRaises(KeyError, prog.__getitem__, 9)
 
-    def test_read(self):
-        prog = mock_program(8, 'little', segments=[
-            MockMemorySegment(b'hello\0', virt_addr=0xffff0000),
-        ])
-        self.assertEqual(prog.read(0xffff0000, 5), b'hello')
-        self.assertEqual(prog.read(0xffff0000, 6), b'hello\0')
-        self.assertRaises(FaultError, prog.read, 0xffff0006, 2)
-        self.assertRaises(FaultError, prog.read, 0xffff0007, 1)
-
-    def test_byteorder(self):
-        self.assertEqual(mock_program(8, 'little').byteorder, 'little')
-        self.assertEqual(mock_program(8, 'big').byteorder, 'big')
-
-    def test_word_size(self):
-        self.assertEqual(mock_program(8, 'little').word_size, 8)
-        self.assertEqual(mock_program(4, 'little').word_size, 4)
-
     def test_flags(self):
-        self.assertIsInstance(mock_program(8, 'little').flags, ProgramFlags)
+        self.assertIsInstance(mock_program().flags, ProgramFlags)
 
     def test_pointer_type(self):
-        prog = mock_program(8, 'little')
+        prog = mock_program()
         self.assertEqual(prog.pointer_type(prog.type('int')),
                          prog.type('int *'))
         self.assertEqual(prog.pointer_type('int'),
                          prog.type('int *'))
         self.assertEqual(prog.pointer_type(prog.type('int'), Qualifiers.CONST),
                          prog.type('int * const'))
+
+
+class TestMemory(unittest.TestCase):
+    def test_simple_read(self):
+        data = b'hello, world'
+        prog = mock_program(segments=[
+            MockMemorySegment(data, 0xffff0000, 0xa0),
+        ])
+        self.assertEqual(prog.read(0xffff0000, len(data)), data)
+        self.assertEqual(prog.read(0xa0, len(data), True), data)
+
+    def test_bad_address(self):
+        data = b'hello, world!'
+        prog = mock_program(segments=[MockMemorySegment(data, 0xffff0000)])
+        self.assertRaisesRegex(FaultError, 'could not find memory segment',
+                               prog.read, 0xdeadbeef, 4)
+        self.assertRaisesRegex(FaultError, 'could not find memory segment',
+                               prog.read, 0xffff0000, 4, True)
+
+    def test_segment_overflow(self):
+        data = b'hello, world!'
+        prog = mock_program(segments=[MockMemorySegment(data, 0xffff0000)])
+        self.assertRaisesRegex(FaultError, 'could not find memory segment',
+                               prog.read, 0xffff0000, len(data) + 1)
+
+    def test_adjacent_segments(self):
+        data = b'hello, world!\0foobar'
+        prog = mock_program(segments=[
+            MockMemorySegment(data[:4], 0xffff0000),
+            MockMemorySegment(data[4:14], 0xffff0004),
+            MockMemorySegment(data[14:], 0xfffff000),
+        ])
+        self.assertEqual(prog.read(0xffff0000, 14), data[:14])
+
+    def test_invalid_read_fn(self):
+        prog = mock_program()
+
+        self.assertRaises(TypeError, prog.add_memory_segment, 0xffff0000, None,
+                          8, b'foo')
+
+        prog.add_memory_segment(0xffff0000, None, 8, lambda: None)
+        self.assertRaises(TypeError, prog.read, 0xffff0000, 8)
+
+        prog.add_memory_segment(0xffff0000, None, 8,
+                                lambda address, count, physical, offset: None)
+        self.assertRaises(TypeError, prog.read, 0xffff0000, 8)
+
+        prog.add_memory_segment(0xffff0000, None, 8,
+                                lambda address, count, physical, offset: 'asdf')
+        self.assertRaises(TypeError, prog.read, 0xffff0000, 8)
+
+        prog.add_memory_segment(0xffff0000, None, 8,
+                                lambda address, count, physical, offset: b'')
+        self.assertRaisesRegex(
+            ValueError,
+            'memory read callback returned buffer of length 0 \(expected 8\)',
+            prog.read, 0xffff0000, 8)
+
+
+class TestTypes(unittest.TestCase):
+    def test_invalid_finder(self):
+        self.assertRaises(TypeError, mock_program().add_type_finder, 'foo')
+
+        prog = mock_program()
+        prog.add_type_finder(lambda kind, name, filename: 'foo')
+        self.assertRaises(TypeError, prog.type, 'int')
+
+    def test_wrong_kind(self):
+        prog = mock_program()
+        prog.add_type_finder(lambda kind, name, filename: void_type())
+        self.assertRaises(TypeError, prog.type, 'int')
+
+    def test_not_found(self):
+        prog = mock_program()
+        self.assertRaises(LookupError, prog.type, 'struct foo')
+        prog.add_type_finder(lambda kind, name, filename: None)
+        self.assertRaises(LookupError, prog.type, 'struct foo')
+
+    def test_default_primitive_types(self):
+        def spellings(tokens, num_optional=0):
+            for i in range(len(tokens) - num_optional, len(tokens) + 1):
+                for perm in itertools.permutations(tokens[:i]):
+                    yield ' '.join(perm)
+
+        for word_size in [8, 4]:
+            if word_size == 8:
+                arch = MOCK_ARCH | Architecture.IS_64_BIT
+            else:
+                arch = MOCK_ARCH & ~Architecture.IS_64_BIT
+            prog = mock_program(arch=arch)
+            self.assertEqual(prog.type('_Bool'), bool_type('_Bool', 1))
+            self.assertEqual(prog.type('char'), int_type('char', 1, True))
+            for spelling in spellings(['signed', 'char']):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('signed char', 1, True))
+            for spelling in spellings(['unsigned', 'char']):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('unsigned char', 1, False))
+            for spelling in spellings(['short', 'signed', 'int'], 2):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('short', 2, True))
+            for spelling in spellings(['short', 'unsigned', 'int'], 1):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('unsigned short', 2, False))
+            for spelling in spellings(['int', 'signed'], 1):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('int', 4, True))
+            for spelling in spellings(['unsigned', 'int']):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('unsigned int', 4, False))
+            for spelling in spellings(['long', 'signed', 'int'], 2):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('long', word_size, True))
+            for spelling in spellings(['long', 'unsigned', 'int'], 1):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('unsigned long', word_size, False))
+            for spelling in spellings(['long', 'long', 'signed', 'int'], 2):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('long long', 8, True))
+            for spelling in spellings(['long', 'long', 'unsigned', 'int'], 1):
+                self.assertEqual(prog.type(spelling),
+                                 int_type('unsigned long long', 8, False))
+            self.assertEqual(prog.type('float'),
+                             float_type('float', 4))
+            self.assertEqual(prog.type('double'),
+                             float_type('double', 8))
+            for spelling in spellings(['long', 'double']):
+                self.assertEqual(prog.type(spelling),
+                                 float_type('long double', 16))
+            self.assertEqual(prog.type('size_t'),
+                             typedef_type('size_t',
+                                          int_type('unsigned long', word_size,
+                                                   False)))
+            self.assertEqual(prog.type('ptrdiff_t'),
+                             typedef_type('ptrdiff_t',
+                                          int_type('long', word_size, True)))
+
+    def test_primitive_type(self):
+        prog = mock_program(types=[
+            int_type('long', 4, True),
+            int_type('unsigned long', 4, True),
+        ])
+        self.assertEqual(prog.type('long'), int_type('long', 4, True))
+        # unsigned long with signed=True isn't valid, so it should be ignored.
+        self.assertEqual(prog.type('unsigned long'),
+                         int_type('unsigned long', 8, False))
+
+    def test_tagged_type(self):
+        prog = mock_program(types=[point_type, option_type, color_type])
+        self.assertEqual(prog.type('struct point'), point_type)
+        self.assertEqual(prog.type('union option'), option_type)
+        self.assertEqual(prog.type('enum color'), color_type)
+
+    def test_typedef(self):
+        prog = mock_program(types=[pid_type])
+        self.assertEqual(prog.type('pid_t'), pid_type)
+
+    def test_pointer(self):
+        prog = mock_program()
+        self.assertEqual(prog.type('int *'),
+                         pointer_type(8, int_type('int', 4, True)))
+        self.assertEqual(prog.type('const int *'),
+                         pointer_type(8, int_type('int', 4, True, Qualifiers.CONST)))
+        self.assertEqual(prog.type('int * const'),
+                         pointer_type(8, int_type('int', 4, True), Qualifiers.CONST))
+        self.assertEqual(prog.type('int **'),
+                         pointer_type(8, pointer_type(8, int_type('int', 4, True))))
+        self.assertEqual(prog.type('int *((*))'),
+                         pointer_type(8, pointer_type(8, int_type('int', 4, True))))
+        self.assertEqual(prog.type('int * const *'),
+                         pointer_type(8, pointer_type(8, int_type('int', 4, True), Qualifiers.CONST)))
+
+    def test_array(self):
+        prog = mock_program()
+        self.assertEqual(prog.type('int []'),
+                         array_type(None, int_type('int', 4, True)))
+        self.assertEqual(prog.type('int [20]'),
+                         array_type(20, int_type('int', 4, True)))
+        self.assertEqual(prog.type('int [0x20]'),
+                         array_type(32, int_type('int', 4, True)))
+        self.assertEqual(prog.type('int [020]'),
+                         array_type(16, int_type('int', 4, True)))
+        self.assertEqual(prog.type('int [2][3]'),
+                         array_type(2, array_type(3, int_type('int', 4, True))))
+        self.assertEqual(prog.type('int [2][3][4]'),
+                         array_type(2, array_type(3, array_type(4, int_type('int', 4, True)))))
+
+    def test_array_of_pointers(self):
+        prog = mock_program()
+        self.assertEqual(prog.type('int *[2][3]'),
+                         array_type(2, array_type(3, pointer_type(8, int_type('int', 4, True)))))
+
+    def test_pointer_to_array(self):
+        prog = mock_program()
+        self.assertEqual(prog.type('int (*)[2]'),
+                         pointer_type(8, array_type(2, int_type('int', 4, True))))
+        self.assertEqual(prog.type('int (*)[2][3]'),
+                         pointer_type(8, array_type(2, array_type(3, int_type('int', 4, True)))))
+
+    def test_pointer_to_pointer_to_array(self):
+        prog = mock_program()
+        self.assertEqual(prog.type('int (**)[2]'),
+                         pointer_type(8, pointer_type(8, array_type(2, int_type('int', 4, True)))))
+
+    def test_pointer_to_array_of_pointers(self):
+        prog = mock_program()
+        self.assertEqual(prog.type('int *(*)[2]'),
+                         pointer_type(8, array_type(2, pointer_type(8, int_type('int', 4, True)))))
+        self.assertEqual(prog.type('int *((*)[2])'),
+                         pointer_type(8, array_type(2, pointer_type(8, int_type('int', 4, True)))))
+
+    def test_array_of_pointers_to_array(self):
+        prog = mock_program()
+        self.assertEqual(prog.type('int (*[2])[3]'),
+                         array_type(2, pointer_type(8, array_type(3, int_type('int', 4, True)))))
+
+
+class TestSymbols(unittest.TestCase):
+    def test_invalid_finder(self):
+        self.assertRaises(TypeError, mock_program().add_symbol_finder, 'foo')
+
+        prog = mock_program()
+        prog.add_symbol_finder(lambda name, flags, filename: 'foo')
+        self.assertRaises(TypeError, prog._symbol, 'foo', FindObjectFlags.ANY)
+
+    def test_not_found(self):
+        prog = mock_program()
+        self.assertRaises(LookupError, prog._symbol, 'foo', FindObjectFlags.ANY)
+        prog.add_symbol_finder(lambda name, flags, filename: None)
+        self.assertRaises(LookupError, prog._symbol, 'foo', FindObjectFlags.ANY)
+
+    def test_constant(self):
+        sym = Symbol(int_type('int', 4, True), value=4096)
+        prog = mock_program(symbols=[('PAGE_SIZE', sym)])
+        self.assertEqual(prog._symbol('PAGE_SIZE', FindObjectFlags.CONSTANT),
+                         sym)
+        self.assertEqual(prog._symbol('PAGE_SIZE', FindObjectFlags.ANY), sym)
+
+    def test_function(self):
+        sym = Symbol(function_type(void_type(), (), False), address=0xffff0000,
+                     byteorder='little')
+        prog = mock_program(symbols=[('func', sym)])
+        self.assertEqual(prog._symbol('func', FindObjectFlags.FUNCTION), sym)
+        self.assertEqual(prog._symbol('func', FindObjectFlags.ANY), sym)
+
+    def test_variable(self):
+        sym = Symbol(int_type('int', 4, True), address=0xffff0000,
+                     byteorder='little')
+        prog = mock_program(symbols=[('counter', sym)])
+        self.assertEqual(prog._symbol('counter', FindObjectFlags.VARIABLE), sym)
+        self.assertEqual(prog._symbol('counter', FindObjectFlags.ANY), sym)
+
+    def test_wrong_kind(self):
+        prog = mock_program()
+        prog.add_symbol_finder(lambda name, flags, filename:
+                               Symbol(color_type, is_enumerator=True))
+        self.assertRaisesRegex(TypeError, 'wrong kind', prog._symbol, 'foo',
+                               FindObjectFlags.VARIABLE | FindObjectFlags.FUNCTION)
+
+
+class TestCoreDump(unittest.TestCase):
+    def test_not_elf(self):
+        prog = Program()
+        self.assertRaisesRegex(FileFormatError, 'not an ELF file',
+                               prog.set_core_dump, '/dev/null')
+
+    def test_not_core_dump(self):
+        prog = Program()
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(create_elf_file(ET.EXEC, []))
+            f.flush()
+            self.assertRaisesRegex(ValueError, 'not an ELF core file',
+                                   prog.set_core_dump, f.name)
+
+    def test_twice(self):
+        prog = Program()
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(create_elf_file(ET.CORE, []))
+            f.flush()
+            prog.set_core_dump(f.name)
+            self.assertRaisesRegex(ValueError,
+                                   'program was already set to core dump or PID',
+                                   prog.set_core_dump, f.name)
+
+    def test_simple(self):
+        data = b'hello, world'
+        prog = Program()
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(create_elf_file(ET.CORE, [
+                ElfSection(
+                    p_type=PT.LOAD,
+                    vaddr=0xffff0000,
+                    data=data,
+                ),
+            ]))
+            f.flush()
+            prog.set_core_dump(f.name)
+        self.assertEqual(prog.read(0xffff0000, len(data)), data)
+        self.assertRaises(FaultError, prog.read, 0x0, len(data), physical=True)
+
+    def test_physical(self):
+        data = b'hello, world'
+        prog = Program()
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(create_elf_file(ET.CORE, [
+                ElfSection(
+                    p_type=PT.LOAD,
+                    vaddr=0xffff0000,
+                    paddr=0xa0,
+                    data=data,
+                ),
+            ]))
+            f.flush()
+            prog.set_core_dump(f.name)
+        self.assertEqual(prog.read(0xffff0000, len(data)), data)
+        self.assertEqual(prog.read(0xa0, len(data), physical=True), data)
+
+    def test_zero_fill(self):
+        data = b'hello, world'
+        prog = Program()
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(create_elf_file(ET.CORE, [
+                ElfSection(
+                    p_type=PT.LOAD,
+                    vaddr=0xffff0000,
+                    data=data,
+                    memsz=len(data) + 4,
+                ),
+            ]))
+            f.flush()
+            prog.set_core_dump(f.name)
+        self.assertEqual(prog.read(0xffff0000, len(data) + 4), data + bytes(4))

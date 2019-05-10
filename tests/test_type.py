@@ -656,7 +656,7 @@ class TestType(unittest.TestCase):
         self.assertEqual(t.unqualified(), void_type())
         self.assertEqual(t.qualified(Qualifiers(0)), t.unqualified())
 
-        self.assertRaisesRegex(TypeError, 'qualifiers must be Qualifiers',
+        self.assertRaisesRegex(TypeError, 'expected Qualifiers or None',
                                void_type, 1.5)
 
     def test_cmp(self):

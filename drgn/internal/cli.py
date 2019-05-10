@@ -62,13 +62,19 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    verbose = not args.script
+    prog = drgn.Program()
     if args.core is not None:
-        prog = drgn.program_from_core_dump(args.core, verbose)
+        prog.set_core_dump(args.core)
     elif args.kernel:
-        prog = drgn.program_from_kernel(verbose)
+        prog.set_kernel()
     else:
-        prog = drgn.program_from_pid(args.pid or os.getpid())
+        prog.set_pid(args.pid or os.getpid())
+    try:
+        prog.open_default_debug_info()
+    except drgn.MissingDebugInfoError as e:
+        if not args.script:
+            print(str(e), file=sys.stderr)
+    prog.load_debug_info()
 
     init_globals: Dict[str, Any] = {'prog': prog}
     if args.script:

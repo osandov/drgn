@@ -142,7 +142,7 @@ Types
 
 drgn automatically obtains type definitions from the program. Types are
 represented by the :class:`drgn.Type` class and created by various factory
-functions like :func:`int_type()`::
+functions like :func:`drgn.int_type()`::
 
     >>> prog.type('int')
     int_type(name='int', size=4, is_signed=True)

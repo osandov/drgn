@@ -17,7 +17,7 @@ from drgn import (
     union_type,
     void_type,
 )
-from tests.test_type_index import point_type
+from tests import point_type
 from tests.libdrgn import C_TOKEN, drgn_lexer_c, Lexer
 
 

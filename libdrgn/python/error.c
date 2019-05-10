@@ -115,8 +115,10 @@ DRGNPY_PUBLIC PyObject *set_drgn_error(struct drgn_error *err)
 		break;
 	case DRGN_ERROR_ELF_FORMAT:
 	case DRGN_ERROR_DWARF_FORMAT:
-	case DRGN_ERROR_MISSING_DEBUG:
 		PyErr_SetString(FileFormatError, err->message);
+		break;
+	case DRGN_ERROR_MISSING_DEBUG_INFO:
+		PyErr_SetString(MissingDebugInfoError, err->message);
 		break;
 	case DRGN_ERROR_SYNTAX:
 		PyErr_SetString(PyExc_SyntaxError, err->message);

@@ -2,13 +2,13 @@ import ctypes
 import enum
 from enum import auto
 import os
-from typing import BinaryIO, NamedTuple, Optional, Sequence, Union
 
 import drgn
-from drgn.internal.mock import MockType
-from tests import _drgn_pydll, _drgn_cdll
-from tests.libelf import _Elf, Elf
-from tests.libdw import _Dwarf_Die, Die
+import _drgn
+
+
+_drgn_pydll = ctypes.PyDLL(_drgn.__file__)
+_drgn_cdll = ctypes.CDLL(_drgn.__file__)
 
 
 class _drgn_error(ctypes.Structure):
@@ -96,10 +96,6 @@ class _drgn_qualified_type(ctypes.Structure):
         ('type', ctypes.POINTER(_drgn_type)),
         ('qualifiers', ctypes.c_uint),
     ]
-
-
-_drgn_pydll.DrgnType_wrap.restype = ctypes.py_object
-_drgn_pydll.DrgnType_wrap.argtypes = [_drgn_qualified_type, ctypes.py_object]
 
 
 class _drgn_token(ctypes.Structure):

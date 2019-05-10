@@ -56,12 +56,15 @@ def gen_constants(input_file, output_file, header_directory=None):
 
 #include "{os.path.join(header_directory or '', 'drgnpy.h')}"
 
+PyObject *Architecture_class;
 PyObject *FindObjectFlags_class;
 PyObject *PrimitiveType_class;
 PyObject *ProgramFlags_class;
 PyObject *Qualifiers_class;
 PyObject *TypeKind_class;
 """)
+    gen_constant_class(drgn_h, output_file, 'Architecture', 'Flag',
+                       r'DRGN_ARCH_([a-zA-Z0-9_]+)')
     gen_constant_class(drgn_h, output_file, 'FindObjectFlags', 'Flag',
                        r'DRGN_FIND_OBJECT_([a-zA-Z0-9_]+)')
     gen_constant_class(drgn_h, output_file, 'PrimitiveType', 'Enum',
@@ -82,7 +85,8 @@ int add_module_constants(PyObject *m)
 	if (!enum_module)
 		return -1;
 
-	if (add_FindObjectFlags(m, enum_module) == -1 ||
+	if (add_Architecture(m, enum_module) == -1 ||
+	    add_FindObjectFlags(m, enum_module) == -1 ||
 	    add_PrimitiveType(m, enum_module) == -1 ||
 	    add_ProgramFlags(m, enum_module) == -1 ||
 	    add_Qualifiers(m, enum_module) == -1 ||

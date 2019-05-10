@@ -21,7 +21,6 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 lexer.h \
 			 memory_reader.c \
 			 memory_reader.h \
-			 mock.c \
 			 object.c \
 			 object.h \
 			 path.c \
@@ -60,15 +59,12 @@ CLEANFILES = python/constants.c python/docstrings.c
 _drgn_la_SOURCES = python/docstrings.h \
 		   python/drgnpy.h \
 		   python/error.c \
-		   python/memory_reader.c \
 		   python/module.c \
 		   python/object.c \
 		   python/program.c \
 		   python/symbol.c \
-		   python/symbol_index.c \
 		   python/test.c \
 		   python/type.c \
-		   python/type_index.c \
 		   python/util.c
 
 nodist__drgn_la_SOURCES = python/constants.c python/docstrings.c

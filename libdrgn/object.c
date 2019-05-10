@@ -26,7 +26,7 @@ void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog)
 	obj->is_bit_field = false;
 	obj->reference.address = 0;
 	obj->reference.bit_offset = 0;
-	obj->reference.little_endian = drgn_program_is_little_endian(prog);
+	obj->reference.little_endian = prog->arch & DRGN_ARCH_IS_LITTLE_ENDIAN;
 }
 
 static void drgn_value_deinit(const struct drgn_object *obj,
@@ -282,7 +282,7 @@ drgn_byte_order_to_little_endian(struct drgn_program *prog,
 		*ret = true;
 		return NULL;
 	case DRGN_PROGRAM_ENDIAN:
-		*ret = drgn_program_is_little_endian(prog);
+		*ret = prog->arch & DRGN_ARCH_IS_LITTLE_ENDIAN;
 		return NULL;
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,

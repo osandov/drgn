@@ -79,9 +79,12 @@ def parse_rst(input_file):
                         # If the argument includes a signature, add it along
                         # with the signature end marker used by CPython.
                         lines.append(argument)
-                        lines.append('--')
-                        lines.append('')
                         argument = argument[:paren]
+                        # XXX: the Python inspect module can't cope with
+                        # arch=Architecture.AUTO, so don't make it a signature.
+                        if argument != 'Program':
+                            lines.append('--')
+                        lines.append('')
                     if name:
                         name += '.'
                     name += argument

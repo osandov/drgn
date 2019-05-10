@@ -33,5 +33,6 @@ Table of Contents
 
     installation
     user_guide
+    advanced_usage
     api_reference
     helpers

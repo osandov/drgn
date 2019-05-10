@@ -2,7 +2,7 @@ import unittest
 
 from drgn import enum_type, float_type, int_type
 from _drgn import Symbol
-from tests.test_type_index import color_type, line_segment_type, point_type
+from tests import color_type, line_segment_type, point_type
 
 
 class TestSymbol(unittest.TestCase):

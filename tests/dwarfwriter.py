@@ -1,7 +1,8 @@
 from collections import namedtuple
 import os.path
-import struct
 
+from tests.elf import ET, SHT
+from tests.elfwriter import ElfSection, create_elf_file
 from tests.dwarf import DW_AT, DW_FORM, DW_TAG
 
 
@@ -32,7 +33,8 @@ def _append_sleb128(buf, value):
             buf.append(byte | 0x80)
 
 
-def _compile_debug_abbrev(buf, cu_die):
+def _compile_debug_abbrev(cu_die):
+    buf = bytearray()
     code = 1
     def aux(die):
         nonlocal code
@@ -50,10 +52,11 @@ def _compile_debug_abbrev(buf, cu_die):
                 aux(child)
     aux(cu_die)
     buf.append(0)
+    return buf
 
 
-def _compile_debug_info(buf, cu_die, little_endian, bits):
-    cu_offset = len(buf)
+def _compile_debug_info(cu_die, little_endian, bits):
+    buf = bytearray()
     byteorder = 'little' if little_endian else 'big'
 
     buf.extend(b'\0\0\0\0')  # unit_length
@@ -68,7 +71,7 @@ def _compile_debug_info(buf, cu_die, little_endian, bits):
     def aux(die, depth):
         nonlocal code, decl_file
         if depth == 1:
-            die_offsets.append(len(buf) - cu_offset)
+            die_offsets.append(len(buf))
         _append_uleb128(buf, code)
         code += 1
         for attrib in die.attribs:
@@ -106,15 +109,16 @@ def _compile_debug_info(buf, cu_die, little_endian, bits):
             buf.append(0)
     aux(cu_die, 0)
 
-    unit_length = len(buf) - cu_offset - 4
-    buf[cu_offset:cu_offset + 4] = unit_length.to_bytes(4, byteorder)
+    unit_length = len(buf) - 4
+    buf[:4] = unit_length.to_bytes(4, byteorder)
 
     for offset, index in relocations:
         buf[offset:offset + 4] = die_offsets[index].to_bytes(4, byteorder)
+    return buf
 
 
-def _compile_debug_line(buf, cu_die, little_endian):
-    offset = len(buf)
+def _compile_debug_line(cu_die, little_endian):
+    buf = bytearray()
     byteorder = 'little' if little_endian else 'big'
 
     buf.extend(b'\0\0\0\0')  # unit_length
@@ -166,16 +170,11 @@ def _compile_debug_line(buf, cu_die, little_endian):
     compile_file_names(cu_die)
     buf.append(0)
 
-    unit_length = len(buf) - offset - 4
-    buf[offset:offset + 4] = unit_length.to_bytes(4, byteorder)
+    unit_length = len(buf) - 4
+    buf[:4] = unit_length.to_bytes(4, byteorder)
     header_length = unit_length - 6
-    buf[offset + 6:offset + 10] = header_length.to_bytes(4, byteorder)
-
-
-def _align_dwarf(buf, bits):
-    align = bits // 8
-    if len(buf) % align != 0:
-        buf.extend(b'\0' * (align - len(buf) % align))
+    buf[6:10] = header_length.to_bytes(4, byteorder)
+    return buf
 
 
 def compile_dwarf(dies, little_endian=True, bits=64):
@@ -187,147 +186,25 @@ def compile_dwarf(dies, little_endian=True, bits=64):
         DwarfAttrib(DW_AT.stmt_list, DW_FORM.sec_offset, 0),
     ], dies)
 
-    endian = '<' if little_endian else '>'
-    if bits == 64:
-        ehdr_struct = struct.Struct(endian + '16BHHIQQQIHHHHHH')
-        shdr_struct = struct.Struct(endian + 'IIQQQQIIQQ')
-        e_machine = 62 if little_endian else 43  # EM_X86_64 or EM_SPARCV9
-    else:
-        assert bits == 32
-        ehdr_struct = struct.Struct(endian + '16BHHIIIIIHHHHHH')
-        shdr_struct = struct.Struct(endian + '10I')
-        e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
-
-    sections = [
-        '.shstrtab',
-        '.debug_abbrev',
-        '.debug_info',
-        '.debug_line',
-        '.debug_str',
-    ]
-    buf = bytearray(ehdr_struct.size + shdr_struct.size * (len(sections) + 1))
-    ehdr_struct.pack_into(
-        buf, 0,
-        0x7f,  # ELFMAG0
-        ord('E'),  # ELFMAG1
-        ord('L'),  # ELFMAG2
-        ord('F'),  # ELFMAG3
-        2 if bits == 64 else 1,  # EI_CLASS = ELFCLASS64 or ELFCLASS32
-        1 if little_endian else 2,  # EI_DATA = ELFDATA2LSB or ELFDATA2MSB
-        1,  # EI_VERSION = EV_CURRENT
-        0,  # EI_OSABI = ELFOSABI_NONE
-        0,  # EI_ABIVERSION
-        0, 0, 0, 0, 0, 0, 0,  # EI_PAD
-        2,  # e_type = ET_EXEC
-        e_machine,
-        1,  # e_version = EV_CURRENT
-        0,  # e_entry
-        0,  # e_phoff
-        ehdr_struct.size,  # e_shoff
-        0,  # e_flags
-        ehdr_struct.size,  # e_ehsize
-        0,  # e_phentsize
-        0,  # e_phnum
-        shdr_struct.size,  # e_shentsize,
-        len(sections) + 1,  # e_shnum,
-        1,  # e_shstrndix
-    )
-
-    shnum = 1
-
-    sh_offset = len(buf)
-    buf.append(0)
-    section_names = {}
-    for section in sections:
-        section_names[section] = len(buf) - sh_offset
-        buf.extend(section.encode())
-        buf.append(0)
-    shdr_struct.pack_into(
-        buf, ehdr_struct.size + shnum * shdr_struct.size,
-        section_names['.shstrtab'],  # sh_name
-        3,  # sh_type = SHT_STRTAB
-        0,  # sh_flags
-        0,  # sh_addr
-        sh_offset,  # sh_offset
-        len(buf) - sh_offset,  # sh_size
-        0,  # sh_link
-        0,  # sh_info
-        1,  # sh_addralign
-        0,  # sh_entsize
-    )
-    shnum += 1
-
-    _align_dwarf(buf, bits)
-    sh_offset = len(buf)
-    _compile_debug_abbrev(buf, cu_die)
-    shdr_struct.pack_into(
-        buf, ehdr_struct.size + shnum * shdr_struct.size,
-        section_names['.debug_abbrev'],  # sh_name
-        1,  # sh_type = SHT_PROGBITS
-        0,  # sh_flags
-        0,  # sh_addr
-        sh_offset,  # sh_offset
-        len(buf) - sh_offset,  # sh_size
-        0,  # sh_link
-        0,  # sh_info
-        1,  # sh_addralign
-        0,  # sh_entsize
-    )
-    shnum += 1
-
-    _align_dwarf(buf, bits)
-    sh_offset = len(buf)
-    _compile_debug_info(buf, cu_die, little_endian, bits)
-    shdr_struct.pack_into(
-        buf, ehdr_struct.size + shnum * shdr_struct.size,
-        section_names['.debug_info'],  # sh_name
-        1,  # sh_type = SHT_PROGBITS
-        0,  # sh_flags
-        0,  # sh_addr
-        sh_offset,  # sh_offset
-        len(buf) - sh_offset,  # sh_size
-        0,  # sh_link
-        0,  # sh_info
-        1,  # sh_addralign
-        0,  # sh_entsize
-    )
-    shnum += 1
-
-    _align_dwarf(buf, bits)
-    sh_offset = len(buf)
-    _compile_debug_line(buf, cu_die, little_endian)
-    shdr_struct.pack_into(
-        buf, ehdr_struct.size + shnum * shdr_struct.size,
-        section_names['.debug_line'],  # sh_name
-        1,  # sh_type = SHT_PROGBITS
-        0,  # sh_flags
-        0,  # sh_addr
-        sh_offset,  # sh_offset
-        len(buf) - sh_offset,  # sh_size
-        0,  # sh_link
-        0,  # sh_info
-        1,  # sh_addralign
-        0,  # sh_entsize
-    )
-    shnum += 1
-
-    sh_offset = len(buf)
-    buf.append(0)
-    shdr_struct.pack_into(
-        buf, ehdr_struct.size + shnum * shdr_struct.size,
-        section_names['.debug_str'],  # sh_name
-        1,  # sh_type = SHT_PROGBITS
-        0,  # sh_flags
-        0,  # sh_addr
-        sh_offset,  # sh_offset
-        len(buf) - sh_offset,  # sh_size
-        0,  # sh_link
-        0,  # sh_info
-        1,  # sh_addralign
-        0,  # sh_entsize
-    )
-    shnum += 1
-
-    assert shnum == len(sections) + 1
-
-    return bytes(buf)
+    return create_elf_file(ET.EXEC, [
+        ElfSection(
+            name='.debug_abbrev',
+            sh_type=SHT.PROGBITS,
+            data=_compile_debug_abbrev(cu_die),
+        ),
+        ElfSection(
+            name='.debug_info',
+            sh_type=SHT.PROGBITS,
+            data=_compile_debug_info(cu_die, little_endian, bits),
+        ),
+        ElfSection(
+            name='.debug_line',
+            sh_type=SHT.PROGBITS,
+            data=_compile_debug_line(cu_die, little_endian),
+        ),
+        ElfSection(
+            name='.debug_str',
+            sh_type=SHT.PROGBITS,
+            data=b'\0',
+        ),
+    ], little_endian=little_endian, bits=bits)

@@ -1434,7 +1434,8 @@ drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
 	ret->address = low_pc;
 	ret->little_endian = dwarf_die_is_little_endian(die);
 	if (dicache->relocation_hook) {
-		err = dicache->relocation_hook(dicache->prog, name, die, ret);
+		err = dicache->relocation_hook(name, die, ret,
+					       dicache->relocation_arg);
 		if (err)
 			return err;
 	}
@@ -1476,7 +1477,8 @@ drgn_symbol_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 	ret->address = loc[0].number;
 	ret->little_endian = dwarf_die_is_little_endian(die);
 	if (dicache->relocation_hook) {
-		err = dicache->relocation_hook(dicache->prog, name, die, ret);
+		err = dicache->relocation_hook(name, die, ret,
+					       dicache->relocation_arg);
 		if (err)
 			return err;
 	}
@@ -1560,8 +1562,8 @@ drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 	dwarf_type_map_init(&dicache->cant_be_incomplete_array_map);
 	dicache->depth = 0;
 	dicache->tindex = tindex;
-	dicache->prog = NULL;
 	dicache->relocation_hook = NULL;
+	dicache->relocation_arg = NULL;
 	*ret = dicache;
 	return NULL;
 }
@@ -1569,6 +1571,9 @@ drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 void drgn_dwarf_info_cache_destroy(struct drgn_dwarf_info_cache *dicache)
 {
 	struct dwarf_type_map_pos pos;
+
+	if (!dicache)
+		return;
 
 	for (pos = dwarf_type_map_first_pos(&dicache->map);
 	     pos.item; dwarf_type_map_next_pos(&pos))

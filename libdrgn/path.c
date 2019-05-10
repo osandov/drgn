@@ -157,3 +157,22 @@ bool die_matches_filename(Dwarf_Die *die, const char *filename)
 
 	return path_ends_with(&die_path, &needle);
 }
+
+LIBDRGN_PUBLIC bool drgn_filename_matches(const char *haystack,
+					  const char *needle)
+{
+	struct path_iterator haystack_path = {
+		.components = (struct path_iterator_component []){
+			{ haystack, strlen(haystack), }
+		},
+		.num_components = 1,
+	};
+	struct path_iterator needle_path = {
+		.components = (struct path_iterator_component []){
+			{ needle, strlen(needle), }
+		},
+		.num_components = 1,
+	};
+
+	return path_ends_with(&haystack_path, &needle_path);
+}

@@ -18,11 +18,13 @@ Symbol *Symbol_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 	Symbol *sym;
 	int num_given;
 
-	if (PyArg_ParseTupleAndKeywords(args, kwds, "O!|OOpz", keywords,
-					&DrgnType_type, &type_obj, &value_obj,
-					&address_obj, &is_enumerator,
-					&byteorder) == -1)
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|$OOpz", keywords,
+					 &DrgnType_type, &type_obj, &value_obj,
+					 &address_obj, &is_enumerator,
+					 &byteorder)) {
+		fprintf(stderr, "ya\n");
 		return NULL;
+	}
 
 	qualified_type.type = type_obj->type;
 	qualified_type.qualifiers = type_obj->qualifiers;
@@ -248,11 +250,13 @@ static PyObject *Symbol_get_byteorder(Symbol *self, void *arg)
 }
 
 static PyGetSetDef Symbol_getset[] = {
-	{"type", (getter)Symbol_get_type},
-	{"value", (getter)Symbol_get_value},
-	{"address", (getter)Symbol_get_address},
-	{"is_enumerator", (getter)Symbol_get_is_enumerator},
-	{"byteorder", (getter)Symbol_get_byteorder},
+	{"type", (getter)Symbol_get_type, NULL, drgn_Symbol_type_DOC},
+	{"value", (getter)Symbol_get_value, NULL, drgn_Symbol_value_DOC},
+	{"address", (getter)Symbol_get_address, NULL, drgn_Symbol_address_DOC},
+	{"is_enumerator", (getter)Symbol_get_is_enumerator, NULL,
+	 drgn_Symbol_is_enumerator_DOC},
+	{"byteorder", (getter)Symbol_get_byteorder, NULL,
+	 drgn_Symbol_byteorder_DOC},
 	{},
 };
 
@@ -277,7 +281,7 @@ PyTypeObject Symbol_type = {
 	NULL,					/* tp_setattro */
 	NULL,					/* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	"drgn_symbol wrapper for testing",	/* tp_doc */
+	drgn_Symbol_DOC,			/* tp_doc */
 	NULL,					/* tp_traverse */
 	NULL,					/* tp_clear */
 	(richcmpfunc)Symbol_richcompare,	/* tp_richcompare */

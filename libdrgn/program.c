@@ -20,9 +20,10 @@
 #include "dwarf_info_cache.h"
 #include "language.h"
 #include "memory_reader.h"
-#include "symbol_index.h"
 #include "program.h"
 #include "read.h"
+#include "string_builder.h"
+#include "symbol_index.h"
 #include "type_index.h"
 
 /* This definition was added to elf.h in glibc 2.18. */
@@ -30,91 +31,103 @@
 #define NT_FILE 0x46494c45
 #endif
 
+static Elf_Type note_header_type(GElf_Phdr *phdr)
+{
+#if _ELFUTILS_PREREQ(0, 175)
+	if (phdr->p_align == 8)
+		return ELF_T_NHDR8;
+#endif
+	return ELF_T_NHDR;
+}
+
 LIBDRGN_PUBLIC enum drgn_program_flags
 drgn_program_flags(struct drgn_program *prog)
 {
 	return prog->flags;
 }
 
-LIBDRGN_PUBLIC uint8_t drgn_program_word_size(struct drgn_program *prog)
+LIBDRGN_PUBLIC enum drgn_architecture_flags
+drgn_program_architecture(struct drgn_program *prog)
 {
-	return prog->tindex.word_size;
+	return prog->arch;
 }
 
-LIBDRGN_PUBLIC bool drgn_program_is_little_endian(struct drgn_program *prog)
+static void drgn_program_update_arch(struct drgn_program *prog,
+				     enum drgn_architecture_flags arch)
 {
-	return prog->little_endian;
+	if (prog->arch == DRGN_ARCH_AUTO) {
+		prog->arch = arch;
+		prog->tindex.word_size =
+			prog->arch & DRGN_ARCH_IS_64_BIT ? 8 : 4;
+	}
 }
 
-void drgn_program_init(struct drgn_program *prog)
+void drgn_program_init(struct drgn_program *prog,
+		       enum drgn_architecture_flags arch)
 {
 	drgn_memory_reader_init(&prog->reader);
 	drgn_type_index_init(&prog->tindex);
 	drgn_symbol_index_init(&prog->sindex);
+	prog->file_segments = NULL;
+	prog->num_file_segments = 0;
 	prog->mappings = NULL;
 	prog->num_mappings = 0;
-	prog->cleanup = NULL;
+	memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
+	prog->dicache = NULL;
+	prog->core_fd = -1;
 	prog->flags = 0;
+	prog->arch = DRGN_ARCH_AUTO;
+	if (arch != DRGN_ARCH_AUTO)
+		drgn_program_update_arch(prog, arch);
 }
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
-	struct drgn_cleanup *cleanup;
 	size_t i;
 
 	drgn_symbol_index_deinit(&prog->sindex);
 	drgn_type_index_deinit(&prog->tindex);
 	drgn_memory_reader_deinit(&prog->reader);
 
+	free(prog->file_segments);
+
 	for (i = 0; i < prog->num_mappings; i++)
 		free(prog->mappings[i].path);
 	free(prog->mappings);
 
-	cleanup = prog->cleanup;
-	while (cleanup) {
-		struct drgn_cleanup *next;
+	if (prog->core_fd != -1)
+		close(prog->core_fd);
 
-		next = cleanup->next;
-		cleanup->cb(cleanup->arg);
-		free(cleanup);
-		cleanup = next;
-	}
+	drgn_dwarf_info_cache_destroy(prog->dicache);
 }
 
-struct drgn_error *drgn_program_add_cleanup(struct drgn_program *prog,
-					    void (*cb)(void *), void *arg)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_create(enum drgn_architecture_flags arch,
+		    struct drgn_program **ret)
 {
-	struct drgn_cleanup *cleanup;
+	struct drgn_program *prog;
 
-	cleanup = malloc(sizeof(*cleanup));
-	if (!cleanup)
+	if (arch & ~DRGN_ALL_ARCH_FLAGS) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "invalid architecture flags");
+	}
+	prog = malloc(sizeof(*prog));
+	if (!prog)
 		return &drgn_enomem;
-	cleanup->cb = cb;
-	cleanup->arg = arg;
-	cleanup->next = prog->cleanup;
-	prog->cleanup = cleanup;
+	drgn_program_init(prog, arch);
+	*ret = prog;
 	return NULL;
 }
 
-bool drgn_program_remove_cleanup(struct drgn_program *prog, void (*cb)(void *),
-				 void *arg)
+LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 {
-	struct drgn_cleanup **cleanupp = &prog->cleanup;
-
-	while (*cleanupp) {
-		struct drgn_cleanup *cleanup = *cleanupp;
-
-		if (cleanup->cb == cb && cleanup->arg == arg) {
-			*cleanupp = cleanup->next;
-			free(cleanup);
-			return true;
-		}
-		cleanupp = &cleanup->next;
+	if (prog) {
+		drgn_program_deinit(prog);
+		free(prog);
 	}
-	return false;
 }
 
-static struct drgn_error *
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t virt_addr,
 				uint64_t phys_addr, uint64_t size,
 				drgn_memory_read_fn read_fn, void *arg)
@@ -123,47 +136,311 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t virt_addr,
 					      phys_addr, size, read_fn, arg);
 }
 
-static struct drgn_error *
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
 			     void *arg)
 {
 	return drgn_type_index_add_finder(&prog->tindex, fn, arg);
 }
 
-static struct drgn_error *
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_symbol_finder(struct drgn_program *prog,
 			       drgn_symbol_find_fn fn, void *arg)
 {
 	return drgn_symbol_index_add_finder(&prog->sindex, fn, arg);
 }
 
-static struct drgn_error *get_module_name(Elf_Scn *modinfo_scn,
-					  const char **ret)
+/*
+ * Returns NULL if a mapping was appended, &drgn_stop if the mapping was merged,
+ * non-NULL on error.
+ */
+static struct drgn_error *append_file_mapping(uint64_t start, uint64_t end,
+					      uint64_t file_offset, char *path,
+					      struct file_mapping **mappings,
+					      size_t *num_mappings,
+					      size_t *capacity)
+{
+	struct file_mapping *mapping;
+
+	if (start > end) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "file memory mapping has negative length");
+	} else if (start == end) {
+		return NULL;
+	}
+
+	/*
+	 * There may be separate mappings for adjacent areas of a file (e.g., if
+	 * the mappings have different permissions). Make sure to merge those.
+	 */
+	if (*num_mappings) {
+		uint64_t length;
+
+		mapping = &(*mappings)[*num_mappings - 1];
+		length = mapping->end - mapping->start;
+		if (mapping->end == start &&
+		    mapping->file_offset + length == file_offset &&
+		    strcmp(mapping->path, path) == 0) {
+			mapping->end = end;
+			return &drgn_stop;
+		}
+	}
+
+	if (*num_mappings >= *capacity) {
+		size_t new_capacity;
+
+		if (*capacity == 0)
+			new_capacity = 1;
+		else
+			new_capacity = *capacity * 2;
+		if (!resize_array(mappings, new_capacity))
+			return &drgn_enomem;
+		*capacity = new_capacity;
+	}
+
+	mapping = &(*mappings)[(*num_mappings)++];
+	mapping->start = start;
+	mapping->end = end;
+	mapping->file_offset = file_offset;
+	mapping->path = path;
+	mapping->elf = NULL;
+	return NULL;
+}
+
+static struct drgn_error *parse_nt_file(const char *desc, size_t descsz,
+					bool is_64_bit,
+					struct file_mapping **mappings,
+					size_t *num_mappings,
+					size_t *mappings_capacity)
 {
 	struct drgn_error *err;
-	Elf_Data *data;
-	const char *p, *end;
+	uint64_t count, page_size, i;
+	const char *p = desc, *q, *end = &desc[descsz];
+	size_t paths_offset;
+	bool bswap = false;
 
-	err = read_elf_section(modinfo_scn, &data);
-	if (err)
-		return err;
-
-	p = data->d_buf;
-	end = p + data->d_size;
-	while (p < end) {
-		const char *nul;
-
-		nul = memchr(p, 0, end - p);
-		if (!nul)
-			break;
-		if (strncmp(p, "name=", 5) == 0) {
-			*ret = p + 5;
-			return NULL;
-		}
-		p = nul + 1;
+	if (is_64_bit) {
+		if (!read_u64(&p, end, bswap, &count) ||
+		    !read_u64(&p, end, bswap, &page_size) ||
+		    __builtin_mul_overflow(count, 24U, &paths_offset))
+			goto invalid;
+	} else {
+		if (!read_u32_into_u64(&p, end, bswap, &count) ||
+		    !read_u32_into_u64(&p, end, bswap, &page_size) ||
+		    __builtin_mul_overflow(count, 12U, &paths_offset))
+			goto invalid;
 	}
-	return drgn_error_create(DRGN_ERROR_LOOKUP,
-				 "could not find name in .modinfo section");
+
+	if (!read_in_bounds(p, end, paths_offset))
+		goto invalid;
+	q = p + paths_offset;
+	for (i = 0; i < count; i++) {
+		uint64_t mapping_start, mapping_end, file_offset;
+		const char *path;
+		size_t len;
+
+		/* We already did the bounds check above. */
+		if (is_64_bit) {
+			read_u64_nocheck(&p, bswap, &mapping_start);
+			read_u64_nocheck(&p, bswap, &mapping_end);
+			read_u64_nocheck(&p, bswap, &file_offset);
+		} else {
+			read_u32_into_u64_nocheck(&p, bswap, &mapping_start);
+			read_u32_into_u64_nocheck(&p, bswap, &mapping_end);
+			read_u32_into_u64_nocheck(&p, bswap, &file_offset);
+		}
+		file_offset *= page_size;
+
+		if (!read_string(&q, end, &path, &len))
+			goto invalid;
+		err = append_file_mapping(mapping_start, mapping_end, file_offset,
+					  (char *)path, mappings, num_mappings,
+					  mappings_capacity);
+		if (!err) {
+			struct file_mapping *mapping;
+
+			/*
+			 * The mapping wasn't merged, so actually allocate the
+			 * path now.
+			 */
+			mapping = &(*mappings)[*num_mappings - 1];
+			mapping->path = malloc(len + 1);
+			if (!mapping->path)
+				return &drgn_enomem;
+			memcpy(mapping->path, path, len + 1);
+		} else if (err->code != DRGN_ERROR_STOP) {
+			return err;
+		}
+	}
+
+	return NULL;
+
+invalid:
+	return drgn_error_create(DRGN_ERROR_ELF_FORMAT, "invalid NT_FILE note");
+}
+
+static inline bool linematch(const char **line, const char *prefix)
+{
+	size_t len = strlen(prefix);
+
+	if (strncmp(*line, prefix, len) == 0) {
+		*line += len;
+		return true;
+	} else {
+		return false;
+	}
+}
+
+static struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
+					   struct vmcoreinfo *ret)
+{
+	const char *line = desc, *end = &desc[descsz];
+
+	ret->osrelease[0] = '\0';
+	ret->kaslr_offset = 0;
+	while (line < end) {
+		const char *newline;
+
+		newline = memchr(line, '\n', end - line);
+		if (!newline)
+			break;
+
+		if (linematch(&line, "OSRELEASE=")) {
+			if ((size_t)(newline - line) >=
+			    sizeof(ret->osrelease)) {
+				return drgn_error_create(DRGN_ERROR_OTHER,
+							 "OSRELEASE in VMCOREINFO is too long");
+			}
+			memcpy(ret->osrelease, line, newline - line);
+			ret->osrelease[newline - line] = '\0';
+		} else if (linematch(&line, "KERNELOFFSET=")) {
+			unsigned long long kerneloffset;
+			char *nend;
+
+			errno = 0;
+			kerneloffset = strtoull(line, &nend, 16);
+			if (errno == ERANGE) {
+				return drgn_error_create(DRGN_ERROR_OVERFLOW,
+							 "KERNELOFFSET in VMCOREINFO is too large");
+			} else if (errno || nend == line || nend != newline) {
+				return drgn_error_create(DRGN_ERROR_OVERFLOW,
+							 "KERNELOFFSET in VMCOREINFO is invalid");
+			}
+			ret->kaslr_offset = kerneloffset;
+		}
+		line = newline + 1;
+	}
+	if (!ret->osrelease[0]) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "VMCOREINFO does not contain valid OSRELEASE");
+	}
+	return NULL;
+}
+
+static struct drgn_error *
+read_vmcoreinfo_from_sysfs(struct drgn_memory_reader *reader,
+			   struct vmcoreinfo *ret)
+{
+	struct drgn_error *err;
+	FILE *file;
+	uint64_t address, size;
+	char *buf;
+	Elf64_Nhdr *nhdr;
+
+	file = fopen("/sys/kernel/vmcoreinfo", "r");
+	if (!file) {
+		return drgn_error_create_os(errno, "/sys/kernel/vmcoreinfo",
+					    "fopen");
+	}
+	if (fscanf(file, "%" SCNx64 " %" SCNx64, &address, &size) != 2) {
+		fclose(file);
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "could not parse /sys/kernel/vmcoreinfo");
+	}
+	fclose(file);
+
+	buf = malloc64(size);
+	if (!buf)
+		return &drgn_enomem;
+
+	err = drgn_memory_reader_read(reader, buf, address, size, true);
+	if (err)
+		goto out;
+
+	/*
+	 * The first 12 bytes are the Elf{32,64}_Nhdr (it's the same in both
+	 * formats). The name is padded up to 4 bytes, so the descriptor starts
+	 * at byte 24.
+	 */
+	nhdr = (Elf64_Nhdr *)buf;
+	if (size < 24 || nhdr->n_namesz != 11 ||
+	    memcmp(buf + sizeof(*nhdr), "VMCOREINFO", 10) != 0 ||
+	    nhdr->n_descsz > size - 24) {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"VMCOREINFO in /sys/kernel/vmcoreinfo is invalid");
+		goto out;
+	}
+
+	err = parse_vmcoreinfo(buf + 24, nhdr->n_descsz, ret);
+out:
+	free(buf);
+	return err;
+}
+
+static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
+						    uint64_t *ret)
+{
+	struct drgn_error *err;
+	FILE *file;
+	char *line = NULL;
+	size_t n = 0;
+	bool found = false;
+
+	file = fopen("/proc/kallsyms", "r");
+	if (!file)
+		return drgn_error_create_os(errno, "/proc/kallsyms", "fopen");
+
+	while (errno = 0, getline(&line, &n, file) != -1) {
+		char *addr_str, *sym_str, *saveptr;
+		unsigned long long addr;
+		char *end;
+
+		addr_str = strtok_r(line, "\t ", &saveptr);
+		if (!addr_str || !*addr_str)
+			goto invalid;
+		if (!strtok_r(NULL, "\t ", &saveptr))
+			goto invalid;
+		sym_str = strtok_r(NULL, "\t\n ", &saveptr);
+		if (!sym_str)
+			goto invalid;
+
+		if (strcmp(sym_str, name) != 0)
+			continue;
+
+		errno = 0;
+		addr = strtoull(line, &end, 16);
+		if ((addr == ULLONG_MAX && errno == ERANGE) || *end)
+			goto invalid;
+		*ret = addr;
+		found = true;
+		break;
+	}
+	if (errno) {
+		err = drgn_error_create_os(errno, "/proc/kallsyms", "getline");
+	} else if (!found) {
+		err = drgn_error_format(DRGN_ERROR_OTHER,
+					"could not find %s symbol in /proc/kallsyms",
+					name);
+	} else {
+		err = NULL;
+	}
+	free(line);
+	fclose(file);
+	return err;
+
+invalid:
+	return drgn_error_create(DRGN_ERROR_OTHER,
+				 "could not parse /proc/kallsyms");
 }
 
 static struct drgn_error *find_elf_symbol(Elf *elf, Elf_Scn *symtab_scn,
@@ -206,6 +483,504 @@ static struct drgn_error *find_elf_symbol(Elf *elf, Elf_Scn *symtab_scn,
 	}
 	return drgn_error_format(DRGN_ERROR_LOOKUP,
 				 "could not find %s symbol", name);
+}
+
+static const char * const vmlinux_paths[] = {
+	"/usr/lib/debug/lib/modules/%s/vmlinux",
+	"/boot/vmlinux-%s",
+	"/lib/modules/%s/build/vmlinux",
+};
+
+static struct drgn_error *vmlinux_symbol_addr(const char *osrelease,
+					      const char *name, uint64_t *ret)
+{
+	struct drgn_error *err;
+	size_t i;
+	bool found_vmlinux = false;
+
+	for (i = 0; i < ARRAY_SIZE(vmlinux_paths); i++) {
+		char buf[256];
+		int fd;
+		Elf *elf;
+		size_t shstrndx;
+		Elf_Scn *scn;
+		GElf_Sym sym;
+
+		snprintf(buf, sizeof(buf), vmlinux_paths[i], osrelease);
+
+		fd = open(buf, O_RDONLY);
+		if (fd == -1)
+			continue;
+
+		found_vmlinux = true;
+
+		elf = elf_begin(fd, ELF_C_READ, NULL);
+		if (!elf) {
+			close(fd);
+			return drgn_error_libelf();
+		}
+
+		if (elf_getshdrstrndx(elf, &shstrndx)) {
+			err = drgn_error_libelf();
+			goto err;
+		}
+
+		scn = NULL;
+		while ((scn = elf_nextscn(elf, scn))) {
+			GElf_Shdr *shdr, shdr_mem;
+			const char *scnname;
+
+			shdr = gelf_getshdr(scn, &shdr_mem);
+			if (!shdr)
+				continue;
+
+			scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+			if (!scnname)
+				continue;
+			if (strcmp(scnname, ".symtab") == 0)
+				break;
+		}
+		if (!scn) {
+			elf_end(elf);
+			close(fd);
+			continue;
+		}
+
+		err = find_elf_symbol(elf, scn, name, 0, false, &sym, NULL);
+		if (!err)
+			*ret = sym.st_value;
+err:
+		elf_end(elf);
+		close(fd);
+		return err;
+	}
+	if (found_vmlinux) {
+		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "vmlinux does not have symbol table");
+	} else {
+		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "could not find vmlinux");
+	}
+}
+
+static struct drgn_error *get_fallback_vmcoreinfo(struct vmcoreinfo *ret)
+{
+	struct drgn_error *err;
+	struct utsname uts;
+	size_t release_len;
+	uint64_t kallsyms_addr, elf_addr;
+
+	if (uname(&uts) == -1)
+		return drgn_error_create_os(errno, NULL, "uname");
+
+	release_len = strlen(uts.release);
+	if (release_len >= sizeof(ret->osrelease)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "uname release is too long");
+	}
+	memcpy(ret->osrelease, uts.release, release_len + 1);
+
+	err = proc_kallsyms_symbol_addr("_stext", &kallsyms_addr);
+	if (err)
+		return err;
+
+	err = vmlinux_symbol_addr(uts.release, "_stext", &elf_addr);
+	if (err)
+		return err;
+
+	ret->kaslr_offset = kallsyms_addr - elf_addr;
+	return NULL;
+}
+
+static enum drgn_architecture_flags drgn_architecture_from_elf(Elf *elf)
+{
+	char *e_ident = elf_getident(elf, NULL);
+	enum drgn_architecture_flags arch = 0;
+
+	if (e_ident[EI_CLASS] == ELFCLASS64)
+		arch |= DRGN_ARCH_IS_64_BIT;
+	if (e_ident[EI_DATA] == ELFDATA2LSB)
+		arch |= DRGN_ARCH_IS_LITTLE_ENDIAN;
+	return arch;
+}
+
+static struct drgn_error *
+drgn_program_check_initialized(struct drgn_program *prog)
+{
+	if (prog->core_fd != -1) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program was already set to core dump or PID");
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
+{
+	struct drgn_error *err;
+	size_t orig_num_segments = prog->reader.num_segments;
+	Elf *elf;
+	GElf_Ehdr ehdr_mem, *ehdr;
+	enum drgn_architecture_flags arch;
+	bool is_64_bit;
+	size_t phnum, i, mappings_capacity = 0;
+	bool have_non_zero_phys_addr = false;
+	struct drgn_memory_file_segment *current_file_segment;
+	bool have_nt_taskstruct = false, have_vmcoreinfo = false;
+
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
+	prog->core_fd = open(path, O_RDONLY);
+	if (prog->core_fd == -1)
+		return drgn_error_create_os(errno, path, "open");
+
+	elf_version(EV_CURRENT);
+
+	elf = elf_begin(prog->core_fd, ELF_C_READ, NULL);
+	if (!elf) {
+		err = drgn_error_libelf();
+		goto out_fd;
+	}
+
+	ehdr = gelf_getehdr(elf, &ehdr_mem);
+	if (!ehdr) {
+		err = &drgn_not_elf;
+		goto out_elf;
+	}
+
+	if (ehdr->e_type != ET_CORE) {
+		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					"not an ELF core file");
+		goto out_elf;
+	}
+
+	arch = drgn_architecture_from_elf(elf);
+	is_64_bit = ehdr->e_ident[EI_CLASS] == ELFCLASS64;
+
+	if (elf_getphdrnum(elf, &phnum) != 0) {
+		err = drgn_error_libelf();
+		goto out_elf;
+	}
+
+	/*
+	 * First pass: count the number of loadable segments and check if p_addr
+	 * is valid.
+	 */
+	prog->num_file_segments = 0;
+	for (i = 0; i < phnum; i++) {
+		GElf_Phdr phdr_mem, *phdr;
+
+		phdr = gelf_getphdr(elf, i, &phdr_mem);
+		if (!phdr) {
+			err = drgn_error_libelf();
+			goto out_segments;
+		}
+
+		if (phdr->p_type == PT_LOAD) {
+			if (phdr->p_paddr)
+				have_non_zero_phys_addr = true;
+			prog->num_file_segments++;
+		}
+	}
+
+	prog->file_segments = malloc_array(prog->num_file_segments,
+					   sizeof(*prog->file_segments));
+	if (!prog->file_segments) {
+		err = &drgn_enomem;
+		goto out_segments;
+	}
+	current_file_segment = prog->file_segments;
+
+	/* Second pass: add the segments and parse notes. */
+	for (i = 0; i < phnum; i++) {
+		GElf_Phdr phdr_mem, *phdr;
+
+		phdr = gelf_getphdr(elf, i, &phdr_mem);
+		if (!phdr) {
+			err = drgn_error_libelf();
+			goto out_mappings;
+		}
+
+		if (phdr->p_type == PT_LOAD) {
+			uint64_t phys_addr;
+
+			/*
+			 * If this happens, then the number of segments changed
+			 * since the first pass. That's probably impossible, but
+			 * skip it just in case.
+			 */
+			if (current_file_segment ==
+			    prog->file_segments + prog->num_file_segments)
+				continue;
+			current_file_segment->file_offset = phdr->p_offset;
+			current_file_segment->file_size = phdr->p_filesz;
+			current_file_segment->fd = prog->core_fd;
+			phys_addr = (have_non_zero_phys_addr ? phdr->p_paddr :
+				     UINT64_MAX);
+			err = drgn_program_add_memory_segment(prog,
+							      phdr->p_vaddr,
+							      phys_addr,
+							      phdr->p_memsz,
+							      drgn_read_memory_file,
+							      current_file_segment);
+			if (err)
+				goto out_mappings;
+			current_file_segment++;
+		} else if (phdr->p_type == PT_NOTE) {
+			Elf_Data *data;
+			size_t offset;
+			GElf_Nhdr nhdr;
+			size_t name_offset, desc_offset;
+
+			data = elf_getdata_rawchunk(elf, phdr->p_offset,
+						    phdr->p_filesz,
+						    note_header_type(phdr));
+			if (!data) {
+				err = drgn_error_libelf();
+				goto out_mappings;
+			}
+
+			offset = 0;
+			while (offset < data->d_size &&
+			       (offset = gelf_getnote(data, offset, &nhdr,
+						      &name_offset,
+						      &desc_offset))) {
+				const char *name, *desc;
+
+				name = (char *)data->d_buf + name_offset;
+				desc = (char *)data->d_buf + desc_offset;
+				if (strncmp(name, "CORE", nhdr.n_namesz) == 0) {
+					if (nhdr.n_type == NT_FILE) {
+						err = parse_nt_file(desc,
+								    nhdr.n_descsz,
+								    is_64_bit,
+								    &prog->mappings,
+								    &prog->num_mappings,
+								    &mappings_capacity);
+						if (err)
+							goto out_mappings;
+					} else if (nhdr.n_type == NT_TASKSTRUCT) {
+						have_nt_taskstruct = true;
+					}
+				} else if (strncmp(name, "VMCOREINFO",
+						   nhdr.n_namesz) == 0) {
+					err = parse_vmcoreinfo(desc,
+							       nhdr.n_descsz,
+							       &prog->vmcoreinfo);
+					if (err)
+						goto out_mappings;
+					have_vmcoreinfo = true;
+				}
+			}
+		}
+	}
+	elf_end(elf);
+	elf = NULL;
+
+	if (mappings_capacity > prog->num_mappings) {
+		/* We don't care if this fails. */
+		resize_array(&prog->mappings, prog->num_mappings);
+	}
+
+	if (have_nt_taskstruct && !have_vmcoreinfo) {
+		/*
+		 * Before Linux kernel commit 23c85094fe18 ("proc/kcore: add
+		 * vmcoreinfo note to /proc/kcore") (in v4.19), /proc/kcore
+		 * didn't have a VMCOREINFO note. However, it has always had an
+		 * NT_TASKSTRUCT note. If this is a file in /proc with the
+		 * NT_TASKSTRUCT note, then it's probably /proc/kcore, and we
+		 * need to try to get vmcoreinfo elsewhere.
+		 *
+		 * Since Linux kernel commit 464920104bf7 ("/proc/kcore: update
+		 * physical address for kcore ram and text") (in v4.11), we can
+		 * read from the physical address of vmcoreinfo exported in
+		 * sysfs. Before that, p_paddr in /proc/kcore is always zero, so
+		 * we have to use a hackier fallback.
+		 */
+		struct statfs fs;
+
+		if (fstatfs(prog->core_fd, &fs) == -1) {
+			err = drgn_error_create_os(errno, path, "fstatfs");
+			if (err)
+				goto out_mappings;
+		}
+		if (fs.f_type == 0x9fa0 /* PROC_SUPER_MAGIC */) {
+			if (have_non_zero_phys_addr) {
+				err = read_vmcoreinfo_from_sysfs(&prog->reader,
+								 &prog->vmcoreinfo);
+			} else {
+				err = get_fallback_vmcoreinfo(&prog->vmcoreinfo);
+			}
+			if (err)
+				goto out_mappings;
+			have_vmcoreinfo = true;
+		}
+	}
+
+	if (have_vmcoreinfo)
+		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+	drgn_program_update_arch(prog, arch);
+	return NULL;
+
+out_mappings:
+	free(prog->mappings);
+	prog->mappings = NULL;
+	prog->num_mappings = 0;
+out_segments:
+	prog->reader.num_segments = orig_num_segments;
+	free(prog->file_segments);
+	prog->file_segments = NULL;
+	prog->num_file_segments = 0;
+out_elf:
+	elf_end(elf);
+out_fd:
+	close(prog->core_fd);
+	prog->core_fd = -1;
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_kernel(struct drgn_program *prog)
+{
+	return drgn_program_set_core_dump(prog, "/proc/kcore");
+}
+
+static struct drgn_error *parse_proc_maps(const char *maps_path,
+					  struct file_mapping **mappings,
+					  size_t *num_mappings)
+{
+	struct drgn_error *err;
+	FILE *file;
+	size_t capacity = 0;
+
+	file = fopen(maps_path, "r");
+	if (!file)
+		return drgn_error_create_os(errno, maps_path, "fopen");
+
+	for (;;) {
+		unsigned long mapping_start, mapping_end;
+		uint64_t file_offset;
+		char *path;
+		int ret;
+
+		ret = fscanf(file, "%lx-%lx %*c%*c%*c%*c %" SCNx64 " "
+			     "%*x:%*x %*d%*[ ]%m[^\n]", &mapping_start,
+			     &mapping_end, &file_offset, &path);
+		if (ret == EOF) {
+			break;
+		} else if (ret == 3) {
+			/* This is an anonymous mapping; skip it. */
+			continue;
+		} else if (ret != 4) {
+			err = drgn_error_format(DRGN_ERROR_OTHER,
+						"could not parse %s", maps_path);
+			goto out;
+		}
+		err = append_file_mapping(mapping_start, mapping_end,
+					  file_offset, path, mappings,
+					  num_mappings, &capacity);
+		if (err && err->code == DRGN_ERROR_STOP) {
+			/* The mapping was merged, so free the path. */
+			free(path);
+		} else if (err) {
+			goto out;
+		}
+	}
+
+	if (capacity > *num_mappings) {
+		/* We don't care if this fails. */
+		resize_array(mappings, *num_mappings);
+	}
+
+	err = NULL;
+out:
+	fclose(file);
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
+{
+	struct drgn_error *err;
+	size_t orig_num_segments = prog->reader.num_segments;
+	char buf[64];
+
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
+	sprintf(buf, "/proc/%ld/mem", (long)pid);
+	prog->core_fd = open(buf, O_RDONLY);
+	if (prog->core_fd == -1)
+		return drgn_error_create_os(errno, buf, "open");
+
+	prog->file_segments = malloc(sizeof(*prog->file_segments));
+	if (!prog->file_segments) {
+		err = &drgn_enomem;
+		goto out_fd;
+	}
+	prog->file_segments[0].file_offset = 0;
+	prog->file_segments[0].file_size = UINT64_MAX;
+	prog->file_segments[0].fd = prog->core_fd;
+	prog->num_file_segments = 1;
+	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX, UINT64_MAX,
+					      drgn_read_memory_file,
+					      prog->file_segments);
+	if (err)
+		goto out_segments;
+
+	sprintf(buf, "/proc/%ld/maps", (long)pid);
+	err = parse_proc_maps(buf, &prog->mappings, &prog->num_mappings);
+	if (err)
+		goto out_mappings;
+
+	drgn_program_update_arch(prog, DRGN_ARCH_HOST);
+	return NULL;
+
+out_mappings:
+	free(prog->mappings);
+	prog->mappings = NULL;
+	prog->num_mappings = 0;
+out_segments:
+	prog->reader.num_segments = orig_num_segments;
+	free(prog->file_segments);
+	prog->file_segments = NULL;
+	prog->num_file_segments = 0;
+out_fd:
+	close(prog->core_fd);
+	prog->core_fd = -1;
+	return err;
+}
+
+static struct drgn_error *get_module_name(Elf_Scn *modinfo_scn,
+					  const char **ret)
+{
+	struct drgn_error *err;
+	Elf_Data *data;
+	const char *p, *end;
+
+	err = read_elf_section(modinfo_scn, &data);
+	if (err)
+		return err;
+
+	p = data->d_buf;
+	end = p + data->d_size;
+	while (p < end) {
+		const char *nul;
+
+		nul = memchr(p, 0, end - p);
+		if (!nul)
+			break;
+		if (strncmp(p, "name=", 5) == 0) {
+			*ret = p + 5;
+			return NULL;
+		}
+		p = nul + 1;
+	}
+	return drgn_error_create(DRGN_ERROR_LOOKUP,
+				 "could not find name in .modinfo section");
 }
 
 static struct drgn_error *get_symbol_section_name(Elf *elf, size_t shstrndx,
@@ -509,403 +1284,67 @@ userspace_relocation_hook(struct drgn_program *prog, const char *name,
 				 name);
 }
 
-/*
- * Returns NULL if a mapping was appended, &drgn_stop if the mapping was merged,
- * non-NULL on error.
- */
-static struct drgn_error *append_file_mapping(uint64_t start, uint64_t end,
-					      uint64_t file_offset, char *path,
-					      struct file_mapping **mappings,
-					      size_t *num_mappings,
-					      size_t *capacity)
+static struct drgn_error *drgn_program_relocation_hook(const char *name,
+						       Dwarf_Die *die,
+						       struct drgn_symbol *sym,
+						       void *arg)
 {
-	struct file_mapping *mapping;
+	struct drgn_program *prog = arg;
 
-	if (start > end) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "file memory mapping has negative length");
-	} else if (start == end) {
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		return kernel_relocation_hook(prog, name, die, sym);
+	else if (prog->num_mappings)
+		return userspace_relocation_hook(prog, name, die, sym);
+	else
 		return NULL;
-	}
-
-	/*
-	 * There may be separate mappings for adjacent areas of a file (e.g., if
-	 * the mappings have different permissions). Make sure to merge those.
-	 */
-	if (*num_mappings) {
-		uint64_t length;
-
-		mapping = &(*mappings)[*num_mappings - 1];
-		length = mapping->end - mapping->start;
-		if (mapping->end == start &&
-		    mapping->file_offset + length == file_offset &&
-		    strcmp(mapping->path, path) == 0) {
-			mapping->end = end;
-			return &drgn_stop;
-		}
-	}
-
-	if (*num_mappings >= *capacity) {
-		size_t new_capacity;
-
-		if (*capacity == 0)
-			new_capacity = 1;
-		else
-			new_capacity = *capacity * 2;
-		if (!resize_array(mappings, new_capacity))
-			return &drgn_enomem;
-		*capacity = new_capacity;
-	}
-
-	mapping = &(*mappings)[(*num_mappings)++];
-	mapping->start = start;
-	mapping->end = end;
-	mapping->file_offset = file_offset;
-	mapping->path = path;
-	return NULL;
-}
-
-static struct drgn_error *parse_nt_file(const char *desc, size_t descsz,
-					bool is_64_bit,
-					struct file_mapping **mappings,
-					size_t *num_mappings,
-					size_t *mappings_capacity)
-{
-	struct drgn_error *err;
-	uint64_t count, page_size, i;
-	const char *p = desc, *q, *end = &desc[descsz];
-	size_t paths_offset;
-	bool bswap = false;
-
-	if (is_64_bit) {
-		if (!read_u64(&p, end, bswap, &count) ||
-		    !read_u64(&p, end, bswap, &page_size) ||
-		    __builtin_mul_overflow(count, 24U, &paths_offset))
-			goto invalid;
-	} else {
-		if (!read_u32_into_u64(&p, end, bswap, &count) ||
-		    !read_u32_into_u64(&p, end, bswap, &page_size) ||
-		    __builtin_mul_overflow(count, 12U, &paths_offset))
-			goto invalid;
-	}
-
-	if (!read_in_bounds(p, end, paths_offset))
-		goto invalid;
-	q = p + paths_offset;
-	for (i = 0; i < count; i++) {
-		uint64_t mapping_start, mapping_end, file_offset;
-		const char *path;
-		size_t len;
-
-		/* We already did the bounds check above. */
-		if (is_64_bit) {
-			read_u64_nocheck(&p, bswap, &mapping_start);
-			read_u64_nocheck(&p, bswap, &mapping_end);
-			read_u64_nocheck(&p, bswap, &file_offset);
-		} else {
-			read_u32_into_u64_nocheck(&p, bswap, &mapping_start);
-			read_u32_into_u64_nocheck(&p, bswap, &mapping_end);
-			read_u32_into_u64_nocheck(&p, bswap, &file_offset);
-		}
-		file_offset *= page_size;
-
-		if (!read_string(&q, end, &path, &len))
-			goto invalid;
-		err = append_file_mapping(mapping_start, mapping_end, file_offset,
-					  (char *)path, mappings, num_mappings,
-					  mappings_capacity);
-		if (!err) {
-			struct file_mapping *mapping;
-
-			/*
-			 * The mapping wasn't merged, so actually allocate the
-			 * path now.
-			 */
-			mapping = &(*mappings)[*num_mappings - 1];
-			mapping->path = malloc(len + 1);
-			if (!mapping->path)
-				return &drgn_enomem;
-			memcpy(mapping->path, path, len + 1);
-		} else if (err->code != DRGN_ERROR_STOP) {
-			return err;
-		}
-	}
-
-	return NULL;
-
-invalid:
-	return drgn_error_create(DRGN_ERROR_ELF_FORMAT, "invalid NT_FILE note");
-}
-
-static inline bool linematch(const char **line, const char *prefix)
-{
-	size_t len = strlen(prefix);
-
-	if (strncmp(*line, prefix, len) == 0) {
-		*line += len;
-		return true;
-	} else {
-		return false;
-	}
-}
-
-static struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
-					   struct vmcoreinfo *ret)
-{
-	const char *line = desc, *end = &desc[descsz];
-
-	ret->osrelease[0] = '\0';
-	ret->kaslr_offset = 0;
-	while (line < end) {
-		const char *newline;
-
-		newline = memchr(line, '\n', end - line);
-		if (!newline)
-			break;
-
-		if (linematch(&line, "OSRELEASE=")) {
-			if ((size_t)(newline - line) >=
-			    sizeof(ret->osrelease)) {
-				return drgn_error_create(DRGN_ERROR_OTHER,
-							 "OSRELEASE in VMCOREINFO is too long");
-			}
-			memcpy(ret->osrelease, line, newline - line);
-			ret->osrelease[newline - line] = '\0';
-		} else if (linematch(&line, "KERNELOFFSET=")) {
-			unsigned long long kerneloffset;
-			char *nend;
-
-			errno = 0;
-			kerneloffset = strtoull(line, &nend, 16);
-			if (errno == ERANGE) {
-				return drgn_error_create(DRGN_ERROR_OVERFLOW,
-							 "KERNELOFFSET in VMCOREINFO is too large");
-			} else if (errno || nend == line || nend != newline) {
-				return drgn_error_create(DRGN_ERROR_OVERFLOW,
-							 "KERNELOFFSET in VMCOREINFO is invalid");
-			}
-			ret->kaslr_offset = kerneloffset;
-		}
-		line = newline + 1;
-	}
-	if (!ret->osrelease[0]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "VMCOREINFO does not contain valid OSRELEASE");
-	}
-	return NULL;
 }
 
 static struct drgn_error *
-read_vmcoreinfo_from_sysfs(struct drgn_memory_reader *reader,
-			   struct vmcoreinfo *ret)
+drgn_program_open_debug_info_internal(struct drgn_program *prog,
+				      const char *path, Elf **elf_ret)
 {
 	struct drgn_error *err;
-	FILE *file;
-	uint64_t address, size;
-	char *buf;
-	Elf64_Nhdr *nhdr;
+	Elf *elf;
 
-	file = fopen("/sys/kernel/vmcoreinfo", "r");
-	if (!file) {
-		return drgn_error_create_os(errno, "/sys/kernel/vmcoreinfo",
-					    "fopen");
-	}
-	if (fscanf(file, "%" SCNx64 " %" SCNx64, &address, &size) != 2) {
-		fclose(file);
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "could not parse /sys/kernel/vmcoreinfo");
-	}
-	fclose(file);
+	if (!prog->dicache) {
+		struct drgn_dwarf_info_cache *dicache;
 
-	buf = malloc64(size);
-	if (!buf)
-		return &drgn_enomem;
-
-	err = drgn_memory_reader_read(reader, buf, address, size, true);
-	if (err)
-		goto out;
-
-	/*
-	 * The first 12 bytes are the Elf{32,64}_Nhdr (it's the same in both
-	 * formats). The name is padded up to 4 bytes, so the descriptor starts
-	 * at byte 24.
-	 */
-	nhdr = (Elf64_Nhdr *)buf;
-	if (size < 24 || nhdr->n_namesz != 11 ||
-	    memcmp(buf + sizeof(*nhdr), "VMCOREINFO", 10) != 0 ||
-	    nhdr->n_descsz > size - 24) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
-					"VMCOREINFO in /sys/kernel/vmcoreinfo is invalid");
-		goto out;
-	}
-
-	err = parse_vmcoreinfo(buf + 24, nhdr->n_descsz, ret);
-out:
-	free(buf);
-	return err;
-}
-
-static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
-						    uint64_t *ret)
-{
-	struct drgn_error *err;
-	FILE *file;
-	char *line = NULL;
-	size_t n = 0;
-	bool found = false;
-
-	file = fopen("/proc/kallsyms", "r");
-	if (!file)
-		return drgn_error_create_os(errno, "/proc/kallsyms", "fopen");
-
-	while (errno = 0, getline(&line, &n, file) != -1) {
-		char *addr_str, *sym_str, *saveptr;
-		unsigned long long addr;
-		char *end;
-
-		addr_str = strtok_r(line, "\t ", &saveptr);
-		if (!addr_str || !*addr_str)
-			goto invalid;
-		if (!strtok_r(NULL, "\t ", &saveptr))
-			goto invalid;
-		sym_str = strtok_r(NULL, "\t\n ", &saveptr);
-		if (!sym_str)
-			goto invalid;
-
-		if (strcmp(sym_str, name) != 0)
-			continue;
-
-		errno = 0;
-		addr = strtoull(line, &end, 16);
-		if ((addr == ULLONG_MAX && errno == ERANGE) || *end)
-			goto invalid;
-		*ret = addr;
-		found = true;
-		break;
-	}
-	if (errno) {
-		err = drgn_error_create_os(errno, "/proc/kallsyms", "getline");
-	} else if (!found) {
-		err = drgn_error_format(DRGN_ERROR_OTHER,
-					"could not find %s symbol in /proc/kallsyms",
-					name);
-	} else {
-		err = NULL;
-	}
-	free(line);
-	fclose(file);
-	return err;
-
-invalid:
-	return drgn_error_create(DRGN_ERROR_OTHER,
-				 "could not parse /proc/kallsyms");
-}
-
-static const char * const vmlinux_paths[] = {
-	"/usr/lib/debug/lib/modules/%s/vmlinux",
-	"/boot/vmlinux-%s",
-	"/lib/modules/%s/build/vmlinux",
-};
-
-static struct drgn_error *vmlinux_symbol_addr(const char *osrelease,
-					      const char *name, uint64_t *ret)
-{
-	struct drgn_error *err;
-	size_t i;
-	bool found_vmlinux = false;
-
-	for (i = 0; i < ARRAY_SIZE(vmlinux_paths); i++) {
-		char buf[256];
-		int fd;
-		Elf *elf;
-		size_t shstrndx;
-		Elf_Scn *scn;
-		GElf_Sym sym;
-
-		snprintf(buf, sizeof(buf), vmlinux_paths[i], osrelease);
-
-		fd = open(buf, O_RDONLY);
-		if (fd == -1)
-			continue;
-
-		found_vmlinux = true;
-
-		elf = elf_begin(fd, ELF_C_READ, NULL);
-		if (!elf) {
-			close(fd);
-			return drgn_error_libelf();
+		err = drgn_dwarf_info_cache_create(&prog->tindex,
+						   &dicache);
+		if (err)
+			return err;
+		err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find,
+						   dicache);
+		if (err) {
+			drgn_dwarf_info_cache_destroy(dicache);
+			return err;
 		}
-
-		if (elf_getshdrstrndx(elf, &shstrndx)) {
-			err = drgn_error_libelf();
-			goto err;
+		err = drgn_program_add_symbol_finder(prog,
+						     drgn_dwarf_symbol_find,
+						     dicache);
+		if (err) {
+			drgn_type_index_remove_finder(&prog->tindex);
+			drgn_dwarf_info_cache_destroy(dicache);
+			return err;
 		}
-
-		scn = NULL;
-		while ((scn = elf_nextscn(elf, scn))) {
-			GElf_Shdr *shdr, shdr_mem;
-			const char *scnname;
-
-			shdr = gelf_getshdr(scn, &shdr_mem);
-			if (!shdr)
-				continue;
-
-			scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
-			if (!scnname)
-				continue;
-			if (strcmp(scnname, ".symtab") == 0)
-				break;
-		}
-		if (!scn) {
-			elf_end(elf);
-			close(fd);
-			continue;
-		}
-
-		err = find_elf_symbol(elf, scn, name, 0, false, &sym, NULL);
-		if (!err)
-			*ret = sym.st_value;
-err:
-		elf_end(elf);
-		close(fd);
-		return err;
+		prog->dicache = dicache;
+		dicache->relocation_hook = drgn_program_relocation_hook;
+		dicache->relocation_arg = prog;
 	}
-	if (found_vmlinux) {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG,
-					 "vmlinux does not have symbol table");
-	} else {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG,
-					 "could not find vmlinux");
-	}
-}
 
-static struct drgn_error *get_fallback_vmcoreinfo(struct vmcoreinfo *ret)
-{
-	struct drgn_error *err;
-	struct utsname uts;
-	size_t release_len;
-	uint64_t kallsyms_addr, elf_addr;
-
-	if (uname(&uts) == -1)
-		return drgn_error_create_os(errno, NULL, "uname");
-
-	release_len = strlen(uts.release);
-	if (release_len >= sizeof(ret->osrelease)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "uname release is too long");
-	}
-	memcpy(ret->osrelease, uts.release, release_len + 1);
-
-	err = proc_kallsyms_symbol_addr("_stext", &kallsyms_addr);
+	err = drgn_dwarf_index_open(&prog->dicache->dindex, path, &elf);
 	if (err)
 		return err;
-
-	err = vmlinux_symbol_addr(uts.release, "_stext", &elf_addr);
-	if (err)
-		return err;
-
-	ret->kaslr_offset = kallsyms_addr - elf_addr;
+	drgn_program_update_arch(prog, drgn_architecture_from_elf(elf));
+	if (elf_ret)
+		*elf_ret = elf;
 	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_open_debug_info(struct drgn_program *prog, const char *path)
+{
+	return drgn_program_open_debug_info_internal(prog, path, NULL);
 }
 
 static bool fts_name_endswith(FTSENT *ent, const char *suffix)
@@ -917,8 +1356,7 @@ static bool fts_name_endswith(FTSENT *ent, const char *suffix)
 		       len) == 0);
 }
 
-static struct drgn_error *open_kernel_files(struct drgn_dwarf_index *dindex,
-					    const char *osrelease, bool verbose)
+static struct drgn_error *open_kernel_files(struct drgn_program *prog)
 {
 	static const char * const module_paths[] = {
 		"/usr/lib/debug/lib/modules/%s/kernel",
@@ -938,17 +1376,19 @@ static struct drgn_error *open_kernel_files(struct drgn_dwarf_index *dindex,
 	size_t i;
 	const size_t max_no_symbols = 5;
 	size_t no_symbols = 0;
+	struct string_builder missing_debug_info = {};
 
 	for (i = 0; i < ARRAY_SIZE(vmlinux_paths); i++) {
-		snprintf(buf, sizeof(buf), vmlinux_paths[i], osrelease);
-		err = drgn_dwarf_index_open(dindex, buf, NULL);
+		snprintf(buf, sizeof(buf), vmlinux_paths[i],
+			 prog->vmcoreinfo.osrelease);
+		err = drgn_program_open_debug_info(prog, buf);
 		if (err) {
 			if (err->code == DRGN_ERROR_OS &&
 			    err->errnum == ENOENT) {
 				drgn_error_destroy(err);
 				continue;
 			}
-			if (err->code == DRGN_ERROR_MISSING_DEBUG) {
+			if (err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 				found_vmlinux = true;
 				drgn_error_destroy(err);
 				continue;
@@ -959,13 +1399,14 @@ static struct drgn_error *open_kernel_files(struct drgn_dwarf_index *dindex,
 	}
 	if (i >= ARRAY_SIZE(vmlinux_paths)) {
 		if (found_vmlinux) {
-			return drgn_error_create(DRGN_ERROR_MISSING_DEBUG,
-						 "vmlinux does not have debug information");
+			err = string_builder_append(&missing_debug_info,
+						    "vmlinux does not have debug information");
 		} else {
-			return drgn_error_create(DRGN_ERROR_MISSING_DEBUG,
-						 "could not find vmlinux");
+			err = string_builder_append(&missing_debug_info,
+						    "could not find vmlinux");
 		}
-
+		if (err)
+			goto err;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(module_paths) && !found_modules; i++) {
@@ -973,13 +1414,15 @@ static struct drgn_error *open_kernel_files(struct drgn_dwarf_index *dindex,
 		FTS *fts;
 		FTSENT *ent;
 
-		snprintf(buf, sizeof(buf), module_paths[i], osrelease);
+		snprintf(buf, sizeof(buf), module_paths[i],
+			 prog->vmcoreinfo.osrelease);
 		fts = fts_open(paths, FTS_LOGICAL | FTS_NOCHDIR | FTS_NOSTAT,
 			       NULL);
 		if (!fts) {
 			if (errno == ENOENT)
 				continue;
-			return drgn_error_create_os(errno, buf, "fts_open");
+			err = drgn_error_create_os(errno, buf, "fts_open");
+			goto err;
 		}
 
 		err = NULL;
@@ -996,26 +1439,37 @@ static struct drgn_error *open_kernel_files(struct drgn_dwarf_index *dindex,
 					continue;
 			}
 			found_modules = true;
-			err = drgn_dwarf_index_open(dindex, ent->fts_accpath,
-						    NULL);
-			if (err && err->code == DRGN_ERROR_MISSING_DEBUG) {
-				if (verbose) {
-					if (no_symbols == 0) {
-						fprintf(stderr,
-							"missing debug information for modules:\n");
-					}
-					if (no_symbols < max_no_symbols) {
-						int len;
-
-						len = (ent->fts_namelen -
-						       strlen(module_extensions[i]));
-						fprintf(stderr, "%.*s\n", len,
-							ent->fts_name);
-					}
-					no_symbols++;
-				}
+			err = drgn_program_open_debug_info(prog,
+							   ent->fts_accpath);
+			if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 				drgn_error_destroy(err);
 				err = NULL;
+				if (no_symbols == 0) {
+					if (missing_debug_info.len) {
+						err = string_builder_appendc(&missing_debug_info,
+									     '\n');
+						if (err)
+							break;
+					}
+					err = string_builder_append(&missing_debug_info,
+								    "missing debug information for modules:");
+					if (err)
+						break;
+
+				}
+				if (no_symbols < max_no_symbols) {
+					int len;
+
+					len = (ent->fts_namelen -
+					       strlen(module_extensions[i]));
+					err = string_builder_appendf(&missing_debug_info,
+								     "\n%.*s",
+								     len,
+								     ent->fts_name);
+					if (err)
+						break;
+				}
+				no_symbols++;
 				continue;
 			} else if (err) {
 				break;
@@ -1026,37 +1480,64 @@ static struct drgn_error *open_kernel_files(struct drgn_dwarf_index *dindex,
 
 		fts_close(fts);
 		if (err)
-			return err;
+			goto err;
 	}
-	if (verbose) {
-		if (!found_modules)
-			fprintf(stderr, "could not find kernel modules\n");
-		if (no_symbols > max_no_symbols) {
-			fprintf(stderr, "... %zu more\n",
-				no_symbols - max_no_symbols);
+	if (!found_modules) {
+		if (missing_debug_info.len) {
+			err = string_builder_appendc(&missing_debug_info, '\n');
+			if (err)
+				goto err;
 		}
+		err = string_builder_append(&missing_debug_info,
+					    "could not find kernel modules");
+		if (err)
+			goto err;
+	} else if (no_symbols > max_no_symbols) {
+		err = string_builder_appendf(&missing_debug_info,
+					     "\n... %zu more",
+					     no_symbols - max_no_symbols);
+		if (err)
+			goto err;
+	}
+
+	if (missing_debug_info.len) {
+		char *msg;
+
+		err = string_builder_finalize(&missing_debug_info, &msg);
+		if (err)
+			goto err;
+		return drgn_error_create_nodup(DRGN_ERROR_MISSING_DEBUG_INFO,
+					       msg);
 	}
 
 	return NULL;
+
+err:
+	free(missing_debug_info.str);
+	return err;
 }
 
-static struct drgn_error *open_userspace_files(struct drgn_dwarf_index *dindex,
-					       struct file_mapping *mappings,
-					       size_t num_mappings)
+static struct drgn_error *open_userspace_files(struct drgn_program *prog)
 {
 	struct drgn_error *err;
-	size_t i;
+	struct file_mapping *mappings;
+	size_t i, num_mappings;
 	bool success = false;
 
+	mappings = prog->mappings;
+	num_mappings = prog->num_mappings;
 	for (i = 0; i < num_mappings; i++) {
-		err = drgn_dwarf_index_open(dindex, mappings[i].path,
-					    &mappings[i].elf);
+		if (prog->mappings[i].elf)
+			continue;
+		err = drgn_program_open_debug_info_internal(prog,
+							    mappings[i].path,
+							    &mappings[i].elf);
 		if (err) {
 			mappings[i].elf = NULL;
 			if ((err->code == DRGN_ERROR_OS &&
 			     err->errnum == ENOENT) ||
 			    err == &drgn_not_elf ||
-			    err->code == DRGN_ERROR_MISSING_DEBUG) {
+			    err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 				drgn_error_destroy(err);
 				continue;
 			}
@@ -1065,440 +1546,77 @@ static struct drgn_error *open_userspace_files(struct drgn_dwarf_index *dindex,
 		success = true;
 	}
 	if (!success) {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG,
+		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
 					 "no debug information found");
 	}
 	return NULL;
 }
 
-static void cleanup_fd(void *arg)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_open_default_debug_info(struct drgn_program *prog)
 {
-	close((intptr_t)arg);
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		return open_kernel_files(prog);
+	else
+		return open_userspace_files(prog);
 }
 
-static void cleanup_dwarf_info_cache(void *arg)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_load_debug_info(struct drgn_program *prog)
 {
-	drgn_dwarf_info_cache_destroy(arg);
-}
-
-static Elf_Type note_header_type(GElf_Phdr *phdr)
-{
-#if _ELFUTILS_PREREQ(0, 175)
-	if (phdr->p_align == 8)
-		return ELF_T_NHDR8;
-#endif
-	return ELF_T_NHDR;
+	if (!prog->dicache)
+		return NULL;
+	return drgn_dwarf_index_update(&prog->dicache->dindex);
 }
 
 struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
-					       const char *path, bool verbose)
+					       const char *path)
 {
 	struct drgn_error *err;
-	int fd;
-	Elf *elf = NULL;
-	GElf_Ehdr ehdr_mem, *ehdr;
-	size_t phnum, i, num_file_segments;
-	struct drgn_memory_file_segment *file_segments = NULL;
-	struct drgn_memory_file_segment *current_file_segment;
-	size_t mappings_capacity = 0;
-	bool have_nt_file = false;
-	bool have_nt_taskstruct = false, have_vmcoreinfo = false;
-	bool have_non_zero_phys_addr = false, is_proc_kcore;
-	struct drgn_dwarf_info_cache *dicache;
 
-	drgn_program_init(prog);
-
-	fd = open(path, O_RDONLY);
-	if (fd == -1) {
-		err = drgn_error_create_os(errno, path, "open");
-		goto err;
-	}
-	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
-	if (err) {
-		close(fd);
-		goto err;
-	}
-
-	elf_version(EV_CURRENT);
-
-	elf = elf_begin(fd, ELF_C_READ, NULL);
-	if (!elf) {
-		err = drgn_error_libelf();
-		goto err;
-	}
-
-	ehdr = gelf_getehdr(elf, &ehdr_mem);
-	if (!ehdr) {
-		err = drgn_error_libelf();
-		goto err;
-	}
-
-	if (ehdr->e_type != ET_CORE) {
-		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					"not an ELF core file");
-		goto err;
-	}
-
-	prog->tindex.word_size = ehdr->e_ident[EI_CLASS] == ELFCLASS64 ? 8 : 4;
-	prog->little_endian = ehdr->e_ident[EI_DATA] == ELFDATA2LSB;
-
-	if (elf_getphdrnum(elf, &phnum) != 0) {
-		err = drgn_error_libelf();
-		goto err;
-	}
-
-	/*
-	 * First pass: count the number of loadable segments and check if p_addr
-	 * is valid.
-	 */
-	num_file_segments = 0;
-	for (i = 0; i < phnum; i++) {
-		GElf_Phdr phdr_mem, *phdr;
-
-		phdr = gelf_getphdr(elf, i, &phdr_mem);
-		if (!phdr) {
-			err = drgn_error_libelf();
-			goto err;
-		}
-
-		if (phdr->p_type == PT_LOAD) {
-			if (phdr->p_paddr)
-				have_non_zero_phys_addr = true;
-			num_file_segments++;
-		}
-	}
-
-	file_segments = malloc_array(num_file_segments, sizeof(*file_segments));
-	if (!file_segments) {
-		err = &drgn_enomem;
-		goto err;
-	}
-	err = drgn_program_add_cleanup(prog, free, file_segments);
-	if (err) {
-		free(file_segments);
-		goto err;
-	}
-	current_file_segment = file_segments;
-
-	/* Second pass: add the segments and parse notes. */
-	for (i = 0; i < phnum; i++) {
-		GElf_Phdr phdr_mem, *phdr;
-
-		phdr = gelf_getphdr(elf, i, &phdr_mem);
-		if (!phdr) {
-			err = drgn_error_libelf();
-			goto err;
-		}
-
-		if (phdr->p_type == PT_LOAD) {
-			uint64_t phys_addr;
-
-			/*
-			 * If this happens, then the number of segments changed
-			 * since the first pass. That's probably impossible, but
-			 * skip it just in case.
-			 */
-			if (current_file_segment ==
-			    file_segments + num_file_segments)
-				continue;
-			current_file_segment->file_offset = phdr->p_offset;
-			current_file_segment->file_size = phdr->p_filesz;
-			current_file_segment->fd = fd;
-			phys_addr = (have_non_zero_phys_addr ? phdr->p_paddr :
-				     UINT64_MAX);
-			err = drgn_program_add_memory_segment(prog,
-							      phdr->p_vaddr,
-							      phys_addr,
-							      phdr->p_memsz,
-							      drgn_read_memory_file,
-							      current_file_segment);
-			if (err)
-				goto err;
-			current_file_segment++;
-		} else if (phdr->p_type == PT_NOTE) {
-			Elf_Data *data;
-			size_t offset;
-			GElf_Nhdr nhdr;
-			size_t name_offset, desc_offset;
-
-			data = elf_getdata_rawchunk(elf, phdr->p_offset,
-						    phdr->p_filesz,
-						    note_header_type(phdr));
-			if (!data) {
-				err = drgn_error_libelf();
-				goto err;
-			}
-
-			offset = 0;
-			while (offset < data->d_size &&
-			       (offset = gelf_getnote(data, offset, &nhdr,
-						      &name_offset,
-						      &desc_offset))) {
-				const char *name, *desc;
-
-				name = (char *)data->d_buf + name_offset;
-				desc = (char *)data->d_buf + desc_offset;
-				if (strncmp(name, "CORE", nhdr.n_namesz) == 0) {
-					if (nhdr.n_type == NT_FILE) {
-						err = parse_nt_file(desc,
-								    nhdr.n_descsz,
-								    prog->tindex.word_size == 8,
-								    &prog->mappings,
-								    &prog->num_mappings,
-								    &mappings_capacity);
-						if (err)
-							goto err;
-						have_nt_file = true;
-					} else if (nhdr.n_type == NT_TASKSTRUCT) {
-						have_nt_taskstruct = true;
-					}
-				} else if (strncmp(name, "VMCOREINFO",
-						   nhdr.n_namesz) == 0) {
-					err = parse_vmcoreinfo(desc,
-							       nhdr.n_descsz,
-							       &prog->vmcoreinfo);
-					if (err)
-						goto err;
-					have_vmcoreinfo = true;
-				}
-			}
-		}
-	}
-	elf_end(elf);
-	elf = NULL;
-
-	if (mappings_capacity > prog->num_mappings) {
-		/* We don't care if this fails. */
-		resize_array(&prog->mappings, prog->num_mappings);
-	}
-
-	if (have_vmcoreinfo) {
-		is_proc_kcore = true;
-	} else if (have_nt_taskstruct) {
-		/*
-		 * Before Linux kernel commit 23c85094fe18 ("proc/kcore: add
-		 * vmcoreinfo note to /proc/kcore") (in v4.19), /proc/kcore
-		 * doesn't have a VMCOREINFO note. However, it has always had an
-		 * NT_TASKSTRUCT note. If this is a file in /proc with the
-		 * NT_TASKSTRUCT note, then it's probably /proc/kcore.
-		 */
-		struct statfs fs;
-
-		if (fstatfs(fd, &fs) == -1) {
-			err = drgn_error_create_os(errno, path, "fstatfs");
-			if (err)
-				goto err;
-		}
-		is_proc_kcore = fs.f_type == 0x9fa0; /* PROC_SUPER_MAGIC */
-	} else {
-		is_proc_kcore = false;
-	}
-
-	if (have_vmcoreinfo || is_proc_kcore) {
-		/*
-		 * Since Linux kernel commit 464920104bf7 ("/proc/kcore: update
-		 * physical address for kcore ram and text") (in v4.11), we can
-		 * read from the physical address of vmcoreinfo exported in
-		 * sysfs. Before that, p_paddr in /proc/kcore is always zero, so
-		 * we have to use a hackier fallback.
-		 */
-		if (!have_vmcoreinfo) {
-			if (have_non_zero_phys_addr) {
-				err = read_vmcoreinfo_from_sysfs(&prog->reader,
-								 &prog->vmcoreinfo);
-			} else {
-				err = get_fallback_vmcoreinfo(&prog->vmcoreinfo);
-			}
-			if (err)
-				goto err;
-			have_vmcoreinfo = true;
-		}
-	} else if (!have_nt_file) {
-		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					"core dump has no NT_FILE or VMCOREINFO note");
-		goto err;
-	}
-
-	err = drgn_dwarf_info_cache_create(&prog->tindex, &dicache);
+	err = drgn_program_set_core_dump(prog, path);
 	if (err)
-		goto err;
-	err = drgn_program_add_cleanup(prog, cleanup_dwarf_info_cache, dicache);
-	if (err) {
-		drgn_dwarf_info_cache_destroy(dicache);
-		goto err;
-	}
-	dicache->prog = prog;
-	if (have_vmcoreinfo) {
-		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
-		dicache->relocation_hook = kernel_relocation_hook;
-		err = open_kernel_files(&dicache->dindex,
-					prog->vmcoreinfo.osrelease, verbose);
-	} else {
-		dicache->relocation_hook = userspace_relocation_hook;
-		err = open_userspace_files(&dicache->dindex, prog->mappings,
-					   prog->num_mappings);
-	}
-	if (err)
-		goto err;
-	err = drgn_dwarf_index_update(&dicache->dindex);
-	if (err)
-		goto err;
-	err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find, dicache);
-	if (err)
-		goto err;
-	err = drgn_program_add_symbol_finder(prog, drgn_dwarf_symbol_find,
-					     dicache);
-	if (err)
-		goto err;
-	return NULL;
-
-err:
-	elf_end(elf);
-	drgn_program_deinit(prog);
-	return err;
+		return err;
+	err = drgn_program_open_default_debug_info(prog);
+	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+		drgn_error_destroy(err);
+	else if (err)
+		return err;
+	return drgn_program_load_debug_info(prog);
 }
 
-struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog,
-					    bool verbose)
-{
-	return drgn_program_init_core_dump(prog, "/proc/kcore", verbose);
-}
-
-static struct drgn_error *parse_proc_maps(const char *maps_path,
-					  struct file_mapping **mappings,
-					  size_t *num_mappings)
+struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
 {
 	struct drgn_error *err;
-	FILE *file;
-	size_t capacity = 0;
 
-	file = fopen(maps_path, "r");
-	if (!file)
-		return drgn_error_create_os(errno, maps_path, "fopen");
-
-	for (;;) {
-		unsigned long mapping_start, mapping_end;
-		uint64_t file_offset;
-		char *path;
-		int ret;
-
-		ret = fscanf(file, "%lx-%lx %*c%*c%*c%*c %" SCNx64 " "
-			     "%*x:%*x %*d%*[ ]%m[^\n]", &mapping_start,
-			     &mapping_end, &file_offset, &path);
-		if (ret == EOF) {
-			break;
-		} else if (ret == 3) {
-			/* This is an anonymous mapping; skip it. */
-			continue;
-		} else if (ret != 4) {
-			err = drgn_error_format(DRGN_ERROR_OTHER,
-						"could not parse %s", maps_path);
-			goto out;
-		}
-		err = append_file_mapping(mapping_start, mapping_end,
-					  file_offset, path, mappings,
-					  num_mappings, &capacity);
-		if (err && err->code == DRGN_ERROR_STOP) {
-			/* The mapping was merged, so free the path. */
-			free(path);
-		} else if (err) {
-			goto out;
-		}
-	}
-
-	if (capacity > *num_mappings) {
-		/* We don't care if this fails. */
-		resize_array(mappings, *num_mappings);
-	}
-
-	err = NULL;
-out:
-	fclose(file);
-	return err;
+	err = drgn_program_set_kernel(prog);
+	if (err)
+		return err;
+	err = drgn_program_open_default_debug_info(prog);
+	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+		drgn_error_destroy(err);
+	else if (err)
+		return err;
+	return drgn_program_load_debug_info(prog);
 }
 
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 {
 	struct drgn_error *err;
-	char buf[64];
-	int fd;
-	struct drgn_memory_file_segment *file_segment;
-	struct drgn_dwarf_info_cache *dicache;
 
-	drgn_program_init(prog);
-	prog->tindex.word_size = sizeof(void *);
-	prog->little_endian = __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
-
-	sprintf(buf, "/proc/%ld/mem", (long)pid);
-	fd = open(buf, O_RDONLY);
-	if (fd == -1) {
-		err = drgn_error_create_os(errno, buf, "open");
-		goto err;
-	}
-	err = drgn_program_add_cleanup(prog, cleanup_fd, (void *)(intptr_t)fd);
-	if (err) {
-		close(fd);
-		goto err;
-	}
-
-	sprintf(buf, "/proc/%ld/maps", (long)pid);
-	err = parse_proc_maps(buf, &prog->mappings, &prog->num_mappings);
+	err = drgn_program_set_pid(prog, pid);
 	if (err)
-		goto err;
-
-	file_segment = malloc(sizeof(*file_segment));
-	if (!file_segment) {
-		err = &drgn_enomem;
-		goto err;
-	}
-	file_segment->file_offset = 0;
-	file_segment->file_size = UINT64_MAX;
-	file_segment->fd = fd;
-	err = drgn_program_add_cleanup(prog, free, file_segment);
-	if (err) {
-		free(file_segment);
-		goto err;
-	}
-	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX, UINT64_MAX,
-					      drgn_read_memory_file,
-					      file_segment);
-	if (err)
-		goto err;
-
-	err = drgn_dwarf_info_cache_create(&prog->tindex, &dicache);
-	if (err)
-		goto err;
-	err = drgn_program_add_cleanup(prog, cleanup_dwarf_info_cache, dicache);
-	if (err) {
-		drgn_dwarf_info_cache_destroy(dicache);
-		goto err;
-	}
-	dicache->prog = prog;
-	dicache->relocation_hook = userspace_relocation_hook;
-	err = open_userspace_files(&dicache->dindex, prog->mappings,
-				   prog->num_mappings);
-	if (err)
-		goto err;
-	err = drgn_dwarf_index_update(&dicache->dindex);
-	if (err)
-		goto err;
-	err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find, dicache);
-	if (err)
-		goto err;
-	err = drgn_program_add_symbol_finder(prog, drgn_dwarf_symbol_find,
-					     dicache);
-	if (err)
-		goto err;
-	return NULL;
-
-err:
-	drgn_program_deinit(prog);
-	return err;
+		return err;
+	err = drgn_program_open_default_debug_info(prog);
+	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+		drgn_error_destroy(err);
+	else if (err)
+		return err;
+	return drgn_program_load_debug_info(prog);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_from_core_dump(const char *path, bool verbose,
-			    struct drgn_program **ret)
+drgn_program_from_core_dump(const char *path, struct drgn_program **ret)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog;
@@ -1507,8 +1625,10 @@ drgn_program_from_core_dump(const char *path, bool verbose,
 	if (!prog)
 		return &drgn_enomem;
 
-	err = drgn_program_init_core_dump(prog, path, verbose);
+	drgn_program_init(prog, DRGN_ARCH_AUTO);
+	err = drgn_program_init_core_dump(prog, path);
 	if (err) {
+		drgn_program_deinit(prog);
 		free(prog);
 		return err;
 	}
@@ -1518,7 +1638,7 @@ drgn_program_from_core_dump(const char *path, bool verbose,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_from_kernel(bool verbose, struct drgn_program **ret)
+drgn_program_from_kernel(struct drgn_program **ret)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog;
@@ -1527,8 +1647,10 @@ drgn_program_from_kernel(bool verbose, struct drgn_program **ret)
 	if (!prog)
 		return &drgn_enomem;
 
-	err = drgn_program_init_kernel(prog, verbose);
+	drgn_program_init(prog, DRGN_ARCH_AUTO);
+	err = drgn_program_init_kernel(prog);
 	if (err) {
+		drgn_program_deinit(prog);
 		free(prog);
 		return err;
 	}
@@ -1547,22 +1669,16 @@ drgn_program_from_pid(pid_t pid, struct drgn_program **ret)
 	if (!prog)
 		return &drgn_enomem;
 
+	drgn_program_init(prog, DRGN_ARCH_AUTO);
 	err = drgn_program_init_pid(prog, pid);
 	if (err) {
+		drgn_program_deinit(prog);
 		free(prog);
 		return err;
 	}
 
 	*ret = prog;
 	return NULL;
-}
-
-LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
-{
-	if (prog) {
-		drgn_program_deinit(prog);
-		free(prog);
-	}
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

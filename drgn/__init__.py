@@ -41,15 +41,18 @@ be used.
 """
 
 from _drgn import (
+    Architecture,
     FaultError,
     FileFormatError,
     FindObjectFlags,
+    MissingDebugInfoError,
     NULL,
     Object,
     PrimitiveType,
     Program,
     ProgramFlags,
     Qualifiers,
+    Symbol,
     Type,
     TypeKind,
     __version__,
@@ -59,6 +62,7 @@ from _drgn import (
     complex_type,
     container_of,
     enum_type,
+    filename_matches,
     float_type,
     function_type,
     int_type,
@@ -75,15 +79,18 @@ from _drgn import (
 
 
 __all__ = [
+    'Architecture',
     'FaultError',
     'FileFormatError',
     'FindObjectFlags',
+    'MissingDebugInfoError',
     'NULL',
     'Object',
     'PrimitiveType',
     'Program',
     'ProgramFlags',
     'Qualifiers',
+    'Symbol',
     'Type',
     'TypeKind',
     'array_type',
@@ -92,6 +99,7 @@ __all__ = [
     'complex_type',
     'container_of',
     'enum_type',
+    'filename_matches',
     'float_type',
     'function_type',
     'int_type',

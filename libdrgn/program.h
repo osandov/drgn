@@ -68,94 +68,53 @@ struct drgn_cleanup {
 	struct drgn_cleanup *next;
 };
 
+struct drgn_dwarf_info_cache;
+
 struct drgn_program {
 	/** @privatesection */
 	struct drgn_memory_reader reader;
 	struct drgn_type_index tindex;
 	struct drgn_symbol_index sindex;
+	struct drgn_memory_file_segment *file_segments;
+	size_t num_file_segments;
+	struct file_mapping *mappings;
+	size_t num_mappings;
 	struct vmcoreinfo vmcoreinfo;
-	struct {
-		struct file_mapping *mappings;
-		size_t num_mappings;
-	};
-	struct drgn_cleanup *cleanup;
+	struct drgn_dwarf_info_cache *dicache;
+	int core_fd;
 	enum drgn_program_flags flags;
-	bool little_endian;
+	enum drgn_architecture_flags arch;
 };
 
 /** Initialize a @ref drgn_program. */
-void drgn_program_init(struct drgn_program *prog);
+void drgn_program_init(struct drgn_program *prog,
+		       enum drgn_architecture_flags arch);
 
 /** Deinitialize a @ref drgn_program. */
 void drgn_program_deinit(struct drgn_program *prog);
 
 /**
- * Add a callback to be called when @ref drgn_program_deinit() is called.
- *
- * The callbacks are called in reverse order of the order they were added in.
- *
- * @param[in] cb Callback.
- * @param[in] arg Argument to callback.
- */
-struct drgn_error *drgn_program_add_cleanup(struct drgn_program *prog,
-					    void (*cb)(void *), void *arg);
-
-/**
- * Remove a cleanup callback previously added by @ref
- * drgn_program_add_cleanup().
- *
- * This removes the most recently added callback with the given @p cb and @p
- * arg.
- *
- * @return @c true if a callback with the given argument was present, @c false
- * if not.
- */
-bool drgn_program_remove_cleanup(struct drgn_program *prog, void (*cb)(void *),
-				 void *arg);
-
-/**
- * Implement @ref drgn_program_from_core_dump() on an allocated @ref
+ * Implement @ref drgn_program_from_core_dump() on an initialized @ref
  * drgn_program.
  */
 struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
-					       const char *path, bool verbose);
+					       const char *path);
 
 /**
- * Implement @ref drgn_program_from_kernel() on an allocated @ref drgn_program.
+ * Implement @ref drgn_program_from_kernel() on an initialized @ref
+ * drgn_program.
  */
-struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog,
-					    bool verbose);
+struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog);
 
 /**
- * Implement @ref drgn_program_from_pid() on an allocated @ref drgn_program.
+ * Implement @ref drgn_program_from_pid() on an initialized @ref drgn_program.
  */
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
-
-/**
- * Initialize a @ref drgn_program from manually-created memory segments, types,
- * and symbols.
- *
- * This is mostly useful for testing.
- *
- * @param[in] prog Program to initialize.
- * @param[in] word_size See @ref drgn_program_word_size().
- * @param[in] little_endian See @ref drgn_program_is_little_endian().
- * @param[in] segments See @ref drgn_mock_memory_reader_create().
- * @param[in] num_segments See @ref drgn_mock_memory_reader_create().
- * @param[in] types See @ref drgn_mock_type_index_create().
- * @param[in] symbols See @ref drgn_mock_symbol_index_create().
- */
-struct drgn_error *
-drgn_program_init_mock(struct drgn_program *prog, uint8_t word_size,
-		       bool little_endian,
-		       struct drgn_mock_memory_segment *segments,
-		       size_t num_segments, struct drgn_mock_type *types,
-		       struct drgn_mock_symbol *symbols);
 
 /** Return the maximum word value for a program. */
 static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)
 {
-	return drgn_program_word_size(prog) == 8 ? UINT64_MAX : UINT32_MAX;
+	return prog->arch & DRGN_ARCH_IS_64_BIT ? UINT64_MAX : UINT32_MAX;
 }
 
 /** @} */

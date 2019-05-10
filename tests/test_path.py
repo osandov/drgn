@@ -2,6 +2,7 @@ import itertools
 import os.path
 import unittest
 
+from drgn import filename_matches
 from tests.libdrgn import PathIterator, path_ends_with
 
 
@@ -98,16 +99,22 @@ class TestPathIterator(unittest.TestCase):
         self.assertComponents(('foo', '..'), [])
         self.assertComponents(('a', 'b', '..', '..'), [])
 
+    def assertPathEndsWith(self, haystack, needle):
+        self.assertTrue(path_ends_with(PathIterator(*haystack),
+                                       PathIterator(*needle)))
+        self.assertTrue(filename_matches(os.path.join(*haystack),
+                                         os.path.join(*needle)))
+
+    def assertNotPathEndsWith(self, haystack, needle):
+        self.assertFalse(path_ends_with(PathIterator(*haystack),
+                                        PathIterator(*needle)))
+        self.assertFalse(filename_matches(os.path.join(*haystack),
+                                          os.path.join(*needle)))
+
     def test_path_ends_with(self):
-        self.assertTrue(path_ends_with(PathIterator('ab/cd/ef'),
-                                       PathIterator('ef')))
-        self.assertTrue(path_ends_with(PathIterator('ab/cd/ef'),
-                                       PathIterator('cd/ef')))
-        self.assertFalse(path_ends_with(PathIterator('ab/cd/ef'),
-                                        PathIterator('d/ef')))
-        self.assertFalse(path_ends_with(PathIterator('ab/cd', '/ef'),
-                                        PathIterator('cd/ef')))
-        self.assertTrue(path_ends_with(PathIterator('/abc'),
-                                       PathIterator('abc')))
-        self.assertFalse(path_ends_with(PathIterator('abc'),
-                                        PathIterator('/abc')))
+        self.assertPathEndsWith(('ab/cd/ef',), ('ef',))
+        self.assertPathEndsWith(('ab/cd/ef',), ('cd/ef',))
+        self.assertNotPathEndsWith(('ab/cd/ef',), ('d/ef',))
+        self.assertNotPathEndsWith(('ab/cd', '/ef'), ('cd/ef',))
+        self.assertPathEndsWith(('/abc',), ('abc',))
+        self.assertNotPathEndsWith(('abc',), ('/abc',))

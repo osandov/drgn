@@ -66,27 +66,6 @@ DEFINE_HASH_MAP_TYPES(drgn_member_map, struct drgn_member_key,
 DEFINE_HASH_SET_TYPES(drgn_type_set, struct drgn_type *)
 #endif
 
-/**
- * Callback for finding a type.
- *
- * If the type is found, this should fill in @p ret and return @c NULL. If not,
- * this should set <tt>ret->type</tt> to @c NULL return @c NULL.
- *
- * @param[in] kind Kind of type.
- * @param[in] name Name of type (or tag, for structs, unions, and enums). This
- * is @em not null-terminated.
- * @param[in] name_len Length of @p name.
- * @param[in] filename Filename containing the type definition or @c NULL. This
- * should be matched with @ref path_ends_with().
- * @param[in] arg Argument passed to @ref drgn_type_index_add_finder().
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-typedef struct drgn_error *
-(*drgn_type_find_fn)(enum drgn_type_kind kind, const char *name,
-		     size_t name_len, const char *filename, void *arg,
-		     struct drgn_qualified_type *ret);
-
 /** Registered callback in a @ref drgn_type_index. */
 struct drgn_type_finder {
 	/** The callback. */
@@ -144,18 +123,17 @@ void drgn_type_index_init(struct drgn_type_index *tindex);
 /** Deinitialize a @ref drgn_type_index. */
 void drgn_type_index_deinit(struct drgn_type_index *tindex);
 
-/**
- * Register a type finding callback.
- *
- * Callbacks are called in reverse order of the order they were added in until
- * the type is found. So, more recently added callbacks take precedence.
- *
- * @param[in] fn The callback.
- * @param[in] arg Argument to pass to @p fn.
- * @return @c NULL on success, non-@c NULL on error.
- */
+/** @sa drgn_program_add_type_finder() */
 struct drgn_error *drgn_type_index_add_finder(struct drgn_type_index *tindex,
 					      drgn_type_find_fn fn, void *arg);
+
+/**
+ * Remove the most recently added type finding callback.
+ *
+ * This must only be called if the type index hasn't been used since the finder
+ * was added.
+ */
+void drgn_type_index_remove_finder(struct drgn_type_index *tindex);
 
 /** Find a primitive type in a @ref drgn_type_index. */
 struct drgn_error *
@@ -283,18 +261,6 @@ struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
 					       const char *member_name,
 					       size_t member_name_len,
 					       struct drgn_member_value **ret);
-
-/** Type index entry for testing. */
-struct drgn_mock_type {
-	/** Type. */
-	struct drgn_type *type;
-	/**
-	 * Name of the file that the type is defined in.
-	 *
-	 * This may be @c NULL, in which case no filename will match it.
-	 */
-	const char *filename;
-};
 
 /** @} */
 

@@ -5,8 +5,52 @@
 
 PyObject *FaultError;
 PyObject *FileFormatError;
+PyObject *MissingDebugInfoError;
+
+static PyObject *filename_matches(PyObject *self, PyObject *args,
+				  PyObject *kwds)
+{
+	static char *keywords[] = {"haystack", "needle", NULL};
+	struct path_arg haystack_arg = {.allow_none = true};
+	struct path_arg needle_arg = {.allow_none = true};
+	struct path_iterator haystack = {
+		.components = (struct path_iterator_component [1]){},
+		.num_components = 0,
+	};
+	struct path_iterator needle = {
+		.components = (struct path_iterator_component [1]){},
+		.num_components = 0,
+	};
+	bool ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:filename_matches",
+					 keywords, path_converter,
+					 &haystack_arg, path_converter,
+					 &needle_arg))
+		return NULL;
+
+	if (haystack_arg.path) {
+		haystack.components[0].path = haystack_arg.path;
+		haystack.components[0].len = haystack_arg.length;
+		haystack.num_components = 1;
+	}
+	if (needle_arg.path) {
+		needle.components[0].path = needle_arg.path;
+		needle.components[0].len = needle_arg.length;
+		needle.num_components = 1;
+	}
+	ret = path_ends_with(&haystack, &needle);
+	path_cleanup(&haystack_arg);
+	path_cleanup(&needle_arg);
+	if (ret)
+		Py_RETURN_TRUE;
+	else
+		Py_RETURN_FALSE;
+}
 
 static PyMethodDef drgn_methods[] = {
+	{"filename_matches", (PyCFunction)filename_matches,
+	 METH_VARARGS | METH_KEYWORDS, drgn_filename_matches_DOC},
 	{"NULL", (PyCFunction)DrgnObject_NULL, METH_VARARGS | METH_KEYWORDS,
 	 drgn_NULL_DOC},
 	{"cast", (PyCFunction)cast, METH_VARARGS | METH_KEYWORDS,
@@ -15,26 +59,10 @@ static PyMethodDef drgn_methods[] = {
 	 drgn_reinterpret_DOC},
 	{"container_of", (PyCFunction)DrgnObject_container_of,
 	 METH_VARARGS | METH_KEYWORDS, drgn_container_of_DOC},
-	{"mock_program", (PyCFunction)mock_program,
-	 METH_VARARGS | METH_KEYWORDS,
-"mock_program(word_size, byteorder, segments=None, types=None, objects=None)\n"
-"--\n"
-"\n"
-"Create a mock :class:`Program` for testing.\n"
-"\n"
-":param int word_size: :attr:`Program.word_size`\n"
-":param str byteorder: :attr:`Program.byteorder`\n"
-":param segments: Memory segments.\n"
-":type segments: list[MockMemorySegment] or None\n"
-":param types: Type definitions.\n"
-":type types: list[MockType] or None\n"
-":param objects: Object definitions.\n"
-":type objects: list[MockObject] or None\n"
-":rtype: Program"},
 	{"program_from_core_dump", (PyCFunction)program_from_core_dump,
 	 METH_VARARGS | METH_KEYWORDS, drgn_program_from_core_dump_DOC},
 	{"program_from_kernel", (PyCFunction)program_from_kernel,
-	 METH_VARARGS | METH_KEYWORDS, drgn_program_from_kernel_DOC},
+	 METH_NOARGS, drgn_program_from_kernel_DOC},
 	{"program_from_pid", (PyCFunction)program_from_pid,
 	 METH_VARARGS | METH_KEYWORDS, drgn_program_from_pid_DOC},
 	{"void_type", (PyCFunction)void_type, METH_VARARGS | METH_KEYWORDS,
@@ -106,10 +134,12 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		goto err;
 	PyModule_AddObject(m, "FileFormatError", FileFormatError);
 
-	if (PyType_Ready(&MemoryReader_type) < 0)
+	MissingDebugInfoError = PyErr_NewExceptionWithDoc("_drgn.MissingDebugInfoError",
+							  drgn_MissingDebugInfoError_DOC,
+							  NULL, NULL);
+	if (!MissingDebugInfoError)
 		goto err;
-	Py_INCREF(&MemoryReader_type);
-	PyModule_AddObject(m, "MemoryReader", (PyObject *)&MemoryReader_type);
+	PyModule_AddObject(m, "MissingDebugInfoError", MissingDebugInfoError);
 
 	if (PyType_Ready(&DrgnObject_type) < 0)
 		goto err;
@@ -133,16 +163,6 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		goto err;
 	Py_INCREF(&Symbol_type);
 	PyModule_AddObject(m, "Symbol", (PyObject *)&Symbol_type);
-
-	if (PyType_Ready(&SymbolIndex_type) < 0)
-		goto err;
-	Py_INCREF(&SymbolIndex_type);
-	PyModule_AddObject(m, "SymbolIndex", (PyObject *)&SymbolIndex_type);
-
-	if (PyType_Ready(&TypeIndex_type) < 0)
-		goto err;
-	Py_INCREF(&TypeIndex_type);
-	PyModule_AddObject(m, "TypeIndex", (PyObject *)&TypeIndex_type);
 
 	return m;
 

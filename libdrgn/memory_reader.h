@@ -29,24 +29,6 @@
  * @{
  */
 
-struct drgn_memory_segment;
-
-/**
- * Callback implementing a memory read.
- *
- * @param[out] buf Buffer to read into.
- * @param[in] address Address which we are reading from.
- * @param[in] count Number of bytes to read.
- * @param[in] physical Whether @c address is physical.
- * @param[in] offset Offset in bytes of @p address from the beginning of the
- * segment.
- * @param[in] arg Argument passed to @ref drgn_memory_reader_add_segment().
- * @return @c NULL on success, non-@c NULL on error.
- */
-typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
-						  size_t count, bool physical,
-						  uint64_t offset, void *arg);
-
 /** Memory segment in a @ref drgn_memory_reader. */
 struct drgn_memory_segment {
 	/**
@@ -92,22 +74,7 @@ void drgn_memory_reader_init(struct drgn_memory_reader *reader);
 /** Deinitialize a @ref drgn_memory_reader. */
 void drgn_memory_reader_deinit(struct drgn_memory_reader *reader);
 
-/**
- * Register a segment of memory in a @ref drgn_memory_reader.
- *
- * If the segment overlaps a previously registered segment, the new segment
- * takes precedence.
- *
- * @param[in] reader Reader to add segment to.
- * @param[in] virt_addr Virtual address of segment, or @c UINT64_MAX if the
- * segment does not have a virtual address.
- * @param[in] phys_addr Physical address of segment, or @c UINT64_MAX if the
- * segment does not have a physical address.
- * @param[in] size Size of the segment in bytes.
- * @param[in] read_fn Callback to read from segment.
- * @param[in] arg Argument to pass to @p read_fn.
- * @return @c NULL on success, non-@c NULL on error.
- */
+/** @sa drgn_program_add_memory_segment() */
 struct drgn_error *
 drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			       uint64_t virt_addr, uint64_t phys_addr,
@@ -146,24 +113,6 @@ struct drgn_memory_file_segment {
 struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 					 size_t count, bool physical,
 					 uint64_t offset, void *arg);
-
-/** Memory segment for testing. */
-struct drgn_mock_memory_segment {
-	/**
-	 * Virtual address of the segment in memory. If @c UINT64_MAX, the
-	 * segment does not have a known virtual address.
-	 */
-	uint64_t virt_addr;
-	/**
-	 * Physical address of the segment in memory. If @c UINT64_MAX, the
-	 * segment does not have a known physical address.
-	 */
-	uint64_t phys_addr;
-	/** Size of the segment in bytes. */
-	uint64_t size;
-	/** Segment memory. */
-	const void *buf;
-};
 
 /** @} */
 

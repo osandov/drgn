@@ -162,6 +162,15 @@ struct drgn_error *drgn_type_index_add_finder(struct drgn_type_index *tindex,
 	return NULL;
 }
 
+void drgn_type_index_remove_finder(struct drgn_type_index *tindex)
+{
+	struct drgn_type_finder *finder;
+
+	finder = tindex->finders->next;
+	free(tindex->finders);
+	tindex->finders = finder;
+}
+
 /* Default long, unsigned long, size_t, and ptrdiff_t are 64 bits. */
 static struct drgn_type default_primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
 /* 32-bit version of long, unsigned long, size_t, and ptrdiff_t. */

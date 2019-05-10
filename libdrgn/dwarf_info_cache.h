@@ -77,8 +77,6 @@ struct drgn_dwarf_info_cache {
 	int depth;
 	/** Type index. */
 	struct drgn_type_index *tindex;
-	/** Program to pass to @c relocation_hook(). */
-	struct drgn_program *prog;
 	/**
 	 * Relocation callback.
 	 *
@@ -96,9 +94,11 @@ struct drgn_dwarf_info_cache {
 	 * @param[in,out] sym Symbol to relocate.
 	 * @return @c NULL on success, non-@c NULL on error.
 	 */
-	struct drgn_error *(*relocation_hook)(struct drgn_program *prog,
-					      const char *name, Dwarf_Die *die,
-					      struct drgn_symbol *sym);
+	struct drgn_error *(*relocation_hook)(const char *name, Dwarf_Die *die,
+					      struct drgn_symbol *sym,
+					      void *arg);
+	/* Argument to pass to @ref drgn_dwarf_info_cache::relocation_hook. */
+	void *relocation_arg;
 };
 
 /** Create a @ref drgn_dwarf_info_cache. */

@@ -22,19 +22,19 @@ from drgn import (
     union_type,
     void_type,
 )
-from drgn.internal.mock import MockMemorySegment, MockType, mock_program
-from tests.test_type_index import (
+from tests import (
     color_type,
     line_segment_type,
     option_type,
     point_type,
 )
+from tests.test_program import MockMemorySegment, mock_program
 
 
 class ObjectTestCase(unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self.prog = mock_program(8, 'little')
+        self.prog = mock_program()
         # For testing, we want to compare the raw objects rather than using the
         # language's equality operator.
         def object_equality_func(a, b, msg=None):
@@ -91,7 +91,7 @@ class TestInit(ObjectTestCase):
         self.assertEqual(obj.value_(), 1)
         obj.__init__(self.prog, value=2)
         self.assertEqual(obj.value_(), 2)
-        prog = mock_program(8, 'little')
+        prog = mock_program()
         self.assertRaisesRegex(ValueError, 'cannot change object program',
                                obj.__init__, prog, value=3)
 
@@ -153,7 +153,7 @@ class TestInit(ObjectTestCase):
 
 class TestReference(ObjectTestCase):
     def test_basic(self):
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment((1000).to_bytes(4, 'little'),
                               virt_addr=0xffff0000),
         ])
@@ -207,8 +207,7 @@ class TestReference(ObjectTestCase):
                         tmp = value << (8 - bit_size - bit_offset) % 8
                     tmp &= size_mask
                     buf = tmp.to_bytes(size, byteorder)
-                    prog = mock_program(8, 'little',
-                                        segments=[MockMemorySegment(buf, 0)])
+                    prog = mock_program(segments=[MockMemorySegment(buf, 0)])
                     obj = Object(prog, 'unsigned long long', address=0,
                                  bit_field_size=bit_size,
                                  bit_offset=bit_offset, byteorder=byteorder)
@@ -235,8 +234,7 @@ class TestReference(ObjectTestCase):
                         tmp <<= (8 - bit_size - bit_offset) % 8
                     buf = tmp.to_bytes((bit_size + bit_offset + 7) // 8,
                                        byteorder)
-                    prog = mock_program(8, 'little',
-                                        segments=[MockMemorySegment(buf, 0)])
+                    prog = mock_program(segments=[MockMemorySegment(buf, 0)])
                     obj = Object(prog, type_, address=0, bit_offset=bit_offset,
                                  byteorder=byteorder)
                     self.assertEqual(obj.value_(), expected)
@@ -246,9 +244,9 @@ class TestReference(ObjectTestCase):
                    (-1).to_bytes(4, 'little', signed=True) +
                    (12345).to_bytes(4, 'little') +
                    (0).to_bytes(4, 'little'))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
-        ], types=[MockType(point_type)])
+        ], types=[point_type])
 
         obj = Object(prog, 'struct point', address=0xffff0000)
         self.assertEqual(obj.value_(), {'x': 99, 'y': -1})
@@ -268,7 +266,7 @@ class TestReference(ObjectTestCase):
         segment = bytearray()
         for i in range(10):
             segment.extend(i.to_bytes(4, 'little'))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
 
@@ -1306,9 +1304,9 @@ class TestCPretty(ObjectTestCase):
                    (-1).to_bytes(4, 'little', signed=True) +
                    (12345).to_bytes(4, 'little', signed=True) +
                    (0).to_bytes(4, 'little', signed=True))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
-        ], types=[MockType(point_type)])
+        ], types=[point_type])
 
         self.assertEqual(str(Object(prog, 'struct point', address=0xffff0000)),
                          """\
@@ -1341,7 +1339,7 @@ class TestCPretty(ObjectTestCase):
                    (-1).to_bytes(8, 'little', signed=True) +
                    (12345).to_bytes(8, 'little', signed=True) +
                    (0).to_bytes(8, 'little', signed=True))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
 
@@ -1371,7 +1369,7 @@ class TestCPretty(ObjectTestCase):
 
     def test_bit_field(self):
         segment = b'\x07\x10\x5e\x5f\x1f\0\0\0'
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
 
@@ -1395,9 +1393,9 @@ class TestCPretty(ObjectTestCase):
 
     def test_union(self):
         segment = b'\0\0\x80?'
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
-        ], types=[MockType(option_type)])
+        ], types=[option_type])
         self.assertEqual(str(Object(prog, 'union option', address=0xffff0000)),
                          """\
 (union option){
@@ -1417,7 +1415,7 @@ class TestCPretty(ObjectTestCase):
                                obj)
 
     def test_pointer(self):
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment((99).to_bytes(4, 'little'), virt_addr=0xffff0000),
         ])
         self.assertEqual(str(Object(prog, 'int *', value=0xffff0000)),
@@ -1426,7 +1424,7 @@ class TestCPretty(ObjectTestCase):
                          '(int *)0x7fffffff')
 
     def test_void_pointer(self):
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment((99).to_bytes(8, 'little'),
                               virt_addr=0xffff0000),
         ])
@@ -1434,7 +1432,7 @@ class TestCPretty(ObjectTestCase):
                          '(void *)0xffff0000')
 
     def test_pointer_typedef(self):
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment((0xffff00f0).to_bytes(8, 'little'),
                               virt_addr=0xffff0000),
         ])
@@ -1444,7 +1442,7 @@ class TestCPretty(ObjectTestCase):
                          '*(HANDLE)0xffff0000 = 0xffff00f0')
 
     def test_c_string(self):
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(b'hello\0', virt_addr=0xffff0000),
             MockMemorySegment(b'unterminated', virt_addr=0xffff0010),
             MockMemorySegment(b'"escape\tme\\\0', virt_addr=0xffff0020),
@@ -1463,7 +1461,7 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(5):
             segment.extend(i.to_bytes(4, 'little'))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
         obj = Object(prog, 'int [5]', address=0xffff0000)
@@ -1508,7 +1506,7 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(10):
             segment.extend(i.to_bytes(4, 'little'))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
         obj = Object(prog, 'int [2][5]', address=0xffff0000)
@@ -1576,7 +1574,7 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(5):
             segment.extend(i.to_bytes(4, 'little'))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
 
@@ -1613,9 +1611,9 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(1, 5):
             segment.extend(i.to_bytes(4, 'little'))
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
-        ], types=[MockType(point_type)])
+        ], types=[point_type])
 
         obj = Object(prog, 'struct point [2]', address=0xffff0000)
         self.assertEqual(str(obj), """\
@@ -1638,11 +1636,11 @@ class TestCPretty(ObjectTestCase):
 
     def test_array_zeroes(self):
         segment = bytearray(16)
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ], types=[
-            MockType(point_type),
-            MockType(struct_type('empty', 0, ())),
+            point_type,
+            struct_type('empty', 0, ()),
         ])
 
         obj = Object(prog, 'int [2]', address=0xffff0000)
@@ -1667,7 +1665,7 @@ class TestCPretty(ObjectTestCase):
 
     def test_char_array(self):
         segment = bytearray(16)
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
 
@@ -1693,7 +1691,7 @@ class TestCPretty(ObjectTestCase):
 class TestGenericOperators(ObjectTestCase):
     def setUp(self):
         super().setUp()
-        self.prog = mock_program(8, 'little', segments=[
+        self.prog = mock_program(segments=[
             MockMemorySegment(b''.join(i.to_bytes(4, 'little') for i in range(4)),
                               virt_addr=0xffff0000),
         ])
@@ -1783,13 +1781,11 @@ class TestGenericOperators(ObjectTestCase):
 
     def test_reinterpret_value(self):
         segment = (1).to_bytes(4, 'little') + (2).to_bytes(4, 'little')
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ], types=[
-            MockType(point_type),
-            MockType(struct_type('foo', 8, (
-                (int_type('long', 8, True), 'counter'),
-            ))),
+            point_type,
+            struct_type('foo', 8, ((int_type('long', 8, True), 'counter'),)),
         ])
         obj = Object(prog, 'struct point', address=0xffff0000).read_()
         self.assertEqual(reinterpret('struct foo', obj),
@@ -1831,7 +1827,7 @@ class TestGenericOperators(ObjectTestCase):
 
     def test_bit_field_member(self):
         segment = b'\x07\x10\x5e\x5f\x1f\0\0\0'
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ])
 
@@ -1859,7 +1855,7 @@ class TestGenericOperators(ObjectTestCase):
         self.assertRaisesRegex(FaultError, 'out of bounds', getattr, obj, 'y')
 
     def test_string(self):
-        prog = mock_program(8, 'little', segments=[
+        prog = mock_program(segments=[
             MockMemorySegment(b'\x00\x00\xff\xff\x00\x00\x00\x00',
                               virt_addr=0xfffefff8),
             MockMemorySegment(b'hello\0world\0', virt_addr=0xffff0000),

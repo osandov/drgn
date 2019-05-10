@@ -11,6 +11,7 @@
 #define DRGN_H
 
 #include <assert.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -64,8 +65,8 @@ enum drgn_error_code {
 	DRGN_ERROR_ELF_FORMAT,
 	/** Invalid DWARF file. */
 	DRGN_ERROR_DWARF_FORMAT,
-	/** File does not have debug information. */
-	DRGN_ERROR_MISSING_DEBUG,
+	/** One or more files do not have debug information. */
+	DRGN_ERROR_MISSING_DEBUG_INFO,
 	/** Syntax error while parsing. */
 	DRGN_ERROR_SYNTAX,
 	/** Entry not found. */
@@ -857,17 +858,295 @@ enum drgn_program_flags {
 	DRGN_PROGRAM_IS_LINUX_KERNEL = (1 << 0),
 };
 
+/** Target architecture of a @ref drgn_program. */
+enum drgn_architecture_flags {
+	/** Architecture is 64-bit. */
+	DRGN_ARCH_IS_64_BIT = (1 << 0),
+	/** Architecture is little-endian. */
+	DRGN_ARCH_IS_LITTLE_ENDIAN = (1 << 1),
+	/** All valid architecture flags. */
+	DRGN_ALL_ARCH_FLAGS = (1 << 2) - 1,
+	/** Architecture of the host system. */
+	DRGN_ARCH_HOST =
+		(sizeof(void *) == 8 ? DRGN_ARCH_IS_64_BIT : 0) |
+		(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
+		 DRGN_ARCH_IS_LITTLE_ENDIAN : 0),
+	/**
+	 * Determine architecture automatically from core dump and/or symbol
+	 * files.
+	 */
+	DRGN_ARCH_AUTO = UINT_MAX,
+};
+
+/**
+ * Create a @ref drgn_program.
+ *
+ * Usually, @ref drgn_program_from_core_dump(), @ref drgn_program_from_kernel(),
+ * and @ref drgn_program_from_pid() are more convenient to use. However, this
+ * can be used if more flexibility is required.
+ *
+ * @param[in] arch Architecture of the program. This can usually be @ref
+ * DRGN_ARCH_AUTO.
+ * @param[out] ret Returned program.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_create(enum drgn_architecture_flags arch,
+				       struct drgn_program **ret);
+
+/**
+ * Free a @ref drgn_program.
+ *
+ * @param[in] prog Program to free.
+ */
+void drgn_program_destroy(struct drgn_program *prog);
+
+/**
+ * Callback implementing a memory read.
+ *
+ * @param[out] buf Buffer to read into.
+ * @param[in] address Address which we are reading from.
+ * @param[in] count Number of bytes to read.
+ * @param[in] physical Whether @c address is physical.
+ * @param[in] offset Offset in bytes of @p address from the beginning of the
+ * segment.
+ * @param[in] arg Argument passed to @ref drgn_program_add_memory_segment().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
+						  size_t count, bool physical,
+						  uint64_t offset, void *arg);
+
+/**
+ * Register a segment of memory in a @ref drgn_program.
+ *
+ * If the segment overlaps a previously registered segment, the new segment
+ * takes precedence.
+ *
+ * @param[in] virt_addr Virtual address of segment, or @c UINT64_MAX if the
+ * segment does not have a virtual address.
+ * @param[in] phys_addr Physical address of segment, or @c UINT64_MAX if the
+ * segment does not have a physical address.
+ * @param[in] size Size of the segment in bytes.
+ * @param[in] read_fn Callback to read from segment.
+ * @param[in] arg Argument to pass to @p read_fn.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t virt_addr,
+				uint64_t phys_addr, uint64_t size,
+				drgn_memory_read_fn read_fn, void *arg);
+
+/**
+ * Return whether a filename containing a definition (@p haystack) matches a
+ * filename being searched for (@p needle).
+ *
+ * The path is matched from right to left, so a definition in
+ * <tt>/usr/include/stdio.h</tt> will match <tt>stdio.h</tt>,
+ * <tt>include/stdio.h</tt>, <tt>usr/include/stdio.h</tt>, and
+ * <tt>/usr/include/stdio.h</tt>. An empty or @c NULL @p needle matches any @p
+ * haystack.
+ */
+bool drgn_filename_matches(const char *haystack, const char *needle);
+
+/**
+ * Callback for finding a type.
+ *
+ * If the type is found, this should fill in @p ret and return @c NULL. If not,
+ * this should set <tt>ret->type</tt> to @c NULL and return @c NULL.
+ *
+ * @param[in] kind Kind of type.
+ * @param[in] name Name of type (or tag, for structs, unions, and enums). This
+ * is @em not null-terminated.
+ * @param[in] name_len Length of @p name.
+ * @param[in] filename Filename containing the type definition or @c NULL. This
+ * should be matched with @ref drgn_filename_matches().
+ * @param[in] arg Argument passed to @ref drgn_program_add_type_finder().
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+typedef struct drgn_error *
+(*drgn_type_find_fn)(enum drgn_type_kind kind, const char *name,
+		     size_t name_len, const char *filename, void *arg,
+		     struct drgn_qualified_type *ret);
+
+/**
+ * Register a type finding callback.
+ *
+ * Callbacks are called in reverse order of the order they were added until the
+ * type is found. So, more recently added callbacks take precedence.
+ *
+ * @param[in] fn The callback.
+ * @param[in] arg Argument to pass to @p fn.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
+			     void *arg);
+
+/** Flags for @ref drgn_program_find_object(). */
+enum drgn_find_object_flags {
+	/** Find a constant (e.g., enumeration constant or macro). */
+	DRGN_FIND_OBJECT_CONSTANT = 1 << 0,
+	/** Find a function. */
+	DRGN_FIND_OBJECT_FUNCTION = 1 << 1,
+	/** Find a variable. */
+	DRGN_FIND_OBJECT_VARIABLE = 1 << 2,
+	/** Find any kind of object. */
+	DRGN_FIND_OBJECT_ANY = (1 << 3) - 1,
+};
+
+/** Kind of symbol. */
+enum drgn_symbol_kind {
+	/**
+	 * A symbol with an address in the program. @ref drgn_symbol::address is
+	 * set to the address.
+	 */
+	DRGN_SYMBOL_ADDRESS,
+	/**
+	 * A symbol with a constant value. One of @ref drgn_symbol::svalue, @ref
+	 * drgn_symbol::uvalue, or @ref drgn_symbol::fvalue is set, depending on
+	 * @ref drgn_symbol::type.
+	 */
+	DRGN_SYMBOL_CONSTANT,
+	/**
+	 * An enumerator. No address or value is set.
+	 *
+	 * A symbol with this kind may be returned by a @ref
+	 * drgn_symbol_find_fn(); it is converted to a constant.
+	 */
+	DRGN_SYMBOL_ENUMERATOR,
+} __attribute__((packed));
+
+/**
+ * An indexed symbol in a program.
+ *
+ * This is the result of a lookup by a @ref drgn_symbol_find_fn. It is typically
+ * converted to a @ref drgn_object.
+ */
+struct drgn_symbol {
+	/** Type of this symbol. */
+	struct drgn_type *type;
+	/** Qualifiers on @ref drgn_symbol::type. */
+	enum drgn_qualifiers qualifiers;
+	/** Kind of this symbol. */
+	enum drgn_symbol_kind kind;
+	/**
+	 * Whether the symbol is little-endian.
+	 *
+	 * This is ignored for constants and enumerators.
+	 */
+	bool little_endian;
+	union {
+		/**
+		 * If not a constant or enumerator, the address of the symbol.
+		 */
+		uint64_t address;
+		/** If a signed constant, the value. */
+		int64_t svalue;
+		/** If an unsigned constant, the value. */
+		uint64_t uvalue;
+		/** If a floating-point constant, the value. */
+		double fvalue;
+	};
+};
+
+/**
+ * Callback for finding a symbol.
+ *
+ * If the symbol is found, this should fill in @p ret and return @c NULL. If
+ * not, this should set <tt>ret->type</tt> to @c NULL and return @c NULL.
+ *
+ * @param[in] name Name of symbol. This is @em not null-terminated.
+ * @param[in] name_len Length of @p name.
+ * @param[in] filename Filename containing the symbol definition or @c NULL.
+ * This should be matched with @ref drgn_filename_matches().
+ * @param[in] flags Flags indicating what kind of object to look for.
+ * @param[in] arg Argument passed to @ref drgn_program_add_symbol_finder().
+ * @param[out] ret Returned symbol.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+typedef struct drgn_error *
+(*drgn_symbol_find_fn)(const char *name, size_t name_len, const char *filename,
+		       enum drgn_find_object_flags flags, void *arg,
+		       struct drgn_symbol *ret);
+
+/**
+ * Register a symbol finding callback.
+ *
+ * Callbacks are called in reverse order of the order they were added until the
+ * symbol is found. So, more recently added callbacks take precedence.
+ *
+ * @param[in] fn The callback.
+ * @param[in] arg Argument to pass to @p fn.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_add_symbol_finder(struct drgn_program *prog,
+			       drgn_symbol_find_fn fn, void *arg);
+
+/**
+ * Set a @ref drgn_program to a core dump.
+ *
+ * @sa drgn_program_from_core_dump()
+ *
+ * @param[in] path Core dump file path.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_core_dump(struct drgn_program *prog,
+					      const char *path);
+
+/**
+ * Set a @ref drgn_program to the running operating system kernel.
+ *
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
+
+/**
+ * Set a @ref drgn_program to a running process.
+ *
+ * @sa drgn_program_from_pid()
+ *
+ * @param[in] pid Process ID.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_pid(struct drgn_program *prog, pid_t pid);
+
+/**
+ * Open debugging information for an executable or library.
+ *
+ * @param[in] path File path.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_open_debug_info(struct drgn_program *prog,
+						const char *path);
+
+/**
+ * Open debugging information which can automatically be found from a @ref
+ * drgn_program.
+ */
+struct drgn_error *
+drgn_program_open_default_debug_info(struct drgn_program *prog);
+
+/**
+ * Parse and load debugging information which was previously opened with @ref
+ * drgn_program_open_debug_info() or @ref
+ * drgn_program_open_default_debug_info().
+ *
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog);
+
 /**
  * Create a @ref drgn_program from a core dump file.
  *
  * The type of program (e.g., userspace or kernel) is determined automatically.
  *
  * @param[in] path Core dump file path.
- * @param[in] verbose Whether to print non-fatal errors to stderr.
  * @param[out] ret Returned program.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_program_from_core_dump(const char *path, bool verbose,
+struct drgn_error *drgn_program_from_core_dump(const char *path,
 					       struct drgn_program **ret);
 
 /**
@@ -875,12 +1154,10 @@ struct drgn_error *drgn_program_from_core_dump(const char *path, bool verbose,
  *
  * This requires root privileges.
  *
- * @param[in] verbose Whether to print non-fatal errors to stderr.
  * @param[out] ret Returned program.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_program_from_kernel(bool verbose,
-					    struct drgn_program **ret);
+struct drgn_error *drgn_program_from_kernel(struct drgn_program **ret);
 
 /**
  * Create a @ref drgn_program from the a running program.
@@ -894,30 +1171,12 @@ struct drgn_error *drgn_program_from_kernel(bool verbose,
  */
 struct drgn_error *drgn_program_from_pid(pid_t pid, struct drgn_program **ret);
 
-/**
- * Free a @ref drgn_program.
- *
- * @param[in] prog Program to free.
- */
-void drgn_program_destroy(struct drgn_program *prog);
-
 /** Get the set of @ref drgn_program_flags applying to a @ref drgn_program. */
 enum drgn_program_flags drgn_program_flags(struct drgn_program *prog);
 
-/**
- * Get the size of a word in the given program.
- *
- * @return The word size in bytes (either 4 or 8).
- */
-uint8_t drgn_program_word_size(struct drgn_program *prog);
-
-/**
- * Get whether a program is little-endian.
- *
- * @return @c true if the program is little-endian, @c false if it is
- * big-endian.
- */
-bool drgn_program_is_little_endian(struct drgn_program *prog);
+/** Get the architecture of a @ref drgn_program. */
+enum drgn_architecture_flags
+drgn_program_architecture(struct drgn_program *prog);
 
 /**
  * Read from a program's memory.
@@ -961,11 +1220,8 @@ struct drgn_error *drgn_program_read_c_string(struct drgn_program *prog,
  * @param[in] prog Program.
  * @param[in] name Name of the type.
  * @param[in] filename Filename containing the type definition. This is matched
- * from right to left, so a type defined in <tt>/usr/include/stdio.h</tt> will
- * match <tt>stdio.h</tt>, <tt>include/stdio.h</tt>,
- * <tt>usr/include/stdio.h</tt>, and <tt>/usr/include/stdio.h</tt>. An empty or
- * @c NULL @p filename matches any definition. If multiple definitions match,
- * one is returned arbitrarily.
+ * with @ref drgn_filename_matches(). If multiple definitions match, one is
+ * returned arbitrarily.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
@@ -973,18 +1229,6 @@ struct drgn_error *drgn_program_find_type(struct drgn_program *prog,
 					  const char *name,
 					  const char *filename,
 					  struct drgn_qualified_type *ret);
-
-/** Flags for @ref drgn_program_find_object(). */
-enum drgn_find_object_flags {
-	/** Find a constant (e.g., enumeration constant or macro). */
-	DRGN_FIND_OBJECT_CONSTANT = 1 << 0,
-	/** Find a function. */
-	DRGN_FIND_OBJECT_FUNCTION = 1 << 1,
-	/** Find a variable. */
-	DRGN_FIND_OBJECT_VARIABLE = 1 << 2,
-	/** Find any kind of object. */
-	DRGN_FIND_OBJECT_ANY = (1 << 3) - 1,
-};
 
 /**
  * Find an object in a program by name.
@@ -994,7 +1238,8 @@ enum drgn_find_object_flags {
  * @param[in] prog Program.
  * @param[in] name Name of the object.
  * @param[in] filename Filename containing the object definition. This is
- * interpreted the same way as for @ref drgn_program_find_type().
+ * matched with @ref drgn_filename_matches(). If multiple definitions match, one
+ * is returned arbitrarily.
  * @param[in] flags Flags indicating what kind of object to look for.
  * @param[out] ret Returned object. It must have already been initialized with
  * @ref drgn_object_init().
@@ -1186,11 +1431,7 @@ enum drgn_byte_order {
 	DRGN_BIG_ENDIAN,
 	/** Little-endian. */
 	DRGN_LITTLE_ENDIAN,
-	/**
-	 * Endianness of the program.
-	 *
-	 * @sa drgn_program_is_little_endian()
-	 */
+	/** Endianness of the program. */
 	DRGN_PROGRAM_ENDIAN,
 };
 

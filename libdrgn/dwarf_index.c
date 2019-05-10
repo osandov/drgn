@@ -380,7 +380,7 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 
 	for (i = 0; i < NUM_SECTIONS; i++) {
 		if (!file->sections[i] && !section_optional[i]) {
-			return drgn_error_format(DRGN_ERROR_MISSING_DEBUG,
+			return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
 						 "ELF file has no %s section",
 						 section_name[i]);
 		}
@@ -503,34 +503,6 @@ err_file:
 	free(file);
 err_key:
 	free((char *)key);
-	return err;
-}
-
-struct drgn_error *drgn_dwarf_index_open_elf(struct drgn_dwarf_index *dindex,
-					     Elf *elf)
-{
-	struct drgn_error *err;
-	struct drgn_dwarf_index_file *file;
-
-	file = calloc(1, sizeof(*file));
-	if (!file)
-		return &drgn_enomem;
-
-	file->elf = elf;
-
-	err = read_sections(file);
-	if (err)
-		goto err;
-
-	if (dindex->opened_last)
-		dindex->opened_last->next = file;
-	else
-		dindex->opened_first = file;
-	dindex->opened_last = file;
-	return NULL;
-
-err:
-	free(file);
 	return err;
 }
 

@@ -67,12 +67,6 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
-	struct drgn_memory_reader reader;
-	PyObject *objects;
-} MemoryReader;
-
-typedef struct {
-	PyObject_HEAD
 	DrgnObject *obj;
 	uint64_t length, index;
 } ObjectIterator;
@@ -81,9 +75,6 @@ typedef struct {
 	PyObject_HEAD
 	struct drgn_program prog;
 	PyObject *objects;
-	Py_buffer *buffers;
-	size_t num_buffers;
-	bool inited;
 } Program;
 
 typedef struct {
@@ -92,18 +83,7 @@ typedef struct {
 	DrgnType *type_obj;
 } Symbol;
 
-typedef struct {
-	PyObject_HEAD
-	struct drgn_symbol_index sindex;
-	PyObject *objects;
-} SymbolIndex;
-
-typedef struct {
-	PyObject_HEAD
-	struct drgn_type_index tindex;
-	PyObject *objects;
-} TypeIndex;
-
+extern PyObject *Architecture_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
@@ -111,60 +91,12 @@ extern PyObject *Qualifiers_class;
 extern PyObject *TypeKind_class;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
-extern PyTypeObject MemoryReader_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Program_type;
 extern PyTypeObject Symbol_type;
-extern PyTypeObject SymbolIndex_type;
-extern PyTypeObject TypeIndex_type;
 extern PyObject *FaultError;
 extern PyObject *FileFormatError;
-
-static inline PyObject *DrgnType_parent(DrgnType *type)
-{
-	if (type->type == type->_type)
-		return (PyObject *)type;
-	else
-		return type->parent;
-}
-
-/* Keep a reference to @p obj in the dictionary @p objects. */
-static inline int hold_object(PyObject *objects, PyObject *obj)
-{
-	PyObject *key;
-	int ret;
-
-	if (!objects) {
-		PyErr_SetString(PyExc_ValueError, "object is not initialized");
-		return -1;
-	}
-
-	key = PyLong_FromVoidPtr(obj);
-	if (!key)
-		return -1;
-
-	ret = PyDict_SetItem(objects, key, obj);
-	Py_DECREF(key);
-	return ret;
-}
-
-static inline int hold_drgn_type(PyObject *objects, DrgnType *type)
-{
-	PyObject *parent;
-
-	parent = DrgnType_parent(type);
-	if (parent && parent != objects)
-		return hold_object(objects, parent);
-	else
-		return 0;
-}
-
-int append_string(PyObject *parts, const char *s);
-int append_format(PyObject *parts, const char *format, ...);
-unsigned long long index_arg(PyObject *obj, const char *msg);
-PyObject *byteorder_string(bool little_endian);
-int parse_byteorder(const char *s, bool *ret);
-int parse_optional_byteorder(PyObject *obj, enum drgn_byte_order *ret);
+extern PyObject *MissingDebugInfoError;
 
 int add_module_constants(PyObject *m);
 
@@ -186,24 +118,28 @@ static inline DrgnObject *DrgnObject_alloc(Program *prog)
 	}
 	return ret;
 }
-
-int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
-		     struct drgn_qualified_type *ret);
-int filename_converter(PyObject *obj, void *result);
-int qualifiers_converter(PyObject *arg, void *result);
-
 PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 				    PyObject *kwds);
 
-Program *mock_program(PyObject *self, PyObject *args, PyObject *kwds);
+int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
+		     struct drgn_qualified_type *ret);
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
-Program *program_from_kernel(PyObject *self, PyObject *args, PyObject *kwds);
+Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
+
+static inline PyObject *DrgnType_parent(DrgnType *type)
+{
+	if (type->type == type->_type)
+		return (PyObject *)type;
+	else
+		return type->parent;
+}
 PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type,
 			PyObject *parent);
+int qualifiers_converter(PyObject *arg, void *result);
 DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *bool_type(PyObject *self, PyObject *args, PyObject *kwds);
@@ -216,5 +152,30 @@ DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds);
+
+int append_string(PyObject *parts, const char *s);
+int append_format(PyObject *parts, const char *format, ...);
+unsigned long long index_arg(PyObject *obj, const char *msg);
+PyObject *byteorder_string(bool little_endian);
+int parse_byteorder(const char *s, bool *ret);
+int parse_optional_byteorder(PyObject *obj, enum drgn_byte_order *ret);
+
+/* Helpers for path arguments based on posixmodule.c in CPython. */
+struct path_arg {
+	bool allow_none;
+	char *path;
+	Py_ssize_t length;
+	PyObject *object;
+	PyObject *cleanup;
+};
+int path_converter(PyObject *o, void *p);
+void path_cleanup(struct path_arg *path);
+
+struct enum_arg {
+	PyObject *type;
+	unsigned long value;
+	bool allow_none;
+};
+int enum_converter(PyObject *o, void *p);
 
 #endif /* DRGNPY_H */

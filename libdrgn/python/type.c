@@ -872,32 +872,17 @@ static PyObject *DrgnType_is_complete(DrgnType *self)
 	return PyBool_FromLong(drgn_type_is_complete(self->type));
 }
 
-int qualifiers_converter(PyObject *arg, void *result)
+int qualifiers_converter(PyObject *o, void *p)
 {
-	unsigned long qualifiers;
+	struct enum_arg arg = {
+		.type = Qualifiers_class,
+		.value = 0,
+		.allow_none = true,
+	};
 
-	if (arg == Py_None) {
-		qualifiers = 0;
-	} else {
-		PyObject *value;
-
-		if (!PyObject_TypeCheck(arg,
-					(PyTypeObject *)Qualifiers_class)) {
-			PyErr_SetString(PyExc_TypeError,
-					"qualifiers must be Qualifiers or None");
-			return 0;
-		}
-
-		value = PyObject_GetAttrString(arg, "value");
-		if (!value)
-			return 0;
-
-		qualifiers = PyLong_AsUnsignedLong(value);
-		Py_DECREF(value);
-		if (qualifiers == (unsigned long)-1 && PyErr_Occurred())
-			return 0;
-	}
-	*(unsigned char *)result = qualifiers;
+	if (!enum_converter(o, &arg))
+		return 0;
+	*(unsigned char *)p = arg.value;
 	return 1;
 }
 
