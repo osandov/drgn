@@ -62,12 +62,6 @@ struct file_mapping {
 	uint64_t file_offset;
 };
 
-struct drgn_cleanup {
-	void (*cb)(void *);
-	void *arg;
-	struct drgn_cleanup *next;
-};
-
 struct drgn_dwarf_info_cache;
 
 struct drgn_program {

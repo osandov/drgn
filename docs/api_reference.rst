@@ -280,6 +280,10 @@ Programs
 
         The program is the Linux kernel.
 
+    .. attribute:: IS_RUNNING_KERNEL
+
+        The program is the running operating system kernel.
+
 .. class:: Architecture
 
     ``Architecture`` is an :class:`enum.Flag` of flags describing the target

@@ -1,11 +1,13 @@
 // Copyright 2018-2019 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "internal.h"
 #include "kmod.h"
+#include "program.h"
 
 struct drgn_error *
 kernel_module_iterator_init(struct kernel_module_iterator *it,
@@ -88,6 +90,43 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 	return NULL;
 }
 
+struct drgn_error *
+kernel_module_section_address_from_sysfs(struct drgn_program *prog,
+					 const char *module_name,
+					 const char *section_name,
+					 uint64_t *ret)
+{
+	struct drgn_error *err;
+	FILE *file;
+	char *path;
+
+	if (asprintf(&path, "/sys/module/%s/sections/%s", module_name,
+		     section_name) == -1) {
+		return &drgn_enomem;
+	}
+	file = fopen(path, "r");
+	if (!file) {
+		if (errno == ENOENT) {
+			err = drgn_error_format(DRGN_ERROR_LOOKUP,
+						"%s is not loaded",
+						module_name);
+		} else {
+			err = drgn_error_create_os(errno, path, "fopen");
+		}
+		goto out_path;
+	}
+	if (fscanf(file, "%" SCNx64, ret) != 1) {
+		err = drgn_error_format(DRGN_ERROR_OTHER, "could not parse %s",
+					path);
+	} else {
+		err = NULL;
+	}
+	fclose(file);
+out_path:
+	free(path);
+	return err;
+}
+
 static struct drgn_error *find_section_address(struct drgn_object *mod,
 					       const char *section_name,
 					       uint64_t *ret)
@@ -155,6 +194,17 @@ struct drgn_error *kernel_module_section_address(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 	struct kernel_module_iterator it;
+
+	/*
+	 * For the running kernel, we can take a shortcut by looking at sysfs.
+	 * Otherwise, we have to walk the list of modules in the kernel.
+	 */
+	if (prog->flags & DRGN_PROGRAM_IS_RUNNING_KERNEL) {
+		return kernel_module_section_address_from_sysfs(prog,
+								module_name,
+								section_name,
+								ret);
+	}
 
 	err = kernel_module_iterator_init(&it, prog);
 	if (err)

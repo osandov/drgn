@@ -856,6 +856,8 @@ struct drgn_program;
 enum drgn_program_flags {
 	/** The program is the Linux kernel. */
 	DRGN_PROGRAM_IS_LINUX_KERNEL = (1 << 0),
+	/** The program is the running operating system kernel. */
+	DRGN_PROGRAM_IS_RUNNING_KERNEL = (1 << 1),
 };
 
 /** Target architecture of a @ref drgn_program. */

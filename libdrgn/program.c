@@ -627,7 +627,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	size_t phnum, i, mappings_capacity = 0;
 	bool have_non_zero_phys_addr = false;
 	struct drgn_memory_file_segment *current_file_segment;
-	bool have_nt_taskstruct = false, have_vmcoreinfo = false;
+	bool have_nt_taskstruct = false, have_vmcoreinfo = false, is_proc_kcore;
 
 	err = drgn_program_check_initialized(prog);
 	if (err)
@@ -785,20 +785,10 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		resize_array(&prog->mappings, prog->num_mappings);
 	}
 
-	if (have_nt_taskstruct && !have_vmcoreinfo) {
+	if (have_nt_taskstruct) {
 		/*
-		 * Before Linux kernel commit 23c85094fe18 ("proc/kcore: add
-		 * vmcoreinfo note to /proc/kcore") (in v4.19), /proc/kcore
-		 * didn't have a VMCOREINFO note. However, it has always had an
-		 * NT_TASKSTRUCT note. If this is a file in /proc with the
-		 * NT_TASKSTRUCT note, then it's probably /proc/kcore, and we
-		 * need to try to get vmcoreinfo elsewhere.
-		 *
-		 * Since Linux kernel commit 464920104bf7 ("/proc/kcore: update
-		 * physical address for kcore ram and text") (in v4.11), we can
-		 * read from the physical address of vmcoreinfo exported in
-		 * sysfs. Before that, p_paddr in /proc/kcore is always zero, so
-		 * we have to use a hackier fallback.
+		 * If the core file has an NT_TASKSTRUCT note and is in /proc,
+		 * then it's probably /proc/kcore.
 		 */
 		struct statfs fs;
 
@@ -807,21 +797,37 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			if (err)
 				goto out_mappings;
 		}
-		if (fs.f_type == 0x9fa0 /* PROC_SUPER_MAGIC */) {
-			if (have_non_zero_phys_addr) {
-				err = read_vmcoreinfo_from_sysfs(&prog->reader,
-								 &prog->vmcoreinfo);
-			} else {
-				err = get_fallback_vmcoreinfo(&prog->vmcoreinfo);
-			}
-			if (err)
-				goto out_mappings;
-			have_vmcoreinfo = true;
+		is_proc_kcore = fs.f_type == 0x9fa0; /* PROC_SUPER_MAGIC */
+	} else {
+		is_proc_kcore = false;
+	}
+
+	if (!have_vmcoreinfo && is_proc_kcore) {
+		/*
+		 * Before Linux kernel commit 23c85094fe18 ("proc/kcore: add
+		 * vmcoreinfo note to /proc/kcore") (in v4.19), /proc/kcore
+		 * didn't have a VMCOREINFO note. Since Linux kernel commit
+		 * 464920104bf7 ("/proc/kcore: update physical address for kcore
+		 * ram and text") (in v4.11), we can read from the physical
+		 * address of vmcoreinfo exported in sysfs. Before that, p_paddr
+		 * in /proc/kcore is always zero, so we have to use a hackier
+		 * fallback.
+		 */
+		if (have_non_zero_phys_addr) {
+			err = read_vmcoreinfo_from_sysfs(&prog->reader,
+							 &prog->vmcoreinfo);
+		} else {
+			err = get_fallback_vmcoreinfo(&prog->vmcoreinfo);
 		}
+		if (err)
+			goto out_mappings;
+		have_vmcoreinfo = true;
 	}
 
 	if (have_vmcoreinfo)
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+	if (is_proc_kcore)
+		prog->flags |= DRGN_PROGRAM_IS_RUNNING_KERNEL;
 	drgn_program_update_arch(prog, arch);
 	return NULL;
 
