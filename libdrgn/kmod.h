@@ -8,9 +8,15 @@
 
 struct kernel_module_iterator {
 	char *name;
-	struct drgn_qualified_type module_type;
-	struct drgn_object mod, node, mod_name;
-	uint64_t head;
+	FILE *file;
+	union {
+		size_t name_capacity;
+		struct {
+			struct drgn_qualified_type module_type;
+			struct drgn_object mod, node, mod_name;
+			uint64_t head;
+		};
+	};
 };
 
 struct drgn_error *

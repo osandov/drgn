@@ -16,29 +16,40 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 	struct drgn_error *err;
 
 	it->name = NULL;
+	if (prog->flags & DRGN_PROGRAM_IS_RUNNING_KERNEL) {
+		it->file = fopen("/proc/modules", "r");
+		if (!it->file) {
+			return drgn_error_create_os(errno, "/proc/modules",
+						    "fopen");
+		}
+		it->name_capacity = 0;
+	} else {
+		it->file = NULL;
 
-	err = drgn_program_find_type(prog, "struct module", NULL,
-				     &it->module_type);
-	if (err)
-		return err;
+		err = drgn_program_find_type(prog, "struct module", NULL,
+					     &it->module_type);
+		if (err)
+			return err;
 
-	drgn_object_init(&it->mod, prog);
-	drgn_object_init(&it->node, prog);
-	drgn_object_init(&it->mod_name, prog);
+		drgn_object_init(&it->mod, prog);
+		drgn_object_init(&it->node, prog);
+		drgn_object_init(&it->mod_name, prog);
 
-	err = drgn_program_find_object(prog, "modules", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, &it->node);
-	if (err)
-		goto err;
-	err = drgn_object_address_of(&it->node, &it->node);
-	if (err)
-		goto err;
-	err = drgn_object_read(&it->node, &it->node);
-	if (err)
-		goto err;
-	err = drgn_object_read_unsigned(&it->node, &it->head);
-	if (err)
-		goto err;
+		err = drgn_program_find_object(prog, "modules", NULL,
+					       DRGN_FIND_OBJECT_VARIABLE,
+					       &it->node);
+		if (err)
+			goto err;
+		err = drgn_object_address_of(&it->node, &it->node);
+		if (err)
+			goto err;
+		err = drgn_object_read(&it->node, &it->node);
+		if (err)
+			goto err;
+		err = drgn_object_read_unsigned(&it->node, &it->head);
+		if (err)
+			goto err;
+	}
 
 	return NULL;
 
@@ -49,10 +60,36 @@ err:
 
 void kernel_module_iterator_deinit(struct kernel_module_iterator *it)
 {
-	drgn_object_deinit(&it->mod_name);
-	drgn_object_deinit(&it->node);
-	drgn_object_deinit(&it->mod);
+	if (it->file) {
+		fclose(it->file);
+	} else {
+		drgn_object_deinit(&it->mod_name);
+		drgn_object_deinit(&it->node);
+		drgn_object_deinit(&it->mod);
+	}
 	free(it->name);
+}
+
+static struct drgn_error *
+kernel_module_iterator_next_procfs(struct kernel_module_iterator *it)
+{
+	ssize_t ret;
+	char *p;
+
+	errno = 0;
+	ret = getline(&it->name, &it->name_capacity, it->file);
+	if (ret == -1) {
+		if (errno) {
+			return drgn_error_create_os(errno, "/proc/modules",
+						    "getline");
+		} else {
+			return &drgn_stop;
+		}
+	}
+	p = strchr(it->name, ' ');
+	if (p)
+		*p = '\0';
+	return NULL;
 }
 
 struct drgn_error *
@@ -61,6 +98,9 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 	struct drgn_error *err;
 	uint64_t addr;
 	char *name;
+
+	if (it->file)
+		return kernel_module_iterator_next_procfs(it);
 
 	err = drgn_object_member_dereference(&it->node, &it->node, "next");
 	if (err)
@@ -212,6 +252,7 @@ struct drgn_error *kernel_module_section_address(struct drgn_program *prog,
 	while (!(err = kernel_module_iterator_next(&it))) {
 		if (strcmp(it.name, module_name) == 0) {
 			/*
+			 * Since this isn't the running kernel,
 			 * kernel_module_iterator_next() leaves mod set to the
 			 * struct module * object.
 			 */
