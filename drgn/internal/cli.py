@@ -87,20 +87,16 @@ def main() -> None:
         prog.set_pid(args.pid or os.getpid())
     if args.default_symbols:
         try:
-            prog.open_default_debug_info()
+            prog.load_default_debug_info()
         except drgn.MissingDebugInfoError as e:
             if not args.quiet:
                 print(str(e), file=sys.stderr)
-    for path in (args.symbols or []):
+    if args.symbols:
         try:
-            prog.open_debug_info(path)
-        except (drgn.FileFormatError, drgn.MissingDebugInfoError) as e:
-            if not args.quiet:
-                print(f'{path}: {e}', file=sys.stderr)
-        except OSError as e:
+            prog.load_debug_info(args.symbols)
+        except (drgn.FileFormatError, drgn.MissingDebugInfoError, OSError) as e:
             if not args.quiet:
                 print(e, file=sys.stderr)
-    prog.load_debug_info()
 
     init_globals: Dict[str, Any] = {'prog': prog}
     if args.script:

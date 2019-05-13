@@ -127,12 +127,10 @@ extern const char drgn_Program_function_DOC[];
 #define drgn_Program_function_DOC (char *)drgn_Program_function_DOC
 extern const char drgn_Program_load_debug_info_DOC[];
 #define drgn_Program_load_debug_info_DOC (char *)drgn_Program_load_debug_info_DOC
+extern const char drgn_Program_load_default_debug_info_DOC[];
+#define drgn_Program_load_default_debug_info_DOC (char *)drgn_Program_load_default_debug_info_DOC
 extern const char drgn_Program_object_DOC[];
 #define drgn_Program_object_DOC (char *)drgn_Program_object_DOC
-extern const char drgn_Program_open_debug_info_DOC[];
-#define drgn_Program_open_debug_info_DOC (char *)drgn_Program_open_debug_info_DOC
-extern const char drgn_Program_open_default_debug_info_DOC[];
-#define drgn_Program_open_default_debug_info_DOC (char *)drgn_Program_open_default_debug_info_DOC
 extern const char drgn_Program_pointer_type_DOC[];
 #define drgn_Program_pointer_type_DOC (char *)drgn_Program_pointer_type_DOC
 extern const char drgn_Program_read_DOC[];

@@ -506,6 +506,15 @@ err_key:
 	return err;
 }
 
+void drgn_dwarf_index_close_unindexed(struct drgn_dwarf_index *dindex)
+{
+	struct drgn_dwarf_index_file *files;
+
+	files = dindex->opened_first;
+	dindex->opened_first = dindex->opened_last = NULL;
+	free_files(dindex, files);
+}
+
 static struct drgn_error *apply_relocation(Elf_Data *section,
 					   Elf_Data *rela_section,
 					   Elf_Data *symtab, size_t i)

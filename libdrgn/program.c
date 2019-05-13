@@ -1300,8 +1300,8 @@ static struct drgn_error *drgn_program_relocation_hook(const char *name,
 }
 
 static struct drgn_error *
-drgn_program_open_debug_info_internal(struct drgn_program *prog,
-				      const char *path, Elf **elf_ret)
+drgn_program_open_debug_info(struct drgn_program *prog, const char *path,
+			     Elf **elf_ret)
 {
 	struct drgn_error *err;
 	Elf *elf;
@@ -1341,10 +1341,35 @@ drgn_program_open_debug_info_internal(struct drgn_program *prog,
 	return NULL;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_open_debug_info(struct drgn_program *prog, const char *path)
+static void drgn_program_close_unindexed_debug_info(struct drgn_program *prog)
 {
-	return drgn_program_open_debug_info_internal(prog, path, NULL);
+	if (prog->dicache)
+		drgn_dwarf_index_close_unindexed(&prog->dicache->dindex);
+}
+
+static struct drgn_error *
+drgn_program_update_debug_info(struct drgn_program *prog)
+{
+	if (!prog->dicache)
+		return NULL;
+	return drgn_dwarf_index_update(&prog->dicache->dindex);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
+			     size_t n)
+{
+	struct drgn_error *err;
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		err = drgn_program_open_debug_info(prog, paths[i], NULL);
+		if (err) {
+			drgn_program_close_unindexed_debug_info(prog);
+			return err;
+		}
+	}
+	return drgn_program_update_debug_info(prog);
 }
 
 static bool fts_name_endswith(FTSENT *ent, const char *suffix)
@@ -1356,7 +1381,7 @@ static bool fts_name_endswith(FTSENT *ent, const char *suffix)
 		       len) == 0);
 }
 
-static struct drgn_error *open_kernel_files(struct drgn_program *prog)
+static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 {
 	static const char * const module_paths[] = {
 		"/usr/lib/debug/lib/modules/%s/kernel",
@@ -1381,7 +1406,7 @@ static struct drgn_error *open_kernel_files(struct drgn_program *prog)
 	for (i = 0; i < ARRAY_SIZE(vmlinux_paths); i++) {
 		snprintf(buf, sizeof(buf), vmlinux_paths[i],
 			 prog->vmcoreinfo.osrelease);
-		err = drgn_program_open_debug_info(prog, buf);
+		err = drgn_program_open_debug_info(prog, buf, NULL);
 		if (err) {
 			if (err->code == DRGN_ERROR_OS &&
 			    err->errnum == ENOENT) {
@@ -1393,7 +1418,7 @@ static struct drgn_error *open_kernel_files(struct drgn_program *prog)
 				drgn_error_destroy(err);
 				continue;
 			}
-			return err;
+			goto err;
 		}
 		break;
 	}
@@ -1440,7 +1465,8 @@ static struct drgn_error *open_kernel_files(struct drgn_program *prog)
 			}
 			found_modules = true;
 			err = drgn_program_open_debug_info(prog,
-							   ent->fts_accpath);
+							   ent->fts_accpath,
+							   NULL);
 			if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 				drgn_error_destroy(err);
 				err = NULL;
@@ -1500,6 +1526,10 @@ static struct drgn_error *open_kernel_files(struct drgn_program *prog)
 			goto err;
 	}
 
+	err = drgn_program_update_debug_info(prog);
+	if (err)
+		goto err;
+
 	if (missing_debug_info.len) {
 		char *msg;
 
@@ -1514,10 +1544,11 @@ static struct drgn_error *open_kernel_files(struct drgn_program *prog)
 
 err:
 	free(missing_debug_info.str);
+	drgn_program_close_unindexed_debug_info(prog);
 	return err;
 }
 
-static struct drgn_error *open_userspace_files(struct drgn_program *prog)
+static struct drgn_error *load_userspace_debug_info(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 	struct file_mapping *mappings;
@@ -1529,9 +1560,8 @@ static struct drgn_error *open_userspace_files(struct drgn_program *prog)
 	for (i = 0; i < num_mappings; i++) {
 		if (prog->mappings[i].elf)
 			continue;
-		err = drgn_program_open_debug_info_internal(prog,
-							    mappings[i].path,
-							    &mappings[i].elf);
+		err = drgn_program_open_debug_info(prog, mappings[i].path,
+						   &mappings[i].elf);
 		if (err) {
 			mappings[i].elf = NULL;
 			if ((err->code == DRGN_ERROR_OS &&
@@ -1541,6 +1571,7 @@ static struct drgn_error *open_userspace_files(struct drgn_program *prog)
 				drgn_error_destroy(err);
 				continue;
 			}
+			drgn_dwarf_index_close_unindexed(&prog->dicache->dindex);
 			return err;
 		}
 		success = true;
@@ -1549,24 +1580,16 @@ static struct drgn_error *open_userspace_files(struct drgn_program *prog)
 		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
 					 "no debug information found");
 	}
-	return NULL;
+	return drgn_program_update_debug_info(prog);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_open_default_debug_info(struct drgn_program *prog)
+drgn_program_load_default_debug_info(struct drgn_program *prog)
 {
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		return open_kernel_files(prog);
+		return load_kernel_debug_info(prog);
 	else
-		return open_userspace_files(prog);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_load_debug_info(struct drgn_program *prog)
-{
-	if (!prog->dicache)
-		return NULL;
-	return drgn_dwarf_index_update(&prog->dicache->dindex);
+		return load_userspace_debug_info(prog);
 }
 
 struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
@@ -1577,12 +1600,12 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	err = drgn_program_set_core_dump(prog, path);
 	if (err)
 		return err;
-	err = drgn_program_open_default_debug_info(prog);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+	err = drgn_program_load_default_debug_info(prog);
+	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
-	else if (err)
-		return err;
-	return drgn_program_load_debug_info(prog);
+		err = NULL;
+	}
+	return err;
 }
 
 struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
@@ -1592,12 +1615,12 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
 	err = drgn_program_set_kernel(prog);
 	if (err)
 		return err;
-	err = drgn_program_open_default_debug_info(prog);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+	err = drgn_program_load_default_debug_info(prog);
+	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
-	else if (err)
-		return err;
-	return drgn_program_load_debug_info(prog);
+		err = NULL;
+	}
+	return err;
 }
 
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
@@ -1607,12 +1630,12 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	err = drgn_program_set_pid(prog, pid);
 	if (err)
 		return err;
-	err = drgn_program_open_default_debug_info(prog);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+	err = drgn_program_load_default_debug_info(prog);
+	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
-	else if (err)
-		return err;
-	return drgn_program_load_debug_info(prog);
+		err = NULL;
+	}
+	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

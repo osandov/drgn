@@ -433,43 +433,82 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
-static PyObject *Program_open_debug_info(Program *self, PyObject *args,
+static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 					 PyObject *kwds)
 {
-	static char *keywords[] = {"path", NULL};
+	static char *keywords[] = {"paths", NULL};
 	struct drgn_error *err;
-	struct path_arg path = {};
+	PyObject *paths_obj, *it, *item;
+	struct path_arg *path_args = NULL;
+	Py_ssize_t length_hint;
+	size_t n = 0, i;
+	const char **paths;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&:open_debug_info",
-					 keywords, path_converter, &path))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:load_debug_info",
+					 keywords, &paths_obj))
 		return NULL;
 
-	err = drgn_program_open_debug_info(&self->prog, path.path);
-	path_cleanup(&path);
-	if (err) {
-		set_drgn_error(err);
+	it = PyObject_GetIter(paths_obj);
+	if (!it)
+		return NULL;
+
+	length_hint = PyObject_LengthHint(paths_obj, 1);
+	if (length_hint == -1) {
+		Py_DECREF(it);
 		return NULL;
 	}
+	path_args = malloc_array(length_hint, sizeof(*path_args));
+	if (!path_args) {
+		Py_DECREF(it);
+		return NULL;
+	}
+
+	while ((item = PyIter_Next(it))) {
+		int ret;
+
+		if (n >= length_hint) {
+			length_hint *= 2;
+			if (!resize_array(&path_args, length_hint)) {
+				Py_DECREF(item);
+				PyErr_NoMemory();
+				break;
+			}
+		}
+		ret = path_converter(item, &path_args[n]);
+		Py_DECREF(item);
+		if (!ret)
+			break;
+		n++;
+	}
+	Py_DECREF(it);
+	if (PyErr_Occurred())
+		goto out;
+
+	paths = malloc_array(n, sizeof(*paths));
+	if (!paths) {
+		PyErr_NoMemory();
+		goto out;
+	}
+	for (i = 0; i < n; i++)
+		paths[i] = path_args[i].path;
+	err = drgn_program_load_debug_info(&self->prog, paths, n);
+	free(paths);
+	if (err)
+		set_drgn_error(err);
+
+out:
+	for (i = 0; i < n; i++)
+		path_cleanup(&path_args[i]);
+	if (PyErr_Occurred())
+		return NULL;
 	Py_RETURN_NONE;
 }
 
-static PyObject *Program_open_default_debug_info(Program *self)
+static PyObject *Program_load_default_debug_info(Program *self)
 {
 	struct drgn_error *err;
 
-	err = drgn_program_open_default_debug_info(&self->prog);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
-	Py_RETURN_NONE;
-}
-
-static PyObject *Program_load_debug_info(Program *self)
-{
-	struct drgn_error *err;
-
-	err = drgn_program_load_debug_info(&self->prog);
+	err = drgn_program_load_default_debug_info(&self->prog);
 	if (err) {
 		set_drgn_error(err);
 		return NULL;
@@ -761,13 +800,11 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_set_kernel_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},
-	{"open_debug_info", (PyCFunction)Program_open_debug_info,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_open_debug_info_DOC},
-	{"open_default_debug_info",
-	 (PyCFunction)Program_open_default_debug_info, METH_NOARGS,
-	 drgn_Program_open_default_debug_info_DOC},
-	{"load_debug_info", (PyCFunction)Program_load_debug_info, METH_NOARGS,
-	 drgn_Program_load_debug_info_DOC},
+	{"load_debug_info", (PyCFunction)Program_load_debug_info,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_load_debug_info_DOC},
+	{"load_default_debug_info",
+	 (PyCFunction)Program_load_default_debug_info, METH_NOARGS,
+	 drgn_Program_load_default_debug_info_DOC},
 	{"__getitem__", (PyCFunction)Program_subscript, METH_O | METH_COEXIST,
 	 drgn_Program___getitem___DOC},
 	{"read", (PyCFunction)Program_read, METH_VARARGS | METH_KEYWORDS,

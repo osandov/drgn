@@ -194,8 +194,7 @@ def dwarf_program(dies, little_endian=True, bits=64):
     with tempfile.NamedTemporaryFile() as f:
         f.write(compile_dwarf(dies, little_endian, bits))
         f.flush()
-        prog.open_debug_info(f.name)
-    prog.load_debug_info()
+        prog.load_debug_info([f.name])
     return prog
 
 

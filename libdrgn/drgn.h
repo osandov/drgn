@@ -1112,30 +1112,16 @@ struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
  */
 struct drgn_error *drgn_program_set_pid(struct drgn_program *prog, pid_t pid);
 
-/**
- * Open debugging information for an executable or library.
- *
- * @param[in] path File path.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_program_open_debug_info(struct drgn_program *prog,
-						const char *path);
+/** Load debugging information for a list of executable or library files. */
+struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
+						const char **paths, size_t n);
 
 /**
- * Open debugging information which can automatically be found from a @ref
- * drgn_program.
+ * Load debugging information which can automatically be determined from the
+ * program.
  */
 struct drgn_error *
-drgn_program_open_default_debug_info(struct drgn_program *prog);
-
-/**
- * Parse and load debugging information which was previously opened with @ref
- * drgn_program_open_debug_info() or @ref
- * drgn_program_open_default_debug_info().
- *
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog);
+drgn_program_load_default_debug_info(struct drgn_program *prog);
 
 /**
  * Create a @ref drgn_program from a core dump file.

@@ -221,7 +221,7 @@ Programs
 
         This loads the memory segments from the core dump and determines the
         mapped executable and libraries. It does not load any debugging
-        symbols; see :meth:`open_debug_info()`.
+        symbols; see :meth:`load_default_debug_info()`.
 
         :param str path: Core dump file path.
 
@@ -231,7 +231,7 @@ Programs
 
         This loads the memory of the running kernel and thus requires root
         privileges. It does not load any debugging symbols; see
-        :meth:`open_debug_info()`.
+        :meth:`load_default_debug_info()`.
 
     .. method:: set_pid(pid)
 
@@ -239,50 +239,37 @@ Programs
 
         This loads the memory of the process and determines the mapped
         executable and libraries. It does not load any debugging symbols; see
-        :meth:`open_debug_info()`.
+        :meth:`load_default_debug_info()`.
 
         :param int pid: Process ID.
 
-    .. method:: open_debug_info(path)
+    .. method:: load_debug_info(paths)
 
-        Open debugging information for an executable or library.
+        Load debugging information for a list of executable or library files.
 
-        This opens the file and checks that it has debugging information, but
-        it does not parse or load the debugging information. The debugging
-        information must be loaded later with :meth:`load_debug_info()`. If
-        there are multiple files, it is more efficient to first open them all
-        and then load them all at once.
+        If an error is encountered while loading any file, no new debugging
+        information is loaded.
 
-        :param path: Path of binary file.
-        :type path: str, bytes, or os.PathLike
-        :raises MissingDebugInfoError: if the file does not contain debugging
-            information
+        Note that this is parallelized, so it is usually faster to load
+        multiple files at once rather than one by one.
 
-    .. method:: open_default_debug_info()
+        :param paths: Paths of binary files.
+        :type paths: Iterable[str, bytes, or os.PathLike]
 
-        Open debugging information which can automatically be found from the
-        program.
+    .. method:: load_default_debug_info()
 
-        For the Linux kernel, this tries to open ``vmlinux`` and kernel modules
+        Load debugging information which can automatically be determined from
+        the program.
+
+        For the Linux kernel, this tries to load ``vmlinux`` and kernel modules
         from a few standard locations.
 
-        For userspace programs, this tries to open the executable and any
+        For userspace programs, this tries to load the executable and any
         loaded libraries.
-
-        The debugging information must be loaded later with
-        :meth:`load_debug_info()`.
 
         :raises MissingDebugInfoError: if debugging information was not
             available for some files; other files with debugging information
-            are still opened if this is raised
-
-    .. method:: load_debug_info()
-
-        Parse and load debugging information which was previously opened with
-        :meth:`open_debug_info()` or :meth:`open_default_debug_info()`.
-
-        This loads the debugging information of all files which were opened
-        since the last call to :meth:`load_debug_info()`.
+            are still loaded if this is raised
 
 .. class:: ProgramFlags
 

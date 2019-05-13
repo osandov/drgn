@@ -11,12 +11,10 @@ Loading Debugging Symbols
 
 drgn will automatically load debugging information based on the debugged
 program (e.g., from loaded kernel modules or loaded shared libraries).
-:meth:`drgn.Program.open_debug_info()` followed by
 :meth:`drgn.Program.load_debug_info()` can be used to load additional debugging
 information::
 
-    >>> prog.open_debug_info('./libfoo.so')
-    >>> prog.load_debug_info()
+    >>> prog.load_debug_info(['./libfoo.so', '/usr/lib/libbar.so'])
 
 Library
 -------
@@ -70,8 +68,7 @@ program "memory":
 
         prog = drgn.Program(drgn.Architecture.IS_LITTLE_ENDIAN)
         prog.add_memory_segment(0, None, size, read_file)
-        prog.open_debug_info(f'/lib/modules/{os.uname().release}/kernel/fs/btrfs/btrfs.ko')
-        prog.load_debug_info()
+        prog.load_debug_info([f'/lib/modules/{os.uname().release}/kernel/fs/btrfs/btrfs.ko'])
         return prog
 
 

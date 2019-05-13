@@ -154,6 +154,9 @@ void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex);
 struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 					 const char *path, Elf **elf);
 
+/** Close any files which haven't been indexed yet. */
+void drgn_dwarf_index_close_unindexed(struct drgn_dwarf_index *dindex);
+
 /**
  * Index newly opened files.
  *

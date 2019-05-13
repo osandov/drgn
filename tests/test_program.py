@@ -144,6 +144,9 @@ class TestProgram(unittest.TestCase):
         self.assertEqual(prog.pointer_type(prog.type('int'), Qualifiers.CONST),
                          prog.type('int * const'))
 
+    def test_debug_info(self):
+        Program().load_debug_info([])
+
 
 class TestMemory(unittest.TestCase):
     def test_simple_read(self):
