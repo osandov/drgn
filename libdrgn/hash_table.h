@@ -425,9 +425,9 @@ struct hash_set_pos hash_set_insert_pos(struct hash_set *set,
  * @return The position at which the key was inserted, or a position with
  * <tt>item == NULL</tt> if the insertion failed.
  */
-struct hash_set_pos hash_set_insert_searched(struct hash_set *set,
-					     const key_type *key,
-					     struct hash_pair hp);
+struct hash_set_pos hash_set_insert_searched_pos(struct hash_set *set,
+						 const key_type *key,
+						 struct hash_pair hp);
 
 /**
  * Search for a key in a @ref hash_set.
