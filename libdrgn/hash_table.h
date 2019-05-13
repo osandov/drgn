@@ -1610,19 +1610,28 @@ static inline size_t hash_combine(size_t a, size_t b)
 #endif
 }
 
+#ifdef DOXYGEN
 /** Hash a null-terminated string. */
-static inline struct hash_pair c_string_hash(const char * const *key)
-{
-	size_t hash = cityhash_size_t(*key, strlen(*key));
+struct hash_pair c_string_hash(const char * const *key);
+#else
+#define c_string_hash(key) ({					\
+	const char *_key = *(key);				\
+	size_t hash = cityhash_size_t(_key, strlen(_key));	\
+								\
+	hash_pair_from_avalanching_hash(hash);			\
+})
+#endif
 
-	return hash_pair_from_avalanching_hash(hash);
-}
-
+#ifdef DOXYGEN
 /** Compare two null-terminated string keys for equality. */
-static inline bool c_string_eq(const char * const *a, const char * const *b)
-{
-	return strcmp(*a, *b) == 0;
-}
+bool c_string_eq(const char * const *a, const char * const *b);
+#else
+#define c_string_eq(a, b) ({			\
+	const char *_a = *(a), *_b = *(b);	\
+						\
+	strcmp(_a, _b) == 0;			\
+})
+#endif
 
 /** A string with a given length. */
 struct string {
