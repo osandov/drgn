@@ -457,7 +457,7 @@ static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 		Py_DECREF(it);
 		return NULL;
 	}
-	path_args = malloc_array(length_hint, sizeof(*path_args));
+	path_args = calloc(length_hint, sizeof(*path_args));
 	if (!path_args) {
 		Py_DECREF(it);
 		return NULL;
