@@ -172,8 +172,9 @@ struct drgn_error *drgn_error_create_os(int errnum, const char *path,
  *
  * @param[in] file File to write to (usually @c stderr).
  * @param[in] err Error to write.
+ * @return Non-negative on success, @c EOF on failure.
  */
-void drgn_error_fwrite(FILE *file, struct drgn_error *err);
+int drgn_error_fwrite(FILE *file, struct drgn_error *err);
 
 /**
  * Free a @ref drgn_error.

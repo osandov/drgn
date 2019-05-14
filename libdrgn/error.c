@@ -115,18 +115,49 @@ struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
 	return drgn_error_create_nodup(code, message);
 }
 
-LIBDRGN_PUBLIC void drgn_error_fwrite(FILE *file, struct drgn_error *err)
+bool string_builder_append_error(struct string_builder *sb,
+				 struct drgn_error *err)
 {
+	bool ret;
+
 	if (err->code == DRGN_ERROR_OS) {
 		/* This is easier than dealing with strerror_r(). */
 		errno = err->errnum;
-		if (err->path)
-			fprintf(file, "%s: %s: %m\n", err->message, err->path);
-		else
-			fprintf(file, "%s: %m\n", err->message);
+		if (err->path) {
+			ret = string_builder_appendf(sb, "%s: %s: %m",
+						     err->message, err->path);
+		} else {
+			ret = string_builder_appendf(sb, "%s: %m",
+						     err->message);
+		}
 	} else {
-		fprintf(file, "%s\n", err->message);
+		ret = string_builder_append(sb, err->message);
 	}
+	return ret;
+}
+
+LIBDRGN_PUBLIC int drgn_error_fwrite(FILE *file, struct drgn_error *err)
+{
+	struct string_builder sb = {};
+	char *message;
+	int ret;
+
+	if (err->code == DRGN_ERROR_OS) {
+		if (!string_builder_append_error(&sb, err) ||
+		    !string_builder_finalize(&sb, &message)) {
+			free(sb.str);
+			errno = ENOMEM;
+			return EOF;
+		}
+		ret = fputs(message, file);
+		free(message);
+		if (ret == EOF)
+			return EOF;
+	} else {
+		if (fputs(err->message, file) == EOF)
+			return EOF;
+	}
+	return fputc('\n', file);
 }
 
 LIBDRGN_PUBLIC void drgn_error_destroy(struct drgn_error *err)

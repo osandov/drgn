@@ -50,6 +50,15 @@ struct string_builder;
 struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
 						  struct string_builder *sb);
 
+/**
+ * Append a formatted @ref drgn_error to a @ref string_builder.
+ *
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
+ */
+bool string_builder_append_error(struct string_builder *sb,
+				 struct drgn_error *err);
+
 /** Create a @ref drgn_error from the libelf error indicator. */
 struct drgn_error *drgn_error_libelf(void)
 	__attribute__((returns_nonnull));
