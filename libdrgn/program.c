@@ -961,22 +961,30 @@ out_fd:
 	return err;
 }
 
-static struct drgn_error *get_module_name(Elf_Scn *modinfo_scn,
+static struct drgn_error *get_module_name(struct drgn_program *prog,
+					  Elf_Scn *this_module_scn,
+					  Elf_Scn *modinfo_scn,
 					  const char **ret)
 {
 	struct drgn_error *err;
 	Elf_Data *data;
-	const char *p, *end;
+	const char *p, *end, *nul;
+	struct drgn_qualified_type module_type;
+	struct drgn_member_info name_member;
+	size_t name_offset;
 
+	/*
+	 * Since Linux kernel commit 3e2e857f9c3a ("module: Add module name to
+	 * modinfo") (in v4.13), we can get the module name from .modinfo.
+	 * Before that, we need to get it from .gnu.linkonce.this_module, which
+	 * contains a struct module.
+	 */
 	err = read_elf_section(modinfo_scn, &data);
 	if (err)
 		return err;
-
 	p = data->d_buf;
 	end = p + data->d_size;
 	while (p < end) {
-		const char *nul;
-
 		nul = memchr(p, 0, end - p);
 		if (!nul)
 			break;
@@ -986,8 +994,29 @@ static struct drgn_error *get_module_name(Elf_Scn *modinfo_scn,
 		}
 		p = nul + 1;
 	}
+
+	err = read_elf_section(this_module_scn, &data);
+	if (err)
+		return err;
+	err = drgn_program_find_type(prog, "struct module", NULL,
+				     &module_type);
+	if (err)
+		return err;
+	err = drgn_program_member_info(prog, module_type.type, "name",
+				       &name_member);
+	if (err)
+		return err;
+	name_offset = name_member.bit_offset / 8;
+	if (name_offset < data->d_size) {
+		p = data->d_buf + name_offset;
+		nul = memchr(p, 0, data->d_size - name_offset);
+		if (nul && nul != p) {
+			*ret = p;
+			return NULL;
+		}
+	}
 	return drgn_error_create(DRGN_ERROR_LOOKUP,
-				 "could not find name in .modinfo section");
+				 "could not find module name in .modinfo or .gnu.linkonce.this_module");
 }
 
 static struct drgn_error *get_symbol_section_name(Elf *elf, size_t shstrndx,
@@ -1031,7 +1060,7 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 	Elf *elf;
 	GElf_Ehdr ehdr_mem, *ehdr;
 	size_t shstrndx;
-	Elf_Scn *scn, *modinfo_scn = NULL, *symtab_scn = NULL;
+	Elf_Scn *scn, *this_module_scn, *modinfo_scn, *symtab_scn;
 	const char *section_name, *module_name;
 	uint64_t section_address;
 
@@ -1049,8 +1078,8 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 	if (elf_getshdrstrndx(elf, &shstrndx))
 		return drgn_error_libelf();
 
-	/* Find .modinfo and .symtab. */
-	scn = NULL;
+	/* Find .gnu.linkonce.this_module, .modinfo, and .symtab. */
+	scn = modinfo_scn = this_module_scn = symtab_scn = NULL;
 	while ((scn = elf_nextscn(elf, scn))) {
 		GElf_Shdr *shdr, shdr_mem;
 		const char *scnname;
@@ -1062,24 +1091,27 @@ kernel_relocation_hook(struct drgn_program *prog, const char *name,
 		scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
 		if (!scnname)
 			continue;
-		if (strcmp(scnname, ".modinfo") == 0)
+		if (strcmp(scnname, ".gnu.linkonce.this_module") == 0)
+			this_module_scn = scn;
+		else if (strcmp(scnname, ".modinfo") == 0)
 			modinfo_scn = scn;
 		else if (strcmp(scnname, ".symtab") == 0)
 			symtab_scn = scn;
 	}
-	if (!modinfo_scn) {
-		return drgn_error_create(DRGN_ERROR_LOOKUP,
-					 "could not find .modinfo section");
-	}
-	if (!symtab_scn) {
-		return drgn_error_create(DRGN_ERROR_LOOKUP,
-					 "could not find .symtab section");
-	}
 
-	err = get_module_name(modinfo_scn, &module_name);
+	if (!this_module_scn || !modinfo_scn) {
+		return drgn_error_create(DRGN_ERROR_LOOKUP,
+					 "'%s' is not from vmlinux or a kernel module");
+	}
+	err = get_module_name(prog, this_module_scn, modinfo_scn, &module_name);
 	if (err)
 		return err;
 
+	if (!symtab_scn) {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "could not find .symtab section in %s",
+					 module_name);
+	}
 	err = get_symbol_section_name(elf, shstrndx, symtab_scn, name,
 				      sym->address, &section_name);
 	if (err)
