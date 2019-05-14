@@ -1273,6 +1273,7 @@ open_kernel_module_debug_info(struct drgn_program *prog,
 {
 	static const char * const module_paths[] = {
 		"/usr/lib/debug/lib/modules/%s/%.*s.debug",
+		"/usr/lib/debug/lib/modules/%s/%.*s",
 		"/lib/modules/%s/%.*s",
 	};
 	struct drgn_error *err;
