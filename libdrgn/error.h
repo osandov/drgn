@@ -46,7 +46,8 @@ extern struct drgn_error drgn_not_elf;
  * If there is a failure to allocate memory for the error, @p message is freed
  * and @ref drgn_enomem is returned instead.
  */
-struct drgn_error *drgn_error_create_nodup(int code, char *message);
+struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
+					   char *message);
 
 /** Create a @ref drgn_error from the libelf error indicator. */
 struct drgn_error *drgn_error_libelf(void)

@@ -26,7 +26,8 @@ struct drgn_error drgn_not_elf = {
 	.message = "not an ELF file",
 };
 
-struct drgn_error *drgn_error_create_nodup(int code, char *message)
+struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
+					   char *message)
 {
 	struct drgn_error *err;
 
@@ -44,7 +45,7 @@ struct drgn_error *drgn_error_create_nodup(int code, char *message)
 	return err;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *drgn_error_create(int code,
+LIBDRGN_PUBLIC struct drgn_error *drgn_error_create(enum drgn_error_code code,
 						    const char *message)
 {
 	char *message_copy;
@@ -86,7 +87,7 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_os(int errnum,
 	return err;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *drgn_error_format(int code,
+LIBDRGN_PUBLIC struct drgn_error *drgn_error_format(enum drgn_error_code code,
 						    const char *format, ...)
 {
 	char *message;

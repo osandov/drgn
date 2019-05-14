@@ -132,7 +132,8 @@ extern struct drgn_error drgn_enomem;
  * allocate memory for the error or the message, @ref drgn_enomem is returned
  * instead.
  */
-struct drgn_error *drgn_error_create(int code, const char *message)
+struct drgn_error *drgn_error_create(enum drgn_error_code code,
+				     const char *message)
 	__attribute__((returns_nonnull));
 
 /**
@@ -145,7 +146,8 @@ struct drgn_error *drgn_error_create(int code, const char *message)
  * failure to allocate memory for the error or the message, @ref drgn_enomem is
  * returned instead.
  */
-struct drgn_error *drgn_error_format(int code, const char *format, ...)
+struct drgn_error *drgn_error_format(enum drgn_error_code code,
+				     const char *format, ...)
 	__attribute__((returns_nonnull,format(printf, 2, 3)));
 
 /**
