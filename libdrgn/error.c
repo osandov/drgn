@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "internal.h"
+#include "string_builder.h"
 
 LIBDRGN_PUBLIC struct drgn_error drgn_enomem = {
 	.code = DRGN_ERROR_NO_MEMORY,
@@ -26,8 +27,8 @@ struct drgn_error drgn_not_elf = {
 	.message = "not an ELF file",
 };
 
-struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
-					   char *message)
+static struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
+						  char *message)
 {
 	struct drgn_error *err;
 
@@ -99,6 +100,18 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_format(enum drgn_error_code code,
 	va_end(ap);
 	if (ret == -1)
                 return &drgn_enomem;
+	return drgn_error_create_nodup(code, message);
+}
+
+struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
+						  struct string_builder *sb)
+{
+	char *message;
+
+	if (!string_builder_finalize(sb, &message)) {
+		free(sb->str);
+		return &drgn_enomem;
+	}
 	return drgn_error_create_nodup(code, message);
 }
 

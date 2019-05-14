@@ -40,14 +40,15 @@ extern struct drgn_error drgn_stop;
 /** Not an ELF file. */
 extern struct drgn_error drgn_not_elf;
 
+struct string_builder;
+
 /**
- * Create a @ref drgn_error from a string that does not need to be duplicated.
+ * Create a @ref drgn_error with a message from a @ref string_builder.
  *
- * If there is a failure to allocate memory for the error, @p message is freed
- * and @ref drgn_enomem is returned instead.
+ * This finalizes the string builder.
  */
-struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
-					   char *message);
+struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
+						  struct string_builder *sb);
 
 /** Create a @ref drgn_error from the libelf error indicator. */
 struct drgn_error *drgn_error_libelf(void)

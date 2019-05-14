@@ -1402,14 +1402,8 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 		goto err;
 
 	if (missing_debug_info.len) {
-		char *msg;
-
-		if (!string_builder_finalize(&missing_debug_info, &msg)) {
-			err = &drgn_enomem;
-			goto err;
-		}
-		return drgn_error_create_nodup(DRGN_ERROR_MISSING_DEBUG_INFO,
-					       msg);
+		return drgn_error_from_string_builder(DRGN_ERROR_MISSING_DEBUG_INFO,
+						      &missing_debug_info);
 	}
 
 	return NULL;
