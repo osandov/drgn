@@ -1232,41 +1232,19 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	return drgn_program_update_debug_info(prog);
 }
 
-static bool fts_name_endswith(FTSENT *ent, const char *suffix)
+static struct drgn_error *
+open_vmlinux_debug_info(struct drgn_program *prog,
+			struct string_builder *missing_debug_info)
 {
-	size_t len = strlen(suffix);
-
-	return (ent->fts_namelen >= len &&
-		memcmp(&ent->fts_name[ent->fts_namelen - len], suffix,
-		       len) == 0);
-}
-
-static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
-{
-	static const char * const module_paths[] = {
-		"/usr/lib/debug/lib/modules/%s/kernel",
-		"/lib/modules/%s/kernel",
-	};
-	/* module_extensions[i] corresponds to module_paths[i]. */
-	static const char * const module_extensions[] = {
-		".ko.debug",
-		".ko",
-	};
-	_Static_assert(ARRAY_SIZE(module_paths) ==
-		       ARRAY_SIZE(module_extensions),
-		       "mismatched number of module paths and extensions");
-	char buf[256];
 	struct drgn_error *err;
-	bool found_vmlinux = false, found_modules = false;
+	char path[256];
+	bool found_vmlinux = false;
 	size_t i;
-	const size_t max_no_symbols = 5;
-	size_t no_symbols = 0;
-	struct string_builder missing_debug_info = {};
 
 	for (i = 0; i < ARRAY_SIZE(vmlinux_paths); i++) {
-		snprintf(buf, sizeof(buf), vmlinux_paths[i],
+		snprintf(path, sizeof(path), vmlinux_paths[i],
 			 prog->vmcoreinfo.osrelease);
-		err = drgn_program_open_debug_info(prog, buf, NULL);
+		err = drgn_program_open_debug_info(prog, path, NULL);
 		if (err) {
 			if (err->code == DRGN_ERROR_OS &&
 			    err->errnum == ENOENT) {
@@ -1278,125 +1256,195 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 				drgn_error_destroy(err);
 				continue;
 			}
-			goto err;
 		}
-		break;
+		return err;
 	}
-	if (i >= ARRAY_SIZE(vmlinux_paths)) {
-		if (found_vmlinux) {
-			if (!string_builder_append(&missing_debug_info,
-						   "vmlinux does not have debug information")) {
-				err = &drgn_enomem;
-				goto err;
-			}
-		} else {
-			if (!string_builder_append(&missing_debug_info,
-						   "could not find vmlinux")) {
-				err = &drgn_enomem;
-				goto err;
-			}
-		}
+	if (!string_builder_append(missing_debug_info,
+				   found_vmlinux ?
+				   "vmlinux does not have debug information" :
+				   "could not find vmlinux"))
+		return &drgn_enomem;
+	return NULL;
+}
+
+static struct drgn_error *
+open_kernel_module_debug_info(struct drgn_program *prog,
+			      const char *module_path, size_t path_len)
+{
+	static const char * const module_paths[] = {
+		"/usr/lib/debug/lib/modules/%s/%.*s.debug",
+		"/lib/modules/%s/%.*s",
+	};
+	struct drgn_error *err;
+	size_t num_paths = ARRAY_SIZE(module_paths), i;
+
+	if (path_len >= 3 &&
+	    (memcmp(module_path + path_len - 3, ".gz", 3) == 0 ||
+	     memcmp(module_path + path_len - 3, ".xz", 3) == 0)) {
+		/*
+		 * Don't bother trying the compressed module in /lib/modules,
+		 * it's not an ELF file.
+		 */
+		num_paths--;
+		/*
+		 * The debuginfo ELF file in /usr/lib/debug doesn't have the
+		 * compressed extension.
+		 */
+		path_len -= 3;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(module_paths) && !found_modules; i++) {
-		char * const paths[] = {buf, NULL};
-		FTS *fts;
-		FTSENT *ent;
+	for (i = 0; i < num_paths; i++) {
+		char *debuginfo_path;
 
-		snprintf(buf, sizeof(buf), module_paths[i],
-			 prog->vmcoreinfo.osrelease);
-		fts = fts_open(paths, FTS_LOGICAL | FTS_NOCHDIR | FTS_NOSTAT,
-			       NULL);
-		if (!fts) {
-			if (errno == ENOENT)
-				continue;
-			err = drgn_error_create_os(errno, buf, "fts_open");
-			goto err;
+		if (asprintf(&debuginfo_path, module_paths[i],
+			     prog->vmcoreinfo.osrelease, (int)path_len,
+			     module_path) == -1)
+			return &drgn_enomem;
+		err = drgn_program_open_debug_info(prog, debuginfo_path, NULL);
+		free(debuginfo_path);
+		if (!err)
+			return NULL;
+		drgn_error_destroy(err);
+	}
+	return &drgn_stop;
+}
+
+/*
+ * Append a newline character if the string isn't empty and doesn't already end
+ * in a newline.
+ */
+static bool string_builder_line_break(struct string_builder *sb)
+{
+	if (!sb->len || sb->str[sb->len - 1] == '\n')
+		return true;
+	return string_builder_appendc(sb, '\n');
+}
+
+static struct drgn_error *
+open_loaded_kernel_modules(struct drgn_program *prog,
+			   struct string_builder *missing_debug_info)
+{
+	struct drgn_error *err;
+	struct depmod_index depmod;
+	struct kernel_module_iterator kmod_it;
+	static const size_t max_no_symbols = 5;
+	size_t no_symbols = 0;
+
+	err = depmod_index_init(&depmod, prog->vmcoreinfo.osrelease);
+	if (err && err->code != DRGN_ERROR_NO_MEMORY) {
+		if (!string_builder_line_break(missing_debug_info) ||
+		    !string_builder_append(missing_debug_info,
+					   "could not find installed kernel modules (") ||
+		    !string_builder_append_error(missing_debug_info, err) ||
+		    !string_builder_appendc(missing_debug_info, ')')) {
+			drgn_error_destroy(err);
+			return &drgn_enomem;
 		}
+		drgn_error_destroy(err);
+		return NULL;
+	} else if (err) {
+		return err;
+	}
 
+	err = kernel_module_iterator_init(&kmod_it, prog);
+	if (err && err->code != DRGN_ERROR_NO_MEMORY) {
+		if (!string_builder_line_break(missing_debug_info) ||
+		    !string_builder_append(missing_debug_info,
+					   "could not find loaded kernel modules (") ||
+		    !string_builder_append_error(missing_debug_info, err) ||
+		    !string_builder_appendc(missing_debug_info, ')')) {
+			drgn_error_destroy(err);
+			err = &drgn_enomem;
+			goto out;
+		}
+		drgn_error_destroy(err);
 		err = NULL;
-		while ((ent = fts_read(fts))) {
-			if ((ent->fts_info != FTS_F &&
-			     ent->fts_info != FTS_NSOK) ||
-			    !fts_name_endswith(ent, module_extensions[i]))
-				continue;
-			if (ent->fts_info == FTS_NSOK) {
-				struct stat st;
+		goto out;
+	} else if (err) {
+		goto out;
+	}
+	while (!(err = kernel_module_iterator_next(&kmod_it))) {
+		const char *module_path;
+		size_t path_len;
+		bool found;
 
-				if (stat(ent->fts_accpath, &st) == -1 ||
-				    (st.st_mode & S_IFMT) != S_IFREG)
-					continue;
-			}
-			found_modules = true;
-			err = drgn_program_open_debug_info(prog,
-							   ent->fts_accpath,
-							   NULL);
-			if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
+		found = depmod_index_find(&depmod, kmod_it.name, &module_path,
+					  &path_len);
+		if (found) {
+			err = open_kernel_module_debug_info(prog, module_path,
+							    path_len);
+			if (err) {
+				if (err->code == DRGN_ERROR_NO_MEMORY)
+					break;
 				drgn_error_destroy(err);
-				err = NULL;
-				if (no_symbols == 0) {
-					if (missing_debug_info.len) {
-						if (!string_builder_appendc(&missing_debug_info,
-									     '\n')) {
-							err = &drgn_enomem;
-							break;
-						}
-					}
-					if (!string_builder_append(&missing_debug_info,
-								   "missing debug information for modules:")) {
-						err = &drgn_enomem;
-						break;
-					}
-
-				}
-				if (no_symbols < max_no_symbols) {
-					int len;
-
-					len = (ent->fts_namelen -
-					       strlen(module_extensions[i]));
-					if (!string_builder_appendf(&missing_debug_info,
-								    "\n%.*s",
-								    len,
-								    ent->fts_name)) {
-						err = &drgn_enomem;
-						break;
-					}
-				}
-				no_symbols++;
-				continue;
-			} else if (err) {
-				break;
+				found = false;
 			}
 		}
-		if (!err && errno)
-			err = drgn_error_create_os(errno, buf, "fts_read");
+		if (!found) {
+			if (no_symbols == 0) {
+				if (!string_builder_line_break(missing_debug_info) ||
+				    !string_builder_append(missing_debug_info,
+							   "missing debug information for modules:")) {
+					err = &drgn_enomem;
+					break;
+				}
+			}
+			if (no_symbols < max_no_symbols) {
+				if (!string_builder_line_break(missing_debug_info) ||
+				    !string_builder_append(missing_debug_info,
+							   kmod_it.name)) {
+					err = &drgn_enomem;
+					break;
+				}
+			}
+			no_symbols++;
+			continue;
+		}
+	}
+	kernel_module_iterator_deinit(&kmod_it);
+	if (err && err->code != DRGN_ERROR_STOP)
+		goto out;
 
-		fts_close(fts);
+	if (no_symbols > max_no_symbols) {
+		if (!string_builder_line_break(missing_debug_info) ||
+		    !string_builder_appendf(missing_debug_info,
+					    "... %zu more",
+					    no_symbols - max_no_symbols)) {
+			err = &drgn_enomem;
+			goto out;
+		}
+	}
+
+	err = NULL;
+out:
+	depmod_index_deinit(&depmod);
+	return err;
+}
+
+static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+	struct string_builder missing_debug_info = {};
+
+	err = open_vmlinux_debug_info(prog, &missing_debug_info);
+	if (err)
+		goto err;
+
+	/*
+	 * If we're not debugging the running kernel, then we need to load
+	 * vmlinux now so that we can walk the list of modules in the kernel.
+	 * Otherwise, we can get the list from procfs, and it's more efficient
+	 * to load vmlinux in parallel with the kernel modules.
+	 */
+	if (!(prog->flags & DRGN_PROGRAM_IS_RUNNING_KERNEL)) {
+		err = drgn_program_update_debug_info(prog);
 		if (err)
 			goto err;
 	}
-	if (!found_modules) {
-		if (missing_debug_info.len) {
-			if (!string_builder_appendc(&missing_debug_info,
-						    '\n')) {
-				err = &drgn_enomem;
-				goto err;
-			}
-		}
-		if (!string_builder_append(&missing_debug_info,
-					   "could not find kernel modules")) {
-			err = &drgn_enomem;
-			goto err;
-		}
-	} else if (no_symbols > max_no_symbols) {
-		if (!string_builder_appendf(&missing_debug_info,
-					    "\n... %zu more",
-					    no_symbols - max_no_symbols)) {
-			err = &drgn_enomem;
-			goto err;
-		}
-	}
 
+	err = open_loaded_kernel_modules(prog, &missing_debug_info);
+	if (err)
+		goto err;
 	err = drgn_program_update_debug_info(prog);
 	if (err)
 		goto err;
@@ -1405,7 +1453,6 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 		return drgn_error_from_string_builder(DRGN_ERROR_MISSING_DEBUG_INFO,
 						      &missing_debug_info);
 	}
-
 	return NULL;
 
 err:

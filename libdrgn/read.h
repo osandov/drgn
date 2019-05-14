@@ -178,6 +178,12 @@ DEFINE_READ(16)
 DEFINE_READ(32)
 DEFINE_READ(64)
 
+static inline bool read_be32(const char **ptr, const char *end, uint32_t *ret)
+{
+	return read_u32(ptr, end, __BYTE_ORDER__ != __ORDER_BIG_ENDIAN__,
+			ret);
+}
+
 /** Advance @p ptr to the byte after the next null byte. */
 static inline bool skip_string(const char **ptr, const char *end)
 {

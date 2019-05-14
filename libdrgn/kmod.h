@@ -42,4 +42,29 @@ struct drgn_error *kernel_module_section_address(struct drgn_program *prog,
 						 const char *section_name,
 						 uint64_t *ret);
 
+struct kmod_index {
+	const char *ptr, *end;
+};
+
+struct depmod_index {
+	struct kmod_index modules_dep;
+};
+
+struct drgn_error *depmod_index_init(struct depmod_index *depmod,
+				     const char *osrelease);
+
+void depmod_index_deinit(struct depmod_index *depmod);
+
+/*
+ * Look up the path of the kernel module with the given name.
+ *
+ * @param[in] name Name of the kernel module.
+ * @param[out] path_ret Returned path of the kernel module, relative to
+ * /lib/modules/$(uname -r). This is @em not null-terminated.
+ * @param[out] len_ret Returned length of @p path_ret.
+ * @return Whether the module was found.
+ */
+bool depmod_index_find(struct depmod_index *depmod, const char *name,
+		       const char **path_ret, size_t *len_ret);
+
 #endif /* DRGN_KMOD_H */

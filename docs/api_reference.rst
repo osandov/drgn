@@ -261,8 +261,8 @@ Programs
         Load debugging information which can automatically be determined from
         the program.
 
-        For the Linux kernel, this tries to load ``vmlinux`` and kernel modules
-        from a few standard locations.
+        For the Linux kernel, this tries to load ``vmlinux`` and any loaded
+        kernel modules from a few standard locations.
 
         For userspace programs, this tries to load the executable and any
         loaded libraries.
