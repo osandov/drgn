@@ -65,10 +65,10 @@ struct string_builder {
  * On success, the string builder must be reinitialized before being reused.
  *
  * @param[out] ret Returned string.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
-struct drgn_error *string_builder_finalize(struct string_builder *sb,
-					   char **ret);
+bool string_builder_finalize(struct string_builder *sb, char **ret);
 
 /**
  * Resize the buffer of a @ref string_builder.
@@ -77,19 +77,20 @@ struct drgn_error *string_builder_finalize(struct string_builder *sb,
  *
  * @param[in] sb String builder.
  * @param[in] capacity New minimum size of the string buffer.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
-struct drgn_error *string_builder_reserve(struct string_builder *sb,
-					  size_t capacity);
+bool string_builder_reserve(struct string_builder *sb, size_t capacity);
 
 /**
  * Append a character to a @ref string_builder.
  *
  * @param[in] sb String builder.
  * @param[in] c Character to append.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
-struct drgn_error *string_builder_appendc(struct string_builder *sb, char c);
+bool string_builder_appendc(struct string_builder *sb, char c);
 
 /**
  * Append a number of characters from a string to a @ref string_builder.
@@ -97,20 +98,22 @@ struct drgn_error *string_builder_appendc(struct string_builder *sb, char c);
  * @param[in] sb String builder.
  * @param[in] str String to append.
  * @param[in] len Number of characters from @c str to append.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
-struct drgn_error *string_builder_appendn(struct string_builder *sb,
-					  const char *str, size_t len);
+bool string_builder_appendn(struct string_builder *sb, const char *str,
+			    size_t len);
 
 /**
  * Append a null-terminated string to a @ref string_builder.
  *
  * @param[in] sb String builder.
  * @param[in] str String to append.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
-static inline struct drgn_error *
-string_builder_append(struct string_builder *sb, const char *str)
+static inline bool string_builder_append(struct string_builder *sb,
+					 const char *str)
 {
 	return string_builder_appendn(sb, str, strlen(str));
 }
@@ -121,10 +124,10 @@ string_builder_append(struct string_builder *sb, const char *str)
  * @param[in] sb String builder.
  * @param[in] format printf-style format string.
  * @param[in] ... Arguments for the format string.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
-struct drgn_error *string_builder_appendf(struct string_builder *sb,
-					  const char *format, ...)
+bool string_builder_appendf(struct string_builder *sb, const char *format, ...)
 	__attribute__((format(printf, 2, 3)));
 
 /**
@@ -135,11 +138,11 @@ struct drgn_error *string_builder_appendf(struct string_builder *sb,
  * @param[in] sb String builder.
  * @param[in] format printf-style format string.
  * @param[in] ap Arguments for the format string.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
-struct drgn_error *string_builder_vappendf(struct string_builder *sb,
-					   const char *format,
-					   va_list ap);
+bool string_builder_vappendf(struct string_builder *sb, const char *format,
+			     va_list ap);
 
 /**
  * Callback to append to a string later.
@@ -171,7 +174,8 @@ struct string_callback {
  *
  * @param[in] str String callback. If @c NULL, this is a no-op.
  * @param[in] sb String builder to append to.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
  */
 static inline struct drgn_error *string_callback_call(struct string_callback *str,
 						      struct string_builder *sb)

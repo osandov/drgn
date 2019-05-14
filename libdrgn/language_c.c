@@ -28,22 +28,21 @@ static struct drgn_error *
 c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 	      struct string_builder *sb);
 
-static struct drgn_error *append_tabs(int n, struct string_builder *sb)
+static bool append_tabs(int n, struct string_builder *sb)
 {
 	while (n-- > 0) {
-		struct drgn_error *err;
-
-		err = string_builder_appendc(sb, '\t');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, '\t'))
+			return false;
 	}
-	return NULL;
+	return true;
 }
 
 static struct drgn_error *c_variable_name(struct string_callback *name,
 					  void *arg, struct string_builder *sb)
 {
-	return string_builder_append(sb, arg);
+	if (!string_builder_append(sb, arg))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *c_append_qualifiers(enum drgn_qualifiers qualifiers,
@@ -52,7 +51,6 @@ static struct drgn_error *c_append_qualifiers(enum drgn_qualifiers qualifiers,
 	static const char *qualifier_names[] = {
 		"const", "volatile", "restrict", "_Atomic",
 	};
-	struct drgn_error *err;
 	bool first = true;
 	unsigned int i;
 
@@ -63,13 +61,11 @@ static struct drgn_error *c_append_qualifiers(enum drgn_qualifiers qualifiers,
 		if (!(qualifiers & (1U << i)))
 			continue;
 		if (!first) {
-			err = string_builder_appendc(sb, ' ');
-			if (err)
-				return err;
+			if (!string_builder_appendc(sb, ' '))
+				return &drgn_enomem;
 		}
-		err = string_builder_append(sb, qualifier_names[i]);
-		if (err)
-			return err;
+		if (!string_builder_append(sb, qualifier_names[i]))
+			return &drgn_enomem;
 		first = false;
 	}
 	return NULL;
@@ -82,26 +78,22 @@ c_declare_basic(struct drgn_qualified_type qualified_type,
 {
 	struct drgn_error *err;
 
-	err = append_tabs(indent, sb);
-	if (err)
-		return err;
+	if (!append_tabs(indent, sb))
+		return &drgn_enomem;
 	if (qualified_type.qualifiers) {
 		err = c_append_qualifiers(qualified_type.qualifiers, sb);
 		if (err)
 			return err;
-		err = string_builder_appendc(sb, ' ');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ' '))
+			return &drgn_enomem;
 	}
-	err = string_builder_append(sb,
-				    drgn_type_kind(qualified_type.type) == DRGN_TYPE_VOID ?
-				    "void" : drgn_type_name(qualified_type.type));
-	if (err)
-		return err;
+	if (!string_builder_append(sb,
+				   drgn_type_kind(qualified_type.type) == DRGN_TYPE_VOID ?
+				   "void" : drgn_type_name(qualified_type.type)))
+		return &drgn_enomem;
 	if (name) {
-		err = string_builder_appendc(sb, ' ');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ' '))
+			return &drgn_enomem;
 		err = string_callback_call(name, sb);
 		if (err)
 			return err;
@@ -130,29 +122,23 @@ c_append_tagged_name(struct drgn_qualified_type qualified_type, size_t indent,
 		DRGN_UNREACHABLE();
 	}
 
-	err = append_tabs(indent, sb);
-	if (err)
-		return err;
+	if (!append_tabs(indent, sb))
+		return &drgn_enomem;
 	if (qualified_type.qualifiers) {
 		err = c_append_qualifiers(qualified_type.qualifiers, sb);
 		if (err)
 			return err;
-		err = string_builder_appendc(sb, ' ');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ' '))
+			return &drgn_enomem;
 	}
-	err = string_builder_append(sb, keyword);
-	if (err)
-		return err;
+	if (!string_builder_append(sb, keyword))
+		return &drgn_enomem;
 
 	tag = drgn_type_tag(qualified_type.type);
 	if (tag) {
-		err = string_builder_appendc(sb, ' ');
-		if (err)
-			return err;
-		err = string_builder_append(sb, tag);
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ' ') ||
+		    !string_builder_append(sb, tag))
+			return &drgn_enomem;
 	}
 
 	return NULL;
@@ -173,9 +159,8 @@ c_declare_tagged(struct drgn_qualified_type qualified_type,
 		return err;
 
 	if (name) {
-		err = string_builder_appendc(sb, ' ');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ' '))
+			return &drgn_enomem;
 		err = string_callback_call(name, sb);
 		if (err)
 			return err;
@@ -196,26 +181,20 @@ static struct drgn_error *c_pointer_name(struct string_callback *name,
 	referenced_kind = drgn_type_kind(referenced_type.type);
 	parenthesize = (referenced_kind == DRGN_TYPE_ARRAY ||
 			referenced_kind == DRGN_TYPE_FUNCTION);
-	if (parenthesize) {
-		err = string_builder_appendc(sb, '(');
-		if (err)
-			return err;
-	}
+	if (parenthesize && !string_builder_appendc(sb, '('))
+		return &drgn_enomem;
 
-	err = string_builder_appendc(sb, '*');
-	if (err)
-		return err;
+	if (!string_builder_appendc(sb, '*'))
+		return &drgn_enomem;
 	if (qualified_type->qualifiers) {
-		err = string_builder_appendc(sb, ' ');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ' '))
+			return &drgn_enomem;
 		err = c_append_qualifiers(qualified_type->qualifiers, sb);
 		if (err)
 			return err;
 		if (name) {
-			err = string_builder_appendc(sb, ' ');
-			if (err)
-				return err;
+			if (!string_builder_appendc(sb, ' '))
+				return &drgn_enomem;
 		}
 	}
 
@@ -223,12 +202,8 @@ static struct drgn_error *c_pointer_name(struct string_callback *name,
 	if (err)
 		return err;
 
-	if (parenthesize) {
-		err = string_builder_appendc(sb, ')');
-		if (err)
-			return err;
-	}
-
+	if (parenthesize && !string_builder_appendc(sb, ')'))
+		return &drgn_enomem;
 	return NULL;
 }
 
@@ -261,10 +236,13 @@ static struct drgn_error *c_array_name(struct string_callback *name, void *arg,
 	if (drgn_type_is_complete(qualified_type->type)) {
 		uint64_t length = drgn_type_length(qualified_type->type);
 
-		return string_builder_appendf(sb, "[%" PRIu64 "]", length);
+		if (!string_builder_appendf(sb, "[%" PRIu64 "]", length))
+			return &drgn_enomem;
 	} else {
-		return string_builder_append(sb, "[]");
+		if (!string_builder_append(sb, "[]"))
+			return &drgn_enomem;
 	}
+	return NULL;
 }
 
 static struct drgn_error *
@@ -306,9 +284,8 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 	if (err)
 		return err;
 
-	err = string_builder_appendc(sb, '(');
-	if (err)
-		return err;
+	if (!string_builder_appendc(sb, '('))
+		return &drgn_enomem;
 
 	for (i = 0; i < num_parameters; i++) {
 		const char *parameter_name = parameters[i].name;
@@ -323,9 +300,8 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 			return err;
 
 		if (i > 0)  {
-			err = string_builder_append(sb, ", ");
-			if (err)
-				return err;
+			if (!string_builder_append(sb, ", "))
+				return &drgn_enomem;
 		}
 		err = c_declare_variable(parameter_type,
 					 parameter_name && parameter_name[0] ?
@@ -334,19 +310,16 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 			return err;
 	}
 	if (num_parameters && drgn_type_is_variadic(qualified_type.type)) {
-		err = string_builder_append(sb, ", ...");
-		if (err)
-			return err;
+		if (!string_builder_append(sb, ", ..."))
+			return &drgn_enomem;
 	} else if (!num_parameters &&
 		   !drgn_type_is_variadic(qualified_type.type)) {
-		err = string_builder_append(sb, "void");
-		if (err)
-			return err;
+		if (!string_builder_append(sb, "void"))
+			return &drgn_enomem;
 	}
 
-	err = string_builder_appendc(sb, ')');
-	if (err)
-		return err;
+	if (!string_builder_appendc(sb, ')'))
+		return &drgn_enomem;
 	return NULL;
 }
 
@@ -396,9 +369,8 @@ c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 	err = c_append_tagged_name(qualified_type, indent, sb);
 	if (err)
 		return err;
-	err = string_builder_append(sb, " {\n");
-	if (err)
-		return err;
+	if (!string_builder_append(sb, " {\n"))
+		return &drgn_enomem;
 
 	for (i = 0; i < num_members; i++) {
 		const char *member_name = members[i].name;
@@ -418,23 +390,16 @@ c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 		if (err)
 			return err;
 		if (members[i].bit_field_size) {
-			err = string_builder_appendf(sb, " : %" PRIu64,
-						     members[i].bit_field_size);
-			if (err)
-				return err;
+			if (!string_builder_appendf(sb, " : %" PRIu64,
+						    members[i].bit_field_size))
+				return &drgn_enomem;
 		}
-		err = string_builder_append(sb, ";\n");
-		if (err)
-			return err;
+		if (!string_builder_append(sb, ";\n"))
+			return &drgn_enomem;
 	}
 
-	err = append_tabs(indent, sb);
-	if (err)
-		return err;
-	err = string_builder_appendc(sb, '}');
-	if (err)
-		return err;
-
+	if (!append_tabs(indent, sb) || !string_builder_appendc(sb, '}'))
+		return &drgn_enomem;
 	return NULL;
 }
 
@@ -458,41 +423,28 @@ c_define_enum(struct drgn_qualified_type qualified_type, size_t indent,
 	err = c_append_tagged_name(qualified_type, indent, sb);
 	if (err)
 		return err;
-	err = string_builder_append(sb, " {\n");
-	if (err)
-		return err;
+	if (!string_builder_append(sb, " {\n"))
+		return &drgn_enomem;
 
 	is_signed = drgn_enum_type_is_signed(qualified_type.type);
 	for (i = 0; i < num_enumerators; i++) {
-		err = append_tabs(indent + 1, sb);
-		if (err)
-			return err;
-		err = string_builder_append(sb, enumerators[i].name);
-		if (err)
-			return err;
-		err = string_builder_append(sb, " = ");
-		if (err)
-			return err;
+		if (!append_tabs(indent + 1, sb) ||
+		    !string_builder_append(sb, enumerators[i].name) ||
+		    !string_builder_append(sb, " = "))
+			return &drgn_enomem;
 		if (is_signed) {
-			err = string_builder_appendf(sb, "%" PRId64 ",\n",
-						     enumerators[i].svalue);
-			if (err)
-				return err;
+			if (!string_builder_appendf(sb, "%" PRId64 ",\n",
+						    enumerators[i].svalue))
+				return &drgn_enomem;
 		} else {
-			err = string_builder_appendf(sb, "%" PRIu64 ",\n",
-						     enumerators[i].uvalue);
-			if (err)
-				return err;
+			if (!string_builder_appendf(sb, "%" PRIu64 ",\n",
+						    enumerators[i].uvalue))
+				return &drgn_enomem;
 		}
 	}
 
-	err = append_tabs(indent, sb);
-	if (err)
-		return err;
-	err = string_builder_appendc(sb, '}');
-	if (err)
-		return err;
-
+	if (!append_tabs(indent, sb) || !string_builder_appendc(sb, '}'))
+		return &drgn_enomem;
 	return NULL;
 }
 
@@ -507,20 +459,17 @@ c_define_typedef(struct drgn_qualified_type qualified_type, size_t indent,
 	struct drgn_qualified_type aliased_type;
 	struct drgn_error *err;
 
-	err = append_tabs(indent, sb);
-	if (err)
-		return err;
+	if (!append_tabs(indent, sb))
+		return &drgn_enomem;
 	if (qualified_type.qualifiers) {
 		err = c_append_qualifiers(qualified_type.qualifiers, sb);
 		if (err)
 			return err;
-		err = string_builder_appendc(sb, ' ');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ' '))
+			return &drgn_enomem;
 	}
-	err = string_builder_append(sb, "typedef ");
-	if (err)
-		return err;
+	if (!string_builder_append(sb, "typedef "))
+		return &drgn_enomem;
 
 	aliased_type = drgn_type_type(qualified_type.type);
 	return c_declare_variable(aliased_type, &typedef_name, 0, sb);
@@ -564,10 +513,8 @@ c_anonymous_type_name(struct drgn_qualified_type qualified_type,
 	err = c_append_tagged_name(qualified_type, 0, sb);
 	if (err)
 		return err;
-	err = string_builder_append(sb, " <anonymous>");
-	if (err)
-		return err;
-
+	if (!string_builder_append(sb, " <anonymous>"))
+		return &drgn_enomem;
 	return NULL;
 }
 
@@ -600,7 +547,9 @@ c_pretty_print_type_name(struct drgn_qualified_type qualified_type, char **ret)
 		free(sb.str);
 		return err;
 	}
-	return string_builder_finalize(&sb, ret);
+	if (!string_builder_finalize(&sb, ret))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -617,7 +566,9 @@ c_pretty_print_type(struct drgn_qualified_type qualified_type, char **ret)
 		free(sb.str);
 		return err;
 	}
-	return string_builder_finalize(&sb, ret);
+	if (!string_builder_finalize(&sb, ret))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -639,7 +590,9 @@ c_pretty_print_int_object(const struct drgn_object *obj,
 		err = drgn_object_read_signed(obj, &svalue);
 		if (err)
 			return err;
-		return string_builder_appendf(sb, "%" PRId64, svalue);
+		if (!string_builder_appendf(sb, "%" PRId64, svalue))
+			return &drgn_enomem;
+		return NULL;
 	}
 	case DRGN_OBJECT_UNSIGNED: {
 		uint64_t uvalue;
@@ -647,7 +600,9 @@ c_pretty_print_int_object(const struct drgn_object *obj,
 		err = drgn_object_read_unsigned(obj, &uvalue);
 		if (err)
 			return err;
-		return string_builder_appendf(sb, "%" PRIu64, uvalue);
+		if (!string_builder_appendf(sb, "%" PRIu64, uvalue))
+			return &drgn_enomem;
+		return NULL;
 	}
 	default:
 		DRGN_UNREACHABLE();
@@ -665,11 +620,14 @@ c_pretty_print_float_object(const struct drgn_object *obj,
 	if (err)
 		return err;
 	if (rint(fvalue) == fvalue) {
-		return string_builder_appendf(sb, "%.1f", fvalue);
+		if (!string_builder_appendf(sb, "%.1f", fvalue))
+			return &drgn_enomem;
 	} else {
-		return string_builder_appendf(sb, "%.*g", DBL_DECIMAL_DIG,
-					      fvalue);
+		if (!string_builder_appendf(sb, "%.*g", DBL_DECIMAL_DIG,
+					    fvalue))
+			return &drgn_enomem;
 	}
+	return NULL;
 }
 
 static struct drgn_error *c_pretty_print_members(const struct drgn_object *obj,
@@ -702,18 +660,14 @@ static struct drgn_error *c_pretty_print_members(const struct drgn_object *obj,
 			if (multi_line_columns == 0)
 				return &drgn_stop;
 
-			err = string_builder_appendc(sb, '\n');
-			if (err)
-				return err;
-			err = append_tabs(indent + 1, sb);
-			if (err)
-				return err;
+			if (!string_builder_appendc(sb, '\n') ||
+			    !append_tabs(indent + 1, sb))
+				return &drgn_enomem;
 
 			member_start = sb->len;
-			err = string_builder_appendf(sb, ".%s = ",
-						     members[i].name);
-			if (err)
-				return err;
+			if (!string_builder_appendf(sb, ".%s = ",
+						    members[i].name))
+				return &drgn_enomem;
 
 			if (__builtin_sub_overflow(multi_line_columns,
 						   8 * (indent + 1) +
@@ -734,9 +688,8 @@ static struct drgn_error *c_pretty_print_members(const struct drgn_object *obj,
 							 sb);
 			if (err)
 				return err;
-			err = string_builder_appendc(sb, ',');
-			if (err)
-				return err;
+			if (!string_builder_appendc(sb, ','))
+				return &drgn_enomem;
 		} else {
 			err = c_pretty_print_members(obj, member,
 						     member_type.type,
@@ -767,9 +720,8 @@ c_pretty_print_compound_object(const struct drgn_object *obj,
 					 DRGN_TYPE_STRUCT ? "struct" : "union");
 	}
 
-	err = string_builder_appendc(sb, '{');
-	if (err)
-		return err;
+	if (!string_builder_appendc(sb, '{'))
+		return &drgn_enomem;
 	old_len = sb->len;
 
 	drgn_object_init(&member, obj->prog);
@@ -779,14 +731,13 @@ c_pretty_print_compound_object(const struct drgn_object *obj,
 	if (err)
 		return err;
 	if (sb->len != old_len) {
-		err = string_builder_appendc(sb, '\n');
-		if (err)
-			return err;
-		err = append_tabs(indent, sb);
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, '\n') ||
+		    !append_tabs(indent, sb))
+			return &drgn_enomem;
 	}
-	return string_builder_appendc(sb, '}');
+	if (!string_builder_appendc(sb, '}'))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -813,11 +764,15 @@ c_pretty_print_enum_object(const struct drgn_object *obj,
 			return err;
 		for (i = 0; i < num_enumerators; i++) {
 			if (enumerators[i].svalue == svalue) {
-				return string_builder_append(sb,
-							     enumerators[i].name);
+				if (!string_builder_append(sb,
+							   enumerators[i].name))
+					return &drgn_enomem;
+				return NULL;
 			}
 		}
-		return string_builder_appendf(sb, "%" PRId64, svalue);
+		if (!string_builder_appendf(sb, "%" PRId64, svalue))
+			return &drgn_enomem;
+		return NULL;
 	} else {
 		uint64_t uvalue;
 
@@ -826,11 +781,15 @@ c_pretty_print_enum_object(const struct drgn_object *obj,
 			return err;
 		for (i = 0; i < num_enumerators; i++) {
 			if (enumerators[i].uvalue == uvalue) {
-				return string_builder_append(sb,
-							     enumerators[i].name);
+				if (!string_builder_append(sb,
+							   enumerators[i].name))
+					return &drgn_enomem;
+				return NULL;
 			}
 		}
-		return string_builder_appendf(sb, "%" PRIu64, uvalue);
+		if (!string_builder_appendf(sb, "%" PRIu64, uvalue))
+			return &drgn_enomem;
+		return NULL;
 	}
 }
 
@@ -849,31 +808,44 @@ static bool is_character_type(struct drgn_type *type)
 static struct drgn_error *
 c_pretty_print_character(unsigned char c, struct string_builder *sb)
 {
+	bool ret;
+
 	switch (c) {
 	case '\a':
-		return string_builder_append(sb, "\\a");
+		ret = string_builder_append(sb, "\\a");
+		break;
 	case '\b':
-		return string_builder_append(sb, "\\b");
+		ret = string_builder_append(sb, "\\b");
+		break;
 	case '\t':
-		return string_builder_append(sb, "\\t");
+		ret = string_builder_append(sb, "\\t");
+		break;
 	case '\n':
-		return string_builder_append(sb, "\\n");
+		ret = string_builder_append(sb, "\\n");
+		break;
 	case '\v':
-		return string_builder_append(sb, "\\v");
+		ret = string_builder_append(sb, "\\v");
+		break;
 	case '\f':
-		return string_builder_append(sb, "\\f");
+		ret = string_builder_append(sb, "\\f");
+		break;
 	case '\r':
-		return string_builder_append(sb, "\\r");
+		ret = string_builder_append(sb, "\\r");
+		break;
 	case '"':
-		return string_builder_append(sb, "\\\"");
+		ret = string_builder_append(sb, "\\\"");
+		break;
 	case '\\':
-		return string_builder_append(sb, "\\\\");
+		ret = string_builder_append(sb, "\\\\");
+		break;
 	default:
 		if (c <= '\x1f' || c >= '\x7f')
-			return string_builder_appendf(sb, "\\x%02x", c);
+			ret = string_builder_appendf(sb, "\\x%02x", c);
 		else
-			return string_builder_appendc(sb, c);
+			ret = string_builder_appendc(sb, c);
+		break;
 	}
+	return ret ? NULL : &drgn_enomem;
 }
 
 static struct drgn_error *
@@ -882,9 +854,8 @@ c_pretty_print_string(struct drgn_memory_reader *reader, uint64_t address,
 {
 	struct drgn_error *err;
 
-	err = string_builder_appendc(sb, '"');
-	if (err)
-		return err;
+	if (!string_builder_appendc(sb, '"'))
+		return &drgn_enomem;
 	while (length) {
 		unsigned char c;
 
@@ -901,7 +872,9 @@ c_pretty_print_string(struct drgn_memory_reader *reader, uint64_t address,
 		}
 		length--;
 	}
-	return string_builder_appendc(sb, '"');
+	if (!string_builder_appendc(sb, '"'))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -924,21 +897,18 @@ c_pretty_print_pointer_object(const struct drgn_object *obj,
 
 	old_len = sb->len;
 	if (dereference && !is_c_string) {
-		err = string_builder_appendc(sb, '*');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, '*'))
+			return &drgn_enomem;
 	}
 	if (cast) {
-		err = string_builder_appendc(sb, '(');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, '('))
+			return &drgn_enomem;
 		err = c_pretty_print_type_name_impl(drgn_object_qualified_type(obj),
 						    sb);
 		if (err)
 			return err;
-		err = string_builder_appendc(sb, ')');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ')'))
+			return &drgn_enomem;
 
 	}
 
@@ -946,14 +916,14 @@ c_pretty_print_pointer_object(const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	err = string_builder_appendf(sb, "0x%" PRIx64, uvalue);
-	if (err || !dereference)
-		return err;
+	if (!string_builder_appendf(sb, "0x%" PRIx64, uvalue))
+		return &drgn_enomem;
+	if (!dereference)
+		return NULL;
 	address_end = sb->len;
 
-	err = string_builder_append(sb, " = ");
-	if (err)
-		return err;
+	if (!string_builder_append(sb, " = "))
+		return &drgn_enomem;
 
 	if (__builtin_sub_overflow(one_line_columns, sb->len - old_len,
 				   &one_line_columns))
@@ -1023,9 +993,8 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 			const unsigned char *buf;
 			uint64_t size;
 
-			err = string_builder_appendc(sb, '"');
-			if (err)
-				return err;
+			if (!string_builder_appendc(sb, '"'))
+				return &drgn_enomem;
 			buf = (const unsigned char *)drgn_object_buffer(obj);
 			size = drgn_value_size(obj->bit_size,
 					       obj->value.bit_offset);
@@ -1036,7 +1005,9 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 				if (err)
 					return err;
 			}
-			return string_builder_appendc(sb, '"');
+			if (!string_builder_appendc(sb, '"'))
+				return &drgn_enomem;
+			return NULL;
 		}
 	}
 
@@ -1062,14 +1033,18 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 			break;
 	}
 	if (!length) {
-		err = string_builder_append(sb, "{}");
+		if (string_builder_append(sb, "{}"))
+			err = NULL;
+		else
+			err = &drgn_enomem;
 		goto out;
 	}
 
 	/* First, try to fit everything on one line. */
-	err = string_builder_append(sb, "{ ");
-	if (err)
+	if (!string_builder_append(sb, "{ ")) {
+		err = &drgn_enomem;
 		goto out;
+	}
 	old_len = sb->len - 1; /* Minus one for the space. */
 	if (__builtin_sub_overflow(one_line_columns, 2, &remaining_columns))
 		remaining_columns = 0;
@@ -1091,9 +1066,10 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 		else if (err)
 			goto out;
 
-		err = string_builder_append(sb, ", ");
-		if (err)
+		if (!string_builder_append(sb, ", ")) {
+			err = &drgn_enomem;
 			goto out;
+		}
 
 		if (__builtin_sub_overflow(remaining_columns,
 					   sb->len - element_start,
@@ -1102,7 +1078,10 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 	}
 	if (i >= length && remaining_columns >= 1) {
 		/* Everything fit. */
-		err = string_builder_appendc(sb, '}');
+		if (string_builder_appendc(sb, '}'))
+			err = NULL;
+		else
+			err = &drgn_enomem;
 		goto out;
 	}
 
@@ -1126,12 +1105,11 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 			goto out;
 
 		newline = sb->len;
-		err = string_builder_appendc(sb, '\n');
-		if (err)
+		if (!string_builder_appendc(sb, '\n') ||
+		    !append_tabs(indent + 1, sb)) {
+			err = &drgn_enomem;
 			goto out;
-		err = append_tabs(indent + 1, sb);
-		if (err)
-			goto out;
+		}
 
 		if (start_columns > 1) {
 			size_t element_start = sb->len;
@@ -1157,17 +1135,19 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 						&sb->str[element_start],
 						element_len);
 					sb->len = newline + element_len;
-					err = string_builder_appendc(sb, ',');
-					if (err)
+					if (!string_builder_appendc(sb, ',')) {
+						err = &drgn_enomem;
 						goto out;
+					}
 					remaining_columns -= element_len + 1;
 					continue;
 				}
 				if (element_len < start_columns) {
 					/* It fit on the new line. */
-					err = string_builder_appendc(sb, ',');
-					if (err)
+					if (!string_builder_appendc(sb, ',')) {
+						err = &drgn_enomem;
 						goto out;
+					}
 					remaining_columns = (start_columns -
 							     element_len - 1);
 					continue;
@@ -1184,19 +1164,19 @@ c_pretty_print_array_object(const struct drgn_object *obj,
 						 multi_line_columns, sb);
 		if (err)
 			goto out;
-		err = string_builder_appendc(sb, ',');
-		if (err)
+		if (!string_builder_appendc(sb, ',')) {
+			err = &drgn_enomem;
 			goto out;
+		}
 		remaining_columns = 0;
 	}
 
-	err = string_builder_appendc(sb, '\n');
-	if (err)
+	if (!string_builder_appendc(sb, '\n') || !append_tabs(indent, sb) ||
+	    !string_builder_appendc(sb, '}')) {
+		err = &drgn_enomem;
 		goto out;
-	err = append_tabs(indent, sb);
-	if (err)
-		goto out;
-	err = string_builder_appendc(sb, '}');
+	}
+	err = NULL;
 out:
 	drgn_object_deinit(&element);
 	return err;
@@ -1211,7 +1191,9 @@ c_pretty_print_function_object(const struct drgn_object *obj,
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "cannot format function value");
 	}
-	return string_builder_appendf(sb, "0x%" PRIx64, obj->reference.address);
+	if (!string_builder_appendf(sb, "0x%" PRIx64, obj->reference.address))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -1237,16 +1219,14 @@ c_pretty_print_object_impl(const struct drgn_object *obj, bool cast,
 	if (cast) {
 		size_t old_len = sb->len;
 
-		err = string_builder_appendc(sb, '(');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, '('))
+			return &drgn_enomem;
 		err = c_pretty_print_type_name_impl(drgn_object_qualified_type(obj),
 						    sb);
 		if (err)
 			return err;
-		err = string_builder_appendc(sb, ')');
-		if (err)
-			return err;
+		if (!string_builder_appendc(sb, ')'))
+			return &drgn_enomem;
 
 		if (__builtin_sub_overflow(one_line_columns, sb->len - old_len,
 					   &one_line_columns))
@@ -1295,7 +1275,9 @@ static struct drgn_error *c_pretty_print_object(const struct drgn_object *obj,
 		free(sb.str);
 		return err;
 	}
-	return string_builder_finalize(&sb, ret);
+	if (!string_builder_finalize(&sb, ret))
+		return &drgn_enomem;
+	return NULL;
 }
 
 /* This obviously incomplete since we only handle the tokens we care about. */

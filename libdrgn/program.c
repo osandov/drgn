@@ -1284,14 +1284,18 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 	}
 	if (i >= ARRAY_SIZE(vmlinux_paths)) {
 		if (found_vmlinux) {
-			err = string_builder_append(&missing_debug_info,
-						    "vmlinux does not have debug information");
+			if (!string_builder_append(&missing_debug_info,
+						   "vmlinux does not have debug information")) {
+				err = &drgn_enomem;
+				goto err;
+			}
 		} else {
-			err = string_builder_append(&missing_debug_info,
-						    "could not find vmlinux");
+			if (!string_builder_append(&missing_debug_info,
+						   "could not find vmlinux")) {
+				err = &drgn_enomem;
+				goto err;
+			}
 		}
-		if (err)
-			goto err;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(module_paths) && !found_modules; i++) {
@@ -1332,15 +1336,17 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 				err = NULL;
 				if (no_symbols == 0) {
 					if (missing_debug_info.len) {
-						err = string_builder_appendc(&missing_debug_info,
-									     '\n');
-						if (err)
+						if (!string_builder_appendc(&missing_debug_info,
+									     '\n')) {
+							err = &drgn_enomem;
 							break;
+						}
 					}
-					err = string_builder_append(&missing_debug_info,
-								    "missing debug information for modules:");
-					if (err)
+					if (!string_builder_append(&missing_debug_info,
+								   "missing debug information for modules:")) {
+						err = &drgn_enomem;
 						break;
+					}
 
 				}
 				if (no_symbols < max_no_symbols) {
@@ -1348,12 +1354,13 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 
 					len = (ent->fts_namelen -
 					       strlen(module_extensions[i]));
-					err = string_builder_appendf(&missing_debug_info,
-								     "\n%.*s",
-								     len,
-								     ent->fts_name);
-					if (err)
+					if (!string_builder_appendf(&missing_debug_info,
+								    "\n%.*s",
+								    len,
+								    ent->fts_name)) {
+						err = &drgn_enomem;
 						break;
+					}
 				}
 				no_symbols++;
 				continue;
@@ -1370,20 +1377,24 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 	}
 	if (!found_modules) {
 		if (missing_debug_info.len) {
-			err = string_builder_appendc(&missing_debug_info, '\n');
-			if (err)
+			if (!string_builder_appendc(&missing_debug_info,
+						    '\n')) {
+				err = &drgn_enomem;
 				goto err;
+			}
 		}
-		err = string_builder_append(&missing_debug_info,
-					    "could not find kernel modules");
-		if (err)
+		if (!string_builder_append(&missing_debug_info,
+					   "could not find kernel modules")) {
+			err = &drgn_enomem;
 			goto err;
+		}
 	} else if (no_symbols > max_no_symbols) {
-		err = string_builder_appendf(&missing_debug_info,
-					     "\n... %zu more",
-					     no_symbols - max_no_symbols);
-		if (err)
+		if (!string_builder_appendf(&missing_debug_info,
+					    "\n... %zu more",
+					    no_symbols - max_no_symbols)) {
+			err = &drgn_enomem;
 			goto err;
+		}
 	}
 
 	err = drgn_program_update_debug_info(prog);
@@ -1393,9 +1404,10 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 	if (missing_debug_info.len) {
 		char *msg;
 
-		err = string_builder_finalize(&missing_debug_info, &msg);
-		if (err)
+		if (!string_builder_finalize(&missing_debug_info, &msg)) {
+			err = &drgn_enomem;
 			goto err;
+		}
 		return drgn_error_create_nodup(DRGN_ERROR_MISSING_DEBUG_INFO,
 					       msg);
 	}
