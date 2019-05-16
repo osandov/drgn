@@ -1349,12 +1349,15 @@ static void c_keywords_init(void)
 
 	c_keyword_map_init(&c_keywords);
 	for (i = MIN_KEYWORD_TOKEN; i <= MAX_KEYWORD_TOKEN; i++) {
-		struct string key = {
-			.str = token_spelling[i],
-			.len = strlen(token_spelling[i]),
+		struct c_keyword_map_entry entry = {
+			.key = {
+				.str = token_spelling[i],
+				.len = strlen(token_spelling[i]),
+			},
+			.value = i,
 		};
 
-		if (!c_keyword_map_insert(&c_keywords, &key, &i))
+		if (c_keyword_map_insert(&c_keywords, &entry, NULL) != 1)
 			abort();
 	}
 }
@@ -1404,7 +1407,7 @@ struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
 	default:
 		if (isalpha(*p) || *p == '_') {
 			struct string key;
-			int *kind;
+			struct c_keyword_map_iterator it;
 
 			do {
 				p++;
@@ -1412,8 +1415,9 @@ struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
 
 			key.str = token->value;
 			key.len = p - token->value;
-			kind = c_keyword_map_search(&c_keywords, &key);
-			token->kind = kind ? *kind : C_TOKEN_IDENTIFIER;
+			it = c_keyword_map_search(&c_keywords, &key);
+			token->kind = (it.entry ? it.entry->value :
+				       C_TOKEN_IDENTIFIER);
 		} else if ('0' <= *p && *p <= '9') {
 			token->kind = C_TOKEN_NUMBER;
 			if (*p++ == '0' && *p == 'x') {

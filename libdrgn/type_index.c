@@ -11,62 +11,44 @@
 /* These functions compare the underlying type by reference, not by value. */
 
 static struct hash_pair
-drgn_pointer_type_hash(struct drgn_type * const *key)
+drgn_qualified_type_key_hash(const struct drgn_qualified_type *key)
 {
-	struct drgn_qualified_type referenced_type;
 	size_t hash;
 
-	referenced_type = drgn_type_type(*key);
-	hash = hash_combine((uintptr_t)referenced_type.type,
-			    referenced_type.qualifiers);
+	hash = hash_combine((uintptr_t)key->type, key->qualifiers);
 	return hash_pair_from_avalanching_hash(hash);
 }
 
-static bool drgn_pointer_type_eq(struct drgn_type * const *a,
-				 struct drgn_type * const *b)
+static bool drgn_qualified_type_key_eq(const struct drgn_qualified_type *a,
+				       const struct drgn_qualified_type *b)
 {
-	struct drgn_qualified_type referenced_a, referenced_b;
-
-	referenced_a = drgn_type_type(*a);
-	referenced_b = drgn_type_type(*b);
-	return (referenced_a.type == referenced_b.type &&
-		referenced_a.qualifiers == referenced_b.qualifiers);
+	return a->type == b->type && a->qualifiers == b->qualifiers;
 }
 
-DEFINE_HASH_SET_FUNCTIONS(drgn_pointer_type_set, struct drgn_type *,
-			  drgn_pointer_type_hash, drgn_pointer_type_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_pointer_type_table,
+			    drgn_qualified_type_key_hash,
+			    drgn_qualified_type_key_eq)
 
 static struct hash_pair
-drgn_array_type_hash(struct drgn_type * const *key)
+drgn_array_type_key_hash(const struct drgn_array_type_key *key)
 {
-	struct drgn_type *type = *key;
-	struct drgn_qualified_type referenced_type;
 	size_t hash;
 
-	referenced_type = drgn_type_type(type);
-	hash = hash_combine((uintptr_t)referenced_type.type,
-			    referenced_type.qualifiers);
-	hash = hash_combine(hash, drgn_type_is_complete(type));
-	hash = hash_combine(hash, drgn_type_length(type));
+	hash = hash_combine((uintptr_t)key->type, key->qualifiers);
+	hash = hash_combine(hash, key->is_complete);
+	hash = hash_combine(hash, key->length);
 	return hash_pair_from_avalanching_hash(hash);
 }
 
-static bool drgn_array_type_eq(struct drgn_type * const *ap,
-			       struct drgn_type * const *bp)
+static bool drgn_array_type_key_eq(const struct drgn_array_type_key *a,
+				   const struct drgn_array_type_key *b)
 {
-	struct drgn_type *a = *ap, *b = *bp;
-	struct drgn_qualified_type referenced_a, referenced_b;
-
-	referenced_a = drgn_type_type(a);
-	referenced_b = drgn_type_type(b);
-	return (referenced_a.type == referenced_b.type &&
-		referenced_a.qualifiers == referenced_b.qualifiers &&
-		drgn_type_is_complete(a) == drgn_type_is_complete(b) &&
-		drgn_type_length(a) == drgn_type_length(b));
+	return (a->type == b->type && a->qualifiers == b->qualifiers &&
+		a->is_complete == b->is_complete && a->length == b->length);
 }
 
-DEFINE_HASH_SET_FUNCTIONS(drgn_array_type_set, struct drgn_type *,
-			  drgn_array_type_hash, drgn_array_type_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_array_type_table, drgn_array_type_key_hash,
+			    drgn_array_type_key_eq)
 
 static struct hash_pair drgn_member_hash_pair(const struct drgn_member_key *key)
 {
@@ -87,19 +69,18 @@ static bool drgn_member_eq(const struct drgn_member_key *a,
 		(!a->name_len || memcmp(a->name, b->name, a->name_len) == 0));
 }
 
-DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, struct drgn_member_key,
-			  struct drgn_member_value, drgn_member_hash_pair,
-			  drgn_member_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_member_map, drgn_member_hash_pair,
+			    drgn_member_eq)
 
-DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, struct drgn_type *,
-			  hash_pair_ptr_type, hash_table_scalar_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_type_set, hash_pair_ptr_type,
+			    hash_table_scalar_eq)
 
 void drgn_type_index_init(struct drgn_type_index *tindex)
 {
 	tindex->finders = NULL;
 	memset(tindex->primitive_types, 0, sizeof(tindex->primitive_types));
-	drgn_pointer_type_set_init(&tindex->pointer_types);
-	drgn_array_type_set_init(&tindex->array_types);
+	drgn_pointer_type_table_init(&tindex->pointer_types);
+	drgn_array_type_table_init(&tindex->array_types);
 	drgn_member_map_init(&tindex->members);
 	drgn_type_set_init(&tindex->members_cached);
 	tindex->word_size = 0;
@@ -107,26 +88,22 @@ void drgn_type_index_init(struct drgn_type_index *tindex)
 
 static void free_pointer_types(struct drgn_type_index *tindex)
 {
-	struct drgn_pointer_type_set_pos pos;
+	struct drgn_pointer_type_table_iterator it;
 
-	pos = drgn_pointer_type_set_first_pos(&tindex->pointer_types);
-	while (pos.item) {
-		free(*pos.item);
-		drgn_pointer_type_set_next_pos(&pos);
-	}
-	drgn_pointer_type_set_deinit(&tindex->pointer_types);
+	for (it = drgn_pointer_type_table_first(&tindex->pointer_types);
+	     it.entry; it = drgn_pointer_type_table_next(it))
+		free(*it.entry);
+	drgn_pointer_type_table_deinit(&tindex->pointer_types);
 }
 
 static void free_array_types(struct drgn_type_index *tindex)
 {
-	struct drgn_array_type_set_pos pos;
+	struct drgn_array_type_table_iterator it;
 
-	pos = drgn_array_type_set_first_pos(&tindex->array_types);
-	while (pos.item) {
-		free(*pos.item);
-		drgn_array_type_set_next_pos(&pos);
-	}
-	drgn_array_type_set_deinit(&tindex->array_types);
+	for (it = drgn_array_type_table_first(&tindex->array_types); it.entry;
+	     it = drgn_array_type_table_next(it))
+		free(*it.entry);
+	drgn_array_type_table_deinit(&tindex->array_types);
 }
 
 void drgn_type_index_deinit(struct drgn_type_index *tindex)
@@ -419,8 +396,8 @@ drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 			     struct drgn_qualified_type referenced_type,
 			     struct drgn_type **ret)
 {
-	struct drgn_type key, *type = &key;
-	struct drgn_pointer_type_set_pos pos;
+	struct drgn_pointer_type_table_iterator it;
+	struct drgn_type *type;
 	struct hash_pair hp;
 
 	if (!tindex->word_size) {
@@ -428,55 +405,24 @@ drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 					 "word size has not been set");
 	}
 
+	hp = drgn_pointer_type_table_hash(&referenced_type);
+	it = drgn_pointer_type_table_search_hashed(&tindex->pointer_types,
+						   &referenced_type, hp);
+	if (it.entry) {
+		type = *it.entry;
+		goto out;
+	}
+
+	type = malloc(sizeof(*type));
+	if (!type)
+		return &drgn_enomem;
 	drgn_pointer_type_init(type, tindex->word_size, referenced_type);
-	hp = drgn_pointer_type_set_hash(&type);
-	pos = drgn_pointer_type_set_search_pos(&tindex->pointer_types, &type,
-					       hp);
-	if (pos.item) {
-		*ret = *pos.item;
-		return NULL;
-	}
-
-	type = malloc(sizeof(*type));
-	if (!type)
-		return &drgn_enomem;
-	*type = key;
-
-	if (!drgn_pointer_type_set_insert_searched(&tindex->pointer_types,
-						   &type, hp)) {
+	if (drgn_pointer_type_table_insert_searched(&tindex->pointer_types,
+						    &type, hp, NULL) == -1) {
 		free(type);
 		return &drgn_enomem;
 	}
-	*ret = type;
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_type_index_array_type_internal(struct drgn_type_index *tindex,
-				    struct drgn_type *key,
-				    struct drgn_type **ret)
-{
-	struct drgn_type *type;
-	struct drgn_array_type_set_pos pos;
-	struct hash_pair hp;
-
-	hp = drgn_array_type_set_hash(&key);
-	pos = drgn_array_type_set_search_pos(&tindex->array_types, &key, hp);
-	if (pos.item) {
-		*ret = *pos.item;
-		return NULL;
-	}
-
-	type = malloc(sizeof(*type));
-	if (!type)
-		return &drgn_enomem;
-	*type = *key;
-
-	if (!drgn_array_type_set_insert_searched(&tindex->array_types, &type,
-						 hp)) {
-		free(type);
-		return &drgn_enomem;
-	}
+out:
 	*ret = type;
 	return NULL;
 }
@@ -486,10 +432,36 @@ drgn_type_index_array_type(struct drgn_type_index *tindex, uint64_t length,
 			   struct drgn_qualified_type element_type,
 			   struct drgn_type **ret)
 {
-	struct drgn_type key;
+	struct drgn_array_type_key key = {
+		.type = element_type.type,
+		.qualifiers = element_type.qualifiers,
+		.is_complete = true,
+		.length = length,
+	};
+	struct drgn_array_type_table_iterator it;
+	struct drgn_type *type;
+	struct hash_pair hp;
 
-	drgn_array_type_init(&key, length, element_type);
-	return drgn_type_index_array_type_internal(tindex, &key, ret);
+	hp = drgn_array_type_table_hash(&key);
+	it = drgn_array_type_table_search_hashed(&tindex->array_types, &key,
+						 hp);
+	if (it.entry) {
+		type = *it.entry;
+		goto out;
+	}
+
+	type = malloc(sizeof(*type));
+	if (!type)
+		return &drgn_enomem;
+	drgn_array_type_init(type, length, element_type);
+	if (drgn_array_type_table_insert_searched(&tindex->array_types, &type,
+						  hp, NULL) == -1) {
+		free(type);
+		return &drgn_enomem;
+	}
+out:
+	*ret = type;
+	return NULL;
 }
 
 struct drgn_error *
@@ -497,10 +469,35 @@ drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 				      struct drgn_qualified_type element_type,
 				      struct drgn_type **ret)
 {
-	struct drgn_type key;
+	struct drgn_array_type_key key = {
+		.type = element_type.type,
+		.qualifiers = element_type.qualifiers,
+		.is_complete = false,
+	};
+	struct drgn_array_type_table_iterator it;
+	struct drgn_type *type;
+	struct hash_pair hp;
 
-	drgn_array_type_init_incomplete(&key, element_type);
-	return drgn_type_index_array_type_internal(tindex, &key, ret);
+	hp = drgn_array_type_table_hash(&key);
+	it = drgn_array_type_table_search_hashed(&tindex->array_types, &key,
+						 hp);
+	if (it.entry) {
+		type = *it.entry;
+		goto out;
+	}
+
+	type = malloc(sizeof(*type));
+	if (!type)
+		return &drgn_enomem;
+	drgn_array_type_init_incomplete(type, element_type);
+	if (drgn_array_type_table_insert_searched(&tindex->array_types, &type,
+						  hp, NULL) == -1) {
+		free(type);
+		return &drgn_enomem;
+	}
+out:
+	*ret = type;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -522,19 +519,23 @@ drgn_type_index_cache_members(struct drgn_type_index *tindex,
 
 		member = &members[i];
 		if (member->name) {
-			struct drgn_member_key key = {
-				.type = outer_type,
-				.name = member->name,
-				.name_len = strlen(member->name),
-			};
-			struct drgn_member_value value = {
-				.type = &member->type,
-				.bit_offset = bit_offset + member->bit_offset,
-				.bit_field_size = member->bit_field_size,
+			struct drgn_member_map_entry entry = {
+				.key = {
+					.type = outer_type,
+					.name = member->name,
+					.name_len = strlen(member->name),
+				},
+				.value = {
+					.type = &member->type,
+					.bit_offset =
+						bit_offset + member->bit_offset,
+					.bit_field_size =
+						member->bit_field_size,
+				},
 			};
 
-			if (!drgn_member_map_insert(&tindex->members, &key,
-						    &value))
+			if (drgn_member_map_insert(&tindex->members, &entry,
+						   NULL) == -1)
 				return &drgn_enomem;
 		} else {
 			struct drgn_qualified_type member_type;
@@ -566,12 +567,12 @@ struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
 		.name_len = member_name_len,
 	};
 	struct hash_pair hp, cached_hp;
-	struct drgn_member_value *value;
+	struct drgn_member_map_iterator it;
 
 	hp = drgn_member_map_hash(&key);
-	value = drgn_member_map_search_hashed(&tindex->members, &key, hp);
-	if (value) {
-		*ret = value;
+	it = drgn_member_map_search_hashed(&tindex->members, &key, hp);
+	if (it.entry) {
+		*ret = &it.entry->value;
 		return NULL;
 	}
 
@@ -590,20 +591,20 @@ struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
 	}
 	cached_hp = drgn_type_set_hash(&key.type);
 	if (drgn_type_set_search_hashed(&tindex->members_cached, &key.type,
-					cached_hp))
+					cached_hp).entry)
 		return drgn_error_member_not_found(type, member_name);
 
 	err = drgn_type_index_cache_members(tindex, key.type, key.type, 0);
 	if (err)
 		return err;
 
-	if (!drgn_type_set_insert_searched(&tindex->members_cached, &key.type,
-					   cached_hp))
+	if (drgn_type_set_insert_searched(&tindex->members_cached, &key.type,
+					  cached_hp, NULL) == -1)
 		return &drgn_enomem;
 
-	value = drgn_member_map_search_hashed(&tindex->members, &key, hp);
-	if (value) {
-		*ret = value;
+	it = drgn_member_map_search_hashed(&tindex->members, &key, hp);
+	if (it.entry) {
+		*ret = &it.entry->value;
 		return NULL;
 	}
 

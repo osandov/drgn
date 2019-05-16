@@ -44,7 +44,7 @@ struct drgn_dwarf_type {
 	bool should_free;
 };
 
-DEFINE_HASH_MAP_TYPES(dwarf_type_map, const void *, struct drgn_dwarf_type);
+DEFINE_HASH_MAP_TYPE(dwarf_type_map, const void *, struct drgn_dwarf_type);
 
 struct drgn_dwarf_index;
 struct drgn_program;

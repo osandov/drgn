@@ -20,16 +20,7 @@
 #include "read.h"
 #include "siphash.h"
 
-enum {
-	SECTION_SYMTAB,
-	SECTION_DEBUG_ABBREV,
-	SECTION_DEBUG_INFO,
-	SECTION_DEBUG_LINE,
-	SECTION_DEBUG_STR,
-	NUM_SECTIONS,
-};
-
-static const char * const section_name[NUM_SECTIONS] = {
+static const char * const section_name[DRGN_DWARF_INDEX_NUM_SECTIONS] = {
 	[SECTION_SYMTAB] = ".symtab",
 	[SECTION_DEBUG_ABBREV] = ".debug_abbrev",
 	[SECTION_DEBUG_INFO] = ".debug_info",
@@ -37,7 +28,7 @@ static const char * const section_name[NUM_SECTIONS] = {
 	[SECTION_DEBUG_STR] = ".debug_str",
 };
 
-static const bool section_optional[NUM_SECTIONS] = {
+static const bool section_optional[DRGN_DWARF_INDEX_NUM_SECTIONS] = {
 	[SECTION_SYMTAB] = true,
 	[SECTION_DEBUG_LINE] = true,
 };
@@ -122,23 +113,6 @@ struct compilation_unit {
 	bool is_64_bit;
 };
 
-struct drgn_dwarf_index_file {
-	Elf_Data *sections[NUM_SECTIONS];
-	/* Other byte order. */
-	bool bswap;
-	bool failed;
-	int fd;
-	/*
-	 * If this is NULL, then we didn't open the file and don't own the Elf
-	 * handle.
-	 */
-	const char *path;
-	Elf *elf;
-	Dwarf *dwarf;
-	Elf_Data *rela_sections[NUM_SECTIONS];
-	struct drgn_dwarf_index_file *next;
-};
-
 static inline const char *section_ptr(Elf_Data *data, size_t offset)
 {
 	return &((char *)data->d_buf)[offset];
@@ -148,6 +122,9 @@ static inline const char *section_end(Elf_Data *data)
 {
 	return section_ptr(data, data->d_size);
 }
+
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_file_table, c_string_hash,
+			    c_string_eq)
 
 /*
  * An indexed DIE.
@@ -173,12 +150,7 @@ struct drgn_dwarf_index_die {
  * The key is the DIE name. The value is the first DIE with that name (as an
  * index into drgn_dwarf_index_shard::dies).
  */
-DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_index_die_map, struct string, size_t,
-			  string_hash, string_eq)
-
-DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_index_file_map, const char *,
-			  struct drgn_dwarf_index_file *, c_string_hash,
-			  c_string_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash, string_eq)
 
 static inline size_t hash_pair_to_shard(struct hash_pair hp)
 {
@@ -271,7 +243,7 @@ struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
 					 "invalid flags");
 	}
 	dindex->flags = flags;
-	drgn_dwarf_index_file_map_init(&dindex->files);
+	drgn_dwarf_index_file_table_init(&dindex->files);
 	dindex->opened_first = dindex->opened_last = NULL;
 	dindex->indexed_first = dindex->indexed_last = NULL;
 	for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
@@ -294,7 +266,7 @@ struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
 	return NULL;
 
 err:
-	drgn_dwarf_index_file_map_deinit(&dindex->files);
+	drgn_dwarf_index_file_table_deinit(&dindex->files);
 	return err;
 }
 
@@ -310,8 +282,8 @@ static void free_files(struct drgn_dwarf_index *dindex,
 		if (file->path) {
 			elf_end(file->elf);
 			close(file->fd);
-			drgn_dwarf_index_file_map_delete(&dindex->files,
-							 &file->path);
+			drgn_dwarf_index_file_table_delete(&dindex->files,
+							   &file->path);
 			free((char *)file->path);
 		}
 		free(file);
@@ -325,7 +297,7 @@ void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex)
 		free_shards(dindex, ARRAY_SIZE(dindex->shards));
 		free_files(dindex, dindex->opened_first);
 		free_files(dindex, dindex->indexed_first);
-		drgn_dwarf_index_file_map_deinit(&dindex->files);
+		drgn_dwarf_index_file_table_deinit(&dindex->files);
 	}
 }
 
@@ -335,7 +307,7 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 	GElf_Ehdr ehdr_mem, *ehdr;
 	size_t shstrndx;
 	Elf_Scn *scn = NULL;
-	size_t section_index[NUM_SECTIONS] = {};
+	size_t section_index[DRGN_DWARF_INDEX_NUM_SECTIONS] = {};
 	size_t i;
 
 	ehdr = gelf_getehdr(file->elf, &ehdr_mem);
@@ -364,7 +336,7 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 		if (!scnname)
 			continue;
 
-		for (i = 0; i < NUM_SECTIONS; i++) {
+		for (i = 0; i < ARRAY_SIZE(file->sections); i++) {
 			if (file->sections[i])
 				continue;
 
@@ -378,7 +350,7 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 		}
 	}
 
-	for (i = 0; i < NUM_SECTIONS; i++) {
+	for (i = 0; i < ARRAY_SIZE(file->sections); i++) {
 		if (!file->sections[i] && !section_optional[i]) {
 			return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
 						 "ELF file has no %s section",
@@ -400,7 +372,7 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 		if (shdr->sh_type != SHT_RELA)
 			continue;
 
-		for (i = 0; i < NUM_SECTIONS; i++) {
+		for (i = 0; i < ARRAY_SIZE(file->rela_sections); i++) {
 			if (file->rela_sections[i])
 				continue;
 
@@ -435,18 +407,18 @@ struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 	struct drgn_error *err;
 	const char *key;
 	struct hash_pair hp;
-	struct drgn_dwarf_index_file_map_pos pos;
+	struct drgn_dwarf_index_file_table_iterator it;
 	struct drgn_dwarf_index_file *file;
 
 	key = realpath(path, NULL);
 	if (!key)
 		return drgn_error_create_os(errno, path, "realpath");
 
-	hp = drgn_dwarf_index_file_map_hash(&path);
-	pos = drgn_dwarf_index_file_map_search_pos(&dindex->files, &key, hp);
-	if (pos.item) {
+	hp = drgn_dwarf_index_file_table_hash(&path);
+	it = drgn_dwarf_index_file_table_search_hashed(&dindex->files, &key, hp);
+	if (it.entry) {
+		file = *it.entry;
 		free((char *)key);
-		file = pos.item->value;
 		goto out;
 	}
 
@@ -472,9 +444,8 @@ struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 		goto err_fd;
 	}
 
-	pos = drgn_dwarf_index_file_map_insert_searched_pos(&dindex->files, &key,
-						      &file, hp);
-	if (!pos.item) {
+	if (drgn_dwarf_index_file_table_insert_searched(&dindex->files, &file,
+							hp, &it) == -1) {
 		err = &drgn_enomem;
 		goto err_elf;
 	}
@@ -494,7 +465,8 @@ out:
 	return NULL;
 
 err_hash:
-	drgn_dwarf_index_file_map_delete_pos(&dindex->files, pos, hp);
+	drgn_dwarf_index_file_table_delete_iterator_hashed(&dindex->files, it,
+							   hp);
 err_elf:
 	elf_end(file->elf);
 err_fd:
@@ -575,7 +547,7 @@ static size_t count_relocations(struct drgn_dwarf_index_file *files)
 	size_t i;
 
 	while (file) {
-		for (i = 0; i < NUM_SECTIONS; i++) {
+		for (i = 0; i < ARRAY_SIZE(file->rela_sections); i++) {
 			Elf_Data *data;
 
 			data = file->rela_sections[i];
@@ -612,7 +584,9 @@ static struct drgn_error *apply_relocations(struct drgn_dwarf_index_file *files)
 
 				file = files;
 				while (file) {
-					for (section_idx = 0; section_idx < NUM_SECTIONS; section_idx++) {
+					for (section_idx = 0;
+					     section_idx < ARRAY_SIZE(file->rela_sections);
+					     section_idx++) {
 						Elf_Data *data;
 
 						data = file->rela_sections[section_idx];
@@ -653,7 +627,8 @@ done:
 					Elf_Data *data;
 
 					reloc_idx = 0;
-					if (++section_idx >= NUM_SECTIONS) {
+					if (++section_idx >=
+					    ARRAY_SIZE(file->rela_sections)) {
 						section_idx = 0;
 						file = file->next;
 						if (!file)
@@ -1256,35 +1231,40 @@ static struct drgn_error *index_die(struct drgn_dwarf_index *dindex,
 				    uint64_t offset)
 {
 	struct drgn_error *err;
-	struct string key = {
-		.str = name,
-		.len = strlen(name),
+	struct drgn_dwarf_index_die_map_entry entry = {
+		.key = {
+			.str = name,
+			.len = strlen(name),
+		},
 	};
 	struct hash_pair hp;
 	struct drgn_dwarf_index_shard *shard;
-	size_t *value, index;
+	struct drgn_dwarf_index_die_map_iterator it;
+	size_t index;
 	struct drgn_dwarf_index_die *die;
 
-	hp = drgn_dwarf_index_die_map_hash(&key);
+	hp = drgn_dwarf_index_die_map_hash(&entry.key);
 	shard = &dindex->shards[hash_pair_to_shard(hp)];
 	omp_set_lock(&shard->lock);
-	value = drgn_dwarf_index_die_map_search_hashed(&shard->map, &key, hp);
-	if (!value) {
+	it = drgn_dwarf_index_die_map_search_hashed(&shard->map, &entry.key,
+						    hp);
+	if (!it.entry) {
 		if (!append_die_entry(shard, tag, file_name_hash, file,
 				      offset)) {
 			err = &drgn_enomem;
 			goto out;
 		}
-		index = shard->num_entries - 1;
-		if (drgn_dwarf_index_die_map_insert_searched(&shard->map, &key,
-							     &index, hp))
+		entry.value = shard->num_entries - 1;
+		if (drgn_dwarf_index_die_map_insert_searched(&shard->map,
+							     &entry, hp,
+							     NULL) == 1)
 			err = NULL;
 		else
 			err = &drgn_enomem;
 		goto out;
 	}
 
-	die = &shard->dies[*value];
+	die = &shard->dies[it.entry->value];
 	for (;;) {
 		if (die->tag == tag &&
 		    die->file_name_hash == file_name_hash) {
@@ -1658,7 +1638,7 @@ static void unindex_files(struct drgn_dwarf_index *dindex,
 	/* Then, delete all of the dies pointing to those files. */
 	for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
 		struct drgn_dwarf_index_shard *shard = &dindex->shards[i];
-		struct drgn_dwarf_index_die_map_pos pos;
+		struct drgn_dwarf_index_die_map_iterator it;
 
 		/*
 		 * Because we're deleting everything that was added since the
@@ -1680,13 +1660,14 @@ static void unindex_files(struct drgn_dwarf_index *dindex,
 		 * dies chained on the dies we delete must have also been added
 		 * for this update, so there's no need to preserve them.
 		 */
-		pos = drgn_dwarf_index_die_map_first_pos(&shard->map);
-		while (pos.item) {
-			if (pos.item->value >= shard->num_entries) {
-				drgn_dwarf_index_die_map_delete(&shard->map,
-								&pos.item->key);
+		for (it = drgn_dwarf_index_die_map_first(&shard->map);
+		     it.entry; ) {
+			if (it.entry->value >= shard->num_entries) {
+				it = drgn_dwarf_index_die_map_delete_iterator(&shard->map,
+									      it);
+			} else {
+				it = drgn_dwarf_index_die_map_next(it);
 			}
-			drgn_dwarf_index_die_map_next_pos(&pos);
 		}
 	}
 }
@@ -1755,14 +1736,14 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 		};
 		struct hash_pair hp;
 		struct drgn_dwarf_index_shard *shard;
-		size_t *value;
+		struct drgn_dwarf_index_die_map_iterator map_it;
 
 		hp = drgn_dwarf_index_die_map_hash(&key);
 		it->shard = hash_pair_to_shard(hp);
 		shard = &dindex->shards[it->shard];
-		value = drgn_dwarf_index_die_map_search_hashed(&shard->map,
-							       &key, hp);
-		it->index = value ? *value : SIZE_MAX;
+		map_it = drgn_dwarf_index_die_map_search_hashed(&shard->map,
+								&key, hp);
+		it->index = map_it.entry ? map_it.entry->value : SIZE_MAX;
 		it->any_name = false;
 	} else {
 		it->index = 0;

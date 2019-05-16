@@ -32,8 +32,36 @@
  * @{
  */
 
-DEFINE_HASH_SET_TYPES(drgn_pointer_type_set, struct drgn_type *)
-DEFINE_HASH_SET_TYPES(drgn_array_type_set, struct drgn_type *)
+static struct drgn_qualified_type
+drgn_pointer_type_entry_to_key(struct drgn_type * const *entry)
+{
+	return drgn_type_type(*entry);
+}
+
+struct drgn_array_type_key {
+	struct drgn_type *type;
+	enum drgn_qualifiers qualifiers;
+	bool is_complete;
+	uint64_t length;
+};
+
+static struct drgn_array_type_key
+drgn_array_type_entry_to_key(struct drgn_type * const *entry)
+{
+	struct drgn_qualified_type element_type = drgn_type_type(*entry);
+
+	return (struct drgn_array_type_key){
+		.type = element_type.type,
+		.qualifiers = element_type.qualifiers,
+		.is_complete = drgn_type_is_complete(*entry),
+		.length = drgn_type_length(*entry),
+	};
+}
+
+DEFINE_HASH_TABLE_TYPE(drgn_pointer_type_table, struct drgn_type *,
+		       drgn_pointer_type_entry_to_key)
+DEFINE_HASH_TABLE_TYPE(drgn_array_type_table, struct drgn_type *,
+		       drgn_array_type_entry_to_key)
 
 /** <tt>(type, member name)</tt> pair. */
 struct drgn_member_key {
@@ -61,9 +89,9 @@ struct drgn_member_value {
  * Set of types compared by address.
  */
 #else
-DEFINE_HASH_MAP_TYPES(drgn_member_map, struct drgn_member_key,
+DEFINE_HASH_MAP_TYPE(drgn_member_map, struct drgn_member_key,
 		      struct drgn_member_value)
-DEFINE_HASH_SET_TYPES(drgn_type_set, struct drgn_type *)
+DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *)
 #endif
 
 /** Registered callback in a @ref drgn_type_index. */
@@ -97,9 +125,9 @@ struct drgn_type_index {
 	struct drgn_type default_size_t;
 	struct drgn_type default_ptrdiff_t;
 	/** Cache of created pointer types. */
-	struct drgn_pointer_type_set pointer_types;
+	struct drgn_pointer_type_table pointer_types;
 	/** Cache of created array types. */
-	struct drgn_array_type_set array_types;
+	struct drgn_array_type_table array_types;
 	/** Cache for @ref drgn_type_index_find_member(). */
 	struct drgn_member_map members;
 	/**

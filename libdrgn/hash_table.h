@@ -45,472 +45,261 @@
  * On non-x86 platforms, this falls back to a slower implementation that doesn't
  * use SIMD.
  *
+ * Abstractly, a hash table stores @em entries which can be looked up by @em
+ * key. A hash table is defined with @ref DEFINE_HASH_TABLE() (or the
+ * higher-level wrappers, @ref DEFINE_HASH_MAP() and @ref DEFINE_HASH_SET()).
+ * Each generated hash table interface is prefixed with a given name; the
+ * interface documented here uses the example name @c hash_table, which could be
+ * generated with this example code:
+ *
+ * @code{.c}
+ * key_type entry_to_key(const entry_type *entry);
+ * struct hash_pair hash_func(const key_type *key);
+ * bool eq_func(const key_type *a, const key_type *b);
+ * DEFINE_HASH_TABLE(hash_table, entry_type, entry_to_key, hash_func, eq_func)
+ * @endcode
+ *
  * @{
  */
 
 /**
- * Pair of hash values.
+ * Hash function output.
  *
  * F14 resolves collisions by double hashing. This type comprises the two
  * hashes.
  *
- * This first hash is a @c size_t used for selecting the chunk, and the second
- * is a @c uint8_t used as a tag within the chunk. We can construct the latter
- * from the upper bits of the former (which we would otherwise discard when
- * masking to select the chunk), assuming that the hash function properly
- * avalanches all bits.
- *
  * @sa HashTableHelpers
  */
 struct hash_pair {
+	/**
+	 * First hash.
+	 *
+	 * This is used for selecting the chunk.
+	 */
 	size_t first;
+	/**
+	 * Second hash.
+	 *
+	 * Only the 8 least-significant bits of this are used; the rest are zero
+	 * (the folly implementation insists that storing this as @c size_t
+	 * generates better code). The 8th bit is always set. This is derived
+	 * from @ref hash_pair::first; see @ref
+	 * hash_pair_from_avalanching_hash() and @ref
+	 * hash_pair_from_non_avalanching_hash().
+	 *
+	 * This is used as a tag within the chunk, and for the probe stride when
+	 * a chunk overflows.
+	 */
 	size_t second;
 };
 
 #ifdef DOXYGEN
 /**
- * @defgroup HashMaps Hash maps
+ * @struct hash_table
  *
- * Hash maps (a.k.a., dictionaries or associative arrays).
- *
- * A hash map type is defined with @ref DEFINE_HASH_MAP(). The defined types and
- * functions will have the given name; the interface documented here uses an
- * example name of @c hash_map.
- *
- * @{
- */
-
-/**
- * @struct hash_map
- *
- * Hash map instance.
+ * Hash table instance.
  *
  * There are no requirements on how this is allocated; it may be global, on the
  * stack, allocated by @c malloc(), embedded in another structure, etc.
  */
-struct hash_map;
+struct hash_table;
 
 /**
- * Hash map entry (i.e., key-value pair).
- *
- * Keys and values are copied into the hash table by value (i.e., with the
- * equivalent of <tt>memcpy(&item->key, &key, sizeof(key)))</tt>.
- */
-struct hash_map_item {
-	key_type key;
-	value_type value;
-};
-
-/**
- * Hash map iterator.
+ * Hash table iterator.
  *
  * Several functions return an iterator or take one as an argument. This
- * iterator has a reference to an item, which can be @c NULL to indicate a not
- * found or error case. It also contains private bookkeeping which should not be
- * used.
+ * iterator has a reference to an entry, which can be @c NULL to indicate that
+ * there is no such entry. It may also contain private bookkeeping which should
+ * not be used.
  *
- * A position remains valid as long as the item is not deleted and the table is
- * not rehashed.
+ * An iterator remains valid as long as the entry is not deleted and the table
+ * is not rehashed.
  */
-struct hash_map_pos {
-	/* Pointer to the item in the hash table. */
-	struct hash_map_item *item;
+struct hash_table_iterator {
+	/** Pointer to the entry in the hash table. */
+	entry_type *entry;
 };
 
 /**
  * Compute the hash for a given key.
  *
  * Note that this function is simply a wrapper around the hash function that was
- * passed when defining the hash map. It is provided for convenience.
+ * passed when defining the hash table. It is provided for convenience.
  */
-struct hash_pair hash_map_hash(const key_type *key);
+struct hash_pair hash_table_hash(const key_type *key);
 
 /**
- * Initialize a @ref hash_map.
+ * Initialize a @ref hash_table.
  *
- * The new hash map is empty. It must be deinitialized with @ref
- * hash_map_deinit().
+ * The new hash table is empty. It must be deinitialized with @ref
+ * hash_table_deinit().
  */
-void hash_map_init(struct hash_map *map);
+void hash_table_init(struct hash_table *table);
 
 /**
- * Free memory allocated by a @ref hash_map.
+ * Free memory allocated by a @ref hash_table.
  *
- * After this is called, the hash map must not be used unless it is
- * reinitialized with @ref hash_map_init(). Note that this only frees memory
- * allocated by the hash table itself; if keys, values, or the hash table
- * structure itself are dynamically allocated, those must be freed separately.
+ * After this is called, the hash table must not be used unless it is
+ * reinitialized with @ref hash_table_init(). Note that this only frees memory
+ * allocated by the hash table implementation; if the keys, values, or the hash
+ * table structure itself are dynamically allocated, those must be freed
+ * separately.
  */
-void hash_map_deinit(struct hash_map *map);
-
-/** Return the number of items in a @ref hash_map. */
-size_t hash_map_size(struct hash_map *map);
+void hash_table_deinit(struct hash_table *table);
 
 /**
- * Delete all items in a @ref hash_map.
+ * Return whether a @ref hash_table has no entries.
+ *
+ * This is O(1).
+ */
+bool hash_table_empty(struct hash_table *table);
+
+/**
+ * Return the number of entries in a @ref hash_table.
+ *
+ * This is O(1).
+ */
+size_t hash_table_size(struct hash_table *table);
+
+/**
+ * Delete all entries in a @ref hash_table.
  *
  * This does not necessarily free memory used by the hash table.
  */
-void hash_map_clear(struct hash_map *map);
+void hash_table_clear(struct hash_table *table);
 
 /**
- * Reserve items in a @ref hash_map.
+ * Reserve entries in a @ref hash_table.
  *
  * This allocates space up front to ensure that the table will not be rehashed
- * until the map contains the given number of items.
+ * until the table contains the given number of entries.
  *
  * @return @c true on success, @c false on failure.
  */
-bool hash_map_reserve(struct hash_map *map, size_t capacity);
+bool hash_table_reserve(struct hash_table *table, size_t capacity);
 
 /**
- * Insert an item in a @ref hash_map.
+ * Insert an entry in a @ref hash_table.
  *
- * This inserts or overwrites the item at the given key with the given value.
+ * If an entry with the same key is already in the hash table, the entry is @em
+ * not inserted.
  *
- * @return @c true on success, @c false on failure (which can only happen if
- * allocating for a rehash fails).
+ * @param[out] it_ret If not @c NULL, a returned iterator pointing to the newly
+ * inserted entry or the existing entry with the same key.
+ * @return 1 if the entry was inserted, 0 if the key already existed, -1 if
+ * allocating memory for a rehash failed.
  */
-bool hash_map_insert(struct hash_map *map, const key_type *key,
-		     const value_type *value);
+int hash_table_insert(struct hash_table *table, const entry_type *entry,
+		      struct hash_table_iterator *it_ret);
 
 /**
- * Insert an item in a @ref hash_map with a precomputed hash.
+ * Insert an entry in a @ref hash_table with a precomputed hash.
  *
- * Like @ref hash_map_insert(), but the hash was already computed. This saves
+ * Like @ref hash_table_insert(), but the hash was already computed. This saves
  * recomputing the hash when doing multiple operations with the same key.
  */
-bool hash_map_insert_hashed(struct hash_map *map, const key_type *key,
-			    const value_type *value, struct hash_pair hp);
+int hash_table_insert_hashed(struct hash_table *table, const entry_type *entry,
+			     struct hash_pair hp,
+			     struct hash_table_iterator *it_ret);
 
 /**
- * Insert an item in a @ref hash_map which is not in the map.
+ * Insert an entry in a @ref hash_table which is not in the table.
  *
- * Like @ref hash_map_insert_hashed(), but a search was previously done and the
- * key is not already in the map. This saves doing a redundant search in that
- * case but is unsafe otherwise.
+ * Like @ref hash_table_insert_hashed(), but a search was previously done and
+ * the key is not already in the table. This saves doing a redundant search in
+ * that case but is unsafe otherwise.
  */
-bool hash_map_insert_searched(struct hash_map *map, const key_type *key,
-			      const value_type *value, struct hash_pair hp);
+int hash_table_insert_searched(struct hash_table *table,
+			       const entry_type *entry, struct hash_pair hp,
+			       struct hash_table_iterator *it_ret);
 
 /**
- * Insert an item in a @ref hash_map and get the iterator.
+ * Search for an entry in a @ref hash_table.
  *
- * Like @ref hash_map_insert_hashed(), but returns an iterator.
- *
- * @return The position at which the item was inserted, or a position with
- * <tt>item == NULL</tt> if the insertion failed.
+ * @return An iterator pointing to the entry with the given key, or an iterator
+ * with <tt>entry == NULL</tt> if the key was not found.
  */
-struct hash_map_pos hash_map_insert_pos(struct hash_map *map,
-					const key_type *key,
-					const value_type *value,
-					struct hash_pair hp);
+struct hash_table_iterator hash_table_search(struct hash_table *table,
+					     const key_type *key);
 
 /**
- * Insert an item in a @ref hash_map which is not in the map and get the
- * iterator.
+ * Search for an entry in a @ref hash_table with a precomputed hash.
  *
- * Like @ref hash_map_insert_searched(), but returns an iterator.
- *
- * @return The position at which the item was inserted, or a position with
- * <tt>item == NULL</tt> if the insertion failed.
- */
-struct hash_map_pos hash_map_insert_searched_pos(struct hash_map *map,
-						 const key_type *key,
-						 const value_type *value,
-						 struct hash_pair hp);
-
-/**
- * Search for an item in a @ref hash_map.
- *
- * This searches for the value with the given key.
- *
- * @return A pointer to the value if it was found, @c NULL if it was not.
- */
-value_type *hash_map_search(struct hash_map *map, const key_type *key);
-
-/**
- * Search for an item in a @ref hash_map with a precomputed hash.
- *
- * Like @ref hash_map_search(), but the hash was already computed. This saves
+ * Like @ref hash_table_search(), but the hash was already computed. This saves
  * recomputing the hash when doing multiple operations with the same key.
  */
-value_type *hash_map_search_hashed(struct hash_map *map, const key_type *key,
-				   struct hash_pair hp);
+struct hash_table_iterator hash_table_search_hashed(struct hash_table *table,
+						    const key_type *key,
+						    struct hash_pair hp);
 
 /**
- * Search for an item in a @ref hash_map and get the position.
+ * Delete an entry in a @ref hash_table.
  *
- * Like @ref hash_map_search_hashed(), but returns an iterator.
+ * This deletes the entry with the given key. It will never rehash the table.
  *
- * @return The position of the item with the given key, or a position with
- * <tt>item == NULL</tt> if the key was not found.
+ * @return @c true if the entry was found and deleted, @c false if not.
  */
-struct hash_map_pos hash_map_search_pos(struct hash_map *map,
-					const key_type *key,
-					struct hash_pair hp);
+bool hash_table_delete(struct hash_table *table, const key_type *key);
 
 /**
- * Delete an item in a @ref hash_map.
+ * Delete an entry in a @ref hash_table with a precomputed hash.
  *
- * This deletes the item with the given key. It will never rehash the table.
- *
- * @return @c true if the item was found, @c false if not.
- */
-bool hash_map_delete(struct hash_map *map, const key_type *key);
-
-/**
- * Delete an item in a @ref hash_map with a precomputed hash.
- *
- * Like @ref hash_map_delete(), but the hash was already computed. This saves
+ * Like @ref hash_table_delete(), but the hash was already computed. This saves
  * recomputing the hash when doing multiple operations with the same key.
  */
-bool hash_map_delete_hashed(struct hash_map *map, struct hash_pair hp);
+bool hash_table_delete_hashed(struct hash_table *table, struct hash_pair hp);
 
 /**
- * Delete an item given by an iterator in a @ref hash_map.
+ * Delete an entry given by an iterator in a @ref hash_table.
  *
- * This deletes the item (with the given hash) at the given position.
+ * This deletes the entry pointed to by the iterator. It will never rehash the
+ * table.
+ *
+ * @return An iterator pointing to the next entry in the table. See @ref
+ * hash_table_next().
  */
-void hash_map_delete_pos(struct hash_map *map, struct hash_map_pos pos,
-			 struct hash_pair hp);
+struct hash_table_iterator
+hash_table_delete_iterator(struct hash_table *table,
+			   struct hash_table_iterator it);
 
 /**
- * Get an iterator over a @ref hash_map.
+ * Delete an entry given by an iterator in a @ref hash_table with a precomputed
+ * hash.
  *
- * @return The position of the first item in the map, or a position with
- * <tt>item == NULL</tt> if the map is empty.
+ * Like @ref hash_table_delete_iterator(), but the hash was already computed.
+ * This saves recomputing the hash when doing multiple operations with the same
+ * key.
  */
-struct hash_map_pos hash_map_first_pos(struct hash_map *map);
+struct hash_table_iterator
+hash_table_delete_iterator_hashed(struct hash_table *table,
+				  struct hash_table_iterator it,
+				  struct hash_pair hp);
 
 /**
- * Advance a @ref hash_map iterator.
+ * Get an iterator pointing to the first entry in a @ref hash_table.
  *
- * The position will have <tt>item == NULL</tt> when there are no more items in
- * the map.
+ * The first entry is arbitrary.
+ *
+ * @return An iterator pointing to the first entry, or an iterator with
+ * <tt>entry == NULL</tt> if the table is empty.
  */
-void hash_map_next_pos(struct hash_map_pos *pos);
-
-/** @} */
+struct hash_table_iterator hash_table_first(struct hash_table *table);
 
 /**
- * @defgroup HashSets Hash sets
+ * Get an iterator pointing to the next entry in a @ref hash_table.
  *
- * Hash sets.
+ * The order of entries is arbitrary.
  *
- * A hash set type is defined with @ref DEFINE_HASH_SET(). The defined types and
- * functions will have the given name; the interface documented here uses an
- * example name of @c hash_set.
- *
- * @{
+ * @return An iterator pointing to the next entry, or an iterator with <tt>entry
+ * == NULL</tt> if there are no more entries.
  */
-
-/**
- * @struct hash_set
- *
- * Hash set instance.
- *
- * There are no requirements on how this is allocated; it may be global, on the
- * stack, allocated by @c malloc(), embedded in another structure, etc.
- */
-struct hash_set;
-
-/**
- * Hash set iterator.
- *
- * Several functions return an iterator or take one as an argument. This
- * iterator has a reference to an item (i.e., key), which can be @c NULL to
- * indicate a not found or error case. It also contains private bookkeeping
- * which should not be used.
- *
- * A position remains valid as long as the key is not deleted and the table is
- * not rehashed.
- */
-struct hash_set_pos {
-	key_type *item;
-};
-
-/**
- * Compute the hash for a given key.
- *
- * Note that this function is simply a wrapper around the hash function that was
- * passed when defining the hash set. It is provided for convenience.
- */
-struct hash_pair hash_set_hash(const key_type *key);
-
-/**
- * Initialize a @ref hash_set.
- *
- * The new hash set is empty. It must be deinitialized with @ref
- * hash_set_deinit().
- */
-void hash_set_init(struct hash_set *set);
-
-/**
- * Free memory allocated by a @ref hash_set.
- *
- * After this is called, the hash set must not be used unless it is
- * reinitialized with @ref hash_set_init(). Note that this only frees memory
- * allocated by the hash table itself; if keys or the hash table structure
- * itself are dynamically allocated, those must be freed separately.
- */
-void hash_set_deinit(struct hash_set *set);
-
-/** Return the number of keys in a @ref hash_set. */
-size_t hash_set_size(struct hash_set *set);
-
-/**
- * Delete all keys in a @ref hash_set.
- *
- * This does not necessarily free memory used by the hash table.
- */
-void hash_set_clear(struct hash_set *set);
-
-/**
- * Reserve keys in a @ref hash_set.
- *
- * This allocates space up front to ensure that the table will not be rehashed
- * until the set contains the given number of keys.
- *
- * @return @c true on success, @c false on failure.
- */
-bool hash_set_reserve(struct hash_set *set, size_t capacity);
-
-/**
- * Insert a key in a @ref hash_set.
- *
- * This is a no-op if the key was already in the set.
- *
- * @return @c true on success, @c false on failure (which can only happen if
- * allocating for a rehash fails).
- */
-bool hash_set_insert(struct hash_set *set, const key_type *key);
-
-/**
- * Insert a key in a @ref hash_set with a precomputed hash.
- *
- * Like @ref hash_set_insert(), but the hash was already computed. This saves
- * recomputing the hash when doing multiple operations with the same key.
- */
-bool hash_set_insert_hashed(struct hash_set *set, const key_type *key,
-			    struct hash_pair hp);
-
-/**
- * Insert a key in a @ref hash_set which is not in the set.
- *
- * Like @ref hash_set_insert_hashed(), but a search was previously done and the
- * key is not already in the set. This saves doing a redundant search in that
- * case but is unsafe otherwise.
- */
-bool hash_set_insert_searched(struct hash_set *set, const key_type *key,
-			      struct hash_pair hp);
-
-/**
- * Insert a key in a @ref hash_set and get the iterator.
- *
- * Like @ref hash_set_insert_hashed(), but returns an iterator.
- *
- * @return The position at which the key was inserted, or a position with
- * <tt>item == NULL</tt> if the insertion failed.
- */
-struct hash_set_pos hash_set_insert_pos(struct hash_set *set,
-					const key_type *key,
-					struct hash_pair hp);
-
-/**
- * Insert a key in a @ref hash_set which is not in the set and get the iterator.
- *
- * Like @ref hash_set_insert_searched(), but returns an iterator.
- *
- * @return The position at which the key was inserted, or a position with
- * <tt>item == NULL</tt> if the insertion failed.
- */
-struct hash_set_pos hash_set_insert_searched_pos(struct hash_set *set,
-						 const key_type *key,
-						 struct hash_pair hp);
-
-/**
- * Search for a key in a @ref hash_set.
- *
- * @return @c true if the key was found, @c false if not.
- */
-bool hash_set_search(struct hash_set *set, const key_type *key);
-
-/**
- * Search for a key in a @ref hash_set with a precomputed hash.
- *
- * Like @ref hash_set_search(), but the hash was already computed. This saves
- * recomputing the hash when doing multiple operations with the same key.
- */
-bool hash_set_search_hashed(struct hash_set *set, const key_type *key,
-			    struct hash_pair hp);
-
-/**
- * Search for a key in a @ref hash_set and get the position.
- *
- * Like @ref hash_set_search_hashed(), but returns an iterator.
- *
- * @return The position of the given key, or a position with <tt>item ==
- * NULL</tt> if the key was not found.
- */
-struct hash_set_pos hash_set_search_pos(struct hash_set *set,
-					const key_type *key,
-					struct hash_pair hp);
-
-/**
- * Delete a key in a @ref hash_set.
- *
- * This will never rehash the table.
- *
- * @return @c true if the key was found, @c false if not.
- */
-bool hash_set_delete(struct hash_set *set, const key_type *key);
-
-/**
- * Delete a key in a @ref hash_set with a precomputed hash.
- *
- * Like @ref hash_set_delete(), but the hash was already computed. This saves
- * recomputing the hash when doing multiple operations with the same key.
- */
-bool hash_set_delete_hashed(struct hash_set *set, struct hash_pair hp);
-
-/**
- * Delete a key given by an iterator in a @ref hash_set.
- *
- * This deletes the key (with the given hash) at the given position.
- */
-void hash_set_delete_pos(struct hash_set *set, struct hash_set_pos pos,
-			 struct hash_pair hp);
-
-/**
- * Get an iterator over a @ref hash_set.
- *
- * @return The position of the first key in the set, or a position with
- * <tt>item == NULL</tt> if the set is empty.
- */
-struct hash_set_pos hash_set_first_pos(struct hash_set *set);
-
-/**
- * Advance a @ref hash_set iterator.
- *
- * The position will have <tt>item == NULL</tt> when there are no more keys in
- * the set.
- */
-void hash_set_next_pos(struct hash_set_pos *pos);
-
-/** @} */
+struct hash_table_iterator hash_table_next(struct hash_table_iterator it);
 #endif
 
 static inline size_t hash_table_probe_delta(struct hash_pair hp)
 {
 	return 2 * hp.second + 1;
 }
-
-#define HASH_TABLE_TYPE(name) struct name
-#define HASH_TABLE_CHUNK(name) struct name##_chunk
-#define HASH_TABLE_POS(name) struct name##_pos
-#define HASH_MAP_ITEM_KEY(item) &(item)->key
-#define HASH_SET_ITEM_KEY(item) item
 
 /*
  * We could represent an empty hash table with chunks set to NULL. However, then
@@ -522,82 +311,90 @@ static inline size_t hash_table_probe_delta(struct hash_pair hp)
 extern const uint8_t hash_table_empty_chunk_header[];
 #define hash_table_empty_chunk (void *)hash_table_empty_chunk_header
 
-/*
- * F14 hash table implementation as monstrous macros. See DEFINE_HASH_MAP() and
- * DEFINE_HASH_SET() for the public interface.
- */
-
 #ifdef __SSE2__
 #define HASH_TABLE_CHUNK_MATCH(table)						\
-static inline unsigned int							\
-table##_chunk_match(HASH_TABLE_CHUNK(table) *chunk, size_t needle)		\
+static inline unsigned int table##_chunk_match(struct table##_chunk *chunk,	\
+					       size_t needle)			\
 {										\
 	__m128i tag_vec = _mm_load_si128((__m128i *)chunk);			\
-	/*									\
-	 * Note that we could pass needle as a uint8_t (and make		\
-	 * hash_pair.second a uint8_t as well), but the folly implementation	\
-	 * insists that using size_t generates better code.			\
-	 */									\
 	__m128i needle_vec = _mm_set1_epi8((uint8_t)needle);			\
 	__m128i eq_vec = _mm_cmpeq_epi8(tag_vec, needle_vec);			\
 	return _mm_movemask_epi8(eq_vec) & table##_chunk_full_mask;		\
 }
 
-#define HASH_TABLE_CHUNK_OCCUPIED(table)				\
-static inline unsigned int						\
-table##_chunk_occupied(HASH_TABLE_CHUNK(table) *chunk)			\
-{									\
-	__m128i tag_vec = _mm_load_si128((__m128i *)chunk);		\
-	return _mm_movemask_epi8(tag_vec) & table##_chunk_full_mask;	\
+#define HASH_TABLE_CHUNK_OCCUPIED(table)					\
+static inline unsigned int table##_chunk_occupied(struct table##_chunk *chunk)	\
+{										\
+	__m128i tag_vec = _mm_load_si128((__m128i *)chunk);			\
+	return _mm_movemask_epi8(tag_vec) & table##_chunk_full_mask;		\
 }
 #else
-#define HASH_TABLE_CHUNK_MATCH(table)					\
-static inline unsigned int						\
-table##_chunk_match(HASH_TABLE_CHUNK(table) *chunk, size_t needle)	\
-{									\
-	unsigned int mask, i;						\
-									\
-	for (mask = 0, i = 0; i < table##_chunk_capacity; i++) {	\
-		if (chunk->tags[i] == needle)				\
-			mask |= 1U << i;				\
-	}								\
-	return mask;							\
+#define HASH_TABLE_CHUNK_MATCH(table)						\
+static inline unsigned int table##_chunk_match(struct table##_chunk *chunk,	\
+					       size_t needle)			\
+{										\
+	unsigned int mask, i;							\
+										\
+	for (mask = 0, i = 0; i < table##_chunk_capacity; i++) {		\
+		if (chunk->tags[i] == needle)					\
+			mask |= 1U << i;					\
+	}									\
+	return mask;								\
 }
 
-#define HASH_TABLE_CHUNK_OCCUPIED(table)				\
-static inline unsigned int						\
-table##_chunk_occupied(HASH_TABLE_CHUNK(table) *chunk)			\
-{									\
-	unsigned int mask, i;						\
-									\
-	for (mask = 0, i = 0; i < table##_chunk_capacity; i++) {	\
-		if (chunk->tags[i])					\
-			mask |= 1U << i;				\
-	}								\
-	return mask;							\
+#define HASH_TABLE_CHUNK_OCCUPIED(table)					\
+static inline unsigned int table##_chunk_occupied(struct table##_chunk *chunk)	\
+{										\
+	unsigned int mask, i;							\
+										\
+	for (mask = 0, i = 0; i < table##_chunk_capacity; i++) {		\
+		if (chunk->tags[i])						\
+			mask |= 1U << i;					\
+	}									\
+	return mask;								\
 }
 #endif
 
-#define DEFINE_HASH_TABLE_TYPES(table, key_type, item_type)			\
+/**
+ * Define a hash table type without defining its functions.
+ *
+ * This is useful when the hash table type must be defined in one place (e.g., a
+ * header) but the interface is defined elsewhere (e.g., a source file) with
+ * @ref DEFINE_HASH_TABLE_FUNCTIONS(). Otherwise, just use @ref
+ * DEFINE_HASH_TABLE().
+ *
+ * @sa DEFINE_HASH_TABLE()
+ */
+#define DEFINE_HASH_TABLE_TYPE(table, entry_type, entry_to_key)			\
+typedef typeof(entry_type) table##_entry_type;					\
+typedef typeof(entry_to_key((table##_entry_type *)0)) table##_key_type;		\
+										\
+static inline table##_key_type							\
+table##_entry_to_key(const table##_entry_type *entry)				\
+{										\
+	return entry_to_key(entry);						\
+}										\
+										\
 enum {										\
 	/*									\
-	 * The number of items per chunk. 14 is the most space efficient, but	\
-	 * if an item is 4 bytes, 12 items makes a chunk exactly one cache	\
+	 * The number of entries per chunk. 14 is the most space efficient, but	\
+	 * if an entry is 4 bytes, 12 entries makes a chunk exactly one cache	\
 	 * line.								\
 	 */									\
-	table##_chunk_capacity = sizeof(item_type) == 4 ? 12 : 14,		\
-	/* The maximum load factor in terms of items per chunk. */		\
+	table##_chunk_capacity = sizeof(table##_entry_type) == 4 ? 12 : 14,	\
+	/* The maximum load factor in terms of entries per chunk. */		\
 	table##_chunk_desired_capacity = table##_chunk_capacity - 2,		\
 	/*									\
-	 * If an item is 16 bytes, add an extra 16 bytes of padding to make a	\
+	 * If an entry is 16 bytes, add an extra 16 bytes of padding to make a	\
 	 * chunk exactly four cache lines.					\
 	 */									\
 	table##_chunk_allocated_capacity =					\
-		(table##_chunk_capacity + (sizeof(item_type) == 16 ? 1 : 0)),	\
+		(table##_chunk_capacity +					\
+		 (sizeof(table##_entry_type) == 16 ? 1 : 0)),			\
 	table##_chunk_full_mask = (1 << table##_chunk_capacity) - 1,		\
 };										\
 										\
-HASH_TABLE_CHUNK(table) {							\
+struct table##_chunk {								\
 	uint8_t tags[14];							\
 	/*									\
 	 * If this is the first chunk, the capacity of the table if it is also	\
@@ -606,68 +403,73 @@ HASH_TABLE_CHUNK(table) {							\
 	 */									\
 	uint8_t chunk0_capacity : 4;						\
 	/*									\
-	 * The number of values in this chunk that overflowed their desired	\
+	 * The number of entries in this chunk that overflowed their desired	\
 	 * chunk.								\
 	 *									\
 	 * Note that this bit field and chunk0_capacity are combined into a	\
-	 * single uint8_t member, control, in the folly implementation.		\
+	 * single uint8_t member named "control" in the folly implementation.	\
 	 */									\
 	uint8_t hosted_overflow_count : 4;					\
 	/*									\
-	 * The number of values that would have been in this chunk if it were	\
+	 * The number of entries that would have been in this chunk if it were	\
 	 * not full. This value saturates if it hits 255, after which it will	\
 	 * not be updated.							\
 	 */									\
 	uint8_t outbound_overflow_count;					\
-	item_type items[table##_chunk_allocated_capacity];			\
+	table##_entry_type entries[table##_chunk_allocated_capacity];		\
 } __attribute__((aligned(16)));							\
 										\
-HASH_TABLE_POS(table) {								\
-	item_type *item;							\
+struct table##_iterator {							\
+	table##_entry_type *entry;						\
 	size_t index;								\
 };										\
 										\
-HASH_TABLE_TYPE(table) {							\
-	HASH_TABLE_CHUNK(table) *chunks;					\
+struct table {									\
+	struct table##_chunk *chunks;						\
 	/* Number of chunks minus one. */					\
 	size_t chunk_mask;							\
 	/* Number of used values. */						\
 	size_t size;								\
-	/* Cached position of first item. */					\
+	/* Cached first iterator. */						\
 	uintptr_t first_packed;							\
 };										\
 
-#define DEFINE_HASH_TABLE_FUNCTIONS(table, key_type, item_type, item_key,	\
-				    hash_func, eq_func)				\
-/*										\
- * We use typeof() here and elsewhere because key_type * is not always the	\
- * syntax for a pointer to key_type (e.g., if key_type is int [2], int [2] *key	\
- * is invalid sytax).								\
- */										\
-static inline struct hash_pair table##_hash(const typeof(key_type) *key)	\
+/**
+ * Define the functions for a hash table.
+ *
+ * The hash table type must have already been defined with @ref
+ * DEFINE_HASH_TABLE_TYPE().
+ *
+ * Unless the type and function definitions must be in separate places, use @ref
+ * DEFINE_HASH_TABLE() instead.
+ *
+ * @sa DEFINE_HASH_TABLE()
+ */
+#define DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)			\
+static inline struct hash_pair table##_hash(const table##_key_type *key)	\
 {										\
 	return hash_func(key);							\
 }										\
 										\
 /*										\
  * We cache the first position in the table as a tagged pointer: we steal the	\
- * bottom bits of the chunk pointer for the item index. We can do this because	\
+ * bottom bits of the chunk pointer for the entry index. We can do this because	\
  * chunks are aligned to 16 bytes and the index is always less than 16.		\
  *										\
  * The folly implementation mentions this strategy but uses a more complicated	\
- * scheme in order to avoid computing the chunk pointer from an item pointer.	\
+ * scheme in order to avoid computing the chunk pointer from an entry pointer.	\
  * We always have the chunk pointer readily available when we want to pack an	\
- * item, so we can use this much simpler scheme.				\
+ * entry, so we can use this much simpler scheme.				\
  */										\
-static inline uintptr_t table##_pack_pos(HASH_TABLE_CHUNK(table) *chunk,	\
-					 size_t index)				\
+static inline uintptr_t table##_pack_iterator(struct table##_chunk *chunk,	\
+					      size_t index)			\
 {										\
 	return (uintptr_t)chunk | (uintptr_t)index;				\
 }										\
 										\
-static inline HASH_TABLE_CHUNK(table) *table##_unpack_chunk(uintptr_t packed)	\
+static inline struct table##_chunk *table##_unpack_chunk(uintptr_t packed)	\
 {										\
-	return (HASH_TABLE_CHUNK(table) *)(packed & ~0xf);			\
+	return (struct table##_chunk *)(packed & ~(uintptr_t)0xf);		\
 }										\
 										\
 static inline size_t table##_unpack_index(uintptr_t packed)			\
@@ -675,31 +477,31 @@ static inline size_t table##_unpack_index(uintptr_t packed)			\
 	return packed & 0xf;							\
 }										\
 										\
-static inline HASH_TABLE_POS(table) table##_unpack_pos(uintptr_t packed)	\
+static inline struct table##_iterator table##_unpack_iterator(uintptr_t packed)	\
 {										\
-	HASH_TABLE_CHUNK(table) *chunk;						\
+	struct table##_chunk *chunk;						\
 	size_t index;								\
 										\
 	chunk = table##_unpack_chunk(packed);					\
 	index = table##_unpack_index(packed);					\
-	return (HASH_TABLE_POS(table)){						\
-		.item = chunk ? &chunk->items[index] : NULL,			\
+	return (struct table##_iterator){					\
+		.entry = chunk ? &chunk->entries[index] : NULL,			\
 		.index = index,							\
 	};									\
 }										\
 										\
-static inline HASH_TABLE_CHUNK(table) *						\
-table##_pos_chunk(HASH_TABLE_POS(table) pos)					\
+static inline struct table##_chunk *						\
+table##_iterator_chunk(struct table##_iterator it)				\
 {										\
-	return container_of(pos.item - pos.index, HASH_TABLE_CHUNK(table),	\
-			    items[0]);						\
+	return container_of(it.entry - it.index, struct table##_chunk,		\
+			    entries[0]);					\
 }										\
 										\
 HASH_TABLE_CHUNK_MATCH(table)							\
 HASH_TABLE_CHUNK_OCCUPIED(table)						\
 										\
 static inline unsigned int							\
-table##_chunk_first_empty(HASH_TABLE_CHUNK(table) *chunk)			\
+table##_chunk_first_empty(struct table##_chunk *chunk)				\
 {										\
 	unsigned int mask;							\
 										\
@@ -708,7 +510,7 @@ table##_chunk_first_empty(HASH_TABLE_CHUNK(table) *chunk)			\
 }										\
 										\
 static inline unsigned int							\
-table##_chunk_last_occupied(HASH_TABLE_CHUNK(table) *chunk)			\
+table##_chunk_last_occupied(struct table##_chunk *chunk)			\
 {										\
 	unsigned int mask;							\
 										\
@@ -717,21 +519,21 @@ table##_chunk_last_occupied(HASH_TABLE_CHUNK(table) *chunk)			\
 }										\
 										\
 static inline void								\
-table##_chunk_inc_outbound_overflow_count(HASH_TABLE_CHUNK(table) *chunk)	\
+table##_chunk_inc_outbound_overflow_count(struct table##_chunk *chunk)		\
 {										\
 	if (chunk->outbound_overflow_count != UINT8_MAX)			\
 		chunk->outbound_overflow_count++;				\
 }										\
 										\
 static inline void								\
-table##_chunk_dec_outbound_overflow_count(HASH_TABLE_CHUNK(table) *chunk)	\
+table##_chunk_dec_outbound_overflow_count(struct table##_chunk *chunk)		\
 {										\
 	if (chunk->outbound_overflow_count != UINT8_MAX)			\
 		chunk->outbound_overflow_count--;				\
 }										\
 										\
 __attribute__((unused))								\
-static void table##_init(HASH_TABLE_TYPE(table) *table)				\
+static void table##_init(struct table *table)					\
 {										\
 	table->chunks = hash_table_empty_chunk;					\
 	table->chunk_mask = 0;							\
@@ -740,27 +542,33 @@ static void table##_init(HASH_TABLE_TYPE(table) *table)				\
 }										\
 										\
 __attribute__((unused))								\
-static void table##_deinit(HASH_TABLE_TYPE(table) *table)			\
+static void table##_deinit(struct table *table)					\
 {										\
 	if (table->chunks != hash_table_empty_chunk)				\
 		free(table->chunks);						\
 }										\
 										\
 __attribute__((unused))								\
-static inline size_t table##_size(HASH_TABLE_TYPE(table) *table)		\
+static inline bool table##_empty(struct table *table)				\
+{										\
+	return table->size == 0;						\
+}										\
+										\
+__attribute__((unused))								\
+static inline size_t table##_size(struct table *table)				\
 {										\
 	return table->size;							\
 }										\
 										\
-static item_type *table##_allocate_tag(HASH_TABLE_TYPE(table) *table,		\
-				       uint8_t *fullness,			\
-				       struct hash_pair hp)			\
+static table##_entry_type *table##_allocate_tag(struct table *table,		\
+						uint8_t *fullness,		\
+						struct hash_pair hp)		\
 {										\
-    HASH_TABLE_CHUNK(table) *chunk;						\
+    struct table##_chunk *chunk;						\
     size_t index = hp.first;							\
     size_t delta = hash_table_probe_delta(hp);					\
     uint8_t hosted_inc = 0;							\
-    size_t item_index;								\
+    size_t entry_index;								\
 										\
     for (;;) {									\
 	    index &= table->chunk_mask;						\
@@ -771,43 +579,42 @@ static item_type *table##_allocate_tag(HASH_TABLE_TYPE(table) *table,		\
 	    hosted_inc = 1;							\
 	    index += delta;							\
     }										\
-    item_index = fullness[index]++;						\
-    chunk->tags[item_index] = hp.second;					\
+    entry_index = fullness[index]++;						\
+    chunk->tags[entry_index] = hp.second;					\
     chunk->hosted_overflow_count += hosted_inc;					\
-    return &chunk->items[item_index];						\
+    return &chunk->entries[entry_index];					\
 }										\
 										\
-static void									\
-table##_set_first_packed_after_rehash(HASH_TABLE_TYPE(table) *table,		\
-				      uint8_t *fullness)			\
+static void table##_set_first_packed_after_rehash(struct table *table,		\
+						  uint8_t *fullness)		\
 {										\
 	size_t i;								\
 										\
 	i = table->chunk_mask;							\
 	while (fullness[i] == 0)						\
 		i--;								\
-	table->first_packed = table##_pack_pos(&table->chunks[i],		\
-					       fullness[i] - 1);		\
+	table->first_packed = table##_pack_iterator(&table->chunks[i],		\
+						    fullness[i] - 1);		\
 }										\
 										\
 static inline size_t table##_alloc_size(size_t chunk_count, size_t max_size)	\
 {										\
 	/*									\
 	 * Small hash tables are common, so for capacities of less than a full	\
-	 * chunk we only allocate the required items.				\
+	 * chunk we only allocate the required entries.				\
 	 */									\
 	if (chunk_count == 1) {							\
-		return (offsetof(HASH_TABLE_CHUNK(table), items) +		\
-			max_size * sizeof(item_type));				\
+		return (offsetof(struct table##_chunk, entries) +		\
+			max_size * sizeof(table##_entry_type));			\
 	} else {								\
-		return chunk_count * sizeof(HASH_TABLE_CHUNK(table));		\
+		return chunk_count * sizeof(struct table##_chunk);		\
 	}									\
 }										\
 										\
-static bool table##_rehash(HASH_TABLE_TYPE(table) *table,			\
-			   size_t new_chunk_count, size_t new_max_size)		\
+static bool table##_rehash(struct table *table, size_t new_chunk_count,		\
+			   size_t new_max_size)					\
 {										\
-	HASH_TABLE_CHUNK(table) *orig_chunks = table->chunks;			\
+	struct table##_chunk *orig_chunks = table->chunks;			\
 	size_t orig_chunk_mask = table->chunk_mask;				\
 	size_t orig_chunk_count = orig_chunk_mask + 1;				\
 	size_t alloc_size = table##_alloc_size(new_chunk_count, new_max_size);	\
@@ -827,7 +634,7 @@ static bool table##_rehash(HASH_TABLE_TYPE(table) *table,			\
 	if (table->size == 0) {							\
 		/* Nothing to do. */						\
 	} else if (orig_chunk_count == 1 && new_chunk_count == 1) {		\
-		HASH_TABLE_CHUNK(table) *src, *dst;				\
+		struct table##_chunk *src, *dst;				\
 		size_t src_i = 0, dst_i = 0;					\
 										\
 		src = &orig_chunks[0];						\
@@ -835,15 +642,16 @@ static bool table##_rehash(HASH_TABLE_TYPE(table) *table,			\
 		while (dst_i < table->size) {					\
 			if (likely(src->tags[src_i])) {				\
 				dst->tags[dst_i] = src->tags[src_i];		\
-				memcpy(&dst->items[dst_i], &src->items[src_i],	\
-				       sizeof(dst->items[dst_i]));		\
+				memcpy(&dst->entries[dst_i],			\
+				       &src->entries[src_i],			\
+				       sizeof(dst->entries[dst_i]));		\
 				dst_i++;					\
 			}							\
 			src_i++;						\
 		}								\
-		table->first_packed = table##_pack_pos(dst, dst_i - 1);		\
+		table->first_packed = table##_pack_iterator(dst, dst_i - 1);	\
 	} else {								\
-		HASH_TABLE_CHUNK(table) *src;					\
+		struct table##_chunk *src;					\
 		uint8_t stack_fullness[256];					\
 		uint8_t *fullness;						\
 		size_t remaining;						\
@@ -864,17 +672,20 @@ static bool table##_rehash(HASH_TABLE_TYPE(table) *table,			\
 										\
 			mask = table##_chunk_occupied(src);			\
 			for_each_bit(i, mask) {					\
-				item_type *src_item;				\
-				item_type *dst_item;				\
+				table##_entry_type *src_entry;			\
+				table##_entry_type *dst_entry;			\
+				table##_key_type key;				\
 				struct hash_pair hp;				\
 										\
 				remaining--;					\
-				src_item = &src->items[i];			\
-				hp = table##_hash(item_key(src_item));		\
-				dst_item = table##_allocate_tag(table,		\
-								fullness,	\
-								hp);		\
-				memcpy(dst_item, src_item, sizeof(*dst_item));	\
+				src_entry = &src->entries[i];			\
+				key = table##_entry_to_key(src_entry);		\
+				hp = table##_hash(&key);			\
+				dst_entry = table##_allocate_tag(table,		\
+								 fullness,	\
+								 hp);		\
+				memcpy(dst_entry, src_entry,			\
+				       sizeof(*dst_entry));			\
 			}							\
 			src--;							\
 		}								\
@@ -896,7 +707,7 @@ err:										\
 	return false;								\
 }										\
 										\
-static bool table##_do_reserve(HASH_TABLE_TYPE(table) *table, size_t capacity,	\
+static bool table##_do_reserve(struct table *table, size_t capacity,		\
 			       size_t orig_max_size)				\
 {										\
 	static const size_t initial_capacity = 2;				\
@@ -926,7 +737,7 @@ static bool table##_do_reserve(HASH_TABLE_TYPE(table) *table, size_t capacity,	\
 		return true;							\
 }										\
 										\
-static size_t table##_max_size(HASH_TABLE_TYPE(table) *table)			\
+static size_t table##_max_size(struct table *table)				\
 {										\
 	if (table->chunk_mask == 0) {						\
 		return table->chunks[0].chunk0_capacity;			\
@@ -937,7 +748,7 @@ static size_t table##_max_size(HASH_TABLE_TYPE(table) *table)			\
 }										\
 										\
 __attribute__((unused))								\
-static bool table##_reserve(HASH_TABLE_TYPE(table) *table, size_t capacity)	\
+static bool table##_reserve(struct table *table, size_t capacity)		\
 {										\
 	if (table->size > capacity)						\
 		capacity = table->size;						\
@@ -945,7 +756,7 @@ static bool table##_reserve(HASH_TABLE_TYPE(table) *table, size_t capacity)	\
 }										\
 										\
 __attribute__((unused))								\
-static void table##_clear(HASH_TABLE_TYPE(table) *table)			\
+static void table##_clear(struct table *table)					\
 {										\
 	size_t chunk_count;							\
 										\
@@ -972,29 +783,31 @@ static void table##_clear(HASH_TABLE_TYPE(table) *table)			\
 	table->first_packed = 0;						\
 }										\
 										\
-static HASH_TABLE_POS(table) table##_search_pos(HASH_TABLE_TYPE(table) *table,	\
-						const typeof(key_type) *key,	\
-						struct hash_pair hp)		\
+static struct table##_iterator							\
+table##_search_hashed(struct table *table, const table##_key_type *key,		\
+		      struct hash_pair hp)					\
 {										\
 	size_t index = hp.first;						\
 	size_t delta = hash_table_probe_delta(hp);				\
 	size_t tries;								\
 										\
 	for (tries = 0; tries <= table->chunk_mask; tries++) {			\
-		HASH_TABLE_CHUNK(table) *chunk;					\
+		struct table##_chunk *chunk;					\
 		unsigned int mask, i;						\
 										\
 		chunk = &table->chunks[index & table->chunk_mask];		\
 		if (sizeof(*chunk) > 64)					\
-			__builtin_prefetch(&chunk->items[8]);			\
+			__builtin_prefetch(&chunk->entries[8]);			\
 		mask = table##_chunk_match(chunk, hp.second);			\
 		for_each_bit(i, mask) {						\
-			item_type *item;					\
+			table##_entry_type *entry;				\
+			table##_key_type entry_key;				\
 										\
-			item = &chunk->items[i];				\
-			if (likely(eq_func(key, item_key(item)))) {		\
-				return (HASH_TABLE_POS(table)){			\
-					.item = item,				\
+			entry = &chunk->entries[i];				\
+			entry_key = table##_entry_to_key(entry);		\
+			if (likely(eq_func(key, &entry_key))) {			\
+				return (struct table##_iterator){		\
+					.entry = entry,				\
 					.index = i,				\
 				};						\
 			}							\
@@ -1003,10 +816,17 @@ static HASH_TABLE_POS(table) table##_search_pos(HASH_TABLE_TYPE(table) *table,	\
 			break;							\
 		index += delta;							\
 	}									\
-	return (HASH_TABLE_POS(table)){};					\
+	return (struct table##_iterator){};					\
 }										\
 										\
-static bool table##_reserve_for_insert(HASH_TABLE_TYPE(table) *table)		\
+__attribute__((unused))								\
+static struct table##_iterator							\
+table##_search(struct table *table, const table##_key_type *key)		\
+{										\
+	return table##_search_hashed(table, key, table##_hash(key));		\
+}										\
+										\
+static bool table##_reserve_for_insert(struct table *table)			\
 {										\
 	size_t capacity, max_size;						\
 										\
@@ -1019,28 +839,29 @@ static bool table##_reserve_for_insert(HASH_TABLE_TYPE(table) *table)		\
 }										\
 										\
 static void									\
-table##_adjust_size_and_first_after_insert(HASH_TABLE_TYPE(table) *table,	\
-					   HASH_TABLE_CHUNK(table) *chunk,	\
+table##_adjust_size_and_first_after_insert(struct table *table,			\
+					   struct table##_chunk *chunk,		\
 					   size_t index)			\
 {										\
 	uintptr_t first_packed;							\
 										\
-	first_packed = table##_pack_pos(chunk, index);				\
+	first_packed = table##_pack_iterator(chunk, index);			\
 	if (first_packed > table->first_packed)					\
 		table->first_packed = first_packed;				\
 	table->size++;								\
 }										\
 										\
-static HASH_TABLE_POS(table) table##_do_insert(HASH_TABLE_TYPE(table) *table,	\
-					       const typeof(key_type) *key,	\
-					       struct hash_pair hp)		\
+static int table##_insert_searched(struct table *table,				\
+				   const table##_entry_type *entry,		\
+				   struct hash_pair hp,				\
+				   struct table##_iterator *it_ret)		\
 {										\
 	size_t index = hp.first;						\
-	HASH_TABLE_CHUNK(table) *chunk;						\
+	struct table##_chunk *chunk;						\
 	unsigned int first_empty;						\
 										\
 	if (!table##_reserve_for_insert(table))					\
-		return (HASH_TABLE_POS(table)){};				\
+		return -1;							\
 										\
 	chunk = &table->chunks[index & table->chunk_mask];			\
 	first_empty = table##_chunk_first_empty(chunk);				\
@@ -1056,18 +877,47 @@ static HASH_TABLE_POS(table) table##_do_insert(HASH_TABLE_TYPE(table) *table,	\
 		chunk->hosted_overflow_count++;					\
 	}									\
 	chunk->tags[first_empty] = hp.second;					\
+	memcpy(&chunk->entries[first_empty], entry, sizeof(*entry));		\
 	table##_adjust_size_and_first_after_insert(table, chunk, first_empty);	\
-	return (HASH_TABLE_POS(table)){						\
-		.item = &chunk->items[first_empty],				\
-		.index = first_empty,						\
-	};									\
+	if (it_ret) {								\
+		it_ret->entry = &chunk->entries[first_empty];			\
+		it_ret->index = first_empty;					\
+	}									\
+	return 1;								\
 }										\
 										\
-/* Similar to advance_pos() but for the cached first position. */		\
-static void table##_advance_first_packed(HASH_TABLE_TYPE(table) *table)		\
+static int table##_insert_hashed(struct table *table,				\
+				 const table##_entry_type *entry,		\
+				 struct hash_pair hp,				\
+				 struct table##_iterator *it_ret)		\
+{										\
+	table##_key_type key = table##_entry_to_key(entry);			\
+	struct table##_iterator it = table##_search_hashed(table, &key, hp);	\
+										\
+	if (it.entry) {								\
+		if (it_ret)							\
+			*it_ret = it;						\
+		return 0;							\
+	} else {								\
+		return table##_insert_searched(table, entry, hp, it_ret);	\
+	}									\
+}										\
+										\
+__attribute__((unused))								\
+static int table##_insert(struct table *table,					\
+			  const table##_entry_type *entry,			\
+			  struct table##_iterator *it_ret)			\
+{										\
+	table##_key_type key = table##_entry_to_key(entry);			\
+										\
+	return table##_insert_hashed(table, entry, table##_hash(&key), it_ret);	\
+}										\
+										\
+/* Similar to table##_next_impl() but for the cached first position. */		\
+static void table##_advance_first_packed(struct table *table)			\
 {										\
 	uintptr_t packed = table->first_packed;					\
-	HASH_TABLE_CHUNK(table) *chunk;						\
+	struct table##_chunk *chunk;						\
 	size_t index;								\
 										\
 	chunk = table##_unpack_chunk(packed);					\
@@ -1075,13 +925,13 @@ static void table##_advance_first_packed(HASH_TABLE_TYPE(table) *table)		\
 	while (index > 0) {							\
 		index--;							\
 		if (chunk->tags[index]) {					\
-			table->first_packed = table##_pack_pos(chunk, index);	\
+			table->first_packed = table##_pack_iterator(chunk, index);\
 			return;							\
 		}								\
 	}									\
 										\
 	/*									\
-	 * This is only called when there is another item in the table, so we	\
+	 * This is only called when there is another entry in the table, so we	\
 	 * don't need to check if we hit the end.				\
 	 */									\
 	for (;;) {								\
@@ -1090,21 +940,21 @@ static void table##_advance_first_packed(HASH_TABLE_TYPE(table) *table)		\
 		chunk--;							\
 		last = table##_chunk_last_occupied(chunk);			\
 		if (last != (unsigned int)-1) {					\
-			table->first_packed = table##_pack_pos(chunk, last);	\
+			table->first_packed = table##_pack_iterator(chunk, last);\
 			return;							\
 		}								\
 	}									\
 }										\
 										\
 static void									\
-table##_adjust_size_and_first_before_delete(HASH_TABLE_TYPE(table) *table,	\
-					    HASH_TABLE_CHUNK(table) *chunk,	\
+table##_adjust_size_and_first_before_delete(struct table *table,		\
+					    struct table##_chunk *chunk,	\
 					    size_t index)			\
 {										\
 	uintptr_t packed;							\
 										\
 	table->size--;								\
-	packed = table##_pack_pos(chunk, index);				\
+	packed = table##_pack_iterator(chunk, index);				\
 	if (packed == table->first_packed) {					\
 		if (table->size == 0)						\
 			table->first_packed = 0;				\
@@ -1113,30 +963,69 @@ table##_adjust_size_and_first_before_delete(HASH_TABLE_TYPE(table) *table,	\
 	}									\
 }										\
 										\
-static void table##_delete_pos(HASH_TABLE_TYPE(table) *table,			\
-			       HASH_TABLE_POS(table) pos,			\
-			       struct hash_pair hp)				\
+/*										\
+ * We want this inlined so that the whole function call can be optimized away	\
+ * in the likely_dead case, and so that the counter can be optimized away in	\
+ * the not likely_dead case.							\
+ */										\
+__attribute__((always_inline))							\
+static inline struct table##_iterator						\
+table##_next_impl(struct table##_iterator it, bool likely_dead)			\
 {										\
-	HASH_TABLE_CHUNK(table) *pos_chunk, *chunk;				\
+	struct table##_chunk *chunk;						\
+	size_t i;								\
 										\
-	pos_chunk = table##_pos_chunk(pos);					\
-	pos_chunk->tags[pos.index] = 0;						\
-										\
-	table##_adjust_size_and_first_before_delete(table, pos_chunk,		\
-						    pos.index);			\
+	chunk = table##_iterator_chunk(it);					\
+	while (it.index > 0) {							\
+		it.index--;							\
+		it.entry--;							\
+		if (likely(chunk->tags[it.index]))				\
+			return it;						\
+	}									\
 										\
 	/*									\
-	 * Note: we only need the hash pair if the chunk hosts an overflowed	\
-	 * item.								\
+	 * This hack is copied from the folly implementation: this is dead code	\
+	 * if the return value is not used (e.g., the return value of		\
+	 * table##_delete_iterator() is often ignored), but the compiler needs	\
+	 * some help proving that the following loop terminates.		\
 	 */									\
-	if (pos_chunk->hosted_overflow_count) {					\
+	for (i = 1; !likely_dead || i != 0; i++) {				\
+		unsigned int last;						\
+										\
+		if (unlikely(chunk->chunk0_capacity != 0))			\
+			break;							\
+										\
+		chunk--;							\
+		last = table##_chunk_last_occupied(chunk);			\
+		if (!likely_dead)						\
+			__builtin_prefetch(chunk - 1);				\
+		if (likely(last != (unsigned int)-1)) {				\
+			it.index = last;					\
+			it.entry = &chunk->entries[last];			\
+			return it;						\
+		}								\
+	}									\
+	return (struct table##_iterator){};					\
+}										\
+										\
+static void table##_do_delete(struct table *table, struct table##_iterator it,	\
+			      struct hash_pair hp)				\
+{										\
+	struct table##_chunk *it_chunk, *chunk;					\
+										\
+	it_chunk = table##_iterator_chunk(it);					\
+	it_chunk->tags[it.index] = 0;						\
+										\
+	table##_adjust_size_and_first_before_delete(table, it_chunk, it.index);	\
+										\
+	if (it_chunk->hosted_overflow_count) {					\
 		size_t index = hp.first;					\
 		size_t delta = hash_table_probe_delta(hp);			\
 		uint8_t hosted_dec = 0;						\
 										\
 		for (;;) {							\
 			chunk = &table->chunks[index & table->chunk_mask];	\
-			if (chunk == pos_chunk) {				\
+			if (chunk == it_chunk) {				\
 				chunk->hosted_overflow_count -= hosted_dec;	\
 				break;						\
 			}							\
@@ -1147,15 +1036,44 @@ static void table##_delete_pos(HASH_TABLE_TYPE(table) *table,			\
 	}									\
 }										\
 										\
-static bool table##_delete_hashed(HASH_TABLE_TYPE(table) *table,		\
-				  const typeof(key_type) *key,			\
+/*										\
+ * We want this inlined so that the call to table##_next_impl() can be		\
+ * optimized away.								\
+ */										\
+__attribute__((always_inline))							\
+static inline struct table##_iterator						\
+table##_delete_iterator_hashed(struct table *table, struct table##_iterator it,	\
+			       struct hash_pair hp)				\
+{										\
+	table##_do_delete(table, it, hp);					\
+	return table##_next_impl(it, true);					\
+}										\
+										\
+__attribute__((always_inline))							\
+static inline struct table##_iterator						\
+table##_delete_iterator(struct table *table, struct table##_iterator it)	\
+{										\
+	struct hash_pair hp = {};						\
+										\
+	/* We only need the hash if the chunk hosts an overflowed entry. */	\
+	if (table##_iterator_chunk(it)->hosted_overflow_count) {		\
+		table##_key_type key = table##_entry_to_key(it.entry);		\
+										\
+		hp = table##_hash(&key);					\
+	}									\
+	table##_do_delete(table, it, hp);					\
+	return table##_next_impl(it, true);					\
+}										\
+										\
+static bool table##_delete_hashed(struct table *table,				\
+				  const table##_key_type *key,			\
 				  struct hash_pair hp)				\
 {										\
-	HASH_TABLE_POS(table) pos;						\
+	struct table##_iterator it;						\
 										\
-	pos = table##_search_pos(table, key, hp);				\
-	if (pos.item) {								\
-		table##_delete_pos(table, pos, hp);				\
+	it = table##_search_hashed(table, key, hp);				\
+	if (it.entry) {								\
+		table##_do_delete(table, it, hp);				\
 		return true;							\
 	} else {								\
 		return false;							\
@@ -1163,282 +1081,110 @@ static bool table##_delete_hashed(HASH_TABLE_TYPE(table) *table,		\
 }										\
 										\
 __attribute__((unused))								\
-static bool table##_delete(HASH_TABLE_TYPE(table) *table,			\
-			   const typeof(key_type) *key)				\
+static bool table##_delete(struct table *table, const table##_key_type *key)	\
 {										\
 	return table##_delete_hashed(table, key, table##_hash(key));		\
 }										\
 										\
 __attribute__((unused))								\
-static HASH_TABLE_POS(table) table##_first_pos(HASH_TABLE_TYPE(table) *table)	\
+static struct table##_iterator table##_first(struct table *table)		\
 {										\
-	return table##_unpack_pos(table->first_packed);				\
+	return table##_unpack_iterator(table->first_packed);			\
 }										\
 										\
 __attribute__((unused))								\
-static void table##_next_pos(HASH_TABLE_POS(table) *pos)			\
+static struct table##_iterator table##_next(struct table##_iterator it)		\
 {										\
-	HASH_TABLE_CHUNK(table) *chunk;						\
-										\
-	chunk = table##_pos_chunk(*pos);					\
-	while (pos->index > 0) {						\
-		pos->index--;							\
-		pos->item--;							\
-		if (chunk->tags[pos->index])					\
-			return;							\
-	}									\
-										\
-	while (chunk->chunk0_capacity == 0) {					\
-		unsigned int last;						\
-										\
-		chunk--;							\
-		last = table##_chunk_last_occupied(chunk);			\
-		__builtin_prefetch(chunk - 1);					\
-		if (last != (unsigned int)-1) {					\
-			pos->index = last;					\
-			pos->item = &chunk->items[last];			\
-			return;							\
-		}								\
-	}									\
-	pos->item = NULL;							\
+	return table##_next_impl(it, false);					\
 }
 
 /**
- * @ingroup HashMaps
+ * Define a hash table interface.
  *
+ * This macro defines a hash table type along with its functions.
+ *
+ * @param[in] table Name of the type to define. This is prefixed to all of the
+ * types and functions defined for that type.
+ * @param[in] entry_type Type of entries in the table.
+ * @param[in] entry_to_key Name of function or macro which is passed a <tt>const
+ * entry_type *</tt> and returns the key for that entry. The return type is the
+ * @c key_type of the hash table. The passed entry is never @c NULL.
+ * @param[in] hash_func Hash function which takes a <tt>const key_type *</tt>
+ * and returns a @ref hash_pair.
+ * @param[in] eq_func Comparison function which takes two <tt>const key_type
+ * *</tt> and returns a @c bool.
+ */
+#define DEFINE_HASH_TABLE(table, entry_type, entry_to_key, hash_func, eq_func)	\
+DEFINE_HASH_TABLE_TYPE(table, entry_type, entry_to_key)				\
+DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
+
+#define HASH_MAP_ENTRY_TO_KEY(entry) ((entry)->key)
+
+/**
  * Define a hash map type without defining its functions.
  *
- * This is useful when the map type must be defined in one place (e.g., a
- * header) but the interface is defined elsewhere (e.g., a source file) with
- * @ref DEFINE_HASH_MAP_FUNCTIONS(). Otherwise, just use @ref DEFINE_HASH_MAP().
+ * The functions are defined with @ref DEFINE_HASH_TABLE_FUNCTIONS().
  *
- * @sa DEFINE_HASH_MAP()
+ * @sa DEFINE_HASH_MAP(), DEFINE_HASH_TABLE_TYPE()
  */
-#define DEFINE_HASH_MAP_TYPES(table, key_type, value_type)	\
-struct table##_item {						\
-	typeof(key_type) key;					\
-	typeof(value_type) value;				\
-};								\
-DEFINE_HASH_TABLE_TYPES(table, key_type, struct table##_item)
+#define DEFINE_HASH_MAP_TYPE(table, key_type, value_type)			\
+struct table##_entry {								\
+	typeof(key_type) key;							\
+	typeof(value_type) value;						\
+};										\
+DEFINE_HASH_TABLE_TYPE(table, struct table##_entry, HASH_MAP_ENTRY_TO_KEY)
 
 /**
- * @ingroup HashMaps
- *
- * Define the functions for a hash map.
- *
- * The map type must have already been defined with @ref
- * DEFINE_HASH_MAP_TYPES().
- *
- * Unless the type and function definitions must be in separate places, use @ref
- * DEFINE_HASH_MAP() instead.
- *
- * @sa DEFINE_HASH_MAP()
- */
-#define DEFINE_HASH_MAP_FUNCTIONS(table, key_type, value_type, hash_func,	\
-				  eq_func)					\
-DEFINE_HASH_TABLE_FUNCTIONS(table, key_type, struct table##_item,		\
-			    HASH_MAP_ITEM_KEY, hash_func, eq_func)		\
-										\
-static inline typeof(value_type) *						\
-table##_search_hashed(HASH_TABLE_TYPE(table) *table,				\
-		      const typeof(key_type) *key,				\
-		      struct hash_pair hp)					\
-{										\
-	HASH_TABLE_POS(table) pos = table##_search_pos(table, key, hp);		\
-										\
-	return pos.item ? &pos.item->value : NULL;				\
-}										\
-										\
-__attribute__((unused))								\
-static inline typeof(value_type) *table##_search(HASH_TABLE_TYPE(table) *table,	\
-						 const typeof(key_type) *key)	\
-{										\
-	return table##_search_hashed(table, key, table##_hash(key));		\
-}										\
-										\
-static HASH_TABLE_POS(table)							\
-table##_insert_searched_pos(HASH_TABLE_TYPE(table) *table,			\
-			    const typeof(key_type) *key,			\
-			    const typeof(value_type) *value,			\
-			    struct hash_pair hp)				\
-{										\
-	HASH_TABLE_POS(table) pos = table##_do_insert(table, key, hp);		\
-										\
-	if (pos.item) {								\
-		memcpy(&pos.item->key, key, sizeof(*key));			\
-		memcpy(&pos.item->value, value, sizeof(*value));		\
-	}									\
-	return pos;								\
-}										\
-										\
-static HASH_TABLE_POS(table)							\
-table##_insert_pos(HASH_TABLE_TYPE(table) *table, const typeof(key_type) *key,	\
-		   const typeof(value_type) *value, struct hash_pair hp)	\
-{										\
-	HASH_TABLE_POS(table) pos = table##_search_pos(table, key, hp);		\
-										\
-	if (pos.item) {								\
-		memcpy(&pos.item->value, value, sizeof(*value));		\
-		return pos;							\
-	} else {								\
-		return table##_insert_searched_pos(table, key, value, hp);	\
-	}									\
-}										\
-										\
-__attribute__((unused))								\
-static bool table##_insert_searched(HASH_TABLE_TYPE(table) *table,		\
-				    const typeof(key_type) *key,		\
-				    const typeof(value_type) *value,		\
-				    struct hash_pair hp)			\
-{										\
-	return table##_insert_searched_pos(table, key, value, hp).item != NULL;	\
-}										\
-										\
-static bool table##_insert_hashed(HASH_TABLE_TYPE(table) *table,		\
-				  const typeof(key_type) *key,			\
-				  const typeof(value_type) *value,		\
-				  struct hash_pair hp)				\
-{										\
-	return table##_insert_pos(table, key, value, hp).item != NULL;		\
-}										\
-										\
-__attribute__((unused))								\
-static bool table##_insert(HASH_TABLE_TYPE(table) *table,			\
-			   const typeof(key_type) *key,				\
-			   const typeof(value_type) *value)			\
-{										\
-	return table##_insert_hashed(table, key, value, table##_hash(key));	\
-}
-
-/**
- * @ingroup HashMaps
- *
  * Define a hash map interface.
  *
- * This macro defines a hash map type along with its functions.
+ * This is a higher-level wrapper for @ref DEFINE_HASH_TABLE() with entries of
+ * the following type (with the example name @c hash_map):
+ *
+ * @code{.c}
+ * struct hash_map_entry {
+ *     key_type key;
+ *     value_type value;
+ * };
+ * @endcode
  *
  * @param[in] table Name of the map type to define. This is prefixed to all of
  * the types and functions defined for that type.
  * @param[in] key_type Type of keys in the map.
  * @param[in] value_type Type of values in the map.
- * @param[in] hash_func Hash function which takes a <tt>const key_type *</tt>
- * and returns a @ref hash_pair.
- * @param[in] eq_func Comparison function which takes two <tt>const key_type
- * *</tt> and returns a @c bool.
+ * @param[in] hash_func See @ref DEFINE_HASH_TABLE().
+ * @param[in] eq_func See @ref DEFINE_HASH_TABLE().
  */
 #define DEFINE_HASH_MAP(table, key_type, value_type, hash_func, eq_func)	\
-DEFINE_HASH_MAP_TYPES(table, key_type, value_type)				\
-DEFINE_HASH_MAP_FUNCTIONS(table, key_type, value_type, hash_func, eq_func)
+DEFINE_HASH_MAP_TYPE(table, key_type, value_type)				\
+DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
+
+#define HASH_SET_ENTRY_TO_KEY(entry) (*(entry))
 
 /**
- * @ingroup HashSets
- *
  * Define a hash set type without defining its functions.
  *
- * This is useful when the set type must be defined in one place (e.g., a
- * header) but the interface is defined elsewhere (e.g., a source file) with
- * @ref DEFINE_HASH_SET_FUNCTIONS(). Otherwise, just use @ref DEFINE_HASH_SET().
+ * The functions are defined with @ref DEFINE_HASH_TABLE_FUNCTIONS().
  *
- * @sa DEFINE_HASH_SET()
+ * @sa DEFINE_HASH_SET(), DEFINE_HASH_TABLE_TYPE()
  */
-#define DEFINE_HASH_SET_TYPES(table, key_type)	\
-	DEFINE_HASH_TABLE_TYPES(table, key_type, typeof(key_type))
+#define DEFINE_HASH_SET_TYPE(table, key_type)	\
+	DEFINE_HASH_TABLE_TYPE(table, key_type, HASH_SET_ENTRY_TO_KEY)
 
 /**
- * @ingroup HashSets
- *
- * Define the functions for a hash set.
- *
- * The set type must have already been defined with @ref
- * DEFINE_HASH_SET_TYPES().
- *
- * Unless the type and function definitions must be in separate places, use @ref
- * DEFINE_HASH_SET() instead.
- *
- * @sa DEFINE_HASH_SET()
- */
-#define DEFINE_HASH_SET_FUNCTIONS(table, key_type, hash_func, eq_func)		\
-DEFINE_HASH_TABLE_FUNCTIONS(table, key_type, typeof(key_type),			\
-			    HASH_SET_ITEM_KEY, hash_func, eq_func)		\
-										\
-static inline bool table##_search_hashed(HASH_TABLE_TYPE(table) *table,		\
-					 const typeof(key_type) *key,		\
-					 struct hash_pair hp)			\
-{										\
-	return table##_search_pos(table, key, hp).item != NULL;			\
-}										\
-										\
-__attribute__((unused))								\
-static inline bool table##_search(HASH_TABLE_TYPE(table) *table,		\
-				  const typeof(key_type) *key)			\
-{										\
-	return table##_search_hashed(table, key, table##_hash(key));		\
-}										\
-										\
-static HASH_TABLE_POS(table)							\
-table##_insert_searched_pos(HASH_TABLE_TYPE(table) *table,			\
-			    const typeof(key_type) *key,			\
-			    struct hash_pair hp)				\
-{										\
-	HASH_TABLE_POS(table) pos = table##_do_insert(table, key, hp);		\
-										\
-	if (pos.item)								\
-		memcpy(pos.item, key, sizeof(*key));				\
-	return pos;								\
-}										\
-										\
-static HASH_TABLE_POS(table) table##_insert_pos(HASH_TABLE_TYPE(table) *table,	\
-						const typeof(key_type) *key,	\
-						struct hash_pair hp)		\
-{										\
-	HASH_TABLE_POS(table) pos = table##_search_pos(table, key, hp);		\
-										\
-	if (pos.item)								\
-		return pos;							\
-	else									\
-		return table##_insert_searched_pos(table, key, hp);		\
-}										\
-										\
-__attribute__((unused))								\
-static bool table##_insert_searched(HASH_TABLE_TYPE(table) *table,		\
-				    const typeof(key_type) *key,		\
-				    struct hash_pair hp)			\
-{										\
-	return table##_insert_searched_pos(table, key, hp).item != NULL;	\
-}										\
-										\
-static bool table##_insert_hashed(HASH_TABLE_TYPE(table) *table,		\
-				  const typeof(key_type) *key,			\
-				  struct hash_pair hp)				\
-{										\
-	return table##_insert_pos(table, key, hp).item != NULL;			\
-}										\
-										\
-__attribute__((unused))								\
-static bool table##_insert(HASH_TABLE_TYPE(table) *table,			\
-			   const typeof(key_type) *key)				\
-{										\
-	return table##_insert_hashed(table, key, table##_hash(key));		\
-}
-
-/**
- * @ingroup HashSets
- *
  * Define a hash set interface.
  *
- * This macro defines a hash set type along with its functions.
+ * This is a higher-level wrapper for @ref DEFINE_HASH_TABLE() where @p
+ * entry_type is the same as @p key_type.
  *
  * @param[in] table Name of the set type to define. This is prefixed to all of
  * the types and functions defined for that type.
  * @param[in] key_type Type of keys in the set.
- * @param[in] hash_func Hash function which takes a <tt>const key_type *</tt>
- * and returns a @ref hash_pair.
- * @param[in] eq_func Comparison function which takes two <tt>const key_type
- * *</tt> and returns a @c bool.
+ * @param[in] hash_func See @ref DEFINE_HASH_TABLE().
+ * @param[in] eq_func See @ref DEFINE_HASH_TABLE().
  */
 #define DEFINE_HASH_SET(table, key_type, hash_func, eq_func)	\
-DEFINE_HASH_SET_TYPES(table, key_type)				\
-DEFINE_HASH_SET_FUNCTIONS(table, key_type, hash_func, eq_func)
+DEFINE_HASH_SET_TYPE(table, key_type)				\
+DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
 
 /**
  * @defgroup HashTableHelpers Hash table helpers
@@ -1459,7 +1205,12 @@ DEFINE_HASH_SET_FUNCTIONS(table, key_type, hash_func, eq_func)
  * @{
  */
 
-/** Split an avalanching hash into a @ref hash_pair. */
+/**
+ * Split an avalanching hash into a @ref hash_pair.
+ *
+ * We construct the second hash from the upper bits of the first hash, which we
+ * would otherwise discard when masking to select the chunk.
+ */
 static inline struct hash_pair hash_pair_from_avalanching_hash(size_t hash)
 {
 	return (struct hash_pair){
@@ -1491,7 +1242,7 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 	hash *= multiplier;
 	return (struct hash_pair){
 		.first = hash >> 22,
-		.second = ((hash >> 15) & 0x7f) | 0x80,
+		.second = (hash >> 15) | 0x80,
 	};
 #endif
 #elif SIZE_MAX == 0xffffffff
@@ -1501,7 +1252,7 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 
 	return (struct hash_pair){
 		.first = hash + c,
-		.second = (c >> 24) | 0x80,
+		.second = (uint8_t)(~(c >> 25)),
 	};
 #else
 /* 32-bit without SSE4.2 uses the 32-bit Murmur2 finalizer */
@@ -1585,11 +1336,11 @@ struct hash_pair hash_pair_ptr_type(T * const *key);
  * Return whether two scalar keys are equal.
  *
  * This can be used as the key comparison function for any scalar key type
- * (e.g., integers, float-point numbers, pointers).
+ * (e.g., integers, floating-point numbers, pointers).
  */
 bool hash_table_scalar_eq(const T *a, const T *b);
 #else
-#define hash_table_scalar_eq(a, b) (*(a) == *(b))
+#define hash_table_scalar_eq(a, b) ((bool)(*(a) == *(b)))
 #endif
 
 /**
@@ -1616,9 +1367,9 @@ struct hash_pair c_string_hash(const char * const *key);
 #else
 #define c_string_hash(key) ({					\
 	const char *_key = *(key);				\
-	size_t hash = cityhash_size_t(_key, strlen(_key));	\
+	size_t _hash = cityhash_size_t(_key, strlen(_key));	\
 								\
-	hash_pair_from_avalanching_hash(hash);			\
+	hash_pair_from_avalanching_hash(_hash);			\
 })
 #endif
 
@@ -1629,7 +1380,7 @@ bool c_string_eq(const char * const *a, const char * const *b);
 #define c_string_eq(a, b) ({			\
 	const char *_a = *(a), *_b = *(b);	\
 						\
-	strcmp(_a, _b) == 0;			\
+	(bool)(strcmp(_a, _b) == 0);		\
 })
 #endif
 

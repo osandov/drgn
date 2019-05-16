@@ -557,12 +557,15 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	 * are equal.
 	 */
 	hp = drgn_type_pair_set_hash(&pair);
-	if (drgn_type_pair_set_search_hashed(set, &pair, hp)) {
+	switch (drgn_type_pair_set_insert_hashed(set, &pair, hp, NULL)) {
+	case 1:
+		break;
+	case 0:
 		*ret = true;
 		return NULL;
-	}
-	if (!drgn_type_pair_set_insert_searched(set, &pair, hp))
+	case -1:
 		return &drgn_enomem;
+	}
 
 	if (a == b)
 		goto out_true;

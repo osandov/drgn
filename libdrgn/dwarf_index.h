@@ -63,13 +63,43 @@ enum drgn_dwarf_index_flags {
 	DRGN_DWARF_INDEX_ALL = (1 << 4) - 1,
 };
 
+enum {
+	SECTION_SYMTAB,
+	SECTION_DEBUG_ABBREV,
+	SECTION_DEBUG_INFO,
+	SECTION_DEBUG_LINE,
+	SECTION_DEBUG_STR,
+	DRGN_DWARF_INDEX_NUM_SECTIONS,
+};
+
+struct drgn_dwarf_index_file {
+	Elf_Data *sections[DRGN_DWARF_INDEX_NUM_SECTIONS];
+	/* Other byte order. */
+	bool bswap;
+	bool failed;
+	int fd;
+	/*
+	 * If this is NULL, then we didn't open the file and don't own the Elf
+	 * handle.
+	 */
+	const char *path;
+	Elf *elf;
+	Dwarf *dwarf;
+	Elf_Data *rela_sections[DRGN_DWARF_INDEX_NUM_SECTIONS];
+	struct drgn_dwarf_index_file *next;
+};
+
+static inline const char *
+drgn_dwarf_index_file_to_key(struct drgn_dwarf_index_file * const *entry)
+{
+	return (*entry)->path;
+}
+DEFINE_HASH_TABLE_TYPE(drgn_dwarf_index_file_table,
+		       struct drgn_dwarf_index_file *,
+		       drgn_dwarf_index_file_to_key)
+
 struct drgn_dwarf_index_die;
-struct drgn_dwarf_index_file;
-
-DEFINE_HASH_MAP_TYPES(drgn_dwarf_index_file_map, const char *,
-		      struct drgn_dwarf_index_file *)
-
-DEFINE_HASH_MAP_TYPES(drgn_dwarf_index_die_map, struct string, size_t)
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, size_t)
 
 struct drgn_dwarf_index_shard {
 	/** @privatesection */
@@ -108,7 +138,7 @@ struct drgn_dwarf_index {
 	/** @privatesection */
 	/* DRGN_DWARF_INDEX_* flags passed to drgn_dwarf_index_create(). */
 	enum drgn_dwarf_index_flags flags;
-	struct drgn_dwarf_index_file_map files;
+	struct drgn_dwarf_index_file_table files;
 	struct drgn_dwarf_index_file *opened_first, *opened_last;
 	struct drgn_dwarf_index_file *indexed_first, *indexed_last;
 	/* The index is sharded to reduce lock contention. */

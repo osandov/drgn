@@ -20,8 +20,8 @@
 #define DW_FORM_implicit_const 0x21
 #endif
 
-DEFINE_HASH_MAP_FUNCTIONS(dwarf_type_map, const void *, struct drgn_dwarf_type,
-			  hash_pair_ptr_type, hash_table_scalar_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(dwarf_type_map, hash_pair_ptr_type,
+			    hash_table_scalar_eq)
 
 struct drgn_type_from_dwarf_thunk {
 	struct drgn_type_thunk thunk;
@@ -1229,106 +1229,109 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
 {
 	struct drgn_error *err;
 	struct hash_pair hp;
-	const void *key = die->addr;
-	struct drgn_dwarf_type *value, dwarf_type;
+	struct dwarf_type_map_entry entry = {
+		.key = die->addr,
+	};
 	struct dwarf_type_map *map;
+	struct dwarf_type_map_iterator it;
 
 	if (dicache->depth >= 1000) {
 		return drgn_error_create(DRGN_ERROR_RECURSION,
 					 "maximum DWARF type parsing depth exceeded");
 	}
 
-	hp = dwarf_type_map_hash(&key);
-	value = dwarf_type_map_search_hashed(&dicache->map, &key, hp);
-	if (value) {
-		if (!can_be_incomplete_array && value->is_incomplete_array) {
+	hp = dwarf_type_map_hash(&entry.key);
+	it = dwarf_type_map_search_hashed(&dicache->map, &entry.key, hp);
+	if (it.entry) {
+		if (!can_be_incomplete_array &&
+		    it.entry->value.is_incomplete_array) {
 			map = &dicache->cant_be_incomplete_array_map;
-			value = dwarf_type_map_search_hashed(map, &key, hp);
+			it = dwarf_type_map_search_hashed(map, &entry.key, hp);
 		}
-		if (value) {
-			ret->type = value->type;
-			ret->qualifiers = value->qualifiers;
+		if (it.entry) {
+			ret->type = it.entry->value.type;
+			ret->qualifiers = it.entry->value.qualifiers;
 			return NULL;
 		}
 	}
 
 	ret->qualifiers = 0;
 	dicache->depth++;
-	dwarf_type.is_incomplete_array = false;
+	entry.value.is_incomplete_array = false;
 	switch (dwarf_tag(die)) {
 	case DW_TAG_const_type:
 		/*
 		 * Qualified types share the struct drgn_type with the
 		 * unqualified type.
 		 */
-		dwarf_type.should_free = false;
+		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_const_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_CONST;
 		break;
 	case DW_TAG_restrict_type:
-		dwarf_type.should_free = false;
+		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_restrict_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_RESTRICT;
 		break;
 	case DW_TAG_volatile_type:
-		dwarf_type.should_free = false;
+		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_volatile_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_VOLATILE;
 		break;
 	case DW_TAG_atomic_type:
-		dwarf_type.should_free = false;
+		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_atomic_type", true,
 						 ret);
 		ret->qualifiers |= DRGN_QUALIFIER_ATOMIC;
 		break;
 	case DW_TAG_base_type:
-		dwarf_type.should_free = true;
+		entry.value.should_free = true;
 		err = drgn_base_type_from_dwarf(dicache, die, &ret->type);
 		break;
 	case DW_TAG_structure_type:
 		err = drgn_compound_type_from_dwarf(dicache, die, true,
 						    &ret->type,
-						    &dwarf_type.should_free);
+						    &entry.value.should_free);
 		break;
 	case DW_TAG_union_type:
 		err = drgn_compound_type_from_dwarf(dicache, die, false,
 						    &ret->type,
-						    &dwarf_type.should_free);
+						    &entry.value.should_free);
 		break;
 	case DW_TAG_enumeration_type:
 		err = drgn_enum_type_from_dwarf(dicache, die, &ret->type,
-						&dwarf_type.should_free);
+						&entry.value.should_free);
 		break;
 	case DW_TAG_typedef:
-		dwarf_type.should_free = true;
+		entry.value.should_free = true;
 		err = drgn_typedef_type_from_dwarf(dicache, die,
 						   can_be_incomplete_array,
-						   &dwarf_type.is_incomplete_array,
+						   &entry.value.is_incomplete_array,
 						   &ret->type);
 		break;
 	case DW_TAG_pointer_type:
 		/* Pointer types are owned by the type index. */
-		dwarf_type.should_free = false;
+		entry.value.should_free = false;
 		err = drgn_pointer_type_from_dwarf(dicache, die, &ret->type);
 		break;
 	case DW_TAG_array_type:
 		/* Array types are owned by the type index. */
-		dwarf_type.should_free = false;
+		entry.value.should_free = false;
 		err = drgn_array_type_from_dwarf(dicache, die,
 						 can_be_incomplete_array,
-						 &dwarf_type.is_incomplete_array,
+						 &entry.value.is_incomplete_array,
 						 &ret->type);
 		break;
 	case DW_TAG_subroutine_type:
 	case DW_TAG_subprogram:
-		dwarf_type.should_free = true;
+		entry.value.should_free = true;
 		err = drgn_function_type_from_dwarf(dicache, die, &ret->type);
 		break;
 	default:
@@ -1341,18 +1344,18 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
 	if (err)
 		return err;
 
-	dwarf_type.type = ret->type;
-	dwarf_type.qualifiers = ret->qualifiers;
-	if (!can_be_incomplete_array && dwarf_type.is_incomplete_array)
+	entry.value.type = ret->type;
+	entry.value.qualifiers = ret->qualifiers;
+	if (!can_be_incomplete_array && entry.value.is_incomplete_array)
 		map = &dicache->cant_be_incomplete_array_map;
 	else
 		map = &dicache->map;
-	if (!dwarf_type_map_insert_searched(map, &key, &dwarf_type, hp)) {
-		drgn_dwarf_type_free(&dwarf_type);
+	if (dwarf_type_map_insert_searched(map, &entry, hp, NULL) == -1) {
+		drgn_dwarf_type_free(&entry.value);
 		return &drgn_enomem;
 	}
 	if (is_incomplete_array_ret)
-		*is_incomplete_array_ret = dwarf_type.is_incomplete_array;
+		*is_incomplete_array_ret = entry.value.is_incomplete_array;
 	return NULL;
 }
 
@@ -1570,18 +1573,18 @@ drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 
 void drgn_dwarf_info_cache_destroy(struct drgn_dwarf_info_cache *dicache)
 {
-	struct dwarf_type_map_pos pos;
+	struct dwarf_type_map_iterator it;
 
 	if (!dicache)
 		return;
 
-	for (pos = dwarf_type_map_first_pos(&dicache->map);
-	     pos.item; dwarf_type_map_next_pos(&pos))
-		drgn_dwarf_type_free(&pos.item->value);
+	for (it = dwarf_type_map_first(&dicache->map); it.entry;
+	     it = dwarf_type_map_next(it))
+		drgn_dwarf_type_free(&it.entry->value);
 	/* Arrays don't need to be freed, but typedefs do. */
-	for (pos = dwarf_type_map_first_pos(&dicache->cant_be_incomplete_array_map);
-	     pos.item; dwarf_type_map_next_pos(&pos))
-		drgn_dwarf_type_free(&pos.item->value);
+	for (it = dwarf_type_map_first(&dicache->cant_be_incomplete_array_map);
+	     it.entry; it = dwarf_type_map_next(it))
+		drgn_dwarf_type_free(&it.entry->value);
 	dwarf_type_map_deinit(&dicache->cant_be_incomplete_array_map);
 	dwarf_type_map_deinit(&dicache->map);
 	drgn_dwarf_index_deinit(&dicache->dindex);
