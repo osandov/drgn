@@ -487,6 +487,11 @@ static struct drgn_error *find_elf_symbol(Elf *elf, Elf_Scn *symtab_scn,
 }
 
 static const char * const vmlinux_paths[] = {
+	/*
+	 * The files under /usr/lib/debug should always have debug information,
+	 * so check those first.
+	 */
+	"/usr/lib/debug/boot/vmlinux-%s",
 	"/usr/lib/debug/lib/modules/%s/vmlinux",
 	"/boot/vmlinux-%s",
 	"/lib/modules/%s/build/vmlinux",
