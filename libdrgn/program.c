@@ -487,9 +487,10 @@ static struct drgn_error *find_elf_symbol(Elf *elf, Elf_Scn *symtab_scn,
 }
 
 static const char * const vmlinux_paths[] = {
-	"/usr/lib/debug/lib/modules/%s/vmlinux",
 	"/boot/vmlinux-%s",
 	"/lib/modules/%s/build/vmlinux",
+	"/usr/lib/debug/boot/vmlinux-%s",
+	"/usr/lib/debug/lib/modules/%s/vmlinux",
 };
 
 static struct drgn_error *vmlinux_symbol_addr(const char *osrelease,
