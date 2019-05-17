@@ -16,6 +16,7 @@
 #include "internal.h"
 #include "dwarf_index.h"
 #include "dwarf_info_cache.h"
+#include "kdump_reader.h"
 #include "language.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
@@ -165,6 +166,54 @@ drgn_program_check_initialized(struct drgn_program *prog)
 	return NULL;
 }
 
+static struct drgn_error *
+drgn_program_set_kdump(struct drgn_program *prog)
+{
+	kdump_ctx_t *ctx = NULL;
+	struct drgn_error *err = drgn_kdump_init(&ctx, prog->core_fd);
+	if (err)
+		goto out_fd;
+
+	err = drgn_kdump_get_kernel_offset(ctx,
+	                                   &prog->vmcoreinfo.kaslr_offset);
+	if (err)
+		goto out_kdump;
+
+	err = drgn_kdump_get_osrelease(ctx, prog->vmcoreinfo.osrelease);
+	if (err)
+		goto out_kdump;
+
+	err = drgn_kdump_get_page_size(ctx, &prog->vmcoreinfo.page_size);
+	if (err)
+		goto out_kdump;
+
+	enum drgn_architecture_flags arch;
+	err = drgn_kdump_get_arch(ctx, &arch);
+	if (err)
+		goto out_kdump;
+	drgn_program_update_arch(prog, arch);
+
+	/*
+	 * Add a single memory segment rerpresenting the whole dump
+	 * and let libkdumpfile do the work for us there.
+	 */
+	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+					      drgn_read_kdump,
+					      ctx, false);
+	if (err)
+		goto out_kdump;
+
+	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+	return NULL;
+
+out_kdump:
+        drgn_kdump_close(ctx);
+out_fd:
+	close(prog->core_fd);
+	prog->core_fd = -1;
+        return err;
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 {
@@ -185,6 +234,11 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	prog->core_fd = open(path, O_RDONLY);
 	if (prog->core_fd == -1)
 		return drgn_error_create_os("open", errno, path);
+
+	if (has_kdump_signature(prog->core_fd, &err))
+		return drgn_program_set_kdump(prog);
+	if (err)
+		goto out_fd;
 
 	elf_version(EV_CURRENT);
 

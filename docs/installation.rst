@@ -1,6 +1,8 @@
 Installation
 ============
 
+XXX: Something about libkdumpfile
+
 .. highlight:: console
 
 drgn depends on `Python <https://www.python.org/>`_ 3.6 or newer as well as

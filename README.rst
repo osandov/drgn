@@ -47,6 +47,7 @@ Install the following dependencies:
 * Python 3.6 or newer
 * elfutils development libraries (libelf and libdw)
 * GNU autotools (autoconf, automake, and libtool) and pkgconf
+* `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_
 
 Then, run:
 

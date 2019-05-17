@@ -56,6 +56,9 @@ dnl We need dwarf_cu_getdwarf() which was added in elfutils 0.160.
 PKG_CHECK_MODULES(libdw, [libdw >= 0.160])
 AC_SUBST([libdw_CFLAGS])
 AC_SUBST([libdw_LIBS])
+PKG_CHECK_MODULES(libkdumpfile, [libkdumpfile])
+AC_SUBST([libkdumpfile_CFLAGS])
+AC_SUBST([libkdumpfile_LIBS])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

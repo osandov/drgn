@@ -28,10 +28,12 @@
  * @{
  */
 
+#define OSRELEASE_LEN 128
+
 /** The important parts of the VMCOREINFO note of a Linux kernel core. */
 struct vmcoreinfo {
 	/** <tt>uname -r</tt> */
-	char osrelease[128];
+	char osrelease[OSRELEASE_LEN];
 	/** PAGE_SIZE of the kernel. */
 	uint64_t page_size;
 	/**
