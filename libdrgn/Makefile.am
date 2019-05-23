@@ -4,7 +4,8 @@ include_HEADERS = drgn.h
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
-libdrgnimpl_la_SOURCES = cityhash.h \
+libdrgnimpl_la_SOURCES = binary_search_tree.h \
+			 cityhash.h \
 			 dwarf_index.c \
 			 dwarf_index.h \
 			 dwarf_info_cache.c \
@@ -32,6 +33,7 @@ libdrgnimpl_la_SOURCES = cityhash.h \
 			 serialize.c \
 			 serialize.h \
 			 siphash.h \
+			 splay_tree.c \
 			 string_builder.c \
 			 string_builder.h \
 			 symbol_index.c \

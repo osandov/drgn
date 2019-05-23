@@ -59,6 +59,8 @@
  * DEFINE_HASH_TABLE(hash_table, entry_type, entry_to_key, hash_func, eq_func)
  * @endcode
  *
+ * @sa BinarySearchTrees
+ *
  * @{
  */
 
