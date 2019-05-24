@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "binary_search_tree.h"
+
 /**
  * @ingroup Internals
  *
@@ -31,23 +33,33 @@
 
 /** Memory segment in a @ref drgn_memory_reader. */
 struct drgn_memory_segment {
-	/**
-	 * Virtual address of the segment in memory. If @c UINT64_MAX, the
-	 * segment does not have a known virtual address.
-	 */
-	uint64_t virt_addr;
-	/**
-	 * Physical address of the segment in memory. If @c UINT64_MAX, the
-	 * segment does not have a known physical address.
-	 */
-	uint64_t phys_addr;
-	/** Size of the segment in bytes. */
+	struct binary_tree_node node;
+	/** Address of the segment in memory. */
+	uint64_t address;
+	/** Size of the segment in bytes; */
 	uint64_t size;
+	/**
+	 * The address of the segment when it was added, before any truncations.
+	 *
+	 * This is always greater than or equal to @ref
+	 * drgn_memory_segment::address.
+	 */
+	uint64_t orig_address;
 	/** Read callback. */
 	drgn_memory_read_fn read_fn;
 	/** Argument to pass to @ref drgn_memory_segment::read_fn. */
 	void *arg;
 };
+
+static inline uint64_t
+drgn_memory_segment_to_key(const struct drgn_memory_segment *entry)
+{
+	return entry->address;
+}
+
+DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_memory_segment_tree, struct
+			       drgn_memory_segment, node,
+			       drgn_memory_segment_to_key)
 
 /**
  * Memory reader.
@@ -56,12 +68,10 @@ struct drgn_memory_segment {
  * which can be used to read memory from those segments.
  */
 struct drgn_memory_reader {
-	/** Memory segments. */
-	struct drgn_memory_segment *segments;
-	/** Number of segments. */
-	size_t num_segments;
-	/** Allocated number of segments. */
-	size_t capacity;
+	/** Virtual memory segments. */
+	struct drgn_memory_segment_tree virtual_segments;
+	/** Physical memory segments. */
+	struct drgn_memory_segment_tree physical_segments;
 };
 
 /**
@@ -74,12 +84,15 @@ void drgn_memory_reader_init(struct drgn_memory_reader *reader);
 /** Deinitialize a @ref drgn_memory_reader. */
 void drgn_memory_reader_deinit(struct drgn_memory_reader *reader);
 
+/** Return whether a @ref drgn_memory_reader has no segments. */
+bool drgn_memory_reader_empty(struct drgn_memory_reader *reader);
+
 /** @sa drgn_program_add_memory_segment() */
 struct drgn_error *
 drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
-			       uint64_t virt_addr, uint64_t phys_addr,
-			       uint64_t size, drgn_memory_read_fn read_fn,
-			       void *arg);
+			       uint64_t address, uint64_t size,
+			       drgn_memory_read_fn read_fn, void *arg,
+			       bool physical);
 
 /**
  * Read from a @ref drgn_memory_reader.
@@ -111,8 +124,8 @@ struct drgn_memory_file_segment {
 
 /** @ref drgn_memory_read_fn which reads from a file. */
 struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
-					 size_t count, bool physical,
-					 uint64_t offset, void *arg);
+					 size_t count, uint64_t offset,
+					 void *arg, bool physical);
 
 /** @} */
 

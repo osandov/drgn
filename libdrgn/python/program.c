@@ -112,8 +112,8 @@ static int Program_clear(Program *self)
 }
 
 static struct drgn_error *py_memory_read_fn(void *buf, uint64_t address,
-					    size_t count, bool physical,
-					    uint64_t offset, void *arg)
+					    size_t count, uint64_t offset,
+					    void *arg, bool physical)
 {
 	struct drgn_error *err;
 	PyGILState_STATE gstate;
@@ -121,10 +121,10 @@ static struct drgn_error *py_memory_read_fn(void *buf, uint64_t address,
 	Py_buffer view;
 
 	gstate = PyGILState_Ensure();
-	ret = PyObject_CallFunction(arg, "KKOK", (unsigned long long)address,
+	ret = PyObject_CallFunction(arg, "KKKO", (unsigned long long)address,
 				    (unsigned long long)count,
-				    physical ? Py_True : Py_False,
-				    (unsigned long long)offset);
+				    (unsigned long long)offset,
+				    physical ? Py_True : Py_False);
 	if (!ret) {
 		err = drgn_error_from_python();
 		goto out;
@@ -152,42 +152,21 @@ out:
 	return err;
 }
 
-static int addr_converter(PyObject *arg, void *result)
-{
-	uint64_t *ret = result;
-	unsigned long long tmp;
-
-	if (arg == Py_None) {
-		*ret = UINT64_MAX;
-		return 1;
-	}
-
-	tmp = PyLong_AsUnsignedLongLong(arg);
-	if (tmp == (unsigned long long)-1 && PyErr_Occurred())
-		return 0;
-	if (tmp >= UINT64_MAX) {
-		PyErr_SetString(PyExc_OverflowError, "address is too large");
-		return 0;
-	}
-	*ret = tmp;
-	return 1;
-}
-
 static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 					    PyObject *kwds)
 {
 	static char *keywords[] = {
-		"virt_addr", "phys_addr", "size", "read_fn", NULL,
+		"address", "size", "read_fn", "physical", NULL,
 	};
 	struct drgn_error *err;
-	uint64_t virt_addr, phys_addr;
+	unsigned long long address;
 	unsigned long long size;
 	PyObject *read_fn;
+	int physical = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&KO:add_memory_segment",
-					 keywords, addr_converter, &virt_addr,
-					 addr_converter, &phys_addr, &size,
-					 &read_fn))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "KKO|p:add_memory_segment",
+					 keywords, &address, &size, &read_fn,
+					 &physical))
 	    return NULL;
 
 	if (!PyCallable_Check(read_fn)) {
@@ -197,8 +176,9 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 
 	if (Program_hold_object(self, read_fn) == -1)
 		return NULL;
-	err = drgn_program_add_memory_segment(&self->prog, virt_addr, phys_addr,
-					      size, py_memory_read_fn, read_fn);
+	err = drgn_program_add_memory_segment(&self->prog, address, size,
+					      py_memory_read_fn, read_fn,
+					      physical);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;

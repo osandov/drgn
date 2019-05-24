@@ -168,25 +168,22 @@ Programs
             address (physical or virtual) is not supported by the program
         :raises ValueError: if *size* is negative
 
-    .. method:: add_memory_segment(virt_addr, phys_addr, size, read_fn)
+    .. method:: add_memory_segment(address, , size, read_fn, physical=False)
 
         Define a region of memory in the program.
 
         If it overlaps a previously registered segment, the new segment takes
         precedence.
 
-        :param virt_addr: The virtual address of the segment, or ``None`` if
-            the segment does not have a virtual address.
-        :type virt_addr: int or None
-        :param phys_addr: The physical address of the segment, or ``None`` if
-            the segment does not have a physical address.
-        :type phys_addr: int or None
+        :param int address: Address of the segment.
         :param int size: Size of the segment in bytes.
+        :param bool physical: Whether to add a physical memory segment. If
+            ``False``, then this adds a virtual memory segment.
         :param read_fn: Callable to call to read memory from the segment. It is
             passed the address being read from, the number of bytes to read,
-            whether the address is physical, and the offset in bytes from the
-            beginning of the segment: ``(address, count, physical, offset)``.
-            It should return the requested number of bytes as :class:`bytes` or
+            the offset in bytes from the beginning of the segment, and whether
+            the address is physical: ``(address, count, offset, physical)``. It
+            should return the requested number of bytes as :class:`bytes` or
             another :ref:`buffer <python:binaryseq>` type.
 
     .. method:: add_type_finder(fn)

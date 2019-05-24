@@ -129,12 +129,12 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t virt_addr,
-				uint64_t phys_addr, uint64_t size,
-				drgn_memory_read_fn read_fn, void *arg)
+drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
+				uint64_t size, drgn_memory_read_fn read_fn,
+				void *arg, bool physical)
 {
-	return drgn_memory_reader_add_segment(&prog->reader, virt_addr,
-					      phys_addr, size, read_fn, arg);
+	return drgn_memory_reader_add_segment(&prog->reader, address, size,
+					      read_fn, arg, physical);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -608,9 +608,9 @@ static enum drgn_architecture_flags drgn_architecture_from_elf(Elf *elf)
 static struct drgn_error *
 drgn_program_check_initialized(struct drgn_program *prog)
 {
-	if (prog->core_fd != -1) {
+	if (prog->core_fd != -1 || !drgn_memory_reader_empty(&prog->reader)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "program was already set to core dump or PID");
+					 "program memory was already initialized");
 	}
 	return NULL;
 }
@@ -619,7 +619,6 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 {
 	struct drgn_error *err;
-	size_t orig_num_segments = prog->reader.num_segments;
 	Elf *elf;
 	GElf_Ehdr ehdr_mem, *ehdr;
 	enum drgn_architecture_flags arch;
@@ -705,8 +704,6 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		}
 
 		if (phdr->p_type == PT_LOAD) {
-			uint64_t phys_addr;
-
 			/*
 			 * If this happens, then the number of segments changed
 			 * since the first pass. That's probably impossible, but
@@ -718,16 +715,24 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			current_file_segment->file_offset = phdr->p_offset;
 			current_file_segment->file_size = phdr->p_filesz;
 			current_file_segment->fd = prog->core_fd;
-			phys_addr = (have_non_zero_phys_addr ? phdr->p_paddr :
-				     UINT64_MAX);
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_vaddr,
-							      phys_addr,
 							      phdr->p_memsz,
 							      drgn_read_memory_file,
-							      current_file_segment);
+							      current_file_segment,
+							      false);
 			if (err)
 				goto out_mappings;
+			if (have_non_zero_phys_addr) {
+				err = drgn_program_add_memory_segment(prog,
+								      phdr->p_paddr,
+								      phdr->p_memsz,
+								      drgn_read_memory_file,
+								      current_file_segment,
+								      true);
+				if (err)
+					goto out_mappings;
+			}
 			current_file_segment++;
 		} else if (phdr->p_type == PT_NOTE) {
 			Elf_Data *data;
@@ -836,7 +841,8 @@ out_mappings:
 	prog->mappings = NULL;
 	prog->num_mappings = 0;
 out_segments:
-	prog->reader.num_segments = orig_num_segments;
+	drgn_memory_reader_deinit(&prog->reader);
+	drgn_memory_reader_init(&prog->reader);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 	prog->num_file_segments = 0;
@@ -911,7 +917,6 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 {
 	struct drgn_error *err;
-	size_t orig_num_segments = prog->reader.num_segments;
 	char buf[64];
 
 	err = drgn_program_check_initialized(prog);
@@ -932,9 +937,9 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	prog->file_segments[0].file_size = UINT64_MAX;
 	prog->file_segments[0].fd = prog->core_fd;
 	prog->num_file_segments = 1;
-	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX, UINT64_MAX,
+	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_memory_file,
-					      prog->file_segments);
+					      prog->file_segments, false);
 	if (err)
 		goto out_segments;
 
@@ -951,7 +956,8 @@ out_mappings:
 	prog->mappings = NULL;
 	prog->num_mappings = 0;
 out_segments:
-	prog->reader.num_segments = orig_num_segments;
+	drgn_memory_reader_deinit(&prog->reader);
+	drgn_memory_reader_init(&prog->reader);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 	prog->num_file_segments = 0;

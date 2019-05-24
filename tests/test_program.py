@@ -5,6 +5,7 @@ import os
 import tempfile
 from typing import NamedTuple, Optional
 import unittest
+import unittest.mock
 
 from drgn import (
     Architecture,
@@ -40,8 +41,12 @@ class MockMemorySegment(NamedTuple):
     phys_addr: Optional[int] = None
 
 
-def mock_memory_read(data, address, count, physical, offset):
+def mock_memory_read(data, address, count, offset, physical):
     return data[offset:offset + count]
+
+
+def zero_memory_read(address, count, offset, physical):
+    return bytes(count)
 
 
 def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, symbols=None):
@@ -81,9 +86,14 @@ def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, symbols=None):
     prog = Program(arch)
     if segments is not None:
         for segment in segments:
-            prog.add_memory_segment(
-                segment.virt_addr, segment.phys_addr, len(segment.buf),
-                functools.partial(mock_memory_read, segment.buf))
+            if segment.virt_addr is not None:
+                prog.add_memory_segment(
+                    segment.virt_addr, len(segment.buf),
+                    functools.partial(mock_memory_read, segment.buf))
+            if segment.phys_addr is not None:
+                prog.add_memory_segment(
+                    segment.phys_addr, len(segment.buf),
+                    functools.partial(mock_memory_read, segment.buf), True)
     if types is not None:
         prog.add_type_finder(mock_find_type)
     if symbols is not None:
@@ -102,7 +112,7 @@ class TestProgram(unittest.TestCase):
         buf = ctypes.create_string_buffer(data)
         self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
         self.assertRaisesRegex(ValueError,
-                               'program was already set to core dump or PID',
+                               'program memory was already initialized',
                                prog.set_pid, os.getpid())
 
     def test_lookup_error(self):
@@ -180,25 +190,147 @@ class TestMemory(unittest.TestCase):
         ])
         self.assertEqual(prog.read(0xffff0000, 14), data[:14])
 
+    def test_overlap_same_address_smaller_size(self):
+        # Existing segment: |_______|
+        # New segment:      |___|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0000, 128, segment1)
+        prog.add_memory_segment(0xffff0000, 64, segment2)
+        prog.read(0xffff0000, 128)
+        segment1.assert_called_once_with(0xffff0040, 64, 64, False)
+        segment2.assert_called_once_with(0xffff0000, 64, 0, False)
+
+    def test_overlap_within_segment(self):
+        # Existing segment: |_______|
+        # New segment:        |___|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0000, 128, segment1)
+        prog.add_memory_segment(0xffff0020, 64, segment2)
+        prog.read(0xffff0000, 128)
+        segment1.assert_has_calls([
+            unittest.mock.call(0xffff0000, 32, 00, False),
+            unittest.mock.call(0xffff0060, 32, 96, False),
+        ])
+        segment2.assert_called_once_with(0xffff0020, 64, 0, False)
+
+    def test_overlap_same_segment(self):
+        # Existing segment: |_______|
+        # New segment:      |_______|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0000, 128, segment1)
+        prog.add_memory_segment(0xffff0000, 128, segment2)
+        prog.read(0xffff0000, 128)
+        segment1.assert_not_called()
+        segment2.assert_called_once_with(0xffff0000, 128, 0, False)
+
+    def test_overlap_same_address_larger_size(self):
+        # Existing segment: |___|
+        # New segment:      |_______|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0000, 64, segment1)
+        prog.add_memory_segment(0xffff0000, 128, segment2)
+        prog.read(0xffff0000, 128)
+        segment1.assert_not_called()
+        segment2.assert_called_once_with(0xffff0000, 128, 0, False)
+
+    def test_overlap_segment_tail(self):
+        # Existing segment: |_______|
+        # New segment:          |_______|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0000, 128, segment1)
+        prog.add_memory_segment(0xffff0040, 128, segment2)
+        prog.read(0xffff0000, 192)
+        segment1.assert_called_once_with(0xffff0000, 64, 0, False)
+        segment2.assert_called_once_with(0xffff0040, 128, 0, False)
+
+    def test_overlap_subsume_after(self):
+        # Existing segments:   |_|_|_|_|
+        # New segment:       |_______|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment3 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0020, 32, segment1)
+        prog.add_memory_segment(0xffff0040, 32, segment1)
+        prog.add_memory_segment(0xffff0060, 32, segment1)
+        prog.add_memory_segment(0xffff0080, 64, segment2)
+        prog.add_memory_segment(0xffff0000, 128, segment3)
+        prog.read(0xffff0000, 192)
+        segment1.assert_not_called()
+        segment2.assert_called_once_with(0xffff0080, 64, 0, False)
+        segment3.assert_called_once_with(0xffff0000, 128, 0, False)
+
+    def test_overlap_segment_head(self):
+        # Existing segment:     |_______|
+        # New segment:      |_______|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0040, 128, segment1)
+        prog.add_memory_segment(0xffff0000, 128, segment2)
+        prog.read(0xffff0000, 192)
+        segment1.assert_called_once_with(0xffff0080, 64, 64, False)
+        segment2.assert_called_once_with(0xffff0000, 128, 0, False)
+
+    def test_overlap_segment_head_and_tail(self):
+        # Existing segment: |_______||_______|
+        # New segment:          |_______|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment3 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0000, 128, segment1)
+        prog.add_memory_segment(0xffff0080, 128, segment2)
+        prog.add_memory_segment(0xffff0040, 128, segment3)
+        prog.read(0xffff0000, 256)
+        segment1.assert_called_once_with(0xffff0000, 64, 0, False)
+        segment2.assert_called_once_with(0xffff00c0, 64, 64, False)
+        segment3.assert_called_once_with(0xffff0040, 128, 0, False)
+
+    def test_overlap_subsume_at_and_after(self):
+        # Existing segments: |_|_|_|_|
+        # New segment:       |_______|
+        prog = Program()
+        segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
+        segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
+        prog.add_memory_segment(0xffff0000, 32, segment1)
+        prog.add_memory_segment(0xffff0020, 32, segment1)
+        prog.add_memory_segment(0xffff0040, 32, segment1)
+        prog.add_memory_segment(0xffff0060, 32, segment1)
+        prog.add_memory_segment(0xffff0000, 128, segment2)
+        prog.read(0xffff0000, 128)
+        segment1.assert_not_called()
+        segment2.assert_called_once_with(0xffff0000, 128, 0, False)
+
     def test_invalid_read_fn(self):
         prog = mock_program()
 
-        self.assertRaises(TypeError, prog.add_memory_segment, 0xffff0000, None,
-                          8, b'foo')
+        self.assertRaises(TypeError, prog.add_memory_segment, 0xffff0000, 8,
+                          b'foo')
 
-        prog.add_memory_segment(0xffff0000, None, 8, lambda: None)
+        prog.add_memory_segment(0xffff0000, 8, lambda: None)
         self.assertRaises(TypeError, prog.read, 0xffff0000, 8)
 
-        prog.add_memory_segment(0xffff0000, None, 8,
-                                lambda address, count, physical, offset: None)
+        prog.add_memory_segment(0xffff0000, 8,
+                                lambda address, count, offset, physical: None)
         self.assertRaises(TypeError, prog.read, 0xffff0000, 8)
 
-        prog.add_memory_segment(0xffff0000, None, 8,
-                                lambda address, count, physical, offset: 'asdf')
+        prog.add_memory_segment(0xffff0000, 8,
+                                lambda address, count, offset, physical: 'asdf')
         self.assertRaises(TypeError, prog.read, 0xffff0000, 8)
 
-        prog.add_memory_segment(0xffff0000, None, 8,
-                                lambda address, count, physical, offset: b'')
+        prog.add_memory_segment(0xffff0000, 8,
+                                lambda address, count, offset, physical: b'')
         self.assertRaisesRegex(
             ValueError,
             'memory read callback returned buffer of length 0 \(expected 8\)',
@@ -460,7 +592,7 @@ class TestCoreDump(unittest.TestCase):
             f.flush()
             prog.set_core_dump(f.name)
             self.assertRaisesRegex(ValueError,
-                                   'program was already set to core dump or PID',
+                                   'program memory was already initialized',
                                    prog.set_core_dump, f.name)
 
     def test_simple(self):
