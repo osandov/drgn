@@ -723,7 +723,9 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 							      false);
 			if (err)
 				goto out_mappings;
-			if (have_non_zero_phys_addr) {
+			if (have_non_zero_phys_addr &&
+			    phdr->p_paddr !=
+			    (is_64_bit ? UINT64_MAX : UINT32_MAX)) {
 				err = drgn_program_add_memory_segment(prog,
 								      phdr->p_paddr,
 								      phdr->p_memsz,
