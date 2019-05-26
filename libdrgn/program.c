@@ -1388,22 +1388,8 @@ open_loaded_kernel_modules(struct drgn_program *prog,
 	}
 
 	err = kernel_module_iterator_init(&kmod_it, prog);
-	if (err && err->code != DRGN_ERROR_NO_MEMORY) {
-		if (!string_builder_line_break(missing_debug_info) ||
-		    !string_builder_append(missing_debug_info,
-					   "could not find loaded kernel modules (") ||
-		    !string_builder_append_error(missing_debug_info, err) ||
-		    !string_builder_appendc(missing_debug_info, ')')) {
-			drgn_error_destroy(err);
-			err = &drgn_enomem;
-			goto out;
-		}
-		drgn_error_destroy(err);
-		err = NULL;
-		goto out;
-	} else if (err) {
-		goto out;
-	}
+	if (err)
+		goto kernel_module_iterator_error;
 	while (!(err = kernel_module_iterator_next(&kmod_it))) {
 		const char *module_path;
 		size_t path_len;
@@ -1443,8 +1429,25 @@ open_loaded_kernel_modules(struct drgn_program *prog,
 		}
 	}
 	kernel_module_iterator_deinit(&kmod_it);
-	if (err && err->code != DRGN_ERROR_STOP)
+	if (err && err->code != DRGN_ERROR_STOP) {
+kernel_module_iterator_error:
+		if (err->code != DRGN_ERROR_NO_MEMORY) {
+			if (!string_builder_line_break(missing_debug_info) ||
+			    !string_builder_append(missing_debug_info,
+						   "could not find loaded kernel modules (") ||
+			    !string_builder_append_error(missing_debug_info,
+							 err) ||
+			    !string_builder_appendc(missing_debug_info, ')')) {
+				drgn_error_destroy(err);
+				err = &drgn_enomem;
+				goto out;
+			}
+			drgn_error_destroy(err);
+			err = NULL;
+			goto out;
+		}
 		goto out;
+	}
 
 	if (no_symbols > max_no_symbols) {
 		if (!string_builder_line_break(missing_debug_info) ||
