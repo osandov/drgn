@@ -395,16 +395,29 @@ static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 	FILE *file;
 	char *line = NULL;
 	size_t n = 0;
-	bool found = false;
 
 	file = fopen("/proc/kallsyms", "r");
 	if (!file)
 		return drgn_error_create_os(errno, "/proc/kallsyms", "fopen");
 
-	while (errno = 0, getline(&line, &n, file) != -1) {
+	for (;;) {
 		char *addr_str, *sym_str, *saveptr;
 		unsigned long long addr;
 		char *end;
+
+		errno = 0;
+		if (getline(&line, &n, file) == -1) {
+			if (errno) {
+				err = drgn_error_create_os(errno,
+							   "/proc/kallsyms",
+							   "getline");
+			} else {
+				err = drgn_error_format(DRGN_ERROR_OTHER,
+							"could not find %s symbol in /proc/kallsyms",
+							name);
+			}
+			break;
+		}
 
 		addr_str = strtok_r(line, "\t ", &saveptr);
 		if (!addr_str || !*addr_str)
@@ -420,28 +433,19 @@ static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 
 		errno = 0;
 		addr = strtoull(line, &end, 16);
-		if ((addr == ULLONG_MAX && errno == ERANGE) || *end)
-			goto invalid;
+		if (errno || *end) {
+invalid:
+			err = drgn_error_create(DRGN_ERROR_OTHER,
+						"could not parse /proc/kallsyms");
+			break;
+		}
 		*ret = addr;
-		found = true;
-		break;
-	}
-	if (errno) {
-		err = drgn_error_create_os(errno, "/proc/kallsyms", "getline");
-	} else if (!found) {
-		err = drgn_error_format(DRGN_ERROR_OTHER,
-					"could not find %s symbol in /proc/kallsyms",
-					name);
-	} else {
 		err = NULL;
+		break;
 	}
 	free(line);
 	fclose(file);
 	return err;
-
-invalid:
-	return drgn_error_create(DRGN_ERROR_OTHER,
-				 "could not parse /proc/kallsyms");
 }
 
 static struct drgn_error *find_elf_symbol(Elf *elf, Elf_Scn *symtab_scn,
