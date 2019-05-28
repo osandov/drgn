@@ -12,7 +12,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/utsname.h>
 #include <sys/vfs.h>
 
 #include "internal.h"
@@ -338,58 +337,8 @@ static struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 	return NULL;
 }
 
-static struct drgn_error *
-read_vmcoreinfo_from_sysfs(struct drgn_memory_reader *reader,
-			   struct vmcoreinfo *ret)
-{
-	struct drgn_error *err;
-	FILE *file;
-	uint64_t address, size;
-	char *buf;
-	Elf64_Nhdr *nhdr;
-
-	file = fopen("/sys/kernel/vmcoreinfo", "r");
-	if (!file) {
-		return drgn_error_create_os(errno, "/sys/kernel/vmcoreinfo",
-					    "fopen");
-	}
-	if (fscanf(file, "%" SCNx64 " %" SCNx64, &address, &size) != 2) {
-		fclose(file);
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "could not parse /sys/kernel/vmcoreinfo");
-	}
-	fclose(file);
-
-	buf = malloc64(size);
-	if (!buf)
-		return &drgn_enomem;
-
-	err = drgn_memory_reader_read(reader, buf, address, size, true);
-	if (err)
-		goto out;
-
-	/*
-	 * The first 12 bytes are the Elf{32,64}_Nhdr (it's the same in both
-	 * formats). The name is padded up to 4 bytes, so the descriptor starts
-	 * at byte 24.
-	 */
-	nhdr = (Elf64_Nhdr *)buf;
-	if (size < 24 || nhdr->n_namesz != 11 ||
-	    memcmp(buf + sizeof(*nhdr), "VMCOREINFO", 10) != 0 ||
-	    nhdr->n_descsz > size - 24) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
-					"VMCOREINFO in /sys/kernel/vmcoreinfo is invalid");
-		goto out;
-	}
-
-	err = parse_vmcoreinfo(buf + 24, nhdr->n_descsz, ret);
-out:
-	free(buf);
-	return err;
-}
-
 static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
-						    uint64_t *ret)
+						    unsigned long *ret)
 {
 	struct drgn_error *err;
 	FILE *file;
@@ -401,9 +350,7 @@ static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 		return drgn_error_create_os(errno, "/proc/kallsyms", "fopen");
 
 	for (;;) {
-		char *addr_str, *sym_str, *saveptr;
-		unsigned long long addr;
-		char *end;
+		char *addr_str, *sym_str, *saveptr, *end;
 
 		errno = 0;
 		if (getline(&line, &n, file) == -1) {
@@ -432,14 +379,13 @@ static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 			continue;
 
 		errno = 0;
-		addr = strtoull(line, &end, 16);
+		*ret = strtoul(line, &end, 16);
 		if (errno || *end) {
 invalid:
 			err = drgn_error_create(DRGN_ERROR_OTHER,
 						"could not parse /proc/kallsyms");
 			break;
 		}
-		*ret = addr;
 		err = NULL;
 		break;
 	}
@@ -448,158 +394,79 @@ invalid:
 	return err;
 }
 
-static struct drgn_error *find_elf_symbol(Elf *elf, Elf_Scn *symtab_scn,
-					  const char *name, uint64_t address,
-					  bool by_address, GElf_Sym *sym,
-					  Elf32_Word *shndx)
+/*
+ * Before Linux kernel commit 23c85094fe18 ("proc/kcore: add vmcoreinfo note to
+ * /proc/kcore") (in v4.19), /proc/kcore didn't have a VMCOREINFO note, so we
+ * have to get it by other means. Since Linux kernel commit 464920104bf7
+ * ("/proc/kcore: update physical address for kcore ram and text") (in v4.11),
+ * we can read from the physical address of the vmcoreinfo note exported in
+ * sysfs. Before that, p_paddr in /proc/kcore is always zero, but we can read
+ * from the virtual address in /proc/kallsyms.
+ */
+static struct drgn_error *
+read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
+			 bool have_non_zero_phys_addr,
+			 struct vmcoreinfo *ret)
 {
 	struct drgn_error *err;
-	int xndxscnidx;
-	GElf_Shdr shdr_mem, *shdr;
-	Elf_Data *xndx_data = NULL, *data;
-	size_t num_syms, i;
+	FILE *file;
+	unsigned long address;
+	size_t size;
+	char *buf;
+	Elf64_Nhdr *nhdr;
 
-	xndxscnidx = elf_scnshndx(symtab_scn);
-	if (xndxscnidx > 0)
-		xndx_data = elf_getdata(elf_getscn(elf, xndxscnidx), NULL);
-
-	err = read_elf_section(symtab_scn, &data);
-	if (err)
-		return err;
-	shdr = gelf_getshdr(symtab_scn, &shdr_mem);
-	if (!shdr)
-		return drgn_error_libelf();
-
-	num_syms = data->d_size / (gelf_getclass(elf) == ELFCLASS32 ?
-				   sizeof(Elf32_Sym) : sizeof(Elf64_Sym));
-	for (i = 0; i < num_syms; i++) {
-		const char *sym_name;
-
-		if (!gelf_getsymshndx(data, xndx_data, i, sym, shndx))
-			continue;
-		if (by_address) {
-			if (sym->st_value == address)
-				return NULL;
-		} else {
-			sym_name = elf_strptr(elf, shdr->sh_link, sym->st_name);
-			if (sym_name && strcmp(sym_name, name) == 0)
-				return NULL;
-		}
+	file = fopen("/sys/kernel/vmcoreinfo", "r");
+	if (!file) {
+		return drgn_error_create_os(errno, "/sys/kernel/vmcoreinfo",
+					    "fopen");
 	}
-	return drgn_error_format(DRGN_ERROR_LOOKUP,
-				 "could not find %s symbol", name);
-}
-
-static const char * const vmlinux_paths[] = {
-	/*
-	 * The files under /usr/lib/debug should always have debug information,
-	 * so check those first.
-	 */
-	"/usr/lib/debug/boot/vmlinux-%s",
-	"/usr/lib/debug/lib/modules/%s/vmlinux",
-	"/boot/vmlinux-%s",
-	"/lib/modules/%s/build/vmlinux",
-};
-
-static struct drgn_error *vmlinux_symbol_addr(const char *osrelease,
-					      const char *name, uint64_t *ret)
-{
-	struct drgn_error *err;
-	size_t i;
-	bool found_vmlinux = false;
-
-	for (i = 0; i < ARRAY_SIZE(vmlinux_paths); i++) {
-		char buf[256];
-		int fd;
-		Elf *elf;
-		size_t shstrndx;
-		Elf_Scn *scn;
-		GElf_Sym sym;
-
-		snprintf(buf, sizeof(buf), vmlinux_paths[i], osrelease);
-
-		fd = open(buf, O_RDONLY);
-		if (fd == -1)
-			continue;
-
-		found_vmlinux = true;
-
-		elf = elf_begin(fd, ELF_C_READ, NULL);
-		if (!elf) {
-			close(fd);
-			return drgn_error_libelf();
-		}
-
-		if (elf_getshdrstrndx(elf, &shstrndx)) {
-			err = drgn_error_libelf();
-			goto err;
-		}
-
-		scn = NULL;
-		while ((scn = elf_nextscn(elf, scn))) {
-			GElf_Shdr *shdr, shdr_mem;
-			const char *scnname;
-
-			shdr = gelf_getshdr(scn, &shdr_mem);
-			if (!shdr)
-				continue;
-
-			scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
-			if (!scnname)
-				continue;
-			if (strcmp(scnname, ".symtab") == 0)
-				break;
-		}
-		if (!scn) {
-			elf_end(elf);
-			close(fd);
-			continue;
-		}
-
-		err = find_elf_symbol(elf, scn, name, 0, false, &sym, NULL);
-		if (!err)
-			*ret = sym.st_value;
-err:
-		elf_end(elf);
-		close(fd);
-		return err;
-	}
-	if (found_vmlinux) {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
-					 "vmlinux does not have symbol table");
-	} else {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
-					 "could not find vmlinux");
-	}
-}
-
-static struct drgn_error *get_fallback_vmcoreinfo(struct vmcoreinfo *ret)
-{
-	struct drgn_error *err;
-	struct utsname uts;
-	size_t release_len;
-	uint64_t kallsyms_addr, elf_addr;
-
-	if (uname(&uts) == -1)
-		return drgn_error_create_os(errno, NULL, "uname");
-
-	release_len = strlen(uts.release);
-	if (release_len >= sizeof(ret->osrelease)) {
+	if (fscanf(file, "%lx %zx", &address, &size) != 2) {
+		fclose(file);
 		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "uname release is too long");
+					 "could not parse /sys/kernel/vmcoreinfo");
 	}
-	memcpy(ret->osrelease, uts.release, release_len + 1);
+	fclose(file);
 
-	err = proc_kallsyms_symbol_addr("_stext", &kallsyms_addr);
+	if (!have_non_zero_phys_addr) {
+		/*
+		 * Since Linux kernel commit 203e9e41219b ("kexec: move
+		 * vmcoreinfo out of the kernel's .bss section") (in v4.13),
+		 * vmcoreinfo_note is a pointer; before that, it is an array. We
+		 * only do this for kernels before v4.11, so we can assume that
+		 * it's an array.
+		 */
+		err = proc_kallsyms_symbol_addr("vmcoreinfo_note", &address);
+		if (err)
+			return err;
+	}
+
+	buf = malloc(size);
+	if (!buf)
+		return &drgn_enomem;
+
+	err = drgn_memory_reader_read(reader, buf, address, size,
+				      have_non_zero_phys_addr);
 	if (err)
-		return err;
+		goto out;
 
-	err = vmlinux_symbol_addr(uts.release, "_stext", &elf_addr);
-	if (err)
-		return err;
+	/*
+	 * The first 12 bytes are the Elf{32,64}_Nhdr (it's the same in both
+	 * formats). The name is padded up to 4 bytes, so the descriptor starts
+	 * at byte 24.
+	 */
+	nhdr = (Elf64_Nhdr *)buf;
+	if (size < 24 || nhdr->n_namesz != 11 ||
+	    memcmp(buf + sizeof(*nhdr), "VMCOREINFO", 10) != 0 ||
+	    nhdr->n_descsz > size - 24) {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"VMCOREINFO is invalid");
+		goto out;
+	}
 
-	ret->kaslr_offset = kallsyms_addr - elf_addr;
-	return NULL;
+	err = parse_vmcoreinfo(buf + 24, nhdr->n_descsz, ret);
+out:
+	free(buf);
+	return err;
 }
 
 static enum drgn_architecture_flags drgn_architecture_from_elf(Elf *elf)
@@ -819,22 +686,9 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	}
 
 	if (!have_vmcoreinfo && is_proc_kcore) {
-		/*
-		 * Before Linux kernel commit 23c85094fe18 ("proc/kcore: add
-		 * vmcoreinfo note to /proc/kcore") (in v4.19), /proc/kcore
-		 * didn't have a VMCOREINFO note. Since Linux kernel commit
-		 * 464920104bf7 ("/proc/kcore: update physical address for kcore
-		 * ram and text") (in v4.11), we can read from the physical
-		 * address of vmcoreinfo exported in sysfs. Before that, p_paddr
-		 * in /proc/kcore is always zero, so we have to use a hackier
-		 * fallback.
-		 */
-		if (have_non_zero_phys_addr) {
-			err = read_vmcoreinfo_from_sysfs(&prog->reader,
-							 &prog->vmcoreinfo);
-		} else {
-			err = get_fallback_vmcoreinfo(&prog->vmcoreinfo);
-		}
+		err = read_vmcoreinfo_fallback(&prog->reader,
+					       have_non_zero_phys_addr,
+					       &prog->vmcoreinfo);
 		if (err)
 			goto out_mappings;
 		have_vmcoreinfo = true;
@@ -1036,6 +890,42 @@ static struct drgn_error *get_module_name(struct drgn_program *prog,
 				 "could not find module name in .modinfo or .gnu.linkonce.this_module");
 }
 
+static struct drgn_error *find_elf_symbol_by_address(Elf *elf,
+						     Elf_Scn *symtab_scn,
+						     const char *name,
+						     uint64_t address,
+						     GElf_Sym *sym,
+						     Elf32_Word *shndx)
+{
+	struct drgn_error *err;
+	int xndxscnidx;
+	GElf_Shdr shdr_mem, *shdr;
+	Elf_Data *xndx_data = NULL, *data;
+	size_t num_syms, i;
+
+	xndxscnidx = elf_scnshndx(symtab_scn);
+	if (xndxscnidx > 0)
+		xndx_data = elf_getdata(elf_getscn(elf, xndxscnidx), NULL);
+
+	err = read_elf_section(symtab_scn, &data);
+	if (err)
+		return err;
+	shdr = gelf_getshdr(symtab_scn, &shdr_mem);
+	if (!shdr)
+		return drgn_error_libelf();
+
+	num_syms = data->d_size / (gelf_getclass(elf) == ELFCLASS32 ?
+				   sizeof(Elf32_Sym) : sizeof(Elf64_Sym));
+	for (i = 0; i < num_syms; i++) {
+		if (!gelf_getsymshndx(data, xndx_data, i, sym, shndx))
+			continue;
+		if (sym->st_value == address)
+			return NULL;
+	}
+	return drgn_error_format(DRGN_ERROR_LOOKUP,
+				 "could not find %s symbol", name);
+}
+
 static struct drgn_error *get_symbol_section_name(Elf *elf, size_t shstrndx,
 						  Elf_Scn *symtab_scn,
 						  const char *name,
@@ -1049,8 +939,8 @@ static struct drgn_error *get_symbol_section_name(Elf *elf, size_t shstrndx,
 	GElf_Shdr shdr_mem, *shdr;
 	const char *scnname;
 
-	err = find_elf_symbol(elf, symtab_scn, name, address, true, &sym,
-			      &shndx);
+	err = find_elf_symbol_by_address(elf, symtab_scn, name, address, &sym,
+					 &shndx);
 	if (err)
 		return err;
 
@@ -1285,6 +1175,16 @@ static struct drgn_error *
 open_vmlinux_debug_info(struct drgn_program *prog,
 			struct string_builder *missing_debug_info)
 {
+	static const char * const vmlinux_paths[] = {
+		/*
+		 * The files under /usr/lib/debug should always have debug information,
+		 * so check those first.
+		 */
+		"/usr/lib/debug/boot/vmlinux-%s",
+		"/usr/lib/debug/lib/modules/%s/vmlinux",
+		"/boot/vmlinux-%s",
+		"/lib/modules/%s/build/vmlinux",
+	};
 	struct drgn_error *err;
 	char path[256];
 	bool found_vmlinux = false;
