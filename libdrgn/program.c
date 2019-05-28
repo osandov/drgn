@@ -79,6 +79,7 @@ void drgn_program_init(struct drgn_program *prog,
 	prog->arch = DRGN_ARCH_AUTO;
 	if (arch != DRGN_ARCH_AUTO)
 		drgn_program_update_arch(prog, arch);
+	prog->added_vmcoreinfo_symbol_finder = false;
 }
 
 void drgn_program_deinit(struct drgn_program *prog)
@@ -291,12 +292,33 @@ static inline bool linematch(const char **line, const char *prefix)
 	}
 }
 
+static struct drgn_error *line_to_u64(const char *line, const char *newline,
+				      int base, uint64_t *ret)
+{
+	unsigned long long value;
+	char *end;
+
+	errno = 0;
+	value = strtoull(line, &end, base);
+	if (errno == ERANGE) {
+		return drgn_error_create(DRGN_ERROR_OVERFLOW,
+					 "number in VMCOREINFO is too large");
+	} else if (errno || end == line || end != newline) {
+		return drgn_error_create(DRGN_ERROR_OVERFLOW,
+					 "number in VMCOREINFO is invalid");
+	}
+	*ret = value;
+	return NULL;
+}
+
 static struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 					   struct vmcoreinfo *ret)
 {
+	struct drgn_error *err;
 	const char *line = desc, *end = &desc[descsz];
 
 	ret->osrelease[0] = '\0';
+	ret->page_size = 0;
 	ret->kaslr_offset = 0;
 	while (line < end) {
 		const char *newline;
@@ -313,20 +335,15 @@ static struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 			}
 			memcpy(ret->osrelease, line, newline - line);
 			ret->osrelease[newline - line] = '\0';
+		} else if (linematch(&line, "PAGESIZE=")) {
+			err = line_to_u64(line, newline, 0, &ret->page_size);
+			if (err)
+				return err;
 		} else if (linematch(&line, "KERNELOFFSET=")) {
-			unsigned long long kerneloffset;
-			char *nend;
-
-			errno = 0;
-			kerneloffset = strtoull(line, &nend, 16);
-			if (errno == ERANGE) {
-				return drgn_error_create(DRGN_ERROR_OVERFLOW,
-							 "KERNELOFFSET in VMCOREINFO is too large");
-			} else if (errno || nend == line || nend != newline) {
-				return drgn_error_create(DRGN_ERROR_OVERFLOW,
-							 "KERNELOFFSET in VMCOREINFO is invalid");
-			}
-			ret->kaslr_offset = kerneloffset;
+			err = line_to_u64(line, newline, 16,
+					  &ret->kaslr_offset);
+			if (err)
+				return err;
 		}
 		line = newline + 1;
 	}
@@ -334,6 +351,11 @@ static struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid OSRELEASE");
 	}
+	if (!ret->page_size) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "VMCOREINFO does not contain valid PAGESIZE");
+	}
+	/* KERNELOFFSET is optional. */
 	return NULL;
 }
 
@@ -1172,6 +1194,55 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 }
 
 static struct drgn_error *
+vmcoreinfo_symbol_find(const char *name, size_t name_len, const char *filename,
+		       enum drgn_find_object_flags flags, void *arg,
+		       struct drgn_symbol *ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = arg;
+
+	if (filename)
+		goto not_found;
+
+	if (flags & DRGN_FIND_OBJECT_CONSTANT) {
+		if (name_len == strlen("PAGE_SHIFT") &&
+		    memcmp(name, "PAGE_SHIFT", name_len) == 0) {
+			err = drgn_type_index_find_primitive(&prog->tindex,
+							     DRGN_C_TYPE_INT,
+							     &ret->type);
+			if (err)
+				return err;
+			ret->svalue = ctz(prog->vmcoreinfo.page_size);
+		} else if (name_len == strlen("PAGE_SIZE") &&
+			   memcmp(name, "PAGE_SIZE", name_len) == 0) {
+			err = drgn_type_index_find_primitive(&prog->tindex,
+							     DRGN_C_TYPE_UNSIGNED_LONG,
+							     &ret->type);
+			if (err)
+				return err;
+			ret->uvalue = prog->vmcoreinfo.page_size;
+		} else if (name_len == strlen("PAGE_MASK") &&
+			   memcmp(name, "PAGE_MASK", name_len) == 0) {
+			err = drgn_type_index_find_primitive(&prog->tindex,
+							     DRGN_C_TYPE_UNSIGNED_LONG,
+							     &ret->type);
+			if (err)
+				return err;
+			ret->uvalue = ~(prog->vmcoreinfo.page_size - 1);
+		} else {
+			goto not_found;
+		}
+		ret->qualifiers = 0;
+		ret->kind = DRGN_SYMBOL_CONSTANT;
+		return NULL;
+	}
+
+not_found:
+	ret->type = NULL;
+	return NULL;
+}
+
+static struct drgn_error *
 open_vmlinux_debug_info(struct drgn_program *prog,
 			struct string_builder *missing_debug_info)
 {
@@ -1378,6 +1449,15 @@ static struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 	struct string_builder missing_debug_info = {};
+
+	if (!prog->added_vmcoreinfo_symbol_finder) {
+		err = drgn_program_add_symbol_finder(prog,
+						     vmcoreinfo_symbol_find,
+						     prog);
+		if (err)
+			return err;
+		prog->added_vmcoreinfo_symbol_finder = true;
+	}
 
 	err = open_vmlinux_debug_info(prog, &missing_debug_info);
 	if (err)

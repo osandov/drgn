@@ -30,6 +30,8 @@
 struct vmcoreinfo {
 	/** <tt>uname -r</tt> */
 	char osrelease[128];
+	/** PAGE_SIZE of the kernel. */
+	uint64_t page_size;
 	/**
 	 * The offset from the compiled address of the kernel image to its
 	 * actual address in memory.
@@ -78,6 +80,7 @@ struct drgn_program {
 	int core_fd;
 	enum drgn_program_flags flags;
 	enum drgn_architecture_flags arch;
+	bool added_vmcoreinfo_symbol_finder;
 };
 
 /** Initialize a @ref drgn_program. */
