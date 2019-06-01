@@ -168,7 +168,7 @@ Programs
             address (physical or virtual) is not supported by the program
         :raises ValueError: if *size* is negative
 
-    .. method:: add_memory_segment(address, , size, read_fn, physical=False)
+    .. method:: add_memory_segment(address, size, read_fn, physical=False)
 
         Define a region of memory in the program.
 
