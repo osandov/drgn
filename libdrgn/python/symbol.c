@@ -18,7 +18,7 @@ Symbol *Symbol_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 	Symbol *sym;
 	int num_given;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|$OOpz", keywords,
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|$OOpz:Symbol", keywords,
 					 &DrgnType_type, &type_obj, &value_obj,
 					 &address_obj, &is_enumerator,
 					 &byteorder)) {
