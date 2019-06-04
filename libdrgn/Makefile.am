@@ -16,12 +16,12 @@ libdrgnimpl_la_SOURCES = binary_search_tree.h \
 			 hash_table.h \
 			 internal.c \
 			 internal.h \
-			 kmod.c \
-			 kmod.h \
 			 language.h \
 			 language_c.c \
 			 lexer.c \
 			 lexer.h \
+			 linux_kernel.c \
+			 linux_kernel.h \
 			 memory_reader.c \
 			 memory_reader.h \
 			 object.c \

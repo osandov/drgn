@@ -114,6 +114,13 @@ static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)
 	return prog->arch & DRGN_ARCH_IS_64_BIT ? UINT64_MAX : UINT32_MAX;
 }
 
+struct drgn_error *drgn_program_open_debug_info(struct drgn_program *prog,
+						const char *path, Elf **elf_ret);
+
+void drgn_program_close_unindexed_debug_info(struct drgn_program *prog);
+
+struct drgn_error *drgn_program_update_debug_info(struct drgn_program *prog);
+
 /** @} */
 
 #endif /* DRGN_PROGRAM_H */
