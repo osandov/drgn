@@ -301,9 +301,10 @@ Programs
 
         The program is the Linux kernel.
 
-    .. attribute:: IS_RUNNING_KERNEL
+    .. attribute:: IS_LIVE
 
-        The program is the running operating system kernel.
+        The program is currently running (e.g., it is the running operating
+        system kernel or a running process).
 
 .. class:: Architecture
 

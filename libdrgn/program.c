@@ -507,7 +507,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (have_vmcoreinfo)
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 	if (is_proc_kcore)
-		prog->flags |= DRGN_PROGRAM_IS_RUNNING_KERNEL;
+		prog->flags |= DRGN_PROGRAM_IS_LIVE;
 	drgn_program_update_arch(prog, arch);
 	return NULL;
 
@@ -623,6 +623,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		goto out_mappings;
 
+	prog->flags |= DRGN_PROGRAM_IS_LIVE;
 	drgn_program_update_arch(prog, DRGN_ARCH_HOST);
 	return NULL;
 

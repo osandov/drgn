@@ -106,8 +106,10 @@ class TestProgram(unittest.TestCase):
         # Debug the running Python interpreter itself.
         prog = Program()
         self.assertEqual(prog.arch, Architecture.AUTO)
+        self.assertFalse(prog.flags & ProgramFlags.IS_LIVE)
         prog.set_pid(os.getpid())
         self.assertEqual(prog.arch, Architecture.HOST)
+        self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
         data = b'hello, world!'
         buf = ctypes.create_string_buffer(data)
         self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)

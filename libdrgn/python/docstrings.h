@@ -151,8 +151,8 @@ extern const char drgn_ProgramFlags_DOC[];
 #define drgn_ProgramFlags_DOC (char *)drgn_ProgramFlags_DOC
 extern const char drgn_ProgramFlags_IS_LINUX_KERNEL_DOC[];
 #define drgn_ProgramFlags_IS_LINUX_KERNEL_DOC (char *)drgn_ProgramFlags_IS_LINUX_KERNEL_DOC
-extern const char drgn_ProgramFlags_IS_RUNNING_KERNEL_DOC[];
-#define drgn_ProgramFlags_IS_RUNNING_KERNEL_DOC (char *)drgn_ProgramFlags_IS_RUNNING_KERNEL_DOC
+extern const char drgn_ProgramFlags_IS_LIVE_DOC[];
+#define drgn_ProgramFlags_IS_LIVE_DOC (char *)drgn_ProgramFlags_IS_LIVE_DOC
 extern const char drgn_Qualifiers_DOC[];
 #define drgn_Qualifiers_DOC (char *)drgn_Qualifiers_DOC
 extern const char drgn_Qualifiers_ATOMIC_DOC[];

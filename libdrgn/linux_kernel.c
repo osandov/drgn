@@ -258,7 +258,7 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 	struct drgn_error *err;
 
 	it->name = NULL;
-	if (prog->flags & DRGN_PROGRAM_IS_RUNNING_KERNEL) {
+	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
 		it->file = fopen("/proc/modules", "r");
 		if (!it->file) {
 			return drgn_error_create_os(errno, "/proc/modules",
@@ -478,7 +478,7 @@ kernel_module_section_address(struct drgn_program *prog,
 	 * For the running kernel, we can take a shortcut by looking at sysfs.
 	 * Otherwise, we have to walk the list of modules in the kernel.
 	 */
-	if (prog->flags & DRGN_PROGRAM_IS_RUNNING_KERNEL) {
+	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
 		return kernel_module_section_address_from_sysfs(prog,
 								module_name,
 								section_name,
@@ -1179,7 +1179,7 @@ struct drgn_error *load_kernel_debug_info(struct drgn_program *prog)
 	 * Otherwise, we can get the list from procfs, and it's more efficient
 	 * to load vmlinux in parallel with the kernel modules.
 	 */
-	if (!(prog->flags & DRGN_PROGRAM_IS_RUNNING_KERNEL)) {
+	if (!(prog->flags & DRGN_PROGRAM_IS_LIVE)) {
 		err = drgn_program_update_debug_info(prog);
 		if (err)
 			goto err;
