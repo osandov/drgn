@@ -26,8 +26,8 @@ def for_each_cpu(mask):
     :rtype: Iterator[int]
     """
     bits = mask.bits
-    word_bits = 8 * bits.type_.type.sizeof()
-    for i in range(bits.type_.size):
+    word_bits = 8 * bits.type_.type.size
+    for i in range(bits.type_.length):
         word = bits[i].value_()
         for j in range(word_bits):
             if word & (1 << j):
