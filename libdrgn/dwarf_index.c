@@ -107,7 +107,6 @@ struct compilation_unit {
 	struct drgn_dwarf_index_file *file;
 	const char *ptr;
 	uint64_t unit_length;
-	uint16_t version;
 	uint64_t debug_abbrev_offset;
 	uint8_t address_size;
 	bool is_64_bit;
@@ -631,6 +630,7 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 						       struct compilation_unit *cu)
 {
 	uint32_t tmp;
+	uint16_t version;
 
 	if (!read_u32(&ptr, end, cu->file->bswap, &tmp))
 		return drgn_eof();
@@ -642,12 +642,12 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 		cu->unit_length = tmp;
 	}
 
-	if (!read_u16(&ptr, end, cu->file->bswap, &cu->version))
+	if (!read_u16(&ptr, end, cu->file->bswap, &version))
 		return drgn_eof();
-	if (cu->version != 2 && cu->version != 3 && cu->version != 4) {
+	if (version != 2 && version != 3 && version != 4) {
 		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
 					 "unknown DWARF CU version %" PRIu16,
-					 cu->version);
+					 version);
 	}
 
 	if (cu->is_64_bit) {
