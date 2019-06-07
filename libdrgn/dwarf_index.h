@@ -123,12 +123,8 @@ struct drgn_dwarf_index {
 	struct drgn_dwarf_index_shard shards[1 << DRGN_DWARF_INDEX_SHARD_BITS];
 };
 
-/**
- * Initialize a @ref drgn_dwarf_index.
- *
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex);
+/** Initialize a @ref drgn_dwarf_index. */
+void drgn_dwarf_index_init(struct drgn_dwarf_index *dindex);
 
 /**
  * Deinitialize a @ref drgn_dwarf_index.

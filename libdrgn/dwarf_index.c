@@ -230,11 +230,8 @@ static void free_shards(struct drgn_dwarf_index *dindex, size_t n)
 	}
 }
 
-struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex)
+void drgn_dwarf_index_init(struct drgn_dwarf_index *dindex)
 {
-	static const size_t initial_shard_capacity =
-		max(1024 >> DRGN_DWARF_INDEX_SHARD_BITS, 1);
-	struct drgn_error *err;
 	size_t i;
 
 	drgn_dwarf_index_file_table_init(&dindex->files);
@@ -246,22 +243,9 @@ struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex)
 		omp_init_lock(&shard->lock);
 		drgn_dwarf_index_die_map_init(&shard->map);
 		shard->num_entries = 0;
-		shard->entries_capacity = initial_shard_capacity;
-		shard->dies = malloc_array(initial_shard_capacity,
-					   sizeof(*shard->dies));
-		if (!shard->dies ||
-		    !drgn_dwarf_index_die_map_reserve(&shard->map,
-						      initial_shard_capacity)) {
-			free_shards(dindex, i + 1);
-			err = &drgn_enomem;
-			goto err;
-		}
+		shard->entries_capacity = 0;
+		shard->dies = NULL;
 	}
-	return NULL;
-
-err:
-	drgn_dwarf_index_file_table_deinit(&dindex->files);
-	return err;
 }
 
 static void free_files(struct drgn_dwarf_index *dindex,
@@ -1202,7 +1186,8 @@ static bool append_die_entry(struct drgn_dwarf_index_shard *shard, uint64_t tag,
 	if (shard->num_entries >= shard->entries_capacity) {
 		size_t new_capacity;
 
-		new_capacity = shard->entries_capacity * 2;
+		new_capacity = (shard->entries_capacity ?
+				shard->entries_capacity * 2 : 4);
 		if (!resize_array(&shard->dies, new_capacity))
 			return false;
 		shard->entries_capacity = new_capacity;
