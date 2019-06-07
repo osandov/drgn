@@ -43,26 +43,6 @@
  * @{
  */
 
-/** Flags for a @ref drgn_dwarf_index_flags. */
-enum drgn_dwarf_index_flags {
-	/**
-	 * Index global type information. This excludes incomplete types (i.e.,
-	 * types with @c DW_AT_declaration).
-	 */
-	DRGN_DWARF_INDEX_TYPES = (1 << 0),
-	/** Index global variables. */
-	DRGN_DWARF_INDEX_VARIABLES = (1 << 1),
-	/**
-	 * Index global enumeration constants. Note that the returned DIE will
-	 * refer to the parent @c DW_TAG_enumeration_type.
-	 */
-	DRGN_DWARF_INDEX_ENUMERATORS = (1 << 2),
-	/** Index global functions. */
-	DRGN_DWARF_INDEX_FUNCTIONS = (1 << 3),
-	/** Index all of the above. */
-	DRGN_DWARF_INDEX_ALL = (1 << 4) - 1,
-};
-
 enum {
 	SECTION_SYMTAB,
 	SECTION_DEBUG_ABBREV,
@@ -136,8 +116,6 @@ struct drgn_dwarf_index_shard {
  */
 struct drgn_dwarf_index {
 	/** @privatesection */
-	/* DRGN_DWARF_INDEX_* flags passed to drgn_dwarf_index_create(). */
-	enum drgn_dwarf_index_flags flags;
 	struct drgn_dwarf_index_file_table files;
 	struct drgn_dwarf_index_file *opened_first, *opened_last;
 	struct drgn_dwarf_index_file *indexed_first, *indexed_last;
@@ -148,12 +126,9 @@ struct drgn_dwarf_index {
 /**
  * Initialize a @ref drgn_dwarf_index.
  *
- * @param[in] flags Bitmask of @ref drgn_dwarf_index_flags indicating what to
- * index.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
-					 enum drgn_dwarf_index_flags flags);
+struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex);
 
 /**
  * Deinitialize a @ref drgn_dwarf_index.
@@ -239,6 +214,9 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
  *
  * If matching any name, this is O(n), where n is the number of indexed DIEs. If
  * matching by name, this is O(1) on average and O(n) worst case.
+ *
+ * Note that this returns the parent @c DW_TAG_enumeration_type for indexed @c
+ * DW_TAG_enumerator DIEs.
  *
  * @param[in] it DWARF index iterator.
  * @param[out] die Returned DIE.

@@ -230,19 +230,13 @@ static void free_shards(struct drgn_dwarf_index *dindex, size_t n)
 	}
 }
 
-struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
-					 enum drgn_dwarf_index_flags flags)
+struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex)
 {
 	static const size_t initial_shard_capacity =
 		max(1024 >> DRGN_DWARF_INDEX_SHARD_BITS, 1);
 	struct drgn_error *err;
 	size_t i;
 
-	if (flags & ~DRGN_DWARF_INDEX_ALL) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "invalid flags");
-	}
-	dindex->flags = flags;
 	drgn_dwarf_index_file_table_init(&dindex->files);
 	dindex->opened_first = dindex->opened_last = NULL;
 	dindex->indexed_first = dindex->indexed_last = NULL;
@@ -740,18 +734,7 @@ static struct drgn_error *append_insn(struct abbrev_table *table, uint8_t insn,
 	return NULL;
 }
 
-static inline bool is_type_tag(uint64_t tag)
-{
-	return (tag == DW_TAG_base_type ||
-		tag == DW_TAG_class_type ||
-		tag == DW_TAG_enumeration_type ||
-		tag == DW_TAG_structure_type ||
-		tag == DW_TAG_typedef ||
-		tag == DW_TAG_union_type);
-}
-
-static struct drgn_error *read_abbrev_decl(int flags, const char **ptr,
-					   const char *end,
+static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 					   const struct compilation_unit *cu,
 					   struct abbrev_table *table,
 					   size_t *decls_capacity,
@@ -791,14 +774,28 @@ static struct drgn_error *read_abbrev_decl(int flags, const char **ptr,
 	if ((err = read_uleb128(ptr, end, &tag)))
 		return err;
 
-	should_index = (((flags & DRGN_DWARF_INDEX_TYPES) && is_type_tag(tag)) ||
-			((flags & DRGN_DWARF_INDEX_VARIABLES) && tag == DW_TAG_variable) ||
-			((flags & DRGN_DWARF_INDEX_ENUMERATORS) && tag == DW_TAG_enumerator) ||
-			((flags & DRGN_DWARF_INDEX_FUNCTIONS) && tag == DW_TAG_subprogram));
+	switch (tag) {
+	/* Types. */
+	case DW_TAG_base_type:
+	case DW_TAG_class_type:
+	case DW_TAG_enumeration_type:
+	case DW_TAG_structure_type:
+	case DW_TAG_typedef:
+	case DW_TAG_union_type:
+	/* Variables. */
+	case DW_TAG_variable:
+	/* Constants. */
+	case DW_TAG_enumerator:
+	/* Functions. */
+	case DW_TAG_subprogram:
+		should_index = true;
+		break;
+	default:
+		should_index = false;
+		break;
+	}
 
-	if (should_index || tag == DW_TAG_compile_unit ||
-	    ((flags & DRGN_DWARF_INDEX_ENUMERATORS) &&
-	     tag == DW_TAG_enumeration_type))
+	if (should_index || tag == DW_TAG_compile_unit)
 		die_flags = tag;
 	else
 		die_flags = 0;
@@ -819,9 +816,7 @@ static struct drgn_error *read_abbrev_decl(int flags, const char **ptr,
 		if (name == 0 && form == 0)
 			break;
 
-		if (name == DW_AT_sibling &&
-		    !((flags & DRGN_DWARF_INDEX_ENUMERATORS) &&
-		      tag == DW_TAG_enumeration_type)) {
+		if (name == DW_AT_sibling && tag != DW_TAG_enumeration_type) {
 			/*
 			 * If we are indexing enumerators, we must descend into
 			 * DW_TAG_enumeration_type to find the DW_TAG_enumerator
@@ -1012,8 +1007,7 @@ append_insn:
 	return append_insn(table, die_flags, num_insns, insns_capacity);
 }
 
-static struct drgn_error *read_abbrev_table(int flags, const char *ptr,
-					    const char *end,
+static struct drgn_error *read_abbrev_table(const char *ptr, const char *end,
 					    const struct compilation_unit *cu,
 					    struct abbrev_table *table)
 {
@@ -1023,9 +1017,8 @@ static struct drgn_error *read_abbrev_table(int flags, const char *ptr,
 	size_t insns_capacity = 0;
 
 	for (;;) {
-		err = read_abbrev_decl(flags, &ptr, end, cu, table,
-				       &decls_capacity, &num_insns,
-				       &insns_capacity);
+		err = read_abbrev_decl(&ptr, end, cu, table, &decls_capacity,
+				       &num_insns, &insns_capacity);
 		if (err == (struct drgn_error *)-1)
 			break;
 		else if (err)
@@ -1494,8 +1487,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 	unsigned int depth = 0;
 	uint64_t enum_die_offset = 0;
 
-	if ((err = read_abbrev_table(dindex->flags,
-				     section_ptr(debug_abbrev,
+	if ((err = read_abbrev_table(section_ptr(debug_abbrev,
 						 cu->debug_abbrev_offset),
 				     debug_abbrev_end, cu, &abbrev_table)))
 		goto out;

@@ -1552,11 +1552,7 @@ drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 	dicache = malloc(sizeof(*dicache));
 	if (!dicache)
 		return &drgn_enomem;
-	err = drgn_dwarf_index_init(&dicache->dindex,
-				    DRGN_DWARF_INDEX_TYPES |
-				    DRGN_DWARF_INDEX_VARIABLES |
-				    DRGN_DWARF_INDEX_ENUMERATORS |
-				    DRGN_DWARF_INDEX_FUNCTIONS);
+	err = drgn_dwarf_index_init(&dicache->dindex);
 	if (err) {
 		free(dicache);
 		return err;
