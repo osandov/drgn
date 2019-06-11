@@ -72,7 +72,7 @@ def main() -> None:
         '-q', '--quiet', action='store_true',
         help="don't print non-fatal warnings (e.g., about missing debugging information)")
     parser.add_argument(
-        'script', metavar='ARG', type=str, nargs='*',
+        'script', metavar='ARG', type=str, nargs=argparse.REMAINDER,
         help='script to execute instead of running in interactive mode')
     parser.add_argument('--version', action='version', version=version)
 
