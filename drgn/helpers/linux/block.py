@@ -47,16 +47,32 @@ def disk_name(disk):
     return disk.disk_name.string_()
 
 
+def _for_each_block_device(prog):
+    try:
+        class_in_private = prog.cache['knode_class_in_device_private']
+    except KeyError:
+        # We need a proper has_member(), but this is fine for now.
+        class_in_private = any(member[1] == 'knode_class' for member in
+                               prog.type('struct device_private').members)
+        prog.cache['knode_class_in_device_private'] = class_in_private
+    devices = prog['block_class'].p.klist_devices.k_list.address_of_()
+    if class_in_private:
+        for device_private in list_for_each_entry('struct device_private', devices,
+                                                  'knode_class.n_node'):
+            yield device_private.device
+    else:
+        yield from list_for_each_entry('struct device', devices,
+                                       'knode_class.n_node')
+
+
 def for_each_disk(prog):
     """
     Iterate over all disks in the system.
 
     :return: Iterator of ``struct gendisk *`` objects.
     """
-    devices = prog['block_class'].p.klist_devices.k_list.address_of_()
     disk_type = prog['disk_type'].address_of_()
-    for device in list_for_each_entry('struct device', devices,
-                                      'knode_class.n_node'):
+    for device in _for_each_block_device(prog):
         if device.type == disk_type:
             yield container_of(device, 'struct gendisk', 'part0.__dev')
 
@@ -96,9 +112,7 @@ def for_each_partition(prog):
 
     :return: Iterator of ``struct hd_struct *`` objects.
     """
-    devices = prog['block_class'].p.klist_devices.k_list.address_of_()
-    for device in list_for_each_entry('struct device', devices,
-                                      'knode_class.n_node'):
+    for device in _for_each_block_device(prog):
         yield container_of(device, 'struct hd_struct', '__dev')
 
 
