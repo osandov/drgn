@@ -75,6 +75,7 @@ typedef struct {
 	PyObject_HEAD
 	struct drgn_program prog;
 	PyObject *objects;
+	PyObject *cache;
 } Program;
 
 typedef struct {

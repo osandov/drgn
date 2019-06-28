@@ -268,6 +268,30 @@ Programs
             available for some files; other files with debugging information
             are still loaded if this is raised
 
+    .. attribute:: cache
+
+        Dictionary for caching program metadata.
+
+        This isn't used by drgn itself. It is intended to be used by helpers to
+        cache metadata about the program. For example, if a helper for a
+        program depends on the program version or an optional feature, the
+        helper can detect it and cache it for subsequent invocations:
+
+        .. code-block:: python3
+
+            def my_helper(prog):
+                try:
+                    have_foo = prog.cache['have_foo']
+                except KeyError:
+                    have_foo = detect_foo_feature(prog)
+                    prog.cache['have_foo'] = have_foo
+                if have_foo:
+                    return prog['foo']
+                else:
+                    return prog['bar']
+
+        :vartype: dict
+
 .. class:: ProgramFlags
 
     ``ProgramFlags`` is an :class:`enum.Flag` of flags that can apply to a

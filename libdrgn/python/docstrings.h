@@ -119,6 +119,8 @@ extern const char drgn_Program_add_type_finder_DOC[];
 #define drgn_Program_add_type_finder_DOC (char *)drgn_Program_add_type_finder_DOC
 extern const char drgn_Program_arch_DOC[];
 #define drgn_Program_arch_DOC (char *)drgn_Program_arch_DOC
+extern const char drgn_Program_cache_DOC[];
+#define drgn_Program_cache_DOC (char *)drgn_Program_cache_DOC
 extern const char drgn_Program_constant_DOC[];
 #define drgn_Program_constant_DOC (char *)drgn_Program_constant_DOC
 extern const char drgn_Program_flags_DOC[];
@@ -149,6 +151,8 @@ extern const char drgn_ProgramFlags_DOC[];
 #define drgn_ProgramFlags_DOC (char *)drgn_ProgramFlags_DOC
 extern const char drgn_ProgramFlags_IS_LINUX_KERNEL_DOC[];
 #define drgn_ProgramFlags_IS_LINUX_KERNEL_DOC (char *)drgn_ProgramFlags_IS_LINUX_KERNEL_DOC
+extern const char drgn_ProgramFlags_IS_RUNNING_KERNEL_DOC[];
+#define drgn_ProgramFlags_IS_RUNNING_KERNEL_DOC (char *)drgn_ProgramFlags_IS_RUNNING_KERNEL_DOC
 extern const char drgn_Qualifiers_DOC[];
 #define drgn_Qualifiers_DOC (char *)drgn_Qualifiers_DOC
 extern const char drgn_Qualifiers_ATOMIC_DOC[];

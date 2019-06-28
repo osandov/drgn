@@ -71,7 +71,7 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 		.value = DRGN_ARCH_AUTO,
 		.allow_none = true,
 	};
-	PyObject *objects;
+	PyObject *objects, *cache;
 	Program *prog;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&:Program", keywords,
@@ -82,12 +82,18 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 	if (!objects)
 		return NULL;
 
+	cache = PyDict_New();
+	if (!cache)
+		return NULL;
+
 	prog = (Program *)Program_type.tp_alloc(&Program_type, 0);
 	if (!prog) {
+		Py_DECREF(cache);
 		Py_DECREF(objects);
 		return NULL;
 	}
 	prog->objects = objects;
+	prog->cache = cache;
 	drgn_program_init(&prog->prog, arch.value);
 	return prog;
 }
@@ -96,18 +102,21 @@ static void Program_dealloc(Program *self)
 {
 	drgn_program_deinit(&self->prog);
 	Py_XDECREF(self->objects);
+	Py_XDECREF(self->cache);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static int Program_traverse(Program *self, visitproc visit, void *arg)
 {
 	Py_VISIT(self->objects);
+	Py_VISIT(self->cache);
 	return 0;
 }
 
 static int Program_clear(Program *self)
 {
 	Py_CLEAR(self->objects);
+	Py_CLEAR(self->cache);
 	return 0;
 }
 
@@ -838,6 +847,12 @@ static PyMethodDef Program_methods[] = {
 	{},
 };
 
+static PyMemberDef Program_members[] = {
+	{"cache", T_OBJECT_EX, offsetof(Program, cache), 0,
+	 drgn_Program_cache_DOC},
+	{},
+};
+
 static PyGetSetDef Program_getset[] = {
 	{"flags", (getter)Program_get_flags, NULL, drgn_Program_flags_DOC},
 	{"arch", (getter)Program_get_arch, NULL, drgn_Program_arch_DOC},
@@ -892,7 +907,7 @@ PyTypeObject Program_type = {
 	NULL,					/* tp_iter */
 	NULL,					/* tp_iternext */
 	Program_methods,			/* tp_methods */
-	NULL,					/* tp_members */
+	Program_members,			/* tp_members */
 	Program_getset,				/* tp_getset */
 	NULL,					/* tp_base */
 	NULL,					/* tp_dict */
