@@ -18,6 +18,7 @@ from drgn.helpers.linux.list import (
     hlist_for_each_entry,
     list_for_each_entry,
 )
+from drgn.helpers.linux.pid import find_task
 
 __all__ = [
     'd_path',
@@ -32,6 +33,7 @@ __all__ = [
     'fget',
     'for_each_file',
     'print_files',
+    'path_lookup'
 ]
 
 
@@ -245,3 +247,16 @@ def print_files(task):
             path = file.f_inode.i_sb.s_type.name.string_()
         path = escape_string(path, escape_backslash=True)
         print(f'{fd} {path} ({file.type_.type_name()})0x{file.value_():x}')
+
+def path_lookup(prog_or_ns, path):
+    """
+    .. c:function:: struct path *path_lookup(struct pid_namespace *ns, char *path)
+
+    Return the struct path * in the file system tree of a given path string. Required to run drgn in the same namespace given as argument
+    """
+    fd = os.open(path,os.O_PATH)
+    pid = os.getpid()
+    struct_path = fget(find_task(prog_or_ns, pid),fd).f_path
+    os.close(fd)
+    return struct_path
+
