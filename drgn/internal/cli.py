@@ -49,8 +49,8 @@ def main() -> None:
 
     program_group = parser.add_argument_group(
         title='program selection',
-        description='one of the following is required',
-    ).add_mutually_exclusive_group(required=True)
+        description='if unspecified --kernel is assumed',
+    ).add_mutually_exclusive_group()
     program_group.add_argument(
         '-c', '--core', metavar='PATH', type=str,
         help='debug the given core dump')
@@ -81,10 +81,10 @@ def main() -> None:
     prog = drgn.Program()
     if args.core is not None:
         prog.set_core_dump(args.core)
-    elif args.kernel:
-        prog.set_kernel()
-    else:
+    elif args.pid is not None:
         prog.set_pid(args.pid or os.getpid())
+    else:
+        prog.set_kernel()
     if args.default_symbols:
         try:
             prog.load_default_debug_info()

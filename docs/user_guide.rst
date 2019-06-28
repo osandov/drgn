@@ -206,30 +206,19 @@ along with any arguments:
     pid = int(sys.argv[1])
     uid = find_task(prog, pid).cred.uid.val.value_()
     print(f'PID {pid} is being run by UID {uid}')
-    $ sudo drgn -k script.py 601
+    $ sudo drgn script.py 601
     PID 601 is being run by UID 1000
 
 It's even possible to run drgn scripts directly with the proper `shebang
 <https://en.wikipedia.org/wiki/Shebang_(Unix)>`_::
 
     $ cat script2.py
-    #!/usr/bin/drgn -k
+    #!/usr/bin/env drgn
 
     mounts = prog['init_task'].nsproxy.mnt_ns.mounts.value_()
     print(f'You have {mounts} filesystems mounted')
     $ sudo ./script2.py
     You have 36 filesystems mounted
-
-You usually shouldn't depend on an executable being installed at a specific
-absolute path. With newer versions of GNU coreutils (since v8.30), you can
-use |env -S|_:
-
-.. |env -S| replace:: ``env --split-string``
-.. _env -S: https://www.gnu.org/software/coreutils/manual/html_node/env-invocation.html#g_t_002dS_002f_002d_002dsplit_002dstring-usage-in-scripts
-
-.. code-block:: sh
-
-    #!/usr/bin/env -S drgn -k
 
 Interactive Mode
 ^^^^^^^^^^^^^^^^
@@ -268,7 +257,7 @@ In interactive mode, the drgn CLI automatically uses ``str()`` instead of
 ``repr()`` for objects and types, so you don't need to call ``print()``
 explicitly::
 
-    $ sudo drgn -k
+    $ sudo drgn
     >>> prog['jiffies']
     (volatile unsigned long)4395387628
     >>> prog.type('atomic_t')
