@@ -1167,6 +1167,11 @@ can be used just like types obtained from :meth:`Program.type()`.
     :type qualifiers: Qualifiers or None
     :rtype: Type
 
+Miscellaneous
+-------------
+
+.. autofunction:: execscript
+
 Exceptions
 ----------
 

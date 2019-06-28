@@ -40,6 +40,9 @@ that package should be considered implementation details and should not
 be used.
 """
 
+import runpy
+import sys
+
 from _drgn import (
     Architecture,
     FaultError,
@@ -113,3 +116,64 @@ __all__ = [
     'union_type',
     'void_type',
 ]
+
+
+def execscript(path, *args):
+    """
+    Execute a script.
+
+    The script is executed in the same context as the caller: currently defined
+    globals are available to the script, and globals defined by the script are
+    added back to the calling context.
+
+    This is most useful for executing scripts from interactive mode. For
+    example, you could have a script named ``tasks.py``:
+
+    .. code-block:: python3
+
+        import sys
+
+        \"\"\"
+        Get all tasks in a given state.
+        \"\"\"
+
+        # From include/linux/sched.h.
+        def task_state_index(task):
+            task_state = task.state.value_()
+            if task_state == 0x402:  # TASK_IDLE
+                return 8
+            else:
+                state = (task_state | task.exit_state.value_()) & 0x7f
+                return state.bit_length()
+
+        def task_state_to_char(task):
+            return 'RSDTtXZPI'[task_state_index(task)]
+
+        tasks = [
+            task for task in for_each_task(prog)
+            if task_state_to_char(task) == sys.argv[1]
+        ]
+
+    Then, you could execute it and use the defined variables and functions:
+
+    >>> execscript('tasks.py', 'R')
+    >>> tasks[0].comm
+    (char [16])"python3"
+    >>> task_state_to_char(find_task(prog, 1))
+    'S'
+
+    :param str path: File path of the script.
+    :param str \*args: Zero or more additional arguments to pass to the script.
+        This is a :ref:`variable argument list <python:tut-arbitraryargs>`.
+    """
+    old_argv = sys.argv
+    sys.argv = [path]
+    sys.argv.extend(args)
+    try:
+        old_globals = sys._getframe(1).f_globals
+        new_globals = runpy.run_path(path, init_globals=old_globals,
+                                     run_name='__main__')
+        old_globals.clear()
+        old_globals.update(new_globals)
+    finally:
+        sys.argv = old_argv
