@@ -541,6 +541,7 @@ class TestSymbols(unittest.TestCase):
         self.assertRaises(LookupError, prog._symbol, 'foo', FindObjectFlags.ANY)
         prog.add_symbol_finder(lambda name, flags, filename: None)
         self.assertRaises(LookupError, prog._symbol, 'foo', FindObjectFlags.ANY)
+        self.assertFalse('foo' in prog)
 
     def test_constant(self):
         sym = Symbol(int_type('int', 4, True), value=4096)
@@ -548,6 +549,7 @@ class TestSymbols(unittest.TestCase):
         self.assertEqual(prog._symbol('PAGE_SIZE', FindObjectFlags.CONSTANT),
                          sym)
         self.assertEqual(prog._symbol('PAGE_SIZE', FindObjectFlags.ANY), sym)
+        self.assertTrue('PAGE_SIZE' in prog)
 
     def test_function(self):
         sym = Symbol(function_type(void_type(), (), False), address=0xffff0000,
@@ -555,6 +557,7 @@ class TestSymbols(unittest.TestCase):
         prog = mock_program(symbols=[('func', sym)])
         self.assertEqual(prog._symbol('func', FindObjectFlags.FUNCTION), sym)
         self.assertEqual(prog._symbol('func', FindObjectFlags.ANY), sym)
+        self.assertTrue('func' in prog)
 
     def test_variable(self):
         sym = Symbol(int_type('int', 4, True), address=0xffff0000,
@@ -562,6 +565,7 @@ class TestSymbols(unittest.TestCase):
         prog = mock_program(symbols=[('counter', sym)])
         self.assertEqual(prog._symbol('counter', FindObjectFlags.VARIABLE), sym)
         self.assertEqual(prog._symbol('counter', FindObjectFlags.ANY), sym)
+        self.assertTrue('counter' in prog)
 
     def test_wrong_kind(self):
         prog = mock_program()

@@ -1230,8 +1230,9 @@ struct drgn_error *drgn_program_find_type(struct drgn_program *prog,
  * matched with @ref drgn_filename_matches(). If multiple definitions match, one
  * is returned arbitrarily.
  * @param[in] flags Flags indicating what kind of object to look for.
- * @param[out] ret Returned object. It must have already been initialized with
- * @ref drgn_object_init().
+ * @param[out] ret Returned object. This can be @c NULL to check for the
+ * object's existence without returning it. If not @c NULL, this must have
+ * already been initialized with @ref drgn_object_init().
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_find_object(struct drgn_program *prog,

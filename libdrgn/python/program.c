@@ -755,6 +755,38 @@ static DrgnObject *Program_subscript(Program *self, PyObject *key)
 	return ret;
 }
 
+static int Program_contains(Program *self, PyObject *key)
+{
+	struct drgn_error *err;
+	const char *name;
+	bool clear;
+
+	if (!PyUnicode_Check(key)) {
+		PyErr_SetObject(PyExc_KeyError, key);
+		return 0;
+	}
+
+	name = PyUnicode_AsUTF8(key);
+	if (!name)
+		return -1;
+
+	clear = set_drgn_in_python();
+	err = drgn_program_find_object(&self->prog, name, NULL,
+				       DRGN_FIND_OBJECT_ANY, NULL);
+	if (clear)
+		clear_drgn_in_python();
+	if (err) {
+		if (err->code == DRGN_ERROR_LOOKUP) {
+			drgn_error_destroy(err);
+			return 0;
+		} else {
+			set_drgn_error(err);
+			return -1;
+		}
+	}
+	return 1;
+}
+
 static PyObject *Program_get_flags(Program *self, void *arg)
 {
 	return PyObject_CallFunction(ProgramFlags_class, "k",
@@ -817,6 +849,20 @@ static PyMappingMethods Program_as_mapping = {
 	(binaryfunc)Program_subscript,	/* mp_subscript */
 };
 
+
+static PySequenceMethods Program_as_sequence = {
+	NULL,				/* sq_length */
+	NULL,				/* sq_concat */
+	NULL,				/* sq_repeat */
+	NULL,				/* sq_item */
+	NULL,				/* sq_slice */
+	NULL,				/* sq_ass_item */
+	NULL,				/* sq_ass_slice */
+	(objobjproc)Program_contains,	/* sq_contains */
+	NULL,				/* sq_inplace_concat */
+	NULL,				/* sq_inplace_repeat */
+};
+
 PyTypeObject Program_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	"_drgn.Program",			/* tp_name */
@@ -829,7 +875,7 @@ PyTypeObject Program_type = {
 	NULL,					/* tp_as_async */
 	NULL,					/* tp_repr */
 	NULL,					/* tp_as_number */
-	NULL,					/* tp_as_sequence */
+	&Program_as_sequence,			/* tp_as_sequence */
 	&Program_as_mapping,			/* tp_as_mapping */
 	NULL,					/* tp_hash  */
 	NULL,					/* tp_call */

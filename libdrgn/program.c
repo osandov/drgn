@@ -1718,14 +1718,14 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 	struct drgn_symbol sym;
 	struct drgn_qualified_type qualified_type;
 
-	if (ret->prog != prog) {
+	if (ret && ret->prog != prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "object is from wrong program");
 	}
 
 	err = drgn_symbol_index_find(&prog->sindex, name, filename, flags,
 				     &sym);
-	if (err)
+	if (err || !ret)
 		return err;
 	qualified_type.type = sym.type;
 	qualified_type.qualifiers = sym.qualifiers;
