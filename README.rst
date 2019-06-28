@@ -65,17 +65,17 @@ Quick Start
 
 .. start-quick-start
 
-To debug the running kernel, run ``sudo drgn -k``. To debug a running program,
-run ``sudo drgn -p $PID``. To debug a core dump (either a kernel vmcore or a
-userspace core dump), run ``drgn -c $PATH``. The program must have debugging
-symbols available.
+drgn debugs the running kernel by default; run ``sudo drgn``. To debug a
+running program, run ``sudo drgn -p $PID``. To debug a core dump (either a
+kernel vmcore or a userspace core dump), run ``drgn -c $PATH``. The program
+must have debugging symbols available.
 
 Then, you can access variables in the program with ``prog['name']``, access
 structure members with ``.``, use various predefined helpers, and more:
 
 .. code-block:: pycon
 
-    $ sudo drgn -k
+    $ sudo drgn
     >>> prog['init_task'].comm
     (char [16])"swapper/0"
     >>> d_path(fget(find_task(prog, 1), 0).f_path.address_of_())

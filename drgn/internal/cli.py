@@ -49,13 +49,13 @@ def main() -> None:
 
     program_group = parser.add_argument_group(
         title='program selection',
-        description='if unspecified --kernel is assumed',
     ).add_mutually_exclusive_group()
+    program_group.add_argument(
+        '-k', '--kernel', action='store_true',
+        help='debug the running kernel (default)')
     program_group.add_argument(
         '-c', '--core', metavar='PATH', type=str,
         help='debug the given core dump')
-    program_group.add_argument(
-        '-k', '--kernel', action='store_true', help='debug the running kernel')
     program_group.add_argument(
         '-p', '--pid', metavar='PID', type=int,
         help='debug the running process with the given PID')
