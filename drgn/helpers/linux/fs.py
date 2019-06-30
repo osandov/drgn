@@ -256,7 +256,7 @@ def path_lookup(prog_or_ns, path):
     """
     fd = os.open(path,os.O_PATH)
     pid = os.getpid()
-    struct_path = fget(find_task(prog_or_ns, pid),fd).f_path
+    struct_path = fget(find_task(prog_or_ns, pid),fd).f_path.read_()
     os.close(fd)
     return struct_path
 
