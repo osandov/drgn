@@ -19,6 +19,7 @@
 #include "dwarf_index.h"
 #include "read.h"
 #include "siphash.h"
+#include "vector.h"
 
 static const char * const section_name[DRGN_DWARF_INDEX_NUM_SECTIONS] = {
 	[SECTION_SYMTAB] = ".symtab",
@@ -83,25 +84,35 @@ enum {
 	TAG_FLAG_CHILDREN = 0x80,
 };
 
+DEFINE_VECTOR(uint8_vector, uint8_t)
+DEFINE_VECTOR(uint32_vector, uint32_t)
+DEFINE_VECTOR(uint64_vector, uint64_t)
+
 struct abbrev_table {
 	/*
-	 * This array is indexed on the DWARF abbreviation code minus one. It
-	 * maps the abbreviation code to an index in the insns array where the
-	 * instruction stream for that code begins.
+	 * This is indexed on the DWARF abbreviation code minus one. It maps the
+	 * abbreviation code to an index in insns where the instruction stream
+	 * for that code begins.
 	 *
 	 * Technically, abbreviation codes don't have to be sequential. In
 	 * practice, GCC seems to always generate sequential codes starting at
 	 * one, so we can get away with a flat array.
 	 */
-	uint32_t *decls;
-	size_t num_decls;
-	uint8_t *insns;
+	struct uint32_vector decls;
+	struct uint8_vector insns;
 };
 
-struct file_name_table {
-	uint64_t *file_name_hashes;
-	size_t num_files;
-};
+static void abbrev_table_init(struct abbrev_table *abbrev)
+{
+	uint32_vector_init(&abbrev->decls);
+	uint8_vector_init(&abbrev->insns);
+}
+
+static void abbrev_table_deinit(struct abbrev_table *abbrev)
+{
+	uint8_vector_deinit(&abbrev->insns);
+	uint32_vector_deinit(&abbrev->decls);
+}
 
 struct compilation_unit {
 	struct drgn_dwarf_index_file *file;
@@ -150,6 +161,7 @@ struct drgn_dwarf_index_die {
  * index into drgn_dwarf_index_shard::dies).
  */
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash, string_eq)
+DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_die_vector)
 
 static inline size_t hash_pair_to_shard(struct hash_pair hp)
 {
@@ -223,7 +235,7 @@ static void free_shards(struct drgn_dwarf_index *dindex, size_t n)
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		free(dindex->shards[i].dies);
+		drgn_dwarf_index_die_vector_deinit(&dindex->shards[i].dies);
 		drgn_dwarf_index_die_map_deinit(&dindex->shards[i].map);
 		omp_destroy_lock(&dindex->shards[i].lock);
 	}
@@ -241,9 +253,7 @@ void drgn_dwarf_index_init(struct drgn_dwarf_index *dindex)
 
 		omp_init_lock(&shard->lock);
 		drgn_dwarf_index_die_map_init(&shard->map);
-		shard->num_entries = 0;
-		shard->entries_capacity = 0;
-		shard->dies = NULL;
+		drgn_dwarf_index_die_vector_init(&shard->dies);
 	}
 }
 
@@ -703,35 +713,19 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index_file *file,
 	return NULL;
 }
 
-static struct drgn_error *append_insn(struct abbrev_table *table, uint8_t insn,
-				      size_t *num_insns, size_t *insns_capacity)
-{
-	if (*num_insns >= *insns_capacity) {
-		if (*insns_capacity == 0)
-			*insns_capacity = 32;
-		else
-			*insns_capacity *= 2;
-		if (!resize_array(&table->insns, *insns_capacity))
-			return &drgn_enomem;
-	}
-	table->insns[(*num_insns)++] = insn;
-	return NULL;
-}
-
 static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 					   const struct compilation_unit *cu,
-					   struct abbrev_table *table,
-					   size_t *decls_capacity,
-					   size_t *num_insns,
-					   size_t *insns_capacity)
+					   struct abbrev_table *abbrev)
 {
 	struct drgn_error *err;
 	uint64_t code;
+	uint32_t insn_index;
 	uint64_t tag;
 	uint8_t children;
 	uint8_t die_flags;
 	bool should_index;
 	bool first = true;
+	uint8_t insn;
 
 	static_assert(ATTRIB_MAX_INSN == UINT8_MAX,
 		      "maximum DWARF attribute instruction is invalid");
@@ -740,20 +734,14 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		return err;
 	if (code == 0)
 		return &drgn_stop;
-	if (code != table->num_decls + 1) {
+	if (code != abbrev->decls.size + 1) {
 		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
 					 "DWARF abbreviation table is not sequential");
 	}
 
-	if (table->num_decls >= *decls_capacity) {
-		if (*decls_capacity == 0)
-			*decls_capacity = 1;
-		else
-			*decls_capacity *= 2;
-		if (!resize_array(&table->decls, *decls_capacity))
-			return &drgn_enomem;
-	}
-	table->decls[table->num_decls++] = *num_insns;
+	insn_index = abbrev->insns.size;
+	if (!uint32_vector_append(&abbrev->decls, &insn_index))
+		return &drgn_enomem;
 
 	if ((err = read_uleb128(ptr, end, &tag)))
 		return err;
@@ -791,7 +779,6 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 
 	for (;;) {
 		uint64_t name, form;
-		uint8_t insn;
 
 		if ((err = read_uleb128(ptr, end, &name)))
 			return err;
@@ -971,38 +958,40 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 						 form);
 		}
 
-		if (!first && table->insns[*num_insns - 1] < INSN_MAX_SKIP) {
-			if ((uint16_t)table->insns[*num_insns - 1] + insn <= INSN_MAX_SKIP) {
-				table->insns[*num_insns - 1] += insn;
+		if (!first) {
+			uint8_t last_insn;
+
+			last_insn = abbrev->insns.data[abbrev->insns.size - 1];
+			if (last_insn + insn <= INSN_MAX_SKIP) {
+				abbrev->insns.data[abbrev->insns.size - 1] += insn;
 				continue;
-			} else {
-				insn = (uint16_t)table->insns[*num_insns - 1] + insn - INSN_MAX_SKIP;
-				table->insns[*num_insns - 1] = INSN_MAX_SKIP;
+			} else if (last_insn < INSN_MAX_SKIP) {
+				insn = last_insn + insn - INSN_MAX_SKIP;
+				abbrev->insns.data[abbrev->insns.size - 1] =
+					INSN_MAX_SKIP;
 			}
 		}
 
 append_insn:
 		first = false;
-		if ((err = append_insn(table, insn, num_insns, insns_capacity)))
-			return err;
+		if (!uint8_vector_append(&abbrev->insns, &insn))
+			return &drgn_enomem;
 	}
-	if ((err = append_insn(table, 0, num_insns, insns_capacity)))
-		return err;
-	return append_insn(table, die_flags, num_insns, insns_capacity);
+	insn = 0;
+	if (!uint8_vector_append(&abbrev->insns, &insn) ||
+	    !uint8_vector_append(&abbrev->insns, &die_flags))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *read_abbrev_table(const char *ptr, const char *end,
 					    const struct compilation_unit *cu,
-					    struct abbrev_table *table)
+					    struct abbrev_table *abbrev)
 {
 	struct drgn_error *err;
-	size_t decls_capacity = 0;
-	size_t num_insns = 0;
-	size_t insns_capacity = 0;
 
 	for (;;) {
-		err = read_abbrev_decl(&ptr, end, cu, table, &decls_capacity,
-				       &num_insns, &insns_capacity);
+		err = read_abbrev_decl(&ptr, end, cu, abbrev);
 		if (err && err->code == DRGN_ERROR_STOP)
 			break;
 		else if (err)
@@ -1073,10 +1062,12 @@ static void hash_directory(struct siphash *hash, const char *path,
 	}
 }
 
-static struct drgn_error *read_file_name_table(struct drgn_dwarf_index *dindex,
-					       struct compilation_unit *cu,
-					       size_t stmt_list,
-					       struct file_name_table *table)
+DEFINE_VECTOR(siphash_vector, struct siphash)
+
+static struct drgn_error *
+read_file_name_table(struct drgn_dwarf_index *dindex,
+		     struct compilation_unit *cu, size_t stmt_list,
+		     struct uint64_vector *file_name_table)
 {
 	/*
 	 * We don't care about hash flooding attacks, so don't bother with the
@@ -1088,10 +1079,9 @@ static struct drgn_error *read_file_name_table(struct drgn_dwarf_index *dindex,
 	Elf_Data *debug_line = file->sections[SECTION_DEBUG_LINE];
 	const char *ptr = section_ptr(debug_line, stmt_list);
 	const char *end = section_end(debug_line);
-	struct siphash *directories = NULL;
-	size_t num_directories = 0;
-	size_t directories_capacity = 0;
-	size_t files_capacity = 0;
+	struct siphash_vector directories;
+
+	siphash_vector_init(&directories);
 
 	if ((err = skip_lnp_header(file, &ptr, end)))
 		return err;
@@ -1106,18 +1096,11 @@ static struct drgn_error *read_file_name_table(struct drgn_dwarf_index *dindex,
 		if (!path_len)
 			break;
 
-		if (num_directories >= directories_capacity) {
-			if (directories_capacity == 0)
-				directories_capacity = 16;
-			else
-				directories_capacity *= 2;
-			if (!resize_array(&directories, directories_capacity)) {
-				err = &drgn_enomem;
-				goto out;
-			}
+		hash = siphash_vector_append_entry(&directories);
+		if (!hash) {
+			err = &drgn_enomem;
+			goto out;
 		}
-
-		hash = &directories[num_directories++];
 		siphash_init(hash, siphash_key);
 		hash_directory(hash, path, path_len);
 	}
@@ -1127,6 +1110,7 @@ static struct drgn_error *read_file_name_table(struct drgn_dwarf_index *dindex,
 		size_t path_len;
 		uint64_t directory_index;
 		struct siphash hash;
+		uint64_t file_name_hash;
 
 		if (!read_string(&ptr, end, &path, &path_len)) {
 			err = drgn_eof();
@@ -1143,7 +1127,7 @@ static struct drgn_error *read_file_name_table(struct drgn_dwarf_index *dindex,
 			goto out;
 		}
 
-		if (directory_index > num_directories) {
+		if (directory_index > directories.size) {
 			err = drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
 						"directory index %" PRIu64 " is invalid",
 						directory_index);
@@ -1151,28 +1135,21 @@ static struct drgn_error *read_file_name_table(struct drgn_dwarf_index *dindex,
 		}
 
 		if (directory_index)
-			hash = directories[directory_index - 1];
+			hash = directories.data[directory_index - 1];
 		else
 			siphash_init(&hash, siphash_key);
 		siphash_update(&hash, path, path_len);
 
-		if (table->num_files >= files_capacity) {
-			if (files_capacity == 0)
-				files_capacity = 16;
-			else
-				files_capacity *= 2;
-			if (!resize_array(&table->file_name_hashes,
-					  files_capacity)) {
-				err = &drgn_enomem;
-				goto out;
-			}
+		file_name_hash = siphash_final(&hash);
+		if (!uint64_vector_append(file_name_table, &file_name_hash)) {
+			err = &drgn_enomem;
+			goto out;
 		}
-		table->file_name_hashes[table->num_files++] = siphash_final(&hash);
 	}
 
 	err = NULL;
 out:
-	free(directories);
+	siphash_vector_deinit(&directories);
 	return err;
 }
 
@@ -1183,17 +1160,9 @@ static bool append_die_entry(struct drgn_dwarf_index_shard *shard, uint64_t tag,
 {
 	struct drgn_dwarf_index_die *die;
 
-	if (shard->num_entries >= shard->entries_capacity) {
-		size_t new_capacity;
-
-		new_capacity = (shard->entries_capacity ?
-				shard->entries_capacity * 2 : 4);
-		if (!resize_array(&shard->dies, new_capacity))
-			return false;
-		shard->entries_capacity = new_capacity;
-	}
-
-	die = &shard->dies[shard->num_entries++];
+	die = drgn_dwarf_index_die_vector_append_entry(&shard->dies);
+	if (!die)
+		return false;
 	die->tag = tag;
 	die->file_name_hash = file_name_hash;
 	die->file = file;
@@ -1232,7 +1201,7 @@ static struct drgn_error *index_die(struct drgn_dwarf_index *dindex,
 			err = &drgn_enomem;
 			goto out;
 		}
-		entry.value = shard->num_entries - 1;
+		entry.value = shard->dies.size - 1;
 		if (drgn_dwarf_index_die_map_insert_searched(&shard->map,
 							     &entry, hp,
 							     NULL) == 1)
@@ -1242,7 +1211,7 @@ static struct drgn_error *index_die(struct drgn_dwarf_index *dindex,
 		goto out;
 	}
 
-	die = &shard->dies[it.entry->value];
+	die = &shard->dies.data[it.entry->value];
 	for (;;) {
 		if (die->tag == tag &&
 		    die->file_name_hash == file_name_hash) {
@@ -1252,15 +1221,15 @@ static struct drgn_error *index_die(struct drgn_dwarf_index *dindex,
 
 		if (die->next == SIZE_MAX)
 			break;
-		die = &shard->dies[die->next];
+		die = &shard->dies.data[die->next];
 	}
 
-	index = die - shard->dies;
+	index = die - shard->dies.data;
 	if (!append_die_entry(shard, tag, file_name_hash, file, offset)) {
 		err = &drgn_enomem;
 		goto out;
 	}
-	shard->dies[index].next = shard->num_entries - 1;
+	shard->dies.data[index].next = shard->dies.size - 1;
 	err = NULL;
 out:
 	omp_unset_lock(&shard->lock);
@@ -1277,7 +1246,7 @@ struct die {
 };
 
 static struct drgn_error *read_die(struct compilation_unit *cu,
-				   const struct abbrev_table *abbrev_table,
+				   const struct abbrev_table *abbrev,
 				   const char **ptr, const char *end,
 				   const char *debug_str_buffer,
 				   const char *debug_str_end, struct die *die)
@@ -1292,12 +1261,12 @@ static struct drgn_error *read_die(struct compilation_unit *cu,
 	if (code == 0)
 		return &drgn_stop;
 
-	if (code < 1 || code > abbrev_table->num_decls) {
+	if (code < 1 || code > abbrev->decls.size) {
 		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
 					 "unknown abbreviation code %" PRIu64,
 					 code);
 	}
-	insnp = &abbrev_table->insns[abbrev_table->decls[code - 1]];
+	insnp = &abbrev->insns.data[abbrev->decls.data[code - 1]];
 
 	while ((insn = *insnp++)) {
 		size_t skip, tmp;
@@ -1457,8 +1426,8 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 				   struct compilation_unit *cu)
 {
 	struct drgn_error *err;
-	struct abbrev_table abbrev_table = {};
-	struct file_name_table file_name_table = {};
+	struct abbrev_table abbrev;
+	struct uint64_vector file_name_table;
 	struct drgn_dwarf_index_file *file = cu->file;
 	Elf_Data *debug_abbrev = file->sections[SECTION_DEBUG_ABBREV];
 	const char *debug_abbrev_end = section_end(debug_abbrev);
@@ -1472,9 +1441,12 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 	unsigned int depth = 0;
 	uint64_t enum_die_offset = 0;
 
+	abbrev_table_init(&abbrev);
+	uint64_vector_init(&file_name_table);
+
 	if ((err = read_abbrev_table(section_ptr(debug_abbrev,
 						 cu->debug_abbrev_offset),
-				     debug_abbrev_end, cu, &abbrev_table)))
+				     debug_abbrev_end, cu, &abbrev)))
 		goto out;
 
 	for (;;) {
@@ -1484,7 +1456,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 		uint64_t die_offset = ptr - debug_info_buffer;
 		uint64_t tag;
 
-		err = read_die(cu, &abbrev_table, &ptr, end, debug_str_buffer,
+		err = read_die(cu, &abbrev, &ptr, end, debug_str_buffer,
 			       debug_str_end, &die);
 		if (err && err->code == DRGN_ERROR_STOP) {
 			depth--;
@@ -1523,9 +1495,9 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 				struct die decl = {};
 				const char *decl_ptr = die.specification;
 
-				if ((err = read_die(cu, &abbrev_table, &decl_ptr, end,
-						    debug_str_buffer, debug_str_end,
-						    &decl)))
+				if ((err = read_die(cu, &abbrev, &decl_ptr, end,
+						    debug_str_buffer,
+						    debug_str_end, &decl)))
 					goto out;
 				if (!die.name && decl.name)
 					die.name = decl.name;
@@ -1534,14 +1506,14 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 			}
 
 			if (die.name) {
-				if (die.decl_file > file_name_table.num_files) {
+				if (die.decl_file > file_name_table.size) {
 					err = drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
 								"invalid DW_AT_decl_file %zu",
 								die.decl_file);
 					goto out;
 				}
 				if (die.decl_file)
-					file_name_hash = file_name_table.file_name_hashes[die.decl_file - 1];
+					file_name_hash = file_name_table.data[die.decl_file - 1];
 				else
 					file_name_hash = 0;
 				if ((err = index_die(dindex, die.name, tag,
@@ -1564,9 +1536,8 @@ next:
 
 	err = NULL;
 out:
-	free(file_name_table.file_name_hashes);
-	free(abbrev_table.decls);
-	free(abbrev_table.insns);
+	uint64_vector_deinit(&file_name_table);
+	abbrev_table_deinit(&abbrev);
 	return err;
 }
 
@@ -1622,12 +1593,12 @@ static void unindex_files(struct drgn_dwarf_index *dindex,
 		 * last update, we can just shrink the dies array to the first
 		 * entry that was added for this update.
 		 */
-		while (shard->num_entries) {
+		while (shard->dies.size) {
 			struct drgn_dwarf_index_die *die;
 
-			die = &shard->dies[shard->num_entries - 1];
+			die = &shard->dies.data[shard->dies.size - 1];
 			if (die->file->failed)
-				shard->num_entries--;
+				shard->dies.size--;
 			else
 				break;
 		}
@@ -1639,7 +1610,7 @@ static void unindex_files(struct drgn_dwarf_index *dindex,
 		 */
 		for (it = drgn_dwarf_index_die_map_first(&shard->map);
 		     it.entry; ) {
-			if (it.entry->value >= shard->num_entries) {
+			if (it.entry->value >= shard->dies.size) {
 				it = drgn_dwarf_index_die_map_delete_iterator(&shard->map,
 									      it);
 			} else {
@@ -1726,7 +1697,7 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 		it->index = 0;
 		for (it->shard = 0; it->shard < ARRAY_SIZE(dindex->shards);
 		     it->shard++) {
-			if (dindex->shards[it->shard].num_entries)
+			if (dindex->shards[it->shard].dies.size)
 				break;
 		}
 		it->any_name = true;
@@ -1766,12 +1737,12 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 				return &drgn_stop;
 
 			shard = &dindex->shards[it->shard];
-			index_die = &shard->dies[it->index];
+			index_die = &shard->dies.data[it->index];
 
-			if (++it->index >= shard->num_entries) {
+			if (++it->index >= shard->dies.size) {
 				it->index = 0;
 				while (++it->shard < ARRAY_SIZE(dindex->shards)) {
-					if (dindex->shards[it->shard].num_entries)
+					if (dindex->shards[it->shard].dies.size)
 						break;
 				}
 			}
@@ -1788,7 +1759,7 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 				return &drgn_stop;
 
 			shard = &dindex->shards[it->shard];
-			index_die = &shard->dies[it->index];
+			index_die = &shard->dies.data[it->index];
 
 			it->index = index_die->next;
 

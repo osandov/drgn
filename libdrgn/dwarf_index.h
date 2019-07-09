@@ -20,6 +20,7 @@
 
 #include "drgn.h"
 #include "hash_table.h"
+#include "vector.h"
 
 /**
  * @ingroup Internals
@@ -80,6 +81,7 @@ DEFINE_HASH_TABLE_TYPE(drgn_dwarf_index_file_table,
 
 struct drgn_dwarf_index_die;
 DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, size_t)
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
 
 struct drgn_dwarf_index_shard {
 	/** @privatesection */
@@ -89,8 +91,7 @@ struct drgn_dwarf_index_shard {
 	 * We store all entries in a shard as a single array, which is more
 	 * cache friendly.
 	 */
-	struct drgn_dwarf_index_die *dies;
-	size_t num_entries, entries_capacity;
+	struct drgn_dwarf_index_die_vector dies;
 };
 
 #define DRGN_DWARF_INDEX_SHARD_BITS 8

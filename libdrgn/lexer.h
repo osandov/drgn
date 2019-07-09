@@ -14,6 +14,8 @@
 
 #include <stddef.h>
 
+#include "vector.h"
+
 /**
  * @ingroup Internals
  *
@@ -56,6 +58,8 @@ struct drgn_token {
 	size_t len;
 };
 
+DEFINE_VECTOR_TYPE(drgn_token_vector, struct drgn_token)
+
 /**
  * Lexer instance.
  *
@@ -69,11 +73,7 @@ struct drgn_lexer {
 	/** Current position in the string. */
 	const char *p;
 	/** Stack of tokens. */
-	struct drgn_token *stack;
-	/** Number of tokens on the stack. */
-	size_t stack_len;
-	/** Allocated size of the stack. */
-	size_t stack_capacity;
+	struct drgn_token_vector stack;
 };
 
 /**

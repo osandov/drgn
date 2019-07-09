@@ -4,46 +4,37 @@
 #include "internal.h"
 #include "lexer.h"
 
+DEFINE_VECTOR_FUNCTIONS(drgn_token_vector)
+
 void drgn_lexer_init(struct drgn_lexer *lexer, drgn_lexer_func func,
 		     const char *str)
 {
 	lexer->func = func;
 	lexer->p = str;
-	lexer->stack = NULL;
-	lexer->stack_len = 0;
-	lexer->stack_capacity = 0;
+	drgn_token_vector_init(&lexer->stack);
 }
 
 void drgn_lexer_deinit(struct drgn_lexer *lexer)
 {
-	free(lexer->stack);
+	drgn_token_vector_deinit(&lexer->stack);
 }
 
 struct drgn_error *drgn_lexer_pop(struct drgn_lexer *lexer,
 				  struct drgn_token *token)
 {
-	if (lexer->stack_len) {
-		*token = lexer->stack[--lexer->stack_len];
+	if (lexer->stack.size) {
+		*token = *drgn_token_vector_pop(&lexer->stack);
 		return NULL;
+	} else {
+		return lexer->func(lexer, token);
 	}
-
-	return lexer->func(lexer, token);
 }
 
 struct drgn_error *drgn_lexer_push(struct drgn_lexer *lexer,
 				   const struct drgn_token *token)
 {
-	if (lexer->stack_len >= lexer->stack_capacity) {
-		size_t new_capacity;
-
-		new_capacity = (lexer->stack_capacity ?
-				2 * lexer->stack_capacity : 2);
-		if (!resize_array(&lexer->stack, new_capacity))
-			return &drgn_enomem;
-		lexer->stack_capacity = new_capacity;
-	}
-
-	lexer->stack[lexer->stack_len++] = *token;
+	if (!drgn_token_vector_append(&lexer->stack, token))
+		return &drgn_enomem;
 	return NULL;
 }
 

@@ -24,6 +24,7 @@
 #include "string_builder.h"
 #include "symbol_index.h"
 #include "type_index.h"
+#include "vector.h"
 
 /* This definition was added to elf.h in glibc 2.18. */
 #ifndef NT_FILE
@@ -945,45 +946,41 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 				       physical);
 }
 
+DEFINE_VECTOR(char_vector, char)
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 			   bool physical, size_t max_size, char **ret)
 {
 	struct drgn_error *err;
-	char *str;
-	size_t size = 0, capacity = 1;
+	struct char_vector str;
 
-	str = malloc(capacity);
-	if (!str)
-		return &drgn_enomem;
-
+	char_vector_init(&str);
 	for (;;) {
-		if (size >= capacity) {
-			capacity *= 2;
-			if (!resize_array(&str, capacity)) {
-				free(str);
-				return &drgn_enomem;
-			}
-		}
+		char *c;
 
-		if (size < max_size) {
-			err = drgn_memory_reader_read(&prog->reader, &str[size],
-						      address, 1, physical);
+		c = char_vector_append_entry(&str);
+		if (!c) {
+			char_vector_deinit(&str);
+			return &drgn_enomem;
+		}
+		if (str.size <= max_size) {
+			err = drgn_memory_reader_read(&prog->reader, c, address,
+						      1, physical);
 			if (err) {
-				free(str);
+				char_vector_deinit(&str);
 				return err;
 			}
-			if (!str[size++])
+			if (!*c)
 				break;
 		} else {
-			str[size++] = '\0';
+			*c = '\0';
 			break;
 		}
 		address++;
 	}
-	/* We don't care if this fails. */
-	resize_array(&str, size);
-	*ret = str;
+	char_vector_shrink_to_fit(&str);
+	*ret = str.data;
 	return NULL;
 }
 

@@ -12,6 +12,7 @@
 #include "hash_table.h"
 #include "symbol_index.h"
 #include "type_index.h"
+#include "vector.h"
 
 #if !_ELFUTILS_PREREQ(0, 162)
 #define DW_TAG_atomic_type 0x47
@@ -978,6 +979,8 @@ struct array_dimension {
 	bool is_complete;
 };
 
+DEFINE_VECTOR(array_dimension_vector, struct array_dimension)
+
 static struct drgn_error *subrange_length(Dwarf_Die *die,
 					  struct array_dimension *dimension)
 {
@@ -1026,25 +1029,18 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	struct drgn_type *type;
 	struct drgn_qualified_type element_type;
 	Dwarf_Die child;
-	struct array_dimension *dimensions = NULL;
-	size_t num_dimensions = 0, capacity = 0;
+	struct array_dimension_vector dimensions;
+	struct array_dimension *dimension;
 	int r;
 
+	array_dimension_vector_init(&dimensions);
 	r = dwarf_child(die, &child);
 	while (r == 0) {
 		if (dwarf_tag(&child) == DW_TAG_subrange_type) {
-			if (num_dimensions >= capacity) {
-				if (capacity == 0)
-					capacity = 1;
-				else
-					capacity *= 2;
-				if (!resize_array(&dimensions, capacity)) {
-					err = &drgn_enomem;
-					goto out;
-				}
-			}
-			err = subrange_length(&child,
-					      &dimensions[num_dimensions++]);
+			dimension = array_dimension_vector_append_entry(&dimensions);
+			if (!dimension)
+				goto out;
+			err = subrange_length(&child, dimension);
 			if (err)
 				goto out;
 		}
@@ -1055,12 +1051,11 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 					"libdw could not parse DIE children");
 		goto out;
 	}
-	if (num_dimensions == 0) {
-		if (!resize_array(&dimensions, 1)) {
-			err = &drgn_enomem;
+	if (!dimensions.size) {
+		dimension = array_dimension_vector_append_entry(&dimensions);
+		if (!dimension)
 			goto out;
-		}
-		dimensions[num_dimensions++].is_complete = false;
+		dimension->is_complete = false;
 	}
 
 	err = drgn_type_from_dwarf_child_internal(dicache, die,
@@ -1069,16 +1064,14 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	if (err)
 		goto out;
 
-	*is_incomplete_array_ret = !dimensions[0].is_complete;
-	while (num_dimensions > 0) {
-		struct array_dimension *dimension;
-
-		dimension = &dimensions[--num_dimensions];
+	*is_incomplete_array_ret = !dimensions.data[0].is_complete;
+	do {
+		dimension = array_dimension_vector_pop(&dimensions);
 		if (dimension->is_complete) {
 			err = drgn_type_index_array_type(dicache->tindex,
 							 dimension->length,
 							 element_type, &type);
-		} else if (num_dimensions || !can_be_incomplete_array) {
+		} else if (dimensions.size || !can_be_incomplete_array) {
 			err = drgn_type_index_array_type(dicache->tindex, 0,
 							 element_type, &type);
 		} else {
@@ -1091,12 +1084,12 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 
 		element_type.type = type;
 		element_type.qualifiers = 0;
-	}
+	} while (dimensions.size);
 
 	*ret = type;
 	err = NULL;
 out:
-	free(dimensions);
+	array_dimension_vector_deinit(&dimensions);
 	return err;
 }
 
