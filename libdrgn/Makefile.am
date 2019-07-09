@@ -41,7 +41,9 @@ libdrgnimpl_la_SOURCES = binary_search_tree.h \
 			 type.c \
 			 type.h \
 			 type_index.c \
-			 type_index.h
+			 type_index.h \
+			 vector.c \
+			 vector.h
 
 libdrgnimpl_la_CFLAGS = -fvisibility=hidden -fopenmp $(libelf_CFLAGS) \
 			$(libdw_CFLAGS)
