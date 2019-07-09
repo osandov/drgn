@@ -174,16 +174,13 @@ drgn_program_set_kdump(struct drgn_program *prog)
 	if (err)
 		goto out_fd;
 
-	err = drgn_kdump_get_kernel_offset(ctx,
-	                                   &prog->vmcoreinfo.kaslr_offset);
+	const char *vmcoreinfo = NULL;
+	err = drgn_kdump_get_raw_vmcoreinfo(ctx, &vmcoreinfo);
 	if (err)
 		goto out_kdump;
 
-	err = drgn_kdump_get_osrelease(ctx, prog->vmcoreinfo.osrelease);
-	if (err)
-		goto out_kdump;
-
-	err = drgn_kdump_get_page_size(ctx, &prog->vmcoreinfo.page_size);
+	err = parse_vmcoreinfo(vmcoreinfo, strlen(vmcoreinfo)+1,
+	                       &prog->vmcoreinfo);
 	if (err)
 		goto out_kdump;
 
@@ -221,7 +218,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	Elf *elf;
 	GElf_Ehdr ehdr_mem, *ehdr;
 	enum drgn_architecture_flags arch;
-	bool is_64_bit;
+	bool is_kdump, is_64_bit;
 	size_t phnum, i;
 	bool have_non_zero_phys_addr = false;
 	struct drgn_memory_file_segment *current_file_segment;
@@ -235,7 +232,8 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (prog->core_fd == -1)
 		return drgn_error_create_os("open", errno, path);
 
-	if (has_kdump_signature(prog->core_fd, &err))
+	err = has_kdump_signature(prog->core_fd, &is_kdump);
+	if (is_kdump)
 		return drgn_program_set_kdump(prog);
 	if (err)
 		goto out_fd;

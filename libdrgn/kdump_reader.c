@@ -9,29 +9,39 @@
 #include "kdump_reader.h"
 #include "program.h"
 
-bool has_kdump_signature(int fd, struct drgn_error **err)
+struct drgn_error *has_kdump_signature(int fd, bool *is_kdump)
 {
 	char signature[SIG_LEN];
 
-	int n = read(fd, signature, sizeof (signature));
-	if (n != sizeof (signature)) {
-		*err = drgn_error_format(DRGN_ERROR_FAULT,
-		                         "short read from file");
-		return false;
+	uint64_t file_offset = 0;
+	uint64_t file_count = sizeof (signature);
+	while (file_count) {
+		ssize_t ret = read(fd, signature + file_offset,
+		                   file_count);
+		if (ret == -1) {
+			if (errno == EINTR)
+				continue;
+			*is_kdump = false;
+			return drgn_error_create_os(errno, NULL, "read");
+		} else if (ret == 0) {
+			*is_kdump = false;
+			return drgn_error_format(DRGN_ERROR_FAULT,
+						 "short read from dump file");
+		}
+
+		file_offset += ret;
+		file_count -= ret;
 	}
 
-	int cmp = memcmp(signature, KDUMP_SIGNATURE, sizeof (signature));
-	if (cmp)
-		return false;
+	*is_kdump = !(memcmp(signature, KDUMP_SIGNATURE, sizeof (signature)));
 
-	return true;
+	return NULL;
 }
 
 struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd)
 {
 	kdump_ctx_t *context = kdump_new();
 	if (!ctx) {
-		close(fd);
 		return drgn_error_create(DRGN_ERROR_OTHER,
 		                         "kdump_new() failed\n");
 	}
@@ -40,7 +50,6 @@ struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd)
 	                                        KDUMP_ATTR_FILE_FD, fd);
 	if (ks != KDUMP_OK) {
 		kdump_free(context);
-		close(fd);
 		return drgn_error_format(DRGN_ERROR_OTHER,
 		                         "setting kdump fd attribute: %s\n",
 					 kdump_get_err(context));
@@ -52,7 +61,6 @@ struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd)
 	ks = kdump_set_attr(context, KDUMP_ATTR_OSTYPE, &attr);
 	if (ks != KDUMP_OK) {
 		kdump_free(context);
-		close(fd);
 		return drgn_error_format(DRGN_ERROR_OTHER,
 		                         "setting kdump xlat attribute: %s\n",
 					 kdump_get_err(context));
@@ -65,116 +73,19 @@ void drgn_kdump_close(kdump_ctx_t *ctx)
 	kdump_free(ctx);
 }
 
-
-struct drgn_error *drgn_kdump_get_kernel_offset(kdump_ctx_t *ctx,
-                                                uint64_t *offset)
+struct drgn_error *drgn_kdump_get_raw_vmcoreinfo(kdump_ctx_t *ctx,
+                                                 const char **ret)
 {
-	const char *key = "linux.vmcoreinfo.lines.KERNELOFFSET";
-
-	kdump_attr_ref_t root;
-	kdump_status ks = kdump_attr_ref(ctx, key, &root);
+	const char *raw = NULL;
+	kdump_status ks = kdump_vmcoreinfo_raw(ctx, &raw);
 	if (ks != KDUMP_OK) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "kdump_attr_ref(%s) failed: %s\n",
-					 key, kdump_get_err(ctx));
+		                         "kdump_vmcoreinfo_raw() failed: %s\n",
+					 kdump_get_err(ctx));
 	}
-
-	kdump_attr_t attr;
-	ks = kdump_attr_ref_get(ctx, &root, &attr);
-	if (ks != KDUMP_OK) {
-		kdump_attr_unref(ctx, &root);
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "kdump_attr_ref_get(%s) failed: %s\n",
-					 key, kdump_get_err(ctx));
-	}
-
-	switch (attr.type) {
-	case KDUMP_STRING:
-		*offset = strtoull(attr.val.string, NULL, 16);
-		break;
-	case KDUMP_NUMBER:
-		*offset = attr.val.number;
-		break;
-	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "%s - unexpected attr type: %d\n",
-					 key, attr.type);
-	}
-
-	kdump_attr_unref(ctx, &root);
+	*ret = raw;
 	return NULL;
-}
 
-struct drgn_error *drgn_kdump_get_osrelease(kdump_ctx_t *ctx,
-                                            char *osrelease)
-{
-	const char *key = "linux.uts.release";
-
-	kdump_attr_ref_t root;
-	kdump_status ks = kdump_attr_ref(ctx, key, &root);
-	if (ks != KDUMP_OK) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "kdump_attr_ref(%s) failed: %s\n",
-					 key, kdump_get_err(ctx));
-	}
-
-	kdump_attr_t attr;
-	ks = kdump_attr_ref_get(ctx, &root, &attr);
-	if (ks != KDUMP_OK) {
-		kdump_attr_unref(ctx, &root);
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "kdump_attr_ref_get(%s) failed: %s\n",
-					 key, kdump_get_err(ctx));
-	}
-
-	switch (attr.type) {
-	case KDUMP_STRING:
-		strncpy(osrelease, attr.val.string, OSRELEASE_LEN);
-		break;
-	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "%s - unexpected attr type: %d\n",
-					 key, attr.type);
-	}
-
-	kdump_attr_unref(ctx, &root);
-	return NULL;
-}
-
-struct drgn_error *drgn_kdump_get_page_size(kdump_ctx_t *ctx,
-                                            uint64_t *page_size)
-{
-	const char *key = KDUMP_ATTR_PAGE_SIZE;
-
-	kdump_attr_ref_t root;
-	kdump_status ks = kdump_attr_ref(ctx, key, &root);
-	if (ks != KDUMP_OK) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "kdump_attr_ref(%s) failed: %s\n",
-					 key, kdump_get_err(ctx));
-	}
-
-	kdump_attr_t attr;
-	ks = kdump_attr_ref_get(ctx, &root, &attr);
-	if (ks != KDUMP_OK) {
-		kdump_attr_unref(ctx, &root);
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "kdump_attr_ref_get(%s) failed: %s\n",
-					 key, kdump_get_err(ctx));
-	}
-
-	switch (attr.type) {
-	case KDUMP_NUMBER:
-		*page_size = attr.val.number;
-		break;
-	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
-		                         "%s - unexpected attr type: %d\n",
-					 key, attr.type);
-	}
-
-	kdump_attr_unref(ctx, &root);
-	return NULL;
 }
 
 static bool drgn_kdump_is_64bits(const char *kdump_arch_attr)

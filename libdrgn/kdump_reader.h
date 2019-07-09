@@ -36,7 +36,7 @@
 #define	SIG_LEN	(sizeof (KDUMP_SIGNATURE) - 1)
 
 /** Check contents from the file descriptor start with the KDUMP signature */
-bool has_kdump_signature(int fd, struct drgn_error **err);
+struct drgn_error *has_kdump_signature(int fd, bool *ret);
 
 /** Create a kdump-context from the given file descriptor */
 struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd);
@@ -45,34 +45,14 @@ struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd);
 void drgn_kdump_close(kdump_ctx_t *ctx);
 
 /**
- * Get the offset of the kernel binary from the kdump file.
+ * Get all the vmcoreinfo from the kdump in a single string.
  *
  * @param[in] ctx Kdump context.
- * @param[out] offset kernel offset within the image.
+ * @param[out] ret vmcore info.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_kdump_get_kernel_offset(kdump_ctx_t *ctx,
-                                                uint64_t *offset);
-
-/**
- * Get the osrelease attribute (e.g. `uname -r`) from the kdump file.
- *
- * @param[in] ctx Kdump context.
- * @param[out] osrelease (e.g. "4.15.0-50-generic").
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_kdump_get_osrelease(kdump_ctx_t *ctx,
-                                            char *osrelease);
-
-/**
- * Get the page size for contents of the given kdump file.
- *
- * @param[in] ctx Kdump context.
- * @param[out] page_size Page size.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_kdump_get_page_size(kdump_ctx_t *ctx,
-                                            uint64_t *page_size);
+struct drgn_error *drgn_kdump_get_raw_vmcoreinfo(kdump_ctx_t *ctx,
+                                                 const char **ret);
 
 /**
  * Get the expected architecture flags from the kdump file.
