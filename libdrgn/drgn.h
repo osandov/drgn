@@ -159,8 +159,8 @@ struct drgn_error *drgn_error_format(enum drgn_error_code code,
  * @param[in] path If not @c NULL, the path of the file which encountered the
  * error. This string is copied.
  */
-struct drgn_error *drgn_error_create_os(int errnum, const char *path,
-					const char *message)
+struct drgn_error *drgn_error_create_os(const char *message, int errnum,
+					const char *path)
 	__attribute__((returns_nonnull));
 
 /**

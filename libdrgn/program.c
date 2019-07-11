@@ -320,7 +320,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 
 	prog->core_fd = open(path, O_RDONLY);
 	if (prog->core_fd == -1)
-		return drgn_error_create_os(errno, path, "open");
+		return drgn_error_create_os("open", errno, path);
 
 	elf_version(EV_CURRENT);
 
@@ -486,7 +486,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		struct statfs fs;
 
 		if (fstatfs(prog->core_fd, &fs) == -1) {
-			err = drgn_error_create_os(errno, path, "fstatfs");
+			err = drgn_error_create_os("fstatfs", errno, path);
 			if (err)
 				goto out_mappings;
 		}
@@ -545,7 +545,7 @@ static struct drgn_error *parse_proc_maps(const char *maps_path,
 
 	file = fopen(maps_path, "r");
 	if (!file)
-		return drgn_error_create_os(errno, maps_path, "fopen");
+		return drgn_error_create_os("fopen", errno, maps_path);
 
 	for (;;) {
 		unsigned long mapping_start, mapping_end;
@@ -601,7 +601,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	sprintf(buf, "/proc/%ld/mem", (long)pid);
 	prog->core_fd = open(buf, O_RDONLY);
 	if (prog->core_fd == -1)
-		return drgn_error_create_os(errno, buf, "open");
+		return drgn_error_create_os("open", errno, buf);
 
 	prog->file_segments = malloc(sizeof(*prog->file_segments));
 	if (!prog->file_segments) {

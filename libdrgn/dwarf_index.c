@@ -389,7 +389,7 @@ struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 
 	key = realpath(path, NULL);
 	if (!key)
-		return drgn_error_create_os(errno, path, "realpath");
+		return drgn_error_create_os("realpath", errno, path);
 
 	hp = drgn_dwarf_index_file_table_hash(&path);
 	it = drgn_dwarf_index_file_table_search_hashed(&dindex->files, &key, hp);
@@ -409,7 +409,7 @@ struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
 
 	file->fd = open(path, O_RDONLY);
 	if (file->fd == -1) {
-		err = drgn_error_create_os(errno, path, "open");
+		err = drgn_error_create_os("open", errno, path);
 		goto err_file;
 	}
 

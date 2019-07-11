@@ -105,7 +105,7 @@ static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 
 	file = fopen("/proc/kallsyms", "r");
 	if (!file)
-		return drgn_error_create_os(errno, "/proc/kallsyms", "fopen");
+		return drgn_error_create_os("fopen", errno, "/proc/kallsyms");
 
 	for (;;) {
 		char *addr_str, *sym_str, *saveptr, *end;
@@ -113,9 +113,8 @@ static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 		errno = 0;
 		if (getline(&line, &n, file) == -1) {
 			if (errno) {
-				err = drgn_error_create_os(errno,
-							   "/proc/kallsyms",
-							   "getline");
+				err = drgn_error_create_os("getline", errno,
+							   "/proc/kallsyms");
 			} else {
 				err = drgn_error_format(DRGN_ERROR_OTHER,
 							"could not find %s symbol in /proc/kallsyms",
@@ -174,8 +173,8 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 
 	file = fopen("/sys/kernel/vmcoreinfo", "r");
 	if (!file) {
-		return drgn_error_create_os(errno, "/sys/kernel/vmcoreinfo",
-					    "fopen");
+		return drgn_error_create_os("fopen", errno,
+					    "/sys/kernel/vmcoreinfo");
 	}
 	if (fscanf(file, "%lx %zx", &address, &size) != 2) {
 		fclose(file);
@@ -261,8 +260,8 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
 		it->file = fopen("/proc/modules", "r");
 		if (!it->file) {
-			return drgn_error_create_os(errno, "/proc/modules",
-						    "fopen");
+			return drgn_error_create_os("fopen", errno,
+						    "/proc/modules");
 		}
 		it->name_capacity = 0;
 	} else {
@@ -310,8 +309,8 @@ kernel_module_iterator_next_procfs(struct kernel_module_iterator *it)
 	ret = getline(&it->name, &it->name_capacity, it->file);
 	if (ret == -1) {
 		if (errno) {
-			return drgn_error_create_os(errno, "/proc/modules",
-						    "getline");
+			return drgn_error_create_os("getline", errno,
+						    "/proc/modules");
 		} else {
 			return &drgn_stop;
 		}
@@ -390,7 +389,7 @@ kernel_module_section_address_from_sysfs(struct drgn_program *prog,
 						"%s is not loaded",
 						module_name);
 		} else {
-			err = drgn_error_create_os(errno, path, "fopen");
+			err = drgn_error_create_os("fopen", errno, path);
 		}
 		goto out_path;
 	}
@@ -564,10 +563,10 @@ static struct drgn_error *kmod_index_init(struct kmod_index *index,
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1)
-		return drgn_error_create_os(errno, path, "open");
+		return drgn_error_create_os("open", errno, path);
 
 	if (fstat(fd, &st) == -1) {
-		err = drgn_error_create_os(errno, path, "fstat");
+		err = drgn_error_create_os("fstat", errno, path);
 		goto out;
 	}
 
@@ -578,7 +577,7 @@ static struct drgn_error *kmod_index_init(struct kmod_index *index,
 
 	map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 	if (map == MAP_FAILED) {
-		err = drgn_error_create_os(errno, path, "mmap");
+		err = drgn_error_create_os("mmap", errno, path);
 		goto out;
 	}
 	index->ptr = map;

@@ -57,9 +57,9 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_create(enum drgn_error_code code,
 	return drgn_error_create_nodup(code, message_copy);
 }
 
-LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_os(int errnum,
-						       const char *path,
-						       const char *message)
+LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_os(const char *message,
+						       int errnum,
+						       const char *path)
 {
 	struct drgn_error *err;
 

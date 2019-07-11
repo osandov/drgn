@@ -282,7 +282,7 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 		if (ret == -1) {
 			if (errno == EINTR)
 				continue;
-			return drgn_error_create_os(errno, NULL, "pread");
+			return drgn_error_create_os("pread", errno, NULL);
 		} else if (ret == 0) {
 			return drgn_error_format(DRGN_ERROR_FAULT,
 						 "short read from memory file");
