@@ -46,9 +46,6 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 #if _ELFUTILS_PREREQ(0, 165)
 		if (elf_compress(scn, 0, 0) < 0)
 			return drgn_error_libelf();
-		shdr = gelf_getshdr(scn, &shdr_mem);
-		if (!shdr)
-			return drgn_error_libelf();
 #else
 		return drgn_error_create(DRGN_ERROR_ELF_FORMAT,
 					 "section is compressed but libelf does not support decompression");
