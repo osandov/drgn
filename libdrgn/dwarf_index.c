@@ -739,7 +739,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	if ((err = read_uleb128(ptr, end, &code)))
 		return err;
 	if (code == 0)
-		return (struct drgn_error *)-1;
+		return &drgn_stop;
 	if (code != table->num_decls + 1) {
 		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
 					 "DWARF abbreviation table is not sequential");
@@ -1003,7 +1003,7 @@ static struct drgn_error *read_abbrev_table(const char *ptr, const char *end,
 	for (;;) {
 		err = read_abbrev_decl(&ptr, end, cu, table, &decls_capacity,
 				       &num_insns, &insns_capacity);
-		if (err == (struct drgn_error *)-1)
+		if (err && err->code == DRGN_ERROR_STOP)
 			break;
 		else if (err)
 			return err;
@@ -1290,7 +1290,7 @@ static struct drgn_error *read_die(struct compilation_unit *cu,
 	if ((err = read_uleb128(ptr, end, &code)))
 		return err;
 	if (code == 0)
-		return (struct drgn_error *)-1;
+		return &drgn_stop;
 
 	if (code < 1 || code > abbrev_table->num_decls) {
 		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
@@ -1486,7 +1486,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 
 		err = read_die(cu, &abbrev_table, &ptr, end, debug_str_buffer,
 			       debug_str_end, &die);
-		if (err == (struct drgn_error *)-1) {
+		if (err && err->code == DRGN_ERROR_STOP) {
 			depth--;
 			if (depth == 1)
 				enum_die_offset = 0;
