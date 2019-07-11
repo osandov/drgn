@@ -379,29 +379,29 @@ kernel_module_section_address_from_sysfs(struct drgn_program *prog,
 	char *path;
 
 	if (asprintf(&path, "/sys/module/%s/sections/%s", module_name,
-		     section_name) == -1) {
+		     section_name) == -1)
 		return &drgn_enomem;
-	}
 	file = fopen(path, "r");
+	free(path);
 	if (!file) {
 		if (errno == ENOENT) {
-			err = drgn_error_format(DRGN_ERROR_LOOKUP,
-						"%s is not loaded",
-						module_name);
+			return drgn_error_format(DRGN_ERROR_LOOKUP,
+						 "%s is not loaded",
+						 module_name);
 		} else {
-			err = drgn_error_create_os("fopen", errno, path);
+			return drgn_error_format_os("fopen", errno,
+						    "/sys/module/%s/sections/%s",
+						    module_name, section_name);
 		}
-		goto out_path;
 	}
 	if (fscanf(file, "%" SCNx64, ret) != 1) {
-		err = drgn_error_format(DRGN_ERROR_OTHER, "could not parse %s",
-					path);
+		err = drgn_error_format(DRGN_ERROR_OTHER,
+					"could not parse /sys/module/%s/sections/%s",
+					module_name, section_name);
 	} else {
 		err = NULL;
 	}
 	fclose(file);
-out_path:
-	free(path);
 	return err;
 }
 

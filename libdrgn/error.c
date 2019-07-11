@@ -57,11 +57,13 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_create(enum drgn_error_code code,
 	return drgn_error_create_nodup(code, message_copy);
 }
 
-LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_os(const char *message,
-						       int errnum,
-						       const char *path)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_error_format_os(const char *message, int errnum, const char *path_format,
+		     ...)
 {
 	struct drgn_error *err;
+	va_list ap;
+	int ret;
 
 	err = malloc(sizeof(*err));
 	if (!err)
@@ -70,9 +72,11 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_os(const char *message,
 	err->code = DRGN_ERROR_OS;
 	err->needs_destroy = true;
 	err->errnum = errnum;
-	if (path) {
-		err->path = strdup(path);
-		if (!err->path) {
+	if (path_format) {
+		va_start(ap, path_format);
+		ret = vasprintf(&err->path, path_format, ap);
+		va_end(ap);
+		if (ret == -1) {
 			free(err);
 			return &drgn_enomem;
 		}
@@ -86,6 +90,16 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_os(const char *message,
 		return &drgn_enomem;
 	}
 	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_os(const char *message,
+						       int errnum,
+						       const char *path)
+{
+	if (path)
+		return drgn_error_format_os(message, errnum, "%s", path);
+	else
+		return drgn_error_format_os(message, errnum, NULL);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *drgn_error_format(enum drgn_error_code code,

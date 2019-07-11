@@ -164,6 +164,18 @@ struct drgn_error *drgn_error_create_os(const char *message, int errnum,
 	__attribute__((returns_nonnull));
 
 /**
+ * Create a @ref DRGN_ERROR_OS @ref drgn_error with a printf-style formatted
+ * path.
+ *
+ * @param[in] errnum Error number (i.e., @c errno).
+ * @param[in] path_format printf-style format string for path.
+ * @param[in] ... Arguments for the format string.
+ */
+struct drgn_error *drgn_error_format_os(const char *message, int errnum,
+					const char *path_format, ...)
+	__attribute__((returns_nonnull,format(printf, 3, 4)));
+
+/**
  * Write a @ref drgn_error to a @c stdio stream.
  *
  * For @ref DRGN_ERROR_OS errors, this concatenates @ref drgn_error::message,
