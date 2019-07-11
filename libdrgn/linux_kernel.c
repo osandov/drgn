@@ -1040,17 +1040,6 @@ open_kernel_module_debug_info(struct drgn_program *prog,
 	return &drgn_stop;
 }
 
-/*
- * Append a newline character if the string isn't empty and doesn't already end
- * in a newline.
- */
-static bool string_builder_line_break(struct string_builder *sb)
-{
-	if (!sb->len || sb->str[sb->len - 1] == '\n')
-		return true;
-	return string_builder_appendc(sb, '\n');
-}
-
 static struct drgn_error *
 open_loaded_kernel_modules(struct drgn_program *prog,
 			   struct string_builder *missing_debug_info)

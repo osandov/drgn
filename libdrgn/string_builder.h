@@ -145,6 +145,16 @@ bool string_builder_vappendf(struct string_builder *sb, const char *format,
 			     va_list ap);
 
 /**
+ * Append a newline character to a @ref string_builder if the string isn't empty
+ * and doesn't already end in a newline.
+ *
+ * @param[in] sb String builder.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
+ */
+bool string_builder_line_break(struct string_builder *sb);
+
+/**
  * Callback to append to a string later.
  *
  * Instead of providing functionality to prepend to a @ref string_builder, we

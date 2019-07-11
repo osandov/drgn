@@ -86,3 +86,10 @@ bool string_builder_appendf(struct string_builder *sb, const char *format, ...)
 	va_end(ap);
 	return ret;
 }
+
+bool string_builder_line_break(struct string_builder *sb)
+{
+	if (!sb->len || sb->str[sb->len - 1] == '\n')
+		return true;
+	return string_builder_appendc(sb, '\n');
+}
