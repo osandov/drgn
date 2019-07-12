@@ -296,6 +296,7 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 	Elf_Scn *scn = NULL;
 	size_t section_index[DRGN_DWARF_INDEX_NUM_SECTIONS] = {};
 	size_t i;
+	Elf_Data *debug_str;
 
 	ehdr = gelf_getehdr(file->elf, &ehdr_mem);
 	if (!ehdr)
@@ -343,6 +344,13 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 						 "ELF file has no %s section",
 						 section_name[i]);
 		}
+	}
+
+	debug_str = file->sections[SECTION_DEBUG_STR];
+	if (debug_str->d_size == 0 ||
+	    ((char *)debug_str->d_buf)[debug_str->d_size - 1] != '\0') {
+		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
+					 ".debug_str is not null terminated");
 	}
 
 	if (ehdr->e_type != ET_REL)
@@ -1638,16 +1646,6 @@ struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex)
 
 	file = first;
 	do {
-		Elf_Data *debug_str;
-
-		debug_str = file->sections[SECTION_DEBUG_STR];
-		if (debug_str->d_size == 0 ||
-		    ((char *)debug_str->d_buf)[debug_str->d_size - 1] != '\0') {
-			err = drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
-						".debug_str is not null terminated");
-			goto out;
-		}
-
 		if ((err = read_cus(file, &cus, &num_cus, &cus_capacity)))
 			goto out;
 		file = file->next;
