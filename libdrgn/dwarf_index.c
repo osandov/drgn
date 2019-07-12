@@ -121,6 +121,7 @@ struct compilation_unit {
 	uint64_t debug_abbrev_offset;
 	uint8_t address_size;
 	bool is_64_bit;
+	bool bswap;
 };
 
 static inline const char *section_ptr(Elf_Data *data, size_t offset)
@@ -301,10 +302,6 @@ static struct drgn_error *read_sections(struct drgn_dwarf_index_file *file)
 	ehdr = gelf_getehdr(file->elf, &ehdr_mem);
 	if (!ehdr)
 		return &drgn_not_elf;
-
-	file->bswap = (ehdr->e_ident[EI_DATA] !=
-		       (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
-			ELFDATA2LSB : ELFDATA2MSB));
 
 	if (elf_getshdrstrndx(file->elf, &shstrndx))
 		return drgn_error_libelf();
@@ -650,17 +647,17 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 	uint32_t tmp;
 	uint16_t version;
 
-	if (!read_u32(&ptr, end, cu->file->bswap, &tmp))
+	if (!read_u32(&ptr, end, cu->bswap, &tmp))
 		return drgn_eof();
 	cu->is_64_bit = tmp == UINT32_C(0xffffffff);
 	if (cu->is_64_bit) {
-		if (!read_u64(&ptr, end, cu->file->bswap, &cu->unit_length))
+		if (!read_u64(&ptr, end, cu->bswap, &cu->unit_length))
 			return drgn_eof();
 	} else {
 		cu->unit_length = tmp;
 	}
 
-	if (!read_u16(&ptr, end, cu->file->bswap, &version))
+	if (!read_u16(&ptr, end, cu->bswap, &version))
 		return drgn_eof();
 	if (version != 2 && version != 3 && version != 4) {
 		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
@@ -669,11 +666,10 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 	}
 
 	if (cu->is_64_bit) {
-		if (!read_u64(&ptr, end, cu->file->bswap,
-			      &cu->debug_abbrev_offset))
+		if (!read_u64(&ptr, end, cu->bswap, &cu->debug_abbrev_offset))
 			return drgn_eof();
 	} else {
-		if (!read_u32_into_u64(&ptr, end, cu->file->bswap,
+		if (!read_u32_into_u64(&ptr, end, cu->bswap,
 				       &cu->debug_abbrev_offset))
 			return drgn_eof();
 	}
@@ -689,9 +685,14 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index_file *file,
 				   size_t *num_cus, size_t *cus_capacity)
 {
 	struct drgn_error *err;
+	bool bswap;
 	Elf_Data *debug_info = file->sections[SECTION_DEBUG_INFO];
 	const char *ptr = section_ptr(debug_info, 0);
 	const char *end = section_end(debug_info);
+
+	bswap = (elf_getident(file->elf, NULL)[EI_DATA] !=
+		 (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
+		  ELFDATA2LSB : ELFDATA2MSB));
 
 	while (ptr < end) {
 		struct compilation_unit *cu;
@@ -711,6 +712,7 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index_file *file,
 		cu = &(*cus)[(*num_cus)++];
 		cu->file = file;
 		cu->ptr = ptr;
+		cu->bswap = bswap;
 		if ((err = read_compilation_unit_header(ptr, end, cu)))
 			return err;
 
@@ -1008,7 +1010,7 @@ static struct drgn_error *read_abbrev_table(const char *ptr, const char *end,
 	return NULL;
 }
 
-static struct drgn_error *skip_lnp_header(struct drgn_dwarf_index_file *file,
+static struct drgn_error *skip_lnp_header(struct compilation_unit *cu,
 					  const char **ptr, const char *end)
 {
 	uint32_t tmp;
@@ -1016,13 +1018,13 @@ static struct drgn_error *skip_lnp_header(struct drgn_dwarf_index_file *file,
 	uint16_t version;
 	uint8_t opcode_base;
 
-	if (!read_u32(ptr, end, file->bswap, &tmp))
+	if (!read_u32(ptr, end, cu->bswap, &tmp))
 		return drgn_eof();
 	is_64_bit = tmp == UINT32_C(0xffffffff);
 	if (is_64_bit)
 		*ptr += sizeof(uint64_t);
 
-	if (!read_u16(ptr, end, file->bswap, &version))
+	if (!read_u16(ptr, end, cu->bswap, &version))
 		return drgn_eof();
 	if (version != 2 && version != 3 && version != 4) {
 		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
@@ -1091,7 +1093,8 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 
 	siphash_vector_init(&directories);
 
-	if ((err = skip_lnp_header(file, &ptr, end)))
+	err = skip_lnp_header(cu, &ptr, end);
+	if (err)
 		return err;
 
 	for (;;) {
@@ -1285,13 +1288,11 @@ static struct drgn_error *read_die(struct compilation_unit *cu,
 				return drgn_eof();
 			goto skip;
 		case ATTRIB_BLOCK2:
-			if (!read_u16_into_size_t(ptr, end, cu->file->bswap,
-						  &skip))
+			if (!read_u16_into_size_t(ptr, end, cu->bswap, &skip))
 				return drgn_eof();
 			goto skip;
 		case ATTRIB_BLOCK4:
-			if (!read_u32_into_size_t(ptr, end, cu->file->bswap,
-						  &skip))
+			if (!read_u32_into_size_t(ptr, end, cu->bswap, &skip))
 				return drgn_eof();
 			goto skip;
 		case ATTRIB_EXPRLOC:
@@ -1314,18 +1315,15 @@ static struct drgn_error *read_die(struct compilation_unit *cu,
 				return drgn_eof();
 			goto sibling;
 		case ATTRIB_SIBLING_REF2:
-			if (!read_u16_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u16_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 			goto sibling;
 		case ATTRIB_SIBLING_REF4:
-			if (!read_u32_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u32_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 			goto sibling;
 		case ATTRIB_SIBLING_REF8:
-			if (!read_u64_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u64_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 			goto sibling;
 		case ATTRIB_SIBLING_REF_UDATA:
@@ -1338,13 +1336,11 @@ sibling:
 			__builtin_prefetch(die->sibling);
 			break;
 		case ATTRIB_NAME_STRP4:
-			if (!read_u32_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u32_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 			goto strp;
 		case ATTRIB_NAME_STRP8:
-			if (!read_u64_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u64_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 strp:
 			if (!read_in_bounds(debug_str_buffer, debug_str_end,
@@ -1354,12 +1350,12 @@ strp:
 			__builtin_prefetch(die->name);
 			break;
 		case ATTRIB_STMT_LIST_LINEPTR4:
-			if (!read_u32_into_size_t(ptr, end, cu->file->bswap,
+			if (!read_u32_into_size_t(ptr, end, cu->bswap,
 						  &die->stmt_list))
 				return drgn_eof();
 			break;
 		case ATTRIB_STMT_LIST_LINEPTR8:
-			if (!read_u64_into_size_t(ptr, end, cu->file->bswap,
+			if (!read_u64_into_size_t(ptr, end, cu->bswap,
 						  &die->stmt_list))
 				return drgn_eof();
 			break;
@@ -1368,17 +1364,17 @@ strp:
 				return drgn_eof();
 			break;
 		case ATTRIB_DECL_FILE_DATA2:
-			if (!read_u16_into_size_t(ptr, end, cu->file->bswap,
+			if (!read_u16_into_size_t(ptr, end, cu->bswap,
 						  &die->decl_file))
 				return drgn_eof();
 			break;
 		case ATTRIB_DECL_FILE_DATA4:
-			if (!read_u32_into_size_t(ptr, end, cu->file->bswap,
+			if (!read_u32_into_size_t(ptr, end, cu->bswap,
 						  &die->decl_file))
 				return drgn_eof();
 			break;
 		case ATTRIB_DECL_FILE_DATA8:
-			if (!read_u64_into_size_t(ptr, end, cu->file->bswap,
+			if (!read_u64_into_size_t(ptr, end, cu->bswap,
 						  &die->decl_file))
 				return drgn_eof();
 			break;
@@ -1392,18 +1388,15 @@ strp:
 				return drgn_eof();
 			goto specification;
 		case ATTRIB_SPECIFICATION_REF2:
-			if (!read_u16_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u16_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 			goto specification;
 		case ATTRIB_SPECIFICATION_REF4:
-			if (!read_u32_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u32_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 			goto specification;
 		case ATTRIB_SPECIFICATION_REF8:
-			if (!read_u64_into_size_t(ptr, end, cu->file->bswap,
-						  &tmp))
+			if (!read_u64_into_size_t(ptr, end, cu->bswap, &tmp))
 				return drgn_eof();
 			goto specification;
 		case ATTRIB_SPECIFICATION_REF_UDATA:

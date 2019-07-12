@@ -55,8 +55,6 @@ enum {
 
 struct drgn_dwarf_index_file {
 	Elf_Data *sections[DRGN_DWARF_INDEX_NUM_SECTIONS];
-	/* Other byte order. */
-	bool bswap;
 	bool failed;
 	int fd;
 	/*
