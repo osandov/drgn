@@ -1589,7 +1589,9 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 
 		for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
 			struct drgn_dwarf_index_shard *shard;
+			struct drgn_dwarf_index_die *die;
 			struct drgn_dwarf_index_die_map_iterator it;
+			size_t index;
 
 			shard = &dindex->shards[i];
 
@@ -1600,8 +1602,6 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 			 * update.
 			 */
 			while (shard->dies.size) {
-				struct drgn_dwarf_index_die *die;
-
 				die = &shard->dies.data[shard->dies.size - 1];
 				if (die->file->failed)
 					shard->dies.size--;
@@ -1610,11 +1610,19 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 			}
 
 			/*
-			 * We also need to delete those dies in the map. Note
-			 * that any dies chained on the dies we delete must have
-			 * also been added for this update, so there's no need
-			 * to preserve them.
+			 * The new entries may be chained off of existing
+			 * entries; unchain them. Note that any entries chained
+			 * off of the new entries must also be new, so there's
+			 * no need to preserve them.
 			 */
+			for (index = 0; index < shard->dies.size; i++) {
+				die = &shard->dies.data[index];
+				if (die->next != SIZE_MAX &&
+				    die->next >= shard->dies.size)
+					die->next = SIZE_MAX;
+			}
+
+			/* Finally, delete the new entries in the map. */
 			for (it = drgn_dwarf_index_die_map_first(&shard->map);
 			     it.entry; ) {
 				if (it.entry->value >= shard->dies.size) {
