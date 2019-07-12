@@ -1550,22 +1550,23 @@ out:
 }
 
 static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
+				    struct drgn_dwarf_index_file *files,
 				    struct compilation_unit *cus,
 				    size_t num_cus)
 {
 	struct drgn_error *err = NULL;
+	size_t i;
 
-#pragma omp parallel
-	{
-		size_t i;
+	#pragma omp parallel for schedule(dynamic)
+	for (i = 0; i < num_cus; i++) {
 		struct drgn_error *err2;
 
-#pragma omp for schedule(dynamic)
-		for (i = 0; i < num_cus; i++) {
-			if (err)
-				continue;
-			if ((err2 = index_cu(dindex, &cus[i])))
-#pragma omp critical(cus_err)
+		if (err)
+			continue;
+
+		err2 = index_cu(dindex, &cus[i]);
+		if (err2) {
+			#pragma omp critical(drgn_index_cus)
 			{
 				if (err)
 					drgn_error_destroy(err2);
@@ -1575,57 +1576,57 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 		}
 	}
 
-	return err;
-}
+	/* If we have an error while indexing, delete all new entries. */
+	if (err) {
+		struct drgn_dwarf_index_file *file;
+		size_t i;
 
-static void unindex_files(struct drgn_dwarf_index *dindex,
-			  struct drgn_dwarf_index_file *files)
-{
-	struct drgn_dwarf_index_file *file;
-	size_t i;
+		file = files;
+		do {
+			file->failed = true;
+			file = file->next;
+		} while (file);
 
-	/* First, mark all of the files that failed. */
-	file = files;
-	do {
-		file->failed = true;
-		file = file->next;
-	} while (file);
+		for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
+			struct drgn_dwarf_index_shard *shard;
+			struct drgn_dwarf_index_die_map_iterator it;
 
-	/* Then, delete all of the dies pointing to those files. */
-	for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
-		struct drgn_dwarf_index_shard *shard = &dindex->shards[i];
-		struct drgn_dwarf_index_die_map_iterator it;
+			shard = &dindex->shards[i];
 
-		/*
-		 * Because we're deleting everything that was added since the
-		 * last update, we can just shrink the dies array to the first
-		 * entry that was added for this update.
-		 */
-		while (shard->dies.size) {
-			struct drgn_dwarf_index_die *die;
+			/*
+			 * Because we're deleting everything that was added
+			 * since the last update, we can just shrink the dies
+			 * array to the first entry that was added for this
+			 * update.
+			 */
+			while (shard->dies.size) {
+				struct drgn_dwarf_index_die *die;
 
-			die = &shard->dies.data[shard->dies.size - 1];
-			if (die->file->failed)
-				shard->dies.size--;
-			else
-				break;
-		}
+				die = &shard->dies.data[shard->dies.size - 1];
+				if (die->file->failed)
+					shard->dies.size--;
+				else
+					break;
+			}
 
-		/*
-		 * We also need to delete those dies in the map. Note that any
-		 * dies chained on the dies we delete must have also been added
-		 * for this update, so there's no need to preserve them.
-		 */
-		for (it = drgn_dwarf_index_die_map_first(&shard->map);
-		     it.entry; ) {
-			if (it.entry->value >= shard->dies.size) {
-				it = drgn_dwarf_index_die_map_delete_iterator(&shard->map,
-									      it);
-			} else {
-				it = drgn_dwarf_index_die_map_next(it);
+			/*
+			 * We also need to delete those dies in the map. Note
+			 * that any dies chained on the dies we delete must have
+			 * also been added for this update, so there's no need
+			 * to preserve them.
+			 */
+			for (it = drgn_dwarf_index_die_map_first(&shard->map);
+			     it.entry; ) {
+				if (it.entry->value >= shard->dies.size) {
+					it = drgn_dwarf_index_die_map_delete_iterator(&shard->map,
+										      it);
+				} else {
+					it = drgn_dwarf_index_die_map_next(it);
+				}
 			}
 		}
 	}
+	return err;
 }
 
 struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex)
@@ -1651,10 +1652,9 @@ struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex)
 		file = file->next;
 	} while (file);
 
-	if ((err = index_cus(dindex, cus, num_cus))) {
-		unindex_files(dindex, first);
+	err = index_cus(dindex, first, cus, num_cus);
+	if (err)
 		goto out;
-	}
 
 	if (dindex->indexed_last)
 		dindex->indexed_last->next = first;
