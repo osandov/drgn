@@ -1721,10 +1721,10 @@ drgn_dwarf_index_iterator_matches_tag(struct drgn_dwarf_index_iterator *it,
 
 struct drgn_error *
 drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
-			       Dwarf_Die *die)
+			       Dwarf_Die *die_ret)
 {
 	struct drgn_dwarf_index *dindex = it->dindex;
-	struct drgn_dwarf_index_die *index_die;
+	struct drgn_dwarf_index_die *die;
 	struct drgn_dwarf_index_file *file;
 
 	if (it->any_name) {
@@ -1735,7 +1735,7 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 				return &drgn_stop;
 
 			shard = &dindex->shards[it->shard];
-			index_die = &shard->dies.data[it->index];
+			die = &shard->dies.data[it->index];
 
 			if (++it->index >= shard->dies.size) {
 				it->index = 0;
@@ -1745,8 +1745,7 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 				}
 			}
 
-			if (drgn_dwarf_index_iterator_matches_tag(it,
-								  index_die))
+			if (drgn_dwarf_index_iterator_matches_tag(it, die))
 				break;
 		}
 	} else {
@@ -1757,17 +1756,16 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 				return &drgn_stop;
 
 			shard = &dindex->shards[it->shard];
-			index_die = &shard->dies.data[it->index];
+			die = &shard->dies.data[it->index];
 
-			it->index = index_die->next;
+			it->index = die->next;
 
-			if (drgn_dwarf_index_iterator_matches_tag(it,
-								  index_die))
+			if (drgn_dwarf_index_iterator_matches_tag(it, die))
 				break;
 		}
 	}
 
-	file = index_die->file;
+	file = die->file;
 	if (!file->dwarf) {
 		file->dwarf = dwarf_begin_elf(file->elf,
 					      DWARF_C_READ,
@@ -1775,7 +1773,7 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 		if (!file->dwarf)
 			return drgn_error_libdw();
 	}
-	if (!dwarf_offdie(file->dwarf, index_die->offset, die))
+	if (!dwarf_offdie(file->dwarf, die->offset, die_ret))
 		return drgn_error_libdw();
 	return NULL;
 }

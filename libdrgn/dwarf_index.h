@@ -216,15 +216,15 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
  * DW_TAG_enumerator DIEs.
  *
  * @param[in] it DWARF index iterator.
- * @param[out] die Returned DIE.
+ * @param[out] die_ret Returned DIE.
  * @return @c NULL on success, non-@c NULL on error. In particular, when there
- * are no more matching DIEs, @p die is not modified and an error with code @ref
- * DRGN_ERROR_STOP is returned; this @ref DRGN_ERROR_STOP error does not have to
- * be passed to @ref drgn_error_destroy().
+ * are no more matching DIEs, @p die_ret is not modified and an error with code
+ * @ref DRGN_ERROR_STOP is returned; this @ref DRGN_ERROR_STOP error does not
+ * have to be passed to @ref drgn_error_destroy().
  */
 struct drgn_error *
 drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
-			       Dwarf_Die *die);
+			       Dwarf_Die *die_ret);
 
 /** @} */
 
