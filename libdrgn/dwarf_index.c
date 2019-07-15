@@ -602,15 +602,18 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 			}
 		}
 
-		#pragma omp critical(drgn_read_cus)
-		if (!err) {
-			if (compilation_unit_vector_reserve(all_cus,
-							    all_cus->size + cus.size)) {
-				memcpy(all_cus->data + all_cus->size, cus.data,
-				       cus.size * sizeof(*cus.data));
-				all_cus->size += cus.size;
-			} else {
-				err = &drgn_enomem;
+		if (cus.size) {
+			#pragma omp critical(drgn_read_cus)
+			if (!err) {
+				if (compilation_unit_vector_reserve(all_cus,
+								    all_cus->size + cus.size)) {
+					memcpy(all_cus->data + all_cus->size,
+					       cus.data,
+					       cus.size * sizeof(*cus.data));
+					all_cus->size += cus.size;
+				} else {
+					err = &drgn_enomem;
+				}
 			}
 		}
 
