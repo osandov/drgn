@@ -1,6 +1,7 @@
 // Copyright 2019 - Serapheim Dimitropoulos
 // SPDX-License-Identifier: GPL-3.0+
 
+#ifdef LIBKDUMPFILE
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +23,7 @@ struct drgn_error *has_kdump_signature(int fd, bool *is_kdump)
 			if (errno == EINTR)
 				continue;
 			*is_kdump = false;
-			return drgn_error_create_os(errno, NULL, "read");
+			return drgn_error_create_os("read", errno, NULL);
 		} else if (ret == 0) {
 			*is_kdump = false;
 			return drgn_error_format(DRGN_ERROR_FAULT,
@@ -195,3 +196,4 @@ struct drgn_error *drgn_read_kdump(void *buf, uint64_t address, size_t count,
 	}
 	return NULL;
 }
+#endif /* LIBKDUMPFILE */

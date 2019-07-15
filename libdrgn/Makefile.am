@@ -52,9 +52,14 @@ libdrgnimpl_la_SOURCES = binary_search_tree.h \
 			 vector.h
 
 libdrgnimpl_la_CFLAGS = -fvisibility=hidden -fopenmp $(libelf_CFLAGS) \
-			$(libdw_CFLAGS) $(libkdumpfile_CFLAGS)
+			$(libdw_CFLAGS)
 libdrgnimpl_la_CPPFLAGS = -D_GNU_SOURCE
-libdrgnimpl_la_LIBADD = $(libelf_LIBS) $(libdw_LIBS) $(libkdumpfile_LIBS)
+libdrgnimpl_la_LIBADD = $(libelf_LIBS) $(libdw_LIBS)
+
+if WITH_LIBKDUMPFILE
+libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
+libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
+endif
 
 lib_LTLIBRARIES = libdrgn.la
 

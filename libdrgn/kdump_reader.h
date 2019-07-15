@@ -10,12 +10,16 @@
  * - sourceforge.net/p/makedumpfile/code/ci/master/tree/IMPLEMENTATION
  * - github.com/ptesarik/libkdumpfile
  *
+ * Note that this is only really used when --with-libkdumpfile=yes is
+ * configured.
+ *
  * See @ref KdumpReader.
  */
 
 #ifndef DRGN_KDUMP_READER_H
 #define DRGN_KDUMP_READER_H
 
+#ifdef LIBKDUMPFILE
 #include <stdbool.h>
 #include <stdint.h>
 #include <libkdumpfile/kdumpfile.h>
@@ -69,5 +73,6 @@ struct drgn_error *drgn_read_kdump(void *buf, uint64_t address, size_t count,
                                    uint64_t offset, void *arg, bool physical);
 
 /** @} */
+#endif /* LIBKDUMPFILE */
 
 #endif /* DRGN_KDUMP_READER_H */

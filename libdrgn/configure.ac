@@ -48,6 +48,22 @@ python3-devel or python3-dev) or specify the location of the Python development
 headers by setting the PYTHON_CPPFLAGS environment variable.])])
 	    CPPFLAGS="$save_CPPFLAGS"])
 
+AC_ARG_WITH([libkdumpfile],
+	    [AS_HELP_STRING([--with-libkdumpfile@<:@=ARG@:>@],
+			    [leverage libkdumpfile to read crash dumps using
+			     the makedumpfile format. ARG may be yes or no
+			     @<:default=no:>@])],
+           [], [with_libkdumpfile=no])
+AS_IF([test "x$with_libkdumpfile" != xno],
+      [
+       PKG_CHECK_MODULES(libkdumpfile, [libkdumpfile])
+       AM_CONDITIONAL([WITH_LIBKDUMPFILE], true)
+       AC_DEFINE(LIBKDUMPFILE, true)
+      ],
+      [
+       AM_CONDITIONAL([WITH_LIBKDUMPFILE], false)
+      ])
+
 PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES(libelf, [libelf])
 AC_SUBST([libelf_CFLAGS])
@@ -56,9 +72,6 @@ dnl We need dwarf_cu_getdwarf() which was added in elfutils 0.160.
 PKG_CHECK_MODULES(libdw, [libdw >= 0.160])
 AC_SUBST([libdw_CFLAGS])
 AC_SUBST([libdw_LIBS])
-PKG_CHECK_MODULES(libkdumpfile, [libkdumpfile])
-AC_SUBST([libkdumpfile_CFLAGS])
-AC_SUBST([libkdumpfile_LIBS])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

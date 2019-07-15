@@ -166,6 +166,7 @@ drgn_program_check_initialized(struct drgn_program *prog)
 	return NULL;
 }
 
+#ifdef LIBKDUMPFILE
 static struct drgn_error *
 drgn_program_set_kdump(struct drgn_program *prog)
 {
@@ -210,6 +211,7 @@ out_fd:
 	prog->core_fd = -1;
         return err;
 }
+#endif /* LIBKDUMPFILE */
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
@@ -232,11 +234,13 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (prog->core_fd == -1)
 		return drgn_error_create_os("open", errno, path);
 
+#ifdef LIBKDUMPFILE
 	err = has_kdump_signature(prog->core_fd, &is_kdump);
 	if (is_kdump)
 		return drgn_program_set_kdump(prog);
 	if (err)
 		goto out_fd;
+#endif /* LIBKDUMPFILE */
 
 	elf_version(EV_CURRENT);
 
