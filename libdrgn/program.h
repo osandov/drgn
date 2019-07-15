@@ -12,6 +12,8 @@
 #ifndef DRGN_PROGRAM_H
 #define DRGN_PROGRAM_H
 
+#include <elfutils/libdwfl.h>
+
 #include "memory_reader.h"
 #include "symbol_index.h"
 #include "type_index.h"
@@ -42,29 +44,8 @@ struct vmcoreinfo {
 	uint64_t kaslr_offset;
 };
 
-/**
- * An ELF file which is mapped into a program.
- *
- * This is parsed from the @c NT_FILE note of a crash dump or
- * <tt>/proc/$pid/maps</tt> of a running program.
- */
-struct file_mapping {
-	/** Path of the file. */
-	char *path;
-	/** ELF handle. */
-	Elf *elf;
-	/** Starting virtual address in the program's address space. */
-	uint64_t start;
-	/**
-	 * One byte after the last virtual address in the program's address
-	 * space.
-	 */
-	uint64_t end;
-	/** Starting offset in the file. */
-	uint64_t file_offset;
-};
-
 struct drgn_dwarf_info_cache;
+struct drgn_dwarf_index;
 
 struct drgn_program {
 	/** @privatesection */
@@ -73,9 +54,17 @@ struct drgn_program {
 	struct drgn_symbol_index sindex;
 	struct drgn_memory_file_segment *file_segments;
 	size_t num_file_segments;
-	struct file_mapping *mappings;
-	size_t num_mappings;
+	/*
+	 * Valid iff <tt>flags & DRGN_PROGRAM_IS_LINUX_KERNEL</tt>.
+	 */
 	struct vmcoreinfo vmcoreinfo;
+	 /*
+	  * Valid iff
+	  * <tt>(flags & (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE)) ==
+	  * DRGN_PROGRAM_IS_LIVE</tt>.
+	  */
+	pid_t pid;
+	Dwfl *_dwfl;
 	struct drgn_dwarf_info_cache *dicache;
 	int core_fd;
 	enum drgn_program_flags flags;
@@ -114,12 +103,14 @@ static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)
 	return prog->arch & DRGN_ARCH_IS_64_BIT ? UINT64_MAX : UINT32_MAX;
 }
 
-struct drgn_error *drgn_program_open_debug_info(struct drgn_program *prog,
-						const char *path, Elf **elf_ret);
-
-void drgn_program_close_unindexed_debug_info(struct drgn_program *prog);
-
-struct drgn_error *drgn_program_update_debug_info(struct drgn_program *prog);
+/*
+ * Get the @c Dwfl handle and @ref drgn_dwarf_index for a @ref drgn_program.
+ *
+ * These are created the first time that this is called.
+ */
+struct drgn_error *drgn_program_get_dwarf(struct drgn_program *prog,
+					  Dwfl **dwfl_ret,
+					  struct drgn_dwarf_index **dindex_ret);
 
 /** @} */
 

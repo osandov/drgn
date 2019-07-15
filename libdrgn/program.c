@@ -65,41 +65,32 @@ static void drgn_program_update_arch(struct drgn_program *prog,
 void drgn_program_init(struct drgn_program *prog,
 		       enum drgn_architecture_flags arch)
 {
+	memset(prog, 0, sizeof(*prog));
 	drgn_memory_reader_init(&prog->reader);
 	drgn_type_index_init(&prog->tindex);
 	drgn_symbol_index_init(&prog->sindex);
-	prog->file_segments = NULL;
-	prog->num_file_segments = 0;
-	prog->mappings = NULL;
-	prog->num_mappings = 0;
-	memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
-	prog->dicache = NULL;
 	prog->core_fd = -1;
-	prog->flags = 0;
 	prog->arch = DRGN_ARCH_AUTO;
 	if (arch != DRGN_ARCH_AUTO)
 		drgn_program_update_arch(prog, arch);
-	prog->added_vmcoreinfo_symbol_finder = false;
 }
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
-	size_t i;
-
 	drgn_symbol_index_deinit(&prog->sindex);
 	drgn_type_index_deinit(&prog->tindex);
 	drgn_memory_reader_deinit(&prog->reader);
 
 	free(prog->file_segments);
 
-	for (i = 0; i < prog->num_mappings; i++)
-		free(prog->mappings[i].path);
-	free(prog->mappings);
-
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
 
 	drgn_dwarf_info_cache_destroy(prog->dicache);
+	if (prog->_dwfl) {
+		drgn_remove_all_dwfl_modules(prog->_dwfl);
+		dwfl_end(prog->_dwfl);
+	}
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -151,135 +142,6 @@ drgn_program_add_symbol_finder(struct drgn_program *prog,
 	return drgn_symbol_index_add_finder(&prog->sindex, fn, arg);
 }
 
-/*
- * Returns NULL if a mapping was appended, &drgn_stop if the mapping was merged,
- * non-NULL on error.
- */
-static struct drgn_error *append_file_mapping(uint64_t start, uint64_t end,
-					      uint64_t file_offset, char *path,
-					      struct file_mapping **mappings,
-					      size_t *num_mappings,
-					      size_t *capacity)
-{
-	struct file_mapping *mapping;
-
-	if (start > end) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "file memory mapping has negative length");
-	} else if (start == end) {
-		return NULL;
-	}
-
-	/*
-	 * There may be separate mappings for adjacent areas of a file (e.g., if
-	 * the mappings have different permissions). Make sure to merge those.
-	 */
-	if (*num_mappings) {
-		uint64_t length;
-
-		mapping = &(*mappings)[*num_mappings - 1];
-		length = mapping->end - mapping->start;
-		if (mapping->end == start &&
-		    mapping->file_offset + length == file_offset &&
-		    strcmp(mapping->path, path) == 0) {
-			mapping->end = end;
-			return &drgn_stop;
-		}
-	}
-
-	if (*num_mappings >= *capacity) {
-		size_t new_capacity;
-
-		if (*capacity == 0)
-			new_capacity = 1;
-		else
-			new_capacity = *capacity * 2;
-		if (!resize_array(mappings, new_capacity))
-			return &drgn_enomem;
-		*capacity = new_capacity;
-	}
-
-	mapping = &(*mappings)[(*num_mappings)++];
-	mapping->start = start;
-	mapping->end = end;
-	mapping->file_offset = file_offset;
-	mapping->path = path;
-	mapping->elf = NULL;
-	return NULL;
-}
-
-static struct drgn_error *parse_nt_file(const char *desc, size_t descsz,
-					bool is_64_bit,
-					struct file_mapping **mappings,
-					size_t *num_mappings,
-					size_t *mappings_capacity)
-{
-	struct drgn_error *err;
-	uint64_t count, page_size, i;
-	const char *p = desc, *q, *end = &desc[descsz];
-	size_t paths_offset;
-	bool bswap = false;
-
-	if (is_64_bit) {
-		if (!read_u64(&p, end, bswap, &count) ||
-		    !read_u64(&p, end, bswap, &page_size) ||
-		    __builtin_mul_overflow(count, 24U, &paths_offset))
-			goto invalid;
-	} else {
-		if (!read_u32_into_u64(&p, end, bswap, &count) ||
-		    !read_u32_into_u64(&p, end, bswap, &page_size) ||
-		    __builtin_mul_overflow(count, 12U, &paths_offset))
-			goto invalid;
-	}
-
-	if (!read_in_bounds(p, end, paths_offset))
-		goto invalid;
-	q = p + paths_offset;
-	for (i = 0; i < count; i++) {
-		uint64_t mapping_start, mapping_end, file_offset;
-		const char *path;
-		size_t len;
-
-		/* We already did the bounds check above. */
-		if (is_64_bit) {
-			read_u64_nocheck(&p, bswap, &mapping_start);
-			read_u64_nocheck(&p, bswap, &mapping_end);
-			read_u64_nocheck(&p, bswap, &file_offset);
-		} else {
-			read_u32_into_u64_nocheck(&p, bswap, &mapping_start);
-			read_u32_into_u64_nocheck(&p, bswap, &mapping_end);
-			read_u32_into_u64_nocheck(&p, bswap, &file_offset);
-		}
-		file_offset *= page_size;
-
-		if (!read_string(&q, end, &path, &len))
-			goto invalid;
-		err = append_file_mapping(mapping_start, mapping_end, file_offset,
-					  (char *)path, mappings, num_mappings,
-					  mappings_capacity);
-		if (!err) {
-			struct file_mapping *mapping;
-
-			/*
-			 * The mapping wasn't merged, so actually allocate the
-			 * path now.
-			 */
-			mapping = &(*mappings)[*num_mappings - 1];
-			mapping->path = malloc(len + 1);
-			if (!mapping->path)
-				return &drgn_enomem;
-			memcpy(mapping->path, path, len + 1);
-		} else if (err->code != DRGN_ERROR_STOP) {
-			return err;
-		}
-	}
-
-	return NULL;
-
-invalid:
-	return drgn_error_create(DRGN_ERROR_ELF_FORMAT, "invalid NT_FILE note");
-}
-
 static enum drgn_architecture_flags drgn_architecture_from_elf(Elf *elf)
 {
 	char *e_ident = elf_getident(elf, NULL);
@@ -310,7 +172,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	GElf_Ehdr ehdr_mem, *ehdr;
 	enum drgn_architecture_flags arch;
 	bool is_64_bit;
-	size_t phnum, i, mappings_capacity = 0;
+	size_t phnum, i;
 	bool have_non_zero_phys_addr = false;
 	struct drgn_memory_file_segment *current_file_segment;
 	bool have_nt_taskstruct = false, have_vmcoreinfo = false, is_proc_kcore;
@@ -332,12 +194,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	}
 
 	ehdr = gelf_getehdr(elf, &ehdr_mem);
-	if (!ehdr) {
-		err = &drgn_not_elf;
-		goto out_elf;
-	}
-
-	if (ehdr->e_type != ET_CORE) {
+	if (!ehdr || ehdr->e_type != ET_CORE) {
 		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 					"not an ELF core file");
 		goto out_elf;
@@ -387,7 +244,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		phdr = gelf_getphdr(elf, i, &phdr_mem);
 		if (!phdr) {
 			err = drgn_error_libelf();
-			goto out_mappings;
+			goto out_segments;
 		}
 
 		if (phdr->p_type == PT_LOAD) {
@@ -409,7 +266,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 							      current_file_segment,
 							      false);
 			if (err)
-				goto out_mappings;
+				goto out_segments;
 			if (have_non_zero_phys_addr &&
 			    phdr->p_paddr !=
 			    (is_64_bit ? UINT64_MAX : UINT32_MAX)) {
@@ -420,7 +277,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 								      current_file_segment,
 								      true);
 				if (err)
-					goto out_mappings;
+					goto out_segments;
 			}
 			current_file_segment++;
 		} else if (phdr->p_type == PT_NOTE) {
@@ -434,7 +291,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 						    note_header_type(phdr));
 			if (!data) {
 				err = drgn_error_libelf();
-				goto out_mappings;
+				goto out_segments;
 			}
 
 			offset = 0;
@@ -447,25 +304,15 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 				name = (char *)data->d_buf + name_offset;
 				desc = (char *)data->d_buf + desc_offset;
 				if (strncmp(name, "CORE", nhdr.n_namesz) == 0) {
-					if (nhdr.n_type == NT_FILE) {
-						err = parse_nt_file(desc,
-								    nhdr.n_descsz,
-								    is_64_bit,
-								    &prog->mappings,
-								    &prog->num_mappings,
-								    &mappings_capacity);
-						if (err)
-							goto out_mappings;
-					} else if (nhdr.n_type == NT_TASKSTRUCT) {
+					if (nhdr.n_type == NT_TASKSTRUCT)
 						have_nt_taskstruct = true;
-					}
 				} else if (strncmp(name, "VMCOREINFO",
 						   nhdr.n_namesz) == 0) {
 					err = parse_vmcoreinfo(desc,
 							       nhdr.n_descsz,
 							       &prog->vmcoreinfo);
 					if (err)
-						goto out_mappings;
+						goto out_segments;
 					have_vmcoreinfo = true;
 				}
 			}
@@ -473,11 +320,6 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	}
 	elf_end(elf);
 	elf = NULL;
-
-	if (mappings_capacity > prog->num_mappings) {
-		/* We don't care if this fails. */
-		resize_array(&prog->mappings, prog->num_mappings);
-	}
 
 	if (have_nt_taskstruct) {
 		/*
@@ -489,7 +331,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		if (fstatfs(prog->core_fd, &fs) == -1) {
 			err = drgn_error_create_os("fstatfs", errno, path);
 			if (err)
-				goto out_mappings;
+				goto out_segments;
 		}
 		is_proc_kcore = fs.f_type == 0x9fa0; /* PROC_SUPER_MAGIC */
 	} else {
@@ -501,7 +343,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 					       have_non_zero_phys_addr,
 					       &prog->vmcoreinfo);
 		if (err)
-			goto out_mappings;
+			goto out_segments;
 		have_vmcoreinfo = true;
 	}
 
@@ -512,10 +354,6 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	drgn_program_update_arch(prog, arch);
 	return NULL;
 
-out_mappings:
-	free(prog->mappings);
-	prog->mappings = NULL;
-	prog->num_mappings = 0;
 out_segments:
 	drgn_memory_reader_deinit(&prog->reader);
 	drgn_memory_reader_init(&prog->reader);
@@ -534,59 +372,6 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_kernel(struct drgn_program *prog)
 {
 	return drgn_program_set_core_dump(prog, "/proc/kcore");
-}
-
-static struct drgn_error *parse_proc_maps(const char *maps_path,
-					  struct file_mapping **mappings,
-					  size_t *num_mappings)
-{
-	struct drgn_error *err;
-	FILE *file;
-	size_t capacity = 0;
-
-	file = fopen(maps_path, "r");
-	if (!file)
-		return drgn_error_create_os("fopen", errno, maps_path);
-
-	for (;;) {
-		unsigned long mapping_start, mapping_end;
-		uint64_t file_offset;
-		char *path;
-		int ret;
-
-		ret = fscanf(file, "%lx-%lx %*c%*c%*c%*c %" SCNx64 " "
-			     "%*x:%*x %*d%*[ ]%m[^\n]", &mapping_start,
-			     &mapping_end, &file_offset, &path);
-		if (ret == EOF) {
-			break;
-		} else if (ret == 3) {
-			/* This is an anonymous mapping; skip it. */
-			continue;
-		} else if (ret != 4) {
-			err = drgn_error_format(DRGN_ERROR_OTHER,
-						"could not parse %s", maps_path);
-			goto out;
-		}
-		err = append_file_mapping(mapping_start, mapping_end,
-					  file_offset, path, mappings,
-					  num_mappings, &capacity);
-		if (err && err->code == DRGN_ERROR_STOP) {
-			/* The mapping was merged, so free the path. */
-			free(path);
-		} else if (err) {
-			goto out;
-		}
-	}
-
-	if (capacity > *num_mappings) {
-		/* We don't care if this fails. */
-		resize_array(mappings, *num_mappings);
-	}
-
-	err = NULL;
-out:
-	fclose(file);
-	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -619,19 +404,11 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		goto out_segments;
 
-	sprintf(buf, "/proc/%ld/maps", (long)pid);
-	err = parse_proc_maps(buf, &prog->mappings, &prog->num_mappings);
-	if (err)
-		goto out_mappings;
-
+	prog->pid = pid;
 	prog->flags |= DRGN_PROGRAM_IS_LIVE;
 	drgn_program_update_arch(prog, DRGN_ARCH_HOST);
 	return NULL;
 
-out_mappings:
-	free(prog->mappings);
-	prog->mappings = NULL;
-	prog->num_mappings = 0;
 out_segments:
 	drgn_memory_reader_deinit(&prog->reader);
 	drgn_memory_reader_init(&prog->reader);
@@ -644,84 +421,38 @@ out_fd:
 	return err;
 }
 
+static const Dwfl_Callbacks linux_proc_dwfl_callbacks = {
+	.find_elf = dwfl_linux_proc_find_elf,
+	.find_debuginfo = dwfl_standard_find_debuginfo,
+};
 
-static struct drgn_error *
-userspace_relocation_hook(struct drgn_program *prog, const char *name,
-			  Dwarf_Die *die, struct drgn_symbol *sym)
-{
-	Elf *elf;
-	size_t phnum, i;
-	uint64_t file_offset;
+static const Dwfl_Callbacks userspace_core_dump_dwfl_callbacks = {
+	.find_elf = dwfl_build_id_find_elf,
+	.find_debuginfo = dwfl_standard_find_debuginfo,
+};
 
-	elf = dwarf_getelf(dwarf_cu_getdwarf(die->cu));
-	if (elf_getphdrnum(elf, &phnum) != 0)
-		return drgn_error_libelf();
-
-	for (i = 0; i < phnum; i++) {
-		GElf_Phdr phdr_mem, *phdr;
-
-		phdr = gelf_getphdr(elf, i, &phdr_mem);
-		if (!phdr)
-			return drgn_error_libelf();
-
-		if (phdr->p_type == PT_LOAD &&
-		    phdr->p_vaddr <= sym->address &&
-		    sym->address < phdr->p_vaddr + phdr->p_memsz) {
-			file_offset = (phdr->p_offset + sym->address -
-				       phdr->p_vaddr);
-			break;
-		}
-	}
-	if (i >= phnum) {
-		return drgn_error_format(DRGN_ERROR_LOOKUP,
-					 "could not find segment containing %s",
-					 name);
-	}
-
-	for (i = 0; i < prog->num_mappings; i++) {
-		struct file_mapping *mapping = &prog->mappings[i];
-		uint64_t mapping_size;
-
-		mapping_size = mapping->end - mapping->start;
-		if (mapping->elf == elf &&
-		    mapping->file_offset <= file_offset &&
-		    file_offset < mapping->file_offset + mapping_size) {
-			sym->address = (mapping->start + file_offset -
-					mapping->file_offset);
-			return NULL;
-		}
-	}
-	return drgn_error_format(DRGN_ERROR_LOOKUP,
-				 "could not find file mapping containing %s",
-				 name);
-}
-
-static struct drgn_error *drgn_program_relocation_hook(const char *name,
-						       Dwarf_Die *die,
-						       struct drgn_symbol *sym,
-						       void *arg)
-{
-	struct drgn_program *prog = arg;
-
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		return kernel_relocation_hook(prog, name, die, sym);
-	else if (prog->num_mappings)
-		return userspace_relocation_hook(prog, name, die, sym);
-	else
-		return NULL;
-}
-
-struct drgn_error *drgn_program_open_debug_info(struct drgn_program *prog,
-						const char *path, Elf **elf_ret)
+struct drgn_error *drgn_program_get_dwarf(struct drgn_program *prog,
+					  Dwfl **dwfl_ret,
+					  struct drgn_dwarf_index **dindex_ret)
 {
 	struct drgn_error *err;
-	Elf *elf;
+	const Dwfl_Callbacks *dwfl_callbacks;
 
+	if (!prog->_dwfl) {
+		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+			dwfl_callbacks = &drgn_dwfl_callbacks;
+		else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
+			dwfl_callbacks = &linux_proc_dwfl_callbacks;
+		else
+			dwfl_callbacks = &userspace_core_dump_dwfl_callbacks;
+		prog->_dwfl = dwfl_begin(dwfl_callbacks);
+		if (!prog->_dwfl)
+			return drgn_error_libdwfl();
+	}
 	if (!prog->dicache) {
 		struct drgn_dwarf_info_cache *dicache;
 
-		err = drgn_dwarf_info_cache_create(&prog->tindex,
-						   &dicache);
+		err = drgn_dwarf_info_cache_create(&prog->tindex, &dicache);
 		if (err)
 			return err;
 		err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find,
@@ -739,30 +470,25 @@ struct drgn_error *drgn_program_open_debug_info(struct drgn_program *prog,
 			return err;
 		}
 		prog->dicache = dicache;
-		dicache->relocation_hook = drgn_program_relocation_hook;
-		dicache->relocation_arg = prog;
 	}
-
-	err = drgn_dwarf_index_open(&prog->dicache->dindex, path, &elf);
-	if (err)
-		return err;
-	drgn_program_update_arch(prog, drgn_architecture_from_elf(elf));
-	if (elf_ret)
-		*elf_ret = elf;
+	*dwfl_ret = prog->_dwfl;
+	*dindex_ret = &prog->dicache->dindex;
 	return NULL;
 }
 
-void drgn_program_close_unindexed_debug_info(struct drgn_program *prog)
+static int drgn_architecture_from_dwfl_module(Dwfl_Module *module,
+					      void **userdatap,
+					      const char *name, Dwarf_Addr base,
+					      void *arg)
 {
-	if (prog->dicache)
-		drgn_dwarf_index_close_unindexed(&prog->dicache->dindex);
-}
+	Elf *elf;
+	GElf_Addr load_base;
 
-struct drgn_error *drgn_program_update_debug_info(struct drgn_program *prog)
-{
-	if (!prog->dicache)
-		return NULL;
-	return drgn_dwarf_index_update(&prog->dicache->dindex);
+	elf = dwfl_module_getelf(module, &load_base);
+	if (!elf)
+		return DWARF_CB_OK;
+	drgn_program_update_arch(arg, drgn_architecture_from_elf(elf));
+	return DWARF_CB_ABORT;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -770,60 +496,90 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 			     size_t n)
 {
 	struct drgn_error *err;
-	size_t i;
+	Dwfl *dwfl;
+	struct drgn_dwarf_index *dindex;
 
-	for (i = 0; i < n; i++) {
-		err = drgn_program_open_debug_info(prog, paths[i], NULL);
-		if (err) {
-			drgn_program_close_unindexed_debug_info(prog);
+	err = drgn_program_get_dwarf(prog, &dwfl, &dindex);
+	if (err)
+		return err;
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		err = linux_kernel_load_debug_info(prog, paths, n);
+		if (err)
 			return err;
-		}
-	}
-	return drgn_program_update_debug_info(prog);
-}
+	} else {
+		size_t i;
 
-static struct drgn_error *load_userspace_debug_info(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-	struct file_mapping *mappings;
-	size_t i, num_mappings;
-	bool success = false;
-
-	mappings = prog->mappings;
-	num_mappings = prog->num_mappings;
-	for (i = 0; i < num_mappings; i++) {
-		if (prog->mappings[i].elf)
-			continue;
-		err = drgn_program_open_debug_info(prog, mappings[i].path,
-						   &mappings[i].elf);
-		if (err) {
-			mappings[i].elf = NULL;
-			if ((err->code == DRGN_ERROR_OS &&
-			     err->errnum == ENOENT) ||
-			    err == &drgn_not_elf ||
-			    err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-				drgn_error_destroy(err);
-				continue;
+		for (i = 0; i < n; i++) {
+			if (!dwfl_report_elf(dwfl, paths[i], paths[i], -1, 0,
+					     true)) {
+				err = drgn_error_libdwfl();
+				drgn_remove_unindexed_dwfl_modules(dwfl);
+				return err;
 			}
-			drgn_dwarf_index_close_unindexed(&prog->dicache->dindex);
+		}
+		err = drgn_dwarf_index_update(dindex, dwfl);
+		if (err) {
+			drgn_remove_unindexed_dwfl_modules(dwfl);
 			return err;
 		}
-		success = true;
 	}
-	if (!success) {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
-					 "no debug information found");
+	if (prog->arch == DRGN_ARCH_AUTO) {
+		dwfl_getmodules(dwfl, drgn_architecture_from_dwfl_module, prog,
+				0);
 	}
-	return drgn_program_update_debug_info(prog);
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_load_default_debug_info(struct drgn_program *prog)
 {
+	struct drgn_error *err;
+	Dwfl *dwfl;
+	struct drgn_dwarf_index *dindex;
+
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		return load_kernel_debug_info(prog);
-	else
-		return load_userspace_debug_info(prog);
+		return linux_kernel_load_default_debug_info(prog);
+
+	err = drgn_program_get_dwarf(prog, &dwfl, &dindex);
+	if (err)
+		return err;
+	dwfl_report_begin_add(dwfl);
+	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		int ret;
+
+		ret = dwfl_linux_proc_report(dwfl, prog->pid);
+		if (ret == -1) {
+			err = drgn_error_libdwfl();
+		} else if (ret) {
+			err = drgn_error_create_os("dwfl_linux_proc_report",
+						   ret, NULL);
+		} else {
+			err = NULL;
+		}
+	} else {
+		Elf *elf;
+
+		elf = elf_begin(prog->core_fd, ELF_C_READ, NULL);
+		if (elf) {
+			if (dwfl_core_file_report(dwfl, elf, NULL) == -1)
+				err = drgn_error_libdwfl();
+			else
+				err = NULL;
+			elf_end(elf);
+		} else {
+			err = drgn_error_libelf();
+		}
+	}
+	dwfl_report_end(dwfl, NULL, NULL);
+	if (err)
+		goto out;
+
+	err = drgn_dwarf_index_update(dindex, dwfl);
+out:
+	if (err)
+		drgn_remove_unindexed_dwfl_modules(dwfl);
+	return err;
 }
 
 struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,

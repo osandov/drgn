@@ -369,14 +369,14 @@ drgn_dwarf_info_cache_find_complete(struct drgn_dwarf_info_cache *dicache,
 	 * Find a matching DIE. Note that drgn_dwarf_index does not contain DIEs
 	 * with DW_AT_declaration, so this will always be a complete type.
 	 */
-	err = drgn_dwarf_index_iterator_next(&it, &die);
+	err = drgn_dwarf_index_iterator_next(&it, &die, NULL);
 	if (err)
 		return err;
 	/*
 	 * Look for another matching DIE. If there is one, then we can't be sure
 	 * which type this is, so leave it incomplete rather than guessing.
 	 */
-	err = drgn_dwarf_index_iterator_next(&it, &die);
+	err = drgn_dwarf_index_iterator_next(&it, &die, NULL);
 	if (!err)
 		return &drgn_stop;
 	else if (err->code != DRGN_ERROR_STOP)
@@ -1387,7 +1387,7 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 
 	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name, name_len,
 				       &tag, 1);
-	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
+	while (!(err = drgn_dwarf_index_iterator_next(&it, &die, NULL))) {
 		if (die_matches_filename(&die, filename)) {
 			err = drgn_type_from_dwarf(dicache, &die, ret);
 			if (err)
@@ -1408,8 +1408,8 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 
 static struct drgn_error *
 drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
-				  Dwarf_Die *die, const char *name,
-				  struct drgn_symbol *ret)
+				  Dwarf_Die *die, uint64_t bias,
+				  const char *name, struct drgn_symbol *ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
@@ -1427,20 +1427,14 @@ drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
 					 "could not find address of '%s'",
 					 name);
 	}
-	ret->address = low_pc;
+	ret->address = low_pc + bias;
 	ret->little_endian = dwarf_die_is_little_endian(die);
-	if (dicache->relocation_hook) {
-		err = dicache->relocation_hook(name, die, ret,
-					       dicache->relocation_arg);
-		if (err)
-			return err;
-	}
 	return NULL;
 }
 
 static struct drgn_error *
 drgn_symbol_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
-				Dwarf_Die *die, const char *name,
+				Dwarf_Die *die, uint64_t bias, const char *name,
 				struct drgn_symbol *ret)
 {
 	struct drgn_error *err;
@@ -1470,14 +1464,8 @@ drgn_symbol_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
 					 "DW_AT_location has unimplemented operation");
 	}
-	ret->address = loc[0].number;
+	ret->address = loc[0].number + bias;
 	ret->little_endian = dwarf_die_is_little_endian(die);
-	if (dicache->relocation_hook) {
-		err = dicache->relocation_hook(name, die, ret,
-					       dicache->relocation_arg);
-		if (err)
-			return err;
-	}
 	return NULL;
 }
 
@@ -1492,6 +1480,7 @@ drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
 	size_t num_tags;
 	struct drgn_dwarf_index_iterator it;
 	Dwarf_Die die;
+	uint64_t bias;
 
 	num_tags = 0;
 	if (flags & DRGN_FIND_OBJECT_CONSTANT)
@@ -1503,7 +1492,7 @@ drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
 
 	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name,
 				       strlen(name), tags, num_tags);
-	while (!(err = drgn_dwarf_index_iterator_next(&it, &die))) {
+	while (!(err = drgn_dwarf_index_iterator_next(&it, &die, &bias))) {
 		if (!die_matches_filename(&die, filename))
 			continue;
 		switch (dwarf_tag(&die)) {
@@ -1521,10 +1510,11 @@ drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
 		}
 		case DW_TAG_subprogram:
 			return drgn_symbol_from_dwarf_subprogram(dicache, &die,
-								 name, ret);
+								 bias, name,
+								 ret);
 		case DW_TAG_variable:
 			return drgn_symbol_from_dwarf_variable(dicache, &die,
-							       name, ret);
+							       bias, name, ret);
 		default:
 			DRGN_UNREACHABLE();
 		}
@@ -1549,8 +1539,6 @@ drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 	dwarf_type_map_init(&dicache->cant_be_incomplete_array_map);
 	dicache->depth = 0;
 	dicache->tindex = tindex;
-	dicache->relocation_hook = NULL;
-	dicache->relocation_arg = NULL;
 	*ret = dicache;
 	return NULL;
 }

@@ -1,7 +1,7 @@
 from collections import namedtuple
 import os.path
 
-from tests.elf import ET, SHT
+from tests.elf import ET, PT, SHT
 from tests.elfwriter import ElfSection, create_elf_file
 from tests.dwarf import DW_AT, DW_FORM, DW_TAG
 
@@ -187,6 +187,11 @@ def compile_dwarf(dies, little_endian=True, bits=64):
     ], dies)
 
     return create_elf_file(ET.EXEC, [
+        ElfSection(
+            p_type=PT.LOAD,
+            vaddr=0xffff0000,
+            data=b'',
+        ),
         ElfSection(
             name='.debug_abbrev',
             sh_type=SHT.PROGBITS,

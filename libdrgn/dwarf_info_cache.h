@@ -77,28 +77,6 @@ struct drgn_dwarf_info_cache {
 	int depth;
 	/** Type index. */
 	struct drgn_type_index *tindex;
-	/**
-	 * Relocation callback.
-	 *
-	 * Objects in an ELF file are often relocated when they are loaded into
-	 * a program (e.g., shared libraries or position-independent
-	 * executables). This callback can be used to adjust the address which
-	 * was found in the DWARF debugging information entry for the symbol.
-	 *
-	 * On entry, @p sym is fully initialized and not a constant. This
-	 * should look at @c sym->address and modify it as appropriate.
-	 *
-	 * @param[in] prog @ref drgn_dwarf_symbol_index::prog.
-	 * @param[in] name Name of the symbol.
-	 * @param[in] die DWARF DIE of the symbol.
-	 * @param[in,out] sym Symbol to relocate.
-	 * @return @c NULL on success, non-@c NULL on error.
-	 */
-	struct drgn_error *(*relocation_hook)(const char *name, Dwarf_Die *die,
-					      struct drgn_symbol *sym,
-					      void *arg);
-	/* Argument to pass to @ref drgn_dwarf_info_cache::relocation_hook. */
-	void *relocation_arg;
 };
 
 /** Create a @ref drgn_dwarf_info_cache. */

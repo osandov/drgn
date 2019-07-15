@@ -37,9 +37,6 @@ struct drgn_object_type;
  */
 extern struct drgn_error drgn_stop;
 
-/** Not an ELF file. */
-extern struct drgn_error drgn_not_elf;
-
 struct string_builder;
 
 /**
@@ -65,6 +62,10 @@ struct drgn_error *drgn_error_libelf(void)
 
 /** Create a @ref drgn_error from the libdw error indicator. */
 struct drgn_error *drgn_error_libdw(void)
+	__attribute__((returns_nonnull));
+
+/** Create a @ref drgn_error from the libdwfl error indicator. */
+struct drgn_error *drgn_error_libdwfl(void)
 	__attribute__((returns_nonnull));
 
 /**

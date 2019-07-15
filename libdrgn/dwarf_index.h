@@ -12,7 +12,7 @@
 #ifndef DRGN_DWARF_INDEX_H
 #define DRGN_DWARF_INDEX_H
 
-#include <elfutils/libdw.h>
+#include <elfutils/libdwfl.h>
 #include <libelf.h>
 #include <omp.h>
 #include <stddef.h>
@@ -20,6 +20,7 @@
 
 #include "drgn.h"
 #include "hash_table.h"
+#include "string_builder.h"
 #include "vector.h"
 
 /**
@@ -44,38 +45,53 @@
  * @{
  */
 
-enum {
-	SECTION_SYMTAB,
-	SECTION_DEBUG_ABBREV,
-	SECTION_DEBUG_INFO,
-	SECTION_DEBUG_LINE,
-	SECTION_DEBUG_STR,
-	DRGN_DWARF_INDEX_NUM_SECTIONS,
-};
-
-struct drgn_dwarf_index_file {
-	Elf_Data *sections[DRGN_DWARF_INDEX_NUM_SECTIONS];
-	bool failed;
+/**
+ * drgn-specific data for the @c Dwfl_Module userdata pointer.
+ *
+ * For a newly created userdata, @c indexed is @c false and @c err is @c NULL.
+ * They are updated by @ref drgn_dwarf_index_update(). @c err may be set with
+ * @ref drgn_dwfl_module_userdata_set_error() before @ref
+ * drgn_dwarf_index_update() is called to skip indexing for that module; the
+ * error message will be added to the @ref DRGN_ERROR_MISSING_DEBUG_INFO error.
+ *
+ * @sa drgn_dwfl_find_elf(), drgn_dwfl_section_address()
+ */
+struct drgn_dwfl_module_userdata {
+	/** Whether the module is indexed in a @ref drgn_dwarf_index. */
+	bool indexed;
+	/** File descriptor of @ref drgn_dwfl_module_userdata::elf. */
 	int fd;
-	/*
-	 * If this is NULL, then we didn't open the file and don't own the Elf
-	 * handle.
-	 */
-	const char *path;
+	/** Error encountered while indexing. */
+	struct drgn_error *err;
+	/** Path of @ref drgn_dwfl_module_userdata::elf. */
+	char *path;
+	/** ELF handle to use. */
 	Elf *elf;
-	Dwarf *dwarf;
-	Elf_Data *rela_sections[DRGN_DWARF_INDEX_NUM_SECTIONS];
-	struct drgn_dwarf_index_file *next;
 };
 
-static inline const char *
-drgn_dwarf_index_file_to_key(struct drgn_dwarf_index_file * const *entry)
+struct drgn_dwfl_module_userdata *drgn_dwfl_module_userdata_create(void);
+
+void
+drgn_dwfl_module_userdata_destroy(struct drgn_dwfl_module_userdata *userdata);
+
+/* This takes ownership of err. */
+void
+drgn_dwfl_module_userdata_set_error(struct drgn_dwfl_module_userdata *userdata,
+				    const char *message,
+				    struct drgn_error *err);
+
+extern const Dwfl_Callbacks drgn_dwfl_callbacks;
+
+/** Get the @ref drgn_dwfl_module_userdata for a @c Dwfl_Module. */
+static inline struct drgn_dwfl_module_userdata *
+drgn_dwfl_module_userdata(Dwfl_Module *module)
 {
-	return (*entry)->path;
+	void **userdatap;
+
+	dwfl_module_info(module, &userdatap, NULL, NULL, NULL, NULL, NULL,
+			 NULL);
+	return *userdatap;
 }
-DEFINE_HASH_TABLE_TYPE(drgn_dwarf_index_file_table,
-		       struct drgn_dwarf_index_file *,
-		       drgn_dwarf_index_file_to_key)
 
 struct drgn_dwarf_index_die;
 DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, size_t)
@@ -102,23 +118,14 @@ struct drgn_dwarf_index_shard {
  * files. It is much faster for this task than other generic DWARF parsing
  * libraries.
  *
- * A new DWARF index is created by @ref drgn_dwarf_index_create(). It is freed
- * by @ref drgn_dwarf_index_destroy().
- *
- * Indexing happens in two steps: the files to index are opened using @ref
- * drgn_dwarf_index_open(), then they all are parsed and indexed by @ref
- * drgn_dwarf_index_update(). The update step is parallelized across CPUs, so it
- * is most efficient to open as many files as possible before indexing them all
- * at once in parallel.
- *
  * Searches in the index are done with a @ref drgn_dwarf_index_iterator.
  */
 struct drgn_dwarf_index {
-	/** @privatesection */
-	struct drgn_dwarf_index_file_table files;
-	struct drgn_dwarf_index_file *opened_first, *opened_last;
-	struct drgn_dwarf_index_file *indexed_first, *indexed_last;
-	/* The index is sharded to reduce lock contention. */
+	/**
+	 * Index shards.
+	 *
+	 * This is sharded to reduce lock contention.
+	 */
 	struct drgn_dwarf_index_shard shards[1 << DRGN_DWARF_INDEX_SHARD_BITS];
 };
 
@@ -134,44 +141,36 @@ void drgn_dwarf_index_init(struct drgn_dwarf_index *dindex);
 void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex);
 
 /**
- * Open a file and add it to a DWARF index.
+ * Index new DWARF information.
  *
- * This function does the first part of indexing a file: it opens the file,
- * reads or maps it, and checks that it contains the required debugging
- * information. However, it does not actually parse the debugging information.
- * To do so, call drgn_dwarf_index_update() once all of the files to index have
- * been opened.
+ * This parses and indexes the debugging information for all modules in @p dwfl
+ * that have not yet been indexed.
  *
- * If this fails, the file is not opened, but previously opened files are not
- * affected.
+ * On success, @ref drgn_dwfl_module_userdata::indexed is set to @c true for all
+ * modules that we were able to index, and @ref drgn_dwfl_module_userdata::err
+ * is set to non-@c NULL for all other modules.
  *
- * @param[in] dindex DWARF index.
- * @param[in] path Path to open.
- * @param[out] elf If not @c NULL, the opened ELF file. It is valid until @ref
- * drgn_dwarf_index_destroy() is called.
+ * If debug information was not available for one or more modules, a @ref
+ * DRGN_ERROR_MISSING_DEBUG_INFO error is returned.
+ *
+ * On any other error, no new debugging information is indexed.
+ *
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_dwarf_index_open(struct drgn_dwarf_index *dindex,
-					 const char *path, Elf **elf);
-
-/** Close any files which haven't been indexed yet. */
-void drgn_dwarf_index_close_unindexed(struct drgn_dwarf_index *dindex);
+struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex,
+					   Dwfl *dwfl);
 
 /**
- * Index newly opened files.
+ * Remove all @c Dwfl_Modules that aren't indexed (see @ref
+ * drgn_dwfl_module_userdata::indexed) from @p dwfl.
  *
- * This function does the second part of indexing a file: it applies ELF
- * relocations, then parses and indexes the debugging information in all of the
- * files opened by @ref drgn_dwarf_index_open() since the last call to @ref
- * drgn_dwarf_index_update() or @ref drgn_dwarf_index_create().
- *
- * If this fails, no new debugging information is indexed and all opened files
- * which were not already indexed are closed.
- *
- * @param[in] dindex DWARF index.
- * @return @c NULL on success, non-@c NULL on error.
+ * This should be called if @ref drgn_dwarf_index_update() returned an error or
+ * if modules were reported and @ref drgn_dwarf_index_update() was not called.
  */
-struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex);
+void drgn_remove_unindexed_dwfl_modules(Dwfl *dwfl);
+
+/** Remove all @Dwfl_Modules from @p dwfl. */
+void drgn_remove_all_dwfl_modules(Dwfl *dwfl);
 
 /**
  * Iterator over DWARF debugging information.
@@ -215,6 +214,9 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
  *
  * @param[in] it DWARF index iterator.
  * @param[out] die_ret Returned DIE.
+ * @param[out] bias_ret Returned difference between addresses in the loaded
+ * module and addresses in the debugging information. This may be @c NULL if it
+ * is not needed.
  * @return @c NULL on success, non-@c NULL on error. In particular, when there
  * are no more matching DIEs, @p die_ret is not modified and an error with code
  * @ref DRGN_ERROR_STOP is returned; this @ref DRGN_ERROR_STOP error does not
@@ -222,7 +224,7 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
  */
 struct drgn_error *
 drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
-			       Dwarf_Die *die_ret);
+			       Dwarf_Die *die_ret, uint64_t *bias_ret);
 
 /** @} */
 

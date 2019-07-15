@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <errno.h>
-#include <elfutils/libdw.h>
+#include <elfutils/libdwfl.h>
 #include <libelf.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -20,11 +20,6 @@ LIBDRGN_PUBLIC struct drgn_error drgn_enomem = {
 struct drgn_error drgn_stop = {
 	.code = DRGN_ERROR_STOP,
 	.message = "stop iteration",
-};
-
-struct drgn_error drgn_not_elf = {
-	.code = DRGN_ERROR_ELF_FORMAT,
-	.message = "not an ELF file",
 };
 
 static struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
@@ -193,4 +188,10 @@ struct drgn_error *drgn_error_libdw(void)
 {
 	return drgn_error_format(DRGN_ERROR_DWARF_FORMAT, "libdw error: %s",
 				 dwarf_errmsg(-1));
+}
+
+struct drgn_error *drgn_error_libdwfl(void)
+{
+	return drgn_error_format(DRGN_ERROR_DWARF_FORMAT, "libdwfl error: %s",
+				 dwfl_errmsg(-1));
 }

@@ -578,13 +578,10 @@ class TestSymbols(unittest.TestCase):
 
 
 class TestCoreDump(unittest.TestCase):
-    def test_not_elf(self):
-        prog = Program()
-        self.assertRaisesRegex(FileFormatError, 'not an ELF file',
-                               prog.set_core_dump, '/dev/null')
-
     def test_not_core_dump(self):
         prog = Program()
+        self.assertRaisesRegex(ValueError, 'not an ELF core file',
+                               prog.set_core_dump, '/dev/null')
         with tempfile.NamedTemporaryFile() as f:
             f.write(create_elf_file(ET.EXEC, []))
             f.flush()

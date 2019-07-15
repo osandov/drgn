@@ -4,7 +4,7 @@
 #ifndef DRGN_LINUX_KERNEL_H
 #define DRGN_LINUX_KERNEL_H
 
-#include <elfutils/libdw.h>
+#include <elfutils/libdwfl.h>
 
 #include "drgn.h"
 
@@ -18,10 +18,11 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 					    bool have_non_zero_phys_addr,
 					    struct vmcoreinfo *ret);
 
-struct drgn_error *kernel_relocation_hook(struct drgn_program *prog,
-					  const char *name, Dwarf_Die *die,
-					  struct drgn_symbol *sym);
+struct drgn_error *
+linux_kernel_load_debug_info(struct drgn_program *prog, const char **paths,
+			     size_t n);
 
-struct drgn_error *load_kernel_debug_info(struct drgn_program *prog);
+struct drgn_error *
+linux_kernel_load_default_debug_info(struct drgn_program *prog);
 
 #endif /* DRGN_LINUX_KERNEL_H */
