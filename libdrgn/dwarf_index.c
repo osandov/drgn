@@ -16,6 +16,7 @@
 #include <sys/types.h>
 
 #include "internal.h"
+#include "elf_relocator.h"
 #include "dwarf_index.h"
 #include "read.h"
 #include "siphash.h"
@@ -430,6 +431,34 @@ static struct drgn_error *get_debug_sections(Elf *elf, Elf_Data **sections)
 					 ".debug_str is not null terminated");
 	}
 	return NULL;
+}
+
+static struct drgn_error *apply_relocations(Dwfl_Module **modules,
+					    size_t num_modules)
+{
+	struct drgn_error *err;
+	struct drgn_elf_relocator relocator;
+	size_t i;
+
+	drgn_elf_relocator_init(&relocator);
+	for (i = 0; i < num_modules; i++) {
+		void **userdatap;
+		struct drgn_dwfl_module_userdata *userdata;
+
+		dwfl_module_info(modules[i], &userdatap, NULL, NULL, NULL, NULL,
+				 NULL, NULL);
+		userdata = *userdatap;
+		if (userdata->elf) {
+			err = drgn_elf_relocator_add_elf(&relocator,
+							 userdata->elf);
+			if (err)
+				goto out;
+		}
+	}
+	err = drgn_elf_relocator_apply(&relocator);
+out:
+	drgn_elf_relocator_deinit(&relocator);
+	return err;
 }
 
 static struct drgn_error *read_compilation_unit_header(const char *ptr,
@@ -1521,6 +1550,9 @@ struct drgn_error *drgn_dwarf_index_update(struct drgn_dwarf_index *dindex,
 		err = &drgn_enomem;
 		goto out;
 	}
+	err = apply_relocations(modules.data, modules.size);
+	if (err)
+		goto out;
 	err = read_cus(dindex, modules.data, modules.size, &cus);
 	if (err)
 		goto out;

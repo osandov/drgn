@@ -10,6 +10,8 @@ libdrgnimpl_la_SOURCES = binary_search_tree.h \
 			 dwarf_index.h \
 			 dwarf_info_cache.c \
 			 dwarf_info_cache.h \
+			 elf_relocator.c \
+			 elf_relocator.h \
 			 error.c \
 			 error.h \
 			 hash_table.c \
