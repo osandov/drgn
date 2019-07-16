@@ -11,7 +11,7 @@ Linux virtual filesystem (VFS) layer, including mounts, dentries, and inodes.
 
 import os
 
-from drgn import Program, container_of
+from drgn import Object, Program, container_of
 from drgn.helpers import escape_string
 from drgn.helpers.linux.list import (
     hlist_empty,
@@ -20,6 +20,7 @@ from drgn.helpers.linux.list import (
 )
 
 __all__ = [
+    'path_lookup',
     'd_path',
     'dentry_path',
     'inode_path',
@@ -33,6 +34,94 @@ __all__ = [
     'for_each_file',
     'print_files',
 ]
+
+
+def _follow_mount(mnt, dentry):
+    # DCACHE_MOUNTED is a macro, so we can't easily get the value. But, it
+    # hasn't changed since v2.6.38, so let's hardcode it for now.
+    DCACHE_MOUNTED = 0x10000
+    while dentry.d_flags & DCACHE_MOUNTED:
+        for other_mnt in list_for_each_entry_reverse('struct mount',
+                                                     mnt.mnt_ns.list.address_of_(),
+                                                     'mnt_list'):
+            if other_mnt.mnt_mountpoint == dentry:
+                mnt = other_mnt.read_()
+                dentry = mnt.mnt.mnt_root.read_()
+                break
+        else:
+            break
+    return mnt, dentry
+
+
+def _follow_dotdot(mnt, dentry, root_mnt, root_dentry):
+    while dentry != root_dentry or mnt != root_mnt:
+        d_parent = dentry.d_parent.read_()
+        if dentry != d_parent:
+            dentry = d_parent
+            break
+        mnt_parent = mnt.mnt_parent.read_()
+        if mnt == mnt_parent:
+            break
+        dentry = mnt.mnt_mountpoint
+        mnt = mnt_parent
+    return _follow_mount(mnt, dentry)
+
+
+def path_lookup(prog_or_root, path, allow_negative=False):
+    """
+    .. c:function:: struct path path_lookup(struct path *root, const char *path, bool allow_negative)
+
+    Look up the given path name relative to the given root directory. If given
+    a :class:`Program` instead of a ``struct path``, the initial root
+    filesystem is used.
+
+    :param bool allow_negative: Whether to allow returning a negative dentry
+        (i.e., a dentry for a non-existent path).
+    :raises Exception: if the dentry is negative and ``allow_negative`` is
+        ``False``, or if the path is not present in the dcache. The latter does
+        not necessarily mean that the path does not exist; it may be uncached.
+        On a live system, you can make the kernel cache the path by accessing
+        it (e.g., with :func:`open()` or :func:`os.stat()`):
+
+        >>> path_lookup(prog, '/usr/include/stdlib.h')
+        ...
+        Exception: could not find '/usr/include/stdlib.h' in dcache
+        >>> open('/usr/include/stdlib.h').close()
+        >>> path_lookup(prog, '/usr/include/stdlib.h')
+        (struct path){
+                .mnt = (struct vfsmount *)0xffff8b70413cdca0,
+                .dentry = (struct dentry *)0xffff8b702ac2c480,
+        }
+    """
+    if isinstance(prog_or_root, Program):
+        prog_or_root = prog_or_root['init_task'].fs.root
+    mnt = root_mnt = container_of(prog_or_root.mnt.read_(), 'struct mount',
+                                  'mnt')
+    dentry = root_dentry = prog_or_root.dentry.read_()
+    components = os.fsencode(path).split(b'/')
+    for i, component in enumerate(components):
+        if component == b'' or component == b'.':
+            continue
+        elif component == b'..':
+            mnt, dentry = _follow_dotdot(mnt, dentry, root_mnt, root_dentry)
+        else:
+            for child in list_for_each_entry('struct dentry',
+                                             dentry.d_subdirs.address_of_(),
+                                             'd_child'):
+                if child.d_name.name.string_() == component:
+                    dentry = child
+                    break
+            else:
+                failed_path = os.fsdecode(b'/'.join(components[:i + 1]))
+                raise Exception(f'could not find {failed_path!r} in dcache')
+            mnt, dentry = _follow_mount(mnt, dentry)
+    if not allow_negative and not dentry.d_inode:
+        failed_path = os.fsdecode(b'/'.join(components))
+        raise Exception(f'{failed_path!r} dentry is negative')
+    return Object(mnt.prog_, 'struct path', value={
+        'mnt': mnt.mnt.address_of_(),
+        'dentry': dentry,
+    })
 
 
 def d_path(path_or_vfsmnt, dentry=None):
