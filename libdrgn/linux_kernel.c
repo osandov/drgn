@@ -1080,15 +1080,18 @@ static struct drgn_error *elf_is_vmlinux(Elf *elf, bool *ret)
 	return NULL;
 }
 
-static struct drgn_error *index_vmlinux_early(Dwfl *dwfl,
-					      struct drgn_dwarf_index *dindex,
+static struct drgn_error *index_vmlinux_early(struct drgn_program *prog,
 					      bool *vmlinux_is_pending)
 {
 	struct drgn_error *err;
+	Dwfl *dwfl;
 
 	if (*vmlinux_is_pending) {
+		err = drgn_program_get_dwfl(prog, &dwfl);
+		if (err)
+			return err;
 		dwfl_report_end(dwfl, NULL, NULL);
-		err = drgn_dwarf_index_update(dindex, dwfl);
+		err = drgn_program_update_dwarf_index(prog);
 		dwfl_report_begin_add(dwfl);
 		if (err)
 			return err;
@@ -1099,8 +1102,6 @@ static struct drgn_error *index_vmlinux_early(Dwfl *dwfl,
 
 static struct drgn_error *
 get_kernel_module_name(struct drgn_program *prog, Elf *elf, const char **ret,
-		       /* The rest are needed for index_vmlinux_early(). */
-		       Dwfl *dwfl, struct drgn_dwarf_index *dindex,
 		       bool *vmlinux_is_pending)
 {
 	struct drgn_error *err;
@@ -1155,7 +1156,7 @@ get_kernel_module_name(struct drgn_program *prog, Elf *elf, const char **ret,
 		p = nul + 1;
 	}
 
-	err = index_vmlinux_early(dwfl, dindex, vmlinux_is_pending);
+	err = index_vmlinux_early(prog, vmlinux_is_pending);
 	if (err)
 		return err;
 
@@ -1418,12 +1419,11 @@ linux_kernel_load_debug_info_internal(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 	Dwfl *dwfl;
-	struct drgn_dwarf_index *dindex;
 	struct kernel_module_userdata_map userdata_map;
 	bool need_report_end, vmlinux_is_pending;
 	size_t i;
 
-	err = drgn_program_get_dwarf(prog, &dwfl, &dindex);
+	err = drgn_program_get_dwfl(prog, &dwfl);
 	if (err)
 		return err;
 
@@ -1462,8 +1462,7 @@ linux_kernel_load_debug_info_internal(struct drgn_program *prog,
 		};
 
 		err = get_kernel_module_name(prog, (*entry.value)->elf,
-					     &entry.key, dwfl, dindex,
-					     &vmlinux_is_pending);
+					     &entry.key, &vmlinux_is_pending);
 		if (err)
 			goto out;
 		if (!entry.key)
@@ -1480,7 +1479,7 @@ linux_kernel_load_debug_info_internal(struct drgn_program *prog,
 	 * vmlinux now so that we can walk the list of modules in the kernel.
 	 */
 	if (!(prog->flags & DRGN_PROGRAM_IS_LIVE)) {
-		err = index_vmlinux_early(dwfl, dindex, &vmlinux_is_pending);
+		err = index_vmlinux_early(prog, &vmlinux_is_pending);
 		if (err)
 			goto out;
 	}
@@ -1517,7 +1516,7 @@ linux_kernel_load_debug_info_internal(struct drgn_program *prog,
 	dwfl_report_end(dwfl, NULL, NULL);
 	need_report_end = false;
 
-	err = drgn_dwarf_index_update(dindex, dwfl);
+	err = drgn_program_update_dwarf_index(prog);
 out:
 	if (need_report_end)
 		dwfl_report_end(dwfl, NULL, NULL);

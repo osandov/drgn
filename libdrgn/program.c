@@ -86,7 +86,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
 
-	drgn_dwarf_info_cache_destroy(prog->dicache);
+	drgn_dwarf_info_cache_destroy(prog->_dicache);
 	if (prog->_dwfl) {
 		drgn_remove_all_dwfl_modules(prog->_dwfl);
 		dwfl_end(prog->_dwfl);
@@ -431,11 +431,8 @@ static const Dwfl_Callbacks userspace_core_dump_dwfl_callbacks = {
 	.find_debuginfo = dwfl_standard_find_debuginfo,
 };
 
-struct drgn_error *drgn_program_get_dwarf(struct drgn_program *prog,
-					  Dwfl **dwfl_ret,
-					  struct drgn_dwarf_index **dindex_ret)
+struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret)
 {
-	struct drgn_error *err;
 	const Dwfl_Callbacks *dwfl_callbacks;
 
 	if (!prog->_dwfl) {
@@ -449,7 +446,33 @@ struct drgn_error *drgn_program_get_dwarf(struct drgn_program *prog,
 		if (!prog->_dwfl)
 			return drgn_error_libdwfl();
 	}
-	if (!prog->dicache) {
+	*ret = prog->_dwfl;
+	return NULL;
+}
+
+static int drgn_architecture_from_dwfl_module(Dwfl_Module *module,
+					      void **userdatap,
+					      const char *name, Dwarf_Addr base,
+					      void *arg)
+{
+	Elf *elf;
+	GElf_Addr load_base;
+
+	elf = dwfl_module_getelf(module, &load_base);
+	if (!elf)
+		return DWARF_CB_OK;
+	drgn_program_update_arch(arg, drgn_architecture_from_elf(elf));
+	return DWARF_CB_ABORT;
+}
+
+struct drgn_error *drgn_program_update_dwarf_index(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+
+	/* If we don't have a Dwfl handle yet, there's nothing to index. */
+	if (!prog->_dwfl)
+		return NULL;
+	if (!prog->_dicache) {
 		struct drgn_dwarf_info_cache *dicache;
 
 		err = drgn_dwarf_info_cache_create(&prog->tindex, &dicache);
@@ -469,26 +492,16 @@ struct drgn_error *drgn_program_get_dwarf(struct drgn_program *prog,
 			drgn_dwarf_info_cache_destroy(dicache);
 			return err;
 		}
-		prog->dicache = dicache;
+		prog->_dicache = dicache;
 	}
-	*dwfl_ret = prog->_dwfl;
-	*dindex_ret = &prog->dicache->dindex;
+	err = drgn_dwarf_index_update(&prog->_dicache->dindex, prog->_dwfl);
+	if (err)
+		return err;
+	if (prog->arch == DRGN_ARCH_AUTO) {
+		dwfl_getmodules(prog->_dwfl, drgn_architecture_from_dwfl_module,
+				prog, 0);
+	}
 	return NULL;
-}
-
-static int drgn_architecture_from_dwfl_module(Dwfl_Module *module,
-					      void **userdatap,
-					      const char *name, Dwarf_Addr base,
-					      void *arg)
-{
-	Elf *elf;
-	GElf_Addr load_base;
-
-	elf = dwfl_module_getelf(module, &load_base);
-	if (!elf)
-		return DWARF_CB_OK;
-	drgn_program_update_arch(arg, drgn_architecture_from_elf(elf));
-	return DWARF_CB_ABORT;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -497,38 +510,25 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 {
 	struct drgn_error *err;
 	Dwfl *dwfl;
-	struct drgn_dwarf_index *dindex;
+	size_t i;
 
-	err = drgn_program_get_dwarf(prog, &dwfl, &dindex);
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		return linux_kernel_load_debug_info(prog, paths, n);
+
+	err = drgn_program_get_dwfl(prog, &dwfl);
 	if (err)
 		return err;
-
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		err = linux_kernel_load_debug_info(prog, paths, n);
-		if (err)
-			return err;
-	} else {
-		size_t i;
-
-		for (i = 0; i < n; i++) {
-			if (!dwfl_report_elf(dwfl, paths[i], paths[i], -1, 0,
-					     true)) {
-				err = drgn_error_libdwfl();
-				drgn_remove_unindexed_dwfl_modules(dwfl);
-				return err;
-			}
-		}
-		err = drgn_dwarf_index_update(dindex, dwfl);
-		if (err) {
-			drgn_remove_unindexed_dwfl_modules(dwfl);
-			return err;
+	for (i = 0; i < n; i++) {
+		if (!dwfl_report_elf(dwfl, paths[i], paths[i], -1, 0, true)) {
+			err = drgn_error_libdwfl();
+			goto out;
 		}
 	}
-	if (prog->arch == DRGN_ARCH_AUTO) {
-		dwfl_getmodules(dwfl, drgn_architecture_from_dwfl_module, prog,
-				0);
-	}
-	return NULL;
+	err = drgn_program_update_dwarf_index(prog);
+out:
+	if (err)
+		drgn_remove_unindexed_dwfl_modules(dwfl);
+	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -536,12 +536,11 @@ drgn_program_load_default_debug_info(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 	Dwfl *dwfl;
-	struct drgn_dwarf_index *dindex;
 
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		return linux_kernel_load_default_debug_info(prog);
 
-	err = drgn_program_get_dwarf(prog, &dwfl, &dindex);
+	err = drgn_program_get_dwfl(prog, &dwfl);
 	if (err)
 		return err;
 	dwfl_report_begin_add(dwfl);
@@ -575,7 +574,7 @@ drgn_program_load_default_debug_info(struct drgn_program *prog)
 	if (err)
 		goto out;
 
-	err = drgn_dwarf_index_update(dindex, dwfl);
+	err = drgn_program_update_dwarf_index(prog);
 out:
 	if (err)
 		drgn_remove_unindexed_dwfl_modules(dwfl);

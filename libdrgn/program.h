@@ -65,7 +65,7 @@ struct drgn_program {
 	  */
 	pid_t pid;
 	Dwfl *_dwfl;
-	struct drgn_dwarf_info_cache *dicache;
+	struct drgn_dwarf_info_cache *_dicache;
 	int core_fd;
 	enum drgn_program_flags flags;
 	enum drgn_architecture_flags arch;
@@ -103,14 +103,18 @@ static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)
 	return prog->arch & DRGN_ARCH_IS_64_BIT ? UINT64_MAX : UINT32_MAX;
 }
 
-/*
- * Get the @c Dwfl handle and @ref drgn_dwarf_index for a @ref drgn_program.
+/**
+ * Get the @c Dwfl handle for a @ref drgn_program.
  *
- * These are created the first time that this is called.
+ * It is created the first time that this is called.
  */
-struct drgn_error *drgn_program_get_dwarf(struct drgn_program *prog,
-					  Dwfl **dwfl_ret,
-					  struct drgn_dwarf_index **dindex_ret);
+struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
+
+/**
+ * Update a @ref drgn_program's @ref drgn_dwarf_index with any new modules
+ * reported to the @c Dwfl handle.
+ */
+struct drgn_error *drgn_program_update_dwarf_index(struct drgn_program *prog);
 
 /** @} */
 
