@@ -17,6 +17,7 @@ from drgn.helpers.linux.list import (
     hlist_empty,
     hlist_for_each_entry,
     list_for_each_entry,
+    list_for_each_entry_reverse,
 )
 
 __all__ = [
