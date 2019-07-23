@@ -37,9 +37,9 @@ Programs
         Implement ``self[name]``. Get the object (variable, constant, or
         function) with the given name.
 
-        This is equivalent to ``prog.object(name, FindObjectFlags.ANY)`` except
-        that this raises :exc:`KeyError` instead of :exc:`LookupError` if no
-        objects with the given name are found.
+        This is equivalent to ``prog.object(name)`` except that this raises
+        :exc:`KeyError` instead of :exc:`LookupError` if no objects with the
+        given name are found.
 
         If there are multiple objects with the same name, one is returned
         arbitrarily. In this case, the :meth:`variable()`, :meth:`constant()`,
@@ -109,13 +109,15 @@ Programs
         :raises LookupError: if no functions with the given name are found in
             the given file
 
-    .. method:: object(name, flags, filename=None)
+    .. method:: object(name, flags=None, filename=None)
 
         Get the object (variable, constant, or function) with the given name.
 
         :param str name: The object name.
-        :param FindObjectFlags flags: Flags indicating what kind of object to
-            look for.
+        :param flags: Flags indicating what kind of object to look for. If this
+            is ``None`` or not given, it defaults to
+            :attr:`FindObjectFlags.ANY`.
+        :type flags: FindObjectFlags or None
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
         :type filename: str or None

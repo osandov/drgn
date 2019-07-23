@@ -670,10 +670,14 @@ static DrgnObject *Program_object(Program *self, PyObject *args,
 {
 	static char *keywords[] = {"name", "flags", "filename", NULL};
 	const char *name;
-	struct enum_arg flags = {.type = FindObjectFlags_class};
+	struct enum_arg flags = {
+		.type = FindObjectFlags_class,
+		.value = DRGN_FIND_OBJECT_ANY,
+		.allow_none = true,
+	};
 	struct path_arg filename = {.allow_none = true};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sO&|O&:object", keywords,
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s|O&O&:object", keywords,
 					 &name, enum_converter, &flags,
 					 path_converter, &filename))
 		return NULL;
