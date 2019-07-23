@@ -5,9 +5,9 @@ import unittest
 from drgn import (
     FileFormatError,
     FindObjectFlags,
+    Object,
     Program,
     Qualifiers,
-    Symbol,
     array_type,
     complex_type,
     enum_type,
@@ -20,12 +20,7 @@ from drgn import (
     union_type,
     void_type,
 )
-from tests import (
-    color_type,
-    option_type,
-    pid_type,
-    point_type,
-)
+from tests import ObjectTestCase, color_type, option_type, pid_type, point_type
 from tests.dwarf import DW_AT, DW_ATE, DW_FORM, DW_TAG
 from tests.dwarfwriter import compile_dwarf, DwarfDie, DwarfAttrib
 
@@ -1570,7 +1565,7 @@ class TestTypes(unittest.TestCase):
                           False))
 
 
-class TestSymbols(unittest.TestCase):
+class TestObjects(ObjectTestCase):
     def test_constant(self):
         dies = [
             int_die,
@@ -1619,22 +1614,20 @@ class TestSymbols(unittest.TestCase):
         type_ = enum_type('color', int_type('int', 4, True),
                           [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
         prog = dwarf_program(dies)
-        self.assertEqual(prog._symbol('BLUE', FindObjectFlags.ANY),
-                         Symbol(type=type_, value=2))
+        self.assertEqual(prog['BLUE'], Object(prog, type_, value=2))
 
         dies[0] = unsigned_int_die
         type_ = enum_type('color', int_type('unsigned int', 4, False),
                           [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
         prog = dwarf_program(dies)
-        self.assertEqual(prog._symbol('GREEN', FindObjectFlags.ANY),
-                         Symbol(type=type_, value=1))
+        self.assertEqual(prog['GREEN'], Object(prog, type_, value=1))
 
         del dies[1].attribs[0]
         type_ = enum_type(None, int_type('unsigned int', 4, False),
                           [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
         prog = dwarf_program(dies)
-        self.assertEqual(prog._symbol('RED', flags=FindObjectFlags.CONSTANT),
-                         Symbol(type=type_, value=0))
+        self.assertEqual(prog.object('RED', FindObjectFlags.CONSTANT),
+                         Object(prog, type_, value=0))
 
     def test_function(self):
         dies = [
@@ -1658,19 +1651,17 @@ class TestSymbols(unittest.TestCase):
                               ((int_type('int', 1, True),),), False)
 
         prog = dwarf_program(dies)
-        self.assertEqual(prog._symbol('abs', FindObjectFlags.ANY),
-                         Symbol(type=type_, address=0x7fc3eb9b1c30,
-                                byteorder='little'))
-        self.assertEqual(prog._symbol('abs', flags=FindObjectFlags.FUNCTION),
-                         prog._symbol('abs', flags=FindObjectFlags.ANY))
+        self.assertEqual(prog['abs'],
+                         Object(prog, type_, address=0x7fc3eb9b1c30))
+        self.assertEqual(prog.object('abs', FindObjectFlags.FUNCTION),
+                         prog['abs'])
         self.assertRaisesRegex(LookupError, 'could not find variable',
-                               prog._symbol, 'abs',
-                               flags=FindObjectFlags.VARIABLE)
+                               prog.object, 'abs', FindObjectFlags.VARIABLE)
 
         del dies[1].attribs[2]
         prog = dwarf_program(dies)
         self.assertRaisesRegex(LookupError, 'could not find address',
-                               prog._symbol, 'abs', FindObjectFlags.ANY)
+                               prog.object, 'abs')
 
     def test_variable(self):
         dies = [
@@ -1687,28 +1678,25 @@ class TestSymbols(unittest.TestCase):
         ]
 
         prog = dwarf_program(dies)
-        self.assertEqual(prog._symbol('x', FindObjectFlags.ANY),
-                         Symbol(type=int_type('int', 4, True),
-                                address=0xffffffff01020304,
-                                byteorder='little'))
-        self.assertEqual(prog._symbol('x', flags=FindObjectFlags.VARIABLE),
-                         prog._symbol('x', FindObjectFlags.ANY))
+        self.assertEqual(prog['x'],
+                         Object(prog, int_type('int', 4, True),
+                                address=0xffffffff01020304))
+        self.assertEqual(prog.object('x', FindObjectFlags.VARIABLE),
+                         prog['x'])
         self.assertRaisesRegex(LookupError, 'could not find constant',
-                               prog._symbol, 'x',
-                               flags=FindObjectFlags.CONSTANT)
+                               prog.object, 'x', FindObjectFlags.CONSTANT)
 
         del dies[1].attribs[2]
         prog = dwarf_program(dies)
         self.assertRaisesRegex(LookupError, 'could not find address',
-                               prog._symbol, 'x', FindObjectFlags.ANY)
+                               prog.object, 'x')
 
         dies[1].attribs.insert(
             2, DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b'\xe0'))
         prog = dwarf_program(dies)
         self.assertRaisesRegex(FileFormatError, 'unimplemented operation',
-                               prog._symbol, 'x', FindObjectFlags.ANY)
+                               prog.object, 'x')
 
     def test_not_found(self):
         prog = dwarf_program([int_die])
-        self.assertRaisesRegex(LookupError, 'could not find', prog._symbol,
-                               'y', FindObjectFlags.ANY)
+        self.assertRaisesRegex(LookupError, 'could not find', prog.object, 'y')

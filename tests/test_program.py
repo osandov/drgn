@@ -9,6 +9,7 @@ from drgn import (
     Architecture,
     FaultError,
     FindObjectFlags,
+    Object,
     Program,
     ProgramFlags,
     Qualifiers,
@@ -26,6 +27,7 @@ from tests import (
     MOCK_32BIT_ARCH,
     MOCK_ARCH,
     MockMemorySegment,
+    ObjectTestCase,
     color_type,
     mock_program,
     option_type,
@@ -469,51 +471,51 @@ class TestTypes(unittest.TestCase):
                          array_type(2, pointer_type(8, array_type(3, int_type('int', 4, True)))))
 
 
-class TestSymbols(unittest.TestCase):
+class TestObjects(ObjectTestCase):
     def test_invalid_finder(self):
         self.assertRaises(TypeError, mock_program().add_symbol_finder, 'foo')
 
         prog = mock_program()
         prog.add_symbol_finder(lambda name, flags, filename: 'foo')
-        self.assertRaises(TypeError, prog._symbol, 'foo', FindObjectFlags.ANY)
+        self.assertRaises(TypeError, prog.object, 'foo')
 
     def test_not_found(self):
         prog = mock_program()
-        self.assertRaises(LookupError, prog._symbol, 'foo', FindObjectFlags.ANY)
+        self.assertRaises(LookupError, prog.object, 'foo')
         prog.add_symbol_finder(lambda name, flags, filename: None)
-        self.assertRaises(LookupError, prog._symbol, 'foo', FindObjectFlags.ANY)
+        self.assertRaises(LookupError, prog.object, 'foo')
         self.assertFalse('foo' in prog)
 
     def test_constant(self):
         sym = Symbol(int_type('int', 4, True), value=4096)
         prog = mock_program(symbols=[('PAGE_SIZE', sym)])
-        self.assertEqual(prog._symbol('PAGE_SIZE', FindObjectFlags.CONSTANT),
-                         sym)
-        self.assertEqual(prog._symbol('PAGE_SIZE', FindObjectFlags.ANY), sym)
+        self.assertEqual(prog['PAGE_SIZE'],
+                         Object(prog, int_type('int', 4, True), value=4096))
+        self.assertEqual(prog.object('PAGE_SIZE', FindObjectFlags.CONSTANT),
+                         prog['PAGE_SIZE'])
         self.assertTrue('PAGE_SIZE' in prog)
 
     def test_function(self):
         sym = Symbol(function_type(void_type(), (), False), address=0xffff0000,
                      byteorder='little')
         prog = mock_program(symbols=[('func', sym)])
-        self.assertEqual(prog._symbol('func', FindObjectFlags.FUNCTION), sym)
-        self.assertEqual(prog._symbol('func', FindObjectFlags.ANY), sym)
+        self.assertEqual(prog['func'],
+                         Object(prog, function_type(void_type(), (), False),
+                                address=0xffff0000))
+        self.assertEqual(prog.object('func', FindObjectFlags.FUNCTION),
+                         prog['func'])
         self.assertTrue('func' in prog)
 
     def test_variable(self):
         sym = Symbol(int_type('int', 4, True), address=0xffff0000,
                      byteorder='little')
         prog = mock_program(symbols=[('counter', sym)])
-        self.assertEqual(prog._symbol('counter', FindObjectFlags.VARIABLE), sym)
-        self.assertEqual(prog._symbol('counter', FindObjectFlags.ANY), sym)
+        self.assertEqual(prog['counter'],
+                         Object(prog, int_type('int', 4, True),
+                                address=0xffff0000))
+        self.assertEqual(prog.object('counter', FindObjectFlags.VARIABLE),
+                         prog['counter'])
         self.assertTrue('counter' in prog)
-
-    def test_wrong_kind(self):
-        prog = mock_program()
-        prog.add_symbol_finder(lambda name, flags, filename:
-                               Symbol(color_type, is_enumerator=True))
-        self.assertRaisesRegex(TypeError, 'wrong kind', prog._symbol, 'foo',
-                               FindObjectFlags.VARIABLE | FindObjectFlags.FUNCTION)
 
 
 class TestCoreDump(unittest.TestCase):

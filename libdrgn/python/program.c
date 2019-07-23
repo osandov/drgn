@@ -579,50 +579,6 @@ static PyObject *Program_pointer_type(Program *self, PyObject *args,
 	return DrgnType_wrap(qualified_type, (PyObject *)self);
 }
 
-static Symbol *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
-{
-	static char *keywords[] = {"name", "flags", "filename", NULL};
-	struct drgn_error *err;
-	const char *name;
-	struct enum_arg flags = {.type = FindObjectFlags_class};
-	struct path_arg filename = {.allow_none = true};
-	Symbol *sym_obj;
-	bool clear;
-	struct drgn_qualified_type qualified_type;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "sO&|O&:_symbol", keywords,
-					 &name, enum_converter, &flags,
-					 path_converter, &filename))
-		return NULL;
-
-	sym_obj = (Symbol *)Symbol_type.tp_alloc(&Symbol_type, 0);
-	if (!sym_obj) {
-		path_cleanup(&filename);
-		return NULL;
-	}
-
-	clear = set_drgn_in_python();
-	err = drgn_symbol_index_find(&self->prog.sindex, name, filename.path,
-				     flags.value, &sym_obj->sym);
-	if (clear)
-		clear_drgn_in_python();
-	path_cleanup(&filename);
-	if (err) {
-		Py_DECREF(sym_obj);
-		return set_drgn_error(err);
-	}
-
-	qualified_type.type = sym_obj->sym.type;
-	qualified_type.qualifiers = sym_obj->sym.qualifiers;
-	sym_obj->type_obj = (DrgnType *)DrgnType_wrap(qualified_type,
-						      (PyObject *)self);
-	if (!sym_obj->type_obj) {
-		Py_DECREF(sym_obj);
-		return NULL;
-	}
-	return sym_obj;
-}
-
 static DrgnObject *Program_find_object(Program *self, const char *name,
 				       struct path_arg *filename,
 				       enum drgn_find_object_flags flags)
@@ -821,8 +777,6 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_type_DOC},
 	{"pointer_type", (PyCFunction)Program_pointer_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_pointer_type_DOC},
-	{"_symbol", (PyCFunction)Program_symbol, METH_VARARGS | METH_KEYWORDS,
-	 "Like object(), but returns a Symbol for testing."},
 	{"object", (PyCFunction)Program_object, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_object_DOC},
 	{"constant", (PyCFunction)Program_constant,
