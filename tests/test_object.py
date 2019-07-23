@@ -1,88 +1,35 @@
 import math
 import operator
 import struct
-import unittest
 
 from drgn import (
+    FaultError,
+    Object,
+    Qualifiers,
+    Type,
     array_type,
     cast,
     container_of,
     enum_type,
-    FaultError,
     float_type,
     function_type,
     int_type,
-    Object,
     pointer_type,
-    Qualifiers,
     reinterpret,
     struct_type,
-    Type,
     typedef_type,
     union_type,
     void_type,
 )
 from tests import (
+    MockMemorySegment,
+    ObjectTestCase,
     color_type,
     line_segment_type,
+    mock_program,
     option_type,
     point_type,
 )
-from tests.test_program import MockMemorySegment, mock_program
-
-
-class ObjectTestCase(unittest.TestCase):
-    def setUp(self):
-        super().setUp()
-        self.prog = mock_program()
-        # For testing, we want to compare the raw objects rather than using the
-        # language's equality operator.
-        def object_equality_func(a, b, msg=None):
-            if a.prog_ is not b.prog_:
-                raise self.failureException(msg or 'objects have different program')
-            if a.type_ != b.type_:
-                raise self.failureException(msg or f'object types differ: {a.type_!r} != {b.type_!r}')
-            if a.address_ != b.address_:
-                a_address = 'None' if a.address_ is None else hex(a.address_)
-                b_address = 'None' if b.address_ is None else hex(b.address_)
-                raise self.failureException(msg or f'object addresses differ: {a_address} != {b_address}')
-            if a.byteorder_ != b.byteorder_:
-                raise self.failureException(msg or f'object byteorders differ: {a.byteorder_} != {b.byteorder_}')
-            if a.bit_offset_ != b.bit_offset_:
-                raise self.failureException(msg or f'object bit offsets differ: {a.bit_offset_} != {b.bit_offset_}')
-            if a.bit_field_size_ != b.bit_field_size_:
-                raise self.failureException(msg or f'object bit field sizes differ: {a.bit_field_size_} != {b.bit_field_size_}')
-            exc_a = exc_b = False
-            try:
-                value_a = a.value_()
-            except Exception:
-                exc_a = True
-            try:
-                value_b = b.value_()
-            except Exception:
-                exc_b = True
-            if exc_a and not exc_b:
-                raise self.failureException(msg or f'exception raised while reading {a!r}')
-            if not exc_a and exc_b:
-                raise self.failureException(msg or f'exception raised while reading {b!r}')
-            if not exc_a and value_a != value_b:
-                raise self.failureException(msg or f'object values differ: {value_a!r} != {value_b!r}')
-        self.addTypeEqualityFunc(Object, object_equality_func)
-
-    def bool(self, value):
-        return Object(self.prog, '_Bool', value=value)
-
-    def int(self, value):
-        return Object(self.prog, 'int', value=value)
-
-    def unsigned_int(self, value):
-        return Object(self.prog, 'unsigned int', value=value)
-
-    def long(self, value):
-        return Object(self.prog, 'long', value=value)
-
-    def double(self, value):
-        return Object(self.prog, 'double', value=value)
 
 
 class TestInit(ObjectTestCase):

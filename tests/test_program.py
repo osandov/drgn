@@ -1,22 +1,18 @@
 import ctypes
-import functools
 import itertools
 import os
 import tempfile
-from typing import NamedTuple, Optional
 import unittest
 import unittest.mock
 
 from drgn import (
     Architecture,
     FaultError,
-    FileFormatError,
     FindObjectFlags,
     Program,
     ProgramFlags,
     Qualifiers,
     Symbol,
-    TypeKind,
     array_type,
     bool_type,
     float_type,
@@ -26,79 +22,22 @@ from drgn import (
     typedef_type,
     void_type,
 )
-from tests import color_type, option_type, pid_type, point_type
+from tests import (
+    MOCK_32BIT_ARCH,
+    MOCK_ARCH,
+    MockMemorySegment,
+    color_type,
+    mock_program,
+    option_type,
+    pid_type,
+    point_type,
+)
 from tests.elf import ET, PT
 from tests.elfwriter import ElfSection, create_elf_file
 
 
-MOCK_32BIT_ARCH = Architecture.IS_LITTLE_ENDIAN
-MOCK_ARCH = Architecture.IS_64_BIT | Architecture.IS_LITTLE_ENDIAN
-
-
-class MockMemorySegment(NamedTuple):
-    buf: bytes
-    virt_addr: Optional[int] = None
-    phys_addr: Optional[int] = None
-
-
-def mock_memory_read(data, address, count, offset, physical):
-    return data[offset:offset + count]
-
-
 def zero_memory_read(address, count, offset, physical):
     return bytes(count)
-
-
-def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, symbols=None):
-    def mock_find_type(kind, name, filename):
-        if filename:
-            return None
-        for type in types:
-            if type.kind == kind:
-                try:
-                    type_name = type.name
-                except AttributeError:
-                    try:
-                        type_name = type.tag
-                    except AttributeError:
-                        continue
-                if type_name == name:
-                    return type
-        return None
-
-    def mock_symbol_find(name, flags, filename):
-        if filename:
-            return None
-        for sym_name, sym in symbols:
-            if sym_name == name:
-                if sym.value is not None or sym.is_enumerator:
-                    if flags & FindObjectFlags.CONSTANT:
-                        break
-                elif sym.type.kind == TypeKind.FUNCTION:
-                    if flags & FindObjectFlags.FUNCTION:
-                        break
-                elif flags & FindObjectFlags.VARIABLE:
-                    break
-        else:
-            return None
-        return sym
-
-    prog = Program(arch)
-    if segments is not None:
-        for segment in segments:
-            if segment.virt_addr is not None:
-                prog.add_memory_segment(
-                    segment.virt_addr, len(segment.buf),
-                    functools.partial(mock_memory_read, segment.buf))
-            if segment.phys_addr is not None:
-                prog.add_memory_segment(
-                    segment.phys_addr, len(segment.buf),
-                    functools.partial(mock_memory_read, segment.buf), True)
-    if types is not None:
-        prog.add_type_finder(mock_find_type)
-    if symbols is not None:
-        prog.add_symbol_finder(mock_symbol_find)
-    return prog
 
 
 class TestProgram(unittest.TestCase):
