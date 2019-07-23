@@ -119,7 +119,7 @@ struct drgn_error {
  *
  * This has a code of @ref DRGN_ERROR_NO_MEMORY. It can be returned if a memory
  * allocation fails in order to avoid doing another memory allocation. It does
- * not not need to be passed to @ref drgn_error_destroy() (but it can be).
+ * not need to be passed to @ref drgn_error_destroy() (but it can be).
  */
 extern struct drgn_error drgn_enomem;
 
