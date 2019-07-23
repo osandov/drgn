@@ -17,6 +17,11 @@ LIBDRGN_PUBLIC struct drgn_error drgn_enomem = {
 	.message = "cannot allocate memory",
 };
 
+LIBDRGN_PUBLIC struct drgn_error drgn_not_found = {
+	.code = DRGN_ERROR_LOOKUP,
+	.message = "not found",
+};
+
 struct drgn_error drgn_stop = {
 	.code = DRGN_ERROR_STOP,
 	.message = "stop iteration",

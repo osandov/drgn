@@ -124,6 +124,16 @@ struct drgn_error {
 extern struct drgn_error drgn_enomem;
 
 /**
+ * Non-fatal lookup @ref drgn_error.
+ *
+ * This has a code of @ref DRGN_ERROR_LOOKUP. It should be returned from a @ref
+ * drgn_type_find_fn() or @ref drgn_symbol_find_fn() to indicate that the entity
+ * in question could not be found. It does not need to be passed to @ref
+ * drgn_error_destroy() (but it can be).
+ */
+extern struct drgn_error drgn_not_found;
+
+/**
  * Create a @ref drgn_error.
  *
  * @param[in] code Error code.
@@ -966,9 +976,6 @@ bool drgn_filename_matches(const char *haystack, const char *needle);
 /**
  * Callback for finding a type.
  *
- * If the type is found, this should fill in @p ret and return @c NULL. If not,
- * this should set <tt>ret->type</tt> to @c NULL and return @c NULL.
- *
  * @param[in] kind Kind of type.
  * @param[in] name Name of type (or tag, for structs, unions, and enums). This
  * is @em not null-terminated.
@@ -977,7 +984,9 @@ bool drgn_filename_matches(const char *haystack, const char *needle);
  * should be matched with @ref drgn_filename_matches().
  * @param[in] arg Argument passed to @ref drgn_program_add_type_finder().
  * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c NULL on success, non-@c NULL on error. In particular, if the type
+ * is not found, this should return &@ref drgn_not_found; any other errors are
+ * considered fatal.
  */
 typedef struct drgn_error *
 (*drgn_type_find_fn)(enum drgn_type_kind kind, const char *name,
@@ -1068,9 +1077,6 @@ struct drgn_symbol {
 /**
  * Callback for finding a symbol.
  *
- * If the symbol is found, this should fill in @p ret and return @c NULL. If
- * not, this should set <tt>ret->type</tt> to @c NULL and return @c NULL.
- *
  * @param[in] name Name of symbol. This is @em not null-terminated.
  * @param[in] name_len Length of @p name.
  * @param[in] filename Filename containing the symbol definition or @c NULL.
@@ -1078,7 +1084,9 @@ struct drgn_symbol {
  * @param[in] flags Flags indicating what kind of object to look for.
  * @param[in] arg Argument passed to @ref drgn_program_add_symbol_finder().
  * @param[out] ret Returned symbol.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return @c NULL on success, non-@c NULL on error. In particular, if the
+ * symbol is not found, this should return &@ref drgn_not_found; any other
+ * errors are considered fatal.
  */
 typedef struct drgn_error *
 (*drgn_symbol_find_fn)(const char *name, size_t name_len, const char *filename,

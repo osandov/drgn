@@ -225,9 +225,8 @@ static void default_primitive_types_init(void)
 }
 
 /*
- * Like @ref drgn_type_index_find_parsed(), but sets <tt>ret->type</tt> to NULL
- * and returns @c NULL if the type is not found instead of returning a @ref
- * DRGN_ERROR_LOOKUP error.
+ * Like @ref drgn_type_index_find_parsed(), but returns
+ * <tt>&drgn_error_not_found</tt> instead of a more informative error message.
  */
 static struct drgn_error *
 drgn_type_index_find_parsed_internal(struct drgn_type_index *tindex,
@@ -242,19 +241,18 @@ drgn_type_index_find_parsed_internal(struct drgn_type_index *tindex,
 	while (finder) {
 		err = finder->fn(kind, name, name_len, filename, finder->arg,
 				 ret);
-		if (err)
-			return err;
-		if (ret->type) {
+		if (!err) {
 			if (drgn_type_kind(ret->type) != kind) {
 				return drgn_error_create(DRGN_ERROR_TYPE,
 							 "type find callback returned wrong kind of type");
 			}
 			return NULL;
 		}
+		if (err != &drgn_not_found)
+			return err;
 		finder = finder->next;
 	}
-	ret->type = NULL;
-	return NULL;
+	return &drgn_not_found;
 }
 
 struct drgn_error *
@@ -286,12 +284,11 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 							   strlen(spellings[i]),
 							   NULL,
 							   &qualified_type);
-		if (err) {
-			return err;
-		} else if (qualified_type.type &&
-			   drgn_type_primitive(qualified_type.type) == type) {
+		if (!err && drgn_type_primitive(qualified_type.type) == type) {
 			*ret = qualified_type.type;
 			goto out;
+		} else if (err && err != &drgn_not_found) {
+			return err;
 		}
 	}
 
@@ -373,10 +370,8 @@ drgn_type_index_find_parsed(struct drgn_type_index *tindex,
 
 	err = drgn_type_index_find_parsed_internal(tindex, kind, name, name_len,
 						   filename, ret);
-	if (err)
+	if (err != &drgn_not_found)
 		return err;
-	else if (ret->type)
-		return NULL;
 
 	precision = name_len < INT_MAX ? (int)name_len : INT_MAX;
 	if (filename) {

@@ -91,9 +91,7 @@ struct drgn_error *drgn_symbol_index_find(struct drgn_symbol_index *sindex,
 	while (finder) {
 		err = finder->fn(name, name_len, filename, flags, finder->arg,
 				 ret);
-		if (err)
-			return err;
-		if (ret->type) {
+		if (!err) {
 			if (ret->kind == DRGN_SYMBOL_ENUMERATOR ||
 			    ret->kind == DRGN_SYMBOL_CONSTANT) {
 			    if (!(flags & DRGN_FIND_OBJECT_CONSTANT))
@@ -113,6 +111,8 @@ struct drgn_error *drgn_symbol_index_find(struct drgn_symbol_index *sindex,
 			}
 			return NULL;
 		}
+		if (err != &drgn_not_found)
+			return err;
 		finder = finder->next;
 	}
 

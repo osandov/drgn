@@ -221,8 +221,8 @@ static struct drgn_error *py_type_find_fn(enum drgn_type_kind kind,
 		goto out_name_obj;
 	}
 	if (type_obj == Py_None) {
-		ret->type = NULL;
-		goto out;
+		err = &drgn_not_found;
+		goto out_type_obj;
 	}
 	if (!PyObject_TypeCheck(type_obj, &DrgnType_type)) {
 		PyErr_SetString(PyExc_TypeError,
@@ -238,7 +238,6 @@ static struct drgn_error *py_type_find_fn(enum drgn_type_kind kind,
 
 	ret->type = ((DrgnType *)type_obj)->type;
 	ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
-out:
 	err = NULL;
 out_type_obj:
 	Py_DECREF(type_obj);
@@ -311,8 +310,8 @@ static struct drgn_error *py_symbol_find_fn(const char *name, size_t name_len,
 		goto out_flags_obj;
 	}
 	if (sym_obj == Py_None) {
-		ret->type = NULL;
-		goto out;
+		err = &drgn_not_found;
+		goto out_sym_obj;
 	}
 	if (!PyObject_TypeCheck(sym_obj, &Symbol_type)) {
 		PyErr_SetString(PyExc_TypeError,
@@ -327,7 +326,6 @@ static struct drgn_error *py_symbol_find_fn(const char *name, size_t name_len,
 	}
 
 	*ret = ((Symbol *)sym_obj)->sym;
-out:
 	err = NULL;
 out_sym_obj:
 	Py_DECREF(sym_obj);

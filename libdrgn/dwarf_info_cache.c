@@ -1402,8 +1402,7 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 	}
 	if (err && err->code != DRGN_ERROR_STOP)
 		return err;
-	ret->type = NULL;
-	return NULL;
+	return &drgn_not_found;
 }
 
 static struct drgn_error *
@@ -1521,8 +1520,7 @@ drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
 	}
 	if (err && err->code != DRGN_ERROR_STOP)
 		return err;
-	ret->type = NULL;
-	return NULL;
+	return &drgn_not_found;
 }
 
 struct drgn_error *
