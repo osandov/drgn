@@ -15,7 +15,7 @@
 #include <elfutils/libdwfl.h>
 
 #include "memory_reader.h"
-#include "symbol_index.h"
+#include "object_index.h"
 #include "type_index.h"
 
 /**
@@ -51,7 +51,7 @@ struct drgn_program {
 	/** @privatesection */
 	struct drgn_memory_reader reader;
 	struct drgn_type_index tindex;
-	struct drgn_symbol_index sindex;
+	struct drgn_object_index oindex;
 	struct drgn_memory_file_segment *file_segments;
 	size_t num_file_segments;
 	/*
@@ -69,7 +69,7 @@ struct drgn_program {
 	int core_fd;
 	enum drgn_program_flags flags;
 	enum drgn_architecture_flags arch;
-	bool added_vmcoreinfo_symbol_finder;
+	bool added_vmcoreinfo_object_finder;
 };
 
 /** Initialize a @ref drgn_program. */

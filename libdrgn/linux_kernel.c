@@ -228,52 +228,49 @@ out:
 }
 
 static struct drgn_error *
-vmcoreinfo_symbol_find(const char *name, size_t name_len, const char *filename,
+vmcoreinfo_object_find(const char *name, size_t name_len, const char *filename,
 		       enum drgn_find_object_flags flags, void *arg,
-		       struct drgn_symbol *ret)
+		       struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = arg;
 
-	if (filename)
-		goto not_found;
+	if (!filename && (flags & DRGN_FIND_OBJECT_CONSTANT)) {
+		struct drgn_qualified_type qualified_type = {};
 
-	if (flags & DRGN_FIND_OBJECT_CONSTANT) {
 		if (name_len == strlen("PAGE_SHIFT") &&
 		    memcmp(name, "PAGE_SHIFT", name_len) == 0) {
 			err = drgn_type_index_find_primitive(&prog->tindex,
 							     DRGN_C_TYPE_INT,
-							     &ret->type);
+							     &qualified_type.type);
 			if (err)
 				return err;
-			ret->svalue = ctz(prog->vmcoreinfo.page_size);
+			return drgn_object_set_signed(ret, qualified_type,
+						      ctz(prog->vmcoreinfo.page_size),
+						      0);
 		} else if (name_len == strlen("PAGE_SIZE") &&
 			   memcmp(name, "PAGE_SIZE", name_len) == 0) {
 			err = drgn_type_index_find_primitive(&prog->tindex,
 							     DRGN_C_TYPE_UNSIGNED_LONG,
-							     &ret->type);
+							     &qualified_type.type);
 			if (err)
 				return err;
-			ret->uvalue = prog->vmcoreinfo.page_size;
+			return drgn_object_set_unsigned(ret, qualified_type,
+							prog->vmcoreinfo.page_size,
+							0);
 		} else if (name_len == strlen("PAGE_MASK") &&
 			   memcmp(name, "PAGE_MASK", name_len) == 0) {
 			err = drgn_type_index_find_primitive(&prog->tindex,
 							     DRGN_C_TYPE_UNSIGNED_LONG,
-							     &ret->type);
+							     &qualified_type.type);
 			if (err)
 				return err;
-			ret->uvalue = ~(prog->vmcoreinfo.page_size - 1);
-		} else {
-			goto not_found;
+			return drgn_object_set_unsigned(ret, qualified_type,
+							~(prog->vmcoreinfo.page_size - 1),
+							0);
 		}
-		ret->qualifiers = 0;
-		ret->kind = DRGN_SYMBOL_CONSTANT;
-		return NULL;
 	}
-
-not_found:
-	ret->type = NULL;
-	return NULL;
+	return &drgn_not_found;
 }
 
 struct kernel_module_iterator {
@@ -1598,13 +1595,13 @@ linux_kernel_load_default_debug_info(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 
-	if (!prog->added_vmcoreinfo_symbol_finder) {
-		err = drgn_program_add_symbol_finder(prog,
-						     vmcoreinfo_symbol_find,
+	if (!prog->added_vmcoreinfo_object_finder) {
+		err = drgn_program_add_object_finder(prog,
+						     vmcoreinfo_object_find,
 						     prog);
 		if (err)
 			return err;
-		prog->added_vmcoreinfo_symbol_finder = true;
+		prog->added_vmcoreinfo_object_finder = true;
 	}
 	return linux_kernel_load_debug_info_internal(prog, NULL, 0, 0, true);
 }

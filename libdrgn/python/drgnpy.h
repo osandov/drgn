@@ -78,12 +78,6 @@ typedef struct {
 	PyObject *cache;
 } Program;
 
-typedef struct {
-	PyObject_HEAD
-	struct drgn_symbol sym;
-	DrgnType *type_obj;
-} Symbol;
-
 extern PyObject *Architecture_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *PrimitiveType_class;
@@ -94,7 +88,6 @@ extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Program_type;
-extern PyTypeObject Symbol_type;
 extern PyObject *FaultError;
 extern PyObject *FileFormatError;
 extern PyObject *MissingDebugInfoError;

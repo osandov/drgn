@@ -10,7 +10,7 @@
 #include "dwarf_index.h"
 #include "dwarf_info_cache.h"
 #include "hash_table.h"
-#include "symbol_index.h"
+#include "object_index.h"
 #include "type_index.h"
 #include "vector.h"
 
@@ -1406,9 +1406,40 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 }
 
 static struct drgn_error *
-drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
+drgn_object_from_dwarf_enumerator(struct drgn_dwarf_info_cache *dicache,
+				  Dwarf_Die *die, const char *name,
+				  struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	const struct drgn_type_enumerator *enumerators;
+	size_t num_enumerators, i;
+
+	err = drgn_type_from_dwarf(dicache, die, &qualified_type);
+	if (err)
+		return err;
+	enumerators = drgn_type_enumerators(qualified_type.type);
+	num_enumerators = drgn_type_num_enumerators(qualified_type.type);
+	for (i = 0; i < num_enumerators; i++) {
+		if (strcmp(enumerators[i].name, name) != 0)
+			continue;
+
+		if (drgn_enum_type_is_signed(qualified_type.type)) {
+			return drgn_object_set_signed(ret, qualified_type,
+						      enumerators[i].svalue, 0);
+		} else {
+			return drgn_object_set_unsigned(ret, qualified_type,
+							enumerators[i].uvalue,
+							0);
+		}
+	}
+	DRGN_UNREACHABLE();
+}
+
+static struct drgn_error *
+drgn_object_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
 				  Dwarf_Die *die, uint64_t bias,
-				  const char *name, struct drgn_symbol *ret)
+				  const char *name, struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
@@ -1417,24 +1448,19 @@ drgn_symbol_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
 	err = drgn_type_from_dwarf(dicache, die, &qualified_type);
 	if (err)
 		return err;
-	ret->type = qualified_type.type;
-	ret->qualifiers = qualified_type.qualifiers;
-
-	ret->kind = DRGN_SYMBOL_ADDRESS;
 	if (dwarf_lowpc(die, &low_pc) == -1) {
 		return drgn_error_format(DRGN_ERROR_LOOKUP,
 					 "could not find address of '%s'",
 					 name);
 	}
-	ret->address = low_pc + bias;
-	ret->little_endian = dwarf_die_is_little_endian(die);
-	return NULL;
+	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
+					 0, dwarf_die_byte_order(die));
 }
 
 static struct drgn_error *
-drgn_symbol_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
+drgn_object_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 				Dwarf_Die *die, uint64_t bias, const char *name,
-				struct drgn_symbol *ret)
+				struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
@@ -1447,10 +1473,6 @@ drgn_symbol_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 					 &qualified_type);
 	if (err)
 		return err;
-	ret->type = qualified_type.type;
-	ret->qualifiers = qualified_type.qualifiers;
-
-	ret->kind = DRGN_SYMBOL_ADDRESS;
 	if (!(attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
 		return drgn_error_format(DRGN_ERROR_LOOKUP,
 					 "could not find address of '%s'",
@@ -1458,20 +1480,19 @@ drgn_symbol_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 	}
 	if (dwarf_getlocation(attr, &loc, &nloc))
 		return drgn_error_libdw();
-
 	if (nloc != 1 || loc[0].atom != DW_OP_addr) {
 		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
 					 "DW_AT_location has unimplemented operation");
 	}
-	ret->address = loc[0].number + bias;
-	ret->little_endian = dwarf_die_is_little_endian(die);
-	return NULL;
+	return drgn_object_set_reference(ret, qualified_type,
+					 loc[0].number + bias, 0, 0,
+					 dwarf_die_byte_order(die));
 }
 
 struct drgn_error *
-drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
+drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 		       enum drgn_find_object_flags flags, void *arg,
-		       struct drgn_symbol *ret)
+		       struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_info_cache *dicache = arg;
@@ -1495,24 +1516,15 @@ drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
 		if (!die_matches_filename(&die, filename))
 			continue;
 		switch (dwarf_tag(&die)) {
-		case DW_TAG_enumeration_type: {
-			struct drgn_qualified_type qualified_type;
-
-			ret->kind = DRGN_SYMBOL_ENUMERATOR;
-			err = drgn_type_from_dwarf(dicache, &die,
-						   &qualified_type);
-			if (err)
-				return err;
-			ret->type = qualified_type.type;
-			ret->qualifiers = qualified_type.qualifiers;
-			return NULL;
-		}
+		case DW_TAG_enumeration_type:
+			return drgn_object_from_dwarf_enumerator(dicache, &die,
+								 name, ret);
 		case DW_TAG_subprogram:
-			return drgn_symbol_from_dwarf_subprogram(dicache, &die,
+			return drgn_object_from_dwarf_subprogram(dicache, &die,
 								 bias, name,
 								 ret);
 		case DW_TAG_variable:
-			return drgn_symbol_from_dwarf_variable(dicache, &die,
+			return drgn_object_from_dwarf_variable(dicache, &die,
 							       bias, name, ret);
 		default:
 			DRGN_UNREACHABLE();

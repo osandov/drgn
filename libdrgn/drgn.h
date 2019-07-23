@@ -127,7 +127,7 @@ extern struct drgn_error drgn_enomem;
  * Non-fatal lookup @ref drgn_error.
  *
  * This has a code of @ref DRGN_ERROR_LOOKUP. It should be returned from a @ref
- * drgn_type_find_fn() or @ref drgn_symbol_find_fn() to indicate that the entity
+ * drgn_type_find_fn() or @ref drgn_object_find_fn() to indicate that the entity
  * in question could not be found. It does not need to be passed to @ref
  * drgn_error_destroy() (but it can be).
  */
@@ -1019,93 +1019,38 @@ enum drgn_find_object_flags {
 	DRGN_FIND_OBJECT_ANY = (1 << 3) - 1,
 };
 
-/** Kind of symbol. */
-enum drgn_symbol_kind {
-	/**
-	 * A symbol with an address in the program. @ref drgn_symbol::address is
-	 * set to the address.
-	 */
-	DRGN_SYMBOL_ADDRESS,
-	/**
-	 * A symbol with a constant value. One of @ref drgn_symbol::svalue, @ref
-	 * drgn_symbol::uvalue, or @ref drgn_symbol::fvalue is set, depending on
-	 * @ref drgn_symbol::type.
-	 */
-	DRGN_SYMBOL_CONSTANT,
-	/**
-	 * An enumerator. No address or value is set.
-	 *
-	 * A symbol with this kind may be returned by a @ref
-	 * drgn_symbol_find_fn(); it is converted to a constant.
-	 */
-	DRGN_SYMBOL_ENUMERATOR,
-} __attribute__((packed));
-
 /**
- * An indexed symbol in a program.
+ * Callback for finding an object.
  *
- * This is the result of a lookup by a @ref drgn_symbol_find_fn. It is typically
- * converted to a @ref drgn_object.
- */
-struct drgn_symbol {
-	/** Type of this symbol. */
-	struct drgn_type *type;
-	/** Qualifiers on @ref drgn_symbol::type. */
-	enum drgn_qualifiers qualifiers;
-	/** Kind of this symbol. */
-	enum drgn_symbol_kind kind;
-	/**
-	 * Whether the symbol is little-endian.
-	 *
-	 * This is ignored for constants and enumerators.
-	 */
-	bool little_endian;
-	union {
-		/**
-		 * If not a constant or enumerator, the address of the symbol.
-		 */
-		uint64_t address;
-		/** If a signed constant, the value. */
-		int64_t svalue;
-		/** If an unsigned constant, the value. */
-		uint64_t uvalue;
-		/** If a floating-point constant, the value. */
-		double fvalue;
-	};
-};
-
-/**
- * Callback for finding a symbol.
- *
- * @param[in] name Name of symbol. This is @em not null-terminated.
+ * @param[in] name Name of object. This is @em not null-terminated.
  * @param[in] name_len Length of @p name.
- * @param[in] filename Filename containing the symbol definition or @c NULL.
+ * @param[in] filename Filename containing the object definition or @c NULL.
  * This should be matched with @ref drgn_filename_matches().
  * @param[in] flags Flags indicating what kind of object to look for.
- * @param[in] arg Argument passed to @ref drgn_program_add_symbol_finder().
- * @param[out] ret Returned symbol.
+ * @param[in] arg Argument passed to @ref drgn_program_add_object_finder().
+ * @param[out] ret Returned object. This must only be modified on success.
  * @return @c NULL on success, non-@c NULL on error. In particular, if the
- * symbol is not found, this should return &@ref drgn_not_found; any other
+ * object is not found, this should return &@ref drgn_not_found; any other
  * errors are considered fatal.
  */
 typedef struct drgn_error *
-(*drgn_symbol_find_fn)(const char *name, size_t name_len, const char *filename,
+(*drgn_object_find_fn)(const char *name, size_t name_len, const char *filename,
 		       enum drgn_find_object_flags flags, void *arg,
-		       struct drgn_symbol *ret);
+		       struct drgn_object *ret);
 
 /**
- * Register a symbol finding callback.
+ * Register a object finding callback.
  *
  * Callbacks are called in reverse order of the order they were added until the
- * symbol is found. So, more recently added callbacks take precedence.
+ * object is found. So, more recently added callbacks take precedence.
  *
  * @param[in] fn The callback.
  * @param[in] arg Argument to pass to @p fn.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_program_add_symbol_finder(struct drgn_program *prog,
-			       drgn_symbol_find_fn fn, void *arg);
+drgn_program_add_object_finder(struct drgn_program *prog,
+			       drgn_object_find_fn fn, void *arg);
 
 /**
  * Set a @ref drgn_program to a core dump.
@@ -1250,9 +1195,8 @@ struct drgn_error *drgn_program_find_type(struct drgn_program *prog,
  * matched with @ref drgn_filename_matches(). If multiple definitions match, one
  * is returned arbitrarily.
  * @param[in] flags Flags indicating what kind of object to look for.
- * @param[out] ret Returned object. This can be @c NULL to check for the
- * object's existence without returning it. If not @c NULL, this must have
- * already been initialized with @ref drgn_object_init().
+ * @param[out] ret Returned object. This must have already been initialized with
+ * @ref drgn_object_init().
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_find_object(struct drgn_program *prog,

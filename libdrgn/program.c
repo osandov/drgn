@@ -19,10 +19,10 @@
 #include "language.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
+#include "object_index.h"
 #include "program.h"
 #include "read.h"
 #include "string_builder.h"
-#include "symbol_index.h"
 #include "type_index.h"
 #include "vector.h"
 
@@ -68,7 +68,7 @@ void drgn_program_init(struct drgn_program *prog,
 	memset(prog, 0, sizeof(*prog));
 	drgn_memory_reader_init(&prog->reader);
 	drgn_type_index_init(&prog->tindex);
-	drgn_symbol_index_init(&prog->sindex);
+	drgn_object_index_init(&prog->oindex);
 	prog->core_fd = -1;
 	prog->arch = DRGN_ARCH_AUTO;
 	if (arch != DRGN_ARCH_AUTO)
@@ -77,7 +77,7 @@ void drgn_program_init(struct drgn_program *prog,
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
-	drgn_symbol_index_deinit(&prog->sindex);
+	drgn_object_index_deinit(&prog->oindex);
 	drgn_type_index_deinit(&prog->tindex);
 	drgn_memory_reader_deinit(&prog->reader);
 
@@ -136,10 +136,10 @@ drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_symbol_finder(struct drgn_program *prog,
-			       drgn_symbol_find_fn fn, void *arg)
+drgn_program_add_object_finder(struct drgn_program *prog,
+			       drgn_object_find_fn fn, void *arg)
 {
-	return drgn_symbol_index_add_finder(&prog->sindex, fn, arg);
+	return drgn_object_index_add_finder(&prog->oindex, fn, arg);
 }
 
 static enum drgn_architecture_flags drgn_architecture_from_elf(Elf *elf)
@@ -484,8 +484,8 @@ struct drgn_error *drgn_program_update_dwarf_index(struct drgn_program *prog)
 			drgn_dwarf_info_cache_destroy(dicache);
 			return err;
 		}
-		err = drgn_program_add_symbol_finder(prog,
-						     drgn_dwarf_symbol_find,
+		err = drgn_program_add_object_finder(prog,
+						     drgn_dwarf_object_find,
 						     dicache);
 		if (err) {
 			drgn_type_index_remove_finder(&prog->tindex);
@@ -753,42 +753,12 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 			 enum drgn_find_object_flags flags,
 			 struct drgn_object *ret)
 {
-	struct drgn_error *err;
-	struct drgn_symbol sym;
-	struct drgn_qualified_type qualified_type;
-
 	if (ret && ret->prog != prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "object is from wrong program");
 	}
-
-	err = drgn_symbol_index_find(&prog->sindex, name, filename, flags,
-				     &sym);
-	if (err || !ret)
-		return err;
-	qualified_type.type = sym.type;
-	qualified_type.qualifiers = sym.qualifiers;
-	if (sym.kind == DRGN_SYMBOL_CONSTANT) {
-		switch (drgn_type_object_kind(sym.type)) {
-		case DRGN_OBJECT_SIGNED:
-			return drgn_object_set_signed(ret, qualified_type,
-						      sym.svalue, 0);
-		case DRGN_OBJECT_UNSIGNED:
-			return drgn_object_set_unsigned(ret, qualified_type,
-							sym.uvalue, 0);
-		case DRGN_OBJECT_FLOAT:
-			return drgn_object_set_float(ret, qualified_type,
-						     sym.fvalue);
-		default:
-			return drgn_type_error("cannot create '%s' constant",
-					       sym.type);
-		}
-	} else {
-		assert(sym.kind == DRGN_SYMBOL_ADDRESS);
-		return drgn_object_set_reference(ret, qualified_type,
-						 sym.address, 0, 0,
-						 sym.little_endian);
-	}
+	return drgn_object_index_find(&prog->oindex, name, filename, flags,
+				      ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

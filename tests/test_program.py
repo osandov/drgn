@@ -13,7 +13,6 @@ from drgn import (
     Program,
     ProgramFlags,
     Qualifiers,
-    Symbol,
     array_type,
     bool_type,
     float_type,
@@ -27,6 +26,7 @@ from tests import (
     MOCK_32BIT_ARCH,
     MOCK_ARCH,
     MockMemorySegment,
+    MockObject,
     ObjectTestCase,
     color_type,
     mock_program,
@@ -473,22 +473,23 @@ class TestTypes(unittest.TestCase):
 
 class TestObjects(ObjectTestCase):
     def test_invalid_finder(self):
-        self.assertRaises(TypeError, mock_program().add_symbol_finder, 'foo')
+        self.assertRaises(TypeError, mock_program().add_object_finder, 'foo')
 
         prog = mock_program()
-        prog.add_symbol_finder(lambda name, flags, filename: 'foo')
+        prog.add_object_finder(lambda prog, name, flags, filename: 'foo')
         self.assertRaises(TypeError, prog.object, 'foo')
 
     def test_not_found(self):
         prog = mock_program()
         self.assertRaises(LookupError, prog.object, 'foo')
-        prog.add_symbol_finder(lambda name, flags, filename: None)
+        prog.add_object_finder(lambda prog, name, flags, filename: None)
         self.assertRaises(LookupError, prog.object, 'foo')
         self.assertFalse('foo' in prog)
 
     def test_constant(self):
-        sym = Symbol(int_type('int', 4, True), value=4096)
-        prog = mock_program(symbols=[('PAGE_SIZE', sym)])
+        mock_obj = MockObject('PAGE_SIZE', int_type('int', 4, True),
+                              value=4096)
+        prog = mock_program(objects=[mock_obj])
         self.assertEqual(prog['PAGE_SIZE'],
                          Object(prog, int_type('int', 4, True), value=4096))
         self.assertEqual(prog.object('PAGE_SIZE', FindObjectFlags.CONSTANT),
@@ -496,9 +497,9 @@ class TestObjects(ObjectTestCase):
         self.assertTrue('PAGE_SIZE' in prog)
 
     def test_function(self):
-        sym = Symbol(function_type(void_type(), (), False), address=0xffff0000,
-                     byteorder='little')
-        prog = mock_program(symbols=[('func', sym)])
+        mock_obj = MockObject('func', function_type(void_type(), (), False),
+                              address=0xffff0000)
+        prog = mock_program(objects=[mock_obj])
         self.assertEqual(prog['func'],
                          Object(prog, function_type(void_type(), (), False),
                                 address=0xffff0000))
@@ -507,9 +508,9 @@ class TestObjects(ObjectTestCase):
         self.assertTrue('func' in prog)
 
     def test_variable(self):
-        sym = Symbol(int_type('int', 4, True), address=0xffff0000,
-                     byteorder='little')
-        prog = mock_program(symbols=[('counter', sym)])
+        mock_obj = MockObject('counter', int_type('int', 4, True),
+                              address=0xffff0000)
+        prog = mock_program(objects=[mock_obj])
         self.assertEqual(prog['counter'],
                          Object(prog, int_type('int', 4, True),
                                 address=0xffff0000))

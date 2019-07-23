@@ -281,15 +281,15 @@ static PyObject *Program_add_type_finder(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
-static struct drgn_error *py_symbol_find_fn(const char *name, size_t name_len,
+static struct drgn_error *py_object_find_fn(const char *name, size_t name_len,
 					    const char *filename,
 					    enum drgn_find_object_flags flags,
-					    void *arg, struct drgn_symbol *ret)
+					    void *arg, struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	PyGILState_STATE gstate;
 	PyObject *name_obj, *flags_obj;
-	PyObject *sym_obj;
+	PyObject *obj;
 
 	gstate = PyGILState_Ensure();
 	name_obj = PyUnicode_FromStringAndSize(name, name_len);
@@ -303,32 +303,27 @@ static struct drgn_error *py_symbol_find_fn(const char *name, size_t name_len,
 		err = drgn_error_from_python();
 		goto out_name_obj;
 	}
-	sym_obj = PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOs",
-					name_obj, flags_obj, filename);
-	if (!sym_obj) {
+	obj = PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOOs",
+				    PyTuple_GET_ITEM(arg, 0), name_obj,
+				    flags_obj, filename);
+	if (!obj) {
 		err = drgn_error_from_python();
 		goto out_flags_obj;
 	}
-	if (sym_obj == Py_None) {
+	if (obj == Py_None) {
 		err = &drgn_not_found;
-		goto out_sym_obj;
+		goto out_obj;
 	}
-	if (!PyObject_TypeCheck(sym_obj, &Symbol_type)) {
+	if (!PyObject_TypeCheck(obj, &DrgnObject_type)) {
 		PyErr_SetString(PyExc_TypeError,
-				"symbol find callback must return Symbol or None");
+				"object find callback must return Object or None");
 		err = drgn_error_from_python();
-		goto out_sym_obj;
-	}
-	if (Program_hold_type((Program *)PyTuple_GET_ITEM(arg, 0),
-			      ((Symbol *)sym_obj)->type_obj) == -1) {
-		err = drgn_error_from_python();
-		goto out_sym_obj;
+		goto out_obj;
 	}
 
-	*ret = ((Symbol *)sym_obj)->sym;
-	err = NULL;
-out_sym_obj:
-	Py_DECREF(sym_obj);
+	err = drgn_object_copy(ret, &((DrgnObject *)obj)->obj);
+out_obj:
+	Py_DECREF(obj);
 out_flags_obj:
 	Py_DECREF(flags_obj);
 out_name_obj:
@@ -338,7 +333,7 @@ out_gstate:
 	return err;
 }
 
-static PyObject *Program_add_symbol_finder(Program *self, PyObject *args,
+static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 					   PyObject *kwds)
 {
 	static char *keywords[] = {"fn", NULL};
@@ -346,7 +341,7 @@ static PyObject *Program_add_symbol_finder(Program *self, PyObject *args,
 	PyObject *fn, *arg;
 	int ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_symbol_finder",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_object_finder",
 					 keywords, &fn))
 	    return NULL;
 
@@ -363,7 +358,7 @@ static PyObject *Program_add_symbol_finder(Program *self, PyObject *args,
 	if (ret == -1)
 		return NULL;
 
-	err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
+	err = drgn_program_add_object_finder(&self->prog, py_object_find_fn,
 					     arg);
 	if (err)
 		return set_drgn_error(err);
@@ -711,6 +706,7 @@ static int Program_contains(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
 	const char *name;
+	struct drgn_object tmp;
 	bool clear;
 
 	if (!PyUnicode_Check(key)) {
@@ -722,11 +718,13 @@ static int Program_contains(Program *self, PyObject *key)
 	if (!name)
 		return -1;
 
+	drgn_object_init(&tmp, &self->prog);
 	clear = set_drgn_in_python();
 	err = drgn_program_find_object(&self->prog, name, NULL,
-				       DRGN_FIND_OBJECT_ANY, NULL);
+				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (clear)
 		clear_drgn_in_python();
+	drgn_object_deinit(&tmp);
 	if (err) {
 		if (err->code == DRGN_ERROR_LOOKUP) {
 			drgn_error_destroy(err);
@@ -756,8 +754,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
 	{"add_type_finder", (PyCFunction)Program_add_type_finder,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_type_finder_DOC},
-	{"add_symbol_finder", (PyCFunction)Program_add_symbol_finder,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_symbol_finder_DOC},
+	{"add_object_finder", (PyCFunction)Program_add_object_finder,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_object_finder_DOC},
 	{"set_core_dump", (PyCFunction)Program_set_core_dump,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,

@@ -24,7 +24,7 @@
  *
  * @ref drgn_dwarf_info_cache bridges the raw DWARF information indexed by @ref
  * drgn_dwarf_index to the higher-level @ref drgn_type_index and @ref
- * drgn_symbol_index.
+ * drgn_object_index.
  *
  * @{
  */
@@ -47,14 +47,12 @@ struct drgn_dwarf_type {
 DEFINE_HASH_MAP_TYPE(dwarf_type_map, const void *, struct drgn_dwarf_type);
 
 struct drgn_dwarf_index;
-struct drgn_program;
-struct drgn_symbol;
 
 /**
- * Cache of types and symbols from DWARF debugging information.
+ * Cache of types and objects from DWARF debugging information.
  *
  * This is the argument for @ref drgn_dwarf_type_find() and @ref
- * drgn_dwarf_symbol_find().
+ * drgn_dwarf_object_find().
  */
 struct drgn_dwarf_info_cache {
 	/** Index of DWARF debugging information. */
@@ -93,11 +91,11 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 					const char *filename, void *arg,
 					struct drgn_qualified_type *ret);
 
-/** @ref drgn_symbol_find_fn() that uses DWARF debugging information. */
+/** @ref drgn_object_find_fn() that uses DWARF debugging information. */
 struct drgn_error *
-drgn_dwarf_symbol_find(const char *name, size_t name_len, const char *filename,
+drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 		       enum drgn_find_object_flags flags, void *arg,
-		       struct drgn_symbol *ret);
+		       struct drgn_object *ret);
 
 /** @} */
 

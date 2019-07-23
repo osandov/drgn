@@ -28,6 +28,7 @@ from tests import (
     line_segment_type,
     mock_program,
     option_type,
+    pid_type,
     point_type,
 )
 

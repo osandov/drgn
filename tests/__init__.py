@@ -1,5 +1,5 @@
 import functools
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 import unittest
 
 from drgn import (
@@ -7,6 +7,7 @@ from drgn import (
     FindObjectFlags,
     Object,
     Program,
+    Type,
     TypeKind,
     enum_type,
     float_type,
@@ -48,7 +49,14 @@ def mock_memory_read(data, address, count, offset, physical):
     return data[offset:offset + count]
 
 
-def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, symbols=None):
+class MockObject(NamedTuple):
+    name: str
+    type: Type
+    address: Optional[int] = None
+    value: Any = None
+
+
+def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, objects=None):
     def mock_find_type(kind, name, filename):
         if filename:
             return None
@@ -65,22 +73,22 @@ def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, symbols=None):
                     return type
         return None
 
-    def mock_symbol_find(name, flags, filename):
+    def mock_object_find(prog, name, flags, filename):
         if filename:
             return None
-        for sym_name, sym in symbols:
-            if sym_name == name:
-                if sym.value is not None or sym.is_enumerator:
+        for obj in objects:
+            if obj.name == name:
+                if obj.value is not None:
                     if flags & FindObjectFlags.CONSTANT:
                         break
-                elif sym.type.kind == TypeKind.FUNCTION:
+                elif obj.type.kind == TypeKind.FUNCTION:
                     if flags & FindObjectFlags.FUNCTION:
                         break
                 elif flags & FindObjectFlags.VARIABLE:
                     break
         else:
             return None
-        return sym
+        return Object(prog, obj.type, address=obj.address, value=obj.value)
 
     prog = Program(arch)
     if segments is not None:
@@ -95,8 +103,8 @@ def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, symbols=None):
                     functools.partial(mock_memory_read, segment.buf), True)
     if types is not None:
         prog.add_type_finder(mock_find_type)
-    if symbols is not None:
-        prog.add_symbol_finder(mock_symbol_find)
+    if objects is not None:
+        prog.add_object_finder(mock_object_find)
     return prog
 
 

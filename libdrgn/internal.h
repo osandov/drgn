@@ -202,6 +202,12 @@ static inline bool dwarf_die_is_little_endian(Dwarf_Die *die)
 	return elf_is_little_endian(dwarf_getelf(dwarf_cu_getdwarf(die->cu)));
 }
 
+static inline enum drgn_byte_order dwarf_die_byte_order(Dwarf_Die *die)
+{
+	return (dwarf_die_is_little_endian(die) ?
+		DRGN_LITTLE_ENDIAN : DRGN_BIG_ENDIAN);
+}
+
 bool die_matches_filename(Dwarf_Die *die, const char *filename);
 
 /**

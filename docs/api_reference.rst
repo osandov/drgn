@@ -201,18 +201,19 @@ Programs
             filename)``. The filename should be matched with
             :func:`filename_matches()`. This should return a :class:`Type`.
 
-    .. method:: add_symbol_finder(fn)
+    .. method:: add_object_finder(fn)
 
-        Register a callback for finding symbols in the program.
+        Register a callback for finding objects in the program.
 
         Callbacks are called in reverse order of the order they were added
-        until the symbol is found. So, more recently added callbacks take
+        until the object is found. So, more recently added callbacks take
         precedence.
 
-        :param fn: Callable taking a name (:class:`str`),
-            :class:`FindObjectFlags`, and filename (:class:`str` or ``None``):
-            ``(name, flags, filename)``. The filename should be matched with
-            :func:`filename_matches()`. This should return a :class:`Symbol`.
+        :param fn: Callable taking a program (:class:`Program`), name
+            (:class:`str`), :class:`FindObjectFlags`, and filename
+            (:class:`str` or ``None``): ``(prog, name, flags, filename)``. The
+            filename should be matched with :func:`filename_matches()`. This
+            should return an :class:`Object`.
 
     .. method:: set_core_dump(path)
 
@@ -715,61 +716,6 @@ Objects
     :raises TypeError: if the object is not a pointer or the type is not a
         structure or union type
     :raises LookupError: If the type does not have a member with the given name
-
-.. class:: Symbol(type, *, value=None, address=None, is_enumerator=False, byteorder=None)
-
-    A ``Symbol`` represents a variable, constant, or function loaded from a
-    program's debugging information. It is returned by a symbol finder (see
-    :meth:`Program.add_symbol_finder()`) and then converted to an
-    :class:`Object`.
-
-    Exactly one of *value*, *address*, or *is_enumerator* must be given. If
-    *value* is given, then the symbol is a constant with the given value. If
-    *address* is given, then the symbol is a variable or function at the given
-    address, and *byteorder* must also be given. If *is_enumerator* is
-    ``True``, then the symbol is an enumerator constant; its value will be
-    determined from the given type based on the name that was passed to the
-    symbol finder.
-
-    :param Type type: The type of the symbol.
-    :param value: The constant value of the symbol.
-    :type value: int or float
-    :param int address: The address of the symbol in the program.
-    :param bool is_enumerator: Whether the symbol is an enumerator.
-    :param str byteorder: The byte order of the symbol. This is only valid for
-        non-constants. It should be ``'little'`` or ``'big'``.
-
-    .. attribute:: type
-
-        Type of this symbol
-
-        :vartype: Type
-
-    .. attribute:: value
-
-        Value of this symbol if it is a constant, ``None`` otherwise.
-
-        :vartype: int, float, or None
-
-    .. attribute:: address
-
-        Address of this symbol if it is a variable or function, ``None``
-        otherwise.
-
-        :vartype: int or None
-
-    .. attribute:: is_enumerator
-
-        Whether this symbol is an enumerator.
-
-        :vartype: bool
-
-    .. attribute:: byteorder
-
-        Byte order of this symbol (either ``'little'`` or ``'big'``) if it is a
-        variable or function, ``None`` otherwise.
-
-        :vartype: str or None
 
 .. _api-reference-types:
 
