@@ -23,6 +23,7 @@
 #include "program.h"
 #include "read.h"
 #include "string_builder.h"
+#include "symbol.h"
 #include "type_index.h"
 #include "vector.h"
 
@@ -759,6 +760,56 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 	}
 	return drgn_object_index_find(&prog->oindex, name, filename, flags,
 				      ret);
+}
+
+struct drgn_error *drgn_program_find_symbol_internal(struct drgn_program *prog,
+						     uint64_t address,
+						     struct drgn_symbol *sym)
+{
+	Dwfl_Module *module;
+	const char *name;
+	GElf_Off offset;
+	GElf_Sym elf_sym;
+
+	if (!prog->_dwfl)
+		return &drgn_not_found;
+
+	module = dwfl_addrmodule(prog->_dwfl, address);
+	if (!module)
+		return &drgn_not_found;
+	name = dwfl_module_addrinfo(module, address, &offset, &elf_sym, NULL,
+				    NULL, NULL);
+	if (!name)
+		return &drgn_not_found;
+
+	sym->name = name;
+	sym->address = address - offset;
+	sym->size = elf_sym.st_size;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_find_symbol(struct drgn_program *prog, uint64_t address,
+			 struct drgn_symbol **ret)
+{
+	struct drgn_error *err;
+	struct drgn_symbol *sym;
+
+	sym = malloc(sizeof(*sym));
+	if (!sym)
+		return &drgn_enomem;
+	err = drgn_program_find_symbol_internal(prog, address, sym);
+	if (err) {
+		free(sym);
+		if (err == &drgn_not_found) {
+			err = drgn_error_format(DRGN_ERROR_LOOKUP,
+						"could not find symbol containing 0x%" PRIx64,
+						address);
+		}
+		return err;
+	}
+	*ret = sym;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

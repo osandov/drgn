@@ -1205,6 +1205,26 @@ struct drgn_error *drgn_program_find_object(struct drgn_program *prog,
 					    enum drgn_find_object_flags flags,
 					    struct drgn_object *ret);
 
+/**
+ * @ingroup Symbols
+ *
+ * @struct drgn_symbol
+ *
+ * A @ref drgn_symbol represents an entry in a program's symbol table.
+ */
+struct drgn_symbol;
+
+/**
+ * Get the symbol containing the given address.
+ *
+ * @param[out] ret The returned symbol. It should be freed with @ref
+ * drgn_symbol_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_find_symbol(struct drgn_program *prog,
+					    uint64_t address,
+					    struct drgn_symbol **ret);
+
 /** Element type and size. */
 struct drgn_element_info {
 	/** Type of the element. */
@@ -2138,6 +2158,38 @@ struct drgn_error *drgn_object_sizeof(const struct drgn_object *obj,
 				      uint64_t *ret);
 
 /** @} */
+
+/** @} */
+
+/**
+ * @defgroup Symbols Symbols
+ *
+ * Symbol table entries.
+ *
+ * @sa drgn_program_find_symbol()
+ *
+ * @{
+ */
+
+/** Destroy a @ref drgn_symbol. */
+void drgn_symbol_destroy(struct drgn_symbol *sym);
+
+/**
+ * Get the name of a @ref drgn_symbol.
+ *
+ * The returned string is valid until @p sym is destroyed. It should not be
+ * freed.
+ */
+const char *drgn_symbol_name(struct drgn_symbol *sym);
+
+/** Get the start address of a @ref drgn_symbol. */
+uint64_t drgn_symbol_address(struct drgn_symbol *sym);
+
+/** Get the size in bytes of a @ref drgn_symbol. */
+uint64_t drgn_symbol_size(struct drgn_symbol *sym);
+
+/** Return whether two symbols are identical. */
+bool drgn_symbol_eq(struct drgn_symbol *a, struct drgn_symbol *b);
 
 /** @} */
 

@@ -40,6 +40,8 @@ libdrgnimpl_la_SOURCES = binary_search_tree.h \
 			 splay_tree.c \
 			 string_builder.c \
 			 string_builder.h \
+			 symbol.c \
+			 symbol.h \
 			 type.c \
 			 type.h \
 			 type_index.c \
@@ -70,6 +72,7 @@ _drgn_la_SOURCES = python/docstrings.h \
 		   python/module.c \
 		   python/object.c \
 		   python/program.c \
+		   python/symbol.c \
 		   python/test.c \
 		   python/type.c \
 		   python/util.c

@@ -125,6 +125,14 @@ Programs
         :raises LookupError: if no objects with the given name are found in
             the given file
 
+    .. method:: symbol(address)
+
+        Get the symbol containing the given address.
+
+        :param int address: The address.
+        :rtype: Symbol
+        :raises LookupError: if no symbol contains the given address
+
     .. method:: type(name, filename=None)
 
         Get the type with the given name.
@@ -716,6 +724,32 @@ Objects
     :raises TypeError: if the object is not a pointer or the type is not a
         structure or union type
     :raises LookupError: If the type does not have a member with the given name
+
+Symbols
+-------
+
+.. class:: Symbol
+
+    A ``Symbol`` represents an entry in the symbol table of a program, i.e., an
+    identifier along with its corresponding address range in the program.
+
+    .. attribute:: name
+
+        Name of this symbol.
+
+        :vartype: str
+
+    .. attribute:: address
+
+        Start address of this symbol.
+
+        :vartype: int
+
+    .. attribute:: size
+
+        Size of this symbol in bytes.
+
+        :vartype: int
 
 .. _api-reference-types:
 

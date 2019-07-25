@@ -154,6 +154,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	Py_INCREF(&Program_type);
 	PyModule_AddObject(m, "Program", (PyObject *)&Program_type);
 
+	if (PyType_Ready(&Symbol_type) < 0)
+		goto err;
+	Py_INCREF(&Symbol_type);
+	PyModule_AddObject(m, "Symbol", (PyObject *)&Symbol_type);
+
 	if (PyType_Ready(&DrgnType_type) < 0)
 		goto err;
 	Py_INCREF(&DrgnType_type);

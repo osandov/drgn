@@ -664,6 +664,31 @@ static DrgnObject *Program_variable(Program *self, PyObject *args,
 				   DRGN_FIND_OBJECT_VARIABLE);
 }
 
+static Symbol *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"address", NULL};
+	struct drgn_error *err;
+	unsigned long long address;
+	struct drgn_symbol *sym;
+	Symbol *ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "K", keywords, &address))
+		return NULL;
+
+	err = drgn_program_find_symbol(&self->prog, address, &sym);
+	if (err)
+		return set_drgn_error(err);
+	ret = (Symbol *)Symbol_type.tp_alloc(&Symbol_type, 0);
+	if (!ret) {
+		drgn_symbol_destroy(sym);
+		return NULL;
+	}
+	ret->sym = sym;
+	ret->prog = self;
+	Py_INCREF(self);
+	return ret;
+}
+
 static DrgnObject *Program_subscript(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
@@ -783,6 +808,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_function_DOC},
 	{"variable", (PyCFunction)Program_variable,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_variable_DOC},
+	{"symbol", (PyCFunction)Program_symbol, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_symbol_DOC},
 	{},
 };
 

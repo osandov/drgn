@@ -13,6 +13,8 @@ Core Concepts
 
 .. highlight:: pycon
 
+The most important interfaces in drgn are *programs*, *objects*, and *helpers*.
+
 Programs
 ^^^^^^^^
 
@@ -137,19 +139,6 @@ address it points to)::
     >>> print(hex(jiffiesp.value_()))
     0xffffffffbe405000
 
-Types
-^^^^^
-
-drgn automatically obtains type definitions from the program. Types are
-represented by the :class:`drgn.Type` class and created by various factory
-functions like :func:`drgn.int_type()`::
-
-    >>> prog.type('int')
-    int_type(name='int', size=4, is_signed=True)
-
-You won't usually need to work with types directly, but see
-:ref:`api-reference-types` if you do.
-
 Helpers
 ^^^^^^^
 
@@ -183,6 +172,32 @@ Then, you could use it like so for any list you need to look at::
 Of course, it would be a waste of time and effort for everyone to have to
 define these helpers for themselves, so drgn includes a collection of helpers
 for many use cases. See :doc:`helpers`.
+
+Other Concepts
+--------------
+
+In addition to the core concepts above, drgn provides a few additional
+abstractions.
+
+Symbols
+^^^^^^^
+
+The symbol table of a program is a list of identifiers along with their address
+and size. drgn represents symbols with the :class:`drgn.Symbol` class, which is
+returned by :meth:`Program.symbol()`.
+
+Types
+^^^^^
+
+drgn automatically obtains type definitions from the program. Types are
+represented by the :class:`drgn.Type` class and created by various factory
+functions like :func:`drgn.int_type()`::
+
+    >>> prog.type('int')
+    int_type(name='int', size=4, is_signed=True)
+
+You won't usually need to work with types directly, but see
+:ref:`api-reference-types` if you do.
 
 Command Line Interface
 ----------------------

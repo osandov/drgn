@@ -116,6 +116,14 @@ struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
  */
 struct drgn_error *drgn_program_update_dwarf_index(struct drgn_program *prog);
 
+/*
+ * Like @ref drgn_program_find_symbol(), but @p ret is already allocated and
+ * returns @ref drgn_not_found instead of a more informative message.
+ */
+struct drgn_error *drgn_program_find_symbol_internal(struct drgn_program *prog,
+						     uint64_t address,
+						     struct drgn_symbol *ret);
+
 /** @} */
 
 #endif /* DRGN_PROGRAM_H */
