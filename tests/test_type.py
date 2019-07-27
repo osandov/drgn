@@ -628,7 +628,8 @@ class TestType(unittest.TestCase):
 
     def test_infinite(self):
         f = lambda: struct_type('foo', 0, ((f, 'next'),))
-        self.assertRaises(RecursionError, repr, f())
+        self.assertEqual(repr(f()),
+                         "struct_type(tag='foo', size=0, members=((struct_type(tag='foo', ...), 'next', 0, 0),))")
         with self.assertRaisesRegex(RecursionError, 'maximum.*depth'):
             f() == f()
 

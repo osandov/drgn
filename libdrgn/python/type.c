@@ -691,64 +691,50 @@ static int append_field(PyObject *parts, bool *first, const char *format, ...)
 _Py_IDENTIFIER(DrgnType_Repr);
 
 /*
- * Based on Py_ReprEnter(). Returns 1 if the type has already been processed, 0
- * if it hasn't, and -1 on error. We can't use Py_ReprEnter()/Py_ReprLeave()
- * because the same struct drgn_type may be wrapped in different Type objects.
+ * We only want to print compound types (structure and union types) one level
+ * deep in order to avoid very deep recursion. Return 0 if this is the first
+ * level, 1 if this is a deeper level (and thus we shouldn't print more
+ * members), and -1 on error.
  */
 static int DrgnType_ReprEnter(DrgnType *self)
 {
-	PyObject *dict, *set, *key;
-	int ret;
+	PyObject *dict, *key, *value;
+
+	if (!drgn_type_has_members(self->type))
+		return 0;
 
 	dict = PyThreadState_GetDict();
 	if (dict == NULL)
 		return 0;
-	set = _PyDict_GetItemId(dict, &PyId_DrgnType_Repr);
-	if (set == NULL) {
-		set = PySet_New(NULL);
-		if (set == NULL)
-			return -1;
-		if (_PyDict_SetItemId(dict, &PyId_DrgnType_Repr, set) == -1)
-			return -1;
-		Py_DECREF(set);
-	}
-	key = PyLong_FromVoidPtr(self->type);
-	if (!key)
+	key = _PyUnicode_FromId(&PyId_DrgnType_Repr);
+	if (!key) {
+		PyErr_Clear();
 		return -1;
-	ret = PySet_Contains(set, key);
-	if (ret) {
-		Py_DECREF(key);
-		return ret;
 	}
-	ret = PySet_Add(set, key);
-	Py_DECREF(key);
-	return ret;
+	value = PyDict_GetItemWithError(dict, key);
+	if (value == Py_True)
+		return 1;
+	if ((!value && PyErr_Occurred()) ||
+	    PyDict_SetItem(dict, key, Py_True) == -1) {
+		PyErr_Clear();
+		return -1;
+	}
+	return 0;
 }
 
-/* Based on Py_ReprLeave(). */
+/* Pair with DrgnType_ReprEnter() only if it returned 0. */
 static void DrgnType_ReprLeave(DrgnType *self)
 {
-	PyObject *dict, *set, *key;
 	PyObject *exc_type, *exc_value, *exc_traceback;
+	PyObject *dict;
+
+	if (!drgn_type_has_members(self->type))
+		return;
 
 	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-
 	dict = PyThreadState_GetDict();
-	if (dict == NULL)
-		goto finally;
-
-	set = _PyDict_GetItemId(dict, &PyId_DrgnType_Repr);
-	if (set == NULL || !PySet_Check(set))
-		goto finally;
-
-	key = PyLong_FromVoidPtr(self->type);
-	if (!key)
-		goto finally;
-
-	PySet_Discard(set, key);
-	Py_DECREF(key);
-
-finally:
+	if (dict)
+		_PyDict_SetItemId(dict, &PyId_DrgnType_Repr, Py_False);
 	PyErr_Restore(exc_type, exc_value, exc_traceback);
 }
 
@@ -770,10 +756,6 @@ static PyObject *DrgnType_repr(DrgnType *self)
 	if (append_member(parts, self, &first, tag) == -1)
 		goto out;
 
-	/*
-	 * Check after we've appended the tag so that it's possible to identify
-	 * the cyclic struct/union.
-	 */
 	recursive = DrgnType_ReprEnter(self);
 	if (recursive == -1) {
 		goto out;
