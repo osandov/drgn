@@ -20,13 +20,13 @@ class _drgn_error(ctypes.Structure):
     ]
 
 
-_drgn_pydll.set_drgn_error.restype = ctypes.py_object
+_drgn_pydll.set_drgn_error.restype = ctypes.c_void_p
 _drgn_pydll.set_drgn_error.argtypes = [ctypes.POINTER(_drgn_error)]
 
 
 def _check_err(err):
     if err:
-        return _drgn_pydll.set_drgn_error(err)
+        _drgn_pydll.set_drgn_error(err)
 
 
 class _path_iterator_component(ctypes.Structure):

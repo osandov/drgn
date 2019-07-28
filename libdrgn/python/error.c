@@ -91,7 +91,7 @@ out:
 	return err;
 }
 
-DRGNPY_PUBLIC PyObject *set_drgn_error(struct drgn_error *err)
+DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 {
 	if (err == &drgn_error_python)
 		return NULL;
@@ -147,6 +147,6 @@ DRGNPY_PUBLIC PyObject *set_drgn_error(struct drgn_error *err)
 void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type)
 {
-	set_drgn_error(drgn_qualified_type_error(format, qualified_type));
-	return NULL;
+	return set_drgn_error(drgn_qualified_type_error(format,
+							qualified_type));
 }

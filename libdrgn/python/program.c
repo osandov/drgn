@@ -385,10 +385,8 @@ static PyObject *Program_set_core_dump(Program *self, PyObject *args,
 
 	err = drgn_program_set_core_dump(&self->prog, path.path);
 	path_cleanup(&path);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
@@ -397,10 +395,8 @@ static PyObject *Program_set_kernel(Program *self)
 	struct drgn_error *err;
 
 	err = drgn_program_set_kernel(&self->prog);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
@@ -415,10 +411,8 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 		return NULL;
 
 	err = drgn_program_set_pid(&self->prog, pid);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
@@ -498,10 +492,8 @@ static PyObject *Program_load_default_debug_info(Program *self)
 	struct drgn_error *err;
 
 	err = drgn_program_load_default_debug_info(&self->prog);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 	Py_RETURN_NONE;
 }
 
@@ -532,9 +524,8 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 	if (clear)
 		clear_drgn_in_python();
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(buf);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return buf;
 }
@@ -558,10 +549,8 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 	if (clear)
 		clear_drgn_in_python();
 	path_cleanup(&filename);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 	return DrgnType_wrap(qualified_type, (PyObject *)self);
 }
 
@@ -586,10 +575,8 @@ static PyObject *Program_pointer_type(Program *self, PyObject *args,
 
 	err = drgn_type_index_pointer_type(&self->prog.tindex, referenced_type,
 					   &qualified_type.type);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 	qualified_type.qualifiers = qualifiers;
 	return DrgnType_wrap(qualified_type, (PyObject *)self);
 }
@@ -624,8 +611,7 @@ static Symbol *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
 	path_cleanup(&filename);
 	if (err) {
 		Py_DECREF(sym_obj);
-		set_drgn_error(err);
-		return NULL;
+		return set_drgn_error(err);
 	}
 
 	qualified_type.type = sym_obj->sym.type;
@@ -658,9 +644,8 @@ static DrgnObject *Program_find_object(Program *self, const char *name,
 		clear_drgn_in_python();
 	path_cleanup(filename);
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(ret);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return ret;
 }
@@ -945,8 +930,7 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)
 	path_cleanup(&path);
 	if (err) {
 		Py_DECREF(prog);
-		set_drgn_error(err);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return prog;
 }
@@ -963,8 +947,7 @@ Program *program_from_kernel(PyObject *self)
 	err = drgn_program_init_kernel(&prog->prog);
 	if (err) {
 		Py_DECREF(prog);
-		set_drgn_error(err);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return prog;
 }
@@ -987,8 +970,7 @@ Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds)
 	err = drgn_program_init_pid(&prog->prog, pid);
 	if (err) {
 		Py_DECREF(prog);
-		set_drgn_error(err);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return prog;
 }

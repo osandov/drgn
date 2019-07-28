@@ -727,8 +727,7 @@ static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 	if (!drgn_object_kind_is_complete(obj->kind)) {
 		err = drgn_error_incomplete_type("cannot read object with %s type",
 						 obj->type);
-		set_drgn_error(err);
-		return NULL;
+		return set_drgn_error(err);
 	}
 
 	underlying_type = drgn_underlying_type(obj->type);
@@ -812,9 +811,8 @@ static DrgnObject *DrgnObject_address_of(DrgnObject *self)
 
 	err = drgn_object_address_of(&res->obj, &self->obj);
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(res);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return res;
 }
@@ -835,9 +833,8 @@ static DrgnObject *DrgnObject_read(DrgnObject *self)
 
 	err = drgn_object_read(&res->obj, &self->obj);
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(res);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return res;
 }
@@ -1135,9 +1132,8 @@ static DrgnObject *DrgnObject_##op(DrgnObject *self)	\
 							\
 	err = drgn_object_##op(&res->obj, &self->obj);	\
 	if (err) {					\
-		set_drgn_error(err);			\
 		Py_DECREF(res);				\
-		return NULL;				\
+		return set_drgn_error(err);		\
 	}						\
 	return res;					\
 }
@@ -1172,10 +1168,8 @@ static PyObject *DrgnObject_int(DrgnObject *self)
 	}
 
 	err = drgn_object_read_value(&self->obj, &value_mem, &value);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 
 	switch (self->obj.kind) {
 	case DRGN_OBJECT_SIGNED:
@@ -1207,10 +1201,8 @@ static PyObject *DrgnObject_float(DrgnObject *self)
 	}
 
 	err = drgn_object_read_value(&self->obj, &value_mem, &value);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 
 	switch (self->obj.kind) {
 	case DRGN_OBJECT_SIGNED:
@@ -1245,10 +1237,8 @@ static PyObject *DrgnObject_index(DrgnObject *self)
 	}
 
 	err = drgn_object_read_value(&self->obj, &value_mem, &value);
-	if (err) {
-		set_drgn_error(err);
-		return NULL;
-	}
+	if (err)
+		return set_drgn_error(err);
 
 	switch (self->obj.kind) {
 	case DRGN_OBJECT_SIGNED:
@@ -1340,10 +1330,8 @@ static PyObject *DrgnObject_##func(DrgnObject *self)			\
 	}								\
 									\
 	err = drgn_object_read_value(&self->obj, &value_mem, &value);	\
-	if (err) {							\
-		set_drgn_error(err);					\
-		return NULL;						\
-	}								\
+	if (err)							\
+		return set_drgn_error(err);				\
 									\
 	switch (self->obj.kind) {					\
 	case DRGN_OBJECT_SIGNED:					\
@@ -1421,9 +1409,8 @@ static DrgnObject *DrgnObject_member(DrgnObject *self, PyObject *args,
 		err = drgn_object_member(&res->obj, &self->obj, name);
 	}
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(res);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return res;
 }
@@ -1513,9 +1500,8 @@ static DrgnObject *DrgnObject_subscript_impl(DrgnObject *self,
 
 	err = drgn_object_subscript(&res->obj, &self->obj, index);
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(res);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return res;
 }
@@ -1791,9 +1777,8 @@ DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds)
 
 	err = drgn_object_cast(&res->obj, qualified_type, &obj->obj);
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(res);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return res;
 }
@@ -1827,9 +1812,8 @@ DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds)
 	err = drgn_object_reinterpret(&res->obj, qualified_type, byte_order,
 				      &obj->obj);
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(res);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return res;
 }
@@ -1860,9 +1844,8 @@ DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 	err = drgn_object_container_of(&res->obj, &obj->obj, qualified_type,
 				       member_designator);
 	if (err) {
-		set_drgn_error(err);
 		Py_DECREF(res);
-		return NULL;
+		return set_drgn_error(err);
 	}
 	return res;
 }

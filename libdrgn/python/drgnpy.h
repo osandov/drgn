@@ -104,7 +104,7 @@ int add_module_constants(PyObject *m);
 bool set_drgn_in_python(void);
 void clear_drgn_in_python(void);
 struct drgn_error *drgn_error_from_python(void);
-PyObject *set_drgn_error(struct drgn_error *err);
+void *set_drgn_error(struct drgn_error *err);
 void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
 
