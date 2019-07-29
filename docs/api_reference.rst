@@ -136,6 +136,18 @@ Programs
         :rtype: Symbol
         :raises LookupError: if no symbol contains the given address
 
+    .. method:: stack_trace(thread)
+
+        Get the stack trace for a given thread in the program. Currently, this
+        is only implemented for the Linux kernel.
+
+        Note that this currently doesn't verify that the thread is inactive. If
+        the thread is running, the returned stack trace will not be accurate.
+
+        :param Object thread: The ``struct task_struct *`` object of the
+            thread. See :func:`drgn.helpers.linux.pid.find_task()`.
+        :rtype: StackTrace
+
     .. method:: type(name, filename=None)
 
         Get the type with the given name.
@@ -789,6 +801,60 @@ Symbols
         Size of this symbol in bytes.
 
         :vartype: int
+
+Stack Traces
+------------
+
+.. class:: StackTrace
+
+    A ``StackTrace`` is a :ref:`sequence <python:typesseq-common>` of
+    :class:`StackFrame`.
+
+    ``len(trace)`` is the number of stack frames in the trace. ``trace[0]`` is
+    the innermost stack frame, ``trace[1]`` is its caller, and
+    ``trace[len(trace) - 1]`` is the outermost frame. Negative indexing also
+    works: ``trace[-1]`` is the outermost frame and ``trace[-len(trace)]`` is
+    the innermost frame. It is also iterable:
+
+    .. code-block:: python3
+
+        for frame in trace:
+            if frame.symbol().name == 'io_schedule':
+                print('Thread is doing I/O')
+
+    :class:`str() <str>` returns a pretty-printed stack trace:
+
+    >>> print(prog.stack_trace(find_task(prog, 1))
+    #0  __schedule+0x25c/0x8ba
+    #1  schedule+0x3c/0x7e
+    #2  schedule_hrtimeout_range_clock+0x10c/0x118
+    #3  ep_poll+0x3ca/0x40a
+    #4  do_epoll_wait+0xb0/0xc6
+    #5  __x64_sys_epoll_wait+0x1a/0x1d
+    #6  do_syscall_64+0x55/0x17c
+    #7  entry_SYSCALL_64+0x7c/0x156
+
+    The drgn CLI is set up so that stack traces are displayed with ``str()`` by
+    default.
+
+.. class:: StackFrame
+
+    A ``StackFrame`` represents a single *frame* (i.e., function call) in a
+    thread's call stack.
+
+    .. attribute:: pc
+
+        The return address at this stack frame, i.e., the value of the program
+        counter when control returns to this frame.
+
+        :vartype: int
+
+    .. method:: symbol()
+
+        Get the function symbol at this stack frame. This is equivalent to
+        :meth:`prog.symbol(frame.pc) <Program.symbol>`.
+
+        :rtype: Symbol
 
 .. _api-reference-types:
 

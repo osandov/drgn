@@ -151,6 +151,8 @@ extern const char drgn_Program_set_kernel_DOC[];
 #define drgn_Program_set_kernel_DOC (char *)drgn_Program_set_kernel_DOC
 extern const char drgn_Program_set_pid_DOC[];
 #define drgn_Program_set_pid_DOC (char *)drgn_Program_set_pid_DOC
+extern const char drgn_Program_stack_trace_DOC[];
+#define drgn_Program_stack_trace_DOC (char *)drgn_Program_stack_trace_DOC
 extern const char drgn_Program_symbol_DOC[];
 #define drgn_Program_symbol_DOC (char *)drgn_Program_symbol_DOC
 extern const char drgn_Program_type_DOC[];
@@ -173,6 +175,14 @@ extern const char drgn_Qualifiers_RESTRICT_DOC[];
 #define drgn_Qualifiers_RESTRICT_DOC (char *)drgn_Qualifiers_RESTRICT_DOC
 extern const char drgn_Qualifiers_VOLATILE_DOC[];
 #define drgn_Qualifiers_VOLATILE_DOC (char *)drgn_Qualifiers_VOLATILE_DOC
+extern const char drgn_StackFrame_DOC[];
+#define drgn_StackFrame_DOC (char *)drgn_StackFrame_DOC
+extern const char drgn_StackFrame_pc_DOC[];
+#define drgn_StackFrame_pc_DOC (char *)drgn_StackFrame_pc_DOC
+extern const char drgn_StackFrame_symbol_DOC[];
+#define drgn_StackFrame_symbol_DOC (char *)drgn_StackFrame_symbol_DOC
+extern const char drgn_StackTrace_DOC[];
+#define drgn_StackTrace_DOC (char *)drgn_StackTrace_DOC
 extern const char drgn_Symbol_DOC[];
 #define drgn_Symbol_DOC (char *)drgn_Symbol_DOC
 extern const char drgn_Symbol_address_DOC[];

@@ -2239,4 +2239,66 @@ bool drgn_symbol_eq(struct drgn_symbol *a, struct drgn_symbol *b);
 
 /** @} */
 
+/**
+ * @defgroup StackTraces Stack traces
+ *
+ * Call stacks and stack frames.
+ *
+ * @{
+ */
+
+struct drgn_stack_trace;
+struct drgn_stack_frame;
+
+/** Destroy a @ref drgn_stack_trace. */
+void drgn_stack_trace_destroy(struct drgn_stack_trace *trace);
+
+/** Get the number of stack frames in a stack trace. */
+size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace);
+
+/**
+ * Get the stack at index @p i, where 0 is the innermost stack frame, 1 is its
+ * caller, etc.
+ *
+ * @return On success, the stack frame, which is valid until this stack trace is
+ * destroyed. If <tt>i >= drgn_stack_trace_num_frames(trace)</tt>, @c NULL.
+ */
+struct drgn_stack_frame *drgn_stack_trace_frame(struct drgn_stack_trace *trace,
+						size_t i);
+
+/**
+ * Pretty-print a stack trace.
+ *
+ * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * On error, its contents are undefined.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_pretty_print_stack_trace(struct drgn_stack_trace *trace,
+						 char **ret);
+
+/** Get the return address at a stack frame. */
+uint64_t drgn_stack_frame_pc(struct drgn_stack_frame *frame);
+
+/**
+ * Get the function symbol at a stack frame.
+ *
+ * @param[out] ret Returned symbol. On success, it should be freed with @ref
+ * drgn_symbol_destroy(). On error, its contents are undefined.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_stack_frame_symbol(struct drgn_stack_frame *frame,
+					   struct drgn_symbol **ret);
+
+/**
+ * Get a stack trace for the thread represented by @p obj.
+ *
+ * @param[out] ret Returned stack trace. On success, it should be freed with
+ * @ref drgn_stack_trace_destroy(). On error, its contents are undefined.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
+					   struct drgn_stack_trace **ret);
+
+/** @} */
+
 #endif /* DRGN_H */

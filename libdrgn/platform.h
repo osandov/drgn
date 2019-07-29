@@ -4,7 +4,7 @@
 #ifndef DRGN_PLATFORM_H
 #define DRGN_PLATFORM_H
 
-#include <gelf.h>
+#include <elfutils/libdwfl.h>
 
 #include "drgn.h"
 
@@ -12,6 +12,8 @@ struct drgn_architecture_info {
 	const char *name;
 	enum drgn_architecture arch;
 	enum drgn_platform_flags default_flags;
+	struct drgn_error *(*linux_kernel_set_initial_registers)(Dwfl_Thread *,
+								 struct drgn_object *);
 };
 
 extern const struct drgn_architecture_info arch_info_unknown;

@@ -184,7 +184,14 @@ Symbols
 
 The symbol table of a program is a list of identifiers along with their address
 and size. drgn represents symbols with the :class:`drgn.Symbol` class, which is
-returned by :meth:`Program.symbol()`.
+returned by :meth:`drgn.Program.symbol()`.
+
+Stack Traces
+^^^^^^^^^^^^
+
+drgn represents stack traces with the :class:`drgn.StackTrace` and
+:class:`drgn.StackFrame` classes. :meth:`drgn.Program.stack_trace()` returns
+the call stack for a thread.
 
 Types
 ^^^^^

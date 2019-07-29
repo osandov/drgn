@@ -41,6 +41,7 @@ libdrgnimpl_la_SOURCES = arch_x86_64.c \
 			 serialize.h \
 			 siphash.h \
 			 splay_tree.c \
+			 stack_trace.c \
 			 string_builder.c \
 			 string_builder.h \
 			 symbol.c \
@@ -82,6 +83,7 @@ _drgn_la_SOURCES = python/docstrings.h \
 		   python/object.c \
 		   python/platform.c \
 		   python/program.c \
+		   python/stack_trace.c \
 		   python/symbol.c \
 		   python/test.c \
 		   python/type.c \

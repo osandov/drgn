@@ -73,11 +73,16 @@ struct drgn_program {
 #endif
 	Dwfl *_dwfl;
 	struct drgn_dwarf_info_cache *_dicache;
+	/* See @ref drgn_object_stack_trace_next_thread(). */
+	const struct drgn_object *stack_trace_obj;
+	/* See @ref drgn_object_stack_trace(). */
+	struct drgn_error *stack_trace_err;
 	int core_fd;
 	enum drgn_program_flags flags;
 	struct drgn_platform platform;
 	bool has_platform;
 	bool added_vmcoreinfo_object_finder;
+	bool attached_dwfl_state;
 };
 
 /** Initialize a @ref drgn_program. */

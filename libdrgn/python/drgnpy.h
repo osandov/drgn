@@ -86,6 +86,18 @@ typedef struct {
 typedef struct {
 	PyObject_HEAD
 	Program *prog;
+	struct drgn_stack_trace *trace;
+} StackTrace;
+
+typedef struct {
+	PyObject_HEAD
+	StackTrace *trace;
+	struct drgn_stack_frame *frame;
+} StackFrame;
+
+typedef struct {
+	PyObject_HEAD
+	Program *prog;
 	struct drgn_symbol *sym;
 } Symbol;
 
@@ -101,6 +113,8 @@ extern PyTypeObject DrgnType_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
+extern PyTypeObject StackFrame_type;
+extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
 extern PyObject *FaultError;
 extern PyObject *FileFormatError;
@@ -139,6 +153,7 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
 Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
+Symbol *Program_find_symbol(Program *self, uint64_t address);
 
 static inline PyObject *DrgnType_parent(DrgnType *type)
 {
