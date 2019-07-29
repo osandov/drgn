@@ -6,6 +6,8 @@ from drgn import (
     Architecture,
     FindObjectFlags,
     Object,
+    Platform,
+    PlatformFlags,
     Program,
     Type,
     TypeKind,
@@ -35,8 +37,11 @@ color_type = enum_type('color', int_type('unsigned int', 4, False),
 pid_type = typedef_type('pid_t', int_type('int', 4, True))
 
 
-MOCK_32BIT_ARCH = Architecture.IS_LITTLE_ENDIAN
-MOCK_ARCH = Architecture.IS_64_BIT | Architecture.IS_LITTLE_ENDIAN
+MOCK_32BIT_PLATFORM = Platform(Architecture.UNKNOWN,
+                               PlatformFlags.IS_LITTLE_ENDIAN)
+MOCK_PLATFORM = Platform(Architecture.UNKNOWN,
+                         PlatformFlags.IS_64_BIT |
+                         PlatformFlags.IS_LITTLE_ENDIAN)
 
 
 class MockMemorySegment(NamedTuple):
@@ -56,7 +61,8 @@ class MockObject(NamedTuple):
     value: Any = None
 
 
-def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, objects=None):
+def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None,
+                 objects=None):
     def mock_find_type(kind, name, filename):
         if filename:
             return None
@@ -90,7 +96,7 @@ def mock_program(arch=MOCK_ARCH, *, segments=None, types=None, objects=None):
             return None
         return Object(prog, obj.type, address=obj.address, value=obj.value)
 
-    prog = Program(arch)
+    prog = Program(platform)
     if segments is not None:
         for segment in segments:
             if segment.virt_addr is not None:

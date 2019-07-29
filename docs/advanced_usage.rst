@@ -66,7 +66,9 @@ program "memory":
             file.seek(offset)
             return file.read(count)
 
-        prog = drgn.Program(drgn.Architecture.IS_LITTLE_ENDIAN)
+        platform = drgn.Platform(drgn.Architecture.UNKNOWN,
+                                 drgn.PlatformFlags.IS_LITTLE_ENDIAN)
+        prog = drgn.Program(platform)
         prog.add_memory_segment(0, None, size, read_file)
         prog.load_debug_info([f'/lib/modules/{os.uname().release}/kernel/fs/btrfs/btrfs.ko'])
         return prog

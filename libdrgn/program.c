@@ -47,33 +47,33 @@ drgn_program_flags(struct drgn_program *prog)
 	return prog->flags;
 }
 
-LIBDRGN_PUBLIC enum drgn_architecture_flags
-drgn_program_architecture(struct drgn_program *prog)
+LIBDRGN_PUBLIC const struct drgn_platform *
+drgn_program_platform(struct drgn_program *prog)
 {
-	return prog->arch;
+	return prog->has_platform ? &prog->platform : NULL;
 }
 
-static void drgn_program_update_arch(struct drgn_program *prog,
-				     enum drgn_architecture_flags arch)
+static void drgn_program_set_platform(struct drgn_program *prog,
+				      const struct drgn_platform *platform)
 {
-	if (prog->arch == DRGN_ARCH_AUTO) {
-		prog->arch = arch;
+	if (!prog->has_platform) {
+		prog->platform = *platform;
+		prog->has_platform = true;
 		prog->tindex.word_size =
-			prog->arch & DRGN_ARCH_IS_64_BIT ? 8 : 4;
+			platform->flags & DRGN_PLATFORM_IS_64_BIT ? 8 : 4;
 	}
 }
 
 void drgn_program_init(struct drgn_program *prog,
-		       enum drgn_architecture_flags arch)
+		       const struct drgn_platform *platform)
 {
 	memset(prog, 0, sizeof(*prog));
 	drgn_memory_reader_init(&prog->reader);
 	drgn_type_index_init(&prog->tindex);
 	drgn_object_index_init(&prog->oindex);
 	prog->core_fd = -1;
-	prog->arch = DRGN_ARCH_AUTO;
-	if (arch != DRGN_ARCH_AUTO)
-		drgn_program_update_arch(prog, arch);
+	if (platform)
+		drgn_program_set_platform(prog, platform);
 }
 
 void drgn_program_deinit(struct drgn_program *prog)
@@ -95,19 +95,15 @@ void drgn_program_deinit(struct drgn_program *prog)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_create(enum drgn_architecture_flags arch,
+drgn_program_create(const struct drgn_platform *platform,
 		    struct drgn_program **ret)
 {
 	struct drgn_program *prog;
 
-	if (arch & ~DRGN_ALL_ARCH_FLAGS) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "invalid architecture flags");
-	}
 	prog = malloc(sizeof(*prog));
 	if (!prog)
 		return &drgn_enomem;
-	drgn_program_init(prog, arch);
+	drgn_program_init(prog, platform);
 	*ret = prog;
 	return NULL;
 }
@@ -143,18 +139,6 @@ drgn_program_add_object_finder(struct drgn_program *prog,
 	return drgn_object_index_add_finder(&prog->oindex, fn, arg);
 }
 
-static enum drgn_architecture_flags drgn_architecture_from_elf(Elf *elf)
-{
-	char *e_ident = elf_getident(elf, NULL);
-	enum drgn_architecture_flags arch = 0;
-
-	if (e_ident[EI_CLASS] == ELFCLASS64)
-		arch |= DRGN_ARCH_IS_64_BIT;
-	if (e_ident[EI_DATA] == ELFDATA2LSB)
-		arch |= DRGN_ARCH_IS_LITTLE_ENDIAN;
-	return arch;
-}
-
 static struct drgn_error *
 drgn_program_check_initialized(struct drgn_program *prog)
 {
@@ -171,7 +155,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	struct drgn_error *err;
 	Elf *elf;
 	GElf_Ehdr ehdr_mem, *ehdr;
-	enum drgn_architecture_flags arch;
+	struct drgn_platform platform;
 	bool is_64_bit;
 	size_t phnum, i;
 	bool have_non_zero_phys_addr = false;
@@ -201,7 +185,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		goto out_elf;
 	}
 
-	arch = drgn_architecture_from_elf(elf);
+	drgn_platform_from_elf(ehdr, &platform);
 	is_64_bit = ehdr->e_ident[EI_CLASS] == ELFCLASS64;
 
 	if (elf_getphdrnum(elf, &phnum) != 0) {
@@ -352,7 +336,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 	if (is_proc_kcore)
 		prog->flags |= DRGN_PROGRAM_IS_LIVE;
-	drgn_program_update_arch(prog, arch);
+	drgn_program_set_platform(prog, &platform);
 	return NULL;
 
 out_segments:
@@ -407,7 +391,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 
 	prog->pid = pid;
 	prog->flags |= DRGN_PROGRAM_IS_LIVE;
-	drgn_program_update_arch(prog, DRGN_ARCH_HOST);
+	drgn_program_set_platform(prog, &drgn_host_platform);
 	return NULL;
 
 out_segments:
@@ -451,18 +435,23 @@ struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret)
 	return NULL;
 }
 
-static int drgn_architecture_from_dwfl_module(Dwfl_Module *module,
-					      void **userdatap,
-					      const char *name, Dwarf_Addr base,
-					      void *arg)
+static int drgn_set_platform_from_dwarf(Dwfl_Module *module, void **userdatap,
+					const char *name, Dwarf_Addr base,
+					Dwarf *dwarf, Dwarf_Addr bias,
+					void *arg)
 {
 	Elf *elf;
-	GElf_Addr load_base;
+	GElf_Ehdr ehdr_mem, *ehdr;
+	struct drgn_platform platform;
 
-	elf = dwfl_module_getelf(module, &load_base);
+	elf = dwarf_getelf(dwarf);
 	if (!elf)
 		return DWARF_CB_OK;
-	drgn_program_update_arch(arg, drgn_architecture_from_elf(elf));
+	ehdr = gelf_getehdr(elf, &ehdr_mem);
+	if (!ehdr)
+		return DWARF_CB_OK;
+	drgn_platform_from_elf(ehdr, &platform);
+	drgn_program_set_platform(arg, &platform);
 	return DWARF_CB_ABORT;
 }
 
@@ -498,9 +487,9 @@ struct drgn_error *drgn_program_update_dwarf_index(struct drgn_program *prog)
 	err = drgn_dwarf_index_update(&prog->_dicache->dindex, prog->_dwfl);
 	if (err)
 		return err;
-	if (prog->arch == DRGN_ARCH_AUTO) {
-		dwfl_getmodules(prog->_dwfl, drgn_architecture_from_dwfl_module,
-				prog, 0);
+	if (!prog->has_platform) {
+		dwfl_getdwarf(prog->_dwfl, drgn_set_platform_from_dwarf, prog,
+			      0);
 	}
 	return NULL;
 }
@@ -638,7 +627,7 @@ drgn_program_from_core_dump(const char *path, struct drgn_program **ret)
 	if (!prog)
 		return &drgn_enomem;
 
-	drgn_program_init(prog, DRGN_ARCH_AUTO);
+	drgn_program_init(prog, NULL);
 	err = drgn_program_init_core_dump(prog, path);
 	if (err) {
 		drgn_program_deinit(prog);
@@ -660,7 +649,7 @@ drgn_program_from_kernel(struct drgn_program **ret)
 	if (!prog)
 		return &drgn_enomem;
 
-	drgn_program_init(prog, DRGN_ARCH_AUTO);
+	drgn_program_init(prog, NULL);
 	err = drgn_program_init_kernel(prog);
 	if (err) {
 		drgn_program_deinit(prog);
@@ -682,7 +671,7 @@ drgn_program_from_pid(pid_t pid, struct drgn_program **ret)
 	if (!prog)
 		return &drgn_enomem;
 
-	drgn_program_init(prog, DRGN_ARCH_AUTO);
+	drgn_program_init(prog, NULL);
 	err = drgn_program_init_pid(prog, pid);
 	if (err) {
 		drgn_program_deinit(prog);

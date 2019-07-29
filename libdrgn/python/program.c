@@ -65,18 +65,24 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 			    PyObject *kwds)
 {
-	static char *keywords[] = {"arch", NULL};
-	struct enum_arg arch = {
-		.type = Architecture_class,
-		.value = DRGN_ARCH_AUTO,
-		.allow_none = true,
-	};
-	PyObject *objects, *cache;
+	static char *keywords[] = {"platform", NULL};
+	PyObject *platform_obj = NULL, *objects, *cache;
+	struct drgn_platform *platform;
 	Program *prog;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&:Program", keywords,
-					 enum_converter, &arch))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:Program", keywords,
+					 &platform_obj))
 		return NULL;
+
+	if (!platform_obj || platform_obj == Py_None) {
+		platform = NULL;
+	} else if (PyObject_TypeCheck(platform_obj, &Platform_type)) {
+		platform = ((Platform *)platform_obj)->platform;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				"platform must be Platform or None");
+		return NULL;
+	}
 
 	objects = PyDict_New();
 	if (!objects)
@@ -94,7 +100,7 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 	}
 	prog->objects = objects;
 	prog->cache = cache;
-	drgn_program_init(&prog->prog, arch.value);
+	drgn_program_init(&prog->prog, platform);
 	return prog;
 }
 
@@ -768,10 +774,15 @@ static PyObject *Program_get_flags(Program *self, void *arg)
 				     (unsigned long)self->prog.flags);
 }
 
-static PyObject *Program_get_arch(Program *self, void *arg)
+static PyObject *Program_get_platform(Program *self, void *arg)
 {
-	return PyObject_CallFunction(Architecture_class, "k",
-				     (unsigned long)self->prog.arch);
+	const struct drgn_platform *platform;
+
+	platform = drgn_program_platform(&self->prog);
+	if (platform)
+		return Platform_wrap(platform);
+	else
+		Py_RETURN_NONE;
 }
 
 static PyMethodDef Program_methods[] = {
@@ -821,7 +832,7 @@ static PyMemberDef Program_members[] = {
 
 static PyGetSetDef Program_getset[] = {
 	{"flags", (getter)Program_get_flags, NULL, drgn_Program_flags_DOC},
-	{"arch", (getter)Program_get_arch, NULL, drgn_Program_arch_DOC},
+	{"platform", (getter)Program_get_platform, NULL, drgn_Program_platform_DOC},
 	{},
 };
 

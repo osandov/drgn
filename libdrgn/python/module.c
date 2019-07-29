@@ -107,6 +107,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 {
 	PyObject *m;
 	PyObject *version;
+	PyObject *host_platform_obj;
 
 	m = PyModule_Create(&drgnmodule);
 	if (!m)
@@ -149,6 +150,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (PyType_Ready(&ObjectIterator_type) < 0)
 		goto err;
 
+	if (PyType_Ready(&Platform_type) < 0)
+		goto err;
+	Py_INCREF(&Platform_type);
+	PyModule_AddObject(m, "Platform", (PyObject *)&Platform_type);
+
 	if (PyType_Ready(&Program_type) < 0)
 		goto err;
 	Py_INCREF(&Program_type);
@@ -163,6 +169,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		goto err;
 	Py_INCREF(&DrgnType_type);
 	PyModule_AddObject(m, "Type", (PyObject *)&DrgnType_type);
+
+	host_platform_obj = Platform_wrap(&drgn_host_platform);
+	if (!host_platform_obj)
+		goto err;
+	PyModule_AddObject(m, "host_platform", host_platform_obj);
 
 	return m;
 

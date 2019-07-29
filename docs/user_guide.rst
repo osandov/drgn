@@ -199,6 +199,13 @@ functions like :func:`drgn.int_type()`::
 You won't usually need to work with types directly, but see
 :ref:`api-reference-types` if you do.
 
+Platforms
+^^^^^^^^^
+
+Certain operations and objects in a program are platform-dependent; drgn allows
+accessing the platform that a program runs with the :class:`drgn.Platform`
+class.
+
 Command Line Interface
 ----------------------
 

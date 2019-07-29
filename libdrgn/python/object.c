@@ -896,7 +896,8 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 		Py_DECREF(tmp);
 	}
 
-	if (self->obj.is_reference || self->obj.kind == DRGN_OBJECT_BUFFER) {
+	if ((self->obj.is_reference || self->obj.kind == DRGN_OBJECT_BUFFER) &&
+	    self->obj.prog->has_platform) {
 		bool little_endian;
 
 		if (self->obj.is_reference)
@@ -904,7 +905,7 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 		else
 			little_endian = self->obj.value.little_endian;
 		if (little_endian !=
-		    !!(self->obj.prog->arch & DRGN_ARCH_IS_LITTLE_ENDIAN) &&
+		    drgn_program_is_little_endian(self->obj.prog) &&
 		    append_format(parts, ", byteorder='%s'",
 				  little_endian ? "little" : "big") == -1)
 			goto out;

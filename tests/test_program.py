@@ -10,6 +10,8 @@ from drgn import (
     FaultError,
     FindObjectFlags,
     Object,
+    Platform,
+    PlatformFlags,
     Program,
     ProgramFlags,
     Qualifiers,
@@ -17,14 +19,15 @@ from drgn import (
     bool_type,
     float_type,
     function_type,
+    host_platform,
     int_type,
     pointer_type,
     typedef_type,
     void_type,
 )
 from tests import (
-    MOCK_32BIT_ARCH,
-    MOCK_ARCH,
+    MOCK_32BIT_PLATFORM,
+    MOCK_PLATFORM,
     MockMemorySegment,
     MockObject,
     ObjectTestCase,
@@ -46,10 +49,10 @@ class TestProgram(unittest.TestCase):
     def test_set_pid(self):
         # Debug the running Python interpreter itself.
         prog = Program()
-        self.assertEqual(prog.arch, Architecture.AUTO)
+        self.assertIsNone(prog.platform)
         self.assertFalse(prog.flags & ProgramFlags.IS_LIVE)
         prog.set_pid(os.getpid())
-        self.assertEqual(prog.arch, Architecture.HOST)
+        self.assertEqual(prog.platform, host_platform)
         self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
         data = b'hello, world!'
         buf = ctypes.create_string_buffer(data)
@@ -306,7 +309,8 @@ class TestTypes(unittest.TestCase):
                     yield ' '.join(perm)
 
         for word_size in [8, 4]:
-            prog = mock_program(MOCK_ARCH if word_size == 8 else MOCK_32BIT_ARCH)
+            prog = mock_program(MOCK_PLATFORM if word_size == 8 else
+                                MOCK_32BIT_PLATFORM)
             self.assertEqual(prog.type('_Bool'), bool_type('_Bool', 1))
             self.assertEqual(prog.type('char'), int_type('char', 1, True))
             for spelling in spellings(['signed', 'char']):
@@ -376,7 +380,7 @@ class TestTypes(unittest.TestCase):
                          typedef_type('ptrdiff_t', prog.type('long long')))
 
         # 32-bit architecture with 8-byte long/unsigned long.
-        prog = mock_program(MOCK_32BIT_ARCH, types=[
+        prog = mock_program(MOCK_32BIT_PLATFORM, types=[
             int_type('long', 8, True),
             int_type('unsigned long', 8, False),
         ])

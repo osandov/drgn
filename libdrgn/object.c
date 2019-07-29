@@ -26,7 +26,9 @@ void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog)
 	obj->is_bit_field = false;
 	obj->reference.address = 0;
 	obj->reference.bit_offset = 0;
-	obj->reference.little_endian = prog->arch & DRGN_ARCH_IS_LITTLE_ENDIAN;
+	/* The endianness doesn't matter, so just use the host endianness. */
+	obj->reference.little_endian =
+		__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
 }
 
 static void drgn_value_deinit(const struct drgn_object *obj,
@@ -282,7 +284,11 @@ drgn_byte_order_to_little_endian(struct drgn_program *prog,
 		*ret = true;
 		return NULL;
 	case DRGN_PROGRAM_ENDIAN:
-		*ret = prog->arch & DRGN_ARCH_IS_LITTLE_ENDIAN;
+		if (!prog->has_platform) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "program byte order is not known");
+		}
+		*ret = drgn_program_is_little_endian(prog);
 		return NULL;
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -377,12 +383,20 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 {
 	struct drgn_error *err;
 
+	if (!res->prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program word size is not known");
+	}
+
 	err = sanity_check_object(kind, type->bit_field_size, bit_size);
 	if (err)
 		return err;
 
 	address += bit_offset / 8;
-	address &= drgn_program_word_mask(res->prog);
+	if (drgn_program_is_64_bit(res->prog))
+		address &= UINT64_MAX;
+	else
+		address &= UINT32_MAX;
 	bit_offset %= 8;
 	if (bit_size > UINT64_MAX - bit_offset) {
 		return drgn_error_format(DRGN_ERROR_OVERFLOW,

@@ -59,16 +59,19 @@ def gen_constants(input_file, output_file, header_directory=None):
 PyObject *Architecture_class;
 PyObject *FindObjectFlags_class;
 PyObject *PrimitiveType_class;
+PyObject *PlatformFlags_class;
 PyObject *ProgramFlags_class;
 PyObject *Qualifiers_class;
 PyObject *TypeKind_class;
 """)
-    gen_constant_class(drgn_h, output_file, 'Architecture', 'Flag',
+    gen_constant_class(drgn_h, output_file, 'Architecture', 'Enum',
                        r'DRGN_ARCH_([a-zA-Z0-9_]+)')
     gen_constant_class(drgn_h, output_file, 'FindObjectFlags', 'Flag',
                        r'DRGN_FIND_OBJECT_([a-zA-Z0-9_]+)')
     gen_constant_class(drgn_h, output_file, 'PrimitiveType', 'Enum',
                        r'DRGN_(C)_TYPE_([a-zA-Z0-9_]+)')
+    gen_constant_class(drgn_h, output_file, 'PlatformFlags', 'Flag',
+                       r'DRGN_PLATFORM_([a-zA-Z0-9_]+)(?<!DRGN_PLATFORM_DEFAULT_FLAGS)')
     gen_constant_class(drgn_h, output_file, 'ProgramFlags', 'Flag',
                        r'DRGN_PROGRAM_([a-zA-Z0-9_]+)(?<!DRGN_PROGRAM_ENDIAN)')
     gen_constant_class(drgn_h, output_file, 'Qualifiers', 'Flag',
@@ -88,6 +91,7 @@ int add_module_constants(PyObject *m)
 	if (add_Architecture(m, enum_module) == -1 ||
 	    add_FindObjectFlags(m, enum_module) == -1 ||
 	    add_PrimitiveType(m, enum_module) == -1 ||
+	    add_PlatformFlags(m, enum_module) == -1 ||
 	    add_ProgramFlags(m, enum_module) == -1 ||
 	    add_Qualifiers(m, enum_module) == -1 ||
 	    add_TypeKind(m, enum_module) == -1)

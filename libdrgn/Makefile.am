@@ -4,7 +4,8 @@ include_HEADERS = drgn.h
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
-libdrgnimpl_la_SOURCES = binary_search_tree.h \
+libdrgnimpl_la_SOURCES = arch_x86_64.c \
+			 binary_search_tree.h \
 			 cityhash.h \
 			 dwarf_index.c \
 			 dwarf_index.h \
@@ -31,6 +32,8 @@ libdrgnimpl_la_SOURCES = binary_search_tree.h \
 			 object_index.c \
 			 object_index.h \
 			 path.c \
+			 platform.c \
+			 platform.h \
 			 program.c \
 			 program.h \
 			 read.h \
@@ -71,6 +74,7 @@ _drgn_la_SOURCES = python/docstrings.h \
 		   python/error.c \
 		   python/module.c \
 		   python/object.c \
+		   python/platform.c \
 		   python/program.c \
 		   python/symbol.c \
 		   python/test.c \

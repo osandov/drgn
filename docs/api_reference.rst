@@ -6,7 +6,7 @@ API Reference
 Programs
 --------
 
-.. class:: Program(arch=Architecture.AUTO)
+.. class:: Program(platform=None)
 
     A ``Program`` represents a crashed or running program. It can be used to
     lookup type definitions, access variables, and read arbitrary memory.
@@ -18,7 +18,9 @@ Programs
     This class can be constructed directly, but it is usually more convenient
     to use one of the :ref:`api-program-constructors`.
 
-    :param Architecture arch: The architecture of the program.
+    :param platform: The platform of the program, or ``None`` if it should be
+        determined automatically when a core dump or symbol file is added.
+    :type platform: Platform or None
 
     .. attribute:: flags
 
@@ -26,11 +28,12 @@ Programs
 
         :vartype: ProgramFlags
 
-    .. attribute:: arch
+    .. attribute:: platform
 
-        Architecture of this program.
+        Platform that this program runs on, or ``None`` if it has not been
+        determined yet.
 
-        :vartype: Architecture
+        :vartype: Platform or None
 
     .. method:: __getitem__(name)
 
@@ -317,28 +320,6 @@ Programs
         The program is currently running (e.g., it is the running operating
         system kernel or a running process).
 
-.. class:: Architecture
-
-    ``Architecture`` is an :class:`enum.Flag` of flags describing the target
-    architecture of a :class:`Program`.
-
-    .. attribute:: IS_64_BIT
-
-        Architecture is 64-bit.
-
-    .. attribute:: IS_LITTLE_ENDIAN
-
-        Architecture is little-endian.
-
-    .. attribute:: HOST
-
-        Architecture of the host system.
-
-    .. attribute:: AUTO
-
-        Determine architecture automatically from core dump and/or symbol
-        files.
-
 .. class:: FindObjectFlags
 
     ``FindObjectFlags`` is an :class:`enum.Flag` of flags for
@@ -415,6 +396,64 @@ case a ``Program`` must be created manually.
 
     :param int pid: Process ID of the program to debug.
     :rtype: Program
+
+Platforms
+^^^^^^^^^
+
+.. class:: Platform(arch, flags=None)
+
+    A ``Platform`` represents the environment (i.e., architecture and ABI) that
+    a program runs on.
+
+    :param Architecture arch: :attr:`Platform.arch`
+    :param flags: :attr:`Platform.flags`; if ``None``, default flags for the
+        architecture are used.
+    :type flags: PlatformFlags or None
+
+    .. attribute:: arch
+
+        The instruction set architecture of this platform.
+
+        :vartype: Architecture
+
+    .. attribute:: flags
+
+        Flags which apply to this platform.
+
+        :vartype: PlatformFlags
+
+.. class:: Architecture
+
+    ``Architecture`` is an :class:`enum.Enum` of instruction set architectures.
+
+    .. attribute:: X86_64
+
+        The x86-64 architecture, a.k.a. AMD64.
+
+    .. attribute:: UNKNOWN
+
+        An architecture which is not known to drgn. Certain features are not
+        available when the architecture is unknown, but most of drgn will still
+        work.
+
+.. class:: PlatformFlags
+
+    ``PlatformFlags`` is an :class:`enum.Flag` of flags describing a
+    :class:`Platform`.
+
+    .. attribute:: IS_64_BIT
+
+        Platform is 64-bit.
+
+    .. attribute:: IS_LITTLE_ENDIAN
+
+        Platform is little-endian.
+
+.. attribute:: host_platform
+
+    The platform of the host which is running drgn.
+
+    :vartype: Platform
 
 Objects
 -------

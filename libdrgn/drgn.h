@@ -849,6 +849,67 @@ drgn_pretty_print_type(struct drgn_qualified_type qualified_type, char **ret);
 
 /** @} */
 
+/**
+ * @defgroup Platforms Platforms
+ *
+ * Program platforms (i.e., architecture and ABI).
+ *
+ * @{
+ */
+
+/** An instruction set architecture. */
+enum drgn_architecture {
+	DRGN_ARCH_UNKNOWN,
+	DRGN_ARCH_X86_64,
+	DRGN_NUM_ARCH,
+};
+
+/** Flags describing a @ref drgn_platform. */
+enum drgn_platform_flags {
+	/** Platform is 64-bit. */
+	DRGN_PLATFORM_IS_64_BIT = (1 << 0),
+	/** Platform is little-endian. */
+	DRGN_PLATFORM_IS_LITTLE_ENDIAN = (1 << 1),
+	/** All valid platform flags. */
+	DRGN_ALL_PLATFORM_FLAGS = (1 << 2) - 1,
+	/** Use the default flags for the architecture. */
+	DRGN_PLATFORM_DEFAULT_FLAGS = UINT_MAX,
+};
+
+/**
+ * @struct drgn_platform
+ *
+ * The environment that a program runs on.
+ */
+struct drgn_platform;
+
+/**
+ * Create a @ref drgn_platform.
+ *
+ * The returned platform should be destroyed with @ref drgn_platform_destroy().
+ */
+struct drgn_error *drgn_platform_create(enum drgn_architecture arch,
+					enum drgn_platform_flags flags,
+					struct drgn_platform **ret);
+
+/** Destroy a @ref drgn_platform. */
+void drgn_platform_destroy(struct drgn_platform *platform);
+
+/** Get the instruction set architecture of a @ref drgn_platform. */
+enum drgn_architecture drgn_platform_arch(const struct drgn_platform *platform);
+
+/** Get the flags of a @ref drgn_platform. */
+enum drgn_platform_flags
+drgn_platform_flags(const struct drgn_platform *platform);
+
+/** Return whether two platforms are identical. */
+bool drgn_platform_eq(struct drgn_platform *a, struct drgn_platform *b);
+
+/** Platform that drgn was compiled for. */
+extern const struct drgn_platform drgn_host_platform;
+
+/** @} */
+
 struct drgn_object;
 
 /**
@@ -885,26 +946,6 @@ enum drgn_program_flags {
 	DRGN_PROGRAM_IS_LIVE = (1 << 1),
 };
 
-/** Target architecture of a @ref drgn_program. */
-enum drgn_architecture_flags {
-	/** Architecture is 64-bit. */
-	DRGN_ARCH_IS_64_BIT = (1 << 0),
-	/** Architecture is little-endian. */
-	DRGN_ARCH_IS_LITTLE_ENDIAN = (1 << 1),
-	/** All valid architecture flags. */
-	DRGN_ALL_ARCH_FLAGS = (1 << 2) - 1,
-	/** Architecture of the host system. */
-	DRGN_ARCH_HOST =
-		(sizeof(void *) == 8 ? DRGN_ARCH_IS_64_BIT : 0) |
-		(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
-		 DRGN_ARCH_IS_LITTLE_ENDIAN : 0),
-	/**
-	 * Determine architecture automatically from core dump and/or symbol
-	 * files.
-	 */
-	DRGN_ARCH_AUTO = UINT_MAX,
-};
-
 /**
  * Create a @ref drgn_program.
  *
@@ -912,12 +953,12 @@ enum drgn_architecture_flags {
  * and @ref drgn_program_from_pid() are more convenient to use. However, this
  * can be used if more flexibility is required.
  *
- * @param[in] arch Architecture of the program. This can usually be @ref
- * DRGN_ARCH_AUTO.
+ * @param[in] platform Platform that this program runs on, or @c NULL if it
+ * should be determined automatically. This is copied.
  * @param[out] ret Returned program.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_program_create(enum drgn_architecture_flags arch,
+struct drgn_error *drgn_program_create(const struct drgn_platform *platform,
 				       struct drgn_program **ret);
 
 /**
@@ -1128,9 +1169,14 @@ struct drgn_error *drgn_program_from_pid(pid_t pid, struct drgn_program **ret);
 /** Get the set of @ref drgn_program_flags applying to a @ref drgn_program. */
 enum drgn_program_flags drgn_program_flags(struct drgn_program *prog);
 
-/** Get the architecture of a @ref drgn_program. */
-enum drgn_architecture_flags
-drgn_program_architecture(struct drgn_program *prog);
+/**
+ * Get the platform of a @ref drgn_program.
+ *
+ * This remains valid until the program is destroyed. It should @em not be
+ * destroyed with @ref drgn_platform_destroy().
+ * @return non-@c NULL on success, @c NULL if the platform is not known yet.
+ */
+const struct drgn_platform *drgn_program_platform(struct drgn_program *prog);
 
 /**
  * Read from a program's memory.

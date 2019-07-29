@@ -73,6 +73,11 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_platform *platform;
+} Platform;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_program prog;
 	PyObject *objects;
 	PyObject *cache;
@@ -86,6 +91,7 @@ typedef struct {
 
 extern PyObject *Architecture_class;
 extern PyObject *FindObjectFlags_class;
+extern PyObject *PlatformFlags_class;
 extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
@@ -93,6 +99,7 @@ extern PyObject *TypeKind_class;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject ObjectIterator_type;
+extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
 extern PyTypeObject Symbol_type;
 extern PyObject *FaultError;
@@ -124,6 +131,8 @@ DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 				    PyObject *kwds);
+
+PyObject *Platform_wrap(const struct drgn_platform *platform);
 
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 		     struct drgn_qualified_type *ret);

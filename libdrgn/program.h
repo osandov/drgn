@@ -16,6 +16,7 @@
 
 #include "memory_reader.h"
 #include "object_index.h"
+#include "platform.h"
 #include "type_index.h"
 
 /**
@@ -68,13 +69,14 @@ struct drgn_program {
 	struct drgn_dwarf_info_cache *_dicache;
 	int core_fd;
 	enum drgn_program_flags flags;
-	enum drgn_architecture_flags arch;
+	struct drgn_platform platform;
+	bool has_platform;
 	bool added_vmcoreinfo_object_finder;
 };
 
 /** Initialize a @ref drgn_program. */
 void drgn_program_init(struct drgn_program *prog,
-		       enum drgn_architecture_flags arch);
+		       const struct drgn_platform *platform);
 
 /** Deinitialize a @ref drgn_program. */
 void drgn_program_deinit(struct drgn_program *prog);
@@ -97,10 +99,16 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog);
  */
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
 
-/** Return the maximum word value for a program. */
-static inline uint64_t drgn_program_word_mask(struct drgn_program *prog)
+static inline bool drgn_program_is_little_endian(struct drgn_program *prog)
 {
-	return prog->arch & DRGN_ARCH_IS_64_BIT ? UINT64_MAX : UINT32_MAX;
+	assert(prog->has_platform);
+	return prog->platform.flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN;
+}
+
+static inline bool drgn_program_is_64_bit(struct drgn_program *prog)
+{
+	assert(prog->has_platform);
+	return prog->platform.flags & DRGN_PLATFORM_IS_64_BIT;
 }
 
 /**
