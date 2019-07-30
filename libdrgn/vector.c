@@ -49,7 +49,7 @@ bool vector_reserve_for_append(size_t size, size_t entry_size, void **data,
 		return true;
 	if (*capacity == 0)
 		new_capacity = 1;
-	else if (__builtin_mul_overflow(2, *capacity, &new_capacity))
+	else if (__builtin_mul_overflow(2U, *capacity, &new_capacity))
 		return false;
 	if (__builtin_mul_overflow(new_capacity, entry_size, &bytes))
 		return false;
