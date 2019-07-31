@@ -1,45 +1,18 @@
 // Copyright 2019 - Serapheim Dimitropoulos
 // SPDX-License-Identifier: GPL-3.0+
 
-#ifdef LIBKDUMPFILE
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <libkdumpfile/kdumpfile.h>
+
 #include "kdump_reader.h"
+#include "linux_kernel.h"
 #include "program.h"
 
-struct drgn_error *has_kdump_signature(int fd, bool *is_kdump)
-{
-	char signature[SIG_LEN];
-
-	uint64_t file_offset = 0;
-	uint64_t file_count = sizeof (signature);
-	while (file_count) {
-		ssize_t ret = read(fd, signature + file_offset,
-		                   file_count);
-		if (ret == -1) {
-			if (errno == EINTR)
-				continue;
-			*is_kdump = false;
-			return drgn_error_create_os("read", errno, NULL);
-		} else if (ret == 0) {
-			*is_kdump = false;
-			return drgn_error_format(DRGN_ERROR_FAULT,
-						 "short read from dump file");
-		}
-
-		file_offset += ret;
-		file_count -= ret;
-	}
-
-	*is_kdump = !(memcmp(signature, KDUMP_SIGNATURE, sizeof (signature)));
-
-	return NULL;
-}
-
-struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd)
+static struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd)
 {
 	kdump_ctx_t *context = kdump_new();
 	if (!ctx) {
@@ -67,15 +40,16 @@ struct drgn_error *drgn_kdump_init(kdump_ctx_t **ctx, int fd)
 					 kdump_get_err(context));
 	}
 	*ctx = context;
+	return NULL;
 }
 
-void drgn_kdump_close(kdump_ctx_t *ctx)
+static void drgn_kdump_close(kdump_ctx_t *ctx)
 {
 	kdump_free(ctx);
 }
 
-struct drgn_error *drgn_kdump_get_raw_vmcoreinfo(kdump_ctx_t *ctx,
-                                                 const char **ret)
+static struct drgn_error *
+drgn_kdump_get_raw_vmcoreinfo(kdump_ctx_t *ctx, const char **ret)
 {
 	const char *raw = NULL;
 	kdump_status ks = kdump_vmcoreinfo_raw(ctx, &raw);
@@ -99,8 +73,8 @@ static bool drgn_kdump_is_64bits(const char *kdump_arch_attr)
 	        !strcmp(kdump_arch_attr, KDUMP_ARCH_S390X));
 }
 
-struct drgn_error *drgn_kdump_get_arch(kdump_ctx_t *ctx,
-                                       enum drgn_architecture_flags *arch)
+static struct drgn_error *
+drgn_kdump_get_arch(kdump_ctx_t *ctx, enum drgn_architecture_flags *arch)
 {
 	/*
 	 * We first look in the architecture name and from there we
@@ -172,14 +146,12 @@ struct drgn_error *drgn_kdump_get_arch(kdump_ctx_t *ctx,
 	return NULL;
 }
 
-struct drgn_error *drgn_read_kdump(void *buf, uint64_t address, size_t count,
-                                   uint64_t offset, void *arg, bool physical)
+static struct drgn_error *
+drgn_read_kdump(void *buf, uint64_t address, size_t count,
+                uint64_t offset, void *arg, bool physical)
 {
 	kdump_ctx_t *ctx = arg;
 	size_t nread = count;
-
-	/* zero-out buffer before doing anything */
-	memset(buf, 0, count);
 
 	kdump_addrspace_t as = (physical) ? KDUMP_KPHYSADDR : KDUMP_KVADDR;
 	kdump_status ks = kdump_read(ctx, as, address, buf, &nread);
@@ -188,12 +160,50 @@ struct drgn_error *drgn_read_kdump(void *buf, uint64_t address, size_t count,
 		                         "kdump_read failed: %s",
 					 kdump_get_err(ctx));
 	}
-
-	if (nread != count) {
-		return drgn_error_format(DRGN_ERROR_FAULT,
-		                         "short read at kdump_read: %s",
-					 kdump_get_err(ctx));
-	}
 	return NULL;
 }
-#endif /* LIBKDUMPFILE */
+
+struct drgn_error *
+drgn_program_set_kdump(struct drgn_program *prog)
+{
+        kdump_ctx_t *ctx = NULL;
+        struct drgn_error *err = drgn_kdump_init(&ctx, prog->core_fd);
+        if (err)
+                goto out_fd;
+
+        const char *vmcoreinfo = NULL;
+        err = drgn_kdump_get_raw_vmcoreinfo(ctx, &vmcoreinfo);
+        if (err)
+                goto out_kdump;
+
+        err = parse_vmcoreinfo(vmcoreinfo, strlen(vmcoreinfo)+1,
+                               &prog->vmcoreinfo);
+        if (err)
+                goto out_kdump;
+
+        enum drgn_architecture_flags arch;
+        err = drgn_kdump_get_arch(ctx, &arch);
+        if (err)
+                goto out_kdump;
+        drgn_program_update_arch(prog, arch);
+
+        /*
+         * Add a single memory segment rerpresenting the whole dump
+         * and let libkdumpfile do the work for us there.
+         */
+        err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
+                                              drgn_read_kdump,
+                                              ctx, false);
+        if (err)
+                goto out_kdump;
+
+        prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+        return NULL;
+
+out_kdump:
+        drgn_kdump_close(ctx);
+out_fd:
+        close(prog->core_fd);
+        prog->core_fd = -1;
+        return err;
+}

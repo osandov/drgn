@@ -54,8 +54,8 @@ drgn_program_architecture(struct drgn_program *prog)
 	return prog->arch;
 }
 
-static void drgn_program_update_arch(struct drgn_program *prog,
-				     enum drgn_architecture_flags arch)
+void drgn_program_update_arch(struct drgn_program *prog,
+                              enum drgn_architecture_flags arch)
 {
 	if (prog->arch == DRGN_ARCH_AUTO) {
 		prog->arch = arch;
@@ -166,52 +166,31 @@ drgn_program_check_initialized(struct drgn_program *prog)
 	return NULL;
 }
 
-#ifdef LIBKDUMPFILE
-static struct drgn_error *
-drgn_program_set_kdump(struct drgn_program *prog)
+static struct drgn_error *has_kdump_signature(int fd, bool *is_kdump)
 {
-	kdump_ctx_t *ctx = NULL;
-	struct drgn_error *err = drgn_kdump_init(&ctx, prog->core_fd);
-	if (err)
-		goto out_fd;
+        char signature[KDUMP_SIG_LEN];
 
-	const char *vmcoreinfo = NULL;
-	err = drgn_kdump_get_raw_vmcoreinfo(ctx, &vmcoreinfo);
-	if (err)
-		goto out_kdump;
+        uint64_t file_offset = 0;
+        uint64_t file_count = sizeof (signature);
+        while (file_count) {
+                ssize_t ret = read(fd, signature + file_offset,
+                                   file_count);
+                if (ret == -1) {
+                        if (errno == EINTR)
+                                continue;
+                        *is_kdump = false;
+                        return drgn_error_create_os("read", errno, NULL);
+                } else if (ret == 0) {
+                        *is_kdump = false;
+                        return NULL;
+                }
 
-	err = parse_vmcoreinfo(vmcoreinfo, strlen(vmcoreinfo)+1,
-	                       &prog->vmcoreinfo);
-	if (err)
-		goto out_kdump;
-
-	enum drgn_architecture_flags arch;
-	err = drgn_kdump_get_arch(ctx, &arch);
-	if (err)
-		goto out_kdump;
-	drgn_program_update_arch(prog, arch);
-
-	/*
-	 * Add a single memory segment rerpresenting the whole dump
-	 * and let libkdumpfile do the work for us there.
-	 */
-	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
-					      drgn_read_kdump,
-					      ctx, false);
-	if (err)
-		goto out_kdump;
-
-	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
-	return NULL;
-
-out_kdump:
-        drgn_kdump_close(ctx);
-out_fd:
-	close(prog->core_fd);
-	prog->core_fd = -1;
-        return err;
+                file_offset += ret;
+                file_count -= ret;
+        }
+        *is_kdump = !(memcmp(signature, KDUMP_SIGNATURE, sizeof (signature)));
+        return NULL;
 }
-#endif /* LIBKDUMPFILE */
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
@@ -234,13 +213,11 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (prog->core_fd == -1)
 		return drgn_error_create_os("open", errno, path);
 
-#ifdef LIBKDUMPFILE
 	err = has_kdump_signature(prog->core_fd, &is_kdump);
 	if (is_kdump)
 		return drgn_program_set_kdump(prog);
 	if (err)
 		goto out_fd;
-#endif /* LIBKDUMPFILE */
 
 	elf_version(EV_CURRENT);
 

@@ -28,12 +28,10 @@
  * @{
  */
 
-#define OSRELEASE_LEN 128
-
 /** The important parts of the VMCOREINFO note of a Linux kernel core. */
 struct vmcoreinfo {
 	/** <tt>uname -r</tt> */
-	char osrelease[OSRELEASE_LEN];
+	char osrelease[128];
 	/** PAGE_SIZE of the kernel. */
 	uint64_t page_size;
 	/**
@@ -80,6 +78,10 @@ void drgn_program_init(struct drgn_program *prog,
 
 /** Deinitialize a @ref drgn_program. */
 void drgn_program_deinit(struct drgn_program *prog);
+
+/** Update the @ref drgn_architecture_flags of a @ref drgn_program. */
+void drgn_program_update_arch(struct drgn_program *prog,
+                              enum drgn_architecture_flags arch);
 
 /**
  * Implement @ref drgn_program_from_core_dump() on an initialized @ref

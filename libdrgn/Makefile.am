@@ -18,7 +18,6 @@ libdrgnimpl_la_SOURCES = binary_search_tree.h \
 			 hash_table.h \
 			 internal.c \
 			 internal.h \
-			 kdump_reader.c \
 			 kdump_reader.h \
 			 language.h \
 			 language_c.c \
@@ -57,6 +56,7 @@ libdrgnimpl_la_CPPFLAGS = -D_GNU_SOURCE
 libdrgnimpl_la_LIBADD = $(libelf_LIBS) $(libdw_LIBS)
 
 if WITH_LIBKDUMPFILE
+libdrgnimpl_la_SOURCES += kdump_reader.c
 libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
 endif
