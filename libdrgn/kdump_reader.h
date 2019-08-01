@@ -19,9 +19,6 @@
 #ifndef DRGN_KDUMP_READER_H
 #define DRGN_KDUMP_READER_H
 
-#include <stdbool.h>
-#include <stdint.h>
-
 #include "internal.h"
 
 /**
@@ -37,26 +34,22 @@
 #define	KDUMP_SIGNATURE	"KDUMP   "
 #define	KDUMP_SIG_LEN	(sizeof (KDUMP_SIGNATURE) - 1)
 
-#ifndef LIBKDUMPFILE
-
-static inline struct drgn_error *
-drgn_program_set_kdump(const struct drgn_program *prog)
-{
-        return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-	                         "drgn configured without libkdumpfile");
-}
-
-#else /* LIBKDUMPFILE */
-
 /**
  * Setup program-related context leveraging libkdumpfile so
  * we are able to read from makedumpfile program dumps.
  *
  * @return @c NULL on success, non-@c NULL on error.
  */
+#ifdef WITH_LIBKDUMPFILE
 struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog);
-
-#endif /* LIBKDUMPFILE */
+#else
+static inline struct drgn_error *
+drgn_program_set_kdump(struct drgn_program *prog)
+{
+        return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+	                         "drgn configured without libkdumpfile");
+}
+#endif
 
 /** @} */
 

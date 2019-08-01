@@ -49,20 +49,18 @@ headers by setting the PYTHON_CPPFLAGS environment variable.])])
 	    CPPFLAGS="$save_CPPFLAGS"])
 
 AC_ARG_WITH([libkdumpfile],
-	    [AS_HELP_STRING([--with-libkdumpfile@<:@=ARG@:>@],
-			    [leverage libkdumpfile to read crash dumps using
-			     the makedumpfile format. ARG may be yes or no
-			     @<:default=no:>@])],
-           [], [with_libkdumpfile=no])
-AS_IF([test "x$with_libkdumpfile" != xno],
-      [
-       PKG_CHECK_MODULES(libkdumpfile, [libkdumpfile])
-       AM_CONDITIONAL([WITH_LIBKDUMPFILE], true)
-       AC_DEFINE(LIBKDUMPFILE, true)
-      ],
-      [
-       AM_CONDITIONAL([WITH_LIBKDUMPFILE], false)
-      ])
+	    [AS_HELP_STRING([--with-libkdumpfile],
+			    [build with support for the makedumpfile kernel
+			     core dump format using libkdumpfile
+			     @<:@default=auto@:>@])],
+			     [], [with_libkdumpfile=auto])
+AS_CASE(["x$with_libkdumpfile"],
+	[xyes], [PKG_CHECK_MODULES(libkdumpfile, [libkdumpfile])],
+	[xauto], [PKG_CHECK_MODULES(libkdumpfile, [libkdumpfile],
+				    [with_libkdumpfile=yes],
+				    [with_libkdumpfile=no])])
+AM_CONDITIONAL([WITH_LIBKDUMPFILE], [test "x$with_libkdumpfile" != xno])
+AM_COND_IF([WITH_LIBKDUMPFILE], [AC_DEFINE(WITH_LIBKDUMPFILE)])
 
 PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES(libelf, [libelf])
