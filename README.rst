@@ -48,6 +48,11 @@ Install the following dependencies:
 * elfutils development libraries (libelf and libdw)
 * GNU autotools (autoconf, automake, and libtool) and pkgconf
 
+Optionally, install:
+
+* `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ if you want
+  support for kdump-compressed kernel core dumps
+
 Then, run:
 
 .. code-block:: console

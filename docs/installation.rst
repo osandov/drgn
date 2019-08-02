@@ -45,3 +45,11 @@ Or, it can be be built and run locally::
 
     $ python3 setup.py build_ext -i
     $ python3 -m drgn --help
+
+libkdumpfile
+------------
+
+drgn supports kdump-compressed kernel core dumps when `libkdumpfile
+<https://github.com/ptesarik/libkdumpfile>`_ is available. libkdumpfile is not
+packaged for most Linux distributions, so it must be built and installed
+manually. If it is installed, then drgn is automatically built with support.

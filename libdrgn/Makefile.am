@@ -57,6 +57,12 @@ libdrgnimpl_la_CFLAGS = -fvisibility=hidden -fopenmp $(libelf_CFLAGS) \
 libdrgnimpl_la_CPPFLAGS = -D_GNU_SOURCE
 libdrgnimpl_la_LIBADD = $(libelf_LIBS) $(libdw_LIBS)
 
+if WITH_LIBKDUMPFILE
+libdrgnimpl_la_SOURCES += kdump.c
+libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
+libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
+endif
+
 lib_LTLIBRARIES = libdrgn.la
 
 libdrgn_la_SOURCES =
@@ -88,6 +94,10 @@ _drgn_la_CPPFLAGS = $(PYTHON_CPPFLAGS) -D_GNU_SOURCE
 _drgn_la_LDFLAGS = -Wl,--exclude-libs,ALL -avoid-version -module -shared \
 		   -rpath $(pkgpyexecdir)
 _drgn_la_LIBADD = libdrgnimpl.la
+
+if WITH_LIBKDUMPFILE
+_drgn_la_CFLAGS += $(libkdumpfile_CFLAGS)
+endif
 
 GEN_CONSTANTS = $(top_srcdir)/build-aux/gen_constants.py
 GEN_DOCSTRINGS = $(top_srcdir)/build-aux/gen_docstrings.py

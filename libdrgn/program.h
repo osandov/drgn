@@ -13,6 +13,9 @@
 #define DRGN_PROGRAM_H
 
 #include <elfutils/libdwfl.h>
+#ifdef WITH_LIBKDUMPFILE
+#include <libkdumpfile/kdumpfile.h>
+#endif
 
 #include "memory_reader.h"
 #include "object_index.h"
@@ -65,6 +68,9 @@ struct drgn_program {
 	  * DRGN_PROGRAM_IS_LIVE</tt>.
 	  */
 	pid_t pid;
+#ifdef WITH_LIBKDUMPFILE
+	kdump_ctx_t *kdump_ctx;
+#endif
 	Dwfl *_dwfl;
 	struct drgn_dwarf_info_cache *_dicache;
 	int core_fd;
@@ -80,6 +86,13 @@ void drgn_program_init(struct drgn_program *prog,
 
 /** Deinitialize a @ref drgn_program. */
 void drgn_program_deinit(struct drgn_program *prog);
+
+/**
+ * Set the @ref drgn_platform of a @ref drgn_program if it hasn't been set
+ * yet.
+ */
+void drgn_program_set_platform(struct drgn_program *prog,
+			       const struct drgn_platform *platform);
 
 /**
  * Implement @ref drgn_program_from_core_dump() on an initialized @ref

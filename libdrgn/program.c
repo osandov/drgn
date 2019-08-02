@@ -53,8 +53,8 @@ drgn_program_platform(struct drgn_program *prog)
 	return prog->has_platform ? &prog->platform : NULL;
 }
 
-static void drgn_program_set_platform(struct drgn_program *prog,
-				      const struct drgn_platform *platform)
+void drgn_program_set_platform(struct drgn_program *prog,
+			       const struct drgn_platform *platform)
 {
 	if (!prog->has_platform) {
 		prog->platform = *platform;
@@ -83,6 +83,11 @@ void drgn_program_deinit(struct drgn_program *prog)
 	drgn_memory_reader_deinit(&prog->reader);
 
 	free(prog->file_segments);
+
+#ifdef WITH_LIBKDUMPFILE
+	if (prog->kdump_ctx)
+		kdump_free(prog->kdump_ctx);
+#endif
 
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
@@ -149,6 +154,30 @@ drgn_program_check_initialized(struct drgn_program *prog)
 	return NULL;
 }
 
+static struct drgn_error *has_kdump_signature(const char *path, int fd,
+					      bool *ret)
+{
+	char signature[KDUMP_SIG_LEN];
+	size_t n = 0;
+
+	while (n < sizeof(signature)) {
+		ssize_t sret;
+
+		sret = pread(fd, signature + n, sizeof(signature) - n, n);
+		if (sret == -1) {
+			if (errno == EINTR)
+				continue;
+			return drgn_error_create_os("pread", errno, path);
+		} else if (sret == 0) {
+			*ret = false;
+			return NULL;
+		}
+		n += sret;
+	}
+	*ret = memcmp(signature, KDUMP_SIGNATURE, sizeof(signature)) == 0;
+	return NULL;
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 {
@@ -156,7 +185,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	Elf *elf;
 	GElf_Ehdr ehdr_mem, *ehdr;
 	struct drgn_platform platform;
-	bool is_64_bit;
+	bool is_64_bit, is_kdump;
 	size_t phnum, i;
 	bool have_non_zero_phys_addr = false;
 	struct drgn_memory_file_segment *current_file_segment;
@@ -169,6 +198,16 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	prog->core_fd = open(path, O_RDONLY);
 	if (prog->core_fd == -1)
 		return drgn_error_create_os("open", errno, path);
+
+	err = has_kdump_signature(path, prog->core_fd, &is_kdump);
+	if (err)
+		goto out_fd;
+	if (is_kdump) {
+		err = drgn_program_set_kdump(prog);
+		if (err)
+			goto out_fd;
+		return NULL;
+	}
 
 	elf_version(EV_CURRENT);
 
