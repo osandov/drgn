@@ -743,21 +743,16 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 				continue;
 			}
 
+			err2 = get_debug_sections(elf, sections);
+			if (err2) {
+				drgn_dwfl_module_userdata_set_error(userdata,
+								    NULL, err2);
+				continue;
+			}
+
 			bswap = (elf_getident(elf, NULL)[EI_DATA] !=
 				 (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
 				  ELFDATA2LSB : ELFDATA2MSB));
-
-			err2 = get_debug_sections(elf, sections);
-			if (err2) {
-				#pragma omp critical(drgn_read_cus)
-				{
-					if (err)
-						drgn_error_destroy(err2);
-					else
-						err = err2;
-				}
-				continue;
-			}
 
 			ptr = section_ptr(sections[SECTION_DEBUG_INFO], 0);
 			end = section_end(sections[SECTION_DEBUG_INFO]);
