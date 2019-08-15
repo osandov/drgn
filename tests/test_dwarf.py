@@ -3,7 +3,6 @@ import tempfile
 import unittest
 
 from drgn import (
-    FileFormatError,
     FindObjectFlags,
     Object,
     Program,
@@ -215,7 +214,7 @@ class TestTypes(unittest.TestCase):
 
     def test_unknown_tag(self):
         die = DwarfDie(0x9999, ())
-        self.assertRaisesRegex(FileFormatError, 'unknown DWARF type tag 0x9999',
+        self.assertRaisesRegex(Exception, 'unknown DWARF type tag 0x9999',
                                self.type_from_dwarf, die)
 
     def test_bad_base_type(self):
@@ -229,19 +228,19 @@ class TestTypes(unittest.TestCase):
         )
 
         byte_size = die.attribs.pop(0)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_base_type has missing or invalid DW_AT_byte_size',
                                self.type_from_dwarf, die)
         die.attribs.insert(0, byte_size)
 
         encoding = die.attribs.pop(1)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_base_type has missing or invalid DW_AT_encoding',
                                self.type_from_dwarf, die)
         die.attribs.insert(1, encoding)
 
         del die.attribs[2]
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_base_type has missing or invalid DW_AT_name',
                                self.type_from_dwarf, die)
 
@@ -270,7 +269,7 @@ class TestTypes(unittest.TestCase):
                 DwarfAttrib(DW_AT.name, DW_FORM.string, 'magic int'),
             ),
         )
-        self.assertRaisesRegex(FileFormatError, 'unknown DWARF encoding',
+        self.assertRaisesRegex(Exception, 'unknown DWARF encoding',
                                self.type_from_dwarf, die)
 
     def test_qualifiers(self):
@@ -378,37 +377,37 @@ class TestTypes(unittest.TestCase):
 
         tag = dies[0].attribs.pop(0)
         dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_structure_type has invalid DW_AT_name',
                                self.type_from_dwarf, dies)
         dies[0].attribs[0] = tag
 
         size = dies[0].attribs.pop(1)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_structure_type has missing or invalid DW_AT_byte_size',
                                self.type_from_dwarf, dies)
         dies[0].attribs.insert(1, size)
 
         name = dies[0].children[0].attribs.pop(0)
         dies[0].children[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_member has invalid DW_AT_name',
                                self.type_from_dwarf, dies)
         dies[0].children[0].attribs[0] = name
 
         location = dies[0].children[0].attribs[1]
         dies[0].children[0].attribs[1] = DwarfAttrib(DW_AT.data_member_location, DW_FORM.string, 'foo')
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_member has invalid DW_AT_data_member_location',
                                self.type_from_dwarf, dies)
         dies[0].children[0].attribs[1] = location
 
         type_ = dies[0].children[0].attribs.pop(2)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_member is missing DW_AT_type',
                                self.type_from_dwarf, dies)
         dies[0].children[0].attribs.insert(2, DwarfAttrib(DW_AT.type, DW_FORM.string, 'foo'))
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_member has invalid DW_AT_type',
                                self.type_from_dwarf, dies)
         dies[0].children[0].attribs[2] = type_
@@ -699,13 +698,13 @@ class TestTypes(unittest.TestCase):
 
         tag = dies[0].attribs.pop(0)
         dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_union_type has invalid DW_AT_name',
                                self.type_from_dwarf, dies)
         dies[0].attribs[0] = tag
 
         size = dies[0].attribs.pop(1)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_union_type has missing or invalid DW_AT_byte_size',
                                self.type_from_dwarf, dies)
         dies[0].attribs.insert(1, size)
@@ -827,36 +826,36 @@ class TestTypes(unittest.TestCase):
                       [('RED', 0), ('GREEN', -1), ('BLUE', -2)]))
 
         dies[0].attribs.insert(1, DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2))
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_AT_type of DW_TAG_enumeration_type is not an integer type',
                                self.type_from_dwarf, dies)
         del dies[0].attribs[1]
 
         size = dies[0].attribs.pop(1)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size',
                                self.type_from_dwarf, dies)
         dies[0].attribs.insert(1, size)
 
         tag = dies[0].attribs.pop(0)
         dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_enumeration_type has invalid DW_AT_name',
                                self.type_from_dwarf, dies)
         dies[0].attribs[0] = tag
 
         name = dies[0].children[0].attribs.pop(0)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_enumerator has missing or invalid DW_AT_name',
                                self.type_from_dwarf, dies)
         dies[0].children[0].attribs.insert(0, name)
 
         const_value = dies[0].children[0].attribs.pop(1)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_enumerator is missing DW_AT_const_value',
                                self.type_from_dwarf, dies)
         dies[0].children[0].attribs.insert(1, DwarfAttrib(DW_AT.const_value, DW_FORM.string, 'asdf'))
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_enumerator has invalid DW_AT_const_value',
                                self.type_from_dwarf, dies)
         dies[0].children[0].attribs[1] = const_value
@@ -969,7 +968,7 @@ class TestTypes(unittest.TestCase):
             dies, typedef_type('INT', int_type('int', 4, True)))
 
         dies[0].attribs.pop(0)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_typedef has missing or invalid DW_AT_name',
                                self.type_from_dwarf, dies)
 
@@ -985,7 +984,7 @@ class TestTypes(unittest.TestCase):
         self.assertFromDwarf(dies, typedef_type('VOID', void_type()))
 
         dies[0].attribs.pop(0)
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_typedef has missing or invalid DW_AT_name',
                                self.type_from_dwarf, dies)
 
@@ -1053,7 +1052,7 @@ class TestTypes(unittest.TestCase):
             array_type(2, array_type(3, array_type(4, int_type('int', 4, True)))))
 
         del dies[0].attribs[0]
-        self.assertRaisesRegex(FileFormatError,
+        self.assertRaisesRegex(Exception,
                                'DW_TAG_array_type is missing DW_AT_type',
                                self.type_from_dwarf, dies)
 
@@ -1694,7 +1693,7 @@ class TestObjects(ObjectTestCase):
         dies[1].attribs.insert(
             2, DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b'\xe0'))
         prog = dwarf_program(dies)
-        self.assertRaisesRegex(FileFormatError, 'unimplemented operation',
+        self.assertRaisesRegex(Exception, 'unimplemented operation',
                                prog.object, 'x')
 
     def test_not_found(self):

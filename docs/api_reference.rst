@@ -1293,11 +1293,6 @@ Exceptions
     accessing a memory address which is not valid in a program, or when
     accessing out of bounds of a value object).
 
-.. exception:: FileFormatError
-
-    This error is raised when a file cannot be parsed according to its expected
-    format (e.g., ELF or DWARF).
-
 .. exception:: MissingDebugInfoError
 
     This error is raised when one or more files in a program do not have debug

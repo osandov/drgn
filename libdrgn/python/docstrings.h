@@ -19,8 +19,6 @@ extern const char drgn_Architecture_X86_64_DOC[];
 #define drgn_Architecture_X86_64_DOC (char *)drgn_Architecture_X86_64_DOC
 extern const char drgn_FaultError_DOC[];
 #define drgn_FaultError_DOC (char *)drgn_FaultError_DOC
-extern const char drgn_FileFormatError_DOC[];
-#define drgn_FileFormatError_DOC (char *)drgn_FileFormatError_DOC
 extern const char drgn_FindObjectFlags_DOC[];
 #define drgn_FindObjectFlags_DOC (char *)drgn_FindObjectFlags_DOC
 extern const char drgn_FindObjectFlags_ANY_DOC[];

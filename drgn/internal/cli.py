@@ -94,7 +94,7 @@ def main() -> None:
     if args.symbols:
         try:
             prog.load_debug_info(args.symbols)
-        except (drgn.FileFormatError, drgn.MissingDebugInfoError, OSError) as e:
+        except (drgn.MissingDebugInfoError, OSError) as e:
             if not args.quiet:
                 print(e, file=sys.stderr)
 

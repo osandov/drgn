@@ -61,10 +61,6 @@ enum drgn_error_code {
 	DRGN_ERROR_RECURSION,
 	/** System call error. */
 	DRGN_ERROR_OS,
-	/** Invalid ELF file. */
-	DRGN_ERROR_ELF_FORMAT,
-	/** Invalid DWARF file. */
-	DRGN_ERROR_DWARF_FORMAT,
 	/** One or more files do not have debug information. */
 	DRGN_ERROR_MISSING_DEBUG_INFO,
 	/** Syntax error while parsing. */

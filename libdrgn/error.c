@@ -185,18 +185,18 @@ LIBDRGN_PUBLIC void drgn_error_destroy(struct drgn_error *err)
 
 struct drgn_error *drgn_error_libelf(void)
 {
-	return drgn_error_format(DRGN_ERROR_ELF_FORMAT, "libelf error: %s",
+	return drgn_error_format(DRGN_ERROR_OTHER, "libelf error: %s",
 				 elf_errmsg(-1));
 }
 
 struct drgn_error *drgn_error_libdw(void)
 {
-	return drgn_error_format(DRGN_ERROR_DWARF_FORMAT, "libdw error: %s",
+	return drgn_error_format(DRGN_ERROR_OTHER, "libdw error: %s",
 				 dwarf_errmsg(-1));
 }
 
 struct drgn_error *drgn_error_libdwfl(void)
 {
-	return drgn_error_format(DRGN_ERROR_DWARF_FORMAT, "libdwfl error: %s",
+	return drgn_error_format(DRGN_ERROR_OTHER, "libdwfl error: %s",
 				 dwfl_errmsg(-1));
 }

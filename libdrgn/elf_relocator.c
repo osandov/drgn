@@ -54,7 +54,7 @@ static struct drgn_error *apply_relocation(Elf_Data *data, uint64_t r_offset,
 	case R_X86_64_32:
 		if (r_offset > SIZE_MAX - sizeof(uint32_t) ||
 		    r_offset + sizeof(uint32_t) > data->d_size) {
-			return drgn_error_create(DRGN_ERROR_ELF_FORMAT,
+			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "invalid relocation offset");
 		}
 		*(uint32_t *)p = st_value + r_addend;
@@ -62,13 +62,13 @@ static struct drgn_error *apply_relocation(Elf_Data *data, uint64_t r_offset,
 	case R_X86_64_64:
 		if (r_offset > SIZE_MAX - sizeof(uint64_t) ||
 		    r_offset + sizeof(uint64_t) > data->d_size) {
-			return drgn_error_create(DRGN_ERROR_ELF_FORMAT,
+			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "invalid relocation offset");
 		}
 		*(uint64_t *)p = st_value + r_addend;
 		break;
 	default:
-		return drgn_error_format(DRGN_ERROR_ELF_FORMAT,
+		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "unimplemented relocation type %" PRIu32,
 					 r_type);
 	}
@@ -112,7 +112,7 @@ static struct drgn_error *relocate_section(Elf_Scn *scn, Elf_Scn *rela_scn,
 		r_type = ELF64_R_TYPE(reloc->r_info);
 
 		if (r_sym >= num_syms) {
-			return drgn_error_create(DRGN_ERROR_ELF_FORMAT,
+			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "invalid relocation symbol");
 		}
 		st_shndx = syms[r_sym].st_shndx;
@@ -121,7 +121,7 @@ static struct drgn_error *relocate_section(Elf_Scn *scn, Elf_Scn *rela_scn,
 		} else if (st_shndx < shdrnum) {
 			sh_addr = sh_addrs[st_shndx - 1];
 		} else {
-			return drgn_error_create(DRGN_ERROR_ELF_FORMAT,
+			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "invalid symbol section index");
 		}
 		err = apply_relocation(data, reloc->r_offset, r_type,

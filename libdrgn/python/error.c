@@ -113,10 +113,6 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 		errno = err->errnum;
 		PyErr_SetFromErrnoWithFilename(PyExc_OSError, err->path);
 		break;
-	case DRGN_ERROR_ELF_FORMAT:
-	case DRGN_ERROR_DWARF_FORMAT:
-		PyErr_SetString(FileFormatError, err->message);
-		break;
 	case DRGN_ERROR_MISSING_DEBUG_INFO:
 		PyErr_SetString(MissingDebugInfoError, err->message);
 		break;

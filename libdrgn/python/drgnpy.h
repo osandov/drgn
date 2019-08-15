@@ -117,7 +117,6 @@ extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
 extern PyObject *FaultError;
-extern PyObject *FileFormatError;
 extern PyObject *MissingDebugInfoError;
 
 int add_module_constants(PyObject *m);

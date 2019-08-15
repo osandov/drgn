@@ -4,7 +4,6 @@
 #include "drgnpy.h"
 
 PyObject *FaultError;
-PyObject *FileFormatError;
 PyObject *MissingDebugInfoError;
 
 static PyObject *filename_matches(PyObject *self, PyObject *args,
@@ -127,13 +126,6 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (!FaultError)
 		goto err;
 	PyModule_AddObject(m, "FaultError", FaultError);
-
-	FileFormatError = PyErr_NewExceptionWithDoc("_drgn.FileFormatError",
-						    drgn_FileFormatError_DOC,
-						    NULL, NULL);
-	if (!FileFormatError)
-		goto err;
-	PyModule_AddObject(m, "FileFormatError", FileFormatError);
 
 	MissingDebugInfoError = PyErr_NewExceptionWithDoc("_drgn.MissingDebugInfoError",
 							  drgn_MissingDebugInfoError_DOC,

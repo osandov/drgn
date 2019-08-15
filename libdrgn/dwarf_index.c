@@ -293,7 +293,7 @@ static inline size_t hash_pair_to_shard(struct hash_pair hp)
 
 static inline struct drgn_error *drgn_eof(void)
 {
-	return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
+	return drgn_error_create(DRGN_ERROR_OTHER,
 				 "debug information is truncated");
 }
 
@@ -427,7 +427,7 @@ static struct drgn_error *get_debug_sections(Elf *elf, Elf_Data **sections)
 	debug_str = sections[SECTION_DEBUG_STR];
 	if (debug_str->d_size == 0 ||
 	    ((char *)debug_str->d_buf)[debug_str->d_size - 1] != '\0') {
-		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
+		return drgn_error_create(DRGN_ERROR_OTHER,
 					 ".debug_str is not null terminated");
 	}
 	return NULL;
@@ -481,7 +481,7 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 	if (!read_u16(&ptr, end, cu->bswap, &version))
 		return drgn_eof();
 	if (version != 2 && version != 3 && version != 4) {
-		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
+		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "unknown DWARF CU version %" PRIu16,
 					 version);
 	}
@@ -644,7 +644,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	if (code == 0)
 		return &drgn_stop;
 	if (code != abbrev->decls.size + 1) {
-		return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
+		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DWARF abbreviation table is not sequential");
 	}
 
@@ -859,10 +859,10 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		case DW_FORM_flag_present:
 			continue;
 		case DW_FORM_indirect:
-			return drgn_error_create(DRGN_ERROR_DWARF_FORMAT,
+			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_FORM_indirect is not implemented");
 		default:
-			return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
+			return drgn_error_format(DRGN_ERROR_OTHER,
 						 "unknown attribute form %" PRIu64,
 						 form);
 		}
@@ -926,7 +926,7 @@ static struct drgn_error *skip_lnp_header(struct compilation_unit *cu,
 	if (!read_u16(ptr, end, cu->bswap, &version))
 		return drgn_eof();
 	if (version != 2 && version != 3 && version != 4) {
-		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
+		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "unknown DWARF LNP version %" PRIu16,
 					 version);
 	}
@@ -1037,7 +1037,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 		}
 
 		if (directory_index > directories.size) {
-			err = drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
+			err = drgn_error_format(DRGN_ERROR_OTHER,
 						"directory index %" PRIu64 " is invalid",
 						directory_index);
 			goto out;
@@ -1169,7 +1169,7 @@ static struct drgn_error *read_die(struct compilation_unit *cu,
 		return &drgn_stop;
 
 	if (code < 1 || code > abbrev->decls.size) {
-		return drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
+		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "unknown abbreviation code %" PRIu64,
 					 code);
 	}
@@ -1403,7 +1403,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 
 			if (die.name) {
 				if (die.decl_file > file_name_table.size) {
-					err = drgn_error_format(DRGN_ERROR_DWARF_FORMAT,
+					err = drgn_error_format(DRGN_ERROR_OTHER,
 								"invalid DW_AT_decl_file %zu",
 								die.decl_file);
 					goto out;

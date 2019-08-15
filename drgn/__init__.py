@@ -46,7 +46,6 @@ import sys
 from _drgn import (
     Architecture,
     FaultError,
-    FileFormatError,
     FindObjectFlags,
     MissingDebugInfoError,
     NULL,
@@ -89,7 +88,6 @@ from _drgn import (
 __all__ = [
     'Architecture',
     'FaultError',
-    'FileFormatError',
     'FindObjectFlags',
     'MissingDebugInfoError',
     'NULL',

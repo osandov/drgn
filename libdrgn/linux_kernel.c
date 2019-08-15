@@ -968,7 +968,7 @@ static struct drgn_error *get_vmlinux_bounds(Elf *elf, uint64_t *start_ret,
 		}
 	}
 	if (start > end) {
-		return drgn_error_create(DRGN_ERROR_ELF_FORMAT,
+		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "no program headers");
 	}
 	*start_ret = start;
@@ -1562,7 +1562,7 @@ struct drgn_error *linux_kernel_load_debug_info(struct drgn_program *prog,
 			goto out;
 		}
 		if (elf_kind(userdata->elf) != ELF_K_ELF) {
-			err = drgn_error_create(DRGN_ERROR_ELF_FORMAT,
+			err = drgn_error_create(DRGN_ERROR_OTHER,
 						"not an ELF file");
 			goto out;
 		}
