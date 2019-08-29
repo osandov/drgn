@@ -11,8 +11,6 @@ libdrgnimpl_la_SOURCES = arch_x86_64.c \
 			 dwarf_index.h \
 			 dwarf_info_cache.c \
 			 dwarf_info_cache.h \
-			 elf_relocator.c \
-			 elf_relocator.h \
 			 error.c \
 			 error.h \
 			 hash_table.c \
