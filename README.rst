@@ -42,16 +42,32 @@ Documentation can be found at `drgn.readthedocs.io
 Installation
 ------------
 
-Install the following dependencies:
+.. start-install-dependencies
 
-* Python 3.6 or newer
-* elfutils development libraries (libelf and libdw)
-* GNU autotools (autoconf, automake, and libtool) and pkgconf
+Install dependencies:
+
+Arch Linux::
+
+    $ sudo pacman -S --needed autoconf automake bison bzip2 flex gawk gcc libtool make pkgconf python python-setuptools xz zlib
+
+Debian/Ubuntu::
+
+    $ sudo apt-get install autoconf automake bison flex gawk gcc libbz2-dev liblzma-dev libtool make pkgconf python3 python3-dev python3-setuptools zlib1g-dev
+
+Note that Debian Stretch, Ubuntu Trusty, and Ubuntu Xenial (and older) ship
+Python versions which are too old. Python 3.6 or newer must be installed
+manually.
+
+Fedora::
+
+    $ sudo dnf install autoconf automake bison bzip2-devel flex gawk gcc libtool make pkgconf python3 python3-devel python3-setuptools xz-devel zlib-devel
 
 Optionally, install:
 
 * `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ if you want
   support for kdump-compressed kernel core dumps
+
+.. end-install-dependencies
 
 Then, run:
 

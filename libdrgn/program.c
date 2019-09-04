@@ -27,17 +27,10 @@
 #include "type_index.h"
 #include "vector.h"
 
-/* This definition was added to elf.h in glibc 2.18. */
-#ifndef NT_FILE
-#define NT_FILE 0x46494c45
-#endif
-
 static Elf_Type note_header_type(GElf_Phdr *phdr)
 {
-#if _ELFUTILS_PREREQ(0, 175)
 	if (phdr->p_align == 8)
 		return ELF_T_NHDR8;
-#endif
 	return ELF_T_NHDR;
 }
 

@@ -1,5 +1,9 @@
 ACLOCAL_AMFLAGS = -I m4
 
+SUBDIRS = elfutils include
+
+AM_CPPFLAGS = -Iinclude -D_GNU_SOURCE
+
 include_HEADERS = drgn.h
 
 noinst_LTLIBRARIES = libdrgnimpl.la
@@ -51,22 +55,21 @@ libdrgnimpl_la_SOURCES = arch_x86_64.c \
 			 vector.c \
 			 vector.h
 
-libdrgnimpl_la_CFLAGS = -fvisibility=hidden -fopenmp $(libelf_CFLAGS) \
-			$(libdw_CFLAGS)
-libdrgnimpl_la_CPPFLAGS = -D_GNU_SOURCE
-libdrgnimpl_la_LIBADD = $(libelf_LIBS) $(libdw_LIBS)
+libdrgnimpl_la_CFLAGS = -fvisibility=hidden -fopenmp
 
 if WITH_LIBKDUMPFILE
 libdrgnimpl_la_SOURCES += kdump.c
 libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
-libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
+libdrgnimpl_la_LIBADD = $(libkdumpfile_LIBS)
 endif
+
+elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2
 
 lib_LTLIBRARIES = libdrgn.la
 
 libdrgn_la_SOURCES =
 libdrgn_la_LDFLAGS = -version-info 0:0:0
-libdrgn_la_LIBADD = libdrgnimpl.la
+libdrgn_la_LIBADD = libdrgnimpl.la $(elfutils_LIBS)
 
 if WITH_PYTHON
 noinst_LTLIBRARIES += _drgn.la
@@ -90,10 +93,10 @@ _drgn_la_SOURCES = python/docstrings.h \
 nodist__drgn_la_SOURCES = python/constants.c python/docstrings.c
 
 _drgn_la_CFLAGS = -fvisibility=hidden
-_drgn_la_CPPFLAGS = $(PYTHON_CPPFLAGS) -D_GNU_SOURCE
+_drgn_la_CPPFLAGS = $(AM_CPPFLAGS) $(PYTHON_CPPFLAGS)
 _drgn_la_LDFLAGS = -Wl,--exclude-libs,ALL -avoid-version -module -shared \
 		   -rpath $(pkgpyexecdir)
-_drgn_la_LIBADD = libdrgnimpl.la
+_drgn_la_LIBADD = libdrgnimpl.la $(elfutils_LIBS)
 
 if WITH_LIBKDUMPFILE
 _drgn_la_CFLAGS += $(libkdumpfile_CFLAGS)

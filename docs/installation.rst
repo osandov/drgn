@@ -3,37 +3,32 @@ Installation
 
 .. highlight:: console
 
-drgn depends on `Python <https://www.python.org/>`_ 3.6 or newer as well as
-`elfutils <https://sourceware.org/elfutils/>`_. The build requires `GCC
-<https://gcc.gnu.org/>`_ or `Clang <https://clang.llvm.org/>`_, `GNU Make
-<https://www.gnu.org/software/make/>`_, `pkgconf <http://pkgconf.org/>`_, and
-`setuptools <https://pypi.org/project/setuptools/>`_. A build from a Git
-checkout also requires the GNU Autotools (`autoconf
-<https://www.gnu.org/software/autoconf/>`_, `automake
-<https://www.gnu.org/software/automake/automake.html>`_, and `libtool
-<https://www.gnu.org/software/libtool/libtool.html>`_). Install those
-dependencies:
+drgn depends on:
 
-Arch Linux::
+- `Python <https://www.python.org/>`_ 3.6 or newer
+- `zlib <https://www.zlib.net>`_
+- `xz <https://tukaani.org/xz/>`_
+- `bzip2 <http://www.bzip.org>`_
 
-    $ sudo pacman -S --needed autoconf automake libtool make gcc pkgconf libelf python python-setuptools
+A version of `elfutils <https://sourceware.org/elfutils/>`_ is bundled with
+drgn.
 
-Debian/Ubuntu::
+The build requires:
 
-    $ sudo apt-get install autoconf automake libtool make gcc pkgconf libelf-dev libdw-dev python3 python3-dev python3-setuptools
+- `GCC <https://gcc.gnu.org/>`_
+- `GNU Make <https://www.gnu.org/software/make/>`_
+- `pkgconf <http://pkgconf.org/>`_
+- `setuptools <https://pypi.org/project/setuptools/>`_
+- `autoconf <https://www.gnu.org/software/autoconf/>`_
+- `automake <https://www.gnu.org/software/automake/>`_
+- `libtool <https://www.gnu.org/software/libtool/>`_
+- `flex <https://github.com/westes/flex>`_
+- `GNU bison <https://www.gnu.org/software/bison/>`_
+- `GNU awk <https://www.gnu.org/software/gawk/>`_
 
-Note that Debian, Ubuntu Trusty, and Ubuntu Xenial ship Python versions which
-are too old, so a newer version must be installed manually.
-
-Due to a packaging `bug
-<https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=885071>`_, the following may
-also be required::
-
-    $ sudo apt-get install liblzma-dev zlib1g-dev
-
-Fedora::
-
-    $ sudo dnf install autoconf automake libtool make gcc pkgconf elfutils-devel python3 python3-devel python3-setuptools
+.. include:: ../README.rst
+    :start-after: start-install-dependencies
+    :end-before: end-install-dependencies
 
 Then, drgn can be built and installed::
 

@@ -22,16 +22,17 @@ class my_build_ext(build_ext):
 
     help_options = []
 
-    def _run_autotools(self):
-        makefile_in = 'libdrgn/Makefile.in'
+    def _run_autoreconf(self, dir):
+        makefile_in = os.path.join(dir, 'Makefile.in')
         if not os.path.exists(makefile_in):
             try:
-                subprocess.check_call(['autoreconf', '-i', 'libdrgn'])
+                subprocess.check_call(['autoreconf', '-i', dir])
             except Exception:
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(makefile_in)
                 raise
 
+    def _run_configure(self):
         mkpath(self.build_temp)
         makefile = os.path.join(self.build_temp, 'Makefile')
         if not os.path.exists(makefile):
@@ -46,12 +47,17 @@ class my_build_ext(build_ext):
                     os.remove(makefile)
                 raise
 
-    def run(self):
-        self._run_autotools()
-        args = ['make', '-C', self.build_temp, '_drgn.la']
+    def _run_make(self):
+        args = ['make', '-C', self.build_temp]
         if self.parallel:
             args.append(f'-j{self.parallel}')
         subprocess.check_call(args)
+
+    def run(self):
+        self._run_autoreconf('libdrgn')
+        self._run_autoreconf('libdrgn/elfutils')
+        self._run_configure()
+        self._run_make()
 
         so = os.path.join(self.build_temp, '.libs/_drgn.so')
         if self.inplace:

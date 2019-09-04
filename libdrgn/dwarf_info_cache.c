@@ -14,13 +14,6 @@
 #include "type_index.h"
 #include "vector.h"
 
-#if !_ELFUTILS_PREREQ(0, 162)
-#define DW_TAG_atomic_type 0x47
-#endif
-#if !_ELFUTILS_PREREQ(0, 171)
-#define DW_FORM_implicit_const 0x21
-#endif
-
 DEFINE_HASH_TABLE_FUNCTIONS(dwarf_type_map, hash_pair_ptr_type,
 			    hash_table_scalar_eq)
 

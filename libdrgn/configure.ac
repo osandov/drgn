@@ -48,6 +48,7 @@ python3-devel or python3-dev) or specify the location of the Python development
 headers by setting the PYTHON_CPPFLAGS environment variable.])])
 	    CPPFLAGS="$save_CPPFLAGS"])
 
+PKG_PROG_PKG_CONFIG
 AC_ARG_WITH([libkdumpfile],
 	    [AS_HELP_STRING([--with-libkdumpfile],
 			    [build with support for the makedumpfile kernel
@@ -62,14 +63,13 @@ AS_CASE(["x$with_libkdumpfile"],
 AM_CONDITIONAL([WITH_LIBKDUMPFILE], [test "x$with_libkdumpfile" = xyes])
 AM_COND_IF([WITH_LIBKDUMPFILE], [AC_DEFINE(WITH_LIBKDUMPFILE)])
 
-PKG_PROG_PKG_CONFIG
-PKG_CHECK_MODULES(libelf, [libelf])
-AC_SUBST([libelf_CFLAGS])
-AC_SUBST([libelf_LIBS])
-dnl We need dwarf_cu_getdwarf() which was added in elfutils 0.160.
-PKG_CHECK_MODULES(libdw, [libdw >= 0.160])
-AC_SUBST([libdw_CFLAGS])
-AC_SUBST([libdw_LIBS])
+AX_SUBDIRS_CONFIGURE([elfutils],
+		     [[--enable-maintainer-mode],
+		      [--disable-nls],
+		      [--disable-programs],
+		      [--disable-shared]],
+		     [CFLAGS=-fPIC -Wno-error], [],
+		     [--disable-static])
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile include/Makefile])
 AC_OUTPUT

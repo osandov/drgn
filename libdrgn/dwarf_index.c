@@ -1825,20 +1825,9 @@ static int drgn_dwfl_module_removed(Dwfl_Module *module, void *userdatap,
 
 static void drgn_remove_dwfl_modules(Dwfl *dwfl, bool unindexed)
 {
-	int fd;
-
-	/*
-	 * Work around a libdwfl bug that causes it to close stdin when it frees
-	 * some modules which are reported by dwfl_core_file_report().
-	 */
-	fd = dup(0);
 	dwfl_report_begin(dwfl);
 	dwfl_report_end(dwfl, drgn_dwfl_module_removed,
 			unindexed ? dwfl : NULL);
-	if (fd != -1) {
-		dup2(fd, 0);
-		close(fd);
-	}
 }
 
 void drgn_remove_unindexed_dwfl_modules(Dwfl *dwfl)
