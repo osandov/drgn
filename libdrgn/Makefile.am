@@ -109,22 +109,3 @@ $(top_builddir)/python/docstrings.c: $(top_srcdir)/../docs/api_reference.rst $(G
 	$(PYTHON) $(GEN_DOCSTRINGS) < $< > $@
 
 EXTRA_DIST = $(GEN_CONSTANTS) $(GEN_DOCSTRINGS)
-
-# This target lists all of the files that need to be distributed for setup.py
-# sdist. It is based on the automake distdir target.
-.PHONY: distfiles
-distfiles:
-	@srcdirstrip=`echo "$(srcdir)" | sed 's/[].[^$$\\*]/\\\\&/g'`; \
-	topsrcdirstrip=`echo "$(top_srcdir)" | sed 's/[].[^$$\\*]/\\\\&/g'`; \
-	list='$(DISTFILES)'; \
-	  dist_files=`for file in $$list; do echo $$file; done | \
-	  sed -e "s|^$$srcdirstrip/||;t" \
-	      -e "s|^$$topsrcdirstrip/|$(top_builddir)/|;t"`; \
-	for file in $$dist_files; do \
-	  if test -f $(srcdir)/$$file || test -d $(srcdir)/$$file; then \
-	    echo $(srcdir)/$$file; \
-	  else \
-	    echo "ERROR: $$file is not in source directory" >&2; \
-	    exit 1; \
-	  fi; \
-	done

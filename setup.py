@@ -4,12 +4,10 @@ import contextlib
 import re
 import os.path
 from distutils.dir_util import mkpath
-from distutils.errors import DistutilsSetupError
 from distutils.file_util import copy_file
 from setuptools import setup, find_packages
 from setuptools.extension import Extension
 from setuptools.command.build_ext import build_ext
-from setuptools.command.sdist import sdist
 import subprocess
 import sys
 
@@ -48,14 +46,6 @@ class my_build_ext(build_ext):
                     os.remove(makefile)
                 raise
 
-    def get_source_files(self):
-        self._run_autotools()
-        args = ['make', '-C', self.build_temp, 'distfiles', '-s']
-        return [
-            os.path.normpath(os.path.join(self.build_temp, path)) for path in
-            subprocess.check_output(args, universal_newlines=True).splitlines()
-        ]
-
     def run(self):
         self._run_autotools()
         args = ['make', '-C', self.build_temp, '_drgn.la']
@@ -71,28 +61,17 @@ class my_build_ext(build_ext):
         mkpath(os.path.dirname(build_path))
         copy_file(so, build_path)
 
-
-class my_sdist(sdist):
-    user_options = sdist.user_options + [
-        ('force', 'f',
-         'create the source distribution even if the repository is unclean'),
-    ]
-
-    boolean_options = sdist.boolean_options + ['force']
-
-    def initialize_options(self):
-        super().initialize_options()
-        self.force = 0
-
-    def run(self):
-        # In order to avoid shipping a stale source distribution (e.g., due to
-        # pypa/setuptools#436 or the autotools output being out of date),
-        # require the repository to be clean (no unknown or ignored files).
-        # This check can be disabled with --force.
-        if (not self.force and subprocess.check_output(['git', 'clean', '-dnx'])):
-            raise DistutilsSetupError('repository has untracked or ignored files; '
-                                      'please run git clean -dfx or use --force')
-        super().run()
+    def get_source_files(self):
+        if os.path.exists('.git'):
+            args = ['git', 'ls-files', '-z', 'libdrgn']
+            return [
+                os.fsdecode(path) for path in
+                subprocess.check_output(args).split(b'\0') if path
+            ]
+        else:
+            # If this is a source distribution, then setuptools will get the
+            # list of sources that was included in the tarball.
+            return []
 
 
 with open('libdrgn/drgn.h', 'r') as f:
@@ -114,7 +93,6 @@ setup(
     ext_modules=[Extension(name='_drgn', sources=[])],
     cmdclass={
         'build_ext': my_build_ext,
-        'sdist': my_sdist,
     },
     entry_points={
         'console_scripts': ['drgn=drgn.internal.cli:main'],
