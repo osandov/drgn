@@ -1,0 +1,60 @@
+2019-08-28  Mark Wielaard  <mark@klomp.org>
+
+	* COPYING: Rename to...
+	* COPYING-GFDL: ... this.
+
+2019-08-23  Ben Woodard  <woodard@redhat.com>
+
+	* Updated the eu-readelf man page to make it match the options
+	that eu-readelf actually supports.
+
+2019-08-22  Ben Woodard  <woodard@redhat.com>S
+
+	* Move the .1 man pages to the correct place.
+
+2019-08-21  Ben Woodard  <woodard@redhat.com>
+
+	* Updated Changelog
+	* Added README
+
+2019-08-20  Ben Woodard  <woodard@redhat.com>
+
+	* Added eu-elfclassify.1 man page based upon --help
+	* Forked binutils readelf page to make eu-readelf.1 man page
+	* Modified eu-readelf.1 to add -n:: option.
+	* Disabled sgml file building per mjw.
+	* Added man pages to Makefile.am
+
+2019-06-20  Ben Woodard  <woodard@redhat.com>
+
+	* Added the beginnings of some man pages
+
+2019-08-21  Ben Woodard  <woodard@redhat.com>
+
+	* Updated Changelog
+	* Added README
+
+2019-08-20  Ben Woodard  <woodard@redhat.com>
+
+	* Added eu-elfclassify.1 man page based upon --help
+	* Forked binutils readelf page to make eu-readelf.1 man page
+	* Modified eu-readelf.1 to add -n:: option.
+	* Disabled sgml file building per mjw.
+	* Added man pages to Makefile.am
+
+2019-06-20 Ben Woodard <woodard@redhat.com>
+
+	* Added the beginnings of some man pages
+
+2005-04-29  Ulrich Drepper  <drepper@redhat.com>
+
+	* elfutils.sgml: Some typo fixes and a few extensions.
+	Patch by Eric Christopher <echristo@redhat.com>.
+
+2005-02-22  Ulrich Drepper  <drepper@redhat.com>
+
+	* Makefile.am: Prefer pdf.
+
+2003-08-11  Ulrich Drepper  <drepper@redhat.com>
+
+	* Moved to CVS archive.
