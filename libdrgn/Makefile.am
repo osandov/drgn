@@ -93,7 +93,7 @@ _drgn_la_SOURCES = python/docstrings.h \
 nodist__drgn_la_SOURCES = python/constants.c python/docstrings.c
 
 _drgn_la_CFLAGS = -fvisibility=hidden
-_drgn_la_CPPFLAGS = $(AM_CPPFLAGS) $(PYTHON_CPPFLAGS)
+_drgn_la_CPPFLAGS = $(AM_CPPFLAGS) $(PYTHON_CPPFLAGS) -iquote $(srcdir)/python
 _drgn_la_LDFLAGS = -Wl,--exclude-libs,ALL -avoid-version -module -shared \
 		   -rpath $(pkgpyexecdir)
 _drgn_la_LIBADD = libdrgnimpl.la $(elfutils_LIBS)
@@ -105,10 +105,10 @@ endif
 GEN_CONSTANTS = $(top_srcdir)/build-aux/gen_constants.py
 GEN_DOCSTRINGS = $(top_srcdir)/build-aux/gen_docstrings.py
 
-$(top_builddir)/python/constants.c: $(top_srcdir)/drgn.h $(GEN_CONSTANTS)
-	$(PYTHON) $(GEN_CONSTANTS) $(top_srcdir)/python < $< > $@
+python/constants.c: drgn.h $(GEN_CONSTANTS)
+	$(PYTHON) $(GEN_CONSTANTS) < $< > $@
 
-$(top_builddir)/python/docstrings.c: $(top_srcdir)/../docs/api_reference.rst $(GEN_DOCSTRINGS)
+python/docstrings.c: ../docs/api_reference.rst $(GEN_DOCSTRINGS)
 	$(PYTHON) $(GEN_DOCSTRINGS) < $< > $@
 
 EXTRA_DIST = $(GEN_CONSTANTS) $(GEN_DOCSTRINGS)
