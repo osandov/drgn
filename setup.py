@@ -61,11 +61,12 @@ class my_build_ext(build_ext):
 
         so = os.path.join(self.build_temp, '.libs/_drgn.so')
         if self.inplace:
-            copy_file(so, self.get_ext_fullpath('_drgn'))
-        self.inplace = 0
+            copy_file(so, self.get_ext_fullpath('_drgn'), update=True)
+        old_inplace, self.inplace = self.inplace, 0
         build_path = self.get_ext_fullpath('_drgn')
         mkpath(os.path.dirname(build_path))
-        copy_file(so, build_path)
+        copy_file(so, build_path, update=True)
+        self.inplace = old_inplace
 
     def get_source_files(self):
         if os.path.exists('.git'):
