@@ -42,6 +42,53 @@ static bool drgn_type_realloc(struct drgn_type **type, size_t capacity,
 	return true;
 }
 
+/*
+ * We use dwarf_formudata() to pull constants out of dwarf attributes.
+ * Unfortunately, GCC's dwarfv2 generator for structure member offsets uses
+ * simple "blocks" instead of the constants that dwarf_formudata() expects.
+ *
+ * So if dwarf_formudata() fails, we handle the special case of the attribute
+ * being a block consisting of a single DW_OP_plus_uconst operation.
+ */
+static int drgn_formudata(Dwarf_Attribute *attr, Dwarf_Word *return_uval)
+{
+	Dwarf_Block block;
+
+	/* dwarf4 common case: constant value */
+	if (dwarf_formudata(attr, return_uval) == 0) {
+		return (0);
+	}
+	/* Try for the dwarf2 case, bailing out if anything looks odd */
+	if (dwarf_formblock(attr, &block) == 0) {
+		unsigned char *const beg = block.data;
+		unsigned char *const end = beg + block.length;
+		unsigned char *cur;
+		int nth;
+		Dwarf_Word uval;
+		uval = 0;
+		if (*beg != DW_OP_plus_uconst) {
+			goto fail;
+		}
+		cur = beg + 1;
+		for (nth = 0; &cur[nth] < end; nth++) {
+			unsigned char v = cur[nth];
+			uval |= ((typeof (uval))(v & 0x7f)) << (7 * nth);
+			if (!(v & 0x80)) {
+				/* check for more instructions after the constant */
+				if (&cur[nth + 1] != end) {
+					goto fail;
+				}
+				*return_uval = uval;
+				return (0);
+			}
+		}
+		/* if we ended before the number completed, we fail. */
+	}
+fail:
+	/* get the right libdw error code */
+	return (dwarf_formudata(attr, return_uval));
+}
+
 static void drgn_dwarf_type_free(struct drgn_dwarf_type *dwarf_type)
 {
 	if (dwarf_type->should_free) {
@@ -277,7 +324,7 @@ drgn_base_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 	}
 
 	if (!dwarf_attr_integrate(die, DW_AT_encoding, &attr) ||
-	    dwarf_formudata(&attr, &encoding)) {
+	    drgn_formudata(&attr, &encoding)) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DW_TAG_base_type has missing or invalid DW_AT_encoding");
 	}
@@ -399,7 +446,7 @@ parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
 	if (attr) {
 		Dwarf_Word bit_offset;
 
-		if (dwarf_formudata(attr, &bit_offset)) {
+		if (drgn_formudata(attr, &bit_offset)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_TAG_member has invalid DW_AT_data_bit_offset");
 		}
@@ -415,7 +462,7 @@ parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
 	if (attr) {
 		Dwarf_Word byte_offset;
 
-		if (dwarf_formudata(attr, &byte_offset)) {
+		if (drgn_formudata(attr, &byte_offset)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_TAG_member has invalid DW_AT_data_member_location");
 		}
@@ -434,7 +481,7 @@ parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
 	if (attr) {
 		Dwarf_Word bit_offset;
 
-		if (dwarf_formudata(attr, &bit_offset)) {
+		if (drgn_formudata(attr, &bit_offset)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_TAG_member has invalid DW_AT_bit_offset");
 		}
@@ -461,7 +508,7 @@ parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
 			if (attr) {
 				Dwarf_Word word;
 
-				if (dwarf_formudata(attr, &word)) {
+				if (drgn_formudata(attr, &word)) {
 					return drgn_error_create(DRGN_ERROR_OTHER,
 								 "DW_TAG_member has invalid DW_AT_byte_size");
 				}
@@ -515,7 +562,7 @@ static struct drgn_error *parse_member(struct drgn_dwarf_info_cache *dicache,
 	if (attr) {
 		Dwarf_Word bit_size;
 
-		if (dwarf_formudata(attr, &bit_size)) {
+		if (drgn_formudata(attr, &bit_size)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_TAG_member has invalid DW_AT_bit_size");
 		}
@@ -718,7 +765,7 @@ static struct drgn_error *parse_enumerator(Dwarf_Die *die,
 	} else {
 		Dwarf_Word uvalue;
 
-		r = dwarf_formudata(attr, &uvalue);
+		r = drgn_formudata(attr, &uvalue);
 		if (r == 0) {
 			drgn_type_enumerator_init_unsigned(type, i, name,
 							   uvalue);
@@ -987,7 +1034,7 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 		return NULL;
 	}
 
-	if (dwarf_formudata(attr, &word)) {
+	if (drgn_formudata(attr, &word)) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "DW_TAG_subrange_type has invalid %s",
 					 attr->code == DW_AT_upper_bound ?
