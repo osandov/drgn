@@ -80,6 +80,7 @@ struct drgn_dwarf_info_cache {
 /** Create a @ref drgn_dwarf_info_cache. */
 struct drgn_error *
 drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
+			     const Dwfl_Callbacks *dwfl_callbacks,
 			     struct drgn_dwarf_info_cache **ret);
 
 /** Destroy a @ref drgn_dwarf_info_cache. */

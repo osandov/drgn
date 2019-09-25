@@ -1530,14 +1530,20 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 
 struct drgn_error *
 drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
+			     const Dwfl_Callbacks *dwfl_callbacks,
 			     struct drgn_dwarf_info_cache **ret)
 {
+	struct drgn_error *err;
 	struct drgn_dwarf_info_cache *dicache;
 
 	dicache = malloc(sizeof(*dicache));
 	if (!dicache)
 		return &drgn_enomem;
-	drgn_dwarf_index_init(&dicache->dindex);
+	err = drgn_dwarf_index_init(&dicache->dindex, dwfl_callbacks);
+	if (err) {
+		free(dicache);
+		return err;
+	}
 	dwarf_type_map_init(&dicache->map);
 	dwarf_type_map_init(&dicache->cant_be_incomplete_array_map);
 	dicache->depth = 0;

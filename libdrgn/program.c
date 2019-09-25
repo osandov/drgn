@@ -87,10 +87,6 @@ void drgn_program_deinit(struct drgn_program *prog)
 		close(prog->core_fd);
 
 	drgn_dwarf_info_cache_destroy(prog->_dicache);
-	if (prog->_dwfl) {
-		drgn_remove_all_dwfl_modules(prog->_dwfl);
-		dwfl_end(prog->_dwfl);
-	}
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -471,32 +467,113 @@ out_fd:
 	return err;
 }
 
-static const Dwfl_Callbacks linux_proc_dwfl_callbacks = {
-	.find_elf = dwfl_linux_proc_find_elf,
-	.find_debuginfo = dwfl_standard_find_debuginfo,
-};
-
-static const Dwfl_Callbacks userspace_core_dump_dwfl_callbacks = {
-	.find_elf = dwfl_build_id_find_elf,
-	.find_debuginfo = dwfl_standard_find_debuginfo,
-};
-
-struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret)
+static struct drgn_error *drgn_program_get_dindex(struct drgn_program *prog,
+						  struct drgn_dwarf_index **ret)
 {
-	const Dwfl_Callbacks *dwfl_callbacks;
+	struct drgn_error *err;
 
-	if (!prog->_dwfl) {
+	if (!prog->_dicache) {
+		const Dwfl_Callbacks *dwfl_callbacks;
+		struct drgn_dwarf_info_cache *dicache;
+
 		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 			dwfl_callbacks = &drgn_dwfl_callbacks;
 		else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
-			dwfl_callbacks = &linux_proc_dwfl_callbacks;
+			dwfl_callbacks = &drgn_linux_proc_dwfl_callbacks;
 		else
-			dwfl_callbacks = &userspace_core_dump_dwfl_callbacks;
-		prog->_dwfl = dwfl_begin(dwfl_callbacks);
-		if (!prog->_dwfl)
-			return drgn_error_libdwfl();
+			dwfl_callbacks = &drgn_userspace_core_dump_dwfl_callbacks;
+
+		err = drgn_dwarf_info_cache_create(&prog->tindex,
+						   dwfl_callbacks, &dicache);
+		if (err)
+			return err;
+		err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find,
+						   dicache);
+		if (err) {
+			drgn_dwarf_info_cache_destroy(dicache);
+			return err;
+		}
+		err = drgn_program_add_object_finder(prog,
+						     drgn_dwarf_object_find,
+						     dicache);
+		if (err) {
+			drgn_type_index_remove_finder(&prog->tindex);
+			drgn_dwarf_info_cache_destroy(dicache);
+			return err;
+		}
+		prog->_dicache = dicache;
 	}
-	*ret = prog->_dwfl;
+	*ret = &prog->_dicache->dindex;
+	return NULL;
+}
+
+struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret)
+{
+	struct drgn_error *err;
+	struct drgn_dwarf_index *dindex;
+
+	err = drgn_program_get_dindex(prog, &dindex);
+	if (err)
+		return err;
+	*ret = dindex->dwfl;
+	return NULL;
+}
+
+static struct drgn_error *
+userspace_report_debug_info(struct drgn_program *prog,
+			    struct drgn_dwarf_index *dindex,
+			    const char **paths, size_t n,
+			    bool report_default)
+{
+	struct drgn_error *err;
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		int fd;
+		Elf *elf;
+
+		err = open_elf_file(paths[i], &fd, &elf);
+		if (err) {
+			err = drgn_dwarf_index_report_error(dindex, paths[i],
+							    NULL, err);
+			if (err)
+				return err;
+			continue;
+		}
+		/*
+		 * We haven't implemented a way to get the load address for
+		 * anything reported here, so for now we report it as unloaded.
+		 */
+		err = drgn_dwarf_index_report_elf(dindex, paths[i], fd, elf, 0,
+						  0, NULL, NULL);
+		if (err)
+			return err;
+	}
+
+	if (report_default) {
+		if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+			int ret;
+
+			ret = dwfl_linux_proc_report(dindex->dwfl, prog->pid);
+			if (ret == -1) {
+				return drgn_error_libdwfl();
+			} else if (ret) {
+				return drgn_error_create_os("dwfl_linux_proc_report",
+							    ret, NULL);
+			}
+		} else {
+			Elf *elf;
+			int ret;
+
+			elf = elf_begin(prog->core_fd, ELF_C_READ, NULL);
+			if (!elf)
+				return drgn_error_libelf();
+			ret = dwfl_core_file_report(dindex->dwfl, elf, NULL);
+			elf_end(elf);
+			if (ret == -1)
+				return drgn_error_libdwfl();
+		}
+	}
 	return NULL;
 }
 
@@ -520,119 +597,41 @@ static int drgn_set_platform_from_dwarf(Dwfl_Module *module, void **userdatap,
 	return DWARF_CB_ABORT;
 }
 
-struct drgn_error *drgn_program_update_dwarf_index(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-
-	/* If we don't have a Dwfl handle yet, there's nothing to index. */
-	if (!prog->_dwfl)
-		return NULL;
-	if (!prog->_dicache) {
-		struct drgn_dwarf_info_cache *dicache;
-
-		err = drgn_dwarf_info_cache_create(&prog->tindex, &dicache);
-		if (err)
-			return err;
-		err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find,
-						   dicache);
-		if (err) {
-			drgn_dwarf_info_cache_destroy(dicache);
-			return err;
-		}
-		err = drgn_program_add_object_finder(prog,
-						     drgn_dwarf_object_find,
-						     dicache);
-		if (err) {
-			drgn_type_index_remove_finder(&prog->tindex);
-			drgn_dwarf_info_cache_destroy(dicache);
-			return err;
-		}
-		prog->_dicache = dicache;
-	}
-	err = drgn_dwarf_index_update(&prog->_dicache->dindex, prog->_dwfl);
-	if (err)
-		return err;
-	if (!prog->has_platform) {
-		dwfl_getdwarf(prog->_dwfl, drgn_set_platform_from_dwarf, prog,
-			      0);
-	}
-	return NULL;
-}
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
-			     size_t n)
+			     size_t n, bool load_default)
 {
 	struct drgn_error *err;
-	Dwfl *dwfl;
-	size_t i;
+	struct drgn_dwarf_index *dindex;
+	bool report_from_dwfl;
 
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		return linux_kernel_load_debug_info(prog, paths, n);
+	if (!n && !load_default)
+		return NULL;
 
-	err = drgn_program_get_dwfl(prog, &dwfl);
+	err = drgn_program_get_dindex(prog, &dindex);
 	if (err)
 		return err;
-	for (i = 0; i < n; i++) {
-		if (!dwfl_report_elf(dwfl, paths[i], paths[i], -1, 0, true)) {
-			err = drgn_error_libdwfl();
-			goto out;
-		}
-	}
-	err = drgn_program_update_dwarf_index(prog);
-out:
-	if (err)
-		drgn_remove_unindexed_dwfl_modules(dwfl);
-	return err;
-}
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_load_default_debug_info(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-	Dwfl *dwfl;
-
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		return linux_kernel_load_default_debug_info(prog);
-
-	err = drgn_program_get_dwfl(prog, &dwfl);
-	if (err)
-		return err;
-	dwfl_report_begin_add(dwfl);
-	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-		int ret;
-
-		ret = dwfl_linux_proc_report(dwfl, prog->pid);
-		if (ret == -1) {
-			err = drgn_error_libdwfl();
-		} else if (ret) {
-			err = drgn_error_create_os("dwfl_linux_proc_report",
-						   ret, NULL);
-		} else {
-			err = NULL;
-		}
+	drgn_dwarf_index_report_begin(dindex);
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		err = linux_kernel_report_debug_info(prog, dindex, paths, n,
+						     load_default);
 	} else {
-		Elf *elf;
-
-		elf = elf_begin(prog->core_fd, ELF_C_READ, NULL);
-		if (elf) {
-			if (dwfl_core_file_report(dwfl, elf, NULL) == -1)
-				err = drgn_error_libdwfl();
-			else
-				err = NULL;
-			elf_end(elf);
-		} else {
-			err = drgn_error_libelf();
-		}
+		err = userspace_report_debug_info(prog, dindex, paths, n,
+						  load_default);
 	}
-	dwfl_report_end(dwfl, NULL, NULL);
-	if (err)
-		goto out;
-
-	err = drgn_program_update_dwarf_index(prog);
-out:
-	if (err)
-		drgn_remove_unindexed_dwfl_modules(dwfl);
+	if (err) {
+		drgn_dwarf_index_report_abort(dindex);
+		return err;
+	}
+	report_from_dwfl = (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
+			    load_default);
+	err = drgn_dwarf_index_report_end(dindex, report_from_dwfl);
+	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO) &&
+	    !prog->has_platform) {
+		dwfl_getdwarf(prog->_dicache->dindex.dwfl,
+			      drgn_set_platform_from_dwarf, prog, 0);
+	}
 	return err;
 }
 
@@ -644,7 +643,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	err = drgn_program_set_core_dump(prog, path);
 	if (err)
 		return err;
-	err = drgn_program_load_default_debug_info(prog);
+	err = drgn_program_load_debug_info(prog, NULL, 0, true);
 	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
 		err = NULL;
@@ -659,7 +658,7 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
 	err = drgn_program_set_kernel(prog);
 	if (err)
 		return err;
-	err = drgn_program_load_default_debug_info(prog);
+	err = drgn_program_load_debug_info(prog, NULL, 0, true);
 	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
 		err = NULL;
@@ -674,7 +673,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	err = drgn_program_set_pid(prog, pid);
 	if (err)
 		return err;
-	err = drgn_program_load_default_debug_info(prog);
+	err = drgn_program_load_debug_info(prog, NULL, 0, true);
 	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
 		err = NULL;
@@ -825,10 +824,10 @@ struct drgn_error *drgn_program_find_symbol_internal(struct drgn_program *prog,
 	GElf_Off offset;
 	GElf_Sym elf_sym;
 
-	if (!prog->_dwfl)
+	if (!prog->_dicache)
 		return &drgn_not_found;
 
-	module = dwfl_addrmodule(prog->_dwfl, address);
+	module = dwfl_addrmodule(prog->_dicache->dindex.dwfl, address);
 	if (!module)
 		return &drgn_not_found;
 	name = dwfl_module_addrinfo(module, address, &offset, &elf_sym, NULL,

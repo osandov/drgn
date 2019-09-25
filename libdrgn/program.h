@@ -71,7 +71,6 @@ struct drgn_program {
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif
-	Dwfl *_dwfl;
 	struct drgn_dwarf_info_cache *_dicache;
 	/* See @ref drgn_object_stack_trace_next_thread(). */
 	const struct drgn_object *stack_trace_obj;
@@ -129,18 +128,7 @@ static inline bool drgn_program_is_64_bit(struct drgn_program *prog)
 	return prog->platform.flags & DRGN_PLATFORM_IS_64_BIT;
 }
 
-/**
- * Get the @c Dwfl handle for a @ref drgn_program.
- *
- * It is created the first time that this is called.
- */
 struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
-
-/**
- * Update a @ref drgn_program's @ref drgn_dwarf_index with any new modules
- * reported to the @c Dwfl handle.
- */
-struct drgn_error *drgn_program_update_dwarf_index(struct drgn_program *prog);
 
 /*
  * Like @ref drgn_program_find_symbol(), but @p ret is already allocated and

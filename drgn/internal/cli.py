@@ -85,18 +85,11 @@ def main() -> None:
         prog.set_pid(args.pid or os.getpid())
     else:
         prog.set_kernel()
-    if args.default_symbols:
-        try:
-            prog.load_default_debug_info()
-        except drgn.MissingDebugInfoError as e:
-            if not args.quiet:
-                print(str(e), file=sys.stderr)
-    if args.symbols:
-        try:
-            prog.load_debug_info(args.symbols)
-        except (drgn.MissingDebugInfoError, OSError) as e:
-            if not args.quiet:
-                print(e, file=sys.stderr)
+    try:
+        prog.load_debug_info(args.symbols or [], args.default_symbols)
+    except drgn.MissingDebugInfoError as e:
+        if not args.quiet:
+            print(str(e), file=sys.stderr)
 
     init_globals: Dict[str, Any] = {'prog': prog}
     if args.script:

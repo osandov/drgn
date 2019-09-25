@@ -418,16 +418,17 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 					 PyObject *kwds)
 {
-	static char *keywords[] = {"paths", NULL};
+	static char *keywords[] = {"paths", "default", NULL};
 	struct drgn_error *err;
 	PyObject *paths_obj, *it, *item;
 	struct path_arg *path_args = NULL;
 	Py_ssize_t length_hint;
 	size_t n = 0, i;
 	const char **paths;
+	int load_default = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:load_debug_info",
-					 keywords, &paths_obj))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|p:load_debug_info",
+					 keywords, &paths_obj, &load_default))
 		return NULL;
 
 	it = PyObject_GetIter(paths_obj);
@@ -473,7 +474,7 @@ static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 	}
 	for (i = 0; i < n; i++)
 		paths[i] = path_args[i].path;
-	err = drgn_program_load_debug_info(&self->prog, paths, n);
+	err = drgn_program_load_debug_info(&self->prog, paths, n, load_default);
 	free(paths);
 	if (err)
 		set_drgn_error(err);
@@ -490,7 +491,7 @@ static PyObject *Program_load_default_debug_info(Program *self)
 {
 	struct drgn_error *err;
 
-	err = drgn_program_load_default_debug_info(&self->prog);
+	err = drgn_program_load_debug_info(&self->prog, NULL, 0, true);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;

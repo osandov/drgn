@@ -1117,16 +1117,15 @@ struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
  */
 struct drgn_error *drgn_program_set_pid(struct drgn_program *prog, pid_t pid);
 
-/** Load debugging information for a list of executable or library files. */
-struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
-						const char **paths, size_t n);
-
 /**
- * Load debugging information which can automatically be determined from the
- * program.
+ * Load debugging information for a list of executable or library files.
+ *
+ * @param[in] load_default Whether to also load debugging information which can
+ * automatically be determined from the program.
  */
-struct drgn_error *
-drgn_program_load_default_debug_info(struct drgn_program *prog);
+struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
+						const char **paths, size_t n,
+						bool load_default);
 
 /**
  * Create a @ref drgn_program from a core dump file.

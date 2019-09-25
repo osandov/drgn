@@ -103,6 +103,9 @@ _Static_assert(sizeof(off_t) == 8 || sizeof(off_t) == 4,
 #define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
 
+#define swap(a, b) \
+	do { typeof(a) __tmp = (a); (a) = (b); (b) = __tmp; } while (0)
+
 #define container_of(ptr, type, member) ({				\
 	void *__mptr = (void *)(ptr);					\
 	BUILD_BUG_ON_MSG(!__same_type(*(ptr), ((type *)0)->member) &&	\
@@ -173,7 +176,15 @@ static inline void *malloc64(uint64_t size)
 	return malloc(size);
 }
 
+struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
+
+struct drgn_error *find_elf_file(char **path_ret, int *fd_ret, Elf **elf_ret,
+				 const char * const *path_formats, ...);
+
 struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
+
+struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
+				     uint64_t *start_ret, uint64_t *end_ret);
 
 /**
  * Return the word size of a program based on an ELF file.
