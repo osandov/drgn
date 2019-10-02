@@ -511,6 +511,7 @@ struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
 					 const Dwfl_Callbacks *callbacks)
 {
 	size_t i;
+	char *max_errors;
 
 	dindex->dwfl = dwfl_begin(callbacks);
 	if (!dindex->dwfl)
@@ -524,6 +525,11 @@ struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
 	}
 	memset(&dindex->errors, 0, sizeof(dindex->errors));
 	dindex->num_errors = 0;
+	max_errors = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
+	if (max_errors)
+		dindex->max_errors = atoi(max_errors);
+	else
+		dindex->max_errors = 5;
 	drgn_dwarf_module_table_init(&dindex->module_table);
 	drgn_dwarf_module_vector_init(&dindex->no_build_id);
 	c_string_set_init(&dindex->names);
@@ -549,8 +555,6 @@ void drgn_dwarf_index_report_begin(struct drgn_dwarf_index *dindex)
 	dwfl_report_begin_add(dindex->dwfl);
 }
 
-#define MAX_ERRORS 5
-
 struct drgn_error *
 drgn_dwarf_index_report_error(struct drgn_dwarf_index *dindex, const char *name,
 			      const char *message, struct drgn_error *err)
@@ -563,7 +567,7 @@ drgn_dwarf_index_report_error(struct drgn_dwarf_index *dindex, const char *name,
 	    !string_builder_append(&dindex->errors,
 				   "could not get debugging information for:"))
 		goto err;
-	if (dindex->num_errors < MAX_ERRORS) {
+	if (dindex->num_errors < dindex->max_errors) {
 		if (!string_builder_line_break(&dindex->errors))
 			goto err;
 		if (name && !string_builder_append(&dindex->errors, name))
@@ -602,10 +606,10 @@ drgn_dwarf_index_finalize_errors(struct drgn_dwarf_index *dindex)
 {
 	struct drgn_error *err;
 
-	if (dindex->num_errors > MAX_ERRORS &&
+	if (dindex->num_errors > dindex->max_errors &&
 	    (!string_builder_line_break(&dindex->errors) ||
 	     !string_builder_appendf(&dindex->errors, "... %u more",
-				     dindex->num_errors - MAX_ERRORS))) {
+				     dindex->num_errors - dindex->max_errors))) {
 		drgn_dwarf_index_reset_errors(dindex);
 		return &drgn_enomem;
 	}

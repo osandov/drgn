@@ -175,6 +175,8 @@ struct drgn_dwarf_index {
 	 * Number of errors reported by @ref drgn_dwarf_index_report_error().
 	 */
 	unsigned int num_errors;
+	/** Maximum number of errors to report before truncating. */
+	unsigned int max_errors;
 	/**
 	 * Modules keyed by build ID and address range.
 	 *

@@ -86,6 +86,11 @@ Environment Variables
 
 Some of drgn's behavior can be modified through environment variables:
 
+``DRGN_MAX_DEBUG_INFO_ERRORS``
+    The maximum number of individual errors to report in a
+    :exc:`drgn.MissingDebugInfoError`. Any additional errors are truncated. The
+    default is 5; -1 is unlimited.
+
 ``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
     is 1 if drgn was built with libkdumpfile support.
