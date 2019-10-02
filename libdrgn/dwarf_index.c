@@ -160,18 +160,18 @@ const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks = {
 };
 
 enum {
-	SECTION_DEBUG_ABBREV,
 	SECTION_DEBUG_INFO,
-	SECTION_DEBUG_LINE,
+	SECTION_DEBUG_ABBREV,
 	SECTION_DEBUG_STR,
+	SECTION_DEBUG_LINE,
 	DRGN_DWARF_INDEX_NUM_SECTIONS,
 };
 
 static const char * const section_name[DRGN_DWARF_INDEX_NUM_SECTIONS] = {
-	[SECTION_DEBUG_ABBREV] = ".debug_abbrev",
 	[SECTION_DEBUG_INFO] = ".debug_info",
-	[SECTION_DEBUG_LINE] = ".debug_line",
+	[SECTION_DEBUG_ABBREV] = ".debug_abbrev",
 	[SECTION_DEBUG_STR] = ".debug_str",
+	[SECTION_DEBUG_LINE] = ".debug_line",
 };
 
 /*
@@ -1144,8 +1144,8 @@ static struct drgn_error *get_debug_sections(Elf *elf, Elf_Data **sections)
 
 	for (i = 0; i < DRGN_DWARF_INDEX_NUM_SECTIONS; i++) {
 		if (i != SECTION_DEBUG_LINE && !sections[i]) {
-			return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
-						 "ELF file has no %s section",
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "no %s section",
 						 section_name[i]);
 		}
 	}
