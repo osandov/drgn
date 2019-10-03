@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -180,9 +181,12 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	struct drgn_platform platform;
 	bool is_64_bit, is_kdump;
 	size_t phnum, i;
+	size_t num_file_segments;
 	bool have_non_zero_phys_addr = false;
 	struct drgn_memory_file_segment *current_file_segment;
-	bool have_nt_taskstruct = false, have_vmcoreinfo = false, is_proc_kcore;
+	const char *vmcoreinfo_note = NULL;
+	size_t vmcoreinfo_size = 0;
+	bool have_nt_taskstruct = false, is_proc_kcore;
 
 	err = drgn_program_check_initialized(prog);
 	if (err)
@@ -196,6 +200,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (err)
 		goto out_fd;
 	if (is_kdump) {
+set_kdump:
 		err = drgn_program_set_kdump(prog);
 		if (err)
 			goto out_fd;
@@ -226,35 +231,109 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	}
 
 	/*
-	 * First pass: count the number of loadable segments and check if p_addr
-	 * is valid.
+	 * First pass: count the number of loadable segments, check if p_paddr
+	 * is valid, and check for notes.
 	 */
-	prog->num_file_segments = 0;
+	num_file_segments = 0;
 	for (i = 0; i < phnum; i++) {
 		GElf_Phdr phdr_mem, *phdr;
 
 		phdr = gelf_getphdr(elf, i, &phdr_mem);
 		if (!phdr) {
 			err = drgn_error_libelf();
-			goto out_segments;
+			goto out_elf;
 		}
 
 		if (phdr->p_type == PT_LOAD) {
 			if (phdr->p_paddr)
 				have_non_zero_phys_addr = true;
-			prog->num_file_segments++;
+			num_file_segments++;
+		} else if (phdr->p_type == PT_NOTE) {
+			Elf_Data *data;
+			size_t offset;
+			GElf_Nhdr nhdr;
+			size_t name_offset, desc_offset;
+
+			data = elf_getdata_rawchunk(elf, phdr->p_offset,
+						    phdr->p_filesz,
+						    note_header_type(phdr));
+			if (!data) {
+				err = drgn_error_libelf();
+				goto out_elf;
+			}
+
+			offset = 0;
+			while (offset < data->d_size &&
+			       (offset = gelf_getnote(data, offset, &nhdr,
+						      &name_offset,
+						      &desc_offset))) {
+				const char *name, *desc;
+
+				name = (char *)data->d_buf + name_offset;
+				desc = (char *)data->d_buf + desc_offset;
+				if (strncmp(name, "CORE", nhdr.n_namesz) == 0) {
+					if (nhdr.n_type == NT_TASKSTRUCT)
+						have_nt_taskstruct = true;
+				} else if (strncmp(name, "VMCOREINFO",
+						   nhdr.n_namesz) == 0) {
+					vmcoreinfo_note = desc;
+					vmcoreinfo_size = nhdr.n_descsz;
+				}
+			}
 		}
 	}
 
-	prog->file_segments = malloc_array(prog->num_file_segments,
+	if (have_nt_taskstruct) {
+		/*
+		 * If the core file has an NT_TASKSTRUCT note and is in /proc,
+		 * then it's probably /proc/kcore.
+		 */
+		struct statfs fs;
+
+		if (fstatfs(prog->core_fd, &fs) == -1) {
+			err = drgn_error_create_os("fstatfs", errno, path);
+			if (err)
+				goto out_elf;
+		}
+		is_proc_kcore = fs.f_type == 0x9fa0; /* PROC_SUPER_MAGIC */
+	} else {
+		is_proc_kcore = false;
+	}
+
+	if (vmcoreinfo_note && !is_proc_kcore) {
+		char *env;
+		bool use_libkdumpfile;
+
+		/*
+		 * Use libkdumpfile for ELF vmcores if we were compiled with
+		 * libkdumpfile support unless specified otherwise.
+		 */
+		env = getenv("DRGN_USE_LIBKDUMPFILE_FOR_ELF");
+		if (env) {
+			use_libkdumpfile = atoi(env);
+		} else {
+#ifdef WITH_LIBKDUMPFILE
+			use_libkdumpfile = true;
+#else
+			use_libkdumpfile = false;
+#endif
+		}
+		if (use_libkdumpfile) {
+			elf_end(elf);
+			goto set_kdump;
+		}
+	}
+
+	prog->file_segments = malloc_array(num_file_segments,
 					   sizeof(*prog->file_segments));
 	if (!prog->file_segments) {
 		err = &drgn_enomem;
-		goto out_segments;
+		goto out_elf;
 	}
+	prog->num_file_segments = num_file_segments;
 	current_file_segment = prog->file_segments;
 
-	/* Second pass: add the segments and parse notes. */
+	/* Second pass: add the segments. */
 	for (i = 0; i < phnum; i++) {
 		GElf_Phdr phdr_mem, *phdr;
 
@@ -297,77 +376,31 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 					goto out_segments;
 			}
 			current_file_segment++;
-		} else if (phdr->p_type == PT_NOTE) {
-			Elf_Data *data;
-			size_t offset;
-			GElf_Nhdr nhdr;
-			size_t name_offset, desc_offset;
-
-			data = elf_getdata_rawchunk(elf, phdr->p_offset,
-						    phdr->p_filesz,
-						    note_header_type(phdr));
-			if (!data) {
-				err = drgn_error_libelf();
-				goto out_segments;
-			}
-
-			offset = 0;
-			while (offset < data->d_size &&
-			       (offset = gelf_getnote(data, offset, &nhdr,
-						      &name_offset,
-						      &desc_offset))) {
-				const char *name, *desc;
-
-				name = (char *)data->d_buf + name_offset;
-				desc = (char *)data->d_buf + desc_offset;
-				if (strncmp(name, "CORE", nhdr.n_namesz) == 0) {
-					if (nhdr.n_type == NT_TASKSTRUCT)
-						have_nt_taskstruct = true;
-				} else if (strncmp(name, "VMCOREINFO",
-						   nhdr.n_namesz) == 0) {
-					err = parse_vmcoreinfo(desc,
-							       nhdr.n_descsz,
-							       &prog->vmcoreinfo);
-					if (err)
-						goto out_segments;
-					have_vmcoreinfo = true;
-				}
-			}
 		}
+	}
+	if (vmcoreinfo_note) {
+		err = parse_vmcoreinfo(vmcoreinfo_note, vmcoreinfo_size,
+				       &prog->vmcoreinfo);
+		if (err)
+			goto out_segments;
 	}
 	elf_end(elf);
 	elf = NULL;
 
-	if (have_nt_taskstruct) {
-		/*
-		 * If the core file has an NT_TASKSTRUCT note and is in /proc,
-		 * then it's probably /proc/kcore.
-		 */
-		struct statfs fs;
-
-		if (fstatfs(prog->core_fd, &fs) == -1) {
-			err = drgn_error_create_os("fstatfs", errno, path);
+	if (is_proc_kcore) {
+		if (!vmcoreinfo_note) {
+			err = read_vmcoreinfo_fallback(&prog->reader,
+						       have_non_zero_phys_addr,
+						       &prog->vmcoreinfo);
 			if (err)
 				goto out_segments;
 		}
-		is_proc_kcore = fs.f_type == 0x9fa0; /* PROC_SUPER_MAGIC */
-	} else {
-		is_proc_kcore = false;
-	}
-
-	if (!have_vmcoreinfo && is_proc_kcore) {
-		err = read_vmcoreinfo_fallback(&prog->reader,
-					       have_non_zero_phys_addr,
-					       &prog->vmcoreinfo);
-		if (err)
-			goto out_segments;
-		have_vmcoreinfo = true;
-	}
-
-	if (have_vmcoreinfo)
+		prog->flags |= (DRGN_PROGRAM_IS_LINUX_KERNEL |
+				DRGN_PROGRAM_IS_LIVE);
+	} else if (vmcoreinfo_note) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
-	if (is_proc_kcore)
-		prog->flags |= DRGN_PROGRAM_IS_LIVE;
+	}
+
 	drgn_program_set_platform(prog, &platform);
 	return NULL;
 

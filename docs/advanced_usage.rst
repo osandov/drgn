@@ -80,3 +80,12 @@ program "memory":
 :meth:`drgn.Program.add_type_finder()` and
 :meth:`drgn.Program.add_symbol_finder()` are the equivalent methods for
 plugging in types and symbols.
+
+Environment Variables
+---------------------
+
+Some of drgn's behavior can be modified through environment variables:
+
+``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
+    Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
+    is 1 if drgn was built with libkdumpfile support.
