@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "drgnpy.h"
+#ifdef WITH_KDUMPFILE
+#include <libkdumpfile/kdumpfile.h>
+#endif
 
 PyObject *FaultError;
 PyObject *MissingDebugInfoError;
@@ -107,6 +110,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	PyObject *m;
 	PyObject *version;
 	PyObject *host_platform_obj;
+	PyObject *with_libkdumpfile;
 
 	m = PyModule_Create(&drgnmodule);
 	if (!m)
@@ -176,6 +180,14 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (!host_platform_obj)
 		goto err;
 	PyModule_AddObject(m, "host_platform", host_platform_obj);
+
+#ifdef WITH_LIBKDUMPFILE
+	with_libkdumpfile = Py_True;
+#else
+	with_libkdumpfile = Py_False;
+#endif
+	Py_INCREF(with_libkdumpfile);
+	PyModule_AddObject(m, "_with_libkdumpfile", with_libkdumpfile);
 
 	return m;
 

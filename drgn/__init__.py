@@ -62,6 +62,7 @@ from _drgn import (
     Type,
     TypeKind,
     __version__,
+    _with_libkdumpfile,
     array_type,
     bool_type,
     cast,
