@@ -94,7 +94,7 @@ __all__ = [
     'NULL',
     'Object',
     'Platform',
-    'PlatformFlags'
+    'PlatformFlags',
     'PrimitiveType',
     'Program',
     'ProgramFlags',
@@ -110,6 +110,7 @@ __all__ = [
     'complex_type',
     'container_of',
     'enum_type',
+    'execscript',
     'filename_matches',
     'float_type',
     'function_type',
