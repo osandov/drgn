@@ -56,6 +56,7 @@ program "memory":
 
     import drgn
     import os
+    import sys
 
 
     def btrfs_debugger(dev):
@@ -69,12 +70,12 @@ program "memory":
         platform = drgn.Platform(drgn.Architecture.UNKNOWN,
                                  drgn.PlatformFlags.IS_LITTLE_ENDIAN)
         prog = drgn.Program(platform)
-        prog.add_memory_segment(0, None, size, read_file)
+        prog.add_memory_segment(0, size, read_file)
         prog.load_debug_info([f'/lib/modules/{os.uname().release}/kernel/fs/btrfs/btrfs.ko'])
         return prog
 
 
-    prog = btrfs_debugger('/dev/sda')
+    prog = btrfs_debugger(sys.argv[1] if len(sys.argv) >= 2 else '/dev/sda')
     print(drgn.Object(prog, 'struct btrfs_super_block', address=65536))
 
 :meth:`drgn.Program.add_type_finder()` and
