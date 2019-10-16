@@ -401,19 +401,23 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 	struct drgn_error *err;
 	Program *prog;
 	PyObject *type_obj = Py_None, *value_obj = Py_None;
-	PyObject *byteorder_obj = Py_None;
 	struct index_arg address = { .allow_none = true, .is_none = true };
+	struct byteorder_arg byteorder = {
+		.allow_none = true,
+		.is_none = true,
+		.value = DRGN_PROGRAM_ENDIAN,
+	};
 	struct index_arg bit_offset = { .allow_none = true, .is_none = true };
 	struct index_arg bit_field_size = { .allow_none = true, .is_none = true };
-	enum drgn_byte_order byte_order;
 	struct drgn_qualified_type qualified_type;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O$OO&OO&O&:Object",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O$OO&O&O&O&:Object",
 					 keywords, &Program_type, &prog,
 					 &type_obj, &value_obj, index_converter,
-					 &address, &byteorder_obj,
-					 index_converter, &bit_offset,
-					 index_converter, &bit_field_size))
+					 &address, byteorder_converter,
+					 &byteorder, index_converter,
+					 &bit_offset, index_converter,
+					 &bit_field_size))
 		return -1;
 
 	if (&prog->prog != self->obj.prog) {
@@ -424,9 +428,6 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 
 	if (Program_type_arg(DrgnObject_prog(self), type_obj, true,
 			     &qualified_type) == -1)
-		return -1;
-
-	if (parse_optional_byteorder(byteorder_obj, &byte_order) == -1)
 		return -1;
 
 	if (!bit_field_size.is_none && bit_field_size.value == 0) {
@@ -449,11 +450,11 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 		err = drgn_object_set_reference(&self->obj, qualified_type,
 						address.value, bit_offset.value,
 						bit_field_size.value,
-						byte_order);
+						byteorder.value);
 	} else if (value_obj != Py_None && !qualified_type.type) {
 		int ret;
 
-		if (byteorder_obj != Py_None) {
+		if (!byteorder.is_none) {
 			PyErr_SetString(PyExc_ValueError,
 					"literal cannot have byteorder");
 			return -1;
@@ -497,7 +498,7 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 			return -1;
 		}
 		if (kind != DRGN_OBJECT_BUFFER) {
-			if (byteorder_obj != Py_None) {
+			if (!byteorder.is_none) {
 				PyErr_SetString(PyExc_ValueError,
 						"primitive value cannot have byteorder");
 				return -1;
@@ -514,7 +515,7 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 			if (buffer_object_from_value(&self->obj, qualified_type,
 						     value_obj,
 						     bit_offset.value,
-						     byte_order) == -1)
+						     byteorder.value) == -1)
 				return -1;
 			err = NULL;
 			break;
@@ -1768,28 +1769,29 @@ DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds)
 	struct drgn_error *err;
 	PyObject *type_obj;
 	struct drgn_qualified_type qualified_type;
-	PyObject *byteorder_obj = Py_None;
-	enum drgn_byte_order byte_order;
+	struct byteorder_arg byteorder = {
+		.allow_none = true,
+		.is_none = true,
+		.value = DRGN_PROGRAM_ENDIAN,
+	};
 	DrgnObject *obj, *res;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!|O:reinterpret",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO!|O&:reinterpret",
 					 keywords, &type_obj, &DrgnObject_type,
-					 &obj, &byteorder_obj))
+					 &obj, byteorder_converter,
+					 &byteorder))
 		return NULL;
 
 	if (Program_type_arg(DrgnObject_prog(obj), type_obj, false,
 			     &qualified_type) == -1)
 		return NULL;
 
-	if (parse_optional_byteorder(byteorder_obj, &byte_order) == -1)
-		return NULL;
-
 	res = DrgnObject_alloc(DrgnObject_prog(obj));
 	if (!res)
 		return NULL;
 
-	err = drgn_object_reinterpret(&res->obj, qualified_type, byte_order,
-				      &obj->obj);
+	err = drgn_object_reinterpret(&res->obj, qualified_type,
+				      byteorder.value, &obj->obj);
 	if (err) {
 		Py_DECREF(res);
 		return set_drgn_error(err);

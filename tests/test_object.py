@@ -74,10 +74,8 @@ class TestInit(ObjectTestCase):
         self.assertRaises(TypeError, Object, self.prog, 'int', address='NULL')
 
     def test_byteorder(self):
-        self.assertRaisesRegex(ValueError,
-                               "byteorder must be 'little', 'big', or None",
-                               Object, self.prog, 'int', address=0,
-                               byteorder='middle')
+        self.assertRaises(ValueError, Object, self.prog, 'int', address=0,
+                          byteorder='middle')
         self.assertRaisesRegex(ValueError,
                                'primitive value cannot have byteorder',
                                Object, self.prog, 'int', value=0,
