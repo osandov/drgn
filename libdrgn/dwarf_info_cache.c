@@ -997,15 +997,15 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 
 	dimension->is_complete = true;
 	if (attr->code == DW_AT_upper_bound) {
-		if (word == UINT64_MAX) {
+		if (word >= UINT64_MAX) {
 			return drgn_error_create(DRGN_ERROR_OVERFLOW,
-						 "DW_AT_count is too large");
+						 "DW_AT_upper_bound is too large");
 		}
 		dimension->length = (uint64_t)word + 1;
 	} else {
 		if (word > UINT64_MAX) {
 			return drgn_error_create(DRGN_ERROR_OVERFLOW,
-						 "DW_AT_upper_bound is too large");
+						 "DW_AT_count is too large");
 		}
 		dimension->length = word;
 	}
