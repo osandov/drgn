@@ -1,3 +1,8 @@
+2019-09-07  Mark Wielaard  <mark@klomp.org>
+
+	* riscv_disasm.c (riscv_disasm): Use UINT64_C to make calculation
+	unsigned.
+
 2019-07-05  Omar Sandoval  <osandov@fb.com>
 
 	* Makefile.am: Combine libcpu_{i386,x86_64,bpf}.a into libcpu.a.

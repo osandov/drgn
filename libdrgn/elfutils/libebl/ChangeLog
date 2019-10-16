@@ -1,3 +1,8 @@
+2019-08-29  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (noinst_LIBRARIES): Add libebl.a.
+	(noinst_HEADERS): Add libebl.h.
+
 2019-07-05  Omar Sandoval  <osandov@fb.com>
 
 	* Makefile.am: Make libebl.a non-PIC by default.

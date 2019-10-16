@@ -717,11 +717,13 @@ show_disasm (Ebl *ebl, const char *fname, uint32_t shstrndx)
 	      info.address_color = color_address;
 	      info.bytes_color = color_bytes;
 
-	      if (asprintf (&fmt, "%s%%7m %s%%.1o,%s%%.2o,%s%%.3o%%34a %s%%l",
+	      if (asprintf (&fmt, "%s%%7m %s%%.1o,%s%%.2o,%s%%.3o,,%s%%.4o%s%%.5o%%34a %s%%l",
 			    color_mnemonic ?: "",
 			    color_operand1 ?: "",
 			    color_operand2 ?: "",
 			    color_operand3 ?: "",
+                            color_operand4 ?: "",
+                            color_operand5 ?: "",
 			    color_label ?: "") < 0)
 		error (EXIT_FAILURE, errno, _("cannot allocate memory"));
 	    }
@@ -729,7 +731,7 @@ show_disasm (Ebl *ebl, const char *fname, uint32_t shstrndx)
 	    {
 	      info.address_color = info.bytes_color = NULL;
 
-	      fmt = "%7m %.1o,%.2o,%.3o%34a %l";
+	      fmt = "%7m %.1o,%.2o,%.3o,%.4o,%.5o%34a %l";
 	    }
 
 	  disasm_cb (ctx, &info.cur, info.cur + data->d_size, info.addr,

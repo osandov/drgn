@@ -281,6 +281,9 @@ cat testfile.dynsym.in testfile.symtab.in \
 cat testfile.dynsym.in \
   | testrun_compare ${abs_top_builddir}/src/readelf \
     --symbols=.dynsym testfilebaztab
+cat testfile.dynsym.in \
+  | testrun_compare ${abs_top_builddir}/src/readelf \
+    --dyn-syms testfilebaztab
 
 # Display just .symtab
 cat testfile.symtab.in \

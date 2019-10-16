@@ -523,6 +523,8 @@ new_unwound (Dwfl_Frame *state)
   state->unwound = unwound;
   unwound->thread = thread;
   unwound->unwound = NULL;
+  unwound->mod = NULL;
+  unwound->frame = NULL;
   unwound->signal_frame = false;
   unwound->initial_frame = false;
   unwound->pc_state = DWFL_FRAME_STATE_ERROR;
@@ -544,6 +546,8 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
       __libdwfl_seterrno (DWFL_E_LIBDW);
       return;
     }
+  state->frame = frame;
+  state->bias = bias;
 
   Dwfl_Frame *unwound = new_unwound (state);
   if (unwound == NULL)
@@ -724,20 +728,20 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
      Then we need to unwind from the original, unadjusted PC.  */
   if (! state->initial_frame && ! state->signal_frame)
     pc--;
-  Dwfl_Module *mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
-  if (mod == NULL)
+  state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
+  if (state->mod == NULL)
     __libdwfl_seterrno (DWFL_E_NO_DWARF);
   else
     {
       Dwarf_Addr bias;
-      Dwarf_CFI *cfi_eh = INTUSE(dwfl_module_eh_cfi) (mod, &bias);
+      Dwarf_CFI *cfi_eh = INTUSE(dwfl_module_eh_cfi) (state->mod, &bias);
       if (cfi_eh)
 	{
 	  handle_cfi (state, pc - bias, cfi_eh, bias);
 	  if (state->unwound)
 	    return;
 	}
-      Dwarf_CFI *cfi_dwarf = INTUSE(dwfl_module_dwarf_cfi) (mod, &bias);
+      Dwarf_CFI *cfi_dwarf = INTUSE(dwfl_module_dwarf_cfi) (state->mod, &bias);
       if (cfi_dwarf)
 	{
 	  handle_cfi (state, pc - bias, cfi_dwarf, bias);
@@ -769,4 +773,29 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
     }
   assert (state->unwound->pc_state == DWFL_FRAME_STATE_PC_SET);
   state->unwound->signal_frame = signal_frame;
+}
+
+Dwfl_Module *
+dwfl_frame_module (Dwfl_Frame *state)
+{
+  return state->mod;
+}
+
+Dwarf_Frame *
+dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
+{
+  *bias = state->bias;
+  return state->frame;
+}
+
+bool
+dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,
+		      Dwarf_Addr *result)
+{
+  if (state->frame == NULL)
+    {
+      __libdwfl_seterrno (DWFL_E_NO_DWARF);
+      return false;
+    }
+  return expr_eval (state, state->frame, ops, nops, result, state->bias);
 }

@@ -1,3 +1,10 @@
+2019-08-29  Mark Wielaard  <mark@klomp.org>
+
+	* elfutils.spec.in (%description devel): Remove libebl text.
+	(%install): Don't touch backend lib.*.so* files.
+	(%files): Remove backends dir and so files.
+	(%files devel): Remove libebl.h and libebl.a
+
 2019-08-28  Mark Wielaard  <mark@klomp.org>
 
 	* elfutils.spec.in (License): Add GFDL.

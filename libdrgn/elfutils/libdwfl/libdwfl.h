@@ -750,6 +750,16 @@ pid_t dwfl_thread_tid (Dwfl_Thread *thread)
 Dwfl_Thread *dwfl_frame_thread (Dwfl_Frame *state)
   __nonnull_attribute__ (1);
 
+/* Return module containing the PC for frame STATE.  Returns NULL if no module
+   contains the PC.  */
+Dwfl_Module *dwfl_frame_module (Dwfl_Frame *state)
+  __nonnull_attribute__ (1);
+
+/* Return CFI frame for frame STATE.  Returns NULL if no CFI frame was
+   found. */
+Dwarf_Frame *dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
+  __nonnull_attribute__ (1, 2);
+
 /* Called by Dwfl_Thread_Callbacks.set_initial_registers implementation.
    For every known continuous block of registers <FIRSTREG..FIRSTREG+NREGS)
    (inclusive..exclusive) set their content to REGS (array of NREGS items).
@@ -774,6 +784,18 @@ int dwfl_getthreads (Dwfl *dwfl,
 		     int (*callback) (Dwfl_Thread *thread, void *arg),
 		     void *arg)
   __nonnull_attribute__ (1, 2);
+
+/* Attach to a thread.  The returned thread must be detached and freed with
+   dwfl_detach_thread.  Returns NULL on error.  This calls the
+   set_initial_registers callback.  While a thread is attached,
+   dwfl_thread_getframes will cache the unwound frames for the thread.  They
+   remain valid until dwfl_detach_thread is called.  */
+Dwfl_Thread *dwfl_attach_thread(Dwfl *dwfl, pid_t tid)
+  __nonnull_attribute__ (1);
+
+/* Detach from a thread that was attached with dwfl_attach_thread and free it.
+   This calls the detach_thread callback.  */
+void dwfl_detach_thread(Dwfl_Thread *thread);
 
 /* Iterate through the frames for a thread.  Returns zero if all frames
    have been processed by the callback, returns -1 on error, or the value of
@@ -806,6 +828,12 @@ int dwfl_getthread_frames (Dwfl *dwfl, pid_t tid,
    Function returns false if it failed to find *PC.  */
 bool dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
   __nonnull_attribute__ (1, 2);
+
+/* Evaluate a DWARF expression in the context of a frame.  On success, returns
+   true and fills in *RESULT.  On error, returns false. */
+bool dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,
+			   Dwarf_Addr *result)
+  __nonnull_attribute__ (1, 2, 4);
 
 #ifdef __cplusplus
 }

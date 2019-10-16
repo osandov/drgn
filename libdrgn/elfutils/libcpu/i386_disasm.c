@@ -1030,7 +1030,7 @@ i386_disasm (Ebl *ebl __attribute__((unused)),
 		      string_end_idx = bufcnt;
 		    }
 		  else
-		    bufcnt = string_end_idx;
+		    start_idx = bufcnt = string_end_idx;
 		  break;
 
 		case 'e':

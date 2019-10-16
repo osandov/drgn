@@ -151,15 +151,15 @@ main (int argc, char *argv[])
       int fd = open (argv[remaining], O_RDONLY);
       if (fd == -1)
 	{
-	  error (0, errno, gettext ("cannot open input file"));
+	  error (0, errno, _("cannot open input file '%s'"), argv[remaining]);
 	  continue;
 	}
 
       /* Create an `Elf' descriptor.  */
       Elf *elf = elf_begin (fd, ELF_C_READ_MMAP, NULL);
       if (elf == NULL)
-	ERROR (gettext ("cannot generate Elf descriptor: %s\n"),
-	       elf_errmsg (-1));
+	ERROR (_("cannot generate Elf descriptor for '%s': %s\n"),
+	       argv[remaining], elf_errmsg (-1));
       else
 	{
 	  unsigned int prev_error_count = error_count;

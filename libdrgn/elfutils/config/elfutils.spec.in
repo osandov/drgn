@@ -51,9 +51,8 @@ Requires: elfutils-libelf-devel = %{version}-%{release}
 
 %description devel
 The elfutils-devel package contains the libraries to create
-applications for handling compiled objects.  libebl provides some
-higher-level ELF access functionality.  libdw provides access to
-the DWARF debugging information.  libasm provides a programmable
+applications for handling compiled objects.  libdw provides access
+to the DWARF debugging information.  libasm provides a programmable
 assembler interface.
 
 %package devel-static
@@ -131,7 +130,6 @@ mkdir -p ${RPM_BUILD_ROOT}%{_prefix}
 %makeinstall
 
 chmod +x ${RPM_BUILD_ROOT}%{_prefix}/%{_lib}/lib*.so*
-chmod +x ${RPM_BUILD_ROOT}%{_prefix}/%{_lib}/elfutils/lib*.so*
 
 # XXX Nuke unpackaged files
 ( cd ${RPM_BUILD_ROOT}
@@ -184,8 +182,6 @@ rm -rf ${RPM_BUILD_ROOT}
 %{_libdir}/libdw-%{version}.so
 %{_libdir}/libasm.so.*
 %{_libdir}/libdw.so.*
-%dir %{_libdir}/elfutils
-%{_libdir}/elfutils/lib*.so
 %{_mandir}/man1/eu-*.1*
 
 %files devel
@@ -195,12 +191,10 @@ rm -rf ${RPM_BUILD_ROOT}
 %{_includedir}/elfutils/elf-knowledge.h
 %{_includedir}/elfutils/known-dwarf.h
 #%{_includedir}/elfutils/libasm.h
-%{_includedir}/elfutils/libebl.h
 %{_includedir}/elfutils/libdw.h
 %{_includedir}/elfutils/libdwfl.h
 %{_includedir}/elfutils/libdwelf.h
 %{_includedir}/elfutils/version.h
-%{_libdir}/libebl.a
 #%{_libdir}/libasm.so
 %{_libdir}/libdw.so
 %{_libdir}/pkgconfig/libdw.pc

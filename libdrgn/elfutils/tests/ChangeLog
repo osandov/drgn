@@ -1,3 +1,12 @@
+2019-09-02  Mark Wielaard  <mark@klomp.org>
+
+	* run-readelf-s.sh: Add --dyn-syms case.
+
+2019-09-07  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (EXTRA_DIST): Add run-disasm-riscv64.sh,
+	testfile-riscv64-dis1.o.bz2 and testfile-riscv64-dis1.expect.bz2.
+
 2019-08-27  Mark Wielaard  <mark@klomp.org>
 
 	* run-readelf-test2.sh: Add -x num testcase.

@@ -34,12 +34,10 @@ endif
 AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdw -I$(srcdir)/../libasm
 VERSION = 1
 
-lib_LIBRARIES = libebl.a
+noinst_LIBRARIES = libebl.a
 if ENABLE_SHARED
-noinst_LIBRARIES = libebl_pic.a
+noinst_LIBRARIES += libebl_pic.a
 endif
-
-pkginclude_HEADERS = libebl.h
 
 libebl_a_SOURCES = eblopenbackend.c eblclosebackend.c eblreloctypename.c \
 		   eblsegmenttypename.c eblsectiontypename.c \
@@ -64,6 +62,6 @@ libebl_a_SOURCES = eblopenbackend.c eblclosebackend.c eblreloctypename.c \
 libebl_pic_a_SOURCES =
 am_libebl_pic_a_OBJECTS = $(libebl_a_SOURCES:.c=.os)
 
-noinst_HEADERS = libeblP.h ebl-hooks.h
+noinst_HEADERS = libebl.h libeblP.h ebl-hooks.h
 
 MOSTLYCLEANFILES = $(am_libebl_pic_a_OBJECTS)

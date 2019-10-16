@@ -146,7 +146,8 @@ eu-readelf [\fB\-a\fR|\fB\-\-all\fR]
         [\fB\-S\fR|\fB\-\-section\-headers\fR|\fB\-\-sections\fR]
         [\fB\-g\fR|\fB\-\-section\-groups\fR]
         [\fB\-e\fR|\fB\-\-exception\fR]
-        [\fB\-s\fR|\fB\-\-symbols\fR]
+        [\fB\-s\fR|\fB\-\-symbols\fR] [section name] ]
+        [\fB\-\-dyn-syms\fR]
         [\fB\-n\fR|\fB\-\-notes\fR [section name] ]
         [\fB\-r\fR|\fB\-\-relocs\fR]
         [\fB\-d\fR|\fB\-\-dynamic\fR]
@@ -254,7 +255,7 @@ of the symbol tables.
 .IP "\fB\-s\fR" 4
 .IX Item "-s"
 .PD 0
-.IP "\fB\-\-symbols\fR" 4
+.IP "\fB\-\-symbols\fR [section name]" 4
 .IX Item "--symbols"
 .PD
 Displays the entries in symbol table section of the file, if it has one.
@@ -265,6 +266,10 @@ symbol name, preceeded by an @ character.  For example
 when resolving unversioned references to the symbol then it is
 displayed as a suffix preceeded by two @ characters.  For example
 \&\fBfoo@@VER_2\fR.
+.IP "\fB\-\-dyn-syms\fR" 4
+.IX Item "--dyn-syms"
+.PD
+Display (only) the dynamic symbol table.
 .IP "\fB\-e\fR" 4
 .IX Item "-e"
 .PD 0

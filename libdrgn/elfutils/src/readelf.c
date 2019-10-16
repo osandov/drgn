@@ -84,6 +84,9 @@ ARGP_PROGRAM_BUG_ADDRESS_DEF = PACKAGE_BUGREPORT;
 /* argp key value for --dwarf-skeleton, non-ascii.  */
 #define DWARF_SKELETON 257
 
+/* argp key value for --dyn-syms, non-ascii.  */
+#define PRINT_DYNSYM_TABLE 258
+
 /* Terrible hack for hooking unrelated skeleton/split compile units,
    see __libdw_link_skel_split in print_debug.  */
 static bool do_not_close_dwfl = false;
@@ -113,6 +116,8 @@ static const struct argp_option options[] =
   { "sections", 'S', NULL, OPTION_ALIAS | OPTION_HIDDEN, NULL, 0 },
   { "symbols", 's', "SECTION", OPTION_ARG_OPTIONAL,
     N_("Display the symbol table sections"), 0 },
+  { "dyn-syms", PRINT_DYNSYM_TABLE, NULL, 0,
+    N_("Display (only) the dynamic symbol table"), 0 },
   { "version-info", 'V', NULL, 0, N_("Display versioning information"), 0 },
   { "notes", 'n', "SECTION", OPTION_ARG_OPTIONAL, N_("Display the ELF notes"), 0 },
   { "arch-specific", 'A', NULL, 0,
@@ -186,6 +191,9 @@ static bool print_section_header;
 
 /* True if the symbol table should be printed.  */
 static bool print_symbol_table;
+
+/* True if (only) the dynsym table should be printed.  */
+static bool print_dynsym_table;
 
 /* A specific section name, or NULL to print all symbol tables.  */
 static char *symbol_table_section;
@@ -357,7 +365,7 @@ main (int argc, char *argv[])
       int fd = open (argv[remaining], O_RDONLY);
       if (fd == -1)
 	{
-	  error (0, errno, gettext ("cannot open input file"));
+	  error (0, errno, _("cannot open input file '%s'"), argv[remaining]);
 	  continue;
 	}
 
@@ -456,6 +464,10 @@ parse_opt (int key, char *arg,
       print_symbol_table = true;
       any_control_option = true;
       symbol_table_section = arg;
+      break;
+    case PRINT_DYNSYM_TABLE:
+      print_dynsym_table = true;
+      any_control_option = true;
       break;
     case 'V':
       print_version_info = true;
@@ -998,7 +1010,7 @@ process_elf_file (Dwfl_Module *dwflmod, int fd)
     print_relocs (pure_ebl, ehdr);
   if (print_histogram)
     handle_hash (ebl);
-  if (print_symbol_table)
+  if (print_symbol_table || print_dynsym_table)
     print_symtab (ebl, SHT_DYNSYM);
   if (print_version_info)
     print_verinfo (ebl);

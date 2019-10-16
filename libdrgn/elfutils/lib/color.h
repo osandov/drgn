@@ -50,6 +50,8 @@ extern char *color_mnemonic;
 extern char *color_operand1;
 extern char *color_operand2;
 extern char *color_operand3;
+extern char *color_operand4;
+extern char *color_operand5;
 extern char *color_label;
 extern char *color_undef;
 extern char *color_undef_tls;

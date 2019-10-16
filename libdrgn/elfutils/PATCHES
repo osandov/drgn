@@ -1,4 +1,624 @@
-commit 2fb6e0fbee387ca51b48f2e7060c925a4e26c88e
+commit 60f36a01381349a5f813de34336f308a4419d3ed
+Author: Omar Sandoval <osandov@fb.com>
+Date:   Mon Oct 7 01:30:35 2019 -0700
+
+    libdwfl: add interface for evaluating DWARF expressions in a frame
+    
+    libdwfl can evaluate DWARF expressions in order to unwind the stack, but
+    this functionality isn't exposed to clients of the library. Now that the
+    pieces are in place, add dwfl_frame_eval_expr to provide this feature.
+
+diff --git a/libdw/libdw.map b/libdw/libdw.map
+index c1469c4e..d06a29ed 100644
+--- a/libdw/libdw.map
++++ b/libdw/libdw.map
+@@ -376,4 +376,5 @@ ELFUTILS_0.178 {
+     dwfl_detach_thread;
+     dwfl_frame_module;
+     dwfl_frame_dwarf_frame;
++    dwfl_frame_eval_expr;
+ } ELFUTILS_0.177;
+diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
+index 9738ca72..4c2df837 100644
+--- a/libdwfl/frame_unwind.c
++++ b/libdwfl/frame_unwind.c
+@@ -787,3 +787,15 @@ dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
+   *bias = state->bias;
+   return state->frame;
+ }
++
++bool
++dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,
++		      Dwarf_Addr *result)
++{
++  if (state->frame == NULL)
++    {
++      __libdwfl_seterrno (DWFL_E_NO_DWARF);
++      return false;
++    }
++  return expr_eval (state, state->frame, ops, nops, result, state->bias);
++}
+diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
+index b450816b..90a3e103 100644
+--- a/libdwfl/libdwfl.h
++++ b/libdwfl/libdwfl.h
+@@ -829,6 +829,12 @@ int dwfl_getthread_frames (Dwfl *dwfl, pid_t tid,
+ bool dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
+   __nonnull_attribute__ (1, 2);
+ 
++/* Evaluate a DWARF expression in the context of a frame.  On success, returns
++   true and fills in *RESULT.  On error, returns false. */
++bool dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,
++			   Dwarf_Addr *result)
++  __nonnull_attribute__ (1, 2, 4);
++
+ #ifdef __cplusplus
+ }
+ #endif
+commit 56b06a56375e2909f60c389f85af691c2d9a2a73
+Author: Omar Sandoval <osandov@fb.com>
+Date:   Mon Oct 7 01:25:31 2019 -0700
+
+    libdwfl: cache Dwfl_Module and Dwarf_Frame for Dwfl_Frame
+    
+    The next change will need to have the Dwarf_Frame readily available, so
+    rather than finding it again every time, let's cache it for reuse. The
+    CFI frame can also be useful to clients of libdwfl, so add
+    dwfl_frame_dwarf_frame to get it. Similarly, the Dwfl_Module is also
+    frequently needed in conjunction with the frame, so cache it and add
+    dwfl_frame_module.
+
+diff --git a/libdw/libdw.map b/libdw/libdw.map
+index f20ffc2f..c1469c4e 100644
+--- a/libdw/libdw.map
++++ b/libdw/libdw.map
+@@ -374,4 +374,6 @@ ELFUTILS_0.178 {
+   global:
+     dwfl_attach_thread;
+     dwfl_detach_thread;
++    dwfl_frame_module;
++    dwfl_frame_dwarf_frame;
+ } ELFUTILS_0.177;
+diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
+index 61fad8b9..3f660f7e 100644
+--- a/libdwfl/dwfl_frame.c
++++ b/libdwfl/dwfl_frame.c
+@@ -94,6 +94,8 @@ state_alloc (Dwfl_Thread *thread)
+   if (state == NULL)
+     return NULL;
+   state->thread = thread;
++  state->mod = NULL;
++  state->frame = NULL;
+   state->signal_frame = false;
+   state->initial_frame = true;
+   state->pc_state = DWFL_FRAME_STATE_ERROR;
+diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
+index d7dfa5a9..9738ca72 100644
+--- a/libdwfl/frame_unwind.c
++++ b/libdwfl/frame_unwind.c
+@@ -523,6 +523,8 @@ new_unwound (Dwfl_Frame *state)
+   state->unwound = unwound;
+   unwound->thread = thread;
+   unwound->unwound = NULL;
++  unwound->mod = NULL;
++  unwound->frame = NULL;
+   unwound->signal_frame = false;
+   unwound->initial_frame = false;
+   unwound->pc_state = DWFL_FRAME_STATE_ERROR;
+@@ -544,6 +546,8 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
+       __libdwfl_seterrno (DWFL_E_LIBDW);
+       return;
+     }
++  state->frame = frame;
++  state->bias = bias;
+ 
+   Dwfl_Frame *unwound = new_unwound (state);
+   if (unwound == NULL)
+@@ -724,20 +728,20 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
+      Then we need to unwind from the original, unadjusted PC.  */
+   if (! state->initial_frame && ! state->signal_frame)
+     pc--;
+-  Dwfl_Module *mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
+-  if (mod == NULL)
++  state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
++  if (state->mod == NULL)
+     __libdwfl_seterrno (DWFL_E_NO_DWARF);
+   else
+     {
+       Dwarf_Addr bias;
+-      Dwarf_CFI *cfi_eh = INTUSE(dwfl_module_eh_cfi) (mod, &bias);
++      Dwarf_CFI *cfi_eh = INTUSE(dwfl_module_eh_cfi) (state->mod, &bias);
+       if (cfi_eh)
+ 	{
+ 	  handle_cfi (state, pc - bias, cfi_eh, bias);
+ 	  if (state->unwound)
+ 	    return;
+ 	}
+-      Dwarf_CFI *cfi_dwarf = INTUSE(dwfl_module_dwarf_cfi) (mod, &bias);
++      Dwarf_CFI *cfi_dwarf = INTUSE(dwfl_module_dwarf_cfi) (state->mod, &bias);
+       if (cfi_dwarf)
+ 	{
+ 	  handle_cfi (state, pc - bias, cfi_dwarf, bias);
+@@ -770,3 +774,16 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
+   assert (state->unwound->pc_state == DWFL_FRAME_STATE_PC_SET);
+   state->unwound->signal_frame = signal_frame;
+ }
++
++Dwfl_Module *
++dwfl_frame_module (Dwfl_Frame *state)
++{
++  return state->mod;
++}
++
++Dwarf_Frame *
++dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
++{
++  *bias = state->bias;
++  return state->frame;
++}
+diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
+index a22afc78..b450816b 100644
+--- a/libdwfl/libdwfl.h
++++ b/libdwfl/libdwfl.h
+@@ -750,6 +750,16 @@ pid_t dwfl_thread_tid (Dwfl_Thread *thread)
+ Dwfl_Thread *dwfl_frame_thread (Dwfl_Frame *state)
+   __nonnull_attribute__ (1);
+ 
++/* Return module containing the PC for frame STATE.  Returns NULL if no module
++   contains the PC.  */
++Dwfl_Module *dwfl_frame_module (Dwfl_Frame *state)
++  __nonnull_attribute__ (1);
++
++/* Return CFI frame for frame STATE.  Returns NULL if no CFI frame was
++   found. */
++Dwarf_Frame *dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
++  __nonnull_attribute__ (1, 2);
++
+ /* Called by Dwfl_Thread_Callbacks.set_initial_registers implementation.
+    For every known continuous block of registers <FIRSTREG..FIRSTREG+NREGS)
+    (inclusive..exclusive) set their content to REGS (array of NREGS items).
+diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
+index c80d2051..ea417596 100644
+--- a/libdwfl/libdwflP.h
++++ b/libdwfl/libdwflP.h
+@@ -255,6 +255,11 @@ struct Dwfl_Frame
+   Dwfl_Thread *thread;
+   /* Previous (outer) frame.  */
+   Dwfl_Frame *unwound;
++  /* Module containing pc. */
++  Dwfl_Module *mod;
++  /* CFI frame containing pc. */
++  Dwarf_Frame *frame;
++  Dwarf_Addr bias;
+   bool signal_frame : 1;
+   bool initial_frame : 1;
+   enum
+commit f4d2d0b04c7e4ce8c044ce37d9027223256bd74a
+Author: Omar Sandoval <osandov@fb.com>
+Date:   Mon Oct 7 01:22:39 2019 -0700
+
+    libdwfl: add interface for attaching to/detaching from threads
+    
+    libdwfl has implementations of attaching to/detaching from threads and
+    unwinding stack traces. However, that functionality is only available
+    through the dwfl_thread_getframes interface, which isn't very flexible.
+    This adds two new functions, dwfl_attach_thread and dwfl_detach_thread,
+    which separate the thread stopping functionality out of
+    dwfl_thread_getframes. Additionally, it makes dwfl_thread_getframes
+    cache the stack trace for threads stopped this way. This makes it
+    possible to use the frames after dwfl_thread_getframes returns.
+
+diff --git a/libdw/libdw.map b/libdw/libdw.map
+index decac05c..f20ffc2f 100644
+--- a/libdw/libdw.map
++++ b/libdw/libdw.map
+@@ -370,3 +370,8 @@ ELFUTILS_0.177 {
+     # presume that NULL is only returned on error (otherwise ELF_K_NONE).
+     dwelf_elf_begin;
+ } ELFUTILS_0.175;
++ELFUTILS_0.178 {
++  global:
++    dwfl_attach_thread;
++    dwfl_detach_thread;
++} ELFUTILS_0.177;
+diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
+index 5bbf850e..61fad8b9 100644
+--- a/libdwfl/dwfl_frame.c
++++ b/libdwfl/dwfl_frame.c
+@@ -103,6 +103,29 @@ state_alloc (Dwfl_Thread *thread)
+   return state;
+ }
+ 
++static Dwfl_Frame *
++start_unwind(Dwfl_Thread *thread)
++{
++  if (ebl_frame_nregs (thread->process->ebl) == 0)
++    {
++      __libdwfl_seterrno (DWFL_E_NO_UNWIND);
++      return NULL;
++    }
++  if (state_alloc (thread) == NULL)
++    {
++      __libdwfl_seterrno (DWFL_E_NOMEM);
++      return NULL;
++    }
++  if (! thread->process->callbacks->set_initial_registers (thread,
++							   thread->callbacks_arg))
++    {
++      free_states (thread->unwound);
++      thread->unwound = NULL;
++      return NULL;
++    }
++  return thread->unwound;
++}
++
+ void
+ internal_function
+ __libdwfl_process_free (Dwfl_Process *process)
+@@ -366,6 +389,45 @@ getthread (Dwfl *dwfl, pid_t tid,
+    return err;
+ }
+ 
++static int
++attach_thread_cb(Dwfl_Thread *thread, void *arg)
++{
++  Dwfl_Thread *copied = malloc (sizeof (*copied));
++  if (copied == NULL)
++    {
++      __libdwfl_seterrno (DWFL_E_NOMEM);
++      return DWARF_CB_ABORT;
++    }
++  *copied = *thread;
++  if (start_unwind (copied) == NULL)
++    {
++      free (copied);
++      return DWARF_CB_ABORT;
++    }
++  *(Dwfl_Thread **)arg = copied;
++  return DWARF_CB_OK;
++}
++
++Dwfl_Thread *
++dwfl_attach_thread(Dwfl *dwfl, pid_t tid)
++{
++  Dwfl_Thread *thread;
++  if (getthread (dwfl, tid, attach_thread_cb, &thread))
++    return NULL;
++  return thread;
++}
++
++void
++dwfl_detach_thread(Dwfl_Thread *thread)
++{
++  if (thread == NULL)
++    return;
++  if (thread->process->callbacks->thread_detach)
++    thread->process->callbacks->thread_detach (thread, thread->callbacks_arg);
++  free_states (thread->unwound);
++  free (thread);
++}
++
+ struct one_thread
+ {
+   int (*callback) (Dwfl_Frame *frame, void *arg);
+@@ -394,63 +456,55 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
+ 		       int (*callback) (Dwfl_Frame *state, void *arg),
+ 		       void *arg)
+ {
+-  Ebl *ebl = thread->process->ebl;
+-  if (ebl_frame_nregs (ebl) == 0)
+-    {
+-      __libdwfl_seterrno (DWFL_E_NO_UNWIND);
+-      return -1;
+-    }
+-  if (state_alloc (thread) == NULL)
+-    {
+-      __libdwfl_seterrno (DWFL_E_NOMEM);
+-      return -1;
+-    }
+   Dwfl_Process *process = thread->process;
+-  if (! process->callbacks->set_initial_registers (thread,
+-						   thread->callbacks_arg))
+-    {
+-      free_states (thread->unwound);
+-      thread->unwound = NULL;
+-      return -1;
+-    }
++  int ret = -1;
++  bool cache = thread->unwound != NULL;
++  if (! cache && start_unwind (thread) == NULL)
++    return -1;
+   Dwfl_Frame *state = thread->unwound;
+-  thread->unwound = NULL;
++  if (! cache)
++    thread->unwound = NULL;
+   if (! state_fetch_pc (state))
+-    {
+-      if (process->callbacks->thread_detach)
+-	process->callbacks->thread_detach (thread, thread->callbacks_arg);
+-      free_states (state);
+-      return -1;
+-    }
++    goto out;
+   do
+     {
+       int err = callback (state, arg);
+       if (err != DWARF_CB_OK)
+ 	{
+-	  if (process->callbacks->thread_detach)
+-	    process->callbacks->thread_detach (thread, thread->callbacks_arg);
+-	  free_states (state);
+-	  return err;
++	  ret = err;
++	  goto out;
++	}
++      if (state->unwound == NULL)
++	__libdwfl_frame_unwind (state);
++      else if (state->unwound->pc_state == DWFL_FRAME_STATE_ERROR)
++	{
++	  /* This frame was previously cached as an error.  We still return -1,
++	     but we don't know what the original error was.  */
++	  __libdwfl_seterrno (DWFL_E_NOERROR);
+ 	}
+-      __libdwfl_frame_unwind (state);
+       Dwfl_Frame *next = state->unwound;
+-      /* The old frame is no longer needed.  */
+-      free (state);
++      if (! cache)
++	{
++	  /* The old frame is no longer needed.  */
++	  free (state);
++	}
+       state = next;
+     }
+   while (state && state->pc_state == DWFL_FRAME_STATE_PC_SET);
+ 
+-  Dwfl_Error err = dwfl_errno ();
+-  if (process->callbacks->thread_detach)
+-    process->callbacks->thread_detach (thread, thread->callbacks_arg);
+-  if (state == NULL || state->pc_state == DWFL_FRAME_STATE_ERROR)
++  if (state && state->pc_state == DWFL_FRAME_STATE_PC_UNDEFINED)
++    ret = 0;
++out:
++  if (! cache)
+     {
++      if (process->callbacks->thread_detach)
++	{
++	  Dwfl_Error err = dwfl_errno ();
++	  process->callbacks->thread_detach (thread, thread->callbacks_arg);
++	  __libdwfl_seterrno (err);
++	}
+       free_states (state);
+-      __libdwfl_seterrno (err);
+-      return -1;
+     }
+-  assert (state->pc_state == DWFL_FRAME_STATE_PC_UNDEFINED);
+-  free_states (state);
+-  return 0;
++  return ret;
+ }
+ INTDEF(dwfl_thread_getframes)
+diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
+index a0c1d357..a22afc78 100644
+--- a/libdwfl/libdwfl.h
++++ b/libdwfl/libdwfl.h
+@@ -775,6 +775,18 @@ int dwfl_getthreads (Dwfl *dwfl,
+ 		     void *arg)
+   __nonnull_attribute__ (1, 2);
+ 
++/* Attach to a thread.  The returned thread must be detached and freed with
++   dwfl_detach_thread.  Returns NULL on error.  This calls the
++   set_initial_registers callback.  While a thread is attached,
++   dwfl_thread_getframes will cache the unwound frames for the thread.  They
++   remain valid until dwfl_detach_thread is called.  */
++Dwfl_Thread *dwfl_attach_thread(Dwfl *dwfl, pid_t tid)
++  __nonnull_attribute__ (1);
++
++/* Detach from a thread that was attached with dwfl_attach_thread and free it.
++   This calls the detach_thread callback.  */
++void dwfl_detach_thread(Dwfl_Thread *thread);
++
+ /* Iterate through the frames for a thread.  Returns zero if all frames
+    have been processed by the callback, returns -1 on error, or the value of
+    the callback when not DWARF_CB_OK.  -1 returned on error will
+diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
+index 6b2d4867..c80d2051 100644
+--- a/libdwfl/libdwflP.h
++++ b/libdwfl/libdwflP.h
+@@ -242,7 +242,8 @@ struct Dwfl_Thread
+ {
+   Dwfl_Process *process;
+   pid_t tid;
+-  /* Bottom (innermost) frame while we're initializing, NULL afterwards.  */
++  /* Bottom (innermost) frame.  If the stack trace is not cached, then this is
++     NULL except during initialization.  */
+   Dwfl_Frame *unwound;
+   void *callbacks_arg;
+ };
+commit 692afbcee88ff090bb29e6d0d73c688c03d37f9b
+Author: Omar Sandoval <osandov@fb.com>
+Date:   Mon Oct 7 01:16:50 2019 -0700
+
+    libdwfl: only use thread->unwound for initial frame
+    
+    thread->unwound is only used for set_initial_registers (via
+    dwfl_thread_state_registers, dwfl_thread_state_register_pc, and a
+    special case in core_set_initial_registers). At that point,
+    thread->unwound is always the initial frame, so there's no need to
+    update it as we unwind the stack. Let's set it to NULL after we do the
+    initial setup. This simplifies the next change.
+
+diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
+index 20bdbd9b..5bbf850e 100644
+--- a/libdwfl/dwfl_frame.c
++++ b/libdwfl/dwfl_frame.c
+@@ -71,19 +71,14 @@ state_fetch_pc (Dwfl_Frame *state)
+ /* Do not call it on your own, to be used by thread_* functions only.  */
+ 
+ static void
+-state_free (Dwfl_Frame *state)
++free_states (Dwfl_Frame *state)
+ {
+-  Dwfl_Thread *thread = state->thread;
+-  assert (thread->unwound == state);
+-  thread->unwound = state->unwound;
+-  free (state);
+-}
+-
+-static void
+-thread_free_all_states (Dwfl_Thread *thread)
+-{
+-  while (thread->unwound)
+-    state_free (thread->unwound);
++  while (state)
++    {
++      Dwfl_Frame *next = state->unwound;
++      free(state);
++      state = next;
++    }
+ }
+ 
+ static Dwfl_Frame *
+@@ -399,12 +394,6 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
+ 		       int (*callback) (Dwfl_Frame *state, void *arg),
+ 		       void *arg)
+ {
+-  if (thread->unwound != NULL)
+-    {
+-      /* We had to be called from inside CALLBACK.  */
+-      __libdwfl_seterrno (DWFL_E_ATTACH_STATE_CONFLICT);
+-      return -1;
+-    }
+   Ebl *ebl = thread->process->ebl;
+   if (ebl_frame_nregs (ebl) == 0)
+     {
+@@ -420,33 +409,34 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
+   if (! process->callbacks->set_initial_registers (thread,
+ 						   thread->callbacks_arg))
+     {
+-      thread_free_all_states (thread);
++      free_states (thread->unwound);
++      thread->unwound = NULL;
+       return -1;
+     }
+-  if (! state_fetch_pc (thread->unwound))
++  Dwfl_Frame *state = thread->unwound;
++  thread->unwound = NULL;
++  if (! state_fetch_pc (state))
+     {
+       if (process->callbacks->thread_detach)
+ 	process->callbacks->thread_detach (thread, thread->callbacks_arg);
+-      thread_free_all_states (thread);
++      free_states (state);
+       return -1;
+     }
+-
+-  Dwfl_Frame *state;
+   do
+     {
+-      state = thread->unwound;
+       int err = callback (state, arg);
+       if (err != DWARF_CB_OK)
+ 	{
+ 	  if (process->callbacks->thread_detach)
+ 	    process->callbacks->thread_detach (thread, thread->callbacks_arg);
+-	  thread_free_all_states (thread);
++	  free_states (state);
+ 	  return err;
+ 	}
+       __libdwfl_frame_unwind (state);
++      Dwfl_Frame *next = state->unwound;
+       /* The old frame is no longer needed.  */
+-      state_free (thread->unwound);
+-      state = thread->unwound;
++      free (state);
++      state = next;
+     }
+   while (state && state->pc_state == DWFL_FRAME_STATE_PC_SET);
+ 
+@@ -455,12 +445,12 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
+     process->callbacks->thread_detach (thread, thread->callbacks_arg);
+   if (state == NULL || state->pc_state == DWFL_FRAME_STATE_ERROR)
+     {
+-      thread_free_all_states (thread);
++      free_states (state);
+       __libdwfl_seterrno (err);
+       return -1;
+     }
+   assert (state->pc_state == DWFL_FRAME_STATE_PC_UNDEFINED);
+-  thread_free_all_states (thread);
++  free_states (state);
+   return 0;
+ }
+ INTDEF(dwfl_thread_getframes)
+diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
+index 941a8b66..6b2d4867 100644
+--- a/libdwfl/libdwflP.h
++++ b/libdwfl/libdwflP.h
+@@ -242,8 +242,7 @@ struct Dwfl_Thread
+ {
+   Dwfl_Process *process;
+   pid_t tid;
+-  /* The current frame being unwound.  Initially it is the bottom frame.
+-     Later the processed frames get freed and this pointer is updated.  */
++  /* Bottom (innermost) frame while we're initializing, NULL afterwards.  */
+   Dwfl_Frame *unwound;
+   void *callbacks_arg;
+ };
+commit 763db71a591c64b489ad631a1e24d0c5b6c2adff
+Author: Omar Sandoval <osandov@fb.com>
+Date:   Mon Oct 7 01:11:41 2019 -0700
+
+    libdwfl: don't bother freeing frames outside of dwfl_thread_getframes
+    
+    dwfl_thread_getframes always frees the state before returning, so
+    dwfl_getthreads and getthread don't need to do it.
+
+diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
+index 881f735a..20bdbd9b 100644
+--- a/libdwfl/dwfl_frame.c
++++ b/libdwfl/dwfl_frame.c
+@@ -279,24 +279,15 @@ dwfl_getthreads (Dwfl *dwfl, int (*callback) (Dwfl_Thread *thread, void *arg),
+ 						    process->callbacks_arg,
+ 						    &thread.callbacks_arg);
+       if (thread.tid < 0)
+-	{
+-	  Dwfl_Error saved_errno = dwfl_errno ();
+-	  thread_free_all_states (&thread);
+-	  __libdwfl_seterrno (saved_errno);
+-	  return -1;
+-	}
++	return -1;
+       if (thread.tid == 0)
+ 	{
+-	  thread_free_all_states (&thread);
+ 	  __libdwfl_seterrno (DWFL_E_NOERROR);
+ 	  return 0;
+ 	}
+       int err = callback (&thread, arg);
+       if (err != DWARF_CB_OK)
+-	{
+-	  thread_free_all_states (&thread);
+-	  return err;
+-	}
++	return err;
+       assert (thread.unwound == NULL);
+     }
+   /* NOTREACHED */
+@@ -356,11 +347,8 @@ getthread (Dwfl *dwfl, pid_t tid,
+       if (process->callbacks->get_thread (dwfl, tid, process->callbacks_arg,
+ 					  &thread.callbacks_arg))
+ 	{
+-	  int err;
+ 	  thread.tid = tid;
+-	  err = callback (&thread, arg);
+-	  thread_free_all_states (&thread);
+-	  return err;
++	  return callback (&thread, arg);
+ 	}
+ 
+       return -1;
+commit 792c807dad08dfbaee137fa99b878234a032968d
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:49 2019 -0700
 
@@ -9,7 +629,7 @@ Date:   Wed Sep 4 17:13:49 2019 -0700
     fallthrough warning. Add -Wno-implicit-fallthrough to i386_lex_CFLAGS.
 
 diff --git a/libcpu/Makefile.am b/libcpu/Makefile.am
-index 9cf5a412..abb079bd 100644
+index ac428ff8..57dc698e 100644
 --- a/libcpu/Makefile.am
 +++ b/libcpu/Makefile.am
 @@ -84,7 +84,8 @@ i386_lex_no_Werror = yes
@@ -22,7 +642,7 @@ index 9cf5a412..abb079bd 100644
  i386_parse.o: i386_parse.c i386.mnemonics
  i386_parse_CFLAGS = -DNMNES="`wc -l < i386.mnemonics`"
  i386_lex.o: i386_parse.h
-commit 409f4bbae4af8f45d478264575379e19ae06d697
+commit 81ea07b5ce73db48e24abc869c4aa0b22f59e451
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 18:12:12 2019 -0700
 
@@ -45,7 +665,7 @@ index c6cfd144..1718e5bd 100644
      AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
        #include <string.h>
        int main() { return 0; }
-commit 4f6b62f39f04950d5016a1a982fbb237413455b3
+commit f1c8013c5eaa3fb3759b0edf3160c4758933bb25
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:40 2019 -0700
 
@@ -125,7 +745,7 @@ index b2bff929..8a5a9d0f 100644
  
  noinst_HEADERS = libasmP.h symbolhash.h
 diff --git a/libcpu/Makefile.am b/libcpu/Makefile.am
-index 88717361..9cf5a412 100644
+index 03c71ea3..ac428ff8 100644
 --- a/libcpu/Makefile.am
 +++ b/libcpu/Makefile.am
 @@ -38,7 +38,10 @@ LEXCOMPILE = $(LEX) $(LFLAGS) $(AM_LFLAGS) -P$(<F:lex.l=)
@@ -207,19 +827,21 @@ index 89ca92ed..2673836f 100644
  pkginclude_HEADERS = libdwfl.h
  
 diff --git a/libebl/Makefile.am b/libebl/Makefile.am
-index 8af84633..7a5e5be8 100644
+index d0d475b8..b8e0eeb2 100644
 --- a/libebl/Makefile.am
 +++ b/libebl/Makefile.am
-@@ -35,7 +35,9 @@ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdw -I$(srcdir)/../libasm
+@@ -34,7 +34,10 @@ endif
+ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdw -I$(srcdir)/../libasm
  VERSION = 1
  
- lib_LIBRARIES = libebl.a
+-noinst_LIBRARIES = libebl.a libebl_pic.a
++noinst_LIBRARIES = libebl.a
 +if ENABLE_SHARED
- noinst_LIBRARIES = libebl_pic.a
++noinst_LIBRARIES += libebl_pic.a
 +endif
  
- pkginclude_HEADERS = libebl.h
- 
+ libebl_a_SOURCES = eblopenbackend.c eblclosebackend.c eblreloctypename.c \
+ 		   eblsegmenttypename.c eblsectiontypename.c \
 diff --git a/libelf/Makefile.am b/libelf/Makefile.am
 index d5d63f73..94e6e38f 100644
 --- a/libelf/Makefile.am
@@ -251,7 +873,7 @@ index d5d63f73..94e6e38f 100644
  
  EXTRA_DIST = libelf.map
  
-commit 25ba6a6cf83be1b984058ee97e63883f2ef85de2
+commit ad08221359c5de963ec6be39ede75092afb06806
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:23 2019 -0700
 
