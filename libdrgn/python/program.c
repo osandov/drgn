@@ -174,13 +174,15 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 		"address", "size", "read_fn", "physical", NULL,
 	};
 	struct drgn_error *err;
-	unsigned long long address;
-	unsigned long long size;
+	struct index_arg address = {};
+	struct index_arg size = {};
 	PyObject *read_fn;
 	int physical = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "KKO|p:add_memory_segment",
-					 keywords, &address, &size, &read_fn,
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O&O&O|p:add_memory_segment", keywords,
+					 index_converter, &address,
+					 index_converter, &size, &read_fn,
 					 &physical))
 	    return NULL;
 
@@ -191,9 +193,9 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 
 	if (Program_hold_object(self, read_fn) == -1)
 		return NULL;
-	err = drgn_program_add_memory_segment(&self->prog, address, size,
-					      py_memory_read_fn, read_fn,
-					      physical);
+	err = drgn_program_add_memory_segment(&self->prog, address.value,
+					      size.value, py_memory_read_fn,
+					      read_fn, physical);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -501,14 +503,15 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"address", "size", "physical", NULL};
 	struct drgn_error *err;
-	unsigned long long address;
+	struct index_arg address = {};
 	Py_ssize_t size;
 	int physical = 0;
 	PyObject *buf;
 	bool clear;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "Kn|p:read", keywords,
-					 &address, &size, &physical))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&n|p:read", keywords,
+					 index_converter, &address, &size,
+					 &physical))
 	    return NULL;
 
 	if (size < 0) {
@@ -520,7 +523,7 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	clear = set_drgn_in_python();
 	err = drgn_program_read_memory(&self->prog, PyBytes_AS_STRING(buf),
-				       address, size, physical);
+				       address.value, size, physical);
 	if (clear)
 		clear_drgn_in_python();
 	if (err) {
@@ -721,11 +724,12 @@ Symbol *Program_find_symbol(Program *self, uint64_t address)
 static Symbol *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"address", NULL};
-	unsigned long long address;
+	struct index_arg address;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "K", keywords, &address))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&", keywords,
+					 index_converter, &address))
 		return NULL;
-	return Program_find_symbol(self, address);
+	return Program_find_symbol(self, address.value);
 }
 
 static DrgnObject *Program_subscript(Program *self, PyObject *key)

@@ -179,10 +179,16 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds);
 
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
-unsigned long long index_arg(PyObject *obj, const char *msg);
 PyObject *byteorder_string(bool little_endian);
 int parse_byteorder(const char *s, bool *ret);
 int parse_optional_byteorder(PyObject *obj, enum drgn_byte_order *ret);
+
+struct index_arg {
+	bool allow_none;
+	bool is_none;
+	unsigned long long value;
+};
+int index_converter(PyObject *o, void *p);
 
 /* Helpers for path arguments based on posixmodule.c in CPython. */
 struct path_arg {

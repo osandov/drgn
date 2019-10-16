@@ -71,8 +71,7 @@ class TestInit(ObjectTestCase):
                                Object, self.prog, 'int', value=0, address=0)
 
     def test_integer_address(self):
-        self.assertRaisesRegex(TypeError, 'address must be integer',
-                               Object, self.prog, 'int', address='NULL')
+        self.assertRaises(TypeError, Object, self.prog, 'int', address='NULL')
 
     def test_byteorder(self):
         self.assertRaisesRegex(ValueError,
@@ -85,10 +84,8 @@ class TestInit(ObjectTestCase):
                                byteorder='little')
 
     def test_bit_field_size(self):
-        self.assertRaisesRegex(TypeError,
-                               'bit field size must be integer or None',
-                               Object, self.prog, 'int', address=0,
-                               bit_field_size='1')
+        self.assertRaises(TypeError, Object, self.prog, 'int', address=0,
+                          bit_field_size='1')
         self.assertRaisesRegex(ValueError, 'bit field size cannot be zero',
                                Object, self.prog, 'int', address=0,
                                bit_field_size=0)
