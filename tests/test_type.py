@@ -12,6 +12,7 @@ from drgn import (
     function_type,
     int_type,
     pointer_type,
+    sizeof,
     struct_type,
     typedef_type,
     union_type,
@@ -43,6 +44,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, int_type('int', 4, False))
 
         self.assertEqual(repr(t), "int_type(name='int', size=4, is_signed=True)")
+        self.assertEqual(sizeof(t), 4)
 
         self.assertRaises(TypeError, int_type, None, 4, True)
 
@@ -62,6 +64,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, bool_type('_Bool', 2))
 
         self.assertEqual(repr(t), "bool_type(name='_Bool', size=1)")
+        self.assertEqual(sizeof(t), 1)
 
         self.assertRaises(TypeError, bool_type, None, 1)
 
@@ -78,6 +81,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, float_type('float', 8))
 
         self.assertEqual(repr(t), "float_type(name='float', size=4)")
+        self.assertEqual(sizeof(t), 4)
 
         self.assertRaises(TypeError, float_type, None, 4)
 
@@ -96,6 +100,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, complex_type('double _Complex', 16, float_type('float', 4)))
 
         self.assertEqual(repr(t), "complex_type(name='double _Complex', size=16, type=float_type(name='double', size=8))")
+        self.assertEqual(sizeof(t), 16)
 
         self.assertRaises(TypeError, complex_type, None, 16, float_type('double', 8))
         self.assertRaises(TypeError, complex_type, 'double _Complex', 16, None)
@@ -161,6 +166,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, struct_type('point'))
 
         self.assertEqual(repr(t), "struct_type(tag='point', size=8, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='int', size=4, is_signed=True), 'y', 32, 0)))")
+        self.assertEqual(sizeof(t), 8)
 
         t = struct_type(None, 8, (
             (int_type('int', 4, True), 'x', 0),
@@ -287,6 +293,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, union_type('option'))
 
         self.assertEqual(repr(t), "union_type(tag='option', size=4, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='unsigned int', size=4, is_signed=False), 'y', 0, 0)))")
+        self.assertEqual(sizeof(t), 4)
 
         t = union_type(None, 4, (
             (int_type('int', 4, True), 'x'),
@@ -399,6 +406,7 @@ class TestType(unittest.TestCase):
 
         self.assertEqual(repr(t),
                          "enum_type(tag='color', type=int_type(name='unsigned int', size=4, is_signed=False), enumerators=(('RED', 0), ('GREEN', 1), ('BLUE', 2)))")
+        self.assertEqual(sizeof(t), 4)
 
         t = enum_type('color', None, None)
         self.assertEqual(t.kind, TypeKind.ENUM)
@@ -477,6 +485,7 @@ class TestType(unittest.TestCase):
             'INT', int_type('int', 4, True, Qualifiers.CONST)))
 
         self.assertEqual(repr(t), "typedef_type(name='INT', type=int_type(name='int', size=4, is_signed=True))")
+        self.assertEqual(sizeof(t), 4)
 
         t = typedef_type('VOID', void_type())
         self.assertFalse(t.is_complete())
@@ -511,6 +520,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, pointer_type(8, void_type(Qualifiers.CONST)))
 
         self.assertEqual(repr(t), "pointer_type(size=8, type=int_type(name='int', size=4, is_signed=True))")
+        self.assertEqual(sizeof(t), 8)
 
         self.assertRaises(TypeError, pointer_type, None,
                           int_type('int', 4, True))
@@ -535,6 +545,7 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(t, array_type(10, void_type(Qualifiers.CONST)))
 
         self.assertEqual(repr(t), "array_type(length=10, type=int_type(name='int', size=4, is_signed=True))")
+        self.assertEqual(sizeof(t), 40)
 
         t = array_type(0, int_type('int', 4, True))
         self.assertEqual(t.kind, TypeKind.ARRAY)
@@ -584,6 +595,7 @@ class TestType(unittest.TestCase):
             void_type(), ((int_type('int', 4, True), 'n'),), True))
 
         self.assertEqual(repr(t), "function_type(type=void_type(), parameters=((int_type(name='int', size=4, is_signed=True), 'n'),), is_variadic=False)")
+        self.assertRaises(TypeError, sizeof, t)
 
         self.assertFalse(function_type(void_type(), (), False).is_variadic)
         self.assertTrue(function_type(void_type(), (), True).is_variadic)

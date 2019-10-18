@@ -16,6 +16,7 @@ from drgn import (
     int_type,
     pointer_type,
     reinterpret,
+    sizeof,
     struct_type,
     typedef_type,
     union_type,
@@ -116,6 +117,7 @@ class TestReference(ObjectTestCase):
         self.assertEqual(obj.byteorder_, 'big')
         self.assertEqual(obj.value_(), -402456576)
         self.assertEqual(repr(obj), "Object(prog, 'int', address=0xffff0000, byteorder='big')")
+        self.assertEqual(sizeof(obj), 4)
 
         obj = Object(prog, 'unsigned int', address=0xffff0000,
                      bit_field_size=4)
@@ -123,6 +125,7 @@ class TestReference(ObjectTestCase):
         self.assertEqual(obj.bit_field_size_, 4)
         self.assertEqual(obj.value_(), 8)
         self.assertEqual(repr(obj), "Object(prog, 'unsigned int', address=0xffff0000, bit_field_size=4)")
+        self.assertRaises(TypeError, sizeof, obj)
 
         obj = Object(prog, 'unsigned int', address=0xffff0000,
                      bit_field_size=4, bit_offset=4)
@@ -182,7 +185,7 @@ class TestReference(ObjectTestCase):
                                  byteorder=byteorder)
                     self.assertEqual(obj.value_(), expected)
 
-    def test_read_struct(self):
+    def test_struct(self):
         segment = ((99).to_bytes(4, 'little') +
                    (-1).to_bytes(4, 'little', signed=True) +
                    (12345).to_bytes(4, 'little') +
@@ -193,6 +196,7 @@ class TestReference(ObjectTestCase):
 
         obj = Object(prog, 'struct point', address=0xffff0000)
         self.assertEqual(obj.value_(), {'x': 99, 'y': -1})
+        self.assertEqual(sizeof(obj), 8)
 
         type_ = struct_type('foo', 16, (
             (point_type, 'point'),
@@ -205,7 +209,7 @@ class TestReference(ObjectTestCase):
         self.assertEqual(obj.value_(),
                          {'point': {'x': 99, 'y': -1}, 'bar': 12345, 'baz': 0})
 
-    def test_read_array(self):
+    def test_array(self):
         segment = bytearray()
         for i in range(10):
             segment.extend(i.to_bytes(4, 'little'))
@@ -215,6 +219,7 @@ class TestReference(ObjectTestCase):
 
         obj = Object(prog, 'int [5]', address=0xffff0000)
         self.assertEqual(obj.value_(), [0, 1, 2, 3, 4])
+        self.assertEqual(sizeof(obj), 20)
 
         obj = Object(prog, 'int [2][5]', address=0xffff0000)
         self.assertEqual(obj.value_(), [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]])
@@ -235,6 +240,7 @@ class TestReference(ObjectTestCase):
                                obj.value_)
         self.assertRaisesRegex(TypeError, 'cannot read object with void type',
                                obj.read_)
+        self.assertRaises(TypeError, sizeof, obj)
 
     def test_function(self):
         obj = Object(self.prog,
@@ -251,6 +257,7 @@ class TestReference(ObjectTestCase):
         self.assertRaisesRegex(TypeError,
                                'cannot read object with function type',
                                obj.read_)
+        self.assertRaises(TypeError, sizeof, obj)
 
     def test_incomplete(self):
         # It's valid to create references with incomplete type, but not to read
@@ -262,6 +269,7 @@ class TestReference(ObjectTestCase):
         self.assertRaisesRegex(TypeError,
                                'cannot read object with incomplete structure type',
                                obj.read_)
+        self.assertRaises(TypeError, sizeof, obj)
 
         obj = Object(self.prog, union_type('foo'), address=0)
         self.assertRaisesRegex(TypeError, 'cannot read object with incomplete union type',

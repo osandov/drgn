@@ -50,11 +50,31 @@ static PyObject *filename_matches(PyObject *self, PyObject *args,
 		Py_RETURN_FALSE;
 }
 
+static PyObject *sizeof_(PyObject *self, PyObject *arg)
+{
+	struct drgn_error *err;
+	uint64_t size;
+
+	if (PyObject_TypeCheck(arg, &DrgnType_type)) {
+		err = drgn_type_sizeof(((DrgnType *)arg)->type, &size);
+	} else if (PyObject_TypeCheck(arg, &DrgnObject_type)) {
+		err = drgn_object_sizeof(&((DrgnObject *)arg)->obj, &size);
+	} else {
+		return PyErr_Format(PyExc_TypeError,
+				    "expected Type or Object, not %s",
+				    Py_TYPE(arg)->tp_name);
+	}
+	if (err)
+		return set_drgn_error(err);
+	return PyLong_FromUnsignedLongLong(size);
+}
+
 static PyMethodDef drgn_methods[] = {
 	{"filename_matches", (PyCFunction)filename_matches,
 	 METH_VARARGS | METH_KEYWORDS, drgn_filename_matches_DOC},
 	{"NULL", (PyCFunction)DrgnObject_NULL, METH_VARARGS | METH_KEYWORDS,
 	 drgn_NULL_DOC},
+	{"sizeof", (PyCFunction)sizeof_, METH_O, drgn_sizeof_DOC},
 	{"cast", (PyCFunction)cast, METH_VARARGS | METH_KEYWORDS,
 	 drgn_cast_DOC},
 	{"reinterpret", (PyCFunction)reinterpret, METH_VARARGS | METH_KEYWORDS,

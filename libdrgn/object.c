@@ -1423,7 +1423,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_sizeof(const struct drgn_object *obj, uint64_t *ret)
 {
 	if (obj->is_bit_field) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "cannot get size of bit field");
 	}
 	return drgn_type_sizeof(obj->type, ret);
