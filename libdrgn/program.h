@@ -130,11 +130,20 @@ static inline bool drgn_program_is_64_bit(struct drgn_program *prog)
 
 struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
 
+/* TODO: comment this. */
+struct drgn_error *drgn_program_find_symbol_in_module(struct drgn_program *prog,
+						      Dwfl_Module *module,
+						      uint64_t address,
+						      struct drgn_symbol **ret);
+
 /*
- * Like @ref drgn_program_find_symbol(), but @p ret is already allocated and
- * returns @ref drgn_not_found instead of a more informative message.
+ * TODO: update this.
+ * Like @ref drgn_program_find_symbol(), but the module is known, @p ret is
+ * already allocated, and returns @ref drgn_not_found instead of a more
+ * informative message.
  */
 struct drgn_error *drgn_program_find_symbol_internal(struct drgn_program *prog,
+						     Dwfl_Module *module,
 						     uint64_t address,
 						     struct drgn_symbol *ret);
 

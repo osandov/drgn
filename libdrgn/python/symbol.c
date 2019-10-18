@@ -3,6 +3,19 @@
 
 #include "drgnpy.h"
 
+PyObject *Symbol_wrap(struct drgn_symbol *sym, Program *prog)
+{
+	Symbol *ret;
+
+	ret = (Symbol *)Symbol_type.tp_alloc(&Symbol_type, 0);
+	if (ret) {
+		ret->sym = sym;
+		ret->prog = prog;
+		Py_INCREF(prog);
+	}
+	return (PyObject *)ret;
+}
+
 static void Symbol_dealloc(Symbol *self)
 {
 	drgn_symbol_destroy(self->sym);

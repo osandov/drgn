@@ -92,7 +92,7 @@ typedef struct {
 typedef struct {
 	PyObject_HEAD
 	StackTrace *trace;
-	struct drgn_stack_frame *frame;
+	struct drgn_stack_frame frame;
 } StackFrame;
 
 typedef struct {
@@ -154,7 +154,8 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
 Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
-Symbol *Program_find_symbol(Program *self, uint64_t address);
+
+PyObject *Symbol_wrap(struct drgn_symbol *sym, Program *prog);
 
 static inline PyObject *DrgnType_parent(DrgnType *type)
 {

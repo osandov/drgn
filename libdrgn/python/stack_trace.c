@@ -32,10 +32,9 @@ static Py_ssize_t StackTrace_length(StackTrace *self)
 
 static StackFrame *StackTrace_item(StackTrace *self, Py_ssize_t i)
 {
-	struct drgn_stack_frame *frame;
 	StackFrame *ret;
 
-	if (i < 0 || !(frame = drgn_stack_trace_frame(self->trace, i))) {
+	if (i < 0 || i >= drgn_stack_trace_num_frames(self->trace)) {
 		PyErr_SetString(PyExc_IndexError,
 				"stack frame index out of range");
 		return NULL;
@@ -43,7 +42,8 @@ static StackFrame *StackTrace_item(StackTrace *self, Py_ssize_t i)
 	ret = (StackFrame *)StackFrame_type.tp_alloc(&StackFrame_type, 0);
 	if (!ret)
 		return NULL;
-	ret->frame = frame;
+	ret->frame.trace = self->trace;
+	ret->frame.i = i;
 	ret->trace = self;
 	Py_INCREF(self);
 	return ret;
@@ -86,10 +86,21 @@ static void StackFrame_dealloc(StackFrame *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static Symbol *StackFrame_symbol(StackFrame *self)
+static PyObject *StackFrame_symbol(StackFrame *self)
 {
-	return Program_find_symbol(self->trace->prog,
-				   drgn_stack_frame_pc(self->frame));
+	struct drgn_error *err;
+	struct drgn_symbol *sym;
+	PyObject *ret;
+
+	err = drgn_stack_frame_symbol(self->frame, &sym);
+	if (err)
+		return set_drgn_error(err);
+	ret = Symbol_wrap(sym, self->trace->prog);
+	if (!ret) {
+		drgn_symbol_destroy(sym);
+		return NULL;
+	}
+	return ret;
 }
 
 static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)

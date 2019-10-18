@@ -11,18 +11,19 @@
 #include "string_builder.h"
 #include "symbol.h"
 
-struct drgn_stack_frame {
-	struct drgn_program *prog;
-	uint64_t pc;
-};
-
 struct drgn_stack_trace {
+	struct drgn_program *prog;
+	union {
+		size_t capacity;
+		Dwfl_Thread *thread;
+	};
 	size_t num_frames;
-	struct drgn_stack_frame frames[];
+	Dwfl_Frame *frames[];
 };
 
 LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 {
+	dwfl_detach_thread(trace->thread);
 	free(trace);
 }
 
@@ -32,31 +33,30 @@ size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 	return trace->num_frames;
 }
 
-LIBDRGN_PUBLIC struct drgn_stack_frame *
-drgn_stack_trace_frame(struct drgn_stack_trace *trace, size_t i)
-{
-	if (i >= trace->num_frames)
-		return NULL;
-	return &trace->frames[i];
-}
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_pretty_print_stack_trace(struct drgn_stack_trace *trace, char **ret)
 {
 	struct drgn_error *err;
 	struct string_builder str = {};
-	size_t i;
+	struct drgn_stack_frame frame = { .trace = trace, };
 
-	for (i = 0; i < trace->num_frames; i++) {
-		struct drgn_stack_frame *frame = &trace->frames[i];
+	for (; frame.i < trace->num_frames; frame.i++) {
 		uint64_t pc;
+		Dwfl_Module *module;
 		struct drgn_symbol sym;
 
 		pc = drgn_stack_frame_pc(frame);
-		err = drgn_program_find_symbol_internal(frame->prog, pc, &sym);
+		module = dwfl_frame_module(trace->frames[frame.i]);
+		if (module) {
+			err = drgn_program_find_symbol_internal(trace->prog,
+								module, pc,
+								&sym);
+		} else {
+			err = &drgn_not_found;
+		}
 		if (err && err != &drgn_not_found)
 			goto err;
-		if (!string_builder_appendf(&str, "#%-2zu ", i)) {
+		if (!string_builder_appendf(&str, "#%-2zu ", frame.i)) {
 			err = &drgn_enomem;
 			goto err;
 		}
@@ -74,7 +74,7 @@ drgn_pretty_print_stack_trace(struct drgn_stack_trace *trace, char **ret)
 				goto err;
 			}
 		}
-		if (i != trace->num_frames - 1 &&
+		if (frame.i != trace->num_frames - 1 &&
 		    !string_builder_appendc(&str, '\n')) {
 			err = &drgn_enomem;
 			goto err;
@@ -91,16 +91,23 @@ err:
 	return err;
 }
 
-LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_frame *frame)
+LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_frame frame)
 {
-	return frame->pc;
+	Dwarf_Addr pc;
+
+	dwfl_frame_pc(frame.trace->frames[frame.i], &pc, NULL);
+	return pc;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_stack_frame_symbol(struct drgn_stack_frame *frame,
-			struct drgn_symbol **ret)
+drgn_stack_frame_symbol(struct drgn_stack_frame frame, struct drgn_symbol **ret)
 {
-	return drgn_program_find_symbol(frame->prog, frame->pc, ret);
+	Dwfl_Module *module;
+
+	module = dwfl_frame_module(frame.trace->frames[frame.i]);
+	return drgn_program_find_symbol_in_module(frame.trace->prog, module,
+						  drgn_stack_frame_pc(frame),
+						  ret);
 }
 
 static bool drgn_thread_memory_read(Dwfl *dwfl, Dwarf_Addr addr,
@@ -145,9 +152,9 @@ err:
 
 /*
  * For drgn_object_stack_trace(), we only care about the thread
- * prog->stack_trace_obj. We return it with an arbitrary PID.
+ * prog->stack_trace_obj. We return it with an arbitrary TID.
  */
-#define STACK_TRACE_OBJ_PID 1
+#define STACK_TRACE_OBJ_TID 1
 static pid_t drgn_object_stack_trace_next_thread(Dwfl *dwfl, void *dwfl_arg,
 						 void **thread_argp)
 {
@@ -156,7 +163,7 @@ static pid_t drgn_object_stack_trace_next_thread(Dwfl *dwfl, void *dwfl_arg,
 	if (*thread_argp || !prog->stack_trace_obj)
 		return 0;
 	*thread_argp = (void *)prog->stack_trace_obj;
-	return STACK_TRACE_OBJ_PID;
+	return STACK_TRACE_OBJ_TID;
 }
 
 static bool drgn_linux_kernel_set_initial_registers(Dwfl_Thread *thread,
@@ -176,50 +183,30 @@ static bool drgn_linux_kernel_set_initial_registers(Dwfl_Thread *thread,
 	return true;
 }
 
-struct drgn_stack_trace_builder {
-	struct drgn_program *prog;
-	struct drgn_stack_trace *trace;
-	size_t capacity;
-};
-
-static int drgn_append_stack_frame(Dwfl_Frame *dwfl_frame, void *arg)
+static int drgn_append_stack_frame(Dwfl_Frame *state, void *arg)
 {
-	struct drgn_error *err;
-	struct drgn_stack_trace_builder *builder = arg;
-	struct drgn_program *prog = builder->prog;
-	struct drgn_stack_trace *trace = builder->trace;
-	struct drgn_stack_frame *frame;
-	Dwarf_Addr pc;
+	struct drgn_stack_trace **tracep = arg;
+	struct drgn_stack_trace *trace = *tracep;
 
-	if (!dwfl_frame_pc(dwfl_frame, &pc, NULL)) {
-		err = drgn_error_libdwfl();
-		goto err;
-	}
-
-	if (trace->num_frames >= builder->capacity) {
+	if (trace->num_frames >= trace->capacity) {
+		struct drgn_stack_trace *tmp;
 		size_t new_capacity, bytes;
 
-		if (__builtin_mul_overflow(2U, builder->capacity,
+		if (__builtin_mul_overflow(2U, trace->capacity,
 					   &new_capacity) ||
 		    __builtin_mul_overflow(new_capacity,
 					   sizeof(trace->frames[0]), &bytes) ||
 		    __builtin_add_overflow(bytes, sizeof(*trace), &bytes) ||
-		    !(trace = realloc(trace, bytes))) {
-			err = &drgn_enomem;
-			goto err;
+		    !(tmp = realloc(trace, bytes))) {
+			drgn_error_destroy(trace->prog->stack_trace_err);
+			trace->prog->stack_trace_err = &drgn_enomem;
+			return DWARF_CB_ABORT;
 		}
-		builder->trace = trace;
-		builder->capacity = new_capacity;
+		*tracep = trace = tmp;
+		trace->capacity = new_capacity;
 	}
-	frame = &trace->frames[trace->num_frames++];
-	frame->prog = prog;
-	frame->pc = pc;
+	trace->frames[trace->num_frames++] = state;
 	return DWARF_CB_OK;
-
-err:
-	drgn_error_destroy(prog->stack_trace_err);
-	prog->stack_trace_err = err;
-	return DWARF_CB_ABORT;
 }
 
 static const Dwfl_Thread_Callbacks drgn_linux_kernel_thread_callbacks = {
@@ -234,7 +221,7 @@ struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 	struct drgn_error *err;
 	struct drgn_program *prog = obj->prog;
 	Dwfl *dwfl;
-	struct drgn_stack_trace_builder builder;
+	Dwfl_Thread *thread;
 	struct drgn_stack_trace *trace;
 
 	if (!prog->has_platform) {
@@ -262,41 +249,55 @@ struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 		prog->attached_dwfl_state = true;
 	}
 
-	builder.prog = prog;
-	builder.trace = malloc(sizeof(*builder.trace) +
-			       sizeof(builder.trace->frames[0]));
-	if (!builder.trace)
-		return &drgn_enomem;
-	builder.trace->num_frames = 0;
-	builder.capacity = 1;
-
 	prog->stack_trace_obj = obj;
-	dwfl_getthread_frames(dwfl, STACK_TRACE_OBJ_PID,
-			      drgn_append_stack_frame, &builder);
+	thread = dwfl_attach_thread(dwfl, STACK_TRACE_OBJ_TID);
 	prog->stack_trace_obj = NULL;
+	if (prog->stack_trace_err)
+		goto stack_trace_err;
+	if (!thread) {
+		err = drgn_error_libdwfl();
+		goto err;
+	}
+
+	trace = malloc(sizeof(*trace) + sizeof(trace->frames[0]));
+	if (!trace) {
+		err = &drgn_enomem;
+		goto err;
+	}
+	trace->prog = prog;
+	trace->capacity = 1;
+	trace->num_frames = 0;
+
+	dwfl_thread_getframes(thread, drgn_append_stack_frame, &trace);
+	if (prog->stack_trace_err) {
+		free(trace);
+		goto stack_trace_err;
+	}
+
+	/* Shrink the trace to fit if we can, but don't fail if we can't. */
+	if (trace->capacity > trace->num_frames) {
+		struct drgn_stack_trace *tmp;
+
+		tmp = realloc(trace,
+			      sizeof(*trace) +
+			      trace->num_frames * sizeof(trace->frames[0]));
+		if (tmp)
+			trace = tmp;
+	}
+	trace->thread = thread;
+	*ret = trace;
+	return NULL;
+
+stack_trace_err:
 	/*
 	 * The error reporting for dwfl_getthread_frames() is not great. The
 	 * documentation says that some of its unwinder implementations always
 	 * return an error. So, we do our own error reporting for fatal errors
 	 * through prog->stack_trace_err.
 	 */
-	if (prog->stack_trace_err) {
-		err = prog->stack_trace_err;
-		prog->stack_trace_err = NULL;
-		goto err;
-	}
-
-	/* Shrink the trace to fit if we can, but don't fail if we can't. */
-	trace = realloc(builder.trace,
-			sizeof(*builder.trace) +
-			builder.trace->num_frames *
-			sizeof(builder.trace->frames[0]));
-	if (!trace)
-		trace = builder.trace;
-	*ret = trace;
-	return NULL;
-
+	err = prog->stack_trace_err;
+	prog->stack_trace_err = NULL;
 err:
-	free(builder.trace);
+	dwfl_detach_thread(thread);
 	return err;
 }

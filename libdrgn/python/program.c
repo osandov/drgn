@@ -701,35 +701,27 @@ static StackTrace *Program_stack_trace(Program *self, PyObject *args,
 	return ret;
 }
 
-Symbol *Program_find_symbol(Program *self, uint64_t address)
-{
-	struct drgn_error *err;
-	struct drgn_symbol *sym;
-	Symbol *ret;
-
-	err = drgn_program_find_symbol(&self->prog, address, &sym);
-	if (err)
-		return set_drgn_error(err);
-	ret = (Symbol *)Symbol_type.tp_alloc(&Symbol_type, 0);
-	if (!ret) {
-		drgn_symbol_destroy(sym);
-		return NULL;
-	}
-	ret->sym = sym;
-	ret->prog = self;
-	Py_INCREF(self);
-	return ret;
-}
-
-static Symbol *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
+static PyObject *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"address", NULL};
+	struct drgn_error *err;
 	struct index_arg address;
+	struct drgn_symbol *sym;
+	PyObject *ret;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&", keywords,
 					 index_converter, &address))
 		return NULL;
-	return Program_find_symbol(self, address.value);
+
+	err = drgn_program_find_symbol(&self->prog, address.value, &sym);
+	if (err)
+		return set_drgn_error(err);
+	ret = Symbol_wrap(sym, self);
+	if (!ret) {
+		drgn_symbol_destroy(sym);
+		return NULL;
+	}
+	return ret;
 }
 
 static DrgnObject *Program_subscript(Program *self, PyObject *key)
