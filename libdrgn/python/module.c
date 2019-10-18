@@ -158,6 +158,10 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		goto err;
 	PyModule_AddObject(m, "MissingDebugInfoError", MissingDebugInfoError);
 
+	if (PyStructSequence_InitType2(&Register_type, &Register_desc) == -1)
+		goto err;
+	PyModule_AddObject(m, "Register", (PyObject *)&Register_type);
+
 	if (PyType_Ready(&DrgnObject_type) < 0)
 		goto err;
 	Py_INCREF(&DrgnObject_type);

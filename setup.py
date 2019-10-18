@@ -81,7 +81,7 @@ class my_build_ext(build_ext):
             return []
 
 
-with open('libdrgn/drgn.h', 'r') as f:
+with open('libdrgn/drgn.h.in', 'r') as f:
     drgn_h = f.read()
 version_major = re.search('^#define DRGN_VERSION_MAJOR ([0-9])+$', drgn_h,
                           re.MULTILINE).group(1)

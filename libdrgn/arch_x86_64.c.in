@@ -1,8 +1,107 @@
+%{
 // Copyright 2019 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "internal.h"
 #include "platform.h"
+%}
+
+x86-64
+%%
+rax
+rdx
+rcx
+rbx
+rsi
+rdi
+rbp
+rsp
+r8
+r9
+r10
+r11
+r12
+r13
+r14
+r15
+# The System V ABI calls this the return address (RA) register, but it's
+# effectively the instruction pointer.
+rip
+xmm0
+xmm1
+xmm2
+xmm3
+xmm4
+xmm5
+xmm6
+xmm7
+xmm8
+xmm9
+xmm10
+xmm11
+xmm12
+xmm13
+xmm14
+xmm15
+st0
+st1
+st2
+st3
+st4
+st5
+st6
+st7
+mm0
+mm1
+mm2
+mm3
+mm4
+mm5
+mm6
+mm7
+rFLAGS
+es
+cs
+ss
+ds
+fs
+gs
+fs.base, 58
+gs.base
+tr, 62
+ldtr
+mxcsr
+fcw
+fsw
+xmm16
+xmm17
+xmm18
+xmm19
+xmm20
+xmm21
+xmm22
+xmm23
+xmm24
+xmm25
+xmm26
+xmm27
+xmm28
+xmm29
+xmm30
+xmm31
+k0, 118
+k1
+k2
+k3
+k4
+k5
+k6
+k7
+bnd0
+bnd1
+bnd2
+bnd3
+%%
 
 static inline struct drgn_error *read_register(struct drgn_object *reg_obj,
 					       struct drgn_object *frame_obj,
@@ -102,8 +201,7 @@ out:
 }
 
 const struct drgn_architecture_info arch_info_x86_64 = {
-	.name = "x86-64",
-	.arch = DRGN_ARCH_X86_64,
+	ARCHITECTURE_INFO,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
 	.linux_kernel_set_initial_registers = linux_kernel_set_initial_registers_x86_64,

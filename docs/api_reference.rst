@@ -424,7 +424,7 @@ Platforms
 
     .. attribute:: arch
 
-        The instruction set architecture of this platform.
+        Instruction set architecture of this platform.
 
         :vartype: Architecture
 
@@ -433,6 +433,12 @@ Platforms
         Flags which apply to this platform.
 
         :vartype: PlatformFlags
+
+    .. attribute:: registers
+
+        Processor registers on this platform.
+
+        :vartype: list[Register]
 
 .. class:: Architecture
 
@@ -460,6 +466,23 @@ Platforms
     .. attribute:: IS_LITTLE_ENDIAN
 
         Platform is little-endian.
+
+.. class:: Register
+
+    A ``Register`` represents information about a processor register.
+
+    .. attribute:: name
+
+        Name of this register.
+
+        :vartype: str
+
+    .. attribute:: number
+
+        Arbitrary number which uniquely identifies this register on its
+        platform.
+
+        :vartype: int
 
 .. attribute:: host_platform
 

@@ -8,10 +8,18 @@
 
 #include "drgn.h"
 
+struct drgn_register {
+	const char *name;
+	enum drgn_register_number number;
+};
+
 struct drgn_architecture_info {
 	const char *name;
 	enum drgn_architecture arch;
 	enum drgn_platform_flags default_flags;
+	const struct drgn_register *registers;
+	size_t num_registers;
+	const struct drgn_register *(*register_by_name)(const char *name);
 	struct drgn_error *(*linux_kernel_set_initial_registers)(Dwfl_Thread *,
 								 struct drgn_object *);
 };

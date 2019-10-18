@@ -85,6 +85,45 @@ static PyObject *Platform_get_flags(Platform *self, void *arg)
 				     (unsigned long)drgn_platform_flags(self->platform));
 }
 
+static PyObject *Platform_get_registers(Platform *self, void *arg)
+{
+	PyObject *tuple;
+	size_t num_registers, i;
+
+	num_registers = drgn_platform_num_registers(self->platform);
+	tuple = PyTuple_New(num_registers);
+	if (!tuple)
+		return NULL;
+	for (i = 0; i < num_registers; i++) {
+		const struct drgn_register *reg;
+		PyObject *item;
+		PyObject *tmp;
+
+		reg = drgn_platform_register(self->platform, i);
+		item = PyStructSequence_New(&Register_type);
+		if (!item) {
+			Py_DECREF(tuple);
+			return NULL;
+		}
+		tmp = PyUnicode_FromString(drgn_register_name(reg));
+		if (!tmp) {
+			Py_DECREF(item);
+			Py_DECREF(tuple);
+			return NULL;
+		}
+		PyStructSequence_SET_ITEM(item, 0, tmp);
+		tmp = PyLong_FromLong(drgn_register_number(reg));
+		if (!tmp) {
+			Py_DECREF(item);
+			Py_DECREF(tuple);
+			return NULL;
+		}
+		PyStructSequence_SET_ITEM(item, 1, tmp);
+		PyTuple_SET_ITEM(tuple, i, item);
+	}
+	return tuple;
+}
+
 static PyObject *Platform_repr(Platform *self)
 {
 	PyObject *arch_obj, *flags_obj, *ret;
@@ -106,6 +145,8 @@ static PyObject *Platform_repr(Platform *self)
 static PyGetSetDef Platform_getset[] = {
 	{"arch", (getter)Platform_get_arch, NULL, drgn_Platform_arch_DOC},
 	{"flags", (getter)Platform_get_flags, NULL, drgn_Platform_flags_DOC},
+	{"registers", (getter)Platform_get_registers, NULL,
+	 drgn_Platform_registers_DOC},
 	{},
 };
 
@@ -149,3 +190,18 @@ PyTypeObject Platform_type = {
 	NULL,					/* tp_alloc */
 	(newfunc)Platform_new,			/* tp_new */
 };
+
+static PyStructSequence_Field Register_fields[] = {
+	{"name", drgn_Register_name_DOC},
+	{"number", drgn_Register_number_DOC},
+	{},
+};
+
+PyStructSequence_Desc Register_desc = {
+	"Register",
+	drgn_Register_DOC,
+	Register_fields,
+	2,
+};
+
+PyTypeObject Register_type;

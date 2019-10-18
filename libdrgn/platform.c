@@ -110,3 +110,26 @@ void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret)
 	drgn_platform_from_arch(arch, ehdr->e_ident[EI_CLASS] == ELFCLASS64,
 				ehdr->e_ident[EI_DATA] == ELFDATA2LSB, ret);
 }
+
+LIBDRGN_PUBLIC size_t
+drgn_platform_num_registers(const struct drgn_platform *platform)
+{
+	return platform->arch->num_registers;
+}
+
+LIBDRGN_PUBLIC const struct drgn_register *
+drgn_platform_register(const struct drgn_platform *platform, size_t n)
+{
+	return &platform->arch->registers[n];
+}
+
+LIBDRGN_PUBLIC const char *drgn_register_name(const struct drgn_register *reg)
+{
+	return reg->name;
+}
+
+LIBDRGN_PUBLIC enum drgn_register_number
+drgn_register_number(const struct drgn_register *reg)
+{
+	return reg->number;
+}

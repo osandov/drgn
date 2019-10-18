@@ -872,12 +872,21 @@ enum drgn_platform_flags {
 	DRGN_PLATFORM_DEFAULT_FLAGS = UINT_MAX,
 };
 
+@ENUM_DRGN_REGISTER_NUMBER@
+
 /**
  * @struct drgn_platform
  *
  * The environment that a program runs on.
  */
 struct drgn_platform;
+
+/**
+ * @struct drgn_register
+ *
+ * A processor register.
+ */
+struct drgn_register;
 
 /**
  * Create a @ref drgn_platform.
@@ -898,11 +907,24 @@ enum drgn_architecture drgn_platform_arch(const struct drgn_platform *platform);
 enum drgn_platform_flags
 drgn_platform_flags(const struct drgn_platform *platform);
 
+/** Get the number of processor registers on a @ref drgn_platform. */
+size_t drgn_platform_num_registers(const struct drgn_platform *platform);
+
+/** Get the @p n-th register of a @ref drgn_platform. */
+const struct drgn_register *
+drgn_platform_register(const struct drgn_platform *platform, size_t n);
+
 /** Return whether two platforms are identical. */
 bool drgn_platform_eq(struct drgn_platform *a, struct drgn_platform *b);
 
 /** Platform that drgn was compiled for. */
 extern const struct drgn_platform drgn_host_platform;
+
+/** Get the name of a @ref drgn_register. */
+const char *drgn_register_name(const struct drgn_register *reg);
+
+/** Get the number of a @ref drgn_register. */
+enum drgn_register_number drgn_register_number(const struct drgn_register *reg);
 
 /** @} */
 

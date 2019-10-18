@@ -2,13 +2,19 @@ ACLOCAL_AMFLAGS = -I m4
 
 SUBDIRS = elfutils include
 
+.DELETE_ON_ERROR:
+
 AM_CPPFLAGS = -Iinclude -D_GNU_SOURCE
 
 include_HEADERS = drgn.h
 
+BUILT_SOURCES = drgn.h
+
 noinst_LTLIBRARIES = libdrgnimpl.la
 
-libdrgnimpl_la_SOURCES = arch_x86_64.c \
+ARCH_INS = arch_x86_64.c.in
+
+libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 binary_search_tree.h \
 			 cityhash.h \
 			 dwarf_index.c \
@@ -63,6 +69,12 @@ libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgnimpl_la_LIBADD = $(libkdumpfile_LIBS)
 endif
 
+arch_%.c: arch_%.c.in build-aux/gen_arch.awk build-aux/parse_arch.awk
+	gawk -f $(word 3, $^) -f $(word 2, $^) $< > $@
+
+drgn.h: build-aux/gen_drgn_h.awk build-aux/parse_arch.awk $(ARCH_INS) drgn.h.in
+	gawk -f $(word 1, $^) -f $(word 2, $^) $(wordlist 3, $(words $^), $^) > $@
+
 elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2
 
 lib_LTLIBRARIES = libdrgn.la
@@ -72,7 +84,7 @@ libdrgn_la_LDFLAGS = -version-info 0:0:0
 libdrgn_la_LIBADD = libdrgnimpl.la $(elfutils_LIBS)
 
 if WITH_PYTHON
-BUILT_SOURCES = python/docstrings.h
+BUILT_SOURCES += python/docstrings.h
 
 noinst_LTLIBRARIES += _drgn.la
 endif
@@ -105,16 +117,15 @@ if WITH_LIBKDUMPFILE
 _drgn_la_CFLAGS += $(libkdumpfile_CFLAGS)
 endif
 
-GEN_CONSTANTS = $(top_srcdir)/build-aux/gen_constants.py
-GEN_DOCSTRINGS = $(top_srcdir)/build-aux/gen_docstrings.py
+python/constants.c: drgn.h build-aux/gen_constants.py
+	$(PYTHON) $(word 2, $^) < $< > $@
 
-python/constants.c: drgn.h $(GEN_CONSTANTS)
-	$(PYTHON) $(GEN_CONSTANTS) < $< > $@
+python/docstrings.c: ../docs/api_reference.rst build-aux/gen_docstrings.py
+	$(PYTHON) $(word 2, $^) < $< > $@
 
-python/docstrings.c: ../docs/api_reference.rst $(GEN_DOCSTRINGS)
-	$(PYTHON) $(GEN_DOCSTRINGS) < $< > $@
+python/docstrings.h: ../docs/api_reference.rst build-aux/gen_docstrings.py
+	$(PYTHON) $(word 2, $^) -H < $< > $@
 
-python/docstrings.h: ../docs/api_reference.rst $(GEN_DOCSTRINGS)
-	$(PYTHON) $(GEN_DOCSTRINGS) -H < $< > $@
-
-EXTRA_DIST = $(GEN_CONSTANTS) $(GEN_DOCSTRINGS)
+EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py \
+	     build-aux/gen_docstrings.py build-aux/gen_drgn_h.awk \
+	     build-aux/parse_arch.awk
