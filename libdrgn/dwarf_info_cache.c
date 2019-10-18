@@ -996,7 +996,14 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 	}
 
 	dimension->is_complete = true;
-	if (attr->code == DW_AT_upper_bound) {
+	/*
+	 * GCC emits a DW_FORM_sdata DW_AT_upper_bound of -1 for empty array
+	 * variables without an explicit size (e.g., `int arr[] = {};`).
+	 */
+	if (attr->code == DW_AT_upper_bound && attr->form == DW_FORM_sdata &&
+	    word == (Dwarf_Word)-1) {
+		dimension->length = 0;
+	} else if (attr->code == DW_AT_upper_bound) {
 		if (word >= UINT64_MAX) {
 			return drgn_error_create(DRGN_ERROR_OVERFLOW,
 						 "DW_AT_upper_bound is too large");

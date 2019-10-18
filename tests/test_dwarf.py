@@ -1072,6 +1072,10 @@ class TestTypes(unittest.TestCase):
         ]
         self.assertFromDwarf(dies, array_type(0, int_type('int', 4, True)))
 
+        dies[0].children[0].attribs[0] = DwarfAttrib(DW_AT.upper_bound,
+                                                     DW_FORM.sdata, -1)
+        self.assertFromDwarf(dies, array_type(0, int_type('int', 4, True)))
+
     def test_incomplete_array(self):
         dies = [
             DwarfDie(
