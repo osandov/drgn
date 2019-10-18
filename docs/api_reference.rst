@@ -1225,7 +1225,7 @@ can be used just like types obtained from :meth:`Program.type()`.
     :param tag: :attr:`Type.tag`
     :type tag: str or None
     :param type: The compatible integer type (:attr:`Type.type`)
-    :type param Type or None:
+    :type type: Type or None
     :param enumerators: :attr:`Type.enumerators`
     :type enumerators: list[tuple] or None
     :param qualifiers: :attr:`Type.qualifiers`
