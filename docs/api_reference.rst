@@ -879,6 +879,23 @@ Stack Traces
 
         :rtype: Symbol
 
+    .. method:: register(reg)
+
+        Get the value of the given register at this stack frame. The register
+        can be specified by name (e.g., ``'rax'``), number (see
+        :attr:`RegisterInfo.number`), or as a :class:`RegisterInfo`.
+
+        :param reg: Register to get.
+        :type reg: str, int, or RegisterInfo
+        :rtype: int
+
+    .. method:: registers()
+
+        Get the values of all available registers at this stack frame as a
+        dictionary with the register names as keys.
+
+        :rtype: dict[str, int]
+
 .. _api-reference-types:
 
 Types

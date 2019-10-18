@@ -2300,6 +2300,16 @@ uint64_t drgn_stack_frame_pc(struct drgn_stack_frame frame);
 struct drgn_error *drgn_stack_frame_symbol(struct drgn_stack_frame frame,
 					   struct drgn_symbol **ret);
 
+/** Get the value of a register (by number) in a stack frame. */
+struct drgn_error *drgn_stack_frame_register(struct drgn_stack_frame frame,
+					     enum drgn_register_number regno,
+					     uint64_t *ret);
+
+/** Get the value of a register (by name) in a stack frame. */
+struct drgn_error *
+drgn_stack_frame_register_by_name(struct drgn_stack_frame frame,
+				  const char *name, uint64_t *ret);
+
 /**
  * Get a stack trace for the thread represented by @p obj.
  *

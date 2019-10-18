@@ -1,6 +1,7 @@
 // Copyright 2019 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <dwarf.h>
 #include <elfutils/libdwfl.h>
 #include <endian.h>
 #include <inttypes.h>
@@ -108,6 +109,34 @@ drgn_stack_frame_symbol(struct drgn_stack_frame frame, struct drgn_symbol **ret)
 	return drgn_program_find_symbol_in_module(frame.trace->prog, module,
 						  drgn_stack_frame_pc(frame),
 						  ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_register(struct drgn_stack_frame frame,
+			  enum drgn_register_number regno, uint64_t *ret)
+{
+	const Dwarf_Op op = { .atom = DW_OP_regx, .number = regno, };
+	Dwarf_Addr value;
+
+	if (!dwfl_frame_eval_expr(frame.trace->frames[frame.i], &op, 1, &value))
+		return drgn_error_libdwfl();
+	*ret = value;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_register_by_name(struct drgn_stack_frame frame,
+				  const char *name, uint64_t *ret)
+{
+	const struct drgn_register *reg;
+
+	reg = drgn_architecture_register_by_name(frame.trace->prog->platform.arch,
+						 name);
+	if (!reg) {
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "unknown register '%s'", name);
+	}
+	return drgn_stack_frame_register(frame, reg->number, ret);
 }
 
 static bool drgn_thread_memory_read(Dwfl *dwfl, Dwarf_Addr addr,
