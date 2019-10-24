@@ -62,21 +62,26 @@ struct drgn_program {
 	 * Valid iff <tt>flags & DRGN_PROGRAM_IS_LINUX_KERNEL</tt>.
 	 */
 	struct vmcoreinfo vmcoreinfo;
+#ifdef WITH_LIBKDUMPFILE
+	kdump_ctx_t *kdump_ctx;
+#endif
+	/*
+	 * Valid iff <tt>!(flags & DRGN_PROGRAM_IS_LIVE)</tt>, unless the file
+	 * was a kdump file.
+	 */
+	Elf *core;
+	int core_fd;
 	 /*
 	  * Valid iff
 	  * <tt>(flags & (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE)) ==
 	  * DRGN_PROGRAM_IS_LIVE</tt>.
 	  */
 	pid_t pid;
-#ifdef WITH_LIBKDUMPFILE
-	kdump_ctx_t *kdump_ctx;
-#endif
 	struct drgn_dwarf_info_cache *_dicache;
 	/* See @ref drgn_object_stack_trace_next_thread(). */
 	const struct drgn_object *stack_trace_obj;
 	/* See @ref drgn_object_stack_trace(). */
 	struct drgn_error *stack_trace_err;
-	int core_fd;
 	enum drgn_program_flags flags;
 	struct drgn_platform platform;
 	bool has_platform;

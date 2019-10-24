@@ -82,7 +82,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	if (prog->kdump_ctx)
 		kdump_free(prog->kdump_ctx);
 #endif
-
+	elf_end(prog->core);
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
 
@@ -172,7 +172,6 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 {
 	struct drgn_error *err;
-	Elf *elf;
 	GElf_Ehdr ehdr_mem, *ehdr;
 	struct drgn_platform platform;
 	bool is_64_bit, is_kdump;
@@ -196,7 +195,6 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (err)
 		goto out_fd;
 	if (is_kdump) {
-set_kdump:
 		err = drgn_program_set_kdump(prog);
 		if (err)
 			goto out_fd;
@@ -205,13 +203,13 @@ set_kdump:
 
 	elf_version(EV_CURRENT);
 
-	elf = elf_begin(prog->core_fd, ELF_C_READ, NULL);
-	if (!elf) {
+	prog->core = elf_begin(prog->core_fd, ELF_C_READ, NULL);
+	if (!prog->core) {
 		err = drgn_error_libelf();
 		goto out_fd;
 	}
 
-	ehdr = gelf_getehdr(elf, &ehdr_mem);
+	ehdr = gelf_getehdr(prog->core, &ehdr_mem);
 	if (!ehdr || ehdr->e_type != ET_CORE) {
 		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 					"not an ELF core file");
@@ -221,7 +219,7 @@ set_kdump:
 	drgn_platform_from_elf(ehdr, &platform);
 	is_64_bit = ehdr->e_ident[EI_CLASS] == ELFCLASS64;
 
-	if (elf_getphdrnum(elf, &phnum) != 0) {
+	if (elf_getphdrnum(prog->core, &phnum) != 0) {
 		err = drgn_error_libelf();
 		goto out_elf;
 	}
@@ -234,7 +232,7 @@ set_kdump:
 	for (i = 0; i < phnum; i++) {
 		GElf_Phdr phdr_mem, *phdr;
 
-		phdr = gelf_getphdr(elf, i, &phdr_mem);
+		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
 		if (!phdr) {
 			err = drgn_error_libelf();
 			goto out_elf;
@@ -250,7 +248,7 @@ set_kdump:
 			GElf_Nhdr nhdr;
 			size_t name_offset, desc_offset;
 
-			data = elf_getdata_rawchunk(elf, phdr->p_offset,
+			data = elf_getdata_rawchunk(prog->core, phdr->p_offset,
 						    phdr->p_filesz,
 						    note_header_type(phdr));
 			if (!data) {
@@ -315,8 +313,10 @@ set_kdump:
 #endif
 		}
 		if (use_libkdumpfile) {
-			elf_end(elf);
-			goto set_kdump;
+			err = drgn_program_set_kdump(prog);
+			if (err)
+				goto out_elf;
+			return NULL;
 		}
 	}
 
@@ -333,7 +333,7 @@ set_kdump:
 	for (i = 0; i < phnum; i++) {
 		GElf_Phdr phdr_mem, *phdr;
 
-		phdr = gelf_getphdr(elf, i, &phdr_mem);
+		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
 		if (!phdr) {
 			err = drgn_error_libelf();
 			goto out_segments;
@@ -380,8 +380,6 @@ set_kdump:
 		if (err)
 			goto out_segments;
 	}
-	elf_end(elf);
-	elf = NULL;
 
 	if (is_proc_kcore) {
 		if (!vmcoreinfo_note) {
@@ -393,6 +391,8 @@ set_kdump:
 		}
 		prog->flags |= (DRGN_PROGRAM_IS_LINUX_KERNEL |
 				DRGN_PROGRAM_IS_LIVE);
+		elf_end(prog->core);
+		prog->core = NULL;
 	} else if (vmcoreinfo_note) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 	}
@@ -407,7 +407,8 @@ out_segments:
 	prog->file_segments = NULL;
 	prog->num_file_segments = 0;
 out_elf:
-	elf_end(elf);
+	elf_end(prog->core);
+	prog->core = NULL;
 out_fd:
 	close(prog->core_fd);
 	prog->core_fd = -1;
@@ -561,17 +562,9 @@ userspace_report_debug_info(struct drgn_program *prog,
 				return drgn_error_create_os("dwfl_linux_proc_report",
 							    ret, NULL);
 			}
-		} else {
-			Elf *elf;
-			int ret;
-
-			elf = elf_begin(prog->core_fd, ELF_C_READ, NULL);
-			if (!elf)
-				return drgn_error_libelf();
-			ret = dwfl_core_file_report(dindex->dwfl, elf, NULL);
-			elf_end(elf);
-			if (ret == -1)
-				return drgn_error_libdwfl();
+		} else if (dwfl_core_file_report(dindex->dwfl, prog->core,
+						 NULL) == -1) {
+			return drgn_error_libdwfl();
 		}
 	}
 	return NULL;
