@@ -28,6 +28,9 @@
 #include "type_index.h"
 #include "vector.h"
 
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_map, hash_pair_int_type,
+			    hash_table_scalar_eq)
+
 static Elf_Type note_header_type(GElf_Phdr *phdr)
 {
 	if (phdr->p_align == 8)
@@ -66,12 +69,15 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_type_index_init(&prog->tindex);
 	drgn_object_index_init(&prog->oindex);
 	prog->core_fd = -1;
+	drgn_prstatus_map_init(&prog->prstatus_cache);
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 }
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
+	drgn_prstatus_map_deinit(&prog->prstatus_cache);
+
 	drgn_object_index_deinit(&prog->oindex);
 	drgn_type_index_deinit(&prog->tindex);
 	drgn_memory_reader_deinit(&prog->reader);
@@ -626,6 +632,92 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 			      drgn_set_platform_from_dwarf, prog, 0);
 	}
 	return err;
+}
+
+static struct drgn_error *drgn_program_cache_prstatus(struct drgn_program *prog)
+{
+	size_t phnum, i;
+	size_t pr_pid_offset;
+	bool bswap;
+
+	pr_pid_offset = drgn_program_is_64_bit(prog) ? 32 : 24;
+	bswap = (drgn_program_is_little_endian(prog) !=
+		 (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
+
+	if (elf_getphdrnum(prog->core, &phnum) != 0)
+		return drgn_error_libelf();
+	for (i = 0; i < phnum; i++) {
+		GElf_Phdr phdr_mem, *phdr;
+		Elf_Data *data;
+		size_t offset;
+		GElf_Nhdr nhdr;
+		size_t name_offset, desc_offset;
+
+		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
+		if (!phdr)
+			return drgn_error_libelf();
+		if (phdr->p_type != PT_NOTE)
+			continue;
+
+		data = elf_getdata_rawchunk(prog->core, phdr->p_offset,
+					    phdr->p_filesz,
+					    note_header_type(phdr));
+		if (!data)
+			return drgn_error_libelf();
+
+		offset = 0;
+		while (offset < data->d_size &&
+		       (offset = gelf_getnote(data, offset, &nhdr, &name_offset,
+					      &desc_offset))) {
+			const char *name;
+			uint32_t pr_pid;
+			struct drgn_prstatus_map_entry entry;
+
+			name = (char *)data->d_buf + name_offset;
+			if (strncmp(name, "CORE", nhdr.n_namesz) != 0 ||
+			    nhdr.n_type != NT_PRSTATUS ||
+			    nhdr.n_descsz < pr_pid_offset + sizeof(pr_pid))
+				continue;
+			memcpy(&pr_pid,
+			       (char *)data->d_buf + desc_offset + pr_pid_offset,
+			       sizeof(pr_pid));
+			if (bswap)
+				pr_pid = bswap_32(pr_pid);
+			if (!pr_pid)
+				continue;
+
+			entry.key = pr_pid;
+			entry.value.str = (char *)data->d_buf + desc_offset;
+			entry.value.len = nhdr.n_descsz;
+			if (drgn_prstatus_map_insert(&prog->prstatus_cache,
+						     &entry, NULL) == -1)
+				return &drgn_enomem;
+		}
+	}
+	return NULL;
+}
+
+struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
+					      uint32_t tid, struct string *ret)
+{
+	struct drgn_error *err;
+	struct drgn_prstatus_map_iterator it;
+
+	if (!prog->prstatus_cached) {
+		err = drgn_program_cache_prstatus(prog);
+		if (err)
+			return err;
+		prog->prstatus_cached = true;
+	}
+
+	it = drgn_prstatus_map_search(&prog->prstatus_cache, &tid);
+	if (!it.entry) {
+		ret->str = NULL;
+		ret->len = 0;
+		return NULL;
+	}
+	*ret = it.entry->value;
+	return NULL;
 }
 
 struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,

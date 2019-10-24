@@ -1,6 +1,7 @@
 // Copyright 2019 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <byteswap.h>
 #include <dwarf.h>
 #include <elfutils/libdwfl.h>
 #include <endian.h>
@@ -9,6 +10,7 @@
 
 #include "internal.h"
 #include "program.h"
+#include "read.h"
 #include "string_builder.h"
 #include "symbol.h"
 
@@ -180,8 +182,8 @@ err:
 }
 
 /*
- * For drgn_object_stack_trace(), we only care about the thread
- * prog->stack_trace_obj. We return it with an arbitrary TID.
+ * We only care about the specific thread that we're unwinding, so we return it
+ * with an arbitrary TID.
  */
 #define STACK_TRACE_OBJ_TID 1
 static pid_t drgn_object_stack_trace_next_thread(Dwfl *dwfl, void *dwfl_arg,
@@ -191,19 +193,111 @@ static pid_t drgn_object_stack_trace_next_thread(Dwfl *dwfl, void *dwfl_arg,
 
 	if (*thread_argp || !prog->stack_trace_obj)
 		return 0;
-	*thread_argp = (void *)prog->stack_trace_obj;
+	*thread_argp = prog;
 	return STACK_TRACE_OBJ_TID;
+}
+
+static struct drgn_error *
+drgn_get_task_pid(const struct drgn_object *task, uint32_t *ret)
+{
+	struct drgn_error *err;
+	struct drgn_object pid;
+	int64_t value;
+
+	drgn_object_init(&pid, task->prog);
+	err = drgn_object_member_dereference(&pid, task, "pid");
+	if (err)
+		goto out;
+	err = drgn_object_read_signed(&pid, &value);
+	if (err)
+		goto out;
+	*ret = value;
+out:
+	drgn_object_deinit(&pid);
+	return err;
+}
+
+static struct drgn_error *
+drgn_prstatus_set_initial_registers(Dwfl_Thread *thread,
+				    struct drgn_platform *platform,
+				    struct string *prstatus)
+{
+	bool bswap = (!!(platform->flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN) !=
+		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
+	size_t i;
+
+	if (!platform->arch->num_frame_registers) {
+		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					 "core dump stack unwinding is not supported for %s architecture",
+					 platform->arch->name);
+	}
+
+	for (i = 0; i < platform->arch->num_frame_registers; i++) {
+		const struct drgn_frame_register *reg;
+		const char *p;
+		Dwarf_Word word;
+
+		reg = &platform->arch->frame_registers[i];
+		if (prstatus->len < reg->prstatus_offset + reg->size) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "NT_PRSTATUS is truncated");
+		}
+		p = prstatus->str + reg->prstatus_offset;
+		switch (reg->size) {
+		case 4: {
+			uint32_t tmp;
+
+			memcpy(&tmp, p, sizeof(tmp));
+			if (bswap)
+				tmp = bswap_32(tmp);
+			word = tmp;
+			break;
+		}
+		case 8: {
+			uint64_t tmp;
+
+			memcpy(&tmp, p, sizeof(tmp));
+			if (bswap)
+				tmp = bswap_64(tmp);
+			word = tmp;
+			break;
+		}
+		default:
+			DRGN_UNREACHABLE();
+		}
+		if (!dwfl_thread_state_registers(thread, reg->number, 1, &word))
+			return drgn_error_libdwfl();
+	}
+	return NULL;
 }
 
 static bool drgn_linux_kernel_set_initial_registers(Dwfl_Thread *thread,
 						    void *thread_arg)
 {
 	struct drgn_error *err;
-	struct drgn_object *task_obj = thread_arg;
-	struct drgn_program *prog = task_obj->prog;
+	struct drgn_program *prog = thread_arg;
+	const struct drgn_object *task_obj = prog->stack_trace_obj;
 
+	if (prog->core) {
+		uint32_t tid;
+		struct string prstatus;
+
+		err = drgn_get_task_pid(task_obj, &tid);
+		if (err)
+			goto out;
+		err = drgn_program_find_prstatus(prog, tid, &prstatus);
+		if (err)
+			goto out;
+		if (prstatus.str) {
+			err = drgn_prstatus_set_initial_registers(thread,
+								  &prog->platform,
+								  &prstatus);
+			goto out;
+		}
+	}
 	err = prog->platform.arch->linux_kernel_set_initial_registers(thread,
 								      task_obj);
+out:
 	if (err) {
 		drgn_error_destroy(prog->stack_trace_err);
 		prog->stack_trace_err = err;
