@@ -33,6 +33,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 lexer.h \
 			 linux_kernel.c \
 			 linux_kernel.h \
+			 linux_kernel_helpers.c \
 			 memory_reader.c \
 			 memory_reader.h \
 			 object.c \
@@ -94,6 +95,7 @@ CLEANFILES = python/constants.c python/docstrings.c python/docstrings.h
 _drgn_la_SOURCES = python/docstrings.h \
 		   python/drgnpy.h \
 		   python/error.c \
+		   python/helpers.c \
 		   python/module.c \
 		   python/object.c \
 		   python/platform.c \

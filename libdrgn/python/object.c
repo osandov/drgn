@@ -9,11 +9,6 @@
 #include "../serialize.h"
 #include "../type.h"
 
-static inline Program *DrgnObject_prog(DrgnObject *obj)
-{
-	return container_of(obj->obj.prog, Program, prog);
-}
-
 static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 				  PyObject *kwds)
 {

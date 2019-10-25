@@ -12,6 +12,7 @@ IDRs were not based on radix trees.
 """
 
 from drgn.helpers.linux.radixtree import radix_tree_for_each, radix_tree_lookup
+from _drgn import _linux_helper_idr_find
 
 
 __all__ = [
@@ -27,12 +28,7 @@ def idr_find(idr, id):
     Look up the entry with the given id in an IDR. If it is not found, this
     returns a ``NULL`` object.
     """
-    # idr_base was added in v4.16.
-    try:
-        id -= idr.idr_base
-    except AttributeError:
-        pass
-    return radix_tree_lookup(idr.idr_rt, id)
+    return _linux_helper_idr_find(idr, id)
 
 
 def idr_for_each(idr):
@@ -48,5 +44,5 @@ def idr_for_each(idr):
         base = idr.idr_base.value_()
     except AttributeError:
         base = 0
-    for index, entry in radix_tree_for_each(idr.idr_rt):
+    for index, entry in radix_tree_for_each(idr.idr_rt.address_of_()):
         yield index + base, entry

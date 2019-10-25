@@ -10,6 +10,7 @@ radix trees from :linux:`include/linux/radix-tree.h`.
 """
 
 from drgn import Object, cast
+from _drgn import _linux_helper_radix_tree_lookup
 
 
 __all__ = [
@@ -44,15 +45,7 @@ def radix_tree_lookup(root, index):
     Look up the entry at a given index in a radix tree. If it is not found,
     this returns a ``NULL`` object.
     """
-    node, RADIX_TREE_INTERNAL_NODE = _radix_tree_root_node(root)
-    RADIX_TREE_MAP_MASK = node.slots.type_.length - 1
-    while True:
-        if not _is_internal_node(node, RADIX_TREE_INTERNAL_NODE):
-            break
-        parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
-        offset = (index >> parent.shift) & RADIX_TREE_MAP_MASK
-        node = cast(parent.type_, parent.slots[offset]).read_()
-    return cast('void *', node)
+    return _linux_helper_radix_tree_lookup(root, index)
 
 
 def radix_tree_for_each(root):

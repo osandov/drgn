@@ -141,6 +141,10 @@ static inline DrgnObject *DrgnObject_alloc(Program *prog)
 	}
 	return ret;
 }
+static inline Program *DrgnObject_prog(DrgnObject *obj)
+{
+	return container_of(obj->obj.prog, Program, prog);
+}
 PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *reinterpret(PyObject *self, PyObject *args, PyObject *kwds);
@@ -215,5 +219,17 @@ struct enum_arg {
 	bool allow_none;
 };
 int enum_converter(PyObject *o, void *p);
+
+DrgnObject *drgnpy_linux_helper_radix_tree_lookup(PyObject *self,
+						  PyObject *args,
+						  PyObject *kwds);
+DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,
+					 PyObject *kwds);
+DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args,
+					 PyObject *kwds);
+DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
+					 PyObject *kwds);
+DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args,
+					  PyObject *kwds);
 
 #endif /* DRGNPY_H */

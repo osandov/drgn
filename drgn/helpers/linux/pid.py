@@ -12,6 +12,11 @@ IDs and processes.
 from drgn import NULL, Program, cast, container_of
 from drgn.helpers.linux.idr import idr_find, idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry
+from _drgn import (
+    _linux_helper_find_pid,
+    _linux_helper_find_task,
+    _linux_helper_pid_task,
+)
 
 __all__ = [
     'find_pid',
@@ -30,28 +35,7 @@ def find_pid(prog_or_ns, nr):
     namespace. If given a :class:`Program` instead, the initial PID namespace
     is used.
     """
-    if isinstance(prog_or_ns, Program):
-        prog = prog_or_ns
-        ns = prog_or_ns['init_pid_ns'].address_of_()
-    else:
-        prog = prog_or_ns.prog_
-        ns = prog_or_ns
-    if hasattr(ns, 'idr'):
-        return cast('struct pid *', idr_find(ns.idr, nr))
-    else:
-        # We could implement pid_hashfn() and only search that bucket, but it's
-        # different for 32-bit and 64-bit systems, and it has changed at least
-        # once, in v4.7. Searching the whole hash table is slower but
-        # foolproof.
-        pid_hash = prog['pid_hash']
-        for i in range(1 << prog['pidhash_shift'].value_()):
-            for upid in hlist_for_each_entry('struct upid',
-                                             pid_hash[i].address_of_(),
-                                             'pid_chain'):
-                if upid.nr == nr and upid.ns == ns:
-                    return container_of(upid, 'struct pid',
-                                        f'numbers[{ns.level.value_()}]')
-        return NULL(prog, 'struct pid *')
+    return _linux_helper_find_pid(prog_or_ns, nr)
 
 
 def for_each_pid(prog_or_ns):
@@ -90,17 +74,7 @@ def pid_task(pid, pid_type):
     Return the ``struct task_struct *`` containing the given ``struct pid *``
     of the given type.
     """
-    if not pid:
-        return NULL(pid.prog_, 'struct task_struct *')
-    first = pid.tasks[0].first
-    if not first:
-        return NULL(pid.prog_, 'struct task_struct *')
-    try:
-        return container_of(first, 'struct task_struct',
-                            f'pid_links[{int(pid_type)}]')
-    except LookupError:
-        return container_of(first, 'struct task_struct',
-                            f'pids[{int(pid_type)}].node')
+    return _linux_helper_pid_task(pid, pid_type)
 
 
 def find_task(prog_or_ns, pid):
@@ -110,11 +84,7 @@ def find_task(prog_or_ns, pid):
     Return the task with the given PID in the given namespace. If given a
     :class:`Program` instead, the initial PID namespace is used.
     """
-    if isinstance(prog_or_ns, Program):
-        prog = prog_or_ns
-    else:
-        prog = prog_or_ns.prog_
-    return pid_task(find_pid(prog_or_ns, pid), prog['PIDTYPE_PID'])
+    return _linux_helper_find_task(prog_or_ns, pid)
 
 
 def for_each_task(prog_or_ns):

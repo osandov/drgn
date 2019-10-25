@@ -112,6 +112,17 @@ static PyMethodDef drgn_methods[] = {
 	 drgn_array_type_DOC},
 	{"function_type", (PyCFunction)function_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_function_type_DOC},
+	{"_linux_helper_radix_tree_lookup",
+	 (PyCFunction)drgnpy_linux_helper_radix_tree_lookup,
+	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_idr_find", (PyCFunction)drgnpy_linux_helper_idr_find,
+	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_find_pid", (PyCFunction)drgnpy_linux_helper_find_pid,
+	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_pid_task", (PyCFunction)drgnpy_linux_helper_pid_task,
+	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_find_task", (PyCFunction)drgnpy_linux_helper_find_task,
+	 METH_VARARGS | METH_KEYWORDS},
 	{},
 };
 
