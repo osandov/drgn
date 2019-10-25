@@ -679,17 +679,27 @@ static StackTrace *Program_stack_trace(Program *self, PyObject *args,
 {
 	static char *keywords[] = {"thread", NULL};
 	struct drgn_error *err;
-	DrgnObject *task;
+	PyObject *thread;
 	struct drgn_stack_trace *trace;
 	StackTrace *ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:stack_trace", keywords,
-					 &DrgnObject_type, &task))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:stack_trace", keywords,
+					 &thread))
 		return NULL;
 
-	err = drgn_object_stack_trace(&task->obj, &trace);
+	if (PyObject_TypeCheck(thread, &DrgnObject_type)) {
+		err = drgn_object_stack_trace(&((DrgnObject *)thread)->obj,
+					      &trace);
+	} else {
+		struct index_arg tid = {};
+
+		if (!index_converter(thread, &tid))
+			return NULL;
+		err = drgn_program_stack_trace(&self->prog, tid.value, &trace);
+	}
 	if (err)
 		return set_drgn_error(err);
+
 	ret = (StackTrace *)StackTrace_type.tp_alloc(&StackTrace_type, 0);
 	if (!ret) {
 		drgn_stack_trace_destroy(trace);

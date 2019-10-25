@@ -9,6 +9,7 @@
 #include <stdlib.h>
 
 #include "internal.h"
+#include "helpers.h"
 #include "program.h"
 #include "read.h"
 #include "string_builder.h"
@@ -191,7 +192,7 @@ static pid_t drgn_object_stack_trace_next_thread(Dwfl *dwfl, void *dwfl_arg,
 {
 	struct drgn_program *prog = dwfl_arg;
 
-	if (*thread_argp || !prog->stack_trace_obj)
+	if (*thread_argp)
 		return 0;
 	*thread_argp = prog;
 	return STACK_TRACE_OBJ_TID;
@@ -202,16 +203,16 @@ drgn_get_task_pid(const struct drgn_object *task, uint32_t *ret)
 {
 	struct drgn_error *err;
 	struct drgn_object pid;
-	int64_t value;
+	union drgn_value value;
 
 	drgn_object_init(&pid, task->prog);
 	err = drgn_object_member_dereference(&pid, task, "pid");
 	if (err)
 		goto out;
-	err = drgn_object_read_signed(&pid, &value);
+	err = drgn_object_read_integer(&pid, &value);
 	if (err)
 		goto out;
-	*ret = value;
+	*ret = value.uvalue;
 out:
 	drgn_object_deinit(&pid);
 	return err;
@@ -271,20 +272,40 @@ drgn_prstatus_set_initial_registers(Dwfl_Thread *thread,
 	return NULL;
 }
 
-static bool drgn_linux_kernel_set_initial_registers(Dwfl_Thread *thread,
-						    void *thread_arg)
+static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
+					      void *thread_arg)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = thread_arg;
-	const struct drgn_object *task_obj = prog->stack_trace_obj;
+	struct drgn_object obj;
+	bool truthy;
 
+	drgn_object_init(&obj, prog);
+
+	if (prog->stack_trace_obj) {
+		if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
+			err = drgn_error_create(DRGN_ERROR_TYPE,
+						"thread ID must be integer");
+			goto out;
+		}
+
+		err = drgn_object_read(&obj, prog->stack_trace_obj);
+		if (err)
+			goto out;
+	}
+
+	/* First, try the core dump. */
 	if (prog->core) {
 		uint32_t tid;
 		struct string prstatus;
 
-		err = drgn_get_task_pid(task_obj, &tid);
-		if (err)
-			goto out;
+		if (prog->stack_trace_obj) {
+			err = drgn_get_task_pid(&obj, &tid);
+			if (err)
+				goto out;
+		} else {
+			tid = prog->stack_trace_tid;
+		}
 		err = drgn_program_find_prstatus(prog, tid, &prstatus);
 		if (err)
 			goto out;
@@ -295,9 +316,48 @@ static bool drgn_linux_kernel_set_initial_registers(Dwfl_Thread *thread,
 			goto out;
 		}
 	}
+
+	/* Then, try the task_struct. */
+	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
+		err = drgn_error_create(DRGN_ERROR_LOOKUP, "thread not found");
+		goto out;
+	}
+
+	if (!prog->platform.arch->linux_kernel_set_initial_registers) {
+		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					"Linux kernel stack unwinding is not supported for %s architecture",
+					prog->platform.arch->name);
+		goto out;
+	}
+
+	if (!prog->stack_trace_obj) {
+		struct drgn_object ns;
+
+		drgn_object_init(&ns, prog);
+		err = drgn_program_find_object(prog, "init_pid_ns", NULL,
+					       DRGN_FIND_OBJECT_ANY, &ns);
+		if (!err)
+			err = drgn_object_address_of(&ns, &ns);
+		if (!err) {
+			err = linux_helper_find_task(&obj, &ns,
+						     prog->stack_trace_tid);
+		}
+		drgn_object_deinit(&ns);
+		if (err)
+			goto out;
+	}
+	err = drgn_object_bool(&obj, &truthy);
+	if (err)
+		goto out;
+	if (!truthy) {
+		err = drgn_error_create(DRGN_ERROR_LOOKUP, "task not found");
+		goto out;
+	}
+
 	err = prog->platform.arch->linux_kernel_set_initial_registers(thread,
-								      task_obj);
+								      &obj);
 out:
+	drgn_object_deinit(&obj);
 	if (err) {
 		drgn_error_destroy(prog->stack_trace_err);
 		prog->stack_trace_err = err;
@@ -335,14 +395,15 @@ static int drgn_append_stack_frame(Dwfl_Frame *state, void *arg)
 static const Dwfl_Thread_Callbacks drgn_linux_kernel_thread_callbacks = {
 	.next_thread = drgn_object_stack_trace_next_thread,
 	.memory_read = drgn_thread_memory_read,
-	.set_initial_registers = drgn_linux_kernel_set_initial_registers,
+	.set_initial_registers = drgn_thread_set_initial_registers,
 };
 
-struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
-					   struct drgn_stack_trace **ret)
+static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
+					       uint32_t tid,
+					       const struct drgn_object *obj,
+					       struct drgn_stack_trace **ret)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = obj->prog;
 	Dwfl *dwfl;
 	Dwfl_Thread *thread;
 	struct drgn_stack_trace *trace;
@@ -351,14 +412,10 @@ struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot unwind stack without platform");
 	}
-	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
+	if ((prog->flags & (DRGN_PROGRAM_IS_LINUX_KERNEL |
+			    DRGN_PROGRAM_IS_LIVE)) == DRGN_PROGRAM_IS_LIVE) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "stack unwinding is currently only supported for the Linux kernel");
-	}
-	if (!prog->platform.arch->linux_kernel_set_initial_registers) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					 "stack unwinding is not supported for %s architecture",
-					 prog->platform.arch->name);
+					 "stack unwinding is not yet supported for live processes");
 	}
 
 	err = drgn_program_get_dwfl(prog, &dwfl);
@@ -372,9 +429,11 @@ struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 		prog->attached_dwfl_state = true;
 	}
 
+	prog->stack_trace_tid = tid;
 	prog->stack_trace_obj = obj;
 	thread = dwfl_attach_thread(dwfl, STACK_TRACE_OBJ_TID);
 	prog->stack_trace_obj = NULL;
+	prog->stack_trace_tid = 0;
 	if (prog->stack_trace_err)
 		goto stack_trace_err;
 	if (!thread) {
@@ -423,4 +482,29 @@ stack_trace_err:
 err:
 	dwfl_detach_thread(thread);
 	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_stack_trace(struct drgn_program *prog, uint32_t tid,
+			 struct drgn_stack_trace **ret)
+{
+	return drgn_get_stack_trace(prog, tid, NULL, ret);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_object_stack_trace(const struct drgn_object *obj,
+			struct drgn_stack_trace **ret)
+{
+	struct drgn_error *err;
+
+	if (drgn_type_kind(drgn_underlying_type(obj->type)) == DRGN_TYPE_INT) {
+		union drgn_value value;
+
+		err = drgn_object_read_integer(obj, &value);
+		if (err)
+			return err;
+		return drgn_get_stack_trace(obj->prog, value.uvalue, NULL, ret);
+	} else {
+		return drgn_get_stack_trace(obj->prog, 0, obj, ret);
+	}
 }

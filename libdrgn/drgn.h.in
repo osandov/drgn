@@ -2345,11 +2345,20 @@ drgn_stack_frame_register_by_name(struct drgn_stack_frame frame,
 				  const char *name, uint64_t *ret);
 
 /**
- * Get a stack trace for the thread represented by @p obj.
+ * Get a stack trace for the thread with the given thread ID.
  *
  * @param[out] ret Returned stack trace. On success, it should be freed with
  * @ref drgn_stack_trace_destroy(). On error, its contents are undefined.
  * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_stack_trace(struct drgn_program *prog,
+					    uint32_t tid,
+					    struct drgn_stack_trace **ret);
+
+/**
+ * Get a stack trace for the thread represented by @p obj.
+ *
+ * @sa drgn_program_stack_trace().
  */
 struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 					   struct drgn_stack_trace **ret);

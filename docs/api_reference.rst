@@ -138,14 +138,19 @@ Programs
 
     .. method:: stack_trace(thread)
 
-        Get the stack trace for a given thread in the program. Currently, this
-        is only implemented for the Linux kernel.
+        Get the stack trace for the given thread in the program.
 
         Note that this currently doesn't verify that the thread is inactive. If
         the thread is running, the returned stack trace will not be accurate.
 
-        :param Object thread: The ``struct task_struct *`` object of the
-            thread. See :func:`drgn.helpers.linux.pid.find_task()`.
+        This is implemented for the Linux kernel (both live and core dumps) as
+        well as userspace core dumps; it is not yet implemented for live
+        userspace processes.
+
+        :param thread: Thread ID, or, if debugging the Linux kernel, a ``struct
+            task_struct *`` object. See
+            :func:`drgn.helpers.linux.pid.find_task()`.
+        :type thread: Object or int
         :rtype: StackTrace
 
     .. method:: type(name, filename=None)
@@ -828,6 +833,8 @@ Symbols
 Stack Traces
 ------------
 
+Stack traces are retrieved with :meth:`Program.stack_trace()`.
+
 .. class:: StackTrace
 
     A ``StackTrace`` is a :ref:`sequence <python:typesseq-common>` of
@@ -847,7 +854,7 @@ Stack Traces
 
     :class:`str() <str>` returns a pretty-printed stack trace:
 
-    >>> print(prog.stack_trace(find_task(prog, 1))
+    >>> print(prog.stack_trace(1))
     #0  __schedule+0x25c/0x8ba
     #1  schedule+0x3c/0x7e
     #2  schedule_hrtimeout_range_clock+0x10c/0x118

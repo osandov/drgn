@@ -82,10 +82,11 @@ struct drgn_program {
 	pid_t pid;
 	struct drgn_dwarf_info_cache *_dicache;
 	struct drgn_prstatus_map prstatus_cache;
-	/* See @ref drgn_object_stack_trace_next_thread(). */
-	const struct drgn_object *stack_trace_obj;
 	/* See @ref drgn_object_stack_trace(). */
 	struct drgn_error *stack_trace_err;
+	/* See @ref drgn_object_stack_trace_next_thread(). */
+	const struct drgn_object *stack_trace_obj;
+	uint32_t stack_trace_tid;
 	enum drgn_program_flags flags;
 	struct drgn_platform platform;
 	bool has_platform;
