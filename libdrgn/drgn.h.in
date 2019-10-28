@@ -1596,6 +1596,18 @@ struct drgn_object {
 	};
 };
 
+/** Return the size of a buffer object in bytes. */
+static inline uint64_t drgn_buffer_object_size(const struct drgn_object *obj)
+{
+	return drgn_value_size(obj->bit_size, obj->value.bit_offset);
+}
+
+/** Return the referenced size of a reference object in bytes. */
+static inline uint64_t drgn_reference_object_size(const struct drgn_object *obj)
+{
+	return drgn_value_size(obj->bit_size, obj->reference.bit_offset);
+}
+
 /**
  * Return whether an object's value uses the inline buffer (@ref
  * drgn_value::ibuf).
@@ -1604,6 +1616,14 @@ static inline bool drgn_buffer_object_is_inline(const struct drgn_object *obj)
 {
 	return drgn_value_is_inline(obj->bit_size, obj->value.bit_offset);
 }
+
+/** Return an object's buffer. */
+#define drgn_object_buffer(obj) ({					\
+	__auto_type _obj = (obj);					\
+									\
+	(drgn_buffer_object_is_inline(_obj) ? _obj->value.ibuf :	\
+	 _obj->value.bufp);						\
+})
 
 /** Get the type of a @ref drgn_object. */
 static inline struct drgn_qualified_type

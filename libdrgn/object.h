@@ -33,14 +33,6 @@
  * @{
  */
 
-/** Return an object's buffer. */
-#define drgn_object_buffer(obj) ({					\
-	__auto_type _obj = (obj);					\
-									\
-	(drgn_buffer_object_is_inline(_obj) ? _obj->value.ibuf :	\
-	 _obj->value.bufp);						\
-})
-
 /**
  * Get the truthiness of an object.
  *
