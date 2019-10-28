@@ -140,13 +140,25 @@ Programs
 
         Get the stack trace for the given thread in the program.
 
+        ``thread`` may be a thread ID (as defined by `gettid(2)
+        <http://man7.org/linux/man-pages/man2/gettid.2.html>`_), in which case
+        this will unwind the stack for the thread with that ID. The ID may be a
+        Python ``int`` or an integer :class:`Object`
+
+        ``thread`` may also be a ``struct pt_regs`` or ``struct pt_regs *``
+        object, in which case the initial register values will be fetched from
+        that object.
+
+        Finally, if debugging the Linux kernel, ``thread`` may be a ``struct
+        task_struct *`` object, in which case this will unwind the stack for
+        that task. See :func:`drgn.helpers.linux.pid.find_task()`.
+
         This is implemented for the Linux kernel (both live and core dumps) as
         well as userspace core dumps; it is not yet implemented for live
         userspace processes.
 
-        :param thread: Thread ID, or, if debugging the Linux kernel, a ``struct
-            task_struct *`` object. See
-            :func:`drgn.helpers.linux.pid.find_task()`.
+        :param thread: Thread ID, ``struct pt_regs`` object, or
+            ``struct task_struct *`` object.
         :type thread: Object or int
         :rtype: StackTrace
 

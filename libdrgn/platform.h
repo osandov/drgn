@@ -13,11 +13,15 @@ struct drgn_register {
 	enum drgn_register_number number;
 };
 
-/* Register in NT_PRSTATUS note used for stack unwinding. */
+/* Register in NT_PRSTATUS note or struct pt_regs used for stack unwinding. */
 struct drgn_frame_register {
 	enum drgn_register_number number;
 	size_t size;
 	size_t prstatus_offset;
+	/* Name used in the kernel. */
+	const char *pt_regs_name;
+	/* Name used for the UAPI, if different from above. */
+	const char *pt_regs_name2;
 };
 
 struct drgn_architecture_info {
