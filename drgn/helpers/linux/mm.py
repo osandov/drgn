@@ -5,8 +5,9 @@
 Memory Management
 -----------------
 
-The ``drgn.helpers.linux.mm`` provides helpers for working with the Linux
-memory management (MM) subsystem. Only x86-64 support is currently implemented.
+The ``drgn.helpers.linux.mm`` module provides helpers for working with the
+Linux memory management (MM) subsystem. Only x86-64 support is currently
+implemented.
 """
 
 from drgn import Object, cast
