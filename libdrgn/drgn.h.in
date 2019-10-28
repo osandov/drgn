@@ -1947,6 +1947,20 @@ struct drgn_error *drgn_object_read_unsigned(const struct drgn_object *obj,
 
 /**
  * Get the value of an object with kind @ref
+ * drgn_object_kind::DRGN_OBJECT_SIGNED or @ref
+ * drgn_object_kind::DRGN_OBJECT_UNSIGNED.
+ *
+ * If the object is not an integer, an error is returned.
+ *
+ * @param[in] obj Object to read.
+ * @param[out] ret Returned value.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_object_read_integer(const struct drgn_object *obj,
+					    union drgn_value *ret);
+
+/**
+ * Get the value of an object with kind @ref
  * drgn_object_kind::DRGN_OBJECT_FLOAT.
  *
  * If the object does not have a floating-point type, an error is returned.

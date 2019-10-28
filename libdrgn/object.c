@@ -738,6 +738,26 @@ drgn_object_read_unsigned(const struct drgn_object *obj, uint64_t *ret)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_object_read_integer(const struct drgn_object *obj, union drgn_value *ret)
+{
+	struct drgn_error *err;
+	union drgn_value value_mem;
+	const union drgn_value *value;
+
+	if (obj->kind != DRGN_OBJECT_SIGNED &&
+	    obj->kind != DRGN_OBJECT_UNSIGNED) {
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "not an integer");
+	}
+	err = drgn_object_read_value(obj, &value_mem, &value);
+	if (err)
+		return err;
+	*ret = *value;
+	drgn_object_deinit_value(obj, value);
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_read_float(const struct drgn_object *obj, double *ret)
 {
 	if (obj->kind != DRGN_OBJECT_FLOAT) {
