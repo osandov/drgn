@@ -140,9 +140,6 @@ Programs
 
         Get the stack trace for the given thread in the program.
 
-        Note that this currently doesn't verify that the thread is inactive. If
-        the thread is running, the returned stack trace will not be accurate.
-
         This is implemented for the Linux kernel (both live and core dumps) as
         well as userspace core dumps; it is not yet implemented for live
         userspace processes.

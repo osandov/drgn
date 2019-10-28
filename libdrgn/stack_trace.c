@@ -279,6 +279,7 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 	struct drgn_program *prog = thread_arg;
 	struct drgn_object obj;
 	bool truthy;
+	char state;
 
 	drgn_object_init(&obj, prog);
 
@@ -351,6 +352,15 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 		goto out;
 	if (!truthy) {
 		err = drgn_error_create(DRGN_ERROR_LOOKUP, "task not found");
+		goto out;
+	}
+
+	err = linux_helper_task_state_to_char(&obj, &state);
+	if (err)
+		goto out;
+	if (state == 'R') {
+		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					"cannot unwind stack of running task");
 		goto out;
 	}
 
