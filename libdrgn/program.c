@@ -76,6 +76,7 @@ void drgn_program_init(struct drgn_program *prog,
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
+	free(prog->task_state_chars);
 	drgn_prstatus_map_deinit(&prog->prstatus_cache);
 
 	drgn_object_index_deinit(&prog->oindex);

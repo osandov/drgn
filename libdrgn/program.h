@@ -93,6 +93,10 @@ struct drgn_program {
 	bool added_vmcoreinfo_object_finder;
 	bool attached_dwfl_state;
 	bool prstatus_cached;
+
+	/* Cache for @ref linux_helper_task_state_to_char(). */
+	char *task_state_chars;
+	uint64_t task_report;
 };
 
 /** Initialize a @ref drgn_program. */
