@@ -177,7 +177,7 @@ def execscript(path, *args):
     'S'
 
     :param str path: File path of the script.
-    :param str \*args: Zero or more additional arguments to pass to the script.
+    :param str \\*args: Zero or more additional arguments to pass to the script.
         This is a :ref:`variable argument list <python:tut-arbitraryargs>`.
     """
     old_argv = sys.argv
