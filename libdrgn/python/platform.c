@@ -152,43 +152,15 @@ static PyGetSetDef Platform_getset[] = {
 
 PyTypeObject Platform_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn.Platform",			/* tp_name */
-	sizeof(Platform),			/* tp_basicsize */
-	0,					/* tp_itemsize */
-	(destructor)Platform_dealloc,		/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	(reprfunc)Platform_repr,		/* tp_repr */
-	NULL,					/* tp_as_number */
-	NULL,					/* tp_as_sequence */
-	NULL,					/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	NULL,					/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	drgn_Platform_DOC,			/* tp_doc */
-	NULL,					/* tp_traverse */
-	NULL,					/* tp_clear */
-	(richcmpfunc)Platform_richcompare,	/* tp_richcompare */
-	0,					/* tp_weaklistoffset */
-	NULL,					/* tp_iter */
-	NULL,					/* tp_iternext */
-	NULL,					/* tp_methods */
-	NULL,					/* tp_members */
-	Platform_getset,			/* tp_getset */
-	NULL,					/* tp_base */
-	NULL,					/* tp_dict */
-	NULL,					/* tp_descr_get */
-	NULL,					/* tp_descr_set */
-	0,					/* tp_dictoffset */
-	NULL,					/* tp_init */
-	NULL,					/* tp_alloc */
-	(newfunc)Platform_new,			/* tp_new */
+	.tp_name = "_drgn.Platform",
+	.tp_basicsize = sizeof(Platform),
+	.tp_dealloc = (destructor)Platform_dealloc,
+	.tp_repr = (reprfunc)Platform_repr,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_Platform_DOC,
+	.tp_richcompare = (richcmpfunc)Platform_richcompare,
+	.tp_getset = Platform_getset,
+	.tp_new = (newfunc)Platform_new,
 };
 
 static PyStructSequence_Field Register_fields[] = {

@@ -936,8 +936,8 @@ static PyMethodDef DrgnType_methods[] = {
 
 PyTypeObject DrgnType_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn.Type",				/* tp_name */
-	sizeof(DrgnType),			/* tp_basicsize */
+	.tp_name = "_drgn.Type",
+	.tp_basicsize = sizeof(DrgnType),
 	/*
 	 * The "item" of a Type object is an optional struct drgn_type + an
 	 * optional array of struct drgn_type_member, struct
@@ -945,33 +945,17 @@ PyTypeObject DrgnType_type = {
 	 * tp_itemsize to a word so that we can allocate whatever arbitrary size
 	 * we need.
 	 */
-	sizeof(void *),				/* tp_itemsize */
-	(destructor)DrgnType_dealloc,		/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	(reprfunc)DrgnType_repr,		/* tp_repr */
-	NULL,					/* tp_as_number */
-	NULL,					/* tp_as_sequence */
-	NULL,					/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	(reprfunc)DrgnType_str,			/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,/* tp_flags */
-	drgn_Type_DOC,				/* tp_doc */
-	(traverseproc)DrgnType_traverse,	/* tp_traverse */
-	(inquiry)DrgnType_clear,		/* tp_clear */
-	(richcmpfunc)DrgnType_richcompare,	/* tp_richcompare */
-	0,					/* tp_weaklistoffset */
-	NULL,					/* tp_iter */
-	NULL,					/* tp_iternext */
-	DrgnType_methods,			/* tp_methods */
-	NULL,					/* tp_members */
-	DrgnType_getset,			/* tp_getset */
+	.tp_itemsize = sizeof(void *),
+	.tp_dealloc = (destructor)DrgnType_dealloc,
+	.tp_repr = (reprfunc)DrgnType_repr,
+	.tp_str = (reprfunc)DrgnType_str,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_doc = drgn_Type_DOC,
+	.tp_traverse = (traverseproc)DrgnType_traverse,
+	.tp_clear = (inquiry)DrgnType_clear,
+	.tp_richcompare = (richcmpfunc)DrgnType_richcompare,
+	.tp_methods = DrgnType_methods,
+	.tp_getset = DrgnType_getset,
 };
 
 DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds)

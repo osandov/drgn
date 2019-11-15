@@ -878,63 +878,29 @@ static PyGetSetDef Program_getset[] = {
 };
 
 static PyMappingMethods Program_as_mapping = {
-	NULL,				/* mp_length */
-	(binaryfunc)Program_subscript,	/* mp_subscript */
+	.mp_subscript = (binaryfunc)Program_subscript,
 };
 
 
 static PySequenceMethods Program_as_sequence = {
-	NULL,				/* sq_length */
-	NULL,				/* sq_concat */
-	NULL,				/* sq_repeat */
-	NULL,				/* sq_item */
-	NULL,				/* sq_slice */
-	NULL,				/* sq_ass_item */
-	NULL,				/* sq_ass_slice */
-	(objobjproc)Program_contains,	/* sq_contains */
-	NULL,				/* sq_inplace_concat */
-	NULL,				/* sq_inplace_repeat */
+	.sq_contains = (objobjproc)Program_contains,
 };
 
 PyTypeObject Program_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn.Program",			/* tp_name */
-	sizeof(Program),			/* tp_basicsize */
-	0,					/* tp_itemsize */
-	(destructor)Program_dealloc,		/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	NULL,					/* tp_repr */
-	NULL,					/* tp_as_number */
-	&Program_as_sequence,			/* tp_as_sequence */
-	&Program_as_mapping,			/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	NULL,					/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,/* tp_flags */
-	drgn_Program_DOC,			/* tp_doc */
-	(traverseproc)Program_traverse,		/* tp_traverse */
-	(inquiry)Program_clear,			/* tp_clear */
-	NULL,					/* tp_richcompare */
-	0,					/* tp_weaklistoffset */
-	NULL,					/* tp_iter */
-	NULL,					/* tp_iternext */
-	Program_methods,			/* tp_methods */
-	Program_members,			/* tp_members */
-	Program_getset,				/* tp_getset */
-	NULL,					/* tp_base */
-	NULL,					/* tp_dict */
-	NULL,					/* tp_descr_get */
-	NULL,					/* tp_descr_set */
-	0,					/* tp_dictoffset */
-	NULL,					/* tp_init */
-	NULL,					/* tp_alloc */
-	(newfunc)Program_new,			/* tp_new */
+	.tp_name = "_drgn.Program",
+	.tp_basicsize = sizeof(Program),
+	.tp_dealloc = (destructor)Program_dealloc,
+	.tp_as_sequence = &Program_as_sequence,
+	.tp_as_mapping = &Program_as_mapping,
+	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+	.tp_doc = drgn_Program_DOC,
+	.tp_traverse = (traverseproc)Program_traverse,
+	.tp_clear = (inquiry)Program_clear,
+	.tp_methods = Program_methods,
+	.tp_members = Program_members,
+	.tp_getset = Program_getset,
+	.tp_new = (newfunc)Program_new,
 };
 
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)

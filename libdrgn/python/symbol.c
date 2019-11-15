@@ -79,33 +79,12 @@ static PyGetSetDef Symbol_getset[] = {
 
 PyTypeObject Symbol_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn.Symbol",				/* tp_name */
-	sizeof(Symbol),				/* tp_basicsize */
-	0,					/* tp_itemsize */
-	(destructor)Symbol_dealloc,		/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	(reprfunc)Symbol_repr,			/* tp_repr */
-	NULL,					/* tp_as_number */
-	NULL,					/* tp_as_sequence */
-	NULL,					/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	NULL,					/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	drgn_Symbol_DOC,			/* tp_doc */
-	NULL,					/* tp_traverse */
-	NULL,					/* tp_clear */
-	(richcmpfunc)Symbol_richcompare,	/* tp_richcompare */
-	0,					/* tp_weaklistoffset */
-	NULL,					/* tp_iter */
-	NULL,					/* tp_iternext */
-	NULL,					/* tp_methods */
-	NULL,					/* tp_members */
-	Symbol_getset,				/* tp_getset */
+	.tp_name = "_drgn.Symbol",
+	.tp_basicsize = sizeof(Symbol),
+	.tp_dealloc = (destructor)Symbol_dealloc,
+	.tp_repr = (reprfunc)Symbol_repr,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_Symbol_DOC,
+	.tp_richcompare = (richcmpfunc)Symbol_richcompare,
+	.tp_getset = Symbol_getset,
 };

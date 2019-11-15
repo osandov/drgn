@@ -1623,87 +1623,48 @@ static PyMethodDef DrgnObject_methods[] = {
 };
 
 static PyNumberMethods DrgnObject_as_number = {
-	(binaryfunc)DrgnObject_add,	/* nb_add */
-	(binaryfunc)DrgnObject_sub,	/* nb_subtract */
-	(binaryfunc)DrgnObject_mul,	/* nb_multiply */
-	(binaryfunc)DrgnObject_mod,	/* nb_remainder */
-	NULL,				/* nb_divmod */
-	NULL,				/* nb_power */
-	(unaryfunc)DrgnObject_neg,	/* nb_negative */
-	(unaryfunc)DrgnObject_pos,	/* nb_positive */
-	NULL,				/* nb_absolute */
-	(inquiry)DrgnObject_bool,	/* nb_bool */
-	(unaryfunc)DrgnObject_not,	/* nb_invert */
-	(binaryfunc)DrgnObject_lshift,	/* nb_lshift */
-	(binaryfunc)DrgnObject_rshift,	/* nb_rshift */
-	(binaryfunc)DrgnObject_and,	/* nb_and */
-	(binaryfunc)DrgnObject_xor,	/* nb_xor */
-	(binaryfunc)DrgnObject_or,	/* nb_or */
-	(unaryfunc)DrgnObject_int,	/* nb_int */
-	NULL,				/* nb_reserved */
-	(unaryfunc)DrgnObject_float,	/* nb_float */
-	NULL,				/* nb_inplace_add */
-	NULL,				/* nb_inplace_subtract */
-	NULL,				/* nb_inplace_multiply */
-	NULL,				/* nb_inplace_remainder */
-	NULL,				/* nb_inplace_power */
-	NULL,				/* nb_inplace_lshift */
-	NULL,				/* nb_inplace_rshift */
-	NULL,				/* nb_inplace_and */
-	NULL,				/* nb_inplace_xor */
-	NULL,				/* nb_inplace_or */
-	NULL,				/* nb_floor_divide */
-	(binaryfunc)DrgnObject_div,	/* nb_true_divide */
-	NULL,				/* nb_inplace_floor_divide */
-	NULL,				/* nb_inplace_true_divide */
-	(unaryfunc)DrgnObject_index,	/* nb_index */
+	.nb_add = (binaryfunc)DrgnObject_add,
+	.nb_subtract = (binaryfunc)DrgnObject_sub,
+	.nb_multiply = (binaryfunc)DrgnObject_mul,
+	.nb_remainder = (binaryfunc)DrgnObject_mod,
+	.nb_negative = (unaryfunc)DrgnObject_neg,
+	.nb_positive = (unaryfunc)DrgnObject_pos,
+	.nb_bool = (inquiry)DrgnObject_bool,
+	.nb_invert = (unaryfunc)DrgnObject_not,
+	.nb_lshift = (binaryfunc)DrgnObject_lshift,
+	.nb_rshift = (binaryfunc)DrgnObject_rshift,
+	.nb_and = (binaryfunc)DrgnObject_and,
+	.nb_xor = (binaryfunc)DrgnObject_xor,
+	.nb_or = (binaryfunc)DrgnObject_or,
+	.nb_int = (unaryfunc)DrgnObject_int,
+	.nb_float = (unaryfunc)DrgnObject_float,
+	.nb_true_divide = (binaryfunc)DrgnObject_div,
+	.nb_index = (unaryfunc)DrgnObject_index,
 };
 
 static PyMappingMethods DrgnObject_as_mapping = {
-	(lenfunc)DrgnObject_length,		/* mp_length */
-	(binaryfunc)DrgnObject_subscript,	/* mp_subscript */
+	.mp_length = (lenfunc)DrgnObject_length,
+	.mp_subscript = (binaryfunc)DrgnObject_subscript,
 };
 
 PyTypeObject DrgnObject_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn.Object",				/* tp_name */
-	sizeof(DrgnObject),			/* tp_basicsize */
-	0,					/* tp_itemsize */
-	(destructor)DrgnObject_dealloc,		/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	(reprfunc)DrgnObject_repr,		/* tp_repr */
-	&DrgnObject_as_number,			/* tp_as_number */
-	NULL,					/* tp_as_sequence */
-	&DrgnObject_as_mapping,			/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	(reprfunc)DrgnObject_str,		/* tp_str */
-	(getattrofunc)DrgnObject_getattro,	/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	drgn_Object_DOC,			/* tp_doc */
-	NULL,					/* tp_traverse */
-	NULL,					/* tp_clear */
-	DrgnObject_richcompare,			/* tp_richcompare */
-	0,					/* tp_weaklistoffset */
-	(getiterfunc)DrgnObject_iter,		/* tp_iter */
-	NULL,					/* tp_iternext */
-	DrgnObject_methods,			/* tp_methods */
-	NULL,					/* tp_members */
-	DrgnObject_getset,			/* tp_getset */
-	NULL,					/* tp_base */
-	NULL,					/* tp_dict */
-	NULL,					/* tp_descr_get */
-	NULL,					/* tp_descr_set */
-	0,					/* tp_dictoffset */
-	(initproc)DrgnObject_init,		/* tp_init */
-	NULL,					/* tp_alloc */
-	(newfunc)DrgnObject_new,		/* tp_new */
-
+	.tp_name = "_drgn.Object",
+	.tp_basicsize = sizeof(DrgnObject),
+	.tp_dealloc = (destructor)DrgnObject_dealloc,
+	.tp_repr = (reprfunc)DrgnObject_repr,
+	.tp_as_number = &DrgnObject_as_number,
+	.tp_as_mapping = &DrgnObject_as_mapping,
+	.tp_str = (reprfunc)DrgnObject_str,
+	.tp_getattro = (getattrofunc)DrgnObject_getattro,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_Object_DOC,
+	.tp_richcompare = DrgnObject_richcompare,
+	.tp_iter = (getiterfunc)DrgnObject_iter,
+	.tp_methods = DrgnObject_methods,
+	.tp_getset = DrgnObject_getset,
+	.tp_init = (initproc)DrgnObject_init,
+	.tp_new = (newfunc)DrgnObject_new,
 };
 
 PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds)
@@ -1852,31 +1813,11 @@ static PyMethodDef ObjectIterator_methods[] = {
 
 PyTypeObject ObjectIterator_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn._ObjectIterator",		/* tp_name */
-	sizeof(ObjectIterator),			/* tp_basicsize */
-	0,					/* tp_itemsize */
-	(destructor)ObjectIterator_dealloc,	/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	NULL,					/* tp_repr */
-	NULL,					/* tp_as_number */
-	NULL,					/* tp_as_sequence */
-	NULL,					/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	NULL,					/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	NULL,					/* tp_doc */
-	NULL,					/* tp_traverse */
-	NULL,					/* tp_clear */
-	NULL,					/* tp_richcompare */
-	0,					/* tp_weaklistoffset */
-	PyObject_SelfIter,			/* tp_iter */
-	(iternextfunc)ObjectIterator_next,	/* tp_iternext */
-	ObjectIterator_methods,			/* tp_methods */
+	.tp_name = "_drgn._ObjectIterator",
+	.tp_basicsize = sizeof(ObjectIterator),
+	.tp_dealloc = (destructor)ObjectIterator_dealloc,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_iter = PyObject_SelfIter,
+	.tp_iternext = (iternextfunc)ObjectIterator_next,
+	.tp_methods = ObjectIterator_methods,
 };

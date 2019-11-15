@@ -50,34 +50,19 @@ static StackFrame *StackTrace_item(StackTrace *self, Py_ssize_t i)
 }
 
 static PySequenceMethods StackTrace_as_sequence = {
-	(lenfunc)StackTrace_length,	/* sq_length */
-	NULL,				/* sq_concat */
-	NULL,				/* sq_repeat */
-	(ssizeargfunc)StackTrace_item,	/* sq_item */
+	.sq_length = (lenfunc)StackTrace_length,
+	.sq_item = (ssizeargfunc)StackTrace_item,
 };
 
 PyTypeObject StackTrace_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn.StackTrace",			/* tp_name */
-	sizeof(StackTrace),			/* tp_basicsize */
-	0,					/* tp_itemsize */
-	(destructor)StackTrace_dealloc,		/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	NULL,					/* tp_repr */
-	NULL,					/* tp_as_number */
-	&StackTrace_as_sequence,		/* tp_as_sequence */
-	NULL,					/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	(reprfunc)StackTrace_str,		/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	drgn_StackTrace_DOC,			/* tp_doc */
+	.tp_name = "_drgn.StackTrace",
+	.tp_basicsize = sizeof(StackTrace),
+	.tp_dealloc = (destructor)StackTrace_dealloc,
+	.tp_as_sequence = &StackTrace_as_sequence,
+	.tp_str = (reprfunc)StackTrace_str,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_StackTrace_DOC,
 };
 
 static void StackFrame_dealloc(StackFrame *self)
@@ -191,33 +176,11 @@ static PyGetSetDef StackFrame_getset[] = {
 
 PyTypeObject StackFrame_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"_drgn.StackFrame",			/* tp_name */
-	sizeof(StackFrame),			/* tp_basicsize */
-	0,					/* tp_itemsize */
-	(destructor)StackFrame_dealloc,		/* tp_dealloc */
-	NULL,					/* tp_print */
-	NULL,					/* tp_getattr */
-	NULL,					/* tp_setattr */
-	NULL,					/* tp_as_async */
-	NULL,					/* tp_repr */
-	NULL,					/* tp_as_number */
-	NULL,					/* tp_as_sequence */
-	NULL,					/* tp_as_mapping */
-	NULL,					/* tp_hash  */
-	NULL,					/* tp_call */
-	NULL,					/* tp_str */
-	NULL,					/* tp_getattro */
-	NULL,					/* tp_setattro */
-	NULL,					/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	drgn_StackFrame_DOC,			/* tp_doc */
-	NULL,					/* tp_traverse */
-	NULL,					/* tp_clear */
-	NULL,					/* tp_richcompare */
-	0,					/* tp_weaklistoffset */
-	NULL,					/* tp_iter */
-	NULL,					/* tp_iternext */
-	StackFrame_methods,			/* tp_methods */
-	NULL,					/* tp_members */
-	StackFrame_getset,			/* tp_getset */
+	.tp_name = "_drgn.StackFrame",
+	.tp_basicsize = sizeof(StackFrame),
+	.tp_dealloc = (destructor)StackFrame_dealloc,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_StackFrame_DOC,
+	.tp_methods = StackFrame_methods,
+	.tp_getset = StackFrame_getset,
 };
