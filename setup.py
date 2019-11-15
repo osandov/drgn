@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
 import contextlib
-import re
-import os.path
 from distutils.dir_util import mkpath
 from distutils.file_util import copy_file
+import os
+import os.path
+import re
 from setuptools import setup, find_packages
-from setuptools.extension import Extension
 from setuptools.command.build_ext import build_ext
+from setuptools.command.egg_info import egg_info
+from setuptools.extension import Extension
 import subprocess
 import sys
 
@@ -81,6 +83,17 @@ class my_build_ext(build_ext):
             return []
 
 
+# Work around pypa/setuptools#436.
+class my_egg_info(egg_info):
+    def run(self):
+        if os.path.exists('.git'):
+            try:
+                os.remove(os.path.join(self.egg_info, 'SOURCES.txt'))
+            except FileNotFoundError:
+                pass
+        super().run()
+
+
 with open('libdrgn/drgn.h.in', 'r') as f:
     drgn_h = f.read()
 version_major = re.search('^#define DRGN_VERSION_MAJOR ([0-9])+$', drgn_h,
@@ -100,6 +113,7 @@ setup(
     ext_modules=[Extension(name='_drgn', sources=[])],
     cmdclass={
         'build_ext': my_build_ext,
+        'egg_info': my_egg_info,
     },
     entry_points={
         'console_scripts': ['drgn=drgn.internal.cli:main'],
