@@ -101,6 +101,8 @@ static PyMethodDef drgn_methods[] = {
 	 drgn_struct_type_DOC},
 	{"union_type", (PyCFunction)union_type, METH_VARARGS | METH_KEYWORDS,
 	 drgn_union_type_DOC},
+	{"class_type", (PyCFunction)class_type, METH_VARARGS | METH_KEYWORDS,
+	 drgn_class_type_DOC},
 	{"enum_type", (PyCFunction)enum_type, METH_VARARGS | METH_KEYWORDS,
 	 drgn_enum_type_DOC},
 	{"typedef_type", (PyCFunction)typedef_type,

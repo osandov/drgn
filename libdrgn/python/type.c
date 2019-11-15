@@ -691,10 +691,9 @@ static int append_field(PyObject *parts, bool *first, const char *format, ...)
 _Py_IDENTIFIER(DrgnType_Repr);
 
 /*
- * We only want to print compound types (structure and union types) one level
- * deep in order to avoid very deep recursion. Return 0 if this is the first
- * level, 1 if this is a deeper level (and thus we shouldn't print more
- * members), and -1 on error.
+ * We only want to print compound types one level deep in order to avoid very
+ * deep recursion. Return 0 if this is the first level, 1 if this is a deeper
+ * level (and thus we shouldn't print more members), and -1 on error.
  */
 static int DrgnType_ReprEnter(DrgnType *self)
 {
@@ -1250,7 +1249,8 @@ out:
 
 static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 			       PyObject *members_obj,
-			       enum drgn_qualifiers qualifiers, bool is_struct)
+			       enum drgn_qualifiers qualifiers,
+			       enum drgn_type_kind kind)
 {
 	const char *tag;
 	DrgnType *type_obj = NULL;
@@ -1268,7 +1268,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 	} else {
 		PyErr_Format(PyExc_TypeError,
 			     "%s_type() tag must be str or None",
-			     is_struct ? "struct" : "union");
+			     drgn_type_kind_spelling[kind]);
 		return NULL;
 	}
 
@@ -1276,7 +1276,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 		if (size_obj != Py_None) {
 			PyErr_Format(PyExc_ValueError,
 				     "incomplete %s type must not have size",
-				     is_struct ? "structure" : "union");
+				     drgn_type_kind_spelling[kind]);
 			return NULL;
 		}
 		type_obj = DrgnType_new(qualifiers, 0, 0);
@@ -1290,7 +1290,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 
 		if (size_obj == Py_None) {
 			PyErr_Format(PyExc_ValueError, "%s type must have size",
-				     is_struct ? "structure" : "union");
+				     drgn_type_kind_spelling[kind]);
 			return NULL;
 		}
 
@@ -1335,17 +1335,35 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 		goto err;
 
 	if (members_obj == Py_None) {
-		if (is_struct)
+		switch (kind) {
+		case DRGN_TYPE_STRUCT:
 			drgn_struct_type_init_incomplete(type_obj->type, tag);
-		else
+			break;
+		case DRGN_TYPE_UNION:
 			drgn_union_type_init_incomplete(type_obj->type, tag);
+			break;
+		case DRGN_TYPE_CLASS:
+			drgn_class_type_init_incomplete(type_obj->type, tag);
+			break;
+		default:
+			DRGN_UNREACHABLE();
+		}
 	} else {
-		if (is_struct) {
+		switch (kind) {
+		case DRGN_TYPE_STRUCT:
 			drgn_struct_type_init(type_obj->type, tag, size,
 					      num_members);
-		} else {
+			break;
+		case DRGN_TYPE_UNION:
 			drgn_union_type_init(type_obj->type, tag, size,
 					     num_members);
+			break;
+		case DRGN_TYPE_CLASS:
+			drgn_class_type_init(type_obj->type, tag, size,
+					     num_members);
+			break;
+		default:
+			DRGN_UNREACHABLE();
 		}
 	}
 	return type_obj;
@@ -1371,7 +1389,8 @@ DrgnType *struct_type(PyObject *self, PyObject *args, PyObject *kwds)
 					 &qualifiers))
 		return NULL;
 
-	return compound_type(tag_obj, size_obj, members_obj, qualifiers, true);
+	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
+			     DRGN_TYPE_STRUCT);
 }
 
 DrgnType *union_type(PyObject *self, PyObject *args, PyObject *kwds)
@@ -1388,7 +1407,26 @@ DrgnType *union_type(PyObject *self, PyObject *args, PyObject *kwds)
 					 &qualifiers))
 		return NULL;
 
-	return compound_type(tag_obj, size_obj, members_obj, qualifiers, false);
+	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
+			     DRGN_TYPE_UNION);
+}
+
+DrgnType *class_type(PyObject *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = { "tag", "size", "members", "qualifiers", NULL, };
+	PyObject *tag_obj;
+	PyObject *size_obj = Py_None;
+	PyObject *members_obj = Py_None;
+	unsigned char qualifiers = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&:class_type",
+					 keywords, &tag_obj, &size_obj,
+					 &members_obj, qualifiers_converter,
+					 &qualifiers))
+		return NULL;
+
+	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
+			     DRGN_TYPE_CLASS);
 }
 
 static int unpack_enumerator(DrgnType *type_obj, PyObject *enumerators_seq,

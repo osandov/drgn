@@ -34,7 +34,7 @@
  * Lazily-evaluated types.
  *
  * The graph of types in a program can be very deep (and often cyclical), so
- * drgn lazily evaluates the types of structure/union members and function
+ * drgn lazily evaluates the types of compound type members and function
  * parameters.
  *
  * @{
@@ -298,6 +298,30 @@ void drgn_union_type_init(struct drgn_type *type, const char *tag,
 void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag);
 
 /**
+ * Initialize a class type.
+ * @param[out] type Type to initialize. This must have @c num_members @ref
+ * drgn_type_memer%s allocated after it. Similar to struct type, the members
+ * must be initialized with @ref drgn_type_member_init() (either before or after
+ * this function is called).
+ * @param[in] tag Name of the type.
+ * @param[in] size Size of the type in bytes.
+ * @param[in] num_members The number of members in the type.
+ */
+void drgn_class_type_init(struct drgn_type *type, const char *tag,
+			  uint64_t size, size_t num_members);
+
+/**
+ * Initialize an incomplete class type.
+ *
+ * @c size and @c num_members are set to zero and @c is_complete is set to @c
+ * false.
+ *
+ * @param[out] type Type to initialize.
+ * @param[int] tag Name of the type.
+ */
+void drgn_class_type_init_incomplete(struct drgn_type *type, const char *tag);
+
+/**
  * Initialize a signed enumerator of a type.
  *
  * @param[out] type Type containing enumerator to initialize.
@@ -518,14 +542,15 @@ static inline bool drgn_enum_type_is_signed(struct drgn_type *type)
 /**
  * Get whether a type is anonymous (i.e., the type has no name).
  *
- * This may be @c false for structure, union, and enum types. Otherwise, it is
- * always true.
+ * This may be @c false for structure, union, class, and enum types. Otherwise,
+ * it is always true.
  */
 static inline bool drgn_type_is_anonymous(struct drgn_type *type)
 {
 	switch (drgn_type_kind(type)) {
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS:
 	case DRGN_TYPE_ENUM:
 		return !drgn_type_tag(type);
 	default:

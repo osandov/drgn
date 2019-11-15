@@ -115,6 +115,9 @@ c_append_tagged_name(struct drgn_qualified_type qualified_type, size_t indent,
 	case DRGN_TYPE_UNION:
 		keyword = "union";
 		break;
+	case DRGN_TYPE_CLASS:
+		keyword = "class";
+		break;
 	case DRGN_TYPE_ENUM:
 		keyword = "enum";
 		break;
@@ -338,6 +341,7 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 		return c_declare_basic(qualified_type, name, indent, sb);
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS:
 	case DRGN_TYPE_ENUM:
 		return c_declare_tagged(qualified_type, name, indent, sb);
 	case DRGN_TYPE_POINTER:
@@ -488,6 +492,7 @@ c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 		return c_declare_basic(qualified_type, NULL, indent, sb);
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS:
 		return c_define_compound(qualified_type, indent, sb);
 	case DRGN_TYPE_ENUM:
 		return c_define_enum(qualified_type, indent, sb);
@@ -714,10 +719,24 @@ c_pretty_print_compound_object(const struct drgn_object *obj,
 	struct drgn_object member;
 
 	if (!drgn_type_is_complete(underlying_type)) {
+		const char *keyword;
+
+		switch (drgn_type_kind(underlying_type)) {
+		case DRGN_TYPE_STRUCT:
+			keyword = "struct";
+			break;
+		case DRGN_TYPE_UNION:
+			keyword = "union";
+			break;
+		case DRGN_TYPE_CLASS:
+			keyword = "class";
+			break;
+		default:
+			DRGN_UNREACHABLE();
+		}
 		return drgn_error_format(DRGN_ERROR_TYPE,
 					 "cannot format incomplete %s object",
-					 drgn_type_kind(underlying_type) ==
-					 DRGN_TYPE_STRUCT ? "struct" : "union");
+					 keyword);
 	}
 
 	if (!string_builder_appendc(sb, '{'))
@@ -1246,6 +1265,7 @@ c_pretty_print_object_impl(const struct drgn_object *obj, bool cast,
 					 "complex object formatting is not implemented");
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS:
 		return c_pretty_print_compound_object(obj, underlying_type,
 						      indent,
 						      multi_line_columns, sb);

@@ -303,6 +303,7 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 			return -1;
 		case DRGN_TYPE_STRUCT:
 		case DRGN_TYPE_UNION:
+		case DRGN_TYPE_CLASS:
 			return serialize_compound_value(prog, buf, buf_bit_size,
 							bit_offset, value_obj,
 							type, little_endian);
@@ -587,8 +588,7 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 	if (!drgn_type_is_complete(underlying_type)) {
 		PyErr_Format(PyExc_TypeError,
 			     "cannot get value of incomplete %s",
-			     drgn_type_kind(underlying_type) ==
-			     DRGN_TYPE_STRUCT ? "struct" : "union");
+			     drgn_type_kind_spelling[drgn_type_kind(underlying_type)]);
 		return NULL;
 	}
 
@@ -742,6 +742,7 @@ static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 			return NULL;
 		case DRGN_TYPE_STRUCT:
 		case DRGN_TYPE_UNION:
+		case DRGN_TYPE_CLASS:
 			return DrgnObject_compound_value(obj, underlying_type);
 		case DRGN_TYPE_ARRAY:
 			return DrgnObject_array_value(obj, underlying_type);
@@ -1424,8 +1425,8 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 		Py_CLEAR(res);
 		if (err->code == DRGN_ERROR_TYPE) {
 			/*
-			 * If the object isn't a structure or union, raise the
-			 * original AttributeError.
+			 * If the object doesn't have a compound type,
+			 * raise the original AttributeError.
 			 */
 			PyErr_Restore(exc_type, exc_value, exc_traceback);
 			return NULL;
@@ -1616,7 +1617,7 @@ static PyMethodDef DrgnObject_methods[] = {
 	{"__floor__", (PyCFunction)DrgnObject_floor, METH_NOARGS},
 	{"__ceil__", (PyCFunction)DrgnObject_ceil, METH_NOARGS},
 	{"__dir__", (PyCFunction)DrgnObject_dir, METH_NOARGS,
-"dir() implementation which includes structure and union members."},
+"dir() implementation which includes structure, union, and class members."},
 	{"__format__", (PyCFunction)DrgnObject_format, METH_O,
 "Object formatter."},
 	{},
