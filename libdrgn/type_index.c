@@ -574,14 +574,15 @@ struct drgn_error *drgn_type_index_find_member(struct drgn_type_index *tindex,
 	/*
 	 * Cache miss. One of the following is true:
 	 *
-	 * 1. The type isn't a structure or union, which is a type error.
+	 * 1. The type isn't a structure, union, or class, which is a type
+	 *    error.
 	 * 2. The type hasn't been cached, which means we need to cache it and
 	 *    check again.
 	 * 3. The type has already been cached, which means the member doesn't
 	 *    exist.
 	 */
 	if (!drgn_type_has_members(key.type)) {
-		return drgn_type_error("'%s' is not a structure or union",
+		return drgn_type_error("'%s' is not a structure, union, or class",
 				       type);
 	}
 	cached_hp = drgn_type_set_hash(&key.type);

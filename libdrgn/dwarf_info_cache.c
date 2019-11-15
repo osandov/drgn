@@ -341,10 +341,11 @@ drgn_base_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 }
 
 /*
- * DW_TAG_structure_type, DW_TAG_union_type, and DW_TAG_enumeration_type can be
- * incomplete (i.e., have a DW_AT_declaration of true). This tries to find the
- * complete type. If it succeeds, it returns NULL. If it can't find a complete
- * type, it returns a DRGN_ERROR_STOP error. Otherwise, it returns an error.
+ * DW_TAG_structure_type, DW_TAG_union_type, DW_TAG_class_type, and
+ * DW_TAG_enumeration_type can be incomplete (i.e., have a DW_AT_declaration of
+ * true). This tries to find the complete type. If it succeeds, it returns NULL.
+ * If it can't find a complete type, it returns a DRGN_ERROR_STOP error.
+ * Otherwise, it returns an error.
  */
 static struct drgn_error *
 drgn_dwarf_info_cache_find_complete(struct drgn_dwarf_info_cache *dicache,
@@ -543,11 +544,13 @@ static struct drgn_error *parse_member(struct drgn_dwarf_info_cache *dicache,
 
 static struct drgn_error *
 drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
-			      Dwarf_Die *die, bool is_struct,
+			      Dwarf_Die *die, enum drgn_type_kind kind,
 			      struct drgn_type **ret, bool *should_free)
 {
 	struct drgn_error *err;
 	struct drgn_type *type;
+	const char *dw_tag_str;
+	uint64_t dw_tag;
 	Dwarf_Attribute attr_mem;
 	Dwarf_Attribute *attr;
 	const char *tag;
@@ -558,28 +561,43 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	bool little_endian;
 	int r;
 
+	switch (kind) {
+	case DRGN_TYPE_STRUCT:
+		dw_tag_str = "DW_TAG_structure_type";
+		dw_tag = DW_TAG_structure_type;
+		break;
+	case DRGN_TYPE_UNION:
+		dw_tag_str = "DW_TAG_union_type";
+		dw_tag = DW_TAG_union_type;
+		break;
+	case DRGN_TYPE_CLASS:
+		dw_tag_str = "DW_TAG_class_type";
+		dw_tag = DW_TAG_class_type;
+		break;
+	default:
+		DRGN_UNREACHABLE();
+	}
+
 	attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem);
 	if (attr) {
 		tag = dwarf_formstring(attr);
-		if (!tag)
+		if (!tag) {
 			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "DW_TAG_%s_type has invalid DW_AT_name",
-						 is_struct ? "structure" : "union");
+						 "%s has invalid DW_AT_name",
+						 dw_tag_str);
+		}
 	} else {
 		tag = NULL;
 	}
 
 	if (dwarf_flag(die, DW_AT_declaration, &declaration)) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "DW_TAG_%s_type has invalid DW_AT_declaration",
-					 is_struct ? "structure" : "union");
+					 "%s has invalid DW_AT_declaration",
+					 dw_tag_str);
 	}
 	if (declaration && tag) {
 		err = drgn_dwarf_info_cache_find_complete(dicache,
-							  is_struct ?
-							  DW_TAG_structure_type :
-							  DW_TAG_union_type,
-							  tag, ret);
+							  dw_tag, tag, ret);
 		if (!err) {
 			*should_free = false;
 			return NULL;
@@ -594,10 +612,19 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		return &drgn_enomem;
 
 	if (declaration) {
-		if (is_struct)
+		switch (kind) {
+		case DRGN_TYPE_STRUCT:
 			drgn_struct_type_init_incomplete(type, tag);
-		else
+			break;
+		case DRGN_TYPE_UNION:
 			drgn_union_type_init_incomplete(type, tag);
+			break;
+		case DRGN_TYPE_CLASS:
+			drgn_class_type_init_incomplete(type, tag);
+			break;
+		default:
+			DRGN_UNREACHABLE();
+		}
 		*ret = type;
 		return NULL;
 	}
@@ -605,8 +632,8 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	size = dwarf_bytesize(die);
 	if (size == -1) {
 		err = drgn_error_format(DRGN_ERROR_OTHER,
-					"DW_TAG_%s_type has missing or invalid DW_AT_byte_size",
-					is_struct ? "structure" : "union");
+					"%s has missing or invalid DW_AT_byte_size",
+					dw_tag_str);
 		goto err;
 	}
 
@@ -645,8 +672,13 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 				  sizeof(struct drgn_type_member));
 	}
 
-	if (is_struct) {
-		drgn_struct_type_init(type, tag, size, num_members);
+	if (kind == DRGN_TYPE_UNION) {
+		drgn_union_type_init(type, tag, size, num_members);
+	} else {
+		if (kind == DRGN_TYPE_STRUCT)
+			drgn_struct_type_init(type, tag, size, num_members);
+		else
+			drgn_class_type_init(type, tag, size, num_members);
 		/*
 		 * Flexible array members are only allowed as the last member of
 		 * a structure with more than one named member. We defaulted
@@ -671,8 +703,6 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 				thunk->can_be_incomplete_array = true;
 			}
 		}
-	} else {
-		drgn_union_type_init(type, tag, size, num_members);
 	}
 	*ret = type;
 	return NULL;
@@ -1289,13 +1319,19 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
 		err = drgn_base_type_from_dwarf(dicache, die, &ret->type);
 		break;
 	case DW_TAG_structure_type:
-		err = drgn_compound_type_from_dwarf(dicache, die, true,
+		err = drgn_compound_type_from_dwarf(dicache, die,
+						    DRGN_TYPE_STRUCT,
 						    &ret->type,
 						    &entry.value.should_free);
 		break;
 	case DW_TAG_union_type:
-		err = drgn_compound_type_from_dwarf(dicache, die, false,
-						    &ret->type,
+		err = drgn_compound_type_from_dwarf(dicache, die,
+						    DRGN_TYPE_UNION, &ret->type,
+						    &entry.value.should_free);
+		break;
+	case DW_TAG_class_type:
+		err = drgn_compound_type_from_dwarf(dicache, die,
+						    DRGN_TYPE_CLASS, &ret->type,
 						    &entry.value.should_free);
 		break;
 	case DW_TAG_enumeration_type:
@@ -1374,6 +1410,9 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 		break;
 	case DRGN_TYPE_UNION:
 		tag = DW_TAG_union_type;
+		break;
+	case DRGN_TYPE_CLASS:
+		tag = DW_TAG_class_type;
 		break;
 	case DRGN_TYPE_ENUM:
 		tag = DW_TAG_enumeration_type;

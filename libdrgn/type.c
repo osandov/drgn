@@ -14,6 +14,7 @@ const char * const drgn_type_kind_spelling[] = {
 	[DRGN_TYPE_COMPLEX] = "complex",
 	[DRGN_TYPE_STRUCT] = "struct",
 	[DRGN_TYPE_UNION] = "union",
+	[DRGN_TYPE_CLASS] = "class",
 	[DRGN_TYPE_ENUM] = "enum",
 	[DRGN_TYPE_TYPEDEF] = "typedef",
 	[DRGN_TYPE_POINTER] = "pointer",
@@ -290,6 +291,27 @@ void drgn_union_type_init(struct drgn_type *type, const char *tag,
 void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag)
 {
 	type->_private.kind = DRGN_TYPE_UNION;
+	type->_private.is_complete = false;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_private.tag = tag;
+	type->_private.size = 0;
+	type->_private.num_members = 0;
+}
+
+void drgn_class_type_init(struct drgn_type *type, const char *tag,
+			  uint64_t size, size_t num_members)
+{
+	type->_private.kind = DRGN_TYPE_CLASS;
+	type->_private.is_complete = true;
+	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
+	type->_private.tag = tag;
+	type->_private.size = size;
+	type->_private.num_members = num_members;
+}
+
+void drgn_class_type_init_incomplete(struct drgn_type *type, const char *tag)
+{
+	type->_private.kind = DRGN_TYPE_CLASS;
 	type->_private.is_complete = false;
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
@@ -717,8 +739,14 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
 						   uint64_t *ret)
 {
 	struct drgn_error *err;
+	enum drgn_type_kind kind = drgn_type_kind(type);
 
-	switch (drgn_type_kind(type)) {
+	if (!drgn_type_is_complete(type)) {
+		return drgn_error_format(DRGN_ERROR_TYPE,
+					 "cannot get size of incomplete %s type",
+					 drgn_type_kind_spelling[kind]);
+	}
+	switch (kind) {
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
 	case DRGN_TYPE_FLOAT:
@@ -727,33 +755,14 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
 		*ret = drgn_type_size(type);
 		return NULL;
 	case DRGN_TYPE_STRUCT:
-		if (!drgn_type_is_complete(type)) {
-			return drgn_error_create(DRGN_ERROR_TYPE,
-						 "cannot get size of incomplete structure type");
-		}
-		*ret = drgn_type_size(type);
-		return NULL;
 	case DRGN_TYPE_UNION:
-		if (!drgn_type_is_complete(type)) {
-			return drgn_error_create(DRGN_ERROR_TYPE,
-						 "cannot get size of incomplete union type");
-		}
+	case DRGN_TYPE_CLASS:
 		*ret = drgn_type_size(type);
 		return NULL;
 	case DRGN_TYPE_ENUM:
-		if (!drgn_type_is_complete(type)) {
-			return drgn_error_create(DRGN_ERROR_TYPE,
-						 "cannot get size of incomplete enumerated type");
-		}
-		/* fallthrough */
 	case DRGN_TYPE_TYPEDEF:
 		return drgn_type_sizeof(drgn_type_type(type).type, ret);
 	case DRGN_TYPE_ARRAY:
-		if (!drgn_type_is_complete(type)) {
-			return drgn_error_create(DRGN_ERROR_TYPE,
-						 "cannot get size of incomplete array type");
-		}
-
 		err = drgn_type_sizeof(drgn_type_type(type).type, ret);
 		if (err)
 			return err;
@@ -801,6 +810,7 @@ enum drgn_object_kind drgn_type_object_kind(struct drgn_type *type)
 		return DRGN_OBJECT_BUFFER;
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS:
 	case DRGN_TYPE_ARRAY:
 		return (drgn_type_is_complete(type) ? DRGN_OBJECT_BUFFER :
 			DRGN_OBJECT_INCOMPLETE_BUFFER);
@@ -849,6 +859,9 @@ struct drgn_error *drgn_error_incomplete_type(const char *format,
 	case DRGN_TYPE_UNION:
 		return drgn_error_format(DRGN_ERROR_TYPE, format,
 					 "incomplete union");
+	case DRGN_TYPE_CLASS:
+		return drgn_error_format(DRGN_ERROR_TYPE, format,
+					 "incomplete class");
 	case DRGN_TYPE_ENUM:
 		return drgn_error_format(DRGN_ERROR_TYPE, format,
 					 "incomplete enumerated");

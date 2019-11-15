@@ -1112,6 +1112,10 @@ Types
 
         Union type.
 
+    .. attribute:: CLASS
+
+        Class type.
+
     .. attribute:: ENUM
 
         Enumerated type.
@@ -1272,6 +1276,11 @@ can be used just like types obtained from :meth:`Program.type()`.
 .. function:: union_type(tag, size, members, qualifiers=None)
 
     Create a new union type. It has kind :attr:`TypeKind.UNION`. Otherwise,
+    this is the same as :func:`struct_type()`.
+
+.. function:: class_type(tag, size, members, qualifiers=None)
+
+    Create a new class type. It has kind :attr:`TypeKind.CLASS`. Otherwise,
     this is the same as :func:`struct_type()`.
 
 .. function:: enum_type(tag, type, enumerators, qualifiers=None)

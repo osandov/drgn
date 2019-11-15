@@ -291,6 +291,8 @@ enum drgn_type_kind {
 	DRGN_TYPE_STRUCT,
 	/** Union type. */
 	DRGN_TYPE_UNION,
+	/** Class type. */
+	DRGN_TYPE_CLASS,
 	/** Enumerated type. */
 	DRGN_TYPE_ENUM,
 	/** Type definition (a.k.a.\ alias) type. */
@@ -332,7 +334,7 @@ enum drgn_primitive_type {
 	 */
 } __attribute__((packed));
 
-/** Member of a structure or union type. */
+/** Member of a structure, union, or class type. */
 struct drgn_type_member {
 	/**
 	 * Type of the member.
@@ -456,7 +458,7 @@ drgn_type_primitive(struct drgn_type *type)
  * Get whether a type is complete (i.e., the type definition is known).
  *
  * This is always @c false for the void type. It may be @c false for structure,
- * union, enumerated, and array types, as well as typedef types where the
+ * union, class, enumerated, and array types, as well as typedef types where the
  * underlying type is one of those. Otherwise, it is always @c true.
  */
 static inline bool drgn_type_is_complete(struct drgn_type *type)
@@ -492,7 +494,7 @@ static inline const char *drgn_type_name(struct drgn_type *type)
 
 /**
  * Get whether a kind of type has a size. This is true for integer, boolean,
- * floating-point, complex, structure, union, and pointer types.
+ * floating-point, complex, structure, union, class, and pointer types.
  */
 static inline bool drgn_type_kind_has_size(enum drgn_type_kind kind)
 {
@@ -502,6 +504,7 @@ static inline bool drgn_type_kind_has_size(enum drgn_type_kind kind)
 		kind == DRGN_TYPE_COMPLEX ||
 		kind == DRGN_TYPE_STRUCT ||
 		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS ||
 		kind == DRGN_TYPE_POINTER);
 }
 /** Get whether a type has a size. @sa drgn_type_kind_has_size() */
@@ -542,13 +545,14 @@ static inline bool drgn_type_is_signed(struct drgn_type *type)
 }
 
 /**
- * Get whether a kind of type has a tag. This is true for structure, union, and
- * enumerated types.
+ * Get whether a kind of type has a tag. This is true for structure, union,
+ * class, and enumerated types.
  */
 static inline bool drgn_type_kind_has_tag(enum drgn_type_kind kind)
 {
 	return (kind == DRGN_TYPE_STRUCT ||
 		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS ||
 		kind == DRGN_TYPE_ENUM);
 }
 /** Get whether a type has a tag. @sa drgn_type_kind_has_tag() */
@@ -571,12 +575,14 @@ static inline void *drgn_type_payload(struct drgn_type *type)
 }
 
 /**
- * Get whether a kind of type has members. This is true for structure and union
- * types.
+ * Get whether a kind of type has members. This is true for structure, union,
+ * and class types.
  */
 static inline bool drgn_type_kind_has_members(enum drgn_type_kind kind)
 {
-	return kind == DRGN_TYPE_STRUCT || kind == DRGN_TYPE_UNION;
+	return (kind == DRGN_TYPE_STRUCT ||
+		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS);
 }
 /** Get whether a type has members. @sa drgn_type_kind_has_members() */
 static inline bool drgn_type_has_members(struct drgn_type *type)
@@ -1405,9 +1411,9 @@ enum drgn_object_kind {
 	/**
 	 * Memory buffer.
 	 *
-	 * This is used for objects with a complex, structure, union, or array
-	 * type. The value is a buffer of the contents of that object's memory
-	 * in the program.
+	 * This is used for objects with a complex, structure, union, class, or
+	 * array type. The value is a buffer of the contents of that object's
+	 * memory in the program.
 	 */
 	DRGN_OBJECT_BUFFER,
 	/**
@@ -1440,7 +1446,7 @@ enum drgn_object_kind {
 	 * Incomplete buffer value.
 	 *
 	 * This is used for reference objects with an incomplete structure,
-	 * union, or array type.
+	 * union, class, or array type.
 	 */
 	DRGN_OBJECT_INCOMPLETE_BUFFER = -2,
 	/**
@@ -2198,7 +2204,7 @@ drgn_object_dereference(struct drgn_object *res, const struct drgn_object *obj)
 }
 
 /**
- * Get a member of a structure or union @ref drgn_object (@c .).
+ * Get a member of a structure, union, or class @ref drgn_object (@c .).
  *
  * @param[out] res Returned member. May be the same as @p obj.
  * @param[in] obj Object.

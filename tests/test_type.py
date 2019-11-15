@@ -6,6 +6,7 @@ from drgn import (
     TypeKind,
     array_type,
     bool_type,
+    class_type,
     complex_type,
     enum_type,
     float_type,
@@ -364,6 +365,144 @@ class TestType(unittest.TestCase):
         self.assertEqual(t.members, (
             (int_type('int', 4, True), 'x', 0, 4),
             (int_type('unsigned int', 4, False), 'y', 0, 4),
+        ))
+
+    def test_class(self):
+        t = class_type('coord', 12, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+            (int_type('int', 4, True), 'z', 64),
+        ))
+        self.assertEqual(t.kind, TypeKind.CLASS)
+        self.assertIsNone(t.primitive)
+        self.assertEqual(t.tag, 'coord')
+        self.assertEqual(t.size, 12)
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 0),
+            (int_type('int', 4, True), 'y', 32, 0),
+            (int_type('int', 4, True), 'z', 64, 0),
+        ))
+        self.assertTrue(t.is_complete())
+
+        self.assertEqual(t, class_type('coord', 12, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+            (int_type('int', 4, True), 'z', 64),
+        )))
+        # Different tag.
+        self.assertNotEqual(t, class_type('crd', 12, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+            (int_type('int', 4, True), 'z', 64),
+        )))
+        # Different size.
+        self.assertNotEqual(t, class_type('coord', 16, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+            (int_type('int', 4, True), 'z', 64),
+        )))
+        # One is anonymous.
+        self.assertNotEqual(t, class_type(None, 12, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+            (int_type('int', 4, True), 'z', 64),
+        )))
+        # Different members.
+        self.assertNotEqual(t, class_type('coord', 12, (
+            (int_type('long', 8, True), 'x', 0),
+            (int_type('long', 8, True), 'y', 64),
+            (int_type('long', 8, True), 'z', 128),
+        )))
+        # Different number of members.
+        self.assertNotEqual(t, class_type('coord', 12, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+        )))
+        # One member is anonymous.
+        self.assertNotEqual(t, class_type('coord', 8, (
+            (int_type('int', 4, True), 'x', 0, 0),
+            (int_type('int', 4, True), None, 32, 0),
+            (int_type('int', 4, True), 'z', 64, 0),
+        )))
+        # One is incomplete.
+        self.assertNotEqual(t, class_type('coord'))
+
+        self.assertEqual(repr(t), "class_type(tag='coord', size=12, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='int', size=4, is_signed=True), 'y', 32, 0), (int_type(name='int', size=4, is_signed=True), 'z', 64, 0)))")
+        self.assertEqual(sizeof(t), 12)
+
+        t = class_type(None, 12, (
+            (int_type('int', 4, True), 'x', 0),
+            (int_type('int', 4, True), 'y', 32),
+            (int_type('int', 4, True), 'z', 64),
+        ))
+        self.assertEqual(t.kind, TypeKind.CLASS)
+        self.assertIsNone(t.primitive)
+        self.assertIsNone(t.tag)
+        self.assertEqual(t.size, 12)
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 0),
+            (int_type('int', 4, True), 'y', 32, 0),
+            (int_type('int', 4, True), 'z', 64, 0),
+        ))
+        self.assertTrue(t.is_complete())
+
+        t = class_type('color', 0, ())
+        self.assertEqual(t.kind, TypeKind.CLASS)
+        self.assertIsNone(t.primitive)
+        self.assertEqual(t.tag, 'color')
+        self.assertEqual(t.size, 0)
+        self.assertEqual(t.members, ())
+        self.assertTrue(t.is_complete())
+        self.assertEqual(repr(t), "class_type(tag='color', size=0, members=())")
+
+        t = class_type('color')
+        self.assertEqual(t.kind, TypeKind.CLASS)
+        self.assertIsNone(t.primitive)
+        self.assertEqual(t.tag, 'color')
+        self.assertIsNone(t.size)
+        self.assertIsNone(t.members)
+        self.assertFalse(t.is_complete())
+        self.assertEqual(repr(t), "class_type(tag='color', size=None, members=None)")
+
+        t = class_type(None, None, None)
+        self.assertEqual(t.kind, TypeKind.CLASS)
+        self.assertIsNone(t.primitive)
+        self.assertEqual(t.tag, None)
+        self.assertIsNone(t.size)
+        self.assertIsNone(t.members)
+        self.assertFalse(t.is_complete())
+        self.assertEqual(repr(t), "class_type(tag=None, size=None, members=None)")
+
+        self.assertRaises(TypeError, class_type, 4)
+        self.assertRaisesRegex(ValueError, 'must not have size', class_type,
+                               'coord', 12, None)
+        self.assertRaisesRegex(ValueError, 'must have size', class_type,
+                               'coord', None, ())
+        self.assertRaisesRegex(TypeError, 'must be sequence or None',
+                               class_type, 'coord', 12, 4)
+        self.assertRaisesRegex(TypeError, 'must be.*sequence', class_type,
+                               'coord', 12, (4))
+        self.assertRaisesRegex(ValueError, 'must be.*sequence', class_type,
+                               'coord', 12, ((),))
+        self.assertRaisesRegex(TypeError, 'must be string or None',
+                               class_type, 'coord', 12,
+                               ((int_type('int', 4, True), 4, 0),))
+        self.assertRaisesRegex(TypeError, 'must be integer', class_type,
+                               'coord', 12,
+                               ((int_type('int', 4, True), 'x', None),))
+        self.assertRaisesRegex(TypeError, 'must be Type', class_type, 'coord',
+                               12, ((None, 'x', 0),))
+
+        # Bit size.
+        t = class_type('coord', 12, (
+            (int_type('int', 4, True), 'x', 0, 4),
+            (int_type('int', 4, True), 'y', 32, 4),
+            (int_type('int', 4, True), 'z', 64, 4),
+        ))
+        self.assertEqual(t.members, (
+            (int_type('int', 4, True), 'x', 0, 4),
+            (int_type('int', 4, True), 'y', 32, 4),
+            (int_type('int', 4, True), 'z', 64, 4),
         ))
 
     def test_enum(self):

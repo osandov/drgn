@@ -36,10 +36,10 @@
 /**
  * Get the truthiness of an object.
  *
- * For a signed, unsigned, or floating-point value, this is true iff the value
- * is non-zero. For structures and unions, this is true iff it is true for any
- * of its members. For arrays, this is true iff it is true for any of its
- * elements.
+ * For a signed, unsigned, or floating-point values, this is true iff the value
+ * is non-zero. For structures, unions, and classes, this is true iff it is true
+ * for any of its members. For arrays, this is true iff it is true for any of
+ * its elements.
  */
 struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
 					  bool *ret);

@@ -3,21 +3,22 @@ import operator
 import unittest
 
 from drgn import (
+    Qualifiers,
     array_type,
     bool_type,
+    class_type,
     complex_type,
     enum_type,
     float_type,
     function_type,
     int_type,
     pointer_type,
-    Qualifiers,
     struct_type,
     typedef_type,
     union_type,
     void_type,
 )
-from tests import point_type
+from tests import coord_type, point_type
 from tests.libdrgn import C_TOKEN, drgn_lexer_c, Lexer
 
 
@@ -76,6 +77,12 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         self.assertQualifiedTypeName('union option', True, union_type,
                                      'option'),
         self.assertQualifiedTypeName('union <anonymous>', False, union_type,
+                                     None)
+
+    def test_class(self):
+        self.assertQualifiedTypeName('class coord', True, class_type,
+                                     'coord')
+        self.assertQualifiedTypeName('class <anonymous>', False, class_type,
                                      None)
 
     def test_enum(self):
@@ -277,6 +284,14 @@ union foo {
 const union foo {
 	int i;
 	unsigned char a[4];
+}""")
+
+    def test_class(self):
+        self.assertPrettyPrint(coord_type, """\
+class coord {
+	int x;
+	int y;
+	int z;
 }""")
 
     def test_enum(self):

@@ -11,6 +11,7 @@ from drgn import (
     Program,
     Type,
     TypeKind,
+    class_type,
     enum_type,
     float_type,
     int_type,
@@ -20,6 +21,11 @@ from drgn import (
 )
 
 
+coord_type = class_type('coord', 12, (
+    (int_type('int', 4, True), 'x', 0),
+    (int_type('int', 4, True), 'y', 32),
+    (int_type('int', 4, True), 'z', 64),
+))
 point_type = struct_type('point', 8, (
     (int_type('int', 4, True), 'x', 0),
     (int_type('int', 4, True), 'y', 32),

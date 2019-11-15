@@ -1040,6 +1040,7 @@ struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
 		switch (drgn_type_kind(underlying_type)) {
 		case DRGN_TYPE_STRUCT:
 		case DRGN_TYPE_UNION:
+		case DRGN_TYPE_CLASS:
 			err = drgn_object_compound_truthiness(obj,
 							      underlying_type);
 			if (!err || err->code == DRGN_ERROR_STOP) {
@@ -1375,7 +1376,7 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 
 	underlying_type = drgn_underlying_type(obj->type);
 	if (drgn_type_kind(underlying_type) != DRGN_TYPE_POINTER) {
-		return drgn_type_error("'%s' is not a pointer to a structure or union",
+		return drgn_type_error("'%s' is not a pointer to a structure, union, or class",
 				       obj->type);
 	}
 

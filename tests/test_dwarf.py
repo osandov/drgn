@@ -8,6 +8,7 @@ from drgn import (
     Program,
     Qualifiers,
     array_type,
+    class_type,
     complex_type,
     enum_type,
     float_type,
@@ -19,7 +20,14 @@ from drgn import (
     union_type,
     void_type,
 )
-from tests import ObjectTestCase, color_type, option_type, pid_type, point_type
+from tests import (
+    ObjectTestCase,
+    color_type,
+    coord_type,
+    option_type,
+    pid_type,
+    point_type,
+)
 from tests.dwarf import DW_AT, DW_ATE, DW_FORM, DW_TAG
 from tests.dwarfwriter import compile_dwarf, DwarfDie, DwarfAttrib
 
@@ -708,6 +716,109 @@ class TestTypes(unittest.TestCase):
                                'DW_TAG_union_type has missing or invalid DW_AT_byte_size',
                                self.type_from_dwarf, dies)
         dies[0].attribs.insert(1, size)
+
+    def test_class(self):
+        dies = [
+            DwarfDie(
+                DW_TAG.class_type,
+                [
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'coord'),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 12),
+                ],
+                [
+                    DwarfDie(
+                        DW_TAG.member,
+                        [
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                        ],
+                    ),
+                    DwarfDie(
+                        DW_TAG.member,
+                        [
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'y'),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                        ],
+                    ),
+                    DwarfDie(
+                        DW_TAG.member,
+                        [
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'z'),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 8),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                        ],
+                    ),
+                ],
+            ),
+            int_die,
+        ]
+
+        self.assertFromDwarf(dies, coord_type)
+
+        tag = dies[0].attribs.pop(0)
+        self.assertFromDwarf(
+            dies, class_type(None, coord_type.size, coord_type.members))
+        dies[0].attribs.insert(0, tag)
+
+        children = list(dies[0].children)
+        dies[0].children.clear()
+        self.assertFromDwarf(
+            dies, class_type('coord', coord_type.size, ()))
+        size = dies[0].attribs.pop(1)
+        dies[0].attribs.append(DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True))
+        self.assertFromDwarf(dies, class_type('coord'))
+        del dies[0].attribs[-1]
+        dies[0].attribs.insert(1, size)
+        dies[0].children.extend(children)
+
+        name = dies[0].children[0].attribs.pop(0)
+        self.assertFromDwarf(
+            dies,
+            class_type('coord', coord_type.size, (
+                (int_type('int', 4, True), None, 0),
+                (int_type('int', 4, True), 'y', 32),
+                (int_type('int', 4, True), 'z', 64),
+            )))
+        dies[0].children[0].attribs.insert(0, name)
+
+        tag = dies[0].attribs.pop(0)
+        dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
+        self.assertRaisesRegex(Exception,
+                               'DW_TAG_class_type has invalid DW_AT_name',
+                               self.type_from_dwarf, dies)
+        dies[0].attribs[0] = tag
+
+        size = dies[0].attribs.pop(1)
+        self.assertRaisesRegex(Exception,
+                               'DW_TAG_class_type has missing or invalid DW_AT_byte_size',
+                               self.type_from_dwarf, dies)
+        dies[0].attribs.insert(1, size)
+
+        name = dies[0].children[0].attribs.pop(0)
+        dies[0].children[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
+        self.assertRaisesRegex(Exception,
+                               'DW_TAG_member has invalid DW_AT_name',
+                               self.type_from_dwarf, dies)
+        dies[0].children[0].attribs[0] = name
+
+        location = dies[0].children[0].attribs[1]
+        dies[0].children[0].attribs[1] = DwarfAttrib(DW_AT.data_member_location, DW_FORM.string, 'foo')
+        self.assertRaisesRegex(Exception,
+                               'DW_TAG_member has invalid DW_AT_data_member_location',
+                               self.type_from_dwarf, dies)
+        dies[0].children[0].attribs[1] = location
+
+        type_ = dies[0].children[0].attribs.pop(2)
+        self.assertRaisesRegex(Exception,
+                               'DW_TAG_member is missing DW_AT_type',
+                               self.type_from_dwarf, dies)
+        dies[0].children[0].attribs.insert(2, DwarfAttrib(DW_AT.type, DW_FORM.string, 'foo'))
+        self.assertRaisesRegex(Exception,
+                               'DW_TAG_member has invalid DW_AT_type',
+                               self.type_from_dwarf, dies)
+        dies[0].children[0].attribs[2] = type_
 
     def test_lazy_cycle(self):
         dies = [

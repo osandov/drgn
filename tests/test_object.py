@@ -26,6 +26,7 @@ from tests import (
     MockMemorySegment,
     ObjectTestCase,
     color_type,
+    coord_type,
     line_segment_type,
     mock_program,
     option_type,
@@ -1200,7 +1201,7 @@ class TestCOperators(ObjectTestCase):
                                r'container_of\(\) argument must be a pointer',
                                container_of, obj[0], point_type, 'x')
 
-        self.assertRaisesRegex(TypeError, 'not a structure or union',
+        self.assertRaisesRegex(TypeError, 'not a structure, union, or class',
                                container_of, obj, obj.type_, 'x'),
 
         type_ = struct_type('foo', 16, (
@@ -1771,7 +1772,7 @@ class TestGenericOperators(ObjectTestCase):
         self.assertEqual(obj.y, Object(self.prog, 'int', value=1))
 
         obj = Object(self.prog, 'int', value=1)
-        self.assertRaisesRegex(TypeError, "'int' is not a structure or union",
+        self.assertRaisesRegex(TypeError, "'int' is not a structure, union, or class",
                                obj.member_, 'x')
         self.assertRaisesRegex(AttributeError, 'no attribute', getattr, obj,
                                'x')

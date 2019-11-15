@@ -178,7 +178,8 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
  * drgn_language::find_type().
  *
  * @param[in] kind Kind of type to find. Must be @ref DRGN_TYPE_STRUCT, @ref
- * DRGN_TYPE_UNION, @ref DRGN_TYPE_ENUM, or @ref DRGN_TYPE_TYPEDEF.
+ * DRGN_TYPE_UNION, @ref DRGN_TYPE_CLASS, @ref DRGN_TYPE_ENUM, or @ref
+ * DRGN_TYPE_TYPEDEF.
  * @param[in] name Name of the type.
  * @param[in] name_len Length of @p name in bytes.
  * @param[in] filename See @ref drgn_type_index_find().

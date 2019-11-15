@@ -178,6 +178,7 @@ DrgnType *float_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *struct_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *union_type(PyObject *self, PyObject *args, PyObject *kwds);
+DrgnType *class_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds);
