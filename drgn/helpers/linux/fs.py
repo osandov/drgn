@@ -148,18 +148,19 @@ def d_path(path_or_vfsmnt, dentry=None):
 
     components = []
     while True:
-        while True:
-            d_parent = dentry.d_parent.read_()
-            if dentry == d_parent:
+        if dentry == mnt.mnt.mnt_root:
+            mnt_parent = mnt.mnt_parent.read_()
+            if mnt == mnt_parent:
                 break
-            components.append(dentry.d_name.name.string_())
-            components.append(b'/')
-            dentry = d_parent
-        mnt_parent = mnt.mnt_parent.read_()
-        if mnt == mnt_parent:
+            dentry = mnt.mnt_mountpoint.read_()
+            mnt = mnt_parent
+            continue
+        d_parent = dentry.d_parent.read_()
+        if dentry == d_parent:
             break
-        dentry = mnt.mnt_mountpoint
-        mnt = mnt_parent
+        components.append(dentry.d_name.name.string_())
+        components.append(b'/')
+        dentry = d_parent
     if components:
         return b''.join(reversed(components))
     else:
