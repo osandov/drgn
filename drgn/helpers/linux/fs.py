@@ -42,12 +42,12 @@ def _follow_mount(mnt, dentry):
     # hasn't changed since v2.6.38, so let's hardcode it for now.
     DCACHE_MOUNTED = 0x10000
     while dentry.d_flags & DCACHE_MOUNTED:
-        for other_mnt in list_for_each_entry_reverse('struct mount',
-                                                     mnt.mnt_ns.list.address_of_(),
-                                                     'mnt_list'):
-            if other_mnt.mnt_mountpoint == dentry:
-                mnt = other_mnt.read_()
-                dentry = mnt.mnt.mnt_root.read_()
+        for mounted in list_for_each_entry_reverse('struct mount',
+                                                   mnt.mnt_ns.list.address_of_(),
+                                                   'mnt_list'):
+            if mounted.mnt_parent == mnt and mounted.mnt_mountpoint == dentry:
+                mnt = mounted.read_()
+                dentry = mounted.mnt.mnt_root.read_()
                 break
         else:
             break
