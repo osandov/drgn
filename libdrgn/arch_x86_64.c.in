@@ -142,38 +142,17 @@ static inline struct drgn_error *read_register(struct drgn_object *reg_obj,
 }
 
 static struct drgn_error *
-linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
-					  const struct drgn_object *task_obj)
+set_initial_registers_inactive_task_frame(Dwfl_Thread *thread,
+					  struct drgn_object *frame_obj)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = task_obj->prog;
-	struct drgn_object frame_obj, reg_obj;
-	struct drgn_qualified_type frame_type;
+	struct drgn_object reg_obj;
 	Dwarf_Word dwarf_regs[5];
 	uint64_t sp;
 
-	drgn_object_init(&frame_obj, prog);
-	drgn_object_init(&reg_obj, prog);
+	drgn_object_init(&reg_obj, frame_obj->prog);
 
-	/*
-	 * This depends on Linux kernel commit 0100301bfdf5 ("sched/x86: Rewrite
-	 * the switch_to() code") (in v4.9).
-	 */
-	err = drgn_object_member_dereference(&frame_obj, task_obj, "thread");
-	if (err)
-		goto out;
-	err = drgn_object_member(&frame_obj, &frame_obj, "sp");
-	if (err)
-		goto out;
-	err = drgn_program_find_type(prog, "struct inactive_task_frame *", NULL,
-				     &frame_type);
-	if (err)
-		goto out;
-	err = drgn_object_cast(&frame_obj, frame_type, &frame_obj);
-	if (err)
-		goto out;
-
-	err = read_register(&reg_obj, &frame_obj, "bx", &dwarf_regs[0]);
+	err = read_register(&reg_obj, frame_obj, "bx", &dwarf_regs[0]);
 	if (err)
 		goto out;
 	/* rbx is register 3. */
@@ -182,41 +161,116 @@ linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
 		goto out;
 	}
 
-	err = read_register(&reg_obj, &frame_obj, "bp", &dwarf_regs[0]);
+	err = read_register(&reg_obj, frame_obj, "bp", &dwarf_regs[0]);
 	if (err)
 		goto out;
-	err = drgn_object_read_unsigned(&frame_obj, &sp);
+	err = drgn_object_read_unsigned(frame_obj, &sp);
 	if (err)
 		goto out;
-	dwarf_regs[1] = sp;
-	/* rbp and rsp are registers 6 and 7, respectively. */
-	if (!dwfl_thread_state_registers(thread, 6, 2, dwarf_regs)) {
+	/* rbp is register 6. */
+	if (!dwfl_thread_state_registers(thread, 6, 1, dwarf_regs)) {
 		err = drgn_error_libdwfl();
 		goto out;
 	}
 
-	err = read_register(&reg_obj, &frame_obj, "r12", &dwarf_regs[0]);
+	err = read_register(&reg_obj, frame_obj, "r12", &dwarf_regs[0]);
 	if (err)
 		goto out;
-	err = read_register(&reg_obj, &frame_obj, "r13", &dwarf_regs[1]);
+	err = read_register(&reg_obj, frame_obj, "r13", &dwarf_regs[1]);
 	if (err)
 		goto out;
-	err = read_register(&reg_obj, &frame_obj, "r14", &dwarf_regs[2]);
+	err = read_register(&reg_obj, frame_obj, "r14", &dwarf_regs[2]);
 	if (err)
 		goto out;
-	err = read_register(&reg_obj, &frame_obj, "r15", &dwarf_regs[3]);
+	err = read_register(&reg_obj, frame_obj, "r15", &dwarf_regs[3]);
 	if (err)
 		goto out;
-	err = read_register(&reg_obj, &frame_obj, "ret_addr", &dwarf_regs[4]);
+	err = read_register(&reg_obj, frame_obj, "ret_addr", &dwarf_regs[4]);
 	if (err)
 		goto out;
 	/* r12-r15 are registers 12-15; register 16 is the return address. */
-	if (!dwfl_thread_state_registers(thread, 12, 5, dwarf_regs))
+	if (!dwfl_thread_state_registers(thread, 12, 5, dwarf_regs)) {
 		err = drgn_error_libdwfl();
+		goto out;
+	}
 
+	err = NULL;
 out:
 	drgn_object_deinit(&reg_obj);
-	drgn_object_deinit(&frame_obj);
+	return err;
+}
+
+static struct drgn_error *
+linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
+					  const struct drgn_object *task_obj)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = task_obj->prog;
+	struct drgn_object sp_obj;
+	struct drgn_qualified_type frame_type;
+	uint64_t sp;
+	Dwarf_Word dwarf_reg;
+
+	drgn_object_init(&sp_obj, prog);
+
+	/*
+	 */
+	err = drgn_object_member_dereference(&sp_obj, task_obj, "thread");
+	if (err)
+		goto out;
+	err = drgn_object_member(&sp_obj, &sp_obj, "sp");
+	if (err)
+		goto out;
+	err = drgn_object_read_unsigned(&sp_obj, &sp);
+	if (err)
+		goto out;
+	dwarf_reg = sp;
+	/* rsp is register 7. */
+	if (!dwfl_thread_state_registers(thread, 7, 1, &dwarf_reg)) {
+		err = drgn_error_libdwfl();
+		goto out;
+	}
+
+	/*
+	 * Since Linux kernel commit 0100301bfdf5 ("sched/x86: Rewrite the
+	 * switch_to() code") (in v4.9), sp points to a struct
+	 * inactive_task_frame, which we can use to get most registers. Before
+	 * that, it points to bp.
+	 */
+	err = drgn_program_find_type(prog, "struct inactive_task_frame *", NULL,
+				     &frame_type);
+	if (!err) {
+		err = drgn_object_cast(&sp_obj, frame_type, &sp_obj);
+		if (err)
+			goto out;
+		err = set_initial_registers_inactive_task_frame(thread,
+								&sp_obj);
+
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		uint64_t bp;
+
+		drgn_error_destroy(err);
+		err = drgn_program_find_type(prog, "unsigned long", NULL,
+					     &frame_type);
+		if (err)
+			goto out;
+		err = drgn_object_set_reference(&sp_obj, frame_type, sp, 0, 0,
+						DRGN_PROGRAM_ENDIAN);
+		if (err)
+			goto out;
+		err = drgn_object_read_unsigned(&sp_obj, &bp);
+		if (err)
+			goto out;
+		dwarf_reg = bp;
+		/* rbp is register 6. */
+		if (!dwfl_thread_state_registers(thread, 6, 1, &dwarf_reg)) {
+			err = drgn_error_libdwfl();
+			goto out;
+		}
+		err = NULL;
+	}
+out:
+	drgn_object_deinit(&sp_obj);
 	return err;
 }
 
