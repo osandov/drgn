@@ -65,8 +65,15 @@ def main() -> None:
     symbol_group.add_argument(
         '-s', '--symbols', metavar='PATH', type=str, action='append',
         help='load additional debugging symbols from the given file; this may option may be given more than once')
-    symbol_group.add_argument(
-        '--no-default-symbols', dest='default_symbols', action='store_false',
+    default_symbols_group = symbol_group.add_mutually_exclusive_group()
+    default_symbols_group.add_argument(
+        '--main-symbols', dest='default_symbols', action='store_const',
+        const={'main': True},
+        help='only load debugging symbols for the main executable and those added with -s; '
+        'for userspace programs, this is currently equivalent to --no-default-symbols')
+    default_symbols_group.add_argument(
+        '--no-default-symbols', dest='default_symbols', action='store_const',
+        const={},
         help="don't load any debugging symbols that were not explicitly added with -s")
 
     parser.add_argument(
@@ -86,8 +93,10 @@ def main() -> None:
         prog.set_pid(args.pid or os.getpid())
     else:
         prog.set_kernel()
+    if args.default_symbols is None:
+        args.default_symbols = {'default': True, 'main': True}
     try:
-        prog.load_debug_info(args.symbols or [], args.default_symbols)
+        prog.load_debug_info(args.symbols, **args.default_symbols)
     except drgn.MissingDebugInfoError as e:
         if not args.quiet:
             print(str(e), file=sys.stderr)
