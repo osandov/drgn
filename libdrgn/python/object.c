@@ -250,6 +250,7 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 	switch (kind) {
 	case DRGN_OBJECT_SIGNED:
 	case DRGN_OBJECT_UNSIGNED: {
+		PyObject *long_obj;
 		union {
 			int64_t svalue;
 			uint64_t uvalue;
@@ -260,7 +261,11 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 					    drgn_object_type_qualified(type));
 			return -1;
 		}
-		tmp.uvalue = PyLong_AsUnsignedLongLongMask(value_obj);
+		long_obj = PyNumber_Long(value_obj);
+		if (!long_obj)
+			return -1;
+		tmp.uvalue = PyLong_AsUnsignedLongLongMask(long_obj);
+		Py_DECREF(long_obj);
 		if (tmp.uvalue == (unsigned long long)-1 && PyErr_Occurred())
 			return -1;
 		if (kind == DRGN_OBJECT_SIGNED)
@@ -517,6 +522,7 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 			break;
 		case DRGN_OBJECT_SIGNED:
 		case DRGN_OBJECT_UNSIGNED: {
+			PyObject *long_obj;
 			union {
 				int64_t svalue;
 				uint64_t uvalue;
@@ -527,7 +533,11 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 						    qualified_type);
 				return -1;
 			}
-			tmp.uvalue = PyLong_AsUnsignedLongLongMask(value_obj);
+			long_obj = PyNumber_Long(value_obj);
+			if (!long_obj)
+				return -1;
+			tmp.uvalue = PyLong_AsUnsignedLongLongMask(long_obj);
+			Py_DECREF(long_obj);
 			if (tmp.uvalue == (unsigned long long)-1 &&
 			    PyErr_Occurred())
 				return -1;
