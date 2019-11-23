@@ -1341,10 +1341,9 @@ out:
 	return err;
 }
 
-static struct drgn_error *
-report_default_vmlinux(struct drgn_program *prog,
-		       struct drgn_dwarf_index *dindex,
-		       bool *vmlinux_is_pending)
+static struct drgn_error *report_vmlinux(struct drgn_program *prog,
+					 struct drgn_dwarf_index *dindex,
+					 bool *vmlinux_is_pending)
 {
 	static const char * const vmlinux_paths[] = {
 		/*
@@ -1396,7 +1395,7 @@ struct drgn_error *
 linux_kernel_report_debug_info(struct drgn_program *prog,
 			       struct drgn_dwarf_index *dindex,
 			       const char **paths, size_t n,
-			       bool report_default)
+			       bool report_default, bool report_main)
 {
 	struct drgn_error *err;
 	struct kernel_module_file *kmods;
@@ -1404,7 +1403,7 @@ linux_kernel_report_debug_info(struct drgn_program *prog,
 	bool need_module_definition = false;
 	bool vmlinux_is_pending = false;
 
-	if (report_default && !prog->added_vmcoreinfo_object_finder) {
+	if (report_main && !prog->added_vmcoreinfo_object_finder) {
 		err = drgn_program_add_object_finder(prog,
 						     vmcoreinfo_object_find,
 						     prog);
@@ -1506,9 +1505,9 @@ linux_kernel_report_debug_info(struct drgn_program *prog,
 		}
 	}
 
-	if (report_default && !vmlinux_is_pending &&
+	if (report_main && !vmlinux_is_pending &&
 	    !drgn_dwarf_index_is_indexed(dindex, "kernel")) {
-		err = report_default_vmlinux(prog, dindex, &vmlinux_is_pending);
+		err = report_vmlinux(prog, dindex, &vmlinux_is_pending);
 		if (err)
 			goto out;
 	}

@@ -420,63 +420,70 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 					 PyObject *kwds)
 {
-	static char *keywords[] = {"paths", "default", NULL};
+	static char *keywords[] = {"paths", "default", "main", NULL};
 	struct drgn_error *err;
-	PyObject *paths_obj, *it, *item;
+	PyObject *paths_obj = Py_None;
 	struct path_arg *path_args = NULL;
-	Py_ssize_t length_hint;
 	size_t n = 0, i;
-	const char **paths;
+	const char **paths = NULL;
 	int load_default = 0;
+	int load_main = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|p:load_debug_info",
-					 keywords, &paths_obj, &load_default))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Opp:load_debug_info",
+					 keywords, &paths_obj, &load_default,
+					 &load_main))
 		return NULL;
 
-	it = PyObject_GetIter(paths_obj);
-	if (!it)
-		return NULL;
+	if (paths_obj != Py_None) {
+		Py_ssize_t length_hint;
+		PyObject *it, *item;
 
-	length_hint = PyObject_LengthHint(paths_obj, 1);
-	if (length_hint == -1) {
-		Py_DECREF(it);
-		return NULL;
-	}
-	path_args = calloc(length_hint, sizeof(*path_args));
-	if (!path_args) {
-		Py_DECREF(it);
-		return NULL;
-	}
+		it = PyObject_GetIter(paths_obj);
+		if (!it)
+			return NULL;
 
-	while ((item = PyIter_Next(it))) {
-		int ret;
-
-		if (n >= length_hint) {
-			length_hint *= 2;
-			if (!resize_array(&path_args, length_hint)) {
-				Py_DECREF(item);
-				PyErr_NoMemory();
-				break;
-			}
+		length_hint = PyObject_LengthHint(paths_obj, 1);
+		if (length_hint == -1) {
+			Py_DECREF(it);
+			return NULL;
 		}
-		ret = path_converter(item, &path_args[n]);
-		Py_DECREF(item);
-		if (!ret)
-			break;
-		n++;
-	}
-	Py_DECREF(it);
-	if (PyErr_Occurred())
-		goto out;
+		path_args = calloc(length_hint, sizeof(*path_args));
+		if (!path_args) {
+			Py_DECREF(it);
+			return NULL;
+		}
 
-	paths = malloc_array(n, sizeof(*paths));
-	if (!paths) {
-		PyErr_NoMemory();
-		goto out;
+		while ((item = PyIter_Next(it))) {
+			int ret;
+
+			if (n >= length_hint) {
+				length_hint *= 2;
+				if (!resize_array(&path_args, length_hint)) {
+					Py_DECREF(item);
+					PyErr_NoMemory();
+					break;
+				}
+			}
+			ret = path_converter(item, &path_args[n]);
+			Py_DECREF(item);
+			if (!ret)
+				break;
+			n++;
+		}
+		Py_DECREF(it);
+		if (PyErr_Occurred())
+			goto out;
+
+		paths = malloc_array(n, sizeof(*paths));
+		if (!paths) {
+			PyErr_NoMemory();
+			goto out;
+		}
+		for (i = 0; i < n; i++)
+			paths[i] = path_args[i].path;
 	}
-	for (i = 0; i < n; i++)
-		paths[i] = path_args[i].path;
-	err = drgn_program_load_debug_info(&self->prog, paths, n, load_default);
+	err = drgn_program_load_debug_info(&self->prog, paths, n, load_default,
+					   load_main);
 	free(paths);
 	if (err)
 		set_drgn_error(err);
@@ -493,7 +500,7 @@ static PyObject *Program_load_default_debug_info(Program *self)
 {
 	struct drgn_error *err;
 
-	err = drgn_program_load_debug_info(&self->prog, NULL, 0, true);
+	err = drgn_program_load_debug_info(&self->prog, NULL, 0, true, true);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;

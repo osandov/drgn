@@ -280,7 +280,7 @@ Programs
 
         :param int pid: Process ID.
 
-    .. method:: load_debug_info(paths, default=False)
+    .. method:: load_debug_info(paths=None, default=False, main=False)
 
         Load debugging information for a list of executable or library files.
 
@@ -288,7 +288,7 @@ Programs
         multiple files at once rather than one by one.
 
         :param paths: Paths of binary files.
-        :type paths: Iterable[str, bytes, or os.PathLike]
+        :type paths: Iterable[str, bytes, or os.PathLike] or None
         :param bool default: Also load debugging information which can
             automatically be determined from the program.
 
@@ -297,6 +297,14 @@ Programs
 
             For userspace programs, this tries to load the executable and any
             loaded libraries.
+
+            This implies ``main=True``.
+        :param bool main: Also load debugging information for the main
+            executable.
+
+            For the Linux kernel, this tries to load ``vmlinux``.
+
+            This is currently ignored for userspace programs.
         :raises MissingDebugInfoError: if debugging information was not
             available for some files; other files with debugging information
             are still loaded
@@ -306,7 +314,7 @@ Programs
         Load debugging information which can automatically be determined from
         the program.
 
-        This is equivalent to ``load_debug_info([], True)``.
+        This is equivalent to ``load_debug_info(None, True)``.
 
     .. attribute:: cache
 

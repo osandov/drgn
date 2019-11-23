@@ -599,14 +599,17 @@ static int drgn_set_platform_from_dwarf(Dwfl_Module *module, void **userdatap,
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
-			     size_t n, bool load_default)
+			     size_t n, bool load_default, bool load_main)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index *dindex;
 	bool report_from_dwfl;
 
-	if (!n && !load_default)
+	if (!n && !load_default && !load_main)
 		return NULL;
+
+	if (load_default)
+		load_main = true;
 
 	err = drgn_program_get_dindex(prog, &dindex);
 	if (err)
@@ -615,7 +618,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	drgn_dwarf_index_report_begin(dindex);
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		err = linux_kernel_report_debug_info(prog, dindex, paths, n,
-						     load_default);
+						     load_default, load_main);
 	} else {
 		err = userspace_report_debug_info(prog, dindex, paths, n,
 						  load_default);
@@ -625,7 +628,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 		return err;
 	}
 	report_from_dwfl = (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
-			    load_default);
+			    load_main);
 	err = drgn_dwarf_index_report_end(dindex, report_from_dwfl);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO) &&
 	    !prog->has_platform) {
@@ -729,7 +732,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	err = drgn_program_set_core_dump(prog, path);
 	if (err)
 		return err;
-	err = drgn_program_load_debug_info(prog, NULL, 0, true);
+	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
 	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
 		err = NULL;
@@ -744,7 +747,7 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
 	err = drgn_program_set_kernel(prog);
 	if (err)
 		return err;
-	err = drgn_program_load_debug_info(prog, NULL, 0, true);
+	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
 	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
 		err = NULL;
@@ -759,7 +762,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	err = drgn_program_set_pid(prog, pid);
 	if (err)
 		return err;
-	err = drgn_program_load_debug_info(prog, NULL, 0, true);
+	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
 	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_destroy(err);
 		err = NULL;

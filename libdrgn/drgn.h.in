@@ -1149,11 +1149,14 @@ struct drgn_error *drgn_program_set_pid(struct drgn_program *prog, pid_t pid);
  * Load debugging information for a list of executable or library files.
  *
  * @param[in] load_default Whether to also load debugging information which can
- * automatically be determined from the program.
+ * automatically be determined from the program. This implies @p load_main.
+ * @param[in] load_main Whether to also load information for the main
+ * executable.
  */
 struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
 						const char **paths, size_t n,
-						bool load_default);
+						bool load_default,
+						bool load_main);
 
 /**
  * Create a @ref drgn_program from a core dump file.

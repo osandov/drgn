@@ -23,7 +23,7 @@ struct drgn_error *
 linux_kernel_report_debug_info(struct drgn_program *prog,
 			       struct drgn_dwarf_index *dindex,
 			       const char **paths, size_t n,
-			       bool report_default);
+			       bool report_default, bool report_main);
 
 #define KDUMP_SIGNATURE "KDUMP   "
 #define KDUMP_SIG_LEN (sizeof(KDUMP_SIGNATURE) - 1)
