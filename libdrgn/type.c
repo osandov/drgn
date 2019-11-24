@@ -429,25 +429,26 @@ DEFINE_HASH_SET(drgn_type_pair_set, struct drgn_type_pair,
 
 static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 					    struct drgn_type *b,
-					    struct drgn_type_pair_set *set,
-					    bool *ret);
+					    struct drgn_type_pair_set *cache,
+					    int *depth, bool *ret);
 
-static struct drgn_error *drgn_qualified_type_eq_impl(struct drgn_qualified_type *a,
-						      struct drgn_qualified_type *b,
-						      struct drgn_type_pair_set *set,
-						      bool *ret)
+static struct drgn_error *
+drgn_qualified_type_eq_impl(struct drgn_qualified_type *a,
+			    struct drgn_qualified_type *b,
+			    struct drgn_type_pair_set *cache, int *depth,
+			    bool *ret)
 {
 	if (a->qualifiers != b->qualifiers) {
 		*ret = false;
 		return NULL;
 	}
-	return drgn_type_eq_impl(a->type, b->type, set, ret);
+	return drgn_type_eq_impl(a->type, b->type, cache, depth, ret);
 }
 
 static struct drgn_error *drgn_type_members_eq(struct drgn_type *a,
 					       struct drgn_type *b,
-					       struct drgn_type_pair_set *set,
-					       bool *ret)
+					       struct drgn_type_pair_set *cache,
+					       int *depth, bool *ret)
 {
 	struct drgn_type_member *members_a, *members_b;
 	size_t num_a, num_b, i;
@@ -478,7 +479,8 @@ static struct drgn_error *drgn_type_members_eq(struct drgn_type *a,
 		err = drgn_member_type(&members_b[i], &type_b);
 		if (err)
 			return err;
-		err = drgn_qualified_type_eq_impl(&type_a, &type_b, set, ret);
+		err = drgn_qualified_type_eq_impl(&type_a, &type_b, cache,
+						  depth, ret);
 		if (err)
 			return err;
 		if (!*ret)
@@ -514,10 +516,9 @@ static bool drgn_type_enumerators_eq(struct drgn_type *a, struct drgn_type *b)
 	return true;
 }
 
-static struct drgn_error *drgn_type_parameters_eq(struct drgn_type *a,
-						  struct drgn_type *b,
-						  struct drgn_type_pair_set *set,
-						  bool *ret)
+static struct drgn_error *
+drgn_type_parameters_eq(struct drgn_type *a, struct drgn_type *b,
+			struct drgn_type_pair_set *cache, int *depth, bool *ret)
 {
 	struct drgn_type_parameter *parameters_a, *parameters_b;
 	size_t num_a, num_b, i;
@@ -545,7 +546,8 @@ static struct drgn_error *drgn_type_parameters_eq(struct drgn_type *a,
 		err = drgn_parameter_type(&parameters_b[i], &type_b);
 		if (err)
 			return err;
-		err = drgn_qualified_type_eq_impl(&type_a, &type_b, set, ret);
+		err = drgn_qualified_type_eq_impl(&type_a, &type_b, cache,
+						  depth, ret);
 		if (err)
 			return err;
 		if (!*ret)
@@ -562,37 +564,50 @@ out_false:
 
 static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 					    struct drgn_type *b,
-					    struct drgn_type_pair_set *set,
-					    bool *ret)
+					    struct drgn_type_pair_set *cache,
+					    int *depth, bool *ret)
 {
-	struct drgn_type_pair pair = { a, b };
 	struct drgn_error *err;
+	struct drgn_type_pair pair = { a, b };
 	struct hash_pair hp;
 
-	if (drgn_type_pair_set_size(set) >= 1000) {
+	if (*depth >= 1000) {
 		return drgn_error_create(DRGN_ERROR_RECURSION,
 					 "maximum type comparison depth exceeded");
 	}
 
+	if (a == b) {
+		*ret = true;
+		return NULL;
+	}
+	if (!a || !b) {
+		*ret = false;
+		return NULL;
+	}
+
 	/*
-	 * Handle cycles by assuming that types which we are already comparing
-	 * are equal.
+	 * Cache this comparison so that we don't do it again. We insert the
+	 * cache entry before doing the comparison in order to break cycles.
 	 */
 	hp = drgn_type_pair_set_hash(&pair);
-	switch (drgn_type_pair_set_insert_hashed(set, &pair, hp, NULL)) {
+	switch (drgn_type_pair_set_insert_hashed(cache, &pair, hp, NULL)) {
 	case 1:
+		/* These types haven't been compared yet. */
 		break;
 	case 0:
+		/*
+		 * These types have either already been compared, in which case
+		 * they must be equal (otherwise we would've returned false
+		 * immediately), or they are currently being compared, in which
+		 * case they are equal as long as everything we compare after
+		 * this is equal.
+		 */
 		*ret = true;
 		return NULL;
 	case -1:
 		return &drgn_enomem;
 	}
-
-	if (a == b)
-		goto out_true;
-	if (!a || !b)
-		goto out_false;
+	(*depth)++;
 
 	if (drgn_type_kind(a) != drgn_type_kind(b) ||
 	    drgn_type_is_complete(a) != drgn_type_is_complete(b))
@@ -622,19 +637,20 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 
 		type_a = drgn_type_type(a);
 		type_b = drgn_type_type(b);
-		err = drgn_qualified_type_eq_impl(&type_a, &type_b, set, ret);
+		err = drgn_qualified_type_eq_impl(&type_a, &type_b, cache,
+						  depth, ret);
 		if (err || !*ret)
 			goto out;
 	}
 	if (drgn_type_has_members(a)) {
-		err = drgn_type_members_eq(a, b, set, ret);
+		err = drgn_type_members_eq(a, b, cache, depth, ret);
 		if (err || !*ret)
 			goto out;
 	}
 	if (drgn_type_has_enumerators(a) && !drgn_type_enumerators_eq(a, b))
 		goto out_false;
 	if (drgn_type_has_parameters(a)) {
-		err = drgn_type_parameters_eq(a, b, set, ret);
+		err = drgn_type_parameters_eq(a, b, cache, depth, ret);
 		if (err || !*ret)
 			goto out;
 	}
@@ -642,7 +658,6 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	    drgn_type_is_variadic(a) != drgn_type_is_variadic(b))
 		goto out_false;
 
-out_true:
 	*ret = true;
 	err = NULL;
 	goto out;
@@ -650,19 +665,20 @@ out_false:
 	*ret = false;
 	err = NULL;
 out:
-	drgn_type_pair_set_delete_hashed(set, &pair, hp);
+	(*depth)--;
 	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *drgn_type_eq(struct drgn_type *a,
 					       struct drgn_type *b, bool *ret)
 {
-	struct drgn_type_pair_set set;
 	struct drgn_error *err;
+	struct drgn_type_pair_set cache;
+	int depth = 0;
 
-	drgn_type_pair_set_init(&set);
-	err = drgn_type_eq_impl(a, b, &set, ret);
-	drgn_type_pair_set_deinit(&set);
+	drgn_type_pair_set_init(&cache);
+	err = drgn_type_eq_impl(a, b, &cache, &depth, ret);
+	drgn_type_pair_set_deinit(&cache);
 	return err;
 }
 
