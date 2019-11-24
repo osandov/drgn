@@ -932,7 +932,7 @@ Types
     also have qualifiers (e.g., constant, atomic). Accessing an attribute which
     does not apply to a type raises an :exc:`AttributeError`.
 
-    :func:`repr()` of a Type returns a Python representation of the type:
+    :func:`repr()` of a ``Type`` returns a Python representation of the type:
 
     >>> print(repr(prog.type('sector_t')))
     typedef_type(name='sector_t', type=int_type(name='unsigned long', size=8, is_signed=False))
@@ -948,6 +948,14 @@ Types
 
     This class cannot be constructed directly. Instead, use one of the
     :ref:`api-type-constructors`.
+
+    .. note::
+
+        ``Type`` objects can be compared with ``==``. However, this is mostly
+        intended for testing and should not be used for type checking, as it
+        does a deep comparison that checks that the type definitions are
+        exactly the same, which is potentially time-consuming and
+        memory-intensive.
 
     .. attribute:: kind
 
