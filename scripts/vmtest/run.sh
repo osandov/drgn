@@ -19,33 +19,42 @@ Arguments:
   IMG                 path of virtual machine disk image to create
 
 Versions:
-  -k KERNELRELEASE    kernel release to test. This is a glob pattern; the
-		      newest (sorted by version number) release that matches
-		      the pattern is used (default: newest available release)
-  -r ROOTFSVERSION    version of root filesystem to use (default: newest
-                      available version)
+  -k, --kernel=KERNELRELEASE
+                       kernel release to test. This is a glob pattern; the
+		       newest (sorted by version number) release that matches
+		       the pattern is used (default: newest available release)
+
+  -r, --rootfs=ROOTFSVERSION
+                       version of root filesystem to use (default: newest
+                       available version)
 
 Setup:
-  -f                  overwrite IMG if it already exists
-  -o                  one-shot mode. By default, this script saves a clean copy
-		      of the downloaded root filesystem image and vmlinux and
-		      makes a copy (reflinked, when possible) for executing the
-		      virtual machine. This allows subsequent runs to skip
-		      downloading these files. If this option is given, the
-		      root filesystem image and vmlinux are always
-		      re-downloaded and are not saved. This option implies -f
-  -I                  skip creating the disk image; use the existing one at
-                      IMG. This option cannot be combined with -r, -f, or -o
-  -S                  skip copying the source files and init scripts
+  -f, --force          overwrite IMG if it already exists
+
+  -o, --one-shot       one-shot mode. By default, this script saves a clean copy
+		       of the downloaded root filesystem image and vmlinux and
+		       makes a copy (reflinked, when possible) for executing the
+		       virtual machine. This allows subsequent runs to skip
+		       downloading these files. If this option is given, the
+		       root filesystem image and vmlinux are always
+		       re-downloaded and are not saved. This option implies -f
+
+  -I, --skip-image     skip creating the disk image; use the existing one at
+                       IMG. This option cannot be combined with -r, -f, or -o
+
+  -S, --skip-source    skip copying the source files and init scripts
 
 Miscellaneous:
-  -i                  interactive mode. Boot the virtual machine into an
-		      interactive shell instead of automatically running tests
-  -d DIR              working directory to use for downloading and caching
-                      files (default: current working directory)
-  -l                  list available kernel releases instead of running tests.
-		      The list may be filtered with -k
-  -h                  display this help message and exit"
+  -i, --interactive    interactive mode. Boot the virtual machine into an
+		       interactive shell instead of automatically running tests
+
+  -d, --dir=DIR        working directory to use for downloading and caching
+                       files (default: current working directory)
+
+  -l, --list           list available kernel releases instead of running tests.
+		       The list may be filtered with -k
+
+  -h, --help           display this help message and exit"
 
 	case "$1" in
 		out)
@@ -59,6 +68,10 @@ Miscellaneous:
 	esac
 }
 
+TEMP=$(getopt -o 'k:r:foISid:lh' --long 'kernel:,rootfs:,force,one-shot,skip-image,skip-source,interactive,dir:,list,help' -n "$0" -- "$@")
+eval set -- "$TEMP"
+unset TEMP
+
 KERNELRELEASE='*'
 unset ROOTFSVERSION
 unset IMG
@@ -69,38 +82,50 @@ SKIPSOURCE=0
 APPEND=""
 DIR="$PWD"
 LIST=0
-while getopts "k:r:foISid:lh" OPT; do
-	case "$OPT" in
-		k)
-			KERNELRELEASE="$OPTARG"
+while true; do
+	case "$1" in
+		-k|--kernel)
+			KERNELRELEASE="$2"
+			shift 2
 			;;
-		r)
-			ROOTFSVERSION="$OPTARG"
+		-r|--rootfs)
+			ROOTFSVERSION="$2"
+			shift 2
 			;;
-		f)
+		-f|--force)
 			FORCE=1
+			shift
 			;;
-		o)
+		-o|--one-shot)
 			ONESHOT=1
 			FORCE=1
+			shift
 			;;
-		I)
+		-I|--skip-image)
 			SKIPIMG=1
+			shift
 			;;
-		S)
+		-S|--skip-source)
 			SKIPSOURCE=1
+			shift
 			;;
-		i)
+		-i|--interactive)
 			APPEND=" single"
+			shift
 			;;
-		d)
-			DIR="$OPTARG"
+		-d|--dir)
+			DIR="$2"
+			shift 2
 			;;
-		l)
+		-l|--list)
 			LIST=1
 			;;
-		h)
+		-h|--help)
 			usage out
+			;;
+		--)
+			shift
+			break
 			;;
 		*)
 			usage err
@@ -111,12 +136,12 @@ if [[ $SKIPIMG -ne 0 && ( -v ROOTFSVERSION || $FORCE -ne 0 ) ]]; then
 	usage err
 fi
 if (( LIST )); then
-	if [[ $OPTIND -le $# || -v ROOTFSVERSION || $FORCE -ne 0 ||
+	if [[ $# -ne 0 || -v ROOTFSVERSION || $FORCE -ne 0 ||
 	      $SKIPIMG -ne 0 || $SKIPSOURCE -ne 0 || -n $APPEND ]]; then
 		usage err
 	fi
 else
-	if [[ $OPTIND -ne $# ]]; then
+	if [[ $# -ne 1 ]]; then
 		usage err
 	fi
 	IMG="${!OPTIND}"
