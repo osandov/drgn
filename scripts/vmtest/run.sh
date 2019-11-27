@@ -4,7 +4,7 @@ set -uo pipefail
 trap 'exit 2' ERR
 
 usage () {
-	USAGE_STRING="usage: $0 [-k KERNELRELEASE] [[-r ROOTFSVERSION] [-fo]|-I] [-Si] [-d DIR] IMG
+	USAGE_STRING="usage: $0 [-k KERNELRELEASE|-b DIR] [[-r ROOTFSVERSION] [-fo]|-I] [-Si] [-d DIR] IMG
        $0 [-k KERNELRELEASE] -l
        $0 -h
 
@@ -23,6 +23,9 @@ Versions:
                        kernel release to test. This is a glob pattern; the
 		       newest (sorted by version number) release that matches
 		       the pattern is used (default: newest available release)
+
+  -b, --build DIR      use the kernel built in the given directory. This option
+                       cannot be combined with -k
 
   -r, --rootfs=ROOTFSVERSION
                        version of root filesystem to use (default: newest
@@ -68,11 +71,12 @@ Miscellaneous:
 	esac
 }
 
-TEMP=$(getopt -o 'k:r:foISid:lh' --long 'kernel:,rootfs:,force,one-shot,skip-image,skip-source,interactive,dir:,list,help' -n "$0" -- "$@")
+TEMP=$(getopt -o 'k:b:r:foISid:lh' --long 'kernel:,build:,rootfs:,force,one-shot,skip-image,skip-source,interactive,dir:,list,help' -n "$0" -- "$@")
 eval set -- "$TEMP"
 unset TEMP
 
-KERNELRELEASE='*'
+unset KERNELRELEASE
+unset BUILDDIR
 unset ROOTFSVERSION
 unset IMG
 FORCE=0
@@ -86,6 +90,10 @@ while true; do
 	case "$1" in
 		-k|--kernel)
 			KERNELRELEASE="$2"
+			shift 2
+			;;
+		-b|--build)
+			BUILDDIR="$2"
 			shift 2
 			;;
 		-r|--rootfs)
@@ -132,11 +140,18 @@ while true; do
 			;;
 	esac
 done
+if [[ -v BUILDDIR ]]; then
+      if [[ -v KERNELRELEASE ]]; then
+	      usage err
+      fi
+elif [[ ! -v KERNELRELEASE ]]; then
+	KERNELRELEASE='*'
+fi
 if [[ $SKIPIMG -ne 0 && ( -v ROOTFSVERSION || $FORCE -ne 0 ) ]]; then
 	usage err
 fi
 if (( LIST )); then
-	if [[ $# -ne 0 || -v ROOTFSVERSION || $FORCE -ne 0 ||
+	if [[ $# -ne 0 || -v BUILDDIR || -v ROOTFSVERSION || $FORCE -ne 0 ||
 	      $SKIPIMG -ne 0 || $SKIPSOURCE -ne 0 || -n $APPEND ]]; then
 		usage err
 	fi
@@ -235,7 +250,9 @@ if [[ $FORCE -eq 0 && $SKIPIMG -eq 0 && -e $IMG ]]; then
 fi
 
 # Only go to the network if it's actually a glob pattern.
-if [[ ! $KERNELRELEASE =~ ^([^\\*?[]|\\[*?[])*\\?$ ]]; then
+if [[ -v BUILDDIR ]]; then
+	KERNELRELEASE="$(make -C "$BUILDDIR" -s kernelrelease)"
+elif [[ ! $KERNELRELEASE =~ ^([^\\*?[]|\\[*?[])*\\?$ ]]; then
 	# We need to cache the list of URLs outside of the command
 	# substitution, which happens in a subshell.
 	cache_urls
@@ -275,12 +292,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-bzImage="$DIR/bzImage-$KERNELRELEASE"
-if [[ ! -e $bzImage ]]; then
-	tmp="$(mktemp "$bzImage.XXX.part")"
-	download "bzImage-$KERNELRELEASE" -o "$tmp"
-	mv "$tmp" "$bzImage"
-	tmp=
+if [[ -v BUILDDIR ]]; then
+	vmlinuz="$BUILDDIR/$(make -C "$BUILDDIR" -s image_name)"
+else
+	vmlinuz="$DIR/bzImage-$KERNELRELEASE"
+	if [[ ! -e $vmlinuz ]]; then
+		tmp="$(mktemp "$vmlinuz.XXX.part")"
+		download "bzImage-$KERNELRELEASE" -o "$tmp"
+		mv "$tmp" "$vmlinuz"
+		tmp=
+	fi
 fi
 
 # Mount and set up the rootfs image.
@@ -315,22 +336,26 @@ fi
 
 # Install vmlinux.
 vmlinux="$mnt/boot/vmlinux-$KERNELRELEASE"
-if (( ONESHOT )); then
+if [[ -v BUILDDIR || $ONESHOT -eq 0 ]]; then
+	if [[ -v BUILDDIR ]]; then
+		source_vmlinux="$BUILDDIR/vmlinux"
+	else
+		source_vmlinux="$DIR/vmlinux-$KERNELRELEASE"
+		if [[ ! -e $source_vmlinux ]]; then
+			tmp="$(mktemp "$source_vmlinux.XXX.part")"
+			download "vmlinux-$KERNELRELEASE.zst" | zstd -dfo "$tmp"
+			mv "$tmp" "$source_vmlinux"
+			tmp=
+		fi
+	fi
+	echo "Copying vmlinux..." >&2
+	sudo rsync -cp --chmod 0644 "$source_vmlinux" "$vmlinux"
+else
 	# We could use "sudo zstd -o", but let's not run zstd as root with
 	# input from the internet.
 	download "vmlinux-$KERNELRELEASE.zst" |
 		zstd -d | sudo tee "$vmlinux" > /dev/null
 	sudo chmod 644 "$vmlinux"
-else
-	downloaded_vmlinux="$DIR/vmlinux-$KERNELRELEASE"
-	if [[ ! -e $downloaded_vmlinux ]]; then
-		tmp="$(mktemp "$downloaded_vmlinux.XXX.part")"
-		download "vmlinux-$KERNELRELEASE.zst" | zstd -dfo "$tmp"
-		mv "$tmp" "$downloaded_vmlinux"
-		tmp=
-	fi
-	echo "Copying vmlinux..." >&2
-	sudo rsync -cp --chmod 0644 "$downloaded_vmlinux" "$vmlinux"
 fi
 
 if (( SKIPSOURCE )); then
@@ -375,7 +400,7 @@ echo "Starting virtual machine..." >&2
 qemu-system-x86_64 -nodefaults -display none -serial mon:stdio \
 	-cpu kvm64 -enable-kvm -smp "$(nproc)" -m 2G \
 	-drive file="$IMG",format=raw,index=1,media=disk,if=virtio,cache=none \
-	-kernel "$bzImage" -append "root=/dev/vda rw console=ttyS0,115200$APPEND"
+	-kernel "$vmlinuz" -append "root=/dev/vda rw console=ttyS0,115200$APPEND"
 
 sudo mount -o loop "$IMG" "$mnt"
 if exitstatus="$(cat "$mnt/exitstatus" 2>/dev/null)"; then
