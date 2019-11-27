@@ -315,29 +315,22 @@ fi
 
 # Install vmlinux.
 vmlinux="$mnt/boot/vmlinux-$KERNELRELEASE"
-if [[ ! -e $vmlinux ]]; then
-	if (( ! ONESHOT )); then
-		downloaded_vmlinux="$DIR/vmlinux-$KERNELRELEASE"
-		if [[ ! -e $downloaded_vmlinux ]]; then
-			tmp="$(mktemp "$downloaded_vmlinux.XXX.part")"
-			download "vmlinux-$KERNELRELEASE.zst" | zstd -dfo "$tmp"
-			mv "$tmp" "$downloaded_vmlinux"
-			tmp=
-		fi
-	fi
-	tmp="$(sudo mktemp -p "$mnt/boot" "vmlinux-$KERNELRELEASE.XXX.part")"
-	if (( ONESHOT )); then
-		# We could use "sudo zstd -o", but let's not run zstd as root
-		# with input from the internet.
-		download "vmlinux-$KERNELRELEASE.zst" |
-			zstd -d | sudo tee "$tmp" > /dev/null
-	else
-		echo "Copying vmlinux..." >&2
-		sudo cp "$downloaded_vmlinux" "$tmp"
-	fi
-	sudo mv "$tmp" "$vmlinux"
-	tmp=
+if (( ONESHOT )); then
+	# We could use "sudo zstd -o", but let's not run zstd as root with
+	# input from the internet.
+	download "vmlinux-$KERNELRELEASE.zst" |
+		zstd -d | sudo tee "$vmlinux" > /dev/null
 	sudo chmod 644 "$vmlinux"
+else
+	downloaded_vmlinux="$DIR/vmlinux-$KERNELRELEASE"
+	if [[ ! -e $downloaded_vmlinux ]]; then
+		tmp="$(mktemp "$downloaded_vmlinux.XXX.part")"
+		download "vmlinux-$KERNELRELEASE.zst" | zstd -dfo "$tmp"
+		mv "$tmp" "$downloaded_vmlinux"
+		tmp=
+	fi
+	echo "Copying vmlinux..." >&2
+	sudo rsync -cp --chmod 0644 "$downloaded_vmlinux" "$vmlinux"
 fi
 
 if (( SKIPSOURCE )); then
@@ -353,7 +346,7 @@ else
 	else
 		tr '\n' '\0' < drgn.egg-info/SOURCES.txt
 	fi
-	} | sudo xargs -0 cp --parents --preserve=mode,timestamps -t "$mnt/drgn"
+	} | sudo rsync --files-from=- -0cpt . "$mnt/drgn"
 
 	# Create the init scripts.
 	sudo tee "$mnt/etc/rcS.d/S50-run-tests" > /dev/null << "EOF"

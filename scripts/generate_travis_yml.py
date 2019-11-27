@@ -40,6 +40,7 @@ jobs:
         apt:
           packages:
             - qemu-kvm
+            - rsync
             - zstd
       install: sudo adduser "$USER" kvm
       before_script:
