@@ -16,7 +16,7 @@ static PyObject *StackTrace_str(StackTrace *self)
 	PyObject *ret;
 	char *str;
 
-	err = drgn_pretty_print_stack_trace(self->trace, &str);
+	err = drgn_format_stack_trace(self->trace, &str);
 	if (err)
 		return set_drgn_error(err);
 

@@ -694,16 +694,15 @@ drgn_qualified_type_eq(struct drgn_qualified_type a,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_pretty_print_type_name(struct drgn_qualified_type qualified_type,
-			    char **ret)
+drgn_format_type_name(struct drgn_qualified_type qualified_type, char **ret)
 {
-	return drgn_language_c.pretty_print_type_name(qualified_type, ret);
+	return drgn_language_c.format_type_name(qualified_type, ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_pretty_print_type(struct drgn_qualified_type qualified_type, char **ret)
+drgn_format_type(struct drgn_qualified_type qualified_type, char **ret)
 {
-	return drgn_language_c.pretty_print_type(qualified_type, ret);
+	return drgn_language_c.format_type(qualified_type, ret);
 }
 
 bool drgn_type_is_integer(struct drgn_type *type)
@@ -857,7 +856,7 @@ drgn_qualified_type_error(const char *format,
 	struct drgn_error *err;
 	char *name;
 
-	err = drgn_pretty_print_type_name(qualified_type, &name);
+	err = drgn_format_type_name(qualified_type, &name);
 	if (err)
 		return err;
 	err = drgn_error_format(DRGN_ERROR_TYPE, format, name);
@@ -900,7 +899,7 @@ struct drgn_error *drgn_error_member_not_found(struct drgn_type *type,
 	struct drgn_qualified_type qualified_type = { type };
 	char *name;
 
-	err = drgn_pretty_print_type_name(qualified_type, &name);
+	err = drgn_format_type_name(qualified_type, &name);
 	if (err)
 		return err;
 	err = drgn_error_format(DRGN_ERROR_LOOKUP, "'%s' has no member '%s'",

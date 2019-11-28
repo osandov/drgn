@@ -820,7 +820,7 @@ static PyObject *DrgnType_str(DrgnType *self)
 	PyObject *ret;
 	char *str;
 
-	err = drgn_pretty_print_type(qualified_type, &str);
+	err = drgn_format_type(qualified_type, &str);
 	if (err)
 		return set_drgn_error(err);
 
@@ -839,7 +839,7 @@ static PyObject *DrgnType_type_name(DrgnType *self)
 	PyObject *ret;
 	char *str;
 
-	err = drgn_pretty_print_type_name(qualified_type, &str);
+	err = drgn_format_type_name(qualified_type, &str);
 	if (err)
 		return set_drgn_error(err);
 

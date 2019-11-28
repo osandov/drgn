@@ -836,8 +836,8 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 	if (!parts)
 		return NULL;
 
-	err = drgn_pretty_print_type_name(drgn_object_qualified_type(&self->obj),
-					  &type_name);
+	err = drgn_format_type_name(drgn_object_qualified_type(&self->obj),
+				    &type_name);
 	if (err) {
 		set_drgn_error(err);
 		goto out;
@@ -934,7 +934,7 @@ static PyObject *DrgnObject_str(DrgnObject *self)
 	char *str;
 	PyObject *ret;
 
-	err = drgn_pretty_print_object(&self->obj, SIZE_MAX, &str);
+	err = drgn_format_object(&self->obj, SIZE_MAX, &str);
 	if (err)
 		return set_drgn_error(err);
 
@@ -981,7 +981,7 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *arg)
 		return NULL;
 	}
 
-	err = drgn_pretty_print_object(&self->obj, columns, &str);
+	err = drgn_format_object(&self->obj, columns, &str);
 	if (err)
 		return set_drgn_error(err);
 

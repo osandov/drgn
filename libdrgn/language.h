@@ -41,15 +41,14 @@ struct drgn_type_index;
 struct drgn_language {
 	/** Name of this programming language. */
 	const char *name;
-	/** Implement @ref drgn_pretty_print_type_name(). */
-	struct drgn_error *(*pretty_print_type_name)(struct drgn_qualified_type,
-						     char **);
-	/** Implement @ref drgn_pretty_print_type(). */
-	struct drgn_error *(*pretty_print_type)(struct drgn_qualified_type,
-						char **);
-	/** Implement @ref drgn_pretty_print_object(). */
-	struct drgn_error *(*pretty_print_object)(const struct drgn_object *,
-						  size_t, char **);
+	/** Implement @ref drgn_format_type_name(). */
+	struct drgn_error *(*format_type_name)(struct drgn_qualified_type,
+					       char **);
+	/** Implement @ref drgn_format_type(). */
+	struct drgn_error *(*format_type)(struct drgn_qualified_type, char **);
+	/** Implement @ref drgn_format_object(). */
+	struct drgn_error *(*format_object)(const struct drgn_object *, size_t,
+					    char **);
 	/**
 	 * Implement @ref drgn_type_index_find().
 	 *

@@ -38,7 +38,7 @@ size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_pretty_print_stack_trace(struct drgn_stack_trace *trace, char **ret)
+drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 {
 	struct drgn_error *err;
 	struct string_builder str = {};

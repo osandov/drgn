@@ -834,12 +834,11 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_pretty_print_object(const struct drgn_object *obj, size_t columns,
-			 char **ret)
+drgn_format_object(const struct drgn_object *obj, size_t columns, char **ret)
 {
 	const struct drgn_language *lang = &drgn_language_c;
 
-	return lang->pretty_print_object(obj, columns, ret);
+	return lang->format_object(obj, columns, ret);
 }
 
 static struct drgn_error *
@@ -1200,10 +1199,10 @@ struct drgn_error *drgn_error_binary_op(const char *op_name,
 	};
 	char *lhs_type_name, *rhs_type_name;
 
-	err = drgn_pretty_print_type_name(lhs_qualified_type, &lhs_type_name);
+	err = drgn_format_type_name(lhs_qualified_type, &lhs_type_name);
 	if (err)
 		return err;
-	err = drgn_pretty_print_type_name(rhs_qualified_type, &rhs_type_name);
+	err = drgn_format_type_name(rhs_qualified_type, &rhs_type_name);
 	if (err) {
 		free(lhs_type_name);
 		return err;
@@ -1227,7 +1226,7 @@ struct drgn_error *drgn_error_unary_op(const char *op_name,
 	};
 	char *type_name;
 
-	err = drgn_pretty_print_type_name(qualified_type, &type_name);
+	err = drgn_format_type_name(qualified_type, &type_name);
 	if (err)
 		return err;
 	err = drgn_error_format(DRGN_ERROR_TYPE,
@@ -1530,11 +1529,11 @@ static struct drgn_error *drgn_error_cast(struct drgn_object_type *to,
 	};
 	char *to_type_name, *from_type_name;
 
-	err = drgn_pretty_print_type_name(to_qualified_type, &to_type_name);
+	err = drgn_format_type_name(to_qualified_type, &to_type_name);
 	if (err) {
 		return err;
 	}
-	err = drgn_pretty_print_type_name(from_qualified_type, &from_type_name);
+	err = drgn_format_type_name(from_qualified_type, &from_type_name);
 	if (err) {
 		free(from_type_name);
 		return err;
