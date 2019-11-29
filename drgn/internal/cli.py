@@ -64,7 +64,7 @@ def main() -> None:
     symbol_group = parser.add_argument_group('debugging symbols')
     symbol_group.add_argument(
         '-s', '--symbols', metavar='PATH', type=str, action='append',
-        help='load additional debugging symbols from the given file; this may option may be given more than once')
+        help='load additional debugging symbols from the given file; this option may be given more than once')
     default_symbols_group = symbol_group.add_mutually_exclusive_group()
     default_symbols_group.add_argument(
         '--main-symbols', dest='default_symbols', action='store_const',
