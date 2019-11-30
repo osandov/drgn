@@ -23,7 +23,7 @@ DrgnObject *drgnpy_linux_helper_radix_tree_lookup(PyObject *self,
 	if (!res)
 		return NULL;
 	err = linux_helper_radix_tree_lookup(&res->obj, &root->obj,
-					     index.value);
+					     index.uvalue);
 	if (err) {
 		Py_DECREF(res);
 		return set_drgn_error(err);
@@ -48,7 +48,7 @@ DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,
 	res = DrgnObject_alloc(DrgnObject_prog(idr));
 	if (!res)
 		return NULL;
-	err = linux_helper_idr_find(&res->obj, &idr->obj, id.value);
+	err = linux_helper_idr_find(&res->obj, &idr->obj, id.uvalue);
 	if (err) {
 		Py_DECREF(res);
 		return set_drgn_error(err);
@@ -122,7 +122,7 @@ DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args,
 	res = DrgnObject_alloc(prog_or_ns.prog);
 	if (!res)
 		goto out;
-	err = linux_helper_find_pid(&res->obj, prog_or_ns.ns, pid.value);
+	err = linux_helper_find_pid(&res->obj, prog_or_ns.ns, pid.uvalue);
 	if (err) {
 		Py_DECREF(res);
 		set_drgn_error(err);
@@ -150,7 +150,7 @@ DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
 	res = DrgnObject_alloc(DrgnObject_prog(pid));
 	if (!res)
 		return NULL;
-	err = linux_helper_pid_task(&res->obj, &pid->obj, pid_type.value);
+	err = linux_helper_pid_task(&res->obj, &pid->obj, pid_type.uvalue);
 	if (err) {
 		Py_DECREF(res);
 		return set_drgn_error(err);
@@ -175,7 +175,7 @@ DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args,
 	res = DrgnObject_alloc(prog_or_ns.prog);
 	if (!res)
 		goto out;
-	err = linux_helper_find_task(&res->obj, prog_or_ns.ns, pid.value);
+	err = linux_helper_find_task(&res->obj, prog_or_ns.ns, pid.uvalue);
 	if (err) {
 		Py_DECREF(res);
 		set_drgn_error(err);

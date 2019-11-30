@@ -199,7 +199,11 @@ int byteorder_converter(PyObject *o, void *p);
 struct index_arg {
 	bool allow_none;
 	bool is_none;
-	unsigned long long value;
+	bool is_signed;
+	union {
+		unsigned long long uvalue;
+		long long svalue;
+	};
 };
 int index_converter(PyObject *o, void *p);
 

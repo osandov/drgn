@@ -83,24 +83,24 @@ int byteorder_converter(PyObject *o, void *p)
 int index_converter(PyObject *o, void *p)
 {
 	struct index_arg *arg = p;
+	PyObject *index_obj;
 
 	arg->is_none = o == Py_None;
 	if (arg->allow_none && arg->is_none)
 		return 1;
 
-	if (PyLong_Check(o)) {
-		arg->value = PyLong_AsUnsignedLongLong(o);
-	} else {
-		PyObject *index_obj;
-
-		index_obj = PyNumber_Index(o);
-		if (!index_obj)
-			return 0;
-		arg->value = PyLong_AsUnsignedLongLong(index_obj);
+	index_obj = PyNumber_Index(o);
+	if (!index_obj)
+		return 0;
+	if (arg->is_signed) {
+		arg->svalue = PyLong_AsLongLong(index_obj);
 		Py_DECREF(index_obj);
+		return (arg->svalue != -1LL || !PyErr_Occurred());
+	} else {
+		arg->uvalue = PyLong_AsUnsignedLongLong(index_obj);
+		Py_DECREF(index_obj);
+		return (arg->uvalue != -1ULL || !PyErr_Occurred());
 	}
-	return (arg->value != (unsigned long long)-1 ||
-		!PyErr_Occurred());
 }
 
 int path_converter(PyObject *o, void *p)

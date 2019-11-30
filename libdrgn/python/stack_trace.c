@@ -104,7 +104,7 @@ static PyObject *StackFrame_register(StackFrame *self, PyObject *arg)
 			arg = PyStructSequence_GET_ITEM(arg, 1);
 		if (!index_converter(arg, &number))
 			return NULL;
-		err = drgn_stack_frame_register(self->frame, number.value,
+		err = drgn_stack_frame_register(self->frame, number.uvalue,
 						&value);
 	}
 	if (err)

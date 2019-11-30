@@ -193,8 +193,8 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 
 	if (Program_hold_object(self, read_fn) == -1)
 		return NULL;
-	err = drgn_program_add_memory_segment(&self->prog, address.value,
-					      size.value, py_memory_read_fn,
+	err = drgn_program_add_memory_segment(&self->prog, address.uvalue,
+					      size.uvalue, py_memory_read_fn,
 					      read_fn, physical);
 	if (err)
 		return set_drgn_error(err);
@@ -530,7 +530,7 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	clear = set_drgn_in_python();
 	err = drgn_program_read_memory(&self->prog, PyBytes_AS_STRING(buf),
-				       address.value, size, physical);
+				       address.uvalue, size, physical);
 	if (clear)
 		clear_drgn_in_python();
 	if (err) {
@@ -702,7 +702,7 @@ static StackTrace *Program_stack_trace(Program *self, PyObject *args,
 
 		if (!index_converter(thread, &tid))
 			return NULL;
-		err = drgn_program_stack_trace(&self->prog, tid.value, &trace);
+		err = drgn_program_stack_trace(&self->prog, tid.uvalue, &trace);
 	}
 	if (err)
 		return set_drgn_error(err);
@@ -730,7 +730,7 @@ static PyObject *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
 					 index_converter, &address))
 		return NULL;
 
-	err = drgn_program_find_symbol(&self->prog, address.value, &sym);
+	err = drgn_program_find_symbol(&self->prog, address.uvalue, &sym);
 	if (err)
 		return set_drgn_error(err);
 	ret = Symbol_wrap(sym, self);
