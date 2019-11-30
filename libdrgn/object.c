@@ -554,7 +554,7 @@ struct drgn_error *
 drgn_object_dereference_offset(struct drgn_object *res,
 			       const struct drgn_object *obj,
 			       struct drgn_qualified_type qualified_type,
-			       uint64_t bit_offset, uint64_t bit_field_size)
+			       int64_t bit_offset, uint64_t bit_field_size)
 {
 	struct drgn_error *err;
 	uint64_t address;
@@ -563,8 +563,15 @@ drgn_object_dereference_offset(struct drgn_object *res,
 	if (err)
 		return err;
 
-	address += bit_offset / 8;
-	bit_offset %= 8;
+	/*
+	 * / and % truncate towards 0. Here, we want to truncate towards
+	 * negative infinity. As long as we have an arithmetic right shift, we
+	 * can accomplish that by replacing "/ 8" with ">> 3" and "% 8" with
+	 * "& 7".
+	 */
+	static_assert((-1 >> 1) == -1, "right shift is not arithmetic");
+	address += bit_offset >> 3;
+	bit_offset &= 7;
 	return drgn_object_set_reference(res, qualified_type, address,
 					 bit_offset, bit_field_size,
 					 DRGN_PROGRAM_ENDIAN);
@@ -1315,7 +1322,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_subscript(struct drgn_object *res, const struct drgn_object *obj,
-		      uint64_t index)
+		      int64_t index)
 {
 	struct drgn_error *err;
 	struct drgn_element_info element;
@@ -2172,8 +2179,7 @@ struct drgn_error *drgn_op_rshift_impl(struct drgn_object *res,
 		 * Right shift of a negative integer is implementation-defined.
 		 * GCC always uses an arithmetic shift.
 		 */
-		static_assert((-1 >> 1) == -1,
-			      "right shift of signed integer is not arithmetic");
+		static_assert((-1 >> 1) == -1, "right shift is not arithmetic");
 		if (shift < bit_size)
 			svalue >>= shift;
 		else if (svalue >= 0)

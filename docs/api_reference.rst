@@ -667,6 +667,12 @@ Objects
 
         This is only valid for pointers and arrays.
 
+        .. note::
+
+            Negative indices behave as they would in the object's language (as
+            opposed to the Python semantics of indexing from the end of the
+            array).
+
         :param int idx: The array index.
         :rtype: Object
         :raises TypeError: if this object is not a pointer or array

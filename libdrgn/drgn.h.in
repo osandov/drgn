@@ -1885,7 +1885,7 @@ struct drgn_error *
 drgn_object_dereference_offset(struct drgn_object *res,
 			       const struct drgn_object *obj,
 			       struct drgn_qualified_type qualified_type,
-			       uint64_t bit_offset, uint64_t bit_field_size);
+			       int64_t bit_offset, uint64_t bit_field_size);
 
 /**
  * Read a @ref drgn_object.
@@ -2188,7 +2188,7 @@ struct drgn_error *drgn_object_address_of(struct drgn_object *res,
  */
 struct drgn_error *drgn_object_subscript(struct drgn_object *res,
 					 const struct drgn_object *obj,
-					 uint64_t index);
+					 int64_t index);
 
 /**
  * Deference (@c *) a @ref drgn_object.
