@@ -253,6 +253,13 @@ async def build_kernel(commit, build_dir, log_file):
 
 
 async def try_build_kernel(commit):
+    proc = await asyncio.create_subprocess_exec(
+        'git', 'rev-parse', '--verify', '-q', commit + '^{commit}',
+        stdout=asyncio.subprocess.DEVNULL)
+    if (await proc.wait()) != 0:
+        logger.error('unknown revision: %s', commit)
+        return None
+
     build_dir = 'build-' + commit
     try:
         log_path = os.path.join(build_dir, 'build.log')
