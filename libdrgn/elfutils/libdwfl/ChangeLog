@@ -1,3 +1,20 @@
+2019-10-28  Aaron Merey  <amerey@redhat.com>
+
+	* dwfl_build_id_find_elf.c (dwfl_build_id_find_elf): Call debuginfod
+	client functions via dlopen to look for elf/dwarf files as fallback.
+	* find-debuginfo.c (dwfl_standard_find_debuginfo): Ditto.
+
+2019-10-07  Omar Sandoval  <osandov@fb.com>
+
+	* dwfl_frame.c (dwfl_getthreads): Get rid of unnecessary
+	thread_free_all_states calls.
+	(getthread): Ditto.
+	(state_free): Remove function.
+	(thread_free_all_states): Remove function.
+	(free_states): Add function.
+	(dwfl_thread_getframes): Don't update thread->unwound while unwinding.
+	* libdwflP.h (struct Dwfl_Thread): Update comment for unwound member.
+
 2019-08-12  Mark Wielaard  <mark@klomp.org>
 
 	* gzip.c (open_stream): Return DWFL_E_ERRNO on bad file operation.

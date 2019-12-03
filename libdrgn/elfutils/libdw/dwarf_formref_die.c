@@ -83,7 +83,7 @@ dwarf_formref_die (Dwarf_Attribute *attr, Dwarf_Die *result)
 	 have to match in the type unit headers.  */
 
       uint64_t sig = read_8ubyte_unaligned (cu->dbg, attr->valp);
-      cu = Dwarf_Sig8_Hash_find (&cu->dbg->sig8_hash, sig, NULL);
+      cu = Dwarf_Sig8_Hash_find (&cu->dbg->sig8_hash, sig);
       if (cu == NULL)
 	{
 	  /* Not seen before.  We have to scan through the type units.

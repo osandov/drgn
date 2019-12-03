@@ -52,18 +52,23 @@ cu_free (void *arg)
 {
   struct Dwarf_CU *p = (struct Dwarf_CU *) arg;
 
-  Dwarf_Abbrev_Hash_free (&p->abbrev_hash);
-
   tdestroy (p->locs, noop_free);
 
-  /* Free split dwarf one way (from skeleton to split).  */
-  if (p->unit_type == DW_UT_skeleton
-      && p->split != NULL && p->split != (void *)-1)
+  /* Only free the CU internals if its not a fake CU.  */
+  if(p != p->dbg->fake_loc_cu && p != p->dbg->fake_loclists_cu
+     && p != p->dbg->fake_addr_cu)
     {
-      /* The fake_addr_cu might be shared, only release one.  */
-      if (p->dbg->fake_addr_cu == p->split->dbg->fake_addr_cu)
-	p->split->dbg->fake_addr_cu = NULL;
-      INTUSE(dwarf_end) (p->split->dbg);
+      Dwarf_Abbrev_Hash_free (&p->abbrev_hash);
+
+      /* Free split dwarf one way (from skeleton to split).  */
+      if (p->unit_type == DW_UT_skeleton
+	  && p->split != NULL && p->split != (void *)-1)
+	{
+	  /* The fake_addr_cu might be shared, only release one.  */
+	  if (p->dbg->fake_addr_cu == p->split->dbg->fake_addr_cu)
+	    p->split->dbg->fake_addr_cu = NULL;
+	  INTUSE(dwarf_end) (p->split->dbg);
+	}
     }
 }
 
@@ -94,14 +99,20 @@ dwarf_end (Dwarf *dwarf)
       /* And the split Dwarf.  */
       tdestroy (dwarf->split_tree, noop_free);
 
-      struct libdw_memblock *memp = dwarf->mem_tail;
-      /* The first block is allocated together with the Dwarf object.  */
-      while (memp->prev != NULL)
-	{
-	  struct libdw_memblock *prevp = memp->prev;
-	  free (memp);
-	  memp = prevp;
-	}
+      /* Free the internally allocated memory.  */
+      for (size_t i = 0; i < dwarf->mem_stacks; i++)
+        {
+          struct libdw_memblock *memp = dwarf->mem_tails[i];
+          while (memp != NULL)
+	    {
+	      struct libdw_memblock *prevp = memp->prev;
+	      free (memp);
+	      memp = prevp;
+	    }
+        }
+      if (dwarf->mem_tails != NULL)
+        free (dwarf->mem_tails);
+      pthread_rwlock_destroy (&dwarf->mem_rwl);
 
       /* Free the pubnames helper structure.  */
       free (dwarf->pubnames_sets);

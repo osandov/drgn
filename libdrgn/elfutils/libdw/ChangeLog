@@ -1,3 +1,51 @@
+2019-10-28  Aaron Merey  <amerey@redhat.com>
+
+	* Makefile.am (libdw_so_LDLIBS): Add -ldl for libdebuginfod.so dlopen.
+
+2019-11-10  Mark Wielaard  <mark@klomp.org>
+
+	* libdwP.h (libdw_unalloc): New define.
+	(libdw_typed_unalloc): Likewise.
+	(__libdw_thread_tail): New function declaration.
+	* libdw_alloc.c (__libdw_thread_tail): New function.
+	* dwarf_getabbrev.c (__libdw_getabbrev): Call libdw_typed_unalloc
+	when reading invalid data or when hash collission detected.
+
+2019-10-28  Jonathon Anderson  <jma14@rice.edu>
+
+	* libdw_alloc.c: Added __libdw_alloc_tail.
+	(__libdw_allocate): Switch to use the mem_tails array.
+	* libdwP.h (Dwarf): Likewise.
+	* dwarf_begin_elf.c (dwarf_begin_elf): Support for above.
+	* dwarf_end.c (dwarf_end): Likewise.
+	* atomics.h: Add support for thread_local.
+
+2019-10-28  Mark Wielaard  <mark@klomp.org>
+
+	* dwarf_sig8_hash.h: Include libdw.h. Remove COMPARE. Include
+	dynamicsizehash_concurrent.h.
+	* dwarf_sig8_hash.c: Include dynamicsizehash_concurrent.c.
+	* dwarf_formref_die.c (dwarf_formref_die): Drop NULL argument to
+	Dwarf_Sig8_Hash_find.
+
+2019-08-26  Srđan Milaković  <sm108@rice.edu@rice.edu>
+
+	* dwarf_abbrev_hash.{c,h}: Use the *_concurrent hash table.
+
+2019-11-01  Jonathon Anderson  <jma14@rice.edu>
+
+	* dwarf_begin_elf.c (valid_p): Switch calloc for malloc for fake CUs.
+	Add explicit initialization of some fields.
+	* dwarf_end.c (cu_free): Add clause to limit freeing of CU internals.
+
+2019-08-26  Jonathon Anderson  <jma14@rice.edu>
+
+	* libdw_alloc.c (__libdw_allocate): Added thread-safe stack allocator.
+	* libdwP.h (Dwarf): Likewise.
+	* dwarf_begin_elf.c (dwarf_begin_elf): Support for above.
+	* dwarf_end.c (dwarf_end): Likewise.
+	* Makefile.am: Use -pthread to provide rwlocks.
+
 2019-07-05  Omar Sandoval  <osandov@fb.com>
 
 	* Makefile.am (libdw_so_LIBS): Replace libebl.a with libebl_pic.a.

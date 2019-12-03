@@ -38,7 +38,7 @@
 #define next_prime __libdwarf_next_prime
 extern size_t next_prime (size_t) attribute_hidden;
 
-#include <dynamicsizehash.c>
+#include <dynamicsizehash_concurrent.c>
 
 #undef next_prime
 #define next_prime attribute_hidden __libdwarf_next_prime

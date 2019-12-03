@@ -1,0 +1,14 @@
+#
+DEBUGINFOD_PORT="8002"
+#DEBUGINFOD_VERBOSE="-v"
+
+# some common places to find trustworthy ELF/DWARF files and RPMs
+DEBUGINFOD_PATHS="-t43200 -F -R /usr/lib/debug /usr/bin /usr/libexec /usr/sbin /usr/lib /usr/lib64 /var/cache/yum /var/cache/dnf"
+
+# prefer reliability/durability over performance
+#DEBUGINFOD_PRAGMAS="-D 'pragma synchronous=full;'"
+
+# upstream debuginfods
+#DEBUGINFOD_URLS="http://secondhost:8002 http://thirdhost:8002"
+#DEBUGINFOD_TIMEOUT="5"
+#DEBUGINFOD_CACHE_DIR=""

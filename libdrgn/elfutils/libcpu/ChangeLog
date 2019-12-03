@@ -1,3 +1,11 @@
+2019-10-17  Mark Wielaard  <mark@klomp.org>
+
+	* i386_data.h (FCT_sel): Check for param_start + 2 >= end instead
+	of just >.
+	* i386_disasm.c (i386_disasm): Check param_start < end. Don't
+	assert, but assign INVALID to str. Make sure we get past any
+	unrecognized opcode.
+
 2019-09-07  Mark Wielaard  <mark@klomp.org>
 
 	* riscv_disasm.c (riscv_disasm): Use UINT64_C to make calculation

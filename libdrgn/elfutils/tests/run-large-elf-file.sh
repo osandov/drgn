@@ -42,9 +42,9 @@ if [ "x$VALGRIND_CMD" != "x" ]; then
   mem_needed=$[${mem_needed} + 2]
 fi
 echo "mem_needed: $mem_needed"
-mem_available=$(free -g | grep ^Mem: | awk -F ' +' '{print $7}')
+mem_available=$(free -g 2>/dev/null | grep ^Mem: | awk -F ' +' '{print $7}')
 echo "mem_available: $mem_available"
-if test $mem_available -lt $mem_needed; then
+if test -z "$mem_available" || test $mem_available -lt $mem_needed; then
   echo "Need at least ${mem_needed}GB free available memory"
   exit 77
 fi

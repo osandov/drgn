@@ -1,3 +1,23 @@
+2019-11-26  Mark Wielaard  <mark@klomp.org>
+
+	* elfutils.spec.in: Remove Group tags, remove fedora and rhel
+	specifics, introduce elfutils-libs subpackage, move Requires
+	and BuildRequires around for new subpackage, remove dot at end
+	of Summary tags, add post/postun ldconfig for libs and
+	debuginfod-client, remove default defattr(-,root,root) for file
+	lists, order binaries by name.
+
+2019-11-25  Mark Wielaard  <mark@klomp.org>
+
+	* elfutils.spec.in: Add BuildRequires curl.
+
+2019-10-28  Frank Ch. Eigler  <fche@redhat.com>
+
+	* eu.am (AM_CXXFLAGS): Clone & amend AM_CFLAGS for c++11 code.
+	* debuginfod.service, debuginfod.sysconfig: New files: systemd.
+	* Makefile.am: Install them.
+	* elfutils.spec.in: Add debuginfod and debuginfod-client subrpms.
+
 2019-08-29  Mark Wielaard  <mark@klomp.org>
 
 	* elfutils.spec.in (%description devel): Remove libebl text.

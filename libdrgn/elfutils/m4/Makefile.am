@@ -18,4 +18,4 @@
 ##
 
 ##m4-files-begin
-EXTRA_DIST = codeset.m4 gettext.m4 iconv.m4 lcmessage.m4 progtest.m4 zip.m4
+EXTRA_DIST = codeset.m4 gettext.m4 iconv.m4 lcmessage.m4 progtest.m4 zip.m4 ax_check_compile_flag.m4 ax_cxx_compile_stdcxx.m4

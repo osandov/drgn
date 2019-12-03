@@ -1,7 +1,7 @@
 ## Process this file with automake to create Makefile.in
 ## Configure input file for elfutils.
 ##
-## Copyright (C) 1996-2001, 2002, 2005 Red Hat, Inc.
+## Copyright (C) 1996-2001, 2002, 2005, 2019 Red Hat, Inc.
 ## This file is part of elfutils.
 ##
 ## This file is free software; you can redistribute it and/or modify
@@ -19,3 +19,12 @@
 EXTRA_DIST = COPYING-GFDL README
 dist_man1_MANS=readelf.1 elfclassify.1
 notrans_dist_man3_MANS=elf_update.3 elf_getdata.3 elf_clone.3 elf_begin.3
+notrans_dist_man8_MANS=
+notrans_dist_man1_MANS=
+
+if DEBUGINFOD
+notrans_dist_man8_MANS += debuginfod.8
+notrans_dist_man3_MANS += debuginfod_find_debuginfo.3 debuginfod_find_source.3 debuginfod_find_executable.3 debuginfod_set_progressfn.3
+notrans_dist_man1_MANS += debuginfod-find.1
+endif
+

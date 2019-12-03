@@ -1,5 +1,5 @@
 /* Standard find_debuginfo callback for libdwfl.
-   Copyright (C) 2005-2010, 2014, 2015 Red Hat, Inc.
+   Copyright (C) 2005-2010, 2014, 2015, 2019 Red Hat, Inc.
    This file is part of elfutils.
 
    This file is free software; you can redistribute it and/or modify
@@ -359,7 +359,8 @@ dwfl_standard_find_debuginfo (Dwfl_Module *mod,
      other than just by finding nothing, that's all we do.  */
   const unsigned char *bits;
   GElf_Addr vaddr;
-  if (INTUSE(dwfl_module_build_id) (mod, &bits, &vaddr) > 0)
+  int bits_len;
+  if ((bits_len = INTUSE(dwfl_module_build_id) (mod, &bits, &vaddr)) > 0)
     {
       /* Dropping most arguments means we cannot rely on them in
 	 dwfl_build_id_find_debuginfo.  But leave it that way since
@@ -396,6 +397,9 @@ dwfl_standard_find_debuginfo (Dwfl_Module *mod,
 				     debuginfo_file_name);
       free (canon);
     }
+
+  if (fd < 0 && bits_len > 0)
+    fd = __libdwfl_debuginfod_find_debuginfo (mod->dwfl, bits, bits_len);
 
   return fd;
 }

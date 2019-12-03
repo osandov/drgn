@@ -29,10 +29,15 @@
 #ifndef _DWARF_SIG8_HASH_H
 #define _DWARF_SIG8_HASH_H	1
 
+#ifdef HAVE_CONFIG_H
+# include <config.h>
+#endif
+
+#include "libdw.h"
+
 #define NAME Dwarf_Sig8_Hash
 #define TYPE struct Dwarf_CU *
-#define COMPARE(a, b) (0)
 
-#include <dynamicsizehash.h>
+#include <dynamicsizehash_concurrent.h>
 
 #endif	/* dwarf_sig8_hash.h */

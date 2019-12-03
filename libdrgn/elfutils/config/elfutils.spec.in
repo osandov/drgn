@@ -5,49 +5,74 @@ Version: @PACKAGE_VERSION@
 Release: 1
 URL: http://elfutils.org/
 License: GPLv3+ and (GPLv2+ or LGPLv3+) and GFDL
-Group: Development/Tools
 Source: ftp://sourceware.org/pub/elfutils/%{version}/elfutils-%{version}.tar.bz2
-Obsoletes: libelf libelf-devel
+
 Requires: elfutils-libelf = %{version}-%{release}
-Requires: glibc >= 2.7
-Requires: libstdc++
-Requires: default-yama-scope
+Requires: elfutils-libs = %{version}-%{release}
+# Can be a Recommends if rpm supports that
+Requires: elfutils-debuginfod-client
 
-# ExcludeArch: xxx
+BuildRequires: gcc
+# For libstdc++ demangle support
+BuildRequires: gcc-c++
 
-BuildRoot: %{_tmppath}/%{name}-root
-BuildRequires: gcc >= 4.1.2-33
-BuildRequires: glibc >= 2.7
-BuildRequires: bison >= 1.875
-BuildRequires: flex >= 2.5.4a
-BuildRequires: bzip2
-BuildRequires: m4
 BuildRequires: gettext
+BuildRequires: bison
+BuildRequires: flex
+
+# Compression support
 BuildRequires: zlib-devel
 BuildRequires: bzip2-devel
 BuildRequires: xz-devel
-BuildRequires: gcc-c++
+
+# For debuginfod
+BuildRequires: pkgconfig(libmicrohttpd) >= 0.9.33
+BuildRequires: pkgconfig(libcurl) >= 7.29.0
+BuildRequires: pkgconfig(sqlite3) >= 3.7.17
+BuildRequires: pkgconfig(libarchive) >= 3.1.2
+
+# For tests need to bunzip2 test files.
+BuildRequires: bzip2
+# For the run-debuginfod-find.sh test case in %check for /usr/sbin/ss
+BuildRequires: iproute
+BuildRequires: curl
 
 %define _gnu %{nil}
 %define _programprefix eu-
 
 %description
-
 Elfutils is a collection of utilities, including stack (to show
 backtraces), nm (for listing symbols from object files), size
 (for listing the section sizes of an object or archive file),
 strip (for discarding symbols), readelf (to see the raw ELF file
 structures), elflint (to check for well-formed ELF files) and
 elfcompress (to compress or decompress ELF sections).
-Also included are helper libraries which implement DWARF, ELF,
-and machine-specific ELF handling and process introspection.
+
+%package libs
+Summary: Libraries to handle compiled objects
+License: GPLv2+ or LGPLv3+
+Requires: elfutils-libelf = %{version}-%{release}
+Requires: default-yama-scope
+# Can be a Recommends if rpm supports that
+Requires: elfutils-debuginfod-client
+
+%description libs
+The elfutils-libs package contains libraries which implement DWARF, ELF,
+and machine-specific ELF handling and process introspection.  These
+libraries are used by the programs in the elfutils package.  The
+elfutils-devel package enables building other programs using these
+libraries.
 
 %package devel
-Summary: Development libraries to handle compiled objects.
-Group: Development/Tools
-License: (GPLv2+ or LGPLv3+) and GFDL
-Requires: elfutils = %{version}-%{release}
+Summary: Development libraries to handle compiled objects
+License: GPLv2+ or LGPLv3+
+Requires: elfutils-libs = %{version}-%{release}
 Requires: elfutils-libelf-devel = %{version}-%{release}
+%if 0%{?rhel} >= 8 || 0%{?fedora} >= 20
+Recommends: elfutils-debuginfod-client-devel
+%else
+Requires: elfutils-debuginfod-client-devel
+%endif
 
 %description devel
 The elfutils-devel package contains the libraries to create
@@ -56,18 +81,17 @@ to the DWARF debugging information.  libasm provides a programmable
 assembler interface.
 
 %package devel-static
-Summary: Static archives to handle compiled objects.
-Group: Development/Tools
+Summary: Static archives to handle compiled objects
 License: GPLv2+ or LGPLv3+
 Requires: elfutils-devel = %{version}-%{release}
+Requires: elfutils-libelf-devel-static = %{version}-%{release}
 
 %description devel-static
 The elfutils-devel-static archive contains the static archives
 with the code the handle compiled objects.
 
 %package libelf
-Summary: Library to read and write ELF files.
-Group: Development/Tools
+Summary: Library to read and write ELF files
 License: GPLv2+ or LGPLv3+
 
 %description libelf
@@ -78,7 +102,6 @@ elfutils package use it also to generate new ELF files.
 
 %package libelf-devel
 Summary: Development support for libelf
-Group: Development/Tools
 License: GPLv2+ or LGPLv3+
 Requires: elfutils-libelf = %{version}-%{release}
 Conflicts: libelf-devel
@@ -91,7 +114,6 @@ different sections of an ELF file.
 
 %package libelf-devel-static
 Summary: Static archive of libelf
-Group: Development/Tools
 License: GPLv2+ or LGPLv3+
 Requires: elfutils-libelf-devel = %{version}-%{release}
 Conflicts: libelf-devel
@@ -102,7 +124,6 @@ for libelf.
 
 %package default-yama-scope
 Summary: Default yama attach scope sysctl setting
-Group: Development/Tools
 License: GPLv2+ or LGPLv3+
 Provides: default-yama-scope
 BuildArch: noarch
@@ -116,18 +137,54 @@ interprocess services, communication and introspection
 (like synchronisation, signaling, debugging, tracing and
 profiling) of processes.
 
+%package debuginfod-client
+Summary: Library and command line client for build-id HTTP ELF/DWARF server
+License: GPLv3+ and (GPLv2+ or LGPLv3+)
+
+%package debuginfod-client-devel
+Summary: Libraries and headers to build debuginfod client applications
+License: GPLv2+ or LGPLv3+
+
+%package debuginfod
+Summary: HTTP ELF/DWARF file server addressed by build-id
+License: GPLv3+
+BuildRequires: systemd
+Requires(post):   systemd
+Requires(preun):  systemd
+Requires(postun): systemd
+Requires(pre): shadow-utils
+# For /usr/bin/cpio2rpm
+Requires: rpm
+
+%description debuginfod-client
+The elfutils-debuginfod-client package contains shared libraries
+dynamically loaded from -ldw, which use a debuginfod service
+to look up debuginfo and associated data. Also includes a
+command-line frontend.
+
+%description debuginfod-client-devel
+The elfutils-debuginfod-client-devel package contains the libraries
+to create applications to use the debuginfod service.
+
+%description debuginfod
+The elfutils-debuginfod package contains the debuginfod binary
+and control files for a service that can provide ELF/DWARF
+files to remote clients, based on build-id identification.
+The ELF/DWARF file searching functions in libdwfl can query
+such servers to download those files on demand.
+
 %prep
 %setup -q
 
 %build
-%configure --program-prefix=%{_programprefix}
-make
+%configure --program-prefix=%{_programprefix} --enable-debuginfod
+make -s %{?_smp_mflags}
 
 %install
 rm -rf ${RPM_BUILD_ROOT}
 mkdir -p ${RPM_BUILD_ROOT}%{_prefix}
 
-%makeinstall
+%make_install
 
 chmod +x ${RPM_BUILD_ROOT}%{_prefix}/%{_lib}/lib*.so*
 
@@ -140,52 +197,58 @@ chmod +x ${RPM_BUILD_ROOT}%{_prefix}/%{_lib}/lib*.so*
 
 install -Dm0644 config/10-default-yama-scope.conf ${RPM_BUILD_ROOT}%{_sysctldir}/10-default-yama-scope.conf
 
+install -Dm0644 config/debuginfod.service ${RPM_BUILD_ROOT}%{_unitdir}/debuginfod.service
+install -Dm0644 config/debuginfod.sysconfig ${RPM_BUILD_ROOT}%{_sysconfdir}/sysconfig/debuginfod
+mkdir -p ${RPM_BUILD_ROOT}%{_localstatedir}/cache/debuginfod
+touch ${RPM_BUILD_ROOT}%{_localstatedir}/cache/debuginfod/debuginfod.sqlite
+
 %check
-make check
+make -s %{?_smp_mflags} check
 
-%clean
-rm -rf ${RPM_BUILD_ROOT}
-
-%post -p /sbin/ldconfig
-
-%postun -p /sbin/ldconfig
-
+%post libs -p /sbin/ldconfig
+%postun libs -p /sbin/ldconfig
 %post libelf -p /sbin/ldconfig
-
 %postun libelf -p /sbin/ldconfig
+%post debuginfod-client -p /sbin/ldconfig
+%postun debuginfod-client -p /sbin/ldconfig
 
 %post default-yama-scope
+# Due to circular dependencies might not be installed yet, so double check.
+# (systemd -> elfutils-libs -> default-yama-scope -> systemd)
+if [ -x /usr/lib/systemd/systemd-sysctl ] ; then
 %sysctl_apply 10-default-yama-scope.conf
+fi
 
 %files
-%defattr(-,root,root)
 %license COPYING COPYING-GPLV2 COPYING-LGPLV3 doc/COPYING-GFDL
 %doc README TODO CONTRIBUTING
+%{_bindir}/eu-addr2line
+%{_bindir}/eu-ar
+%{_bindir}/eu-elfclassify
+%{_bindir}/eu-elfcmp
+%{_bindir}/eu-elfcompress
 %{_bindir}/eu-elflint
+%{_bindir}/eu-findtextrel
+%{_bindir}/eu-make-debug-archive
 %{_bindir}/eu-nm
+%{_bindir}/eu-objdump
+%{_bindir}/eu-ranlib
 %{_bindir}/eu-readelf
 %{_bindir}/eu-size
 %{_bindir}/eu-stack
-%{_bindir}/eu-strip
-%{_bindir}/eu-findtextrel
-%{_bindir}/eu-addr2line
-%{_bindir}/eu-elfclassify
-%{_bindir}/eu-elfcmp
-%{_bindir}/eu-ranlib
 %{_bindir}/eu-strings
-%{_bindir}/eu-objdump
-%{_bindir}/eu-ar
+%{_bindir}/eu-strip
 %{_bindir}/eu-unstrip
-%{_bindir}/eu-make-debug-archive
-%{_bindir}/eu-elfcompress
+%{_mandir}/man1/eu-*.1*
+
+%files libs
+%license COPYING-GPLV2 COPYING-LGPLV3
 %{_libdir}/libasm-%{version}.so
 %{_libdir}/libdw-%{version}.so
 %{_libdir}/libasm.so.*
 %{_libdir}/libdw.so.*
-%{_mandir}/man1/eu-*.1*
 
 %files devel
-%defattr(-,root,root)
 %{_includedir}/dwarf.h
 %dir %{_includedir}/elfutils
 %{_includedir}/elfutils/elf-knowledge.h
@@ -204,17 +267,15 @@ rm -rf ${RPM_BUILD_ROOT}
 #%{_libdir}/libasm.a
 
 %files libelf
-%defattr(-,root,root)
+%license COPYING-GPLV2 COPYING-LGPLV3
 %{_libdir}/libelf-%{version}.so
 %{_libdir}/libelf.so.*
 %{_datadir}/locale/*/LC_MESSAGES/elfutils.mo
 
 %files libelf-devel
-%defattr(-,root,root)
 %{_includedir}/libelf.h
 %{_includedir}/gelf.h
 %{_includedir}/nlist.h
-%{_includedir}/elfutils/version.h
 %{_libdir}/libelf.so
 %{_libdir}/pkgconfig/libelf.pc
 %{_mandir}/man3/elf_*.3*
@@ -225,7 +286,59 @@ rm -rf ${RPM_BUILD_ROOT}
 %files default-yama-scope
 %{_sysctldir}/10-default-yama-scope.conf
 
+%files debuginfod-client
+%defattr(-,root,root)
+%{_libdir}/libdebuginfod-%{version}.so
+%{_bindir}/debuginfod-find
+%{_mandir}/man1/debuginfod-find.1*
+
+%files debuginfod-client-devel
+%defattr(-,root,root)
+%{_libdir}/pkgconfig/libdebuginfod.pc
+%{_mandir}/man3/debuginfod_*.3*
+%{_includedir}/elfutils/debuginfod.h
+%{_libdir}/libdebuginfod.so*
+
+%files debuginfod
+%defattr(-,root,root)
+%{_bindir}/debuginfod
+%config(noreplace) %verify(not md5 size mtime) %{_sysconfdir}/sysconfig/debuginfod
+%{_unitdir}/debuginfod.service
+%{_sysconfdir}/sysconfig/debuginfod
+%{_mandir}/man8/debuginfod.8*
+
+%dir %attr(0700,debuginfod,debuginfod) %{_localstatedir}/cache/debuginfod
+%verify(not md5 size mtime) %attr(0600,debuginfod,debuginfod) %{_localstatedir}/cache/debuginfod/debuginfod.sqlite
+
+%pre debuginfod
+getent group debuginfod >/dev/null || groupadd -r debuginfod
+getent passwd debuginfod >/dev/null || \
+    useradd -r -g debuginfod -d /var/cache/debuginfod -s /sbin/nologin \
+            -c "elfutils debuginfo server" debuginfod
+exit 0
+
+%post debuginfod
+%systemd_post debuginfod.service
+
+%postun debuginfod
+%systemd_postun_with_restart debuginfod.service
+
 %changelog
+* Tue Nov 26 2019 Mark Wielaard <mark@klomp.org> 0.178-1
+- debuginfod: New server, client tool and library to index and fetch
+              ELF/DWARF files addressed by build-id through HTTP.
+- doc: There are now some manual pages for functions and tools.
+- backends: The libebl libraries are no longer dynamically loaded
+            through dlopen, but are now compiled into libdw.so directly.
+- readelf: -n, --notes now takes an optional "SECTION" argument.
+           -p and -x now also handle section numbers.
+           New option --dyn-sym to show just the dynamic symbol table.
+- libcpu: Add RISC-V disassembler.
+- libdw: Abbrevs and DIEs can now be read concurrently by multiple
+         threads through the same Dwarf handle.
+- libdwfl: Will try to use debuginfod when installed as fallback to
+           retrieve ELF and DWARF debug data files by build-id.
+
 * Tue Aug 13 2019 Mark Wielaard <mark@klomp.org> 0.177-1
 - elfclassify: New tool to analyze ELF objects.
 - readelf: Print DW_AT_data_member_location as decimal offset.

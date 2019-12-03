@@ -1336,7 +1336,7 @@ FCT_sel (struct output_data *d)
 {
   assert (d->opoff1 % 8 == 0);
   assert (d->opoff1 / 8 == 5);
-  if (*d->param_start + 2 > d->end)
+  if (*d->param_start + 2 >= d->end)
     return -1;
   *d->param_start += 2;
   uint16_t absval = read_2ubyte_unaligned (&d->data[5]);

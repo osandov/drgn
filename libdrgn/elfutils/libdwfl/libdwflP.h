@@ -40,6 +40,7 @@
 
 #include "../libdw/libdwP.h"	/* We need its INTDECLs.  */
 #include "../libdwelf/libdwelfP.h"
+#include "../debuginfod/debuginfod.h"
 
 typedef struct Dwfl_Process Dwfl_Process;
 
@@ -114,6 +115,7 @@ struct Dwfl_User_Core
 struct Dwfl
 {
   const Dwfl_Callbacks *callbacks;
+  debuginfod_client *debuginfod;
 
   Dwfl_Module *modulelist;    /* List in order used by full traversals.  */
 
@@ -639,6 +641,19 @@ extern Dwfl_Error __libdw_open_elf (int fd, Elf **elfp) internal_function;
    *VADDRP is not modified if the function fails.  */
 extern bool __libdwfl_dynamic_vaddr_get (Elf *elf, GElf_Addr *vaddrp)
   internal_function;
+
+/* Internal interface to libdebuginfod (if installed).  */
+int
+__libdwfl_debuginfod_find_executable (Dwfl *dwfl,
+				      const unsigned char *build_id_bits,
+				      size_t build_id_len);
+int
+__libdwfl_debuginfod_find_debuginfo (Dwfl *dwfl,
+				     const unsigned char *build_id_bits,
+				     size_t build_id_len);
+void
+__libdwfl_debuginfod_end (debuginfod_client *c);
+
 
 /* These are working nicely for --core, but are not ready to be
    exported interfaces quite yet.  */

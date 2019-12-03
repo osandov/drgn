@@ -1,3 +1,23 @@
+2019-11-26  Mark Wielaard  <mark@klomp.org>
+
+	* configure.ac: Set version to 0.178.
+	NEWS: Add 0.178 section.
+
+2019-11-26  Mark Wielaard  <mark@klomp.org>
+
+	* configure.ac: Add CXXFLAGS for gcov.
+
+2019-10-28  Aaron Merey  <amerey@redhat.com>
+
+	* debuginfod/: New directory for debuginfod code.
+	* Makefile.am (SUBDIRS): Recurse there.
+	* configure.ac (--enable-debuginfod): New flag & checks.
+
+2019-08-25  Jonathon Anderson <jma14@rice.edu>
+
+	* configure.ac: Add new --enable-valgrind-annotations
+	* configure.ac: Add new --with-valgrind (headers only)
+
 2019-07-05  Omar Sandoval  <osandov@fb.com>
 
 	* configure.ac: Get rid of --enable-libebl-subdir.

@@ -1,3 +1,51 @@
+2019-11-26  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (BUILD_STATIC): Add libraries needed for libdw.
+	* coverage.sh: Add debuginfod directory, check whether source
+	is .c or cxx.
+
+2019-11-24  Mark Wielaard  <mark@klomp.org>
+
+	* run-debuginfod-find.sh: Reduce verbosity. Add new cleanup
+	function to use with trap. Add wait_ready function to query
+	metrics instead of sleeping. Calculate rpms and sourcefiles
+	to check.
+
+2019-11-23  Mark Wielaard  <mark@klomp.org>
+
+	* run-debuginfod-find.sh: Replace all localhost with 127.0.0.1.
+
+2019-11-07  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test debuginfod metrics via curl.
+	Fix federated testing, asserted by metrics.
+
+2019-11-06  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test debuginfod -L mode.  Drop
+	plain debuginfo-find help-output-comparison.
+
+2019-11-04  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test debuginfod-find -v progress mode.
+
+2019-10-28  Aaron Merey  <amerey@redhat.com>
+	    Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh, debuginfod_build_id_find.c: New test.
+	* testfile-debuginfod-*.rpm.bz2: New data files for test.
+	* Makefile.am: Run it.
+
+2019-11-14  Andreas Schwab  <schwab@suse.de>
+
+	* run-large-elf-file.sh: Skip if available memory cannot be
+	determined.
+
+2019-11-14  Andreas Schwab  <schwab@suse.de>
+
+	* dwelf_elf_e_machine_string.c (main): Clear errno before calling
+	strtol.
+
 2019-09-02  Mark Wielaard  <mark@klomp.org>
 
 	* run-readelf-s.sh: Add --dyn-syms case.

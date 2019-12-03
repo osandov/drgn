@@ -40,6 +40,7 @@ main (int argc, char **argv)
       int em;
       const char *machine;
 
+      errno = 0;
       if (strncmp ("0x", argv[i], 2) == 0)
 	val = strtol (&argv[i][2], NULL, 16);
       else

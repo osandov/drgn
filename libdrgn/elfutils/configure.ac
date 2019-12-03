@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 dnl Configure input file for elfutils.                     -*-autoconf-*-
 dnl
-dnl Copyright (C) 1996-2018 Red Hat, Inc.
+dnl Copyright (C) 1996-2019 Red Hat, Inc.
 dnl
 dnl This file is part of elfutils.
 dnl
@@ -17,7 +17,7 @@ dnl  GNU General Public License for more details.
 dnl
 dnl  You should have received a copy of the GNU General Public License
 dnl  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-AC_INIT([elfutils],[0.177],[https://sourceware.org/bugzilla],[elfutils],[http://elfutils.org/])
+AC_INIT([elfutils],[0.178],[https://sourceware.org/bugzilla],[elfutils],[http://elfutils.org/])
 
 dnl Workaround for older autoconf < 2.64
 m4_ifndef([AC_PACKAGE_URL],
@@ -60,6 +60,8 @@ AC_CONFIG_FILES([m4/Makefile])
 dnl The RPM spec file.  We substitute a few values in the file.
 AC_CONFIG_FILES([elfutils.spec:config/elfutils.spec.in])
 
+dnl debuginfo-server client & server parts.
+AC_CONFIG_FILES([debuginfod/Makefile])
 
 AC_CANONICAL_HOST
 
@@ -236,6 +238,18 @@ LDFLAGS="$save_LDFLAGS"])
 AS_IF([test "x$ac_cv_tls" != xyes],
       AC_MSG_ERROR([__thread support required]))
 
+dnl Before 4.9 gcc doesn't ship stdatomic.h, but the nessesary atomics are
+dnl available by (at least) 4.7. So if the system doesn't have a stdatomic.h we
+dnl fall back on one copied from FreeBSD that handles the difference.
+AC_CACHE_CHECK([whether gcc provides stdatomic.h], ac_cv_has_stdatomic,
+  [AC_COMPILE_IFELSE([AC_LANG_SOURCE([[#include <stdatomic.h>]])],
+		     ac_cv_has_stdatomic=yes, ac_cv_has_stdatomic=no)])
+AM_CONDITIONAL(HAVE_STDATOMIC_H, test "x$ac_cv_has_stdatomic" = xyes)
+AS_IF([test "x$ac_cv_has_stdatomic" = xyes], [AC_DEFINE(HAVE_STDATOMIC_H)])
+
+AH_TEMPLATE([HAVE_STDATOMIC_H], [Define to 1 if `stdatomic.h` is provided by the
+                                 system, 0 otherwise.])
+
 dnl This test must come as early as possible after the compiler configuration
 dnl tests, because the choice of the file model can (in principle) affect
 dnl whether functions and headers are available, whether they work, etc.
@@ -295,6 +309,7 @@ AC_ARG_ENABLE([gcov],
 AS_HELP_STRING([--enable-gcov],[build binaries with gcov support]), [use_gcov=$enableval], [use_gcov=no])
 if test "$use_gcov" = yes; then
   CFLAGS="$CFLAGS -fprofile-arcs -ftest-coverage"
+  CXXFLAGS="$CXXFLAGS -fprofile-arcs -ftest-coverage"
   LDFLAGS="$LDFLAGS -fprofile-arcs"
 fi
 AM_CONDITIONAL(GCOV, test "$use_gcov" = yes)
@@ -332,6 +347,35 @@ if test "$use_valgrind" = yes; then
   fi
 fi
 AM_CONDITIONAL(USE_VALGRIND, test "$use_valgrind" = yes)
+
+AC_ARG_WITH([valgrind],
+AS_HELP_STRING([--with-valgrind],[include directory for Valgrind headers]),
+[with_valgrind_headers=$withval], [with_valgrind_headers=no])
+if test "x$with_valgrind_headers" != xno; then
+    save_CFLAGS="$CFLAGS"
+    CFLAGS="$CFLAGS -I$with_valgrind_headers"
+    AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+      #include <valgrind/valgrind.h>
+      int main() { return 0; }
+    ]])], [ HAVE_VALGRIND_HEADERS="yes"
+            CFLAGS="$save_CFLAGS -I$with_valgrind_headers" ],
+          [ AC_MSG_ERROR([invalid valgrind include directory: $with_valgrind_headers]) ])
+fi
+
+AC_ARG_ENABLE([valgrind-annotations],
+AS_HELP_STRING([--enable-valgrind-annotations],[insert extra annotations for better valgrind support]),
+[use_vg_annotations=$enableval], [use_vg_annotations=no])
+if test "$use_vg_annotations" = yes; then
+    if test "x$HAVE_VALGRIND_HEADERS" != "xyes"; then
+      AC_MSG_CHECKING([whether Valgrind headers are available])
+      AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+        #include <valgrind/valgrind.h>
+        int main() { return 0; }
+      ]])], [ AC_MSG_RESULT([yes]) ],
+            [ AC_MSG_ERROR([valgrind annotations requested but no headers are available]) ])
+    fi
+fi
+AM_CONDITIONAL(USE_VG_ANNOTATIONS, test "$use_vg_annotations" = yes)
 
 AC_ARG_ENABLE([install-elfh],
 AS_HELP_STRING([--enable-install-elfh],[install elf.h in include dir]),
@@ -536,7 +580,7 @@ AM_CONDITIONAL(STANDALONE, false)dnl Used in tests/Makefile.am, which see.
 AC_CONFIG_FILES([tests/Makefile])
 
 dnl pkgconfig files
-AC_CONFIG_FILES([config/libelf.pc config/libdw.pc])
+AC_CONFIG_FILES([config/libelf.pc config/libdw.pc config/libdebuginfod.pc])
 
 # Get the definitions necessary to create the Makefiles in the po
 # subdirectories.  This is a small subset of the gettext rules.
@@ -639,6 +683,30 @@ if test "$HAVE_BUNZIP2" = "no"; then
   AC_MSG_WARN([No bunzip2, needed to run make check])
 fi
 
+# Look for libmicrohttpd, libcurl, libarchive, sqlite for debuginfo server
+# minimum versions as per rhel7.  Single --enable-* option arranges to build
+# both client and server.
+AC_ARG_ENABLE([debuginfod],AC_HELP_STRING([--enable-debuginfod], [Build debuginfod server and client]))
+AC_PROG_CXX
+AX_CXX_COMPILE_STDCXX(11, noext, optional)
+AS_IF([test "x$enable_debuginfod" != "xno"], [
+    AC_MSG_NOTICE([checking debuginfod dependencies, disable to skip])
+    enable_debuginfod=yes # presume success
+    PKG_PROG_PKG_CONFIG
+    if test "x$ac_cv_prog_ac_ct_CXX" = "x"; then enable_debuginfod=no; fi
+    PKG_CHECK_MODULES([libmicrohttpd],[libmicrohttpd >= 0.9.33],[],[enable_debuginfod=no])
+    PKG_CHECK_MODULES([libcurl],[libcurl >= 7.29.0],[],[enable_debuginfod=no])
+    PKG_CHECK_MODULES([sqlite3],[sqlite3 >= 3.7.17],[],[enable_debuginfod=no])
+    PKG_CHECK_MODULES([libarchive],[libarchive >= 3.1.2],[],[enable_debuginfod=no])
+    if test "x$enable_debuginfod" = "xno"; then
+      AC_MSG_ERROR([C++ compiler or dependencies not found, use --disable-debuginfod to disable.])
+    fi
+])
+
+AS_IF([test "x$enable_debuginfod" != "xno"],AC_DEFINE([ENABLE_DEBUGINFOD],[1],[Build debuginfod]))
+AM_CONDITIONAL([DEBUGINFOD],[test "x$enable_debuginfod" = "xyes"])
+
+
 AC_OUTPUT
 
 AC_MSG_NOTICE([
@@ -667,6 +735,8 @@ AC_MSG_NOTICE([
   OTHER FEATURES
     Deterministic archives by default  : ${default_ar_deterministic}
     Native language support            : ${USE_NLS}
+    Extra Valgrind annotations         : ${use_vg_annotations}
+    Debuginfod client/server support   : ${enable_debuginfod}
 
   EXTRA TEST FEATURES (used with make check)
     have bunzip2 installed (required)  : ${HAVE_BUNZIP2}

@@ -1,0 +1,387 @@
+'\"! tbl | nroff \-man
+'\" t macro stdmacro
+
+.de SAMPLE
+.br
+.RS 0
+.nf
+.nh
+..
+.de ESAMPLE
+.hy
+.fi
+.RE
+..
+
+.TH DEBUGINFOD 8
+.SH NAME
+debuginfod \- debuginfo-related http file-server daemon
+
+.SH SYNOPSIS
+.B debuginfod
+[\fIOPTION\fP]... [\fIPATH\fP]...
+
+.SH DESCRIPTION
+\fBdebuginfod\fP serves debuginfo-related artifacts over HTTP.  It
+periodically scans a set of directories for ELF/DWARF files and their
+associated source code, as well as RPM files containing the above, to
+build an index by their buildid.  This index is used when remote
+clients use the HTTP webapi, to fetch these files by the same buildid.
+
+If a debuginfod cannot service a given buildid artifact request
+itself, and it is configured with information about upstream
+debuginfod servers, it queries them for the same information, just as
+\fBdebuginfod-find\fP would.  If successful, it locally caches then
+relays the file content to the original requester.
+
+If the \fB\-F\fP option is given, each listed PATH creates a thread to
+scan for matching ELF/DWARF/source files under the given physical
+directory.  Source files are matched with DWARF files based on the
+AT_comp_dir (compilation directory) attributes inside it.  Duplicate
+directories are ignored.  You may use a file name for a PATH, but
+source code indexing may be incomplete; prefer using a directory that
+contains the binaries.  Caution: source files listed in the DWARF may
+be a path \fIanywhere\fP in the file system, and debuginfod will
+readily serve their content on demand.  (Imagine a doctored DWARF file
+that lists \fI/etc/passwd\fP as a source file.)  If this is a concern,
+audit your binaries with tools such as:
+
+.SAMPLE
+% eu-readelf -wline BINARY | sed -n '/^Directory.table/,/^File.name.table/p'
+or
+% eu-readelf -wline BINARY | sed -n '/^Directory.table/,/^Line.number/p'
+or even use debuginfod itself:
+% debuginfod -vvv -d :memory: -F BINARY 2>&1 | grep 'recorded.*source'
+^C
+.ESAMPLE
+
+If the \fB\-R\fP option is given each listed PATH creates a thread to
+scan for ELF/DWARF/source files contained in matching RPMs under the
+given physical directory.  Duplicate directories are ignored.  You may
+use a file name for a PATH, but source code indexing may be
+incomplete; prefer using a directory that contains normal RPMs
+alongside debuginfo/debugsource RPMs.  Because of complications such
+as DWZ-compressed debuginfo, may require \fItwo\fP scan passes to
+identify all source code.  Source files for RPMs are only served
+from other RPMs, so the caution for \-F does not apply.
+
+If no PATH is listed, or neither \-F nor \-R option is given, then
+\fBdebuginfod\fP will simply serve content that it scanned into its
+index in previous runs: the data is cumulative.
+
+File names must match extended regular expressions given by the \-I
+option and not the \-X option (if any) in order to be considered.
+
+
+.SH OPTIONS
+
+.TP
+.B "\-F"
+Activate ELF/DWARF file scanning threads.  The default is off.
+
+.TP
+.B "\-R"
+Activate RPM file scanning threads.  The default is off.
+
+.TP
+.B "\-d FILE" "\-\-database=FILE"
+Set the path of the sqlite database used to store the index.  This
+file is disposable in the sense that a later rescan will repopulate
+data.  It will contain absolute file path names, so it may not be
+portable across machines.  It may be frequently read/written, so it
+should be on a fast filesytem.  It should not be shared across
+machines or users, to maximize sqlite locking performance.  The
+default database file is $HOME/.debuginfod.sqlite.
+
+.TP
+.B "\-D SQL" "\-\-ddl=SQL"
+Execute given sqlite statement after the database is opened and
+initialized as extra DDL (SQL data definition language).  This may be
+useful to tune performance-related pragmas or indexes.  May be
+repeated.  The default is nothing extra.
+
+.TP
+.B "\-p NUM" "\-\-port=NUM"
+Set the TCP port number on which debuginfod should listen, to service
+HTTP requests.  Both IPv4 and IPV6 sockets are opened, if possible.
+The webapi is documented below.  The default port number is 8002.
+
+.TP
+.B "\-I REGEX"  "\-\-include=REGEX"  "\-X REGEX"  "\-\-exclude=REGEX"
+Govern the inclusion and exclusion of file names under the search
+paths.  The regular expressions are interpreted as unanchored POSIX
+extended REs, thus may include alternation.  They are evaluated
+against the full path of each file, based on its \fBrealpath(3)\fP
+canonicalization.  By default, all files are included and none are
+excluded.  A file that matches both include and exclude REGEX is
+excluded.  (The \fIcontents\fP of RPM files are not subject to
+inclusion or exclusion filtering: they are all processed.)
+
+.TP
+.B "\-t SECONDS"  "\-\-rescan\-time=SECONDS"
+Set the rescan time for the file and RPM directories.  This is the
+amount of time the scanning threads will wait after finishing a scan,
+before doing it again.  A rescan for unchanged files is fast (because
+the index also stores the file mtimes).  A time of zero is acceptable,
+and means that only one initial scan should performed.  The default
+rescan time is 300 seconds.  Receiving a SIGUSR1 signal triggers a new
+scan, independent of the rescan time (including if it was zero).
+
+.TP
+.B "\-g SECONDS" "\-\-groom\-time=SECONDS"
+Set the groom time for the index database.  This is the amount of time
+the grooming thread will wait after finishing a grooming pass before
+doing it again.  A groom operation quickly rescans all previously
+scanned files, only to see if they are still present and current, so
+it can deindex obsolete files.  See also the \fIDATA MANAGEMENT\fP
+section.  The default groom time is 86400 seconds (1 day).  A time of
+zero is acceptable, and means that only one initial groom should be
+performed.  Receiving a SIGUSR2 signal triggers a new grooming pass,
+independent of the groom time (including if it was zero).
+
+.TP
+.B "\-G"
+Run an extraordinary maximal-grooming pass at debuginfod startup.
+This pass can take considerable time, because it tries to remove any
+debuginfo-unrelated content from the RPM-related parts of the index.
+It should not be run if any recent RPM-related indexing operations
+were aborted early.  It can take considerable space, because it
+finishes up with an sqlite "vacuum" operation, which repacks the
+database file by triplicating it temporarily.  The default is not to
+do maximal-grooming.  See also the \fIDATA MANAGEMENT\fP section.
+
+.TP
+.B "\-c NUM"  "\-\-concurrency=NUM"
+Set the concurrency limit for all the scanning threads.  While many
+threads may be spawned to cover all the given PATHs, only NUM may
+concurrently do CPU-intensive operations like parsing an ELF file
+or an RPM.  The default is the number of processors on the system;
+the minimum is 1.
+
+.TP
+.B "\-L"
+Traverse symbolic links encountered during traversal of the PATHs,
+including across devices - as in \fIfind\ -L\fP.  The default is to
+traverse the physical directory structure only, stay on the same
+device, and ignore symlinks - as in \fIfind\ -P\ -xdev\fP.  Caution: a
+loops in the symbolic directory tree might lead to \fIinfinite
+traversal\fP.
+
+.TP
+.B "\-v"
+Increase verbosity of logging to the standard error file descriptor.
+May be repeated to increase details.  The default verbosity is 0.
+
+.SH WEBAPI
+
+.\" Much of the following text is duplicated with debuginfod-find.1
+
+debuginfod's webapi resembles ordinary file service, where a GET
+request with a path containing a known buildid results in a file.
+Unknown buildid / request combinations result in HTTP error codes.
+This file service resemblance is intentional, so that an installation
+can take advantage of standard HTTP management infrastructure.
+
+There are three requests.  In each case, the buildid is encoded as a
+lowercase hexadecimal string.  For example, for a program \fI/bin/ls\fP,
+look at the ELF note GNU_BUILD_ID:
+
+.SAMPLE
+% readelf -n /bin/ls | grep -A4 build.id
+Note section [ 4] '.note.gnu.buildid' of 36 bytes at offset 0x340:
+Owner          Data size  Type
+GNU                   20  GNU_BUILD_ID
+Build ID: 8713b9c3fb8a720137a4a08b325905c7aaf8429d
+.ESAMPLE
+
+Then the hexadecimal BUILDID is simply:
+
+.SAMPLE
+8713b9c3fb8a720137a4a08b325905c7aaf8429d
+.ESAMPLE
+
+.SS /buildid/\fIBUILDID\fP/debuginfo
+
+If the given buildid is known to the server, this request will result
+in a binary object that contains the customary \fB.*debug_*\fP
+sections.  This may be a split debuginfo file as created by
+\fBstrip\fP, or it may be an original unstripped executable.
+
+.SS /buildid/\fIBUILDID\fP/executable
+
+If the given buildid is known to the server, this request will result
+in a binary object that contains the normal executable segments.  This
+may be a executable stripped by \fBstrip\fP, or it may be an original
+unstripped executable.  \fBET_DYN\fP shared libraries are considered
+to be a type of executable.
+
+.SS /buildid/\fIBUILDID\fP/source\fI/SOURCE/FILE\fP
+
+If the given buildid is known to the server, this request will result
+in a binary object that contains the source file mentioned.  The path
+should be absolute.  Relative path names commonly appear in the DWARF
+file's source directory, but these paths are relative to
+individual compilation unit AT_comp_dir paths, and yet an executable
+is made up of multiple CUs.  Therefore, to disambiguate, debuginfod
+expects source queries to prefix relative path names with the CU
+compilation-directory, followed by a mandatory "/".
+
+Note: contrary to RFC 3986, the client should not elide \fB../\fP or
+\fB/./\fP or extraneous \fB///\fP sorts of path components in the
+directory names, because if this is how those names appear in the
+DWARF files, that is what debuginfod needs to see too.
+
+For example:
+.TS
+l l.
+#include <stdio.h>	/buildid/BUILDID/source/usr/include/stdio.h
+/path/to/foo.c	/buildid/BUILDID/source/path/to/foo.c
+\../bar/foo.c AT_comp_dir=/zoo/	/buildid/BUILDID/source/zoo//../bar/foo.c
+.TE
+
+.SS /metrics
+
+This endpoint returns a Prometheus formatted text/plain dump of a
+variety of statistics about the operation of the debuginfod server.
+The exact set of metrics and their meanings may change in future
+versions.  Caution: configuration information (path names, versions)
+may be disclosed.
+
+.SH DATA MANAGEMENT
+
+debuginfod stores its index in an sqlite database in a densely packed
+set of interlinked tables.  While the representation is as efficient
+as we have been able to make it, it still takes a considerable amount
+of data to record all debuginfo-related data of potentially a great
+many files.  This section offers some advice about the implications.
+
+As a general explanation for size, consider that debuginfod indexes
+ELF/DWARF files, it stores their names and referenced source file
+names, and buildids will be stored.  When indexing RPMs, it stores
+every file name \fIof or in\fP an RPM, every buildid, plus every
+source file name referenced from a DWARF file.  (Indexing RPMs takes
+more space because the source files often reside in separate
+subpackages that may not be indexed at the same pass, so extra
+metadata has to be kept.)
+
+Getting down to numbers, in the case of Fedora RPMs (essentially,
+gzip-compressed cpio files), the sqlite index database tends to be
+from 0.5% to 3% of their size.  It's larger for binaries that are
+assembled out of a great many source files, or packages that carry
+much debuginfo-unrelated content.  It may be even larger during the
+indexing phase due to temporary sqlite write-ahead-logging files;
+these are checkpointed (cleaned out and removed) at shutdown.  It may
+be helpful to apply tight \-I or \-X regular-expression constraints to
+exclude files from scanning that you know have no debuginfo-relevant
+content.
+
+As debuginfod runs, it periodically rescans its target directories,
+and any new content found is added to the database.  Old content, such
+as data for files that have disappeared or that have been replaced
+with newer versions is removed at a periodic \fIgrooming\fP pass.
+This means that the sqlite files grow fast during initial indexing,
+slowly during index rescans, and periodically shrink during grooming.
+There is also an optional one-shot \fImaximal grooming\fP pass is
+available.  It removes information debuginfo-unrelated data from the
+RPM content index such as file names found in RPMs ("rpm sdef"
+records) that are not referred to as source files from any binaries
+find in RPMs ("rpm sref" records).  This can save considerable disk
+space.  However, it is slow and temporarily requires up to twice the
+database size as free space.  Worse: it may result in missing
+source-code info if the RPM traversals were interrupted, so the not
+all source file references were known.  Use it rarely to polish a
+complete index.
+
+You should ensure that ample disk space remains available.  (The flood
+of error messages on -ENOSPC is ugly and nagging.  But, like for most
+other errors, debuginfod will resume when resources permit.)  If
+necessary, debuginfod can be stopped, the database file moved or
+removed, and debuginfod restarted.
+
+sqlite offers several performance-related options in the form of
+pragmas.  Some may be useful to fine-tune the defaults plus the
+debuginfod extras.  The \-D option may be useful to tell debuginfod to
+execute the given bits of SQL after the basic schema creation
+commands.  For example, the "synchronous", "cache_size",
+"auto_vacuum", "threads", "journal_mode" pragmas may be fun to tweak
+via \-D, if you're searching for peak performance.  The "optimize",
+"wal_checkpoint" pragmas may be useful to run periodically, outside
+debuginfod.  The default settings are performance- rather than
+reliability-oriented, so a hardware crash might corrupt the database.
+In these cases, it may be necessary to manually delete the sqlite
+database and start over.
+
+As debuginfod changes in the future, we may have no choice but to
+change the database schema in an incompatible manner.  If this
+happens, new versions of debuginfod will issue SQL statements to
+\fIdrop\fP all prior schema & data, and start over.  So, disk space
+will not be wasted for retaining a no-longer-useable dataset.
+
+In summary, if your system can bear a 0.5%-3% index-to-RPM-dataset
+size ratio, and slow growth afterwards, you should not need to
+worry about disk space.  If a system crash corrupts the database,
+or you want to force debuginfod to reset and start over, simply
+erase the sqlite file before restarting debuginfod.
+
+
+.SH SECURITY
+
+debuginfod \fBdoes not\fP include any particular security features.
+While it is robust with respect to inputs, some abuse is possible.  It
+forks a new thread for each incoming HTTP request, which could lead to
+a denial-of-service in terms of RAM, CPU, disk I/O, or network I/O.
+If this is a problem, users are advised to install debuginfod with a
+HTTPS reverse-proxy front-end that enforces site policies for
+firewalling, authentication, integrity, authorization, and load
+control.  The \fI/metrics\fP webapi endpoint is probably not
+appropriate for disclosure to the public.
+
+When relaying queries to upstream debuginfods, debuginfod \fBdoes not\fP
+include any particular security features.  It trusts that the binaries
+returned by the debuginfods are accurate.  Therefore, the list of
+servers should include only trustworthy ones.  If accessed across HTTP
+rather than HTTPS, the network should be trustworthy.  Authentication
+information through the internal \fIlibcurl\fP library is not currently
+enabled.
+
+
+.SH "ENVIRONMENT VARIABLES"
+
+.TP 21
+.B DEBUGINFOD_URLS
+This environment variable contains a list of URL prefixes for trusted
+debuginfod instances.  Alternate URL prefixes are separated by space.
+Avoid referential loops that cause a server to contact itself, directly
+or indirectly - the results would be hilarious.
+
+.TP 21
+.B DEBUGINFOD_TIMEOUT
+This environment variable governs the timeout for each debuginfod HTTP
+connection.  A server that fails to respond within this many seconds
+is skipped.  The default is 5.
+
+.TP 21
+.B DEBUGINFOD_CACHE_PATH
+This environment variable governs the location of the cache where
+downloaded files are kept.  It is cleaned periodically as this
+program is reexecuted.  The default is $HOME/.debuginfod_client_cache.
+.\" XXX describe cache eviction policy
+
+.SH FILES
+.LP
+.PD .1v
+.TP 20
+.B $HOME/.debuginfod.sqlite
+Default database file.
+.PD
+
+.TP 20
+.B $HOME/.debuginfod_client_cache
+Default cache directory for content from upstream debuginfods.
+.PD
+
+
+.SH "SEE ALSO"
+.I "debuginfod-find(1)"
+.I "sqlite3(1)"
+.I \%https://prometheus.io/docs/instrumenting/exporters/

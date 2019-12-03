@@ -31,7 +31,7 @@ include $(top_srcdir)/config/eu.am
 if BUILD_STATIC
 AM_CFLAGS += $(fpic_CFLAGS)
 endif
-AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdwelf
+AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdwelf -pthread
 VERSION = 1
 
 lib_LIBRARIES = libdw.a
@@ -111,7 +111,7 @@ libdw_so_LIBS = ../libebl/libebl_pic.a ../backends/libebl_backends_pic.a \
 		../libcpu/libcpu_pic.a libdw_pic.a ../libdwelf/libdwelf_pic.a \
 		../libdwfl/libdwfl_pic.a
 libdw_so_DEPS = ../lib/libeu.a ../libelf/libelf.so
-libdw_so_LDLIBS = $(libdw_so_DEPS) -lz $(argp_LDADD) $(zip_LIBS)
+libdw_so_LDLIBS = $(libdw_so_DEPS) -ldl -lz $(argp_LDADD) $(zip_LIBS) -pthread
 libdw_so_SOURCES =
 libdw.so$(EXEEXT): $(srcdir)/libdw.map $(libdw_so_LIBS) $(libdw_so_DEPS)
 	$(AM_V_CCLD)$(LINK) $(dso_LDFLAGS) -o $@ \

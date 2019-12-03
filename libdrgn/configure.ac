@@ -67,7 +67,8 @@ AX_SUBDIRS_CONFIGURE([elfutils],
 		     [[--enable-maintainer-mode],
 		      [--disable-nls],
 		      [--disable-programs],
-		      [--disable-shared]],
+		      [--disable-shared],
+		      [--disable-debuginfod]],
 		     [CFLAGS=-fPIC -Wno-error], [],
 		     [--disable-static])
 

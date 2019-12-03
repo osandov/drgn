@@ -1,5 +1,5 @@
 /* Find an ELF file for a module from its build ID.
-   Copyright (C) 2007-2010, 2014, 2015 Red Hat, Inc.
+   Copyright (C) 2007-2010, 2014, 2015, 2019 Red Hat, Inc.
    This file is part of elfutils.
 
    This file is free software; you can redistribute it and/or modify
@@ -187,7 +187,17 @@ dwfl_build_id_find_elf (Dwfl_Module *mod,
       free (*file_name);
       *file_name = NULL;
     }
-  else if (errno == 0 && mod->build_id_len > 0)
+  else
+    {
+      /* If all else fails and a build-id is available, query the
+	 debuginfo-server if enabled.  */
+      if (fd < 0 && mod->build_id_len > 0)
+	fd = __libdwfl_debuginfod_find_executable (mod->dwfl,
+						   mod->build_id_bits,
+						   mod->build_id_len);
+    }
+
+  if (fd < 0 && errno == 0 && mod->build_id_len > 0)
     /* Setting this with no file yet loaded is a marker that
        the build ID is authoritative even if we also know a
        putative *FILE_NAME.  */

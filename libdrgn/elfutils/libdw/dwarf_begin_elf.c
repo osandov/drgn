@@ -223,7 +223,7 @@ valid_p (Dwarf *result)
      inside the .debug_loc or .debug_loclists section.  */
   if (result != NULL && result->sectiondata[IDX_debug_loc] != NULL)
     {
-      result->fake_loc_cu = (Dwarf_CU *) calloc (1, sizeof (Dwarf_CU));
+      result->fake_loc_cu = (Dwarf_CU *) malloc (sizeof (Dwarf_CU));
       if (unlikely (result->fake_loc_cu == NULL))
 	{
 	  Dwarf_Sig8_Hash_free (&result->sig8_hash);
@@ -240,12 +240,16 @@ valid_p (Dwarf *result)
 	  result->fake_loc_cu->endp
 	    = (result->sectiondata[IDX_debug_loc]->d_buf
 	       + result->sectiondata[IDX_debug_loc]->d_size);
+	  result->fake_loc_cu->locs = NULL;
+	  result->fake_loc_cu->address_size = 0;
+	  result->fake_loc_cu->version = 0;
+	  result->fake_loc_cu->split = NULL;
 	}
     }
 
   if (result != NULL && result->sectiondata[IDX_debug_loclists] != NULL)
     {
-      result->fake_loclists_cu = (Dwarf_CU *) calloc (1, sizeof (Dwarf_CU));
+      result->fake_loclists_cu = (Dwarf_CU *) malloc (sizeof (Dwarf_CU));
       if (unlikely (result->fake_loclists_cu == NULL))
 	{
 	  Dwarf_Sig8_Hash_free (&result->sig8_hash);
@@ -263,6 +267,10 @@ valid_p (Dwarf *result)
 	  result->fake_loclists_cu->endp
 	    = (result->sectiondata[IDX_debug_loclists]->d_buf
 	       + result->sectiondata[IDX_debug_loclists]->d_size);
+	  result->fake_loclists_cu->locs = NULL;
+	  result->fake_loclists_cu->address_size = 0;
+	  result->fake_loclists_cu->version = 0;
+	  result->fake_loclists_cu->split = NULL;
 	}
     }
 
@@ -272,7 +280,7 @@ valid_p (Dwarf *result)
      inside the .debug_addr section, if it exists.  */
   if (result != NULL && result->sectiondata[IDX_debug_addr] != NULL)
     {
-      result->fake_addr_cu = (Dwarf_CU *) calloc (1, sizeof (Dwarf_CU));
+      result->fake_addr_cu = (Dwarf_CU *) malloc (sizeof (Dwarf_CU));
       if (unlikely (result->fake_addr_cu == NULL))
 	{
 	  Dwarf_Sig8_Hash_free (&result->sig8_hash);
@@ -291,6 +299,10 @@ valid_p (Dwarf *result)
 	  result->fake_addr_cu->endp
 	    = (result->sectiondata[IDX_debug_addr]->d_buf
 	       + result->sectiondata[IDX_debug_addr]->d_size);
+	  result->fake_addr_cu->locs = NULL;
+	  result->fake_addr_cu->address_size = 0;
+	  result->fake_addr_cu->version = 0;
+	  result->fake_addr_cu->split = NULL;
 	}
     }
 
@@ -397,7 +409,7 @@ dwarf_begin_elf (Elf *elf, Dwarf_Cmd cmd, Elf_Scn *scngrp)
   assert (sizeof (struct Dwarf) < mem_default_size);
 
   /* Allocate the data structure.  */
-  Dwarf *result = (Dwarf *) calloc (1, sizeof (Dwarf) + mem_default_size);
+  Dwarf *result = (Dwarf *) calloc (1, sizeof (Dwarf));
   if (unlikely (result == NULL)
       || unlikely (Dwarf_Sig8_Hash_init (&result->sig8_hash, 11) < 0))
     {
@@ -414,14 +426,18 @@ dwarf_begin_elf (Elf *elf, Dwarf_Cmd cmd, Elf_Scn *scngrp)
   result->elf = elf;
   result->alt_fd = -1;
 
-  /* Initialize the memory handling.  */
+  /* Initialize the memory handling.  Initial blocks are allocated on first
+     actual allocation.  */
   result->mem_default_size = mem_default_size;
   result->oom_handler = __libdw_oom;
-  result->mem_tail = (struct libdw_memblock *) (result + 1);
-  result->mem_tail->size = (result->mem_default_size
-			    - offsetof (struct libdw_memblock, mem));
-  result->mem_tail->remaining = result->mem_tail->size;
-  result->mem_tail->prev = NULL;
+  if (pthread_rwlock_init(&result->mem_rwl, NULL) != 0)
+    {
+      free (result);
+      __libdw_seterrno (DWARF_E_NOMEM); /* no memory.  */
+      return NULL;
+    }
+  result->mem_stacks = 0;
+  result->mem_tails = NULL;
 
   if (cmd == DWARF_C_READ || cmd == DWARF_C_RDWR)
     {

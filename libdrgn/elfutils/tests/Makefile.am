@@ -1,6 +1,6 @@
 ## Process this file with automake to create Makefile.in
 ##
-## Copyright (C) 1996-2018 Red Hat, Inc.
+## Copyright (C) 1996-2019 Red Hat, Inc.
 ## This file is part of elfutils.
 ##
 ## This file is free software; you can redistribute it and/or modify
@@ -188,6 +188,11 @@ endif
 if HAVE_LIBASM
 check_PROGRAMS += $(asm_TESTS)
 TESTS += $(asm_TESTS) run-disasm-bpf.sh
+endif
+
+if DEBUGINFOD
+check_PROGRAMS += debuginfod_build_id_find
+TESTS += run-debuginfod-find.sh
 endif
 
 EXTRA_DIST = run-arextract.sh run-arsymtest.sh run-ar.sh \
@@ -440,7 +445,25 @@ EXTRA_DIST = run-arextract.sh run-arsymtest.sh run-ar.sh \
 	     run-dwelf_elf_e_machine_string.sh \
 	     run-elfclassify.sh run-elfclassify-self.sh \
 	     run-disasm-riscv64.sh \
-	     testfile-riscv64-dis1.o.bz2 testfile-riscv64-dis1.expect.bz2
+	     testfile-riscv64-dis1.o.bz2 testfile-riscv64-dis1.expect.bz2 \
+             run-debuginfod-find.sh \
+	     debuginfod-rpms/fedora30/hello2-1.0-2.src.rpm \
+	     debuginfod-rpms/fedora30/hello2-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora30/hello2-debuginfo-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora30/hello2-debugsource-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora30/hello2-two-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora30/hello2-two-debuginfo-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/hello2.spec. \
+	     debuginfod-rpms/rhel6/hello2-1.0-2.i686.rpm \
+	     debuginfod-rpms/rhel6/hello2-1.0-2.src.rpm \
+	     debuginfod-rpms/rhel6/hello2-debuginfo-1.0-2.i686.rpm \
+	     debuginfod-rpms/rhel6/hello2-two-1.0-2.i686.rpm \
+	     debuginfod-rpms/rhel7/hello2-1.0-2.src.rpm \
+	     debuginfod-rpms/rhel7/hello2-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/rhel7/hello2-debuginfo-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/rhel7/hello2-two-1.0-2.x86_64.rpm
+
+
 
 if USE_VALGRIND
 valgrind_cmd='valgrind -q --leak-check=full --error-exitcode=1'
@@ -474,7 +497,7 @@ TESTS_ENVIRONMENT = LC_ALL=C; LANG=C; VALGRIND_CMD=$(valgrind_cmd); \
 		    export LC_ALL; export LANG; export VALGRIND_CMD; \
 		    NM=$(NM); export NM;
 LOG_COMPILER = $(abs_srcdir)/test-wrapper.sh \
-	       $(abs_top_builddir)/libdw:$(abs_top_builddir)/backends:$(abs_top_builddir)/libelf:$(abs_top_builddir)/libasm
+	       $(abs_top_builddir)/libdw:$(abs_top_builddir)/backends:$(abs_top_builddir)/libelf:$(abs_top_builddir)/libasm:$(abs_top_builddir)/debuginfod
 
 installcheck-local:
 	$(MAKE) $(AM_MAKEFLAGS) \
@@ -489,7 +512,7 @@ libasm = -lasm
 libebl = -lebl
 else !STANDALONE
 if BUILD_STATIC
-libdw = ../libdw/libdw.a -lz $(zip_LIBS) $(libelf) $(libebl)
+libdw = ../libdw/libdw.a -lz $(zip_LIBS) $(libelf) $(libebl) -ldl -lpthread
 libelf = ../libelf/libelf.a -lz
 libasm = ../libasm/libasm.a
 else
@@ -610,6 +633,7 @@ unit_info_LDADD = $(libdw)
 next_cfi_LDADD = $(libelf) $(libdw)
 elfcopy_LDADD = $(libelf)
 addsections_LDADD = $(libelf)
+debuginfod_build_id_find_LDADD = $(libelf) $(libdw)
 xlate_notes_LDADD = $(libelf)
 elfrdwrnop_LDADD = $(libelf)
 dwelf_elf_e_machine_string_LDADD = $(libelf) $(libdw)

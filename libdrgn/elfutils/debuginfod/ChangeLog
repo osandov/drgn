@@ -1,0 +1,70 @@
+2019-11-26  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (BUILD_STATIC): Add needed libraries for libdw and
+	libdebuginfod.
+
+2019-11-25  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (groom): Add a sqlite3_db_release_memory()
+	at the end of periodic grooming to try to shrink the process.
+
+2019-11-24  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod.cxx (test_webapi_sleep): Removed.
+	(handler_cb): Don't check test_webapi_sleep and sleep.
+	(main): Don't set test_webapi_sleep.
+
+2019-11-24  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod.cxx (add_metric): New function.
+	(scan_source_file_path): Record metrics for
+	found_executable_total, found_debuginfo_total and
+	found_sourcerefs_total.
+	(scan_source_rpm_path): Likewise.
+
+2019-11-07  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx: Add /metrics endpoint.  Add numerous
+	calls to new functions inc_metric/set_metric to populate
+	threadsafe map containing stats.  Add http content-type
+	response headers throughout.
+	(thread_main_*): Simplify counter/timer flow.
+	(main): Reorder web service shutdown to leave http running
+	as long as possible.
+	* debuginfod.8: Document it, add security caution.
+
+2019-11-06  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx: Add new -L (symlink-following) mode.
+	* debuginfod.8: Document it.
+
+2019-11-04  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfo-client.c (debuginfod_set_progressfn): New function
+	for progress/interrupt callback.
+	(debuginfod_clean_cache, debuginfod_query_server): Call it.
+	* debuginfo.h: Declare it.
+	* debuginfod_set_progressfn.3, *_find_debuginfo.3: Document it.
+	* Makefile.am: Install it.
+	* libdebuginfod.map: Export it all under ELFUTILS_0.178 symversion.
+
+	* debuginfod-find.c: Add -v option to activate progress cb.
+	* debuginfod-find.1: Document it.
+	* debuginfod.cxx: Add $DEBUGINFOD_TEST_WEBAPI_SLEEP env var
+	to insert sleep in webapi callbacks, to help manual testing.
+
+2019-10-28  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx: New file: debuginfod server.
+	* debuginfod.8: New file: man page.
+	* Makefile.am: Build it.
+
+2019-10-28  Aaron Merey  <amerey@redhat.com>
+
+	* debuginfod-client.c: New file: debuginfod client library.
+	* debuginfod.h: New file: header for same.
+	* libdebuginfod.map: New file: govern its solib exports.
+	* debuginfod-find.c: New file: command line frontend.
+	* debuginfod-find.1, debuginfod_find_source.3,
+	debuginfod_find_executable.3, debuginfod_find_debuginfo.3:
+	New man pages.

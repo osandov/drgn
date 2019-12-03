@@ -1,4 +1,4 @@
-commit 60f36a01381349a5f813de34336f308a4419d3ed
+commit 9eb56cc142e89c97b4cffe4607490ba0f7c92e77
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:30:35 2019 -0700
 
@@ -55,7 +55,7 @@ index b450816b..90a3e103 100644
  #ifdef __cplusplus
  }
  #endif
-commit 56b06a56375e2909f60c389f85af691c2d9a2a73
+commit b7cb7cb7e79c9ef1d1a423c139f38d2921dbb0bb
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:25:31 2019 -0700
 
@@ -178,10 +178,10 @@ index a22afc78..b450816b 100644
     For every known continuous block of registers <FIRSTREG..FIRSTREG+NREGS)
     (inclusive..exclusive) set their content to REGS (array of NREGS items).
 diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index c80d2051..ea417596 100644
+index 0dbcebf5..2aeeb66a 100644
 --- a/libdwfl/libdwflP.h
 +++ b/libdwfl/libdwflP.h
-@@ -255,6 +255,11 @@ struct Dwfl_Frame
+@@ -257,6 +257,11 @@ struct Dwfl_Frame
    Dwfl_Thread *thread;
    /* Previous (outer) frame.  */
    Dwfl_Frame *unwound;
@@ -193,7 +193,7 @@ index c80d2051..ea417596 100644
    bool signal_frame : 1;
    bool initial_frame : 1;
    enum
-commit f4d2d0b04c7e4ce8c044ce37d9027223256bd74a
+commit 58a1189248602afc7fb39d56a7c360ca69daa848
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:22:39 2019 -0700
 
@@ -422,10 +422,10 @@ index a0c1d357..a22afc78 100644
     have been processed by the callback, returns -1 on error, or the value of
     the callback when not DWARF_CB_OK.  -1 returned on error will
 diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index 6b2d4867..c80d2051 100644
+index f631f946..0dbcebf5 100644
 --- a/libdwfl/libdwflP.h
 +++ b/libdwfl/libdwflP.h
-@@ -242,7 +242,8 @@ struct Dwfl_Thread
+@@ -244,7 +244,8 @@ struct Dwfl_Thread
  {
    Dwfl_Process *process;
    pid_t tid;
@@ -435,190 +435,7 @@ index 6b2d4867..c80d2051 100644
    Dwfl_Frame *unwound;
    void *callbacks_arg;
  };
-commit 692afbcee88ff090bb29e6d0d73c688c03d37f9b
-Author: Omar Sandoval <osandov@fb.com>
-Date:   Mon Oct 7 01:16:50 2019 -0700
-
-    libdwfl: only use thread->unwound for initial frame
-    
-    thread->unwound is only used for set_initial_registers (via
-    dwfl_thread_state_registers, dwfl_thread_state_register_pc, and a
-    special case in core_set_initial_registers). At that point,
-    thread->unwound is always the initial frame, so there's no need to
-    update it as we unwind the stack. Let's set it to NULL after we do the
-    initial setup. This simplifies the next change.
-
-diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
-index 20bdbd9b..5bbf850e 100644
---- a/libdwfl/dwfl_frame.c
-+++ b/libdwfl/dwfl_frame.c
-@@ -71,19 +71,14 @@ state_fetch_pc (Dwfl_Frame *state)
- /* Do not call it on your own, to be used by thread_* functions only.  */
- 
- static void
--state_free (Dwfl_Frame *state)
-+free_states (Dwfl_Frame *state)
- {
--  Dwfl_Thread *thread = state->thread;
--  assert (thread->unwound == state);
--  thread->unwound = state->unwound;
--  free (state);
--}
--
--static void
--thread_free_all_states (Dwfl_Thread *thread)
--{
--  while (thread->unwound)
--    state_free (thread->unwound);
-+  while (state)
-+    {
-+      Dwfl_Frame *next = state->unwound;
-+      free(state);
-+      state = next;
-+    }
- }
- 
- static Dwfl_Frame *
-@@ -399,12 +394,6 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
- 		       int (*callback) (Dwfl_Frame *state, void *arg),
- 		       void *arg)
- {
--  if (thread->unwound != NULL)
--    {
--      /* We had to be called from inside CALLBACK.  */
--      __libdwfl_seterrno (DWFL_E_ATTACH_STATE_CONFLICT);
--      return -1;
--    }
-   Ebl *ebl = thread->process->ebl;
-   if (ebl_frame_nregs (ebl) == 0)
-     {
-@@ -420,33 +409,34 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
-   if (! process->callbacks->set_initial_registers (thread,
- 						   thread->callbacks_arg))
-     {
--      thread_free_all_states (thread);
-+      free_states (thread->unwound);
-+      thread->unwound = NULL;
-       return -1;
-     }
--  if (! state_fetch_pc (thread->unwound))
-+  Dwfl_Frame *state = thread->unwound;
-+  thread->unwound = NULL;
-+  if (! state_fetch_pc (state))
-     {
-       if (process->callbacks->thread_detach)
- 	process->callbacks->thread_detach (thread, thread->callbacks_arg);
--      thread_free_all_states (thread);
-+      free_states (state);
-       return -1;
-     }
--
--  Dwfl_Frame *state;
-   do
-     {
--      state = thread->unwound;
-       int err = callback (state, arg);
-       if (err != DWARF_CB_OK)
- 	{
- 	  if (process->callbacks->thread_detach)
- 	    process->callbacks->thread_detach (thread, thread->callbacks_arg);
--	  thread_free_all_states (thread);
-+	  free_states (state);
- 	  return err;
- 	}
-       __libdwfl_frame_unwind (state);
-+      Dwfl_Frame *next = state->unwound;
-       /* The old frame is no longer needed.  */
--      state_free (thread->unwound);
--      state = thread->unwound;
-+      free (state);
-+      state = next;
-     }
-   while (state && state->pc_state == DWFL_FRAME_STATE_PC_SET);
- 
-@@ -455,12 +445,12 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
-     process->callbacks->thread_detach (thread, thread->callbacks_arg);
-   if (state == NULL || state->pc_state == DWFL_FRAME_STATE_ERROR)
-     {
--      thread_free_all_states (thread);
-+      free_states (state);
-       __libdwfl_seterrno (err);
-       return -1;
-     }
-   assert (state->pc_state == DWFL_FRAME_STATE_PC_UNDEFINED);
--  thread_free_all_states (thread);
-+  free_states (state);
-   return 0;
- }
- INTDEF(dwfl_thread_getframes)
-diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index 941a8b66..6b2d4867 100644
---- a/libdwfl/libdwflP.h
-+++ b/libdwfl/libdwflP.h
-@@ -242,8 +242,7 @@ struct Dwfl_Thread
- {
-   Dwfl_Process *process;
-   pid_t tid;
--  /* The current frame being unwound.  Initially it is the bottom frame.
--     Later the processed frames get freed and this pointer is updated.  */
-+  /* Bottom (innermost) frame while we're initializing, NULL afterwards.  */
-   Dwfl_Frame *unwound;
-   void *callbacks_arg;
- };
-commit 763db71a591c64b489ad631a1e24d0c5b6c2adff
-Author: Omar Sandoval <osandov@fb.com>
-Date:   Mon Oct 7 01:11:41 2019 -0700
-
-    libdwfl: don't bother freeing frames outside of dwfl_thread_getframes
-    
-    dwfl_thread_getframes always frees the state before returning, so
-    dwfl_getthreads and getthread don't need to do it.
-
-diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
-index 881f735a..20bdbd9b 100644
---- a/libdwfl/dwfl_frame.c
-+++ b/libdwfl/dwfl_frame.c
-@@ -279,24 +279,15 @@ dwfl_getthreads (Dwfl *dwfl, int (*callback) (Dwfl_Thread *thread, void *arg),
- 						    process->callbacks_arg,
- 						    &thread.callbacks_arg);
-       if (thread.tid < 0)
--	{
--	  Dwfl_Error saved_errno = dwfl_errno ();
--	  thread_free_all_states (&thread);
--	  __libdwfl_seterrno (saved_errno);
--	  return -1;
--	}
-+	return -1;
-       if (thread.tid == 0)
- 	{
--	  thread_free_all_states (&thread);
- 	  __libdwfl_seterrno (DWFL_E_NOERROR);
- 	  return 0;
- 	}
-       int err = callback (&thread, arg);
-       if (err != DWARF_CB_OK)
--	{
--	  thread_free_all_states (&thread);
--	  return err;
--	}
-+	return err;
-       assert (thread.unwound == NULL);
-     }
-   /* NOTREACHED */
-@@ -356,11 +347,8 @@ getthread (Dwfl *dwfl, pid_t tid,
-       if (process->callbacks->get_thread (dwfl, tid, process->callbacks_arg,
- 					  &thread.callbacks_arg))
- 	{
--	  int err;
- 	  thread.tid = tid;
--	  err = callback (&thread, arg);
--	  thread_free_all_states (&thread);
--	  return err;
-+	  return callback (&thread, arg);
- 	}
- 
-       return -1;
-commit 792c807dad08dfbaee137fa99b878234a032968d
+commit 4033e18acc8369a1c58ec87042fecf116d6d1aaa
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:49 2019 -0700
 
@@ -642,7 +459,7 @@ index ac428ff8..57dc698e 100644
  i386_parse.o: i386_parse.c i386.mnemonics
  i386_parse_CFLAGS = -DNMNES="`wc -l < i386.mnemonics`"
  i386_lex.o: i386_parse.h
-commit 81ea07b5ce73db48e24abc869c4aa0b22f59e451
+commit 0524194f662ccab0ec50be87d2a6f8ca79a52766
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 18:12:12 2019 -0700
 
@@ -653,10 +470,10 @@ Date:   Wed Sep 4 18:12:12 2019 -0700
     user-defined CFLAGS.
 
 diff --git a/configure.ac b/configure.ac
-index c6cfd144..1718e5bd 100644
+index d296d091..672c223a 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -260,7 +260,7 @@ case "$CFLAGS" in
+@@ -274,7 +274,7 @@ case "$CFLAGS" in
      ;;
    *)
      save_CFLAGS="$CFLAGS"
@@ -665,7 +482,7 @@ index c6cfd144..1718e5bd 100644
      AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
        #include <string.h>
        int main() { return 0; }
-commit f1c8013c5eaa3fb3759b0edf3160c4758933bb25
+commit 2e9bf6e7e0dbba4e3aa082d7c48827d67afce543
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:40 2019 -0700
 
@@ -693,10 +510,10 @@ index f4052125..1beb661e 100644
  modules = i386 sh x86_64 ia64 alpha arm aarch64 sparc ppc ppc64 s390 \
  	  tilegx m68k bpf riscv csky
 diff --git a/configure.ac b/configure.ac
-index d46946fa..c6cfd144 100644
+index 207e5a03..d296d091 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -68,6 +68,11 @@ AC_ARG_ENABLE([programs],
+@@ -70,6 +70,11 @@ AC_ARG_ENABLE([programs],
  	      [], [enable_programs=yes])
  AM_CONDITIONAL(ENABLE_PROGRAMS, test "$enable_programs" = yes)
  
@@ -708,6 +525,31 @@ index d46946fa..c6cfd144 100644
  AC_ARG_ENABLE(deterministic-archives,
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
+diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
+index f4756c92..dcae77d0 100644
+--- a/debuginfod/Makefile.am
++++ b/debuginfod/Makefile.am
+@@ -86,16 +86,20 @@ libdebuginfod.so$(EXEEXT): $(srcdir)/libdebuginfod.map $(libdebuginfod_so_LIBS)
+ 	@$(textrel_check)
+ 	$(AM_V_at)ln -fs $@ $@.$(VERSION)
+ 
++if ENABLE_SHARED
+ install: install-am libdebuginfod.so
+ 	$(mkinstalldirs) $(DESTDIR)$(libdir)
+ 	$(INSTALL_PROGRAM) libdebuginfod.so $(DESTDIR)$(libdir)/libdebuginfod-$(PACKAGE_VERSION).so
+ 	ln -fs libdebuginfod-$(PACKAGE_VERSION).so $(DESTDIR)$(libdir)/libdebuginfod.so.$(VERSION)
+ 	ln -fs libdebuginfod.so.$(VERSION) $(DESTDIR)$(libdir)/libdebuginfod.so
++endif
+ 
+ uninstall: uninstall-am
++if ENABLE_SHARED
+ 	rm -f $(DESTDIR)$(libdir)/libdebuginfod-$(PACKAGE_VERSION).so
+ 	rm -f $(DESTDIR)$(libdir)/libdebuginfod.so.$(VERSION)
+ 	rm -f $(DESTDIR)$(libdir)/libdebuginfod.so
++endif
+ 	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(includedir)/elfutils
+ 
+ EXTRA_DIST = libdebuginfod.map
 diff --git a/libasm/Makefile.am b/libasm/Makefile.am
 index b2bff929..8a5a9d0f 100644
 --- a/libasm/Makefile.am
@@ -761,10 +603,10 @@ index 03c71ea3..ac428ff8 100644
  noinst_HEADERS = i386_dis.h x86_64_dis.h
  
 diff --git a/libdw/Makefile.am b/libdw/Makefile.am
-index 274571c3..a7488324 100644
+index 33b5838d..0297520b 100644
 --- a/libdw/Makefile.am
 +++ b/libdw/Makefile.am
-@@ -35,8 +35,10 @@ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdwelf
+@@ -35,8 +35,10 @@ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdwelf -pthread
  VERSION = 1
  
  lib_LIBRARIES = libdw.a
@@ -813,7 +655,7 @@ index a35a2873..29cc51f5 100644
  pkginclude_HEADERS = libdwelf.h
  noinst_HEADERS = libdwelfP.h
 diff --git a/libdwfl/Makefile.am b/libdwfl/Makefile.am
-index 89ca92ed..2673836f 100644
+index 47bd62a5..952be8ba 100644
 --- a/libdwfl/Makefile.am
 +++ b/libdwfl/Makefile.am
 @@ -35,7 +35,9 @@ AM_CPPFLAGS += -I$(srcdir) -I$(srcdir)/../libelf -I$(srcdir)/../libebl \
@@ -873,7 +715,7 @@ index d5d63f73..94e6e38f 100644
  
  EXTRA_DIST = libelf.map
  
-commit ad08221359c5de963ec6be39ede75092afb06806
+commit 62a5959b28141541eecfc25afea1f3701d4a8e8e
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:23 2019 -0700
 
@@ -884,7 +726,7 @@ Date:   Wed Sep 4 17:13:23 2019 -0700
     still to build everything.
 
 diff --git a/Makefile.am b/Makefile.am
-index 52f64fc9..97a32946 100644
+index bd8926b5..0b13c717 100644
 --- a/Makefile.am
 +++ b/Makefile.am
 @@ -27,7 +27,11 @@ AM_MAKEFLAGS = --no-print-directory
@@ -898,13 +740,13 @@ index 52f64fc9..97a32946 100644
 +endif
 +SUBDIRS += po doc tests
  
- EXTRA_DIST = elfutils.spec GPG-KEY NOTES CONTRIBUTING \
- 	     COPYING COPYING-GPLV2 COPYING-LGPLV3
+ if DEBUGINFOD
+ SUBDIRS += debuginfod
 diff --git a/configure.ac b/configure.ac
-index d380d016..d46946fa 100644
+index 5a2dc373..207e5a03 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -63,6 +63,11 @@ AC_CONFIG_FILES([elfutils.spec:config/elfutils.spec.in])
+@@ -65,6 +65,11 @@ AC_CONFIG_FILES([debuginfod/Makefile])
  
  AC_CANONICAL_HOST
  
@@ -916,3 +758,17 @@ index d380d016..d46946fa 100644
  AC_ARG_ENABLE(deterministic-archives,
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
+diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
+index 52ead30a..f4756c92 100644
+--- a/debuginfod/Makefile.am
++++ b/debuginfod/Makefile.am
+@@ -57,7 +57,9 @@ libeu = ../lib/libeu.a
+ 
+ AM_LDFLAGS = -Wl,-rpath-link,../libelf:../libdw:.
+ 
++if ENABLE_PROGRAMS
+ bin_PROGRAMS = debuginfod debuginfod-find
++endif
+ debuginfod_SOURCES = debuginfod.cxx
+ debuginfod_LDADD = $(libdw) $(libelf) $(libeu) $(libdebuginfod) $(libmicrohttpd_LIBS) $(libcurl_LIBS) $(sqlite3_LIBS) $(libarchive_LIBS) -lpthread -ldl
+ 

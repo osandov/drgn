@@ -33,6 +33,10 @@ SUBDIRS += src
 endif
 SUBDIRS += po doc tests
 
+if DEBUGINFOD
+SUBDIRS += debuginfod
+endif
+
 EXTRA_DIST = elfutils.spec GPG-KEY NOTES CONTRIBUTING \
 	     COPYING COPYING-GPLV2 COPYING-LGPLV3
 

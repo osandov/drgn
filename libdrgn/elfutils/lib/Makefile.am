@@ -38,8 +38,9 @@ libeu_a_SOURCES = xstrdup.c xstrndup.c xmalloc.c next_prime.c \
 		  color.c printversion.c
 
 noinst_HEADERS = fixedsizehash.h libeu.h system.h dynamicsizehash.h list.h \
-		 eu-config.h color.h printversion.h bpf.h
-EXTRA_DIST = dynamicsizehash.c
+		 eu-config.h color.h printversion.h bpf.h \
+		 atomics.h stdatomic-fbsd.h dynamicsizehash_concurrent.h
+EXTRA_DIST = dynamicsizehash.c dynamicsizehash_concurrent.c
 
 if !GPROF
 xmalloc_CFLAGS = -ffunction-sections

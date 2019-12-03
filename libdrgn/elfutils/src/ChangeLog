@@ -1,3 +1,39 @@
+2019-11-26  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (BUILD_STATIC): Add libraries needed for libdw.
+
+2019-10-26  Mark Wielaard  <mark@klomp.org>
+
+	* unstrip.c (collect_symbols): Check symbol strings are
+	terminated.
+
+2019-10-18  Mark Wielaard  <mark@klomp.org>
+
+	* unstrip.c (adjust_relocs): Set versym data d_size to the actual
+	size allocated.
+
+2019-10-20  Mark Wielaard  <mark@klomp.org>
+
+	* unstrip.c (copy_elided_sections): Set and check max_off.
+
+2019-10-21  Mark Wielaard  <mark@klomp.org>
+
+	* unstrip.c (adjust_relocs): Add map_size argument and check ndx
+	against it.
+	(adjust_all_relocs): Add map_size argument and pass it to
+	adjust_relocs.
+	(add_new_section_symbols): Call adjust_all_relocs with symndx_map
+	size.
+	(collect)symbols): Check sym and string data can be found.
+	(compare_symbols_output): Call error when (different) symbols are
+	equal.
+	(new_shstrtab): Make unstripped_strent array one larger. Check
+	stripped_shnum isn't zero.
+	(copy_elided_sections): Add ndx_sec_num as size of ndx_section
+	array. Check sh_link and sh_info are not larger than ndx_sec_num.
+	Allocate symbols and symndx_map arrays on heap, not stack. Pass
+	map sizes to adjust_all_relocs.
+
 2019-09-28  Dmitry V. Levin  <ldv@altlinux.org>
 
 	* elflint.c (main): When an input file cannot be opened,

@@ -45,7 +45,7 @@ __libdw_findabbrev (struct Dwarf_CU *cu, unsigned int code)
     return DWARF_END_ABBREV;
 
   /* See whether the entry is already in the hash table.  */
-  abb = Dwarf_Abbrev_Hash_find (&cu->abbrev_hash, code, NULL);
+  abb = Dwarf_Abbrev_Hash_find (&cu->abbrev_hash, code);
   if (abb == NULL)
     while (cu->last_abbrev_offset != (size_t) -1l)
       {

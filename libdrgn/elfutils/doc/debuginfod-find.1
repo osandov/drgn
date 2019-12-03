@@ -1,0 +1,144 @@
+'\"! tbl | nroff \-man
+'\" t macro stdmacro
+
+.de SAMPLE
+.br
+.RS 0
+.nf
+.nh
+..
+.de ESAMPLE
+.hy
+.fi
+.RE
+..
+
+.TH DEBUGINFOD-FIND 1
+.SH NAME
+debuginfod-find \- request debuginfo-related data
+
+.SH SYNOPSIS
+.B debuginfod-find [\fIOPTION\fP]... debuginfo \fIBUILDID\fP
+
+.B debuginfod-find [\fIOPTION\fP]... executable \fIBUILDID\fP
+
+.B debuginfod-find [\fIOPTION\fP]... source \fIBUILDID\fP \fI/FILENAME\fP
+
+.SH DESCRIPTION
+\fBdebuginfod-find\fP queries one or more \fBdebuginfod\fP servers for
+debuginfo-related data.  In case of a match, it saves the the
+requested file into a local cache, prints the file name to standard
+output, and exits with a success status of 0.  In case of any error,
+it exits with a failure status and an error message to standard error.
+
+.\" Much of the following text is duplicated with debuginfod.8
+
+The debuginfod system uses buildids to identify debuginfo-related data.
+These are stored as binary notes in ELF/DWARF files, and are
+represented as lowercase hexadecimal.  For example, for a program
+/bin/ls, look at the ELF note GNU_BUILD_ID:
+
+.SAMPLE
+% readelf -n /bin/ls | grep -A4 build.id
+Note section [ 4] '.note.gnu.buildid' of 36 bytes at offset 0x340:
+Owner          Data size  Type
+GNU                   20  GNU_BUILD_ID
+Build ID: 8713b9c3fb8a720137a4a08b325905c7aaf8429d
+.ESAMPLE
+
+Then the hexadecimal BUILDID is simply:
+
+.SAMPLE
+8713b9c3fb8a720137a4a08b325905c7aaf8429d
+.ESAMPLE
+
+.SS debuginfo \fIBUILDID\fP
+
+If the given buildid is known to a server, this request will result
+in a binary object that contains the customary \fB.*debug_*\fP
+sections.  This may be a split debuginfo file as created by
+\fBstrip\fP, or it may be an original unstripped executable.
+
+.SS executable \fIBUILDID\fP
+
+If the given buildid is known to the server, this request will result
+in a binary object that contains the normal executable segments.  This
+may be a executable stripped by \fBstrip\fP, or it may be an original
+unstripped executable.  \fBET_DYN\fP shared libraries are considered
+to be a type of executable.
+
+.SS source \fIBUILDID\fP \fI/SOURCE/FILE\fP
+
+If the given buildid is known to the server, this request will result
+in a binary object that contains the source file mentioned.  The path
+should be absolute.  Relative path names commonly appear in the DWARF
+file's source directory, but these paths are relative to
+individual compilation unit AT_comp_dir paths, and yet an executable
+is made up of multiple CUs.  Therefore, to disambiguate, debuginfod
+expects source queries to prefix relative path names with the CU
+compilation-directory, followed by a mandatory "/".
+
+Note: the user should not elide \fB../\fP or \fB/./\fP or extraneous
+\fB///\fP sorts of path components in the directory names, because if
+this is how those names appear in the DWARF files, that is what
+debuginfod needs to see too.
+
+For example:
+.TS
+l l.
+#include <stdio.h>	source BUILDID /usr/include/stdio.h
+/path/to/foo.c	source BUILDID /path/to/foo.c
+\../bar/foo.c AT_comp_dir=/zoo/	source BUILDID /zoo//../bar/foo.c
+.TE
+
+.SH "OPTIONS"
+
+.TP
+.B "\-v"
+Increase verbosity, including printing frequent download-progress messages.
+
+
+.SH "SECURITY"
+
+debuginfod-find \fBdoes not\fP include any particular security
+features.  It trusts that the binaries returned by the debuginfod(s)
+are accurate.  Therefore, the list of servers should include only
+trustworthy ones.  If accessed across HTTP rather than HTTPS, the
+network should be trustworthy.  Authentication information through
+the internal \fIlibcurl\fP library is not currently enabled, except
+for the basic plaintext \%\fIhttp[s]://userid:password@hostname/\fP style.
+(The debuginfod server does not perform authentication, but a front-end
+proxy server could.)
+
+.SH "ENVIRONMENT VARIABLES"
+
+.TP 21
+.B DEBUGINFOD_URLS
+This environment variable contains a list of URL prefixes for trusted
+debuginfod instances.  Alternate URL prefixes are separated by space.
+
+.TP 21
+.B DEBUGINFOD_TIMEOUT
+This environment variable governs the timeout for each debuginfod HTTP
+connection.  A server that fails to respond within this many seconds
+is skipped.  The default is 5.
+
+.TP 21
+.B DEBUGINFOD_CACHE_PATH
+This environment variable governs the location of the cache where
+downloaded files are kept.  It is cleaned periodically as this program
+is reexecuted.  Cache management parameters may be set by files under
+this directory: see the \fBdebuginfod_find_debuginfo(3)\fP man page
+for details.  The default is $HOME/.debuginfod_client_cache.
+
+.SH "FILES"
+.LP
+.PD .1v
+.TP 20
+.B $HOME/.debuginfod_client_cache
+Default cache directory.
+.PD
+
+.SH "SEE ALSO"
+.I "debuginfod(8)"
+.I "debuginfod_find_debuginfod(3)"
