@@ -139,16 +139,46 @@ async def get_shared_files(http_client, token):
                 break
         else:
             raise Exception('shared folder link not found')
+
     # The Dropbox API doesn't provide a way to get the links for entries inside
-    # of a shared folder, so we're forced to scrape them from the webpage.
-    async with http_client.get(link['url'], raise_for_status=True) as resp:
-        body = await resp.text()
-    match = re.search(r'"\{\\"shared_link_infos\\".*[^\\]\}"', body)
-    return [
-        (entry['filename'],
-         re.sub(r'([?&])dl=0(&|$)', r'\1dl=1\2', entry['href']))
-        for entry in json.loads(json.loads(match.group()))['entries']
-    ]
+    # of a shared folder, so we're forced to scrape them from the webpage and
+    # XHR endpoint.
+    method = 'GET'
+    url = link['url']
+    cookies = {}
+    data = None
+    files = []
+    while True:
+        async with http_client.request(method, url, cookies=cookies,
+                                       data=data) as resp:
+            if method == 'GET':
+                resp.raise_for_status()
+                body = await resp.text()
+                match = re.search(r'"\{\\"shared_link_infos\\".*[^\\]\}"',
+                                  body)
+                obj = json.loads(json.loads(match.group()))
+                method = 'POST'
+                url = 'https://www.dropbox.com/list_shared_link_folder_entries'
+                cookies['t'] = resp.cookies['t']
+                data = {
+                    't': cookies['t'].value,
+                    'link_key': obj['folder_share_token']['linkKey'],
+                    'link_type': 's',
+                    'secure_hash': obj['folder_share_token']['secureHash'],
+                    'sub_path': '',
+                }
+            else:
+                await raise_for_status_body(resp)
+                obj = await resp.json()
+        files.extend(
+            (entry['filename'],
+             re.sub(r'([?&])dl=0(&|$)', r'\1dl=1\2', entry['href']))
+            for entry in obj['entries']
+        )
+        if not obj['has_more_entries']:
+            break
+        data['voucher'] = obj['next_request_voucher']
+    return files
 
 
 async def get_available_kernel_releases(http_client, token):
