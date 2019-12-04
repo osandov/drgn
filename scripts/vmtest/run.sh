@@ -167,7 +167,7 @@ cache_urls() {
 	if ! declare -p URLS &> /dev/null; then
 		# This URL contains a mapping from file names to URLs where
 		# those files can be downloaded.
-		local INDEX='https://www.dropbox.com/sh/2mcf2xvg319qdaw/AACB_NCTIcbJ-Dx_Cw3JEYFHa/INDEX?dl=1'
+		local INDEX='https://www.dropbox.com/sh/2mcf2xvg319qdaw/AAC_AbpvQPRrHF-99B2REpXja/x86_64/INDEX?dl=1'
 		declare -gA URLS
 		while IFS=$'\t' read -r name url; do
 			URLS["$name"]="$url"
@@ -276,7 +276,8 @@ fi
 echo "Disk image: $IMG" >&2
 
 tmp=
-mkdir -p "$DIR"
+ARCH_DIR="$DIR/x86_64"
+mkdir -p "$ARCH_DIR"
 mnt="$(mktemp -d -p "$DIR" mnt.XXXXXXXXXX)"
 
 cleanup() {
@@ -295,7 +296,7 @@ trap cleanup EXIT
 if [[ -v BUILDDIR ]]; then
 	vmlinuz="$BUILDDIR/$(make -C "$BUILDDIR" -s image_name)"
 else
-	vmlinuz="$DIR/vmlinuz-$KERNELRELEASE"
+	vmlinuz="$ARCH_DIR/vmlinuz-$KERNELRELEASE"
 	if [[ ! -e $vmlinuz ]]; then
 		tmp="$(mktemp "$vmlinuz.XXX.part")"
 		download "vmlinuz-$KERNELRELEASE" -o "$tmp"
@@ -312,7 +313,7 @@ if (( ONESHOT )); then
 	download_rootfs "$ROOTFSVERSION" "$mnt"
 else
 	if (( ! SKIPIMG )); then
-		rootfs_img="$DIR/drgn-vmtest-rootfs-$ROOTFSVERSION.img"
+		rootfs_img="$ARCH_DIR/drgn-vmtest-rootfs-$ROOTFSVERSION.img"
 
 		if [[ ! -e $rootfs_img ]]; then
 			tmp="$(mktemp "$rootfs_img.XXX.part")"
@@ -340,7 +341,7 @@ if [[ -v BUILDDIR || $ONESHOT -eq 0 ]]; then
 	if [[ -v BUILDDIR ]]; then
 		source_vmlinux="$BUILDDIR/vmlinux"
 	else
-		source_vmlinux="$DIR/vmlinux-$KERNELRELEASE"
+		source_vmlinux="$ARCH_DIR/vmlinux-$KERNELRELEASE"
 		if [[ ! -e $source_vmlinux ]]; then
 			tmp="$(mktemp "$source_vmlinux.XXX.part")"
 			download "vmlinux-$KERNELRELEASE.zst" | zstd -dfo "$tmp"

@@ -15,6 +15,7 @@ import re
 import shlex
 import sys
 import time
+import urllib.parse
 
 
 logger = logging.getLogger('asyncio')
@@ -119,81 +120,31 @@ async def get_kernel_org_releases(http_client):
         ]
 
 
-async def get_shared_files(http_client, token):
-    headers = {'Authorization': 'Bearer ' + token}
-    params = {
-        'path': '/Public',
-        'direct_only': True,
-    }
-    async with http_client.post(DROPBOX_API_URL + '/2/sharing/list_shared_links',
-                                headers=headers, json=params) as resp:
-        await raise_for_status_body(resp)
-        for link in (await resp.json())['links']:
-            if link['.tag'] != 'folder':
-                continue
-            try:
-                visibility = link['link_permissions']['resolved_visibility']['.tag']
-            except KeyError:
-                continue
-            if visibility == 'public':
-                break
-        else:
-            raise Exception('shared folder link not found')
-
-    # The Dropbox API doesn't provide a way to get the links for entries inside
-    # of a shared folder, so we're forced to scrape them from the webpage and
-    # XHR endpoint.
-    method = 'GET'
-    url = link['url']
-    cookies = {}
-    data = None
-    files = []
-    while True:
-        async with http_client.request(method, url, cookies=cookies,
-                                       data=data) as resp:
-            if method == 'GET':
-                resp.raise_for_status()
-                body = await resp.text()
-                match = re.search(r'"\{\\"shared_link_infos\\".*[^\\]\}"',
-                                  body)
-                obj = json.loads(json.loads(match.group()))
-                method = 'POST'
-                url = 'https://www.dropbox.com/list_shared_link_folder_entries'
-                cookies['t'] = resp.cookies['t']
-                data = {
-                    't': cookies['t'].value,
-                    'link_key': obj['folder_share_token']['linkKey'],
-                    'link_type': 's',
-                    'secure_hash': obj['folder_share_token']['secureHash'],
-                    'sub_path': '',
-                }
-            else:
-                await raise_for_status_body(resp)
-                obj = await resp.json()
-        files.extend(
-            (entry['filename'],
-             re.sub(r'([?&])dl=0(&|$)', r'\1dl=1\2', entry['href']))
-            for entry in obj['entries']
-        )
-        if not obj['has_more_entries']:
-            break
-        data['voucher'] = obj['next_request_voucher']
-    return files
-
-
 async def get_available_kernel_releases(http_client, token):
+    headers = {'Authorization': 'Bearer ' + token}
+    params = {'path': '/Public/x86_64'}
+    url = DROPBOX_API_URL + '/2/files/list_folder'
     available = set()
-    for filename, _ in (await get_shared_files(http_client, token)):
-        match = re.fullmatch(r'vmlinux-(\d+)\.(\d+)\.(\d+)(-rc\d+)?\.zst',
-                             filename)
-        if not match:
-            continue
-        version = f'v{match.group(1)}.{match.group(2)}'
-        if match.group(3) != '0':
-            version += '.' + match.group(3)
-        if match.group(4):
-            version += match.group(4)
-        available.add(version)
+    while True:
+        async with http_client.post(url, headers=headers, json=params) as resp:
+            obj = await resp.json()
+        for entry in obj['entries']:
+            if entry['.tag'] != 'file':
+                continue
+            match = re.fullmatch(r'vmlinux-(\d+)\.(\d+)\.(\d+)(-rc\d+)?\.zst',
+                                 entry['name'])
+            if not match:
+                continue
+            version = f'v{match.group(1)}.{match.group(2)}'
+            if match.group(3) != '0':
+                version += '.' + match.group(3)
+            if match.group(4):
+                version += match.group(4)
+            available.add(version)
+        if not obj['has_more']:
+            break
+        url = DROPBOX_API_URL + '/2/files/list_folder/continue'
+        params = {'cursor': obj['cursor']}
     return available
 
 
@@ -383,42 +334,123 @@ class Uploader:
         return succeeded, failed
 
 
-async def download_index(http_client, token):
-    params = {'path': '/Public/INDEX'}
-    headers = {
-        'Authorization': 'Bearer ' + token,
-        'Dropbox-API-Arg': json.dumps(params)
-    }
-    url = CONTENT_API_URL + '/2/files/download'
-    async with http_client.post(url, headers=headers) as resp:
-        await raise_for_status_body(resp)
-        return await resp.text()
+# The Dropbox API doesn't provide a way to get the links for entries inside of
+# a shared folder, so we're forced to scrape them from the webpage and XHR
+# endpoint.
+async def list_shared_folder(http_client, url):
+    method = 'GET'
+    data = None
+    while True:
+        async with http_client.request(method, url, data=data) as resp:
+            if method == 'GET':
+                resp.raise_for_status()
+                match = re.search(r'"\{\\"shared_link_infos\\".*[^\\]\}"',
+                                  (await resp.text()))
+                obj = json.loads(json.loads(match.group()))
+            else:
+                await raise_for_status_body(resp)
+                obj = await resp.json()
+        for entry in obj['entries']:
+            yield entry['filename'], entry['is_dir'], entry['href']
+        if not obj['has_more_entries']:
+            break
+        if method == 'GET':
+            method = 'POST'
+            url = 'https://www.dropbox.com/list_shared_link_folder_entries'
+            data = {
+                't': http_client.cookie_jar.filter_cookies(url)['t'].value,
+                'link_key': obj['folder_share_token']['linkKey'],
+                'link_type': obj['folder_share_token']['linkType'],
+                'secure_hash': obj['folder_share_token']['secureHash'],
+                'sub_path': obj['folder_share_token']['subPath'],
+            }
+        data['voucher'] = obj['next_request_voucher']
+
+
+async def walk_shared_folder(http_client, url):
+    stack = [('', url)]
+    while stack:
+        path, url = stack.pop()
+        dirs = []
+        files = []
+        async for filename, is_dir, href in list_shared_folder(http_client,
+                                                               url):
+            if is_dir:
+                dirs.append((filename, href))
+            else:
+                files.append((filename, href))
+        yield path, files, dirs
+        if path:
+            path += '/'
+        stack.extend((path + filename, href) for filename, href in dirs)
+
+
+def make_download_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    query = [
+        (name, value) for name, value in urllib.parse.parse_qsl(parsed.query)
+        if name != 'dl'
+    ]
+    query.append(('dl', '1'))
+    return urllib.parse.urlunsplit(
+        parsed._replace(query=urllib.parse.urlencode(query)))
 
 
 async def update_index(http_client, token, uploader):
     try:
-        logger.info('downloading index and listing shared folder')
-        old_index, files = await asyncio.gather(
-            download_index(http_client, token),
-            get_shared_files(http_client, token),
-        )
+        logger.info('finding shared folder link')
+        headers = {'Authorization': 'Bearer ' + token}
+        params = {
+            'path': '/Public',
+            'direct_only': True,
+        }
+        async with http_client.post(DROPBOX_API_URL + '/2/sharing/list_shared_links',
+                                    headers=headers, json=params) as resp:
+            await raise_for_status_body(resp)
+            for link in (await resp.json())['links']:
+                if link['.tag'] != 'folder':
+                    continue
+                try:
+                    visibility = link['link_permissions']['resolved_visibility']['.tag']
+                except KeyError:
+                    continue
+                if visibility == 'public':
+                    break
+            else:
+                raise Exception('shared folder link not found')
 
-        old_lines = old_index.splitlines(keepends=True)
-        lines = sorted(filename + '\t' + link + '\n'
-                       for filename, link in files)
-        if lines == old_lines:
-            logger.info('INDEX is up to date')
-            return True
+        logger.info('walking shared folder')
+        async for path, files, dirs in walk_shared_folder(http_client,
+                                                          link['url']):
+            lines = []
+            old_lines = []
+            for name, href in files:
+                href = make_download_url(href)
+                lines.append(name + '\t' + href + '\n')
+                if name == 'INDEX':
+                    async with http_client.get(href, raise_for_status=True) as resp:
+                        old_lines = (await resp.text()).splitlines(keepends=True)
+            lines.extend(name + '/\t' + href + '\n' for name, href in dirs)
+            lines.sort()
 
-        diff = difflib.unified_diff(old_lines, lines, fromfile='a/INDEX',
-                                    tofile='b/INDEX')
-        logger.info('updating INDEX:\n%s', ''.join(diff).rstrip('\n'))
-        uploader.queue_file_obj(io.BytesIO(''.join(lines).encode()),
-                                '/Public/INDEX', mode='overwrite')
+            index_path = (path + '/' if path else '') + 'INDEX'
+            if lines == old_lines:
+                logger.info('%s is up to date', index_path)
+                continue
+            diff = difflib.unified_diff(old_lines, lines,
+                                        fromfile='a/' + index_path,
+                                        tofile='b/' + index_path)
+            logger.info('updating %s:\n%s', index_path,
+                        ''.join(diff).rstrip('\n'))
+            uploader.queue_file_obj(io.BytesIO(''.join(lines).encode()),
+                                    '/Public/' + index_path, mode='overwrite')
         succeeded, failed = await uploader.wait()
-        return not failed
+        if failed:
+            logger.info('updates failed: %s', ', '.join(failed))
+            return False
+        return True
     except Exception:
-        logger.exception('updating INDEX failed')
+        logger.exception('updating INDEX files failed')
         return False
 
 
@@ -440,7 +472,7 @@ async def main():
                         dest='upload_files', metavar=('SRC_PATH', 'DST_PATH'),
                         nargs=2, help='upload the given file; may be given multiple times')
     parser.add_argument('-i', '--index', action='store_true',
-                        help='update the INDEX file')
+                        help='update the INDEX files')
     args = parser.parse_args()
 
     if ((args.build or args.build_kernel_org) and
@@ -495,10 +527,10 @@ async def main():
             build_dir, release, image_name = result
             if args.upload:
                 uploader.queue_file(os.path.join(build_dir, 'vmlinux.zst'),
-                                    f'/Public/vmlinux-{release}.zst',
+                                    f'/Public/x86_64/vmlinux-{release}.zst',
                                     autorename=False)
                 uploader.queue_file(os.path.join(build_dir, image_name),
-                                    f'/Public/vmlinuz-{release}',
+                                    f'/Public/x86_64/vmlinuz-{release}',
                                     autorename=False)
 
         if args.upload or args.upload_files:
