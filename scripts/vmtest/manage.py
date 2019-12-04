@@ -498,7 +498,7 @@ async def main():
                                     f'/Public/vmlinux-{release}.zst',
                                     autorename=False)
                 uploader.queue_file(os.path.join(build_dir, image_name),
-                                    f'/Public/{os.path.basename(image_name)}-{release}',
+                                    f'/Public/vmlinuz-{release}',
                                     autorename=False)
 
         if args.upload or args.upload_files:

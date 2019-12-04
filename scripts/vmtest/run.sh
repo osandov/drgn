@@ -179,7 +179,7 @@ matching_kernel_releases() {
 	local pattern="$1"
 	{
 	for file in "${!URLS[@]}"; do
-		if [[ $file =~ ^bzImage-(.*)$ ]]; then
+		if [[ $file =~ ^vmlinux-(.*).zst$ ]]; then
 			release="${BASH_REMATCH[1]}"
 			case "$release" in
 				$pattern)
@@ -295,10 +295,10 @@ trap cleanup EXIT
 if [[ -v BUILDDIR ]]; then
 	vmlinuz="$BUILDDIR/$(make -C "$BUILDDIR" -s image_name)"
 else
-	vmlinuz="$DIR/bzImage-$KERNELRELEASE"
+	vmlinuz="$DIR/vmlinuz-$KERNELRELEASE"
 	if [[ ! -e $vmlinuz ]]; then
 		tmp="$(mktemp "$vmlinuz.XXX.part")"
-		download "bzImage-$KERNELRELEASE" -o "$tmp"
+		download "vmlinuz-$KERNELRELEASE" -o "$tmp"
 		mv "$tmp" "$vmlinuz"
 		tmp=
 	fi
