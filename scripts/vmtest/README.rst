@@ -14,7 +14,7 @@ simply copy in the source code and drop in a couple of init scripts to
 automatically run tests on boot.
 
 The root filesystem images and kernel builds are hosted on `Dropbox
-<https://www.dropbox.com/sh/2mcf2xvg319qdaw/AAChpI5DJZX2VwlCgPFDdaZHa?dl=0>`.
+<https://www.dropbox.com/sh/2mcf2xvg319qdaw/AAChpI5DJZX2VwlCgPFDdaZHa?dl=0>`_.
 ``scripts/vmtest/manage.py`` builds kernels and uploads files to this shared
 folder using the Dropbox API. It also updates the ``INDEX`` file in that shared
 folder, which is required because the files under a shared folder have
