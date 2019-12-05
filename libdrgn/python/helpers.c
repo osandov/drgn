@@ -11,7 +11,7 @@ DrgnObject *drgnpy_linux_helper_radix_tree_lookup(PyObject *self,
 	static char *keywords[] = {"root", "index", NULL};
 	struct drgn_error *err;
 	DrgnObject *root;
-	struct index_arg index;
+	struct index_arg index = {};
 	DrgnObject *res;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:radix_tree_lookup",
@@ -37,7 +37,7 @@ DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,
 	static char *keywords[] = {"idr", "id", NULL};
 	struct drgn_error *err;
 	DrgnObject *idr;
-	struct index_arg id;
+	struct index_arg id = {};
 	DrgnObject *res;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:idr_find", keywords,
@@ -111,7 +111,7 @@ DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args,
 	static char *keywords[] = {"ns", "pid", NULL};
 	struct drgn_error *err;
 	struct prog_or_ns_arg prog_or_ns;
-	struct index_arg pid;
+	struct index_arg pid = {};
 	DrgnObject *res;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:find_pid", keywords,
@@ -139,7 +139,7 @@ DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
 	static char *keywords[] = {"pid", "pid_type", NULL};
 	struct drgn_error *err;
 	DrgnObject *pid;
-	struct index_arg pid_type;
+	struct index_arg pid_type = {};
 	DrgnObject *res;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:pid_task", keywords,
@@ -164,7 +164,7 @@ DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args,
 	static char *keywords[] = {"ns", "pid", NULL};
 	struct drgn_error *err;
 	struct prog_or_ns_arg prog_or_ns;
-	struct index_arg pid;
+	struct index_arg pid = {};
 	DrgnObject *res;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:find_task", keywords,

@@ -722,7 +722,7 @@ static PyObject *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"address", NULL};
 	struct drgn_error *err;
-	struct index_arg address;
+	struct index_arg address = {};
 	struct drgn_symbol *sym;
 	PyObject *ret;
 
