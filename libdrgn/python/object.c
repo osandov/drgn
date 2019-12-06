@@ -969,11 +969,14 @@ static int format_object_flag_converter(PyObject *o, void *p)
 static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 				   PyObject *kwds)
 {
-#define FLAGS						\
-	X(dereference, DRGN_FORMAT_OBJECT_DEREFERENCE)	\
-	X(symbolize, DRGN_FORMAT_OBJECT_SYMBOLIZE)	\
-	X(string, DRGN_FORMAT_OBJECT_STRING)		\
-	X(char, DRGN_FORMAT_OBJECT_CHAR)
+#define FLAGS								\
+	X(dereference, DRGN_FORMAT_OBJECT_DEREFERENCE)			\
+	X(symbolize, DRGN_FORMAT_OBJECT_SYMBOLIZE)			\
+	X(string, DRGN_FORMAT_OBJECT_STRING)				\
+	X(char, DRGN_FORMAT_OBJECT_CHAR)				\
+	X(type_name, DRGN_FORMAT_OBJECT_TYPE_NAME)			\
+	X(member_type_names, DRGN_FORMAT_OBJECT_MEMBER_TYPE_NAMES)	\
+	X(element_type_names, DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES)
 
 	static char *keywords[] = {
 #define X(name, value) #name,

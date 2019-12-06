@@ -128,7 +128,25 @@ drgn_passthrough_format_object_flags(enum drgn_format_object_flags flags)
 {
 	return (flags & (DRGN_FORMAT_OBJECT_SYMBOLIZE |
 			 DRGN_FORMAT_OBJECT_STRING |
-			 DRGN_FORMAT_OBJECT_CHAR));
+			 DRGN_FORMAT_OBJECT_CHAR |
+			 DRGN_FORMAT_OBJECT_MEMBER_TYPE_NAMES |
+			 DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES));
+}
+
+/** Return flags that should be passed when formatting object members. */
+static inline enum drgn_format_object_flags
+drgn_member_format_object_flags(enum drgn_format_object_flags flags)
+{
+	return (drgn_passthrough_format_object_flags(flags) |
+		(flags & DRGN_FORMAT_OBJECT_MEMBER_TYPE_NAMES) >> 1);
+}
+
+/** Return flags that should be passed when formatting object elements. */
+static inline enum drgn_format_object_flags
+drgn_element_format_object_flags(enum drgn_format_object_flags flags)
+{
+	return (drgn_passthrough_format_object_flags(flags) |
+		(flags & DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES) >> 2);
 }
 
 /** @} */

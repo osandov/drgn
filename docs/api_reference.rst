@@ -801,6 +801,15 @@ Objects
             For C, this applies to ``char``, ``signed char``, and ``unsigned
             char``. Defaults to ``False``.
         :type char: bool or None
+        :param type_name: Include the type name of this object. Defaults to
+            ``True``.
+        :type type_name: bool or None
+        :param member_type_names: Include the type names of structure, union,
+            and class members. Defaults to ``True``.
+        :type member_type_names: bool or None
+        :param element_type_names: Include the type names of array elements.
+            Defaults to ``False``.
+        :type element_type_names: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)

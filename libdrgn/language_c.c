@@ -578,9 +578,8 @@ c_format_type(struct drgn_qualified_type qualified_type, char **ret)
 }
 
 static struct drgn_error *
-c_format_object_impl(const struct drgn_object *obj, bool cast,
-		     size_t indent, size_t one_line_columns,
-		     size_t multi_line_columns,
+c_format_object_impl(const struct drgn_object *obj, size_t indent,
+		     size_t one_line_columns, size_t multi_line_columns,
 		     enum drgn_format_object_flags flags,
 		     struct string_builder *sb);
 
@@ -760,7 +759,7 @@ static struct drgn_error *c_format_members(const struct drgn_object *obj,
 {
 	struct drgn_error *err;
 	enum drgn_format_object_flags member_flags =
-		drgn_passthrough_format_object_flags(flags);
+		drgn_member_format_object_flags(flags);
 	struct drgn_type_member *members;
 	size_t num_members, i;
 
@@ -803,7 +802,7 @@ static struct drgn_error *c_format_members(const struct drgn_object *obj,
 			if (err)
 				return err;
 
-			err = c_format_object_impl(member, true, indent + 1,
+			err = c_format_object_impl(member, indent + 1,
 						   remaining_columns,
 						   multi_line_columns,
 						   member_flags, sb);
@@ -930,7 +929,7 @@ c_format_enum_object(const struct drgn_object *obj,
 
 static struct drgn_error *
 c_format_pointer_object(const struct drgn_object *obj,
-			struct drgn_type *underlying_type, bool cast,
+			struct drgn_type *underlying_type,
 			size_t indent, size_t one_line_columns,
 			size_t multi_line_columns,
 			enum drgn_format_object_flags flags,
@@ -952,7 +951,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 	if (dereference && !c_string && !string_builder_appendc(sb, '*'))
 		return &drgn_enomem;
 	type_start = sb->len;
-	if (cast) {
+	if (flags & DRGN_FORMAT_OBJECT_TYPE_NAME) {
 		if (!string_builder_appendc(sb, '('))
 			return &drgn_enomem;
 		err = c_format_type_name_impl(drgn_object_qualified_type(obj),
@@ -1009,7 +1008,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 		if (__builtin_sub_overflow(one_line_columns, sb->len - start,
 					   &one_line_columns))
 			one_line_columns = 0;
-		err = c_format_object_impl(&dereferenced, false, indent,
+		err = c_format_object_impl(&dereferenced, indent,
 					   one_line_columns, multi_line_columns,
 					   passthrough_flags, sb);
 		drgn_object_deinit(&dereferenced);
@@ -1046,7 +1045,7 @@ c_format_array_object(const struct drgn_object *obj,
 {
 	struct drgn_error *err;
 	enum drgn_format_object_flags element_flags =
-		drgn_passthrough_format_object_flags(flags);
+		drgn_element_format_object_flags(flags);
 	struct drgn_qualified_type element_type;
 	uint64_t element_bit_size;
 	struct drgn_object element;
@@ -1131,7 +1130,7 @@ c_format_array_object(const struct drgn_object *obj,
 			goto out;
 
 		element_start = sb->len;
-		err = c_format_object_impl(&element, false, indent + 1,
+		err = c_format_object_impl(&element, indent + 1,
 					   remaining_columns - 3, 0,
 					   element_flags, sb);
 		if (err && err->code == DRGN_ERROR_STOP)
@@ -1187,7 +1186,7 @@ c_format_array_object(const struct drgn_object *obj,
 		if (start_columns > 1) {
 			size_t element_start = sb->len;
 
-			err = c_format_object_impl(&element, false, 0,
+			err = c_format_object_impl(&element, 0,
 						   start_columns - 1, 0,
 						   element_flags, sb);
 			if (!err) {
@@ -1232,7 +1231,7 @@ c_format_array_object(const struct drgn_object *obj,
 			sb->len = element_start;
 		}
 
-		err = c_format_object_impl(&element, false, indent + 1, 0,
+		err = c_format_object_impl(&element, indent + 1, 0,
 					   multi_line_columns, element_flags,
 					   sb);
 		if (err)
@@ -1270,7 +1269,7 @@ c_format_function_object(const struct drgn_object *obj,
 }
 
 static struct drgn_error *
-c_format_object_impl(const struct drgn_object *obj, bool cast, size_t indent,
+c_format_object_impl(const struct drgn_object *obj, size_t indent,
 		     size_t one_line_columns, size_t multi_line_columns,
 		     enum drgn_format_object_flags flags,
 		     struct string_builder *sb)
@@ -1283,12 +1282,12 @@ c_format_object_impl(const struct drgn_object *obj, bool cast, size_t indent,
 	 * we're dereferencing them.
 	 */
 	if (drgn_type_kind(underlying_type) == DRGN_TYPE_POINTER) {
-		return c_format_pointer_object(obj, underlying_type, cast,
-					       indent, one_line_columns,
+		return c_format_pointer_object(obj, underlying_type, indent,
+					       one_line_columns,
 					       multi_line_columns, flags, sb);
 	}
 
-	if (cast) {
+	if (flags & DRGN_FORMAT_OBJECT_TYPE_NAME) {
 		size_t old_len = sb->len;
 
 		if (!string_builder_appendc(sb, '('))
@@ -1343,8 +1342,8 @@ static struct drgn_error *c_format_object(const struct drgn_object *obj,
 	struct drgn_error *err;
 	struct string_builder sb = {};
 
-	err = c_format_object_impl(obj, true, 0, columns,
-				   max(columns, (size_t)1), flags, &sb);
+	err = c_format_object_impl(obj, 0, columns, max(columns, (size_t)1),
+				   flags, &sb);
 	if (err) {
 		free(sb.str);
 		return err;

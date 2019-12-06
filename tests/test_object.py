@@ -1224,7 +1224,9 @@ class TestCOperators(ObjectTestCase):
 
 class TestCPretty(ObjectTestCase):
     def test_int(self):
-        self.assertEqual(str(Object(self.prog, 'int', value=99)), '(int)99')
+        obj = Object(self.prog, 'int', value=99)
+        self.assertEqual(str(obj), '(int)99')
+        self.assertEqual(obj.format_(type_name=False), '99')
         self.assertEqual(str(Object(self.prog, 'const int', value=-99)),
                          '(const int)-99')
 
@@ -1276,11 +1278,16 @@ class TestCPretty(ObjectTestCase):
             MockMemorySegment(segment, virt_addr=0xffff0000),
         ], types=[point_type])
 
-        self.assertEqual(str(Object(prog, 'struct point', address=0xffff0000)),
-                         """\
+        obj = Object(prog, 'struct point', address=0xffff0000)
+        self.assertEqual(str(obj), """\
 (struct point){
 	.x = (int)99,
 	.y = (int)-1,
+}""")
+        self.assertEqual(obj.format_(member_type_names=False), """\
+(struct point){
+	.x = 99,
+	.y = -1,
 }""")
 
         type_ = struct_type('foo', 16, (
@@ -1440,6 +1447,9 @@ class TestCPretty(ObjectTestCase):
         obj = Object(prog, 'int [5]', address=0xffff0000)
 
         self.assertEqual(str(obj), "(int [5]){ 0, 1, 2, 3, 4, }")
+        self.assertEqual(
+            obj.format_(type_name=False, element_type_names=True),
+            "{ (int)0, (int)1, (int)2, (int)3, (int)4, }")
         self.assertEqual(obj.format_(columns=27), str(obj))
         for columns in range(22, 27):
             self.assertEqual(obj.format_(columns=columns), """\
