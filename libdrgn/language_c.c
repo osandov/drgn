@@ -584,10 +584,125 @@ c_format_object_impl(const struct drgn_object *obj, bool cast,
 		     enum drgn_format_object_flags flags,
 		     struct string_builder *sb);
 
+static bool is_character_type(struct drgn_type *type)
+{
+	switch (drgn_type_primitive(type)) {
+	case DRGN_C_TYPE_CHAR:
+	case DRGN_C_TYPE_SIGNED_CHAR:
+	case DRGN_C_TYPE_UNSIGNED_CHAR:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static struct drgn_error *
-c_format_int_object(const struct drgn_object *obj, struct string_builder *sb)
+c_format_character(unsigned char c, bool escape_single_quote,
+		   bool escape_double_quote, struct string_builder *sb)
+{
+	bool ret;
+
+	switch (c) {
+	case '\0':
+		ret = string_builder_append(sb, "\\0");
+		break;
+	case '\a':
+		ret = string_builder_append(sb, "\\a");
+		break;
+	case '\b':
+		ret = string_builder_append(sb, "\\b");
+		break;
+	case '\t':
+		ret = string_builder_append(sb, "\\t");
+		break;
+	case '\n':
+		ret = string_builder_append(sb, "\\n");
+		break;
+	case '\v':
+		ret = string_builder_append(sb, "\\v");
+		break;
+	case '\f':
+		ret = string_builder_append(sb, "\\f");
+		break;
+	case '\r':
+		ret = string_builder_append(sb, "\\r");
+		break;
+	case '"':
+		if (!escape_double_quote)
+			goto no_escape;
+		ret = string_builder_append(sb, "\\\"");
+		break;
+	case '\'':
+		if (!escape_single_quote)
+			goto no_escape;
+		ret = string_builder_append(sb, "\\'");
+		break;
+	case '\\':
+		ret = string_builder_append(sb, "\\\\");
+		break;
+	default:
+		if (c <= '\x1f' || c >= '\x7f') {
+			ret = string_builder_appendf(sb, "\\x%02x", c);
+		} else {
+no_escape:
+			ret = string_builder_appendc(sb, c);
+		}
+		break;
+	}
+	return ret ? NULL : &drgn_enomem;
+}
+
+static struct drgn_error *
+c_format_string(struct drgn_memory_reader *reader, uint64_t address,
+		uint64_t length, struct string_builder *sb)
 {
 	struct drgn_error *err;
+
+	if (!string_builder_appendc(sb, '"'))
+		return &drgn_enomem;
+	while (length) {
+		unsigned char c;
+
+		err = drgn_memory_reader_read(reader, &c, address++, 1, false);
+		if (err)
+			return err;
+
+		if (c == '\0') {
+			break;
+		} else {
+			err = c_format_character(c, false, true, sb);
+			if (err)
+				return err;
+		}
+		length--;
+	}
+	if (!string_builder_appendc(sb, '"'))
+		return &drgn_enomem;
+	return NULL;
+}
+
+static struct drgn_error *
+c_format_int_object(const struct drgn_object *obj,
+		    enum drgn_format_object_flags flags,
+		    struct string_builder *sb)
+{
+	struct drgn_error *err;
+
+	if ((flags & DRGN_FORMAT_OBJECT_CHAR) && is_character_type(obj->type)) {
+		union drgn_value value;
+
+		if (!string_builder_appendc(sb, '\''))
+			return &drgn_enomem;
+		err = drgn_object_read_integer(obj, &value);
+		if (err)
+			return err;
+		err = c_format_character(value.uvalue, true, false, sb);
+		if (err)
+			return err;
+		if (!string_builder_appendc(sb, '\''))
+			return &drgn_enomem;
+		return NULL;
+	}
 
 	switch (obj->kind) {
 	case DRGN_OBJECT_SIGNED: {
@@ -813,90 +928,6 @@ c_format_enum_object(const struct drgn_object *obj,
 	}
 }
 
-static bool is_character_type(struct drgn_type *type)
-{
-	switch (drgn_type_primitive(type)) {
-	case DRGN_C_TYPE_CHAR:
-	case DRGN_C_TYPE_SIGNED_CHAR:
-	case DRGN_C_TYPE_UNSIGNED_CHAR:
-		return true;
-	default:
-		return false;
-	}
-}
-
-static struct drgn_error *
-c_format_character(unsigned char c, struct string_builder *sb)
-{
-	bool ret;
-
-	switch (c) {
-	case '\a':
-		ret = string_builder_append(sb, "\\a");
-		break;
-	case '\b':
-		ret = string_builder_append(sb, "\\b");
-		break;
-	case '\t':
-		ret = string_builder_append(sb, "\\t");
-		break;
-	case '\n':
-		ret = string_builder_append(sb, "\\n");
-		break;
-	case '\v':
-		ret = string_builder_append(sb, "\\v");
-		break;
-	case '\f':
-		ret = string_builder_append(sb, "\\f");
-		break;
-	case '\r':
-		ret = string_builder_append(sb, "\\r");
-		break;
-	case '"':
-		ret = string_builder_append(sb, "\\\"");
-		break;
-	case '\\':
-		ret = string_builder_append(sb, "\\\\");
-		break;
-	default:
-		if (c <= '\x1f' || c >= '\x7f')
-			ret = string_builder_appendf(sb, "\\x%02x", c);
-		else
-			ret = string_builder_appendc(sb, c);
-		break;
-	}
-	return ret ? NULL : &drgn_enomem;
-}
-
-static struct drgn_error *
-c_format_string(struct drgn_memory_reader *reader, uint64_t address,
-		uint64_t length, struct string_builder *sb)
-{
-	struct drgn_error *err;
-
-	if (!string_builder_appendc(sb, '"'))
-		return &drgn_enomem;
-	while (length) {
-		unsigned char c;
-
-		err = drgn_memory_reader_read(reader, &c, address++, 1, false);
-		if (err)
-			return err;
-
-		if (c == '\0') {
-			break;
-		} else {
-			err = c_format_character(c, sb);
-			if (err)
-				return err;
-		}
-		length--;
-	}
-	if (!string_builder_appendc(sb, '"'))
-		return &drgn_enomem;
-	return NULL;
-}
-
 static struct drgn_error *
 c_format_pointer_object(const struct drgn_object *obj,
 			struct drgn_type *underlying_type, bool cast,
@@ -1042,7 +1073,8 @@ c_format_array_object(const struct drgn_object *obj,
 			for (i = 0; i < size; i++) {
 				if (buf[i] == '\0')
 					break;
-				err = c_format_character(buf[i], sb);
+				err = c_format_character(buf[i], false, true,
+							 sb);
 				if (err)
 					return err;
 			}
@@ -1279,7 +1311,7 @@ c_format_object_impl(const struct drgn_object *obj, bool cast, size_t indent,
 					 "cannot format void object");
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
-		return c_format_int_object(obj, sb);
+		return c_format_int_object(obj, flags, sb);
 	case DRGN_TYPE_FLOAT:
 		return c_format_float_object(obj, sb);
 	case DRGN_TYPE_COMPLEX:

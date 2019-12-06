@@ -1228,6 +1228,22 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(Object(self.prog, 'const int', value=-99)),
                          '(const int)-99')
 
+    def test_char(self):
+        obj = Object(self.prog, 'char', value=65)
+        self.assertEqual(str(obj), '(char)65')
+        self.assertEqual(obj.format_(char=True), "(char)'A'")
+        self.assertEqual(
+            Object(self.prog, 'signed char', value=65).format_(char=True),
+            "(signed char)'A'")
+        self.assertEqual(
+            Object(self.prog, 'unsigned char', value=65).format_(char=True),
+            "(unsigned char)'A'")
+        self.assertEqual(
+            Object(self.prog,
+                   typedef_type('uint8_t', self.prog.type('unsigned char')),
+                   value=65).format_(char=True),
+            "(uint8_t)65")
+
     def test_bool(self):
         self.assertEqual(str(Object(self.prog, '_Bool', value=False)),
                          '(_Bool)0')

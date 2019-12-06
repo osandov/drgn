@@ -797,6 +797,10 @@ Objects
             For C, this applies to pointers to and arrays of ``char``, ``signed
             char``, and ``unsigned char``. Defaults to ``True``.
         :type string: bool or None
+        :param char: Format objects with character type as character literals.
+            For C, this applies to ``char``, ``signed char``, and ``unsigned
+            char``. Defaults to ``False``.
+        :type char: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)
