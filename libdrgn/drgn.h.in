@@ -2004,10 +2004,12 @@ struct drgn_error *drgn_object_read_c_string(const struct drgn_object *obj,
 enum drgn_format_object_flags {
 	DRGN_FORMAT_OBJECT_DEREFERENCE = 1 << 0,
 	DRGN_FORMAT_OBJECT_SYMBOLIZE = 1 << 1,
+	DRGN_FORMAT_OBJECT_STRING = 1 << 2,
 	/** Default "pretty" flags. */
 	DRGN_FORMAT_OBJECT_PRETTY = (DRGN_FORMAT_OBJECT_DEREFERENCE |
-				     DRGN_FORMAT_OBJECT_SYMBOLIZE),
-	DRGN_FORMAT_OBJECT_VALID_FLAGS = (1 << 2) - 1,
+				     DRGN_FORMAT_OBJECT_SYMBOLIZE |
+				     DRGN_FORMAT_OBJECT_STRING),
+	DRGN_FORMAT_OBJECT_VALID_FLAGS = (1 << 3) - 1,
 };
 
 /**

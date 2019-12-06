@@ -971,7 +971,8 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 {
 #define FLAGS						\
 	X(dereference, DRGN_FORMAT_OBJECT_DEREFERENCE)	\
-	X(symbolize, DRGN_FORMAT_OBJECT_SYMBOLIZE)
+	X(symbolize, DRGN_FORMAT_OBJECT_SYMBOLIZE)	\
+	X(string, DRGN_FORMAT_OBJECT_STRING)
 
 	static char *keywords[] = {
 #define X(name, value) #name,

@@ -793,6 +793,10 @@ Objects
         :param symbolize: Include a symbol name and offset for pointer objects.
             Defaults to ``True``.
         :type symbolize: bool or None
+        :param string: Format the values of objects with string type as strings.
+            For C, this applies to pointers to and arrays of ``char``, ``signed
+            char``, and ``unsigned char``. Defaults to ``True``.
+        :type string: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)

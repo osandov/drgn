@@ -126,7 +126,8 @@ extern const struct drgn_language drgn_language_c;
 static inline enum drgn_format_object_flags
 drgn_passthrough_format_object_flags(enum drgn_format_object_flags flags)
 {
-	return (flags & DRGN_FORMAT_OBJECT_SYMBOLIZE);
+	return (flags & (DRGN_FORMAT_OBJECT_SYMBOLIZE |
+			 DRGN_FORMAT_OBJECT_STRING));
 }
 
 /** @} */

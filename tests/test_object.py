@@ -1403,8 +1403,10 @@ class TestCPretty(ObjectTestCase):
             MockMemorySegment(b'"escape\tme\\\0', virt_addr=0xffff0020),
         ])
 
-        self.assertEqual(str(Object(prog, 'char *', value=0xffff0000)),
-                         '(char *)0xffff0000 = "hello"')
+        obj = Object(prog, 'char *', value=0xffff0000)
+        self.assertEqual(str(obj), '(char *)0xffff0000 = "hello"')
+        self.assertEqual(obj.format_(string=False),
+                         '*(char *)0xffff0000 = 104')
         self.assertEqual(str(Object(prog, 'char *', value=0x0)),
                          '(char *)0x0')
         self.assertEqual(str(Object(prog, 'char *', value=0xffff0010)),
@@ -1627,6 +1629,8 @@ class TestCPretty(ObjectTestCase):
         obj = Object(prog, 'char [4]', address=0xffff0000)
         segment[:16] = b'hello, world\0\0\0\0'
         self.assertEqual(str(obj), '(char [4])"hell"')
+        self.assertEqual(obj.format_(string=False),
+                         '(char [4]){ 104, 101, 108, 108, }')
         self.assertEqual(str(obj.read_()), str(obj))
         segment[2] = 0
         self.assertEqual(str(obj), '(char [4])"he"')

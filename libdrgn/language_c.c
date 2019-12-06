@@ -909,19 +909,17 @@ c_format_pointer_object(const struct drgn_object *obj,
 	enum drgn_format_object_flags passthrough_flags =
 		drgn_passthrough_format_object_flags(flags);
 	bool dereference = flags & DRGN_FORMAT_OBJECT_DEREFERENCE;
-	bool is_c_string;
+	bool c_string =
+		((flags & DRGN_FORMAT_OBJECT_STRING) &&
+		 is_character_type(drgn_type_type(underlying_type).type));
 	bool have_symbol;
 	uint64_t uvalue;
 	struct drgn_symbol sym;
 	size_t start, type_start, type_end, value_start, value_end;
 
-	is_c_string = is_character_type(drgn_type_type(underlying_type).type);
-
 	start = sb->len;
-	if (dereference && !is_c_string) {
-		if (!string_builder_appendc(sb, '*'))
-			return &drgn_enomem;
-	}
+	if (dereference && !c_string && !string_builder_appendc(sb, '*'))
+		return &drgn_enomem;
 	type_start = sb->len;
 	if (cast) {
 		if (!string_builder_appendc(sb, '('))
@@ -943,7 +941,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 	have_symbol = ((flags & DRGN_FORMAT_OBJECT_SYMBOLIZE) &&
 		       drgn_program_find_symbol_internal(obj->prog, uvalue,
 							 NULL, &sym));
-	if (have_symbol && dereference && !is_c_string &&
+	if (have_symbol && dereference && !c_string &&
 	    !string_builder_appendc(sb, '('))
 		return &drgn_enomem;
 	value_start = sb->len;
@@ -954,16 +952,16 @@ c_format_pointer_object(const struct drgn_object *obj,
 
 	if (!string_builder_appendf(sb, "0x%" PRIx64, uvalue))
 		return &drgn_enomem;
-	if (!dereference && !is_c_string)
+	if (!dereference && !c_string)
 		return NULL;
 	value_end = sb->len;
 
-	if ((have_symbol && dereference && !is_c_string &&
+	if ((have_symbol && dereference && !c_string &&
 	     !string_builder_appendc(sb, ')')) ||
 	    !string_builder_append(sb, " = "))
 		return &drgn_enomem;
 
-	if (is_c_string) {
+	if (c_string) {
 		err = c_format_string(&obj->prog->reader, uvalue, UINT64_MAX,
 				      sb);
 	} else {
@@ -1027,7 +1025,8 @@ c_format_array_object(const struct drgn_object *obj,
 	length = drgn_type_length(underlying_type);
 	element_type = drgn_type_type(underlying_type);
 
-	if (length && is_character_type(element_type.type)) {
+	if ((flags & DRGN_FORMAT_OBJECT_STRING) && length &&
+	    is_character_type(element_type.type)) {
 		if (obj->is_reference) {
 			return c_format_string(&obj->prog->reader,
 					       obj->reference.address, length,
