@@ -934,7 +934,8 @@ static PyObject *DrgnObject_str(DrgnObject *self)
 	char *str;
 	PyObject *ret;
 
-	err = drgn_format_object(&self->obj, SIZE_MAX, &str);
+	err = drgn_format_object(&self->obj, SIZE_MAX,
+				 DRGN_FORMAT_OBJECT_PRETTY, &str);
 	if (err)
 		return set_drgn_error(err);
 
@@ -950,6 +951,7 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 	struct drgn_error *err;
 	PyObject *columns_obj = Py_None;
 	size_t columns = SIZE_MAX;
+	enum drgn_format_object_flags flags = DRGN_FORMAT_OBJECT_PRETTY;
 	char *str;
 	PyObject *ret;
 
@@ -967,7 +969,7 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 			return NULL;
 	}
 
-	err = drgn_format_object(&self->obj, columns, &str);
+	err = drgn_format_object(&self->obj, columns, flags, &str);
 	if (err)
 		return set_drgn_error(err);
 

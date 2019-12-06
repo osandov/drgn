@@ -48,6 +48,7 @@ struct drgn_language {
 	struct drgn_error *(*format_type)(struct drgn_qualified_type, char **);
 	/** Implement @ref drgn_format_object(). */
 	struct drgn_error *(*format_object)(const struct drgn_object *, size_t,
+					    enum drgn_format_object_flags,
 					    char **);
 	/**
 	 * Implement @ref drgn_type_index_find().

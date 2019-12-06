@@ -1269,7 +1269,9 @@ c_format_object_impl(const struct drgn_object *obj, bool cast, bool dereference,
 }
 
 static struct drgn_error *c_format_object(const struct drgn_object *obj,
-					  size_t columns, char **ret)
+					  size_t columns,
+					  enum drgn_format_object_flags flags,
+					  char **ret)
 {
 	struct drgn_error *err;
 	struct string_builder sb = {};
