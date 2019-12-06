@@ -22,8 +22,7 @@ def displayhook(value: Any) -> None:
         return
     setattr(builtins, '_', None)
     if isinstance(value, drgn.Object):
-        columns = shutil.get_terminal_size((0, 0)).columns
-        text = f'{value:.{columns}}'
+        text = value.format_(columns=shutil.get_terminal_size((0, 0)).columns)
     elif isinstance(value, (drgn.StackTrace, drgn.Type)):
         text = str(value)
     else:

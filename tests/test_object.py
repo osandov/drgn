@@ -1419,33 +1419,33 @@ class TestCPretty(ObjectTestCase):
         obj = Object(prog, 'int [5]', address=0xffff0000)
 
         self.assertEqual(str(obj), "(int [5]){ 0, 1, 2, 3, 4, }")
-        self.assertEqual(f'{obj:.27}', str(obj))
+        self.assertEqual(obj.format_(columns=27), str(obj))
         for columns in range(22, 27):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [5]){
 	0, 1, 2, 3, 4,
 }""")
         for columns in range(19, 22):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [5]){
 	0, 1, 2, 3,
 	4,
 }""")
         for columns in range(16, 19):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [5]){
 	0, 1, 2,
 	3, 4,
 }""")
         for columns in range(13, 16):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [5]){
 	0, 1,
 	2, 3,
 	4,
 }""")
         for columns in range(13):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [5]){
 	0,
 	1,
@@ -1465,20 +1465,20 @@ class TestCPretty(ObjectTestCase):
 
         self.assertEqual(str(obj),
                          "(int [2][5]){ { 0, 1, 2, 3, 4, }, { 5, 6, 7, 8, 9, }, }")
-        self.assertEqual(f'{obj:.55}', str(obj))
+        self.assertEqual(obj.format_(columns=55), str(obj))
         for columns in range(47, 55):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
 	{ 0, 1, 2, 3, 4, }, { 5, 6, 7, 8, 9, },
 }""")
         for columns in range(27, 47):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
 	{ 0, 1, 2, 3, 4, },
 	{ 5, 6, 7, 8, 9, },
 }""")
         for columns in range(24, 27):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
 	{
 		0, 1, 2,
@@ -1490,7 +1490,7 @@ class TestCPretty(ObjectTestCase):
 	},
 }""")
         for columns in range(21, 24):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
 	{
 		0, 1,
@@ -1504,7 +1504,7 @@ class TestCPretty(ObjectTestCase):
 	},
 }""")
         for columns in range(21):
-            self.assertEqual(f'{obj:.{columns}}', """\
+            self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
 	{
 		0,
@@ -1539,16 +1539,16 @@ class TestCPretty(ObjectTestCase):
 (struct <anonymous>){
 	.arr = (int [5]){ 0, 1, 2, 3, 4, },
 }""")
-        self.assertEqual(f'{obj:.43}', str(obj))
+        self.assertEqual(obj.format_(columns=43), str(obj))
 
-        self.assertEqual(f'{obj:.42}', """\
+        self.assertEqual(obj.format_(columns=42), """\
 (struct <anonymous>){
 	.arr = (int [5]){
 		0, 1, 2, 3, 4,
 	},
 }""")
 
-        self.assertEqual(f'{obj:.18}', """\
+        self.assertEqual(obj.format_(columns=18), """\
 (struct <anonymous>){
 	.arr = (int [5]){
 		0,
@@ -1855,22 +1855,6 @@ class TestSpecialMethods(ObjectTestCase):
                          Object(self.prog, 'int', value=1))
         self.assertEqual(round(Object(self.prog, 'double', value=0.123), 2),
                          Object(self.prog, 'double', value=0.12))
-
-    def test_format(self):
-        obj = Object(self.prog, 'int', value=0)
-        obj.__format__('.10')
-        self.assertRaisesRegex(ValueError,
-                               'Format specifier can only include precision',
-                               obj.__format__, '10')
-        self.assertRaisesRegex(ValueError,
-                               'Format specifier can only include precision',
-                               obj.__format__, '.10 ')
-        self.assertRaisesRegex(ValueError,
-                               'Format specifier precision must be non-negative',
-                               obj.__format__, '.-10')
-        self.assertRaisesRegex(OverflowError,
-                               'Format specifier precision is too large',
-                               obj.__format__, f'.{2**128}')
 
     def test_iter(self):
         obj = Object(self.prog, 'int [4]', value=[0, 1, 2, 3])

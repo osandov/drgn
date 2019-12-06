@@ -532,16 +532,21 @@ Objects
     >>> print(repr(prog['jiffies']))
     Object(prog, 'volatile long unsigned int', address=0xffffffffbf005000)
 
-    :class:`str() <str>` returns a representation of the object in programming
-    language syntax:
+    :class:`str() <str>` returns a "pretty" representation of the object in
+    programming language syntax:
 
     >>> print(prog['jiffies'])
     (volatile long unsigned int)4326237045
 
-    Note that the drgn CLI is set up so that objects are displayed with
-    ``str()`` instead of ``repr()`` (the latter is the default behavior of
-    Python's interactive mode). This means that in the drgn CLI, the call to
-    ``print()`` in the second example above is not necessary.
+    The output format of ``str()`` can be modified by using the
+    :meth:`format_()` method instead.
+
+    .. note::
+
+        The drgn CLI is set up so that objects are displayed in the "pretty"
+        format instead of with ``repr()`` (which is the default behavior of
+        Python's interactive mode). Therefore, it's usually not necessary to
+        call ``print()`` in the drgn CLI.
 
     Objects support the following operators:
 
@@ -767,6 +772,20 @@ Objects
         :raises FaultError: if reading this object causes a bad memory access
         :raises TypeError: if this object has an unreadable type (e.g.,
             ``void``)
+
+    .. method:: format_(**options)
+
+        Format this object in programming language syntax.
+
+        Various format options can be passed (as keyword arguments) to control
+        the output. Options that aren't passed or are passed as ``None`` fall
+        back to a default. Specifically, ``obj.format_()`` (i.e., with no
+        passed options) is equivalent to ``str(obj)``.
+
+        :param columns: Number of columns to limit output to when the
+            expression can be reasonably wrapped. Defaults to no limit.
+        :type columns: int or None
+        :rtype: str
 
 .. function:: NULL(prog, type)
 

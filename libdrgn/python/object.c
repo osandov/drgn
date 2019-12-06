@@ -943,42 +943,28 @@ static PyObject *DrgnObject_str(DrgnObject *self)
 	return ret;
 }
 
-static PyObject *DrgnObject_format(DrgnObject *self, PyObject *arg)
+static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
+				   PyObject *kwds)
 {
+	static char *keywords[] = {"columns", NULL};
 	struct drgn_error *err;
-	const char *format_spec;
+	PyObject *columns_obj = Py_None;
 	size_t columns = SIZE_MAX;
-	char *end, *str;
+	char *str;
 	PyObject *ret;
 
-	format_spec = PyUnicode_AsUTF8(arg);
-	if (!format_spec)
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$O", keywords,
+					 &columns_obj))
 		return NULL;
 
-	if (format_spec[0] == '.') {
-		unsigned long tmp;
-
-		if (format_spec[1] == '-') {
-			PyErr_SetString(PyExc_ValueError,
-					"Format specifier precision must be non-negative");
+	if (columns_obj != Py_None) {
+		columns_obj = PyNumber_Index(columns_obj);
+		if (!columns_obj)
 			return NULL;
-		}
-
-		errno = 0;
-		tmp = strtoul(format_spec + 1, &end, 10);
-		if (tmp == ULONG_MAX && errno == ERANGE) {
-			PyErr_SetString(PyExc_OverflowError,
-					"Format specifier precision is too large");
+		columns = PyLong_AsSize_t(columns_obj);
+		Py_DECREF(columns_obj);
+		if (columns == (size_t)-1 && PyErr_Occurred())
 			return NULL;
-		}
-		columns = tmp;
-	} else {
-		end = (char *)format_spec;
-	}
-	if (*end) {
-		PyErr_SetString(PyExc_ValueError,
-				"Format specifier can only include precision");
-		return NULL;
 	}
 
 	err = drgn_format_object(&self->obj, columns, &str);
@@ -1622,6 +1608,8 @@ static PyMethodDef DrgnObject_methods[] = {
 	 drgn_Object_address_of__DOC},
 	{"read_", (PyCFunction)DrgnObject_read, METH_NOARGS,
 	 drgn_Object_read__DOC},
+	{"format_", (PyCFunction)DrgnObject_format,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Object_format__DOC},
 	{"__round__", (PyCFunction)DrgnObject_round,
 	 METH_VARARGS | METH_KEYWORDS},
 	{"__trunc__", (PyCFunction)DrgnObject_trunc, METH_NOARGS},
@@ -1629,8 +1617,6 @@ static PyMethodDef DrgnObject_methods[] = {
 	{"__ceil__", (PyCFunction)DrgnObject_ceil, METH_NOARGS},
 	{"__dir__", (PyCFunction)DrgnObject_dir, METH_NOARGS,
 "dir() implementation which includes structure, union, and class members."},
-	{"__format__", (PyCFunction)DrgnObject_format, METH_O,
-"Object formatter."},
 	{},
 };
 
