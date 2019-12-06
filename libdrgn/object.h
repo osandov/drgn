@@ -34,15 +34,14 @@
  */
 
 /**
- * Get the truthiness of an object.
+ * Get whether an object is zero.
  *
- * For a signed, unsigned, or floating-point values, this is true iff the value
- * is non-zero. For structures, unions, and classes, this is true iff it is true
- * for any of its members. For arrays, this is true iff it is true for any of
- * its elements.
+ * For scalars, this is true iff its value is zero. For structures, unions, and
+ * classes, this is true iff all of its members are zero. For arrays, this is
+ * true iff all of its elements are zero. Note that this ignores padding.
  */
-struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
-					  bool *ret);
+struct drgn_error *drgn_object_is_zero(const struct drgn_object *obj,
+				       bool *ret);
 
 /**
  * Type of an object.

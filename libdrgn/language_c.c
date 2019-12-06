@@ -1089,17 +1089,17 @@ c_format_array_object(const struct drgn_object *obj,
 
 	drgn_object_init(&element, obj->prog);
 	while (length) {
-		bool truthy;
+		bool zero;
 
 		err = drgn_object_slice(&element, obj, element_type,
 					(length - 1) * element_bit_size, 0);
 		if (err)
 			goto out;
 
-		err = drgn_object_truthiness(&element, &truthy);
+		err = drgn_object_is_zero(&element, &zero);
 		if (err)
 			goto out;
-		if (!truthy)
+		if (zero)
 			length--;
 		else
 			break;
@@ -2950,6 +2950,7 @@ static bool c_pointers_similar(const struct drgn_object_type *lhs_type,
 
 static struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
 {
+	struct drgn_error *err;
 	struct drgn_type *underlying_type;
 
 	underlying_type = drgn_underlying_type(obj->type);
@@ -2963,7 +2964,11 @@ static struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
 						 drgn_object_qualified_type(obj));
 	}
 
-	return drgn_object_truthiness(obj, ret);
+	err = drgn_object_is_zero(obj, ret);
+	if (err)
+		return err;
+	*ret = !*ret;
+	return NULL;
 }
 
 static struct drgn_error *c_op_cmp(const struct drgn_object *lhs,

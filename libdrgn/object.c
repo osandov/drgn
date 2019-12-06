@@ -932,8 +932,11 @@ drgn_object_convert_float(const struct drgn_object *obj, double *fvalue)
 }
 
 static struct drgn_error *
-drgn_object_compound_truthiness(const struct drgn_object *obj,
-				struct drgn_type *underlying_type)
+drgn_object_is_zero_impl(const struct drgn_object *obj, bool *ret);
+
+static struct drgn_error *
+drgn_compound_object_is_zero(const struct drgn_object *obj,
+			     struct drgn_type *underlying_type, bool *ret)
 {
 	struct drgn_error *err;
 	struct drgn_object member;
@@ -945,7 +948,6 @@ drgn_object_compound_truthiness(const struct drgn_object *obj,
 	num_members = drgn_type_num_members(underlying_type);
 	for (i = 0; i < num_members; i++) {
 		struct drgn_qualified_type member_type;
-		bool truthy;
 
 		err = drgn_member_type(&members[i], &member_type);
 		if (err)
@@ -957,13 +959,9 @@ drgn_object_compound_truthiness(const struct drgn_object *obj,
 		if (err)
 			goto out;
 
-		err = drgn_object_truthiness(&member, &truthy);
-		if (err)
+		err = drgn_object_is_zero_impl(&member, ret);
+		if (err || !*ret)
 			goto out;
-		if (truthy) {
-			err = &drgn_stop;
-			goto out;
-		}
 	}
 
 	err = NULL;
@@ -973,8 +971,8 @@ out:
 }
 
 static struct drgn_error *
-drgn_object_array_truthiness(const struct drgn_object *obj,
-			     struct drgn_type *underlying_type)
+drgn_array_object_is_zero(const struct drgn_object *obj,
+			  struct drgn_type *underlying_type, bool *ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type element_type;
@@ -989,20 +987,14 @@ drgn_object_array_truthiness(const struct drgn_object *obj,
 	drgn_object_init(&element, obj->prog);
 	length = drgn_type_length(underlying_type);
 	for (i = 0; i < length; i++) {
-		bool truthy;
-
 		err = drgn_object_slice(&element, obj, element_type,
 					i * element_bit_size, 0);
 		if (err)
 			goto out;
 
-		err = drgn_object_truthiness(&element, &truthy);
-		if (err)
+		err = drgn_object_is_zero_impl(&element, ret);
+		if (err || !*ret)
 			goto out;
-		if (truthy) {
-			err = &drgn_stop;
-			goto out;
-		}
 	}
 
 	err = NULL;
@@ -1011,8 +1003,8 @@ out:
 	return err;
 }
 
-struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
-					  bool *ret)
+static struct drgn_error *
+drgn_object_is_zero_impl(const struct drgn_object *obj, bool *ret)
 {
 	struct drgn_error *err;
 
@@ -1023,7 +1015,8 @@ struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
 		err = drgn_object_value_signed(obj, &svalue);
 		if (err)
 			return err;
-		*ret = !!svalue;
+		if (svalue)
+			*ret = false;
 		return NULL;
 	}
 	case DRGN_OBJECT_UNSIGNED: {
@@ -1032,7 +1025,8 @@ struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
 		err = drgn_object_value_unsigned(obj, &uvalue);
 		if (err)
 			return err;
-		*ret = !!uvalue;
+		if (uvalue)
+			*ret = false;
 		return NULL;
 	}
 	case DRGN_OBJECT_FLOAT: {
@@ -1041,7 +1035,8 @@ struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
 		err = drgn_object_value_float(obj, &fvalue);
 		if (err)
 			return err;
-		*ret = !!fvalue;
+		if (fvalue)
+			*ret = false;
 		return NULL;
 	}
 	case DRGN_OBJECT_BUFFER: {
@@ -1052,34 +1047,27 @@ struct drgn_error *drgn_object_truthiness(const struct drgn_object *obj,
 		case DRGN_TYPE_STRUCT:
 		case DRGN_TYPE_UNION:
 		case DRGN_TYPE_CLASS:
-			err = drgn_object_compound_truthiness(obj,
-							      underlying_type);
-			if (!err || err->code == DRGN_ERROR_STOP) {
-				*ret = !!err;
-				return NULL;
-			} else {
-				return err;
-			}
+			return drgn_compound_object_is_zero(obj,
+							    underlying_type,
+							    ret);
 		case DRGN_TYPE_ARRAY:
-			err = drgn_object_array_truthiness(obj,
-							   underlying_type);
-			if (!err || err->code == DRGN_ERROR_STOP) {
-				*ret = !!err;
-				return NULL;
-			} else {
-				return err;
-			}
+			return drgn_array_object_is_zero(obj, underlying_type,
+							 ret);
 		default:
 			break;
 		}
 		/* fallthrough */
 	}
 	default:
-		err = drgn_error_create(DRGN_ERROR_TYPE,
-					"object cannot be converted to boolean");
-		break;
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "object cannot be converted to boolean");
 	}
-	return err;
+}
+
+struct drgn_error *drgn_object_is_zero(const struct drgn_object *obj, bool *ret)
+{
+	*ret = true;
+	return drgn_object_is_zero_impl(obj, ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
