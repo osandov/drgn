@@ -944,18 +944,60 @@ static PyObject *DrgnObject_str(DrgnObject *self)
 	return ret;
 }
 
+struct format_object_flag_arg {
+	enum drgn_format_object_flags *flags;
+	enum drgn_format_object_flags value;
+};
+
+static int format_object_flag_converter(PyObject *o, void *p)
+{
+	struct format_object_flag_arg *arg = p;
+	int ret;
+
+	if (o == Py_None)
+		return 1;
+	ret = PyObject_IsTrue(o);
+	if (ret == -1)
+		return 0;
+	if (ret)
+		*arg->flags |= arg->value;
+	else
+		*arg->flags &= ~arg->value;
+	return 1;
+}
+
 static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 				   PyObject *kwds)
 {
-	static char *keywords[] = {"columns", NULL};
+#define FLAGS	\
+	X(dereference, DRGN_FORMAT_OBJECT_DEREFERENCE)
+
+	static char *keywords[] = {
+#define X(name, value) #name,
+		FLAGS
+#undef X
+		"columns",
+		NULL,
+	};
 	struct drgn_error *err;
 	PyObject *columns_obj = Py_None;
 	size_t columns = SIZE_MAX;
 	enum drgn_format_object_flags flags = DRGN_FORMAT_OBJECT_PRETTY;
+#define X(name, value)	\
+	struct format_object_flag_arg name##_arg = { &flags, value };
+	FLAGS
+#undef X
 	char *str;
 	PyObject *ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$O", keywords,
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$"
+#define X(name, value) "O&"
+					 FLAGS
+#undef X
+					 "O", keywords,
+#define X(name, value) format_object_flag_converter, &name##_arg,
+					 FLAGS
+#undef X
 					 &columns_obj))
 		return NULL;
 
@@ -976,6 +1018,8 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 	ret = PyUnicode_FromString(str);
 	free(str);
 	return ret;
+
+#undef FLAGS
 }
 
 static Program *DrgnObject_get_prog(DrgnObject *self, void *arg)

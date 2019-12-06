@@ -785,6 +785,11 @@ Objects
         :param columns: Number of columns to limit output to when the
             expression can be reasonably wrapped. Defaults to no limit.
         :type columns: int or None
+        :param dereference: If this object is a pointer, include the
+            dereferenced value. This does not apply to structure, union, or
+            class members, or array elements, as dereferencing those could lead
+            to an infinite loop. Defaults to ``True``.
+        :type dereference: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)

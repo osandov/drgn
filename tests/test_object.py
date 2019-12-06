@@ -1370,8 +1370,9 @@ class TestCPretty(ObjectTestCase):
         prog = mock_program(segments=[
             MockMemorySegment((99).to_bytes(4, 'little'), virt_addr=0xffff0000),
         ])
-        self.assertEqual(str(Object(prog, 'int *', value=0xffff0000)),
-                         '*(int *)0xffff0000 = 99')
+        obj = Object(prog, 'int *', value=0xffff0000)
+        self.assertEqual(str(obj), '*(int *)0xffff0000 = 99')
+        self.assertEqual(obj.format_(dereference=False), '(int *)0xffff0000')
         self.assertEqual(str(Object(prog, 'int *', value=0x7fffffff)),
                          '(int *)0x7fffffff')
 
