@@ -40,8 +40,10 @@ that package should be considered implementation details and should not
 be used.
 """
 
-import runpy
+import io
+import pkgutil
 import sys
+import types
 
 from _drgn import (
     Architecture,
@@ -134,6 +136,25 @@ __all__ = [
 ]
 
 
+try:
+    _open_code = io.open_code
+except AttributeError:
+    def _open_code(path):
+        return open(path, 'rb')
+
+
+# From https://docs.python.org/3/reference/import.html#import-related-module-attributes.
+_special_globals = frozenset([
+    '__name__',
+    '__loader__',
+    '__package__',
+    '__spec__',
+    '__path__',
+    '__file__',
+    '__cached__',
+])
+
+
 def execscript(path, *args):
     """
     Execute a script.
@@ -182,14 +203,49 @@ def execscript(path, *args):
     :param str \\*args: Zero or more additional arguments to pass to the script.
         This is a :ref:`variable argument list <python:tut-arbitraryargs>`.
     """
-    old_argv = sys.argv
-    sys.argv = [path]
-    sys.argv.extend(args)
+    # This is based on runpy.run_code, which we can't use because we want to
+    # update globals even if the script throws an exception.
+    saved_module = []
     try:
-        old_globals = sys._getframe(1).f_globals
-        new_globals = runpy.run_path(path, init_globals=old_globals,
-                                     run_name='__main__')
-        old_globals.clear()
-        old_globals.update(new_globals)
+        saved_module.append(sys.modules['__main__'])
+    except KeyError:
+        pass
+    saved_argv = sys.argv
+    try:
+        module = types.ModuleType('__main__')
+        sys.modules['__main__'] = module
+        sys.argv = [path]
+        sys.argv.extend(args)
+
+        with _open_code(path) as f:
+            code = pkgutil.read_code(f)
+        if code is None:
+            with _open_code(path) as f:
+                code = compile(f.read(), path, 'exec')
+        module.__spec__ = None
+        module.__file__ = path
+        module.__cached__ = None
+
+        caller_globals = sys._getframe(1).f_globals
+        caller_special_globals = {
+            name: caller_globals[name] for name in _special_globals
+            if name in caller_globals
+        }
+        for name, value in caller_globals.items():
+            if name not in _special_globals:
+                setattr(module, name, value)
+
+        try:
+            exec(code, vars(module))
+        finally:
+            caller_globals.clear()
+            caller_globals.update(caller_special_globals)
+            for name, value in vars(module).items():
+                if name not in _special_globals:
+                    caller_globals[name] = value
     finally:
-        sys.argv = old_argv
+        sys.argv = saved_argv
+        if saved_module:
+            sys.modules['__main__'] = saved_module[0]
+        else:
+            del sys.modules['__main__']
