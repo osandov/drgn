@@ -1192,26 +1192,21 @@ c_format_array_object(const struct drgn_object *obj,
 			if (!err) {
 				size_t element_len = sb->len - element_start;
 
-				if (element_len +
-				    (remaining_columns == start_columns ? 1 : 2)
-				    <= remaining_columns) {
+				if (element_len + 2 <= remaining_columns) {
 					/*
 					 * It would've fit on the previous line.
 					 * Move it over.
 					 */
-					if (remaining_columns != start_columns) {
-						sb->str[newline++] = ' ';
-						remaining_columns--;
-					}
-					memmove(&sb->str[newline],
+					sb->str[newline] = ' ';
+					memmove(&sb->str[newline + 1],
 						&sb->str[element_start],
 						element_len);
-					sb->len = newline + element_len;
+					sb->len = newline + 1 + element_len;
 					if (!string_builder_appendc(sb, ',')) {
 						err = &drgn_enomem;
 						goto out;
 					}
-					remaining_columns -= element_len + 1;
+					remaining_columns -= element_len + 2;
 					continue;
 				}
 				if (element_len < start_columns) {
