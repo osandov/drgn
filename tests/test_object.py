@@ -1446,12 +1446,12 @@ class TestCPretty(ObjectTestCase):
         ])
         obj = Object(prog, 'int [5]', address=0xffff0000)
 
-        self.assertEqual(str(obj), "(int [5]){ 0, 1, 2, 3, 4, }")
+        self.assertEqual(str(obj), "(int [5]){ 0, 1, 2, 3, 4 }")
         self.assertEqual(
             obj.format_(type_name=False, element_type_names=True),
-            "{ (int)0, (int)1, (int)2, (int)3, (int)4, }")
+            "{ (int)0, (int)1, (int)2, (int)3, (int)4 }")
         self.assertEqual(obj.format_(columns=27), str(obj))
-        for columns in range(22, 27):
+        for columns in range(22, 26):
             self.assertEqual(obj.format_(columns=columns), """\
 (int [5]){
 	0, 1, 2, 3, 4,
@@ -1495,20 +1495,20 @@ class TestCPretty(ObjectTestCase):
         obj = Object(prog, 'int [2][5]', address=0xffff0000)
 
         self.assertEqual(str(obj),
-                         "(int [2][5]){ { 0, 1, 2, 3, 4, }, { 5, 6, 7, 8, 9, }, }")
-        self.assertEqual(obj.format_(columns=55), str(obj))
-        for columns in range(47, 55):
+                         "(int [2][5]){ { 0, 1, 2, 3, 4 }, { 5, 6, 7, 8, 9 } }")
+        self.assertEqual(obj.format_(columns=52), str(obj))
+        for columns in range(45, 52):
             self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
-	{ 0, 1, 2, 3, 4, }, { 5, 6, 7, 8, 9, },
+	{ 0, 1, 2, 3, 4 }, { 5, 6, 7, 8, 9 },
 }""")
-        for columns in range(27, 47):
+        for columns in range(26, 45):
             self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
-	{ 0, 1, 2, 3, 4, },
-	{ 5, 6, 7, 8, 9, },
+	{ 0, 1, 2, 3, 4 },
+	{ 5, 6, 7, 8, 9 },
 }""")
-        for columns in range(24, 27):
+        for columns in range(24, 26):
             self.assertEqual(obj.format_(columns=columns), """\
 (int [2][5]){
 	{
@@ -1568,11 +1568,11 @@ class TestCPretty(ObjectTestCase):
 
         self.assertEqual(str(obj), """\
 (struct <anonymous>){
-	.arr = (int [5]){ 0, 1, 2, 3, 4, },
+	.arr = (int [5]){ 0, 1, 2, 3, 4 },
 }""")
-        self.assertEqual(obj.format_(columns=43), str(obj))
+        self.assertEqual(obj.format_(columns=42), str(obj))
 
-        self.assertEqual(obj.format_(columns=42), """\
+        self.assertEqual(obj.format_(columns=41), """\
 (struct <anonymous>){
 	.arr = (int [5]){
 		0, 1, 2, 3, 4,
@@ -1629,10 +1629,10 @@ class TestCPretty(ObjectTestCase):
         obj = Object(prog, 'int [2]', address=0xffff0000)
         self.assertEqual(str(obj), '(int [2]){}')
         segment[:4] = (99).to_bytes(4, 'little')
-        self.assertEqual(str(obj), '(int [2]){ 99, }')
+        self.assertEqual(str(obj), '(int [2]){ 99 }')
         segment[:4] = (0).to_bytes(4, 'little')
         segment[4:8] = (99).to_bytes(4, 'little')
-        self.assertEqual(str(obj), '(int [2]){ 0, 99, }')
+        self.assertEqual(str(obj), '(int [2]){ 0, 99 }')
 
         obj = Object(prog, 'struct point [2]', address=0xffff0000)
         self.assertEqual(str(obj), """\
@@ -1656,7 +1656,7 @@ class TestCPretty(ObjectTestCase):
         segment[:16] = b'hello, world\0\0\0\0'
         self.assertEqual(str(obj), '(char [4])"hell"')
         self.assertEqual(obj.format_(string=False),
-                         '(char [4]){ 104, 101, 108, 108, }')
+                         '(char [4]){ 104, 101, 108, 108 }')
         self.assertEqual(str(obj.read_()), str(obj))
         segment[2] = 0
         self.assertEqual(str(obj), '(char [4])"he"')

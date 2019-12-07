@@ -1050,7 +1050,7 @@ c_format_array_object(const struct drgn_object *obj,
 	uint64_t element_bit_size;
 	struct drgn_object element;
 	uint64_t length, i;
-	size_t old_len, remaining_columns, start_columns;
+	size_t brace, remaining_columns, start_columns;
 
 	length = drgn_type_length(underlying_type);
 	element_type = drgn_type_type(underlying_type);
@@ -1104,24 +1104,16 @@ c_format_array_object(const struct drgn_object *obj,
 		else
 			break;
 	}
-	if (!length) {
-		if (string_builder_append(sb, "{}"))
-			err = NULL;
-		else
-			err = &drgn_enomem;
-		goto out;
-	}
 
 	/* First, try to fit everything on one line. */
-	if (!string_builder_append(sb, "{ ")) {
+	brace = sb->len;
+	if (!string_builder_appendc(sb, '{')) {
 		err = &drgn_enomem;
 		goto out;
 	}
-	old_len = sb->len - 1; /* Minus one for the space. */
-	if (__builtin_sub_overflow(one_line_columns, 2, &remaining_columns))
+	if (__builtin_sub_overflow(one_line_columns, 1, &remaining_columns))
 		remaining_columns = 0;
-	/* Stop if we can't fit the comma, space, and closing brace. */
-	for (i = 0; i < length && remaining_columns >= 3; i++) {
+	for (i = 0; i < length; i++) {
 		size_t element_start;
 
 		err = drgn_object_slice(&element, obj, element_type,
@@ -1129,41 +1121,75 @@ c_format_array_object(const struct drgn_object *obj,
 		if (err)
 			goto out;
 
+		if (sb->len == brace + 1) {
+			if (remaining_columns < 3) {
+				/*
+				 * The preceding space and closing space and
+				 * brace don't fit.
+				 */
+				break;
+			}
+			if (!string_builder_appendc(sb, ' ')) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			remaining_columns--;
+		} else {
+			if (remaining_columns < 4) {
+				/*
+				 * The preceding comma and space and closing
+				 * space and brace don't fit.
+				 */
+				break;
+			}
+			if (!string_builder_append(sb, ", ")) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			remaining_columns -= 2;
+		}
+
 		element_start = sb->len;
 		err = c_format_object_impl(&element, indent + 1,
-					   remaining_columns - 3, 0,
+					   remaining_columns - 2, 0,
 					   element_flags, sb);
 		if (err && err->code == DRGN_ERROR_STOP)
 			break;
 		else if (err)
 			goto out;
 
-		if (!string_builder_append(sb, ", ")) {
-			err = &drgn_enomem;
-			goto out;
-		}
-
 		if (__builtin_sub_overflow(remaining_columns,
 					   sb->len - element_start,
 					   &remaining_columns))
 			break;
 	}
-	if (i >= length && remaining_columns >= 1) {
-		/* Everything fit. */
-		if (string_builder_appendc(sb, '}'))
-			err = NULL;
-		else
-			err = &drgn_enomem;
-		goto out;
+	if (i >= length) {
+		/* All of the initializers fit. */
+		if (sb->len == brace + 1) {
+			/* There were no initializers. */
+			if (string_builder_appendc(sb, '}'))
+				err = NULL;
+			else
+				err = &drgn_enomem;
+			goto out;
+		} else if (remaining_columns >= 2) {
+			if (string_builder_append(sb, " }"))
+				err = NULL;
+			else
+				err = &drgn_enomem;
+			goto out;
+		}
+		/* The final space and closing brace didn't fit. */
 	}
 
+	/* It didn't fit on one line. Try multiple lines. */
+
 	if (multi_line_columns == 0) {
-		/* We were asked to fit on one line and we couldn't. */
+		/* We were asked to stay on one line. */
 		return &drgn_stop;
 	}
 
-	/* Start over (truncate the string) and use multiple lines. */
-	sb->len = old_len;
+	sb->len = brace + 1;
 	if (__builtin_sub_overflow(multi_line_columns, 8 * (indent + 1),
 				   &start_columns))
 		start_columns = 0;
