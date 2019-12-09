@@ -1289,6 +1289,8 @@ class TestCPretty(ObjectTestCase):
 	.x = 99,
 	.y = -1,
 }""")
+        self.assertEqual(obj.format_(members_same_line=True),
+                         "(struct point){ .x = (int)99, .y = (int)-1 }")
 
         type_ = struct_type('foo', 16, (
             (point_type, 'point'),
@@ -1477,6 +1479,14 @@ class TestCPretty(ObjectTestCase):
 }""")
         for columns in range(13):
             self.assertEqual(obj.format_(columns=columns), """\
+(int [5]){
+	0,
+	1,
+	2,
+	3,
+	4,
+}""")
+        self.assertEqual(obj.format_(elements_same_line=False), """\
 (int [5]){
 	0,
 	1,

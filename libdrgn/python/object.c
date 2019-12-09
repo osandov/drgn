@@ -976,7 +976,9 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 	X(char, DRGN_FORMAT_OBJECT_CHAR)				\
 	X(type_name, DRGN_FORMAT_OBJECT_TYPE_NAME)			\
 	X(member_type_names, DRGN_FORMAT_OBJECT_MEMBER_TYPE_NAMES)	\
-	X(element_type_names, DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES)
+	X(element_type_names, DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES)	\
+	X(members_same_line, DRGN_FORMAT_OBJECT_MEMBERS_SAME_LINE)	\
+	X(elements_same_line, DRGN_FORMAT_OBJECT_ELEMENTS_SAME_LINE)
 
 	static char *keywords[] = {
 #define X(name, value) #name,

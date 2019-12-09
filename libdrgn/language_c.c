@@ -1081,7 +1081,7 @@ compound_initializer_append_designation(struct initializer_iter *iter_,
 static struct drgn_error *
 c_format_compound_object(const struct drgn_object *obj,
 			 struct drgn_type *underlying_type, size_t indent,
-			 size_t multi_line_columns,
+			 size_t one_line_columns, size_t multi_line_columns,
 			 enum drgn_format_object_flags flags,
 			 struct string_builder *sb)
 {
@@ -1128,8 +1128,10 @@ c_format_compound_object(const struct drgn_object *obj,
 	new->member = drgn_type_members(underlying_type);
 	new->end = new->member + drgn_type_num_members(underlying_type);
 	new->bit_offset = 0;
-	err = c_format_initializer(obj->prog, &iter.iter, indent, 0,
-				   multi_line_columns, false, sb);
+	err = c_format_initializer(obj->prog, &iter.iter, indent,
+				   one_line_columns, multi_line_columns,
+				   flags & DRGN_FORMAT_OBJECT_MEMBERS_SAME_LINE,
+				   sb);
 out:
 	compound_initializer_stack_deinit(&iter.stack);
 	return err;
@@ -1414,7 +1416,8 @@ c_format_array_object(const struct drgn_object *obj,
 			return err;
 	}
 	return c_format_initializer(obj->prog, &iter.iter, indent,
-				    one_line_columns, multi_line_columns, true,
+				    one_line_columns, multi_line_columns,
+				    flags & DRGN_FORMAT_OBJECT_ELEMENTS_SAME_LINE,
 				    sb);
 }
 
@@ -1484,6 +1487,7 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 	case DRGN_TYPE_UNION:
 	case DRGN_TYPE_CLASS:
 		return c_format_compound_object(obj, underlying_type, indent,
+						one_line_columns,
 						multi_line_columns, flags, sb);
 	case DRGN_TYPE_ENUM:
 		return c_format_enum_object(obj, underlying_type, sb);

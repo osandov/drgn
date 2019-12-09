@@ -810,6 +810,14 @@ Objects
         :param element_type_names: Include the type names of array elements.
             Defaults to ``False``.
         :type element_type_names: bool or None
+        :param members_same_line: Place multiple structure, union, and class
+            members on the same line if they fit within the specified
+            number of ``columns``. Defaults to ``False``.
+        :type members_same_line: bool or None
+        :param elements_same_line: Place multiple array elements on the same
+            line if they fit within the specified number of ``columns``.
+            Defaults to ``True``.
+        :type elements_same_line: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)
