@@ -821,6 +821,9 @@ Objects
         :param member_names: Include the names of structure, union, and class
             members. Defaults to ``True``.
         :type member_names: bool or None
+        :param element_indices: Include the indices of array elements. Defaults
+            to ``False``.
+        :type element_indices: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)

@@ -1310,7 +1310,7 @@ struct array_initializer_iter {
 	struct drgn_qualified_type element_type;
 	uint64_t element_bit_size;
 	uint64_t length, i;
-	enum drgn_format_object_flags element_flags;
+	enum drgn_format_object_flags flags, element_flags;
 };
 
 static struct drgn_error *
@@ -1322,13 +1322,27 @@ array_initializer_iter_next(struct initializer_iter *iter_,
 	struct array_initializer_iter *iter =
 		container_of(iter_, struct array_initializer_iter, iter);
 
-	if (iter->i >= iter->length)
-		return &drgn_stop;
-	err = drgn_object_slice(obj_ret, iter->obj, iter->element_type,
-				iter->i * iter->element_bit_size, 0);
-	if (err)
-		return err;
-	iter->i++;
+	for (;;) {
+		bool zero;
+
+		if (iter->i >= iter->length)
+			return &drgn_stop;
+		err = drgn_object_slice(obj_ret, iter->obj, iter->element_type,
+					iter->i * iter->element_bit_size, 0);
+		if (err)
+			return err;
+		iter->i++;
+
+		/* If we're including indices, we can skip zeroes. */
+		if (!(iter->flags & DRGN_FORMAT_OBJECT_ELEMENT_INDICES))
+			break;
+
+		err = drgn_object_is_zero(obj_ret, &zero);
+		if (err)
+			return err;
+		if (!zero)
+			break;
+	}
 	*flags_ret = iter->element_flags;
 	return NULL;
 }
@@ -1339,6 +1353,18 @@ static void array_initializer_iter_reset(struct initializer_iter *iter_)
 		container_of(iter_, struct array_initializer_iter, iter);
 
 	iter->i = 0;
+}
+
+static struct drgn_error *
+array_initializer_append_designation(struct initializer_iter *iter_,
+				     struct string_builder *sb)
+{
+	struct array_initializer_iter *iter =
+		container_of(iter_, struct array_initializer_iter, iter);
+
+	if (!string_builder_appendf(sb, "[%" PRIu64 "] = ", iter->i - 1))
+		return &drgn_enomem;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -1353,10 +1379,14 @@ c_format_array_object(const struct drgn_object *obj,
 		.iter = {
 			.next = array_initializer_iter_next,
 			.reset = array_initializer_iter_reset,
+			.append_designation =
+				flags & DRGN_FORMAT_OBJECT_ELEMENT_INDICES ?
+				array_initializer_append_designation : NULL,
 		},
 		.obj = obj,
 		.element_type = drgn_type_type(underlying_type),
 		.length = drgn_type_length(underlying_type),
+		.flags = flags,
 		.element_flags = drgn_element_format_object_flags(flags),
 	};
 
@@ -1393,7 +1423,13 @@ c_format_array_object(const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	if (iter.length) {
+	/*
+	 * Ignore zero elements at the end of the array. If we're including
+	 * indices, then we'll skip past zero elements as we iterate, so we
+	 * don't need to do this.
+	 */
+	if (!(flags & DRGN_FORMAT_OBJECT_ELEMENT_INDICES) &&
+	    iter.length) {
 		struct drgn_object element;
 
 		drgn_object_init(&element, obj->prog);

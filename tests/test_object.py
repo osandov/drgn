@@ -1460,7 +1460,11 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(
             obj.format_(type_name=False, element_type_names=True),
             "{ (int)0, (int)1, (int)2, (int)3, (int)4 }")
+        self.assertEqual(
+            obj.format_(element_indices=True),
+            "(int [5]){ [1] = 1, [2] = 2, [3] = 3, [4] = 4 }")
         self.assertEqual(obj.format_(columns=27), str(obj))
+
         for columns in range(22, 26):
             self.assertEqual(obj.format_(columns=columns), """\
 (int [5]){
