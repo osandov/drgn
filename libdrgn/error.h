@@ -117,6 +117,10 @@ struct drgn_error *drgn_error_unary_op(const char *op_name,
 				       struct drgn_object_type *type)
 	__attribute__((returns_nonnull));
 
+/** Create a @ref drgn_error for a failed symbol lookup. */
+struct drgn_error *drgn_error_symbol_not_found(uint64_t address)
+	__attribute__((returns_nonnull));
+
 /** @} */
 
 #endif /* DRGN_ERROR_H */

@@ -156,21 +156,17 @@ struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
 struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
 					      uint32_t tid, struct string *ret);
 
-/* Like @ref drgn_program_find_symbol(), but the module is known. */
-struct drgn_error *drgn_program_find_symbol_in_module(struct drgn_program *prog,
-						      Dwfl_Module *module,
-						      uint64_t address,
-						      struct drgn_symbol **ret);
-
 /*
- * Like @ref drgn_program_find_symbol_in_module(), but @p ret is already
- * allocated, and returns @ref drgn_not_found instead of a more informative
- * message.
+ * Like @ref drgn_program_find_symbol(), but @p ret is already allocated, we may
+ * already know the module, and doesn't return a @ref drgn_error.
+ *
+ * @param[in] module Module containing the address. May be @c NULL, in which
+ * case this will look it up.
+ * @return Whether the symbol was found.
  */
-struct drgn_error *drgn_program_find_symbol_internal(struct drgn_program *prog,
-						     Dwfl_Module *module,
-						     uint64_t address,
-						     struct drgn_symbol *ret);
+bool drgn_program_find_symbol_internal(struct drgn_program *prog,
+				       uint64_t address, Dwfl_Module *module,
+				       struct drgn_symbol *ret);
 
 /** @} */
 

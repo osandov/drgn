@@ -49,27 +49,16 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 		Dwfl_Module *module;
 		struct drgn_symbol sym;
 
-		pc = drgn_stack_frame_pc(frame);
-		module = dwfl_frame_module(trace->frames[frame.i]);
-		if (module) {
-			err = drgn_program_find_symbol_internal(trace->prog,
-								module, pc,
-								&sym);
-		} else {
-			err = &drgn_not_found;
-		}
-		if (err && err != &drgn_not_found)
-			goto err;
 		if (!string_builder_appendf(&str, "#%-2zu ", frame.i)) {
 			err = &drgn_enomem;
 			goto err;
 		}
-		if (err) {
-			if (!string_builder_appendf(&str, "0x%" PRIx64, pc)) {
-				err = &drgn_enomem;
-				goto err;
-			}
-		} else {
+
+		pc = drgn_stack_frame_pc(frame);
+		module = dwfl_frame_module(trace->frames[frame.i]);
+		if (module &&
+		    drgn_program_find_symbol_internal(trace->prog, pc, module,
+						      &sym)) {
 			if (!string_builder_appendf(&str,
 						    "%s+0x%" PRIx64 "/0x%" PRIx64,
 						    sym.name, pc - sym.address,
@@ -77,7 +66,13 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 				err = &drgn_enomem;
 				goto err;
 			}
+		} else {
+			if (!string_builder_appendf(&str, "0x%" PRIx64, pc)) {
+				err = &drgn_enomem;
+				goto err;
+			}
 		}
+
 		if (frame.i != trace->num_frames - 1 &&
 		    !string_builder_appendc(&str, '\n')) {
 			err = &drgn_enomem;
@@ -106,12 +101,24 @@ LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_frame frame)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_stack_frame_symbol(struct drgn_stack_frame frame, struct drgn_symbol **ret)
 {
+	uint64_t pc;
 	Dwfl_Module *module;
+	struct drgn_symbol *sym;
 
+	pc = drgn_stack_frame_pc(frame);
 	module = dwfl_frame_module(frame.trace->frames[frame.i]);
-	return drgn_program_find_symbol_in_module(frame.trace->prog, module,
-						  drgn_stack_frame_pc(frame),
-						  ret);
+	if (!module)
+		return drgn_error_symbol_not_found(pc);
+	sym = malloc(sizeof(*sym));
+	if (!sym)
+		return &drgn_enomem;
+	if (!drgn_program_find_symbol_internal(frame.trace->prog, pc, module,
+					       sym)) {
+		free(sym);
+		return drgn_error_symbol_not_found(pc);
+	}
+	*ret = sym;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

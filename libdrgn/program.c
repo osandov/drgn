@@ -906,49 +906,37 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 				      ret);
 }
 
-struct drgn_error *drgn_program_find_symbol_internal(struct drgn_program *prog,
-						     Dwfl_Module *module,
-						     uint64_t address,
-						     struct drgn_symbol *sym)
+bool drgn_program_find_symbol_internal(struct drgn_program *prog,
+				       uint64_t address, Dwfl_Module *module,
+				       struct drgn_symbol *ret)
 {
 	const char *name;
 	GElf_Off offset;
 	GElf_Sym elf_sym;
 
+	if (!module) {
+		if (prog->_dicache) {
+			module = dwfl_addrmodule(prog->_dicache->dindex.dwfl,
+						 address);
+			if (!module)
+				return false;
+		} else {
+			return false;
+		}
+	}
+
 	name = dwfl_module_addrinfo(module, address, &offset, &elf_sym, NULL,
 				    NULL, NULL);
 	if (!name)
-		return &drgn_not_found;
-	sym->name = name;
-	sym->address = address - offset;
-	sym->size = elf_sym.st_size;
-	return NULL;
+		return false;
+	ret->name = name;
+	ret->address = address - offset;
+	ret->size = elf_sym.st_size;
+	return true;
 }
 
-struct drgn_error *
-drgn_program_find_symbol_in_module(struct drgn_program *prog,
-				   Dwfl_Module *module, uint64_t address,
-				   struct drgn_symbol **ret)
+struct drgn_error *drgn_error_symbol_not_found(uint64_t address)
 {
-	struct drgn_error *err;
-	struct drgn_symbol *sym;
-
-	if (!module)
-		goto not_found;
-	sym = malloc(sizeof(*sym));
-	if (!sym)
-		return &drgn_enomem;
-	err = drgn_program_find_symbol_internal(prog, module, address, sym);
-	if (err) {
-		free(sym);
-		if (err == &drgn_not_found)
-			goto not_found;
-		return err;
-	}
-	*ret = sym;
-	return NULL;
-
-not_found:
 	return drgn_error_format(DRGN_ERROR_LOOKUP,
 				 "could not find symbol containing 0x%" PRIx64,
 				 address);
@@ -958,13 +946,17 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_find_symbol(struct drgn_program *prog, uint64_t address,
 			 struct drgn_symbol **ret)
 {
-	Dwfl_Module *module;
+	struct drgn_symbol *sym;
 
-	if (prog->_dicache)
-		module = dwfl_addrmodule(prog->_dicache->dindex.dwfl, address);
-	else
-		module = NULL;
-	return drgn_program_find_symbol_in_module(prog, module, address, ret);
+	sym = malloc(sizeof(*sym));
+	if (!sym)
+		return &drgn_enomem;
+	if (!drgn_program_find_symbol_internal(prog, address, NULL, sym)) {
+		free(sym);
+		return drgn_error_symbol_not_found(address);
+	}
+	*ret = sym;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
