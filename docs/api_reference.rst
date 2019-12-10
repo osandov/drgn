@@ -818,6 +818,9 @@ Objects
             line if they fit within the specified number of ``columns``.
             Defaults to ``True``.
         :type elements_same_line: bool or None
+        :param member_names: Include the names of structure, union, and class
+            members. Defaults to ``True``.
+        :type member_names: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)

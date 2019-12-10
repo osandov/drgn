@@ -995,7 +995,7 @@ struct compound_initializer_iter {
 	struct initializer_iter iter;
 	const struct drgn_object *obj;
 	struct compound_initializer_stack stack;
-	enum drgn_format_object_flags member_flags;
+	enum drgn_format_object_flags flags, member_flags;
 };
 
 static struct drgn_error *
@@ -1028,11 +1028,14 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 			return err;
 
 		/*
-		 * If the member is named, return it. Otherwise, if it has
-		 * members, descend into it. If it doesn't, then this isn't
-		 * valid C, but let's return it anyways.
+		 * If the member is named or we are not including names, return
+		 * it. Otherwise, if it has members, descend into it. If it
+		 * doesn't, then this isn't valid C, but let's return it
+		 * anyways.
 		 */
-		if (member->name || !drgn_type_has_members(member_type.type))
+		if (member->name ||
+		    !(iter->flags & DRGN_FORMAT_OBJECT_MEMBER_NAMES) ||
+		    !drgn_type_has_members(member_type.type))
 			break;
 
 		new = compound_initializer_stack_append_entry(&iter->stack);
@@ -1091,9 +1094,11 @@ c_format_compound_object(const struct drgn_object *obj,
 			.next = compound_initializer_iter_next,
 			.reset = compound_initializer_iter_reset,
 			.append_designation =
-				compound_initializer_append_designation,
+				flags & DRGN_FORMAT_OBJECT_MEMBER_NAMES ?
+				compound_initializer_append_designation : NULL,
 		},
 		.obj = obj,
+		.flags = flags,
 		.member_flags = drgn_member_format_object_flags(flags),
 	};
 	struct compound_initializer_state *new;
