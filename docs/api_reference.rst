@@ -828,6 +828,9 @@ Objects
             which have an implicit value (i.e., for C, zero-initialized).
             Defaults to ``True``.
         :type implicit_members: bool or None
+        :param implicit_elements: Include array elements which have an implicit
+            value (i.e., for C, zero-initialized). Defaults to ``False``.
+        :type implicit_elements: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)

@@ -1387,7 +1387,9 @@ array_initializer_iter_next(struct initializer_iter *iter_,
 		iter->i++;
 
 		/* If we're including indices, we can skip zeroes. */
-		if (!(iter->flags & DRGN_FORMAT_OBJECT_ELEMENT_INDICES))
+		if ((iter->flags & (DRGN_FORMAT_OBJECT_ELEMENT_INDICES |
+				    DRGN_FORMAT_OBJECT_IMPLICIT_ELEMENTS)) !=
+		    DRGN_FORMAT_OBJECT_ELEMENT_INDICES)
 			break;
 
 		err = drgn_object_is_zero(obj_ret, &zero);
@@ -1477,11 +1479,12 @@ c_format_array_object(const struct drgn_object *obj,
 		return err;
 
 	/*
-	 * Ignore zero elements at the end of the array. If we're including
-	 * indices, then we'll skip past zero elements as we iterate, so we
+	 * If we don't want zero elements, ignore any at the end. If we're
+	 * including indices, then we'll skip past zeroes as we iterate, so we
 	 * don't need to do this.
 	 */
-	if (!(flags & DRGN_FORMAT_OBJECT_ELEMENT_INDICES) &&
+	if (!(flags & (DRGN_FORMAT_OBJECT_ELEMENT_INDICES |
+		       DRGN_FORMAT_OBJECT_IMPLICIT_ELEMENTS)) &&
 	    iter.length) {
 		struct drgn_object element;
 

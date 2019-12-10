@@ -1485,6 +1485,9 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(
             obj.format_(element_indices=True),
             "(int [5]){ [1] = 1, [2] = 2, [3] = 3, [4] = 4 }")
+        self.assertEqual(
+            obj.format_(element_indices=True, implicit_elements=True),
+            "(int [5]){ [0] = 0, [1] = 1, [2] = 2, [3] = 3, [4] = 4 }")
         self.assertEqual(obj.format_(columns=27), str(obj))
 
         for columns in range(22, 26):
@@ -1672,6 +1675,8 @@ class TestCPretty(ObjectTestCase):
 
         obj = Object(prog, 'int [2]', address=0xffff0000)
         self.assertEqual(str(obj), '(int [2]){}')
+        self.assertEqual(obj.format_(implicit_elements=True),
+                         '(int [2]){ 0, 0 }')
         segment[:4] = (99).to_bytes(4, 'little')
         self.assertEqual(str(obj), '(int [2]){ 99 }')
         segment[:4] = (0).to_bytes(4, 'little')
