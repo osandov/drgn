@@ -824,6 +824,10 @@ Objects
         :param element_indices: Include the indices of array elements. Defaults
             to ``False``.
         :type element_indices: bool or None
+        :param implicit_members: Include structure, union, and class members
+            which have an implicit value (i.e., for C, zero-initialized).
+            Defaults to ``True``.
+        :type implicit_members: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)

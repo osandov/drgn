@@ -134,7 +134,8 @@ drgn_passthrough_format_object_flags(enum drgn_format_object_flags flags)
 			 DRGN_FORMAT_OBJECT_MEMBERS_SAME_LINE |
 			 DRGN_FORMAT_OBJECT_ELEMENTS_SAME_LINE |
 			 DRGN_FORMAT_OBJECT_MEMBER_NAMES |
-			 DRGN_FORMAT_OBJECT_ELEMENT_INDICES));
+			 DRGN_FORMAT_OBJECT_ELEMENT_INDICES |
+			 DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS));
 }
 
 /** Return flags that should be passed when formatting object members. */

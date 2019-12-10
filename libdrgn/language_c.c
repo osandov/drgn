@@ -1035,8 +1035,27 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 		 */
 		if (member->name ||
 		    !(iter->flags & DRGN_FORMAT_OBJECT_MEMBER_NAMES) ||
-		    !drgn_type_has_members(member_type.type))
+		    !drgn_type_has_members(member_type.type)) {
+			err = drgn_object_slice(obj_ret, iter->obj, member_type,
+						top->bit_offset + member->bit_offset,
+						member->bit_field_size);
+			if (err)
+				return err;
+
+			/* If we're including names, we can skip zeroes. */
+			if ((iter->flags & (DRGN_FORMAT_OBJECT_MEMBER_NAMES |
+					    DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS)) ==
+			     DRGN_FORMAT_OBJECT_MEMBER_NAMES) {
+				bool zero;
+
+				err = drgn_object_is_zero(obj_ret, &zero);
+				if (err)
+					return err;
+				if (zero)
+					continue;
+			}
 			break;
+		}
 
 		new = compound_initializer_stack_append_entry(&iter->stack);
 		if (!new)
@@ -1046,11 +1065,6 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 		new->bit_offset = top->bit_offset + member->bit_offset;
 	}
 
-	err = drgn_object_slice(obj_ret, iter->obj, member_type,
-				top->bit_offset + member->bit_offset,
-				member->bit_field_size);
-	if (err)
-		return err;
 	*flags_ret = iter->member_flags;
 	return NULL;
 }
@@ -1133,6 +1147,45 @@ c_format_compound_object(const struct drgn_object *obj,
 	new->member = drgn_type_members(underlying_type);
 	new->end = new->member + drgn_type_num_members(underlying_type);
 	new->bit_offset = 0;
+
+	/*
+	 * If we don't want zero members, ignore any at the end. If we're
+	 * including member names, then we'll skip past zero members as we
+	 * iterate, so we don't need to do this.
+	 */
+	if (!(flags & (DRGN_FORMAT_OBJECT_MEMBER_NAMES |
+		       DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS)) &&
+	    new->member < new->end) {
+		struct drgn_object member;
+
+		drgn_object_init(&member, obj->prog);
+		do {
+			struct drgn_qualified_type member_type;
+			bool zero;
+
+			err = drgn_member_type(&new->end[-1], &member_type);
+			if (err)
+				break;
+
+			err = drgn_object_slice(&member, obj, member_type,
+						new->end[-1].bit_offset,
+						new->end[-1].bit_field_size);
+			if (err)
+				break;
+
+			err = drgn_object_is_zero(&member, &zero);
+			if (err)
+				break;
+			if (zero)
+				new->end--;
+			else
+				break;
+		} while (new->member < new->end);
+		drgn_object_deinit(&member);
+		if (err)
+			return err;
+	}
+
 	err = c_format_initializer(obj->prog, &iter.iter, indent,
 				   one_line_columns, multi_line_columns,
 				   flags & DRGN_FORMAT_OBJECT_MEMBERS_SAME_LINE,

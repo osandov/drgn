@@ -1352,6 +1352,28 @@ class TestCPretty(ObjectTestCase):
         type_ = struct_type('foo', 0, ())
         self.assertEqual(str(Object(prog, type_, address=0)), '(struct foo){}')
 
+        obj = Object(prog, point_type, value={'x': 1})
+        self.assertEqual(obj.format_(implicit_members=False), """\
+(struct point){
+	.x = (int)1,
+}""")
+        self.assertEqual(
+            obj.format_(member_names=False, implicit_members=False), """\
+(struct point){
+	(int)1,
+}""")
+        obj = Object(prog, point_type, value={'y': 1})
+        self.assertEqual(obj.format_(implicit_members=False), """\
+(struct point){
+	.y = (int)1,
+}""")
+        self.assertEqual(
+            obj.format_(member_names=False, implicit_members=False), """\
+(struct point){
+	(int)0,
+	(int)1,
+}""")
+
     def test_bit_field(self):
         segment = b'\x07\x10\x5e\x5f\x1f\0\0\0'
         prog = mock_program(segments=[
