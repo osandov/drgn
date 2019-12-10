@@ -280,9 +280,15 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 
 		ret = pread(file_segment->fd, p, file_count, file_offset);
 		if (ret == -1) {
-			if (errno == EINTR)
+			if (errno == EINTR) {
 				continue;
-			return drgn_error_create_os("pread", errno, NULL);
+			} else if (errno == EIO && file_segment->eio_is_fault) {
+				return drgn_error_format(DRGN_ERROR_FAULT,
+							 "could not read memory at 0x%" PRIx64,
+							 address);
+			} else {
+				return drgn_error_create_os("pread", errno, NULL);
+			}
 		} else if (ret == 0) {
 			return drgn_error_format(DRGN_ERROR_FAULT,
 						 "short read from memory file");

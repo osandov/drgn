@@ -120,6 +120,11 @@ struct drgn_memory_file_segment {
 	uint64_t file_size;
 	/** File descriptor. */
 	int fd;
+	/**
+	 * If @c true, EIO is treated as a fault. Otherwise, it is treated as an
+	 * OS error.
+	 */
+	bool eio_is_fault;
 };
 
 /** @ref drgn_memory_read_fn which reads from a file. */

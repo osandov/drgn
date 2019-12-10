@@ -358,6 +358,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			current_file_segment->file_offset = phdr->p_offset;
 			current_file_segment->file_size = phdr->p_filesz;
 			current_file_segment->fd = prog->core_fd;
+			current_file_segment->eio_is_fault = false;
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_vaddr,
 							      phdr->p_memsz,
@@ -451,6 +452,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	prog->file_segments[0].file_offset = 0;
 	prog->file_segments[0].file_size = UINT64_MAX;
 	prog->file_segments[0].fd = prog->core_fd;
+	prog->file_segments[0].eio_is_fault = true;
 	prog->num_file_segments = 1;
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_memory_file,
