@@ -119,6 +119,16 @@ struct drgn_language {
 /** The C programming language. */
 extern const struct drgn_language drgn_language_c;
 
+/**
+ * Return flags that should be passed through when formatting an object
+ * recursively.
+ */
+static inline enum drgn_format_object_flags
+drgn_passthrough_format_object_flags(enum drgn_format_object_flags flags)
+{
+	return (flags & DRGN_FORMAT_OBJECT_SYMBOLIZE);
+}
+
 /** @} */
 
 #endif /* DRGN_LANGUAGE_H */

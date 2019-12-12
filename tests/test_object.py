@@ -1394,6 +1394,8 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(Object(prog, type_, value=0xffff0000)),
                          '*(HANDLE)0xffff0000 = 0xffff00f0')
 
+    # TODO: test symbolize.
+
     def test_c_string(self):
         prog = mock_program(segments=[
             MockMemorySegment(b'hello\0', virt_addr=0xffff0000),

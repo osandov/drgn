@@ -790,6 +790,9 @@ Objects
             class members, or array elements, as dereferencing those could lead
             to an infinite loop. Defaults to ``True``.
         :type dereference: bool or None
+        :param symbolize: Include a symbol name and offset for pointer objects.
+            Defaults to ``True``.
+        :type symbolize: bool or None
         :rtype: str
 
 .. function:: NULL(prog, type)
