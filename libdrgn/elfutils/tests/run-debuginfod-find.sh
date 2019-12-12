@@ -101,8 +101,8 @@ export DEBUGINFOD_TIMEOUT=10
 # cannot find it without debuginfod.
 echo "int main() { return 0; }" > ${PWD}/prog.c
 tempfiles prog.c
-gcc -g -o prog ${PWD}/prog.c
- ${abs_top_builddir}/src/strip -g -f prog.debug ${PWD}/prog
+gcc -Wl,--build-id -g -o prog ${PWD}/prog.c
+testrun ${abs_top_builddir}/src/strip -g -f prog.debug ${PWD}/prog
 BUILDID=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../src/readelf \
           -a prog | grep 'Build ID' | cut -d ' ' -f 7`
 
@@ -138,7 +138,7 @@ cmp $filename  ${PWD}/prog.c
 # Build another, non-stripped binary
 echo "int main() { return 0; }" > ${PWD}/prog2.c
 tempfiles prog2.c
-gcc -g -o prog2 ${PWD}/prog2.c
+gcc -Wl,--build-id -g -o prog2 ${PWD}/prog2.c
 BUILDID2=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../src/readelf \
           -a prog2 | grep 'Build ID' | cut -d ' ' -f 7`
 

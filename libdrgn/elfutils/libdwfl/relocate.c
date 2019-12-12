@@ -73,8 +73,9 @@ __libdwfl_relocate_value (Dwfl_Module *mod, Elf *elf, size_t *shstrndx,
 	return CBFAIL;
 
       if (refshdr->sh_addr == (Dwarf_Addr) -1l)
-	/* The callback indicated this section wasn't loaded.  */
-	return DWFL_E_NOT_LOADED;
+	/* The callback indicated this section wasn't really loaded but we
+	   don't really care.  */
+	refshdr->sh_addr = 0;	/* Make no adjustment below.  */
 
       /* Update the in-core file's section header to show the final
 	 load address (or unloadedness).  This serves as a cache,
@@ -360,8 +361,6 @@ relocate (Dwfl_Module * const mod,
 	GElf_Word shndx;
 	Dwfl_Error error = relocate_getsym (mod, relocated, reloc_symtab,
 					    symndx, &sym, &shndx);
-	if (error == DWFL_E_NOT_LOADED)
-	  return DWFL_E_NOERROR;
 	if (unlikely (error != DWFL_E_NOERROR))
 	  return error;
 
@@ -369,8 +368,6 @@ relocate (Dwfl_Module * const mod,
 	  {
 	    /* Maybe we can figure it out anyway.  */
 	    error = resolve_symbol (mod, reloc_symtab, &sym, shndx);
-	    if (error == DWFL_E_NOT_LOADED)
-	      return DWFL_E_NOERROR;
 	    if (error != DWFL_E_NOERROR
 		&& !(error == DWFL_E_RELUNDEF && shndx == SHN_COMMON))
 	      return error;

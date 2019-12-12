@@ -1,953 +1,4 @@
-commit ca5dab3fb3bdce816faca7693de2b63a2f43ad51
-Author: Omar Sandoval <osandov@osandov.com>
-Date:   Wed Dec 11 15:53:55 2019 -0800
-
-    libdwfl: use sections of relocatable files for dwfl_addrmodule
-    
-    dwfl_addrmodule matches a module if the address lies within low_addr and
-    high_addr. This is incorrect for relocatable files, particularly kernel
-    modules: sections of different modules can be intermingled within the
-    same range of addresses. Instead, we should index each section
-    independently.
-
-diff --git a/libdwfl/derelocate.c b/libdwfl/derelocate.c
-index 2f80b20f..238aa6e2 100644
---- a/libdwfl/derelocate.c
-+++ b/libdwfl/derelocate.c
-@@ -32,19 +32,6 @@
- 
- #include "libdwflP.h"
- 
--struct dwfl_relocation
--{
--  size_t count;
--  struct
--  {
--    Elf_Scn *scn;
--    Elf_Scn *relocs;
--    const char *name;
--    GElf_Addr start, end;
--  } refs[0];
--};
--
--
- struct secref
- {
-   struct secref *next;
-@@ -76,8 +63,9 @@ compare_secrefs (const void *a, const void *b)
-   return elf_ndxscn ((*p1)->scn) - elf_ndxscn ((*p2)->scn);
- }
- 
--static int
--cache_sections (Dwfl_Module *mod)
-+int
-+internal_function
-+__libdwfl_cache_sections (Dwfl_Module *mod)
- {
-   if (likely (mod->reloc_info != NULL))
-     return mod->reloc_info->count;
-@@ -242,7 +230,7 @@ dwfl_module_relocations (Dwfl_Module *mod)
-   switch (mod->e_type)
-     {
-     case ET_REL:
--      return cache_sections (mod);
-+      return __libdwfl_cache_sections (mod);
- 
-     case ET_DYN:
-       return 1;
-@@ -278,7 +266,7 @@ dwfl_module_relocation_info (Dwfl_Module *mod, unsigned int idx,
-       return NULL;
-     }
- 
--  if (cache_sections (mod) < 0)
-+  if (__libdwfl_cache_sections (mod) < 0)
-     return NULL;
- 
-   struct dwfl_relocation *sections = mod->reloc_info;
-@@ -330,7 +318,7 @@ check_module (Dwfl_Module *mod)
- static int
- find_section (Dwfl_Module *mod, Dwarf_Addr *addr)
- {
--  if (cache_sections (mod) < 0)
-+  if (__libdwfl_cache_sections (mod) < 0)
-     return -1;
- 
-   struct dwfl_relocation *sections = mod->reloc_info;
-diff --git a/libdwfl/dwfl_addrmodule.c b/libdwfl/dwfl_addrmodule.c
-index 21db4883..1eb45317 100644
---- a/libdwfl/dwfl_addrmodule.c
-+++ b/libdwfl/dwfl_addrmodule.c
-@@ -74,10 +74,27 @@ create_lookup_module (Dwfl *dwfl)
-   for (Dwfl_Module *mod = dwfl->modulelist; mod != NULL; mod = mod->next)
-     if (! mod->gc)
-       {
--	GElf_Addr start = __libdwfl_segment_start(dwfl, mod->low_addr);
--	GElf_Addr end = __libdwfl_segment_end(dwfl, mod->high_addr);
--	if (append_lookup_module(dwfl, mod, start, end))
--	  return true;
-+	Dwarf_Addr bias;
-+	if (mod->dwfl->callbacks->find_elf
-+	    && dwfl_module_getdwarf(mod, &bias)
-+	    && mod->e_type == ET_REL)
-+	  {
-+	    if (__libdwfl_cache_sections (mod) < 0)
-+	      return true;
-+
-+	    struct dwfl_relocation *sections = mod->reloc_info;
-+	    for (size_t i = 0; i < sections->count; i++)
-+	      if (append_lookup_module(dwfl, mod, sections->refs[i].start,
-+				       sections->refs[i].end))
-+		return true;
-+	  }
-+	else
-+	  {
-+	    GElf_Addr start = __libdwfl_segment_start(dwfl, mod->low_addr);
-+	    GElf_Addr end = __libdwfl_segment_end(dwfl, mod->high_addr);
-+	    if (append_lookup_module(dwfl, mod, start, end))
-+	      return true;
-+	  }
-       }
- 
-   qsort (dwfl->lookup_module, dwfl->lookup_module_elts,
-diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index bc05a417..b9a92a8c 100644
---- a/libdwfl/libdwflP.h
-+++ b/libdwfl/libdwflP.h
-@@ -169,6 +169,18 @@ struct dwfl_file
-   GElf_Addr address_sync;
- };
- 
-+struct dwfl_relocation
-+{
-+  size_t count;
-+  struct
-+  {
-+    Elf_Scn *scn;
-+    Elf_Scn *relocs;
-+    const char *name;
-+    GElf_Addr start, end;
-+  } refs[0];
-+};
-+
- struct Dwfl_Module
- {
-   Dwfl *dwfl;
-@@ -492,6 +504,11 @@ extern void __libdwfl_getelf (Dwfl_Module *mod) internal_function;
- extern Dwfl_Error __libdwfl_relocate (Dwfl_Module *mod, Elf *file, bool debug)
-   internal_function;
- 
-+/* Cache SHF_ALLOC sections in MOD->reloc_info.  Returns the number of sections
-+   on success or -1 on error.  */
-+extern int __libdwfl_cache_sections (Dwfl_Module *mod)
-+  internal_function;
-+
- /* Find the section index in mod->main.elf that contains the given
-    *ADDR.  Adjusts *ADDR to be section relative on success, returns
-    SHN_UNDEF on failure.  */
-commit 95694d39dea3c9c4e5731cbe2d8508f684d0f2d3
-Author: Omar Sandoval <osandov@osandov.com>
-Date:   Wed Dec 11 15:47:33 2019 -0800
-
-    libdwfl: store module lookup table separately from segments
-    
-    Currently, the address ranges for segments reported with
-    dwfl_report_segment and modules are stored in the same sorted array.
-    This requires complicated logic in reify_segments for splitting up
-    existing segments and inserting into the table, which can have quadratic
-    runtime in the worst case. Simplify it by adding a separate table for
-    the module list, which we can manage much more simply. This will be
-    especially important for the next change.
-
-diff --git a/libdwfl/dwfl_addrmodule.c b/libdwfl/dwfl_addrmodule.c
-index abf1ff48..21db4883 100644
---- a/libdwfl/dwfl_addrmodule.c
-+++ b/libdwfl/dwfl_addrmodule.c
-@@ -32,11 +32,94 @@
- 
- #include "libdwflP.h"
- 
-+static bool append_lookup_module (Dwfl *dwfl, Dwfl_Module *mod, GElf_Addr start,
-+				  GElf_Addr end)
-+{
-+  if (dwfl->lookup_module_elts >= dwfl->lookup_module_alloc)
-+    {
-+      size_t n = dwfl->lookup_module_alloc;
-+      n = n == 0 ? 16 : n * 2;
-+      struct dwfl_module_segment *tmp;
-+      tmp = realloc (dwfl->lookup_module, n * sizeof (tmp[0]));
-+      if (tmp == NULL)
-+	{
-+	  __libdwfl_seterrno (DWFL_E_NOMEM);
-+	  return true;
-+	}
-+      dwfl->lookup_module = tmp;
-+      dwfl->lookup_module_alloc = n;
-+    }
-+  size_t i = dwfl->lookup_module_elts++;
-+  dwfl->lookup_module[i].start = start;
-+  dwfl->lookup_module[i].end = end;
-+  dwfl->lookup_module[i].mod = mod;
-+  return false;
-+}
-+
-+static int compare_dwfl_module_segment (const void *a, const void *b)
-+{
-+  const struct dwfl_module_segment *seg1 = a;
-+  const struct dwfl_module_segment *seg2 = b;
-+  if (seg1->start < seg2->start)
-+    return -1;
-+  else if (seg1->start > seg2->start)
-+    return 1;
-+  else
-+    return 0;
-+}
-+
-+static bool
-+create_lookup_module (Dwfl *dwfl)
-+{
-+  for (Dwfl_Module *mod = dwfl->modulelist; mod != NULL; mod = mod->next)
-+    if (! mod->gc)
-+      {
-+	GElf_Addr start = __libdwfl_segment_start(dwfl, mod->low_addr);
-+	GElf_Addr end = __libdwfl_segment_end(dwfl, mod->high_addr);
-+	if (append_lookup_module(dwfl, mod, start, end))
-+	  return true;
-+      }
-+
-+  qsort (dwfl->lookup_module, dwfl->lookup_module_elts,
-+	 sizeof (dwfl->lookup_module[0]), compare_dwfl_module_segment);
-+  for (size_t i = 0; i < dwfl->lookup_module_elts; i++)
-+    {
-+      dwfl->lookup_module[i].mod->lookup = i;
-+      /* If the upper boundary of the segment isn't part of the next segment,
-+	 treat it as part of the segment.  */
-+      if (i == dwfl->lookup_module_elts - 1
-+	  || dwfl->lookup_module[i].end < dwfl->lookup_module[i + 1].start)
-+	dwfl->lookup_module[i].end++;
-+    }
-+  return false;
-+}
-+
-+static int search_dwfl_module_segment (const void *key, const void *elt)
-+{
-+  Dwarf_Addr address = *(Dwarf_Addr *)key;
-+  const struct dwfl_module_segment *seg = elt;
-+  if (address < seg->start)
-+    return -1;
-+  else if (address >= seg->end)
-+    return 1;
-+  else
-+    return 0;
-+}
-+
- Dwfl_Module *
- dwfl_addrmodule (Dwfl *dwfl, Dwarf_Addr address)
- {
--  Dwfl_Module *mod;
--  (void) INTUSE(dwfl_addrsegment) (dwfl, address, &mod);
--  return mod;
-+  if (unlikely (dwfl == NULL)
-+      || (unlikely (dwfl->lookup_module_elts == 0)
-+	  && unlikely (create_lookup_module (dwfl))))
-+    return NULL;
-+
-+  struct dwfl_module_segment *seg = bsearch (&address, dwfl->lookup_module,
-+					     dwfl->lookup_module_elts,
-+					     sizeof (dwfl->lookup_module[0]),
-+					     search_dwfl_module_segment);
-+  if (seg == NULL)
-+    return NULL;
-+  return seg->mod;
- }
- INTDEF (dwfl_addrmodule)
-diff --git a/libdwfl/dwfl_getmodules.c b/libdwfl/dwfl_getmodules.c
-index 243cb04d..807fe855 100644
---- a/libdwfl/dwfl_getmodules.c
-+++ b/libdwfl/dwfl_getmodules.c
-@@ -61,17 +61,17 @@ dwfl_getmodules (Dwfl *dwfl,
- 	else
- 	  m = m->next;
-     }
--  else if (((offset & 3) == 2) && likely (dwfl->lookup_module != NULL))
-+  else if (((offset & 3) == 2) && likely (dwfl->lookup_module_elts > 0))
-     {
-       offset >>= 2;
- 
--      if ((size_t) offset - 1 == dwfl->lookup_elts)
-+      if ((size_t) offset - 1 == dwfl->lookup_module_elts)
- 	return 0;
- 
--      if (unlikely ((size_t) offset - 1 > dwfl->lookup_elts))
-+      if (unlikely ((size_t) offset - 1 > dwfl->lookup_module_elts))
- 	return -1;
- 
--      m = dwfl->lookup_module[offset - 1];
-+      m = dwfl->lookup_module[offset - 1].mod;
-       if (unlikely (m == NULL))
- 	return -1;
-     }
-@@ -87,9 +87,9 @@ dwfl_getmodules (Dwfl *dwfl,
-       ++offset;
-       m = m->next;
-       if (ok != DWARF_CB_OK)
--	return ((dwfl->lookup_module == NULL) ? ((offset << 2) | 1)
--		: (((m == NULL ? (ptrdiff_t) dwfl->lookup_elts + 1
--		     : m->segment + 1) << 2) | 2));
-+	return ((dwfl->lookup_module_elts == 0) ? ((offset << 2) | 1)
-+		: (((m == NULL ? (ptrdiff_t) dwfl->lookup_module_elts + 1
-+		     : m->lookup + 1) << 2) | 2));
-     }
-   return 0;
- }
-diff --git a/libdwfl/dwfl_module.c b/libdwfl/dwfl_module.c
-index e7dfdace..4aa9aa2c 100644
---- a/libdwfl/dwfl_module.c
-+++ b/libdwfl/dwfl_module.c
-@@ -135,8 +135,9 @@ INTDEF (dwfl_report_begin_add)
- void
- dwfl_report_begin (Dwfl *dwfl)
- {
--  /* Clear the segment lookup table.  */
-+  /* Clear the segment and module lookup tables.  */
-   dwfl->lookup_elts = 0;
-+  dwfl->lookup_module_elts = 0;
- 
-   for (Dwfl_Module *m = dwfl->modulelist; m != NULL; m = m->next)
-     m->gc = true;
-@@ -150,13 +151,7 @@ use (Dwfl_Module *mod, Dwfl_Module **tailp, Dwfl *dwfl)
- {
-   mod->next = *tailp;
-   *tailp = mod;
--
--  if (unlikely (dwfl->lookup_module != NULL))
--    {
--      free (dwfl->lookup_module);
--      dwfl->lookup_module = NULL;
--    }
--
-+  dwfl->lookup_module_elts = 0;
-   return mod;
- }
- 
-diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index d4914b10..bc05a417 100644
---- a/libdwfl/libdwflP.h
-+++ b/libdwfl/libdwflP.h
-@@ -113,6 +113,13 @@ struct Dwfl_User_Core
-   int fd;                       /* close if >= 0.  */
- };
- 
-+struct dwfl_module_segment
-+{
-+  GElf_Addr start;
-+  GElf_Addr end;
-+  Dwfl_Module *mod;
-+};
-+
- struct Dwfl
- {
-   const Dwfl_Callbacks *callbacks;
-@@ -127,14 +134,18 @@ struct Dwfl
- 
-   GElf_Addr segment_align;	/* Smallest granularity of segments.  */
- 
--  /* Binary search table in three parallel malloc'd arrays.  */
-+  /* Binary search table of segments in two parallel malloc'd arrays.  */
-   size_t lookup_elts;		/* Elements in use.  */
-   size_t lookup_alloc;		/* Elements allococated.  */
-   GElf_Addr *lookup_addr;	/* Start address of segment.  */
--  Dwfl_Module **lookup_module;	/* Module associated with segment, or null.  */
-   int *lookup_segndx;		/* User segment index, or -1.  */
-   int next_segndx;
- 
-+  /* Binary search table of module address ranges.  */
-+  struct dwfl_module_segment *lookup_module;
-+  size_t lookup_module_elts;
-+  size_t lookup_module_alloc;
-+
-   struct Dwfl_User_Core *user_core;
- };
- 
-@@ -216,7 +227,7 @@ struct Dwfl_Module
-   Dwarf_CFI *dwarf_cfi;		/* Cached DWARF CFI for this module.  */
-   Dwarf_CFI *eh_cfi;		/* Cached EH CFI for this module.  */
- 
--  int segment;			/* Index of first segment table entry.  */
-+  int lookup;			/* Index in module lookup table.  */
-   bool gc;			/* Mark/sweep flag.  */
-   bool is_executable;		/* Use Dwfl::executable_for_core?  */
- };
-diff --git a/libdwfl/link_map.c b/libdwfl/link_map.c
-index 29307c74..befb39e4 100644
---- a/libdwfl/link_map.c
-+++ b/libdwfl/link_map.c
-@@ -175,8 +175,7 @@ integrated_memory_callback (Dwfl *dwfl, int ndx,
- 
-   /* Now look for module text covering this address.  */
- 
--  Dwfl_Module *mod;
--  (void) INTUSE(dwfl_addrsegment) (dwfl, vaddr, &mod);
-+  Dwfl_Module *mod = INTUSE(dwfl_addrmodule) (dwfl, vaddr);
-   if (mod == NULL)
-     return false;
- 
-@@ -588,9 +587,7 @@ consider_executable (Dwfl_Module *mod, GElf_Addr at_phdr, GElf_Addr at_entry,
- 		  mod->high_addr -= mod_bias;
- 		  mod->low_addr += bias;
- 		  mod->high_addr += bias;
--
--		  free (mod->dwfl->lookup_module);
--		  mod->dwfl->lookup_module = NULL;
-+		  mod->dwfl->lookup_module_elts = 0;
- 		}
- 	    }
- 	}
-diff --git a/libdwfl/segment.c b/libdwfl/segment.c
-index f6a3e84e..9bf8b282 100644
---- a/libdwfl/segment.c
-+++ b/libdwfl/segment.c
-@@ -76,19 +76,6 @@ insert (Dwfl *dwfl, size_t i, GElf_Addr start, GElf_Addr end, int segndx)
-       dwfl->lookup_alloc = n;
-       dwfl->lookup_addr = naddr;
-       dwfl->lookup_segndx = nsegndx;
--
--      if (dwfl->lookup_module != NULL)
--	{
--	  /* Make sure this array is big enough too.  */
--	  Dwfl_Module **old = dwfl->lookup_module;
--	  dwfl->lookup_module = realloc (dwfl->lookup_module,
--					 sizeof dwfl->lookup_module[0] * n);
--	  if (unlikely (dwfl->lookup_module == NULL))
--	    {
--	      free (old);
--	      return true;
--	    }
--	}
-     }
- 
-   if (unlikely (i < dwfl->lookup_elts))
-@@ -98,17 +85,12 @@ insert (Dwfl *dwfl, size_t i, GElf_Addr start, GElf_Addr end, int segndx)
- 	       move * sizeof dwfl->lookup_addr[0]);
-       memmove (&dwfl->lookup_segndx[i + need], &dwfl->lookup_segndx[i],
- 	       move * sizeof dwfl->lookup_segndx[0]);
--      if (dwfl->lookup_module != NULL)
--	memmove (&dwfl->lookup_module[i + need], &dwfl->lookup_module[i],
--		 move * sizeof dwfl->lookup_module[0]);
-     }
- 
-   if (need_start)
-     {
-       dwfl->lookup_addr[i] = start;
-       dwfl->lookup_segndx[i] = segndx;
--      if (dwfl->lookup_module != NULL)
--	dwfl->lookup_module[i] = NULL;
-       ++i;
-     }
-   else
-@@ -118,8 +100,6 @@ insert (Dwfl *dwfl, size_t i, GElf_Addr start, GElf_Addr end, int segndx)
-     {
-       dwfl->lookup_addr[i] = end;
-       dwfl->lookup_segndx[i] = -1;
--      if (dwfl->lookup_module != NULL)
--	dwfl->lookup_module[i] = NULL;
-     }
- 
-   dwfl->lookup_elts += need;
-@@ -154,131 +134,20 @@ lookup (Dwfl *dwfl, GElf_Addr address, int hint)
-   return -1;
- }
- 
--static bool
--reify_segments (Dwfl *dwfl)
--{
--  int hint = -1;
--  int highest = -1;
--  bool fixup = false;
--  for (Dwfl_Module *mod = dwfl->modulelist; mod != NULL; mod = mod->next)
--    if (! mod->gc)
--      {
--	const GElf_Addr start = __libdwfl_segment_start (dwfl, mod->low_addr);
--	const GElf_Addr end = __libdwfl_segment_end (dwfl, mod->high_addr);
--	bool resized = false;
--
--	int idx = lookup (dwfl, start, hint);
--	if (unlikely (idx < 0))
--	  {
--	    /* Module starts below any segment.  Insert a low one.  */
--	    if (unlikely (insert (dwfl, 0, start, end, -1)))
--	      return true;
--	    idx = 0;
--	    resized = true;
--	  }
--	else if (dwfl->lookup_addr[idx] > start)
--	  {
--	    /* The module starts in the middle of this segment.  Split it.  */
--	    if (unlikely (insert (dwfl, idx + 1, start, end,
--				  dwfl->lookup_segndx[idx])))
--	      return true;
--	    ++idx;
--	    resized = true;
--	  }
--	else if (dwfl->lookup_addr[idx] < start)
--	  {
--	    /* The module starts past the end of this segment.
--	       Add a new one.  */
--	    if (unlikely (insert (dwfl, idx + 1, start, end, -1)))
--	      return true;
--	    ++idx;
--	    resized = true;
--	  }
--
--	if ((size_t) idx + 1 < dwfl->lookup_elts
--	    && end < dwfl->lookup_addr[idx + 1])
--	  {
--	    /* The module ends in the middle of this segment.  Split it.  */
--	    if (unlikely (insert (dwfl, idx + 1,
--				  end, dwfl->lookup_addr[idx + 1], -1)))
--	      return true;
--	    resized = true;
--	  }
--
--	if (dwfl->lookup_module == NULL)
--	  {
--	    dwfl->lookup_module = calloc (dwfl->lookup_alloc,
--					  sizeof dwfl->lookup_module[0]);
--	    if (unlikely (dwfl->lookup_module == NULL))
--	      return true;
--	  }
--
--	/* Cache a backpointer in the module.  */
--	mod->segment = idx;
--
--	/* Put MOD in the table for each segment that's inside it.  */
--	do
--	  dwfl->lookup_module[idx++] = mod;
--	while ((size_t) idx < dwfl->lookup_elts
--	       && dwfl->lookup_addr[idx] < end);
--	assert (dwfl->lookup_module[mod->segment] == mod);
--
--	if (resized && idx - 1 >= highest)
--	  /* Expanding the lookup tables invalidated backpointers
--	     we've already stored.  Reset those ones.  */
--	  fixup = true;
--
--	highest = idx - 1;
--	hint = (size_t) idx < dwfl->lookup_elts ? idx : -1;
--      }
--
--  if (fixup)
--    /* Reset backpointer indices invalidated by table insertions.  */
--    for (size_t idx = 0; idx < dwfl->lookup_elts; ++idx)
--      if (dwfl->lookup_module[idx] != NULL)
--	dwfl->lookup_module[idx]->segment = idx;
--
--  return false;
--}
--
- int
- dwfl_addrsegment (Dwfl *dwfl, Dwarf_Addr address, Dwfl_Module **mod)
- {
-   if (unlikely (dwfl == NULL))
-     return -1;
- 
--  if (unlikely (dwfl->lookup_module == NULL)
--      && mod != NULL
--      && unlikely (reify_segments (dwfl)))
--    {
--      __libdwfl_seterrno (DWFL_E_NOMEM);
--      return -1;
--    }
--
-   int idx = lookup (dwfl, address, -1);
--  if (likely (mod != NULL))
--    {
--      if (unlikely (idx < 0) || unlikely (dwfl->lookup_module == NULL))
--	*mod = NULL;
--      else
--	{
--	  *mod = dwfl->lookup_module[idx];
--
--	  /* If this segment does not have a module, but the address is
--	     the upper boundary of the previous segment's module, use that.  */
--	  if (*mod == NULL && idx > 0 && dwfl->lookup_addr[idx] == address)
--	    {
--	      *mod = dwfl->lookup_module[idx - 1];
--	      if (*mod != NULL && (*mod)->high_addr != address)
--		*mod = NULL;
--	    }
--	}
--    }
--
-   if (likely (idx >= 0))
-     /* Translate internal segment table index to user segment index.  */
-     idx = dwfl->lookup_segndx[idx];
- 
-+  if (mod != NULL)
-+    *mod = INTUSE(dwfl_addrmodule) (dwfl, address);
-+
-   return idx;
- }
- INTDEF (dwfl_addrsegment)
-@@ -301,12 +170,6 @@ dwfl_report_segment (Dwfl *dwfl, int ndx, const GElf_Phdr *phdr, GElf_Addr bias,
- 			    phdr->p_align < dwfl->segment_align))
-     dwfl->segment_align = phdr->p_align;
- 
--  if (unlikely (dwfl->lookup_module != NULL))
--    {
--      free (dwfl->lookup_module);
--      dwfl->lookup_module = NULL;
--    }
--
-   GElf_Addr start = __libdwfl_segment_start (dwfl, bias + phdr->p_vaddr);
-   GElf_Addr end = __libdwfl_segment_end (dwfl,
- 					 bias + phdr->p_vaddr + phdr->p_memsz);
-commit 15a1719253fe7e1dc55f7080b4406321c7318ce0
-Author: Omar Sandoval <osandov@osandov.com>
-Date:   Tue Dec 10 16:39:39 2019 -0800
-
-    libdwfl: remove broken coalescing logic in dwfl_report_segment
-    
-    dwfl_report_segment() has some logic that detects when a segment is
-    contiguous with the previously reported segment, in which case it's
-    supposed to coalesce them. However, in this case, it actually returns
-    without updating the segment array at all. As far as I can tell, this
-    has always been broken. It appears that no one uses the coalescing logic
-    anyways, as they pass IDENT as NULL. Let's just get rid of the logic and
-    add a test case.
-
-diff --git a/.gitignore b/.gitignore
-index 72f22855..43fb7275 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -112,6 +112,7 @@ Makefile.in
- /tests/dwfl-bug-report
- /tests/dwfl-proc-attach
- /tests/dwfl-report-elf-align
-+/tests/dwfl-report-segment-contiguous
- /tests/dwfllines
- /tests/dwflmodtest
- /tests/dwflsyms
-diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index 90a3e103..5345500d 100644
---- a/libdwfl/libdwfl.h
-+++ b/libdwfl/libdwfl.h
-@@ -111,7 +111,7 @@ extern void dwfl_report_begin (Dwfl *dwfl);
- 
- /* Report that segment NDX begins at PHDR->p_vaddr + BIAS.
-    If NDX is < 0, the value succeeding the last call's NDX
--   is used instead (zero on the first call).
-+   is used instead (zero on the first call).  IDENT is ignored.
- 
-    If nonzero, the smallest PHDR->p_align value seen sets the
-    effective page size for the address space DWFL describes.
-@@ -120,21 +120,9 @@ extern void dwfl_report_begin (Dwfl *dwfl);
- 
-    Returns -1 for errors, or NDX (or its assigned replacement) on success.
- 
--   When NDX is the value succeeding the last call's NDX (or is implicitly
--   so as above), IDENT is nonnull and matches the value in the last call,
--   and the PHDR and BIAS values reflect a segment that would be contiguous,
--   in both memory and file, with the last segment reported, then this
--   segment may be coalesced internally with preceding segments.  When given
--   an address inside this segment, dwfl_addrsegment may return the NDX of a
--   preceding contiguous segment.  To prevent coalesced segments, always
--   pass a null pointer for IDENT.
--
--   The values passed are not stored (except to track coalescence).
--   The only information that can be extracted from DWFL later is the
--   mapping of an address to a segment index that starts at or below
--   it.  Reporting segments at all is optional.  Its only benefit to
--   the caller is to offer this quick lookup via dwfl_addrsegment,
--   or use other segment-based calls.  */
-+   Reporting segments at all is optional.  Its only benefit to the caller is to
-+   offer this quick lookup via dwfl_addrsegment, or use other segment-based
-+   calls.  */
- extern int dwfl_report_segment (Dwfl *dwfl, int ndx,
- 				const GElf_Phdr *phdr, GElf_Addr bias,
- 				const void *ident);
-diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index d3ed9d02..d4914b10 100644
---- a/libdwfl/libdwflP.h
-+++ b/libdwfl/libdwflP.h
-@@ -133,12 +133,7 @@ struct Dwfl
-   GElf_Addr *lookup_addr;	/* Start address of segment.  */
-   Dwfl_Module **lookup_module;	/* Module associated with segment, or null.  */
-   int *lookup_segndx;		/* User segment index, or -1.  */
--
--  /* Cache from last dwfl_report_segment call.  */
--  const void *lookup_tail_ident;
--  GElf_Off lookup_tail_vaddr;
--  GElf_Off lookup_tail_offset;
--  int lookup_tail_ndx;
-+  int next_segndx;
- 
-   struct Dwfl_User_Core *user_core;
- };
-diff --git a/libdwfl/segment.c b/libdwfl/segment.c
-index d9599a7f..f6a3e84e 100644
---- a/libdwfl/segment.c
-+++ b/libdwfl/segment.c
-@@ -287,11 +287,15 @@ int
- dwfl_report_segment (Dwfl *dwfl, int ndx, const GElf_Phdr *phdr, GElf_Addr bias,
- 		     const void *ident)
- {
-+  /* This was previously used for coalescing segments, but it was buggy since
-+     day one.  We don't use it anymore.  */
-+  (void)ident;
-+
-   if (dwfl == NULL)
-     return -1;
- 
-   if (ndx < 0)
--    ndx = dwfl->lookup_tail_ndx;
-+    ndx = dwfl->next_segndx;
- 
-   if (phdr->p_align > 1 && (dwfl->segment_align <= 1 ||
- 			    phdr->p_align < dwfl->segment_align))
-@@ -307,30 +311,19 @@ dwfl_report_segment (Dwfl *dwfl, int ndx, const GElf_Phdr *phdr, GElf_Addr bias,
-   GElf_Addr end = __libdwfl_segment_end (dwfl,
- 					 bias + phdr->p_vaddr + phdr->p_memsz);
- 
--  /* Coalesce into the last one if contiguous and matching.  */
--  if (ndx != dwfl->lookup_tail_ndx
--      || ident == NULL
--      || ident != dwfl->lookup_tail_ident
--      || start != dwfl->lookup_tail_vaddr
--      || phdr->p_offset != dwfl->lookup_tail_offset)
--    {
--      /* Normally just appending keeps us sorted.  */
-+  /* Normally just appending keeps us sorted.  */
- 
--      size_t i = dwfl->lookup_elts;
--      while (i > 0 && unlikely (start < dwfl->lookup_addr[i - 1]))
--	--i;
-+  size_t i = dwfl->lookup_elts;
-+  while (i > 0 && unlikely (start < dwfl->lookup_addr[i - 1]))
-+    --i;
- 
--      if (unlikely (insert (dwfl, i, start, end, ndx)))
--	{
--	  __libdwfl_seterrno (DWFL_E_NOMEM);
--	  return -1;
--	}
-+  if (unlikely (insert (dwfl, i, start, end, ndx)))
-+    {
-+      __libdwfl_seterrno (DWFL_E_NOMEM);
-+      return -1;
-     }
- 
--  dwfl->lookup_tail_ident = ident;
--  dwfl->lookup_tail_vaddr = end;
--  dwfl->lookup_tail_offset = end - bias - phdr->p_vaddr + phdr->p_offset;
--  dwfl->lookup_tail_ndx = ndx + 1;
-+  dwfl->next_segndx = ndx + 1;
- 
-   return ndx;
- }
-diff --git a/tests/Makefile.am b/tests/Makefile.am
-index eab4ae6f..2c3ac299 100644
---- a/tests/Makefile.am
-+++ b/tests/Makefile.am
-@@ -50,7 +50,8 @@ check_PROGRAMS = arextract arsymtest newfile saridx scnnames sectiondump \
- 		  test-flag-nobits dwarf-getstring rerequest_tag \
- 		  alldts typeiter typeiter2 low_high_pc \
- 		  test-elf_cntl_gelf_getshdr dwflsyms dwfllines \
--		  dwfl-report-elf-align varlocs backtrace backtrace-child \
-+		  dwfl-report-elf-align dwfl-report-segment-contiguous \
-+		  varlocs backtrace backtrace-child \
- 		  backtrace-data backtrace-dwarf debuglink debugaltlink \
- 		  buildid deleted deleted-lib.so aggregate_size peel_type \
- 		  vdsosyms \
-@@ -113,7 +114,7 @@ TESTS = run-arextract.sh run-arsymtest.sh run-ar.sh newfile test-nlist \
- 	run-native-test.sh run-bug1-test.sh \
- 	run-debuglink.sh run-debugaltlink.sh run-buildid.sh \
- 	dwfl-bug-addr-overflow run-addrname-test.sh \
--	dwfl-bug-fd-leak dwfl-bug-report \
-+	dwfl-bug-fd-leak dwfl-bug-report dwfl-report-segment-contiguous \
- 	run-dwfl-bug-offline-rel.sh run-dwfl-addr-sect.sh \
- 	run-disasm-x86.sh run-disasm-x86-64.sh \
- 	run-early-offscn.sh run-dwarf-getmacros.sh run-dwarf-ranges.sh \
-@@ -589,6 +590,7 @@ test_elf_cntl_gelf_getshdr_LDADD = $(libelf)
- dwflsyms_LDADD = $(libdw) $(libelf) $(argp_LDADD)
- dwfllines_LDADD = $(libdw) $(libelf) $(argp_LDADD)
- dwfl_report_elf_align_LDADD = $(libdw)
-+dwfl_report_segment_contiguous_LDADD = $(libdw) $(libebl) $(libelf)
- varlocs_LDADD = $(libdw) $(libelf) $(argp_LDADD)
- backtrace_LDADD = $(libdw) $(libelf) $(argp_LDADD)
- # backtrace-child-biarch also uses those *_CFLAGS and *_LDLAGS variables:
-diff --git a/tests/dwfl-report-segment-contiguous.c b/tests/dwfl-report-segment-contiguous.c
-new file mode 100644
-index 00000000..61e6bfee
---- /dev/null
-+++ b/tests/dwfl-report-segment-contiguous.c
-@@ -0,0 +1,82 @@
-+/* Test bug in dwfl_report_segment() coalescing.
-+   Copyright (C) 2019 Facebook
-+   This file is part of elfutils.
-+
-+   This file is free software; you can redistribute it and/or modify
-+   it under the terms of the GNU General Public License as published by
-+   the Free Software Foundation; either version 3 of the License, or
-+   (at your option) any later version.
-+
-+   elfutils is distributed in the hope that it will be useful, but
-+   WITHOUT ANY WARRANTY; without even the implied warranty of
-+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-+   GNU General Public License for more details.
-+
-+   You should have received a copy of the GNU General Public License
-+   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
-+
-+#include <config.h>
-+#include <assert.h>
-+#include <inttypes.h>
-+#include <stdio.h>
-+#include <stdio_ext.h>
-+#include <locale.h>
-+#include ELFUTILS_HEADER(dwfl)
-+
-+
-+static const Dwfl_Callbacks offline_callbacks =
-+  {
-+    .find_debuginfo = INTUSE(dwfl_standard_find_debuginfo),
-+    .section_address = INTUSE(dwfl_offline_section_address),
-+  };
-+
-+
-+int
-+main (void)
-+{
-+  /* We use no threads here which can interfere with handling a stream.  */
-+  (void) __fsetlocking (stdout, FSETLOCKING_BYCALLER);
-+
-+  /* Set locale.  */
-+  (void) setlocale (LC_ALL, "");
-+
-+  Dwfl *dwfl = dwfl_begin (&offline_callbacks);
-+  assert (dwfl != NULL);
-+
-+  GElf_Phdr phdr1 =
-+    {
-+      .p_type = PT_LOAD,
-+      .p_flags = PF_R,
-+      .p_offset = 0xf00,
-+      .p_vaddr = 0xf00,
-+      .p_filesz = 0x100,
-+      .p_memsz = 0x100,
-+      .p_align = 4,
-+    };
-+
-+  int ndx = dwfl_report_segment (dwfl, 1, &phdr1, 0, dwfl);
-+  assert(ndx == 1);
-+
-+  ndx = dwfl_addrsegment (dwfl, 0xf00, NULL);
-+  assert(ndx == 1);
-+
-+  GElf_Phdr phdr2 =
-+    {
-+      .p_type = PT_LOAD,
-+      .p_flags = PF_R | PF_W,
-+      .p_offset = 0x1000,
-+      .p_vaddr = 0x1000,
-+      .p_filesz = 0x100,
-+      .p_memsz = 0x100,
-+      .p_align = 4,
-+    };
-+  ndx = dwfl_report_segment (dwfl, 2, &phdr2, 0, dwfl);
-+  assert(ndx == 2);
-+
-+  ndx = dwfl_addrsegment (dwfl, 0x1000, NULL);
-+  assert(ndx == 1 || ndx == 2);
-+
-+  dwfl_end (dwfl);
-+
-+  return 0;
-+}
-commit 035fdeed234236add90cd9adb92bd1ca4490fc64
-Author: Omar Sandoval <osandov@osandov.com>
-Date:   Wed Dec 11 15:19:22 2019 -0800
-
-    libdwfl: return error from __libdwfl_relocate_value for unloaded sections
-    
-    Currently, __libdwfl_relocate_value doesn't distinguish between unloaded
-    sections and sections loaded at address zero. This has a few
-    consequences:
-    
-    * relocate.c attempts relocation on unloaded sections when we don't have
-      anything meaningful to relocate against.
-    * derelocate.c matches addresses which happen to be less than the
-      sh_size of an unloaded section, which can lead to confusing results
-      from dwfl_module_relocate_address and __libdwfl_find_section_ndx.
-    * find_elf_build_id returns an invalid non-zero address if the build ID
-      note is not loaded.
-    
-    Let's return a new error, DWFL_E_NOT_LOADED, from
-    __libdwfl_relocate_value if the section is not loaded that callers can
-    handle appropriately.
-
-diff --git a/libdwfl/dwfl_module_getsym.c b/libdwfl/dwfl_module_getsym.c
-index 8de9a3eb..d75588b2 100644
---- a/libdwfl/dwfl_module_getsym.c
-+++ b/libdwfl/dwfl_module_getsym.c
-@@ -165,7 +165,8 @@ __libdwfl_getsym (Dwfl_Module *mod, int ndx, GElf_Sym *sym, GElf_Addr *addr,
- 	  Dwfl_Error result = __libdwfl_relocate_value (mod, elf,
- 							&symshstrndx,
- 							shndx, &st_value);
--	  if (unlikely (result != DWFL_E_NOERROR))
-+	  if (unlikely (result != DWFL_E_NOERROR
-+			&& result != DWFL_E_NOT_LOADED))
- 	    {
- 	      __libdwfl_seterrno (result);
- 	      return NULL;
-diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index 2aeeb66a..d3ed9d02 100644
---- a/libdwfl/libdwflP.h
-+++ b/libdwfl/libdwflP.h
-@@ -90,7 +90,8 @@ typedef struct Dwfl_Process Dwfl_Process;
-   DWFL_ERROR (NO_ATTACH_STATE, N_("Dwfl has no attached state"))	      \
-   DWFL_ERROR (NO_UNWIND, N_("Unwinding not supported for this architecture")) \
-   DWFL_ERROR (INVALID_ARGUMENT, N_("Invalid argument"))			      \
--  DWFL_ERROR (NO_CORE_FILE, N_("Not an ET_CORE ELF file"))
-+  DWFL_ERROR (NO_CORE_FILE, N_("Not an ET_CORE ELF file"))		      \
-+  DWFL_ERROR (NOT_LOADED, N_("Not loaded"))
- 
- #define DWFL_ERROR(name, text) DWFL_E_##name,
- typedef enum { DWFL_ERRORS DWFL_E_NUM } Dwfl_Error;
-diff --git a/libdwfl/relocate.c b/libdwfl/relocate.c
-index 88b5211d..5c9c08f3 100644
---- a/libdwfl/relocate.c
-+++ b/libdwfl/relocate.c
-@@ -73,9 +73,8 @@ __libdwfl_relocate_value (Dwfl_Module *mod, Elf *elf, size_t *shstrndx,
- 	return CBFAIL;
- 
-       if (refshdr->sh_addr == (Dwarf_Addr) -1l)
--	/* The callback indicated this section wasn't really loaded but we
--	   don't really care.  */
--	refshdr->sh_addr = 0;	/* Make no adjustment below.  */
-+	/* The callback indicated this section wasn't loaded.  */
-+	return DWFL_E_NOT_LOADED;
- 
-       /* Update the in-core file's section header to show the final
- 	 load address (or unloadedness).  This serves as a cache,
-@@ -361,6 +360,8 @@ relocate (Dwfl_Module * const mod,
- 	GElf_Word shndx;
- 	Dwfl_Error error = relocate_getsym (mod, relocated, reloc_symtab,
- 					    symndx, &sym, &shndx);
-+	if (error == DWFL_E_NOT_LOADED)
-+	  return DWFL_E_NOERROR;
- 	if (unlikely (error != DWFL_E_NOERROR))
- 	  return error;
- 
-@@ -368,6 +369,8 @@ relocate (Dwfl_Module * const mod,
- 	  {
- 	    /* Maybe we can figure it out anyway.  */
- 	    error = resolve_symbol (mod, reloc_symtab, &sym, shndx);
-+	    if (error == DWFL_E_NOT_LOADED)
-+	      return DWFL_E_NOERROR;
- 	    if (error != DWFL_E_NOERROR
- 		&& !(error == DWFL_E_RELUNDEF && shndx == SHN_COMMON))
- 	      return error;
-commit 406f897917314391d18445809a657b39469a63ab
+commit b65d60a46447c9af8a4763d5f720636fd7a84ff4
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:30:35 2019 -0700
 
@@ -958,7 +9,7 @@ Date:   Mon Oct 7 01:30:35 2019 -0700
     pieces are in place, add dwfl_frame_eval_expr to provide this feature.
 
 diff --git a/libdw/libdw.map b/libdw/libdw.map
-index c1469c4e..d06a29ed 100644
+index c1469c4ed..d06a29ed6 100644
 --- a/libdw/libdw.map
 +++ b/libdw/libdw.map
 @@ -376,4 +376,5 @@ ELFUTILS_0.178 {
@@ -968,7 +19,7 @@ index c1469c4e..d06a29ed 100644
 +    dwfl_frame_eval_expr;
  } ELFUTILS_0.177;
 diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
-index 9738ca72..4c2df837 100644
+index 9738ca72d..4c2df837f 100644
 --- a/libdwfl/frame_unwind.c
 +++ b/libdwfl/frame_unwind.c
 @@ -787,3 +787,15 @@ dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
@@ -988,7 +39,7 @@ index 9738ca72..4c2df837 100644
 +  return expr_eval (state, state->frame, ops, nops, result, state->bias);
 +}
 diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index b450816b..90a3e103 100644
+index b450816bb..90a3e1032 100644
 --- a/libdwfl/libdwfl.h
 +++ b/libdwfl/libdwfl.h
 @@ -829,6 +829,12 @@ int dwfl_getthread_frames (Dwfl *dwfl, pid_t tid,
@@ -1004,7 +55,7 @@ index b450816b..90a3e103 100644
  #ifdef __cplusplus
  }
  #endif
-commit b1fdbe75f55ed04986f18b6959b5678868b943b5
+commit 55136ea91fd4d2a791573adf18e7247fb1dc866a
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:25:31 2019 -0700
 
@@ -1018,7 +69,7 @@ Date:   Mon Oct 7 01:25:31 2019 -0700
     dwfl_frame_module.
 
 diff --git a/libdw/libdw.map b/libdw/libdw.map
-index f20ffc2f..c1469c4e 100644
+index f20ffc2f9..c1469c4ed 100644
 --- a/libdw/libdw.map
 +++ b/libdw/libdw.map
 @@ -374,4 +374,6 @@ ELFUTILS_0.178 {
@@ -1029,7 +80,7 @@ index f20ffc2f..c1469c4e 100644
 +    dwfl_frame_dwarf_frame;
  } ELFUTILS_0.177;
 diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
-index 61fad8b9..3f660f7e 100644
+index 61fad8b9c..3f660f7e0 100644
 --- a/libdwfl/dwfl_frame.c
 +++ b/libdwfl/dwfl_frame.c
 @@ -94,6 +94,8 @@ state_alloc (Dwfl_Thread *thread)
@@ -1042,7 +93,7 @@ index 61fad8b9..3f660f7e 100644
    state->initial_frame = true;
    state->pc_state = DWFL_FRAME_STATE_ERROR;
 diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
-index d7dfa5a9..9738ca72 100644
+index d7dfa5a94..9738ca72d 100644
 --- a/libdwfl/frame_unwind.c
 +++ b/libdwfl/frame_unwind.c
 @@ -523,6 +523,8 @@ new_unwound (Dwfl_Frame *state)
@@ -1106,7 +157,7 @@ index d7dfa5a9..9738ca72 100644
 +  return state->frame;
 +}
 diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index a22afc78..b450816b 100644
+index a22afc781..b450816bb 100644
 --- a/libdwfl/libdwfl.h
 +++ b/libdwfl/libdwfl.h
 @@ -750,6 +750,16 @@ pid_t dwfl_thread_tid (Dwfl_Thread *thread)
@@ -1127,7 +178,7 @@ index a22afc78..b450816b 100644
     For every known continuous block of registers <FIRSTREG..FIRSTREG+NREGS)
     (inclusive..exclusive) set their content to REGS (array of NREGS items).
 diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index 0dbcebf5..2aeeb66a 100644
+index 0dbcebf58..2aeeb66ab 100644
 --- a/libdwfl/libdwflP.h
 +++ b/libdwfl/libdwflP.h
 @@ -257,6 +257,11 @@ struct Dwfl_Frame
@@ -1142,7 +193,7 @@ index 0dbcebf5..2aeeb66a 100644
    bool signal_frame : 1;
    bool initial_frame : 1;
    enum
-commit e9093ba11a381d9254d0b74d30cafabd9ad4cbc9
+commit 6a6c4d372f19a57004d1fc198258409dd78700aa
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:22:39 2019 -0700
 
@@ -1158,7 +209,7 @@ Date:   Mon Oct 7 01:22:39 2019 -0700
     possible to use the frames after dwfl_thread_getframes returns.
 
 diff --git a/libdw/libdw.map b/libdw/libdw.map
-index decac05c..f20ffc2f 100644
+index decac05c7..f20ffc2f9 100644
 --- a/libdw/libdw.map
 +++ b/libdw/libdw.map
 @@ -370,3 +370,8 @@ ELFUTILS_0.177 {
@@ -1171,7 +222,7 @@ index decac05c..f20ffc2f 100644
 +    dwfl_detach_thread;
 +} ELFUTILS_0.177;
 diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
-index 5bbf850e..61fad8b9 100644
+index 5bbf850e8..61fad8b9c 100644
 --- a/libdwfl/dwfl_frame.c
 +++ b/libdwfl/dwfl_frame.c
 @@ -103,6 +103,29 @@ state_alloc (Dwfl_Thread *thread)
@@ -1348,7 +399,7 @@ index 5bbf850e..61fad8b9 100644
  }
  INTDEF(dwfl_thread_getframes)
 diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index a0c1d357..a22afc78 100644
+index a0c1d3573..a22afc781 100644
 --- a/libdwfl/libdwfl.h
 +++ b/libdwfl/libdwfl.h
 @@ -775,6 +775,18 @@ int dwfl_getthreads (Dwfl *dwfl,
@@ -1371,7 +422,7 @@ index a0c1d357..a22afc78 100644
     have been processed by the callback, returns -1 on error, or the value of
     the callback when not DWARF_CB_OK.  -1 returned on error will
 diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index f631f946..0dbcebf5 100644
+index f631f9464..0dbcebf58 100644
 --- a/libdwfl/libdwflP.h
 +++ b/libdwfl/libdwflP.h
 @@ -244,7 +244,8 @@ struct Dwfl_Thread
@@ -1384,54 +435,7 @@ index f631f946..0dbcebf5 100644
    Dwfl_Frame *unwound;
    void *callbacks_arg;
  };
-commit 17ce615886fc9205f523c8b5796d0f54c1f88208
-Author: Omar Sandoval <osandov@osandov.com>
-Date:   Wed Sep 4 17:13:49 2019 -0700
-
-    libcpu: compile i386_lex.c with -Wno-implicit-fallthrough
-    
-    elfutils is compiled with -Wimplicit-fallthrough=5, so the fallthrough
-    comment in i386_lex.c (generated by flex) doesn't prevent the implicit
-    fallthrough warning. Add -Wno-implicit-fallthrough to i386_lex_CFLAGS.
-
-diff --git a/libcpu/Makefile.am b/libcpu/Makefile.am
-index ac428ff8..57dc698e 100644
---- a/libcpu/Makefile.am
-+++ b/libcpu/Makefile.am
-@@ -84,7 +84,8 @@ i386_lex_no_Werror = yes
- 
- libeu = ../lib/libeu.a
- 
--i386_lex_CFLAGS = -Wno-unused-label -Wno-unused-function -Wno-sign-compare
-+i386_lex_CFLAGS = -Wno-unused-label -Wno-unused-function -Wno-sign-compare \
-+		  -Wno-implicit-fallthrough
- i386_parse.o: i386_parse.c i386.mnemonics
- i386_parse_CFLAGS = -DNMNES="`wc -l < i386.mnemonics`"
- i386_lex.o: i386_parse.h
-commit 95c2741dbd14598916b8d7337c9f0972bd2e6864
-Author: Omar Sandoval <osandov@osandov.com>
-Date:   Wed Sep 4 18:12:12 2019 -0700
-
-    configure: Fix -D_FORTIFY_SOURCE=2 check when CFLAGS contains -Wno-error
-    
-    If CFLAGS contains -Wno-error, then the check for -D_FORTIFY_SOURCE=2
-    won't fail when appropriate. Make sure we add -Werror after the
-    user-defined CFLAGS.
-
-diff --git a/configure.ac b/configure.ac
-index d296d091..672c223a 100644
---- a/configure.ac
-+++ b/configure.ac
-@@ -274,7 +274,7 @@ case "$CFLAGS" in
-     ;;
-   *)
-     save_CFLAGS="$CFLAGS"
--    CFLAGS="-D_FORTIFY_SOURCE=2 -Werror $CFLAGS"
-+    CFLAGS="-D_FORTIFY_SOURCE=2 $CFLAGS -Werror"
-     AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
-       #include <string.h>
-       int main() { return 0; }
-commit 1a4523766010f27bebf7c418cd1e1df37dc8e7e1
+commit 09d612a0892f1f49885c49ebc750020264031ca4
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:40 2019 -0700
 
@@ -1443,7 +447,7 @@ Date:   Wed Sep 4 17:13:40 2019 -0700
     build them from.
 
 diff --git a/backends/Makefile.am b/backends/Makefile.am
-index f4052125..1beb661e 100644
+index f4052125b..1beb661eb 100644
 --- a/backends/Makefile.am
 +++ b/backends/Makefile.am
 @@ -34,7 +34,10 @@ endif
@@ -1459,7 +463,7 @@ index f4052125..1beb661e 100644
  modules = i386 sh x86_64 ia64 alpha arm aarch64 sparc ppc ppc64 s390 \
  	  tilegx m68k bpf riscv csky
 diff --git a/configure.ac b/configure.ac
-index 207e5a03..d296d091 100644
+index 68ab925c2..5fcdd518d 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -70,6 +70,11 @@ AC_ARG_ENABLE([programs],
@@ -1475,7 +479,7 @@ index 207e5a03..d296d091 100644
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
 diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
-index f4756c92..dcae77d0 100644
+index f4756c92f..dcae77d07 100644
 --- a/debuginfod/Makefile.am
 +++ b/debuginfod/Makefile.am
 @@ -86,16 +86,20 @@ libdebuginfod.so$(EXEEXT): $(srcdir)/libdebuginfod.map $(libdebuginfod_so_LIBS)
@@ -1500,7 +504,7 @@ index f4756c92..dcae77d0 100644
  
  EXTRA_DIST = libdebuginfod.map
 diff --git a/libasm/Makefile.am b/libasm/Makefile.am
-index b2bff929..8a5a9d0f 100644
+index b2bff9292..8a5a9d0f0 100644
 --- a/libasm/Makefile.am
 +++ b/libasm/Makefile.am
 @@ -34,8 +34,10 @@ GCC_INCLUDE = -I$(shell $(CC) -print-file-name=include)
@@ -1536,7 +540,7 @@ index b2bff929..8a5a9d0f 100644
  
  noinst_HEADERS = libasmP.h symbolhash.h
 diff --git a/libcpu/Makefile.am b/libcpu/Makefile.am
-index 03c71ea3..ac428ff8 100644
+index 59def7d1b..57dc698ed 100644
 --- a/libcpu/Makefile.am
 +++ b/libcpu/Makefile.am
 @@ -38,7 +38,10 @@ LEXCOMPILE = $(LEX) $(LFLAGS) $(AM_LFLAGS) -P$(<F:lex.l=)
@@ -1552,7 +556,7 @@ index 03c71ea3..ac428ff8 100644
  noinst_HEADERS = i386_dis.h x86_64_dis.h
  
 diff --git a/libdw/Makefile.am b/libdw/Makefile.am
-index 33b5838d..0297520b 100644
+index 33b5838dc..0297520bb 100644
 --- a/libdw/Makefile.am
 +++ b/libdw/Makefile.am
 @@ -35,8 +35,10 @@ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdwelf -pthread
@@ -1588,7 +592,7 @@ index 33b5838d..0297520b 100644
  
  libdwfl_objects = $(shell $(AR) t ../libdwfl/libdwfl.a)
 diff --git a/libdwelf/Makefile.am b/libdwelf/Makefile.am
-index a35a2873..29cc51f5 100644
+index a35a2873c..29cc51f59 100644
 --- a/libdwelf/Makefile.am
 +++ b/libdwelf/Makefile.am
 @@ -34,7 +34,10 @@ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdw \
@@ -1604,7 +608,7 @@ index a35a2873..29cc51f5 100644
  pkginclude_HEADERS = libdwelf.h
  noinst_HEADERS = libdwelfP.h
 diff --git a/libdwfl/Makefile.am b/libdwfl/Makefile.am
-index 47bd62a5..952be8ba 100644
+index 47bd62a5e..952be8ba5 100644
 --- a/libdwfl/Makefile.am
 +++ b/libdwfl/Makefile.am
 @@ -35,7 +35,9 @@ AM_CPPFLAGS += -I$(srcdir) -I$(srcdir)/../libelf -I$(srcdir)/../libebl \
@@ -1618,7 +622,7 @@ index 47bd62a5..952be8ba 100644
  pkginclude_HEADERS = libdwfl.h
  
 diff --git a/libebl/Makefile.am b/libebl/Makefile.am
-index d0d475b8..b8e0eeb2 100644
+index d0d475b83..b8e0eeb26 100644
 --- a/libebl/Makefile.am
 +++ b/libebl/Makefile.am
 @@ -34,7 +34,10 @@ endif
@@ -1634,7 +638,7 @@ index d0d475b8..b8e0eeb2 100644
  libebl_a_SOURCES = eblopenbackend.c eblclosebackend.c eblreloctypename.c \
  		   eblsegmenttypename.c eblsectiontypename.c \
 diff --git a/libelf/Makefile.am b/libelf/Makefile.am
-index d5d63f73..94e6e38f 100644
+index d5d63f733..94e6e38f6 100644
 --- a/libelf/Makefile.am
 +++ b/libelf/Makefile.am
 @@ -35,8 +35,10 @@ GCC_INCLUDE = -I$(shell $(CC) -print-file-name=include)
@@ -1664,7 +668,7 @@ index d5d63f73..94e6e38f 100644
  
  EXTRA_DIST = libelf.map
  
-commit 90336223f0324a7ef87acc4cf918b8ba234d6141
+commit 8c342f6d3662e48e94495e35bf8745c901ff60b4
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:23 2019 -0700
 
@@ -1675,7 +679,7 @@ Date:   Wed Sep 4 17:13:23 2019 -0700
     still to build everything.
 
 diff --git a/Makefile.am b/Makefile.am
-index bd8926b5..0b13c717 100644
+index bd8926b52..0b13c717f 100644
 --- a/Makefile.am
 +++ b/Makefile.am
 @@ -27,7 +27,11 @@ AM_MAKEFLAGS = --no-print-directory
@@ -1692,7 +696,7 @@ index bd8926b5..0b13c717 100644
  if DEBUGINFOD
  SUBDIRS += debuginfod
 diff --git a/configure.ac b/configure.ac
-index 5a2dc373..207e5a03 100644
+index 25555d0bc..68ab925c2 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -65,6 +65,11 @@ AC_CONFIG_FILES([debuginfod/Makefile])
@@ -1708,7 +712,7 @@ index 5a2dc373..207e5a03 100644
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
 diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
-index 52ead30a..f4756c92 100644
+index 52ead30ae..f4756c92f 100644
 --- a/debuginfod/Makefile.am
 +++ b/debuginfod/Makefile.am
 @@ -57,7 +57,9 @@ libeu = ../lib/libeu.a

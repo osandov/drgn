@@ -207,6 +207,15 @@ if test "$ac_cv_zdefs" = "yes"; then
 	dso_LDFLAGS="$dso_LDFLAGS $ZDEFS_LDFLAGS"
 fi
 
+# We really want build-ids. Warn and force generating them if gcc was
+# configure without --enable-linker-build-id
+AC_CACHE_CHECK([whether the compiler generates build-ids], ac_cv_buildid, [dnl
+AC_LINK_IFELSE([AC_LANG_PROGRAM()],[ac_cv_buildid=yes; readelf -n conftest$EXEEXT | grep -q NT_GNU_BUILD_ID || ac_cv_buildid=no],AC_MSG_FAILURE([unexpected compile failure]))])
+if test "$ac_cv_buildid" = "no"; then
+	AC_MSG_WARN([compiler doesn't generate build-id by default])
+	LDFLAGS="$LDFLAGS -Wl,--build-id"
+fi
+
 ZRELRO_LDFLAGS="-Wl,-z,relro"
 AC_CACHE_CHECK([whether gcc supports $ZRELRO_LDFLAGS], ac_cv_zrelro, [dnl
 save_LDFLAGS="$LDFLAGS"

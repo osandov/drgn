@@ -1,16 +1,16 @@
 # -*- rpm-spec-*-
-Summary: A collection of utilities and DSOs to handle ELF files and DWARF data
 Name: elfutils
 Version: @PACKAGE_VERSION@
 Release: 1
 URL: http://elfutils.org/
 License: GPLv3+ and (GPLv2+ or LGPLv3+) and GFDL
 Source: ftp://sourceware.org/pub/elfutils/%{version}/elfutils-%{version}.tar.bz2
+Summary: A collection of utilities and DSOs to handle ELF files and DWARF data
 
 Requires: elfutils-libelf = %{version}-%{release}
 Requires: elfutils-libs = %{version}-%{release}
 # Can be a Recommends if rpm supports that
-Requires: elfutils-debuginfod-client
+Requires: elfutils-debuginfod-client = %{version}-%{release}
 
 BuildRequires: gcc
 # For libstdc++ demangle support
@@ -54,7 +54,7 @@ License: GPLv2+ or LGPLv3+
 Requires: elfutils-libelf = %{version}-%{release}
 Requires: default-yama-scope
 # Can be a Recommends if rpm supports that
-Requires: elfutils-debuginfod-client
+Requires: elfutils-debuginfod-client = %{version}-%{release}
 
 %description libs
 The elfutils-libs package contains libraries which implement DWARF, ELF,
@@ -68,10 +68,8 @@ Summary: Development libraries to handle compiled objects
 License: GPLv2+ or LGPLv3+
 Requires: elfutils-libs = %{version}-%{release}
 Requires: elfutils-libelf-devel = %{version}-%{release}
-%if 0%{?rhel} >= 8 || 0%{?fedora} >= 20
-Recommends: elfutils-debuginfod-client-devel
-%else
-Requires: elfutils-debuginfod-client-devel
+# Can be a Recommends if rpm supports that
+Requires: elfutils-debuginfod-client-devel = %{version}-%{release}
 %endif
 
 %description devel
@@ -87,8 +85,8 @@ Requires: elfutils-devel = %{version}-%{release}
 Requires: elfutils-libelf-devel-static = %{version}-%{release}
 
 %description devel-static
-The elfutils-devel-static archive contains the static archives
-with the code the handle compiled objects.
+The elfutils-devel-static package contains the static archives
+with the code to handle compiled objects.
 
 %package libelf
 Summary: Library to read and write ELF files
@@ -144,10 +142,14 @@ License: GPLv3+ and (GPLv2+ or LGPLv3+)
 %package debuginfod-client-devel
 Summary: Libraries and headers to build debuginfod client applications
 License: GPLv2+ or LGPLv3+
+Requires: debuginfod-client = %{version}-%{release}
 
 %package debuginfod
 Summary: HTTP ELF/DWARF file server addressed by build-id
 License: GPLv3+
+Requires: elfutils-libs = %{version}-%{release}
+Requires: elfutils-libelf = %{version}-%{release}
+Requires: elfutils-debuginfod-client = %{version}-%{release}
 BuildRequires: systemd
 Requires(post):   systemd
 Requires(preun):  systemd
@@ -289,6 +291,7 @@ fi
 %files debuginfod-client
 %defattr(-,root,root)
 %{_libdir}/libdebuginfod-%{version}.so
+%{_libdir}/libdebuginfod.so.*
 %{_bindir}/debuginfod-find
 %{_mandir}/man1/debuginfod-find.1*
 
@@ -297,7 +300,7 @@ fi
 %{_libdir}/pkgconfig/libdebuginfod.pc
 %{_mandir}/man3/debuginfod_*.3*
 %{_includedir}/elfutils/debuginfod.h
-%{_libdir}/libdebuginfod.so*
+%{_libdir}/libdebuginfod.so
 
 %files debuginfod
 %defattr(-,root,root)

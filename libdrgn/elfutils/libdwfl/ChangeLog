@@ -1,3 +1,8 @@
+2019-12-05  Mark Wielaard  <mark@klomp.org>
+
+	* linux-kernel-modules.c (find_kernel_elf): Also try to find
+	vmlinux image.
+
 2019-10-28  Aaron Merey  <amerey@redhat.com>
 
 	* dwfl_build_id_find_elf.c (dwfl_build_id_find_elf): Call debuginfod

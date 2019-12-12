@@ -280,6 +280,7 @@ main (int argc __attribute__ ((unused)), char **argv __attribute__ ((unused)))
   {
     case -1:
       assert (0);
+      break;
     case 0:;
       long l = ptrace (PTRACE_TRACEME, 0, NULL, NULL);
       assert (l == 0);

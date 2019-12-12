@@ -90,8 +90,7 @@ typedef struct Dwfl_Process Dwfl_Process;
   DWFL_ERROR (NO_ATTACH_STATE, N_("Dwfl has no attached state"))	      \
   DWFL_ERROR (NO_UNWIND, N_("Unwinding not supported for this architecture")) \
   DWFL_ERROR (INVALID_ARGUMENT, N_("Invalid argument"))			      \
-  DWFL_ERROR (NO_CORE_FILE, N_("Not an ET_CORE ELF file"))		      \
-  DWFL_ERROR (NOT_LOADED, N_("Not loaded"))
+  DWFL_ERROR (NO_CORE_FILE, N_("Not an ET_CORE ELF file"))
 
 #define DWFL_ERROR(name, text) DWFL_E_##name,
 typedef enum { DWFL_ERRORS DWFL_E_NUM } Dwfl_Error;
@@ -113,13 +112,6 @@ struct Dwfl_User_Core
   int fd;                       /* close if >= 0.  */
 };
 
-struct dwfl_module_segment
-{
-  GElf_Addr start;
-  GElf_Addr end;
-  Dwfl_Module *mod;
-};
-
 struct Dwfl
 {
   const Dwfl_Callbacks *callbacks;
@@ -134,17 +126,18 @@ struct Dwfl
 
   GElf_Addr segment_align;	/* Smallest granularity of segments.  */
 
-  /* Binary search table of segments in two parallel malloc'd arrays.  */
+  /* Binary search table in three parallel malloc'd arrays.  */
   size_t lookup_elts;		/* Elements in use.  */
   size_t lookup_alloc;		/* Elements allococated.  */
   GElf_Addr *lookup_addr;	/* Start address of segment.  */
+  Dwfl_Module **lookup_module;	/* Module associated with segment, or null.  */
   int *lookup_segndx;		/* User segment index, or -1.  */
-  int next_segndx;
 
-  /* Binary search table of module address ranges.  */
-  struct dwfl_module_segment *lookup_module;
-  size_t lookup_module_elts;
-  size_t lookup_module_alloc;
+  /* Cache from last dwfl_report_segment call.  */
+  const void *lookup_tail_ident;
+  GElf_Off lookup_tail_vaddr;
+  GElf_Off lookup_tail_offset;
+  int lookup_tail_ndx;
 
   struct Dwfl_User_Core *user_core;
 };
@@ -167,18 +160,6 @@ struct dwfl_file
   /* This is an address chosen for synchronization between the main file
      and the debug file.  See dwfl_module_getdwarf.c for how it's chosen.  */
   GElf_Addr address_sync;
-};
-
-struct dwfl_relocation
-{
-  size_t count;
-  struct
-  {
-    Elf_Scn *scn;
-    Elf_Scn *relocs;
-    const char *name;
-    GElf_Addr start, end;
-  } refs[0];
 };
 
 struct Dwfl_Module
@@ -239,7 +220,7 @@ struct Dwfl_Module
   Dwarf_CFI *dwarf_cfi;		/* Cached DWARF CFI for this module.  */
   Dwarf_CFI *eh_cfi;		/* Cached EH CFI for this module.  */
 
-  int lookup;			/* Index in module lookup table.  */
+  int segment;			/* Index of first segment table entry.  */
   bool gc;			/* Mark/sweep flag.  */
   bool is_executable;		/* Use Dwfl::executable_for_core?  */
 };
@@ -502,11 +483,6 @@ extern void __libdwfl_getelf (Dwfl_Module *mod) internal_function;
 
    When DEBUG is false, apply partial relocation to all sections.  */
 extern Dwfl_Error __libdwfl_relocate (Dwfl_Module *mod, Elf *file, bool debug)
-  internal_function;
-
-/* Cache SHF_ALLOC sections in MOD->reloc_info.  Returns the number of sections
-   on success or -1 on error.  */
-extern int __libdwfl_cache_sections (Dwfl_Module *mod)
   internal_function;
 
 /* Find the section index in mod->main.elf that contains the given

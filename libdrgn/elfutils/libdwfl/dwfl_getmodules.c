@@ -61,17 +61,17 @@ dwfl_getmodules (Dwfl *dwfl,
 	else
 	  m = m->next;
     }
-  else if (((offset & 3) == 2) && likely (dwfl->lookup_module_elts > 0))
+  else if (((offset & 3) == 2) && likely (dwfl->lookup_module != NULL))
     {
       offset >>= 2;
 
-      if ((size_t) offset - 1 == dwfl->lookup_module_elts)
+      if ((size_t) offset - 1 == dwfl->lookup_elts)
 	return 0;
 
-      if (unlikely ((size_t) offset - 1 > dwfl->lookup_module_elts))
+      if (unlikely ((size_t) offset - 1 > dwfl->lookup_elts))
 	return -1;
 
-      m = dwfl->lookup_module[offset - 1].mod;
+      m = dwfl->lookup_module[offset - 1];
       if (unlikely (m == NULL))
 	return -1;
     }
@@ -87,9 +87,9 @@ dwfl_getmodules (Dwfl *dwfl,
       ++offset;
       m = m->next;
       if (ok != DWARF_CB_OK)
-	return ((dwfl->lookup_module_elts == 0) ? ((offset << 2) | 1)
-		: (((m == NULL ? (ptrdiff_t) dwfl->lookup_module_elts + 1
-		     : m->lookup + 1) << 2) | 2));
+	return ((dwfl->lookup_module == NULL) ? ((offset << 2) | 1)
+		: (((m == NULL ? (ptrdiff_t) dwfl->lookup_elts + 1
+		     : m->segment + 1) << 2) | 2));
     }
   return 0;
 }

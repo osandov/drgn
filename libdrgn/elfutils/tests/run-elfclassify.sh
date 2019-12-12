@@ -267,7 +267,7 @@ $(echo $kmod_files | sed -e "s/ /\n/g")
 EOF
 
 echo "gnu compressed kmods are unstripped"
-${abs_top_builddir}/src/elfcompress -t gnu --force $kmod_files
+testrun ${abs_top_builddir}/src/elfcompress -t gnu --force $kmod_files
 testrun ${abs_top_builddir}/src/elfclassify --unstripped $kmod_files
 testrun_compare ${abs_top_builddir}/src/elfclassify --unstripped --print $kmod_files <<EOF
 $(echo $kmod_files | sed -e "s/ /\n/g")
@@ -312,7 +312,7 @@ $(echo $debug_files | sed -e "s/ /\n/g")
 EOF
 
 echo "compress the debug sections and try again"
-${abs_top_builddir}/src/elfcompress -t gnu --force $debug_files
+testrun ${abs_top_builddir}/src/elfcompress -t gnu --force $debug_files
 
 echo "again unstripped"
 testrun ${abs_top_builddir}/src/elfclassify --unstripped $debug_files

@@ -1,3 +1,19 @@
+2019-12-06  Mark Wielaard  <mark@klomp.org>
+
+	* run-debuginfod-find.sh: Force -Wl,--build-id.
+
+2019-12-05  Mark Wielaard  <mark@klomp.org>
+
+	* run-findinfod-find.sh: Run strip under testrun.
+
+2019-12-06  Mark Wielaard  <mark@klomp.org>
+
+	* backtrace-data.c (main): Add break after assert.
+
+2019-12-05  Mark Wielaard  <mark@klomp.org>
+
+	* run-elfclassify.sh: Run elfcompress under testrun.
+
 2019-11-26  Mark Wielaard  <mark@klomp.org>
 
 	* Makefile.am (BUILD_STATIC): Add libraries needed for libdw.

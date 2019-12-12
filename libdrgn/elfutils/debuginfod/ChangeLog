@@ -1,3 +1,13 @@
+2019-12-09  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod-client.c (debuginfod_query_server): Check
+	server_urls_envvar early.
+
+2019-12-03  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod-client.c (debuginfod_query_server): Use separate
+	local variables for CURLcode curl_res and CURLMcode curlm_res.
+
 2019-11-26  Mark Wielaard  <mark@klomp.org>
 
 	* Makefile.am (BUILD_STATIC): Add needed libraries for libdw and
