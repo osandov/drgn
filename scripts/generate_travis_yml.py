@@ -8,7 +8,7 @@ can't easily express this, so this script generates the jobs manually.
 
 
 PYTHON = ['3.8', '3.7', '3.6']
-KERNEL = ['5.4', '5.3', '4.19', '4.14', '4.9', '4.4']
+KERNEL = ['5.5', '5.4', '5.3', '4.19', '4.14', '4.9', '4.4']
 
 
 if __name__ == '__main__':

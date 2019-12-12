@@ -34,6 +34,23 @@ jobs:
             - zlib1g-dev
       install:
       script: python setup.py build -j "$(nproc)" test
+    - name: "vmtest Linux 5.5"
+      language: minimal
+      env: KERNEL=5.5
+      addons:
+        apt:
+          packages:
+            - qemu-kvm
+            - rsync
+            - zstd
+      install: sudo adduser "$USER" kvm
+      before_script:
+        # The double sudo is necessary to pick up the new group membership.
+        - sudo -E sudo -E -u "$USER" scripts/vmtest/run.sh -k "$KERNEL"'.*' -o -d ~ ~/root.img; exitstatus=$?
+        # Exit status 0 is success, 1 is test failure (should fail in the script
+        # step), anything else is an error (should fail here).
+        - test $exitstatus -le 1
+      script: test $exitstatus -eq 0
     - name: "vmtest Linux 5.4"
       language: minimal
       env: KERNEL=5.4
