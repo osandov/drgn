@@ -16,6 +16,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <elfutils/libdw.h>
 #include <elfutils/version.h>
 
@@ -152,6 +153,11 @@ _Static_assert(sizeof(off_t) == 8 || sizeof(off_t) == 4,
 
 #define for_each_bit(i, mask)	\
 	for (i = -1; mask && (i = ctz(mask), mask &= mask - 1, 1);)
+
+static inline bool strstartswith(const char *s, const char *prefix)
+{
+	return strncmp(s, prefix, strlen(prefix)) == 0;
+}
 
 void *realloc_array(void *ptr, size_t nmemb, size_t size);
 void *malloc_array(size_t nmemb, size_t size);

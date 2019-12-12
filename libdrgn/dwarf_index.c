@@ -1081,7 +1081,7 @@ static struct drgn_error *apply_elf_relocations(Elf *elf)
 		if (!scnname)
 			continue;
 
-		if (strncmp(scnname, ".rela.debug_", 12) == 0) {
+		if (strstartswith(scnname, ".rela.debug_")) {
 			Elf_Scn *info_scn, *link_scn;
 
 			info_scn = elf_getscn(elf, shdr->sh_info);
