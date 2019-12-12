@@ -112,6 +112,7 @@ Makefile.in
 /tests/dwfl-bug-report
 /tests/dwfl-proc-attach
 /tests/dwfl-report-elf-align
+/tests/dwfl-report-segment-contiguous
 /tests/dwfllines
 /tests/dwflmodtest
 /tests/dwflsyms

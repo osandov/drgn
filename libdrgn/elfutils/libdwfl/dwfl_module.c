@@ -135,8 +135,9 @@ INTDEF (dwfl_report_begin_add)
 void
 dwfl_report_begin (Dwfl *dwfl)
 {
-  /* Clear the segment lookup table.  */
+  /* Clear the segment and module lookup tables.  */
   dwfl->lookup_elts = 0;
+  dwfl->lookup_module_elts = 0;
 
   for (Dwfl_Module *m = dwfl->modulelist; m != NULL; m = m->next)
     m->gc = true;
@@ -150,13 +151,7 @@ use (Dwfl_Module *mod, Dwfl_Module **tailp, Dwfl *dwfl)
 {
   mod->next = *tailp;
   *tailp = mod;
-
-  if (unlikely (dwfl->lookup_module != NULL))
-    {
-      free (dwfl->lookup_module);
-      dwfl->lookup_module = NULL;
-    }
-
+  dwfl->lookup_module_elts = 0;
   return mod;
 }
 

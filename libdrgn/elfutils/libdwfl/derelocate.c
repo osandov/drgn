@@ -32,19 +32,6 @@
 
 #include "libdwflP.h"
 
-struct dwfl_relocation
-{
-  size_t count;
-  struct
-  {
-    Elf_Scn *scn;
-    Elf_Scn *relocs;
-    const char *name;
-    GElf_Addr start, end;
-  } refs[0];
-};
-
-
 struct secref
 {
   struct secref *next;
@@ -76,8 +63,9 @@ compare_secrefs (const void *a, const void *b)
   return elf_ndxscn ((*p1)->scn) - elf_ndxscn ((*p2)->scn);
 }
 
-static int
-cache_sections (Dwfl_Module *mod)
+int
+internal_function
+__libdwfl_cache_sections (Dwfl_Module *mod)
 {
   if (likely (mod->reloc_info != NULL))
     return mod->reloc_info->count;
@@ -242,7 +230,7 @@ dwfl_module_relocations (Dwfl_Module *mod)
   switch (mod->e_type)
     {
     case ET_REL:
-      return cache_sections (mod);
+      return __libdwfl_cache_sections (mod);
 
     case ET_DYN:
       return 1;
@@ -278,7 +266,7 @@ dwfl_module_relocation_info (Dwfl_Module *mod, unsigned int idx,
       return NULL;
     }
 
-  if (cache_sections (mod) < 0)
+  if (__libdwfl_cache_sections (mod) < 0)
     return NULL;
 
   struct dwfl_relocation *sections = mod->reloc_info;
@@ -330,7 +318,7 @@ check_module (Dwfl_Module *mod)
 static int
 find_section (Dwfl_Module *mod, Dwarf_Addr *addr)
 {
-  if (cache_sections (mod) < 0)
+  if (__libdwfl_cache_sections (mod) < 0)
     return -1;
 
   struct dwfl_relocation *sections = mod->reloc_info;

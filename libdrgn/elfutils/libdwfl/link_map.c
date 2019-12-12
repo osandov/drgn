@@ -175,8 +175,7 @@ integrated_memory_callback (Dwfl *dwfl, int ndx,
 
   /* Now look for module text covering this address.  */
 
-  Dwfl_Module *mod;
-  (void) INTUSE(dwfl_addrsegment) (dwfl, vaddr, &mod);
+  Dwfl_Module *mod = INTUSE(dwfl_addrmodule) (dwfl, vaddr);
   if (mod == NULL)
     return false;
 
@@ -588,9 +587,7 @@ consider_executable (Dwfl_Module *mod, GElf_Addr at_phdr, GElf_Addr at_entry,
 		  mod->high_addr -= mod_bias;
 		  mod->low_addr += bias;
 		  mod->high_addr += bias;
-
-		  free (mod->dwfl->lookup_module);
-		  mod->dwfl->lookup_module = NULL;
+		  mod->dwfl->lookup_module_elts = 0;
 		}
 	    }
 	}

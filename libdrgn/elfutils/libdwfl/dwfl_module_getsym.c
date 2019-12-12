@@ -165,7 +165,8 @@ __libdwfl_getsym (Dwfl_Module *mod, int ndx, GElf_Sym *sym, GElf_Addr *addr,
 	  Dwfl_Error result = __libdwfl_relocate_value (mod, elf,
 							&symshstrndx,
 							shndx, &st_value);
-	  if (unlikely (result != DWFL_E_NOERROR))
+	  if (unlikely (result != DWFL_E_NOERROR
+			&& result != DWFL_E_NOT_LOADED))
 	    {
 	      __libdwfl_seterrno (result);
 	      return NULL;
