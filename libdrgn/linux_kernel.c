@@ -883,7 +883,7 @@ get_kernel_module_name_from_modinfo(Elf_Scn *modinfo_scn, const char **ret)
 			nul = memchr(p, 0, end - p);
 			if (!nul)
 				break;
-			if (strstartswith(p, "name=") == 0) {
+			if (strstartswith(p, "name=")) {
 				*ret = p + 5;
 				return NULL;
 			}
