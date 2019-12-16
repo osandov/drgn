@@ -84,7 +84,6 @@ _mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
                    ctypes.c_ulong, ctypes.c_void_p]
 MS_BIND = 4096
 def mount(source, target, fstype, flags, data):
-    # TODO: errno?
     if _mount(os.fsencode(source), os.fsencode(target), fstype.encode(), flags,
               data.encode()) == -1:
         errno = ctypes.get_errno()
