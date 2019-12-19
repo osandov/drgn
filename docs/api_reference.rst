@@ -530,16 +530,24 @@ Objects
     :func:`repr()` of an object returns a Python representation of the object:
 
     >>> print(repr(prog['jiffies']))
-    Object(prog, 'volatile long unsigned int', address=0xffffffffbf005000)
+    Object(prog, 'volatile unsigned long', address=0xffffffffbf005000)
 
     :class:`str() <str>` returns a "pretty" representation of the object in
     programming language syntax:
 
     >>> print(prog['jiffies'])
-    (volatile long unsigned int)4326237045
+    (volatile unsigned long)4326237045
 
     The output format of ``str()`` can be modified by using the
-    :meth:`format_()` method instead.
+    :meth:`format_()` method instead:
+
+    >>> sysname = prog['init_uts_ns'].name.sysname
+    >>> print(sysname)
+    (char [65])"Linux"
+    >>> print(sysname.format_(type_name=False))
+    "Linux"
+    >>> print(sysname.format_(string=False))
+    (char [65]){ 76, 105, 110, 117, 120 }
 
     .. note::
 
@@ -781,6 +789,18 @@ Objects
         the output. Options that aren't passed or are passed as ``None`` fall
         back to a default. Specifically, ``obj.format_()`` (i.e., with no
         passed options) is equivalent to ``str(obj)``.
+
+        >>> workqueues = prog['workqueues']
+        >>> print(workqueues)
+        (struct list_head){
+                .next = (struct list_head *)0xffff932ecfc0ae10,
+                .prev = (struct list_head *)0xffff932e3818fc10,
+        }
+        >>> print(workqueues.format_(type_name=False,
+        ...                          member_type_names=False,
+        ...                          member_names=False,
+        ...                          members_same_line=True))
+        { 0xffff932ecfc0ae10, 0xffff932e3818fc10 }
 
         :param columns: Number of columns to limit output to when the
             expression can be reasonably wrapped. Defaults to no limit.
