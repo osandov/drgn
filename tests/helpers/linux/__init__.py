@@ -1,7 +1,9 @@
 import ctypes
+import errno
 import os
 import re
 import signal
+import socket
 import time
 import unittest
 
@@ -97,3 +99,14 @@ def umount(target, flags=0):
     if _umount2(os.fsencode(target), flags) == -1:
         errno = ctypes.get_errno()
         raise OSError(errno, os.strerror(errno), target)
+
+
+def create_socket(*args, **kwds):
+    try:
+        return socket.socket(*args, **kwds)
+    except OSError as e:
+        if e.errno in (errno.ENOSYS, errno.EAFNOSUPPORT,
+                       errno.ESOCKTNOSUPPORT):
+            raise unittest.SkipTest('kernel does not support TCP')
+        else:
+            raise
