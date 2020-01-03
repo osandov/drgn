@@ -13,6 +13,7 @@ import enum
 
 __all__ = [
     'get_tcp_states',
+    'sk_tcpstate',
 ]
 
 
@@ -42,3 +43,12 @@ def get_tcp_states(prog):
     except KeyError:
         prog.cache[enum_name] = _get_tcp_states(prog, enum_name)
         return prog.cache[enum_name]
+
+
+def sk_tcpstate(sk):
+    """
+    .. c:function:: enum TcpState sk_tcpstate(struct sock *sk)
+
+    Return the TCP protocol state of a socket.
+    """
+    return get_tcp_states(sk.prog_)(sk.__sk_common.skc_state)
