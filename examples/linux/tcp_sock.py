@@ -1,18 +1,18 @@
 """List all TCP sockets and their cgroup v2 paths"""
 
 import ipaddress
-import os
 import socket
 import struct
 
-from drgn import Object, cast, container_of
 from drgn.helpers import enum_type_to_class
 from drgn.helpers.linux import (
+    cgroup_path,
     hlist_for_each,
     hlist_nulls_empty,
     sk_fullsock,
     sk_nulls_for_each,
     sk_tcpstate,
+    sock_cgroup_ptr,
 )
 
 
@@ -48,25 +48,6 @@ def _ip_port(ip, port):
     return "{:>40}:{:<6}".format(_brackets(ip), port)
 
 
-def _cgroup_path(cgroup):
-    cgroup_path = ""
-
-    while cgroup.level > 0:
-        cgroup_name = cgroup.kn.name.string_().decode()
-        if cgroup_path:
-            cgroup_path = os.path.join(cgroup_name, cgroup_path)
-        else:
-            cgroup_path = cgroup_name
-
-        parent_css = cgroup.self.parent
-        if not parent_css:
-            break
-
-        cgroup = container_of(parent_css, "struct cgroup", "self")
-
-    return cgroup_path
-
-
 def _print_sk(sk):
     inet = inet_sk(sk)
 
@@ -84,24 +65,24 @@ def _print_sk(sk):
     src_port = socket.ntohs(inet.inet_sport)
     dst_port = socket.ntohs(sk.__sk_common.skc_dport)
 
-    cgroup_path = ""
+    cgrp_path = ""
     if sk_fullsock(sk):
-        cgroup = Object(prog, "struct cgroup", address=sk.sk_cgrp_data.val)
-        cgroup_path = _cgroup_path(cgroup)
+        cgrp = sock_cgroup_ptr(sk.sk_cgrp_data)
+        cgrp_path = cgroup_path(cgrp).decode()
 
     print(
         "{:<12} {} {} {}".format(
             tcp_state.name,
             _ip_port(src_ip, src_port),
             _ip_port(dst_ip, dst_port),
-            cgroup_path,
+            cgrp_path,
         )
     )
 
     # Uncomment to print whole struct:
     #   print(sk)
     #   print(inet)
-    #   print(cgroup)
+    #   print(cgrp)
 
 
 tcp_hashinfo = prog.object("tcp_hashinfo")
