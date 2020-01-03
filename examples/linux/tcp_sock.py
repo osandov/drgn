@@ -12,10 +12,8 @@ from drgn.helpers.linux import (
     hlist_nulls_empty,
     sk_fullsock,
     sk_nulls_for_each,
+    sk_tcpstate,
 )
-
-
-TcpStates = get_tcp_states(prog)
 
 
 def inet_sk(sk):
@@ -64,7 +62,7 @@ def _cgroup_path(cgroup):
 def _print_sk(sk):
     inet = inet_sk(sk)
 
-    tcp_state = TcpStates(sk.__sk_common.skc_state)
+    tcp_state = sk_tcpstate(sk)
 
     if sk.__sk_common.skc_family == socket.AF_INET:
         src_ip = _ipv4(sk.__sk_common.skc_rcv_saddr)
