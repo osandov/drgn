@@ -175,6 +175,22 @@ async def compress_file(in_path, out_path, *args, **kwds):
     logger.info('compressed %r in %s', in_path, humanize_duration(elapsed))
 
 
+def getpwd():
+    # This is how GCC determines the working directory. See
+    # https://gcc.gnu.org/git/?p=gcc.git;a=blob;f=libiberty/getpwd.c;hb=HEAD
+    try:
+        pwd = os.environ['PWD']
+        if pwd.startswith('/'):
+            pwdstat = os.stat(pwd)
+            dotstat = os.stat('.')
+            if (dotstat.st_ino == pwdstat.st_ino and
+                    dotstat.st_dev == pwdstat.st_dev):
+                return pwd
+    except (KeyError, OSError):
+        pass
+    return os.getcwd()
+
+
 async def build_kernel(commit, build_dir, log_file):
     await check_call('git', 'checkout', commit, stdout=log_file,
                      stderr=asyncio.subprocess.STDOUT)
@@ -184,8 +200,15 @@ async def build_kernel(commit, build_dir, log_file):
 
     logger.info('building %s', commit)
     start = time.monotonic()
-    kbuild_args = ['KBUILD_BUILD_USER=drgn', 'KBUILD_BUILD_HOST=drgn',
-                   'O=' + build_dir, '-j', str(multiprocessing.cpu_count())]
+    cflags = f'-fdebug-prefix-map={os.path.join(getpwd(), build_dir)}='
+    kbuild_args = [
+        'KBUILD_BUILD_USER=drgn',
+        'KBUILD_BUILD_HOST=drgn',
+        'KAFLAGS=' + cflags,
+        'KCFLAGS=' + cflags,
+        'O=' + build_dir,
+        '-j', str(multiprocessing.cpu_count()),
+    ]
     await check_call('make', *kbuild_args, 'olddefconfig', 'all',
                      stdout=log_file, stderr=asyncio.subprocess.STDOUT)
     elapsed = time.monotonic() - start
