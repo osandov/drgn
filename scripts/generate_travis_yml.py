@@ -44,6 +44,8 @@ jobs:
       addons:
         apt:
           packages:
+            - python3
+            - python3-setuptools
             - qemu-kvm
             - rsync
             - zstd

@@ -362,17 +362,13 @@ fi
 if (( SKIPSOURCE )); then
 	echo "Not copying source files..." >&2
 else
+	"${PYTHON:-python3}" setup.py egg_info
+
 	echo "Copying source files..." >&2
 
 	# Copy the source files in.
 	sudo mkdir -p -m 0755 "$mnt/drgn"
-	{
-	if [[ -e .git ]]; then
-		git ls-files -z
-	else
-		tr '\n' '\0' < drgn.egg-info/SOURCES.txt
-	fi
-	} | sudo rsync --files-from=- -0cpt . "$mnt/drgn"
+	sudo rsync --files-from=drgn.egg-info/SOURCES.txt -cpt . "$mnt/drgn"
 
 	# Create the init scripts.
 	sudo tee "$mnt/etc/rcS.d/S50-run-tests" > /dev/null << "EOF"
