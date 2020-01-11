@@ -1,4 +1,4 @@
-AC_INIT([drgn], m4_esyscmd_s([build-aux/version.sh]),
+AC_INIT([drgn], [0.0.1],
 	[https://github.com/osandov/drgn/issues],,
 	[https://github.com/osandov/drgn])
 

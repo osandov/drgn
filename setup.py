@@ -94,15 +94,8 @@ class my_egg_info(egg_info):
         super().run()
 
 
-with open('libdrgn/drgn.h.in', 'r') as f:
-    drgn_h = f.read()
-version_major = re.search('^#define DRGN_VERSION_MAJOR ([0-9])+$', drgn_h,
-                          re.MULTILINE).group(1)
-version_minor = re.search('^#define DRGN_VERSION_MINOR ([0-9])+$', drgn_h,
-                          re.MULTILINE).group(1)
-version_patch = re.search('^#define DRGN_VERSION_PATCH ([0-9])+$', drgn_h,
-                          re.MULTILINE).group(1)
-version = f'{version_major}.{version_minor}.{version_patch}'
+with open('libdrgn/configure.ac', 'r') as f:
+    version = re.search(r'AC_INIT\(\[drgn\], \[([^]]*)\]', f.read()).group(1)
 with open('README.rst', 'r') as f:
     long_description = f.read()
 

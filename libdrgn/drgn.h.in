@@ -28,11 +28,11 @@
  */
 
 /** Major version of drgn. */
-#define DRGN_VERSION_MAJOR 0
+#define DRGN_VERSION_MAJOR @DRGN_VERSION_MAJOR@
 /** Minor version of drgn. */
-#define DRGN_VERSION_MINOR 0
+#define DRGN_VERSION_MINOR @DRGN_VERSION_MINOR@
 /** Patch level of drgn. */
-#define DRGN_VERSION_PATCH 1
+#define DRGN_VERSION_PATCH @DRGN_VERSION_PATCH@
 
 /**
  * @defgroup ErrorHandling Error handling
