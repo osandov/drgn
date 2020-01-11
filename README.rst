@@ -11,11 +11,9 @@ drgn
 
 .. start-introduction
 
-drgn (pronounced "dragon") is a debugger-as-a-library. In contrast to existing
-debuggers like `GDB <https://www.gnu.org/software/gdb/>`_ which focus on
-breakpoint-based debugging, drgn excels in live introspection. drgn exposes the
-types and variables in a program for easy, expressive scripting in Python. For
-example, you can debug the Linux kernel:
+drgn (pronounced "dragon") is a debugger with an emphasis on programmability.
+drgn exposes the types and variables in a program for easy, expressive
+scripting in Python. For example, you can debug the Linux kernel:
 
 .. code-block:: pycon
 
@@ -29,6 +27,12 @@ example, you can debug the Linux kernel:
     (char [56])"snd"
     (char [56])"evdev"
     (char [56])"i915"
+
+Although other debuggers like `GDB <https://www.gnu.org/software/gdb/>`_ have
+scripting support, drgn aims to make scripting as natural as possible so that
+debugging feels like coding. This makes it well-suited for introspecting the
+complex, inter-connected state in large programs. It is also designed as a
+library that can be used for more purpose-built tools.
 
 drgn was developed for debugging the Linux kernel (as an alternative to the
 `crash <http://people.redhat.com/anderson/>`_ utility), but it can also debug
@@ -116,7 +120,7 @@ License
 
 .. start-license
 
-Copyright 2018-2019 Omar Sandoval
+Copyright 2018-2020 Omar Sandoval
 
 drgn is licensed under the `GPLv3
 <https://www.gnu.org/licenses/gpl-3.0.en.html>`_ or later.
