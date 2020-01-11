@@ -103,6 +103,9 @@ version_minor = re.search('^#define DRGN_VERSION_MINOR ([0-9])+$', drgn_h,
 version_patch = re.search('^#define DRGN_VERSION_PATCH ([0-9])+$', drgn_h,
                           re.MULTILINE).group(1)
 version = f'{version_major}.{version_minor}.{version_patch}'
+with open('README.rst', 'r') as f:
+    long_description = f.read()
+
 
 setup(
     name='drgn',
@@ -118,9 +121,25 @@ setup(
     entry_points={
         'console_scripts': ['drgn=drgn.internal.cli:main'],
     },
+    python_requires='>=3.6',
     author='Omar Sandoval',
     author_email='osandov@osandov.com',
     description='Scriptable debugger library',
-    license='GPL-3.0+',
+    long_description=long_description,
+    long_description_content_type='text/x-rst',
     url='https://github.com/osandov/drgn',
+    project_urls={
+        'Bug Tracker': 'https://github.com/osandov/drgn/issues',
+        'Documentation': 'https://drgn.readthedocs.io',
+    },
+    license='GPL-3.0+',
+    classifiers=[
+        'Development Status :: 3 - Alpha',
+        'Environment :: Console',
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+        'Operating System :: POSIX :: Linux',
+        'Programming Language :: Python :: 3',
+        'Topic :: Software Development :: Debuggers',
+    ],
 )
