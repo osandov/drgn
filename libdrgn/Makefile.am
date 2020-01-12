@@ -73,9 +73,9 @@ endif
 arch_%.c: arch_%.c.in build-aux/gen_arch.awk build-aux/parse_arch.awk
 	gawk -f $(word 3, $^) -f $(word 2, $^) $< > $@
 
-drgn.h: build-aux/gen_drgn_h.awk build-aux/parse_arch.awk $(ARCH_INS) drgn.h.in
-	gawk -f $(word 1, $^) -f $(word 2, $^) -v version=$(PACKAGE_VERSION) \
-		$(wordlist 3, $(words $^), $^) > $@
+drgn.h: configure.ac build-aux/gen_drgn_h.awk build-aux/parse_arch.awk $(ARCH_INS) drgn.h.in
+	gawk -f $(word 2, $^) -f $(word 3, $^) -v version=@PACKAGE_VERSION@ \
+		$(wordlist 4, $(words $^), $^) > $@
 
 elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2
 
