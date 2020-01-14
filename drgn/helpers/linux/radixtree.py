@@ -14,8 +14,8 @@ from _drgn import _linux_helper_radix_tree_lookup
 
 
 __all__ = [
-    'radix_tree_lookup',
-    'radix_tree_for_each',
+    "radix_tree_lookup",
+    "radix_tree_for_each",
 ]
 
 _RADIX_TREE_ENTRY_MASK = 3
@@ -35,7 +35,7 @@ def _radix_tree_root_node(root):
     except AttributeError:
         return root.rnode.read_(), 1
     else:
-        return cast('struct xa_node *', node).read_(), 2
+        return cast("struct xa_node *", node).read_(), 2
 
 
 def radix_tree_lookup(root, index):
@@ -58,12 +58,16 @@ def radix_tree_for_each(root):
     :rtype: Iterator[tuple[int, Object]]
     """
     node, RADIX_TREE_INTERNAL_NODE = _radix_tree_root_node(root)
+
     def aux(node, index):
         if _is_internal_node(node, RADIX_TREE_INTERNAL_NODE):
             parent = _entry_to_node(node, RADIX_TREE_INTERNAL_NODE)
             for i, slot in enumerate(parent.slots):
-                yield from aux(cast(parent.type_, slot).read_(),
-                               index + (i << parent.shift.value_()))
+                yield from aux(
+                    cast(parent.type_, slot).read_(),
+                    index + (i << parent.shift.value_()),
+                )
         elif node:
-            yield index, cast('void *', node)
+            yield index, cast("void *", node)
+
     yield from aux(node, 0)

@@ -14,10 +14,10 @@ from drgn import container_of
 
 
 __all__ = [
-    'is_a_nulls',
-    'hlist_nulls_empty',
-    'hlist_nulls_entry',
-    'hlist_nulls_for_each_entry',
+    "is_a_nulls",
+    "hlist_nulls_empty",
+    "hlist_nulls_entry",
+    "hlist_nulls_for_each_entry",
 ]
 
 

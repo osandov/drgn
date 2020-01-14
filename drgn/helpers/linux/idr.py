@@ -16,8 +16,8 @@ from _drgn import _linux_helper_idr_find
 
 
 __all__ = [
-    'idr_find',
-    'idr_for_each',
+    "idr_find",
+    "idr_for_each",
 ]
 
 

@@ -12,20 +12,20 @@ import enum
 
 
 __all__ = [
-    'get_tcp_states',
-    'sk_tcpstate',
+    "get_tcp_states",
+    "sk_tcpstate",
 ]
 
 
 def _get_tcp_states(prog, enum_name):
     # The enum type is anonymous, but it can be looked up from one of the
     # enumerators.
-    raw_enumerators = prog['TCP_ESTABLISHED'].type_.enumerators
-    tcp_ = 'TCP_'
+    raw_enumerators = prog["TCP_ESTABLISHED"].type_.enumerators
+    tcp_ = "TCP_"
     enumerators = [
-        (name[len(tcp_):], value) if name.startswith(tcp_) else (name, value)
+        (name[len(tcp_) :], value) if name.startswith(tcp_) else (name, value)
         for (name, value) in raw_enumerators
-        if name != 'TCP_MAX_STATES'
+        if name != "TCP_MAX_STATES"
     ]
     return enum.IntEnum(enum_name, enumerators)
 
@@ -37,7 +37,7 @@ def get_tcp_states(prog):
 
     :rtype: enum.IntEnum
     """
-    enum_name = 'TcpStates'
+    enum_name = "TcpStates"
     try:
         return prog.cache[enum_name]
     except KeyError:

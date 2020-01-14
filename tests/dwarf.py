@@ -9,9 +9,9 @@ class DW_AT(enum.IntEnum):
     location = 0x2
     name = 0x3  # type: ignore
     ordering = 0x9
-    byte_size = 0xb
-    bit_offset = 0xc
-    bit_size = 0xd
+    byte_size = 0xB
+    bit_offset = 0xC
+    bit_size = 0xD
     stmt_list = 0x10
     low_pc = 0x11
     high_pc = 0x12
@@ -21,20 +21,20 @@ class DW_AT(enum.IntEnum):
     visibility = 0x17
     import_ = 0x18
     string_length = 0x19
-    common_reference = 0x1a
-    comp_dir = 0x1b
-    const_value = 0x1c
-    containing_type = 0x1d
-    default_value = 0x1e
+    common_reference = 0x1A
+    comp_dir = 0x1B
+    const_value = 0x1C
+    containing_type = 0x1D
+    default_value = 0x1E
     inline = 0x20
     is_optional = 0x21
     lower_bound = 0x22
     producer = 0x25
     prototyped = 0x27
-    return_addr = 0x2a
-    start_scope = 0x2c
-    bit_stride = 0x2e
-    upper_bound = 0x2f
+    return_addr = 0x2A
+    start_scope = 0x2C
+    bit_stride = 0x2E
+    upper_bound = 0x2F
     abstract_origin = 0x31
     accessibility = 0x32
     address_class = 0x33
@@ -44,12 +44,12 @@ class DW_AT(enum.IntEnum):
     count = 0x37
     data_member_location = 0x38
     decl_column = 0x39
-    decl_file = 0x3a
-    decl_line = 0x3b
-    declaration = 0x3c
-    discr_list = 0x3d
-    encoding = 0x3e
-    external = 0x3f
+    decl_file = 0x3A
+    decl_line = 0x3B
+    declaration = 0x3C
+    discr_list = 0x3D
+    encoding = 0x3E
+    external = 0x3F
     frame_base = 0x40
     friend = 0x41
     identifier_case = 0x42
@@ -60,12 +60,12 @@ class DW_AT(enum.IntEnum):
     specification = 0x47
     static_link = 0x48
     type = 0x49
-    use_location = 0x4a
-    variable_parameter = 0x4b
-    virtuality = 0x4c
-    vtable_elem_location = 0x4d
-    allocated = 0x4e
-    associated = 0x4f
+    use_location = 0x4A
+    variable_parameter = 0x4B
+    virtuality = 0x4C
+    vtable_elem_location = 0x4D
+    allocated = 0x4E
+    associated = 0x4F
     data_location = 0x50
     byte_stride = 0x51
     entry_pc = 0x52
@@ -76,12 +76,12 @@ class DW_AT(enum.IntEnum):
     call_column = 0x57
     call_file = 0x58
     call_line = 0x59
-    description = 0x5a
-    binary_scale = 0x5b
-    decimal_scale = 0x5c
-    small = 0x5d
-    decimal_sign = 0x5e
-    digit_count = 0x5f
+    description = 0x5A
+    binary_scale = 0x5B
+    decimal_scale = 0x5C
+    small = 0x5D
+    decimal_sign = 0x5E
+    digit_count = 0x5F
     picture_string = 0x60
     mutable = 0x61
     threads_scaled = 0x62
@@ -92,12 +92,12 @@ class DW_AT(enum.IntEnum):
     pure = 0x67
     recursive = 0x68
     signature = 0x69
-    main_subprogram = 0x6a
-    data_bit_offset = 0x6b
-    const_expr = 0x6c
-    enum_class = 0x6d
-    linkage_name = 0x6e
-    string_length_bit_size = 0x6f
+    main_subprogram = 0x6A
+    data_bit_offset = 0x6B
+    const_expr = 0x6C
+    enum_class = 0x6D
+    linkage_name = 0x6E
+    string_length_bit_size = 0x6F
     string_length_byte_size = 0x70
     rank = 0x71
     str_offsets_base = 0x72
@@ -107,12 +107,12 @@ class DW_AT(enum.IntEnum):
     reference = 0x77
     rvalue_reference = 0x78
     macros = 0x79
-    call_all_calls = 0x7a
-    call_all_source_calls = 0x7b
-    call_all_tail_calls = 0x7c
-    call_return_pc = 0x7d
-    call_value = 0x7e
-    call_origin = 0x7f
+    call_all_calls = 0x7A
+    call_all_source_calls = 0x7B
+    call_all_tail_calls = 0x7C
+    call_return_pc = 0x7D
+    call_value = 0x7E
+    call_origin = 0x7F
     call_parameter = 0x80
     call_pc = 0x81
     call_tail_call = 0x82
@@ -123,9 +123,9 @@ class DW_AT(enum.IntEnum):
     noreturn = 0x87
     alignment = 0x88
     export_symbols = 0x89
-    deleted = 0x8a
-    defaulted = 0x8b
-    loclists_base = 0x8c
+    deleted = 0x8A
+    defaulted = 0x8B
+    loclists_base = 0x8C
     lo_user = 0x2000
     MIPS_fde = 0x2001
     MIPS_loop_begin = 0x2002
@@ -136,12 +136,12 @@ class DW_AT(enum.IntEnum):
     MIPS_linkage_name = 0x2007
     MIPS_stride = 0x2008
     MIPS_abstract_name = 0x2009
-    MIPS_clone_origin = 0x200a
-    MIPS_has_inlines = 0x200b
-    MIPS_stride_byte = 0x200c
-    MIPS_stride_elem = 0x200d
-    MIPS_ptr_dopetype = 0x200e
-    MIPS_allocatable_dopetype = 0x200f
+    MIPS_clone_origin = 0x200A
+    MIPS_has_inlines = 0x200B
+    MIPS_stride_byte = 0x200C
+    MIPS_stride_elem = 0x200D
+    MIPS_ptr_dopetype = 0x200E
+    MIPS_allocatable_dopetype = 0x200F
     MIPS_assumed_shape_dopetype = 0x2010
     MIPS_assumed_size = 0x2011
     sf_names = 0x2101
@@ -153,12 +153,12 @@ class DW_AT(enum.IntEnum):
     GNU_vector = 0x2107
     GNU_guarded_by = 0x2108
     GNU_pt_guarded_by = 0x2109
-    GNU_guarded = 0x210a
-    GNU_pt_guarded = 0x210b
-    GNU_locks_excluded = 0x210c
-    GNU_exclusive_locks_required = 0x210d
-    GNU_shared_locks_required = 0x210e
-    GNU_odr_signature = 0x210f
+    GNU_guarded = 0x210A
+    GNU_pt_guarded = 0x210B
+    GNU_locks_excluded = 0x210C
+    GNU_exclusive_locks_required = 0x210D
+    GNU_shared_locks_required = 0x210E
+    GNU_odr_signature = 0x210F
     GNU_template_name = 0x2110
     GNU_call_site_value = 0x2111
     GNU_call_site_data_value = 0x2112
@@ -171,19 +171,19 @@ class DW_AT(enum.IntEnum):
     GNU_locviews = 0x2137
     GNU_entry_view = 0x2138
     GNU_macros = 0x2119
-    GNU_deleted = 0x211a
+    GNU_deleted = 0x211A
     GNU_dwo_name = 0x2130
     GNU_dwo_id = 0x2131
     GNU_ranges_base = 0x2132
     GNU_addr_base = 0x2133
     GNU_pubnames = 0x2134
     GNU_pubtypes = 0x2135
-    hi_user = 0x3fff
+    hi_user = 0x3FFF
 
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_AT_{cls(value).name}'
+            return f"DW_AT_{cls(value).name}"
         except ValueError:
             return hex(value)
 
@@ -199,22 +199,22 @@ class DW_ATE(enum.IntEnum):
     unsigned = 0x7
     unsigned_char = 0x8
     imaginary_float = 0x9
-    packed_decimal = 0xa
-    numeric_string = 0xb
-    edited = 0xc
-    signed_fixed = 0xd
-    unsigned_fixed = 0xe
-    decimal_float = 0xf
+    packed_decimal = 0xA
+    numeric_string = 0xB
+    edited = 0xC
+    signed_fixed = 0xD
+    unsigned_fixed = 0xE
+    decimal_float = 0xF
     UTF = 0x10
     UCS = 0x11
     ASCII = 0x12
     lo_user = 0x80
-    hi_user = 0xff
+    hi_user = 0xFF
 
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_ATE_{cls(value).name}'
+            return f"DW_ATE_{cls(value).name}"
         except ValueError:
             return hex(value)
 
@@ -226,7 +226,7 @@ class DW_CHILDREN(enum.IntEnum):
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_CHILDREN_{cls(value).name}'
+            return f"DW_CHILDREN_{cls(value).name}"
         except ValueError:
             return hex(value)
 
@@ -240,12 +240,12 @@ class DW_FORM(enum.IntEnum):
     data8 = 0x7
     string = 0x8
     block = 0x9
-    block1 = 0xa
-    data1 = 0xb
-    flag = 0xc
-    sdata = 0xd
-    strp = 0xe
-    udata = 0xf
+    block1 = 0xA
+    data1 = 0xB
+    flag = 0xC
+    sdata = 0xD
+    strp = 0xE
+    udata = 0xF
     ref_addr = 0x10
     ref1 = 0x11
     ref2 = 0x12
@@ -256,12 +256,12 @@ class DW_FORM(enum.IntEnum):
     sec_offset = 0x17
     exprloc = 0x18
     flag_present = 0x19
-    strx = 0x1a
-    addrx = 0x1b
-    ref_sup4 = 0x1c
-    strp_sup = 0x1d
-    data16 = 0x1e
-    line_strp = 0x1f
+    strx = 0x1A
+    addrx = 0x1B
+    ref_sup4 = 0x1C
+    strp_sup = 0x1D
+    data16 = 0x1E
+    line_strp = 0x1F
     ref_sig8 = 0x20
     implicit_const = 0x21
     loclistx = 0x22
@@ -272,18 +272,18 @@ class DW_FORM(enum.IntEnum):
     strx3 = 0x27
     strx4 = 0x28
     addrx1 = 0x29
-    addrx2 = 0x2a
-    addrx3 = 0x2b
-    addrx4 = 0x2c
-    GNU_addr_index = 0x1f01
-    GNU_str_index = 0x1f02
-    GNU_ref_alt = 0x1f20
-    GNU_strp_alt = 0x1f21
+    addrx2 = 0x2A
+    addrx3 = 0x2B
+    addrx4 = 0x2C
+    GNU_addr_index = 0x1F01
+    GNU_str_index = 0x1F02
+    GNU_ref_alt = 0x1F20
+    GNU_strp_alt = 0x1F21
 
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_FORM_{cls(value).name}'
+            return f"DW_FORM_{cls(value).name}"
         except ValueError:
             return hex(value)
 
@@ -294,12 +294,12 @@ class DW_LNE(enum.IntEnum):
     define_file = 0x3
     set_discriminator = 0x4
     lo_user = 0x80
-    hi_user = 0xff
+    hi_user = 0xFF
 
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_LNE_{cls(value).name}'
+            return f"DW_LNE_{cls(value).name}"
         except ValueError:
             return hex(value)
 
@@ -314,14 +314,14 @@ class DW_LNS(enum.IntEnum):
     set_basic_block = 0x7
     const_add_pc = 0x8
     fixed_advance_pc = 0x9
-    set_prologue_end = 0xa
-    set_epilogue_begin = 0xb
-    set_isa = 0xc
+    set_prologue_end = 0xA
+    set_epilogue_begin = 0xB
+    set_isa = 0xC
 
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_LNS_{cls(value).name}'
+            return f"DW_LNS_{cls(value).name}"
         except ValueError:
             return hex(value)
 
@@ -331,12 +331,12 @@ class DW_OP(enum.IntEnum):
     deref = 0x6
     const1u = 0x8
     const1s = 0x9
-    const2u = 0xa
-    const2s = 0xb
-    const4u = 0xc
-    const4s = 0xd
-    const8u = 0xe
-    const8s = 0xf
+    const2u = 0xA
+    const2s = 0xB
+    const4u = 0xC
+    const4s = 0xD
+    const8u = 0xE
+    const8s = 0xF
     constu = 0x10
     consts = 0x11
     dup = 0x12
@@ -347,12 +347,12 @@ class DW_OP(enum.IntEnum):
     rot = 0x17
     xderef = 0x18
     abs = 0x19
-    and_ = 0x1a
-    div = 0x1b
-    minus = 0x1c
-    mod = 0x1d
-    mul = 0x1e
-    neg = 0x1f
+    and_ = 0x1A
+    div = 0x1B
+    minus = 0x1C
+    mod = 0x1D
+    mul = 0x1E
+    neg = 0x1F
     not_ = 0x20
     or_ = 0x21
     plus = 0x22
@@ -363,12 +363,12 @@ class DW_OP(enum.IntEnum):
     xor = 0x27
     bra = 0x28
     eq = 0x29
-    ge = 0x2a
-    gt = 0x2b
-    le = 0x2c
-    lt = 0x2d
-    ne = 0x2e
-    skip = 0x2f
+    ge = 0x2A
+    gt = 0x2B
+    le = 0x2C
+    lt = 0x2D
+    ne = 0x2E
+    skip = 0x2F
     lit0 = 0x30
     lit1 = 0x31
     lit2 = 0x32
@@ -379,12 +379,12 @@ class DW_OP(enum.IntEnum):
     lit7 = 0x37
     lit8 = 0x38
     lit9 = 0x39
-    lit10 = 0x3a
-    lit11 = 0x3b
-    lit12 = 0x3c
-    lit13 = 0x3d
-    lit14 = 0x3e
-    lit15 = 0x3f
+    lit10 = 0x3A
+    lit11 = 0x3B
+    lit12 = 0x3C
+    lit13 = 0x3D
+    lit14 = 0x3E
+    lit15 = 0x3F
     lit16 = 0x40
     lit17 = 0x41
     lit18 = 0x42
@@ -395,12 +395,12 @@ class DW_OP(enum.IntEnum):
     lit23 = 0x47
     lit24 = 0x48
     lit25 = 0x49
-    lit26 = 0x4a
-    lit27 = 0x4b
-    lit28 = 0x4c
-    lit29 = 0x4d
-    lit30 = 0x4e
-    lit31 = 0x4f
+    lit26 = 0x4A
+    lit27 = 0x4B
+    lit28 = 0x4C
+    lit29 = 0x4D
+    lit30 = 0x4E
+    lit31 = 0x4F
     reg0 = 0x50
     reg1 = 0x51
     reg2 = 0x52
@@ -411,12 +411,12 @@ class DW_OP(enum.IntEnum):
     reg7 = 0x57
     reg8 = 0x58
     reg9 = 0x59
-    reg10 = 0x5a
-    reg11 = 0x5b
-    reg12 = 0x5c
-    reg13 = 0x5d
-    reg14 = 0x5e
-    reg15 = 0x5f
+    reg10 = 0x5A
+    reg11 = 0x5B
+    reg12 = 0x5C
+    reg13 = 0x5D
+    reg14 = 0x5E
+    reg15 = 0x5F
     reg16 = 0x60
     reg17 = 0x61
     reg18 = 0x62
@@ -427,12 +427,12 @@ class DW_OP(enum.IntEnum):
     reg23 = 0x67
     reg24 = 0x68
     reg25 = 0x69
-    reg26 = 0x6a
-    reg27 = 0x6b
-    reg28 = 0x6c
-    reg29 = 0x6d
-    reg30 = 0x6e
-    reg31 = 0x6f
+    reg26 = 0x6A
+    reg27 = 0x6B
+    reg28 = 0x6C
+    reg29 = 0x6D
+    reg30 = 0x6E
+    reg31 = 0x6F
     breg0 = 0x70
     breg1 = 0x71
     breg2 = 0x72
@@ -443,12 +443,12 @@ class DW_OP(enum.IntEnum):
     breg7 = 0x77
     breg8 = 0x78
     breg9 = 0x79
-    breg10 = 0x7a
-    breg11 = 0x7b
-    breg12 = 0x7c
-    breg13 = 0x7d
-    breg14 = 0x7e
-    breg15 = 0x7f
+    breg10 = 0x7A
+    breg11 = 0x7B
+    breg12 = 0x7C
+    breg13 = 0x7D
+    breg14 = 0x7E
+    breg15 = 0x7F
     breg16 = 0x80
     breg17 = 0x81
     breg18 = 0x82
@@ -459,12 +459,12 @@ class DW_OP(enum.IntEnum):
     breg23 = 0x87
     breg24 = 0x88
     breg25 = 0x89
-    breg26 = 0x8a
-    breg27 = 0x8b
-    breg28 = 0x8c
-    breg29 = 0x8d
-    breg30 = 0x8e
-    breg31 = 0x8f
+    breg26 = 0x8A
+    breg27 = 0x8B
+    breg28 = 0x8C
+    breg29 = 0x8D
+    breg30 = 0x8E
+    breg31 = 0x8F
     regx = 0x90
     fbreg = 0x91
     bregx = 0x92
@@ -475,43 +475,43 @@ class DW_OP(enum.IntEnum):
     push_object_address = 0x97
     call2 = 0x98
     call4 = 0x99
-    call_ref = 0x9a
-    form_tls_address = 0x9b
-    call_frame_cfa = 0x9c
-    bit_piece = 0x9d
-    implicit_value = 0x9e
-    stack_value = 0x9f
-    implicit_pointer = 0xa0
-    addrx = 0xa1
-    constx = 0xa2
-    entry_value = 0xa3
-    const_type = 0xa4
-    regval_type = 0xa5
-    deref_type = 0xa6
-    xderef_type = 0xa7
-    convert = 0xa8
-    reinterpret = 0xa9
-    GNU_push_tls_address = 0xe0
-    GNU_uninit = 0xf0
-    GNU_encoded_addr = 0xf1
-    GNU_implicit_pointer = 0xf2
-    GNU_entry_value = 0xf3
-    GNU_const_type = 0xf4
-    GNU_regval_type = 0xf5
-    GNU_deref_type = 0xf6
-    GNU_convert = 0xf7
-    GNU_reinterpret = 0xf9
-    GNU_parameter_ref = 0xfa
-    GNU_addr_index = 0xfb
-    GNU_const_index = 0xfc
-    GNU_variable_value = 0xfd
-    lo_user = 0xe0
-    hi_user = 0xff
+    call_ref = 0x9A
+    form_tls_address = 0x9B
+    call_frame_cfa = 0x9C
+    bit_piece = 0x9D
+    implicit_value = 0x9E
+    stack_value = 0x9F
+    implicit_pointer = 0xA0
+    addrx = 0xA1
+    constx = 0xA2
+    entry_value = 0xA3
+    const_type = 0xA4
+    regval_type = 0xA5
+    deref_type = 0xA6
+    xderef_type = 0xA7
+    convert = 0xA8
+    reinterpret = 0xA9
+    GNU_push_tls_address = 0xE0
+    GNU_uninit = 0xF0
+    GNU_encoded_addr = 0xF1
+    GNU_implicit_pointer = 0xF2
+    GNU_entry_value = 0xF3
+    GNU_const_type = 0xF4
+    GNU_regval_type = 0xF5
+    GNU_deref_type = 0xF6
+    GNU_convert = 0xF7
+    GNU_reinterpret = 0xF9
+    GNU_parameter_ref = 0xFA
+    GNU_addr_index = 0xFB
+    GNU_const_index = 0xFC
+    GNU_variable_value = 0xFD
+    lo_user = 0xE0
+    hi_user = 0xFF
 
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_OP_{cls(value).name}'
+            return f"DW_OP_{cls(value).name}"
         except ValueError:
             return hex(value)
 
@@ -523,10 +523,10 @@ class DW_TAG(enum.IntEnum):
     enumeration_type = 0x4
     formal_parameter = 0x5
     imported_declaration = 0x8
-    label = 0xa
-    lexical_block = 0xb
-    member = 0xd
-    pointer_type = 0xf
+    label = 0xA
+    lexical_block = 0xB
+    member = 0xD
+    pointer_type = 0xF
     reference_type = 0x10
     compile_unit = 0x11
     string_type = 0x12
@@ -536,12 +536,12 @@ class DW_TAG(enum.IntEnum):
     union_type = 0x17
     unspecified_parameters = 0x18
     variant = 0x19
-    common_block = 0x1a
-    common_inclusion = 0x1b
-    inheritance = 0x1c
-    inlined_subroutine = 0x1d
-    module = 0x1e
-    ptr_to_member_type = 0x1f
+    common_block = 0x1A
+    common_inclusion = 0x1B
+    inheritance = 0x1C
+    inlined_subroutine = 0x1D
+    module = 0x1E
+    ptr_to_member_type = 0x1F
     set_type = 0x20
     subrange_type = 0x21
     with_stmt = 0x22
@@ -552,12 +552,12 @@ class DW_TAG(enum.IntEnum):
     constant = 0x27
     enumerator = 0x28
     file_type = 0x29
-    friend = 0x2a
-    namelist = 0x2b
-    namelist_item = 0x2c
-    packed_type = 0x2d
-    subprogram = 0x2e
-    template_type_parameter = 0x2f
+    friend = 0x2A
+    namelist = 0x2B
+    namelist_item = 0x2C
+    packed_type = 0x2D
+    subprogram = 0x2E
+    template_type_parameter = 0x2F
     template_value_parameter = 0x30
     thrown_type = 0x31
     try_block = 0x32
@@ -568,11 +568,11 @@ class DW_TAG(enum.IntEnum):
     restrict_type = 0x37
     interface_type = 0x38
     namespace = 0x39
-    imported_module = 0x3a
-    unspecified_type = 0x3b
-    partial_unit = 0x3c
-    imported_unit = 0x3d
-    condition = 0x3f
+    imported_module = 0x3A
+    unspecified_type = 0x3B
+    partial_unit = 0x3C
+    imported_unit = 0x3D
+    condition = 0x3F
     shared_type = 0x40
     type_unit = 0x41
     rvalue_reference_type = 0x42
@@ -583,8 +583,8 @@ class DW_TAG(enum.IntEnum):
     atomic_type = 0x47
     call_site = 0x48
     call_site_parameter = 0x49
-    skeleton_unit = 0x4a
-    immutable_type = 0x4b
+    skeleton_unit = 0x4A
+    immutable_type = 0x4B
     lo_user = 0x4080
     MIPS_loop = 0x4081
     format_label = 0x4101
@@ -596,12 +596,12 @@ class DW_TAG(enum.IntEnum):
     GNU_template_parameter_pack = 0x4107
     GNU_formal_parameter_pack = 0x4108
     GNU_call_site = 0x4109
-    GNU_call_site_parameter = 0x410a
-    hi_user = 0xffff
+    GNU_call_site_parameter = 0x410A
+    hi_user = 0xFFFF
 
     @classmethod
     def str(cls, value: int) -> Text:
         try:
-            return f'DW_TAG_{cls(value).name}'
+            return f"DW_TAG_{cls(value).name}"
         except ValueError:
             return hex(value)

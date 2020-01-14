@@ -16,12 +16,16 @@ class TestPid(LinuxHelperTestCase):
 
     def test_for_each_pid(self):
         pid = os.getpid()
-        self.assertTrue(any(pid_struct.numbers[0].nr == pid
-                            for pid_struct in for_each_pid(self.prog)))
+        self.assertTrue(
+            any(
+                pid_struct.numbers[0].nr == pid
+                for pid_struct in for_each_pid(self.prog)
+            )
+        )
 
     def test_find_task(self):
         pid = os.getpid()
-        with open('/proc/self/comm', 'rb') as f:
+        with open("/proc/self/comm", "rb") as f:
             comm = f.read()[:-1]
         task = find_task(self.prog, os.getpid())
         self.assertEqual(task.pid, pid)
@@ -29,5 +33,4 @@ class TestPid(LinuxHelperTestCase):
 
     def test_for_each_task(self):
         pid = os.getpid()
-        self.assertTrue(any(task.pid == pid for task
-                            in for_each_task(self.prog)))
+        self.assertTrue(any(task.pid == pid for task in for_each_task(self.prog)))

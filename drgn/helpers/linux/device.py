@@ -12,15 +12,15 @@ Linux devices, including the kernel encoding of ``dev_t``.
 from drgn import Object, cast
 
 __all__ = [
-    'MAJOR',
-    'MINOR',
-    'MKDEV',
+    "MAJOR",
+    "MINOR",
+    "MKDEV",
 ]
 
 
 # This hasn't changed since at least v2.6.
 _MINORBITS = 20
-_MINORMASK = ((1 << _MINORBITS) - 1)
+_MINORMASK = (1 << _MINORBITS) - 1
 
 
 def MAJOR(dev):
@@ -31,7 +31,7 @@ def MAJOR(dev):
     """
     major = dev >> _MINORBITS
     if isinstance(major, Object):
-        return cast('unsigned int', major)
+        return cast("unsigned int", major)
     return major
 
 
@@ -43,7 +43,7 @@ def MINOR(dev):
     """
     minor = dev & _MINORMASK
     if isinstance(minor, Object):
-        return cast('unsigned int', minor)
+        return cast("unsigned int", minor)
     return minor
 
 
@@ -55,5 +55,5 @@ def MKDEV(major, minor):
     """
     dev = (major << _MINORBITS) | minor
     if isinstance(dev, Object):
-        return cast('dev_t', dev)
+        return cast("dev_t", dev)
     return dev

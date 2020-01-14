@@ -13,16 +13,17 @@ class TestTcp(LinuxHelperTestCase):
         with create_socket() as sock:
             task = find_task(self.prog, os.getpid())
             file = fget(task, sock.fileno())
-            sk = cast('struct socket *', file.private_data).sk
+            sk = cast("struct socket *", file.private_data).sk
             TcpStates = get_tcp_states(self.prog)
             self.assertEqual(sk_tcpstate(sk), TcpStates.CLOSE)
 
-            sock.bind(('localhost', 0))
+            sock.bind(("localhost", 0))
             sock.listen()
             self.assertEqual(sk_tcpstate(sk), TcpStates.LISTEN)
 
-            with socket.create_connection(sock.getsockname()), \
-                    sock.accept()[0] as sock2:
+            with socket.create_connection(sock.getsockname()), sock.accept()[
+                0
+            ] as sock2:
                 file = fget(task, sock2.fileno())
-                sk = cast('struct socket *', file.private_data).sk
+                sk = cast("struct socket *", file.private_data).sk
                 self.assertEqual(sk_tcpstate(sk), TcpStates.ESTABLISHED)

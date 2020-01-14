@@ -14,32 +14,32 @@ from drgn import Object, cast
 
 
 __all__ = [
-    'for_each_page',
-    'page_to_pfn',
-    'pfn_to_page',
-    'virt_to_pfn',
-    'pfn_to_virt',
-    'page_to_virt',
-    'virt_to_page',
+    "for_each_page",
+    "page_to_pfn",
+    "pfn_to_page",
+    "virt_to_pfn",
+    "pfn_to_virt",
+    "page_to_virt",
+    "virt_to_page",
 ]
 
 
 def _vmemmap(prog):
     try:
         # KASAN
-        return cast('struct page *', prog['vmemmap_base'])
+        return cast("struct page *", prog["vmemmap_base"])
     except KeyError:
         # x86-64
-        return Object(prog, 'struct page *', value=0xffffea0000000000)
+        return Object(prog, "struct page *", value=0xFFFFEA0000000000)
 
 
 def _page_offset(prog):
     try:
         # KASAN
-        return prog['page_offset_base'].value_()
+        return prog["page_offset_base"].value_()
     except KeyError:
         # x86-64
-        return 0xffff880000000000
+        return 0xFFFF880000000000
 
 
 def for_each_page(prog):
@@ -49,7 +49,7 @@ def for_each_page(prog):
     :return: Iterator of ``struct page *`` objects.
     """
     vmemmap = _vmemmap(prog)
-    for i in range(prog['max_pfn']):
+    for i in range(prog["max_pfn"]):
         yield vmemmap + i
 
 
@@ -59,7 +59,7 @@ def page_to_pfn(page):
 
     Get the page frame number (PFN) of a page.
     """
-    return cast('unsigned long', page - _vmemmap(page.prog_))
+    return cast("unsigned long", page - _vmemmap(page.prog_))
 
 
 def pfn_to_page(prog_or_pfn, pfn=None):
@@ -90,8 +90,7 @@ def virt_to_pfn(prog_or_addr, addr=None):
         addr = prog_or_addr.value_()
     else:
         prog = prog_or_addr
-    return Object(prog, 'unsigned long',
-                  value=(addr - _page_offset(prog)) >> 12)
+    return Object(prog, "unsigned long", value=(addr - _page_offset(prog)) >> 12)
 
 
 def pfn_to_virt(prog_or_pfn, pfn=None):
@@ -107,7 +106,7 @@ def pfn_to_virt(prog_or_pfn, pfn=None):
         pfn = prog_or_pfn.value_()
     else:
         prog = prog_or_pfn
-    return Object(prog, 'void *', value=(pfn << 12) + _page_offset(prog))
+    return Object(prog, "void *", value=(pfn << 12) + _page_offset(prog))
 
 
 def page_to_virt(page):

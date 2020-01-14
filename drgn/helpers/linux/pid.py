@@ -19,11 +19,11 @@ from _drgn import (
 )
 
 __all__ = [
-    'find_pid',
-    'for_each_pid',
-    'pid_task',
-    'find_task',
-    'for_each_task',
+    "find_pid",
+    "for_each_pid",
+    "pid_task",
+    "find_task",
+    "for_each_task",
 ]
 
 
@@ -49,22 +49,21 @@ def for_each_pid(prog_or_ns):
     """
     if isinstance(prog_or_ns, Program):
         prog = prog_or_ns
-        ns = prog_or_ns['init_pid_ns'].address_of_()
+        ns = prog_or_ns["init_pid_ns"].address_of_()
     else:
         prog = prog_or_ns.prog_
         ns = prog_or_ns
-    if hasattr(ns, 'idr'):
+    if hasattr(ns, "idr"):
         for nr, entry in idr_for_each(ns.idr):
-            yield cast('struct pid *', entry)
+            yield cast("struct pid *", entry)
     else:
-        pid_hash = prog['pid_hash']
-        for i in range(1 << prog['pidhash_shift'].value_()):
-            for upid in hlist_for_each_entry('struct upid',
-                                             pid_hash[i].address_of_(),
-                                             'pid_chain'):
+        pid_hash = prog["pid_hash"]
+        for i in range(1 << prog["pidhash_shift"].value_()):
+            for upid in hlist_for_each_entry(
+                "struct upid", pid_hash[i].address_of_(), "pid_chain"
+            ):
                 if upid.ns == ns:
-                    yield container_of(upid, 'struct pid',
-                                       f'numbers[{int(ns.level)}]')
+                    yield container_of(upid, "struct pid", f"numbers[{int(ns.level)}]")
 
 
 def pid_task(pid, pid_type):
@@ -100,7 +99,7 @@ def for_each_task(prog_or_ns):
         prog = prog_or_ns
     else:
         prog = prog_or_ns.prog_
-    PIDTYPE_PID = prog['PIDTYPE_PID'].value_()
+    PIDTYPE_PID = prog["PIDTYPE_PID"].value_()
     for pid in for_each_pid(prog_or_ns):
         task = pid_task(pid, PIDTYPE_PID)
         if task:

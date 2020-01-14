@@ -13,7 +13,7 @@ from _drgn import _linux_helper_task_state_to_char
 
 
 __all__ = [
-    'task_state_to_char',
+    "task_state_to_char",
 ]
 
 

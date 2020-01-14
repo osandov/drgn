@@ -15,8 +15,8 @@ from drgn.helpers.linux.cpumask import for_each_online_cpu
 
 
 __all__ = [
-    'per_cpu_ptr',
-    'percpu_counter_sum',
+    "per_cpu_ptr",
+    "percpu_counter_sum",
 ]
 
 
@@ -26,7 +26,7 @@ def per_cpu_ptr(ptr, cpu):
 
     Return the per-CPU pointer for a given CPU.
     """
-    offset = ptr.prog_['__per_cpu_offset'][cpu].value_()
+    offset = ptr.prog_["__per_cpu_offset"][cpu].value_()
     return Object(ptr.prog_, ptr.type_, value=ptr.value_() + offset)
 
 

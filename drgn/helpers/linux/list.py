@@ -14,20 +14,20 @@ from drgn import NULL, container_of
 
 
 __all__ = [
-    'list_empty',
-    'list_is_singular',
-    'list_first_entry',
-    'list_first_entry_or_null',
-    'list_last_entry',
-    'list_next_entry',
-    'list_prev_entry',
-    'list_for_each',
-    'list_for_each_reverse',
-    'list_for_each_entry',
-    'list_for_each_entry_reverse',
-    'hlist_empty',
-    'hlist_for_each',
-    'hlist_for_each_entry',
+    "list_empty",
+    "list_is_singular",
+    "list_first_entry",
+    "list_first_entry_or_null",
+    "list_last_entry",
+    "list_next_entry",
+    "list_prev_entry",
+    "list_for_each",
+    "list_for_each_reverse",
+    "list_for_each_entry",
+    "list_for_each_entry_reverse",
+    "hlist_empty",
+    "hlist_for_each",
+    "hlist_for_each_entry",
 ]
 
 

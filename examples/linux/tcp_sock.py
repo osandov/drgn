@@ -17,31 +17,31 @@ from drgn.helpers.linux import (
 
 
 def inet_sk(sk):
-    return cast('struct inet_sock *', sk)
+    return cast("struct inet_sock *", sk)
 
 
 def _ipv4(be32):
-    return ipaddress.IPv4Address(struct.pack('I', be32.value_()))
+    return ipaddress.IPv4Address(struct.pack("I", be32.value_()))
 
 
 def _ipv6(in6_addr):
-    return ipaddress.IPv6Address(struct.pack('IIII', *in6_addr.in6_u.u6_addr32))
+    return ipaddress.IPv6Address(struct.pack("IIII", *in6_addr.in6_u.u6_addr32))
 
 
 def _brackets(ip):
     if ip.version == 4:
-        return '{}'.format(ip.compressed)
+        return "{}".format(ip.compressed)
     elif ip.version == 6:
-        return '[{}]'.format(ip.compressed)
-    return ''
+        return "[{}]".format(ip.compressed)
+    return ""
 
 
 def _ip_port(ip, port):
-    return '{:>40}:{:<6}'.format(_brackets(ip), port)
+    return "{:>40}:{:<6}".format(_brackets(ip), port)
 
 
 def _cgroup_path(cgroup):
-    cgroup_path = ''
+    cgroup_path = ""
 
     while cgroup.level > 0:
         cgroup_name = cgroup.kn.name.string_().decode()
@@ -54,7 +54,7 @@ def _cgroup_path(cgroup):
         if not parent_css:
             break
 
-        cgroup = container_of(parent_css, 'struct cgroup', 'self')
+        cgroup = container_of(parent_css, "struct cgroup", "self")
 
     return cgroup_path
 
@@ -76,17 +76,19 @@ def _print_sk(sk):
     src_port = socket.ntohs(inet.inet_sport)
     dst_port = socket.ntohs(sk.__sk_common.skc_dport)
 
-    cgroup_path = ''
+    cgroup_path = ""
     if sk_fullsock(sk):
-        cgroup = Object(prog, 'struct cgroup', address=sk.sk_cgrp_data.val)
+        cgroup = Object(prog, "struct cgroup", address=sk.sk_cgrp_data.val)
         cgroup_path = _cgroup_path(cgroup)
 
-    print('{:<12} {} {} {}'.format(
-        tcp_state.name,
-        _ip_port(src_ip, src_port),
-        _ip_port(dst_ip, dst_port),
-        cgroup_path
-    ))
+    print(
+        "{:<12} {} {} {}".format(
+            tcp_state.name,
+            _ip_port(src_ip, src_port),
+            _ip_port(dst_ip, dst_port),
+            cgroup_path,
+        )
+    )
 
     # Uncomment to print whole struct:
     #   print(sk)
@@ -94,12 +96,12 @@ def _print_sk(sk):
     #   print(cgroup)
 
 
-tcp_hashinfo = prog.object('tcp_hashinfo')
+tcp_hashinfo = prog.object("tcp_hashinfo")
 
 # 1. Iterate over all TCP sockets in TCP_LISTEN state.
 for ilb in tcp_hashinfo.listening_hash:
     for pos in hlist_for_each(ilb.head):
-        sk = container_of(pos, 'struct sock', '__sk_common.skc_node')
+        sk = container_of(pos, "struct sock", "__sk_common.skc_node")
         _print_sk(sk)
 
 # 2. And all other TCP sockets.

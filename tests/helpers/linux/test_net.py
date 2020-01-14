@@ -11,5 +11,5 @@ class TestNet(LinuxHelperTestCase):
     def test_sk_fullsock(self):
         with create_socket() as sock:
             file = fget(find_task(self.prog, os.getpid()), sock.fileno())
-            sk = cast('struct socket *', file.private_data).sk.read_()
+            sk = cast("struct socket *", file.private_data).sk.read_()
             self.assertTrue(sk_fullsock(sk))

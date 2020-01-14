@@ -14,41 +14,45 @@ def strictstartswith(a, b):
 # other than the input in this repository.
 def parse_rst(input_file):
     stack = [
-        SimpleNamespace(name='', state='CONTENT', lines=None,
-                        directive_indentation='', content_indentation='')
+        SimpleNamespace(
+            name="",
+            state="CONTENT",
+            lines=None,
+            directive_indentation="",
+            content_indentation="",
+        )
     ]
     for line in input_file:
         line = line.rstrip()
-        indentation = re.match(r'\s*', line).group()
+        indentation = re.match(r"\s*", line).group()
         while True:
             top = stack[-1]
-            if top.state == 'DIRECTIVE':
+            if top.state == "DIRECTIVE":
                 if not line:
-                    top.state = 'BLANK_LINE'
+                    top.state = "BLANK_LINE"
                     break
                 elif strictstartswith(indentation, top.directive_indentation):
                     top.content_indentation = indentation
-                    top.state = 'OPTIONS'
+                    top.state = "OPTIONS"
                     break
-            elif top.state == 'BLANK_LINE':
+            elif top.state == "BLANK_LINE":
                 if not line:
                     break
                 elif strictstartswith(indentation, top.directive_indentation):
                     top.content_indentation = indentation
-                    top.state = 'CONTENT'
+                    top.state = "CONTENT"
                     break
-            elif top.state == 'OPTIONS':
+            elif top.state == "OPTIONS":
                 if not line:
-                    top.state = 'OPTIONS_BLANK_LINE'
+                    top.state = "OPTIONS_BLANK_LINE"
                     break
                 elif indentation.startswith(top.content_indentation):
                     break
             else:
-                if top.state == 'OPTIONS_BLANK_LINE':
-                    top.state = 'CONTENT'
-                assert top.state == 'CONTENT'
-                if (not line or
-                        indentation.startswith(top.content_indentation)):
+                if top.state == "OPTIONS_BLANK_LINE":
+                    top.state = "CONTENT"
+                assert top.state == "CONTENT"
+                if not line or indentation.startswith(top.content_indentation):
                     break
             # The current line is indented less than the current indentation,
             # so pop the top directive.
@@ -57,40 +61,48 @@ def parse_rst(input_file):
             del stack[-1]
 
         assert top is stack[-1]
-        if top.state != 'CONTENT':
+        if top.state != "CONTENT":
             continue
 
         if line:
             assert line.startswith(top.content_indentation)
-            line = line[len(top.content_indentation):]
-        match = re.match(r'\s*..\s*(?:py:)?([-a-zA-Z0-9_+:.]+)::\s*(.*)', line)
+            line = line[len(top.content_indentation) :]
+        match = re.match(r"\s*..\s*(?:py:)?([-a-zA-Z0-9_+:.]+)::\s*(.*)", line)
         if match:
             directive = match.group(1)
             argument = match.group(2)
-            if directive == 'module' or directive == 'currentmodule':
+            if directive == "module" or directive == "currentmodule":
                 stack[0].name = argument
             else:
                 name = top.name
-                if directive in {'attribute', 'class', 'exception', 'function',
-                                 'method'}:
+                if directive in {
+                    "attribute",
+                    "class",
+                    "exception",
+                    "function",
+                    "method",
+                }:
                     lines = []
-                    paren = argument.find('(')
+                    paren = argument.find("(")
                     if paren != -1:
                         # If the argument includes a signature, add it along
                         # with the signature end marker used by CPython.
                         lines.append(argument)
-                        lines.append('--')
-                        lines.append('')
+                        lines.append("--")
+                        lines.append("")
                         argument = argument[:paren]
                     if name:
-                        name += '.'
+                        name += "."
                     name += argument
                 else:
                     lines = None
-                entry = SimpleNamespace(name=name, state='DIRECTIVE',
-                                        lines=lines,
-                                        directive_indentation=indentation,
-                                        content_indentation=None)
+                entry = SimpleNamespace(
+                    name=name,
+                    state="DIRECTIVE",
+                    lines=lines,
+                    directive_indentation=indentation,
+                    content_indentation=None,
+                )
                 stack.append(entry)
         elif top.lines is not None:
             top.lines.append(line)
@@ -104,40 +116,41 @@ def parse_rst(input_file):
 escapes = []
 for c in range(256):
     if c == 0:
-        e = r'\0'
+        e = r"\0"
     elif c == 7:
-        e = r'\a'
+        e = r"\a"
     elif c == 8:
-        e = r'\b'
+        e = r"\b"
     elif c == 9:
-        e = r'\t'
+        e = r"\t"
     elif c == 10:
-        e = r'\n'
+        e = r"\n"
     elif c == 11:
-        e = r'\v'
+        e = r"\v"
     elif c == 12:
-        e = r'\f'
+        e = r"\f"
     elif c == 13:
-        e = r'\r'
+        e = r"\r"
     elif c == 34:
-        e = r'\"'
+        e = r"\""
     elif c == 92:
-        e = r'\\'
+        e = r"\\"
     elif 32 <= c <= 126:
         e = chr(c)
     else:
-        e = f'\\x{c:02x}'
+        e = f"\\x{c:02x}"
     escapes.append(e)
 
 
 def escape_string(s):
-    return ''.join([escapes[c] for c in s.encode('utf-8')])
+    return "".join([escapes[c] for c in s.encode("utf-8")])
 
 
 def gen_docstrings(input_file, output_file, header=False):
-    path = 'libdrgn/build-aux/gen_docstrings.py'
+    path = "libdrgn/build-aux/gen_docstrings.py"
     if header:
-        output_file.write(f"""\
+        output_file.write(
+            f"""\
 /*
  * Generated by {path} -H.
  *
@@ -146,31 +159,32 @@ def gen_docstrings(input_file, output_file, header=False):
  * read-only, so just cast away the const.
  */
 
-""")
+"""
+        )
     else:
-        output_file.write(f'/* Generated by {path}. */\n\n')
+        output_file.write(f"/* Generated by {path}. */\n\n")
     directives = sorted(parse_rst(input_file), key=lambda x: x.name)
     for directive in directives:
         while directive.lines and not directive.lines[-1]:
             del directive.lines[-1]
-        name = directive.name.replace('.', '_') + '_DOC'
+        name = directive.name.replace(".", "_") + "_DOC"
         if header:
-            output_file.write('extern ')
+            output_file.write("extern ")
         output_file.write(f"const char {name}[]")
         if not header:
-            output_file.write(' =')
+            output_file.write(" =")
             if directive.lines:
                 for i, line in enumerate(directive.lines):
                     output_file.write(f'\n\t"{escape_string(line)}')
                     if i != len(directive.lines) - 1:
-                        output_file.write('\\n')
+                        output_file.write("\\n")
                     output_file.write('"')
             else:
                 output_file.write(' ""')
-        output_file.write(';\n')
+        output_file.write(";\n")
         if header:
-            output_file.write(f'#define {name} (char *){name}\n')
+            output_file.write(f"#define {name} (char *){name}\n")
 
 
-if __name__ == '__main__':
-    gen_docstrings(sys.stdin, sys.stdout, '-H' in sys.argv[1:])
+if __name__ == "__main__":
+    gen_docstrings(sys.stdin, sys.stdout, "-H" in sys.argv[1:])

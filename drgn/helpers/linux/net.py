@@ -13,8 +13,8 @@ from drgn.helpers.linux.tcp import get_tcp_states, sk_tcpstate
 
 
 __all__ = [
-    'sk_fullsock',
-    'sk_nulls_for_each',
+    "sk_fullsock",
+    "sk_nulls_for_each",
 ]
 
 
@@ -38,6 +38,7 @@ def sk_nulls_for_each(head):
 
     :return: Iterator of ``struct sock`` objects.
     """
-    for sk in hlist_nulls_for_each_entry( 'struct sock', head,
-                                         '__sk_common.skc_nulls_node'):
+    for sk in hlist_nulls_for_each_entry(
+        "struct sock", head, "__sk_common.skc_nulls_node"
+    ):
         yield sk

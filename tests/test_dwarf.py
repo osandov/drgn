@@ -37,7 +37,7 @@ bool_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.boolean),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, '_Bool'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "_Bool"),
     ),
 )
 char_die = DwarfDie(
@@ -45,7 +45,7 @@ char_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed_char),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'char'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "char"),
     ),
 )
 signed_char_die = DwarfDie(
@@ -53,7 +53,7 @@ signed_char_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed_char),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'signed char'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "signed char"),
     ),
 )
 unsigned_char_die = DwarfDie(
@@ -61,7 +61,7 @@ unsigned_char_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned_char),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'unsigned char'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned char"),
     ),
 )
 short_die = DwarfDie(
@@ -69,7 +69,7 @@ short_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 2),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'short'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "short"),
     ),
 )
 unsigned_short_die = DwarfDie(
@@ -77,7 +77,7 @@ unsigned_short_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 2),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'unsigned short'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned short"),
     ),
 )
 int_die = DwarfDie(
@@ -85,7 +85,7 @@ int_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'int'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "int"),
     ),
 )
 unsigned_int_die = DwarfDie(
@@ -93,7 +93,7 @@ unsigned_int_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'unsigned int'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned int"),
     ),
 )
 long_die = DwarfDie(
@@ -101,7 +101,7 @@ long_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'long'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "long"),
     ),
 )
 unsigned_long_die = DwarfDie(
@@ -109,7 +109,7 @@ unsigned_long_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'unsigned long'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned long"),
     ),
 )
 long_long_die = DwarfDie(
@@ -117,7 +117,7 @@ long_long_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'long long'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "long long"),
     ),
 )
 float_die = DwarfDie(
@@ -125,7 +125,7 @@ float_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.float),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'float'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "float"),
     ),
 )
 double_die = DwarfDie(
@@ -133,7 +133,7 @@ double_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.float),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'double'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "double"),
     ),
 )
 long_double_die = DwarfDie(
@@ -141,7 +141,7 @@ long_double_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 16),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.float),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'long double'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "long double"),
     ),
 )
 unsigned_long_long_die = DwarfDie(
@@ -149,7 +149,7 @@ unsigned_long_long_die = DwarfDie(
     (
         DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
         DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.unsigned),
-        DwarfAttrib(DW_AT.name, DW_FORM.string, 'unsigned long long'),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned long long"),
     ),
 )
 
@@ -175,17 +175,17 @@ base_type_dies += (
     DwarfDie(
         DW_TAG.typedef,
         (
-            DwarfAttrib(DW_AT.name, DW_FORM.string, 'size_t'),
-            DwarfAttrib(DW_AT.type, DW_FORM.ref4,
-                        base_type_dies.index(unsigned_long_die)),
+            DwarfAttrib(DW_AT.name, DW_FORM.string, "size_t"),
+            DwarfAttrib(
+                DW_AT.type, DW_FORM.ref4, base_type_dies.index(unsigned_long_die)
+            ),
         ),
     ),
     DwarfDie(
         DW_TAG.typedef,
         (
-            DwarfAttrib(DW_AT.name, DW_FORM.string, 'ptrdiff_t'),
-            DwarfAttrib(DW_AT.type, DW_FORM.ref4,
-                        base_type_dies.index(long_die)),
+            DwarfAttrib(DW_AT.name, DW_FORM.string, "ptrdiff_t"),
+            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(long_die)),
         ),
     ),
 )
@@ -209,21 +209,22 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.typedef,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, '__TEST__'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "__TEST__"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
                 ],
             ),
         )
         prog = dwarf_program(dies, little_endian)
-        return prog.type('__TEST__').type
+        return prog.type("__TEST__").type
 
     def assertFromDwarf(self, dies, type, little_endian=True):
         self.assertEqual(self.type_from_dwarf(dies, little_endian), type)
 
     def test_unknown_tag(self):
         die = DwarfDie(0x9999, ())
-        self.assertRaisesRegex(Exception, 'unknown DWARF type tag 0x9999',
-                               self.type_from_dwarf, die)
+        self.assertRaisesRegex(
+            Exception, "unknown DWARF type tag 0x9999", self.type_from_dwarf, die
+        )
 
     def test_bad_base_type(self):
         die = DwarfDie(
@@ -231,26 +232,35 @@ class TestTypes(unittest.TestCase):
             [
                 DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
                 DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
-                DwarfAttrib(DW_AT.name, DW_FORM.string, 'bad egg'),
+                DwarfAttrib(DW_AT.name, DW_FORM.string, "bad egg"),
             ],
         )
 
         byte_size = die.attribs.pop(0)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_base_type has missing or invalid DW_AT_byte_size',
-                               self.type_from_dwarf, die)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_base_type has missing or invalid DW_AT_byte_size",
+            self.type_from_dwarf,
+            die,
+        )
         die.attribs.insert(0, byte_size)
 
         encoding = die.attribs.pop(1)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_base_type has missing or invalid DW_AT_encoding',
-                               self.type_from_dwarf, die)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_base_type has missing or invalid DW_AT_encoding",
+            self.type_from_dwarf,
+            die,
+        )
         die.attribs.insert(1, encoding)
 
         del die.attribs[2]
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_base_type has missing or invalid DW_AT_name',
-                               self.type_from_dwarf, die)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_base_type has missing or invalid DW_AT_name",
+            self.type_from_dwarf,
+            die,
+        )
 
     def test_complex(self):
         dies = [
@@ -259,14 +269,15 @@ class TestTypes(unittest.TestCase):
                 (
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 16),
                     DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.complex_float),
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'double _Complex'),
-                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1)
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "double _Complex"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                 ),
             ),
             double_die,
         ]
         self.assertFromDwarf(
-            dies, complex_type('double _Complex', 16, float_type('double', 8)))
+            dies, complex_type("double _Complex", 16, float_type("double", 8))
+        )
 
     def test_unknown_base_type_encoding(self):
         die = DwarfDie(
@@ -274,71 +285,67 @@ class TestTypes(unittest.TestCase):
             (
                 DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
                 DwarfAttrib(DW_AT.encoding, DW_FORM.data1, 99),
-                DwarfAttrib(DW_AT.name, DW_FORM.string, 'magic int'),
+                DwarfAttrib(DW_AT.name, DW_FORM.string, "magic int"),
             ),
         )
-        self.assertRaisesRegex(Exception, 'unknown DWARF encoding',
-                               self.type_from_dwarf, die)
+        self.assertRaisesRegex(
+            Exception, "unknown DWARF encoding", self.type_from_dwarf, die
+        )
 
     def test_qualifiers(self):
         dies = [
-            DwarfDie(
-                DW_TAG.const_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1)],
-            ),
+            DwarfDie(DW_TAG.const_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1)],),
             int_die,
         ]
-        self.assertFromDwarf(dies, int_type('int', 4, True, Qualifiers.CONST))
+        self.assertFromDwarf(dies, int_type("int", 4, True, Qualifiers.CONST))
 
         del dies[0].attribs[0]
         self.assertFromDwarf(dies, void_type(Qualifiers.CONST))
 
         dies = [
-            DwarfDie(
-                DW_TAG.const_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1)],
-            ),
-            DwarfDie(
-                DW_TAG.restrict_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2)],
-            ),
-            DwarfDie(
-                DW_TAG.volatile_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3)],
-            ),
-            DwarfDie(
-                DW_TAG.atomic_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 4)],
-            ),
+            DwarfDie(DW_TAG.const_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1)],),
+            DwarfDie(DW_TAG.restrict_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2)],),
+            DwarfDie(DW_TAG.volatile_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3)],),
+            DwarfDie(DW_TAG.atomic_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 4)],),
             int_die,
         ]
-        self.assertFromDwarf(dies,
-                             int_type('int', 4, True,
-                                      Qualifiers.CONST |
-                                      Qualifiers.RESTRICT |
-                                      Qualifiers.VOLATILE |
-                                      Qualifiers.ATOMIC))
+        self.assertFromDwarf(
+            dies,
+            int_type(
+                "int",
+                4,
+                True,
+                Qualifiers.CONST
+                | Qualifiers.RESTRICT
+                | Qualifiers.VOLATILE
+                | Qualifiers.ATOMIC,
+            ),
+        )
 
         del dies[3].attribs[0]
-        self.assertFromDwarf(dies,
-                             void_type(Qualifiers.CONST |
-                                       Qualifiers.RESTRICT |
-                                       Qualifiers.VOLATILE |
-                                       Qualifiers.ATOMIC))
+        self.assertFromDwarf(
+            dies,
+            void_type(
+                Qualifiers.CONST
+                | Qualifiers.RESTRICT
+                | Qualifiers.VOLATILE
+                | Qualifiers.ATOMIC
+            ),
+        )
 
     def test_struct(self):
         dies = [
             DwarfDie(
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
@@ -346,7 +353,7 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'y'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
@@ -360,16 +367,18 @@ class TestTypes(unittest.TestCase):
 
         tag = dies[0].attribs.pop(0)
         self.assertFromDwarf(
-            dies, struct_type(None, point_type.size, point_type.members))
+            dies, struct_type(None, point_type.size, point_type.members)
+        )
         dies[0].attribs.insert(0, tag)
 
         children = list(dies[0].children)
         dies[0].children.clear()
-        self.assertFromDwarf(
-            dies, struct_type('point', point_type.size, ()))
+        self.assertFromDwarf(dies, struct_type("point", point_type.size, ()))
         size = dies[0].attribs.pop(1)
-        dies[0].attribs.append(DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True))
-        self.assertFromDwarf(dies, struct_type('point'))
+        dies[0].attribs.append(
+            DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True)
+        )
+        self.assertFromDwarf(dies, struct_type("point"))
         del dies[0].attribs[-1]
         dies[0].attribs.insert(1, size)
         dies[0].children.extend(children)
@@ -377,47 +386,71 @@ class TestTypes(unittest.TestCase):
         name = dies[0].children[0].attribs.pop(0)
         self.assertFromDwarf(
             dies,
-            struct_type('point', point_type.size, (
-                (int_type('int', 4, True), None, 0),
-                (int_type('int', 4, True), 'y', 32),
-            )))
+            struct_type(
+                "point",
+                point_type.size,
+                (
+                    (int_type("int", 4, True), None, 0),
+                    (int_type("int", 4, True), "y", 32),
+                ),
+            ),
+        )
         dies[0].children[0].attribs.insert(0, name)
 
         tag = dies[0].attribs.pop(0)
         dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_structure_type has invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_structure_type has invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs[0] = tag
 
         size = dies[0].attribs.pop(1)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_structure_type has missing or invalid DW_AT_byte_size',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_structure_type has missing or invalid DW_AT_byte_size",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs.insert(1, size)
 
         name = dies[0].children[0].attribs.pop(0)
         dies[0].children[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member has invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_member has invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs[0] = name
 
         location = dies[0].children[0].attribs[1]
-        dies[0].children[0].attribs[1] = DwarfAttrib(DW_AT.data_member_location, DW_FORM.string, 'foo')
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member has invalid DW_AT_data_member_location',
-                               self.type_from_dwarf, dies)
+        dies[0].children[0].attribs[1] = DwarfAttrib(
+            DW_AT.data_member_location, DW_FORM.string, "foo"
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_member has invalid DW_AT_data_member_location",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs[1] = location
 
         type_ = dies[0].children[0].attribs.pop(2)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member is missing DW_AT_type',
-                               self.type_from_dwarf, dies)
-        dies[0].children[0].attribs.insert(2, DwarfAttrib(DW_AT.type, DW_FORM.string, 'foo'))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member has invalid DW_AT_type',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception, "DW_TAG_member is missing DW_AT_type", self.type_from_dwarf, dies
+        )
+        dies[0].children[0].attribs.insert(
+            2, DwarfAttrib(DW_AT.type, DW_FORM.string, "foo")
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_member has invalid DW_AT_type",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs[2] = type_
 
     def test_incomplete_to_complete(self):
@@ -432,22 +465,22 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
                     DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
                 ],
             ),
             DwarfDie(
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
-                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, 'foo.c'),
+                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
                         ],
@@ -455,7 +488,7 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'y'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
                         ],
@@ -471,15 +504,15 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
-                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, 'bar.c'),
+                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "bar.c"),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
                         ],
@@ -487,7 +520,7 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'b'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "b"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
                         ],
@@ -495,7 +528,7 @@ class TestTypes(unittest.TestCase):
                 ],
             )
         )
-        type_ = pointer_type(8, struct_type('point'))
+        type_ = pointer_type(8, struct_type("point"))
         self.assertFromDwarf(dies, type_)
 
     def test_filename(self):
@@ -503,25 +536,29 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
-                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, 'foo.c'),
+                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
+                            DwarfAttrib(
+                                DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)
+                            ),
                         ],
                     ),
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'y'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
+                            DwarfAttrib(
+                                DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)
+                            ),
                         ],
                     ),
                 ],
@@ -529,81 +566,91 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
-                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, 'bar/baz.c'),
+                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "bar/baz.c"),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
+                            DwarfAttrib(
+                                DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)
+                            ),
                         ],
                     ),
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'b'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "b"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
+                            DwarfAttrib(
+                                DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)
+                            ),
                         ],
                     ),
                 ],
             ),
         ]
 
-        other_point_type = struct_type('point', 8, (
-            (int_type('int', 4, True), 'a'),
-            (int_type('int', 4, True), 'b', 32),
-        ))
+        other_point_type = struct_type(
+            "point",
+            8,
+            ((int_type("int", 4, True), "a"), (int_type("int", 4, True), "b", 32),),
+        )
 
         prog = dwarf_program(dies)
-        for dir in ['', 'src', 'usr/src', '/usr/src']:
+        for dir in ["", "src", "usr/src", "/usr/src"]:
             with self.subTest(dir=dir):
-                self.assertEqual(prog.type('struct point',
-                                           os.path.join(dir, 'foo.c')),
-                                 point_type)
-        for dir in ['', 'bar', 'src/bar', 'usr/src/bar', '/usr/src/bar']:
+                self.assertEqual(
+                    prog.type("struct point", os.path.join(dir, "foo.c")), point_type
+                )
+        for dir in ["", "bar", "src/bar", "usr/src/bar", "/usr/src/bar"]:
             with self.subTest(dir=dir):
-                self.assertEqual(prog.type('struct point',
-                                           os.path.join(dir, 'baz.c')),
-                                 other_point_type)
+                self.assertEqual(
+                    prog.type("struct point", os.path.join(dir, "baz.c")),
+                    other_point_type,
+                )
 
         dies[len(base_type_dies)].attribs[-1] = DwarfAttrib(
-            DW_AT.decl_file, DW_FORM.udata, 'xy/foo.h')
+            DW_AT.decl_file, DW_FORM.udata, "xy/foo.h"
+        )
         dies[len(base_type_dies) + 1].attribs[-1] = DwarfAttrib(
-            DW_AT.decl_file, DW_FORM.udata, '/usr/include/ab/foo.h')
+            DW_AT.decl_file, DW_FORM.udata, "/usr/include/ab/foo.h"
+        )
         prog = dwarf_program(dies)
-        for dir in ['xy', 'src/xy', 'usr/src/xy', '/usr/src/xy']:
+        for dir in ["xy", "src/xy", "usr/src/xy", "/usr/src/xy"]:
             with self.subTest(dir=dir):
-                self.assertEqual(prog.type('struct point',
-                                           os.path.join(dir, 'foo.h')),
-                                 point_type)
-        for dir in ['ab', 'include/ab', 'usr/include/ab', '/usr/include/ab']:
+                self.assertEqual(
+                    prog.type("struct point", os.path.join(dir, "foo.h")), point_type
+                )
+        for dir in ["ab", "include/ab", "usr/include/ab", "/usr/include/ab"]:
             with self.subTest(dir=dir):
-                self.assertEqual(prog.type('struct point',
-                                           os.path.join(dir, 'foo.h')),
-                                 other_point_type)
-        for filename in [None, 'foo.h']:
+                self.assertEqual(
+                    prog.type("struct point", os.path.join(dir, "foo.h")),
+                    other_point_type,
+                )
+        for filename in [None, "foo.h"]:
             with self.subTest(filename=filename):
-                self.assertIn(prog.type('struct point', filename),
-                              (point_type, other_point_type))
+                self.assertIn(
+                    prog.type("struct point", filename), (point_type, other_point_type)
+                )
 
     def test_bit_field(self):
         dies = [
             DwarfDie(
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
@@ -611,7 +658,7 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'y'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
                             DwarfAttrib(DW_AT.bit_size, DW_FORM.data1, 12),
                             DwarfAttrib(DW_AT.data_bit_offset, DW_FORM.data1, 32),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
@@ -620,7 +667,7 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'z'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "z"),
                             DwarfAttrib(DW_AT.bit_size, DW_FORM.data1, 20),
                             DwarfAttrib(DW_AT.data_bit_offset, DW_FORM.data1, 44),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
@@ -631,46 +678,54 @@ class TestTypes(unittest.TestCase):
             int_die,
         ]
 
-        t = struct_type('point', 8, [
-            (int_type('int', 4, True), 'x', 0),
-            (int_type('int', 4, True), 'y', 32, 12),
-            (int_type('int', 4, True), 'z', 44, 20),
-        ])
+        t = struct_type(
+            "point",
+            8,
+            [
+                (int_type("int", 4, True), "x", 0),
+                (int_type("int", 4, True), "y", 32, 12),
+                (int_type("int", 4, True), "z", 44, 20),
+            ],
+        )
 
         # With DW_AT_data_bit_offset.
         self.assertFromDwarf(dies, t, little_endian=True)
         self.assertFromDwarf(dies, t, little_endian=False)
 
         # With DW_AT_bit_offset on big-endian.
-        dies[0].children[1].attribs[2] = DwarfAttrib(DW_AT.bit_offset,
-                                                     DW_FORM.data1, 32)
-        dies[0].children[2].attribs[2] = DwarfAttrib(DW_AT.bit_offset,
-                                                     DW_FORM.data1, 44)
+        dies[0].children[1].attribs[2] = DwarfAttrib(
+            DW_AT.bit_offset, DW_FORM.data1, 32
+        )
+        dies[0].children[2].attribs[2] = DwarfAttrib(
+            DW_AT.bit_offset, DW_FORM.data1, 44
+        )
         self.assertFromDwarf(dies, t, little_endian=False)
 
         # With DW_AT_data_member_location and DW_AT_bit_offset on big-endian.
-        dies[0].children[1].attribs.append(DwarfAttrib(DW_AT.data_member_location,
-                                                       DW_FORM.data1, 4))
-        dies[0].children[1].attribs[2] = DwarfAttrib(DW_AT.bit_offset,
-                                                     DW_FORM.data1, 0)
-        dies[0].children[2].attribs.append(DwarfAttrib(DW_AT.data_member_location,
-                                                       DW_FORM.data1, 4))
-        dies[0].children[2].attribs[2] = DwarfAttrib(DW_AT.bit_offset,
-                                                     DW_FORM.data1, 4)
+        dies[0].children[1].attribs.append(
+            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4)
+        )
+        dies[0].children[1].attribs[2] = DwarfAttrib(DW_AT.bit_offset, DW_FORM.data1, 0)
+        dies[0].children[2].attribs.append(
+            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4)
+        )
+        dies[0].children[2].attribs[2] = DwarfAttrib(DW_AT.bit_offset, DW_FORM.data1, 4)
 
         # With DW_AT_data_member_location and DW_AT_bit_offset on little-endian.
-        dies[0].children[1].attribs[2] = DwarfAttrib(DW_AT.bit_offset,
-                                                     DW_FORM.data1, 20)
-        dies[0].children[2].attribs[2] = DwarfAttrib(DW_AT.bit_offset,
-                                                     DW_FORM.data1, 0)
+        dies[0].children[1].attribs[2] = DwarfAttrib(
+            DW_AT.bit_offset, DW_FORM.data1, 20
+        )
+        dies[0].children[2].attribs[2] = DwarfAttrib(DW_AT.bit_offset, DW_FORM.data1, 0)
         self.assertFromDwarf(dies, t, little_endian=True)
 
         # With DW_AT_data_member_location, DW_AT_bit_offset, and
         # DW_AT_byte_size on little-endian.
-        dies[0].children[1].attribs.append(DwarfAttrib(DW_AT.byte_size,
-                                                       DW_FORM.data1, 4))
-        dies[0].children[2].attribs.append(DwarfAttrib(DW_AT.byte_size,
-                                                       DW_FORM.data1, 4))
+        dies[0].children[1].attribs.append(
+            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4)
+        )
+        dies[0].children[2].attribs.append(
+            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4)
+        )
         self.assertFromDwarf(dies, t, little_endian=True)
 
     def test_union(self):
@@ -678,21 +733,21 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.union_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'option'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "option"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'i'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "i"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
                     ),
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'f'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "f"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
                         ],
                     ),
@@ -706,15 +761,21 @@ class TestTypes(unittest.TestCase):
 
         tag = dies[0].attribs.pop(0)
         dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_union_type has invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_union_type has invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs[0] = tag
 
         size = dies[0].attribs.pop(1)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_union_type has missing or invalid DW_AT_byte_size',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_union_type has missing or invalid DW_AT_byte_size",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs.insert(1, size)
 
     def test_class(self):
@@ -722,14 +783,14 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.class_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'coord'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "coord"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 12),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
@@ -737,7 +798,7 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'y'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
@@ -745,7 +806,7 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'z'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "z"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 8),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
@@ -759,16 +820,18 @@ class TestTypes(unittest.TestCase):
 
         tag = dies[0].attribs.pop(0)
         self.assertFromDwarf(
-            dies, class_type(None, coord_type.size, coord_type.members))
+            dies, class_type(None, coord_type.size, coord_type.members)
+        )
         dies[0].attribs.insert(0, tag)
 
         children = list(dies[0].children)
         dies[0].children.clear()
-        self.assertFromDwarf(
-            dies, class_type('coord', coord_type.size, ()))
+        self.assertFromDwarf(dies, class_type("coord", coord_type.size, ()))
         size = dies[0].attribs.pop(1)
-        dies[0].attribs.append(DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True))
-        self.assertFromDwarf(dies, class_type('coord'))
+        dies[0].attribs.append(
+            DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True)
+        )
+        self.assertFromDwarf(dies, class_type("coord"))
         del dies[0].attribs[-1]
         dies[0].attribs.insert(1, size)
         dies[0].children.extend(children)
@@ -776,48 +839,72 @@ class TestTypes(unittest.TestCase):
         name = dies[0].children[0].attribs.pop(0)
         self.assertFromDwarf(
             dies,
-            class_type('coord', coord_type.size, (
-                (int_type('int', 4, True), None, 0),
-                (int_type('int', 4, True), 'y', 32),
-                (int_type('int', 4, True), 'z', 64),
-            )))
+            class_type(
+                "coord",
+                coord_type.size,
+                (
+                    (int_type("int", 4, True), None, 0),
+                    (int_type("int", 4, True), "y", 32),
+                    (int_type("int", 4, True), "z", 64),
+                ),
+            ),
+        )
         dies[0].children[0].attribs.insert(0, name)
 
         tag = dies[0].attribs.pop(0)
         dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_class_type has invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_class_type has invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs[0] = tag
 
         size = dies[0].attribs.pop(1)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_class_type has missing or invalid DW_AT_byte_size',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_class_type has missing or invalid DW_AT_byte_size",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs.insert(1, size)
 
         name = dies[0].children[0].attribs.pop(0)
         dies[0].children[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member has invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_member has invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs[0] = name
 
         location = dies[0].children[0].attribs[1]
-        dies[0].children[0].attribs[1] = DwarfAttrib(DW_AT.data_member_location, DW_FORM.string, 'foo')
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member has invalid DW_AT_data_member_location',
-                               self.type_from_dwarf, dies)
+        dies[0].children[0].attribs[1] = DwarfAttrib(
+            DW_AT.data_member_location, DW_FORM.string, "foo"
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_member has invalid DW_AT_data_member_location",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs[1] = location
 
         type_ = dies[0].children[0].attribs.pop(2)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member is missing DW_AT_type',
-                               self.type_from_dwarf, dies)
-        dies[0].children[0].attribs.insert(2, DwarfAttrib(DW_AT.type, DW_FORM.string, 'foo'))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_member has invalid DW_AT_type',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception, "DW_TAG_member is missing DW_AT_type", self.type_from_dwarf, dies
+        )
+        dies[0].children[0].attribs.insert(
+            2, DwarfAttrib(DW_AT.type, DW_FORM.string, "foo")
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_member has invalid DW_AT_type",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs[2] = type_
 
     def test_lazy_cycle(self):
@@ -825,14 +912,14 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.structure_type,
                 (
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'foo'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "foo"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
                 ),
                 (
                     DwarfDie(
                         DW_TAG.member,
                         (
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'next'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "next"),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ),
@@ -848,9 +935,7 @@ class TestTypes(unittest.TestCase):
             ),
         ]
 
-        type_ = struct_type('foo', 8, (
-            (lambda: pointer_type(8, type_), 'next'),
-        ))
+        type_ = struct_type("foo", 8, ((lambda: pointer_type(8, type_), "next"),))
         self.assertFromDwarf(dies, type_)
 
     def test_infinite_cycle(self):
@@ -863,15 +948,16 @@ class TestTypes(unittest.TestCase):
                 ],
             ),
         ]
-        self.assertRaisesRegex(Exception, 'maximum.*depth exceeded',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception, "maximum.*depth exceeded", self.type_from_dwarf, dies
+        )
 
     def test_enum(self):
         dies = [
             DwarfDie(
                 DW_TAG.enumeration_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'color'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
                 ],
@@ -879,25 +965,25 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(
                         DW_TAG.enumerator,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'RED'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "RED"),
                             DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 0),
-                        ]
+                        ],
                     ),
                     DwarfDie(
                         DW_TAG.enumerator,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'GREEN'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "GREEN"),
                             DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 1),
-                        ]
+                        ],
                     ),
                     DwarfDie(
                         DW_TAG.enumerator,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'BLUE'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "BLUE"),
                             DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 2),
-                        ]
+                        ],
                     ),
-                ]
+                ],
             ),
             unsigned_int_die,
             double_die,
@@ -907,17 +993,18 @@ class TestTypes(unittest.TestCase):
 
         tag = dies[0].attribs.pop(0)
         self.assertFromDwarf(
-            dies,
-            enum_type(None, color_type.type, color_type.enumerators))
+            dies, enum_type(None, color_type.type, color_type.enumerators)
+        )
         dies[0].attribs.insert(0, tag)
 
         children = list(dies[0].children)
         dies[0].children.clear()
-        self.assertFromDwarf(
-            dies, enum_type('color', color_type.type, ()))
+        self.assertFromDwarf(dies, enum_type("color", color_type.type, ()))
         type_ = dies[0].attribs.pop(1)
-        dies[0].attribs.append(DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True))
-        self.assertFromDwarf(dies, enum_type('color'))
+        dies[0].attribs.append(
+            DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True)
+        )
+        self.assertFromDwarf(dies, enum_type("color"))
         del dies[0].attribs[-1]
         dies[0].attribs.insert(1, type_)
         dies[0].children.extend(children)
@@ -926,202 +1013,253 @@ class TestTypes(unittest.TestCase):
         del dies[0].attribs[1]
         self.assertFromDwarf(
             dies,
-            enum_type('color', int_type('<unknown>', 4, False),
-                      color_type.enumerators))
+            enum_type("color", int_type("<unknown>", 4, False), color_type.enumerators),
+        )
         for i, child in enumerate(dies[0].children):
-            child.attribs[1] = DwarfAttrib(DW_AT.const_value,
-                                           DW_FORM.sdata, -i)
+            child.attribs[1] = DwarfAttrib(DW_AT.const_value, DW_FORM.sdata, -i)
         self.assertFromDwarf(
             dies,
-            enum_type('color', int_type('<unknown>', 4, True),
-                      [('RED', 0), ('GREEN', -1), ('BLUE', -2)]))
+            enum_type(
+                "color",
+                int_type("<unknown>", 4, True),
+                [("RED", 0), ("GREEN", -1), ("BLUE", -2)],
+            ),
+        )
 
         dies[0].attribs.insert(1, DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2))
-        self.assertRaisesRegex(Exception,
-                               'DW_AT_type of DW_TAG_enumeration_type is not an integer type',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_AT_type of DW_TAG_enumeration_type is not an integer type",
+            self.type_from_dwarf,
+            dies,
+        )
         del dies[0].attribs[1]
 
         size = dies[0].attribs.pop(1)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs.insert(1, size)
 
         tag = dies[0].attribs.pop(0)
         dies[0].attribs.insert(0, DwarfAttrib(DW_AT.name, DW_FORM.data1, 0))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_enumeration_type has invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_enumeration_type has invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].attribs[0] = tag
 
         name = dies[0].children[0].attribs.pop(0)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_enumerator has missing or invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_enumerator has missing or invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs.insert(0, name)
 
         const_value = dies[0].children[0].attribs.pop(1)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_enumerator is missing DW_AT_const_value',
-                               self.type_from_dwarf, dies)
-        dies[0].children[0].attribs.insert(1, DwarfAttrib(DW_AT.const_value, DW_FORM.string, 'asdf'))
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_enumerator has invalid DW_AT_const_value',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_enumerator is missing DW_AT_const_value",
+            self.type_from_dwarf,
+            dies,
+        )
+        dies[0].children[0].attribs.insert(
+            1, DwarfAttrib(DW_AT.const_value, DW_FORM.string, "asdf")
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_enumerator has invalid DW_AT_const_value",
+            self.type_from_dwarf,
+            dies,
+        )
         dies[0].children[0].attribs[1] = const_value
 
     def test_tagged_by_name(self):
-        prog = dwarf_program(base_type_dies + (
-            DwarfDie(
-                DW_TAG.structure_type,
-                [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'point'),
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
-                ],
-                [
-                    DwarfDie(
-                        DW_TAG.member,
-                        [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
-                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
-                        ],
-                    ),
-                    DwarfDie(
-                        DW_TAG.member,
-                        [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'y'),
-                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
-                        ],
-                    ),
-                ],
-            ),
-            DwarfDie(
-                DW_TAG.union_type,
-                [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'option'),
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                ],
-                [
-                    DwarfDie(
-                        DW_TAG.member,
-                        [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'i'),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
-                        ],
-                    ),
-                    DwarfDie(
-                        DW_TAG.member,
-                        [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'f'),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(float_die)),
-                        ],
-                    ),
-                ],
-            ),
-            DwarfDie(
-                DW_TAG.enumeration_type,
-                [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'color'),
-                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(unsigned_int_die)),
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                ],
-                [
-                    DwarfDie(
-                        DW_TAG.enumerator,
-                        [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'RED'),
-                            DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 0),
-                        ]
-                    ),
-                    DwarfDie(
-                        DW_TAG.enumerator,
-                        [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'GREEN'),
-                            DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 1),
-                        ]
-                    ),
-                    DwarfDie(
-                        DW_TAG.enumerator,
-                        [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'BLUE'),
-                            DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 2),
-                        ]
-                    ),
-                ]
-            ),
-        ))
+        prog = dwarf_program(
+            base_type_dies
+            + (
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    [
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                    ],
+                    [
+                        DwarfDie(
+                            DW_TAG.member,
+                            [
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                ),
+                                DwarfAttrib(
+                                    DW_AT.type,
+                                    DW_FORM.ref4,
+                                    base_type_dies.index(int_die),
+                                ),
+                            ],
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            [
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 4
+                                ),
+                                DwarfAttrib(
+                                    DW_AT.type,
+                                    DW_FORM.ref4,
+                                    base_type_dies.index(int_die),
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                DwarfDie(
+                    DW_TAG.union_type,
+                    [
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "option"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                    ],
+                    [
+                        DwarfDie(
+                            DW_TAG.member,
+                            [
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "i"),
+                                DwarfAttrib(
+                                    DW_AT.type,
+                                    DW_FORM.ref4,
+                                    base_type_dies.index(int_die),
+                                ),
+                            ],
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            [
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "f"),
+                                DwarfAttrib(
+                                    DW_AT.type,
+                                    DW_FORM.ref4,
+                                    base_type_dies.index(float_die),
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                DwarfDie(
+                    DW_TAG.enumeration_type,
+                    [
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
+                        DwarfAttrib(
+                            DW_AT.type,
+                            DW_FORM.ref4,
+                            base_type_dies.index(unsigned_int_die),
+                        ),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                    ],
+                    [
+                        DwarfDie(
+                            DW_TAG.enumerator,
+                            [
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "RED"),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 0),
+                            ],
+                        ),
+                        DwarfDie(
+                            DW_TAG.enumerator,
+                            [
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "GREEN"),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 1),
+                            ],
+                        ),
+                        DwarfDie(
+                            DW_TAG.enumerator,
+                            [
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "BLUE"),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 2),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+        )
 
-        self.assertEqual(prog.type('struct point'), point_type)
-        self.assertRaisesRegex(LookupError, 'could not find', prog.type,
-                               'union point')
-        self.assertEqual(prog.type('union option'), option_type)
-        self.assertRaisesRegex(LookupError, 'could not find', prog.type,
-                               'struct option')
-        self.assertEqual(prog.type('enum color'), color_type)
-        self.assertRaisesRegex(LookupError, 'could not find', prog.type,
-                               'struct color')
+        self.assertEqual(prog.type("struct point"), point_type)
+        self.assertRaisesRegex(LookupError, "could not find", prog.type, "union point")
+        self.assertEqual(prog.type("union option"), option_type)
+        self.assertRaisesRegex(
+            LookupError, "could not find", prog.type, "struct option"
+        )
+        self.assertEqual(prog.type("enum color"), color_type)
+        self.assertRaisesRegex(LookupError, "could not find", prog.type, "struct color")
 
     def test_typedef(self):
         dies = [
             DwarfDie(
                 DW_TAG.typedef,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'INT'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "INT"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                 ],
             ),
             int_die,
         ]
-        self.assertFromDwarf(
-            dies, typedef_type('INT', int_type('int', 4, True)))
+        self.assertFromDwarf(dies, typedef_type("INT", int_type("int", 4, True)))
 
         dies[0].attribs.pop(0)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_typedef has missing or invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_typedef has missing or invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
 
     def test_void_typedef(self):
         dies = [
             DwarfDie(
-                DW_TAG.typedef,
-                [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'VOID'),
-                ],
+                DW_TAG.typedef, [DwarfAttrib(DW_AT.name, DW_FORM.string, "VOID"),],
             ),
         ]
-        self.assertFromDwarf(dies, typedef_type('VOID', void_type()))
+        self.assertFromDwarf(dies, typedef_type("VOID", void_type()))
 
         dies[0].attribs.pop(0)
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_typedef has missing or invalid DW_AT_name',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_typedef has missing or invalid DW_AT_name",
+            self.type_from_dwarf,
+            dies,
+        )
 
     def test_typedef_by_name(self):
-        prog = dwarf_program(base_type_dies + (
-            DwarfDie(
-                DW_TAG.typedef,
-                (
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'pid_t'),
-                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)),
+        prog = dwarf_program(
+            base_type_dies
+            + (
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "pid_t"),
+                        DwarfAttrib(
+                            DW_AT.type, DW_FORM.ref4, base_type_dies.index(int_die)
+                        ),
+                    ),
                 ),
-            ),
-        ))
-        self.assertEqual(prog.type('pid_t'), pid_type)
+            )
+        )
+        self.assertEqual(prog.type("pid_t"), pid_type)
 
     def test_pointer(self):
         dies = [
-            DwarfDie(
-                DW_TAG.pointer_type,
-                [
-                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
-                ],
-            ),
+            DwarfDie(DW_TAG.pointer_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),],),
             int_die,
         ]
-        self.assertFromDwarf(dies, pointer_type(8, int_type('int', 4, True)))
+        self.assertFromDwarf(dies, pointer_type(8, int_type("int", 4, True)))
 
         del dies[0].attribs[0]
         self.assertFromDwarf(dies, pointer_type(8, void_type()))
@@ -1134,38 +1272,39 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.upper_bound, DW_FORM.data1, 1)]
+                        [DwarfAttrib(DW_AT.upper_bound, DW_FORM.data1, 1)],
                     ),
                 ],
             ),
             int_die,
         ]
-        self.assertFromDwarf(
-            dies, array_type(2, int_type('int', 4, True)))
+        self.assertFromDwarf(dies, array_type(2, int_type("int", 4, True)))
 
         dies[0].children.append(
             DwarfDie(
-                DW_TAG.subrange_type,
-                [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)]
+                DW_TAG.subrange_type, [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)]
             ),
         )
         self.assertFromDwarf(
-            dies, array_type(2, array_type(3, int_type('int', 4, True))))
+            dies, array_type(2, array_type(3, int_type("int", 4, True)))
+        )
 
         dies[0].children.append(
             DwarfDie(
-                DW_TAG.subrange_type,
-                [DwarfAttrib(DW_AT.count, DW_FORM.data1, 4)]
+                DW_TAG.subrange_type, [DwarfAttrib(DW_AT.count, DW_FORM.data1, 4)]
             ),
         )
         self.assertFromDwarf(
-            dies,
-            array_type(2, array_type(3, array_type(4, int_type('int', 4, True)))))
+            dies, array_type(2, array_type(3, array_type(4, int_type("int", 4, True))))
+        )
 
         del dies[0].attribs[0]
-        self.assertRaisesRegex(Exception,
-                               'DW_TAG_array_type is missing DW_AT_type',
-                               self.type_from_dwarf, dies)
+        self.assertRaisesRegex(
+            Exception,
+            "DW_TAG_array_type is missing DW_AT_type",
+            self.type_from_dwarf,
+            dies,
+        )
 
     def test_zero_length_array(self):
         dies = [
@@ -1175,17 +1314,18 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)],
                     ),
                 ],
             ),
             int_die,
         ]
-        self.assertFromDwarf(dies, array_type(0, int_type('int', 4, True)))
+        self.assertFromDwarf(dies, array_type(0, int_type("int", 4, True)))
 
-        dies[0].children[0].attribs[0] = DwarfAttrib(DW_AT.upper_bound,
-                                                     DW_FORM.sdata, -1)
-        self.assertFromDwarf(dies, array_type(0, int_type('int', 4, True)))
+        dies[0].children[0].attribs[0] = DwarfAttrib(
+            DW_AT.upper_bound, DW_FORM.sdata, -1
+        )
+        self.assertFromDwarf(dies, array_type(0, int_type("int", 4, True)))
 
     def test_incomplete_array(self):
         dies = [
@@ -1196,10 +1336,10 @@ class TestTypes(unittest.TestCase):
             ),
             int_die,
         ]
-        self.assertFromDwarf(dies, array_type(None, int_type('int', 4, True)))
+        self.assertFromDwarf(dies, array_type(None, int_type("int", 4, True)))
 
         del dies[0].children[0]
-        self.assertFromDwarf(dies, array_type(None, int_type('int', 4, True)))
+        self.assertFromDwarf(dies, array_type(None, int_type("int", 4, True)))
 
     def test_incomplete_array_of_array(self):
         # int [3][]
@@ -1211,15 +1351,15 @@ class TestTypes(unittest.TestCase):
                     DwarfDie(DW_TAG.subrange_type, []),
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)],
                     ),
                 ],
             ),
             int_die,
         ]
         self.assertFromDwarf(
-            dies,
-            array_type(None, array_type(3, int_type('int', 4, True))))
+            dies, array_type(None, array_type(3, int_type("int", 4, True)))
+        )
 
     def test_array_of_zero_length_array(self):
         # int [3][0]
@@ -1230,18 +1370,18 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)],
                     ),
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)],
                     ),
                 ],
             ),
             int_die,
         ]
 
-        type_ = array_type(3, array_type(0, int_type('int', 4, True)))
+        type_ = array_type(3, array_type(0, int_type("int", 4, True)))
         self.assertFromDwarf(dies, type_)
 
         # GCC < 9.0.
@@ -1257,7 +1397,7 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 3)],
                     ),
                 ],
             ),
@@ -1265,7 +1405,7 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.typedef,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'ZARRAY'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "ZARRAY"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
                 ],
             ),
@@ -1275,7 +1415,7 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)],
                     ),
                 ],
             ),
@@ -1283,7 +1423,8 @@ class TestTypes(unittest.TestCase):
         ]
 
         type_ = array_type(
-            3, typedef_type('ZARRAY', array_type(0, int_type('int', 4, True))))
+            3, typedef_type("ZARRAY", array_type(0, int_type("int", 4, True)))
+        )
         self.assertFromDwarf(dies, type_)
 
         # GCC actually squashes arrays of typedef arrays into one array type,
@@ -1299,40 +1440,40 @@ class TestTypes(unittest.TestCase):
         dies = [
             DwarfDie(
                 DW_TAG.structure_type,
-                [
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                ],
+                [DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'i'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "i"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
                         ],
                     ),
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
                         ],
                     ),
                 ],
             ),
-            DwarfDie(
-                DW_TAG.array_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2)],
-            ),
+            DwarfDie(DW_TAG.array_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2)],),
             int_die,
         ]
 
         self.assertFromDwarf(
             dies,
-            struct_type(None, 4, (
-                (int_type('int', 4, True), 'i'),
-                (array_type(None, int_type('int', 4, True)), 'a', 32),
-            )))
+            struct_type(
+                None,
+                4,
+                (
+                    (int_type("int", 4, True), "i"),
+                    (array_type(None, int_type("int", 4, True)), "a", 32),
+                ),
+            ),
+        )
 
     def test_typedef_flexible_array_member(self):
         dies = [
@@ -1342,21 +1483,19 @@ class TestTypes(unittest.TestCase):
             # };
             DwarfDie(
                 DW_TAG.structure_type,
-                [
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                ],
+                [DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'i'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "i"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
                         ],
                     ),
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                             DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
                         ],
@@ -1367,25 +1506,31 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.typedef,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'FARRAY'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "FARRAY"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
                 ],
             ),
-            DwarfDie(
-                DW_TAG.array_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3)],
-            ),
+            DwarfDie(DW_TAG.array_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3)],),
             int_die,
         ]
 
         self.assertFromDwarf(
             dies,
-            struct_type(None, 4, (
-                (int_type('int', 4, True), 'i'),
-                (typedef_type('FARRAY',
-                              array_type(None, int_type('int', 4, True))),
-                 'a', 32),
-            )))
+            struct_type(
+                None,
+                4,
+                (
+                    (int_type("int", 4, True), "i"),
+                    (
+                        typedef_type(
+                            "FARRAY", array_type(None, int_type("int", 4, True))
+                        ),
+                        "a",
+                        32,
+                    ),
+                ),
+            ),
+        )
 
     def test_zero_length_array_only_member(self):
         # struct {
@@ -1394,14 +1539,12 @@ class TestTypes(unittest.TestCase):
         dies = [
             DwarfDie(
                 DW_TAG.structure_type,
-                [
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                ],
+                [DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
                     ),
@@ -1413,16 +1556,14 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)],
                     ),
                 ],
             ),
             int_die,
         ]
 
-        type_ = struct_type(None, 4, (
-            (array_type(0, int_type('int', 4, True)), 'a'),
-        ))
+        type_ = struct_type(None, 4, ((array_type(0, int_type("int", 4, True)), "a"),))
         self.assertFromDwarf(dies, type_)
 
         # GCC < 9.0.
@@ -1437,14 +1578,14 @@ class TestTypes(unittest.TestCase):
                 # };
                 DW_TAG.structure_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'foo'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "foo"),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
                     ),
@@ -1454,45 +1595,44 @@ class TestTypes(unittest.TestCase):
             DwarfDie(
                 DW_TAG.typedef,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'ZARRAY'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "ZARRAY"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)],
                     ),
                 ],
             ),
-            DwarfDie(
-                DW_TAG.array_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3)],
-            ),
+            DwarfDie(DW_TAG.array_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3)],),
             int_die,
         ]
 
-        type_ = struct_type('foo', 4, (
-            (typedef_type('ZARRAY', array_type(0, int_type('int', 4, True))),
-             'a'),
-        ))
+        type_ = struct_type(
+            "foo",
+            4,
+            ((typedef_type("ZARRAY", array_type(0, int_type("int", 4, True))), "a"),),
+        )
         self.assertFromDwarf(dies, type_)
 
-        farray_zarray = typedef_type('ZARRAY',
-                                     array_type(None, int_type('int', 4, True)))
+        farray_zarray = typedef_type(
+            "ZARRAY", array_type(None, int_type("int", 4, True))
+        )
 
         # GCC < 9.0.
         del dies[1].children[0]
         prog = dwarf_program(dies)
-        self.assertEqual(prog.type('struct foo'), type_)
+        self.assertEqual(prog.type("struct foo"), type_)
         # Although the ZARRAY type must be a zero-length array in the context
         # of the structure, it could still be an incomplete array if used
         # elsewhere.
-        self.assertEqual(prog.type('ZARRAY'), farray_zarray)
+        self.assertEqual(prog.type("ZARRAY"), farray_zarray)
 
         # Make sure it still works if we parse the array type first.
         prog = dwarf_program(dies)
-        self.assertEqual(prog.type('ZARRAY'), farray_zarray)
-        self.assertEqual(prog.type('struct foo'), type_)
+        self.assertEqual(prog.type("ZARRAY"), farray_zarray)
+        self.assertEqual(prog.type("struct foo"), type_)
 
     def test_zero_length_array_not_last_member(self):
         # struct {
@@ -1502,21 +1642,19 @@ class TestTypes(unittest.TestCase):
         dies = [
             DwarfDie(
                 DW_TAG.structure_type,
-                [
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                ],
+                [DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
                     ),
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'i'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "i"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
                         ],
                     ),
@@ -1528,17 +1666,21 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)],
                     ),
                 ],
             ),
             int_die,
         ]
 
-        type_ = struct_type(None, 4, (
-            (array_type(0, int_type('int', 4, True)), 'a'),
-            (int_type('int', 4, True), 'i'),
-        ))
+        type_ = struct_type(
+            None,
+            4,
+            (
+                (array_type(0, int_type("int", 4, True)), "a"),
+                (int_type("int", 4, True), "i"),
+            ),
+        )
         self.assertFromDwarf(dies, type_)
 
         # GCC < 9.0.
@@ -1553,21 +1695,19 @@ class TestTypes(unittest.TestCase):
         dies = [
             DwarfDie(
                 DW_TAG.union_type,
-                [
-                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                ],
+                [DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),],
                 [
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'i'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "i"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
                         ],
                     ),
                     DwarfDie(
                         DW_TAG.member,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'a'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                         ],
                     ),
@@ -1579,17 +1719,21 @@ class TestTypes(unittest.TestCase):
                 [
                     DwarfDie(
                         DW_TAG.subrange_type,
-                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)]
+                        [DwarfAttrib(DW_AT.count, DW_FORM.data1, 0)],
                     ),
                 ],
             ),
             int_die,
         ]
 
-        type_ = union_type(None, 4, (
-            (int_type('int', 4, True), 'i'),
-            (array_type(0, int_type('int', 4, True)), 'a'),
-        ))
+        type_ = union_type(
+            None,
+            4,
+            (
+                (int_type("int", 4, True), "i"),
+                (array_type(0, int_type("int", 4, True)), "a"),
+            ),
+        )
         self.assertFromDwarf(dies, type_)
 
         # GCC < 9.0.
@@ -1598,8 +1742,7 @@ class TestTypes(unittest.TestCase):
 
     def test_pointer_size(self):
         prog = dwarf_program(base_type_dies, bits=32)
-        self.assertEqual(prog.type('int *'),
-                         pointer_type(4, int_type('int', 4, True)))
+        self.assertEqual(prog.type("int *"), pointer_type(4, int_type("int", 4, True)))
 
     def test_function(self):
         # int foo(char)
@@ -1612,40 +1755,44 @@ class TestTypes(unittest.TestCase):
                         DW_TAG.formal_parameter,
                         [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2)],
                     ),
-                ]
+                ],
             ),
             int_die,
             char_die,
         ]
         self.assertFromDwarf(
             dies,
-            function_type(int_type('int', 4, True),
-                          ((int_type('char', 1, True),),), False))
+            function_type(
+                int_type("int", 4, True), ((int_type("char", 1, True),),), False
+            ),
+        )
 
         # int foo(char c)
-        dies[0].children[0].attribs.append(DwarfAttrib(DW_AT.name, DW_FORM.string, 'c'))
+        dies[0].children[0].attribs.append(DwarfAttrib(DW_AT.name, DW_FORM.string, "c"))
         self.assertFromDwarf(
             dies,
-            function_type(int_type('int', 4, True),
-                          ((int_type('char', 1, True), 'c'),), False))
+            function_type(
+                int_type("int", 4, True), ((int_type("char", 1, True), "c"),), False
+            ),
+        )
 
         # int foo(char, ...)
         del dies[0].children[0].attribs[-1]
         dies[0].children.append(DwarfDie(DW_TAG.unspecified_parameters, []))
         self.assertFromDwarf(
             dies,
-            function_type(int_type('int', 4, True),
-                          ((int_type('char', 1, True),),), True))
+            function_type(
+                int_type("int", 4, True), ((int_type("char", 1, True),),), True
+            ),
+        )
 
         # int foo()
         del dies[0].children[0]
-        self.assertFromDwarf(
-            dies, function_type(int_type('int', 4, True), (), True))
+        self.assertFromDwarf(dies, function_type(int_type("int", 4, True), (), True))
 
         # int foo(void)
         del dies[0].children[0]
-        self.assertFromDwarf(
-            dies, function_type(int_type('int', 4, True), (), False))
+        self.assertFromDwarf(dies, function_type(int_type("int", 4, True), (), False))
 
         # void foo(void)
         del dies[0].attribs[0]
@@ -1664,19 +1811,17 @@ class TestTypes(unittest.TestCase):
                         DW_TAG.formal_parameter,
                         [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1)],
                     ),
-                ]
+                ],
             ),
-            DwarfDie(
-                DW_TAG.array_type,
-                [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2)],
-            ),
+            DwarfDie(DW_TAG.array_type, [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2)],),
             int_die,
         ]
         self.assertFromDwarf(
             dies,
-            function_type(void_type(),
-                          ((array_type(None, int_type('int', 4, True)),),),
-                          False))
+            function_type(
+                void_type(), ((array_type(None, int_type("int", 4, True)),),), False
+            ),
+        )
 
 
 class TestObjects(ObjectTestCase):
@@ -1686,7 +1831,7 @@ class TestObjects(ObjectTestCase):
             DwarfDie(
                 DW_TAG.enumeration_type,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'color'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
                     DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
                 ],
@@ -1694,54 +1839,65 @@ class TestObjects(ObjectTestCase):
                     DwarfDie(
                         DW_TAG.enumerator,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'RED'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "RED"),
                             DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 0),
-                        ]
+                        ],
                     ),
                     DwarfDie(
                         DW_TAG.enumerator,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'GREEN'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "GREEN"),
                             DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 1),
-                        ]
+                        ],
                     ),
                     DwarfDie(
                         DW_TAG.enumerator,
                         [
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, 'BLUE'),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "BLUE"),
                             DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 2),
-                        ]
+                        ],
                     ),
-                ]
+                ],
             ),
             DwarfDie(
                 DW_TAG.variable,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'RED'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "RED"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
-                    DwarfAttrib(DW_AT.location, DW_FORM.exprloc,
-                                b'\x03\x04\x03\x02\x01\xff\xff\xff\xff'),
+                    DwarfAttrib(
+                        DW_AT.location,
+                        DW_FORM.exprloc,
+                        b"\x03\x04\x03\x02\x01\xff\xff\xff\xff",
+                    ),
                 ],
             ),
         ]
 
-        type_ = enum_type('color', int_type('int', 4, True),
-                          [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
+        type_ = enum_type(
+            "color", int_type("int", 4, True), [("RED", 0), ("GREEN", 1), ("BLUE", 2)]
+        )
         prog = dwarf_program(dies)
-        self.assertEqual(prog['BLUE'], Object(prog, type_, value=2))
+        self.assertEqual(prog["BLUE"], Object(prog, type_, value=2))
 
         dies[0] = unsigned_int_die
-        type_ = enum_type('color', int_type('unsigned int', 4, False),
-                          [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
+        type_ = enum_type(
+            "color",
+            int_type("unsigned int", 4, False),
+            [("RED", 0), ("GREEN", 1), ("BLUE", 2)],
+        )
         prog = dwarf_program(dies)
-        self.assertEqual(prog['GREEN'], Object(prog, type_, value=1))
+        self.assertEqual(prog["GREEN"], Object(prog, type_, value=1))
 
         del dies[1].attribs[0]
-        type_ = enum_type(None, int_type('unsigned int', 4, False),
-                          [('RED', 0), ('GREEN', 1), ('BLUE', 2)])
+        type_ = enum_type(
+            None,
+            int_type("unsigned int", 4, False),
+            [("RED", 0), ("GREEN", 1), ("BLUE", 2)],
+        )
         prog = dwarf_program(dies)
-        self.assertEqual(prog.object('RED', FindObjectFlags.CONSTANT),
-                         Object(prog, type_, value=0))
+        self.assertEqual(
+            prog.object("RED", FindObjectFlags.CONSTANT), Object(prog, type_, value=0)
+        )
 
     def test_function(self):
         dies = [
@@ -1749,33 +1905,38 @@ class TestObjects(ObjectTestCase):
             DwarfDie(
                 DW_TAG.subprogram,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'abs'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "abs"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
-                    DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x7fc3eb9b1c30),
+                    DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x7FC3EB9B1C30),
                 ],
                 [
                     DwarfDie(
                         DW_TAG.formal_parameter,
                         [DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0)],
                     ),
-                ]
+                ],
             ),
         ]
-        type_ = function_type(int_type('int', 4, True),
-                              ((int_type('int', 1, True),),), False)
+        type_ = function_type(
+            int_type("int", 4, True), ((int_type("int", 1, True),),), False
+        )
 
         prog = dwarf_program(dies)
-        self.assertEqual(prog['abs'],
-                         Object(prog, type_, address=0x7fc3eb9b1c30))
-        self.assertEqual(prog.object('abs', FindObjectFlags.FUNCTION),
-                         prog['abs'])
-        self.assertRaisesRegex(LookupError, 'could not find variable',
-                               prog.object, 'abs', FindObjectFlags.VARIABLE)
+        self.assertEqual(prog["abs"], Object(prog, type_, address=0x7FC3EB9B1C30))
+        self.assertEqual(prog.object("abs", FindObjectFlags.FUNCTION), prog["abs"])
+        self.assertRaisesRegex(
+            LookupError,
+            "could not find variable",
+            prog.object,
+            "abs",
+            FindObjectFlags.VARIABLE,
+        )
 
         del dies[1].attribs[2]
         prog = dwarf_program(dies)
-        self.assertRaisesRegex(LookupError, 'could not find address',
-                               prog.object, 'abs')
+        self.assertRaisesRegex(
+            LookupError, "could not find address", prog.object, "abs"
+        )
 
     def test_variable(self):
         dies = [
@@ -1783,34 +1944,39 @@ class TestObjects(ObjectTestCase):
             DwarfDie(
                 DW_TAG.variable,
                 [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, 'x'),
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                     DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
-                    DwarfAttrib(DW_AT.location, DW_FORM.exprloc,
-                                b'\x03\x04\x03\x02\x01\xff\xff\xff\xff'),
+                    DwarfAttrib(
+                        DW_AT.location,
+                        DW_FORM.exprloc,
+                        b"\x03\x04\x03\x02\x01\xff\xff\xff\xff",
+                    ),
                 ],
             ),
         ]
 
         prog = dwarf_program(dies)
-        self.assertEqual(prog['x'],
-                         Object(prog, int_type('int', 4, True),
-                                address=0xffffffff01020304))
-        self.assertEqual(prog.object('x', FindObjectFlags.VARIABLE),
-                         prog['x'])
-        self.assertRaisesRegex(LookupError, 'could not find constant',
-                               prog.object, 'x', FindObjectFlags.CONSTANT)
+        self.assertEqual(
+            prog["x"],
+            Object(prog, int_type("int", 4, True), address=0xFFFFFFFF01020304),
+        )
+        self.assertEqual(prog.object("x", FindObjectFlags.VARIABLE), prog["x"])
+        self.assertRaisesRegex(
+            LookupError,
+            "could not find constant",
+            prog.object,
+            "x",
+            FindObjectFlags.CONSTANT,
+        )
 
         del dies[1].attribs[2]
         prog = dwarf_program(dies)
-        self.assertRaisesRegex(LookupError, 'could not find address',
-                               prog.object, 'x')
+        self.assertRaisesRegex(LookupError, "could not find address", prog.object, "x")
 
-        dies[1].attribs.insert(
-            2, DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b'\xe0'))
+        dies[1].attribs.insert(2, DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b"\xe0"))
         prog = dwarf_program(dies)
-        self.assertRaisesRegex(Exception, 'unimplemented operation',
-                               prog.object, 'x')
+        self.assertRaisesRegex(Exception, "unimplemented operation", prog.object, "x")
 
     def test_not_found(self):
         prog = dwarf_program([int_die])
-        self.assertRaisesRegex(LookupError, 'could not find', prog.object, 'y')
+        self.assertRaisesRegex(LookupError, "could not find", prog.object, "y")

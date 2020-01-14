@@ -13,15 +13,15 @@ from drgn import Object, NULL, container_of
 
 
 __all__ = [
-    'RB_EMPTY_NODE',
-    'rb_parent',
-    'rb_first',
-    'rb_last',
-    'rb_next',
-    'rb_prev',
-    'rbtree_inorder_for_each',
-    'rbtree_inorder_for_each_entry',
-    'rb_find',
+    "RB_EMPTY_NODE",
+    "rb_parent",
+    "rb_first",
+    "rb_last",
+    "rb_next",
+    "rb_prev",
+    "rbtree_inorder_for_each",
+    "rbtree_inorder_for_each_entry",
+    "rb_find",
 ]
 
 
@@ -41,8 +41,7 @@ def rb_parent(node):
 
     Return the parent node of a red-black tree node.
     """
-    return Object(node.prog_, node.type_,
-                  value=node.__rb_parent_color.value_() & ~3)
+    return Object(node.prog_, node.type_, value=node.__rb_parent_color.value_() & ~3)
 
 
 def rb_first(root):
@@ -143,11 +142,13 @@ def rbtree_inorder_for_each(root):
 
     :return: Iterator of ``struct rb_node *`` objects.
     """
+
     def aux(node):
         if node:
             yield from aux(node.rb_left.read_())
             yield node
             yield from aux(node.rb_right.read_())
+
     yield from aux(root.rb_node.read_())
 
 

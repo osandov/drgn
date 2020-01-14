@@ -5,14 +5,17 @@ from tests.elf import ET, PT, SHT
 
 
 class ElfSection:
-    def __init__(self, data: bytes,
-                 name: Optional[str] = None,
-                 sh_type: Optional[SHT] = None,
-                 p_type: Optional[PT] = None,
-                 vaddr: int = 0,
-                 paddr: int = 0,
-                 memsz: Optional[int] = None,
-                 p_align: int = 0):
+    def __init__(
+        self,
+        data: bytes,
+        name: Optional[str] = None,
+        sh_type: Optional[SHT] = None,
+        p_type: Optional[PT] = None,
+        vaddr: int = 0,
+        paddr: int = 0,
+        memsz: Optional[int] = None,
+        p_align: int = 0,
+    ):
         self.data = data
         self.name = name
         self.sh_type = sh_type
@@ -30,26 +33,23 @@ class ElfSection:
             self.memsz = len(self.data)
 
 
-def create_elf_file(type: ET, sections: Sequence[ElfSection],
-                    little_endian: bool = True, bits: int = 64):
-    endian = '<' if little_endian else '>'
+def create_elf_file(
+    type: ET, sections: Sequence[ElfSection], little_endian: bool = True, bits: int = 64
+):
+    endian = "<" if little_endian else ">"
     if bits == 64:
-        ehdr_struct = struct.Struct(endian + '16BHHIQQQIHHHHHH')
-        shdr_struct = struct.Struct(endian + 'IIQQQQIIQQ')
-        phdr_struct = struct.Struct(endian + 'IIQQQQQQ')
+        ehdr_struct = struct.Struct(endian + "16BHHIQQQIHHHHHH")
+        shdr_struct = struct.Struct(endian + "IIQQQQIIQQ")
+        phdr_struct = struct.Struct(endian + "IIQQQQQQ")
         e_machine = 62 if little_endian else 43  # EM_X86_64 or EM_SPARCV9
     else:
         assert bits == 32
-        ehdr_struct = struct.Struct(endian + '16BHHIIIIIHHHHHH')
-        shdr_struct = struct.Struct(endian + '10I')
-        phdr_struct = struct.Struct(endian + '8I')
+        ehdr_struct = struct.Struct(endian + "16BHHIIIIIHHHHHH")
+        shdr_struct = struct.Struct(endian + "10I")
+        phdr_struct = struct.Struct(endian + "8I")
         e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
 
-    shstrtab = ElfSection(
-        name='.shstrtab',
-        sh_type=SHT.STRTAB,
-        data=bytearray(1),
-    )
+    shstrtab = ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=bytearray(1),)
     tmp = [shstrtab]
     tmp.extend(sections)
     sections = tmp
@@ -68,17 +68,24 @@ def create_elf_file(type: ET, sections: Sequence[ElfSection],
     headers_size = phdr_offset + phdr_struct.size * phnum
     buf = bytearray(headers_size)
     ehdr_struct.pack_into(
-        buf, 0,
-        0x7f,  # ELFMAG0
-        ord('E'),  # ELFMAG1
-        ord('L'),  # ELFMAG2
-        ord('F'),  # ELFMAG3
+        buf,
+        0,
+        0x7F,  # ELFMAG0
+        ord("E"),  # ELFMAG1
+        ord("L"),  # ELFMAG2
+        ord("F"),  # ELFMAG3
         2 if bits == 64 else 1,  # EI_CLASS = ELFCLASS64 or ELFCLASS32
         1 if little_endian else 2,  # EI_DATA = ELFDATA2LSB or ELFDATA2MSB
         1,  # EI_VERSION = EV_CURRENT
         0,  # EI_OSABI = ELFOSABI_NONE
         0,  # EI_ABIVERSION
-        0, 0, 0, 0, 0, 0, 0,  # EI_PAD
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,  # EI_PAD
         type,  # e_type
         e_machine,
         1,  # e_version = EV_CURRENT
@@ -97,12 +104,12 @@ def create_elf_file(type: ET, sections: Sequence[ElfSection],
     shdr_offset += shdr_struct.size
     for section in sections:
         if section.p_align:
-            padding = (section.vaddr % section.p_align -
-                       len(buf) % section.p_align)
+            padding = section.vaddr % section.p_align - len(buf) % section.p_align
             buf.extend(bytes(padding))
         if section.name is not None:
             shdr_struct.pack_into(
-                buf, shdr_offset,
+                buf,
+                shdr_offset,
                 shstrtab.data.index(section.name.encode()),  # sh_name
                 section.sh_type,  # sh_type
                 0,  # sh_flags
@@ -116,10 +123,11 @@ def create_elf_file(type: ET, sections: Sequence[ElfSection],
             )
             shdr_offset += shdr_struct.size
         if section.p_type is not None:
-            flags = 7   # PF_R | PF_W | PF_X
+            flags = 7  # PF_R | PF_W | PF_X
             if bits == 64:
                 phdr_struct.pack_into(
-                    buf, phdr_offset,
+                    buf,
+                    phdr_offset,
                     section.p_type,  # p_type
                     flags,  # p_flags
                     len(buf),  # p_offset
@@ -131,7 +139,8 @@ def create_elf_file(type: ET, sections: Sequence[ElfSection],
                 )
             else:
                 phdr_struct.pack_into(
-                    buf, phdr_offset,
+                    buf,
+                    phdr_offset,
                     section.p_type,  # p_type
                     len(buf),  # p_offset
                     section.vaddr,  # p_vaddr

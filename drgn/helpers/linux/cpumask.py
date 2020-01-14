@@ -10,10 +10,10 @@ masks from :linux:`include/linux/cpumask.h`.
 """
 
 __all__ = [
-    'for_each_cpu',
-    'for_each_possible_cpu',
-    'for_each_online_cpu',
-    'for_each_present_cpu',
+    "for_each_cpu",
+    "for_each_possible_cpu",
+    "for_each_online_cpu",
+    "for_each_present_cpu",
 ]
 
 
@@ -40,7 +40,7 @@ def for_each_possible_cpu(prog):
 
     :rtype: Iterator[int]
     """
-    return for_each_cpu(prog['__cpu_possible_mask'])
+    return for_each_cpu(prog["__cpu_possible_mask"])
 
 
 def for_each_online_cpu(prog):
@@ -49,7 +49,7 @@ def for_each_online_cpu(prog):
 
     :rtype: Iterator[int]
     """
-    return for_each_cpu(prog['__cpu_online_mask'])
+    return for_each_cpu(prog["__cpu_online_mask"])
 
 
 def for_each_present_cpu(prog):
@@ -58,4 +58,4 @@ def for_each_present_cpu(prog):
 
     :rtype: Iterator[int]
     """
-    return for_each_cpu(prog['__cpu_present_mask'])
+    return for_each_cpu(prog["__cpu_present_mask"])

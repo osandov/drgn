@@ -17,23 +17,26 @@ class AutopackageDirective(SphinxDirective):
     optional_arguments = 0
 
     def run(self):
-        sourcename = ''
+        sourcename = ""
+
         def aux(name):
             module = importlib.import_module(name)
 
             contents = StringList()
-            contents.append(f'.. automodule:: {name}', sourcename)
-            if hasattr(module, '__all__'):
+            contents.append(f".. automodule:: {name}", sourcename)
+            if hasattr(module, "__all__"):
                 module_attrs = [
-                    attr_name for attr_name in module.__all__
+                    attr_name
+                    for attr_name in module.__all__
                     if getattr(module, attr_name).__module__ == name
                 ]
                 if module_attrs:
-                    contents.append(f"    :members: {', '.join(module_attrs)}",
-                                    sourcename)
+                    contents.append(
+                        f"    :members: {', '.join(module_attrs)}", sourcename
+                    )
             else:
-                contents.append('    :members:', sourcename)
-            contents.append('', sourcename)
+                contents.append("    :members:", sourcename)
+            contents.append("", sourcename)
 
             node = docutils.nodes.section()
             nested_parse_with_titles(self.state, contents, node)
@@ -45,10 +48,13 @@ class AutopackageDirective(SphinxDirective):
                 if isinstance(child, docutils.nodes.section):
                     section = child
 
-            if hasattr(module, '__path__'):
-                submodules = sorted(module_info.name for module_info in
-                                    pkgutil.iter_modules(module.__path__,
-                                                         prefix=name + '.'))
+            if hasattr(module, "__path__"):
+                submodules = sorted(
+                    module_info.name
+                    for module_info in pkgutil.iter_modules(
+                        module.__path__, prefix=name + "."
+                    )
+                )
                 for submodule in submodules:
                     section.extend(aux(submodule))
 
@@ -59,7 +65,7 @@ class AutopackageDirective(SphinxDirective):
 
 
 def setup(app):
-    app.setup_extension('sphinx.ext.autodoc')
-    app.add_directive('autopackage', AutopackageDirective)
+    app.setup_extension("sphinx.ext.autodoc")
+    app.add_directive("autopackage", AutopackageDirective)
 
-    return {'parallel_read_safe': True}
+    return {"parallel_read_safe": True}

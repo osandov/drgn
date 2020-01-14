@@ -4,23 +4,26 @@ import re
 
 
 prefixes = [
-    'DW_AT',
-    'DW_ATE',
-    'DW_CHILDREN',
-    'DW_FORM',
-    'DW_LNE',
-    'DW_LNS',
-    'DW_OP',
-    'DW_TAG',
+    "DW_AT",
+    "DW_ATE",
+    "DW_CHILDREN",
+    "DW_FORM",
+    "DW_LNE",
+    "DW_LNS",
+    "DW_OP",
+    "DW_TAG",
 ]
 
-if __name__ == '__main__':
-    with open('/usr/include/dwarf.h', 'r') as f:
+if __name__ == "__main__":
+    with open("/usr/include/dwarf.h", "r") as f:
         dwarf_h = f.read()
-    dwarf_h = re.sub(r'/\*.*?\*/', '', dwarf_h, flags=re.DOTALL)
-    dwarf_h = re.sub(r'\\\n', '', dwarf_h)
-    matches = re.findall(r'^\s*(' + '|'.join(prefixes) + r')_(\w+)\s*=\s*(0x[0-9a-fA-F]+|[0-9]+)',
-                         dwarf_h, re.MULTILINE)
+    dwarf_h = re.sub(r"/\*.*?\*/", "", dwarf_h, flags=re.DOTALL)
+    dwarf_h = re.sub(r"\\\n", "", dwarf_h)
+    matches = re.findall(
+        r"^\s*(" + "|".join(prefixes) + r")_(\w+)\s*=\s*(0x[0-9a-fA-F]+|[0-9]+)",
+        dwarf_h,
+        re.MULTILINE,
+    )
 
     enums = {}
     for enum, name, value in matches:
@@ -29,13 +32,15 @@ if __name__ == '__main__':
         except KeyError:
             enums[enum] = [(name, int(value, 0))]
 
-    print("""\
+    print(
+        """\
 # Automatically generated from dwarf.h
 
 import enum
 from typing import Text
 
-""")
+"""
+    )
     first = True
     for enum in prefixes:
         assert enums[enum]
@@ -43,19 +48,19 @@ from typing import Text
             print()
             print()
         first = False
-        print(f'class {enum}(enum.IntEnum):')
+        print(f"class {enum}(enum.IntEnum):")
         for name, value in enums[enum]:
-            if name in ['import', 'not', 'and', 'or']:
-                name += '_'
-            print(f'    {name} = 0x{value:x}', end='')
-            if name == 'name':
-                print('  # type: ignore')
+            if name in ["import", "not", "and", "or"]:
+                name += "_"
+            print(f"    {name} = 0x{value:x}", end="")
+            if name == "name":
+                print("  # type: ignore")
             else:
                 print()
         print()
-        print('    @classmethod')
-        print('    def str(cls, value: int) -> Text:')
-        print('        try:')
+        print("    @classmethod")
+        print("    def str(cls, value: int) -> Text:")
+        print("        try:")
         print(f"            return f'{enum}_{{cls(value).name}}'")
-        print('        except ValueError:')
-        print('            return hex(value)')
+        print("        except ValueError:")
+        print("            return hex(value)")

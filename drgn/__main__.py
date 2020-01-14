@@ -10,6 +10,7 @@ $ python3 -m drgn --help
 """
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from drgn.internal.cli import main
+
     main()
