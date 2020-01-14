@@ -21,7 +21,10 @@ The top-level ``drgn.helpers`` module provides generic helpers that may be
 useful for scripts or for implementing other helpers.
 """
 
-from typing import Iterable
+import enum
+from typing import Container, Iterable
+
+from drgn import Type
 
 
 def escape_ascii_character(
@@ -91,3 +94,24 @@ def escape_ascii_string(
         )
         for c in buffer
     )
+
+
+def enum_type_to_class(
+    type: Type, name: str, exclude: Container[str] = (), prefix: str = ""
+) -> enum.IntEnum:
+    """
+    Get an :class:`enum.IntEnum` class from an enumerated :class:`drgn.Type`.
+
+    :param type: The enumerated type to convert.
+    :type type: :class:`drgn.Type`
+    :param name: The name of the ``IntEnum`` type to create.
+    :param exclude: Container (e.g., list or set) of enumerator names to
+        exclude from the created ``IntEnum``.
+    :param prefix: Prefix to strip from the beginning of enumerator names.
+    """
+    enumerators = [
+        (name[len(prefix) :] if name.startswith(prefix) else name, value)
+        for (name, value) in type.enumerators
+        if name not in exclude
+    ]
+    return enum.IntEnum(name, enumerators)
