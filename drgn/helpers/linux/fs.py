@@ -1,4 +1,4 @@
-# Copyright 2018-2019 - Omar Sandoval
+# Copyright 2018-2020 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
@@ -12,7 +12,7 @@ Linux virtual filesystem (VFS) layer, including mounts, dentries, and inodes.
 import os
 
 from drgn import Object, Program, container_of
-from drgn.helpers import escape_string
+from drgn.helpers import escape_ascii_string
 from drgn.helpers.linux.list import (
     hlist_empty,
     hlist_for_each_entry,
@@ -289,9 +289,10 @@ def print_mounts(prog_or_ns, src=None, dst=None, fstype=None):
     but prints the value of each ``struct mount *``.
     """
     for mnt in for_each_mount(prog_or_ns, src, dst, fstype):
-        mnt_src = escape_string(mount_src(mnt), escape_backslash=True)
-        mnt_dst = escape_string(mount_dst(mnt), escape_backslash=True)
-        mnt_fstype = escape_string(mount_fstype(mnt), escape_backslash=True)
+        mnt_src = escape_ascii_string(mount_src(mnt), escape_backslash=True)
+        mnt_dst = escape_ascii_string(mount_dst(mnt), escape_backslash=True)
+        mnt_fstype = escape_ascii_string(mount_fstype(mnt),
+                                         escape_backslash=True)
         print(f'{mnt_src} {mnt_dst} {mnt_fstype} ({mnt.type_.type_name()})0x{mnt.value_():x}')
 
 
@@ -334,5 +335,5 @@ def print_files(task):
         path = d_path(file.f_path)
         if path is None:
             path = file.f_inode.i_sb.s_type.name.string_()
-        path = escape_string(path, escape_backslash=True)
+        path = escape_ascii_string(path, escape_backslash=True)
         print(f'{fd} {path} ({file.type_.type_name()})0x{file.value_():x}')

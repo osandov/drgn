@@ -1,4 +1,4 @@
-# Copyright 2018-2019 - Omar Sandoval
+# Copyright 2018-2020 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
@@ -11,7 +11,7 @@ Linux block layer, including disks (``struct gendisk``) and partitions
 """
 
 from drgn import container_of
-from drgn.helpers import escape_string
+from drgn.helpers import escape_ascii_string
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry
 
@@ -82,7 +82,7 @@ def print_disks(prog):
     for disk in for_each_disk(prog):
         major = disk.major.value_()
         minor = disk.first_minor.value_()
-        name = escape_string(disk_name(disk), escape_backslash=True)
+        name = escape_ascii_string(disk_name(disk), escape_backslash=True)
         print(f'{major}:{minor} {name} ({disk.type_.type_name()})0x{disk.value_():x}')
 
 
@@ -120,5 +120,5 @@ def print_partitions(prog):
     """Print all of the partitions in the system."""
     for part in for_each_partition(prog):
         devt = part_devt(part).value_()
-        name = escape_string(part_name(part), escape_backslash=True)
+        name = escape_ascii_string(part_name(part), escape_backslash=True)
         print(f'{MAJOR(devt)}:{MINOR(devt)} {name} ({part.type_.type_name()})0x{part.value_():x}')

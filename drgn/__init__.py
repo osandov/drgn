@@ -1,4 +1,4 @@
-# Copyright 2018-2019 - Omar Sandoval
+# Copyright 2018-2020 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
@@ -155,7 +155,7 @@ _special_globals = frozenset([
 ])
 
 
-def execscript(path, *args):
+def execscript(path: str, *args: str):
     """
     Execute a script.
 
@@ -199,9 +199,9 @@ def execscript(path, *args):
     >>> task_state_to_char(find_task(prog, 1))
     'S'
 
-    :param str path: File path of the script.
-    :param str \\*args: Zero or more additional arguments to pass to the script.
-        This is a :ref:`variable argument list <python:tut-arbitraryargs>`.
+    :param path: File path of the script.
+    :param args: Zero or more additional arguments to pass to the script. This
+        is a :ref:`variable argument list <python:tut-arbitraryargs>`.
     """
     # This is based on runpy.run_code, which we can't use because we want to
     # update globals even if the script throws an exception.

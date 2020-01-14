@@ -13,6 +13,7 @@ extensions = [
     'sphinx.ext.extlinks',
     'sphinx.ext.intersphinx',
     'sphinx.ext.viewcode',
+    'sphinx_autodoc_typehints',
 ]
 
 autodoc_mock_imports = ['_drgn']
