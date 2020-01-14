@@ -9,7 +9,7 @@ Linux kernel networking subsystem.
 """
 
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
-from drgn.helpers.linux.tcp import get_tcp_states, sk_tcpstate
+from drgn.helpers.linux.tcp import sk_tcpstate
 
 
 __all__ = [
@@ -25,8 +25,9 @@ def sk_fullsock(sk):
     Check whether a socket is a full socket, i.e., not a time-wait or request
     socket.
     """
-    TcpStates = get_tcp_states(sk.prog_)
-    return sk_tcpstate(sk) not in (TcpStates.SYN_RECV, TcpStates.TIME_WAIT)
+    prog = sk.prog_
+    state = sk.__sk_common.skc_state.value_()
+    return state != prog["TCP_SYN_RECV"] and state != prog["TCP_TIME_WAIT"]
 
 
 def sk_nulls_for_each(head):

@@ -6,13 +6,21 @@ import socket
 import struct
 
 from drgn import Object, cast, container_of
+from drgn.helpers import enum_type_to_class
 from drgn.helpers.linux import (
-    get_tcp_states,
     hlist_for_each,
     hlist_nulls_empty,
     sk_fullsock,
     sk_nulls_for_each,
     sk_tcpstate,
+)
+
+
+TcpState = enum_type_to_class(
+    prog["TCP_ESTABLISHED"].type_,
+    "TcpState",
+    exclude=("TCP_MAX_STATES",),
+    prefix="TCP_",
 )
 
 
@@ -62,7 +70,7 @@ def _cgroup_path(cgroup):
 def _print_sk(sk):
     inet = inet_sk(sk)
 
-    tcp_state = sk_tcpstate(sk)
+    tcp_state = TcpState(sk_tcpstate(sk))
 
     if sk.__sk_common.skc_family == socket.AF_INET:
         src_ip = _ipv4(sk.__sk_common.skc_rcv_saddr)
