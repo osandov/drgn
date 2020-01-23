@@ -38,7 +38,7 @@ Then, drgn can be built and installed::
 
 Or, it can be be built and run locally::
 
-    $ python3 setup.py build_ext -i
+    $ python3 setup.py egg_info build_ext -i
     $ python3 -m drgn --help
 
 libkdumpfile
