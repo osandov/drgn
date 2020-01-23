@@ -9,6 +9,7 @@ import code
 import importlib
 import os
 import os.path
+import pkg_resources
 import runpy
 import shutil
 import sys
@@ -41,9 +42,10 @@ def displayhook(value: Any) -> None:
 
 
 def main() -> None:
+    drgn_version = pkg_resources.get_distribution("drgn").version
     python_version = ".".join(str(v) for v in sys.version_info[:3])
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
-    version = f"drgn {drgn.__version__} (using Python {python_version}, {libkdumpfile})"
+    version = f"drgn {drgn_version} (using Python {python_version}, {libkdumpfile})"
     parser = argparse.ArgumentParser(prog="drgn", description="Scriptable debugger")
 
     program_group = parser.add_argument_group(
