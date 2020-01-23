@@ -144,7 +144,6 @@ static struct PyModuleDef drgnmodule = {
 DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 {
 	PyObject *m;
-	PyObject *version;
 	PyObject *host_platform_obj;
 	PyObject *with_libkdumpfile;
 
@@ -154,12 +153,6 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 
 	if (add_module_constants(m) == -1)
 		goto err;
-
-	version = PyUnicode_FromFormat("%u.%u.%u", DRGN_VERSION_MAJOR,
-				       DRGN_VERSION_MINOR, DRGN_VERSION_PATCH);
-	if (!version)
-		goto err;
-	PyModule_AddObject(m, "__version__", version);
 
 	FaultError = PyErr_NewExceptionWithDoc("_drgn.FaultError",
 					       drgn_FaultError_DOC, NULL, NULL);

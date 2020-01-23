@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import contextlib
+from distutils import log
 from distutils.dir_util import mkpath
 from distutils.file_util import copy_file
 import os
 import os.path
 import re
+import pkg_resources
 from setuptools import setup, find_packages
 from setuptools.command.build_ext import build_ext
 from setuptools.command.egg_info import egg_info
@@ -96,15 +98,57 @@ class my_egg_info(egg_info):
         super().run()
 
 
-with open("libdrgn/configure.ac", "r") as f:
-    version = re.search(r"AC_INIT\(\[drgn\], \[([^]]*)\]", f.read()).group(1)
+def get_version():
+    if not os.path.exists(".git"):
+        # If this is a source distribution, get the version from the egg
+        # metadata.
+        return pkg_resources.get_distribution("drgn").version
+
+    with open("libdrgn/configure.ac", "r") as f:
+        version = re.search(r"AC_INIT\(\[drgn\], \[([^]]*)\]", f.read()).group(1)
+
+    dirty = bool(
+        subprocess.check_output(
+            ["git", "status", "-uno", "--porcelain"],
+            # Use the environment variable instead of --no-optional-locks to
+            # support Git < 2.14.
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    )
+
+    try:
+        count = int(
+            subprocess.check_output(
+                ["git", "rev-list", "--count", f"v{version}.."],
+                stderr=subprocess.DEVNULL,
+                universal_newlines=True,
+            )
+        )
+    except subprocess.CalledProcessError:
+        log.warn("warning: v%s tag not found", version)
+        count = 0
+
+    if count == 0:
+        if dirty:
+            version += "+dirty"
+        return version
+
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "--short", "HEAD"], universal_newlines=True
+    ).strip()
+    version += f".dev{count}+{commit}"
+    if dirty:
+        version += ".dirty"
+    return version
+
+
 with open("README.rst", "r") as f:
     long_description = f.read()
 
 
 setup(
     name="drgn",
-    version=version,
+    version=get_version(),
     packages=find_packages(exclude=["examples", "scripts", "tests"]),
     # This is here so that setuptools knows that we have an extension; it's
     # actually built using autotools/make.

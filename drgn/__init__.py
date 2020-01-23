@@ -41,6 +41,7 @@ be used.
 """
 
 import io
+import pkg_resources
 import pkgutil
 import sys
 import types
@@ -64,7 +65,6 @@ from _drgn import (
     Symbol,
     Type,
     TypeKind,
-    __version__,
     _with_libkdumpfile,
     array_type,
     bool_type,
@@ -253,3 +253,6 @@ def execscript(path: str, *args: str):
             sys.modules["__main__"] = saved_module[0]
         else:
             del sys.modules["__main__"]
+
+
+__version__ = pkg_resources.get_distribution("drgn").version
