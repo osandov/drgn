@@ -1,6 +1,10 @@
 drgn
 ====
 
+.. image:: https://img.shields.io/pypi/v/drgn
+    :target: https://pypi.org/project/drgn/
+    :alt: PyPI
+
 .. image:: https://travis-ci.org/osandov/drgn.svg?branch=master
     :target: https://travis-ci.org/osandov/drgn
     :alt: Build Status
@@ -80,13 +84,10 @@ Then, run:
 
 .. code-block:: console
 
-    $ git clone https://github.com/osandov/drgn.git
-    $ cd drgn
-    $ python3 setup.py build
-    $ sudo python3 setup.py install
+    $ sudo pip3 install drgn
 
 See the `installation documentation
-<https://drgn.readthedocs.io/en/latest/installation.html>`_ for more details.
+<https://drgn.readthedocs.io/en/latest/installation.html>`_ for more options.
 
 Quick Start
 -----------

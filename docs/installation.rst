@@ -30,13 +30,30 @@ The build requires:
     :start-after: start-install-dependencies
     :end-before: end-install-dependencies
 
-Then, drgn can be built and installed::
+The latest release of drgn can be installed globally with `pip
+<https://pip.pypa.io>`_::
 
+    $ sudo pip3 install drgn
+    $ drgn --help
+
+The development version can be built and installed manually::
+
+    $ git clone https://github.com/osandov/drgn.git
+    $ cd drgn
     $ python3 setup.py build
     $ sudo python3 setup.py install
     $ drgn --help
 
-Or, it can be be built and run locally::
+Both of these options can be done in a `virtual environment
+<https://docs.python.org/3/library/venv.html>`_ if you do not wish to install
+drgn globally::
+
+    $ python3 -m venv drgnenv
+    $ source drgnenv/bin/activate
+    (drgenv) $ pip3 install drgn
+    (drgenv) $ drgn --help
+
+For development, drgn can be built and run locally::
 
     $ python3 setup.py egg_info build_ext -i
     $ python3 -m drgn --help
