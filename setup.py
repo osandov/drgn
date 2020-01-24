@@ -9,15 +9,15 @@ import os.path
 import re
 import pkg_resources
 from setuptools import setup, find_packages
-from setuptools.command.build_ext import build_ext
-from setuptools.command.egg_info import egg_info
+from setuptools.command.build_ext import build_ext as _build_ext
+from setuptools.command.egg_info import egg_info as _egg_info
 from setuptools.extension import Extension
 import shlex
 import subprocess
 import sys
 
 
-class my_build_ext(build_ext):
+class build_ext(_build_ext):
     user_options = [
         ("inplace", "i", "put compiled extension into the source directory"),
         ("parallel=", "j", "number of parallel build jobs"),
@@ -93,7 +93,7 @@ class my_build_ext(build_ext):
 
 
 # Work around pypa/setuptools#436.
-class my_egg_info(egg_info):
+class egg_info(_egg_info):
     def run(self):
         if os.path.exists(".git"):
             try:
@@ -158,7 +158,7 @@ setup(
     # This is here so that setuptools knows that we have an extension; it's
     # actually built using autotools/make.
     ext_modules=[Extension(name="_drgn", sources=[])],
-    cmdclass={"build_ext": my_build_ext, "egg_info": my_egg_info,},
+    cmdclass={"build_ext": build_ext, "egg_info": egg_info},
     entry_points={"console_scripts": ["drgn=drgn.internal.cli:main"],},
     python_requires=">=3.6",
     author="Omar Sandoval",
