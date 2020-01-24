@@ -12,14 +12,41 @@ etc.
 
 import itertools
 
-from drgn.helpers import enum_type_to_class
+from drgn import cast
+from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import list_for_each_entry
 
 
 __all__ = [
+    "bpf_map_for_each",
+    "bpf_prog_for_each",
     "cgroup_bpf_prog_for_each",
     "cgroup_bpf_prog_for_each_effective",
 ]
+
+
+def bpf_map_for_each(prog):
+    """
+    .. c:function:: bpf_map_for_each(prog)
+
+    Iterate over all bpf maps.
+
+    :return: Iterator of ``struct bpf_map *`` objects.
+    """
+    for nr, entry in idr_for_each(prog["map_idr"]):
+        yield cast("struct bpf_map *", entry)
+
+
+def bpf_prog_for_each(prog):
+    """
+    .. c:function:: bpf_prog_for_each(prog)
+
+    Iterate over all bpf programs.
+
+    :return: Iterator of ``struct bpf_prog *`` objects.
+    """
+    for nr, entry in idr_for_each(prog["prog_idr"]):
+        yield cast("struct bpf_prog *", entry)
 
 
 def cgroup_bpf_prog_for_each(cgrp, bpf_attach_type):
