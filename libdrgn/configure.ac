@@ -11,6 +11,26 @@ AM_PROG_AR
 
 LT_INIT
 
+AC_ARG_ENABLE([openmp],
+	      [AS_HELP_STRING([--enable-openmp@<:@=ARG@:>@],
+			      [use OpenMP. ARG may be yes, no, or the name of
+			       the OpenMP runtime library to use (e.g., gomp or
+			       omp)
+			       @<:@default=yes@:>@])],
+	      [], [enable_openmp=yes])
+
+OPENMP_CFLAGS=
+OPENMP_LIBS=
+AS_CASE(["x$enable_openmp"],
+	[xyes], [OPENMP_CFLAGS=-fopenmp],
+	[xno], [],
+	dnl Use -Wc so that -fopenmp only gets passed when compiling, not
+	dnl linking, otherwise the linker will add the default runtime library.
+	[OPENMP_CFLAGS=-Wc,-fopenmp
+	 OPENMP_LIBS=-l$enable_openmp])
+AC_SUBST(OPENMP_CFLAGS)
+AC_SUBST(OPENMP_LIBS)
+
 AC_ARG_WITH([python],
 	    [AS_HELP_STRING([--with-python@<:@=ARG@:>@],
 			    [build Python bindings. ARG may be yes, no, or the

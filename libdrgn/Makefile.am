@@ -62,12 +62,13 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 vector.c \
 			 vector.h
 
-libdrgnimpl_la_CFLAGS = -fvisibility=hidden -fopenmp
+libdrgnimpl_la_CFLAGS = -fvisibility=hidden $(OPENMP_CFLAGS)
+libdrgnimpl_la_LIBADD = $(OPENMP_LIBS)
 
 if WITH_LIBKDUMPFILE
 libdrgnimpl_la_SOURCES += kdump.c
 libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
-libdrgnimpl_la_LIBADD = $(libkdumpfile_LIBS)
+libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
 endif
 
 arch_%.c: arch_%.c.in build-aux/gen_arch.awk build-aux/parse_arch.awk
