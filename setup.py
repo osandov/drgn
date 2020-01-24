@@ -2,6 +2,7 @@
 
 import contextlib
 from distutils import log
+from distutils.command.build import build as _build
 from distutils.dir_util import mkpath
 from distutils.file_util import copy_file
 import os
@@ -15,6 +16,13 @@ from setuptools.extension import Extension
 import shlex
 import subprocess
 import sys
+
+
+class build(_build):
+    def finalize_options(self):
+        super().finalize_options()
+        if self.parallel is None:
+            self.parallel = len(os.sched_getaffinity(0)) + 1
 
 
 class build_ext(_build_ext):
@@ -158,7 +166,7 @@ setup(
     # This is here so that setuptools knows that we have an extension; it's
     # actually built using autotools/make.
     ext_modules=[Extension(name="_drgn", sources=[])],
-    cmdclass={"build_ext": build_ext, "egg_info": egg_info},
+    cmdclass={"build": build, "build_ext": build_ext, "egg_info": egg_info},
     entry_points={"console_scripts": ["drgn=drgn.internal.cli:main"],},
     python_requires=">=3.6",
     author="Omar Sandoval",

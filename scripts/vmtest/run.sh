@@ -377,7 +377,7 @@ else
 # Force the Linux helper tests to run and fail if they would be skipped
 # otherwise.
 export DRGN_RUN_LINUX_HELPER_TESTS=1
-cd /drgn && python3 --version && python3 setup.py build -j "$(nproc)" test
+cd /drgn && python3 --version && python3 setup.py build test
 echo $? > /exitstatus
 chmod 644 /exitstatus
 EOF
