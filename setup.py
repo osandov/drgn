@@ -149,7 +149,7 @@ def get_version():
     commit = subprocess.check_output(
         ["git", "rev-parse", "--short", "HEAD"], universal_newlines=True
     ).strip()
-    version += f".dev{count}+{commit}"
+    version += f"+{count}.g{commit}"
     if dirty:
         version += ".dirty"
     return version
