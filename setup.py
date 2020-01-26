@@ -120,7 +120,10 @@ def get_version():
     with open("libdrgn/configure.ac", "r") as f:
         version = re.search(r"AC_INIT\(\[drgn\], \[([^]]*)\]", f.read()).group(1)
 
-    dirty = bool(
+    # Read the Docs modifies the working tree (namely, docs/conf.py). We don't
+    # want the documentation to display a dirty version, so ignore
+    # modifications for RTD builds.
+    dirty = os.getenv("READTHEDOCS") != "True" and bool(
         subprocess.check_output(
             ["git", "status", "-uno", "--porcelain"],
             # Use the environment variable instead of --no-optional-locks to
