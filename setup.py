@@ -25,6 +25,14 @@ class build(_build):
             self.parallel = len(os.sched_getaffinity(0)) + 1
 
 
+def out_of_date(path, *deps):
+    try:
+        mtime = os.stat(path).st_mtime
+    except FileNotFoundError:
+        return True
+    return any(os.stat(dep).st_mtime > mtime for dep in deps)
+
+
 class build_ext(_build_ext):
     user_options = [
         ("inplace", "i", "put compiled extension into the source directory"),
@@ -36,11 +44,18 @@ class build_ext(_build_ext):
     help_options = []
 
     def _run_autoreconf(self, dir):
+        configure = os.path.join(dir, "configure")
+        configure_ac = os.path.join(dir, "configure.ac")
+        makefile_am = os.path.join(dir, "Makefile.am")
         makefile_in = os.path.join(dir, "Makefile.in")
-        if not os.path.exists(makefile_in):
+        if out_of_date(makefile_in, makefile_am, configure_ac) or out_of_date(
+            configure, configure_ac
+        ):
             try:
                 subprocess.check_call(["autoreconf", "-i", dir])
             except Exception:
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(configure)
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(makefile_in)
                 raise
