@@ -1,4 +1,4 @@
-AC_INIT([drgn], [0.0.1],
+AC_INIT([drgn], [0.0.2],
 	[https://github.com/osandov/drgn/issues],,
 	[https://github.com/osandov/drgn])
 
