@@ -8,6 +8,7 @@
 
 PyObject *FaultError;
 PyObject *MissingDebugInfoError;
+PyObject *OutOfBoundsError;
 
 static PyObject *filename_matches(PyObject *self, PyObject *args,
 				  PyObject *kwds)
@@ -166,6 +167,13 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (!MissingDebugInfoError)
 		goto err;
 	PyModule_AddObject(m, "MissingDebugInfoError", MissingDebugInfoError);
+
+	OutOfBoundsError = PyErr_NewExceptionWithDoc("_drgn.OutOfBoundsError",
+						     drgn_OutOfBoundsError_DOC,
+						     NULL, NULL);
+	if (!OutOfBoundsError)
+		goto err;
+	PyModule_AddObject(m, "OutOfBoundsError", OutOfBoundsError);
 
 	if (PyStructSequence_InitType2(&Register_type, &Register_desc) == -1)
 		goto err;

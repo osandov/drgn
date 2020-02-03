@@ -73,6 +73,8 @@ enum drgn_error_code {
 	DRGN_ERROR_TYPE,
 	/** Division by zero. */
 	DRGN_ERROR_ZERO_DIVISION,
+	/** Array out of bounds */
+	DRGN_ERROR_OUT_OF_BOUNDS,
 	/** Number of defined error codes. */
 	DRGN_NUM_ERROR_CODES,
 } __attribute__((packed));

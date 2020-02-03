@@ -241,7 +241,7 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 
 	if (__builtin_add_overflow(bit_offset, bit_size, &bit_end) ||
 	    bit_end > buf_bit_size) {
-		err = drgn_error_create(DRGN_ERROR_FAULT,
+		err = drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,
 					"out of bounds of value");
 		set_drgn_error(err);
 		return -1;
