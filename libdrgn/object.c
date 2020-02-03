@@ -514,7 +514,7 @@ drgn_object_slice_internal(struct drgn_object *res,
 
 		if (__builtin_add_overflow(bit_offset, bit_size, &bit_end) ||
 		    bit_end > obj->bit_size) {
-			return drgn_error_create(DRGN_ERROR_FAULT,
+			return drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,
 						 "out of bounds of value");
 		}
 		bit_offset += obj->value.bit_offset;

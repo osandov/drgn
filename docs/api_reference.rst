@@ -1472,10 +1472,14 @@ Exceptions
 .. exception:: FaultError
 
     This error is raised when a bad memory access is attempted (i.e., when
-    accessing a memory address which is not valid in a program, or when
-    accessing out of bounds of a value object).
+    accessing a memory address which is not valid in a program).
 
 .. exception:: MissingDebugInfoError
 
     This error is raised when one or more files in a program do not have debug
     information.
+
+..exception:: OutOfBoundsError
+
+    This error is raised when attempting to access beyond the bounds of
+    a value object.

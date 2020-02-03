@@ -131,6 +131,9 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 	case DRGN_ERROR_ZERO_DIVISION:
 		PyErr_SetString(PyExc_ZeroDivisionError, err->message);
 		break;
+	case DRGN_ERROR_OUT_OF_BOUNDS:
+		PyErr_SetString(OutOfBoundsError, err->message);
+		break;
 	default:
 		PyErr_SetString(PyExc_Exception, err->message);
 		break;

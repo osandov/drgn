@@ -1334,7 +1334,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 					   passthrough_flags, sb);
 		drgn_object_deinit(&dereferenced);
 	}
-	if (!err || err->code != DRGN_ERROR_FAULT) {
+	if (!err || (err->code != DRGN_ERROR_FAULT && err->code != DRGN_ERROR_OUT_OF_BOUNDS)) {
 		/* We either succeeded or hit a fatal error. */
 		return err;
 	}

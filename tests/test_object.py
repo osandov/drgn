@@ -5,6 +5,7 @@ import struct
 from drgn import (
     FaultError,
     Object,
+    OutOfBoundsError,
     Qualifiers,
     Type,
     array_type,
@@ -559,7 +560,7 @@ class TestValue(ObjectTestCase):
 
         Object(self.prog, invalid_struct, value={"a": 0})
         self.assertRaisesRegex(
-            FaultError,
+            OutOfBoundsError,
             "out of bounds of value",
             Object,
             self.prog,
@@ -567,7 +568,7 @@ class TestValue(ObjectTestCase):
             value={"a": 0, "b": 4},
         )
         self.assertRaisesRegex(
-            FaultError,
+            OutOfBoundsError,
             "out of bounds of value",
             Object,
             self.prog,
@@ -2265,7 +2266,7 @@ class TestGenericOperators(ObjectTestCase):
         obj = arr.read_()
         for i in range(4):
             self.assertEqual(obj[i], Object(self.prog, "int", value=i))
-        self.assertRaisesRegex(FaultError, "out of bounds", obj.__getitem__, 4)
+        self.assertRaisesRegex(OutOfBoundsError, "out of bounds", obj.__getitem__, 4)
         obj = Object(self.prog, "int", value=0)
         self.assertRaises(TypeError, obj.__getitem__, 0)
 
@@ -2420,7 +2421,7 @@ class TestGenericOperators(ObjectTestCase):
         obj = Object(
             self.prog, struct_type("foo", 4, point_type.members), address=0xFFFF0000
         ).read_()
-        self.assertRaisesRegex(FaultError, "out of bounds", getattr, obj, "y")
+        self.assertRaisesRegex(OutOfBoundsError, "out of bounds", getattr, obj, "y")
 
     def test_string(self):
         prog = mock_program(
