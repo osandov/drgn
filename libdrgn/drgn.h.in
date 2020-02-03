@@ -108,6 +108,11 @@ struct drgn_error {
 	 * encountered the error if applicable. Otherwise, @c NULL.
 	 */
 	char *path;
+	/*
+	 * If @c code is @c DRGN_ERROR_FAULT, then the address of the read
+	 * which encountered the error.
+	 */
+	uint64_t address;
 	/** Human-readable error message. */
 	char *message;
 };
@@ -182,6 +187,28 @@ struct drgn_error *drgn_error_create_os(const char *message, int errnum,
 struct drgn_error *drgn_error_format_os(const char *message, int errnum,
 					const char *path_format, ...)
 	__attribute__((returns_nonnull,format(printf, 3, 4)));
+
+/**
+ * Create a @ref DRGN_ERROR_FAULT @ref drgn_error.
+ *
+ * @param[in] message Human-readable error message. This string is copied.
+ * @param[in] address Address where the fault happened.
+ */
+struct drgn_error *drgn_error_create_fault(const char *message, uint64_t address)
+	__attribute__((returns_nonnull));
+
+/**
+ *
+ * Create a @ref DRGN_ERROR_FAULT @ref drgn_error with a printf-style formatted
+ * message.
+ *
+ * @param[in] address Address where the fault happened.
+ * @param[in] format printf-style format string for message.
+ * @param[in] ... Arguments for the format string.
+ */
+struct drgn_error *drgn_error_format_fault(uint64_t address,
+					   const char *format, ...)
+	__attribute__((returns_nonnull,format(printf, 2, 3)));
 
 /**
  * Write a @ref drgn_error to a @c stdio stream.
