@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <elfutils/libdwfl.h>
+#include <inttypes.h>
 #include <libelf.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -42,6 +43,7 @@ static struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,
 	err->needs_destroy = true;
 	err->errnum = 0;
 	err->path = NULL;
+	err->address = 0;
 	err->message = message;
 	return err;
 }
@@ -83,6 +85,7 @@ drgn_error_format_os(const char *message, int errnum, const char *path_format,
 	} else {
 		err->path = NULL;
 	}
+	err->address = 0;
 	err->message = strdup(message);
 	if (!err->message) {
 		free(err->path);
@@ -117,6 +120,36 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_format(enum drgn_error_code code,
 	return drgn_error_create_nodup(code, message);
 }
 
+LIBDRGN_PUBLIC struct drgn_error *drgn_error_create_fault(const char *message,
+							  uint64_t address)
+{
+	struct drgn_error *err;
+
+	err = drgn_error_create(DRGN_ERROR_FAULT, message);
+	if (err != &drgn_enomem)
+		err->address = address;
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_error_format_fault(uint64_t address, const char *format, ...)
+{
+	struct drgn_error *err;
+	va_list ap;
+	char *message;
+	int ret;
+
+	va_start(ap, format);
+	ret = vasprintf(&message, format, ap);
+	va_end(ap);
+	if (ret == -1)
+                return &drgn_enomem;
+	err = drgn_error_create_nodup(DRGN_ERROR_FAULT, message);
+	if (err != &drgn_enomem)
+		err->address = address;
+	return err;
+}
+
 struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
 						  struct string_builder *sb)
 {
@@ -144,6 +177,10 @@ bool string_builder_append_error(struct string_builder *sb,
 			ret = string_builder_appendf(sb, "%s: %m",
 						     err->message);
 		}
+	} else if (err->code == DRGN_ERROR_FAULT) {
+		ret = string_builder_appendf(sb, "%s: 0x%" PRIx64,
+					     err->message,
+					     err->address);
 	} else {
 		ret = string_builder_append(sb, err->message);
 	}

@@ -111,6 +111,7 @@ extern PyObject *TypeKind_class;
 extern PyStructSequence_Desc Register_desc;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
+extern PyTypeObject FaultError_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
@@ -118,7 +119,6 @@ extern PyTypeObject Register_type;
 extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
-extern PyObject *FaultError;
 extern PyObject *MissingDebugInfoError;
 extern PyObject *OutOfBoundsError;
 

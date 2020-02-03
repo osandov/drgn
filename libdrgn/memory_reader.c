@@ -240,9 +240,8 @@ struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 		segment = drgn_memory_segment_tree_search_le(tree,
 							     &address).entry;
 		if (!segment || segment->address + segment->size <= address) {
-			return drgn_error_format(DRGN_ERROR_FAULT,
-						 "could not find memory segment containing 0x%" PRIx64,
-						 address);
+			return drgn_error_create_fault("could not find memory segment",
+						       address);
 		}
 
 		n = min(segment->address + segment->size - address,
@@ -283,15 +282,14 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 			if (errno == EINTR) {
 				continue;
 			} else if (errno == EIO && file_segment->eio_is_fault) {
-				return drgn_error_format(DRGN_ERROR_FAULT,
-							 "could not read memory at 0x%" PRIx64,
-							 address);
+				return drgn_error_create_fault("could not read memory",
+							       address);
 			} else {
 				return drgn_error_create_os("pread", errno, NULL);
 			}
 		} else if (ret == 0) {
-			return drgn_error_format(DRGN_ERROR_FAULT,
-						 "short read from memory file");
+			return drgn_error_create_fault("short read from memory file",
+						       address);
 		}
 		p += ret;
 		file_count -= ret;

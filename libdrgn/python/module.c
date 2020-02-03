@@ -6,7 +6,6 @@
 #include <libkdumpfile/kdumpfile.h>
 #endif
 
-PyObject *FaultError;
 PyObject *MissingDebugInfoError;
 PyObject *OutOfBoundsError;
 
@@ -155,11 +154,11 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (add_module_constants(m) == -1)
 		goto err;
 
-	FaultError = PyErr_NewExceptionWithDoc("_drgn.FaultError",
-					       drgn_FaultError_DOC, NULL, NULL);
-	if (!FaultError)
+	FaultError_type.tp_base = (PyTypeObject *)PyExc_Exception;
+	if (PyType_Ready(&FaultError_type) < 0)
 		goto err;
-	PyModule_AddObject(m, "FaultError", FaultError);
+	Py_INCREF(&FaultError_type);
+	PyModule_AddObject(m, "FaultError", (PyObject *)&FaultError_type);
 
 	MissingDebugInfoError = PyErr_NewExceptionWithDoc("_drgn.MissingDebugInfoError",
 							  drgn_MissingDebugInfoError_DOC,

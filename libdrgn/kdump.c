@@ -59,8 +59,9 @@ static struct drgn_error *drgn_read_kdump(void *buf, uint64_t address,
 	ks = kdump_read(ctx, physical ? KDUMP_KPHYSADDR : KDUMP_KVADDR, address,
 			buf, &count);
 	if (ks != KDUMP_OK) {
-		return drgn_error_format(DRGN_ERROR_FAULT, "kdump_read: %s",
-					 kdump_get_err(ctx));
+		return drgn_error_format_fault(address,
+					       "could not read memory from kdump: %s",
+					       kdump_get_err(ctx));
 	}
 	return NULL;
 }
