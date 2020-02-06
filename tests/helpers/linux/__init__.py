@@ -63,9 +63,11 @@ def wait_until(fn, *args, **kwds):
         sleep *= 2
 
 
-def fork_and_pause():
+def fork_and_pause(fn=None):
     pid = os.fork()
     if pid == 0:
+        if fn:
+            fn()
         try:
             while True:
                 signal.pause()
