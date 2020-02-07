@@ -1321,9 +1321,9 @@ struct drgn_symbol;
  * drgn_symbol_destroy().
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_program_find_symbol(struct drgn_program *prog,
-					    uint64_t address,
-					    struct drgn_symbol **ret);
+struct drgn_error *
+drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
+				    struct drgn_symbol **ret);
 
 /** Element type and size. */
 struct drgn_element_info {
@@ -2330,7 +2330,7 @@ struct drgn_error *drgn_object_sizeof(const struct drgn_object *obj,
  *
  * Symbol table entries.
  *
- * @sa drgn_program_find_symbol()
+ * @sa drgn_program_find_symbol_by_address()
  *
  * @{
  */

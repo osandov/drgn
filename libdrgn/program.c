@@ -906,9 +906,10 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 				      ret);
 }
 
-bool drgn_program_find_symbol_internal(struct drgn_program *prog,
-				       uint64_t address, Dwfl_Module *module,
-				       struct drgn_symbol *ret)
+bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
+						  uint64_t address,
+						  Dwfl_Module *module,
+						  struct drgn_symbol *ret)
 {
 	const char *name;
 	GElf_Off offset;
@@ -943,15 +944,16 @@ struct drgn_error *drgn_error_symbol_not_found(uint64_t address)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_find_symbol(struct drgn_program *prog, uint64_t address,
-			 struct drgn_symbol **ret)
+drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
+				    struct drgn_symbol **ret)
 {
 	struct drgn_symbol *sym;
 
 	sym = malloc(sizeof(*sym));
 	if (!sym)
 		return &drgn_enomem;
-	if (!drgn_program_find_symbol_internal(prog, address, NULL, sym)) {
+	if (!drgn_program_find_symbol_by_address_internal(prog, address, NULL,
+							  sym)) {
 		free(sym);
 		return drgn_error_symbol_not_found(address);
 	}

@@ -1290,8 +1290,10 @@ c_format_pointer_object(const struct drgn_object *obj,
 		return err;
 
 	have_symbol = ((flags & DRGN_FORMAT_OBJECT_SYMBOLIZE) &&
-		       drgn_program_find_symbol_internal(obj->prog, uvalue,
-							 NULL, &sym));
+		       drgn_program_find_symbol_by_address_internal(obj->prog,
+								    uvalue,
+								    NULL,
+								    &sym));
 	if (have_symbol && dereference && !c_string &&
 	    !string_builder_appendc(sb, '('))
 		return &drgn_enomem;

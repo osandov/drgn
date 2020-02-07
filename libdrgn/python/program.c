@@ -730,7 +730,8 @@ static PyObject *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
 					 index_converter, &address))
 		return NULL;
 
-	err = drgn_program_find_symbol(&self->prog, address.uvalue, &sym);
+	err = drgn_program_find_symbol_by_address(&self->prog, address.uvalue,
+						  &sym);
 	if (err)
 		return set_drgn_error(err);
 	ret = Symbol_wrap(sym, self);
