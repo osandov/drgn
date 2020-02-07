@@ -42,7 +42,7 @@ class LinuxHelperTestCase(unittest.TestCase):
                     prog.load_debug_info(main=True)
                     LinuxHelperTestCase.prog = prog
                     return
-                except drgn.MissingDebugInfoError:
+                except drgn.MissingDebugInfoError as e:
                     if force_run:
                         raise
                     LinuxHelperTestCase.skip_reason = str(e)
