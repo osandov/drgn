@@ -1479,7 +1479,7 @@ Exceptions
     This error is raised when one or more files in a program do not have debug
     information.
 
-..exception:: OutOfBoundsError
+.. exception:: OutOfBoundsError
 
     This error is raised when attempting to access beyond the bounds of
     a value object.
