@@ -128,11 +128,13 @@ Programs
         :raises LookupError: if no objects with the given name are found in
             the given file
 
-    .. method:: symbol(address)
+    .. method:: symbol(address_or_name, /)
 
-        Get the symbol containing the given address.
+        Get the symbol containing the given address, or the global symbol with
+        the given name.
 
-        :param int address: The address.
+        :param address_or_name: The address or name.
+        :type address_or_name: str or int
         :rtype: Symbol
         :raises LookupError: if no symbol contains the given address
 

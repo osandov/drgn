@@ -718,20 +718,27 @@ static StackTrace *Program_stack_trace(Program *self, PyObject *args,
 	return ret;
 }
 
-static PyObject *Program_symbol(Program *self, PyObject *args, PyObject *kwds)
+static PyObject *Program_symbol(Program *self, PyObject *arg)
 {
-	static char *keywords[] = {"address", NULL};
 	struct drgn_error *err;
-	struct index_arg address = {};
 	struct drgn_symbol *sym;
 	PyObject *ret;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&", keywords,
-					 index_converter, &address))
-		return NULL;
+	if (PyUnicode_Check(arg)) {
+		const char *name;
 
-	err = drgn_program_find_symbol_by_address(&self->prog, address.uvalue,
-						  &sym);
+		name = PyUnicode_AsUTF8(arg);
+		if (!name)
+			return NULL;
+		err = drgn_program_find_symbol_by_name(&self->prog, name, &sym);
+	} else {
+		struct index_arg address = {};
+
+		if (!index_converter(arg, &address))
+			return NULL;
+		err = drgn_program_find_symbol_by_address(&self->prog,
+							  address.uvalue, &sym);
+	}
 	if (err)
 		return set_drgn_error(err);
 	ret = Symbol_wrap(sym, self);
@@ -868,7 +875,7 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_variable_DOC},
 	{"stack_trace", (PyCFunction)Program_stack_trace,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_DOC},
-	{"symbol", (PyCFunction)Program_symbol, METH_VARARGS | METH_KEYWORDS,
+	{"symbol", (PyCFunction)Program_symbol, METH_O,
 	 drgn_Program_symbol_DOC},
 	{},
 };
