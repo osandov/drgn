@@ -159,7 +159,7 @@ _special_globals = frozenset(
 )
 
 
-def execscript(path: str, *args: str):
+def execscript(path: str, *args: str) -> None:
     """
     Execute a script.
 
