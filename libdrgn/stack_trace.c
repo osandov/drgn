@@ -57,8 +57,9 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 		pc = drgn_stack_frame_pc(frame);
 		module = dwfl_frame_module(trace->frames[frame.i]);
 		if (module &&
-		    drgn_program_find_symbol_internal(trace->prog, pc, module,
-						      &sym)) {
+		    drgn_program_find_symbol_by_address_internal(trace->prog,
+								 pc, module,
+								 &sym)) {
 			if (!string_builder_appendf(&str,
 						    "%s+0x%" PRIx64 "/0x%" PRIx64,
 						    sym.name, pc - sym.address,
@@ -112,8 +113,8 @@ drgn_stack_frame_symbol(struct drgn_stack_frame frame, struct drgn_symbol **ret)
 	sym = malloc(sizeof(*sym));
 	if (!sym)
 		return &drgn_enomem;
-	if (!drgn_program_find_symbol_internal(frame.trace->prog, pc, module,
-					       sym)) {
+	if (!drgn_program_find_symbol_by_address_internal(frame.trace->prog, pc,
+							  module, sym)) {
 		free(sym);
 		return drgn_error_symbol_not_found(pc);
 	}
