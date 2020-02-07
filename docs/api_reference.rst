@@ -1454,7 +1454,7 @@ can be used just like types obtained from :meth:`Program.type()`.
 Miscellaneous
 -------------
 
-.. function:: sizeof(type_or_obj)
+.. function:: sizeof(type_or_obj, /)
 
     Get the size of a :class:`Type` or :class:`Object` in bytes.
 
