@@ -1264,7 +1264,7 @@ static PyObject *DrgnObject_index(DrgnObject *self)
 	underlying_type = drgn_underlying_type(self->obj.type);
 	if (!drgn_type_is_integer(underlying_type) &&
 	    drgn_type_kind(underlying_type) != DRGN_TYPE_POINTER) {
-		return set_error_type_name("cannot convert '%s' to index",
+		return set_error_type_name("'%s' object cannot be interpreted as an integer",
 					   drgn_object_qualified_type(&self->obj));
 	}
 

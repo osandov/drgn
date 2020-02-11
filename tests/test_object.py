@@ -701,13 +701,13 @@ class TestConversions(ObjectTestCase):
 
         self.assertRaisesRegex(
             TypeError,
-            "cannot convert 'double' to index",
+            "'double' object cannot be interpreted as an integer",
             operator.index,
             Object(self.prog, "double", value=9.99),
         )
         self.assertRaisesRegex(
             TypeError,
-            r"cannot convert 'int \[\]' to index",
+            r"'int \[\]' object cannot be interpreted as an integer",
             operator.index,
             Object(self.prog, "int []", address=0),
         )
