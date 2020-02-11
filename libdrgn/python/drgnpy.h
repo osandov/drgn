@@ -101,6 +101,12 @@ typedef struct {
 	struct drgn_symbol *sym;
 } Symbol;
 
+typedef struct {
+	PyObject_HEAD
+	PyObject *name;
+	PyObject *value;
+} TypeEnumerator;
+
 extern PyObject *Architecture_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *PlatformFlags_class;
@@ -119,6 +125,7 @@ extern PyTypeObject Register_type;
 extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
+extern PyTypeObject TypeEnumerator_type;
 extern PyObject *MissingDebugInfoError;
 extern PyObject *OutOfBoundsError;
 

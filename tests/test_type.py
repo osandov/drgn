@@ -3,6 +3,7 @@ import unittest
 from drgn import (
     PrimitiveType,
     Qualifiers,
+    TypeEnumerator,
     TypeKind,
     array_type,
     bool_type,
@@ -790,13 +791,24 @@ class TestType(unittest.TestCase):
         t = enum_type(
             "color",
             int_type("unsigned int", 4, False),
-            (("RED", 0), ("GREEN", 1), ("BLUE", 2)),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
         )
         self.assertEqual(t.kind, TypeKind.ENUM)
         self.assertIsNone(t.primitive)
         self.assertEqual(t.tag, "color")
         self.assertEqual(t.type, int_type("unsigned int", 4, False))
-        self.assertEqual(t.enumerators, (("RED", 0), ("GREEN", 1), ("BLUE", 2)))
+        self.assertEqual(
+            t.enumerators,
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
+        )
         self.assertTrue(t.is_complete())
 
         self.assertEqual(
@@ -804,7 +816,11 @@ class TestType(unittest.TestCase):
             enum_type(
                 "color",
                 int_type("unsigned int", 4, False),
-                (("RED", 0), ("GREEN", 1), ("BLUE", 2)),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", 1),
+                    TypeEnumerator("BLUE", 2),
+                ),
             ),
         )
         # Different tag.
@@ -813,7 +829,11 @@ class TestType(unittest.TestCase):
             enum_type(
                 "COLOR",
                 int_type("unsigned int", 4, False),
-                (("RED", 0), ("GREEN", 1), ("BLUE", 2)),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", 1),
+                    TypeEnumerator("BLUE", 2),
+                ),
             ),
         )
         # One is anonymous.
@@ -822,7 +842,11 @@ class TestType(unittest.TestCase):
             enum_type(
                 None,
                 int_type("unsigned int", 4, False),
-                (("RED", 0), ("GREEN", 1), ("BLUE", 2)),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", 1),
+                    TypeEnumerator("BLUE", 2),
+                ),
             ),
         )
         # Different compatible type.
@@ -831,7 +855,11 @@ class TestType(unittest.TestCase):
             enum_type(
                 "color",
                 int_type("int", 4, True),
-                (("RED", 0), ("GREEN", 1), ("BLUE", 2)),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", 1),
+                    TypeEnumerator("BLUE", 2),
+                ),
             ),
         )
         # Different enumerators.
@@ -840,14 +868,20 @@ class TestType(unittest.TestCase):
             enum_type(
                 "color",
                 int_type("unsigned int", 4, False),
-                (("RED", 0), ("YELLOW", 1), ("BLUE", 2)),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("YELLOW", 1),
+                    TypeEnumerator("BLUE", 2),
+                ),
             ),
         )
         # Different number of enumerators.
         self.assertNotEqual(
             t,
             enum_type(
-                "color", int_type("unsigned int", 4, False), (("RED", 0), ("GREEN", 1))
+                "color",
+                int_type("unsigned int", 4, False),
+                (TypeEnumerator("RED", 0), TypeEnumerator("GREEN", 1)),
             ),
         )
         # One is incomplete.
@@ -855,7 +889,7 @@ class TestType(unittest.TestCase):
 
         self.assertEqual(
             repr(t),
-            "enum_type(tag='color', type=int_type(name='unsigned int', size=4, is_signed=False), enumerators=(('RED', 0), ('GREEN', 1), ('BLUE', 2)))",
+            "enum_type(tag='color', type=int_type(name='unsigned int', size=4, is_signed=False), enumerators=(TypeEnumerator('RED', 0), TypeEnumerator('GREEN', 1), TypeEnumerator('BLUE', 2)))",
         )
         self.assertEqual(sizeof(t), 4)
 
@@ -916,35 +950,11 @@ class TestType(unittest.TestCase):
         )
         self.assertRaisesRegex(
             TypeError,
-            "must be.*sequence",
+            "must be TypeEnumerator",
             enum_type,
             "color",
             int_type("unsigned int", 4, False),
             (4,),
-        )
-        self.assertRaisesRegex(
-            ValueError,
-            "must be.*sequence",
-            enum_type,
-            "color",
-            int_type("unsigned int", 4, False),
-            ((),),
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be string",
-            enum_type,
-            "color",
-            int_type("unsigned int", 4, False),
-            ((None, 0),),
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be integer",
-            enum_type,
-            "color",
-            int_type("unsigned int", 4, False),
-            (("RED", None),),
         )
 
     def test_typedef(self):
@@ -1201,3 +1211,29 @@ class TestType(unittest.TestCase):
         self.assertNotEqual(void_type(), int_type("int", 4, True))
         self.assertNotEqual(void_type(), 1)
         self.assertNotEqual(1, void_type())
+
+
+class TestTypeEnumerator(unittest.TestCase):
+    def test_init(self):
+        e = TypeEnumerator("a", 1)
+        self.assertEqual(e.name, "a")
+        self.assertEqual(e.value, 1)
+
+        self.assertRaises(TypeError, TypeEnumerator, "a", None)
+        self.assertRaises(TypeError, TypeEnumerator, None, 1)
+
+    def test_repr(self):
+        e = TypeEnumerator("a", 1)
+        self.assertEqual(repr(e), "TypeEnumerator('a', 1)")
+
+    def test_sequence(self):
+        e = TypeEnumerator("a", 1)
+        name, value = e
+        self.assertEqual(name, "a")
+        self.assertEqual(value, 1)
+        self.assertEqual(list(e), ["a", 1])
+
+    def test_cmp(self):
+        self.assertEqual(TypeEnumerator("a", 1), TypeEnumerator(name="a", value=1))
+        self.assertNotEqual(TypeEnumerator("a", 1), TypeEnumerator("a", 2))
+        self.assertNotEqual(TypeEnumerator("b", 1), TypeEnumerator("a", 1))

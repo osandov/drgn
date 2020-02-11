@@ -1136,9 +1136,7 @@ Types
         List of enumeration constants of this type, or ``None`` if this is an
         incomplete type. This is only present for enumerated types.
 
-        Each enumeration constant is a (name, value) tuple.
-
-        :vartype: list[tuple(str, int)] or None
+        :vartype: list[TypeEnumerator] or None
 
     .. attribute:: parameters
 
@@ -1188,6 +1186,29 @@ Types
         Get a copy of this type with no qualifiers.
 
         :rtype: Type
+
+.. class:: TypeEnumerator(name, value)
+
+    A ``TypeEnumerator`` represents a constant in an enumerated type.
+
+    Its name and value may be accessed as attributes or unpacked:
+
+    >>> prog.type('enum pid_type').enumerators[0].name
+    'PIDTYPE_PID'
+    >>> name, value = prog.type('enum pid_type').enumerators[0]
+    >>> value
+    0
+
+    :param str name: Enumerator name.
+    :param int value: Enumerator value.
+
+    .. attribute:: name
+
+        :vartype: str
+
+    .. attribute:: value
+
+        :vartype: int
 
 .. class:: TypeKind
 
@@ -1401,7 +1422,7 @@ can be used just like types obtained from :meth:`Program.type()`.
     :param type: The compatible integer type (:attr:`Type.type`)
     :type type: Type or None
     :param enumerators: :attr:`Type.enumerators`
-    :type enumerators: list[tuple] or None
+    :type enumerators: list[TypeEnumerator] or None
     :param qualifiers: :attr:`Type.qualifiers`
     :type qualifiers: Qualifiers or None
     :rtype: Type

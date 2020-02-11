@@ -336,11 +336,13 @@ static PyObject *DrgnType_get_enumerators(DrgnType *self)
 		PyObject *item;
 
 		if (is_signed) {
-			item = Py_BuildValue("(sL)", enumerators[i].name,
-					     (long long)enumerators[i].svalue);
+			item = PyObject_CallFunction((PyObject *)&TypeEnumerator_type,
+						     "sL", enumerators[i].name,
+						     (long long)enumerators[i].svalue);
 		} else {
-			item = Py_BuildValue("(sK)", enumerators[i].name,
-					     (unsigned long long)enumerators[i].uvalue);
+			item = PyObject_CallFunction((PyObject *)&TypeEnumerator_type,
+						     "sK", enumerators[i].name,
+						     (unsigned long long)enumerators[i].uvalue);
 		}
 		if (!item) {
 			Py_DECREF(enumerators_obj);
@@ -957,6 +959,107 @@ PyTypeObject DrgnType_type = {
 	.tp_getset = DrgnType_getset,
 };
 
+static TypeEnumerator *TypeEnumerator_new(PyTypeObject *subtype, PyObject *args,
+					  PyObject *kwds)
+{
+	static char *keywords[] = {"name", "value", NULL};
+	PyObject *name, *value;
+	TypeEnumerator *enumerator;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!:TypeEnumerator",
+					 keywords, &PyUnicode_Type, &name,
+					 &PyLong_Type, &value))
+		return NULL;
+
+	enumerator = (TypeEnumerator *)subtype->tp_alloc(subtype, 0);
+	if (enumerator) {
+		Py_INCREF(name);
+		enumerator->name = name;
+		Py_INCREF(value);
+		enumerator->value = value;
+	}
+	return enumerator;
+}
+
+static void TypeEnumerator_dealloc(TypeEnumerator *self)
+{
+	Py_XDECREF(self->value);
+	Py_XDECREF(self->name);
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static PyObject *TypeEnumerator_repr(TypeEnumerator *self)
+{
+	return PyUnicode_FromFormat("TypeEnumerator(%R, %R)", self->name,
+				    self->value);
+}
+
+Py_ssize_t TypeEnumerator_length(PyObject *self)
+{
+	return 2;
+}
+
+PyObject *TypeEnumerator_item(TypeEnumerator *self, Py_ssize_t i)
+{
+	switch (i) {
+	case 0:
+		Py_INCREF(self->name);
+		return self->name;
+	case 1:
+		Py_INCREF(self->value);
+		return self->value;
+	default:
+		PyErr_SetString(PyExc_IndexError,
+				"TypeEnumerator index out of range");
+		return NULL;
+	}
+}
+
+static PyObject *TypeEnumerator_richcompare(TypeEnumerator *self,
+					    TypeEnumerator *other,
+					    int op)
+{
+	int ret;
+
+	if ((op != Py_EQ && op != Py_NE) ||
+	    !PyObject_TypeCheck((PyObject *)other, &TypeEnumerator_type))
+		Py_RETURN_NOTIMPLEMENTED;
+
+	ret = PyUnicode_Compare(self->name, other->name);
+	if (ret == -1 && PyErr_Occurred())
+		return NULL;
+	if (ret != 0)
+		Py_RETURN_RICHCOMPARE(ret, 0, op);
+	return PyObject_RichCompare(self->value, other->value, op);
+}
+
+static PySequenceMethods TypeEnumerator_as_sequence = {
+	.sq_length = TypeEnumerator_length,
+	.sq_item = (ssizeargfunc)TypeEnumerator_item,
+};
+
+static PyMemberDef TypeEnumerator_members[] = {
+	{"name", T_OBJECT, offsetof(TypeEnumerator, name), READONLY,
+	 drgn_TypeEnumerator_name_DOC},
+	{"value", T_OBJECT, offsetof(TypeEnumerator, value), READONLY,
+	 drgn_TypeEnumerator_value_DOC},
+	{},
+};
+
+PyTypeObject TypeEnumerator_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn.TypeEnumerator",
+	.tp_basicsize = sizeof(TypeEnumerator),
+	.tp_dealloc = (destructor)TypeEnumerator_dealloc,
+	.tp_repr = (reprfunc)TypeEnumerator_repr,
+	.tp_as_sequence = &TypeEnumerator_as_sequence,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_TypeEnumerator_DOC,
+	.tp_richcompare = (richcmpfunc)TypeEnumerator_richcompare,
+	.tp_members = TypeEnumerator_members,
+	.tp_new = (newfunc)TypeEnumerator_new,
+};
+
 DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = { "qualifiers", NULL, };
@@ -1429,67 +1532,41 @@ DrgnType *class_type(PyObject *self, PyObject *args, PyObject *kwds)
 			     DRGN_TYPE_CLASS);
 }
 
-static int unpack_enumerator(DrgnType *type_obj, PyObject *enumerators_seq,
-			     PyObject *cached_enumerators_obj, size_t i,
-			     bool is_signed)
+static int unpack_enumerator(DrgnType *type_obj, PyObject *cached_enumerators_obj,
+			     size_t i, bool is_signed)
 {
-	static const char *msg = "enumerator must be (name, value) sequence";
-	PyObject *seq, *tuple, *name_obj, *value_obj;
+	TypeEnumerator *item;
 	const char *name;
-	int ret = -1;
 
-	seq = PySequence_Fast(PySequence_Fast_GET_ITEM(enumerators_seq, i),
-			      msg);
-	if (!seq)
+	item = (TypeEnumerator *)PyTuple_GET_ITEM(cached_enumerators_obj, i);
+	if (!PyObject_TypeCheck((PyObject *)item, &TypeEnumerator_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"enumerator must be TypeEnumerator");
+		return -1;
+	}
+
+	name = PyUnicode_AsUTF8(item->name);
+	if (!name)
 		return -1;
 
-	if (PySequence_Fast_GET_SIZE(seq) != 2) {
-		PyErr_SetString(PyExc_ValueError, msg);
-		goto out;
-	}
-
-	name_obj = PySequence_Fast_GET_ITEM(seq, 0);
-	if (!PyUnicode_Check(name_obj)) {
-		PyErr_SetString(PyExc_TypeError,
-				"enumerator name must be string");
-		goto out;
-	}
-	name = PyUnicode_AsUTF8(name_obj);
-	if (!name)
-		goto out;
-
-	value_obj = PySequence_Fast_GET_ITEM(seq, 1);
-	if (!PyLong_Check(value_obj)) {
-		PyErr_SetString(PyExc_TypeError,
-				"enumerator value must be integer");
-		goto out;
-	}
 	if (is_signed) {
 		long long svalue;
 
-		svalue = PyLong_AsLongLong(value_obj);
+		svalue = PyLong_AsLongLong(item->value);
 		if (svalue == -1 && PyErr_Occurred())
-			goto out;
+			return -1;
 		drgn_type_enumerator_init_signed(type_obj->type, i, name,
 						 svalue);
 	} else {
 		unsigned long long uvalue;
 
-		uvalue = PyLong_AsUnsignedLongLong(value_obj);
+		uvalue = PyLong_AsUnsignedLongLong(item->value);
 		if (uvalue == (unsigned long long)-1 && PyErr_Occurred())
-			goto out;
+			return -1;
 		drgn_type_enumerator_init_unsigned(type_obj->type, i, name,
 						   uvalue);
 	}
-
-	tuple = PySequence_Tuple(seq);
-	if (!tuple)
-		goto out;
-	PyTuple_SET_ITEM(cached_enumerators_obj, i, tuple);
-	ret = 0;
-out:
-	Py_DECREF(seq);
-	return ret;
+	return 0;
 }
 
 DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
@@ -1502,7 +1579,6 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 	struct drgn_type *compatible_type;
 	PyObject *enumerators_obj = Py_None;
 	unsigned char qualifiers = 0;
-	PyObject *enumerators_seq = NULL;
 	PyObject *cached_enumerators_obj = NULL;
 	size_t num_enumerators;
 
@@ -1567,14 +1643,15 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 					"enum type must have compatible type");
 			return NULL;
 		}
-		enumerators_seq = PySequence_Fast(enumerators_obj,
-						  "enumerators must be sequence or None");
-		if (!enumerators_seq)
+		if (!PySequence_Check(enumerators_obj)) {
+			PyErr_SetString(PyExc_TypeError,
+					"enumerators must be sequence or None");
 			return NULL;
-		num_enumerators = PySequence_Fast_GET_SIZE(enumerators_seq);
-		cached_enumerators_obj = PyTuple_New(num_enumerators);
+		}
+		cached_enumerators_obj = PySequence_Tuple(enumerators_obj);
 		if (!cached_enumerators_obj)
-			goto err;
+			return NULL;
+		num_enumerators = PyTuple_GET_SIZE(cached_enumerators_obj);
 		is_signed = drgn_type_is_signed(compatible_type);
 
 		type_obj = DrgnType_new(qualifiers, num_enumerators,
@@ -1582,12 +1659,10 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 		if (!type_obj)
 			goto err;
 		for (i = 0; i < num_enumerators; i++) {
-			if (unpack_enumerator(type_obj, enumerators_seq,
-					      cached_enumerators_obj, i,
-					      is_signed) == -1)
+			if (unpack_enumerator(type_obj, cached_enumerators_obj,
+					      i, is_signed) == -1)
 				goto err;
 		}
-		Py_CLEAR(enumerators_seq);
 
 		if (_PyDict_SetItemId(type_obj->attr_cache,
 				      &DrgnType_attr_enumerators.id,
@@ -1614,7 +1689,6 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 err:
 	Py_XDECREF(type_obj);
 	Py_XDECREF(cached_enumerators_obj);
-	Py_XDECREF(enumerators_seq);
 	return NULL;
 }
 

@@ -7,6 +7,7 @@ from drgn import (
     Object,
     Program,
     Qualifiers,
+    TypeEnumerator,
     array_type,
     class_type,
     complex_type,
@@ -1022,7 +1023,11 @@ class TestTypes(unittest.TestCase):
             enum_type(
                 "color",
                 int_type("<unknown>", 4, True),
-                [("RED", 0), ("GREEN", -1), ("BLUE", -2)],
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", -1),
+                    TypeEnumerator("BLUE", -2),
+                ),
             ),
         )
 
@@ -1874,7 +1879,13 @@ class TestObjects(ObjectTestCase):
         ]
 
         type_ = enum_type(
-            "color", int_type("int", 4, True), [("RED", 0), ("GREEN", 1), ("BLUE", 2)]
+            "color",
+            int_type("int", 4, True),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
         )
         prog = dwarf_program(dies)
         self.assertEqual(prog["BLUE"], Object(prog, type_, value=2))
@@ -1883,7 +1894,11 @@ class TestObjects(ObjectTestCase):
         type_ = enum_type(
             "color",
             int_type("unsigned int", 4, False),
-            [("RED", 0), ("GREEN", 1), ("BLUE", 2)],
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
         )
         prog = dwarf_program(dies)
         self.assertEqual(prog["GREEN"], Object(prog, type_, value=1))
@@ -1892,7 +1907,11 @@ class TestObjects(ObjectTestCase):
         type_ = enum_type(
             None,
             int_type("unsigned int", 4, False),
-            [("RED", 0), ("GREEN", 1), ("BLUE", 2)],
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
         )
         prog = dwarf_program(dies)
         self.assertEqual(

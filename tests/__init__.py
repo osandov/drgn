@@ -10,6 +10,7 @@ from drgn import (
     PlatformFlags,
     Program,
     Type,
+    TypeEnumerator,
     TypeKind,
     class_type,
     enum_type,
@@ -42,7 +43,9 @@ option_type = union_type(
     "option", 4, ((int_type("int", 4, True), "i"), (float_type("float", 4), "f"),)
 )
 color_type = enum_type(
-    "color", int_type("unsigned int", 4, False), (("RED", 0), ("GREEN", 1), ("BLUE", 2))
+    "color",
+    int_type("unsigned int", 4, False),
+    (TypeEnumerator("RED", 0), TypeEnumerator("GREEN", 1), TypeEnumerator("BLUE", 2)),
 )
 pid_type = typedef_type("pid_t", int_type("int", 4, True))
 

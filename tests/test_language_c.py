@@ -4,6 +4,7 @@ import unittest
 
 from drgn import (
     Qualifiers,
+    TypeEnumerator,
     array_type,
     bool_type,
     class_type,
@@ -407,7 +408,11 @@ class coord {
         t = enum_type(
             "color",
             int_type("unsigned int", 4, False),
-            (("RED", 0), ("GREEN", 1), ("BLUE", 2),),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
         )
         self.assertPrettyPrint(
             t,
@@ -422,7 +427,11 @@ enum color {
         t = enum_type(
             "color",
             int_type("unsigned int", 4, False),
-            (("RED", 0), ("GREEN", 1), ("BLUE", 2),),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
             Qualifiers.CONST,
         )
         self.assertPrettyPrint(
@@ -436,7 +445,13 @@ const enum color {
         )
 
         t = enum_type(
-            None, int_type("int", 4, True), (("RED", 0), ("GREEN", -1), ("BLUE", -2),)
+            None,
+            int_type("int", 4, True),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", -1),
+                TypeEnumerator("BLUE", -2),
+            ),
         )
         self.assertPrettyPrint(
             t,

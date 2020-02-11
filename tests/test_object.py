@@ -8,6 +8,7 @@ from drgn import (
     OutOfBoundsError,
     Qualifiers,
     Type,
+    TypeEnumerator,
     array_type,
     cast,
     container_of,
@@ -996,7 +997,11 @@ class TestCIntegerPromotion(ObjectTestCase):
         type_ = enum_type(
             "color",
             self.prog.type("unsigned long long"),
-            (("RED", 0), ("GREEN", 1), ("BLUE", 2)),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
         )
         self.assertEqual(
             +Object(self.prog, type_, value=1),
@@ -1004,7 +1009,13 @@ class TestCIntegerPromotion(ObjectTestCase):
         )
 
         type_ = enum_type(
-            "color", self.prog.type("char"), (("RED", 0), ("GREEN", 1), ("BLUE", 2))
+            "color",
+            self.prog.type("char"),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
         )
         self.assertEqual(
             +Object(self.prog, type_, value=1), Object(self.prog, "int", value=1)
