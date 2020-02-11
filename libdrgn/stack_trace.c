@@ -398,8 +398,12 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 		}
 	}
 
-	/* Then, try the core dump. */
+	/* Then, try the core dump (and/or kdump if supported). */
+#ifdef WITH_LIBKDUMPFILE
+	if (prog->core || prog->kdump_ctx) {
+#else
 	if (prog->core) {
+#endif
 		uint32_t tid;
 		struct string prstatus;
 

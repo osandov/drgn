@@ -34,13 +34,14 @@ linux_kernel_report_debug_info(struct drgn_program *prog,
 #define KDUMP_SIG_LEN (sizeof(KDUMP_SIGNATURE) - 1)
 
 #ifdef WITH_LIBKDUMPFILE
+struct drgn_error *drgn_program_cache_prstatus_kdump(struct drgn_program *prog);
 struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog);
 #else
 static inline struct drgn_error *
 drgn_program_set_kdump(struct drgn_program *prog)
 {
         return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-	                         "drgn was built without libkdumpfile support");
+				 "drgn was built without libkdumpfile support");
 }
 #endif
 

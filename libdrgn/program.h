@@ -157,6 +157,15 @@ struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
 struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
 					      uint32_t tid, struct string *ret);
 
+/**
+ * Cache the @c NT_PRSTATUS note provided by @p data in @p prog.
+ *
+ * @param[in] data The pointer to the note data.
+ * @param[in] size Size of data in note.
+ */
+struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
+                                                     char *data, size_t size);
+
 /*
  * Like @ref drgn_program_find_symbol_by_address(), but @p ret is already
  * allocated, we may already know the module, and doesn't return a @ref

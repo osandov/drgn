@@ -139,3 +139,61 @@ err:
 	kdump_free(ctx);
 	return err;
 }
+
+struct drgn_error *drgn_program_cache_prstatus_kdump(struct drgn_program *prog)
+{
+	struct drgn_error *err;
+	kdump_num_t ncpus, i;
+	kdump_status ks;
+
+	ks = kdump_get_number_attr(prog->kdump_ctx, "cpu.number", &ncpus);
+	if (ks != KDUMP_OK) {
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "kdump_get_number_attr(cpu.number): %s",
+					 kdump_get_err(prog->kdump_ctx));
+	}
+
+	/*
+	 * Note that in the following loop we never call kdump_attr_unref() on
+	 * prstatus_ref, nor kdump_blob_unpin() on the prstatus blob that we get
+	 * from libkdumpfile. Since drgn is completely read-only as a consumer
+	 * of that library, we "leak" both the attribute reference and blob pin
+	 * until kdump_free() is called which will clean up everything for us.
+	 */
+	for (i = 0; i < ncpus; i++) {
+		/* Enough for the longest possible PRSTATUS attribute name. */
+		char attr_name[64];
+		kdump_attr_ref_t prstatus_ref;
+		kdump_attr_t prstatus_attr;
+		void *prstatus_data;
+		size_t prstatus_size;
+
+		snprintf(attr_name, sizeof(attr_name),
+			 "cpu.%" PRIuFAST64 ".PRSTATUS", i);
+		ks = kdump_attr_ref(prog->kdump_ctx, attr_name, &prstatus_ref);
+		if (ks != KDUMP_OK) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "kdump_attr_ref(%s): %s",
+						 attr_name,
+						 kdump_get_err(prog->kdump_ctx));
+		}
+
+		ks = kdump_attr_ref_get(prog->kdump_ctx, &prstatus_ref,
+					&prstatus_attr);
+		if (ks != KDUMP_OK) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "kdump_attr_ref_get(%s): %s",
+						 attr_name,
+						 kdump_get_err(prog->kdump_ctx));
+		}
+
+		prstatus_data = kdump_blob_pin(prstatus_attr.val.blob);
+		prstatus_size = kdump_blob_size(prstatus_attr.val.blob);
+		err = drgn_program_cache_prstatus_entry(prog,
+							prstatus_data,
+							prstatus_size);
+		if (err)
+			return err;
+	}
+	return NULL;
+}
