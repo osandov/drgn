@@ -684,16 +684,45 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	return err;
 }
 
-static struct drgn_error *drgn_program_cache_prstatus(struct drgn_program *prog)
+struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
+						     char *data, size_t size)
 {
-	size_t phnum, i;
+	struct drgn_prstatus_map_entry entry;
 	size_t pr_pid_offset;
+	uint32_t pr_pid;
 	bool bswap;
 
 	pr_pid_offset = drgn_program_is_64_bit(prog) ? 32 : 24;
 	bswap = (drgn_program_is_little_endian(prog) !=
 		 (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
 
+	if (size < pr_pid_offset + sizeof(pr_pid))
+		return NULL;
+
+	memcpy(&pr_pid, data + pr_pid_offset, sizeof(pr_pid));
+	if (bswap)
+		pr_pid = bswap_32(pr_pid);
+	if (!pr_pid)
+		return NULL;
+
+	entry.key = pr_pid;
+	entry.value.str = data;
+	entry.value.len = size;
+	if (drgn_prstatus_map_insert(&prog->prstatus_cache, &entry,
+				     NULL) == -1) {
+		return &drgn_enomem;
+	}
+	return NULL;
+}
+
+static struct drgn_error *drgn_program_cache_prstatus(struct drgn_program *prog)
+{
+	size_t phnum, i;
+
+#ifdef WITH_LIBKDUMPFILE
+	if (prog->kdump_ctx)
+		return drgn_program_cache_prstatus_kdump(prog);
+#endif
 	if (elf_getphdrnum(prog->core, &phnum) != 0)
 		return drgn_error_libelf();
 	for (i = 0; i < phnum; i++) {
@@ -720,28 +749,18 @@ static struct drgn_error *drgn_program_cache_prstatus(struct drgn_program *prog)
 		       (offset = gelf_getnote(data, offset, &nhdr, &name_offset,
 					      &desc_offset))) {
 			const char *name;
-			uint32_t pr_pid;
-			struct drgn_prstatus_map_entry entry;
+			struct drgn_error *err;
 
 			name = (char *)data->d_buf + name_offset;
 			if (strncmp(name, "CORE", nhdr.n_namesz) != 0 ||
-			    nhdr.n_type != NT_PRSTATUS ||
-			    nhdr.n_descsz < pr_pid_offset + sizeof(pr_pid))
-				continue;
-			memcpy(&pr_pid,
-			       (char *)data->d_buf + desc_offset + pr_pid_offset,
-			       sizeof(pr_pid));
-			if (bswap)
-				pr_pid = bswap_32(pr_pid);
-			if (!pr_pid)
+			    nhdr.n_type != NT_PRSTATUS)
 				continue;
 
-			entry.key = pr_pid;
-			entry.value.str = (char *)data->d_buf + desc_offset;
-			entry.value.len = nhdr.n_descsz;
-			if (drgn_prstatus_map_insert(&prog->prstatus_cache,
-						     &entry, NULL) == -1)
-				return &drgn_enomem;
+			err = drgn_program_cache_prstatus_entry(prog,
+								(char *)data->d_buf + desc_offset,
+								nhdr.n_descsz);
+			if (err)
+				return err;
 		}
 	}
 	return NULL;
