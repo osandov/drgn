@@ -58,75 +58,88 @@ DRGNPY_PUBLIC PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type,
 	return (PyObject *)type_obj;
 }
 
-struct py_type_thunk {
-	struct drgn_type_thunk thunk;
-	PyObject **pending;
-	PyObject *callable;
-};
-
-static int py_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
-				 struct drgn_qualified_type *qualified_type)
+static DrgnType *LazyType_get_borrowed(LazyType *self)
 {
-	struct drgn_error *err;
-	bool clear;
+	if (unlikely(self->obj & DRGNPY_LAZY_TYPE_UNEVALUATED)) {
+		PyObject *obj;
+		PyObject *type;
 
-	/* Avoid the thread state overhead if we can. */
-	if (drgn_lazy_type_is_evaluated(lazy_type)) {
-		drgn_lazy_type_evaluate(lazy_type, qualified_type);
-		return 0;
-	}
+		obj = (PyObject *)(self->obj & DRGNPY_LAZY_TYPE_MASK);
+		if (self->lazy_type) {
+			struct drgn_error *err;
+			struct drgn_qualified_type qualified_type;
+			bool clear = false;
 
-	clear = set_drgn_in_python();
-	err = drgn_lazy_type_evaluate(lazy_type, qualified_type);
-	if (clear)
-		clear_drgn_in_python();
-	if (err) {
-		set_drgn_error(err);
-		return -1;
+			/* Avoid the thread state overhead if we can. */
+			if (!drgn_lazy_type_is_evaluated(self->lazy_type))
+				clear = set_drgn_in_python();
+			err = drgn_lazy_type_evaluate(self->lazy_type,
+						      &qualified_type);
+			if (clear)
+				clear_drgn_in_python();
+			if (err) {
+				set_drgn_error(err);
+				return NULL;
+			}
+			type = DrgnType_wrap(qualified_type, obj);
+			if (!type)
+				return NULL;
+		} else {
+			type = PyObject_CallObject(obj, NULL);
+			if (!type)
+				return NULL;
+			if (!PyObject_TypeCheck(type, &DrgnType_type)) {
+				Py_DECREF(type);
+				PyErr_SetString(PyExc_TypeError,
+						"type callable must return Type");
+				return NULL;
+			}
+		}
+		Py_DECREF(obj);
+		self->obj = (uintptr_t)type;
 	}
-	return 0;
+	return (DrgnType *)self->obj;
 }
 
-static struct drgn_error *py_type_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
-						    struct drgn_qualified_type *result)
+static DrgnType *LazyType_get(LazyType *self, void *arg)
 {
-	struct py_type_thunk *t = (struct py_type_thunk *)thunk;
+	DrgnType *ret;
+
+	ret = LazyType_get_borrowed(self);
+	Py_XINCREF(ret);
+	return ret;
+}
+
+struct py_type_thunk {
+	struct drgn_type_thunk thunk;
+	LazyType *lazy_type;
+};
+
+static struct drgn_error *
+py_type_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
+			  struct drgn_qualified_type *ret)
+{
+	struct py_type_thunk *t = container_of(thunk, struct py_type_thunk, thunk);
 	PyGILState_STATE gstate;
-	struct drgn_error *err;
-	PyObject *obj;
+	struct drgn_error *err = NULL;
+	DrgnType *type;
 
 	gstate = PyGILState_Ensure();
-	obj = PyObject_CallObject(t->callable, NULL);
-	if (!obj)
-		goto err;
-	if (!PyObject_IsInstance(obj, (PyObject *)&DrgnType_type)) {
-		Py_DECREF(obj);
-		PyErr_SetString(PyExc_TypeError,
-				"type callable must return Type");
-		goto err;
+	type = LazyType_get_borrowed(t->lazy_type);
+	if (!type) {
+		err = drgn_error_from_python();
+		goto out;
 	}
-
-	*t->pending = obj;
-	result->type = ((DrgnType *)obj)->type;
-	result->qualifiers = ((DrgnType *)obj)->qualifiers;
-	PyGILState_Release(gstate);
-	return NULL;
-
-err:
-	err = drgn_error_from_python();
+	ret->type = type->type;
+	ret->qualifiers = type->qualifiers;
+out:
 	PyGILState_Release(gstate);
 	return err;
 }
 
 static void py_type_thunk_free_fn(struct drgn_type_thunk *thunk)
 {
-	struct py_type_thunk *t = (struct py_type_thunk *)thunk;
-	PyGILState_STATE gstate;
-
-	gstate = PyGILState_Ensure();
-	Py_XDECREF(t->callable);
-	PyGILState_Release(gstate);
-	free(t);
+	free(container_of(thunk, struct py_type_thunk, thunk));
 }
 
 static PyObject *DrgnType_get_ptr(DrgnType *self, void *arg)
@@ -232,11 +245,9 @@ static PyObject *DrgnType_get_type(DrgnType *self)
 	}
 }
 
-_Py_IDENTIFIER(pending_members);
-
 static PyObject *DrgnType_get_members(DrgnType *self)
 {
-	PyObject *pending_members_obj, *members_obj;
+	PyObject *members_obj;
 	struct drgn_type_member *members;
 	size_t num_members, i;
 
@@ -251,56 +262,39 @@ static PyObject *DrgnType_get_members(DrgnType *self)
 
 	members = drgn_type_members(self->type);
 	num_members = drgn_type_num_members(self->type);
-
-	/* First, evaluate all of the lazy types. */
-	for (i = 0; i < num_members; i++) {
-		struct drgn_qualified_type qualified_type;
-
-		if (py_lazy_type_evaluate(&members[i].type,
-					  &qualified_type) == -1)
-			return NULL;
-	}
-
-	/*
-	 * Now, if we had pending members, they are all filled in and can be
-	 * returned. Otherwise, create the list from scratch.
-	 */
-	pending_members_obj = _PyDict_GetItemId(self->attr_cache,
-						&PyId_pending_members);
-	if (pending_members_obj) {
-		Py_INCREF(pending_members_obj);
-		if (_PyDict_DelItemId(self->attr_cache,
-				      &PyId_pending_members) == -1) {
-			Py_DECREF(pending_members_obj);
-			return NULL;
-		}
-		return pending_members_obj;
-	}
-
 	members_obj = PyTuple_New(num_members);
 	if (!members_obj)
 		return NULL;
 
 	for (i = 0; i < num_members; i++) {
-		struct drgn_qualified_type qualified_type;
-		PyObject *type, *item;
+		struct drgn_type_member *member = &members[i];
+		TypeMember *item;
 
-		/* Already evaluated, so we don't need to check for errors. */
-		assert(drgn_lazy_type_is_evaluated(&members[i].type));
-		drgn_member_type(&members[i], &qualified_type);
-
-		type = DrgnType_wrap(qualified_type, (PyObject *)self);
-		if (!type)
-			goto err;
-		item = Py_BuildValue("(OsKK)", type, members[i].name,
-				     (unsigned long long)members[i].bit_offset,
-				     (unsigned long long)members[i].bit_field_size);
-		Py_DECREF(type);
+		item = (TypeMember *)TypeMember_type.tp_alloc(&TypeMember_type,
+							      0);
 		if (!item)
 			goto err;
-		PyTuple_SET_ITEM(members_obj, i, item);
+		PyTuple_SET_ITEM(members_obj, i, (PyObject *)item);
+		Py_INCREF(self);
+		item->obj = (uintptr_t)self | DRGNPY_LAZY_TYPE_UNEVALUATED;
+		item->lazy_type = &member->type;
+		if (member->name) {
+			item->name = PyUnicode_FromString(member->name);
+			if (!item->name)
+				goto err;
+		} else {
+			Py_INCREF(Py_None);
+			item->name = Py_None;
+		}
+		item->bit_offset =
+			PyLong_FromUnsignedLongLong(member->bit_offset);
+		if (!item->bit_offset)
+			goto err;
+		item->bit_field_size =
+			PyLong_FromUnsignedLongLong(member->bit_field_size);
+		if (!item->bit_field_size)
+			goto err;
 	}
-
 	return members_obj;
 
 err:
@@ -354,11 +348,9 @@ static PyObject *DrgnType_get_enumerators(DrgnType *self)
 	return enumerators_obj;
 }
 
-_Py_IDENTIFIER(pending_parameters);
-
 static PyObject *DrgnType_get_parameters(DrgnType *self)
 {
-	PyObject *pending_parameters_obj, *parameters_obj;
+	PyObject *parameters_obj;
 	struct drgn_type_parameter *parameters;
 	size_t num_parameters, i;
 
@@ -370,54 +362,31 @@ static PyObject *DrgnType_get_parameters(DrgnType *self)
 
 	parameters = drgn_type_parameters(self->type);
 	num_parameters = drgn_type_num_parameters(self->type);
-
-	/* First, evaluate all of the lazy types. */
-	for (i = 0; i < num_parameters; i++) {
-		struct drgn_qualified_type qualified_type;
-
-		if (py_lazy_type_evaluate(&parameters[i].type,
-					  &qualified_type) == -1)
-			return NULL;
-	}
-
-	/*
-	 * Now, if we had pending parameters, they are all filled in and can be
-	 * returned. Otherwise, create the list from scratch.
-	 */
-	pending_parameters_obj = _PyDict_GetItemId(self->attr_cache,
-						   &PyId_pending_parameters);
-	if (pending_parameters_obj) {
-		Py_INCREF(pending_parameters_obj);
-		if (_PyDict_DelItemId(self->attr_cache,
-				      &PyId_pending_parameters) == -1) {
-			Py_DECREF(pending_parameters_obj);
-			return NULL;
-		}
-		return pending_parameters_obj;
-	}
-
 	parameters_obj = PyTuple_New(num_parameters);
 	if (!parameters_obj)
 		return NULL;
 
 	for (i = 0; i < num_parameters; i++) {
-		struct drgn_qualified_type qualified_type;
-		PyObject *type, *item;
+		struct drgn_type_parameter *parameter = &parameters[i];
+		TypeParameter *item;
 
-		/* Already evaluated, so we don't need to check for errors. */
-		assert(drgn_lazy_type_is_evaluated(&parameters[i].type));
-		drgn_parameter_type(&parameters[i], &qualified_type);
-
-		type = DrgnType_wrap(qualified_type, (PyObject *)self);
-		if (!type)
-			goto err;
-		item = Py_BuildValue("(sO)", parameters[i].name, type);
-		Py_DECREF(type);
+		item = (TypeParameter *)TypeParameter_type.tp_alloc(&TypeParameter_type,
+								    0);
 		if (!item)
 			goto err;
-		PyTuple_SET_ITEM(parameters_obj, i, item);
+		PyTuple_SET_ITEM(parameters_obj, i, (PyObject *)item);
+		Py_INCREF(self);
+		item->obj = (uintptr_t)self | DRGNPY_LAZY_TYPE_UNEVALUATED;
+		item->lazy_type = &parameter->type;
+		if (parameter->name) {
+			item->name = PyUnicode_FromString(parameter->name);
+			if (!item->name)
+				goto err;
+		} else {
+			Py_INCREF(Py_None);
+			item->name = Py_None;
+		}
 	}
-
 	return parameters_obj;
 
 err:
@@ -540,10 +509,9 @@ static int type_arg(PyObject *arg, struct drgn_qualified_type *qualified_type,
 	return 0;
 }
 
-static int lazy_type_arg(PyObject *arg, struct drgn_lazy_type *lazy_type,
-			 PyObject **pending)
+static int lazy_type_from_py(struct drgn_lazy_type *lazy_type, LazyType *obj)
 {
-	if (PyCallable_Check(arg)) {
+	if (obj->obj & DRGNPY_LAZY_TYPE_UNEVALUATED) {
 		struct py_type_thunk *thunk;
 
 		thunk = malloc(sizeof(*thunk));
@@ -553,84 +521,47 @@ static int lazy_type_arg(PyObject *arg, struct drgn_lazy_type *lazy_type,
 		}
 		thunk->thunk.evaluate_fn = py_type_thunk_evaluate_fn;
 		thunk->thunk.free_fn = py_type_thunk_free_fn;
-		thunk->pending = pending;
-		Py_INCREF(arg);
-		thunk->callable = arg;
+		thunk->lazy_type = obj;
 		drgn_lazy_type_init_thunk(lazy_type, &thunk->thunk);
-		return 0;
-	}
+	} else {
+		DrgnType *type = (DrgnType *)obj->obj;
 
-	Py_INCREF(arg);
-	if (!PyObject_IsInstance(arg, (PyObject *)&DrgnType_type)) {
-		Py_DECREF(arg);
-		PyErr_SetString(PyExc_TypeError,
-				"type must be Type or callable returning Type");
-		return -1;
+		drgn_lazy_type_init_evaluated(lazy_type, type->type,
+					      type->qualifiers);
 	}
-
-	*pending = arg;
-	drgn_lazy_type_init_evaluated(lazy_type, ((DrgnType *)arg)->type,
-				      ((DrgnType *)arg)->qualifiers);
 	return 0;
 }
 
-#define visit_lazy_type(lazy_type, visit)				\
-do {									\
-	struct drgn_lazy_type *_lazy_type = (lazy_type);		\
-									\
-	if (!drgn_lazy_type_is_evaluated(_lazy_type)) {			\
-		struct py_type_thunk *_thunk;				\
-									\
-		_thunk = (struct py_type_thunk *)_lazy_type->thunk;	\
-		if (_thunk)						\
-			visit(_thunk);					\
-	}								\
-} while (0)
-
-#define visit_type_thunks(self, visit)						\
-do {										\
-	DrgnType *_self = self;							\
-										\
-	if (drgn_type_is_complete(_self->type)) {				\
-		if (drgn_type_has_members(_self->type)) {			\
-			struct drgn_type_member *members;			\
-			size_t num_members, i;					\
-										\
-			members = drgn_type_members(_self->type);		\
-			num_members = drgn_type_num_members(_self->type);	\
-			for (i = 0; i < num_members; i++)			\
-				visit_lazy_type(&members[i].type, visit);	\
-		}								\
-		if (drgn_type_has_parameters(_self->type)) {			\
-			struct drgn_type_parameter *parameters;			\
-			size_t num_parameters, i;				\
-										\
-			parameters = drgn_type_parameters(_self->type);		\
-			num_parameters = drgn_type_num_parameters(_self->type);	\
-			for (i = 0; i < num_parameters; i++)			\
-				visit_lazy_type(&parameters[i].type, visit);	\
-		}								\
-	}									\
-} while (0)
-
 static void DrgnType_dealloc(DrgnType *self)
 {
-#define dealloc_thunk(t) drgn_type_thunk_free(&t->thunk)
-	if (self->type == self->_type)
-		visit_type_thunks(self, dealloc_thunk);
-#undef dealloc_thunk
-	if (self->type != self->_type)
+	if (self->type != self->_type) {
 		Py_XDECREF(self->parent);
+	} else if (drgn_type_is_complete(self->type)) {
+		if (drgn_type_has_members(self->type)) {
+			struct drgn_type_member *members;
+			size_t num_members, i;
+
+			members = drgn_type_members(self->type);
+			num_members = drgn_type_num_members(self->type);
+			for (i = 0; i < num_members; i++)
+				drgn_lazy_type_deinit(&members[i].type);
+		}
+		if (drgn_type_has_parameters(self->type)) {
+			struct drgn_type_parameter *parameters;
+			size_t num_parameters, i;
+
+			parameters = drgn_type_parameters(self->type);
+			num_parameters = drgn_type_num_parameters(self->type);
+			for (i = 0; i < num_parameters; i++)
+				drgn_lazy_type_deinit(&parameters[i].type);
+		}
+	}
 	Py_XDECREF(self->attr_cache);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static int DrgnType_traverse(DrgnType *self, visitproc visit, void *arg)
 {
-#define traverse_thunk(t) Py_VISIT((t)->callable)
-	if (self->type == self->_type)
-		visit_type_thunks(self, traverse_thunk);
-#undef traverse_thunk
 	if (self->type != self->_type)
 		Py_VISIT(self->parent);
 	Py_VISIT(self->attr_cache);
@@ -639,10 +570,6 @@ static int DrgnType_traverse(DrgnType *self, visitproc visit, void *arg)
 
 static int DrgnType_clear(DrgnType *self)
 {
-#define clear_thunk(t) Py_CLEAR((t)->callable)
-	if (self->type == self->_type)
-		visit_type_thunks(self, clear_thunk);
-#undef clear_thunk
 	if (self->type != self->_type)
 		Py_CLEAR(self->parent);
 	Py_CLEAR(self->attr_cache);
@@ -1060,6 +987,296 @@ PyTypeObject TypeEnumerator_type = {
 	.tp_new = (newfunc)TypeEnumerator_new,
 };
 
+static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
+				  PyObject *kwds)
+{
+	static char *keywords[] = {
+		"type", "name", "bit_offset", "bit_field_size", NULL
+	};
+	PyObject *type_arg, *name = Py_None, *bit_offset = NULL, *bit_field_size = NULL;
+	uintptr_t obj;
+	TypeMember *member;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO!O!:TypeMember",
+					 keywords, &type_arg, &name,
+					 &PyLong_Type, &bit_offset,
+					 &PyLong_Type, &bit_field_size))
+		return NULL;
+
+	if (PyCallable_Check(type_arg)) {
+		obj = (uintptr_t)type_arg | DRGNPY_LAZY_TYPE_UNEVALUATED;
+	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
+		obj = (uintptr_t)type_arg;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				"TypeMember type must be type or callable returning Type");
+		return NULL;
+	}
+
+	if (name != Py_None && !PyUnicode_Check(name)) {
+		PyErr_SetString(PyExc_TypeError,
+				"TypeMember name must be str or None");
+		return NULL;
+	}
+
+	member = (TypeMember *)subtype->tp_alloc(subtype, 0);
+	if (!member)
+		return NULL;
+
+	Py_INCREF(type_arg);
+	member->obj = obj;
+	Py_INCREF(name);
+	member->name = name;
+
+	if (bit_offset) {
+		Py_INCREF(bit_offset);
+	} else {
+		bit_offset = PyLong_FromLong(0);
+		if (!bit_offset) {
+			Py_DECREF(member);
+			return NULL;
+		}
+	}
+	member->bit_offset = bit_offset;
+
+	if (bit_field_size) {
+		Py_INCREF(bit_field_size);
+	} else {
+		bit_field_size = PyLong_FromLong(0);
+		if (!bit_field_size) {
+			Py_DECREF(member);
+			return NULL;
+		}
+	}
+	member->bit_field_size = bit_field_size;
+	return member;
+}
+
+static void TypeMember_dealloc(TypeMember *self)
+{
+	Py_XDECREF(self->bit_field_size);
+	Py_XDECREF(self->bit_offset);
+	Py_XDECREF(self->name);
+	Py_XDECREF((PyObject *)(self->obj & DRGNPY_LAZY_TYPE_MASK));
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static PyObject *TypeMember_get_offset(TypeMember *self, void *arg)
+{
+	unsigned long long bit_offset;
+
+	bit_offset = PyLong_AsUnsignedLongLong(self->bit_offset);
+	if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
+		return NULL;
+	if (bit_offset % 8) {
+		PyErr_SetString(PyExc_ValueError,
+				"member is not byte-aligned");
+		return NULL;
+	}
+	return PyLong_FromUnsignedLongLong(bit_offset / 8);
+}
+
+static PyObject *TypeMember_repr(TypeMember *self)
+{
+	DrgnType *type;
+	int ret;
+
+	type = LazyType_get_borrowed((LazyType *)self);
+	if (!type)
+		return NULL;
+	ret = PyObject_IsTrue(self->bit_field_size);
+	if (ret == -1)
+		return NULL;
+	if (ret) {
+		return PyUnicode_FromFormat("TypeMember(type=%R, name=%R, bit_offset=%R, bit_field_size=%R)",
+					    type, self->name, self->bit_offset,
+					    self->bit_field_size);
+	} else {
+		return PyUnicode_FromFormat("TypeMember(type=%R, name=%R, bit_offset=%R)",
+					    type, self->name, self->bit_offset);
+	}
+}
+
+static PyObject *TypeMember_richcompare(TypeMember *self, TypeMember *other,
+					int op)
+{
+	DrgnType *self_type, *other_type;
+	PyObject *self_key, *other_key, *ret;
+
+	if ((op != Py_EQ && op != Py_NE) ||
+	    !PyObject_TypeCheck((PyObject *)other, &TypeMember_type))
+		Py_RETURN_NOTIMPLEMENTED;
+
+	self_type = LazyType_get_borrowed((LazyType *)self);
+	if (!self_type)
+		return NULL;
+	other_type = LazyType_get_borrowed((LazyType *)other);
+	if (!other_type)
+		return NULL;
+
+	self_key = Py_BuildValue("OOOO", self_type, self->name,
+				 self->bit_offset, self->bit_field_size);
+	if (!self_key)
+		return NULL;
+
+	other_key = Py_BuildValue("OOOO", other_type, other->name,
+				  other->bit_offset, other->bit_field_size);
+	if (!other_key) {
+		Py_DECREF(self_key);
+		return NULL;
+	}
+
+	ret = PyObject_RichCompare(self_key, other_key, op);
+	Py_DECREF(other_key);
+	Py_DECREF(self_key);
+	return ret;
+}
+
+static PyMemberDef TypeMember_members[] = {
+	{"name", T_OBJECT, offsetof(TypeMember, name), READONLY,
+	 drgn_TypeMember_name_DOC},
+	{"bit_offset", T_OBJECT, offsetof(TypeMember, bit_offset), READONLY,
+	 drgn_TypeMember_bit_offset_DOC},
+	{"bit_field_size", T_OBJECT, offsetof(TypeMember, bit_field_size),
+	 READONLY, drgn_TypeMember_bit_field_size_DOC},
+	{},
+};
+
+static PyGetSetDef TypeMember_getset[] = {
+	{"type", (getter)LazyType_get, NULL, drgn_TypeMember_type_DOC, NULL},
+	{"offset", (getter)TypeMember_get_offset, NULL,
+	 drgn_TypeMember_offset_DOC, NULL},
+	{},
+};
+
+PyTypeObject TypeMember_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn.TypeMember",
+	.tp_basicsize = sizeof(TypeMember),
+	.tp_dealloc = (destructor)TypeMember_dealloc,
+	.tp_repr = (reprfunc)TypeMember_repr,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_TypeMember_DOC,
+	.tp_richcompare = (richcmpfunc)TypeMember_richcompare,
+	.tp_members = TypeMember_members,
+	.tp_getset = TypeMember_getset,
+	.tp_new = (newfunc)TypeMember_new,
+};
+
+static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
+					PyObject *kwds)
+{
+	static char *keywords[] = {"type", "name", NULL};
+	PyObject *type_arg, *name = Py_None;
+	uintptr_t obj;
+	TypeParameter *parameter;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O:TypeParameter",
+					 keywords, &type_arg, &name))
+		return NULL;
+
+	if (PyCallable_Check(type_arg)) {
+		obj = (uintptr_t)type_arg | DRGNPY_LAZY_TYPE_UNEVALUATED;
+	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
+		obj = (uintptr_t)type_arg;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				"TypeParameter type must be type or callable returning Type");
+		return NULL;
+	}
+
+	if (name != Py_None && !PyUnicode_Check(name)) {
+		PyErr_SetString(PyExc_TypeError,
+				"TypeParameter name must be str or None");
+		return NULL;
+	}
+
+	parameter = (TypeParameter *)subtype->tp_alloc(subtype, 0);
+	if (parameter) {
+		Py_INCREF(type_arg);
+		parameter->obj = obj;
+		Py_INCREF(name);
+		parameter->name = name;
+	}
+	return parameter;
+}
+
+static void TypeParameter_dealloc(TypeParameter *self)
+{
+	Py_XDECREF(self->name);
+	Py_XDECREF((PyObject *)(self->obj & DRGNPY_LAZY_TYPE_MASK));
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static PyObject *TypeParameter_repr(TypeParameter *self)
+{
+	DrgnType *type;
+
+	type = LazyType_get_borrowed((LazyType *)self);
+	if (!type)
+		return NULL;
+	return PyUnicode_FromFormat("TypeParameter(type=%R, name=%R)", type,
+				    self->name);
+}
+
+static PyObject *TypeParameter_richcompare(TypeParameter *self, TypeParameter *other,
+					int op)
+{
+	DrgnType *self_type, *other_type;
+	PyObject *self_key, *other_key, *ret;
+
+	if ((op != Py_EQ && op != Py_NE) ||
+	    !PyObject_TypeCheck((PyObject *)other, &TypeParameter_type))
+		Py_RETURN_NOTIMPLEMENTED;
+
+	self_type = LazyType_get_borrowed((LazyType *)self);
+	if (!self_type)
+		return NULL;
+	other_type = LazyType_get_borrowed((LazyType *)other);
+	if (!other_type)
+		return NULL;
+
+	self_key = Py_BuildValue("OO", self_type, self->name);
+	if (!self_key)
+		return NULL;
+
+	other_key = Py_BuildValue("OO", other_type, other->name);
+	if (!other_key) {
+		Py_DECREF(self_key);
+		return NULL;
+	}
+
+	ret = PyObject_RichCompare(self_key, other_key, op);
+	Py_DECREF(other_key);
+	Py_DECREF(self_key);
+	return ret;
+}
+
+static PyMemberDef TypeParameter_members[] = {
+	{"name", T_OBJECT, offsetof(TypeParameter, name), READONLY,
+	 drgn_TypeParameter_name_DOC},
+	{},
+};
+
+static PyGetSetDef TypeParameter_getset[] = {
+	{"type", (getter)LazyType_get, NULL, drgn_TypeParameter_type_DOC, NULL},
+	{},
+};
+
+PyTypeObject TypeParameter_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn.TypeParameter",
+	.tp_basicsize = sizeof(TypeParameter),
+	.tp_dealloc = (destructor)TypeParameter_dealloc,
+	.tp_repr = (reprfunc)TypeParameter_repr,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_doc = drgn_TypeParameter_DOC,
+	.tp_richcompare = (richcmpfunc)TypeParameter_richcompare,
+	.tp_members = TypeParameter_members,
+	.tp_getset = TypeParameter_getset,
+	.tp_new = (newfunc)TypeParameter_new,
+};
+
 DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = { "qualifiers", NULL, };
@@ -1243,111 +1460,40 @@ DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds)
 	return type_obj;
 }
 
-static int unpack_member(DrgnType *type_obj, PyObject *members_seq,
-			 PyObject *pending_members_obj, size_t i)
+static int unpack_member(DrgnType *type_obj, PyObject *cached_members_obj,
+			 size_t i)
 {
-	static const char *msg = "member must be (type, name, bit_offset, bit_field_size) sequence";
-	PyObject *name_obj = NULL;
-	PyObject *bit_offset_obj = NULL, *bit_field_size_obj = NULL;
-	PyObject *seq, *tuple;
-	struct drgn_lazy_type member_type;
+	TypeMember *item;
 	const char *name;
-	unsigned long long bit_offset;
-	unsigned long long bit_field_size;
-	int ret = -1;
-	size_t size;
+	unsigned long long bit_offset, bit_field_size;
+	struct drgn_lazy_type member_type;
 
-	seq = PySequence_Fast(PySequence_Fast_GET_ITEM(members_seq, i), msg);
-	if (!seq)
+	item = (TypeMember *)PyTuple_GET_ITEM(cached_members_obj, i);
+	if (!PyObject_TypeCheck((PyObject *)item, &TypeMember_type)) {
+		PyErr_SetString(PyExc_TypeError, "member must be TypeMember");
+		return -1;
+	}
+
+	if (item->name == Py_None) {
+		name = NULL;
+	} else {
+		name = PyUnicode_AsUTF8(item->name);
+		if (!name)
+			return -1;
+	}
+
+	bit_offset = PyLong_AsUnsignedLongLong(item->bit_offset);
+	if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
+		return -1;
+	bit_field_size = PyLong_AsUnsignedLongLong(item->bit_field_size);
+	if (bit_field_size == (unsigned long long)-1 && PyErr_Occurred())
 		return -1;
 
-	size = PySequence_Fast_GET_SIZE(seq);
-	if (size < 1 || size > 4) {
-		PyErr_SetString(PyExc_ValueError, msg);
-		goto out;
-	}
-
-	if (size >= 2)
-		name_obj = PySequence_Fast_GET_ITEM(seq, 1);
-	else
-		name_obj = Py_None;
-	Py_INCREF(name_obj);
-	if (name_obj == Py_None) {
-		name = NULL;
-	} else if (PyUnicode_Check(name_obj)) {
-		name = PyUnicode_AsUTF8(name_obj);
-		if (!name)
-			goto out;
-	} else {
-		PyErr_SetString(PyExc_TypeError,
-				"member name must be string or None");
-		goto out;
-	}
-
-	if (size >= 3) {
-		bit_offset_obj = PySequence_Fast_GET_ITEM(seq, 2);
-		Py_INCREF(bit_offset_obj);
-		if (!PyLong_Check(bit_offset_obj)) {
-			PyErr_SetString(PyExc_TypeError,
-					"member bit offset must be integer");
-			goto out;
-		}
-		bit_offset = PyLong_AsUnsignedLongLong(bit_offset_obj);
-		if (bit_offset == (unsigned long long)-1 &&
-		    PyErr_Occurred())
-			goto out;
-	} else {
-		bit_offset_obj = PyLong_FromLong(0);
-		if (!bit_offset_obj)
-			goto out;
-		bit_offset = 0;
-	}
-
-	if (size >= 4) {
-		bit_field_size_obj = PySequence_Fast_GET_ITEM(seq, 3);
-		Py_INCREF(bit_field_size_obj);
-		if (!PyLong_Check(bit_field_size_obj)) {
-			PyErr_SetString(PyExc_TypeError,
-					"member bit size must be integer");
-			goto out;
-		}
-		bit_field_size = PyLong_AsUnsignedLongLong(bit_field_size_obj);
-		if (bit_field_size == (unsigned long long)-1 &&
-		    PyErr_Occurred())
-			goto out;
-	} else {
-		bit_field_size_obj = PyLong_FromLong(0);
-		if (!bit_field_size_obj)
-			goto out;
-		bit_field_size = 0;
-	}
-
-	tuple = PyTuple_New(4);
-	if (!tuple)
-		goto out;
-	PyTuple_SET_ITEM(tuple, 1, name_obj);
-	name_obj = NULL;
-	PyTuple_SET_ITEM(tuple, 2, bit_offset_obj);
-	bit_offset_obj = NULL;
-	PyTuple_SET_ITEM(tuple, 3, bit_field_size_obj);
-	bit_field_size_obj = NULL;
-
-	if (lazy_type_arg(PySequence_Fast_GET_ITEM(seq, 0), &member_type,
-			  &PySequence_Fast_ITEMS(tuple)[0]) == -1) {
-		Py_DECREF(tuple);
-		goto out;
-	}
+	if (lazy_type_from_py(&member_type, (LazyType *)item) == -1)
+		return -1;
 	drgn_type_member_init(type_obj->type, i, member_type, name, bit_offset,
 			      bit_field_size);
-
-	PyTuple_SET_ITEM(pending_members_obj, i, tuple);
-	ret = 0;
-out:
-	Py_XDECREF(bit_field_size_obj);
-	Py_XDECREF(bit_offset_obj);
-	Py_XDECREF(name_obj);
-	Py_DECREF(seq);
-	return ret;
+	return 0;
 }
 
 static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
@@ -1358,8 +1504,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 	const char *tag;
 	DrgnType *type_obj = NULL;
 	unsigned long long size;
-	PyObject *members_seq = NULL;
-	PyObject *pending_members_obj = NULL;
+	PyObject *cached_members_obj = NULL;
 	size_t num_members;
 
 	if (tag_obj == Py_None) {
@@ -1401,36 +1546,31 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 		if (size == (unsigned long long)-1)
 			return NULL;
 
-		members_seq = PySequence_Fast(members_obj,
-					      "members must be sequence or None");
-		if (!members_seq)
+		if (!PySequence_Check(members_obj)) {
+			PyErr_SetString(PyExc_TypeError,
+					"members must be sequence or None");
 			return NULL;
-
-		num_members = PySequence_Fast_GET_SIZE(members_seq);
-		pending_members_obj = PyTuple_New(num_members);
-		if (!pending_members_obj)
-			goto err;
+		}
+		cached_members_obj = PySequence_Tuple(members_obj);
+		if (!cached_members_obj)
+			return NULL;
+		num_members = PyTuple_GET_SIZE(cached_members_obj);
 
 		type_obj = DrgnType_new(qualifiers, num_members,
 					sizeof(struct drgn_type_member));
 		if (!type_obj)
 			goto err;
 		for (i = 0; i < num_members; i++) {
-			if (unpack_member(type_obj, members_seq,
-					  pending_members_obj, i) == -1)
+			if (unpack_member(type_obj, cached_members_obj,
+					  i) == -1)
 				goto err;
 		}
-		Py_CLEAR(members_seq);
 
-		/*
-		 * We can't cache it as the real members attribute because it may
-		 * contain NULL for lazy types.
-		 */
 		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &PyId_pending_members,
-				      pending_members_obj) == -1)
+				      &DrgnType_attr_members.id,
+				      cached_members_obj) == -1)
 			goto err;
-		Py_CLEAR(pending_members_obj);
+		Py_CLEAR(cached_members_obj);
 	}
 
 	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_tag.id,
@@ -1473,8 +1613,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 
 err:
 	Py_XDECREF(type_obj);
-	Py_XDECREF(pending_members_obj);
-	Py_XDECREF(members_seq);
+	Py_XDECREF(cached_members_obj);
 	return NULL;
 }
 
@@ -1803,60 +1942,31 @@ DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds)
 	return type_obj;
 }
 
-static int unpack_parameter(DrgnType *type_obj, PyObject *parameters_seq,
-			    PyObject *pending_parameters_obj, size_t i)
+static int unpack_parameter(DrgnType *type_obj, PyObject *cached_parameters_obj,
+			    size_t i)
 {
-	static const char *msg = "function type parameter must be (type, name) sequence";
-	PyObject *seq, *tuple, *name_obj;
-	struct drgn_lazy_type parameter_type;
+	TypeParameter *item;
 	const char *name;
-	int ret = -1;
-	size_t size;
+	struct drgn_lazy_type parameter_type;
 
-	seq = PySequence_Fast(PySequence_Fast_GET_ITEM(parameters_seq, i), msg);
-	if (!seq)
+	item = (TypeParameter *)PyTuple_GET_ITEM(cached_parameters_obj, i);
+	if (!PyObject_TypeCheck((PyObject *)item, &TypeParameter_type)) {
+		PyErr_SetString(PyExc_TypeError, "parameter must be TypeParameter");
 		return -1;
-
-	size = PySequence_Fast_GET_SIZE(seq);
-	if (size < 1 || size > 2) {
-		PyErr_SetString(PyExc_ValueError, msg);
-		goto out;
 	}
 
-	if (size >= 2)
-		name_obj = PySequence_Fast_GET_ITEM(seq, 1);
-	else
-		name_obj = Py_None;
-	if (name_obj == Py_None) {
+	if (item->name == Py_None) {
 		name = NULL;
-	} else if (PyUnicode_Check(name_obj)) {
-		name = PyUnicode_AsUTF8(name_obj);
-		if (!name)
-			goto out;
 	} else {
-		PyErr_SetString(PyExc_TypeError,
-				"parameter name must be string or None");
-		goto out;
+		name = PyUnicode_AsUTF8(item->name);
+		if (!name)
+			return -1;
 	}
 
-	tuple = PyTuple_New(2);
-	if (!tuple)
-		goto out;
-	Py_INCREF(name_obj);
-	PyTuple_SET_ITEM(tuple, 1, name_obj);
-
-	if (lazy_type_arg(PySequence_Fast_GET_ITEM(seq, 0), &parameter_type,
-			  &PySequence_Fast_ITEMS(tuple)[0]) == -1) {
-		Py_DECREF(tuple);
-		goto out;
-	}
+	if (lazy_type_from_py(&parameter_type, (LazyType *)item) == -1)
+		return -1;
 	drgn_type_parameter_init(type_obj->type, i, parameter_type, name);
-
-	PyTuple_SET_ITEM(pending_parameters_obj, i, tuple);
-	ret = 0;
-out:
-	Py_DECREF(seq);
-	return ret;
+	return 0;
 }
 
 DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
@@ -1865,8 +1975,7 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 	DrgnType *type_obj = NULL;
 	PyObject *return_type_obj;
 	struct drgn_qualified_type return_type;
-	PyObject *parameters_obj, *parameters_seq = NULL;
-	PyObject *pending_parameters_obj = NULL;
+	PyObject *parameters_obj, *cached_parameters_obj = NULL;
 	size_t num_parameters, i;
 	int is_variadic = 0;
 	unsigned char qualifiers = 0;
@@ -1877,33 +1986,29 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 					 qualifiers_converter, &qualifiers))
 		return NULL;
 
-	parameters_seq = PySequence_Fast(parameters_obj,
-					 "parameters must be sequence");
-	if (!parameters_seq)
+	if (!PySequence_Check(parameters_obj)) {
+		PyErr_SetString(PyExc_TypeError, "parameters must be sequence");
 		return NULL;
-	num_parameters = PySequence_Fast_GET_SIZE(parameters_seq);
-	pending_parameters_obj = PyTuple_New(num_parameters);
-	if (!pending_parameters_obj)
-		goto err;
+	}
+	cached_parameters_obj = PySequence_Tuple(parameters_obj);
+	if (!cached_parameters_obj)
+		return NULL;
+	num_parameters = PyTuple_GET_SIZE(cached_parameters_obj);
+
 	type_obj = DrgnType_new(qualifiers, num_parameters,
 				sizeof(struct drgn_type_parameter));
 	if (!type_obj)
-		return NULL;
+		goto err;
 	for (i = 0; i < num_parameters; i++) {
-		if (unpack_parameter(type_obj, parameters_seq,
-				     pending_parameters_obj, i) == -1)
+		if (unpack_parameter(type_obj, cached_parameters_obj, i) == -1)
 			goto err;
 	}
-	Py_CLEAR(parameters_seq);
 
-	/*
-	 * We can't cache it as the real parameters attribute because it may
-	 * contain NULL for lazy types.
-	 */
-	if (_PyDict_SetItemId(type_obj->attr_cache, &PyId_pending_parameters,
-			      pending_parameters_obj) == -1)
+	if (_PyDict_SetItemId(type_obj->attr_cache,
+			      &DrgnType_attr_parameters.id,
+			      cached_parameters_obj) == -1)
 		goto err;
-	Py_CLEAR(pending_parameters_obj);
+	Py_CLEAR(cached_parameters_obj);
 
 	if (type_arg(return_type_obj, &return_type, type_obj) == -1)
 		goto err;
@@ -1914,7 +2019,6 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 
 err:
 	Py_XDECREF(type_obj);
-	Py_XDECREF(pending_parameters_obj);
-	Py_XDECREF(parameters_seq);
+	Py_XDECREF(cached_parameters_obj);
 	return NULL;
 }

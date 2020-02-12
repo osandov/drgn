@@ -9,6 +9,7 @@ from drgn import (
     Qualifiers,
     Type,
     TypeEnumerator,
+    TypeMember,
     array_type,
     cast,
     container_of,
@@ -261,14 +262,14 @@ class TestReference(ObjectTestCase):
             "foo",
             16,
             (
-                (point_type, "point"),
-                (
+                TypeMember(point_type, "point"),
+                TypeMember(
                     struct_type(
                         None,
                         8,
                         (
-                            (int_type("int", 4, True), "bar"),
-                            (int_type("int", 4, True), "baz", 32),
+                            TypeMember(int_type("int", 4, True), "bar"),
+                            TypeMember(int_type("int", 4, True), "baz", 32),
                         ),
                     ),
                     None,
@@ -551,11 +552,11 @@ class TestValue(ObjectTestCase):
             "foo",
             4,
             (
-                (int_type("short", 2, True), "a"),
+                TypeMember(int_type("short", 2, True), "a"),
                 # Straddles the end of the structure.
-                (int_type("int", 4, True), "b", 16),
+                TypeMember(int_type("int", 4, True), "b", 16),
                 # Beyond the end of the structure.
-                (int_type("int", 4, True), "c", 32),
+                TypeMember(int_type("int", 4, True), "c", 32),
             ),
         )
 
@@ -794,7 +795,7 @@ class TestInvalidBitField(ObjectTestCase):
         )
 
     def test_member(self):
-        type_ = struct_type("foo", 8, ((point_type, "p", 0, 4),))
+        type_ = struct_type("foo", 8, (TypeMember(point_type, "p", 0, 4),))
         obj = Object(self.prog, type_, address=0)
         self.assertRaisesRegex(
             ValueError, "bit field must be integer", obj.member_, "p"
@@ -1529,7 +1530,7 @@ class TestCOperators(ObjectTestCase):
         )
 
         polygon_type = struct_type(
-            "polygon", 0, ((array_type(None, point_type), "points"),)
+            "polygon", 0, (TypeMember(array_type(None, point_type), "points"),)
         )
         self.assertEqual(
             container_of(obj, polygon_type, "points[3].x"),
@@ -1540,8 +1541,8 @@ class TestCOperators(ObjectTestCase):
             "small_point",
             1,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True), "y", 4, 4),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True), "y", 4, 4),
             ),
         )
         self.assertRaisesRegex(
@@ -1575,8 +1576,8 @@ class TestCOperators(ObjectTestCase):
             "foo",
             16,
             (
-                (array_type(8, int_type("int", 4, True)), "arr"),
-                (point_type, "point", 256),
+                TypeMember(array_type(8, int_type("int", 4, True)), "arr"),
+                TypeMember(point_type, "point", 256),
             ),
         )
         syntax_errors = [
@@ -1694,14 +1695,14 @@ class TestCPretty(ObjectTestCase):
             "foo",
             16,
             (
-                (point_type, "point"),
-                (
+                TypeMember(point_type, "point"),
+                TypeMember(
                     struct_type(
                         None,
                         8,
                         (
-                            (int_type("int", 4, True), "bar"),
-                            (int_type("int", 4, True), "baz", 32),
+                            TypeMember(int_type("int", 4, True), "bar"),
+                            TypeMember(int_type("int", 4, True), "baz", 32),
                         ),
                     ),
                     None,
@@ -1736,19 +1737,19 @@ class TestCPretty(ObjectTestCase):
             "foo",
             32,
             (
-                (
+                TypeMember(
                     struct_type(
                         "long_point",
                         16,
                         (
-                            (int_type("long", 8, True), "x"),
-                            (int_type("long", 8, True), "y", 64),
+                            TypeMember(int_type("long", 8, True), "x"),
+                            TypeMember(int_type("long", 8, True), "y", 64),
                         ),
                     ),
                     "point",
                 ),
-                (int_type("long", 8, True), "bar", 128),
-                (int_type("long", 8, True), "baz", 192),
+                TypeMember(int_type("long", 8, True), "bar", 128),
+                TypeMember(int_type("long", 8, True), "baz", 192),
             ),
         )
         obj = Object(prog, type_, address=0xFFFF0000)
@@ -1809,9 +1810,9 @@ class TestCPretty(ObjectTestCase):
             "bits",
             8,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True, Qualifiers.CONST), "y", 4, 28),
-                (int_type("int", 4, True), "z", 32, 5),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True, Qualifiers.CONST), "y", 4, 28),
+                TypeMember(int_type("int", 4, True), "z", 32, 5),
             ),
         )
 
@@ -2091,7 +2092,7 @@ class TestCPretty(ObjectTestCase):
         )
 
         type_ = struct_type(
-            None, 20, ((array_type(5, int_type("int", 4, True)), "arr"),)
+            None, 20, (TypeMember(array_type(5, int_type("int", 4, True)), "arr"),)
         )
         obj = Object(prog, type_, address=0xFFFF0000)
 
@@ -2337,7 +2338,9 @@ class TestGenericOperators(ObjectTestCase):
             segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),],
             types=[
                 point_type,
-                struct_type("foo", 8, ((int_type("long", 8, True), "counter"),)),
+                struct_type(
+                    "foo", 8, (TypeMember(int_type("long", 8, True), "counter"),)
+                ),
             ],
         )
         obj = Object(prog, "struct point", address=0xFFFF0000).read_()
@@ -2356,7 +2359,9 @@ class TestGenericOperators(ObjectTestCase):
         unnamed_reference = Object(
             self.prog,
             struct_type(
-                "point", 8, ((struct_type(None, 8, point_type.members), None),)
+                "point",
+                8,
+                (TypeMember(struct_type(None, 8, point_type.members), None),),
             ),
             address=0xFFFF0000,
         )
@@ -2398,9 +2403,9 @@ class TestGenericOperators(ObjectTestCase):
             "bits",
             8,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True, Qualifiers.CONST), "y", 4, 28),
-                (int_type("int", 4, True), "z", 32, 5),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True, Qualifiers.CONST), "y", 4, 28),
+                TypeMember(int_type("int", 4, True), "z", 32, 5),
             ),
         )
 

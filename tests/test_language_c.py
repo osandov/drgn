@@ -5,6 +5,8 @@ import unittest
 from drgn import (
     Qualifiers,
     TypeEnumerator,
+    TypeMember,
+    TypeParameter,
     array_type,
     bool_type,
     class_type,
@@ -153,15 +155,22 @@ class TestPrettyPrintTypeName(unittest.TestCase):
     def test_pointer_to_function(self):
         i = int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(8, function_type(i, ((i,),), False)), "int (*)(int)", True
+            pointer_type(8, function_type(i, (TypeParameter(i),), False)),
+            "int (*)(int)",
+            True,
         )
         self.assertTypeName(
-            pointer_type(8, function_type(i, ((i, "x"),), False)),
+            pointer_type(8, function_type(i, (TypeParameter(i, "x"),), False)),
             "int (*)(int x)",
             True,
         )
         self.assertTypeName(
-            pointer_type(8, function_type(i, ((i,), (float_type("float", 4),)), False)),
+            pointer_type(
+                8,
+                function_type(
+                    i, (TypeParameter(i), TypeParameter(float_type("float", 4),)), False
+                ),
+            ),
             "int (*)(int, float)",
             True,
         )
@@ -169,13 +178,18 @@ class TestPrettyPrintTypeName(unittest.TestCase):
     def test_pointer_to_function_returning_pointer(self):
         i = int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(8, function_type(pointer_type(8, i), ((i,),), False)),
+            pointer_type(
+                8, function_type(pointer_type(8, i), (TypeParameter(i),), False)
+            ),
             "int *(*)(int)",
             True,
         )
         self.assertTypeName(
             pointer_type(
-                8, function_type(pointer_type(8, i), ((pointer_type(8, i),),), False)
+                8,
+                function_type(
+                    pointer_type(8, i), (TypeParameter(pointer_type(8, i)),), False
+                ),
             ),
             "int *(*)(int *)",
             True,
@@ -188,7 +202,7 @@ class TestPrettyPrintTypeName(unittest.TestCase):
                 8,
                 function_type(
                     pointer_type(8, int_type("int", 4, True, Qualifiers.CONST)),
-                    ((i,),),
+                    (TypeParameter(i),),
                     False,
                 ),
             ),
@@ -200,7 +214,10 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         i = int_type("int", 4, True)
         self.assertTypeName(
             pointer_type(
-                8, function_type(pointer_type(8, i, Qualifiers.CONST), ((i,),), False)
+                8,
+                function_type(
+                    pointer_type(8, i, Qualifiers.CONST), (TypeParameter(i),), False
+                ),
             ),
             "int * const (*)(int)",
             True,
@@ -210,7 +227,9 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         i = int_type("int", 4, True)
         self.assertTypeName(
             pointer_type(
-                8, function_type(pointer_type(8, i), ((i,),), False), Qualifiers.CONST
+                8,
+                function_type(pointer_type(8, i), (TypeParameter(i),), False),
+                Qualifiers.CONST,
             ),
             "int *(* const)(int)",
             True,
@@ -219,7 +238,9 @@ class TestPrettyPrintTypeName(unittest.TestCase):
     def test_array_of_pointers_to_functions(self):
         i = int_type("int", 4, True)
         self.assertTypeName(
-            array_type(4, pointer_type(8, function_type(i, ((i,),), False))),
+            array_type(
+                4, pointer_type(8, function_type(i, (TypeParameter(i),), False))
+            ),
             "int (*[4])(int)",
             True,
         )
@@ -229,7 +250,9 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         self.assertTypeName(
             array_type(
                 None,
-                pointer_type(8, function_type(i, ((i,),), False), Qualifiers.CONST),
+                pointer_type(
+                    8, function_type(i, (TypeParameter(i),), False), Qualifiers.CONST
+                ),
             ),
             "int (* const [])(int)",
             True,
@@ -238,7 +261,9 @@ class TestPrettyPrintTypeName(unittest.TestCase):
     def test_pointer_to_variadic_function(self):
         i = int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(8, function_type(i, ((i,),), True)), "int (*)(int, ...)", True
+            pointer_type(8, function_type(i, (TypeParameter(i),), True)),
+            "int (*)(int, ...)",
+            True,
         )
 
     def test_pointer_to_function_with_no_parameters(self):
@@ -276,7 +301,9 @@ struct point {
         )
 
         line_segment = struct_type(
-            "line_segment", 16, ((point_type, "a", 0), (point_type, "b", 8),)
+            "line_segment",
+            16,
+            (TypeMember(point_type, "a", 0), TypeMember(point_type, "b", 8)),
         )
         self.assertPrettyPrint(
             line_segment,
@@ -290,7 +317,10 @@ struct line_segment {
         anonymous_point = struct_type(
             None,
             8,
-            ((int_type("int", 4, True), "x", 0), (int_type("int", 4, True), "y", 4),),
+            (
+                TypeMember(int_type("int", 4, True), "x", 0),
+                TypeMember(int_type("int", 4, True), "y", 4),
+            ),
         )
         self.assertPrettyPrint(
             anonymous_point,
@@ -303,7 +333,9 @@ struct {
 
         # Member with anonymous struct type.
         line_segment = struct_type(
-            "line_segment", 16, ((anonymous_point, "a", 0), (anonymous_point, "b", 8),)
+            "line_segment",
+            16,
+            (TypeMember(anonymous_point, "a", 0), TypeMember(anonymous_point, "b", 8),),
         )
 
         self.assertPrettyPrint(
@@ -325,7 +357,10 @@ struct line_segment {
         point3 = struct_type(
             "point3",
             0,
-            ((anonymous_point, None, 0), (int_type("int", 4, True), "z", 8),),
+            (
+                TypeMember(anonymous_point, None, 0),
+                TypeMember(int_type("int", 4, True), "z", 8),
+            ),
         )
         self.assertPrettyPrint(
             point3,
@@ -344,8 +379,8 @@ struct point3 {
             "point",
             4,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True), "y", 4, 8),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True), "y", 4, 8),
             ),
         )
         self.assertPrettyPrint(
@@ -362,8 +397,8 @@ struct point {
             "foo",
             4,
             (
-                (int_type("int", 4, True), "i"),
-                (array_type(4, int_type("unsigned char", 1, False)), "a"),
+                TypeMember(int_type("int", 4, True), "i"),
+                TypeMember(array_type(4, int_type("unsigned char", 1, False)), "a"),
             ),
         )
         self.assertPrettyPrint(
@@ -379,8 +414,8 @@ union foo {
             "foo",
             4,
             (
-                (int_type("int", 4, True), "i"),
-                (array_type(4, int_type("unsigned char", 1, False)), "a"),
+                TypeMember(int_type("int", 4, True), "i"),
+                TypeMember(array_type(4, int_type("unsigned char", 1, False)), "a"),
             ),
             Qualifiers.CONST,
         )
@@ -486,8 +521,8 @@ enum {
                 None,
                 8,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 4),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 4),
                 ),
             ),
         )
@@ -512,7 +547,9 @@ typedef struct {
             "function must have name",
             str,
             struct_type(
-                "foo", 8, ((function_type(int_type("int", 4, True), (), False), None),)
+                "foo",
+                8,
+                (TypeMember(function_type(int_type("int", 4, True), (), False), None),),
             ),
         )
 

@@ -1125,11 +1125,7 @@ Types
         List of members of this type, or ``None`` if this is an incomplete
         type. This is present for structure and union types.
 
-        Each member is a (type, name, bit offset, bit field size) tuple. The
-        name is ``None`` if the member is unnamed; the bit field size is zero
-        if the member is not a bit field.
-
-        :vartype: list[tuple(Type, str or None, int, int)]
+        :vartype: list[TypeMember] or None
 
     .. attribute:: enumerators
 
@@ -1143,10 +1139,7 @@ Types
         List of parameters of this type. This is only present for function
         types.
 
-        Each parameter is a (type, name) tuple. The name is ``None`` if the
-        parameter is unnamed.
-
-        :vartype: list[tuple(Type, str or None)]
+        :vartype: list[TypeParameter]
 
     .. attribute:: is_variadic
 
@@ -1187,6 +1180,44 @@ Types
 
         :rtype: Type
 
+.. class:: TypeMember(type, name=None, bit_offset=0, bit_field_size=0)
+
+    A ``TypeMember`` represents a member of a structure, union, or class type.
+
+    :param type: Type of the member. This may be a :class:`Type` or a callable
+        that takes no arguments and returns a :class:`Type`.
+    :param name: Name of the member. This may be ``None`` if the member is
+        unnamed.
+    :type name: str or None
+    :param int bit_offset: Offset of the member from the beginning of the type
+        in bits.
+    :param int bit_field_size: Size in bits of this member if it is a bit
+        field, zero otherwise.
+
+    .. attribute:: type
+
+        :vartype: Type
+
+    .. attribute:: name
+
+        :vartype: str or None
+
+    .. attribute:: bit_offset
+
+        :vartype: int
+
+    .. attribute:: offset
+
+        Offset of the member from the beginning of the type in bytes. If the
+        offset is not byte-aligned, accessing this attribute raises
+        :exc:`ValueError`.
+
+        :vartype: int
+
+    .. attribute:: bit_field_size
+
+        :vartype: int
+
 .. class:: TypeEnumerator(name, value)
 
     A ``TypeEnumerator`` represents a constant in an enumerated type.
@@ -1209,6 +1240,24 @@ Types
     .. attribute:: value
 
         :vartype: int
+
+.. class:: TypeParameter(type, name=None)
+
+    A ``TypeParameter`` represents a parameter of a function type.
+
+    :param type: Type of the parameter. This may be a :class:`Type` or a callable
+        that takes no arguments and returns a :class:`Type`.
+    :param name: Name of the parameter. This may be ``None`` if the parameter is
+        unnamed.
+    :type name: str or None
+
+    .. attribute:: type
+
+        :vartype: Type
+
+    .. attribute:: name
+
+        :vartype: str or None
 
 .. class:: TypeKind
 
@@ -1393,12 +1442,8 @@ can be used just like types obtained from :meth:`Program.type()`.
     :type tag: str or None
     :param size: :attr:`Type.size`; ``None`` if this is an incomplete type.
     :type size: int or None
-    :param members: :attr:`Type.members`; ``None`` if this is an incomplete
-        type. The type of a member may be given as a callable returning a
-        ``Type``; it will be called the first time that the member is accessed.
-        The name, bit offset, and bit field size may be omitted; they default
-        to ``None``, 0, and 0, respectively.
-    :type members: list[tuple] or None
+    :param members: :attr:`Type.members`
+    :type members: list[TypeMember] or None
     :param qualifiers: :attr:`Type.qualifiers`
     :type qualifiers: Qualifiers or None
     :rtype: Type
@@ -1465,10 +1510,7 @@ can be used just like types obtained from :meth:`Program.type()`.
     Create a new function type. It has kind :attr:`TypeKind.FUNCTION`.
 
     :param Type type: The return type (:attr:`Type.type`)
-    :param list[tuple] parameters: :attr:`Type.parameters`. The type of a
-        parameter may be given as a callable returning a ``Type``; it will be
-        called the first time that the parameter is accessed. The name may be
-        omitted and defaults to ``None``.
+    :param list[TypeParameter] parameters: :attr:`Type.parameters`
     :param bool is_variadic: :attr:`Type.is_variadic`
     :param qualifiers: :attr:`Type.qualifiers`
     :type qualifiers: Qualifiers or None

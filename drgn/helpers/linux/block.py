@@ -53,7 +53,7 @@ def _for_each_block_device(prog):
     except KeyError:
         # We need a proper has_member(), but this is fine for now.
         class_in_private = any(
-            member[1] == "knode_class"
+            member.name == "knode_class"
             for member in prog.type("struct device_private").members
         )
         prog.cache["knode_class_in_device_private"] = class_in_private

@@ -6,6 +6,7 @@
 
 #define PY_SSIZE_T_CLEAN
 
+#include <stdalign.h>
 #include <Python.h>
 #include "structmember.h"
 
@@ -107,6 +108,41 @@ typedef struct {
 	PyObject *value;
 } TypeEnumerator;
 
+/*
+ * LazyType.obj is a tagged pointer to a PyObject. If the
+ * DRGNPY_LAZY_TYPE_UNEVALUATED flag is unset, then LazyType.obj is the
+ * evaluated Type. If it is set and LazyType.lazy_type is set, then LazyType.obj
+ * is the parent Type and LazyType.lazy_type must be evaluated and wrapped. If
+ * the flag is set and LazyType.lazy_type is not set, then LazyType.obj is a
+ * Python callable that should return the Type.
+ */
+enum {
+	DRGNPY_LAZY_TYPE_UNEVALUATED = 1,
+	DRGNPY_LAZY_TYPE_MASK = ~(uintptr_t)1,
+};
+static_assert(alignof(PyObject) >= 2, "PyObject is not aligned");
+
+#define LazyType_HEAD				\
+	PyObject_HEAD				\
+	uintptr_t obj;				\
+	struct drgn_lazy_type *lazy_type;
+
+typedef struct {
+	LazyType_HEAD
+} LazyType;
+
+typedef struct {
+	LazyType_HEAD
+	PyObject *name;
+	PyObject *bit_offset;
+	PyObject *bit_field_size;
+} TypeMember;
+
+typedef struct {
+	LazyType_HEAD
+	PyObject *name;
+} TypeParameter;
+
 extern PyObject *Architecture_class;
 extern PyObject *FindObjectFlags_class;
 extern PyObject *PlatformFlags_class;
@@ -126,6 +162,8 @@ extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
 extern PyTypeObject TypeEnumerator_type;
+extern PyTypeObject TypeMember_type;
+extern PyTypeObject TypeParameter_type;
 extern PyObject *MissingDebugInfoError;
 extern PyObject *OutOfBoundsError;
 

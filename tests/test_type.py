@@ -5,6 +5,8 @@ from drgn import (
     Qualifiers,
     TypeEnumerator,
     TypeKind,
+    TypeMember,
+    TypeParameter,
     array_type,
     bool_type,
     class_type,
@@ -138,7 +140,10 @@ class TestType(unittest.TestCase):
         t = struct_type(
             "point",
             8,
-            ((int_type("int", 4, True), "x", 0), (int_type("int", 4, True), "y", 32),),
+            (
+                TypeMember(int_type("int", 4, True), "x", 0),
+                TypeMember(int_type("int", 4, True), "y", 32),
+            ),
         )
         self.assertEqual(t.kind, TypeKind.STRUCT)
         self.assertIsNone(t.primitive)
@@ -147,8 +152,8 @@ class TestType(unittest.TestCase):
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 0),
-                (int_type("int", 4, True), "y", 32, 0),
+                TypeMember(int_type("int", 4, True), "x", 0, 0),
+                TypeMember(int_type("int", 4, True), "y", 32, 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -159,8 +164,8 @@ class TestType(unittest.TestCase):
                 "point",
                 8,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
                 ),
             ),
         )
@@ -171,8 +176,8 @@ class TestType(unittest.TestCase):
                 "pt",
                 8,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
                 ),
             ),
         )
@@ -183,8 +188,8 @@ class TestType(unittest.TestCase):
                 "point",
                 16,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
                 ),
             ),
         )
@@ -195,8 +200,8 @@ class TestType(unittest.TestCase):
                 None,
                 8,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
                 ),
             ),
         )
@@ -207,8 +212,8 @@ class TestType(unittest.TestCase):
                 "point",
                 8,
                 (
-                    (int_type("long", 8, True), "x", 0),
-                    (int_type("long", 8, True), "y", 64),
+                    TypeMember(int_type("long", 8, True), "x", 0),
+                    TypeMember(int_type("long", 8, True), "y", 64),
                 ),
             ),
         )
@@ -219,9 +224,9 @@ class TestType(unittest.TestCase):
                 "point",
                 8,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
-                    (int_type("int", 4, True), "z", 64),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "z", 64),
                 ),
             ),
         )
@@ -232,8 +237,8 @@ class TestType(unittest.TestCase):
                 "point",
                 8,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), None, 32),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), None, 32),
                 ),
             ),
         )
@@ -242,14 +247,17 @@ class TestType(unittest.TestCase):
 
         self.assertEqual(
             repr(t),
-            "struct_type(tag='point', size=8, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='int', size=4, is_signed=True), 'y', 32, 0)))",
+            "struct_type(tag='point', size=8, members=(TypeMember(type=int_type(name='int', size=4, is_signed=True), name='x', bit_offset=0), TypeMember(type=int_type(name='int', size=4, is_signed=True), name='y', bit_offset=32)))",
         )
         self.assertEqual(sizeof(t), 8)
 
         t = struct_type(
             None,
             8,
-            ((int_type("int", 4, True), "x", 0), (int_type("int", 4, True), "y", 32),),
+            (
+                TypeMember(int_type("int", 4, True), "x", 0),
+                TypeMember(int_type("int", 4, True), "y", 32),
+            ),
         )
         self.assertEqual(t.kind, TypeKind.STRUCT)
         self.assertIsNone(t.primitive)
@@ -258,8 +266,8 @@ class TestType(unittest.TestCase):
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 0),
-                (int_type("int", 4, True), "y", 32, 0),
+                TypeMember(int_type("int", 4, True), "x", 0, 0),
+                TypeMember(int_type("int", 4, True), "y", 32, 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -302,29 +310,7 @@ class TestType(unittest.TestCase):
             TypeError, "must be sequence or None", struct_type, "point", 8, 4
         )
         self.assertRaisesRegex(
-            TypeError, "must be.*sequence", struct_type, "point", 8, (4)
-        )
-        self.assertRaisesRegex(
-            ValueError, "must be.*sequence", struct_type, "point", 8, ((),)
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be string or None",
-            struct_type,
-            "point",
-            8,
-            ((int_type("int", 4, True), 4, 0),),
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be integer",
-            struct_type,
-            "point",
-            8,
-            ((int_type("int", 4, True), "x", None),),
-        )
-        self.assertRaisesRegex(
-            TypeError, "must be Type", struct_type, "point", 8, ((None, "x", 0),)
+            TypeError, "must be TypeMember", struct_type, "point", 8, (4,)
         )
 
         # Bit size.
@@ -332,15 +318,15 @@ class TestType(unittest.TestCase):
             "point",
             8,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True), "y", 32, 4),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True), "y", 32, 4),
             ),
         )
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True), "y", 32, 4),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True), "y", 32, 4),
             ),
         )
 
@@ -349,8 +335,8 @@ class TestType(unittest.TestCase):
             "option",
             4,
             (
-                (int_type("int", 4, True), "x"),
-                (int_type("unsigned int", 4, False), "y"),
+                TypeMember(int_type("int", 4, True), "x"),
+                TypeMember(int_type("unsigned int", 4, False), "y"),
             ),
         )
         self.assertEqual(t.kind, TypeKind.UNION)
@@ -360,8 +346,8 @@ class TestType(unittest.TestCase):
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 0),
-                (int_type("unsigned int", 4, False), "y", 0, 0),
+                TypeMember(int_type("int", 4, True), "x", 0, 0),
+                TypeMember(int_type("unsigned int", 4, False), "y", 0, 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -372,8 +358,8 @@ class TestType(unittest.TestCase):
                 "option",
                 4,
                 (
-                    (int_type("int", 4, True), "x"),
-                    (int_type("unsigned int", 4, False), "y"),
+                    TypeMember(int_type("int", 4, True), "x"),
+                    TypeMember(int_type("unsigned int", 4, False), "y"),
                 ),
             ),
         )
@@ -384,8 +370,8 @@ class TestType(unittest.TestCase):
                 "pt",
                 4,
                 (
-                    (int_type("int", 4, True), "x"),
-                    (int_type("unsigned int", 4, False), "y"),
+                    TypeMember(int_type("int", 4, True), "x"),
+                    TypeMember(int_type("unsigned int", 4, False), "y"),
                 ),
             ),
         )
@@ -396,8 +382,8 @@ class TestType(unittest.TestCase):
                 "option",
                 8,
                 (
-                    (int_type("int", 4, True), "x"),
-                    (int_type("unsigned int", 4, False), "y"),
+                    TypeMember(int_type("int", 4, True), "x"),
+                    TypeMember(int_type("unsigned int", 4, False), "y"),
                 ),
             ),
         )
@@ -408,8 +394,8 @@ class TestType(unittest.TestCase):
                 None,
                 4,
                 (
-                    (int_type("int", 4, True), "x"),
-                    (int_type("unsigned int", 4, False), "y"),
+                    TypeMember(int_type("int", 4, True), "x"),
+                    TypeMember(int_type("unsigned int", 4, False), "y"),
                 ),
             ),
         )
@@ -420,8 +406,8 @@ class TestType(unittest.TestCase):
                 "option",
                 4,
                 (
-                    (int_type("long", 8, True), "x"),
-                    (int_type("unsigned long", 8, False), "y"),
+                    TypeMember(int_type("long", 8, True), "x"),
+                    TypeMember(int_type("unsigned long", 8, False), "y"),
                 ),
             ),
         )
@@ -432,9 +418,9 @@ class TestType(unittest.TestCase):
                 "option",
                 4,
                 (
-                    (int_type("int", 4, True), "x"),
-                    (int_type("unsigned int", 4, False), "y"),
-                    (float_type("float", 4), "z"),
+                    TypeMember(int_type("int", 4, True), "x"),
+                    TypeMember(int_type("unsigned int", 4, False), "y"),
+                    TypeMember(float_type("float", 4), "z"),
                 ),
             ),
         )
@@ -445,8 +431,8 @@ class TestType(unittest.TestCase):
                 "option",
                 4,
                 (
-                    (int_type("int", 4, True), "x"),
-                    (int_type("unsigned int", 4, False),),
+                    TypeMember(int_type("int", 4, True), "x"),
+                    TypeMember(int_type("unsigned int", 4, False),),
                 ),
             ),
         )
@@ -455,7 +441,7 @@ class TestType(unittest.TestCase):
 
         self.assertEqual(
             repr(t),
-            "union_type(tag='option', size=4, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='unsigned int', size=4, is_signed=False), 'y', 0, 0)))",
+            "union_type(tag='option', size=4, members=(TypeMember(type=int_type(name='int', size=4, is_signed=True), name='x', bit_offset=0), TypeMember(type=int_type(name='unsigned int', size=4, is_signed=False), name='y', bit_offset=0)))",
         )
         self.assertEqual(sizeof(t), 4)
 
@@ -463,8 +449,8 @@ class TestType(unittest.TestCase):
             None,
             4,
             (
-                (int_type("int", 4, True), "x"),
-                (int_type("unsigned int", 4, False), "y"),
+                TypeMember(int_type("int", 4, True), "x"),
+                TypeMember(int_type("unsigned int", 4, False), "y"),
             ),
         )
         self.assertEqual(t.kind, TypeKind.UNION)
@@ -474,8 +460,8 @@ class TestType(unittest.TestCase):
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 0),
-                (int_type("unsigned int", 4, False), "y", 0, 0),
+                TypeMember(int_type("int", 4, True), "x", 0, 0),
+                TypeMember(int_type("unsigned int", 4, False), "y", 0, 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -518,29 +504,7 @@ class TestType(unittest.TestCase):
             TypeError, "must be sequence or None", union_type, "option", 8, 4
         )
         self.assertRaisesRegex(
-            TypeError, "must be.*sequence", union_type, "option", 8, (4,)
-        )
-        self.assertRaisesRegex(
-            ValueError, "must be.*sequence", union_type, "option", 8, ((),)
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be string or None",
-            union_type,
-            "option",
-            8,
-            ((int_type("int", 4, True), 4),),
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be integer",
-            union_type,
-            "option",
-            8,
-            ((int_type("int", 4, True), "x", None),),
-        )
-        self.assertRaisesRegex(
-            TypeError, "must be Type", union_type, "option", 8, ((None, "x"),)
+            TypeError, "must be TypeMember", union_type, "option", 8, (4,)
         )
 
         # Bit size.
@@ -548,15 +512,15 @@ class TestType(unittest.TestCase):
             "option",
             4,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("unsigned int", 4, False), "y", 0, 4),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("unsigned int", 4, False), "y", 0, 4),
             ),
         )
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("unsigned int", 4, False), "y", 0, 4),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("unsigned int", 4, False), "y", 0, 4),
             ),
         )
 
@@ -565,9 +529,9 @@ class TestType(unittest.TestCase):
             "coord",
             12,
             (
-                (int_type("int", 4, True), "x", 0),
-                (int_type("int", 4, True), "y", 32),
-                (int_type("int", 4, True), "z", 64),
+                TypeMember(int_type("int", 4, True), "x", 0),
+                TypeMember(int_type("int", 4, True), "y", 32),
+                TypeMember(int_type("int", 4, True), "z", 64),
             ),
         )
         self.assertEqual(t.kind, TypeKind.CLASS)
@@ -577,9 +541,9 @@ class TestType(unittest.TestCase):
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 0),
-                (int_type("int", 4, True), "y", 32, 0),
-                (int_type("int", 4, True), "z", 64, 0),
+                TypeMember(int_type("int", 4, True), "x", 0, 0),
+                TypeMember(int_type("int", 4, True), "y", 32, 0),
+                TypeMember(int_type("int", 4, True), "z", 64, 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -590,9 +554,9 @@ class TestType(unittest.TestCase):
                 "coord",
                 12,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
-                    (int_type("int", 4, True), "z", 64),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "z", 64),
                 ),
             ),
         )
@@ -603,9 +567,9 @@ class TestType(unittest.TestCase):
                 "crd",
                 12,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
-                    (int_type("int", 4, True), "z", 64),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "z", 64),
                 ),
             ),
         )
@@ -616,9 +580,9 @@ class TestType(unittest.TestCase):
                 "coord",
                 16,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
-                    (int_type("int", 4, True), "z", 64),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "z", 64),
                 ),
             ),
         )
@@ -629,9 +593,9 @@ class TestType(unittest.TestCase):
                 None,
                 12,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
-                    (int_type("int", 4, True), "z", 64),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "z", 64),
                 ),
             ),
         )
@@ -642,9 +606,9 @@ class TestType(unittest.TestCase):
                 "coord",
                 12,
                 (
-                    (int_type("long", 8, True), "x", 0),
-                    (int_type("long", 8, True), "y", 64),
-                    (int_type("long", 8, True), "z", 128),
+                    TypeMember(int_type("long", 8, True), "x", 0),
+                    TypeMember(int_type("long", 8, True), "y", 64),
+                    TypeMember(int_type("long", 8, True), "z", 128),
                 ),
             ),
         )
@@ -655,8 +619,8 @@ class TestType(unittest.TestCase):
                 "coord",
                 12,
                 (
-                    (int_type("int", 4, True), "x", 0),
-                    (int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "x", 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
                 ),
             ),
         )
@@ -667,9 +631,9 @@ class TestType(unittest.TestCase):
                 "coord",
                 8,
                 (
-                    (int_type("int", 4, True), "x", 0, 0),
-                    (int_type("int", 4, True), None, 32, 0),
-                    (int_type("int", 4, True), "z", 64, 0),
+                    TypeMember(int_type("int", 4, True), "x", 0, 0),
+                    TypeMember(int_type("int", 4, True), None, 32, 0),
+                    TypeMember(int_type("int", 4, True), "z", 64, 0),
                 ),
             ),
         )
@@ -678,7 +642,7 @@ class TestType(unittest.TestCase):
 
         self.assertEqual(
             repr(t),
-            "class_type(tag='coord', size=12, members=((int_type(name='int', size=4, is_signed=True), 'x', 0, 0), (int_type(name='int', size=4, is_signed=True), 'y', 32, 0), (int_type(name='int', size=4, is_signed=True), 'z', 64, 0)))",
+            "class_type(tag='coord', size=12, members=(TypeMember(type=int_type(name='int', size=4, is_signed=True), name='x', bit_offset=0), TypeMember(type=int_type(name='int', size=4, is_signed=True), name='y', bit_offset=32), TypeMember(type=int_type(name='int', size=4, is_signed=True), name='z', bit_offset=64)))",
         )
         self.assertEqual(sizeof(t), 12)
 
@@ -686,9 +650,9 @@ class TestType(unittest.TestCase):
             None,
             12,
             (
-                (int_type("int", 4, True), "x", 0),
-                (int_type("int", 4, True), "y", 32),
-                (int_type("int", 4, True), "z", 64),
+                TypeMember(int_type("int", 4, True), "x", 0),
+                TypeMember(int_type("int", 4, True), "y", 32),
+                TypeMember(int_type("int", 4, True), "z", 64),
             ),
         )
         self.assertEqual(t.kind, TypeKind.CLASS)
@@ -698,9 +662,9 @@ class TestType(unittest.TestCase):
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 0),
-                (int_type("int", 4, True), "y", 32, 0),
-                (int_type("int", 4, True), "z", 64, 0),
+                TypeMember(int_type("int", 4, True), "x", 0, 0),
+                TypeMember(int_type("int", 4, True), "y", 32, 0),
+                TypeMember(int_type("int", 4, True), "z", 64, 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -743,29 +707,7 @@ class TestType(unittest.TestCase):
             TypeError, "must be sequence or None", class_type, "coord", 12, 4
         )
         self.assertRaisesRegex(
-            TypeError, "must be.*sequence", class_type, "coord", 12, (4)
-        )
-        self.assertRaisesRegex(
-            ValueError, "must be.*sequence", class_type, "coord", 12, ((),)
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be string or None",
-            class_type,
-            "coord",
-            12,
-            ((int_type("int", 4, True), 4, 0),),
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be integer",
-            class_type,
-            "coord",
-            12,
-            ((int_type("int", 4, True), "x", None),),
-        )
-        self.assertRaisesRegex(
-            TypeError, "must be Type", class_type, "coord", 12, ((None, "x", 0),)
+            TypeError, "must be TypeMember", class_type, "coord", 12, (4,)
         )
 
         # Bit size.
@@ -773,17 +715,17 @@ class TestType(unittest.TestCase):
             "coord",
             12,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True), "y", 32, 4),
-                (int_type("int", 4, True), "z", 64, 4),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True), "y", 32, 4),
+                TypeMember(int_type("int", 4, True), "z", 64, 4),
             ),
         )
         self.assertEqual(
             t.members,
             (
-                (int_type("int", 4, True), "x", 0, 4),
-                (int_type("int", 4, True), "y", 32, 4),
-                (int_type("int", 4, True), "z", 64, 4),
+                TypeMember(int_type("int", 4, True), "x", 0, 4),
+                TypeMember(int_type("int", 4, True), "y", 32, 4),
+                TypeMember(int_type("int", 4, True), "z", 64, 4),
             ),
         )
 
@@ -1065,46 +1007,57 @@ class TestType(unittest.TestCase):
         self.assertRaises(TypeError, array_type, 10, 4)
 
     def test_function(self):
-        t = function_type(void_type(), ((int_type("int", 4, True), "n"),))
+        t = function_type(void_type(), (TypeParameter(int_type("int", 4, True), "n"),))
         self.assertEqual(t.kind, TypeKind.FUNCTION)
         self.assertIsNone(t.primitive)
         self.assertEqual(t.type, void_type())
-        self.assertEqual(t.parameters, ((int_type("int", 4, True), "n"),))
+        self.assertEqual(t.parameters, (TypeParameter(int_type("int", 4, True), "n"),))
         self.assertFalse(t.is_variadic)
         self.assertTrue(t.is_complete())
 
         self.assertEqual(
-            t, function_type(void_type(), ((int_type("int", 4, True), "n"),))
+            t,
+            function_type(void_type(), (TypeParameter(int_type("int", 4, True), "n"),)),
         )
         # Different return type.
         self.assertNotEqual(
             t,
-            function_type(int_type("int", 4, True), ((int_type("int", 4, True), "n"),)),
+            function_type(
+                int_type("int", 4, True),
+                (TypeParameter(int_type("int", 4, True), "n"),),
+            ),
         )
         # Different parameter name.
         self.assertNotEqual(
-            t, function_type(void_type(), ((int_type("int", 4, True), "x"),))
+            t,
+            function_type(void_type(), (TypeParameter(int_type("int", 4, True), "x"),)),
         )
         # Unnamed parameter.
         self.assertNotEqual(
-            t, function_type(void_type(), ((int_type("int", 4, True),),))
+            t, function_type(void_type(), (TypeParameter(int_type("int", 4, True),),))
         )
         # Different number of parameters.
         self.assertNotEqual(
             t,
             function_type(
                 void_type(),
-                ((int_type("int", 4, True), "n"), (pointer_type(8, void_type()), "p")),
+                (
+                    TypeParameter(int_type("int", 4, True), "n"),
+                    TypeParameter(pointer_type(8, void_type()), "p"),
+                ),
             ),
         )
         # One is variadic.
         self.assertNotEqual(
-            t, function_type(void_type(), ((int_type("int", 4, True), "n"),), True)
+            t,
+            function_type(
+                void_type(), (TypeParameter(int_type("int", 4, True), "n"),), True
+            ),
         )
 
         self.assertEqual(
             repr(t),
-            "function_type(type=void_type(), parameters=((int_type(name='int', size=4, is_signed=True), 'n'),), is_variadic=False)",
+            "function_type(type=void_type(), parameters=(TypeParameter(type=int_type(name='int', size=4, is_signed=True), name='n'),), is_variadic=False)",
         )
         self.assertRaises(TypeError, sizeof, t)
 
@@ -1116,28 +1069,15 @@ class TestType(unittest.TestCase):
             TypeError, "must be sequence", function_type, void_type(), None
         )
         self.assertRaisesRegex(
-            TypeError, "must be.*sequence", function_type, void_type(), (4,)
-        )
-        self.assertRaisesRegex(
-            ValueError, "must be.*sequence", function_type, void_type, ((),)
-        )
-        self.assertRaisesRegex(
-            TypeError,
-            "must be string or None",
-            function_type,
-            void_type(),
-            ((int_type("int", 4, True), 4),),
-        )
-        self.assertRaisesRegex(
-            TypeError, "must be Type", function_type, void_type(), ((None, "n"),)
+            TypeError, "must be TypeParameter", function_type, void_type(), (4,)
         )
 
     def test_cycle(self):
-        t1 = struct_type("foo", 8, ((lambda: pointer_type(8, t1), "next"),))
-        t2 = struct_type("foo", 8, ((lambda: pointer_type(8, t2), "next"),))
+        t1 = struct_type("foo", 8, (TypeMember(lambda: pointer_type(8, t1), "next"),))
+        t2 = struct_type("foo", 8, (TypeMember(lambda: pointer_type(8, t2), "next"),))
         t3, t4 = (
-            struct_type("foo", 8, ((lambda: pointer_type(8, t4), "next"),)),
-            struct_type("foo", 8, ((lambda: pointer_type(8, t3), "next"),)),
+            struct_type("foo", 8, (TypeMember(lambda: pointer_type(8, t4), "next"),)),
+            struct_type("foo", 8, (TypeMember(lambda: pointer_type(8, t3), "next"),)),
         )
         self.assertEqual(t1, t2)
         self.assertEqual(t2, t3)
@@ -1145,7 +1085,7 @@ class TestType(unittest.TestCase):
 
         self.assertEqual(
             repr(t1),
-            "struct_type(tag='foo', size=8, members=((pointer_type(size=8, type=struct_type(tag='foo', ...)), 'next', 0, 0),))",
+            "struct_type(tag='foo', size=8, members=(TypeMember(type=pointer_type(size=8, type=struct_type(tag='foo', ...)), name='next', bit_offset=0),))",
         )
 
     def test_cycle2(self):
@@ -1153,41 +1093,43 @@ class TestType(unittest.TestCase):
             "list_head",
             16,
             (
-                (lambda: pointer_type(8, t1), "next"),
-                (lambda: pointer_type(8, t1), "prev", 8),
+                TypeMember(lambda: pointer_type(8, t1), "next"),
+                TypeMember(lambda: pointer_type(8, t1), "prev", 8),
             ),
         )
         t2 = struct_type(
             "list_head",
             16,
             (
-                (lambda: pointer_type(8, t2), "next"),
-                (lambda: pointer_type(8, t2), "prev", 8),
+                TypeMember(lambda: pointer_type(8, t2), "next"),
+                TypeMember(lambda: pointer_type(8, t2), "prev", 8),
             ),
         )
         self.assertEqual(t1, t2)
 
         self.assertEqual(
             repr(t1),
-            "struct_type(tag='list_head', size=16, members=((pointer_type(size=8, type=struct_type(tag='list_head', ...)), 'next', 0, 0), (pointer_type(size=8, type=struct_type(tag='list_head', ...)), 'prev', 8, 0)))",
+            "struct_type(tag='list_head', size=16, members=(TypeMember(type=pointer_type(size=8, type=struct_type(tag='list_head', ...)), name='next', bit_offset=0), TypeMember(type=pointer_type(size=8, type=struct_type(tag='list_head', ...)), name='prev', bit_offset=8)))",
         )
 
     def test_infinite(self):
-        f = lambda: struct_type("foo", 0, ((f, "next"),))
+        f = lambda: struct_type("foo", 0, (TypeMember(f, "next"),))
         self.assertEqual(
             repr(f()),
-            "struct_type(tag='foo', size=0, members=((struct_type(tag='foo', ...), 'next', 0, 0),))",
+            "struct_type(tag='foo', size=0, members=(TypeMember(type=struct_type(tag='foo', ...), name='next', bit_offset=0),))",
         )
         with self.assertRaisesRegex(RecursionError, "maximum.*depth"):
             f() == f()
 
     def test_bad_thunk(self):
-        t1 = struct_type("foo", 16, ((lambda: exec('raise Exception("test")'), "bar"),))
+        t1 = struct_type(
+            "foo", 16, (TypeMember(lambda: exec('raise Exception("test")'), "bar"),)
+        )
         with self.assertRaisesRegex(Exception, "test"):
-            t1.members
-        t1 = struct_type("foo", 16, ((lambda: 0, "bar"),))
+            t1.members[0].type
+        t1 = struct_type("foo", 16, (TypeMember(lambda: 0, "bar"),))
         with self.assertRaisesRegex(TypeError, "type callable must return Type"):
-            t1.members
+            t1.members[0].type
 
     def test_qualifiers(self):
         self.assertEqual(void_type().qualifiers, Qualifiers(0))
@@ -1237,3 +1179,130 @@ class TestTypeEnumerator(unittest.TestCase):
         self.assertEqual(TypeEnumerator("a", 1), TypeEnumerator(name="a", value=1))
         self.assertNotEqual(TypeEnumerator("a", 1), TypeEnumerator("a", 2))
         self.assertNotEqual(TypeEnumerator("b", 1), TypeEnumerator("a", 1))
+
+
+class TestTypeMember(unittest.TestCase):
+    def test_init(self):
+        m = TypeMember(void_type())
+        self.assertEqual(m.type, void_type())
+        self.assertIsNone(m.name)
+        self.assertEqual(m.bit_offset, 0)
+        self.assertEqual(m.offset, 0)
+        self.assertEqual(m.bit_field_size, 0)
+
+        m = TypeMember(void_type(), "foo")
+        self.assertEqual(m.type, void_type())
+        self.assertEqual(m.name, "foo")
+        self.assertEqual(m.bit_offset, 0)
+        self.assertEqual(m.offset, 0)
+        self.assertEqual(m.bit_field_size, 0)
+
+        m = TypeMember(void_type(), "foo", 8)
+        self.assertEqual(m.type, void_type())
+        self.assertEqual(m.name, "foo")
+        self.assertEqual(m.bit_offset, 8)
+        self.assertEqual(m.offset, 1)
+        self.assertEqual(m.bit_field_size, 0)
+
+        m = TypeMember(void_type(), "foo", 9, 7)
+        self.assertEqual(m.type, void_type())
+        self.assertEqual(m.name, "foo")
+        self.assertEqual(m.bit_offset, 9)
+        self.assertRaises(ValueError, getattr, m, "offset")
+        self.assertEqual(m.bit_field_size, 7)
+
+        self.assertRaises(TypeError, TypeMember, None)
+        self.assertRaises(TypeError, TypeMember, void_type(), 1)
+        self.assertRaises(TypeError, TypeMember, void_type(), "foo", None)
+        self.assertRaises(TypeError, TypeMember, void_type(), "foo", 0, None)
+
+    def test_callable(self):
+        m = TypeMember(void_type)
+        self.assertEqual(m.type, void_type())
+
+        m = TypeMember(lambda: int_type("int", 4, True))
+        self.assertEqual(m.type, int_type("int", 4, True))
+
+        m = TypeMember(lambda: None)
+        self.assertRaises(TypeError, getattr, m, "type")
+
+    def test_repr(self):
+        m = TypeMember(type=void_type, name="foo")
+        self.assertEqual(
+            repr(m), "TypeMember(type=void_type(), name='foo', bit_offset=0)"
+        )
+
+        m = TypeMember(type=void_type, bit_field_size=4)
+        self.assertEqual(
+            repr(m),
+            "TypeMember(type=void_type(), name=None, bit_offset=0, bit_field_size=4)",
+        )
+
+        m = TypeMember(lambda: None)
+        self.assertRaises(TypeError, repr, m)
+
+    def test_cmp(self):
+        self.assertEqual(TypeMember(void_type()), TypeMember(void_type(), None, 0, 0))
+        self.assertEqual(
+            TypeMember(bit_offset=9, bit_field_size=7, type=void_type, name="foo"),
+            TypeMember(void_type(), "foo", 9, 7),
+        )
+        self.assertNotEqual(
+            TypeMember(int_type("int", 4, True)), TypeMember(void_type(), None, 0, 0)
+        )
+        self.assertNotEqual(
+            TypeMember(void_type(), "foo"), TypeMember(void_type(), None, 0, 0)
+        )
+        self.assertNotEqual(
+            TypeMember(void_type(), bit_offset=8), TypeMember(void_type(), None, 0, 0)
+        )
+        self.assertNotEqual(
+            TypeMember(void_type(), bit_field_size=8),
+            TypeMember(void_type(), None, 0, 0),
+        )
+
+
+class TestTypeParameter(unittest.TestCase):
+    def test_init(self):
+        p = TypeParameter(void_type())
+        self.assertEqual(p.type, void_type())
+        self.assertIsNone(p.name)
+
+        p = TypeParameter(void_type(), "foo")
+        self.assertEqual(p.type, void_type())
+        self.assertEqual(p.name, "foo")
+
+        self.assertRaises(TypeError, TypeParameter, None)
+        self.assertRaises(TypeError, TypeParameter, void_type(), 1)
+
+    def test_callable(self):
+        p = TypeParameter(void_type)
+        self.assertEqual(p.type, void_type())
+
+        p = TypeParameter(lambda: int_type("int", 4, True))
+        self.assertEqual(p.type, int_type("int", 4, True))
+
+        p = TypeParameter(lambda: None)
+        self.assertRaises(TypeError, getattr, p, "type")
+
+    def test_repr(self):
+        p = TypeParameter(type=void_type, name="foo")
+        self.assertEqual(repr(p), "TypeParameter(type=void_type(), name='foo')")
+
+        p = TypeParameter(type=void_type)
+        self.assertEqual(repr(p), "TypeParameter(type=void_type(), name=None)")
+
+        p = TypeParameter(lambda: None)
+        self.assertRaises(TypeError, repr, p)
+
+    def test_cmp(self):
+        self.assertEqual(TypeParameter(void_type()), TypeParameter(void_type(), None))
+        self.assertEqual(
+            TypeParameter(name="foo", type=void_type), TypeParameter(void_type(), "foo")
+        )
+        self.assertNotEqual(
+            TypeParameter(int_type("int", 4, True)), TypeParameter(void_type(), None)
+        )
+        self.assertNotEqual(
+            TypeParameter(void_type(), "foo"), TypeParameter(void_type(), None)
+        )

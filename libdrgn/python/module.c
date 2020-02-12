@@ -222,6 +222,16 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	PyModule_AddObject(m, "TypeEnumerator",
 			   (PyObject *)&TypeEnumerator_type);
 
+	if (PyType_Ready(&TypeMember_type) < 0)
+		goto err;
+	Py_INCREF(&TypeMember_type);
+	PyModule_AddObject(m, "TypeMember", (PyObject *)&TypeMember_type);
+
+	if (PyType_Ready(&TypeParameter_type) < 0)
+		goto err;
+	Py_INCREF(&TypeParameter_type);
+	PyModule_AddObject(m, "TypeParameter", (PyObject *)&TypeParameter_type);
+
 	host_platform_obj = Platform_wrap(&drgn_host_platform);
 	if (!host_platform_obj)
 		goto err;

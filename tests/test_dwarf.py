@@ -8,6 +8,8 @@ from drgn import (
     Program,
     Qualifiers,
     TypeEnumerator,
+    TypeMember,
+    TypeParameter,
     array_type,
     class_type,
     complex_type,
@@ -391,8 +393,8 @@ class TestTypes(unittest.TestCase):
                 "point",
                 point_type.size,
                 (
-                    (int_type("int", 4, True), None, 0),
-                    (int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), None, 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
                 ),
             ),
         )
@@ -599,7 +601,10 @@ class TestTypes(unittest.TestCase):
         other_point_type = struct_type(
             "point",
             8,
-            ((int_type("int", 4, True), "a"), (int_type("int", 4, True), "b", 32),),
+            (
+                TypeMember(int_type("int", 4, True), "a"),
+                TypeMember(int_type("int", 4, True), "b", 32),
+            ),
         )
 
         prog = dwarf_program(dies)
@@ -683,9 +688,9 @@ class TestTypes(unittest.TestCase):
             "point",
             8,
             [
-                (int_type("int", 4, True), "x", 0),
-                (int_type("int", 4, True), "y", 32, 12),
-                (int_type("int", 4, True), "z", 44, 20),
+                TypeMember(int_type("int", 4, True), "x", 0),
+                TypeMember(int_type("int", 4, True), "y", 32, 12),
+                TypeMember(int_type("int", 4, True), "z", 44, 20),
             ],
         )
 
@@ -844,9 +849,9 @@ class TestTypes(unittest.TestCase):
                 "coord",
                 coord_type.size,
                 (
-                    (int_type("int", 4, True), None, 0),
-                    (int_type("int", 4, True), "y", 32),
-                    (int_type("int", 4, True), "z", 64),
+                    TypeMember(int_type("int", 4, True), None, 0),
+                    TypeMember(int_type("int", 4, True), "y", 32),
+                    TypeMember(int_type("int", 4, True), "z", 64),
                 ),
             ),
         )
@@ -936,7 +941,9 @@ class TestTypes(unittest.TestCase):
             ),
         ]
 
-        type_ = struct_type("foo", 8, ((lambda: pointer_type(8, type_), "next"),))
+        type_ = struct_type(
+            "foo", 8, (TypeMember(lambda: pointer_type(8, type_), "next"),)
+        )
         self.assertFromDwarf(dies, type_)
 
     def test_infinite_cycle(self):
@@ -1474,8 +1481,8 @@ class TestTypes(unittest.TestCase):
                 None,
                 4,
                 (
-                    (int_type("int", 4, True), "i"),
-                    (array_type(None, int_type("int", 4, True)), "a", 32),
+                    TypeMember(int_type("int", 4, True), "i"),
+                    TypeMember(array_type(None, int_type("int", 4, True)), "a", 32),
                 ),
             ),
         )
@@ -1525,8 +1532,8 @@ class TestTypes(unittest.TestCase):
                 None,
                 4,
                 (
-                    (int_type("int", 4, True), "i"),
-                    (
+                    TypeMember(int_type("int", 4, True), "i"),
+                    TypeMember(
                         typedef_type(
                             "FARRAY", array_type(None, int_type("int", 4, True))
                         ),
@@ -1568,7 +1575,9 @@ class TestTypes(unittest.TestCase):
             int_die,
         ]
 
-        type_ = struct_type(None, 4, ((array_type(0, int_type("int", 4, True)), "a"),))
+        type_ = struct_type(
+            None, 4, (TypeMember(array_type(0, int_type("int", 4, True)), "a"),)
+        )
         self.assertFromDwarf(dies, type_)
 
         # GCC < 9.0.
@@ -1617,7 +1626,11 @@ class TestTypes(unittest.TestCase):
         type_ = struct_type(
             "foo",
             4,
-            ((typedef_type("ZARRAY", array_type(0, int_type("int", 4, True))), "a"),),
+            (
+                TypeMember(
+                    typedef_type("ZARRAY", array_type(0, int_type("int", 4, True))), "a"
+                ),
+            ),
         )
         self.assertFromDwarf(dies, type_)
 
@@ -1682,8 +1695,8 @@ class TestTypes(unittest.TestCase):
             None,
             4,
             (
-                (array_type(0, int_type("int", 4, True)), "a"),
-                (int_type("int", 4, True), "i"),
+                TypeMember(array_type(0, int_type("int", 4, True)), "a"),
+                TypeMember(int_type("int", 4, True), "i"),
             ),
         )
         self.assertFromDwarf(dies, type_)
@@ -1735,8 +1748,8 @@ class TestTypes(unittest.TestCase):
             None,
             4,
             (
-                (int_type("int", 4, True), "i"),
-                (array_type(0, int_type("int", 4, True)), "a"),
+                TypeMember(int_type("int", 4, True), "i"),
+                TypeMember(array_type(0, int_type("int", 4, True)), "a"),
             ),
         )
         self.assertFromDwarf(dies, type_)
@@ -1768,7 +1781,9 @@ class TestTypes(unittest.TestCase):
         self.assertFromDwarf(
             dies,
             function_type(
-                int_type("int", 4, True), ((int_type("char", 1, True),),), False
+                int_type("int", 4, True),
+                (TypeParameter(int_type("char", 1, True)),),
+                False,
             ),
         )
 
@@ -1777,7 +1792,9 @@ class TestTypes(unittest.TestCase):
         self.assertFromDwarf(
             dies,
             function_type(
-                int_type("int", 4, True), ((int_type("char", 1, True), "c"),), False
+                int_type("int", 4, True),
+                (TypeParameter(int_type("char", 1, True), "c"),),
+                False,
             ),
         )
 
@@ -1787,7 +1804,9 @@ class TestTypes(unittest.TestCase):
         self.assertFromDwarf(
             dies,
             function_type(
-                int_type("int", 4, True), ((int_type("char", 1, True),),), True
+                int_type("int", 4, True),
+                (TypeParameter(int_type("char", 1, True)),),
+                True,
             ),
         )
 
@@ -1824,7 +1843,9 @@ class TestTypes(unittest.TestCase):
         self.assertFromDwarf(
             dies,
             function_type(
-                void_type(), ((array_type(None, int_type("int", 4, True)),),), False
+                void_type(),
+                (TypeParameter(array_type(None, int_type("int", 4, True))),),
+                False,
             ),
         )
 
@@ -1937,7 +1958,7 @@ class TestObjects(ObjectTestCase):
             ),
         ]
         type_ = function_type(
-            int_type("int", 4, True), ((int_type("int", 1, True),),), False
+            int_type("int", 4, True), (TypeParameter(int_type("int", 1, True)),), False
         )
 
         prog = dwarf_program(dies)
