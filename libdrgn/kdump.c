@@ -130,6 +130,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	if (err)
 		goto err;
 	drgn_program_set_platform(prog, &platform);
+	prog->kdump_ctx = ctx;
 	return NULL;
 
 err:
