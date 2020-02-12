@@ -594,8 +594,9 @@ Objects
     :func:`round()`, and :meth:`list subscripting <object.__getitem__>`).
 
     Object attributes and methods are named with a trailing underscore to avoid
-    conflicting with structure or union members. The attributes and methods
-    always take precedence; use :meth:`member_()` if there is a conflict.
+    conflicting with structure, union, or class members. The attributes and
+    methods always take precedence; use :meth:`member_()` if there is a
+    conflict.
 
     Objects are usually obtained directly from a :class:`Program`, but they can
     be constructed manually, as well (for example, if you got a variable
@@ -747,8 +748,8 @@ Objects
 
         :param str name: Name of the member.
         :rtype: Object
-        :raises TypeError: if this object is not a structure, union, or a
-            pointer to either
+        :raises TypeError: if this object is not a structure, union, class, or
+            a pointer to one of those
         :raises LookupError: if this object does not have a member with the
             given name
 
@@ -911,7 +912,7 @@ Objects
     :type type: str or Type
     :param str member: The name of the member in ``type``.
     :raises TypeError: if the object is not a pointer or the type is not a
-        structure or union type
+        structure, union, or class type
     :raises LookupError: If the type does not have a member with the given name
 
 Symbols
@@ -1079,7 +1080,7 @@ Types
     .. attribute:: tag
 
         Tag of this type, or ``None`` if this is an anonymous type. This is
-        present for structure, union, and enumerated types.
+        present for structure, union, class, and enumerated types.
 
         :vartype: str or None
 
@@ -1087,7 +1088,7 @@ Types
 
         Size of this type in bytes, or ``None`` if this is an incomplete type.
         This is present for integer, boolean, floating-point, complex,
-        structure, union, and pointer types.
+        structure, union, class, and pointer types.
 
         :vartype: int or None
 
@@ -1123,7 +1124,7 @@ Types
     .. attribute:: members
 
         List of members of this type, or ``None`` if this is an incomplete
-        type. This is present for structure and union types.
+        type. This is present for structure, union, and class types.
 
         :vartype: list[TypeMember] or None
 
@@ -1158,9 +1159,9 @@ Types
 
         Get whether this type is complete (i.e., the type definition is known).
         This is always ``False`` for void types. It may be ``False`` for
-        structure, union, enumerated, and array types, as well as typedef types
-        where the underlying type is one of those. Otherwise, it is always
-        ``True``.
+        structure, union, class, enumerated, and array types, as well as
+        typedef types where the underlying type is one of those. Otherwise, it
+        is always ``True``.
 
         :rtype: bool
 
