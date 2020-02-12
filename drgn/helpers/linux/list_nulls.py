@@ -13,12 +13,12 @@ list is not a ``NULL`` pointer, but a "nulls" marker.
 from drgn import container_of
 
 
-__all__ = [
-    "is_a_nulls",
+__all__ = (
     "hlist_nulls_empty",
     "hlist_nulls_entry",
     "hlist_nulls_for_each_entry",
-]
+    "is_a_nulls",
+)
 
 
 def is_a_nulls(pos):

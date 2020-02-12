@@ -91,7 +91,7 @@ from _drgn import (
 )
 
 
-__all__ = [
+__all__ = (
     "Architecture",
     "FaultError",
     "FindObjectFlags",
@@ -134,7 +134,7 @@ __all__ = [
     "typedef_type",
     "union_type",
     "void_type",
-]
+)
 
 
 try:

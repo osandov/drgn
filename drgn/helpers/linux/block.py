@@ -15,16 +15,16 @@ from drgn.helpers import escape_ascii_string
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry
 
-__all__ = [
+__all__ = (
     "disk_devt",
     "disk_name",
     "for_each_disk",
-    "print_disks",
+    "for_each_partition",
     "part_devt",
     "part_name",
-    "for_each_partition",
+    "print_disks",
     "print_partitions",
-]
+)
 
 
 def disk_devt(disk):

@@ -18,13 +18,13 @@ from _drgn import (
     _linux_helper_pid_task,
 )
 
-__all__ = [
+__all__ = (
     "find_pid",
-    "for_each_pid",
-    "pid_task",
     "find_task",
+    "for_each_pid",
     "for_each_task",
-]
+    "pid_task",
+)
 
 
 def find_pid(prog_or_ns, nr):

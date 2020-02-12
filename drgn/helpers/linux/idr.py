@@ -15,10 +15,10 @@ from drgn.helpers.linux.radixtree import radix_tree_for_each, radix_tree_lookup
 from _drgn import _linux_helper_idr_find
 
 
-__all__ = [
+__all__ = (
     "idr_find",
     "idr_for_each",
-]
+)
 
 
 def idr_find(idr, id):

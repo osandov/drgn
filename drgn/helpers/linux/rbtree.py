@@ -12,17 +12,17 @@ red-black trees from :linux:`include/linux/rbtree.h`.
 from drgn import Object, NULL, container_of
 
 
-__all__ = [
+__all__ = (
     "RB_EMPTY_NODE",
-    "rb_parent",
+    "rb_find",
     "rb_first",
     "rb_last",
     "rb_next",
+    "rb_parent",
     "rb_prev",
     "rbtree_inorder_for_each",
     "rbtree_inorder_for_each_entry",
-    "rb_find",
-]
+)
 
 
 def RB_EMPTY_NODE(node):

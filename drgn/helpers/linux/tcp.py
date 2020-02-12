@@ -10,9 +10,7 @@ protocol in the Linux kernel.
 
 from drgn import cast
 
-__all__ = [
-    "sk_tcpstate",
-]
+__all__ = ("sk_tcpstate",)
 
 
 def sk_tcpstate(sk):

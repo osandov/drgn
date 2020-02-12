@@ -14,10 +14,10 @@ import operator
 from drgn import NULL, Object
 from drgn.helpers.linux.list import hlist_for_each_entry
 
-__all__ = [
+__all__ = (
     "find_user",
     "for_each_user",
-]
+)
 
 
 def _kuid_val(uid):

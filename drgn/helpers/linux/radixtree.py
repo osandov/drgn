@@ -13,10 +13,10 @@ from drgn import Object, cast
 from _drgn import _linux_helper_radix_tree_lookup
 
 
-__all__ = [
-    "radix_tree_lookup",
+__all__ = (
     "radix_tree_for_each",
-]
+    "radix_tree_lookup",
+)
 
 _RADIX_TREE_ENTRY_MASK = 3
 

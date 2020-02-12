@@ -11,11 +11,11 @@ Linux devices, including the kernel encoding of ``dev_t``.
 
 from drgn import Object, cast
 
-__all__ = [
+__all__ = (
     "MAJOR",
     "MINOR",
     "MKDEV",
-]
+)
 
 
 # This hasn't changed since at least v2.6.

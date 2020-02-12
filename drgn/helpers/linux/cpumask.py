@@ -9,12 +9,12 @@ The ``drgn.helpers.linux.cpumask`` module provides helpers for working with CPU
 masks from :linux:`include/linux/cpumask.h`.
 """
 
-__all__ = [
+__all__ = (
     "for_each_cpu",
-    "for_each_possible_cpu",
     "for_each_online_cpu",
+    "for_each_possible_cpu",
     "for_each_present_cpu",
-]
+)
 
 
 def for_each_cpu(mask):

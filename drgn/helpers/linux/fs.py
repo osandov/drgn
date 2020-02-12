@@ -20,7 +20,7 @@ from drgn.helpers.linux.list import (
     list_for_each_entry_reverse,
 )
 
-__all__ = [
+__all__ = (
     "path_lookup",
     "d_path",
     "dentry_path",
@@ -34,7 +34,7 @@ __all__ = [
     "fget",
     "for_each_file",
     "print_files",
-]
+)
 
 
 def _follow_mount(mnt, dentry):

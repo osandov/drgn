@@ -14,7 +14,7 @@ from drgn import NULL, cast, container_of
 from drgn.helpers.linux.kernfs import kernfs_name, kernfs_path
 from drgn.helpers.linux.list import list_for_each_entry
 
-__all__ = [
+__all__ = (
     "cgroup_name",
     "cgroup_parent",
     "cgroup_path",
@@ -23,7 +23,7 @@ __all__ = [
     "css_next_child",
     "css_next_descendant_pre",
     "sock_cgroup_ptr",
-]
+)
 
 
 def sock_cgroup_ptr(skcd):

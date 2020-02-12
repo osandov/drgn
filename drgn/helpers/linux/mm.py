@@ -13,15 +13,15 @@ implemented.
 from drgn import Object, cast
 
 
-__all__ = [
+__all__ = (
     "for_each_page",
     "page_to_pfn",
-    "pfn_to_page",
-    "virt_to_pfn",
-    "pfn_to_virt",
     "page_to_virt",
+    "pfn_to_page",
+    "pfn_to_virt",
     "virt_to_page",
-]
+    "virt_to_pfn",
+)
 
 
 def _vmemmap(prog):

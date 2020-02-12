@@ -8,10 +8,10 @@ The ``drgn.helpers.linux.kernfs`` module provides helpers for working with the
 kernfs pseudo filesystem interface in :linux:`include/linux/kernfs.h`.
 """
 
-__all__ = [
+__all__ = (
     "kernfs_name",
     "kernfs_path",
-]
+)
 
 
 def kernfs_name(kn):
