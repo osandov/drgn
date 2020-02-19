@@ -404,6 +404,13 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	} else if (vmcoreinfo_note) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 	}
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		err = drgn_program_add_object_finder(prog,
+						     vmcoreinfo_object_find,
+						     prog);
+		if (err)
+			goto out_segments;
+	}
 
 	drgn_program_set_platform(prog, &platform);
 	return NULL;

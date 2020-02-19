@@ -90,7 +90,6 @@ struct drgn_program {
 	enum drgn_program_flags flags;
 	struct drgn_platform platform;
 	bool has_platform;
-	bool added_vmcoreinfo_object_finder;
 	bool attached_dwfl_state;
 	bool prstatus_cached;
 

@@ -227,7 +227,7 @@ out:
 	return err;
 }
 
-static struct drgn_error *
+struct drgn_error *
 vmcoreinfo_object_find(const char *name, size_t name_len, const char *filename,
 		       enum drgn_find_object_flags flags, void *arg,
 		       struct drgn_object *ret)
@@ -1431,15 +1431,6 @@ linux_kernel_report_debug_info(struct drgn_program *prog,
 	size_t i, num_kmods = 0;
 	bool need_module_definition = false;
 	bool vmlinux_is_pending = false;
-
-	if (report_main && !prog->added_vmcoreinfo_object_finder) {
-		err = drgn_program_add_object_finder(prog,
-						     vmcoreinfo_object_find,
-						     prog);
-		if (err)
-			return err;
-		prog->added_vmcoreinfo_object_finder = true;
-	}
 
 	if (n) {
 		kmods = malloc_array(n, sizeof(*kmods));
