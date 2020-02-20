@@ -176,9 +176,10 @@ find_kernel_elf (Dwfl *dwfl, const char *release, char **fname)
 {
   /* First try to find an uncompressed vmlinux image.  Possibly
      including debuginfo.  */
-  if ((release[0] == '/'
-       ? asprintf (fname, "%s/vmlinux", release)
-       : asprintf (fname, "/boot/vmlinux-%s", release)) < 0)
+  if (release == NULL
+      || ((release[0] == '/'
+	   ? asprintf (fname, "%s/vmlinux", release)
+	   : asprintf (fname, "/boot/vmlinux-%s", release)) < 0))
     return -1;
 
   int fd = try_kernel_name (dwfl, fname, true);
@@ -241,6 +242,9 @@ report_kernel (Dwfl *dwfl, const char **release,
   if (unlikely (result != 0))
     return result;
 
+  if (release == NULL || *release == NULL)
+    return EINVAL;
+
   char *fname;
   int fd = find_kernel_elf (dwfl, *release, &fname);
 
@@ -295,6 +299,9 @@ report_kernel_archive (Dwfl *dwfl, const char **release,
   int result = get_release (dwfl, release);
   if (unlikely (result != 0))
     return result;
+
+  if (release == NULL || *release == NULL)
+    return EINVAL;
 
   char *archive;
   int res = (((*release)[0] == '/')

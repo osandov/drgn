@@ -1,3 +1,43 @@
+2020-02-05  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.8: Document new -Z flag and tweak other bits.
+
+2020-01-10  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod_find_debuginfo.3 (DEBUGINFOD_PROGRESS): Mention progress
+	output goes to stderr.
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com
+
+	* debuginfod.8: Document --fdcache-fds and --fdcache-mbs opts.
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.8: Rework sections dealing with traversal/scanning,
+	explaining new threading model.
+
+2020-01-02  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod.8 (DEBUGINFOD_TIMEOUT): Document as seconds to
+	provide 100K, default 90.
+	* debuginfod-find.1 (DEBUGINFOD_TIMEOUT): Likewise.
+	* debuginfod_find_debuginfo.3 (DEBUGINFOD_TIMEOUT): Likewise.
+
+2019-12-22  Frank Ch. Eigler  <fche@redhat.com
+
+	* debuginfod.8: Add -U (DEB) flag, generalize RPM to "archive".
+
+2019-12-04  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-find.1: Bump default timeout to 30.
+	* debuginfod_find_debuginfo.3: Ditto.
+	Document $DEBUGINFOD_PROGRESS.
+
+2019-11-26  Frank Ch. Eigler  <fche@redhat.com>
+	    Aaron Merey  <amerey@redhat.com>
+
+	* debuginfod.8, find-debuginfo.1, debuginfod_*.3: New files.
+
 2019-09-02  Mark Wielaard  <mark@klomp.org>
 
 	* readelf.1 (symbols): Add optional section name.

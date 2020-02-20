@@ -1,3 +1,16 @@
+2020-02-08  Mark Wielaard  <mark@klomp.org>
+
+	* elflint.c (check_program_header): Handle PT_GNU_PROPERTY.
+
+2020-02-07  Mark Wielaard  <mark@klomp.org>
+
+	* elflint.c (check_symtab): Check st_info isn't too big.
+
+2020-01-16  Mark Wielaard  <mark@klomp.org>
+
+	* nm.c (show_symbols_sysv): Iterate over all symbols starting
+	at index zero.
+
 2019-11-26  Mark Wielaard  <mark@klomp.org>
 
 	* Makefile.am (BUILD_STATIC): Add libraries needed for libdw.

@@ -68,6 +68,13 @@ state_fetch_pc (Dwfl_Frame *state)
   abort ();
 }
 
+static void
+state_free (Dwfl_Frame *state)
+{
+  free (state->frame);
+  free (state);
+}
+
 /* Do not call it on your own, to be used by thread_* functions only.  */
 
 static void
@@ -76,7 +83,7 @@ free_states (Dwfl_Frame *state)
   while (state)
     {
       Dwfl_Frame *next = state->unwound;
-      free(state);
+      state_free (state);
       state = next;
     }
 }
@@ -96,6 +103,8 @@ state_alloc (Dwfl_Thread *thread)
   state->thread = thread;
   state->mod = NULL;
   state->frame = NULL;
+  state->moderr = DWFL_E_NOERROR;
+  state->frameerr = DWFL_E_NOERROR;
   state->signal_frame = false;
   state->initial_frame = true;
   state->pc_state = DWFL_FRAME_STATE_ERROR;
@@ -488,7 +497,7 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
       if (! cache)
 	{
 	  /* The old frame is no longer needed.  */
-	  free (state);
+	  state_free (state);
 	}
       state = next;
     }

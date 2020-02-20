@@ -56,6 +56,10 @@ ebl_segment_type_name (Ebl *ebl, int segment, char *buf, size_t len)
 	  PTYPE (TLS)
 	};
 
+#ifndef PT_GNU_PROPERTY
+#define PT_GNU_PROPERTY (PT_LOOS + 0x474e553)
+#endif
+
       /* Is it one of the standard segment types?  */
       if (segment >= PT_NULL && segment < PT_NUM)
 	res = ptypes[segment];
@@ -65,6 +69,8 @@ ebl_segment_type_name (Ebl *ebl, int segment, char *buf, size_t len)
 	res = "GNU_STACK";
       else if (segment == PT_GNU_RELRO)
 	res = "GNU_RELRO";
+      else if (segment == PT_GNU_PROPERTY)
+	res = "GNU_PROPERTY";
       else if (segment == PT_SUNWBSS)
 	res = "SUNWBSS";
       else if (segment == PT_SUNWSTACK)

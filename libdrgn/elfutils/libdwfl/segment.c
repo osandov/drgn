@@ -287,11 +287,15 @@ int
 dwfl_report_segment (Dwfl *dwfl, int ndx, const GElf_Phdr *phdr, GElf_Addr bias,
 		     const void *ident)
 {
+  /* This was previously used for coalescing segments, but it was buggy since
+     day one.  We don't use it anymore.  */
+  (void)ident;
+
   if (dwfl == NULL)
     return -1;
 
   if (ndx < 0)
-    ndx = dwfl->lookup_tail_ndx;
+    ndx = dwfl->next_segndx;
 
   if (phdr->p_align > 1 && (dwfl->segment_align <= 1 ||
 			    phdr->p_align < dwfl->segment_align))
@@ -307,30 +311,19 @@ dwfl_report_segment (Dwfl *dwfl, int ndx, const GElf_Phdr *phdr, GElf_Addr bias,
   GElf_Addr end = __libdwfl_segment_end (dwfl,
 					 bias + phdr->p_vaddr + phdr->p_memsz);
 
-  /* Coalesce into the last one if contiguous and matching.  */
-  if (ndx != dwfl->lookup_tail_ndx
-      || ident == NULL
-      || ident != dwfl->lookup_tail_ident
-      || start != dwfl->lookup_tail_vaddr
-      || phdr->p_offset != dwfl->lookup_tail_offset)
+  /* Normally just appending keeps us sorted.  */
+
+  size_t i = dwfl->lookup_elts;
+  while (i > 0 && unlikely (start < dwfl->lookup_addr[i - 1]))
+    --i;
+
+  if (unlikely (insert (dwfl, i, start, end, ndx)))
     {
-      /* Normally just appending keeps us sorted.  */
-
-      size_t i = dwfl->lookup_elts;
-      while (i > 0 && unlikely (start < dwfl->lookup_addr[i - 1]))
-	--i;
-
-      if (unlikely (insert (dwfl, i, start, end, ndx)))
-	{
-	  __libdwfl_seterrno (DWFL_E_NOMEM);
-	  return -1;
-	}
+      __libdwfl_seterrno (DWFL_E_NOMEM);
+      return -1;
     }
 
-  dwfl->lookup_tail_ident = ident;
-  dwfl->lookup_tail_vaddr = end;
-  dwfl->lookup_tail_offset = end - bias - phdr->p_vaddr + phdr->p_offset;
-  dwfl->lookup_tail_ndx = ndx + 1;
+  dwfl->next_segndx = ndx + 1;
 
   return ndx;
 }

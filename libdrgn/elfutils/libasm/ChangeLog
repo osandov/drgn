@@ -1,3 +1,8 @@
+2020-01-08  Mark Wielaard  <mark@klomp.org>
+
+	* libasm.h: Don't include libebl.h. Define an opaque Ebl handle.
+	* libasmP.h: Do include libebl.h.
+
 2019-08-28  Mark Wielaard  <mark@klomp.org>
 
 	* Makefile.am (libasm_so_DEPS): Replace libebl.a with libebl_pic.a.

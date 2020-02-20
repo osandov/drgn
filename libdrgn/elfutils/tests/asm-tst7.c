@@ -21,6 +21,7 @@
 
 #include <fcntl.h>
 #include <inttypes.h>
+#include ELFUTILS_HEADER(ebl)
 #include ELFUTILS_HEADER(asm)
 #include <libelf.h>
 #include <stdio.h>

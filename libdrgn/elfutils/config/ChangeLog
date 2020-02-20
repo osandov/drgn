@@ -1,3 +1,21 @@
+2020-01-12  Frank Ch. Eigler  <fche@redhat.com>
+
+	* elfutils.spec.in: Typo fix for "Requires: debuginfod-client".
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.service: Set PrivateTmp=yes.
+
+2020-01-01  Dmitry V. Levin  <ldv@altlinux.org>
+
+	* Makefile.am (pkgconfig_DATA): Conditionalize libdebuginfod.pc
+	on DEBUGINFOD.
+
+2019-12-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* elfutils.spec.in (debuginfod): Add BuildRequire dpkg
+	for deb testing.  (Available on Fedora & EPEL, not base RHEL.)
+
 2019-12-05  Mark Wielaard  <mark@klomp.org>
 
 	* elfutils.spec.in: Add explicit version-release requires for all

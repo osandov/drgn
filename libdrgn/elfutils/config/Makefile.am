@@ -33,7 +33,10 @@ EXTRA_DIST = elfutils.spec.in known-dwarf.awk 10-default-yama-scope.conf \
 	     debuginfod.service debuginfod.sysconfig
 
 pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = libelf.pc libdw.pc libdebuginfod.pc
+pkgconfig_DATA = libelf.pc libdw.pc
+if DEBUGINFOD
+pkgconfig_DATA += libdebuginfod.pc
+endif
 
 if MAINTAINER_MODE
 $(srcdir)/elfutils.spec.in: $(top_srcdir)/NEWS

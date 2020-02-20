@@ -132,12 +132,7 @@ struct Dwfl
   GElf_Addr *lookup_addr;	/* Start address of segment.  */
   Dwfl_Module **lookup_module;	/* Module associated with segment, or null.  */
   int *lookup_segndx;		/* User segment index, or -1.  */
-
-  /* Cache from last dwfl_report_segment call.  */
-  const void *lookup_tail_ident;
-  GElf_Off lookup_tail_vaddr;
-  GElf_Off lookup_tail_offset;
-  int lookup_tail_ndx;
+  int next_segndx;
 
   struct Dwfl_User_Core *user_core;
 };
@@ -257,11 +252,15 @@ struct Dwfl_Frame
   Dwfl_Thread *thread;
   /* Previous (outer) frame.  */
   Dwfl_Frame *unwound;
-  /* Module containing pc. */
+  /* Module containing pc.  */
   Dwfl_Module *mod;
-  /* CFI frame containing pc. */
+  /* CFI frame containing pc.  */
   Dwarf_Frame *frame;
   Dwarf_Addr bias;
+  /* Error trying to get mod.  */
+  Dwfl_Error moderr;
+  /* Error trying to get frame.  */
+  Dwfl_Error frameerr;
   bool signal_frame : 1;
   bool initial_frame : 1;
   enum
@@ -284,12 +283,6 @@ struct Dwfl_Frame
      REGS_SET tells which of the REGS are valid.  */
   Dwarf_Addr regs[];
 };
-
-/* Fetch value from Dwfl_Frame->regs indexed by DWARF REGNO.
-   No error code is set if the function returns FALSE.  */
-bool __libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno,
-			      Dwarf_Addr *val)
-  internal_function;
 
 /* Store value to Dwfl_Frame->regs indexed by DWARF REGNO.
    No error code is set if the function returns FALSE.  */

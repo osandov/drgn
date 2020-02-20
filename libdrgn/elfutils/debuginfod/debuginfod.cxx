@@ -1,5 +1,5 @@
 /* Debuginfo-over-http server.
-   Copyright (C) 2019 Red Hat, Inc.
+   Copyright (C) 2019-2020 Red Hat, Inc.
    This file is part of elfutils.
 
    This file is free software; you can redistribute it and/or modify
@@ -52,6 +52,7 @@ extern "C" {
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/vfs.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -79,6 +80,7 @@ extern "C" {
 #include <ostream>
 #include <sstream>
 #include <mutex>
+#include <deque>
 #include <condition_variable>
 #include <thread>
 // #include <regex> // on rhel7 gcc 4.8, not competent
@@ -104,6 +106,15 @@ using namespace std;
 #else
 #define tid() pthread_self()
 #endif
+
+
+inline bool
+string_endswith(const string& haystack, const string& needle)
+{
+  return (haystack.size() >= needle.size() &&
+	  equal(haystack.end()-needle.size(), haystack.end(),
+                needle.begin()));
+}
 
 
 // Roll this identifier for every sqlite schema incompatiblity.
@@ -231,9 +242,9 @@ static const char DEBUGINFOD_SQLITE_DDL[] =
   "create view if not exists " BUILDIDS "_stats as\n"
   "          select 'file d/e' as label,count(*) as quantity from " BUILDIDS "_f_de\n"
   "union all select 'file s',count(*) from " BUILDIDS "_f_s\n"
-  "union all select 'rpm d/e',count(*) from " BUILDIDS "_r_de\n"
-  "union all select 'rpm sref',count(*) from " BUILDIDS "_r_sref\n"
-  "union all select 'rpm sdef',count(*) from " BUILDIDS "_r_sdef\n"
+  "union all select 'archive d/e',count(*) from " BUILDIDS "_r_de\n"
+  "union all select 'archive sref',count(*) from " BUILDIDS "_r_sref\n"
+  "union all select 'archive sdef',count(*) from " BUILDIDS "_r_sdef\n"
   "union all select 'buildids',count(*) from " BUILDIDS "_buildids\n"
   "union all select 'filenames',count(*) from " BUILDIDS "_files\n"
   "union all select 'files scanned (#)',count(*) from " BUILDIDS "_file_mtime_scanned\n"
@@ -322,9 +333,11 @@ ARGP_PROGRAM_BUG_ADDRESS_DEF = PACKAGE_BUGREPORT;
 static const struct argp_option options[] =
   {
    { NULL, 0, NULL, 0, "Scanners:", 1 },
-   { "scan-file-dir", 'F', NULL, 0, "Enable ELF/DWARF file scanning threads.", 0 },
-   { "scan-rpm-dir", 'R', NULL, 0, "Enable RPM scanning threads.", 0 },
-   // "source-oci-imageregistry"  ... 
+   { "scan-file-dir", 'F', NULL, 0, "Enable ELF/DWARF file scanning.", 0 },
+   { "scan-rpm-dir", 'R', NULL, 0, "Enable RPM scanning.", 0 },
+   { "scan-deb-dir", 'U', NULL, 0, "Enable DEB scanning.", 0 },
+   { "scan-archive", 'Z', "EXT=CMD", 0, "Enable arbitrary archive scanning.", 0 },
+   // "source-oci-imageregistry"  ...
 
    { NULL, 0, NULL, 0, "Options:", 2 },
    { "logical", 'L', NULL, 0, "Follow symlinks, default=ignore.", 0 },
@@ -338,7 +351,10 @@ static const struct argp_option options[] =
    { "database", 'd', "FILE", 0, "Path to sqlite database.", 0 },
    { "ddl", 'D', "SQL", 0, "Apply extra sqlite ddl/pragma to connection.", 0 },
    { "verbose", 'v', NULL, 0, "Increase verbosity.", 0 },
-
+#define ARGP_KEY_FDCACHE_FDS 0x1001
+   { "fdcache-fds", ARGP_KEY_FDCACHE_FDS, "NUM", 0, "Maximum number of archive files to keep in fdcache.", 0 },
+#define ARGP_KEY_FDCACHE_MBS 0x1002
+   { "fdcache-mbs", ARGP_KEY_FDCACHE_MBS, "MB", 0, "Maximum total size of archive file fdcache.", 0 },
    { NULL, 0, NULL, 0, NULL, 0 }
   };
 
@@ -359,7 +375,7 @@ static struct argp argp =
 
 
 static string db_path;
-static sqlite3 *db;
+static sqlite3 *db; // single connection, serialized across all our threads!
 static unsigned verbose;
 static volatile sig_atomic_t interrupted = 0;
 static volatile sig_atomic_t sigusr1 = 0;
@@ -367,15 +383,18 @@ static volatile sig_atomic_t sigusr2 = 0;
 static unsigned http_port = 8002;
 static unsigned rescan_s = 300;
 static unsigned groom_s = 86400;
-static unsigned maxigroom = false;
+static bool maxigroom = false;
 static unsigned concurrency = std::thread::hardware_concurrency() ?: 1;
 static set<string> source_paths;
 static bool scan_files = false;
-static bool scan_rpms = false;
+static map<string,string> scan_archives;
 static vector<string> extra_ddl;
 static regex_t file_include_regex;
 static regex_t file_exclude_regex;
 static bool traverse_logical;
+static long fdcache_fds;
+static long fdcache_mbs;
+static string tmpdir;
 
 static void set_metric(const string& key, int64_t value);
 // static void inc_metric(const string& key);
@@ -387,6 +406,7 @@ static void inc_metric(const string& metric,
 static void add_metric(const string& metric,
                        const string& lname, const string& lvalue,
                        int64_t value);
+// static void add_metric(const string& metric, int64_t value);
 
 /* Handle program arguments.  */
 static error_t
@@ -402,7 +422,24 @@ parse_opt (int key, char *arg,
       if (http_port > 65535) argp_failure(state, 1, EINVAL, "port number");
       break;
     case 'F': scan_files = true; break;
-    case 'R': scan_rpms = true; break;
+    case 'R':
+      scan_archives[".rpm"]="rpm2cpio";
+      break;
+    case 'U':
+      scan_archives[".deb"]="dpkg-deb --fsys-tarfile";
+      scan_archives[".ddeb"]="dpkg-deb --fsys-tarfile";
+      break;
+    case 'Z':
+      {
+        char* extension = strchr(arg, '=');
+        if (arg[0] == '\0')
+          argp_failure(state, 1, EINVAL, "missing EXT");
+        else if (extension)
+          scan_archives[string(arg, (extension-arg))]=string(extension+1);
+        else
+          scan_archives[string(arg)]=string("cat");
+      }
+      break;
     case 'L':
       traverse_logical = true;
       break;
@@ -432,6 +469,12 @@ parse_opt (int key, char *arg,
       rc = regcomp (&file_exclude_regex, arg, REG_EXTENDED|REG_NOSUB);
       if (rc != 0)
         argp_failure(state, 1, EINVAL, "regular expession");
+      break;
+    case ARGP_KEY_FDCACHE_FDS:
+      fdcache_fds = atol (arg);
+      break;
+    case ARGP_KEY_FDCACHE_MBS:
+      fdcache_mbs = atol (arg);
       break;
     case ARGP_KEY_ARG:
       source_paths.insert(string(arg));
@@ -503,38 +546,83 @@ struct elfutils_exception: public reportable_exception
 
 ////////////////////////////////////////////////////////////////////////
 
-// a c++ counting-semaphore class ... since we're c++11 not c++20
-
-class semaphore
+template <typename Payload>
+class workq
 {
-public:
-  semaphore (unsigned c=1): count(c) {}
-  inline void notify () {
-    unique_lock<mutex> lock(mtx);
-    count++;
-    cv.notify_one();
-  }
-  inline void wait() {
-    unique_lock<mutex> lock(mtx);
-    while (count == 0)
-      cv.wait(lock);
-    count--;
-  }
-private:
+  set<Payload> q; // eliminate duplicates
   mutex mtx;
   condition_variable cv;
-  unsigned count;
-};
+  bool dead;
+  unsigned idlers;
 
-
-class semaphore_borrower
-{
 public:
-  semaphore_borrower(semaphore* s): sem(s) { sem->wait(); }
-  ~semaphore_borrower() { sem->notify(); }
-private:
-  semaphore* sem;
+  workq() { dead = false; idlers = 0; }
+  ~workq() {}
+
+  void push_back(const Payload& p)
+  {
+    unique_lock<mutex> lock(mtx);
+    q.insert (p);
+    set_metric("thread_work_pending","role","scan", q.size());
+    cv.notify_all();
+  }
+
+  // kill this workqueue, wake up all idlers / scanners
+  void nuke() {
+    unique_lock<mutex> lock(mtx);
+    // optional: q.clear();
+    dead = true;
+    cv.notify_all();
+  }
+
+  // block this scanner thread until there is work to do and no active
+  bool wait_front (Payload& p)
+  {
+    unique_lock<mutex> lock(mtx);
+    while (!dead && (q.size() == 0 || idlers > 0))
+      cv.wait(lock);
+    if (dead)
+      return false;
+    else
+      {
+        p = * q.begin();
+        q.erase (q.begin());
+        set_metric("thread_work_pending","role","scan", q.size());
+        if (q.size() == 0)
+          cv.notify_all(); // maybe wake up waiting idlers
+        return true;
+      }
+  }
+
+  // block this idler thread until there is no work to do
+  void wait_idle ()
+  {
+    unique_lock<mutex> lock(mtx);
+    cv.notify_all(); // maybe wake up waiting scanners
+    while (!dead && (q.size() != 0))
+      cv.wait(lock);
+    idlers ++;
+  }
+
+  void done_idle ()
+  {
+    unique_lock<mutex> lock(mtx);
+    idlers --;
+    cv.notify_all(); // maybe wake up waiting scanners, but probably not (shutting down)
+  }
 };
+
+typedef struct stat stat_t;
+typedef pair<string,stat_t> scan_payload;
+inline bool operator< (const scan_payload& a, const scan_payload& b)
+{
+  return a.first < b.first; // don't bother compare the stat fields
+}
+static workq<scan_payload> scanq; // just a single one
+// producer & idler: thread_main_fts_source_paths()
+// consumer: thread_main_scanner()
+// idler: thread_main_groom()
+
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -706,7 +794,17 @@ private:
 ////////////////////////////////////////////////////////////////////////
 
 
-
+static string
+header_censor(const string& str)
+{
+  string y;
+  for (auto&& x : str)
+    {
+      if (isalnum(x) || x == '/' || x == '.' || x == ',' || x == '_' || x == ':')
+        y += x;
+    }
+  return y;
+}
 
 
 static string
@@ -735,7 +833,14 @@ conninfo (struct MHD_Connection * conn)
     hostname[0] = servname[0] = '\0';
   }
 
-  return string(hostname) + string(":") + string(servname);
+  // extract headers relevant to administration
+  const char* user_agent = MHD_lookup_connection_value (conn, MHD_HEADER_KIND, "User-Agent") ?: "";
+  const char* x_forwarded_for = MHD_lookup_connection_value (conn, MHD_HEADER_KIND, "X-Forwarded-For") ?: "";
+  // NB: these are untrustworthy, beware if machine-processing log files
+
+  return string(hostname) + string(":") + string(servname) +
+    string(" UA:") + header_censor(string(user_agent)) +
+    string(" XFF:") + header_censor(string(x_forwarded_for));
 }
 
 
@@ -833,6 +938,167 @@ shell_escape(const string& str)
 }
 
 
+// A map-like class that owns a cache of file descriptors (indexed by
+// file / content names).
+//
+// If only it could use fd's instead of file names ... but we can't
+// dup(2) to create independent descriptors for the same unlinked
+// files, so would have to use some goofy linux /proc/self/fd/%d
+// hack such as the following
+
+#if 0
+int superdup(int fd)
+{
+#ifdef __linux__
+  char *fdpath = NULL;
+  int rc = asprintf(& fdpath, "/proc/self/fd/%d", fd);
+  int newfd;
+  if (rc >= 0)
+    newfd = open(fdpath, O_RDONLY);
+  else
+    newfd = -1;
+  free (fdpath);
+  return newfd;
+#else
+  return -1;
+#endif
+}
+#endif
+
+class libarchive_fdcache
+{
+private:
+  mutex fdcache_lock;
+
+  struct fdcache_entry
+  {
+    string archive;
+    string entry;
+    string fd;
+    long fd_size_mb; // rounded up megabytes
+  };
+  deque<fdcache_entry> lru; // @head: most recently used
+  long max_fds;
+  long max_mbs;
+
+public:
+  void intern(const string& a, const string& b, string fd, off_t sz)
+  {
+    {
+      unique_lock<mutex> lock(fdcache_lock);
+      for (auto i = lru.begin(); i < lru.end(); i++) // nuke preexisting copy
+        {
+          if (i->archive == a && i->entry == b)
+            {
+              unlink (i->fd.c_str());
+              lru.erase(i);
+              break; // must not continue iterating
+            }
+        }
+      long mb = ((sz+1023)/1024+1023)/1024;
+      fdcache_entry n = { a, b, fd, mb };
+      lru.push_front(n);
+    if (verbose > 3)
+      obatched(clog) << "fdcache interned a=" << a << " b=" << b << " fd=" << fd << " mb=" << mb << endl;
+    }
+
+    this->limit(max_fds, max_mbs); // age cache if required
+  }
+
+  int lookup(const string& a, const string& b)
+  {
+    unique_lock<mutex> lock(fdcache_lock);
+    for (auto i = lru.begin(); i < lru.end(); i++)
+      {
+        if (i->archive == a && i->entry == b)
+          { // found it; move it to head of lru
+            fdcache_entry n = *i;
+            lru.erase(i); // invalidates i, so no more iteration!
+            lru.push_front(n);
+
+            return open(n.fd.c_str(), O_RDONLY); // NB: no problem if dup() fails; looks like cache miss
+          }
+      }
+    return -1;
+  }
+
+  void clear(const string& a, const string& b)
+  {
+    unique_lock<mutex> lock(fdcache_lock);
+    for (auto i = lru.begin(); i < lru.end(); i++)
+      {
+        if (i->archive == a && i->entry == b)
+          { // found it; move it to head of lru
+            fdcache_entry n = *i;
+            lru.erase(i); // invalidates i, so no more iteration!
+            unlink (n.fd.c_str());
+            return;
+          }
+      }
+  }
+
+  void limit(long maxfds, long maxmbs)
+  {
+    if (verbose > 3 && (this->max_fds != maxfds || this->max_mbs != maxmbs))
+      obatched(clog) << "fdcache limited to maxfds=" << maxfds << " maxmbs=" << maxmbs << endl;
+
+    unique_lock<mutex> lock(fdcache_lock);
+    this->max_fds = maxfds;
+    this->max_mbs = maxmbs;
+
+    long total_fd = 0;
+    long total_mb = 0;
+    for (auto i = lru.begin(); i < lru.end(); i++)
+      {
+        // accumulate totals from most recently used one going backward
+        total_fd ++;
+        total_mb += i->fd_size_mb;
+        if (total_fd > max_fds || total_mb > max_mbs)
+          {
+            // found the cut here point!
+
+            for (auto j = i; j < lru.end(); j++) // close all the fds from here on in
+              {
+                if (verbose > 3)
+                  obatched(clog) << "fdcache evicted a=" << j->archive << " b=" << j->entry
+                                 << " fd=" << j->fd << " mb=" << j->fd_size_mb << endl;
+                unlink (j->fd.c_str());
+              }
+
+            lru.erase(i, lru.end()); // erase the nodes generally
+            break;
+          }
+
+      }
+  }
+
+  ~libarchive_fdcache()
+  {
+    limit(0, 0);
+  }
+};
+static libarchive_fdcache fdcache;
+
+
+// For security/portability reasons, many distro-package archives have
+// a "./" in front of path names; others have nothing, others have
+// "/".  Canonicalize them all to a single leading "/", with the
+// assumption that this matches the dwarf-derived file names too.
+string canonicalized_archive_entry_pathname(struct archive_entry *e)
+{
+  string fn = archive_entry_pathname(e);
+  if (fn.size() == 0)
+    return fn;
+  if (fn[0] == '/')
+    return fn;
+  if (fn[0] == '.')
+    return fn.substr(1);
+  else
+    return string("/")+fn;
+}
+
+
+
 static struct MHD_Response*
 handle_buildid_r_match (int64_t b_mtime,
                         const string& b_source0,
@@ -851,11 +1117,67 @@ handle_buildid_r_match (int64_t b_mtime,
       return 0;
     }
 
-  string popen_cmd = string("rpm2cpio " + shell_escape(b_source0));
-  FILE* fp = popen (popen_cmd.c_str(), "r"); // "e" O_CLOEXEC?
-  if (fp == NULL)
-    throw libc_exception (errno, string("popen ") + popen_cmd);
-  defer_dtor<FILE*,int> fp_closer (fp, pclose);
+  int fd = fdcache.lookup(b_source0, b_source1);
+  while (fd >= 0) // got one!; NB: this is really an if() with a possible branch out to the end
+    {
+      rc = fstat(fd, &fs);
+      if (rc < 0) // disappeared?
+        {
+          if (verbose)
+            obatched(clog) << "cannot fstat fdcache " << b_source0 << endl;
+          close(fd);
+          fdcache.clear(b_source0, b_source1);
+          break; // branch out of if "loop", to try new libarchive fetch attempt
+        }
+
+      struct MHD_Response* r = MHD_create_response_from_fd (fs.st_size, fd);
+      if (r == 0)
+        {
+          if (verbose)
+            obatched(clog) << "cannot create fd-response for " << b_source0 << endl;
+          close(fd);
+          break; // branch out of if "loop", to try new libarchive fetch attempt
+        }
+
+      inc_metric ("http_responses_total","result","archive fdcache");
+
+      MHD_add_response_header (r, "Content-Type", "application/octet-stream");
+      add_mhd_last_modified (r, fs.st_mtime);
+      if (verbose > 1)
+        obatched(clog) << "serving fdcache archive " << b_source0 << " file " << b_source1 << endl;
+      /* libmicrohttpd will close it. */
+      if (result_fd)
+        *result_fd = fd;
+      return r;
+      // NB: see, we never go around the 'loop' more than once
+    }
+
+  string archive_decoder = "/dev/null";
+  string archive_extension = "";
+  for (auto&& arch : scan_archives)
+    if (string_endswith(b_source0, arch.first))
+      {
+        archive_extension = arch.first;
+        archive_decoder = arch.second;
+      }
+  FILE* fp;
+  defer_dtor<FILE*,int>::dtor_fn dfn;
+  if (archive_decoder != "cat")
+    {
+      string popen_cmd = archive_decoder + " " + shell_escape(b_source0);
+      fp = popen (popen_cmd.c_str(), "r"); // "e" O_CLOEXEC?
+      dfn = pclose;
+      if (fp == NULL)
+        throw libc_exception (errno, string("popen ") + popen_cmd);
+    }
+  else
+    {
+      fp = fopen (b_source0.c_str(), "r");
+      dfn = fclose;
+      if (fp == NULL)
+        throw libc_exception (errno, string("fopen ") + b_source0);
+    }
+  defer_dtor<FILE*,int> fp_closer (fp, dfn);
 
   struct archive *a;
   a = archive_read_new();
@@ -863,16 +1185,16 @@ handle_buildid_r_match (int64_t b_mtime,
     throw archive_exception("cannot create archive reader");
   defer_dtor<struct archive*,int> archive_closer (a, archive_read_free);
 
-  rc = archive_read_support_format_cpio(a);
+  rc = archive_read_support_format_all(a);
   if (rc != ARCHIVE_OK)
-    throw archive_exception(a, "cannot select cpio format");
+    throw archive_exception(a, "cannot select all format");
   rc = archive_read_support_filter_all(a);
   if (rc != ARCHIVE_OK)
     throw archive_exception(a, "cannot select all filters");
 
   rc = archive_read_open_FILE (a, fp);
   if (rc != ARCHIVE_OK)
-    throw archive_exception(a, "cannot open archive from rpm2cpio pipe");
+    throw archive_exception(a, "cannot open archive from pipe");
 
   while(1) // parse cpio archive entries
     {
@@ -884,25 +1206,34 @@ handle_buildid_r_match (int64_t b_mtime,
       if (! S_ISREG(archive_entry_mode (e))) // skip non-files completely
         continue;
 
-      string fn = archive_entry_pathname (e);
-      if (fn != string(".")+b_source1)
+      string fn = canonicalized_archive_entry_pathname (e);
+      if (fn != b_source1)
         continue;
 
       // extract this file to a temporary file
-      char tmppath[PATH_MAX] = "/tmp/debuginfod.XXXXXX"; // XXX: $TMP_DIR etc.
-      int fd = mkstemp (tmppath);
+      char* tmppath = NULL;
+      rc = asprintf (&tmppath, "%s/debuginfod.XXXXXX", tmpdir.c_str());
+      if (rc < 0)
+        throw libc_exception (ENOMEM, "cannot allocate tmppath");
+      defer_dtor<void*,void> tmmpath_freer (tmppath, free);
+      fd = mkstemp (tmppath);
       if (fd < 0)
         throw libc_exception (errno, "cannot create temporary file");
-      unlink (tmppath); // unlink now so OS will release the file as soon as we close the fd
+      // NB: don't unlink (tmppath), as fdcache will take charge of it.
 
       rc = archive_read_data_into_fd (a, fd);
-      if (rc != ARCHIVE_OK)
+      if (rc != ARCHIVE_OK) // e.g. ENOSPC!
         {
           close (fd);
+          unlink (tmppath);
           throw archive_exception(a, "cannot extract file");
         }
 
-      inc_metric ("http_responses_total","result","rpm");
+      // NB: now we know we have a complete reusable file; make fdcache
+      // responsible for unlinking it later.
+      fdcache.intern(b_source0, b_source1, tmppath, archive_entry_size(e));
+
+      inc_metric ("http_responses_total","result",archive_extension + " archive");
       struct MHD_Response* r = MHD_create_response_from_fd (archive_entry_size(e), fd);
       if (r == 0)
         {
@@ -916,7 +1247,7 @@ handle_buildid_r_match (int64_t b_mtime,
           MHD_add_response_header (r, "Content-Type", "application/octet-stream");
           add_mhd_last_modified (r, archive_entry_mtime(e));
           if (verbose > 1)
-            obatched(clog) << "serving rpm " << b_source0 << " file " << b_source1 << endl;
+            obatched(clog) << "serving archive " << b_source0 << " file " << b_source1 << endl;
           /* libmicrohttpd will close it. */
           if (result_fd)
             *result_fd = fd;
@@ -1157,6 +1488,15 @@ add_metric(const string& metric,
   unique_lock<mutex> lock(metrics_lock);
   metrics[key] += value;
 }
+#if 0
+static void
+add_metric(const string& metric,
+           int64_t value)
+{
+  unique_lock<mutex> lock(metrics_lock);
+  metrics[metric] += value;
+}
+#endif
 
 
 // and more for higher arity labels if needed
@@ -1399,7 +1739,8 @@ dwarf_extract_source_paths (Elf *elf, set<string>& debug_sourcefiles)
             waldo = (string (comp_dir) + string("/") + string (hat));
           else
            {
-             obatched(clog) << "skipping hat=" << hat << " due to empty comp_dir" << endl;
+             if (verbose > 3)
+               obatched(clog) << "skipping hat=" << hat << " due to empty comp_dir" << endl;
              continue;
            }
 
@@ -1544,334 +1885,201 @@ elf_classify (int fd, bool &executable_p, bool &debuginfo_p, string &buildid, se
 }
 
 
-static semaphore* scan_concurrency_sem = 0; // used to implement -c load limiting
-
-
 static void
-scan_source_file_path (const string& dir)
+scan_source_file (const string& rps, const stat_t& st,
+                  sqlite_ps& ps_upsert_buildids,
+                  sqlite_ps& ps_upsert_files,
+                  sqlite_ps& ps_upsert_de,
+                  sqlite_ps& ps_upsert_s,
+                  sqlite_ps& ps_query,
+                  sqlite_ps& ps_scan_done,
+                  unsigned& fts_cached,
+                  unsigned& fts_executable,
+                  unsigned& fts_debuginfo,
+                  unsigned& fts_sourcefiles)
 {
-  obatched(clog) << "fts/file traversing " << dir << endl;
-
-  struct timeval tv_start, tv_end;
-  gettimeofday (&tv_start, NULL);
-
-  sqlite_ps ps_upsert_buildids (db, "file-buildids-intern", "insert or ignore into " BUILDIDS "_buildids VALUES (NULL, ?);");
-  sqlite_ps ps_upsert_files (db, "file-files-intern", "insert or ignore into " BUILDIDS "_files VALUES (NULL, ?);");
-  sqlite_ps ps_upsert_de (db, "file-de-upsert",
-                          "insert or ignore into " BUILDIDS "_f_de "
-                          "(buildid, debuginfo_p, executable_p, file, mtime) "
-                          "values ((select id from " BUILDIDS "_buildids where hex = ?),"
-                          "        ?,?,"
-                          "        (select id from " BUILDIDS "_files where name = ?), ?);");
-  sqlite_ps ps_upsert_s (db, "file-s-upsert",
-                         "insert or ignore into " BUILDIDS "_f_s "
-                         "(buildid, artifactsrc, file, mtime) "
-                         "values ((select id from " BUILDIDS "_buildids where hex = ?),"
-                         "        (select id from " BUILDIDS "_files where name = ?),"
-                         "        (select id from " BUILDIDS "_files where name = ?),"
-                         "        ?);");
-  sqlite_ps ps_query (db, "file-negativehit-find",
-                      "select 1 from " BUILDIDS "_file_mtime_scanned where sourcetype = 'F' and file = (select id from " BUILDIDS "_files where name = ?) and mtime = ?;");
-  sqlite_ps ps_scan_done (db, "file-scanned",
-                          "insert or ignore into " BUILDIDS "_file_mtime_scanned (sourcetype, file, mtime, size)"
-                          "values ('F', (select id from " BUILDIDS "_files where name = ?), ?, ?);");
-
-
-  char * const dirs[] = { (char*) dir.c_str(), NULL };
-
-  unsigned fts_scanned=0, fts_regex=0, fts_cached=0, fts_debuginfo=0, fts_executable=0, fts_sourcefiles=0;
-
-  FTS *fts = fts_open (dirs,
-                       (traverse_logical ? FTS_LOGICAL : FTS_PHYSICAL|FTS_XDEV)
-                       | FTS_NOCHDIR /* multithreaded */,
-                       NULL);
-  if (fts == NULL)
+  /* See if we know of it already. */
+  int rc = ps_query
+    .reset()
+    .bind(1, rps)
+    .bind(2, st.st_mtime)
+    .step();
+  ps_query.reset();
+  if (rc == SQLITE_ROW) // i.e., a result, as opposed to DONE (no results)
+    // no need to recheck a file/version we already know
+    // specifically, no need to elf-begin a file we already determined is non-elf
+    // (so is stored with buildid=NULL)
     {
-      obatched(cerr) << "cannot fts_open " << dir << endl;
+      fts_cached++;
       return;
     }
 
-  FTSENT *f;
-  while ((f = fts_read (fts)) != NULL)
+  bool executable_p = false, debuginfo_p = false; // E and/or D
+  string buildid;
+  set<string> sourcefiles;
+
+  int fd = open (rps.c_str(), O_RDONLY);
+  try
     {
-      semaphore_borrower handle_one_file (scan_concurrency_sem);
+      if (fd >= 0)
+        elf_classify (fd, executable_p, debuginfo_p, buildid, sourcefiles);
+      else
+        throw libc_exception(errno, string("open ") + rps);
+      inc_metric ("scanned_total","source","file");
+    }
+  // NB: we catch exceptions here too, so that we can
+  // cache the corrupt-elf case (!executable_p &&
+  // !debuginfo_p) just below, just as if we had an
+  // EPERM error from open(2).
+  catch (const reportable_exception& e)
+    {
+      e.report(clog);
+    }
 
-      fts_scanned ++;
-      if (interrupted)
-        break;
+  if (fd >= 0)
+    close (fd);
 
-      if (verbose > 2)
-        obatched(clog) << "fts/file traversing " << f->fts_path << endl;
+  // register this file name in the interning table
+  ps_upsert_files
+    .reset()
+    .bind(1, rps)
+    .step_ok_done();
 
-      try
+  if (buildid == "")
+    {
+      // no point storing an elf file without buildid
+      executable_p = false;
+      debuginfo_p = false;
+    }
+  else
+    {
+      // register this build-id in the interning table
+      ps_upsert_buildids
+        .reset()
+        .bind(1, buildid)
+        .step_ok_done();
+    }
+
+  if (executable_p)
+    fts_executable ++;
+  if (debuginfo_p)
+    fts_debuginfo ++;
+  if (executable_p || debuginfo_p)
+    {
+      ps_upsert_de
+        .reset()
+        .bind(1, buildid)
+        .bind(2, debuginfo_p ? 1 : 0)
+        .bind(3, executable_p ? 1 : 0)
+        .bind(4, rps)
+        .bind(5, st.st_mtime)
+        .step_ok_done();
+    }
+  if (executable_p)
+    inc_metric("found_executable_total","source","files");
+  if (debuginfo_p)
+    inc_metric("found_debuginfo_total","source","files");
+
+  if (sourcefiles.size() && buildid != "")
+    {
+      fts_sourcefiles += sourcefiles.size();
+
+      for (auto&& dwarfsrc : sourcefiles)
         {
-          /* Found a file.  Convert it to an absolute path, so
-             the buildid database does not have relative path
-             names that are unresolvable from a subsequent run
-             in a different cwd. */
-          char *rp = realpath(f->fts_path, NULL);
-          if (rp == NULL)
-            continue; // ignore dangling symlink or such
-          string rps = string(rp);
-          free (rp);
+          char *srp = realpath(dwarfsrc.c_str(), NULL);
+          if (srp == NULL) // also if DWZ unresolved dwarfsrc=""
+            continue; // unresolvable files are not a serious problem
+          // throw libc_exception(errno, "fts/file realpath " + srcpath);
+          string srps = string(srp);
+          free (srp);
 
-          bool ri = !regexec (&file_include_regex, rps.c_str(), 0, 0, 0);
-          bool rx = !regexec (&file_exclude_regex, rps.c_str(), 0, 0, 0);
-          if (!ri || rx)
-            {
-              if (verbose > 3)
-                obatched(clog) << "fts/file skipped by regex " << (!ri ? "I" : "") << (rx ? "X" : "") << endl;
-              fts_regex ++;
-              continue;
-            }
+          struct stat sfs;
+          rc = stat(srps.c_str(), &sfs);
+          if (rc != 0)
+            continue;
 
-          switch (f->fts_info)
-            {
-            case FTS_D:
-              break;
+          if (verbose > 2)
+            obatched(clog) << "recorded buildid=" << buildid << " file=" << srps
+                           << " mtime=" << sfs.st_mtime
+                           << " as source " << dwarfsrc << endl;
 
-            case FTS_DP:
-              break;
+          ps_upsert_files
+            .reset()
+            .bind(1, srps)
+            .step_ok_done();
 
-            case FTS_F:
-              {
-                /* See if we know of it already. */
-                int rc = ps_query
-                  .reset()
-                  .bind(1, rps)
-                  .bind(2, f->fts_statp->st_mtime)
-                  .step();
-                ps_query.reset();
-                if (rc == SQLITE_ROW) // i.e., a result, as opposed to DONE (no results)
-                  // no need to recheck a file/version we already know
-                  // specifically, no need to elf-begin a file we already determined is non-elf
-                  // (so is stored with buildid=NULL)
-                  {
-                    fts_cached ++;
-                    continue;
-                  }
+          // register the dwarfsrc name in the interning table too
+          ps_upsert_files
+            .reset()
+            .bind(1, dwarfsrc)
+            .step_ok_done();
 
-                bool executable_p = false, debuginfo_p = false; // E and/or D
-                string buildid;
-                set<string> sourcefiles;
+          ps_upsert_s
+            .reset()
+            .bind(1, buildid)
+            .bind(2, dwarfsrc)
+            .bind(3, srps)
+            .bind(4, sfs.st_mtime)
+            .step_ok_done();
 
-                int fd = open (rps.c_str(), O_RDONLY);
-                try
-                  {
-                    if (fd >= 0)
-                      elf_classify (fd, executable_p, debuginfo_p, buildid, sourcefiles);
-                    else
-                      throw libc_exception(errno, string("open ") + rps);
-                    inc_metric ("scanned_total","source","file");
-                  }
-
-                // NB: we catch exceptions here too, so that we can
-                // cache the corrupt-elf case (!executable_p &&
-                // !debuginfo_p) just below, just as if we had an
-                // EPERM error from open(2).
-
-                catch (const reportable_exception& e)
-                  {
-                    e.report(clog);
-                  }
-
-                if (fd >= 0)
-                  close (fd);
-
-                // register this file name in the interning table
-                ps_upsert_files
-                  .reset()
-                  .bind(1, rps)
-                  .step_ok_done();
-
-                if (buildid == "")
-                  {
-                    // no point storing an elf file without buildid
-                    executable_p = false;
-                    debuginfo_p = false;
-                  }
-                else
-                  {
-                    // register this build-id in the interning table
-                    ps_upsert_buildids
-                      .reset()
-                      .bind(1, buildid)
-                      .step_ok_done();
-                  }
-
-                if (executable_p)
-                  fts_executable ++;
-                if (debuginfo_p)
-                  fts_debuginfo ++;
-                if (executable_p || debuginfo_p)
-                  {
-                    ps_upsert_de
-                      .reset()
-                      .bind(1, buildid)
-                      .bind(2, debuginfo_p ? 1 : 0)
-                      .bind(3, executable_p ? 1 : 0)
-                      .bind(4, rps)
-                      .bind(5, f->fts_statp->st_mtime)
-                      .step_ok_done();
-                  }
-                if (executable_p)
-                  inc_metric("found_executable_total","source","files");
-                if (debuginfo_p)
-                  inc_metric("found_debuginfo_total","source","files");
-
-                if (sourcefiles.size() && buildid != "")
-                  {
-                    fts_sourcefiles += sourcefiles.size();
-
-                    for (auto&& dwarfsrc : sourcefiles)
-                      {
-                        char *srp = realpath(dwarfsrc.c_str(), NULL);
-                        if (srp == NULL) // also if DWZ unresolved dwarfsrc=""
-                          continue; // unresolvable files are not a serious problem
-                        // throw libc_exception(errno, "fts/file realpath " + srcpath);
-                        string srps = string(srp);
-                        free (srp);
-
-                        struct stat sfs;
-                        rc = stat(srps.c_str(), &sfs);
-                        if (rc != 0)
-                          continue;
-
-                        if (verbose > 2)
-                          obatched(clog) << "recorded buildid=" << buildid << " file=" << srps
-                                         << " mtime=" << sfs.st_mtime
-                                         << " as source " << dwarfsrc << endl;
-
-                        ps_upsert_files
-                          .reset()
-                          .bind(1, srps)
-                          .step_ok_done();
-
-                        // register the dwarfsrc name in the interning table too
-                        ps_upsert_files
-                          .reset()
-                          .bind(1, dwarfsrc)
-                          .step_ok_done();
-
-                        ps_upsert_s
-                          .reset()
-                          .bind(1, buildid)
-                          .bind(2, dwarfsrc)
-                          .bind(3, srps)
-                          .bind(4, sfs.st_mtime)
-                          .step_ok_done();
-
-			inc_metric("found_sourcerefs_total","source","files");
-                      }
-                  }
-
-                ps_scan_done
-                  .reset()
-                  .bind(1, rps)
-                  .bind(2, f->fts_statp->st_mtime)
-                  .bind(3, f->fts_statp->st_size)
-                  .step_ok_done();
-
-                if (verbose > 2)
-                  obatched(clog) << "recorded buildid=" << buildid << " file=" << rps
-                                 << " mtime=" << f->fts_statp->st_mtime << " atype="
-                                 << (executable_p ? "E" : "")
-                                 << (debuginfo_p ? "D" : "") << endl;
-              }
-              break;
-
-            case FTS_ERR:
-            case FTS_NS:
-              throw libc_exception(f->fts_errno, string("fts/file traversal ") + string(f->fts_path));
-
-            default:
-            case FTS_SL: /* ignore symlinks; seen in non-L mode only */
-              break;
-            }
-
-          if ((verbose && f->fts_info == FTS_DP) ||
-              (verbose > 1 && f->fts_info == FTS_F))
-            obatched(clog) << "fts/file traversing " << rps << ", scanned=" << fts_scanned
-                 << ", regex-skipped=" << fts_regex
-                 << ", cached=" << fts_cached << ", debuginfo=" << fts_debuginfo
-                 << ", executable=" << fts_executable << ", source=" << fts_sourcefiles << endl;
-        }
-      catch (const reportable_exception& e)
-        {
-          e.report(clog);
+          inc_metric("found_sourcerefs_total","source","files");
         }
     }
-  fts_close (fts);
 
-  gettimeofday (&tv_end, NULL);
-  double deltas = (tv_end.tv_sec - tv_start.tv_sec) + (tv_end.tv_usec - tv_start.tv_usec)*0.000001;
+  ps_scan_done
+    .reset()
+    .bind(1, rps)
+    .bind(2, st.st_mtime)
+    .bind(3, st.st_size)
+    .step_ok_done();
 
-  obatched(clog) << "fts/file traversed " << dir << " in " << deltas << "s, scanned=" << fts_scanned
-                 << ", regex-skipped=" << fts_regex
-                 << ", cached=" << fts_cached << ", debuginfo=" << fts_debuginfo
-                 << ", executable=" << fts_executable << ", source=" << fts_sourcefiles << endl;
+  if (verbose > 2)
+    obatched(clog) << "recorded buildid=" << buildid << " file=" << rps
+                   << " mtime=" << st.st_mtime << " atype="
+                   << (executable_p ? "E" : "")
+                   << (debuginfo_p ? "D" : "") << endl;
 }
 
 
-static void*
-thread_main_scan_source_file_path (void* arg)
-{
-  string dir = string((const char*) arg);
-
-  unsigned rescan_timer = 0;
-  sig_atomic_t forced_rescan_count = 0;
-  set_metric("thread_timer_max", "file", dir, rescan_s);
-  set_metric("thread_tid", "file", dir, tid());
-  while (! interrupted)
-    {
-      set_metric("thread_timer", "file", dir, rescan_timer);
-      set_metric("thread_forced_total", "file", dir, forced_rescan_count);
-      if (rescan_s && rescan_timer > rescan_s)
-        rescan_timer = 0;
-      if (sigusr1 != forced_rescan_count)
-        {
-          forced_rescan_count = sigusr1;
-          rescan_timer = 0;
-        }
-      if (rescan_timer == 0)
-        try
-          {
-            set_metric("thread_working", "file", dir, time(NULL));
-            inc_metric("thread_work_total", "file", dir);
-            scan_source_file_path (dir);
-            set_metric("thread_working", "file", dir, 0);
-          }
-        catch (const sqlite_exception& e)
-          {
-            obatched(cerr) << e.message << endl;
-          }
-      sleep (1);
-      rescan_timer ++;
-    }
-
-  return 0;
-}
-
-
-////////////////////////////////////////////////////////////////////////
 
 
 
-
-// Analyze given *.rpm file of given age; record buildids / exec/debuginfo-ness of its
+// Analyze given archive file of given age; record buildids / exec/debuginfo-ness of its
 // constituent files with given upsert statements.
 static void
-rpm_classify (const string& rps, sqlite_ps& ps_upsert_buildids, sqlite_ps& ps_upsert_files,
-              sqlite_ps& ps_upsert_de, sqlite_ps& ps_upsert_sref, sqlite_ps& ps_upsert_sdef,
-              time_t mtime,
-              unsigned& fts_executable, unsigned& fts_debuginfo, unsigned& fts_sref, unsigned& fts_sdef,
-              bool& fts_sref_complete_p)
+archive_classify (const string& rps, string& archive_extension,
+                  sqlite_ps& ps_upsert_buildids, sqlite_ps& ps_upsert_files,
+                  sqlite_ps& ps_upsert_de, sqlite_ps& ps_upsert_sref, sqlite_ps& ps_upsert_sdef,
+                  time_t mtime,
+                  unsigned& fts_executable, unsigned& fts_debuginfo, unsigned& fts_sref, unsigned& fts_sdef,
+                  bool& fts_sref_complete_p)
 {
-  string popen_cmd = string("rpm2cpio " + shell_escape(rps));
-  FILE* fp = popen (popen_cmd.c_str(), "r"); // "e" O_CLOEXEC?
-  if (fp == NULL)
-    throw libc_exception (errno, string("popen ") + popen_cmd);
-  defer_dtor<FILE*,int> fp_closer (fp, pclose);
+  string archive_decoder = "/dev/null";
+  for (auto&& arch : scan_archives)
+    if (string_endswith(rps, arch.first))
+      {
+        archive_extension = arch.first;
+        archive_decoder = arch.second;
+      }
+
+  FILE* fp;
+  defer_dtor<FILE*,int>::dtor_fn dfn;
+  if (archive_decoder != "cat")
+    {
+      string popen_cmd = archive_decoder + " " + shell_escape(rps);
+      fp = popen (popen_cmd.c_str(), "r"); // "e" O_CLOEXEC?
+      dfn = pclose;
+      if (fp == NULL)
+        throw libc_exception (errno, string("popen ") + popen_cmd);
+    }
+  else
+    {
+      fp = fopen (rps.c_str(), "r");
+      dfn = fclose;
+      if (fp == NULL)
+        throw libc_exception (errno, string("fopen ") + rps);
+    }
+  defer_dtor<FILE*,int> fp_closer (fp, dfn);
 
   struct archive *a;
   a = archive_read_new();
@@ -1879,19 +2087,19 @@ rpm_classify (const string& rps, sqlite_ps& ps_upsert_buildids, sqlite_ps& ps_up
     throw archive_exception("cannot create archive reader");
   defer_dtor<struct archive*,int> archive_closer (a, archive_read_free);
 
-  int rc = archive_read_support_format_cpio(a);
+  int rc = archive_read_support_format_all(a);
   if (rc != ARCHIVE_OK)
-    throw archive_exception(a, "cannot select cpio format");
+    throw archive_exception(a, "cannot select all formats");
   rc = archive_read_support_filter_all(a);
   if (rc != ARCHIVE_OK)
     throw archive_exception(a, "cannot select all filters");
 
   rc = archive_read_open_FILE (a, fp);
   if (rc != ARCHIVE_OK)
-    throw archive_exception(a, "cannot open archive from rpm2cpio pipe");
+    throw archive_exception(a, "cannot open archive from pipe");
 
   if (verbose > 3)
-    obatched(clog) << "rpm2cpio|libarchive scanning " << rps << endl;
+    obatched(clog) << "libarchive scanning " << rps << endl;
 
   while(1) // parse cpio archive entries
     {
@@ -1905,17 +2113,14 @@ rpm_classify (const string& rps, sqlite_ps& ps_upsert_buildids, sqlite_ps& ps_up
           if (! S_ISREG(archive_entry_mode (e))) // skip non-files completely
             continue;
 
-          string fn = archive_entry_pathname (e);
-          if (fn.size() > 1 && fn[0] == '.')
-            fn = fn.substr(1); // trim off the leading '.'
+          string fn = canonicalized_archive_entry_pathname (e);
 
           if (verbose > 3)
-            obatched(clog) << "rpm2cpio|libarchive checking " << fn << endl;
+            obatched(clog) << "libarchive checking " << fn << endl;
 
           // extract this file to a temporary file
-          const char *tmpdir_env = getenv ("TMPDIR") ?: "/tmp";
           char* tmppath = NULL;
-          rc = asprintf (&tmppath, "%s/debuginfod.XXXXXX", tmpdir_env);
+          rc = asprintf (&tmppath, "%s/debuginfod.XXXXXX", tmpdir.c_str());
           if (rc < 0)
             throw libc_exception (ENOMEM, "cannot allocate tmppath");
           defer_dtor<void*,void> tmmpath_freer (tmppath, free);
@@ -2027,248 +2232,349 @@ rpm_classify (const string& rps, sqlite_ps& ps_upsert_buildids, sqlite_ps& ps_up
 
 
 
-// scan for *.rpm files
+// scan for archive files such as .rpm
 static void
-scan_source_rpm_path (const string& dir)
+scan_archive_file (const string& rps, const stat_t& st,
+                   sqlite_ps& ps_upsert_buildids,
+                   sqlite_ps& ps_upsert_files,
+                   sqlite_ps& ps_upsert_de,
+                   sqlite_ps& ps_upsert_sref,
+                   sqlite_ps& ps_upsert_sdef,
+                   sqlite_ps& ps_query,
+                   sqlite_ps& ps_scan_done,
+                   unsigned& fts_cached,
+                   unsigned& fts_executable,
+                   unsigned& fts_debuginfo,
+                   unsigned& fts_sref,
+                   unsigned& fts_sdef)
 {
-  obatched(clog) << "fts/rpm traversing " << dir << endl;
+  /* See if we know of it already. */
+  int rc = ps_query
+    .reset()
+    .bind(1, rps)
+    .bind(2, st.st_mtime)
+    .step();
+  ps_query.reset();
+  if (rc == SQLITE_ROW) // i.e., a result, as opposed to DONE (no results)
+    // no need to recheck a file/version we already know
+    // specifically, no need to parse this archive again, since we already have
+    // it as a D or E or S record,
+    // (so is stored with buildid=NULL)
+    {
+      fts_cached ++;
+      return;
+    }
 
-  sqlite_ps ps_upsert_buildids (db, "rpm-buildid-intern", "insert or ignore into " BUILDIDS "_buildids VALUES (NULL, ?);");
-  sqlite_ps ps_upsert_files (db, "rpm-file-intern", "insert or ignore into " BUILDIDS "_files VALUES (NULL, ?);");
-  sqlite_ps ps_upsert_de (db, "rpm-de-insert",
+  // intern the archive file name
+  ps_upsert_files
+    .reset()
+    .bind(1, rps)
+    .step_ok_done();
+
+  // extract the archive contents
+  unsigned my_fts_executable = 0, my_fts_debuginfo = 0, my_fts_sref = 0, my_fts_sdef = 0;
+  bool my_fts_sref_complete_p = true;
+  try
+    {
+      string archive_extension;
+      archive_classify (rps, archive_extension,
+                        ps_upsert_buildids, ps_upsert_files,
+                        ps_upsert_de, ps_upsert_sref, ps_upsert_sdef, // dalt
+                        st.st_mtime,
+                        my_fts_executable, my_fts_debuginfo, my_fts_sref, my_fts_sdef,
+                        my_fts_sref_complete_p);
+      inc_metric ("scanned_total","source",archive_extension + " archive");
+      add_metric("found_debuginfo_total","source",archive_extension + " archive",
+                 my_fts_debuginfo);
+      add_metric("found_executable_total","source",archive_extension + " archive",
+                 my_fts_executable);
+      add_metric("found_sourcerefs_total","source",archive_extension + " archive",
+                 my_fts_sref);
+    }
+  catch (const reportable_exception& e)
+    {
+      e.report(clog);
+    }
+
+  if (verbose > 2)
+    obatched(clog) << "scanned archive=" << rps
+                   << " mtime=" << st.st_mtime
+                   << " executables=" << my_fts_executable
+                   << " debuginfos=" << my_fts_debuginfo
+                   << " srefs=" << my_fts_sref
+                   << " sdefs=" << my_fts_sdef
+                   << endl;
+
+  fts_executable += my_fts_executable;
+  fts_debuginfo += my_fts_debuginfo;
+  fts_sref += my_fts_sref;
+  fts_sdef += my_fts_sdef;
+
+  if (my_fts_sref_complete_p) // leave incomplete?
+    ps_scan_done
+      .reset()
+      .bind(1, rps)
+      .bind(2, st.st_mtime)
+      .bind(3, st.st_size)
+      .step_ok_done();
+}
+
+
+
+////////////////////////////////////////////////////////////////////////
+
+
+
+// The thread that consumes file names off of the scanq.  We hold
+// the persistent sqlite_ps's at this level and delegate file/archive
+// scanning to other functions.
+static void*
+thread_main_scanner (void* arg)
+{
+  (void) arg;
+
+  // all the prepared statements fit to use, the _f_ set:
+  sqlite_ps ps_f_upsert_buildids (db, "file-buildids-intern", "insert or ignore into " BUILDIDS "_buildids VALUES (NULL, ?);");
+  sqlite_ps ps_f_upsert_files (db, "file-files-intern", "insert or ignore into " BUILDIDS "_files VALUES (NULL, ?);");
+  sqlite_ps ps_f_upsert_de (db, "file-de-upsert",
+                          "insert or ignore into " BUILDIDS "_f_de "
+                          "(buildid, debuginfo_p, executable_p, file, mtime) "
+                          "values ((select id from " BUILDIDS "_buildids where hex = ?),"
+                          "        ?,?,"
+                          "        (select id from " BUILDIDS "_files where name = ?), ?);");
+  sqlite_ps ps_f_upsert_s (db, "file-s-upsert",
+                         "insert or ignore into " BUILDIDS "_f_s "
+                         "(buildid, artifactsrc, file, mtime) "
+                         "values ((select id from " BUILDIDS "_buildids where hex = ?),"
+                         "        (select id from " BUILDIDS "_files where name = ?),"
+                         "        (select id from " BUILDIDS "_files where name = ?),"
+                         "        ?);");
+  sqlite_ps ps_f_query (db, "file-negativehit-find",
+                        "select 1 from " BUILDIDS "_file_mtime_scanned where sourcetype = 'F' "
+                        "and file = (select id from " BUILDIDS "_files where name = ?) and mtime = ?;");
+  sqlite_ps ps_f_scan_done (db, "file-scanned",
+                          "insert or ignore into " BUILDIDS "_file_mtime_scanned (sourcetype, file, mtime, size)"
+                          "values ('F', (select id from " BUILDIDS "_files where name = ?), ?, ?);");
+
+  // and now for the _r_ set
+  sqlite_ps ps_r_upsert_buildids (db, "rpm-buildid-intern", "insert or ignore into " BUILDIDS "_buildids VALUES (NULL, ?);");
+  sqlite_ps ps_r_upsert_files (db, "rpm-file-intern", "insert or ignore into " BUILDIDS "_files VALUES (NULL, ?);");
+  sqlite_ps ps_r_upsert_de (db, "rpm-de-insert",
                           "insert or ignore into " BUILDIDS "_r_de (buildid, debuginfo_p, executable_p, file, mtime, content) values ("
                           "(select id from " BUILDIDS "_buildids where hex = ?), ?, ?, "
                           "(select id from " BUILDIDS "_files where name = ?), ?, "
                           "(select id from " BUILDIDS "_files where name = ?));");
-  sqlite_ps ps_upsert_sref (db, "rpm-sref-insert",
+  sqlite_ps ps_r_upsert_sref (db, "rpm-sref-insert",
                             "insert or ignore into " BUILDIDS "_r_sref (buildid, artifactsrc) values ("
                             "(select id from " BUILDIDS "_buildids where hex = ?), "
                             "(select id from " BUILDIDS "_files where name = ?));");
-  sqlite_ps ps_upsert_sdef (db, "rpm-sdef-insert",
+  sqlite_ps ps_r_upsert_sdef (db, "rpm-sdef-insert",
                             "insert or ignore into " BUILDIDS "_r_sdef (file, mtime, content) values ("
                             "(select id from " BUILDIDS "_files where name = ?), ?,"
                             "(select id from " BUILDIDS "_files where name = ?));");
-  sqlite_ps ps_query (db, "rpm-negativehit-query",
+  sqlite_ps ps_r_query (db, "rpm-negativehit-query",
                       "select 1 from " BUILDIDS "_file_mtime_scanned where "
                       "sourcetype = 'R' and file = (select id from " BUILDIDS "_files where name = ?) and mtime = ?;");
-  sqlite_ps ps_scan_done (db, "rpm-scanned",
+  sqlite_ps ps_r_scan_done (db, "rpm-scanned",
                           "insert or ignore into " BUILDIDS "_file_mtime_scanned (sourcetype, file, mtime, size)"
                           "values ('R', (select id from " BUILDIDS "_files where name = ?), ?, ?);");
 
-  char * const dirs[] = { (char*) dir.c_str(), NULL };
 
-  struct timeval tv_start, tv_end;
-  gettimeofday (&tv_start, NULL);
-  unsigned fts_scanned=0, fts_regex=0, fts_cached=0, fts_debuginfo=0;
-  unsigned fts_executable=0, fts_rpm = 0, fts_sref=0, fts_sdef=0;
+  unsigned fts_cached = 0, fts_executable = 0, fts_debuginfo = 0, fts_sourcefiles = 0;
+  unsigned fts_sref = 0, fts_sdef = 0;
 
-  FTS *fts = fts_open (dirs,
-                       (traverse_logical ? FTS_LOGICAL : FTS_PHYSICAL|FTS_XDEV)
-                       | FTS_NOCHDIR /* multithreaded */,
-                       NULL);
-  if (fts == NULL)
+  add_metric("thread_count", "role", "scan", 1);
+  add_metric("thread_busy", "role", "scan", 1);
+  while (! interrupted)
     {
-      obatched(cerr) << "cannot fts_open " << dir << endl;
-      return;
-    }
+      scan_payload p;
 
-  FTSENT *f;
-  while ((f = fts_read (fts)) != NULL)
-    {
-      semaphore_borrower handle_one_file (scan_concurrency_sem);
-
-      fts_scanned ++;
-      if (interrupted)
-        break;
-
-      if (verbose > 2)
-        obatched(clog) << "fts/rpm traversing " << f->fts_path << endl;
+      add_metric("thread_busy", "role", "scan", -1);
+      bool gotone = scanq.wait_front(p);
+      add_metric("thread_busy", "role", "scan", 1);
+      if (! gotone) continue; // or break
 
       try
         {
-          /* Found a file.  Convert it to an absolute path, so
-             the buildid database does not have relative path
-             names that are unresolvable from a subsequent run
-             in a different cwd. */
-          char *rp = realpath(f->fts_path, NULL);
-          if (rp == NULL)
-            continue; // ignore dangling symlink or such
-          string rps = string(rp);
-          free (rp);
+          bool scan_archive = false;
+          for (auto&& arch : scan_archives)
+            if (string_endswith(p.first, arch.first))
+              scan_archive = true;
 
-          bool ri = !regexec (&file_include_regex, rps.c_str(), 0, 0, 0);
-          bool rx = !regexec (&file_exclude_regex, rps.c_str(), 0, 0, 0);
-          if (!ri || rx)
-            {
-              if (verbose > 3)
-                obatched(clog) << "fts/rpm skipped by regex " << (!ri ? "I" : "") << (rx ? "X" : "") << endl;
-              fts_regex ++;
-              continue;
-            }
+          if (scan_archive)
+            scan_archive_file (p.first, p.second,
+                               ps_r_upsert_buildids,
+                               ps_r_upsert_files,
+                               ps_r_upsert_de,
+                               ps_r_upsert_sref,
+                               ps_r_upsert_sdef,
+                               ps_r_query,
+                               ps_r_scan_done,
+                               fts_cached,
+                               fts_executable,
+                               fts_debuginfo,
+                               fts_sref,
+                               fts_sdef);
 
-          switch (f->fts_info)
-            {
-            case FTS_D:
-              break;
-
-            case FTS_DP:
-              break;
-
-            case FTS_F:
-              {
-                // heuristic: reject if file name does not end with ".rpm"
-                // (alternative: try opening with librpm etc., caching)
-                string suffix = ".rpm";
-                if (rps.size() < suffix.size() ||
-                    rps.substr(rps.size()-suffix.size()) != suffix)
-                  continue;
-                fts_rpm ++;
-
-                /* See if we know of it already. */
-                int rc = ps_query
-                  .reset()
-                  .bind(1, rps)
-                  .bind(2, f->fts_statp->st_mtime)
-                  .step();
-                ps_query.reset();
-                if (rc == SQLITE_ROW) // i.e., a result, as opposed to DONE (no results)
-                  // no need to recheck a file/version we already know
-                  // specifically, no need to parse this rpm again, since we already have
-                  // it as a D or E or S record,
-                  // (so is stored with buildid=NULL)
-                  {
-                    fts_cached ++;
-                    continue;
-                  }
-
-                // intern the rpm file name
-                ps_upsert_files
-                  .reset()
-                  .bind(1, rps)
-                  .step_ok_done();
-
-                // extract the rpm contents via popen("rpm2cpio") | libarchive | loop-of-elf_classify()
-                unsigned my_fts_executable = 0, my_fts_debuginfo = 0, my_fts_sref = 0, my_fts_sdef = 0;
-                bool my_fts_sref_complete_p = true;
-                try
-                  {
-                    rpm_classify (rps,
-                                  ps_upsert_buildids, ps_upsert_files,
-                                  ps_upsert_de, ps_upsert_sref, ps_upsert_sdef, // dalt
-                                  f->fts_statp->st_mtime,
-                                  my_fts_executable, my_fts_debuginfo, my_fts_sref, my_fts_sdef,
-                                  my_fts_sref_complete_p);
-                    inc_metric ("scanned_total","source","rpm");
-                    add_metric("found_debuginfo_total","source","rpm",
-                               my_fts_debuginfo);
-                    add_metric("found_executable_total","source","rpm",
-                               my_fts_executable);
-                    add_metric("found_sourcerefs_total","source","rpm",
-                               my_fts_sref);
-                  }
-                catch (const reportable_exception& e)
-                  {
-                    e.report(clog);
-                  }
-
-                if (verbose > 2)
-                  obatched(clog) << "scanned rpm=" << rps
-                                 << " mtime=" << f->fts_statp->st_mtime
-                                 << " executables=" << my_fts_executable
-                                 << " debuginfos=" << my_fts_debuginfo
-                                 << " srefs=" << my_fts_sref
-                                 << " sdefs=" << my_fts_sdef
-                                 << endl;
- 
-                fts_executable += my_fts_executable;
-                fts_debuginfo += my_fts_debuginfo;
-                fts_sref += my_fts_sref;
-                fts_sdef += my_fts_sdef;
-
-                if (my_fts_sref_complete_p) // leave incomplete?
-                  ps_scan_done
-                    .reset()
-                    .bind(1, rps)
-                    .bind(2, f->fts_statp->st_mtime)
-                    .bind(3, f->fts_statp->st_size)
-                    .step_ok_done();
-              }
-              break;
-
-            case FTS_ERR:
-            case FTS_NS:
-              throw libc_exception(f->fts_errno, string("fts/rpm traversal ") + string(f->fts_path));
-
-            default:
-            case FTS_SL: /* ignore symlinks; seen in non-L mode only */
-              break;
-            }
-
-          if ((verbose && f->fts_info == FTS_DP) ||
-              (verbose > 1 && f->fts_info == FTS_F))
-            obatched(clog) << "fts/rpm traversing " << rps << ", scanned=" << fts_scanned
-                           << ", regex-skipped=" << fts_regex
-                           << ", rpm=" << fts_rpm << ", cached=" << fts_cached << ", debuginfo=" << fts_debuginfo
-                           << ", executable=" << fts_executable
-                           << ", sourcerefs=" << fts_sref << ", sourcedefs=" << fts_sdef << endl;
+          if (scan_files) // NB: maybe "else if" ?
+            scan_source_file (p.first, p.second,
+                              ps_f_upsert_buildids,
+                              ps_f_upsert_files,
+                              ps_f_upsert_de,
+                              ps_f_upsert_s,
+                              ps_f_query,
+                              ps_f_scan_done,
+                              fts_cached, fts_executable, fts_debuginfo, fts_sourcefiles);
         }
       catch (const reportable_exception& e)
         {
-          e.report(clog);
+          e.report(cerr);
         }
+
+      inc_metric("thread_work_total", "role","scan");
     }
-  fts_close (fts);
 
-  gettimeofday (&tv_end, NULL);
-  double deltas = (tv_end.tv_sec - tv_start.tv_sec) + (tv_end.tv_usec - tv_start.tv_usec)*0.000001;
-
-  obatched(clog) << "fts/rpm traversed " << dir << " in " << deltas << "s, scanned=" << fts_scanned
-                 << ", regex-skipped=" << fts_regex
-                 << ", rpm=" << fts_rpm << ", cached=" << fts_cached << ", debuginfo=" << fts_debuginfo
-                 << ", executable=" << fts_executable
-                 << ", sourcerefs=" << fts_sref << ", sourcedefs=" << fts_sdef << endl;
+  add_metric("thread_busy", "role", "scan", -1);
+  return 0;
 }
 
 
 
-static void*
-thread_main_scan_source_rpm_path (void* arg)
+// The thread that traverses all the source_paths and enqueues all the
+// matching files into the file/archive scan queue.
+static void
+scan_source_paths()
 {
-  string dir = string((const char*) arg);
+  // NB: fedora 31 glibc/fts(3) crashes inside fts_read() on empty
+  // path list.
+  if (source_paths.empty())
+    return;
 
-  unsigned rescan_timer = 0;
+  // Turn the source_paths into an fts(3)-compatible char**.  Since
+  // source_paths[] does not change after argv processing, the
+  // c_str()'s are safe to keep around awile.
+  vector<const char *> sps;
+  for (auto&& sp: source_paths)
+    sps.push_back(sp.c_str());
+  sps.push_back(NULL);
+
+  FTS *fts = fts_open ((char * const *)sps.data(),
+                      (traverse_logical ? FTS_LOGICAL : FTS_PHYSICAL|FTS_XDEV)
+                      | FTS_NOCHDIR /* multithreaded */,
+                      NULL);
+  if (fts == NULL)
+    throw libc_exception(errno, "cannot fts_open");
+  defer_dtor<FTS*,int> fts_cleanup (fts, fts_close);
+
+  struct timeval tv_start, tv_end;
+  gettimeofday (&tv_start, NULL);
+  unsigned fts_scanned = 0, fts_regex = 0;
+
+  FTSENT *f;
+  while ((f = fts_read (fts)) != NULL)
+  {
+    if (interrupted) break;
+
+    fts_scanned ++;
+
+    if (verbose > 2)
+      obatched(clog) << "fts traversing " << f->fts_path << endl;
+
+    /* Found a file.  Convert it to an absolute path, so
+       the buildid database does not have relative path
+       names that are unresolvable from a subsequent run
+       in a different cwd. */
+    char *rp = realpath(f->fts_path, NULL);
+    if (rp == NULL)
+      continue; // ignore dangling symlink or such
+    string rps = string(rp);
+    free (rp);
+
+    bool ri = !regexec (&file_include_regex, rps.c_str(), 0, 0, 0);
+    bool rx = !regexec (&file_exclude_regex, rps.c_str(), 0, 0, 0);
+    if (!ri || rx)
+      {
+        if (verbose > 3)
+          obatched(clog) << "fts skipped by regex " << (!ri ? "I" : "") << (rx ? "X" : "") << endl;
+        fts_regex ++;
+        continue;
+      }
+
+    switch (f->fts_info)
+      {
+      case FTS_F:
+        scanq.push_back (make_pair(rps, *f->fts_statp));
+        break;
+
+      case FTS_ERR:
+      case FTS_NS:
+        // report on some types of errors because they may reflect fixable misconfiguration
+        {
+          auto x = libc_exception(f->fts_errno, string("fts traversal ") + string(f->fts_path));
+          x.report(cerr);
+        }
+        break;
+
+      default:
+        ;
+        /* ignore */
+      }
+  }
+  gettimeofday (&tv_end, NULL);
+  double deltas = (tv_end.tv_sec - tv_start.tv_sec) + (tv_end.tv_usec - tv_start.tv_usec)*0.000001;
+
+  obatched(clog) << "fts traversed source paths in " << deltas << "s, scanned=" << fts_scanned
+                 << ", regex-skipped=" << fts_regex << endl;
+}
+
+
+static void*
+thread_main_fts_source_paths (void* arg)
+{
+  (void) arg; // ignore; we operate on global data
+
   sig_atomic_t forced_rescan_count = 0;
-  set_metric("thread_timer_max", "rpm", dir, rescan_s);
-  set_metric("thread_tid", "rpm", dir, tid());
+  set_metric("thread_tid", "role","traverse", tid());
+  add_metric("thread_count", "role", "traverse", 1);
+
+  time_t last_rescan = 0;
+
   while (! interrupted)
     {
-      set_metric("thread_timer", "rpm", dir, rescan_timer);
-      set_metric("thread_forced_total", "rpm", dir, forced_rescan_count);
-      if (rescan_s && rescan_timer > rescan_s)
-        rescan_timer = 0;
+      sleep (1);
+      scanq.wait_idle(); // don't start a new traversal while scanners haven't finished the job
+      scanq.done_idle(); // release the hounds
+      if (interrupted) break;
+
+      time_t now = time(NULL);
+      bool rescan_now = false;
+      if (last_rescan == 0) // at least one initial rescan is documented even for -t0
+        rescan_now = true;
+      if (rescan_s > 0 && (long)now > (long)(last_rescan + rescan_s))
+        rescan_now = true;
       if (sigusr1 != forced_rescan_count)
         {
           forced_rescan_count = sigusr1;
-          rescan_timer = 0;
+          rescan_now = true;
         }
-      if (rescan_timer == 0)
+      if (rescan_now)
         try
           {
-            set_metric("thread_working", "rpm", dir, time(NULL));
-            inc_metric("thread_work_total", "rpm", dir);
-            scan_source_rpm_path (dir);
-            set_metric("thread_working", "rpm", dir, 0);
+            set_metric("thread_busy", "role","traverse", 1);
+            scan_source_paths();
+            last_rescan = time(NULL); // NB: now was before scanning
+            inc_metric("thread_work_total", "role","traverse");
+            set_metric("thread_busy", "role","traverse", 0);
           }
-        catch (const sqlite_exception& e)
+        catch (const reportable_exception& e)
           {
-            obatched(cerr) << e.message << endl;
+            e.report(cerr);
           }
-      sleep (1);
-      rescan_timer ++;
     }
 
   return 0;
 }
+
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -2359,6 +2665,9 @@ void groom()
 
   sqlite3_db_release_memory(db); // shrink the process if possible
 
+  fdcache.limit(0,0); // release the fdcache contents
+  fdcache.limit(fdcache_fds,fdcache_mbs); // restore status quo parameters
+
   gettimeofday (&tv_end, NULL);
   double deltas = (tv_end.tv_sec - tv_start.tv_sec) + (tv_end.tv_usec - tv_start.tv_usec)*0.000001;
 
@@ -2369,35 +2678,44 @@ void groom()
 static void*
 thread_main_groom (void* /*arg*/)
 {
-  unsigned groom_timer = 0;
   sig_atomic_t forced_groom_count = 0;
-  set_metric("thread_timer_max", "role", "groom", groom_s);
   set_metric("thread_tid", "role", "groom", tid());
-  while (! interrupted)
+  add_metric("thread_count", "role", "groom", 1);
+
+  time_t last_groom = 0;
+
+  while (1)
     {
-      set_metric("thread_timer", "role", "groom", groom_timer);
-      set_metric("thread_forced_total", "role", "groom", forced_groom_count);      
-      if (groom_s && groom_timer > groom_s)
-        groom_timer = 0;
+      sleep (1);
+      scanq.wait_idle(); // PR25394: block scanners during grooming!
+      if (interrupted) break;
+
+      time_t now = time(NULL);
+      bool groom_now = false;
+      if (last_groom == 0) // at least one initial groom is documented even for -g0
+        groom_now = true;
+      if (groom_s > 0 && (long)now > (long)(last_groom + groom_s))
+        groom_now = true;
       if (sigusr2 != forced_groom_count)
         {
           forced_groom_count = sigusr2;
-          groom_timer = 0;
+          groom_now = true;
         }
-      if (groom_timer == 0)
+      if (groom_now)
         try
           {
-            set_metric("thread_working", "role", "groom", time(NULL));
-            inc_metric("thread_work_total", "role", "groom");
+            set_metric("thread_busy", "role", "groom", 1);
             groom ();
-            set_metric("thread_working", "role", "groom", 0);
+            last_groom = time(NULL); // NB: now was before grooming
+            inc_metric("thread_work_total", "role", "groom");
+            set_metric("thread_busy", "role", "groom", 0);
           }
         catch (const sqlite_exception& e)
           {
             obatched(cerr) << e.message << endl;
           }
-      sleep (1);
-      groom_timer ++;
+
+      scanq.done_idle();
     }
 
   return 0;
@@ -2473,6 +2791,8 @@ main (int argc, char *argv[])
   /* Tell the library which version we are expecting.  */
   elf_version (EV_CURRENT);
 
+  tmpdir = string(getenv("TMPDIR") ?: "/tmp");
+
   /* Set computed default values. */
   db_path = string(getenv("HOME") ?: "/") + string("/.debuginfod.sqlite"); /* XDG? */
   int rc = regcomp (& file_include_regex, ".*", REG_EXTENDED|REG_NOSUB); // match everything
@@ -2482,6 +2802,15 @@ main (int argc, char *argv[])
   if (rc != 0)
     error (EXIT_FAILURE, 0, "regcomp failure: %d", rc);
 
+  // default parameters for fdcache are computed from system stats
+  struct statfs sfs;
+  rc = statfs(tmpdir.c_str(), &sfs);
+  if (rc < 0)
+    fdcache_mbs = 1024; // 1 gigabyte
+  else
+    fdcache_mbs = sfs.f_bavail * sfs.f_bsize / 1024 / 1024 / 4; // 25% of free space
+  fdcache_fds = concurrency * 2;
+
   /* Parse and process arguments.  */
   int remaining;
   argp_program_version_hook = print_version; // this works
@@ -2490,8 +2819,10 @@ main (int argc, char *argv[])
       error (EXIT_FAILURE, 0,
              "unexpected argument: %s", argv[remaining]);
 
-  if (!scan_rpms && !scan_files && source_paths.size()>0)
-    obatched(clog) << "warning: without -F and/or -R, ignoring PATHs" << endl;
+  if (scan_archives.size()==0 && !scan_files && source_paths.size()>0)
+    obatched(clog) << "warning: without -F -R -U -Z, ignoring PATHs" << endl;
+
+  fdcache.limit(fdcache_fds, fdcache_mbs);
 
   (void) signal (SIGPIPE, SIG_IGN); // microhttpd can generate it incidentally, ignore
   (void) signal (SIGINT, signal_handler); // ^C
@@ -2499,9 +2830,6 @@ main (int argc, char *argv[])
   (void) signal (SIGTERM, signal_handler); // systemd
   (void) signal (SIGUSR1, sigusr1_handler); // end-user
   (void) signal (SIGUSR2, sigusr2_handler); // end-user
-
-  // do this before any threads start
-  scan_concurrency_sem = new semaphore(concurrency);
 
   /* Get database ready. */
   rc = sqlite3_open_v2 (db_path.c_str(), &db, (SQLITE_OPEN_READWRITE
@@ -2611,64 +2939,67 @@ main (int argc, char *argv[])
   if (maxigroom)
     obatched(clog) << "maxigroomed database" << endl;
 
-
   obatched(clog) << "search concurrency " << concurrency << endl;
   obatched(clog) << "rescan time " << rescan_s << endl;
+  obatched(clog) << "fdcache fds " << fdcache_fds << endl;
+  obatched(clog) << "fdcache mbs " << fdcache_mbs << endl;
+  obatched(clog) << "fdcache tmpdir " << tmpdir << endl;
   obatched(clog) << "groom time " << groom_s << endl;
+  if (scan_archives.size()>0)
+    {
+      obatched ob(clog);
+      auto& o = ob << "scanning archive types ";
+      for (auto&& arch : scan_archives)
+	o << arch.first << "(" << arch.second << ") ";
+      o << endl;
+    }
   const char* du = getenv(DEBUGINFOD_URLS_ENV_VAR);
   if (du && du[0] != '\0') // set to non-empty string?
     obatched(clog) << "upstream debuginfod servers: " << du << endl;
 
-  vector<pthread_t> source_file_scanner_threads;
-  vector<pthread_t> source_rpm_scanner_threads;
-  pthread_t groom_thread;
+  vector<pthread_t> all_threads;
 
-  rc = pthread_create (& groom_thread, NULL, thread_main_groom, NULL);
+  pthread_t pt;
+  rc = pthread_create (& pt, NULL, thread_main_groom, NULL);
   if (rc < 0)
     error (0, 0, "warning: cannot spawn thread (%d) to groom database\n", rc);
- 
-  if (scan_files) for (auto&& it : source_paths)
-    {
-      pthread_t pt;
-      rc = pthread_create (& pt, NULL, thread_main_scan_source_file_path, (void*) it.c_str());
-      if (rc < 0)
-        error (0, 0, "warning: cannot spawn thread (%d) to scan source files %s\n", rc, it.c_str());
-      else
-        source_file_scanner_threads.push_back(pt);
-    }
+  else
+    all_threads.push_back(pt);
 
-  if (scan_rpms) for (auto&& it : source_paths)
+  if (scan_files || scan_archives.size() > 0)
     {
-      pthread_t pt;
-      rc = pthread_create (& pt, NULL, thread_main_scan_source_rpm_path, (void*) it.c_str());
+      pthread_create (& pt, NULL, thread_main_fts_source_paths, NULL);
       if (rc < 0)
-        error (0, 0, "warning: cannot spawn thread (%d) to scan source rpms %s\n", rc, it.c_str());
-      else
-        source_rpm_scanner_threads.push_back(pt);
+        error (0, 0, "warning: cannot spawn thread (%d) to traverse source paths\n", rc);
+      all_threads.push_back(pt);
+      for (unsigned i=0; i<concurrency; i++)
+        {
+          pthread_create (& pt, NULL, thread_main_scanner, NULL);
+          if (rc < 0)
+            error (0, 0, "warning: cannot spawn thread (%d) to scan source files / archives\n", rc);
+          all_threads.push_back(pt);
+        }
     }
 
   /* Trivial main loop! */
   set_metric("ready", 1);
   while (! interrupted)
     pause ();
+  scanq.nuke(); // wake up any remaining scanq-related threads, let them die
   set_metric("ready", 0);
 
   if (verbose)
     obatched(clog) << "stopping" << endl;
 
-  /* Join any source scanning threads. */
-  for (auto&& it : source_file_scanner_threads)
+  /* Join all our threads. */
+  for (auto&& it : all_threads)
     pthread_join (it, NULL);
-  for (auto&& it : source_rpm_scanner_threads)
-    pthread_join (it, NULL);
-  pthread_join (groom_thread, NULL);
-  
+
   /* Stop all the web service threads. */
   if (d4) MHD_stop_daemon (d4);
   if (d6) MHD_stop_daemon (d6);
 
   /* With all threads known dead, we can clean up the global resources. */
-  delete scan_concurrency_sem;
   rc = sqlite3_exec (db, DEBUGINFOD_SQLITE_CLEANUP_DDL, NULL, NULL, NULL);
   if (rc != SQLITE_OK)
     {

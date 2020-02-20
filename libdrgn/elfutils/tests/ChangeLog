@@ -1,3 +1,67 @@
+2020-02-19  Aaron Merey  <amerey@redhat.com>
+
+	* run-debuginfod-find.sh: Test that files unrelated to debuginfod
+	survive cache cleaning.
+
+2020-02-08  Mark Wielaard  <mark@klomp.org>
+
+	* run-pt_gnu_prop-tests.sh: New test.
+	* testfile_pt_gnu_prop.bz2: New test file.
+	* testfile_pt_gnu_prop32.bz2: Likewise.
+	* Makefile.am (TESTS): Add run-pt_gnu_prop-tests.sh
+	(EXTRA_DISTS): Likewise. Add testfile_pt_gnu_prop.bz2 and
+	testfile_pt_gnu_prop32.bz2.
+
+2020-02-05  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfo-tars/*: New test files from Eli Schwartz of ArchLinux.
+	* Makefile.am (EXTRA_DIST): Package them.
+	* run-debuginfod-find.sh: Run basic archive extraction tests.
+
+2020-02-03  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Protect against missing curl & rpm2cpio.
+
+2020-01-19  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Check for proper groom completion count.
+
+2020-01-18  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test empty source_paths[].
+
+2020-01-08  Mark Wielaard  <mark@klomp.org>
+
+	* asm-test?.c: include libebl.h.
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test --fdcache* options.
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Adjust to new work-queue metrics.
+
+2020-01-02  Mark Wielaard  <mark@klomp.org>
+
+	* run-debuginfod-find.sh: Set DEBUGINFOD_TIMEOUT to 10.
+
+2019-12-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-debs/*: New test files, based on
+	https://wiki.debian.org/Packaging/Intro.
+	* run-debuginfod-find.sh: Test deb file processing (if dpkg
+	installed).
+
+2019-12-04  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuinfod-find.sh: Test $DEBUGINFOD_PROGRESS.
+
+2019-12-11  Omar Sandoval  <osandov@fb.com>
+
+	* dwfl-report-segment-coalesce.c: New test.
+	* Makefile.am: Add dwfl-report-segment-coalesce
+
 2019-12-06  Mark Wielaard  <mark@klomp.org>
 
 	* run-debuginfod-find.sh: Force -Wl,--build-id.

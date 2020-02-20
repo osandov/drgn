@@ -787,7 +787,7 @@ show_symbols_sysv (Ebl *ebl, GElf_Word strndx, const char *fullname,
 #endif
 
   /* Iterate over all symbols.  */
-  for (cnt = 1; cnt < nsyms; ++cnt)
+  for (cnt = 0; cnt < nsyms; ++cnt)
     {
       /* In this format SECTION entries are not printed.  */
       if (GELF_ST_TYPE (syms[cnt].sym.st_info) == STT_SECTION)

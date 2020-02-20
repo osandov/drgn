@@ -658,6 +658,10 @@ section [%2d] '%s': symbol table cannot have more than one extended index sectio
     ERROR (gettext ("\
 section [%2u] '%s': entry size is does not match ElfXX_Sym\n"),
 	   idx, section_name (ebl, idx));
+  else if (shdr->sh_info > shdr->sh_size / sh_entsize)
+    ERROR (gettext ("\
+section [%2u] '%s': number of local entries in 'st_info' larger than table size\n"),
+	   idx, section_name (ebl, idx));
 
   /* Test the zeroth entry.  */
   GElf_Sym sym_mem;
@@ -4483,8 +4487,13 @@ only executables, shared objects, and core files can have program headers\n"));
 	  continue;
 	}
 
+#ifndef PT_GNU_PROPERTY
+#define PT_GNU_PROPERTY (PT_LOOS + 0x474e553)
+#endif
+
       if (phdr->p_type >= PT_NUM && phdr->p_type != PT_GNU_EH_FRAME
 	  && phdr->p_type != PT_GNU_STACK && phdr->p_type != PT_GNU_RELRO
+	  && phdr->p_type != PT_GNU_PROPERTY
 	  /* Check for a known machine-specific type.  */
 	  && ebl_segment_type_name (ebl, phdr->p_type, NULL, 0) == NULL)
 	ERROR (gettext ("\

@@ -33,6 +33,7 @@
 #define DEBUGINFOD_URLS_ENV_VAR "DEBUGINFOD_URLS"
 #define DEBUGINFOD_CACHE_PATH_ENV_VAR "DEBUGINFOD_CACHE_PATH"
 #define DEBUGINFOD_TIMEOUT_ENV_VAR "DEBUGINFOD_TIMEOUT"
+#define DEBUGINFOD_PROGRESS_ENV_VAR "DEBUGINFOD_PROGRESS"
 
 /* Handle for debuginfod-client connection.  */
 typedef struct debuginfod_client debuginfod_client;
@@ -47,7 +48,7 @@ debuginfod_client *debuginfod_begin (void);
 /* Query the urls contained in $DEBUGINFOD_URLS for a file with
    the specified type and build id.  If build_id_len == 0, the
    build_id is supplied as a lowercase hexadecimal string; otherwise
-   it is a binary blob of given legnth.
+   it is a binary blob of given length.
 
    If successful, return a file descriptor to the target, otherwise
    return a posix error code.  If successful, set *path to a

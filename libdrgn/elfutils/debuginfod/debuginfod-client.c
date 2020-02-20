@@ -1,5 +1,5 @@
 /* Retrieve ELF / DWARF / source files from the debuginfod.
-   Copyright (C) 2019 Red Hat, Inc.
+   Copyright (C) 2019-2020 Red Hat, Inc.
    This file is part of elfutils.
 
    This file is free software; you can redistribute it and/or modify
@@ -40,6 +40,7 @@
 
 #include "config.h"
 #include "debuginfod.h"
+#include "system.h"
 #include <assert.h>
 #include <dirent.h>
 #include <stdio.h>
@@ -49,6 +50,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fts.h>
+#include <regex.h>
 #include <string.h>
 #include <stdbool.h>
 #include <linux/limits.h>
@@ -57,6 +59,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <curl/curl.h>
 
 /* If fts.h is included before config.h, its indirect inclusions may not
@@ -98,16 +101,15 @@ static const time_t cache_default_max_unused_age_s = 604800; /* 1 week */
 static const char *cache_default_name = ".debuginfod_client_cache";
 static const char *cache_path_envvar = DEBUGINFOD_CACHE_PATH_ENV_VAR;
 
-/* URLs of debuginfods, separated by url_delim.
-   This env var must be set for debuginfod-client to run.  */
+/* URLs of debuginfods, separated by url_delim. */
 static const char *server_urls_envvar = DEBUGINFOD_URLS_ENV_VAR;
 static const char *url_delim =  " ";
 static const char url_delim_char = ' ';
 
-/* Timeout for debuginfods, in seconds.
-   This env var must be set for debuginfod-client to run.  */
+/* Timeout for debuginfods, in seconds (to get at least 100K). */
 static const char *server_timeout_envvar = DEBUGINFOD_TIMEOUT_ENV_VAR;
-static int server_timeout = 5;
+static const long default_timeout = 90;
+
 
 /* Data associated with a particular CURL easy handle. Passed to
    the write callback.  */
@@ -240,10 +242,19 @@ debuginfod_clean_cache(debuginfod_client *c,
   if (fts == NULL)
     return -errno;
 
+  regex_t re;
+  const char * pattern = ".*/[a-f0-9]+/(debuginfo|executable|source.*)$";
+  if (regcomp (&re, pattern, REG_EXTENDED | REG_NOSUB) != 0)
+    return -ENOMEM;
+
   FTSENT *f;
   long files = 0;
   while ((f = fts_read(fts)) != NULL)
     {
+      /* ignore any files that do not match the pattern.  */
+      if (regexec (&re, f->fts_path, 0, NULL, 0) != 0)
+        continue;
+
       files++;
       if (c->progressfn) /* inform/check progress callback */
         if ((c->progressfn) (c, files, 0))
@@ -267,7 +278,8 @@ debuginfod_clean_cache(debuginfod_client *c,
           ;
         }
     }
-  fts_close(fts);
+  fts_close (fts);
+  regfree (&re);
 
   /* Update timestamp representing when the cache was last cleaned.  */
   utime (interval_path, NULL);
@@ -276,6 +288,87 @@ debuginfod_clean_cache(debuginfod_client *c,
 
 
 #define MAX_BUILD_ID_BYTES 64
+
+
+static void
+add_extra_headers(CURL *handle)
+{
+  /* Compute a User-Agent: string to send.  The more accurately this
+     describes this host, the likelier that the debuginfod servers
+     might be able to locate debuginfo for us. */
+
+  char* utspart = NULL;
+  struct utsname uts;
+  int rc = 0;
+  rc = uname (&uts);
+  if (rc == 0)
+    rc = asprintf(& utspart, "%s/%s", uts.sysname, uts.machine);
+  if (rc < 0)
+    utspart = NULL;
+
+  FILE *f = fopen ("/etc/os-release", "r");
+  if (f == NULL)
+    f = fopen ("/usr/lib/os-release", "r");
+  char *id = NULL;
+  char *version = NULL;
+  if (f != NULL)
+    {
+      while (id == NULL || version == NULL)
+        {
+          char buf[128];
+          char *s = &buf[0];
+          if (fgets (s, sizeof(buf), f) == NULL)
+            break;
+
+          int len = strlen (s);
+          if (len < 3)
+            continue;
+          if (s[len - 1] == '\n')
+            {
+              s[len - 1] = '\0';
+              len--;
+            }
+
+          char *v = strchr (s, '=');
+          if (v == NULL || strlen (v) < 2)
+            continue;
+
+          /* Split var and value. */
+          *v = '\0';
+          v++;
+
+          /* Remove optional quotes around value string. */
+          if (*v == '"' || *v == '\'')
+            {
+              v++;
+              s[len - 1] = '\0';
+            }
+          if (strcmp (s, "ID") == 0)
+            id = strdup (v);
+          if (strcmp (s, "VERSION_ID") == 0)
+            version = strdup (v);
+        }
+      fclose (f);
+    }
+
+  char *ua = NULL;
+  rc = asprintf(& ua, "%s/%s,%s,%s/%s",
+                PACKAGE_NAME, PACKAGE_VERSION,
+                utspart ?: "",
+                id ?: "",
+                version ?: "");
+  if (rc < 0)
+    ua = NULL;
+
+  if (ua)
+    curl_easy_setopt(handle, CURLOPT_USERAGENT, (void*) ua); /* implicit strdup */
+
+  free (ua);
+  free (id);
+  free (version);
+  free (utspart);
+}
+
 
 
 /* Query each of the server URLs found in $DEBUGINFOD_URLS for the file
@@ -400,8 +493,10 @@ debuginfod_query_server (debuginfod_client *c,
       return fd;
     }
 
-  if (getenv(server_timeout_envvar))
-    server_timeout = atoi (getenv(server_timeout_envvar));
+  long timeout = default_timeout;
+  const char* timeout_envvar = getenv(server_timeout_envvar);
+  if (timeout_envvar != NULL)
+    timeout = atoi (timeout_envvar);
 
   /* make a copy of the envvar so it can be safely modified.  */
   server_urls = strdup(urls_envvar);
@@ -493,14 +588,22 @@ debuginfod_query_server (debuginfod_client *c,
                        CURLOPT_WRITEFUNCTION,
                        debuginfod_write_callback);
       curl_easy_setopt(data[i].handle, CURLOPT_WRITEDATA, (void*)&data[i]);
-      curl_easy_setopt(data[i].handle, CURLOPT_TIMEOUT, (long) server_timeout);
+      if (timeout > 0)
+	{
+	  /* Make sure there is at least some progress,
+	     try to get at least 100K per timeout seconds.  */
+	  curl_easy_setopt (data[i].handle, CURLOPT_LOW_SPEED_TIME,
+			    timeout);
+	  curl_easy_setopt (data[i].handle, CURLOPT_LOW_SPEED_LIMIT,
+			    100 * 1024L);
+	}
       curl_easy_setopt(data[i].handle, CURLOPT_FILETIME, (long) 1);
       curl_easy_setopt(data[i].handle, CURLOPT_FOLLOWLOCATION, (long) 1);
       curl_easy_setopt(data[i].handle, CURLOPT_FAILONERROR, (long) 1);
       curl_easy_setopt(data[i].handle, CURLOPT_NOSIGNAL, (long) 1);
       curl_easy_setopt(data[i].handle, CURLOPT_AUTOREFERER, (long) 1);
       curl_easy_setopt(data[i].handle, CURLOPT_ACCEPT_ENCODING, "");
-      curl_easy_setopt(data[i].handle, CURLOPT_USERAGENT, (void*) PACKAGE_STRING);
+      add_extra_headers(data[i].handle);
 
       curl_multi_add_handle(curlm, data[i].handle);
       server_url = strtok_r(NULL, url_delim, &strtok_saveptr);
@@ -511,51 +614,6 @@ debuginfod_query_server (debuginfod_client *c,
   long loops = 0;
   do
     {
-      if (c->progressfn) /* inform/check progress callback */
-        {
-          loops ++;
-          long pa = loops; /* default params for progress callback */
-          long pb = 0;
-          if (target_handle) /* we've committed to a server; report its download progress */
-            {
-              CURLcode curl_res;
-#ifdef CURLINFO_SIZE_DOWNLOAD_T
-              curl_off_t dl;
-              curl_res = curl_easy_getinfo(target_handle,
-                                           CURLINFO_SIZE_DOWNLOAD_T,
-                                           &dl);
-              if (curl_res == 0 && dl >= 0)
-                pa = (dl > LONG_MAX ? LONG_MAX : (long)dl);
-#else
-              double dl;
-              curl_res = curl_easy_getinfo(target_handle,
-                                           CURLINFO_SIZE_DOWNLOAD,
-                                           &dl);
-              if (curl_res == 0)
-                pa = (dl > LONG_MAX ? LONG_MAX : (long)dl);
-#endif
-
-#ifdef CURLINFO_CURLINFO_CONTENT_LENGTH_DOWNLOAD_T
-              curl_off_t cl;
-              curl_res = curl_easy_getinfo(target_handle,
-                                           CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,
-                                           &cl);
-              if (curl_res == 0 && cl >= 0)
-                pb = (cl > LONG_MAX ? LONG_MAX : (long)cl);
-#else
-              double cl;
-              curl_res = curl_easy_getinfo(target_handle,
-                                           CURLINFO_CONTENT_LENGTH_DOWNLOAD,
-                                           &cl);
-              if (curl_res == 0)
-                pb = (cl > LONG_MAX ? LONG_MAX : (long)cl);
-#endif
-            }
-
-          if ((*c->progressfn) (c, pa, pb))
-            break;
-        }
-
       /* Wait 1 second, the minimum DEBUGINFOD_TIMEOUT.  */
       curl_multi_wait(curlm, NULL, 0, 1000, NULL);
 
@@ -575,6 +633,53 @@ debuginfod_query_server (debuginfod_client *c,
             default: rc = -ENETUNREACH; break;
             }
           goto out1;
+        }
+
+      if (c->progressfn) /* inform/check progress callback */
+        {
+          loops ++;
+          long pa = loops; /* default params for progress callback */
+          long pb = 0; /* transfer_timeout tempting, but loops != elapsed-time */
+          if (target_handle) /* we've committed to a server; report its download progress */
+            {
+              CURLcode curl_res;
+#ifdef CURLINFO_SIZE_DOWNLOAD_T
+              curl_off_t dl;
+              curl_res = curl_easy_getinfo(target_handle,
+                                           CURLINFO_SIZE_DOWNLOAD_T,
+                                           &dl);
+              if (curl_res == 0 && dl >= 0)
+                pa = (dl > LONG_MAX ? LONG_MAX : (long)dl);
+#else
+              double dl;
+              curl_res = curl_easy_getinfo(target_handle,
+                                           CURLINFO_SIZE_DOWNLOAD,
+                                           &dl);
+              if (curl_res == 0)
+                pa = (dl > LONG_MAX ? LONG_MAX : (long)dl);
+#endif
+
+              /* NB: If going through deflate-compressing proxies, this
+                 number is likely to be unavailable, so -1 may show. */
+#ifdef CURLINFO_CURLINFO_CONTENT_LENGTH_DOWNLOAD_T
+              curl_off_t cl;
+              curl_res = curl_easy_getinfo(target_handle,
+                                           CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,
+                                           &cl);
+              if (curl_res == 0 && cl >= 0)
+                pb = (cl > LONG_MAX ? LONG_MAX : (long)cl);
+#else
+              double cl;
+              curl_res = curl_easy_getinfo(target_handle,
+                                           CURLINFO_CONTENT_LENGTH_DOWNLOAD,
+                                           &cl);
+              if (curl_res == 0)
+                pb = (cl > LONG_MAX ? LONG_MAX : (long)cl);
+#endif
+            }
+
+          if ((*c->progressfn) (c, pa, pb))
+            break;
         }
     } while (still_running);
 
@@ -674,9 +779,9 @@ debuginfod_query_server (debuginfod_client *c,
 
   curl_multi_cleanup(curlm);
   unlink (target_cache_tmppath);
+  close (fd); /* before the rmdir, otherwise it'll fail */
   (void) rmdir (target_cache_dir); /* nop if not empty */
   free(data);
-  close (fd);
 
  out0:
   free (server_urls);
@@ -684,6 +789,22 @@ debuginfod_query_server (debuginfod_client *c,
  out:
   return rc;
 }
+
+
+/* Activate a basic form of progress tracing */
+static int
+default_progressfn (debuginfod_client *c, long a, long b)
+{
+  (void) c;
+
+  dprintf(STDERR_FILENO,
+          "Downloading from debuginfod %ld/%ld%s", a, b,
+          ((a == b) ? "\n" : "\r"));
+  /* XXX: include URL - stateful */
+
+  return 0;
+}
+
 
 /* See debuginfod.h  */
 debuginfod_client  *
@@ -693,7 +814,12 @@ debuginfod_begin (void)
   size_t size = sizeof (struct debuginfod_client);
   client = (debuginfod_client *) malloc (size);
   if (client != NULL)
-    client->progressfn = NULL;
+    {
+      if (getenv(DEBUGINFOD_PROGRESS_ENV_VAR))
+	client->progressfn = default_progressfn;
+      else
+	client->progressfn = NULL;
+    }
   return client;
 }
 

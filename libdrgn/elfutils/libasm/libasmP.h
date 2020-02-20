@@ -31,6 +31,7 @@
 
 #include <stdio.h>
 
+#include "libebl.h"
 #include <libasm.h>
 
 #include "libdwelf.h"

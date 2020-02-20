@@ -10,6 +10,7 @@ Group=debuginfod
 #CacheDirectory=debuginfod
 ExecStart=/usr/bin/debuginfod -d /var/cache/debuginfod/debuginfod.sqlite -p $DEBUGINFOD_PORT $DEBUGINFOD_VERBOSE $DEBUGINFOD_PRAGMAS $DEBUGINFOD_PATHS
 TimeoutStopSec=10
+PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target

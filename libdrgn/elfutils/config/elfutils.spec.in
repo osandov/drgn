@@ -35,6 +35,9 @@ BuildRequires: pkgconfig(libarchive) >= 3.1.2
 BuildRequires: bzip2
 # For the run-debuginfod-find.sh test case in %check for /usr/sbin/ss
 BuildRequires: iproute
+%if 0%{?fedora} >= 20
+BuildRequires: dpkg
+%endif
 BuildRequires: curl
 
 %define _gnu %{nil}
@@ -70,7 +73,6 @@ Requires: elfutils-libs = %{version}-%{release}
 Requires: elfutils-libelf-devel = %{version}-%{release}
 # Can be a Recommends if rpm supports that
 Requires: elfutils-debuginfod-client-devel = %{version}-%{release}
-%endif
 
 %description devel
 The elfutils-devel package contains the libraries to create
@@ -142,7 +144,7 @@ License: GPLv3+ and (GPLv2+ or LGPLv3+)
 %package debuginfod-client-devel
 Summary: Libraries and headers to build debuginfod client applications
 License: GPLv2+ or LGPLv3+
-Requires: debuginfod-client = %{version}-%{release}
+Requires: elfutils-debuginfod-client = %{version}-%{release}
 
 %package debuginfod
 Summary: HTTP ELF/DWARF file server addressed by build-id

@@ -253,10 +253,9 @@ core_set_initial_registers (Dwfl_Thread *thread, void *thread_arg_voidp)
 	  /* PPC provides DWARF register 65 irrelevant for
 	     CFI which clashes with register 108 (LR) we need.
 	     LR (108) is provided earlier (in NT_PRSTATUS) than the # 65.
-	     FIXME: It depends now on their order in core notes.
-	     FIXME: It uses private function.  */
+	     FIXME: It depends now on their order in core notes.  */
 	  if (regno < nregs
-	      && __libdwfl_frame_reg_get (thread->unwound, regno, NULL))
+	      && INTUSE(dwfl_frame_register) (thread->unwound, regno, NULL))
 	    continue;
 	  Dwarf_Word val;
 	  switch (regloc->bits)

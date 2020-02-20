@@ -1,3 +1,99 @@
+2020-02-19  Aaron Merey  <amerey@redhat.com>
+
+	* debuginfod-client.c (debuginfod_clean_cache): Restrict
+	cleanup to client-pattern files.
+
+2020-02-05  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (argp options): Add -Z option.
+	(canonicalized_archive_entry_pathname): New function for
+	distro-agnostic file name matching/storage.
+
+2020-01-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (dwarf_extract_source_paths): Don't print
+	"skipping hat" messages at verbosity <=3, too noisy.
+
+2020-01-19  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (scanq): Rework to let groomer/fts threads
+	synchronize with an empty workqueue, and lock out workqueue
+	consumers.
+	(thread_groom): Adopt new scanq idle APIs to lock out scanners.
+	(thread_main_fts_source_paths): Adopt new scanq idler API to
+	avoid being restarted while scanners haven't even finished yet.
+	(thread_main_*): Increment thread_work_total metric only after
+	a work cycle is completed, not when it begins.
+
+2020-01-18  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (thread_main_scanner): Handle empty source_paths[].
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (libarchive_fdcache): New class/facility to own a
+	cache of temporary files that were previously extracted from an
+	archive.  If only it could store just unlinked fd's instead of
+	filenames.
+	(handle_buildid_r_match): Use it to answer dwz/altdebug and webapi
+	requests.
+	(groom): Clean it.
+	(main): Initialize the cache control parameters from heuristics.
+	Use a consistent tmpdir for these and tmp files elsewhere.
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (conninfo): Print User-Agent and X-Forwarded-For
+	request headers, after mild safety-censorship (for easier machine
+	processing).
+
+2020-01-11  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx: Rework threading model.
+	(workq): New class for concurrent work-queue.
+	(semaphore): Removed class, now unused.
+	(scan_source_file_path): Rework into ...
+	(scan_source_file): New function.
+	(thread_main_scan_source_file_path): Nuke.
+	(scan_source_archive_path): Rework into ...
+	(scan_archive_file): New function.
+	(thread_main_scanner): New function for scanner threads.
+	(thread_main_fts_source_paths): New function for traversal thread.
+	(scan_source_paths): ... doing this.
+	(thread_groom): Tweak metrics for consistency.
+	(main): Start 1 traversal and N scanner threads if needed.
+
+2019-01-02  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod.cxx (default_connect_timeout): Removed.
+	(default_transfer_timeout): Removed.
+	(default_timeout): New. Default to 90 seconds.
+	(debuginfod_query_server): Parse server_timeout_envvar as one number.
+	Set as CURLOPT_LOW_SPEED_TIME, with CURL_OPT_LOW_SPEED_LIMITE as 100K.
+
+2020-01-09  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-client.c (add_extra_headers): New function,
+	based on mjw's draft.
+	(debuginfod_query_server): Call it.
+
+2019-12-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (*_rpm_*): Rename to *_archive_* throughout.
+	(scan_archives): New read-mostly global to identify archive
+	file extensions and corresponding extractor commands.
+	(parse_opt): Handle new -U flag.
+
+2019-12-19  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-client.c (default_progressfn): New function.
+	(debuginfod_begin): Use it if $DEBUGINFOD_PROGRESS set.
+	(server_timeout): Bump to 30 seconds.
+	(debuginfod_query_server): Call progressfn -after- rather than
+	before curl ops, to make it likely that a successful transfer
+	results in final a=b call.  Tweak cleanup sequence.
+	* debuginfod.h: Document $DEBUGINFOD_PROGRESS name.
+
 2019-12-09  Mark Wielaard  <mark@klomp.org>
 
 	* debuginfod-client.c (debuginfod_query_server): Check

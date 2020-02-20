@@ -38,10 +38,10 @@ debuginfod_find_debuginfo \- request debuginfo from debuginfod
 .BI "                           const char *" filename ","
 .BI "                           char ** " path ");"
 
-.BI "typedef int (*debuginfo_progressfn_t)(debuginfod_client *" client ","
-.BI "                                      long a, long b);"
+.BI "typedef int (*debuginfod_progressfn_t)(debuginfod_client *" client ","
+.BI "                                       long a, long b);"
 .BI "void debuginfod_set_progressfn(debuginfod_client *" client ","
-.BI "                               debuginfo_progressfn_t " progressfn ");"
+.BI "                               debuginfod_progressfn_t " progressfn ");"
 
 Link with \fB-ldebuginfod\fP.
 
@@ -164,8 +164,17 @@ debuginfod instances.  Alternate URL prefixes are separated by space.
 .TP 21
 .B DEBUGINFOD_TIMEOUT
 This environment variable governs the timeout for each debuginfod HTTP
-connection.  A server that fails to respond within this many seconds
-is skipped.  The default is 5.
+connection.  A server that fails to provide at least 100K of data
+within this many seconds is skipped. The default is 90 seconds.  (Zero
+or negative means "no timeout".)
+
+.TP 21
+.B DEBUGINFOD_PROGRESS
+This environment variable governs the default progress function.  If
+set, and if a progressfn is not explicitly set, then the library will
+configure a default progressfn.  This function will append a simple
+progress message periodically to stderr.  The default is no progress
+function output.
 
 .TP 21
 .B DEBUGINFOD_CACHE_PATH

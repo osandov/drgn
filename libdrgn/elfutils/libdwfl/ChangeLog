@@ -1,3 +1,16 @@
+2020-01-24  Mark Wielaard  <mark@klomp.org>
+
+	* linux-kernel-modules.c (find_kernel_elf): Check release isn't NULL.
+	(report_kernel): Check release and *release aren't NULL.
+	(report_kernel_archive): Likewise.
+
+2019-12-11  Omar Sandoval  <osandov@fb.com>
+
+	* libdwflP.h (Dwfl_Module): Remove coalescing state.
+	Rename lookup_tail_ndx to next_segndx.
+	* segment.c (dwfl_report_segment): Remove coalescing logic.
+	* libdwfl.h (dwfl_report_segment): Document that IDENT is ignored.
+
 2019-12-05  Mark Wielaard  <mark@klomp.org>
 
 	* linux-kernel-modules.c (find_kernel_elf): Also try to find

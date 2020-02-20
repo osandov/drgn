@@ -44,8 +44,7 @@
 #define DWARF_EXPR_STEPS_MAX 0x1000
 
 bool
-internal_function
-__libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
+dwfl_frame_register (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
 {
   Ebl *ebl = state->thread->process->ebl;
   if (! ebl_dwarf_to_regno (ebl, &regno))
@@ -81,7 +80,7 @@ __libdwfl_frame_reg_set (Dwfl_Frame *state, unsigned regno, Dwarf_Addr val)
 static bool
 state_get_reg (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
 {
-  if (! __libdwfl_frame_reg_get (state, regno, val))
+  if (! INTUSE(dwfl_frame_register) (state, regno, val))
     {
       __libdwfl_seterrno (DWFL_E_INVALID_REGISTER);
       return false;
@@ -525,6 +524,8 @@ new_unwound (Dwfl_Frame *state)
   unwound->unwound = NULL;
   unwound->mod = NULL;
   unwound->frame = NULL;
+  unwound->moderr = DWFL_E_NOERROR;
+  unwound->frameerr = DWFL_E_NOERROR;
   unwound->signal_frame = false;
   unwound->initial_frame = false;
   unwound->pc_state = DWFL_FRAME_STATE_ERROR;
@@ -538,24 +539,9 @@ new_unwound (Dwfl_Frame *state)
    later.  Therefore we continue unwinding leaving the registers undefined.  */
 
 static void
-handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
+handle_cfi (Dwfl_Frame *state, Dwarf_Frame *frame, Dwarf_Addr bias)
 {
-  Dwarf_Frame *frame;
-  if (INTUSE(dwarf_cfi_addrframe) (cfi, pc, &frame) != 0)
-    {
-      __libdwfl_seterrno (DWFL_E_LIBDW);
-      return;
-    }
-  state->frame = frame;
-  state->bias = bias;
-
-  Dwfl_Frame *unwound = new_unwound (state);
-  if (unwound == NULL)
-    {
-      __libdwfl_seterrno (DWFL_E_NOMEM);
-      return;
-    }
-
+  Dwfl_Frame *unwound = state->unwound;
   unwound->signal_frame = frame->fde->cie->signal_frame;
   Dwfl_Thread *thread = state->thread;
   Dwfl_Process *process = thread->process;
@@ -638,9 +624,9 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
     }
   if (unwound->pc_state == DWFL_FRAME_STATE_ERROR)
     {
-      if (__libdwfl_frame_reg_get (unwound,
-				   frame->fde->cie->return_address_register,
-				   &unwound->pc))
+      if (INTUSE(dwfl_frame_register) (unwound,
+				       frame->fde->cie->return_address_register,
+				       &unwound->pc))
 	{
 	  /* PPC32 __libc_start_main properly CFI-unwinds PC as zero.
 	     Currently none of the archs supported for unwinding have
@@ -669,7 +655,6 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
 	    unwound->pc_state = DWFL_FRAME_STATE_PC_UNDEFINED;
 	}
     }
-  free (frame);
 }
 
 static bool
@@ -698,7 +683,7 @@ getfunc (int firstreg, unsigned nregs, Dwarf_Word *regs, void *arg)
   Dwfl_Frame *state = arg;
   assert (firstreg >= 0);
   while (nregs--)
-    if (! __libdwfl_frame_reg_get (state, firstreg++, regs++))
+    if (! INTUSE(dwfl_frame_register) (state, firstreg++, regs++))
       return false;
   return true;
 }
@@ -728,28 +713,16 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
      Then we need to unwind from the original, unadjusted PC.  */
   if (! state->initial_frame && ! state->signal_frame)
     pc--;
-  state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
-  if (state->mod == NULL)
-    __libdwfl_seterrno (DWFL_E_NO_DWARF);
-  else
+  Dwarf_Addr bias;
+  Dwarf_Frame *frame = INTUSE(dwfl_frame_dwarf_frame) (state, &bias);
+  if (frame != NULL)
     {
-      Dwarf_Addr bias;
-      Dwarf_CFI *cfi_eh = INTUSE(dwfl_module_eh_cfi) (state->mod, &bias);
-      if (cfi_eh)
-	{
-	  handle_cfi (state, pc - bias, cfi_eh, bias);
-	  if (state->unwound)
-	    return;
-	}
-      Dwarf_CFI *cfi_dwarf = INTUSE(dwfl_module_dwarf_cfi) (state->mod, &bias);
-      if (cfi_dwarf)
-	{
-	  handle_cfi (state, pc - bias, cfi_dwarf, bias);
-	  if (state->unwound)
-	    return;
-	}
+      if (new_unwound (state) == NULL)
+	__libdwfl_seterrno (DWFL_E_NOMEM);
+      else
+	handle_cfi (state, frame, bias);
+      return;
     }
-  assert (state->unwound == NULL);
   Dwfl_Thread *thread = state->thread;
   Dwfl_Process *process = thread->process;
   Ebl *ebl = process->ebl;
@@ -778,12 +751,54 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
 Dwfl_Module *
 dwfl_frame_module (Dwfl_Frame *state)
 {
-  return state->mod;
+  if (state->mod != NULL)
+    return state->mod;
+  if (state->moderr == DWFL_E_NOERROR)
+    {
+      Dwarf_Addr pc;
+      INTUSE(dwfl_frame_pc) (state, &pc, NULL);
+      state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
+      if (state->mod != NULL)
+	return state->mod;
+      state->moderr = DWFL_E_NO_DWARF;
+    }
+  __libdwfl_seterrno (state->moderr);
+  return NULL;
 }
 
 Dwarf_Frame *
 dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
 {
+  if (state->frame == NULL)
+    {
+      if (state->frameerr == DWFL_E_NOERROR)
+	{
+	  Dwfl_Module *mod = INTUSE(dwfl_frame_module) (state);
+	  if (mod == NULL)
+	    {
+	      state->frameerr = state->moderr;
+	      return NULL;
+	    }
+	  Dwarf_Addr pc;
+	  INTUSE(dwfl_frame_pc) (state, &pc, NULL);
+	  Dwarf_CFI *cfi = INTUSE(dwfl_module_eh_cfi) (state->mod,
+						       &state->bias);
+	  if (cfi
+	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
+					      &state->frame) == 0)
+	    goto out;
+	  cfi = INTUSE(dwfl_module_dwarf_cfi) (state->mod, &state->bias);
+	  if (cfi
+	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
+					      &state->frame) == 0)
+	    goto out;
+	  state->frameerr = DWFL_E_NO_DWARF;
+	}
+      __libdwfl_seterrno (state->frameerr);
+      return NULL;
+    }
+
+out:
   *bias = state->bias;
   return state->frame;
 }
@@ -792,10 +807,9 @@ bool
 dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,
 		      Dwarf_Addr *result)
 {
-  if (state->frame == NULL)
-    {
-      __libdwfl_seterrno (DWFL_E_NO_DWARF);
-      return false;
-    }
-  return expr_eval (state, state->frame, ops, nops, result, state->bias);
+  Dwarf_Addr bias;
+  Dwarf_Frame *frame = dwfl_frame_dwarf_frame(state, &bias);
+  if (frame == NULL)
+    return false;
+  return expr_eval (state, frame, ops, nops, result, bias);
 }

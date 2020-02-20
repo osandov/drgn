@@ -111,7 +111,7 @@ extern void dwfl_report_begin (Dwfl *dwfl);
 
 /* Report that segment NDX begins at PHDR->p_vaddr + BIAS.
    If NDX is < 0, the value succeeding the last call's NDX
-   is used instead (zero on the first call).
+   is used instead (zero on the first call).  IDENT is ignored.
 
    If nonzero, the smallest PHDR->p_align value seen sets the
    effective page size for the address space DWFL describes.
@@ -120,21 +120,9 @@ extern void dwfl_report_begin (Dwfl *dwfl);
 
    Returns -1 for errors, or NDX (or its assigned replacement) on success.
 
-   When NDX is the value succeeding the last call's NDX (or is implicitly
-   so as above), IDENT is nonnull and matches the value in the last call,
-   and the PHDR and BIAS values reflect a segment that would be contiguous,
-   in both memory and file, with the last segment reported, then this
-   segment may be coalesced internally with preceding segments.  When given
-   an address inside this segment, dwfl_addrsegment may return the NDX of a
-   preceding contiguous segment.  To prevent coalesced segments, always
-   pass a null pointer for IDENT.
-
-   The values passed are not stored (except to track coalescence).
-   The only information that can be extracted from DWFL later is the
-   mapping of an address to a segment index that starts at or below
-   it.  Reporting segments at all is optional.  Its only benefit to
-   the caller is to offer this quick lookup via dwfl_addrsegment,
-   or use other segment-based calls.  */
+   Reporting segments at all is optional.  Its only benefit to the caller is to
+   offer this quick lookup via dwfl_addrsegment, or use other segment-based
+   calls.  */
 extern int dwfl_report_segment (Dwfl *dwfl, int ndx,
 				const GElf_Phdr *phdr, GElf_Addr bias,
 				const void *ident);
@@ -756,7 +744,7 @@ Dwfl_Module *dwfl_frame_module (Dwfl_Frame *state)
   __nonnull_attribute__ (1);
 
 /* Return CFI frame for frame STATE.  Returns NULL if no CFI frame was
-   found. */
+   found.  The returned frame is valid until STATE is freed.  */
 Dwarf_Frame *dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
   __nonnull_attribute__ (1, 2);
 
@@ -829,8 +817,13 @@ int dwfl_getthread_frames (Dwfl *dwfl, pid_t tid,
 bool dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
   __nonnull_attribute__ (1, 2);
 
+/* Return the *VALUE of register REGNO in frame STATE.  VALUE may be NULL.
+   Returns false if the register value is unknown.  */
+bool dwfl_frame_register (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *value)
+  __nonnull_attribute__ (1);
+
 /* Evaluate a DWARF expression in the context of a frame.  On success, returns
-   true and fills in *RESULT.  On error, returns false. */
+   true and fills in *RESULT.  On error, returns false.  */
 bool dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,
 			   Dwarf_Addr *result)
   __nonnull_attribute__ (1, 2, 4);
