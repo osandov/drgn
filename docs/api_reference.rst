@@ -136,7 +136,8 @@ Programs
         :param address_or_name: The address or name.
         :type address_or_name: str or int
         :rtype: Symbol
-        :raises LookupError: if no symbol contains the given address
+        :raises LookupError: if no symbol contains the given address or matches
+            the given name
 
     .. method:: stack_trace(thread)
 
