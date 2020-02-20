@@ -1,4 +1,4 @@
-// Copyright 2019 - Omar Sandoval
+// Copyright 2019-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <byteswap.h>
@@ -126,11 +126,12 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_stack_frame_register(struct drgn_stack_frame frame,
 			  enum drgn_register_number regno, uint64_t *ret)
 {
-	const Dwarf_Op op = { .atom = DW_OP_regx, .number = regno, };
 	Dwarf_Addr value;
 
-	if (!dwfl_frame_eval_expr(frame.trace->frames[frame.i], &op, 1, &value))
-		return drgn_error_libdwfl();
+	if (!dwfl_frame_register(frame.trace->frames[frame.i], regno, &value)) {
+		return drgn_error_create(DRGN_ERROR_LOOKUP,
+					 "register value is not known");
+	}
 	*ret = value;
 	return NULL;
 }
