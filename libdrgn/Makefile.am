@@ -27,6 +27,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 hash_table.h \
 			 internal.c \
 			 internal.h \
+			 language.c \
 			 language.h \
 			 language_c.c \
 			 lexer.c \
