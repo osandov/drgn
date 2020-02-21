@@ -119,10 +119,8 @@ class build_ext(_build_ext):
 class egg_info(_egg_info):
     def run(self):
         if os.path.exists(".git"):
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.remove(os.path.join(self.egg_info, "SOURCES.txt"))
-            except FileNotFoundError:
-                pass
         super().run()
 
 
