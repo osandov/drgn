@@ -99,6 +99,7 @@ _drgn_la_SOURCES = python/docstrings.h \
 		   python/drgnpy.h \
 		   python/error.c \
 		   python/helpers.c \
+		   python/language.c \
 		   python/module.c \
 		   python/object.c \
 		   python/platform.c \

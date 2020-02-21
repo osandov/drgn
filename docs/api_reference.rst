@@ -48,6 +48,11 @@ Platforms
 .. drgndoc:: Register
 .. drgndoc:: host_platform
 
+Languages
+^^^^^^^^^
+
+.. drgndoc:: Language
+
 Objects
 -------
 

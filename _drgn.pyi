@@ -495,6 +495,20 @@ class Register:
 host_platform: Platform
 """The platform of the host which is running drgn."""
 
+class Language:
+    """
+    A ``Language`` represents a programming language supported by drgn.
+
+    This class cannot be constructed; there are singletons for the supported
+    languages.
+    """
+
+    name: str
+    """Name of the programming language."""
+
+    C: Language
+    """The C programming language."""
+
 class Object:
     """
     An ``Object`` represents a symbol or value in a program. An object may

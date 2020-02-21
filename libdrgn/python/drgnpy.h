@@ -1,4 +1,4 @@
-// Copyright 2018-2019 - Omar Sandoval
+// Copyright 2018-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 #ifndef DRGNPY_H
@@ -65,6 +65,17 @@ typedef struct {
 		PyObject *parent;
 	};
 } DrgnType;
+
+typedef struct {
+	PyObject_HEAD
+	/*
+	 * "Python-friendly" name used for the object, which may differ from the
+	 * language name if the language name is not a valid identifier (e.g.,
+	 * C++).
+	 */
+	const char *attr_name;
+	const struct drgn_language *language;
+} Language;
 
 typedef struct {
 	PyObject_HEAD
@@ -154,6 +165,7 @@ extern PyStructSequence_Desc Register_desc;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject FaultError_type;
+extern PyTypeObject Language_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Platform_type;
 extern PyTypeObject Program_type;
@@ -175,6 +187,9 @@ struct drgn_error *drgn_error_from_python(void);
 void *set_drgn_error(struct drgn_error *err);
 void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
+
+PyObject *Language_wrap(const struct drgn_language *language);
+int add_languages(void);
 
 static inline DrgnObject *DrgnObject_alloc(Program *prog)
 {
