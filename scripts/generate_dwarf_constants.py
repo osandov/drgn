@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import keyword
 import re
 
 
@@ -8,6 +9,7 @@ prefixes = [
     "DW_ATE",
     "DW_CHILDREN",
     "DW_FORM",
+    "DW_LANG",
     "DW_LNE",
     "DW_LNS",
     "DW_OP",
@@ -15,7 +17,7 @@ prefixes = [
 ]
 
 if __name__ == "__main__":
-    with open("/usr/include/dwarf.h", "r") as f:
+    with open("libdrgn/elfutils/libdw/dwarf.h", "r") as f:
         dwarf_h = f.read()
     dwarf_h = re.sub(r"/\*.*?\*/", "", dwarf_h, flags=re.DOTALL)
     dwarf_h = re.sub(r"\\\n", "", dwarf_h)
@@ -50,9 +52,9 @@ from typing import Text
         first = False
         print(f"class {enum}(enum.IntEnum):")
         for name, value in enums[enum]:
-            if name in ["import", "not", "and", "or"]:
+            if keyword.iskeyword(name):
                 name += "_"
-            print(f"    {name} = 0x{value:x}", end="")
+            print(f"    {name} = 0x{value:X}", end="")
             if name == "name":
                 print("  # type: ignore")
             else:
@@ -61,6 +63,6 @@ from typing import Text
         print("    @classmethod")
         print("    def str(cls, value: int) -> Text:")
         print("        try:")
-        print(f"            return f'{enum}_{{cls(value).name}}'")
+        print(f'            return f"{enum}_{{cls(value).name}}"')
         print("        except ValueError:")
         print("            return hex(value)")
