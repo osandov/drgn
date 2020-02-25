@@ -178,6 +178,9 @@ class DW_AT(enum.IntEnum):
     GNU_addr_base = 0x2133
     GNU_pubnames = 0x2134
     GNU_pubtypes = 0x2135
+    GNU_numerator = 0x2303
+    GNU_denominator = 0x2304
+    GNU_bias = 0x2305
     hi_user = 0x3FFF
 
     @classmethod
@@ -284,6 +287,56 @@ class DW_FORM(enum.IntEnum):
     def str(cls, value: int) -> Text:
         try:
             return f"DW_FORM_{cls(value).name}"
+        except ValueError:
+            return hex(value)
+
+
+class DW_LANG(enum.IntEnum):
+    C89 = 0x1
+    C = 0x2
+    Ada83 = 0x3
+    C_plus_plus = 0x4
+    Cobol74 = 0x5
+    Cobol85 = 0x6
+    Fortran77 = 0x7
+    Fortran90 = 0x8
+    Pascal83 = 0x9
+    Modula2 = 0xA
+    Java = 0xB
+    C99 = 0xC
+    Ada95 = 0xD
+    Fortran95 = 0xE
+    PLI = 0xF
+    ObjC = 0x10
+    ObjC_plus_plus = 0x11
+    UPC = 0x12
+    D = 0x13
+    Python = 0x14
+    OpenCL = 0x15
+    Go = 0x16
+    Modula3 = 0x17
+    Haskell = 0x18
+    C_plus_plus_03 = 0x19
+    C_plus_plus_11 = 0x1A
+    OCaml = 0x1B
+    Rust = 0x1C
+    C11 = 0x1D
+    Swift = 0x1E
+    Julia = 0x1F
+    Dylan = 0x20
+    C_plus_plus_14 = 0x21
+    Fortran03 = 0x22
+    Fortran08 = 0x23
+    RenderScript = 0x24
+    BLISS = 0x25
+    lo_user = 0x8000
+    Mips_Assembler = 0x8001
+    hi_user = 0xFFFF
+
+    @classmethod
+    def str(cls, value: int) -> Text:
+        try:
+            return f"DW_LANG_{cls(value).name}"
         except ValueError:
             return hex(value)
 
