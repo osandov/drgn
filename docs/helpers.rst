@@ -1,1 +1,1 @@
-.. autopackage:: drgn.helpers
+.. drgndoc:: drgn.helpers

@@ -124,11 +124,14 @@ endif
 python/constants.c: drgn.h build-aux/gen_constants.py
 	$(PYTHON) $(word 2, $^) < $< > $@
 
-python/docstrings.c: ../docs/api_reference.rst build-aux/gen_docstrings.py
-	$(PYTHON) $(word 2, $^) < $< > $@
+drgndoc_docstrings_deps = $(wildcard $(srcdir)/../docs/exts/drgndoc/*.py)
+drgndoc_docstrings = PYTHONPATH="$(srcdir)/../docs/exts:$$PYTHONPATH" $(PYTHON) -m drgndoc.docstrings
 
-python/docstrings.h: ../docs/api_reference.rst build-aux/gen_docstrings.py
-	$(PYTHON) $(word 2, $^) -H < $< > $@
+python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
+	$(drgndoc_docstrings) -m _drgn:drgn $< > $@
+
+python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
+	$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
 EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py \
 	     build-aux/gen_docstrings.py build-aux/gen_drgn_h.awk \

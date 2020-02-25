@@ -178,7 +178,8 @@ with open("README.rst", "r") as f:
 setup(
     name="drgn",
     version=get_version(),
-    packages=find_packages(exclude=["examples", "scripts", "tests", "tests.*"]),
+    packages=find_packages(include=["drgn", "drgn.*"]),
+    package_data={"drgn": ["../_drgn.pyi", "py.typed"]},
     # This is here so that setuptools knows that we have an extension; it's
     # actually built using autotools/make.
     ext_modules=[Extension(name="_drgn", sources=[])],

@@ -134,9 +134,7 @@ static PyMethodDef drgn_methods[] = {
 static struct PyModuleDef drgnmodule = {
 	PyModuleDef_HEAD_INIT,
 	"_drgn",
-"libdrgn bindings\n"
-"\n"
-"Don't use this module directly. Instead, use the drgn package.",
+	drgn_DOC,
 	-1,
 	drgn_methods,
 };

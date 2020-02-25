@@ -7,16 +7,17 @@ sys.path.append(os.path.abspath("exts"))
 master_doc = "index"
 
 extensions = [
-    "autopackage",
+    "drgndoc.ext",
     "setuptools_config",
-    "sphinx.ext.autodoc",
     "sphinx.ext.extlinks",
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
-    "sphinx_autodoc_typehints",
 ]
 
-autodoc_mock_imports = ["_drgn"]
+drgndoc_paths = ["../drgn", "../_drgn.pyi"]
+drgndoc_substitutions = [
+    (r"^_drgn\b", "drgn"),
+]
 
 extlinks = {
     "linux": (

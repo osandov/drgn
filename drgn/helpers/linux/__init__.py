@@ -35,8 +35,8 @@ import pkgutil
 
 
 __all__ = []
-for module_info in pkgutil.iter_modules(__path__, prefix=__name__ + "."):
-    submodule = importlib.import_module(module_info.name)
-    __all__.extend(submodule.__all__)
-    for name in submodule.__all__:
-        globals()[name] = getattr(submodule, name)
+for _module_info in pkgutil.iter_modules(__path__, prefix=__name__ + "."):
+    _submodule = importlib.import_module(_module_info.name)
+    __all__.extend(_submodule.__all__)
+    for _name in _submodule.__all__:
+        globals()[_name] = getattr(_submodule, _name)

@@ -2,6 +2,5 @@
 !/.gitignore
 !/gen_arch.awk
 !/gen_constants.py
-!/gen_docstrings.py
 !/gen_drgn_h.awk
 !/parse_arch.awk
