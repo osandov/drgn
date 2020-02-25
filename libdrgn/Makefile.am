@@ -134,5 +134,4 @@ python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 	$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
 EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py \
-	     build-aux/gen_docstrings.py build-aux/gen_drgn_h.awk \
-	     build-aux/parse_arch.awk
+	     build-aux/gen_drgn_h.awk build-aux/parse_arch.awk
