@@ -32,10 +32,22 @@
  * @{
  */
 
-static struct drgn_qualified_type
+struct drgn_pointer_type_key {
+	struct drgn_type *type;
+	enum drgn_qualifiers qualifiers;
+	const struct drgn_language *lang;
+};
+
+static struct drgn_pointer_type_key
 drgn_pointer_type_entry_to_key(struct drgn_type * const *entry)
 {
-	return drgn_type_type(*entry);
+	struct drgn_qualified_type referenced_type = drgn_type_type(*entry);
+
+	return (struct drgn_pointer_type_key){
+		.type = referenced_type.type,
+		.qualifiers = referenced_type.qualifiers,
+		.lang = drgn_type_language(*entry),
+	};
 }
 
 struct drgn_array_type_key {
@@ -43,6 +55,7 @@ struct drgn_array_type_key {
 	enum drgn_qualifiers qualifiers;
 	bool is_complete;
 	uint64_t length;
+	const struct drgn_language *lang;
 };
 
 static struct drgn_array_type_key
@@ -55,6 +68,7 @@ drgn_array_type_entry_to_key(struct drgn_type * const *entry)
 		.qualifiers = element_type.qualifiers,
 		.is_complete = drgn_type_is_complete(*entry),
 		.length = drgn_type_length(*entry),
+		.lang = drgn_type_language(*entry),
 	};
 }
 
@@ -217,27 +231,31 @@ drgn_type_index_find(struct drgn_type_index *tindex, const char *name,
  * Create a pointer type.
  *
  * The created type is cached for the lifetime of the @ref drgn_type_index. If
- * the same @p referenced_type is passed, the same type will be returned.
+ * the same @p referenced_type and @p lang are passed, the same type will be
+ * returned.
  *
  * If this succeeds, @p referenced_type must remain valid until @p tindex is
  * destroyed.
  *
  * @param[in] tindex Type index.
  * @param[in] referenced_type Type referenced by the pointer type.
+ * @param[in] lang Language of the pointer type. If @c NULL, the language of @p
+ * referenced_type is used.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 			     struct drgn_qualified_type referenced_type,
+			     const struct drgn_language *lang,
 			     struct drgn_type **ret);
 
 /**
  * Create an array type.
  *
  * The created type is cached for the lifetime of the @ref drgn_type_index. If
- * the same @p length and @p element_type are passed, the same type will be
- * returned.
+ * the same @p length, @p element_type, and @p lang are passed, the same type
+ * will be returned.
  *
  * If this succeeds, @p element_type must remain valid until @p tindex is
  * destroyed.
@@ -245,31 +263,38 @@ drgn_type_index_pointer_type(struct drgn_type_index *tindex,
  * @param[in] tindex Type index.
  * @param[in] length Number of elements in the array type.
  * @param[in] element_type Type of an element in the array type.
+ * @param[in] lang Language of the array type. If @c NULL, the language of @p
+ * element_type is used.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_type_index_array_type(struct drgn_type_index *tindex, uint64_t length,
 			   struct drgn_qualified_type element_type,
+			   const struct drgn_language *lang,
 			   struct drgn_type **ret);
 
 /**
  * Create an incomplete array type.
  *
  * The created type is cached for the lifetime of the @ref drgn_type_index. If
- * the same @p element_type is passed, the same type will be returned.
+ * the same @p element_type and @p lang are passed, the same type will be
+ * returned.
  *
  * If this succeeds, @p element_type must remain valid until @p tindex is
  * destroyed.
  *
  * @param[in] tindex Type index.
  * @param[in] element_type Type of an element in the array type.
+ * @param[in] lang Language of the array type. If @c NULL, the language of @p
+ * element_type is used.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 				      struct drgn_qualified_type element_type,
+				      const struct drgn_language *lang,
 				      struct drgn_type **ret);
 
 /**

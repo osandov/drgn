@@ -425,6 +425,7 @@ struct drgn_type {
 		enum drgn_primitive_type primitive;
 		/* These are the qualifiers for the wrapped type, not this type. */
 		enum drgn_qualifiers qualifiers;
+		const struct drgn_language *language;
 		/*
 		 * This mess of unions is used to make this as compact as possible. Use
 		 * the provided helpers and don't think about it.
@@ -493,6 +494,13 @@ drgn_type_primitive(struct drgn_type *type)
 static inline bool drgn_type_is_complete(struct drgn_type *type)
 {
 	return type->_private.is_complete;
+}
+
+/** Get the language of a type. */
+static inline const struct drgn_language *
+drgn_type_language(struct drgn_type *type)
+{
+	return type->_private.language;
 }
 
 /**
@@ -1703,6 +1711,14 @@ void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog);
  * @param[in] obj Object to deinitialize.
  */
 void drgn_object_deinit(struct drgn_object *obj);
+
+
+/** Get the language of a @ref drgn_object from its type. */
+static inline const struct drgn_language *
+drgn_object_language(const struct drgn_object *obj)
+{
+	return drgn_type_language(obj->type);
+}
 
 /**
  * @defgroup ObjectSetters Setters

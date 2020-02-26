@@ -18,7 +18,7 @@
 void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog)
 {
 	obj->prog = prog;
-	obj->type = &drgn_void_type;
+	obj->type = drgn_void_type(NULL);
 	obj->bit_size = 0;
 	obj->qualifiers = 0;
 	obj->kind = DRGN_OBJECT_NONE;
@@ -837,7 +837,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_format_object(const struct drgn_object *obj, size_t columns,
 		   enum drgn_format_object_flags flags, char **ret)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_object_language(obj);
 
 	if (flags & ~DRGN_FORMAT_OBJECT_VALID_FLAGS) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -1075,7 +1075,7 @@ drgn_object_cast(struct drgn_object *res,
 		 struct drgn_qualified_type qualified_type,
 		 const struct drgn_object *obj)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_type_language(qualified_type.type);
 
 	if (res->prog != obj->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -1159,7 +1159,7 @@ drgn_object_float_literal(struct drgn_object *res, double fvalue)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_bool(const struct drgn_object *obj, bool *ret)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_object_language(obj);
 
 	return lang->op_bool(obj, ret);
 }
@@ -1168,7 +1168,7 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_object_cmp(const struct drgn_object *lhs,
 						  const struct drgn_object *rhs,
 						  int *ret)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_object_language(lhs);
 
 	if (lhs->prog != rhs->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -1234,7 +1234,7 @@ LIBDRGN_PUBLIC struct drgn_error *						\
 drgn_object_##op_name(struct drgn_object *res, const struct drgn_object *lhs,	\
 		      const struct drgn_object *rhs)				\
 {										\
-	const struct drgn_language *lang = &drgn_language_c;			\
+	const struct drgn_language *lang = drgn_object_language(lhs);		\
 										\
 	if (lhs->prog != res->prog || rhs->prog != res->prog) {			\
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
@@ -1263,7 +1263,7 @@ BINARY_OP(xor)
 LIBDRGN_PUBLIC struct drgn_error *						\
 drgn_object_##op_name(struct drgn_object *res, const struct drgn_object *obj)	\
 {										\
-	const struct drgn_language *lang = &drgn_language_c;			\
+	const struct drgn_language *lang = drgn_object_language(obj);		\
 										\
 	if (res->prog != obj->prog) {						\
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
@@ -1304,7 +1304,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 
 	err = drgn_type_index_pointer_type(&obj->prog->tindex,
 					   drgn_object_qualified_type(obj),
-					   &qualified_type.type);
+					   NULL, &qualified_type.type);
 	if (err)
 		return err;
 	qualified_type.qualifiers = 0;
@@ -1400,7 +1400,7 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 			 struct drgn_qualified_type qualified_type,
 			 const char *member_designator)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_object_language(obj);
 	struct drgn_error *err;
 	uint64_t address, bit_offset;
 	struct drgn_qualified_type result_type;
@@ -1430,7 +1430,7 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 		return err;
 
 	err = drgn_type_index_pointer_type(&obj->prog->tindex, qualified_type,
-					   &result_type.type);
+					   NULL, &result_type.type);
 	if (err)
 		return err;
 	result_type.qualifiers = 0;

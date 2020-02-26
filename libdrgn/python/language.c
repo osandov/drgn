@@ -38,6 +38,24 @@ PyObject *Language_wrap(const struct drgn_language *language)
 	return obj;
 }
 
+int language_converter(PyObject *o, void *p)
+{
+	const struct drgn_language **ret = p;
+
+	if (o == Py_None) {
+		*ret = NULL;
+		return 1;
+	} else if (PyObject_TypeCheck(o, &Language_type)) {
+		*ret = ((Language *)o)->language;
+		return 1;
+	} else {
+		PyErr_Format(PyExc_TypeError,
+			     "expected Language, not %s",
+			     Py_TYPE(o)->tp_name);
+		return 0;
+	}
+}
+
 int add_languages(void)
 {
 	static const char *attr_names[] = {

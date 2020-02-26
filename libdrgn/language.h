@@ -13,6 +13,7 @@
 #define DRGN_LANGUAGE_H
 
 #include "drgn.h"
+#include <dwarf.h>
 
 /**
  * @ingroup Internals
@@ -68,6 +69,8 @@ typedef struct drgn_error *drgn_cmp_op(const struct drgn_object *lhs,
 struct drgn_language {
 	/** Name of this programming language. */
 	const char *name;
+	/** Void type for this language. See @ref drgn_void_type(). */
+	struct drgn_type void_type;
 	/** Implement @ref drgn_format_type_name(). */
 	drgn_format_type_fn *format_type_name;
 	/** Implement @ref drgn_format_type(). */
@@ -161,6 +164,7 @@ enum {
 extern const struct drgn_language drgn_languages[DRGN_NUM_LANGUAGES];
 
 #define drgn_language_c drgn_languages[DRGN_LANGUAGE_C]
+#define drgn_default_language drgn_language_c
 
 /**
  * Return flags that should be passed through when formatting an object
@@ -196,6 +200,27 @@ drgn_element_format_object_flags(enum drgn_format_object_flags flags)
 {
 	return (drgn_passthrough_format_object_flags(flags) |
 		(flags & DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES) >> 2);
+}
+
+/** Return the @ref drgn_language corresponding to the given DW_LANG */
+static inline const struct drgn_language *
+drgn_language_from_dw_lang(int dw_lang)
+{
+	switch (dw_lang) {
+	case DW_LANG_C:
+	case DW_LANG_C89:
+	case DW_LANG_C99:
+	case DW_LANG_C11:
+		return &drgn_language_c;
+	default:
+		return &drgn_default_language;
+	}
+}
+
+static inline const struct drgn_language *
+drgn_language_or_default(const struct drgn_language *lang)
+{
+	return lang ? lang : &drgn_default_language;
 }
 
 /** @} */
