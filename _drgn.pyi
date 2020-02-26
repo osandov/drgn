@@ -46,6 +46,18 @@ class Program:
     Platform that this program runs on, or ``None`` if it has not been
     determined yet.
     """
+
+    language: Language
+    """
+    Default programming language of the program.
+
+    This is used for interpreting the type name given to :meth:`type()` and
+    when creating an :class:`Object` without an explicit type.
+
+    For the Linux kernel, this is :attr:`Language.C`. For userspace programs,
+    this is determined from the language of ``main`` in the program, falling
+    back to :attr:`Language.C`. This heuristic may change in the future.
+    """
     def __getitem__(self, name: str) -> Object:
         """
         Implement ``self[name]``. Get the object (variable, constant, or

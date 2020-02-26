@@ -129,6 +129,8 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 					     prog);
 	if (err)
 		goto err;
+	if (!prog->lang)
+		prog->lang = &drgn_language_c;
 	drgn_program_set_platform(prog, &platform);
 	prog->kdump_ctx = ctx;
 	return NULL;

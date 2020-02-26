@@ -26,6 +26,7 @@ from drgn import (
     void_type,
 )
 from tests import (
+    DEFAULT_LANGUAGE,
     MOCK_32BIT_PLATFORM,
     MOCK_PLATFORM,
     MockMemorySegment,
@@ -125,6 +126,9 @@ class TestProgram(unittest.TestCase):
 
     def test_debug_info(self):
         Program().load_debug_info([])
+
+    def test_language(self):
+        self.assertEqual(Program().language, DEFAULT_LANGUAGE)
 
 
 class TestMemory(unittest.TestCase):

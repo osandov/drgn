@@ -61,6 +61,8 @@ struct drgn_program {
 	struct drgn_object_index oindex;
 	struct drgn_memory_file_segment *file_segments;
 	size_t num_file_segments;
+	/* Default language of the program. */
+	const struct drgn_language *lang;
 	/*
 	 * Valid iff <tt>flags & DRGN_PROGRAM_IS_LINUX_KERNEL</tt>.
 	 */
