@@ -167,6 +167,11 @@ static PyObject *DrgnType_get_qualifiers(DrgnType *self)
 				     (unsigned long)self->qualifiers);
 }
 
+static PyObject *DrgnType_get_language(DrgnType *self, void *arg)
+{
+	return Language_wrap(drgn_type_language(self->type));
+}
+
 static PyObject *DrgnType_get_name(DrgnType *self)
 {
 	if (!drgn_type_has_name(self->type)) {
@@ -463,6 +468,8 @@ static PyGetSetDef DrgnType_getset[] = {
 	 &DrgnType_attr_primitive},
 	{"qualifiers", (getter)DrgnType_getter, NULL, drgn_Type_qualifiers_DOC,
 	 &DrgnType_attr_qualifiers},
+	{"language", (getter)DrgnType_get_language, NULL,
+	 drgn_Type_language_DOC},
 	{"name", (getter)DrgnType_getter, NULL, drgn_Type_name_DOC,
 	 &DrgnType_attr_name},
 	{"tag", (getter)DrgnType_getter, NULL, drgn_Type_tag_DOC,
@@ -1279,15 +1286,18 @@ PyTypeObject TypeParameter_type = {
 
 DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "qualifiers", NULL, };
+	static char *keywords[] = { "qualifiers", "language", NULL, };
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 	struct drgn_qualified_type qualified_type;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&:void_type", keywords,
-					 qualifiers_converter, &qualifiers))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&$O&:void_type",
+					 keywords, qualifiers_converter,
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
-	qualified_type.type = &drgn_void_type;
+	qualified_type.type = drgn_void_type(language);
 	qualified_type.qualifiers = qualifiers;
 	return (DrgnType *)DrgnType_wrap(qualified_type, NULL);
 }
@@ -1295,7 +1305,7 @@ DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds)
 DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"name", "size", "is_signed", "qualifiers", NULL,
+		"name", "size", "is_signed", "qualifiers", "language", NULL,
 	};
 	DrgnType *type_obj;
 	PyObject *name_obj;
@@ -1303,11 +1313,13 @@ DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds)
 	unsigned long size;
 	int is_signed;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!kp|O&:int_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!kp|O&$O&:int_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 &size, &is_signed,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	name = PyUnicode_AsUTF8(name_obj);
@@ -1318,7 +1330,7 @@ DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	drgn_int_type_init(type_obj->type, name, size, is_signed);
+	drgn_int_type_init(type_obj->type, name, size, is_signed, language);
 
 	if (drgn_type_name(type_obj->type) == name &&
 	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
@@ -1332,17 +1344,21 @@ DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds)
 
 DrgnType *bool_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "name", "size", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"name", "size", "qualifiers", "language", NULL,
+	};
 	DrgnType *type_obj;
 	PyObject *name_obj;
 	const char *name;
 	unsigned long size;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!k|O&:bool_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!k|O&$O&:bool_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 &size, qualifiers_converter,
-					 &qualifiers))
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
 	name = PyUnicode_AsUTF8(name_obj);
@@ -1353,7 +1369,7 @@ DrgnType *bool_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	drgn_bool_type_init(type_obj->type, name, size);
+	drgn_bool_type_init(type_obj->type, name, size, language);
 
 	if (drgn_type_name(type_obj->type) == name &&
 	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
@@ -1367,17 +1383,21 @@ DrgnType *bool_type(PyObject *self, PyObject *args, PyObject *kwds)
 
 DrgnType *float_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "name", "size", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"name", "size", "qualifiers", "language", NULL,
+	};
 	DrgnType *type_obj;
 	PyObject *name_obj;
 	const char *name;
 	unsigned long size;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!k|O&:float_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!k|O&$O&:float_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 &size, qualifiers_converter,
-					 &qualifiers))
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
 	name = PyUnicode_AsUTF8(name_obj);
@@ -1388,7 +1408,7 @@ DrgnType *float_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	drgn_float_type_init(type_obj->type, name, size);
+	drgn_float_type_init(type_obj->type, name, size, language);
 
 	if (drgn_type_name(type_obj->type) == name &&
 	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
@@ -1410,11 +1430,13 @@ DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds)
 	PyObject *real_type_obj;
 	struct drgn_type *real_type;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!kO|O&:complex_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!kO|O&$O&:complex_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 &size, &real_type_obj,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	name = PyUnicode_AsUTF8(name_obj);
@@ -1443,7 +1465,7 @@ DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	drgn_complex_type_init(type_obj->type, name, size, real_type);
+	drgn_complex_type_init(type_obj->type, name, size, real_type, language);
 
 	if (drgn_type_name(type_obj->type) == name &&
 	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
@@ -1499,6 +1521,7 @@ static int unpack_member(DrgnType *type_obj, PyObject *cached_members_obj,
 static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 			       PyObject *members_obj,
 			       enum drgn_qualifiers qualifiers,
+			       const struct drgn_language *language,
 			       enum drgn_type_kind kind)
 {
 	const char *tag;
@@ -1580,13 +1603,16 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 	if (members_obj == Py_None) {
 		switch (kind) {
 		case DRGN_TYPE_STRUCT:
-			drgn_struct_type_init_incomplete(type_obj->type, tag);
+			drgn_struct_type_init_incomplete(type_obj->type, tag,
+							 language);
 			break;
 		case DRGN_TYPE_UNION:
-			drgn_union_type_init_incomplete(type_obj->type, tag);
+			drgn_union_type_init_incomplete(type_obj->type, tag,
+							language);
 			break;
 		case DRGN_TYPE_CLASS:
-			drgn_class_type_init_incomplete(type_obj->type, tag);
+			drgn_class_type_init_incomplete(type_obj->type, tag,
+							language);
 			break;
 		default:
 			DRGN_UNREACHABLE();
@@ -1595,15 +1621,15 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 		switch (kind) {
 		case DRGN_TYPE_STRUCT:
 			drgn_struct_type_init(type_obj->type, tag, size,
-					      num_members);
+					      num_members, language);
 			break;
 		case DRGN_TYPE_UNION:
 			drgn_union_type_init(type_obj->type, tag, size,
-					     num_members);
+					     num_members, language);
 			break;
 		case DRGN_TYPE_CLASS:
 			drgn_class_type_init(type_obj->type, tag, size,
-					     num_members);
+					     num_members, language);
 			break;
 		default:
 			DRGN_UNREACHABLE();
@@ -1619,56 +1645,68 @@ err:
 
 DrgnType *struct_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "tag", "size", "members", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"tag", "size", "members", "qualifiers", "language", NULL,
+	};
 	PyObject *tag_obj;
 	PyObject *size_obj = Py_None;
 	PyObject *members_obj = Py_None;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&:struct_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:struct_type",
 					 keywords, &tag_obj, &size_obj,
 					 &members_obj, qualifiers_converter,
-					 &qualifiers))
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
 	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
-			     DRGN_TYPE_STRUCT);
+			     language, DRGN_TYPE_STRUCT);
 }
 
 DrgnType *union_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "tag", "size", "members", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"tag", "size", "members", "qualifiers", "language", NULL,
+	};
 	PyObject *tag_obj;
 	PyObject *size_obj = Py_None;
 	PyObject *members_obj = Py_None;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&:union_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:union_type",
 					 keywords, &tag_obj, &size_obj,
 					 &members_obj, qualifiers_converter,
-					 &qualifiers))
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
 	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
-			     DRGN_TYPE_UNION);
+			     language, DRGN_TYPE_UNION);
 }
 
 DrgnType *class_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "tag", "size", "members", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"tag", "size", "members", "qualifiers", "language", NULL,
+	};
 	PyObject *tag_obj;
 	PyObject *size_obj = Py_None;
 	PyObject *members_obj = Py_None;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&:class_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:class_type",
 					 keywords, &tag_obj, &size_obj,
 					 &members_obj, qualifiers_converter,
-					 &qualifiers))
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
 	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
-			     DRGN_TYPE_CLASS);
+			     language, DRGN_TYPE_CLASS);
 }
 
 static int unpack_enumerator(DrgnType *type_obj, PyObject *cached_enumerators_obj,
@@ -1710,7 +1748,9 @@ static int unpack_enumerator(DrgnType *type_obj, PyObject *cached_enumerators_ob
 
 DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "tag", "type", "enumerators", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"tag", "type", "enumerators", "qualifiers", "language", NULL,
+	};
 	DrgnType *type_obj = NULL;
 	PyObject *tag_obj;
 	const char *tag;
@@ -1718,13 +1758,15 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 	struct drgn_type *compatible_type;
 	PyObject *enumerators_obj = Py_None;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 	PyObject *cached_enumerators_obj = NULL;
 	size_t num_enumerators;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&:enum_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:enum_type",
 					 keywords, &tag_obj,
 					 &compatible_type_obj, &enumerators_obj,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	if (tag_obj == Py_None) {
@@ -1818,10 +1860,10 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 		goto err;
 
 	if (enumerators_obj == Py_None) {
-		drgn_enum_type_init_incomplete(type_obj->type, tag);
+		drgn_enum_type_init_incomplete(type_obj->type, tag, language);
 	} else {
 		drgn_enum_type_init(type_obj->type, tag, compatible_type,
-				    num_enumerators);
+				    num_enumerators, language);
 	}
 	return type_obj;
 
@@ -1833,18 +1875,22 @@ err:
 
 DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "name", "type", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"name", "type", "qualifiers", "language", NULL,
+	};
 	DrgnType *type_obj;
 	PyObject *name_obj;
 	const char *name;
 	PyObject *aliased_type_obj;
 	struct drgn_qualified_type aliased_type;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O|O&:typedef_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O|O&$O&:typedef_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 &aliased_type_obj,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	name = PyUnicode_AsUTF8(name_obj);
@@ -1866,22 +1912,26 @@ DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	drgn_typedef_type_init(type_obj->type, name, aliased_type);
+	drgn_typedef_type_init(type_obj->type, name, aliased_type, language);
 	return type_obj;
 }
 
 DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "size", "type", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"size", "type", "qualifiers", "language", NULL,
+	};
 	DrgnType *type_obj;
 	unsigned long size;
 	PyObject *referenced_type_obj;
 	struct drgn_qualified_type referenced_type;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "kO|O&:pointer_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "kO|O&$O&:pointer_type",
 					 keywords, &size, &referenced_type_obj,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	type_obj = DrgnType_new(qualifiers, 0, 0);
@@ -1893,24 +1943,28 @@ DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	drgn_pointer_type_init(type_obj->type, size, referenced_type);
+	drgn_pointer_type_init(type_obj->type, size, referenced_type, language);
 	return type_obj;
 }
 
 DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "length", "type", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"length", "type", "qualifiers", "language", NULL,
+	};
 	DrgnType *type_obj;
 	PyObject *length_obj;
 	unsigned long long length;
 	PyObject *element_type_obj;
 	struct drgn_qualified_type element_type;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|O&:array_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|O&$O&:array_type",
 					 keywords, &length_obj,
 					 &element_type_obj,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	if (length_obj == Py_None) {
@@ -1935,10 +1989,13 @@ DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	if (length_obj == Py_None)
-		drgn_array_type_init_incomplete(type_obj->type, element_type);
-	else
-		drgn_array_type_init(type_obj->type, length, element_type);
+	if (length_obj == Py_None) {
+		drgn_array_type_init_incomplete(type_obj->type, element_type,
+						language);
+	} else {
+		drgn_array_type_init(type_obj->type, length, element_type,
+				     language);
+	}
 	return type_obj;
 }
 
@@ -1971,7 +2028,10 @@ static int unpack_parameter(DrgnType *type_obj, PyObject *cached_parameters_obj,
 
 DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "type", "parameters", "is_variadic", "qualifiers", NULL, };
+	static char *keywords[] = {
+		"type", "parameters", "is_variadic", "qualifiers", "language",
+		NULL,
+	};
 	DrgnType *type_obj = NULL;
 	PyObject *return_type_obj;
 	struct drgn_qualified_type return_type;
@@ -1979,11 +2039,13 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 	size_t num_parameters, i;
 	int is_variadic = 0;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|pO&:function_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|pO&$O&:function_type",
 					 keywords, &return_type_obj,
 					 &parameters_obj, &is_variadic,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	if (!PySequence_Check(parameters_obj)) {
@@ -2014,7 +2076,7 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 		goto err;
 
 	drgn_function_type_init(type_obj->type, return_type, num_parameters,
-				is_variadic);
+				is_variadic, language);
 	return type_obj;
 
 err:

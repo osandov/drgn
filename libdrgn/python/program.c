@@ -567,16 +567,18 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 static PyObject *Program_pointer_type(Program *self, PyObject *args,
 				      PyObject *kwds)
 {
-	static char *keywords[] = {"type", "qualifiers", NULL};
+	static char *keywords[] = {"type", "qualifiers", "language", NULL};
 	struct drgn_error *err;
 	PyObject *referenced_type_obj;
 	struct drgn_qualified_type referenced_type;
 	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
 	struct drgn_qualified_type qualified_type;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O&:pointer_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O&$O&:pointer_type",
 					 keywords, &referenced_type_obj,
-					 qualifiers_converter, &qualifiers))
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	if (Program_type_arg(self, referenced_type_obj, false,
@@ -584,7 +586,7 @@ static PyObject *Program_pointer_type(Program *self, PyObject *args,
 		return NULL;
 
 	err = drgn_type_index_pointer_type(&self->prog.tindex, referenced_type,
-					   &qualified_type.type);
+					   language, &qualified_type.type);
 	if (err)
 		return set_drgn_error(err);
 	qualified_type.qualifiers = qualifiers;

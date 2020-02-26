@@ -2484,12 +2484,13 @@ c_type_from_declarator(struct drgn_type_index *tindex,
 	}
 
 	if (declarator->kind == C_TOKEN_ASTERISK) {
-		err = drgn_type_index_pointer_type(tindex, *ret, &ret->type);
+		err = drgn_type_index_pointer_type(tindex, *ret, NULL,
+						   &ret->type);
 	} else if (declarator->is_complete) {
 		err = drgn_type_index_array_type(tindex, declarator->length,
-						 *ret, &ret->type);
+						 *ret, NULL, &ret->type);
 	} else {
-		err = drgn_type_index_incomplete_array_type(tindex, *ret,
+		err = drgn_type_index_incomplete_array_type(tindex, *ret, NULL,
 							    &ret->type);
 	}
 
@@ -3136,6 +3137,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	case DRGN_TYPE_ARRAY:
 		err = drgn_type_index_pointer_type(&obj->prog->tindex,
 						   drgn_type_type(type_ret->underlying_type),
+						   drgn_type_language(type_ret->underlying_type),
 						   &type_ret->type);
 		if (err)
 			return err;
@@ -3149,6 +3151,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 
 		err = drgn_type_index_pointer_type(&obj->prog->tindex,
 						   function_type,
+						   drgn_type_language(type_ret->underlying_type),
 						   &type_ret->type);
 		if (err)
 			return err;

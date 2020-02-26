@@ -184,18 +184,17 @@ def _compile_debug_line(cu_die, little_endian):
     return buf
 
 
-def compile_dwarf(dies, little_endian=True, bits=64):
+def compile_dwarf(dies, little_endian=True, bits=64, *, lang=None):
     if isinstance(dies, DwarfDie):
         dies = (dies,)
     assert all(isinstance(die, DwarfDie) for die in dies)
-    cu_die = DwarfDie(
-        DW_TAG.compile_unit,
-        [
-            DwarfAttrib(DW_AT.comp_dir, DW_FORM.string, "/usr/src"),
-            DwarfAttrib(DW_AT.stmt_list, DW_FORM.sec_offset, 0),
-        ],
-        dies,
-    )
+    cu_attribs = [
+        DwarfAttrib(DW_AT.comp_dir, DW_FORM.string, "/usr/src"),
+        DwarfAttrib(DW_AT.stmt_list, DW_FORM.sec_offset, 0),
+    ]
+    if lang is not None:
+        cu_attribs.append(DwarfAttrib(DW_AT.language, DW_FORM.data1, lang))
+    cu_die = DwarfDie(DW_TAG.compile_unit, cu_attribs, dies)
 
     return create_elf_file(
         ET.EXEC,

@@ -11,23 +11,24 @@
 /* These functions compare the underlying type by reference, not by value. */
 
 static struct hash_pair
-drgn_qualified_type_key_hash(const struct drgn_qualified_type *key)
+drgn_pointer_type_key_hash(const struct drgn_pointer_type_key *key)
 {
 	size_t hash;
 
 	hash = hash_combine((uintptr_t)key->type, key->qualifiers);
+	hash = hash_combine(hash, (uintptr_t)key->lang);
 	return hash_pair_from_avalanching_hash(hash);
 }
 
-static bool drgn_qualified_type_key_eq(const struct drgn_qualified_type *a,
-				       const struct drgn_qualified_type *b)
+static bool drgn_pointer_type_key_eq(const struct drgn_pointer_type_key *a,
+				     const struct drgn_pointer_type_key *b)
 {
-	return a->type == b->type && a->qualifiers == b->qualifiers;
+	return (a->type == b->type && a->qualifiers == b->qualifiers &&
+		a->lang == b->lang);
 }
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_pointer_type_table,
-			    drgn_qualified_type_key_hash,
-			    drgn_qualified_type_key_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_pointer_type_table, drgn_pointer_type_key_hash,
+			    drgn_pointer_type_key_eq)
 
 static struct hash_pair
 drgn_array_type_key_hash(const struct drgn_array_type_key *key)
@@ -37,6 +38,7 @@ drgn_array_type_key_hash(const struct drgn_array_type_key *key)
 	hash = hash_combine((uintptr_t)key->type, key->qualifiers);
 	hash = hash_combine(hash, key->is_complete);
 	hash = hash_combine(hash, key->length);
+	hash = hash_combine(hash, (uintptr_t)key->lang);
 	return hash_pair_from_avalanching_hash(hash);
 }
 
@@ -44,7 +46,8 @@ static bool drgn_array_type_key_eq(const struct drgn_array_type_key *a,
 				   const struct drgn_array_type_key *b)
 {
 	return (a->type == b->type && a->qualifiers == b->qualifiers &&
-		a->is_complete == b->is_complete && a->length == b->length);
+		a->is_complete == b->is_complete && a->length == b->length &&
+		a->lang == b->lang);
 }
 
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_array_type_table, drgn_array_type_key_hash,
@@ -161,49 +164,49 @@ static void default_primitive_types_init(void)
 
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_CHAR],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_CHAR][0],
-			   1, true);
+			   1, true, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_SIGNED_CHAR],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_SIGNED_CHAR][0],
-			   1, true);
+			   1, true, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_CHAR],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_CHAR][0],
-			   1, false);
+			   1, false, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_SHORT],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_SHORT][0],
-			   2, true);
+			   2, true, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_SHORT],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_SHORT][0],
-			   2, false);
+			   2, false, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_INT],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_INT][0], 4,
-			   true);
+			   true, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_INT],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_INT][0],
-			   4, false);
+			   4, false, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_LONG],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG][0],
-			   8, true);
+			   8, true, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG][0],
-			   8, false);
+			   8, false, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_LONG_LONG],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG_LONG][0],
-			   8, true);
+			   8, true, &drgn_language_c);
 	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG_LONG],
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG_LONG][0],
-			   8, false);
+			   8, false, &drgn_language_c);
 	drgn_bool_type_init(&default_primitive_types[DRGN_C_TYPE_BOOL],
 			    drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0],
-			    1);
+			    1, &drgn_language_c);
 	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_FLOAT],
 			     drgn_primitive_type_spellings[DRGN_C_TYPE_FLOAT][0],
-			     4);
+			     4, &drgn_language_c);
 	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_DOUBLE],
 			     drgn_primitive_type_spellings[DRGN_C_TYPE_DOUBLE][0],
-			     8);
+			     8, &drgn_language_c);
 	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_LONG_DOUBLE],
 			     drgn_primitive_type_spellings[DRGN_C_TYPE_LONG_DOUBLE][0],
-			     16);
+			     16, &drgn_language_c);
 	for (i = 0; i < ARRAY_SIZE(default_primitive_types); i++) {
 		if (drgn_primitive_type_kind[i] == DRGN_TYPE_VOID ||
 		    i == DRGN_C_TYPE_SIZE_T || i == DRGN_C_TYPE_PTRDIFF_T)
@@ -213,13 +216,13 @@ static void default_primitive_types_init(void)
 
 	drgn_int_type_init(&default_long_32bit,
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG][0],
-			   4, true);
+			   4, true, &drgn_language_c);
 	assert(drgn_type_primitive(&default_long_32bit) ==
 	       DRGN_C_TYPE_LONG);
 
 	drgn_int_type_init(&default_unsigned_long_32bit,
 			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG][0],
-			   4, false);
+			   4, false, &drgn_language_c);
 	assert(drgn_type_primitive(&default_unsigned_long_32bit) ==
 	       DRGN_C_TYPE_UNSIGNED_LONG);
 }
@@ -273,7 +276,7 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 
 	kind = drgn_primitive_type_kind[type];
 	if (kind == DRGN_TYPE_VOID) {
-		*ret = &drgn_void_type;
+		*ret = drgn_void_type(&drgn_language_c);
 		goto out;
 	}
 
@@ -343,7 +346,7 @@ drgn_type_index_find_primitive(struct drgn_type_index *tindex,
 					&tindex->default_size_t :
 					&tindex->default_ptrdiff_t);
 				drgn_typedef_type_init(*ret, spellings[0],
-						       qualified_type);
+						       qualified_type, &drgn_language_c);
 				goto out;
 			}
 		}
@@ -389,8 +392,14 @@ drgn_type_index_find_parsed(struct drgn_type_index *tindex,
 struct drgn_error *
 drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 			     struct drgn_qualified_type referenced_type,
+			     const struct drgn_language *lang,
 			     struct drgn_type **ret)
 {
+	const struct drgn_pointer_type_key key = {
+		.type = referenced_type.type,
+		.qualifiers = referenced_type.qualifiers,
+		.lang = lang ? lang : drgn_type_language(referenced_type.type),
+	};
 	struct drgn_pointer_type_table_iterator it;
 	struct drgn_type *type;
 	struct hash_pair hp;
@@ -400,9 +409,9 @@ drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 					 "word size has not been set");
 	}
 
-	hp = drgn_pointer_type_table_hash(&referenced_type);
-	it = drgn_pointer_type_table_search_hashed(&tindex->pointer_types,
-						   &referenced_type, hp);
+	hp = drgn_pointer_type_table_hash(&key);
+	it = drgn_pointer_type_table_search_hashed(&tindex->pointer_types, &key,
+						   hp);
 	if (it.entry) {
 		type = *it.entry;
 		goto out;
@@ -411,7 +420,8 @@ drgn_type_index_pointer_type(struct drgn_type_index *tindex,
 	type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
-	drgn_pointer_type_init(type, tindex->word_size, referenced_type);
+	drgn_pointer_type_init(type, tindex->word_size, referenced_type,
+			       key.lang);
 	if (drgn_pointer_type_table_insert_searched(&tindex->pointer_types,
 						    &type, hp, NULL) == -1) {
 		free(type);
@@ -425,13 +435,15 @@ out:
 struct drgn_error *
 drgn_type_index_array_type(struct drgn_type_index *tindex, uint64_t length,
 			   struct drgn_qualified_type element_type,
+			   const struct drgn_language *lang,
 			   struct drgn_type **ret)
 {
-	struct drgn_array_type_key key = {
+	const struct drgn_array_type_key key = {
 		.type = element_type.type,
 		.qualifiers = element_type.qualifiers,
 		.is_complete = true,
 		.length = length,
+		.lang = lang ? lang : drgn_type_language(element_type.type),
 	};
 	struct drgn_array_type_table_iterator it;
 	struct drgn_type *type;
@@ -448,7 +460,7 @@ drgn_type_index_array_type(struct drgn_type_index *tindex, uint64_t length,
 	type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
-	drgn_array_type_init(type, length, element_type);
+	drgn_array_type_init(type, length, element_type, key.lang);
 	if (drgn_array_type_table_insert_searched(&tindex->array_types, &type,
 						  hp, NULL) == -1) {
 		free(type);
@@ -462,12 +474,14 @@ out:
 struct drgn_error *
 drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 				      struct drgn_qualified_type element_type,
+				      const struct drgn_language *lang,
 				      struct drgn_type **ret)
 {
-	struct drgn_array_type_key key = {
+	const struct drgn_array_type_key key = {
 		.type = element_type.type,
 		.qualifiers = element_type.qualifiers,
 		.is_complete = false,
+		.lang = lang ? lang : drgn_type_language(element_type.type),
 	};
 	struct drgn_array_type_table_iterator it;
 	struct drgn_type *type;
@@ -484,7 +498,7 @@ drgn_type_index_incomplete_array_type(struct drgn_type_index *tindex,
 	type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
-	drgn_array_type_init_incomplete(type, element_type);
+	drgn_array_type_init_incomplete(type, element_type, key.lang);
 	if (drgn_array_type_table_insert_searched(&tindex->array_types, &type,
 						  hp, NULL) == -1) {
 		free(type);

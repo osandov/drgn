@@ -189,6 +189,7 @@ void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
 
 PyObject *Language_wrap(const struct drgn_language *language);
+int language_converter(PyObject *o, void *p);
 int add_languages(void);
 
 static inline DrgnObject *DrgnObject_alloc(Program *prog)

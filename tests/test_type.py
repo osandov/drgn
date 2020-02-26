@@ -1,6 +1,7 @@
 import unittest
 
 from drgn import (
+    Language,
     PrimitiveType,
     Qualifiers,
     TypeEnumerator,
@@ -23,12 +24,15 @@ from drgn import (
     void_type,
 )
 
+from tests import DEFAULT_LANGUAGE
+
 
 class TestType(unittest.TestCase):
     def test_void(self):
         t = void_type()
         self.assertEqual(t.kind, TypeKind.VOID)
         self.assertEqual(t.primitive, PrimitiveType.C_VOID)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t, void_type())
         self.assertFalse(t.is_complete())
         self.assertEqual(repr(t), "void_type()")
@@ -37,6 +41,7 @@ class TestType(unittest.TestCase):
         t = int_type("int", 4, True)
         self.assertEqual(t.kind, TypeKind.INT)
         self.assertEqual(t.primitive, PrimitiveType.C_INT)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.name, "int")
         self.assertEqual(t.size, 4)
         self.assertTrue(t.is_signed)
@@ -59,6 +64,7 @@ class TestType(unittest.TestCase):
         t = bool_type("_Bool", 1)
         self.assertEqual(t.kind, TypeKind.BOOL)
         self.assertEqual(t.primitive, PrimitiveType.C_BOOL)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.name, "_Bool")
         self.assertEqual(t.size, 1)
         self.assertTrue(t.is_complete())
@@ -93,6 +99,7 @@ class TestType(unittest.TestCase):
         t = complex_type("double _Complex", 16, float_type("double", 8))
         self.assertEqual(t.kind, TypeKind.COMPLEX)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.name, "double _Complex")
         self.assertEqual(t.size, 16)
         self.assertEqual(t.type, float_type("double", 8))
@@ -147,6 +154,7 @@ class TestType(unittest.TestCase):
         )
         self.assertEqual(t.kind, TypeKind.STRUCT)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.tag, "point")
         self.assertEqual(t.size, 8)
         self.assertEqual(
@@ -341,6 +349,7 @@ class TestType(unittest.TestCase):
         )
         self.assertEqual(t.kind, TypeKind.UNION)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.tag, "option")
         self.assertEqual(t.size, 4)
         self.assertEqual(
@@ -536,6 +545,7 @@ class TestType(unittest.TestCase):
         )
         self.assertEqual(t.kind, TypeKind.CLASS)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.tag, "coord")
         self.assertEqual(t.size, 12)
         self.assertEqual(
@@ -741,6 +751,7 @@ class TestType(unittest.TestCase):
         )
         self.assertEqual(t.kind, TypeKind.ENUM)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.tag, "color")
         self.assertEqual(t.type, int_type("unsigned int", 4, False))
         self.assertEqual(
@@ -903,6 +914,7 @@ class TestType(unittest.TestCase):
         t = typedef_type("INT", int_type("int", 4, True))
         self.assertEqual(t.kind, TypeKind.TYPEDEF)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.name, "INT")
         self.assertEqual(t.type, int_type("int", 4, True))
         self.assertTrue(t.is_complete())
@@ -945,6 +957,7 @@ class TestType(unittest.TestCase):
         t = pointer_type(8, int_type("int", 4, True))
         self.assertEqual(t.kind, TypeKind.POINTER)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.size, 8)
         self.assertEqual(t.type, int_type("int", 4, True))
         self.assertTrue(t.is_complete())
@@ -971,6 +984,7 @@ class TestType(unittest.TestCase):
         t = array_type(10, int_type("int", 4, True))
         self.assertEqual(t.kind, TypeKind.ARRAY)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.length, 10)
         self.assertEqual(t.type, int_type("int", 4, True))
         self.assertTrue(t.is_complete())
@@ -1010,6 +1024,7 @@ class TestType(unittest.TestCase):
         t = function_type(void_type(), (TypeParameter(int_type("int", 4, True), "n"),))
         self.assertEqual(t.kind, TypeKind.FUNCTION)
         self.assertIsNone(t.primitive)
+        self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.type, void_type())
         self.assertEqual(t.parameters, (TypeParameter(int_type("int", 4, True), "n"),))
         self.assertFalse(t.is_variadic)
@@ -1145,6 +1160,10 @@ class TestType(unittest.TestCase):
         self.assertEqual(t.qualified(Qualifiers(0)), t.unqualified())
 
         self.assertRaisesRegex(TypeError, "expected Qualifiers or None", void_type, 1.5)
+
+    def test_language(self):
+        self.assertEqual(void_type(language=None).language, DEFAULT_LANGUAGE)
+        self.assertEqual(void_type(language=Language.C).language, Language.C)
 
     def test_cmp(self):
         self.assertEqual(void_type(), void_type())

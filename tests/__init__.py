@@ -5,6 +5,7 @@ import unittest
 from drgn import (
     Architecture,
     FindObjectFlags,
+    Language,
     Object,
     Platform,
     PlatformFlags,
@@ -21,6 +22,9 @@ from drgn import (
     typedef_type,
     union_type,
 )
+
+
+DEFAULT_LANGUAGE = Language.C
 
 
 coord_type = class_type(

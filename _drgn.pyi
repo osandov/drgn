@@ -189,12 +189,19 @@ class Program:
             the given file
         """
         ...
-    def pointer_type(self, type: Type, qualifiers: Optional[Qualifiers] = None) -> Type:
+    def pointer_type(
+        self,
+        type: Type,
+        qualifiers: Optional[Qualifiers] = None,
+        *,
+        language: Optional[Language] = None,
+    ) -> Type:
         """
         Create a pointer type which points to the given type.
 
         :param type: The referenced type.
         :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
         """
         ...
     def read(self, address: int, size: int, physical: bool = False) -> bytes:
@@ -1078,6 +1085,9 @@ class Type:
     qualifiers: Qualifiers
     """Bitmask of this type's qualifier."""
 
+    language: Language
+    """Programming language of this type."""
+
     name: str
     """
     Name of this type. This is present for integer, boolean, floating-point,
@@ -1323,16 +1333,24 @@ class Qualifiers(enum.Flag):
     ATOMIC = ...
     """Atomic type."""
 
-def void_type(qualifiers: Optional[Qualifiers] = None) -> Type:
+def void_type(
+    qualifiers: Optional[Qualifiers] = None, *, language: Optional[Language] = None
+) -> Type:
     """
     Create a new void type. It has kind :attr:`TypeKind.VOID`.
 
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
 def int_type(
-    name: str, size: int, is_signed: bool, qualifiers: Optional[Qualifiers] = None
+    name: str,
+    size: int,
+    is_signed: bool,
+    qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new integer type. It has kind :attr:`TypeKind.INT`.
@@ -1341,31 +1359,51 @@ def int_type(
     :param size: :attr:`Type.size`
     :param is_signed: :attr:`Type.is_signed`
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
-def bool_type(name: str, size: int, qualifiers: Optional[Qualifiers] = None) -> Type:
+def bool_type(
+    name: str,
+    size: int,
+    qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
+) -> Type:
     """
     Create a new boolean type. It has kind :attr:`TypeKind.BOOL`.
 
     :param name: :attr:`Type.name`
     :param size: :attr:`Type.size`
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
-def float_type(name: str, size: int, qualifiers: Optional[Qualifiers] = None) -> Type:
+def float_type(
+    name: str,
+    size: int,
+    qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
+) -> Type:
     """
     Create a new floating-point type. It has kind :attr:`TypeKind.FLOAT`.
 
     :param name: :attr:`Type.name`
     :param size: :attr:`Type.size`
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
 def complex_type(
-    name: str, size: int, type: Type, qualifiers: Optional[Qualifiers] = None
+    name: str,
+    size: int,
+    type: Type,
+    qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new complex type. It has kind :attr:`TypeKind.COMPLEX`.
@@ -1374,6 +1412,7 @@ def complex_type(
     :param size: :attr:`Type.size`
     :param type: The corresponding real type (:attr:`Type.type`)
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
@@ -1382,6 +1421,8 @@ def struct_type(
     size: Optional[int] = None,
     members: Optional[Sequence[TypeMember]] = None,
     qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new structure type. It has kind :attr:`TypeKind.STRUCT`.
@@ -1390,6 +1431,7 @@ def struct_type(
     :param size: :attr:`Type.size`; ``None`` if this is an incomplete type.
     :param members: :attr:`Type.members`
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
@@ -1398,6 +1440,8 @@ def union_type(
     size: Optional[int] = None,
     members: Optional[Sequence[TypeMember]] = None,
     qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new union type. It has kind :attr:`TypeKind.UNION`. Otherwise,
@@ -1410,6 +1454,8 @@ def class_type(
     size: Optional[int] = None,
     members: Optional[Sequence[TypeMember]] = None,
     qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new class type. It has kind :attr:`TypeKind.CLASS`. Otherwise,
@@ -1422,6 +1468,8 @@ def enum_type(
     type: Optional[Type] = None,
     enumerators: Optional[Sequence[TypeEnumerator]] = None,
     qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new enumerated type. It has kind :attr:`TypeKind.ENUM`.
@@ -1430,11 +1478,16 @@ def enum_type(
     :param type: The compatible integer type (:attr:`Type.type`)
     :param enumerators: :attr:`Type.enumerators`
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
 def typedef_type(
-    name: str, type: Type, qualifiers: Optional[Qualifiers] = None
+    name: str,
+    type: Type,
+    qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new typedef type. It has kind :attr:`TypeKind.TYPEDEF`.
@@ -1442,11 +1495,16 @@ def typedef_type(
     :param name: :attr:`Type.name`
     :param type: The aliased type (:attr:`Type.type`)
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
 def pointer_type(
-    size: int, type: Type, qualifiers: Optional[Qualifiers] = None
+    size: int,
+    type: Type,
+    qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new pointer type. It has kind :attr:`TypeKind.POINTER`,
@@ -1456,11 +1514,16 @@ def pointer_type(
     :param size: :attr:`Type.size`
     :param type: The referenced type (:attr:`Type.type`)
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
 def array_type(
-    length: Optional[int], type: Type, qualifiers: Optional[Qualifiers] = None
+    length: Optional[int],
+    type: Type,
+    qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new array type. It has kind :attr:`TypeKind.ARRAY`.
@@ -1468,6 +1531,7 @@ def array_type(
     :param length: :attr:`Type.length`
     :param type: The element type (:attr:`Type.type`)
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
@@ -1476,6 +1540,8 @@ def function_type(
     parameters: Sequence[TypeParameter],
     is_variadic: bool = False,
     qualifiers: Optional[Qualifiers] = None,
+    *,
+    language: Optional[Language] = None,
 ) -> Type:
     """
     Create a new function type. It has kind :attr:`TypeKind.FUNCTION`.
@@ -1484,6 +1550,7 @@ def function_type(
     :param parameters: :attr:`Type.parameters`
     :param is_variadic: :attr:`Type.is_variadic`
     :param qualifiers: :attr:`Type.qualifiers`
+    :param lang: :attr:`Type.language`
     """
     ...
 
