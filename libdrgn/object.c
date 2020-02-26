@@ -18,7 +18,7 @@
 void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog)
 {
 	obj->prog = prog;
-	obj->type = drgn_void_type(NULL);
+	obj->type = drgn_void_type(drgn_program_language(prog));
 	obj->bit_size = 0;
 	obj->qualifiers = 0;
 	obj->kind = DRGN_OBJECT_NONE;
@@ -1135,7 +1135,7 @@ drgn_object_reinterpret(struct drgn_object *res,
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_integer_literal(struct drgn_object *res, uint64_t uvalue)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_program_language(res->prog);
 
 	return lang->integer_literal(res, uvalue);
 }
@@ -1143,7 +1143,7 @@ drgn_object_integer_literal(struct drgn_object *res, uint64_t uvalue)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_bool_literal(struct drgn_object *res, bool bvalue)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_program_language(res->prog);
 
 	return lang->bool_literal(res, bvalue);
 }
@@ -1151,7 +1151,7 @@ drgn_object_bool_literal(struct drgn_object *res, bool bvalue)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_float_literal(struct drgn_object *res, double fvalue)
 {
-	const struct drgn_language *lang = &drgn_language_c;
+	const struct drgn_language *lang = drgn_program_language(res->prog);
 
 	return lang->float_literal(res, fvalue);
 }

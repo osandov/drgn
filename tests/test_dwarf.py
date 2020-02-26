@@ -2038,3 +2038,24 @@ class TestObjects(ObjectTestCase):
     def test_not_found(self):
         prog = dwarf_program([int_die])
         self.assertRaisesRegex(LookupError, "could not find", prog.object, "y")
+
+
+class TestProgram(unittest.TestCase):
+    def test_language(self):
+        dies = (
+            DwarfDie(
+                DW_TAG.subprogram,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                    DwarfAttrib(DW_AT.low_pc, DW_FORM.addr, 0x7FC3EB9B1C30),
+                ),
+            ),
+            int_die,
+        )
+        self.assertEqual(dwarf_program(()).language, DEFAULT_LANGUAGE)
+        self.assertEqual(dwarf_program(dies).language, DEFAULT_LANGUAGE)
+        self.assertEqual(dwarf_program(dies, lang=DW_LANG.C).language, Language.C)
+        self.assertEqual(
+            dwarf_program(dies, lang=DW_LANG.BLISS).language, DEFAULT_LANGUAGE
+        )

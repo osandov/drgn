@@ -841,6 +841,11 @@ static PyObject *Program_get_platform(Program *self, void *arg)
 		Py_RETURN_NONE;
 }
 
+static PyObject *Program_get_language(Program *self, void *arg)
+{
+	return Language_wrap(drgn_program_language(&self->prog));
+}
+
 static PyMethodDef Program_methods[] = {
 	{"add_memory_segment", (PyCFunction)Program_add_memory_segment,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
@@ -890,7 +895,10 @@ static PyMemberDef Program_members[] = {
 
 static PyGetSetDef Program_getset[] = {
 	{"flags", (getter)Program_get_flags, NULL, drgn_Program_flags_DOC},
-	{"platform", (getter)Program_get_platform, NULL, drgn_Program_platform_DOC},
+	{"platform", (getter)Program_get_platform, NULL,
+	 drgn_Program_platform_DOC},
+	{"language", (getter)Program_get_language, NULL,
+	 drgn_Program_language_DOC},
 	{},
 };
 
