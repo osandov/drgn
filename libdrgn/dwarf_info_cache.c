@@ -157,9 +157,8 @@ static void drgn_type_from_dwarf_thunk_free_fn(struct drgn_type_thunk *thunk)
 
 static struct drgn_error *
 drgn_lazy_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
-			  Dwarf_Die *parent_die, bool can_be_void,
-			  bool can_be_incomplete_array, const char *tag_name,
-			  struct drgn_lazy_type *ret)
+			  Dwarf_Die *parent_die, bool can_be_incomplete_array,
+			  const char *tag_name, struct drgn_lazy_type *ret)
 {
 	struct drgn_type_from_dwarf_thunk *thunk;
 	Dwarf_Attribute attr_mem;
@@ -167,14 +166,9 @@ drgn_lazy_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	Dwarf_Die type_die;
 
 	if (!(attr = dwarf_attr_integrate(parent_die, DW_AT_type, &attr_mem))) {
-		if (can_be_void) {
-			drgn_lazy_type_init_evaluated(ret, &drgn_void_type, 0);
-			return NULL;
-		} else {
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "%s is missing DW_AT_type",
-						 tag_name);
-		}
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "%s is missing DW_AT_type",
+					 tag_name);
 	}
 
 	if (!dwarf_formref_die(attr, &type_die)) {
@@ -525,8 +519,8 @@ static struct drgn_error *parse_member(struct drgn_dwarf_info_cache *dicache,
 		bit_field_size = 0;
 	}
 
-	err = drgn_lazy_type_from_dwarf(dicache, die, false, false,
-					"DW_TAG_member", &member_type);
+	err = drgn_lazy_type_from_dwarf(dicache, die, false, "DW_TAG_member",
+					&member_type);
 	if (err)
 		return err;
 
@@ -1144,7 +1138,7 @@ parse_formal_parameter(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 		name = NULL;
 	}
 
-	err = drgn_lazy_type_from_dwarf(dicache, die, false, true,
+	err = drgn_lazy_type_from_dwarf(dicache, die, true,
 					"DW_TAG_formal_parameter",
 					&parameter_type);
 	if (err)
