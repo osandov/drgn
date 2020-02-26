@@ -193,16 +193,24 @@ drgn_lazy_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
  * Parse a type from the @c DW_AT_type attribute of a DWARF debugging
  * information entry.
  *
- * See @ref drgn_type_from_dwarf_child() and @ref
- * drgn_type_from_dwarf_internal().
+ * @param[in] dicache Debugging information cache.
+ * @param[in] parent_die Parent DIE.
+ * @param[in] tag_name Spelling of the DWARF tag of @p parent_die. Used for
+ * error messages.
+ * @param[in] can_be_void Whether the @c DW_AT_type attribute may be missing,
+ * which is interpreted as a void type. If this is false and the @c DW_AT_type
+ * attribute is missing, an error is returned.
+ * @param[in] can_be_incomplete_array See @ref drgn_type_from_dwarf_internal().
+ * @param[in] is_incomplete_array_ret See @ref drgn_type_from_dwarf_internal().
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_type_from_dwarf_child_internal(struct drgn_dwarf_info_cache *dicache,
-				    Dwarf_Die *parent_die, const char *tag_name,
-				    bool can_be_void,
-				    bool can_be_incomplete_array,
-				    bool *is_incomplete_array_ret,
-				    struct drgn_qualified_type *ret)
+drgn_type_from_dwarf_child(struct drgn_dwarf_info_cache *dicache,
+			   Dwarf_Die *parent_die, const char *tag_name,
+			   bool can_be_void, bool can_be_incomplete_array,
+			   bool *is_incomplete_array_ret,
+			   struct drgn_qualified_type *ret)
 {
 	Dwarf_Attribute attr_mem;
 	Dwarf_Attribute *attr;
@@ -228,30 +236,6 @@ drgn_type_from_dwarf_child_internal(struct drgn_dwarf_info_cache *dicache,
 	return drgn_type_from_dwarf_internal(dicache, &type_die,
 					     can_be_incomplete_array,
 					     is_incomplete_array_ret, ret);
-}
-
-/**
- * Parse a type from the @c DW_AT_type attribute of a DWARF debugging
- * information entry.
- *
- * @param[in] dicache Debugging information cache.
- * @param[in] parent_die Parent DIE.
- * @param[in] can_be_void Whether the @c DW_AT_type attribute may be missing,
- * which is interpreted as a void type. If this is false and the @c DW_AT_type
- * attribute is missing, an error is returned.
- * @param[in] tag_name Spelling of the DWARF tag of @p parent_die. Used for
- * error messages.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-static inline struct drgn_error *
-drgn_type_from_dwarf_child(struct drgn_dwarf_info_cache *dicache,
-			   Dwarf_Die *parent_die, const char *tag_name,
-			   bool can_be_void, struct drgn_qualified_type *ret)
-{
-	return drgn_type_from_dwarf_child_internal(dicache, parent_die,
-						   tag_name, can_be_void, true,
-						   NULL, ret);
 }
 
 static struct drgn_error *
@@ -960,11 +944,10 @@ drgn_typedef_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	if (!type)
 		return &drgn_enomem;
 
-	err = drgn_type_from_dwarf_child_internal(dicache, die,
-						  "DW_TAG_typedef", true,
-						  can_be_incomplete_array,
-						  is_incomplete_array_ret,
-						  &aliased_type);
+	err = drgn_type_from_dwarf_child(dicache, die, "DW_TAG_typedef", true,
+					 can_be_incomplete_array,
+					 is_incomplete_array_ret,
+					 &aliased_type);
 	if (err) {
 		free(type);
 		return err;
@@ -983,7 +966,7 @@ drgn_pointer_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	struct drgn_qualified_type referenced_type;
 
 	err = drgn_type_from_dwarf_child(dicache, die, "DW_TAG_pointer_type",
-					 true, &referenced_type);
+					 true, true, NULL, &referenced_type);
 	if (err)
 		return err;
 
@@ -1082,9 +1065,8 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		dimension->is_complete = false;
 	}
 
-	err = drgn_type_from_dwarf_child_internal(dicache, die,
-						  "DW_TAG_array_type", false,
-						  false, NULL, &element_type);
+	err = drgn_type_from_dwarf_child(dicache, die, "DW_TAG_array_type",
+					 false, false, NULL, &element_type);
 	if (err)
 		goto out;
 
@@ -1222,8 +1204,8 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 				  sizeof(struct drgn_type_parameter));
 	}
 
-	err = drgn_type_from_dwarf_child(dicache, die, tag_name, true,
-					 &return_type);
+	err = drgn_type_from_dwarf_child(dicache, die, tag_name, true, true,
+					 NULL, &return_type);
 	if (err)
 		goto err;
 
@@ -1284,28 +1266,28 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
 		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_const_type", true,
-						 ret);
+						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_CONST;
 		break;
 	case DW_TAG_restrict_type:
 		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_restrict_type", true,
-						 ret);
+						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_RESTRICT;
 		break;
 	case DW_TAG_volatile_type:
 		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_volatile_type", true,
-						 ret);
+						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_VOLATILE;
 		break;
 	case DW_TAG_atomic_type:
 		entry.value.should_free = false;
 		err = drgn_type_from_dwarf_child(dicache, die,
 						 "DW_TAG_atomic_type", true,
-						 ret);
+						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_ATOMIC;
 		break;
 	case DW_TAG_base_type:
@@ -1503,7 +1485,7 @@ drgn_object_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 	size_t nloc;
 
 	err = drgn_type_from_dwarf_child(dicache, die, "DW_TAG_variable", true,
-					 &qualified_type);
+					 true, NULL, &qualified_type);
 	if (err)
 		return err;
 	if (!(attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
