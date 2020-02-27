@@ -15,9 +15,55 @@ from typing import (
     Tuple,
     Union,
     cast,
+    overload,
 )
 
-from drgndoc.visitor import NodeVisitor, transform_constant_nodes
+from drgndoc.visitor import NodeVisitor
+
+
+class _PreTransformer(ast.NodeTransformer):
+    # Replace string forward references with the parsed expression.
+    def _visit_annotation(self, node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            node = self.visit(ast.parse(node.value, "<string>", "eval"))
+        return node
+
+    def visit_arg(self, node):
+        node = self.generic_visit(node)
+        node.annotation = self._visit_annotation(node.annotation)
+        return node
+
+    def visit_FunctionDef(self, node):
+        node = self.generic_visit(node)
+        node.returns = self._visit_annotation(node.returns)
+        return node
+
+    def visit_AsyncFunctionDef(self, node):
+        node = self.generic_visit(node)
+        node.returns = self._visit_annotation(node.returns)
+        return node
+
+    def visit_AnnAssign(self, node):
+        node = self.generic_visit(node)
+        node.annotation = self._visit_annotation(node.annotation)
+        return node
+
+    # Replace the old constant nodes produced by ast.parse() before Python 3.8
+    # with Constant.
+    def visit_Num(self, node: ast.Num) -> ast.Constant:
+        return ast.copy_location(ast.Constant(node.n), node)
+
+    def visit_Str(self, node: ast.Str) -> ast.Constant:
+        return ast.copy_location(ast.Constant(node.s), node)
+
+    def visit_Bytes(self, node: ast.Bytes) -> ast.Constant:
+        return ast.copy_location(ast.Constant(node.s), node)
+
+    def visit_Ellipsis(self, node: ast.Ellipsis) -> ast.Constant:
+        return ast.copy_location(ast.Constant(...), node)
+
+    def visit_NameConstant(self, node: ast.NameConstant) -> ast.Constant:
+        return ast.copy_location(ast.Constant(node.value), node)
 
 
 # Once we don't care about Python 3.6, we can replace all of this boilerplate
@@ -227,8 +273,8 @@ class _ModuleVisitor(NodeVisitor):
 def parse_source(
     source: str, filename: str
 ) -> Tuple[Optional[str], Dict[str, NonModuleNode]]:
-    node = transform_constant_nodes(ast.parse(source, filename))
-    return _ModuleVisitor().visit(node)
+    node = ast.parse(source, filename)
+    return _ModuleVisitor().visit(_PreTransformer().visit(node))
 
 
 def _default_handle_err(e: Exception) -> None:

@@ -117,7 +117,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         name = ".".join(parts)
         resolved = self.env.drgndoc_namespace.resolve_global_name(name)
         if not isinstance(resolved, ResolvedNode):
-            logger.warning("name %r not found", name, resolved)
+            logger.warning("name %r not found", resolved)
             return []
 
         docnode = docutils.nodes.section()
