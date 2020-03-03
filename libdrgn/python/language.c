@@ -60,6 +60,7 @@ int add_languages(void)
 {
 	static const char *attr_names[] = {
 		[DRGN_LANGUAGE_C] = "C",
+		[DRGN_LANGUAGE_CPP] = "CPP",
 	};
 	size_t i;
 
