@@ -158,11 +158,13 @@ drgn_unary_op c_op_not;
 
 enum {
 	DRGN_LANGUAGE_C,
+	DRGN_LANGUAGE_CPP,
 	DRGN_NUM_LANGUAGES,
 };
 
 extern const struct drgn_language drgn_languages[DRGN_NUM_LANGUAGES];
 
+#define drgn_language_cpp drgn_languages[DRGN_LANGUAGE_CPP]
 #define drgn_language_c drgn_languages[DRGN_LANGUAGE_C]
 
 /**

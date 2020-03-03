@@ -2060,6 +2060,14 @@ class TestProgram(unittest.TestCase):
         self.assertEqual(
             dwarf_program(dies, lang=DW_LANG.BLISS).language, DEFAULT_LANGUAGE
         )
+        self.assertEqual(
+            dwarf_program(dies, lang=DW_LANG.C_plus_plus_14).language, Language.CPP
+        )
+
+        self.assertEqual(
+            dwarf_program(dies, lang=DW_LANG.C_plus_plus).object("main").type_.language,
+            Language.CPP,
+        )
 
     def test_reference_counting(self):
         # Test that we keep the appropriate objects alive even if we don't have

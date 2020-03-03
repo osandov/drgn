@@ -1165,6 +1165,10 @@ class TestType(unittest.TestCase):
         self.assertEqual(void_type(language=None).language, DEFAULT_LANGUAGE)
         self.assertEqual(void_type(language=Language.C).language, Language.C)
 
+        self.assertEqual(
+            int_type("int", 4, True, language=Language.CPP).language, Language.CPP
+        )
+
     def test_cmp(self):
         self.assertEqual(void_type(), void_type())
         self.assertEqual(void_type(Qualifiers.CONST), void_type(Qualifiers.CONST))
