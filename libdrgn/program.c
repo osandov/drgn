@@ -544,29 +544,6 @@ struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret)
 	return NULL;
 }
 
-/* Set the default language from the language of "main". */
-static struct drgn_error *
-drgn_program_set_language_from_main(struct drgn_program *prog)
-{
-	struct drgn_error *err;
-	struct drgn_object res;
-
-	drgn_object_init(&res, prog);
-	err = drgn_program_find_object(prog, "main", NULL, DRGN_FIND_OBJECT_ANY,
-				       &res);
-	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
-			/* We couldn't find "main". Don't set the language. */
-			drgn_error_destroy(err);
-			err = NULL;
-		}
-	} else {
-		prog->lang = drgn_type_language(res.type);
-	}
-	drgn_object_deinit(&res);
-	return err;
-}
-
 static struct drgn_error *
 userspace_report_debug_info(struct drgn_program *prog,
 			    struct drgn_dwarf_index *dindex,
@@ -614,13 +591,42 @@ userspace_report_debug_info(struct drgn_program *prog,
 			return drgn_error_libdwfl();
 		}
 	}
-
-	if (!prog->lang) {
-		err = drgn_program_set_language_from_main(prog);
-		if (err)
-			return err;
-	}
 	return NULL;
+}
+
+/* Set the default language from the language of "main". */
+static void drgn_program_set_language_from_main(struct drgn_program *prog,
+						struct drgn_dwarf_index *dindex)
+{
+	struct drgn_error *err;
+	struct drgn_dwarf_index_iterator it;
+	static const uint64_t tags[] = { DW_TAG_subprogram };
+
+	drgn_dwarf_index_iterator_init(&it, dindex, "main", strlen("main"),
+				       tags, ARRAY_SIZE(tags));
+	for (;;) {
+		Dwarf_Die die;
+		const struct drgn_language *lang;
+
+		err = drgn_dwarf_index_iterator_next(&it, &die, NULL);
+		if (err == &drgn_stop) {
+			break;
+		} else if (err) {
+			drgn_error_destroy(err);
+			continue;
+		}
+
+		err = drgn_language_from_die(&die, &lang);
+		if (err) {
+			drgn_error_destroy(err);
+			continue;
+		}
+
+		if (lang) {
+			prog->lang = lang;
+			break;
+		}
+	}
 }
 
 static int drgn_set_platform_from_dwarf(Dwfl_Module *module, void **userdatap,
@@ -676,10 +682,14 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	report_from_dwfl = (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
 			    load_main);
 	err = drgn_dwarf_index_report_end(dindex, report_from_dwfl);
-	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO) &&
-	    !prog->has_platform) {
-		dwfl_getdwarf(prog->_dicache->dindex.dwfl,
-			      drgn_set_platform_from_dwarf, prog, 0);
+	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)) {
+		if (!prog->lang &&
+		    !(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
+			drgn_program_set_language_from_main(prog, dindex);
+		if (!prog->has_platform) {
+			dwfl_getdwarf(dindex->dwfl,
+				      drgn_set_platform_from_dwarf, prog, 0);
+		}
 	}
 	return err;
 }
