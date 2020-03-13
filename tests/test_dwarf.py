@@ -8,6 +8,7 @@ from drgn import (
     Language,
     Object,
     Program,
+    ProgramFlags,
     Qualifiers,
     TypeEnumerator,
     TypeMember,
@@ -2059,3 +2060,28 @@ class TestProgram(unittest.TestCase):
         self.assertEqual(
             dwarf_program(dies, lang=DW_LANG.BLISS).language, DEFAULT_LANGUAGE
         )
+
+    def test_reference_counting(self):
+        # Test that we keep the appropriate objects alive even if we don't have
+        # an explicit reference (e.g., from a temporary variable).
+        dies = (
+            int_die,
+            DwarfDie(
+                DW_TAG.variable,
+                [
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DwarfAttrib(
+                        DW_AT.location,
+                        DW_FORM.exprloc,
+                        b"\x03\x04\x03\x02\x01\xff\xff\xff\xff",
+                    ),
+                ],
+            ),
+        )
+        self.assertEqual(dwarf_program(dies)["x"].address_, 0xFFFFFFFF01020304)
+        self.assertEqual(
+            dwarf_program(dies)["x"].prog_["x"].address_, 0xFFFFFFFF01020304
+        )
+        self.assertFalse(dwarf_program(dies)["x"].prog_.flags & ProgramFlags.IS_LIVE)
+        self.assertEqual(dwarf_program(dies)["x"].type_.name, "int")
