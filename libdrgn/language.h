@@ -164,7 +164,6 @@ enum {
 extern const struct drgn_language drgn_languages[DRGN_NUM_LANGUAGES];
 
 #define drgn_language_c drgn_languages[DRGN_LANGUAGE_C]
-#define drgn_default_language drgn_language_c
 
 /**
  * Return flags that should be passed through when formatting an object
@@ -202,26 +201,25 @@ drgn_element_format_object_flags(enum drgn_format_object_flags flags)
 		(flags & DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES) >> 2);
 }
 
-/** Return the @ref drgn_language corresponding to the given DW_LANG */
-static inline const struct drgn_language *
-drgn_language_from_dw_lang(int dw_lang)
-{
-	switch (dw_lang) {
-	case DW_LANG_C:
-	case DW_LANG_C89:
-	case DW_LANG_C99:
-	case DW_LANG_C11:
-		return &drgn_language_c;
-	default:
-		return &drgn_default_language;
-	}
-}
-
+/**
+ * Return the given @ref drgn_language if it is non-@c NULL or the default if it
+ * is @c NULL.
+ */
 static inline const struct drgn_language *
 drgn_language_or_default(const struct drgn_language *lang)
 {
-	return lang ? lang : &drgn_default_language;
+	return lang ? lang : &drgn_language_c;
 }
+
+/**
+ * Return the @ref drgn_language of the CU of the given DIE.
+ *
+ * @param[out] ret Returned language. May be returned as @c NULL if the language
+ * is unknown.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_language_from_die(Dwarf_Die *die,
+					  const struct drgn_language **ret);
 
 /** @} */
 
