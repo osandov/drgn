@@ -89,24 +89,6 @@ static int dwarf_flag(Dwarf_Die *die, unsigned int name, bool *ret)
 }
 
 /**
- * Deduce language which corresponds with the CU of the given DIE.
- *
- * @param[in] die Dwarf_Die used to retrieve the current language.
- * @param[out] ret Returned language.
- * @return @c NULL on success, non-@c NULL on error.
- */
-static struct drgn_error *
-drgn_language_from_die(Dwarf_Die *die, const struct drgn_language **ret)
-{
-	Dwarf_Die cudie;
-
-	if (dwarf_cu_info(die->cu, NULL, NULL, &cudie, NULL, NULL, NULL, NULL))
-		return drgn_error_libdw();
-	*ret = drgn_language_from_dw_lang(dwarf_srclang(&cudie));
-	return NULL;
-}
-
-/**
  * Parse a type from a DWARF debugging information entry.
  *
  * This is the same as @ref drgn_type_from_dwarf() except that it can be used to
@@ -979,8 +961,10 @@ drgn_typedef_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	if (!type)
 		return &drgn_enomem;
 
-	err = drgn_type_from_dwarf_child(dicache, die, lang, "DW_TAG_typedef",
-					 true, can_be_incomplete_array,
+	err = drgn_type_from_dwarf_child(dicache, die,
+					 drgn_language_or_default(lang),
+					 "DW_TAG_typedef", true,
+					 can_be_incomplete_array,
 					 is_incomplete_array_ret,
 					 &aliased_type);
 	if (err) {
@@ -1001,7 +985,8 @@ drgn_pointer_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	struct drgn_error *err;
 	struct drgn_qualified_type referenced_type;
 
-	err = drgn_type_from_dwarf_child(dicache, die, lang,
+	err = drgn_type_from_dwarf_child(dicache, die,
+					 drgn_language_or_default(lang),
 					 "DW_TAG_pointer_type", true, true,
 					 NULL, &referenced_type);
 	if (err)
@@ -1103,7 +1088,8 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		dimension->is_complete = false;
 	}
 
-	err = drgn_type_from_dwarf_child(dicache, die, lang,
+	err = drgn_type_from_dwarf_child(dicache, die,
+					 drgn_language_or_default(lang),
 					 "DW_TAG_array_type", false, false,
 					 NULL, &element_type);
 	if (err)
@@ -1247,8 +1233,10 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 				  sizeof(struct drgn_type_parameter));
 	}
 
-	err = drgn_type_from_dwarf_child(dicache, die, lang, tag_name, true,
-					 true, NULL, &return_type);
+	err = drgn_type_from_dwarf_child(dicache, die,
+					 drgn_language_or_default(lang),
+					 tag_name, true, true, NULL,
+					 &return_type);
 	if (err)
 		goto err;
 
@@ -1313,28 +1301,32 @@ drgn_type_from_dwarf_internal(struct drgn_dwarf_info_cache *dicache,
 		 * unqualified type.
 		 */
 		entry.value.should_free = false;
-		err = drgn_type_from_dwarf_child(dicache, die, lang,
+		err = drgn_type_from_dwarf_child(dicache, die,
+						 drgn_language_or_default(lang),
 						 "DW_TAG_const_type", true,
 						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_CONST;
 		break;
 	case DW_TAG_restrict_type:
 		entry.value.should_free = false;
-		err = drgn_type_from_dwarf_child(dicache, die, lang,
+		err = drgn_type_from_dwarf_child(dicache, die,
+						 drgn_language_or_default(lang),
 						 "DW_TAG_restrict_type", true,
 						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_RESTRICT;
 		break;
 	case DW_TAG_volatile_type:
 		entry.value.should_free = false;
-		err = drgn_type_from_dwarf_child(dicache, die, lang,
+		err = drgn_type_from_dwarf_child(dicache, die,
+						 drgn_language_or_default(lang),
 						 "DW_TAG_volatile_type", true,
 						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_VOLATILE;
 		break;
 	case DW_TAG_atomic_type:
 		entry.value.should_free = false;
-		err = drgn_type_from_dwarf_child(dicache, die, lang,
+		err = drgn_type_from_dwarf_child(dicache, die,
+						 drgn_language_or_default(lang),
 						 "DW_TAG_atomic_type", true,
 						 true, NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_ATOMIC;
