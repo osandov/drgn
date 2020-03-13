@@ -2184,7 +2184,7 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 			if (token.kind != C_TOKEN_IDENTIFIER) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "expected identifier after '%s'",
-							 token_spelling[token.kind]);
+							 token_spelling[tag_token]);
 
 			}
 			identifier = token.value;
