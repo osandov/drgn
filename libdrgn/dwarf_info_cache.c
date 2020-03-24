@@ -16,6 +16,9 @@
 
 DEFINE_HASH_TABLE_FUNCTIONS(dwarf_type_map, hash_pair_ptr_type,
 			    hash_table_scalar_eq)
+DEFINE_VECTOR(drgn_type_member_vector, struct drgn_type_member)
+DEFINE_VECTOR(drgn_type_enumerator_vector, struct drgn_type_enumerator)
+DEFINE_VECTOR(drgn_type_parameter_vector, struct drgn_type_parameter)
 
 struct drgn_type_from_dwarf_thunk {
 	struct drgn_type_thunk thunk;
@@ -24,43 +27,33 @@ struct drgn_type_from_dwarf_thunk {
 	bool can_be_incomplete_array;
 };
 
-static bool drgn_type_realloc(struct drgn_type **type, size_t capacity,
-			      size_t element_size)
-{
-	struct drgn_type *tmp;
-	size_t size;
-
-	if (__builtin_mul_overflow(capacity, element_size, &size) ||
-	    __builtin_add_overflow(size, sizeof(**type), &size))
-		return false;
-
-	tmp = realloc(*type, size);
-	if (!tmp)
-		return false;
-
-	*type = tmp;
-	return true;
-}
-
 static void drgn_dwarf_type_free(struct drgn_dwarf_type *dwarf_type)
 {
 	if (dwarf_type->should_free) {
 		struct drgn_type *type = dwarf_type->type;
 
 		if (drgn_type_has_members(type)) {
+			struct drgn_type_member *members;
 			size_t num_members, i;
 
+			members = drgn_type_members(type);
 			num_members = drgn_type_num_members(type);
 			for (i = 0; i < num_members; i++)
-				drgn_type_member_deinit(type, i);
+				drgn_type_member_deinit(&members[i]);
+			free(members);
 		}
 		if (drgn_type_has_parameters(type)) {
+			struct drgn_type_parameter *parameters;
 			size_t num_parameters, i;
 
+			parameters = drgn_type_parameters(type);
 			num_parameters = drgn_type_num_parameters(type);
 			for (i = 0; i < num_parameters; i++)
-				drgn_type_parameter_deinit(type, i);
+				drgn_type_parameter_deinit(&parameters[i]);
+			free(parameters);
 		}
+		if (drgn_type_has_enumerators(type))
+			free(drgn_type_enumerators(type));
 		free(type);
 	}
 }
@@ -480,8 +473,9 @@ parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
 }
 
 static struct drgn_error *parse_member(struct drgn_dwarf_info_cache *dicache,
-				       Dwarf_Die *die, struct drgn_type *type,
-				       size_t i, bool little_endian)
+				       Dwarf_Die *die,
+				       struct drgn_type_member *member,
+				       bool little_endian)
 {
 	struct drgn_error *err;
 	Dwarf_Attribute attr_mem;
@@ -527,7 +521,7 @@ static struct drgn_error *parse_member(struct drgn_dwarf_info_cache *dicache,
 		return err;
 	}
 
-	drgn_type_member_init(type, i, member_type, name, bit_offset,
+	drgn_type_member_init(member, member_type, name, bit_offset,
 			      bit_field_size);
 	return NULL;
 }
@@ -541,6 +535,7 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 {
 	struct drgn_error *err;
 	struct drgn_type *type;
+	struct drgn_type_member_vector members;
 	const char *dw_tag_str;
 	uint64_t dw_tag;
 	Dwarf_Attribute attr_mem;
@@ -549,7 +544,6 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	bool declaration;
 	Dwarf_Die child;
 	int size;
-	size_t num_members = 0, capacity = 0;
 	bool little_endian;
 	int r;
 
@@ -621,6 +615,8 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		return NULL;
 	}
 
+	drgn_type_member_vector_init(&members);
+
 	size = dwarf_bytesize(die);
 	if (size == -1) {
 		err = drgn_error_format(DRGN_ERROR_OTHER,
@@ -633,23 +629,19 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	r = dwarf_child(die, &child);
 	while (r == 0) {
 		if (dwarf_tag(&child) == DW_TAG_member) {
-			if (num_members >= capacity) {
-				if (capacity == 0)
-					capacity = 1;
-				else
-					capacity *= 2;
-				if (!drgn_type_realloc(&type, capacity,
-						       sizeof(struct drgn_type_member))) {
-					err = &drgn_enomem;
-					goto err;
-				}
-			}
+			struct drgn_type_member *member;
 
-			err = parse_member(dicache, &child, type, num_members,
-					   little_endian);
-			if (err)
+			member = drgn_type_member_vector_append_entry(&members);
+			if (!member) {
+				err = &drgn_enomem;
 				goto err;
-			num_members++;
+			}
+			err = parse_member(dicache, &child, member,
+					   little_endian);
+			if (err) {
+				members.size--;
+				goto err;
+			}
 		}
 		r = dwarf_siblingof(&child, &child);
 	}
@@ -658,29 +650,29 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 					"libdw could not parse DIE children");
 		goto err;
 	}
-	if (capacity != num_members) {
-		/* We don't care if this fails. */
-		drgn_type_realloc(&type, num_members,
-				  sizeof(struct drgn_type_member));
-	}
+	drgn_type_member_vector_shrink_to_fit(&members);
 
 	if (kind == DRGN_TYPE_UNION) {
-		drgn_union_type_init(type, tag, size, num_members, lang);
+		drgn_union_type_init(type, tag, size, members.data,
+				     members.size, lang);
 	} else {
-		if (kind == DRGN_TYPE_STRUCT)
-			drgn_struct_type_init(type, tag, size, num_members, lang);
-		else
-			drgn_class_type_init(type, tag, size, num_members, lang);
+		if (kind == DRGN_TYPE_STRUCT) {
+			drgn_struct_type_init(type, tag, size, members.data,
+					      members.size, lang);
+		} else {
+			drgn_class_type_init(type, tag, size, members.data,
+					     members.size, lang);
+		}
 		/*
 		 * Flexible array members are only allowed as the last member of
 		 * a structure with more than one named member. We defaulted
 		 * can_be_incomplete_array to false in parse_member(), so fix it
 		 * up.
 		 */
-		if (num_members > 1) {
+		if (members.size > 1) {
 			struct drgn_type_member *member;
 
-			member = &drgn_type_members(type)[num_members - 1];
+			member = &drgn_type_members(type)[members.size - 1];
 			/*
 			 * The type may have already been evaluated if it's a
 			 * bit field. Arrays can't be bit fields, so it's okay
@@ -700,15 +692,16 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	return NULL;
 
 err:
-	while (num_members)
-		drgn_type_member_deinit(type, --num_members);
+	for (size_t i = 0; i < members.size; i++)
+		drgn_type_member_deinit(&members.data[i]);
+	drgn_type_member_vector_deinit(&members);
 	free(type);
 	return err;
 }
 
-static struct drgn_error *parse_enumerator(Dwarf_Die *die,
-					   struct drgn_type *type, size_t i,
-					   bool *is_signed)
+static struct drgn_error *
+parse_enumerator(Dwarf_Die *die, struct drgn_type_enumerator *enumerator,
+		 bool *is_signed)
 {
 	Dwarf_Attribute attr_mem;
 	Dwarf_Attribute *attr;
@@ -733,7 +726,8 @@ static struct drgn_error *parse_enumerator(Dwarf_Die *die,
 
 		r = dwarf_formsdata(attr, &svalue);
 		if (r == 0) {
-			drgn_type_enumerator_init_signed(type, i, name, svalue);
+			drgn_type_enumerator_init_signed(enumerator, name,
+							 svalue);
 			if (svalue < 0)
 				*is_signed = true;
 		}
@@ -742,7 +736,7 @@ static struct drgn_error *parse_enumerator(Dwarf_Die *die,
 
 		r = dwarf_formudata(attr, &uvalue);
 		if (r == 0) {
-			drgn_type_enumerator_init_unsigned(type, i, name,
+			drgn_type_enumerator_init_unsigned(enumerator, name,
 							   uvalue);
 		}
 	}
@@ -820,13 +814,13 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 {
 	struct drgn_error *err;
 	struct drgn_type *type;
+	struct drgn_type_enumerator_vector enumerators;
 	struct drgn_type *compatible_type;
 	Dwarf_Attribute attr_mem;
 	Dwarf_Attribute *attr;
 	const char *tag;
 	bool declaration;
 	Dwarf_Die child;
-	size_t num_enumerators = 0, capacity = 0;
 	bool is_signed = false;
 	int r;
 
@@ -867,29 +861,24 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 		return NULL;
 	}
 
+	drgn_type_enumerator_vector_init(&enumerators);
+
 	r = dwarf_child(die, &child);
 	while (r == 0) {
 		int tag;
 
 		tag = dwarf_tag(&child);
 		if (tag == DW_TAG_enumerator) {
-			if (num_enumerators >= capacity) {
-				if (capacity == 0)
-					capacity = 1;
-				else
-					capacity *= 2;
-				if (!drgn_type_realloc(&type, capacity,
-						       sizeof(struct drgn_type_enumerator))) {
-					err = &drgn_enomem;
-					goto err;
-				}
-			}
+			struct drgn_type_enumerator *enumerator;
 
-			err = parse_enumerator(&child, type, num_enumerators,
-					       &is_signed);
+			enumerator = drgn_type_enumerator_vector_append_entry(&enumerators);
+			if (!enumerator) {
+				err = &drgn_enomem;
+				goto err;
+			}
+			err = parse_enumerator(&child, enumerator, &is_signed);
 			if (err)
 				goto err;
-			num_enumerators++;
 		}
 		r = dwarf_siblingof(&child, &child);
 	}
@@ -898,11 +887,7 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 					"libdw could not parse DIE children");
 		goto err;
 	}
-	if (capacity != num_enumerators) {
-		/* We don't care if this fails. */
-		drgn_type_realloc(&type, num_enumerators,
-				  sizeof(struct drgn_type_enumerator));
-	}
+	drgn_type_enumerator_vector_shrink_to_fit(&enumerators);
 
 	r = dwarf_type(die, &child);
 	if (r == -1) {
@@ -929,11 +914,13 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 		}
 	}
 
-	drgn_enum_type_init(type, tag, compatible_type, num_enumerators, lang);
+	drgn_enum_type_init(type, tag, compatible_type, enumerators.data,
+			    enumerators.size, lang);
 	*ret = type;
 	return NULL;
 
 err:
+	drgn_type_enumerator_vector_deinit(&enumerators);
 	free(type);
 	return err;
 }
@@ -1129,7 +1116,7 @@ out:
 
 static struct drgn_error *
 parse_formal_parameter(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
-		       struct drgn_type *type, size_t i)
+		       struct drgn_type_parameter *parameter)
 {
 	struct drgn_error *err;
 	Dwarf_Attribute attr_mem;
@@ -1154,7 +1141,7 @@ parse_formal_parameter(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 	if (err)
 		return err;
 
-	drgn_type_parameter_init(type, i, parameter_type, name);
+	drgn_type_parameter_init(parameter, parameter_type, name);
 	return NULL;
 }
 
@@ -1166,9 +1153,9 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	struct drgn_error *err;
 	const char *tag_name;
 	struct drgn_type *type;
+	struct drgn_type_parameter_vector parameters;
 	struct drgn_qualified_type return_type;
 	Dwarf_Die child;
-	size_t num_parameters = 0, capacity = 0;
 	bool is_variadic = false;
 	int r;
 
@@ -1181,12 +1168,16 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	if (!type)
 		return &drgn_enomem;
 
+	drgn_type_parameter_vector_init(&parameters);
+
 	r = dwarf_child(die, &child);
 	while (r == 0) {
 		int tag;
 
 		tag = dwarf_tag(&child);
 		if (tag == DW_TAG_formal_parameter) {
+			struct drgn_type_parameter *parameter;
+
 			if (is_variadic) {
 				err = drgn_error_format(DRGN_ERROR_OTHER,
 							"%s has DW_TAG_formal_parameter child after DW_TAG_unspecified_parameters child",
@@ -1194,23 +1185,16 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 				goto err;
 			}
 
-			if (num_parameters >= capacity) {
-				if (capacity == 0)
-					capacity = 1;
-				else
-					capacity *= 2;
-				if (!drgn_type_realloc(&type, capacity,
-						       sizeof(struct drgn_type_parameter))) {
-					err = &drgn_enomem;
-					goto err;
-				}
-			}
-
-			err = parse_formal_parameter(dicache, &child, type,
-						     num_parameters);
-			if (err)
+			parameter = drgn_type_parameter_vector_append_entry(&parameters);
+			if (!parameter) {
+				err = &drgn_enomem;
 				goto err;
-			num_parameters++;
+			}
+			err = parse_formal_parameter(dicache, &child, parameter);
+			if (err) {
+				parameters.size--;
+				goto err;
+			}
 		} else if (tag == DW_TAG_unspecified_parameters) {
 			if (is_variadic) {
 				err = drgn_error_format(DRGN_ERROR_OTHER,
@@ -1227,11 +1211,7 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 					"libdw could not parse DIE children");
 		goto err;
 	}
-	if (capacity != num_parameters) {
-		/* We don't care if this fails. */
-		drgn_type_realloc(&type, num_parameters,
-				  sizeof(struct drgn_type_parameter));
-	}
+	drgn_type_parameter_vector_shrink_to_fit(&parameters);
 
 	err = drgn_type_from_dwarf_child(dicache, die,
 					 drgn_language_or_default(lang),
@@ -1240,14 +1220,15 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	if (err)
 		goto err;
 
-	drgn_function_type_init(type, return_type, num_parameters, is_variadic,
-				lang);
+	drgn_function_type_init(type, return_type, parameters.data,
+				parameters.size, is_variadic, lang);
 	*ret = type;
 	return NULL;
 
 err:
-	while (num_parameters)
-		drgn_type_parameter_deinit(type, --num_parameters);
+	for (size_t i = 0; i < parameters.size; i++)
+		drgn_type_parameter_deinit(&parameters.data[i]);
+	drgn_type_parameter_vector_deinit(&parameters);
 	free(type);
 	return err;
 }

@@ -258,14 +258,15 @@ void drgn_complex_type_init(struct drgn_type *type, const char *name,
 }
 
 void drgn_struct_type_init(struct drgn_type *type, const char *tag,
-			   uint64_t size, size_t num_members,
-			   const struct drgn_language *lang)
+			   uint64_t size, struct drgn_type_member *members,
+			   size_t num_members, const struct drgn_language *lang)
 {
 	type->_private.kind = DRGN_TYPE_STRUCT;
 	type->_private.is_complete = true;
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = size;
+	type->_private.members = members;
 	type->_private.num_members = num_members;
 	type->_private.language = drgn_language_or_default(lang);
 }
@@ -278,19 +279,21 @@ void drgn_struct_type_init_incomplete(struct drgn_type *type, const char *tag,
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = 0;
+	type->_private.members = NULL;
 	type->_private.num_members = 0;
 	type->_private.language = drgn_language_or_default(lang);
 }
 
 void drgn_union_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, size_t num_members,
-			  const struct drgn_language *lang)
+			  uint64_t size, struct drgn_type_member *members,
+			  size_t num_members, const struct drgn_language *lang)
 {
 	type->_private.kind = DRGN_TYPE_UNION;
 	type->_private.is_complete = true;
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = size;
+	type->_private.members = members;
 	type->_private.num_members = num_members;
 	type->_private.language = drgn_language_or_default(lang);
 }
@@ -303,19 +306,21 @@ void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag,
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = 0;
+	type->_private.members = NULL;
 	type->_private.num_members = 0;
 	type->_private.language = drgn_language_or_default(lang);
 }
 
 void drgn_class_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, size_t num_members,
-			  const struct drgn_language *lang)
+			  uint64_t size, struct drgn_type_member *members,
+			  size_t num_members, const struct drgn_language *lang)
 {
 	type->_private.kind = DRGN_TYPE_CLASS;
 	type->_private.is_complete = true;
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = size;
+	type->_private.members = members;
 	type->_private.num_members = num_members;
 	type->_private.language = drgn_language_or_default(lang);
 }
@@ -328,12 +333,14 @@ void drgn_class_type_init_incomplete(struct drgn_type *type, const char *tag,
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = 0;
+	type->_private.members = NULL;
 	type->_private.num_members = 0;
 	type->_private.language = drgn_language_or_default(lang);
 }
 
 void drgn_enum_type_init(struct drgn_type *type, const char *tag,
 			 struct drgn_type *compatible_type,
+			 struct drgn_type_enumerator *enumerators,
 			 size_t num_enumerators,
 			 const struct drgn_language *lang)
 {
@@ -344,6 +351,7 @@ void drgn_enum_type_init(struct drgn_type *type, const char *tag,
 	type->_private.tag = tag;
 	type->_private.type = compatible_type;
 	type->_private.qualifiers = 0;
+	type->_private.enumerators = enumerators;
 	type->_private.num_enumerators = num_enumerators;
 	type->_private.language = drgn_language_or_default(lang);
 }
@@ -357,6 +365,7 @@ void drgn_enum_type_init_incomplete(struct drgn_type *type, const char *tag,
 	type->_private.tag = tag;
 	type->_private.type = NULL;
 	type->_private.qualifiers = 0;
+	type->_private.enumerators = NULL;
 	type->_private.num_enumerators = 0;
 	type->_private.language = drgn_language_or_default(lang);
 }
@@ -420,6 +429,7 @@ void drgn_array_type_init_incomplete(struct drgn_type *type,
 
 void drgn_function_type_init(struct drgn_type *type,
 			     struct drgn_qualified_type return_type,
+			     struct drgn_type_parameter *parameters,
 			     size_t num_parameters, bool is_variadic,
 			     const struct drgn_language *lang)
 {
@@ -428,6 +438,7 @@ void drgn_function_type_init(struct drgn_type *type,
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.type = return_type.type;
 	type->_private.qualifiers = return_type.qualifiers;
+	type->_private.parameters = parameters;
 	type->_private.num_parameters = num_parameters;
 	type->_private.is_variadic = is_variadic;
 	type->_private.language = drgn_language_or_default(lang);

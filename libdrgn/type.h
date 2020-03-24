@@ -230,24 +230,21 @@ void drgn_complex_type_init(struct drgn_type *type, const char *name,
 /**
  * Initialize a member of a type.
  *
- * @param[out] type Type containing member to initialize.
- * @param[in] i Index of member to initialize.
+ * @param[out] members Member to initialize.
  * @param[in] member_type See @ref drgn_type_member::type.
  * @param[in] name See @ref drgn_type_member::name.
  * @param[in] bit_offset See @ref drgn_type_member::bit_offset.
  * @param[in] bit_field_size See @ref drgn_type_member::bit_field_size.
  */
-static inline void drgn_type_member_init(struct drgn_type *type, size_t i,
+static inline void drgn_type_member_init(struct drgn_type_member *member,
 					 struct drgn_lazy_type member_type,
 					 const char *name, uint64_t bit_offset,
 					 uint64_t bit_field_size)
 {
-	struct drgn_type_member *members = drgn_type_payload(type);
-
-	members[i].type = member_type;
-	members[i].name = name;
-	members[i].bit_offset = bit_offset;
-	members[i].bit_field_size = bit_field_size;
+	member->type = member_type;
+	member->name = name;
+	member->bit_offset = bit_offset;
+	member->bit_field_size = bit_field_size;
 }
 
 /**
@@ -255,32 +252,27 @@ static inline void drgn_type_member_init(struct drgn_type *type, size_t i,
  *
  * This only frees @ref drgn_type_member::type.
  *
- * @param[out] type Type containing member to free.
- * @param[in] i Index of member to free.
+ * @param[out] member Member to free.
  */
-static inline void drgn_type_member_deinit(struct drgn_type *type, size_t i)
+static inline void drgn_type_member_deinit(struct drgn_type_member *member)
 {
-	struct drgn_type_member *members = drgn_type_payload(type);
-
-	drgn_lazy_type_deinit(&members[i].type);
+	drgn_lazy_type_deinit(&member->type);
 }
 
 /**
  * Initialize a structure type.
  *
- * @param[out] type Type to initialize. This must have @c num_members @ref
- * drgn_type_member%s allocated after it. The members must be initialized with
- * @ref drgn_type_member_init() (either before or after this function is
- * called).
+ * @param[out] type Type to initialize.
  * @param[in] tag Name of the type. This string is not copied. It may be @c NULL
  * if the type is anonymous.
  * @param[in] size Size of the type in bytes.
+ * @param[in] members Members of the type.
  * @param[in] num_members The number of members in the type.
  * @param[in] lang Language of this type.
  */
 void drgn_struct_type_init(struct drgn_type *type, const char *tag,
-			   uint64_t size, size_t num_members,
-			   const struct drgn_language *lang);
+			   uint64_t size, struct drgn_type_member *members,
+			   size_t num_members, const struct drgn_language *lang);
 
 /**
  * Initialize an incomplete structure type.
@@ -302,42 +294,30 @@ void drgn_struct_type_init_incomplete(struct drgn_type *type, const char *tag,
  * @sa drgn_struct_type_init().
  */
 void drgn_union_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, size_t num_members,
-			  const struct drgn_language *lang);
+			  uint64_t size, struct drgn_type_member *members,
+			  size_t num_members, const struct drgn_language *lang);
 
 /**
  * Initialize an incomplete union type.
  *
  * @sa drgn_struct_type_init_incomplete().
- * @param[in] lang Language of this type.
  */
 void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag,
 				     const struct drgn_language *lang);
 
 /**
  * Initialize a class type.
- * @param[out] type Type to initialize. This must have @c num_members @ref
- * drgn_type_memer%s allocated after it. Similar to struct type, the members
- * must be initialized with @ref drgn_type_member_init() (either before or after
- * this function is called).
- * @param[in] tag Name of the type.
- * @param[in] size Size of the type in bytes.
- * @param[in] num_members The number of members in the type.
- * @param[in] lang Language of this type.
+ *
+ * @sa drgn_struct_type_init().
  */
 void drgn_class_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, size_t num_members,
-			  const struct drgn_language *lang);
+			  uint64_t size, struct drgn_type_member *members,
+			  size_t num_members, const struct drgn_language *lang);
 
 /**
  * Initialize an incomplete class type.
  *
- * @c size and @c num_members are set to zero and @c is_complete is set to @c
- * false.
- *
- * @param[out] type Type to initialize.
- * @param[int] tag Name of the type.
- * @param[in] lang Language of this type.
+ * @sa drgn_struct_type_init_incomplete().
  */
 void drgn_class_type_init_incomplete(struct drgn_type *type, const char *tag,
 				     const struct drgn_language *lang);
@@ -345,57 +325,48 @@ void drgn_class_type_init_incomplete(struct drgn_type *type, const char *tag,
 /**
  * Initialize a signed enumerator of a type.
  *
- * @param[out] type Type containing enumerator to initialize.
- * @param[in] i Index of enumerator to initialize.
+ * @param[out] enumerator Enumerator to initialize.
  * @param[in] name See @ref drgn_type_enumerator::name.
  * @param[in] svalue See @ref drgn_type_enumerator::svalue.
  */
-static inline void drgn_type_enumerator_init_signed(struct drgn_type *type,
-						    size_t i,
-						    const char *name,
-						    int64_t svalue)
+static inline void
+drgn_type_enumerator_init_signed(struct drgn_type_enumerator *enumerator,
+				 const char *name, int64_t svalue)
 {
-	struct drgn_type_enumerator *enumerators = drgn_type_payload(type);
-
-	enumerators[i].name = name;
-	enumerators[i].svalue = svalue;
+	enumerator->name = name;
+	enumerator->svalue = svalue;
 }
 
 /**
  * Initialize an unsigned enumerator of a type.
  *
- * @param[out] type Type containing enumerator to initialize.
- * @param[in] i Index of enumerator to initialize.
+ * @param[out] enumerator Enumerator to initialize.
  * @param[in] name See @ref drgn_type_enumerator::name.
  * @param[in] uvalue See @ref drgn_type_enumerator::uvalue.
  */
-static inline void drgn_type_enumerator_init_unsigned(struct drgn_type *type,
-						      size_t i,
-						      const char *name,
-						      uint64_t uvalue)
+static inline void
+drgn_type_enumerator_init_unsigned(struct drgn_type_enumerator *enumerator,
+				   const char *name, uint64_t uvalue)
 {
-	struct drgn_type_enumerator *enumerators = drgn_type_payload(type);
-
-	enumerators[i].name = name;
-	enumerators[i].uvalue = uvalue;
+	enumerator->name = name;
+	enumerator->uvalue = uvalue;
 }
 
 /**
  * Initialize an enumerated type.
  *
- * @param[out] type Type to initialize. This must have @c num_enumerators @ref
- * drgn_type_enumerator%s allocated after it. The enumerators must be
- * initialized with @ref drgn_type_enumerator_init() (either before or after
- * this function is called).
+ * @param[out] type Type to initialize.
  * @param[in] tag Name of the type. This string is not copied. It may be @c NULL
  * if the type is anonymous.
  * @param[in] compatible_type Type compatible with this enumerated type. It must
  * be an integer type.
+ * @param[in] enumerators Enumerators of the type.
  * @param[in] num_enumerators The number of enumerators in the type.
  * @param[in] lang Language of this type.
  */
 void drgn_enum_type_init(struct drgn_type *type, const char *tag,
 			 struct drgn_type *compatible_type,
+			 struct drgn_type_enumerator *enumerators,
 			 size_t num_enumerators,
 			 const struct drgn_language *lang);
 
@@ -465,19 +436,16 @@ void drgn_array_type_init_incomplete(struct drgn_type *type,
 /**
  * Initialize a parameter of a type.
  *
- * @param[out] type Type containing parameter to initialize.
- * @param[in] i Index of parameter to initialize.
+ * @param[out] parameter Parameter to initialize.
  * @param[in] parameter_type See @ref drgn_type_parameter::type.
  * @param[in] name See @ref drgn_type_parameter::name.
  */
 static inline void
-drgn_type_parameter_init(struct drgn_type *type, size_t i,
+drgn_type_parameter_init(struct drgn_type_parameter *parameter,
 			 struct drgn_lazy_type parameter_type, const char *name)
 {
-	struct drgn_type_parameter *parameters = drgn_type_payload(type);
-
-	parameters[i].type = parameter_type;
-	parameters[i].name = name;
+	parameter->type = parameter_type;
+	parameter->name = name;
 }
 
 /**
@@ -485,23 +453,19 @@ drgn_type_parameter_init(struct drgn_type *type, size_t i,
  *
  * This only frees @ref drgn_type_parameter::type.
  *
- * @param[out] type Type containing parameter to free.
- * @param[in] i Index of parameter to free.
+ * @param[out] parameter Parameter to free.
  */
-static inline void drgn_type_parameter_deinit(struct drgn_type *type, size_t i)
+static inline void drgn_type_parameter_deinit(struct drgn_type_parameter *parameter)
 {
-	struct drgn_type_parameter *parameters = drgn_type_payload(type);
-
-	drgn_lazy_type_deinit(&parameters[i].type);
+	drgn_lazy_type_deinit(&parameter->type);
 }
 
 /**
  * Initialize a function type.
  *
- * @param[out] type Type to initialize. This must have @c num_parameters @ref
- * drgn_type_parameter%s allocated after it. The parameters must be initialized
- * separately (either before or after this function is called).
+ * @param[out] type Type to initialize.
  * @param[in] return_type Type returned by the function type.
+ * @param[in] parameters Parameters of the function type.
  * @param[in] num_parameters The number of parameters accepted by the function
  * type.
  * @param[in] is_variadic Whether the function type is variadic.
@@ -509,6 +473,7 @@ static inline void drgn_type_parameter_deinit(struct drgn_type *type, size_t i)
  */
 void drgn_function_type_init(struct drgn_type *type,
 			     struct drgn_qualified_type return_type,
+			     struct drgn_type_parameter *parameters,
 			     size_t num_parameters, bool is_variadic,
 			     const struct drgn_language *lang);
 

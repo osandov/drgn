@@ -9,21 +9,11 @@ static const char *drgn_type_kind_str(struct drgn_type *type)
 	return drgn_type_kind_spelling[drgn_type_kind(type)];
 }
 
-static DrgnType *DrgnType_new(enum drgn_qualifiers qualifiers, size_t nmemb,
-			      size_t size)
+static DrgnType *DrgnType_new(enum drgn_qualifiers qualifiers)
 {
 	DrgnType *type_obj;
-	size_t bytes;
 
-	if (__builtin_mul_overflow(nmemb, size, &bytes) ||
-	    __builtin_add_overflow(bytes, sizeof(struct drgn_type), &bytes) ||
-	    __builtin_add_overflow(bytes, sizeof(void *) - 1, &bytes) ||
-	    bytes / sizeof(void *) > PY_SSIZE_T_MAX - sizeof(DrgnType)) {
-		PyErr_NoMemory();
-		return NULL;
-	}
-	type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type,
-						      bytes / sizeof(void *));
+	type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type, 1);
 	if (!type_obj)
 		return NULL;
 	type_obj->qualifiers = qualifiers;
@@ -551,7 +541,8 @@ static void DrgnType_dealloc(DrgnType *self)
 			members = drgn_type_members(self->type);
 			num_members = drgn_type_num_members(self->type);
 			for (i = 0; i < num_members; i++)
-				drgn_lazy_type_deinit(&members[i].type);
+				drgn_type_member_deinit(&members[i]);
+			free(members);
 		}
 		if (drgn_type_has_parameters(self->type)) {
 			struct drgn_type_parameter *parameters;
@@ -560,8 +551,11 @@ static void DrgnType_dealloc(DrgnType *self)
 			parameters = drgn_type_parameters(self->type);
 			num_parameters = drgn_type_num_parameters(self->type);
 			for (i = 0; i < num_parameters; i++)
-				drgn_lazy_type_deinit(&parameters[i].type);
+				drgn_type_parameter_deinit(&parameters[i]);
+			free(parameters);
 		}
+		if (drgn_type_has_enumerators(self->type))
+			free(drgn_type_enumerators(self->type));
 	}
 	Py_XDECREF(self->attr_cache);
 	Py_TYPE(self)->tp_free((PyObject *)self);
@@ -873,14 +867,8 @@ PyTypeObject DrgnType_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "_drgn.Type",
 	.tp_basicsize = sizeof(DrgnType),
-	/*
-	 * The "item" of a Type object is an optional struct drgn_type + an
-	 * optional array of struct drgn_type_member, struct
-	 * drgn_type_enumerator, or struct drgn_type_parameter. We set
-	 * tp_itemsize to a word so that we can allocate whatever arbitrary size
-	 * we need.
-	 */
-	.tp_itemsize = sizeof(void *),
+	/* The "item" of a Type object is an optional struct drgn_type. */
+	.tp_itemsize = sizeof(struct drgn_type),
 	.tp_dealloc = (destructor)DrgnType_dealloc,
 	.tp_repr = (reprfunc)DrgnType_repr,
 	.tp_str = (reprfunc)DrgnType_str,
@@ -1326,7 +1314,7 @@ DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers, 0, 0);
+	type_obj = DrgnType_new(qualifiers);
 	if (!type_obj)
 		return NULL;
 
@@ -1365,7 +1353,7 @@ DrgnType *bool_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers, 0, 0);
+	type_obj = DrgnType_new(qualifiers);
 	if (!type_obj)
 		return NULL;
 
@@ -1404,7 +1392,7 @@ DrgnType *float_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers, 0, 0);
+	type_obj = DrgnType_new(qualifiers);
 	if (!type_obj)
 		return NULL;
 
@@ -1461,7 +1449,7 @@ DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	type_obj = DrgnType_new(qualifiers, 0, 0);
+	type_obj = DrgnType_new(qualifiers);
 	if (!type_obj)
 		return NULL;
 
@@ -1482,8 +1470,8 @@ DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds)
 	return type_obj;
 }
 
-static int unpack_member(DrgnType *type_obj, PyObject *cached_members_obj,
-			 size_t i)
+static int unpack_member(struct drgn_type_member *members,
+			 PyObject *cached_members_obj, size_t i)
 {
 	TypeMember *item;
 	const char *name;
@@ -1513,7 +1501,7 @@ static int unpack_member(DrgnType *type_obj, PyObject *cached_members_obj,
 
 	if (lazy_type_from_py(&member_type, (LazyType *)item) == -1)
 		return -1;
-	drgn_type_member_init(type_obj->type, i, member_type, name, bit_offset,
+	drgn_type_member_init(&members[i], member_type, name, bit_offset,
 			      bit_field_size);
 	return 0;
 }
@@ -1528,6 +1516,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 	DrgnType *type_obj = NULL;
 	unsigned long long size;
 	PyObject *cached_members_obj = NULL;
+	struct drgn_type_member *members = NULL;
 	size_t num_members;
 
 	if (tag_obj == Py_None) {
@@ -1550,12 +1539,6 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 				     drgn_type_kind_spelling[kind]);
 			return NULL;
 		}
-		type_obj = DrgnType_new(qualifiers, 0, 0);
-		if (!type_obj)
-			return NULL;
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_members.id, Py_None) == -1)
-			goto err;
 	} else {
 		size_t i;
 
@@ -1578,29 +1561,30 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 		if (!cached_members_obj)
 			return NULL;
 		num_members = PyTuple_GET_SIZE(cached_members_obj);
-
-		type_obj = DrgnType_new(qualifiers, num_members,
-					sizeof(struct drgn_type_member));
-		if (!type_obj)
+		members = malloc_array(num_members,
+				       sizeof(struct drgn_type_member));
+		if (!members)
 			goto err;
+
 		for (i = 0; i < num_members; i++) {
-			if (unpack_member(type_obj, cached_members_obj,
-					  i) == -1)
+			if (unpack_member(members, cached_members_obj, i) == -1)
 				goto err;
 		}
-
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_members.id,
-				      cached_members_obj) == -1)
-			goto err;
-		Py_CLEAR(cached_members_obj);
 	}
+
+	type_obj = DrgnType_new(qualifiers);
+	if (!type_obj)
+		goto err;
 
 	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_tag.id,
 			      tag_obj) == -1)
 		goto err;
 
 	if (members_obj == Py_None) {
+		if (_PyDict_SetItemId(type_obj->attr_cache,
+				      &DrgnType_attr_members.id, Py_None) == -1)
+			goto err;
+
 		switch (kind) {
 		case DRGN_TYPE_STRUCT:
 			drgn_struct_type_init_incomplete(type_obj->type, tag,
@@ -1618,17 +1602,23 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 			DRGN_UNREACHABLE();
 		}
 	} else {
+		if (_PyDict_SetItemId(type_obj->attr_cache,
+				      &DrgnType_attr_members.id,
+				      cached_members_obj) == -1)
+			goto err;
+		Py_DECREF(cached_members_obj);
+
 		switch (kind) {
 		case DRGN_TYPE_STRUCT:
 			drgn_struct_type_init(type_obj->type, tag, size,
-					      num_members, language);
+					      members, num_members, language);
 			break;
 		case DRGN_TYPE_UNION:
-			drgn_union_type_init(type_obj->type, tag, size,
+			drgn_union_type_init(type_obj->type, tag, size, members,
 					     num_members, language);
 			break;
 		case DRGN_TYPE_CLASS:
-			drgn_class_type_init(type_obj->type, tag, size,
+			drgn_class_type_init(type_obj->type, tag, size, members,
 					     num_members, language);
 			break;
 		default:
@@ -1639,6 +1629,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 
 err:
 	Py_XDECREF(type_obj);
+	free(members);
 	Py_XDECREF(cached_members_obj);
 	return NULL;
 }
@@ -1709,7 +1700,8 @@ DrgnType *class_type(PyObject *self, PyObject *args, PyObject *kwds)
 			     language, DRGN_TYPE_CLASS);
 }
 
-static int unpack_enumerator(DrgnType *type_obj, PyObject *cached_enumerators_obj,
+static int unpack_enumerator(struct drgn_type_enumerator *enumerators,
+			     PyObject *cached_enumerators_obj,
 			     size_t i, bool is_signed)
 {
 	TypeEnumerator *item;
@@ -1732,7 +1724,7 @@ static int unpack_enumerator(DrgnType *type_obj, PyObject *cached_enumerators_ob
 		svalue = PyLong_AsLongLong(item->value);
 		if (svalue == -1 && PyErr_Occurred())
 			return -1;
-		drgn_type_enumerator_init_signed(type_obj->type, i, name,
+		drgn_type_enumerator_init_signed(&enumerators[i], name,
 						 svalue);
 	} else {
 		unsigned long long uvalue;
@@ -1740,7 +1732,7 @@ static int unpack_enumerator(DrgnType *type_obj, PyObject *cached_enumerators_ob
 		uvalue = PyLong_AsUnsignedLongLong(item->value);
 		if (uvalue == (unsigned long long)-1 && PyErr_Occurred())
 			return -1;
-		drgn_type_enumerator_init_unsigned(type_obj->type, i, name,
+		drgn_type_enumerator_init_unsigned(&enumerators[i], name,
 						   uvalue);
 	}
 	return 0;
@@ -1760,6 +1752,7 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
 	PyObject *cached_enumerators_obj = NULL;
+	struct drgn_type_enumerator *enumerators = NULL;
 	size_t num_enumerators;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:enum_type",
@@ -1808,13 +1801,6 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 			return NULL;
 		}
 		num_enumerators = 0;
-		type_obj = DrgnType_new(qualifiers, 0, 0);
-		if (!type_obj)
-			return NULL;
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_enumerators.id,
-				      Py_None) == -1)
-			goto err;
 	} else {
 		bool is_signed;
 		size_t i;
@@ -1832,25 +1818,24 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 		cached_enumerators_obj = PySequence_Tuple(enumerators_obj);
 		if (!cached_enumerators_obj)
 			return NULL;
-		num_enumerators = PyTuple_GET_SIZE(cached_enumerators_obj);
-		is_signed = drgn_type_is_signed(compatible_type);
 
-		type_obj = DrgnType_new(qualifiers, num_enumerators,
-					sizeof(struct drgn_type_enumerator));
-		if (!type_obj)
+		num_enumerators = PyTuple_GET_SIZE(cached_enumerators_obj);
+		enumerators = malloc_array(num_enumerators,
+					   sizeof(struct drgn_type_enumerator));
+		if (!enumerators)
 			goto err;
+		is_signed = drgn_type_is_signed(compatible_type);
 		for (i = 0; i < num_enumerators; i++) {
-			if (unpack_enumerator(type_obj, cached_enumerators_obj,
-					      i, is_signed) == -1)
+			if (unpack_enumerator(enumerators,
+					      cached_enumerators_obj, i,
+					      is_signed) == -1)
 				goto err;
 		}
-
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_enumerators.id,
-				      cached_enumerators_obj) == -1)
-			goto err;
-		Py_CLEAR(cached_enumerators_obj);
 	}
+
+	type_obj = DrgnType_new(qualifiers);
+	if (!type_obj)
+		goto err;
 
 	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_tag.id,
 			      tag_obj) == -1)
@@ -1860,15 +1845,27 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 		goto err;
 
 	if (enumerators_obj == Py_None) {
+		if (_PyDict_SetItemId(type_obj->attr_cache,
+				      &DrgnType_attr_enumerators.id,
+				      Py_None) == -1)
+			goto err;
+
 		drgn_enum_type_init_incomplete(type_obj->type, tag, language);
 	} else {
+		if (_PyDict_SetItemId(type_obj->attr_cache,
+				      &DrgnType_attr_enumerators.id,
+				      cached_enumerators_obj) == -1)
+			goto err;
+		Py_DECREF(cached_enumerators_obj);
+
 		drgn_enum_type_init(type_obj->type, tag, compatible_type,
-				    num_enumerators, language);
+				    enumerators, num_enumerators, language);
 	}
 	return type_obj;
 
 err:
 	Py_XDECREF(type_obj);
+	free(enumerators);
 	Py_XDECREF(cached_enumerators_obj);
 	return NULL;
 }
@@ -1897,7 +1894,7 @@ DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!name)
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers, 0, 0);
+	type_obj = DrgnType_new(qualifiers);
 	if (!type_obj)
 		return NULL;
 
@@ -1934,7 +1931,7 @@ DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds)
 					 language_converter, &language))
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers, 0, 0);
+	type_obj = DrgnType_new(qualifiers);
 	if (!type_obj)
 		return NULL;
 
@@ -1980,7 +1977,7 @@ DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds)
 			return NULL;
 	}
 
-	type_obj = DrgnType_new(qualifiers, 0, 0);
+	type_obj = DrgnType_new(qualifiers);
 	if (!type_obj)
 		return NULL;
 
@@ -1999,8 +1996,8 @@ DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds)
 	return type_obj;
 }
 
-static int unpack_parameter(DrgnType *type_obj, PyObject *cached_parameters_obj,
-			    size_t i)
+static int unpack_parameter(struct drgn_type_parameter *parameters,
+			    PyObject *cached_parameters_obj, size_t i)
 {
 	TypeParameter *item;
 	const char *name;
@@ -2022,7 +2019,7 @@ static int unpack_parameter(DrgnType *type_obj, PyObject *cached_parameters_obj,
 
 	if (lazy_type_from_py(&parameter_type, (LazyType *)item) == -1)
 		return -1;
-	drgn_type_parameter_init(type_obj->type, i, parameter_type, name);
+	drgn_type_parameter_init(&parameters[i], parameter_type, name);
 	return 0;
 }
 
@@ -2036,6 +2033,7 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 	PyObject *return_type_obj;
 	struct drgn_qualified_type return_type;
 	PyObject *parameters_obj, *cached_parameters_obj = NULL;
+	struct drgn_type_parameter *parameters = NULL;
 	size_t num_parameters, i;
 	int is_variadic = 0;
 	unsigned char qualifiers = 0;
@@ -2055,32 +2053,37 @@ DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
 	cached_parameters_obj = PySequence_Tuple(parameters_obj);
 	if (!cached_parameters_obj)
 		return NULL;
-	num_parameters = PyTuple_GET_SIZE(cached_parameters_obj);
 
-	type_obj = DrgnType_new(qualifiers, num_parameters,
-				sizeof(struct drgn_type_parameter));
-	if (!type_obj)
+	num_parameters = PyTuple_GET_SIZE(cached_parameters_obj);
+	parameters = malloc_array(num_parameters,
+				  sizeof(struct drgn_type_parameter));
+	if (!parameters)
 		goto err;
 	for (i = 0; i < num_parameters; i++) {
-		if (unpack_parameter(type_obj, cached_parameters_obj, i) == -1)
+		if (unpack_parameter(parameters, cached_parameters_obj, i) == -1)
 			goto err;
 	}
+
+	type_obj = DrgnType_new(qualifiers);
+	if (!type_obj)
+		goto err;
+
+	if (type_arg(return_type_obj, &return_type, type_obj) == -1)
+		goto err;
 
 	if (_PyDict_SetItemId(type_obj->attr_cache,
 			      &DrgnType_attr_parameters.id,
 			      cached_parameters_obj) == -1)
 		goto err;
-	Py_CLEAR(cached_parameters_obj);
+	Py_DECREF(cached_parameters_obj);
 
-	if (type_arg(return_type_obj, &return_type, type_obj) == -1)
-		goto err;
-
-	drgn_function_type_init(type_obj->type, return_type, num_parameters,
-				is_variadic, language);
+	drgn_function_type_init(type_obj->type, return_type, parameters,
+				num_parameters, is_variadic, language);
 	return type_obj;
 
 err:
 	Py_XDECREF(type_obj);
+	free(parameters);
 	Py_XDECREF(cached_parameters_obj);
 	return NULL;
 }
