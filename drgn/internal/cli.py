@@ -151,12 +151,19 @@ def main() -> None:
         histfile = os.path.expanduser("~/.drgn_history")
         try:
             readline.read_history_file(histfile)
-        except FileNotFoundError:
-            pass
-        readline.parse_and_bind("tab: complete")
-        readline.set_history_length(1000)
-        atexit.register(readline.write_history_file, histfile)
+        except OSError as e:
+            if not isinstance(e, FileNotFoundError) and not args.quiet:
+                print('could not read history:', str(e), file=sys.stderr)
+        def write_history_file():
+            try:
+                readline.write_history_file(histfile)
+            except OSError as e:
+                if not args.quiet:
+                    print('could not write history:', str(e), file=sys.stderr)
+        atexit.register(write_history_file)
 
+        readline.set_history_length(1000)
+        readline.parse_and_bind("tab: complete")
         readline.set_completer(Completer(init_globals).complete)
         atexit.register(lambda: readline.set_completer(None))
 
