@@ -133,12 +133,20 @@ async def check_output(*args, **kwds):
     return stdout
 
 
-async def compress_file(in_path, out_path, *args, **kwds):
+async def compress_file(in_path, out_path, **kwds):
     logger.info("compressing %r", in_path)
     start = time.monotonic()
-    await check_call("zstd", "-T0", "-19", "-q", in_path, "-o", out_path, *args, **kwds)
+    await check_call("zstd", "-T0", "-19", "-q", in_path, "-o", out_path, **kwds)
     elapsed = time.monotonic() - start
     logger.info("compressed %r in %s", in_path, humanize_duration(elapsed))
+
+
+async def post_process_vmlinux(vmlinux, **kwds):
+    logger.info("removing relocations from %r", vmlinux)
+    await check_call(
+        "objcopy", "--remove-relocations=*", vmlinux, vmlinux + ".norel", **kwds
+    )
+    await compress_file(vmlinux + ".norel", vmlinux + ".zst")
 
 
 def getpwd():
@@ -192,11 +200,8 @@ async def build_kernel(commit, build_dir, log_file):
     vmlinux = os.path.join(build_dir, "vmlinux")
     release, image_name = (
         await asyncio.gather(
-            compress_file(
-                vmlinux,
-                vmlinux + ".zst",
-                stdout=log_file,
-                stderr=asyncio.subprocess.STDOUT,
+            post_process_vmlinux(
+                vmlinux, stdout=log_file, stderr=asyncio.subprocess.STDOUT
             ),
             check_output("make", *kbuild_args, "-s", "kernelrelease", stderr=log_file),
             check_output("make", *kbuild_args, "-s", "image_name", stderr=log_file),
