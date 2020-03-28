@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2020 - Omar Sandoval
+# SPDX-License-Identifier: GPL-3.0+
 
 import aiohttp
 import argparse
@@ -13,6 +15,7 @@ import os
 import os.path
 import re
 import shlex
+import shutil
 import sys
 import time
 import urllib.parse
@@ -22,53 +25,6 @@ logger = logging.getLogger("asyncio")
 
 
 KERNEL_ORG_JSON = "https://www.kernel.org/releases.json"
-
-
-DEFCONFIG = """\
-# Minimal configuration for booting into the root filesystem image and building
-# and testing drgn on a live kernel.
-
-CONFIG_SMP=y
-
-# No modules to simplify installing the kernel into the root filesystem image.
-CONFIG_MODULES=n
-
-# We run the tests in KVM.
-CONFIG_HYPERVISOR_GUEST=y
-CONFIG_KVM_GUEST=y
-CONFIG_PARAVIRT=y
-CONFIG_PARAVIRT_SPINLOCKS=y
-
-# Minimum requirements for booting up.
-CONFIG_DEVTMPFS=y
-CONFIG_EXT4_FS=y
-CONFIG_PCI=y
-CONFIG_PROC_FS=y
-CONFIG_SERIAL_8250=y
-CONFIG_SERIAL_8250_CONSOLE=y
-CONFIG_SYSFS=y
-CONFIG_VIRTIO_BLK=y
-CONFIG_VIRTIO_PCI=y
-
-# drgn needs /proc/kcore for live debugging.
-CONFIG_PROC_KCORE=y
-# In some cases, it also needs /proc/kallsyms.
-CONFIG_KALLSYMS=y
-CONFIG_KALLSYMS_ALL=y
-
-# drgn needs debug info.
-CONFIG_DEBUG_KERNEL=y
-CONFIG_DEBUG_INFO=y
-CONFIG_DEBUG_INFO_DWARF4=y
-
-# Some important information in VMCOREINFO is initialized in the kexec code for
-# some reason.
-CONFIG_KEXEC=y
-
-# In case we need to refer to the kernel config in the future.
-CONFIG_IKCONFIG=y
-CONFIG_IKCONFIG_PROC=y
-"""
 
 
 DROPBOX_API_URL = "https://api.dropboxapi.com"
@@ -205,8 +161,10 @@ async def build_kernel(commit, build_dir, log_file):
         "git", "checkout", commit, stdout=log_file, stderr=asyncio.subprocess.STDOUT
     )
 
-    with open(os.path.join(build_dir, ".config"), "w") as config_file:
-        config_file.write(DEFCONFIG)
+    shutil.copy(
+        os.path.join(os.path.dirname(__file__), "config"),
+        os.path.join(build_dir, ".config"),
+    )
 
     logger.info("building %s", commit)
     start = time.monotonic()
