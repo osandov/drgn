@@ -52,7 +52,7 @@ jobs:
       install: sudo adduser "$USER" kvm
       before_script:
         # The double sudo is necessary to pick up the new group membership.
-        - sudo -E sudo -E -u "$USER" scripts/vmtest/run.sh -k "$KERNEL"'.*' -o -d ~ ~/root.img; exitstatus=$?
+        - sudo -E sudo -E -u "$USER" vmtest/run.sh -k "$KERNEL"'.*' -o -d ~ ~/root.img; exitstatus=$?
         # Exit status 0 is success, 1 is test failure (should fail in the script
         # step), anything else is an error (should fail here).
         - test $exitstatus -le 1
