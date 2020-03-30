@@ -1,6 +1,8 @@
 # Minimal Linux kernel configuration for booting into vmtest and running drgn
 # tests.
 
+CONFIG_LOCALVERSION="-vmtest0"
+
 CONFIG_SMP=y
 
 # No modules to simplify installing the kernel into the root filesystem image.

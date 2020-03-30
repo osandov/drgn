@@ -84,11 +84,17 @@ async def raise_for_status_body(resp: aiohttp.ClientResponse) -> None:
         )
 
 
-async def get_kernel_org_releases(http_client: aiohttp.ClientSession) -> List[str]:
+def get_current_localversion() -> str:
+    with open(os.path.join(os.path.dirname(__file__), "config"), "r") as f:
+        match = re.search(r'^CONFIG_LOCALVERSION="([^"]*)"', f.read(), re.MULTILINE)
+    return match.group(1) if match else ""
+
+
+async def get_kernel_org_versions(http_client: aiohttp.ClientSession) -> List[str]:
     async with http_client.get(KERNEL_ORG_JSON, raise_for_status=True) as resp:
         releases = (await resp.json())["releases"]
         return [
-            "v" + release["version"]
+            release["version"]
             for release in releases
             if release["moniker"] in {"mainline", "stable", "longterm"}
             # 3.16 seems to be missing "x86/build/64: Force the linker to use
@@ -117,17 +123,9 @@ async def get_available_kernel_releases(
         for entry in obj["entries"]:
             if entry[".tag"] != "file":
                 continue
-            match = re.fullmatch(
-                r"vmlinux-(\d+)\.(\d+)\.(\d+)(-rc\d+)?\.zst", entry["name"]
-            )
-            if not match:
-                continue
-            version = f"v{match.group(1)}.{match.group(2)}"
-            if match.group(3) != "0":
-                version += "." + match.group(3)
-            if match.group(4):
-                version += match.group(4)
-            available.add(version)
+            match = re.fullmatch(r"vmlinux-(.*)\.zst", entry["name"])
+            if match:
+                available.add(match.group(1))
         if not obj["has_more"]:
             break
         url = DROPBOX_API_URL + "/2/files/list_folder/continue"
@@ -590,19 +588,35 @@ async def main() -> None:
         # dict rather than set to preserve insertion order.
         to_build = dict.fromkeys(args.build or ())
         if args.build_kernel_org:
+            localversion = get_current_localversion()
+            logger.info("current localversion: %s", localversion)
             try:
+                # In this context, "version" is a tag name without the "v"
+                # prefix and "release" is a uname release string.
                 logger.info(
-                    "getting list of kernel.org releases and available releases"
+                    "getting list of kernel.org versions and available releases"
                 )
                 kernel_org, available = await asyncio.gather(
-                    get_kernel_org_releases(http_client),
+                    get_kernel_org_versions(http_client),
                     get_available_kernel_releases(http_client, dropbox_token),
                 )
-                logger.info("kernel.org releases: %s", ", ".join(kernel_org))
+                logger.info("kernel.org versions: %s", ", ".join(kernel_org))
                 logger.info("available releases: %s", ", ".join(sorted(available)))
-                for kernel in kernel_org:
-                    if kernel not in available:
-                        to_build[kernel] = None
+                for version in kernel_org:
+                    match = re.fullmatch(r"(\d+\.\d+)(\.\d+)?(-rc\d+)?", version)
+                    if not match:
+                        logger.error("couldn't parse kernel.org version %r", version)
+                        sys.exit(1)
+                    release = "".join(
+                        [
+                            match.group(1),
+                            match.group(2) or ".0",
+                            match.group(3) or "",
+                            localversion,
+                        ]
+                    )
+                    if release not in available:
+                        to_build["v" + version] = None
             except Exception:
                 logger.exception(
                     "failed to get kernel.org releases and/or available releases"
