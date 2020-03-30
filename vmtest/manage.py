@@ -18,7 +18,21 @@ import shlex
 import shutil
 import sys
 import time
+from typing import (
+    Any,
+    AsyncGenerator,
+    BinaryIO,
+    Dict,
+    List,
+    Optional,
+    Set,
+    SupportsFloat,
+    SupportsRound,
+    TextIO,
+    Tuple,
+)
 import urllib.parse
+from yarl import URL
 
 
 logger = logging.getLogger("asyncio")
@@ -31,7 +45,7 @@ DROPBOX_API_URL = "https://api.dropboxapi.com"
 CONTENT_API_URL = "https://content.dropboxapi.com"
 
 
-def humanize_size(n, precision=1):
+def humanize_size(n: SupportsFloat, precision: int = 1) -> str:
     n = float(n)
     for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
         if abs(n) < 1024:
@@ -44,19 +58,23 @@ def humanize_size(n, precision=1):
     return f"{n:.{precision}f}{unit}B"
 
 
-def humanize_duration(seconds):
+def humanize_duration(seconds: SupportsRound[Any]) -> str:
     seconds = round(seconds)
     return f"{seconds // 60}m{seconds % 60}s"
 
 
-# Like aiohttp.ClientResponse.raise_for_status(), but includes the response
-# body.
-async def raise_for_status_body(resp):
+async def raise_for_status_body(resp: aiohttp.ClientResponse) -> None:
+    """
+    Like aiohttp.ClientResponse.raise_for_status(), but includes the response
+    body.
+    """
     if resp.status >= 400:
-        message = resp.reason
+        message = resp.reason or ""
         body = await resp.text()
         if body:
-            message += ": " + body
+            if message:
+                message += ": "
+            message += body
         raise aiohttp.ClientResponseError(
             resp.request_info,
             resp.history,
@@ -66,7 +84,7 @@ async def raise_for_status_body(resp):
         )
 
 
-async def get_kernel_org_releases(http_client):
+async def get_kernel_org_releases(http_client: aiohttp.ClientSession) -> List[str]:
     async with http_client.get(KERNEL_ORG_JSON, raise_for_status=True) as resp:
         releases = (await resp.json())["releases"]
         return [
@@ -81,7 +99,9 @@ async def get_kernel_org_releases(http_client):
         ]
 
 
-async def get_available_kernel_releases(http_client, token):
+async def get_available_kernel_releases(
+    http_client: aiohttp.ClientSession, token: str
+) -> Set[str]:
     headers = {"Authorization": "Bearer " + token}
     params = {"path": "/Public/x86_64"}
     url = DROPBOX_API_URL + "/2/files/list_folder"
@@ -110,7 +130,7 @@ async def get_available_kernel_releases(http_client, token):
     return available
 
 
-async def check_call(*args, **kwds):
+async def check_call(*args: Any, **kwds: Any) -> None:
     proc = await asyncio.create_subprocess_exec(*args, **kwds)
     returncode = await proc.wait()
     if returncode != 0:
@@ -120,10 +140,9 @@ async def check_call(*args, **kwds):
         )
 
 
-async def check_output(*args, **kwds):
-    proc = await asyncio.create_subprocess_exec(
-        *args, **kwds, stdout=asyncio.subprocess.PIPE
-    )
+async def check_output(*args: Any, **kwds: Any) -> bytes:
+    kwds["stdout"] = asyncio.subprocess.PIPE
+    proc = await asyncio.create_subprocess_exec(*args, **kwds)
     stdout = (await proc.communicate())[0]
     if proc.returncode != 0:
         command = " ".join(shlex.quote(arg) for arg in args)
@@ -133,7 +152,7 @@ async def check_output(*args, **kwds):
     return stdout
 
 
-async def compress_file(in_path, out_path, **kwds):
+async def compress_file(in_path: str, out_path: str, **kwds: Any) -> None:
     logger.info("compressing %r", in_path)
     start = time.monotonic()
     await check_call("zstd", "-T0", "-19", "-q", in_path, "-o", out_path, **kwds)
@@ -141,7 +160,7 @@ async def compress_file(in_path, out_path, **kwds):
     logger.info("compressed %r in %s", in_path, humanize_duration(elapsed))
 
 
-async def post_process_vmlinux(vmlinux, **kwds):
+async def post_process_vmlinux(vmlinux: str, **kwds: Any) -> None:
     logger.info("removing relocations from %r", vmlinux)
     await check_call(
         "objcopy", "--remove-relocations=*", vmlinux, vmlinux + ".norel", **kwds
@@ -149,9 +168,11 @@ async def post_process_vmlinux(vmlinux, **kwds):
     await compress_file(vmlinux + ".norel", vmlinux + ".zst")
 
 
-def getpwd():
-    # This is how GCC determines the working directory. See
-    # https://gcc.gnu.org/git/?p=gcc.git;a=blob;f=libiberty/getpwd.c;hb=HEAD
+def getpwd() -> str:
+    """
+    Get the current working directory in the same way that GCC does. See
+    https://gcc.gnu.org/git/?p=gcc.git;a=blob;f=libiberty/getpwd.c;hb=HEAD.
+    """
     try:
         pwd = os.environ["PWD"]
         if pwd.startswith("/"):
@@ -164,7 +185,13 @@ def getpwd():
     return os.getcwd()
 
 
-async def build_kernel(commit, build_dir, log_file):
+async def build_kernel(
+    commit: str, build_dir: str, log_file: TextIO
+) -> Tuple[str, str]:
+    """
+    Returns built kernel release (i.e., `uname -r`) and image name (e.g.,
+    `arch/x86/boot/bzImage`).
+    """
     await check_call(
         "git", "checkout", commit, stdout=log_file, stderr=asyncio.subprocess.STDOUT
     )
@@ -207,10 +234,14 @@ async def build_kernel(commit, build_dir, log_file):
             check_output("make", *kbuild_args, "-s", "image_name", stderr=log_file),
         )
     )[1:]
-    return build_dir, release.decode().strip(), image_name.decode().strip()
+    return release.decode().strip(), image_name.decode().strip()
 
 
-async def try_build_kernel(commit):
+async def try_build_kernel(commit: str) -> Optional[Tuple[str, str, str]]:
+    """
+    Returns build directory, kernel release, and image name on success, None on
+    error.
+    """
     proc = await asyncio.create_subprocess_exec(
         "git",
         "rev-parse",
@@ -230,7 +261,8 @@ async def try_build_kernel(commit):
         os.mkdir(build_dir, 0o755)
         with open(log_path, "w") as log_file:
             try:
-                return await build_kernel(commit, build_dir, log_file)
+                release, image_name = await build_kernel(commit, build_dir, log_file)
+                return build_dir, release, image_name
             except Exception:
                 logger.exception("building %s failed; see %r", commit, log_path)
                 return None
@@ -242,12 +274,12 @@ async def try_build_kernel(commit):
 class Uploader:
     CHUNK_SIZE = 8 * 1024 * 1024
 
-    def __init__(self, http_client, token):
+    def __init__(self, http_client: aiohttp.ClientSession, token: str) -> None:
         self._http_client = http_client
         self._token = token
-        self._pending = []
+        self._pending: List[Tuple[str, asyncio.Task[bool]]] = []
 
-    async def _upload_file_obj(self, file, commit):
+    async def _upload_file_obj(self, file: BinaryIO, commit: Dict[str, Any]) -> None:
         headers = {
             "Authorization": "Bearer " + self._token,
             "Content-Type": "application/octet-stream",
@@ -283,7 +315,9 @@ class Uploader:
             if last:
                 break
 
-    async def _try_upload_file_obj(self, file, commit):
+    async def _try_upload_file_obj(
+        self, file: BinaryIO, commit: Dict[str, Any]
+    ) -> bool:
         try:
             logger.info("uploading %r", commit["path"])
             start = time.monotonic()
@@ -295,7 +329,7 @@ class Uploader:
             logger.exception("uploading %r failed", commit["path"])
             return False
 
-    async def _try_upload_file(self, path, commit):
+    async def _try_upload_file(self, path: str, commit: Dict[str, Any]) -> bool:
         try:
             logger.info("uploading %r to %r", path, commit["path"])
             start = time.monotonic()
@@ -314,25 +348,31 @@ class Uploader:
             return False
 
     @staticmethod
-    def _make_commit(dst_path, *, mode=None, autorename=None):
-        commit = {"path": dst_path}
+    def _make_commit(
+        dst_path: str, *, mode: Optional[str] = None, autorename: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        commit: Dict[str, Any] = {"path": dst_path}
         if mode is not None:
             commit["mode"] = mode
         if autorename is not None:
             commit["autorename"] = autorename
         return commit
 
-    def queue_file_obj(self, file, *args, **kwds):
+    def queue_file_obj(self, file: BinaryIO, *args: Any, **kwds: Any) -> None:
         commit = self._make_commit(*args, **kwds)
         task = asyncio.create_task(self._try_upload_file_obj(file, commit))
         self._pending.append((commit["path"], task))
 
-    def queue_file(self, src_path, *args, **kwds):
+    def queue_file(self, src_path: str, *args: Any, **kwds: Any) -> None:
         commit = self._make_commit(*args, **kwds)
         task = asyncio.create_task(self._try_upload_file(src_path, commit))
         self._pending.append((commit["path"], task))
 
-    async def wait(self):
+    async def wait(self) -> Tuple[List[str], List[str]]:
+        """
+        Returns list of successfully uploaded paths and list of paths that
+        failed to upload.
+        """
         succeeded = []
         failed = []
         for path, task in self._pending:
@@ -344,10 +384,16 @@ class Uploader:
         return succeeded, failed
 
 
-# The Dropbox API doesn't provide a way to get the links for entries inside of
-# a shared folder, so we're forced to scrape them from the webpage and XHR
-# endpoint.
-async def list_shared_folder(http_client, url):
+async def list_shared_folder(
+    http_client: aiohttp.ClientSession, url: str
+) -> AsyncGenerator[Tuple[str, bool, str], None]:
+    """
+    List a Dropbox shared folder. The Dropbox API doesn't provide a way to get
+    the links for entries inside of a shared folder, so we're forced to scrape
+    them from the webpage and XHR endpoint.
+
+    Generates filename, whether it is a directory, and its shared link.
+    """
     method = "GET"
     data = None
     while True:
@@ -357,6 +403,7 @@ async def list_shared_folder(http_client, url):
                 match = re.search(
                     r'"\{\\"shared_link_infos\\".*[^\\]\}"', (await resp.text())
                 )
+                assert match
                 obj = json.loads(json.loads(match.group()))
             else:
                 await raise_for_status_body(resp)
@@ -369,16 +416,23 @@ async def list_shared_folder(http_client, url):
             method = "POST"
             url = "https://www.dropbox.com/list_shared_link_folder_entries"
             data = {
-                "t": http_client.cookie_jar.filter_cookies(url)["t"].value,
+                "t": http_client.cookie_jar.filter_cookies(URL(url))["t"].value,
                 "link_key": obj["folder_share_token"]["linkKey"],
                 "link_type": obj["folder_share_token"]["linkType"],
                 "secure_hash": obj["folder_share_token"]["secureHash"],
                 "sub_path": obj["folder_share_token"]["subPath"],
             }
+        assert data is not None
         data["voucher"] = obj["next_request_voucher"]
 
 
-async def walk_shared_folder(http_client, url):
+async def walk_shared_folder(
+    http_client: aiohttp.ClientSession, url: str
+) -> AsyncGenerator[Tuple[str, List[Tuple[str, str]], List[Tuple[str, str]]], None]:
+    """
+    Walk a Dropbox shared folder, similar to os.walk(). Generates path, list of
+    files and their shared links, and list of folders and their shared links.
+    """
     stack = [("", url)]
     while stack:
         path, url = stack.pop()
@@ -395,7 +449,7 @@ async def walk_shared_folder(http_client, url):
         stack.extend((path + filename, href) for filename, href in dirs)
 
 
-def make_download_url(url):
+def make_download_url(url: str) -> str:
     parsed = urllib.parse.urlsplit(url)
     query = [
         (name, value)
@@ -406,7 +460,9 @@ def make_download_url(url):
     return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(query)))
 
 
-async def update_index(http_client, token, uploader):
+async def update_index(
+    http_client: aiohttp.ClientSession, token: str, uploader: Uploader
+) -> bool:
     try:
         logger.info("finding shared folder link")
         headers = {"Authorization": "Bearer " + token}
@@ -468,7 +524,7 @@ async def update_index(http_client, token, uploader):
         return False
 
 
-async def main():
+async def main() -> None:
     logging.basicConfig(
         format="%(asctime)s:%(levelname)s:%(name)s:%(message)s", level=logging.INFO
     )
