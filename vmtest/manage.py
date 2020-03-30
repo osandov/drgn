@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright 2020 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
