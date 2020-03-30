@@ -570,7 +570,7 @@ async def main() -> None:
     ):
         sys.exit("-b/-k must be run from linux.git")
 
-    if args.upload or args.upload_files or args.index:
+    if args.build_kernel_org or args.upload or args.upload_files or args.index:
         if os.isatty(sys.stdin.fileno()):
             dropbox_token = getpass.getpass("Enter Dropbox app API token: ")
         else:
