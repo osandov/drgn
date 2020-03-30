@@ -10,7 +10,6 @@ import getpass
 import io
 import json
 import logging
-import multiprocessing
 import os
 import os.path
 import re
@@ -33,6 +32,8 @@ from typing import (
 )
 import urllib.parse
 from yarl import URL
+
+from util import nproc
 
 
 logger = logging.getLogger("asyncio")
@@ -211,7 +212,7 @@ async def build_kernel(
         "KCFLAGS=" + cflags,
         "O=" + build_dir,
         "-j",
-        str(multiprocessing.cpu_count()),
+        str(nproc()),
     ]
     await check_call(
         "make",
