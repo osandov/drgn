@@ -583,7 +583,7 @@ async def main() -> None:
 
     async with aiohttp.ClientSession(trust_env=True) as http_client:
         # dict rather than set to preserve insertion order.
-        to_build = {build: True for build in (args.build or ())}
+        to_build = dict.fromkeys(args.build or ())
         if args.build_kernel_org:
             try:
                 logger.info(
@@ -597,7 +597,7 @@ async def main() -> None:
                 logger.info("available releases: %s", ", ".join(sorted(available)))
                 for kernel in kernel_org:
                     if kernel not in available:
-                        to_build[kernel] = True
+                        to_build[kernel] = None
             except Exception:
                 logger.exception(
                     "failed to get kernel.org releases and/or available releases"
