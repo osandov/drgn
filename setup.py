@@ -17,20 +17,14 @@ import shlex
 import subprocess
 import sys
 
+from util import nproc, out_of_date
+
 
 class build(_build):
     def finalize_options(self):
         super().finalize_options()
         if self.parallel is None:
-            self.parallel = len(os.sched_getaffinity(0)) + 1
-
-
-def out_of_date(path, *deps):
-    try:
-        mtime = os.stat(path).st_mtime
-    except FileNotFoundError:
-        return True
-    return any(os.stat(dep).st_mtime > mtime for dep in deps)
+            self.parallel = nproc() + 1
 
 
 class build_ext(_build_ext):
