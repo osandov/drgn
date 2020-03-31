@@ -108,6 +108,11 @@ async def get_available_kernel_releases(
     available = set()
     while True:
         async with http_client.post(url, headers=headers, json=params) as resp:
+            if resp.status == 409 and (await resp.json())["error_summary"].startswith(
+                "path/not_found/"
+            ):
+                break
+            await raise_for_status_body(resp)
             obj = await resp.json()
         for entry in obj["entries"]:
             if entry[".tag"] != "file":
