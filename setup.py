@@ -4,12 +4,13 @@ import contextlib
 from distutils import log
 from distutils.command.build import build as _build
 from distutils.dir_util import mkpath
+from distutils.errors import DistutilsError
 from distutils.file_util import copy_file
 import os
 import os.path
 import re
 import pkg_resources
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Command
 from setuptools.command.build_ext import build_ext as _build_ext
 from setuptools.command.egg_info import egg_info as _egg_info
 from setuptools.extension import Extension
@@ -118,6 +119,123 @@ class egg_info(_egg_info):
         super().run()
 
 
+class test(Command):
+    description = "run unit tests after in-place build"
+
+    KERNELS = ["5.6", "5.5", "5.4", "4.19", "4.14", "4.9", "4.4"]
+
+    user_options = [
+        (
+            "kernel",
+            "K",
+            "run Linux kernel helper tests in a virtual machine on all supported kernels "
+            f"({', '.join(KERNELS)})",
+        ),
+        (
+            "extra-kernels=",
+            "k",
+            "additional kernels to run Linux kernel helper tests on in a virtual machine "
+            "(comma-separated list of kernel build directory path or "
+            "wildcard pattern matching uploaded kernel release strings)",
+        ),
+        (
+            "vmtest-dir=",
+            "d",
+            "directory for built artifacts and downloaded kernels for virtual machine tests (default: 'build/vmtest')",
+        ),
+    ]
+
+    def initialize_options(self):
+        self.kernel = False
+        self.extra_kernels = ""
+        self.vmtest_dir = None
+
+    def finalize_options(self):
+        self.kernels = [kernel for kernel in self.extra_kernels.split(",") if kernel]
+        if self.kernel:
+            self.kernels.extend(kernel + ".*" for kernel in test.KERNELS)
+        if self.vmtest_dir is None:
+            build_base = self.get_finalized_command("build").build_base
+            self.vmtest_dir = os.path.join(build_base, "vmtest")
+
+    def _run_local(self):
+        import unittest
+
+        argv = ["discover"]
+        if self.verbose:
+            argv.append("-v")
+        test = unittest.main(module=None, argv=argv, exit=False)
+        return test.result.wasSuccessful()
+
+    def _run_vm(self, **kwds):
+        import vmtest.vm
+
+        try:
+            with vmtest.vm.VM(**kwds) as vm:
+                args = [
+                    # fmt: off
+                    sys.executable, "-B", "-m",
+                    "unittest", "discover", "-t", ".", "-s", "tests/helpers/linux",
+                    # fmt: on
+                ]
+                if self.verbose:
+                    args.append("-v")
+                return vm.run(
+                    args, cwd=os.getcwd(), env={"DRGN_RUN_LINUX_HELPER_TESTS": "1"}
+                ).returncode == 0
+        except vmtest.vm.LostVMError as e:
+            self.announce(f"error: {e}", log.ERROR)
+            return False
+
+    def run(self):
+        import vmtest.build
+        import vmtest.resolver
+
+        # Start downloads ASAP so that they're hopefully done by the time we
+        # need them.
+        with vmtest.resolver.KernelResolver(self.kernels, self.vmtest_dir) as resolver:
+            if self.kernels:
+                self.announce(
+                    "downloading/preparing kernels in the background", log.INFO
+                )
+            self.run_command("egg_info")
+            self.reinitialize_command("build_ext", inplace=1)
+            self.run_command("build_ext")
+
+            passed = []
+            failed = []
+
+            if self.kernels:
+                self.announce("running tests locally", log.INFO)
+            if self._run_local():
+                passed.append("local")
+            else:
+                failed.append("local")
+
+            if self.kernels:
+                built = vmtest.build.build_vmtest(self.vmtest_dir)
+                for kernel in resolver:
+                    self.announce(
+                        f"running tests in VM on Linux {kernel.release}", log.INFO
+                    )
+                    if self._run_vm(
+                        **built, vmlinux=kernel.vmlinux, vmlinuz=kernel.vmlinuz,
+                    ):
+                        passed.append(kernel.release)
+                    else:
+                        failed.append(kernel.release)
+
+                if passed:
+                    self.announce(f'Passed: {", ".join(passed)}', log.INFO)
+                if failed:
+                    self.announce(f'Failed: {", ".join(failed)}', log.ERROR)
+
+        if failed:
+            raise DistutilsError("some tests failed")
+        else:
+            self.announce("all tests passed", log.INFO)
+
+
 def get_version():
     if not os.path.exists(".git"):
         # If this is a source distribution, get the version from the egg
@@ -177,7 +295,12 @@ setup(
     # This is here so that setuptools knows that we have an extension; it's
     # actually built using autotools/make.
     ext_modules=[Extension(name="_drgn", sources=[])],
-    cmdclass={"build": build, "build_ext": build_ext, "egg_info": egg_info},
+    cmdclass={
+        "build": build,
+        "build_ext": build_ext,
+        "egg_info": egg_info,
+        "test": test,
+    },
     entry_points={"console_scripts": ["drgn=drgn.internal.cli:main"],},
     python_requires=">=3.6",
     author="Omar Sandoval",

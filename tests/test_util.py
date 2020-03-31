@@ -1,7 +1,7 @@
 from functools import cmp_to_key
 import unittest
 
-from util import Version, verrevcmp
+from util import KernelVersion, verrevcmp
 
 
 class TestUtil(unittest.TestCase):
@@ -17,9 +17,11 @@ class TestUtil(unittest.TestCase):
         self.assertVersionSort(["~", "~1"])
         self.assertVersionSort(["~~", "~~a", "~", "", "a"])
 
-    def test_version(self):
-        self.assertLess(Version("1.0"), Version("2.0"))
-        self.assertLess(Version("5.6.0-rc6"), Version("5.6.0-rc7"))
-        self.assertLess(Version("5.6.0-rc7"), Version("5.6.0"))
-        self.assertLess(Version("5.6.0-rc7-vmtest2"), Version("5.6.0-vmtest1"))
-        self.assertLess(Version("5.6.0-vmtest1"), Version("5.6.0-vmtest2"))
+    def test_kernel_version(self):
+        self.assertLess(KernelVersion("1.0"), KernelVersion("2.0"))
+        self.assertLess(KernelVersion("5.6.0-rc6"), KernelVersion("5.6.0-rc7"))
+        self.assertLess(KernelVersion("5.6.0-rc7"), KernelVersion("5.6.0"))
+        self.assertLess(
+            KernelVersion("5.6.0-rc7-vmtest2"), KernelVersion("5.6.0-vmtest1")
+        )
+        self.assertLess(KernelVersion("5.6.0-vmtest1"), KernelVersion("5.6.0-vmtest2"))
