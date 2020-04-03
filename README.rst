@@ -43,7 +43,7 @@ library that can be used for more purpose-built tools.
 
 drgn was developed for debugging the Linux kernel (as an alternative to the
 `crash <http://people.redhat.com/anderson/>`_ utility), but it can also debug
-userspace programs written in C. C++ support is planned.
+userspace programs written in C. C++ support is in progress.
 
 .. end-introduction
 
