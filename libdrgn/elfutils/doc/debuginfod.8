@@ -99,7 +99,11 @@ additional patterns.  This option may be repeated.
 .TP
 .B "\-R"
 Activate RPM patterns in archive scanning.  The default is off.
-Equivalent to \fB\%\-Z\~.rpm=rpm2cpio\fP.
+Equivalent to \fB\%\-Z\~.rpm=cat\fP, since libarchive can natively
+process RPM archives.  If your version of libarchive is much older
+than 2020, be aware that some distributions have switched to an
+incompatible zstd compression for their payload.  You may experiment
+with \fB\%\-Z\ .rpm='(rpm2cpio|zstdcat)<'\fP instead of \fB\-R\fP.
 
 .TP
 .B "\-U"
@@ -126,9 +130,10 @@ repeated.  The default is nothing extra.
 
 .TP
 .B "\-p NUM" "\-\-port=NUM"
-Set the TCP port number on which debuginfod should listen, to service
-HTTP requests.  Both IPv4 and IPV6 sockets are opened, if possible.
-The webapi is documented below.  The default port number is 8002.
+Set the TCP port number (0 < NUM < 65536) on which debuginfod should
+listen, to service HTTP requests.  Both IPv4 and IPV6 sockets are
+opened, if possible.  The webapi is documented below.  The default
+port number is 8002.
 
 .TP
 .B "\-I REGEX"  "\-\-include=REGEX"  "\-X REGEX"  "\-\-exclude=REGEX"
@@ -193,14 +198,17 @@ loops in the symbolic directory tree might lead to \fIinfinite
 traversal\fP.
 
 .TP
-.B "\-\-fdcache-fds=NUM"  "\-\-fdcache-mbs=MB"
+.B "\-\-fdcache\-fds=NUM"  "\-\-fdcache\-mbs=MB"  "\-\-fdcache\-prefetch=NUM2"
 Configure limits on a cache that keeps recently extracted files from
-archives.  Up to NUM files and up to a total of MB megabytes will be
-kept extracted, in order to avoid having to decompress their archives
-again.  The default NUM and MB values depend on the concurrency of the
-system, and on the available disk space on the $TMPDIR or \fB/tmp\fP
-filesystem.  This is because that is where the most recently used
-extracted files are kept.  Grooming cleans this cache.
+archives.  Up to NUM requested files and up to a total of MB megabytes
+will be kept extracted, in order to avoid having to decompress their
+archives over and over again.  In addition, up to NUM2 other files
+from an archive may be prefetched into the cache before they are even
+requested.  The default NUM, NUM2, and MB values depend on the
+concurrency of the system, and on the available disk space on the
+$TMPDIR or \fB/tmp\fP filesystem.  This is because that is where the
+most recently used extracted files are kept.  Grooming cleans this
+cache.
 
 .TP
 .B "\-v"
@@ -261,10 +269,11 @@ is made up of multiple CUs.  Therefore, to disambiguate, debuginfod
 expects source queries to prefix relative path names with the CU
 compilation-directory, followed by a mandatory "/".
 
-Note: contrary to RFC 3986, the client should not elide \fB../\fP or
-\fB/./\fP or extraneous \fB///\fP sorts of path components in the
-directory names, because if this is how those names appear in the
-DWARF files, that is what debuginfod needs to see too.
+Note: the caller may or may not elide \fB../\fP or \fB/./\fP or extraneous
+\fB///\fP sorts of path components in the directory names.  debuginfod
+accepts both forms.  Specifically, debuginfod canonicalizes path names
+according to RFC3986 section 5.2.4 (Remove Dot Segments), plus reducing
+any \fB//\fP to \fB/\fP in the path.
 
 For example:
 .TS
@@ -406,8 +415,10 @@ or negative means "no timeout".)
 .B DEBUGINFOD_CACHE_PATH
 This environment variable governs the location of the cache where
 downloaded files are kept.  It is cleaned periodically as this
-program is reexecuted.  The default is \%$HOME/.debuginfod_client_cache.
-.\" XXX describe cache eviction policy
+program is reexecuted. If XDG_CACHE_HOME is set then
+$XDG_CACHE_HOME/debuginfod_client is the default location, otherwise
+$HOME/.cache/debuginfod_client is used. For more information regarding
+the client cache see \fIdebuginfod_find_debuginfo(3)\fP.
 
 .SH FILES
 .LP
@@ -418,8 +429,10 @@ Default database file.
 .PD
 
 .TP 20
-.B $HOME/.debuginfod_client_cache
+.B $XDG_CACHE_HOME/debuginfod_client
 Default cache directory for content from upstream debuginfods.
+If XDG_CACHE_HOME is not set then \fB$HOME/.cache/debuginfod_client\fP
+is used.
 .PD
 
 

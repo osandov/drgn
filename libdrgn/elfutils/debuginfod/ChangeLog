@@ -1,3 +1,144 @@
+2020-03-29  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod-client.c (debuginfod_add_http_header): Check header
+	contains precisely one colon that isn't the first or last char.
+
+2020-03-29  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-client.c (struct debuginfod_client): Add a flag field
+	for progressfn printing.
+	(default_progressfn): Set it if printing \rsomething.
+	(debuginfod_end): Terminate with \n if flag set, i.e., only if the
+	default_progressfn was actually called.
+
+2020-03-27  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod.cxx (parse_opt): Check port is not zero.
+
+2020-03-28  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (handle_buildid_r_match): During archive
+	extraction / fdcache prefetching, set the mtime of each
+	file in the cache.
+
+2020-03-27  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-find.c (main): Extract buildid from /binary/ if
+	given instead of hex string.
+	* Makefile.am: Add elfutils library prereqs for debuginfod-find.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.h, libdebuginfod.map: New functions for _add_url_header.
+	* debuginfod-client.c (struct debuginfod_client): Add headers fields.
+	(debuginfod_add_http_header): New client api to add outgoing headers.
+	(add_default_headers): Renamed from add_extra_headers, skip if flag.
+	(debuginfod_query_server): Pass accumulated headers to libcurl.
+	(debuginfod_end): Clean accumulated headers.
+	(debuginfod_find_*): Add default headers at this point.
+	* debuginfod.cxx (handle_buildid): Add conn pointer.  Use it to relay
+	incoming UA and XFF headers to federated upstream debuginfods.
+
+2020-03-26  Frank Ch. Eigler <fche@redhat.com>
+
+	* debuginfod.cxx (handler_cb): Export two families of metrics for
+	prometheus traffic analysis: response times and data amounts.
+
+2020-03-26  Frank Ch. Eigler <fche@redhat.com>
+
+	* debuginfod.cxx (parse_opt): For -U, prefer dpkg-deb
+	after all if access(3)-able, fallback to bsdtar.
+
+2020-03-25  Frank Ch. Eigler <fche@redhat.com>
+
+	* debuginfod.cxx (parse_opt): Associate a bsdtar subshell with
+	the .deb & .ddeb extensions, instead of dpkg-deb.
+
+2020-03-26  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-client.c (debuginfod_query_server): Don't
+	set CURLOPT_PATH_AS_IS on old curl.  Mostly harmless.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-client.c (debuginfod_query_server): Set
+	CURLOPT_PATH_AS_IS, to propagate file names verbatim.
+	* debuginfod.cxx (canon_pathname): Implement RFC3986
+	style pathname canonicalization.
+	(handle_buildid): Canonicalize incoming webapi source
+	paths, accept either one.
+	(scan_source_file, archive_classify): Store both
+	original and canonicalized dwarf-source file names.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (handle_buildid): In case of federated fallback
+	queries, handle errors analogously to local ENOENT/404.
+	(handle_metrics): Return a size-of-response value.
+	(handler_cb): Add code to time entire application-side processing
+	stage + response sizes + http codes, so as to emit a complete
+	httpd-flavoured log line for each webapi request.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-client.c (debuginfod_query_server): Print the
+	default_progressfn terminating \n message only if that progressfn
+	is actually set.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-find.c (main): Correct /source full-pathness check for
+	"debuginfod-find -v source deadbeef /pathname" case.
+
+2020-03-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-client.c (struct debuginfod_client): Add url field.
+	(struct handle_data): Add client field as backpointer.
+	(debuginfod_write_callback): Compute & save URL.
+	(default_progressfn): Print front pieces of the URL.
+	(debuginfod_query_server): Clear URL and cleanup after progressfn.
+	* debuginfod-find.c (main): Print URL at transfer conclusion.
+
+2020-03-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.h, libdebuginfod.map: New functions for _get/set_user().
+	* debuginfod-client.c: Implement them.
+	* debuginfod-find.c: Include a token call just for testing them.
+
+2020-03-03  Aaron Merey  <amerey@redhat.com>
+
+	* debuginfod-client.c (debuginfod_query_server): Update
+	cache_path even when new default path already exists.
+
+2020-02-27  Aaron Merey  <amerey@redhat.com>
+
+	* debuginfod-client.c (xalloc_str): New macro. Call
+	asprintf with error checking.
+	(debuginfod_query_server): Use XDG_CACHE_HOME as a default
+	cache location if it is set. Replace snprintf with xalloc_str.
+
+2020-02-26  Konrad Kleine <kkleine@redhat.com>
+
+	* debuginfod-client.c (debuginfod_query_server): Handle curl's
+	response code correctly when DEBUGINFOD_URLS begin with file://
+
+2020-02-25  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (parse_opt): Treat -R as if -Z.rpm .
+
+2020-02-25  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.cxx (fdcache_prefetch): New parameter.
+	(parse_opt): Parse it.
+	(main): Default it.
+	(fdcache::fd_size_mb): Change to double for accuracy.
+	(fdcache::probe): New function.
+	(fdcache::intern): New option to intern at end of LRU.
+	(fdcache::lookup): Clean fdcache.
+	(handle_buildid_r_match): Implement multi-stage archive
+	parsing, with optional prefetching of extracted contents
+	into the fdcache.
+
 2020-02-19  Aaron Merey  <amerey@redhat.com>
 
 	* debuginfod-client.c (debuginfod_clean_cache): Restrict

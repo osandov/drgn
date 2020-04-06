@@ -46,41 +46,44 @@ makeprint() {
 }
 
 testrun_lfs() {
-  bad=$(testrun ${abs_top_builddir}/src/nm -u "$1" | awk "$LFS")
-  if [ -n "$bad" ]; then
-    echo "$1 contains non-lfs symbols:" $bad
+  echo "checking $1"
+  if [ -e "$1" ]; then
+    bad=$(testrun ${abs_top_builddir}/src/nm -u "$1" | awk "$LFS")
+    if [ -n "$bad" ]; then
+      echo "$1 contains non-lfs symbols:" $bad
+      exit_status=1
+    fi
+  else
+    echo "$1 doesn't exist"
     exit_status=1
   fi
 }
 
-# First sanity-check that LFS detection works.
+echo First sanity-check that LFS detection works.
 exit_status=0
 testrun_lfs ./testfile-nolfs
 if [ $exit_status -eq 0 ]; then
   echo "Didn't detect any problem with testfile-nolfs!"
   exit 99
 fi
+echo
 
 exit_status=0
 
-# Check all normal build targets.
+echo Check all normal build targets.
 for dir in libelf libdw libasm libcpu src; do
   dir=${abs_top_builddir}/$dir
   for program in $(makeprint PROGRAMS $dir); do
     testrun_lfs $dir/$program
   done
 done
+echo
 
-# Check all libebl modules.
-dir=${abs_top_builddir}/backends
-for module in $(makeprint modules $dir); do
-  testrun_lfs $dir/libebl_$module.so
-done
-
-# Check all test programs.
+echo Check all test programs.
 dir=${abs_builddir}
 for program in $(makeprint check_PROGRAMS $dir); do
   testrun_lfs $dir/$program
 done
+echo
 
 exit $exit_status

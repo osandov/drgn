@@ -63,15 +63,23 @@ __elf_getphdrnum_rdlock (Elf *elf, size_t *dst)
 
      if (elf->class == ELFCLASS32)
        {
-	 if (likely (scns->cnt > 0
-		     && elf->state.elf32.scns.data[0].shdr.e32 != NULL))
-	   *dst = scns->data[0].shdr.e32->sh_info;
+	 if (likely (scns->cnt > 0))
+	   {
+	     Elf_Scn *scn = &elf->state.elf32.scns.data[0];
+	     Elf32_Shdr *shdr = scn->shdr.e32 ?: __elf32_getshdr_rdlock (scn);
+	     if (shdr)
+	       *dst = shdr->sh_info;
+	   }
        }
      else
        {
-	 if (likely (scns->cnt > 0
-		     && elf->state.elf64.scns.data[0].shdr.e64 != NULL))
-	   *dst = scns->data[0].shdr.e64->sh_info;
+	 if (likely (scns->cnt > 0))
+	   {
+	     Elf_Scn *scn = &elf->state.elf64.scns.data[0];
+	     Elf64_Shdr *shdr = scn->shdr.e64 ?: __elf64_getshdr_rdlock (scn);
+	     if (shdr)
+	       *dst = shdr->sh_info;
+	   }
        }
    }
 

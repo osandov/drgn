@@ -1,3 +1,38 @@
+Version 0.179
+
+debuginfod-client: When DEBUGINFOD_PROGRESS is set and the program doesn't
+                   install its own debuginfod_progressfn_t show download
+                   progress on stderr.
+                   DEBUGINFOD_TIMEOUT is now defined as seconds to get at
+                   least 100K, defaults to 90 seconds.
+                   Default to $XDG_CACHE_HOME/debuginfod_client.
+                   New functions debuginfod_set_user_data,
+                   debuginfod_get_user_data, debuginfod_get_url and
+                   debuginfod_add_http_header.
+                   Support for file:// URLs.
+
+debuginfod: Uses libarchive directly for reading rpm archives.
+            Support for indexing .deb/.ddeb archives through dpkg-deb
+            or bsdtar.
+            Generic archive support through -Z EXT[=CMD]. Which can be
+            used for example for arch-linux pacman files by using
+            -Z '.tar.zst=zstdcat'.
+            Better logging using User-Agent and X-Forwarded-For headers.
+            More prometheus metrics.
+            Support for eliding dots or extraneous slashes in path names.
+
+debuginfod-find: Accept /path/names in place of buildid hex.
+
+libelf: Handle PN_XNUM in elf_getphdrnum before shdr 0 is cached
+        Ensure zlib resource cleanup on failure.
+
+libdwfl: dwfl_linux_kernel_find_elf and dwfl_linux_kernel_report_offline
+         now find and handle a compressed vmlinuz image.
+
+readelf, elflint: Handle PT_GNU_PROPERTY.
+
+translations: Updated Ukrainian translation.
+
 Version 0.178
 
 debuginfod: New server, client tool and library to index and fetch

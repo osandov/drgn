@@ -1,3 +1,16 @@
+2020-03-30  Mark Wielaard  <mark@klomp.org>
+
+	* elfutils.spec.in: Update for 0.179.
+
+2020-03-25  Frank Ch. Eigler <fche@redhat.com>
+
+	* elfutils.spec.in: *Require: bsdtar instead of dpkg.
+
+2020-03-04  Mark Wielaard  <mark@klomp.org>
+
+	* elfutils.spec.in (package debuginfod): Remove Requires: rpm.
+	Add Requires: dpkg.
+
 2020-01-12  Frank Ch. Eigler  <fche@redhat.com>
 
 	* elfutils.spec.in: Typo fix for "Requires: debuginfod-client".

@@ -355,6 +355,8 @@ static const struct argp_option options[] =
    { "fdcache-fds", ARGP_KEY_FDCACHE_FDS, "NUM", 0, "Maximum number of archive files to keep in fdcache.", 0 },
 #define ARGP_KEY_FDCACHE_MBS 0x1002
    { "fdcache-mbs", ARGP_KEY_FDCACHE_MBS, "MB", 0, "Maximum total size of archive file fdcache.", 0 },
+#define ARGP_KEY_FDCACHE_PREFETCH 0x1003
+   { "fdcache-prefetch", ARGP_KEY_FDCACHE_PREFETCH, "NUM", 0, "Number of archive files to prefetch into fdcache.", 0 },
    { NULL, 0, NULL, 0, NULL, 0 }
   };
 
@@ -394,6 +396,7 @@ static regex_t file_exclude_regex;
 static bool traverse_logical;
 static long fdcache_fds;
 static long fdcache_mbs;
+static long fdcache_prefetch;
 static string tmpdir;
 
 static void set_metric(const string& key, int64_t value);
@@ -419,15 +422,25 @@ parse_opt (int key, char *arg,
     case 'v': verbose ++; break;
     case 'd': db_path = string(arg); break;
     case 'p': http_port = (unsigned) atoi(arg);
-      if (http_port > 65535) argp_failure(state, 1, EINVAL, "port number");
+      if (http_port == 0 || http_port > 65535)
+        argp_failure(state, 1, EINVAL, "port number");
       break;
     case 'F': scan_files = true; break;
     case 'R':
-      scan_archives[".rpm"]="rpm2cpio";
+      scan_archives[".rpm"]="cat"; // libarchive groks rpm natively
       break;
     case 'U':
-      scan_archives[".deb"]="dpkg-deb --fsys-tarfile";
-      scan_archives[".ddeb"]="dpkg-deb --fsys-tarfile";
+      if (access("/usr/bin/dpkg-deb", X_OK) == 0)
+        {
+          scan_archives[".deb"]="dpkg-deb --fsys-tarfile";
+          scan_archives[".ddeb"]="dpkg-deb --fsys-tarfile";
+        }
+      else
+        {
+          scan_archives[".deb"]="(bsdtar -O -x -f - data.tar.xz)<";
+          scan_archives[".ddeb"]="(bsdtar -O -x -f - data.tar.xz)<";
+        }
+      // .udeb too?
       break;
     case 'Z':
       {
@@ -475,6 +488,9 @@ parse_opt (int key, char *arg,
       break;
     case ARGP_KEY_FDCACHE_MBS:
       fdcache_mbs = atol (arg);
+      break;
+    case ARGP_KEY_FDCACHE_PREFETCH:
+      fdcache_prefetch = atol (arg);
       break;
     case ARGP_KEY_ARG:
       source_paths.insert(string(arg));
@@ -847,6 +863,7 @@ conninfo (struct MHD_Connection * conn)
 
 ////////////////////////////////////////////////////////////////////////
 
+
 static void
 add_mhd_last_modified (struct MHD_Response *resp, time_t mtime)
 {
@@ -938,6 +955,82 @@ shell_escape(const string& str)
 }
 
 
+// PR25548: Perform POSIX / RFC3986 style path canonicalization on the input string.
+//
+// Namely:
+//    //         ->   /
+//    /foo/../   ->   /
+//    /./        ->   /
+//
+// This mapping is done on dwarf-side source path names, which may
+// include these constructs, so we can deal with debuginfod clients
+// that accidentally canonicalize the paths.
+//
+// realpath(3) is close but not quite right, because it also resolves
+// symbolic links.  Symlinks at the debuginfod server have nothing to
+// do with the build-time symlinks, thus they must not be considered.
+//
+// see also curl Curl_dedotdotify() aka RFC3986, which we mostly follow here
+// see also libc __realpath()
+// see also llvm llvm::sys::path::remove_dots()
+static string
+canon_pathname (const string& input)
+{
+  string i = input; // 5.2.4 (1)
+  string o;
+
+  while (i.size() != 0)
+    {
+      // 5.2.4 (2) A
+      if (i.substr(0,3) == "../")
+        i = i.substr(3);
+      else if(i.substr(0,2) == "./")
+        i = i.substr(2);
+
+      // 5.2.4 (2) B
+      else if (i.substr(0,3) == "/./")
+        i = i.substr(2);
+      else if (i == "/.")
+        i = ""; // no need to handle "/." complete-path-segment case; we're dealing with file names
+
+      // 5.2.4 (2) C
+      else if (i.substr(0,4) == "/../") {
+        i = i.substr(3);
+        string::size_type sl = o.rfind("/");
+        if (sl != string::npos)
+          o = o.substr(0, sl);
+        else
+          o = "";
+      } else if (i == "/..")
+        i = ""; // no need to handle "/.." complete-path-segment case; we're dealing with file names
+
+      // 5.2.4 (2) D
+      // no need to handle these cases; we're dealing with file names
+      else if (i == ".")
+        i = "";
+      else if (i == "..")
+        i = "";
+
+      // POSIX special: map // to /
+      else if (i.substr(0,2) == "//")
+        i = i.substr(1);
+
+      // 5.2.4 (2) E
+      else {
+        string::size_type next_slash = i.find("/", (i[0]=='/' ? 1 : 0)); // skip first slash
+        o += i.substr(0, next_slash);
+        if (next_slash == string::npos)
+          i = "";
+        else
+          i = i.substr(next_slash);
+      }
+    }
+
+  return o;
+}
+
+
+
 // A map-like class that owns a cache of file descriptors (indexed by
 // file / content names).
 //
@@ -975,14 +1068,14 @@ private:
     string archive;
     string entry;
     string fd;
-    long fd_size_mb; // rounded up megabytes
+    double fd_size_mb; // slightly rounded up megabytes
   };
   deque<fdcache_entry> lru; // @head: most recently used
   long max_fds;
   long max_mbs;
 
 public:
-  void intern(const string& a, const string& b, string fd, off_t sz)
+  void intern(const string& a, const string& b, string fd, off_t sz, bool front_p)
   {
     {
       unique_lock<mutex> lock(fdcache_lock);
@@ -995,31 +1088,56 @@ public:
               break; // must not continue iterating
             }
         }
-      long mb = ((sz+1023)/1024+1023)/1024;
+      double mb = (sz+65535)/1048576.0; // round up to 64K block
       fdcache_entry n = { a, b, fd, mb };
-      lru.push_front(n);
+      if (front_p)
+        lru.push_front(n);
+      else
+        lru.push_back(n);
     if (verbose > 3)
-      obatched(clog) << "fdcache interned a=" << a << " b=" << b << " fd=" << fd << " mb=" << mb << endl;
+      obatched(clog) << "fdcache interned a=" << a << " b=" << b
+                     << " fd=" << fd << " mb=" << mb << " front=" << front_p << endl;
     }
 
-    this->limit(max_fds, max_mbs); // age cache if required
+    // NB: we age the cache at lookup time too
+    if (front_p)
+      this->limit(max_fds, max_mbs); // age cache if required
   }
 
   int lookup(const string& a, const string& b)
+  {
+    int fd = -1;
+    {
+      unique_lock<mutex> lock(fdcache_lock);
+      for (auto i = lru.begin(); i < lru.end(); i++)
+        {
+          if (i->archive == a && i->entry == b)
+            { // found it; move it to head of lru
+              fdcache_entry n = *i;
+              lru.erase(i); // invalidates i, so no more iteration!
+              lru.push_front(n);
+
+              fd = open(n.fd.c_str(), O_RDONLY); // NB: no problem if dup() fails; looks like cache miss
+              break;
+            }
+        }
+    }
+
+    if (fd >= 0)
+      this->limit(max_fds, max_mbs); // age cache if required
+
+    return fd;
+  }
+
+  int probe(const string& a, const string& b) // just a cache residency check - don't modify LRU state, don't open
   {
     unique_lock<mutex> lock(fdcache_lock);
     for (auto i = lru.begin(); i < lru.end(); i++)
       {
         if (i->archive == a && i->entry == b)
-          { // found it; move it to head of lru
-            fdcache_entry n = *i;
-            lru.erase(i); // invalidates i, so no more iteration!
-            lru.push_front(n);
-
-            return open(n.fd.c_str(), O_RDONLY); // NB: no problem if dup() fails; looks like cache miss
-          }
+          return true;
       }
-    return -1;
+    return false;
   }
 
   void clear(const string& a, const string& b)
@@ -1047,7 +1165,7 @@ public:
     this->max_mbs = maxmbs;
 
     long total_fd = 0;
-    long total_mb = 0;
+    double total_mb = 0.0;
     for (auto i = lru.begin(); i < lru.end(); i++)
       {
         // accumulate totals from most recently used one going backward
@@ -1117,6 +1235,7 @@ handle_buildid_r_match (int64_t b_mtime,
       return 0;
     }
 
+  // check for a match in the fdcache first
   int fd = fdcache.lookup(b_source0, b_source1);
   while (fd >= 0) // got one!; NB: this is really an if() with a possible branch out to the end
     {
@@ -1152,6 +1271,7 @@ handle_buildid_r_match (int64_t b_mtime,
       // NB: see, we never go around the 'loop' more than once
     }
 
+  // no match ... grumble, must process the archive
   string archive_decoder = "/dev/null";
   string archive_extension = "";
   for (auto&& arch : scan_archives)
@@ -1196,8 +1316,19 @@ handle_buildid_r_match (int64_t b_mtime,
   if (rc != ARCHIVE_OK)
     throw archive_exception(a, "cannot open archive from pipe");
 
-  while(1) // parse cpio archive entries
+  // archive traversal is in three stages, no, four stages:
+  // 1) skip entries whose names do not match the requested one
+  // 2) extract the matching entry name (set r = result)
+  // 3) extract some number of prefetched entries (just into fdcache)
+  // 4) abort any further processing
+  struct MHD_Response* r = 0;                 // will set in stage 2
+  unsigned prefetch_count = fdcache_prefetch; // will decrement in stage 3
+
+  while(r == 0 || prefetch_count > 0) // stage 1, 2, or 3
     {
+      if (interrupted)
+        break;
+
       struct archive_entry *e;
       rc = archive_read_next_header (a, &e);
       if (rc != ARCHIVE_OK)
@@ -1207,7 +1338,10 @@ handle_buildid_r_match (int64_t b_mtime,
         continue;
 
       string fn = canonicalized_archive_entry_pathname (e);
-      if (fn != b_source1)
+      if ((r == 0) && (fn != b_source1)) // stage 1
+        continue;
+
+      if (fdcache.probe (b_source0, fn)) // skip if already interned
         continue;
 
       // extract this file to a temporary file
@@ -1229,18 +1363,39 @@ handle_buildid_r_match (int64_t b_mtime,
           throw archive_exception(a, "cannot extract file");
         }
 
+      // Set the mtime so the fdcache file mtimes, even prefetched ones,
+      // propagate to future webapi clients.
+      struct timeval tvs[2];
+      tvs[0].tv_sec = tvs[1].tv_sec = archive_entry_mtime(e);
+      tvs[0].tv_usec = tvs[1].tv_usec = 0;
+      (void) futimes (fd, tvs);  /* best effort */
+
+      if (r != 0) // stage 3
+        {
+          // NB: now we know we have a complete reusable file; make fdcache
+          // responsible for unlinking it later.
+          fdcache.intern(b_source0, fn,
+                         tmppath, archive_entry_size(e),
+                         false); // prefetched ones go to back of lru
+          prefetch_count --;
+          close (fd); // we're not saving this fd to make a mhd-response from!
+          continue;
+        }
+
       // NB: now we know we have a complete reusable file; make fdcache
       // responsible for unlinking it later.
-      fdcache.intern(b_source0, b_source1, tmppath, archive_entry_size(e));
+      fdcache.intern(b_source0, b_source1,
+                     tmppath, archive_entry_size(e),
+                     true); // requested ones go to the front of lru
 
       inc_metric ("http_responses_total","result",archive_extension + " archive");
-      struct MHD_Response* r = MHD_create_response_from_fd (archive_entry_size(e), fd);
+      r = MHD_create_response_from_fd (archive_entry_size(e), fd);
       if (r == 0)
         {
           if (verbose)
             obatched(clog) << "cannot create fd-response for " << b_source0 << endl;
           close(fd);
-          break; // assume no chance of better luck around another iteration
+          break; // assume no chance of better luck around another iteration; no other copies of same file
         }
       else
         {
@@ -1251,12 +1406,12 @@ handle_buildid_r_match (int64_t b_mtime,
           /* libmicrohttpd will close it. */
           if (result_fd)
             *result_fd = fd;
-          return r;
+          continue;
         }
     }
 
   // XXX: rpm/file not found: delete this R entry?
-  return 0;
+  return r;
 }
 
 
@@ -1286,11 +1441,12 @@ debuginfod_find_progress (debuginfod_client *, long a, long b)
 }
 
 
-static struct MHD_Response* handle_buildid (const string& buildid /* unsafe */,
-                                            const string& artifacttype /* unsafe */,
-                                            const string& suffix /* unsafe */,
-                                            int *result_fd
-                                            )
+static struct MHD_Response*
+handle_buildid (MHD_Connection* conn,
+                const string& buildid /* unsafe */,
+                const string& artifacttype /* unsafe */,
+                const string& suffix /* unsafe */,
+                int *result_fd)
 {
   // validate artifacttype
   string atype_code;
@@ -1332,12 +1488,17 @@ static struct MHD_Response* handle_buildid (const string& buildid /* unsafe */,
     }
   else if (atype_code == "S")
     {
+      // PR25548
+      // Incoming source queries may come in with either dwarf-level OR canonicalized paths.
+      // We let the query pass with either one.
+
       pp = new sqlite_ps (db, "mhd-query-s",
-                          "select mtime, sourcetype, source0, source1 from " BUILDIDS "_query_s where buildid = ? and artifactsrc = ? "
+                          "select mtime, sourcetype, source0, source1 from " BUILDIDS "_query_s where buildid = ? and artifactsrc in (?,?) "
                           "order by sharedprefix(source0,source0ref) desc, mtime desc");
       pp->reset();
       pp->bind(1, buildid);
       pp->bind(2, suffix);
+      pp->bind(3, canon_pathname(suffix));
     }
   unique_ptr<sqlite_ps> ps_closer(pp); // release pp if exception or return
 
@@ -1373,6 +1534,35 @@ static struct MHD_Response* handle_buildid (const string& buildid /* unsafe */,
   if (client != NULL)
     {
       debuginfod_set_progressfn (client, & debuginfod_find_progress);
+
+      if (conn)
+        {
+          // Transcribe incoming User-Agent:
+          string ua = MHD_lookup_connection_value (conn, MHD_HEADER_KIND, "User-Agent") ?: "";
+          string ua_complete = string("User-Agent: ") + ua;
+          debuginfod_add_http_header (client, ua_complete.c_str());
+
+          // Compute larger XFF:, for avoiding info loss during
+          // federation, and for future cyclicity detection.
+          string xff = MHD_lookup_connection_value (conn, MHD_HEADER_KIND, "X-Forwarded-For") ?: "";
+          if (xff != "")
+            xff += string(", "); // comma separated list
+
+          // Compute the client's numeric IP address only - so can't merge with conninfo()
+          const union MHD_ConnectionInfo *u = MHD_get_connection_info (conn,
+                                                                       MHD_CONNECTION_INFO_CLIENT_ADDRESS);
+          struct sockaddr *so = u ? u->client_addr : 0;
+          char hostname[256] = ""; // RFC1035
+          if (so && so->sa_family == AF_INET)
+            (void) getnameinfo (so, sizeof (struct sockaddr_in), hostname, sizeof (hostname), NULL, 0,
+                                NI_NUMERICHOST);
+          else if (so && so->sa_family == AF_INET6)
+            (void) getnameinfo (so, sizeof (struct sockaddr_in6), hostname, sizeof (hostname), NULL, 0,
+                                NI_NUMERICHOST);
+
+          string xff_complete = string("X-Forwarded-For: ")+xff+string(hostname);
+          debuginfod_add_http_header (client, xff_complete.c_str());
+        }
 
       if (artifacttype == "debuginfo")
 	fd = debuginfod_find_debuginfo (client,
@@ -1412,8 +1602,16 @@ static struct MHD_Response* handle_buildid (const string& buildid /* unsafe */,
         }
       close (fd);
     }
-  else if (fd != -ENOSYS) // no DEBUGINFOD_URLS configured
-    throw libc_exception(-fd, "upstream debuginfod query failed");
+  else
+    switch(fd)
+      {
+      case -ENOSYS:
+        break;
+      case -ENOENT:
+        break;
+      default: // some more tricky error
+        throw libc_exception(-fd, "upstream debuginfod query failed");
+      }
 
   throw reportable_exception(MHD_HTTP_NOT_FOUND, "not found");
 }
@@ -1503,7 +1701,7 @@ add_metric(const string& metric,
 
 
 static struct MHD_Response*
-handle_metrics ()
+handle_metrics (off_t* size)
 {
   stringstream o;
   {
@@ -1515,6 +1713,7 @@ handle_metrics ()
   MHD_Response* r = MHD_create_response_from_buffer (os.size(),
                                                      (void*) os.c_str(),
                                                      MHD_RESPMEM_MUST_COPY);
+  *size = os.size();
   MHD_add_response_header (r, "Content-Type", "text/plain");
   return r;
 }
@@ -1537,8 +1736,11 @@ handler_cb (void * /*cls*/,
   struct MHD_Response *r = NULL;
   string url_copy = url;
 
-  if (verbose)
-    obatched(clog) << conninfo(connection) << " " << method << " " << url << endl;
+  int rc = MHD_NO; // mhd
+  int http_code = 500;
+  off_t http_size = -1;
+  struct timeval tv_start, tv_end;
+  gettimeofday (&tv_start, NULL);
 
   try
     {
@@ -1571,12 +1773,21 @@ handler_cb (void * /*cls*/,
             }
 
           inc_metric("http_requests_total", "type", artifacttype);
-          r = handle_buildid(buildid, artifacttype, suffix, 0); // NB: don't care about result-fd
+          // get the resulting fd so we can report its size
+          int fd;
+          r = handle_buildid(connection, buildid, artifacttype, suffix, &fd);
+          if (r)
+            {
+              struct stat fs;
+              if (fstat(fd, &fs) == 0)
+                http_size = fs.st_size;
+              // libmicrohttpd will close (fd);
+            }
         }
       else if (url1 == "/metrics")
         {
           inc_metric("http_requests_total", "type", "metrics");
-          r = handle_metrics();
+          r = handle_metrics(& http_size);
         }
       else
         throw reportable_exception("webapi error, unrecognized /operation");
@@ -1584,16 +1795,39 @@ handler_cb (void * /*cls*/,
       if (r == 0)
         throw reportable_exception("internal error, missing response");
 
-      int rc = MHD_queue_response (connection, MHD_HTTP_OK, r);
+      rc = MHD_queue_response (connection, MHD_HTTP_OK, r);
+      http_code = MHD_HTTP_OK;
       MHD_destroy_response (r);
-      return rc;
     }
   catch (const reportable_exception& e)
     {
       inc_metric("http_responses_total","result","error");
       e.report(clog);
-      return e.mhd_send_response (connection);
+      http_code = e.code;
+      http_size = e.message.size();
+      rc = e.mhd_send_response (connection);
     }
+
+  gettimeofday (&tv_end, NULL);
+  double deltas = (tv_end.tv_sec - tv_start.tv_sec) + (tv_end.tv_usec - tv_start.tv_usec)*0.000001;
+  obatched(clog) << conninfo(connection)
+                 << ' ' << method << ' ' << url
+                 << ' ' << http_code << ' ' << http_size
+                 << ' ' << (int)(deltas*1000) << "ms"
+                 << endl;
+
+  // related prometheus metrics
+  string http_code_str = to_string(http_code);
+  if (http_size >= 0)
+    add_metric("http_responses_transfer_bytes_sum","code",http_code_str,
+               http_size);
+  inc_metric("http_responses_transfer_bytes_count","code",http_code_str);
+
+  add_metric("http_responses_duration_milliseconds_sum","code",http_code_str,
+             deltas*1000); // prometheus prefers _seconds and floating point
+  inc_metric("http_responses_duration_milliseconds_count","code",http_code_str);
+
+  return rc;
 }
 
 
@@ -1640,7 +1874,7 @@ dwarf_extract_source_paths (Elf *elf, set<string>& debug_sourcefiles)
           struct MHD_Response *r = 0;
           try
             {
-              r = handle_buildid (buildid, "debuginfo", "", &alt_fd);
+              r = handle_buildid (0, buildid, "debuginfo", "", &alt_fd);
             }
           catch (const reportable_exception& e)
             {
@@ -2022,6 +2256,27 @@ scan_source_file (const string& rps, const stat_t& st,
             .bind(4, sfs.st_mtime)
             .step_ok_done();
 
+          // PR25548: also store canonicalized source path
+          string dwarfsrc_canon = canon_pathname (dwarfsrc);
+          if (dwarfsrc_canon != dwarfsrc)
+            {
+              if (verbose > 3)
+                obatched(clog) << "canonicalized src=" << dwarfsrc << " alias=" << dwarfsrc_canon << endl;
+
+              ps_upsert_files
+                .reset()
+                .bind(1, dwarfsrc_canon)
+                .step_ok_done();
+
+              ps_upsert_s
+                .reset()
+                .bind(1, buildid)
+                .bind(2, dwarfsrc_canon)
+                .bind(3, srps)
+                .bind(4, sfs.st_mtime)
+                .step_ok_done();
+            }
+
           inc_metric("found_sourcerefs_total","source","files");
         }
     }
@@ -2182,6 +2437,26 @@ archive_classify (const string& rps, string& archive_extension,
                     .bind(1, buildid)
                     .bind(2, s)
                     .step_ok_done();
+
+                  // PR25548: also store canonicalized source path
+                  const string& dwarfsrc = s;
+                  string dwarfsrc_canon = canon_pathname (dwarfsrc);
+                  if (dwarfsrc_canon != dwarfsrc)
+                    {
+                      if (verbose > 3)
+                        obatched(clog) << "canonicalized src=" << dwarfsrc << " alias=" << dwarfsrc_canon << endl;
+
+                      ps_upsert_files
+                        .reset()
+                        .bind(1, dwarfsrc_canon)
+                        .step_ok_done();
+
+                      ps_upsert_sref
+                        .reset()
+                        .bind(1, buildid)
+                        .bind(2, dwarfsrc_canon)
+                        .step_ok_done();
+                    }
 
                   fts_sref ++;
                 }
@@ -2809,7 +3084,8 @@ main (int argc, char *argv[])
     fdcache_mbs = 1024; // 1 gigabyte
   else
     fdcache_mbs = sfs.f_bavail * sfs.f_bsize / 1024 / 1024 / 4; // 25% of free space
-  fdcache_fds = concurrency * 2;
+  fdcache_prefetch = 64; // guesstimate storage is this much less costly than re-decompression
+  fdcache_fds = (concurrency + fdcache_prefetch) * 2;
 
   /* Parse and process arguments.  */
   int remaining;
@@ -2943,6 +3219,7 @@ main (int argc, char *argv[])
   obatched(clog) << "rescan time " << rescan_s << endl;
   obatched(clog) << "fdcache fds " << fdcache_fds << endl;
   obatched(clog) << "fdcache mbs " << fdcache_mbs << endl;
+  obatched(clog) << "fdcache prefetch " << fdcache_prefetch << endl;
   obatched(clog) << "fdcache tmpdir " << tmpdir << endl;
   obatched(clog) << "groom time " << groom_s << endl;
   if (scan_archives.size()>0)

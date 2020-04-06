@@ -1,3 +1,52 @@
+2020-03-29  Mark Wielaard  <mark@klomp.org>
+
+	* debuginfod_find_debuginfo.3 (HTTP HEADER): Document the expected
+	header format and purpose.
+
+2020-03-28  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.8: Document valid --port=NUM range, excludes 0.
+
+2020-03-27  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-find.1: Document /path/-based buildid passing.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod_add_http_header.3: New function, documented ...
+	* debuginfod_find_debuginfo.3: ... here.
+	* Makefile.am (notrans_dist_*_man3): Add it.
+
+2020-03-26  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.8 (-R): Note zstd compression complications
+	and workaround.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-find.1, debuginfod_find_debuginfo.3: Document
+	source path canonicalization.
+
+2020-03-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod_get_url.3: New function, documented ...
+	* debuginfod_find_debuginfo.3: ... here.
+	* Makefile.am (notrans_dist_*_man3): Add it.
+
+2020-03-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod_get_user.3, _set_user.3: New functions, documented ...
+	* debuginfod_find_debuginfo.3: ... here.
+	* Makefile.am (notrans_dist_*_man3): List all debuginfod .3 functions.
+
+2020-02-25  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.8: Note that -R works just like -Z.rpm .
+
+2020-02-25  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod.8: Document new --fdcache-prefetch option.
+
 2020-02-05  Frank Ch. Eigler  <fche@redhat.com>
 
 	* debuginfod.8: Document new -Z flag and tweak other bits.

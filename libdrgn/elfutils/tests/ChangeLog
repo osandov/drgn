@@ -1,3 +1,88 @@
+2020-03-28  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test timestamps of archive-origin files.
+
+2020-03-27  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test /path/-based debuginfod-find.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test relay of UA and XFF headers across
+	federating debuginfods.
+
+2020-03-26  Frank Ch. Eigler <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Look for debuginfod's new
+	http_responses_* metrics.
+
+2020-03-26  Frank Ch. Eigler <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Look for bsdtar instead of dpkg.
+
+2020-03-26  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Check for bsdtar zstd capability
+	for running tests against zstd-compressed fedora31 rpms.
+
+2020-03-26  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (EXTRA_DIST): Add
+	debuginfod-rpms/fedora31/hello3-1.0-2.src.rpm,
+	debuginfod-rpms/fedora31/hello3-1.0-2.x86_64.rpm,
+	debuginfod-rpms/fedora31/hello3-debuginfo-1.0-2.x86_64.rpm,
+	debuginfod-rpms/fedora31/hello3-debugsource-1.0-2.x86_64.rpm,
+	debuginfod-rpms/fedora31/hello3-two-1.0-2.x86_64.rpm,
+	debuginfod-rpms/fedora31/hello3-two-debuginfo-1.0-2.x86_64.rpm
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* debuginfod-rpms/hello3.spec., /fedora31/*: New files with
+	uncanonicalized source paths.
+	* run-debuginfod-find.sh: Test them.
+
+2020-03-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Test the more detailed debuginfod
+	webapi log format.
+
+2020-03-23  Mark Wielaard  <mark@klomp.org>
+
+	* getphdrnum.c: Include config.h.
+	* run-lfs-symbols.sh: Also check that file exists. Add more logs.
+	Remove ebl modules check.
+
+2020-03-22  Omar Sandoval  <osandov@fb.com>
+	    Mark Wielaard  <mark@klomp.org>
+
+	* getphdrnum.c: New file.
+	* run-getphdrnum.sh: New test.
+	* testfile-phdrs.elf.bz2: New test file.
+	* Makefile.am (check_PROGRAMS): Add getphdrnum.
+	(TESTS): Add run-getphdrnum.sh.
+	(EXTRA_DIST): Add run-getphdrnum.sh and testfile-phdrs.elf.bz2.
+	(getphdrnum_LDADD): New variable.
+
+2020-03-22  Frank Ch. Eigler  <fche@redhat.com>
+
+	* run-debuginfod-find.sh: Look for URL in default progressfn
+	and from debuginfod-find -v.
+
+2020-02-19  Aaron Merey  <amerey@redhat.com>
+
+	* run-debuginfod-find.sh: Run tests for	verifying default
+	client cache locations.
+
+2020-02-26  Konrad Kleine <kkleine@redhat.com>
+
+	* run-debuginfod-find.sh: added tests for DEBUGINFOD_URLS beginning
+	with "file://"
+
+2020-02-21  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (TESTS_ENVIRONMENT): Explicitly unset DEBUGINFOD_URLS.
+	(installed_TESTS_ENVIRONMENT): Likewise.
+
 2020-02-19  Aaron Merey  <amerey@redhat.com>
 
 	* run-debuginfod-find.sh: Test that files unrelated to debuginfod

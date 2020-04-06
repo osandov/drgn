@@ -19,10 +19,11 @@ debuginfod-find \- request debuginfo-related data
 
 .SH SYNOPSIS
 .B debuginfod-find [\fIOPTION\fP]... debuginfo \fIBUILDID\fP
-
+.B debuginfod-find [\fIOPTION\fP]... debuginfo \fIPATH\fP
 .B debuginfod-find [\fIOPTION\fP]... executable \fIBUILDID\fP
-
+.B debuginfod-find [\fIOPTION\fP]... executable \fIPATH\fP
 .B debuginfod-find [\fIOPTION\fP]... source \fIBUILDID\fP \fI/FILENAME\fP
+.B debuginfod-find [\fIOPTION\fP]... source \fIPATH\fP \fI/FILENAME\fP
 
 .SH DESCRIPTION
 \fBdebuginfod-find\fP queries one or more \fBdebuginfod\fP servers for
@@ -52,6 +53,14 @@ Then the hexadecimal BUILDID is simply:
 8713b9c3fb8a720137a4a08b325905c7aaf8429d
 .ESAMPLE
 
+In place of the hexadecimal \fIBUILDID\fP, debuginfod-find also
+accepts a path name to to an ELF binary, from which it extracts the
+buildid.  In this case, ensure the file name has some character other
+than \fB[0-9a-f]\fP.  Files ambiguously named files like
+"\fBdeadbeef\fP" can be passed with a \fB./deadbeef\fP extra path
+component.
+
+
 .SS debuginfo \fIBUILDID\fP
 
 If the given buildid is known to a server, this request will result
@@ -78,10 +87,11 @@ is made up of multiple CUs.  Therefore, to disambiguate, debuginfod
 expects source queries to prefix relative path names with the CU
 compilation-directory, followed by a mandatory "/".
 
-Note: the user should not elide \fB../\fP or \fB/./\fP or extraneous
-\fB///\fP sorts of path components in the directory names, because if
-this is how those names appear in the DWARF files, that is what
-debuginfod needs to see too.
+Note: the caller may or may not elide \fB../\fP or \fB/./\fP or extraneous
+\fB///\fP sorts of path components in the directory names.  debuginfod
+accepts both forms.  Specifically, debuginfod canonicalizes path names
+according to RFC3986 section 5.2.4 (Remove Dot Segments), plus reducing
+any \fB//\fP to \fB/\fP in the path.
 
 For example:
 .TS

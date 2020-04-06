@@ -62,7 +62,8 @@ check_PROGRAMS = arextract arsymtest newfile saridx scnnames sectiondump \
 		  get-units-invalid get-units-split attr-integrate-skel \
 		  all-dwarf-ranges unit-info next_cfi \
 		  elfcopy addsections xlate_notes elfrdwrnop \
-		  dwelf_elf_e_machine_string
+		  dwelf_elf_e_machine_string \
+		  getphdrnum
 
 asm_TESTS = asm-tst1 asm-tst2 asm-tst3 asm-tst4 asm-tst5 \
 	    asm-tst6 asm-tst7 asm-tst8 asm-tst9
@@ -168,7 +169,8 @@ TESTS = run-arextract.sh run-arsymtest.sh run-ar.sh newfile test-nlist \
 	run-dwelf_elf_e_machine_string.sh \
 	run-elfclassify.sh run-elfclassify-self.sh \
 	run-disasm-riscv64.sh \
-	run-pt_gnu_prop-tests.sh
+	run-pt_gnu_prop-tests.sh \
+	run-getphdrnum.sh
 
 if !BIARCH
 export ELFUTILS_DISABLE_BIARCH = 1
@@ -455,6 +457,12 @@ EXTRA_DIST = run-arextract.sh run-arsymtest.sh run-ar.sh \
 	     debuginfod-rpms/fedora30/hello2-debugsource-1.0-2.x86_64.rpm \
 	     debuginfod-rpms/fedora30/hello2-two-1.0-2.x86_64.rpm \
 	     debuginfod-rpms/fedora30/hello2-two-debuginfo-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora31/hello3-1.0-2.src.rpm \
+	     debuginfod-rpms/fedora31/hello3-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora31/hello3-debuginfo-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora31/hello3-debugsource-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora31/hello3-two-1.0-2.x86_64.rpm \
+	     debuginfod-rpms/fedora31/hello3-two-debuginfo-1.0-2.x86_64.rpm \
 	     debuginfod-rpms/hello2.spec. \
 	     debuginfod-rpms/rhel6/hello2-1.0-2.i686.rpm \
 	     debuginfod-rpms/rhel6/hello2-1.0-2.src.rpm \
@@ -476,7 +484,8 @@ EXTRA_DIST = run-arextract.sh run-arsymtest.sh run-ar.sh \
 	     debuginfod-tars/pacman-sources/README.md \
 	     debuginfod-tars/pacman-sources/hello.c \
 	     run-pt_gnu_prop-tests.sh \
-	     testfile_pt_gnu_prop.bz2 testfile_pt_gnu_prop32.bz2
+	     testfile_pt_gnu_prop.bz2 testfile_pt_gnu_prop32.bz2 \
+	     run-getphdrnum.sh testfile-phdrs.elf.bz2
 
 
 if USE_VALGRIND
@@ -495,6 +504,7 @@ installed_TESTS_ENVIRONMENT = libdir=$(DESTDIR)$(libdir); \
 			      export abs_top_builddir; \
 			      export libdir; export bindir; \
 			      export LC_ALL; export LANG; export VALGRIND_CMD; \
+			      unset DEBUGINFOD_URLS; \
 			      NM=$(NM); export NM;
 installed_LOG_COMPILER = $(abs_srcdir)/test-wrapper.sh \
 			 installed $(tests_rpath) \
@@ -509,6 +519,7 @@ TESTS_ENVIRONMENT = LC_ALL=C; LANG=C; VALGRIND_CMD=$(valgrind_cmd); \
 		    export abs_srcdir; export abs_builddir; \
 		    export abs_top_builddir; \
 		    export LC_ALL; export LANG; export VALGRIND_CMD; \
+		    unset DEBUGINFOD_URLS; \
 		    NM=$(NM); export NM;
 LOG_COMPILER = $(abs_srcdir)/test-wrapper.sh \
 	       $(abs_top_builddir)/libdw:$(abs_top_builddir)/backends:$(abs_top_builddir)/libelf:$(abs_top_builddir)/libasm:$(abs_top_builddir)/debuginfod
@@ -652,6 +663,7 @@ debuginfod_build_id_find_LDADD = $(libelf) $(libdw)
 xlate_notes_LDADD = $(libelf)
 elfrdwrnop_LDADD = $(libelf)
 dwelf_elf_e_machine_string_LDADD = $(libelf) $(libdw)
+getphdrnum_LDADD = $(libelf) $(libdw)
 
 # We want to test the libelf header against the system elf.h header.
 # Don't include any -I CPPFLAGS. Except when we install our own elf.h.

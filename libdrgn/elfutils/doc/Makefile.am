@@ -1,7 +1,7 @@
 ## Process this file with automake to create Makefile.in
 ## Configure input file for elfutils.
 ##
-## Copyright (C) 1996-2001, 2002, 2005, 2019 Red Hat, Inc.
+## Copyright (C) 1996-2001, 2002, 2005, 2019-2020 Red Hat, Inc.
 ## This file is part of elfutils.
 ##
 ## This file is free software; you can redistribute it and/or modify
@@ -24,7 +24,16 @@ notrans_dist_man1_MANS=
 
 if DEBUGINFOD
 notrans_dist_man8_MANS += debuginfod.8
-notrans_dist_man3_MANS += debuginfod_find_debuginfo.3 debuginfod_find_source.3 debuginfod_find_executable.3 debuginfod_set_progressfn.3
+notrans_dist_man3_MANS += debuginfod_add_http_header.3
+notrans_dist_man3_MANS += debuginfod_begin.3
+notrans_dist_man3_MANS += debuginfod_end.3
+notrans_dist_man3_MANS += debuginfod_find_debuginfo.3
+notrans_dist_man3_MANS += debuginfod_find_executable.3
+notrans_dist_man3_MANS += debuginfod_find_source.3
+notrans_dist_man3_MANS += debuginfod_get_user_data.3
+notrans_dist_man3_MANS += debuginfod_get_url.3
+notrans_dist_man3_MANS += debuginfod_set_progressfn.3
+notrans_dist_man3_MANS += debuginfod_set_user_data.3
 notrans_dist_man1_MANS += debuginfod-find.1
 endif
 

@@ -1,4 +1,4 @@
-commit ad6dd76bc9e4cbb6f0b608ebe3061be3b3bb7c77
+commit a10cb887cda1fdf0d5474d6452d1107aa19d47a8
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:30:35 2019 -0700
 
@@ -54,7 +54,7 @@ index fb261698e..1dc080c01 100644
  #ifdef __cplusplus
  }
  #endif
-commit 2f67d8a89d24820bd74f25c0d08bf05cb2c49b81
+commit a056c850cec0bd55fedbdf916669a141c23ec43f
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Thu Feb 20 11:44:38 2020 -0800
 
@@ -167,7 +167,7 @@ index c0f1b0d00..d55312b6c 100644
  	    continue;
  	  Dwarf_Word val;
  	  switch (regloc->bits)
-commit e289ead84e610640d086d44eb3d1149781b0f971
+commit 4fdbad07063bb25333dcf138c8178fd5f6cd3d40
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Thu Feb 20 11:18:28 2020 -0800
 
@@ -425,7 +425,7 @@ index bc088861f..659e671a6 100644
    bool signal_frame : 1;
    bool initial_frame : 1;
    enum
-commit 6024e0d99214bba82de1f7a559feed710abba484
+commit 3835a2d3b2b8b671b9adc398544ffe54083a1642
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:22:39 2019 -0700
 
@@ -667,7 +667,7 @@ index 25753de2f..bc088861f 100644
    Dwfl_Frame *unwound;
    void *callbacks_arg;
  };
-commit b1515e3863da68aaee2b636121339c225095d8b9
+commit 2b2a97fbfef9be0c68e5db70e1a577b8ac8d1631
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:40 2019 -0700
 
@@ -695,7 +695,7 @@ index f4052125b..1beb661eb 100644
  modules = i386 sh x86_64 ia64 alpha arm aarch64 sparc ppc ppc64 s390 \
  	  tilegx m68k bpf riscv csky
 diff --git a/configure.ac b/configure.ac
-index f4c5c603f..31d3b6605 100644
+index 12ee2f97c..d68d1a1eb 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -70,6 +70,11 @@ AC_ARG_ENABLE([programs],
@@ -711,7 +711,7 @@ index f4c5c603f..31d3b6605 100644
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
 diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
-index f4756c92f..dcae77d07 100644
+index e62e8d14b..a811e2dd1 100644
 --- a/debuginfod/Makefile.am
 +++ b/debuginfod/Makefile.am
 @@ -86,16 +86,20 @@ libdebuginfod.so$(EXEEXT): $(srcdir)/libdebuginfod.map $(libdebuginfod_so_LIBS)
@@ -900,7 +900,7 @@ index d5d63f733..94e6e38f6 100644
  
  EXTRA_DIST = libelf.map
  
-commit 844aa1ab3265e5072ab2cc31562946d4da2f9d60
+commit fbfb09a290f529bac4ceb8e367c774ae0e040412
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:23 2019 -0700
 
@@ -928,7 +928,7 @@ index bd8926b52..0b13c717f 100644
  if DEBUGINFOD
  SUBDIRS += debuginfod
 diff --git a/configure.ac b/configure.ac
-index 14ad66f29..f4c5c603f 100644
+index a39e800f7..12ee2f97c 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -65,6 +65,11 @@ AC_CONFIG_FILES([debuginfod/Makefile])
@@ -944,7 +944,7 @@ index 14ad66f29..f4c5c603f 100644
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
 diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
-index 52ead30ae..f4756c92f 100644
+index 51965f65d..e62e8d14b 100644
 --- a/debuginfod/Makefile.am
 +++ b/debuginfod/Makefile.am
 @@ -57,7 +57,9 @@ libeu = ../lib/libeu.a

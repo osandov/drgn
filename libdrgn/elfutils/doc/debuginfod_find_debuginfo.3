@@ -21,8 +21,14 @@ debuginfod_find_debuginfo \- request debuginfo from debuginfod
 .nf
 .B #include <elfutils/debuginfod.h>
 .PP
+Link with \fB-ldebuginfod\fP.
+
+CONNECTION HANDLE
+
 .BI "debuginfod_client *debuginfod_begin(void);"
 .BI "void debuginfod_end(debuginfod_client *" client ");"
+
+LOOKUP FUNCTIONS
 
 .BI "int debuginfod_find_debuginfo(debuginfod_client *" client ","
 .BI "                              const unsigned char *" build_id ","
@@ -38,12 +44,18 @@ debuginfod_find_debuginfo \- request debuginfo from debuginfod
 .BI "                           const char *" filename ","
 .BI "                           char ** " path ");"
 
+OPTIONAL FUNCTIONS
+
 .BI "typedef int (*debuginfod_progressfn_t)(debuginfod_client *" client ","
 .BI "                                       long a, long b);"
 .BI "void debuginfod_set_progressfn(debuginfod_client *" client ","
 .BI "                               debuginfod_progressfn_t " progressfn ");"
-
-Link with \fB-ldebuginfod\fP.
+.BI "void debuginfod_set_user_data(debuginfod_client *" client ","
+.BI "                              void *" data ");"
+.BI "void* debuginfod_get_user_data(debuginfod_client *" client ");"
+.BI "const char* debuginfod_get_url(debuginfod_client *" client ");"
+.BI "int debuginfod_add_http_header(debuginfod_client *" client ","
+.BI "                               const char* " header ");"
 
 .SH DESCRIPTION
 
@@ -77,10 +89,11 @@ paths, and yet an executable is made up of multiple CUs. Therefore, to
 disambiguate, debuginfod expects source queries to prefix relative path
 names with the CU compilation-directory, followed by a mandatory "/".
 
-Note: the caller should not elide \fB../\fP or \fB/./\fP or extraneous
-\fB///\fP sorts of path components in the directory names, because if
-this is how those names appear in the DWARF files, that is what
-debuginfod needs to see too.
+Note: the caller may or may not elide \fB../\fP or \fB/./\fP or extraneous
+\fB///\fP sorts of path components in the directory names.  debuginfod
+accepts both forms.  Specifically, debuginfod canonicalizes path names
+according to RFC3986 section 5.2.4 (Remove Dot Segments), plus reducing
+any \fB//\fP to \fB/\fP in the path.
 
 If \fIpath\fP is not NULL and the query is successful, \fIpath\fP is set
 to the path of the file in the cache. The caller must \fBfree\fP() this value.
@@ -102,7 +115,12 @@ to the client cache and a file descriptor to that file is returned.
 The caller needs to \fBclose\fP() this descriptor.  Otherwise, a
 negative error code is returned.
 
-.SH "PROGRESS CALLBACK"
+.SH "OPTIONAL FUNCTIONS"
+
+A small number of optional functions are available to tune or query
+the operation of the debuginfod client.
+
+.SS "PROGRESS CALLBACK"
 
 As the \fBdebuginfod_find_*\fP() functions may block for seconds or
 longer, a progress callback function is called periodically, if
@@ -125,6 +143,47 @@ continue the work, or any other value to stop work as soon as
 possible.  Consequently, the \fBdebuginfod_find_*\fP() function will
 likely return with an error, but might still succeed.
 
+.SS "USER DATA POINTER"
+
+A single \fIvoid *\fP pointer associated with the connection handle
+may be set any time via
+.BR \%debuginfod_set_user_data () ,
+and retrieved via
+.BR \%debuginfod_get_user_data () .
+The value is undefined if unset.
+
+.SS "URL"
+
+The URL of the current or most recent outgoing download, if known,
+may be retrieved via
+.BR \%debuginfod_get_url ()
+from the progressfn callback, or afterwards.  It may be NULL.
+The resulting string is owned by the library, and must not be modified
+or freed.  The caller should copy it if it is needed beyond the release
+of the client object.
+
+.SS "HTTP HEADER"
+
+Before a lookup function is initiated, a client application may
+add HTTP request headers to future downloads.
+.BR \%debuginfod_add_http_header ()
+may be called with strings of the form
+.BR \%"Header:\~value" .
+These strings are copied by the library.  A zero return value
+indicates success, but out-of-memory conditions may result in
+a non-zero \fI-ENOMEM\fP. If the string is in the wrong form
+\fI-EINVAL\fP will be returned.
+
+Note that the current debuginfod-client library implementation uses
+libcurl, but you shouldn't rely on that fact. Don't use this function
+for replacing any standard headers, except for the User-Agent mentioned
+below. The only supported usage of this function is for adding an
+optional header which might or might not be passed through to the
+server for logging purposes only.
+
+By default, the library adds a descriptive \fIUser-Agent:\fP
+header to outgoing requests.  If the client application adds
+a header with the same name, this default is suppressed.
 
 .SH "CACHE"
 If the query is successful, the \fBdebuginfod_find_*\fP() functions save
@@ -180,7 +239,10 @@ function output.
 .B DEBUGINFOD_CACHE_PATH
 This environment variable governs the location of the cache where
 downloaded files are kept.  It is cleaned periodically as this
-program is reexecuted.  The default is $HOME/.debuginfod_client_cache.
+program is reexecuted. If XDG_CACHE_HOME is set then
+$XDG_CACHE_HOME/debuginfod_client is the default location, otherwise
+$HOME/.cache/debuginfod_client is used.
+
 
 .SH "ERRORS"
 The following list is not comprehensive. Error codes may also
@@ -244,7 +306,8 @@ the timeout duration. See debuginfod(8) for more information.
 .PD .1v
 .TP 20
 .B $HOME/.debuginfod_client_cache
-Default cache directory.
+Default cache directory. If XDG_CACHE_HOME is not set then
+\fB$HOME/.cache/debuginfod_client\fP is used.
 .PD
 
 .SH "SEE ALSO"

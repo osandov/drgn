@@ -1,3 +1,13 @@
+2020-03-30  Mark Wielaard  <mark@klomp.org>
+
+	* configure.ac: Set version to 0.179.
+	* NEWS: Add 0.179 section.
+
+2020-03-25  Mark Wielaard  <mark@klomp.org>
+
+	* README: Update mailinglist subscription info.
+	* CONTRIBUTING: Likewise.
+
 2020-02-03  Frank Ch. Eigler  <fche@redhat.com>
 
 	* configure.ac: Tolerate CXX= for debuginfod configuration.

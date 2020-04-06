@@ -21,10 +21,12 @@
 type curl 2>/dev/null || (echo "need curl"; exit 77)
 type rpm2cpio 2>/dev/null || (echo "need rpm2cpio"; exit 77)
 type bzcat 2>/dev/null || (echo "need bzcat"; exit 77)
+bsdtar --version | grep -q zstd && zstd=true || zstd=false
+echo "zstd=$zstd bsdtar=`bsdtar --version`"
 
 # for test case debugging, uncomment:
-# set -x
-# VERBOSE=-vvvv
+#set -x
+#VERBOSE=-vvvv
 
 DB=${PWD}/.debuginfod_tmp.sqlite
 tempfiles $DB
@@ -40,7 +42,7 @@ cleanup()
   if [ $PID2 -ne 0 ]; then kill $PID2; wait $PID2; fi
   if [ $PID3 -ne 0 ]; then kill $PID3; wait $PID3; fi
 
-  rm -rf F R D L Z ${PWD}/.client_cache*
+  rm -rf F R D L Z ${PWD}/foobar ${PWD}/mocktree ${PWD}/.client_cache* ${PWD}/tmp*
   exit_cleanup
 }
 
@@ -93,8 +95,9 @@ wait_ready()
   fi
 }
 
-env LD_LIBRARY_PATH=$ldpath DEBUGINFOD_URLS= ${abs_builddir}/../debuginfod/debuginfod $VERBOSE -F -R -d $DB -p $PORT1 -t0 -g0 --fdcache-fds 1 --fdcache-mbs 2 -Z .tar.xz -Z .tar.bz2=bzcat R F Z L &
+env LD_LIBRARY_PATH=$ldpath DEBUGINFOD_URLS= ${abs_builddir}/../debuginfod/debuginfod $VERBOSE -F -R -d $DB -p $PORT1 -t0 -g0 --fdcache-fds 1 --fdcache-mbs 2 -Z .tar.xz -Z .tar.bz2=bzcat -v R F Z L > vlog4 2>&1 &
 PID1=$!
+tempfiles vlog4
 # Server must become ready
 wait_ready $PORT1 'ready' 1
 export DEBUGINFOD_URLS=http://127.0.0.1:$PORT1/   # or without trailing /
@@ -112,7 +115,9 @@ export DEBUGINFOD_TIMEOUT=10
 # cannot find it without debuginfod.
 echo "int main() { return 0; }" > ${PWD}/prog.c
 tempfiles prog.c
-gcc -Wl,--build-id -g -o prog ${PWD}/prog.c
+# Create a subdirectory to confound source path names
+mkdir foobar
+gcc -Wl,--build-id -g -o prog ${PWD}/foobar///./../prog.c
 testrun ${abs_top_builddir}/src/strip -g -f prog.debug ${PWD}/prog
 BUILDID=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../src/readelf \
           -a prog | grep 'Build ID' | cut -d ' ' -f 7`
@@ -139,11 +144,61 @@ rm -rf $DEBUGINFOD_CACHE_PATH # clean it from previous tests
 filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find debuginfo $BUILDID`
 cmp $filename F/prog.debug
 
-filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find executable $BUILDID`
+filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find executable F/prog`
 cmp $filename F/prog
 
+# raw source filename
+filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find source $BUILDID ${PWD}/foobar///./../prog.c`
+cmp $filename  ${PWD}/prog.c
+
+# and also the canonicalized one
 filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find source $BUILDID ${PWD}/prog.c`
 cmp $filename  ${PWD}/prog.c
+
+
+########################################################################
+
+# Test whether the cache default locations are correct
+
+mkdir tmphome
+
+# $HOME/.cache should be created.
+testrun env HOME=$PWD/tmphome XDG_CACHE_HOME= DEBUGINFOD_CACHE_PATH= ${abs_top_builddir}/debuginfod/debuginfod-find debuginfo $BUILDID
+if [ ! -f $PWD/tmphome/.cache/debuginfod_client/$BUILDID/debuginfo ]; then
+  echo "could not find cache in $PWD/tmphome/.cache"
+  exit 1
+fi
+
+# $HOME/.cache should be found.
+testrun env HOME=$PWD/tmphome XDG_CACHE_HOME= DEBUGINFOD_CACHE_PATH= ${abs_top_builddir}/debuginfod/debuginfod-find executable $BUILDID
+if [ ! -f $PWD/tmphome/.cache/debuginfod_client/$BUILDID/executable ]; then
+  echo "could not find cache in $PWD/tmphome/.cache"
+  exit 1
+fi
+
+# $XDG_CACHE_HOME should take priority over $HOME.cache.
+testrun env HOME=$PWD/tmphome XDG_CACHE_HOME=$PWD/tmpxdg DEBUGINFOD_CACHE_PATH= ${abs_top_builddir}/debuginfod/debuginfod-find debuginfo $BUILDID
+if [ ! -f $PWD/tmpxdg/debuginfod_client/$BUILDID/debuginfo ]; then
+  echo "could not find cache in $PWD/tmpxdg/"
+  exit 1
+fi
+
+# A cache at the old default location ($HOME/.debuginfod_client_cache) should take
+# priority over $HOME/.cache, $XDG_CACHE_HOME.
+cp -r $DEBUGINFOD_CACHE_PATH tmphome/.debuginfod_client_cache
+
+# Add a file that doesn't exist in $HOME/.cache, $XDG_CACHE_HOME.
+mkdir tmphome/.debuginfod_client_cache/deadbeef
+echo ELF... > tmphome/.debuginfod_client_cache/deadbeef/debuginfo
+filename=`testrun env HOME=$PWD/tmphome XDG_CACHE_HOME=$PWD/tmpxdg DEBUGINFOD_CACHE_PATH= ${abs_top_builddir}/debuginfod/debuginfod-find debuginfo deadbeef`
+cmp $filename tmphome/.debuginfod_client_cache/deadbeef/debuginfo
+
+# $DEBUGINFO_CACHE_PATH should take priority over all else.
+testrun env HOME=$PWD/tmphome XDG_CACHE_HOME=$PWD/tmpxdg DEBUGINFOD_CACHE_PATH=$PWD/tmpcache ${abs_top_builddir}/debuginfod/debuginfod-find debuginfo $BUILDID
+if [ ! -f $PWD/tmpcache/$BUILDID/debuginfo ]; then
+  echo "could not find cache in $PWD/tmpcache/"
+  exit 1
+fi
 
 ########################################################################
 
@@ -168,16 +223,21 @@ filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find -v debuginfo $B
 cmp $filename F/prog2
 cat vlog
 grep -q Progress vlog
+grep -q Downloaded.from vlog
 tempfiles vlog
 filename=`testrun env DEBUGINFOD_PROGRESS=1 ${abs_top_builddir}/debuginfod/debuginfod-find executable $BUILDID2 2>vlog2`
 cmp $filename F/prog2
 cat vlog2
-grep -q Downloading vlog2
+grep -q 'Downloading.*http' vlog2
 tempfiles vlog2
 filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find source $BUILDID2 ${PWD}/prog2.c`
 cmp $filename ${PWD}/prog2.c
 
 cp -rvp ${abs_srcdir}/debuginfod-rpms R
+if [ "$zstd" = "false" ]; then  # nuke the zstd fedora 31 ones
+    rm -vrf R/debuginfod-rpms/fedora31
+fi
+
 cp -rvp ${abs_srcdir}/debuginfod-tars Z
 kill -USR1 $PID1
 # All rpms need to be in the index
@@ -224,28 +284,40 @@ archive_test() {
     buildid=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../src/readelf \
              -a $filename | grep 'Build ID' | cut -d ' ' -f 7`
     test $__BUILDID = $buildid
+    # check that timestamps are plausible - older than the near-present (tmpdir mtime)
+    test $filename -ot `pwd`
 
     # run again to assure that fdcache is being enjoyed
     filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find executable $__BUILDID`
     buildid=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../src/readelf \
              -a $filename | grep 'Build ID' | cut -d ' ' -f 7`
     test $__BUILDID = $buildid
+    test $filename -ot `pwd`
 
     filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find debuginfo $__BUILDID`
     buildid=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../src/readelf \
              -a $filename | grep 'Build ID' | cut -d ' ' -f 7`
     test $__BUILDID = $buildid
+    test $filename -ot `pwd`
 
     if test "x$__SOURCEPATH" != "x"; then
         filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find source $__BUILDID $__SOURCEPATH`
         hash=`cat $filename | sha1sum | awk '{print $1}'`
         test $__SOURCESHA1 = $hash
+        test $filename -ot `pwd`
     fi
 }
 
 
 # common source file sha1
 SHA=f4a1a8062be998ae93b8f1cd744a398c6de6dbb1
+# fedora31
+if [ $zstd = true ]; then
+    # fedora31 uses zstd compression on rpms, older rpm2cpio/libarchive can't handle it
+    # and we're not using the fancy -Z '.rpm=(rpm2cpio|zstdcat)<' workaround in this testsuite
+    archive_test 420e9e3308971f4b817cc5bf83928b41a6909d88 /usr/src/debug/hello3-1.0-2.x86_64/foobar////./../hello.c $SHA
+    archive_test 87c08d12c78174f1082b7c888b3238219b0eb265 /usr/src/debug/hello3-1.0-2.x86_64///foobar/./..//hello.c $SHA
+fi
 # fedora30
 archive_test c36708a78618d597dee15d0dc989f093ca5f9120 /usr/src/debug/hello2-1.0-2.x86_64/hello.c $SHA
 archive_test 41a236eb667c362a1c4196018cc4581e09722b1b /usr/src/debug/hello2-1.0-2.x86_64/hello.c $SHA
@@ -293,8 +365,9 @@ export DEBUGINFOD_CACHE_PATH=${PWD}/.client_cache2
 mkdir -p $DEBUGINFOD_CACHE_PATH
 # NB: inherits the DEBUGINFOD_URLS to the first server
 # NB: run in -L symlink-following mode for the L subdir
-env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod $VERBOSE -F -U -d ${DB}_2 -p $PORT2 -L L D &
+env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod $VERBOSE -F -U -d ${DB}_2 -p $PORT2 -L L D > vlog3 2>&1 &
 PID2=$!
+tempfiles vlog3
 tempfiles ${DB}_2
 wait_ready $PORT2 'ready' 1
 wait_ready $PORT2 'thread_work_total{role="traverse"}' 1
@@ -304,7 +377,7 @@ wait_ready $PORT2 'thread_busy{role="scan"}' 0
 # have clients contact the new server
 export DEBUGINFOD_URLS=http://127.0.0.1:$PORT2
 
-if type dpkg-deb 2>/dev/null; then
+if type bsdtar 2>/dev/null; then
     # copy in the deb files
     cp -rvp ${abs_srcdir}/debuginfod-debs/*deb D
     kill -USR1 $PID2
@@ -320,6 +393,14 @@ fi
 
 rm -rf $DEBUGINFOD_CACHE_PATH
 testrun ${abs_top_builddir}/debuginfod/debuginfod-find debuginfo $BUILDID
+
+# send a request to stress XFF and User-Agent federation relay;
+# we'll grep for the two patterns in vlog4
+curl -s -H 'User-Agent: TESTCURL' -H 'X-Forwarded-For: TESTXFF' $DEBUGINFOD_URLS/buildid/deaddeadbeef00000000/debuginfo -o /dev/null || true
+
+grep UA:TESTCURL vlog4
+grep XFF:TESTXFF vlog4
+
 
 # confirm that first server can't resolve symlinked info in L/ but second can
 BUILDID=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../src/readelf \
@@ -349,6 +430,15 @@ curl -s http://127.0.0.1:$PORT2/metrics
 curl -s http://127.0.0.1:$PORT1/metrics | grep -q 'http_responses_total.*result.*error'
 curl -s http://127.0.0.1:$PORT1/metrics | grep -q 'http_responses_total.*result.*fdcache'
 curl -s http://127.0.0.1:$PORT2/metrics | grep -q 'http_responses_total.*result.*upstream'
+curl -s http://127.0.0.1:$PORT1/metrics | grep 'http_responses_duration_milliseconds_count'
+curl -s http://127.0.0.1:$PORT1/metrics | grep 'http_responses_duration_milliseconds_sum'
+curl -s http://127.0.0.1:$PORT1/metrics | grep 'http_responses_transfer_bytes_count'
+curl -s http://127.0.0.1:$PORT1/metrics | grep 'http_responses_transfer_bytes_sum'
+
+# And generate a few errors into the second debuginfod's logs, for analysis just below
+curl -s http://127.0.0.1:$PORT2/badapi > /dev/null || true
+curl -s http://127.0.0.1:$PORT2/buildid/deadbeef/debuginfo > /dev/null || true
+
 
 ########################################################################
 
@@ -362,6 +452,13 @@ PID2=0
 tempfiles .debuginfod_*
 
 testrun ${abs_builddir}/debuginfod_build_id_find -e F/prog2 1
+
+# check out the debuginfod logs for the new style status lines
+# cat vlog3
+grep -q 'UA:.*XFF:.*GET /buildid/.* 200 ' vlog3
+grep -q 'UA:.*XFF:.*GET /metrics 200 ' vlog3
+grep -q 'UA:.*XFF:.*GET /badapi 503 ' vlog3
+grep -q 'UA:.*XFF:.*GET /buildid/deadbeef.* 404 ' vlog3
 
 ########################################################################
 
@@ -395,5 +492,21 @@ wait_ready $PORT1 'thread_busy{role="scan"}' 0
 kill -int $PID3
 wait $PID3
 PID3=0
+
+########################################################################
+# Test fetching a file using file:// . No debuginfod server needs to be run for
+# this test.
+local_dir=${PWD}/mocktree/buildid/aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd/source/my/path
+mkdir -p ${local_dir}
+echo "int main() { return 0; }" > ${local_dir}/main.c
+
+# first test that is doesn't work, when no DEBUGINFOD_URLS is set
+DEBUGINFOD_URLS=""
+testrun ${abs_top_builddir}/debuginfod/debuginfod-find source aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd /my/path/main.c && false || true
+
+# Now test is with proper DEBUGINFOD_URLS
+DEBUGINFOD_URLS="file://${PWD}/mocktree/"
+filename=`testrun ${abs_top_builddir}/debuginfod/debuginfod-find source aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd /my/path/main.c`
+cmp $filename ${local_dir}/main.c
 
 exit 0

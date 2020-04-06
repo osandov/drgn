@@ -17,7 +17,7 @@ dnl  GNU General Public License for more details.
 dnl
 dnl  You should have received a copy of the GNU General Public License
 dnl  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-AC_INIT([elfutils],[0.178],[https://sourceware.org/bugzilla],[elfutils],[http://elfutils.org/])
+AC_INIT([elfutils],[0.179],[https://sourceware.org/bugzilla],[elfutils],[http://elfutils.org/])
 
 dnl Workaround for older autoconf < 2.64
 m4_ifndef([AC_PACKAGE_URL],
