@@ -14,9 +14,18 @@
 
 #include <elfutils/libdwfl.h>
 #include <libelf.h>
-#include <omp.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#else
+typedef struct {} omp_lock_t;
+#define omp_init_lock(lock) do {} while (0)
+#define omp_destroy_lock(lock) do {} while (0)
+#define omp_set_lock(lock) do {} while (0)
+#define omp_unset_lock(lock) do {} while (0)
+#endif
 
 #include "drgn.h"
 #include "hash_table.h"
