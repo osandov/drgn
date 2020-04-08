@@ -30,6 +30,8 @@ AS_CASE(["x$enable_openmp"],
 	 OPENMP_LIBS=-l$enable_openmp])
 AC_SUBST(OPENMP_CFLAGS)
 AC_SUBST(OPENMP_LIBS)
+AM_CONDITIONAL([WITH_OPENMP], [test "x$enable_openmp" != xno])
+AM_COND_IF([WITH_OPENMP], [AC_DEFINE(WITH_OPENMP)])
 
 AC_ARG_WITH([python],
 	    [AS_HELP_STRING([--with-python@<:@=ARG@:>@],

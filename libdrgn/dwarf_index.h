@@ -53,9 +53,18 @@ struct drgn_dwarf_index_die;
 DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, size_t)
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
 
+#ifndef WITH_OPENMP
+#define omp_init_lock(lock) do {} while(0)
+#define omp_set_lock(lock) do {} while(0)
+#define omp_unset_lock(lock) do {} while(0)
+#define omp_destroy_lock(lock) do {} while(0)
+#endif
+
 struct drgn_dwarf_index_shard {
+#ifdef WITH_OPENMP
 	/** @privatesection */
 	omp_lock_t lock;
+#endif
 	struct drgn_dwarf_index_die_map map;
 	/*
 	 * We store all entries in a shard as a single array, which is more
