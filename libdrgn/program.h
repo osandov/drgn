@@ -71,6 +71,8 @@ struct drgn_program {
 	struct vmcoreinfo vmcoreinfo;
 	/* Cached PAGE_OFFSET. */
 	uint64_t page_offset;
+	/* Cached vmemmap. */
+	uint64_t vmemmap;
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif

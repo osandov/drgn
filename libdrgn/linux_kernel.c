@@ -318,6 +318,26 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 						      prog->vmcoreinfo.osrelease,
 						      0, 0,
 						      DRGN_PROGRAM_ENDIAN);
+		} else if (name_len == strlen("vmemmap") &&
+			   memcmp(name, "vmemmap", name_len) == 0) {
+			if (!prog->vmemmap) {
+				if (!prog->has_platform ||
+				    !prog->platform.arch->linux_kernel_get_vmemmap)
+					return &drgn_not_found;
+				err = prog->platform.arch->linux_kernel_get_vmemmap(prog,
+										    &prog->vmemmap);
+				if (err) {
+					prog->vmemmap = 0;
+					return err;
+				}
+			}
+
+			err = drgn_program_find_type(prog, "struct page *",
+						     NULL, &qualified_type);
+			if (err)
+				return err;
+			return drgn_object_set_unsigned(ret, qualified_type,
+							prog->vmemmap, 0);
 		}
 	}
 	return &drgn_not_found;

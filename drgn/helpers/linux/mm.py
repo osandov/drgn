@@ -35,22 +35,13 @@ def pgtable_l5_enabled(prog):
     return _linux_helper_pgtable_l5_enabled(prog)
 
 
-def _vmemmap(prog):
-    try:
-        # KASAN
-        return cast("struct page *", prog["vmemmap_base"])
-    except KeyError:
-        # x86-64
-        return Object(prog, "struct page *", value=0xFFFFEA0000000000)
-
-
 def for_each_page(prog):
     """
     Iterate over all pages in the system.
 
     :return: Iterator of ``struct page *`` objects.
     """
-    vmemmap = _vmemmap(prog)
+    vmemmap = prog["vmemmap"]
     for i in range(prog["max_pfn"]):
         yield vmemmap + i
 
@@ -61,7 +52,7 @@ def page_to_pfn(page):
 
     Get the page frame number (PFN) of a page.
     """
-    return cast("unsigned long", page - _vmemmap(page.prog_))
+    return cast("unsigned long", page - page.prog_["vmemmap"])
 
 
 def pfn_to_page(prog_or_pfn, pfn=None):
@@ -76,7 +67,7 @@ def pfn_to_page(prog_or_pfn, pfn=None):
         pfn = prog_or_pfn
     else:
         prog = prog_or_pfn
-    return _vmemmap(prog) + pfn
+    return prog["vmemmap"] + pfn
 
 
 def virt_to_pfn(prog_or_addr, addr=None):
