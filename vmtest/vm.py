@@ -45,7 +45,7 @@ class VM:
         self._qemu = subprocess.Popen(
             [
                 # fmt: off
-                "qemu-system-x86_64", "-cpu", "kvm64", "-enable-kvm",
+                "qemu-system-x86_64", "-cpu", "host", "-enable-kvm",
 
                 "-smp", str(nproc()), "-m", "2G",
 
