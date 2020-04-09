@@ -1,4 +1,4 @@
-// Copyright 2019 - Omar Sandoval
+// Copyright 2019-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "drgnpy.h"
@@ -202,4 +202,22 @@ PyObject *drgnpy_linux_helper_task_state_to_char(PyObject *self, PyObject *args,
 	if (err)
 		return set_drgn_error(err);
 	return PyUnicode_FromStringAndSize(&c, 1);
+}
+
+PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *args,
+						 PyObject *kwds)
+
+{
+	static char *keywords[] = {"prog", NULL};
+	Program *prog;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:pgtable_l5_enabled",
+					 keywords, &Program_type, &prog))
+		return NULL;
+
+	if ((prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
+	    prog->prog.vmcoreinfo.pgtable_l5_enabled)
+		Py_RETURN_TRUE;
+	else
+		Py_RETURN_FALSE;
 }

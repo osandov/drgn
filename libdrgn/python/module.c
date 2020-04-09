@@ -128,6 +128,9 @@ static PyMethodDef drgn_methods[] = {
 	{"_linux_helper_task_state_to_char",
 	 (PyCFunction)drgnpy_linux_helper_task_state_to_char,
 	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_pgtable_l5_enabled",
+	 (PyCFunction)drgnpy_linux_helper_pgtable_l5_enabled,
+	 METH_VARARGS | METH_KEYWORDS},
 	{},
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2018-2019 - Omar Sandoval
+// Copyright 2018-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 /**
@@ -47,6 +47,8 @@ struct vmcoreinfo {
 	 * is enabled.
 	 */
 	uint64_t kaslr_offset;
+	/* Whether 5-level paging was enabled. */
+	bool pgtable_l5_enabled;
 };
 
 DEFINE_HASH_MAP_TYPE(drgn_prstatus_map, uint32_t, struct string)

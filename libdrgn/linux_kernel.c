@@ -1,4 +1,4 @@
-// Copyright 2018-2019 - Omar Sandoval
+// Copyright 2018-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <dirent.h>
@@ -58,6 +58,7 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 	ret->osrelease[0] = '\0';
 	ret->page_size = 0;
 	ret->kaslr_offset = 0;
+	ret->pgtable_l5_enabled = false;
 	while (line < end) {
 		const char *newline;
 
@@ -82,6 +83,13 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 					  &ret->kaslr_offset);
 			if (err)
 				return err;
+		} else if (linematch(&line, "NUMBER(pgtable_l5_enabled)=")) {
+			uint64_t tmp;
+
+			err = line_to_u64(line, newline, 0, &tmp);
+			if (err)
+				return err;
+			ret->pgtable_l5_enabled = tmp;
 		}
 		line = newline + 1;
 	}
@@ -93,7 +101,7 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid PAGESIZE");
 	}
-	/* KERNELOFFSET is optional. */
+	/* KERNELOFFSET and pgtable_l5_enabled are optional. */
 	return NULL;
 }
 

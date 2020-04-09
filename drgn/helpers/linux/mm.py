@@ -1,4 +1,4 @@
-# Copyright 2018-2019 - Omar Sandoval
+# Copyright 2018-2020 - Omar Sandoval
 # SPDX-License-Identifier: GPL-3.0+
 
 """
@@ -10,10 +10,12 @@ Linux memory management (MM) subsystem. Only x86-64 support is currently
 implemented.
 """
 
+from _drgn import _linux_helper_pgtable_l5_enabled
 from drgn import Object, cast
 
 
 __all__ = (
+    "pgtable_l5_enabled",
     "for_each_page",
     "page_to_pfn",
     "page_to_virt",
@@ -22,6 +24,15 @@ __all__ = (
     "virt_to_page",
     "virt_to_pfn",
 )
+
+
+def pgtable_l5_enabled(prog):
+    """
+    .. c:function:: bool pgtable_l5_enabled(void)
+
+    Return whether 5-level paging is enabled.
+    """
+    return _linux_helper_pgtable_l5_enabled(prog)
 
 
 def _vmemmap(prog):
