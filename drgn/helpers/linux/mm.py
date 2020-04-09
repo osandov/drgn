@@ -44,15 +44,6 @@ def _vmemmap(prog):
         return Object(prog, "struct page *", value=0xFFFFEA0000000000)
 
 
-def _page_offset(prog):
-    try:
-        # KASAN
-        return prog["page_offset_base"].value_()
-    except KeyError:
-        # x86-64
-        return 0xFFFF880000000000
-
-
 def for_each_page(prog):
     """
     Iterate over all pages in the system.
@@ -101,7 +92,7 @@ def virt_to_pfn(prog_or_addr, addr=None):
         addr = prog_or_addr.value_()
     else:
         prog = prog_or_addr
-    return Object(prog, "unsigned long", value=(addr - _page_offset(prog)) >> 12)
+    return Object(prog, "unsigned long", value=(addr - prog["PAGE_OFFSET"]) >> 12)
 
 
 def pfn_to_virt(prog_or_pfn, pfn=None):
@@ -117,7 +108,7 @@ def pfn_to_virt(prog_or_pfn, pfn=None):
         pfn = prog_or_pfn.value_()
     else:
         prog = prog_or_pfn
-    return Object(prog, "void *", value=(pfn << 12) + _page_offset(prog))
+    return Object(prog, "void *", value=(pfn << 12) + prog["PAGE_OFFSET"])
 
 
 def page_to_virt(page):

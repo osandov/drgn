@@ -125,7 +125,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	}
 
 	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
-	err = drgn_program_add_object_finder(prog, vmcoreinfo_object_find,
+	err = drgn_program_add_object_finder(prog, linux_kernel_object_find,
 					     prog);
 	if (err)
 		goto err;

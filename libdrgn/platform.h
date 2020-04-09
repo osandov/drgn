@@ -35,6 +35,8 @@ struct drgn_architecture_info {
 	size_t num_frame_registers;
 	struct drgn_error *(*linux_kernel_set_initial_registers)(Dwfl_Thread *,
 								 const struct drgn_object *);
+	struct drgn_error *(*linux_kernel_get_page_offset)(struct drgn_program *,
+							   uint64_t *);
 };
 
 static inline const struct drgn_register *

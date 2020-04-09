@@ -19,10 +19,10 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 					    bool have_non_zero_phys_addr,
 					    struct vmcoreinfo *ret);
 
-struct drgn_error *
-vmcoreinfo_object_find(const char *name, size_t name_len, const char *filename,
-		       enum drgn_find_object_flags flags, void *arg,
-		       struct drgn_object *ret);
+struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
+					    const char *filename,
+					    enum drgn_find_object_flags flags,
+					    void *arg, struct drgn_object *ret);
 
 struct drgn_error *
 linux_kernel_report_debug_info(struct drgn_program *prog,

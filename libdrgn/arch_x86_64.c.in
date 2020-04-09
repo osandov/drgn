@@ -4,6 +4,7 @@
 
 #include "internal.h"
 #include "platform.h"
+#include "program.h"
 %}
 
 x86-64
@@ -274,6 +275,75 @@ out:
 	return err;
 }
 
+static struct drgn_error *
+linux_kernel_get_page_offset_x86_64(struct drgn_program *prog, uint64_t *ret)
+{
+	struct drgn_error *err;
+	struct drgn_object obj;
+	bool nonzero;
+
+	/*
+	 * If KASLR is enabled, PAGE_OFFSET is easily available via
+	 * page_offset_base.
+	 */
+	drgn_object_init(&obj, prog);
+	err = drgn_program_find_object(prog, "page_offset_base", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &obj);
+	if (!err) {
+		err = drgn_object_read_unsigned(&obj, ret);
+		goto out;
+	}
+	if (err->code == DRGN_ERROR_LOOKUP)
+		drgn_error_destroy(err);
+	else
+		goto out;
+
+	/*
+	 * If not, we determine PAGE_OFFSET based on the kernel page table. On
+	 * x86_64, swapper_pg_dir is a macro defined to init_top_pgt, which
+	 * itself is defined in assembly. They're both available in VMCOREINFO,
+	 * but it's easier to get it from init_mm.pgd.
+	 */
+	err = drgn_program_find_object(prog, "init_mm", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &obj);
+	if (err)
+		goto out;
+	err = drgn_object_member(&obj, &obj, "pgd");
+	if (err)
+		goto out;
+
+	/*
+	 * Before Linux kernel commit d52888aa2753 ("x86/mm: Move LDT remap out
+	 * of KASLR region on 5-level paging") (in v4.20), PAGE_OFFSET was pgd
+	 * slot 272. After that, it is pgd slot 273, and slot 272 is empty
+	 * (reserved for Local Descriptor Table mappings for userspace tasks).
+	 */
+	err = drgn_object_subscript(&obj, &obj, 272);
+	if (err)
+		goto out;
+	err = drgn_object_member(&obj, &obj, "pgd");
+	if (err)
+		goto out;
+	err = drgn_object_bool(&obj, &nonzero);
+	if (err)
+		goto out;
+	if (nonzero) {
+		if (prog->vmcoreinfo.pgtable_l5_enabled)
+			*ret = UINT64_C(0xff10000000000000);
+		else
+			*ret = UINT64_C(0xffff880000000000);
+	} else {
+		if (prog->vmcoreinfo.pgtable_l5_enabled)
+			*ret = UINT64_C(0xff11000000000000);
+		else
+			*ret = UINT64_C(0xffff888000000000);
+	}
+
+out:
+	drgn_object_deinit(&obj);
+	return err;
+}
+
 const struct drgn_architecture_info arch_info_x86_64 = {
 	ARCHITECTURE_INFO,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
@@ -281,4 +351,5 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.frame_registers = frame_registers_x86_64,
 	.num_frame_registers = ARRAY_SIZE(frame_registers_x86_64),
 	.linux_kernel_set_initial_registers = linux_kernel_set_initial_registers_x86_64,
+	.linux_kernel_get_page_offset = linux_kernel_get_page_offset_x86_64,
 };

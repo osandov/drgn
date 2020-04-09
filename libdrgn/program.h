@@ -69,6 +69,8 @@ struct drgn_program {
 	 * Valid iff <tt>flags & DRGN_PROGRAM_IS_LINUX_KERNEL</tt>.
 	 */
 	struct vmcoreinfo vmcoreinfo;
+	/* Cached PAGE_OFFSET. */
+	uint64_t page_offset;
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif

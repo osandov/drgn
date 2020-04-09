@@ -412,7 +412,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	}
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		err = drgn_program_add_object_finder(prog,
-						     vmcoreinfo_object_find,
+						     linux_kernel_object_find,
 						     prog);
 		if (err)
 			goto out_segments;

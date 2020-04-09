@@ -235,10 +235,10 @@ out:
 	return err;
 }
 
-struct drgn_error *
-vmcoreinfo_object_find(const char *name, size_t name_len, const char *filename,
-		       enum drgn_find_object_flags flags, void *arg,
-		       struct drgn_object *ret)
+struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
+					    const char *filename,
+					    enum drgn_find_object_flags flags,
+					    void *arg, struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = arg;
@@ -246,8 +246,29 @@ vmcoreinfo_object_find(const char *name, size_t name_len, const char *filename,
 	if (!filename && (flags & DRGN_FIND_OBJECT_CONSTANT)) {
 		struct drgn_qualified_type qualified_type = {};
 
-		if (name_len == strlen("PAGE_SHIFT") &&
-		    memcmp(name, "PAGE_SHIFT", name_len) == 0) {
+		if (name_len == strlen("PAGE_OFFSET") &&
+		    memcmp(name, "PAGE_OFFSET", name_len) == 0) {
+			if (!prog->page_offset) {
+				if (!prog->has_platform ||
+				    !prog->platform.arch->linux_kernel_get_page_offset)
+					return &drgn_not_found;
+				err = prog->platform.arch->linux_kernel_get_page_offset(prog,
+											&prog->page_offset);
+				if (err) {
+					prog->page_offset = 0;
+					return err;
+				}
+			}
+
+			err = drgn_type_index_find_primitive(&prog->tindex,
+							     DRGN_C_TYPE_UNSIGNED_LONG,
+							     &qualified_type.type);
+			if (err)
+				return err;
+			return drgn_object_set_unsigned(ret, qualified_type,
+							prog->page_offset, 0);
+		} else if (name_len == strlen("PAGE_SHIFT") &&
+			   memcmp(name, "PAGE_SHIFT", name_len) == 0) {
 			err = drgn_type_index_find_primitive(&prog->tindex,
 							     DRGN_C_TYPE_INT,
 							     &qualified_type.type);
