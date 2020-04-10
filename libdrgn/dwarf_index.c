@@ -1410,7 +1410,8 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		break;
 	}
 
-	if (should_index || tag == DW_TAG_compile_unit)
+	if (should_index || tag == DW_TAG_compile_unit ||
+	    tag == DW_TAG_partial_unit)
 		die_flags = tag;
 	else
 		die_flags = 0;
@@ -1470,7 +1471,8 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 				break;
 			}
 		} else if (name == DW_AT_stmt_list &&
-			   tag == DW_TAG_compile_unit &&
+			   (tag == DW_TAG_compile_unit ||
+			    tag == DW_TAG_partial_unit) &&
 			   cu->sections[SECTION_DEBUG_LINE]) {
 			switch (form) {
 			case DW_FORM_data4:
@@ -2100,7 +2102,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 		}
 
 		tag = die.flags & TAG_MASK;
-		if (tag == DW_TAG_compile_unit) {
+		if (tag == DW_TAG_compile_unit || tag == DW_TAG_partial_unit) {
 			if (depth == 0 && die.stmt_list != SIZE_MAX &&
 			    (err = read_file_name_table(dindex, cu,
 							die.stmt_list,
