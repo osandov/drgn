@@ -21,9 +21,7 @@ from drgn.helpers.linux import (
 
 BpfMapType = enum_type_to_class(prog.type("enum bpf_map_type"), "BpfMapType")
 BpfProgType = enum_type_to_class(prog.type("enum bpf_prog_type"), "BpfProgType")
-BpfAttachType = enum_type_to_class(
-    prog.type("enum bpf_attach_type"), "BpfAttachType"
-)
+BpfAttachType = enum_type_to_class(prog.type("enum bpf_attach_type"), "BpfAttachType")
 
 
 def get_btf_name(btf, btf_id):
@@ -106,9 +104,7 @@ def list_bpf_progs(args):
         type_ = BpfProgType(bpf_prog.type).name
         name = get_prog_name(bpf_prog)
 
-        linked = ", ".join(
-            [get_linked_func(p) for p in get_tramp_progs(bpf_prog)]
-        )
+        linked = ", ".join([get_linked_func(p) for p in get_tramp_progs(bpf_prog)])
         if linked:
             linked = f" linked:[{linked}]"
 
@@ -132,14 +128,10 @@ def main():
     subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
     subparsers.required = True
 
-    prog_parser = subparsers.add_parser(
-        "prog", aliases=["p"], help="list BPF programs"
-    )
+    prog_parser = subparsers.add_parser("prog", aliases=["p"], help="list BPF programs")
     prog_parser.set_defaults(func=list_bpf_progs)
 
-    map_parser = subparsers.add_parser(
-        "map", aliases=["m"], help="list BPF maps"
-    )
+    map_parser = subparsers.add_parser("map", aliases=["m"], help="list BPF maps")
     map_parser.set_defaults(func=list_bpf_maps)
 
     args = parser.parse_args()

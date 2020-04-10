@@ -153,13 +153,15 @@ def main() -> None:
             readline.read_history_file(histfile)
         except OSError as e:
             if not isinstance(e, FileNotFoundError) and not args.quiet:
-                print('could not read history:', str(e), file=sys.stderr)
+                print("could not read history:", str(e), file=sys.stderr)
+
         def write_history_file():
             try:
                 readline.write_history_file(histfile)
             except OSError as e:
                 if not args.quiet:
-                    print('could not write history:', str(e), file=sys.stderr)
+                    print("could not write history:", str(e), file=sys.stderr)
+
         atexit.register(write_history_file)
 
         readline.set_history_length(1000)

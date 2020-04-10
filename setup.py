@@ -180,9 +180,12 @@ class test(Command):
                 ]
                 if self.verbose:
                     args.append("-v")
-                return vm.run(
-                    args, cwd=os.getcwd(), env={"DRGN_RUN_LINUX_HELPER_TESTS": "1"}
-                ).returncode == 0
+                return (
+                    vm.run(
+                        args, cwd=os.getcwd(), env={"DRGN_RUN_LINUX_HELPER_TESTS": "1"}
+                    ).returncode
+                    == 0
+                )
         except vmtest.vm.LostVMError as e:
             self.announce(f"error: {e}", log.ERROR)
             return False
