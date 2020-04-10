@@ -121,6 +121,17 @@ def umount(target, flags=0):
         raise OSError(errno, os.strerror(errno), target)
 
 
+_mlock = _c.mlock
+_mlock.restype = ctypes.c_int
+_mlock.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+
+
+def mlock(addr, len):
+    if _mlock(addr, len) == -1:
+        errno = ctypes.get_errno()
+        raise OSError(errno, os.strerror(errno))
+
+
 def create_socket(*args, **kwds):
     try:
         return socket.socket(*args, **kwds)
