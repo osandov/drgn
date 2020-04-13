@@ -1007,6 +1007,7 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 	struct compound_initializer_iter *iter =
 		container_of(iter_, struct compound_initializer_iter, iter);
 	struct compound_initializer_state *top;
+	uint64_t bit_offset;
 	struct drgn_type_member *member;
 	struct drgn_qualified_type member_type;
 
@@ -1022,6 +1023,7 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 			continue;
 		}
 
+		bit_offset = top->bit_offset;
 		member = top->member++;
 		err = drgn_member_type(member, &member_type);
 		if (err)
@@ -1037,7 +1039,7 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 		    !(iter->flags & DRGN_FORMAT_OBJECT_MEMBER_NAMES) ||
 		    !drgn_type_has_members(member_type.type)) {
 			err = drgn_object_slice(obj_ret, iter->obj, member_type,
-						top->bit_offset + member->bit_offset,
+						bit_offset + member->bit_offset,
 						member->bit_field_size);
 			if (err)
 				return err;
@@ -1062,7 +1064,7 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 			return &drgn_enomem;
 		new->member = drgn_type_members(member_type.type);
 		new->end = new->member + drgn_type_num_members(member_type.type);
-		new->bit_offset = top->bit_offset + member->bit_offset;
+		new->bit_offset = bit_offset + member->bit_offset;
 	}
 
 	*flags_ret = iter->member_flags;
