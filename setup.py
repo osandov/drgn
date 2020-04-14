@@ -180,15 +180,14 @@ class test(Command):
                 ]
                 if self.verbose:
                     args.append("-v")
-                return (
-                    vm.run(
-                        args, cwd=os.getcwd(), env={"DRGN_RUN_LINUX_HELPER_TESTS": "1"}
-                    ).returncode
-                    == 0
-                )
+                returncode = vm.run(
+                    args, cwd=os.getcwd(), env={"DRGN_RUN_LINUX_HELPER_TESTS": "1"}
+                ).returncode
         except vmtest.vm.LostVMError as e:
             self.announce(f"error: {e}", log.ERROR)
             return False
+        self.announce(f"Tests in VM returned {returncode}", log.INFO)
+        return returncode == 0
 
     def run(self):
         import vmtest.build
