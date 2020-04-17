@@ -19,6 +19,7 @@ script: python setup.py test -K
 addons:
   apt:
     packages:
+      - busybox-static
       - libbz2-dev
       - liblzma-dev
       - qemu-kvm

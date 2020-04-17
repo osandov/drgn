@@ -167,22 +167,17 @@ class test(Command):
         test = unittest.main(module=None, argv=argv, exit=False)
         return test.result.wasSuccessful()
 
-    def _run_vm(self, **kwds):
+    def _run_vm(self, *, vmlinux, vmlinuz, build_dir):
         import vmtest.vm
 
+        command = fr"""cd {shlex.quote(os.getcwd())} &&
+	DRGN_RUN_LINUX_HELPER_TESTS=1 {shlex.quote(sys.executable)} -Bm \
+		unittest discover -t . -s tests/helpers/linux {"-v" if self.verbose else ""}"""
+        command = vmtest.vm.install_vmlinux_precommand(command, vmlinux)
         try:
-            with vmtest.vm.VM(**kwds) as vm:
-                args = [
-                    # fmt: off
-                    sys.executable, "-B", "-m",
-                    "unittest", "discover", "-t", ".", "-s", "tests/helpers/linux",
-                    # fmt: on
-                ]
-                if self.verbose:
-                    args.append("-v")
-                returncode = vm.run(
-                    args, cwd=os.getcwd(), env={"DRGN_RUN_LINUX_HELPER_TESTS": "1"}
-                ).returncode
+            returncode = vmtest.vm.run_in_vm(
+                command, vmlinuz=vmlinuz, build_dir=build_dir
+            )
         except vmtest.vm.LostVMError as e:
             self.announce(f"error: {e}", log.ERROR)
             return False
@@ -190,7 +185,6 @@ class test(Command):
         return returncode == 0
 
     def run(self):
-        import vmtest.build
         import vmtest.resolver
 
         # Start downloads ASAP so that they're hopefully done by the time we
@@ -215,13 +209,14 @@ class test(Command):
                 failed.append("local")
 
             if self.kernels:
-                built = vmtest.build.build_vmtest(self.vmtest_dir)
                 for kernel in resolver:
                     self.announce(
                         f"running tests in VM on Linux {kernel.release}", log.INFO
                     )
                     if self._run_vm(
-                        **built, vmlinux=kernel.vmlinux, vmlinuz=kernel.vmlinuz,
+                        vmlinux=kernel.vmlinux,
+                        vmlinuz=kernel.vmlinuz,
+                        build_dir=self.vmtest_dir,
                     ):
                         passed.append(kernel.release)
                     else:

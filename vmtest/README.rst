@@ -25,15 +25,12 @@ safety. To support modifications, the guest uses `OverlayFS
 <https://www.kernel.org/doc/Documentation/filesystems/overlayfs.txt>`_ to
 overlay a read-write tmpfs over the VirtFS root.
 
-The guest runs a `special init process <init.c>`_ which sets up the system and
-filesystem hierarchy (including creating the appropriate link to vmlinux) and
-communicates with the host over `virtio-serial
-<https://fedoraproject.org/wiki/Features/VirtioSerial>`_. The protocol is
-essentially that the host sends the arguments to `execvpe(3)
-<http://man7.org/linux/man-pages/man3/exec.3.html>`_ and the guest replies with
-the `wait(2) <http://www.man7.org/linux/man-pages/man2/wait.2.html>`_ status.
+The guest runs a `BusyBox <https://www.busybox.net/>`_ shell script as init
+which sets up the system and filesystem hierarchy, runs a command, and returns
+the exit status via `virtio-serial
+<https://fedoraproject.org/wiki/Features/VirtioSerial>`_.
 
-This infrastructure is all fairly generic. The drgn-specific parts are:
+This infrastructure is all generic. The drgn-specific parts are:
 
 1. The kernel builds. The `kernel configuration <config>`_ includes everything
    required to run drgn and the Linux kernel helper tests. These builds are
@@ -41,8 +38,9 @@ This infrastructure is all fairly generic. The drgn-specific parts are:
    <https://www.dropbox.com/sh/2mcf2xvg319qdaw/AAChpI5DJZX2VwlCgPFDdaZHa?dl=0>`_.
    They are managed via the Dropbox API by the `vmtest.manage <manage.py>`_ CLI
    and downloaded by the `vmtest.resolver <resolver.py>`_ module.
-2. The test command itself. This is just some ``setup.py`` glue and the proper
-   invocation of the Python `unittest command line interface
+2. The test command itself. This is just some ``setup.py`` glue, a command to
+   install vmlinux where drgn can find it, and the proper invocation of the
+   Python `unittest command line interface
    <https://docs.python.org/3/library/unittest.html#test-discovery>`_.
 
 The ``vmtest.vm`` and ``vmtest.resolver`` modules also have CLIs for testing
