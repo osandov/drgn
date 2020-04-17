@@ -299,4 +299,5 @@ Next Steps
 
 Refer to the :doc:`api_reference`. Look through the :doc:`helpers`. Browse
 through the official `examples
-<https://github.com/osandov/drgn/tree/master/examples>`_.
+<https://github.com/osandov/drgn/tree/master/examples>`_ and `tools
+<https://github.com/osandov/drgn/tree/master/tools>`_.
