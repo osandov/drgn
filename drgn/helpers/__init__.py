@@ -22,6 +22,7 @@ useful for scripts or for implementing other helpers.
 """
 
 import enum
+import typing
 from typing import Container, Iterable
 
 from drgn import Type
@@ -98,7 +99,7 @@ def escape_ascii_string(
 
 def enum_type_to_class(
     type: Type, name: str, exclude: Container[str] = (), prefix: str = ""
-) -> enum.IntEnum:
+) -> typing.Type[enum.IntEnum]:
     """
     Get an :class:`enum.IntEnum` class from an enumerated :class:`drgn.Type`.
 
