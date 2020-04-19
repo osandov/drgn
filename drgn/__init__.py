@@ -230,13 +230,13 @@ def execscript(path: str, *args: str) -> None:
         sys.argv.extend(args)
 
         with _open_code(path) as f:
-            code = pkgutil.read_code(f)
+            code = pkgutil.read_code(f)  # type: ignore[attr-defined]
         if code is None:
             with _open_code(path) as f:
                 code = compile(f.read(), path, "exec")
         module.__spec__ = None
         module.__file__ = path
-        module.__cached__ = None
+        module.__cached__ = None  # type: ignore[attr-defined]
 
         caller_globals = sys._getframe(1).f_globals
         caller_special_globals = {

@@ -52,15 +52,15 @@ def get_kconfig(prog) -> Mapping[str, str]:
         size = len(kernel_config_data) - 17
 
     data = prog.read(start, size)
-    result = {}
+    kconfig = {}
     for line in gzip.decompress(data).decode().splitlines():
         if not line or line.startswith("#"):
             continue
         name, _, value = line.partition("=")
         if value:
-            result[name] = value
+            kconfig[name] = value
 
     # Make result mapping 'immutable', so changes cannot propagate to the cache
-    result = types.MappingProxyType(result)
+    result = types.MappingProxyType(kconfig)
     prog.cache["kconfig_map"] = result
     return result

@@ -35,8 +35,12 @@ import pkgutil
 
 
 __all__ = []
-for _module_info in pkgutil.iter_modules(__path__, prefix=__name__ + "."):
+for _module_info in pkgutil.iter_modules(
+    __path__,  # type: ignore[name-defined]  # python/mypy#1422
+    prefix=__name__ + ".",
+):
     _submodule = importlib.import_module(_module_info.name)
-    __all__.extend(_submodule.__all__)
-    for _name in _submodule.__all__:
+    _submodule_all = getattr(_submodule, "__all__", ())
+    __all__.extend(_submodule_all)
+    for _name in _submodule_all:
         globals()[_name] = getattr(_submodule, _name)
