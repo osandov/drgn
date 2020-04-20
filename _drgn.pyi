@@ -665,7 +665,7 @@ class Object:
     """
     Size in bits of this object if it is a bit field, ``None`` if it is not.
     """
-    def __getattribute__(self, name: str) -> Any:
+    def __getattribute__(self, name: str) -> Object:
         """
         Implement ``self.name``.
 
