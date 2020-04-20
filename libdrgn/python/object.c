@@ -1451,14 +1451,28 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 {
 	struct drgn_error *err;
 	PyObject *attr;
-	PyObject *exc_type, *exc_value, *exc_traceback;
 	const char *name;
 	DrgnObject *res;
+
+	/*
+	 * In Python 3.7 and newer, _PyObject_GenericGetAttrWithDict() can
+	 * suppress the AttributeError if the attribute isn't found. This makes
+	 * member lookups much more efficient.
+	 */
+#define GETATTR_SUPPRESS (PY_VERSION_HEX >= 0x030700b1)
+#if GETATTR_SUPPRESS
+	attr = _PyObject_GenericGetAttrWithDict((PyObject *)self, attr_name,
+						NULL, 1);
+	if (attr || PyErr_Occurred())
+		return attr;
+#else
+	PyObject *exc_type, *exc_value, *exc_traceback;
 
 	attr = PyObject_GenericGetAttr((PyObject *)self, attr_name);
 	if (attr || !PyErr_ExceptionMatches(PyExc_AttributeError))
 		return attr;
 	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
+#endif
 
 	name = PyUnicode_AsUTF8(attr_name);
 	if (!name) {
@@ -1480,10 +1494,18 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 		Py_CLEAR(res);
 		if (err->code == DRGN_ERROR_TYPE) {
 			/*
-			 * If the object doesn't have a compound type,
-			 * raise the original AttributeError.
+			 * If the object doesn't have a compound type, raise a
+			 * generic AttributeError (or restore the original one
+			 * if we weren't able to suppress it).
 			 */
+#if GETATTR_SUPPRESS
+			PyErr_Format(PyExc_AttributeError,
+				     "'%s' object has no attribute '%U'",
+				     Py_TYPE(self)->tp_name, attr_name);
+#else
 			PyErr_Restore(exc_type, exc_value, exc_traceback);
+#endif
+			drgn_error_destroy(err);
 			return NULL;
 		} else if (err->code == DRGN_ERROR_LOOKUP) {
 			PyErr_SetString(PyExc_AttributeError, err->message);
@@ -1491,12 +1513,14 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 		} else {
 			set_drgn_error(err);
 		}
-		goto out;
 	}
 out:
+#if !GETATTR_SUPPRESS
 	Py_XDECREF(exc_traceback);
 	Py_XDECREF(exc_value);
 	Py_DECREF(exc_type);
+#endif
+#undef GETATTR_SUPPRESS
 	return (PyObject *)res;
 }
 
