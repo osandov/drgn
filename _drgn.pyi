@@ -961,7 +961,6 @@ def container_of(ptr: Object, type: Union[str, Type], member: str) -> Object:
 
     :param ptr: The pointer.
     :param type: The type of the containing object.
-    :type type: str or Type
     :param member: The name of the member in ``type``.
     :raises TypeError: if the object is not a pointer or the type is not a
         structure, union, or class type

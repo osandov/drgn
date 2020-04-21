@@ -104,7 +104,6 @@ def enum_type_to_class(
     Get an :class:`enum.IntEnum` class from an enumerated :class:`drgn.Type`.
 
     :param type: The enumerated type to convert.
-    :type type: :class:`drgn.Type`
     :param name: The name of the ``IntEnum`` type to create.
     :param exclude: Container (e.g., list or set) of enumerator names to
         exclude from the created ``IntEnum``.
