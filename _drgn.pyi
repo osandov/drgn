@@ -203,7 +203,7 @@ class Program:
         ...
     def pointer_type(
         self,
-        type: Type,
+        type: Union[str, Type],
         qualifiers: Optional[Qualifiers] = None,
         *,
         language: Optional[Language] = None,
