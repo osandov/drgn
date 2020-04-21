@@ -3,6 +3,7 @@
 
 import ast
 import inspect
+import operator
 import os.path
 import stat
 from typing import (
@@ -312,11 +313,11 @@ def parse_package(
             attrs = cast(Dict[str, Node], result[1])
 
     try:
-        it = os.scandir(path)
+        entries = sorted(os.scandir(path), key=operator.attrgetter("name"))
     except OSError as e:
         handle_err(e)
     else:
-        for entry in it:
+        for entry in entries:
             try:
                 is_dir = entry.is_dir()
                 is_file = entry.is_file()
