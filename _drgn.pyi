@@ -679,7 +679,7 @@ class Object:
         :param name: Attribute name.
         """
         ...
-    def __getitem__(self, idx: int) -> Object:
+    def __getitem__(self, idx: Union[int, Object]) -> Object:
         """
         Implement ``self[idx]``. Get the array element at the given index.
 
