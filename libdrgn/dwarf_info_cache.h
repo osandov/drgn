@@ -23,8 +23,7 @@
  * Caching of DWARF debugging information.
  *
  * @ref drgn_dwarf_info_cache bridges the raw DWARF information indexed by @ref
- * drgn_dwarf_index to the higher-level @ref drgn_type_index and @ref
- * drgn_object_index.
+ * drgn_dwarf_index to higher-level type and object finders.
  *
  * @{
  */
@@ -73,13 +72,13 @@ struct drgn_dwarf_info_cache {
 	struct dwarf_type_map cant_be_incomplete_array_map;
 	/** Current parsing recursion depth. */
 	int depth;
-	/** Type index. */
-	struct drgn_type_index *tindex;
+	/** Program owning this cache. */
+	struct drgn_program *prog;
 };
 
 /** Create a @ref drgn_dwarf_info_cache. */
 struct drgn_error *
-drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
+drgn_dwarf_info_cache_create(struct drgn_program *prog,
 			     const Dwfl_Callbacks *dwfl_callbacks,
 			     struct drgn_dwarf_info_cache **ret);
 

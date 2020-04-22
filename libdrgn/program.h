@@ -21,7 +21,7 @@
 #include "memory_reader.h"
 #include "object_index.h"
 #include "platform.h"
-#include "type_index.h"
+#include "type.h"
 #include "vector.h"
 
 /**
@@ -80,9 +80,29 @@ struct drgn_program {
 #endif
 
 	/*
+	 * Types.
+	 */
+	/** Callbacks for finding types. */
+	struct drgn_type_finder *type_finders;
+	/** Cache of primitive types. */
+	struct drgn_type *primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
+	struct drgn_type default_size_t;
+	struct drgn_type default_ptrdiff_t;
+	/** Cache of created pointer types. */
+	struct drgn_pointer_type_table pointer_types;
+	/** Cache of created array types. */
+	struct drgn_array_type_table array_types;
+	/** Cache for @ref drgn_program_find_member(). */
+	struct drgn_member_map members;
+	/**
+	 * Set of types which have been already cached in @ref
+	 * drgn_program::members.
+	 */
+	struct drgn_type_set members_cached;
+
+	/*
 	 * Debugging information.
 	 */
-	struct drgn_type_index tindex;
 	struct drgn_object_index oindex;
 	struct drgn_dwarf_info_cache *_dicache;
 

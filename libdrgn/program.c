@@ -25,7 +25,6 @@
 #include "read.h"
 #include "string_builder.h"
 #include "symbol.h"
-#include "type_index.h"
 #include "vector.h"
 
 DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
@@ -63,8 +62,6 @@ void drgn_program_set_platform(struct drgn_program *prog,
 	if (!prog->has_platform) {
 		prog->platform = *platform;
 		prog->has_platform = true;
-		prog->tindex.word_size =
-			platform->flags & DRGN_PLATFORM_IS_64_BIT ? 8 : 4;
 	}
 }
 
@@ -73,7 +70,7 @@ void drgn_program_init(struct drgn_program *prog,
 {
 	memset(prog, 0, sizeof(*prog));
 	drgn_memory_reader_init(&prog->reader);
-	drgn_type_index_init(&prog->tindex);
+	drgn_program_init_types(prog);
 	drgn_object_index_init(&prog->oindex);
 	prog->core_fd = -1;
 	if (platform)
@@ -92,7 +89,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	free(prog->pgtable_it);
 
 	drgn_object_index_deinit(&prog->oindex);
-	drgn_type_index_deinit(&prog->tindex);
+	drgn_program_deinit_types(prog);
 	drgn_memory_reader_deinit(&prog->reader);
 
 	free(prog->file_segments);
@@ -137,13 +134,6 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 {
 	return drgn_memory_reader_add_segment(&prog->reader, address, size,
 					      read_fn, arg, physical);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
-			     void *arg)
-{
-	return drgn_type_index_add_finder(&prog->tindex, fn, arg);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -552,21 +542,21 @@ static struct drgn_error *drgn_program_get_dindex(struct drgn_program *prog,
 		else
 			dwfl_callbacks = &drgn_userspace_core_dump_dwfl_callbacks;
 
-		err = drgn_dwarf_info_cache_create(&prog->tindex,
-						   dwfl_callbacks, &dicache);
+		err = drgn_dwarf_info_cache_create(prog, dwfl_callbacks,
+						   &dicache);
 		if (err)
 			return err;
-		err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find,
-						   dicache);
-		if (err) {
-			drgn_dwarf_info_cache_destroy(dicache);
-			return err;
-		}
 		err = drgn_program_add_object_finder(prog,
 						     drgn_dwarf_object_find,
 						     dicache);
 		if (err) {
-			drgn_type_index_remove_finder(&prog->tindex);
+			drgn_dwarf_info_cache_destroy(dicache);
+			return err;
+		}
+		err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find,
+						   dicache);
+		if (err) {
+			drgn_object_index_remove_finder(&prog->oindex);
 			drgn_dwarf_info_cache_destroy(dicache);
 			return err;
 		}
@@ -1133,14 +1123,6 @@ drgn_program_read_word(struct drgn_program *prog, uint64_t address,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_find_type(struct drgn_program *prog, const char *name,
-		       const char *filename, struct drgn_qualified_type *ret)
-{
-	return drgn_type_index_find(&prog->tindex, name, filename,
-				    drgn_program_language(prog), ret);
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_find_object(struct drgn_program *prog, const char *name,
 			 const char *filename,
 			 enum drgn_find_object_flags flags,
@@ -1297,8 +1279,8 @@ drgn_program_member_info(struct drgn_program *prog, struct drgn_type *type,
 	struct drgn_error *err;
 	struct drgn_member_value *member;
 
-	err = drgn_type_index_find_member(&prog->tindex, type, member_name,
-					  strlen(member_name), &member);
+	err = drgn_program_find_member(prog, type, member_name,
+				       strlen(member_name), &member);
 	if (err)
 		return err;
 

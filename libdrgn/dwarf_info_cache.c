@@ -12,7 +12,7 @@
 #include "hash_table.h"
 #include "object.h"
 #include "object_index.h"
-#include "type_index.h"
+#include "type.h"
 #include "vector.h"
 
 DEFINE_HASH_TABLE_FUNCTIONS(dwarf_type_map, hash_pair_ptr_type,
@@ -1025,8 +1025,8 @@ drgn_pointer_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	if (err)
 		return err;
 
-	return drgn_type_index_pointer_type(dicache->tindex, referenced_type,
-					    lang, ret);
+	return drgn_program_pointer_type(dicache->prog, referenced_type, lang,
+					 ret);
 }
 
 struct array_dimension {
@@ -1129,19 +1129,18 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	do {
 		dimension = array_dimension_vector_pop(&dimensions);
 		if (dimension->is_complete) {
-			err = drgn_type_index_array_type(dicache->tindex,
-							 dimension->length,
-							 element_type, lang,
-							 &type);
+			err = drgn_program_array_type(dicache->prog,
+						      dimension->length,
+						      element_type, lang,
+						      &type);
 		} else if (dimensions.size || !can_be_incomplete_array) {
-			err = drgn_type_index_array_type(dicache->tindex, 0,
-							 element_type, lang,
-							 &type);
+			err = drgn_program_array_type(dicache->prog, 0,
+						      element_type, lang,
+						      &type);
 		} else {
-			err = drgn_type_index_incomplete_array_type(dicache->tindex,
-								    element_type,
-								    lang,
-								    &type);
+			err = drgn_program_incomplete_array_type(dicache->prog,
+								 element_type,
+								 lang, &type);
 		}
 		if (err)
 			goto out;
@@ -1666,7 +1665,7 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 }
 
 struct drgn_error *
-drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
+drgn_dwarf_info_cache_create(struct drgn_program *prog,
 			     const Dwfl_Callbacks *dwfl_callbacks,
 			     struct drgn_dwarf_info_cache **ret)
 {
@@ -1684,7 +1683,7 @@ drgn_dwarf_info_cache_create(struct drgn_type_index *tindex,
 	dwarf_type_map_init(&dicache->map);
 	dwarf_type_map_init(&dicache->cant_be_incomplete_array_map);
 	dicache->depth = 0;
-	dicache->tindex = tindex;
+	dicache->prog = prog;
 	*ret = dicache;
 	return NULL;
 }

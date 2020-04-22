@@ -620,8 +620,8 @@ static PyObject *Program_pointer_type(Program *self, PyObject *args,
 			     &referenced_type) == -1)
 		return NULL;
 
-	err = drgn_type_index_pointer_type(&self->prog.tindex, referenced_type,
-					   language, &qualified_type.type);
+	err = drgn_program_pointer_type(&self->prog, referenced_type, language,
+					&qualified_type.type);
 	if (err)
 		return set_drgn_error(err);
 	qualified_type.qualifiers = qualifiers;

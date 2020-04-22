@@ -61,8 +61,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 symbol.h \
 			 type.c \
 			 type.h \
-			 type_index.c \
-			 type_index.h \
 			 util.h \
 			 vector.c \
 			 vector.h

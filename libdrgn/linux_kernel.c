@@ -286,18 +286,18 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 				}
 			}
 
-			err = drgn_type_index_find_primitive(&prog->tindex,
-							     DRGN_C_TYPE_UNSIGNED_LONG,
-							     &qualified_type.type);
+			err = drgn_program_find_primitive_type(prog,
+							       DRGN_C_TYPE_UNSIGNED_LONG,
+							       &qualified_type.type);
 			if (err)
 				return err;
 			return drgn_object_set_unsigned(ret, qualified_type,
 							prog->page_offset, 0);
 		} else if (name_len == strlen("PAGE_SHIFT") &&
 			   memcmp(name, "PAGE_SHIFT", name_len) == 0) {
-			err = drgn_type_index_find_primitive(&prog->tindex,
-							     DRGN_C_TYPE_INT,
-							     &qualified_type.type);
+			err = drgn_program_find_primitive_type(prog,
+							       DRGN_C_TYPE_INT,
+							       &qualified_type.type);
 			if (err)
 				return err;
 			return drgn_object_set_signed(ret, qualified_type,
@@ -305,9 +305,9 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 						      0);
 		} else if (name_len == strlen("PAGE_SIZE") &&
 			   memcmp(name, "PAGE_SIZE", name_len) == 0) {
-			err = drgn_type_index_find_primitive(&prog->tindex,
-							     DRGN_C_TYPE_UNSIGNED_LONG,
-							     &qualified_type.type);
+			err = drgn_program_find_primitive_type(prog,
+							       DRGN_C_TYPE_UNSIGNED_LONG,
+							       &qualified_type.type);
 			if (err)
 				return err;
 			return drgn_object_set_unsigned(ret, qualified_type,
@@ -315,9 +315,9 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 							0);
 		} else if (name_len == strlen("PAGE_MASK") &&
 			   memcmp(name, "PAGE_MASK", name_len) == 0) {
-			err = drgn_type_index_find_primitive(&prog->tindex,
-							     DRGN_C_TYPE_UNSIGNED_LONG,
-							     &qualified_type.type);
+			err = drgn_program_find_primitive_type(prog,
+							       DRGN_C_TYPE_UNSIGNED_LONG,
+							       &qualified_type.type);
 			if (err)
 				return err;
 			return drgn_object_set_unsigned(ret, qualified_type,
@@ -330,9 +330,9 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 			err = linux_kernel_get_thread_size(prog, &thread_size);
 			if (err)
 				return err;
-			err = drgn_type_index_find_primitive(&prog->tindex,
-							     DRGN_C_TYPE_UNSIGNED_LONG,
-							     &qualified_type.type);
+			err = drgn_program_find_primitive_type(prog,
+							       DRGN_C_TYPE_UNSIGNED_LONG,
+							       &qualified_type.type);
 			if (err)
 				return err;
 			return drgn_object_set_unsigned(ret, qualified_type,
@@ -341,16 +341,16 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 			   memcmp(name, "UTS_RELEASE", name_len) == 0) {
 			size_t len;
 
-			err = drgn_type_index_find_primitive(&prog->tindex,
-							     DRGN_C_TYPE_CHAR,
-							     &qualified_type.type);
+			err = drgn_program_find_primitive_type(prog,
+							       DRGN_C_TYPE_CHAR,
+							       &qualified_type.type);
 			if (err)
 				return err;
 			qualified_type.qualifiers = DRGN_QUALIFIER_CONST;
 			len = strlen(prog->vmcoreinfo.osrelease);
-			err = drgn_type_index_array_type(&prog->tindex, len + 1,
-							 qualified_type, NULL,
-							 &qualified_type.type);
+			err = drgn_program_array_type(prog, len + 1,
+						      qualified_type, NULL,
+						      &qualified_type.type);
 			if (err)
 				return err;
 			qualified_type.qualifiers = 0;

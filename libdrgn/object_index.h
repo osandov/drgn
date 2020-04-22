@@ -41,7 +41,7 @@ struct drgn_object_finder {
  * Object index.
  *
  * A object index is used to find objects (variables, constants, and functions)
- * by name. The types are found using callbacks which are registered with @ref
+ * by name. The objects are found using callbacks which are registered with @ref
  * drgn_object_index_add_finder(). @ref drgn_object_index_find() searches for an
  * object.
  */
@@ -60,6 +60,9 @@ void drgn_object_index_deinit(struct drgn_object_index *oindex);
 struct drgn_error *
 drgn_object_index_add_finder(struct drgn_object_index *oindex,
 			     drgn_object_find_fn fn, void *arg);
+
+/** Remove the most recently added object finding callback. */
+void drgn_object_index_remove_finder(struct drgn_object_index *oindex);
 
 /**
  * Find an object in a @ref drgn_object_index.

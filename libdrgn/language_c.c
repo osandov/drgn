@@ -18,7 +18,6 @@
 #include "string_builder.h"
 #include "symbol.h"
 #include "type.h"
-#include "type_index.h"
 
 static struct drgn_error *
 c_declare_variable(struct drgn_qualified_type qualified_type,
@@ -2111,7 +2110,7 @@ out:
 }
 
 static struct drgn_error *
-c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
+c_parse_specifier_qualifier_list(struct drgn_program *prog,
 				 struct drgn_lexer *lexer, const char *filename,
 				 struct drgn_qualified_type *ret)
 {
@@ -2206,17 +2205,17 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 			kind = DRGN_TYPE_ENUM;
 		} else if (identifier) {
 			if (strstartswith(identifier, "size_t")) {
-				err = drgn_type_index_find_primitive(tindex,
-								     DRGN_C_TYPE_SIZE_T,
-								     &ret->type);
+				err = drgn_program_find_primitive_type(prog,
+								       DRGN_C_TYPE_SIZE_T,
+								       &ret->type);
 				if (err)
 					return err;
 				ret->qualifiers = 0;
 				goto out;
 			} else if (strstartswith(identifier, "ptrdiff_t")) {
-				err = drgn_type_index_find_primitive(tindex,
-								     DRGN_C_TYPE_PTRDIFF_T,
-								     &ret->type);
+				err = drgn_program_find_primitive_type(prog,
+								       DRGN_C_TYPE_PTRDIFF_T,
+								       &ret->type);
 				if (err)
 					return err;
 				ret->qualifiers = 0;
@@ -2229,15 +2228,15 @@ c_parse_specifier_qualifier_list(struct drgn_type_index *tindex,
 						 "expected type specifier");
 		}
 
-		err = drgn_type_index_find_parsed(tindex, kind, identifier,
+		err = drgn_program_find_type_impl(prog, kind, identifier,
 						  identifier_len, filename,
 						  ret);
 		if (err)
 			return err;
 	} else {
-		err = drgn_type_index_find_primitive(tindex,
-						     specifier_kind[specifier],
-						     &ret->type);
+		err = drgn_program_find_primitive_type(prog,
+						       specifier_kind[specifier],
+						       &ret->type);
 		if (err)
 			return err;
 		ret->qualifiers = 0;
@@ -2259,7 +2258,7 @@ struct c_declarator {
 
 /* These functions don't free the declarator list on error. */
 static struct drgn_error *
-c_parse_abstract_declarator(struct drgn_type_index *tindex,
+c_parse_abstract_declarator(struct drgn_program *prog,
 			    struct drgn_lexer *lexer,
 			    struct c_declarator **outer,
 			    struct c_declarator **inner);
@@ -2289,7 +2288,7 @@ c_parse_optional_type_qualifier_list(struct drgn_lexer *lexer,
 }
 
 static struct drgn_error *
-c_parse_pointer(struct drgn_type_index *tindex, struct drgn_lexer *lexer,
+c_parse_pointer(struct drgn_program *prog, struct drgn_lexer *lexer,
 		struct c_declarator **outer, struct c_declarator **inner)
 {
 	struct drgn_error *err;
@@ -2329,7 +2328,7 @@ c_parse_pointer(struct drgn_type_index *tindex, struct drgn_lexer *lexer,
 }
 
 static struct drgn_error *
-c_parse_direct_abstract_declarator(struct drgn_type_index *tindex,
+c_parse_direct_abstract_declarator(struct drgn_program *prog,
 				   struct drgn_lexer *lexer,
 				   struct c_declarator **outer,
 				   struct c_declarator **inner)
@@ -2351,7 +2350,7 @@ c_parse_direct_abstract_declarator(struct drgn_type_index *tindex,
 		if (token2.kind == C_TOKEN_ASTERISK ||
 		    token2.kind == C_TOKEN_LPAREN ||
 		    token2.kind == C_TOKEN_LBRACKET) {
-			err = c_parse_abstract_declarator(tindex, lexer, outer,
+			err = c_parse_abstract_declarator(prog, lexer, outer,
 							  inner);
 			if (err)
 				return err;
@@ -2431,7 +2430,7 @@ c_parse_direct_abstract_declarator(struct drgn_type_index *tindex,
 }
 
 static struct drgn_error *
-c_parse_abstract_declarator(struct drgn_type_index *tindex,
+c_parse_abstract_declarator(struct drgn_program *prog,
 			    struct drgn_lexer *lexer,
 			    struct c_declarator **outer,
 			    struct c_declarator **inner)
@@ -2443,7 +2442,7 @@ c_parse_abstract_declarator(struct drgn_type_index *tindex,
 	if (err)
 		return err;
 	if (token.kind == C_TOKEN_ASTERISK) {
-		err = c_parse_pointer(tindex, lexer, outer, inner);
+		err = c_parse_pointer(prog, lexer, outer, inner);
 		if (err)
 			return err;
 
@@ -2452,21 +2451,21 @@ c_parse_abstract_declarator(struct drgn_type_index *tindex,
 		    token.kind == C_TOKEN_LBRACKET) {
 			struct c_declarator *tmp;
 
-			err = c_parse_direct_abstract_declarator(tindex, lexer,
+			err = c_parse_direct_abstract_declarator(prog, lexer,
 								 outer, &tmp);
 			if (err)
 				return err;
 		}
 		return NULL;
 	} else {
-		return c_parse_direct_abstract_declarator(tindex, lexer, outer,
+		return c_parse_direct_abstract_declarator(prog, lexer, outer,
 							  inner);
 	}
 }
 
 /* This always frees the declarator list regardless of success or failure. */
 static struct drgn_error *
-c_type_from_declarator(struct drgn_type_index *tindex,
+c_type_from_declarator(struct drgn_program *prog,
 		       struct c_declarator *declarator,
 		       struct drgn_qualified_type *ret)
 {
@@ -2475,21 +2474,20 @@ c_type_from_declarator(struct drgn_type_index *tindex,
 	if (!declarator)
 		return NULL;
 
-	err = c_type_from_declarator(tindex, declarator->next, ret);
+	err = c_type_from_declarator(prog, declarator->next, ret);
 	if (err) {
 		free(declarator);
 		return err;
 	}
 
 	if (declarator->kind == C_TOKEN_ASTERISK) {
-		err = drgn_type_index_pointer_type(tindex, *ret, NULL,
-						   &ret->type);
+		err = drgn_program_pointer_type(prog, *ret, NULL, &ret->type);
 	} else if (declarator->is_complete) {
-		err = drgn_type_index_array_type(tindex, declarator->length,
-						 *ret, NULL, &ret->type);
+		err = drgn_program_array_type(prog, declarator->length, *ret,
+					      NULL, &ret->type);
 	} else {
-		err = drgn_type_index_incomplete_array_type(tindex, *ret, NULL,
-							    &ret->type);
+		err = drgn_program_incomplete_array_type(prog, *ret, NULL,
+							 &ret->type);
 	}
 
 	if (!err)
@@ -2498,7 +2496,7 @@ c_type_from_declarator(struct drgn_type_index *tindex,
 	return err;
 }
 
-struct drgn_error *c_find_type(struct drgn_type_index *tindex, const char *name,
+struct drgn_error *c_find_type(struct drgn_program *prog, const char *name,
 			       const char *filename,
 			       struct drgn_qualified_type *ret)
 {
@@ -2508,7 +2506,7 @@ struct drgn_error *c_find_type(struct drgn_type_index *tindex, const char *name,
 
 	drgn_lexer_init(&lexer, drgn_lexer_c, name);
 
-	err = c_parse_specifier_qualifier_list(tindex, &lexer, filename, ret);
+	err = c_parse_specifier_qualifier_list(prog, &lexer, filename, ret);
 	if (err)
 		goto out;
 
@@ -2522,8 +2520,7 @@ struct drgn_error *c_find_type(struct drgn_type_index *tindex, const char *name,
 		if (err)
 			return err;
 
-		err = c_parse_abstract_declarator(tindex, &lexer, &outer,
-						  &inner);
+		err = c_parse_abstract_declarator(prog, &lexer, &outer, &inner);
 		if (err) {
 			while (outer) {
 				struct c_declarator *next;
@@ -2535,7 +2532,7 @@ struct drgn_error *c_find_type(struct drgn_type_index *tindex, const char *name,
 			goto out;
 		}
 
-		err = c_type_from_declarator(tindex, outer, ret);
+		err = c_type_from_declarator(prog, outer, ret);
 		if (err)
 			goto out;
 
@@ -2580,11 +2577,10 @@ struct drgn_error *c_bit_offset(struct drgn_program *prog,
 				struct drgn_member_value *member;
 				struct drgn_qualified_type member_type;
 
-				err = drgn_type_index_find_member(&prog->tindex,
-								  type,
-								  token.value,
-								  token.len,
-								  &member);
+				err = drgn_program_find_member(prog, type,
+							       token.value,
+							       token.len,
+							       &member);
 				if (err)
 					goto out;
 				if (__builtin_add_overflow(bit_offset,
@@ -2703,9 +2699,8 @@ struct drgn_error *c_integer_literal(struct drgn_object *res, uint64_t uvalue)
 	bits = fls(uvalue);
 	qualified_type.qualifiers = 0;
 	for (i = 0; i < ARRAY_SIZE(types); i++) {
-		err = drgn_type_index_find_primitive(&res->prog->tindex,
-						     types[i],
-						     &qualified_type.type);
+		err = drgn_program_find_primitive_type(res->prog, types[i],
+						       &qualified_type.type);
 		if (err)
 			return err;
 
@@ -2729,9 +2724,8 @@ struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
 
-	err = drgn_type_index_find_primitive(&res->prog->tindex,
-					     DRGN_C_TYPE_INT,
-					     &qualified_type.type);
+	err = drgn_program_find_primitive_type(res->prog, DRGN_C_TYPE_INT,
+					       &qualified_type.type);
 	if (err)
 		return err;
 	qualified_type.qualifiers = 0;
@@ -2743,9 +2737,8 @@ struct drgn_error *c_float_literal(struct drgn_object *res, double fvalue)
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
 
-	err = drgn_type_index_find_primitive(&res->prog->tindex,
-					     DRGN_C_TYPE_DOUBLE,
-					     &qualified_type.type);
+	err = drgn_program_find_primitive_type(res->prog, DRGN_C_TYPE_DOUBLE,
+					       &qualified_type.type);
 	if (err)
 		return err;
 	qualified_type.qualifiers = 0;
@@ -2800,7 +2793,7 @@ static bool c_can_represent_all_values(struct drgn_type *type1,
 		return false;
 }
 
-static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
+static struct drgn_error *c_integer_promotions(struct drgn_program *prog,
 					       struct drgn_object_type *type)
 {
 	struct drgn_error *err;
@@ -2850,8 +2843,8 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 	 */
 	if (primitive >= ARRAY_SIZE(c_integer_conversion_rank) ||
 	    type->bit_field_size) {
-		err = drgn_type_index_find_primitive(tindex, DRGN_C_TYPE_INT,
-						     &int_type);
+		err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_INT,
+						       &int_type);
 		if (err)
 			return err;
 		if (c_can_represent_all_values(int_type, 0,
@@ -2862,9 +2855,9 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 			return NULL;
 		}
 
-		err = drgn_type_index_find_primitive(tindex,
-						     DRGN_C_TYPE_UNSIGNED_INT,
-						     &int_type);
+		err = drgn_program_find_primitive_type(prog,
+						       DRGN_C_TYPE_UNSIGNED_INT,
+						       &int_type);
 		if (err)
 			return err;
 		if (c_can_represent_all_values(int_type, 0,
@@ -2886,16 +2879,16 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 	 * If int can represent all values of the original type, then the result
 	 * is int. Otherwise, the result is unsigned int.
 	 */
-	err = drgn_type_index_find_primitive(tindex, DRGN_C_TYPE_INT,
-					     &int_type);
+	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_INT,
+					       &int_type);
 	if (err)
 		return err;
 	if (c_can_represent_all_values(int_type, 0, type->underlying_type, 0)) {
 		type->type = int_type;
 	} else {
-		err = drgn_type_index_find_primitive(tindex,
-						     DRGN_C_TYPE_UNSIGNED_INT,
-						     &type->type);
+		err = drgn_program_find_primitive_type(prog,
+						       DRGN_C_TYPE_UNSIGNED_INT,
+						       &type->type);
 		if (err)
 			return err;
 	}
@@ -2904,7 +2897,7 @@ static struct drgn_error *c_integer_promotions(struct drgn_type_index *tindex,
 }
 
 static struct drgn_error *
-c_corresponding_unsigned_type(struct drgn_type_index *tindex,
+c_corresponding_unsigned_type(struct drgn_program *prog,
 			      enum drgn_primitive_type type,
 			      struct drgn_type **ret)
 {
@@ -2914,23 +2907,23 @@ c_corresponding_unsigned_type(struct drgn_type_index *tindex,
 	 * handle them here.
 	 */
 	case DRGN_C_TYPE_INT:
-		return drgn_type_index_find_primitive(tindex,
-						      DRGN_C_TYPE_UNSIGNED_INT,
-						      ret);
+		return drgn_program_find_primitive_type(prog,
+							DRGN_C_TYPE_UNSIGNED_INT,
+							ret);
 	case DRGN_C_TYPE_LONG:
-		return drgn_type_index_find_primitive(tindex,
-						      DRGN_C_TYPE_UNSIGNED_LONG,
-						      ret);
+		return drgn_program_find_primitive_type(prog,
+							DRGN_C_TYPE_UNSIGNED_LONG,
+							ret);
 	case DRGN_C_TYPE_LONG_LONG:
-		return drgn_type_index_find_primitive(tindex,
-						      DRGN_C_TYPE_UNSIGNED_LONG_LONG,
-						      ret);
+		return drgn_program_find_primitive_type(prog,
+							DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+							ret);
 	default:
 		UNREACHABLE();
 	}
 }
 
-static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
+static struct drgn_error *c_common_real_type(struct drgn_program *prog,
 					     struct drgn_object_type *type1,
 					     struct drgn_object_type *type2,
 					     struct drgn_object_type *ret)
@@ -2980,10 +2973,10 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 	 * Otherwise, the integer promotions are performed before applying the
 	 * following rules.
 	 */
-	err = c_integer_promotions(tindex, type1);
+	err = c_integer_promotions(prog, type1);
 	if (err)
 		return err;
-	err = c_integer_promotions(tindex, type2);
+	err = c_integer_promotions(prog, type2);
 	if (err)
 		return err;
 
@@ -3103,7 +3096,7 @@ static struct drgn_error *c_common_real_type(struct drgn_type_index *tindex,
 	 * rank, then it must have greater size and thus be able to represent
 	 * all values of the unsigned integer type.
 	 */
-	err = c_corresponding_unsigned_type(tindex,
+	err = c_corresponding_unsigned_type(prog,
 					    is_signed1 ? primitive1 : primitive2,
 					    &ret->type);
 	if (err)
@@ -3130,10 +3123,10 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	*type_ret = drgn_object_type(obj);
 	switch (drgn_type_kind(type_ret->underlying_type)) {
 	case DRGN_TYPE_ARRAY:
-		err = drgn_type_index_pointer_type(&obj->prog->tindex,
-						   drgn_type_type(type_ret->underlying_type),
-						   drgn_type_language(type_ret->underlying_type),
-						   &type_ret->type);
+		err = drgn_program_pointer_type(obj->prog,
+						drgn_type_type(type_ret->underlying_type),
+						drgn_type_language(type_ret->underlying_type),
+						&type_ret->type);
 		if (err)
 			return err;
 		type_ret->underlying_type = type_ret->type;
@@ -3144,10 +3137,9 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			.qualifiers = type_ret->qualifiers,
 		};
 
-		err = drgn_type_index_pointer_type(&obj->prog->tindex,
-						   function_type,
-						   drgn_type_language(type_ret->underlying_type),
-						   &type_ret->type);
+		err = drgn_program_pointer_type(obj->prog, function_type,
+						drgn_type_language(type_ret->underlying_type),
+						&type_ret->type);
 		if (err)
 			return err;
 		type_ret->underlying_type = type_ret->type;
@@ -3257,8 +3249,8 @@ struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(&lhs->prog->tindex, &lhs_type,
-					 &rhs_type, &type);
+		err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type,
+					 &type);
 		if (err)
 			return err;
 
@@ -3299,8 +3291,8 @@ struct drgn_error *c_op_add(struct drgn_object *res,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(&lhs->prog->tindex, &lhs_type,
-					 &rhs_type, &type);
+		err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type,
+					 &type);
 		if (err)
 			return err;
 
@@ -3330,9 +3322,9 @@ struct drgn_error *c_op_sub(struct drgn_object *res,
 	if (lhs_pointer && rhs_pointer) {
 		struct drgn_object_type type = {};
 
-		err = drgn_type_index_find_primitive(&lhs->prog->tindex,
-						     DRGN_C_TYPE_PTRDIFF_T,
-						     &type.type);
+		err = drgn_program_find_primitive_type(lhs->prog,
+						       DRGN_C_TYPE_PTRDIFF_T,
+						       &type.type);
 		if (err)
 			return err;
 		type.underlying_type = drgn_underlying_type(type.type);
@@ -3351,8 +3343,8 @@ struct drgn_error *c_op_sub(struct drgn_object *res,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(&lhs->prog->tindex, &lhs_type,
-					 &rhs_type, &type);
+		err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type,
+					 &type);
 		if (err)
 			return err;
 
@@ -3382,8 +3374,7 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
 		return drgn_error_binary_op("binary "#op, &lhs_type,		\
 					    &rhs_type);				\
 										\
-	err = c_common_real_type(&lhs->prog->tindex, &lhs_type, &rhs_type,	\
-				 &type);					\
+	err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type, &type);	\
 	if (err)								\
 		return err;							\
 										\
@@ -3416,10 +3407,10 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
 		return drgn_error_binary_op("binary " #op, &lhs_type,		\
 					    &rhs_type);				\
 										\
-	err = c_integer_promotions(&lhs->prog->tindex, &lhs_type);		\
+	err = c_integer_promotions(lhs->prog, &lhs_type);			\
 	if (err)								\
 		return err;							\
-	err = c_integer_promotions(&lhs->prog->tindex, &rhs_type);		\
+	err = c_integer_promotions(lhs->prog, &rhs_type);			\
 	if (err)								\
 		return err;							\
 										\
@@ -3442,7 +3433,7 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
 	if (!drgn_type_is_##check(type.underlying_type))		\
 		return drgn_error_unary_op("unary " #op, &type);	\
 									\
-	err = c_integer_promotions(&obj->prog->tindex, &type);		\
+	err = c_integer_promotions(obj->prog, &type);			\
 	if (err)							\
 		return err;						\
 									\

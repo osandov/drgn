@@ -13,7 +13,6 @@
 #include "program.h"
 #include "serialize.h"
 #include "type.h"
-#include "type_index.h"
 
 LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 				     struct drgn_program *prog)
@@ -1291,9 +1290,9 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 					 "cannot take address of bit field");
 	}
 
-	err = drgn_type_index_pointer_type(&obj->prog->tindex,
-					   drgn_object_qualified_type(obj),
-					   NULL, &qualified_type.type);
+	err = drgn_program_pointer_type(obj->prog,
+					drgn_object_qualified_type(obj), NULL,
+					&qualified_type.type);
 	if (err)
 		return err;
 	qualified_type.qualifiers = 0;
@@ -1368,10 +1367,10 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 				       obj->type);
 	}
 
-	err = drgn_type_index_find_member(&obj->prog->tindex,
-					  drgn_type_type(underlying_type).type,
-					  member_name, strlen(member_name),
-					  &member);
+	err = drgn_program_find_member(obj->prog,
+				       drgn_type_type(underlying_type).type,
+				       member_name, strlen(member_name),
+				       &member);
 	if (err)
 		return err;
 
@@ -1418,8 +1417,8 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	err = drgn_type_index_pointer_type(&obj->prog->tindex, qualified_type,
-					   NULL, &result_type.type);
+	err = drgn_program_pointer_type(obj->prog, qualified_type, NULL,
+					&result_type.type);
 	if (err)
 		return err;
 	result_type.qualifiers = 0;

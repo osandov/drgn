@@ -91,11 +91,11 @@ class TestProgram(unittest.TestCase):
             "foo.c",
         )
         self.assertRaisesRegex(
-            LookupError, "^could not find 'typedef foo'$", prog.type, "foo"
+            LookupError, "^could not find 'foo'$", prog.type, "foo"
         )
         self.assertRaisesRegex(
             LookupError,
-            "^could not find 'typedef foo' in 'foo.c'$",
+            "^could not find 'foo' in 'foo.c'$",
             prog.type,
             "foo",
             "foo.c",

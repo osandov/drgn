@@ -41,6 +41,13 @@ drgn_object_index_add_finder(struct drgn_object_index *oindex,
 	return NULL;
 }
 
+void drgn_object_index_remove_finder(struct drgn_object_index *oindex)
+{
+	struct drgn_object_finder *finder = oindex->finders->next;
+	free(oindex->finders);
+	oindex->finders = finder;
+}
+
 struct drgn_error *drgn_object_index_find(struct drgn_object_index *oindex,
 					  const char *name,
 					  const char *filename,
