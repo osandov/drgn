@@ -266,6 +266,9 @@ class Formatter:
         node = resolved.node
 
         if rst:
+            if node.docstring is None:
+                want_rtype = False
+
             params_need_type = set()
             params_have_type = set()
             for line in lines:
