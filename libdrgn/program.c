@@ -700,17 +700,14 @@ struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 	struct drgn_prstatus_map_entry entry;
 	size_t pr_pid_offset;
 	uint32_t pr_pid;
-	bool bswap;
 
 	pr_pid_offset = drgn_program_is_64_bit(prog) ? 32 : 24;
-	bswap = (drgn_program_is_little_endian(prog) !=
-		 (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
 
 	if (size < pr_pid_offset + sizeof(pr_pid))
 		return NULL;
 
 	memcpy(&pr_pid, data + pr_pid_offset, sizeof(pr_pid));
-	if (bswap)
+	if (drgn_program_bswap(prog))
 		pr_pid = bswap_32(pr_pid);
 	if (!pr_pid)
 		return NULL;

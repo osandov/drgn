@@ -144,6 +144,16 @@ static inline bool drgn_program_is_little_endian(struct drgn_program *prog)
 	return prog->platform.flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN;
 }
 
+/**
+ * Return whether a @ref drgn_program has a different endianness than the host
+ * system.
+ */
+static inline bool drgn_program_bswap(struct drgn_program *prog)
+{
+	return (drgn_program_is_little_endian(prog) !=
+		(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
+}
+
 static inline bool drgn_program_is_64_bit(struct drgn_program *prog)
 {
 	assert(prog->has_platform);
