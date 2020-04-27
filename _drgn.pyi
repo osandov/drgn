@@ -236,6 +236,30 @@ class Program:
         :raises ValueError: if *size* is negative
         """
         ...
+    def read_u8(self, address: int, physical: bool = False) -> int: ...
+    def read_u16(self, address: int, physical: bool = False) -> int: ...
+    def read_u32(self, address: int, physical: bool = False) -> int: ...
+    def read_u64(self, address: int, physical: bool = False) -> int: ...
+    def read_word(self, address: int, physical: bool = False) -> int:
+        """
+        Read an unsigned integer from the program's memory in the program's
+        byte order.
+
+        :meth:`read_u8()`, :meth:`read_u16()`, :meth:`read_u32()`, and
+        :meth:`read_u64()` read an 8-, 16-, 32-, or 64-bit unsigned integer,
+        respectively. :meth:`read_word()` reads a program word-sized unsigned
+        integer.
+
+        For signed integers, alternate byte order, or other formats, you can
+        use :meth:`read()` and :meth:`int.from_bytes()` or the :mod:`struct`
+        module.
+
+        :param address: Address of the integer.
+        :param physical: Whether *address* is a physical memory address; see
+            :meth:`read()`.
+        :raises FaultError: if the address is invalid; see :meth:`read()`
+        """
+        ...
     def add_memory_segment(
         self,
         address: int,

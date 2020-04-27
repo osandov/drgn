@@ -955,6 +955,73 @@ drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_read_u8(struct drgn_program *prog, uint64_t address, bool physical,
+		     uint8_t *ret)
+{
+	return drgn_memory_reader_read(&prog->reader, ret, address,
+				       sizeof(*ret), physical);
+}
+
+#define DEFINE_PROGRAM_READ_U(n)						\
+LIBDRGN_PUBLIC struct drgn_error *						\
+drgn_program_read_u##n(struct drgn_program *prog, uint64_t address,		\
+		       bool physical, uint##n##_t *ret)				\
+{										\
+	struct drgn_error *err;							\
+	uint##n##_t tmp;							\
+										\
+	if (!prog->has_platform) {						\
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
+					 "program byte order is not known");	\
+	}									\
+	err = drgn_memory_reader_read(&prog->reader, &tmp, address,		\
+				      sizeof(tmp), physical);			\
+	if (err)								\
+		return err;							\
+	if (drgn_program_bswap(prog))						\
+		tmp = bswap_##n(tmp);						\
+	*ret = tmp;								\
+	return NULL;								\
+}
+
+DEFINE_PROGRAM_READ_U(16)
+DEFINE_PROGRAM_READ_U(32)
+DEFINE_PROGRAM_READ_U(64)
+#undef DEFINE_PROGRAM_READ_U
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_read_word(struct drgn_program *prog, uint64_t address,
+		       bool physical, uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program word size is not known");
+	}
+	if (drgn_program_is_64_bit(prog)) {
+		uint64_t tmp;
+		err = drgn_memory_reader_read(&prog->reader, &tmp, address,
+					      sizeof(tmp), physical);
+		if (err)
+			return err;
+		if (drgn_program_bswap(prog))
+			tmp = bswap_64(tmp);
+		*ret = tmp;
+	} else {
+		uint32_t tmp;
+		err = drgn_memory_reader_read(&prog->reader, &tmp, address,
+					      sizeof(tmp), physical);
+		if (err)
+			return err;
+		if (drgn_program_bswap(prog))
+			tmp = bswap_32(tmp);
+		*ret = tmp;
+	}
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_find_type(struct drgn_program *prog, const char *name,
 		       const char *filename, struct drgn_qualified_type *ret)
 {

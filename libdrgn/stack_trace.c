@@ -156,39 +156,24 @@ static bool drgn_thread_memory_read(Dwfl *dwfl, Dwarf_Addr addr,
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = dwfl_arg;
-	bool is_little_endian = drgn_program_is_little_endian(prog);
+	uint64_t word;
 
-	if (drgn_program_is_64_bit(prog)) {
-		uint64_t u64;
-
-		err = drgn_program_read_memory(prog, &u64, addr, sizeof(u64),
-					       false);
-		if (err)
-			goto err;
-		*result = is_little_endian ? le64toh(u64) : be64toh(u64);
-	} else {
-		uint32_t u32;
-
-		err = drgn_program_read_memory(prog, &u32, addr, sizeof(u32),
-					       false);
-		if (err)
-			goto err;
-		*result = is_little_endian ? le32toh(u32) : be32toh(u32);
+	err = drgn_program_read_word(prog, addr, false, &word);
+	if (err) {
+		if (err->code == DRGN_ERROR_FAULT) {
+			/*
+			 * This could be the end of the stack trace, so it shouldn't be
+			 * fatal.
+			 */
+			drgn_error_destroy(err);
+		} else {
+			drgn_error_destroy(prog->stack_trace_err);
+			prog->stack_trace_err = err;
+		}
+		return false;
 	}
+	*result = word;
 	return true;
-
-err:
-	if (err->code == DRGN_ERROR_FAULT) {
-		/*
-		 * This could be the end of the stack trace, so it shouldn't be
-		 * fatal.
-		 */
-		drgn_error_destroy(err);
-	} else {
-		drgn_error_destroy(prog->stack_trace_err);
-		prog->stack_trace_err = err;
-	}
-	return false;
 }
 
 /*

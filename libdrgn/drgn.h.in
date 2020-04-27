@@ -1269,6 +1269,26 @@ struct drgn_error *drgn_program_read_c_string(struct drgn_program *prog,
 					      uint64_t address, bool physical,
 					      size_t max_size, char **ret);
 
+struct drgn_error *drgn_program_read_u8(struct drgn_program *prog,
+					uint64_t address, bool physical,
+					uint8_t *ret);
+
+struct drgn_error *drgn_program_read_u16(struct drgn_program *prog,
+					 uint64_t address, bool physical,
+					 uint16_t *ret);
+
+struct drgn_error *drgn_program_read_u32(struct drgn_program *prog,
+					 uint64_t address, bool physical,
+					 uint32_t *ret);
+
+struct drgn_error *drgn_program_read_u64(struct drgn_program *prog,
+					 uint64_t address, bool physical,
+					 uint64_t *ret);
+
+struct drgn_error *drgn_program_read_word(struct drgn_program *prog,
+					  uint64_t address, bool physical,
+					  uint64_t *ret);
+
 /**
  * Find a type in a program by name.
  *

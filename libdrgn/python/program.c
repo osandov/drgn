@@ -540,6 +540,36 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 	return buf;
 }
 
+#define METHOD_READ(x, type)							\
+static PyObject *Program_read_##x(Program *self, PyObject *args,		\
+				  PyObject *kwds)				\
+{										\
+	static char *keywords[] = {"address", "physical", NULL};		\
+	struct drgn_error *err;							\
+	struct index_arg address = {};						\
+	int physical = 0;							\
+	type tmp;								\
+										\
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|p:read_"#x, keywords,	\
+					 index_converter, &address, &physical))	\
+	    return NULL;							\
+										\
+	err = drgn_program_read_##x(&self->prog, address.uvalue, physical,	\
+				    &tmp);					\
+	if (err)								\
+		return set_drgn_error(err);					\
+	if (sizeof(tmp) <= sizeof(unsigned long))				\
+		return PyLong_FromUnsignedLong(tmp);				\
+	else									\
+		return PyLong_FromUnsignedLongLong(tmp);			\
+}
+METHOD_READ(u8, uint8_t)
+METHOD_READ(u16, uint16_t)
+METHOD_READ(u32, uint32_t)
+METHOD_READ(u64, uint64_t)
+METHOD_READ(word, uint64_t)
+#undef METHOD_READ
+
 static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"name", "filename", NULL};
@@ -868,6 +898,15 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program___getitem___DOC},
 	{"read", (PyCFunction)Program_read, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_read_DOC},
+#define METHOD_DEF_READ(x)						\
+	{"read_"#x, (PyCFunction)Program_read_##x,			\
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_read_##x##_DOC}
+	METHOD_DEF_READ(u8),
+	METHOD_DEF_READ(u16),
+	METHOD_DEF_READ(u32),
+	METHOD_DEF_READ(u64),
+	METHOD_DEF_READ(word),
+#undef METHOD_READ_U
 	{"type", (PyCFunction)Program_find_type, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_type_DOC},
 	{"pointer_type", (PyCFunction)Program_pointer_type,

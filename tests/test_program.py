@@ -134,9 +134,36 @@ class TestProgram(unittest.TestCase):
 class TestMemory(unittest.TestCase):
     def test_simple_read(self):
         data = b"hello, world"
-        prog = mock_program(segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0),])
+        prog = mock_program(segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)])
         self.assertEqual(prog.read(0xFFFF0000, len(data)), data)
         self.assertEqual(prog.read(0xA0, len(data), True), data)
+
+    def test_read_unsigned(self):
+        data = b"\x01\x02\x03\x04\x05\x06\x07\x08"
+        for word_size in [8, 4]:
+            for byteorder in ["little", "big"]:
+                flags = PlatformFlags(0)
+                if word_size == 8:
+                    flags |= PlatformFlags.IS_64_BIT
+                if byteorder == "little":
+                    flags |= PlatformFlags.IS_LITTLE_ENDIAN
+                prog = mock_program(
+                    Platform(Architecture.UNKNOWN, flags),
+                    segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)],
+                )
+                for size in [1, 2, 4, 8]:
+                    read_fn = getattr(prog, f"read_u{8 * size}")
+                    value = int.from_bytes(data[:size], byteorder)
+                    self.assertEqual(read_fn(0xFFFF0000), value)
+                    self.assertEqual(read_fn(0xA0, True), value)
+                    if size == word_size:
+                        self.assertEqual(prog.read_word(0xFFFF0000), value)
+                        self.assertEqual(prog.read_word(0xA0, True), value)
+
+        prog = mock_program(
+            MOCK_32BIT_PLATFORM,
+            segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)],
+        )
 
     def test_bad_address(self):
         data = b"hello, world!"
