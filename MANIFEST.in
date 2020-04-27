@@ -1,4 +1,6 @@
 recursive-include docs *.py *.rst
+recursive-include examples *.py
 recursive-include tests *.py
+recursive-include tools *.py
 recursive-include vmtest *.c *.py *.rst
 include util.py vmtest/config
