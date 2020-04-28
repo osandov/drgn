@@ -4,6 +4,7 @@
 /.mypy_cache
 /build
 /coverage.info
+/cscope.*
 /dist
 /docs/_build
 /drgn.egg-info
