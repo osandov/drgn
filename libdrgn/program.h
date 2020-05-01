@@ -47,7 +47,9 @@ struct vmcoreinfo {
 	 * is enabled.
 	 */
 	uint64_t kaslr_offset;
-	/* Whether 5-level paging was enabled. */
+	/** Kernel page table. */
+	uint64_t swapper_pg_dir;
+	/** Whether 5-level paging was enabled. */
 	bool pgtable_l5_enabled;
 };
 

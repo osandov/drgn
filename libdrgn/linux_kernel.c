@@ -83,6 +83,11 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 					  &ret->kaslr_offset);
 			if (err)
 				return err;
+		} else if (linematch(&line, "SYMBOL(swapper_pg_dir)=")) {
+			err = line_to_u64(line, newline, 16,
+					  &ret->swapper_pg_dir);
+			if (err)
+				return err;
 		} else if (linematch(&line, "NUMBER(pgtable_l5_enabled)=")) {
 			uint64_t tmp;
 
@@ -100,6 +105,10 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 	if (!ret->page_size) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid PAGESIZE");
+	}
+	if (!ret->swapper_pg_dir) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "VMCOREINFO does not contain valid swapper_pg_dir");
 	}
 	/* KERNELOFFSET and pgtable_l5_enabled are optional. */
 	return NULL;

@@ -283,7 +283,7 @@ linux_kernel_get_page_offset_x86_64(struct drgn_program *prog, uint64_t *ret)
 {
 	struct drgn_error *err;
 	struct drgn_object obj;
-	bool nonzero;
+	uint64_t pgd;
 
 	/*
 	 * If KASLR is enabled, PAGE_OFFSET is easily available via
@@ -302,35 +302,18 @@ linux_kernel_get_page_offset_x86_64(struct drgn_program *prog, uint64_t *ret)
 		goto out;
 
 	/*
-	 * If not, we determine PAGE_OFFSET based on the kernel page table. On
-	 * x86_64, swapper_pg_dir is a macro defined to init_top_pgt, which
-	 * itself is defined in assembly. They're both available in VMCOREINFO,
-	 * but it's easier to get it from init_mm.pgd.
+	 * If not, we determine it based on the kernel page table. Before Linux
+	 * kernel commit d52888aa2753 ("x86/mm: Move LDT remap out of KASLR
+	 * region on 5-level paging") (in v4.20), PAGE_OFFSET was pgd slot 272.
+	 * After that, it is pgd slot 273, and slot 272 is empty (reserved for
+	 * Local Descriptor Table mappings for userspace tasks).
 	 */
-	err = drgn_program_find_object(prog, "init_mm", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, &obj);
+	err = drgn_program_read_u64(prog,
+				    prog->vmcoreinfo.swapper_pg_dir + 272 * 8,
+				    false, &pgd);
 	if (err)
 		goto out;
-	err = drgn_object_member(&obj, &obj, "pgd");
-	if (err)
-		goto out;
-
-	/*
-	 * Before Linux kernel commit d52888aa2753 ("x86/mm: Move LDT remap out
-	 * of KASLR region on 5-level paging") (in v4.20), PAGE_OFFSET was pgd
-	 * slot 272. After that, it is pgd slot 273, and slot 272 is empty
-	 * (reserved for Local Descriptor Table mappings for userspace tasks).
-	 */
-	err = drgn_object_subscript(&obj, &obj, 272);
-	if (err)
-		goto out;
-	err = drgn_object_member(&obj, &obj, "pgd");
-	if (err)
-		goto out;
-	err = drgn_object_bool(&obj, &nonzero);
-	if (err)
-		goto out;
-	if (nonzero) {
+	if (pgd) {
 		if (prog->vmcoreinfo.pgtable_l5_enabled)
 			*ret = UINT64_C(0xff10000000000000);
 		else
