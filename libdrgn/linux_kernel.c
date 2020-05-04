@@ -176,7 +176,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 {
 	struct drgn_error *err;
 	FILE *file;
-	unsigned long address;
+	uint64_t address;
 	size_t size;
 	char *buf;
 	Elf64_Nhdr *nhdr;
@@ -186,7 +186,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 		return drgn_error_create_os("fopen", errno,
 					    "/sys/kernel/vmcoreinfo");
 	}
-	if (fscanf(file, "%lx %zx", &address, &size) != 2) {
+	if (fscanf(file, "%" SCNx64 "%zx", &address, &size) != 2) {
 		fclose(file);
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "could not parse /sys/kernel/vmcoreinfo");
