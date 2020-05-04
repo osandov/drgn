@@ -190,7 +190,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	bool is_64_bit, is_kdump;
 	size_t phnum, i;
 	size_t num_file_segments, j;
-	bool have_non_zero_phys_addr = false;
+	bool have_phys_addrs = false;
 	const char *vmcoreinfo_note = NULL;
 	size_t vmcoreinfo_size = 0;
 	bool have_nt_taskstruct = false, is_proc_kcore;
@@ -252,7 +252,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 
 		if (phdr->p_type == PT_LOAD) {
 			if (phdr->p_paddr)
-				have_non_zero_phys_addr = true;
+				have_phys_addrs = true;
 			num_file_segments++;
 		} else if (phdr->p_type == PT_NOTE) {
 			Elf_Data *data;
@@ -284,6 +284,12 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 						   nhdr.n_namesz) == 0) {
 					vmcoreinfo_note = desc;
 					vmcoreinfo_size = nhdr.n_descsz;
+					/*
+					 * This is either a vmcore or
+					 * /proc/kcore, so even a p_paddr of 0
+					 * may be valid.
+					 */
+					have_phys_addrs = true;
 				}
 			}
 		}
@@ -363,7 +369,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 						      false);
 		if (err)
 			goto out_segments;
-		if (have_non_zero_phys_addr &&
+		if (have_phys_addrs &&
 		    phdr->p_paddr != (is_64_bit ? UINT64_MAX : UINT32_MAX)) {
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_paddr,
@@ -386,7 +392,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (is_proc_kcore) {
 		if (!vmcoreinfo_note) {
 			err = read_vmcoreinfo_fallback(&prog->reader,
-						       have_non_zero_phys_addr,
+						       have_phys_addrs,
 						       &prog->vmcoreinfo);
 			if (err)
 				goto out_segments;

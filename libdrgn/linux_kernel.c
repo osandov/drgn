@@ -171,7 +171,7 @@ invalid:
  * from the virtual address in /proc/kallsyms.
  */
 struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
-					    bool have_non_zero_phys_addr,
+					    bool have_phys_addrs,
 					    struct vmcoreinfo *ret)
 {
 	struct drgn_error *err;
@@ -193,7 +193,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 	}
 	fclose(file);
 
-	if (!have_non_zero_phys_addr) {
+	if (!have_phys_addrs) {
 		/*
 		 * Since Linux kernel commit 203e9e41219b ("kexec: move
 		 * vmcoreinfo out of the kernel's .bss section") (in v4.13),
@@ -211,7 +211,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 		return &drgn_enomem;
 
 	err = drgn_memory_reader_read(reader, buf, address, size,
-				      have_non_zero_phys_addr);
+				      have_phys_addrs);
 	if (err)
 		goto out;
 
