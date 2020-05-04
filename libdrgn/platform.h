@@ -39,6 +39,9 @@ struct drgn_architecture_info {
 							   uint64_t *);
 	struct drgn_error *(*linux_kernel_get_vmemmap)(struct drgn_program *,
 						       uint64_t *);
+	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *,
+									uint64_t *,
+									uint64_t *);
 };
 
 static inline const struct drgn_register *

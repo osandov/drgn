@@ -382,6 +382,53 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		}
 		j++;
 	}
+	/*
+	 * Before Linux kernel commit 464920104bf7 ("/proc/kcore: update
+	 * physical address for kcore ram and text") (in v4.11), p_paddr in
+	 * /proc/kcore is always zero. If we know the address of the direct
+	 * mapping, we can still add physical segments. This needs to be a third
+	 * pass, as we may need to read virtual memory to determine the mapping.
+	 */
+	if (is_proc_kcore && !have_phys_addrs &&
+	    platform.arch->linux_kernel_live_direct_mapping_fallback) {
+		uint64_t direct_mapping, direct_mapping_size;
+
+		err = platform.arch->linux_kernel_live_direct_mapping_fallback(prog,
+									       &direct_mapping,
+									       &direct_mapping_size);
+		if (err)
+			goto out_segments;
+
+		for (i = 0, j = 0; i < phnum && j < num_file_segments; i++) {
+			GElf_Phdr phdr_mem, *phdr;
+
+			phdr = gelf_getphdr(prog->core, i, &phdr_mem);
+			if (!phdr) {
+				err = drgn_error_libelf();
+				goto out_segments;
+			}
+
+			if (phdr->p_type != PT_LOAD)
+				continue;
+
+			if (phdr->p_vaddr >= direct_mapping &&
+			    phdr->p_vaddr - direct_mapping + phdr->p_memsz <=
+			    direct_mapping_size) {
+				uint64_t phys_addr;
+
+				phys_addr = phdr->p_vaddr - direct_mapping;
+				err = drgn_program_add_memory_segment(prog,
+								      phys_addr,
+								      phdr->p_memsz,
+								      drgn_read_memory_file,
+								      &prog->file_segments[j],
+								      true);
+				if (err)
+					goto out_segments;
+			}
+			j++;
+		}
+	}
 	if (vmcoreinfo_note) {
 		err = parse_vmcoreinfo(vmcoreinfo_note, vmcoreinfo_size,
 				       &prog->vmcoreinfo);
@@ -392,7 +439,6 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (is_proc_kcore) {
 		if (!vmcoreinfo_note) {
 			err = read_vmcoreinfo_fallback(&prog->reader,
-						       have_phys_addrs,
 						       &prog->vmcoreinfo);
 			if (err)
 				goto out_segments;

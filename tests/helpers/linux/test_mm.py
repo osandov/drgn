@@ -71,6 +71,14 @@ class TestMm(LinuxHelperTestCase):
                 # Test the opposite direction.
                 self.assertEqual(page_to_pfn(page), pfn)
 
+    def test_read_physical(self):
+        with self._pages() as (map, pfns):
+            for i, pfn in enumerate(pfns):
+                self.assertEqual(
+                    self.prog.read(pfn * mmap.PAGESIZE, mmap.PAGESIZE, True),
+                    map[i * mmap.PAGESIZE : (i + 1) * mmap.PAGESIZE],
+                )
+
     @unittest.skipUnless(platform.machine() == "x86_64", "machine is not x86_64")
     def test_pgtable_l5_enabled(self):
         with open("/proc/cpuinfo", "r") as f:

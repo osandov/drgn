@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "internal.h"
+#include "linux_kernel.h"
 #include "platform.h"
 #include "program.h"
 %}
@@ -377,13 +378,42 @@ out:
 	return err;
 }
 
+static struct drgn_error *
+linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
+						 uint64_t *address_ret,
+						 uint64_t *size_ret)
+{
+	struct drgn_error *err;
+	unsigned long page_offset_base_address;
+
+	*size_ret = UINT64_C(1) << 46;
+	err = proc_kallsyms_symbol_addr("page_offset_base",
+					&page_offset_base_address);
+	if (!err) {
+		return drgn_program_read_word(prog, page_offset_base_address,
+					      false, address_ret);
+	} else if (err == &drgn_not_found) {
+		/*
+		 * This is only called for pre-4.11 kernels, so we can assume
+		 * the old location.
+		 */
+		*address_ret = UINT64_C(0xffff880000000000);
+		return NULL;
+	} else {
+		return err;
+	}
+}
+
 const struct drgn_architecture_info arch_info_x86_64 = {
 	ARCHITECTURE_INFO,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
 	.frame_registers = frame_registers_x86_64,
 	.num_frame_registers = ARRAY_SIZE(frame_registers_x86_64),
-	.linux_kernel_set_initial_registers = linux_kernel_set_initial_registers_x86_64,
+	.linux_kernel_set_initial_registers =
+		linux_kernel_set_initial_registers_x86_64,
 	.linux_kernel_get_page_offset = linux_kernel_get_page_offset_x86_64,
 	.linux_kernel_get_vmemmap = linux_kernel_get_vmemmap_x86_64,
+	.linux_kernel_live_direct_mapping_fallback =
+		linux_kernel_live_direct_mapping_fallback_x86_64,
 };

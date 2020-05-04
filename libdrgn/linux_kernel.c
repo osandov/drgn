@@ -105,8 +105,8 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 	return NULL;
 }
 
-static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
-						    unsigned long *ret)
+struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
+					     unsigned long *ret)
 {
 	struct drgn_error *err;
 	FILE *file;
@@ -126,9 +126,7 @@ static struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 				err = drgn_error_create_os("getline", errno,
 							   "/proc/kallsyms");
 			} else {
-				err = drgn_error_format(DRGN_ERROR_OTHER,
-							"could not find %s symbol in /proc/kallsyms",
-							name);
+				err = &drgn_not_found;
 			}
 			break;
 		}
@@ -163,15 +161,11 @@ invalid:
 
 /*
  * Before Linux kernel commit 23c85094fe18 ("proc/kcore: add vmcoreinfo note to
- * /proc/kcore") (in v4.19), /proc/kcore didn't have a VMCOREINFO note, so we
- * have to get it by other means. Since Linux kernel commit 464920104bf7
- * ("/proc/kcore: update physical address for kcore ram and text") (in v4.11),
+ * /proc/kcore") (in v4.19), /proc/kcore didn't have a VMCOREINFO note. Instead,
  * we can read from the physical address of the vmcoreinfo note exported in
- * sysfs. Before that, p_paddr in /proc/kcore is always zero, but we can read
- * from the virtual address in /proc/kallsyms.
+ * sysfs.
  */
 struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
-					    bool have_phys_addrs,
 					    struct vmcoreinfo *ret)
 {
 	struct drgn_error *err;
@@ -193,25 +187,11 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 	}
 	fclose(file);
 
-	if (!have_phys_addrs) {
-		/*
-		 * Since Linux kernel commit 203e9e41219b ("kexec: move
-		 * vmcoreinfo out of the kernel's .bss section") (in v4.13),
-		 * vmcoreinfo_note is a pointer; before that, it is an array. We
-		 * only do this for kernels before v4.11, so we can assume that
-		 * it's an array.
-		 */
-		err = proc_kallsyms_symbol_addr("vmcoreinfo_note", &address);
-		if (err)
-			return err;
-	}
-
 	buf = malloc(size);
 	if (!buf)
 		return &drgn_enomem;
 
-	err = drgn_memory_reader_read(reader, buf, address, size,
-				      have_phys_addrs);
+	err = drgn_memory_reader_read(reader, buf, address, size, true);
 	if (err)
 		goto out;
 

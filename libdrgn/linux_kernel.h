@@ -15,8 +15,10 @@ struct vmcoreinfo;
 struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 				    struct vmcoreinfo *ret);
 
+struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
+					     unsigned long *ret);
+
 struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
-					    bool have_non_zero_phys_addr,
 					    struct vmcoreinfo *ret);
 
 struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
