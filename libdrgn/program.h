@@ -101,6 +101,11 @@ struct drgn_program {
 	bool has_platform;
 	bool attached_dwfl_state;
 	bool prstatus_cached;
+	/*
+	 * Whether @ref drgn_program::pgtable_it is currently being used. Used
+	 * to prevent address translation from recursing.
+	 */
+	bool pgtable_it_in_use;
 
 	/* Page table iterator for linux_helper_read_vm(). */
 	struct pgtable_iterator *pgtable_it;

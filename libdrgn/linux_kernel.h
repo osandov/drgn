@@ -12,6 +12,10 @@ struct drgn_dwarf_index;
 struct drgn_memory_reader;
 struct vmcoreinfo;
 
+struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
+					   size_t count, uint64_t offset,
+					   void *arg, bool physical);
+
 struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 				    struct vmcoreinfo *ret);
 

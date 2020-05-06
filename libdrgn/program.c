@@ -315,23 +315,10 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 
 	if (vmcoreinfo_note && !is_proc_kcore) {
 		char *env;
-		bool use_libkdumpfile;
 
-		/*
-		 * Use libkdumpfile for ELF vmcores if we were compiled with
-		 * libkdumpfile support unless specified otherwise.
-		 */
+		/* Use libkdumpfile for ELF vmcores if it was requested. */
 		env = getenv("DRGN_USE_LIBKDUMPFILE_FOR_ELF");
-		if (env) {
-			use_libkdumpfile = atoi(env);
-		} else {
-#ifdef WITH_LIBKDUMPFILE
-			use_libkdumpfile = true;
-#else
-			use_libkdumpfile = false;
-#endif
-		}
-		if (use_libkdumpfile) {
+		if (env && atoi(env)) {
 			err = drgn_program_set_kdump(prog);
 			if (err)
 				goto out_elf;
@@ -344,6 +331,20 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (!prog->file_segments) {
 		err = &drgn_enomem;
 		goto out_elf;
+	}
+
+	if (is_proc_kcore || vmcoreinfo_note) {
+		/*
+		 * Try to read any memory that isn't in the core dump via the
+		 * page table.
+		 */
+		err = drgn_program_add_memory_segment(prog, 0,
+						      is_64_bit ?
+						      UINT64_MAX : UINT32_MAX,
+						      read_memory_via_pgtable,
+						      prog, false);
+		if (err)
+			goto out_segments;
 	}
 
 	/* Second pass: add the segments. */

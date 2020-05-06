@@ -94,4 +94,4 @@ Some of drgn's behavior can be modified through environment variables:
 
 ``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
-    is 1 if drgn was built with libkdumpfile support.
+    is 0. This functionality will be removed in the future.

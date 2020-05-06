@@ -14,9 +14,19 @@
 
 #include "internal.h"
 #include "dwarf_index.h"
+#include "helpers.h"
 #include "linux_kernel.h"
 #include "program.h"
 #include "read.h"
+
+struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
+					   size_t count, uint64_t offset,
+					   void *arg, bool physical)
+{
+	struct drgn_program *prog = arg;
+	return linux_helper_read_vm(prog, prog->vmcoreinfo.swapper_pg_dir,
+				    address, buf, count);
+}
 
 static inline bool linematch(const char **line, const char *prefix)
 {
