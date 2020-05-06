@@ -100,6 +100,8 @@ struct drgn_program {
 	bool attached_dwfl_state;
 	bool prstatus_cached;
 
+	/* Page table iterator for linux_helper_read_vm(). */
+	struct pgtable_iterator *pgtable_it;
 	/* Cache for @ref linux_helper_task_state_to_char(). */
 	char *task_state_chars;
 	uint64_t task_report;

@@ -1,4 +1,4 @@
-// Copyright 2019 - Omar Sandoval
+// Copyright 2019-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 #ifndef DRGN_PLATFORM_H
@@ -24,6 +24,44 @@ struct drgn_frame_register {
 	const char *pt_regs_name2;
 };
 
+/* Page table iterator. */
+struct pgtable_iterator {
+	struct drgn_program *prog;
+	/* Address of the top-level page table to iterate. */
+	uint64_t pgtable;
+	/* Current virtual address to translate. */
+	uint64_t virt_addr;
+	/* Architecture-specific data. */
+	char arch[0];
+};
+
+/*
+ * Translate the current virtual address from a page table iterator.
+ *
+ * Abstractly, a virtual address lies in a range of addresses in the address
+ * space. A range may be a mapped page, a page table gap, or a range of invalid
+ * addresses (e.g., non-canonical addresses on x86-64). This finds the range
+ * containing the current virtual address, returns the first virtual address of
+ * that range and the physical address it maps to (if any), and updates the
+ * current virtual address to the end of the range.
+ *
+ * This does not merge contiguous ranges. For example, if two adjacent mapped
+ * pages have adjacent physical addresses, this returns each page separately.
+ * This makes it possible to distinguish between contiguous pages and "huge
+ * pages" on architectures that support different page sizes. Similarly, if two
+ * adjacent entries at level 2 of the page table are empty, this returns each
+ * gap separately.
+ *
+ * @param[in] it Iterator.
+ * @param[out] virt_addr_ret Returned first virtual address in the range
+ * containing the current virtual address.
+ * @param[out] phys_addr_ret Returned physical address that @p virt_addr_ret
+ * maps to, or @c UINT64_MAX if it is not mapped.
+ */
+typedef struct drgn_error *
+(pgtable_iterator_next_fn)(struct pgtable_iterator *it, uint64_t *virt_addr_ret,
+			   uint64_t *phys_addr_ret);
+
 struct drgn_architecture_info {
 	const char *name;
 	enum drgn_architecture arch;
@@ -42,6 +80,12 @@ struct drgn_architecture_info {
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *,
 									uint64_t *,
 									uint64_t *);
+	/* Size to allocate for pgtable_iterator::arch. */
+	size_t pgtable_iterator_arch_size;
+	/* Initialize pgtable_iterator::arch. */
+	void (*pgtable_iterator_arch_init)(void *buf);
+	/* Iterate a (user or kernel) page table in the Linux kernel. */
+	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
 };
 
 static inline const struct drgn_register *

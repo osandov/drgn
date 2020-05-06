@@ -1,6 +1,8 @@
 %{
-// Copyright 2019 - Omar Sandoval
+// Copyright 2019-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
+
+#include <byteswap.h>
 
 #include "internal.h"
 #include "linux_kernel.h"
@@ -404,6 +406,98 @@ linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
 	}
 }
 
+struct pgtable_iterator_x86_64 {
+	uint16_t index[5];
+	uint64_t table[5][512];
+};
+
+static void pgtable_iterator_arch_init_x86_64(void *buf)
+{
+	struct pgtable_iterator_x86_64 *arch = buf;
+	memset(arch->index, 0xff, sizeof(arch->index));
+	memset(arch->table, 0, sizeof(arch->table));
+}
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
+					  uint64_t *virt_addr_ret,
+					  uint64_t *phys_addr_ret)
+{
+	static const int PAGE_SHIFT = 12;
+	static const int PGTABLE_SHIFT = 9;
+	static const int PGTABLE_MASK = (1 << PGTABLE_SHIFT) - 1;
+	static const uint64_t PRESENT = 0x1;
+	static const uint64_t PSE = 0x80; /* a.k.a. huge page */
+	static const uint64_t ADDRESS_MASK = UINT64_C(0xffffffffff000);
+	struct drgn_program *prog = it->prog;
+	struct pgtable_iterator_x86_64 *arch = (void *)it->arch;
+	struct drgn_error *err;
+	bool bswap = drgn_program_bswap(prog);
+	int levels = prog->vmcoreinfo.pgtable_l5_enabled ? 5 : 4, level;
+
+	/* Find the lowest level with cached entries. */
+	for (level = 0; level < levels; level++) {
+		if (arch->index[level] < ARRAY_SIZE(arch->table[level]))
+			break;
+	}
+	/* For every level below that, refill the cache/return pages. */
+	for (;; level--) {
+		uint64_t table;
+		bool table_physical;
+		uint16_t index;
+		if (level == levels) {
+			uint64_t start_non_canonical, end_non_canonical;
+			start_non_canonical = (UINT64_C(1) <<
+					       (PAGE_SHIFT +
+						PGTABLE_SHIFT * levels - 1));
+			end_non_canonical = (UINT64_MAX <<
+					     (PAGE_SHIFT +
+					      PGTABLE_SHIFT * levels - 1));
+			if (it->virt_addr >= start_non_canonical &&
+			    it->virt_addr < end_non_canonical) {
+				*virt_addr_ret = start_non_canonical;
+				*phys_addr_ret = UINT64_MAX;
+				it->virt_addr = end_non_canonical;
+				return NULL;
+			}
+			table = it->pgtable;
+			table_physical = false;
+		} else {
+			uint64_t entry = arch->table[level][arch->index[level]++];
+			if (bswap)
+				entry = bswap_64(entry);
+			table = entry & ADDRESS_MASK;
+			if (!(entry & PRESENT) || (entry & PSE) || level == 0) {
+				uint64_t mask = (UINT64_C(1) <<
+						 (PAGE_SHIFT +
+						  PGTABLE_SHIFT * level)) - 1;
+				*virt_addr_ret = it->virt_addr & ~mask;
+				if (entry & PRESENT)
+					*phys_addr_ret = table & ~mask;
+				else
+					*phys_addr_ret = UINT64_MAX;
+				it->virt_addr = (it->virt_addr | mask) + 1;
+				return NULL;
+			}
+			table_physical = true;
+		}
+		index = (it->virt_addr >>
+			 (PAGE_SHIFT + PGTABLE_SHIFT * (level - 1))) & PGTABLE_MASK;
+		/*
+		 * It's only marginally more expensive to read 4096 bytes than 8
+		 * bytes, so we always read to the end of the table.
+		 */
+		err = drgn_program_read_memory(prog,
+					       &arch->table[level - 1][index],
+					       table + 8 * index,
+					       sizeof(arch->table[0]) - 8 * index,
+					       table_physical);
+		if (err)
+			return err;
+		arch->index[level - 1] = index;
+	}
+}
+
 const struct drgn_architecture_info arch_info_x86_64 = {
 	ARCHITECTURE_INFO,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
@@ -416,4 +510,8 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.linux_kernel_get_vmemmap = linux_kernel_get_vmemmap_x86_64,
 	.linux_kernel_live_direct_mapping_fallback =
 		linux_kernel_live_direct_mapping_fallback_x86_64,
+	.pgtable_iterator_arch_size = sizeof(struct pgtable_iterator_x86_64),
+	.pgtable_iterator_arch_init = pgtable_iterator_arch_init_x86_64,
+	.linux_kernel_pgtable_iterator_next =
+		linux_kernel_pgtable_iterator_next_x86_64,
 };
