@@ -115,6 +115,8 @@ static PyMethodDef drgn_methods[] = {
 	 drgn_array_type_DOC},
 	{"function_type", (PyCFunction)function_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_function_type_DOC},
+	{"_linux_helper_read_vm", (PyCFunction)drgnpy_linux_helper_read_vm,
+	 METH_VARARGS | METH_KEYWORDS},
 	{"_linux_helper_radix_tree_lookup",
 	 (PyCFunction)drgnpy_linux_helper_radix_tree_lookup,
 	 METH_VARARGS | METH_KEYWORDS},

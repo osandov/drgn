@@ -1,4 +1,4 @@
-// Copyright 2019 - Omar Sandoval
+// Copyright 2019-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 /**
@@ -12,6 +12,10 @@
 
 #ifndef DRGN_HELPERS_H
 #define DRGN_HELPERS_H
+
+struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
+					uint64_t pgtable, uint64_t virt_addr,
+					void *buf, size_t count);
 
 struct drgn_error *
 linux_helper_radix_tree_lookup(struct drgn_object *res,

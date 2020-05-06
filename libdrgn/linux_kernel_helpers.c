@@ -1,4 +1,4 @@
-// Copyright 2019 - Omar Sandoval
+// Copyright 2019-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <inttypes.h>
@@ -6,6 +6,87 @@
 
 #include "internal.h"
 #include "program.h"
+
+struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
+					uint64_t pgtable, uint64_t virt_addr,
+					void *buf, size_t count)
+{
+	struct drgn_error *err;
+	struct pgtable_iterator *it;
+	pgtable_iterator_next_fn *next;
+	uint64_t read_addr = 0;
+	size_t read_size = 0;
+
+	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "virtual address translation is only available for the Linux kernel");
+	}
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "cannot do virtual address translation without platform");
+	}
+	if (!prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					 "virtual address translation is not implemented for %s architecture",
+					 prog->platform.arch->name);
+	}
+
+	if (!count)
+		return NULL;
+
+	if (prog->pgtable_it) {
+		it = prog->pgtable_it;
+	} else {
+		it = malloc(sizeof(*it) +
+			    prog->platform.arch->pgtable_iterator_arch_size);
+		if (!it)
+			return &drgn_enomem;
+		prog->pgtable_it = it;
+		it->prog = prog;
+	}
+	it->pgtable = pgtable;
+	it->virt_addr = virt_addr;
+	prog->platform.arch->pgtable_iterator_arch_init(it->arch);
+	next = prog->platform.arch->linux_kernel_pgtable_iterator_next;
+	do {
+		uint64_t virt_addr, start_virt_addr, end_virt_addr;
+		uint64_t start_phys_addr, end_phys_addr;
+		size_t n;
+
+		virt_addr = it->virt_addr;
+		err = next(it, &start_virt_addr, &start_phys_addr);
+		if (err)
+			break;
+		if (start_phys_addr == UINT64_MAX) {
+			err = drgn_error_create_fault("address is not mapped",
+						      virt_addr);
+			break;
+		}
+		end_virt_addr = it->virt_addr;
+		end_phys_addr = start_phys_addr + (end_virt_addr - start_virt_addr);
+		n = min(end_virt_addr - virt_addr, (uint64_t)count);
+		if (read_size && end_phys_addr == read_addr + read_size) {
+			read_size += n;
+		} else {
+			if (read_size) {
+				err = drgn_program_read_memory(prog, buf,
+							       read_addr,
+							       read_size, true);
+				if (err)
+					break;
+				buf = (char *)buf + read_size;
+			}
+			read_addr = start_phys_addr + (virt_addr - start_virt_addr);
+			read_size = n;
+		}
+		count -= n;
+	} while (count);
+	if (!err) {
+		err = drgn_program_read_memory(prog, buf, read_addr, read_size,
+					       true);
+	}
+	return err;
+}
 
 struct drgn_error *
 linux_helper_radix_tree_lookup(struct drgn_object *res,

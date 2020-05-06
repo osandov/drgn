@@ -10,17 +10,19 @@ Linux memory management (MM) subsystem. Only x86-64 support is currently
 implemented.
 """
 
-from _drgn import _linux_helper_pgtable_l5_enabled
+from _drgn import _linux_helper_read_vm, _linux_helper_pgtable_l5_enabled
 from drgn import Object, cast
 
 
 __all__ = (
-    "pgtable_l5_enabled",
+    "access_process_vm",
+    "access_remote_vm",
     "for_each_page",
     "page_to_pfn",
     "page_to_virt",
     "pfn_to_page",
     "pfn_to_virt",
+    "pgtable_l5_enabled",
     "virt_to_page",
     "virt_to_pfn",
 )
@@ -120,3 +122,31 @@ def virt_to_page(prog_or_addr, addr=None):
     an ``int``.
     """
     return pfn_to_page(virt_to_pfn(prog_or_addr, addr))
+
+
+def access_process_vm(task, address, size) -> bytes:
+    """
+    .. c:function:: char *access_process_vm(struct task_struct *task, void *address, size_t size)
+
+    Read memory from a task's virtual address space.
+
+    >>> task = find_task(prog, 1490152)
+    >>> access_process_vm(task, 0x7f8a62b56da0, 12)
+    b'hello, world'
+    """
+    return _linux_helper_read_vm(task.prog_, task.mm.pgd, address, size)
+
+
+def access_remote_vm(mm, address, size) -> bytes:
+    """
+    .. c:function:: char *access_remote_vm(struct mm_struct *mm, void *address, size_t size)
+
+    Read memory from a virtual address space. This is similar to
+    :func:`access_process_vm()`, but it takes a ``struct mm_struct *`` instead
+    of a ``struct task_struct *``.
+
+    >>> task = find_task(prog, 1490152)
+    >>> access_remote_vm(task.mm, 0x7f8a62b56da0, 12)
+    b'hello, world'
+    """
+    return _linux_helper_read_vm(mm.prog_, mm.pgd, address, size)
