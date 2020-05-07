@@ -1,4 +1,4 @@
-// Copyright 2018-2019 - Omar Sandoval
+// Copyright 2018-2020 - Omar Sandoval
 // SPDX-License-Identifier: GPL-3.0+
 
 /**
@@ -24,7 +24,7 @@
 #include <string.h>
 
 #include "cityhash.h"
-#include "internal.h"
+#include "util.h"
 
 /**
  * @ingroup Internals

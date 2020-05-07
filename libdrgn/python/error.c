@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "drgnpy.h"
+#include "../error.h"
 
 int FaultError_init(PyObject *self, PyObject *args, PyObject *kwds)
 {

@@ -12,7 +12,7 @@
 #ifndef DRGN_BINARY_SEARCH_TREE_H
 #define DRGN_BINARY_SEARCH_TREE_H
 
-#include "internal.h"
+#include "util.h"
 
 /**
  * @ingroup Internals
