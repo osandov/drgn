@@ -323,7 +323,7 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 	default:
 		break;
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 static int buffer_object_from_value(struct drgn_object *res,
@@ -571,7 +571,7 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 			break;
 		}
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 	} else {
 		PyErr_SetString(PyExc_ValueError,
@@ -764,7 +764,7 @@ static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 	default:
 		break;
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 static PyObject *DrgnObject_value(DrgnObject *self)
@@ -1214,7 +1214,7 @@ static PyObject *DrgnObject_int(DrgnObject *self)
 		ret = PyLong_FromDouble(value->fvalue);
 		break;
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 	drgn_object_deinit_value(&self->obj, value);
 	return ret;
@@ -1247,7 +1247,7 @@ static PyObject *DrgnObject_float(DrgnObject *self)
 		ret = PyFloat_FromDouble(value->fvalue);
 		break;
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 	drgn_object_deinit_value(&self->obj, value);
 	return ret;
@@ -1280,7 +1280,7 @@ static PyObject *DrgnObject_index(DrgnObject *self)
 		ret = PyLong_FromUnsignedLongLong(value->uvalue);
 		break;
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 	drgn_object_deinit_value(&self->obj, value);
 	return ret;
@@ -1376,7 +1376,7 @@ static PyObject *DrgnObject_##func(DrgnObject *self)			\
 		ret = PyLong_FromDouble(func(value->fvalue));		\
 		break;							\
 	default:							\
-		DRGN_UNREACHABLE();					\
+		UNREACHABLE();						\
 	}								\
 	drgn_object_deinit_value(&self->obj, value);			\
 	return ret;							\

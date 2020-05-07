@@ -833,7 +833,7 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "cannot get size of function type");
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 struct drgn_error *drgn_type_bit_size(struct drgn_type *type, uint64_t *ret)
@@ -879,7 +879,7 @@ enum drgn_object_kind drgn_type_object_kind(struct drgn_type *type)
 	case DRGN_TYPE_FUNCTION:
 		return DRGN_OBJECT_NONE;
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 struct drgn_error *drgn_type_error(const char *format, struct drgn_type *type)
@@ -928,7 +928,7 @@ struct drgn_error *drgn_error_incomplete_type(const char *format,
 	case DRGN_TYPE_VOID:
 		return drgn_error_format(DRGN_ERROR_TYPE, format, "void");
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 }
 

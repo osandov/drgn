@@ -12,6 +12,7 @@
 #ifndef DRGN_INTERNAL_H
 #define DRGN_INTERNAL_H
 
+#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,6 +35,12 @@
 
 #ifndef LIBDRGN_PUBLIC
 #define LIBDRGN_PUBLIC __attribute__((visibility("default")))
+#endif
+
+#ifdef NDEBUG
+#define UNREACHABLE() __builtin_unreachable()
+#else
+#define UNREACHABLE() assert(!"reachable")
 #endif
 
 #define likely(x) __builtin_expect(!!(x), 1)

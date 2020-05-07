@@ -347,7 +347,7 @@ drgn_prstatus_set_initial_registers(Dwfl_Thread *thread,
 			break;
 		}
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 		if (!dwfl_thread_state_registers(thread, reg->number, 1, &word))
 			return drgn_error_libdwfl();

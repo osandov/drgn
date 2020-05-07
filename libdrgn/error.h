@@ -26,8 +26,6 @@
  * @{
  */
 
-#define DRGN_UNREACHABLE() abort()
-
 struct drgn_object_type;
 
 /**

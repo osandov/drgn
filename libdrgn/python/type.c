@@ -1599,7 +1599,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 							language);
 			break;
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 	} else {
 		if (_PyDict_SetItemId(type_obj->attr_cache,
@@ -1622,7 +1622,7 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 					     num_members, language);
 			break;
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 	}
 	return type_obj;

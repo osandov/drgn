@@ -123,7 +123,7 @@ c_append_tagged_name(struct drgn_qualified_type qualified_type, size_t indent,
 		keyword = "enum";
 		break;
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 
 	if (!append_tabs(indent, sb))
@@ -352,7 +352,7 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 	case DRGN_TYPE_FUNCTION:
 		return c_declare_function(qualified_type, name, indent, sb);
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 static struct drgn_error *
@@ -507,7 +507,7 @@ c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "function type cannot be formatted");
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 static struct drgn_error *
@@ -725,7 +725,7 @@ c_format_int_object(const struct drgn_object *obj,
 		return NULL;
 	}
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 }
 
@@ -1133,7 +1133,7 @@ c_format_compound_object(const struct drgn_object *obj,
 			keyword = "class";
 			break;
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 		return drgn_error_format(DRGN_ERROR_TYPE,
 					 "cannot format incomplete %s object",
@@ -1599,7 +1599,7 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 	case DRGN_TYPE_FUNCTION:
 		return c_format_function_object(obj, sb);
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 }
 
@@ -2681,7 +2681,7 @@ struct drgn_error *c_bit_offset(struct drgn_program *prog,
 			}
 			break;
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 		state = token.kind;
 	}
@@ -2933,7 +2933,7 @@ c_corresponding_unsigned_type(struct drgn_type_index *tindex,
 						      DRGN_C_TYPE_UNSIGNED_LONG_LONG,
 						      ret);
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 }
 

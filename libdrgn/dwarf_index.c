@@ -1298,7 +1298,7 @@ static struct drgn_error *read_module_cus(struct drgn_dwarf_module *module,
 		module->state = DRGN_DWARF_MODULE_INDEXING;
 		return NULL;
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,

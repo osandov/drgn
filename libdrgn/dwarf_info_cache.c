@@ -561,7 +561,7 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		dw_tag = DW_TAG_class_type;
 		break;
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 
 	attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem);
@@ -609,7 +609,7 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			drgn_class_type_init_incomplete(type, tag, lang);
 			break;
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 		*ret = type;
 		return NULL;
@@ -1420,7 +1420,7 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 		tag = DW_TAG_typedef;
 		break;
 	default:
-		DRGN_UNREACHABLE();
+		UNREACHABLE();
 	}
 
 	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name, name_len,
@@ -1471,7 +1471,7 @@ drgn_object_from_dwarf_enumerator(struct drgn_dwarf_info_cache *dicache,
 							0);
 		}
 	}
-	DRGN_UNREACHABLE();
+	UNREACHABLE();
 }
 
 static struct drgn_error *
@@ -1565,7 +1565,7 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 			return drgn_object_from_dwarf_variable(dicache, &die,
 							       bias, name, ret);
 		default:
-			DRGN_UNREACHABLE();
+			UNREACHABLE();
 		}
 	}
 	if (err && err->code != DRGN_ERROR_STOP)
