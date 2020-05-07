@@ -13,7 +13,6 @@
 #define DRGN_INTERNAL_H
 
 #include <assert.h>
-#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -162,21 +161,7 @@ static inline bool strstartswith(const char *s, const char *prefix)
 	return strncmp(s, prefix, strlen(prefix)) == 0;
 }
 
-void *realloc_array(void *ptr, size_t nmemb, size_t size);
 void *malloc_array(size_t nmemb, size_t size);
-
-/* bool resize_array(T **ptr, size_t n); */
-#define resize_array(ptr, n) ({					\
-	__auto_type _ptr = (ptr);				\
-	typeof(*_ptr) _tmp;					\
-	bool _success;						\
-								\
-	errno = 0;						\
-	_tmp = realloc_array(*_ptr, (n), sizeof(**_ptr));	\
-	if ((_success = _tmp || !errno))			\
-		*_ptr = _tmp;					\
-	_success;						\
-})
 
 static inline void *malloc64(uint64_t size)
 {
