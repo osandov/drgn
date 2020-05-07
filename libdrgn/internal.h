@@ -36,10 +36,6 @@
 #define LIBDRGN_PUBLIC __attribute__((visibility("default")))
 #endif
 
-_Static_assert(sizeof(off_t) == 8 || sizeof(off_t) == 4,
-	       "off_t is not 64 bits or 32 bits");
-#define OFF_MAX (sizeof(off_t) == 8 ? INT64_MAX : INT32_MAX)
-
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
