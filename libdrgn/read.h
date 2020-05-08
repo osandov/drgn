@@ -122,7 +122,7 @@ static inline void read_u##size##_nocheck(const char **ptr, bool bswap,	\
 {									\
 	uint##size##_t tmp;						\
 									\
-	tmp = *(const uint##size##_t *)*ptr;				\
+	memcpy(&tmp, *ptr, sizeof(tmp));				\
 	if (bswap)							\
 		tmp = bswap_##size(tmp);				\
 	*ret = tmp;							\
