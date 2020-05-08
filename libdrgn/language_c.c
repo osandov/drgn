@@ -2704,10 +2704,7 @@ struct drgn_error *c_integer_literal(struct drgn_object *res, uint64_t uvalue)
 	struct drgn_qualified_type qualified_type;
 	size_t i;
 
-	_Static_assert(sizeof(unsigned long long) == 8,
-		       "unsigned long long is not 64 bits");
-	bits = uvalue ? 64 - __builtin_clzll(uvalue) : 0;
-
+	bits = fls(uvalue);
 	qualified_type.qualifiers = 0;
 	for (i = 0; i < ARRAY_SIZE(types); i++) {
 		err = drgn_type_index_find_primitive(&res->prog->tindex,
