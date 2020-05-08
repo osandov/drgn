@@ -101,26 +101,41 @@
 
 #define __bitop(x, unique_x, op) ({					\
 	__auto_type unique_x = (x);					\
-									\
+	static_assert(sizeof(unique_x) <= sizeof(unsigned long long),	\
+		      "type is too large");				\
 	(unsigned int)(sizeof(unique_x) <= sizeof(unsigned int) ?	\
-		       __builtin_##op(unique_x) :			\
+		       op(unique_x) :					\
 		       sizeof(unique_x) <= sizeof(unsigned long) ?	\
-		       __builtin_##op##l(unique_x) :			\
-		       __builtin_##op##ll(unique_x));			\
+		       op##l(unique_x) :				\
+		       op##ll(unique_x));				\
 })
 
-#define clz(x) __bitop(x, __UNIQUE_ID(__x), clz)
-#define ctz(x) __bitop(x, __UNIQUE_ID(__x), ctz)
+/**
+ * Return the number of trailing least significant 0-bits in @p x. This is
+ * undefined if @p x is zero.
+ */
+#define ctz(x) __bitop(x, __UNIQUE_ID(__x), __builtin_ctz)
 
-#define __fls(x, unique_x) ({						\
-	__auto_type unique_x = (x);					\
-									\
-	unique_x ? 1U + ((8U * max(sizeof(unique_x),			\
-				   sizeof(unsigned int)) - 1U) ^	\
-			 clz(unique_x)) : 0U;				\
-})
+/*
+ * The straightfoward implementation is bits - clz. However, as noted by the
+ * folly implementation: "If X is a power of two, X - Y = 1 + ((X - 1) ^ Y).
+ * Doing this transformation allows GCC to remove its own xor that it adds to
+ * implement clz using bsr."
+ *
+ * This doesn't do the normal macro argument safety stuff because it should only
+ * be used via __bitop() which already does it.
+ */
+#define ____fls(x, type, suffix)	\
+	(x ? 1 + ((8 * sizeof(type) - 1) ^ __builtin_clz##suffix(x)) : 0)
+#define __fls(x) ____fls(x, unsigned int,)
+#define __flsl(x) ____fls(x, unsigned long, l)
+#define __flsll(x) ____fls(x, unsigned long long, ll)
 
-#define fls(x) __fls(x, __UNIQUE_ID(__x))
+/**
+ * Return one plus the index of the most significant 1-bit of @p x or 0 if @p x
+ * is 0.
+ */
+#define fls(x) __bitop(x, __UNIQUE_ID(__x), __fls)
 
 #define __next_power_of_two(x, unique_x) ({			\
 	__auto_type unique_x = (x);				\
@@ -136,6 +151,7 @@
  */
 #define next_power_of_two(x) __next_power_of_two(x, __UNIQUE_ID(__x))
 
+/** Iterate over each 1-bit in @p mask. This modifies @c mask. */
 #define for_each_bit(i, mask)	\
 	for (i = -1; mask && (i = ctz(mask), mask &= mask - 1, 1);)
 
