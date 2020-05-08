@@ -2236,7 +2236,7 @@ INTEGER_BINARY_OP(xor, ^)
 	uint64_t _bit_size = (bit_size);					\
 	union {									\
 		int64_t svalue;							\
-		int64_t uvalue;							\
+		uint64_t uvalue;						\
 	} tmp;									\
 										\
 	_err = drgn_object_convert_signed((obj), _bit_size, &tmp.svalue);	\

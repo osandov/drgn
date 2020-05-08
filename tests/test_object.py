@@ -1485,6 +1485,10 @@ class TestCOperators(ObjectTestCase):
         self.assertEqual(-Object(self.prog, "unsigned char", value=1), self.int(-1))
         self.assertEqual(-self.int(-1), self.int(1))
         self.assertEqual(-self.unsigned_int(1), self.unsigned_int(0xFFFFFFFF))
+        self.assertEqual(
+            -Object(self.prog, "long", value=-0x8000000000000000),
+            Object(self.prog, "long", value=-0x8000000000000000),
+        )
         self.assertEqual(-self.double(2.0), self.double(-2.0))
         self.assertRaisesRegex(
             TypeError,
