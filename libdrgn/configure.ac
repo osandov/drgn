@@ -7,6 +7,7 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_PROG_CC
 
 AM_INIT_AUTOMAKE([-Wall -Wno-portability foreign subdir-objects])
+AM_SILENT_RULES([yes])
 AM_PROG_AR
 
 LT_INIT

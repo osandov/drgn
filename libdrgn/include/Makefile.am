@@ -26,6 +26,11 @@ gelf.h: ../elfutils/libelf/gelf.h
 libelf.h: ../elfutils/libelf/libelf.h
 nlist.h: ../elfutils/libelf/nlist.h
 
+AM_V_CP = $(am__v_CP_@AM_V@)
+am__v_CP_ = $(am__v_CP_@AM_DEFAULT_V@)
+am__v_CP_0 = @echo "  CP      " $@;
+am__v_CP_1 =
+
 $(BUILT_SOURCES):
-	mkdir -p $$(dirname $@)
-	cp $< $@
+	$(AM_V_at)mkdir -p $$(dirname $@)
+	$(AM_V_CP)cp $< $@

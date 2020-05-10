@@ -74,10 +74,11 @@ libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
 endif
 
 arch_%.c: arch_%.c.in build-aux/gen_arch.awk build-aux/parse_arch.awk
-	gawk -f $(word 3, $^) -f $(word 2, $^) $< > $@
+	$(AM_V_GEN)gawk -f $(word 3, $^) -f $(word 2, $^) $< > $@
 
 drgn.h: configure.ac build-aux/gen_drgn_h.awk build-aux/parse_arch.awk $(ARCH_INS) drgn.h.in
-	gawk -f $(word 2, $^) -f $(word 3, $^) -v version=@PACKAGE_VERSION@ \
+	$(AM_V_GEN)gawk -f $(word 2, $^) -f $(word 3, $^) \
+		-v version=@PACKAGE_VERSION@ \
 		$(wordlist 4, $(words $^), $^) > $@
 
 elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2
@@ -125,16 +126,16 @@ _drgn_la_CFLAGS += $(libkdumpfile_CFLAGS)
 endif
 
 python/constants.c: drgn.h build-aux/gen_constants.py
-	$(PYTHON) $(word 2, $^) < $< > $@
+	$(AM_V_GEN)$(PYTHON) $(word 2, $^) < $< > $@
 
 drgndoc_docstrings_deps = $(wildcard $(srcdir)/../docs/exts/drgndoc/*.py)
 drgndoc_docstrings = PYTHONPATH="$(srcdir)/../docs/exts:$$PYTHONPATH" $(PYTHON) -m drgndoc.docstrings
 
 python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
-	$(drgndoc_docstrings) -m _drgn:drgn $< > $@
+	$(AM_V_GEN)$(drgndoc_docstrings) -m _drgn:drgn $< > $@
 
 python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
-	$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
+	$(AM_V_GEN)$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
 EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py \
 	     build-aux/gen_drgn_h.awk build-aux/parse_arch.awk
