@@ -3504,9 +3504,165 @@ class TestObjects(TestCase):
             Object(prog, prog.int_type("int", 4, True), address=0xFFFFFFFF01020304),
         )
 
+    def test_namespace_reverse_specification(self):
+        """Test specification inside namespace while declaration is outside of it."""
+        dies = (
+            int_die,
+            DwarfDie(
+                DW_TAG.namespace,
+                [
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),
+                    DwarfAttrib(DW_AT.sibling, DW_FORM.ref4, 2),
+                ],
+                [
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.specification, DW_FORM.ref4, 2),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                b"\x03\x04\x03\x02\x01\xff\xff\xff\xff",
+                            ),
+                        ),
+                    )
+                ],
+            ),
+            DwarfDie(
+                DW_TAG.variable,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                    DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                ),
+            ),
+        )
+
+        prog = dwarf_program(dies)
+        self.assertEqual(
+            prog["x"],
+            Object(prog, prog.int_type("int", 4, True), address=0xFFFFFFFF01020304),
+        )
+
     def test_not_found(self):
         prog = dwarf_program(int_die)
         self.assertRaisesRegex(LookupError, "could not find", prog.object, "y")
+
+
+class TestScopes(TestCase):
+    def test_global_namespace(self):
+        prog = dwarf_program(
+            (
+                int_die,
+                DwarfDie(
+                    DW_TAG.variable,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "target"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                        DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 123),
+                    ),
+                ),
+            )
+        )
+        self.assertEqual(
+            prog["::target"], Object(prog, prog.int_type("int", 4, True), 123)
+        )
+        self.assertEqual(prog["::target"], prog["target"])
+
+    def test_namespaces_single(self):
+        prog = dwarf_program(
+            (
+                int_die,
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.variable,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "target"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 123),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertEqual(
+            prog["moho::target"], Object(prog, prog.int_type("int", 4, True), 123)
+        )
+
+    def test_namespaces_gcc(self):
+        prog = dwarf_program(
+            (
+                int_die,
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.variable,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "target"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 123),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertEqual(
+            prog["moho::target"], Object(prog, prog.int_type("int", 4, True), 123)
+        )
+
+    def test_namespaces_nested(self):
+        prog = dwarf_program(
+            (
+                int_die,
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.namespace,
+                            (DwarfAttrib(DW_AT.name, DW_FORM.string, "eve"),),
+                            (
+                                DwarfDie(
+                                    DW_TAG.namespace,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.name, DW_FORM.string, "kerbin"
+                                        ),
+                                    ),
+                                    (
+                                        DwarfDie(
+                                            DW_TAG.variable,
+                                            (
+                                                DwarfAttrib(
+                                                    DW_AT.name, DW_FORM.string, "minmus"
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.type, DW_FORM.ref4, 0
+                                                ),
+                                                DwarfAttrib(
+                                                    DW_AT.const_value, DW_FORM.data1, 47
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertEqual(
+            prog["moho::eve::kerbin::minmus"],
+            Object(prog, prog.int_type("int", 4, True), 47),
+        )
 
 
 class TestProgram(TestCase):
