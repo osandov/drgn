@@ -348,8 +348,11 @@ drgn_dwarf_info_cache_find_complete(struct drgn_dwarf_info_cache *dicache,
 	struct drgn_error *err;
 
 	struct drgn_dwarf_index_iterator it;
-	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name,
-				       strlen(name), &tag, 1);
+	err = drgn_dwarf_index_iterator_init(&it, &dicache->dindex.global, name,
+					     strlen(name), &tag, 1);
+	if (err)
+		return err;
+
 	/*
 	 * Find a matching DIE. Note that drgn_dwarf_index does not contain DIEs
 	 * with DW_AT_declaration, so this will always be a complete type.
@@ -1266,8 +1269,10 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 	}
 
 	struct drgn_dwarf_index_iterator it;
-	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name, name_len,
-				       &tag, 1);
+	err = drgn_dwarf_index_iterator_init(&it, &dicache->dindex.global, name,
+					     name_len, &tag, 1);
+	if (err)
+		return err;
 	struct drgn_dwarf_index_die *index_die;
 	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
 		Dwarf_Die die;
@@ -1440,6 +1445,29 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 	struct drgn_error *err;
 	struct drgn_dwarf_info_cache *dicache = arg;
 
+	struct drgn_dwarf_index_namespace *ns = &dicache->dindex.global;
+	if (name_len >= 2 && memcmp(name, "::", 2) == 0) {
+		/* Explicit global namespace. */
+		name_len -= 2;
+		name += 2;
+	}
+	const char *colons;
+	while ((colons = memmem(name, name_len, "::", 2))) {
+		struct drgn_dwarf_index_iterator it;
+		uint64_t ns_tag = DW_TAG_namespace;
+		err = drgn_dwarf_index_iterator_init(&it, ns, name,
+						     colons - name, &ns_tag, 1);
+		if (err)
+			return err;
+		struct drgn_dwarf_index_die *index_die =
+			drgn_dwarf_index_iterator_next(&it);
+		if (!index_die)
+			return &drgn_not_found;
+		ns = index_die->namespace;
+		name_len -= colons + 2 - name;
+		name = colons + 2;
+	}
+
 	uint64_t tags[3];
 	size_t num_tags = 0;
 	if (flags & DRGN_FIND_OBJECT_CONSTANT)
@@ -1450,8 +1478,10 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 		tags[num_tags++] = DW_TAG_variable;
 
 	struct drgn_dwarf_index_iterator it;
-	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name,
-				       strlen(name), tags, num_tags);
+	err = drgn_dwarf_index_iterator_init(&it, ns, name, strlen(name), tags,
+					     num_tags);
+	if (err)
+		return err;
 	struct drgn_dwarf_index_die *index_die;
 	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
 		Dwarf_Die die;

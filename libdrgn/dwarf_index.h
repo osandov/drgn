@@ -78,9 +78,11 @@ struct drgn_dwarf_index_die {
 	uint32_t next;
 	uint8_t tag;
 	union {
-		/* If tag != DW_TAG_namespace. */
+		/*
+		 * If tag != DW_TAG_namespace (namespaces are merged, so they
+		 * don't need this).
+		 */
 		uint64_t file_name_hash;
-		/* TODO: explain hash */
 		/* If tag == DW_TAG_namespace. */
 		struct drgn_dwarf_index_namespace *namespace;
 	};
@@ -220,6 +222,25 @@ DEFINE_HASH_SET_TYPE(c_string_set, const char *)
 
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu)
 
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_die_vector,
+		   struct drgn_dwarf_index_pending_die)
+
+/** Mapping from names/tags to DIEs/nested namespaces. */
+struct drgn_dwarf_index_namespace {
+	/**
+	 * Index shards.
+	 *
+	 * This is sharded to reduce lock contention.
+	 */
+	struct drgn_dwarf_index_shard shards[1 << DRGN_DWARF_INDEX_SHARD_BITS];
+	/** Parent DWARF index. */
+	struct drgn_dwarf_index *dindex;
+	/** DIEs we have not indexed yet. */
+	struct drgn_dwarf_index_pending_die_vector pending_dies;
+	/** Saved error from a previous index. */
+	struct drgn_error *saved_err;
+};
+
 /**
  * Fast index of DWARF debugging information.
  *
@@ -231,12 +252,8 @@ DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu)
  * Searches in the index are done with a @ref drgn_dwarf_index_iterator.
  */
 struct drgn_dwarf_index {
-	/**
-	 * Index shards.
-	 *
-	 * This is sharded to reduce lock contention.
-	 */
-	struct drgn_dwarf_index_shard shards[1 << DRGN_DWARF_INDEX_SHARD_BITS];
+	/** Global namespace. */
+	struct drgn_dwarf_index_namespace global;
 	/**
 	 * Map from address of DIE referenced by DW_AT_specification to DIE that
 	 * references it. This is used to resolve DIEs with DW_AT_declaration to
@@ -407,7 +424,7 @@ bool drgn_dwarf_index_is_indexed(struct drgn_dwarf_index *dindex,
  */
 struct drgn_dwarf_index_iterator {
 	/** @privatesection */
-	struct drgn_dwarf_index *dindex;
+	struct drgn_dwarf_index_namespace *ns;
 	const uint64_t *tags;
 	size_t num_tags;
 	size_t shard;
@@ -424,11 +441,13 @@ struct drgn_dwarf_index_iterator {
  * @param[in] name_len Length of @c name.
  * @param[in] tags List of DIE tags to search for.
  * @param[in] num_tags Number of tags in @p tags, or zero to search for any tag.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
-				    struct drgn_dwarf_index *dindex,
-				    const char *name, size_t name_len,
-				    const uint64_t *tags, size_t num_tags);
+struct drgn_error *
+drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
+			       struct drgn_dwarf_index_namespace *ns,
+			       const char *name, size_t name_len,
+			       const uint64_t *tags, size_t num_tags);
 
 /**
  * Get the next matching DIE from a DWARF index iterator.

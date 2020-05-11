@@ -631,11 +631,16 @@ static void drgn_program_set_language_from_main(struct drgn_program *prog,
 						struct drgn_dwarf_index *dindex)
 {
 	struct drgn_error *err;
-
 	struct drgn_dwarf_index_iterator it;
 	static const uint64_t tags[] = { DW_TAG_subprogram };
-	drgn_dwarf_index_iterator_init(&it, dindex, "main", strlen("main"),
-				       tags, ARRAY_SIZE(tags));
+
+	err = drgn_dwarf_index_iterator_init(&it, &dindex->global, "main",
+					     strlen("main"), tags,
+					     ARRAY_SIZE(tags));
+	if (err) {
+		drgn_error_destroy(err);
+		return;
+	}
 	struct drgn_dwarf_index_die *index_die;
 	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
 		Dwarf_Die die;
