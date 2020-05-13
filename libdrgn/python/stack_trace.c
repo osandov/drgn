@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "drgnpy.h"
+#include "../stack_trace.h"
 
 static void StackTrace_dealloc(StackTrace *self)
 {
+	struct drgn_program *prog = self->trace->prog;
+
 	drgn_stack_trace_destroy(self->trace);
-	Py_XDECREF(self->prog);
+	Py_XDECREF(container_of(prog, Program, prog));
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -40,8 +43,7 @@ static StackFrame *StackTrace_item(StackTrace *self, Py_ssize_t i)
 	ret = (StackFrame *)StackFrame_type.tp_alloc(&StackFrame_type, 0);
 	if (!ret)
 		return NULL;
-	ret->frame.trace = self->trace;
-	ret->frame.i = i;
+	ret->i = i;
 	ret->trace = self;
 	Py_INCREF(self);
 	return ret;
@@ -72,13 +74,14 @@ static void StackFrame_dealloc(StackFrame *self)
 static PyObject *StackFrame_symbol(StackFrame *self)
 {
 	struct drgn_error *err;
+	Program *prog = container_of(self->trace->trace->prog, Program, prog);
 	struct drgn_symbol *sym;
 	PyObject *ret;
 
-	err = drgn_stack_frame_symbol(self->frame, &sym);
+	err = drgn_stack_frame_symbol(self->trace->trace, self->i, &sym);
 	if (err)
 		return set_drgn_error(err);
-	ret = Symbol_wrap(sym, self->trace->prog);
+	ret = Symbol_wrap(sym, prog);
 	if (!ret) {
 		drgn_symbol_destroy(sym);
 		return NULL;
@@ -92,7 +95,8 @@ static PyObject *StackFrame_register(StackFrame *self, PyObject *arg)
 	uint64_t value;
 
 	if (PyUnicode_Check(arg)) {
-		err = drgn_stack_frame_register_by_name(self->frame,
+		err = drgn_stack_frame_register_by_name(self->trace->trace,
+							self->i,
 							PyUnicode_AsUTF8(arg),
 							&value);
 	} else {
@@ -102,8 +106,8 @@ static PyObject *StackFrame_register(StackFrame *self, PyObject *arg)
 			arg = PyStructSequence_GET_ITEM(arg, 1);
 		if (!index_converter(arg, &number))
 			return NULL;
-		err = drgn_stack_frame_register(self->frame, number.uvalue,
-						&value);
+		err = drgn_stack_frame_register(self->trace->trace, self->i,
+						number.uvalue, &value);
 	}
 	if (err)
 		return set_drgn_error(err);
@@ -120,7 +124,7 @@ static PyObject *StackFrame_registers(StackFrame *self)
 	dict = PyDict_New();
 	if (!dict)
 		return NULL;
-	platform = drgn_program_platform(&self->trace->prog->prog);
+	platform = drgn_program_platform(self->trace->trace->prog);
 	num_registers = drgn_platform_num_registers(platform);
 	for (i = 0; i < num_registers; i++) {
 		const struct drgn_register *reg;
@@ -129,7 +133,7 @@ static PyObject *StackFrame_registers(StackFrame *self)
 		int ret;
 
 		reg = drgn_platform_register(platform, i);
-		err = drgn_stack_frame_register(self->frame,
+		err = drgn_stack_frame_register(self->trace->trace, self->i,
 						drgn_register_number(reg),
 						&value);
 		if (err) {
@@ -154,7 +158,10 @@ static PyObject *StackFrame_registers(StackFrame *self)
 
 static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)
 {
-	return PyLong_FromUnsignedLongLong(drgn_stack_frame_pc(self->frame));
+	uint64_t pc;
+
+	pc = drgn_stack_frame_pc(self->trace->trace, self->i);
+	return PyLong_FromUnsignedLongLong(pc);
 }
 
 static PyMethodDef StackFrame_methods[] = {

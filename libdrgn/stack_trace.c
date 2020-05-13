@@ -3,7 +3,6 @@
 
 #include <byteswap.h>
 #include <dwarf.h>
-#include <elfutils/libdwfl.h>
 #include <endian.h>
 #include <inttypes.h>
 #include <stdlib.h>
@@ -12,18 +11,9 @@
 #include "helpers.h"
 #include "program.h"
 #include "read.h"
+#include "stack_trace.h"
 #include "string_builder.h"
 #include "symbol.h"
-
-struct drgn_stack_trace {
-	struct drgn_program *prog;
-	union {
-		size_t capacity;
-		Dwfl_Thread *thread;
-	};
-	size_t num_frames;
-	Dwfl_Frame *frames[];
-};
 
 LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 {
@@ -31,8 +21,7 @@ LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 	free(trace);
 }
 
-LIBDRGN_PUBLIC
-size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
+LIBDRGN_PUBLIC int drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 {
 	return trace->num_frames;
 }
@@ -40,20 +29,19 @@ size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 LIBDRGN_PUBLIC char *drgn_format_stack_trace(struct drgn_stack_trace *trace)
 {
 	struct string_builder str = {};
-	struct drgn_stack_frame frame = { .trace = trace, };
 	char *ret;
 
-	for (; frame.i < trace->num_frames; frame.i++) {
+	for (int frame = 0; frame < trace->num_frames; frame++) {
 		Dwarf_Addr pc;
 		bool isactivation;
 		Dwfl_Module *module;
 		struct drgn_symbol sym;
 
-		if (!string_builder_appendf(&str, "#%-2zu ", frame.i))
+		if (!string_builder_appendf(&str, "#%-2d ", frame))
 			goto enomem;
 
-		dwfl_frame_pc(trace->frames[frame.i], &pc, &isactivation);
-		module = dwfl_frame_module(trace->frames[frame.i]);
+		dwfl_frame_pc(trace->frames[frame], &pc, &isactivation);
+		module = dwfl_frame_module(trace->frames[frame]);
 		if (module &&
 		    drgn_program_find_symbol_by_address_internal(trace->prog,
 								 pc - !isactivation,
@@ -69,7 +57,7 @@ LIBDRGN_PUBLIC char *drgn_format_stack_trace(struct drgn_stack_trace *trace)
 				goto enomem;
 		}
 
-		if (frame.i != trace->num_frames - 1 &&
+		if (frame != trace->num_frames - 1 &&
 		    !string_builder_appendc(&str, '\n'))
 			goto enomem;
 	}
@@ -82,32 +70,34 @@ enomem:
 	return NULL;
 }
 
-LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_frame frame)
+LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace,
+					    int frame)
 {
 	Dwarf_Addr pc;
 
-	dwfl_frame_pc(frame.trace->frames[frame.i], &pc, NULL);
+	dwfl_frame_pc(trace->frames[frame], &pc, NULL);
 	return pc;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_stack_frame_symbol(struct drgn_stack_frame frame, struct drgn_symbol **ret)
+drgn_stack_frame_symbol(struct drgn_stack_trace *trace, int frame,
+			struct drgn_symbol **ret)
 {
 	Dwarf_Addr pc;
 	bool isactivation;
 	Dwfl_Module *module;
 	struct drgn_symbol *sym;
 
-	dwfl_frame_pc(frame.trace->frames[frame.i], &pc, &isactivation);
+	dwfl_frame_pc(trace->frames[frame], &pc, &isactivation);
 	if (!isactivation)
 		pc--;
-	module = dwfl_frame_module(frame.trace->frames[frame.i]);
+	module = dwfl_frame_module(trace->frames[frame]);
 	if (!module)
 		return drgn_error_symbol_not_found(pc);
 	sym = malloc(sizeof(*sym));
 	if (!sym)
 		return &drgn_enomem;
-	if (!drgn_program_find_symbol_by_address_internal(frame.trace->prog, pc,
+	if (!drgn_program_find_symbol_by_address_internal(trace->prog, pc,
 							  module, sym)) {
 		free(sym);
 		return drgn_error_symbol_not_found(pc);
@@ -117,12 +107,12 @@ drgn_stack_frame_symbol(struct drgn_stack_frame frame, struct drgn_symbol **ret)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_stack_frame_register(struct drgn_stack_frame frame,
+drgn_stack_frame_register(struct drgn_stack_trace *trace, int frame,
 			  enum drgn_register_number regno, uint64_t *ret)
 {
 	Dwarf_Addr value;
 
-	if (!dwfl_frame_register(frame.trace->frames[frame.i], regno, &value)) {
+	if (!dwfl_frame_register(trace->frames[frame], regno, &value)) {
 		return drgn_error_create(DRGN_ERROR_LOOKUP,
 					 "register value is not known");
 	}
@@ -131,18 +121,18 @@ drgn_stack_frame_register(struct drgn_stack_frame frame,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_stack_frame_register_by_name(struct drgn_stack_frame frame,
+drgn_stack_frame_register_by_name(struct drgn_stack_trace *trace, int frame,
 				  const char *name, uint64_t *ret)
 {
 	const struct drgn_register *reg;
 
-	reg = drgn_architecture_register_by_name(frame.trace->prog->platform.arch,
+	reg = drgn_architecture_register_by_name(trace->prog->platform.arch,
 						 name);
 	if (!reg) {
 		return drgn_error_format(DRGN_ERROR_LOOKUP,
 					 "unknown register '%s'", name);
 	}
-	return drgn_stack_frame_register(frame, reg->number, ret);
+	return drgn_stack_frame_register(trace, frame, reg->number, ret);
 }
 
 static bool drgn_thread_memory_read(Dwfl *dwfl, Dwarf_Addr addr,
@@ -382,10 +372,10 @@ static int drgn_append_stack_frame(Dwfl_Frame *state, void *arg)
 
 	if (trace->num_frames >= trace->capacity) {
 		struct drgn_stack_trace *tmp;
-		size_t new_capacity, bytes;
+		int new_capacity;
+		size_t bytes;
 
-		if (__builtin_mul_overflow(2U, trace->capacity,
-					   &new_capacity) ||
+		if (__builtin_mul_overflow(2, trace->capacity, &new_capacity) ||
 		    __builtin_mul_overflow(new_capacity,
 					   sizeof(trace->frames[0]), &bytes) ||
 		    __builtin_add_overflow(bytes, sizeof(*trace), &bytes) ||
