@@ -3921,6 +3921,11 @@ section [%2zu] '%s': size not multiple of entry size\n"),
 	  GElf_Xword sh_flags = shdr->sh_flags & ~(GElf_Xword) ALL_SH_FLAGS;
 	  if (sh_flags & SHF_MASKPROC)
 	    {
+	      /* Strictly speaking SHF_EXCLUDE is a processor specific
+		 section flag, but it is used generically in the GNU
+		 toolchain.  */
+	      if (gnuld)
+		sh_flags &= ~(GElf_Xword) SHF_EXCLUDE;
 	      if (!ebl_machine_section_flag_check (ebl,
 						   sh_flags & SHF_MASKPROC))
 		ERROR (gettext ("section [%2zu] '%s'"

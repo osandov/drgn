@@ -621,7 +621,9 @@ default_debugscn_p (const char *name)
   for (size_t cnt = 0; cnt < ndwarf_scn_names; ++cnt)
     if (strcmp (name, dwarf_scn_names[cnt]) == 0
 	|| (strncmp (name, ".zdebug", strlen (".zdebug")) == 0
-	    && strcmp (&name[2], &dwarf_scn_names[cnt][1]) == 0))
+	    && strcmp (&name[2], &dwarf_scn_names[cnt][1]) == 0)
+	|| (strncmp (name, ".gnu.debuglto_", strlen (".gnu.debuglto_")) == 0
+	    && strcmp (&name[14], dwarf_scn_names[cnt]) == 0))
       return true;
 
   return false;

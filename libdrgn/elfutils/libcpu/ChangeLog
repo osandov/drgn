@@ -1,3 +1,8 @@
+2020-04-16  Mark Wielaard  <mark@klomp.org>
+
+	* i386_disasm.c (i386_disasm): Replace assert with goto invalid_op
+	for bad prefix.
+
 2019-12-11  Omar Sandoval  <osandov@fb.com>
 
 	* Makefile.am (i386_lex_CFLAGS): Add -Wno-implicit-fallthrough.

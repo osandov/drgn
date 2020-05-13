@@ -1,3 +1,12 @@
+2020-04-17  Mark Wielaard  <mark@klomp.org>
+
+	* readelf.c (print_debug): Check .gnu.debuglto_ prefix.
+
+2020-04-16  Mark Wielaard  <mark@klomp.org>
+
+	* elflint.c (check_sections): Mask out SHF_EXCLUDE from processor
+	specific section flags when --gnu is given.
+
 2020-02-08  Mark Wielaard  <mark@klomp.org>
 
 	* elflint.c (check_program_header): Handle PT_GNU_PROPERTY.

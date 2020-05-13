@@ -137,6 +137,10 @@ check_section (Dwarf *result, size_t shstrndx, Elf_Scn *scn, bool inscngrp)
 	  gnu_compressed = true;
 	  break;
 	}
+      else if (scnlen > 14 /* .gnu.debuglto_ prefix. */
+	       && strncmp (scnname, ".gnu.debuglto_", 14) == 0
+	       && strcmp (&scnname[14], dwarf_scnnames[cnt]) == 0)
+	break;
     }
 
   if (cnt >= ndwarf_scnnames)

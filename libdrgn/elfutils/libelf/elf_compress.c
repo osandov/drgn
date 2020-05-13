@@ -113,7 +113,6 @@ __libelf_compress (Elf_Scn *scn, size_t hsize, int ei_data,
   int zrc = deflateInit (&z, Z_BEST_COMPRESSION);
   if (zrc != Z_OK)
     {
-      free (out_buf);
       __libelf_seterrno (ELF_E_COMPRESS_ERROR);
       return deflate_cleanup(NULL, NULL);
     }

@@ -3,7 +3,7 @@ DEBUGINFOD_PORT="8002"
 #DEBUGINFOD_VERBOSE="-v"
 
 # some common places to find trustworthy ELF/DWARF files and RPMs
-DEBUGINFOD_PATHS="-t43200 -F -R /usr/lib/debug /usr/bin /usr/libexec /usr/sbin /usr/lib /usr/lib64 /var/cache/yum /var/cache/dnf"
+DEBUGINFOD_PATHS="-t43200 -F -R /usr/lib/debug /usr/bin /usr/libexec /usr/sbin /usr/lib /usr/lib64 /var/cache/yum /var/cache/dnf /var/lib/pulp"
 
 # prefer reliability/durability over performance
 #DEBUGINFOD_PRAGMAS="-D 'pragma synchronous=full;'"

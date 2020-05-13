@@ -474,7 +474,14 @@ extern Dwarf_Attribute *dwarf_attr (Dwarf_Die *die, unsigned int search_name,
 extern int dwarf_hasattr (Dwarf_Die *die, unsigned int search_name);
 
 /* These are the same as dwarf_attr and dwarf_hasattr, respectively,
-   but they resolve an indirect attribute through DW_AT_abstract_origin.  */
+   but they resolve an indirect attribute through
+   DW_AT_abstract_origin, DW_AT_specification or, if the DIE is a
+   top-level split CU, the skeleton DIE.  Note that the attribute
+   might come from a DIE in a different CU (possibly from a different
+   Dwarf file).  In that case all attribute information needs to be
+   resolved through the CU associated with the returned
+   Dwarf_Attribute.  The dwarf_form functions already do this
+   automatically.  */
 extern Dwarf_Attribute *dwarf_attr_integrate (Dwarf_Die *die,
 					      unsigned int search_name,
 					      Dwarf_Attribute *result)

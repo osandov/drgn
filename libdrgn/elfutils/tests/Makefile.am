@@ -80,6 +80,14 @@ backtrace-child-biarch$(EXEEXT): backtrace-child.c
 		     $(AM_LDFLAGS) $(LDFLAGS) $(backtrace_child_LDFLAGS) \
 		     -o $@ $<
 
+# test_nlist checks its own symbol table, and expects various symbols
+# to be in the order as specified in the source file. Explicitly set
+# minimal CFLAGS
+test-nlist$(EXEEXT): test-nlist.c
+	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
+	  $(AM_CPPFLAGS) $(CPPFLAGS) \
+	  $(test_nlist_CFLAGS) $(test_nlist_LDADD) -o $@ $<
+
 TESTS = run-arextract.sh run-arsymtest.sh run-ar.sh newfile test-nlist \
 	update1 update2 update3 update4 \
 	run-show-die-info.sh run-get-files.sh run-get-lines.sh \
@@ -210,6 +218,8 @@ EXTRA_DIST = run-arextract.sh run-arsymtest.sh run-ar.sh \
 	     testfile9.bz2 testfile10.bz2 testfile11.bz2 testfile12.bz2 \
 	     testfile13.bz2 run-strip-test3.sh run-allfcts.sh \
 	     testfile_class_func.bz2 testfile_nested_funcs.bz2 \
+	     testfile-lto-gcc10.bz2 \
+	     testfile-lto-gcc9.bz2 testfile-lto-gcc8.bz2 \
 	     run-line2addr.sh run-elflint-test.sh testfile14.bz2 \
 	     run-strip-test4.sh run-strip-test5.sh run-strip-test6.sh \
 	     run-strip-test7.sh run-strip-test8.sh run-strip-groups.sh \
@@ -557,6 +567,7 @@ scnnames_LDADD = $(libelf)
 sectiondump_LDADD = $(libelf)
 showptable_LDADD = $(libelf)
 hash_LDADD = $(libelf)
+test_nlist_CFLAGS =-g -O0
 test_nlist_LDADD = $(libelf)
 msg_tst_LDADD = $(libelf)
 newscn_LDADD = $(libelf)

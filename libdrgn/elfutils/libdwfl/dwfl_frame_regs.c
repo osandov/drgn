@@ -38,7 +38,6 @@ dwfl_thread_state_registers (Dwfl_Thread *thread, int firstreg,
 {
   Dwfl_Frame *state = thread->unwound;
   assert (state && state->unwound == NULL);
-  assert (state->initial_frame);
   for (unsigned regno = firstreg; regno < firstreg + nregs; regno++)
     if (! __libdwfl_frame_reg_set (state, regno, regs[regno - firstreg]))
       {
@@ -54,7 +53,6 @@ dwfl_thread_state_register_pc (Dwfl_Thread *thread, Dwarf_Word pc)
 {
   Dwfl_Frame *state = thread->unwound;
   assert (state && state->unwound == NULL);
-  assert (state->initial_frame);
   state->pc = pc;
   state->pc_state = DWFL_FRAME_STATE_PC_SET;
 }

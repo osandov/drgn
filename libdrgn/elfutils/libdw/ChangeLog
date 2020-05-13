@@ -1,3 +1,24 @@
+2020-05-08  Mark Wielaard  <mark@klomp.org>
+
+	* libdw_visit_scopes.c (walk_children): Don't recurse into imported
+	DW_TAG_compile_units.
+
+2020-05-08  Mark Wielaard  <mark@klomp.org>
+
+	* dwarf_decl_file.c (dwarf_decl_file): Use attr CU instead of DIE
+	CU to resolve file name.
+	* dwarf_ranges.c(dwarf_ranges): Document which CU we use when.
+	* libdw.h (dwarf_attr_integrate): Extend documentation.
+
+2020-04-25  Mark Wielaard  <mark@klomp.org>
+
+	* libdw_alloc.c (__libdw_alloc_tail): Call Dwarf oom_handler()
+	when malloc fails.
+
+2020-04-17  Mark Wielaard  <mark@klomp.org>
+
+	* dwarf_begin_elf.c (check_section): Handle .gnu.debuglto_ prefix.
+
 2019-10-28  Aaron Merey  <amerey@redhat.com>
 
 	* Makefile.am (libdw_so_LDLIBS): Add -ldl for libdebuginfod.so dlopen.

@@ -370,7 +370,7 @@ ELFUTILS_0.177 {
     # presume that NULL is only returned on error (otherwise ELF_K_NONE).
     dwelf_elf_begin;
 } ELFUTILS_0.175;
-ELFUTILS_0.179 {
+ELFUTILS_0.180 {
   global:
     dwfl_attach_thread;
     dwfl_detach_thread;
@@ -378,4 +378,4 @@ ELFUTILS_0.179 {
     dwfl_frame_dwarf_frame;
     dwfl_frame_register;
     dwfl_frame_eval_expr;
-} ELFUTILS_0.178;
+} ELFUTILS_0.177;

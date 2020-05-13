@@ -1,3 +1,30 @@
+2020-05-05  Mark Wielaard  <mark@klomp.org>
+
+	* testfile-lto-gcc8.bz2: New test file.
+	* testfile-lto-gcc9.bz2: Likewise.
+	* Makefile.am (EXTRA_DIST): Add testfile-lto-gcc8.bz2 and
+	testfile-lto-gcc9.bz2.
+	* run-allfcts.sh: Add testfile-lto-gcc9 and testfile-lto-gcc8
+	tests.
+
+2020-05-05  Mark Wielaard  <mark@klomp.org>
+
+	* testfile-lto-gcc10.bz2: New test file.
+	* Makefile.am (EXTRA_DIST): Add testfile-lto-gcc10.bz2.
+	* run-allfcts.sh: Add testfile-lto-gcc10 test.
+
+2020-04-17  Mark Wielaard  <mark@klomp.org>
+
+	* test-subr.sh (testrun_on_self_obj): New function.
+	* run-varlocs-self.sh: Run testrun_on_self_exe and
+	testrun_on_self_lib with -e, run testrun_on_self_obj with
+	--exprlocs -e.
+
+2020-04-17  Mark Wielaard  <mark@klomp.org>
+
+	* Makefile.am (test-nlist$): New goal with minimal CFLAGS.
+	(test_nlist_CFLAGS): New variable.
+
 2020-03-28  Frank Ch. Eigler  <fche@redhat.com>
 
 	* run-debuginfod-find.sh: Test timestamps of archive-origin files.

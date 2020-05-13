@@ -91,4 +91,83 @@ testrun_compare ${abs_builddir}/allfcts testfile_nested_funcs testfile_class_fun
 /home/mark/src/tests/nested/class_func.cxx:13:main
 EOF
 
+# = testfile-lto.h =
+# struct t
+# {
+#   int *p;
+#   int c;
+# };
+#
+# extern int foo (int i, struct t *t);
+
+# = testfile-lto-func.c =
+# #include "testfile-lto.h"
+#
+# int
+# foo (int i, struct t *t)
+# {
+#   int j, res = 0;
+#   for (j = 0; j < i && j < t->c; j++)
+#     res += t->p[j];
+#
+#   return res;
+# }
+
+# = testfile-lto-main.c =
+# #include "testfile-lto.h"
+#
+# static struct t g;
+#
+# int
+# main (int argc, char **argv)
+# {
+#   int i;
+#   int j[argc];
+#   g.c = argc;
+#   g.p = j;
+#   for (i = 0; i < argc; i++)
+#     j[i] = (int) argv[i][0];
+#   return foo (3, &g);
+# }
+
+# Using gcc (GCC) 10.0.1 20200430 (Red Hat 10.0.1-0.13)
+# gcc -g -O2 -flto -c testfile-lto-func.c
+# gcc -g -O2 -flto -c testfile-lto-main.c
+# gcc -g -O2 -flto -o testfile-lto-gcc10 testfile-lto-func.o testfile-lto-main.o
+
+testfiles testfile-lto-gcc10
+
+testrun_compare ${abs_builddir}/allfcts testfile-lto-gcc10 <<\EOF
+/home/mark/src/tests/testfile-lto-main.c:6:main
+/home/mark/src/tests/testfile-lto-func.c:4:foo
+/home/mark/src/tests/testfile-lto-main.c:6:main
+EOF
+
+# Using gcc (GCC) 8.3.1 20190311 (Red Hat 8.3.1-3)
+# gcc -g -O2 -flto -c testfile-lto-func.c
+# gcc -g -O2 -flto -c testfile-lto-main.c
+# gcc -g -O2 -flto -o testfile-lto-gcc8 testfile-lto-func.o testfile-lto-main.o
+
+testfiles testfile-lto-gcc8
+
+testrun_compare ${abs_builddir}/allfcts testfile-lto-gcc8 <<\EOF
+/home/mark/src/tests/testfile-lto-func.c:4:foo
+/home/mark/src/tests/testfile-lto-main.c:6:main
+/home/mark/src/tests/testfile-lto-main.c:6:main
+/home/mark/src/tests/testfile-lto-func.c:4:foo
+EOF
+
+# gcc (GCC) 9.1.1 20190605 (Red Hat 9.1.1-2)
+# gcc -g -O2 -flto -c testfile-lto-func.c
+# gcc -g -O2 -flto -c testfile-lto-main.c
+# gcc -g -O2 -flto -o testfile-lto-gcc9 testfile-lto-func.o testfile-lto-main.o
+
+testfiles testfile-lto-gcc9
+
+testrun_compare ${abs_builddir}/allfcts testfile-lto-gcc9 <<\EOF
+/home/mark/src/tests/testfile-lto-main.c:6:main
+/home/mark/src/tests/testfile-lto-func.c:4:foo
+/home/mark/src/tests/testfile-lto-main.c:6:main
+EOF
+
 exit 0

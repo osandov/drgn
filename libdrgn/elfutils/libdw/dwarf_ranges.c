@@ -506,6 +506,11 @@ dwarf_ranges (Dwarf_Die *die, ptrdiff_t offset, Dwarf_Addr *basep,
       Dwarf_Attribute attr_mem;
       Dwarf_Attribute *attr = INTUSE(dwarf_attr) (die, DW_AT_ranges,
 						  &attr_mem);
+      /* Note that above we use dwarf_attr, not dwarf_attr_integrate.
+	 The only case where the ranges can come from another DIE
+	 attribute are the split CU case. In that case we also have a
+	 different CU to check against. But that is already set up
+	 above using __libdw_find_split_unit.  */
       if (attr == NULL
 	  && is_cudie (die)
 	  && die->cu->unit_type == DW_UT_split_compile)

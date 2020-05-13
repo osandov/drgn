@@ -1,3 +1,12 @@
+2020-04-21  Frank Ch. Eigler <fche@redhat.com>
+
+	* debuginfod.sysconfig (DEBUGINFOD_PATHS): Add /var/lib/pulp.
+
+2020-03-30  Mark Wielaard  <mark@klomp.org>
+
+	* upload-release.sh: chmod uploaded dir and files to make them
+	readable.
+
 2020-03-30  Mark Wielaard  <mark@klomp.org>
 
 	* elfutils.spec.in: Update for 0.179.

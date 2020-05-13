@@ -58,6 +58,7 @@ dwfl_frame_register (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
     *val = state->regs[regno];
   return true;
 }
+INTDEF (dwfl_frame_register)
 
 bool
 internal_function
@@ -526,8 +527,7 @@ new_unwound (Dwfl_Frame *state)
   unwound->frame = NULL;
   unwound->moderr = DWFL_E_NOERROR;
   unwound->frameerr = DWFL_E_NOERROR;
-  unwound->signal_frame = false;
-  unwound->initial_frame = false;
+  unwound->isactivation = false;
   unwound->pc_state = DWFL_FRAME_STATE_ERROR;
   memset (unwound->regs_set, 0, sizeof (unwound->regs_set));
   return unwound;
@@ -542,7 +542,11 @@ static void
 handle_cfi (Dwfl_Frame *state, Dwarf_Frame *frame, Dwarf_Addr bias)
 {
   Dwfl_Frame *unwound = state->unwound;
-  unwound->signal_frame = frame->fde->cie->signal_frame;
+  if (frame->fde->cie->signal_frame)
+    {
+      state->isactivation = true;
+      unwound->isactivation = true;
+    }
   Dwfl_Thread *thread = state->thread;
   Dwfl_Process *process = thread->process;
   Ebl *ebl = process->ebl;
@@ -704,14 +708,11 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
 {
   if (state->unwound)
     return;
-  /* Do not ask dwfl_frame_pc for ISACTIVATION, it would try to unwind STATE
-     which would deadlock us.  */
   Dwarf_Addr pc;
-  bool ok = INTUSE(dwfl_frame_pc) (state, &pc, NULL);
+  bool isactivation;
+  bool ok = INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
   assert (ok);
-  /* Check whether this is the initial frame or a signal frame.
-     Then we need to unwind from the original, unadjusted PC.  */
-  if (! state->initial_frame && ! state->signal_frame)
+  if (! isactivation)
     pc--;
   Dwarf_Addr bias;
   Dwarf_Frame *frame = INTUSE(dwfl_frame_dwarf_frame) (state, &bias);
@@ -732,7 +733,6 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
       return;
     }
   state->unwound->pc_state = DWFL_FRAME_STATE_PC_UNDEFINED;
-  // &Dwfl_Frame.signal_frame cannot be passed as it is a bitfield.
   bool signal_frame = false;
   if (! ebl_unwind (ebl, pc, setfunc, getfunc, readfunc, state, &signal_frame))
     {
@@ -745,7 +745,11 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
       return;
     }
   assert (state->unwound->pc_state == DWFL_FRAME_STATE_PC_SET);
-  state->unwound->signal_frame = signal_frame;
+  if (signal_frame)
+    {
+      state->isactivation = true;
+      state->unwound->isactivation = true;
+    }
 }
 
 Dwfl_Module *
@@ -756,7 +760,10 @@ dwfl_frame_module (Dwfl_Frame *state)
   if (state->moderr == DWFL_E_NOERROR)
     {
       Dwarf_Addr pc;
-      INTUSE(dwfl_frame_pc) (state, &pc, NULL);
+      bool isactivation;
+      INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
+      if (! isactivation)
+	pc--;
       state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
       if (state->mod != NULL)
 	return state->mod;
@@ -765,6 +772,7 @@ dwfl_frame_module (Dwfl_Frame *state)
   __libdwfl_seterrno (state->moderr);
   return NULL;
 }
+INTDEF (dwfl_frame_module)
 
 Dwarf_Frame *
 dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
@@ -780,7 +788,10 @@ dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
 	      return NULL;
 	    }
 	  Dwarf_Addr pc;
-	  INTUSE(dwfl_frame_pc) (state, &pc, NULL);
+	  bool isactivation;
+	  INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
+	  if (! isactivation)
+	    pc--;
 	  Dwarf_CFI *cfi = INTUSE(dwfl_module_eh_cfi) (state->mod,
 						       &state->bias);
 	  if (cfi
@@ -802,6 +813,7 @@ out:
   *bias = state->bias;
   return state->frame;
 }
+INTDEF (dwfl_frame_dwarf_frame)
 
 bool
 dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,

@@ -357,7 +357,7 @@ dwfl_standard_find_debuginfo (Dwfl_Module *mod,
 {
   /* First try by build ID if we have one.  If that succeeds or fails
      other than just by finding nothing, that's all we do.  */
-  const unsigned char *bits;
+  const unsigned char *bits = NULL;
   GElf_Addr vaddr;
   int bits_len;
   if ((bits_len = INTUSE(dwfl_module_build_id) (mod, &bits, &vaddr)) > 0)
@@ -398,8 +398,27 @@ dwfl_standard_find_debuginfo (Dwfl_Module *mod,
       free (canon);
     }
 
-  if (fd < 0 && bits_len > 0)
-    fd = __libdwfl_debuginfod_find_debuginfo (mod->dwfl, bits, bits_len);
+  /* Still nothing? Try if we can use the debuginfod client.
+     But note that we might be looking for the alt file.
+     We use the same trick as dwfl_build_id_find_debuginfo.
+     If the debug file (dw) is already set, then we must be
+     looking for the altfile. But we cannot use the actual
+     file/path name given as hint. We'll have to lookup the
+     alt file "build-id". Because the debuginfod client only
+     handles build-ids.  */
+  if (fd < 0)
+    {
+      if (mod->dw != NULL)
+	{
+	  const char *altname;
+	  bits_len = INTUSE(dwelf_dwarf_gnu_debugaltlink) (mod->dw, &altname,
+							   (const void **)
+							   &bits);
+	}
+
+      if (bits_len > 0)
+	fd = __libdwfl_debuginfod_find_debuginfo (mod->dwfl, bits, bits_len);
+    }
 
   return fd;
 }

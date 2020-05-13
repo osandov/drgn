@@ -1,3 +1,7 @@
+2020-04-25  Mark Wielaard  <mark@klomp.org>
+
+	* elf_compress.c (__libelf_compress): Remove free (out_buf).
+
 2020-03-18  Omar Sandoval  <osandov@fb.com>
 
 	* elf_getphdrnum.c (__elf_getphdrnum_rdlock): Call

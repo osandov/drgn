@@ -1,3 +1,7 @@
+2020-04-25  Mark Wielaard  <mark@klomp.org>
+
+	* asm_end.c (text_end): Call fflush instead of fclose.
+
 2020-01-08  Mark Wielaard  <mark@klomp.org>
 
 	* libasm.h: Don't include libebl.h. Define an opaque Ebl handle.

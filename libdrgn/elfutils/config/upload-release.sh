@@ -50,6 +50,8 @@ cp -r $VERSION $HOME/elfutils-$VERSION
 # Upload
 scp -r $VERSION sourceware.org:/sourceware/ftp/pub/elfutils/
 ssh sourceware.org "(cd /sourceware/ftp/pub/elfutils \
+  && chmod go+rx $VERSION \
+  && chmod go+r  $VERSION/elfutils-$VERSION.tar.bz2* \
   && ln -sf $VERSION/elfutils-$VERSION.tar.bz2 elfutils-latest.tar.bz2 \
   && ln -sf $VERSION/elfutils-$VERSION.tar.bz2.sig elfutils-latest.tar.bz2.sig \
   && ls -lah elfutils-latest*)"

@@ -47,7 +47,7 @@
 static int
 text_end (AsmCtx_t *ctx __attribute__ ((unused)))
 {
-  if (fclose (ctx->out.file) != 0)
+  if (fflush (ctx->out.file) != 0)
     {
       __libasm_seterrno (ASM_E_IOERROR);
       return -1;

@@ -55,7 +55,7 @@ dwarf_decl_file (Dwarf_Die *die)
     }
 
   /* Get the array of source files for the CU.  */
-  struct Dwarf_CU *cu = die->cu;
+  struct Dwarf_CU *cu = attr_mem.cu;
   if (cu->lines == NULL)
     {
       Dwarf_Lines *lines;

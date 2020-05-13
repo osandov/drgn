@@ -1,3 +1,18 @@
+2020-04-30  Mark Wielaard  <mark@klomp.org>
+
+	* find-debuginfo.c (dwfl_standard_find_debuginfo): When mod->dw
+	is already set then try fetching debugaltlink.
+
+2020-04-25  Mark Wielaard  <mark@klomp.org>
+
+	* gzip.c (open_stream): Return DWFL_E_NOMEM instead of calling
+	zlib_fail.
+
+2020-04-16  Mark Wielaard  <mark@klomp.org>
+
+	* find-debuginfo.c (dwfl_standard_find_debuginfo): Initialize bits
+	to NULL.
+
 2020-01-24  Mark Wielaard  <mark@klomp.org>
 
 	* linux-kernel-modules.c (find_kernel_elf): Check release isn't NULL.

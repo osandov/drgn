@@ -153,7 +153,7 @@ open_stream (int fd, off_t start_offset, struct unzip_state *state)
     if (unlikely (state->zf == NULL))
       {
 	close (d);
-	return zlib_fail (state, Z (MEM_ERROR));
+	return DWFL_E_NOMEM;
       }
 
     /* From here on, zlib will close D.  */

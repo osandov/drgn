@@ -125,8 +125,12 @@ walk_children (struct walk_children_state *state)
 	  Dwarf_Attribute *attr = INTUSE(dwarf_attr) (&state->child.die,
 						      DW_AT_import,
 						      &attr_mem);
+	  /* Some gcc -flto versions imported other top-level compile units,
+	     skip those.  */
 	  if (INTUSE(dwarf_formref_die) (attr, &state->child.die) != NULL
-	      && INTUSE(dwarf_child) (&state->child.die, &state->child.die) == 0)
+	      && INTUSE(dwarf_tag) (&state->child.die) != DW_TAG_compile_unit
+	      && (INTUSE(dwarf_child) (&state->child.die, &state->child.die)
+		  == 0))
 	    {
 	      /* Checks the given DIE hasn't been imported yet
 	         to prevent cycles.  */

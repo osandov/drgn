@@ -1,3 +1,8 @@
+2020-04-17  Mark Wielaard  <mark@klomp.org>
+
+	* eblopenbackend.c (default_debugscn_p): Handle .gnu.debuglto_
+	prefix.
+
 2020-02-08  Mark Wielaard  <mark@klomp.org>
 
 	* eblsegmenttypename.c (ebl_segment_type_name): Handle

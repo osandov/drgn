@@ -407,7 +407,8 @@ i386_disasm (Ebl *ebl __attribute__((unused)),
 
 	      ++curr;
 
-	      assert (last_prefix_bit != 0);
+	      if (last_prefix_bit == 0)
+		goto invalid_op;
 	      correct_prefix = last_prefix_bit;
 	    }
 
@@ -445,8 +446,8 @@ i386_disasm (Ebl *ebl __attribute__((unused)),
 	       the input data.  */
 	    goto do_ret;
 
-	  assert (correct_prefix == 0
-		  || (prefixes & correct_prefix) != 0);
+	  if (correct_prefix != 0 && (prefixes & correct_prefix) == 0)
+	    goto invalid_op;
 	  prefixes ^= correct_prefix;
 
 	  if (0)
@@ -473,7 +474,8 @@ i386_disasm (Ebl *ebl __attribute__((unused)),
 
 	      if (data == end)
 		{
-		  assert (prefixes != 0);
+		  if (prefixes == 0)
+		    goto invalid_op;
 		  goto print_prefix;
 		}
 
@@ -1125,6 +1127,7 @@ i386_disasm (Ebl *ebl __attribute__((unused)),
 	}
 
       /* Invalid (or at least unhandled) opcode.  */
+    invalid_op:
       if (prefixes != 0)
 	goto print_prefix;
       /* Make sure we get past the unrecognized opcode if we haven't yet.  */

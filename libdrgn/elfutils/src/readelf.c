@@ -11253,7 +11253,8 @@ print_debug (Dwfl_Module *dwflmod, Ebl *ebl, GElf_Ehdr *ehdr)
 	      if (strcmp (name, ".debug_info") == 0
 		  || strcmp (name, ".debug_info.dwo") == 0
 		  || strcmp (name, ".zdebug_info") == 0
-		  || strcmp (name, ".zdebug_info.dwo") == 0)
+		  || strcmp (name, ".zdebug_info.dwo") == 0
+		  || strcmp (name, ".gnu.debuglto_.debug_info") == 0)
 		{
 		  print_debug_info_section (dwflmod, ebl, ehdr,
 					    scn, shdr, dbg);
@@ -11339,7 +11340,11 @@ print_debug (Dwfl_Module *dwflmod, Ebl *ebl, GElf_Ehdr *ehdr)
 				  dbglen - 1) == 0
 		      && (scnlen == dbglen + 1
 			  || (scnlen == dbglen + 5
-			      && strstr (name, ".dwo") == name + dbglen + 1))))
+			      && strstr (name, ".dwo") == name + dbglen + 1)))
+		  || (scnlen > 14 /* .gnu.debuglto_ prefix. */
+		      && strncmp (name, ".gnu.debuglto_", 14) == 0
+		      && strcmp (&name[14], debug_sections[n].name) == 0)
+)
 		{
 		  if ((print_debug_sections | implicit_debug_sections)
 		      & debug_sections[n].bitmask)

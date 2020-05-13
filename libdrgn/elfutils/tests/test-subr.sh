@@ -168,6 +168,19 @@ testrun_on_self_lib()
   if test $exit_status != 0; then exit $exit_status; fi
 }
 
+testrun_on_self_obj()
+{
+  exit_status=0
+
+  for file in $self_test_files_obj; do
+      testrun $* $file \
+	  || { echo "*** failure in $* $file"; exit_status=1; }
+  done
+
+  # Only exit if something failed
+  if test $exit_status != 0; then exit $exit_status; fi
+}
+
 # Compress the files first. Compress both debug sections and symtab.
 testrun_on_self_compressed()
 {
