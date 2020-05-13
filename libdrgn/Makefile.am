@@ -60,6 +60,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 siphash.h \
 			 splay_tree.c \
 			 stack_trace.c \
+			 stack_trace.h \
 			 string_builder.c \
 			 string_builder.h \
 			 symbol.c \

@@ -92,14 +92,13 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
-	Program *prog;
 	struct drgn_stack_trace *trace;
 } StackTrace;
 
 typedef struct {
 	PyObject_HEAD
 	StackTrace *trace;
-	struct drgn_stack_frame frame;
+	size_t i;
 } StackFrame;
 
 typedef struct {

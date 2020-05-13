@@ -729,7 +729,6 @@ static StackTrace *Program_stack_trace(Program *self, PyObject *args,
 		return NULL;
 	}
 	ret->trace = trace;
-	ret->prog = self;
 	Py_INCREF(self);
 	return ret;
 }
