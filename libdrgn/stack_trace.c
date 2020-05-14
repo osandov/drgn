@@ -40,8 +40,8 @@ LIBDRGN_PUBLIC char *drgn_format_stack_trace(struct drgn_stack_trace *trace)
 		if (!string_builder_appendf(&str, "#%-2d ", frame))
 			goto enomem;
 
-		dwfl_frame_pc(trace->frames[frame], &pc, &isactivation);
-		module = dwfl_frame_module(trace->frames[frame]);
+		dwfl_frame_pc(trace->frames[frame].state, &pc, &isactivation);
+		module = dwfl_frame_module(trace->frames[frame].state);
 		if (module &&
 		    drgn_program_find_symbol_by_address_internal(trace->prog,
 								 pc - !isactivation,
@@ -75,7 +75,7 @@ LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace,
 {
 	Dwarf_Addr pc;
 
-	dwfl_frame_pc(trace->frames[frame], &pc, NULL);
+	dwfl_frame_pc(trace->frames[frame].state, &pc, NULL);
 	return pc;
 }
 
@@ -88,10 +88,10 @@ drgn_stack_frame_symbol(struct drgn_stack_trace *trace, int frame,
 	Dwfl_Module *module;
 	struct drgn_symbol *sym;
 
-	dwfl_frame_pc(trace->frames[frame], &pc, &isactivation);
+	dwfl_frame_pc(trace->frames[frame].state, &pc, &isactivation);
 	if (!isactivation)
 		pc--;
-	module = dwfl_frame_module(trace->frames[frame]);
+	module = dwfl_frame_module(trace->frames[frame].state);
 	if (!module)
 		return drgn_error_symbol_not_found(pc);
 	sym = malloc(sizeof(*sym));
@@ -112,7 +112,7 @@ drgn_stack_frame_register(struct drgn_stack_trace *trace, int frame,
 {
 	Dwarf_Addr value;
 
-	if (!dwfl_frame_register(trace->frames[frame], regno, &value)) {
+	if (!dwfl_frame_register(trace->frames[frame].state, regno, &value)) {
 		return drgn_error_create(DRGN_ERROR_LOOKUP,
 					 "register value is not known");
 	}
@@ -387,7 +387,7 @@ static int drgn_append_stack_frame(Dwfl_Frame *state, void *arg)
 		*tracep = trace = tmp;
 		trace->capacity = new_capacity;
 	}
-	trace->frames[trace->num_frames++] = state;
+	trace->frames[trace->num_frames++].state = state;
 	return DWARF_CB_OK;
 }
 

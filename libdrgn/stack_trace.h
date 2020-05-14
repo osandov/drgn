@@ -6,6 +6,10 @@
 
 #include <elfutils/libdwfl.h>
 
+struct drgn_stack_frame {
+	Dwfl_Frame *state;
+};
+
 struct drgn_stack_trace {
 	struct drgn_program *prog;
 	union {
@@ -14,7 +18,7 @@ struct drgn_stack_trace {
 		int capacity;
 	};
 	int num_frames;
-	Dwfl_Frame *frames[];
+	struct drgn_stack_frame frames[];
 };
 
 #endif /* DRGN_STACK_TRACE_H */
