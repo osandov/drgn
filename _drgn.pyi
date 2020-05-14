@@ -1050,13 +1050,20 @@ class StackFrame:
 
     pc: int
     """
-    The return address at this stack frame, i.e., the value of the program
-    counter when control returns to this frame.
+    The program counter at this stack frame.
+
+    For the innermost frame, this is typically the instruction that was being
+    executed when the stack trace was captured. For function calls, this is
+    generally the return address, i.e., the value of the program counter when
+    control returns to this frame.
     """
     def symbol(self) -> Symbol:
         """
-        Get the function symbol at this stack frame. This is equivalent to
-        :meth:`prog.symbol(frame.pc) <Program.symbol>`.
+        Get the function symbol at this stack frame.
+
+        This may differ from :meth:`prog.symbol(frame.pc) <Program.symbol>`, as
+        for function calls, the program counter may be adjusted to the call
+        instruction instead of the return address.
         """
         ...
     def register(self, reg: Union[str, int, Register]) -> int:

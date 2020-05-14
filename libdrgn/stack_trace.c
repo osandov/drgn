@@ -45,7 +45,8 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 	struct drgn_stack_frame frame = { .trace = trace, };
 
 	for (; frame.i < trace->num_frames; frame.i++) {
-		uint64_t pc;
+		Dwarf_Addr pc;
+		bool isactivation;
 		Dwfl_Module *module;
 		struct drgn_symbol sym;
 
@@ -54,11 +55,12 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 			goto err;
 		}
 
-		pc = drgn_stack_frame_pc(frame);
+		dwfl_frame_pc(trace->frames[frame.i], &pc, &isactivation);
 		module = dwfl_frame_module(trace->frames[frame.i]);
 		if (module &&
 		    drgn_program_find_symbol_by_address_internal(trace->prog,
-								 pc, module,
+								 pc - !isactivation,
+								 module,
 								 &sym)) {
 			if (!string_builder_appendf(&str,
 						    "%s+0x%" PRIx64 "/0x%" PRIx64,
@@ -102,11 +104,14 @@ LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_frame frame)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_stack_frame_symbol(struct drgn_stack_frame frame, struct drgn_symbol **ret)
 {
-	uint64_t pc;
+	Dwarf_Addr pc;
+	bool isactivation;
 	Dwfl_Module *module;
 	struct drgn_symbol *sym;
 
-	pc = drgn_stack_frame_pc(frame);
+	dwfl_frame_pc(frame.trace->frames[frame.i], &pc, &isactivation);
+	if (!isactivation)
+		pc--;
 	module = dwfl_frame_module(frame.trace->frames[frame.i]);
 	if (!module)
 		return drgn_error_symbol_not_found(pc);
