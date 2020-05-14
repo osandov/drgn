@@ -2423,12 +2423,10 @@ size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace);
 /**
  * Format a stack trace as a string.
  *
- * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
- * @return @c NULL on success, non-@c NULL on error.
+ * @return Non-@c NULL string on success (must be freed with @c free()), @c NULL
+ * if memory could not be allocated.
  */
-struct drgn_error *drgn_format_stack_trace(struct drgn_stack_trace *trace,
-					   char **ret);
+char *drgn_format_stack_trace(struct drgn_stack_trace *trace);
 
 /** Get the return address at a stack frame. */
 uint64_t drgn_stack_frame_pc(struct drgn_stack_frame frame);

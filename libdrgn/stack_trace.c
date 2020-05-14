@@ -37,12 +37,11 @@ size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 	return trace->num_frames;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
+LIBDRGN_PUBLIC char *drgn_format_stack_trace(struct drgn_stack_trace *trace)
 {
-	struct drgn_error *err;
 	struct string_builder str = {};
 	struct drgn_stack_frame frame = { .trace = trace, };
+	char *ret;
 
 	for (; frame.i < trace->num_frames; frame.i++) {
 		Dwarf_Addr pc;
@@ -50,10 +49,8 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 		Dwfl_Module *module;
 		struct drgn_symbol sym;
 
-		if (!string_builder_appendf(&str, "#%-2zu ", frame.i)) {
-			err = &drgn_enomem;
-			goto err;
-		}
+		if (!string_builder_appendf(&str, "#%-2zu ", frame.i))
+			goto enomem;
 
 		dwfl_frame_pc(trace->frames[frame.i], &pc, &isactivation);
 		module = dwfl_frame_module(trace->frames[frame.i]);
@@ -65,32 +62,24 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 			if (!string_builder_appendf(&str,
 						    "%s+0x%" PRIx64 "/0x%" PRIx64,
 						    sym.name, pc - sym.address,
-						    sym.size)) {
-				err = &drgn_enomem;
-				goto err;
-			}
+						    sym.size))
+				goto enomem;
 		} else {
-			if (!string_builder_appendf(&str, "0x%" PRIx64, pc)) {
-				err = &drgn_enomem;
-				goto err;
-			}
+			if (!string_builder_appendf(&str, "0x%" PRIx64, pc))
+				goto enomem;
 		}
 
 		if (frame.i != trace->num_frames - 1 &&
-		    !string_builder_appendc(&str, '\n')) {
-			err = &drgn_enomem;
-			goto err;
-		}
+		    !string_builder_appendc(&str, '\n'))
+			goto enomem;
 	}
-	if (!string_builder_finalize(&str, ret)) {
-		err = &drgn_enomem;
-		goto err;
-	}
-	return NULL;
+	if (!string_builder_finalize(&str, &ret))
+		goto enomem;
+	return ret;
 
-err:
+enomem:
 	free(str.str);
-	return err;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_frame frame)
@@ -456,10 +445,8 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	prog->stack_trace_tid = 0;
 	if (prog->stack_trace_err)
 		goto stack_trace_err;
-	if (!thread) {
-		err = drgn_error_libdwfl();
-		goto err;
-	}
+	if (!thread)
+		return drgn_error_libdwfl();
 
 	trace = malloc(sizeof(*trace) + sizeof(trace->frames[0]));
 	if (!trace) {

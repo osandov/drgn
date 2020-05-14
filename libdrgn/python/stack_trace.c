@@ -12,14 +12,12 @@ static void StackTrace_dealloc(StackTrace *self)
 
 static PyObject *StackTrace_str(StackTrace *self)
 {
-	struct drgn_error *err;
 	PyObject *ret;
 	char *str;
 
-	err = drgn_format_stack_trace(self->trace, &str);
-	if (err)
-		return set_drgn_error(err);
-
+	str = drgn_format_stack_trace(self->trace);
+	if (!str)
+		return PyErr_NoMemory();
 	ret = PyUnicode_FromString(str);
 	free(str);
 	return ret;
