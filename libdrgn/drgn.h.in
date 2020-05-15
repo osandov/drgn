@@ -2431,6 +2431,16 @@ char *drgn_format_stack_trace(struct drgn_stack_trace *trace);
  */
 char *drgn_format_stack_frame(struct drgn_stack_trace *trace, int frame);
 
+/* TODO */
+const char *drgn_stack_frame_name(struct drgn_stack_trace *trace, int frame);
+
+/* TODO */
+bool drgn_stack_frame_is_inline(struct drgn_stack_trace *trace, int frame);
+
+/* TODO */
+const char *drgn_stack_frame_source(struct drgn_stack_trace *trace, int frame,
+				    int *line_ret, int *column_ret);
+
 /** Get the return address at a stack frame. */
 uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace, int frame);
 

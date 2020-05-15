@@ -17,6 +17,8 @@
 
 LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 {
+	for (int i = 0; i < trace->num_frames; i++)
+		free(trace->frames[i].scopes);
 	dwfl_detach_thread(trace->thread);
 	free(trace);
 }
@@ -32,28 +34,51 @@ LIBDRGN_PUBLIC char *drgn_format_stack_trace(struct drgn_stack_trace *trace)
 	char *ret;
 
 	for (int frame = 0; frame < trace->num_frames; frame++) {
-		Dwarf_Addr pc;
-		bool isactivation;
-		Dwfl_Module *module;
-		struct drgn_symbol sym;
+		const char *name;
+		const char *filename;
+		int line, column;
 
 		if (!string_builder_appendf(&str, "#%-2d ", frame))
 			goto enomem;
 
-		dwfl_frame_pc(trace->frames[frame].state, &pc, &isactivation);
-		module = dwfl_frame_module(trace->frames[frame].state);
-		if (module &&
-		    drgn_program_find_symbol_by_address_internal(trace->prog,
-								 pc - !isactivation,
-								 module,
-								 &sym)) {
-			if (!string_builder_appendf(&str,
-						    "%s+0x%" PRIx64 "/0x%" PRIx64,
-						    sym.name, pc - sym.address,
-						    sym.size))
+		name = drgn_stack_frame_name(trace, frame);
+		if (name) {
+			if (!string_builder_append(&str, name))
 				goto enomem;
 		} else {
-			if (!string_builder_appendf(&str, "0x%" PRIx64, pc))
+			Dwarf_Addr pc;
+			bool isactivation;
+			Dwfl_Module *module;
+			struct drgn_symbol sym;
+
+			dwfl_frame_pc(trace->frames[frame].state, &pc,
+				      &isactivation);
+			if (!isactivation)
+				pc--;
+			module = dwfl_frame_module(trace->frames[frame].state);
+			if (module &&
+			    drgn_program_find_symbol_by_address_internal(trace->prog,
+									 pc,
+									 module,
+									 &sym)) {
+				if (!string_builder_append(&str, sym.name))
+					goto enomem;
+			} else {
+				if (!string_builder_appendf(&str, "%#" PRIx64,
+							    pc))
+					goto enomem;
+			}
+		}
+
+		filename = drgn_stack_frame_source(trace, frame, &line,
+						   &column);
+		if (filename && column) {
+			if (!string_builder_appendf(&str, " (%s:%d:%d)",
+						    filename, line, column))
+				goto enomem;
+		} else if (filename) {
+			if (!string_builder_appendf(&str, " (%s:%d)", filename,
+						    line))
 				goto enomem;
 		}
 
@@ -78,6 +103,9 @@ LIBDRGN_PUBLIC char *drgn_format_stack_frame(struct drgn_stack_trace *trace,
 	bool isactivation;
 	Dwfl_Module *module;
 	struct drgn_symbol sym;
+	const char *name;
+	const char *filename;
+	int line, column;
 	char *ret;
 
 	dwfl_frame_pc(trace->frames[frame].state, &pc, &isactivation);
@@ -93,6 +121,24 @@ LIBDRGN_PUBLIC char *drgn_format_stack_frame(struct drgn_stack_trace *trace,
 				    sym.name, pc - sym.address, sym.size))
 		goto enomem;
 
+	name = drgn_stack_frame_name(trace, frame);
+	if (name && !string_builder_appendf(&str, " in %s", name))
+		goto enomem;
+
+	filename = drgn_stack_frame_source(trace, frame, &line, &column);
+	if (filename && column) {
+		if (!string_builder_appendf(&str, " at %s:%d:%d", filename,
+					    line, column))
+			goto enomem;
+	} else if (filename) {
+		if (!string_builder_appendf(&str, " at %s:%d", filename, line))
+			goto enomem;
+	}
+
+	if (drgn_stack_frame_is_inline(trace, frame) &&
+	    !string_builder_append(&str, " (inlined)"))
+		goto enomem;
+
 	if (!string_builder_finalize(&str, &ret))
 		goto enomem;
 	return ret;
@@ -100,6 +146,93 @@ LIBDRGN_PUBLIC char *drgn_format_stack_frame(struct drgn_stack_trace *trace,
 enomem:
 	free(str.str);
 	return NULL;
+}
+
+LIBDRGN_PUBLIC const char *drgn_stack_frame_name(struct drgn_stack_trace *trace,
+						 int frame)
+{
+	Dwarf_Die *scopes = trace->frames[frame].scopes;
+	int num_scopes = trace->frames[frame].num_scopes;
+	int subprogram = trace->frames[frame].subprogram;
+
+	if (subprogram >= num_scopes)
+		return NULL;
+	return dwarf_diename(&scopes[subprogram]);
+}
+
+LIBDRGN_PUBLIC bool drgn_stack_frame_is_inline(struct drgn_stack_trace *trace,
+					       int frame)
+{
+	Dwarf_Die *scopes = trace->frames[frame].scopes;
+	int subprogram = trace->frames[frame].subprogram;
+
+	return (subprogram > 0 &&
+		dwarf_tag(&scopes[subprogram - 1]) ==
+		DW_TAG_inlined_subroutine);
+}
+
+LIBDRGN_PUBLIC const char *
+drgn_stack_frame_source(struct drgn_stack_trace *trace, int frame,
+			int *line_ret, int *column_ret)
+{
+	if (frame > 0 &&
+	    trace->frames[frame].state == trace->frames[frame - 1].state) {
+		/*
+		 * This frame is the parent (caller) of an inline frame. Get
+		 * the call location from the inlined_subroutine of the callee.
+		 */
+		Dwarf_Die *inlined_scopes = trace->frames[frame - 1].scopes;
+		int inlined_subprogram = trace->frames[frame - 1].subprogram;
+		Dwarf_Die *inlined = &inlined_scopes[inlined_subprogram - 1];
+		Dwarf_Die inlined_cu;
+		Dwarf_Files *files;
+		Dwarf_Attribute attr;
+		Dwarf_Word value;
+		const char *filename;
+
+		if (!dwarf_diecu(inlined, &inlined_cu, NULL, NULL) ||
+		    dwarf_getsrcfiles(&inlined_cu, &files, NULL))
+			return NULL;
+		if (dwarf_formudata(dwarf_attr(inlined, DW_AT_call_file, &attr),
+				    &value))
+			return NULL;
+		filename = dwarf_filesrc(files, value, NULL, NULL);
+		if (!filename)
+			return NULL;
+		if (line_ret) {
+			if (dwarf_formudata(dwarf_attr(inlined, DW_AT_call_line,
+						       &attr), &value))
+				*line_ret = 0;
+			else
+				*line_ret = value;
+		}
+		if (column_ret) {
+			if (dwarf_formudata(dwarf_attr(inlined,
+						       DW_AT_call_column,
+						       &attr), &value))
+				*column_ret = 0;
+			else
+				*column_ret = value;
+		}
+		return filename;
+	} else {
+		Dwarf_Addr pc;
+		bool isactivation;
+		Dwfl_Module *module;
+		Dwfl_Line *line;
+
+		dwfl_frame_pc(trace->frames[frame].state, &pc, &isactivation);
+		if (!isactivation)
+			pc--;
+		module = dwfl_frame_module(trace->frames[frame].state);
+		if (!module)
+			return NULL;
+		line = dwfl_module_getsrc(module, pc);
+		if (!line)
+			return NULL;
+		return dwfl_lineinfo(line, NULL, line_ret, column_ret, NULL,
+				     NULL);
+	}
 }
 
 LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace,
@@ -397,10 +530,12 @@ out:
 	return true;
 }
 
-static int drgn_append_stack_frame(Dwfl_Frame *state, void *arg)
+static bool append_stack_frame(struct drgn_stack_trace **tracep,
+			       Dwfl_Frame *state, Dwarf_Die *scopes,
+			       int num_scopes, int subprogram)
 {
-	struct drgn_stack_trace **tracep = arg;
 	struct drgn_stack_trace *trace = *tracep;
+	struct drgn_stack_frame *frame;
 
 	if (trace->num_frames >= trace->capacity) {
 		struct drgn_stack_trace *tmp;
@@ -411,15 +546,146 @@ static int drgn_append_stack_frame(Dwfl_Frame *state, void *arg)
 		    __builtin_mul_overflow(new_capacity,
 					   sizeof(trace->frames[0]), &bytes) ||
 		    __builtin_add_overflow(bytes, sizeof(*trace), &bytes) ||
-		    !(tmp = realloc(trace, bytes))) {
-			drgn_error_destroy(trace->prog->stack_trace_err);
-			trace->prog->stack_trace_err = &drgn_enomem;
-			return DWARF_CB_ABORT;
-		}
+		    !(tmp = realloc(trace, bytes)))
+			return false;
 		*tracep = trace = tmp;
 		trace->capacity = new_capacity;
 	}
-	trace->frames[trace->num_frames++].state = state;
+	frame = &trace->frames[trace->num_frames++];
+	frame->state = state;
+	frame->scopes = scopes;
+	frame->num_scopes = num_scopes;
+	frame->subprogram = subprogram;
+	return true;
+}
+
+static struct drgn_error *append_scopes(Dwfl_Frame *state,
+					struct drgn_stack_trace **tracep)
+{
+	struct drgn_error *err;
+	Dwarf_Addr pc;
+	bool isactivation;
+	Dwfl_Module *module;
+	Dwarf_Addr bias;
+	Dwarf_Die *cu;
+	Dwarf_Die *scopes;
+	int num_scopes;
+	int first_scope;
+	int subprogram;
+	int frame_num_scopes;
+	Dwarf_Die *frame_scopes;
+
+	dwfl_frame_pc(state, &pc, &isactivation);
+	if (!isactivation)
+		pc--;
+	module = dwfl_frame_module(state);
+	if (!module)
+		return &drgn_not_found;
+	cu = dwfl_module_addrdie(module, pc, &bias);
+	if (!cu)
+		return &drgn_not_found;
+	num_scopes = dwarf_getallscopes(cu, pc - bias, &scopes);
+	if (num_scopes <= 0)
+		return &drgn_not_found;
+
+	first_scope = 0;
+	subprogram = -1;
+	for (int i = 0; i < num_scopes; i++) {
+		switch (dwarf_tag(&scopes[i])) {
+		case DW_TAG_subprogram:
+			subprogram = i - first_scope;
+			break;
+		case DW_TAG_inlined_subroutine: {
+			Dwarf_Attribute attr_mem;
+
+			/*
+			 * +2 for this inlined_subroutine and its
+			 * abstract_origin.
+			 */
+			frame_num_scopes = i - first_scope + 2;
+			frame_scopes = malloc_array(frame_num_scopes,
+						    sizeof(*frame_scopes));
+			if (!frame_scopes) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			memcpy(frame_scopes, &scopes[first_scope],
+			       (frame_num_scopes - 1) * sizeof(*frame_scopes));
+			subprogram = frame_num_scopes - 1;
+			if (dwarf_formref_die(dwarf_attr(&scopes[i],
+							 DW_AT_abstract_origin,
+							 &attr_mem),
+					      &frame_scopes[subprogram])) {
+				if (!append_stack_frame(tracep, state,
+							frame_scopes,
+							frame_num_scopes,
+							subprogram)) {
+					free(frame_scopes);
+					err = &drgn_enomem;
+					goto out;
+				}
+			} else {
+				/*
+				 * The abstract_origin is missing or invalid.
+				 * Omit this subroutine.
+				 */
+				free(frame_scopes);
+			}
+			first_scope = i + 1;
+			subprogram = -1;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+	if (subprogram == -1) {
+		/*
+		 * The subprogram is missing. Fall back to a scopeless frame.
+		 * (We may or may not have found inline subroutines.)
+		 */
+		err = &drgn_not_found;
+		goto out;
+	}
+
+	frame_num_scopes = num_scopes - first_scope;
+	frame_scopes = malloc_array(frame_num_scopes,
+				    sizeof(*frame_scopes));
+	if (!frame_scopes) {
+		err = &drgn_enomem;
+		goto out;
+	}
+	memcpy(frame_scopes, &scopes[first_scope],
+	       frame_num_scopes * sizeof(*frame_scopes));
+	if (!append_stack_frame(tracep, state, frame_scopes, frame_num_scopes,
+				subprogram)) {
+		free(frame_scopes);
+		err = &drgn_enomem;
+		goto out;
+	}
+	err = NULL;
+out:
+	free(scopes);
+	return err;
+}
+
+static int drgn_append_dwfl_frame(Dwfl_Frame *state, void *arg)
+{
+	struct drgn_stack_trace **tracep = arg;
+	struct drgn_error *err;
+
+	err = append_scopes(state, tracep);
+	if (err == &drgn_not_found) {
+		if (append_stack_frame(tracep, state, NULL, 0, 0))
+			err = NULL;
+		else
+			err = &drgn_enomem;
+	}
+	if (err) {
+		drgn_error_destroy((*tracep)->prog->stack_trace_err);
+		(*tracep)->prog->stack_trace_err = err;
+		return DWARF_CB_ABORT;
+	}
 	return DWARF_CB_OK;
 }
 
@@ -479,9 +745,10 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	trace->capacity = 1;
 	trace->num_frames = 0;
 
-	dwfl_thread_getframes(thread, drgn_append_stack_frame, &trace);
+	dwfl_thread_getframes(thread, drgn_append_dwfl_frame, &trace);
 	if (prog->stack_trace_err) {
-		free(trace);
+		trace->thread = NULL;
+		drgn_stack_trace_destroy(trace);
 		goto stack_trace_err;
 	}
 

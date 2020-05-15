@@ -834,6 +834,9 @@ extern int dwarf_default_lower_bound (int lang, Dwarf_Sword *result)
 extern int dwarf_getscopes (Dwarf_Die *cudie, Dwarf_Addr pc,
 			    Dwarf_Die **scopes);
 
+extern int dwarf_getallscopes (Dwarf_Die *cudie, Dwarf_Addr pc,
+			       Dwarf_Die **scopes);
+
 /* Return scope DIEs containing the given DIE.
    Sets *SCOPES to a malloc'd array of Dwarf_Die structures,
    and returns the number of elements in the array.

@@ -8,6 +8,9 @@
 
 struct drgn_stack_frame {
 	Dwfl_Frame *state;
+	Dwarf_Die *scopes;
+	int num_scopes;
+	int subprogram;
 };
 
 struct drgn_stack_trace {

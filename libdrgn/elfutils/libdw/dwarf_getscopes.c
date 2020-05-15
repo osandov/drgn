@@ -181,6 +181,28 @@ pc_record (unsigned int depth, struct Dwarf_Die_Chain *die, void *arg)
   return __libdw_visit_scopes (depth, die, NULL, &origin_match, NULL, a);
 }
 
+static int
+pc_record_all (unsigned int depth, struct Dwarf_Die_Chain *die, void *arg)
+{
+  struct args *a = arg;
+
+  if (die->prune || a->scopes != NULL)
+    return 0;
+
+  a->nscopes = depth + 1;
+  a->scopes = malloc (a->nscopes * sizeof a->scopes[0]);
+  if (a->scopes == NULL)
+    {
+      __libdw_seterrno (DWARF_E_NOMEM);
+      return -1;
+    }
+  for (unsigned int i = 0; i < a->nscopes; ++i)
+    {
+      a->scopes[i] = die->die;
+      die = die->parent;
+    }
+  return a->nscopes;
+}
 
 int
 dwarf_getscopes (Dwarf_Die *cudie, Dwarf_Addr pc, Dwarf_Die **scopes)
@@ -195,6 +217,24 @@ dwarf_getscopes (Dwarf_Die *cudie, Dwarf_Addr pc, Dwarf_Die **scopes)
 
   if (result == 0 && a.scopes != NULL)
     result = __libdw_visit_scopes (0, &cu, NULL, &origin_match, NULL, &a);
+
+  if (result > 0)
+    *scopes = a.scopes;
+
+  return result;
+}
+
+int
+dwarf_getallscopes (Dwarf_Die *cudie, Dwarf_Addr pc, Dwarf_Die **scopes)
+{
+  if (cudie == NULL)
+    return -1;
+
+  struct Dwarf_Die_Chain cu = { .parent = NULL, .die = *cudie };
+  struct args a = { .pc = pc };
+
+  int result = __libdw_visit_scopes (0, &cu, NULL, &pc_match, &pc_record_all,
+				     &a);
 
   if (result > 0)
     *scopes = a.scopes;

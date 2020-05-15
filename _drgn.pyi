@@ -1021,20 +1021,23 @@ class StackTrace:
     .. code-block:: python3
 
         for frame in trace:
-            if frame.symbol().name == 'io_schedule':
+            if frame.name == 'io_schedule':
                 print('Thread is doing I/O')
 
     :class:`str() <str>` returns a pretty-printed stack trace:
 
-    >>> print(prog.stack_trace(1))
-    #0  __schedule+0x25c/0x8ba
-    #1  schedule+0x3c/0x7e
-    #2  schedule_hrtimeout_range_clock+0x10c/0x118
-    #3  ep_poll+0x3ca/0x40a
-    #4  do_epoll_wait+0xb0/0xc6
-    #5  __x64_sys_epoll_wait+0x1a/0x1d
-    #6  do_syscall_64+0x55/0x17c
-    #7  entry_SYSCALL_64+0x7c/0x156
+    >>> prog.stack_trace(1)
+    #0  context_switch (kernel/sched/core.c:3386:2)
+    #1  __schedule (kernel/sched/core.c:4086:8)
+    #2  schedule (kernel/sched/core.c:4160:3)
+    #3  schedule_hrtimeout_range_clock (kernel/time/hrtimer.c:2121:3)
+    #4  ep_poll (fs/eventpoll.c:1894:8)
+    #5  do_epoll_wait (fs/eventpoll.c:2273:10)
+    #6  __do_sys_epoll_wait (fs/eventpoll.c:2283:9)
+    #7  __se_sys_epoll_wait (fs/eventpoll.c:2280:1)
+    #8  __x64_sys_epoll_wait (fs/eventpoll.c:2280:1)
+    #9  do_syscall_64 (arch/x86/entry/common.c:294:14)
+    #10 entry_SYSCALL_64 (arch/x86/entry/entry_64.S:175)
 
     The drgn CLI is set up so that stack traces are displayed with ``str()`` by
     default.
@@ -1050,11 +1053,26 @@ class StackFrame:
     :class:`str() <str>` returns a pretty-printed stack frame:
 
     >>> prog.stack_trace(1)[0]
-    #0 at 0xffffffff9a883039 (__schedule+0x2c9/0x75d)
+    #0 at 0xffffffff9a883039 (__schedule+0x2c9/0x75d) in context_switch at kernel/sched/core.c:3386:2 (inlined)
 
     This includes more information than when printing the full stack trace. The
     drgn CLI is set up so that stack frames are displayed with ``str()`` by
     default.
+    """
+
+    name: Optional[str]
+    """
+    The name of the function at this frame, or ``None`` if it could not be
+    determined.
+    """
+
+    is_inline: bool
+    """
+    Whether this frame is for an inlined call.
+
+    An inline frame shares the same stack frame in memory as its caller.
+    Therefore, it has the same registers (including program counter and thus
+    symbol).
     """
 
     pc: int
@@ -1066,6 +1084,14 @@ class StackFrame:
     generally the return address, i.e., the value of the program counter when
     control returns to this frame.
     """
+    def source(self) -> Tuple[str, int, int]:
+        """
+        Get the source code location of this frame.
+
+        :return: Location as a ``(filename, line, column)`` triple.
+        :raises LookupError: if the source code location is not available
+        """
+        ...
     def symbol(self) -> Symbol:
         """
         Get the function symbol at this stack frame.
