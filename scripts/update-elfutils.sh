@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
 
 # drgn depends heavily on elfutils. In particular, we need a recent version,
 # potentially with some patches that may not be released or even merged yet. We

@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 # "Install" the elfutils headers to the build directory.
 
 BUILT_SOURCES = dwarf.h \

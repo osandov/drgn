@@ -1,4 +1,4 @@
-# Copyright 2019 - Omar Sandoval
+# Copyright (c) Facebook, Inc. and its affiliates.
 # SPDX-License-Identifier: GPL-3.0+
 
 # This script generates "drgn.h" from "drgn.h.in" and all of the

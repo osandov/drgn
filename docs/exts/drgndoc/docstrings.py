@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018-2020 - Omar Sandoval
+# Copyright (c) Facebook, Inc. and its affiliates.
 # SPDX-License-Identifier: GPL-3.0+
 
 import argparse

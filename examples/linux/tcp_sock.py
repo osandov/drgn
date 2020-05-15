@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 """List all TCP sockets and their cgroup v2 paths"""
 
 import ipaddress

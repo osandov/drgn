@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 from functools import reduce
 import operator
 import unittest

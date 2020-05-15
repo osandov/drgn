@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 """List the paths of all inodes cached in a given filesystem"""
 
 from drgn.helpers.linux.fs import for_each_mount, inode_path

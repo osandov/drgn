@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 """List the paths of all descendants of a cgroup v2"""
 
 import os

@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 ACLOCAL_AMFLAGS = -I m4
 
 SUBDIRS = elfutils include

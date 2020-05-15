@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 import unittest
 
 from tests.libdrgn import deserialize_bits, serialize_bits

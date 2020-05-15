@@ -1,3 +1,6 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# SPDX-License-Identifier: GPL-3.0+
+
 """An implementation of lsmod(8) using drgn"""
 
 from drgn.helpers.linux.list import list_for_each_entry

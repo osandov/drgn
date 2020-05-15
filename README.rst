@@ -125,7 +125,7 @@ License
 
 .. start-license
 
-Copyright 2018-2020 Omar Sandoval
+Copyright (c) Facebook, Inc. and its affiliates.
 
 drgn is licensed under the `GPLv3
 <https://www.gnu.org/licenses/gpl-3.0.en.html>`_ or later.
