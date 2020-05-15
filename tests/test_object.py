@@ -86,6 +86,15 @@ class TestInit(ObjectTestCase):
             Object,
             self.prog,
             "int",
+            0,
+            address=0,
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "object cannot have address and value",
+            Object,
+            self.prog,
+            "int",
             value=0,
             address=0,
         )
@@ -373,6 +382,9 @@ class TestReference(ObjectTestCase):
 
 
 class TestValue(ObjectTestCase):
+    def test_positional(self):
+        self.assertEqual(Object(self.prog, "int", 1), Object(self.prog, "int", value=1))
+
     def test_signed(self):
         obj = Object(self.prog, "int", value=-4)
         self.assertIs(obj.prog_, self.prog)

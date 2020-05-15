@@ -611,14 +611,14 @@ class Object:
     language. For example, adding two objects from a program written in C
     results in an object with a type and value according to the rules of C:
 
-    >>> Object(prog, 'unsigned long', value=2**64 - 1) + Object(prog, 'int', value=1)
+    >>> Object(prog, 'unsigned long', 2**64 - 1) + Object(prog, 'int', 1)
     Object(prog, 'unsigned long', value=0)
 
     If only one operand to a binary operator is an object, the other operand
     will be converted to an object according to the language's rules for
     literals:
 
-    >>> Object(prog, 'char', value=0) - 1
+    >>> Object(prog, 'char', 0) - 1
     Object(prog, 'int', value=-1)
 
     The standard :class:`int() <int>`, :class:`float() <float>`, and
@@ -640,9 +640,9 @@ class Object:
     :param prog: The program to create this object in.
     :param type: The type of the object. If omitted, this is deduced from
         *value* according to the language's rules for literals.
+    :param value: The value of this object. See :meth:`value_()`.
     :param address: The address of this object in the program. Either this or
         *value* must be given, but not both.
-    :param value: The value of this object. See :meth:`value_()`.
     :param byteorder: Byte order of the object. This should be ``'little'`` or
         ``'big'``. The default is ``None``, which indicates the program byte
         order. This must be ``None`` for primitive values.
@@ -657,9 +657,9 @@ class Object:
         self,
         prog: Program,
         type: Union[str, Type, None] = None,
+        value: Any = None,
         *,
         address: Optional[int] = None,
-        value: Any = None,
         byteorder: Optional[str] = None,
         bit_offset: Optional[int] = None,
         bit_field_size: Optional[int] = None,
@@ -935,7 +935,7 @@ def NULL(prog: Program, type: Union[str, Type]) -> Object:
     """
     Get an object representing ``NULL`` casted to the given type.
 
-    This is equivalent to ``Object(prog, type, value=0)``.
+    This is equivalent to ``Object(prog, type, 0)``.
 
     :param prog: The program.
     :param type: The type.

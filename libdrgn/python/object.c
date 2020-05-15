@@ -412,7 +412,7 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 	struct index_arg bit_field_size = { .allow_none = true, .is_none = true };
 	struct drgn_qualified_type qualified_type;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O$OO&O&O&O&:Object",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|OO$O&O&O&O&:Object",
 					 keywords, &Program_type, &prog,
 					 &type_obj, &value_obj, index_converter,
 					 &address, byteorder_converter,
