@@ -164,8 +164,7 @@ class TestMemory(unittest.TestCase):
                         self.assertEqual(prog.read_word(0xA0, True), value)
 
         prog = mock_program(
-            MOCK_32BIT_PLATFORM,
-            segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)],
+            MOCK_32BIT_PLATFORM, segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)],
         )
 
     def test_bad_address(self):
