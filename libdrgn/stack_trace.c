@@ -70,6 +70,38 @@ enomem:
 	return NULL;
 }
 
+LIBDRGN_PUBLIC char *drgn_format_stack_frame(struct drgn_stack_trace *trace,
+					     int frame)
+{
+	struct string_builder str = {};
+	Dwarf_Addr pc;
+	bool isactivation;
+	Dwfl_Module *module;
+	struct drgn_symbol sym;
+	char *ret;
+
+	dwfl_frame_pc(trace->frames[frame].state, &pc, &isactivation);
+	if (!string_builder_appendf(&str, "#%d at %#" PRIx64, frame, pc))
+		goto enomem;
+
+	module = dwfl_frame_module(trace->frames[frame].state);
+	if (module &&
+	    drgn_program_find_symbol_by_address_internal(trace->prog,
+							 pc - !isactivation,
+							 module, &sym) &&
+	    !string_builder_appendf(&str, " (%s+%#" PRIx64 "/%#" PRIx64 ")",
+				    sym.name, pc - sym.address, sym.size))
+		goto enomem;
+
+	if (!string_builder_finalize(&str, &ret))
+		goto enomem;
+	return ret;
+
+enomem:
+	free(str.str);
+	return NULL;
+}
+
 LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace,
 					    int frame)
 {

@@ -71,6 +71,19 @@ static void StackFrame_dealloc(StackFrame *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static PyObject *StackFrame_str(StackFrame *self)
+{
+	PyObject *ret;
+	char *str;
+
+	str = drgn_format_stack_frame(self->trace->trace, self->i);
+	if (!str)
+		return PyErr_NoMemory();
+	ret = PyUnicode_FromString(str);
+	free(str);
+	return ret;
+}
+
 static PyObject *StackFrame_symbol(StackFrame *self)
 {
 	struct drgn_error *err;
@@ -184,6 +197,7 @@ PyTypeObject StackFrame_type = {
 	.tp_name = "_drgn.StackFrame",
 	.tp_basicsize = sizeof(StackFrame),
 	.tp_dealloc = (destructor)StackFrame_dealloc,
+	.tp_str = (reprfunc)StackFrame_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_StackFrame_DOC,
 	.tp_methods = StackFrame_methods,

@@ -1046,6 +1046,15 @@ class StackFrame:
     """
     A ``StackFrame`` represents a single *frame* (i.e., function call) in a
     thread's call stack.
+
+    :class:`str() <str>` returns a pretty-printed stack frame:
+
+    >>> prog.stack_trace(1)[0]
+    #0 at 0xffffffff9a883039 (__schedule+0x2c9/0x75d)
+
+    This includes more information than when printing the full stack trace. The
+    drgn CLI is set up so that stack frames are displayed with ``str()`` by
+    default.
     """
 
     pc: int
