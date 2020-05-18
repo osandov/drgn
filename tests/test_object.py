@@ -42,16 +42,6 @@ from tests import (
 
 
 class TestInit(ObjectTestCase):
-    def test_reinit(self):
-        obj = Object(self.prog, "int", value=1)
-        self.assertEqual(obj.value_(), 1)
-        obj.__init__(self.prog, value=2)
-        self.assertEqual(obj.value_(), 2)
-        prog = mock_program()
-        self.assertRaisesRegex(
-            ValueError, "cannot change object program", obj.__init__, prog, value=3
-        )
-
     def test_type_stays_alive(self):
         obj = Object(self.prog, int_type("int", 4, True), value=0)
         self.assertEqual(obj.type_, int_type("int", 4, True))

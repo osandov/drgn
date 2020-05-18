@@ -9,32 +9,6 @@
 #include "../serialize.h"
 #include "../type.h"
 
-static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
-				  PyObject *kwds)
-{
-	PyObject *arg;
-
-	if (PyTuple_GET_SIZE(args) < 1) {
-		PyErr_SetString(PyExc_TypeError,
-				"Object() missing required argument 'prog' (pos 1)");
-		return NULL;
-	}
-	arg = PyTuple_GET_ITEM(args, 0);
-	if (!PyObject_TypeCheck(arg, &Program_type)) {
-		PyErr_SetString(PyExc_TypeError,
-				"Object() argument 1 must be Program");
-		return NULL;
-	}
-	return DrgnObject_alloc((Program *)arg);
-}
-
-static void DrgnObject_dealloc(DrgnObject *self)
-{
-	Py_DECREF(DrgnObject_prog(self));
-	drgn_object_deinit(&self->obj);
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
 static int DrgnObject_literal(struct drgn_object *res, PyObject *literal)
 {
 	struct drgn_error *err;
@@ -393,7 +367,8 @@ static int buffer_object_from_value(struct drgn_object *res,
 	return 0;
 }
 
-static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
+static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
+				  PyObject *kwds)
 {
 	static char *keywords[] = {
 		"prog", "type", "value", "address", "byteorder",
@@ -411,6 +386,7 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 	struct index_arg bit_offset = { .allow_none = true, .is_none = true };
 	struct index_arg bit_field_size = { .allow_none = true, .is_none = true };
 	struct drgn_qualified_type qualified_type;
+	DrgnObject *obj;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|OO$O&O&O&O&:Object",
 					 keywords, &Program_type, &prog,
@@ -419,36 +395,32 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 					 &byteorder, index_converter,
 					 &bit_offset, index_converter,
 					 &bit_field_size))
-		return -1;
+		return NULL;
 
-	if (&prog->prog != self->obj.prog) {
-		PyErr_SetString(PyExc_ValueError,
-				"cannot change object program");
-		return -1;
-	}
-
-	if (Program_type_arg(DrgnObject_prog(self), type_obj, true,
-			     &qualified_type) == -1)
-		return -1;
+	if (Program_type_arg(prog, type_obj, true, &qualified_type) == -1)
+		return NULL;
 
 	if (!bit_field_size.is_none && bit_field_size.uvalue == 0) {
 		PyErr_SetString(PyExc_ValueError,
 				"bit field size cannot be zero");
-		return -1;
+		return NULL;
 	}
 
+	obj = DrgnObject_alloc(prog);
+	if (!obj)
+		return NULL;
 	if (!address.is_none && value_obj != Py_None) {
 		PyErr_SetString(PyExc_ValueError,
 				"object cannot have address and value");
-		return -1;
+		goto err;
 	} else if (!address.is_none) {
 		if (!qualified_type.type) {
 			PyErr_SetString(PyExc_ValueError,
 					"reference must have type");
-			return -1;
+			goto err;
 		}
 
-		err = drgn_object_set_reference(&self->obj, qualified_type,
+		err = drgn_object_set_reference(&obj->obj, qualified_type,
 						address.uvalue,
 						bit_offset.uvalue,
 						bit_field_size.uvalue,
@@ -459,27 +431,27 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 		if (!byteorder.is_none) {
 			PyErr_SetString(PyExc_ValueError,
 					"literal cannot have byteorder");
-			return -1;
+			goto err;
 		}
 		if (!bit_offset.is_none) {
 			PyErr_SetString(PyExc_ValueError,
 					"literal cannot have bit offset");
-			return -1;
+			goto err;
 		}
 		if (!bit_field_size.is_none) {
 			PyErr_SetString(PyExc_ValueError,
 					"literal cannot be bit field");
-			return -1;
+			goto err;
 		}
 
-		ret = DrgnObject_literal(&self->obj, value_obj);
+		ret = DrgnObject_literal(&obj->obj, value_obj);
 		if (ret == -1) {
-			return -1;
+			goto err;
 		} else if (ret) {
 			PyErr_Format(PyExc_TypeError,
 				     "cannot create %s literal",
 				     Py_TYPE(value_obj)->tp_name);
-			return -1;
+			goto err;
 		}
 		err = NULL;
 	} else if (value_obj != Py_None) {
@@ -490,35 +462,35 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 			err = drgn_error_incomplete_type("cannot create object with %s type",
 							 qualified_type.type);
 			set_drgn_error(err);
-			return -1;
+			goto err;
 
 		}
 		if (!bit_field_size.is_none && kind != DRGN_OBJECT_SIGNED &&
 		    kind != DRGN_OBJECT_UNSIGNED) {
 			PyErr_SetString(PyExc_ValueError,
 					"bit field must be integer");
-			return -1;
+			goto err;
 		}
 		if (kind != DRGN_OBJECT_BUFFER) {
 			if (!byteorder.is_none) {
 				PyErr_SetString(PyExc_ValueError,
 						"primitive value cannot have byteorder");
-				return -1;
+				goto err;
 			}
 			if (!bit_offset.is_none) {
 				PyErr_SetString(PyExc_ValueError,
 						"primitive value cannot have bit offset");
-				return -1;
+				goto err;
 			}
 		}
 
 		switch (kind) {
 		case DRGN_OBJECT_BUFFER:
-			if (buffer_object_from_value(&self->obj, qualified_type,
+			if (buffer_object_from_value(&obj->obj, qualified_type,
 						     value_obj,
 						     bit_offset.uvalue,
 						     byteorder.value) == -1)
-				return -1;
+				goto err;
 			err = NULL;
 			break;
 		case DRGN_OBJECT_SIGNED:
@@ -532,23 +504,23 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 			if (!PyNumber_Check(value_obj)) {
 				set_error_type_name("'%s' value must be number",
 						    qualified_type);
-				return -1;
+				goto err;
 			}
 			long_obj = PyNumber_Long(value_obj);
 			if (!long_obj)
-				return -1;
+				goto err;
 			tmp.uvalue = PyLong_AsUnsignedLongLongMask(long_obj);
 			Py_DECREF(long_obj);
 			if (tmp.uvalue == (unsigned long long)-1 &&
 			    PyErr_Occurred())
-				return -1;
+				goto err;
 			if (kind == DRGN_OBJECT_SIGNED) {
-				err = drgn_object_set_signed(&self->obj,
+				err = drgn_object_set_signed(&obj->obj,
 							     qualified_type,
 							     tmp.svalue,
 							     bit_field_size.uvalue);
 			} else {
-				err = drgn_object_set_unsigned(&self->obj,
+				err = drgn_object_set_unsigned(&obj->obj,
 							       qualified_type,
 							       tmp.uvalue,
 							       bit_field_size.uvalue);
@@ -561,12 +533,12 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 			if (!PyNumber_Check(value_obj)) {
 				set_error_type_name("'%s' value must be number",
 						    qualified_type);
-				return -1;
+				goto err;
 			}
 			fvalue = PyFloat_AsDouble(value_obj);
 			if (fvalue == -1.0 && PyErr_Occurred())
-				return -1;
-			err = drgn_object_set_float(&self->obj, qualified_type,
+				goto err;
+			err = drgn_object_set_float(&obj->obj, qualified_type,
 						    fvalue);
 			break;
 		}
@@ -576,13 +548,24 @@ static int DrgnObject_init(DrgnObject *self, PyObject *args, PyObject *kwds)
 	} else {
 		PyErr_SetString(PyExc_ValueError,
 				"object must have either address or value");
-		return -1;
+		goto err;
 	}
 	if (err) {
 		set_drgn_error(err);
-		return -1;
+		goto err;
 	}
-	return 0;
+	return obj;
+
+err:
+	Py_DECREF(obj);
+	return NULL;
+}
+
+static void DrgnObject_dealloc(DrgnObject *self)
+{
+	Py_DECREF(DrgnObject_prog(self));
+	drgn_object_deinit(&self->obj);
+	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static PyObject *DrgnObject_value_impl(struct drgn_object *obj);
@@ -1743,7 +1726,6 @@ PyTypeObject DrgnObject_type = {
 	.tp_iter = (getiterfunc)DrgnObject_iter,
 	.tp_methods = DrgnObject_methods,
 	.tp_getset = DrgnObject_getset,
-	.tp_init = (initproc)DrgnObject_init,
 	.tp_new = (newfunc)DrgnObject_new,
 };
 
