@@ -242,51 +242,6 @@ type_error:
 }
 
 static struct drgn_error *
-drgn_pt_regs_set_initial_registers(Dwfl_Thread *thread,
-				   struct drgn_platform *platform,
-				   const struct drgn_object *pt_regs)
-{
-	struct drgn_error *err;
-	struct drgn_object obj;
-	size_t i;
-
-	drgn_object_init(&obj, pt_regs->prog);
-
-	if (!platform->arch->num_frame_registers) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					 "pt_regs stack unwinding is not supported for %s architecture",
-					 platform->arch->name);
-	}
-
-	for (i = 0; i < platform->arch->num_frame_registers; i++) {
-		const struct drgn_frame_register *reg;
-		union drgn_value value;
-		Dwarf_Word word;
-
-		reg = &platform->arch->frame_registers[i];
-		err = drgn_object_member(&obj, pt_regs, reg->pt_regs_name);
-		if (err && err->code == DRGN_ERROR_LOOKUP &&
-		    reg->pt_regs_name2) {
-			drgn_error_destroy(err);
-			err = drgn_object_member(&obj, pt_regs,
-						 reg->pt_regs_name2);
-		}
-		if (err)
-			goto out;
-		err = drgn_object_read_integer(&obj, &value);
-		if (err)
-			goto out;
-		word = value.uvalue;
-		if (!dwfl_thread_state_registers(thread, reg->number, 1, &word))
-			return drgn_error_libdwfl();
-	}
-	err = NULL;
-out:
-	drgn_object_deinit(&obj);
-	return err;
-}
-
-static struct drgn_error *
 drgn_get_task_pid(const struct drgn_object *task, uint32_t *ret)
 {
 	struct drgn_error *err;
@@ -304,60 +259,6 @@ drgn_get_task_pid(const struct drgn_object *task, uint32_t *ret)
 out:
 	drgn_object_deinit(&pid);
 	return err;
-}
-
-static struct drgn_error *
-drgn_prstatus_set_initial_registers(Dwfl_Thread *thread,
-				    struct drgn_platform *platform,
-				    struct string *prstatus)
-{
-	bool bswap = (!!(platform->flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN) !=
-		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
-	size_t i;
-
-	if (!platform->arch->num_frame_registers) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					 "core dump stack unwinding is not supported for %s architecture",
-					 platform->arch->name);
-	}
-
-	for (i = 0; i < platform->arch->num_frame_registers; i++) {
-		const struct drgn_frame_register *reg;
-		const char *p;
-		Dwarf_Word word;
-
-		reg = &platform->arch->frame_registers[i];
-		if (prstatus->len < reg->prstatus_offset + reg->size) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "NT_PRSTATUS is truncated");
-		}
-		p = prstatus->str + reg->prstatus_offset;
-		switch (reg->size) {
-		case 4: {
-			uint32_t tmp;
-
-			memcpy(&tmp, p, sizeof(tmp));
-			if (bswap)
-				tmp = bswap_32(tmp);
-			word = tmp;
-			break;
-		}
-		case 8: {
-			uint64_t tmp;
-
-			memcpy(&tmp, p, sizeof(tmp));
-			if (bswap)
-				tmp = bswap_64(tmp);
-			word = tmp;
-			break;
-		}
-		default:
-			UNREACHABLE();
-		}
-		if (!dwfl_thread_state_registers(thread, reg->number, 1, &word))
-			return drgn_error_libdwfl();
-	}
-	return NULL;
 }
 
 static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
@@ -380,10 +281,16 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 			goto out;
 
 		if (is_pt_regs) {
-			assert(obj.kind == DRGN_OBJECT_BUFFER);
-			err = drgn_pt_regs_set_initial_registers(thread,
-								 &prog->platform,
-								 &obj);
+			assert(obj.kind == DRGN_OBJECT_BUFFER &&
+			       !obj.is_reference);
+			if (!prog->platform.arch->pt_regs_set_initial_registers) {
+				err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+							"pt_regs stack unwinding is not supported for %s architecture",
+							prog->platform.arch->name);
+				goto out;
+			}
+			err = prog->platform.arch->pt_regs_set_initial_registers(thread,
+										 &obj);
 			goto out;
 		}
 	}
@@ -408,9 +315,16 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 		if (err)
 			goto out;
 		if (prstatus.str) {
-			err = drgn_prstatus_set_initial_registers(thread,
-								  &prog->platform,
-								  &prstatus);
+			if (!prog->platform.arch->prstatus_set_initial_registers) {
+				err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+							"core dump stack unwinding is not supported for %s architecture",
+							prog->platform.arch->name);
+				goto out;
+			}
+			err = prog->platform.arch->prstatus_set_initial_registers(prog,
+										  thread,
+										  prstatus.str,
+										  prstatus.len);
 			goto out;
 		}
 	}

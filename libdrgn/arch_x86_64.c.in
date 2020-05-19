@@ -107,25 +107,76 @@ bnd2
 bnd3
 %%
 
-static const struct drgn_frame_register frame_registers_x86_64[] = {
-	{ DRGN_REGISTER_X86_64_rax, 8, 192, "ax", "rax", },
-	{ DRGN_REGISTER_X86_64_rdx, 8, 208, "dx", "rdx", },
-	{ DRGN_REGISTER_X86_64_rcx, 8, 200, "cx", "rcx", },
-	{ DRGN_REGISTER_X86_64_rbx, 8, 152, "bx", "rbx", },
-	{ DRGN_REGISTER_X86_64_rsi, 8, 216, "si", "rsi", },
-	{ DRGN_REGISTER_X86_64_rdi, 8, 224, "di", "rdi", },
-	{ DRGN_REGISTER_X86_64_rbp, 8, 144, "bp", "rbp", },
-	{ DRGN_REGISTER_X86_64_rsp, 8, 264, "sp", "rsp", },
-	{ DRGN_REGISTER_X86_64_r8, 8, 184, "r8", },
-	{ DRGN_REGISTER_X86_64_r9, 8, 176, "r9", },
-	{ DRGN_REGISTER_X86_64_r10, 8, 168, "r10", },
-	{ DRGN_REGISTER_X86_64_r11, 8, 160, "r11", },
-	{ DRGN_REGISTER_X86_64_r12, 8, 136, "r12", },
-	{ DRGN_REGISTER_X86_64_r13, 8, 128, "r13", },
-	{ DRGN_REGISTER_X86_64_r14, 8, 120, "r14", },
-	{ DRGN_REGISTER_X86_64_r15, 8, 112, "r15", },
-	{ DRGN_REGISTER_X86_64_rip, 8, 240, "ip", "rip", },
-};
+/*
+ * The in-kernel struct pt_regs, UAPI struct pt_regs, elf_gregset_t, and struct
+ * user_regs_struct all have the same layout.
+ */
+static struct drgn_error *
+set_initial_registers_from_struct_x86_64(Dwfl_Thread *thread, const void *regs,
+					 size_t size, bool bswap)
+{
+	Dwarf_Word dwarf_regs[17];
+
+	if (size < 160) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "registers are truncated");
+	}
+
+#define READ_REGISTER(n) ({					\
+	uint64_t reg;						\
+	memcpy(&reg, (uint64_t *)regs + n, sizeof(reg));	\
+	bswap ? bswap_64(reg) : reg;				\
+})
+	dwarf_regs[0] = READ_REGISTER(10); /* rax */
+	dwarf_regs[1] = READ_REGISTER(12); /* rdx */
+	dwarf_regs[2] = READ_REGISTER(11); /* rcx */
+	dwarf_regs[3] = READ_REGISTER(5); /* rbx */
+	dwarf_regs[4] = READ_REGISTER(13); /* rsi */
+	dwarf_regs[5] = READ_REGISTER(14); /* rdi */
+	dwarf_regs[6] = READ_REGISTER(4); /* rbp */
+	dwarf_regs[7] = READ_REGISTER(19); /* rsp */
+	dwarf_regs[8] = READ_REGISTER(9); /* r8 */
+	dwarf_regs[9] = READ_REGISTER(8); /* r9 */
+	dwarf_regs[10] = READ_REGISTER(7); /* r10 */
+	dwarf_regs[11] = READ_REGISTER(6); /* r11 */
+	dwarf_regs[12] = READ_REGISTER(3); /* r12 */
+	dwarf_regs[13] = READ_REGISTER(2); /* r13 */
+	dwarf_regs[14] = READ_REGISTER(1); /* r14 */
+	dwarf_regs[15] = READ_REGISTER(0); /* r15 */
+	dwarf_regs[16] = READ_REGISTER(16); /* rip */
+#undef READ_REGISTER
+
+	if (!dwfl_thread_state_registers(thread, 0, 17, dwarf_regs))
+		return drgn_error_libdwfl();
+	return NULL;
+}
+
+static struct drgn_error *
+pt_regs_set_initial_registers_x86_64(Dwfl_Thread *thread,
+				     const struct drgn_object *obj)
+{
+	bool bswap = (obj->value.little_endian !=
+		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
+	return set_initial_registers_from_struct_x86_64(thread,
+							drgn_object_buffer(obj),
+							drgn_buffer_object_size(obj),
+							bswap);
+}
+
+static struct drgn_error *
+prstatus_set_initial_registers_x86_64(struct drgn_program *prog,
+				      Dwfl_Thread *thread, const void *prstatus,
+				      size_t size)
+{
+	if (size < 112) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "NT_PRSTATUS is truncated");
+	}
+	return set_initial_registers_from_struct_x86_64(thread,
+							(char *)prstatus + 112,
+							size - 112,
+							drgn_program_bswap(prog));
+}
 
 static inline struct drgn_error *read_register(struct drgn_object *reg_obj,
 					       struct drgn_object *frame_obj,
@@ -485,8 +536,8 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	ARCHITECTURE_INFO,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
-	.frame_registers = frame_registers_x86_64,
-	.num_frame_registers = ARRAY_SIZE(frame_registers_x86_64),
+	.pt_regs_set_initial_registers = pt_regs_set_initial_registers_x86_64,
+	.prstatus_set_initial_registers = prstatus_set_initial_registers_x86_64,
 	.linux_kernel_set_initial_registers =
 		linux_kernel_set_initial_registers_x86_64,
 	.linux_kernel_get_page_offset = linux_kernel_get_page_offset_x86_64,
