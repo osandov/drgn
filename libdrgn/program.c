@@ -28,6 +28,7 @@
 #include "type_index.h"
 #include "vector.h"
 
+DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_map, hash_pair_int_type,
 			    hash_table_scalar_eq)
 
@@ -75,7 +76,6 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_type_index_init(&prog->tindex);
 	drgn_object_index_init(&prog->oindex);
 	prog->core_fd = -1;
-	drgn_prstatus_map_init(&prog->prstatus_cache);
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 }
@@ -83,7 +83,12 @@ void drgn_program_init(struct drgn_program *prog,
 void drgn_program_deinit(struct drgn_program *prog)
 {
 	free(prog->task_state_chars);
-	drgn_prstatus_map_deinit(&prog->prstatus_cache);
+	if (prog->prstatus_cached) {
+		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+			drgn_prstatus_vector_deinit(&prog->prstatus_vector);
+		else
+			drgn_prstatus_map_deinit(&prog->prstatus_map);
+	}
 	free(prog->pgtable_it);
 
 	drgn_object_index_deinit(&prog->oindex);
@@ -736,41 +741,64 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 						     char *data, size_t size)
 {
-	struct drgn_prstatus_map_entry entry;
-	size_t pr_pid_offset;
-	uint32_t pr_pid;
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		struct string *entry;
 
-	pr_pid_offset = drgn_program_is_64_bit(prog) ? 32 : 24;
+		entry = drgn_prstatus_vector_append_entry(&prog->prstatus_vector);
+		if (!entry)
+			return &drgn_enomem;
+		entry->str = data;
+		entry->len = size;
+	} else {
+		struct drgn_prstatus_map_entry entry;
+		size_t pr_pid_offset;
+		uint32_t pr_pid;
 
-	if (size < pr_pid_offset + sizeof(pr_pid))
-		return NULL;
+		pr_pid_offset = drgn_program_is_64_bit(prog) ? 32 : 24;
+		if (size < pr_pid_offset + sizeof(pr_pid))
+			return NULL;
 
-	memcpy(&pr_pid, data + pr_pid_offset, sizeof(pr_pid));
-	if (drgn_program_bswap(prog))
-		pr_pid = bswap_32(pr_pid);
-	if (!pr_pid)
-		return NULL;
+		memcpy(&pr_pid, data + pr_pid_offset, sizeof(pr_pid));
+		if (drgn_program_bswap(prog))
+			pr_pid = bswap_32(pr_pid);
 
-	entry.key = pr_pid;
-	entry.value.str = data;
-	entry.value.len = size;
-	if (drgn_prstatus_map_insert(&prog->prstatus_cache, &entry,
-				     NULL) == -1) {
-		return &drgn_enomem;
+		entry.key = pr_pid;
+		entry.value.str = data;
+		entry.value.len = size;
+		if (drgn_prstatus_map_insert(&prog->prstatus_map, &entry,
+					     NULL) == -1)
+			return &drgn_enomem;
 	}
 	return NULL;
 }
 
 static struct drgn_error *drgn_program_cache_prstatus(struct drgn_program *prog)
 {
+	struct drgn_error *err;
 	size_t phnum, i;
 
+	if (prog->prstatus_cached)
+		return NULL;
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		drgn_prstatus_vector_init(&prog->prstatus_vector);
+	else
+		drgn_prstatus_map_init(&prog->prstatus_map);
+
 #ifdef WITH_LIBKDUMPFILE
-	if (prog->kdump_ctx)
-		return drgn_program_cache_prstatus_kdump(prog);
+	if (prog->kdump_ctx) {
+		err = drgn_program_cache_prstatus_kdump(prog);
+		goto out;
+	}
 #endif
-	if (elf_getphdrnum(prog->core, &phnum) != 0)
-		return drgn_error_libelf();
+	if (!prog->core) {
+		err = NULL;
+		goto out;
+	}
+	if (elf_getphdrnum(prog->core, &phnum) != 0) {
+		err = drgn_error_libelf();
+		goto out;
+	}
 	for (i = 0; i < phnum; i++) {
 		GElf_Phdr phdr_mem, *phdr;
 		Elf_Data *data;
@@ -779,23 +807,26 @@ static struct drgn_error *drgn_program_cache_prstatus(struct drgn_program *prog)
 		size_t name_offset, desc_offset;
 
 		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
-		if (!phdr)
-			return drgn_error_libelf();
+		if (!phdr) {
+			err = drgn_error_libelf();
+			goto out;
+		}
 		if (phdr->p_type != PT_NOTE)
 			continue;
 
 		data = elf_getdata_rawchunk(prog->core, phdr->p_offset,
 					    phdr->p_filesz,
 					    note_header_type(phdr));
-		if (!data)
-			return drgn_error_libelf();
+		if (!data) {
+			err = drgn_error_libelf();
+			goto out;
+		}
 
 		offset = 0;
 		while (offset < data->d_size &&
 		       (offset = gelf_getnote(data, offset, &nhdr, &name_offset,
 					      &desc_offset))) {
 			const char *name;
-			struct drgn_error *err;
 
 			name = (char *)data->d_buf + name_offset;
 			if (strncmp(name, "CORE", nhdr.n_namesz) != 0 ||
@@ -806,26 +837,56 @@ static struct drgn_error *drgn_program_cache_prstatus(struct drgn_program *prog)
 								(char *)data->d_buf + desc_offset,
 								nhdr.n_descsz);
 			if (err)
-				return err;
+				goto out;
 		}
+	}
+
+	err = NULL;
+out:
+	if (err) {
+		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+			drgn_prstatus_vector_deinit(&prog->prstatus_vector);
+		else
+			drgn_prstatus_map_deinit(&prog->prstatus_map);
+	} else {
+		prog->prstatus_cached = true;
+	}
+	return err;
+}
+
+struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
+						     uint32_t cpu,
+						     struct string *ret)
+{
+	struct drgn_error *err;
+
+	assert(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL);
+	err = drgn_program_cache_prstatus(prog);
+	if (err)
+		return err;
+
+	if (cpu < prog->prstatus_vector.size) {
+		*ret = prog->prstatus_vector.data[cpu];
+	} else {
+		ret->str = NULL;
+		ret->len = 0;
 	}
 	return NULL;
 }
 
-struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
-					      uint32_t tid, struct string *ret)
+struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
+						     uint32_t tid,
+						     struct string *ret)
 {
 	struct drgn_error *err;
 	struct drgn_prstatus_map_iterator it;
 
-	if (!prog->prstatus_cached) {
-		err = drgn_program_cache_prstatus(prog);
-		if (err)
-			return err;
-		prog->prstatus_cached = true;
-	}
+	assert(!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL));
+	err = drgn_program_cache_prstatus(prog);
+	if (err)
+		return err;
 
-	it = drgn_prstatus_map_search(&prog->prstatus_cache, &tid);
+	it = drgn_prstatus_map_search(&prog->prstatus_map, &tid);
 	if (!it.entry) {
 		ret->str = NULL;
 		ret->len = 0;

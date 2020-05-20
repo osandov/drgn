@@ -234,8 +234,8 @@ out:
 	return err;
 }
 
-static struct drgn_error *
-linux_kernel_get_thread_size(struct drgn_program *prog, uint64_t *ret)
+struct drgn_error *linux_kernel_get_thread_size(struct drgn_program *prog,
+						uint64_t *ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type thread_union_type;

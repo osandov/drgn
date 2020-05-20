@@ -241,36 +241,17 @@ type_error:
 				 ", struct task_struct *" : "");
 }
 
-static struct drgn_error *
-drgn_get_task_pid(const struct drgn_object *task, uint32_t *ret)
-{
-	struct drgn_error *err;
-	struct drgn_object pid;
-	union drgn_value value;
-
-	drgn_object_init(&pid, task->prog);
-	err = drgn_object_member_dereference(&pid, task, "pid");
-	if (err)
-		goto out;
-	err = drgn_object_read_integer(&pid, &value);
-	if (err)
-		goto out;
-	*ret = value.uvalue;
-out:
-	drgn_object_deinit(&pid);
-	return err;
-}
-
 static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 					      void *thread_arg)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = thread_arg;
 	struct drgn_object obj;
-	bool truthy;
-	char state;
+	struct drgn_object tmp;
+	struct string prstatus;
 
 	drgn_object_init(&obj, prog);
+	drgn_object_init(&tmp, prog);
 
 	/* First, try pt_regs. */
 	if (prog->stack_trace_obj) {
@@ -293,91 +274,109 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 										 &obj);
 			goto out;
 		}
-	}
+	} else if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		bool found;
 
-	/* Then, try the core dump (and/or kdump if supported). */
-#ifdef WITH_LIBKDUMPFILE
-	if (prog->core || prog->kdump_ctx) {
-#else
-	if (prog->core) {
-#endif
-		uint32_t tid;
-		struct string prstatus;
-
-		if (prog->stack_trace_obj) {
-			err = drgn_get_task_pid(&obj, &tid);
-			if (err)
-				goto out;
-		} else {
-			tid = prog->stack_trace_tid;
-		}
-		err = drgn_program_find_prstatus(prog, tid, &prstatus);
+		err = drgn_program_find_object(prog, "init_pid_ns", NULL,
+					       DRGN_FIND_OBJECT_ANY, &tmp);
 		if (err)
 			goto out;
-		if (prstatus.str) {
-			if (!prog->platform.arch->prstatus_set_initial_registers) {
-				err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-							"core dump stack unwinding is not supported for %s architecture",
-							prog->platform.arch->name);
+		err = drgn_object_address_of(&tmp, &tmp);
+		if (err)
+			goto out;
+		err = linux_helper_find_task(&obj, &tmp, prog->stack_trace_tid);
+		if (err)
+			goto out;
+		err = drgn_object_bool(&obj, &found);
+		if (err)
+			goto out;
+		if (!found) {
+			err = drgn_error_create(DRGN_ERROR_LOOKUP, "task not found");
+			goto out;
+		}
+	}
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+			err = drgn_object_member_dereference(&tmp, &obj, "on_cpu");
+			if (!err) {
+				bool on_cpu;
+				err = drgn_object_bool(&tmp, &on_cpu);
+				if (err)
+					goto out;
+				if (on_cpu) {
+					err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+								"cannot unwind stack of running task");
+					goto out;
+				}
+			} else if (err->code == DRGN_ERROR_LOOKUP) {
+				/*
+				 * The running kernel is !SMP. Assume that the
+				 * task isn't running (which can only be wrong
+				 * for this thread itself).
+				 */
+				drgn_error_destroy(err);
+			} else {
 				goto out;
 			}
-			err = prog->platform.arch->prstatus_set_initial_registers(prog,
-										  thread,
-										  prstatus.str,
-										  prstatus.len);
+			prstatus.str = NULL;
+			prstatus.len = 0;
+		} else {
+			union drgn_value value;
+			uint32_t cpu;
+
+			err = drgn_object_member_dereference(&tmp, &obj, "cpu");
+			if (!err) {
+				err = drgn_object_read_integer(&tmp, &value);
+				if (err)
+					goto out;
+				cpu = value.uvalue;
+			} else if (err->code == DRGN_ERROR_LOOKUP) {
+				/* !SMP. Must be CPU 0. */
+				drgn_error_destroy(err);
+				cpu = 0;
+			} else {
+				goto out;
+			}
+			err = drgn_program_find_prstatus_by_cpu(prog, cpu,
+								&prstatus);
+			if (err)
+				goto out;
+		}
+		if (!prog->platform.arch->linux_kernel_set_initial_registers) {
+			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						"Linux kernel stack unwinding is not supported for %s architecture",
+						prog->platform.arch->name);
 			goto out;
 		}
-	}
-
-	/* Finally, try the task_struct. */
-	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		err = drgn_error_create(DRGN_ERROR_LOOKUP, "thread not found");
-		goto out;
-	}
-
-	if (!prog->platform.arch->linux_kernel_set_initial_registers) {
-		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					"Linux kernel stack unwinding is not supported for %s architecture",
-					prog->platform.arch->name);
-		goto out;
-	}
-
-	if (!prog->stack_trace_obj) {
-		struct drgn_object ns;
-
-		drgn_object_init(&ns, prog);
-		err = drgn_program_find_object(prog, "init_pid_ns", NULL,
-					       DRGN_FIND_OBJECT_ANY, &ns);
-		if (!err)
-			err = drgn_object_address_of(&ns, &ns);
-		if (!err) {
-			err = linux_helper_find_task(&obj, &ns,
-						     prog->stack_trace_tid);
-		}
-		drgn_object_deinit(&ns);
+		err = prog->platform.arch->linux_kernel_set_initial_registers(thread,
+									      &obj,
+									      prstatus.str,
+									      prstatus.len);
+	} else {
+		err = drgn_program_find_prstatus_by_tid(prog,
+							prog->stack_trace_tid,
+							&prstatus);
 		if (err)
 			goto out;
-	}
-	err = drgn_object_bool(&obj, &truthy);
-	if (err)
-		goto out;
-	if (!truthy) {
-		err = drgn_error_create(DRGN_ERROR_LOOKUP, "task not found");
-		goto out;
-	}
-
-	err = linux_helper_task_state_to_char(&obj, &state);
-	if (err)
-		goto out;
-	if (state == 'R') {
-		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					"cannot unwind stack of running task");
-		goto out;
+		if (!prstatus.str) {
+			err = drgn_error_create(DRGN_ERROR_LOOKUP, "thread not found");
+			goto out;
+		}
+		if (!prog->platform.arch->prstatus_set_initial_registers) {
+			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						"core dump stack unwinding is not supported for %s architecture",
+						prog->platform.arch->name);
+			goto out;
+		}
+		err = prog->platform.arch->prstatus_set_initial_registers(prog,
+									  thread,
+									  prstatus.str,
+									  prstatus.len);
 	}
 
-	err = prog->platform.arch->linux_kernel_set_initial_registers(thread,
-								      &obj);
 out:
+	drgn_object_deinit(&tmp);
 	drgn_object_deinit(&obj);
 	if (err) {
 		drgn_error_destroy(prog->stack_trace_err);

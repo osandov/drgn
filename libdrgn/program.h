@@ -22,6 +22,7 @@
 #include "object_index.h"
 #include "platform.h"
 #include "type_index.h"
+#include "vector.h"
 
 /**
  * @ingroup Internals
@@ -53,6 +54,7 @@ struct vmcoreinfo {
 	bool pgtable_l5_enabled;
 };
 
+DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct string)
 DEFINE_HASH_MAP_TYPE(drgn_prstatus_map, uint32_t, struct string)
 
 struct drgn_dwarf_info_cache;
@@ -92,7 +94,16 @@ struct drgn_program {
 	  */
 	pid_t pid;
 	struct drgn_dwarf_info_cache *_dicache;
-	struct drgn_prstatus_map prstatus_cache;
+	union {
+		/*
+		 * For the Linux kernel, PRSTATUS notes indexed by CPU. See @ref
+		 * drgn_architecture_info::linux_kernel_set_initial_registers
+		 * for why we don't use the PID map.
+		 */
+		struct drgn_prstatus_vector prstatus_vector;
+		/* For userspace programs, PRSTATUS notes indexed by PID. */
+		struct drgn_prstatus_map prstatus_map;
+	};
 	/* See @ref drgn_object_stack_trace(). */
 	struct drgn_error *stack_trace_err;
 	/* See @ref drgn_object_stack_trace_next_thread(). */
@@ -173,15 +184,28 @@ static inline bool drgn_program_is_64_bit(struct drgn_program *prog)
 struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
 
 /**
- * Find the @c NT_PRSTATUS note for the given thread ID.
+ * Find the @c NT_PRSTATUS note for the given CPU.
  *
- * This assumes that <tt>prog->core</tt> is not @c NULL.
+ * This is only valid for the Linux kernel.
  *
  * @param[out] ret Returned note data. If not found, <tt>ret->str</tt> is set to
  * @c NULL and <tt>ret->len</tt> is set to zero.
  */
-struct drgn_error *drgn_program_find_prstatus(struct drgn_program *prog,
-					      uint32_t tid, struct string *ret);
+struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
+						     uint32_t cpu,
+						     struct string *ret);
+
+/**
+ * Find the @c NT_PRSTATUS note for the given thread ID.
+ *
+ * This is only valid for userspace programs.
+ *
+ * @param[out] ret Returned note data. If not found, <tt>ret->str</tt> is set to
+ * @c NULL and <tt>ret->len</tt> is set to zero.
+ */
+struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
+						     uint32_t tid,
+						     struct string *ret);
 
 /**
  * Cache the @c NT_PRSTATUS note provided by @p data in @p prog.
