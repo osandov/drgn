@@ -1,4 +1,4 @@
-commit c26c6ddb435d87ceafdd8fb36fa99011119d6e3a
+commit eaa481f284524d7f5d14f88dcf6cb62faeae5713
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:30:35 2019 -0700
 
@@ -9,23 +9,23 @@ Date:   Mon Oct 7 01:30:35 2019 -0700
     pieces are in place, add dwfl_frame_eval_expr to provide this feature.
 
 diff --git a/libdw/libdw.map b/libdw/libdw.map
-index 5f5946cb1..b4fa63631 100644
+index f4134e318a..25ae8b6e6c 100644
 --- a/libdw/libdw.map
 +++ b/libdw/libdw.map
 @@ -377,4 +377,5 @@ ELFUTILS_0.180 {
+     dwfl_frame_register;
      dwfl_frame_module;
      dwfl_frame_dwarf_frame;
-     dwfl_frame_register;
 +    dwfl_frame_eval_expr;
  } ELFUTILS_0.177;
 diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
-index 3984c65ce..4885caa13 100644
+index bbbd73add4..a6df269763 100644
 --- a/libdwfl/frame_unwind.c
 +++ b/libdwfl/frame_unwind.c
-@@ -814,3 +814,14 @@ out:
-   return state->frame;
+@@ -837,3 +837,14 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
+   assert (state->unwound->pc_state == DWFL_FRAME_STATE_PC_SET);
+   state->unwound->signal_frame = signal_frame;
  }
- INTDEF (dwfl_frame_dwarf_frame)
 +
 +bool
 +dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,
@@ -38,7 +38,7 @@ index 3984c65ce..4885caa13 100644
 +  return expr_eval (state, frame, ops, nops, result, bias);
 +}
 diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index fb261698e..1dc080c01 100644
+index fb261698ed..1dc080c01e 100644
 --- a/libdwfl/libdwfl.h
 +++ b/libdwfl/libdwfl.h
 @@ -822,6 +822,12 @@ bool dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
@@ -54,136 +54,7 @@ index fb261698e..1dc080c01 100644
  #ifdef __cplusplus
  }
  #endif
-commit b32da5a9a88543f144afd50a213afe6fe1d9b25d
-Author: Omar Sandoval <osandov@fb.com>
-Date:   Thu Feb 20 11:44:38 2020 -0800
-
-    libdwfl: export __libdwfl_frame_reg_get as dwfl_frame_register
-    
-    This is useful for debuggers that want to dump register values.
-
-diff --git a/libdw/libdw.map b/libdw/libdw.map
-index e0fe21156..5f5946cb1 100644
---- a/libdw/libdw.map
-+++ b/libdw/libdw.map
-@@ -376,4 +376,5 @@ ELFUTILS_0.180 {
-     dwfl_detach_thread;
-     dwfl_frame_module;
-     dwfl_frame_dwarf_frame;
-+    dwfl_frame_register;
- } ELFUTILS_0.177;
-diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
-index 9ada2e550..3984c65ce 100644
---- a/libdwfl/frame_unwind.c
-+++ b/libdwfl/frame_unwind.c
-@@ -44,8 +44,7 @@
- #define DWARF_EXPR_STEPS_MAX 0x1000
- 
- bool
--internal_function
--__libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
-+dwfl_frame_register (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
- {
-   Ebl *ebl = state->thread->process->ebl;
-   if (! ebl_dwarf_to_regno (ebl, &regno))
-@@ -59,6 +58,7 @@ __libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
-     *val = state->regs[regno];
-   return true;
- }
-+INTDEF (dwfl_frame_register)
- 
- bool
- internal_function
-@@ -81,7 +81,7 @@ __libdwfl_frame_reg_set (Dwfl_Frame *state, unsigned regno, Dwarf_Addr val)
- static bool
- state_get_reg (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
- {
--  if (! __libdwfl_frame_reg_get (state, regno, val))
-+  if (! INTUSE(dwfl_frame_register) (state, regno, val))
-     {
-       __libdwfl_seterrno (DWFL_E_INVALID_REGISTER);
-       return false;
-@@ -628,9 +628,9 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Frame *frame, Dwarf_Addr bias)
-     }
-   if (unwound->pc_state == DWFL_FRAME_STATE_ERROR)
-     {
--      if (__libdwfl_frame_reg_get (unwound,
--				   frame->fde->cie->return_address_register,
--				   &unwound->pc))
-+      if (INTUSE(dwfl_frame_register) (unwound,
-+				       frame->fde->cie->return_address_register,
-+				       &unwound->pc))
- 	{
- 	  /* PPC32 __libc_start_main properly CFI-unwinds PC as zero.
- 	     Currently none of the archs supported for unwinding have
-@@ -687,7 +687,7 @@ getfunc (int firstreg, unsigned nregs, Dwarf_Word *regs, void *arg)
-   Dwfl_Frame *state = arg;
-   assert (firstreg >= 0);
-   while (nregs--)
--    if (! __libdwfl_frame_reg_get (state, firstreg++, regs++))
-+    if (! INTUSE(dwfl_frame_register) (state, firstreg++, regs++))
-       return false;
-   return true;
- }
-diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index b494d4582..fb261698e 100644
---- a/libdwfl/libdwfl.h
-+++ b/libdwfl/libdwfl.h
-@@ -817,6 +817,11 @@ int dwfl_getthread_frames (Dwfl *dwfl, pid_t tid,
- bool dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
-   __nonnull_attribute__ (1, 2);
- 
-+/* Return the *VALUE of register REGNO in frame STATE.  VALUE may be NULL.
-+   Returns false if the register value is unknown.  */
-+bool dwfl_frame_register (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *value)
-+  __nonnull_attribute__ (1);
-+
- #ifdef __cplusplus
- }
- #endif
-diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index 90d509ece..613ccf016 100644
---- a/libdwfl/libdwflP.h
-+++ b/libdwfl/libdwflP.h
-@@ -283,12 +283,6 @@ struct Dwfl_Frame
-   Dwarf_Addr regs[];
- };
- 
--/* Fetch value from Dwfl_Frame->regs indexed by DWARF REGNO.
--   No error code is set if the function returns FALSE.  */
--bool __libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno,
--			      Dwarf_Addr *val)
--  internal_function;
--
- /* Store value to Dwfl_Frame->regs indexed by DWARF REGNO.
-    No error code is set if the function returns FALSE.  */
- bool __libdwfl_frame_reg_set (Dwfl_Frame *state, unsigned regno,
-@@ -788,6 +782,7 @@ INTDECL (dwfl_getthread_frames)
- INTDECL (dwfl_getthreads)
- INTDECL (dwfl_thread_getframes)
- INTDECL (dwfl_frame_pc)
-+INTDECL (dwfl_frame_register)
- 
- /* Leading arguments standard to callbacks passed a Dwfl_Module.  */
- #define MODCB_ARGS(mod)	(mod), &(mod)->userdata, (mod)->name, (mod)->low_addr
-diff --git a/libdwfl/linux-core-attach.c b/libdwfl/linux-core-attach.c
-index c0f1b0d00..d55312b6c 100644
---- a/libdwfl/linux-core-attach.c
-+++ b/libdwfl/linux-core-attach.c
-@@ -253,10 +253,9 @@ core_set_initial_registers (Dwfl_Thread *thread, void *thread_arg_voidp)
- 	  /* PPC provides DWARF register 65 irrelevant for
- 	     CFI which clashes with register 108 (LR) we need.
- 	     LR (108) is provided earlier (in NT_PRSTATUS) than the # 65.
--	     FIXME: It depends now on their order in core notes.
--	     FIXME: It uses private function.  */
-+	     FIXME: It depends now on their order in core notes.  */
- 	  if (regno < nregs
--	      && __libdwfl_frame_reg_get (thread->unwound, regno, NULL))
-+	      && INTUSE(dwfl_frame_register) (thread->unwound, regno, NULL))
- 	    continue;
- 	  Dwarf_Word val;
- 	  switch (regloc->bits)
-commit 1426c2a70c1748cd5a6f4e38410ae4e9796d3037
+commit 5a6524c0b89a71bc712ccab7fc801d12c429bcd5
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Thu Feb 20 11:18:28 2020 -0800
 
@@ -199,18 +70,18 @@ Date:   Thu Feb 20 11:18:28 2020 -0800
     frame, so add dwfl_frame_module.
 
 diff --git a/libdw/libdw.map b/libdw/libdw.map
-index c8961b3a6..e0fe21156 100644
+index 73f592c03e..f4134e318a 100644
 --- a/libdw/libdw.map
 +++ b/libdw/libdw.map
-@@ -374,4 +374,6 @@ ELFUTILS_0.180 {
-   global:
+@@ -375,4 +375,6 @@ ELFUTILS_0.180 {
      dwfl_attach_thread;
      dwfl_detach_thread;
+     dwfl_frame_register;
 +    dwfl_frame_module;
 +    dwfl_frame_dwarf_frame;
  } ELFUTILS_0.177;
 diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
-index 0ad28e0f5..046f6c2ba 100644
+index 61fad8b9cf..80f2bc1466 100644
 --- a/libdwfl/dwfl_frame.c
 +++ b/libdwfl/dwfl_frame.c
 @@ -68,6 +68,13 @@ state_fetch_pc (Dwfl_Frame *state)
@@ -244,10 +115,10 @@ index 0ad28e0f5..046f6c2ba 100644
 +  state->frame = NULL;
 +  state->moderr = DWFL_E_NOERROR;
 +  state->frameerr = DWFL_E_NOERROR;
-   state->isactivation = true;
+   state->signal_frame = false;
+   state->initial_frame = true;
    state->pc_state = DWFL_FRAME_STATE_ERROR;
-   memset (state->regs_set, 0, sizeof (state->regs_set));
-@@ -485,7 +496,7 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
+@@ -486,7 +497,7 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
        if (! cache)
  	{
  	  /* The old frame is no longer needed.  */
@@ -257,7 +128,7 @@ index 0ad28e0f5..046f6c2ba 100644
        state = next;
      }
 diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
-index df755975e..9ada2e550 100644
+index f7459b283d..bbbd73add4 100644
 --- a/libdwfl/frame_unwind.c
 +++ b/libdwfl/frame_unwind.c
 @@ -523,6 +523,10 @@ new_unwound (Dwfl_Frame *state)
@@ -268,10 +139,10 @@ index df755975e..9ada2e550 100644
 +  unwound->frame = NULL;
 +  unwound->moderr = DWFL_E_NOERROR;
 +  unwound->frameerr = DWFL_E_NOERROR;
-   unwound->isactivation = false;
+   unwound->signal_frame = false;
+   unwound->initial_frame = false;
    unwound->pc_state = DWFL_FRAME_STATE_ERROR;
-   memset (unwound->regs_set, 0, sizeof (unwound->regs_set));
-@@ -535,22 +539,9 @@ new_unwound (Dwfl_Frame *state)
+@@ -536,22 +540,9 @@ new_unwound (Dwfl_Frame *state)
     later.  Therefore we continue unwinding leaving the registers undefined.  */
  
  static void
@@ -293,10 +164,10 @@ index df755975e..9ada2e550 100644
 -    }
 -
 +  Dwfl_Frame *unwound = state->unwound;
-   if (frame->fde->cie->signal_frame)
-     {
-       state->isactivation = true;
-@@ -668,7 +659,6 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
+   unwound->signal_frame = frame->fde->cie->signal_frame;
+   Dwfl_Thread *thread = state->thread;
+   Dwfl_Process *process = thread->process;
+@@ -665,7 +656,6 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
  	    unwound->pc_state = DWFL_FRAME_STATE_PC_UNDEFINED;
  	}
      }
@@ -304,16 +175,112 @@ index df755975e..9ada2e550 100644
  }
  
  static bool
-@@ -724,28 +714,16 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
-   assert (ok);
-   if (! isactivation)
+@@ -709,6 +699,95 @@ readfunc (Dwarf_Addr addr, Dwarf_Word *datap, void *arg)
+ 					  process->callbacks_arg);
+ }
+ 
++/* Internal version of dwfl_frame_module when we already know the PC.  */
++static Dwfl_Module *
++dwfl_frame_module_pc (Dwfl_Frame *state, Dwarf_Addr pc)
++{
++  if (state->mod != NULL)
++    return state->mod;
++  if (state->moderr == DWFL_E_NOERROR)
++    {
++      state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
++      if (state->mod != NULL)
++	return state->mod;
++      state->moderr = DWFL_E_NO_DWARF;
++    }
++  __libdwfl_seterrno (state->moderr);
++  return NULL;
++}
++
++/* Internal version of dwfl_frame_dwarf_frame when we already know the PC.  */
++static Dwarf_Frame *
++dwfl_frame_dwarf_frame_pc (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_Addr *bias)
++{
++  if (state->frame == NULL)
++    {
++      if (state->frameerr == DWFL_E_NOERROR)
++	{
++	  Dwfl_Module *mod = dwfl_frame_module_pc (state, pc);
++	  if (mod == NULL)
++	    {
++	      state->frameerr = state->moderr;
++	      /* errno is already set.  */
++	      return NULL;
++	    }
++	  Dwarf_CFI *cfi = INTUSE(dwfl_module_eh_cfi) (mod, &state->bias);
++	  if (cfi
++	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
++					      &state->frame) == 0)
++	    goto out;
++	  cfi = INTUSE(dwfl_module_dwarf_cfi) (mod, &state->bias);
++	  if (cfi
++	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
++					      &state->frame) == 0)
++	    goto out;
++	  state->frameerr = DWFL_E_NO_DWARF;
++	}
++      __libdwfl_seterrno (state->frameerr);
++      return NULL;
++    }
++
++out:
++  *bias = state->bias;
++  return state->frame;
++}
++
++Dwfl_Module *
++dwfl_frame_module (Dwfl_Frame *state)
++{
++  if (state->mod != NULL)
++    return state->mod;
++  if (state->moderr == DWFL_E_NOERROR)
++    {
++      Dwarf_Addr pc;
++      bool isactivation;
++      INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
++      if (! isactivation)
++	pc--;
++      return dwfl_frame_module_pc (state, pc);
++    }
++  __libdwfl_seterrno (state->moderr);
++  return NULL;
++}
++
++Dwarf_Frame *
++dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
++{
++  if (state->frame != NULL)
++    return state->frame;
++  if (state->frameerr == DWFL_E_NOERROR)
++    {
++      Dwarf_Addr pc;
++      bool isactivation;
++      INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
++      if (! isactivation)
++	pc--;
++      return dwfl_frame_dwarf_frame_pc (state, pc, bias);
++    }
++  __libdwfl_seterrno (state->frameerr);
++  return NULL;
++}
++
+ void
+ internal_function
+ __libdwfl_frame_unwind (Dwfl_Frame *state)
+@@ -724,28 +803,16 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
+      Then we need to unwind from the original, unadjusted PC.  */
+   if (! state->initial_frame && ! state->signal_frame)
      pc--;
 -  Dwfl_Module *mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
 -  if (mod == NULL)
 -    __libdwfl_seterrno (DWFL_E_NO_DWARF);
 -  else
 +  Dwarf_Addr bias;
-+  Dwarf_Frame *frame = INTUSE(dwfl_frame_dwarf_frame) (state, &bias);
++  Dwarf_Frame *frame = dwfl_frame_dwarf_frame_pc (state, pc, &bias);
 +  if (frame != NULL)
      {
 -      Dwarf_Addr bias;
@@ -341,75 +308,8 @@ index df755975e..9ada2e550 100644
    Dwfl_Thread *thread = state->thread;
    Dwfl_Process *process = thread->process;
    Ebl *ebl = process->ebl;
-@@ -773,3 +751,66 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
-       state->unwound->isactivation = true;
-     }
- }
-+
-+Dwfl_Module *
-+dwfl_frame_module (Dwfl_Frame *state)
-+{
-+  if (state->mod != NULL)
-+    return state->mod;
-+  if (state->moderr == DWFL_E_NOERROR)
-+    {
-+      Dwarf_Addr pc;
-+      bool isactivation;
-+      INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
-+      if (! isactivation)
-+	pc--;
-+      state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
-+      if (state->mod != NULL)
-+	return state->mod;
-+      state->moderr = DWFL_E_NO_DWARF;
-+    }
-+  __libdwfl_seterrno (state->moderr);
-+  return NULL;
-+}
-+INTDEF (dwfl_frame_module)
-+
-+Dwarf_Frame *
-+dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
-+{
-+  if (state->frame == NULL)
-+    {
-+      if (state->frameerr == DWFL_E_NOERROR)
-+	{
-+	  Dwfl_Module *mod = INTUSE(dwfl_frame_module) (state);
-+	  if (mod == NULL)
-+	    {
-+	      state->frameerr = state->moderr;
-+	      return NULL;
-+	    }
-+	  Dwarf_Addr pc;
-+	  bool isactivation;
-+	  INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
-+	  if (! isactivation)
-+	    pc--;
-+	  Dwarf_CFI *cfi = INTUSE(dwfl_module_eh_cfi) (state->mod,
-+						       &state->bias);
-+	  if (cfi
-+	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
-+					      &state->frame) == 0)
-+	    goto out;
-+	  cfi = INTUSE(dwfl_module_dwarf_cfi) (state->mod, &state->bias);
-+	  if (cfi
-+	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
-+					      &state->frame) == 0)
-+	    goto out;
-+	  state->frameerr = DWFL_E_NO_DWARF;
-+	}
-+      __libdwfl_seterrno (state->frameerr);
-+      return NULL;
-+    }
-+
-+out:
-+  *bias = state->bias;
-+  return state->frame;
-+}
-+INTDEF (dwfl_frame_dwarf_frame)
 diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index 4167ef7ad..b494d4582 100644
+index 639ed186b6..fb261698ed 100644
 --- a/libdwfl/libdwfl.h
 +++ b/libdwfl/libdwfl.h
 @@ -738,6 +738,16 @@ pid_t dwfl_thread_tid (Dwfl_Thread *thread)
@@ -430,7 +330,7 @@ index 4167ef7ad..b494d4582 100644
     For every known continuous block of registers <FIRSTREG..FIRSTREG+NREGS)
     (inclusive..exclusive) set their content to REGS (array of NREGS items).
 diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index ed8239c92..90d509ece 100644
+index 4ae7c0b3ba..7baa3223f5 100644
 --- a/libdwfl/libdwflP.h
 +++ b/libdwfl/libdwflP.h
 @@ -252,6 +252,15 @@ struct Dwfl_Frame
@@ -446,19 +346,139 @@ index ed8239c92..90d509ece 100644
 +  Dwfl_Error moderr;
 +  /* Error trying to get frame.  */
 +  Dwfl_Error frameerr;
-   bool isactivation;
+   bool signal_frame : 1;
+   bool initial_frame : 1;
    enum
-   {
-@@ -771,6 +780,8 @@ INTDECL (dwfl_pid)
- INTDECL (dwfl_thread_dwfl)
- INTDECL (dwfl_thread_tid)
- INTDECL (dwfl_frame_thread)
-+INTDECL (dwfl_frame_module)
-+INTDECL (dwfl_frame_dwarf_frame)
- INTDECL (dwfl_thread_state_registers)
- INTDECL (dwfl_thread_state_register_pc)
- INTDECL (dwfl_getthread_frames)
-commit 60ca3ca5c0392a6488e4cbfeefe3c700b9da4a89
+commit 8b2e113fc74aa8b019e826d1526f692497442909
+Author: Omar Sandoval <osandov@fb.com>
+Date:   Thu Feb 20 11:44:38 2020 -0800
+
+    libdwfl: export __libdwfl_frame_reg_get as dwfl_frame_register
+    
+    This is useful for debuggers that want to dump register values.
+
+diff --git a/libdw/libdw.map b/libdw/libdw.map
+index c8961b3a6a..73f592c03e 100644
+--- a/libdw/libdw.map
++++ b/libdw/libdw.map
+@@ -374,4 +374,5 @@ ELFUTILS_0.180 {
+   global:
+     dwfl_attach_thread;
+     dwfl_detach_thread;
++    dwfl_frame_register;
+ } ELFUTILS_0.177;
+diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
+index d7dfa5a94b..f7459b283d 100644
+--- a/libdwfl/frame_unwind.c
++++ b/libdwfl/frame_unwind.c
+@@ -44,8 +44,7 @@
+ #define DWARF_EXPR_STEPS_MAX 0x1000
+ 
+ bool
+-internal_function
+-__libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
++dwfl_frame_register (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
+ {
+   Ebl *ebl = state->thread->process->ebl;
+   if (! ebl_dwarf_to_regno (ebl, &regno))
+@@ -59,6 +58,7 @@ __libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
+     *val = state->regs[regno];
+   return true;
+ }
++INTDEF (dwfl_frame_register)
+ 
+ bool
+ internal_function
+@@ -81,7 +81,7 @@ __libdwfl_frame_reg_set (Dwfl_Frame *state, unsigned regno, Dwarf_Addr val)
+ static bool
+ state_get_reg (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
+ {
+-  if (! __libdwfl_frame_reg_get (state, regno, val))
++  if (! INTUSE(dwfl_frame_register) (state, regno, val))
+     {
+       __libdwfl_seterrno (DWFL_E_INVALID_REGISTER);
+       return false;
+@@ -634,9 +634,9 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
+     }
+   if (unwound->pc_state == DWFL_FRAME_STATE_ERROR)
+     {
+-      if (__libdwfl_frame_reg_get (unwound,
+-				   frame->fde->cie->return_address_register,
+-				   &unwound->pc))
++      if (INTUSE(dwfl_frame_register) (unwound,
++				       frame->fde->cie->return_address_register,
++				       &unwound->pc))
+ 	{
+ 	  /* PPC32 __libc_start_main properly CFI-unwinds PC as zero.
+ 	     Currently none of the archs supported for unwinding have
+@@ -694,7 +694,7 @@ getfunc (int firstreg, unsigned nregs, Dwarf_Word *regs, void *arg)
+   Dwfl_Frame *state = arg;
+   assert (firstreg >= 0);
+   while (nregs--)
+-    if (! __libdwfl_frame_reg_get (state, firstreg++, regs++))
++    if (! INTUSE(dwfl_frame_register) (state, firstreg++, regs++))
+       return false;
+   return true;
+ }
+diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
+index 4167ef7ad8..639ed186b6 100644
+--- a/libdwfl/libdwfl.h
++++ b/libdwfl/libdwfl.h
+@@ -807,6 +807,11 @@ int dwfl_getthread_frames (Dwfl *dwfl, pid_t tid,
+ bool dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
+   __nonnull_attribute__ (1, 2);
+ 
++/* Return the *VALUE of register REGNO in frame STATE.  VALUE may be NULL.
++   Returns false if the register value is unknown.  */
++bool dwfl_frame_register (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *value)
++  __nonnull_attribute__ (1);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
+index bc088861ff..4ae7c0b3ba 100644
+--- a/libdwfl/libdwflP.h
++++ b/libdwfl/libdwflP.h
+@@ -275,12 +275,6 @@ struct Dwfl_Frame
+   Dwarf_Addr regs[];
+ };
+ 
+-/* Fetch value from Dwfl_Frame->regs indexed by DWARF REGNO.
+-   No error code is set if the function returns FALSE.  */
+-bool __libdwfl_frame_reg_get (Dwfl_Frame *state, unsigned regno,
+-			      Dwarf_Addr *val)
+-  internal_function;
+-
+ /* Store value to Dwfl_Frame->regs indexed by DWARF REGNO.
+    No error code is set if the function returns FALSE.  */
+ bool __libdwfl_frame_reg_set (Dwfl_Frame *state, unsigned regno,
+@@ -778,6 +772,7 @@ INTDECL (dwfl_getthread_frames)
+ INTDECL (dwfl_getthreads)
+ INTDECL (dwfl_thread_getframes)
+ INTDECL (dwfl_frame_pc)
++INTDECL (dwfl_frame_register)
+ 
+ /* Leading arguments standard to callbacks passed a Dwfl_Module.  */
+ #define MODCB_ARGS(mod)	(mod), &(mod)->userdata, (mod)->name, (mod)->low_addr
+diff --git a/libdwfl/linux-core-attach.c b/libdwfl/linux-core-attach.c
+index c0f1b0d004..d55312b6cd 100644
+--- a/libdwfl/linux-core-attach.c
++++ b/libdwfl/linux-core-attach.c
+@@ -253,10 +253,9 @@ core_set_initial_registers (Dwfl_Thread *thread, void *thread_arg_voidp)
+ 	  /* PPC provides DWARF register 65 irrelevant for
+ 	     CFI which clashes with register 108 (LR) we need.
+ 	     LR (108) is provided earlier (in NT_PRSTATUS) than the # 65.
+-	     FIXME: It depends now on their order in core notes.
+-	     FIXME: It uses private function.  */
++	     FIXME: It depends now on their order in core notes.  */
+ 	  if (regno < nregs
+-	      && __libdwfl_frame_reg_get (thread->unwound, regno, NULL))
++	      && INTUSE(dwfl_frame_register) (thread->unwound, regno, NULL))
+ 	    continue;
+ 	  Dwarf_Word val;
+ 	  switch (regloc->bits)
+commit 5ea774858ed9d25f308ccb147f3f430e2b0f8599
 Author: Omar Sandoval <osandov@fb.com>
 Date:   Mon Oct 7 01:22:39 2019 -0700
 
@@ -474,7 +494,7 @@ Date:   Mon Oct 7 01:22:39 2019 -0700
     possible to use the frames after dwfl_thread_getframes returns.
 
 diff --git a/libdw/libdw.map b/libdw/libdw.map
-index decac05c7..c8961b3a6 100644
+index decac05c7c..c8961b3a6a 100644
 --- a/libdw/libdw.map
 +++ b/libdw/libdw.map
 @@ -370,3 +370,8 @@ ELFUTILS_0.177 {
@@ -487,10 +507,10 @@ index decac05c7..c8961b3a6 100644
 +    dwfl_detach_thread;
 +} ELFUTILS_0.177;
 diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
-index d5043cbbe..0ad28e0f5 100644
+index 5bbf850e8e..61fad8b9cf 100644
 --- a/libdwfl/dwfl_frame.c
 +++ b/libdwfl/dwfl_frame.c
-@@ -102,6 +102,29 @@ state_alloc (Dwfl_Thread *thread)
+@@ -103,6 +103,29 @@ state_alloc (Dwfl_Thread *thread)
    return state;
  }
  
@@ -520,7 +540,7 @@ index d5043cbbe..0ad28e0f5 100644
  void
  internal_function
  __libdwfl_process_free (Dwfl_Process *process)
-@@ -365,6 +388,45 @@ getthread (Dwfl *dwfl, pid_t tid,
+@@ -366,6 +389,45 @@ getthread (Dwfl *dwfl, pid_t tid,
     return err;
  }
  
@@ -566,7 +586,7 @@ index d5043cbbe..0ad28e0f5 100644
  struct one_thread
  {
    int (*callback) (Dwfl_Frame *frame, void *arg);
-@@ -393,63 +455,55 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
+@@ -394,63 +456,55 @@ dwfl_thread_getframes (Dwfl_Thread *thread,
  		       int (*callback) (Dwfl_Frame *state, void *arg),
  		       void *arg)
  {
@@ -664,7 +684,7 @@ index d5043cbbe..0ad28e0f5 100644
  }
  INTDEF(dwfl_thread_getframes)
 diff --git a/libdwfl/libdwfl.h b/libdwfl/libdwfl.h
-index d5fa06d47..4167ef7ad 100644
+index d5fa06d476..4167ef7ad8 100644
 --- a/libdwfl/libdwfl.h
 +++ b/libdwfl/libdwfl.h
 @@ -763,6 +763,18 @@ int dwfl_getthreads (Dwfl *dwfl,
@@ -687,7 +707,7 @@ index d5fa06d47..4167ef7ad 100644
     have been processed by the callback, returns -1 on error, or the value of
     the callback when not DWARF_CB_OK.  -1 returned on error will
 diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index 332349d32..ed8239c92 100644
+index 25753de2f8..bc088861ff 100644
 --- a/libdwfl/libdwflP.h
 +++ b/libdwfl/libdwflP.h
 @@ -239,7 +239,8 @@ struct Dwfl_Thread
@@ -700,213 +720,7 @@ index 332349d32..ed8239c92 100644
    Dwfl_Frame *unwound;
    void *callbacks_arg;
  };
-commit a1f60f2e2794859c7767b0b003efb20e3e018904
-Author: Omar Sandoval <osandov@fb.com>
-Date:   Wed May 13 14:18:12 2020 -0700
-
-    libdwfl: simplify activation frame logic
-    
-    When calling a noreturn function, the compiler may omit any code after
-    the call instruction. As a result, the return address on the stack may
-    not lie in the FDE for the caller. It might even lie in another symbol.
-    In the following example, the return address for the _Exit call in foo
-    is actually the first instruction of bar.
-    
-      0000000000001149 <foo>:
-          1149:       50                      push   %rax
-          114a:       bf 01 00 00 00          mov    $0x1,%edi
-          114f:       e8 dc fe ff ff          callq  1030 <_Exit@plt>
-    
-      0000000000001154 <bar>:
-          1154:       b8 37 13 00 00          mov    $0x1337,%eax
-          1159:       c3                      retq
-    
-    To handle this, libdwfl (and GDB, for that matter) decrements the
-    program counter when looking up the debugging information for a frame.
-    
-    There are two important exceptions. The first is the initial (i.e.,
-    innermost) frame. This is typically supplied by ptrace or a PRSTATUS
-    note, which contains the exact trapped PC. libdwfl calls this case an
-    "activation" and doesn't decrement the PC.
-    
-    The second exception is signal handling. When a signal is received, the
-    kernel creates a special signal stack frame so that when the signal
-    handler returns, it returns to the signal trampoline code responsible
-    for resuming execution (see sigreturn(2)).
-    
-    The return address from the signal frame is the exact interrupted
-    instruction. Therefore, the interrupted frame (that is, the outer frame
-    of a signal frame) is also considered an activation.
-    
-    The signal frame itself is also considered an activation frame, since
-    the return address points directly to the signal trampoline. However,
-    determining that a frame is a signal frame requires looking up the FDE.
-    To solve this chicken and egg problem, the signal trampoline is padded
-    so that the debugger can still find the FDE even if it decrements PC
-    (see [1]). This means that during the initial lookup, we can assume it's
-    not an activation, and then fix it up after the fact.
-    
-    libdwfl annotates the interrupted frame (NB, not the signal frame) with
-    Dwfl_Frame::signal_frame. dwfl_frame_pc returns that a frame is an
-    activation if it is the interrupted frame, or if its outer frame is the
-    interrupted frame (which means it is the signal frame). This requires
-    unwinding the frame, so when the unwinding code calls dwfl_frame_pc, it
-    has to open-code the logic for determining whether the activation frame
-    check.
-    
-    This can all be made a lot simpler by instead directly tracking whether
-    a Dwfl_Frame is an activation frame. This replaces
-    Dwfl_Frame::initial_frame and Dwfl_Frame::signal_frame with
-    Dwfl_Frame::isactivation. We set isactivation to true for the initial
-    frame, the signal frame, and the interrupted frame.
-    
-    1: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/entry/vdso/vdso32/sigreturn.S?h=v5.6#n54
-
-diff --git a/libdwfl/dwfl_frame.c b/libdwfl/dwfl_frame.c
-index 5bbf850e8..d5043cbbe 100644
---- a/libdwfl/dwfl_frame.c
-+++ b/libdwfl/dwfl_frame.c
-@@ -94,8 +94,7 @@ state_alloc (Dwfl_Thread *thread)
-   if (state == NULL)
-     return NULL;
-   state->thread = thread;
--  state->signal_frame = false;
--  state->initial_frame = true;
-+  state->isactivation = true;
-   state->pc_state = DWFL_FRAME_STATE_ERROR;
-   memset (state->regs_set, 0, sizeof (state->regs_set));
-   thread->unwound = state;
-diff --git a/libdwfl/dwfl_frame_pc.c b/libdwfl/dwfl_frame_pc.c
-index 296c815b9..a955d995a 100644
---- a/libdwfl/dwfl_frame_pc.c
-+++ b/libdwfl/dwfl_frame_pc.c
-@@ -39,26 +39,7 @@ dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
-   *pc = state->pc;
-   ebl_normalize_pc (state->thread->process->ebl, pc);
-   if (isactivation)
--    {
--      /* Bottom frame?  */
--      if (state->initial_frame)
--	*isactivation = true;
--      /* *ISACTIVATION is logical union of whether current or previous frame
--	 state is SIGNAL_FRAME.  */
--      else if (state->signal_frame)
--	*isactivation = true;
--      else
--	{
--	  /* If the previous frame has unwound unsuccessfully just silently do
--	     not consider it could be a SIGNAL_FRAME.  */
--	  __libdwfl_frame_unwind (state);
--	  if (state->unwound == NULL
--	      || state->unwound->pc_state != DWFL_FRAME_STATE_PC_SET)
--	    *isactivation = false;
--	  else
--	    *isactivation = state->unwound->signal_frame;
--	}
--    }
-+    *isactivation = state->isactivation;
-   return true;
- }
- INTDEF (dwfl_frame_pc)
-diff --git a/libdwfl/dwfl_frame_regs.c b/libdwfl/dwfl_frame_regs.c
-index 83b1abef1..d013dc966 100644
---- a/libdwfl/dwfl_frame_regs.c
-+++ b/libdwfl/dwfl_frame_regs.c
-@@ -38,7 +38,6 @@ dwfl_thread_state_registers (Dwfl_Thread *thread, int firstreg,
- {
-   Dwfl_Frame *state = thread->unwound;
-   assert (state && state->unwound == NULL);
--  assert (state->initial_frame);
-   for (unsigned regno = firstreg; regno < firstreg + nregs; regno++)
-     if (! __libdwfl_frame_reg_set (state, regno, regs[regno - firstreg]))
-       {
-@@ -54,7 +53,6 @@ dwfl_thread_state_register_pc (Dwfl_Thread *thread, Dwarf_Word pc)
- {
-   Dwfl_Frame *state = thread->unwound;
-   assert (state && state->unwound == NULL);
--  assert (state->initial_frame);
-   state->pc = pc;
-   state->pc_state = DWFL_FRAME_STATE_PC_SET;
- }
-diff --git a/libdwfl/frame_unwind.c b/libdwfl/frame_unwind.c
-index d7dfa5a94..df755975e 100644
---- a/libdwfl/frame_unwind.c
-+++ b/libdwfl/frame_unwind.c
-@@ -523,8 +523,7 @@ new_unwound (Dwfl_Frame *state)
-   state->unwound = unwound;
-   unwound->thread = thread;
-   unwound->unwound = NULL;
--  unwound->signal_frame = false;
--  unwound->initial_frame = false;
-+  unwound->isactivation = false;
-   unwound->pc_state = DWFL_FRAME_STATE_ERROR;
-   memset (unwound->regs_set, 0, sizeof (unwound->regs_set));
-   return unwound;
-@@ -552,7 +551,11 @@ handle_cfi (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_CFI *cfi, Dwarf_Addr bias)
-       return;
-     }
- 
--  unwound->signal_frame = frame->fde->cie->signal_frame;
-+  if (frame->fde->cie->signal_frame)
-+    {
-+      state->isactivation = true;
-+      unwound->isactivation = true;
-+    }
-   Dwfl_Thread *thread = state->thread;
-   Dwfl_Process *process = thread->process;
-   Ebl *ebl = process->ebl;
-@@ -715,14 +718,11 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
- {
-   if (state->unwound)
-     return;
--  /* Do not ask dwfl_frame_pc for ISACTIVATION, it would try to unwind STATE
--     which would deadlock us.  */
-   Dwarf_Addr pc;
--  bool ok = INTUSE(dwfl_frame_pc) (state, &pc, NULL);
-+  bool isactivation;
-+  bool ok = INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
-   assert (ok);
--  /* Check whether this is the initial frame or a signal frame.
--     Then we need to unwind from the original, unadjusted PC.  */
--  if (! state->initial_frame && ! state->signal_frame)
-+  if (! isactivation)
-     pc--;
-   Dwfl_Module *mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
-   if (mod == NULL)
-@@ -755,7 +755,6 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
-       return;
-     }
-   state->unwound->pc_state = DWFL_FRAME_STATE_PC_UNDEFINED;
--  // &Dwfl_Frame.signal_frame cannot be passed as it is a bitfield.
-   bool signal_frame = false;
-   if (! ebl_unwind (ebl, pc, setfunc, getfunc, readfunc, state, &signal_frame))
-     {
-@@ -768,5 +767,9 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
-       return;
-     }
-   assert (state->unwound->pc_state == DWFL_FRAME_STATE_PC_SET);
--  state->unwound->signal_frame = signal_frame;
-+  if (signal_frame)
-+    {
-+      state->isactivation = true;
-+      state->unwound->isactivation = true;
-+    }
- }
-diff --git a/libdwfl/libdwflP.h b/libdwfl/libdwflP.h
-index 25753de2f..332349d32 100644
---- a/libdwfl/libdwflP.h
-+++ b/libdwfl/libdwflP.h
-@@ -251,8 +251,7 @@ struct Dwfl_Frame
-   Dwfl_Thread *thread;
-   /* Previous (outer) frame.  */
-   Dwfl_Frame *unwound;
--  bool signal_frame : 1;
--  bool initial_frame : 1;
-+  bool isactivation;
-   enum
-   {
-     /* This structure is still being initialized or there was an error
-commit 148c39884329b1279c2fc4c63500f95b95205651
+commit 75ceb320352708c76a2f9a1c71e99d12322f75ea
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:40 2019 -0700
 
@@ -918,7 +732,7 @@ Date:   Wed Sep 4 17:13:40 2019 -0700
     build them from.
 
 diff --git a/backends/Makefile.am b/backends/Makefile.am
-index f4052125b..1beb661eb 100644
+index f4052125bd..1beb661eb1 100644
 --- a/backends/Makefile.am
 +++ b/backends/Makefile.am
 @@ -34,7 +34,10 @@ endif
@@ -934,7 +748,7 @@ index f4052125b..1beb661eb 100644
  modules = i386 sh x86_64 ia64 alpha arm aarch64 sparc ppc ppc64 s390 \
  	  tilegx m68k bpf riscv csky
 diff --git a/configure.ac b/configure.ac
-index 12ee2f97c..d68d1a1eb 100644
+index 12ee2f97c1..d68d1a1eb1 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -70,6 +70,11 @@ AC_ARG_ENABLE([programs],
@@ -950,7 +764,7 @@ index 12ee2f97c..d68d1a1eb 100644
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
 diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
-index e62e8d14b..a811e2dd1 100644
+index e62e8d14b0..a811e2dd1d 100644
 --- a/debuginfod/Makefile.am
 +++ b/debuginfod/Makefile.am
 @@ -86,16 +86,20 @@ libdebuginfod.so$(EXEEXT): $(srcdir)/libdebuginfod.map $(libdebuginfod_so_LIBS)
@@ -975,7 +789,7 @@ index e62e8d14b..a811e2dd1 100644
  
  EXTRA_DIST = libdebuginfod.map
 diff --git a/libasm/Makefile.am b/libasm/Makefile.am
-index b2bff9292..8a5a9d0f0 100644
+index b2bff92923..8a5a9d0f04 100644
 --- a/libasm/Makefile.am
 +++ b/libasm/Makefile.am
 @@ -34,8 +34,10 @@ GCC_INCLUDE = -I$(shell $(CC) -print-file-name=include)
@@ -1011,7 +825,7 @@ index b2bff9292..8a5a9d0f0 100644
  
  noinst_HEADERS = libasmP.h symbolhash.h
 diff --git a/libcpu/Makefile.am b/libcpu/Makefile.am
-index 59def7d1b..57dc698ed 100644
+index 59def7d1bc..57dc698ed3 100644
 --- a/libcpu/Makefile.am
 +++ b/libcpu/Makefile.am
 @@ -38,7 +38,10 @@ LEXCOMPILE = $(LEX) $(LFLAGS) $(AM_LFLAGS) -P$(<F:lex.l=)
@@ -1027,7 +841,7 @@ index 59def7d1b..57dc698ed 100644
  noinst_HEADERS = i386_dis.h x86_64_dis.h
  
 diff --git a/libdw/Makefile.am b/libdw/Makefile.am
-index 33b5838dc..0297520bb 100644
+index 33b5838dc4..0297520bb8 100644
 --- a/libdw/Makefile.am
 +++ b/libdw/Makefile.am
 @@ -35,8 +35,10 @@ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdwelf -pthread
@@ -1063,7 +877,7 @@ index 33b5838dc..0297520bb 100644
  
  libdwfl_objects = $(shell $(AR) t ../libdwfl/libdwfl.a)
 diff --git a/libdwelf/Makefile.am b/libdwelf/Makefile.am
-index a35a2873c..29cc51f59 100644
+index a35a2873cd..29cc51f59a 100644
 --- a/libdwelf/Makefile.am
 +++ b/libdwelf/Makefile.am
 @@ -34,7 +34,10 @@ AM_CPPFLAGS += -I$(srcdir)/../libelf -I$(srcdir)/../libdw \
@@ -1079,7 +893,7 @@ index a35a2873c..29cc51f59 100644
  pkginclude_HEADERS = libdwelf.h
  noinst_HEADERS = libdwelfP.h
 diff --git a/libdwfl/Makefile.am b/libdwfl/Makefile.am
-index 47bd62a5e..952be8ba5 100644
+index 47bd62a5e4..952be8ba5c 100644
 --- a/libdwfl/Makefile.am
 +++ b/libdwfl/Makefile.am
 @@ -35,7 +35,9 @@ AM_CPPFLAGS += -I$(srcdir) -I$(srcdir)/../libelf -I$(srcdir)/../libebl \
@@ -1093,7 +907,7 @@ index 47bd62a5e..952be8ba5 100644
  pkginclude_HEADERS = libdwfl.h
  
 diff --git a/libebl/Makefile.am b/libebl/Makefile.am
-index d0d475b83..b8e0eeb26 100644
+index d0d475b838..b8e0eeb264 100644
 --- a/libebl/Makefile.am
 +++ b/libebl/Makefile.am
 @@ -34,7 +34,10 @@ endif
@@ -1109,7 +923,7 @@ index d0d475b83..b8e0eeb26 100644
  libebl_a_SOURCES = eblopenbackend.c eblclosebackend.c eblreloctypename.c \
  		   eblsegmenttypename.c eblsectiontypename.c \
 diff --git a/libelf/Makefile.am b/libelf/Makefile.am
-index d5d63f733..94e6e38f6 100644
+index d5d63f7335..94e6e38f68 100644
 --- a/libelf/Makefile.am
 +++ b/libelf/Makefile.am
 @@ -35,8 +35,10 @@ GCC_INCLUDE = -I$(shell $(CC) -print-file-name=include)
@@ -1139,7 +953,7 @@ index d5d63f733..94e6e38f6 100644
  
  EXTRA_DIST = libelf.map
  
-commit 5ac48d7d9fc93c792e5bb45f91ea2f6f7190617c
+commit 93463f8e4415ce19b89419a2b5e00d42f5cecb1e
 Author: Omar Sandoval <osandov@osandov.com>
 Date:   Wed Sep 4 17:13:23 2019 -0700
 
@@ -1150,7 +964,7 @@ Date:   Wed Sep 4 17:13:23 2019 -0700
     still to build everything.
 
 diff --git a/Makefile.am b/Makefile.am
-index bd8926b52..0b13c717f 100644
+index bd8926b523..0b13c717fa 100644
 --- a/Makefile.am
 +++ b/Makefile.am
 @@ -27,7 +27,11 @@ AM_MAKEFLAGS = --no-print-directory
@@ -1167,7 +981,7 @@ index bd8926b52..0b13c717f 100644
  if DEBUGINFOD
  SUBDIRS += debuginfod
 diff --git a/configure.ac b/configure.ac
-index a39e800f7..12ee2f97c 100644
+index a39e800f70..12ee2f97c1 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -65,6 +65,11 @@ AC_CONFIG_FILES([debuginfod/Makefile])
@@ -1183,7 +997,7 @@ index a39e800f7..12ee2f97c 100644
  [AS_HELP_STRING([--enable-deterministic-archives],
  		[ar and ranlib default to -D behavior])], [
 diff --git a/debuginfod/Makefile.am b/debuginfod/Makefile.am
-index 51965f65d..e62e8d14b 100644
+index 51965f65db..e62e8d14b0 100644
 --- a/debuginfod/Makefile.am
 +++ b/debuginfod/Makefile.am
 @@ -57,7 +57,9 @@ libeu = ../lib/libeu.a

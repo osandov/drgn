@@ -355,6 +355,9 @@ dwfl_standard_find_debuginfo (Dwfl_Module *mod,
 			      GElf_Word debuglink_crc,
 			      char **debuginfo_file_name)
 {
+  if (mod == NULL)
+    return -1;
+
   /* First try by build ID if we have one.  If that succeeds or fails
      other than just by finding nothing, that's all we do.  */
   const unsigned char *bits = NULL;

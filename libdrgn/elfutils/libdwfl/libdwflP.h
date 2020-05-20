@@ -261,7 +261,8 @@ struct Dwfl_Frame
   Dwfl_Error moderr;
   /* Error trying to get frame.  */
   Dwfl_Error frameerr;
-  bool isactivation;
+  bool signal_frame : 1;
+  bool initial_frame : 1;
   enum
   {
     /* This structure is still being initialized or there was an error
@@ -774,8 +775,6 @@ INTDECL (dwfl_pid)
 INTDECL (dwfl_thread_dwfl)
 INTDECL (dwfl_thread_tid)
 INTDECL (dwfl_frame_thread)
-INTDECL (dwfl_frame_module)
-INTDECL (dwfl_frame_dwarf_frame)
 INTDECL (dwfl_thread_state_registers)
 INTDECL (dwfl_thread_state_register_pc)
 INTDECL (dwfl_getthread_frames)

@@ -1,3 +1,14 @@
+2020-05-14  Mark Wielaard  <mark@klomp.org>
+
+	* size.c (show_bsd): Set printf format based on radix.
+
+2020-05-09  Mark Wielaard  <mark@klomp.org>
+
+	* elflint.c (process_elf_file): Error out if ebl_openbackend fails.
+	* objdump.c (handle_elf): Likewise.
+	* nm.c (handle_elf): Likewise. Move full name string construction
+	forward, so it can be used in the error message.
+
 2020-04-17  Mark Wielaard  <mark@klomp.org>
 
 	* readelf.c (print_debug): Check .gnu.debuglto_ prefix.

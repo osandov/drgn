@@ -545,8 +545,11 @@ show_bsd (Elf *elf, const char *prefix, const char *fname,
 	datasize += shdr->sh_size;
     }
 
-  printf ("%*" PRId64 " %*" PRId64 " %*" PRId64 " %*" PRId64 " %*"
-	  PRIx64 " %s",
+  printf (radix == radix_decimal
+          ? "%*" PRId64 " %*" PRId64 " %*" PRId64 " %*" PRId64 " %*" PRIx64 " %s"
+	  : radix == radix_hex
+	  ? "%#*" PRIx64 " %#*" PRIx64 " %#*" PRIx64 " %*" PRId64 " %*" PRIx64 " %s"
+	  : "%#*" PRIo64 " %#*" PRIo64 " %#*" PRIo64 " %*" PRId64 " %*" PRIx64 " %s",
 	  ddigits - 2, textsize,
 	  ddigits - 2, datasize,
 	  ddigits - 2, bsssize,

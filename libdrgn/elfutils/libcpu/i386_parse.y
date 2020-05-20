@@ -579,6 +579,7 @@ new_bitfield (char *name, unsigned long int num)
       error (0, 0, "%d: duplicated definition of bitfield '%s'",
 	     i386_lineno, name);
       free (name);
+      free (newp);
       return;
     }
 

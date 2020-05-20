@@ -105,7 +105,8 @@ state_alloc (Dwfl_Thread *thread)
   state->frame = NULL;
   state->moderr = DWFL_E_NOERROR;
   state->frameerr = DWFL_E_NOERROR;
-  state->isactivation = true;
+  state->signal_frame = false;
+  state->initial_frame = true;
   state->pc_state = DWFL_FRAME_STATE_ERROR;
   memset (state->regs_set, 0, sizeof (state->regs_set));
   thread->unwound = state;

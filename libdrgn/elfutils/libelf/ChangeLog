@@ -1,3 +1,12 @@
+2020-05-08  Mark Wielaard  <mark@klomp.org>
+
+	* elf_strptr.c (elf_strptr): Check shdr is not NULL.
+
+2020-05-08  Mark Wielaard  <mark@klomp.org>
+
+	* elf_getdata.c (__libelf_set_rawdata_wrlock): Check
+	__gelf_getehdr_rdlock return value.
+
 2020-04-25  Mark Wielaard  <mark@klomp.org>
 
 	* elf_compress.c (__libelf_compress): Remove free (out_buf).

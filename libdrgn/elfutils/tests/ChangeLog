@@ -1,3 +1,8 @@
+2020-05-08  Mark Wielaard  <mark@klomp.org>
+
+	* elfputzdata.c (main): Explicitly check orig_buf is not NULL
+	before calling memcmp.
+
 2020-05-05  Mark Wielaard  <mark@klomp.org>
 
 	* testfile-lto-gcc8.bz2: New test file.

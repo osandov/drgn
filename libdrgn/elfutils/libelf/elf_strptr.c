@@ -145,7 +145,7 @@ elf_strptr (Elf *elf, size_t idx, size_t offset)
   else
     {
       Elf64_Shdr *shdr = strscn->shdr.e64 ?: __elf64_getshdr_rdlock (strscn);
-      if (unlikely (shdr->sh_type != SHT_STRTAB))
+      if (unlikely (shdr == NULL || shdr->sh_type != SHT_STRTAB))
 	{
 	  /* This is no string section.  */
 	  __libelf_seterrno (ELF_E_INVALID_SECTION);

@@ -527,7 +527,8 @@ new_unwound (Dwfl_Frame *state)
   unwound->frame = NULL;
   unwound->moderr = DWFL_E_NOERROR;
   unwound->frameerr = DWFL_E_NOERROR;
-  unwound->isactivation = false;
+  unwound->signal_frame = false;
+  unwound->initial_frame = false;
   unwound->pc_state = DWFL_FRAME_STATE_ERROR;
   memset (unwound->regs_set, 0, sizeof (unwound->regs_set));
   return unwound;
@@ -542,11 +543,7 @@ static void
 handle_cfi (Dwfl_Frame *state, Dwarf_Frame *frame, Dwarf_Addr bias)
 {
   Dwfl_Frame *unwound = state->unwound;
-  if (frame->fde->cie->signal_frame)
-    {
-      state->isactivation = true;
-      unwound->isactivation = true;
-    }
+  unwound->signal_frame = frame->fde->cie->signal_frame;
   Dwfl_Thread *thread = state->thread;
   Dwfl_Process *process = thread->process;
   Ebl *ebl = process->ebl;
@@ -702,20 +699,112 @@ readfunc (Dwarf_Addr addr, Dwarf_Word *datap, void *arg)
 					  process->callbacks_arg);
 }
 
+/* Internal version of dwfl_frame_module when we already know the PC.  */
+static Dwfl_Module *
+dwfl_frame_module_pc (Dwfl_Frame *state, Dwarf_Addr pc)
+{
+  if (state->mod != NULL)
+    return state->mod;
+  if (state->moderr == DWFL_E_NOERROR)
+    {
+      state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
+      if (state->mod != NULL)
+	return state->mod;
+      state->moderr = DWFL_E_NO_DWARF;
+    }
+  __libdwfl_seterrno (state->moderr);
+  return NULL;
+}
+
+/* Internal version of dwfl_frame_dwarf_frame when we already know the PC.  */
+static Dwarf_Frame *
+dwfl_frame_dwarf_frame_pc (Dwfl_Frame *state, Dwarf_Addr pc, Dwarf_Addr *bias)
+{
+  if (state->frame == NULL)
+    {
+      if (state->frameerr == DWFL_E_NOERROR)
+	{
+	  Dwfl_Module *mod = dwfl_frame_module_pc (state, pc);
+	  if (mod == NULL)
+	    {
+	      state->frameerr = state->moderr;
+	      /* errno is already set.  */
+	      return NULL;
+	    }
+	  Dwarf_CFI *cfi = INTUSE(dwfl_module_eh_cfi) (mod, &state->bias);
+	  if (cfi
+	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
+					      &state->frame) == 0)
+	    goto out;
+	  cfi = INTUSE(dwfl_module_dwarf_cfi) (mod, &state->bias);
+	  if (cfi
+	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
+					      &state->frame) == 0)
+	    goto out;
+	  state->frameerr = DWFL_E_NO_DWARF;
+	}
+      __libdwfl_seterrno (state->frameerr);
+      return NULL;
+    }
+
+out:
+  *bias = state->bias;
+  return state->frame;
+}
+
+Dwfl_Module *
+dwfl_frame_module (Dwfl_Frame *state)
+{
+  if (state->mod != NULL)
+    return state->mod;
+  if (state->moderr == DWFL_E_NOERROR)
+    {
+      Dwarf_Addr pc;
+      bool isactivation;
+      INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
+      if (! isactivation)
+	pc--;
+      return dwfl_frame_module_pc (state, pc);
+    }
+  __libdwfl_seterrno (state->moderr);
+  return NULL;
+}
+
+Dwarf_Frame *
+dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
+{
+  if (state->frame != NULL)
+    return state->frame;
+  if (state->frameerr == DWFL_E_NOERROR)
+    {
+      Dwarf_Addr pc;
+      bool isactivation;
+      INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
+      if (! isactivation)
+	pc--;
+      return dwfl_frame_dwarf_frame_pc (state, pc, bias);
+    }
+  __libdwfl_seterrno (state->frameerr);
+  return NULL;
+}
+
 void
 internal_function
 __libdwfl_frame_unwind (Dwfl_Frame *state)
 {
   if (state->unwound)
     return;
+  /* Do not ask dwfl_frame_pc for ISACTIVATION, it would try to unwind STATE
+     which would deadlock us.  */
   Dwarf_Addr pc;
-  bool isactivation;
-  bool ok = INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
+  bool ok = INTUSE(dwfl_frame_pc) (state, &pc, NULL);
   assert (ok);
-  if (! isactivation)
+  /* Check whether this is the initial frame or a signal frame.
+     Then we need to unwind from the original, unadjusted PC.  */
+  if (! state->initial_frame && ! state->signal_frame)
     pc--;
   Dwarf_Addr bias;
-  Dwarf_Frame *frame = INTUSE(dwfl_frame_dwarf_frame) (state, &bias);
+  Dwarf_Frame *frame = dwfl_frame_dwarf_frame_pc (state, pc, &bias);
   if (frame != NULL)
     {
       if (new_unwound (state) == NULL)
@@ -733,6 +822,7 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
       return;
     }
   state->unwound->pc_state = DWFL_FRAME_STATE_PC_UNDEFINED;
+  // &Dwfl_Frame.signal_frame cannot be passed as it is a bitfield.
   bool signal_frame = false;
   if (! ebl_unwind (ebl, pc, setfunc, getfunc, readfunc, state, &signal_frame))
     {
@@ -745,75 +835,8 @@ __libdwfl_frame_unwind (Dwfl_Frame *state)
       return;
     }
   assert (state->unwound->pc_state == DWFL_FRAME_STATE_PC_SET);
-  if (signal_frame)
-    {
-      state->isactivation = true;
-      state->unwound->isactivation = true;
-    }
+  state->unwound->signal_frame = signal_frame;
 }
-
-Dwfl_Module *
-dwfl_frame_module (Dwfl_Frame *state)
-{
-  if (state->mod != NULL)
-    return state->mod;
-  if (state->moderr == DWFL_E_NOERROR)
-    {
-      Dwarf_Addr pc;
-      bool isactivation;
-      INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
-      if (! isactivation)
-	pc--;
-      state->mod = INTUSE(dwfl_addrmodule) (state->thread->process->dwfl, pc);
-      if (state->mod != NULL)
-	return state->mod;
-      state->moderr = DWFL_E_NO_DWARF;
-    }
-  __libdwfl_seterrno (state->moderr);
-  return NULL;
-}
-INTDEF (dwfl_frame_module)
-
-Dwarf_Frame *
-dwfl_frame_dwarf_frame (Dwfl_Frame *state, Dwarf_Addr *bias)
-{
-  if (state->frame == NULL)
-    {
-      if (state->frameerr == DWFL_E_NOERROR)
-	{
-	  Dwfl_Module *mod = INTUSE(dwfl_frame_module) (state);
-	  if (mod == NULL)
-	    {
-	      state->frameerr = state->moderr;
-	      return NULL;
-	    }
-	  Dwarf_Addr pc;
-	  bool isactivation;
-	  INTUSE(dwfl_frame_pc) (state, &pc, &isactivation);
-	  if (! isactivation)
-	    pc--;
-	  Dwarf_CFI *cfi = INTUSE(dwfl_module_eh_cfi) (state->mod,
-						       &state->bias);
-	  if (cfi
-	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
-					      &state->frame) == 0)
-	    goto out;
-	  cfi = INTUSE(dwfl_module_dwarf_cfi) (state->mod, &state->bias);
-	  if (cfi
-	      && INTUSE(dwarf_cfi_addrframe) (cfi, pc - state->bias,
-					      &state->frame) == 0)
-	    goto out;
-	  state->frameerr = DWFL_E_NO_DWARF;
-	}
-      __libdwfl_seterrno (state->frameerr);
-      return NULL;
-    }
-
-out:
-  *bias = state->bias;
-  return state->frame;
-}
-INTDEF (dwfl_frame_dwarf_frame)
 
 bool
 dwfl_frame_eval_expr (Dwfl_Frame *state, const Dwarf_Op *ops, size_t nops,

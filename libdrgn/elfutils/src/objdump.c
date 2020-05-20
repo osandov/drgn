@@ -755,6 +755,9 @@ handle_elf (Elf *elf, const char *prefix, const char *fname,
 
   /* Get the backend for this object file type.  */
   Ebl *ebl = ebl_openbackend (elf);
+  if (ebl == NULL)
+    error (EXIT_FAILURE, 0,
+	   gettext ("cannot create backend for elf file"));
 
   printf ("%s: elf%d-%s\n\n",
 	  fname, gelf_getclass (elf) == ELFCLASS32 ? 32 : 64,

@@ -1510,8 +1510,17 @@ handle_elf (int fd, Elf *elf, const char *prefix, const char *fname,
   GElf_Ehdr *ehdr;
   Ebl *ebl;
 
+  /* Create the full name of the file.  */
+  if (prefix != NULL)
+    cp = mempcpy (cp, prefix, prefix_len);
+  cp = mempcpy (cp, fname, fname_len);
+  if (suffix != NULL)
+    memcpy (cp - 1, suffix, suffix_len + 1);
+
   /* Get the backend for this object file type.  */
   ebl = ebl_openbackend (elf);
+  if (ebl == NULL)
+    INTERNAL_ERROR (fullname);
 
   /* We need the ELF header in a few places.  */
   ehdr = gelf_getehdr (elf, &ehdr_mem);
@@ -1529,13 +1538,6 @@ handle_elf (int fd, Elf *elf, const char *prefix, const char *fname,
       result = 1;
       goto out;
     }
-
-  /* Create the full name of the file.  */
-  if (prefix != NULL)
-    cp = mempcpy (cp, prefix, prefix_len);
-  cp = mempcpy (cp, fname, fname_len);
-  if (suffix != NULL)
-    memcpy (cp - 1, suffix, suffix_len + 1);
 
   /* Find the symbol table.
 

@@ -271,6 +271,8 @@ __libelf_set_rawdata_wrlock (Elf_Scn *scn)
 	{
 	  GElf_Ehdr ehdr_mem;
 	  GElf_Ehdr *ehdr = __gelf_getehdr_rdlock (elf, &ehdr_mem);
+	  if (unlikely (ehdr == NULL))
+	    return 1;
 	  entsize = SH_ENTSIZE_HASH (ehdr);
 	}
       else

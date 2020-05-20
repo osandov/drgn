@@ -450,6 +450,7 @@ dwfl_core_file_report (Dwfl *dwfl, Elf *elf, const char *executable)
       return -1;
     }
 
+  bool cleanup_user_core = false;
   if (dwfl->user_core != NULL)
     free (dwfl->user_core->executable_for_core);
   if (executable == NULL)
@@ -461,6 +462,7 @@ dwfl_core_file_report (Dwfl *dwfl, Elf *elf, const char *executable)
     {
       if (dwfl->user_core == NULL)
 	{
+	  cleanup_user_core = true;
 	  dwfl->user_core = calloc (1, sizeof (struct Dwfl_User_Core));
 	  if (dwfl->user_core == NULL)
 	    {
@@ -472,6 +474,11 @@ dwfl_core_file_report (Dwfl *dwfl, Elf *elf, const char *executable)
       dwfl->user_core->executable_for_core = strdup (executable);
       if (dwfl->user_core->executable_for_core == NULL)
 	{
+	  if (cleanup_user_core)
+	    {
+	      free (dwfl->user_core);
+	      dwfl->user_core = NULL;
+	    }
 	  __libdwfl_seterrno (DWFL_E_NOMEM);
 	  return -1;
 	}
@@ -481,7 +488,15 @@ dwfl_core_file_report (Dwfl *dwfl, Elf *elf, const char *executable)
   GElf_Phdr notes_phdr;
   int ndx = dwfl_report_core_segments (dwfl, elf, phnum, &notes_phdr);
   if (unlikely (ndx <= 0))
-    return ndx;
+    {
+      if (cleanup_user_core)
+	{
+	  free (dwfl->user_core->executable_for_core);
+	  free (dwfl->user_core);
+	  dwfl->user_core = NULL;
+	}
+      return ndx;
+    }
 
   /* Next, we should follow the chain from DT_DEBUG.  */
 

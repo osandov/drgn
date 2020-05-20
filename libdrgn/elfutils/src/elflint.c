@@ -4775,7 +4775,14 @@ process_elf_file (Elf *elf, const char *prefix, const char *suffix,
   ebl = ebl_openbackend (elf);
   /* If there is no appropriate backend library we cannot test
      architecture and OS specific features.  Any encountered extension
-     is an error.  */
+     is an error.  Often we'll get a "dummy" ebl, except if something
+     really bad happen, like a totally corrupted ELF file or out of
+     memory situation.  */
+  if (ebl == NULL)
+    {
+      ERROR (gettext ("cannot create backend for ELF file\n"));
+      return;
+    }
 
   /* Go straight by the gABI, check all the parts in turn.  */
   check_elf_header (ebl, ehdr, size);

@@ -1,3 +1,7 @@
+2020-05-09  Mark Wielaard  <mark@klomp.org>
+
+	* i386_parse.y (new_bitfield): Call free newp on error.
+
 2020-04-16  Mark Wielaard  <mark@klomp.org>
 
 	* i386_disasm.c (i386_disasm): Replace assert with goto invalid_op

@@ -105,14 +105,17 @@ main (int argc, char *argv[])
 		  printf ("Unexpected data size for orig section %zd\n", idx);
 		  return -1;
 		}
-	      char *orig_buf = malloc (d->d_size);
-	      if (orig_size > 0 && orig_buf == NULL)
-		{
-		  printf ("No memory to copy section %zd data\n", idx);
-		  return -1;
-		}
+	      char *orig_buf = NULL;
 	      if (orig_size > 0)
-		memcpy (orig_buf, d->d_buf, orig_size);
+		{
+		  orig_buf = malloc (d->d_size);
+		  if (orig_buf == NULL)
+		    {
+		      printf ("No memory to copy section %zd data\n", idx);
+		      return -1;
+		    }
+		  memcpy (orig_buf, d->d_buf, orig_size);
+		}
 
 	      bool forced = false;
 	      if (gnu)
@@ -175,7 +178,8 @@ main (int argc, char *argv[])
 		}
 
 	      if (new_size == orig_size
-		  && memcmp (orig_buf, d->d_buf, orig_size) == 0)
+		  && (orig_buf == NULL
+		      || memcmp (orig_buf, d->d_buf, orig_size) == 0))
 		{
 		  printf ("section %zd didn't compress\n", idx);
 		  return -1;
@@ -211,7 +215,8 @@ main (int argc, char *argv[])
 		  return -1;
 		}
 	      if (newer_size != orig_size
-		  && memcmp (orig_buf, d->d_buf, orig_size) != 0)
+		  && (orig_buf == NULL
+		      || memcmp (orig_buf, d->d_buf, orig_size) != 0))
 		{
 		  printf ("section %zd didn't correctly uncompress\n", idx);
 		  return -1;

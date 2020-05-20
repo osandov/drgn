@@ -39,7 +39,26 @@ dwfl_frame_pc (Dwfl_Frame *state, Dwarf_Addr *pc, bool *isactivation)
   *pc = state->pc;
   ebl_normalize_pc (state->thread->process->ebl, pc);
   if (isactivation)
-    *isactivation = state->isactivation;
+    {
+      /* Bottom frame?  */
+      if (state->initial_frame)
+	*isactivation = true;
+      /* *ISACTIVATION is logical union of whether current or previous frame
+	 state is SIGNAL_FRAME.  */
+      else if (state->signal_frame)
+	*isactivation = true;
+      else
+	{
+	  /* If the previous frame has unwound unsuccessfully just silently do
+	     not consider it could be a SIGNAL_FRAME.  */
+	  __libdwfl_frame_unwind (state);
+	  if (state->unwound == NULL
+	      || state->unwound->pc_state != DWFL_FRAME_STATE_PC_SET)
+	    *isactivation = false;
+	  else
+	    *isactivation = state->unwound->signal_frame;
+	}
+    }
   return true;
 }
 INTDEF (dwfl_frame_pc)
