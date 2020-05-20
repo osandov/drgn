@@ -15,6 +15,10 @@ from tests.helpers.linux import (
 )
 
 
+def is_power_of_two(n):
+    return n != 0 and (n & (n - 1)) == 0
+
+
 class TestSched(LinuxHelperTestCase):
     def test_task_state_to_char(self):
         task = find_task(self.prog, os.getpid())
@@ -35,3 +39,15 @@ class TestSched(LinuxHelperTestCase):
         self.assertEqual(task_state_to_char(task), "Z")
 
         os.waitpid(pid, 0)
+
+    def test_thread_size(self):
+        # As far as I can tell, there's no way to query this value from
+        # userspace, so at least sanity check that it's a power-of-two multiple
+        # of the page size and that we can read the entire stack.
+        thread_size = self.prog["THREAD_SIZE"].value_()
+        page_size = self.prog["PAGE_SIZE"].value_()
+        self.assertEqual(thread_size % page_size, 0)
+        self.assertTrue(is_power_of_two(thread_size // page_size))
+
+        task = find_task(self.prog, os.getpid())
+        self.prog.read(task.stack, thread_size)

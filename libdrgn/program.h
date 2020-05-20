@@ -74,6 +74,8 @@ struct drgn_program {
 	uint64_t page_offset;
 	/* Cached vmemmap. */
 	uint64_t vmemmap;
+	/* Cached THREAD_SIZE. */
+	uint64_t thread_size;
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif

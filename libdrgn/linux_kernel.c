@@ -234,6 +234,33 @@ out:
 	return err;
 }
 
+static struct drgn_error *
+linux_kernel_get_thread_size(struct drgn_program *prog, uint64_t *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type thread_union_type;
+	struct drgn_member_info stack_member;
+
+	if (!prog->thread_size) {
+		err = drgn_program_find_type(prog, "union thread_union", NULL,
+					     &thread_union_type);
+		if (err)
+			return err;
+		err = drgn_program_member_info(prog, thread_union_type.type,
+					       "stack", &stack_member);
+		if (err)
+			return err;
+		err = drgn_type_sizeof(stack_member.qualified_type.type,
+				       &prog->thread_size);
+		if (err) {
+			prog->thread_size = 0;
+			return err;
+		}
+	}
+	*ret = prog->thread_size;
+	return NULL;
+}
+
 struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 					    const char *filename,
 					    enum drgn_find_object_flags flags,
@@ -296,6 +323,20 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 			return drgn_object_set_unsigned(ret, qualified_type,
 							~(prog->vmcoreinfo.page_size - 1),
 							0);
+		} else if (name_len == strlen("THREAD_SIZE") &&
+			   memcmp(name, "THREAD_SIZE", name_len) == 0) {
+			uint64_t thread_size;
+
+			err = linux_kernel_get_thread_size(prog, &thread_size);
+			if (err)
+				return err;
+			err = drgn_type_index_find_primitive(&prog->tindex,
+							     DRGN_C_TYPE_UNSIGNED_LONG,
+							     &qualified_type.type);
+			if (err)
+				return err;
+			return drgn_object_set_unsigned(ret, qualified_type,
+							thread_size, 0);
 		} else if (name_len == strlen("UTS_RELEASE") &&
 			   memcmp(name, "UTS_RELEASE", name_len) == 0) {
 			size_t len;
