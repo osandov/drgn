@@ -2242,6 +2242,25 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 	return err;
 }
 
+#include <signal.h>
+#include <time.h>
+#include <sys/wait.h>
+
+static inline struct timespec timespec_sub(struct timespec a, struct timespec b)
+{
+	if (a.tv_nsec < b.tv_nsec) {
+		return (struct timespec){
+			.tv_sec = a.tv_sec - 1 - b.tv_sec,
+			.tv_nsec = a.tv_nsec + 1000000000L - b.tv_nsec,
+		};
+	} else {
+		return (struct timespec){
+			.tv_sec = a.tv_sec - b.tv_sec,
+			.tv_nsec = a.tv_nsec - b.tv_nsec,
+		};
+	}
+}
+
 /*
  * Like drgn_dwarf_index_report_end(), but doesn't finalize reported errors or
  * free unindexed modules on success.
@@ -2264,18 +2283,47 @@ drgn_dwarf_index_report_end_internal(struct drgn_dwarf_index *dindex,
 	err = drgn_dwarf_index_get_unindexed(dindex, &unindexed);
 	if (err)
 		goto err;
+	struct timespec start, end_cu, end_index;
+	clock_gettime(CLOCK_MONOTONIC, &start);
 	err = read_cus(dindex, unindexed.data, unindexed.size, &cus);
 	if (err)
 		goto err;
+	clock_gettime(CLOCK_MONOTONIC, &end_cu);
+
 	/*
 	 * After this point, if we hit an error, then we have to roll back the
 	 * index.
 	 */
+#define PERF 0
+#if PERF
+	pid_t pid = fork();
+	if (pid == -1)
+		abort();
+	if (pid == 0) {
+		execlp("perf", "perf" , "record", "-g", NULL);
+		_exit(EXIT_FAILURE);
+	} else {
+		sleep(1);
+	}
+#endif
 	err = index_cus(dindex, cus.data, cus.size);
 	if (err) {
 		rollback_dwarf_index(dindex);
 		goto err;
 	}
+	clock_gettime(CLOCK_MONOTONIC, &end_index);
+#if PERF
+	kill(pid, SIGINT);
+	waitpid(pid, NULL, 0);
+#endif
+
+	struct timespec cu_diff = timespec_sub(end_cu, start);
+	struct timespec index_diff = timespec_sub(end_index, end_cu);
+	struct timespec total_diff = timespec_sub(end_index, start);
+	printf("%lld.%09ld\t%lld.%09ld\t%lld.%09ld\n",
+	       (long long)cu_diff.tv_sec, cu_diff.tv_nsec,
+	       (long long)index_diff.tv_sec, index_diff.tv_nsec,
+	       (long long)total_diff.tv_sec, total_diff.tv_nsec);
 
 out:
 	compilation_unit_vector_deinit(&cus);
