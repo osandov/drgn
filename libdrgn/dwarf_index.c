@@ -1307,6 +1307,7 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 
 	#pragma omp parallel
 	{
+		int thread_num = omp_get_thread_num();
 		struct compilation_unit_vector cus = VECTOR_INIT;
 
 		#pragma omp for schedule(dynamic)
@@ -1317,7 +1318,10 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 			if (err)
 				continue;
 
-			module_err = read_module_cus(unindexed[i], &cus, &name);
+			module_err = read_module_cus(unindexed[i],
+						     thread_num == 0 ?
+						     all_cus : &cus,
+						     &name);
 			if (module_err) {
 				#pragma omp critical(drgn_read_cus)
 				if (err) {

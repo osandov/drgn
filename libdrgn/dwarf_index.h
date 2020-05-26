@@ -20,6 +20,10 @@
 #ifdef _OPENMP
 #include <omp.h>
 #else
+static inline int omp_get_thread_num(void)
+{
+	return 0;
+}
 typedef struct {} omp_lock_t;
 #define omp_init_lock(lock) do {} while (0)
 #define omp_destroy_lock(lock) do {} while (0)
