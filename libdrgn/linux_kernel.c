@@ -1469,6 +1469,7 @@ static struct drgn_error *report_vmlinux(struct drgn_program *prog,
 		 * information, so check for those first.
 		 */
 		"/usr/lib/debug/boot/vmlinux-%s",
+		"/usr/lib/debug/boot/vmlinux-%s.debug",
 		"/usr/lib/debug/lib/modules/%s/vmlinux",
 		"/boot/vmlinux-%s",
 		"/lib/modules/%s/build/vmlinux",
