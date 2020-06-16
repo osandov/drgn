@@ -79,10 +79,27 @@ __libdwfl_frame_reg_set (Dwfl_Frame *state, unsigned regno, Dwarf_Addr val)
 }
 
 static bool
+state_get_reg_from_outer_frame (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
+{
+    bool ret = false;
+
+    for (state = state->unwound; state; state = state->unwound)
+      {
+	ret = dwfl_frame_register (state, regno, val);
+	if (ret)
+	  break;
+      }
+
+    return ret;
+}
+
+static bool
 state_get_reg (Dwfl_Frame *state, unsigned regno, Dwarf_Addr *val)
 {
   if (! INTUSE(dwfl_frame_register) (state, regno, val))
     {
+	if (state_get_reg_from_outer_frame(state, regno, val))
+		return true;
       __libdwfl_seterrno (DWFL_E_INVALID_REGISTER);
       return false;
     }
