@@ -140,6 +140,26 @@ do_pop (struct eval_stack *stack, Dwarf_Addr *val)
   return true;
 }
 
+static bool
+expr_eval (Dwfl_Frame *state, Dwarf_Frame *frame, const Dwarf_Op *ops,
+	   size_t nops, Dwarf_Addr *result, Dwarf_Addr bias);
+
+static bool
+calculate_cfa(Dwfl_Frame *state, Dwarf_Frame *frame, Dwarf_Addr bias,
+	      Dwarf_Addr *cfa)
+{
+  Dwarf_Op *cfa_ops;
+  size_t cfa_nops;
+
+  if (dwarf_frame_cfa (frame, &cfa_ops, &cfa_nops))
+    return false;
+
+  if (expr_eval (state, NULL, cfa_ops, cfa_nops, cfa, bias))
+    return true;
+
+  return false;
+}
+
 /* If FRAME is NULL is are computing CFI frame base.  In such case another
    DW_OP_call_frame_cfa is no longer permitted.  */
 
@@ -462,12 +482,9 @@ expr_eval (Dwfl_Frame *state, Dwarf_Frame *frame, const Dwarf_Op *ops,
 	/* DW_OP_* not listed in libgcc/unwind-dw2.c execute_stack_op:  */
 	case DW_OP_call_frame_cfa:;
 	  // Not used by CFI itself but it is synthetized by elfutils internation.
-	  Dwarf_Op *cfa_ops;
-	  size_t cfa_nops;
 	  Dwarf_Addr cfa;
 	  if (frame == NULL
-	      || dwarf_frame_cfa (frame, &cfa_ops, &cfa_nops) != 0
-	      || ! expr_eval (state, NULL, cfa_ops, cfa_nops, &cfa, bias)
+	      || !calculate_cfa (state, frame, bias, &cfa)
 	      || ! push (cfa))
 	    {
 	      __libdwfl_seterrno (DWFL_E_LIBDW);
@@ -480,6 +497,17 @@ expr_eval (Dwfl_Frame *state, Dwarf_Frame *frame, const Dwarf_Op *ops,
 	  // Not used by CFI itself but it is synthetized by elfutils internation.
 	  is_location = false;
 	  break;
+	case DW_OP_fbreg:;
+	  Dwarf_Addr fbreg;
+	  if (!calculate_cfa (state, frame, bias, &fbreg) ||
+	      !push (fbreg + op->number))
+	    {
+	      __libdwfl_seterrno (DWFL_E_LIBDW);
+	      free (stack.addrs);
+	      return false;
+	    }
+	    is_location = false;
+	    break;
 	default:
 	  __libdwfl_seterrno (DWFL_E_INVALID_DWARF);
 	  return false;
