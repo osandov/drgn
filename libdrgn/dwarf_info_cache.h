@@ -98,6 +98,15 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 		       enum drgn_find_object_flags flags, void *arg,
 		       struct drgn_object *ret);
 
+struct drgn_error *
+drgn_type_from_dwarf_child(struct drgn_dwarf_info_cache *dicache,
+			   Dwarf_Die *parent_die,
+			   const struct drgn_language *parent_lang,
+			   const char *tag_name,
+			   bool can_be_void, bool can_be_incomplete_array,
+			   bool *is_incomplete_array_ret,
+			   struct drgn_qualified_type *ret);
+
 /** @} */
 
 #endif /* DRGN_DWARF_INFO_CACHE_H */

@@ -21,6 +21,10 @@ from typing import (
     overload,
 )
 
+# OrderedDict was added to Python 3.8's typing module but it's broken
+# and fails with error: Variable "typing.OrderedDict" is not valid as a type
+OrderedDict = Dict
+
 class Program:
     """
     A ``Program`` represents a crashed or running program. It can be used to
@@ -1090,6 +1094,17 @@ class StackFrame:
     An inline frame shares the same stack frame in memory as its caller.
     Therefore, it has the same registers (including program counter and thus
     symbol).
+
+    The variables and parameters within the frame can be accessed directly
+    by name using the :meth:`[] <.__getitem__>` operator.
+    """
+
+    parameters: OrderedDict[str, Object]
+    """
+    The parameters passed to this function.
+
+    The objects representing the parameters will contain the current values,
+    which may be different than the values passed to the function initially.
     """
 
     pc: int
@@ -1101,6 +1116,15 @@ class StackFrame:
     generally the return address, i.e., the value of the program counter when
     control returns to this frame.
     """
+
+    variables: Dict[str, Object]
+    """
+    The variables available within this stack frame.
+
+    If a variable shadows another with the same name, the one in the
+    in the deepest scope will be used.
+    """
+
     def source(self) -> Tuple[str, int, int]:
         """
         Get the source code location of this frame.

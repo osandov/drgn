@@ -7,13 +7,23 @@
 #include <inttypes.h>
 #include <stdlib.h>
 
+#include "dwarf_index.h"
+#include "dwarf_info_cache.h"
 #include "internal.h"
 #include "helpers.h"
+#include "object.h"
 #include "program.h"
 #include "read.h"
 #include "stack_trace.h"
 #include "string_builder.h"
+#include "vector.h"
 #include "symbol.h"
+#include "print.h"
+
+struct drgn_stack_object {
+	struct drgn_stack_frame *frame;
+	Dwarf_Die die;
+};
 
 LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 {
@@ -300,6 +310,364 @@ drgn_stack_frame_register_by_name(struct drgn_stack_trace *trace, int frame,
 	return drgn_stack_frame_register(trace, frame, reg->number, ret);
 }
 
+static bool dwarf_expr_result_is_memory(const Dwarf_Op *ops, size_t len)
+{
+	bool is_stack_memory = false;
+	int i;
+
+	for (i = 0; i < len; i++) {
+		switch (ops[i].atom) {
+		case DW_OP_reg0 ... DW_OP_reg31:
+		case DW_OP_regx:
+		case DW_OP_implicit_value:
+		case DW_OP_implicit_pointer:
+		case DW_OP_GNU_implicit_pointer:
+			is_stack_memory = false;
+			break;
+		case DW_OP_stack_value:
+		case DW_OP_fbreg:
+			is_stack_memory = true;
+			break;
+		};
+	}
+
+	return is_stack_memory;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_object_location(const struct drgn_object *obj,
+				 uint64_t *address_ret, bool *is_reference_ret)
+{
+	Dwarf_Attribute attr_mem, *location;
+	struct drgn_stack_frame *frame;
+	struct drgn_error *err;
+	Dwarf_Addr address;
+	bool isactivation;
+	uint64_t pc;
+	Dwarf_Op *ops;
+	size_t len;
+	int n;
+
+	assert(obj->needs_stack_evaluation);
+
+	frame = obj->stack->frame;
+
+	dwfl_frame_pc(frame->state, &pc, &isactivation);
+	if (!isactivation)
+		pc--;
+
+	location = dwarf_attr_integrate(&obj->stack->die, DW_AT_location,
+					&attr_mem);
+	if (!location)
+		return drgn_error_format(DRGN_ERROR_VAR_OPTIMIZED_OUT,
+					 "variable was optimized out");
+	/*
+	 * Multiple expressions can only be returned if DW_OP_piece is
+	 * used.  dwfl_frame_eval_expr doesn't support it and the kernel
+	 * doesn't use any of the types that would require it.
+	 */
+	n = dwarf_getlocation_addr(location, pc - frame->bias, &ops, &len, 1);
+	if (n == -1)
+		return drgn_error_libdw();
+	else if (n == 0)
+		return drgn_error_format(DRGN_ERROR_VAR_LOCATION_UNAVAILABLE,
+				 "debuginfo not available for this location");
+
+	if (!dwfl_frame_eval_expr(frame->state, ops, len, &address)) {
+		/* It'd be nice if libdwfl exported error codes */
+		int dwflerr = dwfl_errno();
+		const char *msg = dwfl_errmsg(dwflerr);
+
+#ifndef DEBUG
+		/*
+		 * This can happen near the outermost frames where
+		 * the registers weren't populated or saved.
+		 *
+		 * This hack will work until elfutils gets proper i18n.
+		 */
+		if (!strcmp(msg, "Invalid register"))
+			return drgn_error_format(
+				DRGN_ERROR_VAR_VALUE_UNAVAILABLE,
+				"value is unavailable at this location");
+#endif
+		/* If you suspect an unhandled case, trigger this. */
+		return drgn_error_format(DRGN_ERROR_OTHER, "libdwfl error: %s",
+					 dwfl_errmsg(dwflerr));
+	}
+
+	*is_reference_ret = dwarf_expr_result_is_memory(ops, len);
+	*address_ret = address;
+
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_stack_frame_object(struct drgn_stack_frame *frame,
+			struct drgn_frame_symbol *symbol,
+			struct drgn_object *ret_obj)
+{
+	struct drgn_program *prog = ret_obj->prog;
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err;
+	struct drgn_object_type type;
+	enum drgn_object_kind kind;
+	const char *tag = "DW_TAG_variable";
+	struct drgn_stack_object *stack_obj;
+	uint64_t bit_size;
+
+	if (dwarf_tag(&symbol->var_die) == DW_TAG_formal_parameter)
+		tag = "DW_TAG_formal_parameter";
+
+	err = drgn_type_from_dwarf_child(prog->_dicache, &symbol->var_die,
+					 prog->lang, tag, false, false,
+					 NULL, &qualified_type);
+	if (err)
+		return err;
+
+	stack_obj = malloc(sizeof(*stack_obj));
+	if (!stack_obj)
+		return &drgn_enomem;
+
+	stack_obj->frame = frame;
+	stack_obj->die = symbol->var_die;
+
+	err = drgn_object_set_common(qualified_type, 0, &type,
+				     &kind, &bit_size);
+	if (err) {
+		free(stack_obj);
+		return err;
+	}
+
+	drgn_object_reinit(ret_obj, &type, kind, bit_size, false);
+	ret_obj->needs_stack_evaluation = true;
+	ret_obj->stack = stack_obj;
+	return NULL;
+}
+
+static struct drgn_error *
+parse_scope_symbols(Dwarf_Die *die, unsigned tag,
+		    struct drgn_frame_symbol_vector *vector)
+{
+	struct drgn_error *err = NULL;
+	Dwarf_Die var_die;
+
+	if (dwarf_child(die, &var_die) != 0)
+		return NULL;
+
+	do {
+		struct drgn_frame_symbol *var;
+
+		if (dwarf_tag(&var_die) != tag)
+			continue;
+
+		var = drgn_frame_symbol_vector_append_entry(vector);
+		if (!var) {
+			err = &drgn_enomem;
+			break;
+		}
+
+		var->var_die = var_die;
+
+		var->name = dwarf_diename(&var_die);
+		if (!var->name) {
+			err = drgn_error_libdw();
+			break;
+		}
+	} while (dwarf_siblingof(&var_die, &var_die) == 0);
+
+	return err;
+}
+
+static struct drgn_error *
+drgn_stack_frame_parse_parameters(struct drgn_stack_frame *frame)
+{
+	struct drgn_error *err;
+
+	if (frame->valid.parameters)
+		return NULL;
+
+	drgn_frame_symbol_vector_init(&frame->parameters);
+	if (frame->num_scopes) {
+		err = parse_scope_symbols(&frame->scopes[0],
+					  DW_TAG_formal_parameter,
+					  &frame->parameters);
+		if (err) {
+			drgn_frame_symbol_vector_deinit(&frame->parameters);
+			return err;
+		}
+
+		drgn_frame_symbol_vector_shrink_to_fit(&frame->parameters);
+	}
+
+	frame->valid.parameters = true;
+	return NULL;
+}
+
+static struct drgn_error *
+find_frame_symbol_in_vector(struct drgn_frame_symbol_vector *vector,
+			    const char *name, struct drgn_frame_symbol **ret)
+{
+	int i;
+
+	for (i = 0; i < vector->size; i++) {
+		if (!strcmp(name, vector->data[i].name)) {
+			*ret = &vector->data[i];
+			return NULL;
+		}
+	}
+
+	return drgn_error_format(DRGN_ERROR_LOOKUP,
+				 "no symbol named `%s' found in stack frame",
+				 name);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_num_parameters(struct drgn_stack_trace *trace, int frame,
+				size_t *count)
+{
+	struct drgn_stack_frame *stack_frame = &trace->frames[frame];
+	struct drgn_error *err;
+
+	err = drgn_stack_frame_parse_parameters(stack_frame);
+	if (err)
+		return err;
+
+	*count = stack_frame->parameters.size;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_parameter_by_name(struct drgn_stack_trace *trace, int frame,
+				   const char *name,
+				   struct drgn_object *ret_obj)
+{
+	struct drgn_stack_frame *stack_frame = &trace->frames[frame];
+	struct drgn_frame_symbol *sym;
+	struct drgn_error *err;
+
+	err = drgn_stack_frame_parse_parameters(stack_frame);
+	if (err)
+		return err;
+
+	err = find_frame_symbol_in_vector(&trace->frames[frame].parameters,
+					  name, &sym);
+	if (err)
+		return err;
+
+	return drgn_stack_frame_object(stack_frame, sym, ret_obj);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_parameter_by_index(struct drgn_stack_trace *trace, int frame,
+				    size_t index, const char **name,
+				    struct drgn_object *ret_obj)
+{
+	struct drgn_stack_frame *stack_frame = &trace->frames[frame];
+	struct drgn_frame_symbol_vector *parameters = &stack_frame->parameters;
+	struct drgn_error *err;
+
+	err = drgn_stack_frame_parse_parameters(stack_frame);
+	if (err)
+		return err;
+
+	if (index > parameters->size)
+		return drgn_error_format(DRGN_ERROR_OUT_OF_BOUNDS,
+					 "index %lu is out of range", index);
+
+	err = drgn_stack_frame_object(stack_frame, &parameters->data[index],
+				      ret_obj);
+	if (err)
+		return err;
+
+	*name = parameters->data[index].name;
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_stack_frame_parse_variables(struct drgn_stack_frame *frame)
+{
+	struct drgn_error *err;
+	int i;
+
+	if (frame->valid.variables)
+		return NULL;
+
+	drgn_frame_symbol_vector_init(&frame->variables);
+	for (i = 0; i <= frame->subprogram && frame->num_scopes; i++) {
+		err = parse_scope_symbols(&frame->scopes[i],
+					  DW_TAG_variable,
+					  &frame->variables);
+		if (err) {
+			drgn_frame_symbol_vector_deinit(&frame->variables);
+			return err;
+		}
+		drgn_frame_symbol_vector_shrink_to_fit(&frame->variables);
+	}
+
+	frame->valid.variables = true;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_num_variables(struct drgn_stack_trace *trace, int frame,
+			       size_t *count)
+{
+	struct drgn_stack_frame *stack_frame = &trace->frames[frame];
+	struct drgn_error *err;
+
+	err = drgn_stack_frame_parse_variables(stack_frame);
+	if (err)
+		return err;
+
+	*count = stack_frame->variables.size;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_variable_by_name(struct drgn_stack_trace *trace, int frame,
+				  const char *name, struct drgn_object *ret_obj)
+{
+	struct drgn_stack_frame *stack_frame = &trace->frames[frame];
+	struct drgn_frame_symbol *sym;
+	struct drgn_error *err;
+
+	err = drgn_stack_frame_parse_variables(stack_frame);
+	if (err)
+		return err;
+
+	err = find_frame_symbol_in_vector(&stack_frame->variables, name, &sym);
+	if (err)
+		return err;
+
+	return drgn_stack_frame_object(stack_frame, sym, ret_obj);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_variable_by_index(struct drgn_stack_trace *trace, int frame,
+				   size_t index, const char **name,
+				   struct drgn_object *ret_obj)
+{
+	struct drgn_stack_frame *stack_frame = &trace->frames[frame];
+	struct drgn_frame_symbol_vector *variables = &stack_frame->variables;
+	struct drgn_error *err;
+
+	err = drgn_stack_frame_parse_variables(stack_frame);
+	if (err)
+		return err;
+
+	if (index > variables->size)
+		return drgn_error_format(DRGN_ERROR_OUT_OF_BOUNDS,
+					 "index %lu is out of range", index);
+
+	err = drgn_stack_frame_object(stack_frame, &variables->data[index],
+				      ret_obj);
+	if (err)
+		return err;
+
+	*name = variables->data[index].name;
+	return NULL;
+}
+
 static bool drgn_thread_memory_read(Dwfl *dwfl, Dwarf_Addr addr,
 				    Dwarf_Word *result, void *dwfl_arg)
 {
@@ -532,7 +900,7 @@ out:
 
 static bool append_stack_frame(struct drgn_stack_trace **tracep,
 			       Dwfl_Frame *state, Dwarf_Die *scopes,
-			       int num_scopes, int subprogram)
+			       int num_scopes, int subprogram, uint64_t bias)
 {
 	struct drgn_stack_trace *trace = *tracep;
 	struct drgn_stack_frame *frame;
@@ -556,6 +924,9 @@ static bool append_stack_frame(struct drgn_stack_trace **tracep,
 	frame->scopes = scopes;
 	frame->num_scopes = num_scopes;
 	frame->subprogram = subprogram;
+	frame->bias = bias;
+	frame->valid.parameters = false;
+	frame->valid.variables = false;
 	return true;
 }
 
@@ -619,7 +990,7 @@ static struct drgn_error *append_scopes(Dwfl_Frame *state,
 				if (!append_stack_frame(tracep, state,
 							frame_scopes,
 							frame_num_scopes,
-							subprogram)) {
+							subprogram, bias)) {
 					free(frame_scopes);
 					err = &drgn_enomem;
 					goto out;
@@ -658,7 +1029,7 @@ static struct drgn_error *append_scopes(Dwfl_Frame *state,
 	memcpy(frame_scopes, &scopes[first_scope],
 	       frame_num_scopes * sizeof(*frame_scopes));
 	if (!append_stack_frame(tracep, state, frame_scopes, frame_num_scopes,
-				subprogram)) {
+				subprogram, bias)) {
 		free(frame_scopes);
 		err = &drgn_enomem;
 		goto out;
@@ -676,7 +1047,7 @@ static int drgn_append_dwfl_frame(Dwfl_Frame *state, void *arg)
 
 	err = append_scopes(state, tracep);
 	if (err == &drgn_not_found) {
-		if (append_stack_frame(tracep, state, NULL, 0, 0))
+		if (append_stack_frame(tracep, state, NULL, 0, 0, 0))
 			err = NULL;
 		else
 			err = &drgn_enomem;

@@ -75,6 +75,16 @@ enum drgn_error_code {
 	DRGN_ERROR_ZERO_DIVISION,
 	/** Array out of bounds */
 	DRGN_ERROR_OUT_OF_BOUNDS,
+	/** Variable was optimized out: No location debuginfo found */
+	DRGN_ERROR_VAR_OPTIMIZED_OUT,
+	/** Location debuginfo is present but not for the described address */
+	DRGN_ERROR_VAR_LOCATION_UNAVAILABLE,
+	/**
+	 * Location debuginfo is present for the described address but
+	 * obtaining the value isn't possible.  This is usually due to
+	 * the registers not being populated initially.
+	 */
+	DRGN_ERROR_VAR_VALUE_UNAVAILABLE,
 	/** Number of defined error codes. */
 	DRGN_NUM_ERROR_CODES,
 } __attribute__((packed));
@@ -1647,6 +1657,8 @@ struct drgn_object {
 	bool is_reference;
 	/** Whether this object is a bit field. */
 	bool is_bit_field;
+	/** Whether this object is on the stack and needs to be evaluated. */
+	bool needs_stack_evaluation;
 	/** Reference to this object in @ref drgn_object::prog, or its value. */
 	union {
 		/** Value. */
@@ -1664,6 +1676,8 @@ struct drgn_object {
 			/** Whether the referenced object is little-endian. */
 			bool little_endian;
 		} reference;
+		/** The context for objects located on the stack */
+		struct drgn_stack_object *stack;
 	};
 };
 
@@ -2465,6 +2479,41 @@ struct drgn_error *
 drgn_stack_frame_register_by_name(struct drgn_stack_trace *trace, int frame,
 				  const char *name, uint64_t *ret);
 
+/** Get the number of parameters to the function in a stack frame. */
+struct drgn_error *
+drgn_stack_frame_num_parameters(struct drgn_stack_trace *trace, int frame,
+				size_t *count);
+
+/** Get the value of a parameter (by name) in a stack frame. */
+struct drgn_error *
+drgn_stack_frame_parameter_by_name(struct drgn_stack_trace *trace, int frame,
+				   const char *name,
+				   struct drgn_object *ret_obj);
+
+/** Get the value of a parameter (by index) in a stack frame. */
+struct drgn_error *
+drgn_stack_frame_parameter_by_index(struct drgn_stack_trace *trace, int frame,
+				    size_t index, const char **name,
+				    struct drgn_object *ret_obj);
+
+/** Get the number of variables in a stack frame. */
+struct drgn_error *
+drgn_stack_frame_num_variables(struct drgn_stack_trace *trace, int frame,
+			       size_t *count);
+
+/** Get the value of a variable (by name) in a stack frame. */
+struct drgn_error *
+drgn_stack_frame_variable_by_name(struct drgn_stack_trace *trace, int frame,
+				  const char *name,
+				  struct drgn_object *ret_obj);
+
+/** Get the value of a variable (by index) in a stack frame. */
+struct drgn_error *
+drgn_stack_frame_variable_by_index(struct drgn_stack_trace *trace, int frame,
+				   size_t index, const char **name,
+				   struct drgn_object *ret_obj);
+
+
 /**
  * Get a stack trace for the thread with the given thread ID.
  *
@@ -2484,6 +2533,17 @@ struct drgn_error *drgn_program_stack_trace(struct drgn_program *prog,
 struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 					   struct drgn_stack_trace **ret);
 
+/**
+ * Get the location (or value) for a variable or parameter located on the
+ * stack represented by @p obj.
+ *
+ * @param[out] address Returned address if @p is_reference is true.
+ * Otherwise, the value contained within a register.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_stack_frame_object_location(const struct drgn_object *obj,
+				 uint64_t *address, bool *is_reference);
 /** @} */
 
 #endif /* DRGN_H */

@@ -104,6 +104,7 @@ static inline void drgn_object_reinit(struct drgn_object *obj,
 	obj->bit_size = bit_size;
 	obj->is_bit_field = type->bit_field_size != 0;
 	obj->is_reference = is_reference;
+	obj->needs_stack_evaluation = false;
 }
 
 /**

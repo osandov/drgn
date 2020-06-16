@@ -204,6 +204,150 @@ static PyObject *StackFrame_get_is_inline(StackFrame *self, void *arg)
 		Py_RETURN_FALSE;
 }
 
+static PyObject *StackFrame_parameters(StackFrame *self, void *arg)
+{
+	Program *prog = container_of(self->trace->trace->prog, Program, prog);
+	DrgnObject *ret;
+	struct drgn_error *err;
+	PyObject *parameters_obj;
+	size_t num_parameters, i;
+
+	parameters_obj = PyODict_New();
+	if (!parameters_obj)
+		return NULL;
+
+	err = drgn_stack_frame_num_parameters(self->trace->trace, self->i,
+					      &num_parameters);
+	if (err) {
+		set_drgn_error(err);
+		goto err;
+	}
+
+	for (i = 0; i < num_parameters; i++) {
+		const char *pname;
+		PyObject *name;
+
+		ret = DrgnObject_alloc(prog);
+		if (!ret)
+			goto err;
+
+		err = drgn_stack_frame_parameter_by_index(self->trace->trace,
+							  self->i, i,
+							  &pname, &ret->obj);
+		if (err) {
+			set_drgn_error(err);
+			Py_DECREF(ret);
+			goto err;
+		}
+
+		name = PyUnicode_FromString(pname);
+		if (!name) {
+			Py_DECREF(ret);
+			goto err;
+		}
+
+		PyODict_SetItem(parameters_obj, name, (PyObject *)ret);
+	}
+
+	return parameters_obj;
+err:
+	Py_DECREF(parameters_obj);
+	return NULL;
+}
+
+static PyObject *StackFrame_variables(StackFrame *self, void *arg)
+{
+	Program *prog = container_of(self->trace->trace->prog, Program, prog);
+	struct drgn_error *err;
+	size_t num_variables;
+	PyObject *dict;
+	int i;
+
+	dict = PyDict_New();
+	if (!dict)
+		return NULL;
+
+	err = drgn_stack_frame_num_variables(self->trace->trace, self->i,
+					     &num_variables);
+	if (err) {
+		if (err->code == DRGN_ERROR_LOOKUP)
+			return dict;
+		Py_DECREF(dict);
+		set_drgn_error(err);
+		return NULL;
+	}
+
+	/*
+	 * Iterate the variables in reverse order so that shadowed variables
+	 * in outer scopes are properly obscured.
+	 */
+	for (i = num_variables - 1; i >= 0; i--) {
+		const char *name;
+		DrgnObject *ret;
+
+		ret = DrgnObject_alloc(prog);
+		if (!ret)
+			goto error;
+
+		err = drgn_stack_frame_variable_by_index(self->trace->trace,
+							 self->i, i, &name,
+							 &ret->obj);
+		if (err) {
+			Py_DECREF((PyObject *)ret);
+			set_drgn_error(err);
+			goto error;
+		}
+
+		if (PyDict_SetItemString(dict, name, (PyObject *)ret)) {
+			Py_DECREF(Py_None);
+			goto error;
+		}
+	}
+
+	return dict;
+
+error:
+	Py_DECREF(dict);
+	return NULL;
+}
+
+static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
+{
+	Program *prog = container_of(self->trace->trace->prog, Program, prog);
+	struct drgn_error *err;
+	const char *name;
+	DrgnObject *ret;
+
+	if (!PyUnicode_Check(key)) {
+		PyErr_SetObject(PyExc_KeyError, key);
+		return NULL;
+	}
+
+	name = PyUnicode_AsUTF8(key);
+	if (!name)
+		return NULL;
+
+	ret = DrgnObject_alloc(prog);
+	if (!ret)
+		return NULL;
+
+	err = drgn_stack_frame_variable_by_name(self->trace->trace, self->i,
+						name, &ret->obj);
+	if (err && err->code != DRGN_ERROR_LOOKUP) {
+		set_drgn_error(err);
+		return NULL;
+	}
+
+	err = drgn_stack_frame_parameter_by_name(self->trace->trace, self->i,
+						 name, &ret->obj);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+
+	return ret;
+}
+
 static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)
 {
 	uint64_t pc;
@@ -229,7 +373,15 @@ static PyGetSetDef StackFrame_getset[] = {
 	{"is_inline", (getter)StackFrame_get_is_inline, NULL,
 	 drgn_StackFrame_is_inline_DOC},
 	{"pc", (getter)StackFrame_get_pc, NULL, drgn_StackFrame_pc_DOC},
+	{"variables", (getter)StackFrame_variables, NULL,
+	 drgn_StackFrame_variables_DOC },
+	{"parameters", (getter)StackFrame_parameters, NULL,
+	 drgn_StackFrame_parameters_DOC },
 	{},
+};
+
+static PyMappingMethods StackFrame_as_mapping = {
+	.mp_subscript = (binaryfunc)StackFrame_subscript,
 };
 
 PyTypeObject StackFrame_type = {
@@ -237,6 +389,7 @@ PyTypeObject StackFrame_type = {
 	.tp_name = "_drgn.StackFrame",
 	.tp_basicsize = sizeof(StackFrame),
 	.tp_dealloc = (destructor)StackFrame_dealloc,
+	.tp_as_mapping = &StackFrame_as_mapping,
 	.tp_str = (reprfunc)StackFrame_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_StackFrame_DOC,

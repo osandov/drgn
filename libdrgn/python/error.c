@@ -178,6 +178,7 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 		PyErr_SetString(PyExc_SyntaxError, err->message);
 		break;
 	case DRGN_ERROR_LOOKUP:
+	case DRGN_ERROR_VAR_OPTIMIZED_OUT:
 		PyErr_SetString(PyExc_LookupError, err->message);
 		break;
 	case DRGN_ERROR_FAULT: {
@@ -197,6 +198,10 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 		break;
 	case DRGN_ERROR_OUT_OF_BOUNDS:
 		PyErr_SetString(OutOfBoundsError, err->message);
+		break;
+	case DRGN_ERROR_VAR_VALUE_UNAVAILABLE:
+	case DRGN_ERROR_VAR_LOCATION_UNAVAILABLE:
+		PyErr_SetString(PyExc_ValueError, err->message);
 		break;
 	default:
 		PyErr_SetString(PyExc_Exception, err->message);
