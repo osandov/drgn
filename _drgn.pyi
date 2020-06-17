@@ -599,12 +599,15 @@ class Object:
     * Bitwise operators: ``<<``, ``>>``, ``&``, ``|``, ``^``, ``~``
     * Relational operators: ``==``, ``!=``, ``<``, ``>``, ``<=``, ``>=``
     * Subscripting: :meth:`[] <__getitem__>` (Python does not have a unary
-      ``*`` operator, so pointers are dereferenced with ``ptr[0]``)
+      ``*`` operator, so pointers are dereferenced with ``ptr[0]`` or with
+      the :meth:`drgn.Object.dereference_()` method)
     * Member access: :meth:`. <__getattribute__>` (Python does not have a
       ``->`` operator, so ``.`` is also used to access members of pointers to
       structures)
     * The address-of operator: :meth:`drgn.Object.address_of_()` (this is a
       method because Python does not have a ``&`` operator)
+    * The dereference operator: :meth:`drgn.Object.dereference_()` (this is a
+      method because Python does not have a ``*`` operator)
     * Array length: :meth:`len() <__len__>`
 
     These operators all have the semantics of the program's programming
@@ -796,6 +799,19 @@ class Object:
         ``int``.
 
         :raises ValueError: if this object is a value
+        """
+        ...
+    def dereference_(self) -> Object:
+        """
+        Get the target object pointed to by this object.
+
+        This corresponds to the dereference (``*``) operator in C. It is only
+        possible for pointer type objects.
+
+        This is equivalent to subscripting the object with an index of ``0``.
+
+        :raises TypeError: if this object is is not a pointer type
+        :raises FaultError: if the pointer points to an invalid location
         """
         ...
     def read_(self) -> Object:

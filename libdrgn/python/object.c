@@ -1554,6 +1554,20 @@ static DrgnObject *DrgnObject_subscript(DrgnObject *self, PyObject *key)
 	return DrgnObject_subscript_impl(self, index.svalue);
 }
 
+static DrgnObject *DrgnObject_dereference(DrgnObject *self)
+{
+	struct drgn_type *underlying_type;
+
+	underlying_type = drgn_underlying_type(self->obj.type);
+	if (drgn_type_kind(underlying_type) != DRGN_TYPE_POINTER) {
+		set_error_type_name("'%s' is not a pointer type",
+				    drgn_object_qualified_type(&self->obj));
+		return NULL;
+	}
+
+	return DrgnObject_subscript_impl(self, 0);
+}
+
 static ObjectIterator *DrgnObject_iter(DrgnObject *self)
 {
 	struct drgn_type *underlying_type;
@@ -1671,6 +1685,8 @@ static PyMethodDef DrgnObject_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Object_member__DOC},
 	{"address_of_", (PyCFunction)DrgnObject_address_of, METH_NOARGS,
 	 drgn_Object_address_of__DOC},
+	{"dereference_", (PyCFunction)DrgnObject_dereference, METH_NOARGS,
+	 drgn_Object_dereference__DOC},
 	{"read_", (PyCFunction)DrgnObject_read, METH_NOARGS,
 	 drgn_Object_read__DOC},
 	{"format_", (PyCFunction)DrgnObject_format,
