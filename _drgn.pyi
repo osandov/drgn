@@ -720,6 +720,7 @@ class Object:
 
         :param idx: The array index.
         :raises TypeError: if this object is not a pointer or array
+        :raises FaultError: if the pointer points to an invalid location
         """
         ...
     def __len__(self) -> int:
