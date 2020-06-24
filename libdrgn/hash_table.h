@@ -1226,7 +1226,7 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 {
 #if SIZE_MAX == 0xffffffffffffffff
 #ifdef __SSE4_2__
-/* 64-bit with SSE4.2 uses CRC32 */
+	/* 64-bit with SSE4.2 uses CRC32 */
 	size_t c = _mm_crc32_u64(0, hash);
 
 	return (struct hash_pair){
@@ -1234,7 +1234,7 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 		.second = (c >> 24) | 0x80,
 	};
 #else
-/* 64-bit without SSE4.2 uses a 128-bit multiplication-based mixer */
+	/* 64-bit without SSE4.2 uses a 128-bit multiplication-based mixer */
 	static const uint64_t multiplier = UINT64_C(0xc4ceb9fe1a85ec53);
 	uint64_t hi, lo;
 
@@ -1244,12 +1244,12 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 	hash *= multiplier;
 	return (struct hash_pair){
 		.first = hash >> 22,
-		.second = (hash >> 15) | 0x80,
+		.second = ((hash >> 15) & 0x7f) | 0x80,
 	};
 #endif
 #elif SIZE_MAX == 0xffffffff
-/* 32-bit with SSE4.2 uses CRC32 */
 #ifdef __SSE4_2__
+	/* 32-bit with SSE4.2 uses CRC32 */
 	size_t c = _mm_crc32_u32(0, hash);
 
 	return (struct hash_pair){
@@ -1257,7 +1257,7 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 		.second = (uint8_t)(~(c >> 25)),
 	};
 #else
-/* 32-bit without SSE4.2 uses the 32-bit Murmur2 finalizer */
+	/* 32-bit without SSE4.2 uses the 32-bit Murmur2 finalizer */
 	hash ^= hash >> 13;
 	hash *= 0x5bd1e995;
 	hash ^= hash >> 15;
