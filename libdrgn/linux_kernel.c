@@ -820,15 +820,19 @@ out:
 
 static const char *kmod_index_find(struct kmod_index *index, const char *key)
 {
+	static const uint32_t INDEX_NODE_MASK = UINT32_C(0x0fffffff);
+	static const uint32_t INDEX_NODE_CHILDS = UINT32_C(0x20000000);
+	static const uint32_t INDEX_NODE_VALUES = UINT32_C(0x40000000);
+	static const uint32_t INDEX_NODE_PREFIX = UINT32_C(0x80000000);
 	const char *ptr = index->ptr + 8;
 	uint32_t offset;
 
 	for (;;) {
 		if (!read_be32(&ptr, index->end, &offset))
 			return NULL;
-		ptr = index->ptr + (offset & 0x0fffffffU);
+		ptr = index->ptr + (offset & INDEX_NODE_MASK);
 
-		if (offset & 0x80000000U) {
+		if (offset & INDEX_NODE_PREFIX) {
 			const char *prefix;
 			size_t prefix_len;
 
@@ -840,7 +844,7 @@ static const char *kmod_index_find(struct kmod_index *index, const char *key)
 			key += prefix_len;
 		}
 
-		if (offset & 0x20000000U) {
+		if (offset & INDEX_NODE_CHILDS) {
 			uint8_t first, last;
 
 			if (!read_u8(&ptr, index->end, &first) ||
@@ -864,7 +868,7 @@ static const char *kmod_index_find(struct kmod_index *index, const char *key)
 			break;
 		}
 	}
-	if (!(offset & 0x40000000U))
+	if (!(offset & INDEX_NODE_VALUES))
 		return NULL;
 	return ptr;
 }
