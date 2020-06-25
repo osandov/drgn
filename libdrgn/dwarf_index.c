@@ -185,7 +185,7 @@ static const char * const section_name[DRGN_DWARF_INDEX_NUM_SECTIONS] = {
  * set to zero if the tag is not of interest); see DIE_FLAG_*.
  */
 enum {
-	INSN_MAX_SKIP = 229,
+	INSN_MAX_SKIP = 228,
 	ATTRIB_BLOCK1,
 	ATTRIB_BLOCK2,
 	ATTRIB_BLOCK4,
@@ -207,6 +207,7 @@ enum {
 	ATTRIB_DECL_FILE_DATA4,
 	ATTRIB_DECL_FILE_DATA8,
 	ATTRIB_DECL_FILE_UDATA,
+	ATTRIB_DECLARATION_FLAG,
 	ATTRIB_SPECIFICATION_REF1,
 	ATTRIB_SPECIFICATION_REF2,
 	ATTRIB_SPECIFICATION_REF4,
@@ -1504,13 +1505,24 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 			default:
 				break;
 			}
-		} else if (name == DW_AT_declaration) {
-			/*
-			 * In theory, this could be DW_FORM_flag with a value of
-			 * zero, but in practice, GCC always uses
-			 * DW_FORM_flag_present.
-			 */
-			die_flags |= DIE_FLAG_DECLARATION;
+		} else if (name == DW_AT_declaration && should_index) {
+			switch (form) {
+			case DW_FORM_flag:
+				insn = ATTRIB_DECLARATION_FLAG;
+				goto append_insn;
+			case DW_FORM_flag_present:
+				/*
+				 * This could be an instruction, but as long as
+				 * we have a free DIE flag bit, we might as well
+				 * use it.
+				 */
+				die_flags |= DIE_FLAG_DECLARATION;
+				break;
+			default:
+				return drgn_error_format(DRGN_ERROR_OTHER,
+							 "unknown attribute form %" PRIu64 " for DW_AT_declaration",
+							 form);
+			}
 		} else if (name == DW_AT_specification && should_index) {
 			switch (form) {
 			case DW_FORM_ref1:
@@ -1870,6 +1882,7 @@ struct die {
 	size_t stmt_list;
 	size_t decl_file;
 	const char *specification;
+	bool declaration;
 	uint8_t flags;
 };
 
@@ -2000,6 +2013,14 @@ strp:
 							    &die->decl_file)))
 				return err;
 			break;
+		case ATTRIB_DECLARATION_FLAG: {
+			uint8_t flag;
+			if (!read_u8(ptr, end, &flag))
+				return drgn_eof();
+			if (flag)
+				die->declaration = true;
+			break;
+		}
 		case ATTRIB_SPECIFICATION_REF1:
 			if (!read_u8_into_size_t(ptr, end, &tmp))
 				return drgn_eof();
@@ -2036,6 +2057,8 @@ skip:
 	}
 
 	die->flags = *insnp;
+	if (die->flags & DIE_FLAG_DECLARATION)
+		die->declaration = true;
 
 	return NULL;
 }
@@ -2090,7 +2113,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 							&file_name_table)))
 				goto out;
 		} else if ((tag = die.flags & DIE_FLAG_TAG_MASK) &&
-			   !(die.flags & DIE_FLAG_DECLARATION)) {
+			   !die.declaration) {
 			uint64_t file_name_hash;
 
 			/*
