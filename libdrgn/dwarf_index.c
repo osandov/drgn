@@ -253,7 +253,7 @@ struct compilation_unit {
 	Dwfl_Module *module;
 	Elf_Data *sections[DRGN_DWARF_INDEX_NUM_SECTIONS];
 	const char *ptr;
-	uint64_t unit_length;
+	size_t unit_length;
 	uint64_t debug_abbrev_offset;
 	uint8_t address_size;
 	bool is_64_bit;
@@ -287,7 +287,7 @@ struct drgn_dwarf_index_die {
 	 */
 	size_t next;
 	Dwfl_Module *module;
-	uint64_t offset;
+	size_t offset;
 };
 
 /*
@@ -1169,7 +1169,8 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 		return drgn_eof();
 	cu->is_64_bit = tmp == UINT32_C(0xffffffff);
 	if (cu->is_64_bit) {
-		if (!read_u64(&ptr, end, cu->bswap, &cu->unit_length))
+		if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+					  &cu->unit_length))
 			return drgn_eof();
 	} else {
 		cu->unit_length = tmp;
@@ -1791,7 +1792,7 @@ out:
 
 static bool append_die_entry(struct drgn_dwarf_index_shard *shard, uint64_t tag,
 			     uint64_t file_name_hash, Dwfl_Module *module,
-			     uint64_t offset)
+			     size_t offset)
 {
 	struct drgn_dwarf_index_die *die;
 
@@ -1809,7 +1810,7 @@ static bool append_die_entry(struct drgn_dwarf_index_shard *shard, uint64_t tag,
 static struct drgn_error *index_die(struct drgn_dwarf_index *dindex,
 				    const char *name, uint64_t tag,
 				    uint64_t file_name_hash,
-				    Dwfl_Module *module, uint64_t offset)
+				    Dwfl_Module *module, size_t offset)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_die_map_entry entry = {
@@ -2062,7 +2063,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 	const char *debug_str_buffer = section_ptr(debug_str, 0);
 	const char *debug_str_end = section_end(debug_str);
 	unsigned int depth = 0;
-	uint64_t enum_die_offset = 0;
+	size_t enum_die_offset = 0;
 
 	if ((err = read_abbrev_table(section_ptr(debug_abbrev,
 						 cu->debug_abbrev_offset),
@@ -2073,7 +2074,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 		struct die die = {
 			.stmt_list = SIZE_MAX,
 		};
-		uint64_t die_offset = ptr - debug_info_buffer;
+		size_t die_offset = ptr - debug_info_buffer;
 		uint64_t tag;
 
 		err = read_die(cu, &abbrev, &ptr, end, debug_str_buffer,
