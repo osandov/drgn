@@ -1726,8 +1726,10 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	for (;;) {
 		const char *path;
 		size_t path_len;
-		if (!read_string(&ptr, end, &path, &path_len))
-			return drgn_eof();
+		if (!read_string(&ptr, end, &path, &path_len)) {
+			err = drgn_eof();
+			goto out;
+		}
 		if (!path_len)
 			break;
 
