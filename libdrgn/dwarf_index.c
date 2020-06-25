@@ -180,9 +180,9 @@ static const char * const section_name[DRGN_DWARF_INDEX_NUM_SECTIONS] = {
  * over. The next few instructions mean that the corresponding attribute can be
  * skipped over. The remaining instructions indicate that the corresponding
  * attribute should be parsed. Finally, every sequence of instructions
- * corresponding to a DIE is terminated by a zero byte followed by a bitmask of
- * TAG_FLAG_* bits combined with the DWARF tag (which may be set to zero if the
- * tag is not of interest).
+ * corresponding to a DIE is terminated by a zero byte followed by the DIE
+ * flags, which are a bitmask of flags combined with the DWARF tag (which may be
+ * set to zero if the tag is not of interest); see DIE_FLAG_*.
  */
 enum {
 	INSN_MAX_SKIP = 229,
@@ -216,12 +216,11 @@ enum {
 };
 
 enum {
-	/* Maximum number of bits used by the tags we care about. */
-	TAG_BITS = 6,
-	TAG_MASK = (1 << TAG_BITS) - 1,
+	/* Mask of tags that we care about. */
+	DIE_FLAG_TAG_MASK = 0x3f,
 	/* The remaining bits can be used for other purposes. */
-	TAG_FLAG_DECLARATION = 0x40,
-	TAG_FLAG_CHILDREN = 0x80,
+	DIE_FLAG_DECLARATION = 0x40,
+	DIE_FLAG_CHILDREN = 0x80,
 };
 
 DEFINE_VECTOR(uint8_vector, uint8_t)
@@ -1397,6 +1396,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	case DW_TAG_enumerator:
 	/* Functions. */
 	case DW_TAG_subprogram:
+	/* If adding anything here, make sure it fits in DIE_FLAG_TAG_MASK. */
 		should_index = true;
 		break;
 	default:
@@ -1413,7 +1413,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	if (!read_u8(ptr, end, &children))
 		return drgn_eof();
 	if (children)
-		die_flags |= TAG_FLAG_CHILDREN;
+		die_flags |= DIE_FLAG_CHILDREN;
 
 	for (;;) {
 		uint64_t name, form;
@@ -1516,7 +1516,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 			 * zero, but in practice, GCC always uses
 			 * DW_FORM_flag_present.
 			 */
-			die_flags |= TAG_FLAG_DECLARATION;
+			die_flags |= DIE_FLAG_DECLARATION;
 		} else if (name == DW_AT_specification && should_index) {
 			switch (form) {
 			case DW_FORM_ref1:
@@ -2089,14 +2089,14 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 			goto out;
 		}
 
-		tag = die.flags & TAG_MASK;
+		tag = die.flags & DIE_FLAG_TAG_MASK;
 		if (tag == DW_TAG_compile_unit || tag == DW_TAG_partial_unit) {
 			if (depth == 0 && die.stmt_list != SIZE_MAX &&
 			    (err = read_file_name_table(dindex, cu,
 							die.stmt_list,
 							&file_name_table)))
 				goto out;
-		} else if (tag && !(die.flags & TAG_FLAG_DECLARATION)) {
+		} else if (tag && !(die.flags & DIE_FLAG_DECLARATION)) {
 			uint64_t file_name_hash;
 
 			/*
@@ -2144,7 +2144,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 		}
 
 next:
-		if (die.flags & TAG_FLAG_CHILDREN) {
+		if (die.flags & DIE_FLAG_CHILDREN) {
 			if (die.sibling)
 				ptr = die.sibling;
 			else
