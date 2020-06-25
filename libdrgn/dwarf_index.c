@@ -1404,12 +1404,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		should_index = false;
 		break;
 	}
-
-	if (should_index || tag == DW_TAG_compile_unit ||
-	    tag == DW_TAG_partial_unit)
-		die_flags = tag;
-	else
-		die_flags = 0;
+	die_flags = should_index ? tag : 0;
 
 	if (!read_u8(ptr, end, &children))
 		return drgn_eof();
@@ -1466,8 +1461,6 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 				break;
 			}
 		} else if (name == DW_AT_stmt_list &&
-			   (tag == DW_TAG_compile_unit ||
-			    tag == DW_TAG_partial_unit) &&
 			   cu->sections[SECTION_DEBUG_LINE]) {
 			switch (form) {
 			case DW_FORM_data4:
@@ -2090,14 +2083,14 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 			goto out;
 		}
 
-		tag = die.flags & DIE_FLAG_TAG_MASK;
-		if (tag == DW_TAG_compile_unit || tag == DW_TAG_partial_unit) {
-			if (depth == 0 && die.stmt_list != SIZE_MAX &&
+		if (depth == 0) {
+			if (die.stmt_list != SIZE_MAX &&
 			    (err = read_file_name_table(dindex, cu,
 							die.stmt_list,
 							&file_name_table)))
 				goto out;
-		} else if (tag && !(die.flags & DIE_FLAG_DECLARATION)) {
+		} else if ((tag = die.flags & DIE_FLAG_TAG_MASK) &&
+			   !(die.flags & DIE_FLAG_DECLARATION)) {
 			uint64_t file_name_hash;
 
 			/*
