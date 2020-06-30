@@ -264,13 +264,13 @@ static inline const char *section_end(Elf_Data *data)
  * name and tag.
  */
 struct drgn_dwarf_index_die {
-	uint64_t tag;
-	uint64_t file_name_hash;
 	/*
 	 * The next DIE with the same name (as an index into
-	 * drgn_dwarf_index_shard::dies), or SIZE_MAX if this is the last DIE.
+	 * drgn_dwarf_index_shard::dies), or UINT32_MAX if this is the last DIE.
 	 */
-	size_t next;
+	uint32_t next;
+	uint8_t tag;
+	uint64_t file_name_hash;
 	Dwfl_Module *module;
 	size_t offset;
 };
@@ -1780,25 +1780,26 @@ out:
 	return err;
 }
 
-static bool append_die_entry(struct drgn_dwarf_index_shard *shard, uint64_t tag,
+static bool append_die_entry(struct drgn_dwarf_index_shard *shard, uint8_t tag,
 			     uint64_t file_name_hash, Dwfl_Module *module,
 			     size_t offset)
 {
-	struct drgn_dwarf_index_die *die;
-
-	die = drgn_dwarf_index_die_vector_append_entry(&shard->dies);
+	if (shard->dies.size == UINT32_MAX)
+		return false;
+	struct drgn_dwarf_index_die *die =
+		drgn_dwarf_index_die_vector_append_entry(&shard->dies);
 	if (!die)
 		return false;
+	die->next = UINT32_MAX;
 	die->tag = tag;
 	die->file_name_hash = file_name_hash;
 	die->module = module;
 	die->offset = offset;
-	die->next = SIZE_MAX;
 	return true;
 }
 
 static struct drgn_error *index_die(struct drgn_dwarf_index *dindex,
-				    const char *name, uint64_t tag,
+				    const char *name, uint8_t tag,
 				    uint64_t file_name_hash,
 				    Dwfl_Module *module, size_t offset)
 {
@@ -1844,7 +1845,7 @@ static struct drgn_error *index_die(struct drgn_dwarf_index *dindex,
 			goto out;
 		}
 
-		if (die->next == SIZE_MAX)
+		if (die->next == UINT32_MAX)
 			break;
 		die = &shard->dies.data[die->next];
 	}
@@ -2076,7 +2077,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 			.stmt_list = SIZE_MAX,
 		};
 		size_t die_offset = ptr - debug_info_buffer;
-		uint64_t tag;
+		uint8_t tag;
 
 		err = read_die(cu, &abbrev, &ptr, end, debug_str_buffer,
 			       debug_str_end, &die);
@@ -2203,9 +2204,9 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 		 */
 		for (index = 0; index < shard->dies.size; i++) {
 			die = &shard->dies.data[index];
-			if (die->next != SIZE_MAX &&
+			if (die->next != UINT32_MAX &&
 			    die->next >= shard->dies.size)
-				die->next = SIZE_MAX;
+				die->next = UINT32_MAX;
 		}
 
 		/* Finally, delete the new entries in the map. */
@@ -2357,7 +2358,7 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 		shard = &dindex->shards[it->shard];
 		map_it = drgn_dwarf_index_die_map_search_hashed(&shard->map,
 								&key, hp);
-		it->index = map_it.entry ? map_it.entry->value : SIZE_MAX;
+		it->index = map_it.entry ? map_it.entry->value : UINT32_MAX;
 		it->any_name = false;
 	} else {
 		it->index = 0;
@@ -2421,7 +2422,7 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 		for (;;) {
 			struct drgn_dwarf_index_shard *shard;
 
-			if (it->index == SIZE_MAX)
+			if (it->index == UINT32_MAX)
 				return &drgn_stop;
 
 			shard = &dindex->shards[it->shard];

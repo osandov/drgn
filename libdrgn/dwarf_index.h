@@ -63,7 +63,7 @@ extern const Dwfl_Callbacks drgn_linux_proc_dwfl_callbacks;
 extern const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks;
 
 struct drgn_dwarf_index_die;
-DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, size_t)
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, uint32_t)
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
 
 struct drgn_dwarf_index_shard {
@@ -347,7 +347,7 @@ struct drgn_dwarf_index_iterator {
 	const uint64_t *tags;
 	size_t num_tags;
 	size_t shard;
-	size_t index;
+	uint32_t index;
 	bool any_name;
 };
 
