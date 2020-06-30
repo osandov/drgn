@@ -159,21 +159,6 @@ const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks = {
 	.section_address = drgn_dwfl_section_address,
 };
 
-enum {
-	SECTION_DEBUG_INFO,
-	SECTION_DEBUG_ABBREV,
-	SECTION_DEBUG_STR,
-	SECTION_DEBUG_LINE,
-	DRGN_DWARF_INDEX_NUM_SECTIONS,
-};
-
-static const char * const section_name[DRGN_DWARF_INDEX_NUM_SECTIONS] = {
-	[SECTION_DEBUG_INFO] = ".debug_info",
-	[SECTION_DEBUG_ABBREV] = ".debug_abbrev",
-	[SECTION_DEBUG_STR] = ".debug_str",
-	[SECTION_DEBUG_LINE] = ".debug_line",
-};
-
 /*
  * The DWARF abbreviation table gets translated into a series of instructions.
  * An instruction <= INSN_MAX_SKIP indicates a number of bytes to be skipped
@@ -251,8 +236,7 @@ static void abbrev_table_deinit(struct abbrev_table *abbrev)
 }
 
 struct compilation_unit {
-	Dwfl_Module *module;
-	Elf_Data *sections[DRGN_DWARF_INDEX_NUM_SECTIONS];
+	struct drgn_dwfl_module_userdata *userdata;
 	const char *ptr;
 	size_t unit_length;
 	uint64_t debug_abbrev_offset;
@@ -754,6 +738,7 @@ struct drgn_error *drgn_dwarf_index_report_elf(struct drgn_dwarf_index *dindex,
 	userdata->fd = fd;
 	userdata->elf = elf;
 	userdata->state = DRGN_DWARF_MODULE_NEW;
+	userdata->module = dwfl_module;
 	*userdatap = userdata;
 	if (new_ret)
 		*new_ret = true;
@@ -823,6 +808,7 @@ static int drgn_dwarf_index_report_dwfl_module(Dwfl_Module *dwfl_module,
 	userdata->path = NULL;
 	userdata->fd = -1;
 	userdata->elf = NULL;
+	userdata->module = dwfl_module;
 	if (module->state == DRGN_DWARF_MODULE_INDEXED) {
 		/*
 		 * We've already indexed this module. Don't index it again, but
@@ -1103,59 +1089,89 @@ out:
 	return NULL;
 }
 
-static struct drgn_error *get_debug_sections(Elf *elf, Elf_Data **sections)
+static struct drgn_error *
+get_debug_sections(struct drgn_dwfl_module_userdata *userdata,
+		   bool *bswap_ret)
 {
 	struct drgn_error *err;
-	size_t shstrndx;
-	Elf_Scn *scn = NULL;
-	size_t i;
-	Elf_Data *debug_str;
 
+	if (userdata->elf) {
+		err = apply_elf_relocations(userdata->elf);
+		if (err)
+			return err;
+	}
+
+	/*
+	 * Note: not dwfl_module_getelf(), because then libdwfl applies
+	 * ELF relocations to all sections, not just debug sections.
+	 */
+	Dwarf_Addr bias;
+	Dwarf *dwarf = dwfl_module_getdwarf(userdata->module, &bias);
+	if (!dwarf)
+		return drgn_error_libdwfl();
+
+	Elf *elf = dwarf_getelf(dwarf);
+	if (!elf)
+		return drgn_error_libdw();
+
+	size_t shstrndx;
 	if (elf_getshdrstrndx(elf, &shstrndx))
 		return drgn_error_libelf();
 
+	userdata->debug_info = NULL;
+	userdata->debug_abbrev = NULL;
+	userdata->debug_str = NULL;
+	userdata->debug_line = NULL;
+	Elf_Scn *scn = NULL;
 	while ((scn = elf_nextscn(elf, scn))) {
-		GElf_Shdr *shdr, shdr_mem;
-		const char *scnname;
-
-		shdr = gelf_getshdr(scn, &shdr_mem);
+		GElf_Shdr shdr_mem;
+		GElf_Shdr *shdr = gelf_getshdr(scn, &shdr_mem);
 		if (!shdr)
 			return drgn_error_libelf();
 
 		if (shdr->sh_type == SHT_NOBITS || (shdr->sh_flags & SHF_GROUP))
 			continue;
 
-		scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
 		if (!scnname)
 			continue;
 
-		for (i = 0; i < DRGN_DWARF_INDEX_NUM_SECTIONS; i++) {
-			if (sections[i])
-				continue;
-
-			if (strcmp(scnname, section_name[i]) != 0)
-				continue;
-
-			err = read_elf_section(scn, &sections[i]);
-			if (err)
-				return err;
-		}
+		Elf_Data **sectionp;
+		if (!userdata->debug_info && strcmp(scnname, ".debug_info") == 0)
+			sectionp = &userdata->debug_info;
+		else if (!userdata->debug_abbrev && strcmp(scnname, ".debug_abbrev") == 0)
+			sectionp = &userdata->debug_abbrev;
+		else if (!userdata->debug_str && strcmp(scnname, ".debug_str") == 0)
+			sectionp = &userdata->debug_str;
+		else if (!userdata->debug_line && strcmp(scnname, ".debug_line") == 0)
+			sectionp = &userdata->debug_line;
+		else
+			continue;
+		err = read_elf_section(scn, sectionp);
+		if (err)
+			return err;
 	}
 
-	for (i = 0; i < DRGN_DWARF_INDEX_NUM_SECTIONS; i++) {
-		if (i != SECTION_DEBUG_LINE && !sections[i]) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "no %s section",
-						 section_name[i]);
-		}
+	if (!userdata->debug_info) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "no .debug_info section");
+	} else if (!userdata->debug_abbrev) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "no .debug_abbrev section");
+	} else if (!userdata->debug_str) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "no .debug_str section");
 	}
 
-	debug_str = sections[SECTION_DEBUG_STR];
-	if (debug_str->d_size == 0 ||
-	    ((char *)debug_str->d_buf)[debug_str->d_size - 1] != '\0') {
+	if (userdata->debug_str->d_size == 0 ||
+	    ((char *)userdata->debug_str->d_buf)[userdata->debug_str->d_size - 1]) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 ".debug_str is not null terminated");
 	}
+
+	*bswap_ret = (elf_getident(elf, NULL)[EI_DATA] !=
+		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
+		       ELFDATA2LSB : ELFDATA2MSB));
 	return NULL;
 }
 
@@ -1203,54 +1219,25 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 DEFINE_VECTOR(compilation_unit_vector, struct compilation_unit)
 
 static struct drgn_error *
-read_dwfl_module_cus(Dwfl_Module *dwfl_module,
-		     struct drgn_dwfl_module_userdata *userdata,
+read_dwfl_module_cus(struct drgn_dwfl_module_userdata *userdata,
 		     struct compilation_unit_vector *cus)
 {
 	struct drgn_error *err;
-	Dwarf *dwarf;
-	Dwarf_Addr bias;
-	Elf *elf;
-	Elf_Data *sections[DRGN_DWARF_INDEX_NUM_SECTIONS] = {};
+
 	bool bswap;
-	const char *ptr, *end;
-
-	if (userdata->elf) {
-		err = apply_elf_relocations(userdata->elf);
-		if (err)
-			return err;
-	}
-
-	/*
-	 * Note: not dwfl_module_getelf(), because then libdwfl applies
-	 * ELF relocations to all sections, not just debug sections.
-	 */
-	dwarf = dwfl_module_getdwarf(dwfl_module, &bias);
-	if (!dwarf)
-		return drgn_error_libdwfl();
-
-	elf = dwarf_getelf(dwarf);
-	if (!elf)
-		return drgn_error_libdw();
-
-	err = get_debug_sections(elf, sections);
+	err = get_debug_sections(userdata, &bswap);
 	if (err)
 		return err;
 
-	bswap = (elf_getident(elf, NULL)[EI_DATA] !=
-		 (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
-		  ELFDATA2LSB : ELFDATA2MSB));
-
-	ptr = section_ptr(sections[SECTION_DEBUG_INFO], 0);
-	end = section_end(sections[SECTION_DEBUG_INFO]);
+	const char *ptr = section_ptr(userdata->debug_info, 0);
+	const char *end = section_end(userdata->debug_info);
 	while (ptr < end) {
 		struct compilation_unit *cu;
 
 		cu = compilation_unit_vector_append_entry(cus);
 		if (!cu)
 			return &drgn_enomem;
-		cu->module = dwfl_module;
-		memcpy(cu->sections, sections, sizeof(cu->sections));
+		cu->userdata = userdata;
 		cu->ptr = ptr;
 		cu->bswap = bswap;
 		err = read_compilation_unit_header(ptr, end, cu);
@@ -1266,20 +1253,14 @@ static struct drgn_error *read_module_cus(struct drgn_dwarf_module *module,
 					  struct compilation_unit_vector *cus,
 					  const char **name_ret)
 {
-	struct drgn_error *err;
 	const size_t orig_cus_size = cus->size;
-	size_t i;
-
-	for (i = 0; i < module->dwfl_modules.size; i++) {
-		Dwfl_Module *dwfl_module;
+	for (size_t i = 0; i < module->dwfl_modules.size; i++) {
 		void **userdatap;
-		struct drgn_dwfl_module_userdata *userdata;
-
-		dwfl_module = module->dwfl_modules.data[i];
-		*name_ret = dwfl_module_info(dwfl_module, &userdatap, NULL,
-					     NULL, NULL, NULL, NULL, NULL);
-		userdata = *userdatap;
-		err = read_dwfl_module_cus(dwfl_module, userdata, cus);
+		*name_ret = dwfl_module_info(module->dwfl_modules.data[i],
+					     &userdatap, NULL, NULL, NULL, NULL,
+					     NULL, NULL);
+		struct drgn_dwfl_module_userdata *userdata = *userdatap;
+		struct drgn_error *err = read_dwfl_module_cus(userdata, cus);
 		if (err) {
 			/*
 			 * Ignore the error unless we have no more Dwfl_Modules
@@ -1466,7 +1447,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 				break;
 			}
 		} else if (name == DW_AT_stmt_list &&
-			   cu->sections[SECTION_DEBUG_LINE]) {
+			   cu->userdata->debug_line) {
 			switch (form) {
 			case DW_FORM_data4:
 				insn = ATTRIB_STMT_LIST_LINEPTR4;
@@ -1724,7 +1705,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	 */
 	static const uint64_t siphash_key[2];
 	struct drgn_error *err;
-	Elf_Data *debug_line = cu->sections[SECTION_DEBUG_LINE];
+	Elf_Data *debug_line = cu->userdata->debug_line;
 	const char *ptr = section_ptr(debug_line, stmt_list);
 	const char *end = section_end(debug_line);
 
@@ -2073,13 +2054,13 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 	struct drgn_error *err;
 	struct abbrev_table abbrev = ABBREV_TABLE_INIT;
 	struct uint64_vector file_name_table = VECTOR_INIT;
-	Elf_Data *debug_abbrev = cu->sections[SECTION_DEBUG_ABBREV];
+	Elf_Data *debug_abbrev = cu->userdata->debug_abbrev;
 	const char *debug_abbrev_end = section_end(debug_abbrev);
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
 	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
-	Elf_Data *debug_info = cu->sections[SECTION_DEBUG_INFO];
+	Elf_Data *debug_info = cu->userdata->debug_info;
 	const char *debug_info_buffer = section_ptr(debug_info, 0);
-	Elf_Data *debug_str = cu->sections[SECTION_DEBUG_STR];
+	Elf_Data *debug_str = cu->userdata->debug_str;
 	const char *debug_str_buffer = section_ptr(debug_str, 0);
 	const char *debug_str_end = section_end(debug_str);
 	unsigned int depth = 0;
@@ -2158,7 +2139,8 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 				else
 					file_name_hash = 0;
 				if ((err = index_die(dindex, die.name, tag,
-						     file_name_hash, cu->module,
+						     file_name_hash,
+						     cu->userdata->module,
 						     die_offset)))
 					goto out;
 			}

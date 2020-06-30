@@ -137,6 +137,11 @@ struct drgn_dwfl_module_userdata {
 	Elf *elf;
 	int fd;
 	enum drgn_dwarf_module_state state;
+	Dwfl_Module *module;
+	Elf_Data *debug_info;
+	Elf_Data *debug_abbrev;
+	Elf_Data *debug_str;
+	Elf_Data *debug_line;
 };
 
 DEFINE_VECTOR_TYPE(drgn_dwarf_module_vector, struct drgn_dwarf_module *)
