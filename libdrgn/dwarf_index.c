@@ -213,28 +213,6 @@ DEFINE_VECTOR(uint8_vector, uint8_t)
 DEFINE_VECTOR(uint32_vector, uint32_t)
 DEFINE_VECTOR(uint64_vector, uint64_t)
 
-struct abbrev_table {
-	/*
-	 * This is indexed on the DWARF abbreviation code minus one. It maps the
-	 * abbreviation code to an index in insns where the instruction stream
-	 * for that code begins.
-	 *
-	 * Technically, abbreviation codes don't have to be sequential. In
-	 * practice, GCC seems to always generate sequential codes starting at
-	 * one, so we can get away with a flat array.
-	 */
-	struct uint32_vector decls;
-	struct uint8_vector insns;
-};
-
-#define ABBREV_TABLE_INIT { VECTOR_INIT, VECTOR_INIT }
-
-static void abbrev_table_deinit(struct abbrev_table *abbrev)
-{
-	uint8_vector_deinit(&abbrev->insns);
-	uint32_vector_deinit(&abbrev->decls);
-}
-
 struct compilation_unit {
 	struct drgn_dwfl_module_userdata *userdata;
 	const char *ptr;
@@ -243,6 +221,20 @@ struct compilation_unit {
 	uint8_t address_size;
 	bool is_64_bit;
 	bool bswap;
+	/*
+	 * This is indexed on the DWARF abbreviation code minus one. It maps the
+	 * abbreviation code to an index in abbrev_insns where the instruction
+	 * stream for that code begins.
+	 *
+	 * Technically, abbreviation codes don't have to be sequential. In
+	 * practice, GCC and Clang seem to always generate sequential codes
+	 * starting at one, so we can get away with a flat array.
+	 */
+	uint32_t *abbrev_decls;
+	size_t num_abbrev_decls;
+	uint8_t *abbrev_insns;
+	uint64_t *file_name_hashes;
+	size_t num_file_names;
 };
 
 static inline const char *section_ptr(Elf_Data *data, size_t offset)
@@ -1243,6 +1235,11 @@ read_dwfl_module_cus(struct drgn_dwfl_module_userdata *userdata,
 		err = read_compilation_unit_header(ptr, end, cu);
 		if (err)
 			return err;
+		cu->abbrev_decls = NULL;
+		cu->num_abbrev_decls = 0;
+		cu->abbrev_insns = NULL;
+		cu->file_name_hashes = NULL;
+		cu->num_file_names = 0;
 
 		ptr += (cu->is_64_bit ? 12 : 4) + cu->unit_length;
 	}
@@ -1337,38 +1334,34 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 }
 
 static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
-					   const struct compilation_unit *cu,
-					   struct abbrev_table *abbrev)
+					   struct compilation_unit *cu,
+					   struct uint32_vector *decls,
+					   struct uint8_vector *insns)
 {
 	struct drgn_error *err;
-	uint64_t code;
-	uint32_t insn_index;
-	uint64_t tag;
-	uint8_t children;
-	uint8_t die_flags;
-	bool should_index;
-	bool first = true;
-	uint8_t insn;
 
 	static_assert(ATTRIB_MAX_INSN == UINT8_MAX,
 		      "maximum DWARF attribute instruction is invalid");
 
+	uint64_t code;
 	if ((err = read_uleb128(ptr, end, &code)))
 		return err;
 	if (code == 0)
 		return &drgn_stop;
-	if (code != abbrev->decls.size + 1) {
+	if (code != decls->size + 1) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DWARF abbreviation table is not sequential");
 	}
 
-	insn_index = abbrev->insns.size;
-	if (!uint32_vector_append(&abbrev->decls, &insn_index))
+	uint32_t insn_index = insns->size;
+	if (!uint32_vector_append(decls, &insn_index))
 		return &drgn_enomem;
 
+	uint64_t tag;
 	if ((err = read_uleb128(ptr, end, &tag)))
 		return err;
 
+	bool should_index;
 	switch (tag) {
 	/* Types. */
 	case DW_TAG_base_type:
@@ -1390,16 +1383,18 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		should_index = false;
 		break;
 	}
-	die_flags = should_index ? tag : 0;
+	uint8_t die_flags = should_index ? tag : 0;
 
+	uint8_t children;
 	if (!read_u8(ptr, end, &children))
 		return drgn_eof();
 	if (children)
 		die_flags |= DIE_FLAG_CHILDREN;
 
+	bool first = true;
+	uint8_t insn;
 	for (;;) {
 		uint64_t name, form;
-
 		if ((err = read_uleb128(ptr, end, &name)))
 			return err;
 		if ((err = read_uleb128(ptr, end, &form)))
@@ -1589,44 +1584,49 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		}
 
 		if (!first) {
-			uint8_t last_insn;
-
-			last_insn = abbrev->insns.data[abbrev->insns.size - 1];
+			uint8_t last_insn = insns->data[insns->size - 1];
 			if (last_insn + insn <= INSN_MAX_SKIP) {
-				abbrev->insns.data[abbrev->insns.size - 1] += insn;
+				insns->data[insns->size - 1] += insn;
 				continue;
 			} else if (last_insn < INSN_MAX_SKIP) {
 				insn = last_insn + insn - INSN_MAX_SKIP;
-				abbrev->insns.data[abbrev->insns.size - 1] =
-					INSN_MAX_SKIP;
+				insns->data[insns->size - 1] = INSN_MAX_SKIP;
 			}
 		}
 
 append_insn:
 		first = false;
-		if (!uint8_vector_append(&abbrev->insns, &insn))
+		if (!uint8_vector_append(insns, &insn))
 			return &drgn_enomem;
 	}
 	insn = 0;
-	if (!uint8_vector_append(&abbrev->insns, &insn) ||
-	    !uint8_vector_append(&abbrev->insns, &die_flags))
+	if (!uint8_vector_append(insns, &insn) ||
+	    !uint8_vector_append(insns, &die_flags))
 		return &drgn_enomem;
 	return NULL;
 }
 
-static struct drgn_error *read_abbrev_table(const char *ptr, const char *end,
-					    const struct compilation_unit *cu,
-					    struct abbrev_table *abbrev)
+static struct drgn_error *read_abbrev_table(struct compilation_unit *cu)
 {
-	struct drgn_error *err;
-
+	Elf_Data *debug_abbrev = cu->userdata->debug_abbrev;
+	const char *ptr = section_ptr(debug_abbrev, cu->debug_abbrev_offset);
+	const char *end = section_end(debug_abbrev);
+	struct uint32_vector decls = VECTOR_INIT;
+	struct uint8_vector insns = VECTOR_INIT;
 	for (;;) {
-		err = read_abbrev_decl(&ptr, end, cu, abbrev);
-		if (err && err->code == DRGN_ERROR_STOP)
+		struct drgn_error *err = read_abbrev_decl(&ptr, end, cu, &decls,
+							  &insns);
+		if (err && err->code == DRGN_ERROR_STOP) {
 			break;
-		else if (err)
+		} else if (err) {
+			uint8_vector_deinit(&insns);
+			uint32_vector_deinit(&decls);
 			return err;
+		}
 	}
+	cu->abbrev_decls = decls.data;
+	cu->num_abbrev_decls = decls.size;
+	cu->abbrev_insns = insns.data;
 	return NULL;
 }
 
@@ -1696,8 +1696,7 @@ DEFINE_VECTOR(siphash_vector, struct siphash)
 
 static struct drgn_error *
 read_file_name_table(struct drgn_dwarf_index *dindex,
-		     struct compilation_unit *cu, size_t stmt_list,
-		     struct uint64_vector *file_name_table)
+		     struct compilation_unit *cu, size_t stmt_list)
 {
 	/*
 	 * We don't care about hash flooding attacks, so don't bother with the
@@ -1719,7 +1718,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 		size_t path_len;
 		if (!read_string(&ptr, end, &path, &path_len)) {
 			err = drgn_eof();
-			goto out;
+			goto out_directories;
 		}
 		if (!path_len)
 			break;
@@ -1728,36 +1727,37 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 			siphash_vector_append_entry(&directories);
 		if (!hash) {
 			err = &drgn_enomem;
-			goto out;
+			goto out_directories;
 		}
 		siphash_init(hash, siphash_key);
 		hash_directory(hash, path, path_len);
 	}
 
+	struct uint64_vector file_name_hashes = VECTOR_INIT;
 	for (;;) {
 		const char *path;
 		size_t path_len;
 		if (!read_string(&ptr, end, &path, &path_len)) {
 			err = drgn_eof();
-			goto out;
+			goto out_hashes;
 		}
 		if (!path_len)
 			break;
 
 		uint64_t directory_index;
 		if ((err = read_uleb128(&ptr, end, &directory_index)))
-			goto out;
+			goto out_hashes;
 		/* mtime, size */
 		if (!skip_leb128(&ptr, end) || !skip_leb128(&ptr, end)) {
 			err = drgn_eof();
-			goto out;
+			goto out_hashes;
 		}
 
 		if (directory_index > directories.size) {
 			err = drgn_error_format(DRGN_ERROR_OTHER,
 						"directory index %" PRIu64 " is invalid",
 						directory_index);
-			goto out;
+			goto out_hashes;
 		}
 
 		struct siphash hash;
@@ -1768,14 +1768,20 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 		siphash_update(&hash, path, path_len);
 
 		uint64_t file_name_hash = siphash_final(&hash);
-		if (!uint64_vector_append(file_name_table, &file_name_hash)) {
+		if (!uint64_vector_append(&file_name_hashes, &file_name_hash)) {
 			err = &drgn_enomem;
-			goto out;
+			goto out_hashes;
 		}
 	}
 
+	cu->file_name_hashes = file_name_hashes.data;
+	cu->num_file_names = file_name_hashes.size;
 	err = NULL;
-out:
+	goto out_directories;
+
+out_hashes:
+	uint64_vector_deinit(&file_name_hashes);
+out_directories:
 	siphash_vector_deinit(&directories);
 	return err;
 }
@@ -1873,7 +1879,6 @@ struct die {
 };
 
 static struct drgn_error *read_die(struct compilation_unit *cu,
-				   const struct abbrev_table *abbrev,
 				   const char **ptr, const char *end,
 				   const char *debug_str_buffer,
 				   const char *debug_str_end, struct die *die)
@@ -1888,12 +1893,12 @@ static struct drgn_error *read_die(struct compilation_unit *cu,
 	if (code == 0)
 		return &drgn_stop;
 
-	if (code < 1 || code > abbrev->decls.size) {
+	if (code < 1 || code > cu->num_abbrev_decls) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "unknown abbreviation code %" PRIu64,
 					 code);
 	}
-	insnp = &abbrev->insns.data[abbrev->decls.data[code - 1]];
+	insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
 
 	while ((insn = *insnp++)) {
 		size_t skip, tmp;
@@ -2053,10 +2058,6 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 				   struct compilation_unit *cu)
 {
 	struct drgn_error *err;
-	struct abbrev_table abbrev = ABBREV_TABLE_INIT;
-	struct uint64_vector file_name_table = VECTOR_INIT;
-	Elf_Data *debug_abbrev = cu->userdata->debug_abbrev;
-	const char *debug_abbrev_end = section_end(debug_abbrev);
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
 	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
 	Elf_Data *debug_info = cu->userdata->debug_info;
@@ -2067,9 +2068,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 	unsigned int depth = 0;
 	size_t enum_die_offset = 0;
 
-	if ((err = read_abbrev_table(section_ptr(debug_abbrev,
-						 cu->debug_abbrev_offset),
-				     debug_abbrev_end, cu, &abbrev)))
+	if ((err = read_abbrev_table(cu)))
 		goto out;
 
 	for (;;) {
@@ -2079,8 +2078,8 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 		size_t die_offset = ptr - debug_info_buffer;
 		uint8_t tag;
 
-		err = read_die(cu, &abbrev, &ptr, end, debug_str_buffer,
-			       debug_str_end, &die);
+		err = read_die(cu, &ptr, end, debug_str_buffer, debug_str_end,
+			       &die);
 		if (err && err->code == DRGN_ERROR_STOP) {
 			depth--;
 			if (depth == 1)
@@ -2095,8 +2094,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 		if (depth == 0) {
 			if (die.stmt_list != SIZE_MAX &&
 			    (err = read_file_name_table(dindex, cu,
-							die.stmt_list,
-							&file_name_table)))
+							die.stmt_list)))
 				goto out;
 		} else if ((tag = die.flags & DIE_FLAG_TAG_MASK) &&
 			   !die.declaration) {
@@ -2118,7 +2116,7 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 				struct die decl = {};
 				const char *decl_ptr = die.specification;
 
-				if ((err = read_die(cu, &abbrev, &decl_ptr, end,
+				if ((err = read_die(cu, &decl_ptr, end,
 						    debug_str_buffer,
 						    debug_str_end, &decl)))
 					goto out;
@@ -2129,14 +2127,14 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 			}
 
 			if (die.name) {
-				if (die.decl_file > file_name_table.size) {
+				if (die.decl_file > cu->num_file_names) {
 					err = drgn_error_format(DRGN_ERROR_OTHER,
 								"invalid DW_AT_decl_file %zu",
 								die.decl_file);
 					goto out;
 				}
 				if (die.decl_file)
-					file_name_hash = file_name_table.data[die.decl_file - 1];
+					file_name_hash = cu->file_name_hashes[die.decl_file - 1];
 				else
 					file_name_hash = 0;
 				if ((err = index_die(dindex, die.name, tag,
@@ -2160,8 +2158,9 @@ next:
 
 	err = NULL;
 out:
-	uint64_vector_deinit(&file_name_table);
-	abbrev_table_deinit(&abbrev);
+	free(cu->file_name_hashes);
+	free(cu->abbrev_insns);
+	free(cu->abbrev_decls);
 	return err;
 }
 
