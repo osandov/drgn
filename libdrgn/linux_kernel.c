@@ -1046,23 +1046,16 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 			     uint64_t *start_ret, uint64_t *end_ret)
 {
 	struct drgn_error *err;
-	uint64_t start = UINT64_MAX, end = 0;
-	size_t shstrndx;
-	Elf_Scn *scn = NULL;
-	struct elf_scn_name_map scn_map;
-	struct kernel_module_section_iterator section_it;
-	const char *name;
-	uint64_t address;
 
+	size_t shstrndx;
 	if (elf_getshdrstrndx(elf, &shstrndx))
 		return drgn_error_libelf();
 
-	elf_scn_name_map_init(&scn_map);
+	struct elf_scn_name_map scn_map = HASH_TABLE_INIT;
+	Elf_Scn *scn = NULL;
 	while ((scn = elf_nextscn(elf, scn))) {
-		GElf_Shdr *shdr, shdr_mem;
-		struct elf_scn_name_map_entry entry;
-
-		shdr = gelf_getshdr(scn, &shdr_mem);
+		GElf_Shdr shdr_mem;
+		GElf_Shdr *shdr = gelf_getshdr(scn, &shdr_mem);
 		if (!shdr) {
 			err = drgn_error_libelf();
 			goto out_scn_map;
@@ -1071,7 +1064,10 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 		if (!(shdr->sh_flags & SHF_ALLOC))
 			continue;
 
-		entry.key = elf_strptr(elf, shstrndx, shdr->sh_name);
+		struct elf_scn_name_map_entry entry = {
+			.key = elf_strptr(elf, shstrndx, shdr->sh_name),
+			.value = scn,
+		};
 		/*
 		 * .init sections are freed once the module is initialized, but
 		 * they remain in the section list. Ignore them so we don't get
@@ -1079,7 +1075,6 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 		 */
 		if (!entry.key || strstartswith(entry.key, ".init"))
 			continue;
-		entry.value = scn;
 
 		if (elf_scn_name_map_insert(&scn_map, &entry, NULL) == -1) {
 			err = &drgn_enomem;
@@ -1087,19 +1082,21 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 		}
 	}
 
+	uint64_t start = UINT64_MAX, end = 0;
+	struct kernel_module_section_iterator section_it;
 	err = kernel_module_section_iterator_init(&section_it, kmod_it);
 	if (err)
 		goto out_scn_map;
+	const char *name;
+	uint64_t address;
 	while (!(err = kernel_module_section_iterator_next(&section_it, &name,
 							   &address))) {
-		struct elf_scn_name_map_iterator it;
-
-		it = elf_scn_name_map_search(&scn_map, &name);
+		struct elf_scn_name_map_iterator it =
+			elf_scn_name_map_search(&scn_map, &name);
 		if (it.entry) {
-			GElf_Shdr *shdr, shdr_mem;
-			uint64_t section_end;
-
-			shdr = gelf_getshdr(it.entry->value, &shdr_mem);
+			GElf_Shdr shdr_mem;
+			GElf_Shdr *shdr = gelf_getshdr(it.entry->value,
+						       &shdr_mem);
 			if (!shdr) {
 				err = drgn_error_libelf();
 				break;
@@ -1109,6 +1106,7 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 				err = drgn_error_libelf();
 				break;
 			}
+			uint64_t section_end;
 			if (__builtin_add_overflow(address, shdr->sh_size,
 						   &section_end))
 				section_end = UINT64_MAX;
@@ -1344,11 +1342,6 @@ report_kernel_modules(struct drgn_program *prog,
 		      bool vmlinux_is_pending)
 {
 	struct drgn_error *err;
-	struct kernel_module_table kmod_table;
-	struct depmod_index depmod;
-	size_t module_name_offset = 0;
-	size_t i;
-	struct kernel_module_table_iterator it;
 
 	if (!num_kmods && !report_default)
 		return NULL;
@@ -1367,10 +1360,10 @@ report_kernel_modules(struct drgn_program *prog,
 			return err;
 	}
 
+	size_t module_name_offset = 0;
 	if (need_module_definition) {
 		struct drgn_qualified_type module_type;
 		struct drgn_member_info name_member;
-
 		err = drgn_program_find_type(prog, "struct module", NULL,
 					     &module_type);
 		if (!err) {
@@ -1386,12 +1379,12 @@ report_kernel_modules(struct drgn_program *prog,
 		module_name_offset = name_member.bit_offset / 8;
 	}
 
-	kernel_module_table_init(&kmod_table);
+	struct kernel_module_table kmod_table = HASH_TABLE_INIT;
+	struct depmod_index depmod;
+	struct kernel_module_table_iterator it;
 	depmod.modules_dep.ptr = NULL;
-	for (i = 0; i < num_kmods; i++) {
+	for (size_t i = 0; i < num_kmods; i++) {
 		struct kernel_module_file *kmod = &kmods[i];
-		struct hash_pair hp;
-
 		if (!kmod->name) {
 			err = get_kernel_module_name_from_this_module(kmod->this_module_scn,
 								      module_name_offset,
@@ -1415,7 +1408,7 @@ report_kernel_modules(struct drgn_program *prog,
 			}
 		}
 
-		hp = kernel_module_table_hash(&kmod->name);
+		struct hash_pair hp = kernel_module_table_hash(&kmod->name);
 		it = kernel_module_table_search_hashed(&kmod_table, &kmod->name,
 						       hp);
 		if (it.entry) {
@@ -1441,7 +1434,6 @@ report_kernel_modules(struct drgn_program *prog,
 	/* Anything left over was not loaded. */
 	for (it = kernel_module_table_first(&kmod_table); it.entry; ) {
 		struct kernel_module_file *kmod = *it.entry;
-
 		it = kernel_module_table_delete_iterator(&kmod_table, it);
 		do {
 			err = drgn_dwarf_index_report_elf(dindex, kmod->path,

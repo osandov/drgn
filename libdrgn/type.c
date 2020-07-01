@@ -713,12 +713,9 @@ out:
 LIBDRGN_PUBLIC struct drgn_error *drgn_type_eq(struct drgn_type *a,
 					       struct drgn_type *b, bool *ret)
 {
-	struct drgn_error *err;
-	struct drgn_type_pair_set cache;
+	struct drgn_type_pair_set cache = HASH_TABLE_INIT;
 	int depth = 0;
-
-	drgn_type_pair_set_init(&cache);
-	err = drgn_type_eq_impl(a, b, &cache, &depth, ret);
+	struct drgn_error *err = drgn_type_eq_impl(a, b, &cache, &depth, ret);
 	drgn_type_pair_set_deinit(&cache);
 	return err;
 }

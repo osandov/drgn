@@ -1023,13 +1023,9 @@ drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 			   bool physical, size_t max_size, char **ret)
 {
 	struct drgn_error *err;
-	struct char_vector str;
-
-	char_vector_init(&str);
+	struct char_vector str = VECTOR_INIT;
 	for (;;) {
-		char *c;
-
-		c = char_vector_append_entry(&str);
+		char *c = char_vector_append_entry(&str);
 		if (!c) {
 			char_vector_deinit(&str);
 			return &drgn_enomem;

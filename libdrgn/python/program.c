@@ -426,17 +426,15 @@ static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 	static char *keywords[] = {"paths", "default", "main", NULL};
 	struct drgn_error *err;
 	PyObject *paths_obj = Py_None;
-	struct path_arg_vector path_args;
-	const char **paths = NULL;
 	int load_default = 0;
 	int load_main = 0;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Opp:load_debug_info",
 					 keywords, &paths_obj, &load_default,
 					 &load_main))
 		return NULL;
 
-	path_arg_vector_init(&path_args);
+	struct path_arg_vector path_args = VECTOR_INIT;
+	const char **paths = NULL;
 	if (paths_obj != Py_None) {
 		Py_ssize_t length_hint;
 		PyObject *it, *item;

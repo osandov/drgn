@@ -534,19 +534,9 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			      struct drgn_type **ret, bool *should_free)
 {
 	struct drgn_error *err;
-	struct drgn_type *type;
-	struct drgn_type_member_vector members;
+
 	const char *dw_tag_str;
 	uint64_t dw_tag;
-	Dwarf_Attribute attr_mem;
-	Dwarf_Attribute *attr;
-	const char *tag;
-	bool declaration;
-	Dwarf_Die child;
-	int size;
-	bool little_endian;
-	int r;
-
 	switch (kind) {
 	case DRGN_TYPE_STRUCT:
 		dw_tag_str = "DW_TAG_structure_type";
@@ -564,7 +554,10 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		UNREACHABLE();
 	}
 
-	attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem);
+	Dwarf_Attribute attr_mem;
+	Dwarf_Attribute *attr = dwarf_attr_integrate(die, DW_AT_name,
+						     &attr_mem);
+	const char *tag;
 	if (attr) {
 		tag = dwarf_formstring(attr);
 		if (!tag) {
@@ -576,6 +569,7 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		tag = NULL;
 	}
 
+	bool declaration;
 	if (dwarf_flag(die, DW_AT_declaration, &declaration)) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "%s has invalid DW_AT_declaration",
@@ -593,7 +587,7 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	}
 
 	*should_free = true;
-	type = malloc(sizeof(*type));
+	struct drgn_type *type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
 
@@ -615,9 +609,8 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		return NULL;
 	}
 
-	drgn_type_member_vector_init(&members);
-
-	size = dwarf_bytesize(die);
+	struct drgn_type_member_vector members = VECTOR_INIT;
+	int size = dwarf_bytesize(die);
 	if (size == -1) {
 		err = drgn_error_format(DRGN_ERROR_OTHER,
 					"%s has missing or invalid DW_AT_byte_size",
@@ -625,13 +618,13 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		goto err;
 	}
 
-	little_endian = dwarf_die_is_little_endian(die);
-	r = dwarf_child(die, &child);
+	bool little_endian = dwarf_die_is_little_endian(die);
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
 	while (r == 0) {
 		if (dwarf_tag(&child) == DW_TAG_member) {
-			struct drgn_type_member *member;
-
-			member = drgn_type_member_vector_append_entry(&members);
+			struct drgn_type_member *member =
+				drgn_type_member_vector_append_entry(&members);
 			if (!member) {
 				err = &drgn_enomem;
 				goto err;
@@ -670,19 +663,17 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		 * up.
 		 */
 		if (members.size > 1) {
-			struct drgn_type_member *member;
-
-			member = &drgn_type_members(type)[members.size - 1];
+			struct drgn_type_member *member =
+				&drgn_type_members(type)[members.size - 1];
 			/*
 			 * The type may have already been evaluated if it's a
 			 * bit field. Arrays can't be bit fields, so it's okay
 			 * if we missed it.
 			 */
 			if (!drgn_lazy_type_is_evaluated(&member->type)) {
-				struct drgn_type_from_dwarf_thunk *thunk;
-
-				thunk = container_of(member->type.thunk,
-						     struct drgn_type_from_dwarf_thunk,
+				struct drgn_type_from_dwarf_thunk *thunk =
+					container_of(member->type.thunk, struct
+						     drgn_type_from_dwarf_thunk,
 						     thunk);
 				thunk->can_be_incomplete_array = true;
 			}
@@ -813,18 +804,11 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 			  struct drgn_type **ret, bool *should_free)
 {
 	struct drgn_error *err;
-	struct drgn_type *type;
-	struct drgn_type_enumerator_vector enumerators;
-	struct drgn_type *compatible_type;
-	Dwarf_Attribute attr_mem;
-	Dwarf_Attribute *attr;
-	const char *tag;
-	bool declaration;
-	Dwarf_Die child;
-	bool is_signed = false;
-	int r;
 
-	attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem);
+	Dwarf_Attribute attr_mem;
+	Dwarf_Attribute *attr = dwarf_attr_integrate(die, DW_AT_name,
+						     &attr_mem);
+	const char *tag;
 	if (attr) {
 		tag = dwarf_formstring(attr);
 		if (!tag)
@@ -834,6 +818,7 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 		tag = NULL;
 	}
 
+	bool declaration;
 	if (dwarf_flag(die, DW_AT_declaration, &declaration)) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DW_TAG_enumeration_type has invalid DW_AT_declaration");
@@ -851,7 +836,7 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 	}
 
 	*should_free = true;
-	type = malloc(sizeof(*type));
+	struct drgn_type *type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
 
@@ -861,9 +846,11 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 		return NULL;
 	}
 
-	drgn_type_enumerator_vector_init(&enumerators);
-
-	r = dwarf_child(die, &child);
+	struct drgn_type_enumerator_vector enumerators =
+		VECTOR_INIT;
+	bool is_signed = false;
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
 	while (r == 0) {
 		int tag;
 
@@ -889,6 +876,7 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 	}
 	drgn_type_enumerator_vector_shrink_to_fit(&enumerators);
 
+	struct drgn_type *compatible_type;
 	r = dwarf_type(die, &child);
 	if (r == -1) {
 		err = drgn_error_create(DRGN_ERROR_OTHER,
@@ -901,7 +889,6 @@ drgn_enum_type_from_dwarf(struct drgn_dwarf_info_cache *dicache, Dwarf_Die *die,
 			goto err;
 	} else {
 		struct drgn_qualified_type qualified_compatible_type;
-
 		err = drgn_type_from_dwarf(dicache, &child,
 					   &qualified_compatible_type);
 		if (err)
@@ -1043,15 +1030,10 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			   struct drgn_type **ret)
 {
 	struct drgn_error *err;
-	struct drgn_type *type;
-	struct drgn_qualified_type element_type;
-	Dwarf_Die child;
-	struct array_dimension_vector dimensions;
+	struct array_dimension_vector dimensions = VECTOR_INIT;
 	struct array_dimension *dimension;
-	int r;
-
-	array_dimension_vector_init(&dimensions);
-	r = dwarf_child(die, &child);
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
 	while (r == 0) {
 		if (dwarf_tag(&child) == DW_TAG_subrange_type) {
 			dimension = array_dimension_vector_append_entry(&dimensions);
@@ -1075,6 +1057,7 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		dimension->is_complete = false;
 	}
 
+	struct drgn_qualified_type element_type;
 	err = drgn_type_from_dwarf_child(dicache, die,
 					 drgn_language_or_default(lang),
 					 "DW_TAG_array_type", false, false,
@@ -1083,6 +1066,7 @@ drgn_array_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		goto out;
 
 	*is_incomplete_array_ret = !dimensions.data[0].is_complete;
+	struct drgn_type *type;
 	do {
 		dimension = array_dimension_vector_pop(&dimensions);
 		if (dimension->is_complete) {
@@ -1151,33 +1135,21 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 			      struct drgn_type **ret)
 {
 	struct drgn_error *err;
-	const char *tag_name;
-	struct drgn_type *type;
-	struct drgn_type_parameter_vector parameters;
-	struct drgn_qualified_type return_type;
-	Dwarf_Die child;
-	bool is_variadic = false;
-	int r;
 
-	if (dwarf_tag(die) == DW_TAG_subroutine_type)
-		tag_name = "DW_TAG_subroutine_type";
-	else
-		tag_name = "DW_TAG_subprogram";
-
-	type = malloc(sizeof(*type));
+	struct drgn_type *type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
 
-	drgn_type_parameter_vector_init(&parameters);
-
-	r = dwarf_child(die, &child);
+	const char *tag_name =
+		dwarf_tag(die) == DW_TAG_subroutine_type ?
+		"DW_TAG_subroutine_type" : "DW_TAG_subprogram";
+	struct drgn_type_parameter_vector parameters = VECTOR_INIT;
+	bool is_variadic = false;
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
 	while (r == 0) {
-		int tag;
-
-		tag = dwarf_tag(&child);
+		int tag = dwarf_tag(&child);
 		if (tag == DW_TAG_formal_parameter) {
-			struct drgn_type_parameter *parameter;
-
 			if (is_variadic) {
 				err = drgn_error_format(DRGN_ERROR_OTHER,
 							"%s has DW_TAG_formal_parameter child after DW_TAG_unspecified_parameters child",
@@ -1185,7 +1157,8 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 				goto err;
 			}
 
-			parameter = drgn_type_parameter_vector_append_entry(&parameters);
+			struct drgn_type_parameter *parameter =
+				drgn_type_parameter_vector_append_entry(&parameters);
 			if (!parameter) {
 				err = &drgn_enomem;
 				goto err;
@@ -1213,6 +1186,7 @@ drgn_function_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 	}
 	drgn_type_parameter_vector_shrink_to_fit(&parameters);
 
+	struct drgn_qualified_type return_type;
 	err = drgn_type_from_dwarf_child(dicache, die,
 					 drgn_language_or_default(lang),
 					 tag_name, true, true, NULL,

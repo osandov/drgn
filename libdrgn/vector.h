@@ -64,6 +64,8 @@ struct vector {
  * Initialize a @ref vector.
  *
  * The new vector is empty.
+ *
+ * @sa VECTOR_INIT
  */
 void vector_init(struct vector *vector);
 
@@ -229,6 +231,15 @@ static vector##_entry_type *vector##_pop(struct vector *vector)			\
 #define DEFINE_VECTOR(vector, entry_type)	\
 DEFINE_VECTOR_TYPE(vector, entry_type)		\
 DEFINE_VECTOR_FUNCTIONS(vector)
+
+/**
+ * Empty vector initializer.
+ *
+ * This can be used to initialize a vector when declaring it.
+ *
+ * @sa vector_init()
+ */
+#define VECTOR_INIT { NULL }
 
 /** @} */
 

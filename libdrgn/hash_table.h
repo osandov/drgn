@@ -135,6 +135,8 @@ struct hash_pair hash_table_hash(const key_type *key);
  *
  * The new hash table is empty. It must be deinitialized with @ref
  * hash_table_deinit().
+ *
+ * @sa HASH_TABLE_INIT
  */
 void hash_table_init(struct hash_table *table);
 
@@ -1187,6 +1189,15 @@ DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
 #define DEFINE_HASH_SET(table, key_type, hash_func, eq_func)	\
 DEFINE_HASH_SET_TYPE(table, key_type)				\
 DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
+
+/**
+ * Empty hash table initializer.
+ *
+ * This can be used to initialize a hash table when declaring it.
+ *
+ * @sa hash_table_init()
+ */
+#define HASH_TABLE_INIT { hash_table_empty_chunk }
 
 /**
  * @defgroup HashTableHelpers Hash table helpers

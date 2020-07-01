@@ -242,11 +242,7 @@ struct abbrev_table {
 	struct uint8_vector insns;
 };
 
-static void abbrev_table_init(struct abbrev_table *abbrev)
-{
-	uint32_vector_init(&abbrev->decls);
-	uint8_vector_init(&abbrev->insns);
-}
+#define ABBREV_TABLE_INIT { VECTOR_INIT, VECTOR_INIT }
 
 static void abbrev_table_deinit(struct abbrev_table *abbrev)
 {
@@ -1310,12 +1306,10 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 
 	#pragma omp parallel
 	{
-		struct compilation_unit_vector cus;
-		size_t i;
+		struct compilation_unit_vector cus = VECTOR_INIT;
 
-		compilation_unit_vector_init(&cus);
 		#pragma omp for schedule(dynamic)
-		for (i = 0; i < num_unindexed; i++) {
+		for (size_t i = 0; i < num_unindexed; i++) {
 			struct drgn_error *module_err;
 			const char *name;
 
@@ -1723,25 +1717,22 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	Elf_Data *debug_line = cu->sections[SECTION_DEBUG_LINE];
 	const char *ptr = section_ptr(debug_line, stmt_list);
 	const char *end = section_end(debug_line);
-	struct siphash_vector directories;
-
-	siphash_vector_init(&directories);
 
 	err = skip_lnp_header(cu, &ptr, end);
 	if (err)
 		return err;
 
+	struct siphash_vector directories = VECTOR_INIT;
 	for (;;) {
-		struct siphash *hash;
 		const char *path;
 		size_t path_len;
-
 		if (!read_string(&ptr, end, &path, &path_len))
 			return drgn_eof();
 		if (!path_len)
 			break;
 
-		hash = siphash_vector_append_entry(&directories);
+		struct siphash *hash =
+			siphash_vector_append_entry(&directories);
 		if (!hash) {
 			err = &drgn_enomem;
 			goto out;
@@ -1753,10 +1744,6 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	for (;;) {
 		const char *path;
 		size_t path_len;
-		uint64_t directory_index;
-		struct siphash hash;
-		uint64_t file_name_hash;
-
 		if (!read_string(&ptr, end, &path, &path_len)) {
 			err = drgn_eof();
 			goto out;
@@ -1764,6 +1751,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 		if (!path_len)
 			break;
 
+		uint64_t directory_index;
 		if ((err = read_uleb128(&ptr, end, &directory_index)))
 			goto out;
 		/* mtime, size */
@@ -1779,13 +1767,14 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 			goto out;
 		}
 
+		struct siphash hash;
 		if (directory_index)
 			hash = directories.data[directory_index - 1];
 		else
 			siphash_init(&hash, siphash_key);
 		siphash_update(&hash, path, path_len);
 
-		file_name_hash = siphash_final(&hash);
+		uint64_t file_name_hash = siphash_final(&hash);
 		if (!uint64_vector_append(file_name_table, &file_name_hash)) {
 			err = &drgn_enomem;
 			goto out;
@@ -2059,8 +2048,8 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 				   struct compilation_unit *cu)
 {
 	struct drgn_error *err;
-	struct abbrev_table abbrev;
-	struct uint64_vector file_name_table;
+	struct abbrev_table abbrev = ABBREV_TABLE_INIT;
+	struct uint64_vector file_name_table = VECTOR_INIT;
 	Elf_Data *debug_abbrev = cu->sections[SECTION_DEBUG_ABBREV];
 	const char *debug_abbrev_end = section_end(debug_abbrev);
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
@@ -2072,9 +2061,6 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 	const char *debug_str_end = section_end(debug_str);
 	unsigned int depth = 0;
 	uint64_t enum_die_offset = 0;
-
-	abbrev_table_init(&abbrev);
-	uint64_vector_init(&file_name_table);
 
 	if ((err = read_abbrev_table(section_ptr(debug_abbrev,
 						 cu->debug_abbrev_offset),
@@ -2265,8 +2251,8 @@ drgn_dwarf_index_report_end_internal(struct drgn_dwarf_index *dindex,
 				     bool report_from_dwfl)
 {
 	struct drgn_error *err;
-	struct drgn_dwarf_module_vector unindexed;
-	struct compilation_unit_vector cus;
+	struct drgn_dwarf_module_vector unindexed = VECTOR_INIT;
+	struct compilation_unit_vector cus = VECTOR_INIT;
 
 	dwfl_report_end(dindex->dwfl, NULL, NULL);
 	if (report_from_dwfl &&
@@ -2275,8 +2261,6 @@ drgn_dwarf_index_report_end_internal(struct drgn_dwarf_index *dindex,
 		err = &drgn_enomem;
 		goto err;
 	}
-	drgn_dwarf_module_vector_init(&unindexed);
-	compilation_unit_vector_init(&cus);
 	err = drgn_dwarf_index_get_unindexed(dindex, &unindexed);
 	if (err)
 		goto err;

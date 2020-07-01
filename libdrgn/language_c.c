@@ -1682,15 +1682,12 @@ static const char *token_spelling[] = {
 
 DEFINE_HASH_MAP(c_keyword_map, struct string, int, string_hash, string_eq);
 
-static struct c_keyword_map c_keywords;
+static struct c_keyword_map c_keywords = HASH_TABLE_INIT;
 
 __attribute__((constructor(101)))
 static void c_keywords_init(void)
 {
-	int i;
-
-	c_keyword_map_init(&c_keywords);
-	for (i = MIN_KEYWORD_TOKEN; i <= MAX_KEYWORD_TOKEN; i++) {
+	for (int i = MIN_KEYWORD_TOKEN; i <= MAX_KEYWORD_TOKEN; i++) {
 		struct c_keyword_map_entry entry = {
 			.key = {
 				.str = token_spelling[i],
@@ -1698,7 +1695,6 @@ static void c_keywords_init(void)
 			},
 			.value = i,
 		};
-
 		if (c_keyword_map_insert(&c_keywords, &entry, NULL) != 1)
 			abort();
 	}
