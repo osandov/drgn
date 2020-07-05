@@ -64,7 +64,7 @@ Arch Linux::
 
 Debian/Ubuntu::
 
-    $ sudo apt-get install autoconf automake bison flex gawk gcc libbz2-dev liblzma-dev libtool make pkgconf python3 python3-dev python3-setuptools zlib1g-dev
+    $ sudo apt-get install autoconf automake bison flex gawk gcc libbz2-dev liblzma-dev libtool make pkgconf python3 python3-dev python3-setuptools zlib1g-dev libdw-dev
 
 Note that Debian Stretch, Ubuntu Trusty, and Ubuntu Xenial (and older) ship
 Python versions which are too old. Python 3.6 or newer must be installed
