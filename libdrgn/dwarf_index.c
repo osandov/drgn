@@ -267,12 +267,10 @@ struct drgn_dwarf_index_die {
 	size_t offset;
 };
 
-/*
- * The key is the DIE name. The value is the first DIE with that name (as an
- * index into drgn_dwarf_index_shard::dies).
- */
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash, string_eq)
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_die_vector)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_specification_map,
+			    hash_pair_int_type, hash_table_scalar_eq)
 
 static inline size_t hash_pair_to_shard(struct hash_pair hp)
 {
@@ -339,17 +337,6 @@ static inline struct drgn_error *read_uleb128_into_size_t(const char **ptr,
 		return drgn_eof();
 	*value = tmp;
 	return NULL;
-}
-
-static void free_shards(struct drgn_dwarf_index *dindex, size_t n)
-{
-	size_t i;
-
-	for (i = 0; i < n; i++) {
-		drgn_dwarf_index_die_vector_deinit(&dindex->shards[i].dies);
-		drgn_dwarf_index_die_map_deinit(&dindex->shards[i].map);
-		omp_destroy_lock(&dindex->shards[i].lock);
-	}
 }
 
 static void drgn_dwarf_module_destroy(struct drgn_dwarf_module *module)
@@ -482,22 +469,19 @@ static void drgn_dwarf_index_free_modules(struct drgn_dwarf_index *dindex,
 struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
 					 const Dwfl_Callbacks *callbacks)
 {
-	size_t i;
-	char *max_errors;
-
 	dindex->dwfl = dwfl_begin(callbacks);
 	if (!dindex->dwfl)
 		return drgn_error_libdwfl();
-	for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
 		struct drgn_dwarf_index_shard *shard = &dindex->shards[i];
-
 		omp_init_lock(&shard->lock);
 		drgn_dwarf_index_die_map_init(&shard->map);
 		drgn_dwarf_index_die_vector_init(&shard->dies);
 	}
+	drgn_dwarf_index_specification_map_init(&dindex->specifications);
 	memset(&dindex->errors, 0, sizeof(dindex->errors));
 	dindex->num_errors = 0;
-	max_errors = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
+	const char *max_errors = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
 	if (max_errors)
 		dindex->max_errors = atoi(max_errors);
 	else
@@ -518,7 +502,12 @@ void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex)
 	assert(drgn_dwarf_module_table_size(&dindex->module_table) == 0);
 	drgn_dwarf_module_vector_deinit(&dindex->no_build_id);
 	drgn_dwarf_module_table_deinit(&dindex->module_table);
-	free_shards(dindex, ARRAY_SIZE(dindex->shards));
+	drgn_dwarf_index_specification_map_deinit(&dindex->specifications);
+	for (size_t i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
+		drgn_dwarf_index_die_vector_deinit(&dindex->shards[i].dies);
+		drgn_dwarf_index_die_map_deinit(&dindex->shards[i].map);
+		omp_destroy_lock(&dindex->shards[i].lock);
+	}
 	dwfl_end(dindex->dwfl);
 }
 
@@ -1402,12 +1391,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		if (name == 0 && form == 0)
 			break;
 
-		if (name == DW_AT_sibling && tag != DW_TAG_enumeration_type) {
-			/*
-			 * If we are indexing enumerators, we must descend into
-			 * DW_TAG_enumeration_type to find the DW_TAG_enumerator
-			 * children instead of skipping to the sibling DIE.
-			 */
+		if (name == DW_AT_sibling) {
 			switch (form) {
 			case DW_FORM_ref1:
 				insn = ATTRIB_SIBLING_REF1;
@@ -1786,6 +1770,244 @@ out_directories:
 	return err;
 }
 
+static struct drgn_error *
+index_specification(struct drgn_dwarf_index *dindex, uintptr_t declaration,
+		    Dwfl_Module *module, size_t offset)
+{
+	struct drgn_dwarf_index_specification entry = {
+		.declaration = declaration,
+		.module = module,
+		.offset = offset,
+	};
+	struct hash_pair hp =
+		drgn_dwarf_index_specification_map_hash(&declaration);
+	int ret;
+	#pragma omp critical(drgn_index_specification)
+	ret = drgn_dwarf_index_specification_map_insert_hashed(&dindex->specifications,
+							       &entry, hp,
+							       NULL);
+	/*
+	 * There may be duplicates if multiple DIEs reference one declaration,
+	 * but we ignore them.
+	 */
+	return ret == -1 ? &drgn_enomem : NULL;
+}
+
+/*
+ * First pass: read the abbreviation and file name tables and index DIEs with
+ * DW_AT_specification.
+ */
+static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
+					      struct compilation_unit *cu)
+{
+	struct drgn_error *err;
+	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
+	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
+	Elf_Data *debug_info = cu->userdata->debug_info;
+	const char *debug_info_buffer = section_ptr(debug_info, 0);
+	unsigned int depth = 0;
+
+	if ((err = read_abbrev_table(cu)))
+		return err;
+
+	for (;;) {
+		size_t die_offset = ptr - debug_info_buffer;
+
+		uint64_t code;
+		if ((err = read_uleb128(&ptr, end, &code)))
+			return err;
+		if (code == 0) {
+			if (depth-- > 1)
+				continue;
+			else
+				break;
+		} else if (code > cu->num_abbrev_decls) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "unknown abbreviation code %" PRIu64,
+						 code);
+		}
+
+		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
+		bool declaration = false;
+		uintptr_t specification = 0;
+		size_t stmt_list = SIZE_MAX;
+		const char *sibling = NULL;
+		uint8_t insn;
+		while ((insn = *insnp++)) {
+			size_t skip, tmp;
+			switch (insn) {
+			case ATTRIB_BLOCK1:
+				if (!read_u8_into_size_t(&ptr, end, &skip))
+					return drgn_eof();
+				goto skip;
+			case ATTRIB_BLOCK2:
+				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
+							  &skip))
+					return drgn_eof();
+				goto skip;
+			case ATTRIB_BLOCK4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &skip))
+					return drgn_eof();
+				goto skip;
+			case ATTRIB_EXPRLOC:
+				if ((err = read_uleb128_into_size_t(&ptr, end,
+								    &skip)))
+					return err;
+				goto skip;
+			case ATTRIB_LEB128:
+			case ATTRIB_DECL_FILE_UDATA:
+				if (!skip_leb128(&ptr, end))
+					return drgn_eof();
+				break;
+			case ATTRIB_STRING:
+			case ATTRIB_NAME_STRING:
+				if (!skip_string(&ptr, end))
+					return drgn_eof();
+				break;
+			case ATTRIB_SIBLING_REF1:
+				if (!read_u8_into_size_t(&ptr, end, &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF2:
+				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF8:
+				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF_UDATA:
+				if ((err = read_uleb128_into_size_t(&ptr, end,
+								    &tmp)))
+					return err;
+sibling:
+				if (!read_in_bounds(cu->ptr, end, tmp))
+					return drgn_eof();
+				sibling = &cu->ptr[tmp];
+				__builtin_prefetch(sibling);
+				break;
+			case ATTRIB_STMT_LIST_LINEPTR4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &stmt_list))
+					return drgn_eof();
+				break;
+			case ATTRIB_STMT_LIST_LINEPTR8:
+				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+							  &stmt_list))
+					return drgn_eof();
+				break;
+			case ATTRIB_DECL_FILE_DATA1:
+				skip = 1;
+				goto skip;
+			case ATTRIB_DECL_FILE_DATA2:
+				skip = 2;
+				goto skip;
+			case ATTRIB_NAME_STRP4:
+			case ATTRIB_DECL_FILE_DATA4:
+				skip = 4;
+				goto skip;
+			case ATTRIB_NAME_STRP8:
+			case ATTRIB_DECL_FILE_DATA8:
+				skip = 8;
+				goto skip;
+			case ATTRIB_DECLARATION_FLAG: {
+				uint8_t flag;
+				if (!read_u8(&ptr, end, &flag))
+					return drgn_eof();
+				if (flag)
+					declaration = true;
+				break;
+			}
+			case ATTRIB_SPECIFICATION_REF1:
+				if (!read_u8_into_size_t(&ptr, end, &tmp))
+					return drgn_eof();
+				goto specification;
+			case ATTRIB_SPECIFICATION_REF2:
+				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto specification;
+			case ATTRIB_SPECIFICATION_REF4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto specification;
+			case ATTRIB_SPECIFICATION_REF8:
+				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto specification;
+			case ATTRIB_SPECIFICATION_REF_UDATA:
+				if ((err = read_uleb128_into_size_t(&ptr, end,
+								    &tmp)))
+					return err;
+specification:
+				specification = (uintptr_t)cu->ptr + tmp;
+				break;
+			default:
+				skip = insn;
+skip:
+				if (!read_in_bounds(ptr, end, skip))
+					return drgn_eof();
+				ptr += skip;
+				break;
+			}
+		}
+		insn = *insnp;
+
+		if (depth == 0) {
+			if (stmt_list != SIZE_MAX &&
+			    (err = read_file_name_table(dindex, cu, stmt_list)))
+				return err;
+		} else if (specification) {
+			if (insn & DIE_FLAG_DECLARATION)
+				declaration = true;
+			/*
+			 * For now, we don't handle DIEs with
+			 * DW_AT_specification which are themselves
+			 * declarations. We may need to handle
+			 * DW_AT_specification "chains" in the future.
+			 */
+			if (!declaration &&
+			    (err = index_specification(dindex, specification,
+						       cu->userdata->module,
+						       die_offset)))
+				return err;
+		}
+
+		if (insn & DIE_FLAG_CHILDREN) {
+			if (sibling)
+				ptr = sibling;
+			else
+				depth++;
+		} else if (depth == 0) {
+			break;
+		}
+	}
+	return NULL;
+}
+
+static bool find_definition(struct drgn_dwarf_index *dindex, uintptr_t die_addr,
+			    Dwfl_Module **module_ret, size_t *offset_ret)
+{
+	struct drgn_dwarf_index_specification_map_iterator it =
+		drgn_dwarf_index_specification_map_search(&dindex->specifications,
+							  &die_addr);
+	if (!it.entry)
+		return false;
+	*module_ret = it.entry->module;
+	*offset_ret = it.entry->offset;
+	return true;
+}
+
 static bool append_die_entry(struct drgn_dwarf_index_shard *shard, uint8_t tag,
 			     uint64_t file_name_hash, Dwfl_Module *module,
 			     size_t offset)
@@ -1868,194 +2090,9 @@ out:
 	return err;
 }
 
-struct die {
-	const char *sibling;
-	const char *name;
-	size_t stmt_list;
-	size_t decl_file;
-	const char *specification;
-	bool declaration;
-	uint8_t flags;
-};
-
-static struct drgn_error *read_die(struct compilation_unit *cu,
-				   const char **ptr, const char *end,
-				   const char *debug_str_buffer,
-				   const char *debug_str_end, struct die *die)
-{
-	struct drgn_error *err;
-	uint64_t code;
-	uint8_t *insnp;
-	uint8_t insn;
-
-	if ((err = read_uleb128(ptr, end, &code)))
-		return err;
-	if (code == 0)
-		return &drgn_stop;
-
-	if (code < 1 || code > cu->num_abbrev_decls) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unknown abbreviation code %" PRIu64,
-					 code);
-	}
-	insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
-
-	while ((insn = *insnp++)) {
-		size_t skip, tmp;
-
-		switch (insn) {
-		case ATTRIB_BLOCK1:
-			if (!read_u8_into_size_t(ptr, end, &skip))
-				return drgn_eof();
-			goto skip;
-		case ATTRIB_BLOCK2:
-			if (!read_u16_into_size_t(ptr, end, cu->bswap, &skip))
-				return drgn_eof();
-			goto skip;
-		case ATTRIB_BLOCK4:
-			if (!read_u32_into_size_t(ptr, end, cu->bswap, &skip))
-				return drgn_eof();
-			goto skip;
-		case ATTRIB_EXPRLOC:
-			if ((err = read_uleb128_into_size_t(ptr, end, &skip)))
-				return err;
-			goto skip;
-		case ATTRIB_LEB128:
-			if (!skip_leb128(ptr, end))
-				return drgn_eof();
-			break;
-		case ATTRIB_NAME_STRING:
-			die->name = *ptr;
-			/* fallthrough */
-		case ATTRIB_STRING:
-			if (!skip_string(ptr, end))
-				return drgn_eof();
-			break;
-		case ATTRIB_SIBLING_REF1:
-			if (!read_u8_into_size_t(ptr, end, &tmp))
-				return drgn_eof();
-			goto sibling;
-		case ATTRIB_SIBLING_REF2:
-			if (!read_u16_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-			goto sibling;
-		case ATTRIB_SIBLING_REF4:
-			if (!read_u32_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-			goto sibling;
-		case ATTRIB_SIBLING_REF8:
-			if (!read_u64_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-			goto sibling;
-		case ATTRIB_SIBLING_REF_UDATA:
-			if ((err = read_uleb128_into_size_t(ptr, end, &tmp)))
-				return err;
-sibling:
-			if (!read_in_bounds(cu->ptr, end, tmp))
-				return drgn_eof();
-			die->sibling = &cu->ptr[tmp];
-			__builtin_prefetch(die->sibling);
-			break;
-		case ATTRIB_NAME_STRP4:
-			if (!read_u32_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-			goto strp;
-		case ATTRIB_NAME_STRP8:
-			if (!read_u64_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-strp:
-			if (!read_in_bounds(debug_str_buffer, debug_str_end,
-					    tmp))
-				return drgn_eof();
-			die->name = &debug_str_buffer[tmp];
-			__builtin_prefetch(die->name);
-			break;
-		case ATTRIB_STMT_LIST_LINEPTR4:
-			if (!read_u32_into_size_t(ptr, end, cu->bswap,
-						  &die->stmt_list))
-				return drgn_eof();
-			break;
-		case ATTRIB_STMT_LIST_LINEPTR8:
-			if (!read_u64_into_size_t(ptr, end, cu->bswap,
-						  &die->stmt_list))
-				return drgn_eof();
-			break;
-		case ATTRIB_DECL_FILE_DATA1:
-			if (!read_u8_into_size_t(ptr, end, &die->decl_file))
-				return drgn_eof();
-			break;
-		case ATTRIB_DECL_FILE_DATA2:
-			if (!read_u16_into_size_t(ptr, end, cu->bswap,
-						  &die->decl_file))
-				return drgn_eof();
-			break;
-		case ATTRIB_DECL_FILE_DATA4:
-			if (!read_u32_into_size_t(ptr, end, cu->bswap,
-						  &die->decl_file))
-				return drgn_eof();
-			break;
-		case ATTRIB_DECL_FILE_DATA8:
-			if (!read_u64_into_size_t(ptr, end, cu->bswap,
-						  &die->decl_file))
-				return drgn_eof();
-			break;
-		case ATTRIB_DECL_FILE_UDATA:
-			if ((err = read_uleb128_into_size_t(ptr, end,
-							    &die->decl_file)))
-				return err;
-			break;
-		case ATTRIB_DECLARATION_FLAG: {
-			uint8_t flag;
-			if (!read_u8(ptr, end, &flag))
-				return drgn_eof();
-			if (flag)
-				die->declaration = true;
-			break;
-		}
-		case ATTRIB_SPECIFICATION_REF1:
-			if (!read_u8_into_size_t(ptr, end, &tmp))
-				return drgn_eof();
-			goto specification;
-		case ATTRIB_SPECIFICATION_REF2:
-			if (!read_u16_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-			goto specification;
-		case ATTRIB_SPECIFICATION_REF4:
-			if (!read_u32_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-			goto specification;
-		case ATTRIB_SPECIFICATION_REF8:
-			if (!read_u64_into_size_t(ptr, end, cu->bswap, &tmp))
-				return drgn_eof();
-			goto specification;
-		case ATTRIB_SPECIFICATION_REF_UDATA:
-			if ((err = read_uleb128_into_size_t(ptr, end, &tmp)))
-				return err;
-specification:
-			if (!read_in_bounds(cu->ptr, end, tmp))
-				return drgn_eof();
-			die->specification = &cu->ptr[tmp];
-			__builtin_prefetch(die->specification);
-			break;
-		default:
-			skip = insn;
-skip:
-			if (!read_in_bounds(*ptr, end, skip))
-				return drgn_eof();
-			*ptr += skip;
-			break;
-		}
-	}
-
-	die->flags = *insnp;
-	if (die->flags & DIE_FLAG_DECLARATION)
-		die->declaration = true;
-
-	return NULL;
-}
-
-static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
-				   struct compilation_unit *cu)
+/* Second pass: index the actual DIEs. */
+static struct drgn_error *index_cu_second_pass(struct drgn_dwarf_index *dindex,
+					       struct compilation_unit *cu)
 {
 	struct drgn_error *err;
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
@@ -2066,115 +2103,245 @@ static struct drgn_error *index_cu(struct drgn_dwarf_index *dindex,
 	const char *debug_str_buffer = section_ptr(debug_str, 0);
 	const char *debug_str_end = section_end(debug_str);
 	unsigned int depth = 0;
-	size_t enum_die_offset = 0;
-
-	if ((err = read_abbrev_table(cu)))
-		goto out;
+	uint8_t depth1_tag = 0;
+	size_t depth1_offset = 0;
 
 	for (;;) {
-		struct die die = {
-			.stmt_list = SIZE_MAX,
-		};
 		size_t die_offset = ptr - debug_info_buffer;
-		uint8_t tag;
 
-		err = read_die(cu, &ptr, end, debug_str_buffer, debug_str_end,
-			       &die);
-		if (err && err->code == DRGN_ERROR_STOP) {
-			depth--;
-			if (depth == 1)
-				enum_die_offset = 0;
-			else if (depth == 0)
+		uint64_t code;
+		if ((err = read_uleb128(&ptr, end, &code)))
+			return err;
+		if (code == 0) {
+			if (depth-- > 1)
+				continue;
+			else
 				break;
-			continue;
-		} else if (err) {
-			goto out;
+		} else if (code > cu->num_abbrev_decls) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "unknown abbreviation code %" PRIu64,
+						 code);
 		}
 
-		if (depth == 0) {
-			if (die.stmt_list != SIZE_MAX &&
-			    (err = read_file_name_table(dindex, cu,
-							die.stmt_list)))
-				goto out;
-		} else if ((tag = die.flags & DIE_FLAG_TAG_MASK) &&
-			   !die.declaration) {
+		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
+		const char *name = NULL;
+		size_t decl_file = 0;
+		bool declaration = false;
+		bool specification = false;
+		const char *sibling = NULL;
+		uint8_t insn;
+		while ((insn = *insnp++)) {
+			size_t skip, tmp;
+			switch (insn) {
+			case ATTRIB_BLOCK1:
+				if (!read_u8_into_size_t(&ptr, end, &skip))
+					return drgn_eof();
+				goto skip;
+			case ATTRIB_BLOCK2:
+				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
+							  &skip))
+					return drgn_eof();
+				goto skip;
+			case ATTRIB_BLOCK4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &skip))
+					return drgn_eof();
+				goto skip;
+			case ATTRIB_EXPRLOC:
+				if ((err = read_uleb128_into_size_t(&ptr, end,
+								    &skip)))
+					return err;
+				goto skip;
+			case ATTRIB_SPECIFICATION_REF_UDATA:
+				specification = true;
+				/* fallthrough */
+			case ATTRIB_LEB128:
+				if (!skip_leb128(&ptr, end))
+					return drgn_eof();
+				break;
+			case ATTRIB_NAME_STRING:
+				name = ptr;
+				/* fallthrough */
+			case ATTRIB_STRING:
+				if (!skip_string(&ptr, end))
+					return drgn_eof();
+				break;
+			case ATTRIB_SIBLING_REF1:
+				if (!read_u8_into_size_t(&ptr, end, &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF2:
+				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF8:
+				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto sibling;
+			case ATTRIB_SIBLING_REF_UDATA:
+				if ((err = read_uleb128_into_size_t(&ptr, end,
+								    &tmp)))
+					return err;
+sibling:
+				if (!read_in_bounds(cu->ptr, end, tmp))
+					return drgn_eof();
+				sibling = &cu->ptr[tmp];
+				__builtin_prefetch(sibling);
+				break;
+			case ATTRIB_NAME_STRP4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto strp;
+			case ATTRIB_NAME_STRP8:
+				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+strp:
+				if (!read_in_bounds(debug_str_buffer, debug_str_end,
+						    tmp))
+					return drgn_eof();
+				name = &debug_str_buffer[tmp];
+				__builtin_prefetch(name);
+				break;
+			case ATTRIB_STMT_LIST_LINEPTR4:
+				skip = 4;
+				goto skip;
+			case ATTRIB_STMT_LIST_LINEPTR8:
+				skip = 8;
+				goto skip;
+			case ATTRIB_DECL_FILE_DATA1:
+				if (!read_u8_into_size_t(&ptr, end, &decl_file))
+					return drgn_eof();
+				break;
+			case ATTRIB_DECL_FILE_DATA2:
+				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
+							  &decl_file))
+					return drgn_eof();
+				break;
+			case ATTRIB_DECL_FILE_DATA4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &decl_file))
+					return drgn_eof();
+				break;
+			case ATTRIB_DECL_FILE_DATA8:
+				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+							  &decl_file))
+					return drgn_eof();
+				break;
+			case ATTRIB_DECL_FILE_UDATA:
+				if ((err = read_uleb128_into_size_t(&ptr, end,
+								    &decl_file)))
+					return err;
+				break;
+			case ATTRIB_DECLARATION_FLAG: {
+				uint8_t flag;
+				if (!read_u8(&ptr, end, &flag))
+					return drgn_eof();
+				if (flag)
+					declaration = true;
+				break;
+			}
+			case ATTRIB_SPECIFICATION_REF1:
+				specification = true;
+				skip = 1;
+				goto skip;
+			case ATTRIB_SPECIFICATION_REF2:
+				specification = true;
+				skip = 2;
+				goto skip;
+			case ATTRIB_SPECIFICATION_REF4:
+				specification = true;
+				skip = 4;
+				goto skip;
+			case ATTRIB_SPECIFICATION_REF8:
+				specification = true;
+				skip = 8;
+				goto skip;
+			default:
+				skip = insn;
+skip:
+				if (!read_in_bounds(ptr, end, skip))
+					return drgn_eof();
+				ptr += skip;
+				break;
+			}
+		}
+		insn = *insnp;
+
+		uint8_t tag = insn & DIE_FLAG_TAG_MASK;
+		if (depth == 1) {
+			depth1_tag = tag;
+			depth1_offset = die_offset;
+		}
+		if (depth == (tag == DW_TAG_enumerator ? 2 : 1) && name &&
+		    !specification) {
+			if (insn & DIE_FLAG_DECLARATION)
+				declaration = true;
+			Dwfl_Module *module = cu->userdata->module;
+			if (tag == DW_TAG_enumerator) {
+				if (depth1_tag != DW_TAG_enumeration_type)
+					goto next;
+				/*
+				 * NB: the enumerator name points to the
+				 * enumeration_type DIE. Also, enumerators can't
+				 * be declared in C/C++, so we don't check for
+				 * that.
+				 */
+				die_offset = depth1_offset;
+			} else if (declaration &&
+				   !find_definition(dindex,
+						    (uintptr_t)debug_info_buffer +
+						    die_offset,
+						    &module, &die_offset)) {
+					goto next;
+			}
+
+			if (decl_file > cu->num_file_names) {
+				return drgn_error_format(DRGN_ERROR_OTHER,
+							 "invalid DW_AT_decl_file %zu",
+							 decl_file);
+			}
 			uint64_t file_name_hash;
-
-			/*
-			 * NB: the enumerator name points to the
-			 * enumeration_type DIE instead of the enumerator DIE.
-			 */
-			if (depth == 1 && tag == DW_TAG_enumeration_type)
-				enum_die_offset = die_offset;
-			else if (depth == 2 && tag == DW_TAG_enumerator &&
-				 enum_die_offset)
-				die_offset = enum_die_offset;
-			else if (depth != 1)
-				goto next;
-
-			if (die.specification && (!die.name || !die.decl_file)) {
-				struct die decl = {};
-				const char *decl_ptr = die.specification;
-
-				if ((err = read_die(cu, &decl_ptr, end,
-						    debug_str_buffer,
-						    debug_str_end, &decl)))
-					goto out;
-				if (!die.name && decl.name)
-					die.name = decl.name;
-				if (!die.decl_file && decl.decl_file)
-					die.decl_file = decl.decl_file;
-			}
-
-			if (die.name) {
-				if (die.decl_file > cu->num_file_names) {
-					err = drgn_error_format(DRGN_ERROR_OTHER,
-								"invalid DW_AT_decl_file %zu",
-								die.decl_file);
-					goto out;
-				}
-				if (die.decl_file)
-					file_name_hash = cu->file_name_hashes[die.decl_file - 1];
-				else
-					file_name_hash = 0;
-				if ((err = index_die(dindex, die.name, tag,
-						     file_name_hash,
-						     cu->userdata->module,
-						     die_offset)))
-					goto out;
-			}
+			if (decl_file)
+				file_name_hash = cu->file_name_hashes[decl_file - 1];
+			else
+				file_name_hash = 0;
+			if ((err = index_die(dindex, name,
+					     insn & DIE_FLAG_TAG_MASK,
+					     file_name_hash, module,
+					     die_offset)))
+				return err;
 		}
 
 next:
-		if (die.flags & DIE_FLAG_CHILDREN) {
-			if (die.sibling)
-				ptr = die.sibling;
+		if (insn & DIE_FLAG_CHILDREN) {
+			/*
+			 * We must descend into the children of enumeration_type
+			 * DIEs to index enumerator DIEs.
+			 */
+			if (sibling && tag != DW_TAG_enumeration_type)
+				ptr = sibling;
 			else
 				depth++;
 		} else if (depth == 0) {
 			break;
 		}
 	}
-
-	err = NULL;
-out:
-	free(cu->file_name_hashes);
-	free(cu->abbrev_insns);
-	free(cu->abbrev_decls);
-	return err;
+	return NULL;
 }
 
 static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 {
-	size_t i;
-
-	for (i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
-		struct drgn_dwarf_index_shard *shard;
-		struct drgn_dwarf_index_die *die;
-		struct drgn_dwarf_index_die_map_iterator it;
-		size_t index;
-
-		shard = &dindex->shards[i];
+	for (size_t i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
+		struct drgn_dwarf_index_shard *shard = &dindex->shards[i];
 
 		/*
 		 * Because we're deleting everything that was added since the
@@ -2182,13 +2349,12 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 		 * entry that was added for this update.
 		 */
 		while (shard->dies.size) {
+			struct drgn_dwarf_index_die *die =
+				&shard->dies.data[shard->dies.size - 1];
 			void **userdatap;
-			struct drgn_dwfl_module_userdata *userdata;
-
-			die = &shard->dies.data[shard->dies.size - 1];
 			dwfl_module_info(die->module, &userdatap, NULL,
 					 NULL, NULL, NULL, NULL, NULL);
-			userdata = *userdatap;
+			struct drgn_dwfl_module_userdata *userdata = *userdatap;
 			if (userdata->state == DRGN_DWARF_MODULE_INDEXED)
 				break;
 			else
@@ -2201,15 +2367,17 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 		 * entries must also be new, so there's no need to preserve
 		 * them.
 		 */
-		for (index = 0; index < shard->dies.size; i++) {
-			die = &shard->dies.data[index];
+		for (size_t index = 0; index < shard->dies.size; i++) {
+			struct drgn_dwarf_index_die *die =
+				&shard->dies.data[index];
 			if (die->next != UINT32_MAX &&
 			    die->next >= shard->dies.size)
 				die->next = UINT32_MAX;
 		}
 
 		/* Finally, delete the new entries in the map. */
-		for (it = drgn_dwarf_index_die_map_first(&shard->map);
+		for (struct drgn_dwarf_index_die_map_iterator it =
+		     drgn_dwarf_index_die_map_first(&shard->map);
 		     it.entry; ) {
 			if (it.entry->value >= shard->dies.size) {
 				it = drgn_dwarf_index_die_map_delete_iterator(&shard->map,
@@ -2219,6 +2387,21 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 			}
 		}
 	}
+
+	for (struct drgn_dwarf_index_specification_map_iterator it =
+	     drgn_dwarf_index_specification_map_first(&dindex->specifications);
+	     it.entry; ) {
+		void **userdatap;
+		dwfl_module_info(it.entry->module, &userdatap, NULL, NULL, NULL,
+				 NULL, NULL, NULL);
+		struct drgn_dwfl_module_userdata *userdata = *userdatap;
+		if (userdata->state == DRGN_DWARF_MODULE_INDEXED) {
+			it = drgn_dwarf_index_specification_map_next(it);
+		} else {
+			it = drgn_dwarf_index_specification_map_delete_iterator(&dindex->specifications,
+										it);
+		}
+	}
 }
 
 static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
@@ -2226,22 +2409,39 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 				    size_t num_cus)
 {
 	struct drgn_error *err = NULL;
-	size_t i;
+	#pragma omp parallel
+	{
+		#pragma omp for schedule(dynamic)
+		for (size_t i = 0; i < num_cus; i++) {
+			if (!err) {
+				struct drgn_error *cu_err =
+					index_cu_first_pass(dindex, &cus[i]);
+				if (cu_err) {
+					#pragma omp critical(drgn_index_cus)
+					if (err)
+						drgn_error_destroy(cu_err);
+					else
+						err = cu_err;
+				}
+			}
+		}
 
-	#pragma omp parallel for schedule(dynamic)
-	for (i = 0; i < num_cus; i++) {
-		struct drgn_error *cu_err;
-
-		if (err)
-			continue;
-
-		cu_err = index_cu(dindex, &cus[i]);
-		if (cu_err) {
-			#pragma omp critical(drgn_index_cus)
-			if (err)
-				drgn_error_destroy(cu_err);
-			else
-				err = cu_err;
+		#pragma omp for schedule(dynamic)
+		for (size_t i = 0; i < num_cus; i++) {
+			if (!err) {
+				struct drgn_error *cu_err =
+					index_cu_second_pass(dindex, &cus[i]);
+				if (cu_err) {
+					#pragma omp critical(drgn_index_cus)
+					if (err)
+						drgn_error_destroy(cu_err);
+					else
+						err = cu_err;
+				}
+			}
+			free(cus[i].file_name_hashes);
+			free(cus[i].abbrev_insns);
+			free(cus[i].abbrev_decls);
 		}
 	}
 	return err;

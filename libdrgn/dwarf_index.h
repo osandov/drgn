@@ -69,6 +69,10 @@ DEFINE_VECTOR_TYPE(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
 struct drgn_dwarf_index_shard {
 	/** @privatesection */
 	omp_lock_t lock;
+	/*
+	 * Map from name to list of DIEs with that name (as the index in
+	 * drgn_dwarf_index_shard::dies of the first DIE with that name).
+	 */
 	struct drgn_dwarf_index_die_map map;
 	/*
 	 * We store all entries in a shard as a single array, which is more
@@ -78,6 +82,28 @@ struct drgn_dwarf_index_shard {
 };
 
 #define DRGN_DWARF_INDEX_SHARD_BITS 8
+
+/* A DIE with a DW_AT_specification attribute. */
+struct drgn_dwarf_index_specification {
+	/*
+	 * Address of non-defining declaration DIE referenced by
+	 * DW_AT_specification.
+	 */
+	uintptr_t declaration;
+	/* Module and offset of DIE. */
+	Dwfl_Module *module;
+	size_t offset;
+};
+
+static inline uintptr_t
+drgn_dwarf_index_specification_to_key(const struct drgn_dwarf_index_specification *entry)
+{
+	return entry->declaration;
+}
+
+DEFINE_HASH_TABLE_TYPE(drgn_dwarf_index_specification_map,
+		       struct drgn_dwarf_index_specification,
+		       drgn_dwarf_index_specification_to_key)
 
 /** State of a @ref drgn_dwarf_module or a @c Dwfl_Module. */
 enum drgn_dwarf_module_state {
@@ -184,6 +210,15 @@ struct drgn_dwarf_index {
 	 * This is sharded to reduce lock contention.
 	 */
 	struct drgn_dwarf_index_shard shards[1 << DRGN_DWARF_INDEX_SHARD_BITS];
+	/**
+	 * Map from address of DIE referenced by DW_AT_specification to DIE that
+	 * references it. This is used to resolve DIEs with DW_AT_declaration to
+	 * their definition.
+	 *
+	 * This is not sharded because there typically aren't enough of these in
+	 * a program to cause contention.
+	 */
+	struct drgn_dwarf_index_specification_map specifications;
 	Dwfl *dwfl;
 	/**
 	 * Formatted errors reported by @ref drgn_dwarf_index_report_error().
