@@ -3471,6 +3471,39 @@ class TestObjects(TestCase):
         )
         self.assertRaisesRegex(Exception, "too small", prog.variable, "p")
 
+    def test_specification(self):
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    int_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.specification, DW_FORM.ref4, 1),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                b"\x03\x04\x03\x02\x01\xff\xff\xff\xff",
+                            ),
+                        ),
+                    ),
+                )
+            )
+        )
+
+        self.assertEqual(
+            prog["x"],
+            Object(prog, prog.int_type("int", 4, True), address=0xFFFFFFFF01020304),
+        )
+
     def test_not_found(self):
         prog = dwarf_program(int_die)
         self.assertRaisesRegex(LookupError, "could not find", prog.object, "y")
