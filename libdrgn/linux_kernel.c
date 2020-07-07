@@ -16,8 +16,8 @@
 #include "dwarf_index.h"
 #include "helpers.h"
 #include "linux_kernel.h"
+#include "mread.h"
 #include "program.h"
-#include "read.h"
 
 struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
 					   size_t count, uint64_t offset,
@@ -753,12 +753,10 @@ struct kmod_index {
 static struct drgn_error *kmod_index_validate(struct kmod_index *index,
 					      const char *path)
 {
-	const char *ptr;
+	const char *ptr = index->ptr;
 	uint32_t magic, version;
-
-	ptr = index->ptr;
-	if (!read_be32(&ptr, index->end, &magic) ||
-	    !read_be32(&ptr, index->end, &version)) {
+	if (!mread_be32(&ptr, index->end, &magic) ||
+	    !mread_be32(&ptr, index->end, &version)) {
 		return drgn_error_format(DRGN_ERROR_OTHER, "%s is too short",
 					 path);
 	}
@@ -824,20 +822,21 @@ static const char *kmod_index_find(struct kmod_index *index, const char *key)
 	static const uint32_t INDEX_NODE_CHILDS = UINT32_C(0x20000000);
 	static const uint32_t INDEX_NODE_VALUES = UINT32_C(0x40000000);
 	static const uint32_t INDEX_NODE_PREFIX = UINT32_C(0x80000000);
+
+	/* kmod_index_validate() already checked that this is within bounds. */
 	const char *ptr = index->ptr + 8;
 	uint32_t offset;
-
 	for (;;) {
-		if (!read_be32(&ptr, index->end, &offset))
+		if (!mread_be32(&ptr, index->end, &offset) ||
+		    !(ptr = mread_begin(index->ptr, index->end,
+					offset & INDEX_NODE_MASK)))
 			return NULL;
-		ptr = index->ptr + (offset & INDEX_NODE_MASK);
 
 		if (offset & INDEX_NODE_PREFIX) {
 			const char *prefix;
 			size_t prefix_len;
-
-			if (!read_string(&ptr, index->end, &prefix,
-					 &prefix_len))
+			if (!mread_string(&ptr, index->end, &prefix,
+					  &prefix_len))
 				return NULL;
 			if (strncmp(key, prefix, prefix_len) != 0)
 				return NULL;
@@ -846,20 +845,21 @@ static const char *kmod_index_find(struct kmod_index *index, const char *key)
 
 		if (offset & INDEX_NODE_CHILDS) {
 			uint8_t first, last;
-
-			if (!read_u8(&ptr, index->end, &first) ||
-			    !read_u8(&ptr, index->end, &last))
+			if (!mread_u8(&ptr, index->end, &first) ||
+			    !mread_u8(&ptr, index->end, &last))
 				return NULL;
 			if (*key) {
 				uint8_t cur = *key;
-
-				if (cur < first || cur > last)
+				if (cur < first || cur > last ||
+				    !mread_skip(&ptr, index->end,
+						4 * (cur - first)))
 					return NULL;
-				ptr += 4 * (cur - first);
 				key++;
 				continue;
 			} else {
-				ptr += 4 * (last - first + 1);
+				if (!mread_skip(&ptr, index->end,
+						4 * (last - first + 1)))
+					return NULL;
 				break;
 			}
 		} else if (*key) {
@@ -904,27 +904,24 @@ static void depmod_index_deinit(struct depmod_index *depmod)
 static bool depmod_index_find(struct depmod_index *depmod, const char *name,
 			      const char **path_ret, size_t *len_ret)
 {
-	const char *ptr;
-	uint32_t value_count;
-	const char *deps;
-	size_t deps_len;
-	char *colon;
-
-	ptr = kmod_index_find(&depmod->modules_dep, name);
+	const char *ptr = kmod_index_find(&depmod->modules_dep, name);
 	if (!ptr)
 		return false;
 
-	if (!read_be32(&ptr, depmod->modules_dep.end, &value_count) ||
+	uint32_t value_count;
+	if (!mread_be32(&ptr, depmod->modules_dep.end, &value_count) ||
 	    !value_count)
 		return false;
 
 	/* Skip over priority. */
-	ptr += 4;
-	if (!read_string(&ptr, depmod->modules_dep.end, &deps,
+	const char *deps;
+	size_t deps_len;
+	if (!mread_skip(&ptr, depmod->modules_dep.end, 4) ||
+	    !mread_string(&ptr, depmod->modules_dep.end, &deps,
 			 &deps_len))
 		return false;
 
-	colon = strchr(deps, ':');
+	const char *colon = strchr(deps, ':');
 	if (!colon)
 		return false;
 

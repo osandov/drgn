@@ -40,6 +40,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 linux_kernel_helpers.c \
 			 memory_reader.c \
 			 memory_reader.h \
+			 mread.h \
 			 object.c \
 			 object.h \
 			 object_index.c \
@@ -49,7 +50,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 platform.h \
 			 program.c \
 			 program.h \
-			 read.h \
 			 serialize.c \
 			 serialize.h \
 			 siphash.h \

@@ -18,7 +18,7 @@
 
 #include "internal.h"
 #include "dwarf_index.h"
-#include "read.h"
+#include "mread.h"
 #include "siphash.h"
 #include "string_builder.h"
 
@@ -242,12 +242,14 @@ struct compilation_unit {
 
 static inline const char *section_ptr(Elf_Data *data, size_t offset)
 {
-	return &((char *)data->d_buf)[offset];
+	if (offset > data->d_size)
+		return NULL;
+	return (const char *)data->d_buf + offset;
 }
 
 static inline const char *section_end(Elf_Data *data)
 {
-	return section_ptr(data, data->d_size);
+	return (const char *)data->d_buf + data->d_size;
 }
 
 /*
@@ -292,27 +294,22 @@ static inline struct drgn_error *drgn_eof(void)
 				 "debug information is truncated");
 }
 
-static inline bool skip_leb128(const char **ptr, const char *end)
+static inline bool mread_skip_leb128(const char **ptr, const char *end)
 {
-	for (;;) {
-		if (*ptr >= end)
-			return false;
+	while (*ptr < end) {
 		if (!(*(const uint8_t *)(*ptr)++ & 0x80))
 			return true;
 	}
+	return false;
 }
 
-static inline struct drgn_error *read_uleb128(const char **ptr, const char *end,
-					      uint64_t *value)
+static inline struct drgn_error *mread_uleb128(const char **ptr,
+					       const char *end, uint64_t *value)
 {
 	int shift = 0;
-	uint8_t byte;
-
 	*value = 0;
-	for (;;) {
-		if (*ptr >= end)
-			return drgn_eof();
-		byte = *(const uint8_t *)*ptr;
+	while (*ptr < end) {
+		uint8_t byte = *(const uint8_t *)*ptr;
 		(*ptr)++;
 		if (shift == 63 && byte > 1) {
 			return drgn_error_create(DRGN_ERROR_OVERFLOW,
@@ -321,19 +318,19 @@ static inline struct drgn_error *read_uleb128(const char **ptr, const char *end,
 		*value |= (uint64_t)(byte & 0x7f) << shift;
 		shift += 7;
 		if (!(byte & 0x80))
-			break;
+			return NULL;
 	}
-	return NULL;
+	return drgn_eof();
 }
 
-static inline struct drgn_error *read_uleb128_into_size_t(const char **ptr,
-							  const char *end,
-							  size_t *value)
+static inline struct drgn_error *mread_uleb128_into_size_t(const char **ptr,
+							   const char *end,
+							   size_t *value)
 {
 	struct drgn_error *err;
 	uint64_t tmp;
 
-	if ((err = read_uleb128(ptr, end, &tmp)))
+	if ((err = mread_uleb128(ptr, end, &tmp)))
 		return err;
 
 	if (tmp > SIZE_MAX)
@@ -1164,20 +1161,19 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 						       struct compilation_unit *cu)
 {
 	uint32_t tmp;
-	uint16_t version;
-
-	if (!read_u32(&ptr, end, cu->bswap, &tmp))
+	if (!mread_u32(&ptr, end, cu->bswap, &tmp))
 		return drgn_eof();
 	cu->is_64_bit = tmp == UINT32_C(0xffffffff);
 	if (cu->is_64_bit) {
-		if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-					  &cu->unit_length))
+		if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+					   &cu->unit_length))
 			return drgn_eof();
 	} else {
 		cu->unit_length = tmp;
 	}
 
-	if (!read_u16(&ptr, end, cu->bswap, &version))
+	uint16_t version;
+	if (!mread_u16(&ptr, end, cu->bswap, &version))
 		return drgn_eof();
 	if (version != 2 && version != 3 && version != 4) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
@@ -1187,15 +1183,15 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 	cu->version = version;
 
 	if (cu->is_64_bit) {
-		if (!read_u64(&ptr, end, cu->bswap, &cu->debug_abbrev_offset))
+		if (!mread_u64(&ptr, end, cu->bswap, &cu->debug_abbrev_offset))
 			return drgn_eof();
 	} else {
-		if (!read_u32_into_u64(&ptr, end, cu->bswap,
-				       &cu->debug_abbrev_offset))
+		if (!mread_u32_into_u64(&ptr, end, cu->bswap,
+					&cu->debug_abbrev_offset))
 			return drgn_eof();
 	}
 
-	if (!read_u8(&ptr, end, &cu->address_size))
+	if (!mread_u8(&ptr, end, &cu->address_size))
 		return drgn_eof();
 
 	return NULL;
@@ -1234,7 +1230,9 @@ read_dwfl_module_cus(struct drgn_dwfl_module_userdata *userdata,
 		cu->file_name_hashes = NULL;
 		cu->num_file_names = 0;
 
-		ptr += (cu->is_64_bit ? 12 : 4) + cu->unit_length;
+		if (!mread_skip(&ptr, end,
+				(cu->is_64_bit ? 12 : 4) + cu->unit_length))
+			return drgn_eof();
 	}
 	return NULL;
 }
@@ -1337,7 +1335,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		      "maximum DWARF attribute instruction is invalid");
 
 	uint64_t code;
-	if ((err = read_uleb128(ptr, end, &code)))
+	if ((err = mread_uleb128(ptr, end, &code)))
 		return err;
 	if (code == 0)
 		return &drgn_stop;
@@ -1351,7 +1349,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		return &drgn_enomem;
 
 	uint64_t tag;
-	if ((err = read_uleb128(ptr, end, &tag)))
+	if ((err = mread_uleb128(ptr, end, &tag)))
 		return err;
 
 	bool should_index;
@@ -1379,7 +1377,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	uint8_t die_flags = should_index ? tag : 0;
 
 	uint8_t children;
-	if (!read_u8(ptr, end, &children))
+	if (!mread_u8(ptr, end, &children))
 		return drgn_eof();
 	if (children)
 		die_flags |= DIE_FLAG_CHILDREN;
@@ -1388,9 +1386,9 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	uint8_t insn;
 	for (;;) {
 		uint64_t name, form;
-		if ((err = read_uleb128(ptr, end, &name)))
+		if ((err = mread_uleb128(ptr, end, &name)))
 			return err;
-		if ((err = read_uleb128(ptr, end, &form)))
+		if ((err = mread_uleb128(ptr, end, &form)))
 			return err;
 		if (name == 0 && form == 0)
 			break;
@@ -1617,6 +1615,8 @@ static struct drgn_error *read_abbrev_table(struct compilation_unit *cu)
 {
 	Elf_Data *debug_abbrev = cu->userdata->debug_abbrev;
 	const char *ptr = section_ptr(debug_abbrev, cu->debug_abbrev_offset);
+	if (!ptr)
+		return drgn_eof();
 	const char *end = section_end(debug_abbrev);
 	struct uint32_vector decls = VECTOR_INIT;
 	struct uint8_vector insns = VECTOR_INIT;
@@ -1641,17 +1641,14 @@ static struct drgn_error *skip_lnp_header(struct compilation_unit *cu,
 					  const char **ptr, const char *end)
 {
 	uint32_t tmp;
-	bool is_64_bit;
-	uint16_t version;
-	uint8_t opcode_base;
-
-	if (!read_u32(ptr, end, cu->bswap, &tmp))
+	if (!mread_u32(ptr, end, cu->bswap, &tmp))
 		return drgn_eof();
-	is_64_bit = tmp == UINT32_C(0xffffffff);
-	if (is_64_bit)
-		*ptr += sizeof(uint64_t);
+	bool is_64_bit = tmp == UINT32_C(0xffffffff);
+	if (is_64_bit && !mread_skip(ptr, end, sizeof(uint64_t)))
+		return drgn_eof();
 
-	if (!read_u16(ptr, end, cu->bswap, &version))
+	uint16_t version;
+	if (!mread_u16(ptr, end, cu->bswap, &version))
 		return drgn_eof();
 	if (version != 2 && version != 3 && version != 4) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
@@ -1660,19 +1657,20 @@ static struct drgn_error *skip_lnp_header(struct compilation_unit *cu,
 	}
 
 	/*
+	 * Skip:
 	 * header_length
 	 * minimum_instruction_length
 	 * maximum_operations_per_instruction (DWARF 4 only)
 	 * default_is_stmt
 	 * line_base
 	 * line_range
+	 * standard_opcode_lengths
 	 */
-	*ptr += (is_64_bit ? 8 : 4) + 4 + (version >= 4);
-
-	if (!read_u8(ptr, end, &opcode_base))
+	uint8_t opcode_base;
+	if (!mread_skip(ptr, end, (is_64_bit ? 8 : 4) + 4 + (version >= 4)) ||
+	    !mread_u8(ptr, end, &opcode_base) ||
+	    !mread_skip(ptr, end, opcode_base - 1))
 		return drgn_eof();
-	/* standard_opcode_lengths */
-	*ptr += opcode_base - 1;
 
 	return NULL;
 }
@@ -1711,8 +1709,11 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	 */
 	static const uint64_t siphash_key[2];
 	struct drgn_error *err;
+
 	Elf_Data *debug_line = cu->userdata->debug_line;
 	const char *ptr = section_ptr(debug_line, stmt_list);
+	if (!ptr)
+		return drgn_eof();
 	const char *end = section_end(debug_line);
 
 	err = skip_lnp_header(cu, &ptr, end);
@@ -1723,7 +1724,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	for (;;) {
 		const char *path;
 		size_t path_len;
-		if (!read_string(&ptr, end, &path, &path_len)) {
+		if (!mread_string(&ptr, end, &path, &path_len)) {
 			err = drgn_eof();
 			goto out_directories;
 		}
@@ -1744,7 +1745,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	for (;;) {
 		const char *path;
 		size_t path_len;
-		if (!read_string(&ptr, end, &path, &path_len)) {
+		if (!mread_string(&ptr, end, &path, &path_len)) {
 			err = drgn_eof();
 			goto out_hashes;
 		}
@@ -1752,10 +1753,11 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 			break;
 
 		uint64_t directory_index;
-		if ((err = read_uleb128(&ptr, end, &directory_index)))
+		if ((err = mread_uleb128(&ptr, end, &directory_index)))
 			goto out_hashes;
 		/* mtime, size */
-		if (!skip_leb128(&ptr, end) || !skip_leb128(&ptr, end)) {
+		if (!mread_skip_leb128(&ptr, end) ||
+		    !mread_skip_leb128(&ptr, end)) {
 			err = drgn_eof();
 			goto out_hashes;
 		}
@@ -1837,7 +1839,7 @@ static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
 		size_t die_offset = ptr - debug_info_buffer;
 
 		uint64_t code;
-		if ((err = read_uleb128(&ptr, end, &code)))
+		if ((err = mread_uleb128(&ptr, end, &code)))
 			return err;
 		if (code == 0) {
 			if (depth-- > 1)
@@ -1860,71 +1862,70 @@ static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
 			size_t skip, tmp;
 			switch (insn) {
 			case ATTRIB_BLOCK1:
-				if (!read_u8_into_size_t(&ptr, end, &skip))
+				if (!mread_u8_into_size_t(&ptr, end, &skip))
 					return drgn_eof();
 				goto skip;
 			case ATTRIB_BLOCK2:
-				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
-							  &skip))
+				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
+							   &skip))
 					return drgn_eof();
 				goto skip;
 			case ATTRIB_BLOCK4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &skip))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &skip))
 					return drgn_eof();
 				goto skip;
 			case ATTRIB_EXPRLOC:
-				if ((err = read_uleb128_into_size_t(&ptr, end,
-								    &skip)))
+				if ((err = mread_uleb128_into_size_t(&ptr, end,
+								     &skip)))
 					return err;
 				goto skip;
 			case ATTRIB_LEB128:
 			case ATTRIB_DECL_FILE_UDATA:
-				if (!skip_leb128(&ptr, end))
+				if (!mread_skip_leb128(&ptr, end))
 					return drgn_eof();
 				break;
 			case ATTRIB_STRING:
 			case ATTRIB_NAME_STRING:
-				if (!skip_string(&ptr, end))
+				if (!mread_skip_string(&ptr, end))
 					return drgn_eof();
 				break;
 			case ATTRIB_SIBLING_REF1:
-				if (!read_u8_into_size_t(&ptr, end, &tmp))
+				if (!mread_u8_into_size_t(&ptr, end, &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF2:
-				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF8:
-				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF_UDATA:
-				if ((err = read_uleb128_into_size_t(&ptr, end,
-								    &tmp)))
+				if ((err = mread_uleb128_into_size_t(&ptr, end,
+								     &tmp)))
 					return err;
 sibling:
-				if (!read_in_bounds(cu->ptr, end, tmp))
+				if (!(sibling = mread_begin(cu->ptr, end, tmp)))
 					return drgn_eof();
-				sibling = &cu->ptr[tmp];
 				__builtin_prefetch(sibling);
 				break;
 			case ATTRIB_STMT_LIST_LINEPTR4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &stmt_list))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &stmt_list))
 					return drgn_eof();
 				break;
 			case ATTRIB_STMT_LIST_LINEPTR8:
-				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-							  &stmt_list))
+				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+							   &stmt_list))
 					return drgn_eof();
 				break;
 			case ATTRIB_DECL_FILE_DATA1:
@@ -1943,46 +1944,46 @@ sibling:
 				goto skip;
 			case ATTRIB_DECLARATION_FLAG: {
 				uint8_t flag;
-				if (!read_u8(&ptr, end, &flag))
+				if (!mread_u8(&ptr, end, &flag))
 					return drgn_eof();
 				if (flag)
 					declaration = true;
 				break;
 			}
 			case ATTRIB_SPECIFICATION_REF1:
-				if (!read_u8_into_size_t(&ptr, end, &tmp))
+				if (!mread_u8_into_size_t(&ptr, end, &tmp))
 					return drgn_eof();
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF2:
-				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF8:
-				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF_UDATA:
-				if ((err = read_uleb128_into_size_t(&ptr, end,
-								    &tmp)))
+				if ((err = mread_uleb128_into_size_t(&ptr, end,
+								     &tmp)))
 					return err;
 specification:
 				specification = (uintptr_t)cu->ptr + tmp;
 				break;
 			case ATTRIB_SPECIFICATION_REF_ADDR4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto specification_ref_addr;
 			case ATTRIB_SPECIFICATION_REF_ADDR8:
-				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 specification_ref_addr:
 				specification = (uintptr_t)debug_info_buffer + tmp;
@@ -1990,9 +1991,8 @@ specification_ref_addr:
 			default:
 				skip = insn;
 skip:
-				if (!read_in_bounds(ptr, end, skip))
+				if (!mread_skip(&ptr, end, skip))
 					return drgn_eof();
-				ptr += skip;
 				break;
 			}
 		}
@@ -2135,8 +2135,6 @@ static struct drgn_error *index_cu_second_pass(struct drgn_dwarf_index *dindex,
 	Elf_Data *debug_info = cu->userdata->debug_info;
 	const char *debug_info_buffer = section_ptr(debug_info, 0);
 	Elf_Data *debug_str = cu->userdata->debug_str;
-	const char *debug_str_buffer = section_ptr(debug_str, 0);
-	const char *debug_str_end = section_end(debug_str);
 	unsigned int depth = 0;
 	uint8_t depth1_tag = 0;
 	size_t depth1_offset = 0;
@@ -2145,7 +2143,7 @@ static struct drgn_error *index_cu_second_pass(struct drgn_dwarf_index *dindex,
 		size_t die_offset = ptr - debug_info_buffer;
 
 		uint64_t code;
-		if ((err = read_uleb128(&ptr, end, &code)))
+		if ((err = mread_uleb128(&ptr, end, &code)))
 			return err;
 		if (code == 0) {
 			if (depth-- > 1)
@@ -2169,81 +2167,78 @@ static struct drgn_error *index_cu_second_pass(struct drgn_dwarf_index *dindex,
 			size_t skip, tmp;
 			switch (insn) {
 			case ATTRIB_BLOCK1:
-				if (!read_u8_into_size_t(&ptr, end, &skip))
+				if (!mread_u8_into_size_t(&ptr, end, &skip))
 					return drgn_eof();
 				goto skip;
 			case ATTRIB_BLOCK2:
-				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
-							  &skip))
+				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
+							   &skip))
 					return drgn_eof();
 				goto skip;
 			case ATTRIB_BLOCK4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &skip))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &skip))
 					return drgn_eof();
 				goto skip;
 			case ATTRIB_EXPRLOC:
-				if ((err = read_uleb128_into_size_t(&ptr, end,
-								    &skip)))
+				if ((err = mread_uleb128_into_size_t(&ptr, end,
+								     &skip)))
 					return err;
 				goto skip;
 			case ATTRIB_SPECIFICATION_REF_UDATA:
 				specification = true;
 				/* fallthrough */
 			case ATTRIB_LEB128:
-				if (!skip_leb128(&ptr, end))
+				if (!mread_skip_leb128(&ptr, end))
 					return drgn_eof();
 				break;
 			case ATTRIB_NAME_STRING:
 				name = ptr;
 				/* fallthrough */
 			case ATTRIB_STRING:
-				if (!skip_string(&ptr, end))
+				if (!mread_skip_string(&ptr, end))
 					return drgn_eof();
 				break;
 			case ATTRIB_SIBLING_REF1:
-				if (!read_u8_into_size_t(&ptr, end, &tmp))
+				if (!mread_u8_into_size_t(&ptr, end, &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF2:
-				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF8:
-				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto sibling;
 			case ATTRIB_SIBLING_REF_UDATA:
-				if ((err = read_uleb128_into_size_t(&ptr, end,
-								    &tmp)))
+				if ((err = mread_uleb128_into_size_t(&ptr, end,
+								     &tmp)))
 					return err;
 sibling:
-				if (!read_in_bounds(cu->ptr, end, tmp))
+				if (!(sibling = mread_begin(cu->ptr, end, tmp)))
 					return drgn_eof();
-				sibling = &cu->ptr[tmp];
 				__builtin_prefetch(sibling);
 				break;
 			case ATTRIB_NAME_STRP4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 				goto strp;
 			case ATTRIB_NAME_STRP8:
-				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-							  &tmp))
+				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+							   &tmp))
 					return drgn_eof();
 strp:
-				if (!read_in_bounds(debug_str_buffer, debug_str_end,
-						    tmp))
+				if (!(name = section_ptr(debug_str, tmp)))
 					return drgn_eof();
-				name = &debug_str_buffer[tmp];
 				__builtin_prefetch(name);
 				break;
 			case ATTRIB_STMT_LIST_LINEPTR4:
@@ -2253,32 +2248,33 @@ strp:
 				skip = 8;
 				goto skip;
 			case ATTRIB_DECL_FILE_DATA1:
-				if (!read_u8_into_size_t(&ptr, end, &decl_file))
+				if (!mread_u8_into_size_t(&ptr, end,
+							  &decl_file))
 					return drgn_eof();
 				break;
 			case ATTRIB_DECL_FILE_DATA2:
-				if (!read_u16_into_size_t(&ptr, end, cu->bswap,
-							  &decl_file))
+				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
+							   &decl_file))
 					return drgn_eof();
 				break;
 			case ATTRIB_DECL_FILE_DATA4:
-				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
-							  &decl_file))
+				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
+							   &decl_file))
 					return drgn_eof();
 				break;
 			case ATTRIB_DECL_FILE_DATA8:
-				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
-							  &decl_file))
+				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
+							   &decl_file))
 					return drgn_eof();
 				break;
 			case ATTRIB_DECL_FILE_UDATA:
-				if ((err = read_uleb128_into_size_t(&ptr, end,
-								    &decl_file)))
+				if ((err = mread_uleb128_into_size_t(&ptr, end,
+								     &decl_file)))
 					return err;
 				break;
 			case ATTRIB_DECLARATION_FLAG: {
 				uint8_t flag;
-				if (!read_u8(&ptr, end, &flag))
+				if (!mread_u8(&ptr, end, &flag))
 					return drgn_eof();
 				if (flag)
 					declaration = true;
@@ -2305,9 +2301,8 @@ strp:
 			default:
 				skip = insn;
 skip:
-				if (!read_in_bounds(ptr, end, skip))
+				if (!mread_skip(&ptr, end, skip))
 					return drgn_eof();
-				ptr += skip;
 				break;
 			}
 		}
