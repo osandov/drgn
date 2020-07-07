@@ -170,7 +170,7 @@ const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks = {
  * set to zero if the tag is not of interest); see DIE_FLAG_*.
  */
 enum {
-	INSN_MAX_SKIP = 228,
+	INSN_MAX_SKIP = 226,
 	ATTRIB_BLOCK1,
 	ATTRIB_BLOCK2,
 	ATTRIB_BLOCK4,
@@ -198,7 +198,9 @@ enum {
 	ATTRIB_SPECIFICATION_REF4,
 	ATTRIB_SPECIFICATION_REF8,
 	ATTRIB_SPECIFICATION_REF_UDATA,
-	ATTRIB_MAX_INSN = ATTRIB_SPECIFICATION_REF_UDATA,
+	ATTRIB_SPECIFICATION_REF_ADDR4,
+	ATTRIB_SPECIFICATION_REF_ADDR8,
+	ATTRIB_MAX_INSN = ATTRIB_SPECIFICATION_REF_ADDR8,
 };
 
 enum {
@@ -218,6 +220,7 @@ struct compilation_unit {
 	const char *ptr;
 	size_t unit_length;
 	uint64_t debug_abbrev_offset;
+	uint8_t version;
 	uint8_t address_size;
 	bool is_64_bit;
 	bool bswap;
@@ -1181,6 +1184,7 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 					 "unknown DWARF CU version %" PRIu16,
 					 version);
 	}
+	cu->version = version;
 
 	if (cu->is_64_bit) {
 		if (!read_u64(&ptr, end, cu->bswap, &cu->debug_abbrev_offset))
@@ -1504,8 +1508,27 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 			case DW_FORM_ref_udata:
 				insn = ATTRIB_SPECIFICATION_REF_UDATA;
 				goto append_insn;
+			case DW_FORM_ref_addr:
+				if (cu->version >= 3) {
+					if (cu->is_64_bit)
+						insn = ATTRIB_SPECIFICATION_REF_ADDR8;
+					else
+						insn = ATTRIB_SPECIFICATION_REF_ADDR4;
+				} else {
+					if (cu->address_size == 8)
+						insn = ATTRIB_SPECIFICATION_REF_ADDR8;
+					else if (cu->address_size == 4)
+						insn = ATTRIB_SPECIFICATION_REF_ADDR4;
+					else
+						return drgn_error_format(DRGN_ERROR_OTHER,
+									 "unsupported address size %" PRIu8,
+									 cu->address_size);
+				}
+				goto append_insn;
 			default:
-				break;
+				return drgn_error_format(DRGN_ERROR_OTHER,
+							 "unknown attribute form %" PRIu64 " for DW_AT_specification",
+							 form);
 			}
 		}
 
@@ -1952,6 +1975,18 @@ sibling:
 specification:
 				specification = (uintptr_t)cu->ptr + tmp;
 				break;
+			case ATTRIB_SPECIFICATION_REF_ADDR4:
+				if (!read_u32_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+				goto specification_ref_addr;
+			case ATTRIB_SPECIFICATION_REF_ADDR8:
+				if (!read_u64_into_size_t(&ptr, end, cu->bswap,
+							  &tmp))
+					return drgn_eof();
+specification_ref_addr:
+				specification = (uintptr_t)debug_info_buffer + tmp;
+				break;
 			default:
 				skip = insn;
 skip:
@@ -2258,10 +2293,12 @@ strp:
 				skip = 2;
 				goto skip;
 			case ATTRIB_SPECIFICATION_REF4:
+			case ATTRIB_SPECIFICATION_REF_ADDR4:
 				specification = true;
 				skip = 4;
 				goto skip;
 			case ATTRIB_SPECIFICATION_REF8:
+			case ATTRIB_SPECIFICATION_REF_ADDR8:
 				specification = true;
 				skip = 8;
 				goto skip;
