@@ -565,11 +565,9 @@ drgn_object_dereference_offset(struct drgn_object *res,
 
 	/*
 	 * / and % truncate towards 0. Here, we want to truncate towards
-	 * negative infinity. As long as we have an arithmetic right shift, we
-	 * can accomplish that by replacing "/ 8" with ">> 3" and "% 8" with
-	 * "& 7".
+	 * negative infinity. We can accomplish that by replacing "/ 8" with an
+	 * arithmetic shift ">> 3" and "% 8" with "& 7".
 	 */
-	static_assert((-1 >> 1) == -1, "right shift is not arithmetic");
 	address += bit_offset >> 3;
 	bit_offset &= 7;
 	return drgn_object_set_reference(res, qualified_type, address,
@@ -2167,11 +2165,6 @@ struct drgn_error *drgn_op_rshift_impl(struct drgn_object *res,
 		err = drgn_object_convert_signed(lhs, bit_size, &svalue);
 		if (err)
 			return err;
-		/*
-		 * Right shift of a negative integer is implementation-defined.
-		 * GCC always uses an arithmetic shift.
-		 */
-		static_assert((-1 >> 1) == -1, "right shift is not arithmetic");
 		if (shift < bit_size)
 			svalue >>= shift;
 		else if (svalue >= 0)
