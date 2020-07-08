@@ -56,6 +56,8 @@ Installation
 
 .. start-install-dependencies
 
+.. highlight:: console
+
 Install dependencies:
 
 Arch Linux::
@@ -81,9 +83,7 @@ Optionally, install:
 
 .. end-install-dependencies
 
-Then, run:
-
-.. code-block:: console
+Then, run::
 
     $ sudo pip3 install drgn
 

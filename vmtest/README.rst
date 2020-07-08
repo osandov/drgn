@@ -4,8 +4,8 @@ drgn VM Testing
 drgn has a significant amount of code (both core and in helpers) which is
 dependent on the Linux kernel version. This code is tested on multiple Linux
 kernel versions in a virtual machine. These tests can be run on all supported
-kernels with ``python3 setup.py test -K``. This requires QEMU and zstd to be
-installed.
+kernels with ``python3 setup.py test -K``. This requires QEMU, BusyBox, and
+zstd to be installed.
 
 Tests can also be run on specific kernels with ``-k``. This takes a
 comma-separated list of kernels which are either a wildcard pattern (e.g.,

@@ -1,7 +1,10 @@
 Installation
 ============
 
-.. highlight:: console
+There are several options for installing drgn.
+
+Dependencies
+------------
 
 drgn depends on:
 
@@ -30,8 +33,13 @@ The build requires:
     :start-after: start-install-dependencies
     :end-before: end-install-dependencies
 
-The latest release of drgn can be installed globally with `pip
-<https://pip.pypa.io>`_::
+Installation
+------------
+
+.. highlight:: console
+
+After installing dependencies, the latest release of drgn can be installed
+globally with `pip <https://pip.pypa.io>`_::
 
     $ sudo pip3 install drgn
     $ drgn --help
@@ -53,9 +61,12 @@ drgn globally::
     (drgenv) $ pip3 install drgn
     (drgenv) $ drgn --help
 
+Development
+-----------
+
 For development, drgn can be built and run locally::
 
-    $ python3 setup.py egg_info build_ext -i
+    $ CFLAGS="-Wall -Werror -g -O2" python3 setup.py egg_info build_ext -i
     $ python3 -m drgn --help
 
 libkdumpfile
