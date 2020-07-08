@@ -9,7 +9,7 @@ install:
   # Upstream defaults to world-read-writeable /dev/kvm. Debian/Ubuntu override
   # this; see https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=892945. We want
   # the upstream default.
-  - sudo echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /lib/udev/rules.d/99-fix-kvm.rules > /dev/null
+  - echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /lib/udev/rules.d/99-fix-kvm.rules > /dev/null
   - sudo udevadm control --reload-rules
   # On systemd >= 238 we can use udevadm trigger -w and remove udevadm settle.
   - sudo udevadm trigger /dev/kvm
