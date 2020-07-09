@@ -257,56 +257,13 @@ out:
 
 static struct drgn_error *
 linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
-					  const struct drgn_object *task_obj,
-					  const void *prstatus,
-					  size_t prstatus_size)
+					  const struct drgn_object *task_obj)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = task_obj->prog;
 	struct drgn_object sp_obj;
-	struct drgn_qualified_type frame_type;
-	uint64_t sp;
-	Dwarf_Word dwarf_reg;
 
 	drgn_object_init(&sp_obj, prog);
-
-	if (prstatus) {
-		/*
-		 * If the stack pointer in PRSTATUS is within this task's stack,
-		 * then we can use it. Otherwise, the task either wasn't running
-		 * or was in the middle of context switching. Either way, we
-		 * should use the saved registers instead.
-		 */
-		uint64_t thread_size;
-		uint64_t stack;
-
-		err = linux_kernel_get_thread_size(prog, &thread_size);
-		if (err)
-			goto out;
-		err = drgn_object_member_dereference(&sp_obj, task_obj,
-						     "stack");
-		if (err)
-			goto out;
-		err = drgn_object_read_unsigned(&sp_obj, &stack);
-		if (err)
-			goto out;
-
-		if (prstatus_size < 272) {
-			err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						"registers are truncated");
-			goto out;
-		}
-		memcpy(&sp, (char *)prstatus + 264, sizeof(sp));
-		if (drgn_program_bswap(prog))
-			sp = bswap_64(sp);
-		if (sp > stack && sp <= stack + thread_size) {
-			err = prstatus_set_initial_registers_x86_64(prog,
-								    thread,
-								    prstatus,
-								    prstatus_size);
-			goto out;
-		}
-	}
 
 	err = drgn_object_member_dereference(&sp_obj, task_obj, "thread");
 	if (err)
@@ -314,10 +271,11 @@ linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
 	err = drgn_object_member(&sp_obj, &sp_obj, "sp");
 	if (err)
 		goto out;
+	uint64_t sp;
 	err = drgn_object_read_unsigned(&sp_obj, &sp);
 	if (err)
 		goto out;
-	dwarf_reg = sp;
+	Dwarf_Word dwarf_reg = sp;
 	/* rsp is register 7. */
 	if (!dwfl_thread_state_registers(thread, 7, 1, &dwarf_reg)) {
 		err = drgn_error_libdwfl();
@@ -330,6 +288,7 @@ linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
 	 * inactive_task_frame, which we can use to get most registers. Before
 	 * that, it points to bp.
 	 */
+	struct drgn_qualified_type frame_type;
 	err = drgn_program_find_type(prog, "struct inactive_task_frame *", NULL,
 				     &frame_type);
 	if (!err) {

@@ -738,33 +738,37 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	return err;
 }
 
-struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
-						     char *data, size_t size)
+static uint32_t get_prstatus_pid(struct drgn_program *prog, const char *data,
+				 size_t size)
 {
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		struct string *entry;
+	uint32_t pr_pid;
+	memcpy(&pr_pid, data + (drgn_program_is_64_bit(prog) ? 32 : 24),
+	       sizeof(pr_pid));
+	if (drgn_program_bswap(prog))
+		pr_pid = bswap_32(pr_pid);
+	return pr_pid;
+}
 
-		entry = drgn_prstatus_vector_append_entry(&prog->prstatus_vector);
+struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
+						     const char *data,
+						     size_t size)
+{
+	if (size < (drgn_program_is_64_bit(prog) ? 36 : 28)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "NT_PRSTATUS is truncated");
+	}
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		struct string *entry =
+			drgn_prstatus_vector_append_entry(&prog->prstatus_vector);
 		if (!entry)
 			return &drgn_enomem;
 		entry->str = data;
 		entry->len = size;
 	} else {
-		struct drgn_prstatus_map_entry entry;
-		size_t pr_pid_offset;
-		uint32_t pr_pid;
-
-		pr_pid_offset = drgn_program_is_64_bit(prog) ? 32 : 24;
-		if (size < pr_pid_offset + sizeof(pr_pid))
-			return NULL;
-
-		memcpy(&pr_pid, data + pr_pid_offset, sizeof(pr_pid));
-		if (drgn_program_bswap(prog))
-			pr_pid = bswap_32(pr_pid);
-
-		entry.key = pr_pid;
-		entry.value.str = data;
-		entry.value.len = size;
+		struct drgn_prstatus_map_entry entry = {
+			.key = get_prstatus_pid(prog, data, size),
+			.value = { data, size },
+		};
 		if (drgn_prstatus_map_insert(&prog->prstatus_map, &entry,
 					     NULL) == -1)
 			return &drgn_enomem;
@@ -856,7 +860,8 @@ out:
 
 struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 						     uint32_t cpu,
-						     struct string *ret)
+						     struct string *ret,
+						     uint32_t *tid_ret)
 {
 	struct drgn_error *err;
 
@@ -867,6 +872,7 @@ struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 
 	if (cpu < prog->prstatus_vector.size) {
 		*ret = prog->prstatus_vector.data[cpu];
+		*tid_ret = get_prstatus_pid(prog, ret->str, ret->len);
 	} else {
 		ret->str = NULL;
 		ret->len = 0;

@@ -190,10 +190,12 @@ struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
  *
  * @param[out] ret Returned note data. If not found, <tt>ret->str</tt> is set to
  * @c NULL and <tt>ret->len</tt> is set to zero.
+ * @param[out] tid_ret Returned thread ID of note.
  */
 struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 						     uint32_t cpu,
-						     struct string *ret);
+						     struct string *ret,
+						     uint32_t *tid_ret);
 
 /**
  * Find the @c NT_PRSTATUS note for the given thread ID.
@@ -214,7 +216,8 @@ struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
  * @param[in] size Size of data in note.
  */
 struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
-                                                     char *data, size_t size);
+                                                     const char *data,
+						     size_t size);
 
 /*
  * Like @ref drgn_program_find_symbol_by_address(), but @p ret is already

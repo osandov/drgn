@@ -256,7 +256,6 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 	/* First, try pt_regs. */
 	if (prog->stack_trace_obj) {
 		bool is_pt_regs;
-
 		err = drgn_get_stack_trace_obj(&obj, prog, &is_pt_regs);
 		if (err)
 			goto out;
@@ -275,8 +274,6 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 			goto out;
 		}
 	} else if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		bool found;
-
 		err = drgn_program_find_object(prog, "init_pid_ns", NULL,
 					       DRGN_FIND_OBJECT_ANY, &tmp);
 		if (err)
@@ -287,6 +284,7 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 		err = linux_helper_find_task(&obj, &tmp, prog->stack_trace_tid);
 		if (err)
 			goto out;
+		bool found;
 		err = drgn_object_bool(&obj, &found);
 		if (err)
 			goto out;
@@ -319,29 +317,62 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 			} else {
 				goto out;
 			}
-			prstatus.str = NULL;
-			prstatus.len = 0;
 		} else {
+			/*
+			 * For kernel core dumps, we look up the PRSTATUS note
+			 * by CPU rather than by PID. This is because there is
+			 * an idle task with PID 0 for each CPU, so we must find
+			 * the idle task by CPU. Rather than making PID 0 a
+			 * special case, we handle all tasks this way.
+			 */
 			union drgn_value value;
-			uint32_t cpu;
-
 			err = drgn_object_member_dereference(&tmp, &obj, "cpu");
 			if (!err) {
 				err = drgn_object_read_integer(&tmp, &value);
 				if (err)
 					goto out;
-				cpu = value.uvalue;
 			} else if (err->code == DRGN_ERROR_LOOKUP) {
 				/* !SMP. Must be CPU 0. */
 				drgn_error_destroy(err);
-				cpu = 0;
+				value.uvalue = 0;
 			} else {
 				goto out;
 			}
-			err = drgn_program_find_prstatus_by_cpu(prog, cpu,
-								&prstatus);
+			uint32_t prstatus_tid;
+			err = drgn_program_find_prstatus_by_cpu(prog,
+								value.uvalue,
+								&prstatus,
+								&prstatus_tid);
 			if (err)
 				goto out;
+			if (prstatus.str) {
+				/*
+				 * The PRSTATUS note is for the CPU that the
+				 * task is assigned to, but it is not
+				 * necessarily for this task. Only use it if the
+				 * PID matches.
+				 *
+				 * Note that this isn't perfect: the PID is
+				 * populated by the kernel from "current" (the
+				 * current task) via a non-maskable interrupt
+				 * (NMI). During a context switch, the stack
+				 * pointer and current are not updated
+				 * atomically, so if the NMI arrives in the
+				 * middle of a context switch, the stack pointer
+				 * may not actually be that of current.
+				 * Therefore, the stack pointer in PRSTATUS may
+				 * not actually be for the PID in PRSTATUS.
+				 * Unfortunately, we can't easily fix this.
+				 */
+				err = drgn_object_member_dereference(&tmp, &obj, "pid");
+				if (err)
+					goto out;
+				err = drgn_object_read_integer(&tmp, &value);
+				if (err)
+					goto out;
+				if (prstatus_tid == value.uvalue)
+					goto prstatus;
+			}
 		}
 		if (!prog->platform.arch->linux_kernel_set_initial_registers) {
 			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
@@ -350,9 +381,7 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 			goto out;
 		}
 		err = prog->platform.arch->linux_kernel_set_initial_registers(thread,
-									      &obj,
-									      prstatus.str,
-									      prstatus.len);
+									      &obj);
 	} else {
 		err = drgn_program_find_prstatus_by_tid(prog,
 							prog->stack_trace_tid,
@@ -363,6 +392,7 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 			err = drgn_error_create(DRGN_ERROR_LOOKUP, "thread not found");
 			goto out;
 		}
+prstatus:
 		if (!prog->platform.arch->prstatus_set_initial_registers) {
 			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						"core dump stack unwinding is not supported for %s architecture",
