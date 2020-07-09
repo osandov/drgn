@@ -651,6 +651,7 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	(*depth)++;
 
 	if (drgn_type_kind(a) != drgn_type_kind(b) ||
+	    drgn_type_language(a) != drgn_type_language(b) ||
 	    drgn_type_is_complete(a) != drgn_type_is_complete(b))
 		goto out_false;
 
