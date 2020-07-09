@@ -4,6 +4,7 @@
 import os
 import re
 import signal
+import unittest
 
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.sched import task_state_to_char
@@ -40,6 +41,7 @@ class TestSched(LinuxHelperTestCase):
 
         os.waitpid(pid, 0)
 
+    @unittest.skip("GCC 10 breaks THREAD_SIZE object finder")
     def test_thread_size(self):
         # As far as I can tell, there's no way to query this value from
         # userspace, so at least sanity check that it's a power-of-two multiple
