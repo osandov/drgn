@@ -84,7 +84,7 @@ drgn.h: configure.ac build-aux/gen_drgn_h.awk build-aux/parse_arch.awk $(ARCH_IN
 		-v version=@PACKAGE_VERSION@ \
 		$(wordlist 4, $(words $^), $^) > $@
 
-elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2
+elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2 -ldl
 
 lib_LTLIBRARIES = libdrgn.la
 
@@ -142,3 +142,8 @@ python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 
 EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py \
 	     build-aux/gen_drgn_h.awk build-aux/parse_arch.awk
+
+EXTRA_PROGRAMS = examples/load_debug_info
+
+examples_load_debug_info_SOURCES = examples/load_debug_info.c
+examples_load_debug_info_LDADD = libdrgnimpl.la $(elfutils_LIBS)
