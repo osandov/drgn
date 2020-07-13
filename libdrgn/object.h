@@ -129,6 +129,35 @@ struct drgn_error *sanity_check_object(enum drgn_object_kind kind,
 				       uint64_t bit_field_size,
 				       uint64_t bit_size);
 
+/**
+ * Like @ref drgn_object_set_signed() but @ref drgn_object_set_common() was
+ * already called.
+ */
+struct drgn_error *
+drgn_object_set_signed_internal(struct drgn_object *res,
+				const struct drgn_object_type *type,
+				uint64_t bit_size, int64_t svalue);
+
+/**
+ * Like @ref drgn_object_set_unsigned() but @ref drgn_object_set_common() was
+ * already called.
+ */
+struct drgn_error *
+drgn_object_set_unsigned_internal(struct drgn_object *res,
+				  const struct drgn_object_type *type,
+				  uint64_t bit_size, uint64_t uvalue);
+
+/**
+ * Like @ref drgn_object_set_buffer() but @ref drgn_object_set_common() was
+ * already called.
+ */
+struct drgn_error *
+drgn_object_set_buffer_internal(struct drgn_object *res,
+				const struct drgn_object_type *type,
+				enum drgn_object_kind kind, uint64_t bit_size,
+				const void *buf, uint8_t bit_offset,
+				bool little_endian);
+
 /** Convert a @ref drgn_byte_order to a boolean. */
 struct drgn_error *
 drgn_byte_order_to_little_endian(struct drgn_program *prog,

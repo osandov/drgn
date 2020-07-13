@@ -90,10 +90,19 @@ def _compile_debug_info(cu_die, little_endian, bits):
                 buf.extend(value.to_bytes(bits // 8, byteorder))
             elif attrib.form == DW_FORM.data1:
                 buf.append(value)
+            elif attrib.form == DW_FORM.data2:
+                buf.extend(value.to_bytes(2, byteorder))
+            elif attrib.form == DW_FORM.data4:
+                buf.extend(value.to_bytes(4, byteorder))
+            elif attrib.form == DW_FORM.data8:
+                buf.extend(value.to_bytes(8, byteorder))
             elif attrib.form == DW_FORM.udata:
                 _append_uleb128(buf, value)
             elif attrib.form == DW_FORM.sdata:
                 _append_sleb128(buf, value)
+            elif attrib.form == DW_FORM.block1:
+                buf.append(len(value))
+                buf.extend(value)
             elif attrib.form == DW_FORM.string:
                 buf.extend(value.encode())
                 buf.append(0)

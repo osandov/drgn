@@ -104,7 +104,7 @@ drgn_object_set_common(struct drgn_qualified_type qualified_type,
 	return drgn_object_type_kind_and_size(type_ret, kind_ret, bit_size_ret);
 }
 
-static struct drgn_error *
+struct drgn_error *
 drgn_object_set_signed_internal(struct drgn_object *res,
 				const struct drgn_object_type *type,
 				uint64_t bit_size, int64_t svalue)
@@ -140,7 +140,7 @@ drgn_object_set_signed(struct drgn_object *res,
 	return drgn_object_set_signed_internal(res, &type, bit_size, svalue);
 }
 
-static struct drgn_error *
+struct drgn_error *
 drgn_object_set_unsigned_internal(struct drgn_object *res,
 				  const struct drgn_object_type *type,
 				  uint64_t bit_size, uint64_t uvalue)
@@ -296,7 +296,7 @@ drgn_byte_order_to_little_endian(struct drgn_program *prog,
 	}
 }
 
-static struct drgn_error *
+struct drgn_error *
 drgn_object_set_buffer_internal(struct drgn_object *res,
 				const struct drgn_object_type *type,
 				enum drgn_object_kind kind, uint64_t bit_size,

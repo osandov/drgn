@@ -10,6 +10,7 @@
 #include "dwarf_index.h"
 #include "dwarf_info_cache.h"
 #include "hash_table.h"
+#include "object.h"
 #include "object_index.h"
 #include "type_index.h"
 #include "vector.h"
@@ -1529,6 +1530,55 @@ drgn_object_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
 }
 
 static struct drgn_error *
+drgn_object_from_dwarf_constant(struct drgn_dwarf_info_cache *dicache,
+				Dwarf_Die *die,
+				struct drgn_qualified_type qualified_type,
+				Dwarf_Attribute *attr, struct drgn_object *ret)
+{
+	struct drgn_object_type type;
+	enum drgn_object_kind kind;
+	uint64_t bit_size;
+	struct drgn_error *err = drgn_object_set_common(qualified_type, 0,
+							&type, &kind,
+							&bit_size);
+	if (err)
+		return err;
+	Dwarf_Block block;
+	if (dwarf_formblock(attr, &block) == 0) {
+		bool little_endian;
+		err = dwarf_die_is_little_endian(die, true, &little_endian);
+		if (err)
+			return err;
+		if (block.length < drgn_value_size(bit_size, 0)) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "DW_AT_const_value block is too small");
+		}
+		return drgn_object_set_buffer_internal(ret, &type, kind,
+						       bit_size, block.data, 0,
+						       little_endian);
+	} else if (kind == DRGN_OBJECT_SIGNED) {
+		Dwarf_Sword svalue;
+		if (dwarf_formsdata(attr, &svalue)) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid DW_AT_const_value");
+		}
+		return drgn_object_set_signed_internal(ret, &type, bit_size,
+						       svalue);
+	} else if (kind == DRGN_OBJECT_UNSIGNED) {
+		Dwarf_Word uvalue;
+		if (dwarf_formudata(attr, &uvalue)) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid DW_AT_const_value");
+		}
+		return drgn_object_set_unsigned_internal(ret, &type, bit_size,
+							 uvalue);
+	} else {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "unknown DW_AT_const_value form");
+	}
+}
+
+static struct drgn_error *
 drgn_object_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 				Dwarf_Die *die, uint64_t bias, const char *name,
 				struct drgn_object *ret)
@@ -1541,26 +1591,32 @@ drgn_object_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 	if (err)
 		return err;
 	Dwarf_Attribute attr_mem, *attr;
-	if (!(attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
+	if ((attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
+		Dwarf_Op *loc;
+		size_t nloc;
+		if (dwarf_getlocation(attr, &loc, &nloc))
+			return drgn_error_libdw();
+		if (nloc != 1 || loc[0].atom != DW_OP_addr) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "DW_AT_location has unimplemented operation");
+		}
+		enum drgn_byte_order byte_order;
+		err = dwarf_die_byte_order(die, true, &byte_order);
+		if (err)
+			return err;
+		return drgn_object_set_reference(ret, qualified_type,
+						 loc[0].number + bias, 0, 0,
+						 byte_order);
+	} else if ((attr = dwarf_attr_integrate(die, DW_AT_const_value,
+						&attr_mem))) {
+		return drgn_object_from_dwarf_constant(dicache, die,
+						       qualified_type, attr,
+						       ret);
+	} else {
 		return drgn_error_format(DRGN_ERROR_LOOKUP,
-					 "could not find address of '%s'",
+					 "could not find address or value of '%s'",
 					 name);
 	}
-	Dwarf_Op *loc;
-	size_t nloc;
-	if (dwarf_getlocation(attr, &loc, &nloc))
-		return drgn_error_libdw();
-	if (nloc != 1 || loc[0].atom != DW_OP_addr) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "DW_AT_location has unimplemented operation");
-	}
-	enum drgn_byte_order byte_order;
-	err = dwarf_die_byte_order(die, true, &byte_order);
-	if (err)
-		return err;
-	return drgn_object_set_reference(ret, qualified_type,
-					 loc[0].number + bias, 0, 0,
-					 byte_order);
 }
 
 struct drgn_error *

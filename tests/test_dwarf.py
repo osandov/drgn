@@ -2033,11 +2033,113 @@ class TestObjects(ObjectTestCase):
 
         del dies[1].attribs[2]
         prog = dwarf_program(dies)
-        self.assertRaisesRegex(LookupError, "could not find address", prog.object, "x")
+        self.assertRaisesRegex(
+            LookupError, "could not find address or value", prog.object, "x"
+        )
 
         dies[1].attribs.insert(2, DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b"\xe0"))
         prog = dwarf_program(dies)
         self.assertRaisesRegex(Exception, "unimplemented operation", prog.object, "x")
+
+    def test_const_signed(self):
+        for form in (
+            DW_FORM.data1,
+            DW_FORM.data2,
+            DW_FORM.data4,
+            DW_FORM.data8,
+            DW_FORM.sdata,
+        ):
+            dies = [
+                int_die,
+                DwarfDie(
+                    DW_TAG.variable,
+                    [
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                        DwarfAttrib(DW_AT.const_value, form, 1,),
+                    ],
+                ),
+            ]
+            prog = dwarf_program(dies)
+            self.assertEqual(
+                prog["x"], Object(prog, int_type("int", 4, True), 1),
+            )
+
+    def test_const_unsigned(self):
+        for form in (
+            DW_FORM.data1,
+            DW_FORM.data2,
+            DW_FORM.data4,
+            DW_FORM.data8,
+            DW_FORM.udata,
+        ):
+            dies = [
+                unsigned_int_die,
+                DwarfDie(
+                    DW_TAG.variable,
+                    [
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                        DwarfAttrib(DW_AT.const_value, form, 1),
+                    ],
+                ),
+            ]
+            prog = dwarf_program(dies)
+            self.assertEqual(
+                prog["x"], Object(prog, int_type("unsigned int", 4, False), 1),
+            )
+
+    def test_const_block(self):
+        dies = [
+            int_die,
+            DwarfDie(
+                DW_TAG.structure_type,
+                [
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                ],
+                [
+                    DwarfDie(
+                        DW_TAG.member,
+                        [
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                        ],
+                    ),
+                    DwarfDie(
+                        DW_TAG.member,
+                        [
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 4),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                        ],
+                    ),
+                ],
+            ),
+            DwarfDie(
+                DW_TAG.variable,
+                [
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "p"),
+                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                    DwarfAttrib(
+                        DW_AT.const_value,
+                        DW_FORM.block1,
+                        b"\x01\x00\x00\x00\x02\x00\x00\x00",
+                    ),
+                ],
+            ),
+        ]
+        prog = dwarf_program(dies)
+        self.assertEqual(
+            prog["p"], Object(prog, point_type, {"x": 1, "y": 2}),
+        )
+
+        dies[2].attribs[2] = DwarfAttrib(
+            DW_AT.const_value, DW_FORM.block1, b"\x01\x00\x00\x00\x02\x00\x00",
+        )
+        prog = dwarf_program(dies)
+        self.assertRaisesRegex(Exception, "too small", prog.variable, "p")
 
     def test_not_found(self):
         prog = dwarf_program([int_die])
