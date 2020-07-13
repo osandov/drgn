@@ -1807,7 +1807,7 @@ drgn_object_set_float(struct drgn_object *res,
 struct drgn_error *
 drgn_object_set_buffer(struct drgn_object *res,
 		       struct drgn_qualified_type qualified_type,
-		       const char *buf, uint8_t bit_offset,
+		       const void *buf, uint8_t bit_offset,
 		       uint64_t bit_field_size,
 		       enum drgn_byte_order byte_order);
 
