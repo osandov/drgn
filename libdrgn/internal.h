@@ -42,46 +42,9 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
 struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
 				     uint64_t *start_ret, uint64_t *end_ret);
 
-/**
- * Return the word size of a program based on an ELF file.
- *
- * Note that this looks at the ELF header rather than determining this based on
- * machine type, but the file format @e should correspond to the architecture
- * word size.
- */
-static inline uint8_t elf_word_size(Elf *elf)
-{
-	return elf_getident(elf, NULL)[EI_CLASS] == ELFCLASS64 ? 8 : 4;
-}
-
-/**
- * Return the endianness of a program based on an ELF file.
- *
- * Like @ref elf_word_size(), this only looks at the ELF header.
- */
-static inline bool elf_is_little_endian(Elf *elf)
-{
-	return elf_getident(elf, NULL)[EI_DATA] == ELFDATA2LSB;
-}
-
-static inline bool dwarf_die_is_little_endian(Dwarf_Die *die)
-{
-	return elf_is_little_endian(dwarf_getelf(dwarf_cu_getdwarf(die->cu)));
-}
-
-static inline enum drgn_byte_order dwarf_die_byte_order(Dwarf_Die *die)
-{
-	return (dwarf_die_is_little_endian(die) ?
-		DRGN_LITTLE_ENDIAN : DRGN_BIG_ENDIAN);
-}
-
 bool die_matches_filename(Dwarf_Die *die, const char *filename);
 
-/**
- * Path iterator input component.
- *
- *
- */
+/** Path iterator input component. */
 struct path_iterator_component {
 	/**
 	 * Path component.

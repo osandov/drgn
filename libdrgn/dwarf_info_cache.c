@@ -58,6 +58,63 @@ static void drgn_dwarf_type_free(struct drgn_dwarf_type *dwarf_type)
 	}
 }
 
+/**
+ * Return whether a DWARF DIE is little-endian.
+ *
+ * @param[in] check_attr Whether to check the DW_AT_endianity attribute. If @c
+ * false, only the ELF header is checked and this function cannot fail.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+static struct drgn_error *dwarf_die_is_little_endian(Dwarf_Die *die,
+						     bool check_attr, bool *ret)
+{
+	Dwarf_Attribute endianity_attr_mem, *endianity_attr;
+	Dwarf_Word endianity;
+	if (check_attr &&
+	    (endianity_attr = dwarf_attr_integrate(die, DW_AT_endianity,
+						   &endianity_attr_mem))) {
+		if (dwarf_formudata(endianity_attr, &endianity)) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid DW_AT_endianity");
+		}
+	} else {
+		endianity = DW_END_default;
+	}
+	switch (endianity) {
+	case DW_END_default: {
+		Elf *elf = dwarf_getelf(dwarf_cu_getdwarf(die->cu));
+		*ret = elf_getident(elf, NULL)[EI_DATA] == ELFDATA2LSB;
+		return NULL;
+	}
+	case DW_END_little:
+		*ret = true;
+		return NULL;
+	case DW_END_big:
+		*ret = false;
+		return NULL;
+	default:
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "unknown DW_AT_endianity");
+	}
+}
+
+/** Like dwarf_die_is_little_endian(), but returns a @ref drgn_byte_order. */
+static struct drgn_error *dwarf_die_byte_order(Dwarf_Die *die,
+					       bool check_attr,
+					       enum drgn_byte_order *ret)
+{
+	bool little_endian;
+	struct drgn_error *err = dwarf_die_is_little_endian(die, check_attr,
+							    &little_endian);
+	/*
+	 * dwarf_die_is_little_endian() can't fail if check_attr is false, so
+	 * the !check_attr test suppresses maybe-uninitialized warnings.
+	 */
+	if (!err || !check_attr)
+		*ret = little_endian ? DRGN_LITTLE_ENDIAN : DRGN_BIG_ENDIAN;
+	return err;
+}
+
 static int dwarf_type(Dwarf_Die *die, Dwarf_Die *ret)
 {
 	Dwarf_Attribute attr_mem;
@@ -618,7 +675,8 @@ drgn_compound_type_from_dwarf(struct drgn_dwarf_info_cache *dicache,
 		goto err;
 	}
 
-	bool little_endian = dwarf_die_is_little_endian(die);
+	bool little_endian;
+	dwarf_die_is_little_endian(die, false, &little_endian);
 	Dwarf_Die child;
 	int r = dwarf_child(die, &child);
 	while (r == 0) {
@@ -1453,20 +1511,21 @@ drgn_object_from_dwarf_subprogram(struct drgn_dwarf_info_cache *dicache,
 				  Dwarf_Die *die, uint64_t bias,
 				  const char *name, struct drgn_object *ret)
 {
-	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
-	Dwarf_Addr low_pc;
-
-	err = drgn_type_from_dwarf(dicache, die, &qualified_type);
+	struct drgn_error *err = drgn_type_from_dwarf(dicache, die,
+						      &qualified_type);
 	if (err)
 		return err;
+	Dwarf_Addr low_pc;
 	if (dwarf_lowpc(die, &low_pc) == -1) {
 		return drgn_error_format(DRGN_ERROR_LOOKUP,
 					 "could not find address of '%s'",
 					 name);
 	}
+	enum drgn_byte_order byte_order;
+	dwarf_die_byte_order(die, false, &byte_order);
 	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
-					 0, dwarf_die_byte_order(die));
+					 0, byte_order);
 }
 
 static struct drgn_error *
@@ -1474,31 +1533,34 @@ drgn_object_from_dwarf_variable(struct drgn_dwarf_info_cache *dicache,
 				Dwarf_Die *die, uint64_t bias, const char *name,
 				struct drgn_object *ret)
 {
-	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
-	Dwarf_Attribute attr_mem;
-	Dwarf_Attribute *attr;
-	Dwarf_Op *loc;
-	size_t nloc;
-
-	err = drgn_type_from_dwarf_child(dicache, die, NULL, "DW_TAG_variable",
-					 true, true, NULL, &qualified_type);
+	struct drgn_error *err = drgn_type_from_dwarf_child(dicache, die, NULL,
+							    "DW_TAG_variable",
+							    true, true, NULL,
+							    &qualified_type);
 	if (err)
 		return err;
+	Dwarf_Attribute attr_mem, *attr;
 	if (!(attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
 		return drgn_error_format(DRGN_ERROR_LOOKUP,
 					 "could not find address of '%s'",
 					 name);
 	}
+	Dwarf_Op *loc;
+	size_t nloc;
 	if (dwarf_getlocation(attr, &loc, &nloc))
 		return drgn_error_libdw();
 	if (nloc != 1 || loc[0].atom != DW_OP_addr) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DW_AT_location has unimplemented operation");
 	}
+	enum drgn_byte_order byte_order;
+	err = dwarf_die_byte_order(die, true, &byte_order);
+	if (err)
+		return err;
 	return drgn_object_set_reference(ret, qualified_type,
 					 loc[0].number + bias, 0, 0,
-					 dwarf_die_byte_order(die));
+					 byte_order);
 }
 
 struct drgn_error *

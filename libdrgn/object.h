@@ -129,12 +129,7 @@ struct drgn_error *sanity_check_object(enum drgn_object_kind kind,
 				       uint64_t bit_field_size,
 				       uint64_t bit_size);
 
-/**
- * Convert a @ref drgn_byte_order to a boolean.
- *
- * @return @c true if the byte order is little endian, @c false if the byte
- * order is big endian.
- */
+/** Convert a @ref drgn_byte_order to a boolean. */
 struct drgn_error *
 drgn_byte_order_to_little_endian(struct drgn_program *prog,
 				 enum drgn_byte_order byte_order, bool *ret);
