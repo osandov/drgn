@@ -62,38 +62,42 @@ struct drgn_dwarf_index;
 
 struct drgn_program {
 	/** @privatesection */
-	struct drgn_memory_reader reader;
-	struct drgn_type_index tindex;
-	struct drgn_object_index oindex;
-	struct drgn_memory_file_segment *file_segments;
-	/* Default language of the program. */
-	const struct drgn_language *lang;
+
 	/*
-	 * Valid iff <tt>flags & DRGN_PROGRAM_IS_LINUX_KERNEL</tt>.
+	 * Memory/core dump.
 	 */
-	struct vmcoreinfo vmcoreinfo;
-	/* Cached PAGE_OFFSET. */
-	uint64_t page_offset;
-	/* Cached vmemmap. */
-	uint64_t vmemmap;
-	/* Cached THREAD_SIZE. */
-	uint64_t thread_size;
+	struct drgn_memory_reader reader;
+	/* Elf core dump or /proc/pid/mem file segments. */
+	struct drgn_memory_file_segment *file_segments;
+	/* Elf core dump. Not valid for live programs or kdump files. */
+	Elf *core;
+	/* File descriptor for ELF core dump, kdump file, or /proc/pid/mem. */
+	int core_fd;
+	/* PID of live userspace program. */
+	pid_t pid;
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif
+
 	/*
-	 * Valid iff <tt>!(flags & DRGN_PROGRAM_IS_LIVE)</tt>, unless the file
-	 * was a kdump file.
+	 * Debugging information.
 	 */
-	Elf *core;
-	int core_fd;
-	 /*
-	  * Valid iff
-	  * <tt>(flags & (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE)) ==
-	  * DRGN_PROGRAM_IS_LIVE</tt>.
-	  */
-	pid_t pid;
+	struct drgn_type_index tindex;
+	struct drgn_object_index oindex;
 	struct drgn_dwarf_info_cache *_dicache;
+
+	/*
+	 * Program information.
+	 */
+	/* Default language of the program. */
+	const struct drgn_language *lang;
+	struct drgn_platform platform;
+	bool has_platform;
+	enum drgn_program_flags flags;
+
+	/*
+	 * Stack traces.
+	 */
 	union {
 		/*
 		 * For the Linux kernel, PRSTATUS notes indexed by CPU. See @ref
@@ -109,22 +113,29 @@ struct drgn_program {
 	/* See @ref drgn_object_stack_trace_next_thread(). */
 	const struct drgn_object *stack_trace_obj;
 	uint32_t stack_trace_tid;
-	enum drgn_program_flags flags;
-	struct drgn_platform platform;
-	bool has_platform;
-	bool attached_dwfl_state;
 	bool prstatus_cached;
+	bool attached_dwfl_state;
+
+	/*
+	 * Linux kernel-specific.
+	 */
+	struct vmcoreinfo vmcoreinfo;
+	/* Cached PAGE_OFFSET. */
+	uint64_t page_offset;
+	/* Cached vmemmap. */
+	uint64_t vmemmap;
+	/* Cached THREAD_SIZE. */
+	uint64_t thread_size;
+	/* Cache for @ref linux_helper_task_state_to_char(). */
+	char *task_state_chars;
+	uint64_t task_report;
+	/* Page table iterator for linux_helper_read_vm(). */
+	struct pgtable_iterator *pgtable_it;
 	/*
 	 * Whether @ref drgn_program::pgtable_it is currently being used. Used
 	 * to prevent address translation from recursing.
 	 */
 	bool pgtable_it_in_use;
-
-	/* Page table iterator for linux_helper_read_vm(). */
-	struct pgtable_iterator *pgtable_it;
-	/* Cache for @ref linux_helper_task_state_to_char(). */
-	char *task_state_chars;
-	uint64_t task_report;
 };
 
 /** Initialize a @ref drgn_program. */
