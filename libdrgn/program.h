@@ -20,6 +20,7 @@
 #include "hash_table.h"
 #include "memory_reader.h"
 #include "object_index.h"
+#include "language.h"
 #include "platform.h"
 #include "type.h"
 #include "vector.h"
@@ -54,11 +55,11 @@ struct vmcoreinfo {
 	bool pgtable_l5_enabled;
 };
 
+DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *)
 DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct string)
 DEFINE_HASH_MAP_TYPE(drgn_prstatus_map, uint32_t, struct string)
 
 struct drgn_dwarf_info_cache;
-struct drgn_dwarf_index;
 
 struct drgn_program {
 	/** @privatesection */
@@ -84,14 +85,27 @@ struct drgn_program {
 	 */
 	/** Callbacks for finding types. */
 	struct drgn_type_finder *type_finders;
+	/** Void type for each language. */
+	struct drgn_type void_types[DRGN_NUM_LANGUAGES];
 	/** Cache of primitive types. */
 	struct drgn_type *primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
-	struct drgn_type default_size_t;
-	struct drgn_type default_ptrdiff_t;
-	/** Cache of created pointer types. */
-	struct drgn_pointer_type_table pointer_types;
-	/** Cache of created array types. */
-	struct drgn_array_type_table array_types;
+	/** Cache of deduplicated types. */
+	struct drgn_dedupe_type_set dedupe_types;
+	/**
+	 * List of created types that cannot be deduplicated.
+	 *
+	 * Complete structure, union, and class types, as well as function
+	 * types, refer to lazily-evaluated types, so they cannot be easily
+	 * deduplicated.
+	 *
+	 * Complete enumerated types could be deduplicated, but it's probably
+	 * not worth the effort of hashing and comparing long lists of
+	 * enumerators.
+	 *
+	 * All other types, including incomplete structure, union, class, and
+	 * enumerated types, are deduplicated.
+	 */
+	struct drgn_typep_vector created_types;
 	/** Cache for @ref drgn_program_find_member(). */
 	struct drgn_member_map members;
 	/**
@@ -225,6 +239,17 @@ drgn_program_is_64_bit(struct drgn_program *prog, bool *ret)
 					 "program word size is not known");
 	}
 	*ret = prog->platform.flags & DRGN_PLATFORM_IS_64_BIT;
+	return NULL;
+}
+
+static inline struct drgn_error *
+drgn_program_word_size(struct drgn_program *prog, uint8_t *ret)
+{
+	bool is_64_bit;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	*ret = is_64_bit ? 8 : 4;
 	return NULL;
 }
 

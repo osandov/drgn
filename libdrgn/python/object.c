@@ -1037,8 +1037,7 @@ static Program *DrgnObject_get_prog(DrgnObject *self, void *arg)
 
 static PyObject *DrgnObject_get_type(DrgnObject *self, void *arg)
 {
-	return DrgnType_wrap(drgn_object_qualified_type(&self->obj),
-			     (PyObject *)DrgnObject_prog(self));
+	return DrgnType_wrap(drgn_object_qualified_type(&self->obj));
 }
 
 static PyObject *DrgnObject_get_address(DrgnObject *self, void *arg)

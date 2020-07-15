@@ -425,6 +425,7 @@ struct drgn_type {
 		enum drgn_primitive_type primitive;
 		/* These are the qualifiers for the wrapped type, not this type. */
 		enum drgn_qualifiers qualifiers;
+		struct drgn_program *program;
 		const struct drgn_language *language;
 		/*
 		 * This mess of unions is used to make this as compact as possible. Use
@@ -491,6 +492,12 @@ drgn_type_primitive(struct drgn_type *type)
 static inline bool drgn_type_is_complete(struct drgn_type *type)
 {
 	return type->_private.is_complete;
+}
+
+static inline struct drgn_program *
+drgn_type_program(struct drgn_type *type)
+{
+	return type->_private.program;
 }
 
 /** Get the language of a type. */

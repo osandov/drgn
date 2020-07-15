@@ -18,7 +18,7 @@ LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 				     struct drgn_program *prog)
 {
 	obj->prog = prog;
-	obj->type = drgn_void_type(drgn_program_language(prog));
+	obj->type = drgn_void_type(prog, NULL);
 	obj->bit_size = 0;
 	obj->qualifiers = 0;
 	obj->kind = DRGN_OBJECT_NONE;
@@ -1272,9 +1272,6 @@ UNARY_OP(not)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 {
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type;
-
 	if (res->prog != obj->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
@@ -1290,13 +1287,20 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 					 "cannot take address of bit field");
 	}
 
-	err = drgn_program_pointer_type(obj->prog,
-					drgn_object_qualified_type(obj), NULL,
-					&qualified_type.type);
+	struct drgn_qualified_type qualified_type =
+		drgn_object_qualified_type(obj);
+	uint8_t word_size;
+	struct drgn_error *err = drgn_program_word_size(obj->prog, &word_size);
 	if (err)
 		return err;
-	qualified_type.qualifiers = 0;
-	return drgn_object_set_unsigned(res, qualified_type,
+	struct drgn_qualified_type result_type;
+	err = drgn_pointer_type_create(obj->prog, qualified_type, word_size,
+				       drgn_type_language(qualified_type.type),
+				       &result_type.type);
+	if (err)
+		return err;
+	result_type.qualifiers = 0;
+	return drgn_object_set_unsigned(res, result_type,
 					obj->reference.address, 0);
 }
 
@@ -1388,11 +1392,6 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 			 struct drgn_qualified_type qualified_type,
 			 const char *member_designator)
 {
-	const struct drgn_language *lang = drgn_object_language(obj);
-	struct drgn_error *err;
-	uint64_t address, bit_offset;
-	struct drgn_qualified_type result_type;
-
 	if (res->prog != obj->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
@@ -1404,8 +1403,12 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 				       obj->type);
 	}
 
-	err = lang->bit_offset(obj->prog, qualified_type.type,
-			       member_designator, &bit_offset);
+	const struct drgn_language *lang = drgn_object_language(obj);
+	uint64_t bit_offset;
+	struct drgn_error *err = lang->bit_offset(obj->prog,
+						  qualified_type.type,
+						  member_designator,
+						  &bit_offset);
 	if (err)
 		return err;
 	if (bit_offset % 8) {
@@ -1413,12 +1416,19 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 					 "container_of() member is not byte-aligned");
 	}
 
+	uint64_t address;
 	err = drgn_object_value_unsigned(obj, &address);
 	if (err)
 		return err;
 
-	err = drgn_program_pointer_type(obj->prog, qualified_type, NULL,
-					&result_type.type);
+	uint8_t word_size;
+	err = drgn_program_word_size(obj->prog, &word_size);
+	if (err)
+		return err;
+	struct drgn_qualified_type result_type;
+	err = drgn_pointer_type_create(obj->prog, qualified_type, word_size,
+				       drgn_type_language(qualified_type.type),
+				       &result_type.type);
 	if (err)
 		return err;
 	result_type.qualifiers = 0;

@@ -15,6 +15,7 @@
 #include "drgn.h"
 #include "hash_table.h"
 #include "language.h"
+#include "vector.h"
 
 /**
  * @ingroup Internals
@@ -40,50 +41,7 @@ struct drgn_type_finder {
 	struct drgn_type_finder *next;
 };
 
-struct drgn_pointer_type_key {
-	struct drgn_type *type;
-	enum drgn_qualifiers qualifiers;
-	const struct drgn_language *lang;
-};
-
-static struct drgn_pointer_type_key
-drgn_pointer_type_entry_to_key(struct drgn_type * const *entry)
-{
-	struct drgn_qualified_type referenced_type = drgn_type_type(*entry);
-
-	return (struct drgn_pointer_type_key){
-		.type = referenced_type.type,
-		.qualifiers = referenced_type.qualifiers,
-		.lang = drgn_type_language(*entry),
-	};
-}
-
-struct drgn_array_type_key {
-	struct drgn_type *type;
-	enum drgn_qualifiers qualifiers;
-	bool is_complete;
-	uint64_t length;
-	const struct drgn_language *lang;
-};
-
-static struct drgn_array_type_key
-drgn_array_type_entry_to_key(struct drgn_type * const *entry)
-{
-	struct drgn_qualified_type element_type = drgn_type_type(*entry);
-
-	return (struct drgn_array_type_key){
-		.type = element_type.type,
-		.qualifiers = element_type.qualifiers,
-		.is_complete = drgn_type_is_complete(*entry),
-		.length = drgn_type_length(*entry),
-		.lang = drgn_type_language(*entry),
-	};
-}
-
-DEFINE_HASH_TABLE_TYPE(drgn_pointer_type_table, struct drgn_type *,
-		       drgn_pointer_type_entry_to_key)
-DEFINE_HASH_TABLE_TYPE(drgn_array_type_table, struct drgn_type *,
-		       drgn_array_type_entry_to_key)
+DEFINE_HASH_SET_TYPE(drgn_dedupe_type_set, struct drgn_type *)
 
 /** <tt>(type, member name)</tt> pair. */
 struct drgn_member_key {
@@ -139,6 +97,8 @@ DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *)
  * like @c container_of().
  */
 struct drgn_type_thunk {
+	/** Program owning this thunk. */
+	struct drgn_program *prog;
 	/**
 	 * Callback to evaluate this thunk to a @ref drgn_qualified_type.
 	 *
@@ -161,7 +121,10 @@ struct drgn_type_thunk {
  *
  * @param[in] thunk Thunk to free.
  */
-void drgn_type_thunk_free(struct drgn_type_thunk *thunk);
+static inline void drgn_type_thunk_free(struct drgn_type_thunk *thunk)
+{
+	thunk->free_fn(thunk);
+}
 
 /**
  * Create a @ref drgn_lazy_type from a @ref drgn_type_thunk.
@@ -215,11 +178,11 @@ static inline bool drgn_lazy_type_is_evaluated(struct drgn_lazy_type *lazy_type)
  * remains in a valid, unevaluated state.
  *
  * @param[in] lazy_type Lazy type to evaluate.
- * @param[out] qualified_type Evaluated type.
+ * @param[out] ret Evaluated type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
-					   struct drgn_qualified_type *qualified_type);
+					   struct drgn_qualified_type *ret);
 
 /**
  * Free a @ref drgn_lazy_type.
@@ -238,14 +201,13 @@ void drgn_lazy_type_deinit(struct drgn_lazy_type *lazy_type);
  *
  * Creating type descriptors.
  *
- * libdrgn does not provide a way to allocate a @ref drgn_type. Instead, a type
- * can be allocated in any way deemed appropriate (e.g., with @c malloc(), on
- * the stack, embedded in another structure). These helpers initialize an
- * allocated type.
+ * These functions create type descriptors. They are valid for the lifetime of
+ * the program that owns them.
  *
- * Note that structure, union, enumerated, and function types end with a
- * variable-length array. The caller must allocate the necessary number of
- * elements.
+ * A few kinds of types have variable-length fields: structure, union, and class
+ * types have members, enumerated types have enumerators, and function types
+ * have parameters. These fields are constructed with a @em builder before
+ * creating the type.
  *
  * @{
  */
@@ -253,316 +215,364 @@ void drgn_lazy_type_deinit(struct drgn_lazy_type *lazy_type);
 /**
  * Get the void type for the given @ref drgn_language.
  *
- * The void type does not have any fields, so there is a single type
- * descriptor per language to represent it.
+ * The void type does not have any fields, so a program has a single type
+ * descriptor per language to represent it. This function cannot fail.
+ *
+ * @param[in] prog Program owning type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
  */
-static inline struct drgn_type *
-drgn_void_type(const struct drgn_language *lang)
-{
-	return (struct drgn_type *)&drgn_language_or_default(lang)->void_type;
-}
+struct drgn_type *drgn_void_type(struct drgn_program *prog,
+				 const struct drgn_language *lang);
 
 /**
- * Initialize an integer type.
+ * Create an integer type.
  *
- * @param[out] type Type to initialize.
- * @param[in] name Name of the type. This string is not copied. It must not be
- * @c NULL.
+ * @param[in] prog Program owning type.
+ * @param[in] name Name of the type. Not copied; must remain valid for the
+ * lifetime of @p prog. Must not be @c NULL.
  * @param[in] size Size of the type in bytes.
  * @param[in] is_signed Whether the type is signed.
- * @param[in] lang Language of this type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_int_type_init(struct drgn_type *type, const char *name, uint64_t size,
-			bool is_signed, const struct drgn_language *lang);
+struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
+					const char *name, uint64_t size,
+					bool is_signed,
+					const struct drgn_language *lang,
+					struct drgn_type **ret);
 
 /**
- * Initialize a boolean type.
+ * Create a boolean type.
  *
- * @param[out] type Type to initialize.
- * @param[in] name Name of the type. This string is not copied. It must not be
- * @c NULL.
+ * @param[in] prog Program owning type.
+ * @param[in] name Name of the type. Not copied; must remain valid for the
+ * lifetime of @p prog. Must not be @c NULL.
  * @param[in] size Size of the type in bytes.
- * @param[in] lang Language of this type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_bool_type_init(struct drgn_type *type, const char *name,
-			 uint64_t size, const struct drgn_language *lang);
+struct drgn_error *drgn_bool_type_create(struct drgn_program *prog,
+					 const char *name, uint64_t size,
+					 const struct drgn_language *lang,
+					 struct drgn_type **ret);
 
 /**
- * Initialize a floating-point type.
+ * Create a floating-point type.
  *
- * @param[out] type Type to initialize.
- * @param[in] name Name of the type. This string is not copied. It must not be
- * @c NULL.
+ * @param[in] prog Program owning type.
+ * @param[in] name Name of the type. Not copied; must remain valid for the
+ * lifetime of @p prog. Must not be @c NULL.
  * @param[in] size Size of the type in bytes.
- * @param[in] lang Language of this type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_float_type_init(struct drgn_type *type, const char *name,
-			  uint64_t size, const struct drgn_language *lang);
+struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
+					  const char *name, uint64_t size,
+					  const struct drgn_language *lang,
+					  struct drgn_type **ret);
 
 /**
- * Initialize a complex type.
+ * Create a complex type.
  *
- * @param[out] type Type to initialize.
- * @param[in] name Name of the type. This string is not copied. It must not be
- * @c NULL.
+ * @param[in] prog Program owning type.
+ * @param[in] name Name of the type. Not copied; must remain valid for the
+ * lifetime of @p prog. Must not be @c NULL.
  * @param[in] size Size of the type in bytes.
- * @param[in] real_type The corresponding real type. It must not be @c NULL and
- * must be a floating-point or integer type.
- * @param[in] lang Language of this type.
+ * @param[in] real_type Corresponding real type. Must not be @c NULL and must be
+ * a floating-point or integer type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_complex_type_init(struct drgn_type *type, const char *name,
-			    uint64_t size, struct drgn_type *real_type,
-			    const struct drgn_language *lang);
+struct drgn_error *drgn_complex_type_create(struct drgn_program *prog,
+					    const char *name, uint64_t size,
+					    struct drgn_type *real_type,
+					    const struct drgn_language *lang,
+					    struct drgn_type **ret);
+
+DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member)
+
+/** Builder for members of a structure, union, or class type. */
+struct drgn_compound_type_builder {
+	struct drgn_program *prog;
+	enum drgn_type_kind kind;
+	struct drgn_type_member_vector members;
+};
 
 /**
- * Initialize a member of a type.
+ * Initialize a @ref drgn_compound_type_builder.
  *
- * @param[out] members Member to initialize.
- * @param[in] member_type See @ref drgn_type_member::type.
- * @param[in] name See @ref drgn_type_member::name.
- * @param[in] bit_offset See @ref drgn_type_member::bit_offset.
- * @param[in] bit_field_size See @ref drgn_type_member::bit_field_size.
+ * @param[in] kind One of @ref DRGN_TYPE_STRUCT, @ref DRGN_TYPE_UNION, or @ref
+ * DRGN_TYPE_CLASS.
  */
-static inline void drgn_type_member_init(struct drgn_type_member *member,
-					 struct drgn_lazy_type member_type,
-					 const char *name, uint64_t bit_offset,
-					 uint64_t bit_field_size)
-{
-	member->type = member_type;
-	member->name = name;
-	member->bit_offset = bit_offset;
-	member->bit_field_size = bit_field_size;
-}
+void drgn_compound_type_builder_init(struct drgn_compound_type_builder *builder,
+				     struct drgn_program *prog,
+				     enum drgn_type_kind kind);
 
 /**
- * Free a member of a type.
+ * Deinitialize a @ref drgn_compound_type_builder.
  *
- * This only frees @ref drgn_type_member::type.
- *
- * @param[out] member Member to free.
+ * Don't call this if @ref drgn_compound_type_create() succeeded.
  */
-static inline void drgn_type_member_deinit(struct drgn_type_member *member)
-{
-	drgn_lazy_type_deinit(&member->type);
-}
+void
+drgn_compound_type_builder_deinit(struct drgn_compound_type_builder *builder);
 
 /**
- * Initialize a structure type.
+ * Add a @ref drgn_type_member to a @ref drgn_compound_type_builder.
  *
- * @param[out] type Type to initialize.
- * @param[in] tag Name of the type. This string is not copied. It may be @c NULL
- * if the type is anonymous.
+ * On success, @p builder takes ownership of @p type.
+ */
+struct drgn_error *
+drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder,
+				      struct drgn_lazy_type type,
+				      const char *name, uint64_t bit_offset,
+				      uint64_t bit_field_size);
+
+/**
+ * Create a structure, union, or class type.
+ *
+ * On success, this takes ownership of @p builder.
+ *
+ * @param[in] builder Builder containing members. @c type and @c name of each
+ * member must remain valid for the lifetime of @c builder->prog.
+ * @param[in] tag Name of the type. Not copied; must remain valid for the
+ * lifetime of @c builder->prog. May be @c NULL if the type is anonymous.
  * @param[in] size Size of the type in bytes.
- * @param[in] members Members of the type.
- * @param[in] num_members The number of members in the type.
- * @param[in] lang Language of this type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @c builder->prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_struct_type_init(struct drgn_type *type, const char *tag,
-			   uint64_t size, struct drgn_type_member *members,
-			   size_t num_members, const struct drgn_language *lang);
+struct drgn_error *
+drgn_compound_type_create(struct drgn_compound_type_builder *builder,
+			  const char *tag, uint64_t size,
+			  const struct drgn_language *lang,
+			  struct drgn_type **ret);
 
 /**
- * Initialize an incomplete structure type.
+ * Create an incomplete structure, union, or class type.
  *
  * @c size and @c num_members are set to zero and @c is_complete is set to @c
  * false.
  *
- * @param[out] type Type to initialize.
+ * @param[in] prog Program owning type.
+ * @param[in] kind One of @ref DRGN_TYPE_STRUCT, @ref DRGN_TYPE_UNION, or @ref
+ * DRGN_TYPE_CLASS.
+ * @param[in] tag Name of the type. Not copied; must remain valid for the
+ * lifetime of @p prog. May be @c NULL if the type is anonymous.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_incomplete_compound_type_create(struct drgn_program *prog,
+				     enum drgn_type_kind kind, const char *tag,
+				     const struct drgn_language *lang,
+				     struct drgn_type **ret);
+
+DEFINE_VECTOR_TYPE(drgn_type_enumerator_vector, struct drgn_type_enumerator)
+
+/** Builder for enumerators of an enumerated type. */
+struct drgn_enum_type_builder {
+	struct drgn_program *prog;
+	struct drgn_type_enumerator_vector enumerators;
+};
+
+/** Initialize a @ref drgn_enum_type_builder. */
+void drgn_enum_type_builder_init(struct drgn_enum_type_builder *builder,
+				 struct drgn_program *prog);
+
+/**
+ * Deinitialize a @ref drgn_enum_type_builder.
+ *
+ * Don't call this if @ref drgn_enum_type_create() succeeded.
+ */
+void drgn_enum_type_builder_deinit(struct drgn_enum_type_builder *builder);
+
+/**
+ * Add a @ref drgn_type_enumerator with a signed value to a @ref
+ * drgn_enum_type_builder.
+ */
+struct drgn_error *
+drgn_enum_type_builder_add_signed(struct drgn_enum_type_builder *builder,
+				  const char *name, int64_t svalue);
+
+/**
+ * Add a @ref drgn_type_enumerator with an unsigned value to a @ref
+ * drgn_enum_type_builder.
+ */
+struct drgn_error *
+drgn_enum_type_builder_add_unsigned(struct drgn_enum_type_builder *builder,
+				    const char *name, uint64_t uvalue);
+
+/**
+ * Create an enumerated type.
+ *
+ * On success, this takes ownership of @p builder.
+ *
+ * @param[in] builder Builder containing enumerators. @c name of each enumerator
+ * must remain valid for the lifetime of @c builder->prog.
  * @param[in] tag Name of the type. This string is not copied. It may be @c NULL
  * if the type is anonymous.
- * @param[in] lang Language of this type.
+ * @param[in] compatible_type Type compatible with this enumerated type. Must be
+ * an integer type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @c builder->prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_struct_type_init_incomplete(struct drgn_type *type, const char *tag,
-				      const struct drgn_language *lang);
+struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
+					 const char *tag,
+					 struct drgn_type *compatible_type,
+					 const struct drgn_language *lang,
+					 struct drgn_type **ret);
 
 /**
- * Initialize a union type.
- *
- * @sa drgn_struct_type_init().
- */
-void drgn_union_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, struct drgn_type_member *members,
-			  size_t num_members, const struct drgn_language *lang);
-
-/**
- * Initialize an incomplete union type.
- *
- * @sa drgn_struct_type_init_incomplete().
- */
-void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag,
-				     const struct drgn_language *lang);
-
-/**
- * Initialize a class type.
- *
- * @sa drgn_struct_type_init().
- */
-void drgn_class_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, struct drgn_type_member *members,
-			  size_t num_members, const struct drgn_language *lang);
-
-/**
- * Initialize an incomplete class type.
- *
- * @sa drgn_struct_type_init_incomplete().
- */
-void drgn_class_type_init_incomplete(struct drgn_type *type, const char *tag,
-				     const struct drgn_language *lang);
-
-/**
- * Initialize a signed enumerator of a type.
- *
- * @param[out] enumerator Enumerator to initialize.
- * @param[in] name See @ref drgn_type_enumerator::name.
- * @param[in] svalue See @ref drgn_type_enumerator::svalue.
- */
-static inline void
-drgn_type_enumerator_init_signed(struct drgn_type_enumerator *enumerator,
-				 const char *name, int64_t svalue)
-{
-	enumerator->name = name;
-	enumerator->svalue = svalue;
-}
-
-/**
- * Initialize an unsigned enumerator of a type.
- *
- * @param[out] enumerator Enumerator to initialize.
- * @param[in] name See @ref drgn_type_enumerator::name.
- * @param[in] uvalue See @ref drgn_type_enumerator::uvalue.
- */
-static inline void
-drgn_type_enumerator_init_unsigned(struct drgn_type_enumerator *enumerator,
-				   const char *name, uint64_t uvalue)
-{
-	enumerator->name = name;
-	enumerator->uvalue = uvalue;
-}
-
-/**
- * Initialize an enumerated type.
- *
- * @param[out] type Type to initialize.
- * @param[in] tag Name of the type. This string is not copied. It may be @c NULL
- * if the type is anonymous.
- * @param[in] compatible_type Type compatible with this enumerated type. It must
- * be an integer type.
- * @param[in] enumerators Enumerators of the type.
- * @param[in] num_enumerators The number of enumerators in the type.
- * @param[in] lang Language of this type.
- */
-void drgn_enum_type_init(struct drgn_type *type, const char *tag,
-			 struct drgn_type *compatible_type,
-			 struct drgn_type_enumerator *enumerators,
-			 size_t num_enumerators,
-			 const struct drgn_language *lang);
-
-/**
- * Initialize an incomplete enumerated type.
+ * Create an incomplete enumerated type.
  *
  * @c compatible_type is set to @c NULL and @c num_enumerators is set to zero.
  *
- * @param[out] type Type to initialize.
- * @param[in] tag Name of the type. This string is not copied. It may be @c NULL
- * if the type is anonymous.
- * @param[in] lang Language of this type.
+ * @param[in] prog Program owning type.
+ * @param[in] tag Name of the type. Not copied; must remain valid for the
+ * lifetime of @p prog. May be @c NULL if the type is anonymous.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_enum_type_init_incomplete(struct drgn_type *type, const char *tag,
-				    const struct drgn_language *lang);
+struct drgn_error *
+drgn_incomplete_enum_type_create(struct drgn_program *prog, const char *tag,
+				 const struct drgn_language *lang,
+				 struct drgn_type **ret);
 
 /**
- * Initialize a typedef type.
+ * Create a typedef type.
  *
- * @param[out] type Type to initialize.
- * @param[in] name Name of the type. This string is not copied. It must not be
- * @c NULL.
+ * @param[in] prog Program owning type.
+ * @param[in] name Name of the type. Not copied; must remain valid for the
+ * lifetime of @p prog. Must not be @c NULL.
  * @param[in] aliased_type Type aliased by the typedef.
- * @param[in] lang Language of this type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_typedef_type_init(struct drgn_type *type, const char *name,
-			    struct drgn_qualified_type aliased_type,
-			    const struct drgn_language *lang);
+struct drgn_error *
+drgn_typedef_type_create(struct drgn_program *prog, const char *name,
+			 struct drgn_qualified_type aliased_type,
+			 const struct drgn_language *lang,
+			 struct drgn_type **ret);
 
 /**
- * Initialize a pointer type.
+ * Create a pointer type.
  *
- * @param[out] type Type to initialize.
- * @param[in] size Size of the type in bytes.
+ * @param[in] prog Program owning type.
  * @param[in] referenced_type Type referenced by the pointer type.
- * @param[in] lang Language of this type.
+ * @param[in] size Size of the type in bytes.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_pointer_type_init(struct drgn_type *type, uint64_t size,
-			    struct drgn_qualified_type referenced_type,
-			    const struct drgn_language *lang);
+struct drgn_error *
+drgn_pointer_type_create(struct drgn_program *prog,
+			 struct drgn_qualified_type referenced_type,
+			 uint64_t size, const struct drgn_language *lang,
+			 struct drgn_type **ret);
 
 /**
- * Initialize an array type.
+ * Create an array type.
  *
- * @param[out] type Type to initialize.
- * @param[in] length Number of elements in the array type.
+ * @param[in] prog Program owning type.
  * @param[in] element_type Type of an element in the array type.
- * @param[in] lang Language of this type.
+ * @param[in] length Number of elements in the array type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_array_type_init(struct drgn_type *type, uint64_t length,
-			  struct drgn_qualified_type element_type,
-			  const struct drgn_language *lang);
+struct drgn_error *
+drgn_array_type_create(struct drgn_program *prog,
+		       struct drgn_qualified_type element_type,
+		       uint64_t length, const struct drgn_language *lang,
+		       struct drgn_type **ret);
 
 /**
- * Initialize an incomplete array type.
+ * Create an incomplete array type.
  *
  * @c length is set to zero.
  *
- * @param[out] type Type to initialize.
+ * @param[in] prog Program owning type.
  * @param[in] element_type Type of an element in the array type.
- * @param[in] lang Language of this type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @p prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_array_type_init_incomplete(struct drgn_type *type,
-				     struct drgn_qualified_type element_type,
-				     const struct drgn_language *lang);
+struct drgn_error *
+drgn_incomplete_array_type_create(struct drgn_program *prog,
+				  struct drgn_qualified_type element_type,
+				  const struct drgn_language *lang,
+				  struct drgn_type **ret);
+
+DEFINE_VECTOR_TYPE(drgn_type_parameter_vector, struct drgn_type_parameter)
+
+/** Builder for parameters of a function type. */
+struct drgn_function_type_builder {
+	struct drgn_program *prog;
+	struct drgn_type_parameter_vector parameters;
+};
+
+/** Initialize a @ref drgn_function_type_builder. */
+void drgn_function_type_builder_init(struct drgn_function_type_builder *builder,
+				     struct drgn_program *prog);
 
 /**
- * Initialize a parameter of a type.
+ * Deinitialize a @ref drgn_function_type_builder.
  *
- * @param[out] parameter Parameter to initialize.
- * @param[in] parameter_type See @ref drgn_type_parameter::type.
- * @param[in] name See @ref drgn_type_parameter::name.
+ * Don't call this if @ref drgn_function_type_create() succeeded.
  */
-static inline void
-drgn_type_parameter_init(struct drgn_type_parameter *parameter,
-			 struct drgn_lazy_type parameter_type, const char *name)
-{
-	parameter->type = parameter_type;
-	parameter->name = name;
-}
+void
+drgn_function_type_builder_deinit(struct drgn_function_type_builder *builder);
 
 /**
- * Free a parameter of a type.
+ * Add a @ref drgn_type_parameter to a @ref drgn_function_type_builder.
  *
- * This only frees @ref drgn_type_parameter::type.
- *
- * @param[out] parameter Parameter to free.
+ * On success, @p builder takes ownership of @p type.
  */
-static inline void drgn_type_parameter_deinit(struct drgn_type_parameter *parameter)
-{
-	drgn_lazy_type_deinit(&parameter->type);
-}
+struct drgn_error *
+drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *builder,
+					 struct drgn_lazy_type type,
+					 const char *name);
 
 /**
- * Initialize a function type.
+ * Create a function type.
  *
- * @param[out] type Type to initialize.
+ * On success, this takes ownership of @p builder.
+ *
+ * @param[in] builder Builder containing parameters. @c type and @c name of each
+ * parameter must remain valid for the lifetime of @c builder->prog.
  * @param[in] return_type Type returned by the function type.
- * @param[in] parameters Parameters of the function type.
- * @param[in] num_parameters The number of parameters accepted by the function
- * type.
  * @param[in] is_variadic Whether the function type is variadic.
- * @param[in] lang Language of this type.
+ * @param[in] lang Language of the type or @c NULL for the default language of
+ * @c builder->prog.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
  */
-void drgn_function_type_init(struct drgn_type *type,
-			     struct drgn_qualified_type return_type,
-			     struct drgn_type_parameter *parameters,
-			     size_t num_parameters, bool is_variadic,
-			     const struct drgn_language *lang);
+struct drgn_error *
+drgn_function_type_create(struct drgn_function_type_builder *builder,
+			  struct drgn_qualified_type return_type,
+			  bool is_variadic, const struct drgn_language *lang,
+			  struct drgn_type **ret);
 
 /** @} */
 
@@ -693,69 +703,6 @@ struct drgn_error *
 drgn_program_find_primitive_type(struct drgn_program *prog,
 				 enum drgn_primitive_type type,
 				 struct drgn_type **ret);
-
-/**
- * Create a pointer type.
- *
- * The created type is cached for the lifetime of the @ref drgn_program. If the
- * same @p referenced_type and @p lang are passed, the same type will be
- * returned.
- *
- * If this succeeds, @p referenced_type must remain valid until @p prog is
- * destroyed.
- *
- * @param[in] referenced_type Type referenced by the pointer type.
- * @param[in] lang Language of the pointer type. If @c NULL, the language of @p
- * referenced_type is used.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_program_pointer_type(struct drgn_program *prog,
-			  struct drgn_qualified_type referenced_type,
-			  const struct drgn_language *lang,
-			  struct drgn_type **ret);
-
-/**
- * Create an array type.
- *
- * The created type is cached for the lifetime of the @ref drgn_program. If the
- * same @p length, @p element_type, and @p lang are passed, the same type will
- * be returned.
- *
- * @param[in] length Number of elements in the array type.
- * @param[in] element_type Type of an element in the array type.
- * @param[in] lang Language of the array type. If @c NULL, the language of @p
- * element_type is used.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_program_array_type(struct drgn_program *prog, uint64_t length,
-			struct drgn_qualified_type element_type,
-			const struct drgn_language *lang,
-			struct drgn_type **ret);
-
-/**
- * Create an incomplete array type.
- *
- * The created type is cached for the lifetime of the @ref drgn_program. If the
- * same @p element_type and @p lang are passed, the same type will be returned.
- *
- * If this succeeds, @p element_type must remain valid until @p prog is
- * destroyed.
- *
- * @param[in] element_type Type of an element in the array type.
- * @param[in] lang Language of the array type. If @c NULL, the language of @p
- * element_type is used.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_program_incomplete_array_type(struct drgn_program *prog,
-				   struct drgn_qualified_type element_type,
-				   const struct drgn_language *lang,
-				   struct drgn_type **ret);
 
 /**
  * Find the type, offset, and bit field size of a type member.

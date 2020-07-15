@@ -13,43 +13,21 @@ from drgn import (
     Type,
     TypeEnumerator,
     TypeMember,
-    array_type,
     cast,
     container_of,
-    enum_type,
-    float_type,
-    function_type,
-    int_type,
-    pointer_type,
     reinterpret,
     sizeof,
-    struct_type,
-    typedef_type,
-    union_type,
-    void_type,
 )
-from tests import (
-    MockMemorySegment,
-    ObjectTestCase,
-    color_type,
-    coord_type,
-    line_segment_type,
-    mock_program,
-    option_type,
-    pid_type,
-    point_type,
-)
+from tests import MockMemorySegment, MockProgramTestCase, mock_program
 
 
-class TestInit(ObjectTestCase):
+class TestInit(MockProgramTestCase):
     def test_type_stays_alive(self):
-        obj = Object(self.prog, int_type("int", 4, True), value=0)
-        self.assertEqual(obj.type_, int_type("int", 4, True))
+        obj = Object(self.prog, self.prog.int_type("int", 4, True), value=0)
+        self.assertEqual(obj.type_, self.prog.int_type("int", 4, True))
         type_ = obj.type_
         del obj
-        self.assertEqual(type_, int_type("int", 4, True))
-        del self.prog
-        self.assertEqual(type_, int_type("int", 4, True))
+        self.assertEqual(type_, self.prog.int_type("int", 4, True))
 
     def test_type(self):
         self.assertRaisesRegex(
@@ -132,16 +110,13 @@ class TestInit(ObjectTestCase):
         )
 
 
-class TestReference(ObjectTestCase):
+class TestReference(MockProgramTestCase):
     def test_basic(self):
-        prog = mock_program(
-            segments=[
-                MockMemorySegment((1000).to_bytes(4, "little"), virt_addr=0xFFFF0000),
-            ]
-        )
-        obj = Object(prog, "int", address=0xFFFF0000)
-        self.assertIs(obj.prog_, prog)
-        self.assertEqual(obj.type_, prog.type("int"))
+        self.add_memory_segment((1000).to_bytes(4, "little"), virt_addr=0xFFFF0000)
+
+        obj = Object(self.prog, "int", address=0xFFFF0000)
+        self.assertIs(obj.prog_, self.prog)
+        self.assertEqual(obj.type_, self.prog.type("int"))
         self.assertEqual(obj.address_, 0xFFFF0000)
         self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
@@ -149,9 +124,9 @@ class TestReference(ObjectTestCase):
         self.assertEqual(obj.value_(), 1000)
         self.assertEqual(repr(obj), "Object(prog, 'int', address=0xffff0000)")
 
-        self.assertEqual(obj.read_(), Object(prog, "int", value=1000))
+        self.assertEqual(obj.read_(), Object(self.prog, "int", value=1000))
 
-        obj = Object(prog, "int", address=0xFFFF0000, byteorder="big")
+        obj = Object(self.prog, "int", address=0xFFFF0000, byteorder="big")
         self.assertEqual(obj.byteorder_, "big")
         self.assertEqual(obj.value_(), -402456576)
         self.assertEqual(
@@ -159,7 +134,7 @@ class TestReference(ObjectTestCase):
         )
         self.assertEqual(sizeof(obj), 4)
 
-        obj = Object(prog, "unsigned int", address=0xFFFF0000, bit_field_size=4)
+        obj = Object(self.prog, "unsigned int", address=0xFFFF0000, bit_field_size=4)
         self.assertEqual(obj.bit_offset_, 0)
         self.assertEqual(obj.bit_field_size_, 4)
         self.assertEqual(obj.value_(), 8)
@@ -170,7 +145,11 @@ class TestReference(ObjectTestCase):
         self.assertRaises(TypeError, sizeof, obj)
 
         obj = Object(
-            prog, "unsigned int", address=0xFFFF0000, bit_field_size=4, bit_offset=4
+            self.prog,
+            "unsigned int",
+            address=0xFFFF0000,
+            bit_field_size=4,
+            bit_offset=4,
         )
         self.assertEqual(obj.bit_offset_, 4)
         self.assertEqual(obj.bit_field_size_, 4)
@@ -245,33 +224,32 @@ class TestReference(ObjectTestCase):
                     self.assertEqual(obj.value_(), expected)
 
     def test_struct(self):
-        segment = (
-            (99).to_bytes(4, "little")
-            + (-1).to_bytes(4, "little", signed=True)
-            + (12345).to_bytes(4, "little")
-            + (0).to_bytes(4, "little")
+        self.add_memory_segment(
+            (
+                (99).to_bytes(4, "little")
+                + (-1).to_bytes(4, "little", signed=True)
+                + (12345).to_bytes(4, "little")
+                + (0).to_bytes(4, "little")
+            ),
+            virt_addr=0xFFFF0000,
         )
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),],
-            types=[point_type],
-        )
-
-        obj = Object(prog, "struct point", address=0xFFFF0000)
+        self.types.append(self.point_type)
+        obj = Object(self.prog, "struct point", address=0xFFFF0000)
         self.assertEqual(obj.value_(), {"x": 99, "y": -1})
         self.assertEqual(sizeof(obj), 8)
 
-        type_ = struct_type(
+        type_ = self.prog.struct_type(
             "foo",
             16,
             (
-                TypeMember(point_type, "point"),
+                TypeMember(self.point_type, "point"),
                 TypeMember(
-                    struct_type(
+                    self.prog.struct_type(
                         None,
                         8,
                         (
-                            TypeMember(int_type("int", 4, True), "bar"),
-                            TypeMember(int_type("int", 4, True), "baz", 32),
+                            TypeMember(self.prog.int_type("int", 4, True), "bar"),
+                            TypeMember(self.prog.int_type("int", 4, True), "baz", 32),
                         ),
                     ),
                     None,
@@ -279,7 +257,7 @@ class TestReference(ObjectTestCase):
                 ),
             ),
         )
-        obj = Object(prog, type_, address=0xFFFF0000)
+        obj = Object(self.prog, type_, address=0xFFFF0000)
         self.assertEqual(
             obj.value_(), {"point": {"x": 99, "y": -1}, "bar": 12345, "baz": 0}
         )
@@ -288,24 +266,21 @@ class TestReference(ObjectTestCase):
         segment = bytearray()
         for i in range(10):
             segment.extend(i.to_bytes(4, "little"))
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
-        )
-
-        obj = Object(prog, "int [5]", address=0xFFFF0000)
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
+        obj = Object(self.prog, "int [5]", address=0xFFFF0000)
         self.assertEqual(obj.value_(), [0, 1, 2, 3, 4])
         self.assertEqual(sizeof(obj), 20)
 
-        obj = Object(prog, "int [2][5]", address=0xFFFF0000)
+        obj = Object(self.prog, "int [2][5]", address=0xFFFF0000)
         self.assertEqual(obj.value_(), [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]])
 
-        obj = Object(prog, "int [2][2][2]", address=0xFFFF0000)
+        obj = Object(self.prog, "int [2][2][2]", address=0xFFFF0000)
         self.assertEqual(obj.value_(), [[[0, 1], [2, 3]], [[4, 5], [6, 7]]])
 
     def test_void(self):
-        obj = Object(self.prog, void_type(), address=0)
+        obj = Object(self.prog, self.prog.void_type(), address=0)
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, void_type())
+        self.assertEqual(obj.type_, self.prog.void_type())
         self.assertEqual(obj.address_, 0)
         self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
@@ -319,9 +294,15 @@ class TestReference(ObjectTestCase):
         self.assertRaises(TypeError, sizeof, obj)
 
     def test_function(self):
-        obj = Object(self.prog, function_type(void_type(), (), False), address=0)
+        obj = Object(
+            self.prog,
+            self.prog.function_type(self.prog.void_type(), (), False),
+            address=0,
+        )
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, function_type(void_type(), (), False))
+        self.assertEqual(
+            obj.type_, self.prog.function_type(self.prog.void_type(), (), False)
+        )
         self.assertEqual(obj.address_, 0)
         self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
@@ -337,7 +318,7 @@ class TestReference(ObjectTestCase):
     def test_incomplete(self):
         # It's valid to create references with incomplete type, but not to read
         # from them.
-        obj = Object(self.prog, struct_type("foo"), address=0)
+        obj = Object(self.prog, self.prog.struct_type("foo"), address=0)
         self.assertRaisesRegex(
             TypeError, "cannot read object with incomplete structure type", obj.value_
         )
@@ -346,7 +327,7 @@ class TestReference(ObjectTestCase):
         )
         self.assertRaises(TypeError, sizeof, obj)
 
-        obj = Object(self.prog, union_type("foo"), address=0)
+        obj = Object(self.prog, self.prog.union_type("foo"), address=0)
         self.assertRaisesRegex(
             TypeError, "cannot read object with incomplete union type", obj.value_
         )
@@ -354,7 +335,7 @@ class TestReference(ObjectTestCase):
             TypeError, "cannot read object with incomplete union type", obj.read_
         )
 
-        obj = Object(self.prog, enum_type("foo"), address=0)
+        obj = Object(self.prog, self.prog.enum_type("foo"), address=0)
         self.assertRaisesRegex(
             TypeError, "cannot read object with incomplete enumerated type", obj.value_
         )
@@ -362,7 +343,11 @@ class TestReference(ObjectTestCase):
             TypeError, "cannot read object with incomplete enumerated type", obj.read_
         )
 
-        obj = Object(self.prog, array_type(None, int_type("int", 4, True)), address=0)
+        obj = Object(
+            self.prog,
+            self.prog.array_type(self.prog.int_type("int", 4, True)),
+            address=0,
+        )
         self.assertRaisesRegex(
             TypeError, "cannot read object with incomplete array type", obj.value_
         )
@@ -371,7 +356,7 @@ class TestReference(ObjectTestCase):
         )
 
 
-class TestValue(ObjectTestCase):
+class TestValue(MockProgramTestCase):
     def test_positional(self):
         self.assertEqual(Object(self.prog, "int", 1), Object(self.prog, "int", value=1))
 
@@ -495,73 +480,90 @@ class TestValue(ObjectTestCase):
         )
 
     def test_enum(self):
-        self.assertEqual(Object(self.prog, color_type, value=0).value_(), 0)
+        self.assertEqual(Object(self.prog, self.color_type, value=0).value_(), 0)
 
-    def test_incomplete(self):
+    def test_incomplete_struct(self):
         self.assertRaisesRegex(
             TypeError,
             "cannot create object with incomplete structure type",
             Object,
             self.prog,
-            struct_type("foo"),
+            self.prog.struct_type("foo"),
             value={},
         )
 
+    def test_incomplete_union(self):
         self.assertRaisesRegex(
             TypeError,
             "cannot create object with incomplete union type",
             Object,
             self.prog,
-            union_type("foo"),
+            self.prog.union_type("foo"),
             value={},
         )
 
+    def test_incomplete_class(self):
+        self.assertRaisesRegex(
+            TypeError,
+            "cannot create object with incomplete class type",
+            Object,
+            self.prog,
+            self.prog.class_type("foo"),
+            value={},
+        )
+
+    def test_incomplete_enum(self):
         self.assertRaisesRegex(
             TypeError,
             "cannot create object with incomplete enumerated type",
             Object,
             self.prog,
-            enum_type("foo"),
+            self.prog.enum_type("foo"),
             value=0,
         )
 
+    def test_incomplete_array(self):
         self.assertRaisesRegex(
             TypeError,
             "cannot create object with incomplete array type",
             Object,
             self.prog,
-            array_type(None, int_type("int", 4, True)),
+            self.prog.array_type(self.prog.int_type("int", 4, True)),
             value=[],
         )
 
     def test_compound(self):
-        obj = Object(self.prog, point_type, value={"x": 100, "y": -5})
+        obj = Object(self.prog, self.point_type, value={"x": 100, "y": -5})
         self.assertEqual(obj.x, Object(self.prog, "int", value=100))
         self.assertEqual(obj.y, Object(self.prog, "int", value=-5))
 
         self.assertEqual(
-            Object(self.prog, point_type, value={}),
-            Object(self.prog, point_type, value={"x": 0, "y": 0}),
+            Object(self.prog, self.point_type, value={}),
+            Object(self.prog, self.point_type, value={"x": 0, "y": 0}),
         )
 
         value = {
             "a": {"x": 1, "y": 2},
             "b": {"x": 3, "y": 4},
         }
-        obj = Object(self.prog, line_segment_type, value=value)
-        self.assertEqual(obj.a, Object(self.prog, point_type, value={"x": 1, "y": 2}))
-        self.assertEqual(obj.b, Object(self.prog, point_type, value={"x": 3, "y": 4}))
+        obj = Object(self.prog, self.line_segment_type, value=value)
+        self.assertEqual(
+            obj.a, Object(self.prog, self.point_type, value={"x": 1, "y": 2})
+        )
+        self.assertEqual(
+            obj.b, Object(self.prog, self.point_type, value={"x": 3, "y": 4})
+        )
         self.assertEqual(obj.value_(), value)
 
-        invalid_struct = struct_type(
+        invalid_struct = self.prog.struct_type(
             "foo",
             4,
             (
-                TypeMember(int_type("short", 2, True), "a"),
+                TypeMember(self.prog.int_type("short", 2, True), "a"),
                 # Straddles the end of the structure.
-                TypeMember(int_type("int", 4, True), "b", 16),
+                TypeMember(self.prog.int_type("int", 4, True), "b", 16),
                 # Beyond the end of the structure.
-                TypeMember(int_type("int", 4, True), "c", 32),
+                TypeMember(self.prog.int_type("int", 4, True), "c", 32),
             ),
         )
 
@@ -588,7 +590,7 @@ class TestValue(ObjectTestCase):
             "must be dictionary or mapping",
             Object,
             self.prog,
-            point_type,
+            self.point_type,
             value=1,
         )
         self.assertRaisesRegex(
@@ -596,18 +598,23 @@ class TestValue(ObjectTestCase):
             "member key must be string",
             Object,
             self.prog,
-            point_type,
+            self.point_type,
             value={0: 0},
         )
         self.assertRaisesRegex(
-            TypeError, "must be number", Object, self.prog, point_type, value={"x": []}
+            TypeError,
+            "must be number",
+            Object,
+            self.prog,
+            self.point_type,
+            value={"x": []},
         )
         self.assertRaisesRegex(
             LookupError,
             "has no member 'z'",
             Object,
             self.prog,
-            point_type,
+            self.point_type,
             value={"z": 999},
         )
 
@@ -617,8 +624,11 @@ class TestValue(ObjectTestCase):
         self.assertEqual(obj.value_(), 0xFFFF0000)
         self.assertEqual(repr(obj), "Object(prog, 'int *', value=0xffff0000)")
 
+    def test_pointer_typedef(self):
         obj = Object(
-            self.prog, typedef_type("INTP", self.prog.type("int *")), value=0xFFFF0000
+            self.prog,
+            self.prog.typedef_type("INTP", self.prog.type("int *")),
+            value=0xFFFF0000,
         )
         self.assertIsNone(obj.address_)
         self.assertEqual(obj.value_(), 0xFFFF0000)
@@ -647,7 +657,7 @@ class TestValue(ObjectTestCase):
         )
 
 
-class TestConversions(ObjectTestCase):
+class TestConversions(MockProgramTestCase):
     def test_bool(self):
         self.assertTrue(Object(self.prog, "int", value=-1))
         self.assertFalse(Object(self.prog, "int", value=0))
@@ -667,7 +677,7 @@ class TestConversions(ObjectTestCase):
             TypeError,
             "cannot convert 'struct point' to bool",
             bool,
-            Object(self.prog, point_type, address=0),
+            Object(self.prog, self.point_type, address=0),
         )
 
     def test_int(self):
@@ -720,7 +730,7 @@ class TestConversions(ObjectTestCase):
         )
 
 
-class TestInvalidBitField(ObjectTestCase):
+class TestInvalidBitField(MockProgramTestCase):
     def test_integer(self):
         self.assertRaisesRegex(
             ValueError,
@@ -785,7 +795,7 @@ class TestInvalidBitField(ObjectTestCase):
             "bit field must be integer",
             Object,
             self.prog,
-            point_type,
+            self.point_type,
             address=0,
             bit_field_size=4,
         )
@@ -794,20 +804,22 @@ class TestInvalidBitField(ObjectTestCase):
             "bit field must be integer",
             Object,
             self.prog,
-            point_type,
+            self.point_type,
             value={},
             bit_field_size=4,
         )
 
     def test_member(self):
-        type_ = struct_type("foo", 8, (TypeMember(point_type, "p", 0, 4),))
+        type_ = self.prog.struct_type(
+            "foo", 8, (TypeMember(self.point_type, "p", 0, 4),)
+        )
         obj = Object(self.prog, type_, address=0)
         self.assertRaisesRegex(
             ValueError, "bit field must be integer", obj.member_, "p"
         )
 
 
-class TestCLiteral(ObjectTestCase):
+class TestCLiteral(MockProgramTestCase):
     def test_int(self):
         self.assertEqual(Object(self.prog, value=1), Object(self.prog, "int", value=1))
         self.assertEqual(
@@ -863,7 +875,7 @@ class TestCLiteral(ObjectTestCase):
         )
 
 
-class TestCIntegerPromotion(ObjectTestCase):
+class TestCIntegerPromotion(MockProgramTestCase):
     def test_conversion_rank_less_than_int(self):
         self.assertEqual(+self.bool(False), self.int(0))
 
@@ -890,11 +902,11 @@ class TestCIntegerPromotion(ObjectTestCase):
         # If short is the same size as int, then int can't represent all of the
         # values of unsigned short.
         self.assertEqual(
-            +Object(self.prog, int_type("short", 4, True), value=1),
+            +Object(self.prog, self.prog.int_type("short", 4, True), value=1),
             Object(self.prog, "int", value=1),
         )
         self.assertEqual(
-            +Object(self.prog, int_type("unsigned short", 4, False), value=2),
+            +Object(self.prog, self.prog.int_type("unsigned short", 4, False), value=2),
             Object(self.prog, "unsigned int", value=2),
         )
 
@@ -930,20 +942,20 @@ class TestCIntegerPromotion(ObjectTestCase):
 
     def test_extended_integer(self):
         self.assertEqual(
-            +Object(self.prog, int_type("byte", 1, True), value=1),
+            +Object(self.prog, self.prog.int_type("byte", 1, True), value=1),
             Object(self.prog, "int", value=1),
         )
         self.assertEqual(
-            +Object(self.prog, int_type("ubyte", 1, False), value=-1),
+            +Object(self.prog, self.prog.int_type("ubyte", 1, False), value=-1),
             Object(self.prog, "int", value=0xFF),
         )
         self.assertEqual(
-            +Object(self.prog, int_type("qword", 8, True), value=1),
-            Object(self.prog, int_type("qword", 8, True), value=1),
+            +Object(self.prog, self.prog.int_type("qword", 8, True), value=1),
+            Object(self.prog, self.prog.int_type("qword", 8, True), value=1),
         )
         self.assertEqual(
-            +Object(self.prog, int_type("qword", 8, False), value=1),
-            Object(self.prog, int_type("qword", 8, False), value=1),
+            +Object(self.prog, self.prog.int_type("qword", 8, False), value=1),
+            Object(self.prog, self.prog.int_type("qword", 8, False), value=1),
         )
 
     def test_bit_field(self):
@@ -996,11 +1008,11 @@ class TestCIntegerPromotion(ObjectTestCase):
     def test_enum(self):
         # Enums should be converted to their compatible type and then promoted.
         self.assertEqual(
-            +Object(self.prog, color_type, value=1),
+            +Object(self.prog, self.color_type, value=1),
             Object(self.prog, "unsigned int", value=1),
         )
 
-        type_ = enum_type(
+        type_ = self.prog.enum_type(
             "color",
             self.prog.type("unsigned long long"),
             (
@@ -1014,7 +1026,7 @@ class TestCIntegerPromotion(ObjectTestCase):
             Object(self.prog, "unsigned long long", value=1),
         )
 
-        type_ = enum_type(
+        type_ = self.prog.enum_type(
             "color",
             self.prog.type("char"),
             (
@@ -1028,13 +1040,13 @@ class TestCIntegerPromotion(ObjectTestCase):
         )
 
     def test_typedef(self):
-        type_ = typedef_type("SHORT", self.prog.type("short"))
+        type_ = self.prog.typedef_type("SHORT", self.prog.type("short"))
         self.assertEqual(
             +Object(self.prog, type_, value=5), Object(self.prog, "int", value=5)
         )
 
         # Typedef should be preserved if the type wasn't promoted.
-        type_ = typedef_type("self.int", self.prog.type("int"))
+        type_ = self.prog.typedef_type("self.int", self.prog.type("int"))
         self.assertEqual(
             +Object(self.prog, type_, value=5), Object(self.prog, type_, value=5)
         )
@@ -1047,7 +1059,7 @@ class TestCIntegerPromotion(ObjectTestCase):
         )
 
 
-class TestCCommonRealType(ObjectTestCase):
+class TestCCommonRealType(MockProgramTestCase):
     def assertCommonRealType(self, lhs, rhs, expected, commutative=True):
         if isinstance(lhs, (str, Type)):
             obj1 = Object(self.prog, lhs, value=1)
@@ -1076,7 +1088,7 @@ class TestCCommonRealType(ObjectTestCase):
         self.assertCommonRealType("double", "double", "double")
 
         # Floating type not in the standard.
-        float64 = float_type("float64", 8)
+        float64 = self.prog.float_type("float64", 8)
         self.assertCommonRealType(float64, "long long", float64)
         self.assertCommonRealType(float64, "float", float64)
         self.assertCommonRealType(float64, "double", float64)
@@ -1127,8 +1139,8 @@ class TestCCommonRealType(ObjectTestCase):
             "unsigned long long", "unsigned long", "unsigned long long"
         )
 
-        int64 = int_type("int64", 8, True)
-        qword = int_type("qword", 8, True)
+        int64 = self.prog.int_type("int64", 8, True)
+        qword = self.prog.int_type("qword", 8, True)
         self.assertCommonRealType("long", int64, "long")
         self.assertCommonRealType(int64, qword, qword, commutative=False)
         self.assertCommonRealType(qword, int64, int64, commutative=False)
@@ -1139,8 +1151,8 @@ class TestCCommonRealType(ObjectTestCase):
         self.assertCommonRealType("unsigned long long", "long", "unsigned long long")
         self.assertCommonRealType("unsigned long long", "int", "unsigned long long")
 
-        int64 = int_type("int64", 8, True)
-        uint64 = int_type("uint64", 8, False)
+        int64 = self.prog.int_type("int64", 8, True)
+        uint64 = self.prog.int_type("uint64", 8, False)
         self.assertCommonRealType(uint64, "int", uint64)
         self.assertCommonRealType("unsigned long", int64, "unsigned long")
 
@@ -1148,8 +1160,8 @@ class TestCCommonRealType(ObjectTestCase):
         self.assertCommonRealType("long", "unsigned int", "long")
         self.assertCommonRealType("long long", "unsigned int", "long long")
 
-        int64 = int_type("int64", 8, True)
-        weirduint = int_type("weirduint", 6, False)
+        int64 = self.prog.int_type("int64", 8, True)
+        weirduint = self.prog.int_type("weirduint", 6, False)
         self.assertCommonRealType(int64, "unsigned int", int64)
         self.assertCommonRealType("long", weirduint, "long")
 
@@ -1158,19 +1170,19 @@ class TestCCommonRealType(ObjectTestCase):
         self.assertCommonRealType("long long", "unsigned long", "unsigned long long")
 
     def test_enum(self):
-        self.assertCommonRealType(color_type, color_type, "unsigned int")
+        self.assertCommonRealType(self.color_type, self.color_type, "unsigned int")
 
     def test_typedef(self):
-        type_ = typedef_type("INT", self.prog.type("int"))
+        type_ = self.prog.typedef_type("INT", self.prog.type("int"))
         self.assertCommonRealType(type_, type_, type_)
         self.assertCommonRealType("int", type_, type_, commutative=False)
         self.assertCommonRealType(type_, "int", "int", commutative=False)
 
-        type_ = typedef_type("LONG", self.prog.type("long"))
+        type_ = self.prog.typedef_type("LONG", self.prog.type("long"))
         self.assertCommonRealType(type_, "int", type_)
 
 
-class TestCOperators(ObjectTestCase):
+class TestCOperators(MockProgramTestCase):
     def test_cast_array(self):
         obj = Object(self.prog, "int []", address=0xFFFF0000)
         self.assertEqual(
@@ -1189,7 +1201,9 @@ class TestCOperators(ObjectTestCase):
 
     def test_cast_function(self):
         func = Object(
-            self.prog, function_type(void_type(), (), False), address=0xFFFF0000
+            self.prog,
+            self.prog.function_type(self.prog.void_type(), (), False),
+            address=0xFFFF0000,
         )
         self.assertEqual(
             cast("void *", func), Object(self.prog, "void *", value=0xFFFF0000)
@@ -1315,7 +1329,9 @@ class TestCOperators(ObjectTestCase):
         self.assertRaises(TypeError, operator.lt, ptr0, self.int(1))
 
         func = Object(
-            self.prog, function_type(void_type(), (), False), address=0xFFFF0000
+            self.prog,
+            self.prog.function_type(self.prog.void_type(), (), False),
+            address=0xFFFF0000,
         )
         self.assertTrue(func == func)
         self.assertTrue(func == ptr0)
@@ -1331,7 +1347,9 @@ class TestCOperators(ObjectTestCase):
         self.assertRaises(
             TypeError,
             operator.eq,
-            Object(self.prog, struct_type("foo", None, None), address=0xFFFF0000),
+            Object(
+                self.prog, self.prog.struct_type("foo", None, None), address=0xFFFF0000
+            ),
             ptr0,
         )
 
@@ -1519,39 +1537,51 @@ class TestCOperators(ObjectTestCase):
 
     def test_container_of(self):
         obj = Object(self.prog, "int *", value=0xFFFF000C)
-        container_of(obj, point_type, "x")
+        container_of(obj, self.point_type, "x")
         self.assertEqual(
-            container_of(obj, point_type, "x"),
-            Object(self.prog, pointer_type(8, point_type), value=0xFFFF000C),
+            container_of(obj, self.point_type, "x"),
+            Object(
+                self.prog, self.prog.pointer_type(self.point_type), value=0xFFFF000C
+            ),
         )
         self.assertEqual(
-            container_of(obj, point_type, "y"),
-            Object(self.prog, pointer_type(8, point_type), value=0xFFFF0008),
-        )
-
-        self.assertEqual(
-            container_of(obj, line_segment_type, "a.x"),
-            Object(self.prog, pointer_type(8, line_segment_type), value=0xFFFF000C),
-        )
-        self.assertEqual(
-            container_of(obj, line_segment_type, "b.x"),
-            Object(self.prog, pointer_type(8, line_segment_type), value=0xFFFF0004),
+            container_of(obj, self.point_type, "y"),
+            Object(
+                self.prog, self.prog.pointer_type(self.point_type), value=0xFFFF0008
+            ),
         )
 
-        polygon_type = struct_type(
-            "polygon", 0, (TypeMember(array_type(None, point_type), "points"),)
+        self.assertEqual(
+            container_of(obj, self.line_segment_type, "a.x"),
+            Object(
+                self.prog,
+                self.prog.pointer_type(self.line_segment_type),
+                value=0xFFFF000C,
+            ),
+        )
+        self.assertEqual(
+            container_of(obj, self.line_segment_type, "b.x"),
+            Object(
+                self.prog,
+                self.prog.pointer_type(self.line_segment_type),
+                value=0xFFFF0004,
+            ),
+        )
+
+        polygon_type = self.prog.struct_type(
+            "polygon", 0, (TypeMember(self.prog.array_type(self.point_type), "points"),)
         )
         self.assertEqual(
             container_of(obj, polygon_type, "points[3].x"),
-            Object(self.prog, pointer_type(8, polygon_type), value=0xFFFEFFF4),
+            Object(self.prog, self.prog.pointer_type(polygon_type), value=0xFFFEFFF4),
         )
 
-        small_point_type = struct_type(
+        small_point_type = self.prog.struct_type(
             "small_point",
             1,
             (
-                TypeMember(int_type("int", 4, True), "x", 0, 4),
-                TypeMember(int_type("int", 4, True), "y", 4, 4),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 4, 4),
             ),
         )
         self.assertRaisesRegex(
@@ -1568,7 +1598,7 @@ class TestCOperators(ObjectTestCase):
             r"container_of\(\) argument must be a pointer",
             container_of,
             obj[0],
-            point_type,
+            self.point_type,
             "x",
         )
 
@@ -1581,12 +1611,14 @@ class TestCOperators(ObjectTestCase):
             "x",
         ),
 
-        type_ = struct_type(
+        type_ = self.prog.struct_type(
             "foo",
             16,
             (
-                TypeMember(array_type(8, int_type("int", 4, True)), "arr"),
-                TypeMember(point_type, "point", 256),
+                TypeMember(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 8), "arr"
+                ),
+                TypeMember(self.point_type, "point", 256),
             ),
         )
         syntax_errors = [
@@ -1604,7 +1636,7 @@ class TestCOperators(ObjectTestCase):
             )
 
 
-class TestCPretty(ObjectTestCase):
+class TestCPretty(MockProgramTestCase):
     def test_int(self):
         obj = Object(self.prog, "int", value=99)
         self.assertEqual(str(obj), "(int)99")
@@ -1628,7 +1660,7 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(
             Object(
                 self.prog,
-                typedef_type("uint8_t", self.prog.type("unsigned char")),
+                self.prog.typedef_type("uint8_t", self.prog.type("unsigned char")),
                 value=65,
             ).format_(char=True),
             "(uint8_t)65",
@@ -1645,13 +1677,17 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(Object(self.prog, "float", value=0.5)), "(float)0.5")
 
     def test_typedef(self):
-        type_ = typedef_type("INT", int_type("int", 4, True))
+        type_ = self.prog.typedef_type("INT", self.prog.int_type("int", 4, True))
         self.assertEqual(str(Object(self.prog, type_, value=99)), "(INT)99")
 
-        type_ = typedef_type("INT", int_type("int", 4, True), Qualifiers.CONST)
+        type_ = self.prog.typedef_type(
+            "INT", self.prog.int_type("int", 4, True), qualifiers=Qualifiers.CONST
+        )
         self.assertEqual(str(Object(self.prog, type_, value=99)), "(const INT)99")
 
-        type_ = typedef_type("CINT", int_type("int", 4, True, Qualifiers.CONST))
+        type_ = self.prog.typedef_type(
+            "CINT", self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST)
+        )
         self.assertEqual(str(Object(self.prog, type_, value=99)), "(CINT)99")
 
     def test_struct(self):
@@ -1661,12 +1697,10 @@ class TestCPretty(ObjectTestCase):
             + (12345).to_bytes(4, "little", signed=True)
             + (0).to_bytes(4, "little", signed=True)
         )
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),],
-            types=[point_type],
-        )
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
+        self.types.append(self.point_type)
 
-        obj = Object(prog, "struct point", address=0xFFFF0000)
+        obj = Object(self.prog, "struct point", address=0xFFFF0000)
         self.assertEqual(
             str(obj),
             """\
@@ -1700,18 +1734,18 @@ class TestCPretty(ObjectTestCase):
             "(struct point){ (int)99, (int)-1 }",
         )
 
-        type_ = struct_type(
+        type_ = self.prog.struct_type(
             "foo",
             16,
             (
-                TypeMember(point_type, "point"),
+                TypeMember(self.point_type, "point"),
                 TypeMember(
-                    struct_type(
+                    self.prog.struct_type(
                         None,
                         8,
                         (
-                            TypeMember(int_type("int", 4, True), "bar"),
-                            TypeMember(int_type("int", 4, True), "baz", 32),
+                            TypeMember(self.prog.int_type("int", 4, True), "bar"),
+                            TypeMember(self.prog.int_type("int", 4, True), "baz", 32),
                         ),
                     ),
                     None,
@@ -1719,7 +1753,7 @@ class TestCPretty(ObjectTestCase):
                 ),
             ),
         )
-        obj = Object(prog, type_, address=0xFFFF0000)
+        obj = Object(self.prog, type_, address=0xFFFF0000)
         expected = """\
 (struct foo){
 	.point = (struct point){
@@ -1732,36 +1766,36 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(obj), expected)
         self.assertEqual(str(obj.read_()), expected)
 
-        segment = (
-            (99).to_bytes(8, "little")
-            + (-1).to_bytes(8, "little", signed=True)
-            + (12345).to_bytes(8, "little", signed=True)
-            + (0).to_bytes(8, "little", signed=True)
-        )
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
+        self.add_memory_segment(
+            (
+                (99).to_bytes(8, "little")
+                + (-1).to_bytes(8, "little", signed=True)
+                + (12345).to_bytes(8, "little", signed=True)
+                + (0).to_bytes(8, "little", signed=True)
+            ),
+            virt_addr=0xFFFF8000,
         )
 
-        type_ = struct_type(
+        type_ = self.prog.struct_type(
             "foo",
             32,
             (
                 TypeMember(
-                    struct_type(
+                    self.prog.struct_type(
                         "long_point",
                         16,
                         (
-                            TypeMember(int_type("long", 8, True), "x"),
-                            TypeMember(int_type("long", 8, True), "y", 64),
+                            TypeMember(self.prog.int_type("long", 8, True), "x"),
+                            TypeMember(self.prog.int_type("long", 8, True), "y", 64),
                         ),
                     ),
                     "point",
                 ),
-                TypeMember(int_type("long", 8, True), "bar", 128),
-                TypeMember(int_type("long", 8, True), "baz", 192),
+                TypeMember(self.prog.int_type("long", 8, True), "bar", 128),
+                TypeMember(self.prog.int_type("long", 8, True), "baz", 192),
             ),
         )
-        obj = Object(prog, type_, address=0xFFFF0000)
+        obj = Object(self.prog, type_, address=0xFFFF8000)
         expected = """\
 (struct foo){
 	.point = (struct long_point){
@@ -1774,10 +1808,10 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(obj), expected)
         self.assertEqual(str(obj.read_()), expected)
 
-        type_ = struct_type("foo", 0, ())
-        self.assertEqual(str(Object(prog, type_, address=0)), "(struct foo){}")
+        type_ = self.prog.struct_type("foo", 0, ())
+        self.assertEqual(str(Object(self.prog, type_, address=0)), "(struct foo){}")
 
-        obj = Object(prog, point_type, value={"x": 1})
+        obj = Object(self.prog, self.point_type, value={"x": 1})
         self.assertEqual(
             obj.format_(implicit_members=False),
             """\
@@ -1792,7 +1826,7 @@ class TestCPretty(ObjectTestCase):
 	(int)1,
 }""",
         )
-        obj = Object(prog, point_type, value={"y": 1})
+        obj = Object(self.prog, self.point_type, value={"y": 1})
         self.assertEqual(
             obj.format_(implicit_members=False),
             """\
@@ -1810,22 +1844,23 @@ class TestCPretty(ObjectTestCase):
         )
 
     def test_bit_field(self):
-        segment = b"\x07\x10\x5e\x5f\x1f\0\0\0"
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
-        )
-
-        type_ = struct_type(
+        self.add_memory_segment(b"\x07\x10\x5e\x5f\x1f\0\0\0", virt_addr=0xFFFF0000)
+        type_ = self.prog.struct_type(
             "bits",
             8,
             (
-                TypeMember(int_type("int", 4, True), "x", 0, 4),
-                TypeMember(int_type("int", 4, True, Qualifiers.CONST), "y", 4, 28),
-                TypeMember(int_type("int", 4, True), "z", 32, 5),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
+                TypeMember(
+                    self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                    "y",
+                    4,
+                    28,
+                ),
+                TypeMember(self.prog.int_type("int", 4, True), "z", 32, 5),
             ),
         )
 
-        obj = Object(prog, type_, address=0xFFFF0000)
+        obj = Object(self.prog, type_, address=0xFFFF0000)
         self.assertEqual(
             str(obj),
             """\
@@ -1841,13 +1876,10 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(obj.z), "(int)-1")
 
     def test_union(self):
-        segment = b"\0\0\x80?"
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),],
-            types=[option_type],
-        )
+        self.add_memory_segment(b"\0\0\x80?", virt_addr=0xFFFF0000)
+        self.types.append(self.option_type)
         self.assertEqual(
-            str(Object(prog, "union option", address=0xFFFF0000)),
+            str(Object(self.prog, "union option", address=0xFFFF0000)),
             """\
 (union option){
 	.i = (int)1065353216,
@@ -1856,71 +1888,62 @@ class TestCPretty(ObjectTestCase):
         )
 
     def test_enum(self):
-        self.assertEqual(str(Object(self.prog, color_type, value=0)), "(enum color)RED")
         self.assertEqual(
-            str(Object(self.prog, color_type, value=1)), "(enum color)GREEN"
+            str(Object(self.prog, self.color_type, value=0)), "(enum color)RED"
         )
-        self.assertEqual(str(Object(self.prog, color_type, value=4)), "(enum color)4")
-        obj = Object(self.prog, enum_type("color"), address=0)
+        self.assertEqual(
+            str(Object(self.prog, self.color_type, value=1)), "(enum color)GREEN"
+        )
+        self.assertEqual(
+            str(Object(self.prog, self.color_type, value=4)), "(enum color)4"
+        )
+        obj = Object(self.prog, self.prog.enum_type("color"), address=0)
         self.assertRaisesRegex(TypeError, "cannot format incomplete enum", str, obj)
 
     def test_pointer(self):
-        prog = mock_program(
-            segments=[
-                MockMemorySegment((99).to_bytes(4, "little"), virt_addr=0xFFFF0000),
-            ]
-        )
-        obj = Object(prog, "int *", value=0xFFFF0000)
+        self.add_memory_segment((99).to_bytes(4, "little"), virt_addr=0xFFFF0000)
+        obj = Object(self.prog, "int *", value=0xFFFF0000)
         self.assertEqual(str(obj), "*(int *)0xffff0000 = 99")
         self.assertEqual(obj.format_(dereference=False), "(int *)0xffff0000")
         self.assertEqual(
-            str(Object(prog, "int *", value=0x7FFFFFFF)), "(int *)0x7fffffff"
+            str(Object(self.prog, "int *", value=0x7FFFFFFF)), "(int *)0x7fffffff"
         )
 
     def test_void_pointer(self):
-        prog = mock_program(
-            segments=[
-                MockMemorySegment((99).to_bytes(8, "little"), virt_addr=0xFFFF0000),
-            ]
-        )
+        self.add_memory_segment((99).to_bytes(4, "little"), virt_addr=0xFFFF0000)
         self.assertEqual(
-            str(Object(prog, "void *", value=0xFFFF0000)), "(void *)0xffff0000"
+            str(Object(self.prog, "void *", value=0xFFFF0000)), "(void *)0xffff0000"
         )
 
     def test_pointer_typedef(self):
-        prog = mock_program(
-            segments=[
-                MockMemorySegment(
-                    (0xFFFF00F0).to_bytes(8, "little"), virt_addr=0xFFFF0000
-                ),
-            ]
+        self.add_memory_segment(
+            (0xFFFF00F0).to_bytes(8, "little"), virt_addr=0xFFFF0000
         )
-        type_ = typedef_type("HANDLE", pointer_type(8, pointer_type(8, void_type())))
+        type_ = self.prog.typedef_type(
+            "HANDLE",
+            self.prog.pointer_type(self.prog.pointer_type(self.prog.void_type())),
+        )
         self.assertEqual(
-            str(Object(prog, type_, value=0xFFFF0000)),
+            str(Object(self.prog, type_, value=0xFFFF0000)),
             "*(HANDLE)0xffff0000 = 0xffff00f0",
         )
 
     # TODO: test symbolize.
 
     def test_c_string(self):
-        prog = mock_program(
-            segments=[
-                MockMemorySegment(b"hello\0", virt_addr=0xFFFF0000),
-                MockMemorySegment(b"unterminated", virt_addr=0xFFFF0010),
-                MockMemorySegment(b'"escape\tme\\\0', virt_addr=0xFFFF0020),
-            ]
-        )
+        self.add_memory_segment(b"hello\0", virt_addr=0xFFFF0000)
+        self.add_memory_segment(b"unterminated", virt_addr=0xFFFF0010)
+        self.add_memory_segment(b'"escape\tme\\\0', virt_addr=0xFFFF0020)
 
-        obj = Object(prog, "char *", value=0xFFFF0000)
+        obj = Object(self.prog, "char *", value=0xFFFF0000)
         self.assertEqual(str(obj), '(char *)0xffff0000 = "hello"')
         self.assertEqual(obj.format_(string=False), "*(char *)0xffff0000 = 104")
-        self.assertEqual(str(Object(prog, "char *", value=0x0)), "(char *)0x0")
+        self.assertEqual(str(Object(self.prog, "char *", value=0x0)), "(char *)0x0")
         self.assertEqual(
-            str(Object(prog, "char *", value=0xFFFF0010)), "(char *)0xffff0010"
+            str(Object(self.prog, "char *", value=0xFFFF0010)), "(char *)0xffff0010"
         )
         self.assertEqual(
-            str(Object(prog, "char *", value=0xFFFF0020)),
+            str(Object(self.prog, "char *", value=0xFFFF0020)),
             r'(char *)0xffff0020 = "\"escape\tme\\"',
         )
 
@@ -1928,10 +1951,8 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(5):
             segment.extend(i.to_bytes(4, "little"))
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
-        )
-        obj = Object(prog, "int [5]", address=0xFFFF0000)
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
+        obj = Object(self.prog, "int [5]", address=0xFFFF0000)
 
         self.assertEqual(str(obj), "(int [5]){ 0, 1, 2, 3, 4 }")
         self.assertEqual(
@@ -2012,10 +2033,8 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(10):
             segment.extend(i.to_bytes(4, "little"))
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
-        )
-        obj = Object(prog, "int [2][5]", address=0xFFFF0000)
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
+        obj = Object(self.prog, "int [2][5]", address=0xFFFF0000)
 
         self.assertEqual(
             str(obj), "(int [2][5]){ { 0, 1, 2, 3, 4 }, { 5, 6, 7, 8, 9 } }"
@@ -2096,14 +2115,18 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(5):
             segment.extend(i.to_bytes(4, "little"))
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
-        )
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
 
-        type_ = struct_type(
-            None, 20, (TypeMember(array_type(5, int_type("int", 4, True)), "arr"),)
+        type_ = self.prog.struct_type(
+            None,
+            20,
+            (
+                TypeMember(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 5), "arr"
+                ),
+            ),
         )
-        obj = Object(prog, type_, address=0xFFFF0000)
+        obj = Object(self.prog, type_, address=0xFFFF0000)
 
         self.assertEqual(
             str(obj),
@@ -2142,12 +2165,10 @@ class TestCPretty(ObjectTestCase):
         segment = bytearray()
         for i in range(1, 5):
             segment.extend(i.to_bytes(4, "little"))
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),],
-            types=[point_type],
-        )
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
+        self.types.append(self.point_type)
 
-        obj = Object(prog, "struct point [2]", address=0xFFFF0000)
+        obj = Object(self.prog, "struct point [2]", address=0xFFFF0000)
         self.assertEqual(
             str(obj),
             """\
@@ -2169,12 +2190,11 @@ class TestCPretty(ObjectTestCase):
 
     def test_array_zeroes(self):
         segment = bytearray(16)
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),],
-            types=[point_type, struct_type("empty", 0, ()),],
-        )
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
+        self.types.append(self.point_type)
+        self.types.append(self.prog.struct_type("empty", 0, ()))
 
-        obj = Object(prog, "int [2]", address=0xFFFF0000)
+        obj = Object(self.prog, "int [2]", address=0xFFFF0000)
         self.assertEqual(str(obj), "(int [2]){}")
         self.assertEqual(obj.format_(implicit_elements=True), "(int [2]){ 0, 0 }")
         segment[:4] = (99).to_bytes(4, "little")
@@ -2183,7 +2203,7 @@ class TestCPretty(ObjectTestCase):
         segment[4:8] = (99).to_bytes(4, "little")
         self.assertEqual(str(obj), "(int [2]){ 0, 99 }")
 
-        obj = Object(prog, "struct point [2]", address=0xFFFF0000)
+        obj = Object(self.prog, "struct point [2]", address=0xFFFF0000)
         self.assertEqual(
             str(obj),
             """\
@@ -2195,16 +2215,14 @@ class TestCPretty(ObjectTestCase):
 }""",
         )
 
-        obj = Object(prog, "struct empty [2]", address=0)
+        obj = Object(self.prog, "struct empty [2]", address=0)
         self.assertEqual(str(obj), "(struct empty [2]){}")
 
     def test_char_array(self):
         segment = bytearray(16)
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
-        )
+        self.add_memory_segment(segment, virt_addr=0xFFFF0000)
 
-        obj = Object(prog, "char [4]", address=0xFFFF0000)
+        obj = Object(self.prog, "char [4]", address=0xFFFF0000)
         segment[:16] = b"hello, world\0\0\0\0"
         self.assertEqual(str(obj), '(char [4])"hell"')
         self.assertEqual(obj.format_(string=False), "(char [4]){ 104, 101, 108, 108 }")
@@ -2214,29 +2232,26 @@ class TestCPretty(ObjectTestCase):
         self.assertEqual(str(obj.read_()), str(obj))
 
         self.assertEqual(
-            str(Object(prog, "char [0]", address=0xFFFF0000)), "(char [0]){}"
+            str(Object(self.prog, "char [0]", address=0xFFFF0000)), "(char [0]){}"
         )
         self.assertEqual(
-            str(Object(prog, "char []", address=0xFFFF0000)), "(char []){}"
+            str(Object(self.prog, "char []", address=0xFFFF0000)), "(char []){}"
         )
 
     def test_function(self):
         obj = Object(
-            self.prog, function_type(void_type(), (), False), address=0xFFFF0000
+            self.prog,
+            self.prog.function_type(self.prog.void_type(), (), False),
+            address=0xFFFF0000,
         )
         self.assertEqual(str(obj), "(void (void))0xffff0000")
 
 
-class TestGenericOperators(ObjectTestCase):
+class TestGenericOperators(MockProgramTestCase):
     def setUp(self):
         super().setUp()
-        self.prog = mock_program(
-            segments=[
-                MockMemorySegment(
-                    b"".join(i.to_bytes(4, "little") for i in range(4)),
-                    virt_addr=0xFFFF0000,
-                ),
-            ]
+        self.add_memory_segment(
+            b"".join(i.to_bytes(4, "little") for i in range(4)), virt_addr=0xFFFF0000,
         )
 
     def test_len(self):
@@ -2303,14 +2318,14 @@ class TestGenericOperators(ObjectTestCase):
             TypeError,
             "cannot convert 'int' to 'struct point'",
             cast,
-            point_type,
+            self.point_type,
             Object(self.prog, "int", value=1),
         )
 
     def test_cast_compound_value(self):
-        obj = Object(self.prog, point_type, address=0xFFFF0000).read_()
-        self.assertEqual(cast(point_type, obj), obj)
-        const_point_type = point_type.qualified(Qualifiers.CONST)
+        obj = Object(self.prog, self.point_type, address=0xFFFF0000).read_()
+        self.assertEqual(cast(self.point_type, obj), obj)
+        const_point_type = self.point_type.qualified(Qualifiers.CONST)
         self.assertEqual(
             cast(const_point_type, obj),
             Object(self.prog, const_point_type, address=0xFFFF0000).read_(),
@@ -2319,7 +2334,7 @@ class TestGenericOperators(ObjectTestCase):
             TypeError,
             "cannot convert 'struct point' to 'enum color'",
             cast,
-            color_type,
+            self.color_type,
             obj,
         )
 
@@ -2342,39 +2357,43 @@ class TestGenericOperators(ObjectTestCase):
         )
 
     def test_reinterpret_value(self):
-        segment = (1).to_bytes(4, "little") + (2).to_bytes(4, "little")
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),],
-            types=[
-                point_type,
-                struct_type(
-                    "foo", 8, (TypeMember(int_type("long", 8, True), "counter"),)
-                ),
-            ],
+        self.types.append(self.point_type)
+        self.types.append(
+            self.prog.struct_type(
+                "foo", 8, (TypeMember(self.prog.int_type("long", 8, True), "counter"),)
+            ),
         )
-        obj = Object(prog, "struct point", address=0xFFFF0000).read_()
+        obj = Object(self.prog, "struct point", address=0xFFFF0008).read_()
         self.assertEqual(
             reinterpret("struct foo", obj),
-            Object(prog, "struct foo", address=0xFFFF0000).read_(),
+            Object(self.prog, "struct foo", address=0xFFFF0008).read_(),
         )
         self.assertEqual(
             reinterpret(obj.type_, obj, byteorder="big"),
-            Object(prog, "struct point", address=0xFFFF0000, byteorder="big").read_(),
+            Object(
+                self.prog, "struct point", address=0xFFFF0008, byteorder="big"
+            ).read_(),
         )
-        self.assertEqual(reinterpret("int", obj), Object(prog, "int", value=1))
+        self.assertEqual(reinterpret("int", obj), Object(self.prog, "int", value=2))
 
     def test_member(self):
-        reference = Object(self.prog, point_type, address=0xFFFF0000)
+        reference = Object(self.prog, self.point_type, address=0xFFFF0000)
         unnamed_reference = Object(
             self.prog,
-            struct_type(
+            self.prog.struct_type(
                 "point",
                 8,
-                (TypeMember(struct_type(None, 8, point_type.members), None),),
+                (
+                    TypeMember(
+                        self.prog.struct_type(None, 8, self.point_type.members), None
+                    ),
+                ),
             ),
             address=0xFFFF0000,
         )
-        ptr = Object(self.prog, pointer_type(8, point_type), value=0xFFFF0000)
+        ptr = Object(
+            self.prog, self.prog.pointer_type(self.point_type), value=0xFFFF0000
+        )
         for obj in [reference, unnamed_reference, ptr]:
             self.assertEqual(
                 obj.member_("x"), Object(self.prog, "int", address=0xFFFF0000)
@@ -2403,34 +2422,38 @@ class TestGenericOperators(ObjectTestCase):
         self.assertRaisesRegex(AttributeError, "no attribute", getattr, obj, "x")
 
     def test_bit_field_member(self):
-        segment = b"\x07\x10\x5e\x5f\x1f\0\0\0"
-        prog = mock_program(
-            segments=[MockMemorySegment(segment, virt_addr=0xFFFF0000),]
-        )
-
-        type_ = struct_type(
+        self.add_memory_segment(b"\x07\x10\x5e\x5f\x1f\0\0\0", virt_addr=0xFFFF8000)
+        type_ = self.prog.struct_type(
             "bits",
             8,
             (
-                TypeMember(int_type("int", 4, True), "x", 0, 4),
-                TypeMember(int_type("int", 4, True, Qualifiers.CONST), "y", 4, 28),
-                TypeMember(int_type("int", 4, True), "z", 32, 5),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
+                TypeMember(
+                    self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                    "y",
+                    4,
+                    28,
+                ),
+                TypeMember(self.prog.int_type("int", 4, True), "z", 32, 5),
             ),
         )
 
-        obj = Object(prog, type_, address=0xFFFF0000)
+        obj = Object(self.prog, type_, address=0xFFFF8000)
         self.assertEqual(
             obj.x,
             Object(
-                prog, int_type("int", 4, True), address=0xFFFF0000, bit_field_size=4
+                self.prog,
+                self.prog.int_type("int", 4, True),
+                address=0xFFFF8000,
+                bit_field_size=4,
             ),
         )
         self.assertEqual(
             obj.y,
             Object(
-                prog,
-                int_type("int", 4, True, Qualifiers.CONST),
-                address=0xFFFF0000,
+                self.prog,
+                self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                address=0xFFFF8000,
                 bit_field_size=28,
                 bit_offset=4,
             ),
@@ -2438,29 +2461,30 @@ class TestGenericOperators(ObjectTestCase):
         self.assertEqual(
             obj.z,
             Object(
-                prog, int_type("int", 4, True), address=0xFFFF0004, bit_field_size=5
+                self.prog,
+                self.prog.int_type("int", 4, True),
+                address=0xFFFF8004,
+                bit_field_size=5,
             ),
         )
 
     def test_member_out_of_bounds(self):
         obj = Object(
-            self.prog, struct_type("foo", 4, point_type.members), address=0xFFFF0000
+            self.prog,
+            self.prog.struct_type("foo", 4, self.point_type.members),
+            address=0xFFFF0000,
         ).read_()
         self.assertRaisesRegex(OutOfBoundsError, "out of bounds", getattr, obj, "y")
 
     def test_string(self):
-        prog = mock_program(
-            segments=[
-                MockMemorySegment(
-                    b"\x00\x00\xff\xff\x00\x00\x00\x00", virt_addr=0xFFFEFFF8
-                ),
-                MockMemorySegment(b"hello\0world\0", virt_addr=0xFFFF0000),
-            ]
+        self.add_memory_segment(
+            b"\x00\x00\xff\xff\x00\x00\x00\x00", virt_addr=0xFFFEFFF8
         )
+        self.add_memory_segment(b"hello\0world\0", virt_addr=0xFFFF0000)
         strings = [
-            (Object(prog, "char *", address=0xFFFEFFF8), b"hello"),
-            (Object(prog, "char [2]", address=0xFFFF0000), b"he"),
-            (Object(prog, "char [8]", address=0xFFFF0000), b"hello"),
+            (Object(self.prog, "char *", address=0xFFFEFFF8), b"hello"),
+            (Object(self.prog, "char [2]", address=0xFFFF0000), b"he"),
+            (Object(self.prog, "char [8]", address=0xFFFF0000), b"hello"),
         ]
         for obj, expected in strings:
             with self.subTest(obj=obj):
@@ -2468,10 +2492,10 @@ class TestGenericOperators(ObjectTestCase):
                 self.assertEqual(obj.read_().string_(), expected)
 
         strings = [
-            Object(prog, "char []", address=0xFFFF0000),
-            Object(prog, "int []", address=0xFFFF0000),
-            Object(prog, "int [2]", address=0xFFFF0000),
-            Object(prog, "int *", value=0xFFFF0000),
+            Object(self.prog, "char []", address=0xFFFF0000),
+            Object(self.prog, "int []", address=0xFFFF0000),
+            Object(self.prog, "int [2]", address=0xFFFF0000),
+            Object(self.prog, "int *", value=0xFFFF0000),
         ]
         for obj in strings:
             self.assertEqual(obj.string_(), b"hello")
@@ -2479,16 +2503,16 @@ class TestGenericOperators(ObjectTestCase):
         self.assertRaisesRegex(
             TypeError,
             "must be an array or pointer",
-            Object(prog, "int", value=1).string_,
+            Object(self.prog, "int", value=1).string_,
         )
 
 
-class TestSpecialMethods(ObjectTestCase):
+class TestSpecialMethods(MockProgramTestCase):
     def test_dir(self):
         obj = Object(self.prog, "int", value=0)
         self.assertEqual(dir(obj), sorted(object.__dir__(obj)))
 
-        obj = Object(self.prog, point_type, address=0xFFFF0000)
+        obj = Object(self.prog, self.point_type, address=0xFFFF0000)
         self.assertEqual(dir(obj), sorted(object.__dir__(obj) + ["x", "y"]))
         self.assertEqual(dir(obj.address_of_()), dir(obj))
 

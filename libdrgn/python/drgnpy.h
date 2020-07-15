@@ -43,28 +43,14 @@ typedef struct {
 } DrgnObject;
 
 typedef struct {
-	PyObject_VAR_HEAD
+	PyObject_HEAD
+	struct drgn_type *type;
 	enum drgn_qualifiers qualifiers;
 	/*
-	 * This serves two purposes: it caches attributes which were previously
-	 * converted from a struct drgn_type member, and it keeps a reference to
-	 * any objects which are referenced internally by _type. For example, in
-	 * order to avoid doing a strdup(), we can set the name of a type
-	 * directly to PyUnicode_AsUTF8(s). This is only valid as long as s is
-	 * alive, so we store it here.
+	 * Cache of attributes which were previously converted from a struct
+	 * drgn_type member or used to create the type.
 	 */
 	PyObject *attr_cache;
-	/*
-	 * A Type object can wrap a struct drgn_type created elsewhere, or it
-	 * can have an embedded struct drgn_type. In the latter case, type
-	 * points to _type.
-	 */
-	struct drgn_type *type;
-	union {
-		struct drgn_type _type[0];
-		/* An object which must be kept alive for type to be valid. */
-		PyObject *parent;
-	};
 } DrgnType;
 
 typedef struct {
@@ -126,38 +112,31 @@ typedef struct {
 	PyObject *value;
 } TypeEnumerator;
 
-/*
- * LazyType.obj is a tagged pointer to a PyObject. If the
- * DRGNPY_LAZY_TYPE_UNEVALUATED flag is unset, then LazyType.obj is the
- * evaluated Type. If it is set and LazyType.lazy_type is set, then LazyType.obj
- * is the parent Type and LazyType.lazy_type must be evaluated and wrapped. If
- * the flag is set and LazyType.lazy_type is not set, then LazyType.obj is a
- * Python callable that should return the Type.
- */
-enum {
-	DRGNPY_LAZY_TYPE_UNEVALUATED = 1,
-	DRGNPY_LAZY_TYPE_MASK = ~(uintptr_t)1,
-};
-static_assert(alignof(PyObject) >= 2, "PyObject is not aligned");
-
-#define LazyType_HEAD				\
-	PyObject_HEAD				\
-	uintptr_t obj;				\
-	struct drgn_lazy_type *lazy_type;
-
 typedef struct {
-	LazyType_HEAD
+	PyObject_HEAD
+	enum {
+		/* obj is the evaluated Type. */
+		DRGNPY_LAZY_TYPE_EVALUATED,
+		/* lazy_type must be evaluated and wrapped. */
+		DRGNPY_LAZY_TYPE_UNEVALUATED,
+		/* obj is a Python callable that should return the Type. */
+		DRGNPY_LAZY_TYPE_CALLABLE,
+	} state;
+	union {
+		PyObject *obj;
+		struct drgn_lazy_type *lazy_type;
+	};
 } LazyType;
 
 typedef struct {
-	LazyType_HEAD
+	LazyType lazy_type;
 	PyObject *name;
 	PyObject *bit_offset;
 	PyObject *bit_field_size;
 } TypeMember;
 
 typedef struct {
-	LazyType_HEAD
+	LazyType lazy_type;
 	PyObject *name;
 } TypeParameter;
 
@@ -222,6 +201,8 @@ DrgnObject *DrgnObject_container_of(PyObject *self, PyObject *args,
 
 PyObject *Platform_wrap(const struct drgn_platform *platform);
 
+int Program_hold_object(Program *prog, PyObject *obj);
+bool Program_hold_reserve(Program *prog, size_t n);
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 		     struct drgn_qualified_type *ret);
 Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
@@ -230,29 +211,25 @@ Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, Program *prog);
 
-static inline PyObject *DrgnType_parent(DrgnType *type)
+static inline Program *DrgnType_prog(DrgnType *type)
 {
-	if (type->type == type->_type)
-		return (PyObject *)type;
-	else
-		return type->parent;
+	return container_of(drgn_type_program(type->type), Program, prog);
 }
-PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type,
-			PyObject *parent);
+PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type);
 int qualifiers_converter(PyObject *arg, void *result);
-DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *bool_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *float_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *struct_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *union_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *class_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds);
-DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_void_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_complex_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_struct_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_union_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_class_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_typedef_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_array_type(Program *self, PyObject *args, PyObject *kwds);
+DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds);
 
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);

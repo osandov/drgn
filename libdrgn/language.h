@@ -68,8 +68,6 @@ typedef struct drgn_error *drgn_cmp_op(const struct drgn_object *lhs,
 struct drgn_language {
 	/** Name of this programming language. */
 	const char *name;
-	/** Void type for this language. See @ref drgn_void_type(). */
-	struct drgn_type void_type;
 	/** Implement @ref drgn_format_type_name(). */
 	drgn_format_type_fn *format_type_name;
 	/** Implement @ref drgn_format_type(). */
@@ -163,8 +161,8 @@ enum {
 
 extern const struct drgn_language drgn_languages[DRGN_NUM_LANGUAGES];
 
-#define drgn_language_cpp drgn_languages[DRGN_LANGUAGE_CPP]
 #define drgn_language_c drgn_languages[DRGN_LANGUAGE_C]
+#define drgn_language_cpp drgn_languages[DRGN_LANGUAGE_CPP]
 
 /**
  * Return flags that should be passed through when formatting an object

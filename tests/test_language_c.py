@@ -5,30 +5,12 @@ from functools import reduce
 import operator
 import unittest
 
-from drgn import (
-    Qualifiers,
-    TypeEnumerator,
-    TypeMember,
-    TypeParameter,
-    array_type,
-    bool_type,
-    class_type,
-    complex_type,
-    enum_type,
-    float_type,
-    function_type,
-    int_type,
-    pointer_type,
-    struct_type,
-    typedef_type,
-    union_type,
-    void_type,
-)
-from tests import coord_type, point_type
+from drgn import Qualifiers, TypeEnumerator, TypeMember, TypeParameter
+from tests import MockProgramTestCase
 from tests.libdrgn import C_TOKEN, Lexer, drgn_lexer_c
 
 
-class TestPrettyPrintTypeName(unittest.TestCase):
+class TestPrettyPrintTypeName(MockProgramTestCase):
     def assertTypeName(self, type, expected, same_as_definition=False):
         self.assertEqual(type.type_name(), expected)
         if same_as_definition:
@@ -58,120 +40,175 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         )
 
     def test_void(self):
-        self.assertQualifiedTypeName("void", True, void_type)
+        self.assertQualifiedTypeName("void", True, self.prog.void_type)
 
     def test_int(self):
-        self.assertQualifiedTypeName("int", True, int_type, "int", 4, True)
+        self.assertQualifiedTypeName("int", True, self.prog.int_type, "int", 4, True)
 
     def test_bool(self):
-        self.assertQualifiedTypeName("_Bool", True, bool_type, "_Bool", 1)
+        self.assertQualifiedTypeName("_Bool", True, self.prog.bool_type, "_Bool", 1)
 
     def test_float(self):
-        self.assertQualifiedTypeName("float", True, float_type, "float", 4)
+        self.assertQualifiedTypeName("float", True, self.prog.float_type, "float", 4)
 
     def test_complex(self):
         self.assertQualifiedTypeName(
             "double _Complex",
             True,
-            complex_type,
+            self.prog.complex_type,
             "double _Complex",
             16,
-            float_type("double", 8),
+            self.prog.float_type("double", 8),
         )
 
     def test_struct(self):
-        self.assertQualifiedTypeName("struct point", True, struct_type, "point")
-        self.assertQualifiedTypeName("struct <anonymous>", False, struct_type, None)
+        self.assertQualifiedTypeName(
+            "struct point", True, self.prog.struct_type, "point"
+        )
+        self.assertQualifiedTypeName(
+            "struct <anonymous>", False, self.prog.struct_type, None
+        )
 
     def test_union(self):
-        self.assertQualifiedTypeName("union option", True, union_type, "option"),
-        self.assertQualifiedTypeName("union <anonymous>", False, union_type, None)
+        self.assertQualifiedTypeName(
+            "union option", True, self.prog.union_type, "option"
+        ),
+        self.assertQualifiedTypeName(
+            "union <anonymous>", False, self.prog.union_type, None
+        )
 
     def test_class(self):
-        self.assertQualifiedTypeName("class coord", True, class_type, "coord")
-        self.assertQualifiedTypeName("class <anonymous>", False, class_type, None)
+        self.assertQualifiedTypeName("class coord", True, self.prog.class_type, "coord")
+        self.assertQualifiedTypeName(
+            "class <anonymous>", False, self.prog.class_type, None
+        )
 
     def test_enum(self):
         self.assertQualifiedTypeName(
-            "enum color", True, enum_type, "color", None, None
+            "enum color", True, self.prog.enum_type, "color", None, None
         ),
         self.assertQualifiedTypeName(
-            "enum <anonymous>", False, enum_type, None, None, None
+            "enum <anonymous>", False, self.prog.enum_type, None, None, None
         )
 
     def test_typedef(self):
         self.assertQualifiedTypeName(
-            "bool", False, typedef_type, "bool", bool_type("_Bool", 1)
+            "bool",
+            False,
+            self.prog.typedef_type,
+            "bool",
+            self.prog.bool_type("_Bool", 1),
         )
 
     def test_pointer(self):
-        self.assertTypeName(pointer_type(8, void_type()), "void *", True)
-        t = pointer_type(8, void_type(Qualifiers.VOLATILE))
+        self.assertTypeName(
+            self.prog.pointer_type(self.prog.void_type()), "void *", True
+        )
+        t = self.prog.pointer_type(self.prog.void_type(qualifiers=Qualifiers.VOLATILE))
         self.assertTypeName(t, "volatile void *", True)
-        t = pointer_type(8, void_type(Qualifiers.VOLATILE), Qualifiers.CONST)
+        t = self.prog.pointer_type(
+            self.prog.void_type(qualifiers=Qualifiers.VOLATILE),
+            qualifiers=Qualifiers.CONST,
+        )
         self.assertTypeName(t, "volatile void * const", True)
-        t = pointer_type(8, t)
+        t = self.prog.pointer_type(t)
         self.assertTypeName(t, "volatile void * const *", True)
 
     def test_array(self):
-        i = int_type("int", 4, True)
-        self.assertTypeName(array_type(None, i), "int []", True)
-        self.assertTypeName(array_type(2, i), "int [2]", True)
-        self.assertTypeName(array_type(2, array_type(3, i)), "int [2][3]", True)
+        i = self.prog.int_type("int", 4, True)
+        self.assertTypeName(self.prog.array_type(i), "int []", True)
+        self.assertTypeName(self.prog.array_type(i, 2), "int [2]", True)
         self.assertTypeName(
-            array_type(2, array_type(3, array_type(4, i))), "int [2][3][4]", True
+            self.prog.array_type(self.prog.array_type(i, 3), 2), "int [2][3]", True
+        )
+        self.assertTypeName(
+            self.prog.array_type(
+                self.prog.array_type(self.prog.array_type(i, 4), 3), 2
+            ),
+            "int [2][3][4]",
+            True,
         )
 
     def test_array_of_pointers(self):
         self.assertTypeName(
-            array_type(2, array_type(3, pointer_type(8, int_type("int", 4, True)))),
+            self.prog.array_type(
+                self.prog.array_type(
+                    self.prog.pointer_type(self.prog.int_type("int", 4, True)), 3
+                ),
+                2,
+            ),
             "int *[2][3]",
             True,
         )
 
     def test_pointer_to_array(self):
         self.assertTypeName(
-            pointer_type(8, array_type(2, int_type("int", 4, True))), "int (*)[2]", True
+            self.prog.pointer_type(
+                self.prog.array_type(self.prog.int_type("int", 4, True), 2)
+            ),
+            "int (*)[2]",
+            True,
         )
 
     def test_pointer_to_pointer_to_array(self):
         self.assertTypeName(
-            pointer_type(8, pointer_type(8, array_type(2, int_type("int", 4, True)))),
+            self.prog.pointer_type(
+                self.prog.pointer_type(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 2)
+                )
+            ),
             "int (**)[2]",
             True,
         )
 
     def test_pointer_to_array_of_pointers(self):
         self.assertTypeName(
-            pointer_type(8, array_type(2, pointer_type(8, int_type("int", 4, True)))),
+            self.prog.pointer_type(
+                self.prog.array_type(
+                    self.prog.pointer_type(self.prog.int_type("int", 4, True)), 2
+                )
+            ),
             "int *(*)[2]",
             True,
         )
 
     def test_array_of_pointers_to_array(self):
         self.assertTypeName(
-            array_type(2, pointer_type(8, array_type(3, int_type("int", 4, True)))),
+            self.prog.array_type(
+                self.prog.pointer_type(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 3)
+                ),
+                2,
+            ),
             "int (*[2])[3]",
             True,
         )
 
     def test_pointer_to_function(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(8, function_type(i, (TypeParameter(i),), False)),
+            self.prog.pointer_type(
+                self.prog.function_type(i, (TypeParameter(i),), False)
+            ),
             "int (*)(int)",
             True,
         )
         self.assertTypeName(
-            pointer_type(8, function_type(i, (TypeParameter(i, "x"),), False)),
+            self.prog.pointer_type(
+                self.prog.function_type(i, (TypeParameter(i, "x"),), False)
+            ),
             "int (*)(int x)",
             True,
         )
         self.assertTypeName(
-            pointer_type(
-                8,
-                function_type(
-                    i, (TypeParameter(i), TypeParameter(float_type("float", 4),)), False
+            self.prog.pointer_type(
+                self.prog.function_type(
+                    i,
+                    (
+                        TypeParameter(i),
+                        TypeParameter(self.prog.float_type("float", 4),),
+                    ),
+                    False,
                 ),
             ),
             "int (*)(int, float)",
@@ -179,19 +216,22 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         )
 
     def test_pointer_to_function_returning_pointer(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(
-                8, function_type(pointer_type(8, i), (TypeParameter(i),), False)
+            self.prog.pointer_type(
+                self.prog.function_type(
+                    self.prog.pointer_type(i), (TypeParameter(i),), False
+                )
             ),
             "int *(*)(int)",
             True,
         )
         self.assertTypeName(
-            pointer_type(
-                8,
-                function_type(
-                    pointer_type(8, i), (TypeParameter(pointer_type(8, i)),), False
+            self.prog.pointer_type(
+                self.prog.function_type(
+                    self.prog.pointer_type(i),
+                    (TypeParameter(self.prog.pointer_type(i)),),
+                    False,
                 ),
             ),
             "int *(*)(int *)",
@@ -199,12 +239,13 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         )
 
     def test_pointer_to_function_returning_pointer_to_const(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(
-                8,
-                function_type(
-                    pointer_type(8, int_type("int", 4, True, Qualifiers.CONST)),
+            self.prog.pointer_type(
+                self.prog.function_type(
+                    self.prog.pointer_type(
+                        self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST)
+                    ),
                     (TypeParameter(i),),
                     False,
                 ),
@@ -214,12 +255,13 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         )
 
     def test_pointer_to_function_returning_const_pointer(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(
-                8,
-                function_type(
-                    pointer_type(8, i, Qualifiers.CONST), (TypeParameter(i),), False
+            self.prog.pointer_type(
+                self.prog.function_type(
+                    self.prog.pointer_type(i, qualifiers=Qualifiers.CONST),
+                    (TypeParameter(i),),
+                    False,
                 ),
             ),
             "int * const (*)(int)",
@@ -227,34 +269,38 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         )
 
     def test_const_pointer_to_function_returning_pointer(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(
-                8,
-                function_type(pointer_type(8, i), (TypeParameter(i),), False),
-                Qualifiers.CONST,
+            self.prog.pointer_type(
+                self.prog.function_type(
+                    self.prog.pointer_type(i), (TypeParameter(i),), False
+                ),
+                qualifiers=Qualifiers.CONST,
             ),
             "int *(* const)(int)",
             True,
         )
 
     def test_array_of_pointers_to_functions(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            array_type(
-                4, pointer_type(8, function_type(i, (TypeParameter(i),), False))
+            self.prog.array_type(
+                self.prog.pointer_type(
+                    self.prog.function_type(i, (TypeParameter(i),), False)
+                ),
+                4,
             ),
             "int (*[4])(int)",
             True,
         )
 
     def test_array_of_const_pointers_to_functions(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            array_type(
-                None,
-                pointer_type(
-                    8, function_type(i, (TypeParameter(i),), False), Qualifiers.CONST
+            self.prog.array_type(
+                self.prog.pointer_type(
+                    self.prog.function_type(i, (TypeParameter(i),), False),
+                    qualifiers=Qualifiers.CONST,
                 ),
             ),
             "int (* const [])(int)",
@@ -262,40 +308,47 @@ class TestPrettyPrintTypeName(unittest.TestCase):
         )
 
     def test_pointer_to_variadic_function(self):
-        i = int_type("int", 4, True)
+        i = self.prog.int_type("int", 4, True)
         self.assertTypeName(
-            pointer_type(8, function_type(i, (TypeParameter(i),), True)),
+            self.prog.pointer_type(
+                self.prog.function_type(i, (TypeParameter(i),), True)
+            ),
             "int (*)(int, ...)",
             True,
         )
 
     def test_pointer_to_function_with_no_parameters(self):
         self.assertTypeName(
-            pointer_type(8, function_type(int_type("int", 4, True), (), False)),
+            self.prog.pointer_type(
+                self.prog.function_type(self.prog.int_type("int", 4, True), (), False)
+            ),
             "int (*)(void)",
             True,
         )
 
     def test_pointer_to_function_with_no_parameter_specification(self):
         self.assertTypeName(
-            pointer_type(8, function_type(int_type("int", 4, True), (), True)),
+            self.prog.pointer_type(
+                self.prog.function_type(self.prog.int_type("int", 4, True), (), True)
+            ),
             "int (*)()",
             True,
         )
 
     def test_function(self):
         self.assertTypeName(
-            function_type(int_type("int", 4, True), (), False), "int (void)"
+            self.prog.function_type(self.prog.int_type("int", 4, True), (), False),
+            "int (void)",
         )
 
 
-class TestPrettyPrintType(unittest.TestCase):
+class TestPrettyPrintType(MockProgramTestCase):
     def assertPrettyPrint(self, type, expected):
         self.assertEqual(str(type), expected)
 
     def test_struct(self):
         self.assertPrettyPrint(
-            point_type,
+            self.point_type,
             """\
 struct point {
 	int x;
@@ -303,13 +356,9 @@ struct point {
 }""",
         )
 
-        line_segment = struct_type(
-            "line_segment",
-            16,
-            (TypeMember(point_type, "a", 0), TypeMember(point_type, "b", 8)),
-        )
+    def test_struct_member(self):
         self.assertPrettyPrint(
-            line_segment,
+            self.line_segment_type,
             """\
 struct line_segment {
 	struct point a;
@@ -317,16 +366,16 @@ struct line_segment {
 }""",
         )
 
-        anonymous_point = struct_type(
-            None,
-            8,
-            (
-                TypeMember(int_type("int", 4, True), "x", 0),
-                TypeMember(int_type("int", 4, True), "y", 4),
-            ),
-        )
+    def test_anonymous_struct(self):
         self.assertPrettyPrint(
-            anonymous_point,
+            self.prog.struct_type(
+                None,
+                8,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+                ),
+            ),
             """\
 struct {
 	int x;
@@ -334,15 +383,25 @@ struct {
 }""",
         )
 
+    def test_anonymous_struct_member(self):
         # Member with anonymous struct type.
-        line_segment = struct_type(
-            "line_segment",
-            16,
-            (TypeMember(anonymous_point, "a", 0), TypeMember(anonymous_point, "b", 8),),
+        anonymous_struct = self.prog.struct_type(
+            None,
+            8,
+            (
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+            ),
         )
-
         self.assertPrettyPrint(
-            line_segment,
+            self.prog.struct_type(
+                "line_segment",
+                16,
+                (
+                    TypeMember(anonymous_struct, "a", 0),
+                    TypeMember(anonymous_struct, "b", 64),
+                ),
+            ),
             """\
 struct line_segment {
 	struct {
@@ -356,17 +415,25 @@ struct line_segment {
 }""",
         )
 
-        # Unnamed member.
-        point3 = struct_type(
-            "point3",
-            0,
-            (
-                TypeMember(anonymous_point, None, 0),
-                TypeMember(int_type("int", 4, True), "z", 8),
-            ),
-        )
+    def test_struct_unnamed_member(self):
         self.assertPrettyPrint(
-            point3,
+            self.prog.struct_type(
+                "point3",
+                0,
+                (
+                    TypeMember(
+                        self.prog.struct_type(
+                            None,
+                            8,
+                            (
+                                TypeMember(self.prog.int_type("int", 4, True), "x"),
+                                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+                            ),
+                        )
+                    ),
+                    TypeMember(self.prog.int_type("int", 4, True), "z", 64),
+                ),
+            ),
             """\
 struct point3 {
 	struct {
@@ -378,16 +445,15 @@ struct point3 {
         )
 
     def test_bit_field(self):
-        point = struct_type(
-            "point",
-            4,
-            (
-                TypeMember(int_type("int", 4, True), "x", 0, 4),
-                TypeMember(int_type("int", 4, True), "y", 4, 8),
-            ),
-        )
         self.assertPrettyPrint(
-            point,
+            self.prog.struct_type(
+                "point",
+                4,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
+                    TypeMember(self.prog.int_type("int", 4, True), "y", 4, 8),
+                ),
+            ),
             """\
 struct point {
 	int x : 4;
@@ -396,16 +462,20 @@ struct point {
         )
 
     def test_union(self):
-        t = union_type(
-            "foo",
-            4,
-            (
-                TypeMember(int_type("int", 4, True), "i"),
-                TypeMember(array_type(4, int_type("unsigned char", 1, False)), "a"),
-            ),
-        )
         self.assertPrettyPrint(
-            t,
+            self.prog.union_type(
+                "foo",
+                4,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "i"),
+                    TypeMember(
+                        self.prog.array_type(
+                            self.prog.int_type("unsigned char", 1, False), 4
+                        ),
+                        "a",
+                    ),
+                ),
+            ),
             """\
 union foo {
 	int i;
@@ -413,17 +483,22 @@ union foo {
 }""",
         )
 
-        t = union_type(
-            "foo",
-            4,
-            (
-                TypeMember(int_type("int", 4, True), "i"),
-                TypeMember(array_type(4, int_type("unsigned char", 1, False)), "a"),
-            ),
-            Qualifiers.CONST,
-        )
+    def test_union_qualified(self):
         self.assertPrettyPrint(
-            t,
+            self.prog.union_type(
+                "foo",
+                4,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "i"),
+                    TypeMember(
+                        self.prog.array_type(
+                            self.prog.int_type("unsigned char", 1, False), 4
+                        ),
+                        "a",
+                    ),
+                ),
+                qualifiers=Qualifiers.CONST,
+            ),
             """\
 const union foo {
 	int i;
@@ -433,7 +508,7 @@ const union foo {
 
     def test_class(self):
         self.assertPrettyPrint(
-            coord_type,
+            self.coord_type,
             """\
 class coord {
 	int x;
@@ -443,17 +518,8 @@ class coord {
         )
 
     def test_enum(self):
-        t = enum_type(
-            "color",
-            int_type("unsigned int", 4, False),
-            (
-                TypeEnumerator("RED", 0),
-                TypeEnumerator("GREEN", 1),
-                TypeEnumerator("BLUE", 2),
-            ),
-        )
         self.assertPrettyPrint(
-            t,
+            self.color_type,
             """\
 enum color {
 	RED = 0,
@@ -462,18 +528,9 @@ enum color {
 }""",
         )
 
-        t = enum_type(
-            "color",
-            int_type("unsigned int", 4, False),
-            (
-                TypeEnumerator("RED", 0),
-                TypeEnumerator("GREEN", 1),
-                TypeEnumerator("BLUE", 2),
-            ),
-            Qualifiers.CONST,
-        )
+    def test_enum_qualified(self):
         self.assertPrettyPrint(
-            t,
+            self.color_type.qualified(Qualifiers.CONST),
             """\
 const enum color {
 	RED = 0,
@@ -482,17 +539,17 @@ const enum color {
 }""",
         )
 
-        t = enum_type(
-            None,
-            int_type("int", 4, True),
-            (
-                TypeEnumerator("RED", 0),
-                TypeEnumerator("GREEN", -1),
-                TypeEnumerator("BLUE", -2),
-            ),
-        )
+    def test_enum_anonymous(self):
         self.assertPrettyPrint(
-            t,
+            self.prog.enum_type(
+                None,
+                self.prog.int_type("int", 4, True),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", -1),
+                    TypeEnumerator("BLUE", -2),
+                ),
+            ),
             """\
 enum {
 	RED = 0,
@@ -503,34 +560,47 @@ enum {
 
     def test_typedef(self):
         self.assertPrettyPrint(
-            typedef_type("INT", int_type("int", 4, True)), "typedef int INT"
+            self.prog.typedef_type("INT", self.prog.int_type("int", 4, True)),
+            "typedef int INT",
         )
+
+    def test_typedef_const(self):
         self.assertPrettyPrint(
-            typedef_type("CINT", int_type("int", 4, True, Qualifiers.CONST)),
+            self.prog.typedef_type(
+                "CINT", self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST)
+            ),
             "typedef const int CINT",
         )
+
+    def test_const_typedef(self):
         self.assertPrettyPrint(
-            typedef_type("INT", int_type("int", 4, True), Qualifiers.CONST),
+            self.prog.typedef_type(
+                "INT", self.prog.int_type("int", 4, True), qualifiers=Qualifiers.CONST
+            ),
             "const typedef int INT",
         )
+
+    def test_typedef_pointer(self):
         self.assertPrettyPrint(
-            typedef_type("string", pointer_type(8, int_type("char", 1, True))),
+            self.prog.typedef_type(
+                "string", self.prog.pointer_type(self.prog.int_type("char", 1, True))
+            ),
             "typedef char *string",
         )
 
-        t = typedef_type(
-            "Point",
-            struct_type(
-                None,
-                8,
-                (
-                    TypeMember(int_type("int", 4, True), "x", 0),
-                    TypeMember(int_type("int", 4, True), "y", 4),
+    def test_typedef_struct(self):
+        self.assertPrettyPrint(
+            self.prog.typedef_type(
+                "Point",
+                self.prog.struct_type(
+                    None,
+                    8,
+                    (
+                        TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                        TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+                    ),
                 ),
             ),
-        )
-        self.assertPrettyPrint(
-            t,
             """\
 typedef struct {
 	int x;
@@ -538,9 +608,12 @@ typedef struct {
 } Point""",
         )
 
-    def test_function_typedef(self):
+    def test_typedef_function(self):
         self.assertPrettyPrint(
-            typedef_type("fn", function_type(int_type("int", 4, True), (), False)),
+            self.prog.typedef_type(
+                "fn",
+                self.prog.function_type(self.prog.int_type("int", 4, True), (), False),
+            ),
             "typedef int fn(void)",
         )
 
@@ -549,10 +622,16 @@ typedef struct {
             ValueError,
             "function must have name",
             str,
-            struct_type(
+            self.prog.struct_type(
                 "foo",
                 8,
-                (TypeMember(function_type(int_type("int", 4, True), (), False), None),),
+                (
+                    TypeMember(
+                        self.prog.function_type(
+                            self.prog.int_type("int", 4, True), (), False
+                        )
+                    ),
+                ),
             ),
         )
 

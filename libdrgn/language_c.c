@@ -2481,13 +2481,21 @@ c_type_from_declarator(struct drgn_program *prog,
 	}
 
 	if (declarator->kind == C_TOKEN_ASTERISK) {
-		err = drgn_program_pointer_type(prog, *ret, NULL, &ret->type);
+		uint8_t word_size;
+		err = drgn_program_word_size(prog, &word_size);
+		if (!err) {
+			err = drgn_pointer_type_create(prog, *ret, word_size,
+						       drgn_type_language(ret->type),
+						       &ret->type);
+		}
 	} else if (declarator->is_complete) {
-		err = drgn_program_array_type(prog, declarator->length, *ret,
-					      NULL, &ret->type);
+		err = drgn_array_type_create(prog, *ret, declarator->length,
+					     drgn_type_language(ret->type),
+					     &ret->type);
 	} else {
-		err = drgn_program_incomplete_array_type(prog, *ret, NULL,
-							 &ret->type);
+		err = drgn_incomplete_array_type_create(prog, *ret,
+							drgn_type_language(ret->type),
+							&ret->type);
 	}
 
 	if (!err)
@@ -3122,24 +3130,34 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 
 	*type_ret = drgn_object_type(obj);
 	switch (drgn_type_kind(type_ret->underlying_type)) {
-	case DRGN_TYPE_ARRAY:
-		err = drgn_program_pointer_type(obj->prog,
-						drgn_type_type(type_ret->underlying_type),
-						drgn_type_language(type_ret->underlying_type),
-						&type_ret->type);
+	case DRGN_TYPE_ARRAY: {
+		uint8_t word_size;
+		err = drgn_program_word_size(obj->prog, &word_size);
+		if (err)
+			return err;
+		err = drgn_pointer_type_create(obj->prog,
+					       drgn_type_type(type_ret->underlying_type),
+					       word_size,
+					       drgn_type_language(type_ret->underlying_type),
+					       &type_ret->type);
 		if (err)
 			return err;
 		type_ret->underlying_type = type_ret->type;
 		break;
+	}
 	case DRGN_TYPE_FUNCTION: {
 		struct drgn_qualified_type function_type = {
 			.type = type_ret->underlying_type,
 			.qualifiers = type_ret->qualifiers,
 		};
-
-		err = drgn_program_pointer_type(obj->prog, function_type,
-						drgn_type_language(type_ret->underlying_type),
-						&type_ret->type);
+		uint8_t word_size;
+		err = drgn_program_word_size(obj->prog, &word_size);
+		if (err)
+			return err;
+		err = drgn_pointer_type_create(obj->prog, function_type,
+					       word_size,
+					       drgn_type_language(type_ret->underlying_type),
+					       &type_ret->type);
 		if (err)
 			return err;
 		type_ret->underlying_type = type_ret->type;

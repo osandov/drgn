@@ -348,9 +348,9 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 				return err;
 			qualified_type.qualifiers = DRGN_QUALIFIER_CONST;
 			len = strlen(prog->vmcoreinfo.osrelease);
-			err = drgn_program_array_type(prog, len + 1,
-						      qualified_type, NULL,
-						      &qualified_type.type);
+			err = drgn_array_type_create(prog, qualified_type,
+						     len + 1, &drgn_language_c,
+						     &qualified_type.type);
 			if (err)
 				return err;
 			qualified_type.qualifiers = 0;

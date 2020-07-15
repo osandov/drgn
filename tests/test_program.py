@@ -5,7 +5,6 @@ import ctypes
 import itertools
 import os
 import tempfile
-import unittest
 import unittest.mock
 
 from drgn import (
@@ -18,15 +17,8 @@ from drgn import (
     Program,
     ProgramFlags,
     Qualifiers,
-    array_type,
-    bool_type,
-    float_type,
-    function_type,
+    TypeKind,
     host_platform,
-    int_type,
-    pointer_type,
-    typedef_type,
-    void_type,
 )
 from tests import (
     DEFAULT_LANGUAGE,
@@ -34,12 +26,9 @@ from tests import (
     MOCK_PLATFORM,
     MockMemorySegment,
     MockObject,
-    ObjectTestCase,
-    color_type,
+    MockProgramTestCase,
+    TestCase,
     mock_program,
-    option_type,
-    pid_type,
-    point_type,
 )
 from tests.elf import ET, PT
 from tests.elfwriter import ElfSection, create_elf_file
@@ -90,15 +79,9 @@ class TestProgram(unittest.TestCase):
             "foo",
             "foo.c",
         )
+        self.assertRaisesRegex(LookupError, "^could not find 'foo'$", prog.type, "foo")
         self.assertRaisesRegex(
-            LookupError, "^could not find 'foo'$", prog.type, "foo"
-        )
-        self.assertRaisesRegex(
-            LookupError,
-            "^could not find 'foo' in 'foo.c'$",
-            prog.type,
-            "foo",
-            "foo.c",
+            LookupError, "^could not find 'foo' in 'foo.c'$", prog.type, "foo", "foo.c",
         )
         self.assertRaisesRegex(
             LookupError, "^could not find variable 'foo'$", prog.variable, "foo"
@@ -118,15 +101,6 @@ class TestProgram(unittest.TestCase):
     def test_flags(self):
         self.assertIsInstance(mock_program().flags, ProgramFlags)
 
-    def test_pointer_type(self):
-        prog = mock_program()
-        self.assertEqual(prog.pointer_type(prog.type("int")), prog.type("int *"))
-        self.assertEqual(prog.pointer_type("int"), prog.type("int *"))
-        self.assertEqual(
-            prog.pointer_type(prog.type("int"), Qualifiers.CONST),
-            prog.type("int * const"),
-        )
-
     def test_debug_info(self):
         Program().load_debug_info([])
 
@@ -134,7 +108,7 @@ class TestProgram(unittest.TestCase):
         self.assertEqual(Program().language, DEFAULT_LANGUAGE)
 
 
-class TestMemory(unittest.TestCase):
+class TestMemory(TestCase):
     def test_simple_read(self):
         data = b"hello, world"
         prog = mock_program(segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)])
@@ -353,24 +327,37 @@ class TestMemory(unittest.TestCase):
         )
 
 
-class TestTypes(unittest.TestCase):
+class TestTypes(MockProgramTestCase):
     def test_invalid_finder(self):
-        self.assertRaises(TypeError, mock_program().add_type_finder, "foo")
+        self.assertRaises(TypeError, self.prog.add_type_finder, "foo")
 
-        prog = mock_program()
-        prog.add_type_finder(lambda kind, name, filename: "foo")
-        self.assertRaises(TypeError, prog.type, "int")
+        self.prog.add_type_finder(lambda kind, name, filename: "foo")
+        self.assertRaises(TypeError, self.prog.type, "int")
+
+    def test_finder_different_program(self):
+        def finder(kind, name, filename):
+            if kind == TypeKind.TYPEDEF and name == "foo":
+                prog = Program()
+                return prog.typedef_type("foo", prog.void_type())
+            else:
+                return None
+
+        self.prog.add_type_finder(finder)
+        self.assertRaisesRegex(
+            ValueError,
+            "type find callback returned type from wrong program",
+            self.prog.type,
+            "foo",
+        )
 
     def test_wrong_kind(self):
-        prog = mock_program()
-        prog.add_type_finder(lambda kind, name, filename: void_type())
-        self.assertRaises(TypeError, prog.type, "int")
+        self.prog.add_type_finder(lambda kind, name, filename: self.prog.void_type())
+        self.assertRaises(TypeError, self.prog.type, "int")
 
     def test_not_found(self):
-        prog = mock_program()
-        self.assertRaises(LookupError, prog.type, "struct foo")
-        prog.add_type_finder(lambda kind, name, filename: None)
-        self.assertRaises(LookupError, prog.type, "struct foo")
+        self.assertRaises(LookupError, self.prog.type, "struct foo")
+        self.prog.add_type_finder(lambda kind, name, filename: None)
+        self.assertRaises(LookupError, self.prog.type, "struct foo")
 
     def test_default_primitive_types(self):
         def spellings(tokens, num_optional=0):
@@ -382,96 +369,110 @@ class TestTypes(unittest.TestCase):
             prog = mock_program(
                 MOCK_PLATFORM if word_size == 8 else MOCK_32BIT_PLATFORM
             )
-            self.assertEqual(prog.type("_Bool"), bool_type("_Bool", 1))
-            self.assertEqual(prog.type("char"), int_type("char", 1, True))
+            self.assertEqual(prog.type("_Bool"), prog.bool_type("_Bool", 1))
+            self.assertEqual(prog.type("char"), prog.int_type("char", 1, True))
             for spelling in spellings(["signed", "char"]):
-                self.assertEqual(prog.type(spelling), int_type("signed char", 1, True))
+                self.assertEqual(
+                    prog.type(spelling), prog.int_type("signed char", 1, True)
+                )
             for spelling in spellings(["unsigned", "char"]):
                 self.assertEqual(
-                    prog.type(spelling), int_type("unsigned char", 1, False)
+                    prog.type(spelling), prog.int_type("unsigned char", 1, False)
                 )
             for spelling in spellings(["short", "signed", "int"], 2):
-                self.assertEqual(prog.type(spelling), int_type("short", 2, True))
+                self.assertEqual(prog.type(spelling), prog.int_type("short", 2, True))
             for spelling in spellings(["short", "unsigned", "int"], 1):
                 self.assertEqual(
-                    prog.type(spelling), int_type("unsigned short", 2, False)
+                    prog.type(spelling), prog.int_type("unsigned short", 2, False)
                 )
             for spelling in spellings(["int", "signed"], 1):
-                self.assertEqual(prog.type(spelling), int_type("int", 4, True))
+                self.assertEqual(prog.type(spelling), prog.int_type("int", 4, True))
             for spelling in spellings(["unsigned", "int"]):
                 self.assertEqual(
-                    prog.type(spelling), int_type("unsigned int", 4, False)
+                    prog.type(spelling), prog.int_type("unsigned int", 4, False)
                 )
             for spelling in spellings(["long", "signed", "int"], 2):
-                self.assertEqual(prog.type(spelling), int_type("long", word_size, True))
+                self.assertEqual(
+                    prog.type(spelling), prog.int_type("long", word_size, True)
+                )
             for spelling in spellings(["long", "unsigned", "int"], 1):
                 self.assertEqual(
-                    prog.type(spelling), int_type("unsigned long", word_size, False)
+                    prog.type(spelling),
+                    prog.int_type("unsigned long", word_size, False),
                 )
             for spelling in spellings(["long", "long", "signed", "int"], 2):
-                self.assertEqual(prog.type(spelling), int_type("long long", 8, True))
+                self.assertEqual(
+                    prog.type(spelling), prog.int_type("long long", 8, True)
+                )
             for spelling in spellings(["long", "long", "unsigned", "int"], 1):
                 self.assertEqual(
-                    prog.type(spelling), int_type("unsigned long long", 8, False)
+                    prog.type(spelling), prog.int_type("unsigned long long", 8, False)
                 )
-            self.assertEqual(prog.type("float"), float_type("float", 4))
-            self.assertEqual(prog.type("double"), float_type("double", 8))
+            self.assertEqual(prog.type("float"), prog.float_type("float", 4))
+            self.assertEqual(prog.type("double"), prog.float_type("double", 8))
             for spelling in spellings(["long", "double"]):
-                self.assertEqual(prog.type(spelling), float_type("long double", 16))
+                self.assertEqual(
+                    prog.type(spelling), prog.float_type("long double", 16)
+                )
             self.assertEqual(
                 prog.type("size_t"),
-                typedef_type("size_t", int_type("unsigned long", word_size, False)),
+                prog.typedef_type(
+                    "size_t", prog.int_type("unsigned long", word_size, False)
+                ),
             )
             self.assertEqual(
                 prog.type("ptrdiff_t"),
-                typedef_type("ptrdiff_t", int_type("long", word_size, True)),
+                prog.typedef_type("ptrdiff_t", prog.int_type("long", word_size, True)),
             )
 
     def test_primitive_type(self):
-        prog = mock_program(
-            types=[int_type("long", 4, True), int_type("unsigned long", 4, True),]
-        )
-        self.assertEqual(prog.type("long"), int_type("long", 4, True))
+        self.types.append(self.prog.int_type("long", 4, True))
+        self.assertEqual(self.prog.type("long"), self.prog.int_type("long", 4, True))
+
+    def test_primitive_type_invalid(self):
         # unsigned long with signed=True isn't valid, so it should be ignored.
+        self.types.append(self.prog.int_type("unsigned long", 4, True))
         self.assertEqual(
-            prog.type("unsigned long"), int_type("unsigned long", 8, False)
+            self.prog.type("unsigned long"),
+            self.prog.int_type("unsigned long", 8, False),
         )
 
     def test_size_t_and_ptrdiff_t(self):
         # 64-bit architecture with 4-byte long/unsigned long.
-        prog = mock_program(
-            types=[int_type("long", 4, True), int_type("unsigned long", 4, False),]
+        types = []
+        prog = mock_program(types=types)
+        types.append(prog.int_type("long", 4, True))
+        types.append(prog.int_type("unsigned long", 4, False))
+        self.assertEqual(
+            prog.type("size_t"),
+            prog.typedef_type("size_t", prog.type("unsigned long long")),
         )
         self.assertEqual(
-            prog.type("size_t"), typedef_type("size_t", prog.type("unsigned long long"))
-        )
-        self.assertEqual(
-            prog.type("ptrdiff_t"), typedef_type("ptrdiff_t", prog.type("long long"))
+            prog.type("ptrdiff_t"),
+            prog.typedef_type("ptrdiff_t", prog.type("long long")),
         )
 
         # 32-bit architecture with 8-byte long/unsigned long.
-        prog = mock_program(
-            MOCK_32BIT_PLATFORM,
-            types=[int_type("long", 8, True), int_type("unsigned long", 8, False),],
+        types = []
+        prog = mock_program(MOCK_32BIT_PLATFORM, types=types)
+        types.append(prog.int_type("long", 8, True))
+        types.append(prog.int_type("unsigned long", 8, False))
+        self.assertEqual(
+            prog.type("size_t"), prog.typedef_type("size_t", prog.type("unsigned int"))
         )
         self.assertEqual(
-            prog.type("size_t"), typedef_type("size_t", prog.type("unsigned int"))
-        )
-        self.assertEqual(
-            prog.type("ptrdiff_t"), typedef_type("ptrdiff_t", prog.type("int"))
+            prog.type("ptrdiff_t"), prog.typedef_type("ptrdiff_t", prog.type("int"))
         )
 
         # Nonsense sizes.
-        prog = mock_program(
-            types=[
-                int_type("int", 1, True),
-                int_type("unsigned int", 1, False),
-                int_type("long", 1, True),
-                int_type("unsigned long", 1, False),
-                int_type("long long", 2, True),
-                int_type("unsigned long long", 2, False),
-            ]
-        )
+        types = []
+        prog = mock_program(types=types)
+        types.append(prog.int_type("int", 1, True))
+        types.append(prog.int_type("unsigned int", 1, False))
+        types.append(prog.int_type("long", 1, True))
+        types.append(prog.int_type("unsigned long", 1, False))
+        types.append(prog.int_type("long long", 2, True))
+        types.append(prog.int_type("unsigned long long", 2, False))
         self.assertRaisesRegex(
             ValueError, "no suitable integer type for size_t", prog.type, "size_t"
         )
@@ -480,159 +481,232 @@ class TestTypes(unittest.TestCase):
         )
 
     def test_tagged_type(self):
-        prog = mock_program(types=[point_type, option_type, color_type])
-        self.assertEqual(prog.type("struct point"), point_type)
-        self.assertEqual(prog.type("union option"), option_type)
-        self.assertEqual(prog.type("enum color"), color_type)
+        self.types.append(self.point_type)
+        self.types.append(self.option_type)
+        self.types.append(self.color_type)
+        self.assertEqual(self.prog.type("struct point"), self.point_type)
+        self.assertEqual(self.prog.type("union option"), self.option_type)
+        self.assertEqual(self.prog.type("enum color"), self.color_type)
 
     def test_typedef(self):
-        prog = mock_program(types=[pid_type])
-        self.assertEqual(prog.type("pid_t"), pid_type)
+        self.types.append(self.pid_type)
+        self.assertEqual(self.prog.type("pid_t"), self.pid_type)
 
     def test_pointer(self):
-        prog = mock_program()
-        self.assertEqual(prog.type("int *"), pointer_type(8, int_type("int", 4, True)))
         self.assertEqual(
-            prog.type("const int *"),
-            pointer_type(8, int_type("int", 4, True, Qualifiers.CONST)),
+            self.prog.type("int *"),
+            self.prog.pointer_type(self.prog.int_type("int", 4, True)),
+        )
+
+    def test_pointer_to_const(self):
+        self.assertEqual(
+            self.prog.type("const int *"),
+            self.prog.pointer_type(
+                self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST)
+            ),
+        )
+
+    def test_const_pointer(self):
+        self.assertEqual(
+            self.prog.type("int * const"),
+            self.prog.pointer_type(
+                self.prog.int_type("int", 4, True), qualifiers=Qualifiers.CONST
+            ),
+        )
+
+    def test_pointer_to_pointer(self):
+        self.assertEqual(
+            self.prog.type("int **"),
+            self.prog.pointer_type(
+                self.prog.pointer_type(self.prog.int_type("int", 4, True))
+            ),
         )
         self.assertEqual(
-            prog.type("int * const"),
-            pointer_type(8, int_type("int", 4, True), Qualifiers.CONST),
+            self.prog.type("int *((*))"), self.prog.type("int **"),
         )
+
+    def test_pointer_to_const_pointer(self):
         self.assertEqual(
-            prog.type("int **"),
-            pointer_type(8, pointer_type(8, int_type("int", 4, True))),
-        )
-        self.assertEqual(
-            prog.type("int *((*))"),
-            pointer_type(8, pointer_type(8, int_type("int", 4, True))),
-        )
-        self.assertEqual(
-            prog.type("int * const *"),
-            pointer_type(
-                8, pointer_type(8, int_type("int", 4, True), Qualifiers.CONST)
+            self.prog.type("int * const *"),
+            self.prog.pointer_type(
+                self.prog.pointer_type(
+                    self.prog.int_type("int", 4, True), qualifiers=Qualifiers.CONST
+                )
             ),
         )
 
     def test_array(self):
-        prog = mock_program()
         self.assertEqual(
-            prog.type("int []"), array_type(None, int_type("int", 4, True))
+            self.prog.type("int [20]"),
+            self.prog.array_type(self.prog.int_type("int", 4, True), 20),
         )
+
+    def test_array_hexadecimal(self):
         self.assertEqual(
-            prog.type("int [20]"), array_type(20, int_type("int", 4, True))
+            self.prog.type("int [0x20]"),
+            self.prog.array_type(self.prog.int_type("int", 4, True), 32),
         )
+
+    def test_array_octal(self):
         self.assertEqual(
-            prog.type("int [0x20]"), array_type(32, int_type("int", 4, True))
+            self.prog.type("int [020]"),
+            self.prog.array_type(self.prog.int_type("int", 4, True), 16),
         )
+
+    def test_incomplete_array(self):
         self.assertEqual(
-            prog.type("int [020]"), array_type(16, int_type("int", 4, True))
+            self.prog.type("int []"),
+            self.prog.array_type(self.prog.int_type("int", 4, True)),
         )
+
+    def test_array_two_dimensional(self):
         self.assertEqual(
-            prog.type("int [2][3]"),
-            array_type(2, array_type(3, int_type("int", 4, True))),
+            self.prog.type("int [2][3]"),
+            self.prog.array_type(
+                self.prog.array_type(self.prog.int_type("int", 4, True), 3), 2
+            ),
         )
+
+    def test_array_three_dimensional(self):
         self.assertEqual(
-            prog.type("int [2][3][4]"),
-            array_type(2, array_type(3, array_type(4, int_type("int", 4, True)))),
+            self.prog.type("int [2][3][4]"),
+            self.prog.array_type(
+                self.prog.array_type(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 4), 3
+                ),
+                2,
+            ),
         )
 
     def test_array_of_pointers(self):
-        prog = mock_program()
         self.assertEqual(
-            prog.type("int *[2][3]"),
-            array_type(2, array_type(3, pointer_type(8, int_type("int", 4, True)))),
+            self.prog.type("int *[2][3]"),
+            self.prog.array_type(
+                self.prog.array_type(
+                    self.prog.pointer_type(self.prog.int_type("int", 4, True)), 3
+                ),
+                2,
+            ),
         )
 
     def test_pointer_to_array(self):
-        prog = mock_program()
         self.assertEqual(
-            prog.type("int (*)[2]"),
-            pointer_type(8, array_type(2, int_type("int", 4, True))),
+            self.prog.type("int (*)[2]"),
+            self.prog.pointer_type(
+                self.prog.array_type(self.prog.int_type("int", 4, True), 2)
+            ),
         )
+
+    def test_pointer_to_two_dimensional_array(self):
         self.assertEqual(
-            prog.type("int (*)[2][3]"),
-            pointer_type(8, array_type(2, array_type(3, int_type("int", 4, True)))),
+            self.prog.type("int (*)[2][3]"),
+            self.prog.pointer_type(
+                self.prog.array_type(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 3), 2
+                )
+            ),
         )
 
     def test_pointer_to_pointer_to_array(self):
-        prog = mock_program()
         self.assertEqual(
-            prog.type("int (**)[2]"),
-            pointer_type(8, pointer_type(8, array_type(2, int_type("int", 4, True)))),
+            self.prog.type("int (**)[2]"),
+            self.prog.pointer_type(
+                self.prog.pointer_type(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 2)
+                )
+            ),
         )
 
     def test_pointer_to_array_of_pointers(self):
-        prog = mock_program()
         self.assertEqual(
-            prog.type("int *(*)[2]"),
-            pointer_type(8, array_type(2, pointer_type(8, int_type("int", 4, True)))),
+            self.prog.type("int *(*)[2]"),
+            self.prog.pointer_type(
+                self.prog.array_type(
+                    self.prog.pointer_type(self.prog.int_type("int", 4, True)), 2
+                )
+            ),
         )
         self.assertEqual(
-            prog.type("int *((*)[2])"),
-            pointer_type(8, array_type(2, pointer_type(8, int_type("int", 4, True)))),
+            self.prog.type("int *((*)[2])"), self.prog.type("int *(*)[2]"),
         )
 
     def test_array_of_pointers_to_array(self):
-        prog = mock_program()
         self.assertEqual(
-            prog.type("int (*[2])[3]"),
-            array_type(2, pointer_type(8, array_type(3, int_type("int", 4, True)))),
+            self.prog.type("int (*[2])[3]"),
+            self.prog.array_type(
+                self.prog.pointer_type(
+                    self.prog.array_type(self.prog.int_type("int", 4, True), 3)
+                ),
+                2,
+            ),
         )
 
 
-class TestObjects(ObjectTestCase):
+class TestObjects(MockProgramTestCase):
     def test_invalid_finder(self):
-        self.assertRaises(TypeError, mock_program().add_object_finder, "foo")
+        self.assertRaises(TypeError, self.prog.add_object_finder, "foo")
 
-        prog = mock_program()
-        prog.add_object_finder(lambda prog, name, flags, filename: "foo")
-        self.assertRaises(TypeError, prog.object, "foo")
+        self.prog.add_object_finder(lambda prog, name, flags, filename: "foo")
+        self.assertRaises(TypeError, self.prog.object, "foo")
 
     def test_not_found(self):
-        prog = mock_program()
-        self.assertRaises(LookupError, prog.object, "foo")
-        prog.add_object_finder(lambda prog, name, flags, filename: None)
-        self.assertRaises(LookupError, prog.object, "foo")
-        self.assertFalse("foo" in prog)
+        self.assertRaises(LookupError, self.prog.object, "foo")
+        self.prog.add_object_finder(lambda prog, name, flags, filename: None)
+        self.assertRaises(LookupError, self.prog.object, "foo")
+        self.assertFalse("foo" in self.prog)
 
     def test_constant(self):
-        mock_obj = MockObject("PAGE_SIZE", int_type("int", 4, True), value=4096)
-        prog = mock_program(objects=[mock_obj])
-        self.assertEqual(
-            prog["PAGE_SIZE"], Object(prog, int_type("int", 4, True), value=4096)
+        self.objects.append(
+            MockObject("PAGE_SIZE", self.prog.int_type("int", 4, True), value=4096)
         )
         self.assertEqual(
-            prog.object("PAGE_SIZE", FindObjectFlags.CONSTANT), prog["PAGE_SIZE"]
+            self.prog["PAGE_SIZE"],
+            Object(self.prog, self.prog.int_type("int", 4, True), value=4096),
         )
-        self.assertTrue("PAGE_SIZE" in prog)
+        self.assertEqual(
+            self.prog.object("PAGE_SIZE", FindObjectFlags.CONSTANT),
+            self.prog["PAGE_SIZE"],
+        )
+        self.assertTrue("PAGE_SIZE" in self.prog)
 
     def test_function(self):
-        mock_obj = MockObject(
-            "func", function_type(void_type(), (), False), address=0xFFFF0000
+        self.objects.append(
+            MockObject(
+                "func",
+                self.prog.function_type(self.prog.void_type(), (), False),
+                address=0xFFFF0000,
+            )
         )
-        prog = mock_program(objects=[mock_obj])
         self.assertEqual(
-            prog["func"],
-            Object(prog, function_type(void_type(), (), False), address=0xFFFF0000),
+            self.prog["func"],
+            Object(
+                self.prog,
+                self.prog.function_type(self.prog.void_type(), (), False),
+                address=0xFFFF0000,
+            ),
         )
-        self.assertEqual(prog.object("func", FindObjectFlags.FUNCTION), prog["func"])
-        self.assertTrue("func" in prog)
+        self.assertEqual(
+            self.prog.object("func", FindObjectFlags.FUNCTION), self.prog["func"]
+        )
+        self.assertTrue("func" in self.prog)
 
     def test_variable(self):
-        mock_obj = MockObject("counter", int_type("int", 4, True), address=0xFFFF0000)
-        prog = mock_program(objects=[mock_obj])
-        self.assertEqual(
-            prog["counter"], Object(prog, int_type("int", 4, True), address=0xFFFF0000)
+        self.objects.append(
+            MockObject(
+                "counter", self.prog.int_type("int", 4, True), address=0xFFFF0000
+            )
         )
         self.assertEqual(
-            prog.object("counter", FindObjectFlags.VARIABLE), prog["counter"]
+            self.prog["counter"],
+            Object(self.prog, self.prog.int_type("int", 4, True), address=0xFFFF0000),
         )
-        self.assertTrue("counter" in prog)
+        self.assertEqual(
+            self.prog.object("counter", FindObjectFlags.VARIABLE), self.prog["counter"]
+        )
+        self.assertTrue("counter" in self.prog)
 
 
-class TestCoreDump(unittest.TestCase):
+class TestCoreDump(TestCase):
     def test_not_core_dump(self):
         prog = Program()
         self.assertRaisesRegex(

@@ -236,21 +236,6 @@ class Program:
             the given file
         """
         ...
-    def pointer_type(
-        self,
-        type: Union[str, Type],
-        qualifiers: Optional[Qualifiers] = None,
-        *,
-        language: Optional[Language] = None,
-    ) -> Type:
-        """
-        Create a pointer type which points to the given type.
-
-        :param type: The referenced type.
-        :param qualifiers: :attr:`Type.qualifiers`
-        :param lang: :attr:`Type.language`
-        """
-        ...
     def read(
         self, address: IntegerLike, size: IntegerLike, physical: bool = False
     ) -> bytes:
@@ -455,6 +440,282 @@ class Program:
             else:
                 return prog['bar']
     """
+    def void_type(
+        self,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new void type. It has kind :attr:`TypeKind.VOID`.
+
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    def int_type(
+        self,
+        name: str,
+        size: IntegerLike,
+        is_signed: bool,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new integer type. It has kind :attr:`TypeKind.INT`.
+
+        :param name: :attr:`Type.name`
+        :param size: :attr:`Type.size`
+        :param is_signed: :attr:`Type.is_signed`
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    def bool_type(
+        self,
+        name: str,
+        size: IntegerLike,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new boolean type. It has kind :attr:`TypeKind.BOOL`.
+
+        :param name: :attr:`Type.name`
+        :param size: :attr:`Type.size`
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    def float_type(
+        self,
+        name: str,
+        size: IntegerLike,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new floating-point type. It has kind :attr:`TypeKind.FLOAT`.
+
+        :param name: :attr:`Type.name`
+        :param size: :attr:`Type.size`
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    def complex_type(
+        self,
+        name: str,
+        size: IntegerLike,
+        type: Type,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new complex type. It has kind :attr:`TypeKind.COMPLEX`.
+
+        :param name: :attr:`Type.name`
+        :param size: :attr:`Type.size`
+        :param type: The corresponding real type (:attr:`Type.type`)
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    @overload
+    def struct_type(
+        self,
+        tag: Optional[str],
+        size: IntegerLike,
+        members: Sequence[TypeMember],
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new structure type. It has kind :attr:`TypeKind.STRUCT`.
+
+        :param tag: :attr:`Type.tag`
+        :param size: :attr:`Type.size`
+        :param members: :attr:`Type.members`
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    @overload
+    def struct_type(
+        self,
+        tag: Optional[str],
+        size: None = None,
+        members: None = None,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """Create a new incomplete structure type."""
+        ...
+    @overload
+    def union_type(
+        self,
+        tag: Optional[str],
+        size: IntegerLike,
+        members: Sequence[TypeMember],
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new union type. It has kind :attr:`TypeKind.UNION`. Otherwise,
+        this is the same as as :meth:`struct_type()`.
+        """
+        ...
+    @overload
+    def union_type(
+        self,
+        tag: Optional[str],
+        size: None = None,
+        members: None = None,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """Create a new incomplete union type."""
+        ...
+    @overload
+    def class_type(
+        self,
+        tag: Optional[str],
+        size: IntegerLike,
+        members: Sequence[TypeMember],
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new class type. It has kind :attr:`TypeKind.CLASS`. Otherwise,
+        this is the same as as :meth:`struct_type()`.
+        """
+        ...
+    @overload
+    def class_type(
+        self,
+        tag: Optional[str],
+        size: None = None,
+        members: None = None,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """Create a new incomplete class type."""
+        ...
+    @overload
+    def enum_type(
+        self,
+        tag: Optional[str],
+        type: Type,
+        enumerators: Sequence[TypeEnumerator],
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new enumerated type. It has kind :attr:`TypeKind.ENUM`.
+
+        :param tag: :attr:`Type.tag`
+        :param type: The compatible integer type (:attr:`Type.type`)
+        :param enumerators: :attr:`Type.enumerators`
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    @overload
+    def enum_type(
+        self,
+        tag: Optional[str],
+        type: None = None,
+        enumerators: None = None,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """Create a new incomplete enumerated type."""
+        ...
+    def typedef_type(
+        self,
+        name: str,
+        type: Type,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new typedef type. It has kind :attr:`TypeKind.TYPEDEF`.
+
+        :param name: :attr:`Type.name`
+        :param type: The aliased type (:attr:`Type.type`)
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    def pointer_type(
+        self,
+        type: Type,
+        size: Optional[int] = None,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new pointer type. It has kind :attr:`TypeKind.POINTER`,
+
+        You can usually use :meth:`Program:pointer_type()` instead.
+
+        :param type: The referenced type (:attr:`Type.type`)
+        :param size: :attr:`Type.size`, or ``None`` to use the program's
+            default pointer size.
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    def array_type(
+        self,
+        type: Type,
+        length: Optional[int] = None,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new array type. It has kind :attr:`TypeKind.ARRAY`.
+
+        :param type: The element type (:attr:`Type.type`)
+        :param length: :attr:`Type.length`
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
+    def function_type(
+        self,
+        type: Type,
+        parameters: Sequence[TypeParameter],
+        is_variadic: bool = False,
+        *,
+        qualifiers: Optional[Qualifiers] = None,
+        language: Optional[Language] = None,
+    ) -> Type:
+        """
+        Create a new function type. It has kind :attr:`TypeKind.FUNCTION`.
+
+        :param type: The return type (:attr:`Type.type`)
+        :param parameters: :attr:`Type.parameters`
+        :param is_variadic: :attr:`Type.is_variadic`
+        :param qualifiers: :attr:`Type.qualifiers`
+        :param lang: :attr:`Type.language`
+        """
+        ...
 
 class ProgramFlags(enum.Flag):
     """
@@ -1169,6 +1430,9 @@ class Type:
         memory-intensive.
     """
 
+    prog: Program
+    """Program that this type is from."""
+
     kind: TypeKind
     """Kind of this type."""
 
@@ -1456,227 +1720,6 @@ class Qualifiers(enum.Flag):
 
     ATOMIC = ...
     """Atomic type."""
-
-def void_type(
-    qualifiers: Optional[Qualifiers] = None, *, language: Optional[Language] = None
-) -> Type:
-    """
-    Create a new void type. It has kind :attr:`TypeKind.VOID`.
-
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def int_type(
-    name: str,
-    size: int,
-    is_signed: bool,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new integer type. It has kind :attr:`TypeKind.INT`.
-
-    :param name: :attr:`Type.name`
-    :param size: :attr:`Type.size`
-    :param is_signed: :attr:`Type.is_signed`
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def bool_type(
-    name: str,
-    size: int,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new boolean type. It has kind :attr:`TypeKind.BOOL`.
-
-    :param name: :attr:`Type.name`
-    :param size: :attr:`Type.size`
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def float_type(
-    name: str,
-    size: int,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new floating-point type. It has kind :attr:`TypeKind.FLOAT`.
-
-    :param name: :attr:`Type.name`
-    :param size: :attr:`Type.size`
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def complex_type(
-    name: str,
-    size: int,
-    type: Type,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new complex type. It has kind :attr:`TypeKind.COMPLEX`.
-
-    :param name: :attr:`Type.name`
-    :param size: :attr:`Type.size`
-    :param type: The corresponding real type (:attr:`Type.type`)
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def struct_type(
-    tag: Optional[str],
-    size: Optional[int] = None,
-    members: Optional[Sequence[TypeMember]] = None,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new structure type. It has kind :attr:`TypeKind.STRUCT`.
-
-    :param tag: :attr:`Type.tag`
-    :param size: :attr:`Type.size`; ``None`` if this is an incomplete type.
-    :param members: :attr:`Type.members`
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def union_type(
-    tag: Optional[str],
-    size: Optional[int] = None,
-    members: Optional[Sequence[TypeMember]] = None,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new union type. It has kind :attr:`TypeKind.UNION`. Otherwise,
-    this is the same as :func:`struct_type()`.
-    """
-    ...
-
-def class_type(
-    tag: Optional[str],
-    size: Optional[int] = None,
-    members: Optional[Sequence[TypeMember]] = None,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new class type. It has kind :attr:`TypeKind.CLASS`. Otherwise,
-    this is the same as :func:`struct_type()`.
-    """
-    ...
-
-def enum_type(
-    tag: Optional[str],
-    type: Optional[Type] = None,
-    enumerators: Optional[Sequence[TypeEnumerator]] = None,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new enumerated type. It has kind :attr:`TypeKind.ENUM`.
-
-    :param tag: :attr:`Type.tag`
-    :param type: The compatible integer type (:attr:`Type.type`)
-    :param enumerators: :attr:`Type.enumerators`
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def typedef_type(
-    name: str,
-    type: Type,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new typedef type. It has kind :attr:`TypeKind.TYPEDEF`.
-
-    :param name: :attr:`Type.name`
-    :param type: The aliased type (:attr:`Type.type`)
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def pointer_type(
-    size: int,
-    type: Type,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new pointer type. It has kind :attr:`TypeKind.POINTER`,
-
-    You can usually use :meth:`Program:pointer_type()` instead.
-
-    :param size: :attr:`Type.size`
-    :param type: The referenced type (:attr:`Type.type`)
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def array_type(
-    length: Optional[int],
-    type: Type,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new array type. It has kind :attr:`TypeKind.ARRAY`.
-
-    :param length: :attr:`Type.length`
-    :param type: The element type (:attr:`Type.type`)
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
-
-def function_type(
-    type: Type,
-    parameters: Sequence[TypeParameter],
-    is_variadic: bool = False,
-    qualifiers: Optional[Qualifiers] = None,
-    *,
-    language: Optional[Language] = None,
-) -> Type:
-    """
-    Create a new function type. It has kind :attr:`TypeKind.FUNCTION`.
-
-    :param type: The return type (:attr:`Type.type`)
-    :param parameters: :attr:`Type.parameters`
-    :param is_variadic: :attr:`Type.is_variadic`
-    :param qualifiers: :attr:`Type.qualifiers`
-    :param lang: :attr:`Type.language`
-    """
-    ...
 
 # type_or_obj is positional-only.
 def sizeof(type_or_obj: Union[Type, Object]) -> int:

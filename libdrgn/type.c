@@ -147,51 +147,6 @@ drgn_primitive_type_is_signed(enum drgn_primitive_type primitive)
 	}
 }
 
-/* These functions compare the underlying type by reference, not by value. */
-
-static struct hash_pair
-drgn_pointer_type_key_hash(const struct drgn_pointer_type_key *key)
-{
-	size_t hash;
-
-	hash = hash_combine((uintptr_t)key->type, key->qualifiers);
-	hash = hash_combine(hash, (uintptr_t)key->lang);
-	return hash_pair_from_avalanching_hash(hash);
-}
-
-static bool drgn_pointer_type_key_eq(const struct drgn_pointer_type_key *a,
-				     const struct drgn_pointer_type_key *b)
-{
-	return (a->type == b->type && a->qualifiers == b->qualifiers &&
-		a->lang == b->lang);
-}
-
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_pointer_type_table, drgn_pointer_type_key_hash,
-			    drgn_pointer_type_key_eq)
-
-static struct hash_pair
-drgn_array_type_key_hash(const struct drgn_array_type_key *key)
-{
-	size_t hash;
-
-	hash = hash_combine((uintptr_t)key->type, key->qualifiers);
-	hash = hash_combine(hash, key->is_complete);
-	hash = hash_combine(hash, key->length);
-	hash = hash_combine(hash, (uintptr_t)key->lang);
-	return hash_pair_from_avalanching_hash(hash);
-}
-
-static bool drgn_array_type_key_eq(const struct drgn_array_type_key *a,
-				   const struct drgn_array_type_key *b)
-{
-	return (a->type == b->type && a->qualifiers == b->qualifiers &&
-		a->is_complete == b->is_complete && a->length == b->length &&
-		a->lang == b->lang);
-}
-
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_array_type_table, drgn_array_type_key_hash,
-			    drgn_array_type_key_eq)
-
 static struct hash_pair drgn_member_hash_pair(const struct drgn_member_key *key)
 {
 	size_t hash;
@@ -216,27 +171,24 @@ DEFINE_HASH_TABLE_FUNCTIONS(drgn_member_map, drgn_member_hash_pair,
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_type_set, hash_pair_ptr_type,
 			    hash_table_scalar_eq)
 
-void drgn_type_thunk_free(struct drgn_type_thunk *thunk)
-{
-	thunk->free_fn(thunk);
-}
-
 struct drgn_error *drgn_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
-					   struct drgn_qualified_type *qualified_type)
+					   struct drgn_qualified_type *ret)
 {
 	if (drgn_lazy_type_is_evaluated(lazy_type)) {
-		qualified_type->type = lazy_type->type;
-		qualified_type->qualifiers = lazy_type->qualifiers;
+		ret->type = lazy_type->type;
+		ret->qualifiers = lazy_type->qualifiers;
 	} else {
-		struct drgn_error *err;
 		struct drgn_type_thunk *thunk_ptr = lazy_type->thunk;
 		struct drgn_type_thunk thunk = *thunk_ptr;
-
-		err = thunk.evaluate_fn(thunk_ptr, qualified_type);
+		struct drgn_error *err = thunk.evaluate_fn(thunk_ptr, ret);
 		if (err)
 			return err;
-		drgn_lazy_type_init_evaluated(lazy_type, qualified_type->type,
-					      qualified_type->qualifiers);
+		if (drgn_type_program(ret->type) != thunk.prog) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "type is from different program");
+		}
+		drgn_lazy_type_init_evaluated(lazy_type, ret->type,
+					      ret->qualifiers);
 		thunk.free_fn(thunk_ptr);
 	}
 	return NULL;
@@ -246,6 +198,19 @@ void drgn_lazy_type_deinit(struct drgn_lazy_type *lazy_type)
 {
 	if (!drgn_lazy_type_is_evaluated(lazy_type))
 		drgn_type_thunk_free(lazy_type->thunk);
+}
+
+static inline struct drgn_error *
+drgn_lazy_type_check_prog(struct drgn_lazy_type *lazy_type,
+			  struct drgn_program *prog)
+{
+	if ((drgn_lazy_type_is_evaluated(lazy_type) ?
+	     drgn_type_program(lazy_type->type) :
+	     lazy_type->thunk->prog) != prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
+	}
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -262,272 +227,605 @@ drgn_parameter_type(struct drgn_type_parameter *parameter,
 	return drgn_lazy_type_evaluate(&parameter->type, ret);
 }
 
-void drgn_int_type_init(struct drgn_type *type, const char *name, uint64_t size,
-			bool is_signed, const struct drgn_language *lang)
+static struct hash_pair drgn_type_dedupe_hash(struct drgn_type * const *entry)
 {
-	enum drgn_primitive_type primitive;
+	struct drgn_type *type = *entry;
+	size_t hash = hash_combine(drgn_type_kind(type),
+				   (uintptr_t)drgn_type_language(type));
+	/*
+	 * We don't dedupe complete compound or enumerated types, and typedefs
+	 * inherit is_complete from the aliased type, so is_complete can only
+	 * differ for otherwise equal array types. We implicitly include that in
+	 * the hash with the is_complete check below, so we don't need to hash
+	 * it explicitly.
+	 */
+	if (drgn_type_has_name(type)) {
+		const char *name = drgn_type_name(type);
+		hash = hash_combine(hash, cityhash_size_t(name, strlen(name)));
+	}
+	if (drgn_type_has_size(type))
+		hash = hash_combine(hash, drgn_type_size(type));
+	if (drgn_type_has_is_signed(type))
+		hash = hash_combine(hash, drgn_type_is_signed(type));
+	const char *tag;
+	if (drgn_type_has_tag(type) && (tag = drgn_type_tag(type)))
+		hash = hash_combine(hash, cityhash_size_t(tag, strlen(tag)));
+	if (drgn_type_has_type(type)) {
+		struct drgn_qualified_type qualified_type =
+			drgn_type_type(type);
+		hash = hash_combine(hash, (uintptr_t)qualified_type.type);
+		hash = hash_combine(hash, qualified_type.qualifiers);
+	}
+	if (drgn_type_has_length(type) && drgn_type_is_complete(type))
+		hash = hash_combine(hash, drgn_type_length(type));
+	return hash_pair_from_avalanching_hash(hash);
+}
 
-	assert(name);
-	type->_private.kind = DRGN_TYPE_INT;
-	type->_private.is_complete = true;
-	primitive = c_parse_specifier_list(name);
+static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
+				struct drgn_type * const *entry_b)
+{
+	struct drgn_type *a = *entry_a;
+	struct drgn_type *b = *entry_b;
+
+	if (drgn_type_kind(a) != drgn_type_kind(b) ||
+	    drgn_type_language(a) != drgn_type_language(b) ||
+	    drgn_type_is_complete(a) != drgn_type_is_complete(b))
+		return false;
+	if (drgn_type_has_name(a) &&
+	    strcmp(drgn_type_name(a), drgn_type_name(b)) != 0)
+		return false;
+	if (drgn_type_has_size(a) && drgn_type_size(a) != drgn_type_size(b))
+		return false;
+	if (drgn_type_has_is_signed(a) &&
+	    drgn_type_is_signed(a) != drgn_type_is_signed(b))
+		return false;
+	if (drgn_type_has_tag(a)) {
+		const char *tag_a = drgn_type_tag(a);
+		const char *tag_b = drgn_type_tag(b);
+		if ((!tag_a != !tag_b) || (tag_a && strcmp(tag_a, tag_b) != 0))
+			return false;
+	}
+	if (drgn_type_has_type(a)) {
+		struct drgn_qualified_type type_a = drgn_type_type(a);
+		struct drgn_qualified_type type_b = drgn_type_type(b);
+		if (type_a.type != type_b.type ||
+		    type_a.qualifiers != type_b.qualifiers)
+			return false;
+	}
+	if (drgn_type_has_length(a) &&
+	    drgn_type_length(a) != drgn_type_length(b))
+		return false;
+	return true;
+}
+
+/*
+ * We don't deduplicate complete compound types, complete enumerated types, or
+ * function types, so the hash and comparison functions ignore members,
+ * enumerators, parameters, and is_variadic.
+ */
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash,
+			    drgn_type_dedupe_eq)
+
+DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector)
+
+static struct drgn_error *find_or_create_type(struct drgn_type *key,
+					      struct drgn_type **ret)
+{
+	struct drgn_program *prog = key->_private.program;
+	struct hash_pair hp = drgn_dedupe_type_set_hash(&key);
+	struct drgn_dedupe_type_set_iterator it =
+		drgn_dedupe_type_set_search_hashed(&prog->dedupe_types, &key,
+						   hp);
+	if (it.entry) {
+		*ret = *it.entry;
+		return NULL;
+	}
+
+	struct drgn_type *type = malloc(sizeof(*type));
+	if (!type)
+		return &drgn_enomem;
+
+	*type = *key;
+	if (!drgn_dedupe_type_set_insert_searched(&prog->dedupe_types, &type,
+						  hp, NULL)) {
+		free(type);
+		return &drgn_enomem;
+	}
+	*ret = type;
+	return NULL;
+}
+
+struct drgn_type *drgn_void_type(struct drgn_program *prog,
+				 const struct drgn_language *lang)
+{
+	if (!lang)
+		lang = drgn_program_language(prog);
+	return &prog->void_types[lang - drgn_languages];
+}
+
+struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
+					const char *name, uint64_t size,
+					bool is_signed,
+					const struct drgn_language *lang,
+					struct drgn_type **ret)
+{
+	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
 	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_INT &&
 	    (primitive == DRGN_C_TYPE_CHAR ||
-	     is_signed == drgn_primitive_type_is_signed(primitive))) {
-		type->_private.primitive = primitive;
-		type->_private.name =
-			drgn_primitive_type_spellings[primitive][0];
-	} else {
-		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-		type->_private.name = name;
+	     is_signed == drgn_primitive_type_is_signed(primitive)))
+		name = drgn_primitive_type_spellings[primitive][0];
+	else
+		primitive = DRGN_NOT_PRIMITIVE_TYPE;
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_INT,
+			.is_complete = true,
+			.primitive = primitive,
+			.name = name,
+			.size = size,
+			.is_signed = is_signed,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
+}
+
+struct drgn_error *drgn_bool_type_create(struct drgn_program *prog,
+					 const char *name, uint64_t size,
+					 const struct drgn_language *lang,
+					 struct drgn_type **ret)
+{
+	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
+	if (primitive == DRGN_C_TYPE_BOOL)
+		name = drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0];
+	else
+		primitive = DRGN_NOT_PRIMITIVE_TYPE;
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_BOOL,
+			.is_complete = true,
+			.primitive = primitive,
+			.name = name,
+			.size = size,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
+}
+
+struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
+					  const char *name, uint64_t size,
+					  const struct drgn_language *lang,
+					  struct drgn_type **ret)
+{
+	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
+	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_FLOAT)
+		name = drgn_primitive_type_spellings[primitive][0];
+	else
+		primitive = DRGN_NOT_PRIMITIVE_TYPE;
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_FLOAT,
+			.is_complete = true,
+			.primitive = primitive,
+			.name = name,
+			.size = size,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
+}
+
+struct drgn_error *drgn_complex_type_create(struct drgn_program *prog,
+					    const char *name, uint64_t size,
+					    struct drgn_type *real_type,
+					    const struct drgn_language *lang,
+					    struct drgn_type **ret)
+{
+	if (drgn_type_program(real_type) != prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
 	}
-	type->_private.size = size;
-	type->_private.is_signed = is_signed;
-	type->_private.language = drgn_language_or_default(lang);
-}
-
-void drgn_bool_type_init(struct drgn_type *type, const char *name,
-			 uint64_t size, const struct drgn_language *lang)
-{
-	assert(name);
-	type->_private.kind = DRGN_TYPE_BOOL;
-	type->_private.is_complete = true;
-	if (c_parse_specifier_list(name) == DRGN_C_TYPE_BOOL) {
-		type->_private.primitive = DRGN_C_TYPE_BOOL;
-		type->_private.name =
-			drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0];
-	} else {
-		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-		type->_private.name = name;
+	if (drgn_type_kind(real_type) != DRGN_TYPE_FLOAT &&
+	    drgn_type_kind(real_type) != DRGN_TYPE_INT) {
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "real type of complex type must be floating-point or integer type");
 	}
-	type->_private.size = size;
-	type->_private.language = drgn_language_or_default(lang);
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_COMPLEX,
+			.is_complete = true,
+			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			.name = name,
+			.size = size,
+			.type = real_type,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
 }
 
-void drgn_float_type_init(struct drgn_type *type, const char *name,
-			  uint64_t size, const struct drgn_language *lang)
-{
-	enum drgn_primitive_type primitive;
+DEFINE_VECTOR_FUNCTIONS(drgn_type_member_vector)
 
-	assert(name);
-	type->_private.kind = DRGN_TYPE_FLOAT;
-	type->_private.is_complete = true;
-	primitive = c_parse_specifier_list(name);
-	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_FLOAT) {
-		type->_private.primitive = primitive;
-		type->_private.name =
-			drgn_primitive_type_spellings[primitive][0];
-	} else {
-		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-		type->_private.name = name;
+void drgn_compound_type_builder_init(struct drgn_compound_type_builder *builder,
+				     struct drgn_program *prog,
+				     enum drgn_type_kind kind)
+{
+	assert(kind == DRGN_TYPE_STRUCT ||
+	       kind == DRGN_TYPE_UNION ||
+	       kind == DRGN_TYPE_CLASS);
+	builder->prog = prog;
+	builder->kind = kind;
+	drgn_type_member_vector_init(&builder->members);
+}
+
+void
+drgn_compound_type_builder_deinit(struct drgn_compound_type_builder *builder)
+{
+	for (size_t i = 0; i < builder->members.size; i++)
+		drgn_lazy_type_deinit(&builder->members.data[i].type);
+	drgn_type_member_vector_deinit(&builder->members);
+}
+
+struct drgn_error *
+drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder,
+				      struct drgn_lazy_type type,
+				      const char *name, uint64_t bit_offset,
+				      uint64_t bit_field_size)
+{
+	struct drgn_error *err = drgn_lazy_type_check_prog(&type,
+							   builder->prog);
+	if (err)
+		return err;
+	struct drgn_type_member *member =
+		drgn_type_member_vector_append_entry(&builder->members);
+	if (!member)
+		return &drgn_enomem;
+	member->type = type;
+	member->name = name;
+	member->bit_offset = bit_offset;
+	member->bit_field_size = bit_field_size;
+	return NULL;
+}
+
+struct drgn_error *
+drgn_compound_type_create(struct drgn_compound_type_builder *builder,
+			  const char *tag, uint64_t size,
+			  const struct drgn_language *lang,
+			  struct drgn_type **ret)
+{
+	struct drgn_type *type = malloc(sizeof(*type));
+	if (!type)
+		return &drgn_enomem;
+	if (!drgn_typep_vector_append(&builder->prog->created_types, &type)) {
+		free(type);
+		return &drgn_enomem;
 	}
-	type->_private.size = size;
-	type->_private.language = drgn_language_or_default(lang);
-}
 
-void drgn_complex_type_init(struct drgn_type *type, const char *name,
-			    uint64_t size, struct drgn_type *real_type,
-			    const struct drgn_language *lang)
-{
-	assert(name);
-	assert(real_type);
-	assert(drgn_type_kind(real_type) == DRGN_TYPE_FLOAT ||
-	       drgn_type_kind(real_type) == DRGN_TYPE_INT);
-	type->_private.kind = DRGN_TYPE_COMPLEX;
-	type->_private.is_complete = true;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.name = name;
-	type->_private.size = size;
-	type->_private.type = real_type;
-	type->_private.qualifiers = 0;
-	type->_private.language = drgn_language_or_default(lang);
-}
+	drgn_type_member_vector_shrink_to_fit(&builder->members);
 
-void drgn_struct_type_init(struct drgn_type *type, const char *tag,
-			   uint64_t size, struct drgn_type_member *members,
-			   size_t num_members, const struct drgn_language *lang)
-{
-	type->_private.kind = DRGN_TYPE_STRUCT;
+	type->_private.kind = builder->kind;
 	type->_private.is_complete = true;
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = size;
-	type->_private.members = members;
-	type->_private.num_members = num_members;
-	type->_private.language = drgn_language_or_default(lang);
+	type->_private.members = builder->members.data;
+	type->_private.num_members = builder->members.size;
+	type->_private.program = builder->prog;
+	type->_private.language =
+		lang ? lang : drgn_program_language(builder->prog);
+	*ret = type;
+	return NULL;
 }
 
-void drgn_struct_type_init_incomplete(struct drgn_type *type, const char *tag,
-				      const struct drgn_language *lang)
+struct drgn_error *
+drgn_incomplete_compound_type_create(struct drgn_program *prog,
+				     enum drgn_type_kind kind, const char *tag,
+				     const struct drgn_language *lang,
+				     struct drgn_type **ret)
 {
-	type->_private.kind = DRGN_TYPE_STRUCT;
-	type->_private.is_complete = false;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.size = 0;
-	type->_private.members = NULL;
-	type->_private.num_members = 0;
-	type->_private.language = drgn_language_or_default(lang);
+	assert(kind == DRGN_TYPE_STRUCT ||
+	       kind == DRGN_TYPE_UNION ||
+	       kind == DRGN_TYPE_CLASS);
+	struct drgn_type key = {
+		{
+			.kind = kind,
+			.is_complete = false,
+			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			.tag = tag,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
 }
 
-void drgn_union_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, struct drgn_type_member *members,
-			  size_t num_members, const struct drgn_language *lang)
+DEFINE_VECTOR_FUNCTIONS(drgn_type_enumerator_vector)
+
+void drgn_enum_type_builder_init(struct drgn_enum_type_builder *builder,
+				 struct drgn_program *prog)
 {
-	type->_private.kind = DRGN_TYPE_UNION;
-	type->_private.is_complete = true;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.size = size;
-	type->_private.members = members;
-	type->_private.num_members = num_members;
-	type->_private.language = drgn_language_or_default(lang);
+	builder->prog = prog;
+	drgn_type_enumerator_vector_init(&builder->enumerators);
 }
 
-void drgn_union_type_init_incomplete(struct drgn_type *type, const char *tag,
-				     const struct drgn_language *lang)
+void drgn_enum_type_builder_deinit(struct drgn_enum_type_builder *builder)
 {
-	type->_private.kind = DRGN_TYPE_UNION;
-	type->_private.is_complete = false;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.size = 0;
-	type->_private.members = NULL;
-	type->_private.num_members = 0;
-	type->_private.language = drgn_language_or_default(lang);
+	drgn_type_enumerator_vector_deinit(&builder->enumerators);
 }
 
-void drgn_class_type_init(struct drgn_type *type, const char *tag,
-			  uint64_t size, struct drgn_type_member *members,
-			  size_t num_members, const struct drgn_language *lang)
+struct drgn_error *
+drgn_enum_type_builder_add_signed(struct drgn_enum_type_builder *builder,
+				  const char *name, int64_t svalue)
 {
-	type->_private.kind = DRGN_TYPE_CLASS;
-	type->_private.is_complete = true;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.size = size;
-	type->_private.members = members;
-	type->_private.num_members = num_members;
-	type->_private.language = drgn_language_or_default(lang);
+	struct drgn_type_enumerator *enumerator =
+		drgn_type_enumerator_vector_append_entry(&builder->enumerators);
+	if (!enumerator)
+		return &drgn_enomem;
+	enumerator->name = name;
+	enumerator->svalue = svalue;
+	return NULL;
 }
 
-void drgn_class_type_init_incomplete(struct drgn_type *type, const char *tag,
-				     const struct drgn_language *lang)
+struct drgn_error *
+drgn_enum_type_builder_add_unsigned(struct drgn_enum_type_builder *builder,
+				    const char *name, uint64_t uvalue)
 {
-	type->_private.kind = DRGN_TYPE_CLASS;
-	type->_private.is_complete = false;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.size = 0;
-	type->_private.members = NULL;
-	type->_private.num_members = 0;
-	type->_private.language = drgn_language_or_default(lang);
+	struct drgn_type_enumerator *enumerator =
+		drgn_type_enumerator_vector_append_entry(&builder->enumerators);
+	if (!enumerator)
+		return &drgn_enomem;
+	enumerator->name = name;
+	enumerator->uvalue = uvalue;
+	return NULL;
 }
 
-void drgn_enum_type_init(struct drgn_type *type, const char *tag,
-			 struct drgn_type *compatible_type,
-			 struct drgn_type_enumerator *enumerators,
-			 size_t num_enumerators,
-			 const struct drgn_language *lang)
+struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
+					 const char *tag,
+					 struct drgn_type *compatible_type,
+					 const struct drgn_language *lang,
+					 struct drgn_type **ret)
 {
-	assert(drgn_type_kind(compatible_type) == DRGN_TYPE_INT);
+	if (drgn_type_program(compatible_type) != builder->prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
+	}
+	if (drgn_type_kind(compatible_type) != DRGN_TYPE_INT) {
+		return drgn_error_create(DRGN_ERROR_TYPE,
+					 "compatible type of enum type must be integer type");
+	}
+
+	struct drgn_type *type = malloc(sizeof(*type));
+	if (!type)
+		return &drgn_enomem;
+	if (!drgn_typep_vector_append(&builder->prog->created_types, &type)) {
+		free(type);
+		return &drgn_enomem;
+	}
+
+	drgn_type_enumerator_vector_shrink_to_fit(&builder->enumerators);
+
 	type->_private.kind = DRGN_TYPE_ENUM;
 	type->_private.is_complete = true;
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.type = compatible_type;
 	type->_private.qualifiers = 0;
-	type->_private.enumerators = enumerators;
-	type->_private.num_enumerators = num_enumerators;
-	type->_private.language = drgn_language_or_default(lang);
+	type->_private.enumerators = builder->enumerators.data;
+	type->_private.num_enumerators = builder->enumerators.size;
+	type->_private.program = builder->prog;
+	type->_private.language =
+		lang ? lang : drgn_program_language(builder->prog);
+	*ret = type;
+	return NULL;
 }
 
-void drgn_enum_type_init_incomplete(struct drgn_type *type, const char *tag,
-				    const struct drgn_language *lang)
+struct drgn_error *
+drgn_incomplete_enum_type_create(struct drgn_program *prog, const char *tag,
+				 const struct drgn_language *lang,
+				 struct drgn_type **ret)
 {
-	type->_private.kind = DRGN_TYPE_ENUM;
-	type->_private.is_complete = false;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.tag = tag;
-	type->_private.type = NULL;
-	type->_private.qualifiers = 0;
-	type->_private.enumerators = NULL;
-	type->_private.num_enumerators = 0;
-	type->_private.language = drgn_language_or_default(lang);
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_ENUM,
+			.is_complete = false,
+			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			.tag = tag,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
 }
 
-void drgn_typedef_type_init(struct drgn_type *type, const char *name,
-			    struct drgn_qualified_type aliased_type,
-			    const struct drgn_language *lang)
+struct drgn_error *
+drgn_typedef_type_create(struct drgn_program *prog, const char *name,
+			 struct drgn_qualified_type aliased_type,
+			 const struct drgn_language *lang,
+			 struct drgn_type **ret)
 {
-	type->_private.kind = DRGN_TYPE_TYPEDEF;
-	type->_private.is_complete = drgn_type_is_complete(aliased_type.type);
+	if (drgn_type_program(aliased_type.type) != prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
+	}
+
+	enum drgn_primitive_type primitive;
 	if (strcmp(name, "size_t") == 0)
-		type->_private.primitive = DRGN_C_TYPE_SIZE_T;
+		primitive = DRGN_C_TYPE_SIZE_T;
 	else if (strcmp(name, "ptrdiff_t") == 0)
-		type->_private.primitive = DRGN_C_TYPE_PTRDIFF_T;
+		primitive = DRGN_C_TYPE_PTRDIFF_T;
 	else
-		type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.name = name;
-	type->_private.type = aliased_type.type;
-	type->_private.qualifiers = aliased_type.qualifiers;
-	type->_private.language = drgn_language_or_default(lang);
+		primitive = DRGN_NOT_PRIMITIVE_TYPE;
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_TYPEDEF,
+			.is_complete = drgn_type_is_complete(aliased_type.type),
+			.primitive = primitive,
+			.name = name,
+			.type = aliased_type.type,
+			.qualifiers = aliased_type.qualifiers,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
 }
 
-void drgn_pointer_type_init(struct drgn_type *type, uint64_t size,
-			    struct drgn_qualified_type referenced_type,
-			    const struct drgn_language *lang)
+struct drgn_error *
+drgn_pointer_type_create(struct drgn_program *prog,
+			 struct drgn_qualified_type referenced_type,
+			 uint64_t size, const struct drgn_language *lang,
+			 struct drgn_type **ret)
 {
-	type->_private.kind = DRGN_TYPE_POINTER;
-	type->_private.is_complete = true;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.size = size;
-	type->_private.type = referenced_type.type;
-	type->_private.qualifiers = referenced_type.qualifiers;
-	type->_private.language = drgn_language_or_default(lang);
+	if (drgn_type_program(referenced_type.type) != prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
+	}
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_POINTER,
+			.is_complete = true,
+			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			.size = size,
+			.type = referenced_type.type,
+			.qualifiers = referenced_type.qualifiers,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
 }
 
-void drgn_array_type_init(struct drgn_type *type, uint64_t length,
-			  struct drgn_qualified_type element_type,
-			  const struct drgn_language *lang)
+struct drgn_error *
+drgn_array_type_create(struct drgn_program *prog,
+		       struct drgn_qualified_type element_type,
+		       uint64_t length, const struct drgn_language *lang,
+		       struct drgn_type **ret)
 {
-	type->_private.kind = DRGN_TYPE_ARRAY;
-	type->_private.is_complete = true;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.length = length;
-	type->_private.type = element_type.type;
-	type->_private.qualifiers = element_type.qualifiers;
-	type->_private.language = drgn_language_or_default(lang);
+	if (drgn_type_program(element_type.type) != prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
+	}
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_ARRAY,
+			.is_complete = true,
+			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			.length = length,
+			.type = element_type.type,
+			.qualifiers = element_type.qualifiers,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
 }
 
-void drgn_array_type_init_incomplete(struct drgn_type *type,
-				     struct drgn_qualified_type element_type,
-				     const struct drgn_language *lang)
+struct drgn_error *
+drgn_incomplete_array_type_create(struct drgn_program *prog,
+				  struct drgn_qualified_type element_type,
+				  const struct drgn_language *lang,
+				  struct drgn_type **ret)
 {
-	type->_private.kind = DRGN_TYPE_ARRAY;
-	type->_private.is_complete = false;
-	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
-	type->_private.length = 0;
-	type->_private.type = element_type.type;
-	type->_private.qualifiers = element_type.qualifiers;
-	type->_private.language = drgn_language_or_default(lang);
+	if (drgn_type_program(element_type.type) != prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
+	}
+
+	struct drgn_type key = {
+		{
+			.kind = DRGN_TYPE_ARRAY,
+			.is_complete = false,
+			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+			.type = element_type.type,
+			.qualifiers = element_type.qualifiers,
+			.program = prog,
+			.language = lang ? lang : drgn_program_language(prog),
+		}
+	};
+	return find_or_create_type(&key, ret);
 }
 
-void drgn_function_type_init(struct drgn_type *type,
-			     struct drgn_qualified_type return_type,
-			     struct drgn_type_parameter *parameters,
-			     size_t num_parameters, bool is_variadic,
-			     const struct drgn_language *lang)
+DEFINE_VECTOR_FUNCTIONS(drgn_type_parameter_vector)
+
+void drgn_function_type_builder_init(struct drgn_function_type_builder *builder,
+				     struct drgn_program *prog)
 {
+	builder->prog = prog;
+	drgn_type_parameter_vector_init(&builder->parameters);
+}
+
+void
+drgn_function_type_builder_deinit(struct drgn_function_type_builder *builder)
+{
+	for (size_t i = 0; i < builder->parameters.size; i++)
+		drgn_lazy_type_deinit(&builder->parameters.data[i].type);
+	drgn_type_parameter_vector_deinit(&builder->parameters);
+}
+
+struct drgn_error *
+drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *builder,
+					 struct drgn_lazy_type type,
+					 const char *name)
+{
+	struct drgn_error *err = drgn_lazy_type_check_prog(&type,
+							   builder->prog);
+	if (err)
+		return err;
+	struct drgn_type_parameter *parameter =
+		drgn_type_parameter_vector_append_entry(&builder->parameters);
+	if (!parameter)
+		return &drgn_enomem;
+	parameter->type = type;
+	parameter->name = name;
+	return NULL;
+}
+
+struct drgn_error *
+drgn_function_type_create(struct drgn_function_type_builder *builder,
+			  struct drgn_qualified_type return_type,
+			  bool is_variadic, const struct drgn_language *lang,
+			  struct drgn_type **ret)
+{
+	if (drgn_type_program(return_type.type) != builder->prog) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "type is from different program");
+	}
+
+	struct drgn_type *type = malloc(sizeof(*type));
+	if (!type)
+		return &drgn_enomem;
+	if (!drgn_typep_vector_append(&builder->prog->created_types, &type)) {
+		free(type);
+		return &drgn_enomem;
+	}
+
+	drgn_type_parameter_vector_shrink_to_fit(&builder->parameters);
+
 	type->_private.kind = DRGN_TYPE_FUNCTION;
 	type->_private.is_complete = true;
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.type = return_type.type;
 	type->_private.qualifiers = return_type.qualifiers;
-	type->_private.parameters = parameters;
-	type->_private.num_parameters = num_parameters;
+	type->_private.parameters = builder->parameters.data;
+	type->_private.num_parameters = builder->parameters.size;
 	type->_private.is_variadic = is_variadic;
-	type->_private.language = drgn_language_or_default(lang);
+	type->_private.program = builder->prog;
+	type->_private.language =
+		lang ? lang : drgn_program_language(builder->prog);
+	*ret = type;
+	return NULL;
 }
 
 struct drgn_type_pair {
@@ -692,8 +990,6 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 					    int *depth, bool *ret)
 {
 	struct drgn_error *err;
-	struct drgn_type_pair pair = { a, b };
-	struct hash_pair hp;
 
 	if (*depth >= 1000) {
 		return drgn_error_create(DRGN_ERROR_RECURSION,
@@ -713,7 +1009,8 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	 * Cache this comparison so that we don't do it again. We insert the
 	 * cache entry before doing the comparison in order to break cycles.
 	 */
-	hp = drgn_type_pair_set_hash(&pair);
+	struct drgn_type_pair pair = { a, b };
+	struct hash_pair hp = drgn_type_pair_set_hash(&pair);
 	switch (drgn_type_pair_set_insert_hashed(cache, &pair, hp, NULL)) {
 	case 1:
 		/* These types haven't been compared yet. */
@@ -734,18 +1031,48 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	(*depth)++;
 
 	if (drgn_type_kind(a) != drgn_type_kind(b) ||
-	    drgn_type_language(a) != drgn_type_language(b) ||
 	    drgn_type_is_complete(a) != drgn_type_is_complete(b))
+		goto out_false;
+
+	switch (drgn_type_kind(a)) {
+	/*
+	 * This types are uniquely deduplicated, so if their pointers did not
+	 * compare equal then they are not equal.
+	 */
+	case DRGN_TYPE_VOID:
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL:
+	case DRGN_TYPE_FLOAT:
+	case DRGN_TYPE_COMPLEX:
+		goto out_false;
+	/* These types are uniquely deduplicated only if incomplete. */
+	case DRGN_TYPE_STRUCT:
+	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS:
+	case DRGN_TYPE_ENUM:
+		if (!drgn_type_is_complete(a))
+			goto out_false;
+		break;
+	/*
+	 * These types are not uniquely deduplicated because they can refer to
+	 * types that are not deduplicated.
+	 */
+	case DRGN_TYPE_TYPEDEF:
+	case DRGN_TYPE_POINTER:
+	case DRGN_TYPE_ARRAY:
+	case DRGN_TYPE_FUNCTION:
+		break;
+	}
+
+	if (drgn_type_language(a) != drgn_type_language(b))
 		goto out_false;
 
 	if (drgn_type_has_name(a) &&
 	    strcmp(drgn_type_name(a), drgn_type_name(b)) != 0)
 		goto out_false;
 	if (drgn_type_has_tag(a)) {
-		const char *tag_a, *tag_b;
-
-		tag_a = drgn_type_tag(a);
-		tag_b = drgn_type_tag(b);
+		const char *tag_a = drgn_type_tag(a);
+		const char *tag_b = drgn_type_tag(b);
 		if ((!tag_a != !tag_b) || (tag_a && strcmp(tag_a, tag_b) != 0))
 			goto out_false;
 	}
@@ -754,14 +1081,10 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	if (drgn_type_has_length(a) &&
 	    drgn_type_length(a) != drgn_type_length(b))
 		goto out_false;
-	if (drgn_type_has_is_signed(a) &&
-	    drgn_type_is_signed(a) != drgn_type_is_signed(b))
-		goto out_false;
+	assert(!drgn_type_has_is_signed(a));
 	if (drgn_type_has_type(a)) {
-		struct drgn_qualified_type type_a, type_b;
-
-		type_a = drgn_type_type(a);
-		type_b = drgn_type_type(b);
+		struct drgn_qualified_type type_a = drgn_type_type(a);
+		struct drgn_qualified_type type_b = drgn_type_type(b);
 		err = drgn_qualified_type_eq_impl(&type_a, &type_b, cache,
 						  depth, ret);
 		if (err || !*ret)
@@ -797,6 +1120,10 @@ out:
 LIBDRGN_PUBLIC struct drgn_error *drgn_type_eq(struct drgn_type *a,
 					       struct drgn_type *b, bool *ret)
 {
+	if (drgn_type_program(a) != drgn_type_program(b)) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "types are from different programs");
+	}
 	struct drgn_type_pair_set cache = HASH_TABLE_INIT;
 	int depth = 0;
 	struct drgn_error *err = drgn_type_eq_impl(a, b, &cache, &depth, ret);
@@ -1034,37 +1361,54 @@ struct drgn_error *drgn_error_member_not_found(struct drgn_type *type,
 
 void drgn_program_init_types(struct drgn_program *prog)
 {
-	drgn_pointer_type_table_init(&prog->pointer_types);
-	drgn_array_type_table_init(&prog->array_types);
+	for (size_t i = 0; i < ARRAY_SIZE(prog->void_types); i++) {
+		struct drgn_type *type = &prog->void_types[i];
+		type->_private.kind = DRGN_TYPE_VOID;
+		type->_private.is_complete = false;
+		type->_private.primitive = DRGN_C_TYPE_VOID;
+		type->_private.program = prog;
+		type->_private.language = &drgn_languages[i];
+	}
+	drgn_dedupe_type_set_init(&prog->dedupe_types);
+	drgn_typep_vector_init(&prog->created_types);
 	drgn_member_map_init(&prog->members);
 	drgn_type_set_init(&prog->members_cached);
-}
-
-static void free_pointer_types(struct drgn_program *prog)
-{
-	struct drgn_pointer_type_table_iterator it;
-
-	for (it = drgn_pointer_type_table_first(&prog->pointer_types);
-	     it.entry; it = drgn_pointer_type_table_next(it))
-		free(*it.entry);
-	drgn_pointer_type_table_deinit(&prog->pointer_types);
-}
-
-static void free_array_types(struct drgn_program *prog)
-{
-	struct drgn_array_type_table_iterator it;
-	for (it = drgn_array_type_table_first(&prog->array_types); it.entry;
-	     it = drgn_array_type_table_next(it))
-		free(*it.entry);
-	drgn_array_type_table_deinit(&prog->array_types);
 }
 
 void drgn_program_deinit_types(struct drgn_program *prog)
 {
 	drgn_member_map_deinit(&prog->members);
 	drgn_type_set_deinit(&prog->members_cached);
-	free_array_types(prog);
-	free_pointer_types(prog);
+
+	for (size_t i = 0; i < prog->created_types.size; i++) {
+		struct drgn_type *type = prog->created_types.data[i];
+		if (drgn_type_has_members(type)) {
+			struct drgn_type_member *members =
+				drgn_type_members(type);
+			size_t num_members = drgn_type_num_members(type);
+			for (size_t j = 0; j < num_members; j++)
+				drgn_lazy_type_deinit(&members[j].type);
+			free(members);
+		}
+		if (drgn_type_has_enumerators(type))
+			free(drgn_type_enumerators(type));
+		if (drgn_type_has_parameters(type)) {
+			struct drgn_type_parameter *parameters =
+				drgn_type_parameters(type);
+			size_t num_parameters = drgn_type_num_parameters(type);
+			for (size_t j = 0; j < num_parameters; j++)
+				drgn_lazy_type_deinit(&parameters[j].type);
+			free(parameters);
+		}
+		free(type);
+	}
+	drgn_typep_vector_deinit(&prog->created_types);
+
+	for (struct drgn_dedupe_type_set_iterator it =
+	     drgn_dedupe_type_set_first(&prog->dedupe_types);
+	     it.entry; it = drgn_dedupe_type_set_next(it))
+		free(*it.entry);
+	drgn_dedupe_type_set_deinit(&prog->dedupe_types);
 
 	struct drgn_type_finder *finder = prog->type_finders;
 	while (finder) {
@@ -1100,6 +1444,10 @@ drgn_program_find_type_impl(struct drgn_program *prog,
 			finder->fn(kind, name, name_len, filename, finder->arg,
 				   ret);
 		if (!err) {
+			if (drgn_type_program(ret->type) != prog) {
+				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+							 "type find callback returned type from wrong program");
+			}
 			if (drgn_type_kind(ret->type) != kind) {
 				return drgn_error_create(DRGN_ERROR_TYPE,
 							 "type find callback returned wrong kind of type");
@@ -1132,80 +1480,53 @@ drgn_program_find_type(struct drgn_program *prog, const char *name,
 	}
 }
 
-/* Default long and unsigned long are 64 bits. */
-static struct drgn_type default_primitive_types[DRGN_PRIMITIVE_TYPE_NUM];
-/* 32-bit versions of long and unsigned long. */
-static struct drgn_type default_long_32bit;
-static struct drgn_type default_unsigned_long_32bit;
-
-__attribute__((constructor(200)))
-static void default_primitive_types_init(void)
+/*
+ * size_t and ptrdiff_t default to typedefs of whatever integer type matches the
+ * word size.
+ */
+static struct drgn_error *
+default_size_t_or_ptrdiff_t(struct drgn_program *prog,
+			    enum drgn_primitive_type type,
+			    struct drgn_type **ret)
 {
-	size_t i;
+	static const enum drgn_primitive_type integer_types[2][3] = {
+		{
+			DRGN_C_TYPE_UNSIGNED_LONG,
+			DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+			DRGN_C_TYPE_UNSIGNED_INT,
+		},
+		{
+			DRGN_C_TYPE_LONG,
+			DRGN_C_TYPE_LONG_LONG,
+			DRGN_C_TYPE_INT,
+		},
+	};
+	struct drgn_error *err;
+	uint8_t word_size;
 
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_CHAR],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_CHAR][0],
-			   1, true, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_SIGNED_CHAR],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_SIGNED_CHAR][0],
-			   1, true, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_CHAR],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_CHAR][0],
-			   1, false, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_SHORT],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_SHORT][0],
-			   2, true, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_SHORT],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_SHORT][0],
-			   2, false, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_INT],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_INT][0], 4,
-			   true, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_INT],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_INT][0],
-			   4, false, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_LONG],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG][0],
-			   8, true, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG][0],
-			   8, false, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_LONG_LONG],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG_LONG][0],
-			   8, true, &drgn_language_c);
-	drgn_int_type_init(&default_primitive_types[DRGN_C_TYPE_UNSIGNED_LONG_LONG],
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG_LONG][0],
-			   8, false, &drgn_language_c);
-	drgn_bool_type_init(&default_primitive_types[DRGN_C_TYPE_BOOL],
-			    drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0],
-			    1, &drgn_language_c);
-	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_FLOAT],
-			     drgn_primitive_type_spellings[DRGN_C_TYPE_FLOAT][0],
-			     4, &drgn_language_c);
-	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_DOUBLE],
-			     drgn_primitive_type_spellings[DRGN_C_TYPE_DOUBLE][0],
-			     8, &drgn_language_c);
-	drgn_float_type_init(&default_primitive_types[DRGN_C_TYPE_LONG_DOUBLE],
-			     drgn_primitive_type_spellings[DRGN_C_TYPE_LONG_DOUBLE][0],
-			     16, &drgn_language_c);
-	for (i = 0; i < ARRAY_SIZE(default_primitive_types); i++) {
-		if (drgn_primitive_type_kind[i] == DRGN_TYPE_VOID ||
-		    i == DRGN_C_TYPE_SIZE_T || i == DRGN_C_TYPE_PTRDIFF_T)
-			continue;
-		assert(drgn_type_primitive(&default_primitive_types[i]) == i);
+	err = drgn_program_word_size(prog, &word_size);
+	if (err)
+		return err;
+	for (size_t i = 0; i < ARRAY_SIZE(integer_types[0]); i++) {
+		enum drgn_primitive_type integer_type;
+		struct drgn_qualified_type qualified_type;
+
+		integer_type = integer_types[type == DRGN_C_TYPE_PTRDIFF_T][i];
+		err = drgn_program_find_primitive_type(prog, integer_type,
+						       &qualified_type.type);
+		if (err)
+			return err;
+		if (drgn_type_size(qualified_type.type) == word_size) {
+			qualified_type.qualifiers = 0;
+			return drgn_typedef_type_create(prog,
+							drgn_primitive_type_spellings[type][0],
+							qualified_type,
+							&drgn_language_c, ret);
+		}
 	}
-
-	drgn_int_type_init(&default_long_32bit,
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_LONG][0],
-			   4, true, &drgn_language_c);
-	assert(drgn_type_primitive(&default_long_32bit) ==
-	       DRGN_C_TYPE_LONG);
-
-	drgn_int_type_init(&default_unsigned_long_32bit,
-			   drgn_primitive_type_spellings[DRGN_C_TYPE_UNSIGNED_LONG][0],
-			   4, false, &drgn_language_c);
-	assert(drgn_type_primitive(&default_unsigned_long_32bit) ==
-	       DRGN_C_TYPE_UNSIGNED_LONG);
+	return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+				 "no suitable integer type for %s",
+				 drgn_primitive_type_spellings[type][0]);
 }
 
 struct drgn_error *
@@ -1217,7 +1538,6 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 	struct drgn_qualified_type qualified_type;
 	enum drgn_type_kind kind;
 	const char * const *spellings;
-	uint8_t word_size;
 	size_t i;
 
 	if (prog->primitive_types[type]) {
@@ -1227,7 +1547,7 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 
 	kind = drgn_primitive_type_kind[type];
 	if (kind == DRGN_TYPE_VOID) {
-		*ret = drgn_void_type(&drgn_language_c);
+		*ret = drgn_void_type(prog, &drgn_language_c);
 		goto out;
 	}
 
@@ -1244,184 +1564,82 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 		}
 	}
 
-	if (!prog->has_platform) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "program word size is not known");
-	}
-	word_size = drgn_program_is_64_bit(prog) ? 8 : 4;
-
+	switch (type) {
+	case DRGN_C_TYPE_CHAR:
+	case DRGN_C_TYPE_SIGNED_CHAR:
+		err = drgn_int_type_create(prog, spellings[0], 1, true,
+					   &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_UNSIGNED_CHAR:
+		err = drgn_int_type_create(prog, spellings[0], 1, false,
+					   &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_SHORT:
+		err = drgn_int_type_create(prog, spellings[0], 2, true,
+					   &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_UNSIGNED_SHORT:
+		err = drgn_int_type_create(prog, spellings[0], 2, false,
+					   &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_INT:
+		err = drgn_int_type_create(prog, spellings[0], 4, true,
+					   &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_UNSIGNED_INT:
+		err = drgn_int_type_create(prog, spellings[0], 4, false,
+					   &drgn_language_c, ret);
+		break;
 	/* long and unsigned long default to the word size. */
-	if (type == DRGN_C_TYPE_LONG || type == DRGN_C_TYPE_UNSIGNED_LONG) {
-		if (word_size == 4) {
-			*ret = (type == DRGN_C_TYPE_LONG ?
-				&default_long_32bit :
-				&default_unsigned_long_32bit);
-			goto out;
-		}
+	case DRGN_C_TYPE_LONG:
+	case DRGN_C_TYPE_UNSIGNED_LONG: {
+		uint8_t word_size;
+
+		err = drgn_program_word_size(prog, &word_size);
+		if (err)
+			break;
+		err = drgn_int_type_create(prog, spellings[0], word_size,
+					   type == DRGN_C_TYPE_LONG,
+					   &drgn_language_c, ret);
+		break;
 	}
-	/*
-	 * size_t and ptrdiff_t default to typedefs of whatever integer type
-	 * matches the word size.
-	 */
-	if (type == DRGN_C_TYPE_SIZE_T || type == DRGN_C_TYPE_PTRDIFF_T) {
-		static enum drgn_primitive_type integer_types[2][3] = {
-			{
-				DRGN_C_TYPE_UNSIGNED_LONG,
-				DRGN_C_TYPE_UNSIGNED_LONG_LONG,
-				DRGN_C_TYPE_UNSIGNED_INT,
-			},
-			{
-				DRGN_C_TYPE_LONG,
-				DRGN_C_TYPE_LONG_LONG,
-				DRGN_C_TYPE_INT,
-			},
-		};
-
-		for (i = 0; i < 3; i++) {
-			enum drgn_primitive_type integer_type;
-
-			integer_type = integer_types[type == DRGN_C_TYPE_PTRDIFF_T][i];
-			err = drgn_program_find_primitive_type(prog,
-							       integer_type,
-							       &qualified_type.type);
-			if (err)
-				return err;
-			if (drgn_type_size(qualified_type.type) == word_size) {
-				qualified_type.qualifiers = 0;
-				*ret = (type == DRGN_C_TYPE_SIZE_T ?
-					&prog->default_size_t :
-					&prog->default_ptrdiff_t);
-				drgn_typedef_type_init(*ret, spellings[0],
-						       qualified_type, &drgn_language_c);
-				goto out;
-			}
-		}
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					 "no suitable integer type for %s",
-					 spellings[0]);
+	case DRGN_C_TYPE_LONG_LONG:
+		err = drgn_int_type_create(prog, spellings[0], 8, true,
+					   &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_UNSIGNED_LONG_LONG:
+		err = drgn_int_type_create(prog, spellings[0], 8, false,
+					   &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_BOOL:
+		err = drgn_bool_type_create(prog, spellings[0], 1,
+					    &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_FLOAT:
+		err = drgn_float_type_create(prog, spellings[0], 4,
+					     &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_DOUBLE:
+		err = drgn_float_type_create(prog, spellings[0], 8,
+					     &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_LONG_DOUBLE:
+		err = drgn_float_type_create(prog, spellings[0], 16,
+					     &drgn_language_c, ret);
+		break;
+	case DRGN_C_TYPE_SIZE_T:
+	case DRGN_C_TYPE_PTRDIFF_T:
+		err = default_size_t_or_ptrdiff_t(prog, type, ret);
+		break;
+	default:
+		UNREACHABLE();
 	}
+	if (err)
+		return err;
+	assert(drgn_type_primitive(*ret) == type);
 
-	*ret = &default_primitive_types[type];
 out:
 	prog->primitive_types[type] = *ret;
-	return NULL;
-}
-
-struct drgn_error *
-drgn_program_pointer_type(struct drgn_program *prog,
-			  struct drgn_qualified_type referenced_type,
-			  const struct drgn_language *lang,
-			  struct drgn_type **ret)
-{
-	const struct drgn_pointer_type_key key = {
-		.type = referenced_type.type,
-		.qualifiers = referenced_type.qualifiers,
-		.lang = lang ? lang : drgn_type_language(referenced_type.type),
-	};
-	struct drgn_pointer_type_table_iterator it;
-	struct drgn_type *type;
-	struct hash_pair hp;
-
-	if (!prog->has_platform) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "program word size is not known");
-	}
-
-	hp = drgn_pointer_type_table_hash(&key);
-	it = drgn_pointer_type_table_search_hashed(&prog->pointer_types, &key,
-						   hp);
-	if (it.entry) {
-		type = *it.entry;
-		goto out;
-	}
-
-	type = malloc(sizeof(*type));
-	if (!type)
-		return &drgn_enomem;
-	drgn_pointer_type_init(type, drgn_program_is_64_bit(prog) ? 8 : 4,
-			       referenced_type, key.lang);
-	if (drgn_pointer_type_table_insert_searched(&prog->pointer_types, &type,
-						    hp, NULL) == -1) {
-		free(type);
-		return &drgn_enomem;
-	}
-out:
-	*ret = type;
-	return NULL;
-}
-
-struct drgn_error *
-drgn_program_array_type(struct drgn_program *prog, uint64_t length,
-			struct drgn_qualified_type element_type,
-			const struct drgn_language *lang,
-			struct drgn_type **ret)
-{
-	const struct drgn_array_type_key key = {
-		.type = element_type.type,
-		.qualifiers = element_type.qualifiers,
-		.is_complete = true,
-		.length = length,
-		.lang = lang ? lang : drgn_type_language(element_type.type),
-	};
-	struct drgn_array_type_table_iterator it;
-	struct drgn_type *type;
-	struct hash_pair hp;
-
-	hp = drgn_array_type_table_hash(&key);
-	it = drgn_array_type_table_search_hashed(&prog->array_types, &key, hp);
-	if (it.entry) {
-		type = *it.entry;
-		goto out;
-	}
-
-	type = malloc(sizeof(*type));
-	if (!type)
-		return &drgn_enomem;
-	drgn_array_type_init(type, length, element_type, key.lang);
-	if (drgn_array_type_table_insert_searched(&prog->array_types, &type, hp,
-						  NULL) == -1) {
-		free(type);
-		return &drgn_enomem;
-	}
-out:
-	*ret = type;
-	return NULL;
-}
-
-struct drgn_error *
-drgn_program_incomplete_array_type(struct drgn_program *prog,
-				   struct drgn_qualified_type element_type,
-				   const struct drgn_language *lang,
-				   struct drgn_type **ret)
-{
-	const struct drgn_array_type_key key = {
-		.type = element_type.type,
-		.qualifiers = element_type.qualifiers,
-		.is_complete = false,
-		.lang = lang ? lang : drgn_type_language(element_type.type),
-	};
-	struct drgn_array_type_table_iterator it;
-	struct drgn_type *type;
-	struct hash_pair hp;
-
-	hp = drgn_array_type_table_hash(&key);
-	it = drgn_array_type_table_search_hashed(&prog->array_types, &key, hp);
-	if (it.entry) {
-		type = *it.entry;
-		goto out;
-	}
-
-	type = malloc(sizeof(*type));
-	if (!type)
-		return &drgn_enomem;
-	drgn_array_type_init_incomplete(type, element_type, key.lang);
-	if (drgn_array_type_table_insert_searched(&prog->array_types, &type, hp,
-						  NULL) == -1) {
-		free(type);
-		return &drgn_enomem;
-	}
-out:
-	*ret = type;
 	return NULL;
 }
 

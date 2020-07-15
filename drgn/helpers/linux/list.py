@@ -85,6 +85,8 @@ def list_first_entry_or_null(
     head = head.read_()
     pos = head.next.read_()
     if pos == head:
+        if isinstance(type, str):
+            type = head.prog_.type(type)
         return NULL(head.prog_, head.prog_.pointer_type(type))
     else:
         return container_of(pos, type, member)

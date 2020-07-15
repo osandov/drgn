@@ -17,52 +17,9 @@ from drgn import (
     TypeEnumerator,
     TypeKind,
     TypeMember,
-    class_type,
-    enum_type,
-    float_type,
-    int_type,
-    struct_type,
-    typedef_type,
-    union_type,
 )
 
 DEFAULT_LANGUAGE = Language.C
-
-
-coord_type = class_type(
-    "coord",
-    12,
-    (
-        TypeMember(int_type("int", 4, True), "x", 0),
-        TypeMember(int_type("int", 4, True), "y", 32),
-        TypeMember(int_type("int", 4, True), "z", 64),
-    ),
-)
-point_type = struct_type(
-    "point",
-    8,
-    (
-        TypeMember(int_type("int", 4, True), "x", 0),
-        TypeMember(int_type("int", 4, True), "y", 32),
-    ),
-)
-line_segment_type = struct_type(
-    "line_segment", 16, (TypeMember(point_type, "a"), TypeMember(point_type, "b", 64))
-)
-option_type = union_type(
-    "option",
-    4,
-    (
-        TypeMember(int_type("int", 4, True), "i"),
-        TypeMember(float_type("float", 4), "f"),
-    ),
-)
-color_type = enum_type(
-    "color",
-    int_type("unsigned int", 4, False),
-    (TypeEnumerator("RED", 0), TypeEnumerator("GREEN", 1), TypeEnumerator("BLUE", 2)),
-)
-pid_type = typedef_type("pid_t", int_type("int", 4, True))
 
 
 MOCK_32BIT_PLATFORM = Platform(Architecture.UNKNOWN, PlatformFlags.IS_LITTLE_ENDIAN)
@@ -145,10 +102,9 @@ def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=N
     return prog
 
 
-class ObjectTestCase(unittest.TestCase):
+class TestCase(unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self.prog = mock_program()
         # For testing, we want to compare the raw objects rather than using the
         # language's equality operator.
         def object_equality_func(a, b, msg=None):
@@ -216,3 +172,63 @@ class ObjectTestCase(unittest.TestCase):
 
     def double(self, value):
         return Object(self.prog, "double", value=value)
+
+
+class MockProgramTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.types = []
+        self.objects = []
+        self.prog = mock_program(types=self.types, objects=self.objects)
+        self.coord_type = self.prog.class_type(
+            "coord",
+            12,
+            (
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+                TypeMember(self.prog.int_type("int", 4, True), "z", 64),
+            ),
+        )
+        self.point_type = self.prog.struct_type(
+            "point",
+            8,
+            (
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+            ),
+        )
+        self.line_segment_type = self.prog.struct_type(
+            "line_segment",
+            16,
+            (TypeMember(self.point_type, "a"), TypeMember(self.point_type, "b", 64)),
+        )
+        self.option_type = self.prog.union_type(
+            "option",
+            4,
+            (
+                TypeMember(self.prog.int_type("int", 4, True), "i"),
+                TypeMember(self.prog.float_type("float", 4), "f"),
+            ),
+        )
+        self.color_type = self.prog.enum_type(
+            "color",
+            self.prog.int_type("unsigned int", 4, False),
+            (
+                TypeEnumerator("RED", 0),
+                TypeEnumerator("GREEN", 1),
+                TypeEnumerator("BLUE", 2),
+            ),
+        )
+        self.pid_type = self.prog.typedef_type(
+            "pid_t", self.prog.int_type("int", 4, True)
+        )
+
+    def add_memory_segment(self, buf, virt_addr=None, phys_addr=None):
+        if virt_addr is not None:
+            self.prog.add_memory_segment(
+                virt_addr, len(buf), functools.partial(mock_memory_read, buf),
+            )
+        if phys_addr is not None:
+            self.prog.add_memory_segment(
+                phys_addr, len(buf), functools.partial(mock_memory_read, buf), True,
+            )

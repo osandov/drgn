@@ -9,132 +9,40 @@ static const char *drgn_type_kind_str(struct drgn_type *type)
 	return drgn_type_kind_spelling[drgn_type_kind(type)];
 }
 
-static DrgnType *DrgnType_new(enum drgn_qualifiers qualifiers)
+DRGNPY_PUBLIC PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type)
 {
-	DrgnType *type_obj;
-
-	type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type, 1);
+	DrgnType *type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type,
+								0);
 	if (!type_obj)
 		return NULL;
-	type_obj->qualifiers = qualifiers;
-	type_obj->attr_cache = PyDict_New();
-	if (!type_obj->attr_cache) {
-		Py_DECREF(type_obj);
-		return NULL;
-	}
-	type_obj->type = type_obj->_type;
-	return type_obj;
-}
-
-DRGNPY_PUBLIC PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type,
-				      PyObject *parent)
-{
-	DrgnType *type_obj;
-
-	type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type, 0);
-	if (!type_obj)
-		return NULL;
-	type_obj->qualifiers = qualified_type.qualifiers;
-	type_obj->attr_cache = PyDict_New();
-	if (!type_obj->attr_cache) {
-		Py_DECREF(type_obj);
-		return NULL;
-	}
 	type_obj->type = qualified_type.type;
-	if (parent) {
-		Py_INCREF(parent);
-		type_obj->parent = parent;
+	type_obj->qualifiers = qualified_type.qualifiers;
+	Py_INCREF(DrgnType_prog(type_obj));
+	type_obj->attr_cache = PyDict_New();
+	if (!type_obj->attr_cache) {
+		Py_DECREF(type_obj);
+		return NULL;
 	}
 	return (PyObject *)type_obj;
 }
 
-static DrgnType *LazyType_get_borrowed(LazyType *self)
+static inline struct drgn_qualified_type DrgnType_unwrap(DrgnType *type)
 {
-	if (unlikely(self->obj & DRGNPY_LAZY_TYPE_UNEVALUATED)) {
-		PyObject *obj;
-		PyObject *type;
-
-		obj = (PyObject *)(self->obj & DRGNPY_LAZY_TYPE_MASK);
-		if (self->lazy_type) {
-			struct drgn_error *err;
-			struct drgn_qualified_type qualified_type;
-			bool clear = false;
-
-			/* Avoid the thread state overhead if we can. */
-			if (!drgn_lazy_type_is_evaluated(self->lazy_type))
-				clear = set_drgn_in_python();
-			err = drgn_lazy_type_evaluate(self->lazy_type,
-						      &qualified_type);
-			if (clear)
-				clear_drgn_in_python();
-			if (err) {
-				set_drgn_error(err);
-				return NULL;
-			}
-			type = DrgnType_wrap(qualified_type, obj);
-			if (!type)
-				return NULL;
-		} else {
-			type = PyObject_CallObject(obj, NULL);
-			if (!type)
-				return NULL;
-			if (!PyObject_TypeCheck(type, &DrgnType_type)) {
-				Py_DECREF(type);
-				PyErr_SetString(PyExc_TypeError,
-						"type callable must return Type");
-				return NULL;
-			}
-		}
-		Py_DECREF(obj);
-		self->obj = (uintptr_t)type;
-	}
-	return (DrgnType *)self->obj;
-}
-
-static DrgnType *LazyType_get(LazyType *self, void *arg)
-{
-	DrgnType *ret;
-
-	ret = LazyType_get_borrowed(self);
-	Py_XINCREF(ret);
-	return ret;
-}
-
-struct py_type_thunk {
-	struct drgn_type_thunk thunk;
-	LazyType *lazy_type;
-};
-
-static struct drgn_error *
-py_type_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
-			  struct drgn_qualified_type *ret)
-{
-	struct py_type_thunk *t = container_of(thunk, struct py_type_thunk, thunk);
-	PyGILState_STATE gstate;
-	struct drgn_error *err = NULL;
-	DrgnType *type;
-
-	gstate = PyGILState_Ensure();
-	type = LazyType_get_borrowed(t->lazy_type);
-	if (!type) {
-		err = drgn_error_from_python();
-		goto out;
-	}
-	ret->type = type->type;
-	ret->qualifiers = type->qualifiers;
-out:
-	PyGILState_Release(gstate);
-	return err;
-}
-
-static void py_type_thunk_free_fn(struct drgn_type_thunk *thunk)
-{
-	free(container_of(thunk, struct py_type_thunk, thunk));
+	return (struct drgn_qualified_type){
+		.type = type->type,
+		.qualifiers = type->qualifiers,
+	};
 }
 
 static PyObject *DrgnType_get_ptr(DrgnType *self, void *arg)
 {
 	return PyLong_FromVoidPtr(self->type);
+}
+
+static Program *DrgnType_get_prog(DrgnType *self, void *arg)
+{
+	Py_INCREF(DrgnType_prog(self));
+	return DrgnType_prog(self);
 }
 
 static PyObject *DrgnType_get_kind(DrgnType *self)
@@ -232,12 +140,10 @@ static PyObject *DrgnType_get_type(DrgnType *self)
 				    drgn_type_kind_str(self->type));
 	}
 	if (drgn_type_kind(self->type) == DRGN_TYPE_ENUM &&
-	    !drgn_type_is_complete(self->type)) {
+	    !drgn_type_is_complete(self->type))
 		Py_RETURN_NONE;
-	} else {
-		return DrgnType_wrap(drgn_type_type(self->type),
-				     (PyObject *)self);
-	}
+	else
+		return DrgnType_wrap(drgn_type_type(self->type));
 }
 
 static PyObject *DrgnType_get_members(DrgnType *self)
@@ -270,9 +176,8 @@ static PyObject *DrgnType_get_members(DrgnType *self)
 		if (!item)
 			goto err;
 		PyTuple_SET_ITEM(members_obj, i, (PyObject *)item);
-		Py_INCREF(self);
-		item->obj = (uintptr_t)self | DRGNPY_LAZY_TYPE_UNEVALUATED;
-		item->lazy_type = &member->type;
+		item->lazy_type.state = DRGNPY_LAZY_TYPE_UNEVALUATED;
+		item->lazy_type.lazy_type = &member->type;
 		if (member->name) {
 			item->name = PyUnicode_FromString(member->name);
 			if (!item->name)
@@ -370,9 +275,8 @@ static PyObject *DrgnType_get_parameters(DrgnType *self)
 		if (!item)
 			goto err;
 		PyTuple_SET_ITEM(parameters_obj, i, (PyObject *)item);
-		Py_INCREF(self);
-		item->obj = (uintptr_t)self | DRGNPY_LAZY_TYPE_UNEVALUATED;
-		item->lazy_type = &parameter->type;
+		item->lazy_type.state = DRGNPY_LAZY_TYPE_UNEVALUATED;
+		item->lazy_type.lazy_type = &parameter->type;
 		if (parameter->name) {
 			item->name = PyUnicode_FromString(parameter->name);
 			if (!item->name)
@@ -452,6 +356,7 @@ static PyGetSetDef DrgnType_getset[] = {
 "This is used for testing.\n"
 "\n"
 ":vartype: int"},
+	{"prog", (getter)DrgnType_get_prog, NULL, drgn_Type_prog_DOC},
 	{"kind", (getter)DrgnType_getter, NULL,
 	 drgn_Type_kind_DOC, &DrgnType_attr_kind},
 	{"primitive", (getter)DrgnType_getter, NULL, drgn_Type_primitive_DOC,
@@ -483,102 +388,31 @@ static PyGetSetDef DrgnType_getset[] = {
 	{},
 };
 
-static int type_arg(PyObject *arg, struct drgn_qualified_type *qualified_type,
-		    DrgnType *type_obj)
-{
-	Py_INCREF(arg);
-	if (!PyObject_IsInstance(arg, (PyObject *)&DrgnType_type)) {
-		Py_DECREF(arg);
-		PyErr_SetString(PyExc_TypeError, "type must be Type");
-		return -1;
-	}
-
-	if (type_obj) {
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_type.id, arg) == -1) {
-			Py_DECREF(arg);
-			return -1;
-		}
-	}
-	qualified_type->type = ((DrgnType *)arg)->type;
-	qualified_type->qualifiers = ((DrgnType *)arg)->qualifiers;
-	Py_DECREF(arg);
-	return 0;
-}
-
-static int lazy_type_from_py(struct drgn_lazy_type *lazy_type, LazyType *obj)
-{
-	if (obj->obj & DRGNPY_LAZY_TYPE_UNEVALUATED) {
-		struct py_type_thunk *thunk;
-
-		thunk = malloc(sizeof(*thunk));
-		if (!thunk) {
-			PyErr_NoMemory();
-			return -1;
-		}
-		thunk->thunk.evaluate_fn = py_type_thunk_evaluate_fn;
-		thunk->thunk.free_fn = py_type_thunk_free_fn;
-		thunk->lazy_type = obj;
-		drgn_lazy_type_init_thunk(lazy_type, &thunk->thunk);
-	} else {
-		DrgnType *type = (DrgnType *)obj->obj;
-
-		drgn_lazy_type_init_evaluated(lazy_type, type->type,
-					      type->qualifiers);
-	}
-	return 0;
-}
-
 static void DrgnType_dealloc(DrgnType *self)
 {
-	if (self->type != self->_type) {
-		Py_XDECREF(self->parent);
-	} else if (drgn_type_is_complete(self->type)) {
-		if (drgn_type_has_members(self->type)) {
-			struct drgn_type_member *members;
-			size_t num_members, i;
-
-			members = drgn_type_members(self->type);
-			num_members = drgn_type_num_members(self->type);
-			for (i = 0; i < num_members; i++)
-				drgn_type_member_deinit(&members[i]);
-			free(members);
-		}
-		if (drgn_type_has_parameters(self->type)) {
-			struct drgn_type_parameter *parameters;
-			size_t num_parameters, i;
-
-			parameters = drgn_type_parameters(self->type);
-			num_parameters = drgn_type_num_parameters(self->type);
-			for (i = 0; i < num_parameters; i++)
-				drgn_type_parameter_deinit(&parameters[i]);
-			free(parameters);
-		}
-		if (drgn_type_has_enumerators(self->type))
-			free(drgn_type_enumerators(self->type));
-	}
 	Py_XDECREF(self->attr_cache);
+	if (self->type)
+		Py_DECREF(DrgnType_prog(self));
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static int DrgnType_traverse(DrgnType *self, visitproc visit, void *arg)
 {
-	if (self->type != self->_type)
-		Py_VISIT(self->parent);
 	Py_VISIT(self->attr_cache);
+	if (self->type)
+		Py_VISIT(DrgnType_prog(self));
 	return 0;
 }
 
 static int DrgnType_clear(DrgnType *self)
 {
-	if (self->type != self->_type)
-		Py_CLEAR(self->parent);
 	Py_CLEAR(self->attr_cache);
+	if (self->type) {
+		Py_DECREF(DrgnType_prog(self));
+		self->type = NULL;
+	}
 	return 0;
 }
-
-#undef visit_type_thunks
-#undef visit_lazy_type
 
 static int append_field(PyObject *parts, bool *first, const char *format, ...)
 {
@@ -677,7 +511,7 @@ static PyObject *DrgnType_repr(DrgnType *self)
 	if (!parts)
 		return NULL;
 
-	if (append_format(parts, "%s_type(",
+	if (append_format(parts, "prog.%s_type(",
 			  drgn_type_kind_str(self->type)) == -1)
 		goto out;
 	if (append_member(parts, self, &first, name) == -1)
@@ -694,13 +528,33 @@ static PyObject *DrgnType_repr(DrgnType *self)
 		goto join;
 	}
 
-	if (append_member(parts, self, &first, size) == -1)
-		goto out_repr_leave;
-	if (append_member(parts, self, &first, length) == -1)
+	if (drgn_type_kind(self->type) != DRGN_TYPE_POINTER &&
+	    append_member(parts, self, &first, size) == -1)
 		goto out_repr_leave;
 	if (append_member(parts, self, &first, is_signed) == -1)
 		goto out_repr_leave;
 	if (append_member(parts, self, &first, type) == -1)
+		goto out_repr_leave;
+	if (drgn_type_kind(self->type) == DRGN_TYPE_POINTER) {
+		bool print_size;
+		if (drgn_type_program(self->type)->has_platform) {
+			uint8_t word_size;
+			struct drgn_error *err =
+				drgn_program_word_size(drgn_type_program(self->type),
+						       &word_size);
+			if (err) {
+				set_drgn_error(err);
+				goto out_repr_leave;
+			}
+			print_size = drgn_type_size(self->type) != word_size;
+		} else {
+			print_size = true;
+		}
+		if (print_size &&
+		    append_member(parts, self, &first, size) == -1)
+			goto out_repr_leave;
+	}
+	if (append_member(parts, self, &first, length) == -1)
 		goto out_repr_leave;
 	if (append_member(parts, self, &first, members) == -1)
 		goto out_repr_leave;
@@ -718,6 +572,15 @@ static PyObject *DrgnType_repr(DrgnType *self)
 			goto out_repr_leave;
 
 		if (append_field(parts, &first, "qualifiers=%R", obj) == -1) {
+			Py_DECREF(obj);
+			goto out_repr_leave;
+		}
+		Py_DECREF(obj);
+	}
+	if (drgn_type_language(self->type) !=
+	    drgn_program_language(drgn_type_program(self->type))) {
+		PyObject *obj = DrgnType_get_language(self, NULL);
+		if (append_field(parts, &first, "language=%R", obj) == -1) {
 			Py_DECREF(obj);
 			goto out_repr_leave;
 		}
@@ -742,38 +605,25 @@ out:
 
 static PyObject *DrgnType_str(DrgnType *self)
 {
-	struct drgn_qualified_type qualified_type = {
-		.type = self->type,
-		.qualifiers = self->qualifiers,
-	};
-	struct drgn_error *err;
-	PyObject *ret;
 	char *str;
-
-	err = drgn_format_type(qualified_type, &str);
+	struct drgn_error *err = drgn_format_type(DrgnType_unwrap(self), &str);
 	if (err)
 		return set_drgn_error(err);
 
-	ret = PyUnicode_FromString(str);
+	PyObject *ret = PyUnicode_FromString(str);
 	free(str);
 	return ret;
 }
 
 static PyObject *DrgnType_type_name(DrgnType *self)
 {
-	struct drgn_qualified_type qualified_type = {
-		.type = self->type,
-		.qualifiers = self->qualifiers,
-	};
-	struct drgn_error *err;
-	PyObject *ret;
 	char *str;
-
-	err = drgn_format_type_name(qualified_type, &str);
+	struct drgn_error *err = drgn_format_type_name(DrgnType_unwrap(self),
+						       &str);
 	if (err)
 		return set_drgn_error(err);
 
-	ret = PyUnicode_FromString(str);
+	PyObject *ret = PyUnicode_FromString(str);
 	free(str);
 	return ret;
 }
@@ -802,43 +652,34 @@ static PyObject *DrgnType_qualified(DrgnType *self, PyObject *args,
 {
 	static char *keywords[] = { "qualifiers", NULL, };
 	unsigned char qualifiers;
-	struct drgn_qualified_type qualified_type;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&:qualified", keywords,
 					 qualifiers_converter, &qualifiers))
 		return NULL;
 
-	qualified_type.type = self->type;
-	qualified_type.qualifiers = qualifiers;
-	return DrgnType_wrap(qualified_type, DrgnType_parent(self));
+	struct drgn_qualified_type qualified_type = {
+		.type = self->type,
+		.qualifiers = qualifiers,
+	};
+	return DrgnType_wrap(qualified_type);
 }
 
 static PyObject *DrgnType_unqualified(DrgnType *self)
 {
-	struct drgn_qualified_type qualified_type;
-
-	qualified_type.type = self->type;
-	qualified_type.qualifiers = 0;
-	return DrgnType_wrap(qualified_type, DrgnType_parent(self));
+	struct drgn_qualified_type qualified_type = { .type = self->type };
+	return DrgnType_wrap(qualified_type);
 }
 
 static PyObject *DrgnType_richcompare(DrgnType *self, PyObject *other, int op)
 {
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type1, qualified_type2;
-	bool clear;
-	bool ret;
-
 	if (!PyObject_TypeCheck(other, &DrgnType_type) ||
 	    (op != Py_EQ && op != Py_NE))
 		Py_RETURN_NOTIMPLEMENTED;
 
-	clear = set_drgn_in_python();
-	qualified_type1.type = self->type;
-	qualified_type1.qualifiers = self->qualifiers;
-	qualified_type2.type = ((DrgnType *)other)->type;
-	qualified_type2.qualifiers = ((DrgnType *)other)->qualifiers;
-	err = drgn_qualified_type_eq(qualified_type1, qualified_type2, &ret);
+	bool clear = set_drgn_in_python();
+	bool ret;
+	struct drgn_error *err = drgn_qualified_type_eq(DrgnType_unwrap(self),
+							DrgnType_unwrap((DrgnType *)other),
+							&ret);
 	if (clear)
 		clear_drgn_in_python();
 	if (err)
@@ -867,8 +708,6 @@ PyTypeObject DrgnType_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "_drgn.Type",
 	.tp_basicsize = sizeof(DrgnType),
-	/* The "item" of a Type object is an optional struct drgn_type. */
-	.tp_itemsize = sizeof(struct drgn_type),
 	.tp_dealloc = (destructor)DrgnType_dealloc,
 	.tp_repr = (reprfunc)DrgnType_repr,
 	.tp_str = (reprfunc)DrgnType_str,
@@ -982,6 +821,58 @@ PyTypeObject TypeEnumerator_type = {
 	.tp_new = (newfunc)TypeEnumerator_new,
 };
 
+static DrgnType *LazyType_get_borrowed(LazyType *self)
+{
+	if (unlikely(self->state != DRGNPY_LAZY_TYPE_EVALUATED)) {
+		PyObject *type;
+		if (self->state == DRGNPY_LAZY_TYPE_UNEVALUATED) {
+			bool clear = false;
+			/* Avoid the thread state overhead if we can. */
+			if (!drgn_lazy_type_is_evaluated(self->lazy_type))
+				clear = set_drgn_in_python();
+			struct drgn_qualified_type qualified_type;
+			struct drgn_error *err =
+				drgn_lazy_type_evaluate(self->lazy_type,
+							&qualified_type);
+			if (clear)
+				clear_drgn_in_python();
+			if (err)
+				return set_drgn_error(err);
+			type = DrgnType_wrap(qualified_type);
+			if (!type)
+				return NULL;
+		} else { /* (self->state == DRGNPY_LAZY_TYPE_CALLABLE) */
+			type = PyObject_CallObject(self->obj, NULL);
+			if (!type)
+				return NULL;
+			if (!PyObject_TypeCheck(type, &DrgnType_type)) {
+				Py_DECREF(type);
+				PyErr_SetString(PyExc_TypeError,
+						"type callable must return Type");
+				return NULL;
+			}
+			Py_DECREF(self->obj);
+		}
+		self->state = DRGNPY_LAZY_TYPE_EVALUATED;
+		self->obj = type;
+	}
+	return (DrgnType *)self->obj;
+}
+
+static DrgnType *LazyType_get(LazyType *self, void *arg)
+{
+	DrgnType *ret = LazyType_get_borrowed(self);
+	Py_XINCREF(ret);
+	return ret;
+}
+
+static void LazyType_dealloc(LazyType *self)
+{
+	if (self->state != DRGNPY_LAZY_TYPE_UNEVALUATED)
+		Py_XDECREF(self->obj);
+	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
 static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 				  PyObject *kwds)
 {
@@ -989,7 +880,7 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 		"type", "name", "bit_offset", "bit_field_size", NULL
 	};
 	PyObject *type_arg, *name = Py_None, *bit_offset = NULL, *bit_field_size = NULL;
-	uintptr_t obj;
+	int type_state;
 	TypeMember *member;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO!O!:TypeMember",
@@ -999,9 +890,9 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 
 	if (PyCallable_Check(type_arg)) {
-		obj = (uintptr_t)type_arg | DRGNPY_LAZY_TYPE_UNEVALUATED;
+		type_state = DRGNPY_LAZY_TYPE_CALLABLE;
 	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
-		obj = (uintptr_t)type_arg;
+		type_state = DRGNPY_LAZY_TYPE_EVALUATED;
 	} else {
 		PyErr_SetString(PyExc_TypeError,
 				"TypeMember type must be type or callable returning Type");
@@ -1018,8 +909,9 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 	if (!member)
 		return NULL;
 
+	member->lazy_type.state = type_state;
 	Py_INCREF(type_arg);
-	member->obj = obj;
+	member->lazy_type.obj = type_arg;
 	Py_INCREF(name);
 	member->name = name;
 
@@ -1052,8 +944,7 @@ static void TypeMember_dealloc(TypeMember *self)
 	Py_XDECREF(self->bit_field_size);
 	Py_XDECREF(self->bit_offset);
 	Py_XDECREF(self->name);
-	Py_XDECREF((PyObject *)(self->obj & DRGNPY_LAZY_TYPE_MASK));
-	Py_TYPE(self)->tp_free((PyObject *)self);
+	LazyType_dealloc((LazyType *)self);
 }
 
 static PyObject *TypeMember_get_offset(TypeMember *self, void *arg)
@@ -1163,7 +1054,7 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 {
 	static char *keywords[] = {"type", "name", NULL};
 	PyObject *type_arg, *name = Py_None;
-	uintptr_t obj;
+	int type_state;
 	TypeParameter *parameter;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O:TypeParameter",
@@ -1171,9 +1062,9 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 
 	if (PyCallable_Check(type_arg)) {
-		obj = (uintptr_t)type_arg | DRGNPY_LAZY_TYPE_UNEVALUATED;
+		type_state = DRGNPY_LAZY_TYPE_CALLABLE;
 	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
-		obj = (uintptr_t)type_arg;
+		type_state = DRGNPY_LAZY_TYPE_EVALUATED;
 	} else {
 		PyErr_SetString(PyExc_TypeError,
 				"TypeParameter type must be type or callable returning Type");
@@ -1188,8 +1079,9 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 
 	parameter = (TypeParameter *)subtype->tp_alloc(subtype, 0);
 	if (parameter) {
+		parameter->lazy_type.state = type_state;
 		Py_INCREF(type_arg);
-		parameter->obj = obj;
+		parameter->lazy_type.obj = type_arg;
 		Py_INCREF(name);
 		parameter->name = name;
 	}
@@ -1199,8 +1091,7 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 static void TypeParameter_dealloc(TypeParameter *self)
 {
 	Py_XDECREF(self->name);
-	Py_XDECREF((PyObject *)(self->obj & DRGNPY_LAZY_TYPE_MASK));
-	Py_TYPE(self)->tp_free((PyObject *)self);
+	LazyType_dealloc((LazyType *)self);
 }
 
 static PyObject *TypeParameter_repr(TypeParameter *self)
@@ -1272,55 +1163,65 @@ PyTypeObject TypeParameter_type = {
 	.tp_new = (newfunc)TypeParameter_new,
 };
 
-DrgnType *void_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_void_type(Program *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = { "qualifiers", "language", NULL, };
+	static char *keywords[] = { "qualifiers", "language", NULL };
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
-	struct drgn_qualified_type qualified_type;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&$O&:void_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$O&O&:void_type",
 					 keywords, qualifiers_converter,
 					 &qualifiers, language_converter,
 					 &language))
 		return NULL;
 
-	qualified_type.type = drgn_void_type(language);
-	qualified_type.qualifiers = qualifiers;
-	return (DrgnType *)DrgnType_wrap(qualified_type, NULL);
+	struct drgn_qualified_type qualified_type = {
+		.type = drgn_void_type(&self->prog, language),
+		.qualifiers = qualifiers,
+	};
+	return (DrgnType *)DrgnType_wrap(qualified_type);
 }
 
-DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"name", "size", "is_signed", "qualifiers", "language", NULL,
+		"name", "size", "is_signed", "qualifiers", "language", NULL
 	};
-	DrgnType *type_obj;
 	PyObject *name_obj;
-	const char *name;
-	unsigned long size;
+	struct index_arg size = {};
 	int is_signed;
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!kp|O&$O&:int_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&p|$O&O&:int_type",
 					 keywords, &PyUnicode_Type, &name_obj,
-					 &size, &is_signed,
+					 index_converter, &size, &is_signed,
 					 qualifiers_converter, &qualifiers,
 					 language_converter, &language))
 		return NULL;
 
-	name = PyUnicode_AsUTF8(name_obj);
+	const char *name = PyUnicode_AsUTF8(name_obj);
 	if (!name)
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers);
+	if (!Program_hold_reserve(self, 1))
+		return NULL;
+
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_int_type_create(&self->prog, name,
+						      size.uvalue, is_signed,
+						      language,
+						      &qualified_type.type);
+	if (err)
+		return set_drgn_error(err);
+
+	if (drgn_type_name(qualified_type.type) == name)
+		Program_hold_object(self, name_obj);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
 		return NULL;
 
-	drgn_int_type_init(type_obj->type, name, size, is_signed, language);
-
-	if (drgn_type_name(type_obj->type) == name &&
+	if (drgn_type_name(qualified_type.type) == name &&
 	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
 			      name_obj) == -1) {
 		Py_DECREF(type_obj);
@@ -1330,139 +1231,162 @@ DrgnType *int_type(PyObject *self, PyObject *args, PyObject *kwds)
 	return type_obj;
 }
 
-DrgnType *bool_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"name", "size", "qualifiers", "language", NULL,
+		"name", "size", "qualifiers", "language", NULL
 	};
-	DrgnType *type_obj;
 	PyObject *name_obj;
-	const char *name;
-	unsigned long size;
+	struct index_arg size = {};
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!k|O&$O&:bool_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|$O&O&:bool_type",
 					 keywords, &PyUnicode_Type, &name_obj,
-					 &size, qualifiers_converter,
-					 &qualifiers, language_converter,
-					 &language))
-		return NULL;
-
-	name = PyUnicode_AsUTF8(name_obj);
-	if (!name)
-		return NULL;
-
-	type_obj = DrgnType_new(qualifiers);
-	if (!type_obj)
-		return NULL;
-
-	drgn_bool_type_init(type_obj->type, name, size, language);
-
-	if (drgn_type_name(type_obj->type) == name &&
-	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
-			      name_obj) == -1) {
-		Py_DECREF(type_obj);
-		return NULL;
-	}
-
-	return type_obj;
-}
-
-DrgnType *float_type(PyObject *self, PyObject *args, PyObject *kwds)
-{
-	static char *keywords[] = {
-		"name", "size", "qualifiers", "language", NULL,
-	};
-	DrgnType *type_obj;
-	PyObject *name_obj;
-	const char *name;
-	unsigned long size;
-	unsigned char qualifiers = 0;
-	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!k|O&$O&:float_type",
-					 keywords, &PyUnicode_Type, &name_obj,
-					 &size, qualifiers_converter,
-					 &qualifiers, language_converter,
-					 &language))
-		return NULL;
-
-	name = PyUnicode_AsUTF8(name_obj);
-	if (!name)
-		return NULL;
-
-	type_obj = DrgnType_new(qualifiers);
-	if (!type_obj)
-		return NULL;
-
-	drgn_float_type_init(type_obj->type, name, size, language);
-
-	if (drgn_type_name(type_obj->type) == name &&
-	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
-			      name_obj) == -1) {
-		Py_DECREF(type_obj);
-		return NULL;
-	}
-
-	return type_obj;
-}
-
-DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds)
-{
-	static char *keywords[] = { "name", "size", "type", "qualifiers", NULL, };
-	DrgnType *type_obj;
-	PyObject *name_obj;
-	const char *name;
-	unsigned long size;
-	PyObject *real_type_obj;
-	struct drgn_type *real_type;
-	unsigned char qualifiers = 0;
-	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!kO|O&$O&:complex_type",
-					 keywords, &PyUnicode_Type, &name_obj,
-					 &size, &real_type_obj,
+					 index_converter, &size,
 					 qualifiers_converter, &qualifiers,
 					 language_converter, &language))
 		return NULL;
 
-	name = PyUnicode_AsUTF8(name_obj);
+	const char *name = PyUnicode_AsUTF8(name_obj);
 	if (!name)
 		return NULL;
 
-	if (!PyObject_TypeCheck(real_type_obj, &DrgnType_type)) {
-		PyErr_SetString(PyExc_TypeError,
-				"complex_type() real type must be Type");
+	if (!Program_hold_reserve(self, 1))
+		return NULL;
+
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_bool_type_create(&self->prog, name,
+						       size.uvalue, language,
+						       &qualified_type.type);
+	if (err)
+		return set_drgn_error(err);
+
+	if (drgn_type_name(qualified_type.type) == name)
+		Program_hold_object(self, name_obj);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
+	if (!type_obj)
+		return NULL;
+
+	if (drgn_type_name(qualified_type.type) == name &&
+	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
+			      name_obj) == -1) {
+		Py_DECREF(type_obj);
 		return NULL;
 	}
-	real_type = ((DrgnType *)real_type_obj)->type;
+
+	return type_obj;
+}
+
+DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {
+		"name", "size", "qualifiers", "language", NULL
+	};
+	PyObject *name_obj;
+	struct index_arg size = {};
+	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|$O&O&:float_type",
+					 keywords, &PyUnicode_Type, &name_obj,
+					 index_converter, &size,
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
+		return NULL;
+
+	const char *name = PyUnicode_AsUTF8(name_obj);
+	if (!name)
+		return NULL;
+
+	if (!Program_hold_reserve(self, 1))
+		return NULL;
+
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_float_type_create(&self->prog, name,
+							size.uvalue, language,
+							&qualified_type.type);
+	if (err)
+		return set_drgn_error(err);
+
+	if (drgn_type_name(qualified_type.type) == name)
+		Program_hold_object(self, name_obj);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
+	if (!type_obj)
+		return NULL;
+
+	if (drgn_type_name(qualified_type.type) == name &&
+	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
+			      name_obj) == -1) {
+		Py_DECREF(type_obj);
+		return NULL;
+	}
+
+	return type_obj;
+}
+
+DrgnType *Program_complex_type(Program *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {
+		"name", "size", "type", "qualifiers", "language", NULL
+	};
+	PyObject *name_obj;
+	struct index_arg size = {};
+	DrgnType *real_type_obj;
+	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O!O&O!|$O&O&:complex_type", keywords,
+					 &PyUnicode_Type, &name_obj,
+					 index_converter, &size, &DrgnType_type,
+					 &real_type_obj, qualifiers_converter,
+					 &qualifiers, language_converter,
+					 &language))
+		return NULL;
+
+	const char *name = PyUnicode_AsUTF8(name_obj);
+	if (!name)
+		return NULL;
+
+	struct drgn_type *real_type = real_type_obj->type;
 	if (drgn_type_kind(real_type) != DRGN_TYPE_FLOAT &&
 	    drgn_type_kind(real_type) != DRGN_TYPE_INT) {
 		PyErr_SetString(PyExc_ValueError,
 				"complex_type() real type must be floating-point or integer type");
 		return NULL;
 	}
-	if (((DrgnType *)real_type_obj)->qualifiers) {
+	if (real_type_obj->qualifiers) {
 		PyErr_SetString(PyExc_ValueError,
 				"complex_type() real type must be unqualified");
 		return NULL;
 	}
 
-	type_obj = DrgnType_new(qualifiers);
+	if (!Program_hold_reserve(self, 1))
+		return NULL;
+
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_complex_type_create(&self->prog, name,
+							  size.uvalue,
+							  real_type, language,
+							  &qualified_type.type);
+	if (err)
+		return set_drgn_error(err);
+
+	if (drgn_type_name(qualified_type.type) == name)
+		Program_hold_object(self, name_obj);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
 		return NULL;
 
-	drgn_complex_type_init(type_obj->type, name, size, real_type, language);
-
-	if (drgn_type_name(type_obj->type) == name &&
+	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
+			      (PyObject *)real_type_obj) == -1 ||
 	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
 			      name_obj) == -1) {
-		Py_DECREF(type_obj);
-		return NULL;
-	}
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
-			      real_type_obj) == -1) {
 		Py_DECREF(type_obj);
 		return NULL;
 	}
@@ -1470,55 +1394,128 @@ DrgnType *complex_type(PyObject *self, PyObject *args, PyObject *kwds)
 	return type_obj;
 }
 
-static int unpack_member(struct drgn_type_member *members,
-			 PyObject *cached_members_obj, size_t i)
-{
-	TypeMember *item;
-	const char *name;
-	unsigned long long bit_offset, bit_field_size;
-	struct drgn_lazy_type member_type;
+struct py_type_thunk {
+	struct drgn_type_thunk thunk;
+	LazyType *lazy_type;
+};
 
-	item = (TypeMember *)PyTuple_GET_ITEM(cached_members_obj, i);
+static struct drgn_error *
+py_type_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
+			  struct drgn_qualified_type *ret)
+{
+	struct py_type_thunk *t = container_of(thunk, struct py_type_thunk, thunk);
+	PyGILState_STATE gstate = PyGILState_Ensure();
+	DrgnType *type = LazyType_get_borrowed(t->lazy_type);
+	struct drgn_error *err;
+	if (type) {
+		ret->type = type->type;
+		ret->qualifiers = type->qualifiers;
+		err = NULL;
+	} else {
+		err = drgn_error_from_python();
+	}
+	PyGILState_Release(gstate);
+	return err;
+}
+
+static void py_type_thunk_free_fn(struct drgn_type_thunk *thunk)
+{
+	free(container_of(thunk, struct py_type_thunk, thunk));
+}
+
+static int lazy_type_from_py(struct drgn_lazy_type *lazy_type, LazyType *obj,
+			     struct drgn_program *prog, bool *can_cache)
+{
+	if (obj->state == DRGNPY_LAZY_TYPE_EVALUATED) {
+		DrgnType *type = (DrgnType *)obj->obj;
+		drgn_lazy_type_init_evaluated(lazy_type, type->type,
+					      type->qualifiers);
+	} else {
+		struct py_type_thunk *thunk = malloc(sizeof(*thunk));
+		if (!thunk) {
+			PyErr_NoMemory();
+			return -1;
+		}
+		thunk->thunk.prog = prog;
+		thunk->thunk.evaluate_fn = py_type_thunk_evaluate_fn;
+		thunk->thunk.free_fn = py_type_thunk_free_fn;
+		thunk->lazy_type = obj;
+		drgn_lazy_type_init_thunk(lazy_type, &thunk->thunk);
+		/*
+		 * We created a new thunk, so we can't reuse the passed
+		 * LazyType. Don't cache the container so we create a new one
+		 * when it's accessed.
+		 */
+		*can_cache = false;
+	}
+	return 0;
+}
+
+static int unpack_member(struct drgn_compound_type_builder *builder,
+			 PyObject *item, bool *can_cache)
+{
 	if (!PyObject_TypeCheck((PyObject *)item, &TypeMember_type)) {
 		PyErr_SetString(PyExc_TypeError, "member must be TypeMember");
 		return -1;
 	}
+	TypeMember *member = (TypeMember *)item;
 
-	if (item->name == Py_None) {
+	const char *name;
+	if (member->name == Py_None) {
 		name = NULL;
 	} else {
-		name = PyUnicode_AsUTF8(item->name);
+		name = PyUnicode_AsUTF8(member->name);
 		if (!name)
 			return -1;
 	}
 
-	bit_offset = PyLong_AsUnsignedLongLong(item->bit_offset);
+	unsigned long long bit_offset =
+		PyLong_AsUnsignedLongLong(member->bit_offset);
 	if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
 		return -1;
-	bit_field_size = PyLong_AsUnsignedLongLong(item->bit_field_size);
+	unsigned long long bit_field_size =
+		PyLong_AsUnsignedLongLong(member->bit_field_size);
 	if (bit_field_size == (unsigned long long)-1 && PyErr_Occurred())
 		return -1;
 
-	if (lazy_type_from_py(&member_type, (LazyType *)item) == -1)
+	struct drgn_lazy_type member_type;
+	if (lazy_type_from_py(&member_type, (LazyType *)member,
+			      builder->prog, can_cache) == -1)
 		return -1;
-	drgn_type_member_init(&members[i], member_type, name, bit_offset,
-			      bit_field_size);
+	struct drgn_error *err =
+		drgn_compound_type_builder_add_member(builder, member_type,
+						      name, bit_offset,
+						      bit_field_size);
+	if (err) {
+		drgn_lazy_type_deinit(&member_type);
+		set_drgn_error(err);
+		return -1;
+	}
 	return 0;
 }
 
-static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
-			       PyObject *members_obj,
-			       enum drgn_qualifiers qualifiers,
-			       const struct drgn_language *language,
-			       enum drgn_type_kind kind)
-{
-	const char *tag;
-	DrgnType *type_obj = NULL;
-	unsigned long long size;
-	PyObject *cached_members_obj = NULL;
-	struct drgn_type_member *members = NULL;
-	size_t num_members;
+#define compound_type_arg_format "O|O&O$O&O&"
 
+static DrgnType *Program_compound_type(Program *self, PyObject *args,
+				       PyObject *kwds, const char *arg_format,
+				       enum drgn_type_kind kind)
+{
+	static char *keywords[] = {
+		"tag", "size", "members", "qualifiers", "language", NULL
+	};
+	PyObject *tag_obj;
+	struct index_arg size = { .allow_none = true, .is_none = true };
+	PyObject *members_obj = Py_None;
+	unsigned char qualifiers = 0;
+	const struct drgn_language *language = NULL;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, arg_format, keywords,
+					 &tag_obj, index_converter, &size,
+					 &members_obj, qualifiers_converter,
+					 &qualifiers, language_converter,
+					 &language))
+		return NULL;
+
+	const char *tag;
 	if (tag_obj == Py_None) {
 		tag = NULL;
 	} else if (PyUnicode_Check(tag_obj)) {
@@ -1532,236 +1529,169 @@ static DrgnType *compound_type(PyObject *tag_obj, PyObject *size_obj,
 		return NULL;
 	}
 
+	PyObject *cached_members;
+	bool can_cache_members = true;
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err;
 	if (members_obj == Py_None) {
-		if (size_obj != Py_None) {
+		if (!size.is_none) {
 			PyErr_Format(PyExc_ValueError,
 				     "incomplete %s type must not have size",
 				     drgn_type_kind_spelling[kind]);
 			return NULL;
 		}
-	} else {
-		size_t i;
 
-		if (size_obj == Py_None) {
+		if (!Program_hold_reserve(self, tag_obj != Py_None))
+			return NULL;
+
+		err = drgn_incomplete_compound_type_create(&self->prog, kind,
+							   tag, language,
+							   &qualified_type.type);
+		if (err)
+			return set_drgn_error(err);
+
+		cached_members = NULL;
+	} else {
+		if (size.is_none) {
 			PyErr_Format(PyExc_ValueError, "%s type must have size",
 				     drgn_type_kind_spelling[kind]);
 			return NULL;
 		}
-
-		size = PyLong_AsUnsignedLongLong(size_obj);
-		if (size == (unsigned long long)-1)
-			return NULL;
 
 		if (!PySequence_Check(members_obj)) {
 			PyErr_SetString(PyExc_TypeError,
 					"members must be sequence or None");
 			return NULL;
 		}
-		cached_members_obj = PySequence_Tuple(members_obj);
-		if (!cached_members_obj)
+		cached_members = PySequence_Tuple(members_obj);
+		if (!cached_members)
 			return NULL;
-		num_members = PyTuple_GET_SIZE(cached_members_obj);
-		members = malloc_array(num_members,
-				       sizeof(struct drgn_type_member));
-		if (!members)
-			goto err;
+		size_t num_members = PyTuple_GET_SIZE(cached_members);
 
-		for (i = 0; i < num_members; i++) {
-			if (unpack_member(members, cached_members_obj, i) == -1)
-				goto err;
+		struct drgn_compound_type_builder builder;
+		drgn_compound_type_builder_init(&builder, &self->prog, kind);
+		for (size_t i = 0; i < num_members; i++) {
+			if (unpack_member(&builder,
+					  PyTuple_GET_ITEM(cached_members, i),
+					  &can_cache_members) == -1)
+				goto err_builder;
 		}
+
+		if (!Program_hold_reserve(self, 1 + (tag_obj != Py_None)))
+			goto err_builder;
+
+		err = drgn_compound_type_create(&builder, tag, size.uvalue,
+						language, &qualified_type.type);
+		if (err) {
+			set_drgn_error(err);
+err_builder:
+			drgn_compound_type_builder_deinit(&builder);
+			goto err_members;
+		}
+
+		Program_hold_object(self, cached_members);
 	}
 
-	type_obj = DrgnType_new(qualifiers);
+	if (tag_obj != Py_None && drgn_type_tag(qualified_type.type) == tag)
+		Program_hold_object(self, tag_obj);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
-		goto err;
+		goto err_members;
 
 	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_tag.id,
-			      tag_obj) == -1)
-		goto err;
+			      tag_obj) == -1 ||
+	    (can_cache_members &&
+	     _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_members.id,
+			       cached_members ?
+			       cached_members : Py_None) == -1))
+		goto err_type;
+	Py_XDECREF(cached_members);
 
-	if (members_obj == Py_None) {
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_members.id, Py_None) == -1)
-			goto err;
-
-		switch (kind) {
-		case DRGN_TYPE_STRUCT:
-			drgn_struct_type_init_incomplete(type_obj->type, tag,
-							 language);
-			break;
-		case DRGN_TYPE_UNION:
-			drgn_union_type_init_incomplete(type_obj->type, tag,
-							language);
-			break;
-		case DRGN_TYPE_CLASS:
-			drgn_class_type_init_incomplete(type_obj->type, tag,
-							language);
-			break;
-		default:
-			UNREACHABLE();
-		}
-	} else {
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_members.id,
-				      cached_members_obj) == -1)
-			goto err;
-		Py_DECREF(cached_members_obj);
-
-		switch (kind) {
-		case DRGN_TYPE_STRUCT:
-			drgn_struct_type_init(type_obj->type, tag, size,
-					      members, num_members, language);
-			break;
-		case DRGN_TYPE_UNION:
-			drgn_union_type_init(type_obj->type, tag, size, members,
-					     num_members, language);
-			break;
-		case DRGN_TYPE_CLASS:
-			drgn_class_type_init(type_obj->type, tag, size, members,
-					     num_members, language);
-			break;
-		default:
-			UNREACHABLE();
-		}
-	}
 	return type_obj;
 
-err:
-	Py_XDECREF(type_obj);
-	free(members);
-	Py_XDECREF(cached_members_obj);
+err_type:
+	Py_DECREF(type_obj);
+err_members:
+	Py_XDECREF(cached_members);
 	return NULL;
 }
 
-DrgnType *struct_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_struct_type(Program *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = {
-		"tag", "size", "members", "qualifiers", "language", NULL,
-	};
-	PyObject *tag_obj;
-	PyObject *size_obj = Py_None;
-	PyObject *members_obj = Py_None;
-	unsigned char qualifiers = 0;
-	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:struct_type",
-					 keywords, &tag_obj, &size_obj,
-					 &members_obj, qualifiers_converter,
-					 &qualifiers, language_converter,
-					 &language))
-		return NULL;
-
-	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
-			     language, DRGN_TYPE_STRUCT);
+	return Program_compound_type(self, args, kwds,
+				     compound_type_arg_format ":struct_type",
+				     DRGN_TYPE_STRUCT);
 }
 
-DrgnType *union_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_union_type(Program *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = {
-		"tag", "size", "members", "qualifiers", "language", NULL,
-	};
-	PyObject *tag_obj;
-	PyObject *size_obj = Py_None;
-	PyObject *members_obj = Py_None;
-	unsigned char qualifiers = 0;
-	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:union_type",
-					 keywords, &tag_obj, &size_obj,
-					 &members_obj, qualifiers_converter,
-					 &qualifiers, language_converter,
-					 &language))
-		return NULL;
-
-	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
-			     language, DRGN_TYPE_UNION);
+	return Program_compound_type(self, args, kwds,
+				     compound_type_arg_format ":union_type",
+				     DRGN_TYPE_UNION);
 }
 
-DrgnType *class_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_class_type(Program *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = {
-		"tag", "size", "members", "qualifiers", "language", NULL,
-	};
-	PyObject *tag_obj;
-	PyObject *size_obj = Py_None;
-	PyObject *members_obj = Py_None;
-	unsigned char qualifiers = 0;
-	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:class_type",
-					 keywords, &tag_obj, &size_obj,
-					 &members_obj, qualifiers_converter,
-					 &qualifiers, language_converter,
-					 &language))
-		return NULL;
-
-	return compound_type(tag_obj, size_obj, members_obj, qualifiers,
-			     language, DRGN_TYPE_CLASS);
+	return Program_compound_type(self, args, kwds,
+				     compound_type_arg_format ":class_type",
+				     DRGN_TYPE_CLASS);
 }
 
-static int unpack_enumerator(struct drgn_type_enumerator *enumerators,
-			     PyObject *cached_enumerators_obj,
-			     size_t i, bool is_signed)
+static int unpack_enumerator(struct drgn_enum_type_builder *builder,
+			     PyObject *item, bool is_signed)
 {
-	TypeEnumerator *item;
-	const char *name;
-
-	item = (TypeEnumerator *)PyTuple_GET_ITEM(cached_enumerators_obj, i);
-	if (!PyObject_TypeCheck((PyObject *)item, &TypeEnumerator_type)) {
+	if (!PyObject_TypeCheck(item, &TypeEnumerator_type)) {
 		PyErr_SetString(PyExc_TypeError,
 				"enumerator must be TypeEnumerator");
 		return -1;
 	}
+	TypeEnumerator *enumerator = (TypeEnumerator *)item;
 
-	name = PyUnicode_AsUTF8(item->name);
+	const char *name = PyUnicode_AsUTF8(enumerator->name);
 	if (!name)
 		return -1;
 
+	struct drgn_error *err;
 	if (is_signed) {
-		long long svalue;
-
-		svalue = PyLong_AsLongLong(item->value);
+		long long svalue = PyLong_AsLongLong(enumerator->value);
 		if (svalue == -1 && PyErr_Occurred())
 			return -1;
-		drgn_type_enumerator_init_signed(&enumerators[i], name,
-						 svalue);
+		err = drgn_enum_type_builder_add_signed(builder, name, svalue);
 	} else {
-		unsigned long long uvalue;
-
-		uvalue = PyLong_AsUnsignedLongLong(item->value);
+		unsigned long long uvalue =
+			PyLong_AsUnsignedLongLong(enumerator->value);
 		if (uvalue == (unsigned long long)-1 && PyErr_Occurred())
 			return -1;
-		drgn_type_enumerator_init_unsigned(&enumerators[i], name,
-						   uvalue);
+		err = drgn_enum_type_builder_add_unsigned(builder, name,
+							  uvalue);
+	}
+	if (err) {
+		set_drgn_error(err);
+		return -1;
 	}
 	return 0;
 }
 
-DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_enum_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"tag", "type", "enumerators", "qualifiers", "language", NULL,
+		"tag", "type", "enumerators", "qualifiers", "language", NULL
 	};
-	DrgnType *type_obj = NULL;
 	PyObject *tag_obj;
-	const char *tag;
 	PyObject *compatible_type_obj = Py_None;
-	struct drgn_type *compatible_type;
 	PyObject *enumerators_obj = Py_None;
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
-	PyObject *cached_enumerators_obj = NULL;
-	struct drgn_type_enumerator *enumerators = NULL;
-	size_t num_enumerators;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO&$O&:enum_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO$O&O&:enum_type",
 					 keywords, &tag_obj,
 					 &compatible_type_obj, &enumerators_obj,
 					 qualifiers_converter, &qualifiers,
 					 language_converter, &language))
 		return NULL;
 
+	const char *tag;
 	if (tag_obj == Py_None) {
 		tag = NULL;
 	} else if (PyUnicode_Check(tag_obj)) {
@@ -1774,10 +1704,41 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	if (compatible_type_obj == Py_None) {
-		compatible_type = NULL;
-	} else if (PyObject_TypeCheck(compatible_type_obj, &DrgnType_type)) {
-		compatible_type = ((DrgnType *)compatible_type_obj)->type;
+	if (compatible_type_obj != Py_None &&
+	    !PyObject_TypeCheck(compatible_type_obj, &DrgnType_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"enum_type() compatible type must be Type or None");
+		return NULL;
+	}
+
+	PyObject *cached_enumerators;
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err;
+	if (enumerators_obj == Py_None) {
+		if (compatible_type_obj != Py_None) {
+			PyErr_SetString(PyExc_ValueError,
+					"incomplete enum type must not have compatible type");
+			return NULL;
+		}
+
+		if (!Program_hold_reserve(self, tag_obj != Py_None))
+			return NULL;
+
+		err = drgn_incomplete_enum_type_create(&self->prog, tag,
+						       language,
+						       &qualified_type.type);
+		if (err)
+			return set_drgn_error(err);
+
+		cached_enumerators = NULL;
+	} else {
+		if (compatible_type_obj == Py_None) {
+			PyErr_SetString(PyExc_ValueError,
+					"enum type must have compatible type");
+			return NULL;
+		}
+		struct drgn_type *compatible_type =
+			((DrgnType *)compatible_type_obj)->type;
 		if (drgn_type_kind(compatible_type) != DRGN_TYPE_INT) {
 			PyErr_SetString(PyExc_ValueError,
 					"enum_type() compatible type must be integer type");
@@ -1788,302 +1749,324 @@ DrgnType *enum_type(PyObject *self, PyObject *args, PyObject *kwds)
 					"enum_type() compatible type must be unqualified");
 			return NULL;
 		}
-	} else {
-		PyErr_SetString(PyExc_TypeError,
-				"enum_type() compatible type must be Type or None");
-		return NULL;
-	}
 
-	if (enumerators_obj == Py_None) {
-		if (compatible_type) {
-			PyErr_SetString(PyExc_ValueError,
-					"incomplete enum type must not have compatible type");
-			return NULL;
-		}
-		num_enumerators = 0;
-	} else {
-		bool is_signed;
-		size_t i;
-
-		if (!compatible_type) {
-			PyErr_SetString(PyExc_ValueError,
-					"enum type must have compatible type");
-			return NULL;
-		}
 		if (!PySequence_Check(enumerators_obj)) {
 			PyErr_SetString(PyExc_TypeError,
 					"enumerators must be sequence or None");
 			return NULL;
 		}
-		cached_enumerators_obj = PySequence_Tuple(enumerators_obj);
-		if (!cached_enumerators_obj)
+		cached_enumerators = PySequence_Tuple(enumerators_obj);
+		if (!cached_enumerators)
 			return NULL;
+		size_t num_enumerators = PyTuple_GET_SIZE(cached_enumerators);
 
-		num_enumerators = PyTuple_GET_SIZE(cached_enumerators_obj);
-		enumerators = malloc_array(num_enumerators,
-					   sizeof(struct drgn_type_enumerator));
-		if (!enumerators)
-			goto err;
-		is_signed = drgn_type_is_signed(compatible_type);
-		for (i = 0; i < num_enumerators; i++) {
-			if (unpack_enumerator(enumerators,
-					      cached_enumerators_obj, i,
+		struct drgn_enum_type_builder builder;
+		drgn_enum_type_builder_init(&builder, &self->prog);
+		bool is_signed = drgn_type_is_signed(compatible_type);
+		for (size_t i = 0; i < num_enumerators; i++) {
+			if (unpack_enumerator(&builder,
+					      PyTuple_GET_ITEM(cached_enumerators, i),
 					      is_signed) == -1)
-				goto err;
+				goto err_enumerators;
 		}
+
+		if (!Program_hold_reserve(self, 1 + (tag_obj != Py_None)))
+			goto err_builder;
+
+		err = drgn_enum_type_create(&builder, tag, compatible_type,
+					    language, &qualified_type.type);
+		if (err) {
+			set_drgn_error(err);
+err_builder:
+			drgn_enum_type_builder_deinit(&builder);
+			goto err_enumerators;
+		}
+
+		Program_hold_object(self, cached_enumerators);
 	}
 
-	type_obj = DrgnType_new(qualifiers);
+	if (tag_obj != Py_None && drgn_type_tag(qualified_type.type) == tag)
+		Program_hold_object(self, tag_obj);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
-		goto err;
+		goto err_enumerators;
 
 	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_tag.id,
-			      tag_obj) == -1)
-		goto err;
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
-			      compatible_type_obj) == -1)
-		goto err;
+			      tag_obj) == -1 ||
+	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
+			      compatible_type_obj) == -1 ||
+	    _PyDict_SetItemId(type_obj->attr_cache,
+			      &DrgnType_attr_enumerators.id,
+			      cached_enumerators ?
+			      cached_enumerators : Py_None) == -1)
+		goto err_type;
+	Py_XDECREF(cached_enumerators);
 
-	if (enumerators_obj == Py_None) {
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_enumerators.id,
-				      Py_None) == -1)
-			goto err;
-
-		drgn_enum_type_init_incomplete(type_obj->type, tag, language);
-	} else {
-		if (_PyDict_SetItemId(type_obj->attr_cache,
-				      &DrgnType_attr_enumerators.id,
-				      cached_enumerators_obj) == -1)
-			goto err;
-		Py_DECREF(cached_enumerators_obj);
-
-		drgn_enum_type_init(type_obj->type, tag, compatible_type,
-				    enumerators, num_enumerators, language);
-	}
 	return type_obj;
 
-err:
-	Py_XDECREF(type_obj);
-	free(enumerators);
-	Py_XDECREF(cached_enumerators_obj);
+err_type:
+	Py_DECREF(type_obj);
+err_enumerators:
+	Py_XDECREF(cached_enumerators);
 	return NULL;
 }
 
-DrgnType *typedef_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_typedef_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"name", "type", "qualifiers", "language", NULL,
+		"name", "type", "qualifiers", "language", NULL
 	};
-	DrgnType *type_obj;
 	PyObject *name_obj;
-	const char *name;
-	PyObject *aliased_type_obj;
-	struct drgn_qualified_type aliased_type;
+	DrgnType *aliased_type_obj;
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O|O&$O&:typedef_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!|$O&O&:typedef_type",
 					 keywords, &PyUnicode_Type, &name_obj,
-					 &aliased_type_obj,
+					 &DrgnType_type, &aliased_type_obj,
 					 qualifiers_converter, &qualifiers,
 					 language_converter, &language))
 		return NULL;
 
-	name = PyUnicode_AsUTF8(name_obj);
+	const char *name = PyUnicode_AsUTF8(name_obj);
 	if (!name)
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers);
+	if (!Program_hold_reserve(self, 1))
+		return NULL;
+
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_typedef_type_create(&self->prog, name,
+							  DrgnType_unwrap(aliased_type_obj),
+							  language,
+							  &qualified_type.type);
+	if (err)
+		return set_drgn_error(err);
+
+	if (drgn_type_name(qualified_type.type) == name)
+		Program_hold_object(self, name_obj);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
 		return NULL;
 
-	if (type_arg(aliased_type_obj, &aliased_type, type_obj) == -1) {
-		Py_DECREF(type_obj);
-		return NULL;
-	}
-
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
+	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
+			      (PyObject *)aliased_type_obj) == -1 ||
+	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
 			      name_obj) == -1) {
 		Py_DECREF(type_obj);
 		return NULL;
 	}
 
-	drgn_typedef_type_init(type_obj->type, name, aliased_type, language);
 	return type_obj;
 }
 
-DrgnType *pointer_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"size", "type", "qualifiers", "language", NULL,
+		"type", "size", "qualifiers", "language", NULL
 	};
-	DrgnType *type_obj;
-	unsigned long size;
-	PyObject *referenced_type_obj;
-	struct drgn_qualified_type referenced_type;
+	DrgnType *referenced_type_obj;
+	struct index_arg size = { .allow_none = true, .is_none = true };
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "kO|O&$O&:pointer_type",
-					 keywords, &size, &referenced_type_obj,
-					 qualifiers_converter, &qualifiers,
-					 language_converter, &language))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O&$O&O&:pointer_type",
+					 keywords, &DrgnType_type,
+					 &referenced_type_obj, index_converter,
+					 &size, qualifiers_converter,
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
-	type_obj = DrgnType_new(qualifiers);
+	if (size.is_none) {
+		uint8_t word_size;
+		struct drgn_error *err = drgn_program_word_size(&self->prog,
+								&word_size);
+		if (err)
+			return set_drgn_error(err);
+		size.uvalue = word_size;
+	}
+
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_pointer_type_create(&self->prog,
+							  DrgnType_unwrap(referenced_type_obj),
+							  size.uvalue, language,
+							  &qualified_type.type);
+	if (err)
+		return set_drgn_error(err);
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
 		return NULL;
 
-	if (type_arg(referenced_type_obj, &referenced_type, type_obj) == -1) {
+	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
+			      (PyObject *)referenced_type_obj) == -1) {
 		Py_DECREF(type_obj);
 		return NULL;
 	}
 
-	drgn_pointer_type_init(type_obj->type, size, referenced_type, language);
 	return type_obj;
 }
 
-DrgnType *array_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_array_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"length", "type", "qualifiers", "language", NULL,
+		"type", "length", "qualifiers", "language", NULL
 	};
-	DrgnType *type_obj;
-	PyObject *length_obj;
-	unsigned long long length;
-	PyObject *element_type_obj;
-	struct drgn_qualified_type element_type;
+	DrgnType *element_type_obj;
+	struct index_arg length = { .allow_none = true, .is_none = true };
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|O&$O&:array_type",
-					 keywords, &length_obj,
-					 &element_type_obj,
-					 qualifiers_converter, &qualifiers,
-					 language_converter, &language))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O&$O&O&:array_type",
+					 keywords, &DrgnType_type,
+					 &element_type_obj, index_converter,
+					 &length, qualifiers_converter,
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
-	if (length_obj == Py_None) {
-		length = 0;
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err;
+	if (length.is_none) {
+		err = drgn_incomplete_array_type_create(&self->prog,
+							DrgnType_unwrap(element_type_obj),
+							language,
+							&qualified_type.type);
 	} else {
-		if (!PyLong_Check(length_obj)) {
-			PyErr_SetString(PyExc_TypeError,
-					"length must be integer or None");
-			return NULL;
-		}
-		length = PyLong_AsUnsignedLongLong(length_obj);
-		if (length == (unsigned long long)-1 && PyErr_Occurred())
-			return NULL;
+		err = drgn_array_type_create(&self->prog,
+					     DrgnType_unwrap(element_type_obj),
+					     length.uvalue, language,
+					     &qualified_type.type);
 	}
-
-	type_obj = DrgnType_new(qualifiers);
+	if (err)
+		return set_drgn_error(err);
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
 		return NULL;
 
-	if (type_arg(element_type_obj, &element_type, type_obj) == -1) {
+	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
+			      (PyObject *)element_type_obj) == -1) {
 		Py_DECREF(type_obj);
 		return NULL;
 	}
 
-	if (length_obj == Py_None) {
-		drgn_array_type_init_incomplete(type_obj->type, element_type,
-						language);
-	} else {
-		drgn_array_type_init(type_obj->type, length, element_type,
-				     language);
-	}
 	return type_obj;
 }
 
-static int unpack_parameter(struct drgn_type_parameter *parameters,
-			    PyObject *cached_parameters_obj, size_t i)
+static int unpack_parameter(struct drgn_function_type_builder *builder,
+			    PyObject *item, bool *can_cache)
 {
-	TypeParameter *item;
-	const char *name;
-	struct drgn_lazy_type parameter_type;
-
-	item = (TypeParameter *)PyTuple_GET_ITEM(cached_parameters_obj, i);
-	if (!PyObject_TypeCheck((PyObject *)item, &TypeParameter_type)) {
-		PyErr_SetString(PyExc_TypeError, "parameter must be TypeParameter");
+	if (!PyObject_TypeCheck(item, &TypeParameter_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"parameter must be TypeParameter");
 		return -1;
 	}
+	TypeParameter *parameter = (TypeParameter *)item;
 
-	if (item->name == Py_None) {
+	const char *name;
+	if (parameter->name == Py_None) {
 		name = NULL;
 	} else {
-		name = PyUnicode_AsUTF8(item->name);
+		name = PyUnicode_AsUTF8(parameter->name);
 		if (!name)
 			return -1;
 	}
 
-	if (lazy_type_from_py(&parameter_type, (LazyType *)item) == -1)
+	struct drgn_lazy_type parameter_type;
+	if (lazy_type_from_py(&parameter_type, (LazyType *)parameter,
+			      builder->prog, can_cache) == -1)
 		return -1;
-	drgn_type_parameter_init(&parameters[i], parameter_type, name);
+	struct drgn_error *err =
+		drgn_function_type_builder_add_parameter(builder,
+							 parameter_type, name);
+	if (err) {
+		drgn_lazy_type_deinit(&parameter_type);
+		set_drgn_error(err);
+		return -1;
+	}
 	return 0;
 }
 
-DrgnType *function_type(PyObject *self, PyObject *args, PyObject *kwds)
+DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
 		"type", "parameters", "is_variadic", "qualifiers", "language",
 		NULL,
 	};
-	DrgnType *type_obj = NULL;
-	PyObject *return_type_obj;
-	struct drgn_qualified_type return_type;
-	PyObject *parameters_obj, *cached_parameters_obj = NULL;
-	struct drgn_type_parameter *parameters = NULL;
-	size_t num_parameters, i;
+	DrgnType *return_type_obj;
+	PyObject *parameters_obj;
 	int is_variadic = 0;
 	unsigned char qualifiers = 0;
 	const struct drgn_language *language = NULL;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|pO&$O&:function_type",
-					 keywords, &return_type_obj,
-					 &parameters_obj, &is_variadic,
-					 qualifiers_converter, &qualifiers,
-					 language_converter, &language))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O|p$O&O&:function_type",
+					 keywords, &DrgnType_type,
+					 &return_type_obj, &parameters_obj,
+					 &is_variadic, qualifiers_converter,
+					 &qualifiers, language_converter,
+					 &language))
 		return NULL;
 
 	if (!PySequence_Check(parameters_obj)) {
 		PyErr_SetString(PyExc_TypeError, "parameters must be sequence");
 		return NULL;
 	}
-	cached_parameters_obj = PySequence_Tuple(parameters_obj);
-	if (!cached_parameters_obj)
-		return NULL;
 
-	num_parameters = PyTuple_GET_SIZE(cached_parameters_obj);
-	parameters = malloc_array(num_parameters,
-				  sizeof(struct drgn_type_parameter));
-	if (!parameters)
-		goto err;
-	for (i = 0; i < num_parameters; i++) {
-		if (unpack_parameter(parameters, cached_parameters_obj, i) == -1)
-			goto err;
+	PyObject *cached_parameters = PySequence_Tuple(parameters_obj);
+	if (!cached_parameters)
+		return NULL;
+	size_t num_parameters = PyTuple_GET_SIZE(cached_parameters);
+	bool can_cache_parameters = true;
+
+	struct drgn_function_type_builder builder;
+	drgn_function_type_builder_init(&builder, &self->prog);
+	for (size_t i = 0; i < num_parameters; i++) {
+		if (unpack_parameter(&builder,
+				     PyTuple_GET_ITEM(cached_parameters, i),
+				     &can_cache_parameters) == -1)
+			goto err_builder;
 	}
 
-	type_obj = DrgnType_new(qualifiers);
+	if (!Program_hold_reserve(self, 1))
+		goto err_builder;
+
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_function_type_create(&builder,
+							   DrgnType_unwrap(return_type_obj),
+							   is_variadic,
+							   language,
+							   &qualified_type.type);
+	if (err) {
+		set_drgn_error(err);
+err_builder:
+		drgn_function_type_builder_deinit(&builder);
+		goto err_parameters;
+	}
+
+	Program_hold_object(self, cached_parameters);
+
+	qualified_type.qualifiers = qualifiers;
+	DrgnType *type_obj = (DrgnType *)DrgnType_wrap(qualified_type);
 	if (!type_obj)
-		goto err;
+		goto err_parameters;
 
-	if (type_arg(return_type_obj, &return_type, type_obj) == -1)
-		goto err;
+	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
+			      (PyObject *)return_type_obj) == -1 ||
+	    (can_cache_parameters &&
+	     _PyDict_SetItemId(type_obj->attr_cache,
+			       &DrgnType_attr_parameters.id,
+			       cached_parameters) == -1))
+		goto err_type;
+	Py_DECREF(cached_parameters);
 
-	if (_PyDict_SetItemId(type_obj->attr_cache,
-			      &DrgnType_attr_parameters.id,
-			      cached_parameters_obj) == -1)
-		goto err;
-	Py_DECREF(cached_parameters_obj);
-
-	drgn_function_type_init(type_obj->type, return_type, parameters,
-				num_parameters, is_variadic, language);
 	return type_obj;
 
-err:
-	Py_XDECREF(type_obj);
-	free(parameters);
-	Py_XDECREF(cached_parameters_obj);
+err_type:
+	Py_DECREF(type_obj);
+err_parameters:
+	Py_DECREF(cached_parameters);
 	return NULL;
 }

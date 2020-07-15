@@ -39,8 +39,6 @@ struct drgn_dwarf_type {
 	 * drgn_type_from_dwarf_internal().
 	 */
 	bool is_incomplete_array;
-	/** Whether we need to free @c type. */
-	bool should_free;
 };
 
 DEFINE_HASH_MAP_TYPE(dwarf_type_map, const void *, struct drgn_dwarf_type);

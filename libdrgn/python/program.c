@@ -7,7 +7,7 @@
 DEFINE_HASH_TABLE_FUNCTIONS(pyobjectp_set, hash_pair_ptr_type,
 			    hash_table_scalar_eq)
 
-static int Program_hold_object(Program *prog, PyObject *obj)
+int Program_hold_object(Program *prog, PyObject *obj)
 {
 	if (pyobjectp_set_insert(&prog->objects, &obj, NULL) == -1)
 		return -1;
@@ -15,15 +15,10 @@ static int Program_hold_object(Program *prog, PyObject *obj)
 	return 0;
 }
 
-static int Program_hold_type(Program *prog, DrgnType *type)
+bool Program_hold_reserve(Program *prog, size_t n)
 {
-	PyObject *parent;
-
-	parent = DrgnType_parent(type);
-	if (parent && parent != (PyObject *)prog)
-		return Program_hold_object(prog, parent);
-	else
-		return 0;
+	return pyobjectp_set_reserve(&prog->objects,
+				     pyobjectp_set_size(&prog->objects) + n);
 }
 
 int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
@@ -32,8 +27,11 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 	struct drgn_error *err;
 
 	if (PyObject_TypeCheck(type_obj, &DrgnType_type)) {
-		if (Program_hold_type(prog, (DrgnType *)type_obj) == -1)
+		if (DrgnType_prog((DrgnType *)type_obj) != prog) {
+			PyErr_SetString(PyExc_ValueError,
+					"type is from different program");
 			return -1;
+		}
 		ret->type = ((DrgnType *)type_obj)->type;
 		ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
 	} else if (PyUnicode_Check(type_obj)) {
@@ -241,8 +239,15 @@ static struct drgn_error *py_type_find_fn(enum drgn_type_kind kind,
 		err = drgn_error_from_python();
 		goto out_type_obj;
 	}
-	if (Program_hold_type((Program *)PyTuple_GET_ITEM(arg, 0),
-			      (DrgnType *)type_obj) == -1) {
+	/*
+	 * This check is also done in libdrgn, but we need it here because if
+	 * the type isn't from this program, then there's no guarantee that it
+	 * will remain valid after we decrement its reference count.
+	 */
+	if (DrgnType_prog((DrgnType *)type_obj) !=
+	    (Program *)PyTuple_GET_ITEM(arg, 0)) {
+		PyErr_SetString(PyExc_ValueError,
+				"type find callback returned type from wrong program");
 		err = drgn_error_from_python();
 		goto out_type_obj;
 	}
@@ -596,36 +601,7 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 	path_cleanup(&filename);
 	if (err)
 		return set_drgn_error(err);
-	return DrgnType_wrap(qualified_type, (PyObject *)self);
-}
-
-static PyObject *Program_pointer_type(Program *self, PyObject *args,
-				      PyObject *kwds)
-{
-	static char *keywords[] = {"type", "qualifiers", "language", NULL};
-	struct drgn_error *err;
-	PyObject *referenced_type_obj;
-	struct drgn_qualified_type referenced_type;
-	unsigned char qualifiers = 0;
-	const struct drgn_language *language = NULL;
-	struct drgn_qualified_type qualified_type;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O&$O&:pointer_type",
-					 keywords, &referenced_type_obj,
-					 qualifiers_converter, &qualifiers,
-					 language_converter, &language))
-		return NULL;
-
-	if (Program_type_arg(self, referenced_type_obj, false,
-			     &referenced_type) == -1)
-		return NULL;
-
-	err = drgn_program_pointer_type(&self->prog, referenced_type, language,
-					&qualified_type.type);
-	if (err)
-		return set_drgn_error(err);
-	qualified_type.qualifiers = qualifiers;
-	return DrgnType_wrap(qualified_type, (PyObject *)self);
+	return DrgnType_wrap(qualified_type);
 }
 
 static DrgnObject *Program_find_object(Program *self, const char *name,
@@ -914,8 +890,6 @@ static PyMethodDef Program_methods[] = {
 #undef METHOD_READ_U
 	{"type", (PyCFunction)Program_find_type, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_type_DOC},
-	{"pointer_type", (PyCFunction)Program_pointer_type,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_pointer_type_DOC},
 	{"object", (PyCFunction)Program_object, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_object_DOC},
 	{"constant", (PyCFunction)Program_constant,
@@ -928,6 +902,32 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_DOC},
 	{"symbol", (PyCFunction)Program_symbol, METH_O,
 	 drgn_Program_symbol_DOC},
+	{"void_type", (PyCFunction)Program_void_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_void_type_DOC},
+	{"int_type", (PyCFunction)Program_int_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_int_type_DOC},
+	{"bool_type", (PyCFunction)Program_bool_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_bool_type_DOC},
+	{"float_type", (PyCFunction)Program_float_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_float_type_DOC},
+	{"complex_type", (PyCFunction)Program_complex_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_complex_type_DOC},
+	{"struct_type", (PyCFunction)Program_struct_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_struct_type_DOC},
+	{"union_type", (PyCFunction)Program_union_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_union_type_DOC},
+	{"class_type", (PyCFunction)Program_class_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_class_type_DOC},
+	{"enum_type", (PyCFunction)Program_enum_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_enum_type_DOC},
+	{"typedef_type", (PyCFunction)Program_typedef_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_typedef_type_DOC},
+	{"pointer_type", (PyCFunction)Program_pointer_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_pointer_type_DOC},
+	{"array_type", (PyCFunction)Program_array_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_array_type_DOC},
+	{"function_type", (PyCFunction)Program_function_type,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_function_type_DOC},
 	{},
 };
 
