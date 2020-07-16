@@ -628,15 +628,10 @@ static bool table##_rehash(struct table *table, size_t new_chunk_count,		\
 	size_t orig_chunk_mask = table->chunk_mask;				\
 	size_t orig_chunk_count = orig_chunk_mask + 1;				\
 	size_t alloc_size = table##_alloc_size(new_chunk_count, new_max_size);	\
-										\
-	/*									\
-	 * aligned_alloc() requires that the allocation size is aligned to the	\
-	 * allocation alignment.						\
-	 */									\
-	table->chunks = aligned_alloc(hash_table_chunk_alignment,		\
-				      (alloc_size + 0xf) & ~(size_t)0xf);	\
-	if (!table->chunks)							\
-		goto err;							\
+	void *new_chunks;							\
+	if (posix_memalign(&new_chunks, hash_table_chunk_alignment, alloc_size))\
+		return false;							\
+	table->chunks = new_chunks;						\
 	memset(table->chunks, 0, alloc_size);					\
 	table->chunks[0].chunk0_capacity =					\
 		new_chunk_count == 1 ? new_max_size : 1;			\
