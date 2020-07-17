@@ -18,6 +18,7 @@
 #ifdef __SSE4_2__
 #include <nmmintrin.h>
 #endif
+#include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -300,6 +301,11 @@ struct hash_table_iterator hash_table_first(struct hash_table *table);
 struct hash_table_iterator hash_table_next(struct hash_table_iterator it);
 #endif
 
+enum {
+	hash_table_chunk_alignment =
+		alignof(max_align_t) > 16 ? alignof(max_align_t) : 16,
+};
+
 static inline size_t hash_table_probe_delta(struct hash_pair hp)
 {
 	return 2 * hp.second + 1;
@@ -421,7 +427,7 @@ struct table##_chunk {								\
 	 */									\
 	uint8_t outbound_overflow_count;					\
 	table##_entry_type entries[table##_chunk_allocated_capacity];		\
-} __attribute__((aligned(16)));							\
+} __attribute__((aligned(hash_table_chunk_alignment)));				\
 										\
 struct table##_iterator {							\
 	table##_entry_type *entry;						\
@@ -627,7 +633,8 @@ static bool table##_rehash(struct table *table, size_t new_chunk_count,		\
 	 * aligned_alloc() requires that the allocation size is aligned to the	\
 	 * allocation alignment.						\
 	 */									\
-	table->chunks = aligned_alloc(16, (alloc_size + 0xf) & ~(size_t)0xf);	\
+	table->chunks = aligned_alloc(hash_table_chunk_alignment,		\
+				      (alloc_size + 0xf) & ~(size_t)0xf);	\
 	if (!table->chunks)							\
 		goto err;							\
 	memset(table->chunks, 0, alloc_size);					\
