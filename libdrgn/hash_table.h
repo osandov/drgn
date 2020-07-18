@@ -347,7 +347,6 @@ static inline unsigned int table##_chunk_match(struct table##_chunk *chunk,	\
 					       size_t needle)			\
 {										\
 	unsigned int mask, i;							\
-										\
 	for (mask = 0, i = 0; i < table##_chunk_capacity; i++) {		\
 		if (chunk->tags[i] == needle)					\
 			mask |= 1U << i;					\
@@ -359,7 +358,6 @@ static inline unsigned int table##_chunk_match(struct table##_chunk *chunk,	\
 static inline unsigned int table##_chunk_occupied(struct table##_chunk *chunk)	\
 {										\
 	unsigned int mask, i;							\
-										\
 	for (mask = 0, i = 0; i < table##_chunk_capacity; i++) {		\
 		if (chunk->tags[i])						\
 			mask |= 1U << i;					\
@@ -633,18 +631,15 @@ HASH_TABLE_CHUNK_OCCUPIED(table)						\
 static inline unsigned int							\
 table##_chunk_first_empty(struct table##_chunk *chunk)				\
 {										\
-	unsigned int mask;							\
-										\
-	mask = table##_chunk_occupied(chunk) ^ table##_chunk_full_mask;		\
+	unsigned int mask =							\
+		table##_chunk_occupied(chunk) ^ table##_chunk_full_mask;	\
 	return mask ? ctz(mask) : (unsigned int)-1;				\
 }										\
 										\
 static inline unsigned int							\
 table##_chunk_last_occupied(struct table##_chunk *chunk)			\
 {										\
-	unsigned int mask;							\
-										\
-	mask = table##_chunk_occupied(chunk);					\
+	unsigned int mask = table##_chunk_occupied(chunk);			\
 	return mask ? fls(mask) - 1 : (unsigned int)-1;				\
 }										\
 										\
@@ -1177,7 +1172,6 @@ static int table##_insert_hashed(struct table *table,				\
 {										\
 	table##_key_type key = table##_entry_to_key(entry);			\
 	struct table##_iterator it = table##_search_hashed(table, &key, hp);	\
-										\
 	if (it.entry) {								\
 		if (it_ret)							\
 			*it_ret = it;						\
@@ -1193,7 +1187,6 @@ static int table##_insert(struct table *table,					\
 			  struct table##_iterator *it_ret)			\
 {										\
 	table##_key_type key = table##_entry_to_key(entry);			\
-										\
 	return table##_insert_hashed(table, entry, table##_hash(&key), it_ret);	\
 }										\
 										\
@@ -1565,7 +1558,6 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 #ifdef __SSE4_2__
 	/* 64-bit with SSE4.2 uses CRC32 */
 	size_t c = _mm_crc32_u64(0, hash);
-
 	return (struct hash_pair){
 		.first = hash + c,
 		.second = (c >> 24) | 0x80,
@@ -1573,10 +1565,8 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 #else
 	/* 64-bit without SSE4.2 uses a 128-bit multiplication-based mixer */
 	static const uint64_t multiplier = UINT64_C(0xc4ceb9fe1a85ec53);
-	uint64_t hi, lo;
-
-	hi = ((unsigned __int128)hash * multiplier) >> 64;
-	lo = hash * multiplier;
+	uint64_t hi = ((unsigned __int128)hash * multiplier) >> 64;
+	uint64_t lo = hash * multiplier;
 	hash = hi ^ lo;
 	hash *= multiplier;
 	return (struct hash_pair){
@@ -1588,7 +1578,6 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 #ifdef __SSE4_2__
 	/* 32-bit with SSE4.2 uses CRC32 */
 	size_t c = _mm_crc32_u32(0, hash);
-
 	return (struct hash_pair){
 		.first = hash + c,
 		.second = (uint8_t)(~(c >> 25)),
@@ -1626,7 +1615,6 @@ static inline uint64_t hash_128_to_64(unsigned __int128 hash)
 
 #define hash_pair_int_type(key) ({				\
 	__auto_type _key = *(key);				\
-								\
 	sizeof(_key) > sizeof(size_t) ?				\
 	hash_pair_from_avalanching_hash(hash_128_to_64(_key)) :	\
 	hash_pair_from_non_avalanching_hash(_key);		\
@@ -1646,7 +1634,6 @@ static inline uint32_t hash_64_to_32(uint64_t hash)
 
 #define hash_pair_int_type(key) ({				\
 	__auto_type _key = *(key);				\
-								\
 	sizeof(_key) > sizeof(size_t) ?				\
 	hash_pair_from_avalanching_hash(hash_64_to_32(_key)) :	\
 	hash_pair_from_non_avalanching_hash(_key);		\
@@ -1665,7 +1652,6 @@ struct hash_pair hash_pair_ptr_type(T * const *key);
 #else
 #define hash_pair_ptr_type(key) ({		\
 	uintptr_t _ptr = (uintptr_t)*key;	\
-						\
 	hash_pair_int_type(&_ptr);		\
 })
 #endif
@@ -1707,7 +1693,6 @@ struct hash_pair c_string_hash(const char * const *key);
 #define c_string_hash(key) ({					\
 	const char *_key = *(key);				\
 	size_t _hash = cityhash_size_t(_key, strlen(_key));	\
-								\
 	hash_pair_from_avalanching_hash(_hash);			\
 })
 #endif
@@ -1716,11 +1701,7 @@ struct hash_pair c_string_hash(const char * const *key);
 /** Compare two null-terminated string keys for equality. */
 bool c_string_eq(const char * const *a, const char * const *b);
 #else
-#define c_string_eq(a, b) ({			\
-	const char *_a = *(a), *_b = *(b);	\
-						\
-	(bool)(strcmp(_a, _b) == 0);		\
-})
+#define c_string_eq(a, b) ((bool)(strcmp(*(a), *(b)) == 0))
 #endif
 
 /** A string with a given length. */
@@ -1738,7 +1719,6 @@ struct string {
 static inline struct hash_pair string_hash(const struct string *key)
 {
 	size_t hash = cityhash_size_t(key->str, key->len);
-
 	return hash_pair_from_avalanching_hash(hash);
 }
 
