@@ -97,11 +97,6 @@ async def get_kernel_org_versions(http_client: aiohttp.ClientSession) -> List[st
             release["version"]
             for release in releases
             if release["moniker"] in {"mainline", "stable", "longterm"}
-            # 3.16 seems to be missing "x86/build/64: Force the linker to use
-            # 2MB page size", so it doesn't even boot. It's projected to be EOL
-            # in June 2020 (https://www.kernel.org/category/releases.html), and
-            # 3.x is ancient anyways, so don't bother.
-            and not release["version"].startswith("3.")
         ]
 
 
