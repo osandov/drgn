@@ -237,19 +237,34 @@ PyObject *drgnpy_linux_helper_task_state_to_char(PyObject *self, PyObject *args,
 	return PyUnicode_FromStringAndSize(&c, 1);
 }
 
+PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *args,
+					   PyObject *kwds)
+
+{
+	static char *keywords[] = {"prog", NULL};
+	Program *prog;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:kaslr_offset",
+					 keywords, &Program_type, &prog))
+		return NULL;
+
+	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
+		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
+	return PyLong_FromUnsignedLongLong(prog->prog.vmcoreinfo.kaslr_offset);
+}
+
 PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *args,
 						 PyObject *kwds)
 
 {
 	static char *keywords[] = {"prog", NULL};
 	Program *prog;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:pgtable_l5_enabled",
 					 keywords, &Program_type, &prog))
 		return NULL;
 
-	if ((prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
-	    prog->prog.vmcoreinfo.pgtable_l5_enabled)
+	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
+		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
+	if (prog->prog.vmcoreinfo.pgtable_l5_enabled)
 		Py_RETURN_TRUE;
 	else
 		Py_RETURN_FALSE;

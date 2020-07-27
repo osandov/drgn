@@ -12,7 +12,7 @@ implemented.
 
 from typing import List
 
-from _drgn import _linux_helper_read_vm, _linux_helper_pgtable_l5_enabled
+from _drgn import _linux_helper_read_vm
 from drgn import Object, cast
 
 
@@ -26,19 +26,9 @@ __all__ = (
     "page_to_virt",
     "pfn_to_page",
     "pfn_to_virt",
-    "pgtable_l5_enabled",
     "virt_to_page",
     "virt_to_pfn",
 )
-
-
-def pgtable_l5_enabled(prog):
-    """
-    .. c:function:: bool pgtable_l5_enabled(void)
-
-    Return whether 5-level paging is enabled.
-    """
-    return _linux_helper_pgtable_l5_enabled(prog)
 
 
 def for_each_page(prog):

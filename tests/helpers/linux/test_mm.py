@@ -6,7 +6,6 @@ import ctypes
 import mmap
 import os
 import platform
-import re
 import struct
 import tempfile
 import unittest
@@ -20,7 +19,6 @@ from drgn.helpers.linux.mm import (
     page_to_pfn,
     pfn_to_page,
     pfn_to_virt,
-    pgtable_l5_enabled,
     virt_to_pfn,
 )
 from drgn.helpers.linux.pid import find_task
@@ -130,11 +128,3 @@ class TestMm(LinuxHelperTestCase):
             proc_environ = f.read().split(b"\0")[:-1]
         task = find_task(self.prog, os.getpid())
         self.assertEqual(environ(task), proc_environ)
-
-    @unittest.skipUnless(platform.machine() == "x86_64", "machine is not x86_64")
-    def test_pgtable_l5_enabled(self):
-        with open("/proc/cpuinfo", "r") as f:
-            self.assertEqual(
-                pgtable_l5_enabled(self.prog),
-                bool(re.search(r"flags\s*:.*\bla57\b", f.read())),
-            )
