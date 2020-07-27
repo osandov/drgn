@@ -3,6 +3,7 @@
 
 import fnmatch
 import glob
+import http.client
 import os
 import os.path
 import queue
@@ -110,6 +111,8 @@ class KernelResolver:
                             )
                     else:
                         shutil.copyfileobj(u, f)
+                    if u.length:
+                        raise http.client.IncompleteRead(b"", u.length)
                 # Passing dst_dir_fd forces Python to use linkat() with
                 # AT_SYMLINK_FOLLOW instead of link(). See
                 # https://bugs.python.org/msg348086.
