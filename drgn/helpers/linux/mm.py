@@ -10,10 +10,10 @@ Linux memory management (MM) subsystem. Only x86-64 support is currently
 implemented.
 """
 
-from typing import List
+from typing import List, Iterator, Union
 
 from _drgn import _linux_helper_read_vm
-from drgn import Object, cast
+from drgn import Object, Program, cast
 
 
 __all__ = (
@@ -31,7 +31,7 @@ __all__ = (
 )
 
 
-def for_each_page(prog):
+def for_each_page(prog: Program) -> Iterator[Object]:
     """
     Iterate over all pages in the system.
 
@@ -42,7 +42,7 @@ def for_each_page(prog):
         yield vmemmap + i
 
 
-def page_to_pfn(page):
+def page_to_pfn(page: Object) -> Object:
     """
     .. c:function:: unsigned long page_to_pfn(struct page *page)
 
@@ -51,7 +51,9 @@ def page_to_pfn(page):
     return cast("unsigned long", page - page.prog_["vmemmap"])
 
 
-def pfn_to_page(prog_or_pfn, pfn=None):
+def pfn_to_page(
+    prog_or_pfn: Union[Program, Object], pfn: Union[Object, int, None] = None
+) -> Object:
     """
     .. c:function:: struct page *pfn_to_page(unsigned long pfn)
 
@@ -66,7 +68,9 @@ def pfn_to_page(prog_or_pfn, pfn=None):
     return prog["vmemmap"] + pfn
 
 
-def virt_to_pfn(prog_or_addr, addr=None):
+def virt_to_pfn(
+    prog_or_addr: Union[Program, Object], addr: Union[Object, int, None] = None
+) -> Object:
     """
     .. c:function:: unsigned long virt_to_pfn(void *addr)
 
@@ -82,7 +86,9 @@ def virt_to_pfn(prog_or_addr, addr=None):
     return Object(prog, "unsigned long", value=(addr - prog["PAGE_OFFSET"]) >> 12)
 
 
-def pfn_to_virt(prog_or_pfn, pfn=None):
+def pfn_to_virt(
+    prog_or_pfn: Union[Program, Object], pfn: Union[Object, int, None] = None
+) -> Object:
     """
     .. c:function:: void *pfn_to_virt(unsigned long pfn)
 
@@ -98,7 +104,7 @@ def pfn_to_virt(prog_or_pfn, pfn=None):
     return Object(prog, "void *", value=(pfn << 12) + prog["PAGE_OFFSET"])
 
 
-def page_to_virt(page):
+def page_to_virt(page: Object) -> Object:
     """
     .. c:function:: void *page_to_virt(struct page *page)
 
@@ -107,7 +113,9 @@ def page_to_virt(page):
     return pfn_to_virt(page_to_pfn(page))
 
 
-def virt_to_page(prog_or_addr, addr=None):
+def virt_to_page(
+    prog_or_addr: Union[Program, Object], addr: Union[Object, int, None] = None
+) -> Object:
     """
     .. c:function:: struct page *virt_to_page(void *addr)
 
@@ -118,7 +126,7 @@ def virt_to_page(prog_or_addr, addr=None):
     return pfn_to_page(virt_to_pfn(prog_or_addr, addr))
 
 
-def access_process_vm(task, address, size) -> bytes:
+def access_process_vm(task: Object, address: Union[Object, int], size: int) -> bytes:
     """
     .. c:function:: char *access_process_vm(struct task_struct *task, void *address, size_t size)
 
@@ -131,7 +139,7 @@ def access_process_vm(task, address, size) -> bytes:
     return _linux_helper_read_vm(task.prog_, task.mm.pgd, address, size)
 
 
-def access_remote_vm(mm, address, size) -> bytes:
+def access_remote_vm(mm: Object, address: Union[Object, int], size: int) -> bytes:
     """
     .. c:function:: char *access_remote_vm(struct mm_struct *mm, void *address, size_t size)
 
@@ -146,7 +154,7 @@ def access_remote_vm(mm, address, size) -> bytes:
     return _linux_helper_read_vm(mm.prog_, mm.pgd, address, size)
 
 
-def cmdline(task) -> List[bytes]:
+def cmdline(task: Object) -> List[bytes]:
     """
     Get the list of command line arguments of a task.
 
@@ -164,7 +172,7 @@ def cmdline(task) -> List[bytes]:
     return access_remote_vm(mm, arg_start, arg_end - arg_start).split(b"\0")[:-1]
 
 
-def environ(task) -> List[bytes]:
+def environ(task: Object) -> List[bytes]:
     """
     Get the list of environment variables of a task.
 
