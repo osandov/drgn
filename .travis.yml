@@ -6,6 +6,16 @@ python:
   - '3.7'
   - '3.6'
 install:
+  # If the host is running a kernel without Linux kernel commit b4d185175bc1
+  # ("KVM: VMX: give unrestricted guest full control of CR3") (in v4.17), then
+  # stores to CR3 in the nested guest can spuriously fail and cause it to
+  # crash. We can work around this by disabling unrestricted guest support.
+  - |
+    if grep -q '^flags\b.*\bvmx\b' /proc/cpuinfo; then
+        echo "options kvm_intel unrestricted_guest=N" | sudo tee /etc/modprobe.d/kvm-cr3-workaround.conf > /dev/null
+        sudo modprobe -r kvm_intel
+        sudo modprobe kvm_intel
+    fi
   # Upstream defaults to world-read-writeable /dev/kvm. Debian/Ubuntu override
   # this; see https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=892945. We want
   # the upstream default.
