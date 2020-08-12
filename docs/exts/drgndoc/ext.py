@@ -199,7 +199,10 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             if node.async_:
                 contents.append("    :async:", sourcename)
             if resolved.class_:
-                if node.have_decorator("classmethod"):
+                if node.have_decorator("classmethod") or argument in (
+                    "__init_subclass__",
+                    "__class_getitem__",
+                ):
                     contents.append("    :classmethod:", sourcename)
                 if node.have_decorator("staticmethod"):
                     contents.append("    :staticmethod:", sourcename)
