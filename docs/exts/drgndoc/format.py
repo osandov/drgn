@@ -10,6 +10,10 @@ from drgndoc.parse import Class, DocumentedNode, Function, Module, Variable
 from drgndoc.visitor import NodeVisitor
 
 
+def _is_name_constant(node: ast.Constant) -> bool:
+    return node.value is None or node.value is True or node.value is False
+
+
 class _FormatVisitor(NodeVisitor):
     def __init__(
         self,
@@ -53,11 +57,16 @@ class _FormatVisitor(NodeVisitor):
         if node.value is ...:
             self._parts.append("...")
         else:
+            obj = self._rst and _is_name_constant(node)
             quote = self._rst and not isinstance(node.value, (int, float))
-            if quote:
+            if obj:
+                self._parts.append(":py:obj:`")
+            elif quote:
                 self._parts.append("``")
             self._parts.append(repr(node.value))
-            if quote:
+            if obj:
+                self._parts.append("`")
+            elif quote:
                 self._parts.append("``")
 
     def _append_resolved_name(self, name: str) -> None:
@@ -111,6 +120,10 @@ class _FormatVisitor(NodeVisitor):
                 continue
             elif isinstance(value, ast.Name):
                 name_stack.append(value.id)
+                name_stack.reverse()
+                self._append_resolved_name(".".join(name_stack))
+            elif isinstance(value, ast.Constant) and _is_name_constant(value):
+                name_stack.append(repr(value.value))
                 name_stack.reverse()
                 self._append_resolved_name(".".join(name_stack))
             elif isinstance(value, ast.Constant) and not isinstance(
