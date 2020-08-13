@@ -9,6 +9,7 @@ Don't use this module directly. Instead, use the drgn package.
 
 import enum
 import os
+import sys
 from typing import (
     Any,
     Callable,
@@ -20,6 +21,24 @@ from typing import (
     Union,
     overload,
 )
+
+if sys.version_info < (3, 8):
+    from typing_extensions import Protocol
+else:
+    from typing import Protocol
+
+# This is effectively typing.SupportsIndex without @typing.runtime_checkable
+# (both of which are only available since Python 3.8), with a more
+# self-explanatory name.
+class IntegerLike(Protocol):
+    """
+    An :class:`int` or integer-like object.
+
+    Parameters annotated with this type expect an integer which may be given as
+    a Python :class:`int` or an :class:`Object` with integer type.
+    """
+
+    def __index__(self) -> int: ...
 
 class Program:
     """
@@ -152,7 +171,7 @@ class Program:
         """
         ...
     # address_or_name is positional-only.
-    def symbol(self, address_or_name: Union[int, str]) -> Symbol:
+    def symbol(self, address_or_name: Union[IntegerLike, str]) -> Symbol:
         """
         Get the symbol containing the given address, or the global symbol with
         the given name.
@@ -162,7 +181,12 @@ class Program:
             the given name
         """
         ...
-    def stack_trace(self, thread: Union[Object, int]) -> StackTrace:
+    def stack_trace(
+        self,
+        # Object is already IntegerLike, but this explicitly documents that it
+        # can take non-integer Objects.
+        thread: Union[Object, IntegerLike],
+    ) -> StackTrace:
         """
         Get the stack trace for the given thread in the program.
 
@@ -216,7 +240,9 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
-    def read(self, address: int, size: int, physical: bool = False) -> bytes:
+    def read(
+        self, address: IntegerLike, size: IntegerLike, physical: bool = False
+    ) -> bytes:
         """
         Read *size* bytes of memory starting at *address* in the program. The
         address may be virtual (the default) or physical if the program
@@ -236,11 +262,11 @@ class Program:
         :raises ValueError: if *size* is negative
         """
         ...
-    def read_u8(self, address: int, physical: bool = False) -> int: ...
-    def read_u16(self, address: int, physical: bool = False) -> int: ...
-    def read_u32(self, address: int, physical: bool = False) -> int: ...
-    def read_u64(self, address: int, physical: bool = False) -> int: ...
-    def read_word(self, address: int, physical: bool = False) -> int:
+    def read_u8(self, address: IntegerLike, physical: bool = False) -> int: ...
+    def read_u16(self, address: IntegerLike, physical: bool = False) -> int: ...
+    def read_u32(self, address: IntegerLike, physical: bool = False) -> int: ...
+    def read_u64(self, address: IntegerLike, physical: bool = False) -> int: ...
+    def read_word(self, address: IntegerLike, physical: bool = False) -> int:
         """
         Read an unsigned integer from the program's memory in the program's
         byte order.
@@ -262,8 +288,8 @@ class Program:
         ...
     def add_memory_segment(
         self,
-        address: int,
-        size: int,
+        address: IntegerLike,
+        size: IntegerLike,
         read_fn: Callable[[int, int, int, bool], bytes],
         physical: bool = False,
     ) -> None:
@@ -659,10 +685,10 @@ class Object:
         type: Union[str, Type, None] = None,
         value: Any = None,
         *,
-        address: Optional[int] = None,
+        address: Optional[IntegerLike] = None,
         byteorder: Optional[str] = None,
-        bit_offset: Optional[int] = None,
-        bit_field_size: Optional[int] = None,
+        bit_offset: Optional[IntegerLike] = None,
+        bit_field_size: Optional[IntegerLike] = None,
     ) -> None: ...
     prog_: Program
     """Program that this object is from."""
@@ -703,7 +729,7 @@ class Object:
         :param name: Attribute name.
         """
         ...
-    def __getitem__(self, idx: Union[int, Object]) -> Object:
+    def __getitem__(self, idx: IntegerLike) -> Object:
         """
         Implement ``self[idx]``. Get the array element at the given index.
 
@@ -817,7 +843,7 @@ class Object:
     def format_(
         self,
         *,
-        columns: Optional[int] = None,
+        columns: Optional[IntegerLike] = None,
         dereference: Optional[bool] = None,
         symbolize: Optional[bool] = None,
         string: Optional[bool] = None,
@@ -1040,7 +1066,7 @@ class StackTrace:
     default.
     """
 
-    def __getitem__(self, idx: int) -> StackFrame: ...
+    def __getitem__(self, idx: IntegerLike) -> StackFrame: ...
 
 class StackFrame:
     """
@@ -1066,7 +1092,7 @@ class StackFrame:
         instruction instead of the return address.
         """
         ...
-    def register(self, reg: Union[str, int, Register]) -> int:
+    def register(self, reg: Union[str, IntegerLike, Register]) -> int:
         """
         Get the value of the given register at this stack frame. The register
         can be specified by name (e.g., ``'rax'``), number (see

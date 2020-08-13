@@ -148,6 +148,31 @@ static struct PyModuleDef drgnmodule = {
 	drgn_methods,
 };
 
+/*
+ * These are for type checking and aren't strictly required at runtime, but
+ * adding them anyways results in better pydoc output and saves us from fiddling
+ * with typing.TYPE_CHECKING/forward references.
+ */
+static int add_type_aliases(PyObject *m)
+{
+	/*
+	 * This should be a subclass of typing.Protocol, but that is only
+	 * available since Python 3.8.
+	 */
+	PyObject *IntegerLike = PyType_FromSpec(&(PyType_Spec){
+		.name = "_drgn.IntegerLike",
+		.flags = Py_TPFLAGS_DEFAULT,
+		.slots = (PyType_Slot []){{0, NULL}},
+	});
+       if (!IntegerLike)
+	       return -1;
+       if (PyModule_AddObject(m, "IntegerLike", IntegerLike) == -1) {
+	       Py_DECREF(IntegerLike);
+	       return -1;
+       }
+       return 0;
+}
+
 DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 {
 	PyObject *m;
@@ -158,7 +183,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (!m)
 		return NULL;
 
-	if (add_module_constants(m) == -1)
+	if (add_module_constants(m) == -1 || add_type_aliases(m) == -1)
 		goto err;
 
 	FaultError_type.tp_base = (PyTypeObject *)PyExc_Exception;
