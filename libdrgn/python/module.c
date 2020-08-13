@@ -170,6 +170,41 @@ static int add_type_aliases(PyObject *m)
 	       Py_DECREF(IntegerLike);
 	       return -1;
        }
+
+       PyObject *os_module = PyImport_ImportModule("os");
+       if (!os_module)
+	       return -1;
+       PyObject *os_PathLike = PyObject_GetAttrString(os_module, "PathLike");
+       Py_DECREF(os_module);
+       if (!os_PathLike)
+	       return -1;
+       PyObject *item = Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
+				      os_PathLike);
+       Py_DECREF(os_PathLike);
+       if (!item)
+	       return -1;
+
+       PyObject *typing_module = PyImport_ImportModule("typing");
+       if (!typing_module) {
+	       Py_DECREF(item);
+	       return -1;
+       }
+       PyObject *typing_Union = PyObject_GetAttrString(typing_module, "Union");
+       Py_DECREF(typing_module);
+       if (!typing_Union) {
+	       Py_DECREF(item);
+	       return -1;
+       }
+
+       PyObject *Path = PyObject_GetItem(typing_Union, item);
+       Py_DECREF(typing_Union);
+       Py_DECREF(item);
+       if (!Path)
+	       return -1;
+       if (PyModule_AddObject(m, "Path", Path) == -1) {
+	       Py_DECREF(Path);
+	       return -1;
+       }
        return 0;
 }
 

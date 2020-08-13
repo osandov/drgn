@@ -40,6 +40,14 @@ class IntegerLike(Protocol):
 
     def __index__(self) -> int: ...
 
+Path = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
+"""
+Filesystem path.
+
+Parameters annotated with this type accept a filesystem path as :class:`str`,
+:class:`bytes`, or :class:`os.PathLike`.
+"""
+
 class Program:
     """
     A ``Program`` represents a crashed or running program. It can be used to
@@ -342,7 +350,7 @@ class Program:
             return an :class:`Object`.
         """
         ...
-    def set_core_dump(self, path: Union[str, bytes, os.PathLike]) -> None:
+    def set_core_dump(self, path: Path) -> None:
         """
         Set the program to a core dump.
 
@@ -375,7 +383,7 @@ class Program:
         ...
     def load_debug_info(
         self,
-        paths: Optional[Iterable[Union[str, bytes, os.PathLike]]] = None,
+        paths: Optional[Iterable[Path]] = None,
         default: bool = False,
         main: bool = False,
     ) -> None:
@@ -480,7 +488,7 @@ def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """
     ...
 
-def program_from_core_dump(path: Union[str, bytes, os.PathLike]) -> Program:
+def program_from_core_dump(path: Path) -> Program:
     """
     Create a :class:`Program` from a core dump file. The type of program (e.g.,
     userspace or kernel) is determined automatically.

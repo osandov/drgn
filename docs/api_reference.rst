@@ -117,6 +117,7 @@ Miscellaneous
 .. drgndoc:: sizeof
 .. drgndoc:: execscript
 .. drgndoc:: IntegerLike
+.. drgndoc:: Path
 
 Exceptions
 ----------
