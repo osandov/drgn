@@ -42,7 +42,7 @@ for c in range(256):
     escapes.append(e)
 
 
-def escape_string(s):
+def escape_string(s: str) -> str:
     return "".join([escapes[c] for c in s.encode("utf-8")])
 
 

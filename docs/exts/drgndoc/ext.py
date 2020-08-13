@@ -51,7 +51,7 @@ import sphinx.environment
 import sphinx.util.docutils
 import sphinx.util.logging
 import sphinx.util.nodes
-from typing import List, cast
+from typing import Any, Dict, List, cast
 
 from drgndoc.format import Formatter
 from drgndoc.namespace import Namespace, ResolvedNode
@@ -105,7 +105,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         "exclude": docutils.parsers.rst.directives.unchanged,
     }
 
-    def run(self) -> List[docutils.nodes.Node]:
+    def run(self) -> Any:
         parts = []
         py_module = self.env.ref_context.get("py:module")
         if py_module:
@@ -278,7 +278,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             del self.env.ref_context["py:module"]
 
 
-def setup(app: sphinx.application.Sphinx) -> dict:
+def setup(app: sphinx.application.Sphinx) -> Dict[str, Any]:
     app.connect("builder-inited", drgndoc_init)
     # List of modules or packages.
     app.add_config_value("drgndoc_paths", [], "env")

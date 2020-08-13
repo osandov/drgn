@@ -24,28 +24,40 @@ from drgndoc.visitor import NodeVisitor
 
 class _PreTransformer(ast.NodeTransformer):
     # Replace string forward references with the parsed expression.
-    def _visit_annotation(self, node):
+    @overload
+    def _visit_annotation(self, node: ast.expr) -> ast.expr:
+        ...
+
+    @overload
+    def _visit_annotation(self, node: None) -> None:
+        ...
+
+    def _visit_annotation(self, node: Optional[ast.expr]) -> Optional[ast.expr]:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            node = self.visit(ast.parse(node.value, "<string>", "eval"))
+            node = self.visit(
+                cast(ast.Expression, ast.parse(node.value, "<string>", "eval")).body
+            )
         return node
 
-    def visit_arg(self, node):
-        node = self.generic_visit(node)
+    def visit_arg(self, node: ast.arg) -> ast.arg:
+        node = cast(ast.arg, self.generic_visit(node))
         node.annotation = self._visit_annotation(node.annotation)
         return node
 
-    def visit_FunctionDef(self, node):
-        node = self.generic_visit(node)
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        node = cast(ast.FunctionDef, self.generic_visit(node))
         node.returns = self._visit_annotation(node.returns)
         return node
 
-    def visit_AsyncFunctionDef(self, node):
-        node = self.generic_visit(node)
+    def visit_AsyncFunctionDef(
+        self, node: ast.AsyncFunctionDef
+    ) -> ast.AsyncFunctionDef:
+        node = cast(ast.AsyncFunctionDef, self.generic_visit(node))
         node.returns = self._visit_annotation(node.returns)
         return node
 
-    def visit_AnnAssign(self, node):
-        node = self.generic_visit(node)
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> ast.AnnAssign:
+        node = cast(ast.AnnAssign, self.generic_visit(node))
         node.annotation = self._visit_annotation(node.annotation)
         return node
 
