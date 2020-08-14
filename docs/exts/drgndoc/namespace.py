@@ -8,6 +8,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Sequence,
     TypeVar,
     Union,
 )
@@ -37,49 +38,46 @@ class BoundNode(Generic[NodeT_co]):
 class ResolvedNode(Generic[NodeT_co]):
     def __init__(
         self,
-        module: Optional[BoundNode[Module]],
-        class_: Optional[BoundNode[Class]],
+        modules: Sequence[BoundNode[Module]],
+        classes: Sequence[BoundNode[Class]],
         name: str,
         node: NodeT_co,
     ) -> None:
-        self.module = module
-        self.class_ = class_
+        self.modules = modules
+        self.classes = classes
         self.name = name
         self.node = node
 
     def qualified_name(self) -> str:
-        return dot_join(
-            self.module.name if self.module else None,
-            self.class_.name if self.class_ else None,
-            self.name,
+        return ".".join(
+            itertools.chain(
+                (module.name for module in self.modules),
+                (class_.name for class_ in self.classes),
+                (self.name,),
+            )
         )
 
     def attrs(self) -> Iterator["ResolvedNode[Node]"]:
         if isinstance(self.node, Module):
-            module_name = dot_join(self.module.name if self.module else None, self.name)
+            modules = list(self.modules)
+            modules.append(BoundNode(self.name, self.node))
             for attr, node in self.node.attrs.items():
-                yield ResolvedNode(BoundNode(module_name, self.node), None, attr, node)
+                yield ResolvedNode(modules, self.classes, attr, node)
         elif isinstance(self.node, Class):
-            class_name = dot_join(self.class_.name if self.class_ else None, self.name)
+            classes = list(self.classes)
+            classes.append(BoundNode(self.name, self.node))
             for attr, node in self.node.attrs.items():
-                yield ResolvedNode(
-                    self.module, BoundNode(class_name, self.node), attr, node
-                )
+                yield ResolvedNode(self.modules, classes, attr, node)
 
     def attr(self, attr: str) -> "ResolvedNode[Node]":
         if isinstance(self.node, Module):
-            module_name = dot_join(self.module.name if self.module else None, self.name)
-            return ResolvedNode(
-                BoundNode(module_name, self.node), None, attr, self.node.attrs[attr]
-            )
+            modules = list(self.modules)
+            modules.append(BoundNode(self.name, self.node))
+            return ResolvedNode(modules, self.classes, attr, self.node.attrs[attr])
         elif isinstance(self.node, Class):
-            class_name = dot_join(self.class_.name if self.class_ else None, self.name)
-            return ResolvedNode(
-                self.module,
-                BoundNode(class_name, self.node),
-                attr,
-                self.node.attrs[attr],
-            )
+            classes = list(self.classes)
+            classes.append(BoundNode(self.name, self.node))
+            return ResolvedNode(self.modules, classes, attr, self.node.attrs[attr])
         else:
             raise KeyError(attr)
 
@@ -91,30 +89,20 @@ class Namespace:
     def __init__(self, modules: Mapping[str, Module]) -> None:
         self.modules = modules
 
+    # NB: this modifies the passed lists.
     def _resolve_name(
         self,
-        module_name: Optional[str],
-        module: Optional[Module],
-        class_name: Optional[str],
-        class_: Optional[Class],
+        modules: List[BoundNode[Module]],
+        classes: List[BoundNode[Class]],
         name_components: List[str],
     ) -> Union[ResolvedNode[DocumentedNode], UnresolvedName]:
-        assert (module_name is None) == (module is None)
-        assert (class_name is None) == (class_ is None)
-        module_name_parts = []
-        if module_name is not None:
-            module_name_parts.append(module_name)
-        class_name_parts = []
-        if class_name is not None:
-            class_name_parts.append(class_name)
-
         name_components.reverse()
         while name_components:
             attrs: Mapping[str, Node]
-            if class_:
-                attrs = class_.attrs
-            elif module:
-                attrs = module.attrs
+            if classes:
+                attrs = classes[-1].node.attrs
+            elif modules:
+                attrs = modules[-1].node.attrs
             else:
                 attrs = self.modules
             name = name_components.pop()
@@ -124,10 +112,8 @@ class Namespace:
                 break
 
             if isinstance(node, (Import, ImportFrom)):
-                module_name_parts.clear()
-                class_name_parts.clear()
-                module = None
-                class_ = None
+                modules.clear()
+                classes.clear()
                 if isinstance(node, Import):
                     import_name = node.module
                 elif isinstance(node, ImportFrom):
@@ -138,51 +124,42 @@ class Namespace:
                 name_components.extend(reversed(import_name.split(".")))
             elif name_components:
                 if isinstance(node, Module):
-                    assert not class_
-                    module = node
-                    module_name_parts.append(name)
+                    assert not classes
+                    modules.append(BoundNode(name, node))
                 elif isinstance(node, Class):
-                    class_ = node
-                    class_name_parts.append(name)
+                    classes.append(BoundNode(name, node))
                 else:
                     break
         else:
             assert isinstance(node, (Module, Class, Function, Variable))
-            return ResolvedNode(
-                BoundNode(".".join(module_name_parts), module) if module else None,
-                BoundNode(".".join(class_name_parts), class_) if class_ else None,
-                name,
-                node,
-            )
+            return ResolvedNode(modules, classes, name, node)
         return ".".join(
             itertools.chain(
-                module_name_parts, class_name_parts, (name,), reversed(name_components)
+                (module.name for module in modules),
+                (class_.name for class_ in classes),
+                (name,),
+                reversed(name_components),
             )
         )
 
     def resolve_global_name(
         self, name: str
     ) -> Union[ResolvedNode[DocumentedNode], UnresolvedName]:
-        return self._resolve_name(None, None, None, None, name.split("."))
+        return self._resolve_name([], [], name.split("."))
 
     def resolve_name_in_scope(
         self,
-        module: Optional[BoundNode[Module]],
-        class_: Optional[BoundNode[Class]],
+        modules: Sequence[BoundNode[Module]],
+        classes: Sequence[BoundNode[Class]],
         name: str,
     ) -> Union[ResolvedNode[DocumentedNode], UnresolvedName]:
         name_components = name.split(".")
         attr = name_components[0]
-        if class_ and attr in class_.node.attrs:
-            pass
-        elif module and attr in module.node.attrs:
-            class_ = None
+        if classes and attr in classes[-1].node.attrs:
+            classes = list(classes)
+        elif modules and attr in modules[-1].node.attrs:
+            classes = []
         else:
             return name
-        return self._resolve_name(
-            module.name if module else None,
-            module.node if module else None,
-            class_.name if class_ else None,
-            class_.node if class_ else None,
-            name_components,
-        )
+        modules = list(modules)
+        return self._resolve_name(modules, classes, name_components)

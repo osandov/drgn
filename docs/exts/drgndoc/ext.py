@@ -170,17 +170,17 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             )
 
         sourcename = ""
-        if resolved.module and resolved.module.node.path:
-            sourcename = resolved.module.node.path
+        if resolved.modules and resolved.modules[-1].node.path:
+            sourcename = resolved.modules[-1].node.path
         if sourcename:
             self.env.note_dependency(sourcename)
 
         if isinstance(node, Class):
             directive = "py:class"
         elif isinstance(node, Function):
-            directive = "py:method" if resolved.class_ else "py:function"
+            directive = "py:method" if resolved.classes else "py:function"
         elif isinstance(node, Variable):
-            directive = "py:attribute" if resolved.class_ else "py:data"
+            directive = "py:attribute" if resolved.classes else "py:data"
         else:
             assert False, type(node).__name__
 
@@ -198,7 +198,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         if isinstance(node, Function):
             if node.async_:
                 contents.append("    :async:", sourcename)
-            if resolved.class_:
+            if resolved.classes:
                 if node.have_decorator("classmethod") or argument in (
                     "__init_subclass__",
                     "__class_getitem__",

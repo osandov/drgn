@@ -19,15 +19,15 @@ class _FormatVisitor(NodeVisitor):
         self,
         namespace: Namespace,
         substitutions: Sequence[Tuple[Pattern[str], Any]],
-        module: Optional[BoundNode[Module]],
-        class_: Optional[BoundNode[Class]],
+        modules: Sequence[BoundNode[Module]],
+        classes: Sequence[BoundNode[Class]],
         context_module: Optional[str],
         context_class: Optional[str],
     ) -> None:
         self._namespace = namespace
         self._substitutions = substitutions
-        self._module = module
-        self._class = class_
+        self._modules = modules
+        self._classes = classes
         self._context_module = context_module
         self._context_class = context_class
         self._parts: List[str] = []
@@ -74,7 +74,7 @@ class _FormatVisitor(NodeVisitor):
             self._parts.append(":py:obj:`")
 
         resolved = self._namespace.resolve_name_in_scope(
-            self._module, self._class, name
+            self._modules, self._classes, name
         )
         if isinstance(resolved, ResolvedNode):
             target = resolved.qualified_name()
@@ -231,8 +231,8 @@ class Formatter:
             visitor = _FormatVisitor(
                 self._namespace,
                 self._substitutions,
-                resolved.module,
-                resolved.class_,
+                resolved.modules,
+                resolved.classes,
                 context_module,
                 context_class,
             )
@@ -271,8 +271,8 @@ class Formatter:
         visitor = _FormatVisitor(
             self._namespace,
             self._substitutions,
-            resolved.module,
-            resolved.class_,
+            resolved.modules,
+            resolved.classes,
             context_module,
             context_class,
         )
@@ -333,7 +333,7 @@ class Formatter:
                 ]
             else:
                 default = None
-            if i == 0 and resolved.class_ and not node.have_decorator("staticmethod"):
+            if i == 0 and resolved.classes and not node.have_decorator("staticmethod"):
                 # Skip self for methods and cls for class methods.
                 continue
             visit_arg(arg, default)
@@ -384,8 +384,8 @@ class Formatter:
         visitor = _FormatVisitor(
             self._namespace,
             self._substitutions,
-            resolved.module,
-            resolved.class_,
+            resolved.modules,
+            resolved.classes,
             context_module,
             context_class,
         )
@@ -402,10 +402,10 @@ class Formatter:
         context_class: Optional[str] = None,
         rst: bool = True,
     ) -> Tuple[str, List[str]]:
-        if context_module is None and resolved.module:
-            context_module = resolved.module.name
-        if context_class is None and resolved.class_:
-            context_class = resolved.class_.name
+        if context_module is None and resolved.modules:
+            context_module = ".".join([module.name for module in resolved.modules])
+        if context_class is None and resolved.classes:
+            context_module = ".".join([class_.name for class_ in resolved.classes])
 
         node = resolved.node
         lines = node.docstring.splitlines() if node.docstring else []
