@@ -10,7 +10,7 @@ radix trees from :linux:`include/linux/radix-tree.h`.
 """
 
 from drgn import Object, cast
-from _drgn import _linux_helper_radix_tree_lookup
+from _drgn import _linux_helper_radix_tree_lookup as radix_tree_lookup
 
 
 __all__ = (
@@ -36,16 +36,6 @@ def _radix_tree_root_node(root):
         return root.rnode.read_(), 1
     else:
         return cast("struct xa_node *", node).read_(), 2
-
-
-def radix_tree_lookup(root, index):
-    """
-    .. c:function:: void *radix_tree_lookup(struct radix_tree_root *root, unsigned long index)
-
-    Look up the entry at a given index in a radix tree. If it is not found,
-    this returns a ``NULL`` object.
-    """
-    return _linux_helper_radix_tree_lookup(root, index)
 
 
 def radix_tree_for_each(root):

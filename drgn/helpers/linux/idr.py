@@ -12,23 +12,13 @@ IDRs were not based on radix trees.
 """
 
 from drgn.helpers.linux.radixtree import radix_tree_for_each, radix_tree_lookup
-from _drgn import _linux_helper_idr_find
+from _drgn import _linux_helper_idr_find as idr_find
 
 
 __all__ = (
     "idr_find",
     "idr_for_each",
 )
-
-
-def idr_find(idr, id):
-    """
-    .. c:function:: void *idr_find(struct idr *idr, unsigned long id)
-
-    Look up the entry with the given id in an IDR. If it is not found, this
-    returns a ``NULL`` object.
-    """
-    return _linux_helper_idr_find(idr, id)
 
 
 def idr_for_each(idr):

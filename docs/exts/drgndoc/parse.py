@@ -135,15 +135,19 @@ class Variable:
 
 
 class Import:
-    def __init__(self, module: str) -> None:
+    def __init__(self, module: str, aliased: bool) -> None:
         self.module = module
+        self.aliased = aliased
 
 
 class ImportFrom:
-    def __init__(self, name: str, module: Optional[str], level: int) -> None:
+    def __init__(
+        self, name: str, module: Optional[str], level: int, aliased: bool
+    ) -> None:
         self.name = name
         self.module = module
         self.level = level
+        self.aliased = aliased
 
 
 Node = Union[Module, Class, Function, Variable, Import, ImportFrom]
@@ -270,7 +274,7 @@ class _ModuleVisitor(NodeVisitor):
             else:
                 name = alias.asname
                 module_name = alias.name
-            self._attrs[name] = Import(module_name)
+            self._attrs[name] = Import(module_name, alias.asname is not None)
 
     def visit_ImportFrom(
         self,
@@ -280,7 +284,9 @@ class _ModuleVisitor(NodeVisitor):
     ) -> None:
         for alias in node.names:
             name = alias.name if alias.asname is None else alias.asname
-            self._attrs[name] = ImportFrom(alias.name, node.module, node.level)
+            self._attrs[name] = ImportFrom(
+                alias.name, node.module, node.level, alias.asname is not None
+            )
 
 
 def parse_source(

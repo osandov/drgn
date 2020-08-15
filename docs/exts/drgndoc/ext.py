@@ -124,22 +124,18 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         self._run(name, "", resolved, docnode)
         return docnode.children
 
-    def _include_attr(self, attr: ResolvedNode[Node], attr_name: str) -> bool:
+    def _include_attr(self, attr_name: str) -> bool:
         """
         Return whether the given recursive attribute should be documented.
 
-        We recursively include nodes that are:
-        1. Not imports.
-        2. Match the "include" pattern OR don't start with an underscore.
+        We recursively include nodes that:
+        1. Match the "include" pattern OR don't start with an underscore.
         AND
-        3. Do not match the "exclude" pattern.
+        2. Do not match the "exclude" pattern.
 
         The "include" and "exclude" patterns are applied to the name relative
         to the object being documented by the directive.
         """
-        if isinstance(attr.node, (Import, ImportFrom)):
-            return False
-
         if not attr_name:
             return True
 
@@ -158,8 +154,22 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         resolved: ResolvedNode[Node],
         docnode: docutils.nodes.Node,
     ) -> None:
-        if not self._include_attr(resolved, attr_name):
+        if not self._include_attr(attr_name):
             return
+
+        if isinstance(resolved.node, (Import, ImportFrom)):
+            # Only include imports that are explicitly aliased (i.e., import
+            # ... as ... or from ... import ... as ...).
+            # TODO: we should also include imports listed in __all__.
+            if not resolved.node.aliased:
+                return
+            imported = self.env.drgndoc_namespace.resolve_name_in_scope(
+                resolved.modules, resolved.classes, resolved.name
+            )
+            if not isinstance(imported, ResolvedNode):
+                return
+            resolved = imported
+
         resolved = cast(ResolvedNode[DocumentedNode], resolved)
 
         node = resolved.node

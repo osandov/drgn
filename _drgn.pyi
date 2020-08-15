@@ -1671,11 +1671,78 @@ class OutOfBoundsError(Exception):
 _with_libkdumpfile: bool
 
 def _linux_helper_read_vm(prog, pgtable, address, size): ...
-def _linux_helper_radix_tree_lookup(root, index): ...
-def _linux_helper_idr_find(idr, id): ...
-def _linux_helper_find_pid(ns, pid): ...
-def _linux_helper_pid_task(pid, pid_type): ...
-def _linux_helper_find_task(ns, pid): ...
-def _linux_helper_task_state_to_char(task): ...
-def _linux_helper_kaslr_offset(prog): ...
-def _linux_helper_pgtable_l5_enabled(prog): ...
+def _linux_helper_radix_tree_lookup(root, index):
+    """
+    .. c:function:: void *radix_tree_lookup(struct radix_tree_root *root, unsigned long index)
+
+    Look up the entry at a given index in a radix tree. If it is not found,
+    this returns a ``NULL`` object.
+    """
+    ...
+
+def _linux_helper_idr_find(idr, id):
+    """
+    .. c:function:: void *idr_find(struct idr *idr, unsigned long id)
+
+    Look up the entry with the given id in an IDR. If it is not found, this
+    returns a ``NULL`` object.
+    """
+    ...
+
+def _linux_helper_find_pid(ns, pid):
+    """
+    .. c:function:: struct pid *find_pid(struct pid_namespace *ns, int nr)
+
+    Return the ``struct pid *`` for the given PID number in the given
+    namespace. If given a :class:`Program` instead, the initial PID namespace
+    is used.
+    """
+    ...
+
+def _linux_helper_pid_task(pid, pid_type):
+    """
+    .. c:function:: struct task_struct *pid_task(struct pid *pid, enum pid_type pid_type)
+
+    Return the ``struct task_struct *`` containing the given ``struct pid *``
+    of the given type.
+    """
+    ...
+
+def _linux_helper_find_task(prog_or_ns, pid):
+    """
+    .. c:function:: struct task_struct *find_task(struct pid_namespace *ns, int pid)
+
+    Return the task with the given PID in the given namespace. If given a
+    :class:`Program` instead, the initial PID namespace is used.
+    """
+    ...
+
+def _linux_helper_task_state_to_char(task):
+    """
+    .. c:function char task_state_to_char(struct task_struct *task)
+
+    Get the state of the task as a character (e.g., ``'R'`` for running). See
+    `ps(1)
+    <http://man7.org/linux/man-pages/man1/ps.1.html#PROCESS_STATE_CODES>`_ for
+    a description of the process state codes.
+
+    :rtype: str
+    """
+    ...
+
+def _linux_helper_kaslr_offset(prog):
+    """
+    .. c:function:: unsigned long kaslr_offset(void)
+
+    Get the kernel address space layout randomization offset (zero if it is
+    disabled).
+    """
+    ...
+
+def _linux_helper_pgtable_l5_enabled(prog):
+    """
+    .. c:function:: bool pgtable_l5_enabled(void)
+
+    Return whether 5-level paging is enabled.
+    """
+    ...
