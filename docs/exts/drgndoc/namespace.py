@@ -112,16 +112,18 @@ class Namespace:
                 break
 
             if isinstance(node, (Import, ImportFrom)):
-                modules.clear()
                 classes.clear()
                 if isinstance(node, Import):
-                    import_name = node.module
+                    modules.clear()
                 elif isinstance(node, ImportFrom):
-                    if node.module is None or node.level != 0:
-                        raise NotImplementedError("TODO: relative imports")
-                    import_name = node.module
+                    if node.level >= len(modules):
+                        # Relative import beyond top-level package. Bail.
+                        break
+                    # Absolute import is level 0, which clears the whole list.
+                    del modules[-node.level :]
                     name_components.append(node.name)
-                name_components.extend(reversed(import_name.split(".")))
+                if node.module is not None:
+                    name_components.extend(reversed(node.module.split(".")))
             elif name_components:
                 if isinstance(node, Module):
                     assert not classes
