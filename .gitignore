@@ -10,3 +10,5 @@
 /drgn.egg-info
 /htmlcov
 __pycache__
+/wheels/*.whl
+/wheels/*.tar.*
