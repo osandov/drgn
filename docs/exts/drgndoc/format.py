@@ -218,56 +218,14 @@ class Formatter:
         self._namespace = namespace
         self._substitutions = substitutions
 
-    def _add_class_info(
-        self,
-        resolved: ResolvedNode[Class],
-        context_module: Optional[str],
-        context_class: Optional[str],
-        rst: bool,
-        lines: List[str],
-    ) -> str:
-        node = resolved.node
-        if node.bases:
-            visitor = _FormatVisitor(
-                self._namespace,
-                self._substitutions,
-                resolved.modules,
-                resolved.classes,
-                context_module,
-                context_class,
-            )
-            bases = [visitor.visit(base, rst) for base in node.bases]
-            lines[0:0] = ["Bases: " + ", ".join(bases), ""]
-
-        extra_argument = ""
-        try:
-            init = resolved.attr("__init__")
-        except KeyError:
-            pass
-        else:
-            if isinstance(init.node, Function):
-                init_context_class = resolved.name
-                if context_class:
-                    init_context_class = context_class + "." + init_context_class
-                extra_argument = self._add_function_info(
-                    cast(ResolvedNode[Function], init),
-                    context_module,
-                    init_context_class,
-                    rst,
-                    False,
-                    lines,
-                )
-        return extra_argument
-
-    def _add_function_info(
+    def _format_function_signature(
         self,
         resolved: ResolvedNode[Function],
         context_module: Optional[str],
         context_class: Optional[str],
         rst: bool,
         want_rtype: bool,
-        lines: List[str],
-    ) -> str:
+    ) -> Tuple[str, List[str]]:
         visitor = _FormatVisitor(
             self._namespace,
             self._substitutions,
@@ -277,14 +235,15 @@ class Formatter:
             context_class,
         )
         node = resolved.node
+        assert node.docstring is not None
+        docstring_lines = node.docstring.splitlines()
 
         if rst:
-            if node.docstring is None:
-                want_rtype = False
-
+            lines = []
             params_need_type = set()
             params_have_type = set()
-            for line in lines:
+            for line in docstring_lines:
+                lines.append("    " + line)
                 match = re.match(r":(param|type)\s+([a-zA-Z0-9_]+):", line)
                 if match:
                     if match.group(1) == "param":
@@ -294,15 +253,17 @@ class Formatter:
                 elif line.startswith(":rtype:"):
                     want_rtype = False
             params_need_type -= params_have_type
-            lines.append("")
+        else:
+            lines = docstring_lines
 
         signature = ["("]
         need_comma = False
+        need_blank_line = bool(lines)
 
         def visit_arg(
             arg: ast.arg, default: Optional[ast.expr] = None, prefix: str = ""
         ) -> None:
-            nonlocal need_comma
+            nonlocal need_comma, need_blank_line
             if need_comma:
                 signature.append(", ")
             if prefix:
@@ -321,7 +282,10 @@ class Formatter:
             need_comma = True
 
             if rst and arg.annotation and arg.arg in params_need_type:
-                lines.append(f":type {arg.arg}: {visitor.visit(arg.annotation)}")
+                if need_blank_line:
+                    lines.append("")
+                    need_blank_line = False
+                lines.append(f"    :type {arg.arg}: {visitor.visit(arg.annotation)}")
 
         posonlyargs = getattr(node.args, "posonlyargs", [])
         num_posargs = len(posonlyargs) + len(node.args.args)
@@ -359,27 +323,128 @@ class Formatter:
 
         if want_rtype and node.returns:
             if rst:
-                lines.append(":rtype: " + visitor.visit(node.returns))
+                if need_blank_line:
+                    lines.append("")
+                    need_blank_line = False
+                lines.append("    :rtype: " + visitor.visit(node.returns))
             else:
                 signature.append(" -> ")
                 signature.append(visitor.visit(node.returns, False))
 
-        return "".join(signature)
+        return "".join(signature), lines
 
-    def _add_variable_info(
+    def _format_class(
+        self,
+        resolved: ResolvedNode[Class],
+        name: str,
+        context_module: Optional[str] = None,
+        context_class: Optional[str] = None,
+        rst: bool = True,
+    ) -> List[str]:
+        node = resolved.node
+
+        signature = ""
+        signature_lines = None
+        try:
+            init = resolved.attr("__init__")
+        except KeyError:
+            pass
+        else:
+            if isinstance(init.node, Function) and init.node.docstring is not None:
+                init_context_class = resolved.name
+                if context_class:
+                    init_context_class = context_class + "." + init_context_class
+                signature, signature_lines = self._format_function_signature(
+                    cast(ResolvedNode[Function], init),
+                    context_module,
+                    init_context_class,
+                    rst,
+                    False,
+                )
+
+        if rst:
+            lines = [f".. py:class:: {name}{signature}"]
+        elif signature:
+            lines = [f"{name}{signature}"]
+        else:
+            lines = []
+
+        if node.bases:
+            visitor = _FormatVisitor(
+                self._namespace,
+                self._substitutions,
+                resolved.modules,
+                resolved.classes,
+                context_module,
+                context_class,
+            )
+            bases = [visitor.visit(base, rst) for base in node.bases]
+            if lines:
+                lines.append("")
+            lines.append(("    " if rst else "") + "Bases: " + ", ".join(bases))
+
+        assert node.docstring is not None
+        docstring_lines = node.docstring.splitlines()
+        if docstring_lines:
+            if lines:
+                lines.append("")
+            if rst:
+                for line in docstring_lines:
+                    lines.append("    " + line)
+            else:
+                lines.extend(docstring_lines)
+
+        if signature_lines:
+            lines.append("")
+            lines.extend(signature_lines)
+        return lines
+
+    def _format_function(
+        self,
+        resolved: ResolvedNode[Function],
+        name: str,
+        context_module: Optional[str] = None,
+        context_class: Optional[str] = None,
+        rst: bool = True,
+    ) -> List[str]:
+        node = resolved.node
+
+        signature, signature_lines = self._format_function_signature(
+            resolved, context_module, context_class, rst, True
+        )
+
+        if rst:
+            directive = "py:method" if resolved.classes else "py:function"
+            lines = [f".. {directive}:: {name}{signature}"]
+            if node.async_:
+                lines.append("    :async:")
+            if node.have_decorator("classmethod") or name in (
+                "__init_subclass__",
+                "__class_getitem__",
+            ):
+                lines.append("    :classmethod:")
+            if node.have_decorator("staticmethod"):
+                lines.append("    :staticmethod:")
+        else:
+            lines = [f"{name}{signature}"]
+        if signature_lines:
+            lines.append("")
+            lines.extend(signature_lines)
+        return lines
+
+    def _format_variable(
         self,
         resolved: ResolvedNode[Variable],
+        name: str,
         context_module: Optional[str],
         context_class: Optional[str],
         rst: bool,
-        lines: List[str],
-    ) -> None:
-        annotation = resolved.node.annotation
-        if not annotation:
-            return
-        for line in lines:
-            if line.startswith(":vartype:"):
-                return
+    ) -> List[str]:
+        node = resolved.node
+        assert node.docstring is not None
+        docstring_lines = node.docstring.splitlines()
+
+        have_vartype = any(line.startswith(":vartype:") for line in docstring_lines)
 
         visitor = _FormatVisitor(
             self._namespace,
@@ -390,50 +455,66 @@ class Formatter:
             context_class,
         )
         if rst:
-            lines.append("")
-            lines.append(":vartype: " + visitor.visit(annotation))
+            directive = "py:attribute" if resolved.classes else "py:data"
+            lines = [f".. {directive}:: {name}"]
+            if docstring_lines:
+                lines.append("")
+            for line in docstring_lines:
+                lines.append("    " + line)
+            if node.annotation and not have_vartype:
+                lines.append("")
+                lines.append("    :vartype: " + visitor.visit(node.annotation))
+            return lines
         else:
-            lines[0:0] = [visitor.visit(annotation, False), ""]
+            if node.annotation and not have_vartype:
+                if docstring_lines:
+                    docstring_lines.insert(0, "")
+                docstring_lines.insert(0, visitor.visit(node.annotation, False))
+            return docstring_lines
 
     def format(
         self,
         resolved: ResolvedNode[DocumentedNode],
+        name: Optional[str] = None,
         context_module: Optional[str] = None,
         context_class: Optional[str] = None,
         rst: bool = True,
-    ) -> Tuple[str, List[str]]:
+    ) -> List[str]:
+        node = resolved.node
+        if node.docstring is None:
+            return []
+
+        if name is None:
+            name = resolved.name
         if context_module is None and resolved.modules:
             context_module = ".".join([module.name for module in resolved.modules])
         if context_class is None and resolved.classes:
             context_module = ".".join([class_.name for class_ in resolved.classes])
 
-        node = resolved.node
-        lines = node.docstring.splitlines() if node.docstring else []
-
-        signature = ""
         if isinstance(node, Class):
-            signature = self._add_class_info(
+            return self._format_class(
                 cast(ResolvedNode[Class], resolved),
+                name,
                 context_module,
                 context_class,
                 rst,
-                lines,
             )
         elif isinstance(node, Function):
-            signature = self._add_function_info(
+            return self._format_function(
                 cast(ResolvedNode[Function], resolved),
+                name,
                 context_module,
                 context_class,
                 rst,
-                True,
-                lines,
             )
         elif isinstance(node, Variable):
-            self._add_variable_info(
+            return self._format_variable(
                 cast(ResolvedNode[Variable], resolved),
+                name,
                 context_module,
                 context_class,
                 rst,
-                lines,
             )
-        return signature, lines
+        else:
+            assert isinstance(node, Module)
+            return node.docstring.splitlines()

@@ -56,15 +56,18 @@ class Program:
     The main functionality of a ``Program`` is looking up objects (i.e.,
     variables, constants, or functions). This is usually done with the
     :meth:`[] <.__getitem__>` operator.
-
-    This class can be constructed directly, but it is usually more convenient
-    to use one of the :ref:`api-program-constructors`.
-
-    :param platform: The platform of the program, or ``None`` if it should be
-        determined automatically when a core dump or symbol file is added.
     """
 
-    def __init__(self, platform: Optional[Platform] = None) -> None: ...
+    def __init__(self, platform: Optional[Platform] = None) -> None:
+        """
+        This class can be constructed directly, but it is usually more
+        convenient to use one of the :ref:`api-program-constructors`.
+
+        :param platform: The platform of the program, or ``None`` if it should
+            be determined automatically when a core dump or symbol file is
+            added.
+        """
+        ...
     flags: ProgramFlags
     """Flags which apply to this program."""
 
@@ -270,10 +273,18 @@ class Program:
         :raises ValueError: if *size* is negative
         """
         ...
-    def read_u8(self, address: IntegerLike, physical: bool = False) -> int: ...
-    def read_u16(self, address: IntegerLike, physical: bool = False) -> int: ...
-    def read_u32(self, address: IntegerLike, physical: bool = False) -> int: ...
-    def read_u64(self, address: IntegerLike, physical: bool = False) -> int: ...
+    def read_u8(self, address: IntegerLike, physical: bool = False) -> int:
+        ""
+        ...
+    def read_u16(self, address: IntegerLike, physical: bool = False) -> int:
+        ""
+        ...
+    def read_u32(self, address: IntegerLike, physical: bool = False) -> int:
+        ""
+        ...
+    def read_u64(self, address: IntegerLike, physical: bool = False) -> int:
+        ""
+        ...
     def read_word(self, address: IntegerLike, physical: bool = False) -> int:
         """
         Read an unsigned integer from the program's memory in the program's
@@ -467,9 +478,13 @@ class FindObjectFlags(enum.Flag):
     """
 
     CONSTANT = ...
+    ""
     FUNCTION = ...
+    ""
     VARIABLE = ...
+    ""
     ANY = ...
+    ""
 
 def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """
@@ -518,15 +533,17 @@ class Platform:
     """
     A ``Platform`` represents the environment (i.e., architecture and ABI) that
     a program runs on.
-
-    :param arch: :attr:`Platform.arch`
-    :param flags: :attr:`Platform.flags`; if ``None``, default flags for the
-        architecture are used.
     """
 
     def __init__(
         self, arch: Architecture, flags: Optional[PlatformFlags] = None
-    ) -> None: ...
+    ) -> None:
+        """
+        :param arch: :attr:`Platform.arch`
+        :param flags: :attr:`Platform.flags`; if ``None``, default flags for
+            the architecture are used.
+        """
+        ...
     arch: Architecture
     """Instruction set architecture of this platform."""
 
@@ -666,25 +683,6 @@ class Object:
     conflicting with structure, union, or class members. The attributes and
     methods always take precedence; use :meth:`member_()` if there is a
     conflict.
-
-    Objects are usually obtained directly from a :class:`Program`, but they can
-    be constructed manually, as well (for example, if you got a variable
-    address from a log file).
-
-    :param prog: The program to create this object in.
-    :param type: The type of the object. If omitted, this is deduced from
-        *value* according to the language's rules for literals.
-    :param value: The value of this object. See :meth:`value_()`.
-    :param address: The address of this object in the program. Either this or
-        *value* must be given, but not both.
-    :param byteorder: Byte order of the object. This should be ``'little'`` or
-        ``'big'``. The default is ``None``, which indicates the program byte
-        order. This must be ``None`` for primitive values.
-    :param bit_offset: Offset in bits from the object's address to the
-        beginning of the object. The default is ``None``, which means no
-        offset. This must be ``None`` for primitive values.
-    :param bit_field_size: Size in bits of this object if it is a bit field.
-        The default is ``None``, which means the object is not a bit field.
     """
 
     def __init__(
@@ -697,7 +695,29 @@ class Object:
         byteorder: Optional[str] = None,
         bit_offset: Optional[IntegerLike] = None,
         bit_field_size: Optional[IntegerLike] = None,
-    ) -> None: ...
+    ) -> None:
+        """
+        Objects are usually obtained directly from a :class:`Program`, but they
+        can be constructed manually, as well (for example, if you got a
+        variable address from a log file).
+
+        :param prog: The program to create this object in.
+        :param type: The type of the object. If omitted, this is deduced from
+            *value* according to the language's rules for literals.
+        :param value: The value of this object. See :meth:`value_()`.
+        :param address: The address of this object in the program. Either this
+            or *value* must be given, but not both.
+        :param byteorder: Byte order of the object. This should be ``'little'``
+            or ``'big'``. The default is ``None``, which indicates the program
+            byte order. This must be ``None`` for primitive values.
+        :param bit_offset: Offset in bits from the object's address to the
+            beginning of the object. The default is ``None``, which means no
+            offset. This must be ``None`` for primitive values.
+        :param bit_field_size: Size in bits of this object if it is a bit
+            field. The default is ``None``, which means the object is not a bit
+            field.
+        """
+        ...
     prog_: Program
     """Program that this object is from."""
 
@@ -1257,15 +1277,6 @@ class Type:
 class TypeMember:
     """
     A ``TypeMember`` represents a member of a structure, union, or class type.
-
-    :param type: Type of the member. This may be a :class:`Type` or a callable
-        that takes no arguments and returns a :class:`Type`.
-    :param name: Name of the member. This may be ``None`` if the member is
-        unnamed.
-    :param bit_offset: Offset of the member from the beginning of the type
-        in bits.
-    :param bit_field_size: Size in bits of this member if it is a bit field,
-        zero otherwise.
     """
 
     def __init__(
@@ -1274,12 +1285,23 @@ class TypeMember:
         name: Optional[str] = None,
         bit_offset: int = 0,
         bit_field_size: int = 0,
-    ) -> None: ...
+    ) -> None:
+        """
+        :param type: :attr:`TypeMember.type`; may also be a callable that
+            takes no arguments and returns a :class:`Type`.
+        :param name: :attr:`TypeMember.name`
+        :param bit_offset: :attr:`TypeMember.bit_offset`
+        :param bit_field_size: :attr:`TypeMember.bit_field_size`
+        """
+        ...
     type: Type
+    """Member type."""
 
     name: Optional[str]
+    """Member name, or ``None`` if the member is unnamed."""
 
     bit_offset: int
+    """Offset of the member from the beginning of the type in bits."""
 
     offset: int
     """
@@ -1288,6 +1310,7 @@ class TypeMember:
     """
 
     bit_field_size: int
+    """Size in bits of this member if it is a bit field, zero otherwise."""
 
 class TypeEnumerator:
     """
@@ -1300,15 +1323,19 @@ class TypeEnumerator:
     >>> name, value = prog.type('enum pid_type').enumerators[0]
     >>> value
     0
-
-    :param name: Enumerator name.
-    :param value: Enumerator value.
     """
 
-    def __init__(self, name: str, value: int) -> None: ...
+    def __init__(self, name: str, value: int) -> None:
+        """
+        :param name: :attr:`TypeEnumerator.name`
+        :param value: :attr:`TypeEnumerator.value`
+        """
+        ...
     name: str
+    "Enumerator name."
 
     value: int
+    "Enumerator value."
     def __len__(self) -> int: ...
     def __getitem__(self, idx: int) -> Any: ...
     def __iter__(self) -> Iterator[Any]: ...
@@ -1316,19 +1343,22 @@ class TypeEnumerator:
 class TypeParameter:
     """
     A ``TypeParameter`` represents a parameter of a function type.
-
-    :param type: Type of the parameter. This may be a :class:`Type` or a callable
-        that takes no arguments and returns a :class:`Type`.
-    :param name: Name of the parameter. This may be ``None`` if the parameter is
-        unnamed.
     """
 
     def __init__(
         self, type: Union[Type, Callable[[], Type]], name: Optional[str] = None
-    ) -> None: ...
+    ) -> None:
+        """
+        :param type: :attr:`TypeParameter.type`; may also be a callable that
+            takes no arguments and returns a :class:`Type`.
+        :param name: :attr:`TypeParameter.name`
+        """
+        ...
     type: Type
+    """Parameter type."""
 
     name: Optional[str]
+    """Parameter name, or ``None`` if the parameter is unnamed."""
 
 class TypeKind(enum.Enum):
     """A ``TypeKind`` represents a kind of type."""
@@ -1376,23 +1406,41 @@ class PrimitiveType(enum.Enum):
     """A ``PrimitiveType`` represents a primitive type known to drgn."""
 
     C_VOID = ...
+    ""
     C_CHAR = ...
+    ""
     C_SIGNED_CHAR = ...
+    ""
     C_UNSIGNED_CHAR = ...
+    ""
     C_SHORT = ...
+    ""
     C_UNSIGNED_SHORT = ...
+    ""
     C_INT = ...
+    ""
     C_UNSIGNED_INT = ...
+    ""
     C_LONG = ...
+    ""
     C_UNSIGNED_LONG = ...
+    ""
     C_LONG_LONG = ...
+    ""
     C_UNSIGNED_LONG_LONG = ...
+    ""
     C_BOOL = ...
+    ""
     C_FLOAT = ...
+    ""
     C_DOUBLE = ...
+    ""
     C_LONG_DOUBLE = ...
+    ""
     C_SIZE_T = ...
+    ""
     C_PTRDIFF_T = ...
+    ""
 
 class Qualifiers(enum.Flag):
     """``Qualifiers`` are modifiers on types."""
@@ -1645,12 +1693,15 @@ class FaultError(Exception):
     """
     This error is raised when a bad memory access is attempted (i.e., when
     accessing a memory address which is not valid in a program).
-
-    :param address: Address that couldn't be accessed.
     """
 
-    def __init__(self, address: int) -> None: ...
+    def __init__(self, address: int) -> None:
+        """
+        :param address: :attr:`FaultError.address`
+        """
+        ...
     address: int
+    """Address that couldn't be accessed."""
 
 class MissingDebugInfoError(Exception):
     """

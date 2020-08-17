@@ -58,12 +58,10 @@ from drgndoc.namespace import Namespace, ResolvedNode
 from drgndoc.parse import (
     Class,
     DocumentedNode,
-    Function,
     Import,
     ImportFrom,
     Module,
     Node,
-    Variable,
     parse_paths,
 )
 from drgndoc.util import dot_join
@@ -100,10 +98,6 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
 
     required_arguments = 1
     optional_arguments = 0
-    option_spec = {
-        "include": docutils.parsers.rst.directives.unchanged,
-        "exclude": docutils.parsers.rst.directives.unchanged,
-    }
 
     def run(self) -> Any:
         parts = []
@@ -119,33 +113,13 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         if not isinstance(resolved, ResolvedNode):
             logger.warning("name %r not found", resolved)
             return []
+        if resolved.node.docstring is None:
+            logger.warning("name %r is not documented", resolved.qualified_name())
+            return []
 
         docnode = docutils.nodes.section()
         self._run(name, "", resolved, docnode)
         return docnode.children
-
-    def _include_attr(self, attr_name: str) -> bool:
-        """
-        Return whether the given recursive attribute should be documented.
-
-        We recursively include nodes that:
-        1. Match the "include" pattern OR don't start with an underscore.
-        AND
-        2. Do not match the "exclude" pattern.
-
-        The "include" and "exclude" patterns are applied to the name relative
-        to the object being documented by the directive.
-        """
-        if not attr_name:
-            return True
-
-        dot = attr_name.rfind(".")
-        if dot + 1 < len(attr_name) and attr_name[dot + 1] == "_":
-            include_pattern = self.options.get("include")
-            if include_pattern is None or not re.fullmatch(include_pattern, attr_name):
-                return False
-        exclude_pattern = self.options.get("exclude")
-        return exclude_pattern is None or not re.fullmatch(exclude_pattern, attr_name)
 
     def _run(
         self,
@@ -154,9 +128,6 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         resolved: ResolvedNode[Node],
         docnode: docutils.nodes.Node,
     ) -> None:
-        if not self._include_attr(attr_name):
-            return
-
         if isinstance(resolved.node, (Import, ImportFrom)):
             # Only include imports that are explicitly aliased (i.e., import
             # ... as ... or from ... import ... as ...).
@@ -172,58 +143,31 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
 
         resolved = cast(ResolvedNode[DocumentedNode], resolved)
 
-        node = resolved.node
-        if isinstance(node, Module):
-            directive = "py:module"
+        if isinstance(resolved.node, Module):
             return self._run_module(
                 top_name, attr_name, cast(ResolvedNode[Module], resolved), docnode
             )
+
+        lines = self.env.drgndoc_formatter.format(
+            resolved,
+            (attr_name or top_name).rpartition(".")[2],
+            self.env.ref_context.get("py:module", ""),
+            ".".join(self.env.ref_context.get("py:classes", ())),
+        )
+        if not lines:
+            # Not documented. Ignore it.
+            return
 
         sourcename = ""
         if resolved.modules and resolved.modules[-1].node.path:
             sourcename = resolved.modules[-1].node.path
         if sourcename:
             self.env.note_dependency(sourcename)
-
-        if isinstance(node, Class):
-            directive = "py:class"
-        elif isinstance(node, Function):
-            directive = "py:method" if resolved.classes else "py:function"
-        elif isinstance(node, Variable):
-            directive = "py:attribute" if resolved.classes else "py:data"
-        else:
-            assert False, type(node).__name__
-
-        argument = (attr_name or top_name).rpartition(".")[2]
-        extra_argument, lines = self.env.drgndoc_formatter.format(
-            resolved,
-            self.env.ref_context.get("py:module", ""),
-            ".".join(self.env.ref_context.get("py:classes", ())),
-        )
-
-        contents = docutils.statemachine.StringList()
-        contents.append(
-            f".. {directive}:: {argument}{extra_argument}", sourcename,
-        )
-        if isinstance(node, Function):
-            if node.async_:
-                contents.append("    :async:", sourcename)
-            if resolved.classes:
-                if node.have_decorator("classmethod") or argument in (
-                    "__init_subclass__",
-                    "__class_getitem__",
-                ):
-                    contents.append("    :classmethod:", sourcename)
-                if node.have_decorator("staticmethod"):
-                    contents.append("    :staticmethod:", sourcename)
+        contents = docutils.statemachine.StringList(lines, sourcename)
         contents.append("", sourcename)
-        if lines:
-            for line in lines:
-                contents.append("    " + line, sourcename)
-            contents.append("", sourcename)
 
         self.state.nested_parse(contents, 0, docnode)
-        if isinstance(node, Class):
+        if isinstance(resolved.node, Class):
             for desc in reversed(docnode.children):
                 if isinstance(desc, sphinx.addnodes.desc):
                     break
@@ -241,9 +185,10 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             py_classes.append(resolved.name)
             self.env.ref_context["py:class"] = resolved.name
             for member in resolved.attrs():
-                self._run(
-                    top_name, dot_join(attr_name, member.name), member, desc_content
-                )
+                if member.name != "__init__":
+                    self._run(
+                        top_name, dot_join(attr_name, member.name), member, desc_content
+                    )
             py_classes.pop()
             self.env.ref_context["py:class"] = py_classes[-1] if py_classes else None
 
@@ -255,14 +200,16 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         docnode: docutils.nodes.Node,
     ) -> None:
         node = resolved.node
+        if node.docstring is None:
+            # Not documented. Ignore it.
+            return
+
         sourcename = node.path or ""
         if sourcename:
             self.env.note_dependency(sourcename)
-
-        contents = docutils.statemachine.StringList()
-        if node.docstring:
-            for line in node.docstring.splitlines():
-                contents.append(line, sourcename)
+        contents = docutils.statemachine.StringList(
+            node.docstring.splitlines(), sourcename
+        )
 
         sphinx.util.nodes.nested_parse_with_titles(self.state, contents, docnode)
 

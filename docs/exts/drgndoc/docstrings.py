@@ -5,7 +5,7 @@
 import argparse
 import functools
 import sys
-from typing import cast
+from typing import Union, cast
 
 from drgndoc.format import Formatter
 from drgndoc.namespace import Namespace, ResolvedNode
@@ -91,21 +91,18 @@ if __name__ == "__main__":
 
     def aux(resolved: ResolvedNode[Node], name: str) -> None:
         node = resolved.node
-        if hasattr(node, "docstring"):
+        if getattr(node, "docstring", None) is not None:
             var_name = name.replace(".", "_") + "_DOC"
             if args.header:
                 output_file.write("extern ")
             output_file.write(f"const char {var_name}[]")
             if not args.header:
                 output_file.write(" =")
-                signature, lines = formatter.format(
-                    cast(ResolvedNode[DocumentedNode], resolved), rst=False
+                lines = formatter.format(
+                    cast(ResolvedNode[DocumentedNode], resolved),
+                    name.rpartition(".")[2],
+                    rst=False,
                 )
-                if signature:
-                    lines[0:0] = [
-                        name.rpartition(".")[2] + signature,
-                        "",
-                    ]
                 if lines:
                     for i, line in enumerate(lines):
                         output_file.write(f'\n\t"{escape_string(line)}')
