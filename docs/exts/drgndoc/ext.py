@@ -113,7 +113,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         if not isinstance(resolved, ResolvedNode):
             logger.warning("name %r not found", resolved)
             return []
-        if resolved.node.docstring is None:
+        if not resolved.node.has_docstring():
             logger.warning("name %r is not documented", resolved.qualified_name())
             return []
 

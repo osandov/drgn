@@ -91,7 +91,7 @@ if __name__ == "__main__":
 
     def aux(resolved: ResolvedNode[Node], name: str) -> None:
         node = resolved.node
-        if getattr(node, "docstring", None) is not None:
+        if node.has_docstring():
             var_name = name.replace(".", "_") + "_DOC"
             if args.header:
                 output_file.write("extern ")
