@@ -24,7 +24,12 @@ install:
   # On systemd >= 238 we can use udevadm trigger -w and remove udevadm settle.
   - sudo udevadm trigger /dev/kvm
   - sudo udevadm settle
-script: python setup.py test -K
+  - pip install black isort mypy
+script:
+  - black --check --diff .
+  - isort --check --diff .
+  - mypy --strict --no-warn-return-any drgn _drgn.pyi
+  - python setup.py test -K
 
 addons:
   apt:
