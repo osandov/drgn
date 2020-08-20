@@ -433,7 +433,7 @@ class Program:
         This is equivalent to ``load_debug_info(None, True)``.
         """
         ...
-    cache: dict
+    cache: Dict[Any, Any]
     """
     Dictionary for caching program metadata.
 
