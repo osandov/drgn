@@ -10,8 +10,9 @@ Linux virtual filesystem (VFS) layer, including mounts, dentries, and inodes.
 """
 
 import os
+from typing import Iterator, Optional, Tuple, Union, overload
 
-from drgn import Object, Program, container_of
+from drgn import IntegerLike, Object, Path, Program, container_of, sizeof
 from drgn.helpers import escape_ascii_string
 from drgn.helpers.linux.list import (
     hlist_empty,
@@ -37,7 +38,7 @@ __all__ = (
 )
 
 
-def _follow_mount(mnt, dentry):
+def _follow_mount(mnt: Object, dentry: Object) -> Tuple[Object, Object]:
     # DCACHE_MOUNTED is a macro, so we can't easily get the value. But, it
     # hasn't changed since v2.6.38, so let's hardcode it for now.
     DCACHE_MOUNTED = 0x10000
@@ -54,7 +55,9 @@ def _follow_mount(mnt, dentry):
     return mnt, dentry
 
 
-def _follow_dotdot(mnt, dentry, root_mnt, root_dentry):
+def _follow_dotdot(
+    mnt: Object, dentry: Object, root_mnt: Object, root_dentry: Object
+) -> Tuple[Object, Object]:
     while dentry != root_dentry or mnt != root_mnt:
         d_parent = dentry.d_parent.read_()
         if dentry != d_parent:
@@ -68,31 +71,33 @@ def _follow_dotdot(mnt, dentry, root_mnt, root_dentry):
     return _follow_mount(mnt, dentry)
 
 
-def path_lookup(prog_or_root, path, allow_negative=False):
+def path_lookup(
+    prog_or_root: Union[Program, Object], path: Path, allow_negative: bool = False
+) -> Object:
     """
-    .. c:function:: struct path path_lookup(struct path *root, const char *path, bool allow_negative)
+    Look up the given path name.
 
-    Look up the given path name relative to the given root directory. If given
-    a :class:`Program` instead of a ``struct path``, the initial root
-    filesystem is used.
-
-    :param bool allow_negative: Whether to allow returning a negative dentry
-        (i.e., a dentry for a non-existent path).
+    :param prog_or_root: ``struct path *`` object to use as root directory, or
+        :class:`Program` to use the initial root filesystem.
+    :param path: Path to lookup.
+    :param allow_negative: Whether to allow returning a negative dentry (i.e.,
+        a dentry for a non-existent path).
+    :return: ``struct path``
     :raises Exception: if the dentry is negative and ``allow_negative`` is
         ``False``, or if the path is not present in the dcache. The latter does
         not necessarily mean that the path does not exist; it may be uncached.
         On a live system, you can make the kernel cache the path by accessing
         it (e.g., with :func:`open()` or :func:`os.stat()`):
 
-        >>> path_lookup(prog, '/usr/include/stdlib.h')
-        ...
-        Exception: could not find '/usr/include/stdlib.h' in dcache
-        >>> open('/usr/include/stdlib.h').close()
-        >>> path_lookup(prog, '/usr/include/stdlib.h')
-        (struct path){
-                .mnt = (struct vfsmount *)0xffff8b70413cdca0,
-                .dentry = (struct dentry *)0xffff8b702ac2c480,
-        }
+    >>> path_lookup(prog, '/usr/include/stdlib.h')
+    ...
+    Exception: could not find '/usr/include/stdlib.h' in dcache
+    >>> open('/usr/include/stdlib.h').close()
+    >>> path_lookup(prog, '/usr/include/stdlib.h')
+    (struct path){
+            .mnt = (struct vfsmount *)0xffff8b70413cdca0,
+            .dentry = (struct dentry *)0xffff8b702ac2c480,
+    }
     """
     if isinstance(prog_or_root, Program):
         prog_or_root = prog_or_root["init_task"].fs.root
@@ -125,16 +130,31 @@ def path_lookup(prog_or_root, path, allow_negative=False):
     )
 
 
-def d_path(path_or_vfsmnt, dentry=None):
+@overload
+def d_path(path: Object) -> bytes:
     """
-    .. c:function:: char *d_path(struct path *path)
-    .. c:function:: char *d_path(struct vfsmount *vfsmnt, struct dentry *dentry)
+    Return the full path of a dentry given a ``struct path``.
 
-    Return the full path of a dentry given a ``struct path *`` or a mount and a
-    dentry.
+    :param path: ``struct path`` or ``struct path *``
     """
-    type_name = str(path_or_vfsmnt.type_.type_name())
-    if type_name == "struct path" or type_name == "struct path *":
+    ...
+
+
+@overload
+def d_path(vfsmnt: Object, dentry: Object) -> bytes:
+    """
+    Return the full path of a dentry given a mount and dentry.
+
+    :param vfsmnt: ``struct vfsmount *``
+    :param dentry: ``struct dentry *``
+    """
+    ...
+
+
+def d_path(  # type: ignore  # Need positional-only arguments.
+    path_or_vfsmnt: Object, dentry: Optional[Object] = None
+) -> bytes:
+    if dentry is None:
         vfsmnt = path_or_vfsmnt.mnt
         dentry = path_or_vfsmnt.dentry.read_()
     else:
@@ -144,7 +164,7 @@ def d_path(path_or_vfsmnt, dentry=None):
 
     d_op = dentry.d_op.read_()
     if d_op and d_op.d_dname:
-        return None
+        return b"[" + dentry.d_inode.i_sb.s_type.name.string_() + b"]"
 
     components = []
     while True:
@@ -167,11 +187,11 @@ def d_path(path_or_vfsmnt, dentry=None):
         return b"/"
 
 
-def dentry_path(dentry):
+def dentry_path(dentry: Object) -> bytes:
     """
-    .. c:function:: char *dentry_path(struct dentry *dentry)
-
     Return the path of a dentry from the root of its filesystem.
+
+    :param dentry: ``struct dentry *``
     """
     components = []
     while True:
@@ -183,11 +203,12 @@ def dentry_path(dentry):
     return b"/".join(reversed(components))
 
 
-def inode_path(inode):
+def inode_path(inode: Object) -> Optional[bytes]:
     """
-    .. c:function:: char *inode_path(struct inode *inode)
-
     Return any path of an inode from the root of its filesystem.
+
+    :param inode: ``struct inode *``
+    :return: Path, or ``None`` if the inode has no aliases.
     """
     if hlist_empty(inode.i_dentry):
         return None
@@ -196,14 +217,12 @@ def inode_path(inode):
     )
 
 
-def inode_paths(inode):
+def inode_paths(inode: Object) -> Iterator[bytes]:
     """
-    .. c:function:: inode_paths(struct inode *inode)
-
     Return an iterator over all of the paths of an inode from the root of its
     filesystem.
 
-    :rtype: Iterator[bytes]
+    :param inode: ``struct inode *``
     """
     return (
         dentry_path(dentry)
@@ -213,55 +232,54 @@ def inode_paths(inode):
     )
 
 
-def mount_src(mnt):
+def mount_src(mnt: Object) -> bytes:
     """
-    .. c:function:: char *mount_src(struct mount *mnt)
-
     Get the source device name for a mount.
 
-    :rtype: bytes
+    :param mnt: ``struct mount *``
     """
     return mnt.mnt_devname.string_()
 
 
-def mount_dst(mnt):
+def mount_dst(mnt: Object) -> bytes:
     """
-    .. c:function:: char *mount_dst(struct mount *mnt)
-
     Get the path of a mount point.
 
-    :rtype: bytes
+    :param mnt: ``struct mount *``
     """
     return d_path(mnt.mnt.address_of_(), mnt.mnt.mnt_root)
 
 
-def mount_fstype(mnt):
+def mount_fstype(mnt: Object) -> bytes:
     """
-    .. c:function:: char *mount_fstype(struct mount *mnt)
-
     Get the filesystem type of a mount.
 
-    :rtype: bytes
+    :param mnt: ``struct mount *``
     """
     sb = mnt.mnt.mnt_sb.read_()
     fstype = sb.s_type.name.string_()
-    subtype = sb.s_subtype.read_()
-    if subtype:
-        subtype = subtype.string_()
+    subtype_obj = sb.s_subtype.read_()
+    if subtype_obj:
+        subtype = subtype_obj.string_()
         if subtype:
             fstype += b"." + subtype
     return fstype
 
 
-def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
+def for_each_mount(
+    prog_or_ns: Union[Program, Object],
+    src: Optional[Path] = None,
+    dst: Optional[Path] = None,
+    fstype: Optional[Union[str, bytes]] = None,
+) -> Iterator[Object]:
     """
-    .. c:function:: for_each_mount(struct mnt_namespace *ns, char *src, char *dst, char *fstype)
+    Iterate over all of the mounts in a given namespace.
 
-    Iterate over all of the mounts in a given namespace. If given a
-    :class:`Program` instead, the initial mount namespace is used. returned
-    mounts can be filtered by source, destination, or filesystem type, all of
-    which are encoded using :func:`os.fsencode()`.
-
+    :param prog_or_ns: ``struct mnt_namespace *`` to iterate over, or
+        :class:`Program` to iterate over initial mount namespace.
+    :param src: Only include mounts with this source device name.
+    :param dst: Only include mounts with this destination path.
+    :param fstype: Only include mounts with this filesystem type.
     :return: Iterator of ``struct mount *`` objects.
     """
     if isinstance(prog_or_ns, Program):
@@ -283,10 +301,13 @@ def for_each_mount(prog_or_ns, src=None, dst=None, fstype=None):
             yield mnt
 
 
-def print_mounts(prog_or_ns, src=None, dst=None, fstype=None):
+def print_mounts(
+    prog_or_ns: Union[Program, Object],
+    src: Optional[Path] = None,
+    dst: Optional[Path] = None,
+    fstype: Optional[Union[str, bytes]] = None,
+) -> None:
     """
-    .. c:function:: print_mounts(struct mnt_namespace *ns, char *src, char *dst, char *fstype)
-
     Print the mount table of a given namespace. The arguments are the same as
     :func:`for_each_mount()`. The output format is similar to ``/proc/mounts``
     but prints the value of each ``struct mount *``.
@@ -300,26 +321,26 @@ def print_mounts(prog_or_ns, src=None, dst=None, fstype=None):
         )
 
 
-def fget(task, fd):
+def fget(task: Object, fd: IntegerLike) -> Object:
     """
-    .. c:function:: struct file *fget(struct task_struct *task, int fd)
-
     Return the kernel file descriptor of the fd of a given task.
+
+    :param task: ``struct task_struct *``
+    :param fd: File descriptor.
+    :return: ``struct file *``
     """
     return task.files.fdt.fd[fd]
 
 
-def for_each_file(task):
+def for_each_file(task: Object) -> Iterator[Tuple[int, Object]]:
     """
-    .. c:function:: for_each_file(struct task_struct *task)
-
     Iterate over all of the files open in a given task.
 
+    :param task: ``struct task_struct *``
     :return: Iterator of (fd, ``struct file *``) tuples.
-    :rtype: Iterator[tuple[int, Object]]
     """
     fdt = task.files.fdt.read_()
-    bits_per_long = 8 * fdt.open_fds.type_.type.size
+    bits_per_long = 8 * sizeof(fdt.open_fds.type_.type)
     for i in range((fdt.max_fds.value_() + bits_per_long - 1) // bits_per_long):
         word = fdt.open_fds[i].value_()
         for j in range(bits_per_long):
@@ -329,15 +350,13 @@ def for_each_file(task):
                 yield fd, file
 
 
-def print_files(task):
+def print_files(task: Object) -> None:
     """
-    .. c:function:: print_files(struct task_struct *task)
-
     Print the open files of a given task.
+
+    :param task: ``struct task_struct *``
     """
     for fd, file in for_each_file(task):
         path = d_path(file.f_path)
-        if path is None:
-            path = file.f_inode.i_sb.s_type.name.string_()
-        path = escape_ascii_string(path, escape_backslash=True)
-        print(f"{fd} {path} ({file.type_.type_name()})0x{file.value_():x}")
+        escaped_path = escape_ascii_string(path, escape_backslash=True)
+        print(f"{fd} {escaped_path} ({file.type_.type_name()})0x{file.value_():x}")

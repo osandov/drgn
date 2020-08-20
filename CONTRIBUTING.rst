@@ -74,8 +74,8 @@ Python
 Python code in drgn is formatted with `black <https://github.com/psf/black>`_.
 Code should be compatible with Python 3.6 and newer.
 
-Type hints should be provided for all public interfaces other than helpers
-(including the C extension) and most private interfaces.
+Type hints should be provided for all interfaces (including helpers and the C
+extension).
 
 Submitting PRs
 --------------

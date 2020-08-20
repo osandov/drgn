@@ -1721,79 +1721,82 @@ class OutOfBoundsError(Exception):
 
 _with_libkdumpfile: bool
 
-def _linux_helper_read_vm(prog, pgtable, address, size): ...
-def _linux_helper_radix_tree_lookup(root, index):
+def _linux_helper_read_vm(
+    prog: Program, pgtable: Object, address: IntegerLike, size: IntegerLike
+) -> bytes: ...
+def _linux_helper_radix_tree_lookup(root: Object, index: IntegerLike) -> Object:
     """
-    .. c:function:: void *radix_tree_lookup(struct radix_tree_root *root, unsigned long index)
+    Look up the entry at a given index in a radix tree.
 
-    Look up the entry at a given index in a radix tree. If it is not found,
-    this returns a ``NULL`` object.
-    """
-    ...
-
-def _linux_helper_idr_find(idr, id):
-    """
-    .. c:function:: void *idr_find(struct idr *idr, unsigned long id)
-
-    Look up the entry with the given id in an IDR. If it is not found, this
-    returns a ``NULL`` object.
+    :param root: ``struct radix_tree_root *``
+    :param index: Entry index.
+    :return: ``void *`` found entry, or ``NULL`` if not found.
     """
     ...
 
-def _linux_helper_find_pid(ns, pid):
+def _linux_helper_idr_find(idr: Object, id: IntegerLike) -> Object:
     """
-    .. c:function:: struct pid *find_pid(struct pid_namespace *ns, int nr)
+    Look up the entry with the given ID in an IDR.
 
-    Return the ``struct pid *`` for the given PID number in the given
-    namespace. If given a :class:`Program` instead, the initial PID namespace
-    is used.
+    :param idr: ``struct idr *``
+    :param id: Entry ID.
+    :return: ``void *`` found entry, or ``NULL`` if not found.
     """
     ...
 
-def _linux_helper_pid_task(pid, pid_type):
+def _linux_helper_find_pid(
+    prog_or_ns: Union[Program, Object], pid: IntegerLike
+) -> Object:
     """
-    .. c:function:: struct task_struct *pid_task(struct pid *pid, enum pid_type pid_type)
+    Return the ``struct pid *`` for the given PID number.
 
+    :param prog_or_ns: ``struct pid_namespace *`` object, or :class:`Program`
+        to use initial PID namespace.
+    :return: ``struct pid *``
+    """
+    ...
+
+def _linux_helper_pid_task(pid: Object, pid_type: IntegerLike) -> Object:
+    """
     Return the ``struct task_struct *`` containing the given ``struct pid *``
     of the given type.
+
+    :param pid: ``struct pid *``
+    :param pid_type: ``enum pid_type``
+    :return: ``struct task_struct *``
     """
     ...
 
-def _linux_helper_find_task(prog_or_ns, pid):
+def _linux_helper_find_task(
+    prog_or_ns: Union[Program, Object], pid: IntegerLike
+) -> Object:
     """
-    .. c:function:: struct task_struct *find_task(struct pid_namespace *ns, int pid)
+    Return the task with the given PID.
 
-    Return the task with the given PID in the given namespace. If given a
-    :class:`Program` instead, the initial PID namespace is used.
+    :param prog_or_ns: ``struct pid_namespace *`` object, or :class:`Program`
+        to use initial PID namespace.
+    :return: ``struct task_struct *``
     """
     ...
 
-def _linux_helper_task_state_to_char(task):
+def _linux_helper_task_state_to_char(task: Object) -> str:
     """
-    .. c:function char task_state_to_char(struct task_struct *task)
-
     Get the state of the task as a character (e.g., ``'R'`` for running). See
     `ps(1)
     <http://man7.org/linux/man-pages/man1/ps.1.html#PROCESS_STATE_CODES>`_ for
     a description of the process state codes.
 
-    :rtype: str
+    :param task: ``struct task_struct *``
     """
     ...
 
-def _linux_helper_kaslr_offset(prog):
+def _linux_helper_kaslr_offset(prog: Program) -> int:
     """
-    .. c:function:: unsigned long kaslr_offset(void)
-
     Get the kernel address space layout randomization offset (zero if it is
     disabled).
     """
     ...
 
-def _linux_helper_pgtable_l5_enabled(prog):
-    """
-    .. c:function:: bool pgtable_l5_enabled(void)
-
-    Return whether 5-level paging is enabled.
-    """
+def _linux_helper_pgtable_l5_enabled(prog: Program) -> bool:
+    """Return whether 5-level paging is enabled."""
     ...

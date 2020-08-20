@@ -13,10 +13,12 @@ import gzip
 import types
 from typing import Mapping
 
+from drgn import Program
+
 __all__ = ("get_kconfig",)
 
 
-def get_kconfig(prog) -> Mapping[str, str]:
+def get_kconfig(prog: Program) -> Mapping[str, str]:
     """
     Get the kernel build configuration as a mapping from the option name to the
     value.
@@ -49,7 +51,7 @@ def get_kconfig(prog) -> Mapping[str, str]:
             )
         # The data is delimited by the magic strings "IKCFG_ST" and "IKCFG_ED"
         # plus a NUL byte.
-        start = kernel_config_data.address_ + 8
+        start = kernel_config_data.address_ + 8  # type: ignore[operator]
         size = len(kernel_config_data) - 17
 
     data = prog.read(start, size)

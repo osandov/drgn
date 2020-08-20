@@ -10,7 +10,9 @@ doubly-linked list implementations (``struct list_head`` and ``struct
 hlist_head``) in :linux:`include/linux/list.h`.
 """
 
-from drgn import NULL, container_of
+from typing import Iterator, Union
+
+from drgn import NULL, Object, Type, container_of
 
 
 __all__ = (
@@ -31,47 +33,55 @@ __all__ = (
 )
 
 
-def list_empty(head):
+def list_empty(head: Object) -> bool:
     """
-    .. c:function:: bool list_empty(struct list_head *head)
-
     Return whether a list is empty.
+
+    :param head: ``struct list_head *``
     """
     head = head.read_()
     return head.next == head
 
 
-def list_is_singular(head):
+def list_is_singular(head: Object) -> bool:
     """
-    .. c:function:: bool list_is_singular(struct list_head *head)
-
     Return whether a list has only one element.
+
+    :param head: ``struct list_head *``
     """
     head = head.read_()
     next = head.next
     return next != head and next == head.prev
 
 
-def list_first_entry(head, type, member):
+def list_first_entry(head: Object, type: Union[str, Type], member: str) -> Object:
     """
-    .. c:function:: type *list_first_entry(struct list_head *head, type, member)
-
     Return the first entry in a list.
 
     The list is assumed to be non-empty.
 
     See also :func:`list_first_entry_or_null()`.
+
+    :param head: ``struct list_head *``
+    :param type: Entry type.
+    :param member: Name of list node member in entry type.
+    :return: ``type *``
     """
     return container_of(head.next, type, member)
 
 
-def list_first_entry_or_null(head, type, member):
+def list_first_entry_or_null(
+    head: Object, type: Union[str, Type], member: str
+) -> Object:
     """
-    .. c:function:: type *list_first_entry_or_null(struct list_head *head, type, member)
-
     Return the first entry in a list or ``NULL`` if the list is empty.
 
     See also :func:`list_first_entry()`.
+
+    :param head: ``struct list_head *``
+    :param type: Entry type.
+    :param member: Name of list node member in entry type.
+    :return: ``type *``
     """
     head = head.read_()
     pos = head.next.read_()
@@ -81,41 +91,47 @@ def list_first_entry_or_null(head, type, member):
         return container_of(pos, type, member)
 
 
-def list_last_entry(head, type, member):
+def list_last_entry(head: Object, type: Union[str, Type], member: str) -> Object:
     """
-    .. c:function:: type *list_last_entry(struct list_head *head, type, member)
-
     Return the last entry in a list.
 
     The list is assumed to be non-empty.
+
+    :param head: ``struct list_head *``
+    :param type: Entry type.
+    :param member: Name of list node member in entry type.
+    :return: ``type *``
     """
     return container_of(head.prev, type, member)
 
 
-def list_next_entry(pos, member):
+def list_next_entry(pos: Object, member: str) -> Object:
     """
-    .. c:function:: type *list_next_entry(type *pos, member)
-
     Return the next entry in a list.
+
+    :param pos: ``type*``
+    :param member: Name of list node member in entry type.
+    :return: ``type *``
     """
     return container_of(getattr(pos, member).next, pos.type_.type, member)
 
 
-def list_prev_entry(pos, member):
+def list_prev_entry(pos: Object, member: str) -> Object:
     """
-    .. c:function:: type *list_prev_entry(type *pos, member)
-
     Return the previous entry in a list.
+
+    :param pos: ``type*``
+    :param member: Name of list node member in entry type.
+    :return: ``type *``
     """
     return container_of(getattr(pos, member).prev, pos.type_.type, member)
 
 
-def list_for_each(head):
+def list_for_each(head: Object) -> Iterator[Object]:
     """
-    .. c:function:: list_for_each(struct list_head *head)
-
     Iterate over all of the nodes in a list.
 
+    :param head: ``struct list_head *``
     :return: Iterator of ``struct list_head *`` objects.
     """
     head = head.read_()
@@ -125,12 +141,11 @@ def list_for_each(head):
         pos = pos.next.read_()
 
 
-def list_for_each_reverse(head):
+def list_for_each_reverse(head: Object) -> Iterator[Object]:
     """
-    .. c:function:: list_for_each_reverse(struct list_head *head)
-
     Iterate over all of the nodes in a list in reverse order.
 
+    :param head: ``struct list_head *``
     :return: Iterator of ``struct list_head *`` objects.
     """
     head = head.read_()
@@ -140,47 +155,48 @@ def list_for_each_reverse(head):
         pos = pos.prev.read_()
 
 
-def list_for_each_entry(type, head, member):
+def list_for_each_entry(type: str, head: Object, member: str) -> Iterator[Object]:
     """
-    .. c:function:: list_for_each_entry(type, struct list_head *head, member)
+    Iterate over all of the entries in a list.
 
-    Iterate over all of the entries in a list, given the type of the entry and
-    the ``struct list_head`` member in that type.
-
+    :param type: Entry type.
+    :param head: ``struct list_head *``
+    :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
     for pos in list_for_each(head):
         yield container_of(pos, type, member)
 
 
-def list_for_each_entry_reverse(type, head, member):
+def list_for_each_entry_reverse(
+    type: str, head: Object, member: str
+) -> Iterator[Object]:
     """
-    .. c:function:: list_for_each_entry_reverse(type, struct list_head *head, member)
+    Iterate over all of the entries in a list in reverse order.
 
-    Iterate over all of the entries in a list in reverse order, given the type
-    of the entry and the ``struct list_head`` member in that type.
-
+    :param type: Entry type.
+    :param head: ``struct list_head *``
+    :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
     for pos in list_for_each_reverse(head):
         yield container_of(pos, type, member)
 
 
-def hlist_empty(head):
+def hlist_empty(head: Object) -> bool:
     """
-    .. c:function:: bool hlist_empty(struct hlist_head *head)
-
     Return whether a hash list is empty.
+
+    :param head: ``struct hlist_head *``
     """
     return not head.first
 
 
-def hlist_for_each(head):
+def hlist_for_each(head: Object) -> Iterator[Object]:
     """
-    .. c:function:: hlist_for_each(struct hlist_head *head)
-
     Iterate over all of the nodes in a hash list.
 
+    :param head: ``struct hlist_head *``
     :return: Iterator of ``struct hlist_node *`` objects.
     """
     pos = head.first.read_()
@@ -189,13 +205,13 @@ def hlist_for_each(head):
         pos = pos.next.read_()
 
 
-def hlist_for_each_entry(type, head, member):
+def hlist_for_each_entry(type: str, head: Object, member: str) -> Iterator[Object]:
     """
-    .. c:function:: hlist_for_each_entry(type, struct hlist_head *head, member)
+    Iterate over all of the entries in a hash list.
 
-    Iterate over all of the entries in a has list, given the type of the entry
-    and the ``struct hlist_node`` member in that type.
-
+    :param type: Entry type.
+    :param head: ``struct hlist_head *``
+    :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
     for pos in hlist_for_each(head):

@@ -9,7 +9,9 @@ The ``drgn.helpers.linux.pid`` module provides helpers for looking up process
 IDs and processes.
 """
 
-from drgn import NULL, Program, cast, container_of
+from typing import Iterator, Union
+
+from drgn import NULL, Object, Program, cast, container_of
 from drgn.helpers.linux.idr import idr_find, idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry
 from _drgn import (
@@ -27,13 +29,12 @@ __all__ = (
 )
 
 
-def for_each_pid(prog_or_ns):
+def for_each_pid(prog_or_ns: Union[Program, Object]) -> Iterator[Object]:
     """
-    .. c:function:: for_each_pid(struct pid_namespace *ns)
+    Iterate over all PIDs in a namespace.
 
-    Iterate over all of the PIDs in the given namespace. If given a
-    :class:`Program` instead, the initial PID namespace is used.
-
+    :param prog_or_ns: ``struct pid_namespace *`` to iterate over, or
+        :class:`Program` to iterate over initial PID namespace.
     :return: Iterator of ``struct pid *`` objects.
     """
     if isinstance(prog_or_ns, Program):
@@ -55,13 +56,12 @@ def for_each_pid(prog_or_ns):
                     yield container_of(upid, "struct pid", f"numbers[{int(ns.level)}]")
 
 
-def for_each_task(prog_or_ns):
+def for_each_task(prog_or_ns: Union[Program, Object]) -> Iterator[Object]:
     """
-    .. c:function:: for_each_task(struct pid_namespace *ns)
+    Iterate over all of the tasks visible in a namespace.
 
-    Iterate over all of the tasks visible in the given namespace. If given a
-    :class:`Program` instead, the initial PID namespace is used.
-
+    :param prog_or_ns: ``struct pid_namespace *`` to iterate over, or
+        :class:`Program` to iterate over initial PID namespace.
     :return: Iterator of ``struct task_struct *`` objects.
     """
     if isinstance(prog_or_ns, Program):

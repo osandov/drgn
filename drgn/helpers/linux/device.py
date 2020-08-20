@@ -9,7 +9,9 @@ The ``drgn.helpers.linux.device`` module provides helpers for working with
 Linux devices, including the kernel encoding of ``dev_t``.
 """
 
-from drgn import Object, cast
+import operator
+
+from drgn import IntegerLike
 
 __all__ = (
     "MAJOR",
@@ -23,37 +25,29 @@ _MINORBITS = 20
 _MINORMASK = (1 << _MINORBITS) - 1
 
 
-def MAJOR(dev):
+def MAJOR(dev: IntegerLike) -> int:
     """
-    .. c:function:: unsigned int MAJOR(dev_t dev)
-
     Return the major ID of a kernel ``dev_t``.
+
+    :param dev: ``dev_t`` object or :class:``int``.
     """
-    major = dev >> _MINORBITS
-    if isinstance(major, Object):
-        return cast("unsigned int", major)
-    return major
+    return operator.index(dev) >> _MINORBITS
 
 
-def MINOR(dev):
+def MINOR(dev: IntegerLike) -> int:
     """
-    .. c:function:: unsigned int MINOR(dev_t dev)
-
     Return the minor ID of a kernel ``dev_t``.
+
+    :param dev: ``dev_t`` object or :class:``int``.
     """
-    minor = dev & _MINORMASK
-    if isinstance(minor, Object):
-        return cast("unsigned int", minor)
-    return minor
+    return operator.index(dev) & _MINORMASK
 
 
-def MKDEV(major, minor):
+def MKDEV(major: IntegerLike, minor: IntegerLike) -> int:
     """
-    .. c:function:: dev_t MKDEV(unsigned int major, unsigned int minor)
-
     Return a kernel ``dev_t`` from the major and minor IDs.
+
+    :param major: Device major ID.
+    :param minor: Device minor ID.
     """
-    dev = (major << _MINORBITS) | minor
-    if isinstance(dev, Object):
-        return cast("dev_t", dev)
-    return dev
+    return (operator.index(major) << _MINORBITS) | operator.index(minor)

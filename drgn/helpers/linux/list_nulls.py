@@ -11,57 +11,48 @@ hlist_nulls_node``) in :linux:`include/linux/list_nulls.h` where the end of
 list is not a ``NULL`` pointer, but a "nulls" marker.
 """
 
-from drgn import container_of
+from typing import Iterator
+
+from drgn import Object, container_of
 
 
 __all__ = (
     "hlist_nulls_empty",
-    "hlist_nulls_entry",
     "hlist_nulls_for_each_entry",
     "is_a_nulls",
 )
 
 
-def is_a_nulls(pos):
+def is_a_nulls(pos: Object) -> bool:
     """
-    .. c:function:: bool is_a_nulls(struct hlist_nulls_node *pos)
-
     Return whether a a pointer is a nulls marker.
+
+    :param pos: ``struct hlist_nulls_node *``
     """
     return bool(pos.value_() & 1)
 
 
-def hlist_nulls_empty(head):
+def hlist_nulls_empty(head: Object) -> bool:
     """
-    .. c:function:: bool hlist_nulls_empty(struct hlist_nulls_head *head)
-
     Return whether a nulls hash list is empty.
+
+    :param head: ``struct hlist_nulls_head *``
     """
     return is_a_nulls(head.first)
 
 
-def hlist_nulls_entry(pos, type, member):
+def hlist_nulls_for_each_entry(
+    type: str, head: Object, member: str
+) -> Iterator[Object]:
     """
-    .. c:function:: type *hlist_nulls_entry(struct hlist_nulls_node *pos, type, member)
+    Iterate over all the entries in a nulls hash list.
 
-    Return an entry in a nulls hash list.
-
-    The nulls hash list is assumed to be non-empty.
-    """
-    return container_of(pos, type, member)
-
-
-def hlist_nulls_for_each_entry(type, head, member):
-    """
-    .. c:function:: hlist_nulls_for_each_entry(type, struct hlist_nulls_head *head, member)
-
-    Iterate over all the entries in a nulls hash list specified by ``struct
-    hlist_nulls_head`` head, given the type of the entry and the ``struct
-    hlist_nulls_node`` member in that type.
-
+    :param type: Entry type.
+    :param head: ``struct hlist_nulls_head *``
+    :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
     pos = head.first
     while not is_a_nulls(pos):
-        yield hlist_nulls_entry(pos, type, member)
+        yield container_of(pos, type, member)
         pos = pos.next

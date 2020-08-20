@@ -9,38 +9,36 @@ The ``drgn.helpers.linux.kernfs`` module provides helpers for working with the
 kernfs pseudo filesystem interface in :linux:`include/linux/kernfs.h`.
 """
 
+from drgn import Object
+
 __all__ = (
     "kernfs_name",
     "kernfs_path",
 )
 
 
-def kernfs_name(kn):
+def kernfs_name(kn: Object) -> bytes:
     """
-    .. c:function:: char *kernfs_name(struct kernfs_node *kn)
-
     Get the name of the given kernfs node.
 
-    :rtype: bytes
+    :param kn: ``struct kernfs_node *``
     """
     if not kn:
         return b"(null)"
     return kn.name.string_() if kn.parent else b"/"
 
 
-def _kernfs_root(kn):
+def _kernfs_root(kn: Object) -> Object:
     if kn.parent:
         kn = kn.parent
     return kn.dir.root
 
 
-def kernfs_path(kn):
+def kernfs_path(kn: Object) -> bytes:
     """
-    .. c:function:: char *kernfs_path(struct kernfs_node *kn)
-
     Get full path of the given kernfs node.
 
-    :rtype: bytes
+    :param kn: ``struct kernfs_node *``
     """
     if not kn:
         return b"(null)"

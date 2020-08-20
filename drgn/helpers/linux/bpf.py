@@ -12,8 +12,9 @@ etc.
 
 
 import itertools
+from typing import Iterator
 
-from drgn import cast
+from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import list_for_each_entry
 
@@ -26,11 +27,9 @@ __all__ = (
 )
 
 
-def bpf_map_for_each(prog):
+def bpf_map_for_each(prog: Program) -> Iterator[Object]:
     """
-    .. c:function:: bpf_map_for_each(prog)
-
-    Iterate over all bpf maps.
+    Iterate over all BPF maps.
 
     :return: Iterator of ``struct bpf_map *`` objects.
     """
@@ -38,11 +37,9 @@ def bpf_map_for_each(prog):
         yield cast("struct bpf_map *", entry)
 
 
-def bpf_prog_for_each(prog):
+def bpf_prog_for_each(prog: Program) -> Iterator[Object]:
     """
-    .. c:function:: bpf_prog_for_each(prog)
-
-    Iterate over all bpf programs.
+    Iterate over all BPF programs.
 
     :return: Iterator of ``struct bpf_prog *`` objects.
     """
@@ -50,13 +47,15 @@ def bpf_prog_for_each(prog):
         yield cast("struct bpf_prog *", entry)
 
 
-def cgroup_bpf_prog_for_each(cgrp, bpf_attach_type):
+def cgroup_bpf_prog_for_each(
+    cgrp: Object, bpf_attach_type: IntegerLike
+) -> Iterator[Object]:
     """
-    .. c:function:: cgroup_bpf_prog_for_each(struct cgroup *cgrp, int bpf_attach_type)
-
-    Iterate over all cgroup bpf programs of the given attach type attached to
+    Iterate over all cgroup BPF programs of the given attach type attached to
     the given cgroup.
 
+    :param cgrp: ``struct cgroup *``
+    :param bpf_attach_type: ``enum bpf_attach_type``
     :return: Iterator of ``struct bpf_prog *`` objects.
     """
     progs_head = cgrp.bpf.progs[bpf_attach_type]
@@ -66,13 +65,15 @@ def cgroup_bpf_prog_for_each(cgrp, bpf_attach_type):
         yield pl.prog
 
 
-def cgroup_bpf_prog_for_each_effective(cgrp, bpf_attach_type):
+def cgroup_bpf_prog_for_each_effective(
+    cgrp: Object, bpf_attach_type: IntegerLike
+) -> Iterator[Object]:
     """
-    .. c:function:: cgroup_bpf_prog_for_each(struct cgroup *cgrp, int bpf_attach_type)
-
-    Iterate over all effective cgroup bpf programs of the given attach type for
+    Iterate over all effective cgroup BPF programs of the given attach type for
     the given cgroup.
 
+    :param cgrp: ``struct cgroup *``
+    :param bpf_attach_type: ``enum bpf_attach_type``
     :return: Iterator of ``struct bpf_prog *`` objects.
     """
     prog_array_items = cgrp.bpf.effective[bpf_attach_type].items

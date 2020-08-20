@@ -141,7 +141,7 @@ static int prog_or_pid_ns_converter(PyObject *o, void *p)
 DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args,
 					  PyObject *kwds)
 {
-	static char *keywords[] = {"ns", "pid", NULL};
+	static char *keywords[] = {"prog_or_ns", "pid", NULL};
 	struct drgn_error *err;
 	struct prog_or_ns_arg prog_or_ns;
 	struct index_arg pid = {};
