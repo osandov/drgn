@@ -3,7 +3,6 @@
 
 import os
 
-
 from drgn.helpers.linux.cgroup import (
     cgroup_name,
     cgroup_path,

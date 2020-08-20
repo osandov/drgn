@@ -17,7 +17,7 @@ from drgn.helpers.linux.fs import (
     path_lookup,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.helpers.linux import LinuxHelperTestCase, MS_BIND, mount, umount
+from tests.helpers.linux import MS_BIND, LinuxHelperTestCase, mount, umount
 
 
 class TestFs(LinuxHelperTestCase):

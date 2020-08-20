@@ -1,7 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # SPDX-License-Identifier: GPL-3.0+
 
-import aiohttp
 import argparse
 import asyncio
 import difflib
@@ -30,10 +29,11 @@ from typing import (
     Tuple,
 )
 import urllib.parse
+
+import aiohttp
 from yarl import URL
 
 from util import nproc
-
 
 logger = logging.getLogger("asyncio")
 

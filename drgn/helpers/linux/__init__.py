@@ -33,7 +33,6 @@ Translates to the following code in Python:
 import importlib
 import pkgutil
 
-
 __all__ = []
 for _module_info in pkgutil.iter_modules(
     __path__,  # type: ignore[name-defined]  # python/mypy#1422

@@ -15,7 +15,6 @@ from drgn import Object
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
 from drgn.helpers.linux.tcp import sk_tcpstate
 
-
 __all__ = (
     "sk_fullsock",
     "sk_nulls_for_each",

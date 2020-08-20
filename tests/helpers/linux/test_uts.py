@@ -4,7 +4,6 @@
 import os
 
 import drgn
-
 from tests.helpers.linux import LinuxHelperTestCase
 
 

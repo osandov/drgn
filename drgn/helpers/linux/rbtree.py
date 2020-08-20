@@ -11,8 +11,7 @@ red-black trees from :linux:`include/linux/rbtree.h`.
 
 from typing import Callable, Iterator, TypeVar
 
-from drgn import Object, NULL, container_of
-
+from drgn import NULL, Object, container_of
 
 __all__ = (
     "RB_EMPTY_NODE",

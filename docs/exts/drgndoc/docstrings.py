@@ -12,7 +12,6 @@ from drgndoc.namespace import Namespace, ResolvedNode
 from drgndoc.parse import Class, DocumentedNode, Node, parse_paths
 from drgndoc.util import dot_join
 
-
 escapes = []
 for c in range(256):
     if c == 0:

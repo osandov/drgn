@@ -12,7 +12,7 @@ in the Linux kernel.
 import operator
 from typing import Iterator, Union
 
-from drgn import IntegerLike, NULL, Object, Program
+from drgn import NULL, IntegerLike, Object, Program
 from drgn.helpers.linux.list import hlist_for_each_entry
 
 __all__ = (

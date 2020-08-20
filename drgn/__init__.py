@@ -46,13 +46,13 @@ import sys
 import types
 
 from _drgn import (
+    NULL,
     Architecture,
     FaultError,
     FindObjectFlags,
     IntegerLike,
     Language,
     MissingDebugInfoError,
-    NULL,
     Object,
     OutOfBoundsError,
     Path,
@@ -95,7 +95,6 @@ from _drgn import (
     union_type,
     void_type,
 )
-
 
 __all__ = (
     "Architecture",

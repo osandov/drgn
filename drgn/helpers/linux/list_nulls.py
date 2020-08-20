@@ -15,7 +15,6 @@ from typing import Iterator
 
 from drgn import Object, container_of
 
-
 __all__ = (
     "hlist_nulls_empty",
     "hlist_nulls_for_each_entry",

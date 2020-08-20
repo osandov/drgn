@@ -18,7 +18,6 @@ from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import list_for_each_entry
 
-
 __all__ = (
     "bpf_map_for_each",
     "bpf_prog_for_each",

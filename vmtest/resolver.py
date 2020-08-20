@@ -16,7 +16,6 @@ import urllib.request
 
 from util import KernelVersion
 
-
 # This URL contains a mapping from file names to URLs where those files can be
 # downloaded. This is needed because the files under a Dropbox shared folder
 # have randomly-generated links.

@@ -3,12 +3,7 @@
 
 import os
 
-from drgn.helpers.linux.pid import (
-    find_pid,
-    find_task,
-    for_each_pid,
-    for_each_task,
-)
+from drgn.helpers.linux.pid import find_pid, find_task, for_each_pid, for_each_task
 from tests.helpers.linux import LinuxHelperTestCase
 
 

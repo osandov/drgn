@@ -4,11 +4,10 @@
 """Improved readline completer"""
 
 import builtins
-import re
 import keyword
+import re
 import readline
 from typing import Any, Dict, List, Optional
-
 
 _EXPR_RE = re.compile(
     r"""

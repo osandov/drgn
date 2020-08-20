@@ -3,10 +3,9 @@
 
 """List the paths of all descendants of a cgroup v2"""
 
+from contextlib import contextmanager
 import os
 import sys
-
-from contextlib import contextmanager
 
 from drgn import cast
 from drgn.helpers import enum_type_to_class
@@ -17,7 +16,6 @@ from drgn.helpers.linux import (
     fget,
     find_task,
 )
-
 
 BpfAttachType = enum_type_to_class(
     prog.type("enum bpf_attach_type"),

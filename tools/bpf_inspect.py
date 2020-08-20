@@ -11,12 +11,7 @@ import argparse
 import sys
 
 from drgn.helpers import enum_type_to_class
-from drgn.helpers.linux import (
-    bpf_map_for_each,
-    bpf_prog_for_each,
-    hlist_for_each_entry,
-)
-
+from drgn.helpers.linux import bpf_map_for_each, bpf_prog_for_each, hlist_for_each_entry
 
 BpfMapType = enum_type_to_class(prog.type("enum bpf_map_type"), "BpfMapType")
 BpfProgType = enum_type_to_class(prog.type("enum bpf_prog_type"), "BpfProgType")

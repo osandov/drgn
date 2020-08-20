@@ -25,7 +25,7 @@ from drgn import (
     void_type,
 )
 from tests import coord_type, point_type
-from tests.libdrgn import C_TOKEN, drgn_lexer_c, Lexer
+from tests.libdrgn import C_TOKEN, Lexer, drgn_lexer_c
 
 
 class TestPrettyPrintTypeName(unittest.TestCase):

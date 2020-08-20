@@ -14,7 +14,6 @@ from _drgn import (
     _linux_helper_pgtable_l5_enabled as pgtable_l5_enabled,
 )
 
-
 __all__ = (
     "kaslr_offset",
     "pgtable_l5_enabled",

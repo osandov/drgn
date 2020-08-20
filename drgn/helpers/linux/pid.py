@@ -11,14 +11,14 @@ IDs and processes.
 
 from typing import Iterator, Union
 
-from drgn import NULL, Object, Program, cast, container_of
-from drgn.helpers.linux.idr import idr_find, idr_for_each
-from drgn.helpers.linux.list import hlist_for_each_entry
 from _drgn import (
     _linux_helper_find_pid as find_pid,
     _linux_helper_find_task as find_task,
     _linux_helper_pid_task as pid_task,
 )
+from drgn import NULL, Object, Program, cast, container_of
+from drgn.helpers.linux.idr import idr_find, idr_for_each
+from drgn.helpers.linux.list import hlist_for_each_entry
 
 __all__ = (
     "find_pid",

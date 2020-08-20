@@ -19,7 +19,6 @@ from drgn.helpers.linux import (
     sock_cgroup_ptr,
 )
 
-
 TcpState = enum_type_to_class(
     prog["TCP_ESTABLISHED"].type_,
     "TcpState",

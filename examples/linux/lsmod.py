@@ -5,7 +5,6 @@
 
 from drgn.helpers.linux.list import list_for_each_entry
 
-
 print("Module                  Size  Used by")
 for mod in list_for_each_entry("struct module", prog["modules"].address_of_(), "list"):
     name = mod.name.string_().decode()

@@ -5,7 +5,6 @@
 import keyword
 import re
 
-
 prefixes = [
     "DW_AT",
     "DW_ATE",

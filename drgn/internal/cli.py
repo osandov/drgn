@@ -9,11 +9,12 @@ import code
 import importlib
 import os
 import os.path
-import pkg_resources
 import runpy
 import shutil
 import sys
 from typing import Any, Dict
+
+import pkg_resources
 
 import drgn
 

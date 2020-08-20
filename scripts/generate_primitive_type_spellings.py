@@ -5,7 +5,6 @@
 import itertools
 import sys
 
-
 SPELLINGS = [
     ("DRGN_C_TYPE_VOID", ["void"]),
     ("DRGN_C_TYPE_CHAR", ["char"]),

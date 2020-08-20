@@ -26,7 +26,6 @@ from drgn import (
     union_type,
 )
 
-
 DEFAULT_LANGUAGE = Language.C
 
 

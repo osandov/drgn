@@ -6,7 +6,6 @@ import os
 import signal
 
 from drgn.helpers.linux.user import find_user, for_each_user
-
 from tests.helpers.linux import (
     LinuxHelperTestCase,
     fork_and_pause,

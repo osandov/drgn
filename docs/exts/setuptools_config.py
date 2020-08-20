@@ -23,9 +23,8 @@
 from __future__ import unicode_literals
 
 import os
-import sys
 import subprocess
-
+import sys
 
 if "check_output" not in dir(subprocess):
     import subprocess32 as subprocess

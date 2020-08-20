@@ -12,7 +12,6 @@ import tempfile
 
 from util import nproc, out_of_date
 
-
 # Script run as init in the virtual machine. This only depends on busybox. We
 # don't assume that any regular commands are built in (not even echo or test),
 # so we always explicitly run busybox.

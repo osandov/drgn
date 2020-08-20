@@ -5,7 +5,6 @@ import unittest
 
 from tests.libdrgn import deserialize_bits, serialize_bits
 
-
 VALUE = 12345678912345678989
 
 

@@ -26,7 +26,6 @@ from drgn import (
     union_type,
     void_type,
 )
-
 from tests import DEFAULT_LANGUAGE
 
 

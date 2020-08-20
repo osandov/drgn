@@ -40,18 +40,19 @@ This also provides a script that can generate docstring definitions from a stub
 file for the C extension itself (drgndoc.docstrings).
 """
 
+import os.path
+import re
+from typing import Any, Dict, List, cast
+
 import docutils.nodes
 import docutils.parsers.rst.directives
 import docutils.statemachine
-import os.path
-import re
 import sphinx.addnodes
 import sphinx.application
 import sphinx.environment
 import sphinx.util.docutils
 import sphinx.util.logging
 import sphinx.util.nodes
-from typing import Any, Dict, List, cast
 
 from drgndoc.format import Formatter
 from drgndoc.namespace import Namespace, ResolvedNode
@@ -65,7 +66,6 @@ from drgndoc.parse import (
     parse_paths,
 )
 from drgndoc.util import dot_join
-
 
 logger = sphinx.util.logging.getLogger(__name__)
 

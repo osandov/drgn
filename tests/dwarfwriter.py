@@ -4,10 +4,9 @@
 from collections import namedtuple
 import os.path
 
+from tests.dwarf import DW_AT, DW_FORM, DW_TAG
 from tests.elf import ET, PT, SHT
 from tests.elfwriter import ElfSection, create_elf_file
-from tests.dwarf import DW_AT, DW_FORM, DW_TAG
-
 
 DwarfAttrib = namedtuple("DwarfAttrib", ["name", "form", "value"])
 DwarfDie = namedtuple("DwarfAttrib", ["tag", "attribs", "children"])

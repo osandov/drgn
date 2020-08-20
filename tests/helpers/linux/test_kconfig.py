@@ -4,7 +4,6 @@
 import os.path
 
 from drgn.helpers.linux.kconfig import get_kconfig
-
 from tests.helpers.linux import LinuxHelperTestCase
 
 

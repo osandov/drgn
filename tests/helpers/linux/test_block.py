@@ -19,7 +19,6 @@ from drgn.helpers.linux.block import (
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from tests.helpers.linux import LinuxHelperTestCase
 
-
 LOOP_SET_FD = 0x4C00
 LOOP_SET_STATUS64 = 0x4C04
 LOOP_GET_STATUS64 = 0x4C05

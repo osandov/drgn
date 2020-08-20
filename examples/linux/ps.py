@@ -5,7 +5,6 @@
 
 from drgn.helpers.linux.pid import for_each_task
 
-
 print("PID        COMM")
 for task in for_each_task(prog):
     pid = task.pid.value_()

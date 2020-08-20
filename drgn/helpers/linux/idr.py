@@ -13,10 +13,9 @@ IDRs were not based on radix trees.
 
 from typing import Iterator, Tuple
 
+from _drgn import _linux_helper_idr_find as idr_find
 from drgn import Object
 from drgn.helpers.linux.radixtree import radix_tree_for_each, radix_tree_lookup
-from _drgn import _linux_helper_idr_find as idr_find
-
 
 __all__ = (
     "idr_find",

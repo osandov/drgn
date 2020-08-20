@@ -1,9 +1,10 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # SPDX-License-Identifier: GPL-3.0+
 
+import unittest
+
 import _drgn
 import drgn
-import unittest
 
 
 class TestModule(unittest.TestCase):

@@ -11,9 +11,8 @@ radix trees from :linux:`include/linux/radix-tree.h`.
 
 from typing import Iterator, Tuple
 
-from drgn import Object, cast
 from _drgn import _linux_helper_radix_tree_lookup as radix_tree_lookup
-
+from drgn import Object, cast
 
 __all__ = (
     "radix_tree_for_each",

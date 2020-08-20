@@ -39,8 +39,7 @@ from tests import (
     point_type,
 )
 from tests.dwarf import DW_AT, DW_ATE, DW_FORM, DW_LANG, DW_TAG
-from tests.dwarfwriter import compile_dwarf, DwarfDie, DwarfAttrib
-
+from tests.dwarfwriter import DwarfAttrib, DwarfDie, compile_dwarf
 
 bool_die = DwarfDie(
     DW_TAG.base_type,

@@ -14,7 +14,6 @@ from typing import Iterator, Union
 
 from drgn import NULL, Object, Type, container_of
 
-
 __all__ = (
     "hlist_empty",
     "hlist_for_each",

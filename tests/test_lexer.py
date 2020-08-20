@@ -3,7 +3,7 @@
 
 import unittest
 
-from tests.libdrgn import drgn_test_lexer_func, Lexer
+from tests.libdrgn import Lexer, drgn_test_lexer_func
 
 
 class TestLexer(unittest.TestCase):
