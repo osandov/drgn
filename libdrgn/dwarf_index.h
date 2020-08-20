@@ -218,6 +218,8 @@ DEFINE_HASH_TABLE_TYPE(drgn_dwarf_module_table, struct drgn_dwarf_module *,
 
 DEFINE_HASH_SET_TYPE(c_string_set, const char *)
 
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu)
+
 /**
  * Fast index of DWARF debugging information.
  *
@@ -244,6 +246,8 @@ struct drgn_dwarf_index {
 	 * a program to cause contention.
 	 */
 	struct drgn_dwarf_index_specification_map specifications;
+	/** Indexed compilation units. */
+	struct drgn_dwarf_index_cu_vector cus;
 	Dwfl *dwfl;
 	/**
 	 * Formatted errors reported by @ref drgn_dwarf_index_report_error().

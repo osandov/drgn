@@ -215,7 +215,7 @@ DEFINE_VECTOR(uint8_vector, uint8_t)
 DEFINE_VECTOR(uint32_vector, uint32_t)
 DEFINE_VECTOR(uint64_vector, uint64_t)
 
-struct compilation_unit {
+struct drgn_dwarf_index_cu {
 	struct drgn_dwfl_module_userdata *userdata;
 	const char *ptr;
 	size_t unit_length;
@@ -239,6 +239,8 @@ struct compilation_unit {
 	uint64_t *file_name_hashes;
 	size_t num_file_names;
 };
+
+DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_cu_vector)
 
 static inline const char *section_ptr(Elf_Data *data, size_t offset)
 {
@@ -459,6 +461,7 @@ struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
 		drgn_dwarf_index_die_vector_init(&shard->dies);
 	}
 	drgn_dwarf_index_specification_map_init(&dindex->specifications);
+	drgn_dwarf_index_cu_vector_init(&dindex->cus);
 	memset(&dindex->errors, 0, sizeof(dindex->errors));
 	dindex->num_errors = 0;
 	const char *max_errors = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
@@ -472,6 +475,13 @@ struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
 	return NULL;
 }
 
+static void drgn_dwarf_index_cu_deinit(struct drgn_dwarf_index_cu *cu)
+{
+	free(cu->file_name_hashes);
+	free(cu->abbrev_insns);
+	free(cu->abbrev_decls);
+}
+
 void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex)
 {
 	if (!dindex)
@@ -482,12 +492,16 @@ void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex)
 	assert(drgn_dwarf_module_table_size(&dindex->module_table) == 0);
 	drgn_dwarf_module_vector_deinit(&dindex->no_build_id);
 	drgn_dwarf_module_table_deinit(&dindex->module_table);
+	for (size_t i = 0; i < dindex->cus.size; i++)
+		drgn_dwarf_index_cu_deinit(&dindex->cus.data[i]);
+	drgn_dwarf_index_cu_vector_deinit(&dindex->cus);
 	drgn_dwarf_index_specification_map_deinit(&dindex->specifications);
 	for (size_t i = 0; i < ARRAY_SIZE(dindex->shards); i++) {
 		drgn_dwarf_index_die_vector_deinit(&dindex->shards[i].dies);
 		drgn_dwarf_index_die_map_deinit(&dindex->shards[i].map);
 		omp_destroy_lock(&dindex->shards[i].lock);
 	}
+
 	dwfl_end(dindex->dwfl);
 }
 
@@ -1138,7 +1152,7 @@ get_debug_sections(struct drgn_dwfl_module_userdata *userdata,
 
 static struct drgn_error *read_compilation_unit_header(const char *ptr,
 						       const char *end,
-						       struct compilation_unit *cu)
+						       struct drgn_dwarf_index_cu *cu)
 {
 	uint32_t tmp;
 	if (!mread_u32(&ptr, end, cu->bswap, &tmp))
@@ -1177,11 +1191,10 @@ static struct drgn_error *read_compilation_unit_header(const char *ptr,
 	return NULL;
 }
 
-DEFINE_VECTOR(compilation_unit_vector, struct compilation_unit)
 
 static struct drgn_error *
 read_dwfl_module_cus(struct drgn_dwfl_module_userdata *userdata,
-		     struct compilation_unit_vector *cus)
+		     struct drgn_dwarf_index_cu_vector *cus)
 {
 	struct drgn_error *err;
 
@@ -1193,9 +1206,8 @@ read_dwfl_module_cus(struct drgn_dwfl_module_userdata *userdata,
 	const char *ptr = section_ptr(userdata->debug_info, 0);
 	const char *end = section_end(userdata->debug_info);
 	while (ptr < end) {
-		struct compilation_unit *cu;
-
-		cu = compilation_unit_vector_append_entry(cus);
+		struct drgn_dwarf_index_cu *cu =
+			drgn_dwarf_index_cu_vector_append_entry(cus);
 		if (!cu)
 			return &drgn_enomem;
 		cu->userdata = userdata;
@@ -1217,9 +1229,9 @@ read_dwfl_module_cus(struct drgn_dwfl_module_userdata *userdata,
 	return NULL;
 }
 
-static struct drgn_error *read_module_cus(struct drgn_dwarf_module *module,
-					  struct compilation_unit_vector *cus,
-					  const char **name_ret)
+static struct drgn_error *
+read_module_cus(struct drgn_dwarf_module *module,
+		struct drgn_dwarf_index_cu_vector *cus, const char **name_ret)
 {
 	const size_t orig_cus_size = cus->size;
 	for (size_t i = 0; i < module->dwfl_modules.size; i++) {
@@ -1249,15 +1261,14 @@ static struct drgn_error *read_module_cus(struct drgn_dwarf_module *module,
 
 static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 				   struct drgn_dwarf_module **unindexed,
-				   size_t num_unindexed,
-				   struct compilation_unit_vector *all_cus)
+				   size_t num_unindexed)
 {
 	struct drgn_error *err = NULL;
 
 	#pragma omp parallel
 	{
 		int thread_num = omp_get_thread_num();
-		struct compilation_unit_vector cus = VECTOR_INIT;
+		struct drgn_dwarf_index_cu_vector cus = VECTOR_INIT;
 
 		#pragma omp for schedule(dynamic)
 		for (size_t i = 0; i < num_unindexed; i++) {
@@ -1269,7 +1280,7 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 
 			module_err = read_module_cus(unindexed[i],
 						     thread_num == 0 ?
-						     all_cus : &cus,
+						     &dindex->cus : &cus,
 						     &name);
 			if (module_err) {
 				#pragma omp critical(drgn_read_cus)
@@ -1288,24 +1299,24 @@ static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
 		if (cus.size) {
 			#pragma omp critical(drgn_read_cus)
 			if (!err) {
-				if (compilation_unit_vector_reserve(all_cus,
-								    all_cus->size + cus.size)) {
-					memcpy(all_cus->data + all_cus->size,
+				if (drgn_dwarf_index_cu_vector_reserve(&dindex->cus,
+								       dindex->cus.size + cus.size)) {
+					memcpy(dindex->cus.data + dindex->cus.size,
 					       cus.data,
 					       cus.size * sizeof(*cus.data));
-					all_cus->size += cus.size;
+					dindex->cus.size += cus.size;
 				} else {
 					err = &drgn_enomem;
 				}
 			}
 		}
-		compilation_unit_vector_deinit(&cus);
+		drgn_dwarf_index_cu_vector_deinit(&cus);
 	}
 	return err;
 }
 
 static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
-					   struct compilation_unit *cu,
+					   struct drgn_dwarf_index_cu *cu,
 					   struct uint32_vector *decls,
 					   struct uint8_vector *insns)
 {
@@ -1591,7 +1602,7 @@ append_insn:
 	return NULL;
 }
 
-static struct drgn_error *read_abbrev_table(struct compilation_unit *cu)
+static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu)
 {
 	Elf_Data *debug_abbrev = cu->userdata->debug_abbrev;
 	const char *ptr = section_ptr(debug_abbrev, cu->debug_abbrev_offset);
@@ -1617,7 +1628,7 @@ static struct drgn_error *read_abbrev_table(struct compilation_unit *cu)
 	return NULL;
 }
 
-static struct drgn_error *skip_lnp_header(struct compilation_unit *cu,
+static struct drgn_error *skip_lnp_header(struct drgn_dwarf_index_cu *cu,
 					  const char **ptr, const char *end)
 {
 	uint32_t tmp;
@@ -1681,7 +1692,7 @@ DEFINE_VECTOR(siphash_vector, struct siphash)
 
 static struct drgn_error *
 read_file_name_table(struct drgn_dwarf_index *dindex,
-		     struct compilation_unit *cu, size_t stmt_list)
+		     struct drgn_dwarf_index_cu *cu, size_t stmt_list)
 {
 	/*
 	 * We don't care about hash flooding attacks, so don't bother with the
@@ -1803,7 +1814,7 @@ index_specification(struct drgn_dwarf_index *dindex, uintptr_t declaration,
  * DW_AT_specification.
  */
 static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
-					      struct compilation_unit *cu)
+					      struct drgn_dwarf_index_cu *cu)
 {
 	struct drgn_error *err;
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
@@ -2107,7 +2118,7 @@ out:
 
 /* Second pass: index the actual DIEs. */
 static struct drgn_error *index_cu_second_pass(struct drgn_dwarf_index *dindex,
-					       struct compilation_unit *cu)
+					       struct drgn_dwarf_index_cu *cu)
 {
 	struct drgn_error *err;
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
@@ -2417,17 +2428,17 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 }
 
 static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
-				    struct compilation_unit *cus,
-				    size_t num_cus)
+				    const size_t old_cus_size)
 {
 	struct drgn_error *err = NULL;
 	#pragma omp parallel
 	{
 		#pragma omp for schedule(dynamic)
-		for (size_t i = 0; i < num_cus; i++) {
+		for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
 			if (!err) {
 				struct drgn_error *cu_err =
-					index_cu_first_pass(dindex, &cus[i]);
+					index_cu_first_pass(dindex,
+							    &dindex->cus.data[i]);
 				if (cu_err) {
 					#pragma omp critical(drgn_index_cus)
 					if (err)
@@ -2439,10 +2450,11 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 		}
 
 		#pragma omp for schedule(dynamic)
-		for (size_t i = 0; i < num_cus; i++) {
+		for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
 			if (!err) {
 				struct drgn_error *cu_err =
-					index_cu_second_pass(dindex, &cus[i]);
+					index_cu_second_pass(dindex,
+							     &dindex->cus.data[i]);
 				if (cu_err) {
 					#pragma omp critical(drgn_index_cus)
 					if (err)
@@ -2451,9 +2463,6 @@ static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
 						err = cu_err;
 				}
 			}
-			free(cus[i].file_name_hashes);
-			free(cus[i].abbrev_insns);
-			free(cus[i].abbrev_decls);
 		}
 	}
 	return err;
@@ -2469,7 +2478,7 @@ drgn_dwarf_index_report_end_internal(struct drgn_dwarf_index *dindex,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_module_vector unindexed = VECTOR_INIT;
-	struct compilation_unit_vector cus = VECTOR_INIT;
+	const size_t old_cus_size = dindex->cus.size;
 
 	dwfl_report_end(dindex->dwfl, NULL, NULL);
 	if (report_from_dwfl &&
@@ -2481,25 +2490,27 @@ drgn_dwarf_index_report_end_internal(struct drgn_dwarf_index *dindex,
 	err = drgn_dwarf_index_get_unindexed(dindex, &unindexed);
 	if (err)
 		goto err;
-	err = read_cus(dindex, unindexed.data, unindexed.size, &cus);
+	err = read_cus(dindex, unindexed.data, unindexed.size);
 	if (err)
 		goto err;
 	/*
 	 * After this point, if we hit an error, then we have to roll back the
 	 * index.
 	 */
-	err = index_cus(dindex, cus.data, cus.size);
+	err = index_cus(dindex, old_cus_size);
 	if (err) {
 		rollback_dwarf_index(dindex);
 		goto err;
 	}
 
 out:
-	compilation_unit_vector_deinit(&cus);
 	drgn_dwarf_module_vector_deinit(&unindexed);
 	return err;
 
 err:
+	for (size_t i = old_cus_size; i < dindex->cus.size; i++)
+		drgn_dwarf_index_cu_deinit(&dindex->cus.data[i]);
+	dindex->cus.size = old_cus_size;
 	drgn_dwarf_index_free_modules(dindex, false, false);
 	drgn_dwarf_index_reset_errors(dindex);
 	goto out;
