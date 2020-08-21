@@ -12,6 +12,7 @@
 
 #include "docstrings.h"
 #include "../drgn.h"
+#include "../hash_table.h"
 #include "../program.h"
 
 /* These were added in Python 3.7. */
@@ -88,11 +89,17 @@ typedef struct {
 	struct drgn_platform *platform;
 } Platform;
 
+DEFINE_HASH_SET_TYPE(pyobjectp_set, PyObject *)
+
 typedef struct {
 	PyObject_HEAD
 	struct drgn_program prog;
-	PyObject *objects;
 	PyObject *cache;
+	/*
+	 * Set of objects that we need to hold a reference to during the
+	 * lifetime of the Program.
+	 */
+	struct pyobjectp_set objects;
 } Program;
 
 typedef struct {

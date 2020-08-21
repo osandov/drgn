@@ -4,18 +4,15 @@
 #include "drgnpy.h"
 #include "../vector.h"
 
+DEFINE_HASH_TABLE_FUNCTIONS(pyobjectp_set, hash_pair_ptr_type,
+			    hash_table_scalar_eq)
+
 static int Program_hold_object(Program *prog, PyObject *obj)
 {
-	PyObject *key;
-	int ret;
-
-	key = PyLong_FromVoidPtr(obj);
-	if (!key)
+	if (pyobjectp_set_insert(&prog->objects, &obj, NULL) == -1)
 		return -1;
-
-	ret = PyDict_SetItem(prog->objects, key, obj);
-	Py_DECREF(key);
-	return ret;
+	Py_INCREF(obj);
+	return 0;
 }
 
 static int Program_hold_type(Program *prog, DrgnType *type)
@@ -66,15 +63,13 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 			    PyObject *kwds)
 {
-	static char *keywords[] = {"platform", NULL};
-	PyObject *platform_obj = NULL, *objects, *cache;
-	struct drgn_platform *platform;
-	Program *prog;
-
+	static char *keywords[] = { "platform", NULL };
+	PyObject *platform_obj = NULL;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:Program", keywords,
 					 &platform_obj))
 		return NULL;
 
+	struct drgn_platform *platform;
 	if (!platform_obj || platform_obj == Py_None) {
 		platform = NULL;
 	} else if (PyObject_TypeCheck(platform_obj, &Platform_type)) {
@@ -85,22 +80,17 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 	}
 
-	objects = PyDict_New();
-	if (!objects)
-		return NULL;
-
-	cache = PyDict_New();
+	PyObject *cache = PyDict_New();
 	if (!cache)
 		return NULL;
 
-	prog = (Program *)Program_type.tp_alloc(&Program_type, 0);
+	Program *prog = (Program *)Program_type.tp_alloc(&Program_type, 0);
 	if (!prog) {
 		Py_DECREF(cache);
-		Py_DECREF(objects);
 		return NULL;
 	}
-	prog->objects = objects;
 	prog->cache = cache;
+	pyobjectp_set_init(&prog->objects);
 	drgn_program_init(&prog->prog, platform);
 	return prog;
 }
@@ -108,21 +98,33 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 static void Program_dealloc(Program *self)
 {
 	drgn_program_deinit(&self->prog);
-	Py_XDECREF(self->objects);
+	for (struct pyobjectp_set_iterator it =
+	     pyobjectp_set_first(&self->objects); it.entry;
+	     it = pyobjectp_set_next(it))
+		Py_DECREF(*it.entry);
+	pyobjectp_set_deinit(&self->objects);
 	Py_XDECREF(self->cache);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static int Program_traverse(Program *self, visitproc visit, void *arg)
 {
-	Py_VISIT(self->objects);
+	for (struct pyobjectp_set_iterator it =
+	     pyobjectp_set_first(&self->objects); it.entry;
+	     it = pyobjectp_set_next(it))
+		Py_VISIT(*it.entry);
 	Py_VISIT(self->cache);
 	return 0;
 }
 
 static int Program_clear(Program *self)
 {
-	Py_CLEAR(self->objects);
+	for (struct pyobjectp_set_iterator it =
+	     pyobjectp_set_first(&self->objects); it.entry;
+	     it = pyobjectp_set_next(it))
+		Py_DECREF(*it.entry);
+	pyobjectp_set_deinit(&self->objects);
+	pyobjectp_set_init(&self->objects);
 	Py_CLEAR(self->cache);
 	return 0;
 }
