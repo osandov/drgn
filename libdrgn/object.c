@@ -15,7 +15,8 @@
 #include "type.h"
 #include "type_index.h"
 
-void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog)
+LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
+				     struct drgn_program *prog)
 {
 	obj->prog = prog;
 	obj->type = drgn_void_type(drgn_program_language(prog));
