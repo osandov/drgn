@@ -172,10 +172,13 @@ prstatus_set_initial_registers_x86_64(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "NT_PRSTATUS is truncated");
 	}
+	bool bswap;
+	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
 	return set_initial_registers_from_struct_x86_64(thread,
 							(char *)prstatus + 112,
-							size - 112,
-							drgn_program_bswap(prog));
+							size - 112, bswap);
 }
 
 static inline struct drgn_error *read_register(struct drgn_object *reg_obj,
@@ -462,9 +465,11 @@ linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
 	static const uint64_t ADDRESS_MASK = UINT64_C(0xffffffffff000);
 	struct drgn_program *prog = it->prog;
 	struct pgtable_iterator_x86_64 *arch = (void *)it->arch;
-	struct drgn_error *err;
-	bool bswap = drgn_program_bswap(prog);
 	int levels = prog->vmcoreinfo.pgtable_l5_enabled ? 5 : 4, level;
+	bool bswap;
+	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
 
 	/* Find the lowest level with cached entries. */
 	for (level = 0; level < levels; level++) {

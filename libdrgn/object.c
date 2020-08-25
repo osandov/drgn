@@ -285,12 +285,7 @@ drgn_byte_order_to_little_endian(struct drgn_program *prog,
 		*ret = true;
 		return NULL;
 	case DRGN_PROGRAM_ENDIAN:
-		if (!prog->has_platform) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "program byte order is not known");
-		}
-		*ret = drgn_program_is_little_endian(prog);
-		return NULL;
+		return drgn_program_is_little_endian(prog, ret);
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "invalid byte order");
@@ -382,22 +377,17 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 				   uint64_t bit_size, uint64_t address,
 				   uint64_t bit_offset, bool little_endian)
 {
-	struct drgn_error *err;
-
-	if (!res->prog->has_platform) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "program word size is not known");
-	}
+	bool is_64_bit;
+	struct drgn_error *err = drgn_program_is_64_bit(res->prog, &is_64_bit);
+	if (err)
+		return err;
 
 	err = sanity_check_object(kind, type->bit_field_size, bit_size);
 	if (err)
 		return err;
 
 	address += bit_offset / 8;
-	if (drgn_program_is_64_bit(res->prog))
-		address &= UINT64_MAX;
-	else
-		address &= UINT32_MAX;
+	address &= is_64_bit ? UINT64_MAX : UINT32_MAX;
 	bit_offset %= 8;
 	if (bit_size > UINT64_MAX - bit_offset) {
 		return drgn_error_format(DRGN_ERROR_OVERFLOW,

@@ -159,26 +159,42 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog);
  */
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
 
-static inline bool drgn_program_is_little_endian(struct drgn_program *prog)
+static inline struct drgn_error *
+drgn_program_is_little_endian(struct drgn_program *prog, bool *ret)
 {
-	assert(prog->has_platform);
-	return prog->platform.flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN;
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program byte order is not known");
+	}
+	*ret = prog->platform.flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN;
+	return NULL;
 }
 
 /**
  * Return whether a @ref drgn_program has a different endianness than the host
  * system.
  */
-static inline bool drgn_program_bswap(struct drgn_program *prog)
+static inline struct drgn_error *
+drgn_program_bswap(struct drgn_program *prog, bool *ret)
 {
-	return (drgn_program_is_little_endian(prog) !=
-		(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
+	bool is_little_endian;
+	struct drgn_error *err = drgn_program_is_little_endian(prog,
+							       &is_little_endian);
+	if (err)
+		return err;
+	*ret = is_little_endian != (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__);
+	return NULL;
 }
 
-static inline bool drgn_program_is_64_bit(struct drgn_program *prog)
+static inline struct drgn_error *
+drgn_program_is_64_bit(struct drgn_program *prog, bool *ret)
 {
-	assert(prog->has_platform);
-	return prog->platform.flags & DRGN_PLATFORM_IS_64_BIT;
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program word size is not known");
+	}
+	*ret = prog->platform.flags & DRGN_PLATFORM_IS_64_BIT;
+	return NULL;
 }
 
 struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);

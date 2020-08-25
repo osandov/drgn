@@ -738,25 +738,34 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	return err;
 }
 
-static uint32_t get_prstatus_pid(struct drgn_program *prog, const char *data,
-				 size_t size)
+static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char *data,
+					   size_t size, uint32_t *ret)
 {
+	bool is_64_bit, bswap;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	size_t offset = is_64_bit ? 32 : 24;
 	uint32_t pr_pid;
-	memcpy(&pr_pid, data + (drgn_program_is_64_bit(prog) ? 32 : 24),
-	       sizeof(pr_pid));
-	if (drgn_program_bswap(prog))
+	if (size < offset + sizeof(pr_pid)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "NT_PRSTATUS is truncated");
+	}
+	memcpy(&pr_pid, data + offset, sizeof(pr_pid));
+	if (bswap)
 		pr_pid = bswap_32(pr_pid);
-	return pr_pid;
+	*ret = pr_pid;
+	return NULL;
 }
 
 struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 						     const char *data,
 						     size_t size)
 {
-	if (size < (drgn_program_is_64_bit(prog) ? 36 : 28)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "NT_PRSTATUS is truncated");
-	}
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		struct string *entry =
 			drgn_prstatus_vector_append_entry(&prog->prstatus_vector);
@@ -766,9 +775,12 @@ struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 		entry->len = size;
 	} else {
 		struct drgn_prstatus_map_entry entry = {
-			.key = get_prstatus_pid(prog, data, size),
 			.value = { data, size },
 		};
+		struct drgn_error *err = get_prstatus_pid(prog, data, size,
+							  &entry.key);
+		if (err)
+			return err;
 		if (drgn_prstatus_map_insert(&prog->prstatus_map, &entry,
 					     NULL) == -1)
 			return &drgn_enomem;
@@ -863,21 +875,19 @@ struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 						     struct string *ret,
 						     uint32_t *tid_ret)
 {
-	struct drgn_error *err;
-
 	assert(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL);
-	err = drgn_program_cache_prstatus(prog);
+	struct drgn_error *err = drgn_program_cache_prstatus(prog);
 	if (err)
 		return err;
 
 	if (cpu < prog->prstatus_vector.size) {
 		*ret = prog->prstatus_vector.data[cpu];
-		*tid_ret = get_prstatus_pid(prog, ret->str, ret->len);
+		return get_prstatus_pid(prog, ret->str, ret->len, tid_ret);
 	} else {
 		ret->str = NULL;
 		ret->len = 0;
+		return NULL;
 	}
-	return NULL;
 }
 
 struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
@@ -1069,18 +1079,16 @@ LIBDRGN_PUBLIC struct drgn_error *						\
 drgn_program_read_u##n(struct drgn_program *prog, uint64_t address,		\
 		       bool physical, uint##n##_t *ret)				\
 {										\
-	struct drgn_error *err;							\
+	bool bswap;								\
+	struct drgn_error *err = drgn_program_bswap(prog, &bswap);		\
+	if (err)								\
+		return err;							\
 	uint##n##_t tmp;							\
-										\
-	if (!prog->has_platform) {						\
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,		\
-					 "program byte order is not known");	\
-	}									\
 	err = drgn_memory_reader_read(&prog->reader, &tmp, address,		\
 				      sizeof(tmp), physical);			\
 	if (err)								\
 		return err;							\
-	if (drgn_program_bswap(prog))						\
+	if (bswap)								\
 		tmp = bswap_##n(tmp);						\
 	*ret = tmp;								\
 	return NULL;								\
@@ -1095,19 +1103,20 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_read_word(struct drgn_program *prog, uint64_t address,
 		       bool physical, uint64_t *ret)
 {
-	struct drgn_error *err;
-
-	if (!prog->has_platform) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "program word size is not known");
-	}
-	if (drgn_program_is_64_bit(prog)) {
+	bool is_64_bit, bswap;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+	if (is_64_bit) {
 		uint64_t tmp;
 		err = drgn_memory_reader_read(&prog->reader, &tmp, address,
 					      sizeof(tmp), physical);
 		if (err)
 			return err;
-		if (drgn_program_bswap(prog))
+		if (bswap)
 			tmp = bswap_64(tmp);
 		*ret = tmp;
 	} else {
@@ -1116,7 +1125,7 @@ drgn_program_read_word(struct drgn_program *prog, uint64_t address,
 					      sizeof(tmp), physical);
 		if (err)
 			return err;
-		if (drgn_program_bswap(prog))
+		if (bswap)
 			tmp = bswap_32(tmp);
 		*ret = tmp;
 	}
