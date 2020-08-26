@@ -121,13 +121,14 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             return []
 
         docnode = docutils.nodes.section()
-        self._run(name, "", resolved, docnode)
+        self._run(name, "", self.arguments[0], resolved, docnode)
         return docnode.children
 
     def _run(
         self,
         top_name: str,
         attr_name: str,
+        name: str,
         resolved: ResolvedNode[Node],
         docnode: docutils.nodes.Node,
     ) -> None:
@@ -157,7 +158,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
 
         lines = self.env.drgndoc_formatter.format(
             resolved,
-            (attr_name or top_name).rpartition(".")[2],
+            name,
             self.env.ref_context.get("py:module", ""),
             ".".join(self.env.ref_context.get("py:classes", ())),
         )
@@ -194,7 +195,11 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             for member in resolved.attrs():
                 if member.name != "__init__":
                     self._run(
-                        top_name, dot_join(attr_name, member.name), member, desc_content
+                        top_name,
+                        dot_join(attr_name, member.name),
+                        member.name,
+                        member,
+                        desc_content,
                     )
             py_classes.pop()
             self.env.ref_context["py:class"] = py_classes[-1] if py_classes else None
@@ -235,7 +240,9 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             have_old_py_module = False
         self.env.ref_context["py:module"] = dot_join(top_name, attr_name)
         for attr in resolved.attrs():
-            self._run(top_name, dot_join(attr_name, attr.name), attr, section)
+            self._run(
+                top_name, dot_join(attr_name, attr.name), attr.name, attr, section
+            )
         if have_old_py_module:
             self.env.ref_context["py:module"] = old_py_module
         else:
