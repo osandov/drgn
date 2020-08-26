@@ -98,6 +98,9 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
 
     required_arguments = 1
     optional_arguments = 0
+    option_spec = {
+        "exclude": docutils.parsers.rst.directives.unchanged,
+    }
 
     def run(self) -> Any:
         parts = []
@@ -128,6 +131,10 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
         resolved: ResolvedNode[Node],
         docnode: docutils.nodes.Node,
     ) -> None:
+        exclude_pattern = self.options.get("exclude")
+        if exclude_pattern is not None and re.fullmatch(exclude_pattern, attr_name):
+            return
+
         if isinstance(resolved.node, (Import, ImportFrom)):
             # Only include imports that are explicitly aliased (i.e., import
             # ... as ... or from ... import ... as ...).
