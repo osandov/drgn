@@ -165,16 +165,14 @@ class Program:
     def object(
         self,
         name: str,
-        flags: Optional[FindObjectFlags] = None,
+        flags: FindObjectFlags = FindObjectFlags.ANY,
         filename: Optional[str] = None,
     ) -> Object:
         """
         Get the object (variable, constant, or function) with the given name.
 
         :param name: The object name.
-        :param flags: Flags indicating what kind of object to look for. If this
-            is ``None`` or not given, it defaults to
-            :attr:`FindObjectFlags.ANY`.
+        :param flags: Flags indicating what kind of object to look for.
         :param filename: The source code file that contains the definition. See
             :ref:`api-filenames`.
         :raises LookupError: if no objects with the given name are found in

@@ -637,7 +637,6 @@ static DrgnObject *Program_object(Program *self, PyObject *args,
 	struct enum_arg flags = {
 		.type = FindObjectFlags_class,
 		.value = DRGN_FIND_OBJECT_ANY,
-		.allow_none = true,
 	};
 	struct path_arg filename = {.allow_none = true};
 
