@@ -206,7 +206,7 @@ class TestPrettyPrintTypeName(MockProgramTestCase):
                     i,
                     (
                         TypeParameter(i),
-                        TypeParameter(self.prog.float_type("float", 4),),
+                        TypeParameter(self.prog.float_type("float", 4)),
                     ),
                     False,
                 ),

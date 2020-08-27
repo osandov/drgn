@@ -455,7 +455,7 @@ class TestType(MockProgramTestCase):
                 4,
                 (
                     TypeMember(self.prog.int_type("int", 4, True), "x"),
-                    TypeMember(self.prog.int_type("unsigned int", 4, False),),
+                    TypeMember(self.prog.int_type("unsigned int", 4, False)),
                 ),
             ),
         )
@@ -1130,7 +1130,7 @@ class TestType(MockProgramTestCase):
             t,
             self.prog.function_type(
                 self.prog.void_type(),
-                (TypeParameter(self.prog.int_type("int", 4, True),),),
+                (TypeParameter(self.prog.int_type("int", 4, True)),),
             ),
         )
         # Different number of parameters.

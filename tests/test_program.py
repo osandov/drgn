@@ -81,7 +81,7 @@ class TestProgram(unittest.TestCase):
         )
         self.assertRaisesRegex(LookupError, "^could not find 'foo'$", prog.type, "foo")
         self.assertRaisesRegex(
-            LookupError, "^could not find 'foo' in 'foo.c'$", prog.type, "foo", "foo.c",
+            LookupError, "^could not find 'foo' in 'foo.c'$", prog.type, "foo", "foo.c"
         )
         self.assertRaisesRegex(
             LookupError, "^could not find variable 'foo'$", prog.variable, "foo"
@@ -138,7 +138,7 @@ class TestMemory(TestCase):
                         self.assertEqual(prog.read_word(0xA0, True), value)
 
         prog = mock_program(
-            MOCK_32BIT_PLATFORM, segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)],
+            MOCK_32BIT_PLATFORM, segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0)]
         )
 
     def test_bad_address(self):
@@ -521,9 +521,7 @@ class TestTypes(MockProgramTestCase):
                 self.prog.pointer_type(self.prog.int_type("int", 4, True))
             ),
         )
-        self.assertEqual(
-            self.prog.type("int *((*))"), self.prog.type("int **"),
-        )
+        self.assertEqual(self.prog.type("int *((*))"), self.prog.type("int **"))
 
     def test_pointer_to_const_pointer(self):
         self.assertEqual(
@@ -626,9 +624,7 @@ class TestTypes(MockProgramTestCase):
                 )
             ),
         )
-        self.assertEqual(
-            self.prog.type("int *((*)[2])"), self.prog.type("int *(*)[2]"),
-        )
+        self.assertEqual(self.prog.type("int *((*)[2])"), self.prog.type("int *(*)[2]"))
 
     def test_array_of_pointers_to_array(self):
         self.assertEqual(
@@ -738,7 +734,7 @@ class TestCoreDump(TestCase):
         with tempfile.NamedTemporaryFile() as f:
             f.write(
                 create_elf_file(
-                    ET.CORE, [ElfSection(p_type=PT.LOAD, vaddr=0xFFFF0000, data=data,),]
+                    ET.CORE, [ElfSection(p_type=PT.LOAD, vaddr=0xFFFF0000, data=data)]
                 )
             )
             f.flush()
@@ -755,7 +751,7 @@ class TestCoreDump(TestCase):
                     ET.CORE,
                     [
                         ElfSection(
-                            p_type=PT.LOAD, vaddr=0xFFFF0000, paddr=0xA0, data=data,
+                            p_type=PT.LOAD, vaddr=0xFFFF0000, paddr=0xA0, data=data
                         ),
                     ],
                 )

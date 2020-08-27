@@ -52,7 +52,7 @@ def create_elf_file(
         phdr_struct = struct.Struct(endian + "8I")
         e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
 
-    shstrtab = ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=bytearray(1),)
+    shstrtab = ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=bytearray(1))
     tmp = [shstrtab]
     tmp.extend(sections)
     sections = tmp

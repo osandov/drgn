@@ -126,7 +126,7 @@ def path_lookup(
     return Object(
         mnt.prog_,
         "struct path",
-        value={"mnt": mnt.mnt.address_of_(), "dentry": dentry,},
+        value={"mnt": mnt.mnt.address_of_(), "dentry": dentry},
     )
 
 

@@ -1958,7 +1958,7 @@ class TestTypes(TestCase):
             test_type_dies(
                 (
                     DwarfDie(
-                        DW_TAG.typedef, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),),
+                        DW_TAG.typedef, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),)
                     ),
                     int_die,
                 )
@@ -1975,7 +1975,7 @@ class TestTypes(TestCase):
         prog = dwarf_program(
             test_type_dies(
                 DwarfDie(
-                    DW_TAG.typedef, (DwarfAttrib(DW_AT.name, DW_FORM.string, "VOID"),),
+                    DW_TAG.typedef, (DwarfAttrib(DW_AT.name, DW_FORM.string, "VOID"),)
                 )
             )
         )
@@ -2196,7 +2196,7 @@ class TestTypes(TestCase):
             test_type_dies(
                 (
                     DwarfDie(
-                        DW_TAG.array_type, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),),
+                        DW_TAG.array_type, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),)
                     ),
                     int_die,
                 )
@@ -2377,7 +2377,7 @@ class TestTypes(TestCase):
                     DwarfDie(
                         DW_TAG.array_type,
                         (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),),
-                        (DwarfDie(DW_TAG.subrange_type, (),),),
+                        (DwarfDie(DW_TAG.subrange_type, ()),),
                     ),
                     int_die,
                 )
@@ -2574,7 +2574,7 @@ class TestTypes(TestCase):
                     DwarfDie(
                         DW_TAG.array_type,
                         (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),),
-                        (DwarfDie(DW_TAG.subrange_type, (),),),
+                        (DwarfDie(DW_TAG.subrange_type, ()),),
                     ),
                     int_die,
                 )
@@ -2965,7 +2965,7 @@ class TestTypes(TestCase):
         # void foo(void)
         prog = dwarf_program(test_type_dies(DwarfDie(DW_TAG.subroutine_type, ())))
         self.assertEqual(
-            prog.type("TEST").type, prog.function_type(prog.void_type(), (), False),
+            prog.type("TEST").type, prog.function_type(prog.void_type(), (), False)
         )
 
     def test_function_unnamed_parameter(self):
@@ -3369,15 +3369,13 @@ class TestObjects(TestCase):
                             (
                                 DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                                 DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
-                                DwarfAttrib(DW_AT.const_value, form, 1,),
+                                DwarfAttrib(DW_AT.const_value, form, 1),
                             ),
                         ),
                     )
                 )
             )
-            self.assertEqual(
-                prog["x"], Object(prog, prog.int_type("int", 4, True), 1),
-            )
+            self.assertEqual(prog["x"], Object(prog, prog.int_type("int", 4, True), 1))
 
     def test_variable_const_unsigned(self):
         for form in (
@@ -3403,7 +3401,7 @@ class TestObjects(TestCase):
                 )
             )
             self.assertEqual(
-                prog["x"], Object(prog, prog.int_type("unsigned int", 4, False), 1),
+                prog["x"], Object(prog, prog.int_type("unsigned int", 4, False), 1)
             )
 
     def test_variable_const_block(self):
@@ -3438,7 +3436,7 @@ class TestObjects(TestCase):
         )
         self.assertEqual(
             prog["p"],
-            Object(prog, prog.array_type(prog.int_type("int", 4, True), 2), [1, 2],),
+            Object(prog, prog.array_type(prog.int_type("int", 4, True), 2), [1, 2]),
         )
 
     def test_variable_const_block_too_small(self):

@@ -190,9 +190,7 @@ class _FormatVisitor(NodeVisitor):
         for i, elt in enumerate(node.elts):
             if i > 0:
                 self._parts.append(", ")
-            self._visit(
-                elt, node, node.elts[i + 1] if i < len(node.elts) - 1 else None,
-            )
+            self._visit(elt, node, node.elts[i + 1] if i < len(node.elts) - 1 else None)
         if len(node.elts) == 1:
             self._parts.append(",")
         if parens:
@@ -208,9 +206,7 @@ class _FormatVisitor(NodeVisitor):
         for i, elt in enumerate(node.elts):
             if i > 0:
                 self._parts.append(", ")
-            self._visit(
-                elt, node, node.elts[i + 1] if i < len(node.elts) - 1 else None,
-            )
+            self._visit(elt, node, node.elts[i + 1] if i < len(node.elts) - 1 else None)
         if self._rst:
             self._parts.append("\\")
         self._parts.append("]")

@@ -304,7 +304,7 @@ setup(
         "egg_info": egg_info,
         "test": test,
     },
-    entry_points={"console_scripts": ["drgn=drgn.internal.cli:main"],},
+    entry_points={"console_scripts": ["drgn=drgn.internal.cli:main"]},
     python_requires=">=3.6",
     author="Omar Sandoval",
     author_email="osandov@osandov.com",

@@ -2251,7 +2251,7 @@ class TestGenericOperators(MockProgramTestCase):
     def setUp(self):
         super().setUp()
         self.add_memory_segment(
-            b"".join(i.to_bytes(4, "little") for i in range(4)), virt_addr=0xFFFF0000,
+            b"".join(i.to_bytes(4, "little") for i in range(4)), virt_addr=0xFFFF0000
         )
 
     def test_len(self):

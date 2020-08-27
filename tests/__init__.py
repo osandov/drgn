@@ -226,9 +226,9 @@ class MockProgramTestCase(TestCase):
     def add_memory_segment(self, buf, virt_addr=None, phys_addr=None):
         if virt_addr is not None:
             self.prog.add_memory_segment(
-                virt_addr, len(buf), functools.partial(mock_memory_read, buf),
+                virt_addr, len(buf), functools.partial(mock_memory_read, buf)
             )
         if phys_addr is not None:
             self.prog.add_memory_segment(
-                phys_addr, len(buf), functools.partial(mock_memory_read, buf), True,
+                phys_addr, len(buf), functools.partial(mock_memory_read, buf), True
             )

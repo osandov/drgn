@@ -53,10 +53,10 @@ class KernelResolver:
 
     def _resolve_build(self, path: str) -> ResolvedKernel:
         release = subprocess.check_output(
-            ["make", "-s", "kernelrelease"], universal_newlines=True, cwd=path,
+            ["make", "-s", "kernelrelease"], universal_newlines=True, cwd=path
         ).strip()
         vmlinuz = subprocess.check_output(
-            ["make", "-s", "image_name"], universal_newlines=True, cwd=path,
+            ["make", "-s", "image_name"], universal_newlines=True, cwd=path
         ).strip()
         return ResolvedKernel(
             release=release,

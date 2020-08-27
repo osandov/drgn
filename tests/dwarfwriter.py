@@ -210,7 +210,7 @@ def compile_dwarf(dies, little_endian=True, bits=64, *, lang=None):
     return create_elf_file(
         ET.EXEC,
         [
-            ElfSection(p_type=PT.LOAD, vaddr=0xFFFF0000, data=b"",),
+            ElfSection(p_type=PT.LOAD, vaddr=0xFFFF0000, data=b""),
             ElfSection(
                 name=".debug_abbrev",
                 sh_type=SHT.PROGBITS,
@@ -226,7 +226,7 @@ def compile_dwarf(dies, little_endian=True, bits=64, *, lang=None):
                 sh_type=SHT.PROGBITS,
                 data=_compile_debug_line(cu_die, little_endian),
             ),
-            ElfSection(name=".debug_str", sh_type=SHT.PROGBITS, data=b"\0",),
+            ElfSection(name=".debug_str", sh_type=SHT.PROGBITS, data=b"\0"),
         ],
         little_endian=little_endian,
         bits=bits,

@@ -296,7 +296,7 @@ class Uploader:
                     params = {}
             else:
                 params = {
-                    "cursor": {"offset": offset, "session_id": session_id,},
+                    "cursor": {"offset": offset, "session_id": session_id},
                 }
                 if last:
                     endpoint = "upload_session/finish"
