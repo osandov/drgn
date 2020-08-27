@@ -160,9 +160,6 @@ struct drgn_program {
 	uint64_t vmemmap;
 	/* Cached THREAD_SIZE. */
 	uint64_t thread_size;
-	/* Cache for @ref linux_helper_task_state_to_char(). */
-	char *task_state_chars;
-	uint64_t task_report;
 	/* Page table iterator for linux_helper_read_vm(). */
 	struct pgtable_iterator *pgtable_it;
 	/*

@@ -1823,17 +1823,6 @@ def _linux_helper_find_task(
     """
     ...
 
-def _linux_helper_task_state_to_char(task: Object) -> str:
-    """
-    Get the state of the task as a character (e.g., ``'R'`` for running). See
-    `ps(1)
-    <http://man7.org/linux/man-pages/man1/ps.1.html#PROCESS_STATE_CODES>`_ for
-    a description of the process state codes.
-
-    :param task: ``struct task_struct *``
-    """
-    ...
-
 def _linux_helper_kaslr_offset(prog: Program) -> int:
     """
     Get the kernel address space layout randomization offset (zero if it is

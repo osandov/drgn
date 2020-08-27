@@ -37,7 +37,4 @@ struct drgn_error *linux_helper_find_task(struct drgn_object *res,
 					  const struct drgn_object *ns,
 					  uint64_t pid);
 
-struct drgn_error *
-linux_helper_task_state_to_char(const struct drgn_object *task, char *ret);
-
 #endif /* DRGN_HELPERS_H */

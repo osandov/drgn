@@ -219,24 +219,6 @@ out:
 	return res;
 }
 
-PyObject *drgnpy_linux_helper_task_state_to_char(PyObject *self, PyObject *args,
-						 PyObject *kwds)
-{
-	static char *keywords[] = {"task", NULL};
-	struct drgn_error *err;
-	DrgnObject *task;
-	char c;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:task_state_to_char",
-					 keywords, &DrgnObject_type, &task))
-		return NULL;
-
-	err = linux_helper_task_state_to_char(&task->obj, &c);
-	if (err)
-		return set_drgn_error(err);
-	return PyUnicode_FromStringAndSize(&c, 1);
-}
-
 PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *args,
 					   PyObject *kwds)
 

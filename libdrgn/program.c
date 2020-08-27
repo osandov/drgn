@@ -79,7 +79,6 @@ void drgn_program_init(struct drgn_program *prog,
 
 void drgn_program_deinit(struct drgn_program *prog)
 {
-	free(prog->task_state_chars);
 	if (prog->prstatus_cached) {
 		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 			drgn_prstatus_vector_deinit(&prog->prstatus_vector);
