@@ -154,40 +154,35 @@ def execscript(path: str, *args: str) -> None:
     added back to the calling context.
 
     This is most useful for executing scripts from interactive mode. For
-    example, you could have a script named ``tasks.py``:
+    example, you could have a script named ``exe.py``:
 
     .. code-block:: python3
 
+        \"\"\"Get all tasks executing a given file.\"\"\"
+
         import sys
 
-        \"\"\"
-        Get all tasks in a given state.
-        \"\"\"
+        from drgn.helpers.linux.fs import d_path
+        from drgn.helpers.linux.pid import find_task
 
-        # From include/linux/sched.h.
-        def task_state_index(task):
-            task_state = task.state.value_()
-            if task_state == 0x402:  # TASK_IDLE
-                return 8
+        def task_exe_path(task):
+            if task.mm:
+                return d_path(task.mm.exe_file.f_path).decode()
             else:
-                state = (task_state | task.exit_state.value_()) & 0x7f
-                return state.bit_length()
-
-        def task_state_to_char(task):
-            return 'RSDTtXZPI'[task_state_index(task)]
+                return None
 
         tasks = [
             task for task in for_each_task(prog)
-            if task_state_to_char(task) == sys.argv[1]
+            if task_exe_path(task) == sys.argv[1]
         ]
 
     Then, you could execute it and use the defined variables and functions:
 
-    >>> execscript('tasks.py', 'R')
-    >>> tasks[0].comm
-    (char [16])"python3"
-    >>> task_state_to_char(find_task(prog, 1))
-    'S'
+    >>> execscript('exe.py', '/usr/bin/bash')
+    >>> tasks[0].pid
+    (pid_t)358442
+    >>> task_exe_path(find_task(prog, 357954))
+    '/usr/bin/vim'
 
     :param path: File path of the script.
     :param args: Zero or more additional arguments to pass to the script. This
