@@ -216,7 +216,6 @@ static inline Program *DrgnType_prog(DrgnType *type)
 	return container_of(drgn_type_program(type->type), Program, prog);
 }
 PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type);
-int qualifiers_converter(PyObject *arg, void *result);
 DrgnType *Program_void_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds);

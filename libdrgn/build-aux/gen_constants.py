@@ -6,8 +6,14 @@ import re
 import sys
 
 
-def gen_constant_class(drgn_h, output_file, class_name, enum_class, regex):
-    matches = re.findall(r"^\s*(" + regex + r")\s*[=,]", drgn_h, flags=re.MULTILINE)
+def gen_constant_class(drgn_h, output_file, class_name, enum_class, constants, regex):
+    constants = list(constants)
+    constants.extend(
+        ("_".join(groups[1:]), groups[0])
+        for groups in re.findall(
+            r"^\s*(" + regex + r")\s*[=,]", drgn_h, flags=re.MULTILINE
+        )
+    )
     output_file.write(
         f"""
 static int add_{class_name}(PyObject *m, PyObject *enum_module)
@@ -15,15 +21,15 @@ static int add_{class_name}(PyObject *m, PyObject *enum_module)
 	PyObject *tmp, *item;
 	int ret = -1;
 
-	tmp = PyList_New({len(matches)});
+	tmp = PyList_New({len(constants)});
 	if (!tmp)
 		goto out;
 """
     )
-    for i, groups in enumerate(matches):
+    for i, (name, value) in enumerate(constants):
         output_file.write(
             f"""\
-        item = Py_BuildValue("sk", "{'_'.join(groups[1:])}", {groups[0]});
+        item = Py_BuildValue("sk", "{name}", {value});
 	if (!item)
 		goto out;
 	PyList_SET_ITEM(tmp, {i}, item);
@@ -72,23 +78,30 @@ PyObject *TypeKind_class;
 """
     )
     gen_constant_class(
-        drgn_h, output_file, "Architecture", "Enum", r"DRGN_ARCH_([a-zA-Z0-9_]+)"
+        drgn_h, output_file, "Architecture", "Enum", (), r"DRGN_ARCH_([a-zA-Z0-9_]+)"
     )
     gen_constant_class(
         drgn_h,
         output_file,
         "FindObjectFlags",
         "Flag",
+        (),
         r"DRGN_FIND_OBJECT_([a-zA-Z0-9_]+)",
     )
     gen_constant_class(
-        drgn_h, output_file, "PrimitiveType", "Enum", r"DRGN_(C)_TYPE_([a-zA-Z0-9_]+)"
+        drgn_h,
+        output_file,
+        "PrimitiveType",
+        "Enum",
+        (),
+        r"DRGN_(C)_TYPE_([a-zA-Z0-9_]+)",
     )
     gen_constant_class(
         drgn_h,
         output_file,
         "PlatformFlags",
         "Flag",
+        (),
         r"DRGN_PLATFORM_([a-zA-Z0-9_]+)(?<!DRGN_PLATFORM_DEFAULT_FLAGS)",
     )
     gen_constant_class(
@@ -96,13 +109,19 @@ PyObject *TypeKind_class;
         output_file,
         "ProgramFlags",
         "Flag",
+        (),
         r"DRGN_PROGRAM_([a-zA-Z0-9_]+)(?<!DRGN_PROGRAM_ENDIAN)",
     )
     gen_constant_class(
-        drgn_h, output_file, "Qualifiers", "Flag", r"DRGN_QUALIFIER_([a-zA-Z0-9_]+)"
+        drgn_h,
+        output_file,
+        "Qualifiers",
+        "Flag",
+        [("NONE", "0")],
+        r"DRGN_QUALIFIER_([a-zA-Z0-9_]+)",
     )
     gen_constant_class(
-        drgn_h, output_file, "TypeKind", "Enum", r"DRGN_TYPE_([a-zA-Z0-9_]+)"
+        drgn_h, output_file, "TypeKind", "Enum", (), r"DRGN_TYPE_([a-zA-Z0-9_]+)"
     )
     output_file.write(
         """

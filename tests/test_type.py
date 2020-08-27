@@ -1271,10 +1271,7 @@ class TestType(MockProgramTestCase):
         self.assertEqual(t.qualified(Qualifiers(0)), t.unqualified())
 
         self.assertRaisesRegex(
-            TypeError,
-            "expected Qualifiers or None",
-            self.prog.void_type,
-            qualifiers=1.5,
+            TypeError, "expected Qualifiers", self.prog.void_type, qualifiers=1.5
         )
 
     def test_language(self):

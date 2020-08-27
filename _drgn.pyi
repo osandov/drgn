@@ -443,7 +443,7 @@ class Program:
     def void_type(
         self,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -459,7 +459,7 @@ class Program:
         size: IntegerLike,
         is_signed: bool,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -477,7 +477,7 @@ class Program:
         name: str,
         size: IntegerLike,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -494,7 +494,7 @@ class Program:
         name: str,
         size: IntegerLike,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -512,7 +512,7 @@ class Program:
         size: IntegerLike,
         type: Type,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -532,7 +532,7 @@ class Program:
         size: IntegerLike,
         members: Sequence[TypeMember],
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -552,7 +552,7 @@ class Program:
         size: None = None,
         members: None = None,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """Create a new incomplete structure type."""
@@ -564,7 +564,7 @@ class Program:
         size: IntegerLike,
         members: Sequence[TypeMember],
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -579,7 +579,7 @@ class Program:
         size: None = None,
         members: None = None,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """Create a new incomplete union type."""
@@ -591,7 +591,7 @@ class Program:
         size: IntegerLike,
         members: Sequence[TypeMember],
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -606,7 +606,7 @@ class Program:
         size: None = None,
         members: None = None,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """Create a new incomplete class type."""
@@ -618,7 +618,7 @@ class Program:
         type: Type,
         enumerators: Sequence[TypeEnumerator],
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -638,7 +638,7 @@ class Program:
         type: None = None,
         enumerators: None = None,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """Create a new incomplete enumerated type."""
@@ -648,7 +648,7 @@ class Program:
         name: str,
         type: Type,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -665,7 +665,7 @@ class Program:
         type: Type,
         size: Optional[int] = None,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -685,7 +685,7 @@ class Program:
         type: Type,
         length: Optional[int] = None,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -703,7 +703,7 @@ class Program:
         parameters: Sequence[TypeParameter],
         is_variadic: bool = False,
         *,
-        qualifiers: Optional[Qualifiers] = None,
+        qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
         """
@@ -1525,7 +1525,7 @@ class Type:
         is always ``True``.
         """
         ...
-    def qualified(self, qualifiers: Optional[Qualifiers]) -> Type:
+    def qualified(self, qualifiers: Qualifiers) -> Type:
         """
         Get a copy of this type with different qualifiers.
 
@@ -1708,6 +1708,9 @@ class PrimitiveType(enum.Enum):
 
 class Qualifiers(enum.Flag):
     """``Qualifiers`` are modifiers on types."""
+
+    NONE = ...
+    """No qualifiers."""
 
     CONST = ...
     """Constant type."""
