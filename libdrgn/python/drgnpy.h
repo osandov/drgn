@@ -191,7 +191,7 @@ static inline DrgnObject *DrgnObject_alloc(Program *prog)
 }
 static inline Program *DrgnObject_prog(DrgnObject *obj)
 {
-	return container_of(obj->obj.prog, Program, prog);
+	return container_of(drgn_object_program(&obj->obj), Program, prog);
 }
 PyObject *DrgnObject_NULL(PyObject *self, PyObject *args, PyObject *kwds);
 DrgnObject *cast(PyObject *self, PyObject *args, PyObject *kwds);

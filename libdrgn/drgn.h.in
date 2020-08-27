@@ -1635,8 +1635,6 @@ static inline bool drgn_value_is_inline(uint64_t bit_size, uint64_t bit_offset)
  * provided functions.
  */
 struct drgn_object {
-	/** Program that this object belongs to. */
-	struct drgn_program *prog;
 	/** Type of this object. */
 	struct drgn_type *type;
 	/**
@@ -1734,6 +1732,12 @@ void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog);
  */
 void drgn_object_deinit(struct drgn_object *obj);
 
+/** Get the program that a @ref drgn_object is from. */
+static inline struct drgn_program *
+drgn_object_program(const struct drgn_object *obj)
+{
+	return drgn_type_program(obj->type);
+}
 
 /** Get the language of a @ref drgn_object from its type. */
 static inline const struct drgn_language *

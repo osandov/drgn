@@ -1128,7 +1128,7 @@ drgn_program_find_object(struct drgn_program *prog, const char *name,
 			 enum drgn_find_object_flags flags,
 			 struct drgn_object *ret)
 {
-	if (ret && ret->prog != prog) {
+	if (ret && drgn_object_program(ret) != prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "object is from wrong program");
 	}

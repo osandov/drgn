@@ -553,8 +553,10 @@ drgn_object_stack_trace(const struct drgn_object *obj,
 		err = drgn_object_read_integer(obj, &value);
 		if (err)
 			return err;
-		return drgn_get_stack_trace(obj->prog, value.uvalue, NULL, ret);
+		return drgn_get_stack_trace(drgn_object_program(obj),
+					    value.uvalue, NULL, ret);
 	} else {
-		return drgn_get_stack_trace(obj->prog, 0, obj, ret);
+		return drgn_get_stack_trace(drgn_object_program(obj), 0, obj,
+					    ret);
 	}
 }

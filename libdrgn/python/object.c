@@ -312,7 +312,8 @@ static int buffer_object_from_value(struct drgn_object *res,
 	uint64_t bit_size, size;
 	char *buf;
 
-	err = drgn_byte_order_to_little_endian(res->prog, byte_order,
+	err = drgn_byte_order_to_little_endian(drgn_object_program(res),
+					       byte_order,
 					       &value.little_endian);
 	if (err) {
 		set_drgn_error(err);
@@ -354,9 +355,9 @@ static int buffer_object_from_value(struct drgn_object *res,
 	memset(buf, 0, size);
 	value.bit_offset = bit_offset;
 
-	if (serialize_py_object(res->prog, buf, bit_offset + bit_size,
-				bit_offset, value_obj, &type,
-				value.little_endian) == -1) {
+	if (serialize_py_object(drgn_object_program(res), buf,
+				bit_offset + bit_size, bit_offset, value_obj,
+				&type, value.little_endian) == -1) {
 		if (buf != value.ibuf)
 			free(buf);
 		return -1;
@@ -590,7 +591,7 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 	if (!dict)
 		return NULL;
 
-	drgn_object_init(&member, obj->prog);
+	drgn_object_init(&member, drgn_object_program(obj));
 	members = drgn_type_members(underlying_type);
 	num_members = drgn_type_num_members(underlying_type);
 	for (i = 0; i < num_members; i++) {
@@ -662,7 +663,7 @@ static PyObject *DrgnObject_array_value(struct drgn_object *obj,
 	if (!list)
 		return NULL;
 
-	drgn_object_init(&element, obj->prog);
+	drgn_object_init(&element, drgn_object_program(obj));
 	for (i = 0; i < length; i++) {
 		PyObject *element_value;
 
@@ -874,9 +875,9 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 			little_endian = self->obj.value.little_endian;
 
 		bool print_byteorder;
-		if (self->obj.prog->has_platform) {
+		if (drgn_object_program(&self->obj)->has_platform) {
 			bool prog_little_endian;
-			err = drgn_program_is_little_endian(self->obj.prog,
+			err = drgn_program_is_little_endian(drgn_object_program(&self->obj),
 							    &prog_little_endian);
 			if (err) {
 				set_drgn_error(err);
@@ -1086,53 +1087,55 @@ static int DrgnObject_binary_operand(PyObject *self, PyObject *other,
 	} else {
 		*obj = tmp;
 		/* If self isn't a DrgnObject, then other must be. */
-		drgn_object_init(tmp, ((DrgnObject *)other)->obj.prog);
+		drgn_object_init(tmp,
+				 drgn_object_program(&((DrgnObject *)other)->obj));
 		return DrgnObject_literal(tmp, self);
 	}
 }
 
-#define DrgnObject_BINARY_OP(op)					\
-static PyObject *DrgnObject_##op(PyObject *left, PyObject *right)	\
-{									\
-	struct drgn_error *err;						\
-	struct drgn_object *lhs, lhs_tmp, *rhs, rhs_tmp;		\
-	DrgnObject *res = NULL;						\
-	int ret;							\
-									\
-	ret = DrgnObject_binary_operand(left, right, &lhs, &lhs_tmp);	\
-	if (ret)							\
-		goto out;						\
-	ret = DrgnObject_binary_operand(right, left, &rhs, &rhs_tmp);	\
-	if (ret)							\
-		goto out_lhs;						\
-									\
-	res = DrgnObject_alloc(container_of(lhs->prog, Program, prog));	\
-	if (!res) {							\
-		ret = -1;						\
-		goto out_rhs;						\
-	}								\
-									\
-	err = drgn_object_##op(&res->obj, lhs, rhs);			\
-	if (err) {							\
-		set_drgn_error(err);					\
-		Py_DECREF(res);						\
-		ret = -1;						\
-		goto out_rhs;						\
-	}								\
-									\
-out_rhs:								\
-	if (rhs == &rhs_tmp)						\
-		drgn_object_deinit(&rhs_tmp);				\
-out_lhs:								\
-	if (lhs == &lhs_tmp)						\
-		drgn_object_deinit(&lhs_tmp);				\
-out:									\
-	if (ret == -1)							\
-		return NULL;						\
-	else if (ret)							\
-		Py_RETURN_NOTIMPLEMENTED;				\
-	else								\
-		return (PyObject *)res;					\
+#define DrgnObject_BINARY_OP(op)						\
+static PyObject *DrgnObject_##op(PyObject *left, PyObject *right)		\
+{										\
+	struct drgn_error *err;							\
+	struct drgn_object *lhs, lhs_tmp, *rhs, rhs_tmp;			\
+	DrgnObject *res = NULL;							\
+	int ret;								\
+										\
+	ret = DrgnObject_binary_operand(left, right, &lhs, &lhs_tmp);		\
+	if (ret)								\
+		goto out;							\
+	ret = DrgnObject_binary_operand(right, left, &rhs, &rhs_tmp);		\
+	if (ret)								\
+		goto out_lhs;							\
+										\
+	res = DrgnObject_alloc(container_of(drgn_object_program(lhs), Program,	\
+					    prog));				\
+	if (!res) {								\
+		ret = -1;							\
+		goto out_rhs;							\
+	}									\
+										\
+	err = drgn_object_##op(&res->obj, lhs, rhs);				\
+	if (err) {								\
+		set_drgn_error(err);						\
+		Py_DECREF(res);							\
+		ret = -1;							\
+		goto out_rhs;							\
+	}									\
+										\
+out_rhs:									\
+	if (rhs == &rhs_tmp)							\
+		drgn_object_deinit(&rhs_tmp);					\
+out_lhs:									\
+	if (lhs == &lhs_tmp)							\
+		drgn_object_deinit(&lhs_tmp);					\
+out:										\
+	if (ret == -1)								\
+		return NULL;							\
+	else if (ret)								\
+		Py_RETURN_NOTIMPLEMENTED;					\
+	else									\
+		return (PyObject *)res;						\
 }
 DrgnObject_BINARY_OP(add)
 DrgnObject_BINARY_OP(sub)

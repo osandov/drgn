@@ -208,7 +208,7 @@ set_initial_registers_inactive_task_frame(Dwfl_Thread *thread,
 	Dwarf_Word dwarf_regs[5];
 	uint64_t sp;
 
-	drgn_object_init(&reg_obj, frame_obj->prog);
+	drgn_object_init(&reg_obj, drgn_object_program(frame_obj));
 
 	err = read_register(&reg_obj, frame_obj, "bx", &dwarf_regs[0]);
 	if (err)
@@ -263,7 +263,7 @@ linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
 					  const struct drgn_object *task_obj)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = task_obj->prog;
+	struct drgn_program *prog = drgn_object_program(task_obj);
 	struct drgn_object sp_obj;
 
 	drgn_object_init(&sp_obj, prog);

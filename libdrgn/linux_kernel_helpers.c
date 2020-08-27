@@ -108,14 +108,15 @@ linux_helper_radix_tree_lookup(struct drgn_object *res,
 	struct drgn_member_info member;
 	struct drgn_qualified_type node_type;
 
-	drgn_object_init(&node, res->prog);
-	drgn_object_init(&tmp, res->prog);
+	drgn_object_init(&node, drgn_object_program(res));
+	drgn_object_init(&tmp, drgn_object_program(res));
 
 	/* node = root->xa_head */
 	err = drgn_object_member_dereference(&node, root, "xa_head");
 	if (!err) {
-		err = drgn_program_find_type(res->prog, "struct xa_node *",
-					     NULL, &node_type);
+		err = drgn_program_find_type(drgn_object_program(res),
+					     "struct xa_node *", NULL,
+					     &node_type);
 		if (err)
 			goto out;
 		RADIX_TREE_INTERNAL_NODE = 2;
@@ -125,14 +126,14 @@ linux_helper_radix_tree_lookup(struct drgn_object *res,
 		err = drgn_object_member_dereference(&node, root, "rnode");
 		if (err)
 			goto out;
-		err = drgn_program_find_type(res->prog, "void *", NULL,
-					     &node_type);
+		err = drgn_program_find_type(drgn_object_program(res), "void *",
+					     NULL, &node_type);
 		if (err)
 			goto out;
 		err = drgn_object_cast(&node, node_type, &node);
 		if (err)
 			goto out;
-		err = drgn_program_find_type(res->prog,
+		err = drgn_program_find_type(drgn_object_program(res),
 					     "struct radix_tree_node *", NULL,
 					     &node_type);
 		if (err)
@@ -142,7 +143,7 @@ linux_helper_radix_tree_lookup(struct drgn_object *res,
 		goto out;
 	}
 
-	err = drgn_program_member_info(res->prog,
+	err = drgn_program_member_info(drgn_object_program(res),
 				       drgn_type_type(node_type.type).type,
 				       "slots", &member);
 	if (err)
@@ -204,7 +205,7 @@ struct drgn_error *linux_helper_idr_find(struct drgn_object *res,
 	struct drgn_error *err;
 	struct drgn_object tmp;
 
-	drgn_object_init(&tmp, res->prog);
+	drgn_object_init(&tmp, drgn_object_program(res));
 
 	/* id -= idr->idr_base */
 	err = drgn_object_member_dereference(&tmp, idr, "idr_base");
@@ -255,29 +256,29 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 	union drgn_value ns_level, pidhash_shift;
 	uint64_t i;
 
-	err = drgn_program_find_type(res->prog, "struct pid *", NULL,
-				     &pidp_type);
+	err = drgn_program_find_type(drgn_object_program(res), "struct pid *",
+				     NULL, &pidp_type);
 	if (err)
 		return err;
-	err = drgn_program_find_type(res->prog, "struct upid", NULL,
-				     &upid_type);
+	err = drgn_program_find_type(drgn_object_program(res), "struct upid",
+				     NULL, &upid_type);
 	if (err)
 		return err;
-	err = drgn_program_member_info(res->prog, upid_type.type, "pid_chain",
-				       &pid_chain_member);
+	err = drgn_program_member_info(drgn_object_program(res), upid_type.type,
+				       "pid_chain", &pid_chain_member);
 	if (err)
 		return err;
-	err = drgn_program_member_info(res->prog, upid_type.type, "nr",
-				       &nr_member);
+	err = drgn_program_member_info(drgn_object_program(res), upid_type.type,
+				       "nr", &nr_member);
 	if (err)
 		return err;
-	err = drgn_program_member_info(res->prog, upid_type.type, "ns",
-				       &ns_member);
+	err = drgn_program_member_info(drgn_object_program(res), upid_type.type,
+				       "ns", &ns_member);
 	if (err)
 		return err;
 
-	drgn_object_init(&node, res->prog);
-	drgn_object_init(&tmp, res->prog);
+	drgn_object_init(&node, drgn_object_program(res));
+	drgn_object_init(&tmp, drgn_object_program(res));
 
 	err = drgn_object_read(&tmp, ns);
 	if (err)
@@ -293,7 +294,8 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 		goto out;
 
 	/* i = 1 << pidhash_shift */
-	err = drgn_program_find_object(res->prog, "pidhash_shift", NULL,
+	err = drgn_program_find_object(drgn_object_program(res),
+				       "pidhash_shift", NULL,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (err)
 		goto out;
@@ -383,7 +385,7 @@ struct drgn_error *linux_helper_find_pid(struct drgn_object *res,
 	struct drgn_error *err;
 	struct drgn_object tmp;
 
-	drgn_object_init(&tmp, res->prog);
+	drgn_object_init(&tmp, drgn_object_program(res));
 
 	/* (struct pid *)idr_find(&ns->idr, pid) */
 	err = drgn_object_member_dereference(&tmp, ns, "idr");
@@ -396,14 +398,16 @@ struct drgn_error *linux_helper_find_pid(struct drgn_object *res,
 		err = linux_helper_idr_find(&tmp, &tmp, pid);
 		if (err)
 			goto out;
-		err = drgn_program_find_type(res->prog, "struct pid *", NULL,
+		err = drgn_program_find_type(drgn_object_program(res),
+					     "struct pid *", NULL,
 					     &qualified_type);
 		if (err)
 			goto out;
 		err = drgn_object_cast(res, qualified_type, &tmp);
 	} else if (err->code == DRGN_ERROR_LOOKUP) {
 		drgn_error_destroy(err);
-		err = drgn_program_find_object(res->prog, "pid_hash", NULL,
+		err = drgn_program_find_object(drgn_object_program(res),
+					       "pid_hash", NULL,
 					       DRGN_FIND_OBJECT_ANY, &tmp);
 		if (err)
 			goto out;
@@ -425,9 +429,10 @@ struct drgn_error *linux_helper_pid_task(struct drgn_object *res,
 	struct drgn_object first;
 	char member[64];
 
-	drgn_object_init(&first, res->prog);
+	drgn_object_init(&first, drgn_object_program(res));
 
-	err = drgn_program_find_type(res->prog, "struct task_struct *", NULL,
+	err = drgn_program_find_type(drgn_object_program(res),
+				     "struct task_struct *", NULL,
 				     &task_structp_type);
 	if (err)
 		goto out;
@@ -482,14 +487,14 @@ struct drgn_error *linux_helper_find_task(struct drgn_object *res,
 	struct drgn_object pid_type_obj;
 	union drgn_value pid_type;
 
-	drgn_object_init(&pid_obj, res->prog);
-	drgn_object_init(&pid_type_obj, res->prog);
+	drgn_object_init(&pid_obj, drgn_object_program(res));
+	drgn_object_init(&pid_type_obj, drgn_object_program(res));
 
 	err = linux_helper_find_pid(&pid_obj, ns, pid);
 	if (err)
 		goto out;
-	err = drgn_program_find_object(res->prog, "PIDTYPE_PID", NULL,
-				       DRGN_FIND_OBJECT_CONSTANT,
+	err = drgn_program_find_object(drgn_object_program(res), "PIDTYPE_PID",
+				       NULL, DRGN_FIND_OBJECT_CONSTANT,
 				       &pid_type_obj);
 	if (err)
 		goto out;
@@ -506,7 +511,7 @@ out:
 static struct drgn_error *cache_task_state_chars(struct drgn_object *tmp)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = tmp->prog;
+	struct drgn_program *prog = drgn_object_program(tmp);
 	struct drgn_object task_state_array;
 	uint64_t length;
 	size_t i;
@@ -582,7 +587,7 @@ linux_helper_task_state_to_char(const struct drgn_object *task, char *ret)
 {
 	static const uint64_t TASK_NOLOAD = 0x400;
 	struct drgn_error *err;
-	struct drgn_program *prog = task->prog;
+	struct drgn_program *prog = drgn_object_program(task);
 	struct drgn_object tmp;
 	union drgn_value task_state, exit_state;
 	uint64_t state;

@@ -1159,7 +1159,7 @@ c_format_compound_object(const struct drgn_object *obj,
 	    new->member < new->end) {
 		struct drgn_object member;
 
-		drgn_object_init(&member, obj->prog);
+		drgn_object_init(&member, drgn_object_program(obj));
 		do {
 			struct drgn_qualified_type member_type;
 			bool zero;
@@ -1187,7 +1187,7 @@ c_format_compound_object(const struct drgn_object *obj,
 			return err;
 	}
 
-	err = c_format_initializer(obj->prog, &iter.iter, indent,
+	err = c_format_initializer(drgn_object_program(obj), &iter.iter, indent,
 				   one_line_columns, multi_line_columns,
 				   flags & DRGN_FORMAT_OBJECT_MEMBERS_SAME_LINE,
 				   sb);
@@ -1291,7 +1291,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 		return err;
 
 	have_symbol = ((flags & DRGN_FORMAT_OBJECT_SYMBOLIZE) &&
-		       drgn_program_find_symbol_by_address_internal(obj->prog,
+		       drgn_program_find_symbol_by_address_internal(drgn_object_program(obj),
 								    uvalue,
 								    NULL,
 								    &sym));
@@ -1316,12 +1316,12 @@ c_format_pointer_object(const struct drgn_object *obj,
 		return &drgn_enomem;
 
 	if (c_string) {
-		err = c_format_string(&obj->prog->reader, uvalue, UINT64_MAX,
-				      sb);
+		err = c_format_string(&drgn_object_program(obj)->reader, uvalue,
+				      UINT64_MAX, sb);
 	} else {
 		struct drgn_object dereferenced;
 
-		drgn_object_init(&dereferenced, obj->prog);
+		drgn_object_init(&dereferenced, drgn_object_program(obj));
 		err = drgn_object_dereference(&dereferenced, obj);
 		if (err) {
 			drgn_object_deinit(&dereferenced);
@@ -1451,7 +1451,7 @@ c_format_array_object(const struct drgn_object *obj,
 	if ((flags & DRGN_FORMAT_OBJECT_STRING) && iter.length &&
 	    is_character_type(iter.element_type.type)) {
 		if (obj->is_reference) {
-			return c_format_string(&obj->prog->reader,
+			return c_format_string(&drgn_object_program(obj)->reader,
 					       obj->reference.address,
 					       iter.length, sb);
 		} else {
@@ -1491,7 +1491,7 @@ c_format_array_object(const struct drgn_object *obj,
 	    iter.length) {
 		struct drgn_object element;
 
-		drgn_object_init(&element, obj->prog);
+		drgn_object_init(&element, drgn_object_program(obj));
 		do {
 			bool zero;
 
@@ -1515,8 +1515,9 @@ c_format_array_object(const struct drgn_object *obj,
 		if (err)
 			return err;
 	}
-	return c_format_initializer(obj->prog, &iter.iter, indent,
-				    one_line_columns, multi_line_columns,
+	return c_format_initializer(drgn_object_program(obj), &iter.iter,
+				    indent, one_line_columns,
+				    multi_line_columns,
 				    flags & DRGN_FORMAT_OBJECT_ELEMENTS_SAME_LINE,
 				    sb);
 }
@@ -2707,7 +2708,8 @@ struct drgn_error *c_integer_literal(struct drgn_object *res, uint64_t uvalue)
 	bits = fls(uvalue);
 	qualified_type.qualifiers = 0;
 	for (i = 0; i < ARRAY_SIZE(types); i++) {
-		err = drgn_program_find_primitive_type(res->prog, types[i],
+		err = drgn_program_find_primitive_type(drgn_object_program(res),
+						       types[i],
 						       &qualified_type.type);
 		if (err)
 			return err;
@@ -2732,7 +2734,8 @@ struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
 
-	err = drgn_program_find_primitive_type(res->prog, DRGN_C_TYPE_INT,
+	err = drgn_program_find_primitive_type(drgn_object_program(res),
+					       DRGN_C_TYPE_INT,
 					       &qualified_type.type);
 	if (err)
 		return err;
@@ -2745,7 +2748,8 @@ struct drgn_error *c_float_literal(struct drgn_object *res, double fvalue)
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
 
-	err = drgn_program_find_primitive_type(res->prog, DRGN_C_TYPE_DOUBLE,
+	err = drgn_program_find_primitive_type(drgn_object_program(res),
+					       DRGN_C_TYPE_DOUBLE,
 					       &qualified_type.type);
 	if (err)
 		return err;
@@ -3132,10 +3136,11 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	switch (drgn_type_kind(type_ret->underlying_type)) {
 	case DRGN_TYPE_ARRAY: {
 		uint8_t word_size;
-		err = drgn_program_word_size(obj->prog, &word_size);
+		err = drgn_program_word_size(drgn_object_program(obj),
+					     &word_size);
 		if (err)
 			return err;
-		err = drgn_pointer_type_create(obj->prog,
+		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       drgn_type_type(type_ret->underlying_type),
 					       word_size,
 					       drgn_type_language(type_ret->underlying_type),
@@ -3151,11 +3156,12 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			.qualifiers = type_ret->qualifiers,
 		};
 		uint8_t word_size;
-		err = drgn_program_word_size(obj->prog, &word_size);
+		err = drgn_program_word_size(drgn_object_program(obj),
+					     &word_size);
 		if (err)
 			return err;
-		err = drgn_pointer_type_create(obj->prog, function_type,
-					       word_size,
+		err = drgn_pointer_type_create(drgn_object_program(obj),
+					       function_type, word_size,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)
@@ -3267,8 +3273,8 @@ struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type,
-					 &type);
+		err = c_common_real_type(drgn_object_program(lhs), &lhs_type,
+					 &rhs_type, &type);
 		if (err)
 			return err;
 
@@ -3309,8 +3315,8 @@ struct drgn_error *c_op_add(struct drgn_object *res,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type,
-					 &type);
+		err = c_common_real_type(drgn_object_program(lhs), &lhs_type,
+					 &rhs_type, &type);
 		if (err)
 			return err;
 
@@ -3340,7 +3346,7 @@ struct drgn_error *c_op_sub(struct drgn_object *res,
 	if (lhs_pointer && rhs_pointer) {
 		struct drgn_object_type type = {};
 
-		err = drgn_program_find_primitive_type(lhs->prog,
+		err = drgn_program_find_primitive_type(drgn_object_program(lhs),
 						       DRGN_C_TYPE_PTRDIFF_T,
 						       &type.type);
 		if (err)
@@ -3361,8 +3367,8 @@ struct drgn_error *c_op_sub(struct drgn_object *res,
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
-		err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type,
-					 &type);
+		err = c_common_real_type(drgn_object_program(lhs), &lhs_type,
+					 &rhs_type, &type);
 		if (err)
 			return err;
 
@@ -3392,7 +3398,8 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
 		return drgn_error_binary_op("binary "#op, &lhs_type,		\
 					    &rhs_type);				\
 										\
-	err = c_common_real_type(lhs->prog, &lhs_type, &rhs_type, &type);	\
+	err = c_common_real_type(drgn_object_program(lhs), &lhs_type,		\
+				 &rhs_type, &type);				\
 	if (err)								\
 		return err;							\
 										\
@@ -3425,10 +3432,10 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
 		return drgn_error_binary_op("binary " #op, &lhs_type,		\
 					    &rhs_type);				\
 										\
-	err = c_integer_promotions(lhs->prog, &lhs_type);			\
+	err = c_integer_promotions(drgn_object_program(lhs), &lhs_type);	\
 	if (err)								\
 		return err;							\
-	err = c_integer_promotions(lhs->prog, &rhs_type);			\
+	err = c_integer_promotions(drgn_object_program(lhs), &rhs_type);	\
 	if (err)								\
 		return err;							\
 										\
@@ -3451,7 +3458,7 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
 	if (!drgn_type_is_##check(type.underlying_type))		\
 		return drgn_error_unary_op("unary " #op, &type);	\
 									\
-	err = c_integer_promotions(obj->prog, &type);			\
+	err = c_integer_promotions(drgn_object_program(obj), &type);	\
 	if (err)							\
 		return err;						\
 									\
