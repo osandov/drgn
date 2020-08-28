@@ -210,6 +210,19 @@ struct drgn_error *drgn_error_format_fault(uint64_t address,
 					   const char *format, ...)
 	__attribute__((returns_nonnull,format(printf, 2, 3)));
 
+/*
+ * Create a copy of a @ref drgn_error.
+ *
+ * The source's error message and path are copied if necessary, so the source
+ * error can be destroyed without affecting the new error and vice versa.
+ *
+ * @param[in] src Error to copy.
+ * @return A new error with the same fields. If there is a failure to allocate
+ * memory, @ref drgn_enomem is returned instead.
+ */
+struct drgn_error *drgn_error_copy(struct drgn_error *src)
+	__attribute__((returns_nonnull));
+
 /**
  * Write a @ref drgn_error to a @c stdio stream.
  *

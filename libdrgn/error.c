@@ -162,6 +162,39 @@ struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
 	return drgn_error_create_nodup(code, message);
 }
 
+LIBDRGN_PUBLIC struct drgn_error *drgn_error_copy(struct drgn_error *src)
+{
+	if (!src->needs_destroy)
+		return src;
+	struct drgn_error *dst = malloc(sizeof(*dst));
+	if (!dst)
+		return &drgn_enomem;
+	dst->code = src->code;
+	dst->needs_destroy = true;
+	dst->errnum = src->errnum;
+	if (src->path) {
+		dst->path = strdup(src->path);
+		if (!dst->path) {
+			free(dst);
+			return &drgn_enomem;
+		}
+	} else {
+		dst->path = NULL;
+	}
+	dst->address = src->address;
+	if (src->message) {
+		dst->message = strdup(src->message);
+		if (!dst->message) {
+			free(dst->path);
+			free(dst);
+			return &drgn_enomem;
+		}
+	} else {
+		dst->message = NULL;
+	}
+	return dst;
+}
+
 bool string_builder_append_error(struct string_builder *sb,
 				 struct drgn_error *err)
 {
