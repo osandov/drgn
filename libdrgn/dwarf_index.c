@@ -252,26 +252,6 @@ static inline const char *section_end(Elf_Data *data)
 	return (const char *)data->d_buf + data->d_size;
 }
 
-/*
- * An indexed DIE.
- *
- * DIEs with the same name but different tags or files are considered distinct.
- * We only compare the hash of the file name, not the string value, because a
- * 64-bit collision is unlikely enough, especially when also considering the
- * name and tag.
- */
-struct drgn_dwarf_index_die {
-	/*
-	 * The next DIE with the same name (as an index into
-	 * drgn_dwarf_index_shard::dies), or UINT32_MAX if this is the last DIE.
-	 */
-	uint32_t next;
-	uint8_t tag;
-	uint64_t file_name_hash;
-	Dwfl_Module *module;
-	size_t offset;
-};
-
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash, string_eq)
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_die_vector)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_specification_map,
@@ -2619,23 +2599,18 @@ drgn_dwarf_index_iterator_matches_tag(struct drgn_dwarf_index_iterator *it,
 	return false;
 }
 
-struct drgn_error *
-drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
-			       Dwarf_Die *die_ret, uint64_t *bias_ret)
+struct drgn_dwarf_index_die *
+drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it)
 {
 	struct drgn_dwarf_index *dindex = it->dindex;
 	struct drgn_dwarf_index_die *die;
-	Dwarf *dwarf;
-	Dwarf_Addr bias;
-
 	if (it->any_name) {
 		for (;;) {
-			struct drgn_dwarf_index_shard *shard;
-
 			if (it->shard >= ARRAY_SIZE(dindex->shards))
-				return &drgn_stop;
+				return NULL;
 
-			shard = &dindex->shards[it->shard];
+			struct drgn_dwarf_index_shard *shard =
+				&dindex->shards[it->shard];
 			die = &shard->dies.data[it->index];
 
 			if (++it->index >= shard->dies.size) {
@@ -2651,12 +2626,11 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 		}
 	} else {
 		for (;;) {
-			struct drgn_dwarf_index_shard *shard;
-
 			if (it->index == UINT32_MAX)
-				return &drgn_stop;
+				return NULL;
 
-			shard = &dindex->shards[it->shard];
+			struct drgn_dwarf_index_shard *shard =
+				&dindex->shards[it->shard];
 			die = &shard->dies.data[it->index];
 
 			it->index = die->next;
@@ -2665,8 +2639,15 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 				break;
 		}
 	}
+	return die;
+}
 
-	dwarf = dwfl_module_getdwarf(die->module, &bias);
+struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
+					    Dwarf_Die *die_ret,
+					    uint64_t *bias_ret)
+{
+	Dwarf_Addr bias;
+	Dwarf *dwarf = dwfl_module_getdwarf(die->module, &bias);
 	if (!dwarf)
 		return drgn_error_libdwfl();
 	if (!dwarf_offdie(dwarf, die->offset, die_ret))
