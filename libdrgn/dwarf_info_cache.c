@@ -346,29 +346,30 @@ drgn_dwarf_info_cache_find_complete(struct drgn_dwarf_info_cache *dicache,
 				    struct drgn_type **ret)
 {
 	struct drgn_error *err;
-	struct drgn_dwarf_index_iterator it;
-	Dwarf_Die die;
-	struct drgn_qualified_type qualified_type;
 
+	struct drgn_dwarf_index_iterator it;
 	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name,
 				       strlen(name), &tag, 1);
 	/*
 	 * Find a matching DIE. Note that drgn_dwarf_index does not contain DIEs
 	 * with DW_AT_declaration, so this will always be a complete type.
 	 */
-	err = drgn_dwarf_index_iterator_next(&it, &die, NULL);
-	if (err)
-		return err;
+	struct drgn_dwarf_index_die *index_die =
+		drgn_dwarf_index_iterator_next(&it);
+	if (!index_die)
+		return &drgn_stop;
 	/*
 	 * Look for another matching DIE. If there is one, then we can't be sure
 	 * which type this is, so leave it incomplete rather than guessing.
 	 */
-	err = drgn_dwarf_index_iterator_next(&it, &die, NULL);
-	if (!err)
+	if (drgn_dwarf_index_iterator_next(&it))
 		return &drgn_stop;
-	else if (err->code != DRGN_ERROR_STOP)
-		return err;
 
+	Dwarf_Die die;
+	err = drgn_dwarf_index_get_die(index_die, &die, NULL);
+	if (err)
+		return err;
+	struct drgn_qualified_type qualified_type;
 	err = drgn_type_from_dwarf(dicache, &die, &qualified_type);
 	if (err)
 		return err;
@@ -1237,10 +1238,8 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_info_cache *dicache = arg;
-	struct drgn_dwarf_index_iterator it;
-	Dwarf_Die die;
-	uint64_t tag;
 
+	uint64_t tag;
 	switch (kind) {
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
@@ -1266,9 +1265,15 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 		UNREACHABLE();
 	}
 
+	struct drgn_dwarf_index_iterator it;
 	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name, name_len,
 				       &tag, 1);
-	while (!(err = drgn_dwarf_index_iterator_next(&it, &die, NULL))) {
+	struct drgn_dwarf_index_die *index_die;
+	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
+		Dwarf_Die die;
+		err = drgn_dwarf_index_get_die(index_die, &die, NULL);
+		if (err)
+			return err;
 		if (die_matches_filename(&die, filename)) {
 			err = drgn_type_from_dwarf(dicache, &die, ret);
 			if (err)
@@ -1281,8 +1286,6 @@ struct drgn_error *drgn_dwarf_type_find(enum drgn_type_kind kind,
 				return NULL;
 		}
 	}
-	if (err && err->code != DRGN_ERROR_STOP)
-		return err;
 	return &drgn_not_found;
 }
 
@@ -1436,13 +1439,9 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_info_cache *dicache = arg;
-	uint64_t tags[3];
-	size_t num_tags;
-	struct drgn_dwarf_index_iterator it;
-	Dwarf_Die die;
-	uint64_t bias;
 
-	num_tags = 0;
+	uint64_t tags[3];
+	size_t num_tags = 0;
 	if (flags & DRGN_FIND_OBJECT_CONSTANT)
 		tags[num_tags++] = DW_TAG_enumerator;
 	if (flags & DRGN_FIND_OBJECT_FUNCTION)
@@ -1450,9 +1449,16 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 	if (flags & DRGN_FIND_OBJECT_VARIABLE)
 		tags[num_tags++] = DW_TAG_variable;
 
+	struct drgn_dwarf_index_iterator it;
 	drgn_dwarf_index_iterator_init(&it, &dicache->dindex, name,
 				       strlen(name), tags, num_tags);
-	while (!(err = drgn_dwarf_index_iterator_next(&it, &die, &bias))) {
+	struct drgn_dwarf_index_die *index_die;
+	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
+		Dwarf_Die die;
+		uint64_t bias;
+		err = drgn_dwarf_index_get_die(index_die, &die, &bias);
+		if (err)
+			return err;
 		if (!die_matches_filename(&die, filename))
 			continue;
 		switch (dwarf_tag(&die)) {
@@ -1470,8 +1476,6 @@ drgn_dwarf_object_find(const char *name, size_t name_len, const char *filename,
 			UNREACHABLE();
 		}
 	}
-	if (err && err->code != DRGN_ERROR_STOP)
-		return err;
 	return &drgn_not_found;
 }
 

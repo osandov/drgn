@@ -62,7 +62,32 @@ extern const Dwfl_Callbacks drgn_dwfl_callbacks;
 extern const Dwfl_Callbacks drgn_linux_proc_dwfl_callbacks;
 extern const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks;
 
-struct drgn_dwarf_index_die;
+/*
+ * An indexed DIE.
+ *
+ * DIEs with the same name but different tags or files are considered distinct.
+ * We only compare the hash of the file name, not the string value, because a
+ * 64-bit collision is unlikely enough, especially when also considering the
+ * name and tag.
+ */
+struct drgn_dwarf_index_die {
+	/*
+	 * The next DIE with the same name (as an index into
+	 * drgn_dwarf_index_shard::dies), or UINT32_MAX if this is the last DIE.
+	 */
+	uint32_t next;
+	uint8_t tag;
+	union {
+		/* If tag != DW_TAG_namespace. */
+		uint64_t file_name_hash;
+		/* TODO: explain hash */
+		/* If tag == DW_TAG_namespace. */
+		struct drgn_dwarf_index_namespace *namespace;
+	};
+	Dwfl_Module *module;
+	size_t offset;
+};
+
 DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, uint32_t)
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
 
@@ -411,18 +436,24 @@ void drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
  * DW_TAG_enumerator DIEs.
  *
  * @param[in] it DWARF index iterator.
+ * @return Next DIE, or @c NULL if there are no more matching DIEs.
+ */
+struct drgn_dwarf_index_die *
+drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it);
+
+/**
+ * Get a @c Dwarf_Die from a @ref drgn_dwarf_index_die.
+ *
+ * @param[in] die Indexed DIE.
  * @param[out] die_ret Returned DIE.
  * @param[out] bias_ret Returned difference between addresses in the loaded
  * module and addresses in the debugging information. This may be @c NULL if it
  * is not needed.
- * @return @c NULL on success, non-@c NULL on error. In particular, when there
- * are no more matching DIEs, @p die_ret is not modified and an error with code
- * @ref DRGN_ERROR_STOP is returned; this @ref DRGN_ERROR_STOP error does not
- * have to be passed to @ref drgn_error_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *
-drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
-			       Dwarf_Die *die_ret, uint64_t *bias_ret);
+struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
+					    Dwarf_Die *die_ret,
+					    uint64_t *bias_ret);
 
 /** @} */
 
