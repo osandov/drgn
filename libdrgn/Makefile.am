@@ -20,10 +20,10 @@ ARCH_INS = arch_x86_64.c.in
 libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 binary_search_tree.h \
 			 cityhash.h \
+			 debug_info.c \
+			 debug_info.h \
 			 dwarf_index.c \
 			 dwarf_index.h \
-			 dwarf_info_cache.c \
-			 dwarf_info_cache.h \
 			 error.c \
 			 error.h \
 			 hash_table.c \

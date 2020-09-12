@@ -15,8 +15,7 @@
 #include <sys/vfs.h>
 
 #include "internal.h"
-#include "dwarf_index.h"
-#include "dwarf_info_cache.h"
+#include "debug_info.h"
 #include "language.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
@@ -100,7 +99,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
 
-	drgn_dwarf_info_cache_destroy(prog->_dicache);
+	drgn_debug_info_destroy(prog->_dbinfo);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -529,10 +528,8 @@ static struct drgn_error *drgn_program_get_dindex(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	if (!prog->_dicache) {
+	if (!prog->_dbinfo) {
 		const Dwfl_Callbacks *dwfl_callbacks;
-		struct drgn_dwarf_info_cache *dicache;
-
 		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 			dwfl_callbacks = &drgn_dwfl_callbacks;
 		else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
@@ -540,27 +537,28 @@ static struct drgn_error *drgn_program_get_dindex(struct drgn_program *prog,
 		else
 			dwfl_callbacks = &drgn_userspace_core_dump_dwfl_callbacks;
 
-		err = drgn_dwarf_info_cache_create(prog, dwfl_callbacks,
-						   &dicache);
+		struct drgn_debug_info *dbinfo;
+		err = drgn_debug_info_create(prog, dwfl_callbacks, &dbinfo);
 		if (err)
 			return err;
 		err = drgn_program_add_object_finder(prog,
-						     drgn_dwarf_object_find,
-						     dicache);
+						     drgn_debug_info_find_object,
+						     dbinfo);
 		if (err) {
-			drgn_dwarf_info_cache_destroy(dicache);
+			drgn_debug_info_destroy(dbinfo);
 			return err;
 		}
-		err = drgn_program_add_type_finder(prog, drgn_dwarf_type_find,
-						   dicache);
+		err = drgn_program_add_type_finder(prog,
+						   drgn_debug_info_find_type,
+						   dbinfo);
 		if (err) {
 			drgn_object_index_remove_finder(&prog->oindex);
-			drgn_dwarf_info_cache_destroy(dicache);
+			drgn_debug_info_destroy(dbinfo);
 			return err;
 		}
-		prog->_dicache = dicache;
+		prog->_dbinfo = dbinfo;
 	}
-	*ret = &prog->_dicache->dindex;
+	*ret = &prog->_dbinfo->dindex;
 	return NULL;
 }
 
@@ -1146,8 +1144,8 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 	GElf_Sym elf_sym;
 
 	if (!module) {
-		if (prog->_dicache) {
-			module = dwfl_addrmodule(prog->_dicache->dindex.dwfl,
+		if (prog->_dbinfo) {
+			module = dwfl_addrmodule(prog->_dbinfo->dindex.dwfl,
 						 address);
 			if (!module)
 				return false;
@@ -1245,8 +1243,8 @@ drgn_program_find_symbol_by_name(struct drgn_program *prog,
 		.ret = ret,
 	};
 
-	if (prog->_dicache &&
-	    dwfl_getmodules(prog->_dicache->dindex.dwfl, find_symbol_by_name_cb,
+	if (prog->_dbinfo &&
+	    dwfl_getmodules(prog->_dbinfo->dindex.dwfl, find_symbol_by_name_cb,
 			    &arg, 0))
 		return arg.err;
 	return drgn_error_format(DRGN_ERROR_LOOKUP,

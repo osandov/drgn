@@ -118,7 +118,7 @@ struct drgn_program {
 	 * Debugging information.
 	 */
 	struct drgn_object_index oindex;
-	struct drgn_dwarf_info_cache *_dicache;
+	struct drgn_debug_info *_dbinfo;
 
 	/*
 	 * Program information.
