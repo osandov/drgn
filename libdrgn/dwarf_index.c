@@ -1447,8 +1447,11 @@ static void drgn_dwarf_index_rollback(struct drgn_dwarf_index *dindex)
 			struct drgn_debug_info_module *module = *userdatap;
 			if (module->state == DRGN_DEBUG_INFO_MODULE_INDEXED)
 				break;
-			else
-				shard->dies.size--;
+			if (die->tag == DW_TAG_namespace) {
+				drgn_dwarf_index_namespace_deinit(die->namespace);
+				free(die->namespace);
+			}
+			shard->dies.size--;
 		}
 
 		/*
