@@ -1,19 +1,1016 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <assert.h>
 #include <dwarf.h>
+#include <elf.h>
 #include <elfutils/libdw.h>
-#include <libelf.h>
+#include <elfutils/libdwelf.h>
+#include <gelf.h>
+#include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "internal.h"
 #include "debug_info.h"
 #include "hash_table.h"
+#include "language.h"
+#include "linux_kernel.h"
 #include "object.h"
-#include "object_index.h"
 #include "program.h"
 #include "type.h"
 #include "vector.h"
+
+DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)
+
+static inline struct hash_pair
+drgn_debug_info_module_hash(const struct drgn_debug_info_module_key *key)
+{
+	size_t hash = cityhash_size_t(key->build_id, key->build_id_len);
+	hash = hash_combine(hash, key->start);
+	hash = hash_combine(hash, key->end);
+	return hash_pair_from_avalanching_hash(hash);
+}
+static inline bool
+drgn_debug_info_module_eq(const struct drgn_debug_info_module_key *a,
+			  const struct drgn_debug_info_module_key *b)
+{
+	return (a->build_id_len == b->build_id_len &&
+		memcmp(a->build_id, b->build_id, a->build_id_len) == 0 &&
+		a->start == b->start && a->end == b->end);
+}
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_debug_info_module_table,
+			    drgn_debug_info_module_hash,
+			    drgn_debug_info_module_eq)
+
+DEFINE_HASH_TABLE_FUNCTIONS(c_string_set, c_string_hash, c_string_eq)
+
+/**
+ * @c Dwfl_Callbacks::find_elf() implementation.
+ *
+ * Ideally we'd use @c dwfl_report_elf() instead, but that doesn't take an @c
+ * Elf handle, which we need for a couple of reasons:
+ *
+ * - We usually already have the @c Elf handle open in order to identify the
+ *   file.
+ * - For kernel modules, we set the section addresses in the @c Elf handle
+ *   ourselves instead of using @c Dwfl_Callbacks::section_address().
+ *
+ * Additionally, there's a special case for vmlinux. It is usually an @c ET_EXEC
+ * ELF file, but when KASLR is enabled, it needs to be handled like an @c ET_DYN
+ * file. libdwfl has a hack for this when @c dwfl_report_module() is used, but
+ * @ref dwfl_report_elf() bypasses this hack.
+ *
+ * So, we're stuck using @c dwfl_report_module() and this dummy callback.
+ */
+static int drgn_dwfl_find_elf(Dwfl_Module *dwfl_module, void **userdatap,
+			      const char *name, Dwarf_Addr base,
+			      char **file_name, Elf **elfp)
+{
+	struct drgn_debug_info_module *module = *userdatap;
+	/*
+	 * libdwfl consumes the returned path, file descriptor, and ELF handle,
+	 * so clear the fields.
+	 */
+	*file_name = module->path;
+	int fd = module->fd;
+	*elfp = module->elf;
+	module->path = NULL;
+	module->fd = -1;
+	module->elf = NULL;
+	return fd;
+}
+
+/*
+ * Uses drgn_dwfl_find_elf() if the ELF file was reported directly and falls
+ * back to dwfl_linux_proc_find_elf() otherwise.
+ */
+static int drgn_dwfl_linux_proc_find_elf(Dwfl_Module *dwfl_module,
+					 void **userdatap, const char *name,
+					 Dwarf_Addr base, char **file_name,
+					 Elf **elfp)
+{
+	struct drgn_debug_info_module *module = *userdatap;
+	if (module->elf) {
+		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
+					  file_name, elfp);
+	}
+	return dwfl_linux_proc_find_elf(dwfl_module, userdatap, name, base,
+					file_name, elfp);
+}
+
+/*
+ * Uses drgn_dwfl_find_elf() if the ELF file was reported directly and falls
+ * back to dwfl_build_id_find_elf() otherwise.
+ */
+static int drgn_dwfl_build_id_find_elf(Dwfl_Module *dwfl_module,
+				       void **userdatap, const char *name,
+				       Dwarf_Addr base, char **file_name,
+				       Elf **elfp)
+{
+	struct drgn_debug_info_module *module = *userdatap;
+	if (module->elf) {
+		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
+					  file_name, elfp);
+	}
+	return dwfl_build_id_find_elf(dwfl_module, userdatap, name, base,
+				      file_name, elfp);
+}
+
+/**
+ * @c Dwfl_Callbacks::section_address() implementation.
+ *
+ * We set the section header @c sh_addr in memory instead of using this, but
+ * libdwfl requires the callback pointer to be non-@c NULL. It will be called
+ * for any sections that still have a zero @c sh_addr, meaning they are not
+ * present in memory.
+ */
+static int drgn_dwfl_section_address(Dwfl_Module *module, void **userdatap,
+				     const char *name, Dwarf_Addr base,
+				     const char *secname, Elf32_Word shndx,
+				     const GElf_Shdr *shdr, Dwarf_Addr *addr)
+{
+	*addr = -1;
+	return DWARF_CB_OK;
+}
+
+static const Dwfl_Callbacks drgn_dwfl_callbacks = {
+	.find_elf = drgn_dwfl_find_elf,
+	.find_debuginfo = dwfl_standard_find_debuginfo,
+	.section_address = drgn_dwfl_section_address,
+};
+
+static const Dwfl_Callbacks drgn_linux_proc_dwfl_callbacks = {
+	.find_elf = drgn_dwfl_linux_proc_find_elf,
+	.find_debuginfo = dwfl_standard_find_debuginfo,
+	.section_address = drgn_dwfl_section_address,
+};
+
+static const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks = {
+	.find_elf = drgn_dwfl_build_id_find_elf,
+	.find_debuginfo = dwfl_standard_find_debuginfo,
+	.section_address = drgn_dwfl_section_address,
+};
+
+static void
+drgn_debug_info_module_destroy(struct drgn_debug_info_module *module)
+{
+	if (module) {
+		drgn_error_destroy(module->err);
+		elf_end(module->elf);
+		if (module->fd != -1)
+			close(module->fd);
+		free(module->path);
+		free(module->name);
+		free(module);
+	}
+}
+
+static void
+drgn_debug_info_module_finish_indexing(struct drgn_debug_info *dbinfo,
+				       struct drgn_debug_info_module *module)
+{
+	module->state = DRGN_DEBUG_INFO_MODULE_INDEXED;
+	if (module->name) {
+		int ret = c_string_set_insert(&dbinfo->module_names,
+					      (const char **)&module->name,
+					      NULL);
+		/* drgn_debug_info_update_index() should've reserved enough. */
+		assert(ret != -1);
+	}
+}
+
+struct drgn_dwfl_module_removed_arg {
+	struct drgn_debug_info *dbinfo;
+	bool finish_indexing;
+	bool free_all;
+};
+
+static int drgn_dwfl_module_removed(Dwfl_Module *dwfl_module, void *userdatap,
+				    const char *name, Dwarf_Addr base,
+				    void *_arg)
+{
+	struct drgn_dwfl_module_removed_arg *arg = _arg;
+	/*
+	 * userdatap is actually a void ** like for the other libdwfl callbacks,
+	 * but dwfl_report_end() has the wrong signature for the removed
+	 * callback.
+	 */
+	struct drgn_debug_info_module *module = *(void **)userdatap;
+	if (arg->finish_indexing && module &&
+	    module->state == DRGN_DEBUG_INFO_MODULE_INDEXING)
+		drgn_debug_info_module_finish_indexing(arg->dbinfo, module);
+	if (arg->free_all || !module ||
+	    module->state != DRGN_DEBUG_INFO_MODULE_INDEXED) {
+		drgn_debug_info_module_destroy(module);
+	} else {
+		/*
+		 * The module was already indexed. Report it again so libdwfl
+		 * doesn't remove it.
+		 */
+		Dwarf_Addr end;
+		dwfl_module_info(dwfl_module, NULL, NULL, &end, NULL, NULL,
+				 NULL, NULL);
+		dwfl_report_module(arg->dbinfo->dwfl, name, base, end);
+	}
+	return DWARF_CB_OK;
+}
+
+static void drgn_debug_info_free_modules(struct drgn_debug_info *dbinfo,
+					 bool finish_indexing, bool free_all)
+{
+	for (struct drgn_debug_info_module_table_iterator it =
+	     drgn_debug_info_module_table_first(&dbinfo->modules); it.entry; ) {
+		struct drgn_debug_info_module *module = *it.entry;
+		struct drgn_debug_info_module **nextp = it.entry;
+		do {
+			struct drgn_debug_info_module *next = module->next;
+			if (finish_indexing &&
+			    module->state == DRGN_DEBUG_INFO_MODULE_INDEXING) {
+				drgn_debug_info_module_finish_indexing(dbinfo,
+								       module);
+			}
+			if (free_all ||
+			    module->state != DRGN_DEBUG_INFO_MODULE_INDEXED) {
+				if (module == *nextp) {
+					if (nextp == it.entry && !next) {
+						it = drgn_debug_info_module_table_delete_iterator(&dbinfo->modules,
+												  it);
+					} else {
+						if (!next)
+							it = drgn_debug_info_module_table_next(it);
+						*nextp = next;
+					}
+				}
+				void **userdatap;
+				dwfl_module_info(module->dwfl_module,
+						 &userdatap, NULL, NULL, NULL,
+						 NULL, NULL, NULL);
+				*userdatap = NULL;
+				drgn_debug_info_module_destroy(module);
+			} else {
+				if (!next)
+					it = drgn_debug_info_module_table_next(it);
+				nextp = &module->next;
+			}
+			module = next;
+		} while (module);
+	}
+
+	dwfl_report_begin(dbinfo->dwfl);
+	struct drgn_dwfl_module_removed_arg arg = {
+		.dbinfo = dbinfo,
+		.finish_indexing = finish_indexing,
+		.free_all = free_all,
+	};
+	dwfl_report_end(dbinfo->dwfl, drgn_dwfl_module_removed, &arg);
+}
+
+struct drgn_error *
+drgn_debug_info_report_error(struct drgn_debug_info_load_state *load,
+			     const char *name, const char *message,
+			     struct drgn_error *err)
+{
+	if (err && err->code == DRGN_ERROR_NO_MEMORY) {
+		/* Always fail hard if we're out of memory. */
+		goto err;
+	}
+	if (load->num_errors == 0 &&
+	    !string_builder_append(&load->errors,
+				   "could not get debugging information for:"))
+		goto err;
+	if (load->num_errors < load->max_errors) {
+		if (!string_builder_line_break(&load->errors))
+			goto err;
+		if (name && !string_builder_append(&load->errors, name))
+			goto err;
+		if (name && (message || err) &&
+		    !string_builder_append(&load->errors, " ("))
+			goto err;
+		if (message && !string_builder_append(&load->errors, message))
+			goto err;
+		if (message && err &&
+		    !string_builder_append(&load->errors, ": "))
+			goto err;
+		if (err && !string_builder_append_error(&load->errors, err))
+			goto err;
+		if (name && (message || err) &&
+		    !string_builder_appendc(&load->errors, ')'))
+			goto err;
+	}
+	load->num_errors++;
+	drgn_error_destroy(err);
+	return NULL;
+
+err:
+	drgn_error_destroy(err);
+	return &drgn_enomem;
+}
+
+static struct drgn_error *
+drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
+			      const void *build_id, size_t build_id_len,
+			      uint64_t start, uint64_t end, const char *name,
+			      Dwfl_Module *dwfl_module, const char *path,
+			      int fd, Elf *elf, bool *new_ret)
+{
+	struct drgn_debug_info *dbinfo = load->dbinfo;
+	struct drgn_error *err;
+	char *path_key = NULL;
+
+	if (new_ret)
+		*new_ret = false;
+
+	struct hash_pair hp;
+	struct drgn_debug_info_module_table_iterator it;
+	if (build_id_len) {
+		struct drgn_debug_info_module_key key = {
+			.build_id = build_id,
+			.build_id_len = build_id_len,
+			.start = start,
+			.end = end,
+		};
+		hp = drgn_debug_info_module_hash(&key);
+		it = drgn_debug_info_module_table_search_hashed(&dbinfo->modules,
+								&key, hp);
+		if (it.entry &&
+		    (*it.entry)->state == DRGN_DEBUG_INFO_MODULE_INDEXED) {
+			/* We've already indexed this module. */
+			err = NULL;
+			goto free;
+		}
+	}
+
+	if (!dwfl_module) {
+		path_key = realpath(path, NULL);
+		if (!path_key) {
+			path_key = strdup(path);
+			if (!path_key) {
+				err = &drgn_enomem;
+				goto free;
+			}
+		}
+
+		dwfl_module = dwfl_report_module(dbinfo->dwfl, path_key, start,
+						 end);
+		if (!dwfl_module) {
+			err = drgn_error_libdwfl();
+			goto free;
+		}
+	}
+
+	void **userdatap;
+	dwfl_module_info(dwfl_module, &userdatap, NULL, NULL, NULL, NULL, NULL,
+			 NULL);
+	if (*userdatap) {
+		/* We've already reported this file at this offset. */
+		err = NULL;
+		goto free;
+	}
+	if (new_ret)
+		*new_ret = true;
+
+	struct drgn_debug_info_module *module = malloc(sizeof(*module));
+	if (!module) {
+		err = &drgn_enomem;
+		goto free;
+	}
+	module->state = DRGN_DEBUG_INFO_MODULE_NEW;
+	module->build_id = build_id;
+	module->build_id_len = build_id_len;
+	module->start = start;
+	module->end = end;
+	if (name) {
+		module->name = strdup(name);
+		if (!module->name) {
+			err = &drgn_enomem;
+			free(module);
+			goto free;
+		}
+	} else {
+		module->name = NULL;
+	}
+	module->dwfl_module = dwfl_module;
+	module->path = path_key;
+	module->fd = fd;
+	module->elf = elf;
+	module->err = NULL;
+	module->next = NULL;
+
+	/* path_key, fd and elf are owned by the module now. */
+
+	if (!drgn_debug_info_module_vector_append(&load->new_modules,
+						  &module)) {
+		drgn_debug_info_module_destroy(module);
+		return &drgn_enomem;
+	}
+	if (build_id_len) {
+		if (it.entry) {
+			/*
+			 * The first module with this build ID is in
+			 * new_modules, so insert it after in the list, not
+			 * before.
+			 */
+			module->next = (*it.entry)->next;
+			(*it.entry)->next = module;
+		} else if (drgn_debug_info_module_table_insert_searched(&dbinfo->modules,
+									&module,
+									hp,
+									NULL) < 0) {
+			load->new_modules.size--;
+			drgn_debug_info_module_destroy(module);
+			return &drgn_enomem;
+		}
+	}
+	*userdatap = module;
+	return NULL;
+
+free:
+	elf_end(elf);
+	if (fd != -1)
+		close(fd);
+	free(path_key);
+	return err;
+}
+
+struct drgn_error *
+drgn_debug_info_report_elf(struct drgn_debug_info_load_state *load,
+			   const char *path, int fd, Elf *elf, uint64_t start,
+			   uint64_t end, const char *name, bool *new_ret)
+{
+
+	struct drgn_error *err;
+	const void *build_id;
+	ssize_t build_id_len = dwelf_elf_gnu_build_id(elf, &build_id);
+	if (build_id_len < 0) {
+		err = drgn_debug_info_report_error(load, path, NULL,
+						   drgn_error_libdwfl());
+		close(fd);
+		elf_end(elf);
+		return err;
+	} else if (build_id_len == 0) {
+		build_id = NULL;
+	}
+	return drgn_debug_info_report_module(load, build_id, build_id_len,
+					     start, end, name, NULL, path, fd,
+					     elf, new_ret);
+}
+
+static int drgn_debug_info_report_dwfl_module(Dwfl_Module *dwfl_module,
+					      void **userdatap,
+					      const char *name, Dwarf_Addr base,
+					      void *arg)
+{
+	struct drgn_debug_info_load_state *load = arg;
+	struct drgn_error *err;
+
+	if (*userdatap) {
+		/*
+		 * This was either reported from drgn_debug_info_report_elf() or
+		 * already indexed.
+		 */
+		return DWARF_CB_OK;
+	}
+
+	const unsigned char *build_id;
+	GElf_Addr build_id_vaddr;
+	int build_id_len = dwfl_module_build_id(dwfl_module, &build_id,
+						&build_id_vaddr);
+	if (build_id_len < 0) {
+		err = drgn_debug_info_report_error(load, name, NULL,
+						   drgn_error_libdwfl());
+		if (err)
+			goto err;
+	} else if (build_id_len == 0) {
+		build_id = NULL;
+	}
+	Dwarf_Addr end;
+	dwfl_module_info(dwfl_module, NULL, NULL, &end, NULL, NULL, NULL, NULL);
+	err = drgn_debug_info_report_module(load, build_id, build_id_len, base,
+					    end, NULL, dwfl_module, name, -1,
+					    NULL, NULL);
+	if (err)
+		goto err;
+	return DWARF_CB_OK;
+
+err:
+	drgn_error_destroy(err);
+	return DWARF_CB_ABORT;
+}
+
+static struct drgn_error *
+userspace_report_debug_info(struct drgn_debug_info_load_state *load)
+{
+	struct drgn_error *err;
+
+	for (size_t i = 0; i < load->num_paths; i++) {
+		int fd;
+		Elf *elf;
+		err = open_elf_file(load->paths[i], &fd, &elf);
+		if (err) {
+			err = drgn_debug_info_report_error(load, load->paths[i],
+							   NULL, err);
+			if (err)
+				return err;
+			continue;
+		}
+		/*
+		 * We haven't implemented a way to get the load address for
+		 * anything reported here, so for now we report it as unloaded.
+		 */
+		err = drgn_debug_info_report_elf(load, load->paths[i], fd, elf,
+						 0, 0, NULL, NULL);
+		if (err)
+			return err;
+	}
+
+	if (load->load_default) {
+		Dwfl *dwfl = load->dbinfo->dwfl;
+		struct drgn_program *prog = load->dbinfo->prog;
+		if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+			int ret = dwfl_linux_proc_report(dwfl, prog->pid);
+			if (ret == -1) {
+				return drgn_error_libdwfl();
+			} else if (ret) {
+				return drgn_error_create_os("dwfl_linux_proc_report",
+							    ret, NULL);
+			}
+		} else if (dwfl_core_file_report(dwfl, prog->core,
+						 NULL) == -1) {
+			return drgn_error_libdwfl();
+		}
+	}
+	return NULL;
+}
+
+static struct drgn_error *apply_relocation(Elf_Data *data, uint64_t r_offset,
+					   uint32_t r_type, int64_t r_addend,
+					   uint64_t st_value)
+{
+	char *p;
+
+	p = (char *)data->d_buf + r_offset;
+	switch (r_type) {
+	case R_X86_64_NONE:
+		break;
+	case R_X86_64_32:
+		if (r_offset > SIZE_MAX - sizeof(uint32_t) ||
+		    r_offset + sizeof(uint32_t) > data->d_size) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid relocation offset");
+		}
+		*(uint32_t *)p = st_value + r_addend;
+		break;
+	case R_X86_64_64:
+		if (r_offset > SIZE_MAX - sizeof(uint64_t) ||
+		    r_offset + sizeof(uint64_t) > data->d_size) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid relocation offset");
+		}
+		*(uint64_t *)p = st_value + r_addend;
+		break;
+	default:
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "unimplemented relocation type %" PRIu32,
+					 r_type);
+	}
+	return NULL;
+}
+
+static struct drgn_error *relocate_section(Elf_Scn *scn, Elf_Scn *rela_scn,
+					   Elf_Scn *symtab_scn,
+					   uint64_t *sh_addrs, size_t shdrnum)
+{
+	struct drgn_error *err;
+	Elf_Data *data, *rela_data, *symtab_data;
+	const Elf64_Rela *relocs;
+	const Elf64_Sym *syms;
+	size_t num_relocs, num_syms;
+	size_t i;
+	GElf_Shdr *shdr, shdr_mem;
+
+	err = read_elf_section(scn, &data);
+	if (err)
+		return err;
+	err = read_elf_section(rela_scn, &rela_data);
+	if (err)
+		return err;
+	err = read_elf_section(symtab_scn, &symtab_data);
+	if (err)
+		return err;
+
+	relocs = (Elf64_Rela *)rela_data->d_buf;
+	num_relocs = rela_data->d_size / sizeof(Elf64_Rela);
+	syms = (Elf64_Sym *)symtab_data->d_buf;
+	num_syms = symtab_data->d_size / sizeof(Elf64_Sym);
+
+	for (i = 0; i < num_relocs; i++) {
+		const Elf64_Rela *reloc = &relocs[i];
+		uint32_t r_sym, r_type;
+		uint16_t st_shndx;
+		uint64_t sh_addr;
+
+		r_sym = ELF64_R_SYM(reloc->r_info);
+		r_type = ELF64_R_TYPE(reloc->r_info);
+
+		if (r_sym >= num_syms) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid relocation symbol");
+		}
+		st_shndx = syms[r_sym].st_shndx;
+		if (st_shndx == 0) {
+			sh_addr = 0;
+		} else if (st_shndx < shdrnum) {
+			sh_addr = sh_addrs[st_shndx - 1];
+		} else {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid symbol section index");
+		}
+		err = apply_relocation(data, reloc->r_offset, r_type,
+				       reloc->r_addend,
+				       sh_addr + syms[r_sym].st_value);
+		if (err)
+			return err;
+	}
+
+	/*
+	 * Mark the relocation section as empty so that libdwfl doesn't try to
+	 * apply it again.
+	 */
+	shdr = gelf_getshdr(rela_scn, &shdr_mem);
+	if (!shdr)
+		return drgn_error_libelf();
+	shdr->sh_size = 0;
+	if (!gelf_update_shdr(rela_scn, shdr))
+		return drgn_error_libelf();
+	rela_data->d_size = 0;
+	return NULL;
+}
+
+/*
+ * Before the debugging information in a relocatable ELF file (e.g., Linux
+ * kernel module) can be used, it must have ELF relocations applied. This is
+ * usually done by libdwfl. However, libdwfl is relatively slow at it. This is a
+ * much faster implementation. It is only implemented for x86-64; for other
+ * architectures, we can fall back to libdwfl.
+ */
+static struct drgn_error *apply_elf_relocations(Elf *elf)
+{
+	struct drgn_error *err;
+	GElf_Ehdr ehdr_mem, *ehdr;
+	size_t shdrnum, shstrndx;
+	uint64_t *sh_addrs;
+	Elf_Scn *scn;
+
+	ehdr = gelf_getehdr(elf, &ehdr_mem);
+	if (!ehdr)
+		return drgn_error_libelf();
+
+	if (ehdr->e_type != ET_REL ||
+	    ehdr->e_machine != EM_X86_64 ||
+	    ehdr->e_ident[EI_CLASS] != ELFCLASS64 ||
+	    ehdr->e_ident[EI_DATA] !=
+	    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
+	     ELFDATA2LSB : ELFDATA2MSB)) {
+		/* Unsupported; fall back to libdwfl. */
+		return NULL;
+	}
+
+	if (elf_getshdrnum(elf, &shdrnum))
+		return drgn_error_libelf();
+	if (shdrnum > 1) {
+		sh_addrs = calloc(shdrnum - 1, sizeof(*sh_addrs));
+		if (!sh_addrs)
+			return &drgn_enomem;
+
+		scn = NULL;
+		while ((scn = elf_nextscn(elf, scn))) {
+			size_t ndx;
+
+			ndx = elf_ndxscn(scn);
+			if (ndx > 0 && ndx < shdrnum) {
+				GElf_Shdr *shdr, shdr_mem;
+
+				shdr = gelf_getshdr(scn, &shdr_mem);
+				if (!shdr) {
+					err = drgn_error_libelf();
+					goto out;
+				}
+				sh_addrs[ndx - 1] = shdr->sh_addr;
+			}
+		}
+	} else {
+		sh_addrs = NULL;
+	}
+
+	if (elf_getshdrstrndx(elf, &shstrndx)) {
+		err = drgn_error_libelf();
+		goto out;
+	}
+
+	scn = NULL;
+	while ((scn = elf_nextscn(elf, scn))) {
+		GElf_Shdr *shdr, shdr_mem;
+		const char *scnname;
+
+		shdr = gelf_getshdr(scn, &shdr_mem);
+		if (!shdr) {
+			err = drgn_error_libelf();
+			goto out;
+		}
+
+		if (shdr->sh_type != SHT_RELA)
+			continue;
+
+		scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		if (!scnname)
+			continue;
+
+		if (strstartswith(scnname, ".rela.debug_")) {
+			Elf_Scn *info_scn, *link_scn;
+
+			info_scn = elf_getscn(elf, shdr->sh_info);
+			if (!info_scn) {
+				err = drgn_error_libelf();
+				goto out;
+			}
+
+			link_scn = elf_getscn(elf, shdr->sh_link);
+			if (!link_scn) {
+				err = drgn_error_libelf();
+				goto out;
+			}
+
+			err = relocate_section(info_scn, scn, link_scn,
+					       sh_addrs, shdrnum);
+			if (err)
+				goto out;
+		}
+	}
+out:
+	free(sh_addrs);
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_get_debug_sections(struct drgn_debug_info_module *module)
+{
+	struct drgn_error *err;
+
+	if (module->elf) {
+		err = apply_elf_relocations(module->elf);
+		if (err)
+			return err;
+	}
+
+	/*
+	 * Note: not dwfl_module_getelf(), because then libdwfl applies
+	 * ELF relocations to all sections, not just debug sections.
+	 */
+	Dwarf_Addr bias;
+	Dwarf *dwarf = dwfl_module_getdwarf(module->dwfl_module, &bias);
+	if (!dwarf)
+		return drgn_error_libdwfl();
+	Elf *elf = dwarf_getelf(dwarf);
+	if (!elf)
+		return drgn_error_libdw();
+
+	module->bswap = (elf_getident(elf, NULL)[EI_DATA] !=
+			 (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
+			  ELFDATA2LSB : ELFDATA2MSB));
+
+	size_t shstrndx;
+	if (elf_getshdrstrndx(elf, &shstrndx))
+		return drgn_error_libelf();
+
+	module->debug_info = NULL;
+	module->debug_abbrev = NULL;
+	module->debug_str = NULL;
+	module->debug_line = NULL;
+	Elf_Scn *scn = NULL;
+	while ((scn = elf_nextscn(elf, scn))) {
+		GElf_Shdr shdr_mem;
+		GElf_Shdr *shdr = gelf_getshdr(scn, &shdr_mem);
+		if (!shdr)
+			return drgn_error_libelf();
+
+		if (shdr->sh_type == SHT_NOBITS || (shdr->sh_flags & SHF_GROUP))
+			continue;
+
+		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		if (!scnname)
+			continue;
+
+		Elf_Data **sectionp;
+		if (!module->debug_info && strcmp(scnname, ".debug_info") == 0)
+			sectionp = &module->debug_info;
+		else if (!module->debug_abbrev && strcmp(scnname, ".debug_abbrev") == 0)
+			sectionp = &module->debug_abbrev;
+		else if (!module->debug_str && strcmp(scnname, ".debug_str") == 0)
+			sectionp = &module->debug_str;
+		else if (!module->debug_line && strcmp(scnname, ".debug_line") == 0)
+			sectionp = &module->debug_line;
+		else
+			continue;
+		err = read_elf_section(scn, sectionp);
+		if (err)
+			return err;
+	}
+
+	/*
+	 * Truncate any extraneous bytes so that we can assume that a pointer
+	 * within .debug_str is always null-terminated.
+	 */
+	if (module->debug_str) {
+		const char *buf = module->debug_str->d_buf;
+		const char *nul = memrchr(buf, '\0', module->debug_str->d_size);
+		if (nul)
+			module->debug_str->d_size = nul - buf + 1;
+		else
+			module->debug_str->d_size = 0;
+
+	}
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
+			    struct drgn_dwarf_index_update_state *dindex_state,
+			    struct drgn_debug_info_module *head)
+{
+	struct drgn_error *err;
+	struct drgn_debug_info_module *module;
+	for (module = head; module; module = module->next) {
+		err = drgn_get_debug_sections(module);
+		if (err) {
+			module->err = err;
+			continue;
+		}
+		if (module->debug_info && module->debug_abbrev) {
+			module->state = DRGN_DEBUG_INFO_MODULE_INDEXING;
+			drgn_dwarf_index_read_module(dindex_state, module);
+			return NULL;
+		}
+	}
+	/*
+	 * We checked all of the files and didn't find debugging information.
+	 * Report why for each one.
+	 *
+	 * (If we did find debugging information, we discard errors on the
+	 * unused files.)
+	 */
+	err = NULL;
+	#pragma omp critical(drgn_debug_info_read_module_error)
+	for (module = head; module; module = module->next) {
+		const char *name =
+			dwfl_module_info(module->dwfl_module, NULL, NULL, NULL,
+					 NULL, NULL, NULL, NULL);
+		if (module->err) {
+			err = drgn_debug_info_report_error(load, name, NULL,
+							   module->err);
+			module->err = NULL;
+		} else {
+			err = drgn_debug_info_report_error(load, name,
+							   "no debugging information",
+							   NULL);
+		}
+		if (err)
+			break;
+	}
+	return err;
+}
+
+static struct drgn_error *
+drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
+{
+	if (!load->new_modules.size)
+		return NULL;
+	struct drgn_debug_info *dbinfo = load->dbinfo;
+	if (!c_string_set_reserve(&dbinfo->module_names,
+				  c_string_set_size(&dbinfo->module_names) +
+				  load->new_modules.size))
+		return &drgn_enomem;
+	struct drgn_dwarf_index_update_state dindex_state;
+	drgn_dwarf_index_update_begin(&dindex_state, &dbinfo->dindex);
+	/*
+	 * In OpenMP 5.0, this could be "#pragma omp parallel master taskloop"
+	 * (added in GCC 9 and Clang 10).
+	 */
+	#pragma omp parallel
+	#pragma omp master
+	#pragma omp taskloop
+	for (size_t i = 0; i < load->new_modules.size; i++) {
+		if (drgn_dwarf_index_update_cancelled(&dindex_state))
+			continue;
+		struct drgn_error *module_err =
+			drgn_debug_info_read_module(load, &dindex_state,
+						    load->new_modules.data[i]);
+		if (module_err)
+			drgn_dwarf_index_update_cancel(&dindex_state, module_err);
+	}
+	struct drgn_error *err = drgn_dwarf_index_update_end(&dindex_state);
+	if (err)
+		return err;
+	drgn_debug_info_free_modules(dbinfo, true, false);
+	return NULL;
+}
+
+struct drgn_error *
+drgn_debug_info_report_flush(struct drgn_debug_info_load_state *load)
+{
+	struct drgn_debug_info *dbinfo = load->dbinfo;
+	dwfl_report_end(dbinfo->dwfl, NULL, NULL);
+	struct drgn_error *err = drgn_debug_info_update_index(load);
+	dwfl_report_begin_add(dbinfo->dwfl);
+	if (err)
+		return err;
+	load->new_modules.size = 0;
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_debug_info_report_finalize_errors(struct drgn_debug_info_load_state *load)
+{
+	if (load->num_errors > load->max_errors &&
+	    (!string_builder_line_break(&load->errors) ||
+	     !string_builder_appendf(&load->errors, "... %u more",
+				     load->num_errors - load->max_errors))) {
+		free(load->errors.str);
+		return &drgn_enomem;
+	}
+	if (load->num_errors) {
+		return drgn_error_from_string_builder(DRGN_ERROR_MISSING_DEBUG_INFO,
+						      &load->errors);
+	} else {
+		return NULL;
+	}
+}
+
+struct drgn_error *drgn_debug_info_load(struct drgn_debug_info *dbinfo,
+					const char **paths, size_t n,
+					bool load_default, bool load_main)
+{
+	struct drgn_program *prog = dbinfo->prog;
+	struct drgn_error *err;
+
+	if (load_default)
+		load_main = true;
+
+	const char *max_errors = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
+	struct drgn_debug_info_load_state load = {
+		.dbinfo = dbinfo,
+		.paths = paths,
+		.num_paths = n,
+		.load_default = load_default,
+		.load_main = load_main,
+		.new_modules = VECTOR_INIT,
+		.max_errors = max_errors ? atoi(max_errors) : 5,
+	};
+	dwfl_report_begin_add(dbinfo->dwfl);
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		err = linux_kernel_report_debug_info(&load);
+	else
+		err = userspace_report_debug_info(&load);
+	dwfl_report_end(dbinfo->dwfl, NULL, NULL);
+	if (err)
+		goto err;
+
+	/*
+	 * userspace_report_debug_info() reports the main debugging information
+	 * directly with libdwfl, so we need to report it to dbinfo.
+	 */
+	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) && load_main &&
+	    dwfl_getmodules(dbinfo->dwfl, drgn_debug_info_report_dwfl_module,
+			    &load, 0)) {
+		err = &drgn_enomem;
+		goto err;
+	}
+
+	err = drgn_debug_info_update_index(&load);
+	if (err)
+		goto err;
+
+	/*
+	 * If this fails, it's too late to roll back. This can only fail with
+	 * enomem, so it's not a big deal.
+	 */
+	err = drgn_debug_info_report_finalize_errors(&load);
+out:
+	drgn_debug_info_module_vector_deinit(&load.new_modules);
+	return err;
+
+err:
+	drgn_debug_info_free_modules(dbinfo, false, false);
+	free(load.errors.str);
+	goto out;
+}
+
+bool drgn_debug_info_is_indexed(struct drgn_debug_info *dbinfo,
+				const char *name)
+{
+	return c_string_set_search(&dbinfo->module_names, &name).entry != NULL;
+}
 
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_type_map, hash_pair_ptr_type,
 			    hash_table_scalar_eq)
@@ -1504,26 +2501,31 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 	return &drgn_not_found;
 }
 
-struct drgn_error *
-drgn_debug_info_create(struct drgn_program *prog,
-		       const Dwfl_Callbacks *dwfl_callbacks,
-		       struct drgn_debug_info **ret)
+struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
+					  struct drgn_debug_info **ret)
 {
-	struct drgn_error *err;
-	struct drgn_debug_info *dbinfo;
-
-	dbinfo = malloc(sizeof(*dbinfo));
+	struct drgn_debug_info *dbinfo = malloc(sizeof(*dbinfo));
 	if (!dbinfo)
 		return &drgn_enomem;
-	err = drgn_dwarf_index_init(&dbinfo->dindex, dwfl_callbacks);
-	if (err) {
+	dbinfo->prog = prog;
+	const Dwfl_Callbacks *dwfl_callbacks;
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		dwfl_callbacks = &drgn_dwfl_callbacks;
+	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
+		dwfl_callbacks = &drgn_linux_proc_dwfl_callbacks;
+	else
+		dwfl_callbacks = &drgn_userspace_core_dump_dwfl_callbacks;
+	dbinfo->dwfl = dwfl_begin(dwfl_callbacks);
+	if (!dbinfo->dwfl) {
 		free(dbinfo);
-		return err;
+		return drgn_error_libdwfl();
 	}
+	drgn_debug_info_module_table_init(&dbinfo->modules);
+	c_string_set_init(&dbinfo->module_names);
+	drgn_dwarf_index_init(&dbinfo->dindex);
 	drgn_dwarf_type_map_init(&dbinfo->types);
 	drgn_dwarf_type_map_init(&dbinfo->cant_be_incomplete_array_types);
 	dbinfo->depth = 0;
-	dbinfo->prog = prog;
 	*ret = dbinfo;
 	return NULL;
 }
@@ -1535,5 +2537,10 @@ void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo)
 	drgn_dwarf_type_map_deinit(&dbinfo->cant_be_incomplete_array_types);
 	drgn_dwarf_type_map_deinit(&dbinfo->types);
 	drgn_dwarf_index_deinit(&dbinfo->dindex);
+	c_string_set_deinit(&dbinfo->module_names);
+	drgn_debug_info_free_modules(dbinfo, false, true);
+	assert(drgn_debug_info_module_table_empty(&dbinfo->modules));
+	drgn_debug_info_module_table_deinit(&dbinfo->modules);
+	dwfl_end(dbinfo->dwfl);
 	free(dbinfo);
 }

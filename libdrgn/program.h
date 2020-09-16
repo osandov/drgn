@@ -250,7 +250,8 @@ drgn_program_word_size(struct drgn_program *prog, uint8_t *ret)
 	return NULL;
 }
 
-struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret);
+struct drgn_error *drgn_program_get_dbinfo(struct drgn_program *prog,
+					   struct drgn_debug_info **ret);
 
 /**
  * Find the @c NT_PRSTATUS note for the given CPU.

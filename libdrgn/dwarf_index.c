@@ -3,161 +3,16 @@
 
 #include <assert.h>
 #include <dwarf.h>
-#include <elfutils/libdw.h>
-#include <elfutils/libdwelf.h>
-#include <fcntl.h>
-#include <gelf.h>
 #include <inttypes.h>
 #include <libelf.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include "internal.h"
+#include "debug_info.h"
 #include "dwarf_index.h"
 #include "mread.h"
 #include "siphash.h"
-#include "string_builder.h"
-
-DEFINE_VECTOR_FUNCTIONS(dwfl_module_vector)
-DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_module_vector)
-
-static inline struct hash_pair
-drgn_dwarf_module_hash(const struct drgn_dwarf_module_key *key)
-{
-	size_t hash;
-
-	hash = cityhash_size_t(key->build_id, key->build_id_len);
-	hash = hash_combine(hash, key->start);
-	hash = hash_combine(hash, key->end);
-	return hash_pair_from_avalanching_hash(hash);
-}
-static inline bool drgn_dwarf_module_eq(const struct drgn_dwarf_module_key *a,
-					const struct drgn_dwarf_module_key *b)
-{
-	return (a->build_id_len == b->build_id_len &&
-		(a->build_id_len == 0 ||
-		 memcmp(a->build_id, b->build_id, a->build_id_len) == 0) &&
-		a->start == b->start && a->end == b->end);
-}
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_module_table, drgn_dwarf_module_hash,
-			    drgn_dwarf_module_eq)
-
-DEFINE_HASH_TABLE_FUNCTIONS(c_string_set, c_string_hash, c_string_eq)
-
-/**
- * @c Dwfl_Callbacks::find_elf() implementation.
- *
- * Ideally we'd use @c dwfl_report_elf() instead, but that doesn't take an @c
- * Elf handle, which we need for a couple of reasons:
- *
- * - We usually already have the @c Elf handle open in order to identify the
- *   file.
- * - For kernel modules, we set the section addresses in the @c Elf handle
- *   ourselves instead of using @c Dwfl_Callbacks::section_address().
- *
- * Additionally, there's a special case for vmlinux. It is usually an @c ET_EXEC
- * ELF file, but when KASLR is enabled, it needs to be handled like an @c ET_DYN
- * file. libdwfl has a hack for this when @c dwfl_report_module() is used, but
- * @ref dwfl_report_elf() bypasses this hack.
- *
- * So, we're stuck using @c dwfl_report_module() and this dummy callback.
- */
-static int drgn_dwfl_find_elf(Dwfl_Module *dwfl_module, void **userdatap,
-			      const char *name, Dwarf_Addr base,
-			      char **file_name, Elf **elfp)
-{
-	struct drgn_dwfl_module_userdata *userdata = *userdatap;
-	int fd;
-
-	/*
-	 * libdwfl consumes the returned path, file descriptor, and ELF handle,
-	 * so clear the fields.
-	 */
-	*file_name = userdata->path;
-	fd = userdata->fd;
-	*elfp = userdata->elf;
-	userdata->path = NULL;
-	userdata->fd = -1;
-	userdata->elf = NULL;
-	return fd;
-}
-
-/*
- * Uses drgn_dwfl_find_elf() if the ELF file was reported directly and falls
- * back to dwfl_linux_proc_find_elf() otherwise.
- */
-static int drgn_dwfl_linux_proc_find_elf(Dwfl_Module *dwfl_module,
-					 void **userdatap, const char *name,
-					 Dwarf_Addr base, char **file_name,
-					 Elf **elfp)
-{
-	struct drgn_dwfl_module_userdata *userdata = *userdatap;
-
-	if (userdata->elf) {
-		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
-					  file_name, elfp);
-	}
-	return dwfl_linux_proc_find_elf(dwfl_module, userdatap, name, base,
-					file_name, elfp);
-}
-
-/*
- * Uses drgn_dwfl_find_elf() if the ELF file was reported directly and falls
- * back to dwfl_build_id_find_elf() otherwise.
- */
-static int drgn_dwfl_build_id_find_elf(Dwfl_Module *dwfl_module,
-				       void **userdatap, const char *name,
-				       Dwarf_Addr base, char **file_name,
-				       Elf **elfp)
-{
-	struct drgn_dwfl_module_userdata *userdata = *userdatap;
-
-	if (userdata->elf) {
-		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
-					  file_name, elfp);
-	}
-	return dwfl_build_id_find_elf(dwfl_module, userdatap, name, base,
-				      file_name, elfp);
-}
-
-/**
- * @c Dwfl_Callbacks::section_address() implementation.
- *
- * We set the section header @c sh_addr in memory instead of using this, but
- * libdwfl requires the callback pointer to be non-@c NULL. It will be called
- * for any sections that still have a zero @c sh_addr, meaning they are not
- * present in memory.
- */
-static int drgn_dwfl_section_address(Dwfl_Module *module, void **userdatap,
-				     const char *name, Dwarf_Addr base,
-				     const char *secname, Elf32_Word shndx,
-				     const GElf_Shdr *shdr, Dwarf_Addr *addr)
-{
-	*addr = -1;
-	return DWARF_CB_OK;
-}
-
-const Dwfl_Callbacks drgn_dwfl_callbacks = {
-	.find_elf = drgn_dwfl_find_elf,
-	.find_debuginfo = dwfl_standard_find_debuginfo,
-	.section_address = drgn_dwfl_section_address,
-};
-
-const Dwfl_Callbacks drgn_linux_proc_dwfl_callbacks = {
-	.find_elf = drgn_dwfl_linux_proc_find_elf,
-	.find_debuginfo = dwfl_standard_find_debuginfo,
-	.section_address = drgn_dwfl_section_address,
-};
-
-const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks = {
-	.find_elf = drgn_dwfl_build_id_find_elf,
-	.find_debuginfo = dwfl_standard_find_debuginfo,
-	.section_address = drgn_dwfl_section_address,
-};
 
 /*
  * The DWARF abbreviation table gets translated into a series of instructions.
@@ -216,10 +71,9 @@ DEFINE_VECTOR(uint32_vector, uint32_t)
 DEFINE_VECTOR(uint64_vector, uint64_t)
 
 struct drgn_dwarf_index_cu {
-	struct drgn_dwfl_module_userdata *userdata;
+	struct drgn_debug_info_module *module;
 	const char *ptr;
-	size_t unit_length;
-	uint64_t debug_abbrev_offset;
+	const char *end;
 	uint8_t version;
 	uint8_t address_size;
 	bool is_64_bit;
@@ -331,133 +185,6 @@ static inline struct drgn_error *mread_uleb128_into_size_t(const char **ptr,
 	return NULL;
 }
 
-static void drgn_dwarf_module_destroy(struct drgn_dwarf_module *module)
-{
-	if (module) {
-		dwfl_module_vector_deinit(&module->dwfl_modules);
-		free(module->name);
-		free(module->build_id);
-		free(module);
-	}
-}
-
-static void
-drgn_dwfl_module_userdata_destroy(struct drgn_dwfl_module_userdata *userdata)
-{
-	if (userdata) {
-		elf_end(userdata->elf);
-		if (userdata->fd != -1)
-			close(userdata->fd);
-		free(userdata->path);
-		free(userdata);
-	}
-}
-
-struct drgn_dwfl_module_removed_arg {
-	Dwfl *dwfl;
-	bool finish_indexing;
-	bool free_all;
-};
-
-static int drgn_dwfl_module_removed(Dwfl_Module *dwfl_module, void *userdatap,
-				    const char *name, Dwarf_Addr base,
-				    void *_arg)
-{
-	struct drgn_dwfl_module_removed_arg *arg = _arg;
-	/*
-	 * userdatap is actually a void ** like for the other libdwfl callbacks,
-	 * but dwfl_report_end() has the wrong signature for the removed
-	 * callback.
-	 */
-	struct drgn_dwfl_module_userdata *userdata = *(void **)userdatap;
-
-	if (arg->finish_indexing && userdata &&
-	    userdata->state == DRGN_DWARF_MODULE_INDEXING)
-		userdata->state = DRGN_DWARF_MODULE_INDEXED;
-	if (arg->free_all || !userdata ||
-	    userdata->state != DRGN_DWARF_MODULE_INDEXED) {
-		drgn_dwfl_module_userdata_destroy(userdata);
-	} else {
-		Dwarf_Addr end;
-
-		/*
-		 * The module was already indexed. Report it again so libdwfl
-		 * doesn't remove it.
-		 */
-		dwfl_module_info(dwfl_module, NULL, NULL, &end, NULL, NULL,
-				 NULL, NULL);
-		dwfl_report_module(arg->dwfl, name, base, end);
-	}
-	return DWARF_CB_OK;
-}
-
-static void drgn_dwarf_module_finish_indexing(struct drgn_dwarf_index *dindex,
-					      struct drgn_dwarf_module *module)
-{
-	module->state = DRGN_DWARF_MODULE_INDEXED;
-	/*
-	 * We don't need this anymore (but reinitialize it to empty so that
-	 * drgn_dwarf_index_get_unindexed() skips this module).
-	 */
-	dwfl_module_vector_deinit(&module->dwfl_modules);
-	dwfl_module_vector_init(&module->dwfl_modules);
-	if (module->name) {
-		int ret;
-
-		ret = c_string_set_insert(&dindex->names,
-					  (const char **)&module->name, NULL);
-		/* drgn_dwarf_index_get_unindexed() should've reserved enough for us. */
-		assert(ret != -1);
-	}
-}
-
-static void drgn_dwarf_index_free_modules(struct drgn_dwarf_index *dindex,
-					  bool finish_indexing, bool free_all)
-{
-	struct drgn_dwfl_module_removed_arg arg = {
-		.dwfl = dindex->dwfl,
-		.finish_indexing = finish_indexing,
-		.free_all = free_all,
-	};
-	struct drgn_dwarf_module_table_iterator it;
-	size_t i;
-
-	for (it = drgn_dwarf_module_table_first(&dindex->module_table);
-	     it.entry; ) {
-		struct drgn_dwarf_module *module = *it.entry;
-
-		if (finish_indexing &&
-		    module->state == DRGN_DWARF_MODULE_INDEXING)
-			drgn_dwarf_module_finish_indexing(dindex, module);
-		if (free_all || module->state != DRGN_DWARF_MODULE_INDEXED) {
-			it = drgn_dwarf_module_table_delete_iterator(&dindex->module_table,
-								     it);
-			drgn_dwarf_module_destroy(module);
-		} else {
-			it = drgn_dwarf_module_table_next(it);
-		}
-	}
-
-	for (i = dindex->no_build_id.size; i-- > 0; ) {
-		struct drgn_dwarf_module *module = dindex->no_build_id.data[i];
-
-		if (finish_indexing &&
-		    module->state == DRGN_DWARF_MODULE_INDEXING)
-			drgn_dwarf_module_finish_indexing(dindex, module);
-		if (free_all || module->state != DRGN_DWARF_MODULE_INDEXED) {
-			dindex->no_build_id.size--;
-			if (i != dindex->no_build_id.size) {
-				dindex->no_build_id.data[i] =
-					dindex->no_build_id.data[dindex->no_build_id.size];
-			}
-			drgn_dwarf_module_destroy(module);
-		}
-	}
-
-	dwfl_report_begin(dindex->dwfl);
-	dwfl_report_end(dindex->dwfl, drgn_dwfl_module_removed, &arg);
-}
-
 static void
 drgn_dwarf_index_namespace_init(struct drgn_dwarf_index_namespace *ns,
 				struct drgn_dwarf_index *dindex)
@@ -473,26 +200,11 @@ drgn_dwarf_index_namespace_init(struct drgn_dwarf_index_namespace *ns,
 	ns->saved_err = NULL;
 }
 
-struct drgn_error *drgn_dwarf_index_init(struct drgn_dwarf_index *dindex,
-					 const Dwfl_Callbacks *callbacks)
+void drgn_dwarf_index_init(struct drgn_dwarf_index *dindex)
 {
-	dindex->dwfl = dwfl_begin(callbacks);
-	if (!dindex->dwfl)
-		return drgn_error_libdwfl();
 	drgn_dwarf_index_namespace_init(&dindex->global, dindex);
 	drgn_dwarf_index_specification_map_init(&dindex->specifications);
 	drgn_dwarf_index_cu_vector_init(&dindex->cus);
-	memset(&dindex->errors, 0, sizeof(dindex->errors));
-	dindex->num_errors = 0;
-	const char *max_errors = getenv("DRGN_MAX_DEBUG_INFO_ERRORS");
-	if (max_errors)
-		dindex->max_errors = atoi(max_errors);
-	else
-		dindex->max_errors = 5;
-	drgn_dwarf_module_table_init(&dindex->module_table);
-	drgn_dwarf_module_vector_init(&dindex->no_build_id);
-	c_string_set_init(&dindex->names);
-	return NULL;
 }
 
 static void drgn_dwarf_index_cu_deinit(struct drgn_dwarf_index_cu *cu)
@@ -526,828 +238,29 @@ void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex)
 {
 	if (!dindex)
 		return;
-	c_string_set_deinit(&dindex->names);
-	drgn_dwarf_index_free_modules(dindex, false, true);
-	assert(dindex->no_build_id.size == 0);
-	assert(drgn_dwarf_module_table_size(&dindex->module_table) == 0);
-	drgn_dwarf_module_vector_deinit(&dindex->no_build_id);
-	drgn_dwarf_module_table_deinit(&dindex->module_table);
 	for (size_t i = 0; i < dindex->cus.size; i++)
 		drgn_dwarf_index_cu_deinit(&dindex->cus.data[i]);
 	drgn_dwarf_index_cu_vector_deinit(&dindex->cus);
 	drgn_dwarf_index_specification_map_deinit(&dindex->specifications);
 	drgn_dwarf_index_namespace_deinit(&dindex->global);
-	dwfl_end(dindex->dwfl);
 }
 
-void drgn_dwarf_index_report_begin(struct drgn_dwarf_index *dindex)
+void drgn_dwarf_index_update_begin(struct drgn_dwarf_index_update_state *state,
+				   struct drgn_dwarf_index *dindex)
 {
-	dwfl_report_begin_add(dindex->dwfl);
+	state->dindex = dindex;
+	state->old_cus_size = dindex->cus.size;
+	state->err = NULL;
 }
 
-struct drgn_error *
-drgn_dwarf_index_report_error(struct drgn_dwarf_index *dindex, const char *name,
-			      const char *message, struct drgn_error *err)
+void drgn_dwarf_index_update_cancel(struct drgn_dwarf_index_update_state *state,
+				    struct drgn_error *err)
 {
-	if (err && err->code == DRGN_ERROR_NO_MEMORY) {
-		/* Always fail hard if we're out of memory. */
-		goto err;
-	}
-	if (dindex->num_errors == 0 &&
-	    !string_builder_append(&dindex->errors,
-				   "could not get debugging information for:"))
-		goto err;
-	if (dindex->num_errors < dindex->max_errors) {
-		if (!string_builder_line_break(&dindex->errors))
-			goto err;
-		if (name && !string_builder_append(&dindex->errors, name))
-			goto err;
-		if (name && (message || err) &&
-		    !string_builder_append(&dindex->errors, " ("))
-			goto err;
-		if (message && !string_builder_append(&dindex->errors, message))
-			goto err;
-		if (message && err &&
-		    !string_builder_append(&dindex->errors, ": "))
-			goto err;
-		if (err && !string_builder_append_error(&dindex->errors, err))
-			goto err;
-		if (name && (message || err) &&
-		    !string_builder_appendc(&dindex->errors, ')'))
-			goto err;
-	}
-	dindex->num_errors++;
-	drgn_error_destroy(err);
-	return NULL;
-
-err:
-	drgn_error_destroy(err);
-	return &drgn_enomem;
-}
-
-static void drgn_dwarf_index_reset_errors(struct drgn_dwarf_index *dindex)
-{
-	dindex->errors.len = 0;
-	dindex->num_errors = 0;
-}
-
-static struct drgn_error *
-drgn_dwarf_index_finalize_errors(struct drgn_dwarf_index *dindex)
-{
-	struct drgn_error *err;
-
-	if (dindex->num_errors > dindex->max_errors &&
-	    (!string_builder_line_break(&dindex->errors) ||
-	     !string_builder_appendf(&dindex->errors, "... %u more",
-				     dindex->num_errors - dindex->max_errors))) {
-		drgn_dwarf_index_reset_errors(dindex);
-		return &drgn_enomem;
-	}
-	if (dindex->num_errors) {
-		err = drgn_error_from_string_builder(DRGN_ERROR_MISSING_DEBUG_INFO,
-						     &dindex->errors);
-		memset(&dindex->errors, 0, sizeof(dindex->errors));
-		dindex->num_errors = 0;
-		return err;
-	} else {
-		return NULL;
-	}
-}
-
-static struct drgn_error *
-drgn_dwarf_index_insert_module(struct drgn_dwarf_index *dindex,
-			       const void *build_id, size_t build_id_len,
-			       uint64_t start, uint64_t end, const char *name,
-			       struct drgn_dwarf_module **ret)
-{
-	struct hash_pair hp;
-	struct drgn_dwarf_module_table_iterator it;
-	struct drgn_dwarf_module *module;
-
-	if (build_id_len) {
-		struct drgn_dwarf_module_key key = {
-			.build_id = build_id,
-			.build_id_len = build_id_len,
-			.start = start,
-			.end = end,
-		};
-
-		hp = drgn_dwarf_module_table_hash(&key);
-		it = drgn_dwarf_module_table_search_hashed(&dindex->module_table,
-							   &key, hp);
-		if (it.entry) {
-			module = *it.entry;
-			goto out;
-		}
-	}
-
-	module = malloc(sizeof(*module));
-	if (!module)
-		return &drgn_enomem;
-	module->start = start;
-	module->end = end;
-	if (name) {
-		module->name = strdup(name);
-		if (!module->name)
-			goto err_module;
-	} else {
-		module->name = NULL;
-	}
-	module->build_id_len = build_id_len;
-	if (build_id_len) {
-		module->build_id = malloc(build_id_len);
-		if (!module->build_id)
-			goto err_name;
-		memcpy(module->build_id, build_id, build_id_len);
-		if (drgn_dwarf_module_table_insert_searched(&dindex->module_table,
-							    &module, hp,
-							    &it) == -1) {
-			free(module->build_id);
-err_name:
-			free(module->name);
-err_module:
-			free(module);
-			return &drgn_enomem;
-		}
-	} else {
-		module->build_id = NULL;
-		if (!drgn_dwarf_module_vector_append(&dindex->no_build_id,
-						     &module))
-			goto err_name;
-	}
-	module->state = DRGN_DWARF_MODULE_NEW;
-	dwfl_module_vector_init(&module->dwfl_modules);
-out:
-	*ret = module;
-	return NULL;
-}
-
-struct drgn_error *drgn_dwarf_index_report_elf(struct drgn_dwarf_index *dindex,
-					       const char *path, int fd,
-					       Elf *elf, uint64_t start,
-					       uint64_t end, const char *name,
-					       bool *new_ret)
-{
-	struct drgn_error *err;
-	const void *build_id;
-	ssize_t build_id_len;
-	struct drgn_dwarf_module *module;
-	char *path_key = NULL;
-	Dwfl_Module *dwfl_module;
-	void **userdatap;
-	struct drgn_dwfl_module_userdata *userdata;
-
-	if (new_ret)
-		*new_ret = false;
-
-	build_id_len = dwelf_elf_gnu_build_id(elf, &build_id);
-	if (build_id_len == -1) {
-		err = drgn_dwarf_index_report_error(dindex, path, NULL,
-						    drgn_error_libdwfl());
-		goto free;
-	}
-
-	err = drgn_dwarf_index_insert_module(dindex, build_id, build_id_len,
-					     start, end, name, &module);
-	if (err)
-		goto free;
-	if (module->state == DRGN_DWARF_MODULE_INDEXED) {
-		/* We've already indexed this module. */
-		err = NULL;
-		goto free;
-	}
-
-	path_key = realpath(path, NULL);
-	if (!path_key) {
-		path_key = strdup(path);
-		if (!path_key) {
-			err = &drgn_enomem;
-			goto free;
-		}
-	}
-	dwfl_module = dwfl_report_module(dindex->dwfl, path_key, start, end);
-	if (!dwfl_module) {
-		err = drgn_error_libdwfl();
-		goto free;
-	}
-
-	dwfl_module_info(dwfl_module, &userdatap, NULL, NULL, NULL, NULL, NULL,
-			 NULL);
-	if (*userdatap) {
-		/* We've already reported this file at this offset. */
-		err = NULL;
-		goto free;
-	}
-
-	userdata = malloc(sizeof(*userdata));
-	if (!userdata) {
-		err = &drgn_enomem;
-		goto free;
-	}
-	userdata->path = path_key;
-	userdata->fd = fd;
-	userdata->elf = elf;
-	userdata->state = DRGN_DWARF_MODULE_NEW;
-	userdata->module = dwfl_module;
-	*userdatap = userdata;
-	if (new_ret)
-		*new_ret = true;
-
-	if (!dwfl_module_vector_append(&module->dwfl_modules, &dwfl_module)) {
-		/*
-		 * NB: not goto free now that we're referencing the file from a
-		 * Dwfl_Module.
-		 */
-		return &drgn_enomem;
-	}
-	return NULL;
-
-free:
-	elf_end(elf);
-	close(fd);
-	free(path_key);
-	return err;
-}
-
-static int drgn_dwarf_index_report_dwfl_module(Dwfl_Module *dwfl_module,
-					       void **userdatap,
-					       const char *name,
-					       Dwarf_Addr base, void *arg)
-{
-	struct drgn_error *err;
-	struct drgn_dwarf_index *dindex = arg;
-	struct drgn_dwfl_module_userdata *userdata = *userdatap;
-	const unsigned char *build_id;
-	int build_id_len;
-	GElf_Addr build_id_vaddr;
-	Dwarf_Addr end;
-	struct drgn_dwarf_module *module;
-
-	if (userdata) {
-		/*
-		 * This was either reported from
-		 * drgn_dwarf_index_report_module() or already indexed.
-		 */
-		return DWARF_CB_OK;
-	}
-
-	build_id_len = dwfl_module_build_id(dwfl_module, &build_id,
-					    &build_id_vaddr);
-	if (build_id_len == -1) {
-		err = drgn_dwarf_index_report_error(dindex, name, NULL,
-						    drgn_error_libdwfl());
-		if (err) {
-			drgn_error_destroy(err);
-			return DWARF_CB_ABORT;
-		}
-		return DWARF_CB_OK;
-	}
-	dwfl_module_info(dwfl_module, NULL, NULL, &end, NULL, NULL, NULL, NULL);
-
-	err = drgn_dwarf_index_insert_module(dindex, build_id, build_id_len,
-					     base, end, NULL, &module);
-	if (err) {
+	#pragma omp critical(drgn_dwarf_index_update_cancel)
+	if (state->err)
 		drgn_error_destroy(err);
-		return DWARF_CB_ABORT;
-	}
-
-	userdata = malloc(sizeof(*userdata));
-	if (!userdata)
-		return DWARF_CB_ABORT;
-	*userdatap = userdata;
-	userdata->path = NULL;
-	userdata->fd = -1;
-	userdata->elf = NULL;
-	userdata->module = dwfl_module;
-	if (module->state == DRGN_DWARF_MODULE_INDEXED) {
-		/*
-		 * We've already indexed this module. Don't index it again, but
-		 * keep the Dwfl_Module.
-		 */
-		userdata->state = DRGN_DWARF_MODULE_INDEXING;
-	} else {
-		userdata->state = DRGN_DWARF_MODULE_NEW;
-		if (!dwfl_module_vector_append(&module->dwfl_modules,
-					       &dwfl_module))
-			return DWARF_CB_ABORT;
-	}
-	return DWARF_CB_OK;
-}
-
-static struct drgn_error *
-append_unindexed_module(struct drgn_dwarf_module *module,
-			struct drgn_dwarf_module_vector *unindexed,
-			size_t *num_names)
-{
-	if (!module->dwfl_modules.size) {
-		/* This was either already indexed or had no new files. */
-		return NULL;
-	}
-	if (!drgn_dwarf_module_vector_append(unindexed, &module))
-		return &drgn_enomem;
-	*num_names += 1;
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_dwarf_index_get_unindexed(struct drgn_dwarf_index *dindex,
-			       struct drgn_dwarf_module_vector *unindexed)
-{
-	struct drgn_error *err;
-	size_t num_names = 0;
-	struct drgn_dwarf_module_table_iterator it;
-	size_t i;
-
-	/*
-	 * Walk the module table and no build ID lists, but skip modules with no
-	 * Dwfl_Module (which may be because they were already indexed or
-	 * because the files were already reported).
-	 */
-	for (it = drgn_dwarf_module_table_first(&dindex->module_table);
-	     it.entry; it = drgn_dwarf_module_table_next(it)) {
-		err = append_unindexed_module(*it.entry, unindexed, &num_names);
-		if (err)
-			return err;
-	}
-	for (i = dindex->no_build_id.size; i-- > 0; ) {
-		struct drgn_dwarf_module *module = dindex->no_build_id.data[i];
-
-		if (module->state == DRGN_DWARF_MODULE_INDEXED) {
-			/*
-			 * If this module is indexed, then every module before
-			 * it must be indexed, so we can stop looking.
-			 */
-			break;
-		}
-		err = append_unindexed_module(module, unindexed, &num_names);
-		if (err)
-			return err;
-	}
-	if (num_names &&
-	    !c_string_set_reserve(&dindex->names,
-				  c_string_set_size(&dindex->names) + num_names))
-		return &drgn_enomem;
-	return NULL;
-}
-
-static struct drgn_error *apply_relocation(Elf_Data *data, uint64_t r_offset,
-					   uint32_t r_type, int64_t r_addend,
-					   uint64_t st_value)
-{
-	char *p;
-
-	p = (char *)data->d_buf + r_offset;
-	switch (r_type) {
-	case R_X86_64_NONE:
-		break;
-	case R_X86_64_32:
-		if (r_offset > SIZE_MAX - sizeof(uint32_t) ||
-		    r_offset + sizeof(uint32_t) > data->d_size) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid relocation offset");
-		}
-		*(uint32_t *)p = st_value + r_addend;
-		break;
-	case R_X86_64_64:
-		if (r_offset > SIZE_MAX - sizeof(uint64_t) ||
-		    r_offset + sizeof(uint64_t) > data->d_size) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid relocation offset");
-		}
-		*(uint64_t *)p = st_value + r_addend;
-		break;
-	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unimplemented relocation type %" PRIu32,
-					 r_type);
-	}
-	return NULL;
-}
-
-static struct drgn_error *relocate_section(Elf_Scn *scn, Elf_Scn *rela_scn,
-					   Elf_Scn *symtab_scn,
-					   uint64_t *sh_addrs, size_t shdrnum)
-{
-	struct drgn_error *err;
-	Elf_Data *data, *rela_data, *symtab_data;
-	const Elf64_Rela *relocs;
-	const Elf64_Sym *syms;
-	size_t num_relocs, num_syms;
-	size_t i;
-	GElf_Shdr *shdr, shdr_mem;
-
-	err = read_elf_section(scn, &data);
-	if (err)
-		return err;
-	err = read_elf_section(rela_scn, &rela_data);
-	if (err)
-		return err;
-	err = read_elf_section(symtab_scn, &symtab_data);
-	if (err)
-		return err;
-
-	relocs = (Elf64_Rela *)rela_data->d_buf;
-	num_relocs = rela_data->d_size / sizeof(Elf64_Rela);
-	syms = (Elf64_Sym *)symtab_data->d_buf;
-	num_syms = symtab_data->d_size / sizeof(Elf64_Sym);
-
-	for (i = 0; i < num_relocs; i++) {
-		const Elf64_Rela *reloc = &relocs[i];
-		uint32_t r_sym, r_type;
-		uint16_t st_shndx;
-		uint64_t sh_addr;
-
-		r_sym = ELF64_R_SYM(reloc->r_info);
-		r_type = ELF64_R_TYPE(reloc->r_info);
-
-		if (r_sym >= num_syms) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid relocation symbol");
-		}
-		st_shndx = syms[r_sym].st_shndx;
-		if (st_shndx == 0) {
-			sh_addr = 0;
-		} else if (st_shndx < shdrnum) {
-			sh_addr = sh_addrs[st_shndx - 1];
-		} else {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid symbol section index");
-		}
-		err = apply_relocation(data, reloc->r_offset, r_type,
-				       reloc->r_addend,
-				       sh_addr + syms[r_sym].st_value);
-		if (err)
-			return err;
-	}
-
-	/*
-	 * Mark the relocation section as empty so that libdwfl doesn't try to
-	 * apply it again.
-	 */
-	shdr = gelf_getshdr(rela_scn, &shdr_mem);
-	if (!shdr)
-		return drgn_error_libelf();
-	shdr->sh_size = 0;
-	if (!gelf_update_shdr(rela_scn, shdr))
-		return drgn_error_libelf();
-	rela_data->d_size = 0;
-	return NULL;
-}
-
-/*
- * Before the debugging information in a relocatable ELF file (e.g., Linux
- * kernel module) can be used, it must have ELF relocations applied. This is
- * usually done by libdwfl. However, libdwfl is relatively slow at it. This is a
- * much faster implementation. It is only implemented for x86-64; for other
- * architectures, we can fall back to libdwfl.
- */
-static struct drgn_error *apply_elf_relocations(Elf *elf)
-{
-	struct drgn_error *err;
-	GElf_Ehdr ehdr_mem, *ehdr;
-	size_t shdrnum, shstrndx;
-	uint64_t *sh_addrs;
-	Elf_Scn *scn;
-
-	ehdr = gelf_getehdr(elf, &ehdr_mem);
-	if (!ehdr)
-		return drgn_error_libelf();
-
-	if (ehdr->e_type != ET_REL ||
-	    ehdr->e_machine != EM_X86_64 ||
-	    ehdr->e_ident[EI_CLASS] != ELFCLASS64 ||
-	    ehdr->e_ident[EI_DATA] !=
-	    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
-	     ELFDATA2LSB : ELFDATA2MSB)) {
-		/* Unsupported; fall back to libdwfl. */
-		return NULL;
-	}
-
-	if (elf_getshdrnum(elf, &shdrnum))
-		return drgn_error_libelf();
-	if (shdrnum > 1) {
-		sh_addrs = calloc(shdrnum - 1, sizeof(*sh_addrs));
-		if (!sh_addrs)
-			return &drgn_enomem;
-
-		scn = NULL;
-		while ((scn = elf_nextscn(elf, scn))) {
-			size_t ndx;
-
-			ndx = elf_ndxscn(scn);
-			if (ndx > 0 && ndx < shdrnum) {
-				GElf_Shdr *shdr, shdr_mem;
-
-				shdr = gelf_getshdr(scn, &shdr_mem);
-				if (!shdr) {
-					err = drgn_error_libelf();
-					goto out;
-				}
-				sh_addrs[ndx - 1] = shdr->sh_addr;
-			}
-		}
-	} else {
-		sh_addrs = NULL;
-	}
-
-	if (elf_getshdrstrndx(elf, &shstrndx)) {
-		err = drgn_error_libelf();
-		goto out;
-	}
-
-	scn = NULL;
-	while ((scn = elf_nextscn(elf, scn))) {
-		GElf_Shdr *shdr, shdr_mem;
-		const char *scnname;
-
-		shdr = gelf_getshdr(scn, &shdr_mem);
-		if (!shdr) {
-			err = drgn_error_libelf();
-			goto out;
-		}
-
-		if (shdr->sh_type != SHT_RELA)
-			continue;
-
-		scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
-		if (!scnname)
-			continue;
-
-		if (strstartswith(scnname, ".rela.debug_")) {
-			Elf_Scn *info_scn, *link_scn;
-
-			info_scn = elf_getscn(elf, shdr->sh_info);
-			if (!info_scn) {
-				err = drgn_error_libelf();
-				goto out;
-			}
-
-			link_scn = elf_getscn(elf, shdr->sh_link);
-			if (!link_scn) {
-				err = drgn_error_libelf();
-				goto out;
-			}
-
-			err = relocate_section(info_scn, scn, link_scn,
-					       sh_addrs, shdrnum);
-			if (err)
-				goto out;
-		}
-	}
-out:
-	free(sh_addrs);
-	return NULL;
-}
-
-static struct drgn_error *
-get_debug_sections(struct drgn_dwfl_module_userdata *userdata,
-		   bool *bswap_ret)
-{
-	struct drgn_error *err;
-
-	if (userdata->elf) {
-		err = apply_elf_relocations(userdata->elf);
-		if (err)
-			return err;
-	}
-
-	/*
-	 * Note: not dwfl_module_getelf(), because then libdwfl applies
-	 * ELF relocations to all sections, not just debug sections.
-	 */
-	Dwarf_Addr bias;
-	Dwarf *dwarf = dwfl_module_getdwarf(userdata->module, &bias);
-	if (!dwarf)
-		return drgn_error_libdwfl();
-
-	Elf *elf = dwarf_getelf(dwarf);
-	if (!elf)
-		return drgn_error_libdw();
-
-	size_t shstrndx;
-	if (elf_getshdrstrndx(elf, &shstrndx))
-		return drgn_error_libelf();
-
-	userdata->debug_info = NULL;
-	userdata->debug_abbrev = NULL;
-	userdata->debug_str = NULL;
-	userdata->debug_line = NULL;
-	Elf_Scn *scn = NULL;
-	while ((scn = elf_nextscn(elf, scn))) {
-		GElf_Shdr shdr_mem;
-		GElf_Shdr *shdr = gelf_getshdr(scn, &shdr_mem);
-		if (!shdr)
-			return drgn_error_libelf();
-
-		if (shdr->sh_type == SHT_NOBITS || (shdr->sh_flags & SHF_GROUP))
-			continue;
-
-		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
-		if (!scnname)
-			continue;
-
-		Elf_Data **sectionp;
-		if (!userdata->debug_info && strcmp(scnname, ".debug_info") == 0)
-			sectionp = &userdata->debug_info;
-		else if (!userdata->debug_abbrev && strcmp(scnname, ".debug_abbrev") == 0)
-			sectionp = &userdata->debug_abbrev;
-		else if (!userdata->debug_str && strcmp(scnname, ".debug_str") == 0)
-			sectionp = &userdata->debug_str;
-		else if (!userdata->debug_line && strcmp(scnname, ".debug_line") == 0)
-			sectionp = &userdata->debug_line;
-		else
-			continue;
-		err = read_elf_section(scn, sectionp);
-		if (err)
-			return err;
-	}
-
-	if (!userdata->debug_info) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "no .debug_info section");
-	} else if (!userdata->debug_abbrev) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "no .debug_abbrev section");
-	} else if (!userdata->debug_str) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "no .debug_str section");
-	}
-
-	if (userdata->debug_str->d_size == 0 ||
-	    ((char *)userdata->debug_str->d_buf)[userdata->debug_str->d_size - 1]) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 ".debug_str is not null terminated");
-	}
-
-	*bswap_ret = (elf_getident(elf, NULL)[EI_DATA] !=
-		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
-		       ELFDATA2LSB : ELFDATA2MSB));
-	return NULL;
-}
-
-static struct drgn_error *read_compilation_unit_header(const char *ptr,
-						       const char *end,
-						       struct drgn_dwarf_index_cu *cu)
-{
-	uint32_t tmp;
-	if (!mread_u32(&ptr, end, cu->bswap, &tmp))
-		return drgn_eof();
-	cu->is_64_bit = tmp == UINT32_C(0xffffffff);
-	if (cu->is_64_bit) {
-		if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-					   &cu->unit_length))
-			return drgn_eof();
-	} else {
-		cu->unit_length = tmp;
-	}
-
-	uint16_t version;
-	if (!mread_u16(&ptr, end, cu->bswap, &version))
-		return drgn_eof();
-	if (version != 2 && version != 3 && version != 4) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unknown DWARF CU version %" PRIu16,
-					 version);
-	}
-	cu->version = version;
-
-	if (cu->is_64_bit) {
-		if (!mread_u64(&ptr, end, cu->bswap, &cu->debug_abbrev_offset))
-			return drgn_eof();
-	} else {
-		if (!mread_u32_into_u64(&ptr, end, cu->bswap,
-					&cu->debug_abbrev_offset))
-			return drgn_eof();
-	}
-
-	if (!mread_u8(&ptr, end, &cu->address_size))
-		return drgn_eof();
-
-	return NULL;
-}
-
-
-static struct drgn_error *
-read_dwfl_module_cus(struct drgn_dwfl_module_userdata *userdata,
-		     struct drgn_dwarf_index_cu_vector *cus)
-{
-	struct drgn_error *err;
-
-	bool bswap;
-	err = get_debug_sections(userdata, &bswap);
-	if (err)
-		return err;
-
-	const char *ptr = section_ptr(userdata->debug_info, 0);
-	const char *end = section_end(userdata->debug_info);
-	while (ptr < end) {
-		struct drgn_dwarf_index_cu *cu =
-			drgn_dwarf_index_cu_vector_append_entry(cus);
-		if (!cu)
-			return &drgn_enomem;
-		cu->userdata = userdata;
-		cu->ptr = ptr;
-		cu->bswap = bswap;
-		err = read_compilation_unit_header(ptr, end, cu);
-		if (err)
-			return err;
-		cu->abbrev_decls = NULL;
-		cu->num_abbrev_decls = 0;
-		cu->abbrev_insns = NULL;
-		cu->file_name_hashes = NULL;
-		cu->num_file_names = 0;
-
-		if (!mread_skip(&ptr, end,
-				(cu->is_64_bit ? 12 : 4) + cu->unit_length))
-			return drgn_eof();
-	}
-	return NULL;
-}
-
-static struct drgn_error *
-read_module_cus(struct drgn_dwarf_module *module,
-		struct drgn_dwarf_index_cu_vector *cus, const char **name_ret)
-{
-	const size_t orig_cus_size = cus->size;
-	for (size_t i = 0; i < module->dwfl_modules.size; i++) {
-		void **userdatap;
-		*name_ret = dwfl_module_info(module->dwfl_modules.data[i],
-					     &userdatap, NULL, NULL, NULL, NULL,
-					     NULL, NULL);
-		struct drgn_dwfl_module_userdata *userdata = *userdatap;
-		struct drgn_error *err = read_dwfl_module_cus(userdata, cus);
-		if (err) {
-			/*
-			 * Ignore the error unless we have no more Dwfl_Modules
-			 * to try.
-			 */
-			if (i == module->dwfl_modules.size - 1)
-				return err;
-			drgn_error_destroy(err);
-			cus->size = orig_cus_size;
-			continue;
-		}
-		userdata->state = DRGN_DWARF_MODULE_INDEXING;
-		module->state = DRGN_DWARF_MODULE_INDEXING;
-		return NULL;
-	}
-	UNREACHABLE();
-}
-
-static struct drgn_error *read_cus(struct drgn_dwarf_index *dindex,
-				   struct drgn_dwarf_module **unindexed,
-				   size_t num_unindexed)
-{
-	struct drgn_error *err = NULL;
-
-	#pragma omp parallel
-	{
-		int thread_num = omp_get_thread_num();
-		struct drgn_dwarf_index_cu_vector cus = VECTOR_INIT;
-
-		#pragma omp for schedule(dynamic)
-		for (size_t i = 0; i < num_unindexed; i++) {
-			struct drgn_error *module_err;
-			const char *name;
-
-			if (err)
-				continue;
-
-			module_err = read_module_cus(unindexed[i],
-						     thread_num == 0 ?
-						     &dindex->cus : &cus,
-						     &name);
-			if (module_err) {
-				#pragma omp critical(drgn_read_cus)
-				if (err) {
-					drgn_error_destroy(module_err);
-				} else {
-					err = drgn_dwarf_index_report_error(dindex,
-									    name,
-									    NULL,
-									    module_err);
-				}
-				continue;
-			}
-		}
-
-		if (cus.size) {
-			#pragma omp critical(drgn_read_cus)
-			if (!err) {
-				if (drgn_dwarf_index_cu_vector_reserve(&dindex->cus,
-								       dindex->cus.size + cus.size)) {
-					memcpy(dindex->cus.data + dindex->cus.size,
-					       cus.data,
-					       cus.size * sizeof(*cus.data));
-					dindex->cus.size += cus.size;
-				} else {
-					err = &drgn_enomem;
-				}
-			}
-		}
-		drgn_dwarf_index_cu_vector_deinit(&cus);
-	}
-	return err;
+	else
+		state->err = err;
 }
 
 static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
@@ -1444,6 +357,10 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		} else if (name == DW_AT_name && should_index) {
 			switch (form) {
 			case DW_FORM_strp:
+				if (!cu->module->debug_str) {
+					return drgn_error_create(DRGN_ERROR_OTHER,
+								 "DW_FORM_strp without .debug_str section");
+				}
 				if (cu->is_64_bit)
 					insn = ATTRIB_NAME_STRP8;
 				else
@@ -1455,8 +372,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 			default:
 				break;
 			}
-		} else if (name == DW_AT_stmt_list &&
-			   cu->userdata->debug_line) {
+		} else if (name == DW_AT_stmt_list && cu->module->debug_line) {
 			switch (form) {
 			case DW_FORM_data4:
 				insn = ATTRIB_STMT_LIST_LINEPTR4;
@@ -1641,10 +557,11 @@ append_insn:
 	return NULL;
 }
 
-static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu)
+static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu,
+					    size_t debug_abbrev_offset)
 {
-	Elf_Data *debug_abbrev = cu->userdata->debug_abbrev;
-	const char *ptr = section_ptr(debug_abbrev, cu->debug_abbrev_offset);
+	Elf_Data *debug_abbrev = cu->module->debug_abbrev;
+	const char *ptr = section_ptr(debug_abbrev, debug_abbrev_offset);
 	if (!ptr)
 		return drgn_eof();
 	const char *end = section_end(debug_abbrev);
@@ -1665,6 +582,37 @@ static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu)
 	cu->num_abbrev_decls = decls.size;
 	cu->abbrev_insns = insns.data;
 	return NULL;
+}
+
+static struct drgn_error *read_cu(struct drgn_dwarf_index_cu *cu)
+{
+
+	const char *ptr = &cu->ptr[cu->is_64_bit ? 12 : 4];
+	uint16_t version;
+	if (!mread_u16(&ptr, cu->end, cu->bswap, &version))
+		return drgn_eof();
+	if (version < 2 || version > 4) {
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "unknown DWARF CU version %" PRIu16,
+					 version);
+	}
+	cu->version = version;
+
+	size_t debug_abbrev_offset;
+	if (cu->is_64_bit) {
+		if (!mread_u64_into_size_t(&ptr, cu->end, cu->bswap,
+					   &debug_abbrev_offset))
+			return drgn_eof();
+	} else {
+		if (!mread_u32_into_size_t(&ptr, cu->end, cu->bswap,
+					   &debug_abbrev_offset))
+			return drgn_eof();
+	}
+
+	if (!mread_u8(&ptr, cu->end, &cu->address_size))
+		return drgn_eof();
+
+	return read_abbrev_table(cu, debug_abbrev_offset);
 }
 
 static struct drgn_error *skip_lnp_header(struct drgn_dwarf_index_cu *cu,
@@ -1740,7 +688,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	static const uint64_t siphash_key[2];
 	struct drgn_error *err;
 
-	Elf_Data *debug_line = cu->userdata->debug_line;
+	Elf_Data *debug_line = cu->module->debug_line;
 	const char *ptr = section_ptr(debug_line, stmt_list);
 	if (!ptr)
 		return drgn_eof();
@@ -1849,22 +797,18 @@ index_specification(struct drgn_dwarf_index *dindex, uintptr_t declaration,
 }
 
 /*
- * First pass: read the abbreviation and file name tables and index DIEs with
+ * First pass: read the file name tables and index DIEs with
  * DW_AT_specification. This recurses into namespaces.
  */
 static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
 					      struct drgn_dwarf_index_cu *cu)
 {
 	struct drgn_error *err;
-	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
-	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
-	Elf_Data *debug_info = cu->userdata->debug_info;
+	Elf_Data *debug_info = cu->module->debug_info;
 	const char *debug_info_buffer = section_ptr(debug_info, 0);
+	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
+	const char *end = cu->end;
 	unsigned int depth = 0;
-
-	if ((err = read_abbrev_table(cu)))
-		return err;
-
 	for (;;) {
 		size_t die_offset = ptr - debug_info_buffer;
 
@@ -2043,7 +987,7 @@ skip:
 			 */
 			if (!declaration &&
 			    (err = index_specification(dindex, specification,
-						       cu->userdata->module,
+						       cu->module->dwfl_module,
 						       die_offset)))
 				return err;
 		}
@@ -2059,6 +1003,63 @@ skip:
 		}
 	}
 	return NULL;
+}
+
+void drgn_dwarf_index_read_module(struct drgn_dwarf_index_update_state *state,
+				  struct drgn_debug_info_module *module)
+{
+	const bool bswap = module->bswap;
+	const char *ptr = section_ptr(module->debug_info, 0);
+	const char *end = section_end(module->debug_info);
+	while (ptr < end) {
+		const char *cu_ptr = ptr;
+		uint32_t tmp;
+		if (!mread_u32(&ptr, end, bswap, &tmp))
+			goto err;
+		bool is_64_bit = tmp == UINT32_C(0xffffffff);
+		size_t unit_length;
+		if (is_64_bit) {
+			if (!mread_u64_into_size_t(&ptr, end, bswap,
+						   &unit_length))
+				goto err;
+		} else {
+			unit_length = tmp;
+		}
+		if (!mread_skip(&ptr, end, unit_length))
+			goto err;
+
+		#pragma omp task
+		{
+			struct drgn_dwarf_index_cu cu = {
+				.module = module,
+				.ptr = cu_ptr,
+				.end = ptr,
+				.is_64_bit = is_64_bit,
+				.bswap = module->bswap,
+			};
+			struct drgn_error *cu_err = read_cu(&cu);
+			if (cu_err)
+				goto cu_err;
+
+			cu_err = index_cu_first_pass(state->dindex, &cu);
+			if (cu_err)
+				goto cu_err;
+
+			#pragma omp critical(drgn_dwarf_index_cus)
+			if (!drgn_dwarf_index_cu_vector_append(&state->dindex->cus,
+							       &cu))
+				cu_err = &drgn_enomem;
+			if (cu_err) {
+cu_err:
+				drgn_dwarf_index_cu_deinit(&cu);
+				drgn_dwarf_index_update_cancel(state, cu_err);
+			}
+		}
+	}
+	return;
+
+err:
+	drgn_dwarf_index_update_cancel(state, drgn_eof());
 }
 
 static bool find_definition(struct drgn_dwarf_index *dindex, uintptr_t die_addr,
@@ -2187,14 +1188,13 @@ index_cu_second_pass(struct drgn_dwarf_index_namespace *ns,
 		     struct drgn_dwarf_index_cu *cu, const char *ptr)
 {
 	struct drgn_error *err;
-	const char *end = &cu->ptr[(cu->is_64_bit ? 12 : 4) + cu->unit_length];
-	Elf_Data *debug_info = cu->userdata->debug_info;
+	Elf_Data *debug_info = cu->module->debug_info;
 	const char *debug_info_buffer = section_ptr(debug_info, 0);
-	Elf_Data *debug_str = cu->userdata->debug_str;
+	Elf_Data *debug_str = cu->module->debug_str;
+	const char *end = cu->end;
 	unsigned int depth = 0;
 	uint8_t depth1_tag = 0;
 	size_t depth1_offset = 0;
-
 	for (;;) {
 		size_t die_offset = ptr - debug_info_buffer;
 
@@ -2373,7 +1373,7 @@ skip:
 		    !specification) {
 			if (insn & DIE_FLAG_DECLARATION)
 				declaration = true;
-			Dwfl_Module *module = cu->userdata->module;
+			Dwfl_Module *module = cu->module->dwfl_module;
 			if (tag == DW_TAG_enumerator) {
 				if (depth1_tag != DW_TAG_enumeration_type)
 					goto next;
@@ -2427,7 +1427,7 @@ next:
 	return NULL;
 }
 
-static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
+static void drgn_dwarf_index_rollback(struct drgn_dwarf_index *dindex)
 {
 	for (size_t i = 0; i < ARRAY_SIZE(dindex->global.shards); i++) {
 		struct drgn_dwarf_index_shard *shard =
@@ -2444,8 +1444,8 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 			void **userdatap;
 			dwfl_module_info(die->module, &userdatap, NULL,
 					 NULL, NULL, NULL, NULL, NULL);
-			struct drgn_dwfl_module_userdata *userdata = *userdatap;
-			if (userdata->state == DRGN_DWARF_MODULE_INDEXED)
+			struct drgn_debug_info_module *module = *userdatap;
+			if (module->state == DRGN_DEBUG_INFO_MODULE_INDEXED)
 				break;
 			else
 				shard->dies.size--;
@@ -2484,8 +1484,8 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 		void **userdatap;
 		dwfl_module_info(it.entry->module, &userdatap, NULL, NULL, NULL,
 				 NULL, NULL, NULL);
-		struct drgn_dwfl_module_userdata *userdata = *userdatap;
-		if (userdata->state == DRGN_DWARF_MODULE_INDEXED) {
+		struct drgn_debug_info_module *module = *userdatap;
+		if (module->state == DRGN_DEBUG_INFO_MODULE_INDEXED) {
 			it = drgn_dwarf_index_specification_map_next(it);
 		} else {
 			it = drgn_dwarf_index_specification_map_delete_iterator(&dindex->specifications,
@@ -2494,139 +1494,36 @@ static void rollback_dwarf_index(struct drgn_dwarf_index *dindex)
 	}
 }
 
-static struct drgn_error *index_cus(struct drgn_dwarf_index *dindex,
-				    const size_t old_cus_size)
+struct drgn_error *
+drgn_dwarf_index_update_end(struct drgn_dwarf_index_update_state *state)
 {
-	struct drgn_error *err = NULL;
-	#pragma omp parallel
-	{
-		#pragma omp for schedule(dynamic)
-		for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
-			if (!err) {
-				struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
-				struct drgn_error *cu_err =
-					index_cu_first_pass(dindex, cu);
-				if (cu_err) {
-					#pragma omp critical(drgn_index_cus)
-					if (err)
-						drgn_error_destroy(cu_err);
-					else
-						err = cu_err;
-				}
-			}
-		}
+	struct drgn_dwarf_index *dindex = state->dindex;
 
-		#pragma omp for schedule(dynamic)
-		for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
-			if (!err) {
-				struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
-				const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
-				struct drgn_error *cu_err =
-					index_cu_second_pass(&dindex->global,
-							     cu, ptr);
-				if (cu_err) {
-					#pragma omp critical(drgn_index_cus)
-					if (err)
-						drgn_error_destroy(cu_err);
-					else
-						err = cu_err;
-				}
-			}
-		}
+	if (state->err)
+		goto err;
+
+	#pragma omp parallel for schedule(dynamic)
+	for (size_t i = state->old_cus_size; i < dindex->cus.size; i++) {
+		if (drgn_dwarf_index_update_cancelled(state))
+			continue;
+		struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
+		const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
+		struct drgn_error *cu_err =
+			index_cu_second_pass(&dindex->global, cu, ptr);
+		if (cu_err)
+			drgn_dwarf_index_update_cancel(state, cu_err);
 	}
-	return err;
-}
-
-/*
- * Like drgn_dwarf_index_report_end(), but doesn't finalize reported errors or
- * free unindexed modules on success.
- */
-static struct drgn_error *
-drgn_dwarf_index_report_end_internal(struct drgn_dwarf_index *dindex,
-				     bool report_from_dwfl)
-{
-	struct drgn_error *err;
-	struct drgn_dwarf_module_vector unindexed = VECTOR_INIT;
-	const size_t old_cus_size = dindex->cus.size;
-
-	dwfl_report_end(dindex->dwfl, NULL, NULL);
-	if (report_from_dwfl &&
-	    dwfl_getmodules(dindex->dwfl, drgn_dwarf_index_report_dwfl_module,
-			    dindex, 0)) {
-		err = &drgn_enomem;
+	if (state->err) {
+		drgn_dwarf_index_rollback(state->dindex);
 		goto err;
 	}
-	err = drgn_dwarf_index_get_unindexed(dindex, &unindexed);
-	if (err)
-		goto err;
-	err = read_cus(dindex, unindexed.data, unindexed.size);
-	if (err)
-		goto err;
-	/*
-	 * After this point, if we hit an error, then we have to roll back the
-	 * index.
-	 */
-	err = index_cus(dindex, old_cus_size);
-	if (err) {
-		rollback_dwarf_index(dindex);
-		goto err;
-	}
-
-out:
-	drgn_dwarf_module_vector_deinit(&unindexed);
-	return err;
+	return NULL;
 
 err:
-	for (size_t i = old_cus_size; i < dindex->cus.size; i++)
+	for (size_t i = state->old_cus_size; i < dindex->cus.size; i++)
 		drgn_dwarf_index_cu_deinit(&dindex->cus.data[i]);
-	dindex->cus.size = old_cus_size;
-	drgn_dwarf_index_free_modules(dindex, false, false);
-	drgn_dwarf_index_reset_errors(dindex);
-	goto out;
-}
-
-struct drgn_error *drgn_dwarf_index_report_end(struct drgn_dwarf_index *dindex,
-					       bool report_from_dwfl)
-{
-	struct drgn_error *err;
-
-	err = drgn_dwarf_index_report_end_internal(dindex, report_from_dwfl);
-	if (err)
-		return err;
-	err = drgn_dwarf_index_finalize_errors(dindex);
-	if (err && err->code != DRGN_ERROR_MISSING_DEBUG_INFO) {
-		rollback_dwarf_index(dindex);
-		drgn_dwarf_index_free_modules(dindex, false, false);
-		return err;
-	}
-	drgn_dwarf_index_free_modules(dindex, true, false);
-	return err;
-}
-
-struct drgn_error *drgn_dwarf_index_flush(struct drgn_dwarf_index *dindex,
-					  bool report_from_dwfl)
-{
-	struct drgn_error *err;
-
-	err = drgn_dwarf_index_report_end_internal(dindex, report_from_dwfl);
-	if (err)
-		return err;
-	drgn_dwarf_index_free_modules(dindex, true, false);
-	drgn_dwarf_index_report_begin(dindex);
-	return NULL;
-}
-
-void drgn_dwarf_index_report_abort(struct drgn_dwarf_index *dindex)
-{
-	dwfl_report_end(dindex->dwfl, NULL, NULL);
-	drgn_dwarf_index_free_modules(dindex, false, false);
-	drgn_dwarf_index_reset_errors(dindex);
-}
-
-bool drgn_dwarf_index_is_indexed(struct drgn_dwarf_index *dindex,
-				 const char *name)
-{
-	return c_string_set_search(&dindex->names, &name).entry != NULL;
+	dindex->cus.size = state->old_cus_size;
+	return state->err;
 }
 
 static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
@@ -2641,7 +1538,7 @@ static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 			struct drgn_dwarf_index_pending_die *pending =
 				&ns->pending_dies.data[i];
 			const char *ptr =
-				section_ptr(pending->cu->userdata->debug_info,
+				section_ptr(pending->cu->module->debug_info,
 					    pending->offset);
 			struct drgn_error *cu_err =
 				index_cu_second_pass(ns, pending->cu, ptr);

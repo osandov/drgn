@@ -8,7 +8,7 @@
 
 #include "drgn.h"
 
-struct drgn_dwarf_index;
+struct drgn_debug_info_load_state;
 struct drgn_memory_reader;
 struct vmcoreinfo;
 
@@ -33,10 +33,7 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 					    void *arg, struct drgn_object *ret);
 
 struct drgn_error *
-linux_kernel_report_debug_info(struct drgn_program *prog,
-			       struct drgn_dwarf_index *dindex,
-			       const char **paths, size_t n,
-			       bool report_default, bool report_main);
+linux_kernel_report_debug_info(struct drgn_debug_info_load_state *load);
 
 #define KDUMP_SIGNATURE "KDUMP   "
 #define KDUMP_SIG_LEN (sizeof(KDUMP_SIGNATURE) - 1)

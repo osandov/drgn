@@ -523,22 +523,14 @@ out_fd:
 	return err;
 }
 
-static struct drgn_error *drgn_program_get_dindex(struct drgn_program *prog,
-						  struct drgn_dwarf_index **ret)
+struct drgn_error *drgn_program_get_dbinfo(struct drgn_program *prog,
+					   struct drgn_debug_info **ret)
 {
 	struct drgn_error *err;
 
 	if (!prog->_dbinfo) {
-		const Dwfl_Callbacks *dwfl_callbacks;
-		if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-			dwfl_callbacks = &drgn_dwfl_callbacks;
-		else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
-			dwfl_callbacks = &drgn_linux_proc_dwfl_callbacks;
-		else
-			dwfl_callbacks = &drgn_userspace_core_dump_dwfl_callbacks;
-
 		struct drgn_debug_info *dbinfo;
-		err = drgn_debug_info_create(prog, dwfl_callbacks, &dbinfo);
+		err = drgn_debug_info_create(prog, &dbinfo);
 		if (err)
 			return err;
 		err = drgn_program_add_object_finder(prog,
@@ -558,82 +550,18 @@ static struct drgn_error *drgn_program_get_dindex(struct drgn_program *prog,
 		}
 		prog->_dbinfo = dbinfo;
 	}
-	*ret = &prog->_dbinfo->dindex;
-	return NULL;
-}
-
-struct drgn_error *drgn_program_get_dwfl(struct drgn_program *prog, Dwfl **ret)
-{
-	struct drgn_error *err;
-	struct drgn_dwarf_index *dindex;
-
-	err = drgn_program_get_dindex(prog, &dindex);
-	if (err)
-		return err;
-	*ret = dindex->dwfl;
-	return NULL;
-}
-
-static struct drgn_error *
-userspace_report_debug_info(struct drgn_program *prog,
-			    struct drgn_dwarf_index *dindex,
-			    const char **paths, size_t n,
-			    bool report_default)
-{
-	struct drgn_error *err;
-	size_t i;
-
-	for (i = 0; i < n; i++) {
-		int fd;
-		Elf *elf;
-
-		err = open_elf_file(paths[i], &fd, &elf);
-		if (err) {
-			err = drgn_dwarf_index_report_error(dindex, paths[i],
-							    NULL, err);
-			if (err)
-				return err;
-			continue;
-		}
-		/*
-		 * We haven't implemented a way to get the load address for
-		 * anything reported here, so for now we report it as unloaded.
-		 */
-		err = drgn_dwarf_index_report_elf(dindex, paths[i], fd, elf, 0,
-						  0, NULL, NULL);
-		if (err)
-			return err;
-	}
-
-	if (report_default) {
-		if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-			int ret;
-
-			ret = dwfl_linux_proc_report(dindex->dwfl, prog->pid);
-			if (ret == -1) {
-				return drgn_error_libdwfl();
-			} else if (ret) {
-				return drgn_error_create_os("dwfl_linux_proc_report",
-							    ret, NULL);
-			}
-		} else if (dwfl_core_file_report(dindex->dwfl, prog->core,
-						 NULL) == -1) {
-			return drgn_error_libdwfl();
-		}
-	}
+	*ret = prog->_dbinfo;
 	return NULL;
 }
 
 /* Set the default language from the language of "main". */
-static void drgn_program_set_language_from_main(struct drgn_program *prog,
-						struct drgn_dwarf_index *dindex)
+static void drgn_program_set_language_from_main(struct drgn_debug_info *dbinfo)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_iterator it;
 	static const uint64_t tags[] = { DW_TAG_subprogram };
-
-	err = drgn_dwarf_index_iterator_init(&it, &dindex->global, "main",
-					     strlen("main"), tags,
+	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dindex.global,
+					     "main", strlen("main"), tags,
 					     ARRAY_SIZE(tags));
 	if (err) {
 		drgn_error_destroy(err);
@@ -655,7 +583,7 @@ static void drgn_program_set_language_from_main(struct drgn_program *prog,
 			continue;
 		}
 		if (lang) {
-			prog->lang = lang;
+			dbinfo->prog->lang = lang;
 			break;
 		}
 	}
@@ -686,40 +614,22 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 			     size_t n, bool load_default, bool load_main)
 {
 	struct drgn_error *err;
-	struct drgn_dwarf_index *dindex;
-	bool report_from_dwfl;
 
 	if (!n && !load_default && !load_main)
 		return NULL;
 
-	if (load_default)
-		load_main = true;
-
-	err = drgn_program_get_dindex(prog, &dindex);
+	struct drgn_debug_info *dbinfo;
+	err = drgn_program_get_dbinfo(prog, &dbinfo);
 	if (err)
 		return err;
 
-	drgn_dwarf_index_report_begin(dindex);
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		err = linux_kernel_report_debug_info(prog, dindex, paths, n,
-						     load_default, load_main);
-	} else {
-		err = userspace_report_debug_info(prog, dindex, paths, n,
-						  load_default);
-	}
-	if (err) {
-		drgn_dwarf_index_report_abort(dindex);
-		return err;
-	}
-	report_from_dwfl = (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
-			    load_main);
-	err = drgn_dwarf_index_report_end(dindex, report_from_dwfl);
+	err = drgn_debug_info_load(dbinfo, paths, n, load_default, load_main);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)) {
 		if (!prog->lang &&
 		    !(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
-			drgn_program_set_language_from_main(prog, dindex);
+			drgn_program_set_language_from_main(dbinfo);
 		if (!prog->has_platform) {
-			dwfl_getdwarf(dindex->dwfl,
+			dwfl_getdwarf(dbinfo->dwfl,
 				      drgn_set_platform_from_dwarf, prog, 0);
 		}
 	}
@@ -1139,14 +1049,9 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 						  Dwfl_Module *module,
 						  struct drgn_symbol *ret)
 {
-	const char *name;
-	GElf_Off offset;
-	GElf_Sym elf_sym;
-
 	if (!module) {
 		if (prog->_dbinfo) {
-			module = dwfl_addrmodule(prog->_dbinfo->dindex.dwfl,
-						 address);
+			module = dwfl_addrmodule(prog->_dbinfo->dwfl, address);
 			if (!module)
 				return false;
 		} else {
@@ -1154,8 +1059,10 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 		}
 	}
 
-	name = dwfl_module_addrinfo(module, address, &offset, &elf_sym, NULL,
-				    NULL, NULL);
+	GElf_Off offset;
+	GElf_Sym elf_sym;
+	const char *name = dwfl_module_addrinfo(module, address, &offset,
+						&elf_sym, NULL, NULL, NULL);
 	if (!name)
 		return false;
 	ret->name = name;
@@ -1244,7 +1151,7 @@ drgn_program_find_symbol_by_name(struct drgn_program *prog,
 	};
 
 	if (prog->_dbinfo &&
-	    dwfl_getmodules(prog->_dbinfo->dindex.dwfl, find_symbol_by_name_cb,
+	    dwfl_getmodules(prog->_dbinfo->dwfl, find_symbol_by_name_cb,
 			    &arg, 0))
 		return arg.err;
 	return drgn_error_format(DRGN_ERROR_LOOKUP,
