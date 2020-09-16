@@ -98,8 +98,8 @@ DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_cu_vector)
 
 /* DIE which needs to be indexed. */
 struct drgn_dwarf_index_pending_die {
-	/* Compilation unit containing DIE. */
-	struct drgn_dwarf_index_cu *cu;
+	/* Index of compilation unit containing DIE. */
+	size_t cu;
 	/* Offset of DIE in .debug_info. */
 	size_t offset;
 };
@@ -1173,7 +1173,7 @@ out:
 			err = &drgn_enomem;
 			goto err;
 		}
-		pending->cu = cu;
+		pending->cu = cu - ns->dindex->cus.data;
 		pending->offset = offset;
 	}
 	err = NULL;
@@ -1537,11 +1537,12 @@ static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 		if (!err) {
 			struct drgn_dwarf_index_pending_die *pending =
 				&ns->pending_dies.data[i];
-			const char *ptr =
-				section_ptr(pending->cu->module->debug_info,
-					    pending->offset);
+			struct drgn_dwarf_index_cu *cu =
+				&ns->dindex->cus.data[pending->cu];
+			const char *ptr = section_ptr(cu->module->debug_info,
+						      pending->offset);
 			struct drgn_error *cu_err =
-				index_cu_second_pass(ns, pending->cu, ptr);
+				index_cu_second_pass(ns, cu, ptr);
 			if (cu_err) {
 				#pragma omp critical(drgn_index_namespace)
 				if (err)
