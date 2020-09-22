@@ -1192,10 +1192,10 @@ drgn_program_member_info(struct drgn_program *prog, struct drgn_type *type,
 	if (err)
 		return err;
 
-	err = drgn_lazy_parameter_get_type(member->type, &ret->qualified_type);
+	err = drgn_member_type(member->member, &ret->qualified_type);
 	if (err)
 		return err;
 	ret->bit_offset = member->bit_offset;
-	ret->bit_field_size = member->bit_field_size;
+	ret->bit_field_size = member->member->bit_field_size;
 	return NULL;
 }

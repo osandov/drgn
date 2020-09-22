@@ -286,12 +286,21 @@ enum drgn_qualifiers {
  */
 struct drgn_lazy_parameter {
 	union {
-		/** Type if it has already been evaluated. */
+		/** Object if this is an object and has been evaluated. */
+		struct drgn_object *object;
+		/** Thunk if this is an object but has not been evaluated. */
+		struct drgn_object_thunk *object_thunk;
+		/** Type if this is a type and has been evaluated. */
 		struct drgn_type *type;
-		/** Thunk if the type has not been evaluated yet. */
-		struct drgn_type_thunk *thunk;
+		/** Thunk if this is a type but has not been evaluated. */
+		struct drgn_type_thunk *type_thunk;
 	};
-	/** Qualifiers, or -1 if the type has not been evaluated yet. */
+	/** @c true if this is an object, @c false if this is a type. */
+	bool is_object;
+	/**
+	 * -1 if this has not been evaluated. Type qualifiers if it is an
+	 *  evaluated type. 0 if it is an evaluated object.
+	 */
 	enum drgn_qualifiers qualifiers;
 };
 

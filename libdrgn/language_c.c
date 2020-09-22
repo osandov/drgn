@@ -2606,8 +2606,7 @@ struct drgn_error *c_bit_offset(struct drgn_program *prog,
 								"offset is too large");
 					goto out;
 				}
-				err = drgn_lazy_parameter_get_type(member->type,
-								   &member_type);
+				err = drgn_member_type(member->member, &member_type);
 				if (err)
 					goto out;
 				type = member_type.type;

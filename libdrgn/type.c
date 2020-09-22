@@ -178,7 +178,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_member_type(struct drgn_type_member *member,
 		 struct drgn_qualified_type *ret)
 {
-	return drgn_lazy_parameter_get_type(&member->parameter, ret);
+	return drgn_lazy_parameter_evaluate_type(&member->parameter, ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1622,11 +1622,9 @@ drgn_program_cache_members(struct drgn_program *prog,
 					.name_len = strlen(member->name),
 				},
 				.value = {
-					.type = &member->parameter,
+					.member = member,
 					.bit_offset =
 						bit_offset + member->bit_offset,
-					.bit_field_size =
-						member->bit_field_size,
 				},
 			};
 			if (drgn_member_map_insert(&prog->members, &entry,

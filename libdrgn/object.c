@@ -1385,13 +1385,13 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 	if (err)
 		return err;
 
-	err = drgn_lazy_parameter_get_type(member->type, &qualified_type);
+	err = drgn_member_type(member->member, &qualified_type);
 	if (err)
 		return err;
 
 	return drgn_object_dereference_offset(res, obj, qualified_type,
 					      member->bit_offset,
-					      member->bit_field_size);
+					      member->member->bit_field_size);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

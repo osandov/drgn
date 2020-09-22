@@ -55,8 +55,8 @@ struct drgn_member_key {
 
 /** Type, offset, and bit field size of a type member. */
 struct drgn_member_value {
-	struct drgn_lazy_parameter *type;
-	uint64_t bit_offset, bit_field_size;
+	struct drgn_type_member *member;
+	uint64_t bit_offset;
 };
 
 #ifdef DOXYGEN

@@ -835,8 +835,8 @@ static DrgnType *LazyParameter_get_borrowed(LazyParameter *self)
 				clear = set_drgn_in_python();
 			struct drgn_qualified_type qualified_type;
 			struct drgn_error *err =
-				drgn_lazy_parameter_get_type(self->lazy_parameter,
-							&qualified_type);
+				drgn_lazy_parameter_evaluate_type(
+					self->lazy_parameter, &qualified_type);
 			if (clear)
 				clear_drgn_in_python();
 			if (err)

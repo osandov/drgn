@@ -32,6 +32,45 @@
  */
 
 /**
+ * Thunk which evaluates to a @ref drgn_object
+ *
+ * This is used for @ref drgn_lazy_type.
+ *
+ * Note that the thunk callbacks take no additional arguments. A "closure" can
+ * be created by embedding this structure in a structure containing the
+ * necessary arguments; the closure type can then be accessed through a macro
+ * like @c container_of().
+ */
+struct drgn_object_thunk {
+	/** Program owning this thunk. */
+	struct drgn_program *prog;
+	/**
+	 * Callback to evaluate this thunk to a @ref drgn_qualified_type.
+	 *
+	 * This should initialize the passed qualified type. If this succeeds,
+	 * the thunk will then be freed with @ref drgn_type_thunk::free_fn().
+	 * Otherwise, this may be called again.
+	 */
+	struct drgn_error *(*evaluate_fn)(struct drgn_object_thunk *, struct drgn_object *ret);
+	/**
+	 * Callback to free this thunk.
+	 *
+	 * @ref drgn_type_thunk::evaluate_fn() may or may not have been called.
+	 */
+	void (*free_fn)(struct drgn_object_thunk *);
+};
+
+/**
+ * Free a @ref drgn_object_thunk.
+ *
+ * @param[in] thunk Thunk to free.
+ */
+static inline void drgn_object_thunk_free(struct drgn_object_thunk *thunk)
+{
+	thunk->free_fn(thunk);
+}
+
+/**
  * Get whether an object is zero.
  *
  * For scalars, this is true iff its value is zero. For structures, unions, and
