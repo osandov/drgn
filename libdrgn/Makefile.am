@@ -7,7 +7,7 @@ SUBDIRS = elfutils include
 
 .DELETE_ON_ERROR:
 
-AM_CPPFLAGS = -Iinclude -D_GNU_SOURCE
+AM_CPPFLAGS = -isystem include -D_GNU_SOURCE
 
 include_HEADERS = drgn.h
 
