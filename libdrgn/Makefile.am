@@ -32,6 +32,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 language.c \
 			 language.h \
 			 language_c.c \
+			 lazy_parameter.c \
+			 lazy_parameter.h \
 			 lexer.c \
 			 lexer.h \
 			 linux_kernel.c \

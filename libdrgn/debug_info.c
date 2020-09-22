@@ -20,6 +20,7 @@
 #include "error.h"
 #include "hash_table.h"
 #include "language.h"
+#include "lazy_parameter.h"
 #include "linux_kernel.h"
 #include "object.h"
 #include "path.h"
@@ -1180,7 +1181,7 @@ static struct drgn_error *
 drgn_lazy_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			  Dwarf_Die *parent_die, uint64_t bias,
 			  bool can_be_incomplete_array,
-			  const char *tag_name, struct drgn_lazy_type *ret)
+			  const char *tag_name, struct drgn_lazy_parameter *ret)
 {
 	Dwarf_Attribute attr_mem, *attr;
 	if (!(attr = dwarf_attr_integrate(parent_die, DW_AT_type, &attr_mem))) {
@@ -1205,7 +1206,7 @@ drgn_lazy_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	thunk->die = type_die;
 	thunk->can_be_incomplete_array = can_be_incomplete_array;
 	thunk->bias = bias;
-	drgn_lazy_type_init_thunk(ret, &thunk->thunk);
+	drgn_lazy_parameter_init_type_thunk(ret, &thunk->thunk);
 	return NULL;
 }
 
@@ -1389,7 +1390,7 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
 }
 
 static struct drgn_error *
-parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
+parse_member_offset(Dwarf_Die *die, struct drgn_lazy_parameter *member_type,
 		    uint64_t bit_field_size, bool little_endian, uint64_t *ret)
 {
 	struct drgn_error *err;
@@ -1475,7 +1476,7 @@ parse_member_offset(Dwarf_Die *die, struct drgn_lazy_type *member_type,
 			} else {
 				struct drgn_qualified_type containing_type;
 
-				err = drgn_lazy_type_evaluate(member_type,
+				err = drgn_lazy_parameter_get_type(member_type,
 							      &containing_type);
 				if (err)
 					return err;
@@ -1524,7 +1525,7 @@ parse_member(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		bit_field_size = 0;
 	}
 
-	struct drgn_lazy_type member_type;
+	struct drgn_lazy_parameter member_type;
 	struct drgn_error *err = drgn_lazy_type_from_dwarf(dbinfo, die, bias,
 							   can_be_incomplete_array,
 							   "DW_TAG_member",
@@ -1545,7 +1546,7 @@ parse_member(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	return NULL;
 
 err:
-	drgn_lazy_type_deinit(&member_type);
+	drgn_lazy_parameter_deinit(&member_type);
 	return err;
 }
 
@@ -2025,7 +2026,7 @@ parse_formal_parameter(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		name = NULL;
 	}
 
-	struct drgn_lazy_type parameter_type;
+	struct drgn_lazy_parameter parameter_type;
 	struct drgn_error *err = drgn_lazy_type_from_dwarf(dbinfo, die, bias, true,
 							   "DW_TAG_formal_parameter",
 							   &parameter_type);
@@ -2035,7 +2036,7 @@ parse_formal_parameter(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	err = drgn_function_type_builder_add_parameter(builder, parameter_type,
 						       name);
 	if (err)
-		drgn_lazy_type_deinit(&parameter_type);
+		drgn_lazy_parameter_deinit(&parameter_type);
 	return err;
 }
 

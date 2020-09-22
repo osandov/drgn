@@ -273,7 +273,7 @@ enum drgn_qualifiers {
 } __attribute__((packed));
 
 /**
- * @ingroup LazyTypes
+ * @ingroup LazyParameters
  *
  * Lazily-evaluated type.
  *
@@ -284,7 +284,7 @@ enum drgn_qualifiers {
  *
  * This is for internal use only.
  */
-struct drgn_lazy_type {
+struct drgn_lazy_parameter {
 	union {
 		/** Type if it has already been evaluated. */
 		struct drgn_type *type;
@@ -383,7 +383,7 @@ struct drgn_type_member {
 	 *
 	 * Access this with @ref drgn_member_type().
 	 */
-	struct drgn_lazy_type type;
+	struct drgn_lazy_parameter parameter;
 	/** Member name or @c NULL if it is unnamed. */
 	const char *name;
 	/**
@@ -420,7 +420,7 @@ struct drgn_type_parameter {
 	 *
 	 * Access this with @ref drgn_parameter_type().
 	 */
-	struct drgn_lazy_type type;
+	struct drgn_lazy_parameter type;
 	/** Parameter name or @c NULL if it is unnamed. */
 	const char *name;
 };

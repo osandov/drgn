@@ -20,6 +20,7 @@
 #include "dwarf_index.h"
 #include "error.h"
 #include "language.h"
+#include "lazy_parameter.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
 #include "object_index.h"
@@ -1191,7 +1192,7 @@ drgn_program_member_info(struct drgn_program *prog, struct drgn_type *type,
 	if (err)
 		return err;
 
-	err = drgn_lazy_type_evaluate(member->type, &ret->qualified_type);
+	err = drgn_lazy_parameter_get_type(member->type, &ret->qualified_type);
 	if (err)
 		return err;
 	ret->bit_offset = member->bit_offset;

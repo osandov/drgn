@@ -6,6 +6,7 @@
 #include "drgnpy.h"
 #include "../program.h"
 #include "../type.h"
+#include "../lazy_parameter.h"
 #include "../util.h"
 
 static const char *drgn_type_kind_str(struct drgn_type *type)
@@ -180,8 +181,8 @@ static PyObject *DrgnType_get_members(DrgnType *self)
 		if (!item)
 			goto err;
 		PyTuple_SET_ITEM(members_obj, i, (PyObject *)item);
-		item->lazy_type.state = DRGNPY_LAZY_TYPE_UNEVALUATED;
-		item->lazy_type.lazy_type = &member->type;
+		item->lazy_parameter.state = DRGNPY_LAZY_PARAMETER_UNEVALUATED;
+		item->lazy_parameter.lazy_parameter = &member->parameter;
 		if (member->name) {
 			item->name = PyUnicode_FromString(member->name);
 			if (!item->name)
@@ -279,8 +280,8 @@ static PyObject *DrgnType_get_parameters(DrgnType *self)
 		if (!item)
 			goto err;
 		PyTuple_SET_ITEM(parameters_obj, i, (PyObject *)item);
-		item->lazy_type.state = DRGNPY_LAZY_TYPE_UNEVALUATED;
-		item->lazy_type.lazy_type = &parameter->type;
+		item->lazy_parameter.state = DRGNPY_LAZY_PARAMETER_UNEVALUATED;
+		item->lazy_parameter.lazy_parameter = &parameter->type;
 		if (parameter->name) {
 			item->name = PyUnicode_FromString(parameter->name);
 			if (!item->name)
@@ -823,18 +824,18 @@ PyTypeObject TypeEnumerator_type = {
 	.tp_new = (newfunc)TypeEnumerator_new,
 };
 
-static DrgnType *LazyType_get_borrowed(LazyType *self)
+static DrgnType *LazyParameter_get_borrowed(LazyParameter *self)
 {
-	if (unlikely(self->state != DRGNPY_LAZY_TYPE_EVALUATED)) {
+	if (unlikely(self->state != DRGNPY_LAZY_PARAMETER_EVALUATED)) {
 		PyObject *type;
-		if (self->state == DRGNPY_LAZY_TYPE_UNEVALUATED) {
+		if (self->state == DRGNPY_LAZY_PARAMETER_UNEVALUATED) {
 			bool clear = false;
 			/* Avoid the thread state overhead if we can. */
-			if (!drgn_lazy_type_is_evaluated(self->lazy_type))
+			if (!drgn_lazy_parameter_is_evaluated(self->lazy_parameter))
 				clear = set_drgn_in_python();
 			struct drgn_qualified_type qualified_type;
 			struct drgn_error *err =
-				drgn_lazy_type_evaluate(self->lazy_type,
+				drgn_lazy_parameter_get_type(self->lazy_parameter,
 							&qualified_type);
 			if (clear)
 				clear_drgn_in_python();
@@ -843,7 +844,7 @@ static DrgnType *LazyType_get_borrowed(LazyType *self)
 			type = DrgnType_wrap(qualified_type);
 			if (!type)
 				return NULL;
-		} else { /* (self->state == DRGNPY_LAZY_TYPE_CALLABLE) */
+		} else { /* (self->state == DRGNPY_LAZY_PARAMETER_CALLABLE) */
 			type = PyObject_CallObject(self->obj, NULL);
 			if (!type)
 				return NULL;
@@ -855,22 +856,22 @@ static DrgnType *LazyType_get_borrowed(LazyType *self)
 			}
 			Py_DECREF(self->obj);
 		}
-		self->state = DRGNPY_LAZY_TYPE_EVALUATED;
+		self->state = DRGNPY_LAZY_PARAMETER_EVALUATED;
 		self->obj = type;
 	}
 	return (DrgnType *)self->obj;
 }
 
-static DrgnType *LazyType_get(LazyType *self, void *arg)
+static DrgnType *LazyParameter_get(LazyParameter *self, void *arg)
 {
-	DrgnType *ret = LazyType_get_borrowed(self);
+	DrgnType *ret = LazyParameter_get_borrowed(self);
 	Py_XINCREF(ret);
 	return ret;
 }
 
-static void LazyType_dealloc(LazyType *self)
+static void LazyParameter_dealloc(LazyParameter *self)
 {
-	if (self->state != DRGNPY_LAZY_TYPE_UNEVALUATED)
+	if (self->state != DRGNPY_LAZY_PARAMETER_UNEVALUATED)
 		Py_XDECREF(self->obj);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
@@ -892,9 +893,9 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 
 	if (PyCallable_Check(type_arg)) {
-		type_state = DRGNPY_LAZY_TYPE_CALLABLE;
+		type_state = DRGNPY_LAZY_PARAMETER_CALLABLE;
 	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
-		type_state = DRGNPY_LAZY_TYPE_EVALUATED;
+		type_state = DRGNPY_LAZY_PARAMETER_EVALUATED;
 	} else {
 		PyErr_SetString(PyExc_TypeError,
 				"TypeMember type must be type or callable returning Type");
@@ -911,9 +912,9 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 	if (!member)
 		return NULL;
 
-	member->lazy_type.state = type_state;
+	member->lazy_parameter.state = type_state;
 	Py_INCREF(type_arg);
-	member->lazy_type.obj = type_arg;
+	member->lazy_parameter.obj = type_arg;
 	Py_INCREF(name);
 	member->name = name;
 
@@ -946,7 +947,7 @@ static void TypeMember_dealloc(TypeMember *self)
 	Py_XDECREF(self->bit_field_size);
 	Py_XDECREF(self->bit_offset);
 	Py_XDECREF(self->name);
-	LazyType_dealloc((LazyType *)self);
+	LazyParameter_dealloc((LazyParameter *)self);
 }
 
 static PyObject *TypeMember_get_offset(TypeMember *self, void *arg)
@@ -969,7 +970,7 @@ static PyObject *TypeMember_repr(TypeMember *self)
 	DrgnType *type;
 	int ret;
 
-	type = LazyType_get_borrowed((LazyType *)self);
+	type = LazyParameter_get_borrowed((LazyParameter *)self);
 	if (!type)
 		return NULL;
 	ret = PyObject_IsTrue(self->bit_field_size);
@@ -995,10 +996,10 @@ static PyObject *TypeMember_richcompare(TypeMember *self, TypeMember *other,
 	    !PyObject_TypeCheck((PyObject *)other, &TypeMember_type))
 		Py_RETURN_NOTIMPLEMENTED;
 
-	self_type = LazyType_get_borrowed((LazyType *)self);
+	self_type = LazyParameter_get_borrowed((LazyParameter *)self);
 	if (!self_type)
 		return NULL;
-	other_type = LazyType_get_borrowed((LazyType *)other);
+	other_type = LazyParameter_get_borrowed((LazyParameter *)other);
 	if (!other_type)
 		return NULL;
 
@@ -1031,7 +1032,7 @@ static PyMemberDef TypeMember_members[] = {
 };
 
 static PyGetSetDef TypeMember_getset[] = {
-	{"type", (getter)LazyType_get, NULL, drgn_TypeMember_type_DOC, NULL},
+	{"type", (getter)LazyParameter_get, NULL, drgn_TypeMember_type_DOC, NULL},
 	{"offset", (getter)TypeMember_get_offset, NULL,
 	 drgn_TypeMember_offset_DOC, NULL},
 	{},
@@ -1064,9 +1065,9 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 
 	if (PyCallable_Check(type_arg)) {
-		type_state = DRGNPY_LAZY_TYPE_CALLABLE;
+		type_state = DRGNPY_LAZY_PARAMETER_CALLABLE;
 	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
-		type_state = DRGNPY_LAZY_TYPE_EVALUATED;
+		type_state = DRGNPY_LAZY_PARAMETER_EVALUATED;
 	} else {
 		PyErr_SetString(PyExc_TypeError,
 				"TypeParameter type must be type or callable returning Type");
@@ -1081,9 +1082,9 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 
 	parameter = (TypeParameter *)subtype->tp_alloc(subtype, 0);
 	if (parameter) {
-		parameter->lazy_type.state = type_state;
+		parameter->lazy_parameter.state = type_state;
 		Py_INCREF(type_arg);
-		parameter->lazy_type.obj = type_arg;
+		parameter->lazy_parameter.obj = type_arg;
 		Py_INCREF(name);
 		parameter->name = name;
 	}
@@ -1093,14 +1094,14 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 static void TypeParameter_dealloc(TypeParameter *self)
 {
 	Py_XDECREF(self->name);
-	LazyType_dealloc((LazyType *)self);
+	LazyParameter_dealloc((LazyParameter *)self);
 }
 
 static PyObject *TypeParameter_repr(TypeParameter *self)
 {
 	DrgnType *type;
 
-	type = LazyType_get_borrowed((LazyType *)self);
+	type = LazyParameter_get_borrowed((LazyParameter *)self);
 	if (!type)
 		return NULL;
 	return PyUnicode_FromFormat("TypeParameter(type=%R, name=%R)", type,
@@ -1117,10 +1118,10 @@ static PyObject *TypeParameter_richcompare(TypeParameter *self, TypeParameter *o
 	    !PyObject_TypeCheck((PyObject *)other, &TypeParameter_type))
 		Py_RETURN_NOTIMPLEMENTED;
 
-	self_type = LazyType_get_borrowed((LazyType *)self);
+	self_type = LazyParameter_get_borrowed((LazyParameter *)self);
 	if (!self_type)
 		return NULL;
-	other_type = LazyType_get_borrowed((LazyType *)other);
+	other_type = LazyParameter_get_borrowed((LazyParameter *)other);
 	if (!other_type)
 		return NULL;
 
@@ -1147,7 +1148,7 @@ static PyMemberDef TypeParameter_members[] = {
 };
 
 static PyGetSetDef TypeParameter_getset[] = {
-	{"type", (getter)LazyType_get, NULL, drgn_TypeParameter_type_DOC, NULL},
+	{"type", (getter)LazyParameter_get, NULL, drgn_TypeParameter_type_DOC, NULL},
 	{},
 };
 
@@ -1398,7 +1399,7 @@ DrgnType *Program_complex_type(Program *self, PyObject *args, PyObject *kwds)
 
 struct py_type_thunk {
 	struct drgn_type_thunk thunk;
-	LazyType *lazy_type;
+	LazyParameter *lazy_parameter;
 };
 
 static struct drgn_error *
@@ -1407,7 +1408,7 @@ py_type_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
 {
 	struct py_type_thunk *t = container_of(thunk, struct py_type_thunk, thunk);
 	PyGILState_STATE gstate = PyGILState_Ensure();
-	DrgnType *type = LazyType_get_borrowed(t->lazy_type);
+	DrgnType *type = LazyParameter_get_borrowed(t->lazy_parameter);
 	struct drgn_error *err;
 	if (type) {
 		ret->type = type->type;
@@ -1425,12 +1426,12 @@ static void py_type_thunk_free_fn(struct drgn_type_thunk *thunk)
 	free(container_of(thunk, struct py_type_thunk, thunk));
 }
 
-static int lazy_type_from_py(struct drgn_lazy_type *lazy_type, LazyType *obj,
+static int lazy_parameter_from_py(struct drgn_lazy_parameter *lazy_parameter, LazyParameter *obj,
 			     struct drgn_program *prog, bool *can_cache)
 {
-	if (obj->state == DRGNPY_LAZY_TYPE_EVALUATED) {
+	if (obj->state == DRGNPY_LAZY_PARAMETER_EVALUATED) {
 		DrgnType *type = (DrgnType *)obj->obj;
-		drgn_lazy_type_init_evaluated(lazy_type, type->type,
+		drgn_lazy_parameter_init_type(lazy_parameter, type->type,
 					      type->qualifiers);
 	} else {
 		struct py_type_thunk *thunk = malloc(sizeof(*thunk));
@@ -1441,11 +1442,11 @@ static int lazy_type_from_py(struct drgn_lazy_type *lazy_type, LazyType *obj,
 		thunk->thunk.prog = prog;
 		thunk->thunk.evaluate_fn = py_type_thunk_evaluate_fn;
 		thunk->thunk.free_fn = py_type_thunk_free_fn;
-		thunk->lazy_type = obj;
-		drgn_lazy_type_init_thunk(lazy_type, &thunk->thunk);
+		thunk->lazy_parameter = obj;
+		drgn_lazy_parameter_init_type_thunk(lazy_parameter, &thunk->thunk);
 		/*
 		 * We created a new thunk, so we can't reuse the passed
-		 * LazyType. Don't cache the container so we create a new one
+		 * LazyParameter. Don't cache the container so we create a new one
 		 * when it's accessed.
 		 */
 		*can_cache = false;
@@ -1480,8 +1481,8 @@ static int unpack_member(struct drgn_compound_type_builder *builder,
 	if (bit_field_size == (unsigned long long)-1 && PyErr_Occurred())
 		return -1;
 
-	struct drgn_lazy_type member_type;
-	if (lazy_type_from_py(&member_type, (LazyType *)member,
+	struct drgn_lazy_parameter member_type;
+	if (lazy_parameter_from_py(&member_type, (LazyParameter *)member,
 			      builder->prog, can_cache) == -1)
 		return -1;
 	struct drgn_error *err =
@@ -1489,7 +1490,7 @@ static int unpack_member(struct drgn_compound_type_builder *builder,
 						      name, bit_offset,
 						      bit_field_size);
 	if (err) {
-		drgn_lazy_type_deinit(&member_type);
+		drgn_lazy_parameter_deinit(&member_type);
 		set_drgn_error(err);
 		return -1;
 	}
@@ -1978,15 +1979,15 @@ static int unpack_parameter(struct drgn_function_type_builder *builder,
 			return -1;
 	}
 
-	struct drgn_lazy_type parameter_type;
-	if (lazy_type_from_py(&parameter_type, (LazyType *)parameter,
+	struct drgn_lazy_parameter parameter_type;
+	if (lazy_parameter_from_py(&parameter_type, (LazyParameter *)parameter,
 			      builder->prog, can_cache) == -1)
 		return -1;
 	struct drgn_error *err =
 		drgn_function_type_builder_add_parameter(builder,
 							 parameter_type, name);
 	if (err) {
-		drgn_lazy_type_deinit(&parameter_type);
+		drgn_lazy_parameter_deinit(&parameter_type);
 		set_drgn_error(err);
 		return -1;
 	}

@@ -14,6 +14,7 @@
 #include "error.h"
 #include "hash_table.h"
 #include "language.h" // IWYU pragma: associated
+#include "lazy_parameter.h"
 #include "lexer.h"
 #include "memory_reader.h"
 #include "minmax.h"
@@ -2605,8 +2606,8 @@ struct drgn_error *c_bit_offset(struct drgn_program *prog,
 								"offset is too large");
 					goto out;
 				}
-				err = drgn_lazy_type_evaluate(member->type,
-							      &member_type);
+				err = drgn_lazy_parameter_get_type(member->type,
+								   &member_type);
 				if (err)
 					goto out;
 				type = member_type.type;

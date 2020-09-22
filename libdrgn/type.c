@@ -7,6 +7,7 @@
 #include "error.h"
 #include "hash_table.h"
 #include "language.h"
+#include "lazy_parameter.h"
 #include "program.h"
 #include "type.h"
 #include "util.h"
@@ -173,60 +174,18 @@ DEFINE_HASH_TABLE_FUNCTIONS(drgn_member_map, drgn_member_key_hash_pair,
 
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_type_set, ptr_key_hash_pair, scalar_key_eq)
 
-struct drgn_error *drgn_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
-					   struct drgn_qualified_type *ret)
-{
-	if (drgn_lazy_type_is_evaluated(lazy_type)) {
-		ret->type = lazy_type->type;
-		ret->qualifiers = lazy_type->qualifiers;
-	} else {
-		struct drgn_type_thunk *thunk_ptr = lazy_type->thunk;
-		struct drgn_type_thunk thunk = *thunk_ptr;
-		struct drgn_error *err = thunk.evaluate_fn(thunk_ptr, ret);
-		if (err)
-			return err;
-		if (drgn_type_program(ret->type) != thunk.prog) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "type is from different program");
-		}
-		drgn_lazy_type_init_evaluated(lazy_type, ret->type,
-					      ret->qualifiers);
-		thunk.free_fn(thunk_ptr);
-	}
-	return NULL;
-}
-
-void drgn_lazy_type_deinit(struct drgn_lazy_type *lazy_type)
-{
-	if (!drgn_lazy_type_is_evaluated(lazy_type))
-		drgn_type_thunk_free(lazy_type->thunk);
-}
-
-static inline struct drgn_error *
-drgn_lazy_type_check_prog(struct drgn_lazy_type *lazy_type,
-			  struct drgn_program *prog)
-{
-	if ((drgn_lazy_type_is_evaluated(lazy_type) ?
-	     drgn_type_program(lazy_type->type) :
-	     lazy_type->thunk->prog) != prog) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "type is from different program");
-	}
-	return NULL;
-}
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_member_type(struct drgn_type_member *member,
 		 struct drgn_qualified_type *ret)
 {
-	return drgn_lazy_type_evaluate(&member->type, ret);
+	return drgn_lazy_parameter_get_type(&member->parameter, ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_parameter_type(struct drgn_type_parameter *parameter,
 		    struct drgn_qualified_type *ret)
 {
-	return drgn_lazy_type_evaluate(&parameter->type, ret);
+	return drgn_lazy_parameter_get_type(&parameter->type, ret);
 }
 
 static struct hash_pair
@@ -472,25 +431,25 @@ void
 drgn_compound_type_builder_deinit(struct drgn_compound_type_builder *builder)
 {
 	for (size_t i = 0; i < builder->members.size; i++)
-		drgn_lazy_type_deinit(&builder->members.data[i].type);
+		drgn_lazy_parameter_deinit(&builder->members.data[i].parameter);
 	drgn_type_member_vector_deinit(&builder->members);
 }
 
 struct drgn_error *
 drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder,
-				      struct drgn_lazy_type type,
+				      struct drgn_lazy_parameter parameter,
 				      const char *name, uint64_t bit_offset,
 				      uint64_t bit_field_size)
 {
-	struct drgn_error *err = drgn_lazy_type_check_prog(&type,
-							   builder->prog);
+	struct drgn_error *err = drgn_lazy_parameter_check_prog(&parameter,
+								builder->prog);
 	if (err)
 		return err;
 	struct drgn_type_member *member =
 		drgn_type_member_vector_append_entry(&builder->members);
 	if (!member)
 		return &drgn_enomem;
-	member->type = type;
+	member->parameter = parameter;
 	member->name = name;
 	member->bit_offset = bit_offset;
 	member->bit_field_size = bit_field_size;
@@ -771,17 +730,17 @@ void
 drgn_function_type_builder_deinit(struct drgn_function_type_builder *builder)
 {
 	for (size_t i = 0; i < builder->parameters.size; i++)
-		drgn_lazy_type_deinit(&builder->parameters.data[i].type);
+		drgn_lazy_parameter_deinit(&builder->parameters.data[i].type);
 	drgn_type_parameter_vector_deinit(&builder->parameters);
 }
 
 struct drgn_error *
 drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *builder,
-					 struct drgn_lazy_type type,
+					 struct drgn_lazy_parameter type,
 					 const char *name)
 {
-	struct drgn_error *err = drgn_lazy_type_check_prog(&type,
-							   builder->prog);
+	struct drgn_error *err = drgn_lazy_parameter_check_prog(&type,
+								builder->prog);
 	if (err)
 		return err;
 	struct drgn_type_parameter *parameter =
@@ -1387,7 +1346,7 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 				drgn_type_members(type);
 			size_t num_members = drgn_type_num_members(type);
 			for (size_t j = 0; j < num_members; j++)
-				drgn_lazy_type_deinit(&members[j].type);
+				drgn_lazy_parameter_deinit(&members[j].parameter);
 			free(members);
 		}
 		if (drgn_type_has_enumerators(type))
@@ -1397,7 +1356,7 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 				drgn_type_parameters(type);
 			size_t num_parameters = drgn_type_num_parameters(type);
 			for (size_t j = 0; j < num_parameters; j++)
-				drgn_lazy_type_deinit(&parameters[j].type);
+				drgn_lazy_parameter_deinit(&parameters[j].type);
 			free(parameters);
 		}
 		free(type);
@@ -1663,7 +1622,7 @@ drgn_program_cache_members(struct drgn_program *prog,
 					.name_len = strlen(member->name),
 				},
 				.value = {
-					.type = &member->type,
+					.type = &member->parameter,
 					.bit_offset =
 						bit_offset + member->bit_offset,
 					.bit_field_size =

@@ -55,7 +55,7 @@ struct drgn_member_key {
 
 /** Type, offset, and bit field size of a type member. */
 struct drgn_member_value {
-	struct drgn_lazy_type *type;
+	struct drgn_lazy_parameter *type;
 	uint64_t bit_offset, bit_field_size;
 };
 
@@ -78,9 +78,9 @@ DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *)
 #endif
 
 /**
- * @defgroup LazyTypes Lazy types
+ * @defgroup LazyParameters Lazy parameters
  *
- * Lazily-evaluated types.
+ * Lazily-evaluated parameters.
  *
  * The graph of types in a program can be very deep (and often cyclical), so
  * drgn lazily evaluates the types of compound type members and function
@@ -92,7 +92,7 @@ DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *)
 /**
  * Thunk which evaluates to a @ref drgn_qualified_type.
  *
- * This is used for @ref drgn_lazy_type.
+ * This is used for @ref drgn_lazy_parameter.
  *
  * Note that the thunk callbacks take no additional arguments. A "closure" can
  * be created by embedding this structure in a structure containing the
@@ -128,74 +128,6 @@ static inline void drgn_type_thunk_free(struct drgn_type_thunk *thunk)
 {
 	thunk->free_fn(thunk);
 }
-
-/**
- * Create a @ref drgn_lazy_type from a @ref drgn_type_thunk.
- *
- * @param[out] lazy_type Lazy type to initialize.
- * @param[in] thunk Thunk to wrap.
- */
-static inline void drgn_lazy_type_init_thunk(struct drgn_lazy_type *lazy_type,
-					     struct drgn_type_thunk *thunk)
-{
-	lazy_type->thunk = thunk;
-	lazy_type->qualifiers = -1;
-}
-
-/**
- * Create a @ref drgn_lazy_type from a @ref drgn_type and qualifiers.
- *
- * @param[out] lazy_type Lazy type to initialize.
- * @param[in] type Type to wrap. May be @c NULL.
- * @param[in] qualifiers Type qualifiers. Must be 0 if type is @c NULL. Must not
- * be -1.
- */
-static inline void
-drgn_lazy_type_init_evaluated(struct drgn_lazy_type *lazy_type,
-			      struct drgn_type *type,
-			      enum drgn_qualifiers qualifiers)
-{
-	if (!type)
-		assert(!qualifiers);
-	assert(qualifiers != (enum drgn_qualifiers)-1);
-	lazy_type->type = type;
-	lazy_type->qualifiers = qualifiers;
-}
-
-/**
- * Get whether a @ref drgn_lazy_type has been evaluated.
- *
- * @param[in] lazy_type Lazy type to check.
- * @return Whether the lazy type is evaluated.
- */
-static inline bool drgn_lazy_type_is_evaluated(struct drgn_lazy_type *lazy_type)
-{
-	return lazy_type->qualifiers != (enum drgn_qualifiers)-1;
-}
-
-/**
- * Evaluate a @ref drgn_lazy_type to a @ref drgn_qualified_type.
- *
- * If this succeeds, the lazy type is considered evaluated and future calls will
- * always succeed and return the cached result. If this fails, the lazy type
- * remains in a valid, unevaluated state.
- *
- * @param[in] lazy_type Lazy type to evaluate.
- * @param[out] ret Evaluated type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
-					   struct drgn_qualified_type *ret);
-
-/**
- * Free a @ref drgn_lazy_type.
- *
- * If the type has not been evaluted, this frees the @ref drgn_type_thunk.
- * Otherwise, this is a no-op.
- *
- * @param[in] lazy_type Lazy type to free.
- */
-void drgn_lazy_type_deinit(struct drgn_lazy_type *lazy_type);
 
 /** @} */
 
@@ -335,7 +267,7 @@ drgn_compound_type_builder_deinit(struct drgn_compound_type_builder *builder);
  */
 struct drgn_error *
 drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder,
-				      struct drgn_lazy_type type,
+				      struct drgn_lazy_parameter parameter,
 				      const char *name, uint64_t bit_offset,
 				      uint64_t bit_field_size);
 
@@ -554,7 +486,7 @@ drgn_function_type_builder_deinit(struct drgn_function_type_builder *builder);
  */
 struct drgn_error *
 drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *builder,
-					 struct drgn_lazy_type type,
+					 struct drgn_lazy_parameter type,
 					 const char *name);
 
 /**

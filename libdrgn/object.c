@@ -9,6 +9,7 @@
 #include "drgn.h"
 #include "error.h"
 #include "language.h"
+#include "lazy_parameter.h"
 #include "memory_reader.h"
 #include "minmax.h"
 #include "object.h"
@@ -1384,7 +1385,7 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 	if (err)
 		return err;
 
-	err = drgn_lazy_type_evaluate(member->type, &qualified_type);
+	err = drgn_lazy_parameter_get_type(member->type, &qualified_type);
 	if (err)
 		return err;
 
