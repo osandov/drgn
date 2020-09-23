@@ -3,6 +3,7 @@
 
 #include "drgnpy.h"
 #include "../helpers.h"
+#include "../program.h"
 
 PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
 				      PyObject *kwds)

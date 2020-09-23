@@ -6,12 +6,14 @@
 
 #define PY_SSIZE_T_CLEAN
 
-#include <stdalign.h>
+// IWYU pragma: begin_exports
 #include <Python.h>
 #include "structmember.h"
 
 #include "docstrings.h"
 #include "../drgn.h"
+// IWYU pragma: end_exports
+
 #include "../hash_table.h"
 #include "../program.h"
 

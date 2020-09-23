@@ -13,8 +13,8 @@
 #define DRGN_VECTOR_H
 
 #include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
+#include <stdlib.h> // IWYU pragma: keep
+#include <string.h> // IWYU pragma: keep
 
 /**
  * @ingroup Internals

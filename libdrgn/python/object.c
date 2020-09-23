@@ -1,13 +1,16 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include <limits.h>
+#include <inttypes.h>
+#include <math.h>
 
 #include "drgnpy.h"
 #include "../error.h"
 #include "../object.h"
+#include "../program.h"
 #include "../serialize.h"
 #include "../type.h"
+#include "../util.h"
 
 static int DrgnObject_literal(struct drgn_object *res, PyObject *literal)
 {

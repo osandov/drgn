@@ -13,6 +13,12 @@
 #ifndef DRGN_HELPERS_H
 #define DRGN_HELPERS_H
 
+#include <stddef.h>
+#include <stdint.h>
+
+struct drgn_object;
+struct drgn_program;
+
 struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					uint64_t pgtable, uint64_t virt_addr,
 					void *buf, size_t count);

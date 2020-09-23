@@ -1,6 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <stdarg.h>
+
 #include "drgnpy.h"
 
 int append_string(PyObject *parts, const char *s)

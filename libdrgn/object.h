@@ -12,8 +12,6 @@
 #ifndef DRGN_OBJECT_H
 #define DRGN_OBJECT_H
 
-#include <stdint.h>
-
 #include "drgn.h"
 #include "type.h"
 

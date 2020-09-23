@@ -19,6 +19,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef LIBDRGN_PUBLIC
+#define LIBDRGN_PUBLIC __attribute__((visibility("default")))
+#endif
+
 #ifdef NDEBUG
 #define UNREACHABLE() __builtin_unreachable()
 #else

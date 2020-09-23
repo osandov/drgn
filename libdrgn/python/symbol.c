@@ -1,6 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <inttypes.h>
+
 #include "drgnpy.h"
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, Program *prog)

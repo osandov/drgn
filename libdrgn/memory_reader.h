@@ -12,11 +12,8 @@
 #ifndef DRGN_MEMORY_READER_H
 #define DRGN_MEMORY_READER_H
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-
 #include "binary_search_tree.h"
+#include "drgn.h"
 
 /**
  * @ingroup Internals

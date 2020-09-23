@@ -12,8 +12,6 @@
 #ifndef DRGN_ERROR_H
 #define DRGN_ERROR_H
 
-#include <stdlib.h>
-
 #include "drgn.h"
 
 /**

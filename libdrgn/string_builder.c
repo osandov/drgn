@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "internal.h"
 #include "string_builder.h"
+#include "util.h"
 
 bool string_builder_finalize(struct string_builder *sb, char **ret)
 {

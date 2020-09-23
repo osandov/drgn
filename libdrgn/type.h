@@ -12,10 +12,13 @@
 #ifndef DRGN_TYPE_H
 #define DRGN_TYPE_H
 
+#include <assert.h>
+
 #include "drgn.h"
 #include "hash_table.h"
-#include "language.h"
 #include "vector.h"
+
+struct drgn_language;
 
 /**
  * @ingroup Internals

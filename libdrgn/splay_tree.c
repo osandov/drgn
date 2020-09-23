@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include "binary_search_tree.h"
+#include "binary_search_tree.h" // IWYU pragma: associated
 
 /*
  * Binary search tree splay operation based on the original paper [1]. Rotations

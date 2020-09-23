@@ -12,7 +12,7 @@
 #ifndef DRGN_LANGUAGE_H
 #define DRGN_LANGUAGE_H
 
-#include <dwarf.h>
+#include <elfutils/libdw.h>
 
 #include "drgn.h"
 

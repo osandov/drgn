@@ -3,11 +3,16 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <byteswap.h>
+#include <elfutils/libdw.h>
+#include <elfutils/libdwfl.h>
+#include <string.h>
 
-#include "internal.h"
+#include "drgn.h"
+#include "error.h"
 #include "linux_kernel.h"
 #include "platform.h"
 #include "program.h"
+#include "util.h"
 %}
 
 x86-64

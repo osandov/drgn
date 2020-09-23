@@ -5,6 +5,7 @@
 #define DRGN_PLATFORM_H
 
 #include <elfutils/libdwfl.h>
+#include <gelf.h>
 
 #include "drgn.h"
 

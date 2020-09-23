@@ -1,11 +1,14 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <inttypes.h>
-#include <string.h>
 
-#include "internal.h"
+#include "drgn.h"
+#include "platform.h"
 #include "program.h"
+#include "util.h"
 
 struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					uint64_t pgtable, uint64_t virt_addr,

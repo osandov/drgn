@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <dirent.h>
+#include <elf.h>
+#include <gelf.h>
+#include <libelf.h>
+#include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -10,14 +14,20 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 
-#include "internal.h"
 #include "debug_info.h"
+#include "drgn.h"
+#include "error.h"
+#include "hash_table.h"
 #include "helpers.h"
+#include "language.h"
 #include "linux_kernel.h"
+#include "memory_reader.h"
 #include "mread.h"
+#include "platform.h"
 #include "program.h"
+#include "type.h"
+#include "util.h"
 
 struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
 					   size_t count, uint64_t offset,

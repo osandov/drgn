@@ -12,6 +12,9 @@
 #ifndef DRGN_BINARY_SEARCH_TREE_H
 #define DRGN_BINARY_SEARCH_TREE_H
 
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "util.h"
 
 /**

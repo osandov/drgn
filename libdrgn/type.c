@@ -1,13 +1,16 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <stdlib.h>
 #include <string.h>
 
-#include "internal.h"
+#include "cityhash.h"
+#include "error.h"
 #include "hash_table.h"
 #include "language.h"
 #include "program.h"
 #include "type.h"
+#include "util.h"
 
 const char * const drgn_type_kind_spelling[] = {
 	[DRGN_TYPE_VOID] = "void",

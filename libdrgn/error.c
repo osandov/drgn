@@ -1,8 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include <errno.h>
+#include <elfutils/libdw.h>
 #include <elfutils/libdwfl.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <libelf.h>
 #include <stdarg.h>
@@ -10,8 +11,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "internal.h"
+#include "drgn.h"
+#include "error.h"
 #include "string_builder.h"
+#include "util.h"
 
 LIBDRGN_PUBLIC struct drgn_error drgn_enomem = {
 	.code = DRGN_ERROR_NO_MEMORY,

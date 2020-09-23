@@ -1,10 +1,11 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include <string.h>
+#include <elf.h>
+#include <stdlib.h>
 
-#include "internal.h"
 #include "platform.h"
+#include "util.h"
 
 const struct drgn_architecture_info arch_info_unknown = {
 	.name = "unknown",

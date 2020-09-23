@@ -1,12 +1,13 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include <inttypes.h>
+#include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#include "internal.h"
 #include "memory_reader.h"
+#include "util.h"
 
 DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_memory_segment_tree,
 				    binary_search_tree_scalar_cmp, splay)

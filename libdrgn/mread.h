@@ -13,6 +13,8 @@
 #define DRGN_MREAD_H
 
 #include <byteswap.h>
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /**

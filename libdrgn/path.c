@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <dwarf.h>
+#include <elfutils/libdw.h>
+#include <stdbool.h>
 #include <string.h>
 
-#include "internal.h"
+#include "path.h"
+#include "util.h"
 
 bool path_iterator_next(struct path_iterator *it, const char **component,
 			size_t *component_len)

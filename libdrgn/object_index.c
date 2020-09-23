@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <string.h>
+#include <stdlib.h>
 
-#include "internal.h"
 #include "object_index.h"
-#include "type.h"
 
 void drgn_object_index_init(struct drgn_object_index *oindex)
 {

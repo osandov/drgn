@@ -1,16 +1,18 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <assert.h>
 #include <ctype.h>
 #include <float.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
-#include "internal.h"
+#include "error.h"
 #include "hash_table.h"
-#include "language.h"
+#include "language.h" // IWYU pragma: associated
 #include "lexer.h"
 #include "memory_reader.h"
 #include "object.h"
@@ -18,6 +20,8 @@
 #include "string_builder.h"
 #include "symbol.h"
 #include "type.h"
+#include "util.h"
+#include "vector.h"
 
 static struct drgn_error *
 c_declare_variable(struct drgn_qualified_type qualified_type,

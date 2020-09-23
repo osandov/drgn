@@ -1,19 +1,25 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include <byteswap.h>
-#include <dwarf.h>
+#include <assert.h>
+#include <elfutils/libdw.h>
 #include <elfutils/libdwfl.h>
-#include <endian.h>
 #include <inttypes.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
 
-#include "internal.h"
 #include "debug_info.h"
+#include "drgn.h"
+#include "error.h"
+#include "hash_table.h"
 #include "helpers.h"
+#include "platform.h"
 #include "program.h"
 #include "string_builder.h"
 #include "symbol.h"
+#include "type.h"
+#include "util.h"
 
 struct drgn_stack_trace {
 	struct drgn_program *prog;

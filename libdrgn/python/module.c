@@ -1,11 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include "drgnpy.h"
-#include "../internal.h"
 #ifdef WITH_KDUMPFILE
 #include <libkdumpfile/kdumpfile.h>
 #endif
+
+#include "drgnpy.h"
+#include "../path.h"
 
 PyObject *MissingDebugInfoError;
 PyObject *OutOfBoundsError;

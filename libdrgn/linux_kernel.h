@@ -4,8 +4,6 @@
 #ifndef DRGN_LINUX_KERNEL_H
 #define DRGN_LINUX_KERNEL_H
 
-#include <elfutils/libdwfl.h>
-
 #include "drgn.h"
 
 struct drgn_debug_info_load_state;

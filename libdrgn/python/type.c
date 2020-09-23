@@ -1,8 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <stdarg.h>
+
 #include "drgnpy.h"
+#include "../program.h"
 #include "../type.h"
+#include "../util.h"
 
 static const char *drgn_type_kind_str(struct drgn_type *type)
 {

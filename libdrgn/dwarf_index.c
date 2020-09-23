@@ -8,11 +8,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "internal.h"
 #include "debug_info.h"
+#include "drgn.h"
 #include "dwarf_index.h"
+#include "error.h"
 #include "mread.h"
+#include "path.h"
 #include "siphash.h"
+#include "util.h"
 
 /*
  * The DWARF abbreviation table gets translated into a series of instructions.

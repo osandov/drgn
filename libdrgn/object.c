@@ -1,18 +1,20 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <assert.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "internal.h"
+#include "drgn.h"
+#include "error.h"
 #include "language.h"
 #include "memory_reader.h"
 #include "object.h"
 #include "program.h"
 #include "serialize.h"
 #include "type.h"
+#include "util.h"
 
 LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 				     struct drgn_program *prog)

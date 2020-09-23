@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include "internal.h"
+#include "drgn.h"
 #include "lexer.h"
 
 DEFINE_VECTOR_FUNCTIONS(drgn_token_vector)

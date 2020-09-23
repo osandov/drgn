@@ -4,45 +4,27 @@
 /**
  * @file
  *
- * Miscellanous internal drgn helpers.
+ * Paths.
+ *
+ * See @ref Paths.
  */
 
-#ifndef DRGN_INTERNAL_H
-#define DRGN_INTERNAL_H
+#ifndef DRGN_PATH_H
+#define DRGN_PATH_H
 
 #include <stdbool.h>
-#include <stdint.h>
-#include <elfutils/libdw.h>
-#include <elfutils/version.h>
+#include <stddef.h>
 
-#include "drgn.h"
-#include "error.h"
-#include "util.h"
+#include <elfutils/libdw.h>
 
 /**
  *
- * @defgroup Internals Internals
+ * @defgroup Paths Paths
  *
- * Internal implementation.
+ * Utilities for working with paths.
  *
  * @{
  */
-
-#ifndef LIBDRGN_PUBLIC
-#define LIBDRGN_PUBLIC __attribute__((visibility("default")))
-#endif
-
-struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
-
-struct drgn_error *find_elf_file(char **path_ret, int *fd_ret, Elf **elf_ret,
-				 const char * const *path_formats, ...);
-
-struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
-
-struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
-				     uint64_t *start_ret, uint64_t *end_ret);
-
-bool die_matches_filename(Dwarf_Die *die, const char *filename);
 
 /** Path iterator input component. */
 struct path_iterator_component {
@@ -131,11 +113,8 @@ bool path_iterator_next(struct path_iterator *it, const char **component,
 bool path_ends_with(struct path_iterator *haystack,
 		    struct path_iterator *needle);
 
+bool die_matches_filename(Dwarf_Die *die, const char *filename);
+
 /** @} */
 
-struct drgn_lexer;
-struct drgn_token;
-struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
-				struct drgn_token *token);
-
-#endif /* DRGN_INTERNAL_H */
+#endif /* DRGN_PATH_H */

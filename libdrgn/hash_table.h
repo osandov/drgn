@@ -13,7 +13,7 @@
 #define DRGN_HASH_TABLE_H
 
 #ifdef __SSE2__
-#include <emmintrin.h>
+#include <emmintrin.h> // IWYU pragma: keep
 #endif
 #ifdef __SSE4_2__
 #include <nmmintrin.h>

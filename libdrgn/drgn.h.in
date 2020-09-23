@@ -10,11 +10,14 @@
 #ifndef DRGN_H
 #define DRGN_H
 
-#include <assert.h>
-#include <limits.h>
+// IWYU pragma: begin_exports
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+// IWYU pragma: end_exports
+
+#include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <sys/types.h>
 
@@ -247,9 +250,6 @@ int drgn_error_fwrite(FILE *file, struct drgn_error *err);
 void drgn_error_destroy(struct drgn_error *err);
 
 /** @} */
-
-struct drgn_type;
-struct drgn_type_thunk;
 
 /**
  * @ingroup Types

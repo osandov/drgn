@@ -1,13 +1,12 @@
 // Copyright 2019 - Serapheim Dimitropoulos
 // SPDX-License-Identifier: GPL-3.0+
 
-#include <fcntl.h>
+#include <inttypes.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "linux_kernel.h"
-#include "program.h"
+#include "program.h" // IWYU pragma: associated
 
 static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 						   struct drgn_platform *ret)

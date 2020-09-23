@@ -28,8 +28,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 error.h \
 			 hash_table.c \
 			 hash_table.h \
-			 internal.c \
-			 internal.h \
 			 language.c \
 			 language.h \
 			 language_c.c \
@@ -46,6 +44,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 object_index.c \
 			 object_index.h \
 			 path.c \
+			 path.h \
 			 platform.c \
 			 platform.h \
 			 program.c \

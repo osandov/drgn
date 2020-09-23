@@ -10,9 +10,8 @@
  */
 
 #include "drgnpy.h"
-
-#include "../internal.h"
 #include "../lexer.h"
+#include "../path.h"
 #include "../serialize.h"
 
 DRGNPY_PUBLIC void drgn_test_lexer_init(struct drgn_lexer *lexer,

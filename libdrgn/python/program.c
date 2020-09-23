@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "drgnpy.h"
+#include "../hash_table.h"
+#include "../program.h"
 #include "../vector.h"
+#include "../util.h"
 
 DEFINE_HASH_TABLE_FUNCTIONS(pyobjectp_set, hash_pair_ptr_type,
 			    hash_table_scalar_eq)

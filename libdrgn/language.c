@@ -1,7 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
-#include "internal.h"
+#include <dwarf.h>
+
+#include "error.h"
 #include "language.h"
 
 const struct drgn_language drgn_languages[] = {

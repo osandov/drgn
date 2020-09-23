@@ -1,29 +1,32 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <assert.h>
 #include <byteswap.h>
+#include <dwarf.h>
+#include <elf.h>
+#include <elfutils/libdw.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <gelf.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/statfs.h>
 #include <unistd.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/vfs.h>
 
-#include "internal.h"
 #include "debug_info.h"
+#include "dwarf_index.h"
+#include "error.h"
 #include "language.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
 #include "object_index.h"
 #include "program.h"
-#include "string_builder.h"
 #include "symbol.h"
 #include "vector.h"
+#include "util.h"
 
 DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_map, hash_pair_int_type,

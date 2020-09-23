@@ -30,7 +30,6 @@
  * @{
  */
 
-struct drgn_error;
 struct drgn_lexer;
 struct drgn_token;
 
@@ -125,6 +124,10 @@ struct drgn_error *drgn_lexer_push(struct drgn_lexer *lexer,
  */
 struct drgn_error *drgn_lexer_peek(struct drgn_lexer *lexer,
 				   struct drgn_token *token);
+
+/* Exported only for testing. */
+struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
+				struct drgn_token *token);
 
 /** @} */
 
