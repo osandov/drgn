@@ -153,9 +153,10 @@ def run_in_vm(command: str, *, vmlinuz: str, build_dir: str) -> int:
 
     # multidevs was added in QEMU 4.2.0.
     multidevs = ",multidevs=remap" if qemu_version >= (4, 2) else ""
-    # QEMU's 9pfs O_NOATIME handling was fixed in 5.1.0.
+    # QEMU's 9pfs O_NOATIME handling was fixed in 5.1.0. The fix was backported
+    # to 5.0.1.
     env = os.environ.copy()
-    if qemu_version < (5, 1):
+    if qemu_version < (5, 0, 1):
         onoatimehack_so = _build_onoatimehack(build_dir)
         env["LD_PRELOAD"] = f"{onoatimehack_so}:{env.get('LD_PRELOAD', '')}"
 
