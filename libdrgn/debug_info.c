@@ -1030,6 +1030,13 @@ struct drgn_type_from_dwarf_thunk {
 	uint64_t bias;
 };
 
+struct drgn_object_from_dwarf_thunk {
+	struct drgn_object_thunk thunk;
+	Dwarf_Die die;
+	uint64_t bias;
+	const char* name;
+};
+
 /**
  * Return whether a DWARF DIE is little-endian.
  *
@@ -1207,6 +1214,50 @@ drgn_lazy_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	thunk->can_be_incomplete_array = can_be_incomplete_array;
 	thunk->bias = bias;
 	drgn_lazy_parameter_init_type_thunk(ret, &thunk->thunk);
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_object_from_dwarf_thunk_evaluate_fn(struct drgn_object_thunk *thunk,
+					 struct drgn_object *ret);
+static void drgn_object_from_dwarf_thunk_free_fn(struct drgn_object_thunk *thunk)
+{
+	free(container_of(thunk, struct drgn_object_from_dwarf_thunk, thunk));
+}
+
+
+static struct drgn_error *
+drgn_lazy_object_from_dwarf(struct drgn_debug_info *dbinfo,
+			    Dwarf_Die *die,
+			    uint64_t bias,
+			    const char* name,
+			    struct drgn_lazy_parameter *ret)
+{
+	struct drgn_object_from_dwarf_thunk *thunk = malloc(sizeof(*thunk));
+	if (!thunk)
+		return &drgn_enomem;
+
+	thunk->thunk.prog = dbinfo->prog;
+	thunk->thunk.evaluate_fn = drgn_object_from_dwarf_thunk_evaluate_fn;
+	thunk->thunk.free_fn = drgn_object_from_dwarf_thunk_free_fn;
+	thunk->name = name;
+
+	bool decl;
+	if (!dwarf_flag(die, DW_AT_declaration, &decl) && decl) {
+		Dwfl_Module *module;
+		Dwarf_Off offset;
+		if (drgn_dwarf_index_find_definition(&dbinfo->dindex, (uintptr_t)die->addr, &module, &offset)) {
+			Dwarf *dwarf = dwfl_module_getdwarf(module, &bias);
+			if (!dwarf)
+				return drgn_error_libdwfl();
+			if (!dwarf_offdie(dwarf, offset, die))
+				return drgn_error_libdw();
+		}
+	}
+
+	thunk->bias = bias;
+	thunk->die = *die;
+	drgn_lazy_parameter_init_object_thunk(ret, &thunk->thunk);
 	return NULL;
 }
 
@@ -1502,6 +1553,7 @@ parse_member(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	     struct drgn_compound_type_builder *builder)
 {
 	Dwarf_Attribute attr_mem, *attr;
+	struct drgn_error *err = NULL;
 	const char *name;
 	if ((attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem))) {
 		name = dwarf_formstring(attr);
@@ -1525,28 +1577,36 @@ parse_member(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		bit_field_size = 0;
 	}
 
-	struct drgn_lazy_parameter member_type;
-	struct drgn_error *err = drgn_lazy_type_from_dwarf(dbinfo, die, bias,
-							   can_be_incomplete_array,
-							   "DW_TAG_member",
-							   &member_type);
-	if (err)
-		return err;
+	uint64_t bit_offset = 0;
+	struct drgn_lazy_parameter member;
+	if (dwarf_tag(die) == DW_TAG_subprogram) {
+		// Creating objects
+		err = drgn_lazy_object_from_dwarf(dbinfo, die, bias, name, &member);
+		if (err)
+			return err;
+	} else {
+		// Creating types
+		err = drgn_lazy_type_from_dwarf(dbinfo, die, bias,
+						can_be_incomplete_array,
+						"DW_TAG_member",
+						&member);
+		if (err)
+			return err;
 
-	uint64_t bit_offset;
-	err = parse_member_offset(die, &member_type, bit_field_size,
-				  little_endian, &bit_offset);
-	if (err)
-		goto err;
+		err = parse_member_offset(die, &member, bit_field_size,
+					  little_endian, &bit_offset);
+		if (err)
+			goto err;
+	}
 
-	err = drgn_compound_type_builder_add_member(builder, member_type, name,
+	err = drgn_compound_type_builder_add_member(builder, member, name,
 						    bit_offset, bit_field_size);
 	if (err)
 		goto err;
 	return NULL;
 
 err:
-	drgn_lazy_parameter_deinit(&member_type);
+	drgn_lazy_parameter_deinit(&member);
 	return err;
 }
 
@@ -1623,7 +1683,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	Dwarf_Die member = {}, child;
 	int r = dwarf_child(die, &child);
 	while (r == 0) {
-		if (dwarf_tag(&child) == DW_TAG_member) {
+		if (dwarf_tag(&child) == DW_TAG_member || dwarf_tag(&child) == DW_TAG_subprogram) {
 			if (member.addr) {
 				err = parse_member(dbinfo, &member, bias,
 						   little_endian, false,
@@ -2361,6 +2421,17 @@ drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 	dwarf_die_byte_order(die, false, &byte_order);
 	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
 					 0, byte_order);
+}
+
+static struct drgn_error *
+drgn_object_from_dwarf_thunk_evaluate_fn(struct drgn_object_thunk *thunk,
+					 struct drgn_object *ret)
+{
+	struct drgn_object_from_dwarf_thunk *t =
+		container_of(thunk, struct drgn_object_from_dwarf_thunk, thunk);
+	// TODO Support not just subprogram
+	return drgn_object_from_dwarf_subprogram(thunk->prog->_dbinfo, &t->die,
+						 t->bias, t->name, ret);
 }
 
 static struct drgn_error *

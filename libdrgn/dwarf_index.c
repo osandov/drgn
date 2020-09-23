@@ -1066,8 +1066,8 @@ err:
 	drgn_dwarf_index_update_cancel(state, drgn_eof());
 }
 
-static bool find_definition(struct drgn_dwarf_index *dindex, uintptr_t die_addr,
-			    Dwfl_Module **module_ret, size_t *offset_ret)
+bool drgn_dwarf_index_find_definition(struct drgn_dwarf_index *dindex, uintptr_t die_addr,
+				      Dwfl_Module **module_ret, size_t *offset_ret)
 {
 	struct drgn_dwarf_index_specification_map_iterator it =
 		drgn_dwarf_index_specification_map_search(&dindex->specifications,
@@ -1389,7 +1389,7 @@ skip:
 				 */
 				die_offset = depth1_offset;
 			} else if (declaration &&
-				   !find_definition(ns->dindex,
+				   !drgn_dwarf_index_find_definition(ns->dindex,
 						    (uintptr_t)debug_info_buffer +
 						    die_offset,
 						    &module, &die_offset)) {

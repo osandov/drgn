@@ -319,6 +319,19 @@ struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
 					    Dwarf_Die *die_ret,
 					    uint64_t *bias_ret);
 
+/**
+ * Look up definitions from the specifications->declarations map.
+ *
+ * Dwarf definitions contain a map to their specification, but not the other way
+ * around. However, the specification is used to determine the scope of an object.
+ *
+ * @param [in] dindex The dwarf index containing the lookup map to use.
+ * @param [in] die_addr The address of the specification die.
+ * @param [out] die_ret The returned declaration die.
+ * @param [out] bias_ret The returned bias for the above die.
+ */
+bool drgn_dwarf_index_find_definition(struct drgn_dwarf_index *dindex, uintptr_t die_addr,
+				      Dwfl_Module **module_ret, size_t *offset_ret);
 /** @} */
 
 #endif /* DRGN_DWARF_INDEX_H */
