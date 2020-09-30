@@ -40,8 +40,8 @@
  * using SIMD instructions to allow for a high load factor.
  *
  * These hash tables are generic, strongly typed (i.e., keys and values have
- * static types rather than <tt>void *</tt>), and don't have any function pointer
- * overhead. See @ref HashMaps and @ref HashSets.
+ * static types rather than <tt>void *</tt>), and don't have any function
+ * pointer overhead.
  *
  * On non-x86 platforms, this falls back to a slower implementation that doesn't
  * use SIMD.

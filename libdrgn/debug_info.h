@@ -24,7 +24,7 @@
 /**
  * @ingroup Internals
  *
- * @defgroup DebugInfo Debugging information cache
+ * @defgroup DebugInfo Debugging information
  *
  * Caching of debugging information.
  *
@@ -141,8 +141,8 @@ struct drgn_debug_info {
 	/**
 	 * Names of indexed modules.
 	 *
-	 * The entries in this set are @ref drgn_dwarf_module::name, so they
-	 * should not be freed.
+	 * The entries in this set are @ref drgn_debug_info_module::name, so
+	 * they should not be freed.
 	 */
 	struct c_string_set module_names;
 	/** Index of DWARF debugging information. */

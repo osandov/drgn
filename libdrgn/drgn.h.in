@@ -106,12 +106,12 @@ struct drgn_error {
 	 * the system call.
 	 */
 	int errnum;
-	/*
+	/**
 	 * If @c code is @c DRGN_ERROR_OS, then the path of the file which
 	 * encountered the error if applicable. Otherwise, @c NULL.
 	 */
 	char *path;
-	/*
+	/**
 	 * If @c code is @c DRGN_ERROR_FAULT, then the address of the read
 	 * which encountered the error.
 	 */
@@ -1665,7 +1665,6 @@ struct drgn_object {
 	bool is_reference;
 	/** Whether this object is a bit field. */
 	bool is_bit_field;
-	/** Reference to this object in @ref drgn_object::prog, or its value. */
 	union {
 		/** Value. */
 		union drgn_value value;
@@ -1986,7 +1985,7 @@ drgn_object_dereference_offset(struct drgn_object *res,
  *
  * If @c obj is already a value, then this is equivalent to @ref
  * drgn_object_copy(). If @c is a reference, then this reads the reference and
- * sets @res to the value.
+ * sets @p res to the value.
  *
  * @param[out] res Object to set.
  * @param[in] obj Object to read.
@@ -2366,9 +2365,9 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
  *
  * @param[out] res Returned object. May be the same as @p obj.
  * @param[in] obj Pointer to a member.
- * @param[in] type Type which contains the member.
- * @param[in] member_designator Name of the member in @p type. This can include
- * one or more member references and zero or more array subscripts.
+ * @param[in] qualified_type Type which contains the member.
+ * @param[in] member_designator Name of the member in @p qualified_type. This
+ * can include one or more member references and zero or more array subscripts.
  * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
  * error.
  */

@@ -32,7 +32,11 @@ struct drgn_debug_info;
 struct drgn_symbol;
 
 /**
- * @ingroup Internals
+ * @defgroup Internals Internals
+ *
+ * Internal implementation
+ *
+ * @{
  *
  * @defgroup ProgramInternals Programs
  *
@@ -307,6 +311,9 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 						  Dwfl_Module *module,
 						  struct drgn_symbol *ret);
 
-/** @} */
+/**
+ * @}
+ * @}
+ */
 
 #endif /* DRGN_PROGRAM_H */

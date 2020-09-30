@@ -54,9 +54,9 @@ drgn_memory_segment_to_key(const struct drgn_memory_segment *entry)
 	return entry->address;
 }
 
-DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_memory_segment_tree, struct
-			       drgn_memory_segment, node,
-			       drgn_memory_segment_to_key)
+DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_memory_segment_tree,
+			       struct drgn_memory_segment,
+			       node, drgn_memory_segment_to_key)
 
 /**
  * Memory reader.

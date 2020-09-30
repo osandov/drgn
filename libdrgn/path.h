@@ -18,6 +18,7 @@
 #include <elfutils/libdw.h>
 
 /**
+ * @ingroup Internals
  *
  * @defgroup Paths Paths
  *

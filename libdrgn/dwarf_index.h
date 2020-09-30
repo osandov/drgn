@@ -274,10 +274,10 @@ struct drgn_dwarf_index_iterator {
 };
 
 /**
- * Create an iterator over DIEs in a DWARF index.
+ * Create an iterator over DIEs in a DWARF index namespace.
  *
  * @param[out] it DWARF index iterator to initialize.
- * @param[in] dindex DWARF index.
+ * @param[in] ns DWARF index namespace.
  * @param[in] name Name of DIE to search for, or @c NULL for any name.
  * @param[in] name_len Length of @c name.
  * @param[in] tags List of DIE tags to search for.
