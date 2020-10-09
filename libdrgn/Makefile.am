@@ -47,6 +47,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 path.h \
 			 platform.c \
 			 platform.h \
+			 pp.h \
 			 program.c \
 			 program.h \
 			 serialize.c \
