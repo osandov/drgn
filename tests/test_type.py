@@ -265,6 +265,20 @@ class TestType(MockProgramTestCase):
         # One is incomplete.
         self.assertNotEqual(t, self.prog.struct_type("point"))
 
+        # Anonymous members with different types.
+        self.assertNotEqual(
+            self.prog.struct_type(
+                "foo",
+                4,
+                (TypeMember(self.prog.int_type("int", 4, True), None, 0),),
+            ),
+            self.prog.struct_type(
+                "foo",
+                4,
+                (TypeMember(self.prog.int_type("unsigned int", 4, False), None, 0),),
+            ),
+        )
+
         self.assertEqual(
             repr(t),
             "prog.struct_type(tag='point', size=8, members=(TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='x', bit_offset=0), TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='y', bit_offset=32)))",

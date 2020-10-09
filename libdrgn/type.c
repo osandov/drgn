@@ -892,10 +892,9 @@ static struct drgn_error *drgn_type_members_eq(struct drgn_type *a,
 		if (members_a[i].bit_offset != members_b[i].bit_offset ||
 		    members_a[i].bit_field_size != members_b[i].bit_field_size)
 			goto out_false;
-		if (!members_a[i].name && !members_b[i].name)
-			continue;
-		if (!members_a[i].name || !members_b[i].name ||
-		    strcmp(members_a[i].name, members_b[i].name) != 0)
+		if ((members_a[i].name || members_b[i].name) &&
+		    (!members_a[i].name || !members_b[i].name ||
+		     strcmp(members_a[i].name, members_b[i].name) != 0))
 			goto out_false;
 
 		err = drgn_member_type(&members_a[i], &type_a);
