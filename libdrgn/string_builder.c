@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "bitops.h"
 #include "string_builder.h"
 #include "util.h"
 

@@ -15,6 +15,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
+#include "bitops.h"
 #include "debug_info.h"
 #include "drgn.h"
 #include "error.h"

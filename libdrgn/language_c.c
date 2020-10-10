@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bitops.h"
 #include "error.h"
 #include "hash_table.h"
 #include "language.h" // IWYU pragma: associated

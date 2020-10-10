@@ -103,62 +103,6 @@
 			 "pointer type mismatch in container_of()");	\
 	((type *)(__mptr - offsetof(type, member))); })
 
-#define __bitop(x, unique_x, op) ({					\
-	__auto_type unique_x = (x);					\
-	static_assert(sizeof(unique_x) <= sizeof(unsigned long long),	\
-		      "type is too large");				\
-	(unsigned int)(sizeof(unique_x) <= sizeof(unsigned int) ?	\
-		       op(unique_x) :					\
-		       sizeof(unique_x) <= sizeof(unsigned long) ?	\
-		       op##l(unique_x) :				\
-		       op##ll(unique_x));				\
-})
-
-/**
- * Return the number of trailing least significant 0-bits in @p x. This is
- * undefined if @p x is zero.
- */
-#define ctz(x) __bitop(x, __UNIQUE_ID(__x), __builtin_ctz)
-
-/*
- * The straightfoward implementation is bits - clz. However, as noted by the
- * folly implementation: "If X is a power of two, X - Y = 1 + ((X - 1) ^ Y).
- * Doing this transformation allows GCC to remove its own xor that it adds to
- * implement clz using bsr."
- *
- * This doesn't do the normal macro argument safety stuff because it should only
- * be used via __bitop() which already does it.
- */
-#define ____fls(x, type, suffix)	\
-	(x ? 1 + ((8 * sizeof(type) - 1) ^ __builtin_clz##suffix(x)) : 0)
-#define __fls(x) ____fls(x, unsigned int,)
-#define __flsl(x) ____fls(x, unsigned long, l)
-#define __flsll(x) ____fls(x, unsigned long long, ll)
-
-/**
- * Return one plus the index of the most significant 1-bit of @p x or 0 if @p x
- * is 0.
- */
-#define fls(x) __bitop(x, __UNIQUE_ID(__x), __fls)
-
-#define __next_power_of_two(x, unique_x) ({			\
-	__auto_type unique_x = (x);				\
-								\
-	unique_x ? (typeof(unique_x))1 << fls(unique_x - 1) :	\
-	(typeof(unique_x))1;					\
-})
-
-/**
- * Return the smallest power of two greater than or equal to @p x.
- *
- * Note that zero is not a power of two, so <tt>next_power_of_two(0) == 1</tt>.
- */
-#define next_power_of_two(x) __next_power_of_two(x, __UNIQUE_ID(__x))
-
-/** Iterate over each 1-bit in @p mask. This modifies @c mask. */
-#define for_each_bit(i, mask)	\
-	for (i = -1; mask && (i = ctz(mask), mask &= mask - 1, 1);)
-
 static inline bool strstartswith(const char *s, const char *prefix)
 {
 	return strncmp(s, prefix, strlen(prefix)) == 0;

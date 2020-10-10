@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "bitops.h"
 #include "cityhash.h"
 #include "util.h"
 
