@@ -16,6 +16,7 @@
 #include "language.h" // IWYU pragma: associated
 #include "lexer.h"
 #include "memory_reader.h"
+#include "minmax.h"
 #include "object.h"
 #include "program.h"
 #include "string_builder.h"

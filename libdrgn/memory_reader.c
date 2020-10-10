@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "memory_reader.h"
-#include "util.h"
+#include "minmax.h"
 
 DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_memory_segment_tree,
 				    binary_search_tree_scalar_cmp, splay)

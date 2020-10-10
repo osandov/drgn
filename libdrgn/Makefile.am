@@ -39,6 +39,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 linux_kernel_helpers.c \
 			 memory_reader.c \
 			 memory_reader.h \
+			 minmax.h \
 			 mread.h \
 			 object.c \
 			 object.h \

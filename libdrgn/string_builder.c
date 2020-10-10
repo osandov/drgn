@@ -6,7 +6,6 @@
 
 #include "bitops.h"
 #include "string_builder.h"
-#include "util.h"
 
 bool string_builder_finalize(struct string_builder *sb, char **ret)
 {

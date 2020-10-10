@@ -10,6 +10,7 @@
 #include "error.h"
 #include "language.h"
 #include "memory_reader.h"
+#include "minmax.h"
 #include "object.h"
 #include "program.h"
 #include "serialize.h"

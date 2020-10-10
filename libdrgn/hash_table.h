@@ -26,6 +26,7 @@
 
 #include "bitops.h"
 #include "cityhash.h"
+#include "minmax.h"
 #include "util.h"
 
 /**
@@ -303,8 +304,8 @@ struct hash_table_iterator hash_table_next(struct hash_table_iterator it);
 #endif
 
 enum {
-	hash_table_chunk_alignment =
-		alignof(max_align_t) > 16 ? alignof(max_align_t) : 16,
+	hash_table_chunk_alignment = max_iconst(alignof(max_align_t),
+						(size_t)16),
 };
 
 static inline size_t hash_table_probe_delta(struct hash_pair hp)
