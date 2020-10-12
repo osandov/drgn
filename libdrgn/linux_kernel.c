@@ -1046,8 +1046,8 @@ get_kernel_module_name_from_this_module(Elf_Scn *this_module_scn,
 	return NULL;
 }
 
-DEFINE_HASH_MAP(elf_scn_name_map, const char *, Elf_Scn *, c_string_hash,
-		c_string_eq)
+DEFINE_HASH_MAP(elf_scn_name_map, const char *, Elf_Scn *,
+		c_string_key_hash_pair, c_string_key_eq)
 
 static struct drgn_error *
 cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
@@ -1163,7 +1163,8 @@ kernel_module_table_key(struct kernel_module_file * const *entry)
 }
 
 DEFINE_HASH_TABLE(kernel_module_table, struct kernel_module_file *,
-		  kernel_module_table_key, c_string_hash, c_string_eq)
+		  kernel_module_table_key, c_string_key_hash_pair,
+		  c_string_key_eq)
 
 static struct drgn_error *
 report_loaded_kernel_module(struct drgn_debug_info_load_state *load,

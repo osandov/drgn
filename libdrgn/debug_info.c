@@ -16,7 +16,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "cityhash.h"
 #include "debug_info.h"
 #include "error.h"
 #include "hash_table.h"
@@ -32,26 +31,27 @@
 DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)
 
 static inline struct hash_pair
-drgn_debug_info_module_hash(const struct drgn_debug_info_module_key *key)
+drgn_debug_info_module_key_hash_pair(const struct drgn_debug_info_module_key *key)
 {
-	size_t hash = cityhash_size_t(key->build_id, key->build_id_len);
+	size_t hash = hash_bytes(key->build_id, key->build_id_len);
 	hash = hash_combine(hash, key->start);
 	hash = hash_combine(hash, key->end);
 	return hash_pair_from_avalanching_hash(hash);
 }
 static inline bool
-drgn_debug_info_module_eq(const struct drgn_debug_info_module_key *a,
-			  const struct drgn_debug_info_module_key *b)
+drgn_debug_info_module_key_eq(const struct drgn_debug_info_module_key *a,
+			      const struct drgn_debug_info_module_key *b)
 {
 	return (a->build_id_len == b->build_id_len &&
 		memcmp(a->build_id, b->build_id, a->build_id_len) == 0 &&
 		a->start == b->start && a->end == b->end);
 }
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_debug_info_module_table,
-			    drgn_debug_info_module_hash,
-			    drgn_debug_info_module_eq)
+			    drgn_debug_info_module_key_hash_pair,
+			    drgn_debug_info_module_key_eq)
 
-DEFINE_HASH_TABLE_FUNCTIONS(c_string_set, c_string_hash, c_string_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(c_string_set, c_string_key_hash_pair,
+			    c_string_key_eq)
 
 /**
  * @c Dwfl_Callbacks::find_elf() implementation.
@@ -338,7 +338,7 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 			.start = start,
 			.end = end,
 		};
-		hp = drgn_debug_info_module_hash(&key);
+		hp = drgn_debug_info_module_table_hash(&key);
 		it = drgn_debug_info_module_table_search_hashed(&dbinfo->modules,
 								&key, hp);
 		if (it.entry &&
@@ -1019,8 +1019,8 @@ bool drgn_debug_info_is_indexed(struct drgn_debug_info *dbinfo,
 	return c_string_set_search(&dbinfo->module_names, &name).entry != NULL;
 }
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_type_map, hash_pair_ptr_type,
-			    hash_table_scalar_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_type_map, ptr_key_hash_pair,
+			    scalar_key_eq)
 
 struct drgn_type_from_dwarf_thunk {
 	struct drgn_type_thunk thunk;

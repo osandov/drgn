@@ -29,8 +29,7 @@
 #include "util.h"
 
 DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_map, hash_pair_int_type,
-			    hash_table_scalar_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_map, int_key_hash_pair, scalar_key_eq)
 
 static Elf_Type note_header_type(GElf_Phdr *phdr)
 {

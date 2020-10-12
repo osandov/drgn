@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "cityhash.h"
 #include "error.h"
 #include "hash_table.h"
 #include "language.h"
@@ -150,29 +149,29 @@ drgn_primitive_type_is_signed(enum drgn_primitive_type primitive)
 	}
 }
 
-static struct hash_pair drgn_member_hash_pair(const struct drgn_member_key *key)
+static struct hash_pair
+drgn_member_key_hash_pair(const struct drgn_member_key *key)
 {
 	size_t hash;
 	if (key->name)
-		hash = cityhash_size_t(key->name, key->name_len);
+		hash = hash_bytes(key->name, key->name_len);
 	else
 		hash = 0;
 	hash = hash_combine((uintptr_t)key->type, hash);
 	return hash_pair_from_avalanching_hash(hash);
 }
 
-static bool drgn_member_eq(const struct drgn_member_key *a,
-			   const struct drgn_member_key *b)
+static bool drgn_member_key_eq(const struct drgn_member_key *a,
+			       const struct drgn_member_key *b)
 {
 	return (a->type == b->type && a->name_len == b->name_len &&
 		(!a->name_len || memcmp(a->name, b->name, a->name_len) == 0));
 }
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_member_map, drgn_member_hash_pair,
-			    drgn_member_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_member_map, drgn_member_key_hash_pair,
+			    drgn_member_key_eq)
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_type_set, hash_pair_ptr_type,
-			    hash_table_scalar_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_type_set, ptr_key_hash_pair, scalar_key_eq)
 
 struct drgn_error *drgn_lazy_type_evaluate(struct drgn_lazy_type *lazy_type,
 					   struct drgn_qualified_type *ret)
@@ -230,7 +229,8 @@ drgn_parameter_type(struct drgn_type_parameter *parameter,
 	return drgn_lazy_type_evaluate(&parameter->type, ret);
 }
 
-static struct hash_pair drgn_type_dedupe_hash(struct drgn_type * const *entry)
+static struct hash_pair
+drgn_type_dedupe_hash_pair(struct drgn_type * const *entry)
 {
 	struct drgn_type *type = *entry;
 	size_t hash = hash_combine(drgn_type_kind(type),
@@ -242,17 +242,15 @@ static struct hash_pair drgn_type_dedupe_hash(struct drgn_type * const *entry)
 	 * the hash with the is_complete check below, so we don't need to hash
 	 * it explicitly.
 	 */
-	if (drgn_type_has_name(type)) {
-		const char *name = drgn_type_name(type);
-		hash = hash_combine(hash, cityhash_size_t(name, strlen(name)));
-	}
+	if (drgn_type_has_name(type))
+		hash = hash_combine(hash, hash_c_string(drgn_type_name(type)));
 	if (drgn_type_has_size(type))
 		hash = hash_combine(hash, drgn_type_size(type));
 	if (drgn_type_has_is_signed(type))
 		hash = hash_combine(hash, drgn_type_is_signed(type));
 	const char *tag;
 	if (drgn_type_has_tag(type) && (tag = drgn_type_tag(type)))
-		hash = hash_combine(hash, cityhash_size_t(tag, strlen(tag)));
+		hash = hash_combine(hash, hash_c_string(tag));
 	if (drgn_type_has_type(type)) {
 		struct drgn_qualified_type qualified_type =
 			drgn_type_type(type);
@@ -306,7 +304,7 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
  * function types, so the hash and comparison functions ignore members,
  * enumerators, parameters, and is_variadic.
  */
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash,
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
 			    drgn_type_dedupe_eq)
 
 DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector)
@@ -837,7 +835,7 @@ struct drgn_type_pair {
 };
 
 static struct hash_pair
-hash_pair_drgn_type_pair(const struct drgn_type_pair *pair)
+drgn_type_pair_hash_pair(const struct drgn_type_pair *pair)
 {
 	return hash_pair_from_avalanching_hash(hash_combine((uintptr_t)pair->a,
 							    (uintptr_t)pair->b));
@@ -850,7 +848,7 @@ static bool drgn_type_pair_eq(const struct drgn_type_pair *a,
 }
 
 DEFINE_HASH_SET(drgn_type_pair_set, struct drgn_type_pair,
-		hash_pair_drgn_type_pair, drgn_type_pair_eq)
+		drgn_type_pair_hash_pair, drgn_type_pair_eq)
 
 static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 					    struct drgn_type *b,

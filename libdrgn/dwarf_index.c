@@ -121,10 +121,11 @@ static inline const char *section_end(Elf_Data *data)
 	return (const char *)data->d_buf + data->d_size;
 }
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash, string_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash_pair,
+			    string_eq)
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_die_vector)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_specification_map,
-			    hash_pair_int_type, hash_table_scalar_eq)
+			    int_key_hash_pair, scalar_key_eq)
 
 static inline size_t hash_pair_to_shard(struct hash_pair hp)
 {

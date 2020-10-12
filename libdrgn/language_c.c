@@ -1686,7 +1686,7 @@ static const char *token_spelling[] = {
 	[C_TOKEN_ENUM] = "enum",
 };
 
-DEFINE_HASH_MAP(c_keyword_map, struct string, int, string_hash, string_eq);
+DEFINE_HASH_MAP(c_keyword_map, struct string, int, string_hash_pair, string_eq)
 
 static struct c_keyword_map c_keywords = HASH_TABLE_INIT;
 

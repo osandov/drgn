@@ -68,10 +68,7 @@
  */
 
 /**
- * Hash function output.
- *
- * F14 resolves collisions by double hashing. This type comprises the two
- * hashes.
+ * Double hash.
  *
  * @sa HashTableHelpers
  */
@@ -79,11 +76,14 @@ struct hash_pair {
 	/**
 	 * First hash.
 	 *
-	 * This is used for selecting the chunk.
+	 * F14 uses this to select the chunk.
 	 */
 	size_t first;
 	/**
 	 * Second hash.
+	 *
+	 * F14 uses this as the tag within the chunk and as the probe stride
+	 * when a chunk overflows.
 	 *
 	 * Only the 8 least-significant bits of this are used; the rest are zero
 	 * (the folly implementation insists that storing this as @c size_t
@@ -91,9 +91,6 @@ struct hash_pair {
 	 * from @ref hash_pair::first; see @ref
 	 * hash_pair_from_avalanching_hash() and @ref
 	 * hash_pair_from_non_avalanching_hash().
-	 *
-	 * This is used as a tag within the chunk, and for the probe stride when
-	 * a chunk overflows.
 	 */
 	size_t second;
 };
@@ -1062,8 +1059,8 @@ static void table##_clear(struct table *table)					\
 HASH_TABLE_SEARCH_IMPL(table, search_by_key, table##_key_type,			\
 		       table##_item_to_key, eq_func)				\
 HASH_TABLE_SEARCH_IMPL(table, search_by_index, uint32_t,			\
-		       HASH_TABLE_SEARCH_BY_INDEX_ITEM_TO_KEY,			\
-		       hash_table_scalar_eq)					\
+		       HASH_TABLE_SEARCH_BY_INDEX_ITEM_TO_KEY, scalar_key_eq)	\
+										\
 										\
 static struct table##_iterator							\
 table##_search_hashed(struct table *table, const table##_key_type *key,		\
@@ -1523,18 +1520,18 @@ DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
 /**
  * @defgroup HashTableHelpers Hash table helpers
  *
- * Hash functions and comparators for common key types.
+ * Hash functions and comparators for use with @ref HashTables.
  *
- * F14 requires that hash functions are avalanching, which means that each bit
- * of the hash value has a 50% chance of being the same for different inputs.
- * This is the case for cryptographic hash functions as well as certain
- * non-cryptographic hash functions like CityHash, MurmurHash, SipHash, xxHash,
- * etc.
+ * F14 resolves collisions by double hashing. Rather than using two independent
+ * hash functions, this provides two options for efficiently deriving a pair of
+ * hashes from a single input hash function depending on whether the hash
+ * function is _avalanching_. See @ref hash_pair_from_avalanching_hash() and
+ * @ref hash_pair_from_non_avalanching_hash().
  *
- * Simple hashes like DJBX33A, ad-hoc combinations like <tt>53 * x + y</tt>, and
- * the identity function are not avalanching.
- *
- * These hash functions are all avalanching.
+ * This provides:
+ * * Functions for double hashing common key types: `*_hash_pair()`.
+ * * Primitives for double hashing more complicated key types.
+ * * Equality functions for common key types: `*_eq()`.
  *
  * @{
  */
@@ -1542,8 +1539,16 @@ DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
 /**
  * Split an avalanching hash into a @ref hash_pair.
  *
- * We construct the second hash from the upper bits of the first hash, which we
- * would otherwise discard when masking to select the chunk.
+ * A hash function is avalanching if each bit of the hash value has a 50% chance
+ * of being the same for different inputs. This is true for cryptographic hash
+ * functions as well as certain non-cryptographic hash functions including
+ * CityHash, MurmurHash, SipHash, and xxHash. Simple hashes like DJBX33A, ad-hoc
+ * combinations like `53 * x + y`, and the identity function are not
+ * avalanching.
+ *
+ * We use the input hash value as the first hash and the upper bits of the input
+ * hash value as the second hash (which would otherwise be discarded when
+ * masking to select the bucket).
  */
 static inline struct hash_pair hash_pair_from_avalanching_hash(size_t hash)
 {
@@ -1553,7 +1558,11 @@ static inline struct hash_pair hash_pair_from_avalanching_hash(size_t hash)
 	};
 }
 
-/** Mix a non-avalanching hash and split it into a @ref hash_pair. */
+/**
+ * Mix a non-avalanching hash and split it into a @ref hash_pair.
+ *
+ * This is architecture-dependent.
+ */
 static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 {
 #if SIZE_MAX == 0xffffffffffffffff
@@ -1601,13 +1610,11 @@ static inline struct hash_pair hash_pair_from_non_avalanching_hash(size_t hash)
 
 #ifdef DOXYGEN
 /**
- * Hash an integral key.
+ * Double hash an integral key.
  *
- * A common hash function for integers is the identity function, which clearly
- * does not avalanche at all. This avalanching hash function can be used for any
- * integer key type.
+ * This can be used for any integer key type.
  */
-struct hash_pair hash_pair_int_type(const T *key);
+struct hash_pair int_key_hash_pair(const T *key);
 #else
 #if SIZE_MAX == 0xffffffffffffffff
 static inline uint64_t hash_128_to_64(unsigned __int128 hash)
@@ -1615,7 +1622,7 @@ static inline uint64_t hash_128_to_64(unsigned __int128 hash)
 	return cityhash_128_to_64(hash, hash >> 64);
 }
 
-#define hash_pair_int_type(key) ({				\
+#define int_key_hash_pair(key) ({				\
 	__auto_type _key = *(key);				\
 	sizeof(_key) > sizeof(size_t) ?				\
 	hash_pair_from_avalanching_hash(hash_128_to_64(_key)) :	\
@@ -1634,7 +1641,7 @@ static inline uint32_t hash_64_to_32(uint64_t hash)
 	return hash;
 }
 
-#define hash_pair_int_type(key) ({				\
+#define int_key_hash_pair(key) ({				\
 	__auto_type _key = *(key);				\
 	sizeof(_key) > sizeof(size_t) ?				\
 	hash_pair_from_avalanching_hash(hash_64_to_32(_key)) :	\
@@ -1645,16 +1652,16 @@ static inline uint32_t hash_64_to_32(uint64_t hash)
 
 #ifdef DOXYGEN
 /**
- * Hash a pointer type.
+ * Double hash a pointer key.
  *
- * This avalanching hash function can be used when the key is a pointer value
- * (rather than the dereferenced value).
+ * This can be used when the key is a pointer value (rather than the
+ * dereferenced value).
  */
-struct hash_pair hash_pair_ptr_type(T * const *key);
+struct hash_pair ptr_key_hash_pair(T * const *key);
 #else
-#define hash_pair_ptr_type(key) ({		\
-	uintptr_t _ptr = (uintptr_t)*key;	\
-	hash_pair_int_type(&_ptr);		\
+#define ptr_key_hash_pair(key) ({		\
+	uintptr_t _ptr = (uintptr_t)*(key);	\
+	int_key_hash_pair(&_ptr);		\
 })
 #endif
 
@@ -1665,19 +1672,24 @@ struct hash_pair hash_pair_ptr_type(T * const *key);
  * This can be used as the key comparison function for any scalar key type
  * (e.g., integers, floating-point numbers, pointers).
  */
-bool hash_table_scalar_eq(const T *a, const T *b);
+bool scalar_key_eq(const T *a, const T *b);
 #else
-#define hash_table_scalar_eq(a, b) ((bool)(*(a) == *(b)))
+#define scalar_key_eq(a, b) ((bool)(*(a) == *(b)))
 #endif
 
 /**
  * Combine two hash values into one.
  *
- * This is useful for compound types (e.g., a 3D point type or an array). The
- * input hash functions need not be avalanching; the output will be avalanching
- * regardless, so the following would be valid:
+ * This is useful for hashing records with multiple fields (e.g., a structure or
+ * an array). The input hash functions need not be avalanching; the output will
+ * be avalanching regardless, so the following would be valid:
  *
- * <tt>hash_pair_from_avalanching_hash(hash_combine(hash_combine(p->x, p->y), p->z))</tt>
+ * ```
+ * static struct hash_pair point3d_key_hash(const struct point3d *key)
+ * {
+ *         return hash_pair_from_avalanching_hash(hash_combine(hash_combine(p->x, p->y), p->z));
+ * }
+ * ```
  */
 static inline size_t hash_combine(size_t a, size_t b)
 {
@@ -1688,25 +1700,43 @@ static inline size_t hash_combine(size_t a, size_t b)
 #endif
 }
 
+/**
+ * Hash a byte buffer.
+ *
+ * This is an avalanching hash function.
+ */
+static inline size_t hash_bytes(const void *data, size_t len)
+{
+	return cityhash_size_t(data, len);
+}
+
+/**
+ * Hash a null-terminated string.
+ *
+ * This is an avalanching hash function.
+ */
+static inline size_t hash_c_string(const char *s)
+{
+	return hash_bytes(s, strlen(s));
+}
+
 #ifdef DOXYGEN
-/** Hash a null-terminated string. */
-struct hash_pair c_string_hash(const char * const *key);
+/** Double hash a null-terminated string key. */
+struct hash_pair c_string_key_hash_pair(const char * const *key);
 #else
-#define c_string_hash(key) ({					\
-	const char *_key = *(key);				\
-	size_t _hash = cityhash_size_t(_key, strlen(_key));	\
-	hash_pair_from_avalanching_hash(_hash);			\
-})
+/* This is a macro so that it works with char * and const char * keys. */
+#define c_string_key_hash_pair(key)	\
+	hash_pair_from_avalanching_hash(hash_c_string(*(key)))
 #endif
 
 #ifdef DOXYGEN
 /** Compare two null-terminated string keys for equality. */
-bool c_string_eq(const char * const *a, const char * const *b);
+bool c_string_key_eq(const char * const *a, const char * const *b);
 #else
-#define c_string_eq(a, b) ((bool)(strcmp(*(a), *(b)) == 0))
+#define c_string_key_eq(a, b) ((bool)(strcmp(*(a), *(b)) == 0))
 #endif
 
-/** A string with a given length. */
+/** A string with a stored length. */
 struct string {
 	/**
 	 * The string, which is not necessarily null-terminated and may have
@@ -1717,11 +1747,10 @@ struct string {
 	size_t len;
 };
 
-/** Hash a @ref string. */
-static inline struct hash_pair string_hash(const struct string *key)
+/** Double hash a @ref string. */
+static inline struct hash_pair string_hash_pair(const struct string *key)
 {
-	size_t hash = cityhash_size_t(key->str, key->len);
-	return hash_pair_from_avalanching_hash(hash);
+	return hash_pair_from_avalanching_hash(hash_bytes(key->str, key->len));
 }
 
 /** Compare two @ref string keys for equality. */
