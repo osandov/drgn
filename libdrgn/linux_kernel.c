@@ -1156,7 +1156,7 @@ report_loaded_kernel_module(struct drgn_debug_info_load_state *load,
 							   err);
 			if (err)
 				return err;
-			continue;
+			goto next;
 		}
 
 		err = drgn_debug_info_report_elf(load, kmod->path, kmod->fd,
@@ -1166,6 +1166,7 @@ report_loaded_kernel_module(struct drgn_debug_info_load_state *load,
 		kmod->fd = -1;
 		if (err)
 			return err;
+next:
 		kmod = kmod->next;
 	} while (kmod);
 	return NULL;
