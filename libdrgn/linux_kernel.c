@@ -396,12 +396,15 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 
 struct kernel_module_iterator {
 	char *name;
-	FILE *file;
+	/* /proc/modules file or NULL. */
+	FILE *modules_file;
 	union {
+		/* If using /proc/modules. */
 		struct {
 			size_t name_capacity;
 			uint64_t start, end;
 		};
+		/* If not using /proc/modules. */
 		struct {
 			struct drgn_qualified_type module_type;
 			struct drgn_object mod, node, tmp1, tmp2, tmp3;
@@ -412,8 +415,8 @@ struct kernel_module_iterator {
 
 static void kernel_module_iterator_deinit(struct kernel_module_iterator *it)
 {
-	if (it->file) {
-		fclose(it->file);
+	if (it->modules_file) {
+		fclose(it->modules_file);
 	} else {
 		drgn_object_deinit(&it->tmp3);
 		drgn_object_deinit(&it->tmp2);
@@ -432,14 +435,14 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 
 	it->name = NULL;
 	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-		it->file = fopen("/proc/modules", "r");
-		if (!it->file) {
+		it->modules_file = fopen("/proc/modules", "r");
+		if (!it->modules_file) {
 			return drgn_error_create_os("fopen", errno,
 						    "/proc/modules");
 		}
 		it->name_capacity = 0;
 	} else {
-		it->file = NULL;
+		it->modules_file = NULL;
 
 		err = drgn_program_find_type(prog, "struct module", NULL,
 					     &it->module_type);
@@ -478,12 +481,9 @@ err:
 static struct drgn_error *
 kernel_module_iterator_next_live(struct kernel_module_iterator *it)
 {
-	ssize_t ret;
-	char *p;
-	size_t size;
 
 	errno = 0;
-	ret = getline(&it->name, &it->name_capacity, it->file);
+	ssize_t ret = getline(&it->name, &it->name_capacity, it->modules_file);
 	if (ret == -1) {
 		if (errno) {
 			return drgn_error_create_os("getline", errno,
@@ -492,49 +492,15 @@ kernel_module_iterator_next_live(struct kernel_module_iterator *it)
 			return &drgn_stop;
 		}
 	}
-	p = strchr(it->name, ' ');
-	if (!p || sscanf(p + 1, "%zu %*s %*s %*s %" SCNx64, &size,
-			 &it->start) != 2) {
+	char *p = strchr(it->name, ' ');
+	size_t size;
+	if (!p ||
+	    sscanf(p + 1, "%zu %*s %*s %*s %" SCNx64, &size, &it->start) != 2) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "could not parse /proc/modules");
 	}
 	*p = '\0';
 	it->end = it->start + size;
-	return NULL;
-}
-
-static struct drgn_error *
-kernel_module_iterator_next_offline(struct kernel_module_iterator *it)
-{
-	struct drgn_error *err;
-	uint64_t addr;
-	char *name;
-
-	err = drgn_object_member_dereference(&it->node, &it->node, "next");
-	if (err)
-		return err;
-	err = drgn_object_read(&it->node, &it->node);
-	if (err)
-		return err;
-	err = drgn_object_read_unsigned(&it->node, &addr);
-	if (err)
-		return err;
-	if (addr == it->head)
-		return &drgn_stop;
-
-	err = drgn_object_container_of(&it->mod, &it->node, it->module_type,
-				       "list");
-	if (err)
-		return err;
-
-	err = drgn_object_member_dereference(&it->tmp1, &it->mod, "name");
-	if (err)
-		return err;
-	err = drgn_object_read_c_string(&it->tmp1, &name);
-	if (err)
-		return err;
-	free(it->name);
-	it->name = name;
 	return NULL;
 }
 
@@ -552,23 +518,49 @@ kernel_module_iterator_next_offline(struct kernel_module_iterator *it)
 static struct drgn_error *
 kernel_module_iterator_next(struct kernel_module_iterator *it)
 {
-	if (it->file)
+	if (it->modules_file)
 		return kernel_module_iterator_next_live(it);
-	else
-		return kernel_module_iterator_next_offline(it);
+
+	struct drgn_error *err;
+
+	err = drgn_object_member_dereference(&it->node, &it->node, "next");
+	if (err)
+		return err;
+	err = drgn_object_read(&it->node, &it->node);
+	if (err)
+		return err;
+	uint64_t addr;
+	err = drgn_object_read_unsigned(&it->node, &addr);
+	if (err)
+		return err;
+	if (addr == it->head)
+		return &drgn_stop;
+
+	err = drgn_object_container_of(&it->mod, &it->node, it->module_type,
+				       "list");
+	if (err)
+		return err;
+
+	err = drgn_object_member_dereference(&it->tmp1, &it->mod, "name");
+	if (err)
+		return err;
+	char *name;
+	err = drgn_object_read_c_string(&it->tmp1, &name);
+	if (err)
+		return err;
+	free(it->name);
+	it->name = name;
+	return NULL;
 }
 
 struct kernel_module_section_iterator {
 	struct kernel_module_iterator *kmod_it;
-	DIR *dir;
-	union {
-		int dirfd;
-		struct {
-			uint64_t i;
-			uint64_t nsections;
-			char *name;
-		};
-	};
+	/* /sys/module/$module/sections directory or NULL. */
+	DIR *sections_dir;
+	/* If not using /sys/module/$module/sections. */
+	uint64_t i;
+	uint64_t nsections;
+	char *name;
 };
 
 static struct drgn_error *
@@ -578,31 +570,21 @@ kernel_module_section_iterator_init(struct kernel_module_section_iterator *it,
 	struct drgn_error *err;
 
 	it->kmod_it = kmod_it;
-	if (kmod_it->file) {
+	if (kmod_it->modules_file) {
 		char *path;
-
 		if (asprintf(&path, "/sys/module/%s/sections",
 			     kmod_it->name) == -1)
 			return &drgn_enomem;
-		it->dir = opendir(path);
+		it->sections_dir = opendir(path);
 		free(path);
-		if (!it->dir) {
-			err = drgn_error_format_os("opendir", errno,
-						   "/sys/module/%s/sections",
-						   kmod_it->name);
-			return err;
-		}
-		it->dirfd = dirfd(it->dir);
-		if (it->dirfd == -1) {
-			err = drgn_error_format_os("dirfd", errno,
-						   "/sys/module/%s/sections",
-						   kmod_it->name);
-			closedir(it->dir);
-			return err;
+		if (!it->sections_dir) {
+			return drgn_error_format_os("opendir", errno,
+						    "/sys/module/%s/sections",
+						    kmod_it->name);
 		}
 		return NULL;
 	} else {
-		it->dir = NULL;
+		it->sections_dir = NULL;
 		it->i = 0;
 		it->name = NULL;
 		/* it->nsections = mod->sect_attrs->nsections */
@@ -629,8 +611,8 @@ kernel_module_section_iterator_init(struct kernel_module_section_iterator *it,
 static void
 kernel_module_section_iterator_deinit(struct kernel_module_section_iterator *it)
 {
-	if (it->dir)
-		closedir(it->dir);
+	if (it->sections_dir)
+		closedir(it->sections_dir);
 	else
 		free(it->name);
 }
@@ -641,18 +623,14 @@ kernel_module_section_iterator_next_live(struct kernel_module_section_iterator *
 					 uint64_t *address_ret)
 {
 	struct dirent *ent;
-
-	while ((errno = 0, ent = readdir(it->dir))) {
-		int fd;
-		FILE *file;
-		int ret;
-
+	while ((errno = 0, ent = readdir(it->sections_dir))) {
 		if (ent->d_type == DT_DIR)
 			continue;
 		if (ent->d_type == DT_UNKNOWN) {
 			struct stat st;
 
-			if (fstatat(it->dirfd, ent->d_name, &st, 0) == -1) {
+			if (fstatat(dirfd(it->sections_dir), ent->d_name, &st,
+				    0) == -1) {
 				return drgn_error_format_os("fstatat", errno,
 							    "/sys/module/%s/sections/%s",
 							    it->kmod_it->name,
@@ -662,19 +640,19 @@ kernel_module_section_iterator_next_live(struct kernel_module_section_iterator *
 				continue;
 		}
 
-		fd = openat(it->dirfd, ent->d_name, O_RDONLY);
+		int fd = openat(dirfd(it->sections_dir), ent->d_name, O_RDONLY);
 		if (fd == -1) {
 			return drgn_error_format_os("openat", errno,
 						    "/sys/module/%s/sections/%s",
 						    it->kmod_it->name,
 						    ent->d_name);
 		}
-		file = fdopen(fd, "r");
+		FILE *file = fdopen(fd, "r");
 		if (!file) {
 			close(fd);
 			return drgn_error_create_os("fdopen", errno, NULL);
 		}
-		ret = fscanf(file, "%" SCNx64, address_ret);
+		int ret = fscanf(file, "%" SCNx64, address_ret);
 		fclose(file);
 		if (ret != 1) {
 			return drgn_error_format(DRGN_ERROR_OTHER,
@@ -695,13 +673,17 @@ kernel_module_section_iterator_next_live(struct kernel_module_section_iterator *
 }
 
 static struct drgn_error *
-kernel_module_section_iterator_next_offline(struct kernel_module_section_iterator *it,
-					    const char **name_ret,
-					    uint64_t *address_ret)
+kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
+				    const char **name_ret,
+				    uint64_t *address_ret)
 {
+	if (it->sections_dir) {
+		return kernel_module_section_iterator_next_live(it, name_ret,
+								address_ret);
+	}
+
 	struct drgn_error *err;
 	struct kernel_module_iterator *kmod_it = it->kmod_it;
-	char *name;
 
 	if (it->i >= it->nsections)
 		return &drgn_stop;
@@ -717,26 +699,13 @@ kernel_module_section_iterator_next_offline(struct kernel_module_section_iterato
 	err = drgn_object_member(&kmod_it->tmp3, &kmod_it->tmp2, "name");
 	if (err)
 		return err;
+	char *name;
 	err = drgn_object_read_c_string(&kmod_it->tmp3, &name);
 	if (err)
 		return err;
 	free(it->name);
 	*name_ret = it->name = name;
 	return NULL;
-}
-
-static struct drgn_error *
-kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
-				    const char **name_ret,
-				    uint64_t *address_ret)
-{
-	if (it->dir) {
-		return kernel_module_section_iterator_next_live(it, name_ret,
-								address_ret);
-	} else {
-		return kernel_module_section_iterator_next_offline(it, name_ret,
-								   address_ret);
-	}
 }
 
 /*
