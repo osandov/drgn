@@ -696,6 +696,23 @@ kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
 	err = drgn_object_read_unsigned(&kmod_it->tmp3, address_ret);
 	if (err)
 		return err;
+	/*
+	 * Since Linux kernel commit ed66f991bb19 ("module: Refactor section
+	 * attr into bin attribute") (in v5.8), the section name is
+	 * module_sect_attr.battr.attr.name. Before that, it is simply
+	 * module_sect_attr.name.
+	 */
+	err = drgn_object_member(&kmod_it->tmp2, &kmod_it->tmp2, "battr");
+	if (!err) {
+		err = drgn_object_member(&kmod_it->tmp2, &kmod_it->tmp2,
+					 "attr");
+		if (err)
+			return err;
+	} else {
+		if (err->code != DRGN_ERROR_LOOKUP)
+			return err;
+		drgn_error_destroy(err);
+	}
 	err = drgn_object_member(&kmod_it->tmp3, &kmod_it->tmp2, "name");
 	if (err)
 		return err;
