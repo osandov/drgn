@@ -1219,12 +1219,13 @@ report_default_kernel_module(struct drgn_debug_info_load_state *load,
 	uint64_t start, end;
 	err = cache_kernel_module_sections(kmod_it, elf, &start, &end);
 	if (err) {
+		err = drgn_debug_info_report_error(load, path,
+						   "could not get section addresses",
+						   err);
 		elf_end(elf);
 		close(fd);
 		free(path);
-		return drgn_debug_info_report_error(load, path,
-						    "could not get section addresses",
-						    err);
+		return err;
 	}
 
 	err = drgn_debug_info_report_elf(load, path, fd, elf, start, end,
