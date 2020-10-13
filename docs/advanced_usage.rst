@@ -95,3 +95,9 @@ Some of drgn's behavior can be modified through environment variables:
 ``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
     is 0. This functionality will be removed in the future.
+
+``DRGN_USE_PROC_AND_SYS_MODULES``
+    Whether drgn should use ``/proc/modules`` and ``/sys/module`` to find
+    loaded kernel modules for the running kernel instead of getting them from
+    the core dump (0 or 1). The default is 1. This environment variable is
+    mainly intended for testing and may be ignored in the future.

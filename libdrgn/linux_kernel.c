@@ -429,12 +429,12 @@ static void kernel_module_iterator_deinit(struct kernel_module_iterator *it)
 
 static struct drgn_error *
 kernel_module_iterator_init(struct kernel_module_iterator *it,
-			    struct drgn_program *prog)
+			    struct drgn_program *prog, bool use_proc_and_sys)
 {
 	struct drgn_error *err;
 
 	it->name = NULL;
-	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+	if (use_proc_and_sys) {
 		it->modules_file = fopen("/proc/modules", "r");
 		if (!it->modules_file) {
 			return drgn_error_create_os("fopen", errno,
@@ -1236,13 +1236,14 @@ report_default_kernel_module(struct drgn_debug_info_load_state *load,
 static struct drgn_error *
 report_loaded_kernel_modules(struct drgn_debug_info_load_state *load,
 			     struct kernel_module_table *kmod_table,
-			     struct depmod_index *depmod)
+			     struct depmod_index *depmod,
+			     bool use_proc_and_sys)
 {
 	struct drgn_program *prog = load->dbinfo->prog;
 	struct drgn_error *err;
 
 	struct kernel_module_iterator kmod_it;
-	err = kernel_module_iterator_init(&kmod_it, prog);
+	err = kernel_module_iterator_init(&kmod_it, prog, use_proc_and_sys);
 	if (err) {
 kernel_module_iterator_error:
 		return drgn_debug_info_report_error(load, "kernel modules",
@@ -1313,14 +1314,24 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 		return NULL;
 
 	/*
-	 * If we're not debugging the running kernel, then we need to index
-	 * vmlinux now so that we can walk the list of modules in the kernel.
+	 * If we're debugging the running kernel, we can get the loaded kernel
+	 * modules from /proc and /sys instead of from the core dump. This fast
+	 * path can be disabled via an environment variable for testing.
+	 */
+	bool use_proc_and_sys = false;
+	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		char *env = getenv("DRGN_USE_PROC_AND_SYS_MODULES");
+		use_proc_and_sys = !env || atoi(env);
+	}
+	/*
+	 * If we're not using /proc and /sys, then we need to index vmlinux now
+	 * so that we can walk the list of modules in the kernel.
 	 *
 	 * If we need the definition of struct module to get the name of any
 	 * kernel modules, then we also need to index vmlinux now.
 	 */
 	if (vmlinux_is_pending &&
-	    (!(prog->flags & DRGN_PROGRAM_IS_LIVE) || need_module_definition)) {
+	    (!use_proc_and_sys || need_module_definition)) {
 		err = drgn_debug_info_report_flush(load);
 		if (err)
 			return err;
@@ -1393,7 +1404,8 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 
 	err = report_loaded_kernel_modules(load,
 					   num_kmods ? &kmod_table : NULL,
-					   load->load_default ? &depmod : NULL);
+					   load->load_default ? &depmod : NULL,
+					   use_proc_and_sys);
 	if (err)
 		goto out;
 
