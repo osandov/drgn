@@ -397,8 +397,6 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 struct kernel_module_iterator {
 	char *name;
 	FILE *file;
-	char *notes;
-	size_t notes_len, notes_capacity;
 	union {
 		struct {
 			size_t name_capacity;
@@ -423,7 +421,6 @@ static void kernel_module_iterator_deinit(struct kernel_module_iterator *it)
 		drgn_object_deinit(&it->node);
 		drgn_object_deinit(&it->mod);
 	}
-	free(it->notes);
 	free(it->name);
 }
 
@@ -434,8 +431,6 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 	struct drgn_error *err;
 
 	it->name = NULL;
-	it->notes = NULL;
-	it->notes_len = it->notes_capacity = 0;
 	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
 		it->file = fopen("/proc/modules", "r");
 		if (!it->file) {
