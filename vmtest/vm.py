@@ -3,7 +3,7 @@
 
 import errno
 import os
-import os.path
+from pathlib import Path
 import re
 import shlex
 import shutil
@@ -82,11 +82,11 @@ set -e
 """
 
 
-def install_vmlinux_precommand(command: str, vmlinux: str) -> str:
-    vmlinux = shlex.quote(os.path.abspath(vmlinux))
+def install_vmlinux_precommand(command: str, vmlinux: Path) -> str:
+    vmlinux_quoted = shlex.quote(str(vmlinux.resolve()))
     return fr""""$BUSYBOX" mkdir -m 755 -p /boot &&
 	release=$("$BUSYBOX" uname -r) &&
-	"$BUSYBOX" ln -sf {vmlinux} "/boot/vmlinux-$release" &&
+	"$BUSYBOX" ln -sf {vmlinux_quoted} "/boot/vmlinux-$release" &&
 	{command}"""
 
 
@@ -116,18 +116,16 @@ def _compile(
     subprocess.check_call(cmd)
 
 
-def _build_onoatimehack(dir: str) -> str:
-    os.makedirs(dir, exist_ok=True)
+def _build_onoatimehack(dir: Path) -> Path:
+    dir.mkdir(parents=True, exist_ok=True)
 
-    onoatimehack_so = os.path.join(dir, "onoatimehack.so")
-    onoatimehack_c = os.path.relpath(
-        os.path.join(os.path.dirname(__file__), "onoatimehack.c")
-    )
+    onoatimehack_so = dir / "onoatimehack.so"
+    onoatimehack_c = (Path(__file__).parent / "onoatimehack.c").relative_to(Path.cwd())
     if out_of_date(onoatimehack_so, onoatimehack_c):
         _compile(
             "-o",
-            onoatimehack_so,
-            onoatimehack_c,
+            str(onoatimehack_so),
+            str(onoatimehack_c),
             CPPFLAGS="-D_GNU_SOURCE",
             CFLAGS="-fPIC",
             LDFLAGS="-shared",
@@ -140,7 +138,7 @@ class LostVMError(Exception):
     pass
 
 
-def run_in_vm(command: str, *, vmlinuz: str, build_dir: str) -> int:
+def run_in_vm(command: str, *, vmlinuz: Path, build_dir: Path) -> int:
     match = re.search(
         "QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
         subprocess.check_output(
@@ -158,19 +156,20 @@ def run_in_vm(command: str, *, vmlinuz: str, build_dir: str) -> int:
     env = os.environ.copy()
     if qemu_version < (5, 0, 1):
         onoatimehack_so = _build_onoatimehack(build_dir)
-        env["LD_PRELOAD"] = f"{onoatimehack_so}:{env.get('LD_PRELOAD', '')}"
+        env["LD_PRELOAD"] = f"{str(onoatimehack_so)}:{env.get('LD_PRELOAD', '')}"
 
     with tempfile.TemporaryDirectory(prefix="drgn-vmtest-") as temp_dir, socket.socket(
         socket.AF_UNIX
     ) as server_sock:
-        socket_path = os.path.join(temp_dir, "socket")
-        server_sock.bind(socket_path)
+        temp_path = Path(temp_dir)
+        socket_path = temp_path / "socket"
+        server_sock.bind(str(socket_path))
         server_sock.listen()
 
         busybox = shutil.which("busybox")
         if busybox is None:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), "busybox")
-        init = os.path.abspath(os.path.join(temp_dir, "init"))
+        init = (temp_path / "init").resolve()
         with open(init, "w") as init_file:
             init_file.write(
                 _INIT_TEMPLATE.format(
@@ -199,7 +198,7 @@ def run_in_vm(command: str, *, vmlinuz: str, build_dir: str) -> int:
                 "-device",
                 "virtserialport,chardev=vmtest,name=com.osandov.vmtest.0",
 
-                "-kernel", vmlinuz,
+                "-kernel", str(vmlinuz),
                 "-append",
                 f"rootfstype=9p rootflags=trans=virtio,cache=loose ro console=0,115200 panic=-1 init={init}",
                 # fmt: on
@@ -270,7 +269,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     with KernelResolver(
-        [getattr(args, "kernel", "*")], download_dir=args.directory
+        [getattr(args, "kernel", "*")], download_dir=Path(args.directory)
     ) as resolver:
         kernel = next(iter(resolver))
         try:

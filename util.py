@@ -3,14 +3,16 @@
 
 from functools import total_ordering
 import os
+from pathlib import Path
 import re
+from typing import Union
 
 
 def nproc() -> int:
     return len(os.sched_getaffinity(0))
 
 
-def out_of_date(path: str, *deps: str) -> bool:
+def out_of_date(path: Union[str, Path], *deps: Union[str, Path]) -> bool:
     try:
         mtime = os.stat(path).st_mtime
     except FileNotFoundError:

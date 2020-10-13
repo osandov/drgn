@@ -191,11 +191,15 @@ class test(Command):
         return returncode == 0
 
     def run(self):
+        from pathlib import Path
+
         import vmtest.resolver
 
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
-        with vmtest.resolver.KernelResolver(self.kernels, self.vmtest_dir) as resolver:
+        with vmtest.resolver.KernelResolver(
+            self.kernels, Path(self.vmtest_dir)
+        ) as resolver:
             if self.kernels:
                 self.announce(
                     "downloading/preparing kernels in the background", log.INFO

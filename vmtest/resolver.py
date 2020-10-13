@@ -5,7 +5,7 @@ import fnmatch
 import glob
 import http.client
 import os
-import os.path
+from pathlib import Path
 import queue
 import re
 import shutil
@@ -24,14 +24,14 @@ _INDEX_URL = "https://www.dropbox.com/sh/2mcf2xvg319qdaw/AAC_AbpvQPRrHF-99B2REpX
 
 class ResolvedKernel(NamedTuple):
     release: str
-    vmlinux: str
-    vmlinuz: str
+    vmlinux: Path
+    vmlinuz: Path
 
 
 class KernelResolver:
-    def __init__(self, kernels: Sequence[str], download_dir: str) -> None:
+    def __init__(self, kernels: Sequence[str], download_dir: Path) -> None:
         self._kernels = kernels
-        self._arch_download_dir = os.path.join(download_dir, "x86_64")
+        self._arch_download_dir = download_dir / "x86_64"
         self._cached_index: Optional[Dict[str, str]] = None
         self._index_lock = threading.Lock()
         self._queue: queue.Queue[Union[ResolvedKernel, Exception, None]] = queue.Queue()
@@ -51,7 +51,7 @@ class KernelResolver:
         if self._thread:
             self._thread.join()
 
-    def _resolve_build(self, path: str) -> ResolvedKernel:
+    def _resolve_build(self, path: Path) -> ResolvedKernel:
         release = subprocess.check_output(
             ["make", "-s", "kernelrelease"], universal_newlines=True, cwd=path
         ).strip()
@@ -60,8 +60,8 @@ class KernelResolver:
         ).strip()
         return ResolvedKernel(
             release=release,
-            vmlinux=os.path.join(path, "vmlinux"),
-            vmlinuz=os.path.join(path, vmlinuz),
+            vmlinux=path / "vmlinux",
+            vmlinuz=path / vmlinuz,
         )
 
     @property
@@ -87,11 +87,11 @@ class KernelResolver:
             raise Exception(f"no kernel release matches {pattern!r}")
         return max(matches, key=KernelVersion)
 
-    def _download_file(self, name: str, *, compressed: bool = False) -> str:
-        path = os.path.join(self._arch_download_dir, name)
-        if not os.path.exists(path):
-            dir = os.path.dirname(path)
-            os.makedirs(dir, exist_ok=True)
+    def _download_file(self, name: str, *, compressed: bool = False) -> Path:
+        path = self._arch_download_dir / name
+        if not path.exists():
+            dir = path.parent
+            dir.mkdir(parents=True, exist_ok=True)
             with open(os.open(dir, os.O_WRONLY | os.O_TMPFILE), "wb") as f:
                 if compressed:
                     name += ".zst"
@@ -119,7 +119,7 @@ class KernelResolver:
                 try:
                     os.link(
                         f"/proc/self/fd/{f.fileno()}",
-                        os.path.basename(path),
+                        path.name,
                         dst_dir_fd=dir_fd,
                     )
                 finally:
@@ -139,7 +139,7 @@ class KernelResolver:
         try:
             for kernel in self._kernels:
                 if kernel.startswith(".") or kernel.startswith("/"):
-                    resolved = self._resolve_build(kernel)
+                    resolved = self._resolve_build(Path(kernel))
                 else:
                     resolved = self._download(kernel)
                 self._queue.put(resolved)
@@ -170,6 +170,6 @@ if __name__ == "__main__":
     parser.add_argument("kernels", metavar="KERNEL", nargs="*")
     args = parser.parse_args()
 
-    with KernelResolver(args.kernels, args.directory) as resolver:
+    with KernelResolver(args.kernels, Path(args.directory)) as resolver:
         for kernel in resolver:
             print(kernel)

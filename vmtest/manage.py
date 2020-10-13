@@ -9,7 +9,7 @@ import io
 import json
 import logging
 import os
-import os.path
+from pathlib import Path
 import re
 import shlex
 import shutil
@@ -38,8 +38,9 @@ from util import nproc
 logger = logging.getLogger("asyncio")
 
 
-KERNEL_ORG_JSON = "https://www.kernel.org/releases.json"
+KERNEL_CONFIG_PATH = Path(__file__).parent / "config"
 
+KERNEL_ORG_JSON = "https://www.kernel.org/releases.json"
 
 DROPBOX_API_URL = "https://api.dropboxapi.com"
 CONTENT_API_URL = "https://content.dropboxapi.com"
@@ -85,7 +86,7 @@ async def raise_for_status_body(resp: aiohttp.ClientResponse) -> None:
 
 
 def get_current_localversion() -> str:
-    with open(os.path.join(os.path.dirname(__file__), "config"), "r") as f:
+    with KERNEL_CONFIG_PATH.open("r") as f:
         match = re.search(r'^CONFIG_LOCALVERSION="([^"]*)"', f.read(), re.MULTILINE)
     return match.group(1) if match else ""
 
@@ -184,7 +185,7 @@ def getpwd() -> str:
 
 
 async def build_kernel(
-    commit: str, build_dir: str, log_file: TextIO
+    commit: str, build_dir: Path, log_file: TextIO
 ) -> Tuple[str, str]:
     """
     Returns built kernel release (i.e., `uname -r`) and image name (e.g.,
@@ -194,20 +195,17 @@ async def build_kernel(
         "git", "checkout", commit, stdout=log_file, stderr=asyncio.subprocess.STDOUT
     )
 
-    shutil.copy(
-        os.path.join(os.path.dirname(__file__), "config"),
-        os.path.join(build_dir, ".config"),
-    )
+    shutil.copy(KERNEL_CONFIG_PATH, build_dir / ".config")
 
     logger.info("building %s", commit)
     start = time.monotonic()
-    cflags = f"-fdebug-prefix-map={os.path.join(getpwd(), build_dir)}="
+    cflags = f"-fdebug-prefix-map={getpwd() / build_dir}="
     kbuild_args = [
         "KBUILD_BUILD_USER=drgn",
         "KBUILD_BUILD_HOST=drgn",
         "KAFLAGS=" + cflags,
         "KCFLAGS=" + cflags,
-        "O=" + build_dir,
+        "O=" + str(build_dir),
         "-j",
         str(nproc()),
     ]
@@ -222,11 +220,12 @@ async def build_kernel(
     elapsed = time.monotonic() - start
     logger.info("built %s in %s", commit, humanize_duration(elapsed))
 
-    vmlinux = os.path.join(build_dir, "vmlinux")
     release, image_name = (
         await asyncio.gather(
             post_process_vmlinux(
-                vmlinux, stdout=log_file, stderr=asyncio.subprocess.STDOUT
+                str(build_dir / "vmlinux"),
+                stdout=log_file,
+                stderr=asyncio.subprocess.STDOUT,
             ),
             check_output("make", *kbuild_args, "-s", "kernelrelease", stderr=log_file),
             check_output("make", *kbuild_args, "-s", "image_name", stderr=log_file),
@@ -235,7 +234,7 @@ async def build_kernel(
     return release.decode().strip(), image_name.decode().strip()
 
 
-async def try_build_kernel(commit: str) -> Optional[Tuple[str, str, str]]:
+async def try_build_kernel(commit: str) -> Optional[Tuple[Path, str, str]]:
     """
     Returns build directory, kernel release, and image name on success, None on
     error.
@@ -252,20 +251,20 @@ async def try_build_kernel(commit: str) -> Optional[Tuple[str, str, str]]:
         logger.error("unknown revision: %s", commit)
         return None
 
-    build_dir = "build-" + commit
+    build_dir = Path("build-" + commit)
     try:
-        log_path = os.path.join(build_dir, "build.log")
-        logger.info("preparing %r; logs in %r", build_dir, log_path)
-        os.mkdir(build_dir, 0o755)
-        with open(log_path, "w") as log_file:
+        log_path = build_dir / "build.log"
+        logger.info("preparing %r; logs in %r", str(build_dir), str(log_path))
+        build_dir.mkdir(0o755)
+        with log_path.open("w") as log_file:
             try:
                 release, image_name = await build_kernel(commit, build_dir, log_file)
                 return build_dir, release, image_name
             except Exception:
-                logger.exception("building %s failed; see %r", commit, log_path)
+                logger.exception("building %s failed; see %r", commit, repr(log_path))
                 return None
     except Exception:
-        logger.exception("preparing %r failed", build_dir)
+        logger.exception("preparing %r failed", str(build_dir))
         return None
 
 
@@ -564,7 +563,7 @@ async def main() -> None:
     args = parser.parse_args()
 
     if (args.build or args.build_kernel_org) and (
-        not os.path.exists(".git") or not os.path.exists("kernel")
+        not Path(".git").exists() or not Path("kernel").exists()
     ):
         sys.exit("-b/-k must be run from linux.git")
 
@@ -635,12 +634,12 @@ async def main() -> None:
             build_dir, release, image_name = result
             if args.upload:
                 uploader.queue_file(
-                    os.path.join(build_dir, "vmlinux.zst"),
+                    str(build_dir / "vmlinux.zst"),
                     f"/Public/x86_64/vmlinux-{release}.zst",
                     autorename=False,
                 )
                 uploader.queue_file(
-                    os.path.join(build_dir, image_name),
+                    str(build_dir / image_name),
                     f"/Public/x86_64/vmlinuz-{release}",
                     autorename=False,
                 )
