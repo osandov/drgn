@@ -1,12 +1,10 @@
 # Minimal Linux kernel configuration for booting into vmtest and running drgn
 # tests.
 
-CONFIG_LOCALVERSION="-vmtest1"
+CONFIG_LOCALVERSION="-vmtest2"
 
 CONFIG_SMP=y
-
-# No modules to simplify installing the kernel into the root filesystem image.
-CONFIG_MODULES=n
+CONFIG_MODULES=y
 
 # We run the tests in KVM.
 CONFIG_HYPERVISOR_GUEST=y
@@ -50,8 +48,8 @@ CONFIG_DEBUG_INFO_DWARF4=y
 CONFIG_KEXEC=y
 
 # For block tests.
-CONFIG_BLK_DEV_LOOP=y
+CONFIG_BLK_DEV_LOOP=m
 
 # For kconfig tests.
-CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG=m
 CONFIG_IKCONFIG_PROC=y

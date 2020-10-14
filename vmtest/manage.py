@@ -22,6 +22,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    Sequence,
     Set,
     SupportsFloat,
     SupportsRound,
@@ -119,7 +120,7 @@ async def get_available_kernel_releases(
         for entry in obj["entries"]:
             if entry[".tag"] != "file":
                 continue
-            match = re.fullmatch(r"vmlinux-(.*)\.zst", entry["name"])
+            match = re.fullmatch(r"kernel-(.*)\.tar\.zst", entry["name"])
             if match:
                 available.add(match.group(1))
         if not obj["has_more"]:
@@ -129,42 +130,32 @@ async def get_available_kernel_releases(
     return available
 
 
+class CalledProcessError(Exception):
+    def __init__(self, returncode: int, cmd: Sequence[str]) -> None:
+        self.returncode = returncode
+        self.cmd = cmd
+
+    def __str__(self) -> str:
+        command = " ".join(shlex.quote(arg) for arg in self.cmd)
+        raise Exception(
+            f"Command {command!r} returned non-zero exit status {self.returncode}"
+        )
+
+
 async def check_call(*args: Any, **kwds: Any) -> None:
     proc = await asyncio.create_subprocess_exec(*args, **kwds)
     returncode = await proc.wait()
     if returncode != 0:
-        command = " ".join(shlex.quote(arg) for arg in args)
-        raise Exception(
-            f"Command {command!r} returned non-zero exit status {returncode}"
-        )
+        raise CalledProcessError(returncode, args)
 
 
 async def check_output(*args: Any, **kwds: Any) -> bytes:
     kwds["stdout"] = asyncio.subprocess.PIPE
     proc = await asyncio.create_subprocess_exec(*args, **kwds)
     stdout = (await proc.communicate())[0]
-    if proc.returncode != 0:
-        command = " ".join(shlex.quote(arg) for arg in args)
-        raise Exception(
-            f"Command {command!r} returned non-zero exit status {proc.returncode}"
-        )
+    if proc.returncode:
+        raise CalledProcessError(proc.returncode, args)
     return stdout
-
-
-async def compress_file(in_path: str, out_path: str, **kwds: Any) -> None:
-    logger.info("compressing %r", in_path)
-    start = time.monotonic()
-    await check_call("zstd", "-T0", "-19", "-q", in_path, "-o", out_path, **kwds)
-    elapsed = time.monotonic() - start
-    logger.info("compressed %r in %s", in_path, humanize_duration(elapsed))
-
-
-async def post_process_vmlinux(vmlinux: str, **kwds: Any) -> None:
-    logger.info("removing relocations from %r", vmlinux)
-    await check_call(
-        "objcopy", "--remove-relocations=*", vmlinux, vmlinux + ".norel", **kwds
-    )
-    await compress_file(vmlinux + ".norel", vmlinux + ".zst")
 
 
 def getpwd() -> str:
@@ -186,7 +177,7 @@ def getpwd() -> str:
 
 async def build_kernel(
     commit: str, build_dir: Path, log_file: TextIO
-) -> Tuple[str, str]:
+) -> Tuple[str, Path]:
     """
     Returns built kernel release (i.e., `uname -r`) and image name (e.g.,
     `arch/x86/boot/bzImage`).
@@ -220,25 +211,87 @@ async def build_kernel(
     elapsed = time.monotonic() - start
     logger.info("built %s in %s", commit, humanize_duration(elapsed))
 
-    release, image_name = (
-        await asyncio.gather(
-            post_process_vmlinux(
-                str(build_dir / "vmlinux"),
+    logger.info("packaging %s", commit)
+    start = time.monotonic()
+
+    release = (
+        (
+            await check_output(
+                "make", *kbuild_args, "-s", "kernelrelease", stderr=log_file
+            )
+        )
+        .decode()
+        .strip()
+    )
+    image_name = (
+        (await check_output("make", *kbuild_args, "-s", "image_name", stderr=log_file))
+        .decode()
+        .strip()
+    )
+
+    modules_dir = build_dir / "install" / "lib" / "modules" / release
+
+    await check_call(
+        "make",
+        *kbuild_args,
+        "INSTALL_MOD_PATH=install",
+        "modules_install",
+        stdout=log_file,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    # Don't want these symlinks.
+    (modules_dir / "build").unlink()
+    (modules_dir / "source").unlink()
+
+    vmlinux = modules_dir / "vmlinux"
+    await check_call(
+        "objcopy",
+        "--remove-relocations=*",
+        str(build_dir / "vmlinux"),
+        str(vmlinux),
+        stdout=log_file,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    vmlinux.chmod(0o644)
+
+    vmlinuz = modules_dir / "vmlinuz"
+    shutil.copy(build_dir / image_name, vmlinuz)
+    vmlinuz.chmod(0o644)
+
+    tarball = build_dir / "kernel.tar.zst"
+    tar_command = ("tar", "-C", str(modules_dir), "-c", ".")
+    zstd_command = ("zstd", "-T0", "-19", "-q", "-", "-o", str(tarball))
+    pipe_r, pipe_w = os.pipe()
+    try:
+        tar_proc, zstd_proc = await asyncio.gather(
+            asyncio.create_subprocess_exec(
+                *tar_command, stdout=pipe_w, stderr=log_file
+            ),
+            asyncio.create_subprocess_exec(
+                *zstd_command,
+                stdin=pipe_r,
                 stdout=log_file,
                 stderr=asyncio.subprocess.STDOUT,
             ),
-            check_output("make", *kbuild_args, "-s", "kernelrelease", stderr=log_file),
-            check_output("make", *kbuild_args, "-s", "image_name", stderr=log_file),
         )
-    )[1:]
-    return release.decode().strip(), image_name.decode().strip()
+    finally:
+        os.close(pipe_r)
+        os.close(pipe_w)
+    tar_returncode, zstd_returncode = await asyncio.gather(
+        tar_proc.wait(), zstd_proc.wait()
+    )
+    if tar_returncode != 0:
+        raise CalledProcessError(tar_returncode, tar_command)
+    if zstd_returncode != 0:
+        raise CalledProcessError(zstd_returncode, zstd_command)
+    elapsed = time.monotonic() - start
+    logger.info("packaged %s in %s", commit, humanize_duration(elapsed))
+
+    return release, tarball
 
 
-async def try_build_kernel(commit: str) -> Optional[Tuple[Path, str, str]]:
-    """
-    Returns build directory, kernel release, and image name on success, None on
-    error.
-    """
+async def try_build_kernel(commit: str) -> Optional[Tuple[str, Path]]:
+    """Returns (kernel release, tarball path) on success, None on error."""
     proc = await asyncio.create_subprocess_exec(
         "git",
         "rev-parse",
@@ -258,8 +311,7 @@ async def try_build_kernel(commit: str) -> Optional[Tuple[Path, str, str]]:
         build_dir.mkdir(0o755)
         with log_path.open("w") as log_file:
             try:
-                release, image_name = await build_kernel(commit, build_dir, log_file)
-                return build_dir, release, image_name
+                return await build_kernel(commit, build_dir, log_file)
             except Exception:
                 logger.exception("building %s failed; see %r", commit, repr(log_path))
                 return None
@@ -631,16 +683,11 @@ async def main() -> None:
                 builds_failed.append(kernel)
                 continue
             builds_succeeded.append(kernel)
-            build_dir, release, image_name = result
+            release, tarball = result
             if args.upload:
                 uploader.queue_file(
-                    str(build_dir / "vmlinux.zst"),
-                    f"/Public/x86_64/vmlinux-{release}.zst",
-                    autorename=False,
-                )
-                uploader.queue_file(
-                    str(build_dir / image_name),
-                    f"/Public/x86_64/vmlinuz-{release}",
+                    str(tarball),
+                    f"/Public/x86_64/kernel-{release}.tar.zst",
                     autorename=False,
                 )
 

@@ -141,8 +141,7 @@ class test(Command):
             "extra-kernels=",
             "k",
             "additional kernels to run Linux kernel helper tests on in a virtual machine "
-            "(comma-separated list of kernel build directory path or "
-            "wildcard pattern matching uploaded kernel release strings)",
+            "(comma-separated list of wildcard patterns matching uploaded kernel releases)",
         ),
         (
             "vmtest-dir=",
@@ -173,16 +172,17 @@ class test(Command):
         test = unittest.main(module=None, argv=argv, exit=False)
         return test.result.wasSuccessful()
 
-    def _run_vm(self, *, vmlinux, vmlinuz, build_dir):
+    def _run_vm(self, kernel_dir):
+        from pathlib import Path
+
         import vmtest.vm
 
         command = fr"""cd {shlex.quote(os.getcwd())} &&
 	DRGN_RUN_LINUX_HELPER_TESTS=1 {shlex.quote(sys.executable)} -Bm \
 		unittest discover -t . -s tests/helpers/linux {"-v" if self.verbose else ""}"""
-        command = vmtest.vm.install_vmlinux_precommand(command, vmlinux)
         try:
             returncode = vmtest.vm.run_in_vm(
-                command, vmlinuz=vmlinuz, build_dir=build_dir
+                command, Path(kernel_dir), Path(self.vmtest_dir)
             )
         except vmtest.vm.LostVMError as e:
             self.announce(f"error: {e}", log.ERROR)
@@ -193,17 +193,13 @@ class test(Command):
     def run(self):
         from pathlib import Path
 
-        import vmtest.resolver
+        from vmtest.download import KernelDownloader
 
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
-        with vmtest.resolver.KernelResolver(
-            self.kernels, Path(self.vmtest_dir)
-        ) as resolver:
+        with KernelDownloader(self.kernels, Path(self.vmtest_dir)) as downloader:
             if self.kernels:
-                self.announce(
-                    "downloading/preparing kernels in the background", log.INFO
-                )
+                self.announce("downloading kernels in the background", log.INFO)
             self.run_command("egg_info")
             self.reinitialize_command("build_ext", inplace=1)
             self.run_command("build_ext")
@@ -219,18 +215,14 @@ class test(Command):
                 failed.append("local")
 
             if self.kernels:
-                for kernel in resolver:
+                for kernel in downloader:
                     self.announce(
-                        f"running tests in VM on Linux {kernel.release}", log.INFO
+                        f"running tests in VM on Linux {kernel.name}", log.INFO
                     )
-                    if self._run_vm(
-                        vmlinux=kernel.vmlinux,
-                        vmlinuz=kernel.vmlinuz,
-                        build_dir=self.vmtest_dir,
-                    ):
-                        passed.append(kernel.release)
+                    if self._run_vm(kernel):
+                        passed.append(kernel.name)
                     else:
-                        failed.append(kernel.release)
+                        failed.append(kernel.name)
 
                 if passed:
                     self.announce(f'Passed: {", ".join(passed)}', log.INFO)

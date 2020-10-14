@@ -21,20 +21,25 @@ _INIT_TEMPLATE = r"""#!{busybox} sh
 set -eu
 
 export BUSYBOX={busybox}
+
+trap '"$BUSYBOX" poweroff -f' EXIT
+
+umask 022
+
 HOSTNAME=vmtest
 VPORT_NAME=com.osandov.vmtest.0
+RELEASE=$("$BUSYBOX" uname -r)
+
 # Set up overlayfs on the temporary directory containing this script.
-mnt=$(dirname "$0")
-
-trap '$BUSYBOX poweroff -f' EXIT
-
+mnt=$("$BUSYBOX" dirname "$0")
 "$BUSYBOX" mount -t tmpfs tmpfs "$mnt"
-"$BUSYBOX" mkdir -m 755 "$mnt/upper" "$mnt/work" "$mnt/merged"
+"$BUSYBOX" mkdir "$mnt/upper" "$mnt/work" "$mnt/merged"
 
-"$BUSYBOX" mkdir -m 755 "$mnt/upper/dev" "$mnt/upper/etc" "$mnt/upper/mnt"
+"$BUSYBOX" mkdir "$mnt/upper/dev" "$mnt/upper/etc" "$mnt/upper/mnt"
 "$BUSYBOX" mkdir -m 555 "$mnt/upper/proc" "$mnt/upper/sys"
 "$BUSYBOX" mkdir -m 1777 "$mnt/upper/tmp"
 
+# Create configuration files.
 "$BUSYBOX" cat << EOF > "$mnt/upper/etc/hosts"
 127.0.0.1 localhost
 ::1 localhost
@@ -47,6 +52,7 @@ EOF
 cd /
 "$BUSYBOX" umount -l /mnt
 
+# Mount additional filesystems.
 "$BUSYBOX" mount -t devtmpfs -o nosuid,noexec dev /dev
 "$BUSYBOX" mount -t proc -o nosuid,nodev,noexec proc /proc
 "$BUSYBOX" mount -t sysfs -o nosuid,nodev,noexec sys /sys
@@ -56,9 +62,32 @@ cd /
 # which breaks some tests.
 "$BUSYBOX" mount -t tmpfs -o nosuid,nodev tmpfs /tmp
 
+# Load kernel modules.
+"$BUSYBOX" mkdir -p "/lib/modules/$RELEASE"
+"$BUSYBOX" mount -t 9p -o trans=virtio,cache=loose,ro modules "/lib/modules/$RELEASE"
+"$BUSYBOX" modprobe configs
+
+# Create static device nodes.
+"$BUSYBOX" grep -v '^#' "/lib/modules/$RELEASE/modules.devname" |
+while read -r module name node; do
+	name="/dev/$name"
+	dev=${{node#?}}
+	major=${{dev%%:*}}
+	minor=${{dev##*:}}
+	type=${{node%"${{dev}}"}}
+	"$BUSYBOX" mkdir -p "$("$BUSYBOX" dirname "$name")"
+	"$BUSYBOX" mknod "$name" "$type" "$major" "$minor"
+done
+"$BUSYBOX" ln -s /proc/self/fd /dev/fd
+"$BUSYBOX" ln -s /proc/self/fd/0 /dev/stdin
+"$BUSYBOX" ln -s /proc/self/fd/1 /dev/stdout
+"$BUSYBOX" ln -s /proc/self/fd/2 /dev/stderr
+
+# Configure networking.
 "$BUSYBOX" hostname "$HOSTNAME"
 "$BUSYBOX" ip link set lo up
 
+# Find virtio port.
 vport=
 for vport_dir in /sys/class/virtio-ports/*; do
 	if "$BUSYBOX" [ -r "$vport_dir/name" \
@@ -80,14 +109,6 @@ set -e
 "$BUSYBOX" echo "Exited with status $rc"
 "$BUSYBOX" echo "$rc" > "/dev/$vport"
 """
-
-
-def install_vmlinux_precommand(command: str, vmlinux: Path) -> str:
-    vmlinux_quoted = shlex.quote(str(vmlinux.resolve()))
-    return fr""""$BUSYBOX" mkdir -m 755 -p /boot &&
-	release=$("$BUSYBOX" uname -r) &&
-	"$BUSYBOX" ln -sf {vmlinux_quoted} "/boot/vmlinux-$release" &&
-	{command}"""
 
 
 def _compile(
@@ -138,7 +159,7 @@ class LostVMError(Exception):
     pass
 
 
-def run_in_vm(command: str, *, vmlinuz: Path, build_dir: Path) -> int:
+def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
     match = re.search(
         "QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
         subprocess.check_output(
@@ -193,12 +214,15 @@ def run_in_vm(command: str, *, vmlinuz: Path, build_dir: Path) -> int:
                 "-virtfs",
                 f"local,id=root,path=/,mount_tag=/dev/root,security_model=none,readonly{multidevs}",
 
+                "-virtfs",
+                f"local,path={kernel_dir},mount_tag=modules,security_model=none,readonly",
+
                 "-device", "virtio-serial",
                 "-chardev", f"socket,id=vmtest,path={socket_path}",
                 "-device",
                 "virtserialport,chardev=vmtest,name=com.osandov.vmtest.0",
 
-                "-kernel", str(vmlinuz),
+                "-kernel", str(kernel_dir / "vmlinuz"),
                 "-append",
                 f"rootfstype=9p rootflags=trans=virtio,cache=loose ro console=0,115200 panic=-1 init={init}",
                 # fmt: on
@@ -235,8 +259,6 @@ if __name__ == "__main__":
     import argparse
     import sys
 
-    from vmtest.resolver import KernelResolver
-
     parser = argparse.ArgumentParser(
         description="run vmtest virtual machine",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -268,18 +290,20 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    with KernelResolver(
-        [getattr(args, "kernel", "*")], download_dir=Path(args.directory)
-    ) as resolver:
-        kernel = next(iter(resolver))
-        try:
-            command = " ".join(args.command) if args.command else '"$BUSYBOX" sh -i'
-            command = install_vmlinux_precommand(command, kernel.vmlinux)
-            sys.exit(
-                run_in_vm(
-                    command=command, vmlinuz=kernel.vmlinuz, build_dir=args.directory
-                )
-            )
-        except LostVMError as e:
-            print("error:", e, file=sys.stderr)
-            sys.exit(args.lost_status)
+    kernel = getattr(args, "kernel", "*")
+    if kernel.startswith(".") or kernel.startswith("/"):
+        kernel_dir = Path(kernel)
+    else:
+        from vmtest.download import KernelDownloader
+
+        with KernelDownloader(
+            [getattr(args, "kernel", "*")], download_dir=Path(args.directory)
+        ) as downloader:
+            kernel_dir = next(iter(downloader))
+
+    try:
+        command = " ".join(args.command) if args.command else '"$BUSYBOX" sh -i'
+        sys.exit(run_in_vm(command, kernel_dir, Path(args.directory)))
+    except LostVMError as e:
+        print("error:", e, file=sys.stderr)
+        sys.exit(args.lost_status)

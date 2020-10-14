@@ -42,7 +42,7 @@ class LinuxHelperTestCase(unittest.TestCase):
                 prog = drgn.Program()
                 prog.set_kernel()
                 try:
-                    prog.load_debug_info(main=True)
+                    prog.load_default_debug_info()
                     LinuxHelperTestCase.prog = prog
                     return
                 except drgn.MissingDebugInfoError as e:
