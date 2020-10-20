@@ -70,8 +70,8 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	struct drgn_error *err;
 	kdump_ctx_t *ctx;
 	kdump_status ks;
-	const char *vmcoreinfo;
 	struct drgn_platform platform;
+	char *vmcoreinfo = NULL;
 
 	ctx = kdump_new();
 	if (!ctx) {
@@ -135,6 +135,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	return NULL;
 
 err:
+	free(vmcoreinfo);
 	kdump_free(ctx);
 	return err;
 }
