@@ -66,7 +66,7 @@ Development
 
 For development, drgn can be built and run locally::
 
-    $ CFLAGS="-Wall -Werror -g -O2" python3 setup.py egg_info build_ext -i
+    $ CFLAGS="-Wall -Werror -g -O2" python3 setup.py build_ext -i
     $ python3 -m drgn --help
 
 libkdumpfile

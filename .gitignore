@@ -8,5 +8,6 @@
 /dist
 /docs/_build
 /drgn.egg-info
+/drgn/internal/version.py
 /htmlcov
 __pycache__

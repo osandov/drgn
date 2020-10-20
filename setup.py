@@ -18,7 +18,6 @@ import shlex
 import subprocess
 import sys
 
-import pkg_resources
 from setuptools import Command, find_packages, setup
 from setuptools.command.build_ext import build_ext as _build_ext
 from setuptools.command.egg_info import egg_info as _egg_info
@@ -236,49 +235,73 @@ class test(Command):
 
 
 def get_version():
-    if not os.path.exists(".git"):
-        # If this is a source distribution, get the version from the egg
-        # metadata.
-        return pkg_resources.get_distribution("drgn").version
-
-    with open("libdrgn/configure.ac", "r") as f:
-        version = re.search(r"AC_INIT\(\[drgn\], \[([^]]*)\]", f.read()).group(1)
-
-    # Read the Docs modifies the working tree (namely, docs/conf.py). We don't
-    # want the documentation to display a dirty version, so ignore
-    # modifications for RTD builds.
-    dirty = os.getenv("READTHEDOCS") != "True" and bool(
-        subprocess.check_output(
-            ["git", "status", "-uno", "--porcelain"],
-            # Use the environment variable instead of --no-optional-locks to
-            # support Git < 2.14.
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
-        )
-    )
-
     try:
-        count = int(
+        with open("drgn/internal/version.py", "r") as f:
+            version_py = f.read()
+    except FileNotFoundError:
+        version_py = None
+
+    # The public version always comes from configure.ac.
+    with open("libdrgn/configure.ac", "r") as f:
+        public_version = re.search(r"AC_INIT\(\[drgn\], \[([^]]*)\]", f.read()).group(1)
+    # Default local version if we fail.
+    local_version = "+unknown"
+
+    # If this is a git repository, use a git-describe(1)-esque local version.
+    # Otherwise, get the local version saved in the sdist.
+    if os.path.exists(".git"):
+        # Read the Docs modifies the working tree (namely, docs/conf.py). We
+        # don't want the documentation to display a dirty version, so ignore
+        # modifications for RTD builds.
+        dirty = os.getenv("READTHEDOCS") != "True" and bool(
             subprocess.check_output(
-                ["git", "rev-list", "--count", f"v{version}.."],
-                stderr=subprocess.DEVNULL,
-                universal_newlines=True,
+                ["git", "status", "-uno", "--porcelain"],
+                # Use the environment variable instead of --no-optional-locks
+                # to support Git < 2.14.
+                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
             )
         )
-    except subprocess.CalledProcessError:
-        log.warn("warning: v%s tag not found", version)
-        count = 0
 
-    if count == 0:
-        if dirty:
-            version += "+dirty"
-        return version
+        try:
+            count = int(
+                subprocess.check_output(
+                    ["git", "rev-list", "--count", f"v{public_version}.."],
+                    stderr=subprocess.DEVNULL,
+                    universal_newlines=True,
+                )
+            )
+        except subprocess.CalledProcessError:
+            log.warn("warning: v%s tag not found", public_version)
+        else:
+            if count == 0:
+                local_version = "+dirty" if dirty else ""
+            else:
+                commit = subprocess.check_output(
+                    ["git", "rev-parse", "--short", "HEAD"], universal_newlines=True
+                ).strip()
+                local_version = f"+{count}.g{commit}"
+                if dirty:
+                    local_version += ".dirty"
+    else:
+        if version_py is None:
+            # This isn't a proper sdist (maybe a git archive).
+            log.warn("warning: drgn/internal/version.py not found")
+        else:
+            # The saved version must start with the public version.
+            match = re.search(
+                fr'^version = "{re.escape(public_version)}([^"]*)"$', version_py, re.M
+            )
+            if match:
+                local_version = match.group(1)
+            else:
+                log.warn("warning: drgn/internal/version.py is invalid")
 
-    commit = subprocess.check_output(
-        ["git", "rev-parse", "--short", "HEAD"], universal_newlines=True
-    ).strip()
-    version += f"+{count}.g{commit}"
-    if dirty:
-        version += ".dirty"
+    version = public_version + local_version
+    # Update version.py if necessary.
+    new_version_py = f'version = "{version}"\n'
+    if new_version_py != version_py:
+        with open("drgn/internal/version.py", "w") as f:
+            f.write(new_version_py)
     return version
 
 

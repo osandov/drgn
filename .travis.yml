@@ -25,6 +25,8 @@ install:
   - sudo udevadm trigger -w /dev/kvm
   - pip install black isort mypy
 script:
+  # Generate version.py.
+  - python setup.py --version
   - black --check --diff .
   - isort --check --diff .
   - mypy --strict --no-warn-return-any drgn _drgn.pyi
