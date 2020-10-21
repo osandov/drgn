@@ -1,3 +1,8 @@
+[build-system]
+requires = []
+backend-path = ["."]
+build-backend = "build"
+
 [tool.isort]
 profile = "black"
 known_first_party = ["drgn", "_drgn", "drgndoc", "vmtest"]
