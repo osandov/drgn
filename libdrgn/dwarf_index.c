@@ -361,7 +361,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		} else if (name == DW_AT_name && should_index) {
 			switch (form) {
 			case DW_FORM_strp:
-				if (!cu->module->debug_str) {
+				if (!cu->module->scns[DRGN_SCN_DEBUG_STR]) {
 					return drgn_error_create(DRGN_ERROR_OTHER,
 								 "DW_FORM_strp without .debug_str section");
 				}
@@ -376,7 +376,8 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 			default:
 				break;
 			}
-		} else if (name == DW_AT_stmt_list && cu->module->debug_line) {
+		} else if (name == DW_AT_stmt_list &&
+			   cu->module->scns[DRGN_SCN_DEBUG_LINE]) {
 			switch (form) {
 			case DW_FORM_data4:
 				insn = ATTRIB_STMT_LIST_LINEPTR4;
@@ -564,7 +565,7 @@ append_insn:
 static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu,
 					    size_t debug_abbrev_offset)
 {
-	Elf_Data *debug_abbrev = cu->module->debug_abbrev;
+	Elf_Data *debug_abbrev = cu->module->scns[DRGN_SCN_DEBUG_ABBREV];
 	const char *ptr = section_ptr(debug_abbrev, debug_abbrev_offset);
 	if (!ptr)
 		return drgn_eof();
@@ -692,7 +693,7 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	static const uint64_t siphash_key[2];
 	struct drgn_error *err;
 
-	Elf_Data *debug_line = cu->module->debug_line;
+	Elf_Data *debug_line = cu->module->scns[DRGN_SCN_DEBUG_LINE];
 	const char *ptr = section_ptr(debug_line, stmt_list);
 	if (!ptr)
 		return drgn_eof();
@@ -808,7 +809,7 @@ static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
 					      struct drgn_dwarf_index_cu *cu)
 {
 	struct drgn_error *err;
-	Elf_Data *debug_info = cu->module->debug_info;
+	Elf_Data *debug_info = cu->module->scns[DRGN_SCN_DEBUG_INFO];
 	const char *debug_info_buffer = section_ptr(debug_info, 0);
 	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
 	const char *end = cu->end;
@@ -1013,8 +1014,9 @@ void drgn_dwarf_index_read_module(struct drgn_dwarf_index_update_state *state,
 				  struct drgn_debug_info_module *module)
 {
 	const bool bswap = module->bswap;
-	const char *ptr = section_ptr(module->debug_info, 0);
-	const char *end = section_end(module->debug_info);
+	Elf_Data *debug_info = module->scns[DRGN_SCN_DEBUG_INFO];
+	const char *ptr = section_ptr(debug_info, 0);
+	const char *end = section_end(debug_info);
 	while (ptr < end) {
 		const char *cu_ptr = ptr;
 		uint32_t tmp;
@@ -1192,9 +1194,9 @@ index_cu_second_pass(struct drgn_dwarf_index_namespace *ns,
 		     struct drgn_dwarf_index_cu *cu, const char *ptr)
 {
 	struct drgn_error *err;
-	Elf_Data *debug_info = cu->module->debug_info;
+	Elf_Data *debug_info = cu->module->scns[DRGN_SCN_DEBUG_INFO];
 	const char *debug_info_buffer = section_ptr(debug_info, 0);
-	Elf_Data *debug_str = cu->module->debug_str;
+	Elf_Data *debug_str = cu->module->scns[DRGN_SCN_DEBUG_STR];
 	const char *end = cu->end;
 	unsigned int depth = 0;
 	uint8_t depth1_tag = 0;
@@ -1546,7 +1548,8 @@ static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 				&ns->pending_dies.data[i];
 			struct drgn_dwarf_index_cu *cu =
 				&ns->dindex->cus.data[pending->cu];
-			const char *ptr = section_ptr(cu->module->debug_info,
+			Elf_Data *debug_info = cu->module->scns[DRGN_SCN_DEBUG_INFO];
+			const char *ptr = section_ptr(debug_info,
 						      pending->offset);
 			struct drgn_error *cu_err =
 				index_cu_second_pass(ns, cu, ptr);

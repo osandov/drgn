@@ -44,6 +44,14 @@ enum drgn_debug_info_module_state {
 	DRGN_DEBUG_INFO_MODULE_INDEXED,
 } __attribute__((packed));
 
+enum drgn_debug_info_scn {
+	DRGN_SCN_DEBUG_INFO,
+	DRGN_SCN_DEBUG_ABBREV,
+	DRGN_SCN_DEBUG_STR,
+	DRGN_SCN_DEBUG_LINE,
+	DRGN_NUM_DEBUG_SCNS,
+};
+
 /**
  * A module reported to a @ref drgn_debug_info.
  *
@@ -64,10 +72,7 @@ struct drgn_debug_info_module {
 	char *name;
 
 	Dwfl_Module *dwfl_module;
-	Elf_Data *debug_info;
-	Elf_Data *debug_abbrev;
-	Elf_Data *debug_str;
-	Elf_Data *debug_line;
+	Elf_Data *scns[DRGN_NUM_DEBUG_SCNS];
 
 	/*
 	 * path, elf, and fd are used when an ELF file was reported with

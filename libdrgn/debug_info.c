@@ -56,6 +56,13 @@ static const char *dwarf_tag_str(Dwarf_Die *die, char buf[DW_TAG_BUF_LEN])
 	return dw_tag_str(dwarf_tag(die), buf);
 }
 
+static const char * const drgn_debug_scn_names[] = {
+	[DRGN_SCN_DEBUG_INFO] = ".debug_info",
+	[DRGN_SCN_DEBUG_ABBREV] = ".debug_abbrev",
+	[DRGN_SCN_DEBUG_STR] = ".debug_str",
+	[DRGN_SCN_DEBUG_LINE] = ".debug_line",
+};
+
 DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)
 
 static inline struct hash_pair
@@ -427,6 +434,7 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 		module->name = NULL;
 	}
 	module->dwfl_module = dwfl_module;
+	memset(module->scns, 0, sizeof(module->scns));
 	module->path = path_key;
 	module->fd = fd;
 	module->elf = elf;
@@ -819,10 +827,6 @@ drgn_get_debug_sections(struct drgn_debug_info_module *module)
 	if (elf_getshdrstrndx(elf, &shstrndx))
 		return drgn_error_libelf();
 
-	module->debug_info = NULL;
-	module->debug_abbrev = NULL;
-	module->debug_str = NULL;
-	module->debug_line = NULL;
 	Elf_Scn *scn = NULL;
 	while ((scn = elf_nextscn(elf, scn))) {
 		GElf_Shdr shdr_mem;
@@ -837,33 +841,29 @@ drgn_get_debug_sections(struct drgn_debug_info_module *module)
 		if (!scnname)
 			continue;
 
-		Elf_Data **sectionp;
-		if (!module->debug_info && strcmp(scnname, ".debug_info") == 0)
-			sectionp = &module->debug_info;
-		else if (!module->debug_abbrev && strcmp(scnname, ".debug_abbrev") == 0)
-			sectionp = &module->debug_abbrev;
-		else if (!module->debug_str && strcmp(scnname, ".debug_str") == 0)
-			sectionp = &module->debug_str;
-		else if (!module->debug_line && strcmp(scnname, ".debug_line") == 0)
-			sectionp = &module->debug_line;
-		else
-			continue;
-		err = read_elf_section(scn, sectionp);
-		if (err)
-			return err;
+		for (size_t i = 0; i < DRGN_NUM_DEBUG_SCNS; i++) {
+			if (!module->scns[i] &&
+			    strcmp(scnname, drgn_debug_scn_names[i]) == 0) {
+				err = read_elf_section(scn, &module->scns[i]);
+				if (err)
+					return err;
+				break;
+			}
+		}
 	}
 
 	/*
 	 * Truncate any extraneous bytes so that we can assume that a pointer
 	 * within .debug_str is always null-terminated.
 	 */
-	if (module->debug_str) {
-		const char *buf = module->debug_str->d_buf;
-		const char *nul = memrchr(buf, '\0', module->debug_str->d_size);
+	Elf_Data *debug_str = module->scns[DRGN_SCN_DEBUG_STR];
+	if (debug_str) {
+		const char *buf = debug_str->d_buf;
+		const char *nul = memrchr(buf, '\0', debug_str->d_size);
 		if (nul)
-			module->debug_str->d_size = nul - buf + 1;
+			debug_str->d_size = nul - buf + 1;
 		else
-			module->debug_str->d_size = 0;
+			debug_str->d_size = 0;
 
 	}
 	return NULL;
@@ -882,7 +882,8 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 			module->err = err;
 			continue;
 		}
-		if (module->debug_info && module->debug_abbrev) {
+		if (module->scns[DRGN_SCN_DEBUG_INFO] &&
+		    module->scns[DRGN_SCN_DEBUG_ABBREV]) {
 			module->state = DRGN_DEBUG_INFO_MODULE_INDEXING;
 			drgn_dwarf_index_read_module(dindex_state, module);
 			return NULL;
