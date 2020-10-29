@@ -8,11 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "binary_buffer.h"
 #include "debug_info.h"
 #include "drgn.h"
 #include "dwarf_index.h"
 #include "error.h"
-#include "mread.h"
 #include "path.h"
 #include "siphash.h"
 #include "util.h"
@@ -75,12 +75,11 @@ DEFINE_VECTOR(uint64_vector, uint64_t)
 
 struct drgn_dwarf_index_cu {
 	struct drgn_debug_info_module *module;
-	const char *ptr;
-	const char *end;
+	const char *buf;
+	size_t len;
 	uint8_t version;
 	uint8_t address_size;
 	bool is_64_bit;
-	bool bswap;
 	/*
 	 * This is indexed on the DWARF abbreviation code minus one. It maps the
 	 * abbreviation code to an index in abbrev_insns where the instruction
@@ -97,6 +96,31 @@ struct drgn_dwarf_index_cu {
 	size_t num_file_names;
 };
 
+struct drgn_dwarf_index_cu_buffer {
+	struct binary_buffer bb;
+	struct drgn_dwarf_index_cu *cu;
+};
+
+static struct drgn_error *
+drgn_dwarf_index_cu_buffer_error(struct binary_buffer *bb, const char *pos,
+				 const char *message)
+{
+	struct drgn_dwarf_index_cu_buffer *buffer =
+		container_of(bb, struct drgn_dwarf_index_cu_buffer, bb);
+	return drgn_error_debug_info(buffer->cu->module, DRGN_SCN_DEBUG_INFO,
+				     pos, message);
+}
+
+static void
+drgn_dwarf_index_cu_buffer_init(struct drgn_dwarf_index_cu_buffer *buffer,
+				struct drgn_dwarf_index_cu *cu)
+{
+	binary_buffer_init(&buffer->bb, cu->buf, cu->len,
+			   cu->module->little_endian,
+			   drgn_dwarf_index_cu_buffer_error);
+	buffer->cu = cu;
+}
+
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_cu_vector)
 
 /* DIE which needs to be indexed. */
@@ -108,18 +132,6 @@ struct drgn_dwarf_index_pending_die {
 };
 
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_die_vector)
-
-static inline const char *section_ptr(Elf_Data *data, size_t offset)
-{
-	if (offset > data->d_size)
-		return NULL;
-	return (const char *)data->d_buf + offset;
-}
-
-static inline const char *section_end(Elf_Data *data)
-{
-	return (const char *)data->d_buf + data->d_size;
-}
 
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash_pair,
 			    string_eq)
@@ -136,57 +148,6 @@ static inline size_t hash_pair_to_shard(struct hash_pair hp)
 	return ((hp.first >>
 		 (8 * sizeof(size_t) - 8 - DRGN_DWARF_INDEX_SHARD_BITS)) &
 		(((size_t)1 << DRGN_DWARF_INDEX_SHARD_BITS) - 1));
-}
-
-static inline struct drgn_error *drgn_eof(void)
-{
-	return drgn_error_create(DRGN_ERROR_OTHER,
-				 "debug information is truncated");
-}
-
-static inline bool mread_skip_leb128(const char **ptr, const char *end)
-{
-	while (*ptr < end) {
-		if (!(*(const uint8_t *)(*ptr)++ & 0x80))
-			return true;
-	}
-	return false;
-}
-
-static inline struct drgn_error *mread_uleb128(const char **ptr,
-					       const char *end, uint64_t *value)
-{
-	int shift = 0;
-	*value = 0;
-	while (*ptr < end) {
-		uint8_t byte = *(const uint8_t *)*ptr;
-		(*ptr)++;
-		if (shift == 63 && byte > 1) {
-			return drgn_error_create(DRGN_ERROR_OVERFLOW,
-						 "ULEB128 overflowed unsigned 64-bit integer");
-		}
-		*value |= (uint64_t)(byte & 0x7f) << shift;
-		shift += 7;
-		if (!(byte & 0x80))
-			return NULL;
-	}
-	return drgn_eof();
-}
-
-static inline struct drgn_error *mread_uleb128_into_size_t(const char **ptr,
-							   const char *end,
-							   size_t *value)
-{
-	struct drgn_error *err;
-	uint64_t tmp;
-
-	if ((err = mread_uleb128(ptr, end, &tmp)))
-		return err;
-
-	if (tmp > SIZE_MAX)
-		return drgn_eof();
-	*value = tmp;
-	return NULL;
 }
 
 static void
@@ -267,10 +228,10 @@ void drgn_dwarf_index_update_cancel(struct drgn_dwarf_index_update_state *state,
 		state->err = err;
 }
 
-static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
-					   struct drgn_dwarf_index_cu *cu,
-					   struct uint32_vector *decls,
-					   struct uint8_vector *insns)
+static struct drgn_error *
+read_abbrev_decl(struct drgn_debug_info_buffer *buffer,
+		 struct drgn_dwarf_index_cu *cu, struct uint32_vector *decls,
+		 struct uint8_vector *insns)
 {
 	struct drgn_error *err;
 
@@ -278,13 +239,13 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		      "maximum DWARF attribute instruction is invalid");
 
 	uint64_t code;
-	if ((err = mread_uleb128(ptr, end, &code)))
+	if ((err = binary_buffer_next_uleb128(&buffer->bb, &code)))
 		return err;
 	if (code == 0)
 		return &drgn_stop;
 	if (code != decls->size + 1) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "DWARF abbreviation table is not sequential");
+		return binary_buffer_error(&buffer->bb,
+					   "DWARF abbrevation table is not sequential");
 	}
 
 	uint32_t insn_index = insns->size;
@@ -292,7 +253,7 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		return &drgn_enomem;
 
 	uint64_t tag;
-	if ((err = mread_uleb128(ptr, end, &tag)))
+	if ((err = binary_buffer_next_uleb128(&buffer->bb, &tag)))
 		return err;
 
 	bool should_index;
@@ -322,8 +283,8 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	uint8_t die_flags = should_index ? tag : 0;
 
 	uint8_t children;
-	if (!mread_u8(ptr, end, &children))
-		return drgn_eof();
+	if ((err = binary_buffer_next_u8(&buffer->bb, &children)))
+		return err;
 	if (children)
 		die_flags |= DIE_FLAG_CHILDREN;
 
@@ -331,9 +292,9 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 	uint8_t insn;
 	for (;;) {
 		uint64_t name, form;
-		if ((err = mread_uleb128(ptr, end, &name)))
+		if ((err = binary_buffer_next_uleb128(&buffer->bb, &name)))
 			return err;
-		if ((err = mread_uleb128(ptr, end, &form)))
+		if ((err = binary_buffer_next_uleb128(&buffer->bb, &form)))
 			return err;
 		if (name == 0 && form == 0)
 			break;
@@ -362,8 +323,8 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 			switch (form) {
 			case DW_FORM_strp:
 				if (!cu->module->scns[DRGN_SCN_DEBUG_STR]) {
-					return drgn_error_create(DRGN_ERROR_OTHER,
-								 "DW_FORM_strp without .debug_str section");
+					return binary_buffer_error(&buffer->bb,
+								   "DW_FORM_strp without .debug_str section");
 				}
 				if (cu->is_64_bit)
 					insn = ATTRIB_NAME_STRP8;
@@ -436,9 +397,9 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 				die_flags |= DIE_FLAG_DECLARATION;
 				break;
 			default:
-				return drgn_error_format(DRGN_ERROR_OTHER,
-							 "unknown attribute form %" PRIu64 " for DW_AT_declaration",
-							 form);
+				return binary_buffer_error(&buffer->bb,
+							   "unknown attribute form %" PRIu64 " for DW_AT_declaration",
+							   form);
 			}
 		} else if (name == DW_AT_specification && should_index) {
 			switch (form) {
@@ -469,15 +430,15 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 					else if (cu->address_size == 4)
 						insn = ATTRIB_SPECIFICATION_REF_ADDR4;
 					else
-						return drgn_error_format(DRGN_ERROR_OTHER,
-									 "unsupported address size %" PRIu8,
-									 cu->address_size);
+						return binary_buffer_error(&buffer->bb,
+									   "unsupported address size %" PRIu8 " for DW_FORM_ref_addr",
+									   cu->address_size);
 				}
 				goto append_insn;
 			default:
-				return drgn_error_format(DRGN_ERROR_OTHER,
-							 "unknown attribute form %" PRIu64 " for DW_AT_specification",
-							 form);
+				return binary_buffer_error(&buffer->bb,
+							   "unknown attribute form %" PRIu64 " for DW_AT_specification",
+							   form);
 			}
 		}
 
@@ -531,12 +492,12 @@ static struct drgn_error *read_abbrev_decl(const char **ptr, const char *end,
 		case DW_FORM_flag_present:
 			continue;
 		case DW_FORM_indirect:
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "DW_FORM_indirect is not implemented");
+			return binary_buffer_error(&buffer->bb,
+						   "DW_FORM_indirect is not implemented");
 		default:
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "unknown attribute form %" PRIu64,
-						 form);
+			return binary_buffer_error(&buffer->bb,
+						   "unknown attribute form %" PRIu64,
+						   form);
 		}
 
 		if (!first) {
@@ -565,15 +526,14 @@ append_insn:
 static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu,
 					    size_t debug_abbrev_offset)
 {
-	Elf_Data *debug_abbrev = cu->module->scns[DRGN_SCN_DEBUG_ABBREV];
-	const char *ptr = section_ptr(debug_abbrev, debug_abbrev_offset);
-	if (!ptr)
-		return drgn_eof();
-	const char *end = section_end(debug_abbrev);
+	struct drgn_debug_info_buffer buffer;
+	drgn_debug_info_buffer_init(&buffer, cu->module, DRGN_SCN_DEBUG_ABBREV);
+	/* Checked in read_cu(). */
+	buffer.bb.pos += debug_abbrev_offset;
 	struct uint32_vector decls = VECTOR_INIT;
 	struct uint8_vector insns = VECTOR_INIT;
 	for (;;) {
-		struct drgn_error *err = read_abbrev_decl(&ptr, end, cu, &decls,
+		struct drgn_error *err = read_abbrev_decl(&buffer, cu, &decls,
 							  &insns);
 		if (err && err->code == DRGN_ERROR_STOP) {
 			break;
@@ -589,54 +549,61 @@ static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu,
 	return NULL;
 }
 
-static struct drgn_error *read_cu(struct drgn_dwarf_index_cu *cu)
+static struct drgn_error *read_cu(struct drgn_dwarf_index_cu_buffer *buffer)
 {
-
-	const char *ptr = &cu->ptr[cu->is_64_bit ? 12 : 4];
+	struct drgn_error *err;
+	buffer->bb.pos += buffer->cu->is_64_bit ? 12 : 4;
 	uint16_t version;
-	if (!mread_u16(&ptr, cu->end, cu->bswap, &version))
-		return drgn_eof();
+	if ((err = binary_buffer_next_u16(&buffer->bb, &version)))
+		return err;
 	if (version < 2 || version > 4) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unknown DWARF CU version %" PRIu16,
-					 version);
+		return binary_buffer_error(&buffer->bb,
+					   "unknown DWARF CU version %" PRIu16,
+					   version);
 	}
-	cu->version = version;
+	buffer->cu->version = version;
 
-	size_t debug_abbrev_offset;
-	if (cu->is_64_bit) {
-		if (!mread_u64_into_size_t(&ptr, cu->end, cu->bswap,
-					   &debug_abbrev_offset))
-			return drgn_eof();
+	uint64_t debug_abbrev_offset;
+	if (buffer->cu->is_64_bit) {
+		if ((err = binary_buffer_next_u64(&buffer->bb,
+						  &debug_abbrev_offset)))
+			return err;
 	} else {
-		if (!mread_u32_into_size_t(&ptr, cu->end, cu->bswap,
-					   &debug_abbrev_offset))
-			return drgn_eof();
+		if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+							   &debug_abbrev_offset)))
+			return err;
+	}
+	if (debug_abbrev_offset >
+	    buffer->cu->module->scns[DRGN_SCN_DEBUG_ABBREV]->d_size) {
+		return binary_buffer_error(&buffer->bb,
+					   "debug_abbrev_offset is out of bounds");
 	}
 
-	if (!mread_u8(&ptr, cu->end, &cu->address_size))
-		return drgn_eof();
+	if ((err = binary_buffer_next_u8(&buffer->bb,
+					 &buffer->cu->address_size)))
+		return err;
 
-	return read_abbrev_table(cu, debug_abbrev_offset);
+	return read_abbrev_table(buffer->cu, debug_abbrev_offset);
 }
 
-static struct drgn_error *skip_lnp_header(struct drgn_dwarf_index_cu *cu,
-					  const char **ptr, const char *end)
+static struct drgn_error *skip_lnp_header(struct drgn_debug_info_buffer *buffer)
 {
+	struct drgn_error *err;
 	uint32_t tmp;
-	if (!mread_u32(ptr, end, cu->bswap, &tmp))
-		return drgn_eof();
+	if ((err = binary_buffer_next_u32(&buffer->bb, &tmp)))
+		return err;
 	bool is_64_bit = tmp == UINT32_C(0xffffffff);
-	if (is_64_bit && !mread_skip(ptr, end, sizeof(uint64_t)))
-		return drgn_eof();
+	if (is_64_bit &&
+	    (err = binary_buffer_skip(&buffer->bb, sizeof(uint64_t))))
+		return err;
 
 	uint16_t version;
-	if (!mread_u16(ptr, end, cu->bswap, &version))
-		return drgn_eof();
-	if (version != 2 && version != 3 && version != 4) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unknown DWARF LNP version %" PRIu16,
-					 version);
+	if ((err = binary_buffer_next_u16(&buffer->bb, &version)))
+		return err;
+	if (version < 2 || version > 4) {
+		return binary_buffer_error(&buffer->bb,
+					   "unknown DWARF LNP version %" PRIu16,
+					   version);
 	}
 
 	/*
@@ -650,10 +617,11 @@ static struct drgn_error *skip_lnp_header(struct drgn_dwarf_index_cu *cu,
 	 * standard_opcode_lengths
 	 */
 	uint8_t opcode_base;
-	if (!mread_skip(ptr, end, (is_64_bit ? 8 : 4) + 4 + (version >= 4)) ||
-	    !mread_u8(ptr, end, &opcode_base) ||
-	    !mread_skip(ptr, end, opcode_base - 1))
-		return drgn_eof();
+	if ((err = binary_buffer_skip(&buffer->bb,
+				      (is_64_bit ? 8 : 4) + 4 + (version >= 4))) ||
+	    (err = binary_buffer_next_u8(&buffer->bb, &opcode_base)) ||
+	    (err = binary_buffer_skip(&buffer->bb, opcode_base - 1)))
+		return err;
 
 	return NULL;
 }
@@ -693,24 +661,21 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	static const uint64_t siphash_key[2];
 	struct drgn_error *err;
 
-	Elf_Data *debug_line = cu->module->scns[DRGN_SCN_DEBUG_LINE];
-	const char *ptr = section_ptr(debug_line, stmt_list);
-	if (!ptr)
-		return drgn_eof();
-	const char *end = section_end(debug_line);
+	struct drgn_debug_info_buffer buffer;
+	drgn_debug_info_buffer_init(&buffer, cu->module, DRGN_SCN_DEBUG_LINE);
+	/* Checked in index_cu_first_pass(). */
+	buffer.bb.pos += stmt_list;
 
-	err = skip_lnp_header(cu, &ptr, end);
-	if (err)
+	if ((err = skip_lnp_header(&buffer)))
 		return err;
 
 	struct siphash_vector directories = VECTOR_INIT;
 	for (;;) {
 		const char *path;
 		size_t path_len;
-		if (!mread_string(&ptr, end, &path, &path_len)) {
-			err = drgn_eof();
+		if ((err = binary_buffer_next_string(&buffer.bb, &path,
+						     &path_len)))
 			goto out_directories;
-		}
 		if (!path_len)
 			break;
 
@@ -728,29 +693,27 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	for (;;) {
 		const char *path;
 		size_t path_len;
-		if (!mread_string(&ptr, end, &path, &path_len)) {
-			err = drgn_eof();
+		if ((err = binary_buffer_next_string(&buffer.bb, &path,
+						     &path_len)))
 			goto out_hashes;
-		}
 		if (!path_len)
 			break;
 
 		uint64_t directory_index;
-		if ((err = mread_uleb128(&ptr, end, &directory_index)))
+		if ((err = binary_buffer_next_uleb128(&buffer.bb,
+						      &directory_index)))
 			goto out_hashes;
-		/* mtime, size */
-		if (!mread_skip_leb128(&ptr, end) ||
-		    !mread_skip_leb128(&ptr, end)) {
-			err = drgn_eof();
+		if (directory_index > directories.size) {
+			err = binary_buffer_error(&buffer.bb,
+						  "directory index %" PRIu64 " is invalid",
+						  directory_index);
 			goto out_hashes;
 		}
 
-		if (directory_index > directories.size) {
-			err = drgn_error_format(DRGN_ERROR_OTHER,
-						"directory index %" PRIu64 " is invalid",
-						directory_index);
+		/* mtime, size */
+		if ((err = binary_buffer_skip_leb128(&buffer.bb)) ||
+		    (err = binary_buffer_skip_leb128(&buffer.bb)))
 			goto out_hashes;
-		}
 
 		struct siphash hash;
 		if (directory_index)
@@ -805,20 +768,20 @@ index_specification(struct drgn_dwarf_index *dindex, uintptr_t declaration,
  * First pass: read the file name tables and index DIEs with
  * DW_AT_specification. This recurses into namespaces.
  */
-static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
-					      struct drgn_dwarf_index_cu *cu)
+static struct drgn_error *
+index_cu_first_pass(struct drgn_dwarf_index *dindex,
+		    struct drgn_dwarf_index_cu_buffer *buffer)
 {
 	struct drgn_error *err;
+	struct drgn_dwarf_index_cu *cu = buffer->cu;
 	Elf_Data *debug_info = cu->module->scns[DRGN_SCN_DEBUG_INFO];
-	const char *debug_info_buffer = section_ptr(debug_info, 0);
-	const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
-	const char *end = cu->end;
+	const char *debug_info_buffer = debug_info->d_buf;
 	unsigned int depth = 0;
 	for (;;) {
-		size_t die_offset = ptr - debug_info_buffer;
+		size_t die_offset = buffer->bb.pos - debug_info_buffer;
 
 		uint64_t code;
-		if ((err = mread_uleb128(&ptr, end, &code)))
+		if ((err = binary_buffer_next_uleb128(&buffer->bb, &code)))
 			return err;
 		if (code == 0) {
 			if (depth-- > 1)
@@ -826,86 +789,98 @@ static struct drgn_error *index_cu_first_pass(struct drgn_dwarf_index *dindex,
 			else
 				break;
 		} else if (code > cu->num_abbrev_decls) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "unknown abbreviation code %" PRIu64,
-						 code);
+			return binary_buffer_error(&buffer->bb,
+						   "unknown abbreviation code %" PRIu64,
+						   code);
 		}
 
 		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
 		bool declaration = false;
 		uintptr_t specification = 0;
-		size_t stmt_list = SIZE_MAX;
+		const char *stmt_list_ptr = NULL;
+		uint64_t stmt_list;
 		const char *sibling = NULL;
 		uint8_t insn;
 		while ((insn = *insnp++)) {
-			size_t skip, tmp;
+			uint64_t skip, tmp;
 			switch (insn) {
 			case ATTRIB_BLOCK1:
-				if (!mread_u8_into_size_t(&ptr, end, &skip))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &skip)))
+					return err;
 				goto skip;
 			case ATTRIB_BLOCK2:
-				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
-							   &skip))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &skip)))
+					return err;
 				goto skip;
 			case ATTRIB_BLOCK4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &skip))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &skip)))
+					return err;
 				goto skip;
 			case ATTRIB_EXPRLOC:
-				if ((err = mread_uleb128_into_size_t(&ptr, end,
-								     &skip)))
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &skip)))
 					return err;
 				goto skip;
 			case ATTRIB_LEB128:
 			case ATTRIB_DECL_FILE_UDATA:
-				if (!mread_skip_leb128(&ptr, end))
-					return drgn_eof();
+				if ((err = binary_buffer_skip_leb128(&buffer->bb)))
+					return err;
 				break;
 			case ATTRIB_STRING:
 			case ATTRIB_NAME_STRING:
-				if (!mread_skip_string(&ptr, end))
-					return drgn_eof();
+				if ((err = binary_buffer_skip_string(&buffer->bb)))
+					return err;
 				break;
 			case ATTRIB_SIBLING_REF1:
-				if (!mread_u8_into_size_t(&ptr, end, &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF2:
-				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF8:
-				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF_UDATA:
-				if ((err = mread_uleb128_into_size_t(&ptr, end,
-								     &tmp)))
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &tmp)))
 					return err;
 sibling:
-				if (!(sibling = mread_begin(cu->ptr, end, tmp)))
-					return drgn_eof();
+				if (tmp > cu->len) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_sibling is out of bounds");
+				}
+				sibling = cu->buf + tmp;
 				__builtin_prefetch(sibling);
+				if (sibling < buffer->bb.pos) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_sibling points backwards");
+				}
 				break;
 			case ATTRIB_STMT_LIST_LINEPTR4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &stmt_list))
-					return drgn_eof();
+				stmt_list_ptr = buffer->bb.pos;
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &stmt_list)))
+					return err;
 				break;
 			case ATTRIB_STMT_LIST_LINEPTR8:
-				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-							   &stmt_list))
-					return drgn_eof();
+				stmt_list_ptr = buffer->bb.pos;
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &stmt_list)))
+					return err;
 				break;
 			case ATTRIB_DECL_FILE_DATA1:
 				skip = 1;
@@ -923,64 +898,75 @@ sibling:
 				goto skip;
 			case ATTRIB_DECLARATION_FLAG: {
 				uint8_t flag;
-				if (!mread_u8(&ptr, end, &flag))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u8(&buffer->bb,
+								 &flag)))
+					return err;
 				if (flag)
 					declaration = true;
 				break;
 			}
 			case ATTRIB_SPECIFICATION_REF1:
-				if (!mread_u8_into_size_t(&ptr, end, &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &tmp)))
+					return err;
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF2:
-				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF8:
-				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
 				goto specification;
 			case ATTRIB_SPECIFICATION_REF_UDATA:
-				if ((err = mread_uleb128_into_size_t(&ptr, end,
-								     &tmp)))
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &tmp)))
 					return err;
 specification:
-				specification = (uintptr_t)cu->ptr + tmp;
+				specification = (uintptr_t)cu->buf + tmp;
 				break;
 			case ATTRIB_SPECIFICATION_REF_ADDR4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto specification_ref_addr;
 			case ATTRIB_SPECIFICATION_REF_ADDR8:
-				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
 specification_ref_addr:
 				specification = (uintptr_t)debug_info_buffer + tmp;
 				break;
 			default:
 				skip = insn;
 skip:
-				if (!mread_skip(&ptr, end, skip))
-					return drgn_eof();
+				if ((err = binary_buffer_skip(&buffer->bb,
+							      skip)))
+					return err;
 				break;
 			}
 		}
 		insn = *insnp;
 
 		if (depth == 0) {
-			if (stmt_list != SIZE_MAX &&
-			    (err = read_file_name_table(dindex, cu, stmt_list)))
-				return err;
+			if (stmt_list_ptr) {
+				if (stmt_list >
+				    cu->module->scns[DRGN_SCN_DEBUG_LINE]->d_size) {
+					return binary_buffer_error_at(&buffer->bb,
+								      stmt_list_ptr,
+								      "DW_AT_stmt_list is out of bounds");
+				}
+				if ((err = read_file_name_table(dindex, cu,
+								stmt_list)))
+					return err;
+			}
 		} else if (specification) {
 			if (insn & DIE_FLAG_DECLARATION)
 				declaration = true;
@@ -1000,7 +986,7 @@ skip:
 		if (insn & DIE_FLAG_CHILDREN) {
 			if (sibling &&
 			    (insn & DIE_FLAG_TAG_MASK) != DW_TAG_namespace)
-				ptr = sibling;
+				buffer->bb.pos = sibling;
 			else
 				depth++;
 		} else if (depth == 0) {
@@ -1013,41 +999,50 @@ skip:
 void drgn_dwarf_index_read_module(struct drgn_dwarf_index_update_state *state,
 				  struct drgn_debug_info_module *module)
 {
-	const bool bswap = module->bswap;
-	Elf_Data *debug_info = module->scns[DRGN_SCN_DEBUG_INFO];
-	const char *ptr = section_ptr(debug_info, 0);
-	const char *end = section_end(debug_info);
-	while (ptr < end) {
-		const char *cu_ptr = ptr;
-		uint32_t tmp;
-		if (!mread_u32(&ptr, end, bswap, &tmp))
+	struct drgn_error *err;
+	struct drgn_debug_info_buffer buffer;
+	drgn_debug_info_buffer_init(&buffer, module, DRGN_SCN_DEBUG_INFO);
+	while (binary_buffer_has_next(&buffer.bb)) {
+		const char *cu_buf = buffer.bb.pos;
+		uint32_t unit_length32;
+		if ((err = binary_buffer_next_u32(&buffer.bb, &unit_length32)))
 			goto err;
-		bool is_64_bit = tmp == UINT32_C(0xffffffff);
-		size_t unit_length;
+		bool is_64_bit = unit_length32 == UINT32_C(0xffffffff);
 		if (is_64_bit) {
-			if (!mread_u64_into_size_t(&ptr, end, bswap,
-						   &unit_length))
+			uint64_t unit_length64;
+			if ((err = binary_buffer_next_u64(&buffer.bb,
+							  &unit_length64)))
+				goto err;
+			if (unit_length64 > SIZE_MAX) {
+				err = binary_buffer_error(&buffer.bb,
+							  "unit length is too large");
+				goto err;
+			}
+			if ((err = binary_buffer_skip(&buffer.bb,
+						      unit_length64)))
 				goto err;
 		} else {
-			unit_length = tmp;
+			if ((err = binary_buffer_skip(&buffer.bb,
+						      unit_length32)))
+				goto err;
 		}
-		if (!mread_skip(&ptr, end, unit_length))
-			goto err;
+		size_t cu_len = buffer.bb.pos - cu_buf;
 
 		#pragma omp task
 		{
 			struct drgn_dwarf_index_cu cu = {
 				.module = module,
-				.ptr = cu_ptr,
-				.end = ptr,
+				.buf = cu_buf,
+				.len = cu_len,
 				.is_64_bit = is_64_bit,
-				.bswap = module->bswap,
 			};
-			struct drgn_error *cu_err = read_cu(&cu);
+			struct drgn_dwarf_index_cu_buffer cu_buffer;
+			drgn_dwarf_index_cu_buffer_init(&cu_buffer, &cu);
+			struct drgn_error *cu_err = read_cu(&cu_buffer);
 			if (cu_err)
 				goto cu_err;
 
-			cu_err = index_cu_first_pass(state->dindex, &cu);
+			cu_err = index_cu_first_pass(state->dindex, &cu_buffer);
 			if (cu_err)
 				goto cu_err;
 
@@ -1065,7 +1060,7 @@ cu_err:
 	return;
 
 err:
-	drgn_dwarf_index_update_cancel(state, drgn_eof());
+	drgn_dwarf_index_update_cancel(state, err);
 }
 
 static bool find_definition(struct drgn_dwarf_index *dindex, uintptr_t die_addr,
@@ -1191,21 +1186,21 @@ err:
 /* Second pass: index the actual DIEs. */
 static struct drgn_error *
 index_cu_second_pass(struct drgn_dwarf_index_namespace *ns,
-		     struct drgn_dwarf_index_cu *cu, const char *ptr)
+		     struct drgn_dwarf_index_cu_buffer *buffer)
 {
 	struct drgn_error *err;
+	struct drgn_dwarf_index_cu *cu = buffer->cu;
 	Elf_Data *debug_info = cu->module->scns[DRGN_SCN_DEBUG_INFO];
-	const char *debug_info_buffer = section_ptr(debug_info, 0);
+	const char *debug_info_buffer = debug_info->d_buf;
 	Elf_Data *debug_str = cu->module->scns[DRGN_SCN_DEBUG_STR];
-	const char *end = cu->end;
 	unsigned int depth = 0;
 	uint8_t depth1_tag = 0;
 	size_t depth1_offset = 0;
 	for (;;) {
-		size_t die_offset = ptr - debug_info_buffer;
+		size_t die_offset = buffer->bb.pos - debug_info_buffer;
 
 		uint64_t code;
-		if ((err = mread_uleb128(&ptr, end, &code)))
+		if ((err = binary_buffer_next_uleb128(&buffer->bb, &code)))
 			return err;
 		if (code == 0) {
 			if (depth-- > 1)
@@ -1213,94 +1208,106 @@ index_cu_second_pass(struct drgn_dwarf_index_namespace *ns,
 			else
 				break;
 		} else if (code > cu->num_abbrev_decls) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "unknown abbreviation code %" PRIu64,
-						 code);
+			return binary_buffer_error(&buffer->bb,
+						   "unknown abbreviation code %" PRIu64,
+						   code);
 		}
 
 		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
 		const char *name = NULL;
-		size_t decl_file = 0;
+		const char *decl_file_ptr = NULL;
+		uint64_t decl_file = 0;
 		bool declaration = false;
 		bool specification = false;
 		const char *sibling = NULL;
 		uint8_t insn;
 		while ((insn = *insnp++)) {
-			size_t skip, tmp;
+			uint64_t skip, tmp;
 			switch (insn) {
 			case ATTRIB_BLOCK1:
-				if (!mread_u8_into_size_t(&ptr, end, &skip))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &skip)))
+					return err;
 				goto skip;
 			case ATTRIB_BLOCK2:
-				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
-							   &skip))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &skip)))
+					return err;
 				goto skip;
 			case ATTRIB_BLOCK4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &skip))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &skip)))
+					return err;
 				goto skip;
 			case ATTRIB_EXPRLOC:
-				if ((err = mread_uleb128_into_size_t(&ptr, end,
-								     &skip)))
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &skip)))
 					return err;
 				goto skip;
 			case ATTRIB_SPECIFICATION_REF_UDATA:
 				specification = true;
 				/* fallthrough */
 			case ATTRIB_LEB128:
-				if (!mread_skip_leb128(&ptr, end))
-					return drgn_eof();
+				if ((err = binary_buffer_skip_leb128(&buffer->bb)))
+					return err;
 				break;
 			case ATTRIB_NAME_STRING:
-				name = ptr;
+				name = buffer->bb.pos;
 				/* fallthrough */
 			case ATTRIB_STRING:
-				if (!mread_skip_string(&ptr, end))
-					return drgn_eof();
+				if ((err = binary_buffer_skip_string(&buffer->bb)))
+					return err;
 				break;
 			case ATTRIB_SIBLING_REF1:
-				if (!mread_u8_into_size_t(&ptr, end, &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF2:
-				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF8:
-				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
 				goto sibling;
 			case ATTRIB_SIBLING_REF_UDATA:
-				if ((err = mread_uleb128_into_size_t(&ptr, end,
-								     &tmp)))
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &tmp)))
 					return err;
 sibling:
-				if (!(sibling = mread_begin(cu->ptr, end, tmp)))
-					return drgn_eof();
+				if (tmp > cu->len) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_sibling is out of bounds");
+				}
+				sibling = cu->buf + tmp;
 				__builtin_prefetch(sibling);
+				if (sibling < buffer->bb.pos) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_sibling points backwards");
+				}
 				break;
 			case ATTRIB_NAME_STRP4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
 				goto strp;
 			case ATTRIB_NAME_STRP8:
-				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-							   &tmp))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u64(&buffer->bb, &tmp)))
+					return err;
 strp:
-				if (!(name = section_ptr(debug_str, tmp)))
-					return drgn_eof();
+				if (tmp > debug_str->d_size) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_name is out of bounds");
+				}
+				name = (const char *)debug_str->d_buf + tmp;
 				__builtin_prefetch(name);
 				break;
 			case ATTRIB_STMT_LIST_LINEPTR4:
@@ -1310,34 +1317,40 @@ strp:
 				skip = 8;
 				goto skip;
 			case ATTRIB_DECL_FILE_DATA1:
-				if (!mread_u8_into_size_t(&ptr, end,
-							  &decl_file))
-					return drgn_eof();
+				decl_file_ptr = buffer->bb.pos;
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &decl_file)))
+					return err;
 				break;
 			case ATTRIB_DECL_FILE_DATA2:
-				if (!mread_u16_into_size_t(&ptr, end, cu->bswap,
-							   &decl_file))
-					return drgn_eof();
+				decl_file_ptr = buffer->bb.pos;
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &decl_file)))
+					return err;
 				break;
 			case ATTRIB_DECL_FILE_DATA4:
-				if (!mread_u32_into_size_t(&ptr, end, cu->bswap,
-							   &decl_file))
-					return drgn_eof();
+				decl_file_ptr = buffer->bb.pos;
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &decl_file)))
+					return err;
 				break;
 			case ATTRIB_DECL_FILE_DATA8:
-				if (!mread_u64_into_size_t(&ptr, end, cu->bswap,
-							   &decl_file))
-					return drgn_eof();
+				decl_file_ptr = buffer->bb.pos;
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &decl_file)))
+					return err;
 				break;
 			case ATTRIB_DECL_FILE_UDATA:
-				if ((err = mread_uleb128_into_size_t(&ptr, end,
-								     &decl_file)))
+				decl_file_ptr = buffer->bb.pos;
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &decl_file)))
 					return err;
 				break;
 			case ATTRIB_DECLARATION_FLAG: {
 				uint8_t flag;
-				if (!mread_u8(&ptr, end, &flag))
-					return drgn_eof();
+				if ((err = binary_buffer_next_u8(&buffer->bb,
+								 &flag)))
+					return err;
 				if (flag)
 					declaration = true;
 				break;
@@ -1363,8 +1376,9 @@ strp:
 			default:
 				skip = insn;
 skip:
-				if (!mread_skip(&ptr, end, skip))
-					return drgn_eof();
+				if ((err = binary_buffer_skip(&buffer->bb,
+							      skip)))
+					return err;
 				break;
 			}
 		}
@@ -1398,16 +1412,18 @@ skip:
 					goto next;
 			}
 
-			if (decl_file > cu->num_file_names) {
-				return drgn_error_format(DRGN_ERROR_OTHER,
-							 "invalid DW_AT_decl_file %zu",
-							 decl_file);
-			}
 			uint64_t file_name_hash;
-			if (decl_file)
+			if (decl_file) {
+				if (decl_file > cu->num_file_names) {
+					return binary_buffer_error_at(&buffer->bb,
+								      decl_file_ptr,
+								      "invalid DW_AT_decl_file %" PRIu64,
+								      decl_file);
+				}
 				file_name_hash = cu->file_name_hashes[decl_file - 1];
-			else
+			} else {
 				file_name_hash = 0;
+			}
 			if ((err = index_die(ns, cu, name, tag, file_name_hash,
 					     module, die_offset)))
 				return err;
@@ -1423,7 +1439,7 @@ next:
 			 */
 			if (sibling && tag != DW_TAG_enumeration_type &&
 			    depth > 0)
-				ptr = sibling;
+				buffer->bb.pos = sibling;
 			else
 				depth++;
 		} else if (depth == 0) {
@@ -1516,9 +1532,11 @@ drgn_dwarf_index_update_end(struct drgn_dwarf_index_update_state *state)
 		if (drgn_dwarf_index_update_cancelled(state))
 			continue;
 		struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
-		const char *ptr = &cu->ptr[cu->is_64_bit ? 23 : 11];
+		struct drgn_dwarf_index_cu_buffer buffer;
+		drgn_dwarf_index_cu_buffer_init(&buffer, cu);
+		buffer.bb.pos += cu->is_64_bit ? 23 : 11;
 		struct drgn_error *cu_err =
-			index_cu_second_pass(&dindex->global, cu, ptr);
+			index_cu_second_pass(&dindex->global, &buffer);
 		if (cu_err)
 			drgn_dwarf_index_update_cancel(state, cu_err);
 	}
@@ -1548,11 +1566,11 @@ static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 				&ns->pending_dies.data[i];
 			struct drgn_dwarf_index_cu *cu =
 				&ns->dindex->cus.data[pending->cu];
-			Elf_Data *debug_info = cu->module->scns[DRGN_SCN_DEBUG_INFO];
-			const char *ptr = section_ptr(debug_info,
-						      pending->offset);
+			struct drgn_dwarf_index_cu_buffer buffer;
+			drgn_dwarf_index_cu_buffer_init(&buffer, cu);
+			buffer.bb.pos += pending->offset;
 			struct drgn_error *cu_err =
-				index_cu_second_pass(ns, cu, ptr);
+				index_cu_second_pass(ns, &buffer);
 			if (cu_err) {
 				#pragma omp critical(drgn_index_namespace)
 				if (err)

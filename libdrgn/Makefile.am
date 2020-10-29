@@ -18,6 +18,8 @@ noinst_LTLIBRARIES = libdrgnimpl.la
 ARCH_INS = arch_x86_64.c.in
 
 libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
+			 binary_buffer.c \
+			 binary_buffer.h \
 			 binary_search_tree.h \
 			 bitops.h \
 			 cityhash.h \
@@ -40,7 +42,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 memory_reader.c \
 			 memory_reader.h \
 			 minmax.h \
-			 mread.h \
 			 object.c \
 			 object.h \
 			 object_index.c \

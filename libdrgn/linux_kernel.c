@@ -15,6 +15,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
+#include "binary_buffer.h"
 #include "bitops.h"
 #include "debug_info.h"
 #include "drgn.h"
@@ -24,7 +25,6 @@
 #include "language.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
-#include "mread.h"
 #include "platform.h"
 #include "program.h"
 #include "type.h"
@@ -738,52 +738,80 @@ kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
  * changes in the future, we can reevaluate this.
  */
 
-struct kmod_index {
-	const char *ptr, *end;
+struct depmod_index {
+	void *addr;
+	size_t len;
+	char path[256];
 };
 
-static struct drgn_error *kmod_index_validate(struct kmod_index *index,
-					      const char *path)
+static void depmod_index_deinit(struct depmod_index *depmod)
 {
-	const char *ptr = index->ptr;
-	uint32_t magic, version;
-	if (!mread_be32(&ptr, index->end, &magic) ||
-	    !mread_be32(&ptr, index->end, &version)) {
-		return drgn_error_format(DRGN_ERROR_OTHER, "%s is too short",
-					 path);
-	}
+	munmap(depmod->addr, depmod->len);
+}
+
+struct depmod_index_buffer {
+	struct binary_buffer bb;
+	struct depmod_index *depmod;
+};
+
+static struct drgn_error *depmod_index_buffer_error(struct binary_buffer *bb,
+						    const char *pos,
+						    const char *message)
+{
+	struct depmod_index_buffer *buffer =
+		container_of(bb, struct depmod_index_buffer, bb);
+	return drgn_error_format(DRGN_ERROR_OTHER, "%s: %#tx: %s",
+				 buffer->depmod->path,
+				 pos - (const char *)buffer->depmod->addr,
+				 message);
+}
+
+static void depmod_index_buffer_init(struct depmod_index_buffer *buffer,
+				     struct depmod_index *depmod)
+{
+	binary_buffer_init(&buffer->bb, depmod->addr, depmod->len, false,
+			   depmod_index_buffer_error);
+	buffer->depmod = depmod;
+}
+
+static struct drgn_error *depmod_index_validate(struct depmod_index *depmod)
+{
+	struct drgn_error *err;
+	struct depmod_index_buffer buffer;
+	depmod_index_buffer_init(&buffer, depmod);
+	uint32_t magic;
+	if ((err = binary_buffer_next_u32(&buffer.bb, &magic)))
+		return err;
 	if (magic != 0xb007f457) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "%s has invalid magic (0x%" PRIx32 ")",
-					 path, magic);
+		return binary_buffer_error(&buffer.bb,
+					   "invalid magic 0x%" PRIx32, magic);
 	}
+	uint32_t version;
+	if ((err = binary_buffer_next_u32(&buffer.bb, &version)))
+		return err;
 	if (version != 0x00020001) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "%s has unknown version (0x%" PRIx32 ")",
-					 path, version);
+		return binary_buffer_error(&buffer.bb,
+					   "unknown version 0x%" PRIx32,
+					   version);
 	}
 	return NULL;
 }
 
-static void kmod_index_deinit(struct kmod_index *index)
-{
-	munmap((void *)index->ptr, index->end - index->ptr);
-}
-
-static struct drgn_error *kmod_index_init(struct kmod_index *index,
-					  const char *path)
+static struct drgn_error *depmod_index_init(struct depmod_index *depmod,
+					    const char *osrelease)
 {
 	struct drgn_error *err;
-	int fd;
-	struct stat st;
-	void *map;
 
-	fd = open(path, O_RDONLY);
+	snprintf(depmod->path, sizeof(depmod->path),
+		 "/lib/modules/%s/modules.dep.bin", osrelease);
+
+	int fd = open(depmod->path, O_RDONLY);
 	if (fd == -1)
-		return drgn_error_create_os("open", errno, path);
+		return drgn_error_create_os("open", errno, depmod->path);
 
+	struct stat st;
 	if (fstat(fd, &st) == -1) {
-		err = drgn_error_create_os("fstat", errno, path);
+		err = drgn_error_create_os("fstat", errno, depmod->path);
 		goto out;
 	}
 
@@ -792,96 +820,21 @@ static struct drgn_error *kmod_index_init(struct kmod_index *index,
 		goto out;
 	}
 
-	map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (map == MAP_FAILED) {
-		err = drgn_error_create_os("mmap", errno, path);
+	void *addr = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	if (addr == MAP_FAILED) {
+		err = drgn_error_create_os("mmap", errno, depmod->path);
 		goto out;
 	}
-	index->ptr = map;
-	index->end = index->ptr + st.st_size;
 
-	err = kmod_index_validate(index, path);
+	depmod->addr = addr;
+	depmod->len = st.st_size;
+
+	err = depmod_index_validate(depmod);
 	if (err)
-		kmod_index_deinit(index);
+		depmod_index_deinit(depmod);
 out:
 	close(fd);
 	return err;
-}
-
-static const char *kmod_index_find(struct kmod_index *index, const char *key)
-{
-	static const uint32_t INDEX_NODE_MASK = UINT32_C(0x0fffffff);
-	static const uint32_t INDEX_NODE_CHILDS = UINT32_C(0x20000000);
-	static const uint32_t INDEX_NODE_VALUES = UINT32_C(0x40000000);
-	static const uint32_t INDEX_NODE_PREFIX = UINT32_C(0x80000000);
-
-	/* kmod_index_validate() already checked that this is within bounds. */
-	const char *ptr = index->ptr + 8;
-	uint32_t offset;
-	for (;;) {
-		if (!mread_be32(&ptr, index->end, &offset) ||
-		    !(ptr = mread_begin(index->ptr, index->end,
-					offset & INDEX_NODE_MASK)))
-			return NULL;
-
-		if (offset & INDEX_NODE_PREFIX) {
-			const char *prefix;
-			size_t prefix_len;
-			if (!mread_string(&ptr, index->end, &prefix,
-					  &prefix_len))
-				return NULL;
-			if (strncmp(key, prefix, prefix_len) != 0)
-				return NULL;
-			key += prefix_len;
-		}
-
-		if (offset & INDEX_NODE_CHILDS) {
-			uint8_t first, last;
-			if (!mread_u8(&ptr, index->end, &first) ||
-			    !mread_u8(&ptr, index->end, &last))
-				return NULL;
-			if (*key) {
-				uint8_t cur = *key;
-				if (cur < first || cur > last ||
-				    !mread_skip(&ptr, index->end,
-						4 * (cur - first)))
-					return NULL;
-				key++;
-				continue;
-			} else {
-				if (!mread_skip(&ptr, index->end,
-						4 * (last - first + 1)))
-					return NULL;
-				break;
-			}
-		} else if (*key) {
-			return NULL;
-		} else {
-			break;
-		}
-	}
-	if (!(offset & INDEX_NODE_VALUES))
-		return NULL;
-	return ptr;
-}
-
-struct depmod_index {
-	struct kmod_index modules_dep;
-};
-
-static struct drgn_error *depmod_index_init(struct depmod_index *depmod,
-					    const char *osrelease)
-{
-	char path[256];
-
-	snprintf(path, sizeof(path), "/lib/modules/%s/modules.dep.bin",
-		 osrelease);
-	return kmod_index_init(&depmod->modules_dep, path);
-}
-
-static void depmod_index_deinit(struct depmod_index *depmod)
-{
-	kmod_index_deinit(&depmod->modules_dep);
 }
 
 /*
@@ -889,37 +842,100 @@ static void depmod_index_deinit(struct depmod_index *depmod)
  *
  * @param[in] name Name of the kernel module.
  * @param[out] path_ret Returned path of the kernel module, relative to
- * /lib/modules/$(uname -r). This is @em not null-terminated.
+ * /lib/modules/$(uname -r). This is @em not null-terminated. @c NULL if not
+ * found.
  * @param[out] len_ret Returned length of @p path_ret.
- * @return Whether the module was found.
  */
-static bool depmod_index_find(struct depmod_index *depmod, const char *name,
-			      const char **path_ret, size_t *len_ret)
+static struct drgn_error *depmod_index_find(struct depmod_index *depmod,
+					    const char *name,
+					    const char **path_ret,
+					    size_t *len_ret)
 {
-	const char *ptr = kmod_index_find(&depmod->modules_dep, name);
-	if (!ptr)
-		return false;
+	static const uint32_t INDEX_NODE_MASK = UINT32_C(0x0fffffff);
+	static const uint32_t INDEX_NODE_CHILDS = UINT32_C(0x20000000);
+	static const uint32_t INDEX_NODE_VALUES = UINT32_C(0x40000000);
+	static const uint32_t INDEX_NODE_PREFIX = UINT32_C(0x80000000);
+
+	struct drgn_error *err;
+	struct depmod_index_buffer buffer;
+	depmod_index_buffer_init(&buffer, depmod);
+
+	/* depmod_index_validate() already checked that this is within bounds. */
+	buffer.bb.pos += 8;
+	uint32_t offset;
+	for (;;) {
+		if ((err = binary_buffer_next_u32(&buffer.bb, &offset)))
+			return err;
+		if ((offset & INDEX_NODE_MASK) > depmod->len) {
+			return binary_buffer_error(&buffer.bb,
+						   "offset is out of bounds");
+		}
+		buffer.bb.pos = (const char *)depmod->addr + (offset & INDEX_NODE_MASK);
+
+		if (offset & INDEX_NODE_PREFIX) {
+			const char *prefix;
+			size_t prefix_len;
+			if ((err = binary_buffer_next_string(&buffer.bb,
+							     &prefix,
+							     &prefix_len)))
+				return err;
+			if (strncmp(name, prefix, prefix_len) != 0)
+				goto not_found;
+			name += prefix_len;
+		}
+
+		if (offset & INDEX_NODE_CHILDS) {
+			uint8_t first, last;
+			if ((err = binary_buffer_next_u8(&buffer.bb, &first)) ||
+			    (err = binary_buffer_next_u8(&buffer.bb, &last)))
+				return err;
+			if (*name) {
+				uint8_t cur = *name;
+				if (cur < first || cur > last)
+					goto not_found;
+				if ((err = binary_buffer_skip(&buffer.bb,
+							      4 * (cur - first))))
+					return err;
+				name++;
+				continue;
+			} else {
+				if ((err = binary_buffer_skip(&buffer.bb,
+							      4 * (last - first + 1))))
+					return err;
+				break;
+			}
+		} else if (*name) {
+			goto not_found;
+		} else {
+			break;
+		}
+	}
+	if (!(offset & INDEX_NODE_VALUES))
+		goto not_found;
 
 	uint32_t value_count;
-	if (!mread_be32(&ptr, depmod->modules_dep.end, &value_count) ||
-	    !value_count)
-		return false;
+	if ((err = binary_buffer_next_u32(&buffer.bb, &value_count)))
+		return err;
+	if (!value_count)
+		goto not_found; /* Or is this malformed? */
 
 	/* Skip over priority. */
-	const char *deps;
-	size_t deps_len;
-	if (!mread_skip(&ptr, depmod->modules_dep.end, 4) ||
-	    !mread_string(&ptr, depmod->modules_dep.end, &deps,
-			 &deps_len))
-		return false;
+	if ((err = binary_buffer_skip(&buffer.bb, 4)))
+		return err;
 
-	const char *colon = strchr(deps, ':');
-	if (!colon)
-		return false;
+	const char *colon = memchr(buffer.bb.pos, ':',
+				   buffer.bb.end - buffer.bb.pos);
+	if (!colon) {
+		return binary_buffer_error(&buffer.bb,
+					   "expected string containing ':'");
+	}
+	*path_ret = buffer.bb.pos;
+	*len_ret = colon - buffer.bb.pos;
+	return NULL;
 
-	*path_ret = deps;
-	*len_ret = colon - deps;
-	return true;
+not_found:
+	*path_ret = NULL;
+	return NULL;
 }
 
 /*
@@ -1204,8 +1220,14 @@ report_default_kernel_module(struct drgn_debug_info_load_state *load,
 
 	const char *depmod_path;
 	size_t depmod_path_len;
-	if (!depmod_index_find(depmod, kmod_it->name, &depmod_path,
-			       &depmod_path_len)) {
+	err = depmod_index_find(depmod, kmod_it->name, &depmod_path,
+				&depmod_path_len);
+	if (err) {
+		return drgn_debug_info_report_error(load,
+						    "kernel modules",
+						    "could not parse depmod",
+						    err);
+	} else if (!depmod_path) {
 		return drgn_debug_info_report_error(load, kmod_it->name,
 						    "could not find module in depmod",
 						    NULL);
@@ -1296,11 +1318,11 @@ kernel_module_iterator_error:
 		 */
 		if (depmod &&
 		    !drgn_debug_info_is_indexed(load->dbinfo, kmod_it.name)) {
-			if (!depmod->modules_dep.ptr) {
+			if (!depmod->addr) {
 				err = depmod_index_init(depmod,
 							prog->vmcoreinfo.osrelease);
 				if (err) {
-					depmod->modules_dep.ptr = NULL;
+					depmod->addr = NULL;
 					err = drgn_debug_info_report_error(load,
 									   "kernel modules",
 									   "could not read depmod",
@@ -1377,8 +1399,8 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 
 	struct kernel_module_table kmod_table = HASH_TABLE_INIT;
 	struct depmod_index depmod;
+	depmod.addr = NULL;
 	struct kernel_module_table_iterator it;
-	depmod.modules_dep.ptr = NULL;
 	for (size_t i = 0; i < num_kmods; i++) {
 		struct kernel_module_file *kmod = &kmods[i];
 		if (!kmod->name) {
@@ -1445,7 +1467,7 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 	}
 	err = NULL;
 out:
-	if (depmod.modules_dep.ptr)
+	if (depmod.addr)
 		depmod_index_deinit(&depmod);
 	kernel_module_table_deinit(&kmod_table);
 	return err;
