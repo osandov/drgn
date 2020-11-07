@@ -52,6 +52,7 @@ enum drgn_debug_info_module_state {
 enum drgn_debug_info_scn {
 	/* Sections whose data we should cache when loading the module. */
 	DRGN_SCN_DEBUG_INFO,
+	DRGN_SCN_DEBUG_TYPES,
 	DRGN_SCN_DEBUG_ABBREV,
 	DRGN_SCN_DEBUG_STR,
 	DRGN_SCN_DEBUG_LINE,

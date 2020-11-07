@@ -97,6 +97,7 @@ static const char *dwarf_tag_str(Dwarf_Die *die, char buf[DW_TAG_BUF_LEN])
 
 static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_DEBUG_INFO] = ".debug_info",
+	[DRGN_SCN_DEBUG_TYPES] = ".debug_types",
 	[DRGN_SCN_DEBUG_ABBREV] = ".debug_abbrev",
 	[DRGN_SCN_DEBUG_STR] = ".debug_str",
 	[DRGN_SCN_DEBUG_LINE] = ".debug_line",
@@ -3002,9 +3003,19 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 				return drgn_error_libdwfl();
 			uintptr_t start =
 				(uintptr_t)module->scn_data[DRGN_SCN_DEBUG_INFO]->d_buf;
-			if (!dwarf_offdie(dwarf, die_addr - start,
-					  &definition_die))
-				return drgn_error_libdw();
+			size_t size =
+				module->scn_data[DRGN_SCN_DEBUG_INFO]->d_size;
+			if (die_addr >= start && die_addr < start + size) {
+				if (!dwarf_offdie(dwarf, die_addr - start,
+						  &definition_die))
+					return drgn_error_libdw();
+			} else {
+				start = (uintptr_t)module->scn_data[DRGN_SCN_DEBUG_TYPES]->d_buf;
+				/* Assume .debug_types */
+				if (!dwarf_offdie_types(dwarf, die_addr - start,
+							&definition_die))
+					return drgn_error_libdw();
+			}
 			die = &definition_die;
 		}
 	}
