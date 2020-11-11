@@ -669,8 +669,6 @@ class Program:
         """
         Create a new pointer type. It has kind :attr:`TypeKind.POINTER`,
 
-        You can usually use :meth:`Program:pointer_type()` instead.
-
         :param type: The referenced type (:attr:`Type.type`)
         :param size: :attr:`Type.size`, or ``None`` to use the program's
             default pointer size.
