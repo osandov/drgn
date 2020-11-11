@@ -127,7 +127,7 @@ class egg_info(_egg_info):
 class test(Command):
     description = "run unit tests after in-place build"
 
-    KERNELS = ["5.9", "5.8", "5.7", "5.6", "5.4", "4.19", "4.14", "4.9", "4.4"]
+    KERNELS = ["5.10", "5.9", "5.8", "5.7", "5.6", "5.4", "4.19", "4.14", "4.9", "4.4"]
 
     user_options = [
         (
