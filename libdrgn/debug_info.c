@@ -2986,8 +2986,19 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 					 "maximum DWARF type parsing depth exceeded");
 	}
 
-	/* If we got a declaration, try to find the definition. */
+	/* If the DIE has a type unit signature, follow it. */
 	Dwarf_Die definition_die;
+	{
+		Dwarf_Attribute attr_mem, *attr;
+		if ((attr = dwarf_attr_integrate(die, DW_AT_signature,
+						 &attr_mem))) {
+			if (!dwarf_formref_die(attr, &definition_die))
+				return drgn_error_libdw();
+			die = &definition_die;
+		}
+	}
+
+	/* If we got a declaration, try to find the definition. */
 	bool declaration;
 	if (dwarf_flag(die, DW_AT_declaration, &declaration))
 		return drgn_error_libdw();
