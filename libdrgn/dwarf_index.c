@@ -323,7 +323,7 @@ read_abbrev_decl(struct drgn_debug_info_buffer *buffer,
 		} else if (name == DW_AT_name && should_index) {
 			switch (form) {
 			case DW_FORM_strp:
-				if (!cu->module->scns[DRGN_SCN_DEBUG_STR]) {
+				if (!cu->module->scn_data[DRGN_SCN_DEBUG_STR]) {
 					return binary_buffer_error(&buffer->bb,
 								   "DW_FORM_strp without .debug_str section");
 				}
@@ -339,7 +339,7 @@ read_abbrev_decl(struct drgn_debug_info_buffer *buffer,
 				break;
 			}
 		} else if (name == DW_AT_stmt_list &&
-			   cu->module->scns[DRGN_SCN_DEBUG_LINE]) {
+			   cu->module->scn_data[DRGN_SCN_DEBUG_LINE]) {
 			switch (form) {
 			case DW_FORM_data4:
 				insn = ATTRIB_STMT_LIST_LINEPTR4;
@@ -575,7 +575,7 @@ static struct drgn_error *read_cu(struct drgn_dwarf_index_cu_buffer *buffer)
 			return err;
 	}
 	if (debug_abbrev_offset >
-	    buffer->cu->module->scns[DRGN_SCN_DEBUG_ABBREV]->d_size) {
+	    buffer->cu->module->scn_data[DRGN_SCN_DEBUG_ABBREV]->d_size) {
 		return binary_buffer_error(&buffer->bb,
 					   "debug_abbrev_offset is out of bounds");
 	}
@@ -775,7 +775,7 @@ index_cu_first_pass(struct drgn_dwarf_index *dindex,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_cu *cu = buffer->cu;
-	Elf_Data *debug_info = cu->module->scns[DRGN_SCN_DEBUG_INFO];
+	Elf_Data *debug_info = cu->module->scn_data[DRGN_SCN_DEBUG_INFO];
 	const char *debug_info_buffer = debug_info->d_buf;
 	unsigned int depth = 0;
 	for (;;) {
@@ -959,7 +959,7 @@ skip:
 		if (depth == 0) {
 			if (stmt_list_ptr) {
 				if (stmt_list >
-				    cu->module->scns[DRGN_SCN_DEBUG_LINE]->d_size) {
+				    cu->module->scn_data[DRGN_SCN_DEBUG_LINE]->d_size) {
 					return binary_buffer_error_at(&buffer->bb,
 								      stmt_list_ptr,
 								      "DW_AT_stmt_list is out of bounds");
@@ -1195,7 +1195,7 @@ index_cu_second_pass(struct drgn_dwarf_index_namespace *ns,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_cu *cu = buffer->cu;
-	Elf_Data *debug_str = cu->module->scns[DRGN_SCN_DEBUG_STR];
+	Elf_Data *debug_str = cu->module->scn_data[DRGN_SCN_DEBUG_STR];
 	unsigned int depth = 0;
 	uint8_t depth1_tag = 0;
 	size_t depth1_addr = 0;
@@ -1689,7 +1689,8 @@ struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
 	Dwarf *dwarf = dwfl_module_getdwarf(die->module->dwfl_module, &bias);
 	if (!dwarf)
 		return drgn_error_libdwfl();
-	uintptr_t start = (uintptr_t)die->module->scns[DRGN_SCN_DEBUG_INFO]->d_buf;
+	uintptr_t start =
+		(uintptr_t)die->module->scn_data[DRGN_SCN_DEBUG_INFO]->d_buf;
 	if (!dwarf_offdie(dwarf, die->addr - start, die_ret))
 		return drgn_error_libdw();
 	return NULL;

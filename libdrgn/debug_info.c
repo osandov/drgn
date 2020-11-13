@@ -62,6 +62,10 @@ static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_DEBUG_ABBREV] = ".debug_abbrev",
 	[DRGN_SCN_DEBUG_STR] = ".debug_str",
 	[DRGN_SCN_DEBUG_LINE] = ".debug_line",
+	[DRGN_SCN_DEBUG_FRAME] = ".debug_frame",
+	[DRGN_SCN_EH_FRAME] = ".eh_frame",
+	[DRGN_SCN_TEXT] = ".text",
+	[DRGN_SCN_GOT] = ".got",
 };
 
 struct drgn_error *
@@ -73,7 +77,7 @@ drgn_error_debug_info_scn(struct drgn_debug_info_module *module,
 					    NULL, NULL, NULL, NULL, NULL);
 	return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s+%#tx: %s",
 				 name, drgn_debug_scn_names[scn],
-				 ptr - (const char *)module->scns[scn]->d_buf,
+				 ptr - (const char *)module->scn_data[scn]->d_buf,
 				 message);
 }
 
@@ -459,6 +463,7 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 	}
 	module->dwfl_module = dwfl_module;
 	memset(module->scns, 0, sizeof(module->scns));
+	memset(module->scn_data, 0, sizeof(module->scn_data));
 	module->path = path_key;
 	module->fd = fd;
 	module->elf = elf;
@@ -820,7 +825,7 @@ out:
 }
 
 static struct drgn_error *
-drgn_get_debug_sections(struct drgn_debug_info_module *module)
+drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
 {
 	struct drgn_error *err;
 
@@ -855,9 +860,8 @@ drgn_get_debug_sections(struct drgn_debug_info_module *module)
 		if (!shdr)
 			return drgn_error_libelf();
 
-		if (shdr->sh_type == SHT_NOBITS || (shdr->sh_flags & SHF_GROUP))
+		if (shdr->sh_type != SHT_PROGBITS)
 			continue;
-
 		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
 		if (!scnname)
 			continue;
@@ -865,11 +869,25 @@ drgn_get_debug_sections(struct drgn_debug_info_module *module)
 		for (size_t i = 0; i < DRGN_NUM_DEBUG_SCNS; i++) {
 			if (!module->scns[i] &&
 			    strcmp(scnname, drgn_debug_scn_names[i]) == 0) {
-				err = read_elf_section(scn, &module->scns[i]);
-				if (err)
-					return err;
+				module->scns[i] = scn;
 				break;
 			}
+		}
+	}
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
+{
+	struct drgn_error *err;
+
+	for (size_t i = 0; i < DRGN_NUM_DEBUG_SCN_DATA_PRECACHE; i++) {
+		if (module->scns[i]) {
+			err = read_elf_section(module->scns[i],
+					       &module->scn_data[i]);
+			if (err)
+				return err;
 		}
 	}
 
@@ -877,7 +895,7 @@ drgn_get_debug_sections(struct drgn_debug_info_module *module)
 	 * Truncate any extraneous bytes so that we can assume that a pointer
 	 * within .debug_str is always null-terminated.
 	 */
-	Elf_Data *debug_str = module->scns[DRGN_SCN_DEBUG_STR];
+	Elf_Data *debug_str = module->scn_data[DRGN_SCN_DEBUG_STR];
 	if (debug_str) {
 		const char *buf = debug_str->d_buf;
 		const char *nul = memrchr(buf, '\0', debug_str->d_size);
@@ -885,7 +903,6 @@ drgn_get_debug_sections(struct drgn_debug_info_module *module)
 			debug_str->d_size = nul - buf + 1;
 		else
 			debug_str->d_size = 0;
-
 	}
 	return NULL;
 }
@@ -898,13 +915,18 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 	struct drgn_error *err;
 	struct drgn_debug_info_module *module;
 	for (module = head; module; module = module->next) {
-		err = drgn_get_debug_sections(module);
+		err = drgn_debug_info_find_sections(module);
 		if (err) {
 			module->err = err;
 			continue;
 		}
 		if (module->scns[DRGN_SCN_DEBUG_INFO] &&
 		    module->scns[DRGN_SCN_DEBUG_ABBREV]) {
+			err = drgn_debug_info_precache_sections(module);
+			if (err) {
+				module->err = err;
+				continue;
+			}
 			module->state = DRGN_DEBUG_INFO_MODULE_INDEXING;
 			drgn_dwarf_index_read_module(dindex_state, module);
 			return NULL;
@@ -2448,7 +2470,8 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 							    &bias);
 			if (!dwarf)
 				return drgn_error_libdwfl();
-			uintptr_t start = (uintptr_t)module->scns[DRGN_SCN_DEBUG_INFO]->d_buf;
+			uintptr_t start =
+				(uintptr_t)module->scn_data[DRGN_SCN_DEBUG_INFO]->d_buf;
 			if (!dwarf_offdie(dwarf, die_addr - start, die))
 				return drgn_error_libdw();
 		}

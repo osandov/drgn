@@ -46,10 +46,24 @@ enum drgn_debug_info_module_state {
 } __attribute__((__packed__));
 
 enum drgn_debug_info_scn {
+	/* Sections whose data we should cache when loading the module. */
 	DRGN_SCN_DEBUG_INFO,
 	DRGN_SCN_DEBUG_ABBREV,
 	DRGN_SCN_DEBUG_STR,
 	DRGN_SCN_DEBUG_LINE,
+
+	DRGN_NUM_DEBUG_SCN_DATA_PRECACHE,
+
+	/* Sections whose data we should cache when it is first used. */
+	DRGN_SCN_DEBUG_FRAME = DRGN_NUM_DEBUG_SCN_DATA_PRECACHE,
+	DRGN_SCN_EH_FRAME,
+
+	DRGN_NUM_DEBUG_SCN_DATA,
+
+	/* Sections whose data doesn't need to be cached. */
+	DRGN_SCN_TEXT = DRGN_NUM_DEBUG_SCN_DATA,
+	DRGN_SCN_GOT,
+
 	DRGN_NUM_DEBUG_SCNS,
 };
 
@@ -73,7 +87,8 @@ struct drgn_debug_info_module {
 	char *name;
 
 	Dwfl_Module *dwfl_module;
-	Elf_Data *scns[DRGN_NUM_DEBUG_SCNS];
+	Elf_Scn *scns[DRGN_NUM_DEBUG_SCNS];
+	Elf_Data *scn_data[DRGN_NUM_DEBUG_SCN_DATA];
 
 	/*
 	 * path, elf, and fd are used when an ELF file was reported with
@@ -118,8 +133,8 @@ drgn_debug_info_buffer_init(struct drgn_debug_info_buffer *buffer,
 			    struct drgn_debug_info_module *module,
 			    enum drgn_debug_info_scn scn)
 {
-	binary_buffer_init(&buffer->bb, module->scns[scn]->d_buf,
-			   module->scns[scn]->d_size, module->little_endian,
+	binary_buffer_init(&buffer->bb, module->scn_data[scn]->d_buf,
+			   module->scn_data[scn]->d_size, module->little_endian,
 			   drgn_debug_info_buffer_error);
 	buffer->module = module;
 	buffer->scn = scn;
