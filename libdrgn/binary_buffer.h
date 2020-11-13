@@ -246,6 +246,55 @@ binary_buffer_next_uleb128(struct binary_buffer *bb, uint64_t *ret)
 	return binary_buffer_error_at(bb, bb->pos, "expected ULEB128 number");
 }
 
+/**
+ * Decode a Signed Little-Endian Base 128 (SLEB128) number at the current buffer
+ * position and advance the position.
+ *
+ * If the number does not fit in a @c int64_t, an error is returned.
+ *
+ * @param[out] ret Returned value.
+ */
+static inline struct drgn_error *
+binary_buffer_next_sleb128(struct binary_buffer *bb, int64_t *ret)
+{
+	int shift = 0;
+	int64_t value = 0;
+	const char *pos = bb->pos;
+	while (likely(pos < bb->end)) {
+		uint8_t byte = *(uint8_t *)(pos++);
+		if (unlikely(shift == 63 && byte != 0 && byte != 0x7f)) {
+			return binary_buffer_error_at(bb, bb->pos,
+						      "SLEB128 number overflows signed 64-bit integer");
+		}
+		value |= (uint64_t)(byte & 0x7f) << shift;
+		shift += 7;
+		if (!(byte & 0x80)) {
+			bb->prev = bb->pos;
+			bb->pos = pos;
+			if (shift < 64 && (byte & 0x40))
+				value |= ~(UINT64_C(1) << shift) + 1;
+			*ret = value;
+			return NULL;
+		}
+	}
+	return binary_buffer_error_at(bb, bb->pos, "expected SLEB128 number");
+}
+
+/**
+ * Like @ref binary_buffer_next_sleb128(), but return the value as a @c
+ * uint64_t. Negative values are sign extended.
+ */
+static inline struct drgn_error *
+binary_buffer_next_sleb128_into_u64(struct binary_buffer *bb, uint64_t *ret)
+{
+	struct drgn_error *err;
+	int64_t tmp;
+	if ((err = binary_buffer_next_sleb128(bb, &tmp)))
+		return err;
+	*ret = tmp;
+	return NULL;
+}
+
 /** Skip past a LEB128 number at the current buffer position. */
 static inline struct drgn_error *
 binary_buffer_skip_leb128(struct binary_buffer *bb)
