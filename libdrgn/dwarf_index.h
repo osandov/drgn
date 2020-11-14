@@ -80,7 +80,7 @@ struct drgn_dwarf_index_die {
 		struct drgn_dwarf_index_namespace *namespace;
 	};
 	struct drgn_debug_info_module *module;
-	size_t offset;
+	uintptr_t addr;
 };
 
 DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, uint32_t)
@@ -110,9 +110,9 @@ struct drgn_dwarf_index_specification {
 	 * DW_AT_specification.
 	 */
 	uintptr_t declaration;
-	/* Module and offset of DIE. */
+	/* Module and address of DIE. */
 	struct drgn_debug_info_module *module;
-	size_t offset;
+	uintptr_t addr;
 };
 
 static inline uintptr_t
