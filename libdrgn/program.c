@@ -327,7 +327,8 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		goto out_elf;
 	}
 
-	if (is_proc_kcore || vmcoreinfo_note) {
+	if ((is_proc_kcore || vmcoreinfo_note) &&
+	    platform.arch->linux_kernel_pgtable_iterator_next) {
 		/*
 		 * Try to read any memory that isn't in the core dump via the
 		 * page table.
