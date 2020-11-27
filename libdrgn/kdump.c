@@ -25,6 +25,8 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 	}
 	if (strcmp(str, KDUMP_ARCH_X86_64) == 0)
 		arch = &arch_info_x86_64;
+	else if (strcmp(str, KDUMP_ARCH_PPC64) == 0)
+		arch = &arch_info_ppc64;
 	else
 		arch = &arch_info_unknown;
 
