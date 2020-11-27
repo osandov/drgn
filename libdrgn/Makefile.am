@@ -15,7 +15,8 @@ BUILT_SOURCES = drgn.h
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
-ARCH_INS = arch_x86_64.c.in
+ARCH_INS = arch_ppc64.c.in \
+	   arch_x86_64.c.in
 
 libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 binary_buffer.c \

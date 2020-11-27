@@ -828,6 +828,9 @@ class Architecture(enum.Enum):
     X86_64 = ...
     """The x86-64 architecture, a.k.a. AMD64."""
 
+    PPC64 = ...
+    """The 64-bit PowerPC architecture."""
+
     UNKNOWN = ...
     """
     An architecture which is not known to drgn. Certain features are not

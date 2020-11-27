@@ -15,6 +15,8 @@ const struct drgn_architecture_info arch_info_unknown = {
 LIBDRGN_PUBLIC const struct drgn_platform drgn_host_platform = {
 #ifdef __x86_64__
 	.arch = &arch_info_x86_64,
+#elif __powerpc64__
+	.arch = &arch_info_ppc64,
 #else
 	.arch = &arch_info_unknown,
 #endif
@@ -36,6 +38,9 @@ drgn_platform_create(enum drgn_architecture arch,
 		break;
 	case DRGN_ARCH_X86_64:
 		arch_info = &arch_info_x86_64;
+		break;
+	case DRGN_ARCH_PPC64:
+		arch_info = &arch_info_ppc64;
 		break;
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -103,6 +108,9 @@ void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret)
 	switch (ehdr->e_machine) {
 	case EM_X86_64:
 		arch = &arch_info_x86_64;
+		break;
+	case EM_PPC64:
+		arch = &arch_info_ppc64;
 		break;
 	default:
 		arch = &arch_info_unknown;
