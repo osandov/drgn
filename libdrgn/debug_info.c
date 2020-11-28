@@ -846,8 +846,10 @@ drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
 	Elf *elf = dwarf_getelf(dwarf);
 	if (!elf)
 		return drgn_error_libdw();
-
-	module->little_endian = elf_getident(elf, NULL)[EI_DATA] == ELFDATA2LSB;
+	GElf_Ehdr ehdr_mem, *ehdr = gelf_getehdr(elf, &ehdr_mem);
+	if (!ehdr)
+		return drgn_error_libelf();
+	drgn_platform_from_elf(ehdr, &module->platform);
 
 	size_t shstrndx;
 	if (elf_getshdrstrndx(elf, &shstrndx))

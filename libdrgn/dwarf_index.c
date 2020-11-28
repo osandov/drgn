@@ -15,6 +15,7 @@
 #include "dwarf_index.h"
 #include "error.h"
 #include "path.h"
+#include "platform.h"
 #include "siphash.h"
 #include "util.h"
 
@@ -117,7 +118,7 @@ drgn_dwarf_index_cu_buffer_init(struct drgn_dwarf_index_cu_buffer *buffer,
 				struct drgn_dwarf_index_cu *cu)
 {
 	binary_buffer_init(&buffer->bb, cu->buf, cu->len,
-			   cu->module->little_endian,
+			   drgn_platform_is_little_endian(&cu->module->platform),
 			   drgn_dwarf_index_cu_buffer_error);
 	buffer->cu = cu;
 }

@@ -19,6 +19,7 @@
 #include "drgn.h"
 #include "dwarf_index.h"
 #include "hash_table.h"
+#include "platform.h"
 #include "string_builder.h"
 #include "vector.h"
 
@@ -87,6 +88,7 @@ struct drgn_debug_info_module {
 	char *name;
 
 	Dwfl_Module *dwfl_module;
+	struct drgn_platform platform;
 	Elf_Scn *scns[DRGN_NUM_DEBUG_SCNS];
 	Elf_Data *scn_data[DRGN_NUM_DEBUG_SCN_DATA];
 
@@ -99,7 +101,6 @@ struct drgn_debug_info_module {
 	Elf *elf;
 	int fd;
 	enum drgn_debug_info_module_state state;
-	bool little_endian;
 	/** Error while loading. */
 	struct drgn_error *err;
 	/**
@@ -134,7 +135,8 @@ drgn_debug_info_buffer_init(struct drgn_debug_info_buffer *buffer,
 			    enum drgn_debug_info_scn scn)
 {
 	binary_buffer_init(&buffer->bb, module->scn_data[scn]->d_buf,
-			   module->scn_data[scn]->d_size, module->little_endian,
+			   module->scn_data[scn]->d_size,
+			   drgn_platform_is_little_endian(&module->platform),
 			   drgn_debug_info_buffer_error);
 	buffer->module = module;
 	buffer->scn = scn;
