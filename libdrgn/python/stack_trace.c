@@ -72,6 +72,32 @@ static void StackFrame_dealloc(StackFrame *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static PyObject *StackFrame_str(StackFrame *self)
+{
+	struct drgn_error *err;
+	char *str;
+	err = drgn_format_stack_frame(self->trace->trace, self->i, &str);
+	if (err)
+		return set_drgn_error(err);
+	PyObject *ret = PyUnicode_FromString(str);
+	free(str);
+	return ret;
+}
+
+static PyObject *StackFrame_source(StackFrame *self)
+{
+	int line;
+	int column;
+	const char *filename = drgn_stack_frame_source(self->trace->trace,
+						       self->i, &line, &column);
+	if (!filename) {
+		PyErr_SetString(PyExc_LookupError,
+				"source code location not available");
+		return NULL;
+	}
+	return Py_BuildValue("sii", filename, line, column);
+}
+
 static PyObject *StackFrame_symbol(StackFrame *self)
 {
 	struct drgn_error *err;
@@ -148,6 +174,20 @@ static PyObject *StackFrame_registers(StackFrame *self)
 	return dict;
 }
 
+static PyObject *StackFrame_get_name(StackFrame *self, void *arg)
+{
+	const char *name = drgn_stack_frame_name(self->trace->trace, self->i);
+	if (name)
+		return PyUnicode_FromString(name);
+	else
+		Py_RETURN_NONE;
+}
+
+static PyObject *StackFrame_get_is_inline(StackFrame *self, void *arg)
+{
+	Py_RETURN_BOOL(drgn_stack_frame_is_inline(self->trace->trace, self->i));
+}
+
 static PyObject *StackFrame_get_interrupted(StackFrame *self, void *arg)
 {
 	Py_RETURN_BOOL(drgn_stack_frame_interrupted(self->trace->trace,
@@ -167,6 +207,8 @@ static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)
 }
 
 static PyMethodDef StackFrame_methods[] = {
+	{"source", (PyCFunction)StackFrame_source, METH_NOARGS,
+	 drgn_StackFrame_source_DOC},
 	{"symbol", (PyCFunction)StackFrame_symbol, METH_NOARGS,
 	 drgn_StackFrame_symbol_DOC},
 	{"register", (PyCFunction)StackFrame_register,
@@ -177,6 +219,9 @@ static PyMethodDef StackFrame_methods[] = {
 };
 
 static PyGetSetDef StackFrame_getset[] = {
+	{"name", (getter)StackFrame_get_name, NULL, drgn_StackFrame_name_DOC},
+	{"is_inline", (getter)StackFrame_get_is_inline, NULL,
+	 drgn_StackFrame_is_inline_DOC},
 	{"interrupted", (getter)StackFrame_get_interrupted, NULL,
 	 drgn_StackFrame_interrupted_DOC},
 	{"pc", (getter)StackFrame_get_pc, NULL, drgn_StackFrame_pc_DOC},
@@ -188,6 +233,7 @@ PyTypeObject StackFrame_type = {
 	.tp_name = "_drgn.StackFrame",
 	.tp_basicsize = sizeof(StackFrame),
 	.tp_dealloc = (destructor)StackFrame_dealloc,
+	.tp_str = (reprfunc)StackFrame_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_StackFrame_DOC,
 	.tp_methods = StackFrame_methods,

@@ -19,6 +19,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    Tuple,
     Union,
     overload,
 )
@@ -1382,23 +1383,24 @@ class StackTrace:
     .. code-block:: python3
 
         for frame in trace:
-            if frame.symbol().name == 'io_schedule':
+            if frame.name == 'io_schedule':
                 print('Thread is doing I/O')
 
     :class:`str() <str>` returns a pretty-printed stack trace:
 
-    >>> print(prog.stack_trace(1))
-    #0  __schedule+0x25c/0x8ba
-    #1  schedule+0x3c/0x7e
-    #2  schedule_hrtimeout_range_clock+0x10c/0x118
-    #3  ep_poll+0x3ca/0x40a
-    #4  do_epoll_wait+0xb0/0xc6
-    #5  __x64_sys_epoll_wait+0x1a/0x1d
-    #6  do_syscall_64+0x55/0x17c
-    #7  entry_SYSCALL_64+0x7c/0x156
+    >>> prog.stack_trace(1)
+    #0  context_switch (kernel/sched/core.c:4339:2)
+    #1  __schedule (kernel/sched/core.c:5147:8)
+    #2  schedule (kernel/sched/core.c:5226:3)
+    #3  do_wait (kernel/exit.c:1534:4)
+    #4  kernel_wait4 (kernel/exit.c:1678:8)
+    #5  __do_sys_wait4 (kernel/exit.c:1706:13)
+    #6  do_syscall_64 (arch/x86/entry/common.c:47:14)
+    #7  entry_SYSCALL_64+0x7c/0x15b (arch/x86/entry/entry_64.S:112)
+    #8  0x4d49dd
 
-    The drgn CLI is set up so that stack traces are displayed with ``str()`` by
-    default.
+    The format is subject to change. The drgn CLI is set up so that stack
+    traces are displayed with ``str()`` by default.
     """
 
     def __getitem__(self, idx: IntegerLike) -> StackFrame: ...
@@ -1406,6 +1408,30 @@ class StackTrace:
 class StackFrame:
     """
     A ``StackFrame`` represents a single *frame* in a thread's call stack.
+
+    :class:`str() <str>` returns a pretty-printed stack frame:
+
+    >>> prog.stack_trace(1)[0]
+    #0 at 0xffffffffb64ac287 (__schedule+0x227/0x606) in context_switch at kernel/sched/core.c:4339:2 (inlined)
+
+    This includes more information than when printing the full stack trace. The
+    format is subject to change. The drgn CLI is set up so that stack frames
+    are displayed with ``str()`` by default.
+    """
+
+    name: Optional[str]
+    """
+    Name of the function at this frame, or ``None`` if it could not be
+    determined.
+    """
+
+    is_inline: bool
+    """
+    Whether this frame is for an inlined call.
+
+    An inline frame shares the same stack frame in memory as its caller.
+    Therefore, it has the same registers (including program counter and thus
+    symbol).
     """
 
     interrupted: bool
@@ -1421,8 +1447,17 @@ class StackFrame:
     particular, the program counter is the return address, which is typically
     the instruction after the call instruction.
     """
+
     pc: int
     """Program counter at this stack frame."""
+    def source(self) -> Tuple[str, int, int]:
+        """
+        Get the source code location of this frame.
+
+        :return: Location as a ``(filename, line, column)`` triple.
+        :raises LookupError: if the source code location is not available
+        """
+        ...
     def symbol(self) -> Symbol:
         """
         Get the function symbol at this stack frame.

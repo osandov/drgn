@@ -118,6 +118,14 @@ static inline void *malloc64(uint64_t size)
 	return malloc(size);
 }
 
+static inline void *memdup(void *ptr, size_t size)
+{
+	void *copy = malloc(size);
+	if (copy)
+		memcpy(copy, ptr, size);
+	return copy;
+}
+
 /** Return the maximum value of an @p n-byte unsigned integer. */
 static inline uint64_t uint_max(int n)
 {

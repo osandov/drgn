@@ -28,6 +28,9 @@
 
 struct drgn_stack_frame {
 	struct drgn_register_state *regs;
+	Dwarf_Die *scopes;
+	size_t num_scopes;
+	size_t function_scope;
 };
 
 struct drgn_stack_trace {
