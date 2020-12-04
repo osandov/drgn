@@ -5,8 +5,8 @@ drgn
     :target: https://pypi.org/project/drgn/
     :alt: PyPI
 
-.. image:: https://travis-ci.org/osandov/drgn.svg?branch=master
-    :target: https://travis-ci.org/osandov/drgn
+.. image:: https://travis-ci.com/osandov/drgn.svg?branch=master
+    :target: https://travis-ci.com/osandov/drgn
     :alt: Build Status
 
 .. image:: https://readthedocs.org/projects/drgn/badge/?version=latest
