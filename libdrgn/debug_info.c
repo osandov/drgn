@@ -2377,10 +2377,10 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 				Dwarf_Attribute *attr, struct drgn_object *ret)
 {
 	struct drgn_object_type type;
-	enum drgn_object_kind kind;
+	enum drgn_object_encoding encoding;
 	uint64_t bit_size;
 	struct drgn_error *err = drgn_object_set_common(qualified_type, 0,
-							&type, &kind,
+							&type, &encoding,
 							&bit_size);
 	if (err)
 		return err;
@@ -2394,10 +2394,10 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_AT_const_value block is too small");
 		}
-		return drgn_object_set_buffer_internal(ret, &type, kind,
+		return drgn_object_set_buffer_internal(ret, &type, encoding,
 						       bit_size, block.data, 0,
 						       little_endian);
-	} else if (kind == DRGN_OBJECT_SIGNED) {
+	} else if (encoding == DRGN_OBJECT_ENCODING_SIGNED) {
 		Dwarf_Sword svalue;
 		if (dwarf_formsdata(attr, &svalue)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
@@ -2405,7 +2405,7 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		}
 		return drgn_object_set_signed_internal(ret, &type, bit_size,
 						       svalue);
-	} else if (kind == DRGN_OBJECT_UNSIGNED) {
+	} else if (encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
 		Dwarf_Word uvalue;
 		if (dwarf_formudata(attr, &uvalue)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,

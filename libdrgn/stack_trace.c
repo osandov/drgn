@@ -267,8 +267,8 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 			goto out;
 
 		if (is_pt_regs) {
-			assert(obj.kind == DRGN_OBJECT_BUFFER &&
-			       !obj.is_reference);
+			assert(obj.encoding == DRGN_OBJECT_ENCODING_BUFFER);
+			assert(!obj.is_reference);
 			if (!prog->platform.arch->pt_regs_set_initial_registers) {
 				err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 							"pt_regs stack unwinding is not supported for %s architecture",

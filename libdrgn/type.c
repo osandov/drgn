@@ -1260,34 +1260,36 @@ struct drgn_error *drgn_type_bit_size(struct drgn_type *type, uint64_t *ret)
 	return NULL;
 }
 
-enum drgn_object_kind drgn_type_object_kind(struct drgn_type *type)
+enum drgn_object_encoding drgn_type_object_encoding(struct drgn_type *type)
 {
 	SWITCH_ENUM(drgn_type_kind(type),
 	case DRGN_TYPE_INT:
-		return (drgn_type_is_signed(type) ? DRGN_OBJECT_SIGNED :
-			DRGN_OBJECT_UNSIGNED);
+		return (drgn_type_is_signed(type) ?
+			DRGN_OBJECT_ENCODING_SIGNED :
+			DRGN_OBJECT_ENCODING_UNSIGNED);
 	case DRGN_TYPE_BOOL:
 	case DRGN_TYPE_POINTER:
-		return DRGN_OBJECT_UNSIGNED;
+		return DRGN_OBJECT_ENCODING_UNSIGNED;
 	case DRGN_TYPE_FLOAT:
-		return DRGN_OBJECT_FLOAT;
+		return DRGN_OBJECT_ENCODING_FLOAT;
 	case DRGN_TYPE_COMPLEX:
-		return DRGN_OBJECT_BUFFER;
+		return DRGN_OBJECT_ENCODING_BUFFER;
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
 	case DRGN_TYPE_CLASS:
 	case DRGN_TYPE_ARRAY:
-		return (drgn_type_is_complete(type) ? DRGN_OBJECT_BUFFER :
-			DRGN_OBJECT_INCOMPLETE_BUFFER);
+		return (drgn_type_is_complete(type) ?
+			DRGN_OBJECT_ENCODING_BUFFER :
+			DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER);
 	case DRGN_TYPE_ENUM:
 		if (!drgn_type_is_complete(type))
-			return DRGN_OBJECT_INCOMPLETE_INTEGER;
+			return DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER;
 		/* fallthrough */
 	case DRGN_TYPE_TYPEDEF:
-		return drgn_type_object_kind(drgn_type_type(type).type);
+		return drgn_type_object_encoding(drgn_type_type(type).type);
 	case DRGN_TYPE_VOID:
 	case DRGN_TYPE_FUNCTION:
-		return DRGN_OBJECT_NONE;
+		return DRGN_OBJECT_ENCODING_NONE;
 	)
 }
 

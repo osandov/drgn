@@ -1481,17 +1481,15 @@ struct drgn_error *drgn_program_member_info(struct drgn_program *prog,
  */
 
 /**
- * Kinds of objects.
+ * Object encodings.
  *
- * The value of a @ref drgn_object falls into one of a handful of categories.
- * This kind determines which field of a @ref drgn_value is used.
+ * The value of a @ref drgn_object may be encoded in various ways depending on
+ * its type. This determines which field of a @ref drgn_value is used.
  *
- * The incomplete kinds (@ref drgn_object_kind::DRGN_OBJECT_NONE, @ref
- * drgn_object_kind::DRGN_OBJECT_INCOMPLETE_BUFFER, and @ref
- * drgn_object_kind::DRGN_OBJECT_INCOMPLETE_INTEGER) are only possible for
- * reference objects; values have a complete type.
+ * The incomplete encodings are only possible for reference objects; values have
+ * a complete type.
  */
-enum drgn_object_kind {
+enum drgn_object_encoding {
 	/**
 	 * Memory buffer.
 	 *
@@ -1499,57 +1497,58 @@ enum drgn_object_kind {
 	 * array type. The value is a buffer of the contents of that object's
 	 * memory in the program.
 	 */
-	DRGN_OBJECT_BUFFER,
+	DRGN_OBJECT_ENCODING_BUFFER,
 	/**
 	 * Signed integer.
 	 *
 	 * This is used for objects with a signed integer or signed enumerated
 	 * type.
 	 */
-	DRGN_OBJECT_SIGNED,
+	DRGN_OBJECT_ENCODING_SIGNED,
 	/**
 	 * Unsigned integer.
 	 *
 	 * This is used for objects with a unsigned integer, boolean, or pointer
 	 * type.
 	 */
-	DRGN_OBJECT_UNSIGNED,
+	DRGN_OBJECT_ENCODING_UNSIGNED,
 	/**
 	 * Floating-point value.
 	 *
 	 * This used for objects with a floating-point type.
 	 */
-	DRGN_OBJECT_FLOAT,
+	DRGN_OBJECT_ENCODING_FLOAT,
 	/**
 	 * No value.
 	 *
 	 * This is used for reference objects with a void or function type.
 	 */
-	DRGN_OBJECT_NONE = -1,
+	DRGN_OBJECT_ENCODING_NONE = -1,
 	/**
 	 * Incomplete buffer value.
 	 *
 	 * This is used for reference objects with an incomplete structure,
 	 * union, class, or array type.
 	 */
-	DRGN_OBJECT_INCOMPLETE_BUFFER = -2,
+	DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER = -2,
 	/**
 	 * Incomplete integer value.
 	 *
 	 * This is used for reference objects with an incomplete enumerated
 	 * types.
 	 */
-	DRGN_OBJECT_INCOMPLETE_INTEGER = -3,
+	DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER = -3,
 } __attribute__((packed));
 
 /**
- * Return whether a type corresponding to a kind of object is complete.
+ * Return whether a type corresponding to an object encoding is complete.
  *
  * @sa drgn_type_is_complete()
  */
-static inline bool drgn_object_kind_is_complete(enum drgn_object_kind kind)
+static inline bool
+drgn_object_encoding_is_complete(enum drgn_object_encoding encoding)
 {
-	return kind >= DRGN_OBJECT_BUFFER;
+	return encoding >= 0;
 }
 
 /** Byte-order specification. */
@@ -1564,7 +1563,7 @@ enum drgn_byte_order {
 
 /** Value of a @ref drgn_object. */
 union drgn_value {
-	/** @ref drgn_object_kind::DRGN_OBJECT_BUFFER value. */
+	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_BUFFER value. */
 	struct {
 		/** Buffer itself. */
 		union {
@@ -1588,11 +1587,11 @@ union drgn_value {
 		/** Whether the values within the buffer are little-endian. */
 		bool little_endian;
 	};
-	/** @ref drgn_object_kind::DRGN_OBJECT_SIGNED value. */
+	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED value. */
 	int64_t svalue;
-	/** @ref drgn_object_kind::DRGN_OBJECT_UNSIGNED value. */
+	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_UNSIGNED value. */
 	uint64_t uvalue;
-	/** @ref drgn_object_kind::DRGN_OBJECT_FLOAT value. */
+	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_FLOAT value. */
 	double fvalue;
 };
 
@@ -1658,8 +1657,8 @@ struct drgn_object {
 	uint64_t bit_size;
 	/** Qualifiers on @ref drgn_object::type. */
 	enum drgn_qualifiers qualifiers;
-	/** Kind of this object. */
-	enum drgn_object_kind kind;
+	/** How this object is encoded. */
+	enum drgn_object_encoding encoding;
 	/** Whether this object is a reference. */
 	bool is_reference;
 	/** Whether this object is a bit field. */
@@ -2021,8 +2020,8 @@ void drgn_object_deinit_value(const struct drgn_object *obj,
 			      const union drgn_value *value);
 
 /**
- * Get the value of an object with kind @ref
- * drgn_object_kind::DRGN_OBJECT_SIGNED.
+ * Get the value of an object encoded with @ref
+ * drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED.
  *
  * If the object is not a signed integer, an error is returned.
  *
@@ -2034,8 +2033,8 @@ struct drgn_error *drgn_object_read_signed(const struct drgn_object *obj,
 					   int64_t *ret);
 
 /**
- * Get the value of an object with kind @ref
- * drgn_object_kind::DRGN_OBJECT_UNSIGNED.
+ * Get the value of an object encoded with @ref
+ * drgn_object_encoding::DRGN_OBJECT_ENCODING_UNSIGNED.
  *
  * If the object is not an unsigned integer, an error is returned.
  *
@@ -2047,9 +2046,9 @@ struct drgn_error *drgn_object_read_unsigned(const struct drgn_object *obj,
 					     uint64_t *ret);
 
 /**
- * Get the value of an object with kind @ref
- * drgn_object_kind::DRGN_OBJECT_SIGNED or @ref
- * drgn_object_kind::DRGN_OBJECT_UNSIGNED.
+ * Get the value of an object encoded with @ref
+ * drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED or @ref
+ * drgn_object_encoding::DRGN_OBJECT_ENCODING_UNSIGNED.
  *
  * If the object is not an integer, an error is returned.
  *
@@ -2061,8 +2060,8 @@ struct drgn_error *drgn_object_read_integer(const struct drgn_object *obj,
 					    union drgn_value *ret);
 
 /**
- * Get the value of an object with kind @ref
- * drgn_object_kind::DRGN_OBJECT_FLOAT.
+ * Get the value of an object encoded with @ref
+ * drgn_object_encoding::DRGN_OBJECT_ENCODING_FLOAT.
  *
  * If the object does not have a floating-point type, an error is returned.
  *

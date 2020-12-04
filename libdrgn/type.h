@@ -671,8 +671,8 @@ bool drgn_type_is_scalar(struct drgn_type *type);
 struct drgn_error *drgn_type_bit_size(struct drgn_type *type,
 				      uint64_t *ret);
 
-/** Get the appropriate @ref drgn_object_kind for a @ref drgn_type. */
-enum drgn_object_kind drgn_type_object_kind(struct drgn_type *type);
+/** Get the appropriate @ref drgn_object_encoding for a @ref drgn_type. */
+enum drgn_object_encoding drgn_type_object_encoding(struct drgn_type *type);
 
 /** Initialize type-related fields in a @ref drgn_program. */
 void drgn_program_init_types(struct drgn_program *prog);

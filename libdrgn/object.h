@@ -92,38 +92,40 @@ drgn_object_type_qualified(const struct drgn_object_type *type)
  */
 static inline void drgn_object_reinit(struct drgn_object *obj,
 				      const struct drgn_object_type *type,
-				      enum drgn_object_kind kind,
+				      enum drgn_object_encoding encoding,
 				      uint64_t bit_size, bool is_reference)
 {
 	drgn_object_deinit(obj);
 	obj->type = type->type;
 	obj->qualifiers = type->qualifiers;
-	obj->kind = kind;
+	obj->encoding = encoding;
 	obj->bit_size = bit_size;
 	obj->is_bit_field = type->bit_field_size != 0;
 	obj->is_reference = is_reference;
 }
 
 /**
- * Get the @ref drgn_object_kind and size in bits for an object given its type.
+ * Get the @ref drgn_object_encoding and size in bits for an object given its
+ * type.
  */
 struct drgn_error *
-drgn_object_type_kind_and_size(const struct drgn_object_type *type,
-			       enum drgn_object_kind *kind_ret,
-			       uint64_t *bit_size_ret);
+drgn_object_type_encoding_and_size(const struct drgn_object_type *type,
+				   enum drgn_object_encoding *encoding_ret,
+				   uint64_t *bit_size_ret);
 
 /** Prepare to reinitialize an object. */
 struct drgn_error *
 drgn_object_set_common(struct drgn_qualified_type qualified_type,
 		       uint64_t bit_field_size,
 		       struct drgn_object_type *type_ret,
-		       enum drgn_object_kind *kind_ret, uint64_t *bit_size_ret);
+		       enum drgn_object_encoding *encoding_ret,
+		       uint64_t *bit_size_ret);
 
 /**
  * Sanity check that the given bit size and bit field size are valid for the
- * given kind of object.
+ * given object encoding.
  */
-struct drgn_error *sanity_check_object(enum drgn_object_kind kind,
+struct drgn_error *sanity_check_object(enum drgn_object_encoding encoding,
 				       uint64_t bit_field_size,
 				       uint64_t bit_size);
 
@@ -152,9 +154,9 @@ drgn_object_set_unsigned_internal(struct drgn_object *res,
 struct drgn_error *
 drgn_object_set_buffer_internal(struct drgn_object *res,
 				const struct drgn_object_type *type,
-				enum drgn_object_kind kind, uint64_t bit_size,
-				const void *buf, uint8_t bit_offset,
-				bool little_endian);
+				enum drgn_object_encoding encoding,
+				uint64_t bit_size, const void *buf,
+				uint8_t bit_offset, bool little_endian);
 
 /** Convert a @ref drgn_byte_order to a boolean. */
 struct drgn_error *

@@ -706,8 +706,8 @@ c_format_int_object(const struct drgn_object *obj,
 		return NULL;
 	}
 
-	switch (obj->kind) {
-	case DRGN_OBJECT_SIGNED: {
+	switch (obj->encoding) {
+	case DRGN_OBJECT_ENCODING_SIGNED: {
 		int64_t svalue;
 
 		err = drgn_object_read_signed(obj, &svalue);
@@ -717,7 +717,7 @@ c_format_int_object(const struct drgn_object *obj,
 			return &drgn_enomem;
 		return NULL;
 	}
-	case DRGN_OBJECT_UNSIGNED: {
+	case DRGN_OBJECT_ENCODING_UNSIGNED: {
 		uint64_t uvalue;
 
 		err = drgn_object_read_unsigned(obj, &uvalue);
