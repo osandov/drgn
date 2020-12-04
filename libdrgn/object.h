@@ -93,7 +93,8 @@ drgn_object_type_qualified(const struct drgn_object_type *type)
 static inline void drgn_object_reinit(struct drgn_object *obj,
 				      const struct drgn_object_type *type,
 				      enum drgn_object_encoding encoding,
-				      uint64_t bit_size, bool is_reference)
+				      uint64_t bit_size,
+				      enum drgn_object_kind kind)
 {
 	drgn_object_deinit(obj);
 	obj->type = type->type;
@@ -101,7 +102,7 @@ static inline void drgn_object_reinit(struct drgn_object *obj,
 	obj->encoding = encoding;
 	obj->bit_size = bit_size;
 	obj->is_bit_field = type->bit_field_size != 0;
-	obj->is_reference = is_reference;
+	obj->kind = kind;
 }
 
 /**

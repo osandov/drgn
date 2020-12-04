@@ -24,7 +24,7 @@ LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 	obj->bit_size = 0;
 	obj->qualifiers = 0;
 	obj->encoding = DRGN_OBJECT_ENCODING_NONE;
-	obj->is_reference = true;
+	obj->kind = DRGN_OBJECT_REFERENCE;
 	obj->is_bit_field = false;
 	obj->reference.address = 0;
 	obj->reference.bit_offset = 0;
@@ -50,11 +50,11 @@ LIBDRGN_PUBLIC void drgn_object_deinit_value(const struct drgn_object *obj,
 
 LIBDRGN_PUBLIC void drgn_object_deinit(struct drgn_object *obj)
 {
-	if (!obj->is_reference)
+	if (obj->kind == DRGN_OBJECT_VALUE)
 		drgn_value_deinit(obj, &obj->value);
 }
 
-/* Copy everything from src to dst but the program, is_reference, and value. */
+/* Copy everything from src to dst but the program, kind, and value. */
 static inline void drgn_object_reinit_copy(struct drgn_object *dst,
 					   const struct drgn_object *src)
 {
@@ -119,7 +119,7 @@ drgn_object_set_signed_internal(struct drgn_object *res,
 					 bit_size);
 	}
 	drgn_object_reinit(res, type, DRGN_OBJECT_ENCODING_SIGNED, bit_size,
-			   false);
+			   DRGN_OBJECT_VALUE);
 	res->value.svalue = truncate_signed(svalue, bit_size);
 	return NULL;
 }
@@ -156,7 +156,7 @@ drgn_object_set_unsigned_internal(struct drgn_object *res,
 					 bit_size);
 	}
 	drgn_object_reinit(res, type, DRGN_OBJECT_ENCODING_UNSIGNED, bit_size,
-			   false);
+			   DRGN_OBJECT_VALUE);
 	res->value.uvalue = truncate_unsigned(uvalue, bit_size);
 	return NULL;
 }
@@ -193,7 +193,7 @@ drgn_object_set_float_internal(struct drgn_object *res,
 					 bit_size);
 	}
 	drgn_object_reinit(res, type, DRGN_OBJECT_ENCODING_FLOAT, bit_size,
-			   false);
+			   DRGN_OBJECT_VALUE);
 	if (bit_size == 32)
 		res->value.fvalue = (float)fvalue;
 	else
@@ -337,14 +337,15 @@ drgn_object_set_buffer_internal(struct drgn_object *res,
 				return &drgn_enomem;
 		}
 		drgn_object_reinit(res, type, DRGN_OBJECT_ENCODING_BUFFER,
-				   bit_size, false);
+				   bit_size, DRGN_OBJECT_VALUE);
 		memcpy(dst, buf, size);
 		if (dst != res->value.ibuf)
 			res->value.bufp = dst;
 		res->value.bit_offset = bit_offset;
 		res->value.little_endian = little_endian;
 	} else {
-		drgn_object_reinit(res, type, encoding, bit_size, false);
+		drgn_object_reinit(res, type, encoding, bit_size,
+				   DRGN_OBJECT_VALUE);
 		drgn_value_deserialize(&res->value, buf, bit_offset, encoding,
 				       bit_size, little_endian);
 	}
@@ -401,7 +402,8 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 					 "object is too large");
 	}
 
-	drgn_object_reinit(res, type, encoding, bit_size, true);
+	drgn_object_reinit(res, type, encoding, bit_size,
+			   DRGN_OBJECT_REFERENCE);
 	res->reference.address = address;
 	res->reference.bit_offset = bit_offset;
 	res->reference.little_endian = little_endian;
@@ -446,37 +448,42 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 					 "objects are from different programs");
 	}
 
-	if (obj->is_reference) {
-		drgn_object_reinit_copy(res, obj);
-		res->is_reference = true;
-		res->reference = obj->reference;
-	} else if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-		uint64_t size;
-		char *dst;
-		const char *src;
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE:
+		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
+			uint64_t size;
+			char *dst;
+			const char *src;
 
-		size = drgn_buffer_object_size(obj);
-		if (size <= sizeof(obj->value.ibuf)) {
-			dst = res->value.ibuf;
-			src = obj->value.ibuf;
+			size = drgn_buffer_object_size(obj);
+			if (size <= sizeof(obj->value.ibuf)) {
+				dst = res->value.ibuf;
+				src = obj->value.ibuf;
+			} else {
+				dst = malloc64(size);
+				if (!dst)
+					return &drgn_enomem;
+				src = obj->value.bufp;
+			}
+			drgn_object_reinit_copy(res, obj);
+			res->kind = DRGN_OBJECT_VALUE;
+			memcpy(dst, src, size);
+			if (dst != res->value.ibuf)
+				res->value.bufp = dst;
+			res->value.bit_offset = obj->value.bit_offset;
+			res->value.little_endian = obj->value.little_endian;
 		} else {
-			dst = malloc64(size);
-			if (!dst)
-				return &drgn_enomem;
-			src = obj->value.bufp;
+			drgn_object_reinit_copy(res, obj);
+			res->kind = DRGN_OBJECT_VALUE;
+			res->value = obj->value;
 		}
+		break;
+	case DRGN_OBJECT_REFERENCE:
 		drgn_object_reinit_copy(res, obj);
-		res->is_reference = false;
-		memcpy(dst, src, size);
-		if (dst != res->value.ibuf)
-			res->value.bufp = dst;
-		res->value.bit_offset = obj->value.bit_offset;
-		res->value.little_endian = obj->value.little_endian;
-	} else {
-		drgn_object_reinit_copy(res, obj);
-		res->is_reference = false;
-		res->value = obj->value;
-	}
+		res->kind = DRGN_OBJECT_REFERENCE;
+		res->reference = obj->reference;
+		break;
+	)
 	return NULL;
 }
 
@@ -487,19 +494,8 @@ drgn_object_slice_internal(struct drgn_object *res,
 			   enum drgn_object_encoding encoding,
 			   uint64_t bit_size, uint64_t bit_offset)
 {
-	if (obj->is_reference) {
-		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER &&
-		    obj->encoding != DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER) {
-			return drgn_error_create(DRGN_ERROR_TYPE,
-						 "not a buffer object");
-		}
-
-		return drgn_object_set_reference_internal(res, type, encoding,
-							  bit_size,
-							  obj->reference.address,
-							  bit_offset,
-							  obj->reference.little_endian);
-	} else {
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE: {
 		uint64_t bit_end;
 		const char *buf;
 
@@ -507,8 +503,6 @@ drgn_object_slice_internal(struct drgn_object *res,
 			return drgn_error_create(DRGN_ERROR_TYPE,
 						 "not a buffer object");
 		}
-
-		assert(obj->encoding == DRGN_OBJECT_ENCODING_BUFFER);
 
 		if (__builtin_add_overflow(bit_offset, bit_size, &bit_end) ||
 		    bit_end > obj->bit_size) {
@@ -523,6 +517,19 @@ drgn_object_slice_internal(struct drgn_object *res,
 						       bit_offset,
 						       obj->value.little_endian);
 	}
+	case DRGN_OBJECT_REFERENCE:
+		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER &&
+		    obj->encoding != DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER) {
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "not a buffer object");
+		}
+
+		return drgn_object_set_reference_internal(res, type, encoding,
+							  bit_size,
+							  obj->reference.address,
+							  bit_offset,
+							  obj->reference.little_endian);
+	)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -580,7 +587,7 @@ drgn_object_read_reference(const struct drgn_object *obj,
 	struct drgn_error *err;
 	uint64_t size;
 
-	assert(obj->is_reference);
+	assert(obj->kind == DRGN_OBJECT_REFERENCE);
 
 	if (!drgn_object_encoding_is_complete(obj->encoding)) {
 		return drgn_error_incomplete_type("cannot read object with %s type",
@@ -632,7 +639,10 @@ drgn_object_read(struct drgn_object *res, const struct drgn_object *obj)
 {
 	struct drgn_error *err;
 
-	if (obj->is_reference) {
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE:
+		return drgn_object_copy(res, obj);
+	case DRGN_OBJECT_REFERENCE: {
 		union drgn_value value;
 
 		if (drgn_object_program(res) != drgn_object_program(obj)) {
@@ -644,12 +654,11 @@ drgn_object_read(struct drgn_object *res, const struct drgn_object *obj)
 		if (err)
 			return err;
 		drgn_object_reinit_copy(res, obj);
-		res->is_reference = false;
+		res->kind = DRGN_OBJECT_VALUE;
 		res->value = value;
 		return NULL;
-	} else {
-		return drgn_object_copy(res, obj);
 	}
+	)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -658,15 +667,16 @@ drgn_object_read_value(const struct drgn_object *obj, union drgn_value *value,
 {
 	struct drgn_error *err;
 
-	if (obj->is_reference) {
-		err = drgn_object_read_reference(obj, value);
-		if (err)
-			return err;
-		*ret = value;
-	} else {
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE:
 		*ret = &obj->value;
-	}
-	return NULL;
+		return NULL;
+	case DRGN_OBJECT_REFERENCE:
+		err = drgn_object_read_reference(obj, value);
+		if (!err)
+			*ret = value;
+		return err;
+	)
 }
 
 static struct drgn_error *
@@ -797,9 +807,8 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 		} else {
 			max_size = SIZE_MAX;
 		}
-		if (obj->is_reference) {
-			address = obj->reference.address;
-		} else {
+		SWITCH_ENUM(obj->kind,
+		case DRGN_OBJECT_VALUE: {
 			const char *buf;
 			uint64_t value_size;
 			size_t len;
@@ -819,6 +828,10 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 			*ret = str;
 			return NULL;
 		}
+		case DRGN_OBJECT_REFERENCE:
+			address = obj->reference.address;
+			break;
+		)
 		break;
 	default:
 		return drgn_type_error("string() argument must be an array or pointer, not '%s'",
@@ -1107,23 +1120,25 @@ drgn_object_reinterpret(struct drgn_object *res,
 	if (err)
 		return err;
 
-	if (obj->is_reference) {
-		drgn_object_reinit(res, &type, encoding, bit_size, true);
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE:
+		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER) {
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "cannot reinterpret primitive value");
+		}
+		err = drgn_object_slice_internal(res, obj, &type, encoding,
+						 bit_size, 0);
+		if (err)
+			return err;
+		res->value.little_endian = little_endian;
+		return NULL;
+	case DRGN_OBJECT_REFERENCE:
+		drgn_object_reinit(res, &type, encoding, bit_size,
+				   DRGN_OBJECT_REFERENCE);
 		res->reference = obj->reference;
 		res->reference.little_endian = little_endian;
 		return NULL;
-	}
-
-	if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "cannot reinterpret primitive value");
-	}
-	err = drgn_object_slice_internal(res, obj, &type, encoding, bit_size,
-					 0);
-	if (err)
-		return err;
-	res->value.little_endian = little_endian;
-	return NULL;
+	)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1283,10 +1298,13 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 					 "objects are from different programs");
 	}
 
-	if (!obj->is_reference) {
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE:
 		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot take address of value");
-	}
+	case DRGN_OBJECT_REFERENCE:
+		break;
+	)
 
 	if (obj->is_bit_field || obj->reference.bit_offset) {
 		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
@@ -1504,12 +1522,14 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 	case DRGN_OBJECT_ENCODING_BUFFER:
 	case DRGN_OBJECT_ENCODING_NONE:
 	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
-		if (!ptr->is_reference) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "cannot take address of value");
-		}
-		*ret = ptr->reference.address;
-		return NULL;
+		SWITCH_ENUM(ptr->kind,
+		case DRGN_OBJECT_VALUE:
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "cannot get address of value");
+		case DRGN_OBJECT_REFERENCE:
+			*ret = ptr->reference.address;
+			return NULL;
+		)
 	default:
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "invalid operand type for pointer arithmetic");

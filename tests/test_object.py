@@ -485,7 +485,7 @@ class TestValue(MockProgramTestCase):
     def test_incomplete_struct(self):
         self.assertRaisesRegex(
             TypeError,
-            "cannot create object with incomplete structure type",
+            "cannot create value with incomplete structure type",
             Object,
             self.prog,
             self.prog.struct_type("foo"),
@@ -495,7 +495,7 @@ class TestValue(MockProgramTestCase):
     def test_incomplete_union(self):
         self.assertRaisesRegex(
             TypeError,
-            "cannot create object with incomplete union type",
+            "cannot create value with incomplete union type",
             Object,
             self.prog,
             self.prog.union_type("foo"),
@@ -505,7 +505,7 @@ class TestValue(MockProgramTestCase):
     def test_incomplete_class(self):
         self.assertRaisesRegex(
             TypeError,
-            "cannot create object with incomplete class type",
+            "cannot create value with incomplete class type",
             Object,
             self.prog,
             self.prog.class_type("foo"),
@@ -515,7 +515,7 @@ class TestValue(MockProgramTestCase):
     def test_incomplete_enum(self):
         self.assertRaisesRegex(
             TypeError,
-            "cannot create object with incomplete enumerated type",
+            "cannot create value with incomplete enumerated type",
             Object,
             self.prog,
             self.prog.enum_type("foo"),
@@ -525,7 +525,7 @@ class TestValue(MockProgramTestCase):
     def test_incomplete_array(self):
         self.assertRaisesRegex(
             TypeError,
-            "cannot create object with incomplete array type",
+            "cannot create value with incomplete array type",
             Object,
             self.prog,
             self.prog.array_type(self.prog.int_type("int", 4, True)),

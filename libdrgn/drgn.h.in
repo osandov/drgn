@@ -1480,6 +1480,14 @@ struct drgn_error *drgn_program_member_info(struct drgn_program *prog,
  * @{
  */
 
+/** Kinds of objects. */
+enum drgn_object_kind {
+	/** Constant or temporary computed value. */
+	DRGN_OBJECT_VALUE,
+	/** In program memory. */
+	DRGN_OBJECT_REFERENCE,
+} __attribute__((packed));
+
 /**
  * Object encodings.
  *
@@ -1659,8 +1667,8 @@ struct drgn_object {
 	enum drgn_qualifiers qualifiers;
 	/** How this object is encoded. */
 	enum drgn_object_encoding encoding;
-	/** Whether this object is a reference. */
-	bool is_reference;
+	/** Kind of this object. */
+	enum drgn_object_kind kind;
 	/** Whether this object is a bit field. */
 	bool is_bit_field;
 	union {

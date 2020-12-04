@@ -1454,11 +1454,8 @@ c_format_array_object(const struct drgn_object *obj,
 
 	if ((flags & DRGN_FORMAT_OBJECT_STRING) && iter.length &&
 	    is_character_type(iter.element_type.type)) {
-		if (obj->is_reference) {
-			return c_format_string(&drgn_object_program(obj)->reader,
-					       obj->reference.address,
-					       iter.length, sb);
-		} else {
+		SWITCH_ENUM(obj->kind,
+		case DRGN_OBJECT_VALUE: {
 			const unsigned char *buf;
 			uint64_t size, i;
 
@@ -1478,6 +1475,11 @@ c_format_array_object(const struct drgn_object *obj,
 				return &drgn_enomem;
 			return NULL;
 		}
+		case DRGN_OBJECT_REFERENCE:
+			return c_format_string(&drgn_object_program(obj)->reader,
+					       obj->reference.address,
+					       iter.length, sb);
+		)
 	}
 
 	err = drgn_type_bit_size(iter.element_type.type,
@@ -1530,11 +1532,14 @@ static struct drgn_error *
 c_format_function_object(const struct drgn_object *obj,
 			 struct string_builder *sb)
 {
-	/* Function values currently aren't possible anyways. */
-	if (!obj->is_reference) {
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE:
+		/* Function values currently aren't possible anyways. */
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "cannot format function value");
-	}
+	case DRGN_OBJECT_REFERENCE:
+		break;
+	)
 	if (!string_builder_appendf(sb, "0x%" PRIx64, obj->reference.address))
 		return &drgn_enomem;
 	return NULL;
