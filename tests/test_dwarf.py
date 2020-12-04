@@ -3277,8 +3277,8 @@ class TestObjects(TestCase):
                 )
             )
         )
-        self.assertRaisesRegex(
-            LookupError, "could not find address", prog.object, "abort"
+        self.assertEqual(
+            prog.object("abort"), Object(prog, prog.function_type(prog.void_type(), ()))
         )
 
     def test_variable(self):
@@ -3329,9 +3329,7 @@ class TestObjects(TestCase):
                 )
             )
         )
-        self.assertRaisesRegex(
-            LookupError, "could not find address or value", prog.object, "x"
-        )
+        self.assertEqual(prog.object("x"), Object(prog, "int"))
 
     def test_variable_unimplemented_location(self):
         prog = dwarf_program(
