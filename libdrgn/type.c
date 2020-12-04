@@ -1034,7 +1034,7 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	    drgn_type_is_complete(a) != drgn_type_is_complete(b))
 		goto out_false;
 
-	switch (drgn_type_kind(a)) {
+	SWITCH_ENUM(drgn_type_kind(a),
 	/*
 	 * This types are uniquely deduplicated, so if their pointers did not
 	 * compare equal then they are not equal.
@@ -1062,7 +1062,7 @@ static struct drgn_error *drgn_type_eq_impl(struct drgn_type *a,
 	case DRGN_TYPE_ARRAY:
 	case DRGN_TYPE_FUNCTION:
 		break;
-	}
+	)
 
 	if (drgn_type_language(a) != drgn_type_language(b))
 		goto out_false;
@@ -1212,7 +1212,7 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
 					 "cannot get size of incomplete %s type",
 					 drgn_type_kind_spelling[kind]);
 	}
-	switch (kind) {
+	SWITCH_ENUM(kind,
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
 	case DRGN_TYPE_FLOAT:
@@ -1243,8 +1243,7 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
 	case DRGN_TYPE_FUNCTION:
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "cannot get size of function type");
-	}
-	UNREACHABLE();
+	)
 }
 
 struct drgn_error *drgn_type_bit_size(struct drgn_type *type, uint64_t *ret)
@@ -1263,7 +1262,7 @@ struct drgn_error *drgn_type_bit_size(struct drgn_type *type, uint64_t *ret)
 
 enum drgn_object_kind drgn_type_object_kind(struct drgn_type *type)
 {
-	switch (drgn_type_kind(type)) {
+	SWITCH_ENUM(drgn_type_kind(type),
 	case DRGN_TYPE_INT:
 		return (drgn_type_is_signed(type) ? DRGN_OBJECT_SIGNED :
 			DRGN_OBJECT_UNSIGNED);
@@ -1289,8 +1288,7 @@ enum drgn_object_kind drgn_type_object_kind(struct drgn_type *type)
 	case DRGN_TYPE_VOID:
 	case DRGN_TYPE_FUNCTION:
 		return DRGN_OBJECT_NONE;
-	}
-	UNREACHABLE();
+	)
 }
 
 struct drgn_error *drgn_type_error(const char *format, struct drgn_type *type)

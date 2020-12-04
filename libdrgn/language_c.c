@@ -337,7 +337,7 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 		   struct string_callback *name, size_t indent,
 		   struct string_builder *sb)
 {
-	switch (drgn_type_kind(qualified_type.type)) {
+	SWITCH_ENUM(drgn_type_kind(qualified_type.type),
 	case DRGN_TYPE_VOID:
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
@@ -356,8 +356,7 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 		return c_declare_array(qualified_type, name, indent, sb);
 	case DRGN_TYPE_FUNCTION:
 		return c_declare_function(qualified_type, name, indent, sb);
-	}
-	UNREACHABLE();
+	)
 }
 
 static struct drgn_error *
@@ -489,7 +488,7 @@ static struct drgn_error *
 c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 	      struct string_builder *sb)
 {
-	switch (drgn_type_kind(qualified_type.type)) {
+	SWITCH_ENUM(drgn_type_kind(qualified_type.type),
 	case DRGN_TYPE_VOID:
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
@@ -511,8 +510,7 @@ c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 	case DRGN_TYPE_FUNCTION:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "function type cannot be formatted");
-	}
-	UNREACHABLE();
+	)
 }
 
 static struct drgn_error *
@@ -1578,7 +1576,7 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 		    one_line_columns = 0;
 	}
 
-	switch (drgn_type_kind(underlying_type)) {
+	SWITCH_ENUM(drgn_type_kind(underlying_type),
 	case DRGN_TYPE_VOID:
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "cannot format void object");
@@ -1604,9 +1602,9 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 					     multi_line_columns, flags, sb);
 	case DRGN_TYPE_FUNCTION:
 		return c_format_function_object(obj, sb);
-	default:
-		UNREACHABLE();
-	}
+	case DRGN_TYPE_TYPEDEF:
+	case DRGN_TYPE_POINTER:
+	)
 }
 
 struct drgn_error *c_format_object(const struct drgn_object *obj,

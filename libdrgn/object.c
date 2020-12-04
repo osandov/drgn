@@ -278,7 +278,7 @@ struct drgn_error *
 drgn_byte_order_to_little_endian(struct drgn_program *prog,
 				 enum drgn_byte_order byte_order, bool *ret)
 {
-	switch (byte_order) {
+	SWITCH_ENUM_DEFAULT(byte_order,
 	case DRGN_BIG_ENDIAN:
 		*ret = false;
 		return NULL;
@@ -290,7 +290,7 @@ drgn_byte_order_to_little_endian(struct drgn_program *prog,
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "invalid byte order");
-	}
+	)
 }
 
 struct drgn_error *
@@ -1109,18 +1109,16 @@ drgn_object_reinterpret(struct drgn_object *res,
 		return NULL;
 	}
 
-	switch (obj->kind) {
-	case DRGN_OBJECT_BUFFER:
-		err = drgn_object_slice_internal(res, obj, &type, kind,
-						 bit_size, 0);
-		if (err)
-			return err;
-		res->value.little_endian = little_endian;
-		return NULL;
-	default:
+	if (obj->kind != DRGN_OBJECT_BUFFER) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot reinterpret primitive value");
 	}
+	err = drgn_object_slice_internal(res, obj, &type, kind,
+					 bit_size, 0);
+	if (err)
+		return err;
+	res->value.little_endian = little_endian;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
