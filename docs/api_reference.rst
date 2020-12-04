@@ -123,4 +123,5 @@ Exceptions
 
 .. drgndoc:: FaultError
 .. drgndoc:: MissingDebugInfoError
+.. drgndoc:: ObjectNotAvailableError
 .. drgndoc:: OutOfBoundsError

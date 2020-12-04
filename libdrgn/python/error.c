@@ -198,6 +198,9 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 	case DRGN_ERROR_OUT_OF_BOUNDS:
 		PyErr_SetString(OutOfBoundsError, err->message);
 		break;
+	case DRGN_ERROR_OBJECT_NOT_AVAILABLE:
+		PyErr_SetString(ObjectNotAvailableError, err->message);
+		break;
 	default:
 		PyErr_SetString(PyExc_Exception, err->message);
 		break;

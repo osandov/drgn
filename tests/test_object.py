@@ -8,6 +8,7 @@ import struct
 from drgn import (
     FaultError,
     Object,
+    ObjectNotAvailableError,
     OutOfBoundsError,
     Qualifiers,
     Type,
@@ -36,18 +37,11 @@ class TestInit(MockProgramTestCase):
         self.assertRaisesRegex(
             ValueError, "reference must have type", Object, self.prog, address=0
         )
+        self.assertRaisesRegex(
+            ValueError, "unavailable object must have type", Object, self.prog
+        )
 
-    def test_address_xor_value(self):
-        self.assertRaisesRegex(
-            ValueError, "object must have either address or value", Object, self.prog
-        )
-        self.assertRaisesRegex(
-            ValueError,
-            "object must have either address or value",
-            Object,
-            self.prog,
-            "int",
-        )
+    def test_address_nand_value(self):
         self.assertRaisesRegex(
             ValueError,
             "object cannot have address and value",
@@ -83,6 +77,14 @@ class TestInit(MockProgramTestCase):
             value=0,
             byteorder="little",
         )
+        self.assertRaisesRegex(
+            ValueError,
+            "unavailable object cannot have byteorder",
+            Object,
+            self.prog,
+            "int",
+            byteorder="little",
+        )
 
     def test_bit_field_size(self):
         self.assertRaises(
@@ -106,6 +108,14 @@ class TestInit(MockProgramTestCase):
             self.prog,
             "int",
             value=0,
+            bit_offset=4,
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "unavailable object cannot have bit offset",
+            Object,
+            self.prog,
+            "int",
             bit_offset=4,
         )
 
@@ -655,6 +665,85 @@ class TestValue(MockProgramTestCase):
             "int [1]",
             value=[1, 2],
         )
+
+
+class TestUnavailable(MockProgramTestCase):
+    def test_basic(self):
+        for obj in [
+            Object(self.prog, "int"),
+            Object(self.prog, "int", value=None, address=None),
+        ]:
+            self.assertIs(obj.prog_, self.prog)
+            self.assertEqual(obj.type_, self.prog.type("int"))
+            self.assertIsNone(obj.address_)
+            self.assertIsNone(obj.byteorder_)
+            self.assertIsNone(obj.bit_offset_)
+            self.assertIsNone(obj.bit_field_size_)
+            self.assertRaises(ObjectNotAvailableError, obj.value_)
+            self.assertEqual(repr(obj), "Object(prog, 'int')")
+
+            self.assertRaises(ObjectNotAvailableError, obj.read_)
+
+    def test_bit_field(self):
+        obj = Object(self.prog, "int", bit_field_size=1)
+        self.assertIs(obj.prog_, self.prog)
+        self.assertEqual(obj.type_, self.prog.type("int"))
+        self.assertIsNone(obj.address_)
+        self.assertIsNone(obj.byteorder_)
+        self.assertIsNone(obj.bit_offset_)
+        self.assertEqual(obj.bit_field_size_, 1)
+        self.assertEqual(repr(obj), "Object(prog, 'int', bit_field_size=1)")
+
+    def test_operators(self):
+        unavailable = Object(self.prog, "int")
+        obj = Object(self.prog, "int", 1)
+        for op in [
+            operator.lt,
+            operator.le,
+            operator.eq,
+            operator.ge,
+            operator.gt,
+            operator.add,
+            operator.and_,
+            operator.lshift,
+            operator.mod,
+            operator.mul,
+            operator.or_,
+            operator.rshift,
+            operator.sub,
+            operator.truediv,
+            operator.xor,
+        ]:
+            self.assertRaises(ObjectNotAvailableError, op, unavailable, obj)
+            self.assertRaises(ObjectNotAvailableError, op, obj, unavailable)
+
+        for op in [
+            operator.not_,
+            operator.truth,
+            operator.index,
+            operator.inv,
+            operator.neg,
+            operator.pos,
+            round,
+            math.trunc,
+            math.floor,
+            math.ceil,
+        ]:
+            self.assertRaises(ObjectNotAvailableError, op, unavailable)
+
+        self.assertRaises(ObjectNotAvailableError, unavailable.address_of_)
+
+        self.assertRaises(
+            ObjectNotAvailableError,
+            operator.getitem,
+            Object(self.prog, "int [2]"),
+            0,
+        )
+
+        self.assertRaises(
+            ObjectNotAvailableError, Object(self.prog, "char [16]").string_
+        )
+        self.assertRaises(ObjectNotAvailableError, Object(self.prog, "char *").string_)
 
 
 class TestConversions(MockProgramTestCase):
@@ -2245,6 +2334,31 @@ class TestCPretty(MockProgramTestCase):
             address=0xFFFF0000,
         )
         self.assertEqual(str(obj), "(void (void))0xffff0000")
+
+    def test_unavailable(self):
+        self.assertRaises(TypeError, str, Object(self.prog, "void"))
+
+        for type_ in [
+            "int",
+            "char",
+            "_Bool",
+            "double",
+            self.point_type,
+            self.option_type,
+            self.coord_type,
+            self.color_type,
+            "size_t",
+            "void *",
+            "int [2]",
+            self.prog.function_type(self.prog.void_type(), ()),
+        ]:
+            if isinstance(type_, Type):
+                type_name = type_.type_name()
+            else:
+                type_name = type_
+            self.assertEqual(
+                str(Object(self.prog, type_)), f"({type_name})<unavailable>"
+            )
 
 
 class TestGenericOperators(MockProgramTestCase):

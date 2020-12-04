@@ -33,6 +33,9 @@ struct drgn_object_type;
  */
 extern struct drgn_error drgn_stop;
 
+/** Global @ref DRGN_ERROR_OBJECT_NOT_AVAILABLE error. */
+extern struct drgn_error drgn_object_not_available;
+
 struct string_builder;
 
 /**

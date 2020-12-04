@@ -57,7 +57,7 @@ may exist in the memory of the program (a *reference*)::
 
     >>> Object(prog, 'int', address=0xffffffffc09031a0)
 
-Or, an object may be a temporary computed value (a *value*)::
+Or, an object may be a constant or temporary computed value (a *value*)::
 
     >>> Object(prog, 'int', value=4)
 
@@ -138,6 +138,24 @@ address it points to)::
     Object(prog, 'volatile unsigned long *', value=0xffffffffbe405000)
     >>> print(hex(jiffiesp.value_()))
     0xffffffffbe405000
+
+Unavailable Objects
+"""""""""""""""""""
+
+In addition to reference objects and value objects, objects may also be
+*unavailable*.
+
+    >>> Object(prog, "int", value=None, address=None).value_()
+    Traceback (most recent call last):
+      File "<console>", line 1, in <module>
+    _drgn.ObjectNotAvailableError: object not available
+
+This represents an object whose value or address is not known. For example,
+this can happen if the object was optimized out of the program by the compiler.
+
+Any attempt to operate on an unavailable object results in a
+:exc:`drgn.ObjectNotAvailableError` exception, although basic information
+including its type may still be accessed.
 
 Helpers
 ^^^^^^^

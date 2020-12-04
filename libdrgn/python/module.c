@@ -9,6 +9,7 @@
 #include "../path.h"
 
 PyObject *MissingDebugInfoError;
+PyObject *ObjectNotAvailableError;
 PyObject *OutOfBoundsError;
 
 static PyObject *filename_matches(PyObject *self, PyObject *args,
@@ -204,6 +205,15 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (!MissingDebugInfoError)
 		goto err;
 	PyModule_AddObject(m, "MissingDebugInfoError", MissingDebugInfoError);
+
+	ObjectNotAvailableError =
+		PyErr_NewExceptionWithDoc("_drgn.ObjectNotAvailableError",
+					  drgn_ObjectNotAvailableError_DOC,
+					  NULL, NULL);
+	if (!ObjectNotAvailableError)
+		goto err;
+	PyModule_AddObject(m, "ObjectNotAvailableError",
+			   ObjectNotAvailableError);
 
 	OutOfBoundsError = PyErr_NewExceptionWithDoc("_drgn.OutOfBoundsError",
 						     drgn_OutOfBoundsError_DOC,

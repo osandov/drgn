@@ -165,6 +165,7 @@ extern PyTypeObject TypeEnumerator_type;
 extern PyTypeObject TypeMember_type;
 extern PyTypeObject TypeParameter_type;
 extern PyObject *MissingDebugInfoError;
+extern PyObject *ObjectNotAvailableError;
 extern PyObject *OutOfBoundsError;
 
 int add_module_constants(PyObject *m);

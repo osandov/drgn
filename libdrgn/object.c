@@ -24,13 +24,8 @@ LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 	obj->bit_size = 0;
 	obj->qualifiers = 0;
 	obj->encoding = DRGN_OBJECT_ENCODING_NONE;
-	obj->kind = DRGN_OBJECT_REFERENCE;
+	obj->kind = DRGN_OBJECT_UNAVAILABLE;
 	obj->is_bit_field = false;
-	obj->reference.address = 0;
-	obj->reference.bit_offset = 0;
-	/* The endianness doesn't matter, so just use the host endianness. */
-	obj->reference.little_endian =
-		__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
 }
 
 static void drgn_value_deinit(const struct drgn_object *obj,
@@ -438,6 +433,27 @@ drgn_object_set_reference(struct drgn_object *res,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_object_set_unavailable(struct drgn_object *res,
+			    struct drgn_qualified_type qualified_type,
+			    uint64_t bit_field_size)
+{
+	struct drgn_error *err;
+	struct drgn_object_type type;
+	enum drgn_object_encoding encoding;
+	uint64_t bit_size;
+	err = drgn_object_set_common(qualified_type, bit_field_size, &type,
+				     &encoding, &bit_size);
+	if (err)
+		return err;
+	err = sanity_check_object(encoding, type.bit_field_size, bit_size);
+	if (err)
+		return err;
+	drgn_object_reinit(res, &type, encoding, bit_size,
+			   DRGN_OBJECT_UNAVAILABLE);
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 {
 	if (res == obj)
@@ -483,6 +499,9 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 		res->kind = DRGN_OBJECT_REFERENCE;
 		res->reference = obj->reference;
 		break;
+	case DRGN_OBJECT_UNAVAILABLE:
+		drgn_object_reinit_copy(res, obj);
+		res->kind = DRGN_OBJECT_UNAVAILABLE;
 	)
 	return NULL;
 }
@@ -529,6 +548,8 @@ drgn_object_slice_internal(struct drgn_object *res,
 							  obj->reference.address,
 							  bit_offset,
 							  obj->reference.little_endian);
+	case DRGN_OBJECT_UNAVAILABLE:
+		return &drgn_object_not_available;
 	)
 }
 
@@ -658,6 +679,8 @@ drgn_object_read(struct drgn_object *res, const struct drgn_object *obj)
 		res->value = value;
 		return NULL;
 	}
+	case DRGN_OBJECT_UNAVAILABLE:
+		return &drgn_object_not_available;
 	)
 }
 
@@ -676,6 +699,8 @@ drgn_object_read_value(const struct drgn_object *obj, union drgn_value *value,
 		if (!err)
 			*ret = value;
 		return err;
+	case DRGN_OBJECT_UNAVAILABLE:
+		return &drgn_object_not_available;
 	)
 }
 
@@ -831,6 +856,8 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 		case DRGN_OBJECT_REFERENCE:
 			address = obj->reference.address;
 			break;
+		case DRGN_OBJECT_UNAVAILABLE:
+			return &drgn_object_not_available;
 		)
 		break;
 	default:
@@ -1138,6 +1165,8 @@ drgn_object_reinterpret(struct drgn_object *res,
 		res->reference = obj->reference;
 		res->reference.little_endian = little_endian;
 		return NULL;
+	case DRGN_OBJECT_UNAVAILABLE:
+		return &drgn_object_not_available;
 	)
 }
 
@@ -1304,6 +1333,8 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 					 "cannot take address of value");
 	case DRGN_OBJECT_REFERENCE:
 		break;
+	case DRGN_OBJECT_UNAVAILABLE:
+		return &drgn_object_not_available;
 	)
 
 	if (obj->is_bit_field || obj->reference.bit_offset) {
@@ -1529,6 +1560,8 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 		case DRGN_OBJECT_REFERENCE:
 			*ret = ptr->reference.address;
 			return NULL;
+		case DRGN_OBJECT_UNAVAILABLE:
+			return &drgn_object_not_available;
 		)
 	default:
 		return drgn_error_create(DRGN_ERROR_TYPE,

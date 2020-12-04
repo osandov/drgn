@@ -863,8 +863,9 @@ class Language:
 class Object:
     """
     An ``Object`` represents a symbol or value in a program. An object may
-    exist in the memory of the program (a *reference*), or it may be a
-    temporary computed value (a *value*).
+    exist in the memory of the program (a *reference*), it may be a constant or
+    temporary computed value (a *value*), or it may be absent entirely (an
+    *unavailable* object).
 
     All instances of this class have two attributes: :attr:`prog_`, the program
     that the object is from; and :attr:`type_`, the type of the object.
@@ -897,8 +898,8 @@ class Object:
     .. note::
 
         The drgn CLI is set up so that objects are displayed in the "pretty"
-        format instead of with ``repr()`` (which is the default behavior of
-        Python's interactive mode). Therefore, it's usually not necessary to
+        format instead of with ``repr()`` (the latter is the default behavior
+        of Python's interactive mode). Therefore, it's usually not necessary to
         call ``print()`` in the drgn CLI.
 
     Objects support the following operators:
@@ -962,14 +963,16 @@ class Object:
         :param type: The type of the object. If omitted, this is deduced from
             *value* according to the language's rules for literals.
         :param value: The value of this object. See :meth:`value_()`.
-        :param address: The address of this object in the program. Either this
-            or *value* must be given, but not both.
+        :param address: The address of this object in the program. This may not
+            be combined with *value*.
         :param byteorder: Byte order of the object. This should be ``'little'``
             or ``'big'``. The default is ``None``, which indicates the program
-            byte order. This must be ``None`` for primitive values.
+            byte order. This must be ``None`` for primitive values and
+            unavailable objects.
         :param bit_offset: Offset in bits from the object's address to the
             beginning of the object. The default is ``None``, which means no
-            offset. This must be ``None`` for primitive values.
+            offset. This must be ``None`` for primitive values and unavailable
+            objects.
         :param bit_field_size: Size in bits of this object if it is a bit
             field. The default is ``None``, which means the object is not a bit
             field.
@@ -982,7 +985,10 @@ class Object:
     """Type of this object."""
 
     address_: Optional[int]
-    """Address of this object if it is a reference, ``None`` if it is a value."""
+    """
+    Address of this object if it is a reference, ``None`` if it is a value or
+    unavailable.
+    """
 
     byteorder_: Optional[str]
     """
@@ -1750,6 +1756,11 @@ class MissingDebugInfoError(Exception):
     This error is raised when one or more files in a program do not have debug
     information.
     """
+
+    ...
+
+class ObjectNotAvailableError(Exception):
+    """This error is raised when attempting to use an unavailable object."""
 
     ...
 
