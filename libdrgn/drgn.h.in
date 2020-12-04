@@ -911,7 +911,6 @@ struct drgn_error *drgn_format_type(struct drgn_qualified_type qualified_type,
 enum drgn_architecture {
 	DRGN_ARCH_UNKNOWN,
 	DRGN_ARCH_X86_64,
-	DRGN_NUM_ARCH,
 };
 
 /** Flags describing a @ref drgn_platform. */
