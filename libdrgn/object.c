@@ -502,6 +502,7 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 	case DRGN_OBJECT_UNAVAILABLE:
 		drgn_object_reinit_copy(res, obj);
 		res->kind = DRGN_OBJECT_UNAVAILABLE;
+		break;
 	)
 	return NULL;
 }
