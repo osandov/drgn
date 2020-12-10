@@ -211,7 +211,6 @@ set_initial_registers_inactive_task_frame(Dwfl_Thread *thread,
 	struct drgn_error *err;
 	struct drgn_object reg_obj;
 	Dwarf_Word dwarf_regs[5];
-	uint64_t sp;
 
 	drgn_object_init(&reg_obj, drgn_object_program(frame_obj));
 
@@ -225,9 +224,6 @@ set_initial_registers_inactive_task_frame(Dwfl_Thread *thread,
 	}
 
 	err = read_register(&reg_obj, frame_obj, "bp", &dwarf_regs[0]);
-	if (err)
-		goto out;
-	err = drgn_object_read_unsigned(frame_obj, &sp);
 	if (err)
 		goto out;
 	/* rbp is register 6. */
