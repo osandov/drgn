@@ -166,8 +166,6 @@ struct drgn_program {
 	uint64_t page_offset;
 	/* Cached vmemmap. */
 	uint64_t vmemmap;
-	/* Cached THREAD_SIZE. */
-	uint64_t thread_size;
 	/* Page table iterator for linux_helper_read_vm(). */
 	struct pgtable_iterator *pgtable_it;
 	/*
