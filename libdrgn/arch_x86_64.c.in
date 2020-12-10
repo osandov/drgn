@@ -186,10 +186,9 @@ prstatus_set_initial_registers_x86_64(struct drgn_program *prog,
 							size - 112, bswap);
 }
 
-static inline struct drgn_error *read_register(struct drgn_object *reg_obj,
-					       struct drgn_object *frame_obj,
-					       const char *name,
-					       Dwarf_Addr *ret)
+static inline struct drgn_error *
+read_register(struct drgn_object *reg_obj, const struct drgn_object *frame_obj,
+	      const char *name, Dwarf_Addr *ret)
 {
 	struct drgn_error *err;
 	uint64_t reg;
@@ -206,7 +205,7 @@ static inline struct drgn_error *read_register(struct drgn_object *reg_obj,
 
 static struct drgn_error *
 set_initial_registers_inactive_task_frame(Dwfl_Thread *thread,
-					  struct drgn_object *frame_obj)
+					  const struct drgn_object *frame_obj)
 {
 	struct drgn_error *err;
 	struct drgn_object reg_obj;
