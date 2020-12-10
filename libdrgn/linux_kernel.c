@@ -258,25 +258,15 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 
 		if (name_len == strlen("PAGE_OFFSET") &&
 		    memcmp(name, "PAGE_OFFSET", name_len) == 0) {
-			if (!prog->page_offset) {
+			if (prog->page_offset.kind == DRGN_OBJECT_UNAVAILABLE) {
 				if (!prog->has_platform ||
 				    !prog->platform.arch->linux_kernel_get_page_offset)
 					return &drgn_not_found;
-				err = prog->platform.arch->linux_kernel_get_page_offset(prog,
-											&prog->page_offset);
-				if (err) {
-					prog->page_offset = 0;
+				err = prog->platform.arch->linux_kernel_get_page_offset(&prog->page_offset);
+				if (err)
 					return err;
-				}
 			}
-
-			err = drgn_program_find_primitive_type(prog,
-							       DRGN_C_TYPE_UNSIGNED_LONG,
-							       &qualified_type.type);
-			if (err)
-				return err;
-			return drgn_object_set_unsigned(ret, qualified_type,
-							prog->page_offset, 0);
+			return drgn_object_copy(ret, &prog->page_offset);
 		} else if (name_len == strlen("PAGE_SHIFT") &&
 			   memcmp(name, "PAGE_SHIFT", name_len) == 0) {
 			err = drgn_program_find_primitive_type(prog,
@@ -330,24 +320,15 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 						      DRGN_PROGRAM_ENDIAN);
 		} else if (name_len == strlen("vmemmap") &&
 			   memcmp(name, "vmemmap", name_len) == 0) {
-			if (!prog->vmemmap) {
+			if (prog->vmemmap.kind == DRGN_OBJECT_UNAVAILABLE) {
 				if (!prog->has_platform ||
 				    !prog->platform.arch->linux_kernel_get_vmemmap)
 					return &drgn_not_found;
-				err = prog->platform.arch->linux_kernel_get_vmemmap(prog,
-										    &prog->vmemmap);
-				if (err) {
-					prog->vmemmap = 0;
+				err = prog->platform.arch->linux_kernel_get_vmemmap(&prog->vmemmap);
+				if (err)
 					return err;
-				}
 			}
-
-			err = drgn_program_find_type(prog, "struct page *",
-						     NULL, &qualified_type);
-			if (err)
-				return err;
-			return drgn_object_set_unsigned(ret, qualified_type,
-							prog->vmemmap, 0);
+			return drgn_object_copy(ret, &prog->vmemmap);
 		}
 	}
 	return &drgn_not_found;

@@ -75,6 +75,8 @@ void drgn_program_init(struct drgn_program *prog,
 	prog->core_fd = -1;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
+	drgn_object_init(&prog->page_offset, prog);
+	drgn_object_init(&prog->vmemmap, prog);
 }
 
 void drgn_program_deinit(struct drgn_program *prog)
@@ -86,6 +88,9 @@ void drgn_program_deinit(struct drgn_program *prog)
 			drgn_prstatus_map_deinit(&prog->prstatus_map);
 	}
 	free(prog->pgtable_it);
+
+	drgn_object_deinit(&prog->vmemmap);
+	drgn_object_deinit(&prog->page_offset);
 
 	drgn_object_index_deinit(&prog->oindex);
 	drgn_program_deinit_types(prog);

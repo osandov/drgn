@@ -68,10 +68,8 @@ struct drgn_architecture_info {
 							     size_t);
 	struct drgn_error *(*linux_kernel_set_initial_registers)(Dwfl_Thread *,
 								 const struct drgn_object *);
-	struct drgn_error *(*linux_kernel_get_page_offset)(struct drgn_program *,
-							   uint64_t *);
-	struct drgn_error *(*linux_kernel_get_vmemmap)(struct drgn_program *,
-						       uint64_t *);
+	struct drgn_error *(*linux_kernel_get_page_offset)(struct drgn_object *);
+	struct drgn_error *(*linux_kernel_get_vmemmap)(struct drgn_object *);
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *,
 									uint64_t *,
 									uint64_t *);

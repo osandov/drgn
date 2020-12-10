@@ -163,9 +163,9 @@ struct drgn_program {
 	 */
 	struct vmcoreinfo vmcoreinfo;
 	/* Cached PAGE_OFFSET. */
-	uint64_t page_offset;
+	struct drgn_object page_offset;
 	/* Cached vmemmap. */
-	uint64_t vmemmap;
+	struct drgn_object vmemmap;
 	/* Page table iterator for linux_helper_read_vm(). */
 	struct pgtable_iterator *pgtable_it;
 	/*
