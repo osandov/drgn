@@ -175,16 +175,15 @@ class _FormatVisitor(NodeVisitor):
             self._parts.append("\\")
         self._parts.append("]")
 
-    def visit_Index(
-        self, node: ast.Index, parent: Optional[ast.AST], sibling: Optional[ast.AST]
-    ) -> None:
-        self._visit(node.value, node, None)
-
     def visit_Tuple(
         self, node: ast.Tuple, parent: Optional[ast.AST], sibling: Optional[ast.AST]
     ) -> None:
         self._check_ctx_is_load(node)
-        parens = not isinstance(parent, ast.Index)
+        parens = (
+            len(node.elts) == 0
+            or not isinstance(parent, ast.Subscript)
+            or node is not parent.slice
+        )
         if parens:
             self._parts.append("(")
         for i, elt in enumerate(node.elts):

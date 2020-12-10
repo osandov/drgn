@@ -7,6 +7,7 @@ import operator
 import os.path
 import stat
 from typing import (
+    Any,
     Callable,
     Dict,
     Iterable,
@@ -77,6 +78,10 @@ class _PreTransformer(ast.NodeTransformer):
 
     def visit_NameConstant(self, node: ast.NameConstant) -> ast.Constant:
         return ast.copy_location(ast.Constant(node.value), node)
+
+    # Get rid of Index nodes, which are deprecated as of Python 3.9.
+    def visit_Index(self, node: Any) -> Any:
+        return self.visit(node.value)
 
 
 # Once we don't care about Python 3.6, we can replace all of this boilerplate
