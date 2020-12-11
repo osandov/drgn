@@ -16,6 +16,7 @@ from typing import (
     Dict,
     Iterable,
     Iterator,
+    Mapping,
     Optional,
     Sequence,
     Union,
@@ -949,38 +950,75 @@ class Object:
     address from a log file).
     """
 
+    @overload
     def __init__(
         self,
         prog: Program,
-        type: Union[str, Type, None] = None,
-        value: Any = None,
+        type: Union[str, Type],
+        # This should use numbers.Number, but mypy doesn't support it yet; see
+        # python/mypy#3186. Additionally, once mypy supports recursive types,
+        # we can make the Mapping and Sequence item types stricter; see
+        # python/mypy#731.
+        value: Union[IntegerLike, float, bool, Mapping[str, Any], Sequence[Any]],
         *,
-        address: Optional[IntegerLike] = None,
         byteorder: Optional[str] = None,
         bit_offset: Optional[IntegerLike] = None,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> None:
         """
-        Create an ``Object``.
+        Create a value object given its type and value.
 
-        :param prog: The program to create this object in.
-        :param type: The type of the object. If omitted, this is deduced from
-            *value* according to the language's rules for literals.
-        :param value: The value of this object. See :meth:`value_()`.
-        :param address: The address of this object in the program. This may not
-            be combined with *value*.
+        :param prog: Program to create the object in.
+        :param type: Type of the object.
+        :param value: Value of the object. See :meth:`value_()`.
         :param byteorder: Byte order of the object. This should be ``'little'``
             or ``'big'``. The default is ``None``, which indicates the program
-            byte order. This must be ``None`` for primitive values and
-            unavailable objects.
+            byte order. This must be ``None`` for primitive values.
         :param bit_offset: Offset in bits from the object's address to the
             beginning of the object. The default is ``None``, which means no
-            offset. This must be ``None`` for primitive values and unavailable
-            objects.
-        :param bit_field_size: Size in bits of this object if it is a bit
-            field. The default is ``None``, which means the object is not a bit
-            field.
+            offset. This must be ``None`` for primitive values.
+        :param bit_field_size: Size in bits of the object if it is a bit field.
+            The default is ``None``, which means the object is not a bit field.
         """
+        ...
+    @overload
+    def __init__(self, prog: Program, *, value: Union[int, float, bool]) -> None:
+        """
+        Create a value object from a "literal".
+
+        This is used to emulate a literal number in the source code of the
+        program. The type is deduced from *value* according to the language's
+        rules for literals.
+
+        :param value: Value of the literal.
+        """
+        ...
+    @overload
+    def __init__(
+        self,
+        prog: Program,
+        type: Union[str, Type],
+        *,
+        address: IntegerLike,
+        byteorder: Optional[str] = None,
+        bit_offset: Optional[IntegerLike] = None,
+        bit_field_size: Optional[IntegerLike] = None,
+    ) -> None:
+        """
+        Create a reference object.
+
+        :param address: Address of the object in the program.
+        """
+        ...
+    @overload
+    def __init__(
+        self,
+        prog: Program,
+        type: Union[str, Type],
+        *,
+        bit_field_size: Optional[IntegerLike] = None,
+    ) -> None:
+        """Create an unavailable object."""
         ...
     prog_: Program
     """Program that this object is from."""
