@@ -346,7 +346,36 @@ class Formatter:
     ) -> List[str]:
         node = resolved.node
 
-        init_signatures = None
+        lines = []
+
+        if rst:
+            lines.append(f".. py:class:: {name}")
+
+        if node.bases:
+            visitor = _FormatVisitor(
+                self._namespace,
+                self._substitutions,
+                resolved.modules,
+                resolved.classes,
+                context_module,
+                context_class,
+            )
+            bases = [visitor.visit(base, rst) for base in node.bases]
+            if lines:
+                lines.append("")
+            lines.append(("    " if rst else "") + "Bases: " + ", ".join(bases))
+
+        if node.docstring:
+            docstring_lines = node.docstring.splitlines()
+            if lines:
+                lines.append("")
+            if rst:
+                for line in docstring_lines:
+                    lines.append("    " + line)
+            else:
+                lines.extend(docstring_lines)
+
+        init_signatures: Sequence[FunctionSignature] = ()
         try:
             init = resolved.attr("__init__")
         except KeyError:
@@ -358,65 +387,35 @@ class Formatter:
                     for signature in init.node.signatures
                     if signature.docstring is not None
                 ]
+
                 init_context_class = resolved.name
                 if context_class:
                     init_context_class = context_class + "." + init_context_class
 
-        lines = []
-        for i, signature_node in enumerate(init_signatures or (None,)):
-            if i > 0:
+        for i, signature_node in enumerate(init_signatures):
+            if lines:
                 lines.append("")
 
-            signature_lines: Optional[List[str]]
-            if signature_node:
-                signature, signature_lines = self._format_function_signature(
-                    signature_node,
-                    init.modules,
-                    init.classes,
-                    context_module,
-                    init_context_class,
-                    rst,
-                    False,
-                )
-            else:
-                signature = ""
-                signature_lines = None
+            signature, signature_lines = self._format_function_signature(
+                signature_node,
+                init.modules,
+                init.classes,
+                context_module,
+                init_context_class,
+                rst,
+                False,
+            )
 
             if rst:
-                lines.append(f".. py:class:: {name}{signature}")
-                if i > 0:
-                    lines.append("    :noindex:")
+                lines.append(f"    .. py:method:: {name}{signature}")
+                lines.append("        :noindex:")
             elif signature:
                 lines.append(f"{name}{signature}")
-
-            if i == 0:
-                if node.bases:
-                    visitor = _FormatVisitor(
-                        self._namespace,
-                        self._substitutions,
-                        resolved.modules,
-                        resolved.classes,
-                        context_module,
-                        context_class,
-                    )
-                    bases = [visitor.visit(base, rst) for base in node.bases]
-                    if lines:
-                        lines.append("")
-                    lines.append(("    " if rst else "") + "Bases: " + ", ".join(bases))
-
-                assert node.docstring is not None
-                docstring_lines = node.docstring.splitlines()
-                if docstring_lines:
-                    if lines:
-                        lines.append("")
-                    if rst:
-                        for line in docstring_lines:
-                            lines.append("    " + line)
-                    else:
-                        lines.extend(docstring_lines)
-
-            if signature_lines:
-                lines.append("")
+            lines.append("")
+            if rst:
+                for line in signature_lines:
+                    lines.append("    " + line)
+            else:
                 lines.extend(signature_lines)
         return lines
 
