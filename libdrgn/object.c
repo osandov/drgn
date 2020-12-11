@@ -32,7 +32,7 @@ static void drgn_value_deinit(const struct drgn_object *obj,
 			      const union drgn_value *value)
 {
 	if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER &&
-	    !drgn_buffer_object_is_inline(obj))
+	    !drgn_object_is_inline(obj))
 		free(value->bufp);
 }
 
@@ -293,12 +293,52 @@ drgn_byte_order_to_little_endian(struct drgn_program *prog,
 	)
 }
 
+static void copy_bits(void *dst, const void *src, unsigned int bit_offset,
+		      uint64_t bit_size, bool little_endian)
+{
+	unsigned char *d = dst;
+	const unsigned char *s = src;
+	size_t bytes = bit_size / CHAR_BIT;
+	unsigned int bits = bit_size % CHAR_BIT;
+	if (little_endian) {
+		if (bit_offset) {
+			for (size_t i = 0; i < bytes; i++) {
+				d[i] = ((s[i] >> bit_offset) |
+					(s[i + 1] << (CHAR_BIT - bit_offset)));
+			}
+		} else if (d != s) {
+			memcpy(d, s, bytes);
+		}
+		if (bits) {
+			unsigned char c = s[bytes] >> bit_offset;
+			if (bits > CHAR_BIT - bit_offset)
+				c |= s[bytes + 1] << (CHAR_BIT - bit_offset);
+			d[bytes] = c & ((1U << bits) - 1);
+		}
+	} else {
+		if (bit_offset) {
+			for (size_t i = 0; i < bytes; i++) {
+				d[i] = ((s[i] << bit_offset) |
+					(s[i + 1] >> (CHAR_BIT - bit_offset)));
+			}
+		} else if (d != s) {
+			memcpy(d, s, bytes);
+		}
+		if (bits) {
+			unsigned char c = s[bytes] << bit_offset;
+			if (bits > CHAR_BIT - bit_offset)
+				c |= s[bytes + 1] >> (CHAR_BIT - bit_offset);
+			d[bytes] = c & (-1U << (CHAR_BIT - bits));
+		}
+	}
+}
+
 struct drgn_error *
-drgn_object_set_buffer_internal(struct drgn_object *res,
-				const struct drgn_object_type *type,
-				enum drgn_object_encoding encoding,
-				uint64_t bit_size, const void *buf,
-				uint8_t bit_offset, bool little_endian)
+drgn_object_set_from_buffer_internal(struct drgn_object *res,
+				     const struct drgn_object_type *type,
+				     enum drgn_object_encoding encoding,
+				     uint64_t bit_size, const void *buf,
+				     uint64_t bit_offset, bool little_endian)
 {
 	struct drgn_error *err;
 
@@ -310,66 +350,73 @@ drgn_object_set_buffer_internal(struct drgn_object *res,
 	err = sanity_check_object(encoding, type->bit_field_size, bit_size);
 	if (err)
 		return err;
-	if (bit_offset >= 8) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					 "bit offset must be less than 8");
-	}
-	if (bit_size > UINT64_MAX - bit_offset) {
-		return drgn_error_format(DRGN_ERROR_OVERFLOW,
-					 "object is too large");
-	}
 
+	const char *p = (const char *)buf + (bit_offset / CHAR_BIT);
+	bit_offset %= CHAR_BIT;
 	if (encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-		uint64_t size;
-		char *dst;
+		/*
+		 * `buf` may point inside of `drgn_object_buffer(res)`, so copy
+		 * to a temporary value before freeing or modifying the latter.
+		 */
+		union drgn_value value;
+		value.little_endian = little_endian;
 
-		size = drgn_value_size(bit_size, bit_offset);
+		uint64_t size = drgn_value_size(bit_size);
+		char *dst;
 		if (size <= sizeof(res->value.ibuf)) {
-			dst = res->value.ibuf;
+			dst = value.ibuf;
 		} else {
 			dst = malloc64(size);
 			if (!dst)
 				return &drgn_enomem;
+			value.bufp = dst;
 		}
+		copy_bits(dst, p, bit_offset, bit_size, little_endian);
+
 		drgn_object_reinit(res, type, DRGN_OBJECT_ENCODING_BUFFER,
 				   bit_size, DRGN_OBJECT_VALUE);
-		memcpy(dst, buf, size);
-		if (dst != res->value.ibuf)
-			res->value.bufp = dst;
-		res->value.bit_offset = bit_offset;
-		res->value.little_endian = little_endian;
+		res->value = value;
 	} else {
 		drgn_object_reinit(res, type, encoding, bit_size,
 				   DRGN_OBJECT_VALUE);
-		drgn_value_deserialize(&res->value, buf, bit_offset, encoding,
+		drgn_value_deserialize(&res->value, p, bit_offset, encoding,
 				       bit_size, little_endian);
 	}
 	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_object_set_buffer(struct drgn_object *res,
-		       struct drgn_qualified_type qualified_type,
-		       const void *buf, uint8_t bit_offset,
-		       uint64_t bit_field_size, enum drgn_byte_order byte_order)
+drgn_object_set_from_buffer(struct drgn_object *res,
+			    struct drgn_qualified_type qualified_type,
+			    const void *buf, size_t buf_size,
+			    uint64_t bit_offset, uint64_t bit_field_size,
+			    enum drgn_byte_order byte_order)
 {
 	struct drgn_error *err;
-	bool little_endian;
-	struct drgn_object_type type;
-	enum drgn_object_encoding encoding;
-	uint64_t bit_size;
 
+	bool little_endian;
 	err = drgn_byte_order_to_little_endian(drgn_object_program(res),
 					       byte_order, &little_endian);
 	if (err)
 		return err;
 
+	struct drgn_object_type type;
+	enum drgn_object_encoding encoding;
+	uint64_t bit_size;
 	err = drgn_object_set_common(qualified_type, bit_field_size, &type,
 				     &encoding, &bit_size);
 	if (err)
 		return err;
-	return drgn_object_set_buffer_internal(res, &type, encoding, bit_size,
-					       buf, bit_offset, little_endian);
+
+	if (bit_size > UINT64_MAX - bit_offset ||
+	    buf_size < drgn_value_size(bit_offset + bit_size)) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "buffer is too small");
+	}
+
+	return drgn_object_set_from_buffer_internal(res, &type, encoding,
+						    bit_size, buf, bit_offset,
+						    little_endian);
 }
 
 static struct drgn_error *
@@ -467,16 +514,14 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 	SWITCH_ENUM(obj->kind,
 	case DRGN_OBJECT_VALUE:
 		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-			uint64_t size;
+			size_t size = drgn_object_size(obj);
 			char *dst;
 			const char *src;
-
-			size = drgn_buffer_object_size(obj);
 			if (size <= sizeof(obj->value.ibuf)) {
 				dst = res->value.ibuf;
 				src = obj->value.ibuf;
 			} else {
-				dst = malloc64(size);
+				dst = malloc(size);
 				if (!dst)
 					return &drgn_enomem;
 				src = obj->value.bufp;
@@ -486,7 +531,6 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 			memcpy(dst, src, size);
 			if (dst != res->value.ibuf)
 				res->value.bufp = dst;
-			res->value.bit_offset = obj->value.bit_offset;
 			res->value.little_endian = obj->value.little_endian;
 		} else {
 			drgn_object_reinit_copy(res, obj);
@@ -516,26 +560,22 @@ drgn_object_slice_internal(struct drgn_object *res,
 {
 	SWITCH_ENUM(obj->kind,
 	case DRGN_OBJECT_VALUE: {
-		uint64_t bit_end;
-		const char *buf;
-
 		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER) {
 			return drgn_error_create(DRGN_ERROR_TYPE,
 						 "not a buffer object");
 		}
 
+		uint64_t bit_end;
 		if (__builtin_add_overflow(bit_offset, bit_size, &bit_end) ||
 		    bit_end > obj->bit_size) {
 			return drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,
 						 "out of bounds of value");
 		}
-		bit_offset += obj->value.bit_offset;
-		buf = drgn_object_buffer(obj) + bit_offset / 8;
-		bit_offset %= 8;
-		return drgn_object_set_buffer_internal(res, type, encoding,
-						       bit_size, buf,
-						       bit_offset,
-						       obj->value.little_endian);
+		return drgn_object_set_from_buffer_internal(res, type, encoding,
+							    bit_size,
+							    drgn_object_buffer(obj),
+							    bit_offset,
+							    obj->value.little_endian);
 	}
 	case DRGN_OBJECT_REFERENCE:
 		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER &&
@@ -607,7 +647,6 @@ drgn_object_read_reference(const struct drgn_object *obj,
 				union drgn_value *value)
 {
 	struct drgn_error *err;
-	uint64_t size;
 
 	assert(obj->kind == DRGN_OBJECT_REFERENCE);
 
@@ -616,42 +655,56 @@ drgn_object_read_reference(const struct drgn_object *obj,
 						  obj->type);
 	}
 
-	size = drgn_reference_object_size(obj);
-	if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-		char *buf;
+	uint64_t bit_size = obj->bit_size;
+	uint8_t bit_offset = obj->reference.bit_offset;
+	uint64_t read_size;
+	if (bit_offset == 0)
+		read_size = drgn_object_size(obj);
+	else
+		read_size = drgn_value_size(bit_offset + bit_size);
 
-		if (size <= sizeof(value->ibuf)) {
+	if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
+		char ibuf_offset[sizeof(value->ibuf) + 1];
+		char *buf, *read_buf;
+		if (read_size <= sizeof(value->ibuf)) {
+			buf = read_buf = value->ibuf;
+		} else if (drgn_object_is_inline(obj)) {
+			/*
+			 * The value fits inside of the inline buffer, but it is
+			 * offset, so we need to read an additional byte. Read
+			 * it into an on-stack buffer first.
+			 */
 			buf = value->ibuf;
+			read_buf = ibuf_offset;
 		} else {
-			buf = malloc64(size);
+			buf = read_buf = malloc64(read_size);
 			if (!buf)
 				return &drgn_enomem;
 		}
 		err = drgn_memory_reader_read(&drgn_object_program(obj)->reader,
-					      buf, obj->reference.address, size,
-					      false);
+					      read_buf, obj->reference.address,
+					      read_size, false);
 		if (err) {
 			if (buf != value->ibuf)
 				free(buf);
 			return err;
 		}
+		copy_bits(buf, read_buf, bit_offset, bit_size,
+			  obj->reference.little_endian);
 		if (buf != value->ibuf)
 			value->bufp = buf;
-		value->bit_offset = obj->reference.bit_offset;
 		value->little_endian = obj->reference.little_endian;
 		return NULL;
 	} else {
 		char buf[9];
-
-		assert(size <= sizeof(buf));
+		assert(read_size <= sizeof(buf));
 		err = drgn_memory_reader_read(&drgn_object_program(obj)->reader,
-					      buf, obj->reference.address, size,
-					      false);
+					      buf, obj->reference.address,
+					      read_size, false);
 		if (err)
 			return err;
-		drgn_value_deserialize(value, buf, obj->reference.bit_offset,
-				       obj->encoding, obj->bit_size,
-				       obj->reference.little_endian);
+		drgn_value_deserialize(value, buf, bit_offset, obj->encoding,
+				       bit_size, obj->reference.little_endian);
 		return NULL;
 	}
 }
@@ -841,7 +894,7 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 			char *p, *str;
 
 			buf = drgn_object_buffer(obj);
-			value_size = drgn_buffer_object_size(obj);
+			value_size = drgn_object_size(obj);
 			len = min(value_size, (uint64_t)max_size);
 			p = memchr(buf, 0, len);
 			if (p)

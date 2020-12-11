@@ -314,10 +314,10 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 			if (err)
 				return err;
 			qualified_type.qualifiers = 0;
-			return drgn_object_set_buffer(ret, qualified_type,
-						      prog->vmcoreinfo.osrelease,
-						      0, 0,
-						      DRGN_PROGRAM_ENDIAN);
+			return drgn_object_set_from_buffer(ret, qualified_type,
+							   prog->vmcoreinfo.osrelease,
+							   len + 1, 0, 0,
+							   DRGN_PROGRAM_ENDIAN);
 		} else if (name_len == strlen("vmemmap") &&
 			   memcmp(name, "vmemmap", name_len) == 0) {
 			if (prog->vmemmap.kind == DRGN_OBJECT_UNAVAILABLE) {

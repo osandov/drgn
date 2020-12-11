@@ -1462,7 +1462,7 @@ c_format_array_object(const struct drgn_object *obj,
 			if (!string_builder_appendc(sb, '"'))
 				return &drgn_enomem;
 			buf = (const unsigned char *)drgn_object_buffer(obj);
-			size = drgn_buffer_object_size(obj);
+			size = drgn_object_size(obj);
 			for (i = 0; i < size; i++) {
 				if (buf[i] == '\0')
 					break;

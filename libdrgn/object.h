@@ -149,15 +149,15 @@ drgn_object_set_unsigned_internal(struct drgn_object *res,
 				  uint64_t bit_size, uint64_t uvalue);
 
 /**
- * Like @ref drgn_object_set_buffer() but @ref drgn_object_set_common() was
- * already called.
+ * Like @ref drgn_object_set_from_buffer() but @ref drgn_object_set_common() was
+ * already called and the bounds of the buffer have already been checked.
  */
 struct drgn_error *
-drgn_object_set_buffer_internal(struct drgn_object *res,
-				const struct drgn_object_type *type,
-				enum drgn_object_encoding encoding,
-				uint64_t bit_size, const void *buf,
-				uint8_t bit_offset, bool little_endian);
+drgn_object_set_from_buffer_internal(struct drgn_object *res,
+				     const struct drgn_object_type *type,
+				     enum drgn_object_encoding encoding,
+				     uint64_t bit_size, const void *buf,
+				     uint64_t bit_offset, bool little_endian);
 
 /** Convert a @ref drgn_byte_order to a boolean. */
 struct drgn_error *

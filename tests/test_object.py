@@ -103,11 +103,20 @@ class TestInit(MockProgramTestCase):
     def test_bit_offset(self):
         self.assertRaisesRegex(
             ValueError,
-            "primitive value cannot have bit offset",
+            "value cannot have bit offset",
             Object,
             self.prog,
             "int",
             value=0,
+            bit_offset=4,
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "value cannot have bit offset",
+            Object,
+            self.prog,
+            self.point_type,
+            value={},
             bit_offset=4,
         )
         self.assertRaisesRegex(
@@ -271,6 +280,41 @@ class TestReference(MockProgramTestCase):
         self.assertEqual(
             obj.value_(), {"point": {"x": 99, "y": -1}, "bar": 12345, "baz": 0}
         )
+
+    def test_read_struct_bit_offset(self):
+        value = 12345678912345678989
+        for bit_size in range(1, 65):
+            for bit_offset in range(8):
+                size = (bit_size + bit_offset + 7) // 8
+                size_mask = (1 << (8 * size)) - 1
+                for byteorder in ["little", "big"]:
+                    if byteorder == "little":
+                        tmp = value << bit_offset
+                    else:
+                        tmp = value << (8 - bit_size - bit_offset) % 8
+                    tmp &= size_mask
+                    buf = tmp.to_bytes(size, byteorder) + b"\0"
+                    prog = mock_program(segments=[MockMemorySegment(buf, 0)])
+                    obj = Object(
+                        prog,
+                        prog.struct_type(
+                            None,
+                            (bit_size + 7) // 8,
+                            (
+                                TypeMember(
+                                    prog.type("unsigned long long"),
+                                    "x",
+                                    bit_field_size=bit_size,
+                                ),
+                            ),
+                        ),
+                        address=0,
+                        bit_offset=bit_offset,
+                        byteorder=byteorder,
+                    )
+                    self.assertEqual(
+                        obj.read_().x.value_(), value & ((1 << bit_size) - 1)
+                    )
 
     def test_array(self):
         segment = bytearray()

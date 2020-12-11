@@ -305,16 +305,12 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 
 static int buffer_object_from_value(struct drgn_object *res,
 				    struct drgn_qualified_type qualified_type,
-				    PyObject *value_obj, uint64_t bit_offset,
+				    PyObject *value_obj,
 				    enum drgn_byte_order byte_order)
 {
 	struct drgn_error *err;
-	union drgn_value value;
-	struct drgn_object_type type;
-	enum drgn_object_encoding encoding;
-	uint64_t bit_size, size;
-	char *buf;
 
+	union drgn_value value;
 	err = drgn_byte_order_to_little_endian(drgn_object_program(res),
 					       byte_order,
 					       &value.little_endian);
@@ -323,6 +319,9 @@ static int buffer_object_from_value(struct drgn_object *res,
 		return -1;
 	}
 
+	struct drgn_object_type type;
+	enum drgn_object_encoding encoding;
+	uint64_t bit_size;
 	err = drgn_object_set_common(qualified_type, 0, &type, &encoding,
 				     &bit_size);
 	if (err) {
@@ -330,25 +329,16 @@ static int buffer_object_from_value(struct drgn_object *res,
 		return -1;
 	}
 
-	if (bit_offset >= 8) {
-		PyErr_SetString(PyExc_ValueError,
-				"bit offset must be less than 8");
-		return -1;
-	}
-	if (bit_size > UINT64_MAX - bit_offset) {
-		PyErr_SetString(PyExc_OverflowError, "object is too large");
-		return -1;
-	}
-
-	size = drgn_value_size(bit_size, bit_offset);
+	uint64_t size = drgn_value_size(bit_size);
 	if (size > SIZE_MAX) {
 		PyErr_NoMemory();
 		return -1;
 	}
+	char *buf;
 	if (size <= sizeof(value.ibuf)) {
 		buf = value.ibuf;
 	} else {
-		buf = malloc(size);
+		buf = malloc64(size);
 		if (!buf) {
 			PyErr_NoMemory();
 			return -1;
@@ -356,11 +346,9 @@ static int buffer_object_from_value(struct drgn_object *res,
 		value.bufp = buf;
 	}
 	memset(buf, 0, size);
-	value.bit_offset = bit_offset;
 
-	if (serialize_py_object(drgn_object_program(res), buf,
-				bit_offset + bit_size, bit_offset, value_obj,
-				&type, value.little_endian) == -1) {
+	if (serialize_py_object(drgn_object_program(res), buf, bit_size, 0,
+				value_obj, &type, value.little_endian) == -1) {
 		if (buf != value.ibuf)
 			free(buf);
 		return -1;
@@ -459,9 +447,14 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 		}
 		err = NULL;
 	} else if (value_obj != Py_None) {
-		enum drgn_object_encoding encoding;
+		if (!bit_offset.is_none) {
+			PyErr_SetString(PyExc_ValueError,
+					"value cannot have bit offset");
+			goto err;
+		}
 
-		encoding = drgn_type_object_encoding(qualified_type.type);
+		enum drgn_object_encoding encoding =
+			drgn_type_object_encoding(qualified_type.type);
 		if (!drgn_object_encoding_is_complete(encoding)) {
 			err = drgn_error_incomplete_type("cannot create value with %s type",
 							 qualified_type.type);
@@ -476,24 +469,16 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 					"bit field must be integer");
 			goto err;
 		}
-		if (encoding != DRGN_OBJECT_ENCODING_BUFFER) {
-			if (!byteorder.is_none) {
-				PyErr_SetString(PyExc_ValueError,
-						"primitive value cannot have byteorder");
-				goto err;
-			}
-			if (!bit_offset.is_none) {
-				PyErr_SetString(PyExc_ValueError,
-						"primitive value cannot have bit offset");
-				goto err;
-			}
+		if (encoding != DRGN_OBJECT_ENCODING_BUFFER && !byteorder.is_none) {
+			PyErr_SetString(PyExc_ValueError,
+					"primitive value cannot have byteorder");
+			goto err;
 		}
 
 		switch (encoding) {
 		case DRGN_OBJECT_ENCODING_BUFFER:
 			if (buffer_object_from_value(&obj->obj, qualified_type,
 						     value_obj,
-						     bit_offset.uvalue,
 						     byteorder.value) == -1)
 				goto err;
 			err = NULL;
@@ -903,14 +888,10 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 			goto out;
 		}
 		Py_DECREF(tmp);
-		if (self->obj.encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-			if (append_byte_order(parts,
-					      drgn_object_program(&self->obj),
-					      self->obj.value.little_endian) == -1 ||
-			    append_bit_offset(parts,
-					      self->obj.value.bit_offset) == -1)
-				goto out;
-		}
+		if (self->obj.encoding == DRGN_OBJECT_ENCODING_BUFFER &&
+		    append_byte_order(parts, drgn_object_program(&self->obj),
+				      self->obj.value.little_endian) == -1)
+			goto out;
 		break;
 	}
 	case DRGN_OBJECT_REFERENCE: {
@@ -1091,13 +1072,9 @@ static PyObject *DrgnObject_get_byteorder(DrgnObject *self, void *arg)
 static PyObject *DrgnObject_get_bit_offset(DrgnObject *self, void *arg)
 {
 	SWITCH_ENUM(self->obj.kind,
-	case DRGN_OBJECT_VALUE:
-		if (self->obj.encoding == DRGN_OBJECT_ENCODING_BUFFER)
-			return PyLong_FromLong(self->obj.value.bit_offset);
-		else
-			Py_RETURN_NONE;
 	case DRGN_OBJECT_REFERENCE:
 		return PyLong_FromLong(self->obj.reference.bit_offset);
+	case DRGN_OBJECT_VALUE:
 	case DRGN_OBJECT_UNAVAILABLE:
 		Py_RETURN_NONE;
 	)

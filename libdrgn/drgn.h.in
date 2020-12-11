@@ -1590,12 +1590,6 @@ union drgn_value {
 			 */
 			char ibuf[8];
 		};
-		/**
-		 * Offset of the value from the beginning of the buffer.
-		 *
-		 * This is always less than 8, but usually 0.
-		 */
-		uint8_t bit_offset;
 		/** Whether the values within the buffer are little-endian. */
 		bool little_endian;
 	};
@@ -1608,36 +1602,24 @@ union drgn_value {
 };
 
 /**
- * Return the number of bytes needed to store a given number of bits starting at
- * a given offset.
+ * Return the number of bytes needed to store the given number of bits.
  *
- * This assumes that <tt>bit_size + bit_offset</tt> does not overflow a 64-bit
- * integer, which is guaranteed to be true for object values.
- *
- * @param[in] bit_size Size in bits of the value.
- * @param[in] bit_offset Offset of the value from the beginning of the buffer.
+ * @param[in] bits Number of bits.
  */
-static inline uint64_t drgn_value_size(uint64_t bit_size, uint64_t bit_offset)
+static inline uint64_t drgn_value_size(uint64_t bits)
 {
-	uint64_t bits = bit_size + bit_offset;
-
-	return bits / 8 + (bits % 8 ? 1 : 0);
+	return bits / CHAR_BIT + (bits % CHAR_BIT ? 1 : 0);
 }
 
 /**
- * Return whether a buffer value uses the inline buffer (@ref drgn_value::ibuf).
+ * Return whether the given number of bits can be stored in the inline buffer of
+ * a @ref drgn_value (@ref drgn_value::ibuf).
  *
- * This assumes that <tt>bit_size + bit_offset</tt> does not overflow a 64-bit
- * integer, which is guaranteed to be true for object values.
- *
- * @param[in] bit_size Size in bits of the value.
- * @param[in] bit_offset Offset of the value from the beginning of the buffer.
+ * @param[in] bits Number of bits.
  */
-static inline bool drgn_value_is_inline(uint64_t bit_size, uint64_t bit_offset)
+static inline bool drgn_value_is_inline(uint64_t bits)
 {
-	uint64_t bits = bit_size + bit_offset;
-
-	return bits <= 8 * sizeof(((union drgn_value *)0)->ibuf);
+	return bits <= CHAR_BIT * sizeof(((union drgn_value *)0)->ibuf);
 }
 
 /**
@@ -1694,33 +1676,25 @@ struct drgn_object {
 	};
 };
 
-/** Return the size of a buffer object in bytes. */
-static inline uint64_t drgn_buffer_object_size(const struct drgn_object *obj)
+/** Return the number of bytes needed to store an object's value. */
+static inline uint64_t drgn_object_size(const struct drgn_object *obj)
 {
-	return drgn_value_size(obj->bit_size, obj->value.bit_offset);
-}
-
-/** Return the referenced size of a reference object in bytes. */
-static inline uint64_t drgn_reference_object_size(const struct drgn_object *obj)
-{
-	return drgn_value_size(obj->bit_size, obj->reference.bit_offset);
+	return drgn_value_size(obj->bit_size);
 }
 
 /**
- * Return whether an object's value uses the inline buffer (@ref
- * drgn_value::ibuf).
+ * Return whether an object's value can be stored in the inline buffer of a @ref
+ * drgn_value (@ref drgn_value::ibuf).
  */
-static inline bool drgn_buffer_object_is_inline(const struct drgn_object *obj)
+static inline bool drgn_object_is_inline(const struct drgn_object *obj)
 {
-	return drgn_value_is_inline(obj->bit_size, obj->value.bit_offset);
+	return drgn_value_is_inline(obj->bit_size);
 }
 
 /** Return an object's buffer. */
-#define drgn_object_buffer(obj) ({					\
-	__auto_type _obj = (obj);					\
-									\
-	(drgn_buffer_object_is_inline(_obj) ? _obj->value.ibuf :	\
-	 _obj->value.bufp);						\
+#define drgn_object_buffer(obj) ({						\
+	__auto_type _obj = (obj);						\
+	drgn_object_is_inline(_obj) ? _obj->value.ibuf : _obj->value.bufp;	\
 })
 
 /** Get the type of a @ref drgn_object. */
@@ -1822,27 +1796,28 @@ drgn_object_set_float(struct drgn_object *res,
 		      struct drgn_qualified_type qualified_type, double fvalue);
 
 /**
- * Set a @ref drgn_object to a buffer value.
+ * Set a @ref drgn_object from a buffer.
  *
  * @param[out] res Object to set.
  * @param[in] qualified_type Type to set to.
- * @param[in] buf Buffer to set to. It must be at least
- * <tt>bit_size + bit_offset</tt> bits large, where @c bit_size is @p
- * bit_field_size if non-zero and the size of @p qualified_type otherwise. It is
- * copied, so it need not remain valid after this function returns.
- * @param[in] bit_offset Offset of the value from the beginning of the buffer.
- * This must be less than 8 (and is usually 0).
+ * @param[in] buf Buffer to set to. It is copied, so it need not remain valid
+ * after this function returns.
+ * @param[in] buf_size Size of @p buf, in bytes. `buf_size * 8` must be at least
+ * `bit_size + bit_offset`, where @c bit_size is @p bit_field_size if non-zero
+ * and the size of @p qualified_type in bits otherwise.
+ * @param[in] bit_offset Offset of the value from the beginning of the buffer,
+ * in bits. This is usually 0.
  * @param[in] bit_field_size If the object should be a bit field, its size in
  * bits. Otherwise, 0.
  * @param[in] byte_order Byte order of the result.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_object_set_buffer(struct drgn_object *res,
-		       struct drgn_qualified_type qualified_type,
-		       const void *buf, uint8_t bit_offset,
-		       uint64_t bit_field_size,
-		       enum drgn_byte_order byte_order);
+drgn_object_set_from_buffer(struct drgn_object *res,
+			    struct drgn_qualified_type qualified_type,
+			    const void *buf, size_t buf_size,
+			    uint64_t bit_offset, uint64_t bit_field_size,
+			    enum drgn_byte_order byte_order);
 
 /**
  * Set a @ref drgn_object to a reference.
@@ -1850,8 +1825,8 @@ drgn_object_set_buffer(struct drgn_object *res,
  * @param[out] res Object to set.
  * @param[in] qualified_type Type to set to.
  * @param[in] address Address of the object.
- * @param[in] bit_offset Offset of the value from @p address. This may be
- * greater than or equal to 8.
+ * @param[in] bit_offset Offset of the value from @p address, in bits. This is
+ * usually 0.
  * @param[in] bit_field_size If the object should be a bit field, its size in
  * bits. Otherwise, 0.
  * @param[in] byte_order Byte order of the result.

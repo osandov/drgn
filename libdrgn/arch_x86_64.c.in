@@ -164,7 +164,7 @@ pt_regs_set_initial_registers_x86_64(Dwfl_Thread *thread,
 		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
 	return set_initial_registers_from_struct_x86_64(thread,
 							drgn_object_buffer(obj),
-							drgn_buffer_object_size(obj),
+							drgn_object_size(obj),
 							bswap);
 }
 

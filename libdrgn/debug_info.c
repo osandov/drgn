@@ -2387,13 +2387,14 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		err = dwarf_die_is_little_endian(die, true, &little_endian);
 		if (err)
 			return err;
-		if (block.length < drgn_value_size(bit_size, 0)) {
+		if (block.length < drgn_value_size(bit_size)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_AT_const_value block is too small");
 		}
-		return drgn_object_set_buffer_internal(ret, &type, encoding,
-						       bit_size, block.data, 0,
-						       little_endian);
+		return drgn_object_set_from_buffer_internal(ret, &type,
+							    encoding, bit_size,
+							    block.data, 0,
+							    little_endian);
 	} else if (encoding == DRGN_OBJECT_ENCODING_SIGNED) {
 		Dwarf_Sword svalue;
 		if (dwarf_formsdata(attr, &svalue)) {

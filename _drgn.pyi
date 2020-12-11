@@ -962,7 +962,6 @@ class Object:
         value: Union[IntegerLike, float, bool, Mapping[str, Any], Sequence[Any]],
         *,
         byteorder: Optional[str] = None,
-        bit_offset: Optional[IntegerLike] = None,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> None:
         """
@@ -974,9 +973,6 @@ class Object:
         :param byteorder: Byte order of the object. This should be ``'little'``
             or ``'big'``. The default is ``None``, which indicates the program
             byte order. This must be ``None`` for primitive values.
-        :param bit_offset: Offset in bits from the object's address to the
-            beginning of the object. The default is ``None``, which means no
-            offset. This must be ``None`` for primitive values.
         :param bit_field_size: Size in bits of the object if it is a bit field.
             The default is ``None``, which means the object is not a bit field.
         """
@@ -1001,13 +997,15 @@ class Object:
         *,
         address: IntegerLike,
         byteorder: Optional[str] = None,
-        bit_offset: Optional[IntegerLike] = None,
+        bit_offset: IntegerLike = 0,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> None:
         """
         Create a reference object.
 
         :param address: Address of the object in the program.
+        :param bit_offset: Offset in bits from *address* to the beginning of
+            the object.
         """
         ...
     @overload
@@ -1041,7 +1039,7 @@ class Object:
     bit_offset_: Optional[int]
     """
     Offset in bits from this object's address to the beginning of the object if
-    it is a reference or a non-primitive value, ``None`` otherwise.
+    it is a reference, ``None`` otherwise.
     """
 
     bit_field_size_: Optional[int]
