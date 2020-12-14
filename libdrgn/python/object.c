@@ -310,10 +310,9 @@ static int buffer_object_from_value(struct drgn_object *res,
 {
 	struct drgn_error *err;
 
-	union drgn_value value;
+	bool little_endian;
 	err = drgn_byte_order_to_little_endian(drgn_object_program(res),
-					       byte_order,
-					       &value.little_endian);
+					       byte_order, &little_endian);
 	if (err) {
 		set_drgn_error(err);
 		return -1;
@@ -334,6 +333,7 @@ static int buffer_object_from_value(struct drgn_object *res,
 		PyErr_NoMemory();
 		return -1;
 	}
+	union drgn_value value;
 	char *buf;
 	if (size <= sizeof(value.ibuf)) {
 		buf = value.ibuf;
@@ -348,7 +348,7 @@ static int buffer_object_from_value(struct drgn_object *res,
 	memset(buf, 0, size);
 
 	if (serialize_py_object(drgn_object_program(res), buf, bit_size, 0,
-				value_obj, &type, value.little_endian) == -1) {
+				value_obj, &type, little_endian) == -1) {
 		if (buf != value.ibuf)
 			free(buf);
 		return -1;
@@ -356,6 +356,7 @@ static int buffer_object_from_value(struct drgn_object *res,
 
 	drgn_object_reinit(res, &type, encoding, bit_size, DRGN_OBJECT_VALUE);
 	res->value = value;
+	res->little_endian = little_endian;
 	return 0;
 }
 
@@ -890,20 +891,18 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 		Py_DECREF(tmp);
 		if (self->obj.encoding == DRGN_OBJECT_ENCODING_BUFFER &&
 		    append_byte_order(parts, drgn_object_program(&self->obj),
-				      self->obj.value.little_endian) == -1)
+				      self->obj.little_endian) == -1)
 			goto out;
 		break;
 	}
 	case DRGN_OBJECT_REFERENCE: {
 		char buf[17];
-		snprintf(buf, sizeof(buf), "%" PRIx64,
-			 self->obj.reference.address);
+		snprintf(buf, sizeof(buf), "%" PRIx64, self->obj.address);
 		if (append_format(parts, ", address=0x%s", buf) == -1)
 			goto out;
 		if (append_byte_order(parts, drgn_object_program(&self->obj),
-				      self->obj.reference.little_endian) == -1 ||
-		    append_bit_offset(parts,
-				      self->obj.reference.bit_offset) == -1)
+				      self->obj.little_endian) == -1 ||
+		    append_bit_offset(parts, self->obj.bit_offset) == -1)
 			goto out;
 		break;
 	}
@@ -1049,7 +1048,7 @@ static PyObject *DrgnObject_get_type(DrgnObject *self, void *arg)
 static PyObject *DrgnObject_get_address(DrgnObject *self, void *arg)
 {
 	if (self->obj.kind == DRGN_OBJECT_REFERENCE)
-		return PyLong_FromUnsignedLongLong(self->obj.reference.address);
+		return PyLong_FromUnsignedLongLong(self->obj.address);
 	else
 		Py_RETURN_NONE;
 }
@@ -1059,11 +1058,11 @@ static PyObject *DrgnObject_get_byteorder(DrgnObject *self, void *arg)
 	SWITCH_ENUM(self->obj.kind,
 	case DRGN_OBJECT_VALUE:
 		if (self->obj.encoding == DRGN_OBJECT_ENCODING_BUFFER)
-			return byteorder_string(self->obj.value.little_endian);
+			return byteorder_string(self->obj.little_endian);
 		else
 			Py_RETURN_NONE;
 	case DRGN_OBJECT_REFERENCE:
-		return byteorder_string(self->obj.reference.little_endian);
+		return byteorder_string(self->obj.little_endian);
 	case DRGN_OBJECT_UNAVAILABLE:
 		Py_RETURN_NONE;
 	)
@@ -1073,7 +1072,7 @@ static PyObject *DrgnObject_get_bit_offset(DrgnObject *self, void *arg)
 {
 	SWITCH_ENUM(self->obj.kind,
 	case DRGN_OBJECT_REFERENCE:
-		return PyLong_FromLong(self->obj.reference.bit_offset);
+		return PyLong_FromLong(self->obj.bit_offset);
 	case DRGN_OBJECT_VALUE:
 	case DRGN_OBJECT_UNAVAILABLE:
 		Py_RETURN_NONE;

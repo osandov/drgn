@@ -359,7 +359,6 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 		 * to a temporary value before freeing or modifying the latter.
 		 */
 		union drgn_value value;
-		value.little_endian = little_endian;
 
 		uint64_t size = drgn_value_size(bit_size);
 		char *dst;
@@ -376,6 +375,7 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 		drgn_object_reinit(res, type, DRGN_OBJECT_ENCODING_BUFFER,
 				   bit_size, DRGN_OBJECT_VALUE);
 		res->value = value;
+		res->little_endian = little_endian;
 	} else {
 		drgn_object_reinit(res, type, encoding, bit_size,
 				   DRGN_OBJECT_VALUE);
@@ -446,9 +446,9 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 
 	drgn_object_reinit(res, type, encoding, bit_size,
 			   DRGN_OBJECT_REFERENCE);
-	res->reference.address = address;
-	res->reference.bit_offset = bit_offset;
-	res->reference.little_endian = little_endian;
+	res->address = address;
+	res->bit_offset = bit_offset;
+	res->little_endian = little_endian;
 	return NULL;
 }
 
@@ -531,7 +531,7 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 			memcpy(dst, src, size);
 			if (dst != res->value.ibuf)
 				res->value.bufp = dst;
-			res->value.little_endian = obj->value.little_endian;
+			res->little_endian = obj->little_endian;
 		} else {
 			drgn_object_reinit_copy(res, obj);
 			res->kind = DRGN_OBJECT_VALUE;
@@ -541,7 +541,9 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 	case DRGN_OBJECT_REFERENCE:
 		drgn_object_reinit_copy(res, obj);
 		res->kind = DRGN_OBJECT_REFERENCE;
-		res->reference = obj->reference;
+		res->address = obj->address;
+		res->bit_offset = obj->bit_offset;
+		res->little_endian = obj->little_endian;
 		break;
 	case DRGN_OBJECT_UNAVAILABLE:
 		drgn_object_reinit_copy(res, obj);
@@ -575,7 +577,7 @@ drgn_object_slice_internal(struct drgn_object *res,
 							    bit_size,
 							    drgn_object_buffer(obj),
 							    bit_offset,
-							    obj->value.little_endian);
+							    obj->little_endian);
 	}
 	case DRGN_OBJECT_REFERENCE:
 		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER &&
@@ -586,9 +588,9 @@ drgn_object_slice_internal(struct drgn_object *res,
 
 		return drgn_object_set_reference_internal(res, type, encoding,
 							  bit_size,
-							  obj->reference.address,
+							  obj->address,
 							  bit_offset,
-							  obj->reference.little_endian);
+							  obj->little_endian);
 	case DRGN_OBJECT_UNAVAILABLE:
 		return &drgn_object_not_available;
 	)
@@ -656,7 +658,7 @@ drgn_object_read_reference(const struct drgn_object *obj,
 	}
 
 	uint64_t bit_size = obj->bit_size;
-	uint8_t bit_offset = obj->reference.bit_offset;
+	uint8_t bit_offset = obj->bit_offset;
 	uint64_t read_size;
 	if (bit_offset == 0)
 		read_size = drgn_object_size(obj);
@@ -682,29 +684,28 @@ drgn_object_read_reference(const struct drgn_object *obj,
 				return &drgn_enomem;
 		}
 		err = drgn_memory_reader_read(&drgn_object_program(obj)->reader,
-					      read_buf, obj->reference.address,
-					      read_size, false);
+					      read_buf, obj->address, read_size,
+					      false);
 		if (err) {
 			if (buf != value->ibuf)
 				free(buf);
 			return err;
 		}
 		copy_bits(buf, read_buf, bit_offset, bit_size,
-			  obj->reference.little_endian);
+			  obj->little_endian);
 		if (buf != value->ibuf)
 			value->bufp = buf;
-		value->little_endian = obj->reference.little_endian;
 		return NULL;
 	} else {
 		char buf[9];
 		assert(read_size <= sizeof(buf));
 		err = drgn_memory_reader_read(&drgn_object_program(obj)->reader,
-					      buf, obj->reference.address,
-					      read_size, false);
+					      buf, obj->address, read_size,
+					      false);
 		if (err)
 			return err;
 		drgn_value_deserialize(value, buf, bit_offset, obj->encoding,
-				       bit_size, obj->reference.little_endian);
+				       bit_size, obj->little_endian);
 		return NULL;
 	}
 }
@@ -731,6 +732,7 @@ drgn_object_read(struct drgn_object *res, const struct drgn_object *obj)
 		drgn_object_reinit_copy(res, obj);
 		res->kind = DRGN_OBJECT_VALUE;
 		res->value = value;
+		res->little_endian = obj->little_endian;
 		return NULL;
 	}
 	case DRGN_OBJECT_UNAVAILABLE:
@@ -908,7 +910,7 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 			return NULL;
 		}
 		case DRGN_OBJECT_REFERENCE:
-			address = obj->reference.address;
+			address = obj->address;
 			break;
 		case DRGN_OBJECT_UNAVAILABLE:
 			return &drgn_object_not_available;
@@ -1211,13 +1213,14 @@ drgn_object_reinterpret(struct drgn_object *res,
 						 bit_size, 0);
 		if (err)
 			return err;
-		res->value.little_endian = little_endian;
+		res->little_endian = little_endian;
 		return NULL;
 	case DRGN_OBJECT_REFERENCE:
 		drgn_object_reinit(res, &type, encoding, bit_size,
 				   DRGN_OBJECT_REFERENCE);
-		res->reference = obj->reference;
-		res->reference.little_endian = little_endian;
+		res->address = obj->address;
+		res->bit_offset = obj->bit_offset;
+		res->little_endian = little_endian;
 		return NULL;
 	case DRGN_OBJECT_UNAVAILABLE:
 		return &drgn_object_not_available;
@@ -1391,7 +1394,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 		return &drgn_object_not_available;
 	)
 
-	if (obj->is_bit_field || obj->reference.bit_offset) {
+	if (obj->is_bit_field || obj->bit_offset) {
 		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot take address of bit field");
 	}
@@ -1412,7 +1415,7 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 		return err;
 	result_type.qualifiers = 0;
 	return drgn_object_set_unsigned(res, result_type,
-					obj->reference.address, 0);
+					obj->address, 0);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1612,7 +1615,7 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						 "cannot get address of value");
 		case DRGN_OBJECT_REFERENCE:
-			*ret = ptr->reference.address;
+			*ret = ptr->address;
 			return NULL;
 		case DRGN_OBJECT_UNAVAILABLE:
 			return &drgn_object_not_available;

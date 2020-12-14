@@ -1575,24 +1575,19 @@ enum drgn_byte_order {
 
 /** Value of a @ref drgn_object. */
 union drgn_value {
-	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_BUFFER value. */
-	struct {
-		/** Buffer itself. */
-		union {
-			/** Pointer to an external buffer. */
-			char *bufp;
-			/**
-			 * Inline buffer.
-			 *
-			 * Tiny buffers (see @ref drgn_value_is_inline()) are
-			 * stored inline here instead of in a separate
-			 * allocation.
-			 */
-			char ibuf[8];
-		};
-		/** Whether the values within the buffer are little-endian. */
-		bool little_endian;
-	};
+	/**
+	 * Pointer to an external buffer for a @ref
+	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_BUFFER value.
+	 */
+	char *bufp;
+	/**
+	 * Inline buffer for a @ref
+	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_BUFFER value.
+	 *
+	 * Tiny buffers (see @ref drgn_value_is_inline()) are stored inline here
+	 * instead of in a separate allocation.
+	 */
+	char ibuf[8];
 	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED value. */
 	int64_t svalue;
 	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_UNSIGNED value. */
@@ -1657,22 +1652,23 @@ struct drgn_object {
 	enum drgn_object_kind kind;
 	/** Whether this object is a bit field. */
 	bool is_bit_field;
+	/**
+	 * Whether this object is little-endian.
+	 *
+	 * Valid only for reference objects and buffer value objects.
+	 */
+	bool little_endian;
+	/**
+	 * Offset in bits from @c address.
+	 *
+	 * Valid only for reference objects.
+	 */
+	uint8_t bit_offset;
 	union {
-		/** Value. */
+		/** Value of value object. */
 		union drgn_value value;
-		/** Reference. */
-		struct {
-			/** Address in the program. */
-			uint64_t address;
-			/**
-			 * Offset in bits from @c reference.
-			 *
-			 * This is always less than 8, but usually 0.
-			 */
-			uint8_t bit_offset;
-			/** Whether the referenced object is little-endian. */
-			bool little_endian;
-		} reference;
+		/** Address of reference object. */
+		uint64_t address;
 	};
 };
 

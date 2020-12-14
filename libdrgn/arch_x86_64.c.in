@@ -160,7 +160,7 @@ static struct drgn_error *
 pt_regs_set_initial_registers_x86_64(Dwfl_Thread *thread,
 				     const struct drgn_object *obj)
 {
-	bool bswap = (obj->value.little_endian !=
+	bool bswap = (obj->little_endian !=
 		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
 	return set_initial_registers_from_struct_x86_64(thread,
 							drgn_object_buffer(obj),
