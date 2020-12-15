@@ -116,18 +116,15 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
-	enum {
-		/* obj is the evaluated Type. */
-		DRGNPY_LAZY_TYPE_EVALUATED,
-		/* lazy_type must be evaluated and wrapped. */
-		DRGNPY_LAZY_TYPE_UNEVALUATED,
-		/* obj is a Python callable that should return the Type. */
-		DRGNPY_LAZY_TYPE_CALLABLE,
-	} state;
-	union {
-		PyObject *obj;
-		struct drgn_lazy_type *lazy_type;
-	};
+	PyObject *obj;
+	/*
+	 * If DRGNPY_LAZY_TYPE_EVALUATED, obj is the evaluated type.
+	 * If DRGNPY_LAZY_TYPE_CALLABLE, obj is a Python callable that should
+	 * return the Type.
+	 * Otherwise, this must be evaluated and wrapped, and obj is a reference
+	 * required to keep this alive.
+	 */
+	struct drgn_lazy_type *lazy_type;
 } LazyType;
 
 typedef struct {

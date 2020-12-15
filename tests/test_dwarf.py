@@ -3715,3 +3715,44 @@ class TestProgram(TestCase):
         )
         self.assertFalse(dwarf_program(dies)["x"].prog_.flags & ProgramFlags.IS_LIVE)
         self.assertEqual(dwarf_program(dies)["x"].type_.name, "int")
+
+    def test_reference_counting_type_member(self):
+        dies = (
+            DwarfDie(
+                DW_TAG.structure_type,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, "foo"),
+                    DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                ),
+                (
+                    DwarfDie(
+                        DW_TAG.member,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "bar"),
+                            DwarfAttrib(DW_AT.data_member_location, DW_FORM.data1, 0),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                        ),
+                    ),
+                ),
+            ),
+            int_die,
+        )
+        self.assertIsNotNone(repr(dwarf_program(dies).type("struct foo").members[0]))
+
+    def test_reference_counting_type_parameter(self):
+        dies = test_type_dies(
+            (
+                DwarfDie(
+                    DW_TAG.subroutine_type,
+                    (),
+                    (
+                        DwarfDie(
+                            DW_TAG.formal_parameter,
+                            (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),),
+                        ),
+                    ),
+                ),
+                int_die,
+            )
+        )
+        self.assertIsNotNone(repr(dwarf_program(dies).type("TEST").type.parameters[0]))
