@@ -156,6 +156,40 @@ static PyObject *DrgnType_get_type(DrgnType *self)
 		return DrgnType_wrap(drgn_type_type(self->type));
 }
 
+static TypeMember *TypeMember_wrap(PyObject *parent,
+				   struct drgn_type_member *member,
+				   uint64_t bit_offset)
+{
+	TypeMember *py_member =
+		(TypeMember *)TypeMember_type.tp_alloc(&TypeMember_type, 0);
+	if (!py_member)
+		return NULL;
+
+	Py_INCREF(parent);
+	py_member->lazy_type.obj = parent;
+	py_member->lazy_type.lazy_type = &member->type;
+	if (member->name) {
+		py_member->name = PyUnicode_FromString(member->name);
+		if (!py_member->name)
+			goto err;
+	} else {
+		Py_INCREF(Py_None);
+		py_member->name = Py_None;
+	}
+	py_member->bit_offset = PyLong_FromUnsignedLongLong(bit_offset);
+	if (!py_member->bit_offset)
+		goto err;
+	py_member->bit_field_size =
+		PyLong_FromUnsignedLongLong(member->bit_field_size);
+	if (!py_member->bit_field_size)
+		goto err;
+	return py_member;
+
+err:
+	Py_DECREF(py_member);
+	return NULL;
+}
+
 static PyObject *DrgnType_get_members(DrgnType *self)
 {
 	PyObject *members_obj;
@@ -178,33 +212,12 @@ static PyObject *DrgnType_get_members(DrgnType *self)
 		return NULL;
 
 	for (i = 0; i < num_members; i++) {
-		struct drgn_type_member *member = &members[i];
-		TypeMember *item;
-
-		item = (TypeMember *)TypeMember_type.tp_alloc(&TypeMember_type,
-							      0);
+		TypeMember *item = TypeMember_wrap((PyObject *)self,
+						   &members[i],
+						   members[i].bit_offset);
 		if (!item)
 			goto err;
 		PyTuple_SET_ITEM(members_obj, i, (PyObject *)item);
-		Py_INCREF(self);
-		item->lazy_type.obj = (PyObject *)self;
-		item->lazy_type.lazy_type = &member->type;
-		if (member->name) {
-			item->name = PyUnicode_FromString(member->name);
-			if (!item->name)
-				goto err;
-		} else {
-			Py_INCREF(Py_None);
-			item->name = Py_None;
-		}
-		item->bit_offset =
-			PyLong_FromUnsignedLongLong(member->bit_offset);
-		if (!item->bit_offset)
-			goto err;
-		item->bit_field_size =
-			PyLong_FromUnsignedLongLong(member->bit_field_size);
-		if (!item->bit_field_size)
-			goto err;
 	}
 	return members_obj;
 
@@ -679,6 +692,27 @@ static PyObject *DrgnType_unqualified(DrgnType *self)
 	return DrgnType_wrap(qualified_type);
 }
 
+static TypeMember *DrgnType_member(DrgnType *self, PyObject *args,
+				   PyObject *kwds)
+{
+	struct drgn_error *err;
+
+	static char *keywords[] = {"name", NULL};
+	const char *name;
+	Py_ssize_t name_len;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s#:member", keywords,
+					 &name, &name_len))
+		return NULL;
+
+	struct drgn_type_member *member;
+	uint64_t bit_offset;
+	err = drgn_type_find_member_len(self->type, name, name_len, &member,
+					&bit_offset);
+	if (err)
+		return set_drgn_error(err);
+	return TypeMember_wrap((PyObject *)self, member, bit_offset);
+}
+
 static PyObject *DrgnType_richcompare(DrgnType *self, PyObject *other, int op)
 {
 	if (!PyObject_TypeCheck(other, &DrgnType_type) ||
@@ -711,6 +745,8 @@ static PyMethodDef DrgnType_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Type_qualified_DOC},
 	{"unqualified", (PyCFunction)DrgnType_unqualified, METH_NOARGS,
 	 drgn_Type_unqualified_DOC},
+	{"member", (PyCFunction)DrgnType_member, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Type_member_DOC},
 	{},
 };
 

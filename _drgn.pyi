@@ -1579,6 +1579,22 @@ class Type:
     def unqualified(self) -> Type:
         """Get a copy of this type with no qualifiers."""
         ...
+    def member(self, name: str) -> TypeMember:
+        """
+        Look up a member in this type by name.
+
+        If this type has any unnamed members, this also matches members of
+        those unnamed members, recursively. If the member is found in an
+        unnamed member, :attr:`TypeMember.bit_offset` and
+        :attr:`TypeMember.offset` are adjusted accordingly.
+
+        :param name: Name of the member.
+        :raises TypeError: if this type is not a structure, union, or class
+            type
+        :raises LookupError: if this type does not have a member with the given
+            name
+        """
+        ...
 
 class TypeMember:
     """
