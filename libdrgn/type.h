@@ -55,8 +55,8 @@ struct drgn_member_key {
 
 /** Type, offset, and bit field size of a type member. */
 struct drgn_member_value {
-	struct drgn_lazy_type *type;
-	uint64_t bit_offset, bit_field_size;
+	struct drgn_type_member *member;
+	uint64_t bit_offset;
 };
 
 #ifdef DOXYGEN
@@ -706,26 +706,6 @@ struct drgn_error *
 drgn_program_find_primitive_type(struct drgn_program *prog,
 				 enum drgn_primitive_type type,
 				 struct drgn_type **ret);
-
-/**
- * Find the type, offset, and bit field size of a type member.
- *
- * This matches the members of the type itself as well as the members of any
- * unnamed members of the type.
- *
- * This caches all members of @p type for subsequent calls.
- *
- * @param[in] type Compound type to search in.
- * @param[in] member_name Name of member.
- * @param[in] member_name_len Length of @p member_name
- * @param[out] ret Returned member information.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_program_find_member(struct drgn_program *prog,
-					    struct drgn_type *type,
-					    const char *member_name,
-					    size_t member_name_len,
-					    struct drgn_member_value **ret);
 
 /** @} */
 

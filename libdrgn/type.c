@@ -1343,22 +1343,6 @@ struct drgn_error *drgn_error_incomplete_type(const char *format,
 	}
 }
 
-struct drgn_error *drgn_error_member_not_found(struct drgn_type *type,
-					       const char *member_name)
-{
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type = { type };
-	char *name;
-
-	err = drgn_format_type_name(qualified_type, &name);
-	if (err)
-		return err;
-	err = drgn_error_format(DRGN_ERROR_LOOKUP, "'%s' has no member '%s'",
-				name, member_name);
-	free(name);
-	return err;
-}
-
 void drgn_program_init_types(struct drgn_program *prog)
 {
 	for (size_t i = 0; i < ARRAY_SIZE(prog->void_types); i++) {
@@ -1644,10 +1628,11 @@ out:
 }
 
 static struct drgn_error *
-drgn_program_cache_members(struct drgn_program *prog,
-			   struct drgn_type *outer_type,
-			   struct drgn_type *type, uint64_t bit_offset)
+drgn_type_cache_members(struct drgn_type *outer_type,
+			struct drgn_type *type, uint64_t bit_offset)
 {
+	struct drgn_program *prog = drgn_type_program(outer_type);
+
 	if (!drgn_type_has_members(type))
 		return NULL;
 
@@ -1663,11 +1648,9 @@ drgn_program_cache_members(struct drgn_program *prog,
 					.name_len = strlen(member->name),
 				},
 				.value = {
-					.type = &member->type,
+					.member = member,
 					.bit_offset =
 						bit_offset + member->bit_offset,
-					.bit_field_size =
-						member->bit_field_size,
 				},
 			};
 			if (drgn_member_map_insert(&prog->members, &entry,
@@ -1679,10 +1662,10 @@ drgn_program_cache_members(struct drgn_program *prog,
 								  &member_type);
 			if (err)
 				return err;
-			err = drgn_program_cache_members(prog, outer_type,
-							 member_type.type,
-							 bit_offset +
-							 member->bit_offset);
+			err = drgn_type_cache_members(outer_type,
+						      member_type.type,
+						      bit_offset +
+						      member->bit_offset);
 			if (err)
 				return err;
 		}
@@ -1690,12 +1673,12 @@ drgn_program_cache_members(struct drgn_program *prog,
 	return NULL;
 }
 
-struct drgn_error *drgn_program_find_member(struct drgn_program *prog,
-					    struct drgn_type *type,
-					    const char *member_name,
-					    size_t member_name_len,
-					    struct drgn_member_value **ret)
+static struct drgn_error *
+drgn_type_find_member_impl(struct drgn_type *type, const char *member_name,
+			   size_t member_name_len,
+			   struct drgn_member_value **ret)
 {
+	struct drgn_program *prog = drgn_type_program(type);
 	const struct drgn_member_key key = {
 		.type = drgn_underlying_type(type),
 		.name = member_name,
@@ -1725,11 +1708,12 @@ struct drgn_error *drgn_program_find_member(struct drgn_program *prog,
 	}
 	struct hash_pair cached_hp = drgn_type_set_hash(&key.type);
 	if (drgn_type_set_search_hashed(&prog->members_cached, &key.type,
-					cached_hp).entry)
-		return drgn_error_member_not_found(type, member_name);
+					cached_hp).entry) {
+		*ret = NULL;
+		return NULL;
+	}
 
-	struct drgn_error *err = drgn_program_cache_members(prog, key.type,
-							    key.type, 0);
+	struct drgn_error *err = drgn_type_cache_members(key.type, key.type, 0);
 	if (err)
 		return err;
 
@@ -1743,5 +1727,38 @@ struct drgn_error *drgn_program_find_member(struct drgn_program *prog,
 		return NULL;
 	}
 
-	return drgn_error_member_not_found(type, member_name);
+	*ret = NULL;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_type_find_member_len(struct drgn_type *type, const char *member_name,
+			  size_t member_name_len,
+			  struct drgn_type_member **member_ret,
+			  uint64_t *bit_offset_ret)
+{
+	struct drgn_error *err;
+	struct drgn_member_value *member;
+	err = drgn_type_find_member_impl(type, member_name, member_name_len,
+					 &member);
+	if (err)
+		return err;
+	if (!member) {
+		struct drgn_qualified_type qualified_type = { type };
+		char *type_name;
+		err = drgn_format_type_name(qualified_type, &type_name);
+		if (err)
+			return err;
+		err = drgn_error_format(DRGN_ERROR_LOOKUP,
+					"'%s' has no member '%.*s'",
+					type_name,
+					member_name_len > INT_MAX ?
+					INT_MAX : (int)member_name_len,
+					member_name);
+		free(type_name);
+		return err;
+	}
+	*member_ret = member->member;
+	*bit_offset_ret = member->bit_offset;
+	return NULL;
 }

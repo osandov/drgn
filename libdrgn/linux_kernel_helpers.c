@@ -108,7 +108,6 @@ linux_helper_radix_tree_lookup(struct drgn_object *res,
 	uint64_t RADIX_TREE_INTERNAL_NODE;
 	uint64_t RADIX_TREE_MAP_MASK;
 	struct drgn_object node, tmp;
-	struct drgn_member_info member;
 	struct drgn_qualified_type node_type;
 
 	drgn_object_init(&node, drgn_object_program(res));
@@ -146,17 +145,22 @@ linux_helper_radix_tree_lookup(struct drgn_object *res,
 		goto out;
 	}
 
-	err = drgn_program_member_info(drgn_object_program(res),
-				       drgn_type_type(node_type.type).type,
-				       "slots", &member);
+	struct drgn_type_member *member;
+	uint64_t member_bit_offset;
+	err = drgn_type_find_member(drgn_type_type(node_type.type).type,
+				    "slots", &member, &member_bit_offset);
 	if (err)
 		goto out;
-	if (drgn_type_kind(member.qualified_type.type) != DRGN_TYPE_ARRAY) {
+	struct drgn_qualified_type member_type;
+	err = drgn_member_type(member, &member_type);
+	if (err)
+		goto out;
+	if (drgn_type_kind(member_type.type) != DRGN_TYPE_ARRAY) {
 		err = drgn_error_create(DRGN_ERROR_TYPE,
 					"struct radix_tree_node slots member is not an array");
 		goto out;
 	}
-	RADIX_TREE_MAP_MASK = drgn_type_length(member.qualified_type.type) - 1;
+	RADIX_TREE_MAP_MASK = drgn_type_length(member_type.type) - 1;
 
 	for (;;) {
 		uint64_t value;
@@ -252,43 +256,60 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 		     const struct drgn_object *pid_hash, uint64_t pid)
 {
 	struct drgn_error *err;
-	struct drgn_qualified_type pidp_type, upid_type;
-	struct drgn_member_info pid_chain_member, nr_member, ns_member;
-	struct drgn_object node, tmp;
-	uint64_t ns_addr;
-	union drgn_value ns_level, pidhash_shift;
-	uint64_t i;
 
+	struct drgn_qualified_type pidp_type;
 	err = drgn_program_find_type(drgn_object_program(res), "struct pid *",
 				     NULL, &pidp_type);
 	if (err)
 		return err;
+
+	struct drgn_qualified_type upid_type;
 	err = drgn_program_find_type(drgn_object_program(res), "struct upid",
 				     NULL, &upid_type);
 	if (err)
 		return err;
-	err = drgn_program_member_info(drgn_object_program(res), upid_type.type,
-				       "pid_chain", &pid_chain_member);
-	if (err)
-		return err;
-	err = drgn_program_member_info(drgn_object_program(res), upid_type.type,
-				       "nr", &nr_member);
-	if (err)
-		return err;
-	err = drgn_program_member_info(drgn_object_program(res), upid_type.type,
-				       "ns", &ns_member);
+
+	struct drgn_type_member *pid_chain_member;
+	uint64_t pid_chain_bit_offset;
+	err = drgn_type_find_member(upid_type.type, "pid_chain",
+				    &pid_chain_member, &pid_chain_bit_offset);
 	if (err)
 		return err;
 
+	struct drgn_type_member *nr_member;
+	uint64_t nr_bit_offset;
+	err = drgn_type_find_member(upid_type.type, "nr", &nr_member,
+				    &nr_bit_offset);
+	if (err)
+		return err;
+	struct drgn_qualified_type nr_type;
+	err = drgn_member_type(nr_member, &nr_type);
+	if (err)
+		return err;
+
+	struct drgn_type_member *ns_member;
+	uint64_t ns_bit_offset;
+	err = drgn_type_find_member(upid_type.type, "ns", &ns_member,
+				    &ns_bit_offset);
+	if (err)
+		return err;
+	struct drgn_qualified_type ns_type;
+	err = drgn_member_type(ns_member, &ns_type);
+	if (err)
+		return err;
+
+	struct drgn_object node, tmp;
 	drgn_object_init(&node, drgn_object_program(res));
 	drgn_object_init(&tmp, drgn_object_program(res));
 
 	err = drgn_object_read(&tmp, ns);
 	if (err)
 		goto out;
+	uint64_t ns_addr;
 	err = drgn_object_read_unsigned(&tmp, &ns_addr);
 	if (err)
 		goto out;
+	union drgn_value ns_level;
 	err = drgn_object_member_dereference(&tmp, &tmp, "level");
 	if (err)
 		goto out;
@@ -302,9 +323,11 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (err)
 		goto out;
+	union drgn_value pidhash_shift;
 	err = drgn_object_read_integer(&tmp, &pidhash_shift);
 	if (err)
 		goto out;
+	uint64_t i;
 	if (pidhash_shift.uvalue >= 64)
 		i = 0;
 	else
@@ -331,12 +354,12 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 				goto out;
 			if (!addr)
 				break;
-			addr -= pid_chain_member.bit_offset / 8;
+			addr -= pid_chain_bit_offset / 8;
 
 			/* tmp = container_of(node, struct upid, pid_chain)->nr */
-			tmp_addr = addr + nr_member.bit_offset / 8;
-			err = drgn_object_set_reference(&tmp, nr_member.qualified_type,
-							tmp_addr, 0, 0,
+			tmp_addr = addr + nr_bit_offset / 8;
+			err = drgn_object_set_reference(&tmp, nr_type, tmp_addr,
+							0, 0,
 							DRGN_PROGRAM_ENDIAN);
 			if (err)
 				goto out;
@@ -347,9 +370,9 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 				goto next;
 
 			/* tmp = container_of(node, struct upid, pid_chain)->ns */
-			tmp_addr = addr + ns_member.bit_offset / 8;
-			err = drgn_object_set_reference(&tmp, ns_member.qualified_type,
-							tmp_addr, 0, 0,
+			tmp_addr = addr + ns_bit_offset / 8;
+			err = drgn_object_set_reference(&tmp, ns_type, tmp_addr,
+							0, 0,
 							DRGN_PROGRAM_ENDIAN);
 			if (err)
 				goto out;

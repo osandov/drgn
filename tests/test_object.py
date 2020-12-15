@@ -1701,6 +1701,15 @@ class TestCOperators(MockProgramTestCase):
             ),
         )
 
+        self.assertRaisesRegex(
+            LookupError,
+            "'struct line_segment' has no member 'c'",
+            container_of,
+            obj,
+            self.line_segment_type,
+            "c.x",
+        )
+
         polygon_type = self.prog.struct_type(
             "polygon", 0, (TypeMember(self.prog.array_type(self.point_type), "points"),)
         )

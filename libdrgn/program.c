@@ -1184,23 +1184,3 @@ drgn_program_element_info(struct drgn_program *prog, struct drgn_type *type,
 	ret->qualified_type = drgn_type_type(underlying_type);
 	return drgn_type_bit_size(ret->qualified_type.type, &ret->bit_size);
 }
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_member_info(struct drgn_program *prog, struct drgn_type *type,
-			 const char *member_name, struct drgn_member_info *ret)
-{
-	struct drgn_error *err;
-	struct drgn_member_value *member;
-
-	err = drgn_program_find_member(prog, type, member_name,
-				       strlen(member_name), &member);
-	if (err)
-		return err;
-
-	err = drgn_lazy_type_evaluate(member->type, &ret->qualified_type);
-	if (err)
-		return err;
-	ret->bit_offset = member->bit_offset;
-	ret->bit_field_size = member->bit_field_size;
-	return NULL;
-}

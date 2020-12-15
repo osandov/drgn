@@ -96,15 +96,6 @@ drgn_qualified_type_error(const char *format,
 struct drgn_error *drgn_error_incomplete_type(const char *format,
 					      struct drgn_type *type);
 
-/**
- * Create a @ref drgn_error for a type which does not have a given member.
- *
- * The error code will be @ref DRGN_ERROR_LOOKUP.
- */
-struct drgn_error *drgn_error_member_not_found(struct drgn_type *type,
-					       const char *member_name)
-	__attribute__((returns_nonnull));
-
 /** Create a @ref drgn_error for invalid types to a binary operator. */
 struct drgn_error *drgn_error_binary_op(const char *op_name,
 					struct drgn_object_type *type1,

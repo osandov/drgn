@@ -62,8 +62,6 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 				    bool little_endian)
 {
 	struct drgn_error *err;
-	PyObject *tmp, *items;
-	Py_ssize_t num_items, i;
 	int ret = -1;
 
 	if (!PyMapping_Check(value_obj)) {
@@ -72,7 +70,7 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 		return -1;
 	}
 
-	tmp = PyMapping_Items(value_obj);
+	PyObject *tmp = PyMapping_Items(value_obj);
 	if (!tmp)
 		return -1;
 
@@ -80,48 +78,52 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 	 * Since Python 3.7, PyMapping_Items() always returns a list. However,
 	 * before that, it could also return a tuple.
 	 */
-	items = PySequence_Fast(tmp, "items must be sequence");
+	PyObject *items = PySequence_Fast(tmp, "items must be sequence");
 	Py_DECREF(tmp);
 	if (!items)
 		return -1;
 
-	num_items = PySequence_Fast_GET_SIZE(items);
-	for (i = 0; i < num_items; i++) {
-		PyObject *item, *key;
-		const char *member_name;
-		struct drgn_member_info member;
-		struct drgn_object_type member_type;
-
-		item = PySequence_Fast_GET_ITEM(items, i);
+	Py_ssize_t num_items = PySequence_Fast_GET_SIZE(items);
+	for (Py_ssize_t i = 0; i < num_items; i++) {
+		PyObject *item = PySequence_Fast_GET_ITEM(items, i);
 		if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 2) {
 			PyErr_SetString(PyExc_TypeError, "invalid item");
 			goto out;
 		}
-		key = PyTuple_GET_ITEM(item, 0);
+		PyObject *key = PyTuple_GET_ITEM(item, 0);
 		if (!PyUnicode_Check(key)) {
 			PyErr_SetString(PyExc_TypeError,
 					"member key must be string");
 			goto out;
 		}
-		member_name = PyUnicode_AsUTF8(key);
+		const char *member_name = PyUnicode_AsUTF8(key);
 		if (!member_name)
 			goto out;
 
-		err = drgn_program_member_info(prog, type->underlying_type,
-					       member_name, &member);
+		struct drgn_type_member *member;
+		uint64_t member_bit_offset;
+		err = drgn_type_find_member(type->underlying_type, member_name,
+					    &member, &member_bit_offset);
+		if (err) {
+			set_drgn_error(err);
+			goto out;
+		}
+		struct drgn_qualified_type member_qualified_type;
+		err = drgn_member_type(member, &member_qualified_type);
 		if (err) {
 			set_drgn_error(err);
 			goto out;
 		}
 
-		member_type.type = member.qualified_type.type;
-		member_type.qualifiers = member.qualified_type.qualifiers;
-		member_type.underlying_type =
-			drgn_underlying_type(member_type.type);
-		member_type.bit_field_size = member.bit_field_size;
-
+		struct drgn_object_type member_type = {
+			.type = member_qualified_type.type,
+			.qualifiers = member_qualified_type.qualifiers,
+			.underlying_type =
+				drgn_underlying_type(member_qualified_type.type),
+			.bit_field_size = member->bit_field_size,
+		};
 		if (serialize_py_object(prog, buf, buf_bit_size,
-					bit_offset + member.bit_offset,
+					bit_offset + member->bit_offset,
 					PyTuple_GET_ITEM(item, 1),
 					&member_type, little_endian) == -1)
 			goto out;

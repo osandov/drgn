@@ -2595,24 +2595,24 @@ struct drgn_error *c_bit_offset(struct drgn_program *prog,
 		case INT_MIN:
 		case C_TOKEN_DOT:
 			if (token.kind == C_TOKEN_IDENTIFIER) {
-				struct drgn_member_value *member;
-				struct drgn_qualified_type member_type;
-
-				err = drgn_program_find_member(prog, type,
-							       token.value,
-							       token.len,
-							       &member);
+				struct drgn_type_member *member;
+				uint64_t member_bit_offset;
+				err = drgn_type_find_member_len(type,
+								token.value,
+								token.len,
+								&member,
+								&member_bit_offset);
 				if (err)
 					goto out;
 				if (__builtin_add_overflow(bit_offset,
-							   member->bit_offset,
+							   member_bit_offset,
 							   &bit_offset)) {
 					err = drgn_error_create(DRGN_ERROR_OVERFLOW,
 								"offset is too large");
 					goto out;
 				}
-				err = drgn_lazy_type_evaluate(member->type,
-							      &member_type);
+				struct drgn_qualified_type member_type;
+				err = drgn_member_type(member, &member_type);
 				if (err)
 					goto out;
 				type = member_type.type;

@@ -1321,12 +1321,14 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 	size_t module_name_offset = 0;
 	if (need_module_definition) {
 		struct drgn_qualified_type module_type;
-		struct drgn_member_info name_member;
+		struct drgn_type_member *name_member;
+		uint64_t name_bit_offset;
 		err = drgn_program_find_type(prog, "struct module", NULL,
 					     &module_type);
 		if (!err) {
-			err = drgn_program_member_info(prog, module_type.type,
-						       "name", &name_member);
+			err = drgn_type_find_member(module_type.type, "name",
+						    &name_member,
+						    &name_bit_offset);
 		}
 		if (err) {
 			return drgn_debug_info_report_error(load,
@@ -1334,7 +1336,7 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 							    "could not get kernel module names",
 							    err);
 		}
-		module_name_offset = name_member.bit_offset / 8;
+		module_name_offset = name_bit_offset / 8;
 	}
 
 	struct kernel_module_table kmod_table = HASH_TABLE_INIT;

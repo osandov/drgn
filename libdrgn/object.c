@@ -1451,19 +1451,24 @@ drgn_object_member(struct drgn_object *res, const struct drgn_object *obj,
 		   const char *member_name)
 {
 	struct drgn_error *err;
-	struct drgn_member_info member;
 
 	if (drgn_object_program(res) != drgn_object_program(obj)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
 	}
 
-	err = drgn_program_member_info(drgn_object_program(obj), obj->type,
-				       member_name, &member);
+	struct drgn_type_member *member;
+	uint64_t member_bit_offset;
+	err = drgn_type_find_member(obj->type, member_name, &member,
+				    &member_bit_offset);
 	if (err)
 		return err;
-	return drgn_object_slice(res, obj, member.qualified_type,
-				 member.bit_offset, member.bit_field_size);
+	struct drgn_qualified_type member_type;
+	err = drgn_member_type(member, &member_type);
+	if (err)
+		return err;
+	return drgn_object_slice(res, obj, member_type, member_bit_offset,
+				 member->bit_field_size);
 }
 
 struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
@@ -1471,34 +1476,30 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 						  const char *member_name)
 {
 	struct drgn_error *err;
-	struct drgn_type *underlying_type;
-	struct drgn_member_value *member;
-	struct drgn_qualified_type qualified_type;
 
 	if (drgn_object_program(res) != drgn_object_program(obj)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
 	}
 
-	underlying_type = drgn_underlying_type(obj->type);
+	struct drgn_type *underlying_type = drgn_underlying_type(obj->type);
 	if (drgn_type_kind(underlying_type) != DRGN_TYPE_POINTER) {
 		return drgn_type_error("'%s' is not a pointer to a structure, union, or class",
 				       obj->type);
 	}
 
-	err = drgn_program_find_member(drgn_object_program(obj),
-				       drgn_type_type(underlying_type).type,
-				       member_name, strlen(member_name),
-				       &member);
+	struct drgn_type_member *member;
+	uint64_t member_bit_offset;
+	err = drgn_type_find_member(drgn_type_type(underlying_type).type,
+				    member_name, &member, &member_bit_offset);
 	if (err)
 		return err;
-
-	err = drgn_lazy_type_evaluate(member->type, &qualified_type);
+	struct drgn_qualified_type member_type;
+	err = drgn_member_type(member, &member_type);
 	if (err)
 		return err;
-
-	return drgn_object_dereference_offset(res, obj, qualified_type,
-					      member->bit_offset,
+	return drgn_object_dereference_offset(res, obj, member_type,
+					      member_bit_offset,
 					      member->bit_field_size);
 }
 
