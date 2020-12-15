@@ -1595,6 +1595,17 @@ class Type:
             name
         """
         ...
+    def has_member(self, name: str) -> bool:
+        """
+        Return whether this type has a member with the given name.
+
+        If this type has any unnamed members, this also matches members of
+        those unnamed members, recursively.
+
+        :param name: Name of the member.
+        :raises TypeError: if this type is not a structure, union, or class
+            type
+        """
 
 class TypeMember:
     """

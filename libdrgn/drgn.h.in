@@ -876,6 +876,25 @@ drgn_type_find_member(struct drgn_type *type, const char *member_name,
 					 member_ret, bit_offset_ret);
 }
 
+/** Like @ref drgn_type_has_member(), but takes the length of @p member_name. */
+struct drgn_error *drgn_type_has_member_len(struct drgn_type *type,
+					    const char *member_name,
+					    size_t member_name_len, bool *ret);
+
+/**
+ * Return whether a @ref drgn_type has a member with the given name.
+ *
+ * @param[in] type Structure, union, or class type.
+ * @param[in] member_name Name of member.
+ */
+static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
+						      const char *member_name,
+						      bool *ret)
+{
+	return drgn_type_has_member_len(type, member_name, strlen(member_name),
+					ret);
+}
+
 /**
  * Compare two @ref drgn_type%s for equality.
  *

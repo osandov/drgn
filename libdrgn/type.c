@@ -1762,3 +1762,17 @@ drgn_type_find_member_len(struct drgn_type *type, const char *member_name,
 	*bit_offset_ret = member->bit_offset;
 	return NULL;
 }
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_type_has_member_len(struct drgn_type *type, const char *member_name,
+			 size_t member_name_len, bool *ret)
+{
+	struct drgn_error *err;
+	struct drgn_member_value *member;
+	err = drgn_type_find_member_impl(type, member_name, member_name_len,
+					 &member);
+	if (err)
+		return err;
+	*ret = member != NULL;
+	return NULL;
+}

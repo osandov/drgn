@@ -713,6 +713,28 @@ static TypeMember *DrgnType_member(DrgnType *self, PyObject *args,
 	return TypeMember_wrap((PyObject *)self, member, bit_offset);
 }
 
+static PyObject *DrgnType_has_member(DrgnType *self, PyObject *args,
+				     PyObject *kwds)
+{
+	struct drgn_error *err;
+
+	static char *keywords[] = {"name", NULL};
+	const char *name;
+	Py_ssize_t name_len;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s#:has_member", keywords,
+					 &name, &name_len))
+		return NULL;
+
+	bool has_member;
+	err = drgn_type_has_member_len(self->type, name, name_len, &has_member);
+	if (err)
+		return set_drgn_error(err);
+	if (has_member)
+		Py_RETURN_TRUE;
+	else
+		Py_RETURN_FALSE;
+}
+
 static PyObject *DrgnType_richcompare(DrgnType *self, PyObject *other, int op)
 {
 	if (!PyObject_TypeCheck(other, &DrgnType_type) ||
@@ -747,6 +769,8 @@ static PyMethodDef DrgnType_methods[] = {
 	 drgn_Type_unqualified_DOC},
 	{"member", (PyCFunction)DrgnType_member, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Type_member_DOC},
+	{"has_member", (PyCFunction)DrgnType_has_member,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Type_has_member_DOC},
 	{},
 };
 

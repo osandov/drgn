@@ -52,11 +52,10 @@ def _for_each_block_device(prog: Program) -> Iterator[Object]:
     try:
         class_in_private = prog.cache["knode_class_in_device_private"]
     except KeyError:
-        # We need a proper has_member(), but this is fine for now.
-        class_in_private = any(
-            member.name == "knode_class"
-            for member in prog.type("struct device_private").members  # type: ignore[union-attr]
-        )
+        # Linux kernel commit 570d0200123f ("driver core: move
+        # device->knode_class to device_private") (in v5.1) moved the list
+        # node.
+        class_in_private = prog.type("struct device_private").has_member("knode_class")
         prog.cache["knode_class_in_device_private"] = class_in_private
     devices = prog["block_class"].p.klist_devices.k_list.address_of_()
     if class_in_private:
