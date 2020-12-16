@@ -67,7 +67,7 @@ def _compile_debug_info(unit_dies, little_endian, bits, use_dw_form_indirect):
 
     def aux(buf, die, depth):
         if isinstance(die, DwarfLabel):
-            # For now, labels are only supported with a unit, but make sure
+            # For now, labels are only supported within a unit, but make sure
             # they're unique across all units.
             if die.name in all_labels:
                 raise ValueError(f"duplicate label {die.name!r}")

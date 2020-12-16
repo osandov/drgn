@@ -5473,6 +5473,60 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	}
 }
 
+static struct drgn_error *
+find_namespace_containing_die(struct drgn_debug_info *dbinfo,
+			      Dwarf_Die *die, const struct drgn_language *lang,
+			      struct drgn_namespace_dwarf_index **ret)
+{
+	struct drgn_error *err;
+
+	struct drgn_namespace_dwarf_index *ns = &dbinfo->dwarf.global;
+	if (!lang->has_namespaces) {
+		*ret = ns;
+		return NULL;
+	}
+
+	Dwarf_Die *ancestors;
+	size_t num_ancestors;
+	err = drgn_find_die_ancestors(die, &ancestors, &num_ancestors);
+	if (err)
+		return err;
+
+	for (size_t i = 0; i < num_ancestors; i++) {
+		if (dwarf_tag(&ancestors[i]) != DW_TAG_namespace)
+			continue;
+		Dwarf_Attribute attr_mem, *attr;
+		if (!(attr = dwarf_attr_integrate(&ancestors[i], DW_AT_name,
+						  &attr_mem)))
+			continue;
+		const char *name = dwarf_formstring(attr);
+		if (!name) {
+			err = drgn_error_create(DRGN_ERROR_OTHER,
+						"DW_TAG_namespace has invalid DW_AT_name");
+			goto out;
+		}
+
+		struct drgn_dwarf_index_iterator it;
+		const uint64_t ns_tag = DW_TAG_namespace;
+		err = drgn_dwarf_index_iterator_init(&it, ns, name,
+						     strlen(name), &ns_tag, 1);
+		if (err)
+			goto out;
+
+		struct drgn_dwarf_index_die *index_die =
+			drgn_dwarf_index_iterator_next(&it);
+		if (!index_die) {
+			err = &drgn_not_found;
+			goto out;
+		}
+		ns = index_die->namespace;
+	}
+	*ret = ns;
+out:
+	free(ancestors);
+	return err;
+}
+
 /*
  * DW_TAG_structure_type, DW_TAG_union_type, DW_TAG_class_type, and
  * DW_TAG_enumeration_type can be incomplete (i.e., have a DW_AT_declaration of
@@ -5482,19 +5536,27 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
  */
 static struct drgn_error *
 drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
-			      const char *name, struct drgn_type **ret)
+			      const char *name, Dwarf_Die *incomplete_die,
+			      const struct drgn_language *lang,
+			      struct drgn_type **ret)
 {
 	struct drgn_error *err;
 
+	struct drgn_namespace_dwarf_index *ns;
+	err = find_namespace_containing_die(dbinfo, incomplete_die, lang, &ns);
+	if (err)
+		return err;
+
 	struct drgn_dwarf_index_iterator it;
-	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dwarf.global, name,
-					     strlen(name), &tag, 1);
+	err = drgn_dwarf_index_iterator_init(&it, ns, name, strlen(name), &tag,
+					     1);
 	if (err)
 		return err;
 
 	/*
-	 * Find a matching DIE. Note that drgn_dwarf_index does not contain DIEs
-	 * with DW_AT_declaration, so this will always be a complete type.
+	 * Find a matching DIE. Note that drgn_namespace_dwarf_index does not
+	 * contain DIEs with DW_AT_declaration, so this will always be a
+	 * complete type.
 	 */
 	struct drgn_dwarf_index_die *index_die =
 		drgn_dwarf_index_iterator_next(&it);
@@ -5928,7 +5990,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	}
 	if (declaration && tag) {
 		err = drgn_debug_info_find_complete(dbinfo, dwarf_tag(die), tag,
-						    ret);
+						    die, lang, ret);
 		if (err != &drgn_not_found)
 			return err;
 	}
@@ -6109,7 +6171,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	if (declaration && tag) {
 		err = drgn_debug_info_find_complete(dbinfo,
 						    DW_TAG_enumeration_type,
-						    tag, ret);
+						    tag, die, lang, ret);
 		if (err != &drgn_not_found)
 			return err;
 	}

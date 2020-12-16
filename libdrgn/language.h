@@ -88,6 +88,8 @@ struct drgn_language {
 	const char *name;
 	/** Number of this programming language. */
 	enum drgn_language_number number;
+	/** Whether this language has namespaces. */
+	bool has_namespaces;
 	/** Implement @ref drgn_format_type_name(). */
 	drgn_format_type_fn *format_type_name;
 	/** Implement @ref drgn_format_type(). */
