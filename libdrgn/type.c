@@ -1673,6 +1673,26 @@ drgn_type_cache_members(struct drgn_type *outer_type,
 	return NULL;
 }
 
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_type_offsetof(struct drgn_type *type, const char *member_designator,
+		   uint64_t *ret)
+{
+
+	struct drgn_error *err;
+	const struct drgn_language *lang = drgn_type_language(type);
+	uint64_t bit_offset;
+	err = lang->bit_offset(drgn_type_program(type), type, member_designator,
+			       &bit_offset);
+	if (err)
+		return err;
+	if (bit_offset % 8) {
+		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					 "member is not byte-aligned");
+	}
+	*ret = bit_offset / 8;
+	return NULL;
+}
+
 static struct drgn_error *
 drgn_type_find_member_impl(struct drgn_type *type, const char *member_name,
 			   size_t member_name_len,

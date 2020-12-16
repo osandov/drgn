@@ -138,6 +138,7 @@ def main() -> None:
             "cast",
             "container_of",
             "execscript",
+            "offsetof",
             "reinterpret",
             "sizeof",
         ]

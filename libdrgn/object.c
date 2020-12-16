@@ -1508,6 +1508,8 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 			 struct drgn_qualified_type qualified_type,
 			 const char *member_designator)
 {
+	struct drgn_error *err;
+
 	if (drgn_object_program(res) != drgn_object_program(obj)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "objects are from different programs");
@@ -1519,18 +1521,11 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 				       obj->type);
 	}
 
-	const struct drgn_language *lang = drgn_object_language(obj);
-	uint64_t bit_offset;
-	struct drgn_error *err = lang->bit_offset(drgn_object_program(obj),
-						  qualified_type.type,
-						  member_designator,
-						  &bit_offset);
+	uint64_t offset;
+	err = drgn_type_offsetof(qualified_type.type, member_designator,
+				 &offset);
 	if (err)
 		return err;
-	if (bit_offset % 8) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					 "container_of() member is not byte-aligned");
-	}
 
 	uint64_t address;
 	err = drgn_object_value_unsigned(obj, &address);
@@ -1549,8 +1544,7 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 	result_type.qualifiers = 0;
-	return drgn_object_set_unsigned(res, result_type,
-					address - bit_offset / 8, 0);
+	return drgn_object_set_unsigned(res, result_type, address - offset, 0);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

@@ -87,6 +87,7 @@ Types
 .. drgndoc:: TypeKind
 .. drgndoc:: PrimitiveType
 .. drgndoc:: Qualifiers
+.. drgndoc:: offsetof
 
 .. _api-type-constructors:
 

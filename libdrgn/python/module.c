@@ -72,12 +72,31 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 	return PyLong_FromUnsignedLongLong(size);
 }
 
+static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
+{
+	struct drgn_error *err;
+
+	static char *keywords[] = {"type", "member", NULL};
+	DrgnType *type;
+	const char *member;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!s:offsetof", keywords,
+					 &DrgnType_type, &type, &member))
+		return NULL;
+	uint64_t offset;
+	err = drgn_type_offsetof(type->type, member, &offset);
+	if (err)
+		return set_drgn_error(err);
+	return PyLong_FromUnsignedLongLong(offset);
+}
+
 static PyMethodDef drgn_methods[] = {
 	{"filename_matches", (PyCFunction)filename_matches,
 	 METH_VARARGS | METH_KEYWORDS, drgn_filename_matches_DOC},
 	{"NULL", (PyCFunction)DrgnObject_NULL, METH_VARARGS | METH_KEYWORDS,
 	 drgn_NULL_DOC},
 	{"sizeof", (PyCFunction)sizeof_, METH_O, drgn_sizeof_DOC},
+	{"offsetof", (PyCFunction)offsetof_, METH_VARARGS | METH_KEYWORDS,
+	 drgn_offsetof_DOC},
 	{"cast", (PyCFunction)cast, METH_VARARGS | METH_KEYWORDS,
 	 drgn_cast_DOC},
 	{"reinterpret", (PyCFunction)reinterpret, METH_VARARGS | METH_KEYWORDS,

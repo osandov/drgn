@@ -1340,12 +1340,16 @@ def container_of(ptr: Object, type: Union[str, Type], member: str) -> Object:
 
     This corresponds to the ``container_of()`` macro in C.
 
-    :param ptr: The pointer.
-    :param type: The type of the containing object.
-    :param member: The name of the member in ``type``.
-    :raises TypeError: if the object is not a pointer or the type is not a
-        structure, union, or class type
-    :raises LookupError: If the type does not have a member with the given name
+    :param ptr: Pointer to member in containing object.
+    :param type: Type of containing object.
+    :param member: Name of member in containing object. May include one or more
+        member references and zero or more array subscripts.
+    :return: Pointer to containing object.
+    :raises TypeError: if *ptr* is not a pointer or *type* is not a structure,
+        union, or class type
+    :raises ValueError: if the member is not byte-aligned (e.g., because it is
+        a bit field)
+    :raises LookupError: if *type* does not have a member with the given name
     """
     ...
 
@@ -1807,6 +1811,25 @@ def sizeof(type_or_obj: Union[Type, Object]) -> int:
     :param type_or_obj: Entity to get the size of.
     :raises TypeError: if the type does not have a size (e.g., because it is
         incomplete or void)
+    """
+    ...
+
+def offsetof(type: Type, member: str) -> int:
+    """
+    Get the offset (in bytes) of a member in a :class:`Type`.
+
+    This corresponds to |offsetof()|_ in C.
+
+    .. |offsetof()| replace:: ``offsetof()``
+    .. _offsetof(): https://en.cppreference.com/w/cpp/types/offsetof
+
+    :param type: Structure, union, or class type.
+    :param member: Name of member. May include one or more member references
+        and zero or more array subscripts.
+    :raises TypeError: if *type* is not a structure, union, or class type
+    :raises ValueError: if the member is not byte-aligned (e.g., because it is
+        a bit field)
+    :raises LookupError: if *type* does not have a member with the given name
     """
     ...
 

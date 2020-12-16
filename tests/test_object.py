@@ -1728,7 +1728,7 @@ class TestCOperators(MockProgramTestCase):
         )
         self.assertRaisesRegex(
             ValueError,
-            r"container_of\(\) member is not byte-aligned",
+            "member is not byte-aligned",
             container_of,
             obj,
             small_point_type,
