@@ -788,6 +788,111 @@ class TestTypes(TestCase):
             ),
         )
 
+    def test_incomplete_to_complete_namespace(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "incomplete_struct_die"),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "Math"),),
+                    (
+                        DwarfLabel("incomplete_struct_die"),
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.namespace,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "Math"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                                DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
+                            ),
+                            (
+                                DwarfDie(
+                                    DW_TAG.member,
+                                    (
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                        DwarfAttrib(
+                                            DW_AT.data_member_location,
+                                            DW_FORM.data1,
+                                            0,
+                                        ),
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "int_die"
+                                        ),
+                                    ),
+                                ),
+                                DwarfDie(
+                                    DW_TAG.member,
+                                    (
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                        DwarfAttrib(
+                                            DW_AT.data_member_location,
+                                            DW_FORM.data1,
+                                            4,
+                                        ),
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "int_die"
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+                # Incorrect structure we should not access
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "wrong.c"),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.C_plus_plus,
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(
+                prog.struct_type(
+                    "point",
+                    8,
+                    (
+                        TypeMember(
+                            prog.int_type("int", 4, True, language=Language.CPP), "x"
+                        ),
+                        TypeMember(
+                            prog.int_type("int", 4, True, language=Language.CPP),
+                            "y",
+                            32,
+                        ),
+                    ),
+                    language=Language.CPP,
+                ),
+                language=Language.CPP,
+            ),
+        )
+
     def test_incomplete_to_complete_ambiguous(self):
         prog = dwarf_program(
             wrap_test_type_dies(

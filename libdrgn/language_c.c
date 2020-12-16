@@ -3437,6 +3437,7 @@ UNARY_OP(not, ~, integer)
 LIBDRGN_PUBLIC const struct drgn_language drgn_language_c = {
 	.name = "C",
 	.number = DRGN_LANGUAGE_C,
+	.has_namespaces = false,
 	.format_type_name = c_format_type_name,
 	.format_type = c_format_type,
 	.format_object = c_format_object,
@@ -3466,6 +3467,7 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_c = {
 LIBDRGN_PUBLIC const struct drgn_language drgn_language_cpp = {
 	.name = "C++",
 	.number = DRGN_LANGUAGE_CPP,
+	.has_namespaces = true,
 	.format_type_name = c_format_type_name,
 	.format_type = c_format_type,
 	.format_object = c_format_object,
