@@ -179,9 +179,9 @@ static TypeMember *TypeMember_wrap(PyObject *parent,
 	py_member->bit_offset = PyLong_FromUnsignedLongLong(bit_offset);
 	if (!py_member->bit_offset)
 		goto err;
-	if (member->bit_field_size) {
+	if (member->bit_field_size_) {
 		py_member->bit_field_size =
-			PyLong_FromUnsignedLongLong(member->bit_field_size);
+			PyLong_FromUnsignedLongLong(member->bit_field_size_);
 		if (!py_member->bit_field_size)
 			goto err;
 	} else {

@@ -1863,11 +1863,7 @@ struct drgn_type_member {
 	 * of 8 (but that may not be the case for bit fields).
 	 */
 	uint64_t bit_offset;
-	/**
-	 * If this member is a bit field, the size of the field in bits. If this
-	 * member is not a bit field, 0.
-	 */
-	uint64_t bit_field_size;
+	uint64_t bit_field_size_;
 };
 
 /** Value of an enumerated type. */
@@ -2266,11 +2262,15 @@ static inline bool drgn_type_is_variadic(struct drgn_type *type)
  * Evaluate the type of a @ref drgn_type_member.
  *
  * @param[in] member Member.
- * @param[out] ret Returned type.
+ * @param[out] type_ret Returned type.
+ * @param[out] bit_field_size_ret If the member is a bit field, returned size of
+ * the field in bits. Otherwise, returned as 0. Can be @c NULL if not needed.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_member_type(struct drgn_type_member *member,
-				    struct drgn_qualified_type *ret);
+				    struct drgn_qualified_type *type_ret,
+				    uint64_t *bit_field_size_ret)
+	__attribute__((__nonnull__(1, 2)));
 
 /**
  * Evaluate the type of a @ref drgn_type_parameter.

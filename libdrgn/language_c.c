@@ -382,27 +382,27 @@ c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 		return &drgn_enomem;
 
 	for (i = 0; i < num_members; i++) {
-		const char *member_name = members[i].name;
 		struct drgn_qualified_type member_type;
+		uint64_t member_bit_field_size;
+		err = drgn_member_type(&members[i], &member_type,
+				       &member_bit_field_size);
+		if (err)
+			return err;
+
+		const char *member_name = members[i].name;
 		struct string_callback name_cb = {
 			.fn = c_variable_name,
 			.arg = (void *)member_name,
 		};
-
-		err = drgn_member_type(&members[i], &member_type);
-		if (err)
-			return err;
-
 		err = c_declare_variable(member_type,
 					 member_name && member_name[0] ?
 					 &name_cb : NULL, indent + 1, sb);
 		if (err)
 			return err;
-		if (members[i].bit_field_size) {
-			if (!string_builder_appendf(sb, " : %" PRIu64,
-						    members[i].bit_field_size))
+		if (member_bit_field_size &&
+		    !string_builder_appendf(sb, " : %" PRIu64,
+					    member_bit_field_size))
 				return &drgn_enomem;
-		}
 		if (!string_builder_append(sb, ";\n"))
 			return &drgn_enomem;
 	}
@@ -1009,26 +1009,24 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 	struct drgn_error *err;
 	struct compound_initializer_iter *iter =
 		container_of(iter_, struct compound_initializer_iter, iter);
-	struct compound_initializer_state *top;
-	uint64_t bit_offset;
-	struct drgn_type_member *member;
-	struct drgn_qualified_type member_type;
 
 	for (;;) {
-		struct compound_initializer_state *new;
-
 		if (!iter->stack.size)
 			return &drgn_stop;
 
-		top = &iter->stack.data[iter->stack.size - 1];
+		struct compound_initializer_state *top =
+			&iter->stack.data[iter->stack.size - 1];
 		if (top->member == top->end) {
 			iter->stack.size--;
 			continue;
 		}
 
-		bit_offset = top->bit_offset;
-		member = top->member++;
-		err = drgn_member_type(member, &member_type);
+		uint64_t bit_offset = top->bit_offset;
+		struct drgn_type_member *member = top->member++;
+		struct drgn_qualified_type member_type;
+		uint64_t member_bit_field_size;
+		err = drgn_member_type(member, &member_type,
+				       &member_bit_field_size);
 		if (err)
 			return err;
 
@@ -1043,7 +1041,7 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 		    !drgn_type_has_members(member_type.type)) {
 			err = drgn_object_slice(obj_ret, iter->obj, member_type,
 						bit_offset + member->bit_offset,
-						member->bit_field_size);
+						member_bit_field_size);
 			if (err)
 				return err;
 
@@ -1062,7 +1060,8 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 			break;
 		}
 
-		new = compound_initializer_stack_append_entry(&iter->stack);
+		struct compound_initializer_state *new =
+			compound_initializer_stack_append_entry(&iter->stack);
 		if (!new)
 			return &drgn_enomem;
 		new->member = drgn_type_members(member_type.type);
@@ -1108,19 +1107,6 @@ c_format_compound_object(const struct drgn_object *obj,
 			 struct string_builder *sb)
 {
 	struct drgn_error *err;
-	struct compound_initializer_iter iter = {
-		.iter = {
-			.next = compound_initializer_iter_next,
-			.reset = compound_initializer_iter_reset,
-			.append_designation =
-				flags & DRGN_FORMAT_OBJECT_MEMBER_NAMES ?
-				compound_initializer_append_designation : NULL,
-		},
-		.obj = obj,
-		.flags = flags,
-		.member_flags = drgn_member_format_object_flags(flags),
-	};
-	struct compound_initializer_state *new;
 
 	if (!drgn_type_is_complete(underlying_type)) {
 		const char *keyword;
@@ -1143,8 +1129,21 @@ c_format_compound_object(const struct drgn_object *obj,
 					 keyword);
 	}
 
-	compound_initializer_stack_init(&iter.stack);
-	new = compound_initializer_stack_append_entry(&iter.stack);
+	struct compound_initializer_iter iter = {
+		.iter = {
+			.next = compound_initializer_iter_next,
+			.reset = compound_initializer_iter_reset,
+			.append_designation =
+				flags & DRGN_FORMAT_OBJECT_MEMBER_NAMES ?
+				compound_initializer_append_designation : NULL,
+		},
+		.obj = obj,
+		.stack = VECTOR_INIT,
+		.flags = flags,
+		.member_flags = drgn_member_format_object_flags(flags),
+	};
+	struct compound_initializer_state *new =
+		compound_initializer_stack_append_entry(&iter.stack);
 	if (!new) {
 		err = &drgn_enomem;
 		goto out;
@@ -1162,22 +1161,22 @@ c_format_compound_object(const struct drgn_object *obj,
 		       DRGN_FORMAT_OBJECT_IMPLICIT_MEMBERS)) &&
 	    new->member < new->end) {
 		struct drgn_object member;
-
 		drgn_object_init(&member, drgn_object_program(obj));
 		do {
 			struct drgn_qualified_type member_type;
-			bool zero;
-
-			err = drgn_member_type(&new->end[-1], &member_type);
+			uint64_t member_bit_field_size;
+			err = drgn_member_type(&new->end[-1], &member_type,
+					       &member_bit_field_size);
 			if (err)
 				break;
 
 			err = drgn_object_slice(&member, obj, member_type,
 						new->end[-1].bit_offset,
-						new->end[-1].bit_field_size);
+						member_bit_field_size);
 			if (err)
 				break;
 
+			bool zero;
 			err = drgn_object_is_zero(&member, &zero);
 			if (err)
 				break;
@@ -2612,7 +2611,8 @@ struct drgn_error *c_bit_offset(struct drgn_program *prog,
 					goto out;
 				}
 				struct drgn_qualified_type member_type;
-				err = drgn_member_type(member, &member_type);
+				err = drgn_member_type(member, &member_type,
+						       NULL);
 				if (err)
 					goto out;
 				type = member_type.type;
