@@ -152,7 +152,7 @@ linux_helper_radix_tree_lookup(struct drgn_object *res,
 	if (err)
 		goto out;
 	struct drgn_qualified_type member_type;
-	err = drgn_member_type(member, &member_type);
+	err = drgn_member_type(member, &member_type, NULL);
 	if (err)
 		goto out;
 	if (drgn_type_kind(member_type.type) != DRGN_TYPE_ARRAY) {
@@ -283,7 +283,7 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 	if (err)
 		return err;
 	struct drgn_qualified_type nr_type;
-	err = drgn_member_type(nr_member, &nr_type);
+	err = drgn_member_type(nr_member, &nr_type, NULL);
 	if (err)
 		return err;
 
@@ -294,7 +294,7 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 	if (err)
 		return err;
 	struct drgn_qualified_type ns_type;
-	err = drgn_member_type(ns_member, &ns_type);
+	err = drgn_member_type(ns_member, &ns_type, NULL);
 	if (err)
 		return err;
 

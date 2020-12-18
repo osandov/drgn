@@ -217,9 +217,12 @@ drgn_lazy_type_check_prog(struct drgn_lazy_type *lazy_type,
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_member_type(struct drgn_type_member *member,
-		 struct drgn_qualified_type *ret)
+		 struct drgn_qualified_type *type_ret,
+		 uint64_t *bit_field_size_ret)
 {
-	return drgn_lazy_type_evaluate(&member->type, ret);
+	if (bit_field_size_ret)
+		*bit_field_size_ret = member->bit_field_size_;
+	return drgn_lazy_type_evaluate(&member->type, type_ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -491,7 +494,7 @@ drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder
 	member->type = type;
 	member->name = name;
 	member->bit_offset = bit_offset;
-	member->bit_field_size = bit_field_size;
+	member->bit_field_size_ = bit_field_size;
 	return NULL;
 }
 
@@ -1408,7 +1411,8 @@ drgn_type_cache_members(struct drgn_type *outer_type,
 		} else {
 			struct drgn_qualified_type member_type;
 			struct drgn_error *err = drgn_member_type(member,
-								  &member_type);
+								  &member_type,
+								  NULL);
 			if (err)
 				return err;
 			err = drgn_type_cache_members(outer_type,

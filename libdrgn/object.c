@@ -1040,14 +1040,15 @@ drgn_compound_object_is_zero(const struct drgn_object *obj,
 	num_members = drgn_type_num_members(underlying_type);
 	for (i = 0; i < num_members; i++) {
 		struct drgn_qualified_type member_type;
-
-		err = drgn_member_type(&members[i], &member_type);
+		uint64_t member_bit_field_size;
+		err = drgn_member_type(&members[i], &member_type,
+				       &member_bit_field_size);
 		if (err)
 			goto out;
 
 		err = drgn_object_slice(&member, obj, member_type,
 					members[i].bit_offset,
-					members[i].bit_field_size);
+					member_bit_field_size);
 		if (err)
 			goto out;
 
@@ -1464,11 +1465,12 @@ drgn_object_member(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 	struct drgn_qualified_type member_type;
-	err = drgn_member_type(member, &member_type);
+	uint64_t member_bit_field_size;
+	err = drgn_member_type(member, &member_type, &member_bit_field_size);
 	if (err)
 		return err;
 	return drgn_object_slice(res, obj, member_type, member_bit_offset,
-				 member->bit_field_size);
+				 member_bit_field_size);
 }
 
 struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
@@ -1495,12 +1497,13 @@ struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
 	if (err)
 		return err;
 	struct drgn_qualified_type member_type;
-	err = drgn_member_type(member, &member_type);
+	uint64_t member_bit_field_size;
+	err = drgn_member_type(member, &member_type, &member_bit_field_size);
 	if (err)
 		return err;
 	return drgn_object_dereference_offset(res, obj, member_type,
 					      member_bit_offset,
-					      member->bit_field_size);
+					      member_bit_field_size);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

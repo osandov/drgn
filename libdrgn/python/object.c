@@ -109,7 +109,9 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 			goto out;
 		}
 		struct drgn_qualified_type member_qualified_type;
-		err = drgn_member_type(member, &member_qualified_type);
+		uint64_t member_bit_field_size;
+		err = drgn_member_type(member, &member_qualified_type,
+				       &member_bit_field_size);
 		if (err) {
 			set_drgn_error(err);
 			goto out;
@@ -120,7 +122,7 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 			.qualifiers = member_qualified_type.qualifiers,
 			.underlying_type =
 				drgn_underlying_type(member_qualified_type.type),
-			.bit_field_size = member->bit_field_size,
+			.bit_field_size = member_bit_field_size,
 		};
 		if (serialize_py_object(prog, buf, buf_bit_size,
 					bit_offset + member->bit_offset,
@@ -602,10 +604,9 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 	num_members = drgn_type_num_members(underlying_type);
 	for (i = 0; i < num_members; i++) {
 		struct drgn_qualified_type member_type;
-		PyObject *member_value;
-		int ret;
-
-		err = drgn_member_type(&members[i], &member_type);
+		uint64_t member_bit_field_size;
+		err = drgn_member_type(&members[i], &member_type,
+				       &member_bit_field_size);
 		if (err) {
 			set_drgn_error(err);
 			Py_CLEAR(dict);
@@ -614,19 +615,20 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 
 		err = drgn_object_slice(&member, obj, member_type,
 					members[i].bit_offset,
-					members[i].bit_field_size);
+					member_bit_field_size);
 		if (err) {
 			set_drgn_error(err);
 			Py_CLEAR(dict);
 			goto out;
 		}
 
-		member_value = DrgnObject_value_impl(&member);
+		PyObject *member_value = DrgnObject_value_impl(&member);
 		if (!member_value) {
 			Py_CLEAR(dict);
 			goto out;
 		}
 
+		int ret;
 		if (members[i].name) {
 			ret = PyDict_SetItemString(dict, members[i].name,
 						   member_value);
@@ -1614,23 +1616,19 @@ static ObjectIterator *DrgnObject_iter(DrgnObject *self)
 static int add_to_dir(PyObject *dir, struct drgn_type *type)
 {
 	struct drgn_error *err;
-	struct drgn_type_member *members;
-	size_t num_members, i;
 
 	type = drgn_underlying_type(type);
 	if (!drgn_type_has_members(type))
 		return 0;
 
-	members = drgn_type_members(type);
-	num_members = drgn_type_num_members(type);
-	for (i = 0; i < num_members; i++) {
+	struct drgn_type_member *members = drgn_type_members(type);
+	size_t num_members = drgn_type_num_members(type);
+	for (size_t i = 0; i < num_members; i++) {
 		struct drgn_type_member *member;
 
 		member = &members[i];
 		if (member->name) {
-			PyObject *str;
-
-			str = PyUnicode_FromString(member->name);
+			PyObject *str = PyUnicode_FromString(member->name);
 			if (!str)
 				return -1;
 			if (PyList_Append(dir, str) == -1) {
@@ -1640,8 +1638,7 @@ static int add_to_dir(PyObject *dir, struct drgn_type *type)
 			Py_DECREF(str);
 		} else {
 			struct drgn_qualified_type member_type;
-
-			err = drgn_member_type(member, &member_type);
+			err = drgn_member_type(member, &member_type, NULL);
 			if (err) {
 				set_drgn_error(err);
 				return -1;
