@@ -257,65 +257,6 @@ void drgn_error_destroy(struct drgn_error *err);
 /**
  * @ingroup Types
  *
- * Type qualifiers.
- *
- * Some languages, like C, have the notion of qualifiers which add properties to
- * a type. Qualifiers are represented as a bitmask; each qualifier is a bit.
- */
-enum drgn_qualifiers {
-	/** Constant type. */
-	DRGN_QUALIFIER_CONST = (1 << 0),
-	/** Volatile type. */
-	DRGN_QUALIFIER_VOLATILE = (1 << 1),
-	/** Restrict type. */
-	DRGN_QUALIFIER_RESTRICT = (1 << 2),
-	/** Atomic type. */
-	DRGN_QUALIFIER_ATOMIC = (1 << 3),
-	/** Bitmask of all valid qualifiers. */
-	DRGN_ALL_QUALIFIERS = (1 << 4) - 1,
-} __attribute__((packed));
-
-/**
- * @ingroup LazyTypes
- *
- * Lazily-evaluated type.
- *
- * A lazy type may be in two states: unevaluated, in which case an arbitrary
- * callback must be called to evaluate the type, or evaluated, in which case the
- * type is cached. To evaluate a type, the thunk callback is called, the thunk
- * is freed, and the result is cached.
- *
- * This is for internal use only.
- */
-struct drgn_lazy_type {
-	union {
-		/** Type if it has already been evaluated. */
-		struct drgn_type *type;
-		/** Thunk if the type has not been evaluated yet. */
-		struct drgn_type_thunk *thunk;
-	};
-	/** Qualifiers, or -1 if the type has not been evaluated yet. */
-	enum drgn_qualifiers qualifiers;
-};
-
-/**
- * @defgroup Types Types
- *
- * Type descriptors.
- *
- * Types in a program are represented by @ref drgn_type.
- *
- * Type descriptors have various fields depending on the kind of type. For each
- * field @c foo, there is a @c drgn_type_kind_has_foo() helper which returns
- * whether the given kind of type has the field @c foo; a @c drgn_type_has_foo()
- * helper which does the same but takes a type; and a @c drgn_type_foo() helper
- * which returns the field. For members, enumerators, and parameters, there is
- * also a @c drgn_type_num_foo() helper.
- *
- * @{
- */
-
-/**
  * Kinds of types.
  *
  * Every type in a program supported by libdrgn falls into one of these
@@ -350,128 +291,30 @@ enum drgn_type_kind {
 	DRGN_TYPE_FUNCTION,
 } __attribute__((packed));
 
-/** Primitive types known to drgn. */
-enum drgn_primitive_type {
-	/* Primitive C types. */
-	DRGN_C_TYPE_VOID,
-	DRGN_C_TYPE_CHAR,
-	DRGN_C_TYPE_SIGNED_CHAR,
-	DRGN_C_TYPE_UNSIGNED_CHAR,
-	DRGN_C_TYPE_SHORT,
-	DRGN_C_TYPE_UNSIGNED_SHORT,
-	DRGN_C_TYPE_INT,
-	DRGN_C_TYPE_UNSIGNED_INT,
-	DRGN_C_TYPE_LONG,
-	DRGN_C_TYPE_UNSIGNED_LONG,
-	DRGN_C_TYPE_LONG_LONG,
-	DRGN_C_TYPE_UNSIGNED_LONG_LONG,
-	DRGN_C_TYPE_BOOL,
-	DRGN_C_TYPE_FLOAT,
-	DRGN_C_TYPE_DOUBLE,
-	DRGN_C_TYPE_LONG_DOUBLE,
-	DRGN_C_TYPE_SIZE_T,
-	DRGN_C_TYPE_PTRDIFF_T,
-	DRGN_PRIMITIVE_TYPE_NUM,
-	DRGN_NOT_PRIMITIVE_TYPE = DRGN_PRIMITIVE_TYPE_NUM,
-	/*
-	 * Make sure to update api_reference.rst and type.c when adding anything
-	 * here.
-	 */
+/**
+ * @ingroup Types
+ *
+ * Type qualifiers.
+ *
+ * Some languages, like C, have the notion of qualifiers which add properties to
+ * a type. Qualifiers are represented as a bitmask; each qualifier is a bit.
+ */
+enum drgn_qualifiers {
+	/** Constant type. */
+	DRGN_QUALIFIER_CONST = (1 << 0),
+	/** Volatile type. */
+	DRGN_QUALIFIER_VOLATILE = (1 << 1),
+	/** Restrict type. */
+	DRGN_QUALIFIER_RESTRICT = (1 << 2),
+	/** Atomic type. */
+	DRGN_QUALIFIER_ATOMIC = (1 << 3),
+	/** Bitmask of all valid qualifiers. */
+	DRGN_ALL_QUALIFIERS = (1 << 4) - 1,
 } __attribute__((packed));
 
-/** Member of a structure, union, or class type. */
-struct drgn_type_member {
-	/**
-	 * Type of the member.
-	 *
-	 * Access this with @ref drgn_member_type().
-	 */
-	struct drgn_lazy_type type;
-	/** Member name or @c NULL if it is unnamed. */
-	const char *name;
-	/**
-	 * Offset in bits from the beginning of the type to the beginning of
-	 * this member (i.e., for little-endian machines, the least significant
-	 * bit, and for big-endian machines, the most significant bit). Members
-	 * are usually aligned to at least a byte, so this is usually a multiple
-	 * of 8 (but that may not be the case for bit fields).
-	 */
-	uint64_t bit_offset;
-	/**
-	 * If this member is a bit field, the size of the field in bits. If this
-	 * member is not a bit field, 0.
-	 */
-	uint64_t bit_field_size;
-};
-
-/** Value of an enumerated type. */
-struct drgn_type_enumerator {
-	/** Enumerator name. */
-	const char *name;
-	union {
-		/** Enumerator value if the type is signed. */
-		int64_t svalue;
-		/** Enumerator value if the type is unsigned. */
-		uint64_t uvalue;
-	};
-};
-
-/** Parameter of a function type. */
-struct drgn_type_parameter {
-	/**
-	 * Type of the parameter.
-	 *
-	 * Access this with @ref drgn_parameter_type().
-	 */
-	struct drgn_lazy_type type;
-	/** Parameter name or @c NULL if it is unnamed. */
-	const char *name;
-};
-
 /**
- * Language-agnostic type descriptor.
+ * @ingroup Types
  *
- * This structure should not be accessed directly; see @ref Types.
- */
-struct drgn_type {
-	/** @privatesection */
-	struct {
-		enum drgn_type_kind kind;
-		bool is_complete;
-		enum drgn_primitive_type primitive;
-		/* These are the qualifiers for the wrapped type, not this type. */
-		enum drgn_qualifiers qualifiers;
-		struct drgn_program *program;
-		const struct drgn_language *language;
-		/*
-		 * This mess of unions is used to make this as compact as possible. Use
-		 * the provided helpers and don't think about it.
-		 */
-		union {
-			const char *name;
-			const char *tag;
-			size_t num_parameters;
-		};
-		union {
-			uint64_t size;
-			uint64_t length;
-			size_t num_enumerators;
-			bool is_variadic;
-		};
-		union {
-			bool is_signed;
-			size_t num_members;
-			struct drgn_type *type;
-		};
-		union {
-			struct drgn_type_member *members;
-			struct drgn_type_enumerator *enumerators;
-			struct drgn_type_parameter *parameters;
-		};
-	} _private;
-};
-
-/**
  * Qualified type.
  *
  * A type with qualifiers.
@@ -485,457 +328,11 @@ struct drgn_qualified_type {
 	enum drgn_qualifiers qualifiers;
 };
 
-/** Get the kind of a type. */
-static inline enum drgn_type_kind drgn_type_kind(struct drgn_type *type)
-{
-	return type->_private.kind;
-}
-
-/** Get the primitive type corresponding to a @ref drgn_type. */
-static inline enum drgn_primitive_type
-drgn_type_primitive(struct drgn_type *type)
-{
-	return type->_private.primitive;
-}
-
-/**
- * Get whether a type is complete (i.e., the type definition is known).
- *
- * This is always @c false for the void type. It may be @c false for structure,
- * union, class, enumerated, and array types, as well as typedef types where the
- * underlying type is one of those. Otherwise, it is always @c true.
- */
-static inline bool drgn_type_is_complete(struct drgn_type *type)
-{
-	return type->_private.is_complete;
-}
-
 static inline struct drgn_program *
-drgn_type_program(struct drgn_type *type)
-{
-	return type->_private.program;
-}
+drgn_type_program(struct drgn_type *type);
 
-/** Get the language of a type. */
 static inline const struct drgn_language *
-drgn_type_language(struct drgn_type *type)
-{
-	return type->_private.language;
-}
-
-/**
- * Get whether a kind of type has a name. This is true for integer, boolean,
- * floating-point, complex, and typedef types.
- */
-static inline bool drgn_type_kind_has_name(enum drgn_type_kind kind)
-{
-	return (kind == DRGN_TYPE_INT ||
-		kind == DRGN_TYPE_BOOL ||
-		kind == DRGN_TYPE_FLOAT ||
-		kind == DRGN_TYPE_COMPLEX ||
-		kind == DRGN_TYPE_TYPEDEF);
-}
-/** Get whether a type has a name. @sa drgn_type_kind_has_name() */
-static inline bool drgn_type_has_name(struct drgn_type *type)
-{
-	return drgn_type_kind_has_name(drgn_type_kind(type));
-}
-/**
- * Get the name of a type. @ref drgn_type_has_name() must be true for this type.
- */
-static inline const char *drgn_type_name(struct drgn_type *type)
-{
-	assert(drgn_type_has_name(type));
-	return type->_private.name;
-}
-
-/**
- * Get whether a kind of type has a size. This is true for integer, boolean,
- * floating-point, complex, structure, union, class, and pointer types.
- */
-static inline bool drgn_type_kind_has_size(enum drgn_type_kind kind)
-{
-	return (kind == DRGN_TYPE_INT ||
-		kind == DRGN_TYPE_BOOL ||
-		kind == DRGN_TYPE_FLOAT ||
-		kind == DRGN_TYPE_COMPLEX ||
-		kind == DRGN_TYPE_STRUCT ||
-		kind == DRGN_TYPE_UNION ||
-		kind == DRGN_TYPE_CLASS ||
-		kind == DRGN_TYPE_POINTER);
-}
-/** Get whether a type has a size. @sa drgn_type_kind_has_size() */
-static inline bool drgn_type_has_size(struct drgn_type *type)
-{
-	return drgn_type_kind_has_size(drgn_type_kind(type));
-}
-/**
- * Get the size of a type in bytes. @ref drgn_type_has_size() must be true for
- * this type.
- */
-static inline uint64_t drgn_type_size(struct drgn_type *type)
-{
-	assert(drgn_type_has_size(type));
-	return type->_private.size;
-}
-
-/**
- * Get whether a kind of type has a signedness. This is true for integer types.
- */
-static inline bool drgn_type_kind_has_is_signed(enum drgn_type_kind kind)
-{
-	return kind == DRGN_TYPE_INT;
-}
-/** Get whether a type has a signedness. @sa drgn_type_kind_has_is_signed() */
-static inline bool drgn_type_has_is_signed(struct drgn_type *type)
-{
-	return drgn_type_kind_has_is_signed(drgn_type_kind(type));
-}
-/**
- * Get the signedness of a type. @ref drgn_type_has_is_signed() must be true for
- * this type.
- */
-static inline bool drgn_type_is_signed(struct drgn_type *type)
-{
-	assert(drgn_type_has_is_signed(type));
-	return type->_private.is_signed;
-}
-
-/**
- * Get whether a kind of type has a tag. This is true for structure, union,
- * class, and enumerated types.
- */
-static inline bool drgn_type_kind_has_tag(enum drgn_type_kind kind)
-{
-	return (kind == DRGN_TYPE_STRUCT ||
-		kind == DRGN_TYPE_UNION ||
-		kind == DRGN_TYPE_CLASS ||
-		kind == DRGN_TYPE_ENUM);
-}
-/** Get whether a type has a tag. @sa drgn_type_kind_has_tag() */
-static inline bool drgn_type_has_tag(struct drgn_type *type)
-{
-	return drgn_type_kind_has_tag(drgn_type_kind(type));
-}
-/**
- * Get the tag of a type. @ref drgn_type_has_tag() must be true for this type.
- */
-static inline const char *drgn_type_tag(struct drgn_type *type)
-{
-	assert(drgn_type_has_tag(type));
-	return type->_private.tag;
-}
-
-/**
- * Get whether a kind of type has members. This is true for structure, union,
- * and class types.
- */
-static inline bool drgn_type_kind_has_members(enum drgn_type_kind kind)
-{
-	return (kind == DRGN_TYPE_STRUCT ||
-		kind == DRGN_TYPE_UNION ||
-		kind == DRGN_TYPE_CLASS);
-}
-/** Get whether a type has members. @sa drgn_type_kind_has_members() */
-static inline bool drgn_type_has_members(struct drgn_type *type)
-{
-	return drgn_type_kind_has_members(drgn_type_kind(type));
-}
-/**
- * Get the members of a type. @ref drgn_type_has_members() must be true for this
- * type.
- */
-static inline struct drgn_type_member *drgn_type_members(struct drgn_type *type)
-{
-	assert(drgn_type_has_members(type));
-	return type->_private.members;
-}
-/**
- * Get the number of members of a type. @ref drgn_type_has_members() must be
- * true for this type. If the type is incomplete, this is always zero.
- */
-static inline size_t drgn_type_num_members(struct drgn_type *type)
-{
-	assert(drgn_type_has_members(type));
-	return type->_private.num_members;
-}
-
-/**
- * Get whether a kind of type has a wrapped type. This is true for complex,
- * enumerated, typedef, pointer, array, and function types.
- */
-static inline bool drgn_type_kind_has_type(enum drgn_type_kind kind)
-{
-	return (kind == DRGN_TYPE_COMPLEX ||
-		kind == DRGN_TYPE_ENUM ||
-		kind == DRGN_TYPE_TYPEDEF ||
-		kind == DRGN_TYPE_POINTER ||
-		kind == DRGN_TYPE_ARRAY ||
-		kind == DRGN_TYPE_FUNCTION);
-}
-/** Get whether a type has a wrapped type. @sa drgn_type_kind_has_type() */
-static inline bool drgn_type_has_type(struct drgn_type *type)
-{
-	return drgn_type_kind_has_type(drgn_type_kind(type));
-}
-/**
- * Get the type wrapped by this type.
- *
- * For a complex type, this is the corresponding real type.
- *
- * For an enumerated type, this is the compatible integer type. It is @c NULL if
- * the enumerated type is incomplete.
- *
- * For a typedef type, this is the aliased type.
- *
- * For a pointer type, this is the referenced type.
- *
- * For an array type, this is the element type.
- *
- * For a function type, this is the return type.
- */
-static inline struct drgn_qualified_type
-drgn_type_type(struct drgn_type *type)
-{
-	assert(drgn_type_has_type(type));
-	return (struct drgn_qualified_type){
-		.type = type->_private.type,
-		.qualifiers = type->_private.qualifiers,
-	};
-}
-
-/**
- * Get whether a kind of type has enumerators. This is true for enumerated
- * types.
- */
-static inline bool drgn_type_kind_has_enumerators(enum drgn_type_kind kind)
-{
-	return kind == DRGN_TYPE_ENUM;
-}
-/** Get whether a type has enumerators. @sa drgn_type_kind_has_enumerators() */
-static inline bool drgn_type_has_enumerators(struct drgn_type *type)
-{
-	return drgn_type_kind_has_enumerators(drgn_type_kind(type));
-}
-/**
- * Get the enumerators of a type. @ref drgn_type_has_enumerators() must be true
- * for this type.
- */
-static inline struct drgn_type_enumerator *
-drgn_type_enumerators(struct drgn_type *type)
-{
-	assert(drgn_type_has_enumerators(type));
-	return type->_private.enumerators;
-}
-/**
- * Get the number of enumerators of a type. @ref drgn_type_has_enumerators()
- * must be true for this type. If the type is incomplete, this is always zero.
- */
-static inline size_t drgn_type_num_enumerators(struct drgn_type *type)
-{
-	assert(drgn_type_has_enumerators(type));
-	return type->_private.num_enumerators;
-}
-
-/** Get whether a kind of type has a length. This is true for array types. */
-static inline bool drgn_type_kind_has_length(enum drgn_type_kind kind)
-{
-	return kind == DRGN_TYPE_ARRAY;
-}
-/** Get whether a type has a length. @sa drgn_type_kind_has_length() */
-static inline bool drgn_type_has_length(struct drgn_type *type)
-{
-	return drgn_type_kind_has_length(drgn_type_kind(type));
-}
-/**
- * Get the length of a type. @ref drgn_type_has_length() must be true for this
- * type. If the type is incomplete, this is always zero.
- */
-static inline uint64_t drgn_type_length(struct drgn_type *type)
-{
-	assert(drgn_type_has_length(type));
-	return type->_private.length;
-}
-
-/**
- * Get whether a kind of type has parameters. This is true for function types.
- */
-static inline bool drgn_type_kind_has_parameters(enum drgn_type_kind kind)
-{
-	return kind == DRGN_TYPE_FUNCTION;
-}
-/** Get whether a type has parameters. @sa drgn_type_kind_has_parameters() */
-static inline bool drgn_type_has_parameters(struct drgn_type *type)
-{
-	return drgn_type_kind_has_parameters(drgn_type_kind(type));
-}
-/**
- * Get the parameters of a type. @ref drgn_type_has_parameters() must be true
- * for this type.
- */
-static inline struct drgn_type_parameter *drgn_type_parameters(struct drgn_type *type)
-{
-	assert(drgn_type_has_parameters(type));
-	return type->_private.parameters;
-}
-/**
- * Get the number of parameters of a type. @ref drgn_type_has_parameters() must
- * be true for this type.
- */
-static inline size_t drgn_type_num_parameters(struct drgn_type *type)
-{
-	assert(drgn_type_has_parameters(type));
-	return type->_private.num_parameters;
-}
-
-/**
- * Get whether a kind of type can be variadic. This is true for function types.
- */
-static inline bool drgn_type_kind_has_is_variadic(enum drgn_type_kind kind)
-{
-	return kind == DRGN_TYPE_FUNCTION;
-}
-/** Get whether a type can be variadic. @sa drgn_type_kind_has_is_variadic() */
-static inline bool drgn_type_has_is_variadic(struct drgn_type *type)
-{
-	return drgn_type_kind_has_is_variadic(drgn_type_kind(type));
-}
-/**
- * Get whether a type is variadic. @ref drgn_type_has_is_variadic() must be true
- * for this type.
- */
-static inline bool drgn_type_is_variadic(struct drgn_type *type)
-{
-	assert(drgn_type_has_is_variadic(type));
-	return type->_private.is_variadic;
-}
-
-/**
- * Evaluate the type of a @ref drgn_type_member.
- *
- * @param[in] member Member.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_member_type(struct drgn_type_member *member,
-				    struct drgn_qualified_type *ret);
-
-/**
- * Evaluate the type of a @ref drgn_type_parameter.
- *
- * @param[in] parameter Parameter.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_parameter_type(struct drgn_type_parameter *parameter,
-				       struct drgn_qualified_type *ret);
-
-/**
- * Get the size of a type in bytes.
- *
- * Unlike @ref drgn_type_size(), this is applicable to any type which has a
- * meaningful size, including typedefs and arrays. Void, function, and
- * incomplete types do not have a size; an error is returned for those types.
- *
- * @param[in] type Type.
- * @param[out] ret Returned size.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_type_sizeof(struct drgn_type *type, uint64_t *ret);
-
-/**
- * Get the offset in bytes of a member from the start of a structure, union, or
- * class type.
- *
- * This corresponds to @c offsetof() in C.
- *
- * @param[in] type Type which contains the member.
- * @param[in] member_designator Name of the member in @p type. This can include
- * one or more member references and zero or more array subscripts.
- */
-struct drgn_error *drgn_type_offsetof(struct drgn_type *type,
-				      const char *member_designator,
-				      uint64_t *ret);
-
-/**
- * Like @ref drgn_type_find_member(), but takes the length of @p member_name.
- */
-struct drgn_error *
-drgn_type_find_member_len(struct drgn_type *type, const char *member_name,
-			  size_t member_name_len,
-			  struct drgn_type_member **member_ret,
-			  uint64_t *bit_offset_ret);
-
-/**
- * Find a member in a @ref drgn_type by name.
- *
- * If the type has any unnamed members, this also matches members of those
- * unnamed members, recursively.
- *
- * @param[in] type Structure, union, or class type.
- * @param[in] member_name Name of member.
- * @param[out] member_ret Returned member.
- * @param[out] bit_offset Offset in bits from the beginning of @p type to the
- * beginning of the member. This can be different from @ref
- * drgn_type_member::bit_offset if the returned member was found in an unnamed
- * member of @p type.
- */
-static inline struct drgn_error *
-drgn_type_find_member(struct drgn_type *type, const char *member_name,
-		      struct drgn_type_member **member_ret,
-		      uint64_t *bit_offset_ret)
-{
-	return drgn_type_find_member_len(type, member_name, strlen(member_name),
-					 member_ret, bit_offset_ret);
-}
-
-/** Like @ref drgn_type_has_member(), but takes the length of @p member_name. */
-struct drgn_error *drgn_type_has_member_len(struct drgn_type *type,
-					    const char *member_name,
-					    size_t member_name_len, bool *ret);
-
-/**
- * Return whether a @ref drgn_type has a member with the given name.
- *
- * @param[in] type Structure, union, or class type.
- * @param[in] member_name Name of member.
- */
-static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
-						      const char *member_name,
-						      bool *ret)
-{
-	return drgn_type_has_member_len(type, member_name, strlen(member_name),
-					ret);
-}
-
-/**
- * Format the name of a type as a string.
- *
- * This will format the name of the type as it would be referred to in its
- * programming language.
- *
- * @param[in] qualified_type Type to format.
- * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_format_type_name(struct drgn_qualified_type qualified_type, char **ret);
-
-/**
- * Format the definition of a type as a string.
- *
- * This will format the type as it would be defined in its programming language.
- *
- * @param[in] qualified_type Type to format.
- * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_format_type(struct drgn_qualified_type qualified_type,
-				    char **ret);
-
-/** @} */
+drgn_type_language(struct drgn_type *type);
 
 /**
  * @defgroup Platforms Platforms
@@ -2376,6 +1773,648 @@ struct drgn_error *drgn_object_sizeof(const struct drgn_object *obj,
 				      uint64_t *ret);
 
 /** @} */
+
+/** @} */
+
+/**
+ * @ingroup LazyTypes
+ *
+ * Lazily-evaluated type.
+ *
+ * A lazy type may be in two states: unevaluated, in which case an arbitrary
+ * callback must be called to evaluate the type, or evaluated, in which case the
+ * type is cached. To evaluate a type, the thunk callback is called, the thunk
+ * is freed, and the result is cached.
+ *
+ * This is for internal use only.
+ */
+struct drgn_lazy_type {
+	union {
+		/** Type if it has already been evaluated. */
+		struct drgn_type *type;
+		/** Thunk if the type has not been evaluated yet. */
+		struct drgn_type_thunk *thunk;
+	};
+	/** Qualifiers, or -1 if the type has not been evaluated yet. */
+	enum drgn_qualifiers qualifiers;
+};
+
+/**
+ * @defgroup Types Types
+ *
+ * Type descriptors.
+ *
+ * Types in a program are represented by @ref drgn_type.
+ *
+ * Type descriptors have various fields depending on the kind of type. For each
+ * field @c foo, there is a @c drgn_type_kind_has_foo() helper which returns
+ * whether the given kind of type has the field @c foo; a @c drgn_type_has_foo()
+ * helper which does the same but takes a type; and a @c drgn_type_foo() helper
+ * which returns the field. For members, enumerators, and parameters, there is
+ * also a @c drgn_type_num_foo() helper.
+ *
+ * @{
+ */
+
+/** Primitive types known to drgn. */
+enum drgn_primitive_type {
+	/* Primitive C types. */
+	DRGN_C_TYPE_VOID,
+	DRGN_C_TYPE_CHAR,
+	DRGN_C_TYPE_SIGNED_CHAR,
+	DRGN_C_TYPE_UNSIGNED_CHAR,
+	DRGN_C_TYPE_SHORT,
+	DRGN_C_TYPE_UNSIGNED_SHORT,
+	DRGN_C_TYPE_INT,
+	DRGN_C_TYPE_UNSIGNED_INT,
+	DRGN_C_TYPE_LONG,
+	DRGN_C_TYPE_UNSIGNED_LONG,
+	DRGN_C_TYPE_LONG_LONG,
+	DRGN_C_TYPE_UNSIGNED_LONG_LONG,
+	DRGN_C_TYPE_BOOL,
+	DRGN_C_TYPE_FLOAT,
+	DRGN_C_TYPE_DOUBLE,
+	DRGN_C_TYPE_LONG_DOUBLE,
+	DRGN_C_TYPE_SIZE_T,
+	DRGN_C_TYPE_PTRDIFF_T,
+	DRGN_PRIMITIVE_TYPE_NUM,
+	DRGN_NOT_PRIMITIVE_TYPE = DRGN_PRIMITIVE_TYPE_NUM,
+	/*
+	 * Make sure to update api_reference.rst and type.c when adding anything
+	 * here.
+	 */
+} __attribute__((packed));
+
+/** Member of a structure, union, or class type. */
+struct drgn_type_member {
+	/**
+	 * Type of the member.
+	 *
+	 * Access this with @ref drgn_member_type().
+	 */
+	struct drgn_lazy_type type;
+	/** Member name or @c NULL if it is unnamed. */
+	const char *name;
+	/**
+	 * Offset in bits from the beginning of the type to the beginning of
+	 * this member (i.e., for little-endian machines, the least significant
+	 * bit, and for big-endian machines, the most significant bit). Members
+	 * are usually aligned to at least a byte, so this is usually a multiple
+	 * of 8 (but that may not be the case for bit fields).
+	 */
+	uint64_t bit_offset;
+	/**
+	 * If this member is a bit field, the size of the field in bits. If this
+	 * member is not a bit field, 0.
+	 */
+	uint64_t bit_field_size;
+};
+
+/** Value of an enumerated type. */
+struct drgn_type_enumerator {
+	/** Enumerator name. */
+	const char *name;
+	union {
+		/** Enumerator value if the type is signed. */
+		int64_t svalue;
+		/** Enumerator value if the type is unsigned. */
+		uint64_t uvalue;
+	};
+};
+
+/** Parameter of a function type. */
+struct drgn_type_parameter {
+	/**
+	 * Type of the parameter.
+	 *
+	 * Access this with @ref drgn_parameter_type().
+	 */
+	struct drgn_lazy_type type;
+	/** Parameter name or @c NULL if it is unnamed. */
+	const char *name;
+};
+
+/**
+ * Language-agnostic type descriptor.
+ *
+ * This structure should not be accessed directly; see @ref Types.
+ */
+struct drgn_type {
+	/** @privatesection */
+	struct {
+		enum drgn_type_kind kind;
+		bool is_complete;
+		enum drgn_primitive_type primitive;
+		/* These are the qualifiers for the wrapped type, not this type. */
+		enum drgn_qualifiers qualifiers;
+		struct drgn_program *program;
+		const struct drgn_language *language;
+		/*
+		 * This mess of unions is used to make this as compact as possible. Use
+		 * the provided helpers and don't think about it.
+		 */
+		union {
+			const char *name;
+			const char *tag;
+			size_t num_parameters;
+		};
+		union {
+			uint64_t size;
+			uint64_t length;
+			size_t num_enumerators;
+			bool is_variadic;
+		};
+		union {
+			bool is_signed;
+			size_t num_members;
+			struct drgn_type *type;
+		};
+		union {
+			struct drgn_type_member *members;
+			struct drgn_type_enumerator *enumerators;
+			struct drgn_type_parameter *parameters;
+		};
+	} _private;
+};
+
+/** Get the kind of a type. */
+static inline enum drgn_type_kind drgn_type_kind(struct drgn_type *type)
+{
+	return type->_private.kind;
+}
+
+/** Get the primitive type corresponding to a @ref drgn_type. */
+static inline enum drgn_primitive_type
+drgn_type_primitive(struct drgn_type *type)
+{
+	return type->_private.primitive;
+}
+
+/**
+ * Get whether a type is complete (i.e., the type definition is known).
+ *
+ * This is always @c false for the void type. It may be @c false for structure,
+ * union, class, enumerated, and array types, as well as typedef types where the
+ * underlying type is one of those. Otherwise, it is always @c true.
+ */
+static inline bool drgn_type_is_complete(struct drgn_type *type)
+{
+	return type->_private.is_complete;
+}
+
+static inline struct drgn_program *
+drgn_type_program(struct drgn_type *type)
+{
+	return type->_private.program;
+}
+
+/** Get the language of a type. */
+static inline const struct drgn_language *
+drgn_type_language(struct drgn_type *type)
+{
+	return type->_private.language;
+}
+
+/**
+ * Get whether a kind of type has a name. This is true for integer, boolean,
+ * floating-point, complex, and typedef types.
+ */
+static inline bool drgn_type_kind_has_name(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_INT ||
+		kind == DRGN_TYPE_BOOL ||
+		kind == DRGN_TYPE_FLOAT ||
+		kind == DRGN_TYPE_COMPLEX ||
+		kind == DRGN_TYPE_TYPEDEF);
+}
+/** Get whether a type has a name. @sa drgn_type_kind_has_name() */
+static inline bool drgn_type_has_name(struct drgn_type *type)
+{
+	return drgn_type_kind_has_name(drgn_type_kind(type));
+}
+/**
+ * Get the name of a type. @ref drgn_type_has_name() must be true for this type.
+ */
+static inline const char *drgn_type_name(struct drgn_type *type)
+{
+	assert(drgn_type_has_name(type));
+	return type->_private.name;
+}
+
+/**
+ * Get whether a kind of type has a size. This is true for integer, boolean,
+ * floating-point, complex, structure, union, class, and pointer types.
+ */
+static inline bool drgn_type_kind_has_size(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_INT ||
+		kind == DRGN_TYPE_BOOL ||
+		kind == DRGN_TYPE_FLOAT ||
+		kind == DRGN_TYPE_COMPLEX ||
+		kind == DRGN_TYPE_STRUCT ||
+		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS ||
+		kind == DRGN_TYPE_POINTER);
+}
+/** Get whether a type has a size. @sa drgn_type_kind_has_size() */
+static inline bool drgn_type_has_size(struct drgn_type *type)
+{
+	return drgn_type_kind_has_size(drgn_type_kind(type));
+}
+/**
+ * Get the size of a type in bytes. @ref drgn_type_has_size() must be true for
+ * this type.
+ */
+static inline uint64_t drgn_type_size(struct drgn_type *type)
+{
+	assert(drgn_type_has_size(type));
+	return type->_private.size;
+}
+
+/**
+ * Get whether a kind of type has a signedness. This is true for integer types.
+ */
+static inline bool drgn_type_kind_has_is_signed(enum drgn_type_kind kind)
+{
+	return kind == DRGN_TYPE_INT;
+}
+/** Get whether a type has a signedness. @sa drgn_type_kind_has_is_signed() */
+static inline bool drgn_type_has_is_signed(struct drgn_type *type)
+{
+	return drgn_type_kind_has_is_signed(drgn_type_kind(type));
+}
+/**
+ * Get the signedness of a type. @ref drgn_type_has_is_signed() must be true for
+ * this type.
+ */
+static inline bool drgn_type_is_signed(struct drgn_type *type)
+{
+	assert(drgn_type_has_is_signed(type));
+	return type->_private.is_signed;
+}
+
+/**
+ * Get whether a kind of type has a tag. This is true for structure, union,
+ * class, and enumerated types.
+ */
+static inline bool drgn_type_kind_has_tag(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_STRUCT ||
+		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS ||
+		kind == DRGN_TYPE_ENUM);
+}
+/** Get whether a type has a tag. @sa drgn_type_kind_has_tag() */
+static inline bool drgn_type_has_tag(struct drgn_type *type)
+{
+	return drgn_type_kind_has_tag(drgn_type_kind(type));
+}
+/**
+ * Get the tag of a type. @ref drgn_type_has_tag() must be true for this type.
+ */
+static inline const char *drgn_type_tag(struct drgn_type *type)
+{
+	assert(drgn_type_has_tag(type));
+	return type->_private.tag;
+}
+
+/**
+ * Get whether a kind of type has members. This is true for structure, union,
+ * and class types.
+ */
+static inline bool drgn_type_kind_has_members(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_STRUCT ||
+		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS);
+}
+/** Get whether a type has members. @sa drgn_type_kind_has_members() */
+static inline bool drgn_type_has_members(struct drgn_type *type)
+{
+	return drgn_type_kind_has_members(drgn_type_kind(type));
+}
+/**
+ * Get the members of a type. @ref drgn_type_has_members() must be true for this
+ * type.
+ */
+static inline struct drgn_type_member *drgn_type_members(struct drgn_type *type)
+{
+	assert(drgn_type_has_members(type));
+	return type->_private.members;
+}
+/**
+ * Get the number of members of a type. @ref drgn_type_has_members() must be
+ * true for this type. If the type is incomplete, this is always zero.
+ */
+static inline size_t drgn_type_num_members(struct drgn_type *type)
+{
+	assert(drgn_type_has_members(type));
+	return type->_private.num_members;
+}
+
+/**
+ * Get whether a kind of type has a wrapped type. This is true for complex,
+ * enumerated, typedef, pointer, array, and function types.
+ */
+static inline bool drgn_type_kind_has_type(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_COMPLEX ||
+		kind == DRGN_TYPE_ENUM ||
+		kind == DRGN_TYPE_TYPEDEF ||
+		kind == DRGN_TYPE_POINTER ||
+		kind == DRGN_TYPE_ARRAY ||
+		kind == DRGN_TYPE_FUNCTION);
+}
+/** Get whether a type has a wrapped type. @sa drgn_type_kind_has_type() */
+static inline bool drgn_type_has_type(struct drgn_type *type)
+{
+	return drgn_type_kind_has_type(drgn_type_kind(type));
+}
+/**
+ * Get the type wrapped by this type.
+ *
+ * For a complex type, this is the corresponding real type.
+ *
+ * For an enumerated type, this is the compatible integer type. It is @c NULL if
+ * the enumerated type is incomplete.
+ *
+ * For a typedef type, this is the aliased type.
+ *
+ * For a pointer type, this is the referenced type.
+ *
+ * For an array type, this is the element type.
+ *
+ * For a function type, this is the return type.
+ */
+static inline struct drgn_qualified_type
+drgn_type_type(struct drgn_type *type)
+{
+	assert(drgn_type_has_type(type));
+	return (struct drgn_qualified_type){
+		.type = type->_private.type,
+		.qualifiers = type->_private.qualifiers,
+	};
+}
+
+/**
+ * Get whether a kind of type has enumerators. This is true for enumerated
+ * types.
+ */
+static inline bool drgn_type_kind_has_enumerators(enum drgn_type_kind kind)
+{
+	return kind == DRGN_TYPE_ENUM;
+}
+/** Get whether a type has enumerators. @sa drgn_type_kind_has_enumerators() */
+static inline bool drgn_type_has_enumerators(struct drgn_type *type)
+{
+	return drgn_type_kind_has_enumerators(drgn_type_kind(type));
+}
+/**
+ * Get the enumerators of a type. @ref drgn_type_has_enumerators() must be true
+ * for this type.
+ */
+static inline struct drgn_type_enumerator *
+drgn_type_enumerators(struct drgn_type *type)
+{
+	assert(drgn_type_has_enumerators(type));
+	return type->_private.enumerators;
+}
+/**
+ * Get the number of enumerators of a type. @ref drgn_type_has_enumerators()
+ * must be true for this type. If the type is incomplete, this is always zero.
+ */
+static inline size_t drgn_type_num_enumerators(struct drgn_type *type)
+{
+	assert(drgn_type_has_enumerators(type));
+	return type->_private.num_enumerators;
+}
+
+/** Get whether a kind of type has a length. This is true for array types. */
+static inline bool drgn_type_kind_has_length(enum drgn_type_kind kind)
+{
+	return kind == DRGN_TYPE_ARRAY;
+}
+/** Get whether a type has a length. @sa drgn_type_kind_has_length() */
+static inline bool drgn_type_has_length(struct drgn_type *type)
+{
+	return drgn_type_kind_has_length(drgn_type_kind(type));
+}
+/**
+ * Get the length of a type. @ref drgn_type_has_length() must be true for this
+ * type. If the type is incomplete, this is always zero.
+ */
+static inline uint64_t drgn_type_length(struct drgn_type *type)
+{
+	assert(drgn_type_has_length(type));
+	return type->_private.length;
+}
+
+/**
+ * Get whether a kind of type has parameters. This is true for function types.
+ */
+static inline bool drgn_type_kind_has_parameters(enum drgn_type_kind kind)
+{
+	return kind == DRGN_TYPE_FUNCTION;
+}
+/** Get whether a type has parameters. @sa drgn_type_kind_has_parameters() */
+static inline bool drgn_type_has_parameters(struct drgn_type *type)
+{
+	return drgn_type_kind_has_parameters(drgn_type_kind(type));
+}
+/**
+ * Get the parameters of a type. @ref drgn_type_has_parameters() must be true
+ * for this type.
+ */
+static inline struct drgn_type_parameter *drgn_type_parameters(struct drgn_type *type)
+{
+	assert(drgn_type_has_parameters(type));
+	return type->_private.parameters;
+}
+/**
+ * Get the number of parameters of a type. @ref drgn_type_has_parameters() must
+ * be true for this type.
+ */
+static inline size_t drgn_type_num_parameters(struct drgn_type *type)
+{
+	assert(drgn_type_has_parameters(type));
+	return type->_private.num_parameters;
+}
+
+/**
+ * Get whether a kind of type can be variadic. This is true for function types.
+ */
+static inline bool drgn_type_kind_has_is_variadic(enum drgn_type_kind kind)
+{
+	return kind == DRGN_TYPE_FUNCTION;
+}
+/** Get whether a type can be variadic. @sa drgn_type_kind_has_is_variadic() */
+static inline bool drgn_type_has_is_variadic(struct drgn_type *type)
+{
+	return drgn_type_kind_has_is_variadic(drgn_type_kind(type));
+}
+/**
+ * Get whether a type is variadic. @ref drgn_type_has_is_variadic() must be true
+ * for this type.
+ */
+static inline bool drgn_type_is_variadic(struct drgn_type *type)
+{
+	assert(drgn_type_has_is_variadic(type));
+	return type->_private.is_variadic;
+}
+
+/**
+ * Evaluate the type of a @ref drgn_type_member.
+ *
+ * @param[in] member Member.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_member_type(struct drgn_type_member *member,
+				    struct drgn_qualified_type *ret);
+
+/**
+ * Evaluate the type of a @ref drgn_type_parameter.
+ *
+ * @param[in] parameter Parameter.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_parameter_type(struct drgn_type_parameter *parameter,
+				       struct drgn_qualified_type *ret);
+
+/**
+ * Get the size of a type in bytes.
+ *
+ * Unlike @ref drgn_type_size(), this is applicable to any type which has a
+ * meaningful size, including typedefs and arrays. Void, function, and
+ * incomplete types do not have a size; an error is returned for those types.
+ *
+ * @param[in] type Type.
+ * @param[out] ret Returned size.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_sizeof(struct drgn_type *type, uint64_t *ret);
+
+/**
+ * Get the offset in bytes of a member from the start of a structure, union, or
+ * class type.
+ *
+ * This corresponds to @c offsetof() in C.
+ *
+ * @param[in] type Type which contains the member.
+ * @param[in] member_designator Name of the member in @p type. This can include
+ * one or more member references and zero or more array subscripts.
+ */
+struct drgn_error *drgn_type_offsetof(struct drgn_type *type,
+				      const char *member_designator,
+				      uint64_t *ret);
+
+/**
+ * Like @ref drgn_type_find_member(), but takes the length of @p member_name.
+ */
+struct drgn_error *
+drgn_type_find_member_len(struct drgn_type *type, const char *member_name,
+			  size_t member_name_len,
+			  struct drgn_type_member **member_ret,
+			  uint64_t *bit_offset_ret);
+
+/**
+ * Find a member in a @ref drgn_type by name.
+ *
+ * If the type has any unnamed members, this also matches members of those
+ * unnamed members, recursively.
+ *
+ * @param[in] type Structure, union, or class type.
+ * @param[in] member_name Name of member.
+ * @param[out] member_ret Returned member.
+ * @param[out] bit_offset Offset in bits from the beginning of @p type to the
+ * beginning of the member. This can be different from @ref
+ * drgn_type_member::bit_offset if the returned member was found in an unnamed
+ * member of @p type.
+ */
+static inline struct drgn_error *
+drgn_type_find_member(struct drgn_type *type, const char *member_name,
+		      struct drgn_type_member **member_ret,
+		      uint64_t *bit_offset_ret)
+{
+	return drgn_type_find_member_len(type, member_name, strlen(member_name),
+					 member_ret, bit_offset_ret);
+}
+
+/** Like @ref drgn_type_has_member(), but takes the length of @p member_name. */
+struct drgn_error *drgn_type_has_member_len(struct drgn_type *type,
+					    const char *member_name,
+					    size_t member_name_len, bool *ret);
+
+/**
+ * Return whether a @ref drgn_type has a member with the given name.
+ *
+ * @param[in] type Structure, union, or class type.
+ * @param[in] member_name Name of member.
+ */
+static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
+						      const char *member_name,
+						      bool *ret)
+{
+	return drgn_type_has_member_len(type, member_name, strlen(member_name),
+					ret);
+}
+
+/**
+ * Compare two @ref drgn_type%s for equality.
+ *
+ * Two types are equal if all of their fields are equal, recursively.
+ *
+ * @param[in] a First type.
+ * @param[in] b First type.
+ * @param[out] ret @c true if the types are equal, @c false if they are not.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_type_eq(struct drgn_type *a, struct drgn_type *b,
+				bool *ret);
+
+/**
+ * Compare two @ref drgn_qualified_type%s for equality.
+ *
+ * Two qualified types are equal if their unqualified types are equal and their
+ * qualifiers are equal.
+ *
+ * @param[in] a First qualified type.
+ * @param[in] b First qualified type.
+ * @param[out] ret @c true if the qualified types are equal, @c false if they
+ * are not.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_qualified_type_eq(struct drgn_qualified_type a,
+					  struct drgn_qualified_type b,
+					  bool *ret);
+
+/**
+ * Format the name of a type as a string.
+ *
+ * This will format the name of the type as it would be referred to in its
+ * programming language.
+ *
+ * @param[in] qualified_type Type to format.
+ * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * On error, its contents are undefined.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_format_type_name(struct drgn_qualified_type qualified_type, char **ret);
+
+/**
+ * Format the definition of a type as a string.
+ *
+ * This will format the type as it would be defined in its programming language.
+ *
+ * @param[in] qualified_type Type to format.
+ * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * On error, its contents are undefined.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_format_type(struct drgn_qualified_type qualified_type,
+				    char **ret);
 
 /** @} */
 
