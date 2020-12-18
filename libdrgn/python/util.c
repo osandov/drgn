@@ -44,6 +44,16 @@ int append_format(PyObject *parts, const char *format, ...)
 	return ret;
 }
 
+PyObject *join_strings(PyObject *parts)
+{
+	PyObject *sep = PyUnicode_New(0, 0);
+	if (!sep)
+		return NULL;
+	PyObject *ret = PyUnicode_Join(sep, parts);
+	Py_DECREF(sep);
+	return ret;
+}
+
 PyObject *byteorder_string(bool little_endian)
 {
 	_Py_IDENTIFIER(little);

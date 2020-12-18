@@ -5,6 +5,7 @@ import operator
 
 from drgn import (
     Language,
+    Object,
     PrimitiveType,
     Program,
     Qualifiers,
@@ -143,7 +144,7 @@ class TestType(MockProgramTestCase):
 
         self.assertEqual(
             repr(t),
-            "prog.struct_type(tag='point', size=8, members=(TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='x', bit_offset=0), TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='y', bit_offset=32)))",
+            "prog.struct_type(tag='point', size=8, members=(TypeMember(prog.type('int'), name='x', bit_offset=0), TypeMember(prog.type('int'), name='y', bit_offset=32)))",
         )
         self.assertEqual(sizeof(t), 8)
 
@@ -216,15 +217,39 @@ class TestType(MockProgramTestCase):
             "point",
             8,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "y",
+                    32,
+                ),
             ),
         )
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "y",
+                    32,
+                ),
             ),
         )
 
@@ -253,7 +278,7 @@ class TestType(MockProgramTestCase):
 
         self.assertEqual(
             repr(t),
-            "prog.union_type(tag='option', size=4, members=(TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='x', bit_offset=0), TypeMember(type=prog.int_type(name='unsigned int', size=4, is_signed=False), name='y', bit_offset=0)))",
+            "prog.union_type(tag='option', size=4, members=(TypeMember(prog.type('int'), name='x', bit_offset=0), TypeMember(prog.type('unsigned int'), name='y', bit_offset=0)))",
         )
         self.assertEqual(sizeof(t), 4)
 
@@ -326,15 +351,43 @@ class TestType(MockProgramTestCase):
             "option",
             4,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("unsigned int", 4, False), "y", 0, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned int", 4, False),
+                        bit_field_size=4,
+                    ),
+                    "y",
+                    0,
+                ),
             ),
         )
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("unsigned int", 4, False), "y", 0, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned int", 4, False),
+                        bit_field_size=4,
+                    ),
+                    "y",
+                    0,
+                ),
             ),
         )
 
@@ -365,7 +418,7 @@ class TestType(MockProgramTestCase):
 
         self.assertEqual(
             repr(t),
-            "prog.class_type(tag='coord', size=12, members=(TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='x', bit_offset=0), TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='y', bit_offset=32), TypeMember(type=prog.int_type(name='int', size=4, is_signed=True), name='z', bit_offset=64)))",
+            "prog.class_type(tag='coord', size=12, members=(TypeMember(prog.type('int'), name='x', bit_offset=0), TypeMember(prog.type('int'), name='y', bit_offset=32), TypeMember(prog.type('int'), name='z', bit_offset=64)))",
         )
         self.assertEqual(sizeof(t), 12)
 
@@ -440,17 +493,53 @@ class TestType(MockProgramTestCase):
             "coord",
             12,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "z", 64, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "y",
+                    32,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "z",
+                    64,
+                ),
             ),
         )
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "z", 64, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "y",
+                    32,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "z",
+                    64,
+                ),
             ),
         )
 
@@ -501,8 +590,20 @@ class TestType(MockProgramTestCase):
             "small_point",
             1,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 4, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "y",
+                    4,
+                ),
             ),
         )
         self.assertEqual(offsetof(small_point_type, "x"), 0)
@@ -731,7 +832,7 @@ class TestType(MockProgramTestCase):
 
         self.assertEqual(
             repr(t),
-            "prog.function_type(type=prog.void_type(), parameters=(TypeParameter(type=prog.int_type(name='int', size=4, is_signed=True), name='n'),), is_variadic=False)",
+            "prog.function_type(type=prog.void_type(), parameters=(TypeParameter(prog.type('int'), name='n'),), is_variadic=False)",
         )
         self.assertRaises(TypeError, sizeof, t)
 
@@ -781,7 +882,7 @@ class TestType(MockProgramTestCase):
 
         self.assertEqual(
             repr(t1),
-            "prog.struct_type(tag='foo', size=8, members=(TypeMember(type=prog.pointer_type(type=prog.struct_type(tag='foo', ...)), name='next', bit_offset=0),))",
+            "prog.struct_type(tag='foo', size=8, members=(TypeMember(prog.type('struct foo *'), name='next', bit_offset=0),))",
         )
 
     def test_cycle2(self):
@@ -805,7 +906,7 @@ class TestType(MockProgramTestCase):
 
         self.assertEqual(
             repr(t1),
-            "prog.struct_type(tag='list_head', size=16, members=(TypeMember(type=prog.pointer_type(type=prog.struct_type(tag='list_head', ...)), name='next', bit_offset=0), TypeMember(type=prog.pointer_type(type=prog.struct_type(tag='list_head', ...)), name='prev', bit_offset=8)))",
+            "prog.struct_type(tag='list_head', size=16, members=(TypeMember(prog.type('struct list_head *'), name='next', bit_offset=0), TypeMember(prog.type('struct list_head *'), name='prev', bit_offset=8)))",
         )
 
     def test_bad_thunk(self):
@@ -815,7 +916,9 @@ class TestType(MockProgramTestCase):
         with self.assertRaisesRegex(Exception, "test"):
             t1.members[0].type
         t1 = self.prog.struct_type("foo", 16, (TypeMember(lambda: 0, "bar"),))
-        with self.assertRaisesRegex(TypeError, "type callable must return Type"):
+        with self.assertRaisesRegex(
+            TypeError, r"TypeMember\(\) callable must return Object or Type"
+        ):
             t1.members[0].type
 
     def test_qualifiers(self):
@@ -866,7 +969,7 @@ class TestType(MockProgramTestCase):
     def test_different_programs_compound(self):
         self.assertRaisesRegex(
             ValueError,
-            "type is from different program",
+            "object is from different program",
             self.prog.struct_type,
             None,
             4,
@@ -874,7 +977,7 @@ class TestType(MockProgramTestCase):
         )
 
     def test_different_programs_compound_callback(self):
-        with self.assertRaisesRegex(ValueError, "type is from different program"):
+        with self.assertRaisesRegex(ValueError, "objects are from different program"):
             self.prog.struct_type(
                 None, 4, (TypeMember(lambda: Program().int_type("int", 4, True)),)
             ).members[0].type
@@ -926,14 +1029,14 @@ class TestType(MockProgramTestCase):
     def test_different_programs_function_parameter(self):
         self.assertRaisesRegex(
             ValueError,
-            "type is from different program",
+            "object is from different program",
             self.prog.function_type,
             self.prog.void_type(),
             (TypeParameter(Program().int_type("int", 4, True)),),
         )
 
     def test_different_programs_function_parameter_callback(self):
-        with self.assertRaisesRegex(ValueError, "type is from different program"):
+        with self.assertRaisesRegex(ValueError, "objects are from different programs"):
             self.prog.function_type(
                 self.prog.void_type(),
                 (TypeParameter(lambda: Program().int_type("int", 4, True)),),
@@ -969,13 +1072,15 @@ class TestTypeEnumerator(MockProgramTestCase):
 class TestTypeMember(MockProgramTestCase):
     def test_init(self):
         m = TypeMember(self.prog.void_type())
+        self.assertIdentical(m.object, Object(self.prog, self.prog.void_type()))
         self.assertIdentical(m.type, self.prog.void_type())
         self.assertIsNone(m.name)
         self.assertEqual(m.bit_offset, 0)
         self.assertEqual(m.offset, 0)
         self.assertIsNone(m.bit_field_size)
 
-        m = TypeMember(self.prog.void_type(), "foo")
+        m = TypeMember(Object(self.prog, self.prog.void_type()), "foo")
+        self.assertIdentical(m.object, Object(self.prog, self.prog.void_type()))
         self.assertIdentical(m.type, self.prog.void_type())
         self.assertEqual(m.name, "foo")
         self.assertEqual(m.bit_offset, 0)
@@ -983,46 +1088,39 @@ class TestTypeMember(MockProgramTestCase):
         self.assertIsNone(m.bit_field_size)
 
         m = TypeMember(self.prog.void_type(), "foo", 8)
+        self.assertIdentical(m.object, Object(self.prog, self.prog.void_type()))
         self.assertIdentical(m.type, self.prog.void_type())
         self.assertEqual(m.name, "foo")
         self.assertEqual(m.bit_offset, 8)
         self.assertEqual(m.offset, 1)
         self.assertIsNone(m.bit_field_size)
 
-        m = TypeMember(self.prog.void_type(), "foo", 9, 7)
-        self.assertIdentical(m.type, self.prog.void_type())
-        self.assertEqual(m.name, "foo")
-        self.assertEqual(m.bit_offset, 9)
-        self.assertRaises(ValueError, getattr, m, "offset")
-        self.assertEqual(m.bit_field_size, 7)
-
         self.assertRaises(TypeError, TypeMember, None)
         self.assertRaises(TypeError, TypeMember, self.prog.void_type(), 1)
         self.assertRaises(TypeError, TypeMember, self.prog.void_type(), "foo", None)
-        self.assertRaises(TypeError, TypeMember, self.prog.void_type(), "foo", 0, "bar")
-        self.assertRaises(ValueError, TypeMember, self.prog.void_type(), "foo", 0, 0)
 
     def test_callable(self):
         m = TypeMember(self.prog.void_type)
+        self.assertIdentical(m.object, Object(self.prog, self.prog.void_type()))
         self.assertIdentical(m.type, self.prog.void_type())
 
-        m = TypeMember(lambda: self.prog.int_type("int", 4, True))
+        m = TypeMember(lambda: Object(self.prog, self.prog.int_type("int", 4, True)))
+        self.assertIdentical(
+            m.object, Object(self.prog, self.prog.int_type("int", 4, True))
+        )
         self.assertIdentical(m.type, self.prog.int_type("int", 4, True))
 
         m = TypeMember(lambda: None)
         self.assertRaises(TypeError, getattr, m, "type")
 
     def test_repr(self):
-        m = TypeMember(type=self.prog.void_type, name="foo")
+        m = TypeMember(self.prog.void_type, name="foo")
         self.assertEqual(
-            repr(m), "TypeMember(type=prog.void_type(), name='foo', bit_offset=0)"
+            repr(m), "TypeMember(prog.type('void'), name='foo', bit_offset=0)"
         )
 
-        m = TypeMember(type=self.prog.void_type, bit_field_size=4)
-        self.assertEqual(
-            repr(m),
-            "TypeMember(type=prog.void_type(), name=None, bit_offset=0, bit_field_size=4)",
-        )
+        m = TypeMember(self.prog.void_type)
+        self.assertEqual(repr(m), "TypeMember(prog.type('void'), bit_offset=0)")
 
         m = TypeMember(lambda: None)
         self.assertRaises(TypeError, repr, m)
@@ -1031,11 +1129,19 @@ class TestTypeMember(MockProgramTestCase):
 class TestTypeParameter(MockProgramTestCase):
     def test_init(self):
         p = TypeParameter(self.prog.void_type())
+        self.assertIdentical(
+            p.default_argument, Object(self.prog, self.prog.void_type())
+        )
         self.assertIdentical(p.type, self.prog.void_type())
         self.assertIsNone(p.name)
 
-        p = TypeParameter(self.prog.void_type(), "foo")
-        self.assertIdentical(p.type, self.prog.void_type())
+        p = TypeParameter(
+            Object(self.prog, self.prog.int_type("int", 4, True), 5), "foo"
+        )
+        self.assertIdentical(
+            p.default_argument, Object(self.prog, self.prog.int_type("int", 4, True), 5)
+        )
+        self.assertIdentical(p.type, self.prog.int_type("int", 4, True))
         self.assertEqual(p.name, "foo")
 
         self.assertRaises(TypeError, TypeParameter, None)
@@ -1043,20 +1149,26 @@ class TestTypeParameter(MockProgramTestCase):
 
     def test_callable(self):
         p = TypeParameter(self.prog.void_type)
+        self.assertIdentical(
+            p.default_argument, Object(self.prog, self.prog.void_type())
+        )
         self.assertIdentical(p.type, self.prog.void_type())
 
-        p = TypeParameter(lambda: self.prog.int_type("int", 4, True))
+        p = TypeParameter(lambda: Object(self.prog, self.prog.int_type("int", 4, True)))
+        self.assertIdentical(
+            p.default_argument, Object(self.prog, self.prog.int_type("int", 4, True))
+        )
         self.assertIdentical(p.type, self.prog.int_type("int", 4, True))
 
         p = TypeParameter(lambda: None)
         self.assertRaises(TypeError, getattr, p, "type")
 
     def test_repr(self):
-        p = TypeParameter(type=self.prog.void_type, name="foo")
-        self.assertEqual(repr(p), "TypeParameter(type=prog.void_type(), name='foo')")
+        p = TypeParameter(self.prog.void_type, name="foo")
+        self.assertEqual(repr(p), "TypeParameter(prog.type('void'), name='foo')")
 
-        p = TypeParameter(type=self.prog.void_type)
-        self.assertEqual(repr(p), "TypeParameter(type=prog.void_type(), name=None)")
+        p = TypeParameter(self.prog.void_type)
+        self.assertEqual(repr(p), "TypeParameter(prog.type('void'))")
 
         p = TypeParameter(lambda: None)
         self.assertRaises(TypeError, repr, p)

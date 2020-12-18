@@ -103,7 +103,7 @@ struct drgn_program {
 	 * List of created types that are not deduplicated: types with non-empty
 	 * lists of members, parameters, or enumerators.
 	 *
-	 * Members and parameters contain lazily-evaluated types, so they
+	 * Members and parameters contain lazily-evaluated objects, so they
 	 * cannot be easily deduplicated.
 	 *
 	 * Enumerators could be deduplicated, but it's probably not worth the

@@ -1618,23 +1618,41 @@ class TypeMember:
 
     def __init__(
         self,
-        type: Union[Type, Callable[[], Type]],
+        object_or_type: Union[Object, Type, Callable[[], Union[Object, Type]]],
         name: Optional[str] = None,
         bit_offset: int = 0,
-        bit_field_size: Optional[int] = None,
     ) -> None:
         """
         Create a ``TypeMember``.
 
-        :param type: :attr:`TypeMember.type`; may also be a callable that
-            takes no arguments and returns a :class:`Type`.
+        :param object_or_type: One of:
+
+            1. :attr:`TypeMember.object` as an :class:`Object`.
+            2. :attr:`TypeMember.type` as a :class:`Type`. In this case,
+               ``object`` is set to an absent object with that type.
+            3. A callable that takes no arguments and returns one of the above.
+               It is called when ``object`` or ``type`` is first accessed, and
+               the result is cached.
         :param name: :attr:`TypeMember.name`
         :param bit_offset: :attr:`TypeMember.bit_offset`
-        :param bit_field_size: :attr:`TypeMember.bit_field_size`
         """
         ...
+    object: Object
+    """
+    Member as an :class:`Object`.
+
+    This is the default initializer for the member, or an absent object if the
+    member has no default initializer. (However, the DWARF specification as of
+    version 5 does not actually support default member initializers, so this is
+    usually absent.)
+    """
+
     type: Type
-    """Member type."""
+    """
+    Member type.
+
+    This is a shortcut for ``TypeMember.object.type``.
+    """
 
     name: Optional[str]
     """Member name, or ``None`` if the member is unnamed."""
@@ -1651,6 +1669,8 @@ class TypeMember:
     bit_field_size: Optional[int]
     """
     Size in bits of this member if it is a bit field, ``None`` if it is not.
+
+    This is a shortcut for ``TypeMember.object.bit_field_size_``.
     """
 
 class TypeEnumerator:
@@ -1689,18 +1709,45 @@ class TypeParameter:
     """
 
     def __init__(
-        self, type: Union[Type, Callable[[], Type]], name: Optional[str] = None
+        self,
+        default_argument_or_type: Union[
+            Object, Type, Callable[[], Union[Object, Type]]
+        ],
+        name: Optional[str] = None,
     ) -> None:
         """
         Create a ``TypeParameter``.
 
-        :param type: :attr:`TypeParameter.type`; may also be a callable that
-            takes no arguments and returns a :class:`Type`.
+        :param default_argument_or_type: One of:
+
+            1. :attr:`TypeParameter.default_argument` as an :class:`Object`.
+            2. :attr:`TypeParameter.type` as a :class:`Type`. In this case,
+               ``default_argument`` is set to an absent object with that type.
+            3. A callable that takes no arguments and returns one of the above.
+               It is called when ``default_argument`` or ``type`` is first
+               accessed, and the result is cached.
         :param name: :attr:`TypeParameter.name`
         """
         ...
+    default_argument: Object
+    """
+    Default argument for parameter.
+
+    If the parameter does not have a default argument, then this is an absent
+    object.
+
+    .. note::
+
+        Neither GCC nor Clang emits debugging information for default arguments
+        (as of GCC 10 and Clang 11), so this is usually absent.
+    """
+
     type: Type
-    """Parameter type."""
+    """
+    Parameter type.
+
+    This is the same as ``TypeParameter.default_argument.type_``.
+    """
 
     name: Optional[str]
     """Parameter name, or ``None`` if the parameter is unnamed."""
