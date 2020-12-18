@@ -579,9 +579,8 @@ class TestTypes(TestCase):
                 ),
             )
         )
-        self.assertRaisesRegex(
-            Exception, "DW_TAG_member is missing DW_AT_type", prog.type, "TEST"
-        )
+        with self.assertRaisesRegex(Exception, "DW_TAG_member is missing DW_AT_type"):
+            prog.type("TEST").type.members[0].type
 
     def test_struct_member_invalid_type(self):
         prog = dwarf_program(
@@ -603,9 +602,8 @@ class TestTypes(TestCase):
                 ),
             )
         )
-        self.assertRaisesRegex(
-            Exception, "DW_TAG_member has invalid DW_AT_type", prog.type, "TEST"
-        )
+        with self.assertRaisesRegex(Exception, "DW_TAG_member has invalid DW_AT_type"):
+            prog.type("TEST").type.members[0].type
 
     def test_struct_member_invalid_location(self):
         prog = dwarf_program(
@@ -987,8 +985,20 @@ class TestTypes(TestCase):
                     8,
                     [
                         TypeMember(prog.int_type("int", 4, True), "x", 0),
-                        TypeMember(prog.int_type("int", 4, True), "y", 32, 12),
-                        TypeMember(prog.int_type("int", 4, True), "z", 44, 20),
+                        TypeMember(
+                            Object(
+                                prog, prog.int_type("int", 4, True), bit_field_size=12
+                            ),
+                            "y",
+                            32,
+                        ),
+                        TypeMember(
+                            Object(
+                                prog, prog.int_type("int", 4, True), bit_field_size=20
+                            ),
+                            "z",
+                            44,
+                        ),
                     ],
                 ),
             )
@@ -1046,8 +1056,16 @@ class TestTypes(TestCase):
                 8,
                 [
                     TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.int_type("int", 4, True), "y", 32, 12),
-                    TypeMember(prog.int_type("int", 4, True), "z", 44, 20),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=12),
+                        "y",
+                        32,
+                    ),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=20),
+                        "z",
+                        44,
+                    ),
                 ],
             ),
         )
@@ -1111,8 +1129,16 @@ class TestTypes(TestCase):
                 8,
                 [
                     TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.int_type("int", 4, True), "y", 32, 12),
-                    TypeMember(prog.int_type("int", 4, True), "z", 44, 20),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=12),
+                        "y",
+                        32,
+                    ),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=20),
+                        "z",
+                        44,
+                    ),
                 ],
             ),
         )
@@ -1175,8 +1201,16 @@ class TestTypes(TestCase):
                 8,
                 [
                     TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.int_type("int", 4, True), "y", 32, 12),
-                    TypeMember(prog.int_type("int", 4, True), "z", 44, 20),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=12),
+                        "y",
+                        32,
+                    ),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=20),
+                        "z",
+                        44,
+                    ),
                 ],
             ),
         )
@@ -1243,8 +1277,16 @@ class TestTypes(TestCase):
                 8,
                 [
                     TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.int_type("int", 4, True), "y", 32, 12),
-                    TypeMember(prog.int_type("int", 4, True), "z", 44, 20),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=12),
+                        "y",
+                        32,
+                    ),
+                    TypeMember(
+                        Object(prog, prog.int_type("int", 4, True), bit_field_size=20),
+                        "z",
+                        44,
+                    ),
                 ],
             ),
         )

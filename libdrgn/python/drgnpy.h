@@ -118,24 +118,23 @@ typedef struct {
 	PyObject_HEAD
 	PyObject *obj;
 	/*
-	 * If DRGNPY_LAZY_TYPE_EVALUATED, obj is the evaluated type.
-	 * If DRGNPY_LAZY_TYPE_CALLABLE, obj is a Python callable that should
-	 * return the Type.
+	 * If DRGNPY_LAZY_OBJECT_EVALUATED, obj is the evaluated Object.
+	 * If DRGNPY_LAZY_OBJECT_CALLABLE, obj is a Python callable that should
+	 * return the Object.
 	 * Otherwise, this must be evaluated and wrapped, and obj is a reference
 	 * required to keep this alive.
 	 */
-	struct drgn_lazy_type *lazy_type;
-} LazyType;
+	union drgn_lazy_object *lazy_obj;
+} LazyObject;
 
 typedef struct {
-	LazyType lazy_type;
+	LazyObject lazy_obj;
 	PyObject *name;
 	PyObject *bit_offset;
-	PyObject *bit_field_size;
 } TypeMember;
 
 typedef struct {
-	LazyType lazy_type;
+	LazyObject lazy_obj;
 	PyObject *name;
 } TypeParameter;
 
@@ -232,6 +231,7 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds);
 
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
+PyObject *join_strings(PyObject *parts);
 PyObject *byteorder_string(bool little_endian);
 
 struct byteorder_arg {

@@ -849,7 +849,7 @@ static int append_bit_offset(PyObject *parts, uint8_t bit_offset)
 static PyObject *DrgnObject_repr(DrgnObject *self)
 {
 	struct drgn_error *err;
-	PyObject *parts, *tmp, *sep, *ret = NULL;
+	PyObject *parts, *tmp, *ret = NULL;
 	char *type_name;
 
 	parts = PyList_New(0);
@@ -922,11 +922,7 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 	if (append_string(parts, ")") == -1)
 		goto out;
 
-	sep = PyUnicode_New(0, 0);
-	if (!sep)
-		goto out;
-	ret = PyUnicode_Join(sep, parts);
-	Py_DECREF(sep);
+	ret = join_strings(parts);
 out:
 	Py_DECREF(parts);
 	return ret;

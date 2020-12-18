@@ -193,11 +193,9 @@ def identical(a, b):
                 ],
             )
         elif isinstance(a, TypeMember) and isinstance(b, TypeMember):
-            return _identical_attrs(
-                a, b, ("type", "name", "bit_offset", "bit_field_size")
-            )
+            return _identical_attrs(a, b, ("object", "name", "bit_offset"))
         elif isinstance(a, TypeParameter) and isinstance(b, TypeParameter):
-            return _identical_attrs(a, b, ("type", "name"))
+            return _identical_attrs(a, b, ("default_argument", "name"))
         elif (isinstance(a, tuple) and isinstance(b, tuple)) or (
             isinstance(a, list) and isinstance(b, list)
         ):

@@ -4,15 +4,16 @@
 #include <stdarg.h>
 
 #include "drgnpy.h"
+#include "../lazy_object.h"
 #include "../program.h"
 #include "../type.h"
 #include "../util.h"
 
-/* Sentinel values for LazyType::lazy_type. */
-static const struct drgn_lazy_type drgnpy_lazy_type_evaluated;
-#define DRGNPY_LAZY_TYPE_EVALUATED ((struct drgn_lazy_type *)&drgnpy_lazy_type_evaluated)
-static const struct drgn_lazy_type drgnpy_lazy_type_callable;
-#define DRGNPY_LAZY_TYPE_CALLABLE ((struct drgn_lazy_type *)&drgnpy_lazy_type_callable)
+/* Sentinel values for LazyObject::lazy_obj. */
+static const union drgn_lazy_object drgnpy_lazy_object_evaluated;
+#define DRGNPY_LAZY_OBJECT_EVALUATED ((union drgn_lazy_object *)&drgnpy_lazy_object_evaluated)
+static const union drgn_lazy_object drgnpy_lazy_object_callable;
+#define DRGNPY_LAZY_OBJECT_CALLABLE ((union drgn_lazy_object *)&drgnpy_lazy_object_callable)
 
 static const char *drgn_type_kind_str(struct drgn_type *type)
 {
@@ -166,8 +167,8 @@ static TypeMember *TypeMember_wrap(PyObject *parent,
 		return NULL;
 
 	Py_INCREF(parent);
-	py_member->lazy_type.obj = parent;
-	py_member->lazy_type.lazy_type = &member->type;
+	py_member->lazy_obj.obj = parent;
+	py_member->lazy_obj.lazy_obj = &member->object;
 	if (member->name) {
 		py_member->name = PyUnicode_FromString(member->name);
 		if (!py_member->name)
@@ -179,15 +180,6 @@ static TypeMember *TypeMember_wrap(PyObject *parent,
 	py_member->bit_offset = PyLong_FromUnsignedLongLong(bit_offset);
 	if (!py_member->bit_offset)
 		goto err;
-	if (member->bit_field_size_) {
-		py_member->bit_field_size =
-			PyLong_FromUnsignedLongLong(member->bit_field_size_);
-		if (!py_member->bit_field_size)
-			goto err;
-	} else {
-		Py_INCREF(Py_None);
-		py_member->bit_field_size = Py_None;
-	}
 	return py_member;
 
 err:
@@ -305,8 +297,8 @@ static PyObject *DrgnType_get_parameters(DrgnType *self)
 			goto err;
 		PyTuple_SET_ITEM(parameters_obj, i, (PyObject *)item);
 		Py_INCREF(self);
-		item->lazy_type.obj = (PyObject *)self;
-		item->lazy_type.lazy_type = &parameter->type;
+		item->lazy_obj.obj = (PyObject *)self;
+		item->lazy_obj.lazy_obj = &parameter->default_argument;
 		if (parameter->name) {
 			item->name = PyUnicode_FromString(parameter->name);
 			if (!item->name)
@@ -482,60 +474,10 @@ static int append_field(PyObject *parts, bool *first, const char *format, ...)
 	_ret;									\
 })
 
-_Py_IDENTIFIER(DrgnType_Repr);
-
-/*
- * We only want to print compound types one level deep in order to avoid very
- * deep recursion. Return 0 if this is the first level, 1 if this is a deeper
- * level (and thus we shouldn't print more members), and -1 on error.
- */
-static int DrgnType_ReprEnter(DrgnType *self)
-{
-	PyObject *dict, *key, *value;
-
-	if (!drgn_type_has_members(self->type))
-		return 0;
-
-	dict = PyThreadState_GetDict();
-	if (dict == NULL)
-		return 0;
-	key = _PyUnicode_FromId(&PyId_DrgnType_Repr);
-	if (!key) {
-		PyErr_Clear();
-		return -1;
-	}
-	value = PyDict_GetItemWithError(dict, key);
-	if (value == Py_True)
-		return 1;
-	if ((!value && PyErr_Occurred()) ||
-	    PyDict_SetItem(dict, key, Py_True) == -1) {
-		PyErr_Clear();
-		return -1;
-	}
-	return 0;
-}
-
-/* Pair with DrgnType_ReprEnter() only if it returned 0. */
-static void DrgnType_ReprLeave(DrgnType *self)
-{
-	PyObject *exc_type, *exc_value, *exc_traceback;
-	PyObject *dict;
-
-	if (!drgn_type_has_members(self->type))
-		return;
-
-	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-	dict = PyThreadState_GetDict();
-	if (dict)
-		_PyDict_SetItemId(dict, &PyId_DrgnType_Repr, Py_False);
-	PyErr_Restore(exc_type, exc_value, exc_traceback);
-}
-
 static PyObject *DrgnType_repr(DrgnType *self)
 {
-	PyObject *parts, *sep, *ret = NULL;
+	PyObject *parts, *ret = NULL;
 	bool first = true;
-	int recursive;
 
 	parts = PyList_New(0);
 	if (!parts)
@@ -549,22 +491,13 @@ static PyObject *DrgnType_repr(DrgnType *self)
 	if (append_member(parts, self, &first, tag) == -1)
 		goto out;
 
-	recursive = DrgnType_ReprEnter(self);
-	if (recursive == -1) {
-		goto out;
-	} else if (recursive) {
-		if (append_field(parts, &first, "...)") == -1)
-			goto out;
-		goto join;
-	}
-
 	if (drgn_type_kind(self->type) != DRGN_TYPE_POINTER &&
 	    append_member(parts, self, &first, size) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (append_member(parts, self, &first, is_signed) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (append_member(parts, self, &first, type) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (drgn_type_kind(self->type) == DRGN_TYPE_POINTER) {
 		bool print_size;
 		if (drgn_type_program(self->type)->has_platform) {
@@ -574,7 +507,7 @@ static PyObject *DrgnType_repr(DrgnType *self)
 						       &word_size);
 			if (err) {
 				set_drgn_error(err);
-				goto out_repr_leave;
+				goto out;
 			}
 			print_size = drgn_type_size(self->type) != word_size;
 		} else {
@@ -582,28 +515,28 @@ static PyObject *DrgnType_repr(DrgnType *self)
 		}
 		if (print_size &&
 		    append_member(parts, self, &first, size) == -1)
-			goto out_repr_leave;
+			goto out;
 	}
 	if (append_member(parts, self, &first, length) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (append_member(parts, self, &first, members) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (append_member(parts, self, &first, enumerators) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (append_member(parts, self, &first, parameters) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (append_member(parts, self, &first, is_variadic) == -1)
-		goto out_repr_leave;
+		goto out;
 	if (self->qualifiers) {
 		PyObject *obj;
 
 		obj = DrgnType_getter(self, &DrgnType_attr_qualifiers);
 		if (!obj)
-			goto out_repr_leave;
+			goto out;
 
 		if (append_field(parts, &first, "qualifiers=%R", obj) == -1) {
 			Py_DECREF(obj);
-			goto out_repr_leave;
+			goto out;
 		}
 		Py_DECREF(obj);
 	}
@@ -612,22 +545,14 @@ static PyObject *DrgnType_repr(DrgnType *self)
 		PyObject *obj = DrgnType_get_language(self, NULL);
 		if (append_field(parts, &first, "language=%R", obj) == -1) {
 			Py_DECREF(obj);
-			goto out_repr_leave;
+			goto out;
 		}
 		Py_DECREF(obj);
 	}
 	if (append_string(parts, ")") == -1)
-		goto out_repr_leave;
-
-join:
-	sep = PyUnicode_New(0, 0);
-	if (!sep)
 		goto out;
-	ret = PyUnicode_Join(sep, parts);
-	Py_DECREF(sep);
-out_repr_leave:
-	if (!recursive)
-		DrgnType_ReprLeave(self);
+
+	ret = join_strings(parts);
 out:
 	Py_DECREF(parts);
 	return ret;
@@ -872,80 +797,160 @@ PyTypeObject TypeEnumerator_type = {
 	.tp_new = (newfunc)TypeEnumerator_new,
 };
 
-static DrgnType *LazyType_get_borrowed(LazyType *self)
+static DrgnObject *DrgnType_to_absent_DrgnObject(DrgnType *type)
 {
-	if (unlikely(self->lazy_type != DRGNPY_LAZY_TYPE_EVALUATED)) {
-		PyObject *type;
-		if (self->lazy_type == DRGNPY_LAZY_TYPE_CALLABLE) {
-			type = PyObject_CallObject(self->obj, NULL);
-			if (!type)
+	DrgnObject *obj = DrgnObject_alloc(DrgnType_prog(type));
+	if (!obj)
+		return NULL;
+	struct drgn_error *err =
+		drgn_object_set_absent(&obj->obj, DrgnType_unwrap(type), 0);
+	if (err) {
+		Py_DECREF(obj);
+		return set_drgn_error(err);
+	}
+	return obj;
+}
+
+static const char *PyType_name(PyTypeObject *type)
+{
+	const char *name = type->tp_name;
+	const char *dot = strrchr(name, '.');
+	return dot ? dot + 1 : name;
+}
+
+static DrgnObject *LazyObject_get_borrowed(LazyObject *self)
+{
+	if (unlikely(self->lazy_obj != DRGNPY_LAZY_OBJECT_EVALUATED)) {
+		DrgnObject *obj;
+		if (self->lazy_obj == DRGNPY_LAZY_OBJECT_CALLABLE) {
+			PyObject *ret = PyObject_CallObject(self->obj, NULL);
+			if (!ret)
 				return NULL;
-			if (!PyObject_TypeCheck(type, &DrgnType_type)) {
-				Py_DECREF(type);
-				PyErr_SetString(PyExc_TypeError,
-						"type callable must return Type");
+			if (PyObject_TypeCheck(ret, &DrgnObject_type)) {
+				obj = (DrgnObject *)ret;
+			} else if (PyObject_TypeCheck(ret, &DrgnType_type)) {
+				obj = DrgnType_to_absent_DrgnObject((DrgnType *)ret);
+				Py_DECREF(ret);
+				if (!obj)
+					return NULL;
+			} else {
+				Py_DECREF(ret);
+				PyErr_Format(PyExc_TypeError,
+					     "%s() callable must return Object or Type",
+					     PyType_name(Py_TYPE(self)));
 				return NULL;
 			}
 		} else {
 			bool clear = false;
 			/* Avoid the thread state overhead if we can. */
-			if (!drgn_lazy_type_is_evaluated(self->lazy_type))
+			if (!drgn_lazy_object_is_evaluated(self->lazy_obj))
 				clear = set_drgn_in_python();
-			struct drgn_qualified_type qualified_type;
 			struct drgn_error *err =
-				drgn_lazy_type_evaluate(self->lazy_type,
-							&qualified_type);
+				drgn_lazy_object_evaluate(self->lazy_obj);
 			if (clear)
 				clear_drgn_in_python();
 			if (err)
 				return set_drgn_error(err);
-			type = DrgnType_wrap(qualified_type);
-			if (!type)
+			obj = DrgnObject_alloc(container_of(drgn_object_program(&self->lazy_obj->obj),
+							    Program, prog));
+			if (!obj)
 				return NULL;
+			err = drgn_object_copy(&obj->obj, &self->lazy_obj->obj);
+			if (err) {
+				Py_DECREF(obj);
+				return set_drgn_error(err);
+			}
 		}
 		Py_DECREF(self->obj);
-		self->obj = type;
-		self->lazy_type = DRGNPY_LAZY_TYPE_EVALUATED;
+		self->obj = (PyObject *)obj;
+		self->lazy_obj = DRGNPY_LAZY_OBJECT_EVALUATED;
 	}
-	return (DrgnType *)self->obj;
+	return (DrgnObject *)self->obj;
 }
 
-static DrgnType *LazyType_get(LazyType *self, void *arg)
+static DrgnObject *LazyObject_get(LazyObject *self, void *arg)
 {
-	DrgnType *ret = LazyType_get_borrowed(self);
+	DrgnObject *ret = LazyObject_get_borrowed(self);
 	Py_XINCREF(ret);
 	return ret;
 }
 
-static void LazyType_dealloc(LazyType *self)
+static PyObject *LazyObject_get_type(LazyObject *self, void *arg)
+{
+	DrgnObject *obj = LazyObject_get_borrowed(self);
+	if (!obj)
+		return NULL;
+	return DrgnType_wrap(drgn_object_qualified_type(&obj->obj));
+}
+
+static void LazyObject_dealloc(LazyObject *self)
 {
 	Py_XDECREF(self->obj);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static int append_lazy_object_repr(PyObject *parts, LazyObject *self)
+{
+	struct drgn_error *err;
+
+	DrgnObject *object = LazyObject_get_borrowed(self);
+	if (!object)
+		return -1;
+	if (object->obj.kind == DRGN_OBJECT_ABSENT) {
+		char *type_name;
+		err = drgn_format_type_name(drgn_object_qualified_type(&object->obj),
+					    &type_name);
+		if (err) {
+			set_drgn_error(err);
+			return -1;
+		}
+		PyObject *tmp = PyUnicode_FromString(type_name);
+		free(type_name);
+		int ret = append_format(parts, "prog.type(%R)", tmp);
+		Py_DECREF(tmp);
+		return ret;
+	} else {
+		return append_format(parts, "%R", object);
+	}
+}
+
+static int LazyObject_arg(PyObject *arg, const char *function_name,
+			  PyObject **obj_ret,
+			  union drgn_lazy_object **state_ret)
+{
+	if (PyCallable_Check(arg)) {
+		Py_INCREF(arg);
+		*obj_ret = arg;
+		*state_ret = DRGNPY_LAZY_OBJECT_CALLABLE;
+	} else if (PyObject_TypeCheck(arg, &DrgnObject_type)) {
+		Py_INCREF(arg);
+		*obj_ret = arg;
+		*state_ret = DRGNPY_LAZY_OBJECT_EVALUATED;
+	} else if (PyObject_TypeCheck(arg, &DrgnType_type)) {
+		DrgnObject *obj =
+			DrgnType_to_absent_DrgnObject((DrgnType *)arg);
+		if (!obj)
+			return -1;
+		*obj_ret = (PyObject *)obj;
+		*state_ret = DRGNPY_LAZY_OBJECT_EVALUATED;
+	} else {
+		PyErr_Format(PyExc_TypeError,
+			     "%s() first argument must be Object, Type, or callable returning Object or Type",
+			     function_name);
+		return -1;
+	}
+	return 0;
+}
+
 static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 				  PyObject *kwds)
 {
-	static char *keywords[] = {
-		"type", "name", "bit_offset", "bit_field_size", NULL
-	};
-	PyObject *type_arg, *name = Py_None, *bit_offset = NULL, *bit_field_size = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO!O:TypeMember",
-					 keywords, &type_arg, &name,
-					 &PyLong_Type, &bit_offset,
-					 &bit_field_size))
+	static char *keywords[] = {"object_or_type", "name", "bit_offset", NULL};
+	PyObject *object, *name = Py_None, *bit_offset = NULL;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO!:TypeMember",
+					 keywords, &object, &name,
+					 &PyLong_Type, &bit_offset))
 		return NULL;
-
-	struct drgn_lazy_type *type_state;
-	if (PyCallable_Check(type_arg)) {
-		type_state = DRGNPY_LAZY_TYPE_CALLABLE;
-	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
-		type_state = DRGNPY_LAZY_TYPE_EVALUATED;
-	} else {
-		PyErr_SetString(PyExc_TypeError,
-				"TypeMember type must be type or callable returning Type");
-		return NULL;
-	}
 
 	if (name != Py_None && !PyUnicode_Check(name)) {
 		PyErr_SetString(PyExc_TypeError,
@@ -953,16 +958,20 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 	}
 
-	TypeMember *member = (TypeMember *)subtype->tp_alloc(subtype, 0);
-	if (!member)
+	PyObject *obj;
+	union drgn_lazy_object *state;
+	if (LazyObject_arg(object, "TypeMember", &obj, &state))
 		return NULL;
 
-	Py_INCREF(type_arg);
-	member->lazy_type.obj = type_arg;
-	member->lazy_type.lazy_type = type_state;
+	TypeMember *member = (TypeMember *)subtype->tp_alloc(subtype, 0);
+	if (!member) {
+		Py_DECREF(obj);
+		return NULL;
+	}
+	member->lazy_obj.obj = obj;
+	member->lazy_obj.lazy_obj = state;
 	Py_INCREF(name);
 	member->name = name;
-
 	if (bit_offset) {
 		Py_INCREF(bit_offset);
 	} else {
@@ -971,26 +980,6 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 			goto err;
 	}
 	member->bit_offset = bit_offset;
-
-	if (!bit_field_size || bit_field_size == Py_None) {
-		Py_INCREF(Py_None);
-		member->bit_field_size = Py_None;
-	} else if (PyLong_Check(bit_field_size)) {
-		int ret = PyObject_IsTrue(bit_field_size);
-		if (ret == -1)
-			goto err;
-		if (!ret) {
-			PyErr_SetString(PyExc_ValueError,
-					"bit field size cannot be zero");
-			goto err;
-		}
-		Py_INCREF(bit_field_size);
-		member->bit_field_size = bit_field_size;
-	} else {
-		PyErr_SetString(PyExc_TypeError,
-				"TypeMember bit_field_size must be int or None");
-		goto err;
-	}
 	return member;
 
 err:
@@ -1000,10 +989,9 @@ err:
 
 static void TypeMember_dealloc(TypeMember *self)
 {
-	Py_XDECREF(self->bit_field_size);
 	Py_XDECREF(self->bit_offset);
 	Py_XDECREF(self->name);
-	LazyType_dealloc((LazyType *)self);
+	LazyObject_dealloc((LazyObject *)self);
 }
 
 static PyObject *TypeMember_get_offset(TypeMember *self, void *arg)
@@ -1021,25 +1009,35 @@ static PyObject *TypeMember_get_offset(TypeMember *self, void *arg)
 	return PyLong_FromUnsignedLongLong(bit_offset / 8);
 }
 
+static PyObject *TypeMember_get_bit_field_size(TypeMember *self, void *arg)
+{
+	DrgnObject *object = LazyObject_get_borrowed((LazyObject *)self);
+	if (!object)
+		return NULL;
+	if (object->obj.is_bit_field)
+		return PyLong_FromUnsignedLongLong(object->obj.bit_size);
+	else
+		Py_RETURN_NONE;
+}
+
 static PyObject *TypeMember_repr(TypeMember *self)
 {
-	DrgnType *type;
-	int ret;
-
-	type = LazyType_get_borrowed((LazyType *)self);
-	if (!type)
+	PyObject *parts = PyList_New(0), *ret = NULL;
+	if (!parts)
 		return NULL;
-	ret = PyObject_IsTrue(self->bit_field_size);
-	if (ret == -1)
-		return NULL;
-	if (ret) {
-		return PyUnicode_FromFormat("TypeMember(type=%R, name=%R, bit_offset=%R, bit_field_size=%R)",
-					    type, self->name, self->bit_offset,
-					    self->bit_field_size);
-	} else {
-		return PyUnicode_FromFormat("TypeMember(type=%R, name=%R, bit_offset=%R)",
-					    type, self->name, self->bit_offset);
-	}
+	if (append_format(parts, "TypeMember(") < 0 ||
+	    append_lazy_object_repr(parts, (LazyObject *)self) < 0)
+		goto out;
+	if (self->name != Py_None &&
+	    append_format(parts, ", name=%R", self->name) < 0)
+		goto out;
+	/* Include the bit offset even if it is the default of 0 for clarity. */
+	if (append_format(parts, ", bit_offset=%R)", self->bit_offset) < 0)
+		goto out;
+	ret = join_strings(parts);
+out:
+	Py_DECREF(parts);
+	return ret;
 }
 
 static PyMemberDef TypeMember_members[] = {
@@ -1047,15 +1045,18 @@ static PyMemberDef TypeMember_members[] = {
 	 drgn_TypeMember_name_DOC},
 	{"bit_offset", T_OBJECT, offsetof(TypeMember, bit_offset), READONLY,
 	 drgn_TypeMember_bit_offset_DOC},
-	{"bit_field_size", T_OBJECT, offsetof(TypeMember, bit_field_size),
-	 READONLY, drgn_TypeMember_bit_field_size_DOC},
 	{},
 };
 
 static PyGetSetDef TypeMember_getset[] = {
-	{"type", (getter)LazyType_get, NULL, drgn_TypeMember_type_DOC, NULL},
+	{"object", (getter)LazyObject_get, NULL, drgn_TypeMember_object_DOC,
+	 NULL},
+	{"type", (getter)LazyObject_get_type, NULL, drgn_TypeMember_type_DOC,
+	 NULL},
 	{"offset", (getter)TypeMember_get_offset, NULL,
 	 drgn_TypeMember_offset_DOC, NULL},
+	{"bit_field_size", (getter)TypeMember_get_bit_field_size, NULL,
+	 drgn_TypeMember_bit_field_size_DOC, NULL},
 	{},
 };
 
@@ -1075,22 +1076,11 @@ PyTypeObject TypeMember_type = {
 static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 					PyObject *kwds)
 {
-	static char *keywords[] = {"type", "name", NULL};
-	PyObject *type_arg, *name = Py_None;
+	static char *keywords[] = {"default_argument_or_type", "name", NULL};
+	PyObject *object, *name = Py_None;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O:TypeParameter",
-					 keywords, &type_arg, &name))
+					 keywords, &object, &name))
 		return NULL;
-
-	struct drgn_lazy_type *type_state;
-	if (PyCallable_Check(type_arg)) {
-		type_state = DRGNPY_LAZY_TYPE_CALLABLE;
-	} else if (PyObject_TypeCheck(type_arg, &DrgnType_type)) {
-		type_state = DRGNPY_LAZY_TYPE_EVALUATED;
-	} else {
-		PyErr_SetString(PyExc_TypeError,
-				"TypeParameter type must be type or callable returning Type");
-		return NULL;
-	}
 
 	if (name != Py_None && !PyUnicode_Check(name)) {
 		PyErr_SetString(PyExc_TypeError,
@@ -1098,33 +1088,48 @@ static TypeParameter *TypeParameter_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 	}
 
+	PyObject *obj;
+	union drgn_lazy_object *state;
+	if (LazyObject_arg(object, "TypeParameter", &obj, &state))
+		return NULL;
+
 	TypeParameter *parameter = (TypeParameter *)subtype->tp_alloc(subtype,
 								      0);
-	if (parameter) {
-		Py_INCREF(type_arg);
-		parameter->lazy_type.obj = type_arg;
-		parameter->lazy_type.lazy_type = type_state;
-		Py_INCREF(name);
-		parameter->name = name;
+	if (!parameter) {
+		Py_DECREF(obj);
+		return NULL;
 	}
+
+	parameter->lazy_obj.obj = obj;
+	parameter->lazy_obj.lazy_obj = state;
+	Py_INCREF(name);
+	parameter->name = name;
 	return parameter;
 }
 
 static void TypeParameter_dealloc(TypeParameter *self)
 {
 	Py_XDECREF(self->name);
-	LazyType_dealloc((LazyType *)self);
+	LazyObject_dealloc((LazyObject *)self);
 }
 
 static PyObject *TypeParameter_repr(TypeParameter *self)
 {
-	DrgnType *type;
-
-	type = LazyType_get_borrowed((LazyType *)self);
-	if (!type)
+	PyObject *parts = PyList_New(0), *ret = NULL;
+	if (!parts)
 		return NULL;
-	return PyUnicode_FromFormat("TypeParameter(type=%R, name=%R)", type,
-				    self->name);
+	if (append_format(parts, "TypeParameter(") < 0 ||
+	    append_lazy_object_repr(parts, (LazyObject *)self) < 0)
+		goto out;
+	if (self->name != Py_None &&
+	    append_format(parts, ", name=%R", self->name) < 0)
+		goto out;
+	if (append_string(parts, ")") < 0)
+		goto out;
+	ret = join_strings(parts);
+out:
+	Py_DECREF(parts);
+	return ret;
 }
 
 static PyMemberDef TypeParameter_members[] = {
@@ -1134,7 +1139,10 @@ static PyMemberDef TypeParameter_members[] = {
 };
 
 static PyGetSetDef TypeParameter_getset[] = {
-	{"type", (getter)LazyType_get, NULL, drgn_TypeParameter_type_DOC, NULL},
+	{"default_argument", (getter)LazyObject_get, NULL,
+	 drgn_TypeParameter_default_argument_DOC, NULL},
+	{"type", (getter)LazyObject_get_type, NULL, drgn_TypeParameter_type_DOC,
+	 NULL},
 	{},
 };
 
@@ -1382,56 +1390,42 @@ DrgnType *Program_complex_type(Program *self, PyObject *args, PyObject *kwds)
 	return type_obj;
 }
 
-struct py_type_thunk {
-	struct drgn_type_thunk thunk;
-	LazyType *lazy_type;
-};
-
-static struct drgn_error *
-py_type_thunk_evaluate_fn(struct drgn_type_thunk *thunk,
-			  struct drgn_qualified_type *ret)
+static struct drgn_error *py_lazy_object_thunk_fn(struct drgn_object *res,
+						  void *arg)
 {
-	struct py_type_thunk *t = container_of(thunk, struct py_type_thunk, thunk);
+	if (!res)
+		return NULL; /* Nothing to free. */
 	PyGILState_STATE gstate = PyGILState_Ensure();
-	DrgnType *type = LazyType_get_borrowed(t->lazy_type);
+	DrgnObject *obj = LazyObject_get_borrowed(arg);
 	struct drgn_error *err;
-	if (type) {
-		ret->type = type->type;
-		ret->qualifiers = type->qualifiers;
-		err = NULL;
-	} else {
+	if (obj)
+		err = drgn_object_copy(res, &obj->obj);
+	else
 		err = drgn_error_from_python();
-	}
 	PyGILState_Release(gstate);
 	return err;
 }
 
-static void py_type_thunk_free_fn(struct drgn_type_thunk *thunk)
+static int lazy_object_from_py(union drgn_lazy_object *lazy_obj,
+			       LazyObject *py_lazy_obj,
+			       struct drgn_program *prog, bool *can_cache)
 {
-	free(container_of(thunk, struct py_type_thunk, thunk));
-}
-
-static int lazy_type_from_py(struct drgn_lazy_type *lazy_type, LazyType *obj,
-			     struct drgn_program *prog, bool *can_cache)
-{
-	if (obj->lazy_type == DRGNPY_LAZY_TYPE_EVALUATED) {
-		DrgnType *type = (DrgnType *)obj->obj;
-		drgn_lazy_type_init_evaluated(lazy_type, type->type,
-					      type->qualifiers);
-	} else {
-		struct py_type_thunk *thunk = malloc(sizeof(*thunk));
-		if (!thunk) {
-			PyErr_NoMemory();
+	if (py_lazy_obj->lazy_obj == DRGNPY_LAZY_OBJECT_EVALUATED) {
+		struct drgn_object *obj = &((DrgnObject *)py_lazy_obj->obj)->obj;
+		drgn_object_init(&lazy_obj->obj, drgn_object_program(obj));
+		struct drgn_error *err = drgn_object_copy(&lazy_obj->obj, obj);
+		if (err) {
+			set_drgn_error(err);
+			drgn_object_deinit(&lazy_obj->obj);
 			return -1;
 		}
-		thunk->thunk.prog = prog;
-		thunk->thunk.evaluate_fn = py_type_thunk_evaluate_fn;
-		thunk->thunk.free_fn = py_type_thunk_free_fn;
-		thunk->lazy_type = obj;
-		drgn_lazy_type_init_thunk(lazy_type, &thunk->thunk);
+	} else {
+		drgn_lazy_object_init_thunk(lazy_obj, prog,
+					    py_lazy_object_thunk_fn,
+					    py_lazy_obj);
 		/*
 		 * We created a new thunk, so we can't reuse the passed
-		 * LazyType. Don't cache the container so we create a new one
+		 * LazyObject. Don't cache the container so we create a new one
 		 * when it's accessed.
 		 */
 		*can_cache = false;
@@ -1461,24 +1455,16 @@ static int unpack_member(struct drgn_compound_type_builder *builder,
 		PyLong_AsUnsignedLongLong(member->bit_offset);
 	if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
 		return -1;
-	unsigned long long bit_field_size;
-	if (member->bit_field_size == Py_None)
-		bit_field_size = 0;
-	else
-		bit_field_size = PyLong_AsUnsignedLongLong(member->bit_field_size);
-	if (bit_field_size == (unsigned long long)-1 && PyErr_Occurred())
-		return -1;
 
-	struct drgn_lazy_type member_type;
-	if (lazy_type_from_py(&member_type, (LazyType *)member,
-			      builder->prog, can_cache) == -1)
+	union drgn_lazy_object object;
+	if (lazy_object_from_py(&object, (LazyObject *)member, builder->prog,
+				can_cache) == -1)
 		return -1;
 	struct drgn_error *err =
-		drgn_compound_type_builder_add_member(builder, member_type,
-						      name, bit_offset,
-						      bit_field_size);
+		drgn_compound_type_builder_add_member(builder, &object, name,
+						      bit_offset);
 	if (err) {
-		drgn_lazy_type_deinit(&member_type);
+		drgn_lazy_object_deinit(&object);
 		set_drgn_error(err);
 		return -1;
 	}
@@ -1967,15 +1953,16 @@ static int unpack_parameter(struct drgn_function_type_builder *builder,
 			return -1;
 	}
 
-	struct drgn_lazy_type parameter_type;
-	if (lazy_type_from_py(&parameter_type, (LazyType *)parameter,
-			      builder->prog, can_cache) == -1)
+	union drgn_lazy_object default_argument;
+	if (lazy_object_from_py(&default_argument, (LazyObject *)parameter,
+				builder->prog, can_cache) == -1)
 		return -1;
 	struct drgn_error *err =
 		drgn_function_type_builder_add_parameter(builder,
-							 parameter_type, name);
+							 &default_argument,
+							 name);
 	if (err) {
-		drgn_lazy_type_deinit(&parameter_type);
+		drgn_lazy_object_deinit(&default_argument);
 		set_drgn_error(err);
 		return -1;
 	}

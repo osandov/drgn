@@ -303,9 +303,12 @@ class TestReference(MockProgramTestCase):
                             (bit_size + 7) // 8,
                             (
                                 TypeMember(
-                                    prog.type("unsigned long long"),
+                                    Object(
+                                        prog,
+                                        prog.type("unsigned long long"),
+                                        bit_field_size=bit_size,
+                                    ),
                                     "x",
-                                    bit_field_size=bit_size,
                                 ),
                             ),
                         ),
@@ -950,15 +953,6 @@ class TestInvalidBitField(MockProgramTestCase):
             self.point_type,
             value={},
             bit_field_size=4,
-        )
-
-    def test_member(self):
-        type_ = self.prog.struct_type(
-            "foo", 8, (TypeMember(self.point_type, "p", 0, 4),)
-        )
-        obj = Object(self.prog, type_, address=0)
-        self.assertRaisesRegex(
-            ValueError, "bit field must be integer", obj.member_, "p"
         )
 
 
@@ -1744,8 +1738,20 @@ class TestCOperators(MockProgramTestCase):
             "small_point",
             1,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 4, 4),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "y",
+                    4,
+                ),
             ),
         )
         self.assertRaisesRegex(
@@ -2013,14 +2019,29 @@ class TestCPretty(MockProgramTestCase):
             "bits",
             8,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
                 TypeMember(
-                    self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog,
+                        self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                        bit_field_size=28,
+                    ),
                     "y",
                     4,
-                    28,
                 ),
-                TypeMember(self.prog.int_type("int", 4, True), "z", 32, 5),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=5
+                    ),
+                    "z",
+                    32,
+                ),
             ),
         )
 
@@ -2619,14 +2640,29 @@ class TestGenericOperators(MockProgramTestCase):
             "bits",
             8,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
                 TypeMember(
-                    self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=4
+                    ),
+                    "x",
+                    0,
+                ),
+                TypeMember(
+                    Object(
+                        self.prog,
+                        self.prog.int_type("int", 4, True, qualifiers=Qualifiers.CONST),
+                        bit_field_size=28,
+                    ),
                     "y",
                     4,
-                    28,
                 ),
-                TypeMember(self.prog.int_type("int", 4, True), "z", 32, 5),
+                TypeMember(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True), bit_field_size=5
+                    ),
+                    "z",
+                    32,
+                ),
             ),
         )
 

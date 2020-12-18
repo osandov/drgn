@@ -5,7 +5,7 @@ from functools import reduce
 import operator
 import unittest
 
-from drgn import Qualifiers, TypeEnumerator, TypeMember, TypeParameter
+from drgn import Object, Qualifiers, TypeEnumerator, TypeMember, TypeParameter
 from tests import MockProgramTestCase
 from tests.libdrgn import C_TOKEN, Lexer, drgn_lexer_c
 
@@ -450,8 +450,24 @@ struct point3 {
                 "point",
                 4,
                 (
-                    TypeMember(self.prog.int_type("int", 4, True), "x", 0, 4),
-                    TypeMember(self.prog.int_type("int", 4, True), "y", 4, 8),
+                    TypeMember(
+                        Object(
+                            self.prog,
+                            self.prog.int_type("int", 4, True),
+                            bit_field_size=4,
+                        ),
+                        "x",
+                        0,
+                    ),
+                    TypeMember(
+                        Object(
+                            self.prog,
+                            self.prog.int_type("int", 4, True),
+                            bit_field_size=8,
+                        ),
+                        "y",
+                        4,
+                    ),
                 ),
             ),
             """\
