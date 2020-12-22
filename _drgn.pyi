@@ -1466,14 +1466,6 @@ class Type:
 
     This class cannot be constructed directly. Instead, use one of the
     :ref:`api-type-constructors`.
-
-    .. note::
-
-        ``Type`` objects can be compared with ``==``. However, this is mostly
-        intended for testing and should not be used for type checking, as it
-        does a deep comparison that checks that the type definitions are
-        exactly the same, which is potentially time-consuming and
-        memory-intensive.
     """
 
     prog: Program

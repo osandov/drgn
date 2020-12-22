@@ -735,29 +735,6 @@ static PyObject *DrgnType_has_member(DrgnType *self, PyObject *args,
 		Py_RETURN_FALSE;
 }
 
-static PyObject *DrgnType_richcompare(DrgnType *self, PyObject *other, int op)
-{
-	if (!PyObject_TypeCheck(other, &DrgnType_type) ||
-	    (op != Py_EQ && op != Py_NE))
-		Py_RETURN_NOTIMPLEMENTED;
-
-	bool clear = set_drgn_in_python();
-	bool ret;
-	struct drgn_error *err = drgn_qualified_type_eq(DrgnType_unwrap(self),
-							DrgnType_unwrap((DrgnType *)other),
-							&ret);
-	if (clear)
-		clear_drgn_in_python();
-	if (err)
-		return set_drgn_error(err);
-	if (op == Py_NE)
-		ret = !ret;
-	if (ret)
-		Py_RETURN_TRUE;
-	else
-		Py_RETURN_FALSE;
-}
-
 static PyMethodDef DrgnType_methods[] = {
 	{"type_name", (PyCFunction)DrgnType_type_name, METH_NOARGS,
 	 drgn_Type_type_name_DOC},
@@ -785,7 +762,6 @@ PyTypeObject DrgnType_type = {
 	.tp_doc = drgn_Type_DOC,
 	.tp_traverse = (traverseproc)DrgnType_traverse,
 	.tp_clear = (inquiry)DrgnType_clear,
-	.tp_richcompare = (richcmpfunc)DrgnType_richcompare,
 	.tp_methods = DrgnType_methods,
 	.tp_getset = DrgnType_getset,
 };
@@ -1050,41 +1026,6 @@ static PyObject *TypeMember_repr(TypeMember *self)
 	}
 }
 
-static PyObject *TypeMember_richcompare(TypeMember *self, TypeMember *other,
-					int op)
-{
-	DrgnType *self_type, *other_type;
-	PyObject *self_key, *other_key, *ret;
-
-	if ((op != Py_EQ && op != Py_NE) ||
-	    !PyObject_TypeCheck((PyObject *)other, &TypeMember_type))
-		Py_RETURN_NOTIMPLEMENTED;
-
-	self_type = LazyType_get_borrowed((LazyType *)self);
-	if (!self_type)
-		return NULL;
-	other_type = LazyType_get_borrowed((LazyType *)other);
-	if (!other_type)
-		return NULL;
-
-	self_key = Py_BuildValue("OOOO", self_type, self->name,
-				 self->bit_offset, self->bit_field_size);
-	if (!self_key)
-		return NULL;
-
-	other_key = Py_BuildValue("OOOO", other_type, other->name,
-				  other->bit_offset, other->bit_field_size);
-	if (!other_key) {
-		Py_DECREF(self_key);
-		return NULL;
-	}
-
-	ret = PyObject_RichCompare(self_key, other_key, op);
-	Py_DECREF(other_key);
-	Py_DECREF(self_key);
-	return ret;
-}
-
 static PyMemberDef TypeMember_members[] = {
 	{"name", T_OBJECT, offsetof(TypeMember, name), READONLY,
 	 drgn_TypeMember_name_DOC},
@@ -1110,7 +1051,6 @@ PyTypeObject TypeMember_type = {
 	.tp_repr = (reprfunc)TypeMember_repr,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_TypeMember_DOC,
-	.tp_richcompare = (richcmpfunc)TypeMember_richcompare,
 	.tp_members = TypeMember_members,
 	.tp_getset = TypeMember_getset,
 	.tp_new = (newfunc)TypeMember_new,
@@ -1171,39 +1111,6 @@ static PyObject *TypeParameter_repr(TypeParameter *self)
 				    self->name);
 }
 
-static PyObject *TypeParameter_richcompare(TypeParameter *self, TypeParameter *other,
-					int op)
-{
-	DrgnType *self_type, *other_type;
-	PyObject *self_key, *other_key, *ret;
-
-	if ((op != Py_EQ && op != Py_NE) ||
-	    !PyObject_TypeCheck((PyObject *)other, &TypeParameter_type))
-		Py_RETURN_NOTIMPLEMENTED;
-
-	self_type = LazyType_get_borrowed((LazyType *)self);
-	if (!self_type)
-		return NULL;
-	other_type = LazyType_get_borrowed((LazyType *)other);
-	if (!other_type)
-		return NULL;
-
-	self_key = Py_BuildValue("OO", self_type, self->name);
-	if (!self_key)
-		return NULL;
-
-	other_key = Py_BuildValue("OO", other_type, other->name);
-	if (!other_key) {
-		Py_DECREF(self_key);
-		return NULL;
-	}
-
-	ret = PyObject_RichCompare(self_key, other_key, op);
-	Py_DECREF(other_key);
-	Py_DECREF(self_key);
-	return ret;
-}
-
 static PyMemberDef TypeParameter_members[] = {
 	{"name", T_OBJECT, offsetof(TypeParameter, name), READONLY,
 	 drgn_TypeParameter_name_DOC},
@@ -1223,7 +1130,6 @@ PyTypeObject TypeParameter_type = {
 	.tp_repr = (reprfunc)TypeParameter_repr,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_TypeParameter_DOC,
-	.tp_richcompare = (richcmpfunc)TypeParameter_richcompare,
 	.tp_members = TypeParameter_members,
 	.tp_getset = TypeParameter_getset,
 	.tp_new = (newfunc)TypeParameter_new,

@@ -909,35 +909,6 @@ static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
 }
 
 /**
- * Compare two @ref drgn_type%s for equality.
- *
- * Two types are equal if all of their fields are equal, recursively.
- *
- * @param[in] a First type.
- * @param[in] b First type.
- * @param[out] ret @c true if the types are equal, @c false if they are not.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_type_eq(struct drgn_type *a, struct drgn_type *b,
-				bool *ret);
-
-/**
- * Compare two @ref drgn_qualified_type%s for equality.
- *
- * Two qualified types are equal if their unqualified types are equal and their
- * qualifiers are equal.
- *
- * @param[in] a First qualified type.
- * @param[in] b First qualified type.
- * @param[out] ret @c true if the qualified types are equal, @c false if they
- * are not.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_qualified_type_eq(struct drgn_qualified_type a,
-					  struct drgn_qualified_type b,
-					  bool *ret);
-
-/**
  * Format the name of a type as a string.
  *
  * This will format the name of the type as it would be referred to in its

@@ -25,10 +25,10 @@ from tests import MockMemorySegment, MockProgramTestCase, mock_program
 class TestInit(MockProgramTestCase):
     def test_type_stays_alive(self):
         obj = Object(self.prog, self.prog.int_type("int", 4, True), value=0)
-        self.assertEqual(obj.type_, self.prog.int_type("int", 4, True))
+        self.assertIdentical(obj.type_, self.prog.int_type("int", 4, True))
         type_ = obj.type_
         del obj
-        self.assertEqual(type_, self.prog.int_type("int", 4, True))
+        self.assertIdentical(type_, self.prog.int_type("int", 4, True))
 
     def test_type(self):
         self.assertRaisesRegex(
@@ -135,7 +135,7 @@ class TestReference(MockProgramTestCase):
 
         obj = Object(self.prog, "int", address=0xFFFF0000)
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, self.prog.type("int"))
+        self.assertIdentical(obj.type_, self.prog.type("int"))
         self.assertEqual(obj.address_, 0xFFFF0000)
         self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
@@ -143,7 +143,7 @@ class TestReference(MockProgramTestCase):
         self.assertEqual(obj.value_(), 1000)
         self.assertEqual(repr(obj), "Object(prog, 'int', address=0xffff0000)")
 
-        self.assertEqual(obj.read_(), Object(self.prog, "int", value=1000))
+        self.assertIdentical(obj.read_(), Object(self.prog, "int", value=1000))
 
         obj = Object(self.prog, "int", address=0xFFFF0000, byteorder="big")
         self.assertEqual(obj.byteorder_, "big")
@@ -334,7 +334,7 @@ class TestReference(MockProgramTestCase):
     def test_void(self):
         obj = Object(self.prog, self.prog.void_type(), address=0)
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, self.prog.void_type())
+        self.assertIdentical(obj.type_, self.prog.void_type())
         self.assertEqual(obj.address_, 0)
         self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
@@ -354,7 +354,7 @@ class TestReference(MockProgramTestCase):
             address=0,
         )
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(
+        self.assertIdentical(
             obj.type_, self.prog.function_type(self.prog.void_type(), (), False)
         )
         self.assertEqual(obj.address_, 0)
@@ -412,12 +412,14 @@ class TestReference(MockProgramTestCase):
 
 class TestValue(MockProgramTestCase):
     def test_positional(self):
-        self.assertEqual(Object(self.prog, "int", 1), Object(self.prog, "int", value=1))
+        self.assertIdentical(
+            Object(self.prog, "int", 1), Object(self.prog, "int", value=1)
+        )
 
     def test_signed(self):
         obj = Object(self.prog, "int", value=-4)
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, self.prog.type("int"))
+        self.assertIdentical(obj.type_, self.prog.type("int"))
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
@@ -425,12 +427,12 @@ class TestValue(MockProgramTestCase):
         self.assertEqual(obj.value_(), -4)
         self.assertEqual(repr(obj), "Object(prog, 'int', value=-4)")
 
-        self.assertEqual(obj.read_(), obj)
+        self.assertIdentical(obj.read_(), obj)
 
-        self.assertEqual(Object(self.prog, "int", value=2 ** 32 - 4), obj)
-        self.assertEqual(Object(self.prog, "int", value=2 ** 64 - 4), obj)
-        self.assertEqual(Object(self.prog, "int", value=2 ** 128 - 4), obj)
-        self.assertEqual(Object(self.prog, "int", value=-4.6), obj)
+        self.assertIdentical(Object(self.prog, "int", value=2 ** 32 - 4), obj)
+        self.assertIdentical(Object(self.prog, "int", value=2 ** 64 - 4), obj)
+        self.assertIdentical(Object(self.prog, "int", value=2 ** 128 - 4), obj)
+        self.assertIdentical(Object(self.prog, "int", value=-4.6), obj)
 
         self.assertRaisesRegex(
             TypeError,
@@ -462,7 +464,7 @@ class TestValue(MockProgramTestCase):
     def test_unsigned(self):
         obj = Object(self.prog, "unsigned int", value=2 ** 32 - 1)
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, self.prog.type("unsigned int"))
+        self.assertIdentical(obj.type_, self.prog.type("unsigned int"))
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
@@ -470,10 +472,10 @@ class TestValue(MockProgramTestCase):
         self.assertEqual(obj.value_(), 2 ** 32 - 1)
         self.assertEqual(repr(obj), "Object(prog, 'unsigned int', value=4294967295)")
 
-        self.assertEqual(Object(self.prog, "unsigned int", value=-1), obj)
-        self.assertEqual(Object(self.prog, "unsigned int", value=2 ** 64 - 1), obj)
-        self.assertEqual(Object(self.prog, "unsigned int", value=2 ** 65 - 1), obj)
-        self.assertEqual(
+        self.assertIdentical(Object(self.prog, "unsigned int", value=-1), obj)
+        self.assertIdentical(Object(self.prog, "unsigned int", value=2 ** 64 - 1), obj)
+        self.assertIdentical(Object(self.prog, "unsigned int", value=2 ** 65 - 1), obj)
+        self.assertIdentical(
             Object(self.prog, "unsigned int", value=2 ** 32 - 1 + 0.9), obj
         )
 
@@ -509,14 +511,14 @@ class TestValue(MockProgramTestCase):
     def test_float(self):
         obj = Object(self.prog, "double", value=3.14)
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, self.prog.type("double"))
+        self.assertIdentical(obj.type_, self.prog.type("double"))
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.byteorder_)
         self.assertEqual(obj.value_(), 3.14)
         self.assertEqual(repr(obj), "Object(prog, 'double', value=3.14)")
 
         obj = Object(self.prog, "double", value=-100.0)
-        self.assertEqual(Object(self.prog, "double", value=-100), obj)
+        self.assertIdentical(Object(self.prog, "double", value=-100), obj)
 
         self.assertRaisesRegex(
             TypeError,
@@ -588,10 +590,10 @@ class TestValue(MockProgramTestCase):
 
     def test_compound(self):
         obj = Object(self.prog, self.point_type, value={"x": 100, "y": -5})
-        self.assertEqual(obj.x, Object(self.prog, "int", value=100))
-        self.assertEqual(obj.y, Object(self.prog, "int", value=-5))
+        self.assertIdentical(obj.x, Object(self.prog, "int", value=100))
+        self.assertIdentical(obj.y, Object(self.prog, "int", value=-5))
 
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, self.point_type, value={}),
             Object(self.prog, self.point_type, value={"x": 0, "y": 0}),
         )
@@ -601,10 +603,10 @@ class TestValue(MockProgramTestCase):
             "b": {"x": 3, "y": 4},
         }
         obj = Object(self.prog, self.line_segment_type, value=value)
-        self.assertEqual(
+        self.assertIdentical(
             obj.a, Object(self.prog, self.point_type, value={"x": 1, "y": 2})
         )
-        self.assertEqual(
+        self.assertIdentical(
             obj.b, Object(self.prog, self.point_type, value={"x": 3, "y": 4})
         )
         self.assertEqual(obj.value_(), value)
@@ -690,10 +692,10 @@ class TestValue(MockProgramTestCase):
 
     def test_array(self):
         obj = Object(self.prog, "int [2]", value=[1, 2])
-        self.assertEqual(obj[0], Object(self.prog, "int", value=1))
-        self.assertEqual(obj[1], Object(self.prog, "int", value=2))
+        self.assertIdentical(obj[0], Object(self.prog, "int", value=1))
+        self.assertIdentical(obj[1], Object(self.prog, "int", value=2))
 
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, "int [2]", value=[]),
             Object(self.prog, "int [2]", value=[0, 0]),
         )
@@ -718,7 +720,7 @@ class TestUnavailable(MockProgramTestCase):
             Object(self.prog, "int", value=None, address=None),
         ]:
             self.assertIs(obj.prog_, self.prog)
-            self.assertEqual(obj.type_, self.prog.type("int"))
+            self.assertIdentical(obj.type_, self.prog.type("int"))
             self.assertIsNone(obj.address_)
             self.assertIsNone(obj.byteorder_)
             self.assertIsNone(obj.bit_offset_)
@@ -731,7 +733,7 @@ class TestUnavailable(MockProgramTestCase):
     def test_bit_field(self):
         obj = Object(self.prog, "int", bit_field_size=1)
         self.assertIs(obj.prog_, self.prog)
-        self.assertEqual(obj.type_, self.prog.type("int"))
+        self.assertIdentical(obj.type_, self.prog.type("int"))
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
@@ -954,48 +956,50 @@ class TestInvalidBitField(MockProgramTestCase):
 
 class TestCLiteral(MockProgramTestCase):
     def test_int(self):
-        self.assertEqual(Object(self.prog, value=1), Object(self.prog, "int", value=1))
-        self.assertEqual(
+        self.assertIdentical(
+            Object(self.prog, value=1), Object(self.prog, "int", value=1)
+        )
+        self.assertIdentical(
             Object(self.prog, value=-1), Object(self.prog, "int", value=-1)
         )
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=2 ** 31 - 1),
             Object(self.prog, "int", value=2 ** 31 - 1),
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=2 ** 31), Object(self.prog, "long", value=2 ** 31)
         )
         # Not int, because this is treated as the negation operator applied to
         # 2**31.
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=-(2 ** 31)),
             Object(self.prog, "long", value=-(2 ** 31)),
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=2 ** 63),
             Object(self.prog, "unsigned long long", value=2 ** 63),
         )
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=2 ** 64 - 1),
             Object(self.prog, "unsigned long long", value=2 ** 64 - 1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=-(2 ** 64 - 1)),
             Object(self.prog, "unsigned long long", value=1),
         )
 
     def test_bool(self):
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=True), Object(self.prog, "int", value=1)
         )
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=False), Object(self.prog, "int", value=0)
         )
 
     def test_float(self):
-        self.assertEqual(
+        self.assertIdentical(
             Object(self.prog, value=3.14), Object(self.prog, "double", value=3.14)
         )
 
@@ -1010,83 +1014,83 @@ class TestCLiteral(MockProgramTestCase):
 
 class TestCIntegerPromotion(MockProgramTestCase):
     def test_conversion_rank_less_than_int(self):
-        self.assertEqual(+self.bool(False), self.int(0))
+        self.assertIdentical(+self.bool(False), self.int(0))
 
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "char", value=1), Object(self.prog, "int", value=1)
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "signed char", value=2),
             Object(self.prog, "int", value=2),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned char", value=3),
             Object(self.prog, "int", value=3),
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "short", value=1), Object(self.prog, "int", value=1)
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned short", value=2),
             Object(self.prog, "int", value=2),
         )
 
         # If short is the same size as int, then int can't represent all of the
         # values of unsigned short.
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, self.prog.int_type("short", 4, True), value=1),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, self.prog.int_type("unsigned short", 4, False), value=2),
             Object(self.prog, "unsigned int", value=2),
         )
 
     def test_int(self):
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "int", value=-1), Object(self.prog, "int", value=-1)
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned int", value=-1),
             Object(self.prog, "unsigned int", value=-1),
         )
 
     def test_conversion_rank_greater_than_int(self):
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "long", value=-1), Object(self.prog, "long", value=-1)
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned long", value=-1),
             Object(self.prog, "unsigned long", value=-1),
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "long long", value=-1),
             Object(self.prog, "long long", value=-1),
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned long long", value=-1),
             Object(self.prog, "unsigned long long", value=-1),
         )
 
     def test_extended_integer(self):
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, self.prog.int_type("byte", 1, True), value=1),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, self.prog.int_type("ubyte", 1, False), value=-1),
             Object(self.prog, "int", value=0xFF),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, self.prog.int_type("qword", 8, True), value=1),
             Object(self.prog, self.prog.int_type("qword", 8, True), value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, self.prog.int_type("qword", 8, False), value=1),
             Object(self.prog, self.prog.int_type("qword", 8, False), value=1),
         )
@@ -1094,53 +1098,53 @@ class TestCIntegerPromotion(MockProgramTestCase):
     def test_bit_field(self):
         # Bit fields which can be represented by int or unsigned int should be
         # promoted.
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "int", value=1, bit_field_size=4),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "long", value=1, bit_field_size=4),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "int", value=1, bit_field_size=32),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "long", value=1, bit_field_size=32),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned int", value=1, bit_field_size=4),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned long", value=1, bit_field_size=4),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned int", value=1, bit_field_size=32),
             Object(self.prog, "unsigned int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned long", value=1, bit_field_size=32),
             Object(self.prog, "unsigned int", value=1),
         )
 
         # Bit fields which cannot be represented by int or unsigned int should
         # be preserved.
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "long", value=1, bit_field_size=40),
             Object(self.prog, "long", value=1, bit_field_size=40),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "unsigned long", value=1, bit_field_size=40),
             Object(self.prog, "unsigned long", value=1, bit_field_size=40),
         )
 
     def test_enum(self):
         # Enums should be converted to their compatible type and then promoted.
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, self.color_type, value=1),
             Object(self.prog, "unsigned int", value=1),
         )
@@ -1154,7 +1158,7 @@ class TestCIntegerPromotion(MockProgramTestCase):
                 TypeEnumerator("BLUE", 2),
             ),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, type_, value=1),
             Object(self.prog, "unsigned long long", value=1),
         )
@@ -1168,25 +1172,25 @@ class TestCIntegerPromotion(MockProgramTestCase):
                 TypeEnumerator("BLUE", 2),
             ),
         )
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, type_, value=1), Object(self.prog, "int", value=1)
         )
 
     def test_typedef(self):
         type_ = self.prog.typedef_type("SHORT", self.prog.type("short"))
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, type_, value=5), Object(self.prog, "int", value=5)
         )
 
         # Typedef should be preserved if the type wasn't promoted.
         type_ = self.prog.typedef_type("self.int", self.prog.type("int"))
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, type_, value=5), Object(self.prog, type_, value=5)
         )
 
     def test_non_integer(self):
         # Non-integer types should not be affected.
-        self.assertEqual(
+        self.assertIdentical(
             +Object(self.prog, "double", value=3.14),
             Object(self.prog, "double", value=3.14),
         )
@@ -1208,9 +1212,9 @@ class TestCCommonRealType(MockProgramTestCase):
             expected_obj = Object(
                 self.prog, expected[0], value=1, bit_field_size=expected[1]
             )
-        self.assertEqual(obj1 * obj2, expected_obj)
+        self.assertIdentical(obj1 * obj2, expected_obj)
         if commutative:
-            self.assertEqual(obj2 * obj1, expected_obj)
+            self.assertIdentical(obj2 * obj1, expected_obj)
 
     def test_float(self):
         self.assertCommonRealType("float", "long long", "float")
@@ -1318,13 +1322,13 @@ class TestCCommonRealType(MockProgramTestCase):
 class TestCOperators(MockProgramTestCase):
     def test_cast_array(self):
         obj = Object(self.prog, "int []", address=0xFFFF0000)
-        self.assertEqual(
+        self.assertIdentical(
             cast("int *", obj), Object(self.prog, "int *", value=0xFFFF0000)
         )
-        self.assertEqual(
+        self.assertIdentical(
             cast("void *", obj), Object(self.prog, "void *", value=0xFFFF0000)
         )
-        self.assertEqual(
+        self.assertIdentical(
             cast("unsigned long", obj),
             Object(self.prog, "unsigned long", value=0xFFFF0000),
         )
@@ -1338,7 +1342,7 @@ class TestCOperators(MockProgramTestCase):
             self.prog.function_type(self.prog.void_type(), (), False),
             address=0xFFFF0000,
         )
-        self.assertEqual(
+        self.assertIdentical(
             cast("void *", func), Object(self.prog, "void *", value=0xFFFF0000)
         )
 
@@ -1346,35 +1350,39 @@ class TestCOperators(MockProgramTestCase):
         self, op, lhs, rhs, result, integral=True, floating_point=False
     ):
         if integral:
-            self.assertEqual(op(self.int(lhs), self.int(rhs)), self.int(result))
-            self.assertEqual(op(self.int(lhs), self.long(rhs)), self.long(result))
-            self.assertEqual(op(self.long(lhs), self.int(rhs)), self.long(result))
-            self.assertEqual(op(self.long(lhs), self.long(rhs)), self.long(result))
-            self.assertEqual(op(self.int(lhs), rhs), self.int(result))
-            self.assertEqual(op(self.long(lhs), rhs), self.long(result))
-            self.assertEqual(op(lhs, self.int(rhs)), self.int(result))
-            self.assertEqual(op(lhs, self.long(rhs)), self.long(result))
+            self.assertIdentical(op(self.int(lhs), self.int(rhs)), self.int(result))
+            self.assertIdentical(op(self.int(lhs), self.long(rhs)), self.long(result))
+            self.assertIdentical(op(self.long(lhs), self.int(rhs)), self.long(result))
+            self.assertIdentical(op(self.long(lhs), self.long(rhs)), self.long(result))
+            self.assertIdentical(op(self.int(lhs), rhs), self.int(result))
+            self.assertIdentical(op(self.long(lhs), rhs), self.long(result))
+            self.assertIdentical(op(lhs, self.int(rhs)), self.int(result))
+            self.assertIdentical(op(lhs, self.long(rhs)), self.long(result))
 
         if floating_point:
-            self.assertEqual(
+            self.assertIdentical(
                 op(self.double(lhs), self.double(rhs)), self.double(result)
             )
-            self.assertEqual(op(self.double(lhs), self.int(rhs)), self.double(result))
-            self.assertEqual(op(self.int(lhs), self.double(rhs)), self.double(result))
-            self.assertEqual(op(self.double(lhs), float(rhs)), self.double(result))
-            self.assertEqual(op(float(lhs), self.double(rhs)), self.double(result))
-            self.assertEqual(op(float(lhs), self.int(rhs)), self.double(result))
-            self.assertEqual(op(self.int(lhs), float(rhs)), self.double(result))
+            self.assertIdentical(
+                op(self.double(lhs), self.int(rhs)), self.double(result)
+            )
+            self.assertIdentical(
+                op(self.int(lhs), self.double(rhs)), self.double(result)
+            )
+            self.assertIdentical(op(self.double(lhs), float(rhs)), self.double(result))
+            self.assertIdentical(op(float(lhs), self.double(rhs)), self.double(result))
+            self.assertIdentical(op(float(lhs), self.int(rhs)), self.double(result))
+            self.assertIdentical(op(self.int(lhs), float(rhs)), self.double(result))
 
     def _test_shift(self, op, lhs, rhs, result):
-        self.assertEqual(op(self.int(lhs), self.int(rhs)), self.int(result))
-        self.assertEqual(op(self.int(lhs), self.long(rhs)), self.int(result))
-        self.assertEqual(op(self.long(lhs), self.int(rhs)), self.long(result))
-        self.assertEqual(op(self.long(lhs), self.long(rhs)), self.long(result))
-        self.assertEqual(op(self.int(lhs), rhs), self.int(result))
-        self.assertEqual(op(self.long(lhs), rhs), self.long(result))
-        self.assertEqual(op(lhs, self.int(rhs)), self.int(result))
-        self.assertEqual(op(lhs, self.long(rhs)), self.int(result))
+        self.assertIdentical(op(self.int(lhs), self.int(rhs)), self.int(result))
+        self.assertIdentical(op(self.int(lhs), self.long(rhs)), self.int(result))
+        self.assertIdentical(op(self.long(lhs), self.int(rhs)), self.long(result))
+        self.assertIdentical(op(self.long(lhs), self.long(rhs)), self.long(result))
+        self.assertIdentical(op(self.int(lhs), rhs), self.int(result))
+        self.assertIdentical(op(self.long(lhs), rhs), self.long(result))
+        self.assertIdentical(op(lhs, self.int(rhs)), self.int(result))
+        self.assertIdentical(op(lhs, self.long(rhs)), self.int(result))
 
         self._test_pointer_type_errors(op)
         self._test_floating_type_errors(op)
@@ -1492,24 +1500,24 @@ class TestCOperators(MockProgramTestCase):
         ptr = Object(self.prog, "int *", value=0xFFFF0000)
         arr = Object(self.prog, "int [2]", address=0xFFFF0000)
         ptr1 = Object(self.prog, "int *", value=0xFFFF0004)
-        self.assertEqual(ptr + self.int(1), ptr1)
-        self.assertEqual(self.unsigned_int(1) + ptr, ptr1)
-        self.assertEqual(arr + self.int(1), ptr1)
-        self.assertEqual(ptr1 + self.int(-1), ptr)
-        self.assertEqual(self.int(-1) + ptr1, ptr)
+        self.assertIdentical(ptr + self.int(1), ptr1)
+        self.assertIdentical(self.unsigned_int(1) + ptr, ptr1)
+        self.assertIdentical(arr + self.int(1), ptr1)
+        self.assertIdentical(ptr1 + self.int(-1), ptr)
+        self.assertIdentical(self.int(-1) + ptr1, ptr)
 
-        self.assertEqual(ptr + 1, ptr1)
-        self.assertEqual(1 + ptr, ptr1)
+        self.assertIdentical(ptr + 1, ptr1)
+        self.assertIdentical(1 + ptr, ptr1)
         self.assertRaises(TypeError, operator.add, ptr, ptr)
         self.assertRaises(TypeError, operator.add, ptr, 2.0)
         self.assertRaises(TypeError, operator.add, 2.0, ptr)
 
         void_ptr = Object(self.prog, "void *", value=0xFFFF0000)
         void_ptr1 = Object(self.prog, "void *", value=0xFFFF0001)
-        self.assertEqual(void_ptr + self.int(1), void_ptr1)
-        self.assertEqual(self.unsigned_int(1) + void_ptr, void_ptr1)
-        self.assertEqual(void_ptr + 1, void_ptr1)
-        self.assertEqual(1 + void_ptr, void_ptr1)
+        self.assertIdentical(void_ptr + self.int(1), void_ptr1)
+        self.assertIdentical(self.unsigned_int(1) + void_ptr, void_ptr1)
+        self.assertIdentical(void_ptr + 1, void_ptr1)
+        self.assertIdentical(1 + void_ptr, void_ptr1)
 
     def test_sub(self):
         self._test_arithmetic(operator.sub, 4, 2, 2, floating_point=True)
@@ -1517,43 +1525,47 @@ class TestCOperators(MockProgramTestCase):
         ptr = Object(self.prog, "int *", value=0xFFFF0000)
         arr = Object(self.prog, "int [2]", address=0xFFFF0004)
         ptr1 = Object(self.prog, "int *", value=0xFFFF0004)
-        self.assertEqual(ptr1 - ptr, Object(self.prog, "ptrdiff_t", value=1))
-        self.assertEqual(ptr - ptr1, Object(self.prog, "ptrdiff_t", value=-1))
-        self.assertEqual(ptr - self.int(0), ptr)
-        self.assertEqual(ptr1 - self.int(1), ptr)
-        self.assertEqual(arr - self.int(1), ptr)
+        self.assertIdentical(ptr1 - ptr, Object(self.prog, "ptrdiff_t", value=1))
+        self.assertIdentical(ptr - ptr1, Object(self.prog, "ptrdiff_t", value=-1))
+        self.assertIdentical(ptr - self.int(0), ptr)
+        self.assertIdentical(ptr1 - self.int(1), ptr)
+        self.assertIdentical(arr - self.int(1), ptr)
         self.assertRaises(TypeError, operator.sub, self.int(1), ptr)
         self.assertRaises(TypeError, operator.sub, ptr, 1.0)
 
         void_ptr = Object(self.prog, "void *", value=0xFFFF0000)
         void_ptr1 = Object(self.prog, "void *", value=0xFFFF0001)
-        self.assertEqual(void_ptr1 - void_ptr, Object(self.prog, "ptrdiff_t", value=1))
-        self.assertEqual(void_ptr - void_ptr1, Object(self.prog, "ptrdiff_t", value=-1))
-        self.assertEqual(void_ptr - self.int(0), void_ptr)
-        self.assertEqual(void_ptr1 - self.int(1), void_ptr)
+        self.assertIdentical(
+            void_ptr1 - void_ptr, Object(self.prog, "ptrdiff_t", value=1)
+        )
+        self.assertIdentical(
+            void_ptr - void_ptr1, Object(self.prog, "ptrdiff_t", value=-1)
+        )
+        self.assertIdentical(void_ptr - self.int(0), void_ptr)
+        self.assertIdentical(void_ptr1 - self.int(1), void_ptr)
 
     def test_mul(self):
         self._test_arithmetic(operator.mul, 2, 3, 6, floating_point=True)
         self._test_pointer_type_errors(operator.mul)
 
         # Negative numbers.
-        self.assertEqual(self.int(2) * self.int(-3), self.int(-6))
-        self.assertEqual(self.int(-2) * self.int(3), self.int(-6))
-        self.assertEqual(self.int(-2) * self.int(-3), self.int(6))
+        self.assertIdentical(self.int(2) * self.int(-3), self.int(-6))
+        self.assertIdentical(self.int(-2) * self.int(3), self.int(-6))
+        self.assertIdentical(self.int(-2) * self.int(-3), self.int(6))
 
         # Integer overflow.
-        self.assertEqual(self.int(0x8000) * self.int(0x10000), self.int(-(2 ** 31)))
+        self.assertIdentical(self.int(0x8000) * self.int(0x10000), self.int(-(2 ** 31)))
 
-        self.assertEqual(
+        self.assertIdentical(
             self.unsigned_int(0x8000) * self.int(0x10000), self.unsigned_int(2 ** 31)
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             self.unsigned_int(0xFFFFFFFF) * self.unsigned_int(0xFFFFFFFF),
             self.unsigned_int(1),
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             self.unsigned_int(0xFFFFFFFF) * self.int(-1), self.unsigned_int(1)
         )
 
@@ -1601,30 +1613,30 @@ class TestCOperators(MockProgramTestCase):
 
     def test_lshift(self):
         self._test_shift(operator.lshift, 2, 3, 16)
-        self.assertEqual(self.bool(True) << self.bool(True), self.int(2))
-        self.assertEqual(self.int(1) << self.int(32), self.int(0))
+        self.assertIdentical(self.bool(True) << self.bool(True), self.int(2))
+        self.assertIdentical(self.int(1) << self.int(32), self.int(0))
 
     def test_rshift(self):
         self._test_shift(operator.rshift, 16, 3, 2)
-        self.assertEqual(self.int(-2) >> self.int(1), self.int(-1))
-        self.assertEqual(self.int(1) >> self.int(32), self.int(0))
-        self.assertEqual(self.int(-1) >> self.int(32), self.int(-1))
+        self.assertIdentical(self.int(-2) >> self.int(1), self.int(-1))
+        self.assertIdentical(self.int(1) >> self.int(32), self.int(0))
+        self.assertIdentical(self.int(-1) >> self.int(32), self.int(-1))
 
     def test_and(self):
         self._test_arithmetic(operator.and_, 1, 3, 1)
-        self.assertEqual(self.int(-1) & self.int(2 ** 31), self.int(2 ** 31))
+        self.assertIdentical(self.int(-1) & self.int(2 ** 31), self.int(2 ** 31))
         self._test_pointer_type_errors(operator.and_)
         self._test_floating_type_errors(operator.and_)
 
     def test_xor(self):
         self._test_arithmetic(operator.xor, 1, 3, 2)
-        self.assertEqual(self.int(-1) ^ self.int(-(2 ** 31)), self.int(2 ** 31 - 1))
+        self.assertIdentical(self.int(-1) ^ self.int(-(2 ** 31)), self.int(2 ** 31 - 1))
         self._test_pointer_type_errors(operator.xor)
         self._test_floating_type_errors(operator.xor)
 
     def test_or(self):
         self._test_arithmetic(operator.or_, 1, 3, 3)
-        self.assertEqual(self.int(-(2 ** 31)) | self.int(2 ** 31 - 1), self.int(-1))
+        self.assertIdentical(self.int(-(2 ** 31)) | self.int(2 ** 31 - 1), self.int(-1))
         self._test_pointer_type_errors(operator.or_)
         self._test_floating_type_errors(operator.or_)
 
@@ -1638,14 +1650,14 @@ class TestCOperators(MockProgramTestCase):
         )
 
     def test_neg(self):
-        self.assertEqual(-Object(self.prog, "unsigned char", value=1), self.int(-1))
-        self.assertEqual(-self.int(-1), self.int(1))
-        self.assertEqual(-self.unsigned_int(1), self.unsigned_int(0xFFFFFFFF))
-        self.assertEqual(
+        self.assertIdentical(-Object(self.prog, "unsigned char", value=1), self.int(-1))
+        self.assertIdentical(-self.int(-1), self.int(1))
+        self.assertIdentical(-self.unsigned_int(1), self.unsigned_int(0xFFFFFFFF))
+        self.assertIdentical(
             -Object(self.prog, "long", value=-0x8000000000000000),
             Object(self.prog, "long", value=-0x8000000000000000),
         )
-        self.assertEqual(-self.double(2.0), self.double(-2.0))
+        self.assertIdentical(-self.double(2.0), self.double(-2.0))
         self.assertRaisesRegex(
             TypeError,
             "invalid operand to unary -",
@@ -1654,12 +1666,14 @@ class TestCOperators(MockProgramTestCase):
         )
 
     def test_not(self):
-        self.assertEqual(~self.int(1), self.int(-2))
-        self.assertEqual(
+        self.assertIdentical(~self.int(1), self.int(-2))
+        self.assertIdentical(
             ~Object(self.prog, "unsigned long long", value=-1),
             Object(self.prog, "unsigned long long", value=0),
         )
-        self.assertEqual(~Object(self.prog, "unsigned char", value=255), self.int(-256))
+        self.assertIdentical(
+            ~Object(self.prog, "unsigned char", value=255), self.int(-256)
+        )
         for type_ in ["int *", "double"]:
             self.assertRaisesRegex(
                 TypeError,
@@ -1671,20 +1685,20 @@ class TestCOperators(MockProgramTestCase):
     def test_container_of(self):
         obj = Object(self.prog, "int *", value=0xFFFF000C)
         container_of(obj, self.point_type, "x")
-        self.assertEqual(
+        self.assertIdentical(
             container_of(obj, self.point_type, "x"),
             Object(
                 self.prog, self.prog.pointer_type(self.point_type), value=0xFFFF000C
             ),
         )
-        self.assertEqual(
+        self.assertIdentical(
             container_of(obj, self.point_type, "y"),
             Object(
                 self.prog, self.prog.pointer_type(self.point_type), value=0xFFFF0008
             ),
         )
 
-        self.assertEqual(
+        self.assertIdentical(
             container_of(obj, self.line_segment_type, "a.x"),
             Object(
                 self.prog,
@@ -1692,7 +1706,7 @@ class TestCOperators(MockProgramTestCase):
                 value=0xFFFF000C,
             ),
         )
-        self.assertEqual(
+        self.assertIdentical(
             container_of(obj, self.line_segment_type, "b.x"),
             Object(
                 self.prog,
@@ -1713,7 +1727,7 @@ class TestCOperators(MockProgramTestCase):
         polygon_type = self.prog.struct_type(
             "polygon", 0, (TypeMember(self.prog.array_type(self.point_type), "points"),)
         )
-        self.assertEqual(
+        self.assertIdentical(
             container_of(obj, polygon_type, "points[3].x"),
             Object(self.prog, self.prog.pointer_type(polygon_type), value=0xFFFEFFF4),
         )
@@ -2436,7 +2450,7 @@ class TestGenericOperators(MockProgramTestCase):
 
     def test_address_of(self):
         obj = Object(self.prog, "int", address=0xFFFF0000)
-        self.assertEqual(
+        self.assertIdentical(
             obj.address_of_(), Object(self.prog, "int *", value=0xFFFF0000)
         )
         obj = obj.read_()
@@ -2458,26 +2472,30 @@ class TestGenericOperators(MockProgramTestCase):
         ptr = Object(self.prog, "int *", value=0xFFFF0000)
         for obj in [arr, incomplete_arr, ptr]:
             for i in range(5):
-                self.assertEqual(
+                self.assertIdentical(
                     obj[i], Object(self.prog, "int", address=0xFFFF0000 + 4 * i)
                 )
                 if i < 4:
-                    self.assertEqual(obj[i].read_(), Object(self.prog, "int", value=i))
+                    self.assertIdentical(
+                        obj[i].read_(), Object(self.prog, "int", value=i)
+                    )
                 else:
                     self.assertRaises(FaultError, obj[i].read_)
 
         obj = arr.read_()
         for i in range(4):
-            self.assertEqual(obj[i], Object(self.prog, "int", value=i))
+            self.assertIdentical(obj[i], Object(self.prog, "int", value=i))
         self.assertRaisesRegex(OutOfBoundsError, "out of bounds", obj.__getitem__, 4)
         obj = Object(self.prog, "int", value=0)
         self.assertRaises(TypeError, obj.__getitem__, 0)
 
     def test_cast_primitive_value(self):
         obj = Object(self.prog, "long", value=2 ** 32 + 1)
-        self.assertEqual(cast("int", obj), Object(self.prog, "int", value=1))
-        self.assertEqual(cast("int", obj.read_()), Object(self.prog, "int", value=1))
-        self.assertEqual(
+        self.assertIdentical(cast("int", obj), Object(self.prog, "int", value=1))
+        self.assertIdentical(
+            cast("int", obj.read_()), Object(self.prog, "int", value=1)
+        )
+        self.assertIdentical(
             cast("const int", Object(self.prog, "int", value=1)),
             Object(self.prog, "const int", value=1),
         )
@@ -2512,14 +2530,14 @@ class TestGenericOperators(MockProgramTestCase):
 
     def test_reinterpret_reference(self):
         obj = Object(self.prog, "int", address=0xFFFF0000)
-        self.assertEqual(reinterpret("int", obj), obj)
-        self.assertEqual(
+        self.assertIdentical(reinterpret("int", obj), obj)
+        self.assertIdentical(
             reinterpret("int", obj, byteorder="big"),
             Object(self.prog, "int", address=0xFFFF0000, byteorder="big"),
         )
 
         obj = Object(self.prog, "int []", address=0xFFFF0000)
-        self.assertEqual(
+        self.assertIdentical(
             reinterpret("int [4]", obj),
             Object(self.prog, "int [4]", address=0xFFFF0000),
         )
@@ -2532,17 +2550,17 @@ class TestGenericOperators(MockProgramTestCase):
             ),
         )
         obj = Object(self.prog, "struct point", address=0xFFFF0008).read_()
-        self.assertEqual(
+        self.assertIdentical(
             reinterpret("struct foo", obj),
             Object(self.prog, "struct foo", address=0xFFFF0008).read_(),
         )
-        self.assertEqual(
+        self.assertIdentical(
             reinterpret(obj.type_, obj, byteorder="big"),
             Object(
                 self.prog, "struct point", address=0xFFFF0008, byteorder="big"
             ).read_(),
         )
-        self.assertEqual(reinterpret("int", obj), Object(self.prog, "int", value=2))
+        self.assertIdentical(reinterpret("int", obj), Object(self.prog, "int", value=2))
 
     def test_member(self):
         reference = Object(self.prog, self.point_type, address=0xFFFF0000)
@@ -2563,14 +2581,14 @@ class TestGenericOperators(MockProgramTestCase):
             self.prog, self.prog.pointer_type(self.point_type), value=0xFFFF0000
         )
         for obj in [reference, unnamed_reference, ptr]:
-            self.assertEqual(
+            self.assertIdentical(
                 obj.member_("x"), Object(self.prog, "int", address=0xFFFF0000)
             )
-            self.assertEqual(obj.member_("x"), obj.x)
-            self.assertEqual(
+            self.assertIdentical(obj.member_("x"), obj.x)
+            self.assertIdentical(
                 obj.member_("y"), Object(self.prog, "int", address=0xFFFF0004)
             )
-            self.assertEqual(obj.member_("y"), obj.y)
+            self.assertIdentical(obj.member_("y"), obj.y)
 
             self.assertRaisesRegex(
                 LookupError, "'struct point' has no member 'z'", obj.member_, "z"
@@ -2580,8 +2598,8 @@ class TestGenericOperators(MockProgramTestCase):
             )
 
         obj = reference.read_()
-        self.assertEqual(obj.x, Object(self.prog, "int", value=0))
-        self.assertEqual(obj.y, Object(self.prog, "int", value=1))
+        self.assertIdentical(obj.x, Object(self.prog, "int", value=0))
+        self.assertIdentical(obj.y, Object(self.prog, "int", value=1))
 
         obj = Object(self.prog, "int", value=1)
         self.assertRaisesRegex(
@@ -2607,7 +2625,7 @@ class TestGenericOperators(MockProgramTestCase):
         )
 
         obj = Object(self.prog, type_, address=0xFFFF8000)
-        self.assertEqual(
+        self.assertIdentical(
             obj.x,
             Object(
                 self.prog,
@@ -2616,7 +2634,7 @@ class TestGenericOperators(MockProgramTestCase):
                 bit_field_size=4,
             ),
         )
-        self.assertEqual(
+        self.assertIdentical(
             obj.y,
             Object(
                 self.prog,
@@ -2626,7 +2644,7 @@ class TestGenericOperators(MockProgramTestCase):
                 bit_offset=4,
             ),
         )
-        self.assertEqual(
+        self.assertIdentical(
             obj.z,
             Object(
                 self.prog,
@@ -2693,11 +2711,11 @@ class TestSpecialMethods(MockProgramTestCase):
                 self.assertEqual(
                     func(Object(self.prog, "int", value=value)), func(int(value))
                 )
-        self.assertEqual(
+        self.assertIdentical(
             round(Object(self.prog, "int", value=1), 2),
             Object(self.prog, "int", value=1),
         )
-        self.assertEqual(
+        self.assertIdentical(
             round(Object(self.prog, "double", value=0.123), 2),
             Object(self.prog, "double", value=0.12),
         )
@@ -2705,7 +2723,7 @@ class TestSpecialMethods(MockProgramTestCase):
     def test_iter(self):
         obj = Object(self.prog, "int [4]", value=[0, 1, 2, 3])
         for i, element in enumerate(obj):
-            self.assertEqual(element, Object(self.prog, "int", value=i))
+            self.assertIdentical(element, Object(self.prog, "int", value=i))
         self.assertEqual(operator.length_hint(iter(obj)), 4)
         self.assertRaisesRegex(
             TypeError, "'int' is not iterable", iter, Object(self.prog, "int", value=0)

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0+
 
 import functools
+import types
 from typing import Any, NamedTuple, Optional
 import unittest
 
@@ -17,6 +18,7 @@ from drgn import (
     TypeEnumerator,
     TypeKind,
     TypeMember,
+    TypeParameter,
 )
 
 DEFAULT_LANGUAGE = Language.C
@@ -102,38 +104,46 @@ def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=N
     return prog
 
 
-class TestCase(unittest.TestCase):
-    def setUp(self):
-        super().setUp()
-        # For testing, we want to compare the raw objects rather than using the
-        # language's equality operator.
-        def object_equality_func(a, b, msg=None):
-            if a.prog_ is not b.prog_:
-                raise self.failureException(msg or "objects have different program")
-            if a.type_ != b.type_:
-                raise self.failureException(
-                    msg or f"object types differ: {a.type_!r} != {b.type_!r}"
-                )
-            if a.address_ != b.address_:
-                a_address = "None" if a.address_ is None else hex(a.address_)
-                b_address = "None" if b.address_ is None else hex(b.address_)
-                raise self.failureException(
-                    msg or f"object addresses differ: {a_address} != {b_address}"
-                )
-            if a.byteorder_ != b.byteorder_:
-                raise self.failureException(
-                    msg or f"object byteorders differ: {a.byteorder_} != {b.byteorder_}"
-                )
-            if a.bit_offset_ != b.bit_offset_:
-                raise self.failureException(
-                    msg
-                    or f"object bit offsets differ: {a.bit_offset_} != {b.bit_offset_}"
-                )
-            if a.bit_field_size_ != b.bit_field_size_:
-                raise self.failureException(
-                    msg
-                    or f"object bit field sizes differ: {a.bit_field_size_} != {b.bit_field_size_}"
-                )
+def identical(a, b):
+    """
+    Return whether two objects are "identical".
+
+    drgn.Object, drgn.Type, drgn.TypeMember, or drgn.TypeParameter objects are
+    identical iff they have they have the same type and identical attributes.
+    Note that for drgn.Object, this is different from the objects comparing
+    equal: their type, address, value, etc. must be identical.
+
+    Two sequences are identical iff they have the same type, length, and all of
+    their items are identical.
+    """
+    compared_types = set()
+
+    def _identical_attrs(a, b, attr_names):
+        for attr_name in attr_names:
+            if not _identical(getattr(a, attr_name), getattr(b, attr_name)):
+                return False
+        return True
+
+    def _identical_sequence(a, b):
+        return len(a) == len(b) and all(
+            _identical(elem_a, elem_b) for elem_a, elem_b in zip(a, b)
+        )
+
+    def _identical(a, b):
+        if isinstance(a, Object) and isinstance(b, Object):
+            if not _identical_attrs(
+                a,
+                b,
+                (
+                    "prog_",
+                    "type_",
+                    "address_",
+                    "byteorder_",
+                    "bit_offset_",
+                    "bit_field_size_",
+                ),
+            ):
+                return False
             exc_a = exc_b = False
             try:
                 value_a = a.value_()
@@ -143,20 +153,92 @@ class TestCase(unittest.TestCase):
                 value_b = b.value_()
             except Exception:
                 exc_b = True
-            if exc_a and not exc_b:
-                raise self.failureException(
-                    msg or f"exception raised while reading {a!r}"
-                )
-            if not exc_a and exc_b:
-                raise self.failureException(
-                    msg or f"exception raised while reading {b!r}"
-                )
-            if not exc_a and value_a != value_b:
-                raise self.failureException(
-                    msg or f"object values differ: {value_a!r} != {value_b!r}"
-                )
+            if exc_a != exc_b:
+                return False
+            return exc_a or _identical(value_a, value_b)
+        elif isinstance(a, Type) and isinstance(b, Type):
+            if a.qualifiers != b.qualifiers:
+                return False
+            if a._ptr == b._ptr:
+                return True
+            if a._ptr < b._ptr:
+                key = (a._ptr, b._ptr)
+            else:
+                key = (b._ptr, a._ptr)
+            if key in compared_types:
+                return True
+            compared_types.add(key)
+            return _identical_attrs(
+                a,
+                b,
+                [
+                    name
+                    for name in (
+                        "prog",
+                        "kind",
+                        "primitive",
+                        "language",
+                        "name",
+                        "tag",
+                        "size",
+                        "length",
+                        "is_signed",
+                        "type",
+                        "members",
+                        "enumerators",
+                        "parameters",
+                        "is_variadic",
+                    )
+                    if hasattr(a, name) or hasattr(b, name)
+                ],
+            )
+        elif isinstance(a, TypeMember) and isinstance(b, TypeMember):
+            return _identical_attrs(
+                a, b, ("type", "name", "bit_offset", "bit_field_size")
+            )
+        elif isinstance(a, TypeParameter) and isinstance(b, TypeParameter):
+            return _identical_attrs(a, b, ("type", "name"))
+        elif (isinstance(a, tuple) and isinstance(b, tuple)) or (
+            isinstance(a, list) and isinstance(b, list)
+        ):
+            return _identical_sequence(a, b)
+        else:
+            return a == b
 
-        self.addTypeEqualityFunc(Object, object_equality_func)
+    return _identical(a, b)
+
+
+# Wrapper class that defines == using identical(). This lets us use unittest's
+# nice formatting of assert{,Not}Equal() failures.
+class _AssertIdenticalWrapper:
+    def __init__(self, obj):
+        self._obj = obj
+
+    def __str__(self):
+        return str(self._obj)
+
+    def __repr__(self):
+        return repr(self._obj)
+
+    def __eq__(self, other):
+        if not isinstance(other, _AssertIdenticalWrapper):
+            return NotImplemented
+        return identical(self._obj, other._obj)
+
+
+class TestCase(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+
+    def assertIdentical(self, a, b, msg=None):
+        return self.assertEqual(
+            _AssertIdenticalWrapper(a), _AssertIdenticalWrapper(b), msg
+        )
+
+    def assertNotIdentical(self, a, b, msg=None):
+        return self.assertNotEqual(
+            _AssertIdenticalWrapper(a), _AssertIdenticalWrapper(b), msg
+        )
 
     def bool(self, value):
         return Object(self.prog, "_Bool", value=value)
