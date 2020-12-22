@@ -1329,7 +1329,7 @@ class TestCOperators(MockProgramTestCase):
             Object(self.prog, "unsigned long", value=0xFFFF0000),
         )
         self.assertRaisesRegex(
-            TypeError, r"cannot convert 'int \*' to 'int \[2]'", cast, "int [2]", obj
+            TypeError, r"cannot cast to 'int \[2]'", cast, "int [2]", obj
         )
 
     def test_cast_function(self):
@@ -2483,7 +2483,7 @@ class TestGenericOperators(MockProgramTestCase):
         )
         self.assertRaisesRegex(
             TypeError,
-            "cannot convert 'int' to 'struct point'",
+            "cannot cast to 'struct point'",
             cast,
             self.point_type,
             Object(self.prog, "int", value=1),
@@ -2491,11 +2491,12 @@ class TestGenericOperators(MockProgramTestCase):
 
     def test_cast_compound_value(self):
         obj = Object(self.prog, self.point_type, address=0xFFFF0000).read_()
-        self.assertEqual(cast(self.point_type, obj), obj)
-        const_point_type = self.point_type.qualified(Qualifiers.CONST)
-        self.assertEqual(
-            cast(const_point_type, obj),
-            Object(self.prog, const_point_type, address=0xFFFF0000).read_(),
+        self.assertRaisesRegex(
+            TypeError,
+            "cannot cast to 'struct point'",
+            cast,
+            self.point_type,
+            obj,
         )
         self.assertRaisesRegex(
             TypeError,

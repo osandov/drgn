@@ -1677,21 +1677,14 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
 		      DRGN_TYPE_POINTER);
 	switch (encoding) {
 	case DRGN_OBJECT_ENCODING_BUFFER: {
-		bool eq;
-
-		if (is_pointer)
-			goto type_error;
-
-		err = drgn_type_eq(obj->type, qualified_type.type, &eq);
-		if (err)
-			goto err;
-		if (!eq)
-			goto type_error;
-		err = drgn_object_read(res, obj);
+		char *type_name;
+		err = drgn_format_type_name(qualified_type, &type_name);
 		if (err)
 			return err;
-		res->qualifiers = type.qualifiers;
-		return NULL;
+		err = drgn_error_format(DRGN_ERROR_TYPE, "cannot cast to '%s'",
+					type_name);
+		free(type_name);
+		return err;
 	}
 	case DRGN_OBJECT_ENCODING_SIGNED: {
 		union {
