@@ -1613,7 +1613,7 @@ class TypeMember:
         type: Union[Type, Callable[[], Type]],
         name: Optional[str] = None,
         bit_offset: int = 0,
-        bit_field_size: int = 0,
+        bit_field_size: Optional[int] = None,
     ) -> None:
         """
         Create a ``TypeMember``.
@@ -1640,8 +1640,10 @@ class TypeMember:
     is not byte-aligned, accessing this attribute raises :exc:`ValueError`.
     """
 
-    bit_field_size: int
-    """Size in bits of this member if it is a bit field, zero otherwise."""
+    bit_field_size: Optional[int]
+    """
+    Size in bits of this member if it is a bit field, ``None`` if it is not.
+    """
 
 class TypeEnumerator:
     """

@@ -179,10 +179,15 @@ static TypeMember *TypeMember_wrap(PyObject *parent,
 	py_member->bit_offset = PyLong_FromUnsignedLongLong(bit_offset);
 	if (!py_member->bit_offset)
 		goto err;
-	py_member->bit_field_size =
-		PyLong_FromUnsignedLongLong(member->bit_field_size);
-	if (!py_member->bit_field_size)
-		goto err;
+	if (member->bit_field_size) {
+		py_member->bit_field_size =
+			PyLong_FromUnsignedLongLong(member->bit_field_size);
+		if (!py_member->bit_field_size)
+			goto err;
+	} else {
+		Py_INCREF(Py_None);
+		py_member->bit_field_size = Py_None;
+	}
 	return py_member;
 
 err:
@@ -925,10 +930,10 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 		"type", "name", "bit_offset", "bit_field_size", NULL
 	};
 	PyObject *type_arg, *name = Py_None, *bit_offset = NULL, *bit_field_size = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO!O!:TypeMember",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO!O:TypeMember",
 					 keywords, &type_arg, &name,
 					 &PyLong_Type, &bit_offset,
-					 &PyLong_Type, &bit_field_size))
+					 &bit_field_size))
 		return NULL;
 
 	struct drgn_lazy_type *type_state;
@@ -962,24 +967,35 @@ static TypeMember *TypeMember_new(PyTypeObject *subtype, PyObject *args,
 		Py_INCREF(bit_offset);
 	} else {
 		bit_offset = PyLong_FromLong(0);
-		if (!bit_offset) {
-			Py_DECREF(member);
-			return NULL;
-		}
+		if (!bit_offset)
+			goto err;
 	}
 	member->bit_offset = bit_offset;
 
-	if (bit_field_size) {
-		Py_INCREF(bit_field_size);
-	} else {
-		bit_field_size = PyLong_FromLong(0);
-		if (!bit_field_size) {
-			Py_DECREF(member);
-			return NULL;
+	if (!bit_field_size || bit_field_size == Py_None) {
+		Py_INCREF(Py_None);
+		member->bit_field_size = Py_None;
+	} else if (PyLong_Check(bit_field_size)) {
+		int ret = PyObject_IsTrue(bit_field_size);
+		if (ret == -1)
+			goto err;
+		if (!ret) {
+			PyErr_SetString(PyExc_ValueError,
+					"bit field size cannot be zero");
+			goto err;
 		}
+		Py_INCREF(bit_field_size);
+		member->bit_field_size = bit_field_size;
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				"TypeMember bit_field_size must be int or None");
+		goto err;
 	}
-	member->bit_field_size = bit_field_size;
 	return member;
+
+err:
+	Py_DECREF(member);
+	return NULL;
 }
 
 static void TypeMember_dealloc(TypeMember *self)
@@ -1445,8 +1461,11 @@ static int unpack_member(struct drgn_compound_type_builder *builder,
 		PyLong_AsUnsignedLongLong(member->bit_offset);
 	if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
 		return -1;
-	unsigned long long bit_field_size =
-		PyLong_AsUnsignedLongLong(member->bit_field_size);
+	unsigned long long bit_field_size;
+	if (member->bit_field_size == Py_None)
+		bit_field_size = 0;
+	else
+		bit_field_size = PyLong_AsUnsignedLongLong(member->bit_field_size);
 	if (bit_field_size == (unsigned long long)-1 && PyErr_Occurred())
 		return -1;
 

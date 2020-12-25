@@ -135,8 +135,8 @@ class TestType(MockProgramTestCase):
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 0),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 0),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -162,8 +162,8 @@ class TestType(MockProgramTestCase):
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 0),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 0),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -245,8 +245,8 @@ class TestType(MockProgramTestCase):
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 0),
-                TypeMember(self.prog.int_type("unsigned int", 4, False), "y", 0, 0),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("unsigned int", 4, False), "y", 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -272,8 +272,8 @@ class TestType(MockProgramTestCase):
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 0),
-                TypeMember(self.prog.int_type("unsigned int", 4, False), "y", 0, 0),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("unsigned int", 4, False), "y", 0),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -356,9 +356,9 @@ class TestType(MockProgramTestCase):
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 0),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 0),
-                TypeMember(self.prog.int_type("int", 4, True), "z", 64, 0),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+                TypeMember(self.prog.int_type("int", 4, True), "z", 64),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -385,9 +385,9 @@ class TestType(MockProgramTestCase):
         self.assertIdentical(
             t.members,
             (
-                TypeMember(self.prog.int_type("int", 4, True), "x", 0, 0),
-                TypeMember(self.prog.int_type("int", 4, True), "y", 32, 0),
-                TypeMember(self.prog.int_type("int", 4, True), "z", 64, 0),
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+                TypeMember(self.prog.int_type("int", 4, True), "z", 64),
             ),
         )
         self.assertTrue(t.is_complete())
@@ -973,21 +973,21 @@ class TestTypeMember(MockProgramTestCase):
         self.assertIsNone(m.name)
         self.assertEqual(m.bit_offset, 0)
         self.assertEqual(m.offset, 0)
-        self.assertEqual(m.bit_field_size, 0)
+        self.assertIsNone(m.bit_field_size)
 
         m = TypeMember(self.prog.void_type(), "foo")
         self.assertIdentical(m.type, self.prog.void_type())
         self.assertEqual(m.name, "foo")
         self.assertEqual(m.bit_offset, 0)
         self.assertEqual(m.offset, 0)
-        self.assertEqual(m.bit_field_size, 0)
+        self.assertIsNone(m.bit_field_size)
 
         m = TypeMember(self.prog.void_type(), "foo", 8)
         self.assertIdentical(m.type, self.prog.void_type())
         self.assertEqual(m.name, "foo")
         self.assertEqual(m.bit_offset, 8)
         self.assertEqual(m.offset, 1)
-        self.assertEqual(m.bit_field_size, 0)
+        self.assertIsNone(m.bit_field_size)
 
         m = TypeMember(self.prog.void_type(), "foo", 9, 7)
         self.assertIdentical(m.type, self.prog.void_type())
@@ -999,7 +999,8 @@ class TestTypeMember(MockProgramTestCase):
         self.assertRaises(TypeError, TypeMember, None)
         self.assertRaises(TypeError, TypeMember, self.prog.void_type(), 1)
         self.assertRaises(TypeError, TypeMember, self.prog.void_type(), "foo", None)
-        self.assertRaises(TypeError, TypeMember, self.prog.void_type(), "foo", 0, None)
+        self.assertRaises(TypeError, TypeMember, self.prog.void_type(), "foo", 0, "bar")
+        self.assertRaises(ValueError, TypeMember, self.prog.void_type(), "foo", 0, 0)
 
     def test_callable(self):
         m = TypeMember(self.prog.void_type)
