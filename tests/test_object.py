@@ -136,6 +136,7 @@ class TestReference(MockProgramTestCase):
         obj = Object(self.prog, "int", address=0xFFFF0000)
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("int"))
+        self.assertFalse(obj.absent_)
         self.assertEqual(obj.address_, 0xFFFF0000)
         self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
@@ -420,6 +421,7 @@ class TestValue(MockProgramTestCase):
         obj = Object(self.prog, "int", value=-4)
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("int"))
+        self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
@@ -465,6 +467,7 @@ class TestValue(MockProgramTestCase):
         obj = Object(self.prog, "unsigned int", value=2 ** 32 - 1)
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("unsigned int"))
+        self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
@@ -512,6 +515,7 @@ class TestValue(MockProgramTestCase):
         obj = Object(self.prog, "double", value=3.14)
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("double"))
+        self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.byteorder_)
         self.assertEqual(obj.value_(), 3.14)
@@ -676,6 +680,7 @@ class TestValue(MockProgramTestCase):
 
     def test_pointer(self):
         obj = Object(self.prog, "int *", value=0xFFFF0000)
+        self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
         self.assertEqual(obj.value_(), 0xFFFF0000)
         self.assertEqual(repr(obj), "Object(prog, 'int *', value=0xffff0000)")
@@ -686,12 +691,16 @@ class TestValue(MockProgramTestCase):
             self.prog.typedef_type("INTP", self.prog.type("int *")),
             value=0xFFFF0000,
         )
+        self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
         self.assertEqual(obj.value_(), 0xFFFF0000)
         self.assertEqual(repr(obj), "Object(prog, 'INTP', value=0xffff0000)")
 
     def test_array(self):
         obj = Object(self.prog, "int [2]", value=[1, 2])
+        self.assertFalse(obj.absent_)
+        self.assertIsNone(obj.address_)
+
         self.assertIdentical(obj[0], Object(self.prog, "int", value=1))
         self.assertIdentical(obj[1], Object(self.prog, "int", value=2))
 
@@ -721,6 +730,7 @@ class TestAbsent(MockProgramTestCase):
         ]:
             self.assertIs(obj.prog_, self.prog)
             self.assertIdentical(obj.type_, self.prog.type("int"))
+            self.assertTrue(obj.absent_)
             self.assertIsNone(obj.address_)
             self.assertIsNone(obj.byteorder_)
             self.assertIsNone(obj.bit_offset_)

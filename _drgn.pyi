@@ -1024,6 +1024,14 @@ class Object:
     type_: Type
     """Type of this object."""
 
+    absent_: bool
+    """
+    Whether this object is absent.
+
+    This is ``False`` for all values and references (even if the reference has
+    an invalid address).
+    """
+
     address_: Optional[int]
     """
     Address of this object if it is a reference, ``None`` if it is a value or

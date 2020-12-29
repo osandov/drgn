@@ -1047,6 +1047,14 @@ static PyObject *DrgnObject_get_type(DrgnObject *self, void *arg)
 	return DrgnType_wrap(drgn_object_qualified_type(&self->obj));
 }
 
+static PyObject *DrgnObject_get_absent(DrgnObject *self, void *arg)
+{
+	if (self->obj.kind == DRGN_OBJECT_ABSENT)
+		Py_RETURN_TRUE;
+	else
+		Py_RETURN_FALSE;
+}
+
 static PyObject *DrgnObject_get_address(DrgnObject *self, void *arg)
 {
 	if (self->obj.kind == DRGN_OBJECT_REFERENCE)
@@ -1675,6 +1683,8 @@ static PyObject *DrgnObject_dir(DrgnObject *self)
 static PyGetSetDef DrgnObject_getset[] = {
 	{"prog_", (getter)DrgnObject_get_prog, NULL, drgn_Object_prog__DOC},
 	{"type_", (getter)DrgnObject_get_type, NULL, drgn_Object_type__DOC},
+	{"absent_", (getter)DrgnObject_get_absent, NULL,
+	 drgn_Object_absent__DOC},
 	{"address_", (getter)DrgnObject_get_address, NULL,
 	 drgn_Object_address__DOC},
 	{"byteorder_", (getter)DrgnObject_get_byteorder, NULL,
