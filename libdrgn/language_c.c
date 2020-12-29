@@ -1478,7 +1478,7 @@ c_format_array_object(const struct drgn_object *obj,
 		case DRGN_OBJECT_REFERENCE:
 			return c_format_string(&drgn_object_program(obj)->reader,
 					       obj->address, iter.length, sb);
-		case DRGN_OBJECT_UNAVAILABLE:
+		case DRGN_OBJECT_ABSENT:
 		)
 	}
 
@@ -1557,7 +1557,7 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 	 * we're dereferencing them.
 	 */
 	if (drgn_type_kind(underlying_type) == DRGN_TYPE_POINTER &&
-	    obj->kind != DRGN_OBJECT_UNAVAILABLE) {
+	    obj->kind != DRGN_OBJECT_ABSENT) {
 		return c_format_pointer_object(obj, underlying_type, indent,
 					       one_line_columns,
 					       multi_line_columns, flags, sb);
@@ -1580,8 +1580,8 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 		    one_line_columns = 0;
 	}
 
-	if (obj->kind == DRGN_OBJECT_UNAVAILABLE) {
-		if (!string_builder_append(sb, "<unavailable>"))
+	if (obj->kind == DRGN_OBJECT_ABSENT) {
+		if (!string_builder_append(sb, "<absent>"))
 			return &drgn_enomem;
 		return NULL;
 	}

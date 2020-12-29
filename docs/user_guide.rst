@@ -139,23 +139,23 @@ address it points to)::
     >>> print(hex(jiffiesp.value_()))
     0xffffffffbe405000
 
-Unavailable Objects
-"""""""""""""""""""
+Absent Objects
+""""""""""""""
 
 In addition to reference objects and value objects, objects may also be
-*unavailable*.
+*absent*.
 
-    >>> Object(prog, "int", value=None, address=None).value_()
+    >>> Object(prog, "int").value_()
     Traceback (most recent call last):
       File "<console>", line 1, in <module>
-    _drgn.ObjectNotAvailableError: object not available
+    _drgn.ObjectAbsentError: object absent
 
 This represents an object whose value or address is not known. For example,
 this can happen if the object was optimized out of the program by the compiler.
 
-Any attempt to operate on an unavailable object results in a
-:exc:`drgn.ObjectNotAvailableError` exception, although basic information
-including its type may still be accessed.
+Any attempt to operate on an absent object results in a
+:exc:`drgn.ObjectAbsentError` exception, although basic information including
+its type may still be accessed.
 
 Helpers
 ^^^^^^^

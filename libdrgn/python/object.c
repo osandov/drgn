@@ -541,21 +541,21 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 	} else {
 		if (!qualified_type.type) {
 			PyErr_SetString(PyExc_ValueError,
-					"unavailable object must have type");
+					"absent object must have type");
 			goto err;
 		}
 		if (!byteorder.is_none) {
 			PyErr_SetString(PyExc_ValueError,
-					"unavailable object cannot have byteorder");
+					"absent object cannot have byteorder");
 			goto err;
 		}
 		if (!bit_offset.is_none) {
 			PyErr_SetString(PyExc_ValueError,
-					"unavailable object cannot have bit offset");
+					"absent object cannot have bit offset");
 			goto err;
 		}
-		err = drgn_object_set_unavailable(&obj->obj, qualified_type,
-						  bit_field_size.uvalue);
+		err = drgn_object_set_absent(&obj->obj, qualified_type,
+					     bit_field_size.uvalue);
 	}
 	if (err) {
 		set_drgn_error(err);
@@ -814,8 +814,8 @@ static DrgnObject *DrgnObject_read(DrgnObject *self)
 			return set_drgn_error(err);
 		}
 		return res;
-	case DRGN_OBJECT_UNAVAILABLE:
-		return set_drgn_error(&drgn_object_not_available);
+	case DRGN_OBJECT_ABSENT:
+		return set_drgn_error(&drgn_error_object_absent);
 	)
 }
 
@@ -908,7 +908,7 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 			goto out;
 		break;
 	}
-	case DRGN_OBJECT_UNAVAILABLE:
+	case DRGN_OBJECT_ABSENT:
 		break;
 	)
 
@@ -1065,7 +1065,7 @@ static PyObject *DrgnObject_get_byteorder(DrgnObject *self, void *arg)
 			Py_RETURN_NONE;
 	case DRGN_OBJECT_REFERENCE:
 		return byteorder_string(self->obj.little_endian);
-	case DRGN_OBJECT_UNAVAILABLE:
+	case DRGN_OBJECT_ABSENT:
 		Py_RETURN_NONE;
 	)
 }
@@ -1076,7 +1076,7 @@ static PyObject *DrgnObject_get_bit_offset(DrgnObject *self, void *arg)
 	case DRGN_OBJECT_REFERENCE:
 		return PyLong_FromLong(self->obj.bit_offset);
 	case DRGN_OBJECT_VALUE:
-	case DRGN_OBJECT_UNAVAILABLE:
+	case DRGN_OBJECT_ABSENT:
 		Py_RETURN_NONE;
 	)
 }

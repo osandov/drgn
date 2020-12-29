@@ -31,9 +31,9 @@ struct drgn_error drgn_stop = {
 	.message = "stop iteration",
 };
 
-struct drgn_error drgn_object_not_available = {
-	.code = DRGN_ERROR_OBJECT_NOT_AVAILABLE,
-	.message = "object not available",
+struct drgn_error drgn_error_object_absent = {
+	.code = DRGN_ERROR_OBJECT_ABSENT,
+	.message = "object absent",
 };
 
 static struct drgn_error *drgn_error_create_nodup(enum drgn_error_code code,

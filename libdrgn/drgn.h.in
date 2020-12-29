@@ -79,8 +79,8 @@ enum drgn_error_code {
 	DRGN_ERROR_ZERO_DIVISION,
 	/** Array out of bounds */
 	DRGN_ERROR_OUT_OF_BOUNDS,
-	/* Operation was attempted with unavailable object. */
-	DRGN_ERROR_OBJECT_NOT_AVAILABLE,
+	/* Operation was attempted with absent object. */
+	DRGN_ERROR_OBJECT_ABSENT,
 	/** Number of defined error codes. */
 	DRGN_NUM_ERROR_CODES,
 } __attribute__((packed));
@@ -1482,8 +1482,8 @@ enum drgn_object_kind {
 	DRGN_OBJECT_VALUE,
 	/** In program memory. */
 	DRGN_OBJECT_REFERENCE,
-	/** Not available (e.g. optimized out). */
-	DRGN_OBJECT_UNAVAILABLE,
+	/** Absent (e.g. optimized out). */
+	DRGN_OBJECT_ABSENT,
 } __attribute__((packed));
 
 /**
@@ -1616,7 +1616,7 @@ static inline bool drgn_value_is_inline(uint64_t bits)
  *
  * A @ref drgn_object represents a symbol or value in a program. It can be in
  * the memory of the program (a "reference"), a temporary computed value (a
- * "value"), or "unavailable".
+ * "value"), or "absent".
  *
  * A @ref drgn_object must be initialized with @ref drgn_object_init() before it
  * is used. It can then be set and otherwise changed repeatedly. When the object
@@ -1830,7 +1830,7 @@ drgn_object_set_reference(struct drgn_object *res,
 			  enum drgn_byte_order byte_order);
 
 /**
- * Set a @ref drgn_object as unavailable.
+ * Set a @ref drgn_object as absent.
  *
  * @param[out] res Object to set.
  * @param[in] qualified_type Type to set to.
@@ -1839,9 +1839,9 @@ drgn_object_set_reference(struct drgn_object *res,
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_object_set_unavailable(struct drgn_object *res,
-			    struct drgn_qualified_type qualified_type,
-			    uint64_t bit_field_size);
+drgn_object_set_absent(struct drgn_object *res,
+		       struct drgn_qualified_type qualified_type,
+		       uint64_t bit_field_size);
 
 /**
  * Set a @ref drgn_object to a integer literal.

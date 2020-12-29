@@ -258,7 +258,7 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 
 		if (name_len == strlen("PAGE_OFFSET") &&
 		    memcmp(name, "PAGE_OFFSET", name_len) == 0) {
-			if (prog->page_offset.kind == DRGN_OBJECT_UNAVAILABLE) {
+			if (prog->page_offset.kind == DRGN_OBJECT_ABSENT) {
 				if (!prog->has_platform ||
 				    !prog->platform.arch->linux_kernel_get_page_offset)
 					return &drgn_not_found;
@@ -320,7 +320,7 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 							   DRGN_PROGRAM_ENDIAN);
 		} else if (name_len == strlen("vmemmap") &&
 			   memcmp(name, "vmemmap", name_len) == 0) {
-			if (prog->vmemmap.kind == DRGN_OBJECT_UNAVAILABLE) {
+			if (prog->vmemmap.kind == DRGN_OBJECT_ABSENT) {
 				if (!prog->has_platform ||
 				    !prog->platform.arch->linux_kernel_get_vmemmap)
 					return &drgn_not_found;

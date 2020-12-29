@@ -868,7 +868,7 @@ class Object:
     An ``Object`` represents a symbol or value in a program. An object may
     exist in the memory of the program (a *reference*), it may be a constant or
     temporary computed value (a *value*), or it may be absent entirely (an
-    *unavailable* object).
+    *absent* object).
 
     All instances of this class have two attributes: :attr:`prog_`, the program
     that the object is from; and :attr:`type_`, the type of the object.
@@ -1016,7 +1016,7 @@ class Object:
         *,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> None:
-        """Create an unavailable object."""
+        """Create an absent object."""
         ...
     prog_: Program
     """Program that this object is from."""
@@ -1027,7 +1027,7 @@ class Object:
     address_: Optional[int]
     """
     Address of this object if it is a reference, ``None`` if it is a value or
-    unavailable.
+    absent.
     """
 
     byteorder_: Optional[str]
@@ -1849,8 +1849,8 @@ class MissingDebugInfoError(Exception):
 
     ...
 
-class ObjectNotAvailableError(Exception):
-    """This error is raised when attempting to use an unavailable object."""
+class ObjectAbsentError(Exception):
+    """This error is raised when attempting to use an absent object."""
 
     ...
 

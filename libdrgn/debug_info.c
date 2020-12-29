@@ -2361,7 +2361,7 @@ drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 		return err;
 	Dwarf_Addr low_pc;
 	if (dwarf_lowpc(die, &low_pc) == -1)
-		return drgn_object_set_unavailable(ret, qualified_type, 0);
+		return drgn_object_set_absent(ret, qualified_type, 0);
 	enum drgn_byte_order byte_order;
 	dwarf_die_byte_order(die, false, &byte_order);
 	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
@@ -2451,7 +2451,7 @@ drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 						       qualified_type, attr,
 						       ret);
 	} else {
-		return drgn_object_set_unavailable(ret, qualified_type, 0);
+		return drgn_object_set_absent(ret, qualified_type, 0);
 	}
 }
 
