@@ -1,0 +1,40 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.8, 3.7, 3.6]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get install busybox-static libbz2-dev liblzma-dev qemu-kvm zlib1g-dev zstd
+          pip install mypy
+      - name: Generate version.py
+        run: python setup.py --version
+      - name: Check with mypy
+        run: mypy --strict --no-warn-return-any drgn _drgn.pyi
+      - name: Build and test
+        run: python setup.py test -K
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+      - name: Install dependencies
+        run: pip install black isort
+      - name: Check with black
+        run: black --check --diff .
+      - name: Check with isort
+        run: isort --check --diff .

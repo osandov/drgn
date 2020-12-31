@@ -5,9 +5,9 @@ drgn
     :target: https://pypi.org/project/drgn/
     :alt: PyPI
 
-.. image:: https://travis-ci.com/osandov/drgn.svg?branch=master
-    :target: https://travis-ci.com/osandov/drgn
-    :alt: Build Status
+.. image:: https://github.com/osandov/drgn/workflows/CI/badge.svg
+    :target: https://github.com/osandov/drgn/actions
+    :alt: CI Status
 
 .. image:: https://readthedocs.org/projects/drgn/badge/?version=latest
     :target: https://drgn.readthedocs.io/en/latest/?badge=latest

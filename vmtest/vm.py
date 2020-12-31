@@ -9,6 +9,7 @@ import shlex
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 
 from util import nproc, out_of_date
@@ -179,6 +180,15 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
         onoatimehack_so = _build_onoatimehack(build_dir)
         env["LD_PRELOAD"] = f"{str(onoatimehack_so)}:{env.get('LD_PRELOAD', '')}"
 
+    if os.access("/dev/kvm", os.R_OK | os.W_OK):
+        kvm_args = ["-cpu", "host", "-enable-kvm"]
+    else:
+        print(
+            "warning: /dev/kvm cannot be accessed; falling back to emulation",
+            file=sys.stderr,
+        )
+        kvm_args = []
+
     with tempfile.TemporaryDirectory(prefix="drgn-vmtest-") as temp_dir, socket.socket(
         socket.AF_UNIX
     ) as server_sock:
@@ -201,7 +211,7 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
         with subprocess.Popen(
             [
                 # fmt: off
-                "qemu-system-x86_64", "-cpu", "host", "-enable-kvm",
+                "qemu-system-x86_64", *kvm_args,
 
                 "-smp", str(nproc()), "-m", "2G",
 
@@ -257,7 +267,6 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
 
 if __name__ == "__main__":
     import argparse
-    import sys
 
     parser = argparse.ArgumentParser(
         description="run vmtest virtual machine",
