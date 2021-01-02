@@ -234,14 +234,8 @@ drgn_type_dedupe_hash_pair(struct drgn_type * const *entry)
 {
 	struct drgn_type *type = *entry;
 	size_t hash = hash_combine(drgn_type_kind(type),
-				   (uintptr_t)drgn_type_language(type));
-	/*
-	 * We don't dedupe complete compound or enumerated types, and typedefs
-	 * inherit is_complete from the aliased type, so is_complete can only
-	 * differ for otherwise equal array types. We implicitly include that in
-	 * the hash with the is_complete check below, so we don't need to hash
-	 * it explicitly.
-	 */
+				   drgn_type_is_complete(type));
+	hash = hash_combine(hash, (uintptr_t)drgn_type_language(type));
 	if (drgn_type_has_name(type))
 		hash = hash_combine(hash, hash_c_string(drgn_type_name(type)));
 	if (drgn_type_has_size(type))
@@ -257,8 +251,10 @@ drgn_type_dedupe_hash_pair(struct drgn_type * const *entry)
 		hash = hash_combine(hash, (uintptr_t)qualified_type.type);
 		hash = hash_combine(hash, qualified_type.qualifiers);
 	}
-	if (drgn_type_has_length(type) && drgn_type_is_complete(type))
+	if (drgn_type_has_length(type))
 		hash = hash_combine(hash, drgn_type_length(type));
+	if (drgn_type_has_is_variadic(type))
+		hash = hash_combine(hash, drgn_type_is_variadic(type));
 	return hash_pair_from_avalanching_hash(hash);
 }
 
@@ -269,8 +265,8 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 	struct drgn_type *b = *entry_b;
 
 	if (drgn_type_kind(a) != drgn_type_kind(b) ||
-	    drgn_type_language(a) != drgn_type_language(b) ||
-	    drgn_type_is_complete(a) != drgn_type_is_complete(b))
+	    drgn_type_is_complete(a) != drgn_type_is_complete(b) ||
+	    drgn_type_language(a) != drgn_type_language(b))
 		return false;
 	if (drgn_type_has_name(a) &&
 	    strcmp(drgn_type_name(a), drgn_type_name(b)) != 0)
@@ -296,13 +292,15 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 	if (drgn_type_has_length(a) &&
 	    drgn_type_length(a) != drgn_type_length(b))
 		return false;
+	if (drgn_type_has_is_variadic(a) &&
+	    drgn_type_is_variadic(a) != drgn_type_is_variadic(b))
+		return false;
 	return true;
 }
 
 /*
- * We don't deduplicate complete compound types, complete enumerated types, or
- * function types, so the hash and comparison functions ignore members,
- * enumerators, parameters, and is_variadic.
+ * We don't deduplicate types with members, parameters, or enumerators, so the
+ * hash and comparison functions ignore those.
  */
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
 			    drgn_type_dedupe_eq)
@@ -503,6 +501,22 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
+	if (!builder->members.size) {
+		struct drgn_type key = {
+			{
+				.kind = builder->kind,
+				.is_complete = true,
+				.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+				.tag = tag,
+				.size = size,
+				.program = builder->prog,
+				.language =
+					lang ? lang : drgn_program_language(builder->prog),
+			}
+		};
+		return find_or_create_type(&key, ret);
+	}
+
 	struct drgn_type *type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
@@ -602,6 +616,22 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 	if (drgn_type_kind(compatible_type) != DRGN_TYPE_INT) {
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "compatible type of enum type must be integer type");
+	}
+
+	if (!builder->enumerators.size) {
+		struct drgn_type key = {
+			{
+				.kind = DRGN_TYPE_ENUM,
+				.is_complete = true,
+				.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+				.tag = tag,
+				.type = compatible_type,
+				.program = builder->prog,
+				.language =
+					lang ? lang : drgn_program_language(builder->prog),
+			}
+		};
+		return find_or_create_type(&key, ret);
 	}
 
 	struct drgn_type *type = malloc(sizeof(*type));
@@ -802,6 +832,23 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	if (drgn_type_program(return_type.type) != builder->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "type is from different program");
+	}
+
+	if (!builder->parameters.size) {
+		struct drgn_type key = {
+			{
+				.kind = DRGN_TYPE_FUNCTION,
+				.is_complete = true,
+				.primitive = DRGN_NOT_PRIMITIVE_TYPE,
+				.type = return_type.type,
+				.qualifiers = return_type.qualifiers,
+				.is_variadic = is_variadic,
+				.program = builder->prog,
+				.language =
+					lang ? lang : drgn_program_language(builder->prog),
+			}
+		};
+		return find_or_create_type(&key, ret);
 	}
 
 	struct drgn_type *type = malloc(sizeof(*type));

@@ -100,18 +100,14 @@ struct drgn_program {
 	/** Cache of deduplicated types. */
 	struct drgn_dedupe_type_set dedupe_types;
 	/**
-	 * List of created types that cannot be deduplicated.
+	 * List of created types that are not deduplicated: types with non-empty
+	 * lists of members, parameters, or enumerators.
 	 *
-	 * Complete structure, union, and class types, as well as function
-	 * types, refer to lazily-evaluated types, so they cannot be easily
-	 * deduplicated.
+	 * Members and parameters contain lazily-evaluated types, so they
+	 * cannot be easily deduplicated.
 	 *
-	 * Complete enumerated types could be deduplicated, but it's probably
-	 * not worth the effort of hashing and comparing long lists of
-	 * enumerators.
-	 *
-	 * All other types, including incomplete structure, union, class, and
-	 * enumerated types, are deduplicated.
+	 * Enumerators could be deduplicated, but it's probably not worth the
+	 * effort to hash and compare them.
 	 */
 	struct drgn_typep_vector created_types;
 	/** Cache for @ref drgn_program_find_member(). */
