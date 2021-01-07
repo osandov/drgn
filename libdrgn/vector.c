@@ -24,17 +24,21 @@ bool vector_do_reserve(size_t new_capacity, size_t entry_size, void **data,
 void vector_do_shrink_to_fit(size_t size, size_t entry_size, void **data,
 			     size_t *capacity)
 {
-	void *new_data;
-
 	if (*capacity > size) {
-		/*
-		 * We already have at least size * entry_size bytes allocated,
-		 * so we don't need to worry about overflow.
-		 */
-		new_data = realloc(*data, size * entry_size);
-		if (new_data) {
-			*data = new_data;
-			*capacity = size;
+		if (size > 0) {
+			/*
+			 * We already have at least size * entry_size bytes
+			 * allocated, so we don't need to worry about overflow.
+			 */
+			void *new_data = realloc(*data, size * entry_size);
+			if (new_data) {
+				*data = new_data;
+				*capacity = size;
+			}
+		} else {
+			free(*data);
+			*data = NULL;
+			*capacity = 0;
 		}
 	}
 }
