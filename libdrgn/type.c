@@ -501,6 +501,8 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	if (!builder->members.size) {
 		struct drgn_type key = {
 			{
@@ -514,7 +516,10 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 					lang ? lang : drgn_program_language(builder->prog),
 			}
 		};
-		return find_or_create_type(&key, ret);
+		err = find_or_create_type(&key, ret);
+		if (!err)
+			drgn_type_member_vector_deinit(&builder->members);
+		return err;
 	}
 
 	struct drgn_type *type = malloc(sizeof(*type));
@@ -609,6 +614,8 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 					 const struct drgn_language *lang,
 					 struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	if (drgn_type_program(compatible_type) != builder->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "type is from different program");
@@ -631,7 +638,10 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 					lang ? lang : drgn_program_language(builder->prog),
 			}
 		};
-		return find_or_create_type(&key, ret);
+		err = find_or_create_type(&key, ret);
+		if (!err)
+			drgn_type_enumerator_vector_deinit(&builder->enumerators);
+		return err;
 	}
 
 	struct drgn_type *type = malloc(sizeof(*type));
@@ -829,6 +839,8 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 			  bool is_variadic, const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	if (drgn_type_program(return_type.type) != builder->prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "type is from different program");
@@ -848,7 +860,10 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 					lang ? lang : drgn_program_language(builder->prog),
 			}
 		};
-		return find_or_create_type(&key, ret);
+		err = find_or_create_type(&key, ret);
+		if (!err)
+			drgn_type_parameter_vector_deinit(&builder->parameters);
+		return err;
 	}
 
 	struct drgn_type *type = malloc(sizeof(*type));
