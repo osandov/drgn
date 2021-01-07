@@ -11,10 +11,12 @@ DEFINE_HASH_TABLE_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq)
 
 int Program_hold_object(Program *prog, PyObject *obj)
 {
-	if (pyobjectp_set_insert(&prog->objects, &obj, NULL) == -1)
-		return -1;
-	Py_INCREF(obj);
-	return 0;
+	int ret = pyobjectp_set_insert(&prog->objects, &obj, NULL);
+	if (ret > 0) {
+		Py_INCREF(obj);
+		ret = 0;
+	}
+	return ret;
 }
 
 bool Program_hold_reserve(Program *prog, size_t n)
