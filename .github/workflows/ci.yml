@@ -17,6 +17,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
+          sudo apt-get update
           sudo apt-get install busybox-static libbz2-dev liblzma-dev qemu-kvm zlib1g-dev zstd
           pip install mypy
       - name: Generate version.py
