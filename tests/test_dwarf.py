@@ -2592,6 +2592,57 @@ class TestTypes(TestCase):
             ),
         )
 
+    def test_qualified_zero_length_array_only_member_old_gcc(self):
+        # GCC < 9.0.
+        # struct {
+        #   const int a[0];
+        # };
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.structure_type,
+                        (DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),),
+                        (
+                            DwarfDie(
+                                DW_TAG.member,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                                ),
+                            ),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.const_type, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),)
+                    ),
+                    DwarfDie(
+                        DW_TAG.array_type,
+                        (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),),
+                        (DwarfDie(DW_TAG.subrange_type, ()),),
+                    ),
+                    int_die,
+                )
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.struct_type(
+                None,
+                4,
+                (
+                    TypeMember(
+                        prog.array_type(
+                            prog.int_type("int", 4, True),
+                            0,
+                            qualifiers=Qualifiers.CONST,
+                        ),
+                        "a",
+                    ),
+                ),
+            ),
+        )
+
     def test_typedef_zero_length_array_only_member(self):
         prog = dwarf_program(
             test_type_dies(

@@ -2157,23 +2157,31 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	entry.value.is_incomplete_array = false;
 	switch (dwarf_tag(die)) {
 	case DW_TAG_const_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true, true,
-						NULL, ret);
+		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+						can_be_incomplete_array,
+						&entry.value.is_incomplete_array,
+						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_CONST;
 		break;
 	case DW_TAG_restrict_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true, true,
-						NULL, ret);
+		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+						can_be_incomplete_array,
+						&entry.value.is_incomplete_array,
+						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_RESTRICT;
 		break;
 	case DW_TAG_volatile_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true, true,
-						NULL, ret);
+		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+						can_be_incomplete_array,
+						&entry.value.is_incomplete_array,
+						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_VOLATILE;
 		break;
 	case DW_TAG_atomic_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true, true,
-						NULL, ret);
+		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+						can_be_incomplete_array,
+						&entry.value.is_incomplete_array,
+						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_ATOMIC;
 		break;
 	case DW_TAG_base_type:
