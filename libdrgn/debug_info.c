@@ -2349,7 +2349,7 @@ drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
 static struct drgn_error *
 drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 				  Dwarf_Die *die, uint64_t bias,
-				  const char *name, struct drgn_object *ret)
+				  struct drgn_object *ret)
 {
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, die,
@@ -2416,8 +2416,7 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 
 static struct drgn_error *
 drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-				uint64_t bias, const char *name,
-				struct drgn_object *ret)
+				uint64_t bias, struct drgn_object *ret)
 {
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, NULL,
@@ -2513,11 +2512,10 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 								 name, ret);
 		case DW_TAG_subprogram:
 			return drgn_object_from_dwarf_subprogram(dbinfo, &die,
-								 bias, name,
-								 ret);
+								 bias, ret);
 		case DW_TAG_variable:
 			return drgn_object_from_dwarf_variable(dbinfo, &die,
-							       bias, name, ret);
+							       bias, ret);
 		default:
 			UNREACHABLE();
 		}
