@@ -63,11 +63,10 @@ const struct drgn_language drgn_languages[] = {
 	},
 };
 
-struct drgn_error *drgn_language_from_die(Dwarf_Die *die,
+struct drgn_error *drgn_language_from_die(Dwarf_Die *die, bool fall_back,
 					  const struct drgn_language **ret)
 {
 	Dwarf_Die cudie;
-
 	if (dwarf_cu_info(die->cu, NULL, NULL, &cudie, NULL, NULL, NULL, NULL))
 		return drgn_error_libdw();
 	switch (dwarf_srclang(&cudie)) {
@@ -84,7 +83,7 @@ struct drgn_error *drgn_language_from_die(Dwarf_Die *die,
 		*ret = &drgn_language_cpp;
 		break;
 	default:
-		*ret = NULL;
+		*ret = fall_back ? &drgn_default_language : NULL;
 		break;
 	}
 	return NULL;

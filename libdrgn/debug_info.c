@@ -1289,7 +1289,7 @@ drgn_type_from_dwarf_child(struct drgn_debug_info *dbinfo,
 	if (!(attr = dwarf_attr_integrate(parent_die, DW_AT_type, &attr_mem))) {
 		if (can_be_void) {
 			if (!parent_lang) {
-				err = drgn_language_from_die(parent_die,
+				err = drgn_language_from_die(parent_die, true,
 							     &parent_lang);
 				if (err)
 					return err;
@@ -1857,8 +1857,7 @@ drgn_typedef_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 
 	struct drgn_qualified_type aliased_type;
-	struct drgn_error *err = drgn_type_from_dwarf_child(dbinfo, die,
-							    drgn_language_or_default(lang),
+	struct drgn_error *err = drgn_type_from_dwarf_child(dbinfo, die, lang,
 							    true,
 							    can_be_incomplete_array,
 							    is_incomplete_array_ret,
@@ -1876,8 +1875,7 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 			     struct drgn_type **ret)
 {
 	struct drgn_qualified_type referenced_type;
-	struct drgn_error *err = drgn_type_from_dwarf_child(dbinfo, die,
-							    drgn_language_or_default(lang),
+	struct drgn_error *err = drgn_type_from_dwarf_child(dbinfo, die, lang,
 							    true, true, NULL,
 							    &referenced_type);
 	if (err)
@@ -1992,9 +1990,8 @@ drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 
 	struct drgn_qualified_type element_type;
-	err = drgn_type_from_dwarf_child(dbinfo, die,
-					 drgn_language_or_default(lang), false,
-					 false, NULL, &element_type);
+	err = drgn_type_from_dwarf_child(dbinfo, die, lang, false, false, NULL,
+					 &element_type);
 	if (err)
 		goto out;
 
@@ -2106,9 +2103,8 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 
 	struct drgn_qualified_type return_type;
-	err = drgn_type_from_dwarf_child(dbinfo, die,
-					 drgn_language_or_default(lang), true,
-					 true, NULL, &return_type);
+	err = drgn_type_from_dwarf_child(dbinfo, die, lang, true, true, NULL,
+					 &return_type);
 	if (err)
 		goto err;
 
@@ -2155,7 +2151,7 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 
 	const struct drgn_language *lang;
-	struct drgn_error *err = drgn_language_from_die(die, &lang);
+	struct drgn_error *err = drgn_language_from_die(die, true, &lang);
 	if (err)
 		return err;
 
@@ -2164,27 +2160,23 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	entry.value.is_incomplete_array = false;
 	switch (dwarf_tag(die)) {
 	case DW_TAG_const_type:
-		err = drgn_type_from_dwarf_child(dbinfo, die,
-						 drgn_language_or_default(lang),
-						 true, true, NULL, ret);
+		err = drgn_type_from_dwarf_child(dbinfo, die, lang, true, true,
+						 NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_CONST;
 		break;
 	case DW_TAG_restrict_type:
-		err = drgn_type_from_dwarf_child(dbinfo, die,
-						 drgn_language_or_default(lang),
-						 true, true, NULL, ret);
+		err = drgn_type_from_dwarf_child(dbinfo, die, lang, true, true,
+						 NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_RESTRICT;
 		break;
 	case DW_TAG_volatile_type:
-		err = drgn_type_from_dwarf_child(dbinfo, die,
-						 drgn_language_or_default(lang),
-						 true, true, NULL, ret);
+		err = drgn_type_from_dwarf_child(dbinfo, die, lang, true, true,
+						 NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_VOLATILE;
 		break;
 	case DW_TAG_atomic_type:
-		err = drgn_type_from_dwarf_child(dbinfo, die,
-						 drgn_language_or_default(lang),
-						 true, true, NULL, ret);
+		err = drgn_type_from_dwarf_child(dbinfo, die, lang, true, true,
+						 NULL, ret);
 		ret->qualifiers |= DRGN_QUALIFIER_ATOMIC;
 		break;
 	case DW_TAG_base_type:

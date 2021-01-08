@@ -164,6 +164,9 @@ extern const struct drgn_language drgn_languages[DRGN_NUM_LANGUAGES];
 #define drgn_language_c drgn_languages[DRGN_LANGUAGE_C]
 #define drgn_language_cpp drgn_languages[DRGN_LANGUAGE_CPP]
 
+/** Language to be used when actual language is unknown. */
+#define drgn_default_language drgn_language_c
+
 /**
  * Return flags that should be passed through when formatting an object
  * recursively.
@@ -201,23 +204,15 @@ drgn_element_format_object_flags(enum drgn_format_object_flags flags)
 }
 
 /**
- * Return the given @ref drgn_language if it is non-@c NULL or the default if it
- * is @c NULL.
- */
-static inline const struct drgn_language *
-drgn_language_or_default(const struct drgn_language *lang)
-{
-	return lang ? lang : &drgn_language_c;
-}
-
-/**
  * Return the @ref drgn_language of the CU of the given DIE.
  *
- * @param[out] ret Returned language. May be returned as @c NULL if the language
- * is unknown.
+ * @param[in] fall_back Whether to fall back if the language is not found or
+ * unknown. If @c true, @ref drgn_default_language is returned in this case. If
+ * @c false, @c NULL is returned.
+ * @param[out] ret Returned language.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_language_from_die(Dwarf_Die *die,
+struct drgn_error *drgn_language_from_die(Dwarf_Die *die, bool fall_back,
 					  const struct drgn_language **ret);
 
 /** @} */

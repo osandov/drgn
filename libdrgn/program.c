@@ -53,7 +53,7 @@ drgn_program_platform(struct drgn_program *prog)
 LIBDRGN_PUBLIC const struct drgn_language *
 drgn_program_language(struct drgn_program *prog)
 {
-	return drgn_language_or_default(prog->lang);
+	return prog->lang ? prog->lang : &drgn_default_language;
 }
 
 void drgn_program_set_platform(struct drgn_program *prog,
@@ -585,7 +585,7 @@ static void drgn_program_set_language_from_main(struct drgn_debug_info *dbinfo)
 		}
 
 		const struct drgn_language *lang;
-		err = drgn_language_from_die(&die, &lang);
+		err = drgn_language_from_die(&die, false, &lang);
 		if (err) {
 			drgn_error_destroy(err);
 			continue;
