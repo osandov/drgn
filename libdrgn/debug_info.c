@@ -1264,6 +1264,141 @@ drgn_type_from_dwarf_attr(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 }
 
 static struct drgn_error *
+drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
+				  Dwarf_Die *die, uint64_t bias,
+				  const char *name, struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	err = drgn_type_from_dwarf(dbinfo, die, bias, &qualified_type);
+	if (err)
+		return err;
+	const struct drgn_type_enumerator *enumerators =
+		drgn_type_enumerators(qualified_type.type);
+	size_t num_enumerators = drgn_type_num_enumerators(qualified_type.type);
+	for (size_t i = 0; i < num_enumerators; i++) {
+		if (strcmp(enumerators[i].name, name) != 0)
+			continue;
+
+		if (drgn_enum_type_is_signed(qualified_type.type)) {
+			return drgn_object_set_signed(ret, qualified_type,
+						      enumerators[i].svalue, 0);
+		} else {
+			return drgn_object_set_unsigned(ret, qualified_type,
+							enumerators[i].uvalue,
+							0);
+		}
+	}
+	UNREACHABLE();
+}
+
+static struct drgn_error *
+drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
+				  Dwarf_Die *die, uint64_t bias,
+				  struct drgn_object *ret)
+{
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, die, bias,
+						      &qualified_type);
+	if (err)
+		return err;
+	Dwarf_Addr low_pc;
+	if (dwarf_lowpc(die, &low_pc) == -1)
+		return drgn_object_set_absent(ret, qualified_type, 0);
+	enum drgn_byte_order byte_order;
+	dwarf_die_byte_order(die, false, &byte_order);
+	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
+					 0, byte_order);
+}
+
+static struct drgn_error *
+drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
+				struct drgn_qualified_type qualified_type,
+				Dwarf_Attribute *attr, struct drgn_object *ret)
+{
+	struct drgn_object_type type;
+	enum drgn_object_encoding encoding;
+	uint64_t bit_size;
+	struct drgn_error *err = drgn_object_set_common(qualified_type, 0,
+							&type, &encoding,
+							&bit_size);
+	if (err)
+		return err;
+	Dwarf_Block block;
+	if (dwarf_formblock(attr, &block) == 0) {
+		bool little_endian;
+		err = dwarf_die_is_little_endian(die, true, &little_endian);
+		if (err)
+			return err;
+		if (block.length < drgn_value_size(bit_size)) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "DW_AT_const_value block is too small");
+		}
+		return drgn_object_set_from_buffer_internal(ret, &type,
+							    encoding, bit_size,
+							    block.data, 0,
+							    little_endian);
+	} else if (encoding == DRGN_OBJECT_ENCODING_SIGNED) {
+		Dwarf_Sword svalue;
+		if (dwarf_formsdata(attr, &svalue)) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid DW_AT_const_value");
+		}
+		return drgn_object_set_signed_internal(ret, &type, bit_size,
+						       svalue);
+	} else if (encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
+		Dwarf_Word uvalue;
+		if (dwarf_formudata(attr, &uvalue)) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid DW_AT_const_value");
+		}
+		return drgn_object_set_unsigned_internal(ret, &type, bit_size,
+							 uvalue);
+	} else {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "unknown DW_AT_const_value form");
+	}
+}
+
+static struct drgn_error *
+drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
+				uint64_t bias, struct drgn_object *ret)
+{
+	struct drgn_qualified_type qualified_type;
+	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, bias,
+							   NULL, true, true,
+							   NULL,
+							   &qualified_type);
+	if (err)
+		return err;
+	Dwarf_Attribute attr_mem, *attr;
+	if ((attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
+		Dwarf_Op *loc;
+		size_t nloc;
+		if (dwarf_getlocation(attr, &loc, &nloc))
+			return drgn_error_libdw();
+		if (nloc != 1 || loc[0].atom != DW_OP_addr) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "DW_AT_location has unimplemented operation");
+		}
+		enum drgn_byte_order byte_order;
+		err = dwarf_die_byte_order(die, true, &byte_order);
+		if (err)
+			return err;
+		return drgn_object_set_reference(ret, qualified_type,
+						 loc[0].number + bias, 0, 0,
+						 byte_order);
+	} else if ((attr = dwarf_attr_integrate(die, DW_AT_const_value,
+						&attr_mem))) {
+		return drgn_object_from_dwarf_constant(dbinfo, die,
+						       qualified_type, attr,
+						       ret);
+	} else {
+		return drgn_object_set_absent(ret, qualified_type, 0);
+	}
+}
+
+static struct drgn_error *
 drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 			  uint64_t bias, const struct drgn_language *lang,
 			  struct drgn_type **ret)
@@ -2340,143 +2475,6 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 		}
 	}
 	return &drgn_not_found;
-}
-
-static struct drgn_error *
-drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
-				  Dwarf_Die *die, uint64_t bias,
-				  const char *name, struct drgn_object *ret)
-{
-	struct drgn_error *err;
-	struct drgn_qualified_type qualified_type;
-	const struct drgn_type_enumerator *enumerators;
-	size_t num_enumerators, i;
-
-	err = drgn_type_from_dwarf(dbinfo, die, bias, &qualified_type);
-	if (err)
-		return err;
-	enumerators = drgn_type_enumerators(qualified_type.type);
-	num_enumerators = drgn_type_num_enumerators(qualified_type.type);
-	for (i = 0; i < num_enumerators; i++) {
-		if (strcmp(enumerators[i].name, name) != 0)
-			continue;
-
-		if (drgn_enum_type_is_signed(qualified_type.type)) {
-			return drgn_object_set_signed(ret, qualified_type,
-						      enumerators[i].svalue, 0);
-		} else {
-			return drgn_object_set_unsigned(ret, qualified_type,
-							enumerators[i].uvalue,
-							0);
-		}
-	}
-	UNREACHABLE();
-}
-
-static struct drgn_error *
-drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
-				  Dwarf_Die *die, uint64_t bias,
-				  struct drgn_object *ret)
-{
-	struct drgn_qualified_type qualified_type;
-	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, die, bias,
-						      &qualified_type);
-	if (err)
-		return err;
-	Dwarf_Addr low_pc;
-	if (dwarf_lowpc(die, &low_pc) == -1)
-		return drgn_object_set_absent(ret, qualified_type, 0);
-	enum drgn_byte_order byte_order;
-	dwarf_die_byte_order(die, false, &byte_order);
-	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
-					 0, byte_order);
-}
-
-static struct drgn_error *
-drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-				struct drgn_qualified_type qualified_type,
-				Dwarf_Attribute *attr, struct drgn_object *ret)
-{
-	struct drgn_object_type type;
-	enum drgn_object_encoding encoding;
-	uint64_t bit_size;
-	struct drgn_error *err = drgn_object_set_common(qualified_type, 0,
-							&type, &encoding,
-							&bit_size);
-	if (err)
-		return err;
-	Dwarf_Block block;
-	if (dwarf_formblock(attr, &block) == 0) {
-		bool little_endian;
-		err = dwarf_die_is_little_endian(die, true, &little_endian);
-		if (err)
-			return err;
-		if (block.length < drgn_value_size(bit_size)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "DW_AT_const_value block is too small");
-		}
-		return drgn_object_set_from_buffer_internal(ret, &type,
-							    encoding, bit_size,
-							    block.data, 0,
-							    little_endian);
-	} else if (encoding == DRGN_OBJECT_ENCODING_SIGNED) {
-		Dwarf_Sword svalue;
-		if (dwarf_formsdata(attr, &svalue)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid DW_AT_const_value");
-		}
-		return drgn_object_set_signed_internal(ret, &type, bit_size,
-						       svalue);
-	} else if (encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
-		Dwarf_Word uvalue;
-		if (dwarf_formudata(attr, &uvalue)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid DW_AT_const_value");
-		}
-		return drgn_object_set_unsigned_internal(ret, &type, bit_size,
-							 uvalue);
-	} else {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "unknown DW_AT_const_value form");
-	}
-}
-
-static struct drgn_error *
-drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-				uint64_t bias, struct drgn_object *ret)
-{
-	struct drgn_qualified_type qualified_type;
-	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, bias,
-							   NULL, true, true,
-							   NULL,
-							   &qualified_type);
-	if (err)
-		return err;
-	Dwarf_Attribute attr_mem, *attr;
-	if ((attr = dwarf_attr_integrate(die, DW_AT_location, &attr_mem))) {
-		Dwarf_Op *loc;
-		size_t nloc;
-		if (dwarf_getlocation(attr, &loc, &nloc))
-			return drgn_error_libdw();
-		if (nloc != 1 || loc[0].atom != DW_OP_addr) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "DW_AT_location has unimplemented operation");
-		}
-		enum drgn_byte_order byte_order;
-		err = dwarf_die_byte_order(die, true, &byte_order);
-		if (err)
-			return err;
-		return drgn_object_set_reference(ret, qualified_type,
-						 loc[0].number + bias, 0, 0,
-						 byte_order);
-	} else if ((attr = dwarf_attr_integrate(die, DW_AT_const_value,
-						&attr_mem))) {
-		return drgn_object_from_dwarf_constant(dbinfo, die,
-						       qualified_type, attr,
-						       ret);
-	} else {
-		return drgn_object_set_absent(ret, qualified_type, 0);
-	}
 }
 
 struct drgn_error *
