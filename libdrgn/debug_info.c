@@ -1172,6 +1172,7 @@ static int dwarf_flag(Dwarf_Die *die, unsigned int name, bool *ret)
  *
  * @param[in] dbinfo Debugging information.
  * @param[in] die DIE to parse.
+ * @param[in] bias Bias of @p die.
  * @param[in] can_be_incomplete_array Whether the type can be an incomplete
  * array type. If this is @c false and the type appears to be an incomplete
  * array type, its length is set to zero instead.
@@ -1183,7 +1184,7 @@ static int dwarf_flag(Dwarf_Die *die, unsigned int name, bool *ret)
  */
 static struct drgn_error *
 drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			      bool can_be_incomplete_array,
+			      uint64_t bias, bool can_be_incomplete_array,
 			      bool *is_incomplete_array_ret,
 			      struct drgn_qualified_type *ret);
 
@@ -1192,14 +1193,16 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
  *
  * @param[in] dbinfo Debugging information.
  * @param[in] die DIE to parse.
+ * @param[in] bias Bias of @p die.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 static inline struct drgn_error *
 drgn_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-		     struct drgn_qualified_type *ret)
+		     uint64_t bias, struct drgn_qualified_type *ret)
 {
-	return drgn_type_from_dwarf_internal(dbinfo, die, true, NULL, ret);
+	return drgn_type_from_dwarf_internal(dbinfo, die, bias, true, NULL,
+					     ret);
 }
 
 /**
@@ -1208,6 +1211,7 @@ drgn_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
  *
  * @param[in] dbinfo Debugging information.
  * @param[in] die DIE with @c DW_AT_type attribute.
+ * @param[in] bias Bias of @p die.
  * @param[in] lang Language of @p die if it is already known, @c NULL if it
  * should be determined from @p die.
  * @param[in] can_be_void Whether the @c DW_AT_type attribute may be missing,
@@ -1220,8 +1224,8 @@ drgn_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
  */
 static struct drgn_error *
 drgn_type_from_dwarf_attr(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			  const struct drgn_language *lang, bool can_be_void,
-			  bool can_be_incomplete_array,
+			  uint64_t bias, const struct drgn_language *lang,
+			  bool can_be_void, bool can_be_incomplete_array,
 			  bool *is_incomplete_array_ret,
 			  struct drgn_qualified_type *ret)
 {
@@ -1254,14 +1258,14 @@ drgn_type_from_dwarf_attr(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 					 dwarf_tag_str(die, tag_buf));
 	}
 
-	return drgn_type_from_dwarf_internal(dbinfo, &type_die,
+	return drgn_type_from_dwarf_internal(dbinfo, &type_die, bias,
 					     can_be_incomplete_array,
 					     is_incomplete_array_ret, ret);
 }
 
 static struct drgn_error *
 drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			  const struct drgn_language *lang,
+			  uint64_t bias, const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
 	const char *name = dwarf_diename(die);
@@ -1312,7 +1316,7 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		}
 		struct drgn_qualified_type real_type;
 		struct drgn_error *err = drgn_type_from_dwarf(dbinfo, &child,
-							      &real_type);
+							      bias, &real_type);
 		if (err)
 			return err;
 		if (drgn_type_kind(real_type.type) != DRGN_TYPE_FLOAT &&
@@ -1365,11 +1369,12 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
 		return &drgn_stop;
 
 	Dwarf_Die die;
-	err = drgn_dwarf_index_get_die(index_die, &die, NULL);
+	uint64_t bias;
+	err = drgn_dwarf_index_get_die(index_die, &die, &bias);
 	if (err)
 		return err;
 	struct drgn_qualified_type qualified_type;
-	err = drgn_type_from_dwarf(dbinfo, &die, &qualified_type);
+	err = drgn_type_from_dwarf(dbinfo, &die, bias, &qualified_type);
 	if (err)
 		return err;
 	*ret = qualified_type.type;
@@ -1378,6 +1383,7 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
 
 struct drgn_dwarf_member_thunk_arg {
 	Dwarf_Die die;
+	uint64_t bias;
 	bool can_be_incomplete_array;
 };
 
@@ -1389,7 +1395,8 @@ drgn_dwarf_member_thunk_fn(struct drgn_object *res, void *arg_)
 	if (res) {
 		struct drgn_qualified_type qualified_type;
 		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->_dbinfo,
-						&arg->die, NULL, false,
+						&arg->die, arg->bias, NULL,
+						false,
 						arg->can_be_incomplete_array,
 						NULL, &qualified_type);
 		if (err)
@@ -1521,8 +1528,8 @@ parse_member_offset(Dwarf_Die *die, union drgn_lazy_object *member_object,
 }
 
 static struct drgn_error *
-parse_member(struct drgn_debug_info *dbinfo, Dwarf_Die *die, bool little_endian,
-	     bool can_be_incomplete_array,
+parse_member(struct drgn_debug_info *dbinfo, Dwarf_Die *die, uint64_t bias,
+	     bool little_endian, bool can_be_incomplete_array,
 	     struct drgn_compound_type_builder *builder)
 {
 	struct drgn_error *err;
@@ -1544,6 +1551,7 @@ parse_member(struct drgn_debug_info *dbinfo, Dwarf_Die *die, bool little_endian,
 	if (!thunk_arg)
 		return &drgn_enomem;
 	thunk_arg->die = *die;
+	thunk_arg->bias = bias;
 	thunk_arg->can_be_incomplete_array = can_be_incomplete_array;
 
 	union drgn_lazy_object member_object;
@@ -1569,7 +1577,8 @@ err:
 
 static struct drgn_error *
 drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			      Dwarf_Die *die, const struct drgn_language *lang,
+			      Dwarf_Die *die, uint64_t bias,
+			      const struct drgn_language *lang,
 			      enum drgn_type_kind kind, struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -1624,7 +1633,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	while (r == 0) {
 		if (dwarf_tag(&child) == DW_TAG_member) {
 			if (member.addr) {
-				err = parse_member(dbinfo, &member,
+				err = parse_member(dbinfo, &member, bias,
 						   little_endian, false,
 						   &builder);
 				if (err)
@@ -1644,7 +1653,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	 * structure with at least one other member.
 	 */
 	if (member.addr) {
-		err = parse_member(dbinfo, &member, little_endian,
+		err = parse_member(dbinfo, &member, bias, little_endian,
 				   kind != DRGN_TYPE_UNION &&
 				   builder.members.size > 0,
 				   &builder);
@@ -1727,7 +1736,7 @@ enum_compatible_type_fallback(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			  const struct drgn_language *lang,
+			  uint64_t bias, const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -1795,7 +1804,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 			goto err;
 	} else {
 		struct drgn_qualified_type qualified_compatible_type;
-		err = drgn_type_from_dwarf(dbinfo, &child,
+		err = drgn_type_from_dwarf(dbinfo, &child, bias,
 					   &qualified_compatible_type);
 		if (err)
 			goto err;
@@ -1819,7 +1828,7 @@ err:
 
 static struct drgn_error *
 drgn_typedef_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			     const struct drgn_language *lang,
+			     uint64_t bias, const struct drgn_language *lang,
 			     bool can_be_incomplete_array,
 			     bool *is_incomplete_array_ret,
 			     struct drgn_type **ret)
@@ -1831,8 +1840,8 @@ drgn_typedef_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 
 	struct drgn_qualified_type aliased_type;
-	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, lang,
-							   true,
+	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, bias,
+							   lang, true,
 							   can_be_incomplete_array,
 							   is_incomplete_array_ret,
 							   &aliased_type);
@@ -1845,12 +1854,13 @@ drgn_typedef_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 
 static struct drgn_error *
 drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			     const struct drgn_language *lang,
+			     uint64_t bias, const struct drgn_language *lang,
 			     struct drgn_type **ret)
 {
 	struct drgn_qualified_type referenced_type;
-	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, lang,
-							   true, true, NULL,
+	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, bias,
+							   lang, true, true,
+							   NULL,
 							   &referenced_type);
 	if (err)
 		return err;
@@ -1930,7 +1940,7 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 
 static struct drgn_error *
 drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			   const struct drgn_language *lang,
+			   uint64_t bias, const struct drgn_language *lang,
 			   bool can_be_incomplete_array,
 			   bool *is_incomplete_array_ret,
 			   struct drgn_type **ret)
@@ -1964,8 +1974,8 @@ drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 
 	struct drgn_qualified_type element_type;
-	err = drgn_type_from_dwarf_attr(dbinfo, die, lang, false, false, NULL,
-					&element_type);
+	err = drgn_type_from_dwarf_attr(dbinfo, die, bias, lang, false, false,
+					NULL, &element_type);
 	if (err)
 		goto out;
 
@@ -1999,14 +2009,21 @@ out:
 	return err;
 }
 
+struct drgn_dwarf_formal_parameter_thunk_arg {
+	Dwarf_Die die;
+	uint64_t bias;
+};
+
 static struct drgn_error *
-drgn_dwarf_formal_parameter_thunk_fn(struct drgn_object *res, void *arg)
+drgn_dwarf_formal_parameter_thunk_fn(struct drgn_object *res, void *arg_)
 {
 	struct drgn_error *err;
+	struct drgn_dwarf_formal_parameter_thunk_arg *arg = arg_;
 	if (res) {
 		struct drgn_qualified_type qualified_type;
 		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->_dbinfo,
-						arg, NULL, false, true, NULL,
+						&arg->die, arg->bias, NULL,
+						false, true, NULL,
 						&qualified_type);
 		if (err)
 			return err;
@@ -2021,6 +2038,7 @@ drgn_dwarf_formal_parameter_thunk_fn(struct drgn_object *res, void *arg)
 
 static struct drgn_error *
 parse_formal_parameter(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
+		       uint64_t bias,
 		       struct drgn_function_type_builder *builder)
 {
 	Dwarf_Attribute attr_mem, *attr;
@@ -2035,10 +2053,12 @@ parse_formal_parameter(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		name = NULL;
 	}
 
-	Dwarf_Die *thunk_arg = malloc(sizeof(*thunk_arg));
+	struct drgn_dwarf_formal_parameter_thunk_arg *thunk_arg =
+		malloc(sizeof(*thunk_arg));
 	if (!thunk_arg)
 		return &drgn_enomem;
-	*thunk_arg = *die;
+	thunk_arg->die = *die;
+	thunk_arg->bias = bias;
 
 	union drgn_lazy_object default_argument;
 	drgn_lazy_object_init_thunk(&default_argument, dbinfo->prog,
@@ -2056,7 +2076,7 @@ parse_formal_parameter(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 
 static struct drgn_error *
 drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			      const struct drgn_language *lang,
+			      uint64_t bias, const struct drgn_language *lang,
 			      struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -2077,7 +2097,8 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 								      tag_buf));
 				goto err;
 			}
-			err = parse_formal_parameter(dbinfo, &child, &builder);
+			err = parse_formal_parameter(dbinfo, &child, bias,
+						     &builder);
 			if (err)
 				goto err;
 			break;
@@ -2103,8 +2124,8 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 
 	struct drgn_qualified_type return_type;
-	err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true, true, NULL,
-					&return_type);
+	err = drgn_type_from_dwarf_attr(dbinfo, die, bias, lang, true, true,
+					NULL, &return_type);
 	if (err)
 		goto err;
 
@@ -2121,7 +2142,7 @@ err:
 
 static struct drgn_error *
 drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
-			      bool can_be_incomplete_array,
+			      uint64_t bias, bool can_be_incomplete_array,
 			      bool *is_incomplete_array_ret,
 			      struct drgn_qualified_type *ret)
 {
@@ -2160,73 +2181,75 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	entry.value.is_incomplete_array = false;
 	switch (dwarf_tag(die)) {
 	case DW_TAG_const_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+		err = drgn_type_from_dwarf_attr(dbinfo, die, bias, lang, true,
 						can_be_incomplete_array,
 						&entry.value.is_incomplete_array,
 						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_CONST;
 		break;
 	case DW_TAG_restrict_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+		err = drgn_type_from_dwarf_attr(dbinfo, die, bias, lang, true,
 						can_be_incomplete_array,
 						&entry.value.is_incomplete_array,
 						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_RESTRICT;
 		break;
 	case DW_TAG_volatile_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+		err = drgn_type_from_dwarf_attr(dbinfo, die, bias, lang, true,
 						can_be_incomplete_array,
 						&entry.value.is_incomplete_array,
 						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_VOLATILE;
 		break;
 	case DW_TAG_atomic_type:
-		err = drgn_type_from_dwarf_attr(dbinfo, die, lang, true,
+		err = drgn_type_from_dwarf_attr(dbinfo, die, bias, lang, true,
 						can_be_incomplete_array,
 						&entry.value.is_incomplete_array,
 						ret);
 		ret->qualifiers |= DRGN_QUALIFIER_ATOMIC;
 		break;
 	case DW_TAG_base_type:
-		err = drgn_base_type_from_dwarf(dbinfo, die, lang, &ret->type);
+		err = drgn_base_type_from_dwarf(dbinfo, die, bias, lang,
+						&ret->type);
 		break;
 	case DW_TAG_structure_type:
-		err = drgn_compound_type_from_dwarf(dbinfo, die, lang,
+		err = drgn_compound_type_from_dwarf(dbinfo, die, bias, lang,
 						    DRGN_TYPE_STRUCT,
 						    &ret->type);
 		break;
 	case DW_TAG_union_type:
-		err = drgn_compound_type_from_dwarf(dbinfo, die, lang,
+		err = drgn_compound_type_from_dwarf(dbinfo, die, bias, lang,
 						    DRGN_TYPE_UNION,
 						    &ret->type);
 		break;
 	case DW_TAG_class_type:
-		err = drgn_compound_type_from_dwarf(dbinfo, die, lang,
+		err = drgn_compound_type_from_dwarf(dbinfo, die, bias, lang,
 						    DRGN_TYPE_CLASS,
 						    &ret->type);
 		break;
 	case DW_TAG_enumeration_type:
-		err = drgn_enum_type_from_dwarf(dbinfo, die, lang, &ret->type);
+		err = drgn_enum_type_from_dwarf(dbinfo, die, bias, lang,
+						&ret->type);
 		break;
 	case DW_TAG_typedef:
-		err = drgn_typedef_type_from_dwarf(dbinfo, die, lang,
+		err = drgn_typedef_type_from_dwarf(dbinfo, die, bias, lang,
 						   can_be_incomplete_array,
 						   &entry.value.is_incomplete_array,
 						   &ret->type);
 		break;
 	case DW_TAG_pointer_type:
-		err = drgn_pointer_type_from_dwarf(dbinfo, die, lang,
+		err = drgn_pointer_type_from_dwarf(dbinfo, die, bias, lang,
 						   &ret->type);
 		break;
 	case DW_TAG_array_type:
-		err = drgn_array_type_from_dwarf(dbinfo, die, lang,
+		err = drgn_array_type_from_dwarf(dbinfo, die, bias, lang,
 						 can_be_incomplete_array,
 						 &entry.value.is_incomplete_array,
 						 &ret->type);
 		break;
 	case DW_TAG_subroutine_type:
 	case DW_TAG_subprogram:
-		err = drgn_function_type_from_dwarf(dbinfo, die, lang,
+		err = drgn_function_type_from_dwarf(dbinfo, die, bias, lang,
 						    &ret->type);
 		break;
 	default:
@@ -2300,11 +2323,12 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 	struct drgn_dwarf_index_die *index_die;
 	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
 		Dwarf_Die die;
-		err = drgn_dwarf_index_get_die(index_die, &die, NULL);
+		uint64_t bias;
+		err = drgn_dwarf_index_get_die(index_die, &die, &bias);
 		if (err)
 			return err;
 		if (die_matches_filename(&die, filename)) {
-			err = drgn_type_from_dwarf(dbinfo, &die, ret);
+			err = drgn_type_from_dwarf(dbinfo, &die, bias, ret);
 			if (err)
 				return err;
 			/*
@@ -2320,15 +2344,15 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 
 static struct drgn_error *
 drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
-				  Dwarf_Die *die, const char *name,
-				  struct drgn_object *ret)
+				  Dwarf_Die *die, uint64_t bias,
+				  const char *name, struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
 	const struct drgn_type_enumerator *enumerators;
 	size_t num_enumerators, i;
 
-	err = drgn_type_from_dwarf(dbinfo, die, &qualified_type);
+	err = drgn_type_from_dwarf(dbinfo, die, bias, &qualified_type);
 	if (err)
 		return err;
 	enumerators = drgn_type_enumerators(qualified_type.type);
@@ -2355,7 +2379,7 @@ drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 				  struct drgn_object *ret)
 {
 	struct drgn_qualified_type qualified_type;
-	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, die,
+	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, die, bias,
 						      &qualified_type);
 	if (err)
 		return err;
@@ -2422,8 +2446,9 @@ drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 				uint64_t bias, struct drgn_object *ret)
 {
 	struct drgn_qualified_type qualified_type;
-	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, NULL,
-							   true, true, NULL,
+	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, die, bias,
+							   NULL, true, true,
+							   NULL,
 							   &qualified_type);
 	if (err)
 		return err;
@@ -2512,7 +2537,8 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 		switch (dwarf_tag(&die)) {
 		case DW_TAG_enumeration_type:
 			return drgn_object_from_dwarf_enumerator(dbinfo, &die,
-								 name, ret);
+								 bias, name,
+								 ret);
 		case DW_TAG_subprogram:
 			return drgn_object_from_dwarf_subprogram(dbinfo, &die,
 								 bias, ret);
