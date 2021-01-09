@@ -16,6 +16,7 @@ from drgn import (
     TypeEnumerator,
     TypeMember,
     TypeParameter,
+    TypeTemplateParameter,
 )
 from tests import DEFAULT_LANGUAGE, TestCase, identical
 from tests.dwarf import DW_AT, DW_ATE, DW_FORM, DW_LANG, DW_TAG
@@ -1391,6 +1392,52 @@ class TestTypes(TestCase):
                     TypeMember(prog.int_type("int", 4, True), "x", 0),
                     TypeMember(prog.int_type("int", 4, True), "y", 32),
                     TypeMember(prog.int_type("int", 4, True), "z", 64),
+                ),
+            ),
+        )
+
+    def test_class_template(self):
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.class_type,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "Array"),
+                            DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                        ),
+                        (
+                            DwarfDie(
+                                DW_TAG.template_type_parameter,
+                                (
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "T"),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.template_value_parameter,
+                                (
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "N"),
+                                    DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 2),
+                                ),
+                            ),
+                        ),
+                    ),
+                    int_die,
+                    unsigned_int_die,
+                )
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.class_type(
+                "Array",
+                template_parameters=(
+                    TypeTemplateParameter(prog.int_type("int", 4, True), "T"),
+                    TypeTemplateParameter(
+                        Object(prog, prog.int_type("unsigned int", 4, False), 2), "N"
+                    ),
                 ),
             ),
         )
@@ -3204,6 +3251,49 @@ class TestTypes(TestCase):
                 prog.void_type(),
                 (TypeParameter(prog.array_type(prog.int_type("int", 4, True))),),
                 False,
+            ),
+        )
+
+    def test_function_template(self):
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.subroutine_type,
+                        (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),),
+                        (
+                            DwarfDie(DW_TAG.unspecified_parameters, ()),
+                            DwarfDie(
+                                DW_TAG.template_type_parameter,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "T"),),
+                            ),
+                            DwarfDie(
+                                DW_TAG.template_value_parameter,
+                                (
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "N"),
+                                    DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 2),
+                                ),
+                            ),
+                        ),
+                    ),
+                    int_die,
+                    unsigned_int_die,
+                )
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.function_type(
+                prog.int_type("int", 4, True),
+                (),
+                is_variadic=True,
+                template_parameters=(
+                    TypeTemplateParameter(prog.void_type(), "T"),
+                    TypeTemplateParameter(
+                        Object(prog, prog.int_type("unsigned int", 4, False), 2), "N"
+                    ),
+                ),
             ),
         )
 

@@ -84,6 +84,7 @@ Types
 .. drgndoc:: TypeMember
 .. drgndoc:: TypeEnumerator
 .. drgndoc:: TypeParameter
+.. drgndoc:: TypeTemplateParameter
 .. drgndoc:: TypeKind
 .. drgndoc:: PrimitiveType
 .. drgndoc:: Qualifiers
