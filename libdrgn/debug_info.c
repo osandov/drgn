@@ -1710,6 +1710,96 @@ err:
 	return err;
 }
 
+struct drgn_dwarf_die_thunk_arg {
+	Dwarf_Die die;
+	uint64_t bias;
+};
+
+static struct drgn_error *
+drgn_dwarf_template_type_parameter_thunk_fn(struct drgn_object *res, void *arg_)
+{
+	struct drgn_error *err;
+	struct drgn_dwarf_die_thunk_arg *arg = arg_;
+	if (res) {
+		struct drgn_qualified_type qualified_type;
+		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->_dbinfo,
+						&arg->die, arg->bias, NULL,
+						true, true, NULL,
+						&qualified_type);
+		if (err)
+			return err;
+
+		err = drgn_object_set_absent(res, qualified_type, 0);
+		if (err)
+			return err;
+	}
+	free(arg);
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_dwarf_template_value_parameter_thunk_fn(struct drgn_object *res,
+					     void *arg_)
+{
+	struct drgn_error *err;
+	struct drgn_dwarf_die_thunk_arg *arg = arg_;
+	if (res) {
+		err = drgn_object_from_dwarf_variable(drgn_object_program(res)->_dbinfo,
+						      &arg->die, arg->bias,
+						      res);
+		if (err)
+			return err;
+	}
+	free(arg);
+	return NULL;
+}
+
+static struct drgn_error *
+parse_template_parameter(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
+			 uint64_t bias, drgn_object_thunk_fn *thunk_fn,
+			 struct drgn_template_parameters_builder *builder)
+{
+	char tag_buf[DW_TAG_BUF_LEN];
+
+	Dwarf_Attribute attr_mem, *attr;
+	const char *name;
+	if ((attr = dwarf_attr_integrate(die, DW_AT_name, &attr_mem))) {
+		name = dwarf_formstring(attr);
+		if (!name) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "%s has invalid DW_AT_name",
+						 dwarf_tag_str(die, tag_buf));
+		}
+	} else {
+		name = NULL;
+	}
+
+	bool defaulted;
+	if (dwarf_flag(die, DW_AT_default_value, &defaulted)) {
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "%s has invalid DW_AT_default_value",
+					 dwarf_tag_str(die, tag_buf));
+	}
+
+	struct drgn_dwarf_die_thunk_arg *thunk_arg =
+		malloc(sizeof(*thunk_arg));
+	if (!thunk_arg)
+		return &drgn_enomem;
+	thunk_arg->die = *die;
+	thunk_arg->bias = bias;
+
+	union drgn_lazy_object argument;
+	drgn_lazy_object_init_thunk(&argument, dbinfo->prog, thunk_fn,
+				    thunk_arg);
+
+	struct drgn_error *err =
+		drgn_template_parameters_builder_add(builder, &argument, name,
+						     defaulted);
+	if (err)
+		drgn_lazy_object_deinit(&argument);
+	return err;
+}
+
 static struct drgn_error *
 drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			      Dwarf_Die *die, uint64_t bias,
@@ -1747,34 +1837,55 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			return err;
 	}
 
-	if (declaration) {
-		return drgn_incomplete_compound_type_create(dbinfo->prog, kind,
-							    tag, lang, ret);
-	}
-
-	int size = dwarf_bytesize(die);
-	if (size == -1) {
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "%s has missing or invalid DW_AT_byte_size",
-					 dwarf_tag_str(die, tag_buf));
-	}
-
 	struct drgn_compound_type_builder builder;
 	drgn_compound_type_builder_init(&builder, dbinfo->prog, kind);
+
+	int size;
 	bool little_endian;
-	dwarf_die_is_little_endian(die, false, &little_endian);
+	if (declaration) {
+		size = 0;
+	} else {
+		size = dwarf_bytesize(die);
+		if (size == -1) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "%s has missing or invalid DW_AT_byte_size",
+						 dwarf_tag_str(die, tag_buf));
+		}
+		dwarf_die_is_little_endian(die, false, &little_endian);
+	}
+
 	Dwarf_Die member = {}, child;
 	int r = dwarf_child(die, &child);
 	while (r == 0) {
-		if (dwarf_tag(&child) == DW_TAG_member) {
-			if (member.addr) {
-				err = parse_member(dbinfo, &member, bias,
-						   little_endian, false,
-						   &builder);
-				if (err)
-					goto err;
+		switch (dwarf_tag(&child)) {
+		case DW_TAG_member:
+			if (!declaration) {
+				if (member.addr) {
+					err = parse_member(dbinfo, &member,
+							   bias, little_endian,
+							   false, &builder);
+					if (err)
+						goto err;
+				}
+				member = child;
 			}
-			member = child;
+			break;
+		case DW_TAG_template_type_parameter:
+			err = parse_template_parameter(dbinfo, &child, bias,
+						       drgn_dwarf_template_type_parameter_thunk_fn,
+						       &builder.template_builder);
+			if (err)
+				goto err;
+			break;
+		case DW_TAG_template_value_parameter:
+			err = parse_template_parameter(dbinfo, &child, bias,
+						       drgn_dwarf_template_value_parameter_thunk_fn,
+						       &builder.template_builder);
+			if (err)
+				goto err;
+			break;
+		default:
+			break;
 		}
 		r = dwarf_siblingof(&child, &child);
 	}
@@ -1796,7 +1907,8 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			goto err;
 	}
 
-	err = drgn_compound_type_create(&builder, tag, size, lang, ret);
+	err = drgn_compound_type_create(&builder, tag, size, !declaration, lang,
+					ret);
 	if (err)
 		goto err;
 	return NULL;
@@ -2144,16 +2256,11 @@ out:
 	return err;
 }
 
-struct drgn_dwarf_formal_parameter_thunk_arg {
-	Dwarf_Die die;
-	uint64_t bias;
-};
-
 static struct drgn_error *
 drgn_dwarf_formal_parameter_thunk_fn(struct drgn_object *res, void *arg_)
 {
 	struct drgn_error *err;
-	struct drgn_dwarf_formal_parameter_thunk_arg *arg = arg_;
+	struct drgn_dwarf_die_thunk_arg *arg = arg_;
 	if (res) {
 		struct drgn_qualified_type qualified_type;
 		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->_dbinfo,
@@ -2188,7 +2295,7 @@ parse_formal_parameter(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		name = NULL;
 	}
 
-	struct drgn_dwarf_formal_parameter_thunk_arg *thunk_arg =
+	struct drgn_dwarf_die_thunk_arg *thunk_arg =
 		malloc(sizeof(*thunk_arg));
 	if (!thunk_arg)
 		return &drgn_enomem;
@@ -2246,6 +2353,20 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 				goto err;
 			}
 			is_variadic = true;
+			break;
+		case DW_TAG_template_type_parameter:
+			err = parse_template_parameter(dbinfo, &child, bias,
+						       drgn_dwarf_template_type_parameter_thunk_fn,
+						       &builder.template_builder);
+			if (err)
+				goto err;
+			break;
+		case DW_TAG_template_value_parameter:
+			err = parse_template_parameter(dbinfo, &child, bias,
+						       drgn_dwarf_template_value_parameter_thunk_fn,
+						       &builder.template_builder);
+			if (err)
+				goto err;
 			break;
 		default:
 			break;

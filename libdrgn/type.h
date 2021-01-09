@@ -179,11 +179,34 @@ struct drgn_error *drgn_complex_type_create(struct drgn_program *prog,
 					    const struct drgn_language *lang,
 					    struct drgn_type **ret);
 
+DEFINE_VECTOR_TYPE(drgn_type_template_parameter_vector,
+		   struct drgn_type_template_parameter)
+
+/**
+ * Common builder shared between compound and function types for template
+ * parameters.
+ */
+struct drgn_template_parameters_builder {
+	struct drgn_program *prog;
+	struct drgn_type_template_parameter_vector parameters;
+};
+
+/**
+ * Add a @ref drgn_type_template_parameter to a @ref
+ * drgn_template_parameters_builder.
+ *
+ * On success, @p builder takes ownership of @p argument.
+ */
+struct drgn_error *
+drgn_template_parameters_builder_add(struct drgn_template_parameters_builder *builder,
+				     const union drgn_lazy_object *argument,
+				     const char *name, bool is_default);
+
 DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member)
 
 /** Builder for members of a structure, union, or class type. */
 struct drgn_compound_type_builder {
-	struct drgn_program *prog;
+	struct drgn_template_parameters_builder template_builder;
 	enum drgn_type_kind kind;
 	struct drgn_type_member_vector members;
 };
@@ -221,43 +244,25 @@ drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder
  *
  * On success, this takes ownership of @p builder.
  *
- * @param[in] builder Builder containing members. @c object and @c name of each
- * member must remain valid for the lifetime of @c builder->prog.
+ * @param[in] builder Builder containing members and template parameters. @c
+ * object/@c argument and @c name of each member and template parameter must
+ * remain valid for the lifetime of @c prog. If incomplete, must not contain any
+ * members.
  * @param[in] tag Name of the type. Not copied; must remain valid for the
- * lifetime of @c builder->prog. May be @c NULL if the type is anonymous.
- * @param[in] size Size of the type in bytes.
+ * lifetime of @c prog. May be @c NULL if the type is anonymous.
+ * @param[in] size Size of the type in bytes. Must be zero if the type is
+ * incomplete.
+ * @param[in] is_complete Whether the type is complete.
  * @param[in] lang Language of the type or @c NULL for the default language of
- * @c builder->prog.
+ * @c prog.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_compound_type_create(struct drgn_compound_type_builder *builder,
-			  const char *tag, uint64_t size,
+			  const char *tag, uint64_t size, bool is_complete,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret);
-
-/**
- * Create an incomplete structure, union, or class type.
- *
- * @c size and @c num_members are set to zero and @c is_complete is set to @c
- * false.
- *
- * @param[in] prog Program owning type.
- * @param[in] kind One of @ref DRGN_TYPE_STRUCT, @ref DRGN_TYPE_UNION, or @ref
- * DRGN_TYPE_CLASS.
- * @param[in] tag Name of the type. Not copied; must remain valid for the
- * lifetime of @p prog. May be @c NULL if the type is anonymous.
- * @param[in] lang Language of the type or @c NULL for the default language of
- * @p prog.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *
-drgn_incomplete_compound_type_create(struct drgn_program *prog,
-				     enum drgn_type_kind kind, const char *tag,
-				     const struct drgn_language *lang,
-				     struct drgn_type **ret);
 
 DEFINE_VECTOR_TYPE(drgn_type_enumerator_vector, struct drgn_type_enumerator)
 
@@ -408,7 +413,7 @@ DEFINE_VECTOR_TYPE(drgn_type_parameter_vector, struct drgn_type_parameter)
 
 /** Builder for parameters of a function type. */
 struct drgn_function_type_builder {
-	struct drgn_program *prog;
+	struct drgn_template_parameters_builder template_builder;
 	struct drgn_type_parameter_vector parameters;
 };
 
@@ -439,13 +444,13 @@ drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *buil
  *
  * On success, this takes ownership of @p builder.
  *
- * @param[in] builder Builder containing parameters. @c default_argument and @c
- * name of each parameter must remain valid for the lifetime of @c
- * builder->prog.
+ * @param[in] builder Builder containing parameters and template parameters. @c
+ * default_argument/@c argument and @c name of each parameter and template
+ * parameter must remain valid for the lifetime of @c prog.
  * @param[in] return_type Type returned by the function type.
  * @param[in] is_variadic Whether the function type is variadic.
  * @param[in] lang Language of the type or @c NULL for the default language of
- * @c builder->prog.
+ * @c prog.
  * @param[out] ret Returned type.
  * @return @c NULL on success, non-@c NULL on error.
  */

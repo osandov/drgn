@@ -531,6 +531,7 @@ class Program:
         size: IntegerLike,
         members: Sequence[TypeMember],
         *,
+        template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -540,6 +541,7 @@ class Program:
         :param tag: :attr:`Type.tag`
         :param size: :attr:`Type.size`
         :param members: :attr:`Type.members`
+        :param template_parameters: :attr:`Type.template_parameters`
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -551,6 +553,7 @@ class Program:
         size: None = None,
         members: None = None,
         *,
+        template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -563,6 +566,7 @@ class Program:
         size: IntegerLike,
         members: Sequence[TypeMember],
         *,
+        template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -578,6 +582,7 @@ class Program:
         size: None = None,
         members: None = None,
         *,
+        template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -590,6 +595,7 @@ class Program:
         size: IntegerLike,
         members: Sequence[TypeMember],
         *,
+        template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -605,6 +611,7 @@ class Program:
         size: None = None,
         members: None = None,
         *,
+        template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -700,6 +707,7 @@ class Program:
         parameters: Sequence[TypeParameter],
         is_variadic: bool = False,
         *,
+        template_parameters: Sequence[TypeTemplateParameter] = (),
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
     ) -> Type:
@@ -709,6 +717,7 @@ class Program:
         :param type: The return type (:attr:`Type.type`)
         :param parameters: :attr:`Type.parameters`
         :param is_variadic: :attr:`Type.is_variadic`
+        :param template_parameters: :attr:`Type.template_parameters`
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -1559,6 +1568,12 @@ class Type:
     Whether this type takes a variable number of arguments. This is only
     present for function types.
     """
+
+    template_parameters: Sequence[TypeTemplateParameter]
+    """
+    List of template parameters of this type. This is present for structure,
+    union, class, and function types.
+    """
     def type_name(self) -> str:
         """Get a descriptive full name of this type."""
         ...
@@ -1751,6 +1766,66 @@ class TypeParameter:
 
     name: Optional[str]
     """Parameter name, or ``None`` if the parameter is unnamed."""
+
+class TypeTemplateParameter:
+    """
+    A ``TypeTemplateParameter`` represents a template parameter of a structure,
+    union, class, or function type.
+    """
+
+    def __init__(
+        self,
+        argument: Union[Type, Object, Callable[[], Union[Type, Object]]],
+        name: Optional[str] = None,
+        is_default: bool = False,
+    ) -> None:
+        """
+        Create a ``TypeTemplateParameter``.
+
+        :param argument: One of:
+
+            1. :attr:`TypeTemplateParameter.argument` as a :class:`Type` if the
+               parameter is a type template parameter.
+            2. :attr:`TypeTemplateParameter.argument` as a non-absent
+               :class:`Object` if the parameter is a non-type template
+               parameter.
+            3. A callable that takes no arguments and returns one of the above.
+               It is called when ``argument`` is first accessed, and the result
+               is cached.
+        :param name: :attr:`TypeTemplateParameter.name`
+        :param is_default: :attr:`TypeTemplateParameter.is_default`
+        """
+        ...
+    argument: Union[Type, Object]
+    """
+    Template argument.
+
+    If this is a type template parameter, then this is a :class:`Type`. If this
+    is a non-type template parameter, then this is an :class:`Object`.
+    """
+
+    name: Optional[str]
+    """Template parameter name, or ``None`` if the parameter is unnamed."""
+
+    is_default: bool
+    """
+    Whether :attr:`argument` is the default for the template parameter.
+
+    .. note::
+
+        There are two ways to interpret this:
+
+            1. The argument was omitted entirely and thus defaulted to the
+               default argument.
+            2. The (specified or defaulted) argument is the same as the default
+               argument.
+
+        Compilers are inconsistent about which interpretation they use.
+
+        GCC added this information in version 4.9. Clang added it in version 11
+        (and only when emitting DWARF version 5). If the program was compiled
+        by an older version, this is always false.
+    """
 
 class TypeKind(enum.Enum):
     """A ``TypeKind`` represents a kind of type."""

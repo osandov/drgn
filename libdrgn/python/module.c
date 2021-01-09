@@ -305,6 +305,12 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	Py_INCREF(&TypeParameter_type);
 	PyModule_AddObject(m, "TypeParameter", (PyObject *)&TypeParameter_type);
 
+	if (PyType_Ready(&TypeTemplateParameter_type) < 0)
+		goto err;
+	Py_INCREF(&TypeTemplateParameter_type);
+	PyModule_AddObject(m, "TypeTemplateParameter",
+			   (PyObject *)&TypeTemplateParameter_type);
+
 	host_platform_obj = Platform_wrap(&drgn_host_platform);
 	if (!host_platform_obj)
 		goto err;

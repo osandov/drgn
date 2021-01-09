@@ -1921,6 +1921,21 @@ struct drgn_type_parameter {
 	const char *name;
 };
 
+/** Template parameter of a structure, union, class, or function type. */
+struct drgn_type_template_parameter {
+	/**
+	 * Template parameter type or value.
+	 *
+	 * Access this with @ref drgn_template_parameter_type() and @ref
+	 * drgn_template_parameter_object().
+	 */
+	union drgn_lazy_object argument;
+	/** Template parameter name or @c NULL if it is unnamed. */
+	const char *name;
+	/** Whether the argument is the default. */
+	bool is_default;
+};
+
 /**
  * Language-agnostic type descriptor.
  *
@@ -1961,6 +1976,8 @@ struct drgn_type {
 			struct drgn_type_enumerator *enumerators;
 			struct drgn_type_parameter *parameters;
 		};
+		struct drgn_type_template_parameter *template_parameters;
+		size_t num_template_parameters;
 	} _private;
 };
 
@@ -2289,6 +2306,43 @@ static inline bool drgn_type_is_variadic(struct drgn_type *type)
 	return type->_private.is_variadic;
 }
 
+/** Get whether a kind of type can have template parameters. */
+static inline bool
+drgn_type_kind_has_template_parameters(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_STRUCT ||
+		kind == DRGN_TYPE_UNION ||
+		kind == DRGN_TYPE_CLASS ||
+		kind == DRGN_TYPE_FUNCTION);
+}
+
+/** Get whether a type can have template parameters. */
+static inline bool drgn_type_has_template_parameters(struct drgn_type *type)
+{
+	return drgn_type_kind_has_template_parameters(drgn_type_kind(type));
+}
+
+/**
+ * Get the template parameters of a type. @ref
+ * drgn_type_has_template_parameters() must be true for this type.
+ */
+static inline struct drgn_type_template_parameter *
+drgn_type_template_parameters(struct drgn_type *type)
+{
+	assert(drgn_type_has_template_parameters(type));
+	return type->_private.template_parameters;
+}
+
+/**
+ * Get the number of template parameters of a type. @ref
+ * drgn_type_has_template_parameters() must be true for this type.
+ */
+static inline size_t drgn_type_num_template_parameters(struct drgn_type *type)
+{
+	assert(drgn_type_has_template_parameters(type));
+	return type->_private.num_template_parameters;
+}
+
 /**
  * Get the object corresponding to a @ref drgn_type_member.
  *
@@ -2335,6 +2389,34 @@ drgn_parameter_default_argument(struct drgn_type_parameter *parameter,
  */
 struct drgn_error *drgn_parameter_type(struct drgn_type_parameter *parameter,
 				       struct drgn_qualified_type *ret)
+	__attribute__((__nonnull__(1, 2)));
+
+/**
+ * Get the type of a @ref drgn_type_template_parameter.
+ *
+ * If the template parameter is a non-type template parameter, this is the type
+ * of its value.
+ *
+ * @param[in] parameter Template parameter.
+ * @param[out] ret Returned type.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_template_parameter_type(struct drgn_type_template_parameter *parameter,
+			     struct drgn_qualified_type *ret)
+	__attribute__((__nonnull__(1, 2)));
+
+/**
+ * Get the value of a @ref drgn_type_template_parameter.
+ *
+ * @param[in] parameter Template parameter.
+ * @param[out] ret Returned object. If @p parameter is a type template
+ * parameter, this is returned as @c NULL.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_template_parameter_object(struct drgn_type_template_parameter *parameter,
+			       const struct drgn_object **ret)
 	__attribute__((__nonnull__(1, 2)));
 
 /**

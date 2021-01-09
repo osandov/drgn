@@ -101,10 +101,10 @@ struct drgn_program {
 	struct drgn_dedupe_type_set dedupe_types;
 	/**
 	 * List of created types that are not deduplicated: types with non-empty
-	 * lists of members, parameters, or enumerators.
+	 * lists of members, parameters, template parameters, or enumerators.
 	 *
-	 * Members and parameters contain lazily-evaluated objects, so they
-	 * cannot be easily deduplicated.
+	 * Members, parameters, and template parameters contain lazily-evaluated
+	 * objects, so they cannot be easily deduplicated.
 	 *
 	 * Enumerators could be deduplicated, but it's probably not worth the
 	 * effort to hash and compare them.

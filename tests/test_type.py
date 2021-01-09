@@ -13,6 +13,7 @@ from drgn import (
     TypeKind,
     TypeMember,
     TypeParameter,
+    TypeTemplateParameter,
     offsetof,
     sizeof,
 )
@@ -1171,4 +1172,64 @@ class TestTypeParameter(MockProgramTestCase):
         self.assertEqual(repr(p), "TypeParameter(prog.type('void'))")
 
         p = TypeParameter(lambda: None)
+        self.assertRaises(TypeError, repr, p)
+
+
+class TestTypeTemplateParameter(MockProgramTestCase):
+    def test_init(self):
+        p = TypeTemplateParameter(self.prog.void_type())
+        self.assertIdentical(p.argument, self.prog.void_type())
+        self.assertIsNone(p.name)
+        self.assertFalse(p.is_default)
+
+        p = TypeTemplateParameter(
+            Object(self.prog, self.prog.int_type("int", 4, True), 5), "foo", True
+        )
+        self.assertIdentical(
+            p.argument, Object(self.prog, self.prog.int_type("int", 4, True), 5)
+        )
+        self.assertEqual(p.name, "foo")
+        self.assertTrue(p.is_default)
+
+        self.assertRaises(TypeError, TypeTemplateParameter, None)
+        self.assertRaisesRegex(
+            ValueError,
+            "must not be absent Object",
+            TypeTemplateParameter,
+            Object(self.prog, "int"),
+        )
+        self.assertRaises(TypeError, TypeTemplateParameter, self.prog.void_type(), 1)
+        self.assertRaises(
+            TypeError, TypeTemplateParameter, self.prog.void_type(), None, None
+        )
+
+    def test_callable(self):
+        p = TypeTemplateParameter(self.prog.void_type)
+        self.assertIdentical(p.argument, self.prog.void_type())
+
+        p = TypeTemplateParameter(
+            lambda: Object(self.prog, self.prog.int_type("int", 4, True), 5)
+        )
+        self.assertIdentical(
+            p.argument, Object(self.prog, self.prog.int_type("int", 4, True), 5)
+        )
+
+        p = TypeTemplateParameter(lambda: None)
+        self.assertRaises(TypeError, getattr, p, "argument")
+        p = TypeTemplateParameter(lambda: Object(self.prog, "int"))
+        self.assertRaisesRegex(
+            ValueError, "must not return absent Object", getattr, p, "argument"
+        )
+
+    def test_repr(self):
+        p = TypeTemplateParameter(self.prog.void_type, name="foo", is_default=True)
+        self.assertEqual(
+            repr(p),
+            "TypeTemplateParameter(prog.type('void'), name='foo', is_default=True)",
+        )
+
+        p = TypeTemplateParameter(self.prog.void_type)
+        self.assertEqual(repr(p), "TypeTemplateParameter(prog.type('void'))")
+
+        p = TypeTemplateParameter(lambda: None)
         self.assertRaises(TypeError, repr, p)
