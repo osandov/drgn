@@ -334,6 +334,14 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 	return &drgn_not_found;
 }
 
+
+struct drgn_error *linux_kernel_object_list(void *arg,
+                        drgn_visit_name_fn *callback, void *callback_arg)
+{
+    // TODO: Implement this
+    return &drgn_not_found;
+}
+
 struct kernel_module_iterator {
 	char *name;
 	/* /proc/modules file or NULL. */

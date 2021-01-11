@@ -141,10 +141,14 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_object_finder(struct drgn_program *prog,
-			       drgn_object_find_fn fn, void *arg)
+drgn_program_add_object_finder(
+        struct drgn_program *prog,
+        drgn_object_find_fn find_fn,
+        drgn_object_list_fn list_fn,
+        void *find_arg,
+        void *list_arg)
 {
-	return drgn_object_index_add_finder(&prog->oindex, fn, arg);
+    return drgn_object_index_add_finder(&prog->oindex, find_fn, list_fn, list_arg, find_arg);
 }
 
 static struct drgn_error *
@@ -455,7 +459,9 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		err = drgn_program_add_object_finder(prog,
 						     linux_kernel_object_find,
-						     prog);
+                             linux_kernel_object_list,
+						     prog,
+                             prog);
 		if (err)
 			goto out_segments;
 		if (!prog->lang)
@@ -543,7 +549,8 @@ struct drgn_error *drgn_program_get_dbinfo(struct drgn_program *prog,
 			return err;
 		err = drgn_program_add_object_finder(prog,
 						     drgn_debug_info_find_object,
-						     dbinfo);
+                             drgn_debug_info_list_object,
+						     dbinfo, dbinfo);
 		if (err) {
 			drgn_debug_info_destroy(dbinfo);
 			return err;

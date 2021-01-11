@@ -2671,6 +2671,14 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 	return &drgn_not_found;
 }
 
+struct drgn_error *
+drgn_debug_info_list_object(void *arg, drgn_visit_name_fn *callback,
+                void *callback_args)
+{
+    // TODO: Implement this
+    return &drgn_not_found;
+}
+
 struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 					  struct drgn_debug_info **ret)
 {

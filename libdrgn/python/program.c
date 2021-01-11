@@ -353,33 +353,100 @@ out_gstate:
 	return err;
 }
 
+static struct drgn_error *py_object_list_fn(void *arg,
+                drgn_visit_name_fn *callback, void *callback_arg)
+{
+	struct drgn_error *err;
+	/* PyGILState_STATE gstate; */
+	/* PyObject *name_obj, *flags_obj; */
+	/* PyObject *obj; */
+
+	/* gstate = PyGILState_Ensure(); */
+	/* name_obj = PyUnicode_FromStringAndSize(name, name_len); */
+	/* if (!name_obj) { */
+	/* 	err = drgn_error_from_python(); */
+	/* 	goto out_gstate; */
+	/* } */
+	/* flags_obj = PyObject_CallFunction(FindObjectFlags_class, "i", */
+	/* 				  (int)flags); */
+	/* if (!flags_obj) { */
+	/* 	err = drgn_error_from_python(); */
+	/* 	goto out_name_obj; */
+	/* } */
+	/* obj = PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOOs", */
+	/* 			    PyTuple_GET_ITEM(arg, 0), name_obj, */
+	/* 			    flags_obj, filename); */
+	/* if (!obj) { */
+	/* 	err = drgn_error_from_python(); */
+	/* 	goto out_flags_obj; */
+	/* } */
+	/* if (obj == Py_None) { */
+	/* 	err = &drgn_not_found; */
+	/* 	goto out_obj; */
+	/* } */
+	/* if (!PyObject_TypeCheck(obj, &DrgnObject_type)) { */
+	/* 	PyErr_SetString(PyExc_TypeError, */
+	/* 			"object find callback must return Object or None"); */
+	/* 	err = drgn_error_from_python(); */
+	/* 	goto out_obj; */
+	/* } */
+
+	/* err = drgn_object_copy(ret, &((DrgnObject *)obj)->obj); */
+/* out_obj: */
+	/* Py_DECREF(obj); */
+/* out_flags_obj: */
+	/* Py_DECREF(flags_obj); */
+/* out_name_obj: */
+	/* Py_DECREF(name_obj); */
+/* out_gstate: */
+	/* PyGILState_Release(gstate); */
+	return err;
+}
+
 static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 					   PyObject *kwds)
 {
-	static char *keywords[] = {"fn", NULL};
+	static char *keywords[] = {"find_fn", NULL, "list_fn", NULL};
 	struct drgn_error *err;
-	PyObject *fn, *arg;
+	PyObject *find_fn, *find_arg, *list_fn, *list_arg;
 	int ret;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_object_finder",
-					 keywords, &fn))
+					 keywords, &find_fn))
 	    return NULL;
 
-	if (!PyCallable_Check(fn)) {
+	if (!PyCallable_Check(find_fn)) {
 		PyErr_SetString(PyExc_TypeError, "fn must be callable");
 		return NULL;
 	}
 
-	arg = Py_BuildValue("OO", self, fn);
-	if (!arg)
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_object_lister",
+					 keywords, &list_fn))
+	    return NULL;
+
+	if (!PyCallable_Check(list_fn)) {
+		PyErr_SetString(PyExc_TypeError, "fn must be callable");
 		return NULL;
-	ret = Program_hold_object(self, arg);
-	Py_DECREF(arg);
+	}
+
+	find_arg = Py_BuildValue("OO", self, find_fn);
+	if (!find_arg)
+		return NULL;
+	ret = Program_hold_object(self, find_arg);
+	Py_DECREF(find_arg);
+	if (ret == -1)
+		return NULL;
+
+	list_arg = Py_BuildValue("OO", self, list_fn);
+	if (!list_arg)
+		return NULL;
+	ret = Program_hold_object(self, list_arg);
+	Py_DECREF(list_arg);
 	if (ret == -1)
 		return NULL;
 
 	err = drgn_program_add_object_finder(&self->prog, py_object_find_fn,
-					     arg);
+                py_object_list_fn, find_arg, list_arg);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -411,6 +478,15 @@ static PyObject *Program_set_kernel(Program *self)
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
+}
+
+static PyObject *Program_keys(Program *self)
+{
+    struct drgn_error *err;
+    err = drgn_program_keys(&self->prog);
+    if (err)
+        return set_drgn_error(err);
+    Py_RETURN_NONE;
 }
 
 static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
@@ -880,6 +956,7 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_load_default_debug_info_DOC},
 	{"__getitem__", (PyCFunction)Program_subscript, METH_O | METH_COEXIST,
 	 drgn_Program___getitem___DOC},
+    {"keys", (PyCFunction)Program_keys, METH_NOARGS, drgn_Program_keys_DOC},
 	{"read", (PyCFunction)Program_read, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_read_DOC},
 #define METHOD_DEF_READ(x)						\

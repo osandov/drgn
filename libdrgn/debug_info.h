@@ -302,6 +302,11 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 			    enum drgn_find_object_flags flags, void *arg,
 			    struct drgn_object *ret);
 
+/** @ref drgn_object_list_fn() that uses debugging information. */
+struct drgn_error *
+drgn_debug_info_list_object(void *arg, drgn_visit_name_fn *callback,
+                void *callback_args);
+
 struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
 
 struct drgn_error *find_elf_file(char **path_ret, int *fd_ret, Elf **elf_ret,

@@ -14,6 +14,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    FrozenSet,
     Iterable,
     Iterator,
     Mapping,
@@ -106,6 +107,18 @@ class Program:
         Object(prog, 'volatile unsigned long', address=0xffffffff94c05000)
 
         :param name: The object name.
+        """
+        ...
+    def keys(self) -> FrozenSet[Object]:
+        """
+        Implement ``prog.keys()``. Get a set of objects (variable, constant, or
+        function).  This will return a FrozenSet (though in the future it might
+        return a View instead) that can be used to iterate through all
+        available objects.
+
+        >>> prog.keys()
+        FrozenSet(prog)
+
         """
         ...
     def variable(self, name: str, filename: Optional[str] = None) -> Object:

@@ -29,10 +29,15 @@
 
 /** Registered callback in a @ref drgn_object_index. */
 struct drgn_object_finder {
-	/** The callback. */
-	drgn_object_find_fn fn;
-	/** Argument to pass to @ref drgn_object_finder::fn. */
-	void *arg;
+	/** The find callback. */
+	drgn_object_find_fn find_fn;
+
+    /** The list callback */
+	drgn_object_list_fn list_fn;
+	/** Argument to pass to @ref drgn_object_finder::find_fn. */
+	void *find_arg;
+	/** Argument to pass to @ref drgn_object_finder::list_fn. */
+    void *list_arg;
 	/** Next callback to try. */
 	struct drgn_object_finder *next;
 };
@@ -59,7 +64,8 @@ void drgn_object_index_deinit(struct drgn_object_index *oindex);
 /** @sa drgn_program_add_object_finder() */
 struct drgn_error *
 drgn_object_index_add_finder(struct drgn_object_index *oindex,
-			     drgn_object_find_fn fn, void *arg);
+			     drgn_object_find_fn find_fn, drgn_object_list_fn list_fn,
+			     void *find_arg, void *list_arg);
 
 /** Remove the most recently added object finding callback. */
 void drgn_object_index_remove_finder(struct drgn_object_index *oindex);

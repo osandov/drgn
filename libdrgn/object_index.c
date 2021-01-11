@@ -26,15 +26,18 @@ void drgn_object_index_deinit(struct drgn_object_index *oindex)
 
 struct drgn_error *
 drgn_object_index_add_finder(struct drgn_object_index *oindex,
-			     drgn_object_find_fn fn, void *arg)
+			     drgn_object_find_fn find_fn, drgn_object_list_fn list_fn,
+                 void *find_arg, void *list_arg)
 {
 	struct drgn_object_finder *finder;
 
 	finder = malloc(sizeof(*finder));
 	if (!finder)
 		return &drgn_enomem;
-	finder->fn = fn;
-	finder->arg = arg;
+	finder->find_fn = find_fn;
+    finder->list_fn = list_fn,
+	finder->find_arg = find_arg;
+	finder->list_arg = list_arg;
 	finder->next = oindex->finders;
 	oindex->finders = finder;
 	return NULL;
@@ -66,7 +69,7 @@ struct drgn_error *drgn_object_index_find(struct drgn_object_index *oindex,
 	name_len = strlen(name);
 	finder = oindex->finders;
 	while (finder) {
-		err = finder->fn(name, name_len, filename, flags, finder->arg,
+		err = finder->find_fn(name, name_len, filename, flags, finder->find_arg,
 				 ret);
 		if (err != &drgn_not_found)
 			return err;
