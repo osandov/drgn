@@ -87,6 +87,40 @@ Submitting PRs
 Pull requests and issues are always welcome. Feel free to start a discussion
 with a prototype.
 
+Signing Off
+^^^^^^^^^^^
+
 All commits must be signed off (i.e., ``Signed-off-by: Jane Doe
 <janedoe@example.org>``) as per the `Developer Certificate of Origin
 <https://developercertificate.org/>`_. ``git commit -s`` can do this for you.
+
+Separating Changes
+^^^^^^^^^^^^^^^^^^
+
+Each logical change should be a separate commit. For example, if a PR adds new
+functionality to the core library and a new helper that uses the new
+functionality, the core change and the helper should be separate commits. This
+makes code review much easier.
+
+Each commit should build, pass tests, follow coding guidelines, and run
+correctly. (In other words, within a PR, later commits often build on top of
+earlier commits, but later commits shouldn't need to "fix" earlier commits.)
+This makes it easier to track down problems with tools like ``git bisect``
+which may check out any commit in the middle of a PR.
+
+Commit Messages
+^^^^^^^^^^^^^^^
+
+The template for a good commit message is:
+
+.. code-block:: none
+
+    One line summary
+
+    Longer explanation including more details, background, and/or
+    motivation.
+
+    Signed-off-by: Jane Doe <janedoe@example.org>
+
+See `this post <https://chris.beams.io/posts/git-commit/>`_ for more
+information about writing good commit messages.
