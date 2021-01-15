@@ -193,7 +193,7 @@ read_register(struct drgn_object *reg_obj, const struct drgn_object *frame_obj,
 	struct drgn_error *err;
 	uint64_t reg;
 
-	err = drgn_object_member_dereference(reg_obj, frame_obj, name);
+	err = drgn_object_member(reg_obj, frame_obj, name);
 	if (err)
 		return err;
 	err = drgn_object_read_unsigned(reg_obj, &reg);
@@ -225,8 +225,9 @@ set_initial_registers_inactive_task_frame(Dwfl_Thread *thread,
 	err = read_register(&reg_obj, frame_obj, "bp", &dwarf_regs[0]);
 	if (err)
 		goto out;
-	/* rbp is register 6. */
-	if (!dwfl_thread_state_registers(thread, 6, 1, dwarf_regs)) {
+	dwarf_regs[1] = frame_obj->address + drgn_object_size(frame_obj);
+	/* rbp is register 6, rsp is register 7. */
+	if (!dwfl_thread_state_registers(thread, 6, 2, dwarf_regs)) {
 		err = drgn_error_libdwfl();
 		goto out;
 	}
@@ -267,6 +268,8 @@ set_initial_registers_frame_pointer(Dwfl_Thread *thread,
 	struct drgn_object reg_obj;
 	drgn_object_init(&reg_obj, drgn_object_program(bp_obj));
 
+	Dwarf_Word dwarf_regs[2];
+
 	err = drgn_object_subscript(&reg_obj, bp_obj, 0);
 	if (err)
 		goto out;
@@ -274,9 +277,15 @@ set_initial_registers_frame_pointer(Dwfl_Thread *thread,
 	err = drgn_object_read_unsigned(&reg_obj, &reg);
 	if (err)
 		goto out;
-	Dwarf_Word dwarf_reg = reg;
-	/* rbp is register 6. */
-	if (!dwfl_thread_state_registers(thread, 6, 1, &dwarf_reg)) {
+	dwarf_regs[0] = reg;
+
+	err = drgn_object_read_unsigned(bp_obj, &reg);
+	if (err)
+		goto out;
+	dwarf_regs[1] = reg + 16;
+
+	/* rbp is register 6, rsp is register 7. */
+	if (!dwfl_thread_state_registers(thread, 6, 2, dwarf_regs)) {
 		err = drgn_error_libdwfl();
 		goto out;
 	}
@@ -287,9 +296,9 @@ set_initial_registers_frame_pointer(Dwfl_Thread *thread,
 	err = drgn_object_read_unsigned(&reg_obj, &reg);
 	if (err)
 		goto out;
-	dwarf_reg = reg;
+	dwarf_regs[0] = reg;
 	/* The return address is register 16. */
-	if (!dwfl_thread_state_registers(thread, 16, 1, &dwarf_reg)) {
+	if (!dwfl_thread_state_registers(thread, 16, 1, dwarf_regs)) {
 		err = drgn_error_libdwfl();
 		goto out;
 	}
@@ -316,16 +325,6 @@ linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
 	err = drgn_object_member(&sp_obj, &sp_obj, "sp");
 	if (err)
 		goto out;
-	uint64_t sp;
-	err = drgn_object_read_unsigned(&sp_obj, &sp);
-	if (err)
-		goto out;
-	Dwarf_Word dwarf_reg = sp;
-	/* rsp is register 7. */
-	if (!dwfl_thread_state_registers(thread, 7, 1, &dwarf_reg)) {
-		err = drgn_error_libdwfl();
-		goto out;
-	}
 
 	/*
 	 * Since Linux kernel commit 0100301bfdf5 ("sched/x86: Rewrite the
@@ -342,9 +341,11 @@ linux_kernel_set_initial_registers_x86_64(Dwfl_Thread *thread,
 		err = drgn_object_cast(&sp_obj, frame_type, &sp_obj);
 		if (err)
 			goto out;
+		err = drgn_object_dereference(&sp_obj, &sp_obj);
+		if (err)
+			goto out;
 		err = set_initial_registers_inactive_task_frame(thread,
 								&sp_obj);
-
 	} else if (err->code == DRGN_ERROR_LOOKUP) {
 		drgn_error_destroy(err);
 		err = drgn_program_find_type(prog, "unsigned long **", NULL,
