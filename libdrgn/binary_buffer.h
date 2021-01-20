@@ -12,6 +12,7 @@
 #ifndef DRGN_BINARY_BUFFER_H
 #define DRGN_BINARY_BUFFER_H
 
+#include <assert.h>
 #include <byteswap.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -271,6 +272,69 @@ DEFINE_NEXT_INT(32)
 DEFINE_NEXT_INT(64)
 
 #undef DEFINE_NEXT_INT
+
+/**
+ * Get an unsigned integer of the given size at the current buffer position and
+ * advance the position.
+ *
+ * The byte order is determined by the @p little_endian parameter that was
+ * passed to @ref binary_buffer_init().
+ *
+ * @param[in] size Size in bytes. Must be no larger than 8.
+ * @param[out] ret Returned value.
+ */
+static inline struct drgn_error *
+binary_buffer_next_uint(struct binary_buffer *bb, size_t size, uint64_t *ret)
+{
+	assert(size <= 8);
+	struct drgn_error *err;
+	if ((err = binary_buffer_check_bounds(bb, size)))
+		return err;
+	*ret = 0;
+	if (HOST_LITTLE_ENDIAN) {
+		if (bb->bswap) {
+			for (size_t i = 0; i < size; i++)
+				((char *)ret)[i] = bb->pos[size - 1 - i];
+		} else {
+			memcpy(ret, bb->pos, size);
+		}
+	} else {
+		if (bb->bswap) {
+			for (size_t i = 0; i < size; i++)
+				((char *)(ret + 1))[-i - 1] = bb->pos[i];
+		} else {
+			memcpy((char *)(ret + 1) - size, bb->pos, size);
+		}
+	}
+	bb->prev = bb->pos;
+	bb->pos += size;
+	return NULL;
+}
+
+/**
+ * Get a signed integer of the given size at the current buffer position and
+ * advance the position.
+ *
+ * The byte order is determined by the @p little_endian parameter that was
+ * passed to @ref binary_buffer_init().
+ *
+ * @param[in] size Size in bytes. Must be no larger than 8.
+ * @param[out] ret Returned value.
+ */
+static inline struct drgn_error *
+binary_buffer_next_sint(struct binary_buffer *bb, size_t size, int64_t *ret)
+{
+	struct drgn_error *err;
+	uint64_t tmp;
+	err = binary_buffer_next_uint(bb, size, &tmp);
+	if (err)
+		return err;
+	if (size > 0)
+		*ret = (int64_t)(tmp << (64 - 8 * size)) >> (64 - 8 * size);
+	else
+		*ret = tmp;
+	return NULL;
+}
 
 /**
  * Decode an Unsigned Little-Endian Base 128 (ULEB128) number at the current
