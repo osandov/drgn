@@ -24,6 +24,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 binary_buffer.h \
 			 binary_search_tree.h \
 			 bitops.h \
+			 cfi.h \
+			 cfi.c \
 			 cityhash.h \
 			 debug_info.c \
 			 debug_info.h \

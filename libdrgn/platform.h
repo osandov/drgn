@@ -7,19 +7,9 @@
 #include <elfutils/libdwfl.h>
 #include <gelf.h>
 
+#include "cfi.h"
 #include "drgn.h"
 #include "util.h"
-
-/**
- * Numeric identifier for a register.
- *
- * These are only unique within an architecture, and they are not necessarily
- * the same as the register numbers used by DWARF.
- */
-typedef uint16_t drgn_register_number;
-
-/** Placeholder number for unknown register. */
-#define DRGN_REGISTER_NUMBER_UNKNOWN ((drgn_register_number)-1)
 
 struct drgn_register {
 	const char * const *names;
@@ -80,6 +70,8 @@ struct drgn_architecture_info {
 	const struct drgn_register *(*register_by_name)(const char *name);
 	const struct drgn_register_layout *register_layout;
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t);
+	/* CFI row containing default rules for DWARF CFI. */
+	struct drgn_cfi_row *default_dwarf_cfi_row;
 	/* Given pt_regs as a value buffer object. */
 	struct drgn_error *(*pt_regs_set_initial_registers)(Dwfl_Thread *,
 							    const struct drgn_object *);

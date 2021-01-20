@@ -118,4 +118,11 @@ static inline void *malloc64(uint64_t size)
 	return malloc(size);
 }
 
+/** Return the maximum value of an @p n-byte unsigned integer. */
+static inline uint64_t uint_max(int n)
+{
+	assert(n >= 1 && n <= 8);
+	return UINT64_MAX >> (64 - 8 * n);
+}
+
 #endif /* DRGN_UTIL_H */

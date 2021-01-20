@@ -16,6 +16,7 @@
 #include <libelf.h>
 
 #include "binary_buffer.h"
+#include "cfi.h"
 #include "drgn.h"
 #include "dwarf_index.h"
 #include "hash_table.h"
@@ -91,6 +92,23 @@ struct drgn_debug_info_module {
 	struct drgn_platform platform;
 	Elf_Scn *scns[DRGN_NUM_DEBUG_SCNS];
 	Elf_Data *scn_data[DRGN_NUM_DEBUG_SCN_DATA];
+
+	/** Base for `DW_EH_PE_pcrel`. */
+	uint64_t pcrel_base;
+	/** Base for `DW_EH_PE_textrel`. */
+	uint64_t textrel_base;
+	/** Base for `DW_EH_PE_datarel`. */
+	uint64_t datarel_base;
+	/** Array of DWARF Common Information Entries. */
+	struct drgn_dwarf_cie *cies;
+	/**
+	 * Array of DWARF Frame Description Entries sorted by initial_location.
+	 */
+	struct drgn_dwarf_fde *fdes;
+	/** Number of elements in @ref drgn_debug_info_module::fdes. */
+	size_t num_fdes;
+	/** Whether .debug_frame and .eh_frame have been parsed. */
+	bool parsed_frames;
 
 	/*
 	 * path, elf, and fd are used when an ELF file was reported with
@@ -319,6 +337,24 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 			    const char *filename,
 			    enum drgn_find_object_flags flags, void *arg,
 			    struct drgn_object *ret);
+
+/**
+ * Get the Call Frame Information in a @ref drgn_debug_info_module at a given
+ * program counter.
+ *
+ * @param[in] module Module containing @p pc.
+ * @param[in] pc Program counter.
+ * @param[in,out] row_ret Returned CFI row.
+ * @param[out] interrupted_ret Whether the found frame interrupted its caller.
+ * @param[out] ret_addr_regno_ret Returned return address register number.
+ * @return @c NULL on success, non-@c NULL on error. In particular, &@ref
+ * drgn_not_found if CFI wasn't found.
+ */
+struct drgn_error *
+drgn_debug_info_module_find_cfi(struct drgn_debug_info_module *module,
+				uint64_t pc, struct drgn_cfi_row **row_ret,
+				bool *interrupted_ret,
+				drgn_register_number *ret_addr_regno_ret);
 
 struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
 

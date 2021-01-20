@@ -9,7 +9,7 @@
 #include "drgn.h"
 #include "error.h"
 #include "linux_kernel.h"
-#include "platform.h"
+#include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "type.h"
 #include "util.h"
@@ -512,6 +512,24 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
 	DRGN_ARCHITECTURE_REGISTERS,
+	.default_dwarf_cfi_row = DRGN_CFI_ROW(
+		/*
+		 * The System V psABI defines the CFA as the value of rsp in the
+		 * calling frame.
+		 */
+		[DRGN_REGISTER_NUMBER(rsp)] = { DRGN_CFI_RULE_CFA_PLUS_OFFSET },
+		/*
+		 * Other callee-saved registers default to DW_CFA_same_value.
+		 * This isn't explicitly documented in the psABI, but it seems
+		 * to be the consensus.
+		 */
+		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(rbx)),
+		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(rbp)),
+		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r12)),
+		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r13)),
+		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r14)),
+		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r15)),
+	),
 	.pt_regs_set_initial_registers = pt_regs_set_initial_registers_x86_64,
 	.prstatus_set_initial_registers = prstatus_set_initial_registers_x86_64,
 	.linux_kernel_set_initial_registers =

@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cfi.h"
 #include "platform.h"
 #include "program.h"
 #include "serialize.h"
