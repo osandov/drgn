@@ -1442,6 +1442,35 @@ class TestTypes(TestCase):
             ),
         )
 
+    def test_template_value_parameter_missing_value(self):
+        with self.assertRaisesRegex(
+            Exception, "DW_AT_template_value_parameter is missing value"
+        ):
+            dwarf_program(
+                test_type_dies(
+                    (
+                        DwarfDie(
+                            DW_TAG.class_type,
+                            (
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                            (
+                                DwarfDie(
+                                    DW_TAG.template_value_parameter,
+                                    (
+                                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "N"),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        unsigned_int_die,
+                    )
+                )
+            ).type("TEST").type.template_parameters[0].argument
+
     def test_lazy_cycle(self):
         prog = dwarf_program(
             test_type_dies(

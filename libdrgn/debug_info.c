@@ -1411,6 +1411,10 @@ drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo,
 						       qualified_type, attr,
 						       ret);
 	} else {
+		if (dwarf_tag(die) == DW_TAG_template_value_parameter) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "DW_AT_template_value_parameter is missing value");
+		}
 		return drgn_object_set_absent(ret, qualified_type, 0);
 	}
 }
