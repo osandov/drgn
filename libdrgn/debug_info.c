@@ -156,7 +156,6 @@ struct drgn_dwarf_die_iterator {
 	bool debug_types;
 };
 
-__attribute__((__unused__))
 static void drgn_dwarf_die_iterator_init(struct drgn_dwarf_die_iterator *it,
 					 Dwarf *dwarf)
 {
@@ -166,7 +165,6 @@ static void drgn_dwarf_die_iterator_init(struct drgn_dwarf_die_iterator *it,
 	it->debug_types = false;
 }
 
-__attribute__((__unused__))
 static void drgn_dwarf_die_iterator_deinit(struct drgn_dwarf_die_iterator *it)
 {
 	dwarf_die_vector_deinit(&it->dies);
@@ -200,7 +198,6 @@ static void drgn_dwarf_die_iterator_deinit(struct drgn_dwarf_die_iterator *it)
  * the iterated subtree, non-@c NULL on error, in which case this should not be
  * called again.
  */
-__attribute__((__unused__))
 static struct drgn_error *
 drgn_dwarf_die_iterator_next(struct drgn_dwarf_die_iterator *it, bool children,
 			     size_t subtree, Dwarf_Die **dies_ret,
@@ -337,6 +334,97 @@ out:
 	*length_ret = it->dies.size;
 	return err;
 #undef TOP
+}
+
+struct drgn_error *
+drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
+					 uint64_t pc, uint64_t *bias_ret,
+					 Dwarf_Die **dies_ret,
+					 size_t *length_ret)
+{
+	struct drgn_error *err;
+
+	Dwarf_Addr bias;
+	Dwarf *dwarf = dwfl_module_getdwarf(module->dwfl_module, &bias);
+	if (!dwarf)
+		return drgn_error_libdw();
+	*bias_ret = bias;
+	pc -= bias;
+
+	/* First, try to get the CU containing the PC. */
+	Dwarf_Aranges *aranges;
+	size_t naranges;
+	if (dwarf_getaranges(dwarf, &aranges, &naranges) < 0)
+		return drgn_error_libdw();
+
+	struct drgn_dwarf_die_iterator it;
+	bool children;
+	size_t subtree;
+	if (naranges > 0) {
+		Dwarf_Off offset;
+		if (dwarf_getarangeinfo(dwarf_getarange_addr(aranges, pc), NULL,
+					NULL, &offset) < 0) {
+			/* No ranges match the PC. */
+			*dies_ret = NULL;
+			*length_ret = 0;
+			return NULL;
+		}
+
+		drgn_dwarf_die_iterator_init(&it, dwarf);
+		Dwarf_Die *cu_die = dwarf_die_vector_append_entry(&it.dies);
+		if (!cu_die) {
+			err = &drgn_enomem;
+			goto err;
+		}
+		if (!dwarf_offdie(dwarf, offset, cu_die)) {
+			err = drgn_error_libdw();
+			goto err;
+		}
+		if (dwarf_next_unit(dwarf, offset - dwarf_cuoffset(cu_die),
+				    &it.next_cu_off, NULL, NULL, NULL, NULL,
+				    NULL, NULL, NULL)) {
+			err = drgn_error_libdw();
+			goto err;
+		}
+		it.cu_end = ((const char *)cu_die->addr
+			     - dwarf_dieoffset(cu_die)
+			     + it.next_cu_off);
+		children = true;
+		subtree = 1;
+	} else {
+		/*
+		 * .debug_aranges is empty or missing. Fall back to checking
+		 * each CU.
+		 */
+		drgn_dwarf_die_iterator_init(&it, dwarf);
+		children = false;
+		subtree = 0;
+	}
+
+	/* Now find DIEs containing the PC. */
+	Dwarf_Die *dies;
+	size_t length;
+	while (!(err = drgn_dwarf_die_iterator_next(&it, children, subtree,
+						    &dies, &length))) {
+		int r = dwarf_haspc(&dies[length - 1], pc);
+		if (r > 0) {
+			children = true;
+			subtree = length;
+		} else if (r < 0) {
+			err = drgn_error_libdw();
+			goto err;
+		}
+	}
+	if (err != &drgn_stop)
+		goto err;
+
+	*dies_ret = dies;
+	*length_ret = length;
+	return NULL;
+
+err:
+	drgn_dwarf_die_iterator_deinit(&it);
+	return err;
 }
 
 DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)

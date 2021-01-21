@@ -12,6 +12,7 @@
 #ifndef DRGN_DEBUG_INFO_H
 #define DRGN_DEBUG_INFO_H
 
+#include <elfutils/libdw.h>
 #include <elfutils/libdwfl.h>
 #include <libelf.h>
 
@@ -201,6 +202,27 @@ drgn_debug_info_buffer_init(struct drgn_debug_info_buffer *buffer,
 	buffer->module = module;
 	buffer->scn = scn;
 }
+
+/**
+ * Find the DWARF DIEs in a @ref drgn_debug_info_module for the scope containing
+ * a given program counter.
+ *
+ * @param[in] module Module containing @p pc.
+ * @param[in] pc Program counter.
+ * @param[out] bias_ret Returned difference between addresses in the loaded
+ * module and addresses in the returned DIEs.
+ * @param[out] dies_ret Returned DIEs. `(*dies_ret)[*length_ret - 1]` is the
+ * innermost DIE containing @p pc, `(*dies_ret)[*length_ret - 2]` is its parent
+ * (which may not contain @p pc itself), `(*dies_ret)[*length_ret - 3]` is its
+ * grandparent, etc. Must be freed with @c free().
+ * @param[out] length_ret Returned length of @p dies_ret.
+ */
+struct drgn_error *
+drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
+					 uint64_t pc, uint64_t *bias_ret,
+					 Dwarf_Die **dies_ret,
+					 size_t *length_ret)
+	__attribute__((__nonnull__(1, 3, 4, 5)));
 
 struct drgn_debug_info_module_key {
 	const void *build_id;
