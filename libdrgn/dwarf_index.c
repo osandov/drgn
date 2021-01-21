@@ -1687,8 +1687,7 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it)
 }
 
 struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
-					    Dwarf_Die *die_ret,
-					    uint64_t *bias_ret)
+					    Dwarf_Die *die_ret)
 {
 	Dwarf_Addr bias;
 	Dwarf *dwarf = dwfl_module_getdwarf(die->module, &bias);
@@ -1696,7 +1695,5 @@ struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
 		return drgn_error_libdwfl();
 	if (!dwarf_offdie(dwarf, die->offset, die_ret))
 		return drgn_error_libdw();
-	if (bias_ret)
-		*bias_ret = bias;
 	return NULL;
 }

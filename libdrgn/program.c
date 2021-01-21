@@ -578,7 +578,7 @@ static void drgn_program_set_language_from_main(struct drgn_debug_info *dbinfo)
 	struct drgn_dwarf_index_die *index_die;
 	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
 		Dwarf_Die die;
-		err = drgn_dwarf_index_get_die(index_die, &die, NULL);
+		err = drgn_dwarf_index_get_die(index_die, &die);
 		if (err) {
 			drgn_error_destroy(err);
 			continue;

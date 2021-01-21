@@ -310,14 +310,10 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it);
  *
  * @param[in] die Indexed DIE.
  * @param[out] die_ret Returned DIE.
- * @param[out] bias_ret Returned difference between addresses in the loaded
- * module and addresses in the debugging information. This may be @c NULL if it
- * is not needed.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
-					    Dwarf_Die *die_ret,
-					    uint64_t *bias_ret);
+					    Dwarf_Die *die_ret);
 
 /** @} */
 
