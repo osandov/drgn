@@ -1391,12 +1391,20 @@ drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo,
 		err = dwarf_die_byte_order(die, true, &byte_order);
 		if (err)
 			return err;
-		Dwarf_Addr bias;
-		dwfl_module_info(dwfl_module, NULL, NULL, NULL, &bias, NULL,
+		uint64_t address = loc[0].number;
+		Dwarf_Addr start, end, bias;
+		dwfl_module_info(dwfl_module, NULL, &start, &end, &bias, NULL,
 				 NULL, NULL);
-		return drgn_object_set_reference(ret, qualified_type,
-						 loc[0].number + bias, 0, 0,
-						 byte_order);
+		/*
+		 * If the address is not in the module's address range, then
+		 * it's probably something special like a Linux per-CPU variable
+		 * (which isn't actually a variable address but an offset).
+		 * Don't apply the bias in that case.
+		 */
+		if (start <= address + bias && address + bias < end)
+			address += bias;
+		return drgn_object_set_reference(ret, qualified_type, address,
+						 0, 0, byte_order);
 	} else if ((attr = dwarf_attr_integrate(die, DW_AT_const_value,
 						&attr_mem))) {
 		return drgn_object_from_dwarf_constant(dbinfo, die,
