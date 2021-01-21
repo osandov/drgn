@@ -6,8 +6,10 @@ Block Layer
 -----------
 
 The ``drgn.helpers.linux.block`` module provides helpers for working with the
-Linux block layer, including disks (``struct gendisk``) and partitions
-(``struct hd_struct``).
+Linux block layer, including disks (``struct gendisk``) and partitions.
+
+Since Linux v5.11, partitions are represented by ``struct block_device``.
+Before that, they were represented by ``struct hd_struct``.
 """
 
 from typing import Iterator
@@ -73,10 +75,25 @@ def for_each_disk(prog: Program) -> Iterator[Object]:
 
     :return: Iterator of ``struct gendisk *`` objects.
     """
-    disk_type = prog["disk_type"].address_of_()
+    # Before Linux kernel commit 0d02129e76ed ("block: merge struct
+    # block_device and struct hd_struct") (in v5.11), partition devices are in
+    # struct hd_struct::__dev. After that commit, they are in struct
+    # block_device::bd_device. We start by assuming that the kernel has this
+    # commit and fall back to the old path if that fails.
+    have_bd_device = True
     for device in _for_each_block_device(prog):
-        if device.type == disk_type:
-            yield container_of(device, "struct gendisk", "part0.__dev")
+        if have_bd_device:
+            try:
+                bdev = container_of(device, "struct block_device", "bd_device")
+            except LookupError:
+                have_bd_device = False
+            else:
+                if bdev.bd_partno == 0:
+                    yield bdev.bd_disk
+                continue
+        part = container_of(device, "struct hd_struct", "__dev")
+        if part.partno == 0:
+            yield container_of(part, "struct gendisk", "part0")
 
 
 def print_disks(prog: Program) -> None:
@@ -92,28 +109,46 @@ def part_devt(part: Object) -> Object:
     """
     Get a partition's device number.
 
-    :param part: ``struct hd_struct *``
+    :param part: ``struct block_device *`` or ``struct hd_struct *`` depending
+        on the kernel version.
     :return: ``dev_t``
     """
-    return part.__dev.devt
+    try:
+        return part.bd_dev
+    except AttributeError:
+        return part.__dev.devt
 
 
 def part_name(part: Object) -> bytes:
     """
     Get the name of a partition (e.g., ``sda1``).
 
-    :param part: ``struct hd_struct *``
+    :param part: ``struct block_device *`` or ``struct hd_struct *`` depending
+        on the kernel version.
     """
-    return part.__dev.kobj.name.string_()
+    try:
+        bd_device = part.bd_device
+    except AttributeError:
+        return part.__dev.kobj.name.string_()
+    return bd_device.kobj.name.string_()
 
 
 def for_each_partition(prog: Program) -> Iterator[Object]:
     """
     Iterate over all partitions in the system.
 
-    :return: Iterator of ``struct hd_struct *`` objects.
+    :return: Iterator of ``struct block_device *`` or ``struct hd_struct *``
+        objects depending on the kernel version.
     """
+    # See the comment in for_each_disk().
+    have_bd_device = True
     for device in _for_each_block_device(prog):
+        if have_bd_device:
+            try:
+                yield container_of(device, "struct block_device", "bd_device")
+                continue
+            except LookupError:
+                have_bd_device = False
         yield container_of(device, "struct hd_struct", "__dev")
 
 
