@@ -301,7 +301,9 @@ def get_version():
         else:
             # The saved version must start with the public version.
             match = re.search(
-                fr'^__version__ = "{re.escape(public_version)}([^"]*)"$', version_py, re.M
+                fr'^__version__ = "{re.escape(public_version)}([^"]*)"$',
+                version_py,
+                re.M,
             )
             if match:
                 local_version = match.group(1)
