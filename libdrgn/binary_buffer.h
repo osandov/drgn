@@ -177,9 +177,34 @@ struct drgn_error *binary_buffer_next_uN(struct binary_buffer *bb,
 /** Like @ref binary_buffer_next_uN(), but return the value as a @c uint64_t. */
 struct drgn_error *binary_buffer_next_uN_into_u64(struct binary_buffer *bb,
 						  uint64_t *ret);
+
+/**
+ * Get a signed N-bit integer at the current buffer position and advance the
+ * position.
+ *
+ * This is defined for N of 16, 32, and 64.
+ *
+ * The byte order is determined by the @p little_endian parameter that was
+ * passed to @ref binary_buffer_init().
+ *
+ * @param[out] ret Returned value.
+ */
+struct drgn_error *binary_buffer_next_sN(struct binary_buffer *bb,
+					 intN_t *ret);
+
+/** Like @ref binary_buffer_next_sN(), but return the value as an @c int64_t. */
+struct drgn_error *binary_buffer_next_sN_into_s64(struct binary_buffer *bb,
+						  int64_t *ret);
+
+/**
+ * Like @ref binary_buffer_next_sN(), but return the value as a @c uint64_t.
+ * Negative values are sign extended.
+ */
+struct drgn_error *binary_buffer_next_sN_into_u64(struct binary_buffer *bb,
+						  unt64_t *ret);
 #endif
 
-#define DEFINE_NEXT_UINT(bits)							\
+#define DEFINE_NEXT_INT(bits)							\
 static inline struct drgn_error *						\
 binary_buffer_next_u##bits(struct binary_buffer *bb, uint##bits##_t *ret)	\
 {										\
@@ -203,16 +228,49 @@ binary_buffer_next_u##bits##_into_u64(struct binary_buffer *bb, uint64_t *ret)	\
 		return err;							\
 	*ret = tmp;								\
 	return NULL;								\
+}										\
+										\
+static inline struct drgn_error *						\
+binary_buffer_next_s##bits(struct binary_buffer *bb, int##bits##_t *ret)	\
+{										\
+	struct drgn_error *err;							\
+	uint##bits##_t tmp;							\
+	if ((err = binary_buffer_next_u##bits(bb, &tmp)))			\
+		return err;							\
+	*ret = tmp;								\
+	return NULL;								\
+}										\
+										\
+static inline struct drgn_error *						\
+binary_buffer_next_s##bits##_into_s64(struct binary_buffer *bb, int64_t *ret)	\
+{										\
+	struct drgn_error *err;							\
+	int##bits##_t tmp;							\
+	if ((err = binary_buffer_next_s##bits(bb, &tmp)))			\
+		return err;							\
+	*ret = tmp;								\
+	return NULL;								\
+}										\
+										\
+static inline struct drgn_error *						\
+binary_buffer_next_s##bits##_into_u64(struct binary_buffer *bb, uint64_t *ret)	\
+{										\
+	struct drgn_error *err;							\
+	int##bits##_t tmp;							\
+	if ((err = binary_buffer_next_s##bits(bb, &tmp)))			\
+		return err;							\
+	*ret = tmp;								\
+	return NULL;								\
 }
 
 #define bswap_8(x) (x)
-DEFINE_NEXT_UINT(8)
+DEFINE_NEXT_INT(8)
 #undef bswap_8
-DEFINE_NEXT_UINT(16)
-DEFINE_NEXT_UINT(32)
-DEFINE_NEXT_UINT(64)
+DEFINE_NEXT_INT(16)
+DEFINE_NEXT_INT(32)
+DEFINE_NEXT_INT(64)
 
-#undef DEFINE_NEXT_UINT
+#undef DEFINE_NEXT_INT
 
 /**
  * Decode an Unsigned Little-Endian Base 128 (ULEB128) number at the current
