@@ -80,7 +80,7 @@ struct drgn_dwarf_index_die {
 		/* If tag == DW_TAG_namespace. */
 		struct drgn_dwarf_index_namespace *namespace;
 	};
-	Dwfl_Module *module;
+	struct drgn_debug_info_module *module;
 	size_t offset;
 };
 
@@ -112,7 +112,7 @@ struct drgn_dwarf_index_specification {
 	 */
 	uintptr_t declaration;
 	/* Module and offset of DIE. */
-	Dwfl_Module *module;
+	struct drgn_debug_info_module *module;
 	size_t offset;
 };
 
