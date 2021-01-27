@@ -236,7 +236,7 @@ static void drgn_value_deserialize(union drgn_value *value, const void *buf,
 	tmp.uvalue = deserialize_bits(buf, bit_offset, bit_size, little_endian);
 	switch (encoding) {
 	case DRGN_OBJECT_ENCODING_SIGNED:
-		value->svalue = sign_extend(tmp.svalue, bit_size);
+		value->svalue = truncate_signed(tmp.svalue, bit_size);
 		break;
 	case DRGN_OBJECT_ENCODING_UNSIGNED:
 		value->uvalue = tmp.uvalue;

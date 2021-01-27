@@ -25,34 +25,16 @@
  * @{
  */
 
-/** Copy the @p bit_size%th bit to the more-significant bits in an integer. */
-static inline int64_t sign_extend(int64_t svalue, uint64_t bit_size)
-{
-	if (bit_size < 64) {
-		int64_t mask;
-
-		mask = INT64_C(1) << (bit_size - 1);
-		svalue = (svalue ^ mask) - mask;
-	}
-	return svalue;
-}
-
-/** Truncate a signed integer to @p bit_size bits. */
+/** Truncate a signed integer to @p bit_size bits with sign extension. */
 static inline int64_t truncate_signed(int64_t svalue, uint64_t bit_size)
 {
-	if (bit_size < 64) {
-		/* INT64_C(1) << 63 is undefined, so this must be UINT64_C. */
-		svalue &= (UINT64_C(1) << bit_size) - 1;
-	}
-	return sign_extend(svalue, bit_size);
+	return (int64_t)((uint64_t)svalue << (64 - bit_size)) >> (64 - bit_size);
 }
 
 /** Truncate an unsigned integer to @p bit_size bits. */
 static inline uint64_t truncate_unsigned(uint64_t uvalue, uint64_t bit_size)
 {
-	if (bit_size < 64)
-		uvalue &= (UINT64_C(1) << bit_size) - 1;
-	return uvalue;
+	return uvalue << (64 - bit_size) >> (64 - bit_size);
 }
 
 /**
