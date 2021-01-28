@@ -99,6 +99,11 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	const struct drgn_register *reg;
+} Register;
+
+typedef struct {
+	PyObject_HEAD
 	struct drgn_stack_trace *trace;
 } StackTrace;
 
@@ -157,7 +162,6 @@ extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
 extern PyObject *TypeKind_class;
-extern PyStructSequence_Desc Register_desc;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject FaultError_type;

@@ -224,6 +224,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    PyType_Ready(&ObjectIterator_type) ||
 	    add_type(m, &Platform_type) ||
 	    add_type(m, &Program_type) ||
+	    add_type(m, &Register_type) ||
 	    add_type(m, &StackFrame_type) ||
 	    add_type(m, &StackTrace_type) ||
 	    add_type(m, &Symbol_type) ||
@@ -268,14 +269,6 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		goto err;
 	if (PyModule_AddObject(m, "OutOfBoundsError", OutOfBoundsError)) {
 		Py_DECREF(OutOfBoundsError);
-		goto err;
-	}
-
-	if (Py_REFCNT(&Register_type) == 0 &&
-	    PyStructSequence_InitType2(&Register_type, &Register_desc))
-		goto err;
-	if (PyModule_AddObject(m, "Register", (PyObject *)&Register_type)) {
-		Py_DECREF(&Register_type);
 		goto err;
 	}
 

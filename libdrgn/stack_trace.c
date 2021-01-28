@@ -118,31 +118,17 @@ drgn_stack_frame_symbol(struct drgn_stack_trace *trace, size_t frame,
 	return NULL;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_stack_frame_register(struct drgn_stack_trace *trace, size_t frame,
-			  enum drgn_register_number regno, uint64_t *ret)
+LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
+					      size_t frame,
+					      const struct drgn_register *reg,
+					      uint64_t *ret)
 {
 	Dwarf_Addr value;
-	if (!dwfl_frame_register(trace->frames[frame], regno, &value)) {
-		return drgn_error_create(DRGN_ERROR_LOOKUP,
-					 "register value is not known");
-	}
+	if (!dwfl_frame_register(trace->frames[frame], reg->dwarf_number,
+				 &value))
+		return false;
 	*ret = value;
-	return NULL;
-}
-
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_stack_frame_register_by_name(struct drgn_stack_trace *trace, size_t frame,
-				  const char *name, uint64_t *ret)
-{
-	const struct drgn_register *reg =
-		drgn_architecture_register_by_name(trace->prog->platform.arch,
-						   name);
-	if (!reg) {
-		return drgn_error_format(DRGN_ERROR_LOOKUP,
-					 "unknown register '%s'", name);
-	}
-	return drgn_stack_frame_register(trace, frame, reg->number, ret);
+	return true;
 }
 
 static bool drgn_thread_memory_read(Dwfl *dwfl, Dwarf_Addr addr,

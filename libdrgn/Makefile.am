@@ -80,13 +80,15 @@ libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
 endif
 
-arch_%.c: arch_%.c.in build-aux/gen_arch.awk build-aux/parse_arch.awk
-	$(AM_V_GEN)gawk -f $(word 3, $^) -f $(word 2, $^) $< > $@
+arch_%.c: arch_%.c.in build-aux/gen_arch.awk
+	$(AM_V_GEN)gawk -f $(word 2, $^) $< > $@
 
-drgn.h: configure.ac build-aux/gen_drgn_h.awk build-aux/parse_arch.awk $(ARCH_INS) drgn.h.in
-	$(AM_V_GEN)gawk -f $(word 2, $^) -f $(word 3, $^) \
-		-v version=@PACKAGE_VERSION@ \
-		$(wordlist 4, $(words $^), $^) > $@
+drgn.h: drgn.h.in configure.ac
+	$(AM_V_GEN)sed \
+		-e 's/@DRGN_VERSION_MAJOR@/$(word 1,$(subst ., ,@PACKAGE_VERSION@))/g' \
+		-e 's/@DRGN_VERSION_MINOR@/$(word 2,$(subst ., ,@PACKAGE_VERSION@))/g' \
+		-e 's/@DRGN_VERSION_PATCH@/$(word 3,$(subst ., ,@PACKAGE_VERSION@))/g' \
+		$< > $@
 
 elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2 -ldl
 
@@ -144,8 +146,7 @@ python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
 python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 	$(AM_V_GEN)$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
-EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py \
-	     build-aux/gen_drgn_h.awk build-aux/parse_arch.awk
+EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py
 
 EXTRA_PROGRAMS = examples/load_debug_info
 

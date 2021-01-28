@@ -11,7 +11,7 @@
 
 struct drgn_register {
 	const char *name;
-	enum drgn_register_number number;
+	uint64_t dwarf_number;
 };
 
 /* Page table iterator. */

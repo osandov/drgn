@@ -38,3 +38,18 @@ class TestStackTrace(LinuxHelperTestCase):
         # pt_regs *.
         task = find_task(self.prog, os.getpid())
         self.prog.stack_trace(cast("struct pt_regs *", task.stack))
+
+    def test_registers(self):
+        # Smoke test that we get at least one register and that
+        # StackFrame.registers() agrees with StackFrame.register().
+        pid = fork_and_pause()
+        wait_until(lambda: proc_state(pid) == "S")
+        trace = self.prog.stack_trace(pid)
+        have_registers = False
+        for frame in trace:
+            for name, value in frame.registers().items():
+                self.assertEqual(frame.register(name), value)
+                have_registers = True
+        self.assertTrue(have_registers)
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)

@@ -124,13 +124,20 @@ drgn_platform_register(const struct drgn_platform *platform, size_t n)
 	return &platform->arch->registers[n];
 }
 
-LIBDRGN_PUBLIC const char *drgn_register_name(const struct drgn_register *reg)
+LIBDRGN_PUBLIC const struct drgn_register *
+drgn_platform_register_by_name(const struct drgn_platform *platform,
+			       const char *name)
 {
-	return reg->name;
+	return drgn_architecture_register_by_name(platform->arch, name);
 }
 
-LIBDRGN_PUBLIC enum drgn_register_number
-drgn_register_number(const struct drgn_register *reg)
+LIBDRGN_PUBLIC const char * const *
+drgn_register_names(const struct drgn_register *reg, size_t *num_names_ret)
 {
-	return reg->number;
+	/*
+	 * We don't support any architectures that have multiple names for the
+	 * same register yet.
+	 */
+	*num_names_ret = 1;
+	return &reg->name;
 }

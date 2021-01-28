@@ -89,67 +89,60 @@ static PyObject *StackFrame_symbol(StackFrame *self)
 
 static PyObject *StackFrame_register(StackFrame *self, PyObject *arg)
 {
-	struct drgn_error *err;
-	uint64_t value;
-
-	if (PyUnicode_Check(arg)) {
-		err = drgn_stack_frame_register_by_name(self->trace->trace,
-							self->i,
-							PyUnicode_AsUTF8(arg),
-							&value);
-	} else {
-		struct index_arg number = {};
-
-		if (PyObject_TypeCheck(arg, &Register_type))
-			arg = PyStructSequence_GET_ITEM(arg, 1);
-		if (!index_converter(arg, &number))
-			return NULL;
-		err = drgn_stack_frame_register(self->trace->trace, self->i,
-						number.uvalue, &value);
+	const char *name = PyUnicode_AsUTF8(arg);
+	if (!name)
+		return NULL;
+	const struct drgn_platform *platform =
+		drgn_program_platform(self->trace->trace->prog);
+	const struct drgn_register *reg =
+		drgn_platform_register_by_name(platform, name);
+	if (!reg) {
+		return PyErr_Format(PyExc_ValueError,
+				    "unknown register %R", arg);
 	}
-	if (err)
-		return set_drgn_error(err);
+	uint64_t value;
+	if (!drgn_stack_frame_register(self->trace->trace, self->i, reg,
+				       &value)) {
+		PyErr_SetString(PyExc_LookupError,
+				"register value is not known");
+		return NULL;
+	}
 	return PyLong_FromUnsignedLongLong(value);
 }
 
 static PyObject *StackFrame_registers(StackFrame *self)
 {
-	struct drgn_error *err;
-	PyObject *dict;
-	const struct drgn_platform *platform;
-	size_t num_registers, i;
-
-	dict = PyDict_New();
+	PyObject *dict = PyDict_New();
 	if (!dict)
 		return NULL;
-	platform = drgn_program_platform(self->trace->trace->prog);
-	num_registers = drgn_platform_num_registers(platform);
-	for (i = 0; i < num_registers; i++) {
-		const struct drgn_register *reg;
+	const struct drgn_platform *platform =
+		drgn_program_platform(self->trace->trace->prog);
+	size_t num_registers = drgn_platform_num_registers(platform);
+	for (size_t i = 0; i < num_registers; i++) {
+		const struct drgn_register *reg =
+			drgn_platform_register(platform, i);
 		uint64_t value;
-		PyObject *value_obj;
-		int ret;
-
-		reg = drgn_platform_register(platform, i);
-		err = drgn_stack_frame_register(self->trace->trace, self->i,
-						drgn_register_number(reg),
-						&value);
-		if (err) {
-			drgn_error_destroy(err);
+		if (!drgn_stack_frame_register(self->trace->trace, self->i, reg,
+					       &value))
 			continue;
-		}
-		value_obj = PyLong_FromUnsignedLongLong(value);
+		PyObject *value_obj = PyLong_FromUnsignedLongLong(value);
 		if (!value_obj) {
 			Py_DECREF(dict);
 			return NULL;
 		}
-		ret = PyDict_SetItemString(dict, drgn_register_name(reg),
-					   value_obj);
-		Py_DECREF(value_obj);
-		if (ret == -1) {
-			Py_DECREF(dict);
-			return NULL;
+		size_t num_names;
+		const char * const *names = drgn_register_names(reg,
+								&num_names);
+		for (size_t j = 0; j < num_names; j++) {
+			int ret = PyDict_SetItemString(dict, names[j],
+						       value_obj);
+			if (ret == -1) {
+				Py_DECREF(value_obj);
+				Py_DECREF(dict);
+				return NULL;
+			}
 		}
+		Py_DECREF(value_obj);
 	}
 	return dict;
 }

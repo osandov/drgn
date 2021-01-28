@@ -847,13 +847,8 @@ class PlatformFlags(enum.Flag):
 class Register:
     """A ``Register`` represents information about a processor register."""
 
-    name: str
-    """Name of this register."""
-
-    number: int
-    """
-    Arbitrary number which uniquely identifies this register on its platform.
-    """
+    names: Sequence[str]
+    """Names of this register."""
 
 host_platform: Platform
 """The platform of the host which is running drgn."""
@@ -1444,13 +1439,13 @@ class StackFrame:
         instruction instead of the return address.
         """
         ...
-    def register(self, reg: Union[str, IntegerLike, Register]) -> int:
+    def register(self, reg: str) -> int:
         """
-        Get the value of the given register at this stack frame. The register
-        can be specified by name (e.g., ``'rax'``), number (see
-        :attr:`Register.number`), or as a :class:`Register`.
+        Get the value of the given register at this stack frame.
 
-        :param reg: Register to get.
+        :param reg: Register name.
+        :raises ValueError: if the register name is not recognized
+        :raises LookupError: if the register value is not known
         """
         ...
     def registers(self) -> Dict[str, int]:
