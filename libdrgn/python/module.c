@@ -8,6 +8,23 @@
 #include "drgnpy.h"
 #include "../path.h"
 
+/* Basically PyModule_AddType(), which is only available since Python 3.9. */
+static int add_type(PyObject *module, PyTypeObject *type)
+{
+	int ret = PyType_Ready(type);
+	if (ret)
+		return ret;
+	const char *name = type->tp_name;
+	const char *dot = strrchr(type->tp_name, '.');
+	if (dot)
+		name = dot + 1;
+	Py_INCREF(type);
+	ret = PyModule_AddObject(module, name, (PyObject *)type);
+	if (ret)
+		Py_DECREF(type);
+	return ret;
+}
+
 PyObject *MissingDebugInfoError;
 PyObject *ObjectAbsentError;
 PyObject *OutOfBoundsError;
@@ -196,29 +213,42 @@ static int add_type_aliases(PyObject *m)
 
 DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 {
-	PyObject *m;
-	PyObject *host_platform_obj;
-	PyObject *with_libkdumpfile;
-
-	m = PyModule_Create(&drgnmodule);
+	PyObject *m = PyModule_Create(&drgnmodule);
 	if (!m)
 		return NULL;
 
-	if (add_module_constants(m) == -1 || add_type_aliases(m) == -1)
+	if (add_module_constants(m) ||
+	    add_type_aliases(m) ||
+	    add_type(m, &Language_type) || add_languages() ||
+	    add_type(m, &DrgnObject_type) ||
+	    PyType_Ready(&ObjectIterator_type) ||
+	    add_type(m, &Platform_type) ||
+	    add_type(m, &Program_type) ||
+	    add_type(m, &StackFrame_type) ||
+	    add_type(m, &StackTrace_type) ||
+	    add_type(m, &Symbol_type) ||
+	    add_type(m, &DrgnType_type) ||
+	    add_type(m, &TypeEnumerator_type) ||
+	    add_type(m, &TypeMember_type) ||
+	    add_type(m, &TypeParameter_type) ||
+	    add_type(m, &TypeTemplateParameter_type))
 		goto err;
 
 	FaultError_type.tp_base = (PyTypeObject *)PyExc_Exception;
-	if (PyType_Ready(&FaultError_type) < 0)
+	if (add_type(m, &FaultError_type))
 		goto err;
-	Py_INCREF(&FaultError_type);
-	PyModule_AddObject(m, "FaultError", (PyObject *)&FaultError_type);
 
-	MissingDebugInfoError = PyErr_NewExceptionWithDoc("_drgn.MissingDebugInfoError",
-							  drgn_MissingDebugInfoError_DOC,
-							  NULL, NULL);
+	MissingDebugInfoError =
+		PyErr_NewExceptionWithDoc("_drgn.MissingDebugInfoError",
+					  drgn_MissingDebugInfoError_DOC, NULL,
+					  NULL);
 	if (!MissingDebugInfoError)
 		goto err;
-	PyModule_AddObject(m, "MissingDebugInfoError", MissingDebugInfoError);
+	if (PyModule_AddObject(m, "MissingDebugInfoError",
+			       MissingDebugInfoError)) {
+		Py_DECREF(MissingDebugInfoError);
+		goto err;
+	}
 
 	ObjectAbsentError =
 		PyErr_NewExceptionWithDoc("_drgn.ObjectAbsentError",
@@ -226,98 +256,48 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 					  NULL, NULL);
 	if (!ObjectAbsentError)
 		goto err;
-	PyModule_AddObject(m, "ObjectAbsentError", ObjectAbsentError);
+	if (PyModule_AddObject(m, "ObjectAbsentError", ObjectAbsentError)) {
+		Py_DECREF(ObjectAbsentError);
+		goto err;
+	}
 
 	OutOfBoundsError = PyErr_NewExceptionWithDoc("_drgn.OutOfBoundsError",
 						     drgn_OutOfBoundsError_DOC,
 						     NULL, NULL);
 	if (!OutOfBoundsError)
 		goto err;
-	PyModule_AddObject(m, "OutOfBoundsError", OutOfBoundsError);
-
-	if (PyType_Ready(&Language_type) < 0)
+	if (PyModule_AddObject(m, "OutOfBoundsError", OutOfBoundsError)) {
+		Py_DECREF(OutOfBoundsError);
 		goto err;
-	Py_INCREF(&Language_type);
-	PyModule_AddObject(m, "Language", (PyObject *)&Language_type);
-	if (add_languages() == -1)
-		goto err;
+	}
 
-	if (PyStructSequence_InitType2(&Register_type, &Register_desc) == -1)
+	if (Py_REFCNT(&Register_type) == 0 &&
+	    PyStructSequence_InitType2(&Register_type, &Register_desc))
 		goto err;
-	PyModule_AddObject(m, "Register", (PyObject *)&Register_type);
-
-	if (PyType_Ready(&DrgnObject_type) < 0)
+	if (PyModule_AddObject(m, "Register", (PyObject *)&Register_type)) {
+		Py_DECREF(&Register_type);
 		goto err;
-	Py_INCREF(&DrgnObject_type);
-	PyModule_AddObject(m, "Object", (PyObject *)&DrgnObject_type);
+	}
 
-	if (PyType_Ready(&ObjectIterator_type) < 0)
-		goto err;
-
-	if (PyType_Ready(&Platform_type) < 0)
-		goto err;
-	Py_INCREF(&Platform_type);
-	PyModule_AddObject(m, "Platform", (PyObject *)&Platform_type);
-
-	if (PyType_Ready(&Program_type) < 0)
-		goto err;
-	Py_INCREF(&Program_type);
-	PyModule_AddObject(m, "Program", (PyObject *)&Program_type);
-
-	if (PyType_Ready(&StackFrame_type) < 0)
-		goto err;
-	Py_INCREF(&StackFrame_type);
-	PyModule_AddObject(m, "StackFrame", (PyObject *)&StackFrame_type);
-
-	if (PyType_Ready(&StackTrace_type) < 0)
-		goto err;
-	Py_INCREF(&StackTrace_type);
-	PyModule_AddObject(m, "StackTrace", (PyObject *)&StackTrace_type);
-
-	if (PyType_Ready(&Symbol_type) < 0)
-		goto err;
-	Py_INCREF(&Symbol_type);
-	PyModule_AddObject(m, "Symbol", (PyObject *)&Symbol_type);
-
-	if (PyType_Ready(&DrgnType_type) < 0)
-		goto err;
-	Py_INCREF(&DrgnType_type);
-	PyModule_AddObject(m, "Type", (PyObject *)&DrgnType_type);
-
-	if (PyType_Ready(&TypeEnumerator_type) < 0)
-		goto err;
-	Py_INCREF(&TypeEnumerator_type);
-	PyModule_AddObject(m, "TypeEnumerator",
-			   (PyObject *)&TypeEnumerator_type);
-
-	if (PyType_Ready(&TypeMember_type) < 0)
-		goto err;
-	Py_INCREF(&TypeMember_type);
-	PyModule_AddObject(m, "TypeMember", (PyObject *)&TypeMember_type);
-
-	if (PyType_Ready(&TypeParameter_type) < 0)
-		goto err;
-	Py_INCREF(&TypeParameter_type);
-	PyModule_AddObject(m, "TypeParameter", (PyObject *)&TypeParameter_type);
-
-	if (PyType_Ready(&TypeTemplateParameter_type) < 0)
-		goto err;
-	Py_INCREF(&TypeTemplateParameter_type);
-	PyModule_AddObject(m, "TypeTemplateParameter",
-			   (PyObject *)&TypeTemplateParameter_type);
-
-	host_platform_obj = Platform_wrap(&drgn_host_platform);
+	PyObject *host_platform_obj = Platform_wrap(&drgn_host_platform);
 	if (!host_platform_obj)
 		goto err;
-	PyModule_AddObject(m, "host_platform", host_platform_obj);
+	if (PyModule_AddObject(m, "host_platform", host_platform_obj)) {
+		Py_DECREF(host_platform_obj);
+		goto err;
+	}
 
+	PyObject *with_libkdumpfile;
 #ifdef WITH_LIBKDUMPFILE
 	with_libkdumpfile = Py_True;
 #else
 	with_libkdumpfile = Py_False;
 #endif
 	Py_INCREF(with_libkdumpfile);
-	PyModule_AddObject(m, "_with_libkdumpfile", with_libkdumpfile);
+	if (PyModule_AddObject(m, "_with_libkdumpfile", with_libkdumpfile)) {
+		Py_DECREF(with_libkdumpfile);
+		goto err;
+	}
 
 	return m;
 
