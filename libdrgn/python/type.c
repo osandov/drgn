@@ -140,7 +140,7 @@ static PyObject *DrgnType_get_is_signed(DrgnType *self)
 				    "%s type does not have a signedness",
 				    drgn_type_kind_str(self->type));
 	}
-	return PyBool_FromLong(drgn_type_is_signed(self->type));
+	Py_RETURN_BOOL(drgn_type_is_signed(self->type));
 }
 
 static PyObject *DrgnType_get_type(DrgnType *self)
@@ -322,7 +322,7 @@ static PyObject *DrgnType_get_is_variadic(DrgnType *self)
 				    "%s type cannot be variadic",
 				    drgn_type_kind_str(self->type));
 	}
-	return PyBool_FromLong(drgn_type_is_variadic(self->type));
+	Py_RETURN_BOOL(drgn_type_is_variadic(self->type));
 }
 
 static PyObject *DrgnType_get_template_parameters(DrgnType *self)
@@ -640,7 +640,7 @@ static PyObject *DrgnType_type_name(DrgnType *self)
 
 static PyObject *DrgnType_is_complete(DrgnType *self)
 {
-	return PyBool_FromLong(drgn_type_is_complete(self->type));
+	Py_RETURN_BOOL(drgn_type_is_complete(self->type));
 }
 
 static int qualifiers_converter(PyObject *o, void *p)
@@ -714,10 +714,7 @@ static PyObject *DrgnType_has_member(DrgnType *self, PyObject *args,
 	err = drgn_type_has_member_len(self->type, name, name_len, &has_member);
 	if (err)
 		return set_drgn_error(err);
-	if (has_member)
-		Py_RETURN_TRUE;
-	else
-		Py_RETURN_FALSE;
+	Py_RETURN_BOOL(has_member);
 }
 
 static PyMethodDef DrgnType_methods[] = {

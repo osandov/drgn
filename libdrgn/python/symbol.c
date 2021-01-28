@@ -43,18 +43,13 @@ static PyObject *Symbol_repr(Symbol *self)
 
 static PyObject *Symbol_richcompare(Symbol *self, PyObject *other, int op)
 {
-	bool ret;
-
 	if (!PyObject_TypeCheck(other, &Symbol_type) ||
 	    (op != Py_EQ && op != Py_NE))
 		Py_RETURN_NOTIMPLEMENTED;
-	ret = drgn_symbol_eq(self->sym, ((Symbol *)other)->sym);
+	bool ret = drgn_symbol_eq(self->sym, ((Symbol *)other)->sym);
 	if (op == Py_NE)
 		ret = !ret;
-	if (ret)
-		Py_RETURN_TRUE;
-	else
-		Py_RETURN_FALSE;
+	Py_RETURN_BOOL(ret);
 }
 
 static PyObject *Symbol_get_name(Symbol *self, void *arg)

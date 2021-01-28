@@ -39,6 +39,13 @@
 
 #define DRGNPY_PUBLIC __attribute__((visibility("default")))
 
+#define Py_RETURN_BOOL(cond) do {	\
+	if (cond)			\
+		Py_RETURN_TRUE;		\
+	else				\
+		Py_RETURN_FALSE;	\
+} while (0)
+
 typedef struct {
 	PyObject_HEAD
 	struct drgn_object obj;

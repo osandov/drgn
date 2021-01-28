@@ -18,39 +18,34 @@ static PyObject *filename_matches(PyObject *self, PyObject *args,
 	static char *keywords[] = {"haystack", "needle", NULL};
 	struct path_arg haystack_arg = {.allow_none = true};
 	struct path_arg needle_arg = {.allow_none = true};
-	struct path_iterator haystack = {
-		.components = (struct path_iterator_component [1]){},
-		.num_components = 0,
-	};
-	struct path_iterator needle = {
-		.components = (struct path_iterator_component [1]){},
-		.num_components = 0,
-	};
-	bool ret;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:filename_matches",
 					 keywords, path_converter,
 					 &haystack_arg, path_converter,
 					 &needle_arg))
 		return NULL;
 
+	struct path_iterator haystack = {
+		.components = (struct path_iterator_component [1]){},
+		.num_components = 0,
+	};
 	if (haystack_arg.path) {
 		haystack.components[0].path = haystack_arg.path;
 		haystack.components[0].len = haystack_arg.length;
 		haystack.num_components = 1;
 	}
+	struct path_iterator needle = {
+		.components = (struct path_iterator_component [1]){},
+		.num_components = 0,
+	};
 	if (needle_arg.path) {
 		needle.components[0].path = needle_arg.path;
 		needle.components[0].len = needle_arg.length;
 		needle.num_components = 1;
 	}
-	ret = path_ends_with(&haystack, &needle);
+	bool ret = path_ends_with(&haystack, &needle);
 	path_cleanup(&haystack_arg);
 	path_cleanup(&needle_arg);
-	if (ret)
-		Py_RETURN_TRUE;
-	else
-		Py_RETURN_FALSE;
+	Py_RETURN_BOOL(ret);
 }
 
 static PyObject *sizeof_(PyObject *self, PyObject *arg)

@@ -725,7 +725,7 @@ static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 		if (err)
 			return set_drgn_error(err);
 		if (drgn_type_kind(underlying_type) == DRGN_TYPE_BOOL)
-			return PyBool_FromLong(!!uvalue);
+			Py_RETURN_BOOL(uvalue);
 		else
 			return PyLong_FromUnsignedLongLong(uvalue);
 	}
@@ -1047,10 +1047,7 @@ static PyObject *DrgnObject_get_type(DrgnObject *self, void *arg)
 
 static PyObject *DrgnObject_get_absent(DrgnObject *self, void *arg)
 {
-	if (self->obj.kind == DRGN_OBJECT_ABSENT)
-		Py_RETURN_TRUE;
-	else
-		Py_RETURN_FALSE;
+	Py_RETURN_BOOL(self->obj.kind == DRGN_OBJECT_ABSENT);
 }
 
 static PyObject *DrgnObject_get_address(DrgnObject *self, void *arg)

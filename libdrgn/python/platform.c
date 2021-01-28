@@ -59,18 +59,14 @@ static void Platform_dealloc(Platform *self)
 
 static PyObject *Platform_richcompare(Platform *self, PyObject *other, int op)
 {
-	bool ret;
-
 	if (!PyObject_TypeCheck(other, &Platform_type) ||
 	    (op != Py_EQ && op != Py_NE))
 		Py_RETURN_NOTIMPLEMENTED;
-	ret = drgn_platform_eq(self->platform, ((Platform *)other)->platform);
+	bool ret = drgn_platform_eq(self->platform,
+				    ((Platform *)other)->platform);
 	if (op == Py_NE)
 		ret = !ret;
-	if (ret)
-		Py_RETURN_TRUE;
-	else
-		Py_RETURN_FALSE;
+	Py_RETURN_BOOL(ret);
 }
 
 static PyObject *Platform_get_arch(Platform *self, void *arg)

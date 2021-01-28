@@ -247,8 +247,5 @@ PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *args,
 
 	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
 		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
-	if (prog->prog.vmcoreinfo.pgtable_l5_enabled)
-		Py_RETURN_TRUE;
-	else
-		Py_RETURN_FALSE;
+	Py_RETURN_BOOL(prog->prog.vmcoreinfo.pgtable_l5_enabled);
 }
