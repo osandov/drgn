@@ -30,7 +30,7 @@
  * set to zero if the tag is not of interest); see DIE_FLAG_*.
  */
 enum {
-	INSN_MAX_SKIP = 226,
+	INSN_MAX_SKIP = 219,
 	ATTRIB_BLOCK1,
 	ATTRIB_BLOCK2,
 	ATTRIB_BLOCK4,
@@ -60,7 +60,14 @@ enum {
 	ATTRIB_SPECIFICATION_REF_UDATA,
 	ATTRIB_SPECIFICATION_REF_ADDR4,
 	ATTRIB_SPECIFICATION_REF_ADDR8,
-	ATTRIB_MAX_INSN = ATTRIB_SPECIFICATION_REF_ADDR8,
+	ATTRIB_INDIRECT,
+	ATTRIB_SIBLING_INDIRECT,
+	ATTRIB_NAME_INDIRECT,
+	ATTRIB_STMT_LIST_INDIRECT,
+	ATTRIB_DECL_FILE_INDIRECT,
+	ATTRIB_DECLARATION_INDIRECT,
+	ATTRIB_SPECIFICATION_INDIRECT,
+	ATTRIB_MAX_INSN = ATTRIB_SPECIFICATION_INDIRECT,
 };
 
 enum {
@@ -285,6 +292,9 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 	case DW_FORM_flag_present:
 		*insn_ret = 0;
 		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_INDIRECT;
+		return NULL;
 	default:
 		return binary_buffer_error(bb,
 					   "unknown attribute form %" PRIu64,
@@ -312,6 +322,9 @@ static struct drgn_error *dw_at_sibling_to_insn(struct binary_buffer *bb,
 	case DW_FORM_ref_udata:
 		*insn_ret = ATTRIB_SIBLING_REF_UDATA;
 		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_SIBLING_INDIRECT;
+		return NULL;
 	default:
 		return binary_buffer_error(bb,
 					   "unknown attribute form %" PRIu64 " for DW_AT_sibling",
@@ -337,6 +350,9 @@ static struct drgn_error *dw_at_name_to_insn(struct drgn_dwarf_index_cu *cu,
 	case DW_FORM_string:
 		*insn_ret = ATTRIB_NAME_STRING;
 		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_NAME_INDIRECT;
+		return NULL;
 	default:
 		return binary_buffer_error(bb,
 					   "unknown attribute form %" PRIu64 " for DW_AT_name",
@@ -361,6 +377,9 @@ dw_at_stmt_list_to_insn(struct drgn_dwarf_index_cu *cu,
 			*insn_ret = ATTRIB_STMT_LIST_LINEPTR8;
 		else
 			*insn_ret = ATTRIB_STMT_LIST_LINEPTR4;
+		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_STMT_LIST_INDIRECT;
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
@@ -394,6 +413,9 @@ static struct drgn_error *dw_at_decl_file_to_insn(struct binary_buffer *bb,
 	case DW_FORM_udata:
 		*insn_ret = ATTRIB_DECL_FILE_UDATA;
 		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_DECL_FILE_INDIRECT;
+		return NULL;
 	default:
 		return binary_buffer_error(bb,
 					   "unknown attribute form %" PRIu64 " for DW_AT_decl_file",
@@ -416,6 +438,9 @@ dw_at_declaration_to_insn(struct binary_buffer *bb, uint64_t form,
 		 */
 		*insn_ret = 0;
 		*die_flags |= DIE_FLAG_DECLARATION;
+		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_DECLARATION_INDIRECT;
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
@@ -461,6 +486,9 @@ dw_at_specification_to_insn(struct drgn_dwarf_index_cu *cu,
 							   "unsupported address size %" PRIu8 " for DW_FORM_ref_addr",
 							   cu->address_size);
 		}
+		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_SPECIFICATION_INDIRECT;
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
@@ -838,6 +866,35 @@ index_specification(struct drgn_dwarf_index *dindex, uintptr_t declaration,
 	return ret == -1 ? &drgn_enomem : NULL;
 }
 
+static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
+					     struct binary_buffer *bb,
+					     uint8_t insn, uint8_t *insn_ret,
+					     uint8_t *die_flags)
+{
+	struct drgn_error *err;
+	uint64_t form;
+	if ((err = binary_buffer_next_uleb128(bb, &form)))
+		return err;
+	switch (insn) {
+	case ATTRIB_INDIRECT:
+		return dw_form_to_insn(cu, bb, form, insn_ret);
+	case ATTRIB_SIBLING_INDIRECT:
+		return dw_at_sibling_to_insn(bb, form, insn_ret);
+	case ATTRIB_NAME_INDIRECT:
+		return dw_at_name_to_insn(cu, bb, form, insn_ret);
+	case ATTRIB_STMT_LIST_INDIRECT:
+		return dw_at_stmt_list_to_insn(cu, bb, form, insn_ret);
+	case ATTRIB_DECL_FILE_INDIRECT:
+		return dw_at_decl_file_to_insn(bb, form, insn_ret);
+	case ATTRIB_DECLARATION_INDIRECT:
+		return dw_at_declaration_to_insn(bb, form, insn_ret, die_flags);
+	case ATTRIB_SPECIFICATION_INDIRECT:
+		return dw_at_specification_to_insn(cu, bb, form, insn_ret);
+	default:
+		UNREACHABLE();
+	}
+}
+
 /*
  * First pass: read the file name tables and index DIEs with
  * DW_AT_specification. This recurses into namespaces.
@@ -876,7 +933,9 @@ index_cu_first_pass(struct drgn_dwarf_index *dindex,
 		uint64_t stmt_list;
 		const char *sibling = NULL;
 		uint8_t insn;
+		uint8_t extra_die_flags = 0;
 		while ((insn = *insnp++)) {
+indirect_insn:;
 			uint64_t skip, tmp;
 			switch (insn) {
 			case ATTRIB_BLOCK1:
@@ -1019,6 +1078,21 @@ specification:
 specification_ref_addr:
 				specification = (uintptr_t)debug_info_buffer + tmp;
 				break;
+			case ATTRIB_INDIRECT:
+			case ATTRIB_SIBLING_INDIRECT:
+			case ATTRIB_NAME_INDIRECT:
+			case ATTRIB_STMT_LIST_INDIRECT:
+			case ATTRIB_DECL_FILE_INDIRECT:
+			case ATTRIB_DECLARATION_INDIRECT:
+			case ATTRIB_SPECIFICATION_INDIRECT:
+				if ((err = read_indirect_insn(cu, &buffer->bb,
+							      insn, &insn,
+							      &extra_die_flags)))
+					return err;
+				if (insn)
+					goto indirect_insn;
+				else
+					continue;
 			default:
 				skip = insn;
 skip:
@@ -1028,7 +1102,7 @@ skip:
 				break;
 			}
 		}
-		insn = *insnp;
+		insn = *insnp | extra_die_flags;
 
 		if (depth == 0) {
 			if (stmt_list_ptr) {
@@ -1308,7 +1382,9 @@ index_cu_second_pass(struct drgn_dwarf_index_namespace *ns,
 		bool specification = false;
 		const char *sibling = NULL;
 		uint8_t insn;
+		uint8_t extra_die_flags = 0;
 		while ((insn = *insnp++)) {
+indirect_insn:;
 			uint64_t skip, tmp;
 			switch (insn) {
 			case ATTRIB_BLOCK1:
@@ -1460,6 +1536,21 @@ strp:
 				specification = true;
 				skip = 8;
 				goto skip;
+			case ATTRIB_INDIRECT:
+			case ATTRIB_SIBLING_INDIRECT:
+			case ATTRIB_NAME_INDIRECT:
+			case ATTRIB_STMT_LIST_INDIRECT:
+			case ATTRIB_DECL_FILE_INDIRECT:
+			case ATTRIB_DECLARATION_INDIRECT:
+			case ATTRIB_SPECIFICATION_INDIRECT:
+				if ((err = read_indirect_insn(cu, &buffer->bb,
+							      insn, &insn,
+							      &extra_die_flags)))
+					return err;
+				if (insn)
+					goto indirect_insn;
+				else
+					continue;
 			default:
 				skip = insn;
 skip:
@@ -1469,7 +1560,7 @@ skip:
 				break;
 			}
 		}
-		insn = *insnp;
+		insn = *insnp | extra_die_flags;
 
 		uint8_t tag = insn & DIE_FLAG_TAG_MASK;
 		if (depth == 1) {
