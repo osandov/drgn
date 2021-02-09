@@ -27,7 +27,7 @@ The build requires:
 - `libtool <https://www.gnu.org/software/libtool/>`_
 - `flex <https://github.com/westes/flex>`_
 - `GNU bison <https://www.gnu.org/software/bison/>`_
-- `GNU awk <https://www.gnu.org/software/gawk/>`_
+- `GNU Awk <https://www.gnu.org/software/gawk/>`_ 4.0 or newer
 
 .. include:: ../README.rst
     :start-after: start-install-dependencies
