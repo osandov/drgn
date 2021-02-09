@@ -147,10 +147,6 @@ drgn_platform_register_by_name(const struct drgn_platform *platform,
 LIBDRGN_PUBLIC const char * const *
 drgn_register_names(const struct drgn_register *reg, size_t *num_names_ret)
 {
-	/*
-	 * We don't support any architectures that have multiple names for the
-	 * same register yet.
-	 */
-	*num_names_ret = 1;
-	return &reg->name;
+	*num_names_ret = reg->num_names;
+	return reg->names;
 }

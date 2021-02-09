@@ -1,4 +1,3 @@
-%{
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0+
 
@@ -14,104 +13,29 @@
 #include "program.h"
 #include "type.h"
 #include "util.h"
-%}
 
-x86-64
-%%
-rax
-rdx
-rcx
-rbx
-rsi
-rdi
-rbp
-rsp
-r8
-r9
-r10
-r11
-r12
-r13
-r14
-r15
-# The System V ABI calls this the return address (RA) register, but it's
-# effectively the instruction pointer.
-rip
-xmm0
-xmm1
-xmm2
-xmm3
-xmm4
-xmm5
-xmm6
-xmm7
-xmm8
-xmm9
-xmm10
-xmm11
-xmm12
-xmm13
-xmm14
-xmm15
-st0
-st1
-st2
-st3
-st4
-st5
-st6
-st7
-mm0
-mm1
-mm2
-mm3
-mm4
-mm5
-mm6
-mm7
-rFLAGS
-es
-cs
-ss
-ds
-fs
-gs
-fs.base, 58
-gs.base
-tr, 62
-ldtr
-mxcsr
-fcw
-fsw
-xmm16
-xmm17
-xmm18
-xmm19
-xmm20
-xmm21
-xmm22
-xmm23
-xmm24
-xmm25
-xmm26
-xmm27
-xmm28
-xmm29
-xmm30
-xmm31
-k0, 118
-k1
-k2
-k3
-k4
-k5
-k6
-k7
-bnd0
-bnd1
-bnd2
-bnd3
-%%
+#define DRGN_ARCH_REGISTER_LAYOUT					\
+	/* The psABI calls this the return address (RA) register. */	\
+	DRGN_REGISTER_LAYOUT(rip, 8, 16)				\
+	DRGN_REGISTER_LAYOUT(rsp, 8, 7)					\
+	/* The remaining layout matches struct pt_regs. */		\
+	DRGN_REGISTER_LAYOUT(r15, 8, 15)				\
+	DRGN_REGISTER_LAYOUT(r14, 8, 14)				\
+	DRGN_REGISTER_LAYOUT(r13, 8, 13)				\
+	DRGN_REGISTER_LAYOUT(r12, 8, 12)				\
+	DRGN_REGISTER_LAYOUT(rbp, 8, 6)					\
+	DRGN_REGISTER_LAYOUT(rbx, 8, 3)					\
+	DRGN_REGISTER_LAYOUT(r11, 8, 11)				\
+	DRGN_REGISTER_LAYOUT(r10, 8, 10)				\
+	DRGN_REGISTER_LAYOUT(r9, 8, 9)					\
+	DRGN_REGISTER_LAYOUT(r8, 8, 8)					\
+	DRGN_REGISTER_LAYOUT(rax, 8, 0)					\
+	DRGN_REGISTER_LAYOUT(rcx, 8, 2)					\
+	DRGN_REGISTER_LAYOUT(rdx, 8, 1)					\
+	DRGN_REGISTER_LAYOUT(rsi, 8, 4)					\
+	DRGN_REGISTER_LAYOUT(rdi, 8, 5)
+
+#include "arch_x86_64.inc"
 
 /*
  * The in-kernel struct pt_regs, UAPI struct pt_regs, elf_gregset_t, and struct
@@ -583,9 +507,11 @@ linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
 }
 
 const struct drgn_architecture_info arch_info_x86_64 = {
-	ARCHITECTURE_INFO,
+	.name = "x86-64",
+	.arch = DRGN_ARCH_X86_64,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
+	DRGN_ARCHITECTURE_REGISTERS,
 	.pt_regs_set_initial_registers = pt_regs_set_initial_registers_x86_64,
 	.prstatus_set_initial_registers = prstatus_set_initial_registers_x86_64,
 	.linux_kernel_set_initial_registers =

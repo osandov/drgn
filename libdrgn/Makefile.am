@@ -11,14 +11,15 @@ AM_CPPFLAGS = -isystem include -D_GNU_SOURCE
 
 include_HEADERS = drgn.h
 
-BUILT_SOURCES = drgn.h
+ARCH_DEFS = arch_ppc64.defs \
+	    arch_x86_64.defs
+
+BUILT_SOURCES = drgn.h $(ARCH_DEFS:.defs=.inc)
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
-ARCH_INS = arch_ppc64.c.in \
-	   arch_x86_64.c.in
-
-libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
+libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
+			 arch_register_layout.h \
 			 binary_buffer.c \
 			 binary_buffer.h \
 			 binary_search_tree.h \
@@ -56,6 +57,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_INS:.c.in=.c) \
 			 pp.h \
 			 program.c \
 			 program.h \
+			 register_state.c \
+			 register_state.h \
 			 serialize.c \
 			 serialize.h \
 			 siphash.h \
@@ -81,7 +84,7 @@ libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
 endif
 
-arch_%.c: arch_%.c.in build-aux/gen_arch.awk
+arch_%.inc: arch_%.defs build-aux/gen_arch.awk
 	$(AM_V_GEN)gawk -f $(word 2, $^) $< > $@
 
 drgn.h: drgn.h.in configure.ac
@@ -147,7 +150,7 @@ python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
 python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 	$(AM_V_GEN)$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
-EXTRA_DIST = $(ARCH_INS) build-aux/gen_arch.awk build-aux/gen_constants.py
+EXTRA_DIST = $(ARCH_DEFS) build-aux/gen_arch.awk build-aux/gen_constants.py
 
 EXTRA_PROGRAMS = examples/load_debug_info
 

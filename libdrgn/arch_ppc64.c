@@ -1,4 +1,3 @@
-%{
 // (C) Copyright IBM Corp. 2020
 // SPDX-License-Identifier: GPL-3.0+
 
@@ -11,95 +10,66 @@
 #include "error.h"
 #include "platform.h"
 #include "program.h"
-%}
 
-ppc64
-%%
-r0
-r1
-r2
-r3
-r4
-r5
-r6
-r7
-r8
-r9
-r10
-r11
-r12
-r13
-r14
-r15
-r16
-r17
-r18
-r19
-r20
-r21
-r22
-r23
-r24
-r25
-r26
-r27
-r28
-r29
-r30
-r31
-f0
-f1
-f2
-f3
-f4
-f5
-f6
-f7
-f8
-f9
-f10
-f11
-f12
-f13
-f14
-f15
-f16
-f17
-f18
-f19
-f20
-f21
-f22
-f23
-f24
-f25
-f26
-f27
-f28
-f29
-f30
-f31
-# There are two numbering schemes for the remaining registers. The original
-# definition appears to be "64-bit PowerPC ELF Application Binary Interface
-# Supplement" [1]. The GNU toolchain instead uses its own that was later
-# codified in "Power Architecture 64-Bit ELF V2 ABI Specification" [2]. We use
-# the latter.
-#
-# What the ABI calls the link register (register 65) is used as the DWARF CFI
-# return_address_register column in practice, which is actually the program
-# counter. We omit it to avoid confusion.
-#
-# 1: https://refspecs.linuxfoundation.org/ELF/ppc64/PPC-elf64abi.html
-# 2: https://openpowerfoundation.org/?resource_lib=64-bit-elf-v2-abi-specification-power-architecture
-cr0, 68
-cr1
-cr2
-cr3
-cr4
-cr5
-cr6
-cr7
-%%
+/*
+ * There are two conflicting definitions of DWARF register numbers after 63. The
+ * original definition appears to be "64-bit PowerPC ELF Application Binary
+ * Interface Supplement" [1]. The GNU toolchain instead uses its own that was
+ * later codified in "Power Architecture 64-Bit ELF V2 ABI Specification" [2].
+ * We use the latter.
+ *
+ * 1: https://refspecs.linuxfoundation.org/ELF/ppc64/PPC-elf64abi.html
+ * 2: https://openpowerfoundation.org/?resource_lib=64-bit-elf-v2-abi-specification-power-architecture
+ */
+#define DRGN_ARCH_REGISTER_LAYOUT						\
+	/*									\
+	 * The psABI calls register 65 the link register, but it's used as the	\
+	 * DWARF CFI return_address_register, so it usually contains the program\
+	 * counter.								\
+	 */									\
+	DRGN_REGISTER_LAYOUT(ra, 8, 65)						\
+	DRGN_REGISTER_LAYOUT(r0, 8, 0)						\
+	DRGN_REGISTER_LAYOUT(r1, 8, 1)						\
+	DRGN_REGISTER_LAYOUT(r2, 8, 2)						\
+	DRGN_REGISTER_LAYOUT(r3, 8, 3)						\
+	DRGN_REGISTER_LAYOUT(r4, 8, 4)						\
+	DRGN_REGISTER_LAYOUT(r5, 8, 5)						\
+	DRGN_REGISTER_LAYOUT(r6, 8, 6)						\
+	DRGN_REGISTER_LAYOUT(r7, 8, 7)						\
+	DRGN_REGISTER_LAYOUT(r8, 8, 8)						\
+	DRGN_REGISTER_LAYOUT(r9, 8, 9)						\
+	DRGN_REGISTER_LAYOUT(r10, 8, 10)					\
+	DRGN_REGISTER_LAYOUT(r11, 8, 11)					\
+	DRGN_REGISTER_LAYOUT(r12, 8, 12)					\
+	DRGN_REGISTER_LAYOUT(r13, 8, 13)					\
+	DRGN_REGISTER_LAYOUT(r14, 8, 14)					\
+	DRGN_REGISTER_LAYOUT(r15, 8, 15)					\
+	DRGN_REGISTER_LAYOUT(r16, 8, 16)					\
+	DRGN_REGISTER_LAYOUT(r17, 8, 17)					\
+	DRGN_REGISTER_LAYOUT(r18, 8, 18)					\
+	DRGN_REGISTER_LAYOUT(r19, 8, 19)					\
+	DRGN_REGISTER_LAYOUT(r20, 8, 20)					\
+	DRGN_REGISTER_LAYOUT(r21, 8, 21)					\
+	DRGN_REGISTER_LAYOUT(r22, 8, 22)					\
+	DRGN_REGISTER_LAYOUT(r23, 8, 23)					\
+	DRGN_REGISTER_LAYOUT(r24, 8, 24)					\
+	DRGN_REGISTER_LAYOUT(r25, 8, 25)					\
+	DRGN_REGISTER_LAYOUT(r26, 8, 26)					\
+	DRGN_REGISTER_LAYOUT(r27, 8, 27)					\
+	DRGN_REGISTER_LAYOUT(r28, 8, 28)					\
+	DRGN_REGISTER_LAYOUT(r29, 8, 29)					\
+	DRGN_REGISTER_LAYOUT(r30, 8, 30)					\
+	DRGN_REGISTER_LAYOUT(r31, 8, 31)					\
+	DRGN_REGISTER_LAYOUT(cr0, 8, 68)					\
+	DRGN_REGISTER_LAYOUT(cr1, 8, 69)					\
+	DRGN_REGISTER_LAYOUT(cr2, 8, 70)					\
+	DRGN_REGISTER_LAYOUT(cr3, 8, 71)					\
+	DRGN_REGISTER_LAYOUT(cr4, 8, 72)					\
+	DRGN_REGISTER_LAYOUT(cr5, 8, 73)					\
+	DRGN_REGISTER_LAYOUT(cr6, 8, 74)					\
+	DRGN_REGISTER_LAYOUT(cr7, 8, 75)
+
+#include "arch_ppc64.inc"
 
 static struct drgn_error *
 set_initial_registers_from_struct_ppc64(struct drgn_program *prog,
@@ -247,9 +217,11 @@ out:
 }
 
 const struct drgn_architecture_info arch_info_ppc64 = {
-	ARCHITECTURE_INFO,
+	.name = "ppc64",
+	.arch = DRGN_ARCH_PPC64,
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
+	DRGN_ARCHITECTURE_REGISTERS,
 	.pt_regs_set_initial_registers = pt_regs_set_initial_registers_ppc64,
 	.prstatus_set_initial_registers = prstatus_set_initial_registers_ppc64,
 	.linux_kernel_set_initial_registers =
