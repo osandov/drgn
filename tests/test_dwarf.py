@@ -1723,6 +1723,65 @@ class TestTypes(TestCase):
             ),
         )
 
+    def test_enum_typedef(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.enumeration_type,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "color"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                        ),
+                        (
+                            DwarfDie(
+                                DW_TAG.enumerator,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "RED"),
+                                    DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 0),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.enumerator,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "GREEN"),
+                                    DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 1),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.enumerator,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "BLUE"),
+                                    DwarfAttrib(DW_AT.const_value, DW_FORM.data1, 2),
+                                ),
+                            ),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.typedef,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "__uint32_t"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
+                        ),
+                    ),
+                    unsigned_int_die,
+                )
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.enum_type(
+                "color",
+                prog.int_type("unsigned int", 4, False),
+                (
+                    TypeEnumerator("RED", 0),
+                    TypeEnumerator("GREEN", 1),
+                    TypeEnumerator("BLUE", 2),
+                ),
+            ),
+        )
+
     def test_enum_anonymous(self):
         prog = dwarf_program(
             wrap_test_type_dies(
