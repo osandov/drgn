@@ -4194,7 +4194,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					   &qualified_compatible_type);
 		if (err)
 			goto err;
-		compatible_type = qualified_compatible_type.type;
+		compatible_type = drgn_underlying_type(qualified_compatible_type.type);
 		if (drgn_type_kind(compatible_type) != DRGN_TYPE_INT) {
 			err = drgn_error_create(DRGN_ERROR_OTHER,
 						"DW_AT_type of DW_TAG_enumeration_type is not an integer type");
