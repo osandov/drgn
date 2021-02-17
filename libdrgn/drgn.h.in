@@ -271,8 +271,6 @@ enum drgn_type_kind {
 	DRGN_TYPE_BOOL,
 	/** Floating-point type. */
 	DRGN_TYPE_FLOAT,
-	/** Complex type. */
-	DRGN_TYPE_COMPLEX,
 	/** Structure type. */
 	DRGN_TYPE_STRUCT,
 	/** Union type. */
@@ -903,9 +901,9 @@ enum drgn_object_encoding {
 	/**
 	 * Memory buffer.
 	 *
-	 * This is used for objects with a complex, structure, union, class, or
-	 * array type. The value is a buffer of the contents of that object's
-	 * memory in the program.
+	 * This is used for objects with a structure, union, class, or array
+	 * type. The value is a buffer of the contents of that object's memory
+	 * in the program.
 	 */
 	DRGN_OBJECT_ENCODING_BUFFER,
 	/**
@@ -2028,14 +2026,13 @@ drgn_type_language(struct drgn_type *type)
 
 /**
  * Get whether a kind of type has a name. This is true for integer, boolean,
- * floating-point, complex, and typedef types.
+ * floating-point, and typedef types.
  */
 static inline bool drgn_type_kind_has_name(enum drgn_type_kind kind)
 {
 	return (kind == DRGN_TYPE_INT ||
 		kind == DRGN_TYPE_BOOL ||
 		kind == DRGN_TYPE_FLOAT ||
-		kind == DRGN_TYPE_COMPLEX ||
 		kind == DRGN_TYPE_TYPEDEF);
 }
 /** Get whether a type has a name. @sa drgn_type_kind_has_name() */
@@ -2054,14 +2051,13 @@ static inline const char *drgn_type_name(struct drgn_type *type)
 
 /**
  * Get whether a kind of type has a size. This is true for integer, boolean,
- * floating-point, complex, structure, union, class, and pointer types.
+ * floating-point, structure, union, class, and pointer types.
  */
 static inline bool drgn_type_kind_has_size(enum drgn_type_kind kind)
 {
 	return (kind == DRGN_TYPE_INT ||
 		kind == DRGN_TYPE_BOOL ||
 		kind == DRGN_TYPE_FLOAT ||
-		kind == DRGN_TYPE_COMPLEX ||
 		kind == DRGN_TYPE_STRUCT ||
 		kind == DRGN_TYPE_UNION ||
 		kind == DRGN_TYPE_CLASS ||
@@ -2164,13 +2160,12 @@ static inline size_t drgn_type_num_members(struct drgn_type *type)
 }
 
 /**
- * Get whether a kind of type has a wrapped type. This is true for complex,
- * enumerated, typedef, pointer, array, and function types.
+ * Get whether a kind of type has a wrapped type. This is true for enumerated,
+ * typedef, pointer, array, and function types.
  */
 static inline bool drgn_type_kind_has_type(enum drgn_type_kind kind)
 {
-	return (kind == DRGN_TYPE_COMPLEX ||
-		kind == DRGN_TYPE_ENUM ||
+	return (kind == DRGN_TYPE_ENUM ||
 		kind == DRGN_TYPE_TYPEDEF ||
 		kind == DRGN_TYPE_POINTER ||
 		kind == DRGN_TYPE_ARRAY ||
@@ -2183,8 +2178,6 @@ static inline bool drgn_type_has_type(struct drgn_type *type)
 }
 /**
  * Get the type wrapped by this type.
- *
- * For a complex type, this is the corresponding real type.
  *
  * For an enumerated type, this is the compatible integer type. It is @c NULL if
  * the enumerated type is incomplete.

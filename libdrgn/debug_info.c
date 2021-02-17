@@ -1461,32 +1461,8 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	case DW_ATE_unsigned_char:
 		return drgn_int_type_create(dbinfo->prog, name, size, false,
 					    lang, ret);
-	/*
-	 * GCC also supports complex integer types, but DWARF 4 doesn't have an
-	 * encoding for that. GCC as of 8.2 emits DW_ATE_lo_user, but that's
-	 * ambiguous because it also emits that in other cases. For now, we
-	 * don't support it.
-	 */
-	case DW_ATE_complex_float: {
-		Dwarf_Die child;
-		if (dwarf_type(die, &child)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "DW_TAG_base_type has missing or invalid DW_AT_type");
-		}
-		struct drgn_qualified_type real_type;
-		struct drgn_error *err = drgn_type_from_dwarf(dbinfo, module,
-							      &child,
-							      &real_type);
-		if (err)
-			return err;
-		if (drgn_type_kind(real_type.type) != DRGN_TYPE_FLOAT &&
-		    drgn_type_kind(real_type.type) != DRGN_TYPE_INT) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "DW_AT_type of DW_ATE_complex_float is not a floating-point or integer type");
-		}
-		return drgn_complex_type_create(dbinfo->prog, name, size,
-						real_type.type, lang, ret);
-	}
+	/* We don't support complex types yet. */
+	case DW_ATE_complex_float:
 	default:
 		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "DW_TAG_base_type has unknown DWARF encoding 0x%llx",

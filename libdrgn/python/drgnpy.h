@@ -236,7 +236,6 @@ DrgnType *Program_void_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds);
-DrgnType *Program_complex_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_struct_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_union_type(Program *self, PyObject *args, PyObject *kwds);
 DrgnType *Program_class_type(Program *self, PyObject *args, PyObject *kwds);

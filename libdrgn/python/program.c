@@ -912,8 +912,6 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_bool_type_DOC},
 	{"float_type", (PyCFunction)Program_float_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_float_type_DOC},
-	{"complex_type", (PyCFunction)Program_complex_type,
-	 METH_VARARGS | METH_KEYWORDS, drgn_Program_complex_type_DOC},
 	{"struct_type", (PyCFunction)Program_struct_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_struct_type_DOC},
 	{"union_type", (PyCFunction)Program_union_type,

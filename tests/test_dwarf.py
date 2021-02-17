@@ -268,30 +268,6 @@ class TestTypes(TestCase):
             "TEST",
         )
 
-    def test_complex(self):
-        prog = dwarf_program(
-            test_type_dies(
-                (
-                    DwarfDie(
-                        DW_TAG.base_type,
-                        (
-                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 16),
-                            DwarfAttrib(
-                                DW_AT.encoding, DW_FORM.data1, DW_ATE.complex_float
-                            ),
-                            DwarfAttrib(DW_AT.name, DW_FORM.string, "double _Complex"),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
-                        ),
-                    ),
-                    double_die,
-                )
-            )
-        )
-        self.assertIdentical(
-            prog.type("TEST").type,
-            prog.complex_type("double _Complex", 16, prog.float_type("double", 8)),
-        )
-
     def test_unknown_base_type_encoding(self):
         prog = dwarf_program(
             test_type_dies(

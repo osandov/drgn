@@ -17,7 +17,6 @@ const char * const drgn_type_kind_spelling[] = {
 	[DRGN_TYPE_INT] = "int",
 	[DRGN_TYPE_BOOL] = "bool",
 	[DRGN_TYPE_FLOAT] = "float",
-	[DRGN_TYPE_COMPLEX] = "complex",
 	[DRGN_TYPE_STRUCT] = "struct",
 	[DRGN_TYPE_UNION] = "union",
 	[DRGN_TYPE_CLASS] = "class",
@@ -435,37 +434,6 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 			.primitive = primitive,
 			.name = name,
 			.size = size,
-			.program = prog,
-			.language = lang ? lang : drgn_program_language(prog),
-		}
-	};
-	return find_or_create_type(&key, ret);
-}
-
-struct drgn_error *drgn_complex_type_create(struct drgn_program *prog,
-					    const char *name, uint64_t size,
-					    struct drgn_type *real_type,
-					    const struct drgn_language *lang,
-					    struct drgn_type **ret)
-{
-	if (drgn_type_program(real_type) != prog) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "type is from different program");
-	}
-	if (drgn_type_kind(real_type) != DRGN_TYPE_FLOAT &&
-	    drgn_type_kind(real_type) != DRGN_TYPE_INT) {
-		return drgn_error_create(DRGN_ERROR_TYPE,
-					 "real type of complex type must be floating-point or integer type");
-	}
-
-	struct drgn_type key = {
-		{
-			.kind = DRGN_TYPE_COMPLEX,
-			.is_complete = true,
-			.primitive = DRGN_NOT_PRIMITIVE_TYPE,
-			.name = name,
-			.size = size,
-			.type = real_type,
 			.program = prog,
 			.language = lang ? lang : drgn_program_language(prog),
 		}
@@ -1026,7 +994,6 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_type_sizeof(struct drgn_type *type,
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
 	case DRGN_TYPE_FLOAT:
-	case DRGN_TYPE_COMPLEX:
 	case DRGN_TYPE_POINTER:
 		*ret = drgn_type_size(type);
 		return NULL;
@@ -1082,8 +1049,6 @@ enum drgn_object_encoding drgn_type_object_encoding(struct drgn_type *type)
 		return DRGN_OBJECT_ENCODING_UNSIGNED;
 	case DRGN_TYPE_FLOAT:
 		return DRGN_OBJECT_ENCODING_FLOAT;
-	case DRGN_TYPE_COMPLEX:
-		return DRGN_OBJECT_ENCODING_BUFFER;
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
 	case DRGN_TYPE_CLASS:

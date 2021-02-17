@@ -7,7 +7,7 @@ Programs
 --------
 
 .. drgndoc:: Program
-    :exclude: (void|int|bool|float|complex|struct|union|class|enum|typedef|pointer|array|function)_type
+    :exclude: (void|int|bool|float|struct|union|class|enum|typedef|pointer|array|function)_type
 .. drgndoc:: ProgramFlags
 .. drgndoc:: FindObjectFlags
 
@@ -102,7 +102,6 @@ can be used just like types obtained from :meth:`Program.type()`.
 .. drgndoc:: Program.int_type
 .. drgndoc:: Program.bool_type
 .. drgndoc:: Program.float_type
-.. drgndoc:: Program.complex_type
 .. drgndoc:: Program.struct_type
 .. drgndoc:: Program.union_type
 .. drgndoc:: Program.class_type

@@ -342,7 +342,6 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
 	case DRGN_TYPE_FLOAT:
-	case DRGN_TYPE_COMPLEX:
 	case DRGN_TYPE_TYPEDEF:
 		return c_declare_basic(qualified_type, name, indent, sb);
 	case DRGN_TYPE_STRUCT:
@@ -493,7 +492,6 @@ c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
 	case DRGN_TYPE_FLOAT:
-	case DRGN_TYPE_COMPLEX:
 		return c_declare_basic(qualified_type, NULL, indent, sb);
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
@@ -1591,9 +1589,6 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 		return c_format_int_object(obj, flags, sb);
 	case DRGN_TYPE_FLOAT:
 		return c_format_float_object(obj, sb);
-	case DRGN_TYPE_COMPLEX:
-		return drgn_error_format(DRGN_ERROR_TYPE,
-					 "complex object formatting is not implemented");
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
 	case DRGN_TYPE_CLASS:

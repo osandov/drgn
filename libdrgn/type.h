@@ -159,26 +159,6 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 					  const struct drgn_language *lang,
 					  struct drgn_type **ret);
 
-/**
- * Create a complex type.
- *
- * @param[in] prog Program owning type.
- * @param[in] name Name of the type. Not copied; must remain valid for the
- * lifetime of @p prog. Must not be @c NULL.
- * @param[in] size Size of the type in bytes.
- * @param[in] real_type Corresponding real type. Must not be @c NULL and must be
- * a floating-point or integer type.
- * @param[in] lang Language of the type or @c NULL for the default language of
- * @p prog.
- * @param[out] ret Returned type.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_complex_type_create(struct drgn_program *prog,
-					    const char *name, uint64_t size,
-					    struct drgn_type *real_type,
-					    const struct drgn_language *lang,
-					    struct drgn_type **ret);
-
 DEFINE_VECTOR_TYPE(drgn_type_template_parameter_vector,
 		   struct drgn_type_template_parameter)
 

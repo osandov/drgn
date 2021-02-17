@@ -75,51 +75,6 @@ class TestType(MockProgramTestCase):
 
         self.assertRaises(TypeError, self.prog.float_type, None, 4)
 
-    def test_complex(self):
-        t = self.prog.complex_type(
-            "double _Complex", 16, self.prog.float_type("double", 8)
-        )
-        self.assertEqual(t.kind, TypeKind.COMPLEX)
-        self.assertIsNone(t.primitive)
-        self.assertEqual(t.language, DEFAULT_LANGUAGE)
-        self.assertEqual(t.name, "double _Complex")
-        self.assertEqual(t.size, 16)
-        self.assertIdentical(t.type, self.prog.float_type("double", 8))
-        self.assertTrue(t.is_complete())
-
-        self.assertEqual(
-            repr(t),
-            "prog.complex_type(name='double _Complex', size=16, type=prog.float_type(name='double', size=8))",
-        )
-        self.assertEqual(sizeof(t), 16)
-
-        self.assertRaises(
-            TypeError,
-            self.prog.complex_type,
-            None,
-            16,
-            self.prog.float_type("double", 8),
-        )
-        self.assertRaises(
-            TypeError, self.prog.complex_type, "double _Complex", 16, None
-        )
-        self.assertRaisesRegex(
-            ValueError,
-            "must be floating-point or integer type",
-            self.prog.complex_type,
-            "double _Complex",
-            16,
-            self.prog.void_type(),
-        )
-        self.assertRaisesRegex(
-            ValueError,
-            "must be unqualified",
-            self.prog.complex_type,
-            "double _Complex",
-            16,
-            self.prog.float_type("double", 8, qualifiers=Qualifiers.CONST),
-        )
-
     def test_struct(self):
         t = self.prog.struct_type(
             "point",
@@ -955,16 +910,6 @@ class TestType(MockProgramTestCase):
         self.assertEqual(
             repr(self.prog.void_type(language=Language.CPP)),
             "prog.void_type(language=Language.CPP)",
-        )
-
-    def test_different_programs_complex(self):
-        self.assertRaisesRegex(
-            ValueError,
-            "type is from different program",
-            self.prog.complex_type,
-            "double _Complex",
-            16,
-            Program().float_type("double", 8),
         )
 
     def test_different_programs_compound(self):

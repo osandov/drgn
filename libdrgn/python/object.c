@@ -283,10 +283,6 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 	}
 	case DRGN_OBJECT_ENCODING_BUFFER:
 		switch (drgn_type_kind(type->underlying_type)) {
-		case DRGN_TYPE_COMPLEX:
-			PyErr_SetString(PyExc_NotImplementedError,
-					"creating complex object is not implemented");
-			return -1;
 		case DRGN_TYPE_STRUCT:
 		case DRGN_TYPE_UNION:
 		case DRGN_TYPE_CLASS:
@@ -739,10 +735,6 @@ static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 	}
 	case DRGN_OBJECT_ENCODING_BUFFER:
 		switch (drgn_type_kind(underlying_type)) {
-		case DRGN_TYPE_COMPLEX:
-			PyErr_SetString(PyExc_NotImplementedError,
-					"reading complex type is not implemented");
-			return NULL;
 		case DRGN_TYPE_STRUCT:
 		case DRGN_TYPE_UNION:
 		case DRGN_TYPE_CLASS:

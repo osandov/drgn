@@ -505,25 +505,6 @@ class Program:
         :param lang: :attr:`Type.language`
         """
         ...
-    def complex_type(
-        self,
-        name: str,
-        size: IntegerLike,
-        type: Type,
-        *,
-        qualifiers: Qualifiers = Qualifiers.NONE,
-        language: Optional[Language] = None,
-    ) -> Type:
-        """
-        Create a new complex type. It has kind :attr:`TypeKind.COMPLEX`.
-
-        :param name: :attr:`Type.name`
-        :param size: :attr:`Type.size`
-        :param type: The corresponding real type (:attr:`Type.type`)
-        :param qualifiers: :attr:`Type.qualifiers`
-        :param lang: :attr:`Type.language`
-        """
-        ...
     @overload
     def struct_type(
         self,
@@ -1504,7 +1485,7 @@ class Type:
     name: str
     """
     Name of this type. This is present for integer, boolean, floating-point,
-    complex, and typedef types.
+    and typedef types.
     """
 
     tag: Optional[str]
@@ -1516,8 +1497,8 @@ class Type:
     size: Optional[int]
     """
     Size of this type in bytes, or ``None`` if this is an incomplete type. This
-    is present for integer, boolean, floating-point, complex, structure, union,
-    class, and pointer types.
+    is present for integer, boolean, floating-point, structure, union, class,
+    and pointer types.
     """
 
     length: Optional[int]
@@ -1533,7 +1514,6 @@ class Type:
     """
     Type underlying this type, defined as follows:
 
-    * For complex types, the corresponding the real type.
     * For typedef types, the aliased type.
     * For enumerated types, the compatible integer type, which is ``None`` if
       this is an incomplete type.

@@ -51,16 +51,6 @@ class TestPrettyPrintTypeName(MockProgramTestCase):
     def test_float(self):
         self.assertQualifiedTypeName("float", True, self.prog.float_type, "float", 4)
 
-    def test_complex(self):
-        self.assertQualifiedTypeName(
-            "double _Complex",
-            True,
-            self.prog.complex_type,
-            "double _Complex",
-            16,
-            self.prog.float_type("double", 8),
-        )
-
     def test_struct(self):
         self.assertQualifiedTypeName(
             "struct point", True, self.prog.struct_type, "point"
