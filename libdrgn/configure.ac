@@ -1,7 +1,7 @@
 dnl Copyright (c) Facebook, Inc. and its affiliates.
 dnl SPDX-License-Identifier: GPL-3.0+
 
-AC_INIT([drgn], [0.0.8],
+AC_INIT([drgn], [0.0.9],
 	[https://github.com/osandov/drgn/issues],,
 	[https://github.com/osandov/drgn])
 
