@@ -1752,7 +1752,8 @@ class TypeParameter:
     .. note::
 
         Neither GCC nor Clang emits debugging information for default arguments
-        (as of GCC 10 and Clang 11), so this is usually absent.
+        (as of GCC 10 and Clang 11), and drgn does not yet parse it, so this is
+        usually absent.
     """
 
     type: Type
