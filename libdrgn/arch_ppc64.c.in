@@ -159,7 +159,7 @@ set_initial_registers_from_struct_ppc64(Dwfl_Thread *thread, const void *regs,
 	/* cr0 - cr7 */
 	uint64_t ccr = READ_REGISTER(38);
 	for (int i = 0; i < 8; i++)
-		dwarf_regs[i] = (ccr >> (4 * i)) & 0xf;
+		dwarf_regs[i] = ccr & (UINT64_C(0xf) << (28 - 4 * i));
 	if (!dwfl_thread_state_registers(thread, 68, 8, dwarf_regs))
 		return drgn_error_libdwfl();
 
