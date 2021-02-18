@@ -41,40 +41,16 @@
 struct drgn_error *drgn_object_is_zero(const struct drgn_object *obj,
 				       bool *ret);
 
-/**
- * Type of an object.
- *
- * This is used to contain the types of operands and operator results.
- */
+/** Type-related fields from @ref drgn_object. */
 struct drgn_object_type {
-	/** See @ref drgn_qualified_type::type. */
 	struct drgn_type *type;
-	/** See @ref drgn_qualified_type::qualifiers. */
-	enum drgn_qualifiers qualifiers;
-	/**
-	 * Cached underlying type of @c type.
-	 *
-	 * See @ref drgn_underlying_type().
-	 */
+	/* Cached underlying type of @c type. */
 	struct drgn_type *underlying_type;
-	/**
-	 * If the object is a bit field, the size of the field in bits.
-	 * Otherwise, 0.
-	 */
-	uint64_t bit_field_size;
+	uint64_t bit_size;
+	enum drgn_qualifiers qualifiers;
+	enum drgn_object_encoding encoding;
+	bool is_bit_field;
 };
-
-/** Get the @ref drgn_object_type of a @ref drgn_object. */
-static inline struct drgn_object_type
-drgn_object_type(const struct drgn_object *obj)
-{
-	return (struct drgn_object_type){
-		.type = obj->type,
-		.qualifiers = obj->qualifiers,
-		.underlying_type = drgn_underlying_type(obj->type),
-		.bit_field_size = obj->is_bit_field ? obj->bit_size : 0,
-	};
-}
 
 /** Convert a @ref drgn_object_type to a @ref drgn_qualified_type. */
 static inline struct drgn_qualified_type
@@ -87,66 +63,70 @@ drgn_object_type_qualified(const struct drgn_object_type *type)
 }
 
 /**
- * Reinitialize the fields of a @ref drgn_object, excluding the program and
- * value.
+ * Type of an operand or operator result.
+ *
+ * This is basically @ref drgn_qualified_type plus a bit field size and cached
+ * underlying type.
+ */
+struct drgn_operand_type {
+	struct drgn_type *type;
+	enum drgn_qualifiers qualifiers;
+	struct drgn_type *underlying_type;
+	uint64_t bit_field_size;
+};
+
+/** Get the @ref drgn_operand_type of a @ref drgn_object. */
+static inline struct drgn_operand_type
+drgn_object_operand_type(const struct drgn_object *obj)
+{
+	return (struct drgn_operand_type){
+		.type = obj->type,
+		.qualifiers = obj->qualifiers,
+		.underlying_type = drgn_underlying_type(obj->type),
+		.bit_field_size = obj->is_bit_field ? obj->bit_size : 0,
+	};
+}
+
+/**
+ * Deinitialize the value of a @ref drgn_object and reinitialize the kind and
+ * type fields.
  */
 static inline void drgn_object_reinit(struct drgn_object *obj,
 				      const struct drgn_object_type *type,
-				      enum drgn_object_encoding encoding,
-				      uint64_t bit_size,
 				      enum drgn_object_kind kind)
 {
 	drgn_object_deinit(obj);
 	obj->type = type->type;
 	obj->qualifiers = type->qualifiers;
-	obj->encoding = encoding;
-	obj->bit_size = bit_size;
-	obj->is_bit_field = type->bit_field_size != 0;
+	obj->bit_size = type->bit_size;
+	obj->encoding = type->encoding;
+	obj->is_bit_field = type->is_bit_field;
 	obj->kind = kind;
 }
 
 /**
- * Get the @ref drgn_object_encoding and size in bits for an object given its
- * type.
+ * Compute the type-related fields of a @ref drgn_object from a @ref
+ * drgn_qualified_type and a bit field size.
  */
 struct drgn_error *
-drgn_object_type_encoding_and_size(const struct drgn_object_type *type,
-				   enum drgn_object_encoding *encoding_ret,
-				   uint64_t *bit_size_ret);
-
-/** Prepare to reinitialize an object. */
-struct drgn_error *
-drgn_object_set_common(struct drgn_qualified_type qualified_type,
-		       uint64_t bit_field_size,
-		       struct drgn_object_type *type_ret,
-		       enum drgn_object_encoding *encoding_ret,
-		       uint64_t *bit_size_ret);
-
-/**
- * Sanity check that the given bit size and bit field size are valid for the
- * given object encoding.
- */
-struct drgn_error *sanity_check_object(enum drgn_object_encoding encoding,
-				       uint64_t bit_field_size,
-				       uint64_t bit_size);
+drgn_object_type(struct drgn_qualified_type qualified_type,
+		 uint64_t bit_field_size, struct drgn_object_type *ret);
 
 /**
  * Like @ref drgn_object_set_signed() but @ref drgn_object_set_common() was
- * already called.
+ * already called and the type is already known to be a signed integer type.
  */
-struct drgn_error *
-drgn_object_set_signed_internal(struct drgn_object *res,
-				const struct drgn_object_type *type,
-				uint64_t bit_size, int64_t svalue);
+void drgn_object_set_signed_internal(struct drgn_object *res,
+				     const struct drgn_object_type *type,
+				     int64_t svalue);
 
 /**
  * Like @ref drgn_object_set_unsigned() but @ref drgn_object_set_common() was
- * already called.
+ * already called and the type is already known to be an unsigned integer type.
  */
-struct drgn_error *
-drgn_object_set_unsigned_internal(struct drgn_object *res,
-				  const struct drgn_object_type *type,
-				  uint64_t bit_size, uint64_t uvalue);
+void drgn_object_set_unsigned_internal(struct drgn_object *res,
+				       const struct drgn_object_type *type,
+				       uint64_t uvalue);
 
 /**
  * Like @ref drgn_object_set_from_buffer() but @ref drgn_object_set_common() was
@@ -155,9 +135,8 @@ drgn_object_set_unsigned_internal(struct drgn_object *res,
 struct drgn_error *
 drgn_object_set_from_buffer_internal(struct drgn_object *res,
 				     const struct drgn_object_type *type,
-				     enum drgn_object_encoding encoding,
-				     uint64_t bit_size, const void *buf,
-				     uint64_t bit_offset, bool little_endian);
+				     const void *buf, uint64_t bit_offset,
+				     bool little_endian);
 
 /** Convert a @ref drgn_byte_order to a boolean. */
 struct drgn_error *
@@ -179,7 +158,7 @@ drgn_byte_order_to_little_endian(struct drgn_program *prog,
  */
 typedef struct drgn_error *
 drgn_binary_op_impl(struct drgn_object *res,
-		    const struct drgn_object_type *type,
+		    const struct drgn_operand_type *op_type,
 		    const struct drgn_object *lhs,
 		    const struct drgn_object *rhs);
 /**
@@ -199,9 +178,9 @@ drgn_binary_op_impl(struct drgn_object *res,
 typedef struct drgn_error *
 drgn_shift_op_impl(struct drgn_object *res,
 		   const struct drgn_object *lhs,
-		   const struct drgn_object_type *lhs_type,
+		   const struct drgn_operand_type *lhs_type,
 		   const struct drgn_object *rhs,
-		   const struct drgn_object_type *rhs_type);
+		   const struct drgn_operand_type *rhs_type);
 
 /**
  * Unary operator implementation.
@@ -217,7 +196,7 @@ drgn_shift_op_impl(struct drgn_object *res,
  */
 typedef struct drgn_error *
 drgn_unary_op_impl(struct drgn_object *res,
-		   const struct drgn_object_type *type,
+		   const struct drgn_operand_type *op_type,
 		   const struct drgn_object *obj);
 
 /**
@@ -317,7 +296,7 @@ drgn_unary_op_impl drgn_op_not_impl;
 struct drgn_error *drgn_op_cast(struct drgn_object *res,
 				struct drgn_qualified_type qualified_type,
 				const struct drgn_object *obj,
-				struct drgn_object_type *obj_type);
+				const struct drgn_operand_type *obj_type);
 
 /**
  * Implement object comparison for signed, unsigned, and floating-point objects.
@@ -326,7 +305,7 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
  */
 struct drgn_error *drgn_op_cmp_impl(const struct drgn_object *lhs,
 				    const struct drgn_object *rhs,
-				    const struct drgn_object_type *type,
+				    const struct drgn_operand_type *op_type,
 				    int *ret);
 
 /**
@@ -353,11 +332,12 @@ struct drgn_error *drgn_op_cmp_pointers(const struct drgn_object *lhs,
  * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
  * error.
  */
-struct drgn_error *drgn_op_add_to_pointer(struct drgn_object *res,
-					  const struct drgn_object_type *type,
-					  uint64_t referenced_size, bool negate,
-					  const struct drgn_object *ptr,
-					  const struct drgn_object *index);
+struct drgn_error *
+drgn_op_add_to_pointer(struct drgn_object *res,
+		       const struct drgn_operand_type *op_type,
+		       uint64_t referenced_size, bool negate,
+		       const struct drgn_object *ptr,
+		       const struct drgn_object *index);
 
 /**
  * Implement pointer subtraction.
@@ -374,7 +354,7 @@ struct drgn_error *drgn_op_add_to_pointer(struct drgn_object *res,
  * error.
  */
 struct drgn_error *drgn_op_sub_pointers(struct drgn_object *res,
-					const struct drgn_object_type *type,
+					const struct drgn_operand_type *op_type,
 					uint64_t referenced_size,
 					const struct drgn_object *lhs,
 					const struct drgn_object *rhs);

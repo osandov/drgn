@@ -2813,7 +2813,7 @@ static bool c_can_represent_all_values(struct drgn_type *type1,
 }
 
 static struct drgn_error *c_integer_promotions(struct drgn_program *prog,
-					       struct drgn_object_type *type)
+					       struct drgn_operand_type *type)
 {
 	struct drgn_error *err;
 	enum drgn_primitive_type primitive;
@@ -2943,9 +2943,9 @@ c_corresponding_unsigned_type(struct drgn_program *prog,
 }
 
 static struct drgn_error *c_common_real_type(struct drgn_program *prog,
-					     struct drgn_object_type *type1,
-					     struct drgn_object_type *type2,
-					     struct drgn_object_type *ret)
+					     struct drgn_operand_type *type1,
+					     struct drgn_operand_type *type2,
+					     struct drgn_operand_type *ret)
 {
 	struct drgn_error *err;
 	enum drgn_primitive_type primitive1, primitive2;
@@ -3133,13 +3133,13 @@ ret2:
 }
 
 static struct drgn_error *c_operand_type(const struct drgn_object *obj,
-					 struct drgn_object_type *type_ret,
+					 struct drgn_operand_type *type_ret,
 					 bool *is_pointer_ret,
 					 uint64_t *referenced_size_ret)
 {
 	struct drgn_error *err;
 
-	*type_ret = drgn_object_type(obj);
+	*type_ret = drgn_object_operand_type(obj);
 	switch (drgn_type_kind(type_ret->underlying_type)) {
 	case DRGN_TYPE_ARRAY: {
 		uint8_t word_size;
@@ -3209,8 +3209,7 @@ struct drgn_error *c_op_cast(struct drgn_object *res,
 			     const struct drgn_object *obj)
 {
 	struct drgn_error *err;
-	struct drgn_object_type type;
-
+	struct drgn_operand_type type;
 	err = c_operand_type(obj, &type, NULL, NULL);
 	if (err)
 		return err;
@@ -3221,8 +3220,8 @@ struct drgn_error *c_op_cast(struct drgn_object *res,
  * It's too expensive to check that two pointer types are compatible, so we just
  * check that they refer to the same kind of type with equal size.
  */
-static bool c_pointers_similar(const struct drgn_object_type *lhs_type,
-			       const struct drgn_object_type *rhs_type,
+static bool c_pointers_similar(const struct drgn_operand_type *lhs_type,
+			       const struct drgn_operand_type *rhs_type,
 			       uint64_t lhs_size, uint64_t rhs_size)
 {
 	struct drgn_type *lhs_referenced_type, *rhs_referenced_type;
@@ -3260,9 +3259,9 @@ struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
 			    const struct drgn_object *rhs, int *ret)
 {
 	struct drgn_error *err;
-	struct drgn_object_type lhs_type, rhs_type;
-	bool lhs_pointer, rhs_pointer;
 
+	struct drgn_operand_type lhs_type, rhs_type;
+	bool lhs_pointer, rhs_pointer;
 	err = c_operand_type(lhs, &lhs_type, &lhs_pointer, NULL);
 	if (err)
 		return err;
@@ -3275,8 +3274,7 @@ struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
 	} else if (lhs_pointer || rhs_pointer) {
 		goto type_error;
 	} else {
-		struct drgn_object_type type;
-
+		struct drgn_operand_type type;
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
@@ -3297,10 +3295,10 @@ struct drgn_error *c_op_add(struct drgn_object *res,
 			    const struct drgn_object *rhs)
 {
 	struct drgn_error *err;
-	struct drgn_object_type lhs_type, rhs_type;
+
+	struct drgn_operand_type lhs_type, rhs_type;
 	bool lhs_pointer, rhs_pointer;
 	uint64_t lhs_size, rhs_size;
-
 	err = c_operand_type(lhs, &lhs_type, &lhs_pointer, &lhs_size);
 	if (err)
 		return err;
@@ -3317,8 +3315,7 @@ struct drgn_error *c_op_add(struct drgn_object *res,
 			goto type_error;
 		return drgn_op_add_to_pointer(res, &rhs_type, rhs_size, false, rhs, lhs);
 	} else {
-		struct drgn_object_type type;
-
+		struct drgn_operand_type type;
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
@@ -3339,10 +3336,10 @@ struct drgn_error *c_op_sub(struct drgn_object *res,
 			    const struct drgn_object *rhs)
 {
 	struct drgn_error *err;
-	struct drgn_object_type lhs_type, rhs_type;
+
+	struct drgn_operand_type lhs_type, rhs_type;
 	bool lhs_pointer, rhs_pointer;
 	uint64_t lhs_size, rhs_size;
-
 	err = c_operand_type(lhs, &lhs_type, &lhs_pointer, &lhs_size);
 	if (err)
 		return err;
@@ -3351,8 +3348,7 @@ struct drgn_error *c_op_sub(struct drgn_object *res,
 		return err;
 
 	if (lhs_pointer && rhs_pointer) {
-		struct drgn_object_type type = {};
-
+		struct drgn_operand_type type = {};
 		err = drgn_program_find_primitive_type(drgn_object_program(lhs),
 						       DRGN_C_TYPE_PTRDIFF_T,
 						       &type.type);
@@ -3369,8 +3365,7 @@ struct drgn_error *c_op_sub(struct drgn_object *res,
 		return drgn_op_add_to_pointer(res, &lhs_type, lhs_size, true,
 					      lhs, rhs);
 	} else {
-		struct drgn_object_type type;
-
+		struct drgn_operand_type type;
 		if (!drgn_type_is_arithmetic(lhs_type.underlying_type) ||
 		    !drgn_type_is_arithmetic(rhs_type.underlying_type))
 			goto type_error;
@@ -3392,8 +3387,8 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
 				  const struct drgn_object *rhs)		\
 {										\
 	struct drgn_error *err;							\
-	struct drgn_object_type lhs_type, rhs_type, type;			\
 										\
+	struct drgn_operand_type lhs_type, rhs_type, type;			\
 	err = c_operand_type(lhs, &lhs_type, NULL, NULL);			\
 	if (err)								\
 		return err;							\
@@ -3426,8 +3421,8 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
 					 const struct drgn_object *rhs)		\
 {										\
 	struct drgn_error *err;							\
-	struct drgn_object_type lhs_type, rhs_type;				\
 										\
+	struct drgn_operand_type lhs_type, rhs_type;				\
 	err = c_operand_type(lhs, &lhs_type, NULL, NULL);			\
 	if (err)								\
 		return err;							\
@@ -3457,8 +3452,8 @@ struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
 					 const struct drgn_object *obj)	\
 {									\
 	struct drgn_error *err;						\
-	struct drgn_object_type type;					\
 									\
+	struct drgn_operand_type type;					\
 	err = c_operand_type(obj, &type, NULL, NULL);			\
 	if (err)							\
 		return err;						\

@@ -24,7 +24,7 @@
  * @{
  */
 
-struct drgn_object_type;
+struct drgn_operand_type;
 
 /**
  * Global stop iteration error.
@@ -98,13 +98,13 @@ struct drgn_error *drgn_error_incomplete_type(const char *format,
 
 /** Create a @ref drgn_error for invalid types to a binary operator. */
 struct drgn_error *drgn_error_binary_op(const char *op_name,
-					struct drgn_object_type *type1,
-					struct drgn_object_type *type2)
+					struct drgn_operand_type *type1,
+					struct drgn_operand_type *type2)
 	__attribute__((returns_nonnull));
 
 /** Create a @ref drgn_error for an invalid type to a unary operator. */
 struct drgn_error *drgn_error_unary_op(const char *op_name,
-				       struct drgn_object_type *type)
+				       struct drgn_operand_type *type)
 	__attribute__((returns_nonnull));
 
 /** Create a @ref drgn_error for a failed symbol lookup. */

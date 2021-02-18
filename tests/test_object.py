@@ -128,6 +128,34 @@ class TestInit(MockProgramTestCase):
             bit_offset=4,
         )
 
+    def test_integer_size(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "unsupported integer bit size",
+            Object,
+            self.prog,
+            self.prog.int_type("ZERO", 0, True),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "unsupported integer bit size",
+            Object,
+            self.prog,
+            self.prog.int_type("BIG", 16, True),
+        )
+
+    def test_float_size(self):
+        for i in range(10):
+            if i == 4 or i == 8:
+                continue
+            self.assertRaisesRegex(
+                ValueError,
+                "unsupported floating-point bit size",
+                Object,
+                self.prog,
+                self.prog.float_type("FLOAT", i),
+            )
+
 
 class TestReference(MockProgramTestCase):
     def test_basic(self):
