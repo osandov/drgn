@@ -2492,6 +2492,7 @@ c_type_from_declarator(struct drgn_program *prog,
 		err = drgn_program_word_size(prog, &word_size);
 		if (!err) {
 			err = drgn_pointer_type_create(prog, *ret, word_size,
+						       DRGN_PROGRAM_ENDIAN,
 						       drgn_type_language(ret->type),
 						       &ret->type);
 		}
@@ -3149,7 +3150,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			return err;
 		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       drgn_type_type(type_ret->underlying_type),
-					       word_size,
+					       word_size, DRGN_PROGRAM_ENDIAN,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)
@@ -3169,6 +3170,7 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			return err;
 		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       function_type, word_size,
+					       DRGN_PROGRAM_ENDIAN,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)
@@ -3177,19 +3179,20 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 		break;
 	}
 	default:
+		err = drgn_type_with_byte_order(&type_ret->type,
+						&type_ret->underlying_type,
+						DRGN_PROGRAM_ENDIAN);
+		if (err)
+			return err;
 		break;
 	}
 	type_ret->qualifiers = 0;
 
 	if (is_pointer_ret) {
-		struct drgn_type *type;
-
-		type = type_ret->underlying_type;
+		struct drgn_type *type = type_ret->underlying_type;
 		*is_pointer_ret = drgn_type_kind(type) == DRGN_TYPE_POINTER;
 		if (*is_pointer_ret && referenced_size_ret) {
-			struct drgn_type *referenced_type;
-
-			referenced_type =
+			struct drgn_type *referenced_type =
 				drgn_underlying_type(drgn_type_type(type).type);
 			if (drgn_type_kind(referenced_type) == DRGN_TYPE_VOID) {
 				*referenced_size_ret = 1;

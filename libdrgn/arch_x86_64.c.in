@@ -117,16 +117,21 @@ bnd3
  * user_regs_struct all have the same layout.
  */
 static struct drgn_error *
-set_initial_registers_from_struct_x86_64(Dwfl_Thread *thread, const void *regs,
-					 size_t size, bool bswap)
+set_initial_registers_from_struct_x86_64(struct drgn_program *prog,
+					 Dwfl_Thread *thread, const void *regs,
+					 size_t size)
 {
-	Dwarf_Word dwarf_regs[17];
-
 	if (size < 160) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "registers are truncated");
 	}
 
+	bool bswap;
+	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	Dwarf_Word dwarf_regs[17];
 #define READ_REGISTER(n) ({					\
 	uint64_t reg;						\
 	memcpy(&reg, (uint64_t *)regs + n, sizeof(reg));	\
@@ -160,12 +165,10 @@ static struct drgn_error *
 pt_regs_set_initial_registers_x86_64(Dwfl_Thread *thread,
 				     const struct drgn_object *obj)
 {
-	bool bswap = (obj->little_endian !=
-		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
-	return set_initial_registers_from_struct_x86_64(thread,
+	return set_initial_registers_from_struct_x86_64(drgn_object_program(obj),
+							thread,
 							drgn_object_buffer(obj),
-							drgn_object_size(obj),
-							bswap);
+							drgn_object_size(obj));
 }
 
 static struct drgn_error *
@@ -177,13 +180,9 @@ prstatus_set_initial_registers_x86_64(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "NT_PRSTATUS is truncated");
 	}
-	bool bswap;
-	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
-	if (err)
-		return err;
-	return set_initial_registers_from_struct_x86_64(thread,
+	return set_initial_registers_from_struct_x86_64(prog, thread,
 							(char *)prstatus + 112,
-							size - 112, bswap);
+							size - 112);
 }
 
 static inline struct drgn_error *

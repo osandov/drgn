@@ -359,8 +359,7 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 			/* tmp = container_of(node, struct upid, pid_chain)->nr */
 			tmp_addr = addr + nr_bit_offset / 8;
 			err = drgn_object_set_reference(&tmp, nr_type, tmp_addr,
-							0, 0,
-							DRGN_PROGRAM_ENDIAN);
+							0, 0);
 			if (err)
 				goto out;
 			err = drgn_object_read_integer(&tmp, &node_nr);
@@ -372,8 +371,7 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 			/* tmp = container_of(node, struct upid, pid_chain)->ns */
 			tmp_addr = addr + ns_bit_offset / 8;
 			err = drgn_object_set_reference(&tmp, ns_type, tmp_addr,
-							0, 0,
-							DRGN_PROGRAM_ENDIAN);
+							0, 0);
 			if (err)
 				goto out;
 

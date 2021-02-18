@@ -54,17 +54,6 @@ PyObject *join_strings(PyObject *parts)
 	return ret;
 }
 
-PyObject *byteorder_string(bool little_endian)
-{
-	_Py_IDENTIFIER(little);
-	_Py_IDENTIFIER(big);
-	PyObject *ret;
-
-	ret = _PyUnicode_FromId(little_endian ? &PyId_little : &PyId_big);
-	Py_XINCREF(ret);
-	return ret;
-}
-
 int byteorder_converter(PyObject *o, void *p)
 {
 	struct byteorder_arg *arg = p;

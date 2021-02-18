@@ -262,6 +262,8 @@ drgn_type_dedupe_hash_pair(struct drgn_type * const *entry)
 		hash = hash_combine(hash, drgn_type_size(type));
 	if (drgn_type_has_is_signed(type))
 		hash = hash_combine(hash, drgn_type_is_signed(type));
+	if (drgn_type_has_little_endian(type))
+		hash = hash_combine(hash, drgn_type_little_endian(type));
 	const char *tag;
 	if (drgn_type_has_tag(type) && (tag = drgn_type_tag(type)))
 		hash = hash_combine(hash, hash_c_string(tag));
@@ -295,6 +297,9 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
 		return false;
 	if (drgn_type_has_is_signed(a) &&
 	    drgn_type_is_signed(a) != drgn_type_is_signed(b))
+		return false;
+	if (drgn_type_has_little_endian(a) &&
+	    drgn_type_little_endian(a) != drgn_type_little_endian(b))
 		return false;
 	if (drgn_type_has_tag(a)) {
 		const char *tag_a = drgn_type_tag(a);
@@ -362,12 +367,34 @@ struct drgn_type *drgn_void_type(struct drgn_program *prog,
 	return &prog->void_types[lang - drgn_languages];
 }
 
+static struct drgn_error *
+drgn_byte_order_to_little_endian(struct drgn_program *prog,
+				 enum drgn_byte_order byte_order, bool *ret)
+{
+	SWITCH_ENUM_DEFAULT(byte_order,
+	case DRGN_BIG_ENDIAN:
+		*ret = false;
+		return NULL;
+	case DRGN_LITTLE_ENDIAN:
+		*ret = true;
+		return NULL;
+	case DRGN_PROGRAM_ENDIAN:
+		return drgn_program_is_little_endian(prog, ret);
+	default:
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "invalid byte order");
+	)
+}
+
 struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
 					const char *name, uint64_t size,
 					bool is_signed,
+					enum drgn_byte_order byte_order,
 					const struct drgn_language *lang,
 					struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
 	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_INT &&
 	    (primitive == DRGN_C_TYPE_CHAR ||
@@ -388,14 +415,21 @@ struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
 			.language = lang ? lang : drgn_program_language(prog),
 		}
 	};
+	err = drgn_byte_order_to_little_endian(prog, byte_order,
+					       &key._private.little_endian);
+	if (err)
+		return err;
 	return find_or_create_type(&key, ret);
 }
 
 struct drgn_error *drgn_bool_type_create(struct drgn_program *prog,
 					 const char *name, uint64_t size,
+					 enum drgn_byte_order byte_order,
 					 const struct drgn_language *lang,
 					 struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
 	if (primitive == DRGN_C_TYPE_BOOL)
 		name = drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0];
@@ -413,14 +447,21 @@ struct drgn_error *drgn_bool_type_create(struct drgn_program *prog,
 			.language = lang ? lang : drgn_program_language(prog),
 		}
 	};
+	err = drgn_byte_order_to_little_endian(prog, byte_order,
+					       &key._private.little_endian);
+	if (err)
+		return err;
 	return find_or_create_type(&key, ret);
 }
 
 struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 					  const char *name, uint64_t size,
+					  enum drgn_byte_order byte_order,
 					  const struct drgn_language *lang,
 					  struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
 	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_FLOAT)
 		name = drgn_primitive_type_spellings[primitive][0];
@@ -438,6 +479,10 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 			.language = lang ? lang : drgn_program_language(prog),
 		}
 	};
+	err = drgn_byte_order_to_little_endian(prog, byte_order,
+					       &key._private.little_endian);
+	if (err)
+		return err;
 	return find_or_create_type(&key, ret);
 }
 
@@ -745,9 +790,12 @@ drgn_typedef_type_create(struct drgn_program *prog, const char *name,
 struct drgn_error *
 drgn_pointer_type_create(struct drgn_program *prog,
 			 struct drgn_qualified_type referenced_type,
-			 uint64_t size, const struct drgn_language *lang,
+			 uint64_t size, enum drgn_byte_order byte_order,
+			 const struct drgn_language *lang,
 			 struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	if (drgn_type_program(referenced_type.type) != prog) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "type is from different program");
@@ -765,6 +813,10 @@ drgn_pointer_type_create(struct drgn_program *prog,
 			.language = lang ? lang : drgn_program_language(prog),
 		}
 	};
+	err = drgn_byte_order_to_little_endian(prog, byte_order,
+					       &key._private.little_endian);
+	if (err)
+		return err;
 	return find_or_create_type(&key, ret);
 }
 
@@ -918,6 +970,124 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	type->_private.language = lang ? lang : drgn_program_language(prog);
 	*ret = type;
 	return NULL;
+}
+
+static struct drgn_error *
+drgn_type_with_byte_order_impl(struct drgn_type **type,
+			       struct drgn_type **underlying_type,
+			       enum drgn_byte_order byte_order)
+{
+	struct drgn_error *err;
+	switch (drgn_type_kind(*type)) {
+	case DRGN_TYPE_INT:
+		err = drgn_int_type_create(drgn_type_program(*type),
+					   drgn_type_name(*type),
+					   drgn_type_size(*type),
+					   drgn_type_is_signed(*type),
+					   byte_order,
+					   drgn_type_language(*type), type);
+		if (!err)
+			*underlying_type = *type;
+		return err;
+	case DRGN_TYPE_BOOL:
+		err = drgn_bool_type_create(drgn_type_program(*type),
+					    drgn_type_name(*type),
+					    drgn_type_size(*type), byte_order,
+					    drgn_type_language(*type), type);
+		if (!err)
+			*underlying_type = *type;
+		return err;
+	case DRGN_TYPE_FLOAT:
+		err = drgn_float_type_create(drgn_type_program(*type),
+					     drgn_type_name(*type),
+					     drgn_type_size(*type), byte_order,
+					     drgn_type_language(*type), type);
+		if (!err)
+			*underlying_type = *type;
+		return err;
+	case DRGN_TYPE_POINTER:
+		err = drgn_pointer_type_create(drgn_type_program(*type),
+					       drgn_type_type(*type),
+					       drgn_type_size(*type),
+					       byte_order,
+					       drgn_type_language(*type), type);
+		if (!err)
+			*underlying_type = *type;
+		return err;
+	case DRGN_TYPE_TYPEDEF: {
+		struct drgn_qualified_type aliased_type = drgn_type_type(*type);
+		err = drgn_type_with_byte_order_impl(&aliased_type.type,
+						     underlying_type,
+						     byte_order);
+		if (err)
+			return err;
+		return drgn_typedef_type_create(drgn_type_program(*type),
+						drgn_type_name(*type),
+						aliased_type,
+						drgn_type_language(*type),
+						type);
+	}
+	case DRGN_TYPE_ENUM: {
+		assert(drgn_type_is_complete(*type));
+		struct drgn_type *compatible_type = drgn_type_type(*type).type;
+		struct drgn_type *unused;
+		err = drgn_type_with_byte_order_impl(&compatible_type, &unused,
+						     byte_order);
+		if (err)
+			return err;
+		struct drgn_enum_type_builder builder;
+		drgn_enum_type_builder_init(&builder,
+					    drgn_type_program(*type));
+		size_t num_enumerators =
+			drgn_type_num_enumerators(*type);
+		if (!drgn_type_enumerator_vector_reserve(&builder.enumerators,
+							 num_enumerators)) {
+			drgn_enum_type_builder_deinit(&builder);
+			return &drgn_enomem;
+		}
+		memcpy(&builder.enumerators.data, drgn_type_enumerators(*type),
+		       num_enumerators * sizeof(struct drgn_type_enumerator));
+		err = drgn_enum_type_create(&builder, drgn_type_tag(*type),
+					    compatible_type,
+					    drgn_type_language(*type), type);
+		if (err) {
+			drgn_enum_type_builder_deinit(&builder);
+			return err;
+		}
+		*underlying_type = *type;
+		return err;
+	}
+	default:
+		return NULL;
+	}
+}
+
+struct drgn_error *
+drgn_type_with_byte_order(struct drgn_type **type,
+			  struct drgn_type **underlying_type,
+			  enum drgn_byte_order byte_order)
+{
+	struct drgn_error *err;
+	bool type_little_endian;
+	if (drgn_type_has_little_endian(*underlying_type)) {
+		type_little_endian =
+			drgn_type_little_endian(*underlying_type);
+	} else if (drgn_type_kind(*underlying_type) == DRGN_TYPE_ENUM &&
+		   drgn_type_is_complete(*underlying_type)) {
+		type_little_endian =
+			drgn_type_little_endian(drgn_type_type(*underlying_type).type);
+	} else {
+		return NULL;
+	}
+	bool little_endian;
+	err = drgn_byte_order_to_little_endian(drgn_type_program(*underlying_type),
+					       byte_order, &little_endian);
+	if (err)
+		return err;
+	if (type_little_endian == little_endian)
+		return NULL;
+	return drgn_type_with_byte_order_impl(type, underlying_type,
+					      drgn_byte_order_from_little_endian(little_endian));
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1327,26 +1497,32 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 	case DRGN_C_TYPE_CHAR:
 	case DRGN_C_TYPE_SIGNED_CHAR:
 		err = drgn_int_type_create(prog, spellings[0], 1, true,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_UNSIGNED_CHAR:
 		err = drgn_int_type_create(prog, spellings[0], 1, false,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_SHORT:
 		err = drgn_int_type_create(prog, spellings[0], 2, true,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_UNSIGNED_SHORT:
 		err = drgn_int_type_create(prog, spellings[0], 2, false,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_INT:
 		err = drgn_int_type_create(prog, spellings[0], 4, true,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_UNSIGNED_INT:
 		err = drgn_int_type_create(prog, spellings[0], 4, false,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	/* long and unsigned long default to the word size. */
@@ -1359,31 +1535,38 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 			break;
 		err = drgn_int_type_create(prog, spellings[0], word_size,
 					   type == DRGN_C_TYPE_LONG,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	}
 	case DRGN_C_TYPE_LONG_LONG:
 		err = drgn_int_type_create(prog, spellings[0], 8, true,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_UNSIGNED_LONG_LONG:
 		err = drgn_int_type_create(prog, spellings[0], 8, false,
+					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_BOOL:
 		err = drgn_bool_type_create(prog, spellings[0], 1,
+					    DRGN_PROGRAM_ENDIAN,
 					    &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_FLOAT:
 		err = drgn_float_type_create(prog, spellings[0], 4,
+					     DRGN_PROGRAM_ENDIAN,
 					     &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_DOUBLE:
 		err = drgn_float_type_create(prog, spellings[0], 8,
+					     DRGN_PROGRAM_ENDIAN,
 					     &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_LONG_DOUBLE:
 		err = drgn_float_type_create(prog, spellings[0], 16,
+					     DRGN_PROGRAM_ENDIAN,
 					     &drgn_language_c, ret);
 		break;
 	case DRGN_C_TYPE_SIZE_T:

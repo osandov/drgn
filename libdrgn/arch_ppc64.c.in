@@ -102,15 +102,20 @@ cr7
 %%
 
 static struct drgn_error *
-set_initial_registers_from_struct_ppc64(Dwfl_Thread *thread, const void *regs,
-					size_t size, bool bswap,
-					bool linux_kernel_prstatus,
+set_initial_registers_from_struct_ppc64(struct drgn_program *prog,
+					Dwfl_Thread *thread, const void *regs,
+					size_t size, bool linux_kernel_prstatus,
 					bool linux_kernel_switched_out)
 {
 	if (size < 312) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "registers are truncated");
 	}
+
+	bool bswap;
+	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
 
 	Dwarf_Word dwarf_regs[32];
 
@@ -172,12 +177,11 @@ static struct drgn_error *
 pt_regs_set_initial_registers_ppc64(Dwfl_Thread *thread,
 				    const struct drgn_object *obj)
 {
-	bool bswap = (obj->little_endian !=
-		      (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__));
-	return set_initial_registers_from_struct_ppc64(thread,
+	return set_initial_registers_from_struct_ppc64(drgn_object_program(obj),
+						       thread,
 						       drgn_object_buffer(obj),
 						       drgn_object_size(obj),
-						       bswap, false, false);
+						       false, false);
 }
 
 static struct drgn_error *
@@ -189,14 +193,10 @@ prstatus_set_initial_registers_ppc64(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 				"NT_PRSTATUS is truncated");
 	}
-	bool bswap;
-	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
-	if (err)
-		return err;
 	bool is_linux_kernel = prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL;
-	return set_initial_registers_from_struct_ppc64(thread,
+	return set_initial_registers_from_struct_ppc64(prog, thread,
 						       (char *)prstatus + 112,
-						       size - 112, bswap,
+						       size - 112,
 						       is_linux_kernel, false);
 }
 
@@ -209,10 +209,6 @@ linux_kernel_set_initial_registers_ppc64(Dwfl_Thread *thread,
 
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(task_obj);
-	bool bswap;
-	err = drgn_program_bswap(prog, &bswap);
-	if (err)
-		return err;
 
 	struct drgn_object sp_obj;
 	drgn_object_init(&sp_obj, prog);
@@ -234,9 +230,9 @@ linux_kernel_set_initial_registers_ppc64(Dwfl_Thread *thread,
 	if (err)
 		goto out;
 
-	err = set_initial_registers_from_struct_ppc64(thread, regs,
-						      sizeof(regs), bswap,
-						      false, true);
+	err = set_initial_registers_from_struct_ppc64(prog, thread, regs,
+						      sizeof(regs), false,
+						      true);
 	if (err)
 		goto out;
 

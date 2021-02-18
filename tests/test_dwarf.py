@@ -19,7 +19,7 @@ from drgn import (
     TypeTemplateParameter,
 )
 from tests import DEFAULT_LANGUAGE, TestCase, identical
-from tests.dwarf import DW_AT, DW_ATE, DW_FORM, DW_LANG, DW_TAG
+from tests.dwarf import DW_AT, DW_ATE, DW_END, DW_FORM, DW_LANG, DW_TAG
 from tests.dwarfwriter import DwarfAttrib, DwarfDie, compile_dwarf
 
 bool_die = DwarfDie(
@@ -282,6 +282,94 @@ class TestTypes(TestCase):
             )
         )
         self.assertRaisesRegex(Exception, "unknown DWARF encoding", prog.type, "TEST")
+
+    def test_int_type_byteorder(self):
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.base_type,
+                        (
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                            DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "int"),
+                            DwarfAttrib(DW_AT.endianity, DW_FORM.data1, DW_END.big),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type, prog.int_type("int", 4, True, "big")
+        )
+
+    def test_bool_type_byteorder(self):
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.base_type,
+                        (
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
+                            DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.boolean),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "_Bool"),
+                            DwarfAttrib(DW_AT.endianity, DW_FORM.data1, DW_END.big),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.bool_type("_Bool", 1, "big"))
+
+    def test_float_type_byteorder(self):
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.base_type,
+                        (
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                            DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.float),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "float"),
+                            DwarfAttrib(DW_AT.endianity, DW_FORM.data1, DW_END.big),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.float_type("float", 4, "big"))
+
+    def test_byteorder_by_name(self):
+        # The only producer that uses DW_AT_endianity that I could find is GCC
+        # for the scalar_storage_order type attribute (see
+        # https://gcc.gnu.org/onlinedocs/gcc/Common-Type-Attributes.html). It
+        # always places the standard DIE before the DIE with DW_AT_endianity,
+        # which luckily guarantees that we'll use the standard one when doing a
+        # name lookup.
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.base_type,
+                        (
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                            DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "int"),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.base_type,
+                        (
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                            DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.signed),
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "int"),
+                            DwarfAttrib(DW_AT.endianity, DW_FORM.data1, DW_END.big),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertIdentical(prog.type("int"), prog.int_type("int", 4, True, "little"))
 
     def test_qualifier(self):
         prog = dwarf_program(

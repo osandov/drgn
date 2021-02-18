@@ -457,6 +457,7 @@ class Program:
         name: str,
         size: IntegerLike,
         is_signed: bool,
+        byteorder: Optional[str] = None,
         *,
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
@@ -467,6 +468,8 @@ class Program:
         :param name: :attr:`Type.name`
         :param size: :attr:`Type.size`
         :param is_signed: :attr:`Type.is_signed`
+        :param byteorder: :attr:`Type.byteorder`, or ``None`` to use the
+            program's default byte order.
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -475,6 +478,7 @@ class Program:
         self,
         name: str,
         size: IntegerLike,
+        byteorder: Optional[str] = None,
         *,
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
@@ -484,6 +488,8 @@ class Program:
 
         :param name: :attr:`Type.name`
         :param size: :attr:`Type.size`
+        :param byteorder: :attr:`Type.byteorder`, or ``None`` to use the
+            program's default byte order.
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -492,6 +498,7 @@ class Program:
         self,
         name: str,
         size: IntegerLike,
+        byteorder: Optional[str] = None,
         *,
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
@@ -501,6 +508,8 @@ class Program:
 
         :param name: :attr:`Type.name`
         :param size: :attr:`Type.size`
+        :param byteorder: :attr:`Type.byteorder`, or ``None`` to use the
+            program's default byte order.
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -651,6 +660,7 @@ class Program:
         self,
         type: Type,
         size: Optional[int] = None,
+        byteorder: Optional[str] = None,
         *,
         qualifiers: Qualifiers = Qualifiers.NONE,
         language: Optional[Language] = None,
@@ -661,6 +671,8 @@ class Program:
         :param type: The referenced type (:attr:`Type.type`)
         :param size: :attr:`Type.size`, or ``None`` to use the program's
             default pointer size.
+        :param byteorder: :attr:`Type.byteorder`, or ``None`` to use the
+            program's default byte order.
         :param qualifiers: :attr:`Type.qualifiers`
         :param lang: :attr:`Type.language`
         """
@@ -860,9 +872,8 @@ class Object:
 
     All instances of this class have two attributes: :attr:`prog_`, the program
     that the object is from; and :attr:`type_`, the type of the object.
-    Reference objects also have an :attr:`address_` attribute. Objects may also
-    have a :attr:`byteorder_`, :attr:`bit_offset_`, and
-    :attr:`bit_field_size_`.
+    Reference objects also have an :attr:`address_` and a :attr:`bit_offset_`.
+    Objects may also have a :attr:`bit_field_size_`.
 
     :func:`repr()` of an object returns a Python representation of the object:
 
@@ -949,7 +960,6 @@ class Object:
         # python/mypy#731.
         value: Union[IntegerLike, float, bool, Mapping[str, Any], Sequence[Any]],
         *,
-        byteorder: Optional[str] = None,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> None:
         """
@@ -958,9 +968,6 @@ class Object:
         :param prog: Program to create the object in.
         :param type: Type of the object.
         :param value: Value of the object. See :meth:`value_()`.
-        :param byteorder: Byte order of the object. This should be ``'little'``
-            or ``'big'``. The default is ``None``, which indicates the program
-            byte order. This must be ``None`` for primitive values.
         :param bit_field_size: Size in bits of the object if it is a bit field.
             The default is ``None``, which means the object is not a bit field.
         """
@@ -984,7 +991,6 @@ class Object:
         type: Union[str, Type],
         *,
         address: IntegerLike,
-        byteorder: Optional[str] = None,
         bit_offset: IntegerLike = 0,
         bit_field_size: Optional[IntegerLike] = None,
     ) -> None:
@@ -1026,16 +1032,11 @@ class Object:
     absent.
     """
 
-    byteorder_: Optional[str]
-    """
-    Byte order of this object (either ``'little'`` or ``'big'``) if it is a
-    reference or a non-primitive value, ``None`` otherwise.
-    """
-
     bit_offset_: Optional[int]
     """
     Offset in bits from this object's address to the beginning of the object if
-    it is a reference, ``None`` otherwise.
+    it is a reference, ``None`` otherwise. This can only be non-zero for
+    scalars.
     """
 
     bit_field_size_: Optional[int]
@@ -1309,9 +1310,7 @@ def cast(type: Union[str, Type], obj: Object) -> Object:
     """
     ...
 
-def reinterpret(
-    type: Union[str, Type], obj: Object, byteorder: Optional[str] = None
-) -> Object:
+def reinterpret(type: Union[str, Type], obj: Object) -> Object:
     """
     Get a copy of the given object reinterpreted as another type and/or byte
     order.
@@ -1324,9 +1323,6 @@ def reinterpret(
 
     :param type: The type to reinterpret as.
     :param obj: The object to reinterpret.
-    :param byteorder: The byte order to reinterpret as. This should be
-        ``'little'`` or ``'big'``. The default is ``None``, which indicates the
-        program byte order.
     """
     ...
 
@@ -1509,6 +1505,13 @@ class Type:
 
     is_signed: bool
     """Whether this type is signed. This is only present for integer types."""
+
+    byteorder: str
+    """
+    Byte order of this type: ``'little'`` if it is little-endian, or ``'big'``
+    if it is big-endian. This is present for integer, boolean, floating-point,
+    and pointer types.
+    """
 
     type: Type
     """

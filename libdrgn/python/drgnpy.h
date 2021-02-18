@@ -248,7 +248,6 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds);
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
 PyObject *join_strings(PyObject *parts);
-PyObject *byteorder_string(bool little_endian);
 
 struct byteorder_arg {
 	bool allow_none;

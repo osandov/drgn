@@ -64,28 +64,6 @@ class TestInit(MockProgramTestCase):
     def test_integer_address(self):
         self.assertRaises(TypeError, Object, self.prog, "int", address="NULL")
 
-    def test_byteorder(self):
-        self.assertRaises(
-            ValueError, Object, self.prog, "int", address=0, byteorder="middle"
-        )
-        self.assertRaisesRegex(
-            ValueError,
-            "primitive value cannot have byteorder",
-            Object,
-            self.prog,
-            "int",
-            value=0,
-            byteorder="little",
-        )
-        self.assertRaisesRegex(
-            ValueError,
-            "absent object cannot have byteorder",
-            Object,
-            self.prog,
-            "int",
-            byteorder="little",
-        )
-
     def test_bit_field_size(self):
         self.assertRaises(
             TypeError, Object, self.prog, "int", address=0, bit_field_size="1"
@@ -166,7 +144,6 @@ class TestReference(MockProgramTestCase):
         self.assertIdentical(obj.type_, self.prog.type("int"))
         self.assertFalse(obj.absent_)
         self.assertEqual(obj.address_, 0xFFFF0000)
-        self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
         self.assertIsNone(obj.bit_field_size_)
         self.assertEqual(obj.value_(), 1000)
@@ -174,13 +151,10 @@ class TestReference(MockProgramTestCase):
 
         self.assertIdentical(obj.read_(), Object(self.prog, "int", value=1000))
 
-        obj = Object(self.prog, "int", address=0xFFFF0000, byteorder="big")
-        self.assertEqual(obj.byteorder_, "big")
-        self.assertEqual(obj.value_(), -402456576)
-        self.assertEqual(
-            repr(obj), "Object(prog, 'int', address=0xffff0000, byteorder='big')"
+        obj = Object(
+            self.prog, self.prog.int_type("sbe32", 4, True, "big"), address=0xFFFF0000
         )
-        self.assertEqual(sizeof(obj), 4)
+        self.assertEqual(obj.value_(), -402456576)
 
         obj = Object(self.prog, "unsigned int", address=0xFFFF0000, bit_field_size=4)
         self.assertEqual(obj.bit_offset_, 0)
@@ -216,7 +190,6 @@ class TestReference(MockProgramTestCase):
             bit_field_size=1,
             bit_offset=7,
         )
-        Object(self.prog, f"char [{(2**64 - 1) // 8}]", address=0, bit_offset=7)
 
     def test_read_unsigned(self):
         value = 12345678912345678989
@@ -234,11 +207,10 @@ class TestReference(MockProgramTestCase):
                     prog = mock_program(segments=[MockMemorySegment(buf, 0)])
                     obj = Object(
                         prog,
-                        "unsigned long long",
+                        prog.int_type("unsigned long long", 8, False, byteorder),
                         address=0,
                         bit_field_size=bit_size,
                         bit_offset=bit_offset,
-                        byteorder=byteorder,
                     )
                     self.assertEqual(obj.value_(), value & ((1 << bit_size) - 1))
 
@@ -249,11 +221,9 @@ class TestReference(MockProgramTestCase):
                 for byteorder in ["little", "big"]:
                     if bit_size == 64:
                         fmt = "<d"
-                        type_ = "double"
                         expected = math.pi
                     else:
                         fmt = "<f"
-                        type_ = "float"
                         expected = pi32
                     tmp = int.from_bytes(struct.pack(fmt, math.pi), "little")
                     if byteorder == "little":
@@ -264,10 +234,13 @@ class TestReference(MockProgramTestCase):
                     prog = mock_program(segments=[MockMemorySegment(buf, 0)])
                     obj = Object(
                         prog,
-                        type_,
+                        prog.float_type(
+                            "double" if bit_size == 64 else "float",
+                            bit_size // 8,
+                            byteorder,
+                        ),
                         address=0,
                         bit_offset=bit_offset,
-                        byteorder=byteorder,
                     )
                     self.assertEqual(obj.value_(), expected)
 
@@ -328,21 +301,29 @@ class TestReference(MockProgramTestCase):
                         prog,
                         prog.struct_type(
                             None,
-                            (bit_size + 7) // 8,
+                            (bit_offset + bit_size + 7) // 8,
                             (
                                 TypeMember(
                                     Object(
                                         prog,
-                                        prog.type("unsigned long long"),
+                                        prog.int_type(
+                                            "unsigned long long",
+                                            8,
+                                            False,
+                                            byteorder,
+                                        ),
                                         bit_field_size=bit_size,
                                     ),
                                     "x",
+                                    bit_offset=bit_offset,
                                 ),
                             ),
                         ),
                         address=0,
-                        bit_offset=bit_offset,
-                        byteorder=byteorder,
+                    )
+                    self.assertEqual(obj.x.value_(), value & ((1 << bit_size) - 1))
+                    self.assertEqual(
+                        obj.x.read_().value_(), value & ((1 << bit_size) - 1)
                     )
                     self.assertEqual(
                         obj.read_().x.value_(), value & ((1 << bit_size) - 1)
@@ -368,7 +349,6 @@ class TestReference(MockProgramTestCase):
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.void_type())
         self.assertEqual(obj.address_, 0)
-        self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
         self.assertIsNone(obj.bit_field_size_)
         self.assertRaisesRegex(
@@ -390,7 +370,6 @@ class TestReference(MockProgramTestCase):
             obj.type_, self.prog.function_type(self.prog.void_type(), (), False)
         )
         self.assertEqual(obj.address_, 0)
-        self.assertEqual(obj.byteorder_, "little")
         self.assertEqual(obj.bit_offset_, 0)
         self.assertIsNone(obj.bit_field_size_)
         self.assertRaisesRegex(
@@ -441,6 +420,31 @@ class TestReference(MockProgramTestCase):
             TypeError, "cannot read object with incomplete array type", obj.read_
         )
 
+    def test_non_scalar_bit_offset(self):
+        obj = Object(
+            self.prog,
+            self.prog.struct_type(
+                "weird", 9, (TypeMember(self.point_type, "point", bit_offset=1),)
+            ),
+            address=0xFFFF0000,
+        )
+        self.assertRaisesRegex(
+            ValueError, "non-scalar must be byte-aligned", obj.member_, "point"
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "non-scalar must be byte-aligned",
+            Object,
+            self.prog,
+            self.point_type,
+            address=0xFFFF0000,
+            bit_offset=1,
+        )
+        self.assertIdentical(
+            Object(self.prog, self.point_type, address=0xFFFF0000, bit_offset=32),
+            Object(self.prog, self.point_type, address=0xFFFF0004),
+        )
+
 
 class TestValue(MockProgramTestCase):
     def test_positional(self):
@@ -454,7 +458,6 @@ class TestValue(MockProgramTestCase):
         self.assertIdentical(obj.type_, self.prog.type("int"))
         self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
-        self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
         self.assertEqual(obj.value_(), -4)
@@ -500,7 +503,6 @@ class TestValue(MockProgramTestCase):
         self.assertIdentical(obj.type_, self.prog.type("unsigned int"))
         self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
-        self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
         self.assertEqual(obj.value_(), 2 ** 32 - 1)
@@ -548,7 +550,6 @@ class TestValue(MockProgramTestCase):
         self.assertIdentical(obj.type_, self.prog.type("double"))
         self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
-        self.assertIsNone(obj.byteorder_)
         self.assertEqual(obj.value_(), 3.14)
         self.assertEqual(repr(obj), "Object(prog, 'double', value=3.14)")
 
@@ -752,6 +753,18 @@ class TestValue(MockProgramTestCase):
             value=[1, 2],
         )
 
+    def test_non_scalar_bit_offset(self):
+        obj = Object(
+            self.prog,
+            self.prog.struct_type(
+                "weird", 9, (TypeMember(self.point_type, "point", bit_offset=1),)
+            ),
+            value={},
+        )
+        self.assertRaisesRegex(
+            ValueError, "non-scalar must be byte-aligned", obj.member_, "point"
+        )
+
 
 class TestAbsent(MockProgramTestCase):
     def test_basic(self):
@@ -763,7 +776,6 @@ class TestAbsent(MockProgramTestCase):
             self.assertIdentical(obj.type_, self.prog.type("int"))
             self.assertTrue(obj.absent_)
             self.assertIsNone(obj.address_)
-            self.assertIsNone(obj.byteorder_)
             self.assertIsNone(obj.bit_offset_)
             self.assertIsNone(obj.bit_field_size_)
             self.assertRaises(ObjectAbsentError, obj.value_)
@@ -776,7 +788,6 @@ class TestAbsent(MockProgramTestCase):
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("int"))
         self.assertIsNone(obj.address_)
-        self.assertIsNone(obj.byteorder_)
         self.assertIsNone(obj.bit_offset_)
         self.assertEqual(obj.bit_field_size_, 1)
         self.assertEqual(repr(obj), "Object(prog, 'int', bit_field_size=1)")
@@ -1213,7 +1224,7 @@ class TestCIntegerPromotion(MockProgramTestCase):
         )
 
         # Typedef should be preserved if the type wasn't promoted.
-        type_ = self.prog.typedef_type("self.int", self.prog.type("int"))
+        type_ = self.prog.typedef_type("CINT", self.prog.type("int"))
         self.assertIdentical(
             +Object(self.prog, type_, value=5), Object(self.prog, type_, value=5)
         )
@@ -1223,6 +1234,44 @@ class TestCIntegerPromotion(MockProgramTestCase):
         self.assertIdentical(
             +Object(self.prog, "double", value=3.14),
             Object(self.prog, "double", value=3.14),
+        )
+
+    def test_byte_order(self):
+        # Types in the opposite byte order should converted to the program's
+        # byte order.
+        self.assertIdentical(
+            +Object(self.prog, self.prog.int_type("int", 4, True, "big"), value=5),
+            Object(self.prog, self.prog.int_type("int", 4, True, "little"), value=5),
+        )
+
+    def test_byte_order_typedef(self):
+        self.assertIdentical(
+            +Object(
+                self.prog,
+                self.prog.typedef_type(
+                    "CINT", self.prog.int_type("int", 4, True, "big")
+                ),
+                value=5,
+            ),
+            Object(
+                self.prog,
+                self.prog.typedef_type(
+                    "CINT", self.prog.int_type("int", 4, True, "little")
+                ),
+                value=5,
+            ),
+        )
+
+    def test_byte_order_enum(self):
+        self.assertIdentical(
+            +Object(
+                self.prog,
+                self.prog.enum_type(
+                    "ENUM", self.prog.int_type("int", 4, True, "big"), ()
+                ),
+                value=5,
+            ),
+            Object(self.prog, self.prog.int_type("int", 4, True, "little"), value=5),
         )
 
 
@@ -2587,8 +2636,10 @@ class TestGenericOperators(MockProgramTestCase):
         obj = Object(self.prog, "int", address=0xFFFF0000)
         self.assertIdentical(reinterpret("int", obj), obj)
         self.assertIdentical(
-            reinterpret("int", obj, byteorder="big"),
-            Object(self.prog, "int", address=0xFFFF0000, byteorder="big"),
+            reinterpret(self.prog.int_type("int", 4, True, "big"), obj),
+            Object(
+                self.prog, self.prog.int_type("int", 4, True, "big"), address=0xFFFF0000
+            ),
         )
 
         obj = Object(self.prog, "int []", address=0xFFFF0000)
@@ -2609,13 +2660,13 @@ class TestGenericOperators(MockProgramTestCase):
             reinterpret("struct foo", obj),
             Object(self.prog, "struct foo", address=0xFFFF0008).read_(),
         )
-        self.assertIdentical(
-            reinterpret(obj.type_, obj, byteorder="big"),
-            Object(
-                self.prog, "struct point", address=0xFFFF0008, byteorder="big"
-            ).read_(),
-        )
         self.assertIdentical(reinterpret("int", obj), Object(self.prog, "int", value=2))
+        self.assertIdentical(
+            reinterpret(self.prog.int_type("int", 4, True, "big"), obj),
+            Object(
+                self.prog, self.prog.int_type("int", 4, True, "big"), value=33554432
+            ),
+        )
 
     def test_member(self):
         reference = Object(self.prog, self.point_type, address=0xFFFF0000)

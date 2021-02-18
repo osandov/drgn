@@ -9,6 +9,7 @@ prefixes = [
     "DW_AT",
     "DW_ATE",
     "DW_CHILDREN",
+    "DW_END",
     "DW_FORM",
     "DW_LANG",
     "DW_LNE",

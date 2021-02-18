@@ -143,6 +143,26 @@ static PyObject *DrgnType_get_is_signed(DrgnType *self)
 	Py_RETURN_BOOL(drgn_type_is_signed(self->type));
 }
 
+/*
+ * This returns one of two static strings, so it doesn't need the attribute
+ * cache.
+ */
+static PyObject *DrgnType_get_byteorder(DrgnType *self, void *arg)
+{
+	if (!drgn_type_has_little_endian(self->type)) {
+		return PyErr_Format(PyExc_AttributeError,
+				    "%s type does not have a byte order",
+				    drgn_type_kind_str(self->type));
+	}
+	_Py_IDENTIFIER(little);
+	_Py_IDENTIFIER(big);
+	PyObject *ret =
+		_PyUnicode_FromId(drgn_type_little_endian(self->type) ?
+				  &PyId_little : &PyId_big);
+	Py_XINCREF(ret);
+	return ret;
+}
+
 static PyObject *DrgnType_get_type(DrgnType *self)
 {
 	if (!drgn_type_has_type(self->type)) {
@@ -446,6 +466,8 @@ static PyGetSetDef DrgnType_getset[] = {
 	 &DrgnType_attr_length},
 	{"is_signed", (getter)DrgnType_getter, NULL, drgn_Type_is_signed_DOC,
 	 &DrgnType_attr_is_signed},
+	{"byteorder", (getter)DrgnType_get_byteorder, NULL,
+	 drgn_Type_byteorder_DOC},
 	{"type", (getter)DrgnType_getter, NULL, drgn_Type_type_DOC,
 	 &DrgnType_attr_type},
 	{"members", (getter)DrgnType_getter, NULL, drgn_Type_members_DOC,
@@ -527,6 +549,7 @@ static int append_field(PyObject *parts, bool *first, const char *format, ...)
 
 static PyObject *DrgnType_repr(DrgnType *self)
 {
+	struct drgn_error *err;
 	PyObject *parts, *ret = NULL;
 	bool first = true;
 
@@ -553,9 +576,8 @@ static PyObject *DrgnType_repr(DrgnType *self)
 		bool print_size;
 		if (drgn_type_program(self->type)->has_platform) {
 			uint8_t word_size;
-			struct drgn_error *err =
-				drgn_program_word_size(drgn_type_program(self->type),
-						       &word_size);
+			err = drgn_program_word_size(drgn_type_program(self->type),
+						     &word_size);
 			if (err) {
 				set_drgn_error(err);
 				goto out;
@@ -567,6 +589,33 @@ static PyObject *DrgnType_repr(DrgnType *self)
 		if (print_size &&
 		    append_member(parts, self, &first, size) == -1)
 			goto out;
+	}
+	if (drgn_type_has_little_endian(self->type)) {
+		bool print_byteorder;
+		if (drgn_type_program(self->type)->has_platform) {
+			bool little_endian;
+			err = drgn_program_is_little_endian(drgn_type_program(self->type),
+							    &little_endian);
+			if (err) {
+				set_drgn_error(err);
+				goto out;
+			}
+			print_byteorder =
+				drgn_type_little_endian(self->type) != little_endian;
+		} else {
+			print_byteorder = true;
+		}
+		if (print_byteorder) {
+			PyObject *obj = DrgnType_get_byteorder(self, NULL);
+			if (!obj)
+				goto out;
+			if (append_field(parts, &first, "byteorder=%R",
+					 obj) == -1) {
+				Py_DECREF(obj);
+				goto out;
+			}
+			Py_DECREF(obj);
+		}
 	}
 	if (append_member(parts, self, &first, length) == -1)
 		goto out;
@@ -583,12 +632,10 @@ static PyObject *DrgnType_repr(DrgnType *self)
 	    append_member(parts, self, &first, template_parameters) == -1)
 		goto out;
 	if (self->qualifiers) {
-		PyObject *obj;
-
-		obj = DrgnType_getter(self, &DrgnType_attr_qualifiers);
+		PyObject *obj = DrgnType_getter(self,
+						&DrgnType_attr_qualifiers);
 		if (!obj)
 			goto out;
-
 		if (append_field(parts, &first, "qualifiers=%R", obj) == -1) {
 			Py_DECREF(obj);
 			goto out;
@@ -1356,16 +1403,23 @@ DrgnType *Program_void_type(Program *self, PyObject *args, PyObject *kwds)
 DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"name", "size", "is_signed", "qualifiers", "language", NULL
+		"name", "size", "is_signed", "byteorder", "qualifiers",
+		"language", NULL
 	};
 	PyObject *name_obj;
 	struct index_arg size = {};
 	int is_signed;
+	struct byteorder_arg byteorder = {
+		.allow_none = true,
+		.is_none = true,
+		.value = DRGN_PROGRAM_ENDIAN,
+	};
 	enum drgn_qualifiers qualifiers = 0;
 	const struct drgn_language *language = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&p|$O&O&:int_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&p|O&$O&O&:int_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 index_converter, &size, &is_signed,
+					 byteorder_converter, &byteorder,
 					 qualifiers_converter, &qualifiers,
 					 language_converter, &language))
 		return NULL;
@@ -1380,7 +1434,7 @@ DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_int_type_create(&self->prog, name,
 						      size.uvalue, is_signed,
-						      language,
+						      byteorder.value, language,
 						      &qualified_type.type);
 	if (err)
 		return set_drgn_error(err);
@@ -1406,15 +1460,21 @@ DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"name", "size", "qualifiers", "language", NULL
+		"name", "size", "byteorder", "qualifiers", "language", NULL
 	};
 	PyObject *name_obj;
 	struct index_arg size = {};
+	struct byteorder_arg byteorder = {
+		.allow_none = true,
+		.is_none = true,
+		.value = DRGN_PROGRAM_ENDIAN,
+	};
 	enum drgn_qualifiers qualifiers = 0;
 	const struct drgn_language *language = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|$O&O&:bool_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|O&$O&O&:bool_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 index_converter, &size,
+					 byteorder_converter, &byteorder,
 					 qualifiers_converter, &qualifiers,
 					 language_converter, &language))
 		return NULL;
@@ -1428,7 +1488,9 @@ DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds)
 
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_bool_type_create(&self->prog, name,
-						       size.uvalue, language,
+						       size.uvalue,
+						       byteorder.value,
+						       language,
 						       &qualified_type.type);
 	if (err)
 		return set_drgn_error(err);
@@ -1454,16 +1516,22 @@ DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds)
 DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"name", "size", "qualifiers", "language", NULL
+		"name", "size", "byteorder", "qualifiers", "language", NULL
 	};
 	PyObject *name_obj;
 	struct index_arg size = {};
+	struct byteorder_arg byteorder = {
+		.allow_none = true,
+		.is_none = true,
+		.value = DRGN_PROGRAM_ENDIAN,
+	};
 	enum drgn_qualifiers qualifiers = 0;
 	const struct drgn_language *language = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|$O&O&:float_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|O&$O&O&:float_type",
 					 keywords, &PyUnicode_Type, &name_obj,
 					 index_converter, &size,
+					 byteorder_converter, &byteorder,
 					 qualifiers_converter, &qualifiers,
 					 language_converter, &language))
 		return NULL;
@@ -1477,7 +1545,9 @@ DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds)
 
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_float_type_create(&self->prog, name,
-							size.uvalue, language,
+							size.uvalue,
+							byteorder.value,
+							language,
 							&qualified_type.type);
 	if (err)
 		return set_drgn_error(err);
@@ -2018,18 +2088,23 @@ DrgnType *Program_typedef_type(Program *self, PyObject *args, PyObject *kwds)
 DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {
-		"type", "size", "qualifiers", "language", NULL
+		"type", "size", "byteorder", "qualifiers", "language", NULL
 	};
 	DrgnType *referenced_type_obj;
 	struct index_arg size = { .allow_none = true, .is_none = true };
+	struct byteorder_arg byteorder = {
+		.allow_none = true,
+		.is_none = true,
+		.value = DRGN_PROGRAM_ENDIAN,
+	};
 	enum drgn_qualifiers qualifiers = 0;
 	const struct drgn_language *language = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O&$O&O&:pointer_type",
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O&O&$O&O&:pointer_type",
 					 keywords, &DrgnType_type,
 					 &referenced_type_obj, index_converter,
-					 &size, qualifiers_converter,
-					 &qualifiers, language_converter,
-					 &language))
+					 &size, byteorder_converter, &byteorder,
+					 qualifiers_converter, &qualifiers,
+					 language_converter, &language))
 		return NULL;
 
 	if (size.is_none) {
@@ -2044,7 +2119,9 @@ DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_pointer_type_create(&self->prog,
 							  DrgnType_unwrap(referenced_type_obj),
-							  size.uvalue, language,
+							  size.uvalue,
+							  byteorder.value,
+							  language,
 							  &qualified_type.type);
 	if (err)
 		return set_drgn_error(err);

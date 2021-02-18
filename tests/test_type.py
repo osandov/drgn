@@ -7,7 +7,6 @@ from drgn import (
     Language,
     Object,
     PrimitiveType,
-    Program,
     Qualifiers,
     TypeEnumerator,
     TypeKind,
@@ -17,7 +16,7 @@ from drgn import (
     offsetof,
     sizeof,
 )
-from tests import DEFAULT_LANGUAGE, MockProgramTestCase
+from tests import DEFAULT_LANGUAGE, MockProgramTestCase, mock_program
 
 
 class TestType(MockProgramTestCase):
@@ -38,6 +37,7 @@ class TestType(MockProgramTestCase):
         self.assertEqual(t.name, "int")
         self.assertEqual(t.size, 4)
         self.assertTrue(t.is_signed)
+        self.assertEqual(t.byteorder, "little")
         self.assertTrue(t.is_complete())
 
         self.assertEqual(repr(t), "prog.int_type(name='int', size=4, is_signed=True)")
@@ -48,6 +48,19 @@ class TestType(MockProgramTestCase):
         self.assertIsNone(self.prog.int_type("my_int", 4, True).primitive)
         self.assertIsNone(self.prog.int_type("int", 4, False).primitive)
 
+    def test_int_byteorder(self):
+        self.assertIdentical(
+            self.prog.int_type("int", 4, True),
+            self.prog.int_type("int", 4, True, byteorder="little"),
+        )
+        t = self.prog.int_type("int", 4, True, "big")
+        self.assertEqual(t.byteorder, "big")
+        self.assertEqual(
+            repr(t),
+            "prog.int_type(name='int', size=4, is_signed=True, byteorder='big')",
+        )
+        self.assertRaises(ValueError, self.prog.int_type, "int", 4, True, "middle")
+
     def test_bool(self):
         t = self.prog.bool_type("_Bool", 1)
         self.assertEqual(t.kind, TypeKind.BOOL)
@@ -55,6 +68,7 @@ class TestType(MockProgramTestCase):
         self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.name, "_Bool")
         self.assertEqual(t.size, 1)
+        self.assertEqual(t.byteorder, "little")
         self.assertTrue(t.is_complete())
 
         self.assertEqual(repr(t), "prog.bool_type(name='_Bool', size=1)")
@@ -62,18 +76,43 @@ class TestType(MockProgramTestCase):
 
         self.assertRaises(TypeError, self.prog.bool_type, None, 1)
 
+    def test_bool_byteorder(self):
+        self.assertIdentical(
+            self.prog.bool_type("_Bool", 1),
+            self.prog.bool_type("_Bool", 1, byteorder="little"),
+        )
+        t = self.prog.bool_type("_Bool", 1, "big")
+        self.assertEqual(t.byteorder, "big")
+        self.assertEqual(
+            repr(t), "prog.bool_type(name='_Bool', size=1, byteorder='big')"
+        )
+        self.assertRaises(ValueError, self.prog.bool_type, "_Bool", 1, "middle")
+
     def test_float(self):
         t = self.prog.float_type("float", 4)
         self.assertEqual(t.primitive, PrimitiveType.C_FLOAT)
         self.assertEqual(t.kind, TypeKind.FLOAT)
         self.assertEqual(t.name, "float")
         self.assertEqual(t.size, 4)
+        self.assertEqual(t.byteorder, "little")
         self.assertTrue(t.is_complete())
 
         self.assertEqual(repr(t), "prog.float_type(name='float', size=4)")
         self.assertEqual(sizeof(t), 4)
 
         self.assertRaises(TypeError, self.prog.float_type, None, 4)
+
+    def test_float_byteorder(self):
+        self.assertIdentical(
+            self.prog.bool_type("float", 1),
+            self.prog.bool_type("float", 1, byteorder="little"),
+        )
+        t = self.prog.float_type("float", 4, "big")
+        self.assertEqual(t.byteorder, "big")
+        self.assertEqual(
+            repr(t), "prog.float_type(name='float', size=4, byteorder='big')"
+        )
+        self.assertRaises(ValueError, self.prog.float_type, "float", 4, "middle")
 
     def test_struct(self):
         t = self.prog.struct_type(
@@ -725,6 +764,7 @@ class TestType(MockProgramTestCase):
         self.assertEqual(t.language, DEFAULT_LANGUAGE)
         self.assertEqual(t.size, 8)
         self.assertIdentical(t.type, self.prog.int_type("int", 4, True))
+        self.assertEqual(t.byteorder, "little")
         self.assertTrue(t.is_complete())
 
         self.assertEqual(
@@ -739,6 +779,28 @@ class TestType(MockProgramTestCase):
         self.assertEqual(sizeof(t), 8)
 
         self.assertRaises(TypeError, self.prog.pointer_type, 4)
+
+    def test_pointer_byteorder(self):
+        self.assertIdentical(
+            self.prog.pointer_type(self.prog.int_type("int", 4, True)),
+            self.prog.pointer_type(
+                self.prog.int_type("int", 4, True), byteorder="little"
+            ),
+        )
+        t = self.prog.pointer_type(self.prog.int_type("int", 4, True), 8, "big")
+        self.assertEqual(t.byteorder, "big")
+        self.assertEqual(t.type.byteorder, "little")
+        self.assertEqual(
+            repr(t),
+            "prog.pointer_type(type=prog.int_type(name='int', size=4, is_signed=True), byteorder='big')",
+        )
+        self.assertRaises(
+            ValueError,
+            self.prog.pointer_type,
+            self.prog.int_type("int", 4, True),
+            8,
+            "middle",
+        )
 
     def test_array(self):
         t = self.prog.array_type(self.prog.int_type("int", 4, True), 10)
@@ -919,13 +981,13 @@ class TestType(MockProgramTestCase):
             self.prog.struct_type,
             None,
             4,
-            (TypeMember(Program().int_type("int", 4, True)),),
+            (TypeMember(mock_program().int_type("int", 4, True)),),
         )
 
     def test_different_programs_compound_callback(self):
         with self.assertRaisesRegex(ValueError, "objects are from different program"):
             self.prog.struct_type(
-                None, 4, (TypeMember(lambda: Program().int_type("int", 4, True)),)
+                None, 4, (TypeMember(lambda: mock_program().int_type("int", 4, True)),)
             ).members[0].type
 
     def test_different_programs_enum(self):
@@ -934,7 +996,7 @@ class TestType(MockProgramTestCase):
             "type is from different program",
             self.prog.enum_type,
             None,
-            Program().int_type("int", 4, True),
+            mock_program().int_type("int", 4, True),
             (),
         )
 
@@ -944,7 +1006,7 @@ class TestType(MockProgramTestCase):
             "type is from different program",
             self.prog.typedef_type,
             "INT",
-            Program().int_type("int", 4, True),
+            mock_program().int_type("int", 4, True),
         )
 
     def test_different_programs_pointer(self):
@@ -952,7 +1014,7 @@ class TestType(MockProgramTestCase):
             ValueError,
             "type is from different program",
             self.prog.pointer_type,
-            Program().int_type("int", 4, True),
+            mock_program().int_type("int", 4, True),
         )
 
     def test_different_programs_array(self):
@@ -960,7 +1022,7 @@ class TestType(MockProgramTestCase):
             ValueError,
             "type is from different program",
             self.prog.pointer_type,
-            Program().int_type("int", 4, True),
+            mock_program().int_type("int", 4, True),
         )
 
     def test_different_programs_function_return(self):
@@ -968,7 +1030,7 @@ class TestType(MockProgramTestCase):
             ValueError,
             "type is from different program",
             self.prog.function_type,
-            Program().int_type("int", 4, True),
+            mock_program().int_type("int", 4, True),
             (),
         )
 
@@ -978,14 +1040,14 @@ class TestType(MockProgramTestCase):
             "object is from different program",
             self.prog.function_type,
             self.prog.void_type(),
-            (TypeParameter(Program().int_type("int", 4, True)),),
+            (TypeParameter(mock_program().int_type("int", 4, True)),),
         )
 
     def test_different_programs_function_parameter_callback(self):
         with self.assertRaisesRegex(ValueError, "objects are from different programs"):
             self.prog.function_type(
                 self.prog.void_type(),
-                (TypeParameter(lambda: Program().int_type("int", 4, True)),),
+                (TypeParameter(lambda: mock_program().int_type("int", 4, True)),),
             ).parameters[0].type
 
 

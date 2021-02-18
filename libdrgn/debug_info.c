@@ -1113,8 +1113,7 @@ static struct drgn_error *dwarf_die_is_little_endian(Dwarf_Die *die,
 }
 
 /** Like dwarf_die_is_little_endian(), but returns a @ref drgn_byte_order. */
-static struct drgn_error *dwarf_die_byte_order(Dwarf_Die *die,
-					       bool check_attr,
+static struct drgn_error *dwarf_die_byte_order(Dwarf_Die *die, bool check_attr,
 					       enum drgn_byte_order *ret)
 {
 	bool little_endian;
@@ -1125,7 +1124,7 @@ static struct drgn_error *dwarf_die_byte_order(Dwarf_Die *die,
 	 * the !check_attr test suppresses maybe-uninitialized warnings.
 	 */
 	if (!err || !check_attr)
-		*ret = little_endian ? DRGN_LITTLE_ENDIAN : DRGN_BIG_ENDIAN;
+		*ret = drgn_byte_order_from_little_endian(little_endian);
 	return err;
 }
 
@@ -1309,13 +1308,11 @@ drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 	Dwarf_Addr low_pc;
 	if (dwarf_lowpc(die, &low_pc) == -1)
 		return drgn_object_set_absent(ret, qualified_type, 0);
-	enum drgn_byte_order byte_order;
-	dwarf_die_byte_order(die, false, &byte_order);
 	Dwarf_Addr bias;
 	dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, &bias, NULL,
 			 NULL, NULL);
 	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
-					 0, byte_order);
+					 0);
 }
 
 static struct drgn_error *
@@ -1329,17 +1326,12 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 		return err;
 	Dwarf_Block block;
 	if (dwarf_formblock(attr, &block) == 0) {
-		bool little_endian;
-		err = dwarf_die_is_little_endian(die, true, &little_endian);
-		if (err)
-			return err;
 		if (block.length < drgn_value_size(type.bit_size)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_AT_const_value block is too small");
 		}
 		return drgn_object_set_from_buffer_internal(ret, &type,
-							    block.data, 0,
-							    little_endian);
+							    block.data, 0);
 	} else if (type.encoding == DRGN_OBJECT_ENCODING_SIGNED) {
 		Dwarf_Sword svalue;
 		if (dwarf_formsdata(attr, &svalue)) {
@@ -1367,6 +1359,11 @@ drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo,
 				struct drgn_debug_info_module *module,
 				Dwarf_Die *die, struct drgn_object *ret)
 {
+	/*
+	 * The DWARF 5 specifications mentions that data object entries can have
+	 * DW_AT_endianity, but that doesn't seem to be used in practice. It
+	 * would be inconvenient to support, so ignore it for now.
+	 */
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_type_from_dwarf_attr(dbinfo, module,
 							   die, NULL, true,
@@ -1384,10 +1381,6 @@ drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo,
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_AT_location has unimplemented operation");
 		}
-		enum drgn_byte_order byte_order;
-		err = dwarf_die_byte_order(die, true, &byte_order);
-		if (err)
-			return err;
 		uint64_t address = loc[0].number;
 		Dwarf_Addr start, end, bias;
 		dwfl_module_info(module->dwfl_module, NULL, &start, &end, &bias,
@@ -1401,7 +1394,7 @@ drgn_object_from_dwarf_variable(struct drgn_debug_info *dbinfo,
 		if (start <= address + bias && address + bias < end)
 			address += bias;
 		return drgn_object_set_reference(ret, qualified_type, address,
-						 0, 0, byte_order);
+						 0, 0);
 	} else if ((attr = dwarf_attr_integrate(die, DW_AT_const_value,
 						&attr_mem))) {
 		return drgn_object_from_dwarf_constant(dbinfo, die,
@@ -1422,6 +1415,8 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
+	struct drgn_error *err;
+
 	const char *name = dwarf_diename(die);
 	if (!name) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
@@ -1441,21 +1436,26 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					 "DW_TAG_base_type has missing or invalid DW_AT_byte_size");
 	}
 
+	enum drgn_byte_order byte_order;
+	err = dwarf_die_byte_order(die, true, &byte_order);
+	if (err)
+		return err;
+
 	switch (encoding) {
 	case DW_ATE_boolean:
-		return drgn_bool_type_create(dbinfo->prog, name, size, lang,
-					     ret);
+		return drgn_bool_type_create(dbinfo->prog, name, size,
+					     byte_order, lang, ret);
 	case DW_ATE_float:
-		return drgn_float_type_create(dbinfo->prog, name, size, lang,
-					      ret);
+		return drgn_float_type_create(dbinfo->prog, name, size,
+					      byte_order, lang, ret);
 	case DW_ATE_signed:
 	case DW_ATE_signed_char:
 		return drgn_int_type_create(dbinfo->prog, name, size, true,
-					    lang, ret);
+					    byte_order, lang, ret);
 	case DW_ATE_unsigned:
 	case DW_ATE_unsigned_char:
 		return drgn_int_type_create(dbinfo->prog, name, size, false,
-					    lang, ret);
+					    byte_order, lang, ret);
 	/* We don't support complex types yet. */
 	case DW_ATE_complex_float:
 	default:
@@ -1976,8 +1976,10 @@ enum_compatible_type_fallback(struct drgn_debug_info *dbinfo,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size");
 	}
+	enum drgn_byte_order byte_order;
+	dwarf_die_byte_order(die, false, &byte_order);
 	return drgn_int_type_create(dbinfo->prog, "<unknown>", size, is_signed,
-				    lang, ret);
+				    byte_order, lang, ret);
 }
 
 static struct drgn_error *
@@ -2131,8 +2133,16 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		size = word_size;
 	}
 
+	/*
+	 * The DWARF 5 specification doesn't mention DW_AT_endianity for
+	 * DW_TAG_pointer_type DIEs, and GCC as of version 10.2 doesn't emit it
+	 * even for pointers stored in the opposite byte order (e.g., when using
+	 * scalar_storage_order), but it probably should.
+	 */
+	enum drgn_byte_order byte_order;
+	dwarf_die_byte_order(die, false, &byte_order);
 	return drgn_pointer_type_create(dbinfo->prog, referenced_type, size,
-					lang, ret);
+					byte_order, lang, ret);
 }
 
 struct array_dimension {

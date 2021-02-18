@@ -234,6 +234,21 @@ class DW_CHILDREN(enum.IntEnum):
             return hex(value)
 
 
+class DW_END(enum.IntEnum):
+    default = 0x0
+    big = 0x1
+    little = 0x2
+    lo_user = 0x40
+    hi_user = 0xFF
+
+    @classmethod
+    def str(cls, value: int) -> Text:
+        try:
+            return f"DW_END_{cls(value).name}"
+        except ValueError:
+            return hex(value)
+
+
 class DW_FORM(enum.IntEnum):
     addr = 0x1
     block2 = 0x3

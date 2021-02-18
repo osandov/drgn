@@ -50,6 +50,7 @@ struct drgn_object_type {
 	enum drgn_qualifiers qualifiers;
 	enum drgn_object_encoding encoding;
 	bool is_bit_field;
+	bool little_endian;
 };
 
 /** Convert a @ref drgn_object_type to a @ref drgn_qualified_type. */
@@ -101,6 +102,7 @@ static inline void drgn_object_reinit(struct drgn_object *obj,
 	obj->bit_size = type->bit_size;
 	obj->encoding = type->encoding;
 	obj->is_bit_field = type->is_bit_field;
+	obj->little_endian = type->little_endian;
 	obj->kind = kind;
 }
 
@@ -135,13 +137,7 @@ void drgn_object_set_unsigned_internal(struct drgn_object *res,
 struct drgn_error *
 drgn_object_set_from_buffer_internal(struct drgn_object *res,
 				     const struct drgn_object_type *type,
-				     const void *buf, uint64_t bit_offset,
-				     bool little_endian);
-
-/** Convert a @ref drgn_byte_order to a boolean. */
-struct drgn_error *
-drgn_byte_order_to_little_endian(struct drgn_program *prog,
-				 enum drgn_byte_order byte_order, bool *ret);
+				     const void *buf, uint64_t bit_offset);
 
 /**
  * Binary operator implementation.

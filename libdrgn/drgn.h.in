@@ -959,16 +959,6 @@ drgn_object_encoding_is_complete(enum drgn_object_encoding encoding)
 	return encoding >= 0;
 }
 
-/** Byte-order specification. */
-enum drgn_byte_order {
-	/** Big-endian. */
-	DRGN_BIG_ENDIAN,
-	/** Little-endian. */
-	DRGN_LITTLE_ENDIAN,
-	/** Endianness of the program. */
-	DRGN_PROGRAM_ENDIAN,
-};
-
 /** Value of a @ref drgn_object. */
 union drgn_value {
 	/**
@@ -1051,7 +1041,11 @@ struct drgn_object {
 	/**
 	 * Whether this object is little-endian.
 	 *
-	 * Valid only for reference objects and buffer value objects.
+	 * Valid only for scalars (i.e., @ref
+	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED, @ref
+	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_UNSIGNED, @ref
+	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_FLOAT, or @ref
+	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER).
 	 */
 	bool little_endian;
 	/**
@@ -1198,18 +1192,17 @@ drgn_object_set_float(struct drgn_object *res,
  * `bit_size + bit_offset`, where @c bit_size is @p bit_field_size if non-zero
  * and the size of @p qualified_type in bits otherwise.
  * @param[in] bit_offset Offset of the value from the beginning of the buffer,
- * in bits. This is usually 0.
+ * in bits. This is usually 0. It must be aligned to a byte unless the type is
+ * scalar.
  * @param[in] bit_field_size If the object should be a bit field, its size in
  * bits. Otherwise, 0.
- * @param[in] byte_order Byte order of the result.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_object_set_from_buffer(struct drgn_object *res,
 			    struct drgn_qualified_type qualified_type,
 			    const void *buf, size_t buf_size,
-			    uint64_t bit_offset, uint64_t bit_field_size,
-			    enum drgn_byte_order byte_order);
+			    uint64_t bit_offset, uint64_t bit_field_size);
 
 /**
  * Set a @ref drgn_object to a reference.
@@ -1221,15 +1214,13 @@ drgn_object_set_from_buffer(struct drgn_object *res,
  * usually 0.
  * @param[in] bit_field_size If the object should be a bit field, its size in
  * bits. Otherwise, 0.
- * @param[in] byte_order Byte order of the result.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_object_set_reference(struct drgn_object *res,
 			  struct drgn_qualified_type qualified_type,
 			  uint64_t address, uint64_t bit_offset,
-			  uint64_t bit_field_size,
-			  enum drgn_byte_order byte_order);
+			  uint64_t bit_field_size);
 
 /**
  * Set a @ref drgn_object as absent.
@@ -1588,7 +1579,6 @@ struct drgn_error *drgn_object_cast(struct drgn_object *res,
 struct drgn_error *
 drgn_object_reinterpret(struct drgn_object *res,
 			struct drgn_qualified_type qualified_type,
-			enum drgn_byte_order byte_order,
 			const struct drgn_object *obj);
 
 /**
@@ -1977,6 +1967,7 @@ struct drgn_type {
 			struct drgn_type *type;
 		};
 		union {
+			bool little_endian;
 			struct drgn_type_member *members;
 			struct drgn_type_enumerator *enumerators;
 			struct drgn_type_parameter *parameters;
@@ -2098,6 +2089,36 @@ static inline bool drgn_type_is_signed(struct drgn_type *type)
 {
 	assert(drgn_type_has_is_signed(type));
 	return type->_private.is_signed;
+}
+
+/**
+ * Get whether a kind of type has a byte order. This is true for integer,
+ * boolean, floating-point, and pointer types.
+ */
+static inline bool drgn_type_kind_has_little_endian(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_INT ||
+		kind == DRGN_TYPE_BOOL ||
+		kind == DRGN_TYPE_FLOAT ||
+		kind == DRGN_TYPE_POINTER);
+}
+/**
+ * Get whether a type has a byte order. @sa drgn_type_kind_has_little_endian()
+ */
+static inline bool drgn_type_has_little_endian(struct drgn_type *type)
+{
+	return drgn_type_kind_has_little_endian(drgn_type_kind(type));
+}
+/**
+ * Get the byte order of a type. @ref drgn_type_has_little_endian() must be true
+ * for this type.
+ *
+ * @return @c true if the type is little-endian, @c false if it is big-endian.
+ */
+static inline bool drgn_type_little_endian(struct drgn_type *type)
+{
+	assert(drgn_type_has_little_endian(type));
+	return type->_private.little_endian;
 }
 
 /**
