@@ -3469,6 +3469,104 @@ class TestTypes(TestCase):
             prog.int_type("int", 4, True, language=DEFAULT_LANGUAGE),
         )
 
+    def test_base_type_unit(self):
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.compile_unit,
+                    (),
+                    (
+                        DwarfDie(
+                            DW_TAG.base_type,
+                            (DwarfAttrib(DW_AT.signature, DW_FORM.ref_sig8, 0),),
+                        ),
+                        DwarfDie(
+                            DW_TAG.typedef,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(DW_TAG.type_unit, (), ((int_die,))),
+            )
+        )
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+        self.assertIdentical(prog.type("int"), prog.type("TEST").type)
+
+    def test_struct_type_unit(self):
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.compile_unit,
+                    (),
+                    (
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (DwarfAttrib(DW_AT.signature, DW_FORM.ref_sig8, 0),),
+                        ),
+                        DwarfDie(
+                            DW_TAG.typedef,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "TEST"),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.type_unit,
+                    (),
+                    (
+                        DwarfDie(
+                            DW_TAG.structure_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                            ),
+                            (
+                                DwarfDie(
+                                    DW_TAG.member,
+                                    (
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                        DwarfAttrib(
+                                            DW_AT.data_member_location, DW_FORM.data1, 0
+                                        ),
+                                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                                    ),
+                                ),
+                                DwarfDie(
+                                    DW_TAG.member,
+                                    (
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                        DwarfAttrib(
+                                            DW_AT.data_member_location, DW_FORM.data1, 4
+                                        ),
+                                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        int_die,
+                    ),
+                ),
+            )
+        )
+
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.struct_type(
+                "point",
+                8,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(prog.int_type("int", 4, True), "y", 32),
+                ),
+            ),
+        )
+        self.assertIdentical(prog.type("struct point"), prog.type("TEST").type)
+
 
 class TestObjects(TestCase):
     def test_constant_signed_enum(self):
