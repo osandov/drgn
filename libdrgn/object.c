@@ -479,7 +479,7 @@ drgn_object_slice(struct drgn_object *res, const struct drgn_object *obj,
 	return drgn_object_slice_internal(res, obj, &type, bit_offset);
 }
 
-struct drgn_error *
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_dereference_offset(struct drgn_object *res,
 			       const struct drgn_object *obj,
 			       struct drgn_qualified_type qualified_type,
@@ -1300,9 +1300,10 @@ drgn_object_member(struct drgn_object *res, const struct drgn_object *obj,
 				 member_bit_field_size);
 }
 
-struct drgn_error *drgn_object_member_dereference(struct drgn_object *res,
-						  const struct drgn_object *obj,
-						  const char *member_name)
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_object_member_dereference(struct drgn_object *res,
+			       const struct drgn_object *obj,
+			       const char *member_name)
 {
 	struct drgn_error *err;
 
