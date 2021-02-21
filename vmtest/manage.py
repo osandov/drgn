@@ -229,7 +229,8 @@ async def build_kernel(
         .strip()
     )
 
-    modules_dir = build_dir / "install" / "lib" / "modules" / release
+    install_dir = build_dir / "install"
+    modules_dir = install_dir / "lib" / "modules" / release
 
     await check_call(
         "make",
@@ -284,6 +285,7 @@ async def build_kernel(
         raise CalledProcessError(tar_returncode, tar_command)
     if zstd_returncode != 0:
         raise CalledProcessError(zstd_returncode, zstd_command)
+    shutil.rmtree(install_dir)
     elapsed = time.monotonic() - start
     logger.info("packaged %s in %s", commit, humanize_duration(elapsed))
 
