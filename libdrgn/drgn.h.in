@@ -1318,10 +1318,10 @@ struct drgn_error *drgn_object_copy(struct drgn_object *res,
  * offset for each element.
  *
  * If the same member of a type is accessed repeatedly (e.g., in a loop), it can
- * be more efficient to call @ref drgn_program_member_info() once to get the
+ * be more efficient to call @ref drgn_type_find_member() once to get the
  * required information and this function to access the member each time.
  *
- * @sa drgn_object_pointer_offset
+ * @sa drgn_object_dereference_offset
  *
  * @param[out] res Destination object.
  * @param[in] obj Source object.
