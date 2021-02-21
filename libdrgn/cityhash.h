@@ -86,7 +86,7 @@ static uint32_t cityhash32_len_5to12(const uint8_t *s, size_t len) {
 	return cityhash_fmix(cityhash_mur(c, cityhash_mur(b, cityhash_mur(a, d))));
 }
 
-__attribute__((unused))
+__attribute__((__unused__))
 static uint32_t cityhash32(const void *data, size_t len) {
 	const uint8_t *s = data;
 
@@ -279,7 +279,7 @@ static uint64_t cityhash_len_33to64(const uint8_t *s, size_t len)
 	return b + x;
 }
 
-__attribute__((unused))
+__attribute__((__unused__))
 static uint64_t cityhash64(const void *data, size_t len)
 {
 	const uint8_t *s = data;

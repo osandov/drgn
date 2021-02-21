@@ -322,13 +322,13 @@ struct tree##_iterator {							\
  * @sa DEFINE_BINARY_SEARCH_TREE()
  */
 #define DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(tree, cmp_func, variant)		\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static void tree##_init(struct tree *tree)					\
 {										\
 	tree->root = NULL;							\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static bool tree##_empty(struct tree *tree)					\
 {										\
 	return tree->root == NULL;						\
@@ -360,7 +360,7 @@ tree##_search_internal(struct tree *tree, const tree##_key_type *key)		\
 	return res;								\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static int tree##_insert(struct tree *tree, tree##_entry_type *entry,		\
 			 struct tree##_iterator *it_ret)			\
 {										\
@@ -383,7 +383,7 @@ static int tree##_insert(struct tree *tree, tree##_entry_type *entry,		\
 	return 1;								\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct tree##_iterator tree##_search(struct tree *tree,			\
 					    const tree##_key_type *key)		\
 {										\
@@ -396,7 +396,7 @@ static struct tree##_iterator tree##_search(struct tree *tree,			\
 	return (struct tree##_iterator){ tree##_node_to_entry(node), };		\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct tree##_iterator tree##_search_le(struct tree *tree,		\
 					       const tree##_key_type *key)	\
 {										\
@@ -426,7 +426,7 @@ static struct tree##_iterator tree##_search_le(struct tree *tree,		\
 	return (struct tree##_iterator){ entry, };				\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static bool tree##_delete(struct tree *tree, const tree##_key_type *key)	\
 {										\
 	struct binary_tree_node *node;						\
@@ -442,7 +442,7 @@ static bool tree##_delete(struct tree *tree, const tree##_key_type *key)	\
  * We want this inlined so that the whole function call can be optimized away	\
  * if the return value is not used.						\
  */										\
-__attribute__((always_inline))							\
+__attribute__((__always_inline__))						\
 static inline struct tree##_iterator						\
 tree##_next_impl(struct tree##_iterator it)					\
 {										\
@@ -478,7 +478,7 @@ tree##_next_impl(struct tree##_iterator it)					\
 	return (struct tree##_iterator){};					\
 }										\
 										\
-__attribute__((always_inline))							\
+__attribute__((__always_inline__))						\
 static inline struct tree##_iterator						\
 tree##_delete_iterator(struct tree *tree, struct tree##_iterator it)		\
 {										\
@@ -490,7 +490,7 @@ tree##_delete_iterator(struct tree *tree, struct tree##_iterator it)		\
 	return it;								\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct tree##_iterator tree##_first(struct tree *tree)			\
 {										\
 	struct binary_tree_node *node = tree->root;				\
@@ -503,13 +503,13 @@ static struct tree##_iterator tree##_first(struct tree *tree)			\
 	return (struct tree##_iterator){ tree##_node_to_entry(node), };		\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct tree##_iterator tree##_next(struct tree##_iterator it)		\
 {										\
 	return tree##_next_impl(it);						\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct tree##_iterator tree##_first_post_order(struct tree *tree)	\
 {										\
 	struct binary_tree_node *node = tree->root;				\
@@ -531,7 +531,7 @@ static struct tree##_iterator tree##_first_post_order(struct tree *tree)	\
 	}									\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct tree##_iterator tree##_next_post_order(struct tree##_iterator it)	\
 {										\
 	struct binary_tree_node *node = tree##_entry_to_node(it.entry);		\

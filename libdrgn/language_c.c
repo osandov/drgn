@@ -1690,7 +1690,7 @@ DEFINE_HASH_MAP(c_keyword_map, struct string, int, string_hash_pair, string_eq)
 
 static struct c_keyword_map c_keywords = HASH_TABLE_INIT;
 
-__attribute__((constructor(101)))
+__attribute__((__constructor__(101)))
 static void c_keywords_init(void)
 {
 	for (int i = MIN_KEYWORD_TOKEN; i <= MAX_KEYWORD_TOKEN; i++) {
@@ -1706,7 +1706,7 @@ static void c_keywords_init(void)
 	}
 }
 
-__attribute__((destructor(101)))
+__attribute__((__destructor__(101)))
 static void c_keywords_deinit(void)
 {
 	c_keyword_map_deinit(&c_keywords);

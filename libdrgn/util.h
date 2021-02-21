@@ -20,7 +20,7 @@
 #include <string.h>
 
 #ifndef LIBDRGN_PUBLIC
-#define LIBDRGN_PUBLIC __attribute__((visibility("default")))
+#define LIBDRGN_PUBLIC __attribute__((__visibility__("default")))
 #endif
 
 #ifdef NDEBUG

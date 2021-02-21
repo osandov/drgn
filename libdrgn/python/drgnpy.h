@@ -37,7 +37,7 @@
     } while (0)
 #endif
 
-#define DRGNPY_PUBLIC __attribute__((visibility("default")))
+#define DRGNPY_PUBLIC __attribute__((__visibility__("default")))
 
 #define Py_RETURN_BOOL(cond) do {	\
 	if (cond)			\

@@ -43,7 +43,7 @@ enum drgn_debug_info_module_state {
 	DRGN_DEBUG_INFO_MODULE_INDEXING,
 	/** Indexed. Must not be freed until @ref drgn_debug_info_destroy(). */
 	DRGN_DEBUG_INFO_MODULE_INDEXED,
-} __attribute__((packed));
+} __attribute__((__packed__));
 
 enum drgn_debug_info_scn {
 	DRGN_SCN_DEBUG_INFO,

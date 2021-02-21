@@ -164,27 +164,27 @@ struct vector {					\
  * @sa DEFINE_VECTOR()
  */
 #define DEFINE_VECTOR_FUNCTIONS(vector)						\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static void vector##_init(struct vector *vector)				\
 {										\
 	vector->data = NULL;							\
 	vector->size = vector->capacity = 0;					\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static void vector##_deinit(struct vector *vector)				\
 {										\
 	free(vector->data);							\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static bool vector##_reserve(struct vector *vector, size_t capacity)		\
 {										\
 	return vector_do_reserve(capacity, sizeof(*vector->data),		\
 				 (void **)&vector->data, &vector->capacity);	\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static void vector##_shrink_to_fit(struct vector *vector)			\
 {										\
 	vector_do_shrink_to_fit(vector->size, sizeof(*vector->data),		\
@@ -200,7 +200,7 @@ static vector##_entry_type *vector##_append_entry(struct vector *vector)	\
 	return &vector->data[vector->size++];					\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static bool vector##_append(struct vector *vector,				\
 			    const vector##_entry_type *entry)			\
 {										\
@@ -213,7 +213,7 @@ static bool vector##_append(struct vector *vector,				\
 	return true;								\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static vector##_entry_type *vector##_pop(struct vector *vector)			\
 {										\
 	return &vector->data[--vector->size];					\

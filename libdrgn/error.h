@@ -57,15 +57,15 @@ bool string_builder_append_error(struct string_builder *sb,
 
 /** Create a @ref drgn_error from the libelf error indicator. */
 struct drgn_error *drgn_error_libelf(void)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /** Create a @ref drgn_error from the libdw error indicator. */
 struct drgn_error *drgn_error_libdw(void)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /** Create a @ref drgn_error from the libdwfl error indicator. */
 struct drgn_error *drgn_error_libdwfl(void)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /**
  * Create a @ref drgn_error with a type name.
@@ -76,7 +76,7 @@ struct drgn_error *drgn_error_libdwfl(void)
  * will be replaced with the type name, and no other conversion specifications.
  */
 struct drgn_error *drgn_type_error(const char *format, struct drgn_type *type)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /**
  * Create a @ref drgn_error with a qualified type name.
@@ -86,7 +86,7 @@ struct drgn_error *drgn_type_error(const char *format, struct drgn_type *type)
 struct drgn_error *
 drgn_qualified_type_error(const char *format,
 			  struct drgn_qualified_type qualified_type)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /**
  * Create a @ref drgn_error for an incomplete type.
@@ -100,16 +100,16 @@ struct drgn_error *drgn_error_incomplete_type(const char *format,
 struct drgn_error *drgn_error_binary_op(const char *op_name,
 					struct drgn_operand_type *type1,
 					struct drgn_operand_type *type2)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /** Create a @ref drgn_error for an invalid type to a unary operator. */
 struct drgn_error *drgn_error_unary_op(const char *op_name,
 				       struct drgn_operand_type *type)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /** Create a @ref drgn_error for a failed symbol lookup. */
 struct drgn_error *drgn_error_symbol_not_found(uint64_t address)
-	__attribute__((returns_nonnull));
+	__attribute__((__returns_nonnull__));
 
 /** @} */
 

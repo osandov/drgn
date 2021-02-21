@@ -129,7 +129,7 @@ static inline bool string_builder_append(struct string_builder *sb,
  * memory).
  */
 bool string_builder_appendf(struct string_builder *sb, const char *format, ...)
-	__attribute__((format(printf, 2, 3)));
+	__attribute__((__format__(__printf__, 2, 3)));
 
 /**
  * Append a string to a @ref string_builder from vprintf-style arguments.

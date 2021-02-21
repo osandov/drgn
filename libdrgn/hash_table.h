@@ -410,9 +410,9 @@ enum {										\
 typedef struct {								\
 	uint32_t index[table##_vector_policy];					\
 	table##_entry_type entry[!table##_vector_policy];			\
-} __attribute__((packed,							\
-		 aligned(table##_vector_policy ?				\
-			 alignof(uint32_t) : alignof(table##_entry_type))))	\
+} __attribute__((__packed__,							\
+		 __aligned__(table##_vector_policy ?				\
+			     alignof(uint32_t) : alignof(table##_entry_type))))	\
 table##_item_type;								\
 										\
 enum {										\
@@ -458,7 +458,7 @@ struct table##_chunk {								\
 	 */									\
 	uint8_t outbound_overflow_count;					\
 	table##_item_type items[table##_chunk_allocated_capacity];		\
-} __attribute__((aligned(hash_table_chunk_alignment)));				\
+} __attribute__((__aligned__(hash_table_chunk_alignment)));			\
 										\
 /*										\
  * This may be a "public iterator" (used by the public interface to refer to an	\
@@ -708,7 +708,7 @@ table##_chunk_dec_outbound_overflow_count(struct table##_chunk *chunk)		\
 		chunk->outbound_overflow_count--;				\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static void table##_init(struct table *table)					\
 {										\
 	table->chunks = hash_table_empty_chunk;					\
@@ -723,7 +723,7 @@ static void table##_init(struct table *table)					\
 	}									\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static void table##_deinit(struct table *table)					\
 {										\
 	if (table->chunks != hash_table_empty_chunk)				\
@@ -763,7 +763,7 @@ static inline void table##_set_chunk_mask(struct table *table,			\
 		table->basic->chunk_mask = chunk_mask;				\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static inline bool table##_empty(struct table *table)				\
 {										\
 	return table##_size(table) == 0;					\
@@ -1008,7 +1008,7 @@ static void table##_do_clear(struct table *table, bool reset)			\
 	}									\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static bool table##_reserve(struct table *table, size_t capacity)		\
 {										\
 	capacity = max(capacity, table##_size(table));				\
@@ -1049,7 +1049,7 @@ static bool table##_reserve(struct table *table, size_t capacity)		\
 			      new_chunk_count, new_capacity_scale);		\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static void table##_clear(struct table *table)					\
 {										\
 	table##_do_clear(table, false);						\
@@ -1075,7 +1075,7 @@ table##_search_hashed(struct table *table, const table##_key_type *key,		\
 	return it;								\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct table##_iterator							\
 table##_search(struct table *table, const table##_key_type *key)		\
 {										\
@@ -1180,7 +1180,7 @@ static int table##_insert_hashed(struct table *table,				\
 	}									\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static int table##_insert(struct table *table,					\
 			  const table##_entry_type *entry,			\
 			  struct table##_iterator *it_ret)			\
@@ -1239,7 +1239,7 @@ table##_adjust_size_and_first_before_delete(struct table *table,		\
  * in the likely_dead case, and so that the counter can be optimized away in	\
  * the not likely_dead case.							\
  */										\
-__attribute__((always_inline))							\
+__attribute__((__always_inline__))						\
 static inline struct table##_iterator						\
 table##_next_impl(struct table##_iterator it, bool likely_dead)			\
 {										\
@@ -1328,7 +1328,7 @@ static void table##_vector_delete_impl(struct table *table,			\
  * We want this inlined so that the call to table##_next_impl() can be		\
  * optimized away.								\
  */										\
-__attribute__((always_inline))							\
+__attribute__((__always_inline__))						\
 static inline struct table##_iterator						\
 table##_delete_iterator_hashed(struct table *table, struct table##_iterator it,	\
 			       struct hash_pair hp)				\
@@ -1350,7 +1350,7 @@ table##_delete_iterator_hashed(struct table *table, struct table##_iterator it,	
 	}									\
 }										\
 										\
-__attribute__((always_inline))							\
+__attribute__((__always_inline__))						\
 static inline struct table##_iterator						\
 table##_delete_iterator(struct table *table, struct table##_iterator it)	\
 {										\
@@ -1381,13 +1381,13 @@ static bool table##_delete_hashed(struct table *table,				\
 	return true;								\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static bool table##_delete(struct table *table, const table##_key_type *key)	\
 {										\
 	return table##_delete_hashed(table, key, table##_hash(key));		\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct table##_iterator table##_first(struct table *table)		\
 {										\
 	if (table##_vector_policy) {						\
@@ -1405,7 +1405,7 @@ static struct table##_iterator table##_first(struct table *table)		\
 	}									\
 }										\
 										\
-__attribute__((unused))								\
+__attribute__((__unused__))							\
 static struct table##_iterator table##_next(struct table##_iterator it)		\
 {										\
 	if (table##_vector_policy) {						\
