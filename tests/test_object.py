@@ -710,6 +710,24 @@ class TestValue(MockProgramTestCase):
             value={"z": 999},
         )
 
+    def test_compound_offset(self):
+        value = {"n": 23, "x": 100, "y": -5}
+        obj = Object(
+            self.prog,
+            self.prog.struct_type(
+                None,
+                12,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True), "n"),
+                    TypeMember(self.point_type, None, 32),
+                ),
+            ),
+            value,
+        )
+        self.assertEqual(obj.value_(), value)
+        self.assertIdentical(obj.x, Object(self.prog, "int", value=100))
+        self.assertIdentical(obj.y, Object(self.prog, "int", value=-5))
+
     def test_pointer(self):
         obj = Object(self.prog, "int *", value=0xFFFF0000)
         self.assertFalse(obj.absent_)

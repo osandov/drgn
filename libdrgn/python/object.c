@@ -121,7 +121,7 @@ static int serialize_compound_value(struct drgn_program *prog, char *buf,
 		if (err)
 			goto out;
 		if (serialize_py_object(prog, buf, buf_bit_size,
-					bit_offset + member->bit_offset,
+					bit_offset + member_bit_offset,
 					PyTuple_GET_ITEM(item, 1),
 					&member_type) == -1)
 			goto out;
