@@ -315,7 +315,7 @@ async def try_build_kernel(commit: str) -> Optional[Tuple[str, Path]]:
             try:
                 return await build_kernel(commit, build_dir, log_file)
             except Exception:
-                logger.exception("building %s failed; see %r", commit, repr(log_path))
+                logger.exception("building %s failed; see %r", commit, str(log_path))
                 return None
     except Exception:
         logger.exception("preparing %r failed", str(build_dir))
