@@ -36,7 +36,7 @@ from yarl import URL
 
 from util import nproc
 
-logger = logging.getLogger("asyncio")
+logger = logging.getLogger(__name__)
 
 
 KERNEL_CONFIG_PATH = Path(__file__).parent / "config"
