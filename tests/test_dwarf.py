@@ -879,6 +879,71 @@ class TestTypes(TestCase):
             prog.type("TEST").type, prog.pointer_type(prog.struct_type("point"))
         )
 
+    def test_incomplete_to_complete_specification(self):
+        prog = dwarf_program(
+            test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.pointer_type,
+                        (
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.structure_type,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                            DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.structure_type,
+                        (
+                            DwarfAttrib(DW_AT.specification, DW_FORM.ref4, 1),
+                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        ),
+                        (
+                            DwarfDie(
+                                DW_TAG.member,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(
+                                        DW_AT.data_member_location, DW_FORM.data1, 0
+                                    ),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.member,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                    DwarfAttrib(
+                                        DW_AT.data_member_location, DW_FORM.data1, 4
+                                    ),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
+                                ),
+                            ),
+                        ),
+                    ),
+                    int_die,
+                )
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.pointer_type(
+                prog.struct_type(
+                    "point",
+                    8,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x"),
+                        TypeMember(prog.int_type("int", 4, True), "y", 32),
+                    ),
+                )
+            ),
+        )
+
     def test_filename(self):
         dies = list(base_type_dies) + [
             DwarfDie(

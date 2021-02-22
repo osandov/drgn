@@ -1144,6 +1144,18 @@ static int dwarf_flag(Dwarf_Die *die, unsigned int name, bool *ret)
 	Dwarf_Attribute attr_mem;
 	Dwarf_Attribute *attr;
 
+	if (!(attr = dwarf_attr(die, name, &attr_mem))) {
+		*ret = false;
+		return 0;
+	}
+	return dwarf_formflag(attr, ret);
+}
+
+static int dwarf_flag_integrate(Dwarf_Die *die, unsigned int name, bool *ret)
+{
+	Dwarf_Attribute attr_mem;
+	Dwarf_Attribute *attr;
+
 	if (!(attr = dwarf_attr_integrate(die, name, &attr_mem))) {
 		*ret = false;
 		return 0;
@@ -1773,7 +1785,7 @@ parse_template_parameter(struct drgn_debug_info *dbinfo,
 	}
 
 	bool defaulted;
-	if (dwarf_flag(die, DW_AT_default_value, &defaulted)) {
+	if (dwarf_flag_integrate(die, DW_AT_default_value, &defaulted)) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "%s has invalid DW_AT_default_value",
 					 dwarf_tag_str(die, tag_buf));
