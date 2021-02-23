@@ -13,7 +13,6 @@
 #define DRGN_DWARF_INDEX_H
 
 #include <elfutils/libdw.h>
-#include <elfutils/libdwfl.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

@@ -249,13 +249,6 @@ int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
 PyObject *join_strings(PyObject *parts);
 
-struct byteorder_arg {
-	bool allow_none;
-	bool is_none;
-	enum drgn_byte_order value;
-};
-int byteorder_converter(PyObject *o, void *p);
-
 struct index_arg {
 	bool allow_none;
 	bool is_none;

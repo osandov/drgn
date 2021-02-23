@@ -7,7 +7,6 @@
 #include "drgnpy.h"
 #include "../error.h"
 #include "../object.h"
-#include "../program.h"
 #include "../serialize.h"
 #include "../type.h"
 #include "../util.h"

@@ -1373,6 +1373,37 @@ DrgnType *Program_void_type(Program *self, PyObject *args, PyObject *kwds)
 	return (DrgnType *)DrgnType_wrap(qualified_type);
 }
 
+struct byteorder_arg {
+	bool allow_none;
+	bool is_none;
+	enum drgn_byte_order value;
+};
+
+static int byteorder_converter(PyObject *o, void *p)
+{
+	struct byteorder_arg *arg = p;
+
+	arg->is_none = o == Py_None;
+	if (arg->allow_none && o == Py_None)
+		return 1;
+
+	if (PyUnicode_Check(o)) {
+		const char *s = PyUnicode_AsUTF8(o);
+		if (strcmp(s, "little") == 0) {
+			arg->value = DRGN_LITTLE_ENDIAN;
+			return 1;
+		} else if (strcmp(s, "big") == 0) {
+			arg->value = DRGN_BIG_ENDIAN;
+			return 1;
+		}
+	}
+	PyErr_Format(PyExc_ValueError,
+		     "expected 'little'%s 'big'%s for byteorder",
+		     arg->allow_none ? "," : " or",
+		     arg->allow_none ? ", or None" : "");
+	return 0;
+}
+
 DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {

@@ -12,6 +12,9 @@
 #ifndef DRGN_STACK_TRACE_H
 #define DRGN_STACK_TRACE_H
 
+#include <elfutils/libdwfl.h>
+#include <stddef.h>
+
 /**
  * @ingroup Internals
  *

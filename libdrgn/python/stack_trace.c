@@ -3,6 +3,7 @@
 
 #include "drgnpy.h"
 #include "../stack_trace.h"
+#include "../util.h"
 
 static void StackTrace_dealloc(StackTrace *self)
 {

@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <dwarf.h>
+#include <elfutils/libdwfl.h>
 #include <inttypes.h>
 #include <libelf.h>
 #include <stdlib.h>

@@ -5,10 +5,10 @@
 #include <byteswap.h>
 #include <elfutils/libdw.h>
 #include <elfutils/libdwfl.h>
+#include <string.h>
 
 #include "drgn.h"
 #include "error.h"
-#include "linux_kernel.h"
 #include "platform.h"
 #include "program.h"
 %}
