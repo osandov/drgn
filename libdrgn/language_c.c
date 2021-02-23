@@ -2488,10 +2488,10 @@ c_type_from_declarator(struct drgn_program *prog,
 	}
 
 	if (declarator->kind == C_TOKEN_ASTERISK) {
-		uint8_t word_size;
-		err = drgn_program_word_size(prog, &word_size);
+		uint8_t address_size;
+		err = drgn_program_address_size(prog, &address_size);
 		if (!err) {
-			err = drgn_pointer_type_create(prog, *ret, word_size,
+			err = drgn_pointer_type_create(prog, *ret, address_size,
 						       DRGN_PROGRAM_ENDIAN,
 						       drgn_type_language(ret->type),
 						       &ret->type);
@@ -3143,14 +3143,15 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	*type_ret = drgn_object_operand_type(obj);
 	switch (drgn_type_kind(type_ret->underlying_type)) {
 	case DRGN_TYPE_ARRAY: {
-		uint8_t word_size;
-		err = drgn_program_word_size(drgn_object_program(obj),
-					     &word_size);
+		uint8_t address_size;
+		err = drgn_program_address_size(drgn_object_program(obj),
+						&address_size);
 		if (err)
 			return err;
 		err = drgn_pointer_type_create(drgn_object_program(obj),
 					       drgn_type_type(type_ret->underlying_type),
-					       word_size, DRGN_PROGRAM_ENDIAN,
+					       address_size,
+					       DRGN_PROGRAM_ENDIAN,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);
 		if (err)
@@ -3163,13 +3164,13 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 			.type = type_ret->underlying_type,
 			.qualifiers = type_ret->qualifiers,
 		};
-		uint8_t word_size;
-		err = drgn_program_word_size(drgn_object_program(obj),
-					     &word_size);
+		uint8_t address_size;
+		err = drgn_program_address_size(drgn_object_program(obj),
+						&address_size);
 		if (err)
 			return err;
 		err = drgn_pointer_type_create(drgn_object_program(obj),
-					       function_type, word_size,
+					       function_type, address_size,
 					       DRGN_PROGRAM_ENDIAN,
 					       drgn_type_language(type_ret->underlying_type),
 					       &type_ret->type);

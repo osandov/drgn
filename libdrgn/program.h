@@ -210,7 +210,7 @@ drgn_program_is_little_endian(struct drgn_program *prog, bool *ret)
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "program byte order is not known");
 	}
-	*ret = prog->platform.flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN;
+	*ret = drgn_platform_is_little_endian(&prog->platform);
 	return NULL;
 }
 
@@ -221,12 +221,11 @@ drgn_program_is_little_endian(struct drgn_program *prog, bool *ret)
 static inline struct drgn_error *
 drgn_program_bswap(struct drgn_program *prog, bool *ret)
 {
-	bool is_little_endian;
-	struct drgn_error *err = drgn_program_is_little_endian(prog,
-							       &is_little_endian);
-	if (err)
-		return err;
-	*ret = is_little_endian != HOST_LITTLE_ENDIAN;
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program byte order is not known");
+	}
+	*ret = drgn_platform_bswap(&prog->platform);
 	return NULL;
 }
 
@@ -237,18 +236,29 @@ drgn_program_is_64_bit(struct drgn_program *prog, bool *ret)
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "program word size is not known");
 	}
-	*ret = prog->platform.flags & DRGN_PLATFORM_IS_64_BIT;
+	*ret = drgn_platform_is_64_bit(&prog->platform);
 	return NULL;
 }
 
 static inline struct drgn_error *
-drgn_program_word_size(struct drgn_program *prog, uint8_t *ret)
+drgn_program_address_size(struct drgn_program *prog, uint8_t *ret)
 {
-	bool is_64_bit;
-	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
-	if (err)
-		return err;
-	*ret = is_64_bit ? 8 : 4;
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program address size is not known");
+	}
+	*ret = drgn_platform_address_size(&prog->platform);
+	return NULL;
+}
+
+static inline struct drgn_error *
+drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
+{
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program address size is not known");
+	}
+	*ret = drgn_platform_address_mask(&prog->platform);
 	return NULL;
 }
 

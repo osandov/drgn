@@ -8,6 +8,7 @@
 #include <gelf.h>
 
 #include "drgn.h"
+#include "util.h"
 
 struct drgn_register {
 	const char *name;
@@ -98,6 +99,34 @@ struct drgn_platform {
 	const struct drgn_architecture_info *arch;
 	enum drgn_platform_flags flags;
 };
+
+static inline bool
+drgn_platform_is_little_endian(const struct drgn_platform *platform)
+{
+	return platform->flags & DRGN_PLATFORM_IS_LITTLE_ENDIAN;
+}
+
+static inline bool drgn_platform_bswap(const struct drgn_platform *platform)
+{
+	return drgn_platform_is_little_endian(platform) != HOST_LITTLE_ENDIAN;
+}
+
+static inline bool drgn_platform_is_64_bit(const struct drgn_platform *platform)
+{
+	return platform->flags & DRGN_PLATFORM_IS_64_BIT;
+}
+
+static inline uint8_t
+drgn_platform_address_size(const struct drgn_platform *platform)
+{
+	return drgn_platform_is_64_bit(platform) ? 8 : 4;
+}
+
+static inline uint64_t
+drgn_platform_address_mask(const struct drgn_platform *platform)
+{
+	return drgn_platform_is_64_bit(platform) ? UINT64_MAX : UINT32_MAX;
+}
 
 /**
  * Initialize a @ref drgn_platform from an architecture, word size, and

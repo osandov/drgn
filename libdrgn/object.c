@@ -315,14 +315,15 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 				   const struct drgn_object_type *type,
 				   uint64_t address, uint64_t bit_offset)
 {
-	bool is_64_bit;
+	uint64_t address_mask;
 	struct drgn_error *err =
-		drgn_program_is_64_bit(drgn_object_program(res), &is_64_bit);
+		drgn_program_address_mask(drgn_object_program(res),
+					  &address_mask);
 	if (err)
 		return err;
 
 	address += bit_offset / 8;
-	address &= is_64_bit ? UINT64_MAX : UINT32_MAX;
+	address &= address_mask;
 	bit_offset %= 8;
 	if (type->encoding != DRGN_OBJECT_ENCODING_SIGNED &&
 	    type->encoding != DRGN_OBJECT_ENCODING_UNSIGNED &&
@@ -1229,14 +1230,15 @@ drgn_object_address_of(struct drgn_object *res, const struct drgn_object *obj)
 
 	struct drgn_qualified_type qualified_type =
 		drgn_object_qualified_type(obj);
-	uint8_t word_size;
+	uint8_t address_size;
 	struct drgn_error *err =
-		drgn_program_word_size(drgn_object_program(obj), &word_size);
+		drgn_program_address_size(drgn_object_program(obj),
+					  &address_size);
 	if (err)
 		return err;
 	struct drgn_qualified_type result_type;
 	err = drgn_pointer_type_create(drgn_object_program(obj), qualified_type,
-				       word_size, DRGN_PROGRAM_ENDIAN,
+				       address_size, DRGN_PROGRAM_ENDIAN,
 				       drgn_type_language(qualified_type.type),
 				       &result_type.type);
 	if (err)
@@ -1363,13 +1365,14 @@ drgn_object_container_of(struct drgn_object *res, const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	uint8_t word_size;
-	err = drgn_program_word_size(drgn_object_program(obj), &word_size);
+	uint8_t address_size;
+	err = drgn_program_address_size(drgn_object_program(obj),
+					&address_size);
 	if (err)
 		return err;
 	struct drgn_qualified_type result_type;
 	err = drgn_pointer_type_create(drgn_object_program(obj), qualified_type,
-				       word_size, DRGN_PROGRAM_ENDIAN,
+				       address_size, DRGN_PROGRAM_ENDIAN,
 				       drgn_type_language(qualified_type.type),
 				       &result_type.type);
 	if (err)

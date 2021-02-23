@@ -2137,11 +2137,11 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		}
 		size = word;
 	} else {
-		uint8_t word_size;
-		err = drgn_program_word_size(dbinfo->prog, &word_size);
+		uint8_t address_size;
+		err = drgn_program_address_size(dbinfo->prog, &address_size);
 		if (err)
 			return err;
-		size = word_size;
+		size = address_size;
 	}
 
 	/*

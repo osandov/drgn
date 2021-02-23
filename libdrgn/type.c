@@ -1431,21 +1431,19 @@ default_size_t_or_ptrdiff_t(struct drgn_program *prog,
 		},
 	};
 	struct drgn_error *err;
-	uint8_t word_size;
-
-	err = drgn_program_word_size(prog, &word_size);
+	uint8_t address_size;
+	err = drgn_program_address_size(prog, &address_size);
 	if (err)
 		return err;
 	for (size_t i = 0; i < ARRAY_SIZE(integer_types[0]); i++) {
-		enum drgn_primitive_type integer_type;
+		enum drgn_primitive_type integer_type =
+			integer_types[type == DRGN_C_TYPE_PTRDIFF_T][i];
 		struct drgn_qualified_type qualified_type;
-
-		integer_type = integer_types[type == DRGN_C_TYPE_PTRDIFF_T][i];
 		err = drgn_program_find_primitive_type(prog, integer_type,
 						       &qualified_type.type);
 		if (err)
 			return err;
-		if (drgn_type_size(qualified_type.type) == word_size) {
+		if (drgn_type_size(qualified_type.type) == address_size) {
 			qualified_type.qualifiers = 0;
 			return drgn_typedef_type_create(prog,
 							drgn_primitive_type_spellings[type][0],
@@ -1528,12 +1526,11 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 	/* long and unsigned long default to the word size. */
 	case DRGN_C_TYPE_LONG:
 	case DRGN_C_TYPE_UNSIGNED_LONG: {
-		uint8_t word_size;
-
-		err = drgn_program_word_size(prog, &word_size);
+		uint8_t address_size;
+		err = drgn_program_address_size(prog, &address_size);
 		if (err)
 			break;
-		err = drgn_int_type_create(prog, spellings[0], word_size,
+		err = drgn_int_type_create(prog, spellings[0], address_size,
 					   type == DRGN_C_TYPE_LONG,
 					   DRGN_PROGRAM_ENDIAN,
 					   &drgn_language_c, ret);

@@ -126,10 +126,7 @@ set_initial_registers_from_struct_x86_64(struct drgn_program *prog,
 					 "registers are truncated");
 	}
 
-	bool bswap;
-	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
-	if (err)
-		return err;
+	bool bswap = drgn_platform_bswap(&prog->platform);
 
 	Dwarf_Word dwarf_regs[17];
 #define READ_REGISTER(n) ({					\
@@ -515,13 +512,11 @@ linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
 	static const uint64_t PRESENT = 0x1;
 	static const uint64_t PSE = 0x80; /* a.k.a. huge page */
 	static const uint64_t ADDRESS_MASK = UINT64_C(0xffffffffff000);
+	struct drgn_error *err;
 	struct drgn_program *prog = it->prog;
 	struct pgtable_iterator_x86_64 *arch = (void *)it->arch;
 	int levels = prog->vmcoreinfo.pgtable_l5_enabled ? 5 : 4, level;
-	bool bswap;
-	struct drgn_error *err = drgn_program_bswap(prog, &bswap);
-	if (err)
-		return err;
+	bool bswap = drgn_platform_bswap(&prog->platform);
 
 	/* Find the lowest level with cached entries. */
 	for (level = 0; level < levels; level++) {
