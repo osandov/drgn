@@ -226,7 +226,7 @@ drgn_program_bswap(struct drgn_program *prog, bool *ret)
 							       &is_little_endian);
 	if (err)
 		return err;
-	*ret = is_little_endian != (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__);
+	*ret = is_little_endian != HOST_LITTLE_ENDIAN;
 	return NULL;
 }
 

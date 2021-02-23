@@ -21,8 +21,7 @@ LIBDRGN_PUBLIC const struct drgn_platform drgn_host_platform = {
 	.arch = &arch_info_unknown,
 #endif
 	.flags = ((sizeof(void *) == 8 ? DRGN_PLATFORM_IS_64_BIT : 0) |
-		  (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
-		   DRGN_PLATFORM_IS_LITTLE_ENDIAN : 0)),
+		  (HOST_LITTLE_ENDIAN ? DRGN_PLATFORM_IS_LITTLE_ENDIAN : 0)),
 };
 
 LIBDRGN_PUBLIC struct drgn_error *

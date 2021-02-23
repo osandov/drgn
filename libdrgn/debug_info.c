@@ -737,8 +737,7 @@ static struct drgn_error *apply_elf_relocations(Elf *elf)
 	    ehdr->e_machine != EM_X86_64 ||
 	    ehdr->e_ident[EI_CLASS] != ELFCLASS64 ||
 	    ehdr->e_ident[EI_DATA] !=
-	    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ?
-	     ELFDATA2LSB : ELFDATA2MSB)) {
+	    (HOST_LITTLE_ENDIAN ? ELFDATA2LSB : ELFDATA2MSB)) {
 		/* Unsupported; fall back to libdwfl. */
 		return NULL;
 	}

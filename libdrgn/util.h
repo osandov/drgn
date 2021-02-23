@@ -29,6 +29,8 @@
 #define UNREACHABLE() assert(!"reachable")
 #endif
 
+#define HOST_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+
 /**
  * Switch statement with an enum controlling expression that must have a case
  * for every enumeration value and a default case.
