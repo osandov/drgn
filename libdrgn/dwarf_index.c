@@ -1063,9 +1063,11 @@ err:
 	drgn_dwarf_index_update_cancel(state, err);
 }
 
-static bool find_definition(struct drgn_dwarf_index *dindex, uintptr_t die_addr,
-			    struct drgn_debug_info_module **module_ret,
-			    uintptr_t *addr_ret)
+bool
+drgn_dwarf_index_find_definition(struct drgn_dwarf_index *dindex,
+				 uintptr_t die_addr,
+				 struct drgn_debug_info_module **module_ret,
+				 uintptr_t *addr_ret)
 {
 	struct drgn_dwarf_index_specification_map_iterator it =
 		drgn_dwarf_index_specification_map_search(&dindex->specifications,
@@ -1406,8 +1408,10 @@ skip:
 				 */
 				die_addr = depth1_addr;
 			} else if (declaration &&
-				   !find_definition(ns->dindex, die_addr,
-						    &module, &die_addr)) {
+				   !drgn_dwarf_index_find_definition(ns->dindex,
+								     die_addr,
+								     &module,
+								     &die_addr)) {
 				goto next;
 			}
 

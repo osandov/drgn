@@ -2433,6 +2433,26 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 					 "maximum DWARF type parsing depth exceeded");
 	}
 
+	/* If we got a declaration, try to find the definition. */
+	bool declaration;
+	if (dwarf_flag(die, DW_AT_declaration, &declaration))
+		return drgn_error_libdw();
+	if (declaration) {
+		uintptr_t die_addr;
+		if (drgn_dwarf_index_find_definition(&dbinfo->dindex,
+						     (uintptr_t)die->addr,
+						     &module, &die_addr)) {
+			Dwarf_Addr bias;
+			Dwarf *dwarf = dwfl_module_getdwarf(module->dwfl_module,
+							    &bias);
+			if (!dwarf)
+				return drgn_error_libdwfl();
+			uintptr_t start = (uintptr_t)module->scns[DRGN_SCN_DEBUG_INFO]->d_buf;
+			if (!dwarf_offdie(dwarf, die_addr - start, die))
+				return drgn_error_libdw();
+		}
+	}
+
 	struct drgn_dwarf_type_map_entry entry = {
 		.key = die->addr,
 	};
