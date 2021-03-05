@@ -135,10 +135,8 @@ extern struct drgn_error drgn_enomem;
 /**
  * Non-fatal lookup @ref drgn_error.
  *
- * This has a code of @ref DRGN_ERROR_LOOKUP. It should be returned from a @ref
- * drgn_type_find_fn() or @ref drgn_object_find_fn() to indicate that the entity
- * in question could not be found. It does not need to be passed to @ref
- * drgn_error_destroy() (but it can be).
+ * This has a code of @ref DRGN_ERROR_LOOKUP. It does not need to be passed to
+ * @ref drgn_error_destroy() (but it can be).
  */
 extern struct drgn_error drgn_not_found;
 

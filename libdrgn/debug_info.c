@@ -1480,8 +1480,8 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
  * DW_TAG_structure_type, DW_TAG_union_type, DW_TAG_class_type, and
  * DW_TAG_enumeration_type can be incomplete (i.e., have a DW_AT_declaration of
  * true). This tries to find the complete type. If it succeeds, it returns NULL.
- * If it can't find a complete type, it returns a DRGN_ERROR_STOP error.
- * Otherwise, it returns an error.
+ * If it can't find a complete type, it returns &drgn_not_found. Otherwise, it
+ * returns an error.
  */
 static struct drgn_error *
 drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
@@ -1502,13 +1502,13 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
 	struct drgn_dwarf_index_die *index_die =
 		drgn_dwarf_index_iterator_next(&it);
 	if (!index_die)
-		return &drgn_stop;
+		return &drgn_not_found;
 	/*
 	 * Look for another matching DIE. If there is one, then we can't be sure
 	 * which type this is, so leave it incomplete rather than guessing.
 	 */
 	if (drgn_dwarf_index_iterator_next(&it))
-		return &drgn_stop;
+		return &drgn_not_found;
 
 	Dwarf_Die die;
 	err = drgn_dwarf_index_get_die(index_die, &die);
@@ -1842,7 +1842,7 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	if (declaration && tag) {
 		err = drgn_debug_info_find_complete(dbinfo, dwarf_tag(die), tag,
 						    ret);
-		if (!err || err->code != DRGN_ERROR_STOP)
+		if (err != &drgn_not_found)
 			return err;
 	}
 
@@ -2023,7 +2023,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		err = drgn_debug_info_find_complete(dbinfo,
 						    DW_TAG_enumeration_type,
 						    tag, ret);
-		if (!err || err->code != DRGN_ERROR_STOP)
+		if (err != &drgn_not_found)
 			return err;
 	}
 

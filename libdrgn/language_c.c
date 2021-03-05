@@ -791,7 +791,7 @@ static struct drgn_error *c_format_initializer(struct drgn_program *prog,
 		size_t initializer_start;
 
 		err = iter->next(iter, &obj, &initializer_flags);
-		if (err && err->code == DRGN_ERROR_STOP)
+		if (err == &drgn_stop)
 			break;
 		else if (err)
 			goto out;
@@ -896,7 +896,7 @@ static struct drgn_error *c_format_initializer(struct drgn_program *prog,
 		size_t newline, designation_start, line_columns;
 
 		err = iter->next(iter, &obj, &initializer_flags);
-		if (err && err->code == DRGN_ERROR_STOP)
+		if (err == &drgn_stop)
 			break;
 		else if (err)
 			goto out;

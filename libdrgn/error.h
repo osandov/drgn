@@ -26,11 +26,7 @@
 
 struct drgn_operand_type;
 
-/**
- * Global stop iteration error.
- *
- * This is also used as a special sentinel return in various places internally.
- */
+/** Global stop iteration error. */
 extern struct drgn_error drgn_stop;
 
 /** Global @ref DRGN_ERROR_OBJECT_ABSENT error. */

@@ -452,7 +452,7 @@ kernel_module_iterator_next_live(struct kernel_module_iterator *it)
  * destroyed.
  *
  * @return @c NULL on success, non-@c NULL on error. In particular, when there
- * are no more modules, a @ref DRGN_ERROR_STOP error is returned.
+ * are no more modules, returns &@ref drgn_stop.
  */
 static struct drgn_error *
 kernel_module_iterator_next(struct kernel_module_iterator *it)
@@ -1062,7 +1062,7 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 			}
 		}
 	}
-	if (err && err->code != DRGN_ERROR_STOP)
+	if (err && err != &drgn_stop)
 		goto out_section_it;
 	err = NULL;
 	if (start >= end)
@@ -1232,7 +1232,7 @@ kernel_module_iterator_error:
 	}
 	for (;;) {
 		err = kernel_module_iterator_next(&kmod_it);
-		if (err && err->code == DRGN_ERROR_STOP) {
+		if (err == &drgn_stop) {
 			err = NULL;
 			break;
 		} else if (err) {

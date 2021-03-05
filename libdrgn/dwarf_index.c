@@ -536,7 +536,7 @@ static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu,
 	for (;;) {
 		struct drgn_error *err = read_abbrev_decl(&buffer, cu, &decls,
 							  &insns);
-		if (err && err->code == DRGN_ERROR_STOP) {
+		if (err == &drgn_stop) {
 			break;
 		} else if (err) {
 			uint8_vector_deinit(&insns);
