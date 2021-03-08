@@ -906,7 +906,7 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 #define X(name, value) "O&"
 					 FLAGS
 #undef X
-					 "O", keywords,
+					 "O:format_", keywords,
 #define X(name, value) format_object_flag_converter, &name##_arg,
 					 FLAGS
 #undef X
