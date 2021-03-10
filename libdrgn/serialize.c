@@ -3,10 +3,8 @@
 
 #include <assert.h>
 #include <endian.h>
-#include <string.h>
 
 #include "serialize.h"
-#include "minmax.h"
 
 void serialize_bits(void *buf, uint64_t bit_offset, uint64_t uvalue,
 		    uint8_t bit_size, bool little_endian)

@@ -14,6 +14,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
+
+#include "minmax.h"
 
 /**
  * @ingroup Internals
@@ -35,6 +38,39 @@ static inline int64_t truncate_signed(int64_t svalue, uint64_t bit_size)
 static inline uint64_t truncate_unsigned(uint64_t uvalue, uint64_t bit_size)
 {
 	return uvalue << (64 - bit_size) >> (64 - bit_size);
+}
+
+/**
+ * Copy the @p src_size least-significant bytes from @p src to the @p dst_size
+ * least-significant bytes of @p dst.
+ *
+ * If `src_size > dst_size`, the extra bytes are discarded. If `src_size <
+ * dst_size`, the extra bytes are zero-filled.
+ */
+static inline void copy_lsbytes(void *dst, size_t dst_size,
+				bool dst_little_endian, const void *src,
+				size_t src_size, bool src_little_endian)
+{
+	char *d = dst;
+	const char *s = src;
+	size_t size = min(dst_size, src_size);
+	if (dst_little_endian) {
+		if (src_little_endian) {
+			memcpy(d, s, size);
+		} else {
+			for (size_t i = 0; i < size; i++)
+				d[i] = s[src_size - 1 - i];
+		}
+		memset(d + size, 0, dst_size - size);
+	} else {
+		memset(d, 0, dst_size - size);
+		if (src_little_endian) {
+			for (size_t i = dst_size - size; i < size; i++)
+				d[i] = s[dst_size - 1 - i];
+		} else {
+			memcpy(d + dst_size - size, s + src_size - size, size);
+		}
+	}
 }
 
 /**
