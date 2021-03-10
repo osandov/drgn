@@ -98,9 +98,10 @@ struct drgn_debug_info_module {
 	struct drgn_debug_info_module *next;
 };
 
-struct drgn_error *drgn_error_debug_info(struct drgn_debug_info_module *module,
-					 enum drgn_debug_info_scn scn,
-					 const char *ptr, const char *message);
+struct drgn_error *
+drgn_error_debug_info_scn(struct drgn_debug_info_module *module,
+			  enum drgn_debug_info_scn scn, const char *ptr,
+			  const char *message);
 
 struct drgn_debug_info_buffer {
 	struct binary_buffer bb;

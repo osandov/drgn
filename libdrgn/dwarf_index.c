@@ -108,8 +108,8 @@ drgn_dwarf_index_cu_buffer_error(struct binary_buffer *bb, const char *pos,
 {
 	struct drgn_dwarf_index_cu_buffer *buffer =
 		container_of(bb, struct drgn_dwarf_index_cu_buffer, bb);
-	return drgn_error_debug_info(buffer->cu->module, DRGN_SCN_DEBUG_INFO,
-				     pos, message);
+	return drgn_error_debug_info_scn(buffer->cu->module,
+					 DRGN_SCN_DEBUG_INFO, pos, message);
 }
 
 static void

@@ -64,10 +64,10 @@ static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_DEBUG_LINE] = ".debug_line",
 };
 
-
-struct drgn_error *drgn_error_debug_info(struct drgn_debug_info_module *module,
-					 enum drgn_debug_info_scn scn,
-					 const char *ptr, const char *message)
+struct drgn_error *
+drgn_error_debug_info_scn(struct drgn_debug_info_module *module,
+			  enum drgn_debug_info_scn scn, const char *ptr,
+			  const char *message)
 {
 	const char *name = dwfl_module_info(module->dwfl_module, NULL, NULL,
 					    NULL, NULL, NULL, NULL, NULL);
@@ -83,7 +83,8 @@ struct drgn_error *drgn_debug_info_buffer_error(struct binary_buffer *bb,
 {
 	struct drgn_debug_info_buffer *buffer =
 		container_of(bb, struct drgn_debug_info_buffer, bb);
-	return drgn_error_debug_info(buffer->module, buffer->scn, pos, message);
+	return drgn_error_debug_info_scn(buffer->module, buffer->scn, pos,
+					 message);
 }
 
 DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)
