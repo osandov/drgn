@@ -12,7 +12,6 @@
 #ifndef DRGN_STACK_TRACE_H
 #define DRGN_STACK_TRACE_H
 
-#include <elfutils/libdwfl.h>
 #include <stddef.h>
 
 /**
@@ -27,15 +26,14 @@
  * @{
  */
 
+struct drgn_stack_frame {
+	struct drgn_register_state *regs;
+};
+
 struct drgn_stack_trace {
 	struct drgn_program *prog;
-	union {
-		Dwfl_Thread *thread;
-		/* Used during creation. */
-		size_t capacity;
-	};
 	size_t num_frames;
-	Dwfl_Frame *frames[];
+	struct drgn_stack_frame frames[];
 };
 
 /** @} */

@@ -146,11 +146,6 @@ struct drgn_program {
 		/* For userspace programs, PRSTATUS notes indexed by PID. */
 		struct drgn_prstatus_map prstatus_map;
 	};
-	/* See @ref drgn_object_stack_trace(). */
-	struct drgn_error *stack_trace_err;
-	/* See @ref drgn_object_stack_trace_next_thread(). */
-	const struct drgn_object *stack_trace_obj;
-	uint32_t stack_trace_tid;
 	bool prstatus_cached;
 	bool attached_dwfl_state;
 

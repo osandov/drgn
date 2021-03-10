@@ -24,6 +24,8 @@
 #include "string_builder.h"
 #include "vector.h"
 
+struct drgn_register_state;
+
 /**
  * @ingroup Internals
  *
@@ -355,6 +357,12 @@ drgn_debug_info_module_find_cfi(struct drgn_debug_info_module *module,
 				uint64_t pc, struct drgn_cfi_row **row_ret,
 				bool *interrupted_ret,
 				drgn_register_number *ret_addr_regno_ret);
+
+struct drgn_error *
+drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
+			       const struct drgn_cfi_rule *rule,
+			       const struct drgn_register_state *regs,
+			       void *buf, size_t size);
 
 struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
 

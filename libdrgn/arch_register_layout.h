@@ -59,13 +59,6 @@ DRGN_ARCH_REGISTER_LAYOUT
 #undef DRGN_REGISTER_LAYOUT
 };
 
-enum {
-#define DRGN_REGISTER_LAYOUT(id, size, dwarf_number)	\
-	DRGN_REGISTER_DWARF_NUMBER_##id = dwarf_number,
-DRGN_ARCH_REGISTER_LAYOUT
-#undef DRGN_REGISTER_LAYOUT
-};
-
 #endif
 
 /**

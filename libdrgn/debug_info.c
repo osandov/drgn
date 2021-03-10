@@ -1186,7 +1186,6 @@ drgn_dwarf_expression_buffer_error(struct binary_buffer *bb, const char *pos,
 	return drgn_error_debug_info(buffer->module, pos, message);
 }
 
-__attribute__((__unused__))
 static void
 drgn_dwarf_expression_buffer_init(struct drgn_dwarf_expression_buffer *buffer,
 				  struct drgn_debug_info_module *module,
@@ -1200,7 +1199,6 @@ drgn_dwarf_expression_buffer_init(struct drgn_dwarf_expression_buffer *buffer,
 }
 
 /* Returns &drgn_not_found if it tried to use an unknown register value. */
-__attribute__((__unused__))
 static struct drgn_error *
 drgn_eval_dwarf_expression(struct drgn_program *prog,
 			   struct drgn_dwarf_expression_buffer *expr,
@@ -4271,6 +4269,52 @@ drgn_debug_info_module_find_cfi(struct drgn_debug_info_module *module,
 	*interrupted_ret = module->cies[fde->cie].signal_frame;
 	*ret_addr_regno_ret = module->cies[fde->cie].return_address_register;
 	return NULL;
+}
+
+struct drgn_error *
+drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
+			       const struct drgn_cfi_rule *rule,
+			       const struct drgn_register_state *regs,
+			       void *buf, size_t size)
+{
+	struct drgn_error *err;
+	struct uint64_vector stack = VECTOR_INIT;
+
+	if (rule->push_cfa) {
+		struct optional_uint64 cfa = drgn_register_state_get_cfa(regs);
+		if (!cfa.has_value) {
+			err = &drgn_not_found;
+			goto out;
+		}
+		if (!uint64_vector_append(&stack, &cfa.value)) {
+			err = &drgn_enomem;
+			goto out;
+		}
+	}
+
+	struct drgn_dwarf_expression_buffer buffer;
+	drgn_dwarf_expression_buffer_init(&buffer, regs->module, rule->expr,
+					  rule->expr_size);
+	err = drgn_eval_dwarf_expression(prog, &buffer, &stack, regs);
+	if (err)
+		goto out;
+	if (stack.size == 0) {
+		err = &drgn_not_found;
+	} else if (rule->kind == DRGN_CFI_RULE_AT_DWARF_EXPRESSION) {
+		err = drgn_program_read_memory(prog, buf,
+					       stack.data[stack.size - 1], size,
+					       false);
+	} else {
+		copy_lsbytes(buf, size,
+			     drgn_platform_is_little_endian(&prog->platform),
+			     &stack.data[stack.size - 1], sizeof(uint64_t),
+			     HOST_LITTLE_ENDIAN);
+		err = NULL;
+	}
+
+out:
+	uint64_vector_deinit(&stack);
+	return err;
 }
 
 struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret)

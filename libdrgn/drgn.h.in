@@ -2603,8 +2603,17 @@ size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace);
 struct drgn_error *drgn_format_stack_trace(struct drgn_stack_trace *trace,
 					   char **ret);
 
-/** Get the return address at a stack frame. */
-uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace, size_t frame);
+/** Return whether a stack frame was interrupted (e.g., by a signal). */
+bool drgn_stack_frame_interrupted(struct drgn_stack_trace *trace, size_t frame);
+
+/**
+ * Get the program counter at a stack frame.
+ *
+ * @param[out] pc_ret Returned program counter.
+ * @return @c true if the program counter is known, @c false if it is not.
+ */
+bool drgn_stack_frame_pc(struct drgn_stack_trace *trace, size_t frame,
+			 uint64_t *ret);
 
 /**
  * Get the function symbol at a stack frame.
@@ -2616,14 +2625,14 @@ uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace, size_t frame);
 struct drgn_error *drgn_stack_frame_symbol(struct drgn_stack_trace *trace,
 					   size_t frame,
 					   struct drgn_symbol **ret);
-
 /**
  * Get the value of a register in a stack frame.
  *
  * @param[in] reg Register to get. Must be from the platform of the program that
  * the trace was taken from.
  * @param[out] ret Returned register value.
- * @return @c true on success, @c false if the value is not known.
+ * @return @c true on success, @c false if the value is not known or the
+ * register is too large to return in a @c uint64_t.
  */
 bool drgn_stack_frame_register(struct drgn_stack_trace *trace, size_t frame,
 			       const struct drgn_register *reg, uint64_t *ret);

@@ -1397,26 +1397,33 @@ class StackTrace:
 
 class StackFrame:
     """
-    A ``StackFrame`` represents a single *frame* (i.e., function call) in a
-    thread's call stack.
+    A ``StackFrame`` represents a single *frame* in a thread's call stack.
     """
 
+    interrupted: bool
+    """
+    Whether this stack frame was interrupted (for example, by a hardware
+    interrupt, signal, trap, etc.).
+
+    If this is ``True``, then the register values in this frame are the values
+    at the time that the frame was interrupted.
+
+    This is ``False`` if the frame is for a function call, in which case the
+    register values are the values when control returns to this frame. In
+    particular, the program counter is the return address, which is typically
+    the instruction after the call instruction.
+    """
     pc: int
-    """
-    The program counter at this stack frame.
-
-    For the innermost frame, this is typically the instruction that was being
-    executed when the stack trace was captured. For function calls, this is
-    generally the return address, i.e., the value of the program counter when
-    control returns to this frame.
-    """
+    """Program counter at this stack frame."""
     def symbol(self) -> Symbol:
         """
         Get the function symbol at this stack frame.
 
-        This may differ from :meth:`prog.symbol(frame.pc) <Program.symbol>`, as
-        for function calls, the program counter may be adjusted to the call
-        instruction instead of the return address.
+        This is equivalent to:
+
+        .. code-block:: python3
+
+            prog.symbol(frame.pc - (0 if frame.interrupted else 1))
         """
         ...
     def register(self, reg: str) -> int:

@@ -2,29 +2,77 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <assert.h>
-#include <elfutils/libdw.h>
+#include <byteswap.h>
 #include <elfutils/libdwfl.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 
+#include "cfi.h"
 #include "debug_info.h"
 #include "drgn.h"
 #include "error.h"
 #include "hash_table.h"
 #include "helpers.h"
+#include "minmax.h"
 #include "platform.h"
 #include "program.h"
+#include "register_state.h"
+#include "serialize.h"
 #include "stack_trace.h"
 #include "string_builder.h"
 #include "symbol.h"
 #include "type.h"
 #include "util.h"
 
+static bool drgn_stack_trace_append_frame(struct drgn_stack_trace **trace,
+					  size_t *capacity,
+					  struct drgn_register_state *regs)
+{
+	if ((*trace)->num_frames == *capacity) {
+		static const size_t max_capacity =
+			(SIZE_MAX - sizeof(struct drgn_stack_trace)) /
+			sizeof(struct drgn_stack_frame);
+		if (*capacity == max_capacity)
+			return false;
+		size_t new_capacity;
+		if (*capacity > max_capacity / 2)
+			new_capacity = max_capacity;
+		else
+			new_capacity = 2 * (*capacity);
+		struct drgn_stack_trace *new_trace =
+			realloc((*trace),
+				offsetof(struct drgn_stack_trace,
+					 frames[new_capacity]));
+		if (!new_trace)
+			return false;
+		*trace = new_trace;
+		*capacity = new_capacity;
+	}
+	struct drgn_stack_frame *frame =
+		&(*trace)->frames[(*trace)->num_frames++];
+	frame->regs = regs;
+	return true;
+}
+
+static void drgn_stack_trace_shrink_to_fit(struct drgn_stack_trace **trace,
+					   size_t capacity)
+{
+	size_t num_frames = (*trace)->num_frames;
+	if (capacity > num_frames) {
+		struct drgn_stack_trace *new_trace =
+			realloc((*trace),
+				offsetof(struct drgn_stack_trace,
+					 frames[num_frames]));
+		if (new_trace)
+			*trace = new_trace;
+	}
+}
+
 LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 {
-	dwfl_detach_thread(trace->thread);
+	for (size_t i = 0; i < trace->num_frames; i++)
+		drgn_register_state_destroy(trace->frames[i].regs);
 	free(trace);
 }
 
@@ -37,82 +85,89 @@ drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 {
-	struct drgn_error *err;
 	struct string_builder str = {};
 	for (size_t frame = 0; frame < trace->num_frames; frame++) {
-		if (!string_builder_appendf(&str, "#%-2zu ", frame)) {
-			err = &drgn_enomem;
-			goto err;
-		}
+		if (!string_builder_appendf(&str, "#%-2zu ", frame))
+			goto enomem;
 
-		Dwarf_Addr pc;
-		bool isactivation;
-		dwfl_frame_pc(trace->frames[frame], &pc, &isactivation);
-		Dwfl_Module *module = dwfl_frame_module(trace->frames[frame]);
-		struct drgn_symbol sym;
-		if (module &&
-		    drgn_program_find_symbol_by_address_internal(trace->prog,
-								 pc - !isactivation,
-								 module,
-								 &sym)) {
-			if (!string_builder_appendf(&str,
-						    "%s+0x%" PRIx64 "/0x%" PRIx64,
-						    sym.name, pc - sym.address,
-						    sym.size)) {
-				err = &drgn_enomem;
-				goto err;
+		struct drgn_register_state *regs = trace->frames[frame].regs;
+		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+		if (pc.has_value) {
+			Dwfl_Module *dwfl_module =
+				regs->module ? regs->module->dwfl_module : NULL;
+			struct drgn_symbol sym;
+			if (dwfl_module &&
+			    drgn_program_find_symbol_by_address_internal(trace->prog,
+									 pc.value - !regs->interrupted,
+									 dwfl_module,
+									 &sym)) {
+				if (!string_builder_appendf(&str,
+							    "%s+0x%" PRIx64 "/0x%" PRIx64,
+							    sym.name,
+							    pc.value - sym.address,
+							    sym.size))
+					goto enomem;
+			} else {
+				if (!string_builder_appendf(&str, "0x%" PRIx64,
+							    pc.value))
+					goto enomem;
 			}
 		} else {
-			if (!string_builder_appendf(&str, "0x%" PRIx64, pc)) {
-				err = &drgn_enomem;
-				goto err;
-			}
+			if (!string_builder_append(&str, "???"))
+				goto enomem;
 		}
 
 		if (frame != trace->num_frames - 1 &&
-		    !string_builder_appendc(&str, '\n')) {
-			err = &drgn_enomem;
-			goto err;
-		}
+		    !string_builder_appendc(&str, '\n'))
+			goto enomem;
 	}
-	if (!string_builder_finalize(&str, ret)) {
-		err = &drgn_enomem;
-		goto err;
-	}
+	if (!string_builder_finalize(&str, ret))
+		goto enomem;
 	return NULL;
 
-err:
+enomem:
 	free(str.str);
-	return err;
+	return &drgn_enomem;
 }
 
-LIBDRGN_PUBLIC uint64_t drgn_stack_frame_pc(struct drgn_stack_trace *trace,
-					    size_t frame)
+LIBDRGN_PUBLIC bool drgn_stack_frame_interrupted(struct drgn_stack_trace *trace,
+						 size_t frame)
 {
-	Dwarf_Addr pc;
-	dwfl_frame_pc(trace->frames[frame], &pc, NULL);
-	return pc;
+	return trace->frames[frame].regs->interrupted;
+}
+
+LIBDRGN_PUBLIC bool drgn_stack_frame_pc(struct drgn_stack_trace *trace,
+					size_t frame, uint64_t *ret)
+{
+	struct optional_uint64 pc =
+		drgn_register_state_get_pc(trace->frames[frame].regs);
+	if (pc.has_value)
+		*ret = pc.value;
+	return pc.has_value;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_stack_frame_symbol(struct drgn_stack_trace *trace, size_t frame,
 			struct drgn_symbol **ret)
 {
-	Dwarf_Addr pc;
-	bool isactivation;
-	dwfl_frame_pc(trace->frames[frame], &pc, &isactivation);
-	if (!isactivation)
-		pc--;
-	Dwfl_Module *module = dwfl_frame_module(trace->frames[frame]);
-	if (!module)
-		return drgn_error_symbol_not_found(pc);
+	struct drgn_register_state *regs = trace->frames[frame].regs;
+	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+	if (!pc.has_value) {
+		return drgn_error_create(DRGN_ERROR_LOOKUP,
+					 "program counter is not known at stack frame");
+	}
+	pc.value -= !regs->interrupted;
+	Dwfl_Module *dwfl_module =
+		regs->module ? regs->module->dwfl_module : NULL;
+	if (!dwfl_module)
+		return drgn_error_symbol_not_found(pc.value);
 	struct drgn_symbol *sym = malloc(sizeof(*sym));
 	if (!sym)
 		return &drgn_enomem;
-	if (!drgn_program_find_symbol_by_address_internal(trace->prog, pc,
-							  module, sym)) {
+	if (!drgn_program_find_symbol_by_address_internal(trace->prog, pc.value,
+							  dwfl_module, sym)) {
 		free(sym);
-		return drgn_error_symbol_not_found(pc);
+		return drgn_error_symbol_not_found(pc.value);
 	}
 	*ret = sym;
 	return NULL;
@@ -123,67 +178,35 @@ LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
 					      const struct drgn_register *reg,
 					      uint64_t *ret)
 {
-	Dwarf_Addr value;
-	if (!dwfl_frame_register(trace->frames[frame], reg->dwarf_number,
-				 &value))
+	struct drgn_program *prog = trace->prog;
+	struct drgn_register_state *regs = trace->frames[frame].regs;
+	if (!drgn_register_state_has_register(regs, reg->regno))
 		return false;
-	*ret = value;
-	return true;
-}
-
-static bool drgn_thread_memory_read(Dwfl *dwfl, Dwarf_Addr addr,
-				    Dwarf_Word *result, void *dwfl_arg)
-{
-	struct drgn_error *err;
-	struct drgn_program *prog = dwfl_arg;
-	uint64_t word;
-
-	err = drgn_program_read_word(prog, addr, false, &word);
-	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			/*
-			 * This could be the end of the stack trace, so it shouldn't be
-			 * fatal.
-			 */
-			drgn_error_destroy(err);
-		} else {
-			drgn_error_destroy(prog->stack_trace_err);
-			prog->stack_trace_err = err;
-		}
+	const struct drgn_register_layout *layout =
+		&prog->platform.arch->register_layout[reg->regno];
+	if (layout->size > sizeof(*ret))
 		return false;
-	}
-	*result = word;
+	*ret = 0;
+	copy_lsbytes(ret, sizeof(*ret), HOST_LITTLE_ENDIAN,
+		     &regs->buf[layout->offset], layout->size,
+		     drgn_platform_is_little_endian(&prog->platform));
+	if (drgn_platform_bswap(&prog->platform))
+		*ret = bswap_64(*ret);
 	return true;
-}
-
-/*
- * We only care about the specific thread that we're unwinding, so we return it
- * with an arbitrary TID.
- */
-#define STACK_TRACE_OBJ_TID 1
-static pid_t drgn_object_stack_trace_next_thread(Dwfl *dwfl, void *dwfl_arg,
-						 void **thread_argp)
-{
-	struct drgn_program *prog = dwfl_arg;
-
-	if (*thread_argp)
-		return 0;
-	*thread_argp = prog;
-	return STACK_TRACE_OBJ_TID;
 }
 
 static struct drgn_error *
-drgn_get_stack_trace_obj(struct drgn_object *res, struct drgn_program *prog,
+drgn_get_stack_trace_obj(struct drgn_object *res,
+			 const struct drgn_object *thread_obj,
 			 bool *is_pt_regs_ret)
 {
-	struct drgn_error *err;
-	struct drgn_type *type;
+	struct drgn_program *prog = drgn_object_program(res);
 
-	type = drgn_underlying_type(prog->stack_trace_obj->type);
+	struct drgn_type *type = drgn_underlying_type(thread_obj->type);
 	if (drgn_type_kind(type) == DRGN_TYPE_STRUCT &&
 	    strcmp(drgn_type_tag(type), "pt_regs") == 0) {
 		*is_pt_regs_ret = true;
-		return drgn_object_read(res, prog->stack_trace_obj);
+		return drgn_object_read(res, thread_obj);
 	}
 
 	if (drgn_type_kind(type) != DRGN_TYPE_POINTER)
@@ -195,7 +218,7 @@ drgn_get_stack_trace_obj(struct drgn_object *res, struct drgn_program *prog,
 	if ((prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) &&
 	    strcmp(drgn_type_tag(type), "task_struct") == 0) {
 		*is_pt_regs_ret = false;
-		return drgn_object_read(res, prog->stack_trace_obj);
+		return drgn_object_read(res, thread_obj);
 	} else if (strcmp(drgn_type_tag(type), "pt_regs") == 0) {
 		*is_pt_regs_ret = true;
 		/*
@@ -203,7 +226,8 @@ drgn_get_stack_trace_obj(struct drgn_object *res, struct drgn_program *prog,
 		 * the rule of not modifying the result on error, but we
 		 * don't care in this context.
 		 */
-		err = drgn_object_dereference(res, prog->stack_trace_obj);
+		struct drgn_error *err = drgn_object_dereference(res,
+								 thread_obj);
 		if (err)
 			return err;
 		return drgn_object_read(res, res);
@@ -216,11 +240,12 @@ type_error:
 				 ", struct task_struct *" : "");
 }
 
-static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
-					      void *thread_arg)
+static struct drgn_error *
+drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
+			   const struct drgn_object *thread_obj,
+			   struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = thread_arg;
 	struct drgn_object obj;
 	struct drgn_object tmp;
 	struct string prstatus;
@@ -229,23 +254,23 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 	drgn_object_init(&tmp, prog);
 
 	/* First, try pt_regs. */
-	if (prog->stack_trace_obj) {
+	if (thread_obj) {
 		bool is_pt_regs;
-		err = drgn_get_stack_trace_obj(&obj, prog, &is_pt_regs);
+		err = drgn_get_stack_trace_obj(&obj, thread_obj, &is_pt_regs);
 		if (err)
 			goto out;
 
 		if (is_pt_regs) {
 			assert(obj.encoding == DRGN_OBJECT_ENCODING_BUFFER);
 			assert(obj.kind == DRGN_OBJECT_VALUE);
-			if (!prog->platform.arch->pt_regs_set_initial_registers) {
+			if (!prog->platform.arch->pt_regs_get_initial_registers) {
 				err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 							"pt_regs stack unwinding is not supported for %s architecture",
 							prog->platform.arch->name);
 				goto out;
 			}
-			err = prog->platform.arch->pt_regs_set_initial_registers(thread,
-										 &obj);
+			err = prog->platform.arch->pt_regs_get_initial_registers(&obj,
+										 ret);
 			goto out;
 		}
 	} else if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
@@ -256,7 +281,7 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 		err = drgn_object_address_of(&tmp, &tmp);
 		if (err)
 			goto out;
-		err = linux_helper_find_task(&obj, &tmp, prog->stack_trace_tid);
+		err = linux_helper_find_task(&obj, &tmp, tid);
 		if (err)
 			goto out;
 		bool found;
@@ -349,18 +374,16 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 					goto prstatus;
 			}
 		}
-		if (!prog->platform.arch->linux_kernel_set_initial_registers) {
+		if (!prog->platform.arch->linux_kernel_get_initial_registers) {
 			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						"Linux kernel stack unwinding is not supported for %s architecture",
 						prog->platform.arch->name);
 			goto out;
 		}
-		err = prog->platform.arch->linux_kernel_set_initial_registers(thread,
-									      &obj);
+		err = prog->platform.arch->linux_kernel_get_initial_registers(&obj,
+									      ret);
 	} else {
-		err = drgn_program_find_prstatus_by_tid(prog,
-							prog->stack_trace_tid,
-							&prstatus);
+		err = drgn_program_find_prstatus_by_tid(prog, tid, &prstatus);
 		if (err)
 			goto out;
 		if (!prstatus.str) {
@@ -368,60 +391,195 @@ static bool drgn_thread_set_initial_registers(Dwfl_Thread *thread,
 			goto out;
 		}
 prstatus:
-		if (!prog->platform.arch->prstatus_set_initial_registers) {
+		if (!prog->platform.arch->prstatus_get_initial_registers) {
 			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						"core dump stack unwinding is not supported for %s architecture",
 						prog->platform.arch->name);
 			goto out;
 		}
-		err = prog->platform.arch->prstatus_set_initial_registers(prog,
-									  thread,
+		err = prog->platform.arch->prstatus_get_initial_registers(prog,
 									  prstatus.str,
-									  prstatus.len);
+									  prstatus.len,
+									  ret);
 	}
 
 out:
 	drgn_object_deinit(&tmp);
 	drgn_object_deinit(&obj);
-	if (err) {
-		drgn_error_destroy(prog->stack_trace_err);
-		prog->stack_trace_err = err;
-		return false;
-	}
-	return true;
+	return err;
 }
 
-static int drgn_append_stack_frame(Dwfl_Frame *state, void *arg)
+static struct drgn_error *
+drgn_unwind_one_register(struct drgn_program *prog,
+			 const struct drgn_cfi_rule *rule,
+			 const struct drgn_register_state *regs, void *buf,
+			 size_t size)
 {
-	struct drgn_stack_trace **tracep = arg;
-	struct drgn_stack_trace *trace = *tracep;
-
-	if (trace->num_frames >= trace->capacity) {
-		struct drgn_stack_trace *tmp;
-		size_t new_capacity, bytes;
-
-		if (__builtin_mul_overflow(2U, trace->capacity,
-					   &new_capacity) ||
-		    __builtin_mul_overflow(new_capacity,
-					   sizeof(trace->frames[0]), &bytes) ||
-		    __builtin_add_overflow(bytes, sizeof(*trace), &bytes) ||
-		    !(tmp = realloc(trace, bytes))) {
-			drgn_error_destroy(trace->prog->stack_trace_err);
-			trace->prog->stack_trace_err = &drgn_enomem;
-			return DWARF_CB_ABORT;
-		}
-		*tracep = trace = tmp;
-		trace->capacity = new_capacity;
+	struct drgn_error *err;
+	bool little_endian = drgn_platform_is_little_endian(&prog->platform);
+	SWITCH_ENUM(rule->kind,
+	case DRGN_CFI_RULE_UNDEFINED:
+		return &drgn_not_found;
+	case DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET: {
+		struct optional_uint64 cfa = drgn_register_state_get_cfa(regs);
+		if (!cfa.has_value)
+			return &drgn_not_found;
+		err = drgn_program_read_memory(prog, buf,
+					       cfa.value + rule->offset, size,
+					       false);
+		break;
 	}
-	trace->frames[trace->num_frames++] = state;
-	return DWARF_CB_OK;
+	case DRGN_CFI_RULE_CFA_PLUS_OFFSET: {
+		struct optional_uint64 cfa = drgn_register_state_get_cfa(regs);
+		if (!cfa.has_value)
+			return &drgn_not_found;
+		cfa.value += rule->offset;
+		copy_lsbytes(buf, size, little_endian, &cfa.value,
+			     sizeof(cfa.value), HOST_LITTLE_ENDIAN);
+		return NULL;
+	}
+	case DRGN_CFI_RULE_REGISTER_PLUS_OFFSET: {
+		if (!drgn_register_state_has_register(regs, rule->regno))
+			return &drgn_not_found;
+		const struct drgn_register_layout *layout =
+			&prog->platform.arch->register_layout[rule->regno];
+		unsigned char *dst = buf;
+		size_t dst_size = size;
+		const unsigned char *src = &regs->buf[layout->offset];
+		size_t src_size = layout->size;
+		int64_t addend = rule->offset;
+		while (addend && dst_size && src_size) {
+			uint64_t uvalue;
+			copy_lsbytes(&uvalue, sizeof(uvalue),
+				     HOST_LITTLE_ENDIAN, src, src_size,
+				     little_endian);
+			size_t n = min(sizeof(uvalue), src_size);
+			if (little_endian)
+				src += n;
+			src_size -= n;
+
+			bool carry = __builtin_add_overflow(uvalue,
+							    (uint64_t)addend,
+							    &uvalue);
+			addend = (addend < 0 ? -1 : 0) + carry;
+
+			copy_lsbytes(dst, dst_size, little_endian, &uvalue,
+				     sizeof(uvalue), HOST_LITTLE_ENDIAN);
+			n = min(sizeof(uvalue), dst_size);
+			if (little_endian)
+				dst += n;
+			dst_size -= n;
+		}
+		copy_lsbytes(dst, dst_size, little_endian, src, src_size,
+			     little_endian);
+		return NULL;
+	}
+	case DRGN_CFI_RULE_AT_DWARF_EXPRESSION:
+	case DRGN_CFI_RULE_DWARF_EXPRESSION:
+		err = drgn_eval_cfi_dwarf_expression(prog, rule, regs, buf,
+						     size);
+		break;
+	)
+	/*
+	 * If we couldn't read from memory, leave the register unknown instead
+	 * of failing hard.
+	 */
+	if (err && err->code == DRGN_ERROR_FAULT) {
+		drgn_error_destroy(err);
+		err = &drgn_not_found;
+	}
+	return err;
 }
 
-static const Dwfl_Thread_Callbacks drgn_linux_kernel_thread_callbacks = {
-	.next_thread = drgn_object_stack_trace_next_thread,
-	.memory_read = drgn_thread_memory_read,
-	.set_initial_registers = drgn_thread_set_initial_registers,
-};
+static struct drgn_error *drgn_unwind_cfa(struct drgn_program *prog,
+					  const struct drgn_cfi_row *row,
+					  struct drgn_register_state *regs)
+{
+	struct drgn_error *err;
+	struct drgn_cfi_rule rule;
+	drgn_cfi_row_get_cfa(row, &rule);
+	uint8_t address_size = drgn_platform_address_size(&prog->platform);
+	char buf[8];
+	err = drgn_unwind_one_register(prog, &rule, regs, buf, address_size);
+	if (!err) {
+		uint64_t cfa;
+		copy_lsbytes(&cfa, sizeof(cfa), HOST_LITTLE_ENDIAN, buf,
+			     address_size,
+			     drgn_platform_is_little_endian(&prog->platform));
+		drgn_register_state_set_cfa(prog, regs, cfa);
+	} else if (err == &drgn_not_found) {
+		err = NULL;
+	}
+	return err;
+}
+
+static struct drgn_error *
+drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
+		     struct drgn_register_state *regs,
+		     struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+
+	if (!regs->module)
+		return &drgn_not_found;
+
+	bool interrupted;
+	drgn_register_number ret_addr_regno;
+	/* If we found the module, then we must have the PC. */
+	err = drgn_debug_info_module_find_cfi(regs->module,
+					      regs->_pc - !regs->interrupted,
+					      row, &interrupted,
+					      &ret_addr_regno);
+	if (err)
+		return err;
+
+	err = drgn_unwind_cfa(prog, *row, regs);
+	if (err)
+		return err;
+
+	size_t num_regs = (*row)->num_regs;
+	if (num_regs == 0)
+		return &drgn_stop;
+
+	const struct drgn_register_layout *layout =
+		&prog->platform.arch->register_layout[num_regs - 1];
+	struct drgn_register_state *unwound =
+		drgn_register_state_create_impl(layout->offset + layout->size,
+						num_regs, interrupted);
+	if (!unwound)
+		return &drgn_enomem;
+
+	bool has_any_register = false;
+	for (drgn_register_number regno = 0; regno < num_regs; regno++) {
+		struct drgn_cfi_rule rule;
+		drgn_cfi_row_get_register(*row, regno, &rule);
+		layout = &prog->platform.arch->register_layout[regno];
+		err = drgn_unwind_one_register(prog, &rule, regs,
+					       &unwound->buf[layout->offset],
+					       layout->size);
+		if (!err) {
+			drgn_register_state_set_has_register(unwound, regno);
+			has_any_register = true;
+		} else if (err != &drgn_not_found) {
+			drgn_register_state_destroy(unwound);
+			return err;
+		}
+	}
+	if (!has_any_register) {
+		/* Couldn't unwind any registers. We're done. */
+		drgn_register_state_destroy(unwound);
+		return &drgn_stop;
+	}
+	if (drgn_register_state_has_register(unwound, ret_addr_regno)) {
+		layout = &prog->platform.arch->register_layout[ret_addr_regno];
+		drgn_register_state_set_pc_from_register_impl(prog, unwound,
+							      ret_addr_regno,
+							      layout->offset,
+							      layout->size);
+	}
+	*ret = unwound;
+	return NULL;
+}
 
 static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 					       uint32_t tid,
@@ -440,72 +598,51 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 					 "stack unwinding is not yet supported for live processes");
 	}
 
-	struct drgn_debug_info *dbinfo;
-	err = drgn_program_get_dbinfo(prog, &dbinfo);
-	if (err)
-		return err;
-	if (!prog->attached_dwfl_state) {
-		if (!dwfl_attach_state(dbinfo->dwfl, NULL, 0,
-				       &drgn_linux_kernel_thread_callbacks,
-				       prog))
-			return drgn_error_libdwfl();
-		prog->attached_dwfl_state = true;
-	}
-
-	prog->stack_trace_tid = tid;
-	prog->stack_trace_obj = obj;
-	Dwfl_Thread *thread = dwfl_attach_thread(dbinfo->dwfl,
-						 STACK_TRACE_OBJ_TID);
-	prog->stack_trace_obj = NULL;
-	prog->stack_trace_tid = 0;
-	if (prog->stack_trace_err)
-		goto stack_trace_err;
-	if (!thread) {
-		err = drgn_error_libdwfl();
-		goto err;
-	}
-
-	struct drgn_stack_trace *trace = malloc(sizeof(*trace) +
-						sizeof(trace->frames[0]));
-	if (!trace) {
-		err = &drgn_enomem;
-		goto err;
-	}
+	size_t trace_capacity = 1;
+	struct drgn_stack_trace *trace =
+		malloc(offsetof(struct drgn_stack_trace,
+				frames[trace_capacity]));
+	if (!trace)
+		return &drgn_enomem;
 	trace->prog = prog;
-	trace->capacity = 1;
 	trace->num_frames = 0;
 
-	dwfl_thread_getframes(thread, drgn_append_stack_frame, &trace);
-	if (prog->stack_trace_err) {
-		free(trace);
-		goto stack_trace_err;
+	struct drgn_cfi_row *row = drgn_empty_cfi_row;
+
+	struct drgn_register_state *regs;
+	err = drgn_get_initial_registers(prog, tid, obj, &regs);
+	if (err)
+		goto out;
+
+	/* Limit iterations so we don't get caught in a loop. */
+	for (int i = 0; i < 1024; i++) {
+		if (!drgn_stack_trace_append_frame(&trace, &trace_capacity,
+						   regs)) {
+			err = &drgn_enomem;
+			drgn_register_state_destroy(regs);
+			goto out;
+		}
+
+		err = drgn_unwind_with_cfi(prog, &row, regs, &regs);
+		if (err == &drgn_not_found) {
+			err = prog->platform.arch->fallback_unwind(prog, regs,
+								   &regs);
+		}
+		if (err == &drgn_stop)
+			break;
+		else if (err)
+			goto out;
 	}
 
-	/* Shrink the trace to fit if we can, but don't fail if we can't. */
-	if (trace->capacity > trace->num_frames) {
-		struct drgn_stack_trace *tmp;
-
-		tmp = realloc(trace,
-			      sizeof(*trace) +
-			      trace->num_frames * sizeof(trace->frames[0]));
-		if (tmp)
-			trace = tmp;
+	err = NULL;
+out:
+	drgn_cfi_row_destroy(row);
+	if (err) {
+		drgn_stack_trace_destroy(trace);
+	} else {
+		drgn_stack_trace_shrink_to_fit(&trace, trace_capacity);
+		*ret = trace;
 	}
-	trace->thread = thread;
-	*ret = trace;
-	return NULL;
-
-stack_trace_err:
-	/*
-	 * The error reporting for dwfl_getthread_frames() is not great. The
-	 * documentation says that some of its unwinder implementations always
-	 * return an error. So, we do our own error reporting for fatal errors
-	 * through prog->stack_trace_err.
-	 */
-	err = prog->stack_trace_err;
-	prog->stack_trace_err = NULL;
-err:
-	dwfl_detach_thread(thread);
 	return err;
 }
 

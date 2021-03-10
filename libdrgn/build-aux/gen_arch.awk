@@ -146,7 +146,6 @@ END {
 		print "\t\t},"
 		print "\t\t.num_names = " num_names ","
 		print "\t\t.regno = DRGN_REGISTER_NUMBER(" registers[i]["id"] "),"
-		print "\t\t.dwarf_number = DRGN_REGISTER_DWARF_NUMBER_" registers[i]["id"] ","
 		print "\t},"
 	}
 	print "};"

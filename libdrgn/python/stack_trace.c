@@ -148,10 +148,22 @@ static PyObject *StackFrame_registers(StackFrame *self)
 	return dict;
 }
 
+static PyObject *StackFrame_get_interrupted(StackFrame *self, void *arg)
+{
+	Py_RETURN_BOOL(drgn_stack_frame_interrupted(self->trace->trace,
+						    self->i));
+}
+
 static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)
 {
-	uint64_t pc = drgn_stack_frame_pc(self->trace->trace, self->i);
-	return PyLong_FromUnsignedLongLong(pc);
+	uint64_t pc;
+	if (drgn_stack_frame_pc(self->trace->trace, self->i, &pc)) {
+		return PyLong_FromUnsignedLongLong(pc);
+	} else {
+		PyErr_SetString(PyExc_LookupError,
+				"program counter is not known");
+		return NULL;
+	}
 }
 
 static PyMethodDef StackFrame_methods[] = {
@@ -165,6 +177,8 @@ static PyMethodDef StackFrame_methods[] = {
 };
 
 static PyGetSetDef StackFrame_getset[] = {
+	{"interrupted", (getter)StackFrame_get_interrupted, NULL,
+	 drgn_StackFrame_interrupted_DOC},
 	{"pc", (getter)StackFrame_get_pc, NULL, drgn_StackFrame_pc_DOC},
 	{},
 };
