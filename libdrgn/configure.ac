@@ -73,6 +73,9 @@ headers by setting the PYTHON_CPPFLAGS environment variable.])])
 	    CPPFLAGS="$save_CPPFLAGS"])
 
 PKG_PROG_PKG_CONFIG
+
+PKG_CHECK_MODULES(elfutils, [libelf >= 0.176 libdw >= 0.176])
+
 AC_ARG_WITH([libkdumpfile],
 	    [AS_HELP_STRING([--with-libkdumpfile],
 			    [build with support for the makedumpfile kernel
@@ -87,14 +90,5 @@ AS_CASE(["x$with_libkdumpfile"],
 AM_CONDITIONAL([WITH_LIBKDUMPFILE], [test "x$with_libkdumpfile" = xyes])
 AM_COND_IF([WITH_LIBKDUMPFILE], [AC_DEFINE(WITH_LIBKDUMPFILE)])
 
-AX_SUBDIRS_CONFIGURE([elfutils],
-		     [[--enable-maintainer-mode],
-		      [--disable-nls],
-		      [--disable-programs],
-		      [--disable-shared],
-		      [--disable-debuginfod]],
-		     [CFLAGS=-fPIC -Wno-error], [],
-		     [--disable-static])
-
-AC_CONFIG_FILES([Makefile include/Makefile])
+AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

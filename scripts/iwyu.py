@@ -168,9 +168,6 @@ def main():
         commands = json.load(f)
 
     for command in commands:
-        if "elfutils" in os.path.relpath(command["directory"]):
-            continue
-
         if (
             args.source
             and os.path.realpath(os.path.join(command["directory"], command["file"]))

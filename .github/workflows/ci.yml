@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install busybox-static libbz2-dev liblzma-dev qemu-kvm zlib1g-dev zstd
+          sudo apt-get install busybox-static libelf-dev libdw-dev qemu-kvm zstd
           pip install mypy
       - name: Generate version.py
         run: python setup.py --version

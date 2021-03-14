@@ -3,11 +3,9 @@
 
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = elfutils include
-
 .DELETE_ON_ERROR:
 
-AM_CPPFLAGS = -isystem include -D_GNU_SOURCE
+AM_CPPFLAGS = -D_GNU_SOURCE
 
 include_HEADERS = drgn.h
 
@@ -77,8 +75,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 vector.c \
 			 vector.h
 
-libdrgnimpl_la_CFLAGS = -fvisibility=hidden $(OPENMP_CFLAGS)
-libdrgnimpl_la_LIBADD = $(OPENMP_LIBS)
+libdrgnimpl_la_CFLAGS = -fvisibility=hidden $(OPENMP_CFLAGS) $(elfutils_CFLAGS)
+libdrgnimpl_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS)
 
 if WITH_LIBKDUMPFILE
 libdrgnimpl_la_SOURCES += kdump.c
@@ -96,13 +94,11 @@ drgn.h: drgn.h.in configure.ac
 		-e 's/@DRGN_VERSION_PATCH@/$(word 3,$(subst ., ,@PACKAGE_VERSION@))/g' \
 		$< > $@
 
-elfutils_LIBS = elfutils/libdw/libdw.a elfutils/libelf/libelf.a -lz -llzma -lbz2 -ldl
-
 lib_LTLIBRARIES = libdrgn.la
 
 libdrgn_la_SOURCES =
 libdrgn_la_LDFLAGS = -version-info 0:0:0
-libdrgn_la_LIBADD = libdrgnimpl.la $(elfutils_LIBS)
+libdrgn_la_LIBADD = libdrgnimpl.la
 
 if WITH_PYTHON
 BUILT_SOURCES += python/docstrings.h
@@ -134,7 +130,7 @@ _drgn_la_CPPFLAGS = $(AM_CPPFLAGS) $(PYTHON_CPPFLAGS) -iquote $(srcdir)/python \
 		    -iquote python
 _drgn_la_LDFLAGS = -Wl,--exclude-libs,ALL -avoid-version -module -shared \
 		   -rpath $(pkgpyexecdir)
-_drgn_la_LIBADD = libdrgnimpl.la $(elfutils_LIBS)
+_drgn_la_LIBADD = libdrgnimpl.la
 
 if WITH_LIBKDUMPFILE
 _drgn_la_CFLAGS += $(libkdumpfile_CFLAGS)
@@ -157,4 +153,4 @@ EXTRA_DIST = $(ARCH_DEFS) build-aux/gen_arch.awk build-aux/gen_constants.py
 EXTRA_PROGRAMS = examples/load_debug_info
 
 examples_load_debug_info_SOURCES = examples/load_debug_info.c
-examples_load_debug_info_LDADD = libdrgnimpl.la $(elfutils_LIBS)
+examples_load_debug_info_LDADD = libdrgnimpl.la

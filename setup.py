@@ -88,7 +88,6 @@ class build_ext(_build_ext):
 
     def run(self):
         self._run_autoreconf("libdrgn")
-        self._run_autoreconf("libdrgn/elfutils")
         self._run_configure()
         self._run_make()
 

@@ -9,12 +9,7 @@ Dependencies
 drgn depends on:
 
 - `Python <https://www.python.org/>`_ 3.6 or newer
-- `zlib <https://www.zlib.net>`_
-- `xz <https://tukaani.org/xz/>`_
-- `bzip2 <http://www.bzip.org>`_
-
-A version of `elfutils <https://sourceware.org/elfutils/>`_ is bundled with
-drgn.
+- `elfutils <https://sourceware.org/elfutils/>`_ 0.176 or newer
 
 The build requires:
 
@@ -25,8 +20,6 @@ The build requires:
 - `autoconf <https://www.gnu.org/software/autoconf/>`_
 - `automake <https://www.gnu.org/software/automake/>`_
 - `libtool <https://www.gnu.org/software/libtool/>`_
-- `flex <https://github.com/westes/flex>`_
-- `GNU bison <https://www.gnu.org/software/bison/>`_
 - `GNU Awk <https://www.gnu.org/software/gawk/>`_ 4.0 or newer
 
 .. include:: ../README.rst
