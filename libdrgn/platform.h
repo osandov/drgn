@@ -32,7 +32,7 @@ struct pgtable_iterator {
 	/* Current virtual address to translate. */
 	uint64_t virt_addr;
 	/* Architecture-specific data. */
-	char arch[0];
+	char arch[];
 };
 
 /*
