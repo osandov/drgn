@@ -147,7 +147,6 @@ struct drgn_program {
 		struct drgn_prstatus_map prstatus_map;
 	};
 	bool prstatus_cached;
-	bool attached_dwfl_state;
 
 	/*
 	 * Linux kernel-specific.
