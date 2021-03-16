@@ -61,6 +61,8 @@ enum drgn_debug_info_scn {
 	/* Sections whose data we should cache when it is first used. */
 	DRGN_SCN_DEBUG_FRAME = DRGN_NUM_DEBUG_SCN_DATA_PRECACHE,
 	DRGN_SCN_EH_FRAME,
+	DRGN_SCN_ORC_UNWIND_IP,
+	DRGN_SCN_ORC_UNWIND,
 
 	DRGN_NUM_DEBUG_SCN_DATA,
 
@@ -109,8 +111,44 @@ struct drgn_debug_info_module {
 	struct drgn_dwarf_fde *fdes;
 	/** Number of elements in @ref drgn_debug_info_module::fdes. */
 	size_t num_fdes;
+
+	/**
+	 * Base for calculating program counter corresponding to an ORC unwinder
+	 * entry.
+	 *
+	 * This is the address of the `.orc_unwind_ip` ELF section.
+	 *
+	 * @sa drgn_debug_info_module::orc_entries
+	 */
+	uint64_t orc_pc_base;
+	/**
+	 * Offsets for calculating program counter corresponding to an ORC
+	 * unwinder entry.
+	 *
+	 * This is the contents of the `.orc_unwind_ip` ELF section, byte
+	 * swapped to the host's byte order if necessary.
+	 *
+	 * @sa drgn_debug_info_module::orc_entries
+	 */
+	int32_t *orc_pc_offsets;
+	/**
+	 * ORC unwinder entries.
+	 *
+	 * This is the contents of the `.orc_unwind` ELF section, byte swapped
+	 * to the host's byte order if necessary.
+	 *
+	 * Entry `i` specifies how to unwind the stack if
+	 * `orc_pc(i) <= PC < orc_pc(i + 1)`, where
+	 * `orc_pc(i) = orc_pc_base + 4 * i + orc_pc_offsets[i]`.
+	 */
+	struct drgn_orc_entry *orc_entries;
+	/** Number of ORC unwinder entries. */
+	size_t num_orc_entries;
+
 	/** Whether .debug_frame and .eh_frame have been parsed. */
 	bool parsed_frames;
+	/** Whether ORC unwinder data has been parsed. */
+	bool parsed_orc;
 
 	/*
 	 * path, elf, and fd are used when an ELF file was reported with
@@ -353,7 +391,8 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
  * drgn_not_found if CFI wasn't found.
  */
 struct drgn_error *
-drgn_debug_info_module_find_cfi(struct drgn_debug_info_module *module,
+drgn_debug_info_module_find_cfi(struct drgn_program *prog,
+				struct drgn_debug_info_module *module,
 				uint64_t pc, struct drgn_cfi_row **row_ret,
 				bool *interrupted_ret,
 				drgn_register_number *ret_addr_regno_ret);

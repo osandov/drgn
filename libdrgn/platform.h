@@ -10,6 +10,7 @@
 #include "drgn.h"
 #include "util.h"
 
+struct drgn_orc_entry;
 struct drgn_register_state;
 
 struct drgn_register {
@@ -86,6 +87,9 @@ struct drgn_architecture_info {
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t);
 	/* CFI row containing default rules for DWARF CFI. */
 	struct drgn_cfi_row *default_dwarf_cfi_row;
+	struct drgn_error *(*orc_to_cfi)(const struct drgn_orc_entry *,
+					 struct drgn_cfi_row **, bool *,
+					 drgn_register_number *);
 	/*
 	 * Try to unwind a stack frame if CFI wasn't found. Returns &drgn_stop
 	 * if we couldn't.

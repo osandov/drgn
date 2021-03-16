@@ -92,6 +92,14 @@ Some of drgn's behavior can be modified through environment variables:
     :exc:`drgn.MissingDebugInfoError`. Any additional errors are truncated. The
     default is 5; -1 is unlimited.
 
+``DRGN_PREFER_ORC_UNWINDER```
+    Whether to prefer using `ORC
+    <https://www.kernel.org/doc/html/latest/x86/orc-unwinder.html>`_ over DWARF
+    for stack unwinding (0 or 1). The default is 0. Note that drgn will always
+    fall back to ORC for functions lacking DWARF call frame information and
+    vice versa. This environment variable is mainly intended for testing and
+    may be ignored in the future.
+
 ``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
     is 0. This functionality will be removed in the future.

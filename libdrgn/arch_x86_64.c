@@ -9,6 +9,7 @@
 #include "drgn.h"
 #include "error.h"
 #include "linux_kernel.h"
+#include "orc.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "register_state.h"
@@ -38,6 +39,187 @@
 	DRGN_REGISTER_LAYOUT(rdi, 8, 5)
 
 #include "arch_x86_64.inc"
+
+static struct drgn_error *
+orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
+		  struct drgn_cfi_row **row_ret, bool *interrupted_ret,
+		  drgn_register_number *ret_addr_regno_ret)
+{
+	enum {
+		ORC_REG_UNDEFINED = 0,
+		ORC_REG_PREV_SP = 1,
+		ORC_REG_DX = 2,
+		ORC_REG_DI = 3,
+		ORC_REG_BP = 4,
+		ORC_REG_SP = 5,
+		ORC_REG_R10 = 6,
+		ORC_REG_R13 = 7,
+		ORC_REG_BP_INDIRECT = 8,
+		ORC_REG_SP_INDIRECT = 9,
+	};
+
+	if (!drgn_cfi_row_copy(row_ret, drgn_empty_cfi_row))
+		return &drgn_enomem;
+
+	struct drgn_cfi_rule rule;
+	switch (drgn_orc_sp_reg(orc)) {
+	case ORC_REG_UNDEFINED:
+		if (drgn_orc_is_end(orc))
+			return NULL;
+		else
+			return &drgn_not_found;
+	case ORC_REG_SP:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rsp);
+		rule.offset = orc->sp_offset;
+		break;
+	case ORC_REG_BP:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rbp);
+		rule.offset = orc->sp_offset;
+		break;
+	case ORC_REG_SP_INDIRECT:
+		rule.kind = DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rbp);
+		rule.offset = orc->sp_offset;
+		break;
+	case ORC_REG_BP_INDIRECT:
+		rule.kind = DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rbp);
+		rule.offset = orc->sp_offset;
+		break;
+	case ORC_REG_R10:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(r10);
+		rule.offset = 0;
+		break;
+	case ORC_REG_R13:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(r13);
+		rule.offset = 0;
+		break;
+	case ORC_REG_DI:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rdi);
+		rule.offset = 0;
+		break;
+	case ORC_REG_DX:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rdx);
+		rule.offset = 0;
+		break;
+	default:
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "unknown ORC SP base register %d",
+					 drgn_orc_sp_reg(orc));
+	}
+	if (!drgn_cfi_row_set_cfa(row_ret, &rule))
+		return &drgn_enomem;
+
+	switch (drgn_orc_type(orc)) {
+	case DRGN_ORC_TYPE_CALL:
+		rule.kind = DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET;
+		rule.offset = -8;
+		if (!drgn_cfi_row_set_register(row_ret,
+					       DRGN_REGISTER_NUMBER(rip),
+					       &rule))
+			return &drgn_enomem;
+		rule.kind = DRGN_CFI_RULE_CFA_PLUS_OFFSET;
+		rule.offset = 0;
+		if (!drgn_cfi_row_set_register(row_ret,
+					       DRGN_REGISTER_NUMBER(rsp),
+					       &rule))
+			return &drgn_enomem;
+		*interrupted_ret = false;
+		break;
+#define SET_AT_CFA_RULE(reg, cfa_offset) do {					\
+	rule.kind = DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET;				\
+	rule.offset = cfa_offset;						\
+	if (!drgn_cfi_row_set_register(row_ret, DRGN_REGISTER_NUMBER(reg),	\
+				       &rule))					\
+		return &drgn_enomem;						\
+} while (0)
+	case DRGN_ORC_TYPE_REGS:
+		SET_AT_CFA_RULE(rip, 128);
+		SET_AT_CFA_RULE(rsp, 152);
+		SET_AT_CFA_RULE(r15, 0);
+		SET_AT_CFA_RULE(r14, 8);
+		SET_AT_CFA_RULE(r13, 16);
+		SET_AT_CFA_RULE(r12, 24);
+		SET_AT_CFA_RULE(rbp, 32);
+		SET_AT_CFA_RULE(rbx, 40);
+		SET_AT_CFA_RULE(r11, 48);
+		SET_AT_CFA_RULE(r10, 56);
+		SET_AT_CFA_RULE(r9, 64);
+		SET_AT_CFA_RULE(r8, 72);
+		SET_AT_CFA_RULE(rax, 80);
+		SET_AT_CFA_RULE(rcx, 88);
+		SET_AT_CFA_RULE(rdx, 96);
+		SET_AT_CFA_RULE(rsi, 104);
+		SET_AT_CFA_RULE(rdi, 112);
+		*interrupted_ret = true;
+		break;
+	case DRGN_ORC_TYPE_REGS_PARTIAL:
+		SET_AT_CFA_RULE(rip, 0);
+		SET_AT_CFA_RULE(rsp, 24);
+#undef SET_AT_CFA_RULE
+#define SET_SAME_VALUE_RULE(reg) do {						\
+	rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;				\
+	rule.regno = DRGN_REGISTER_NUMBER(reg);					\
+	rule.offset = 0;							\
+	if (!drgn_cfi_row_set_register(row_ret, DRGN_REGISTER_NUMBER(reg),	\
+				       &rule))					\
+		return &drgn_enomem;						\
+} while (0)
+		/*
+		 * This ORC entry is for an interrupt handler before it saves
+		 * the whole pt_regs. These registers are not clobbered before
+		 * they are saved, so they should have the same value. See Linux
+		 * kernel commit 81b67439d147 ("x86/unwind/orc: Fix premature
+		 * unwind stoppage due to IRET frames").
+		 *
+		 * This probably also applies to other registers, but to stay on
+		 * the safe side we only handle registers used by ORC.
+		 */
+		SET_SAME_VALUE_RULE(r10);
+		SET_SAME_VALUE_RULE(r13);
+		SET_SAME_VALUE_RULE(rdi);
+		SET_SAME_VALUE_RULE(rdx);
+#undef SET_SAME_VALUE_RULE
+		*interrupted_ret = true;
+		break;
+	default:
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "unknown ORC entry type %d",
+					 drgn_orc_type(orc));
+	}
+
+	switch (drgn_orc_bp_reg(orc)) {
+	case ORC_REG_UNDEFINED:
+		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rbp);
+		rule.offset = 0;
+		break;
+	case ORC_REG_PREV_SP:
+		rule.kind = DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET;
+		rule.offset = orc->bp_offset;
+		break;
+	case ORC_REG_BP:
+		rule.kind = DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET;
+		rule.regno = DRGN_REGISTER_NUMBER(rbp);
+		rule.offset = orc->bp_offset;
+		break;
+	default:
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "unknown ORC BP base register %d",
+					 drgn_orc_bp_reg(orc));
+	}
+	if (!drgn_cfi_row_set_register(row_ret, DRGN_REGISTER_NUMBER(rbp),
+				       &rule))
+		return &drgn_enomem;
+	*ret_addr_regno_ret = DRGN_REGISTER_NUMBER(rip);
+	return NULL;
+}
 
 static struct drgn_error *
 get_registers_from_frame_pointer(struct drgn_program *prog,
@@ -568,6 +750,7 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r14)),
 		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r15)),
 	),
+	.orc_to_cfi = orc_to_cfi_x86_64,
 	.fallback_unwind = fallback_unwind_x86_64,
 	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_x86_64,
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_x86_64,

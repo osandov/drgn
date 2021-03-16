@@ -4,12 +4,13 @@
 import os
 import signal
 
-from drgn import Object, cast
+from drgn import Object, Program, cast
 from drgn.helpers.linux.pid import find_task
 from tests.helpers.linux import (
     LinuxHelperTestCase,
     fork_and_pause,
     proc_state,
+    setenv,
     wait_until,
 )
 
@@ -18,16 +19,30 @@ class TestStackTrace(LinuxHelperTestCase):
     def test_by_task_struct(self):
         pid = fork_and_pause()
         wait_until(lambda: proc_state(pid) == "S")
-        self.assertIn("schedule", str(self.prog.stack_trace(find_task(self.prog, pid))))
+        self.assertIn("pause", str(self.prog.stack_trace(find_task(self.prog, pid))))
         os.kill(pid, signal.SIGKILL)
         os.waitpid(pid, 0)
 
-    def test_by_pid(self):
-        pid = fork_and_pause()
-        wait_until(lambda: proc_state(pid) == "S")
-        self.assertIn("schedule", str(self.prog.stack_trace(pid)))
-        os.kill(pid, signal.SIGKILL)
-        os.waitpid(pid, 0)
+    def _test_by_pid(self, orc):
+        old_orc = int(os.environ.get("DRGN_PREFER_ORC_UNWINDER", "0")) != 0
+        with setenv("DRGN_PREFER_ORC_UNWINDER", "1" if orc else "0"):
+            if orc == old_orc:
+                prog = self.prog
+            else:
+                prog = Program()
+                prog.set_kernel()
+                prog.load_default_debug_info()
+            pid = fork_and_pause()
+            wait_until(lambda: proc_state(pid) == "S")
+            self.assertIn("pause", str(prog.stack_trace(pid)))
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+
+    def test_by_pid_dwarf(self):
+        self._test_by_pid(False)
+
+    def test_by_pid_orc(self):
+        self._test_by_pid(True)
 
     def test_pt_regs(self):
         # This won't unwind anything useful, but at least make sure it accepts

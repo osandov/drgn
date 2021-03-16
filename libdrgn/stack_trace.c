@@ -409,6 +409,37 @@ out:
 	return err;
 }
 
+static void drgn_add_to_register(void *dst, size_t dst_size, const void *src,
+				 size_t src_size, int64_t addend,
+				 bool little_endian)
+{
+	while (addend && dst_size && src_size) {
+		uint64_t uvalue;
+		copy_lsbytes(&uvalue, sizeof(uvalue), HOST_LITTLE_ENDIAN, src,
+			     src_size, little_endian);
+		size_t n = min(sizeof(uvalue), src_size);
+		if (little_endian)
+			src = (char *)src + n;
+		src_size -= n;
+
+		bool carry = __builtin_add_overflow(uvalue, (uint64_t)addend,
+						    &uvalue);
+		addend = (addend < 0 ? -1 : 0) + carry;
+
+		copy_lsbytes(dst, dst_size, little_endian, &uvalue,
+			     sizeof(uvalue), HOST_LITTLE_ENDIAN);
+		n = min(sizeof(uvalue), dst_size);
+		if (little_endian)
+			dst = (char *)dst + n;
+		dst_size -= n;
+	}
+	if (dst != src) {
+		copy_lsbytes(dst, dst_size, little_endian, src, src_size,
+			     little_endian);
+	}
+}
+
+
 static struct drgn_error *
 drgn_unwind_one_register(struct drgn_program *prog,
 			 const struct drgn_cfi_rule *rule,
@@ -438,40 +469,33 @@ drgn_unwind_one_register(struct drgn_program *prog,
 			     sizeof(cfa.value), HOST_LITTLE_ENDIAN);
 		return NULL;
 	}
+	case DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET:
+	case DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET: {
+		if (!drgn_register_state_has_register(regs, rule->regno))
+			return &drgn_not_found;
+		const struct drgn_register_layout *layout =
+			&prog->platform.arch->register_layout[rule->regno];
+		uint64_t address;
+		copy_lsbytes(&address, sizeof(address), HOST_LITTLE_ENDIAN,
+			     &regs->buf[layout->offset], layout->size,
+			     little_endian);
+		if (rule->kind == DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET)
+			address += rule->offset;
+		address &= drgn_platform_address_mask(&prog->platform);
+		err = drgn_program_read_memory(prog, buf, address, size, false);
+		if (!err && rule->kind == DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET) {
+			drgn_add_to_register(buf, size, buf, size, rule->offset,
+					     little_endian);
+		}
+		break;
+	}
 	case DRGN_CFI_RULE_REGISTER_PLUS_OFFSET: {
 		if (!drgn_register_state_has_register(regs, rule->regno))
 			return &drgn_not_found;
 		const struct drgn_register_layout *layout =
 			&prog->platform.arch->register_layout[rule->regno];
-		unsigned char *dst = buf;
-		size_t dst_size = size;
-		const unsigned char *src = &regs->buf[layout->offset];
-		size_t src_size = layout->size;
-		int64_t addend = rule->offset;
-		while (addend && dst_size && src_size) {
-			uint64_t uvalue;
-			copy_lsbytes(&uvalue, sizeof(uvalue),
-				     HOST_LITTLE_ENDIAN, src, src_size,
-				     little_endian);
-			size_t n = min(sizeof(uvalue), src_size);
-			if (little_endian)
-				src += n;
-			src_size -= n;
-
-			bool carry = __builtin_add_overflow(uvalue,
-							    (uint64_t)addend,
-							    &uvalue);
-			addend = (addend < 0 ? -1 : 0) + carry;
-
-			copy_lsbytes(dst, dst_size, little_endian, &uvalue,
-				     sizeof(uvalue), HOST_LITTLE_ENDIAN);
-			n = min(sizeof(uvalue), dst_size);
-			if (little_endian)
-				dst += n;
-			dst_size -= n;
-		}
-		copy_lsbytes(dst, dst_size, little_endian, src, src_size,
-			     little_endian);
+		drgn_add_to_register(buf, size, &regs->buf[layout->offset],
+				     layout->size, rule->offset, little_endian);
 		return NULL;
 	}
 	case DRGN_CFI_RULE_AT_DWARF_EXPRESSION:
@@ -526,7 +550,7 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 	bool interrupted;
 	drgn_register_number ret_addr_regno;
 	/* If we found the module, then we must have the PC. */
-	err = drgn_debug_info_module_find_cfi(regs->module,
+	err = drgn_debug_info_module_find_cfi(prog, regs->module,
 					      regs->_pc - !regs->interrupted,
 					      row, &interrupted,
 					      &ret_addr_regno);

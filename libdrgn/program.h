@@ -147,6 +147,7 @@ struct drgn_program {
 		struct drgn_prstatus_map prstatus_map;
 	};
 	bool prstatus_cached;
+	bool prefer_orc_unwinder;
 
 	/*
 	 * Linux kernel-specific.

@@ -49,17 +49,27 @@ enum drgn_cfi_rule_kind {
 	DRGN_CFI_RULE_UNDEFINED,
 	/**
 	 * Register value in the caller is stored at the CFA in the current
-	 * frame plus an offset.
+	 * frame plus an offset: `*(cfa + offset)`.
 	 */
 	DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET,
 	/**
 	 * Register value in the caller is the CFA in the current frame plus an
-	 * offset.
+	 * offset: `cfa + offset`.
 	 */
 	DRGN_CFI_RULE_CFA_PLUS_OFFSET,
 	/**
+	 * Register value in the caller is stored at the value of a register in
+	 * the current frame plus an offset: `*(reg + offset)`.
+	 */
+	DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET,
+	/**
+	 * Register value in the caller is an offset plus the value stored at
+	 * the value of a register in the current frame: `(*reg) + offset`.
+	 */
+	DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET,
+	/**
 	 * Register value in the caller is the value of a register in the
-	 * current frame plus an offset.
+	 * current frame plus an offset: `reg + offset`.
 	 *
 	 * Note that this can also be used to represent DWARF's "same value"
 	 * rule by using the same register with an offset of 0.
@@ -89,8 +99,10 @@ struct drgn_cfi_rule {
 	union {
 		/**
 		 * Offset for @ref DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET, @ref
-		 * DRGN_CFI_RULE_CFA_PLUS_OFFSET, and @ref
-		 * DRGN_CFI_RULE_REGISTER_PLUS_OFFSET.
+		 * DRGN_CFI_RULE_CFA_PLUS_OFFSET, @ref
+		 * DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET, and @ref
+		 * DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET,
+		 * DRGN_CFI_RULE_REGISTER_PLUS_OFFSET, @ref
 		 */
 		int64_t offset;
 		/**

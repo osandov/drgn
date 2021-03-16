@@ -78,6 +78,8 @@ void drgn_program_init(struct drgn_program *prog,
 	prog->core_fd = -1;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
+	char *env = getenv("DRGN_PREFER_ORC_UNWINDER");
+	prog->prefer_orc_unwinder = env && atoi(env);
 	drgn_object_init(&prog->page_offset, prog);
 	drgn_object_init(&prog->vmemmap, prog);
 }
