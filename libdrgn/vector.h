@@ -47,7 +47,7 @@ struct vector {
 	 *
 	 * A common pattern is using a @c vector to build an array and then
 	 * returning the raw array. To do so, don't call @ref vector_deinit(),
-	 * then return @c data and free it with @ref free().
+	 * then return @c data and free it with `free()`.
 	 */
 	entry_type *data;
 	/** The number of entries in a @ref vector. */

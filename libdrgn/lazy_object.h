@@ -30,7 +30,7 @@
 /**
  * Initialize an unevaluated @ref drgn_lazy_object.
  *
- * @param[out] lazy_object Lazy object to initialize.
+ * @param[out] lazy_obj Lazy object to initialize.
  * @param[in] prog Program owning the lazy object.
  * @param[in] fn Thunk callback.
  * @param[in] arg Argument to pass to @p fn.

@@ -79,7 +79,7 @@ enum drgn_error_code {
 	DRGN_ERROR_ZERO_DIVISION,
 	/** Array out of bounds */
 	DRGN_ERROR_OUT_OF_BOUNDS,
-	/* Operation was attempted with absent object. */
+	/** Operation was attempted with absent object. */
 	DRGN_ERROR_OBJECT_ABSENT,
 	/** Number of defined error codes. */
 	DRGN_NUM_ERROR_CODES,
@@ -1305,7 +1305,8 @@ struct drgn_error *drgn_object_copy(struct drgn_object *res,
 				    const struct drgn_object *obj);
 
 /**
- * Get a @ref drgn_object from a slice of a @ref DRGN_OBJECT_BUFFER object.
+ * Get a @ref drgn_object from a slice of a @ref DRGN_OBJECT_ENCODING_BUFFER
+ * object.
  *
  * This is a low-level interface used to implement @ref drgn_object_subscript()
  * and @ref drgn_object_member(). Those functions are usually more convenient.
@@ -1817,7 +1818,7 @@ union drgn_lazy_object {
 		struct drgn_program *prog;
 		/** Callback. */
 		drgn_object_thunk_fn *fn;
-		/** Argument passed to @ref drgn_object_thunk::fn. */
+		/** Argument passed to @ref drgn_lazy_object::thunk::fn. */
 		void *arg;
 	} thunk;
 };
@@ -2483,8 +2484,8 @@ drgn_type_find_member_len(struct drgn_type *type, const char *member_name,
  * @param[in] type Structure, union, or class type.
  * @param[in] member_name Name of member.
  * @param[out] member_ret Returned member.
- * @param[out] bit_offset Offset in bits from the beginning of @p type to the
- * beginning of the member. This can be different from @ref
+ * @param[out] bit_offset_ret Returned offset in bits from the beginning of @p
+ * type to the beginning of the member. This can be different from @ref
  * drgn_type_member::bit_offset if the returned member was found in an unnamed
  * member of @p type.
  */
@@ -2609,7 +2610,7 @@ bool drgn_stack_frame_interrupted(struct drgn_stack_trace *trace, size_t frame);
 /**
  * Get the program counter at a stack frame.
  *
- * @param[out] pc_ret Returned program counter.
+ * @param[out] ret Returned program counter.
  * @return @c true if the program counter is known, @c false if it is not.
  */
 bool drgn_stack_frame_pc(struct drgn_stack_trace *trace, size_t frame,

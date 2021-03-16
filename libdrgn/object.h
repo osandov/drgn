@@ -115,23 +115,23 @@ drgn_object_type(struct drgn_qualified_type qualified_type,
 		 uint64_t bit_field_size, struct drgn_object_type *ret);
 
 /**
- * Like @ref drgn_object_set_signed() but @ref drgn_object_set_common() was
- * already called and the type is already known to be a signed integer type.
+ * Like @ref drgn_object_set_signed() but @ref drgn_object_type() was already
+ * called and the type is already known to be a signed integer type.
  */
 void drgn_object_set_signed_internal(struct drgn_object *res,
 				     const struct drgn_object_type *type,
 				     int64_t svalue);
 
 /**
- * Like @ref drgn_object_set_unsigned() but @ref drgn_object_set_common() was
- * already called and the type is already known to be an unsigned integer type.
+ * Like @ref drgn_object_set_unsigned() but @ref drgn_object_type() was already
+ * called and the type is already known to be an unsigned integer type.
  */
 void drgn_object_set_unsigned_internal(struct drgn_object *res,
 				       const struct drgn_object_type *type,
 				       uint64_t uvalue);
 
 /**
- * Like @ref drgn_object_set_from_buffer() but @ref drgn_object_set_common() was
+ * Like @ref drgn_object_set_from_buffer() but @ref drgn_object_type() was
  * already called and the bounds of the buffer have already been checked.
  */
 struct drgn_error *
@@ -142,11 +142,11 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 /**
  * Binary operator implementation.
  *
- * Operator implementations with this type convert @p lhs and @p rhs to @p type,
- * apply the operator, and store the result in @p res.
+ * Operator implementations with this type convert @p lhs and @p rhs to @p
+ * op_type, apply the operator, and store the result in @p res.
  *
  * @param[out] res Operator result. May be the same as @p lhs and/or @p rhs.
- * @param[in] type Result type.
+ * @param[in] op_type Result type.
  * @param[in] lhs Operator left hand side.
  * @param[in] rhs Operator right hand side.
  * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
@@ -181,11 +181,11 @@ drgn_shift_op_impl(struct drgn_object *res,
 /**
  * Unary operator implementation.
  *
- * Operator implementations with this type convert @p obj to @p type and store
- * the result in @p res.
+ * Operator implementations with this type convert @p obj to @p op_type and
+ * store the result in @p res.
  *
  * @param[out] res Operator result. May be the same as @p obj.
- * @param[in] type Result type.
+ * @param[in] op_type Result type.
  * @param[in] obj Operand.
  * @return @c NULL on success, non-@c NULL on error. @p res is not modified on
  * error.
@@ -316,11 +316,11 @@ struct drgn_error *drgn_op_cmp_pointers(const struct drgn_object *lhs,
 /**
  * Implement pointer arithmetic.
  *
- * This converts @p ptr to @p type, adds or subtracts
+ * This converts @p ptr to @p op_type, adds or subtracts
  * <tt>index * referenced_size</tt>, and stores the result in @p res.
  *
  * @param[out] res Operator result. May be the same as @p ptr or @p index.
- * @param[in] type Result type.
+ * @param[in] op_type Result type.
  * @param[in] referenced_size Size of the object pointed to by @p ptr.
  * @param[in] negate Subtract @p index instead of adding.
  * @param[in] ptr Pointer.
@@ -343,7 +343,7 @@ drgn_op_add_to_pointer(struct drgn_object *res,
  * @param[out] res Operator result. May be the same as @p lhs and/or @p rhs.
  * @param[in] referenced_size Size of the object pointed to by @p lhs and @p
  * rhs.
- * @param[in] type Result type. Must be a signed integer type.
+ * @param[in] op_type Result type. Must be a signed integer type.
  * @param[in] lhs Operator left hand side.
  * @param[in] rhs Operator right hand side.
  * @return @c NULL on success, non-@c NULL on error. @p res is not modified on

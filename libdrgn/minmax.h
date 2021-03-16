@@ -17,7 +17,7 @@
 /**
  * @ingroup Internals
  *
- * @defgroup MinMaxOperation Minimum/maximum operations
+ * @defgroup MinMaxOperations Minimum/maximum operations
  *
  * Generic minimum/maximum operations.
  *

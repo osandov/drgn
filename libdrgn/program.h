@@ -138,9 +138,9 @@ struct drgn_program {
 	 */
 	union {
 		/*
-		 * For the Linux kernel, PRSTATUS notes indexed by CPU. See @ref
-		 * drgn_architecture_info::linux_kernel_set_initial_registers
-		 * for why we don't use the PID map.
+		 * For the Linux kernel, PRSTATUS notes indexed by CPU. See
+		 * drgn_get_initial_registers() for why we don't use the PID
+		 * map.
 		 */
 		struct drgn_prstatus_vector prstatus_vector;
 		/* For userspace programs, PRSTATUS notes indexed by PID. */
