@@ -976,7 +976,8 @@ static int append_lazy_object_repr(PyObject *parts, LazyObject *self)
 	DrgnObject *object = LazyObject_get_borrowed(self);
 	if (!object)
 		return -1;
-	if (object->obj.kind == DRGN_OBJECT_ABSENT) {
+	if (object->obj.kind == DRGN_OBJECT_ABSENT &&
+	    !object->obj.is_bit_field) {
 		char *type_name;
 		err = drgn_format_type_name(drgn_object_qualified_type(&object->obj),
 					    &type_name);

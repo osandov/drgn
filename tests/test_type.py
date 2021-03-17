@@ -1130,6 +1130,13 @@ class TestTypeMember(MockProgramTestCase):
         m = TypeMember(self.prog.void_type)
         self.assertEqual(repr(m), "TypeMember(prog.type('void'), bit_offset=0)")
 
+        m = TypeMember(
+            Object(self.prog, self.prog.int_type("int", 4, True), bit_field_size=1)
+        )
+        self.assertEqual(
+            repr(m), "TypeMember(Object(prog, 'int', bit_field_size=1), bit_offset=0)"
+        )
+
         m = TypeMember(lambda: None)
         self.assertRaises(TypeError, repr, m)
 
