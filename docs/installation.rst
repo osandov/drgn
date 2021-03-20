@@ -9,7 +9,7 @@ Dependencies
 drgn depends on:
 
 - `Python <https://www.python.org/>`_ 3.6 or newer
-- `elfutils <https://sourceware.org/elfutils/>`_ 0.176 or newer
+- `elfutils <https://sourceware.org/elfutils/>`_ 0.170 or newer
 
 The build requires:
 

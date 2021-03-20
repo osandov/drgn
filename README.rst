@@ -71,7 +71,7 @@ Debian/Ubuntu:
     $ sudo apt-get install autoconf automake gawk gcc libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-setuptools
 
 Note that Debian Stretch, Ubuntu Trusty, and Ubuntu Xenial (and older) ship
-Python and elfutils versions which are too old. Python 3.6 and elfutils 0.176
+Python and elfutils versions which are too old. Python 3.6 and elfutils 0.170
 or newer must be installed manually.
 
 Fedora:
