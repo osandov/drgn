@@ -6,6 +6,7 @@
 #include <dwarf.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
+#include <elfutils/version.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <gelf.h>
@@ -33,8 +34,10 @@ DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_map, int_key_hash_pair, scalar_key_eq)
 
 static Elf_Type note_header_type(GElf_Phdr *phdr)
 {
+#if _ELFUTILS_PREREQ(0, 175)
 	if (phdr->p_align == 8)
 		return ELF_T_NHDR8;
+#endif
 	return ELF_T_NHDR;
 }
 
