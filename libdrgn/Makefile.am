@@ -5,7 +5,11 @@ ACLOCAL_AMFLAGS = -I m4
 
 .DELETE_ON_ERROR:
 
-AM_CPPFLAGS = -D_GNU_SOURCE
+AM_CPPFLAGS = -I $(top_srcdir)/include -D_GNU_SOURCE
+
+noinst_HEADERS = include/dwarf.h \
+		 include/elf.h \
+		 include/elfutils/known-dwarf.h
 
 include_HEADERS = drgn.h
 

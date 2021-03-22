@@ -2468,10 +2468,6 @@ err:
 	return err;
 }
 
-#if !_ELFUTILS_PREREQ(0, 171)
-#define DW_FORM_implicit_const 0x21
-#endif
-
 #if !_ELFUTILS_PREREQ(0, 175)
 static Elf *dwelf_elf_begin(int fd)
 {

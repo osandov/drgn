@@ -19,7 +19,7 @@ prefixes = [
 ]
 
 if __name__ == "__main__":
-    with open("/usr/include/dwarf.h", "r") as f:
+    with open("libdrgn/include/dwarf.h", "r") as f:
         dwarf_h = f.read()
     dwarf_h = re.sub(r"/\*.*?\*/", "", dwarf_h, flags=re.DOTALL)
     dwarf_h = re.sub(r"\\\n", "", dwarf_h)

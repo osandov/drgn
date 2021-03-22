@@ -74,7 +74,7 @@ headers by setting the PYTHON_CPPFLAGS environment variable.])])
 
 PKG_PROG_PKG_CONFIG
 
-PKG_CHECK_MODULES(elfutils, [libelf >= 0.170 libdw >= 0.170])
+PKG_CHECK_MODULES(elfutils, [libelf >= 0.165 libdw >= 0.165])
 
 AC_ARG_WITH([libkdumpfile],
 	    [AS_HELP_STRING([--with-libkdumpfile],
