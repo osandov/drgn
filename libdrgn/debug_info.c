@@ -682,6 +682,7 @@ static struct drgn_error *relocate_elf_section(Elf_Scn *scn, Elf_Scn *reloc_scn,
 	struct drgn_relocating_section relocating = {
 		.buf = data->d_buf,
 		.buf_size = data->d_size,
+		.addr = sh_addrs[elf_ndxscn(scn)],
 		.bswap = bswap,
 	};
 

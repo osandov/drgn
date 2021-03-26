@@ -298,6 +298,15 @@ invalid_offset:
 		memcpy(dst, &value, sizeof(value));
 		break;
 	}
+	case R_X86_64_PC32: {
+		uint32_t value = sym_value + r_addend - (relocating->addr + r_offset);
+		if (dst_size < sizeof(value))
+			goto invalid_offset;
+		if (relocating->bswap)
+			value = bswap_32(value);
+		memcpy(dst, &value, sizeof(value));
+		break;
+	}
 	case R_X86_64_32: {
 		uint32_t value = sym_value + r_addend;
 		if (dst_size < sizeof(value))

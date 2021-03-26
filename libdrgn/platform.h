@@ -28,6 +28,7 @@ struct drgn_register_layout {
 struct drgn_relocating_section {
 	char *buf;
 	size_t buf_size;
+	uint64_t addr;
 	bool bswap;
 };
 
