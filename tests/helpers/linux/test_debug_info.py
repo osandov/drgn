@@ -3,12 +3,17 @@
 
 import os
 
-import drgn
-from tests.helpers.linux import LinuxHelperTestCase
+from drgn import Program
+from tests.helpers.linux import LinuxHelperTestCase, setenv
 
 
-class TestDebugInfo(LinuxHelperTestCase):
-    def test_module_debug_info(self):
+class TestModuleDebugInfo(LinuxHelperTestCase):
+    # Arbitrary symbol that we can use to check that the module debug info was
+    # loaded.
+    SYMBOL = "loop_register_transfer"
+
+    def setUp(self):
+        super().setUp()
         with open("/proc/modules", "r") as f:
             for line in f:
                 if line.startswith("loop "):
@@ -16,34 +21,30 @@ class TestDebugInfo(LinuxHelperTestCase):
             else:
                 self.skipTest("loop module is built in or not loaded")
 
-        # An arbitrary symbol that we can use to check that the module debug
-        # info was loaded.
         with open("/proc/kallsyms", "r") as f:
             for line in f:
                 tokens = line.split()
-                if tokens[2] == "loop_register_transfer":
-                    address = int(tokens[0], 16)
+                if tokens[2] == self.SYMBOL:
+                    self.symbol_address = int(tokens[0], 16)
                     break
             else:
-                self.skipTest("loop_register_transfer symbol not found")
+                self.fail(f"{self.SYMBOL!r} symbol not found")
 
-        # Test with and without using /proc and /sys.
-        key = "DRGN_USE_PROC_AND_SYS_MODULES"
-        old_value = os.environ.get(key)
-        if old_value is None or int(old_value):
-            new_value = "0"
-        else:
-            new_value = "1"
-        try:
-            os.environ[key] = new_value
-            other_prog = drgn.Program()
-            other_prog.set_kernel()
-            other_prog.load_default_debug_info()
-
-            for prog in (self.prog, other_prog):
-                self.assertEqual(prog.symbol("loop_register_transfer").address, address)
-        finally:
-            if old_value is None:
-                del os.environ[key]
+    def _test_module_debug_info(self, use_proc_and_sys):
+        old_use_proc_and_sys = (
+            int(os.environ.get("DRGN_USE_PROC_AND_SYS_MODULES", "1")) != 0
+        )
+        with setenv("DRGN_USE_PROC_AND_SYS_MODULES", "1" if use_proc_and_sys else "0"):
+            if old_use_proc_and_sys == use_proc_and_sys:
+                prog = self.prog
             else:
-                os.environ[key] = old_value
+                prog = Program()
+                prog.set_kernel()
+                prog.load_default_debug_info()
+            self.assertEqual(prog.symbol(self.SYMBOL).address, self.symbol_address)
+
+    def test_module_debug_info_use_proc_and_sys(self):
+        self._test_module_debug_info(True)
+
+    def test_module_debug_info_use_core_dump(self):
+        self._test_module_debug_info(False)
