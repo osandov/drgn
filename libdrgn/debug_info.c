@@ -840,8 +840,10 @@ static struct drgn_error *apply_elf_relocations(Elf *elf)
 			continue;
 
 		scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
-		if (!scnname)
-			continue;
+		if (!scnname) {
+			err = drgn_error_libelf();
+			goto out;
+		}
 
 		if (strstartswith(scnname, ".rela.debug_")) {
 			Elf_Scn *info_scn, *link_scn;
@@ -911,7 +913,7 @@ drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
 			continue;
 		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
 		if (!scnname)
-			continue;
+			return drgn_error_libelf();
 
 		for (size_t i = 0; i < DRGN_NUM_DEBUG_SCNS; i++) {
 			if (!module->scns[i] &&
