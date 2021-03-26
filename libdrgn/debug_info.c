@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <assert.h>
+#include <byteswap.h>
 #include <dwarf.h>
 #include <elf.h>
 #include <elfutils/known-dwarf.h>
@@ -661,92 +662,111 @@ userspace_report_debug_info(struct drgn_debug_info_load_state *load)
 	return NULL;
 }
 
-static struct drgn_error *apply_relocation(Elf_Data *data, uint64_t r_offset,
-					   uint32_t r_type, int64_t r_addend,
-					   uint64_t st_value)
-{
-	char *p;
-
-	p = (char *)data->d_buf + r_offset;
-	switch (r_type) {
-	case R_X86_64_NONE:
-		break;
-	case R_X86_64_32:
-		if (r_offset > SIZE_MAX - sizeof(uint32_t) ||
-		    r_offset + sizeof(uint32_t) > data->d_size) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid relocation offset");
-		}
-		*(uint32_t *)p = st_value + r_addend;
-		break;
-	case R_X86_64_64:
-		if (r_offset > SIZE_MAX - sizeof(uint64_t) ||
-		    r_offset + sizeof(uint64_t) > data->d_size) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid relocation offset");
-		}
-		*(uint64_t *)p = st_value + r_addend;
-		break;
-	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unimplemented relocation type %" PRIu32,
-					 r_type);
-	}
-	return NULL;
-}
-
-static struct drgn_error *relocate_section(Elf_Scn *scn, Elf_Scn *rela_scn,
-					   Elf_Scn *symtab_scn,
-					   uint64_t *sh_addrs, size_t shdrnum)
+static struct drgn_error *relocate_elf_section(Elf_Scn *scn, Elf_Scn *reloc_scn,
+					       Elf_Scn *symtab_scn,
+					       const uint64_t *sh_addrs,
+					       size_t shdrnum,
+					       const struct drgn_platform *platform)
 {
 	struct drgn_error *err;
-	Elf_Data *data, *rela_data, *symtab_data;
-	const Elf64_Rela *relocs;
-	const Elf64_Sym *syms;
-	size_t num_relocs, num_syms;
-	size_t i;
-	GElf_Shdr *shdr, shdr_mem;
 
+	bool is_64_bit = drgn_platform_is_64_bit(platform);
+	bool bswap = drgn_platform_bswap(platform);
+	apply_elf_rela_fn *apply_elf_rela = platform->arch->apply_elf_rela;
+
+	Elf_Data *data, *reloc_data, *symtab_data;
 	err = read_elf_section(scn, &data);
 	if (err)
 		return err;
-	err = read_elf_section(rela_scn, &rela_data);
+
+	struct drgn_relocating_section relocating = {
+		.buf = data->d_buf,
+		.buf_size = data->d_size,
+		.bswap = bswap,
+	};
+
+	err = read_elf_section(reloc_scn, &reloc_data);
 	if (err)
 		return err;
+	const void *relocs = reloc_data->d_buf;
+	size_t reloc_size = is_64_bit ? sizeof(Elf64_Rela) : sizeof(Elf32_Rela);
+	size_t num_relocs = reloc_data->d_size / reloc_size;
+
 	err = read_elf_section(symtab_scn, &symtab_data);
 	if (err)
 		return err;
+	const void *syms = symtab_data->d_buf;
+	size_t sym_size = is_64_bit ? sizeof(Elf64_Sym) : sizeof(Elf32_Sym);
+	size_t num_syms = symtab_data->d_size / sym_size;
 
-	relocs = (Elf64_Rela *)rela_data->d_buf;
-	num_relocs = rela_data->d_size / sizeof(Elf64_Rela);
-	syms = (Elf64_Sym *)symtab_data->d_buf;
-	num_syms = symtab_data->d_size / sizeof(Elf64_Sym);
-
-	for (i = 0; i < num_relocs; i++) {
-		const Elf64_Rela *reloc = &relocs[i];
-		uint32_t r_sym, r_type;
-		uint16_t st_shndx;
-		uint64_t sh_addr;
-
-		r_sym = ELF64_R_SYM(reloc->r_info);
-		r_type = ELF64_R_TYPE(reloc->r_info);
-
+	for (size_t i = 0; i < num_relocs; i++) {
+		uint64_t r_offset;
+		uint32_t r_sym;
+		uint32_t r_type;
+		int64_t r_addend;
+		if (is_64_bit) {
+			Elf64_Rela *rela = (Elf64_Rela *)relocs + i;
+			uint64_t r_info;
+			memcpy(&r_offset, &rela->r_offset, sizeof(r_offset));
+			memcpy(&r_info, &rela->r_info, sizeof(r_info));
+			memcpy(&r_addend, &rela->r_addend, sizeof(r_addend));
+			if (bswap) {
+				r_offset = bswap_64(r_offset);
+				r_info = bswap_64(r_info);
+				r_addend = bswap_64(r_addend);
+			}
+			r_sym = ELF64_R_SYM(r_info);
+			r_type = ELF64_R_TYPE(r_info);
+		} else {
+			Elf32_Rela *rela32 = (Elf32_Rela *)relocs + i;
+			uint32_t r_offset32;
+			uint32_t r_info32;
+			int32_t r_addend32;
+			memcpy(&r_offset32, &rela32->r_offset, sizeof(r_offset32));
+			memcpy(&r_info32, &rela32->r_info, sizeof(r_info32));
+			memcpy(&r_addend32, &rela32->r_addend, sizeof(r_addend32));
+			if (bswap) {
+				r_offset32 = bswap_32(r_offset32);
+				r_info32 = bswap_32(r_info32);
+				r_addend32 = bswap_32(r_addend32);
+			}
+			r_offset = r_offset32;
+			r_sym = ELF32_R_SYM(r_info32);
+			r_type = ELF32_R_TYPE(r_info32);
+			r_addend = r_addend32;
+		}
 		if (r_sym >= num_syms) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid relocation symbol");
+						 "invalid ELF relocation symbol");
 		}
-		st_shndx = syms[r_sym].st_shndx;
-		if (st_shndx == 0) {
-			sh_addr = 0;
-		} else if (st_shndx < shdrnum) {
-			sh_addr = sh_addrs[st_shndx - 1];
+		uint16_t st_shndx;
+		uint64_t st_value;
+		if (is_64_bit) {
+			const Elf64_Sym *sym = (Elf64_Sym *)syms + r_sym;
+			memcpy(&st_shndx, &sym->st_shndx, sizeof(st_shndx));
+			memcpy(&st_value, &sym->st_value, sizeof(st_value));
+			if (bswap) {
+				st_shndx = bswap_16(st_shndx);
+				st_value = bswap_64(st_value);
+			}
 		} else {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "invalid symbol section index");
+			const Elf32_Sym *sym = (Elf32_Sym *)syms + r_sym;
+			memcpy(&st_shndx, &sym->st_shndx, sizeof(st_shndx));
+			uint32_t st_value32;
+			memcpy(&st_value32, &sym->st_value, sizeof(st_value32));
+			if (bswap) {
+				st_shndx = bswap_16(st_shndx);
+				st_value32 = bswap_32(st_value32);
+			}
+			st_value = st_value32;
 		}
-		err = apply_relocation(data, reloc->r_offset, r_type,
-				       reloc->r_addend,
-				       sh_addr + syms[r_sym].st_value);
+		if (st_shndx >= shdrnum) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "invalid ELF symbol section index");
+		}
+
+		err = apply_elf_rela(&relocating, r_offset, r_type, r_addend,
+				     sh_addrs[st_shndx] + st_value);
 		if (err)
 			return err;
 	}
@@ -755,13 +775,14 @@ static struct drgn_error *relocate_section(Elf_Scn *scn, Elf_Scn *rela_scn,
 	 * Mark the relocation section as empty so that libdwfl doesn't try to
 	 * apply it again.
 	 */
-	shdr = gelf_getshdr(rela_scn, &shdr_mem);
+	GElf_Shdr *shdr, shdr_mem;
+	shdr = gelf_getshdr(reloc_scn, &shdr_mem);
 	if (!shdr)
 		return drgn_error_libelf();
 	shdr->sh_size = 0;
-	if (!gelf_update_shdr(rela_scn, shdr))
+	if (!gelf_update_shdr(reloc_scn, shdr))
 		return drgn_error_libelf();
-	rela_data->d_size = 0;
+	reloc_data->d_size = 0;
 	return NULL;
 }
 
@@ -769,99 +790,87 @@ static struct drgn_error *relocate_section(Elf_Scn *scn, Elf_Scn *rela_scn,
  * Before the debugging information in a relocatable ELF file (e.g., Linux
  * kernel module) can be used, it must have ELF relocations applied. This is
  * usually done by libdwfl. However, libdwfl is relatively slow at it. This is a
- * much faster implementation. It is only implemented for x86-64; for other
- * architectures, we can fall back to libdwfl.
+ * much faster implementation.
  */
-static struct drgn_error *apply_elf_relocations(Elf *elf)
+static struct drgn_error *relocate_elf_file(Elf *elf)
 {
 	struct drgn_error *err;
-	GElf_Ehdr ehdr_mem, *ehdr;
-	size_t shdrnum, shstrndx;
-	uint64_t *sh_addrs;
-	Elf_Scn *scn;
 
+	GElf_Ehdr ehdr_mem, *ehdr;
 	ehdr = gelf_getehdr(elf, &ehdr_mem);
 	if (!ehdr)
 		return drgn_error_libelf();
 
-	if (ehdr->e_type != ET_REL ||
-	    ehdr->e_machine != EM_X86_64 ||
-	    ehdr->e_ident[EI_CLASS] != ELFCLASS64 ||
-	    ehdr->e_ident[EI_DATA] !=
-	    (HOST_LITTLE_ENDIAN ? ELFDATA2LSB : ELFDATA2MSB)) {
+	if (ehdr->e_type != ET_REL) {
+		/* Not a relocatable file. */
+		return NULL;
+	}
+
+	struct drgn_platform platform;
+	drgn_platform_from_elf(ehdr, &platform);
+	if (!platform.arch->apply_elf_rela) {
 		/* Unsupported; fall back to libdwfl. */
 		return NULL;
 	}
 
+	size_t shdrnum;
 	if (elf_getshdrnum(elf, &shdrnum))
 		return drgn_error_libelf();
-	if (shdrnum > 1) {
-		sh_addrs = calloc(shdrnum - 1, sizeof(*sh_addrs));
-		if (!sh_addrs)
-			return &drgn_enomem;
+	uint64_t *sh_addrs = calloc(shdrnum, sizeof(sh_addrs[0]));
+	if (!sh_addrs && shdrnum > 0)
+		return &drgn_enomem;
 
-		scn = NULL;
-		while ((scn = elf_nextscn(elf, scn))) {
-			size_t ndx;
-
-			ndx = elf_ndxscn(scn);
-			if (ndx > 0 && ndx < shdrnum) {
-				GElf_Shdr *shdr, shdr_mem;
-
-				shdr = gelf_getshdr(scn, &shdr_mem);
-				if (!shdr) {
-					err = drgn_error_libelf();
-					goto out;
-				}
-				sh_addrs[ndx - 1] = shdr->sh_addr;
-			}
-		}
-	} else {
-		sh_addrs = NULL;
-	}
-
-	if (elf_getshdrstrndx(elf, &shstrndx)) {
-		err = drgn_error_libelf();
-		goto out;
-	}
-
-	scn = NULL;
+	Elf_Scn *scn = NULL;
 	while ((scn = elf_nextscn(elf, scn))) {
 		GElf_Shdr *shdr, shdr_mem;
-		const char *scnname;
-
 		shdr = gelf_getshdr(scn, &shdr_mem);
 		if (!shdr) {
 			err = drgn_error_libelf();
 			goto out;
 		}
+		sh_addrs[elf_ndxscn(scn)] = shdr->sh_addr;
+	}
 
+	size_t shstrndx;
+	if (elf_getshdrstrndx(elf, &shstrndx)) {
+		err = drgn_error_libelf();
+		goto out;
+	}
+
+	Elf_Scn *reloc_scn = NULL;
+	while ((reloc_scn = elf_nextscn(elf, reloc_scn))) {
+		GElf_Shdr *shdr, shdr_mem;
+		shdr = gelf_getshdr(reloc_scn, &shdr_mem);
+		if (!shdr) {
+			err = drgn_error_libelf();
+			goto out;
+		}
+		/* We don't support any architectures that use SHT_REL yet. */
 		if (shdr->sh_type != SHT_RELA)
 			continue;
 
-		scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
 		if (!scnname) {
 			err = drgn_error_libelf();
 			goto out;
 		}
 
 		if (strstartswith(scnname, ".rela.debug_")) {
-			Elf_Scn *info_scn, *link_scn;
-
-			info_scn = elf_getscn(elf, shdr->sh_info);
-			if (!info_scn) {
+			Elf_Scn *scn = elf_getscn(elf, shdr->sh_info);
+			if (!scn) {
 				err = drgn_error_libelf();
 				goto out;
 			}
 
-			link_scn = elf_getscn(elf, shdr->sh_link);
-			if (!link_scn) {
+			Elf_Scn *symtab_scn = elf_getscn(elf, shdr->sh_link);
+			if (!symtab_scn) {
 				err = drgn_error_libelf();
 				goto out;
 			}
 
-			err = relocate_section(info_scn, scn, link_scn,
-					       sh_addrs, shdrnum);
+			err = relocate_elf_section(scn, reloc_scn, symtab_scn,
+						   sh_addrs, shdrnum,
+						   &platform);
 			if (err)
 				goto out;
 		}
@@ -877,7 +886,7 @@ drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
 	struct drgn_error *err;
 
 	if (module->elf) {
-		err = apply_elf_relocations(module->elf);
+		err = relocate_elf_file(module->elf);
 		if (err)
 			return err;
 	}

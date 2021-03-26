@@ -24,6 +24,18 @@ struct drgn_register_layout {
 	uint32_t size;
 };
 
+/* ELF section to apply relocations to. */
+struct drgn_relocating_section {
+	char *buf;
+	size_t buf_size;
+	bool bswap;
+};
+
+typedef struct drgn_error *
+apply_elf_rela_fn(const struct drgn_relocating_section *relocating,
+		  uint64_t r_offset, uint32_t r_type, int64_t r_addend,
+		  uint64_t sym_value);
+
 /* Page table iterator. */
 struct pgtable_iterator {
 	struct drgn_program *prog;
@@ -89,6 +101,7 @@ struct drgn_architecture_info {
 							     struct drgn_register_state **);
 	struct drgn_error *(*linux_kernel_get_initial_registers)(const struct drgn_object *,
 								 struct drgn_register_state **);
+	apply_elf_rela_fn *apply_elf_rela;
 	struct drgn_error *(*linux_kernel_get_page_offset)(struct drgn_object *);
 	struct drgn_error *(*linux_kernel_get_vmemmap)(struct drgn_object *);
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *,
