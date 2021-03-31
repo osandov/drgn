@@ -17,14 +17,21 @@ The build requires:
 - `GNU Make <https://www.gnu.org/software/make/>`_
 - `pkgconf <http://pkgconf.org/>`_
 - `setuptools <https://pypi.org/project/setuptools/>`_
+
+.. include:: ../README.rst
+    :start-after: start-install-dependencies
+    :end-before: end-install-dependencies
+
+Building from the Git repository (rather than a release tarball) additionally
+requires:
+
 - `autoconf <https://www.gnu.org/software/autoconf/>`_
 - `automake <https://www.gnu.org/software/automake/>`_
 - `libtool <https://www.gnu.org/software/libtool/>`_
 - `GNU Awk <https://www.gnu.org/software/gawk/>`_ 4.0 or newer
 
-.. include:: ../README.rst
-    :start-after: start-install-dependencies
-    :end-before: end-install-dependencies
+Simply add ``autoconf automake gawk libtool`` to the appropriate installation
+command above.
 
 Installation
 ------------

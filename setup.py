@@ -21,6 +21,7 @@ import sys
 from setuptools import Command, find_packages, setup
 from setuptools.command.build_ext import build_ext as _build_ext
 from setuptools.command.egg_info import egg_info as _egg_info
+from setuptools.command.sdist import sdist as _sdist
 from setuptools.extension import Extension
 
 from util import nproc, out_of_date
@@ -43,21 +44,17 @@ class build_ext(_build_ext):
 
     help_options = []
 
-    def _run_autoreconf(self, dir):
-        configure = os.path.join(dir, "configure")
-        configure_ac = os.path.join(dir, "configure.ac")
-        makefile_am = os.path.join(dir, "Makefile.am")
-        makefile_in = os.path.join(dir, "Makefile.in")
-        if out_of_date(makefile_in, makefile_am, configure_ac) or out_of_date(
-            configure, configure_ac
-        ):
+    def _run_autoreconf(self):
+        if out_of_date(
+            "libdrgn/Makefile.in", "libdrgn/Makefile.am", "libdrgn/configure.ac"
+        ) or out_of_date("libdrgn/configure", "libdrgn/configure.ac"):
             try:
-                subprocess.check_call(["autoreconf", "-i", dir])
+                subprocess.check_call(["autoreconf", "-i", "libdrgn"])
             except Exception:
                 with contextlib.suppress(FileNotFoundError):
-                    os.remove(configure)
+                    os.remove("libdrgn/configure")
                 with contextlib.suppress(FileNotFoundError):
-                    os.remove(makefile_in)
+                    os.remove("libdrgn/Makefile.in")
                 raise
 
     def _run_configure(self):
@@ -80,17 +77,20 @@ class build_ext(_build_ext):
                     os.remove(makefile)
                 raise
 
-    def _run_make(self):
+    def _run_make(self, *make_args):
         args = ["make", "-C", self.build_temp]
         if self.parallel:
             args.append(f"-j{self.parallel}")
+        args.extend(make_args)
         subprocess.check_call(args)
 
-    def run(self):
-        self._run_autoreconf("libdrgn")
+    def make(self, *make_args):
+        self._run_autoreconf()
         self._run_configure()
-        self._run_make()
+        self._run_make(*make_args)
 
+    def run(self):
+        self.make()
         so = os.path.join(self.build_temp, ".libs/_drgn.so")
         if self.inplace:
             copy_file(so, self.get_ext_fullpath("_drgn"), update=True)
@@ -100,19 +100,6 @@ class build_ext(_build_ext):
         copy_file(so, build_path, update=True)
         self.inplace = old_inplace
 
-    def get_source_files(self):
-        if os.path.exists(".git"):
-            args = ["git", "ls-files", "-z", "libdrgn"]
-            return [
-                os.fsdecode(path)
-                for path in subprocess.check_output(args).split(b"\0")
-                if path
-            ]
-        else:
-            # If this is a source distribution, then setuptools will get the
-            # list of sources that was included in the tarball.
-            return []
-
 
 # Work around pypa/setuptools#436.
 class egg_info(_egg_info):
@@ -121,6 +108,18 @@ class egg_info(_egg_info):
             with contextlib.suppress(FileNotFoundError):
                 os.remove(os.path.join(self.egg_info, "SOURCES.txt"))
         super().run()
+
+
+class sdist(_sdist):
+    def make_release_tree(self, base_dir, files):
+        super().make_release_tree(base_dir, files)
+        # Add the libdrgn distribution tree. This won't add the file names to
+        # .egg-info/SOURCES.txt, but as far as I can tell that doesn't matter.
+        build_ext = self.get_finalized_command("build_ext")
+        distdir = os.path.join(
+            os.path.relpath(base_dir, build_ext.build_temp), "libdrgn"
+        )
+        build_ext.make("distdir", "distdir=" + distdir)
 
 
 class test(Command):
@@ -255,7 +254,9 @@ def get_version():
 
     # The public version always comes from configure.ac.
     with open("libdrgn/configure.ac", "r") as f:
-        public_version = re.search(r"AC_INIT\(\[drgn\], \[([^]]*)\]", f.read()).group(1)
+        public_version = re.search(
+            r"AC_INIT\(\[libdrgn\], \[([^]]*)\]", f.read()
+        ).group(1)
     # Default local version if we fail.
     local_version = "+unknown"
 
@@ -335,6 +336,7 @@ setup(
         "build": build,
         "build_ext": build_ext,
         "egg_info": egg_info,
+        "sdist": sdist,
         "test": test,
     },
     entry_points={"console_scripts": ["drgn=drgn.internal.cli:main"]},

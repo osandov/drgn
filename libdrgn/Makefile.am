@@ -16,18 +16,21 @@ include_HEADERS = drgn.h
 ARCH_DEFS = arch_ppc64.defs \
 	    arch_x86_64.defs
 
-BUILT_SOURCES = drgn.h $(ARCH_DEFS:.defs=.inc)
+ARCH_INCS = $(ARCH_DEFS:.defs=.inc)
+
+BUILT_SOURCES = drgn.h $(ARCH_INCS)
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
 libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
+			 $(ARCH_INCS) \
 			 arch_register_layout.h \
 			 binary_buffer.c \
 			 binary_buffer.h \
 			 binary_search_tree.h \
 			 bitops.h \
-			 cfi.h \
 			 cfi.c \
+			 cfi.h \
 			 cityhash.h \
 			 debug_info.c \
 			 debug_info.h \
@@ -37,6 +40,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 error.h \
 			 hash_table.c \
 			 hash_table.h \
+			 helpers.h \
 			 language.c \
 			 language.h \
 			 language_c.c \
@@ -54,6 +58,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 object.h \
 			 object_index.c \
 			 object_index.h \
+			 orc.h \
 			 path.c \
 			 path.h \
 			 platform.c \
@@ -110,9 +115,9 @@ BUILT_SOURCES += python/docstrings.h
 noinst_LTLIBRARIES += _drgn.la
 endif
 
-CLEANFILES = python/constants.c python/docstrings.c python/docstrings.h
-
-_drgn_la_SOURCES = python/docstrings.h \
+_drgn_la_SOURCES = python/constants.c \
+		   python/docstrings.c \
+		   python/docstrings.h \
 		   python/drgnpy.h \
 		   python/error.c \
 		   python/helpers.c \
@@ -126,8 +131,6 @@ _drgn_la_SOURCES = python/docstrings.h \
 		   python/test.c \
 		   python/type.c \
 		   python/util.c
-
-nodist__drgn_la_SOURCES = python/constants.c python/docstrings.c
 
 _drgn_la_CFLAGS = -fvisibility=hidden
 _drgn_la_CPPFLAGS = $(AM_CPPFLAGS) $(PYTHON_CPPFLAGS) -iquote $(srcdir)/python \
@@ -152,9 +155,18 @@ python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
 python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 	$(AM_V_GEN)$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
-EXTRA_DIST = $(ARCH_DEFS) build-aux/gen_arch.awk build-aux/gen_constants.py
+EXTRA_DIST = $(ARCH_DEFS) \
+	     build-aux/gen_arch.awk \
+	     build-aux/gen_constants.py \
+	     drgn.h.in
 
 EXTRA_PROGRAMS = examples/load_debug_info
 
 examples_load_debug_info_SOURCES = examples/load_debug_info.c
 examples_load_debug_info_LDADD = libdrgnimpl.la
+
+CLEANFILES = $(ARCH_INCS) \
+	     drgn.h \
+	     python/constants.c \
+	     python/docstrings.c \
+	     python/docstrings.h
