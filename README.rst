@@ -68,7 +68,7 @@ Debian/Ubuntu:
 
 .. code-block:: console
 
-    $ sudo apt-get install autoconf automake gawk gcc libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-setuptools
+    $ sudo apt-get install autoconf automake gawk gcc liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-setuptools zlib1g-dev
 
 Note that Debian Stretch, Ubuntu Trusty, and Ubuntu Xenial (and older) ship
 Python versions which are too old. Python 3.6 or newer must be installed
