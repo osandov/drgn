@@ -62,13 +62,13 @@ Arch Linux:
 
 .. code-block:: console
 
-    $ sudo pacman -S --needed autoconf automake gawk gcc libelf libtool make pkgconf python python-setuptools
+    $ sudo pacman -S --needed autoconf automake gawk gcc libelf libtool make pkgconf python python-pip python-setuptools
 
 Debian/Ubuntu:
 
 .. code-block:: console
 
-    $ sudo apt-get install autoconf automake gawk gcc liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-setuptools zlib1g-dev
+    $ sudo apt-get install autoconf automake gawk gcc liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
 
 Note that Debian Stretch, Ubuntu Trusty, and Ubuntu Xenial (and older) ship
 Python versions which are too old. Python 3.6 or newer must be installed
@@ -78,7 +78,7 @@ Fedora:
 
 .. code-block:: console
 
-    $ sudo dnf install autoconf automake elfutils-devel gawk gcc libtool make pkgconf python3 python3-devel python3-setuptools
+    $ sudo dnf install autoconf automake elfutils-devel gawk gcc libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
 Optionally, install:
 
