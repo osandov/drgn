@@ -666,18 +666,6 @@ static inline size_t table##_chunk_capacity_scale(struct table##_chunk *chunk)	\
 	}									\
 }										\
 										\
-static inline void								\
-table##_chunk_set_capacity_scale(struct table##_chunk *chunk,			\
-				 size_t capacity_scale)				\
-{										\
-	if (table##_capacity_scale_bits == 4) {					\
-		chunk->control = (chunk->control & ~0xf) | capacity_scale;	\
-	} else {								\
-		uint16_t val = capacity_scale;					\
-		memcpy(&chunk->tags[12], &val, 2);				\
-	}									\
-}										\
-										\
 static inline bool table##_chunk_eof(struct table##_chunk *chunk)		\
 {										\
 	return table##_chunk_capacity_scale(chunk) != 0;			\
