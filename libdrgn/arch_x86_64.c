@@ -40,6 +40,24 @@
 
 #include "arch_x86_64.inc"
 
+static const struct drgn_cfi_row default_dwarf_cfi_row_x86_64 = DRGN_CFI_ROW(
+	/*
+	 * The System V psABI defines the CFA as the value of rsp in the calling
+	 * frame.
+	 */
+	[DRGN_REGISTER_NUMBER(rsp)] = { DRGN_CFI_RULE_CFA_PLUS_OFFSET },
+	/*
+	 * Other callee-saved registers default to DW_CFA_same_value. This isn't
+	 * explicitly documented in the psABI, but it seems to be the consensus.
+	 */
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(rbx)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(rbp)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r12)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r13)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r14)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r15)),
+);
+
 static struct drgn_error *
 orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 		  struct drgn_cfi_row **row_ret, bool *interrupted_ret,
@@ -732,24 +750,7 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.default_flags = (DRGN_PLATFORM_IS_64_BIT |
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
 	DRGN_ARCHITECTURE_REGISTERS,
-	.default_dwarf_cfi_row = DRGN_CFI_ROW(
-		/*
-		 * The System V psABI defines the CFA as the value of rsp in the
-		 * calling frame.
-		 */
-		[DRGN_REGISTER_NUMBER(rsp)] = { DRGN_CFI_RULE_CFA_PLUS_OFFSET },
-		/*
-		 * Other callee-saved registers default to DW_CFA_same_value.
-		 * This isn't explicitly documented in the psABI, but it seems
-		 * to be the consensus.
-		 */
-		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(rbx)),
-		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(rbp)),
-		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r12)),
-		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r13)),
-		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r14)),
-		DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r15)),
-	),
+	.default_dwarf_cfi_row = &default_dwarf_cfi_row_x86_64,
 	.orc_to_cfi = orc_to_cfi_x86_64,
 	.fallback_unwind = fallback_unwind_x86_64,
 	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_x86_64,

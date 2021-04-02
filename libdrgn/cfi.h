@@ -145,20 +145,15 @@ struct drgn_cfi_row {
 	struct drgn_cfi_rule reg_rules[];
 };
 
-/** Create a static @ref drgn_cfi_row given initializers for `reg_rules`. */
-#define DRGN_CFI_ROW(...)							\
-	((struct drgn_cfi_row *)						\
-	&(const struct {							\
-		struct drgn_cfi_row row;					\
-		struct drgn_cfi_rule reg_rules[sizeof((struct drgn_cfi_rule []){ __VA_ARGS__ })\
-					       / sizeof(struct drgn_cfi_rule)];	\
-	}){									\
-		{								\
-			.num_regs = (sizeof((struct drgn_cfi_rule []){ __VA_ARGS__ })\
-				     / sizeof(struct drgn_cfi_rule)),		\
-		},								\
-		{ __VA_ARGS__ },						\
-	})
+/**
+ * Initializer for a static @ref drgn_cfi_row given initializers for @ref
+ * drgn_cfi_row::reg_rules.
+ */
+#define DRGN_CFI_ROW(...) {						\
+	.num_regs = (sizeof((struct drgn_cfi_rule []){ __VA_ARGS__ })	\
+		     / sizeof(struct drgn_cfi_rule)),			\
+	.reg_rules = { __VA_ARGS__ },					\
+}
 
 /**
  * Initializer for a rule in @ref drgn_cfi_row::reg_rules specifying that the

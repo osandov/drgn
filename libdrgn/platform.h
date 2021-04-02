@@ -86,7 +86,7 @@ struct drgn_architecture_info {
 	const struct drgn_register_layout *register_layout;
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t);
 	/* CFI row containing default rules for DWARF CFI. */
-	struct drgn_cfi_row *default_dwarf_cfi_row;
+	const struct drgn_cfi_row *default_dwarf_cfi_row;
 	struct drgn_error *(*orc_to_cfi)(const struct drgn_orc_entry *,
 					 struct drgn_cfi_row **, bool *,
 					 drgn_register_number *);
