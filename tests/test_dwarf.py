@@ -190,7 +190,7 @@ def dwarf_program(*args, **kwds):
     return prog
 
 
-def test_type_dies(dies):
+def wrap_test_type_dies(dies):
     if isinstance(dies, DwarfDie):
         dies = (dies,)
     return tuple(dies) + (
@@ -206,14 +206,14 @@ def test_type_dies(dies):
 
 class TestTypes(TestCase):
     def test_unknown_tag(self):
-        prog = dwarf_program(test_type_dies(DwarfDie(0x9999, ())))
+        prog = dwarf_program(wrap_test_type_dies(DwarfDie(0x9999, ())))
         self.assertRaisesRegex(
             Exception, "unknown DWARF type tag 0x9999", prog.type, "TEST"
         )
 
     def test_base_type_missing_byte_size(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.base_type,
                     (
@@ -232,7 +232,7 @@ class TestTypes(TestCase):
 
     def test_base_type_missing_encoding(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.base_type,
                     (
@@ -251,7 +251,7 @@ class TestTypes(TestCase):
 
     def test_base_type_missing_name(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.base_type,
                     (
@@ -270,7 +270,7 @@ class TestTypes(TestCase):
 
     def test_unknown_base_type_encoding(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.base_type,
                     (
@@ -285,7 +285,7 @@ class TestTypes(TestCase):
 
     def test_int_type_byteorder(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.base_type,
@@ -305,7 +305,7 @@ class TestTypes(TestCase):
 
     def test_bool_type_byteorder(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.base_type,
@@ -323,7 +323,7 @@ class TestTypes(TestCase):
 
     def test_float_type_byteorder(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.base_type,
@@ -347,7 +347,7 @@ class TestTypes(TestCase):
         # which luckily guarantees that we'll use the standard one when doing a
         # name lookup.
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.base_type,
@@ -373,7 +373,7 @@ class TestTypes(TestCase):
 
     def test_qualifier(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.const_type, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),)
@@ -389,7 +389,7 @@ class TestTypes(TestCase):
 
     def test_multiple_qualifiers(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.const_type, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),)
@@ -423,14 +423,14 @@ class TestTypes(TestCase):
         )
 
     def test_qualifier_void(self):
-        prog = dwarf_program(test_type_dies(DwarfDie(DW_TAG.const_type, ())))
+        prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.const_type, ())))
         self.assertIdentical(
             prog.type("TEST").type, prog.void_type(qualifiers=Qualifiers.CONST)
         )
 
     def test_multiple_qualifiers_void(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.const_type, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),)
@@ -459,7 +459,7 @@ class TestTypes(TestCase):
 
     def test_struct(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -508,7 +508,7 @@ class TestTypes(TestCase):
 
     def test_struct_anonymous(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -554,7 +554,7 @@ class TestTypes(TestCase):
 
     def test_struct_no_members(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.structure_type,
                     (DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),),
@@ -565,7 +565,7 @@ class TestTypes(TestCase):
 
     def test_struct_incomplete(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.structure_type,
                     (
@@ -579,7 +579,7 @@ class TestTypes(TestCase):
 
     def test_struct_unnamed_member(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -627,7 +627,7 @@ class TestTypes(TestCase):
 
     def test_struct_member_missing_type(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.structure_type,
                     (DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),),
@@ -649,7 +649,7 @@ class TestTypes(TestCase):
 
     def test_struct_member_invalid_type(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.structure_type,
                     (DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),),
@@ -672,7 +672,7 @@ class TestTypes(TestCase):
 
     def test_struct_member_invalid_location(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -703,7 +703,7 @@ class TestTypes(TestCase):
         )
 
     def test_struct_missing_size(self):
-        prog = dwarf_program(test_type_dies(DwarfDie(DW_TAG.structure_type, ())))
+        prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.structure_type, ())))
         self.assertRaisesRegex(
             Exception,
             "DW_TAG_structure_type has missing or invalid DW_AT_byte_size",
@@ -713,7 +713,7 @@ class TestTypes(TestCase):
 
     def test_struct_invalid_name(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.structure_type,
                     (
@@ -729,7 +729,7 @@ class TestTypes(TestCase):
 
     def test_incomplete_to_complete(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.pointer_type,
@@ -795,7 +795,7 @@ class TestTypes(TestCase):
 
     def test_incomplete_to_complete_ambiguous(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.pointer_type,
@@ -881,7 +881,7 @@ class TestTypes(TestCase):
 
     def test_incomplete_to_complete_specification(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.pointer_type,
@@ -1107,7 +1107,7 @@ class TestTypes(TestCase):
         )
 
         for little_endian in [True, False]:
-            prog = dwarf_program(test_type_dies(dies), little_endian=little_endian)
+            prog = dwarf_program(wrap_test_type_dies(dies), little_endian=little_endian)
             self.assertIdentical(
                 prog.type("TEST").type,
                 prog.struct_type(
@@ -1135,7 +1135,7 @@ class TestTypes(TestCase):
 
     def test_bit_field_bit_offset_big_endian(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -1202,7 +1202,7 @@ class TestTypes(TestCase):
 
     def test_bit_field_data_member_location_and_bit_offset_big_endian(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -1275,7 +1275,7 @@ class TestTypes(TestCase):
 
     def test_bit_field_data_member_location_and_bit_offset_little_endian(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -1349,7 +1349,7 @@ class TestTypes(TestCase):
         self,
     ):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -1423,7 +1423,7 @@ class TestTypes(TestCase):
 
     def test_union(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.union_type,
@@ -1467,7 +1467,7 @@ class TestTypes(TestCase):
 
     def test_class(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.class_type,
@@ -1527,7 +1527,7 @@ class TestTypes(TestCase):
 
     def test_class_template(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.class_type,
@@ -1576,7 +1576,7 @@ class TestTypes(TestCase):
             Exception, "DW_AT_template_value_parameter is missing value"
         ):
             dwarf_program(
-                test_type_dies(
+                wrap_test_type_dies(
                     (
                         DwarfDie(
                             DW_TAG.class_type,
@@ -1602,7 +1602,7 @@ class TestTypes(TestCase):
 
     def test_lazy_cycle(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -1640,7 +1640,7 @@ class TestTypes(TestCase):
 
     def test_infinite_cycle(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.pointer_type,
                     (
@@ -1654,7 +1654,7 @@ class TestTypes(TestCase):
 
     def test_enum(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -1706,7 +1706,7 @@ class TestTypes(TestCase):
 
     def test_enum_anonymous(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -1757,7 +1757,7 @@ class TestTypes(TestCase):
 
     def test_enum_no_enumerators(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -1778,7 +1778,7 @@ class TestTypes(TestCase):
 
     def test_enum_incomplete(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.enumeration_type,
                     (
@@ -1793,7 +1793,7 @@ class TestTypes(TestCase):
     def test_enum_old_gcc(self):
         # GCC < 5.1
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.enumeration_type,
                     (
@@ -1842,7 +1842,7 @@ class TestTypes(TestCase):
     def test_enum_old_gcc_signed(self):
         # GCC < 5.1
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.enumeration_type,
                     (
@@ -1890,7 +1890,7 @@ class TestTypes(TestCase):
 
     def test_enum_compatible_type_not_integer(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -1911,7 +1911,7 @@ class TestTypes(TestCase):
         )
 
     def test_enum_missing_compatible_type_and_byte_size(self):
-        prog = dwarf_program(test_type_dies(DwarfDie(DW_TAG.enumeration_type, ())))
+        prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.enumeration_type, ())))
         self.assertRaisesRegex(
             Exception,
             "DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size",
@@ -1921,7 +1921,7 @@ class TestTypes(TestCase):
 
     def test_enum_invalid_name(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -1944,7 +1944,7 @@ class TestTypes(TestCase):
 
     def test_enum_enumerator_missing_name(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -1972,7 +1972,7 @@ class TestTypes(TestCase):
 
     def test_enum_enumerator_missing_const_value(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -2000,7 +2000,7 @@ class TestTypes(TestCase):
 
     def test_enum_enumerator_invalid_const_value(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.enumeration_type,
@@ -2183,7 +2183,7 @@ class TestTypes(TestCase):
 
     def test_typedef(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.typedef,
@@ -2203,7 +2203,7 @@ class TestTypes(TestCase):
 
     def test_typedef_missing_name(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.typedef, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),)
@@ -2221,7 +2221,7 @@ class TestTypes(TestCase):
 
     def test_typedef_void(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.typedef, (DwarfAttrib(DW_AT.name, DW_FORM.string, "VOID"),)
                 )
@@ -2251,7 +2251,7 @@ class TestTypes(TestCase):
 
     def test_pointer(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.pointer_type,
@@ -2270,7 +2270,7 @@ class TestTypes(TestCase):
 
     def test_pointer_explicit_size(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.pointer_type,
@@ -2288,14 +2288,14 @@ class TestTypes(TestCase):
         )
 
     def test_pointer_void(self):
-        prog = dwarf_program(test_type_dies(DwarfDie(DW_TAG.pointer_type, ())))
+        prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.pointer_type, ())))
         self.assertIdentical(
             prog.type("TEST").type, prog.pointer_type(prog.void_type())
         )
 
     def test_array(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type,
@@ -2317,7 +2317,7 @@ class TestTypes(TestCase):
 
     def test_array_two_dimensional(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type,
@@ -2344,7 +2344,7 @@ class TestTypes(TestCase):
 
     def test_array_three_dimensional(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type,
@@ -2377,7 +2377,7 @@ class TestTypes(TestCase):
 
     def test_array_missing_type(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type,
@@ -2399,7 +2399,7 @@ class TestTypes(TestCase):
 
     def test_array_zero_length_count(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type,
@@ -2421,7 +2421,7 @@ class TestTypes(TestCase):
 
     def test_array_zero_length_upper_bound(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type,
@@ -2443,7 +2443,7 @@ class TestTypes(TestCase):
 
     def test_incomplete_array_no_subrange(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type, (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),)
@@ -2458,7 +2458,7 @@ class TestTypes(TestCase):
 
     def test_incomplete_array_empty_subrange(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.array_type,
@@ -2475,7 +2475,7 @@ class TestTypes(TestCase):
 
     def test_incomplete_array_of_array(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 # int [3][]
                 (
                     DwarfDie(
@@ -2500,7 +2500,7 @@ class TestTypes(TestCase):
 
     def test_array_of_zero_length_array(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 # int [3][0]
                 (
                     DwarfDie(
@@ -2529,7 +2529,7 @@ class TestTypes(TestCase):
     def test_array_of_zero_length_array_old_gcc(self):
         # GCC < 9.0
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 # int [3][0]
                 (
                     DwarfDie(
@@ -2554,7 +2554,7 @@ class TestTypes(TestCase):
 
     def test_array_of_zero_length_array_typedef(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     # ZARRAY [3]
                     DwarfDie(
@@ -2603,7 +2603,7 @@ class TestTypes(TestCase):
         # GCC actually squashes arrays of typedef arrays into one array type,
         # but let's handle it like GCC < 9.0 anyways.
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     # ZARRAY [3]
                     DwarfDie(
@@ -2649,7 +2649,7 @@ class TestTypes(TestCase):
         #   int a[];
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -2695,7 +2695,7 @@ class TestTypes(TestCase):
 
     def test_typedef_flexible_array_member(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     # struct {
                     #   int i;
@@ -2762,7 +2762,7 @@ class TestTypes(TestCase):
         #   int a[0];
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -2806,7 +2806,7 @@ class TestTypes(TestCase):
         #   int a[0];
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -2845,7 +2845,7 @@ class TestTypes(TestCase):
         #   const int a[0];
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -2892,7 +2892,7 @@ class TestTypes(TestCase):
 
     def test_typedef_zero_length_array_only_member(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         # struct foo {
@@ -2984,7 +2984,7 @@ class TestTypes(TestCase):
             int_die,
         )
 
-        prog = dwarf_program(test_type_dies(dies))
+        prog = dwarf_program(wrap_test_type_dies(dies))
         self.assertIdentical(
             prog.type("TEST").type,
             prog.struct_type(
@@ -3009,7 +3009,7 @@ class TestTypes(TestCase):
         )
 
         # Make sure it still works if we parse the array type first.
-        prog = dwarf_program(test_type_dies(dies))
+        prog = dwarf_program(wrap_test_type_dies(dies))
         self.assertIdentical(
             prog.type("ZARRAY"),
             prog.typedef_type("ZARRAY", prog.array_type(prog.int_type("int", 4, True))),
@@ -3036,7 +3036,7 @@ class TestTypes(TestCase):
         #   int i;
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -3091,7 +3091,7 @@ class TestTypes(TestCase):
         #   int i;
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.structure_type,
@@ -3140,7 +3140,7 @@ class TestTypes(TestCase):
         #   int a[0];
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.union_type,
@@ -3195,7 +3195,7 @@ class TestTypes(TestCase):
         #   int a[0];
         # };
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.union_type,
@@ -3247,7 +3247,7 @@ class TestTypes(TestCase):
     def test_function_no_parameters(self):
         # int foo(void)
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.subroutine_type,
@@ -3264,7 +3264,7 @@ class TestTypes(TestCase):
 
     def test_function_void_return(self):
         # void foo(void)
-        prog = dwarf_program(test_type_dies(DwarfDie(DW_TAG.subroutine_type, ())))
+        prog = dwarf_program(wrap_test_type_dies(DwarfDie(DW_TAG.subroutine_type, ())))
         self.assertIdentical(
             prog.type("TEST").type, prog.function_type(prog.void_type(), (), False)
         )
@@ -3272,7 +3272,7 @@ class TestTypes(TestCase):
     def test_function_unnamed_parameter(self):
         # int foo(char)
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.subroutine_type,
@@ -3301,7 +3301,7 @@ class TestTypes(TestCase):
     def test_function_named_parameter(self):
         # int foo(char c)
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.subroutine_type,
@@ -3333,7 +3333,7 @@ class TestTypes(TestCase):
     def test_function_unspecified_parameters(self):
         # int foo()
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.subroutine_type,
@@ -3352,7 +3352,7 @@ class TestTypes(TestCase):
     def test_function_variadic(self):
         # int foo(char, ...)
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.subroutine_type,
@@ -3384,7 +3384,7 @@ class TestTypes(TestCase):
         # Note that in C, this is equivalent to void foo(int *), so GCC and
         # Clang emit the DWARF for the latter.
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.subroutine_type,
@@ -3414,7 +3414,7 @@ class TestTypes(TestCase):
 
     def test_function_template(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     DwarfDie(
                         DW_TAG.subroutine_type,
@@ -3458,12 +3458,12 @@ class TestTypes(TestCase):
     def test_language(self):
         for name, lang in DW_LANG.__members__.items():
             if re.fullmatch("C[0-9]*", name):
-                prog = dwarf_program(test_type_dies(int_die), lang=lang)
+                prog = dwarf_program(wrap_test_type_dies(int_die), lang=lang)
                 self.assertIdentical(
                     prog.type("TEST").type,
                     prog.int_type("int", 4, True, language=Language.C),
                 )
-        prog = dwarf_program(test_type_dies(int_die), lang=DW_LANG.BLISS)
+        prog = dwarf_program(wrap_test_type_dies(int_die), lang=DW_LANG.BLISS)
         self.assertIdentical(
             prog.type("TEST").type,
             prog.int_type("int", 4, True, language=DEFAULT_LANGUAGE),
@@ -3571,7 +3571,7 @@ class TestObjects(TestCase):
 
     def test_function(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     int_die,
                     DwarfDie(
@@ -3614,7 +3614,7 @@ class TestObjects(TestCase):
 
     def test_function_no_address(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 DwarfDie(
                     DW_TAG.subprogram,
                     (DwarfAttrib(DW_AT.name, DW_FORM.string, "abort"),),
@@ -3627,7 +3627,7 @@ class TestObjects(TestCase):
 
     def test_variable(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     int_die,
                     DwarfDie(
@@ -3660,7 +3660,7 @@ class TestObjects(TestCase):
 
     def test_variable_no_address(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     int_die,
                     DwarfDie(
@@ -3677,7 +3677,7 @@ class TestObjects(TestCase):
 
     def test_variable_unimplemented_location(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     int_die,
                     DwarfDie(
@@ -3703,7 +3703,7 @@ class TestObjects(TestCase):
         ):
 
             prog = dwarf_program(
-                test_type_dies(
+                wrap_test_type_dies(
                     (
                         int_die,
                         DwarfDie(
@@ -3730,7 +3730,7 @@ class TestObjects(TestCase):
             DW_FORM.udata,
         ):
             prog = dwarf_program(
-                test_type_dies(
+                wrap_test_type_dies(
                     (
                         unsigned_int_die,
                         DwarfDie(
@@ -3750,7 +3750,7 @@ class TestObjects(TestCase):
 
     def test_variable_const_block(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     int_die,
                     DwarfDie(
@@ -3785,7 +3785,7 @@ class TestObjects(TestCase):
 
     def test_variable_const_block_too_small(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     int_die,
                     DwarfDie(
@@ -3817,7 +3817,7 @@ class TestObjects(TestCase):
 
     def test_specification(self):
         prog = dwarf_program(
-            test_type_dies(
+            wrap_test_type_dies(
                 (
                     int_die,
                     DwarfDie(
@@ -4086,7 +4086,7 @@ class TestProgram(TestCase):
         self.assertIsNotNone(repr(dwarf_program(dies).type("struct foo").members[0]))
 
     def test_reference_counting_type_parameter(self):
-        dies = test_type_dies(
+        dies = wrap_test_type_dies(
             (
                 DwarfDie(
                     DW_TAG.subroutine_type,
