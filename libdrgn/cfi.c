@@ -39,7 +39,7 @@ static bool drgn_cfi_row_reserve(struct drgn_cfi_row **row, uint16_t num_rules)
 		if (num_rules < (*row)->num_regs + 1)
 			num_rules = (*row)->num_regs + 1;
 		size_t size;
-		if (__builtin_mul_overflow(num_rules - 1,
+		if (__builtin_mul_overflow((uint16_t)(num_rules - 1),
 					   sizeof(struct drgn_cfi_rule),
 					   &size) ||
 		    __builtin_add_overflow(sizeof(struct drgn_cfi_row), size,
