@@ -320,7 +320,7 @@ class TestMemory(TestCase):
         )
         self.assertRaisesRegex(
             ValueError,
-            "memory read callback returned buffer of length 0 \(expected 8\)",
+            r"memory read callback returned buffer of length 0 \(expected 8\)",
             prog.read,
             0xFFFF0000,
             8,
