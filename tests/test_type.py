@@ -862,7 +862,7 @@ class TestType(MockProgramTestCase):
         )
 
         self.assertRaisesRegex(
-            TypeError, "must be _drgn\.Type", self.prog.function_type, None, ()
+            TypeError, r"must be _drgn\.Type", self.prog.function_type, None, ()
         )
         self.assertRaisesRegex(
             TypeError,
