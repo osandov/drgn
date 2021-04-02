@@ -8,7 +8,10 @@ jobs:
     strategy:
       matrix:
         python-version: [3.9, 3.8, 3.7, 3.6]
+        cc: [gcc, clang]
       fail-fast: false
+    env:
+      CC: ${{ matrix.cc }}
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python ${{ matrix.python-version }}
@@ -18,13 +21,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install busybox-static libelf-dev libdw-dev qemu-kvm zstd
+          sudo apt-get install busybox-static libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-dev' || '' }}
           pip install mypy
       - name: Generate version.py
         run: python setup.py --version
       - name: Check with mypy
         run: mypy --strict --no-warn-return-any drgn _drgn.pyi
-      - name: Build and test
+      - name: Build and test with ${{ matrix.cc }}
         run: python setup.py test -K
 
   lint:
