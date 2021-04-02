@@ -27,6 +27,7 @@ LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 	obj->encoding = DRGN_OBJECT_ENCODING_NONE;
 	obj->kind = DRGN_OBJECT_ABSENT;
 	obj->is_bit_field = false;
+	obj->little_endian = false;
 }
 
 static void drgn_value_deinit(const struct drgn_object *obj,
@@ -117,6 +118,8 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 		   drgn_type_is_complete(underlying_type)) {
 		ret->little_endian =
 			drgn_type_little_endian(drgn_type_type(underlying_type).type);
+	} else {
+		ret->little_endian = false;
 	}
 	return NULL;
 }
