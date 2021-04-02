@@ -125,4 +125,19 @@ static inline uint64_t uint_max(int n)
 	return UINT64_MAX >> (64 - 8 * n);
 }
 
+/**
+ * Safely add to a pointer which may be `NULL`.
+ *
+ * `NULL + 0` is undefined behavior, but it often arises naturally, like when
+ * computing the end of a dynamic array: `arr + length`. This works around the
+ * undefined behavior: `add_to_possibly_null_pointer(NULL, 0)` is defined as
+ * `NULL`.
+ *
+ * A more natural definition would be `i == 0 ? ptr : ptr + i`, but some
+ * versions of GCC and Clang generate an unnecessary branch or conditional move
+ * (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=97225).
+ */
+#define add_to_possibly_null_pointer(ptr, i)	\
+	((typeof(ptr))((uintptr_t)(ptr) + (i) * sizeof(*(ptr))))
+
 #endif /* DRGN_UTIL_H */

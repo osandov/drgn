@@ -6,6 +6,7 @@
 
 #include "bitops.h"
 #include "string_builder.h"
+#include "util.h"
 
 bool string_builder_finalize(struct string_builder *sb, char **ret)
 {
@@ -58,7 +59,8 @@ bool string_builder_vappendf(struct string_builder *sb, const char *format,
 
 again:
 	va_copy(aq, ap);
-	len = vsnprintf(&sb->str[sb->len], sb->capacity - sb->len, format, aq);
+	len = vsnprintf(add_to_possibly_null_pointer(sb->str, sb->len),
+			sb->capacity - sb->len, format, aq);
 	va_end(aq);
 	if (len < 0)
 		return false;

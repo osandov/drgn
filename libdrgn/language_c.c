@@ -1147,7 +1147,8 @@ c_format_compound_object(const struct drgn_object *obj,
 		goto out;
 	}
 	new->member = drgn_type_members(underlying_type);
-	new->end = new->member + drgn_type_num_members(underlying_type);
+	new->end = add_to_possibly_null_pointer(new->member,
+						drgn_type_num_members(underlying_type));
 	new->bit_offset = 0;
 
 	/*
