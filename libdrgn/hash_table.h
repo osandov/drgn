@@ -1338,7 +1338,7 @@ table##_delete_iterator_hashed(struct table *table, struct table##_iterator it,	
 	}									\
 }										\
 										\
-__attribute__((__always_inline__))						\
+__attribute__((__always_inline__, __unused__))					\
 static inline struct table##_iterator						\
 table##_delete_iterator(struct table *table, struct table##_iterator it)	\
 {										\
