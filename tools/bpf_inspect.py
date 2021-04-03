@@ -1,6 +1,6 @@
 #!/usr/bin/env drgn
 # Copyright (c) Facebook, Inc. and its affiliates.
-# SPDX-License-Identifier: GPL-3.0+
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 DESCRIPTION = """
 drgn script to list BPF programs or maps and their properties

@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-// SPDX-License-Identifier: GPL-3.0+
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 /*
  * QEMU's 9pfs server passes through O_NOATIME from the client. If the server

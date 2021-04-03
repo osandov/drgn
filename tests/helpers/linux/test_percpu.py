@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# SPDX-License-Identifier: GPL-3.0+
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.percpu import per_cpu

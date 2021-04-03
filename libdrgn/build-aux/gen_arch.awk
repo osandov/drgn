@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# SPDX-License-Identifier: GPL-3.0+
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # This script generates drgn architecture definition code ("arch_foo.inc") from
 # an input definition file ("arch_foo.defs").

@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-// SPDX-License-Identifier: GPL-3.0+
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "binary_search_tree.h" // IWYU pragma: associated
 

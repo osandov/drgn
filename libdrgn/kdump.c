@@ -1,5 +1,5 @@
 // Copyright 2019 - Serapheim Dimitropoulos
-// SPDX-License-Identifier: GPL-3.0+
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <inttypes.h>
 #include <stdio.h>

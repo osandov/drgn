@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates.
-# SPDX-License-Identifier: GPL-3.0+
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # setuptools must be imported before distutils (see pypa/setuptools#2230).
 import setuptools  # isort: skip
@@ -351,7 +351,7 @@ setup(
         "Bug Tracker": "https://github.com/osandov/drgn/issues",
         "Documentation": "https://drgn.readthedocs.io",
     },
-    license="GPL-3.0+",
+    license="GPL-3.0-or-later",
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Environment :: Console",
