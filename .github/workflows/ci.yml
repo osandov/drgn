@@ -12,6 +12,7 @@ jobs:
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      CFLAGS: -Wall -Werror -g -O2
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python ${{ matrix.python-version }}
