@@ -29,7 +29,7 @@ jobs:
       - name: Check with mypy
         run: mypy --strict --no-warn-return-any drgn _drgn.pyi
       - name: Build and test with ${{ matrix.cc }}
-        run: python setup.py test -K
+        run: python setup.py test
 
   lint:
     runs-on: ubuntu-latest
