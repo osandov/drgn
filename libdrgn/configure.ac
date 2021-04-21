@@ -15,6 +15,8 @@ AM_PROG_AR
 
 LT_INIT
 
+AC_SYS_LARGEFILE
+
 AC_ARG_ENABLE([openmp],
 	      [AS_HELP_STRING([--enable-openmp@<:@=ARG@:>@],
 			      [use OpenMP. ARG may be yes, no, or the name of
