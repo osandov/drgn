@@ -422,13 +422,14 @@ DrgnType_ATTR(template_parameters);
 
 static PyObject *DrgnType_getter(DrgnType *self, struct DrgnType_Attr *attr)
 {
-	PyObject *value;
-
-	value = _PyDict_GetItemId(self->attr_cache, &attr->id);
+	PyObject *value = _PyDict_GetItemIdWithError(self->attr_cache,
+						     &attr->id);
 	if (value) {
 		Py_INCREF(value);
 		return value;
 	}
+	if (PyErr_Occurred())
+		return NULL;
 
 	value = attr->getter(self);
 	if (!value)
