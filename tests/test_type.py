@@ -945,7 +945,8 @@ class TestType(MockProgramTestCase):
         t = self.prog.void_type(qualifiers=Qualifiers.CONST | Qualifiers.VOLATILE)
         self.assertEqual(t.qualifiers, Qualifiers.CONST | Qualifiers.VOLATILE)
         self.assertEqual(
-            repr(t), "prog.void_type(qualifiers=<Qualifiers.VOLATILE|CONST: 3>)"
+            repr(t),
+            f"prog.void_type(qualifiers={repr(Qualifiers.CONST | Qualifiers.VOLATILE)})",
         )
 
         self.assertIdentical(
