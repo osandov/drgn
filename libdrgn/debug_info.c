@@ -2986,6 +2986,7 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 	}
 
 	/* If we got a declaration, try to find the definition. */
+	Dwarf_Die definition_die;
 	bool declaration;
 	if (dwarf_flag(die, DW_AT_declaration, &declaration))
 		return drgn_error_libdw();
@@ -3001,8 +3002,10 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 				return drgn_error_libdwfl();
 			uintptr_t start =
 				(uintptr_t)module->scn_data[DRGN_SCN_DEBUG_INFO]->d_buf;
-			if (!dwarf_offdie(dwarf, die_addr - start, die))
+			if (!dwarf_offdie(dwarf, die_addr - start,
+					  &definition_die))
 				return drgn_error_libdw();
+			die = &definition_die;
 		}
 	}
 
