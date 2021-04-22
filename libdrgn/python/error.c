@@ -66,47 +66,24 @@ static struct drgn_error drgn_error_python = {
 	.message = "error in Python callback",
 };
 
-_Py_IDENTIFIER(drgn_in_python);
+static _Thread_local bool drgn_in_python = false;
 
 bool set_drgn_in_python(void)
 {
-	PyObject *dict, *key, *value;
-
-	dict = PyThreadState_GetDict();
-	if (!dict)
+	if (drgn_in_python)
 		return false;
-	key = _PyUnicode_FromId(&PyId_drgn_in_python);
-	if (!key) {
-		PyErr_Clear();
-		return false;
-	}
-	value = PyDict_GetItemWithError(dict, key);
-	if (value == Py_True)
-		return false;
-	if ((!value && PyErr_Occurred()) ||
-	    PyDict_SetItem(dict, key, Py_True) == -1) {
-		PyErr_Clear();
-		return false;
-	}
+	drgn_in_python = true;
 	return true;
 }
 
 void clear_drgn_in_python(void)
 {
-	PyObject *exc_type, *exc_value, *exc_traceback;
-	PyObject *dict;
-
-	PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
-	dict = PyThreadState_GetDict();
-	if (dict)
-		_PyDict_SetItemId(dict, &PyId_drgn_in_python, Py_False);
-	PyErr_Restore(exc_type, exc_value, exc_traceback);
+	drgn_in_python = false;
 }
 
 struct drgn_error *drgn_error_from_python(void)
 {
 	PyObject *exc_type, *exc_value, *exc_traceback, *exc_message;
-	PyObject *dict;
 	const char *type, *message;
 	struct drgn_error *err;
 
@@ -114,8 +91,7 @@ struct drgn_error *drgn_error_from_python(void)
 	if (!exc_type)
 		return NULL;
 
-	dict = PyThreadState_GetDict();
-	if (dict && _PyDict_GetItemId(dict, &PyId_drgn_in_python) == Py_True) {
+	if (drgn_in_python) {
 		PyErr_Restore(exc_type, exc_value, exc_traceback);
 		return &drgn_error_python;
 	}
