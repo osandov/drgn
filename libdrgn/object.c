@@ -233,7 +233,12 @@ static void drgn_value_deserialize(union drgn_value *value, const void *buf,
 		int64_t svalue;
 		uint64_t uvalue;
 		double fvalue64;
-		float fvalue32;
+		struct {
+#if !HOST_LITTLE_ENDIAN
+			float pad;
+#endif
+			float fvalue32;
+		};
 	} tmp;
 
 	tmp.uvalue = deserialize_bits(buf, bit_offset, bit_size, little_endian);
