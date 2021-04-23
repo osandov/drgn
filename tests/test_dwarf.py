@@ -711,22 +711,6 @@ class TestTypes(TestCase):
             "TEST",
         )
 
-    def test_struct_invalid_name(self):
-        prog = dwarf_program(
-            wrap_test_type_dies(
-                DwarfDie(
-                    DW_TAG.structure_type,
-                    (
-                        DwarfAttrib(DW_AT.name, DW_FORM.data1, 0),
-                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
-                    ),
-                )
-            )
-        )
-        self.assertRaisesRegex(
-            Exception, "DW_TAG_structure_type has invalid DW_AT_name", prog.type, "TEST"
-        )
-
     def test_incomplete_to_complete(self):
         prog = dwarf_program(
             wrap_test_type_dies(
@@ -1915,29 +1899,6 @@ class TestTypes(TestCase):
         self.assertRaisesRegex(
             Exception,
             "DW_TAG_enumeration_type has missing or invalid DW_AT_byte_size",
-            prog.type,
-            "TEST",
-        )
-
-    def test_enum_invalid_name(self):
-        prog = dwarf_program(
-            wrap_test_type_dies(
-                (
-                    DwarfDie(
-                        DW_TAG.enumeration_type,
-                        (
-                            DwarfAttrib(DW_AT.name, DW_FORM.data1, 0),
-                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
-                            DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
-                        ),
-                    ),
-                    unsigned_int_die,
-                )
-            )
-        )
-        self.assertRaisesRegex(
-            Exception,
-            "DW_TAG_enumeration_type has invalid DW_AT_name",
             prog.type,
             "TEST",
         )
