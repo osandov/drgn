@@ -1,9 +1,26 @@
+#include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "drgn.h"
+
+static inline struct timespec timespec_sub(struct timespec a, struct timespec b)
+{
+	if (a.tv_nsec < b.tv_nsec) {
+		return (struct timespec){
+			.tv_sec = a.tv_sec - 1 - b.tv_sec,
+			.tv_nsec = a.tv_nsec + 1000000000L - b.tv_nsec,
+		};
+	} else {
+		return (struct timespec){
+			.tv_sec = a.tv_sec - b.tv_sec,
+			.tv_nsec = a.tv_nsec - b.tv_nsec,
+		};
+	}
+}
 
 static void usage(bool error)
 {
@@ -16,6 +33,7 @@ static void usage(bool error)
 		"  -k, --kernel            debug the running kernel (default)\n"
 		"  -c PATH, --core PATH    debug the given core dump\n"
 		"  -p PID, --pid PID       debug the running process with the given PID\n"
+		"  -T, --time              print how long loading debug info took in seconds\n"
 		"  -h, --help              display this help message and exit\n");
 	exit(error ? EXIT_FAILURE : EXIT_SUCCESS);
 }
@@ -26,14 +44,16 @@ int main(int argc, char **argv)
 		{"kernel", no_argument, NULL, 'k'},
 		{"core", required_argument, NULL, 'c'},
 		{"pid", required_argument, NULL, 'p'},
+		{"time", no_argument, NULL, 'T'},
 		{"help", no_argument, NULL, 'h'},
 		{},
 	};
 	bool kernel = false;
 	const char *core = NULL;
 	const char *pid = NULL;
+	bool print_time = false;
 	for (;;) {
-		int c = getopt_long(argc, argv, "kc:p:h", long_options, NULL);
+		int c = getopt_long(argc, argv, "kc:p:Th", long_options, NULL);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -45,6 +65,9 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			pid = optarg;
+			break;
+		case 'T':
+			print_time = true;
 			break;
 		case 'h':
 			usage(false);
@@ -71,7 +94,16 @@ int main(int argc, char **argv)
 	if (err)
 		goto out;
 
+	struct timespec start, end;
+	if (print_time && clock_gettime(CLOCK_MONOTONIC, &start))
+		abort();
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
+	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO) && print_time) {
+		if (clock_gettime(CLOCK_MONOTONIC, &end))
+			abort();
+		struct timespec diff = timespec_sub(end, start);
+		printf("%lld.%09ld\n", (long long)diff.tv_sec, diff.tv_nsec);
+	}
 
 out:;
 	int status;
