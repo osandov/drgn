@@ -54,6 +54,24 @@ Documentation can be found at `drgn.readthedocs.io
 Installation
 ------------
 
+drgn is packaged in Fedora as of Fedora 32, and in EPEL as of EPEL 8. It can
+be installed with:
+
+.. code-block:: console
+
+    $ sudo dnf install drgn
+
+Optionally, the documentation can also be installed with:
+
+.. code-block:: console
+
+    $ sudo dnf install drgn-doc
+
+For other distributions, please follow the next section to install from source.
+
+Installation from source
+------------------------
+
 .. start-install-dependencies
 
 Install dependencies:
