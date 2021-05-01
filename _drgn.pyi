@@ -258,16 +258,16 @@ class Program:
         """
         ...
     def read_u8(self, address: IntegerLike, physical: bool = False) -> int:
-        ""
+        """ """
         ...
     def read_u16(self, address: IntegerLike, physical: bool = False) -> int:
-        ""
+        """ """
         ...
     def read_u32(self, address: IntegerLike, physical: bool = False) -> int:
-        ""
+        """ """
         ...
     def read_u64(self, address: IntegerLike, physical: bool = False) -> int:
-        ""
+        """ """
         ...
     def read_word(self, address: IntegerLike, physical: bool = False) -> int:
         """
