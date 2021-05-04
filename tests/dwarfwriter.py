@@ -35,7 +35,7 @@ def _append_sleb128(buf, value):
             buf.append(byte | 0x80)
 
 
-def _compile_debug_abbrev(unit_dies):
+def _compile_debug_abbrev(unit_dies, use_dw_form_indirect):
     buf = bytearray()
     code = 1
 
@@ -47,7 +47,9 @@ def _compile_debug_abbrev(unit_dies):
         buf.append(bool(die.children))
         for attrib in die.attribs:
             _append_uleb128(buf, attrib.name)
-            _append_uleb128(buf, attrib.form)
+            _append_uleb128(
+                buf, DW_FORM.indirect if use_dw_form_indirect else attrib.form
+            )
         buf.append(0)
         buf.append(0)
         if die.children:
@@ -60,7 +62,7 @@ def _compile_debug_abbrev(unit_dies):
     return buf
 
 
-def _compile_debug_info(unit_dies, little_endian, bits):
+def _compile_debug_info(unit_dies, little_endian, bits, use_dw_form_indirect):
     byteorder = "little" if little_endian else "big"
     die_offsets = []
     relocations = []
@@ -74,6 +76,8 @@ def _compile_debug_info(unit_dies, little_endian, bits):
         _append_uleb128(buf, code)
         code += 1
         for attrib in die.attribs:
+            if use_dw_form_indirect:
+                _append_uleb128(buf, attrib.form)
             if attrib.name == DW_AT.decl_file:
                 value = decl_file
                 decl_file += 1
@@ -217,7 +221,9 @@ def _compile_debug_line(unit_dies, little_endian):
 UNIT_HEADER_TYPES = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
 
 
-def compile_dwarf(dies, little_endian=True, bits=64, *, lang=None):
+def compile_dwarf(
+    dies, little_endian=True, bits=64, *, lang=None, use_dw_form_indirect=False
+):
     if isinstance(dies, DwarfDie):
         dies = (dies,)
     assert all(isinstance(die, DwarfDie) for die in dies)
@@ -245,14 +251,16 @@ def compile_dwarf(dies, little_endian=True, bits=64, *, lang=None):
         for die in unit_dies
     ]
 
-    debug_info, debug_types = _compile_debug_info(unit_dies, little_endian, bits)
+    debug_info, debug_types = _compile_debug_info(
+        unit_dies, little_endian, bits, use_dw_form_indirect
+    )
 
     sections = [
         ElfSection(p_type=PT.LOAD, vaddr=0xFFFF0000, data=b""),
         ElfSection(
             name=".debug_abbrev",
             sh_type=SHT.PROGBITS,
-            data=_compile_debug_abbrev(unit_dies),
+            data=_compile_debug_abbrev(unit_dies, use_dw_form_indirect),
         ),
         ElfSection(name=".debug_info", sh_type=SHT.PROGBITS, data=debug_info),
         ElfSection(
