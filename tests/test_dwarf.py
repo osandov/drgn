@@ -1,6 +1,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import ctypes
+import functools
 import os.path
 import re
 import tempfile
@@ -21,6 +23,12 @@ from drgn import (
 from tests import DEFAULT_LANGUAGE, TestCase, identical
 from tests.dwarf import DW_AT, DW_ATE, DW_END, DW_FORM, DW_LANG, DW_TAG
 from tests.dwarfwriter import DwarfAttrib, DwarfDie, compile_dwarf
+
+libdw = ctypes.CDLL("libdw.so")
+libdw.dwfl_version.argtypes = [ctypes.c_void_p]
+libdw.dwfl_version.restype = ctypes.c_char_p
+libdw_version = tuple(int(x) for x in libdw.dwfl_version(None).split(b".")[:2])
+
 
 bool_die = DwarfDie(
     DW_TAG.base_type,
@@ -204,6 +212,21 @@ def wrap_test_type_dies(dies):
     )
 
 
+def with_and_without_dw_form_indirect(f):
+    @functools.wraps(f)
+    def wrapper(self):
+        with self.subTest():
+            f(self, False)
+        # elfutils does not support DW_FORM_indirect properly before commit
+        # d63b26b8d21f ("libdw: handle DW_FORM_indirect when reading
+        # attributes").
+        if libdw_version >= (0, 184):
+            with self.subTest(msg="with DW_FORM_indirect"):
+                f(self, True)
+
+    return wrapper
+
+
 class TestTypes(TestCase):
     def test_unknown_tag(self):
         prog = dwarf_program(wrap_test_type_dies(DwarfDie(0x9999, ())))
@@ -371,7 +394,8 @@ class TestTypes(TestCase):
         )
         self.assertIdentical(prog.type("int"), prog.int_type("int", 4, True, "little"))
 
-    def test_qualifier(self):
+    @with_and_without_dw_form_indirect
+    def test_qualifier(self, use_dw_form_indirect):
         prog = dwarf_program(
             wrap_test_type_dies(
                 (
@@ -380,7 +404,8 @@ class TestTypes(TestCase):
                     ),
                     int_die,
                 )
-            )
+            ),
+            use_dw_form_indirect=use_dw_form_indirect,
         )
         self.assertIdentical(
             prog.type("TEST").type,
@@ -3874,7 +3899,8 @@ class TestObjects(TestCase):
         )
         self.assertRaisesRegex(Exception, "too small", prog.variable, "p")
 
-    def test_specification(self):
+    @with_and_without_dw_form_indirect
+    def test_specification(self, use_dw_form_indirect):
         prog = dwarf_program(
             wrap_test_type_dies(
                 (
@@ -3899,7 +3925,8 @@ class TestObjects(TestCase):
                         ),
                     ),
                 )
-            )
+            ),
+            use_dw_form_indirect=use_dw_form_indirect,
         )
 
         self.assertIdentical(
@@ -3907,41 +3934,44 @@ class TestObjects(TestCase):
             Object(prog, prog.int_type("int", 4, True), address=0xFFFFFFFF01020304),
         )
 
-    def test_namespace_reverse_specification(self):
+    @with_and_without_dw_form_indirect
+    def test_namespace_reverse_specification(self, use_dw_form_indirect):
         """Test specification inside namespace while declaration is outside of it."""
-        dies = (
-            int_die,
-            DwarfDie(
-                DW_TAG.namespace,
-                [
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),
-                    DwarfAttrib(DW_AT.sibling, DW_FORM.ref4, 2),
-                ],
-                [
-                    DwarfDie(
-                        DW_TAG.variable,
-                        (
-                            DwarfAttrib(DW_AT.specification, DW_FORM.ref4, 2),
-                            DwarfAttrib(
-                                DW_AT.location,
-                                DW_FORM.exprloc,
-                                b"\x03\x04\x03\x02\x01\xff\xff\xff\xff",
+        prog = dwarf_program(
+            (
+                int_die,
+                DwarfDie(
+                    DW_TAG.namespace,
+                    [
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),
+                        DwarfAttrib(DW_AT.sibling, DW_FORM.ref4, 2),
+                    ],
+                    [
+                        DwarfDie(
+                            DW_TAG.variable,
+                            (
+                                DwarfAttrib(DW_AT.specification, DW_FORM.ref4, 2),
+                                DwarfAttrib(
+                                    DW_AT.location,
+                                    DW_FORM.exprloc,
+                                    b"\x03\x04\x03\x02\x01\xff\xff\xff\xff",
+                                ),
                             ),
-                        ),
-                    )
-                ],
-            ),
-            DwarfDie(
-                DW_TAG.variable,
-                (
-                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
-                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
-                    DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                        )
+                    ],
+                ),
+                DwarfDie(
+                    DW_TAG.variable,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                        DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                    ),
                 ),
             ),
+            use_dw_form_indirect=use_dw_form_indirect,
         )
 
-        prog = dwarf_program(dies)
         self.assertIdentical(
             prog["x"],
             Object(prog, prog.int_type("int", 4, True), address=0xFFFFFFFF01020304),
