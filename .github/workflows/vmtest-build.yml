@@ -1,0 +1,28 @@
+name: vmtest Build
+
+on:
+  schedule:
+    - cron: '16 6 * * MON'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libelf-dev
+          pip install aiohttp uritemplate
+      - name: Build and upload assets
+        run: python3 -m manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K
+      - name: Upload kernel build logs
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: kernel-build-logs
+          path: build/vmtest/kbuild/*.log
+          if-no-files-found: ignore
