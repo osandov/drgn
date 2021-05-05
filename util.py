@@ -97,6 +97,7 @@ class KernelVersion:
     """
 
     def __init__(self, release: str) -> None:
+        self._release = release
         # ~ sorts before anything, including the end of the version.
         self._key = re.sub(r"-(rc[0-9])", r"~\1", release)
 
@@ -109,3 +110,6 @@ class KernelVersion:
         if not isinstance(other, KernelVersion):
             return NotImplemented
         return verrevcmp(self._key, other._key) < 0
+
+    def __str__(self) -> str:
+        return self._release

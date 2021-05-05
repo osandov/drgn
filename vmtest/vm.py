@@ -275,6 +275,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "-d",
         "--directory",
+        metavar="DIR",
+        type=Path,
         default="build/vmtest",
         help="directory for build artifacts and downloaded kernels",
     )
@@ -303,16 +305,15 @@ if __name__ == "__main__":
     if kernel.startswith(".") or kernel.startswith("/"):
         kernel_dir = Path(kernel)
     else:
-        from vmtest.download import KernelDownloader
+        from vmtest.download import download_kernels
 
-        with KernelDownloader(
-            [getattr(args, "kernel", "*")], download_dir=Path(args.directory)
-        ) as downloader:
-            kernel_dir = next(iter(downloader))
+        kernel_dir = next(
+            download_kernels(args.directory, "x86_64", getattr(args, "kernel", "*"))
+        )
 
     try:
         command = " ".join(args.command) if args.command else '"$BUSYBOX" sh -i'
-        sys.exit(run_in_vm(command, kernel_dir, Path(args.directory)))
+        sys.exit(run_in_vm(command, kernel_dir, args.directory))
     except LostVMError as e:
         print("error:", e, file=sys.stderr)
         sys.exit(args.lost_status)

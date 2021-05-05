@@ -125,20 +125,7 @@ class sdist(_sdist):
 class test(Command):
     description = "run unit tests after in-place build"
 
-    KERNELS = [
-        "5.12",
-        "5.11",
-        "5.10",
-        "5.9",
-        "5.8",
-        "5.7",
-        "5.6",
-        "5.4",
-        "4.19",
-        "4.14",
-        "4.9",
-        "4.4",
-    ]
+    KERNELS = ["5.12", "5.11", "5.10", "5.4", "4.19", "4.14", "4.9", "4.4"]
 
     user_options = [
         (
@@ -203,11 +190,13 @@ class test(Command):
     def run(self):
         from pathlib import Path
 
-        from vmtest.download import KernelDownloader
+        from vmtest.download import download_kernels_in_thread
 
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
-        with KernelDownloader(self.kernels, Path(self.vmtest_dir)) as downloader:
+        with download_kernels_in_thread(
+            Path(self.vmtest_dir), "x86_64", self.kernels
+        ) as kernel_downloads:
             if self.kernels:
                 self.announce("downloading kernels in the background", log.INFO)
             self.run_command("egg_info")
@@ -225,14 +214,17 @@ class test(Command):
                 failed.append("local")
 
             if self.kernels:
-                for kernel in downloader:
+                for kernel in kernel_downloads:
+                    kernel_release = kernel.name
+                    if kernel_release.startswith("kernel-"):
+                        kernel_release = kernel_release[len("kernel-") :]
                     self.announce(
-                        f"running tests in VM on Linux {kernel.name}", log.INFO
+                        f"running tests in VM on Linux {kernel_release}", log.INFO
                     )
                     if self._run_vm(kernel):
-                        passed.append(kernel.name)
+                        passed.append(kernel_release)
                     else:
-                        failed.append(kernel.name)
+                        failed.append(kernel_release)
 
                 if passed:
                     self.announce(f'Passed: {", ".join(passed)}', log.INFO)
