@@ -105,6 +105,7 @@ static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_EH_FRAME] = ".eh_frame",
 	[DRGN_SCN_ORC_UNWIND_IP] = ".orc_unwind_ip",
 	[DRGN_SCN_ORC_UNWIND] = ".orc_unwind",
+	[DRGN_SCN_DEBUG_LOC] = ".debug_loc",
 	[DRGN_SCN_TEXT] = ".text",
 	[DRGN_SCN_GOT] = ".got",
 };
