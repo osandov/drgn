@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
-from typing import Any, Dict, Iterator, Optional, Sequence
+from typing import Any, Dict, Iterator, Sequence, Union
 
 from util import KernelVersion
 from vmtest.githubapi import GitHubApi
@@ -136,25 +136,30 @@ def _download_kernels_thread(
     download_dir: Path,
     arch: str,
     kernels: Sequence[str],
-    q: "queue.Queue[Optional[Path]]",
+    q: "queue.Queue[Union[Path, Exception]]",
 ) -> None:
-    for kernel in download_kernels(download_dir, arch, kernels):
-        q.put(kernel)
-    q.put(None)
+    try:
+        it = download_kernels(download_dir, arch, kernels)
+        while True:
+            q.put(next(it))
+    except Exception as e:
+        q.put(e)
 
 
 @contextmanager
 def download_kernels_in_thread(
     download_dir: Path, arch: str, kernels: Sequence[str]
 ) -> Iterator[Iterator[Path]]:
-    q: "queue.Queue[Optional[Path]]" = queue.Queue()
+    q: "queue.Queue[Union[Path, Exception]]" = queue.Queue()
 
     def aux() -> Iterator[Path]:
         while True:
-            kernel = q.get()
-            if kernel is None:
+            obj = q.get()
+            if isinstance(obj, StopIteration):
                 break
-            yield kernel
+            elif isinstance(obj, Exception):
+                raise obj
+            yield obj
 
     thread = None
     try:
