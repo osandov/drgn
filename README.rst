@@ -40,7 +40,7 @@ scripting support, drgn aims to make scripting as natural as possible so that
 debugging feels like coding. This makes it well-suited for introspecting the
 complex, inter-connected state in large programs. It is also designed as a
 library that can be used to build debugging and introspection tools; see the
-official `tools <https://github.com/osandov/drgn/tree/master/tools>`_.
+official `tools <https://github.com/osandov/drgn/tree/main/tools>`_.
 
 drgn was developed for debugging the Linux kernel (as an alternative to the
 `crash <http://people.redhat.com/anderson/>`_ utility), but it can also debug
