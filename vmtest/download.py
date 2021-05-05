@@ -38,8 +38,8 @@ def available_kernel_releases(
 
 def _download_kernel(gh: GitHubApi, url: str, dir: Path) -> None:
     dir.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=dir.parent) as tmp_name:
-        tmp_dir = Path(tmp_name)
+    tmp_dir = Path(tempfile.mkdtemp(dir=dir.parent))
+    try:
         # Don't assume that the available version of tar has zstd support or
         # the non-standard -I/--use-compress-program option.
         with subprocess.Popen(
@@ -59,7 +59,10 @@ def _download_kernel(gh: GitHubApi, url: str, dir: Path) -> None:
             raise subprocess.CalledProcessError(zstd_proc.returncode, zstd_proc.args)
         if tar_proc.returncode != 0:
             raise subprocess.CalledProcessError(tar_proc.returncode, tar_proc.args)
-
+    except:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+    else:
         tmp_dir.rename(dir)
 
 
