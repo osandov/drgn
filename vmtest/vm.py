@@ -307,9 +307,7 @@ if __name__ == "__main__":
     else:
         from vmtest.download import download_kernels
 
-        kernel_dir = next(
-            download_kernels(args.directory, "x86_64", getattr(args, "kernel", "*"))
-        )
+        kernel_dir = next(download_kernels(args.directory, "x86_64", (kernel,)))
 
     try:
         command = " ".join(args.command) if args.command else '"$BUSYBOX" sh -i'
