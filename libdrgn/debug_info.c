@@ -981,8 +981,8 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 				continue;
 			}
 			module->state = DRGN_DEBUG_INFO_MODULE_INDEXING;
-			drgn_dwarf_index_read_module(dindex_state, module);
-			return NULL;
+			return drgn_dwarf_index_read_module(dindex_state,
+							    module);
 		}
 	}
 	/*
@@ -1023,29 +1023,32 @@ drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 				  c_string_set_size(&dbinfo->module_names) +
 				  load->new_modules.size))
 		return &drgn_enomem;
+
 	struct drgn_dwarf_index_update_state dindex_state;
-	drgn_dwarf_index_update_begin(&dindex_state, &dbinfo->dindex);
-	/*
-	 * In OpenMP 5.0, this could be "#pragma omp parallel master taskloop"
-	 * (added in GCC 9 and Clang 10).
-	 */
-	#pragma omp parallel
-	#pragma omp master
-	#pragma omp taskloop
+	if (!drgn_dwarf_index_update_state_init(&dindex_state, &dbinfo->dindex))
+		return &drgn_enomem;
+	struct drgn_error *err = NULL;
+	#pragma omp parallel for schedule(dynamic)
 	for (size_t i = 0; i < load->new_modules.size; i++) {
-		if (drgn_dwarf_index_update_cancelled(&dindex_state))
+		if (err)
 			continue;
 		struct drgn_error *module_err =
 			drgn_debug_info_read_module(load, &dindex_state,
 						    load->new_modules.data[i]);
-		if (module_err)
-			drgn_dwarf_index_update_cancel(&dindex_state, module_err);
+		if (module_err) {
+			#pragma omp critical(drgn_debug_info_update_index_error)
+			if (err)
+				drgn_error_destroy(module_err);
+			else
+				err = module_err;
+		}
 	}
-	struct drgn_error *err = drgn_dwarf_index_update_end(&dindex_state);
-	if (err)
-		return err;
-	drgn_debug_info_free_modules(dbinfo, true, false);
-	return NULL;
+	if (!err)
+		err = drgn_dwarf_index_update(&dindex_state);
+	drgn_dwarf_index_update_state_deinit(&dindex_state);
+	if (!err)
+		drgn_debug_info_free_modules(dbinfo, true, false);
+	return err;
 }
 
 struct drgn_error *

@@ -19,6 +19,16 @@
 #include "siphash.h"
 #include "util.h"
 
+struct drgn_dwarf_index_pending_cu {
+	struct drgn_debug_info_module *module;
+	const char *buf;
+	size_t len;
+	bool is_64_bit;
+	enum drgn_debug_info_scn scn;
+};
+
+DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_cu_vector)
+
 /*
  * The DWARF abbreviation table gets translated into a series of instructions.
  * An instruction <= INSN_MAX_SKIP indicates a number of bytes to be skipped
@@ -220,22 +230,26 @@ void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex)
 	drgn_dwarf_index_namespace_deinit(&dindex->global);
 }
 
-void drgn_dwarf_index_update_begin(struct drgn_dwarf_index_update_state *state,
+bool
+drgn_dwarf_index_update_state_init(struct drgn_dwarf_index_update_state *state,
 				   struct drgn_dwarf_index *dindex)
 {
 	state->dindex = dindex;
-	state->old_cus_size = dindex->cus.size;
-	state->err = NULL;
+	state->max_threads = omp_get_max_threads();
+	state->cus = malloc_array(state->max_threads, sizeof(*state->cus));
+	if (!state->cus)
+		return false;
+	for (size_t i = 0; i < state->max_threads; i++)
+		drgn_dwarf_index_pending_cu_vector_init(&state->cus[i]);
+	return true;
 }
 
-void drgn_dwarf_index_update_cancel(struct drgn_dwarf_index_update_state *state,
-				    struct drgn_error *err)
+void
+drgn_dwarf_index_update_state_deinit(struct drgn_dwarf_index_update_state *state)
 {
-	#pragma omp critical(drgn_dwarf_index_update_cancel)
-	if (state->err)
-		drgn_error_destroy(err);
-	else
-		state->err = err;
+	for (size_t i = 0; i < state->max_threads; i++)
+		drgn_dwarf_index_pending_cu_vector_deinit(&state->cus[i]);
+	free(state->cus);
 }
 
 static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
@@ -1144,81 +1158,62 @@ skip:
 	return NULL;
 }
 
-static void drgn_dwarf_index_read_cus(struct drgn_dwarf_index_update_state *state,
-				      struct drgn_debug_info_module *module,
-				      enum drgn_debug_info_scn scn)
+static struct drgn_error *
+drgn_dwarf_index_read_cus(struct drgn_dwarf_index_update_state *state,
+			  struct drgn_debug_info_module *module,
+			  enum drgn_debug_info_scn scn)
 {
+	struct drgn_dwarf_index_pending_cu_vector *cus =
+		&state->cus[omp_get_thread_num()];
+
 	struct drgn_error *err;
 	struct drgn_debug_info_buffer buffer;
 	drgn_debug_info_buffer_init(&buffer, module, scn);
 	while (binary_buffer_has_next(&buffer.bb)) {
-		const char *cu_buf = buffer.bb.pos;
+		struct drgn_dwarf_index_pending_cu *cu =
+			drgn_dwarf_index_pending_cu_vector_append_entry(cus);
+		if (!cu)
+			return &drgn_enomem;
+		cu->module = module;
+		cu->buf = buffer.bb.pos;
 		uint32_t unit_length32;
 		if ((err = binary_buffer_next_u32(&buffer.bb, &unit_length32)))
-			goto err;
-		bool is_64_bit = unit_length32 == UINT32_C(0xffffffff);
-		if (is_64_bit) {
+			return err;
+		cu->is_64_bit = unit_length32 == UINT32_C(0xffffffff);
+		if (cu->is_64_bit) {
 			uint64_t unit_length64;
 			if ((err = binary_buffer_next_u64(&buffer.bb,
 							  &unit_length64)))
-				goto err;
+				return err;
 			if (unit_length64 > SIZE_MAX) {
-				err = binary_buffer_error(&buffer.bb,
-							  "unit length is too large");
-				goto err;
+				return binary_buffer_error(&buffer.bb,
+							   "unit length is too large");
 			}
 			if ((err = binary_buffer_skip(&buffer.bb,
 						      unit_length64)))
-				goto err;
+				return err;
 		} else {
 			if ((err = binary_buffer_skip(&buffer.bb,
 						      unit_length32)))
-				goto err;
+				return err;
 		}
-		size_t cu_len = buffer.bb.pos - cu_buf;
-
-		#pragma omp task
-		{
-			struct drgn_dwarf_index_cu cu = {
-				.module = module,
-				.buf = cu_buf,
-				.len = cu_len,
-				.is_64_bit = is_64_bit,
-				.is_type_unit = scn == DRGN_SCN_DEBUG_TYPES,
-			};
-			struct drgn_dwarf_index_cu_buffer cu_buffer;
-			drgn_dwarf_index_cu_buffer_init(&cu_buffer, &cu);
-			struct drgn_error *cu_err = read_cu(&cu_buffer);
-			if (cu_err)
-				goto cu_err;
-
-			cu_err = index_cu_first_pass(state->dindex, &cu_buffer);
-			if (cu_err)
-				goto cu_err;
-
-			#pragma omp critical(drgn_dwarf_index_cus)
-			if (!drgn_dwarf_index_cu_vector_append(&state->dindex->cus,
-							       &cu))
-				cu_err = &drgn_enomem;
-			if (cu_err) {
-cu_err:
-				drgn_dwarf_index_cu_deinit(&cu);
-				drgn_dwarf_index_update_cancel(state, cu_err);
-			}
-		}
+		cu->len = buffer.bb.pos - cu->buf;
+		cu->scn = scn;
 	}
-	return;
-
-err:
-	drgn_dwarf_index_update_cancel(state, err);
+	return NULL;
 }
 
-void drgn_dwarf_index_read_module(struct drgn_dwarf_index_update_state *state,
-				  struct drgn_debug_info_module *module)
+struct drgn_error *
+drgn_dwarf_index_read_module(struct drgn_dwarf_index_update_state *state,
+			     struct drgn_debug_info_module *module)
 {
-	drgn_dwarf_index_read_cus(state, module, DRGN_SCN_DEBUG_INFO);
-	if (module->scn_data[DRGN_SCN_DEBUG_TYPES])
-		drgn_dwarf_index_read_cus(state, module, DRGN_SCN_DEBUG_TYPES);
+	struct drgn_error *err;
+	err = drgn_dwarf_index_read_cus(state, module, DRGN_SCN_DEBUG_INFO);
+	if (!err && module->scn_data[DRGN_SCN_DEBUG_TYPES]) {
+		err = drgn_dwarf_index_read_cus(state, module,
+						DRGN_SCN_DEBUG_TYPES);
+	}
+	return err;
 }
 
 bool
@@ -1691,16 +1686,56 @@ static void drgn_dwarf_index_rollback(struct drgn_dwarf_index *dindex)
 }
 
 struct drgn_error *
-drgn_dwarf_index_update_end(struct drgn_dwarf_index_update_state *state)
+drgn_dwarf_index_update(struct drgn_dwarf_index_update_state *state)
 {
 	struct drgn_dwarf_index *dindex = state->dindex;
 
-	if (state->err)
+	size_t old_cus_size = dindex->cus.size;
+	size_t new_cus_size = old_cus_size;
+	for (size_t i = 0; i < state->max_threads; i++)
+		new_cus_size += state->cus[i].size;
+	if (!drgn_dwarf_index_cu_vector_reserve(&dindex->cus, new_cus_size))
+		return &drgn_enomem;
+	for (size_t i = 0; i < state->max_threads; i++) {
+		for (size_t j = 0; j < state->cus[i].size; j++) {
+			struct drgn_dwarf_index_pending_cu *pending_cu =
+				&state->cus[i].data[j];
+			dindex->cus.data[dindex->cus.size++] = (struct drgn_dwarf_index_cu){
+				.module = pending_cu->module,
+				.buf = pending_cu->buf,
+				.len = pending_cu->len,
+				.is_64_bit = pending_cu->is_64_bit,
+				.is_type_unit =
+					pending_cu->scn == DRGN_SCN_DEBUG_TYPES,
+			};
+		}
+	}
+
+	struct drgn_error *err = NULL;
+	#pragma omp parallel for schedule(dynamic)
+	for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
+		if (err)
+			continue;
+		struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
+		struct drgn_dwarf_index_cu_buffer cu_buffer;
+		drgn_dwarf_index_cu_buffer_init(&cu_buffer, cu);
+		struct drgn_error *cu_err = read_cu(&cu_buffer);
+		if (!cu_err)
+			cu_err = index_cu_first_pass(state->dindex, &cu_buffer);
+		if (cu_err) {
+			#pragma omp critical(drgn_dwarf_index_update_end_error)
+			if (err)
+				drgn_error_destroy(cu_err);
+			else
+				err = cu_err;
+		}
+	}
+	if (err)
 		goto err;
 
 	#pragma omp parallel for schedule(dynamic)
-	for (size_t i = state->old_cus_size; i < dindex->cus.size; i++) {
-		if (drgn_dwarf_index_update_cancelled(state))
+	for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
+		if (err)
 			continue;
 		struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
 		struct drgn_dwarf_index_cu_buffer buffer;
@@ -1710,20 +1745,22 @@ drgn_dwarf_index_update_end(struct drgn_dwarf_index_update_state *state)
 			buffer.bb.pos += cu->is_64_bit ? 16 : 12;
 		struct drgn_error *cu_err =
 			index_cu_second_pass(&dindex->global, &buffer);
-		if (cu_err)
-			drgn_dwarf_index_update_cancel(state, cu_err);
+		if (cu_err) {
+			#pragma omp critical(drgn_dwarf_index_update_end_error)
+			if (err)
+				drgn_error_destroy(cu_err);
+			else
+				err = cu_err;
+		}
 	}
-	if (state->err) {
-		drgn_dwarf_index_rollback(state->dindex);
-		goto err;
-	}
-	return NULL;
-
+	if (err) {
+		drgn_dwarf_index_rollback(dindex);
 err:
-	for (size_t i = state->old_cus_size; i < dindex->cus.size; i++)
-		drgn_dwarf_index_cu_deinit(&dindex->cus.data[i]);
-	dindex->cus.size = state->old_cus_size;
-	return state->err;
+		for (size_t i = old_cus_size; i < dindex->cus.size; i++)
+			drgn_dwarf_index_cu_deinit(&dindex->cus.data[i]);
+		dindex->cus.size = old_cus_size;
+	}
+	return err;
 }
 
 static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)

@@ -25,6 +25,14 @@ typedef struct {} omp_lock_t;
 #define omp_destroy_lock(lock) do {} while (0)
 #define omp_set_lock(lock) do {} while (0)
 #define omp_unset_lock(lock) do {} while (0)
+static inline int omp_get_thread_num(void)
+{
+	return 0;
+}
+static inline int omp_get_max_threads(void)
+{
+	return 1;
+}
 #endif
 
 #include "hash_table.h"
@@ -183,78 +191,43 @@ void drgn_dwarf_index_init(struct drgn_dwarf_index *dindex);
  */
 void drgn_dwarf_index_deinit(struct drgn_dwarf_index *dindex);
 
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_cu_vector,
+		   struct drgn_dwarf_index_pending_cu)
+
 /** State tracked while updating a @ref drgn_dwarf_index. */
 struct drgn_dwarf_index_update_state {
 	struct drgn_dwarf_index *dindex;
-	size_t old_cus_size;
-	struct drgn_error *err;
+	/** Per-thread arrays of CUs to be indexed. */
+	struct drgn_dwarf_index_pending_cu_vector *cus;
+	size_t max_threads;
 };
 
 /**
- * Prepare to update a @ref drgn_dwarf_index.
+ * Initialize state for updating a @ref drgn_dwarf_index.
  *
- * @param[out] state Initialized update state. Must be passed to @ref
- * drgn_dwarf_index_update_end().
+ * @return @c true on success, @c false on failure to allocate memory.
  */
-void drgn_dwarf_index_update_begin(struct drgn_dwarf_index_update_state *state,
+bool
+drgn_dwarf_index_update_state_init(struct drgn_dwarf_index_update_state *state,
 				   struct drgn_dwarf_index *dindex);
 
+/** Deinitialize state for updating a @ref drgn_dwarf_index. */
+void
+drgn_dwarf_index_update_state_deinit(struct drgn_dwarf_index_update_state *state);
+
+/** Read a module for updating a @ref drgn_dwarf_index. */
+struct drgn_error *
+drgn_dwarf_index_read_module(struct drgn_dwarf_index_update_state *state,
+			     struct drgn_debug_info_module *module);
+
 /**
- * Finish updating a @ref drgn_dwarf_index.
+ * Update a @ref drgn_dwarf_index.
  *
- * This should be called once all of the tasks created by @ref
- * drgn_dwarf_index_read_module() have completed (even if the update was
- * cancelled).
- *
- * If the update was not cancelled, this finishes indexing all modules reported
- * by @ref drgn_dwarf_index_read_module(). If it was cancelled or there is an
- * error while indexing, this rolls back the index and removes the newly
- * reported modules.
- *
- * @return @c NULL on success, non-@c NULL if the update was cancelled or there
- * was another error.
+ * This should be called once all modules have been read with @ref
+ * drgn_dwarf_index_read_module() to finish indexing those modules.
  */
 struct drgn_error *
-drgn_dwarf_index_update_end(struct drgn_dwarf_index_update_state *state);
-
-/**
- * Cancel an update of a @ref drgn_dwarf_index.
- *
- * This should be called if there is a fatal error and the update must be
- * aborted.
- *
- * @param[in] err Error to report. This will be returned from @ref
- * drgn_dwarf_index_update_end(). If an error has already been reported, this
- * error is destroyed.
- */
-void drgn_dwarf_index_update_cancel(struct drgn_dwarf_index_update_state *state,
-				    struct drgn_error *err);
-
-/**
- * Return whether an update of a @ref drgn_dwarf_index has been cancelled by
- * @ref drgn_dwarf_index_update_cancel().
- *
- * Because updating is parallelized, this allows tasks other than the one that
- * encountered the error to "fail fast".
- */
-static inline bool
-drgn_dwarf_index_update_cancelled(struct drgn_dwarf_index_update_state *state)
-{
-	/*
-	 * No need for omp critical/omp atomic since this is a best-effort
-	 * optimization.
-	 */
-	return state->err != NULL;
-}
-
-/**
- * Read a module for updating a @ref drgn_dwarf_index.
- *
- * This creates OpenMP tasks to begin indexing the module. It may cancel the
- * update.
- */
-void drgn_dwarf_index_read_module(struct drgn_dwarf_index_update_state *state,
-				  struct drgn_debug_info_module *module);
+drgn_dwarf_index_update(struct drgn_dwarf_index_update_state *state);
 
 /**
  * Iterator over DWARF debugging information.
