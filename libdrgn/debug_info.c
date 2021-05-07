@@ -1604,7 +1604,7 @@ branch:
 		 */
 		default:
 			return binary_buffer_error(&expr->bb,
-						   "unknown DWARF expression opcode %#x",
+						   "unknown DWARF expression opcode %#" PRIx8,
 						   opcode);
 		}
 	}
@@ -3355,7 +3355,8 @@ drgn_dwarf_cfi_next_encoded(struct drgn_debug_info_buffer *buffer,
 	if (encoding & DW_EH_PE_indirect) {
 unknown_fde_encoding:
 		return binary_buffer_error(&buffer->bb,
-					   "unknown EH encoding %#x", encoding);
+					   "unknown EH encoding %#" PRIx8,
+					   encoding);
 	}
 
 	size_t pos = (buffer->bb.pos -
@@ -4201,7 +4202,7 @@ reg_expression:
 			if (!initial_row) {
 invalid_for_initial:
 				err = binary_buffer_error(&buffer.bb,
-							  "invalid initial DWARF CFI opcode %#x",
+							  "invalid initial DWARF CFI opcode %#" PRIx8,
 							  opcode);
 				goto out;
 			}
@@ -4246,7 +4247,7 @@ set_reg:
 			break;
 		default:
 			err = binary_buffer_error(&buffer.bb,
-						  "unknown DWARF CFI opcode %#x",
+						  "unknown DWARF CFI opcode %#" PRIx8,
 						  opcode);
 			goto out;
 		}
