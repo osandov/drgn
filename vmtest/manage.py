@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import itertools
 import logging
 import os
 from pathlib import Path
@@ -32,20 +33,29 @@ IGNORE_KERNEL_RANGES = (
     (KernelVersion("5.5~"), KernelVersion("5.10")),
 )
 
-# Use the GitHub mirror rather than the official kernel.org repository since
+# Use the GitHub mirrors rather than the official kernel.org repositories since
 # this script usually runs in GitHub Actions.
+LINUX_GIT_URL = "https://github.com/torvalds/linux.git"
 STABLE_LINUX_GIT_URL = "https://github.com/gregkh/linux.git"
 
 
 async def get_latest_kernel_tags() -> List[str]:
-    ls_remote = (
-        await check_output("git", "ls-remote", "--tags", "--refs", STABLE_LINUX_GIT_URL)
-    ).decode()
+    mainline_refs, stable_refs = await asyncio.gather(
+        check_output("git", "ls-remote", "--tags", "--refs", LINUX_GIT_URL),
+        check_output("git", "ls-remote", "--tags", "--refs", STABLE_LINUX_GIT_URL),
+    )
     latest: Dict[str, KernelVersion] = {}
-    for match in re.finditer(
-        r"^[a-f0-9]+\s+refs/tags/v([0-9]+\.[0-9]+)(-rc[0-9]+|\.[0-9]+)?$",
-        ls_remote,
-        re.M,
+    for match in itertools.chain(
+        re.finditer(
+            r"^[a-f0-9]+\s+refs/tags/v([0-9]+\.[0-9]+)(-rc[0-9]+)?$",
+            mainline_refs.decode(),
+            re.M,
+        ),
+        re.finditer(
+            r"^[a-f0-9]+\s+refs/tags/v([0-9]+\.[0-9]+)(\.[0-9]+)$",
+            stable_refs.decode(),
+            re.M,
+        ),
     ):
         version = KernelVersion(match.group(1) + (match.group(2) or ""))
         for start_version, end_version in IGNORE_KERNEL_RANGES:
@@ -69,22 +79,35 @@ def kernel_tag_to_release(tag: str) -> str:
     )
 
 
-async def fetch_kernel_tags(kernel_dir: Path, tags: Sequence[str]) -> None:
+async def fetch_kernel_tags(kernel_dir: Path, kernel_tags: Sequence[str]) -> None:
     if not kernel_dir.exists():
         logger.info("creating kernel repository in %s", kernel_dir)
         await check_call("git", "init", "-q", str(kernel_dir))
 
-    logger.info("fetching kernel tags: %s", ", ".join(tags))
-    await check_call(
-        "git",
-        "-C",
-        str(kernel_dir),
-        "fetch",
-        "--depth",
-        "1",
-        STABLE_LINUX_GIT_URL,
-        *(f"refs/tags/{tag}:refs/tags/{tag}" for tag in tags),
-    )
+    mainline_tags = []
+    stable_tags = []
+    for tag in kernel_tags:
+        if re.fullmatch("v[0-9]+\.[0-9]+\.[0-9]+", tag):
+            stable_tags.append(tag)
+        else:
+            mainline_tags.append(tag)
+
+    for (name, url, tags) in (
+        ("mainline", LINUX_GIT_URL, mainline_tags),
+        ("stable", STABLE_LINUX_GIT_URL, stable_tags),
+    ):
+        if tags:
+            logger.info("fetching %s kernel tags: %s", name, ", ".join(tags))
+            await check_call(
+                "git",
+                "-C",
+                str(kernel_dir),
+                "fetch",
+                "--depth",
+                "1",
+                url,
+                *(f"refs/tags/{tag}:refs/tags/{tag}" for tag in tags),
+            )
 
 
 async def build_kernels(
