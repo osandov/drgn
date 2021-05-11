@@ -195,7 +195,7 @@ def execscript(path: str, *args: str) -> None:
     :param args: Zero or more additional arguments to pass to the script. This
         is a :ref:`variable argument list <python:tut-arbitraryargs>`.
     """
-    # This is based on runpy.run_code, which we can't use because we want to
+    # This is based on runpy.run_path(), which we can't use because we want to
     # update globals even if the script throws an exception.
     saved_module = []
     try:
