@@ -105,7 +105,15 @@ class Program:
         >>> prog['jiffies']
         Object(prog, 'volatile unsigned long', address=0xffffffff94c05000)
 
-        :param name: The object name.
+        :param name: Object name.
+        """
+        ...
+    def __contains__(self, name: str) -> bool:
+        """
+        Implement ``name in self``. Return whether an object (variable,
+        constant, or function) with the given name exists in the program.
+
+        :param name: Object name.
         """
         ...
     def variable(self, name: str, filename: Optional[str] = None) -> Object:

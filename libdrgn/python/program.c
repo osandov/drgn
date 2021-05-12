@@ -879,6 +879,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_load_default_debug_info_DOC},
 	{"__getitem__", (PyCFunction)Program_subscript, METH_O | METH_COEXIST,
 	 drgn_Program___getitem___DOC},
+	{"__contains__", (PyCFunction)Program_contains, METH_O | METH_COEXIST,
+	 drgn_Program___contains___DOC},
 	{"read", (PyCFunction)Program_read, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_read_DOC},
 #define METHOD_DEF_READ(x)						\
@@ -949,7 +951,6 @@ static PyGetSetDef Program_getset[] = {
 static PyMappingMethods Program_as_mapping = {
 	.mp_subscript = (binaryfunc)Program_subscript,
 };
-
 
 static PySequenceMethods Program_as_sequence = {
 	.sq_contains = (objobjproc)Program_contains,
