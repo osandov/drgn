@@ -427,6 +427,59 @@ err:
 	return err;
 }
 
+struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
+					   size_t *length_ret)
+{
+	struct drgn_error *err;
+
+	Dwarf *dwarf = dwarf_cu_getdwarf(die->cu);
+	if (!dwarf)
+		return drgn_error_libdw();
+
+	struct drgn_dwarf_die_iterator it;
+	drgn_dwarf_die_iterator_init(&it, dwarf);
+	Dwarf_Die *cu_die = dwarf_die_vector_append_entry(&it.dies);
+	if (!cu_die) {
+		err = &drgn_enomem;
+		goto err;
+	}
+	Dwarf_Half cu_version;
+	Dwarf_Off type_offset;
+	if (!dwarf_cu_die(die->cu, cu_die, &cu_version, NULL, NULL, NULL, NULL,
+			  &type_offset)) {
+		err = drgn_error_libdw();
+		goto err;
+	}
+	it.debug_types = cu_version == 4 && type_offset != 0;
+	uint64_t type_signature;
+	Dwarf_Off cu_die_offset = dwarf_dieoffset(cu_die);
+	if (dwarf_next_unit(dwarf, cu_die_offset - dwarf_cuoffset(cu_die),
+			    &it.next_cu_off, NULL, NULL, NULL, NULL, NULL,
+			    it.debug_types ? &type_signature : NULL, NULL)) {
+		err = drgn_error_libdw();
+		goto err;
+	}
+	it.cu_end = (const char *)cu_die->addr - cu_die_offset + it.next_cu_off;
+
+	Dwarf_Die *dies;
+	size_t length;
+	while (!(err = drgn_dwarf_die_iterator_next(&it, true, 1, &dies,
+						    &length))) {
+		if (dies[length - 1].addr == die->addr) {
+			*dies_ret = dies;
+			*length_ret = length - 1;
+			return NULL;
+		}
+	}
+	if (err == &drgn_stop) {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"could not find DWARF DIE ancestors");
+	}
+err:
+	drgn_dwarf_die_iterator_deinit(&it);
+	return err;
+}
+
 DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)
 
 static inline struct hash_pair

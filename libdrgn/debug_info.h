@@ -224,6 +224,22 @@ drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
 					 size_t *length_ret)
 	__attribute__((__nonnull__(1, 3, 4, 5)));
 
+/**
+ * Find the ancestors of a DWARF DIE.
+ *
+ * This finds the parent, grandparent, etc., of a DWARF DIE in the tree of DIEs.
+ *
+ * @param[in] module Module containing @p die.
+ * @param[in] die DIE to find.
+ * @param[out] dies_ret Returned DIEs. `(*dies_ret)[*length_ret]` is the DIE,
+ * `(*dies_ret)[*length_ret - 1]` is its parent, `(*dies_ret)[*length_ret - 2]`
+ * is its grandparent, etc., and `(*dies_ret)[0]` is the top-level unit DIE.
+ * @param[out] length_ret Returned number of ancestors in @p dies_ret.
+ */
+struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
+					  size_t *length_ret)
+	__attribute__((__nonnull__(2, 3)));
+
 struct drgn_debug_info_module_key {
 	const void *build_id;
 	size_t build_id_len;
