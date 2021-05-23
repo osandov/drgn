@@ -1387,7 +1387,6 @@ breg:
 			deref_size = address_size;
 			goto deref;
 		case DW_OP_deref_size:
-			CHECK(1);
 			if ((err = binary_buffer_next_u8(&expr->bb,
 							 &deref_size)))
 				return err;
@@ -1397,6 +1396,7 @@ breg:
 			}
 deref:
 		{
+			CHECK(1);
 			char deref_buf[8];
 			err = drgn_program_read_memory(prog, deref_buf, ELEM(0),
 						       deref_size, false);
