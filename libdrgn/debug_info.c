@@ -1242,7 +1242,14 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 
 #define PUSH_MASK(x) PUSH((x) & address_mask)
 
+	/* Arbitrary limit so we don't go into an infinite loop. */
+	int remaining_ops = 10000;
 	while (binary_buffer_has_next(&expr->bb)) {
+		if (remaining_ops <= 0) {
+			return binary_buffer_error(&expr->bb,
+						   "DWARF expression executed too many operations");
+		}
+		remaining_ops--;
 		uint8_t opcode;
 		if ((err = binary_buffer_next_u8(&expr->bb, &opcode)))
 			return err;
