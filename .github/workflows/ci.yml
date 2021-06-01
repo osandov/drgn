@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install busybox-static libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-dev' || '' }}
+          sudo apt-get install busybox-static libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-$(clang --version | sed -rn "s/.*clang version ([0-9]+).*/\\1/p")-dev' || '' }}
           pip install mypy
       - name: Generate version.py
         run: python setup.py --version
