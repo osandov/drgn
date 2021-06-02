@@ -34,6 +34,12 @@
 #include "type.h"
 #include "util.h"
 
+/**
+ * Arbitrary limit for number of operations to execute in a DWARF expression to
+ * avoid infinite loops.
+ */
+static const int MAX_DWARF_EXPR_OPS = 10000;
+
 struct drgn_dwarf_cie {
 	/* Whether this CIE is from .eh_frame. */
 	bool is_eh;
@@ -1157,6 +1163,114 @@ bool drgn_debug_info_is_indexed(struct drgn_debug_info *dbinfo,
 	return c_string_set_search(&dbinfo->module_names, &name).entry != NULL;
 }
 
+static struct drgn_error *
+drgn_dwarf_location(struct drgn_debug_info_module *module,
+		    Dwarf_Attribute *attr,
+		    const struct drgn_register_state *regs,
+		    const char **expr_ret, size_t *expr_size_ret)
+{
+	struct drgn_error *err;
+	switch (attr->form) {
+	case DW_FORM_sec_offset: {
+		if (!module->scns[DRGN_SCN_DEBUG_LOC]) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "loclistptr without .debug_loc section");
+		}
+
+		struct optional_uint64 pc;
+		if (!regs ||
+		    !(pc = drgn_register_state_get_pc(regs)).has_value) {
+			*expr_ret = NULL;
+			*expr_size_ret = 0;
+			return NULL;
+		}
+
+		err = drgn_debug_info_module_cache_section(module,
+							   DRGN_SCN_DEBUG_LOC);
+		if (err)
+			return err;
+
+		Dwarf_Addr bias;
+		dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, &bias,
+				 NULL, NULL, NULL);
+		pc.value = pc.value - !regs->interrupted - bias;
+
+		Dwarf_Word offset;
+		if (dwarf_formudata(attr, &offset))
+			return drgn_error_libdw();
+
+		struct drgn_debug_info_buffer buffer;
+		drgn_debug_info_buffer_init(&buffer, module,
+					    DRGN_SCN_DEBUG_LOC);
+		if (offset > buffer.bb.end - buffer.bb.pos) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "loclistptr is out of bounds");
+		}
+		buffer.bb.pos += offset;
+
+		uint8_t address_size =
+			drgn_platform_address_size(&module->platform);
+		uint64_t address_max = uint_max(address_size);
+		uint64_t base;
+		bool base_valid = false;
+		for (;;) {
+			uint64_t start, end;
+			if ((err = binary_buffer_next_uint(&buffer.bb,
+							   address_size,
+							   &start)) ||
+			    (err = binary_buffer_next_uint(&buffer.bb,
+							   address_size, &end)))
+				return err;
+			if (start == 0 && end == 0) {
+				break;
+			} else if (start == address_max) {
+				base = end;
+				base_valid = true;
+			} else {
+				if (!base_valid) {
+					Dwarf_Die cu_die;
+					if (!dwarf_cu_die(attr->cu, &cu_die,
+							  NULL, NULL, NULL,
+							  NULL, NULL, NULL))
+						return drgn_error_libdw();
+					Dwarf_Addr low_pc;
+					if (dwarf_lowpc(&cu_die, &low_pc))
+						return drgn_error_libdw();
+					base = low_pc;
+					base_valid = true;
+				}
+				uint16_t expr_size;
+				if ((err = binary_buffer_next_u16(&buffer.bb,
+								  &expr_size)))
+					return err;
+				if (expr_size > buffer.bb.end - buffer.bb.pos) {
+					return binary_buffer_error(&buffer.bb,
+								   "location description size is out of bounds");
+				}
+				if (base + start <= pc.value &&
+				    pc.value < base + end) {
+					*expr_ret = buffer.bb.pos;
+					*expr_size_ret = expr_size;
+					return NULL;
+				}
+				buffer.bb.pos += expr_size;
+			}
+		}
+		*expr_ret = NULL;
+		*expr_size_ret = 0;
+		return NULL;
+	}
+	default: {
+		Dwarf_Block block;
+		if (dwarf_formblock(attr, &block))
+			return drgn_error_libdw();
+		*expr_ret = (char *)block.data;
+		*expr_size_ret = block.length;
+		return NULL;
+	}
+	}
+}
+
 struct drgn_dwarf_expression_buffer {
 	struct binary_buffer bb;
 	const char *start;
@@ -1218,11 +1332,19 @@ drgn_dwarf_expression_buffer_init(struct drgn_dwarf_expression_buffer *buffer,
 	buffer->module = module;
 }
 
+static struct drgn_error *
+drgn_dwarf_frame_base(struct drgn_program *prog,
+		      struct drgn_debug_info_module *module, Dwarf_Die *die,
+		      int *remaining_ops,
+		      const struct drgn_register_state *regs, uint64_t *ret);
+
 /* Returns &drgn_not_found if it tried to use an unknown register value. */
 static struct drgn_error *
 drgn_eval_dwarf_expression(struct drgn_program *prog,
 			   struct drgn_dwarf_expression_buffer *expr,
 			   struct uint64_vector *stack,
+			   int *remaining_ops,
+			   Dwarf_Die *function_die,
 			   const struct drgn_register_state *regs)
 {
 	struct drgn_error *err;
@@ -1252,14 +1374,12 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 
 #define PUSH_MASK(x) PUSH((x) & address_mask)
 
-	/* Arbitrary limit so we don't go into an infinite loop. */
-	int remaining_ops = 10000;
 	while (binary_buffer_has_next(&expr->bb)) {
-		if (remaining_ops <= 0) {
+		if (*remaining_ops <= 0) {
 			return binary_buffer_error(&expr->bb,
 						   "DWARF expression executed too many operations");
 		}
-		remaining_ops--;
+		(*remaining_ops)--;
 		uint8_t opcode;
 		if ((err = binary_buffer_next_u8(&expr->bb, &opcode)))
 			return err;
@@ -1338,6 +1458,19 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 			PUSH_MASK(uvalue);
 			break;
 		/* Register values. */
+		case DW_OP_fbreg: {
+			err = drgn_dwarf_frame_base(prog, expr->module,
+						    function_die, remaining_ops,
+						    regs, &uvalue);
+			if (err)
+				return err;
+			int64_t svalue;
+			if ((err = binary_buffer_next_sleb128(&expr->bb,
+							      &svalue)))
+				return err;
+			PUSH_MASK(uvalue + svalue);
+			break;
+		}
 		case DW_OP_breg0 ... DW_OP_breg31:
 			dwarf_regno = opcode - DW_OP_breg0;
 			goto breg;
@@ -1604,7 +1737,6 @@ branch:
 		/*
 		 * We don't yet support:
 		 *
-		 * - DW_OP_fbreg
 		 * - DW_OP_push_object_address
 		 * - DW_OP_form_tls_address
 		 * - DW_OP_entry_value
@@ -1632,6 +1764,101 @@ branch:
 #undef CHECK
 
 	return NULL;
+}
+
+static struct drgn_error *
+drgn_dwarf_frame_base(struct drgn_program *prog,
+		      struct drgn_debug_info_module *module, Dwarf_Die *die,
+		      int *remaining_ops,
+		      const struct drgn_register_state *regs, uint64_t *ret)
+{
+	struct drgn_error *err;
+	bool little_endian = drgn_platform_is_little_endian(&module->platform);
+	drgn_register_number (*dwarf_regno_to_internal)(uint64_t) =
+		module->platform.arch->dwarf_regno_to_internal;
+
+	if (!die)
+		return &drgn_not_found;
+	Dwarf_Attribute attr_mem, *attr;
+	if (!(attr = dwarf_attr_integrate(die, DW_AT_frame_base, &attr_mem)))
+		return &drgn_not_found;
+	const char *expr;
+	size_t expr_size;
+	err = drgn_dwarf_location(module, attr, regs, &expr, &expr_size);
+	if (err)
+		return err;
+
+	struct uint64_vector stack = VECTOR_INIT;
+	struct drgn_dwarf_expression_buffer buffer;
+	drgn_dwarf_expression_buffer_init(&buffer, module, expr, expr_size);
+	for (;;) {
+		err = drgn_eval_dwarf_expression(prog, &buffer, &stack,
+						 remaining_ops, NULL, regs);
+		if (err)
+			goto out;
+		if (binary_buffer_has_next(&buffer.bb)) {
+			uint8_t opcode;
+			if ((err = binary_buffer_next_u8(&buffer.bb, &opcode)))
+				goto out;
+
+			uint64_t dwarf_regno;
+			switch (opcode) {
+			case DW_OP_reg0 ... DW_OP_reg31:
+				dwarf_regno = opcode - DW_OP_reg0;
+				goto reg;
+			case DW_OP_regx:
+				if ((err = binary_buffer_next_uleb128(&buffer.bb,
+								      &dwarf_regno)))
+					goto out;
+reg:
+			{
+				if (!regs) {
+					err = &drgn_not_found;
+					goto out;
+				}
+				drgn_register_number regno =
+					dwarf_regno_to_internal(dwarf_regno);
+				if (!drgn_register_state_has_register(regs,
+								      regno)) {
+					err = &drgn_not_found;
+					goto out;
+				}
+				const struct drgn_register_layout *layout =
+					&prog->platform.arch->register_layout[regno];
+				/*
+				 * Note that this doesn't mask the address since
+				 * the caller does that.
+				 */
+				copy_lsbytes(ret, sizeof(*ret),
+					     HOST_LITTLE_ENDIAN,
+					     &regs->buf[layout->offset],
+					     layout->size, little_endian);
+				if (binary_buffer_has_next(&buffer.bb)) {
+					err = binary_buffer_error(&buffer.bb,
+								  "stray operations in DW_AT_frame_base expression");
+				} else {
+					err = NULL;
+				}
+				goto out;
+			}
+			default:
+				err = binary_buffer_error(&buffer.bb,
+							  "invalid opcode %#" PRIx8 " for DW_AT_frame_base expression",
+							  opcode);
+				goto out;
+			}
+		} else if (stack.size) {
+			*ret = stack.data[stack.size - 1];
+			err = NULL;
+			break;
+		} else {
+			err = &drgn_not_found;
+			break;
+		}
+	}
+out:
+	uint64_vector_deinit(&stack);
+	return err;
 }
 
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_type_map, ptr_key_hash_pair,
@@ -4674,10 +4901,12 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 		}
 	}
 
+	int remaining_ops = MAX_DWARF_EXPR_OPS;
 	struct drgn_dwarf_expression_buffer buffer;
 	drgn_dwarf_expression_buffer_init(&buffer, regs->module, rule->expr,
 					  rule->expr_size);
-	err = drgn_eval_dwarf_expression(prog, &buffer, &stack, regs);
+	err = drgn_eval_dwarf_expression(prog, &buffer, &stack, &remaining_ops,
+					 NULL, regs);
 	if (err)
 		goto out;
 	if (stack.size == 0) {
