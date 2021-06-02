@@ -84,6 +84,63 @@ static PyObject *StackFrame_str(StackFrame *self)
 	return ret;
 }
 
+static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
+{
+	struct drgn_error *err;
+	Program *prog = container_of(self->trace->trace->prog, Program, prog);
+	if (!PyUnicode_Check(key)) {
+		PyErr_SetObject(PyExc_KeyError, key);
+		return NULL;
+	}
+	const char *name = PyUnicode_AsUTF8(key);
+	if (!name)
+		return NULL;
+	DrgnObject *ret = DrgnObject_alloc(prog);
+	if (!ret)
+		return NULL;
+	bool clear = set_drgn_in_python();
+	err = drgn_stack_frame_find_object(self->trace->trace, self->i, name,
+					   &ret->obj);
+	if (clear)
+		clear_drgn_in_python();
+	if (err) {
+		if (err->code == DRGN_ERROR_LOOKUP) {
+			drgn_error_destroy(err);
+			PyErr_SetObject(PyExc_KeyError, key);
+		} else {
+			set_drgn_error(err);
+		}
+		Py_DECREF(ret);
+		return NULL;
+	}
+	return ret;
+}
+
+static int StackFrame_contains(StackFrame *self, PyObject *key)
+{
+	struct drgn_error *err;
+	if (!PyUnicode_Check(key)) {
+		PyErr_SetObject(PyExc_KeyError, key);
+		return -1;
+	}
+	const char *name = PyUnicode_AsUTF8(key);
+	if (!name)
+		return -1;
+	struct drgn_object tmp;
+	drgn_object_init(&tmp, self->trace->trace->prog);
+	err = drgn_stack_frame_find_object(self->trace->trace, self->i, name,
+					   &tmp);
+	drgn_object_deinit(&tmp);
+	if (!err) {
+		return 1;
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		drgn_error_destroy(err);
+		return 0;
+	} else {
+		return -1;
+	}
+}
+
 static PyObject *StackFrame_source(StackFrame *self)
 {
 	int line;
@@ -207,6 +264,10 @@ static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)
 }
 
 static PyMethodDef StackFrame_methods[] = {
+	{"__getitem__", (PyCFunction)StackFrame_subscript,
+	 METH_O | METH_COEXIST, drgn_StackFrame___getitem___DOC},
+	{"__contains__", (PyCFunction)StackFrame_contains,
+	 METH_O | METH_COEXIST, drgn_StackFrame___contains___DOC},
 	{"source", (PyCFunction)StackFrame_source, METH_NOARGS,
 	 drgn_StackFrame_source_DOC},
 	{"symbol", (PyCFunction)StackFrame_symbol, METH_NOARGS,
@@ -228,11 +289,21 @@ static PyGetSetDef StackFrame_getset[] = {
 	{},
 };
 
+static PyMappingMethods StackFrame_as_mapping = {
+	.mp_subscript = (binaryfunc)StackFrame_subscript,
+};
+
+static PySequenceMethods StackFrame_as_sequence = {
+	.sq_contains = (objobjproc)StackFrame_contains,
+};
+
 PyTypeObject StackFrame_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "_drgn.StackFrame",
 	.tp_basicsize = sizeof(StackFrame),
 	.tp_dealloc = (destructor)StackFrame_dealloc,
+	.tp_as_sequence = &StackFrame_as_sequence,
+	.tp_as_mapping = &StackFrame_as_mapping,
 	.tp_str = (reprfunc)StackFrame_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_StackFrame_DOC,

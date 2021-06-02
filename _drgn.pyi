@@ -1417,6 +1417,14 @@ class StackFrame:
     This includes more information than when printing the full stack trace. The
     format is subject to change. The drgn CLI is set up so that stack frames
     are displayed with ``str()`` by default.
+
+    The :meth:`[] <.__getitem__>` operator can look up function parameters,
+    local variables, and global variables in the scope of the stack frame:
+
+    >>> prog.stack_trace(1)[0]['prev'].pid
+    (pid_t)1
+    >>> prog.stack_trace(1)[0]['scheduler_running']
+    (int)1
     """
 
     name: Optional[str]
@@ -1450,6 +1458,25 @@ class StackFrame:
 
     pc: int
     """Program counter at this stack frame."""
+    def __getitem__(self, name: str) -> Object:
+        """
+        Implement ``self[name]``. Get the object (variable, function parameter,
+        constant, or function) with the given name in the scope of this frame.
+
+        If the object exists but has been optimized out, this returns an
+        :ref:`absent object <absent-objects>`.
+
+        :param name: Object name.
+        """
+        ...
+    def __contains__(self, name: str) -> bool:
+        """
+        Implement ``name in self``. Return whether an object with the given
+        name exists in the scope of this frame.
+
+        :param name: Object name.
+        """
+        ...
     def source(self) -> Tuple[str, int, int]:
         """
         Get the source code location of this frame.

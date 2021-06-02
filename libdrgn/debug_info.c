@@ -2885,7 +2885,7 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 	}
 }
 
-static struct drgn_error *
+struct drgn_error *
 drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
 		       struct drgn_debug_info_module *module,
 		       Dwarf_Die *die, Dwarf_Die *type_die,
@@ -2933,6 +2933,82 @@ drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
 	return drgn_object_from_dwarf_location(dbinfo->prog, module, die,
 					       qualified_type, expr, expr_size,
 					       function_die, regs, ret);
+}
+
+static struct drgn_error *find_dwarf_enumerator(Dwarf_Die *enumeration_type,
+						const char *name,
+						Dwarf_Die *ret)
+{
+	int r = dwarf_child(enumeration_type, ret);
+	while (r == 0) {
+		if (dwarf_tag(ret) == DW_TAG_enumerator &&
+		    strcmp(dwarf_diename(ret), name) == 0)
+			return NULL;
+		r = dwarf_siblingof(ret, ret);
+	}
+	if (r < 0)
+		return drgn_error_libdw();
+	ret->addr = NULL;
+	return NULL;
+}
+
+struct drgn_error *drgn_find_in_dwarf_scopes(Dwarf_Die *scopes,
+					     size_t num_scopes,
+					     const char *name,
+					     Dwarf_Die *die_ret,
+					     Dwarf_Die *type_ret)
+{
+	struct drgn_error *err;
+	Dwarf_Die die;
+	for (size_t scope = num_scopes; scope--;) {
+		bool have_declaration = false;
+		if (dwarf_child(&scopes[scope], &die) != 0)
+			continue;
+		do {
+			switch (dwarf_tag(&die)) {
+			case DW_TAG_variable:
+			case DW_TAG_formal_parameter:
+			case DW_TAG_subprogram:
+				if (strcmp(dwarf_diename(&die), name) == 0) {
+					*die_ret = die;
+					bool declaration;
+					if (dwarf_flag(&die, DW_AT_declaration,
+						       &declaration))
+						return drgn_error_libdw();
+					if (declaration)
+						have_declaration = true;
+					else
+						return NULL;
+				}
+				break;
+			case DW_TAG_enumeration_type: {
+				bool enum_class;
+				if (dwarf_flag_integrate(&die, DW_AT_enum_class,
+							 &enum_class))
+					return drgn_error_libdw();
+				if (!enum_class) {
+					Dwarf_Die enumerator;
+					err = find_dwarf_enumerator(&die, name,
+								    &enumerator);
+					if (err)
+						return err;
+					if (enumerator.addr) {
+						*die_ret = enumerator;
+						*type_ret = die;
+						return NULL;
+					}
+				}
+				break;
+			}
+			default:
+				continue;
+			}
+		} while (dwarf_siblingof(&die, &die) == 0);
+		if (have_declaration)
+			return NULL;
+	}
+	die_ret->addr = NULL;
+	return NULL;
 }
 
 static struct drgn_error *

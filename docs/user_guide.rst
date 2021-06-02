@@ -139,6 +139,8 @@ address it points to)::
     >>> print(hex(jiffiesp.value_()))
     0xffffffffbe405000
 
+.. _absent-objects:
+
 Absent Objects
 """"""""""""""
 

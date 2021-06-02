@@ -352,6 +352,87 @@ drgn_stack_frame_symbol(struct drgn_stack_trace *trace, size_t frame,
 	return NULL;
 }
 
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_stack_frame_find_object(struct drgn_stack_trace *trace, size_t frame_i,
+			     const char *name, struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_stack_frame *frame = &trace->frames[frame_i];
+
+	if (frame->num_scopes == 0)
+		goto not_found;
+
+	Dwarf_Die die, type_die;
+	err = drgn_find_in_dwarf_scopes(frame->scopes, frame->num_scopes, name,
+					&die, &type_die);
+	if (err)
+		return err;
+	if (!die.addr && frame->function_scope == 0) {
+		/*
+		 * Scope 0 must be a DW_TAG_inlined_subroutine, and we didn't
+		 * find the name in the concrete inlined instance tree. We need
+		 * to find the scopes that contain the the abstract instance
+		 * root (i.e, the DW_TAG_subprogram definition). (We could do
+		 * this ahead of time when unwinding the stack, but for
+		 * efficiency we do it lazily.)
+		 */
+		Dwarf_Attribute attr_mem, *attr;
+		if (!(attr = dwarf_attr(frame->scopes, DW_AT_abstract_origin,
+					&attr_mem)))
+			goto not_found;
+		Dwarf_Die abstract_origin;
+		if (!dwarf_formref_die(attr, &abstract_origin))
+			return drgn_error_libdw();
+
+		Dwarf_Die *ancestors;
+		size_t num_ancestors;
+		err = drgn_find_die_ancestors(&abstract_origin, &ancestors,
+					      &num_ancestors);
+		if (err)
+			return err;
+
+		size_t new_num_scopes = num_ancestors + frame->num_scopes;
+		Dwarf_Die *new_scopes = realloc(ancestors,
+						new_num_scopes *
+						sizeof(*new_scopes));
+		if (!new_scopes) {
+			free(ancestors);
+			return &drgn_enomem;
+		}
+		memcpy(&new_scopes[num_ancestors], frame->scopes,
+		       frame->num_scopes * sizeof(*new_scopes));
+		free(frame->scopes);
+		frame->scopes = new_scopes;
+		frame->num_scopes = new_num_scopes;
+		frame->function_scope = num_ancestors;
+
+		/* Look for the name in the new scopes. */
+		err = drgn_find_in_dwarf_scopes(frame->scopes, num_ancestors,
+						name, &die, &type_die);
+		if (err)
+			return err;
+	}
+	if (!die.addr) {
+not_found:;
+		const char *frame_name = drgn_stack_frame_name(trace, frame_i);
+		if (frame_name) {
+			return drgn_error_format(DRGN_ERROR_LOOKUP,
+						 "could not find '%s' in '%s'",
+						 name, frame_name);
+		} else {
+			return drgn_error_format(DRGN_ERROR_LOOKUP,
+						 "could not find '%s'", name);
+		}
+	}
+
+	Dwarf_Die function_die = frame->scopes[frame->function_scope];
+	return drgn_object_from_dwarf(trace->prog->_dbinfo, frame->regs->module,
+				      &die,
+				      dwarf_tag(&die) == DW_TAG_enumerator ?
+				      &type_die : NULL,
+				      &function_die, frame->regs, ret);
+}
+
 LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
 					      size_t frame,
 					      const struct drgn_register *reg,

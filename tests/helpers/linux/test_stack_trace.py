@@ -44,6 +44,23 @@ class TestStackTrace(LinuxHelperTestCase):
     def test_by_pid_orc(self):
         self._test_by_pid(True)
 
+    def test_local_variable(self):
+        pid = fork_and_pause()
+        wait_until(lambda: proc_state(pid) == "S")
+        for frame in self.prog.stack_trace(pid):
+            if frame.name in ("context_switch", "__schedule"):
+                try:
+                    prev = frame["prev"]
+                except KeyError:
+                    continue
+                if not prev.absent_:
+                    self.assertEqual(prev.pid, pid)
+                    break
+        else:
+            self.skipTest("prev not found in context_switch or __schedule")
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+
     def test_pt_regs(self):
         # This won't unwind anything useful, but at least make sure it accepts
         # a struct pt_regs.
