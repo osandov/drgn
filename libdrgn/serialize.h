@@ -74,6 +74,45 @@ static inline void copy_lsbytes(void *dst, size_t dst_size,
 }
 
 /**
+ * Return a bit mask with bits `[bit_offset, 7]` set.
+ *
+ * @param[in] lsb0 See @ref copy_bits().
+ */
+static inline uint8_t copy_bits_first_mask(unsigned int bit_offset, bool lsb0)
+{
+	return lsb0 ? 0xff << bit_offset : 0xff >> bit_offset;
+}
+
+/**
+ * Return a bit mask with bits `[0, last_bit % 8]` set.
+ *
+ * @param[in] lsb0 See @ref copy_bits().
+ */
+static inline uint8_t copy_bits_last_mask(uint64_t last_bit, bool lsb0)
+{
+	return lsb0 ? 0xff >> (7 - last_bit % 8) : 0x7f80 >> (last_bit % 8);
+}
+
+/**
+ * Copy @p bit_size bits from @p src at bit offset @p src_bit_offset to @p dst
+ * at bit offset @p dst_bit_offset.
+ *
+ * @param[in] dst Destination buffer.
+ * @param[in] dst_bit_offset Offset in bits from the beginning of @p dst to copy
+ * to. Must be < 8.
+ * @param[in] src Source buffer.
+ * @param[in] src_bit_offset Offset in bits from the beginning of @p src to copy
+ * from. Must be < 8.
+ * @param[in] bit_size Number of bits to copy.
+ * @param[in] lsb0 If @c true, bits within a byte are numbered from least
+ * significant (0) to most significant (7); if @c false, they are numbered from
+ * most significant (0) to least significant (7). This determines the
+ * interpretation of @p dst_bit_offset and @p src_bit_offset.
+ */
+void copy_bits(void *dst, unsigned int dst_bit_offset, const void *src,
+	       unsigned int src_bit_offset, uint64_t bit_size, bool lsb0);
+
+/**
  * Serialize bits to a memory buffer.
  *
  * Note that this does not perform any bounds checking, so the caller must check

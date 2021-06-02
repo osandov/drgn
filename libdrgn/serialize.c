@@ -6,6 +6,86 @@
 
 #include "serialize.h"
 
+static inline uint8_t copy_bits_step(const uint8_t *s, unsigned int src_bit_offset,
+				     unsigned int bit_size,
+				     unsigned int dst_bit_offset, bool lsb0)
+{
+	uint8_t result;
+	if (lsb0) {
+		result = s[0] >> src_bit_offset;
+		if (bit_size > 8 - src_bit_offset)
+			result |= s[1] << (8 - src_bit_offset);
+		result <<= dst_bit_offset;
+	} else {
+		result = s[0] << src_bit_offset;
+		if (bit_size > 8 - src_bit_offset)
+			result |= s[1] >> (8 - src_bit_offset);
+		result >>= dst_bit_offset;
+	}
+	return result;
+}
+
+void copy_bits(void *dst, unsigned int dst_bit_offset, const void *src,
+	       unsigned int src_bit_offset, uint64_t bit_size, bool lsb0)
+{
+	assert(dst_bit_offset < 8);
+	assert(src_bit_offset < 8);
+
+	if (bit_size == 0)
+		return;
+
+	uint8_t *d = dst;
+	const uint8_t *s = src;
+	uint64_t dst_last_bit = dst_bit_offset + bit_size - 1;
+	uint8_t dst_first_mask = copy_bits_first_mask(dst_bit_offset, lsb0);
+	uint8_t dst_last_mask = copy_bits_last_mask(dst_last_bit, lsb0);
+
+	if (dst_bit_offset == src_bit_offset) {
+		/*
+		 * In the common case that the source and destination have the
+		 * same offset, we can use memcpy(), preserving bits at the
+		 * start and/or end if necessary.
+		 */
+		uint8_t first_byte = d[0];
+		uint8_t last_byte = d[dst_last_bit / 8];
+		memcpy(d, s, dst_last_bit / 8 + 1);
+		if (dst_bit_offset != 0) {
+			d[0] = ((first_byte & ~dst_first_mask)
+				| (d[0] & dst_first_mask));
+		}
+		if (dst_last_bit % 8 != 7) {
+			d[dst_last_bit / 8] = ((last_byte & ~dst_last_mask)
+					       | (d[dst_last_bit / 8] & dst_last_mask));
+		}
+	} else if (bit_size <= 8 - dst_bit_offset) {
+		/* Destination is only one byte. */
+		uint8_t dst_mask = dst_first_mask & dst_last_mask;
+		d[0] = ((d[0] & ~dst_mask)
+			| (copy_bits_step(&s[0], src_bit_offset, bit_size,
+					  dst_bit_offset, lsb0) & dst_mask));
+	} else {
+		/* Destination is two or more bytes. */
+		d[0] = ((d[0] & ~dst_first_mask)
+			 | (copy_bits_step(&s[0], src_bit_offset,
+					   8 - dst_bit_offset, dst_bit_offset,
+					   lsb0) & dst_first_mask));
+		src_bit_offset += 8 - dst_bit_offset;
+		size_t si = src_bit_offset / 8;
+		src_bit_offset %= 8;
+		size_t di = 1;
+		while (di < dst_last_bit / 8) {
+			d[di] = copy_bits_step(&s[si], src_bit_offset, 8, 0,
+					       lsb0);
+			di++;
+			si++;
+		}
+		d[di] = ((d[di] & ~dst_last_mask)
+			 | (copy_bits_step(&s[si], src_bit_offset,
+					   dst_last_bit % 8 + 1, 0, lsb0)
+			    & dst_last_mask));
+	}
+}
+
 void serialize_bits(void *buf, uint64_t bit_offset, uint64_t uvalue,
 		    uint8_t bit_size, bool little_endian)
 {

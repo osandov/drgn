@@ -12,6 +12,9 @@
 #ifndef DRGN_OBJECT_H
 #define DRGN_OBJECT_H
 
+#include <stdlib.h>
+#include <string.h>
+
 #include "drgn.h"
 #include "type.h"
 
@@ -30,6 +33,24 @@
  *
  * @{
  */
+
+/** Allocate a zero-initialized @ref drgn_value. */
+static inline bool drgn_value_zalloc(uint64_t size, union drgn_value *value_ret,
+				     char **buf_ret)
+{
+	if (size <= sizeof(value_ret->ibuf)) {
+		memset(value_ret->ibuf, 0, sizeof(value_ret->ibuf));
+		*buf_ret = value_ret->ibuf;
+	} else {
+		if (size > SIZE_MAX)
+			return false;
+		char *buf = calloc(1, size);
+		if (!buf)
+			return false;
+		value_ret->bufp = *buf_ret = buf;
+	}
+	return true;
+}
 
 /**
  * Get whether an object is zero.
@@ -138,6 +159,15 @@ struct drgn_error *
 drgn_object_set_from_buffer_internal(struct drgn_object *res,
 				     const struct drgn_object_type *type,
 				     const void *buf, uint64_t bit_offset);
+
+/**
+ * Like @ref drgn_object_set_reference() but @ref drgn_object_type() was already
+ * called.
+ */
+struct drgn_error *
+drgn_object_set_reference_internal(struct drgn_object *res,
+				   const struct drgn_object_type *type,
+				   uint64_t address, uint64_t bit_offset);
 
 /**
  * Binary operator implementation.

@@ -41,6 +41,23 @@ def mock_memory_read(data, address, count, offset, physical):
     return data[offset : offset + count]
 
 
+def add_mock_memory_segments(prog, segments):
+    for segment in segments:
+        if segment.virt_addr is not None:
+            prog.add_memory_segment(
+                segment.virt_addr,
+                len(segment.buf),
+                functools.partial(mock_memory_read, segment.buf),
+            )
+        if segment.phys_addr is not None:
+            prog.add_memory_segment(
+                segment.phys_addr,
+                len(segment.buf),
+                functools.partial(mock_memory_read, segment.buf),
+                True,
+            )
+
+
 class MockObject(NamedTuple):
     name: str
     type: Type
@@ -84,20 +101,7 @@ def mock_program(platform=MOCK_PLATFORM, *, segments=None, types=None, objects=N
 
     prog = Program(platform)
     if segments is not None:
-        for segment in segments:
-            if segment.virt_addr is not None:
-                prog.add_memory_segment(
-                    segment.virt_addr,
-                    len(segment.buf),
-                    functools.partial(mock_memory_read, segment.buf),
-                )
-            if segment.phys_addr is not None:
-                prog.add_memory_segment(
-                    segment.phys_addr,
-                    len(segment.buf),
-                    functools.partial(mock_memory_read, segment.buf),
-                    True,
-                )
+        add_mock_memory_segments(prog, segments)
     if types is not None:
         prog.add_type_finder(mock_find_type)
     if objects is not None:

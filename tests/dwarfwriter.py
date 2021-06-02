@@ -4,6 +4,7 @@
 from collections import namedtuple
 import os.path
 
+from tests.assembler import _append_sleb128, _append_uleb128
 from tests.dwarf import DW_AT, DW_FORM, DW_TAG
 from tests.elf import ET, PT, SHT
 from tests.elfwriter import ElfSection, create_elf_file
@@ -11,28 +12,6 @@ from tests.elfwriter import ElfSection, create_elf_file
 DwarfAttrib = namedtuple("DwarfAttrib", ["name", "form", "value"])
 DwarfDie = namedtuple("DwarfAttrib", ["tag", "attribs", "children"])
 DwarfDie.__new__.__defaults__ = (None,)
-
-
-def _append_uleb128(buf, value):
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        if value:
-            buf.append(byte | 0x80)
-        else:
-            buf.append(byte)
-            break
-
-
-def _append_sleb128(buf, value):
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        if (not value and not (byte & 0x40)) or (value == -1 and (byte & 0x40)):
-            buf.append(byte)
-            break
-        else:
-            buf.append(byte | 0x80)
 
 
 def _compile_debug_abbrev(unit_dies, use_dw_form_indirect):

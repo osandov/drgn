@@ -3,12 +3,14 @@
 
 import ctypes
 import functools
+import operator
 import os.path
 import re
 import tempfile
 import unittest
 
 from drgn import (
+    FaultError,
     FindObjectFlags,
     Language,
     Object,
@@ -20,8 +22,15 @@ from drgn import (
     TypeParameter,
     TypeTemplateParameter,
 )
-from tests import DEFAULT_LANGUAGE, TestCase, identical
-from tests.dwarf import DW_AT, DW_ATE, DW_END, DW_FORM, DW_LANG, DW_TAG
+from tests import (
+    DEFAULT_LANGUAGE,
+    MockMemorySegment,
+    TestCase,
+    add_mock_memory_segments,
+    identical,
+)
+import tests.assembler as assembler
+from tests.dwarf import DW_AT, DW_ATE, DW_END, DW_FORM, DW_LANG, DW_OP, DW_TAG
 from tests.dwarfwriter import DwarfAttrib, DwarfDie, compile_dwarf
 
 libdw = ctypes.CDLL("libdw.so")
@@ -189,12 +198,14 @@ base_type_dies += (
 )
 
 
-def dwarf_program(*args, **kwds):
+def dwarf_program(*args, segments=None, **kwds):
     prog = Program()
     with tempfile.NamedTemporaryFile() as f:
         f.write(compile_dwarf(*args, **kwds))
         f.flush()
         prog.load_debug_info([f.name])
+    if segments is not None:
+        add_mock_memory_segments(prog, segments)
     return prog
 
 
@@ -3759,7 +3770,7 @@ class TestObjects(TestCase):
         )
         self.assertIdentical(prog.object("x"), Object(prog, "int"))
 
-    def test_variable_unimplemented_location(self):
+    def test_variable_expr_empty(self):
         prog = dwarf_program(
             wrap_test_type_dies(
                 (
@@ -3769,13 +3780,1527 @@ class TestObjects(TestCase):
                         (
                             DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
-                            DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b"\xe0"),
+                            DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b""),
                         ),
                     ),
                 )
             )
         )
-        self.assertRaisesRegex(Exception, "unimplemented operation", prog.object, "x")
+        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+
+    def test_variable_expr_bit_piece(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    int_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                assembler.assemble(
+                                    assembler.U8(DW_OP.addr),
+                                    assembler.U64(0xFFFFFFFF01020304),
+                                    assembler.U8(DW_OP.bit_piece),
+                                    assembler.ULEB128(32),
+                                    assembler.ULEB128(4),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+        self.assertIdentical(
+            prog.object("x"),
+            Object(prog, "int", address=0xFFFFFFFF01020304, bit_offset=4),
+        )
+
+    def test_variable_expr_implicit_value(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(4),
+                                            assembler.U32(0x12345678),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x12345678))
+
+    def test_variable_expr_implicit_value_pieces(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(2),
+                                            assembler.U16(
+                                                0x5678 if little_endian else 0x1234
+                                            ),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(2),
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(2),
+                                            assembler.U16(
+                                                0x1234 if little_endian else 0x5678
+                                            ),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(2),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x12345678))
+
+    def test_variable_expr_implicit_value_pieces_too_large(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(2),
+                                            assembler.U16(
+                                                0x5678 if little_endian else 0x1234
+                                            ),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(2),
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(4),
+                                            assembler.U32(
+                                                0x1234 if little_endian else 0x5678
+                                            ),
+                                            assembler.U8(DW_OP.piece),
+                                            # Piece size is larger than remaining size of object.
+                                            assembler.ULEB128(4),
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(4),
+                                            assembler.U32(0),
+                                            # There is nothing remaining in the object.
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(4),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x12345678))
+
+    def test_variable_expr_implicit_value_too_small(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(1),
+                                            assembler.U8(0x99),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x99))
+
+    def test_variable_expr_implicit_value_bit_pieces(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(1),
+                                            assembler.U8(
+                                                0x8F if little_endian else 0x1F
+                                            ),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(4),
+                                            assembler.ULEB128(4),
+                                            assembler.U8(DW_OP.implicit_value),
+                                            assembler.ULEB128(4),
+                                            assembler.U32(
+                                                0x1234567
+                                                if little_endian
+                                                else 0x2345678
+                                            ),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(28),
+                                            assembler.ULEB128(0),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x12345678))
+
+    def test_variable_expr_implicit_value_piece_empty(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    int_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                assembler.assemble(
+                                    assembler.U8(DW_OP.implicit_value),
+                                    assembler.ULEB128(2),
+                                    assembler.U16(0),
+                                    assembler.U8(DW_OP.piece),
+                                    assembler.ULEB128(2),
+                                    assembler.U8(DW_OP.piece),
+                                    assembler.ULEB128(2),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+
+    def test_variable_expr_stack_value(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.lit31),
+                                            assembler.U8(DW_OP.stack_value),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 31))
+
+    def test_variable_expr_stack_value_pieces(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(
+                                                DW_OP.lit2
+                                                if little_endian
+                                                else DW_OP.lit1
+                                            ),
+                                            assembler.U8(DW_OP.stack_value),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(
+                                                3 if little_endian else 1
+                                            ),
+                                            assembler.U8(
+                                                DW_OP.lit1
+                                                if little_endian
+                                                else DW_OP.lit2
+                                            ),
+                                            assembler.U8(DW_OP.stack_value),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(
+                                                1 if little_endian else 3
+                                            ),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x1000002))
+
+    def test_variable_expr_stack_value_bit_pieces(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(
+                                                DW_OP.lit2
+                                                if little_endian
+                                                else DW_OP.lit31
+                                            ),
+                                            assembler.U8(DW_OP.stack_value),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(
+                                                4 if little_endian else 28
+                                            ),
+                                            assembler.ULEB128(
+                                                0 if little_endian else 4
+                                            ),
+                                            assembler.U8(
+                                                DW_OP.lit31
+                                                if little_endian
+                                                else DW_OP.lit2
+                                            ),
+                                            assembler.U8(DW_OP.stack_value),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(
+                                                28 if little_endian else 4
+                                            ),
+                                            assembler.ULEB128(
+                                                4 if little_endian else 0
+                                            ),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x12))
+
+    def test_variable_expr_stack_value_piece_empty(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    int_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                assembler.assemble(
+                                    assembler.U8(DW_OP.lit1),
+                                    assembler.U8(DW_OP.stack_value),
+                                    assembler.U8(DW_OP.piece),
+                                    assembler.ULEB128(2),
+                                    assembler.U8(DW_OP.piece),
+                                    assembler.ULEB128(2),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+        self.assertIdentical(prog.object("x"), Object(prog, "int"))
+
+    def test_variable_expr_contiguous_piece_addresses(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    int_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                assembler.assemble(
+                                    assembler.U8(DW_OP.addr),
+                                    assembler.U64(0xFFFF0000),
+                                    assembler.U8(DW_OP.piece),
+                                    assembler.ULEB128(2),
+                                    assembler.U8(DW_OP.addr),
+                                    assembler.U64(0xFFFF0002),
+                                    assembler.U8(DW_OP.piece),
+                                    assembler.ULEB128(2),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+        self.assertIdentical(prog.object("x"), Object(prog, "int", address=0xFFFF0000))
+
+    def test_variable_expr_contiguous_bit_piece_addresses(self):
+        for bit_offset in (0, 1):
+            with self.subTest(bit_offset=bit_offset):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0000),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(10),
+                                            assembler.ULEB128(bit_offset),
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0001),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(22),
+                                            assembler.ULEB128(bit_offset + 2),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                )
+                self.assertIdentical(
+                    prog.object("x"),
+                    Object(prog, "int", address=0xFFFF0000, bit_offset=bit_offset),
+                )
+
+    def test_variable_expr_non_contiguous_piece_addresses(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0002),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(2),
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0000),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(2),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                    segments=[
+                        MockMemorySegment(
+                            (0x12345678).to_bytes(
+                                4, "little" if little_endian else "big"
+                            ),
+                            0xFFFF0000,
+                        )
+                    ],
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x56781234))
+
+    def test_variable_expr_non_contiguous_piece_addresses_too_large(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0002),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(2),
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0000),
+                                            assembler.U8(DW_OP.piece),
+                                            assembler.ULEB128(256),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                    segments=[
+                        MockMemorySegment(
+                            (0x12345678).to_bytes(
+                                4, "little" if little_endian else "big"
+                            ),
+                            0xFFFF0000,
+                        )
+                    ],
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x56781234))
+
+    def test_variable_expr_non_contiguous_bit_piece_addresses(self):
+        for little_endian in (True, False):
+            with self.subTest(little_endian=little_endian):
+                prog = dwarf_program(
+                    wrap_test_type_dies(
+                        (
+                            int_die,
+                            DwarfDie(
+                                DW_TAG.variable,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                                    DwarfAttrib(
+                                        DW_AT.location,
+                                        DW_FORM.exprloc,
+                                        assembler.assemble(
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0000),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(4),
+                                            assembler.ULEB128(0),
+                                            assembler.U8(DW_OP.addr),
+                                            assembler.U64(0xFFFF0000),
+                                            assembler.U8(DW_OP.bit_piece),
+                                            assembler.ULEB128(28),
+                                            assembler.ULEB128(5),
+                                            little_endian=little_endian,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                    little_endian=little_endian,
+                    segments=[
+                        MockMemorySegment(
+                            (
+                                (0x2468ACE8).to_bytes(5, "little")
+                                if little_endian
+                                else (0x111A2B3C00).to_bytes(5, "big")
+                            ),
+                            0xFFFF0000,
+                        )
+                    ],
+                )
+                self.assertIdentical(prog.object("x"), Object(prog, "int", 0x12345678))
+
+    def test_variable_expr_unknown(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    int_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(DW_AT.location, DW_FORM.exprloc, b"\xdf"),
+                        ),
+                    ),
+                )
+            )
+        )
+        self.assertRaisesRegex(
+            Exception, "unknown DWARF expression opcode", prog.object, "x"
+        )
+
+    def test_variable_expr_unknown_after_location(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    int_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                assembler.assemble(
+                                    assembler.U8(DW_OP.implicit_value),
+                                    assembler.ULEB128(4),
+                                    assembler.U32(0),
+                                    assembler.U8(0xDF),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            )
+        )
+        self.assertRaisesRegex(
+            Exception, "unknown DWARF expression opcode", prog.object, "x"
+        )
+
+    def _eval_dwarf_expr(self, ops, **kwds):
+        assemble_kwds = {
+            key: value for key, value in kwds.items() if key == "little_endian"
+        }
+        return dwarf_program(
+            wrap_test_type_dies(
+                (
+                    unsigned_long_long_die,
+                    DwarfDie(
+                        DW_TAG.variable,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, 0),
+                            DwarfAttrib(
+                                DW_AT.location,
+                                DW_FORM.exprloc,
+                                assembler.assemble(
+                                    *ops,
+                                    assembler.U8(DW_OP.stack_value),
+                                    **assemble_kwds,
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            ),
+            **kwds,
+        )["x"].value_()
+
+    def _assert_dwarf_expr_eval(self, ops, expected, **kwds):
+        self.assertEqual(self._eval_dwarf_expr(ops, **kwds), expected)
+
+    def _assert_dwarf_expr_stack_underflow(self, ops, **kwds):
+        with self.assertRaisesRegex(Exception, "stack underflow"):
+            self._eval_dwarf_expr(ops, **kwds)
+
+    def test_variable_expr_op_lit(self):
+        for i in range(32):
+            with self.subTest(i=i):
+                self._assert_dwarf_expr_eval([assembler.U8(DW_OP.lit0 + i)], i)
+
+    def test_variable_expr_op_addr(self):
+        with self.subTest(bits=64):
+            self._assert_dwarf_expr_eval(
+                [assembler.U8(DW_OP.addr), assembler.U64(2 ** 64 - 1)],
+                2 ** 64 - 1,
+                bits=64,
+            )
+        with self.subTest(bits=32):
+            self._assert_dwarf_expr_eval(
+                [assembler.U8(DW_OP.addr), assembler.U32(2 ** 32 - 1)],
+                2 ** 32 - 1,
+                bits=32,
+            )
+
+    def test_variable_expr_op_constu(self):
+        for bits in (64, 32):
+            for size in (1, 2, 4, 8):
+                op_name = f"const{size}u"
+                with self.subTest(bits=bits, op=op_name):
+                    op = getattr(DW_OP, op_name)
+                    type_ = getattr(assembler, f"U{size * 8}")
+                    self._assert_dwarf_expr_eval(
+                        [assembler.U8(op), type_(2 ** (size * 8) - 1)],
+                        (2 ** (size * 8) - 1) & (2 ** bits - 1),
+                        bits=bits,
+                    )
+            with self.subTest(bits=bits, op="constu"):
+                self._assert_dwarf_expr_eval(
+                    [assembler.U8(DW_OP.constu), assembler.ULEB128(0x123456789)],
+                    0x123456789 & (2 ** bits - 1),
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_consts(self):
+        for bits in (64, 32):
+            for size in (1, 2, 4, 8):
+                op_name = f"const{size}s"
+                with self.subTest(bits=bits, op=op_name):
+                    op = getattr(DW_OP, op_name)
+                    type_ = getattr(assembler, f"S{size * 8}")
+                    self._assert_dwarf_expr_eval(
+                        [assembler.U8(op), type_(-1)],
+                        -1 & (2 ** bits - 1),
+                        bits=bits,
+                    )
+            with self.subTest(bits=bits, op="consts"):
+                self._assert_dwarf_expr_eval(
+                    [assembler.U8(DW_OP.consts), assembler.SLEB128(-0x123456789)],
+                    -0x123456789 & (2 ** bits - 1),
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_dup(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit1),
+                assembler.U8(DW_OP.dup),
+                assembler.U8(DW_OP.plus),
+            ],
+            2,
+        )
+
+    def test_variable_expr_op_drop(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit1),
+                assembler.U8(DW_OP.lit2),
+                assembler.U8(DW_OP.drop),
+                assembler.U8(DW_OP.lit3),
+                assembler.U8(DW_OP.plus),
+            ],
+            4,
+        )
+
+    def test_variable_expr_op_pick(self):
+        for i, value in enumerate((30, 20, 10)):
+            with self.subTest(i=i):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit10),
+                        assembler.U8(DW_OP.lit20),
+                        assembler.U8(DW_OP.lit30),
+                        assembler.U8(DW_OP.pick),
+                        assembler.U8(i),
+                    ],
+                    value,
+                )
+
+    def test_variable_expr_op_pick_underflow(self):
+        for i in (3, 255):
+            with self.subTest(i=i):
+                self._assert_dwarf_expr_stack_underflow(
+                    [
+                        assembler.U8(DW_OP.lit10),
+                        assembler.U8(DW_OP.lit20),
+                        assembler.U8(DW_OP.lit30),
+                        assembler.U8(DW_OP.pick),
+                        assembler.U8(i),
+                    ]
+                )
+
+    def test_variable_expr_op_over(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit10),
+                assembler.U8(DW_OP.lit20),
+                assembler.U8(DW_OP.over),
+            ],
+            10,
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit10),
+                assembler.U8(DW_OP.lit20),
+                assembler.U8(DW_OP.lit30),
+                assembler.U8(DW_OP.over),
+            ],
+            20,
+        )
+
+    def test_variable_expr_op_swap(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit3),
+                assembler.U8(DW_OP.lit5),
+                assembler.U8(DW_OP.swap),
+                assembler.U8(DW_OP.minus),
+            ],
+            2,
+        )
+
+    def test_variable_expr_op_rot(self):
+        for i, value in enumerate((5, 3, 7, 1)):
+            self._assert_dwarf_expr_eval(
+                [
+                    assembler.U8(DW_OP.lit1),
+                    assembler.U8(DW_OP.lit3),
+                    assembler.U8(DW_OP.lit5),
+                    assembler.U8(DW_OP.lit7),
+                    assembler.U8(DW_OP.rot),
+                    assembler.U8(DW_OP.pick),
+                    assembler.U8(i),
+                ],
+                value,
+            )
+
+    def test_variable_expr_op_deref(self):
+        for bits in (64, 32):
+            for little_endian in (True, False):
+                with self.subTest(bits=bits, little_endian=little_endian):
+                    self._assert_dwarf_expr_eval(
+                        [
+                            assembler.U8(DW_OP.addr),
+                            (assembler.U64 if bits == 64 else assembler.U32)(
+                                0xFFFF0000
+                            ),
+                            assembler.U8(DW_OP.deref),
+                        ],
+                        0x12345678,
+                        bits=bits,
+                        little_endian=little_endian,
+                        segments=[
+                            MockMemorySegment(
+                                (0x12345678).to_bytes(
+                                    bits // 8, "little" if little_endian else "big"
+                                ),
+                                0xFFFF0000,
+                            )
+                        ],
+                    )
+
+    def test_variable_expr_op_deref_fault(self):
+        with self.assertRaises(FaultError):
+            self._eval_dwarf_expr(
+                [
+                    assembler.U8(DW_OP.addr),
+                    assembler.U64(0xFFFF0000),
+                    assembler.U8(DW_OP.deref),
+                ]
+            )
+
+    def test_variable_expr_op_deref_size(self):
+        for bits in (64, 32):
+            for little_endian in (True, False):
+                with self.subTest(bits=bits, little_endian=little_endian):
+                    self._assert_dwarf_expr_eval(
+                        [
+                            assembler.U8(DW_OP.addr),
+                            (assembler.U64 if bits == 64 else assembler.U32)(
+                                0xFFFF0000
+                            ),
+                            assembler.U8(DW_OP.deref_size),
+                            assembler.U8(2),
+                        ],
+                        0x1337,
+                        bits=bits,
+                        little_endian=little_endian,
+                        segments=[
+                            MockMemorySegment(
+                                (0x1337).to_bytes(
+                                    2, "little" if little_endian else "big"
+                                ),
+                                0xFFFF0000,
+                            )
+                        ],
+                    )
+
+    def test_variable_expr_op_deref_size_fault(self):
+        with self.assertRaises(FaultError):
+            self._eval_dwarf_expr(
+                [
+                    assembler.U8(DW_OP.addr),
+                    assembler.U64(0xFFFF0000),
+                    assembler.U8(DW_OP.deref_size),
+                    assembler.U8(1),
+                ]
+            )
+
+    def test_variable_expr_stack_underflow(self):
+        for case in [
+            (DW_OP.dup, 1),
+            (DW_OP.drop, 1),
+            (DW_OP.over, 2),
+            (DW_OP.swap, 2),
+            (DW_OP.rot, 3),
+            (DW_OP.deref, 1),
+            (DW_OP.deref_size, 1, assembler.U8(1)),
+            (DW_OP.abs, 1),
+            (DW_OP.and_, 2),
+            (DW_OP.div, 2),
+            (DW_OP.minus, 2),
+            (DW_OP.mod, 2),
+            (DW_OP.mul, 2),
+            (DW_OP.neg, 1),
+            (DW_OP.not_, 1),
+            (DW_OP.or_, 2),
+            (DW_OP.plus, 2),
+            (DW_OP.plus_uconst, 1, assembler.ULEB128(1)),
+            (DW_OP.shl, 2),
+            (DW_OP.shr, 2),
+            (DW_OP.shra, 2),
+            (DW_OP.xor, 2),
+            (DW_OP.le, 2),
+            (DW_OP.ge, 2),
+            (DW_OP.eq, 2),
+            (DW_OP.lt, 2),
+            (DW_OP.gt, 2),
+            (DW_OP.ne, 2),
+            (DW_OP.bra, 1, assembler.S16(1)),
+        ]:
+            op = case[0]
+            min_entries = case[1]
+            extra_args = case[2:]
+            with self.subTest(op=op):
+                for i in range(min_entries):
+                    self._assert_dwarf_expr_stack_underflow(
+                        [assembler.U8(DW_OP.lit1)] * i + [assembler.U8(op), *extra_args]
+                    )
+
+    def test_variable_expr_op_abs(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-9),
+                        assembler.U8(DW_OP.abs),
+                    ],
+                    9,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_and(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit3),
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.and_),
+                    ],
+                    1,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_div(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.div),
+                    ],
+                    2,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit0),
+                        assembler.U8(DW_OP.lit3),
+                        assembler.U8(DW_OP.div),
+                    ],
+                    0,
+                    bits=bits,
+                )
+                # The DWARF 5 specification doesn't specify how signed division
+                # should be rounded. We assume truncation towards zero like C.
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-5),
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.div),
+                    ],
+                    -2 & (2 ** bits - 1),
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_div_by_zero(self):
+        with self.assertRaisesRegex(Exception, "division by zero"):
+            self._eval_dwarf_expr(
+                [
+                    assembler.U8(DW_OP.lit1),
+                    assembler.U8(DW_OP.lit0),
+                    assembler.U8(DW_OP.div),
+                ]
+            )
+
+    def test_variable_expr_op_minus(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.minus),
+                    ],
+                    3,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.minus),
+                    ],
+                    -3 & (2 ** bits - 1),
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_mod(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.mod),
+                    ],
+                    1,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit0),
+                        assembler.U8(DW_OP.lit3),
+                        assembler.U8(DW_OP.mod),
+                    ],
+                    0,
+                    bits=bits,
+                )
+                # Although DW_OP_div is signed, DW_OP_mod is unsigned.
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-5),
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.mod),
+                    ],
+                    1,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_mod_by_zero(self):
+        with self.assertRaisesRegex(Exception, "modulo by zero"):
+            self._eval_dwarf_expr(
+                [
+                    assembler.U8(DW_OP.lit1),
+                    assembler.U8(DW_OP.lit0),
+                    assembler.U8(DW_OP.mod),
+                ]
+            )
+
+    def test_variable_expr_op_mul(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.mul),
+                    ],
+                    10,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-5),
+                        assembler.U8(DW_OP.lit2),
+                        assembler.U8(DW_OP.mul),
+                    ],
+                    ((-5 & (2 ** bits - 1)) * 2) & (2 ** bits - 1),
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_neg(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit7),
+                        assembler.U8(DW_OP.neg),
+                    ],
+                    -7 & (2 ** bits - 1),
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-7),
+                        assembler.U8(DW_OP.neg),
+                    ],
+                    7,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_not(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit0),
+                        assembler.U8(DW_OP.not_),
+                    ],
+                    2 ** bits - 1,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit31),
+                        assembler.U8(DW_OP.not_),
+                    ],
+                    ~31 & (2 ** bits - 1),
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_or(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit3),
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.or_),
+                    ],
+                    7,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_plus(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit6),
+                        assembler.U8(DW_OP.lit7),
+                        assembler.U8(DW_OP.plus),
+                    ],
+                    13,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.S8(DW_OP.const1s),
+                        assembler.S8(-3),
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.plus),
+                    ],
+                    2,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_plus_uconst(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit6),
+                        assembler.U8(DW_OP.plus_uconst),
+                        assembler.ULEB128(7),
+                    ],
+                    13,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.S8(DW_OP.const1s),
+                        assembler.S8(-3),
+                        assembler.U8(DW_OP.plus_uconst),
+                        assembler.ULEB128(5),
+                    ],
+                    2,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_shl(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit3),
+                        assembler.U8(DW_OP.lit4),
+                        assembler.U8(DW_OP.shl),
+                    ],
+                    48,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.constu),
+                        assembler.ULEB128(2 ** (bits - 2)),
+                        assembler.U8(DW_OP.lit1),
+                        assembler.U8(DW_OP.shl),
+                    ],
+                    2 ** (bits - 1),
+                    bits=bits,
+                )
+                # The DWARF specification doesn't define the behavior of
+                # shifting by a number of bits larger than the width of the
+                # type. We evaluate it to zero.
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit3),
+                        assembler.U8(DW_OP.const1u),
+                        assembler.U8(bits),
+                        assembler.U8(DW_OP.shl),
+                    ],
+                    0,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_shr(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1u),
+                        assembler.U8(48),
+                        assembler.U8(DW_OP.lit4),
+                        assembler.U8(DW_OP.shr),
+                    ],
+                    3,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.constu),
+                        assembler.ULEB128(2 ** (bits - 1)),
+                        assembler.U8(DW_OP.lit1),
+                        assembler.U8(DW_OP.shr),
+                    ],
+                    2 ** (bits - 2),
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-1),
+                        assembler.U8(DW_OP.const1u),
+                        assembler.U8(bits),
+                        assembler.U8(DW_OP.shr),
+                    ],
+                    0,
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_shra(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1u),
+                        assembler.U8(48),
+                        assembler.U8(DW_OP.lit4),
+                        assembler.U8(DW_OP.shra),
+                    ],
+                    3,
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-48),
+                        assembler.U8(DW_OP.lit4),
+                        assembler.U8(DW_OP.shra),
+                    ],
+                    -3 & (2 ** bits - 1),
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.constu),
+                        assembler.ULEB128(2 ** (bits - 1)),
+                        assembler.U8(DW_OP.lit1),
+                        assembler.U8(DW_OP.shra),
+                    ],
+                    2 ** (bits - 2) + 2 ** (bits - 1),
+                    bits=bits,
+                )
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.const1s),
+                        assembler.S8(-2),
+                        assembler.U8(DW_OP.const1u),
+                        assembler.U8(bits),
+                        assembler.U8(DW_OP.shra),
+                    ],
+                    -1 & (2 ** bits - 1),
+                    bits=bits,
+                )
+
+    def test_variable_expr_op_xor(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                self._assert_dwarf_expr_eval(
+                    [
+                        assembler.U8(DW_OP.lit3),
+                        assembler.U8(DW_OP.lit5),
+                        assembler.U8(DW_OP.xor),
+                    ],
+                    6,
+                    bits=bits,
+                )
+
+    def test_variable_expr_relational(self):
+        for op, py_op in [
+            (DW_OP.le, operator.le),
+            (DW_OP.ge, operator.ge),
+            (DW_OP.eq, operator.eq),
+            (DW_OP.lt, operator.lt),
+            (DW_OP.gt, operator.gt),
+            (DW_OP.ne, operator.ne),
+        ]:
+            for bits in (64, 32):
+                for val1, val2 in [
+                    (3, 5),
+                    (3, -5),
+                    (-3, 5),
+                    (-3, -5),
+                    (5, 5),
+                    (5, -5),
+                    (-5, 5),
+                    (-5, -5),
+                    (6, 5),
+                    (6, -5),
+                    (-6, 5),
+                    (-6, -5),
+                ]:
+                    with self.subTest(bits=bits, val1=val1, val2=val2):
+                        self._assert_dwarf_expr_eval(
+                            [
+                                assembler.U8(DW_OP.const1s),
+                                assembler.S8(val1),
+                                assembler.U8(DW_OP.const1s),
+                                assembler.S8(val2),
+                                assembler.U8(op),
+                            ],
+                            int(py_op(val1, val2)),
+                        )
+
+    def test_variable_expr_op_skip(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.skip),
+                assembler.S16(3),
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.div),
+                assembler.U8(DW_OP.lit20),
+            ],
+            20,
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit1),
+                assembler.U8(DW_OP.skip),
+                assembler.S16(4),
+                assembler.U8(DW_OP.lit3),
+                assembler.U8(DW_OP.skip),
+                assembler.S16(4),
+                assembler.U8(DW_OP.lit2),
+                assembler.U8(DW_OP.skip),
+                assembler.S16(-8),
+            ],
+            3,
+        )
+
+    def test_variable_expr_op_skip_infinite(self):
+        with self.assertRaisesRegex(Exception, "too many operations"):
+            self._eval_dwarf_expr([assembler.U8(DW_OP.skip), assembler.S16(-3)])
+
+    def test_variable_expr_op_skip_out_of_bounds(self):
+        with self.assertRaisesRegex(Exception, "out of bounds"):
+            self._eval_dwarf_expr(
+                [
+                    assembler.U8(DW_OP.skip),
+                    # 1 extra for for the DW_OP_stack_value added by
+                    # _eval_dwarf_expr().
+                    assembler.U16(3),
+                    assembler.U8(DW_OP.nop),
+                ],
+            )
+
+    def test_variable_expr_op_bra(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit31),
+                assembler.U8(DW_OP.bra),
+                assembler.S16(3),
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.div),
+                assembler.U8(DW_OP.lit20),
+            ],
+            20,
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit1),
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.bra),
+                assembler.S16(1),
+                assembler.U8(DW_OP.lit2),
+            ],
+            2,
+        )
+        # More complicated expression implementing something like this:
+        # i = 0
+        # x = 0
+        # do {
+        #     x += 2;
+        #     i += 1;
+        # while (i <= 5);
+        # return x;
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.plus_uconst),
+                assembler.ULEB128(2),
+                assembler.U8(DW_OP.swap),
+                assembler.U8(DW_OP.plus_uconst),
+                assembler.ULEB128(1),
+                assembler.U8(DW_OP.swap),
+                assembler.U8(DW_OP.over),
+                assembler.U8(DW_OP.lit5),
+                assembler.U8(DW_OP.lt),
+                assembler.U8(DW_OP.bra),
+                assembler.S16(-12),
+            ],
+            10,
+        )
+
+    def test_variable_expr_op_bra_out_of_bounds(self):
+        with self.assertRaisesRegex(Exception, "out of bounds"):
+            self._eval_dwarf_expr(
+                [
+                    assembler.U8(DW_OP.lit1),
+                    assembler.U8(DW_OP.bra),
+                    # 1 extra for for the DW_OP_stack_value added by
+                    # _eval_dwarf_expr().
+                    assembler.U16(3),
+                    assembler.U8(DW_OP.nop),
+                ],
+            )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.lit0),
+                assembler.U8(DW_OP.bra),
+                assembler.U16(3),
+                assembler.U8(DW_OP.lit2),
+            ],
+            2,
+        )
+
+    def test_variable_expr_op_nop(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.nop),
+                assembler.U8(DW_OP.nop),
+                assembler.U8(DW_OP.lit25),
+                assembler.U8(DW_OP.nop),
+                assembler.U8(DW_OP.nop),
+            ],
+            25,
+        )
 
     def test_variable_const_signed(self):
         for form in (

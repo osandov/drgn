@@ -318,7 +318,7 @@ drgn_object_set_from_buffer(struct drgn_object *res,
 						    bit_offset);
 }
 
-static struct drgn_error *
+struct drgn_error *
 drgn_object_set_reference_internal(struct drgn_object *res,
 				   const struct drgn_object_type *type,
 				   uint64_t address, uint64_t bit_offset)
