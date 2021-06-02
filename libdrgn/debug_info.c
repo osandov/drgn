@@ -1235,7 +1235,7 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 #define ELEM(i) stack->data[stack->size - 1 - (i)]
 
 #define PUSH(x) do {					\
-	uint64_t push = x;				\
+	uint64_t push = (x);				\
 	if (!uint64_vector_append(stack, &push))	\
 		return &drgn_enomem;			\
 } while (0)
