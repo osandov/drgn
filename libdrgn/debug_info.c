@@ -961,6 +961,15 @@ drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
 }
 
 static struct drgn_error *
+drgn_debug_info_module_cache_section(struct drgn_debug_info_module *module,
+				     enum drgn_debug_info_scn scn)
+{
+	if (module->scn_data[scn])
+		return NULL;
+	return read_elf_section(module->scns[scn], &module->scn_data[scn]);
+}
+
+static struct drgn_error *
 drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 			    struct drgn_dwarf_index_update_state *dindex_state,
 			    struct drgn_debug_info_module *head)
@@ -3640,7 +3649,7 @@ drgn_parse_dwarf_frames(struct drgn_debug_info_module *module,
 
 	if (!module->scns[scn])
 		return NULL;
-	err = read_elf_section(module->scns[scn], &module->scn_data[scn]);
+	err = drgn_debug_info_module_cache_section(module, scn);
 	if (err)
 		return err;
 	Elf_Data *data = module->scn_data[scn];
@@ -4480,20 +4489,14 @@ drgn_debug_info_parse_orc(struct drgn_debug_info_module *module)
 		return drgn_error_libelf();
 	module->orc_pc_base = shdr->sh_addr;
 
-	if (!module->scn_data[DRGN_SCN_ORC_UNWIND_IP]) {
-		err = read_elf_section(module->scns[DRGN_SCN_ORC_UNWIND_IP],
-				       &module->scn_data[DRGN_SCN_ORC_UNWIND_IP]);
-		if (err)
-			return err;
-	}
+	err = drgn_debug_info_module_cache_section(module,
+						   DRGN_SCN_ORC_UNWIND_IP);
+	if (err)
+		return err;
+	err = drgn_debug_info_module_cache_section(module, DRGN_SCN_ORC_UNWIND);
+	if (err)
+		return err;
 	Elf_Data *orc_unwind_ip = module->scn_data[DRGN_SCN_ORC_UNWIND_IP];
-
-	if (!module->scn_data[DRGN_SCN_ORC_UNWIND]) {
-		err = read_elf_section(module->scns[DRGN_SCN_ORC_UNWIND],
-				       &module->scn_data[DRGN_SCN_ORC_UNWIND]);
-		if (err)
-			return err;
-	}
 	Elf_Data *orc_unwind = module->scn_data[DRGN_SCN_ORC_UNWIND];
 
 	size_t num_entries = orc_unwind_ip->d_size / sizeof(int32_t);
