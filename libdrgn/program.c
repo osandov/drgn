@@ -191,7 +191,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 {
 	struct drgn_error *err;
 	GElf_Ehdr ehdr_mem, *ehdr;
-	struct drgn_platform platform;
+	bool had_platform;
 	bool is_64_bit, is_kdump;
 	size_t phnum, i;
 	size_t num_file_segments, j;
@@ -232,13 +232,17 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 					"not an ELF core file");
 		goto out_elf;
 	}
-
-	drgn_platform_from_elf(ehdr, &platform);
+	had_platform = prog->has_platform;
+	if (!had_platform) {
+		struct drgn_platform platform;
+		drgn_platform_from_elf(ehdr, &platform);
+		drgn_program_set_platform(prog, &platform);
+	}
 	is_64_bit = ehdr->e_ident[EI_CLASS] == ELFCLASS64;
 
 	if (elf_getphdrnum(prog->core, &phnum) != 0) {
 		err = drgn_error_libelf();
-		goto out_elf;
+		goto out_platform;
 	}
 
 	/*
@@ -252,7 +256,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
 		if (!phdr) {
 			err = drgn_error_libelf();
-			goto out_elf;
+			goto out_platform;
 		}
 
 		if (phdr->p_type == PT_LOAD) {
@@ -270,7 +274,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 						    note_header_type(phdr));
 			if (!data) {
 				err = drgn_error_libelf();
-				goto out_elf;
+				goto out_platform;
 			}
 
 			offset = 0;
@@ -310,7 +314,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		if (fstatfs(prog->core_fd, &fs) == -1) {
 			err = drgn_error_create_os("fstatfs", errno, path);
 			if (err)
-				goto out_elf;
+				goto out_platform;
 		}
 		is_proc_kcore = fs.f_type == 0x9fa0; /* PROC_SUPER_MAGIC */
 	} else {
@@ -325,7 +329,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		if (env && atoi(env)) {
 			err = drgn_program_set_kdump(prog);
 			if (err)
-				goto out_elf;
+				goto out_platform;
 			return NULL;
 		}
 	}
@@ -334,11 +338,11 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 					   sizeof(*prog->file_segments));
 	if (!prog->file_segments) {
 		err = &drgn_enomem;
-		goto out_elf;
+		goto out_platform;
 	}
 
 	if ((is_proc_kcore || vmcoreinfo_note) &&
-	    platform.arch->linux_kernel_pgtable_iterator_next) {
+	    prog->platform.arch->linux_kernel_pgtable_iterator_next) {
 		/*
 		 * Try to read any memory that isn't in the core dump via the
 		 * page table.
@@ -397,12 +401,11 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	 * pass, as we may need to read virtual memory to determine the mapping.
 	 */
 	if (is_proc_kcore && !have_phys_addrs &&
-	    platform.arch->linux_kernel_live_direct_mapping_fallback) {
+	    prog->platform.arch->linux_kernel_live_direct_mapping_fallback) {
 		uint64_t direct_mapping, direct_mapping_size;
-
-		err = platform.arch->linux_kernel_live_direct_mapping_fallback(prog,
-									       &direct_mapping,
-									       &direct_mapping_size);
+		err = prog->platform.arch->linux_kernel_live_direct_mapping_fallback(prog,
+										     &direct_mapping,
+										     &direct_mapping_size);
 		if (err)
 			goto out_segments;
 
@@ -467,7 +470,6 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			prog->lang = &drgn_language_c;
 	}
 
-	drgn_program_set_platform(prog, &platform);
 	return NULL;
 
 out_segments:
@@ -475,6 +477,8 @@ out_segments:
 	drgn_memory_reader_init(&prog->reader);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
+out_platform:
+	prog->has_platform = had_platform;
 out_elf:
 	elf_end(prog->core);
 	prog->core = NULL;
