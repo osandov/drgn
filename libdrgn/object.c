@@ -10,7 +10,6 @@
 #include "drgn.h"
 #include "error.h"
 #include "language.h"
-#include "memory_reader.h"
 #include "minmax.h"
 #include "object.h"
 #include "program.h"
@@ -537,8 +536,8 @@ drgn_object_read_reference(const struct drgn_object *obj,
 			if (!dst)
 				return &drgn_enomem;
 		}
-		err = drgn_memory_reader_read(&drgn_object_program(obj)->reader,
-					      dst, obj->address, size, false);
+		err = drgn_program_read_memory(drgn_object_program(obj), dst,
+					       obj->address, size, false);
 		if (err) {
 			if (dst != value->ibuf)
 				free(dst);
@@ -553,9 +552,8 @@ drgn_object_read_reference(const struct drgn_object *obj,
 		uint64_t read_size = drgn_value_size(bit_offset + bit_size);
 		char buf[9];
 		assert(read_size <= sizeof(buf));
-		err = drgn_memory_reader_read(&drgn_object_program(obj)->reader,
-					      buf, obj->address, read_size,
-					      false);
+		err = drgn_program_read_memory(drgn_object_program(obj), buf,
+					       obj->address, read_size, false);
 		if (err)
 			return err;
 		drgn_value_deserialize(value, buf, bit_offset, obj->encoding,

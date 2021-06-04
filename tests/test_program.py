@@ -173,10 +173,27 @@ class TestMemory(TestCase):
         )
         self.assertEqual(prog.read(0xFFFF0000, 14), data[:14])
 
+    def test_address_overflow(self):
+        for bits in (64, 32):
+            with self.subTest(bits=bits):
+                prog = mock_program(
+                    segments=[
+                        MockMemorySegment(b"cd", 0x0),
+                        MockMemorySegment(b"abyz", 2 ** bits - 2),
+                    ],
+                    platform=MOCK_PLATFORM if bits == 64 else MOCK_32BIT_PLATFORM,
+                )
+                for start in range(3):
+                    for size in range(4 - start):
+                        self.assertEqual(
+                            prog.read((2 ** bits - 2 + start) % 2 ** 64, size),
+                            b"abcd"[start : start + size],
+                        )
+
     def test_overlap_same_address_smaller_size(self):
         # Existing segment: |_______|
         # New segment:      |___|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         prog.add_memory_segment(0xFFFF0000, 128, segment1)
@@ -188,7 +205,7 @@ class TestMemory(TestCase):
     def test_overlap_within_segment(self):
         # Existing segment: |_______|
         # New segment:        |___|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         prog.add_memory_segment(0xFFFF0000, 128, segment1)
@@ -205,7 +222,7 @@ class TestMemory(TestCase):
     def test_overlap_same_segment(self):
         # Existing segment: |_______|
         # New segment:      |_______|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         prog.add_memory_segment(0xFFFF0000, 128, segment1)
@@ -217,7 +234,7 @@ class TestMemory(TestCase):
     def test_overlap_same_address_larger_size(self):
         # Existing segment: |___|
         # New segment:      |_______|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         prog.add_memory_segment(0xFFFF0000, 64, segment1)
@@ -229,7 +246,7 @@ class TestMemory(TestCase):
     def test_overlap_segment_tail(self):
         # Existing segment: |_______|
         # New segment:          |_______|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         prog.add_memory_segment(0xFFFF0000, 128, segment1)
@@ -241,7 +258,7 @@ class TestMemory(TestCase):
     def test_overlap_subsume_after(self):
         # Existing segments:   |_|_|_|_|
         # New segment:       |_______|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment3 = unittest.mock.Mock(side_effect=zero_memory_read)
@@ -258,7 +275,7 @@ class TestMemory(TestCase):
     def test_overlap_segment_head(self):
         # Existing segment:     |_______|
         # New segment:      |_______|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         prog.add_memory_segment(0xFFFF0040, 128, segment1)
@@ -270,7 +287,7 @@ class TestMemory(TestCase):
     def test_overlap_segment_head_and_tail(self):
         # Existing segment: |_______||_______|
         # New segment:          |_______|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment3 = unittest.mock.Mock(side_effect=zero_memory_read)
@@ -285,7 +302,7 @@ class TestMemory(TestCase):
     def test_overlap_subsume_at_and_after(self):
         # Existing segments: |_|_|_|_|
         # New segment:       |_______|
-        prog = Program()
+        prog = Program(MOCK_PLATFORM)
         segment1 = unittest.mock.Mock(side_effect=zero_memory_read)
         segment2 = unittest.mock.Mock(side_effect=zero_memory_read)
         prog.add_memory_segment(0xFFFF0000, 32, segment1)

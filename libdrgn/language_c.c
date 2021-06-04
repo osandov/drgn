@@ -15,7 +15,6 @@
 #include "hash_table.h"
 #include "language.h" // IWYU pragma: associated
 #include "lexer.h"
-#include "memory_reader.h"
 #include "minmax.h"
 #include "object.h"
 #include "program.h"
@@ -653,8 +652,8 @@ no_escape:
 }
 
 static struct drgn_error *
-c_format_string(struct drgn_memory_reader *reader, uint64_t address,
-		uint64_t length, struct string_builder *sb)
+c_format_string(struct drgn_program *prog, uint64_t address, uint64_t length,
+		struct string_builder *sb)
 {
 	struct drgn_error *err;
 
@@ -662,8 +661,7 @@ c_format_string(struct drgn_memory_reader *reader, uint64_t address,
 		return &drgn_enomem;
 	while (length) {
 		unsigned char c;
-
-		err = drgn_memory_reader_read(reader, &c, address++, 1, false);
+		err = drgn_program_read_memory(prog, &c, address++, 1, false);
 		if (err)
 			return err;
 
@@ -1318,7 +1316,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 		return &drgn_enomem;
 
 	if (c_string) {
-		err = c_format_string(&drgn_object_program(obj)->reader, uvalue,
+		err = c_format_string(drgn_object_program(obj), uvalue,
 				      UINT64_MAX, sb);
 	} else {
 		struct drgn_object dereferenced;
@@ -1474,7 +1472,7 @@ c_format_array_object(const struct drgn_object *obj,
 			return NULL;
 		}
 		case DRGN_OBJECT_REFERENCE:
-			return c_format_string(&drgn_object_program(obj)->reader,
+			return c_format_string(drgn_object_program(obj),
 					       obj->address, iter.length, sb);
 		case DRGN_OBJECT_ABSENT:
 		)

@@ -24,7 +24,6 @@
 #include "helpers.h"
 #include "language.h"
 #include "linux_kernel.h"
-#include "memory_reader.h"
 #include "platform.h"
 #include "program.h"
 #include "type.h"
@@ -195,8 +194,7 @@ invalid:
  * we can read from the physical address of the vmcoreinfo note exported in
  * sysfs.
  */
-struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
-					    struct vmcoreinfo *ret)
+struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 	FILE *file;
@@ -221,7 +219,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 	if (!buf)
 		return &drgn_enomem;
 
-	err = drgn_memory_reader_read(reader, buf, address, size, true);
+	err = drgn_program_read_memory(prog, buf, address, size, true);
 	if (err)
 		goto out;
 
@@ -239,7 +237,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
 		goto out;
 	}
 
-	err = parse_vmcoreinfo(buf + 24, nhdr->n_descsz, ret);
+	err = parse_vmcoreinfo(buf + 24, nhdr->n_descsz, &prog->vmcoreinfo);
 out:
 	free(buf);
 	return err;

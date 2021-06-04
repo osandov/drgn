@@ -497,7 +497,8 @@ typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
  * Register a segment of memory in a @ref drgn_program.
  *
  * If the segment overlaps a previously registered segment, the new segment
- * takes precedence.
+ * takes precedence. If any part of the segment is beyond the maximum address,
+ * that part is ignored.
  *
  * @param[in] address Address of the segment.
  * @param[in] size Size of the segment in bytes.

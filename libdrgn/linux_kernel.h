@@ -7,7 +7,6 @@
 #include "drgn.h"
 
 struct drgn_debug_info_load_state;
-struct drgn_memory_reader;
 struct vmcoreinfo;
 
 struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
@@ -20,8 +19,7 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 					     unsigned long *ret);
 
-struct drgn_error *read_vmcoreinfo_fallback(struct drgn_memory_reader *reader,
-					    struct vmcoreinfo *ret);
+struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog);
 
 struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 					    const char *filename,

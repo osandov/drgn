@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,25 +46,15 @@ bool drgn_memory_reader_empty(struct drgn_memory_reader *reader)
 
 struct drgn_error *
 drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
-			       uint64_t address, uint64_t size,
+			       uint64_t min_address, uint64_t max_address,
 			       drgn_memory_read_fn read_fn, void *arg,
 			       bool physical)
 {
+	assert(min_address <= max_address);
+
 	struct drgn_memory_segment_tree *tree = (physical ?
 						 &reader->physical_segments :
 						 &reader->virtual_segments);
-	struct drgn_memory_segment_tree_iterator it;
-	struct drgn_memory_segment *stolen = NULL, *segment;
-	struct drgn_memory_segment *truncate_head = NULL, *truncate_tail = NULL;
-	uint64_t end, existing_end;
-
-	if (size == 0)
-		return NULL;
-
-	if (__builtin_add_overflow(address, size, &end)) {
-		return drgn_error_create(DRGN_ERROR_OVERFLOW,
-					 "memory segment end is too large");
-	}
 
 	/*
 	 * This is split into two steps: the first step handles an overlapping
@@ -72,22 +63,23 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 	 * can steal an existing segment instead of allocating a new one.
 	 */
 
-	it = drgn_memory_segment_tree_search_le(tree, &address);
+	struct drgn_memory_segment *stolen = NULL, *segment;
+	struct drgn_memory_segment *truncate_head = NULL, *truncate_tail = NULL;
+	struct drgn_memory_segment_tree_iterator it =
+		drgn_memory_segment_tree_search_le(tree, &min_address);
 	if (it.entry) {
-		existing_end = it.entry->address + it.entry->size;
-		if (end < existing_end) {
+		if (max_address < it.entry->max_address) {
 			/*
 			 * The new segment lies entirely within an existing
 			 * segment, and part of the existing segment extends
 			 * after the new segment (a "tail").
 			 */
-			struct drgn_memory_segment *tail;
-
-			tail = malloc(sizeof(*tail));
+			struct drgn_memory_segment *tail =
+				malloc(sizeof(*tail));
 			if (!tail)
 				return &drgn_enomem;
 
-			if (it.entry->address == address) {
+			if (it.entry->min_address == min_address) {
 				/*
 				 * The new segment starts at the same address as
 				 * the existing segment, so we can steal the
@@ -108,23 +100,22 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 				truncate_tail = it.entry;
 			}
 
-			tail->address = end;
-			tail->size = existing_end - end;
-			tail->orig_address = it.entry->orig_address;
+			tail->min_address = max_address + 1;
+			tail->max_address = it.entry->max_address;
+			tail->orig_min_address = it.entry->orig_min_address;
 			tail->read_fn = it.entry->read_fn;
 			tail->arg = it.entry->arg;
 
-			drgn_memory_segment_tree_insert(tree, tail,
-							NULL);
+			drgn_memory_segment_tree_insert(tree, tail, NULL);
 			goto insert;
 		}
-		if (it.entry->address == address) {
+		if (it.entry->min_address == min_address) {
 			/*
 			 * The new segment subsumes an existing segment at the
 			 * same address. We can steal the existing segment.
 			 */
 			stolen = it.entry;
-		} else if (address < existing_end) {
+		} else if (min_address <= it.entry->max_address) {
 			/*
 			 * The new segment overlaps an existing segment before
 			 * it, and part of the existing segment extends before
@@ -145,8 +136,7 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 	}
 
 	while (it.entry) {
-		existing_end = it.entry->address + it.entry->size;
-		if (end >= existing_end) {
+		if (max_address >= it.entry->max_address) {
 			/*
 			 * The new segment subsumes an existing segment after
 			 * it.
@@ -158,9 +148,7 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 				 * allocate a new segment later, it's safe to
 				 * modify the tree now.
 				 */
-				struct drgn_memory_segment *existing_segment;
-
-				existing_segment = it.entry;
+				struct drgn_memory_segment *existing_segment = it.entry;
 				it = drgn_memory_segment_tree_delete_iterator(tree, it);
 				free(existing_segment);
 			} else {
@@ -180,7 +168,7 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			}
 			continue;
 		}
-		if (end > it.entry->address) {
+		if (max_address >= it.entry->min_address) {
 			/*
 			 * The new segment overlaps an existing segment after
 			 * it, and part of the existing segment extends after
@@ -208,14 +196,12 @@ insert:
 	 * Now that we've allocated the new segment if necessary, we can safely
 	 * modify the tree.
 	 */
-	if (truncate_head) {
-		truncate_head->size -= end - truncate_head->address;
-		truncate_head->address = end;
-	}
+	if (truncate_head)
+		truncate_head->min_address = max_address + 1;
 	if (truncate_tail)
-		truncate_tail->size = address - truncate_tail->address;
-	segment->address = segment->orig_address = address;
-	segment->size = size;
+		truncate_tail->max_address = min_address - 1;
+	segment->min_address = segment->orig_min_address = min_address;
+	segment->max_address = max_address;
 	segment->read_fn = read_fn;
 	segment->arg = arg;
 	/* If the segment is stolen, then it's already in the tree. */
@@ -228,33 +214,32 @@ struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 					   void *buf, uint64_t address,
 					   size_t count, bool physical)
 {
+	assert(count == 0 || count - 1 <= UINT64_MAX - address);
+
+	struct drgn_error *err;
 	struct drgn_memory_segment_tree *tree = (physical ?
 						 &reader->physical_segments :
 						 &reader->virtual_segments);
-	struct drgn_error *err;
-	size_t read = 0;
-
-	while (read < count) {
-		struct drgn_memory_segment *segment;
-		size_t n;
-
-		segment = drgn_memory_segment_tree_search_le(tree,
-							     &address).entry;
-		if (!segment || segment->address + segment->size <= address) {
+	char *p = buf;
+	while (count > 0) {
+		struct drgn_memory_segment *segment =
+			drgn_memory_segment_tree_search_le(tree,
+							   &address).entry;
+		if (!segment || segment->max_address < address) {
 			return drgn_error_create_fault("could not find memory segment",
 						       address);
 		}
 
-		n = min(segment->address + segment->size - address,
-			(uint64_t)(count - read));
-		err = segment->read_fn((char *)buf + read, address, n,
-				       address - segment->orig_address,
+		size_t n = min((uint64_t)(count - 1),
+			       segment->max_address - address) + 1;
+		err = segment->read_fn(p, address, n,
+				       address - segment->orig_min_address,
 				       segment->arg, physical);
 		if (err)
 			return err;
-
-		read += n;
+		p += n;
 		address += n;
+		count -= n;
 	}
 	return NULL;
 }
