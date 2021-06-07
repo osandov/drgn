@@ -2686,9 +2686,6 @@ reg:
 			piece_bit_offset = 0;
 		}
 
-		if (piece_bit_size == 0)
-			continue;
-
 		/*
 		 * TODO: there are a few cases that a DWARF location can
 		 * describe that can't be represented in drgn's object model:
@@ -2705,7 +2702,9 @@ reg:
 		 * not supported at all. We should add a way to represent all of
 		 * these situations precisely.
 		 */
-		if (src) {
+		if (src && piece_bit_size == 0) {
+			/* Ignore empty value. */
+		} else if (src) {
 			if (!value_buf &&
 			    !drgn_value_zalloc(drgn_value_size(type.bit_size),
 					       &value, &value_buf)) {
@@ -2752,7 +2751,7 @@ reg:
 				((stack.data[stack.size - 1] + piece_bit_offset / 8)
 				 & address_mask);
 			piece_bit_offset %= 8;
-			if (bit_offset >= 0) {
+			if (bit_pos > 0 && bit_offset >= 0) {
 				/*
 				 * We already had an address. Merge the pieces
 				 * if the addresses are contiguous, otherwise
@@ -2769,8 +2768,9 @@ reg:
 					 & address_mask);
 				unsigned int end_bit_offset =
 					(bit_offset + bit_pos) % 8;
-				if (piece_address == end_address &&
-				    piece_bit_offset == end_bit_offset) {
+				if (piece_bit_size == 0 ||
+				    (piece_address == end_address &&
+				     piece_bit_offset == end_bit_offset)) {
 					/* Piece is contiguous. */
 					piece_address = address;
 					piece_bit_offset = bit_offset;
@@ -2801,7 +2801,7 @@ reg:
 				address = piece_address;
 				bit_offset = piece_bit_offset;
 			}
-		} else {
+		} else if (piece_bit_size > 0) {
 			goto absent;
 		}
 		bit_pos += piece_bit_size;
