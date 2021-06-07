@@ -43,7 +43,7 @@ def displayhook(value: Any) -> None:
 def main() -> None:
     python_version = ".".join(str(v) for v in sys.version_info[:3])
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
-    version = f"drgn {drgn.__version__} (using Python {python_version}, {libkdumpfile})"
+    version = f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
     parser = argparse.ArgumentParser(prog="drgn", description="Scriptable debugger")
 
     program_group = parser.add_argument_group(

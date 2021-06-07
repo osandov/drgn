@@ -2054,6 +2054,7 @@ class OutOfBoundsError(Exception):
 
     ...
 
+_elfutils_version: str
 _with_libkdumpfile: bool
 
 def _linux_helper_read_vm(

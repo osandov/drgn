@@ -73,6 +73,7 @@ from _drgn import (
     TypeMember,
     TypeParameter,
     TypeTemplateParameter,
+    _elfutils_version as _elfutils_version,
     _with_libkdumpfile as _with_libkdumpfile,
     cast,
     container_of,

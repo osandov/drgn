@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <elfutils/libdwfl.h>
 #ifdef WITH_KDUMPFILE
 #include <libkdumpfile/kdumpfile.h>
 #endif
@@ -279,6 +280,10 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 		Py_DECREF(host_platform_obj);
 		goto err;
 	}
+
+	if (PyModule_AddStringConstant(m, "_elfutils_version",
+				       dwfl_version(NULL)))
+		goto err;
 
 	PyObject *with_libkdumpfile;
 #ifdef WITH_LIBKDUMPFILE
