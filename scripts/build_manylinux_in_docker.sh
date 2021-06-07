@@ -56,7 +56,7 @@ python_supported() {
 	"$1" -c 'import sys; sys.exit(sys.version_info < (3, 6))'
 }
 
-for pybin in /opt/python/*/bin; do
+for pybin in /opt/python/cp*/bin; do
 	if python_supported "$pybin/python"; then
 		# static_assert was added to assert.h in glibc 2.16, but CentOS
 		# 6 has 2.12.
@@ -72,7 +72,7 @@ for wheel in /tmp/wheels/*.whl; do
 	fi
 done
 
-for pybin in /opt/python/*/bin; do
+for pybin in /opt/python/cp*/bin; do
 	if python_supported "$pybin/python"; then
 		"$pybin/pip" install drgn --no-index -f /tmp/manylinux_wheels/
 		"$pybin/drgn" --version
