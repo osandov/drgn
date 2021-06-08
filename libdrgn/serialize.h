@@ -65,7 +65,7 @@ static inline void copy_lsbytes(void *dst, size_t dst_size,
 	} else {
 		memset(d, 0, dst_size - size);
 		if (src_little_endian) {
-			for (size_t i = dst_size - size; i < size; i++)
+			for (size_t i = dst_size - size; i < dst_size; i++)
 				d[i] = s[dst_size - 1 - i];
 		} else {
 			memcpy(d + dst_size - size, s + src_size - size, size);
