@@ -36,3 +36,4 @@ Table of Contents
     advanced_usage
     api_reference
     helpers
+    case_studies

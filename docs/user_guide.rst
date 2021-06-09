@@ -317,7 +317,7 @@ explicitly::
 Next Steps
 ----------
 
-Refer to the :doc:`api_reference`. Look through the :doc:`helpers`. Browse
-through the official `examples
+Refer to the :doc:`api_reference`. Look through the :doc:`helpers`. Read some
+:doc:`case_studies`. Browse through the official `examples
 <https://github.com/osandov/drgn/tree/main/examples>`_ and `tools
 <https://github.com/osandov/drgn/tree/main/tools>`_.
