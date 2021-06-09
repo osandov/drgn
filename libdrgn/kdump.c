@@ -73,7 +73,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	kdump_ctx_t *ctx;
 	kdump_status ks;
 	const char *vmcoreinfo;
-	struct drgn_platform platform;
+	bool had_platform;
 
 	ctx = kdump_new();
 	if (!ctx) {
@@ -109,33 +109,39 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	if (err)
 		goto err;
 
-	err = drgn_platform_from_kdump(ctx, &platform);
-	if (err)
-		goto err;
+	had_platform = prog->has_platform;
+	if (!had_platform) {
+		struct drgn_platform platform;
+		err = drgn_platform_from_kdump(ctx, &platform);
+		if (err)
+			goto err;
+		drgn_program_set_platform(prog, &platform);
+	}
 
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_kdump, ctx, false);
 	if (err)
-		goto err;
+		goto err_platform;
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_kdump, ctx, true);
 	if (err) {
 		drgn_memory_reader_deinit(&prog->reader);
 		drgn_memory_reader_init(&prog->reader);
-		goto err;
+		goto err_platform;
 	}
 
 	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
 	err = drgn_program_add_object_finder(prog, linux_kernel_object_find,
 					     prog);
 	if (err)
-		goto err;
+		goto err_platform;
 	if (!prog->lang)
 		prog->lang = &drgn_language_c;
-	drgn_program_set_platform(prog, &platform);
 	prog->kdump_ctx = ctx;
 	return NULL;
 
+err_platform:
+	prog->has_platform = had_platform;
 err:
 	kdump_free(ctx);
 	return err;
