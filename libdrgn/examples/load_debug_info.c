@@ -25,12 +25,12 @@ static inline struct timespec timespec_sub(struct timespec a, struct timespec b)
 static void usage(bool error)
 {
 	fprintf(error ? stderr : stdout,
-		"usage: load_debug_info [-k|-c CORE|-p PID]\n"
+		"usage: load_debug_info [-k|-c CORE|-p PID] [PATH...]\n"
 		"\n"
 		"Example libdrgn program that loads default debug information\n"
 		"\n"
 		"Options:\n"
-		"  -k, --kernel            debug the running kernel (default)\n"
+		"  -k, --kernel            debug the running kernel\n"
 		"  -c PATH, --core PATH    debug the given core dump\n"
 		"  -p PID, --pid PID       debug the running process with the given PID\n"
 		"  -T, --time              print how long loading debug info took in seconds\n"
@@ -75,7 +75,7 @@ int main(int argc, char **argv)
 			usage(true);
 		}
 	}
-	if (optind != argc || kernel + !!core + !!pid > 1)
+	if (kernel + !!core + !!pid > 1)
 		usage(true);
 
 	struct drgn_program *prog;
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
 		err = drgn_program_set_core_dump(prog, core);
 	else if (pid)
 		err = drgn_program_set_pid(prog, atoi(pid) ?: getpid());
-	else
+	else if (kernel)
 		err = drgn_program_set_kernel(prog);
 	if (err)
 		goto out;
@@ -97,7 +97,9 @@ int main(int argc, char **argv)
 	struct timespec start, end;
 	if (print_time && clock_gettime(CLOCK_MONOTONIC, &start))
 		abort();
-	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
+	err = drgn_program_load_debug_info(prog, (const char **)&argv[optind],
+					   argc - optind, kernel || core || pid,
+					   false);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO) && print_time) {
 		if (clock_gettime(CLOCK_MONOTONIC, &end))
 			abort();
