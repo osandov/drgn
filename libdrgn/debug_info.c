@@ -109,7 +109,9 @@ static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_DEBUG_TYPES] = ".debug_types",
 	[DRGN_SCN_DEBUG_ABBREV] = ".debug_abbrev",
 	[DRGN_SCN_DEBUG_STR] = ".debug_str",
+	[DRGN_SCN_DEBUG_STR_OFFSETS] = ".debug_str_offsets",
 	[DRGN_SCN_DEBUG_LINE] = ".debug_line",
+	[DRGN_SCN_DEBUG_LINE_STR] = ".debug_line_str",
 	[DRGN_SCN_DEBUG_FRAME] = ".debug_frame",
 	[DRGN_SCN_EH_FRAME] = ".eh_frame",
 	[DRGN_SCN_ORC_UNWIND_IP] = ".orc_unwind_ip",
@@ -1295,6 +1297,18 @@ drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
 	return NULL;
 }
 
+static void truncate_null_terminated_section(Elf_Data *data)
+{
+	if (data) {
+		const char *buf = data->d_buf;
+		const char *nul = memrchr(buf, '\0', data->d_size);
+		if (nul)
+			data->d_size = nul - buf + 1;
+		else
+			data->d_size = 0;
+	}
+}
+
 static struct drgn_error *
 drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
 {
@@ -1311,17 +1325,10 @@ drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
 
 	/*
 	 * Truncate any extraneous bytes so that we can assume that a pointer
-	 * within .debug_str is always null-terminated.
+	 * within .debug_{,line_}str is always null-terminated.
 	 */
-	Elf_Data *debug_str = module->scn_data[DRGN_SCN_DEBUG_STR];
-	if (debug_str) {
-		const char *buf = debug_str->d_buf;
-		const char *nul = memrchr(buf, '\0', debug_str->d_size);
-		if (nul)
-			debug_str->d_size = nul - buf + 1;
-		else
-			debug_str->d_size = 0;
-	}
+	truncate_null_terminated_section(module->scn_data[DRGN_SCN_DEBUG_STR]);
+	truncate_null_terminated_section(module->scn_data[DRGN_SCN_DEBUG_LINE_STR]);
 	return NULL;
 }
 
