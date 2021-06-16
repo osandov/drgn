@@ -16,7 +16,6 @@
 #include "error.h"
 #include "path.h"
 #include "platform.h"
-#include "siphash.h"
 #include "util.h"
 
 struct drgn_dwarf_index_pending_cu {
@@ -40,7 +39,7 @@ DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_cu_vector)
  * set to zero if the tag is not of interest); see DIE_FLAG_*.
  */
 enum {
-	INSN_MAX_SKIP = 219,
+	INSN_MAX_SKIP = 215,
 	ATTRIB_BLOCK1,
 	ATTRIB_BLOCK2,
 	ATTRIB_BLOCK4,
@@ -55,6 +54,9 @@ enum {
 	ATTRIB_NAME_STRP4,
 	ATTRIB_NAME_STRP8,
 	ATTRIB_NAME_STRING,
+	ATTRIB_COMP_DIR_STRP4,
+	ATTRIB_COMP_DIR_STRP8,
+	ATTRIB_COMP_DIR_STRING,
 	ATTRIB_STMT_LIST_LINEPTR4,
 	ATTRIB_STMT_LIST_LINEPTR8,
 	ATTRIB_DECL_FILE_DATA1,
@@ -73,6 +75,7 @@ enum {
 	ATTRIB_INDIRECT,
 	ATTRIB_SIBLING_INDIRECT,
 	ATTRIB_NAME_INDIRECT,
+	ATTRIB_COMP_DIR_INDIRECT,
 	ATTRIB_STMT_LIST_INDIRECT,
 	ATTRIB_DECL_FILE_INDIRECT,
 	ATTRIB_DECLARATION_INDIRECT,
@@ -374,6 +377,35 @@ static struct drgn_error *dw_at_name_to_insn(struct drgn_dwarf_index_cu *cu,
 	}
 }
 
+static struct drgn_error *dw_at_comp_dir_to_insn(struct drgn_dwarf_index_cu *cu,
+						 struct binary_buffer *bb,
+						 uint64_t form,
+						 uint8_t *insn_ret)
+{
+	switch (form) {
+	case DW_FORM_strp:
+		if (!cu->module->scn_data[DRGN_SCN_DEBUG_STR]) {
+			return binary_buffer_error(bb,
+						   "DW_FORM_strp without .debug_str section");
+		}
+		if (cu->is_64_bit)
+			*insn_ret = ATTRIB_COMP_DIR_STRP8;
+		else
+			*insn_ret = ATTRIB_COMP_DIR_STRP4;
+		return NULL;
+	case DW_FORM_string:
+		*insn_ret = ATTRIB_COMP_DIR_STRING;
+		return NULL;
+	case DW_FORM_indirect:
+		*insn_ret = ATTRIB_COMP_DIR_INDIRECT;
+		return NULL;
+	default:
+		return binary_buffer_error(bb,
+					   "unknown attribute form %" PRIu64 " for DW_AT_comp_dir",
+					   form);
+	}
+}
+
 static struct drgn_error *
 dw_at_stmt_list_to_insn(struct drgn_dwarf_index_cu *cu,
 			struct binary_buffer *bb, uint64_t form,
@@ -586,6 +618,9 @@ read_abbrev_decl(struct drgn_debug_info_buffer *buffer,
 			err = dw_at_sibling_to_insn(&buffer->bb, form, &insn);
 		} else if (name == DW_AT_name && should_index) {
 			err = dw_at_name_to_insn(cu, &buffer->bb, form, &insn);
+		} else if (name == DW_AT_comp_dir) {
+			err = dw_at_comp_dir_to_insn(cu, &buffer->bb, form,
+						     &insn);
 		} else if (name == DW_AT_stmt_list) {
 			if (!cu->module->scn_data[DRGN_SCN_DEBUG_LINE]) {
 				return binary_buffer_error(&buffer->bb,
@@ -742,37 +777,180 @@ static struct drgn_error *skip_lnp_header(struct drgn_debug_info_buffer *buffer)
 	return NULL;
 }
 
-/*
- * Hash the canonical path of a directory. Components are hashed in reverse
- * order. We always include a trailing slash.
+/**
+ * Cached hash of file path.
+ *
+ * File names in the DWARF line number program header consist of three parts:
+ * the compilation directory path, the directory path, and the file name.
+ * Multiple file names may be relative to the same directory, and relative
+ * directory paths are all relative to the compilation directory.
+ *
+ * We'd like to hash DWARF file names to a unique hash so that we can
+ * deduplicate definitions without comparing full paths.
+ *
+ * The naive way to hash a DWARF file name entry would be to join and normalize
+ * the compilation directory path, directory path, and file name, and hash that.
+ * But this would involve a lot of redundant computations since most paths will
+ * have common prefixes. Instead, we cache the hashes of each directory path and
+ * update the hash for relative paths.
+ *
+ * It is not sufficient to cache the final hash for each directory because ".."
+ * components may require us to use the hash of a parent directory. So, we also
+ * cache the hash of every parent directory in a linked list.
+ *
+ * We use the FNV-1a hash function. Although FNV-1a is
+ * [known](https://github.com/rurban/smhasher/blob/master/doc/FNV1a.txt) to have
+ * some hash quality problems, it is sufficient for producing unique 64-bit
+ * hashes of file names. It has a couple of advantages over "better" hash
+ * functions:
+ *
+ * 1. Its only internal state is the 64-bit hash value, which keeps this
+ *    structure small.
+ * 2. It operates byte-by-byte, which works well for incrementally hashing lots
+ *    of short path components.
  */
-static void hash_directory(struct siphash *hash, const char *path,
-			   size_t path_len)
-{
-	struct path_iterator it = {
-		.components = (struct string []){ { path, path_len } },
-		.num_components = 1,
-	};
-	const char *component;
-	size_t component_len;
+struct path_hash {
+	/** Hash of this path. */
+	uint64_t hash;
+	/**
+	 * Tagged pointer comprising `struct path_hash *` of parent directory
+	 * and flag in lowest-order bit specifying whether this path ends in a
+	 * ".." component.
+	 */
+	uintptr_t parent_and_is_dot_dot;
+};
 
-	while (path_iterator_next(&it, &component, &component_len)) {
-		siphash_update(hash, component, component_len);
-		siphash_update(hash, "/", 1);
+static const uint64_t FNV_OFFSET_BASIS_64 = UINT64_C(0xcbf29ce484222325);
+static const uint64_t FNV_PRIME_64 = UINT64_C(0x00000100000001b3);
+
+static inline void path_hash_update(struct path_hash *path_hash,
+				    const void *src, size_t len)
+{
+	const uint8_t *s = src, *end = s + len;
+	uint64_t hash = path_hash->hash;
+	while (s < end) {
+		hash ^= *(s++);
+		hash *= FNV_PRIME_64;
 	}
+	path_hash->hash = hash;
 }
 
-DEFINE_VECTOR(siphash_vector, struct siphash)
+/** Path hash of "" (empty string). */
+static const struct path_hash empty_path_hash = { FNV_OFFSET_BASIS_64 };
+/** Path hash of "/". */
+static const struct path_hash absolute_path_hash = {
+	(FNV_OFFSET_BASIS_64 ^ '/') * FNV_PRIME_64,
+};
 
-static struct drgn_error *
-read_file_name_table(struct drgn_dwarf_index *dindex,
-		     struct drgn_dwarf_index_cu *cu, size_t stmt_list)
+static inline const struct path_hash *
+path_hash_parent(const struct path_hash *path_hash)
 {
-	/*
-	 * We don't care about hash flooding attacks, so don't bother with the
-	 * random key.
-	 */
-	static const uint64_t siphash_key[2];
+	return (struct path_hash *)(path_hash->parent_and_is_dot_dot
+				    & ~(uintptr_t)1);
+}
+
+static inline bool path_hash_is_dot_dot(const struct path_hash *path_hash)
+{
+	return path_hash->parent_and_is_dot_dot & 1;
+}
+
+/** Chunk of allocated @ref path_hash objects. See @ref path_hash_cache. */
+struct path_hash_chunk {
+	struct path_hash objects[(4096 - sizeof(struct path_hash_chunk *))
+				 / sizeof(struct path_hash)];
+	struct path_hash_chunk *next;
+};
+
+DEFINE_VECTOR(path_hash_vector, const struct path_hash *)
+
+/**
+ * Cache of hashed file paths.
+ *
+ * This uses a bump allocator for @ref path_hash objects. @ref path_hash objects
+ * are allocated sequentially out of a @ref path_hash_chunk; when a chunk is
+ * exhausted, a new @ref path_hash_chunk is allocated from the heap. The
+ * allocated chunks are kept and reused for each DWARF line number program; they
+ * are freed at the end of the first indexing pass.
+ */
+struct path_hash_cache {
+	/** Next @ref path_hash object to be allocated. */
+	struct path_hash *next_object;
+	/** @ref path_hash_chunk currently being allocated from. */
+	struct path_hash_chunk *current_chunk;
+	/** First allocated @ref path_hash_chunk. */
+	struct path_hash_chunk *first_chunk;
+	/** Hashed directory paths. */
+	struct path_hash_vector directories;
+};
+
+static struct path_hash *path_hash_alloc(struct path_hash_cache *cache)
+{
+	struct path_hash_chunk *current_chunk = cache->current_chunk;
+	if (cache->next_object <
+	    &current_chunk->objects[ARRAY_SIZE(current_chunk->objects)])
+		return cache->next_object++;
+	struct path_hash_chunk *next_chunk = current_chunk->next;
+	if (!next_chunk) {
+		next_chunk = malloc(sizeof(*next_chunk));
+		if (!next_chunk)
+			return NULL;
+		next_chunk->next = NULL;
+		current_chunk->next = next_chunk;
+	}
+	cache->current_chunk = next_chunk;
+	cache->next_object = &next_chunk->objects[1];
+	return next_chunk->objects;
+}
+
+static inline bool is_dot_dot(const char *component, size_t component_len)
+{
+	return component_len == 2 && component[0] == '.' && component[1] == '.';
+}
+
+static const struct path_hash *hash_path(struct path_hash_cache *cache,
+					 const char *path,
+					 const struct path_hash *path_hash)
+{
+	const char *p = path;
+	if (*p == '/') {
+		path_hash = &absolute_path_hash;
+		p++;
+	}
+	while (*p != '\0') {
+		const char *component = p;
+		p = strchrnul(p, '/');
+		size_t component_len = p - component;
+		if (*p == '/')
+			p++;
+		if (component_len == 0 ||
+		    (component_len == 1 && component[0] == '.')) {
+		} else if (!is_dot_dot(component, component_len) ||
+			   path_hash == &empty_path_hash ||
+			   path_hash_is_dot_dot(path_hash)) {
+			struct path_hash *new_path_hash = path_hash_alloc(cache);
+			if (!new_path_hash)
+				return NULL;
+			new_path_hash->hash = path_hash->hash;
+			if (path_hash->parent_and_is_dot_dot != 0)
+				path_hash_update(new_path_hash, "/", 1);
+			path_hash_update(new_path_hash, component,
+					 component_len);
+			new_path_hash->parent_and_is_dot_dot =
+				((uintptr_t)path_hash |
+				 is_dot_dot(component, component_len));
+			path_hash = new_path_hash;
+		} else if (path_hash != &absolute_path_hash) {
+			path_hash = path_hash_parent(path_hash);
+		}
+	}
+	return path_hash;
+}
+
+static struct drgn_error *read_file_name_table(struct path_hash_cache *cache,
+					       struct drgn_dwarf_index_cu *cu,
+					       const char *comp_dir,
+					       size_t stmt_list)
+{
 	struct drgn_error *err;
 
 	struct drgn_debug_info_buffer buffer;
@@ -783,24 +961,27 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 	if ((err = skip_lnp_header(&buffer)))
 		return err;
 
-	struct siphash_vector directories = VECTOR_INIT;
+	cache->current_chunk = cache->first_chunk;
+	cache->next_object = cache->first_chunk->objects;
+	cache->directories.size = 0;
+
+	const struct path_hash *path_hash = hash_path(cache, comp_dir,
+						      &empty_path_hash);
+	if (!path_hash ||
+	    !path_hash_vector_append(&cache->directories, &path_hash))
+		return &drgn_enomem;
 	for (;;) {
 		const char *path;
 		size_t path_len;
 		if ((err = binary_buffer_next_string(&buffer.bb, &path,
 						     &path_len)))
-			goto out_directories;
+			return err;
 		if (!path_len)
 			break;
-
-		struct siphash *hash =
-			siphash_vector_append_entry(&directories);
-		if (!hash) {
-			err = &drgn_enomem;
-			goto out_directories;
-		}
-		siphash_init(hash, siphash_key);
-		hash_directory(hash, path, path_len);
+		path_hash = hash_path(cache, path, cache->directories.data[0]);
+		if (!path_hash ||
+		    !path_hash_vector_append(&cache->directories, &path_hash))
+			return &drgn_enomem;
 	}
 
 	struct uint64_vector file_name_hashes = VECTOR_INIT;
@@ -809,49 +990,50 @@ read_file_name_table(struct drgn_dwarf_index *dindex,
 		size_t path_len;
 		if ((err = binary_buffer_next_string(&buffer.bb, &path,
 						     &path_len)))
-			goto out_hashes;
+			goto err;
 		if (!path_len)
 			break;
 
 		uint64_t directory_index;
 		if ((err = binary_buffer_next_uleb128(&buffer.bb,
 						      &directory_index)))
-			goto out_hashes;
-		if (directory_index > directories.size) {
+			goto err;
+		if (directory_index >= cache->directories.size) {
 			err = binary_buffer_error(&buffer.bb,
 						  "directory index %" PRIu64 " is invalid",
 						  directory_index);
-			goto out_hashes;
+			goto err;
 		}
 
 		/* mtime, size */
 		if ((err = binary_buffer_skip_leb128(&buffer.bb)) ||
 		    (err = binary_buffer_skip_leb128(&buffer.bb)))
-			goto out_hashes;
+			goto err;
 
-		struct siphash hash;
-		if (directory_index)
-			hash = directories.data[directory_index - 1];
-		else
-			siphash_init(&hash, siphash_key);
-		siphash_update(&hash, path, path_len);
+		struct path_hash *prev_object = cache->next_object;
+		struct path_hash_chunk *prev_chunk = cache->current_chunk;
+		path_hash = hash_path(cache, path,
+				      cache->directories.data[directory_index]);
+		if (!path_hash)
+			goto err;
 
-		uint64_t file_name_hash = siphash_final(&hash);
-		if (!uint64_vector_append(&file_name_hashes, &file_name_hash)) {
+		if (!uint64_vector_append(&file_name_hashes, &path_hash->hash)) {
 			err = &drgn_enomem;
-			goto out_hashes;
+			goto err;
 		}
+
+		/* "Free" the objects allocated for this file name. */
+		cache->next_object = prev_object;
+		cache->current_chunk = prev_chunk;
 	}
 
+	uint64_vector_shrink_to_fit(&file_name_hashes);
 	cu->file_name_hashes = file_name_hashes.data;
 	cu->num_file_names = file_name_hashes.size;
-	err = NULL;
-	goto out_directories;
+	return NULL;
 
-out_hashes:
+err:
 	uint64_vector_deinit(&file_name_hashes);
-out_directories:
-	siphash_vector_deinit(&directories);
 	return err;
 }
 
@@ -894,6 +1076,8 @@ static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
 		return dw_at_sibling_to_insn(bb, form, insn_ret);
 	case ATTRIB_NAME_INDIRECT:
 		return dw_at_name_to_insn(cu, bb, form, insn_ret);
+	case ATTRIB_COMP_DIR_INDIRECT:
+		return dw_at_comp_dir_to_insn(cu, bb, form, insn_ret);
 	case ATTRIB_STMT_LIST_INDIRECT:
 		return dw_at_stmt_list_to_insn(cu, bb, form, insn_ret);
 	case ATTRIB_DECL_FILE_INDIRECT:
@@ -913,10 +1097,12 @@ static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
  */
 static struct drgn_error *
 index_cu_first_pass(struct drgn_dwarf_index *dindex,
-		    struct drgn_dwarf_index_cu_buffer *buffer)
+		    struct drgn_dwarf_index_cu_buffer *buffer,
+		    struct path_hash_cache *path_hash_cache)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_cu *cu = buffer->cu;
+	Elf_Data *debug_str = cu->module->scn_data[DRGN_SCN_DEBUG_STR];
 	Elf_Data *debug_info = cu->module->scn_data[
 		cu->is_type_unit ? DRGN_SCN_DEBUG_TYPES : DRGN_SCN_DEBUG_INFO];
 	const char *debug_info_buffer = debug_info->d_buf;
@@ -941,6 +1127,7 @@ index_cu_first_pass(struct drgn_dwarf_index *dindex,
 		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
 		bool declaration = false;
 		uintptr_t specification = 0;
+		const char *comp_dir = "";
 		const char *stmt_list_ptr = NULL;
 		uint64_t stmt_list;
 		const char *sibling = NULL;
@@ -975,6 +1162,9 @@ indirect_insn:;
 				if ((err = binary_buffer_skip_leb128(&buffer->bb)))
 					return err;
 				break;
+			case ATTRIB_COMP_DIR_STRING:
+				comp_dir = buffer->bb.pos;
+				/* fallthrough */
 			case ATTRIB_STRING:
 			case ATTRIB_NAME_STRING:
 				if ((err = binary_buffer_skip_string(&buffer->bb)))
@@ -1015,6 +1205,21 @@ sibling:
 					return binary_buffer_error(&buffer->bb,
 								   "DW_AT_sibling points backwards");
 				}
+				break;
+			case ATTRIB_COMP_DIR_STRP4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto comp_dir_strp;
+			case ATTRIB_COMP_DIR_STRP8:
+				if ((err = binary_buffer_next_u64(&buffer->bb, &tmp)))
+					return err;
+comp_dir_strp:
+				if (tmp >= debug_str->d_size) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_comp_dir is out of bounds");
+				}
+				comp_dir = (const char *)debug_str->d_buf + tmp;
 				break;
 			case ATTRIB_STMT_LIST_LINEPTR4:
 				stmt_list_ptr = buffer->bb.pos;
@@ -1093,6 +1298,7 @@ specification_ref_addr:
 			case ATTRIB_INDIRECT:
 			case ATTRIB_SIBLING_INDIRECT:
 			case ATTRIB_NAME_INDIRECT:
+			case ATTRIB_COMP_DIR_INDIRECT:
 			case ATTRIB_STMT_LIST_INDIRECT:
 			case ATTRIB_DECL_FILE_INDIRECT:
 			case ATTRIB_DECLARATION_INDIRECT:
@@ -1124,7 +1330,8 @@ skip:
 								      stmt_list_ptr,
 								      "DW_AT_stmt_list is out of bounds");
 				}
-				if ((err = read_file_name_table(dindex, cu,
+				if ((err = read_file_name_table(path_hash_cache,
+								cu, comp_dir,
 								stmt_list)))
 					return err;
 			}
@@ -1411,6 +1618,7 @@ indirect_insn:;
 				name = buffer->bb.pos;
 				/* fallthrough */
 			case ATTRIB_STRING:
+			case ATTRIB_COMP_DIR_STRING:
 				if ((err = binary_buffer_skip_string(&buffer->bb)))
 					return err;
 				break;
@@ -1466,9 +1674,11 @@ strp:
 				name = (const char *)debug_str->d_buf + tmp;
 				__builtin_prefetch(name);
 				break;
+			case ATTRIB_COMP_DIR_STRP4:
 			case ATTRIB_STMT_LIST_LINEPTR4:
 				skip = 4;
 				goto skip;
+			case ATTRIB_COMP_DIR_STRP8:
 			case ATTRIB_STMT_LIST_LINEPTR8:
 				skip = 8;
 				goto skip;
@@ -1532,6 +1742,7 @@ strp:
 			case ATTRIB_INDIRECT:
 			case ATTRIB_SIBLING_INDIRECT:
 			case ATTRIB_NAME_INDIRECT:
+			case ATTRIB_COMP_DIR_INDIRECT:
 			case ATTRIB_STMT_LIST_INDIRECT:
 			case ATTRIB_DECL_FILE_INDIRECT:
 			case ATTRIB_DECLARATION_INDIRECT:
@@ -1710,22 +1921,45 @@ drgn_dwarf_index_update(struct drgn_dwarf_index_update_state *state)
 	}
 
 	struct drgn_error *err = NULL;
-	#pragma omp parallel for schedule(dynamic)
-	for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
-		if (err)
-			continue;
-		struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
-		struct drgn_dwarf_index_cu_buffer cu_buffer;
-		drgn_dwarf_index_cu_buffer_init(&cu_buffer, cu);
-		struct drgn_error *cu_err = read_cu(&cu_buffer);
-		if (!cu_err)
-			cu_err = index_cu_first_pass(state->dindex, &cu_buffer);
-		if (cu_err) {
-			#pragma omp critical(drgn_dwarf_index_update_end_error)
+	#pragma omp parallel
+	{
+		struct path_hash_cache path_hash_cache;
+		path_hash_vector_init(&path_hash_cache.directories);
+		path_hash_cache.first_chunk =
+			malloc(sizeof(struct path_hash_chunk));
+		if (path_hash_cache.first_chunk) {
+			path_hash_cache.first_chunk->next = NULL;
+		} else {
+			#pragma omp critical(drgn_dwarf_index_update_error)
+			if (!err)
+				err = &drgn_enomem;
+		}
+		#pragma omp for schedule(dynamic)
+		for (size_t i = old_cus_size; i < dindex->cus.size; i++) {
 			if (err)
-				drgn_error_destroy(cu_err);
-			else
-				err = cu_err;
+				continue;
+			struct drgn_dwarf_index_cu *cu = &dindex->cus.data[i];
+			struct drgn_dwarf_index_cu_buffer cu_buffer;
+			drgn_dwarf_index_cu_buffer_init(&cu_buffer, cu);
+			struct drgn_error *cu_err = read_cu(&cu_buffer);
+			if (!cu_err)
+				cu_err = index_cu_first_pass(state->dindex,
+							     &cu_buffer,
+							     &path_hash_cache);
+			if (cu_err) {
+				#pragma omp critical(drgn_dwarf_index_update_error)
+				if (err)
+					drgn_error_destroy(cu_err);
+				else
+					err = cu_err;
+			}
+		}
+		path_hash_vector_deinit(&path_hash_cache.directories);
+		struct path_hash_chunk *chunk = path_hash_cache.first_chunk;
+		while (chunk) {
+			struct path_hash_chunk *next_chunk = chunk->next;
+			free(chunk);
+			chunk = next_chunk;
 		}
 	}
 	if (err)
@@ -1744,7 +1978,7 @@ drgn_dwarf_index_update(struct drgn_dwarf_index_update_state *state)
 		struct drgn_error *cu_err =
 			index_cu_second_pass(&dindex->global, &buffer);
 		if (cu_err) {
-			#pragma omp critical(drgn_dwarf_index_update_end_error)
+			#pragma omp critical(drgn_dwarf_index_update_error)
 			if (err)
 				drgn_error_destroy(cu_err);
 			else

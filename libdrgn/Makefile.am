@@ -70,7 +70,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 register_state.h \
 			 serialize.c \
 			 serialize.h \
-			 siphash.h \
 			 splay_tree.c \
 			 stack_trace.c \
 			 stack_trace.h \
