@@ -83,13 +83,13 @@ struct path_iterator {
  * components if there are any that go above the current directory.
  *
  * @param[in] it Iterator.
- * @param[out] component Returned component.
- * @param[out] component_len Length of @c component.
+ * @param[out] component_ret Returned component.
+ * @param[out] component_len_ret Length of @c component.
  * @return @c true if we returned a componenent, @c false if there were no more
  * components.
  */
-bool path_iterator_next(struct path_iterator *it, const char **component,
-			size_t *component_len);
+bool path_iterator_next(struct path_iterator *it, const char **component_ret,
+			size_t *component_len_ret);
 
 /**
  * Return whether the path @p haystack ends with the path @p needle once both

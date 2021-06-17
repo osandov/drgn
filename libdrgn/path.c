@@ -7,75 +7,54 @@
 
 #include "path.h"
 
-bool path_iterator_next(struct path_iterator *it, const char **component,
-			size_t *component_len)
+bool path_iterator_next(struct path_iterator *it, const char **component_ret,
+			size_t *component_len_ret)
 {
 	while (it->num_components) {
 		struct string *cur = &it->components[it->num_components - 1];
-		if (!cur->len) {
-			it->num_components--;
-			continue;
-		}
+		while (cur->len > 0) {
+			if (cur->str[cur->len - 1] == '/') {
+				if (cur->len == 1) {
+					/*
+					 * This is an absolute path. Emit an
+					 * empty component. Components joined
+					 * before this one and remaining ".."
+					 * components are not meaningful.
+					 */
+					it->num_components = 0;
+					it->dot_dot = 0;
+					*component_ret = "";
+					*component_len_ret = 0;
+					return true;
+				}
+				/* Skip redundant slashes. */
+				cur->len--;
+				continue;
+			}
 
-		if (cur->str[cur->len - 1] == '/') {
-			if (cur->len == 1) {
-				/*
-				 * This is an absolute path. Emit an empty
-				 * component. Components joined before this one
-				 * and remaining ".." components are not
-				 * meaningful.
-				 */
-				it->num_components = 0;
-				it->dot_dot = 0;
-				*component = "";
-				*component_len = 0;
+			size_t component_start = cur->len - 1;
+			while (component_start > 0 &&
+			       cur->str[component_start - 1] != '/')
+				component_start--;
+			size_t component_len = cur->len - component_start;
+			cur->len = component_start;
+			if (component_len == 1 &&
+			    cur->str[component_start] == '.') {
+				/* Skip "." components. */
+			} else if (component_len == 2 &&
+				   cur->str[component_start] == '.' &&
+				   cur->str[component_start + 1] == '.') {
+				/* Count ".." components. */
+				it->dot_dot++;
+			} else if (it->dot_dot) {
+				it->dot_dot--;
+			} else {
+				*component_ret = &cur->str[component_start];
+				*component_len_ret = component_len;
 				return true;
 			}
-			/* Skip redundant slashes. */
-			cur->len--;
-			continue;
 		}
-
-		/* Skip "." components. */
-		if (cur->len == 1 && cur->str[0] == '.') {
-			it->num_components--;
-			continue;
-		}
-		if (cur->len >= 2 && cur->str[cur->len - 2] == '/' &&
-		    cur->str[cur->len - 1] == '.') {
-			cur->len -= 1;
-			continue;
-		}
-
-		/* Count ".." components. */
-		if (cur->len == 2 && cur->str[0] == '.' && cur->str[1] == '.') {
-			it->num_components--;
-			it->dot_dot++;
-			continue;
-		}
-		if (cur->len >= 3 && cur->str[cur->len - 3] == '/' &&
-		    cur->str[cur->len - 2] == '.' &&
-		    cur->str[cur->len - 1] == '.') {
-			cur->len -= 2;
-			it->dot_dot++;
-			continue;
-		}
-
-		/* Emit or skip other components. */
-		*component_len = 0;
-		while (cur->str[cur->len - 1] != '/') {
-			cur->len--;
-			(*component_len)++;
-			if (!cur->len)
-				break;
-		}
-		if (it->dot_dot) {
-			it->dot_dot--;
-			continue;
-		}
-
-		*component = &cur->str[cur->len];
-		return true;
+		it->num_components--;
 	}
 
 	if (it->dot_dot) {
@@ -84,8 +63,8 @@ bool path_iterator_next(struct path_iterator *it, const char **component,
 		 * directory.
 		 */
 		it->dot_dot--;
-		*component = "..";
-		*component_len = 2;
+		*component_ret = "..";
+		*component_len_ret = 2;
 		return true;
 	}
 	return false;
