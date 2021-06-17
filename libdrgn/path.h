@@ -17,6 +17,8 @@
 
 #include <elfutils/libdw.h>
 
+#include "util.h"
+
 /**
  * @ingroup Internals
  *
@@ -26,18 +28,6 @@
  *
  * @{
  */
-
-/** Path iterator input component. */
-struct path_iterator_component {
-	/**
-	 * Path component.
-	 *
-	 * This can contain "/".
-	 */
-	const char *path;
-	/** Length of @ref path_iterator_component::path. */
-	size_t len;
-};
 
 /**
  * Path component iterator.
@@ -71,11 +61,10 @@ struct path_iterator {
 	 * Array of input components.
 	 *
 	 * The input components are treated as if they were joined with a "/".
-	 * @ref path_iterator_component::path and @ref
-	 * path_iterator_component::len should be initialized for each
+	 * @ref string::str and @ref string::len should be initialized for each
 	 * component. The latter will be modified as the path is iterated.
 	 */
-	struct path_iterator_component *components;
+	struct string *components;
 	/** Number of components in @ref path_iterator::components. */
 	size_t num_components;
 	/**

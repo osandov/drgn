@@ -43,20 +43,20 @@ static PyObject *filename_matches(PyObject *self, PyObject *args,
 		return NULL;
 
 	struct path_iterator haystack = {
-		.components = (struct path_iterator_component [1]){},
+		.components = (struct string [1]){},
 		.num_components = 0,
 	};
 	if (haystack_arg.path) {
-		haystack.components[0].path = haystack_arg.path;
+		haystack.components[0].str = haystack_arg.path;
 		haystack.components[0].len = haystack_arg.length;
 		haystack.num_components = 1;
 	}
 	struct path_iterator needle = {
-		.components = (struct path_iterator_component [1]){},
+		.components = (struct string [1]){},
 		.num_components = 0,
 	};
 	if (needle_arg.path) {
-		needle.components[0].path = needle_arg.path;
+		needle.components[0].str = needle_arg.path;
 		needle.components[0].len = needle_arg.length;
 		needle.num_components = 1;
 	}

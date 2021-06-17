@@ -750,9 +750,7 @@ static void hash_directory(struct siphash *hash, const char *path,
 			   size_t path_len)
 {
 	struct path_iterator it = {
-		.components = (struct path_iterator_component []){
-			{ path, path_len, },
-		},
+		.components = (struct string []){ { path, path_len } },
 		.num_components = 1,
 	};
 	const char *component;

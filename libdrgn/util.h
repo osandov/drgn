@@ -148,4 +148,26 @@ static inline uint64_t uint_max(int n)
 #define add_to_possibly_null_pointer(ptr, i)	\
 	((typeof(ptr))((uintptr_t)(ptr) + (i) * sizeof(*(ptr))))
 
+/** A string with a stored length. */
+struct string {
+	/**
+	 * The string, which is not necessarily null-terminated and may have
+	 * embedded null bytes.
+	 */
+	const char *str;
+	/** The length in bytes of the string. */
+	size_t len;
+};
+
+/** Compare two @ref string keys for equality. */
+static inline bool string_eq(const struct string *a, const struct string *b)
+{
+	/*
+	 * len == 0 is a special case because memcmp(NULL, NULL, 0) is
+	 * technically undefined.
+	 */
+	return (a->len == b->len &&
+		(a->len == 0 || memcmp(a->str, b->str, a->len) == 0));
+}
+
 #endif /* DRGN_UTIL_H */
