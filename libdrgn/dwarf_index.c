@@ -1461,7 +1461,7 @@ sibling:
 				if ((err = binary_buffer_next_u64(&buffer->bb, &tmp)))
 					return err;
 strp:
-				if (tmp > debug_str->d_size) {
+				if (tmp >= debug_str->d_size) {
 					return binary_buffer_error(&buffer->bb,
 								   "DW_AT_name is out of bounds");
 				}
