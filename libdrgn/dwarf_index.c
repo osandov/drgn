@@ -820,8 +820,8 @@ struct path_hash {
 	uintptr_t parent_and_is_dot_dot;
 };
 
-static const uint64_t FNV_OFFSET_BASIS_64 = UINT64_C(0xcbf29ce484222325);
-static const uint64_t FNV_PRIME_64 = UINT64_C(0x00000100000001b3);
+#define FNV_OFFSET_BASIS_64 UINT64_C(0xcbf29ce484222325)
+#define FNV_PRIME_64 UINT64_C(0x00000100000001b3)
 
 static inline void path_hash_update(struct path_hash *path_hash,
 				    const void *src, size_t len)
