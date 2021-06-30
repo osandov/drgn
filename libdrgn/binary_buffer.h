@@ -14,9 +14,9 @@
 
 #include <assert.h>
 #include <byteswap.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 
 #include "util.h"
@@ -138,11 +138,11 @@ static inline bool binary_buffer_has_next(struct binary_buffer *bb)
 }
 
 static inline struct drgn_error *
-binary_buffer_check_bounds(struct binary_buffer *bb, size_t n)
+binary_buffer_check_bounds(struct binary_buffer *bb, uint64_t n)
 {
 	if (unlikely(bb->end - bb->pos < n)) {
 		return binary_buffer_error_at(bb, bb->pos,
-					      "expected at least %zu byte%s, have %td",
+					      "expected at least %" PRIu64 " byte%s, have %td",
 					      n, n == 1 ? "" : "s",
 					      bb->end - bb->pos);
 	}
@@ -151,7 +151,7 @@ binary_buffer_check_bounds(struct binary_buffer *bb, size_t n)
 
 /** Advance the current buffer position by @p n bytes. */
 static inline struct drgn_error *binary_buffer_skip(struct binary_buffer *bb,
-						    size_t n)
+						    uint64_t n)
 {
 	struct drgn_error *err;
 	if ((err = binary_buffer_check_bounds(bb, n)))

@@ -1386,13 +1386,8 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_update_state *state,
 		if (cu->is_64_bit) {
 			uint64_t unit_length64;
 			if ((err = binary_buffer_next_u64(&buffer.bb,
-							  &unit_length64)))
-				return err;
-			if (unit_length64 > SIZE_MAX) {
-				return binary_buffer_error(&buffer.bb,
-							   "unit length is too large");
-			}
-			if ((err = binary_buffer_skip(&buffer.bb,
+							  &unit_length64)) ||
+			    (err = binary_buffer_skip(&buffer.bb,
 						      unit_length64)))
 				return err;
 		} else {
