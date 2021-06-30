@@ -5569,7 +5569,7 @@ class TestObjects(TestCase):
                             DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),
                             DwarfAttrib(
                                 DW_AT.const_value,
-                                DW_FORM.block1,
+                                DW_FORM.block,
                                 b"\x01\x00\x00\x00\x02\x00\x00",
                             ),
                         ),

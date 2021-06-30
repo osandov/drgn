@@ -76,6 +76,9 @@ def _compile_debug_info(unit_dies, little_endian, bits, use_dw_form_indirect):
                 _append_uleb128(buf, value)
             elif attrib.form == DW_FORM.sdata:
                 _append_sleb128(buf, value)
+            elif attrib.form == DW_FORM.block:
+                _append_uleb128(buf, len(value))
+                buf.extend(value)
             elif attrib.form == DW_FORM.block1:
                 buf.append(len(value))
                 buf.extend(value)

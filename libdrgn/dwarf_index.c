@@ -40,10 +40,10 @@ DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_cu_vector)
  */
 enum {
 	INSN_MAX_SKIP = 215,
+	ATTRIB_BLOCK,
 	ATTRIB_BLOCK1,
 	ATTRIB_BLOCK2,
 	ATTRIB_BLOCK4,
-	ATTRIB_EXPRLOC,
 	ATTRIB_LEB128,
 	ATTRIB_STRING,
 	ATTRIB_SIBLING_REF1,
@@ -281,6 +281,10 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 	case DW_FORM_ref_sig8:
 		*insn_ret = 8;
 		return NULL;
+	case DW_FORM_block:
+	case DW_FORM_exprloc:
+		*insn_ret = ATTRIB_BLOCK;
+		return NULL;
 	case DW_FORM_block1:
 		*insn_ret = ATTRIB_BLOCK1;
 		return NULL;
@@ -289,9 +293,6 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	case DW_FORM_block4:
 		*insn_ret = ATTRIB_BLOCK4;
-		return NULL;
-	case DW_FORM_exprloc:
-		*insn_ret = ATTRIB_EXPRLOC;
 		return NULL;
 	case DW_FORM_sdata:
 	case DW_FORM_udata:
@@ -1135,6 +1136,11 @@ index_cu_first_pass(struct drgn_dwarf_index *dindex,
 indirect_insn:;
 			uint64_t skip, tmp;
 			switch (insn) {
+			case ATTRIB_BLOCK:
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &skip)))
+					return err;
+				goto skip;
 			case ATTRIB_BLOCK1:
 				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
 									  &skip)))
@@ -1148,11 +1154,6 @@ indirect_insn:;
 			case ATTRIB_BLOCK4:
 				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
 									   &skip)))
-					return err;
-				goto skip;
-			case ATTRIB_EXPRLOC:
-				if ((err = binary_buffer_next_uleb128(&buffer->bb,
-								      &skip)))
 					return err;
 				goto skip;
 			case ATTRIB_LEB128:
@@ -1580,6 +1581,11 @@ index_cu_second_pass(struct drgn_dwarf_index_namespace *ns,
 indirect_insn:;
 			uint64_t skip, tmp;
 			switch (insn) {
+			case ATTRIB_BLOCK:
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &skip)))
+					return err;
+				goto skip;
 			case ATTRIB_BLOCK1:
 				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
 									  &skip)))
@@ -1593,11 +1599,6 @@ indirect_insn:;
 			case ATTRIB_BLOCK4:
 				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
 									   &skip)))
-					return err;
-				goto skip;
-			case ATTRIB_EXPRLOC:
-				if ((err = binary_buffer_next_uleb128(&buffer->bb,
-								      &skip)))
 					return err;
 				goto skip;
 			case ATTRIB_SPECIFICATION_REF_UDATA:
