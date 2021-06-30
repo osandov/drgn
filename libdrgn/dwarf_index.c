@@ -1014,10 +1014,8 @@ static struct drgn_error *read_file_name_table(struct path_hash_cache *cache,
 		struct path_hash_chunk *prev_chunk = cache->current_chunk;
 		path_hash = hash_path(cache, path,
 				      cache->directories.data[directory_index]);
-		if (!path_hash)
-			goto err;
-
-		if (!uint64_vector_append(&file_name_hashes, &path_hash->hash)) {
+		if (!path_hash ||
+		    !uint64_vector_append(&file_name_hashes, &path_hash->hash)) {
 			err = &drgn_enomem;
 			goto err;
 		}
