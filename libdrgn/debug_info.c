@@ -118,6 +118,7 @@ static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_ORC_UNWIND_IP] = ".orc_unwind_ip",
 	[DRGN_SCN_ORC_UNWIND] = ".orc_unwind",
 	[DRGN_SCN_DEBUG_LOC] = ".debug_loc",
+	[DRGN_SCN_DEBUG_LOCLISTS] = ".debug_loclists",
 	[DRGN_SCN_TEXT] = ".text",
 	[DRGN_SCN_GOT] = ".got",
 };
@@ -1598,6 +1599,262 @@ drgn_dwarf_next_addrx(struct binary_buffer *bb,
 }
 
 static struct drgn_error *
+drgn_dwarf_read_loclistx(struct drgn_debug_info_module *module,
+			 Dwarf_Die *cu_die, uint8_t offset_size,
+			 Dwarf_Word index, Dwarf_Word *ret)
+{
+	struct drgn_error *err;
+
+	Dwarf_Attribute attr_mem, *attr;
+	if (!(attr = dwarf_attr(cu_die, DW_AT_loclists_base, &attr_mem))) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "DW_FORM_loclistx without DW_AT_loclists_base");
+	}
+	Dwarf_Word base;
+	if (dwarf_formudata(attr, &base))
+		return drgn_error_libdw();
+
+	if (!module->scns[DRGN_SCN_DEBUG_LOCLISTS]) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "DW_FORM_loclistx without .debug_loclists section");
+	}
+	err = drgn_debug_info_module_cache_section(module,
+						   DRGN_SCN_DEBUG_LOCLISTS);
+	if (err)
+		return err;
+	Elf_Data *data = module->scn_data[DRGN_SCN_DEBUG_LOCLISTS];
+
+	if (base > data->d_size) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "DW_AT_loclists_base is out of bounds");
+	}
+	assert(offset_size == 4 || offset_size == 8);
+	if (index >= (data->d_size - base) / offset_size) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "DW_FORM_loclistx is out of bounds");
+	}
+	const char *basep = (char *)data->d_buf + base;
+	if (offset_size == 8) {
+		uint64_t offset;
+		memcpy(&offset, (uint64_t *)basep + index, sizeof(offset));
+		if (drgn_platform_bswap(&module->platform))
+			offset = bswap_64(offset);
+		*ret = base + offset;
+	} else {
+		uint32_t offset;
+		memcpy(&offset, (uint32_t *)basep + index, sizeof(offset));
+		if (drgn_platform_bswap(&module->platform))
+			offset = bswap_32(offset);
+		*ret = base + offset;
+	}
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_dwarf5_location_list(struct drgn_debug_info_module *module,
+			  Dwarf_Word offset, Dwarf_Die *cu_die,
+			  uint8_t address_size, uint64_t pc,
+			  const char **expr_ret, size_t *expr_size_ret)
+{
+	struct drgn_error *err;
+
+	if (!module->scns[DRGN_SCN_DEBUG_LOCLISTS]) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "loclist without .debug_loclists section");
+	}
+	err = drgn_debug_info_module_cache_section(module,
+						   DRGN_SCN_DEBUG_LOCLISTS);
+	if (err)
+		return err;
+	struct drgn_debug_info_buffer buffer;
+	drgn_debug_info_buffer_init(&buffer, module, DRGN_SCN_DEBUG_LOCLISTS);
+	if (offset > buffer.bb.end - buffer.bb.pos) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "loclist is out of bounds");
+	}
+	buffer.bb.pos += offset;
+
+	const char *addr_base = NULL;
+	uint64_t base;
+	bool base_valid = false;
+	/* Default is unknown. May be overridden by DW_LLE_default_location. */
+	*expr_ret = NULL;
+	*expr_size_ret = 0;
+	for (;;) {
+		uint8_t kind;
+		if ((err = binary_buffer_next_u8(&buffer.bb, &kind)))
+			return err;
+		uint64_t start, length, expr_size;
+		switch (kind) {
+		case DW_LLE_end_of_list:
+			return NULL;
+		case DW_LLE_base_addressx:
+			if ((err = drgn_dwarf_next_addrx(&buffer.bb, module,
+							 cu_die, address_size,
+							 &addr_base, &base)))
+				return err;
+			base_valid = true;
+			break;
+		case DW_LLE_startx_endx:
+			if ((err = drgn_dwarf_next_addrx(&buffer.bb, module,
+							 cu_die, address_size,
+							 &addr_base, &start)) ||
+			    (err = drgn_dwarf_next_addrx(&buffer.bb, module,
+							 cu_die, address_size,
+							 &addr_base, &length)))
+				return err;
+			length -= start;
+counted_location_description:
+			if ((err = binary_buffer_next_uleb128(&buffer.bb,
+							      &expr_size)))
+				return err;
+			if (expr_size > buffer.bb.end - buffer.bb.pos) {
+				return binary_buffer_error(&buffer.bb,
+							   "location description size is out of bounds");
+			}
+			if (pc >= start && pc - start < length) {
+				*expr_ret = buffer.bb.pos;
+				*expr_size_ret = expr_size;
+				return NULL;
+			}
+			buffer.bb.pos += expr_size;
+			break;
+		case DW_LLE_startx_length:
+			if ((err = drgn_dwarf_next_addrx(&buffer.bb, module,
+							 cu_die, address_size,
+							 &addr_base, &start)) ||
+			    (err = binary_buffer_next_uleb128(&buffer.bb,
+							      &length)))
+				return err;
+			goto counted_location_description;
+		case DW_LLE_offset_pair:
+			if ((err = binary_buffer_next_uleb128(&buffer.bb,
+							      &start)) ||
+			    (err = binary_buffer_next_uleb128(&buffer.bb,
+							      &length)))
+				return err;
+			length -= start;
+			if (!base_valid) {
+				Dwarf_Addr low_pc;
+				if (dwarf_lowpc(cu_die, &low_pc))
+					return drgn_error_libdw();
+				base = low_pc;
+				base_valid = true;
+			}
+			start += base;
+			goto counted_location_description;
+		case DW_LLE_default_location:
+			if ((err = binary_buffer_next_uleb128(&buffer.bb,
+							      &expr_size)))
+				return err;
+			if (expr_size > buffer.bb.end - buffer.bb.pos) {
+				return binary_buffer_error(&buffer.bb,
+							   "location description size is out of bounds");
+			}
+			*expr_ret = buffer.bb.pos;
+			*expr_size_ret = expr_size;
+			buffer.bb.pos += expr_size;
+			break;
+		case DW_LLE_base_address:
+			if ((err = binary_buffer_next_uint(&buffer.bb,
+							   address_size,
+							   &base)))
+				return err;
+			base_valid = true;
+			break;
+		case DW_LLE_start_end:
+			if ((err = binary_buffer_next_uint(&buffer.bb,
+							   address_size,
+							   &start)) ||
+			    (err = binary_buffer_next_uint(&buffer.bb,
+							   address_size,
+							   &length)))
+				return err;
+			length -= start;
+			goto counted_location_description;
+		case DW_LLE_start_length:
+			if ((err = binary_buffer_next_uint(&buffer.bb,
+							   address_size,
+							   &start)) ||
+			    (err = binary_buffer_next_uleb128(&buffer.bb,
+							      &length)))
+				return err;
+			goto counted_location_description;
+		default:
+			return binary_buffer_error(&buffer.bb,
+						   "unknown location list entry kind %#" PRIx8,
+						   kind);
+		}
+	}
+}
+
+static struct drgn_error *
+drgn_dwarf4_location_list(struct drgn_debug_info_module *module,
+			  Dwarf_Word offset, Dwarf_Die *cu_die,
+			  uint8_t address_size, uint64_t pc,
+			  const char **expr_ret, size_t *expr_size_ret)
+{
+	struct drgn_error *err;
+
+	if (!module->scns[DRGN_SCN_DEBUG_LOC]) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "loclistptr without .debug_loc section");
+	}
+	err = drgn_debug_info_module_cache_section(module, DRGN_SCN_DEBUG_LOC);
+	if (err)
+		return err;
+	struct drgn_debug_info_buffer buffer;
+	drgn_debug_info_buffer_init(&buffer, module, DRGN_SCN_DEBUG_LOC);
+	if (offset > buffer.bb.end - buffer.bb.pos) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "loclistptr is out of bounds");
+	}
+	buffer.bb.pos += offset;
+
+	uint64_t address_max = uint_max(address_size);
+	uint64_t base;
+	bool base_valid = false;
+	for (;;) {
+		uint64_t start, end;
+		if ((err = binary_buffer_next_uint(&buffer.bb, address_size,
+						   &start)) ||
+		    (err = binary_buffer_next_uint(&buffer.bb, address_size,
+						   &end)))
+			return err;
+		if (start == 0 && end == 0) {
+			*expr_ret = NULL;
+			*expr_size_ret = 0;
+			return NULL;
+		} else if (start == address_max) {
+			base = end;
+			base_valid = true;
+		} else {
+			if (!base_valid) {
+				Dwarf_Addr low_pc;
+				if (dwarf_lowpc(cu_die, &low_pc))
+					return drgn_error_libdw();
+				base = low_pc;
+				base_valid = true;
+			}
+			uint16_t expr_size;
+			if ((err = binary_buffer_next_u16(&buffer.bb,
+							  &expr_size)))
+				return err;
+			if (expr_size > buffer.bb.end - buffer.bb.pos) {
+				return binary_buffer_error(&buffer.bb,
+							   "location description size is out of bounds");
+			}
+			if (base + start <= pc && pc < base + end) {
+				*expr_ret = buffer.bb.pos;
+				*expr_size_ret = expr_size;
+				return NULL;
+			}
+			buffer.bb.pos += expr_size;
+		}
+	}
+}
+
+static struct drgn_error *
 drgn_dwarf_location(struct drgn_debug_info_module *module,
 		    Dwarf_Attribute *attr,
 		    const struct drgn_register_state *regs,
@@ -1605,11 +1862,26 @@ drgn_dwarf_location(struct drgn_debug_info_module *module,
 {
 	struct drgn_error *err;
 	switch (attr->form) {
-	case DW_FORM_sec_offset: {
-		if (!module->scns[DRGN_SCN_DEBUG_LOC]) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "loclistptr without .debug_loc section");
-		}
+	case DW_FORM_sec_offset:
+	case DW_FORM_loclistx: {
+		Dwarf_Die cu_die;
+		Dwarf_Half cu_version;
+		uint8_t address_size;
+		uint8_t offset_size;
+		if (!dwarf_cu_die(attr->cu, &cu_die, &cu_version, NULL,
+				  &address_size, &offset_size, NULL, NULL))
+			return drgn_error_libdw();
+		if ((err = drgn_check_address_size(address_size)))
+			return err;
+
+		Dwarf_Word offset;
+		if (dwarf_formudata(attr, &offset))
+			return drgn_error_libdw();
+		if (attr->form == DW_FORM_loclistx &&
+		    ((err = drgn_dwarf_read_loclistx(module, &cu_die,
+						     offset_size, offset,
+						     &offset))))
+			return err;
 
 		struct optional_uint64 pc;
 		if (!regs ||
@@ -1618,81 +1890,22 @@ drgn_dwarf_location(struct drgn_debug_info_module *module,
 			*expr_size_ret = 0;
 			return NULL;
 		}
-
-		err = drgn_debug_info_module_cache_section(module,
-							   DRGN_SCN_DEBUG_LOC);
-		if (err)
-			return err;
-
 		Dwarf_Addr bias;
 		dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, &bias,
 				 NULL, NULL, NULL);
 		pc.value = pc.value - !regs->interrupted - bias;
 
-		Dwarf_Word offset;
-		if (dwarf_formudata(attr, &offset))
-			return drgn_error_libdw();
-
-		struct drgn_debug_info_buffer buffer;
-		drgn_debug_info_buffer_init(&buffer, module,
-					    DRGN_SCN_DEBUG_LOC);
-		if (offset > buffer.bb.end - buffer.bb.pos) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "loclistptr is out of bounds");
+		if (cu_version >= 5) {
+			return drgn_dwarf5_location_list(module, offset,
+							 &cu_die, address_size,
+							 pc.value, expr_ret,
+							 expr_size_ret);
+		} else {
+			return drgn_dwarf4_location_list(module, offset,
+							 &cu_die, address_size,
+							 pc.value, expr_ret,
+							 expr_size_ret);
 		}
-		buffer.bb.pos += offset;
-
-		uint8_t address_size =
-			drgn_platform_address_size(&module->platform);
-		uint64_t address_max = uint_max(address_size);
-		uint64_t base;
-		bool base_valid = false;
-		for (;;) {
-			uint64_t start, end;
-			if ((err = binary_buffer_next_uint(&buffer.bb,
-							   address_size,
-							   &start)) ||
-			    (err = binary_buffer_next_uint(&buffer.bb,
-							   address_size, &end)))
-				return err;
-			if (start == 0 && end == 0) {
-				break;
-			} else if (start == address_max) {
-				base = end;
-				base_valid = true;
-			} else {
-				if (!base_valid) {
-					Dwarf_Die cu_die;
-					if (!dwarf_cu_die(attr->cu, &cu_die,
-							  NULL, NULL, NULL,
-							  NULL, NULL, NULL))
-						return drgn_error_libdw();
-					Dwarf_Addr low_pc;
-					if (dwarf_lowpc(&cu_die, &low_pc))
-						return drgn_error_libdw();
-					base = low_pc;
-					base_valid = true;
-				}
-				uint16_t expr_size;
-				if ((err = binary_buffer_next_u16(&buffer.bb,
-								  &expr_size)))
-					return err;
-				if (expr_size > buffer.bb.end - buffer.bb.pos) {
-					return binary_buffer_error(&buffer.bb,
-								   "location description size is out of bounds");
-				}
-				if (base + start <= pc.value &&
-				    pc.value < base + end) {
-					*expr_ret = buffer.bb.pos;
-					*expr_size_ret = expr_size;
-					return NULL;
-				}
-				buffer.bb.pos += expr_size;
-			}
-		}
-		*expr_ret = NULL;
-		*expr_size_ret = 0;
-		return NULL;
 	}
 	default: {
 		Dwarf_Block block;
