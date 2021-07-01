@@ -4681,6 +4681,64 @@ class TestObjects(TestCase):
                     bits=bits,
                 )
 
+    # These are really tests of our ULEB128 parsing.
+    def test_variable_expr_op_constu_max(self):
+        self._assert_dwarf_expr_eval(
+            [assembler.U8(DW_OP.constu), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"],
+            2 ** 64 - 1,
+        )
+
+    def test_variable_expr_op_constu_non_canonical(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.constu),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x81\x00",
+            ],
+            2 ** 64 - 1,
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.constu),
+                b"\xfb\x80\x80\x80\x80\x80\x80\x80\x80\x80\x00",
+            ],
+            123,
+        )
+
+    def test_variable_expr_op_constu_overflow(self):
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [assembler.U8(DW_OP.constu), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x02"],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.constu),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x82\x00",
+            ],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.constu),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x81\x01",
+            ],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.constu),
+                b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01",
+            ],
+        )
+
     def test_variable_expr_op_consts(self):
         for bits in (64, 32):
             for size in (1, 2, 4, 8):
@@ -4699,6 +4757,121 @@ class TestObjects(TestCase):
                     -0x123456789 & (2 ** bits - 1),
                     bits=bits,
                 )
+
+    # These are really tests of our SLEB128 parsing.
+    def test_variable_expr_op_consts_max(self):
+        # Maximum positive value.
+        self._assert_dwarf_expr_eval(
+            [assembler.U8(DW_OP.consts), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00"],
+            2 ** 63 - 1,
+        )
+        # Maximum negative value.
+        self._assert_dwarf_expr_eval(
+            [assembler.U8(DW_OP.consts), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f"],
+            -1 & (2 ** 64 - 1),
+        )
+        # Minimum negative value.
+        self._assert_dwarf_expr_eval(
+            [assembler.U8(DW_OP.consts), b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f"],
+            -(2 ** 63) & (2 ** 64 - 1),
+        )
+
+    def test_variable_expr_op_consts_non_canonical(self):
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.consts),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x80\x00",
+            ],
+            2 ** 63 - 1,
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.consts),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f",
+            ],
+            -1 & (2 ** 64 - 1),
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.consts),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f",
+            ],
+            -1 & (2 ** 64 - 1),
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.consts),
+                b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\xff\x7f",
+            ],
+            -(2 ** 63) & (2 ** 64 - 1),
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.consts),
+                b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\xff\xff\x7f",
+            ],
+            -(2 ** 63) & (2 ** 64 - 1),
+        )
+        self._assert_dwarf_expr_eval(
+            [
+                assembler.U8(DW_OP.consts),
+                b"\xfb\x80\x80\x80\x80\x80\x80\x80\x80\x80\x00",
+            ],
+            123,
+        )
+
+    def test_variable_expr_op_consts_overflow(self):
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [assembler.U8(DW_OP.consts), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.consts),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01",
+            ],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.consts),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x81\x00",
+            ],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.consts),
+                b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x80\x01",
+            ],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.consts),
+                b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01",
+            ],
+        )
+        self.assertRaisesRegex(
+            Exception,
+            "overflow",
+            self._eval_dwarf_expr,
+            [
+                assembler.U8(DW_OP.consts),
+                b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f",
+            ],
+        )
 
     def test_variable_expr_op_dup(self):
         self._assert_dwarf_expr_eval(

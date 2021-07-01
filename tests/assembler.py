@@ -58,5 +58,8 @@ def assemble(*args, little_endian=True):
     byteorder = "little" if little_endian else "big"
     buf = bytearray()
     for arg in args:
-        arg._append(buf, byteorder)
+        if isinstance(arg, bytes):
+            buf.extend(arg)
+        else:
+            arg._append(buf, byteorder)
     return buf
