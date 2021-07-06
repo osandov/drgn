@@ -112,6 +112,7 @@ static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_DEBUG_STR_OFFSETS] = ".debug_str_offsets",
 	[DRGN_SCN_DEBUG_LINE] = ".debug_line",
 	[DRGN_SCN_DEBUG_LINE_STR] = ".debug_line_str",
+	[DRGN_SCN_DEBUG_ADDR] = ".debug_addr",
 	[DRGN_SCN_DEBUG_FRAME] = ".debug_frame",
 	[DRGN_SCN_EH_FRAME] = ".eh_frame",
 	[DRGN_SCN_ORC_UNWIND_IP] = ".orc_unwind_ip",
@@ -1528,6 +1529,74 @@ bool drgn_debug_info_is_indexed(struct drgn_debug_info *dbinfo,
 	return c_string_set_search(&dbinfo->module_names, &name).entry != NULL;
 }
 
+static inline struct drgn_error *drgn_check_address_size(uint8_t address_size)
+{
+	if (address_size < 1 || address_size > 8) {
+		return drgn_error_format(DRGN_ERROR_OTHER,
+					 "unsupported address size %" PRIu8,
+					 address_size);
+	}
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_dwarf_next_addrx(struct binary_buffer *bb,
+		      struct drgn_debug_info_module *module, Dwarf_Die *cu_die,
+		      uint8_t address_size, const char **addr_base,
+		      uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	if (!*addr_base) {
+		Dwarf_Attribute attr_mem, *attr;
+		if (!(attr = dwarf_attr(cu_die, DW_AT_addr_base, &attr_mem))) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "indirect address without DW_AT_addr_base");
+		}
+		Dwarf_Word base;
+		if (dwarf_formudata(attr, &base))
+			return drgn_error_libdw();
+
+		if (!module->scns[DRGN_SCN_DEBUG_ADDR]) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "indirect address without .debug_addr section");
+		}
+		err = drgn_debug_info_module_cache_section(module,
+							   DRGN_SCN_DEBUG_ADDR);
+		if (err)
+			return err;
+
+		if (base > module->scn_data[DRGN_SCN_DEBUG_ADDR]->d_size ||
+		    base == 0) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "DW_AT_addr_base is out of bounds");
+		}
+
+		*addr_base = (char *)module->scn_data[DRGN_SCN_DEBUG_ADDR]->d_buf + base;
+		uint8_t segment_selector_size = ((uint8_t *)*addr_base)[-1];
+		if (segment_selector_size != 0) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "unsupported segment selector size %" PRIu8,
+						 segment_selector_size);
+		}
+	}
+
+	uint64_t index;
+	if ((err = binary_buffer_next_uleb128(bb, &index)))
+		return err;
+
+	Elf_Data *data = module->scn_data[DRGN_SCN_DEBUG_ADDR];
+	if (index >=
+	    ((char *)data->d_buf + data->d_size - *addr_base) / address_size) {
+		return binary_buffer_error(bb,
+					   "address index is out of bounds");
+	}
+	copy_lsbytes(ret, sizeof(*ret), HOST_LITTLE_ENDIAN,
+		     *addr_base + index * address_size, address_size,
+		     drgn_platform_is_little_endian(&module->platform));
+	return NULL;
+}
+
 static struct drgn_error *
 drgn_dwarf_location(struct drgn_debug_info_module *module,
 		    Dwarf_Attribute *attr,
@@ -1636,12 +1705,6 @@ drgn_dwarf_location(struct drgn_debug_info_module *module,
 	}
 }
 
-struct drgn_dwarf_expression_buffer {
-	struct binary_buffer bb;
-	const char *start;
-	struct drgn_debug_info_module *module;
-};
-
 static struct drgn_error *
 drgn_error_debug_info(struct drgn_debug_info_module *module, const char *ptr,
 		      const char *message)
@@ -1676,50 +1739,81 @@ drgn_error_debug_info(struct drgn_debug_info_module *module, const char *ptr,
 	return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s", name, message);
 }
 
+/* A DWARF expression and the context it is being evaluated in. */
+struct drgn_dwarf_expression_context {
+	struct binary_buffer bb;
+	const char *start;
+	struct drgn_program *prog;
+	struct drgn_debug_info_module *module;
+	uint8_t address_size;
+	Dwarf_Die cu_die;
+	const char *cu_addr_base;
+	Dwarf_Die *function;
+	const struct drgn_register_state *regs;
+};
+
 static struct drgn_error *
 drgn_dwarf_expression_buffer_error(struct binary_buffer *bb, const char *pos,
 				   const char *message)
 {
-	struct drgn_dwarf_expression_buffer *buffer =
-		container_of(bb, struct drgn_dwarf_expression_buffer, bb);
-	return drgn_error_debug_info(buffer->module, pos, message);
+	struct drgn_dwarf_expression_context *ctx =
+		container_of(bb, struct drgn_dwarf_expression_context, bb);
+	return drgn_error_debug_info(ctx->module, pos, message);
 }
 
-static void
-drgn_dwarf_expression_buffer_init(struct drgn_dwarf_expression_buffer *buffer,
-				  struct drgn_debug_info_module *module,
-				  const char *expr, size_t expr_size)
+static inline struct drgn_error *
+drgn_dwarf_expression_context_init(struct drgn_dwarf_expression_context *ctx,
+				   struct drgn_program *prog,
+				   struct drgn_debug_info_module *module,
+				   Dwarf_CU *cu, Dwarf_Die *function,
+				   const struct drgn_register_state *regs,
+				   const char *expr, size_t expr_size)
 {
-	binary_buffer_init(&buffer->bb, expr, expr_size,
+	struct drgn_error *err;
+	binary_buffer_init(&ctx->bb, expr, expr_size,
 			   drgn_platform_is_little_endian(&module->platform),
 			   drgn_dwarf_expression_buffer_error);
-	buffer->start = expr;
-	buffer->module = module;
+	ctx->start = expr;
+	ctx->prog = prog;
+	ctx->module = module;
+	if (cu) {
+		if (!dwarf_cu_die(cu, &ctx->cu_die, NULL, NULL,
+				  &ctx->address_size, NULL, NULL, NULL))
+			return drgn_error_libdw();
+		if ((err = drgn_check_address_size(ctx->address_size)))
+			return err;
+	} else {
+		ctx->cu_die.addr = NULL;
+		ctx->address_size =
+			drgn_platform_address_size(&module->platform);
+	}
+	ctx->cu_addr_base = NULL;
+	ctx->function = function;
+	ctx->regs = regs;
+	return NULL;
 }
 
 static struct drgn_error *
 drgn_dwarf_frame_base(struct drgn_program *prog,
 		      struct drgn_debug_info_module *module, Dwarf_Die *die,
-		      int *remaining_ops,
-		      const struct drgn_register_state *regs, uint64_t *ret);
+		      const struct drgn_register_state *regs,
+		      int *remaining_ops, uint64_t *ret);
 
 /*
- * Evaluate a DWARF expression up to the next location description operation.
+ * Evaluate a DWARF expression up to the next location description operation or
+ * operation that can't be evaluated in the given context.
  *
  * Returns &drgn_not_found if it tried to use an unknown register value.
  */
 static struct drgn_error *
-drgn_eval_dwarf_expression(struct drgn_program *prog,
-			   struct drgn_dwarf_expression_buffer *expr,
+drgn_eval_dwarf_expression(struct drgn_dwarf_expression_context *ctx,
 			   struct uint64_vector *stack,
-			   int *remaining_ops,
-			   Dwarf_Die *function_die,
-			   const struct drgn_register_state *regs)
+			   int *remaining_ops)
 {
 	struct drgn_error *err;
-	const struct drgn_platform *platform = &expr->module->platform;
+	const struct drgn_platform *platform = &ctx->module->platform;
 	bool little_endian = drgn_platform_is_little_endian(platform);
-	uint8_t address_size = drgn_platform_address_size(platform);
+	uint8_t address_size = ctx->address_size;
 	uint8_t address_bits = address_size * CHAR_BIT;
 	uint64_t address_mask = uint_max(address_size);
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t) =
@@ -1728,7 +1822,7 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 #define CHECK(n) do {								\
 	size_t _n = (n);							\
 	if (stack->size < _n) {							\
-		return binary_buffer_error(&expr->bb,				\
+		return binary_buffer_error(&ctx->bb,				\
 					   "DWARF expression stack underflow");	\
 	}									\
 } while (0)
@@ -1743,14 +1837,14 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 
 #define PUSH_MASK(x) PUSH((x) & address_mask)
 
-	while (binary_buffer_has_next(&expr->bb)) {
+	while (binary_buffer_has_next(&ctx->bb)) {
 		if (*remaining_ops <= 0) {
-			return binary_buffer_error(&expr->bb,
+			return binary_buffer_error(&ctx->bb,
 						   "DWARF expression executed too many operations");
 		}
 		(*remaining_ops)--;
 		uint8_t opcode;
-		if ((err = binary_buffer_next_u8(&expr->bb, &opcode)))
+		if ((err = binary_buffer_next_u8(&ctx->bb, &opcode)))
 			return err;
 		uint64_t uvalue;
 		uint64_t dwarf_regno;
@@ -1761,80 +1855,94 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 			PUSH(opcode - DW_OP_lit0);
 			break;
 		case DW_OP_addr:
-			if ((err = binary_buffer_next_uint(&expr->bb,
+			if ((err = binary_buffer_next_uint(&ctx->bb,
 							   address_size,
 							   &uvalue)))
 				return err;
 			PUSH(uvalue);
 			break;
 		case DW_OP_const1u:
-			if ((err = binary_buffer_next_u8_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_u8_into_u64(&ctx->bb,
 								  &uvalue)))
 				return err;
 			PUSH(uvalue);
 			break;
 		case DW_OP_const2u:
-			if ((err = binary_buffer_next_u16_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_u16_into_u64(&ctx->bb,
 								   &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_const4u:
-			if ((err = binary_buffer_next_u32_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_u32_into_u64(&ctx->bb,
 								   &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_const8u:
-			if ((err = binary_buffer_next_u64(&expr->bb, &uvalue)))
+			if ((err = binary_buffer_next_u64(&ctx->bb, &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_const1s:
-			if ((err = binary_buffer_next_s8_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_s8_into_u64(&ctx->bb,
 								  &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_const2s:
-			if ((err = binary_buffer_next_s16_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_s16_into_u64(&ctx->bb,
 								   &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_const4s:
-			if ((err = binary_buffer_next_s32_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_s32_into_u64(&ctx->bb,
 								   &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_const8s:
-			if ((err = binary_buffer_next_s64_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_s64_into_u64(&ctx->bb,
 								   &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_constu:
-			if ((err = binary_buffer_next_uleb128(&expr->bb,
+			if ((err = binary_buffer_next_uleb128(&ctx->bb,
 							      &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
 		case DW_OP_consts:
-			if ((err = binary_buffer_next_sleb128_into_u64(&expr->bb,
+			if ((err = binary_buffer_next_sleb128_into_u64(&ctx->bb,
 								       &uvalue)))
 				return err;
 			PUSH_MASK(uvalue);
 			break;
+		case DW_OP_addrx:
+		case DW_OP_constx:
+			if (!ctx->cu_die.addr) {
+				ctx->bb.pos = ctx->bb.prev;
+				return NULL;
+			}
+			if ((err = drgn_dwarf_next_addrx(&ctx->bb, ctx->module,
+							 &ctx->cu_die,
+							 address_size,
+							 &ctx->cu_addr_base,
+							 &uvalue)))
+				return err;
+			PUSH(uvalue);
+			break;
 		/* Register values. */
 		case DW_OP_fbreg: {
-			err = drgn_dwarf_frame_base(prog, expr->module,
-						    function_die, remaining_ops,
-						    regs, &uvalue);
+			err = drgn_dwarf_frame_base(ctx->prog, ctx->module,
+						    ctx->function, ctx->regs,
+						    remaining_ops, &uvalue);
 			if (err)
 				return err;
 			int64_t svalue;
-			if ((err = binary_buffer_next_sleb128(&expr->bb,
+			if ((err = binary_buffer_next_sleb128(&ctx->bb,
 							      &svalue)))
 				return err;
 			PUSH_MASK(uvalue + svalue);
@@ -1844,25 +1952,25 @@ drgn_eval_dwarf_expression(struct drgn_program *prog,
 			dwarf_regno = opcode - DW_OP_breg0;
 			goto breg;
 		case DW_OP_bregx:
-			if ((err = binary_buffer_next_uleb128(&expr->bb,
+			if ((err = binary_buffer_next_uleb128(&ctx->bb,
 							      &dwarf_regno)))
 				return err;
 breg:
 		{
-			if (!regs)
+			if (!ctx->regs)
 				return &drgn_not_found;
 			drgn_register_number regno =
 				dwarf_regno_to_internal(dwarf_regno);
-			if (!drgn_register_state_has_register(regs, regno))
+			if (!drgn_register_state_has_register(ctx->regs, regno))
 				return &drgn_not_found;
 			const struct drgn_register_layout *layout =
 				&platform->arch->register_layout[regno];
 			copy_lsbytes(&uvalue, sizeof(uvalue),
 				     HOST_LITTLE_ENDIAN,
-				     &regs->buf[layout->offset], layout->size,
-				     little_endian);
+				     &ctx->regs->buf[layout->offset],
+				     layout->size, little_endian);
 			int64_t svalue;
-			if ((err = binary_buffer_next_sleb128(&expr->bb,
+			if ((err = binary_buffer_next_sleb128(&ctx->bb,
 							      &svalue)))
 				return err;
 			PUSH_MASK(uvalue + svalue);
@@ -1879,7 +1987,7 @@ breg:
 			break;
 		case DW_OP_pick: {
 			uint8_t index;
-			if ((err = binary_buffer_next_u8(&expr->bb, &index)))
+			if ((err = binary_buffer_next_u8(&ctx->bb, &index)))
 				return err;
 			CHECK(index + 1);
 			PUSH(ELEM(index));
@@ -1906,19 +2014,20 @@ breg:
 			deref_size = address_size;
 			goto deref;
 		case DW_OP_deref_size:
-			if ((err = binary_buffer_next_u8(&expr->bb,
+			if ((err = binary_buffer_next_u8(&ctx->bb,
 							 &deref_size)))
 				return err;
 			if (deref_size > address_size) {
-				return binary_buffer_error(&expr->bb,
+				return binary_buffer_error(&ctx->bb,
 							   "DW_OP_deref_size has invalid size");
 			}
 deref:
 		{
 			CHECK(1);
 			char deref_buf[8];
-			err = drgn_program_read_memory(prog, deref_buf, ELEM(0),
-						       deref_size, false);
+			err = drgn_program_read_memory(ctx->prog, deref_buf,
+						       ELEM(0), deref_size,
+						       false);
 			if (err)
 				return err;
 			copy_lsbytes(&ELEM(0), sizeof(ELEM(0)),
@@ -1927,7 +2036,7 @@ deref:
 			break;
 		}
 		case DW_OP_call_frame_cfa: {
-			if (!regs)
+			if (!ctx->regs)
 				return &drgn_not_found;
 			/*
 			 * The DWARF 5 specification says that
@@ -1940,7 +2049,7 @@ deref:
 			 * we don't bother enforcing it.
 			 */
 			struct optional_uint64 cfa =
-				drgn_register_state_get_cfa(regs);
+				drgn_register_state_get_cfa(ctx->regs);
 			if (!cfa.has_value)
 				return &drgn_not_found;
 			PUSH(cfa.value);
@@ -1972,7 +2081,7 @@ deref:
 		case DW_OP_div:
 			CHECK(2);
 			if (ELEM(0) == 0) {
-				return binary_buffer_error(&expr->bb,
+				return binary_buffer_error(&ctx->bb,
 							   "division by zero in DWARF expression");
 			}
 			ELEM(1) = ((truncate_signed(ELEM(1), address_bits)
@@ -1986,7 +2095,7 @@ deref:
 		case DW_OP_mod:
 			CHECK(2);
 			if (ELEM(0) == 0) {
-				return binary_buffer_error(&expr->bb,
+				return binary_buffer_error(&ctx->bb,
 							   "modulo by zero in DWARF expression");
 			}
 			ELEM(1) = ELEM(1) % ELEM(0);
@@ -2009,7 +2118,7 @@ deref:
 			break;
 		case DW_OP_plus_uconst:
 			CHECK(1);
-			if ((err = binary_buffer_next_uleb128(&expr->bb,
+			if ((err = binary_buffer_next_uleb128(&ctx->bb,
 							      &uvalue)))
 				return err;
 			ELEM(0) = (ELEM(0) + uvalue) & address_mask;
@@ -2079,14 +2188,14 @@ deref:
 branch:
 		{
 			int16_t skip;
-			if ((err = binary_buffer_next_s16(&expr->bb, &skip)))
+			if ((err = binary_buffer_next_s16(&ctx->bb, &skip)))
 				return err;
-			if ((skip >= 0 && skip > expr->bb.end - expr->bb.pos) ||
-			    (skip < 0 && -skip > expr->bb.pos - expr->start)) {
-				return binary_buffer_error(&expr->bb,
+			if ((skip >= 0 && skip > ctx->bb.end - ctx->bb.pos) ||
+			    (skip < 0 && -skip > ctx->bb.pos - ctx->start)) {
+				return binary_buffer_error(&ctx->bb,
 							   "DWARF expression branch is out of bounds");
 			}
-			expr->bb.pos += skip;
+			ctx->bb.pos += skip;
 			break;
 		}
 		case DW_OP_bra:
@@ -2096,7 +2205,7 @@ branch:
 				goto branch;
 			} else {
 				stack->size--;
-				if ((err = binary_buffer_skip(&expr->bb, 2)))
+				if ((err = binary_buffer_skip(&ctx->bb, 2)))
 					return err;
 			}
 			break;
@@ -2111,7 +2220,7 @@ branch:
 		case DW_OP_piece:
 		case DW_OP_bit_piece:
 			/* The caller must handle it. */
-			expr->bb.pos = expr->bb.prev;
+			ctx->bb.pos = ctx->bb.prev;
 			return NULL;
 		/*
 		 * We don't yet support:
@@ -2121,15 +2230,13 @@ branch:
 		 * - DW_OP_entry_value
 		 *   DW_OP_implicit_pointer
 		 * - Procedure calls: DW_OP_call2, DW_OP_call4, DW_OP_call_ref.
-		 * - Operations that use .debug_addr: DW_OP_addrx,
-		 *   DW_OP_constx.
 		 * - Typed operations: DW_OP_const_type, DW_OP_regval_type,
 		 *   DW_OP_deref_type, DW_OP_convert, DW_OP_reinterpret.
 		 * - Operations for multiple address spaces: DW_OP_xderef,
 		 *   DW_OP_xderef_size, DW_OP_xderef_type.
 		 */
 		default:
-			return binary_buffer_error(&expr->bb,
+			return binary_buffer_error(&ctx->bb,
 						   "unknown DWARF expression opcode %#" PRIx8,
 						   opcode);
 		}
@@ -2146,8 +2253,8 @@ branch:
 static struct drgn_error *
 drgn_dwarf_frame_base(struct drgn_program *prog,
 		      struct drgn_debug_info_module *module, Dwarf_Die *die,
-		      int *remaining_ops,
-		      const struct drgn_register_state *regs, uint64_t *ret)
+		      const struct drgn_register_state *regs,
+		      int *remaining_ops, uint64_t *ret)
 {
 	struct drgn_error *err;
 	bool little_endian = drgn_platform_is_little_endian(&module->platform);
@@ -2165,17 +2272,19 @@ drgn_dwarf_frame_base(struct drgn_program *prog,
 	if (err)
 		return err;
 
+	struct drgn_dwarf_expression_context ctx;
+	if ((err = drgn_dwarf_expression_context_init(&ctx, prog, module,
+						      die->cu, NULL, regs, expr,
+						      expr_size)))
+		return err;
 	struct uint64_vector stack = VECTOR_INIT;
-	struct drgn_dwarf_expression_buffer buffer;
-	drgn_dwarf_expression_buffer_init(&buffer, module, expr, expr_size);
 	for (;;) {
-		err = drgn_eval_dwarf_expression(prog, &buffer, &stack,
-						 remaining_ops, NULL, regs);
+		err = drgn_eval_dwarf_expression(&ctx, &stack, remaining_ops);
 		if (err)
 			goto out;
-		if (binary_buffer_has_next(&buffer.bb)) {
+		if (binary_buffer_has_next(&ctx.bb)) {
 			uint8_t opcode;
-			if ((err = binary_buffer_next_u8(&buffer.bb, &opcode)))
+			if ((err = binary_buffer_next_u8(&ctx.bb, &opcode)))
 				goto out;
 
 			uint64_t dwarf_regno;
@@ -2184,7 +2293,7 @@ drgn_dwarf_frame_base(struct drgn_program *prog,
 				dwarf_regno = opcode - DW_OP_reg0;
 				goto reg;
 			case DW_OP_regx:
-				if ((err = binary_buffer_next_uleb128(&buffer.bb,
+				if ((err = binary_buffer_next_uleb128(&ctx.bb,
 								      &dwarf_regno)))
 					goto out;
 reg:
@@ -2210,8 +2319,8 @@ reg:
 					     HOST_LITTLE_ENDIAN,
 					     &regs->buf[layout->offset],
 					     layout->size, little_endian);
-				if (binary_buffer_has_next(&buffer.bb)) {
-					err = binary_buffer_error(&buffer.bb,
+				if (binary_buffer_has_next(&ctx.bb)) {
+					err = binary_buffer_error(&ctx.bb,
 								  "stray operations in DW_AT_frame_base expression");
 				} else {
 					err = NULL;
@@ -2219,7 +2328,7 @@ reg:
 				goto out;
 			}
 			default:
-				err = binary_buffer_error(&buffer.bb,
+				err = binary_buffer_error(&ctx.bb,
 							  "invalid opcode %#" PRIx8 " for DW_AT_frame_base expression",
 							  opcode);
 				goto out;
@@ -2592,15 +2701,16 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 
 	uint64_t bit_pos = 0;
 
-	struct uint64_vector stack = VECTOR_INIT;
 	int remaining_ops = MAX_DWARF_EXPR_OPS;
-	struct drgn_dwarf_expression_buffer buffer;
-	drgn_dwarf_expression_buffer_init(&buffer, module, expr, expr_size);
+	struct drgn_dwarf_expression_context ctx;
+	if ((err = drgn_dwarf_expression_context_init(&ctx, prog, module,
+						      die->cu, function_die,
+						      regs, expr, expr_size)))
+		return err;
+	struct uint64_vector stack = VECTOR_INIT;
 	do {
 		stack.size = 0;
-		err = drgn_eval_dwarf_expression(prog, &buffer, &stack,
-						 &remaining_ops, function_die,
-						 regs);
+		err = drgn_eval_dwarf_expression(&ctx, &stack, &remaining_ops);
 		if (err == &drgn_not_found)
 			goto absent;
 		else if (err)
@@ -2609,9 +2719,9 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 		const void *src = NULL;
 		size_t src_size;
 
-		if (binary_buffer_has_next(&buffer.bb)) {
+		if (binary_buffer_has_next(&ctx.bb)) {
 			uint8_t opcode;
-			if ((err = binary_buffer_next_u8(&buffer.bb, &opcode)))
+			if ((err = binary_buffer_next_u8(&ctx.bb, &opcode)))
 				goto out;
 
 			uint64_t uvalue;
@@ -2622,7 +2732,7 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 				dwarf_regno = opcode - DW_OP_reg0;
 				goto reg;
 			case DW_OP_regx:
-				if ((err = binary_buffer_next_uleb128(&buffer.bb,
+				if ((err = binary_buffer_next_uleb128(&ctx.bb,
 								      &dwarf_regno)))
 					goto out;
 reg:
@@ -2638,17 +2748,17 @@ reg:
 				src_size = layout->size;
 				break;
 			case DW_OP_implicit_value:
-				if ((err = binary_buffer_next_uleb128(&buffer.bb,
+				if ((err = binary_buffer_next_uleb128(&ctx.bb,
 								      &uvalue)))
 					goto out;
-				if (uvalue > buffer.bb.end - buffer.bb.pos) {
-					err = binary_buffer_error(&buffer.bb,
+				if (uvalue > ctx.bb.end - ctx.bb.pos) {
+					err = binary_buffer_error(&ctx.bb,
 								  "DW_OP_implicit_value size is out of bounds");
 					goto out;
 				}
-				src = buffer.bb.pos;
+				src = ctx.bb.pos;
 				src_size = uvalue;
-				buffer.bb.pos += uvalue;
+				ctx.bb.pos += uvalue;
 				break;
 			case DW_OP_stack_value:
 				if (!stack.size)
@@ -2661,21 +2771,21 @@ reg:
 				src_size = sizeof(stack.data[0]);
 				break;
 			default:
-				buffer.bb.pos = buffer.bb.prev;
+				ctx.bb.pos = ctx.bb.prev;
 				break;
 			}
 		}
 
 		uint64_t piece_bit_size;
 		uint64_t piece_bit_offset;
-		if (binary_buffer_has_next(&buffer.bb)) {
+		if (binary_buffer_has_next(&ctx.bb)) {
 			uint8_t opcode;
-			if ((err = binary_buffer_next_u8(&buffer.bb, &opcode)))
+			if ((err = binary_buffer_next_u8(&ctx.bb, &opcode)))
 				goto out;
 
 			switch (opcode) {
 			case DW_OP_piece:
-				if ((err = binary_buffer_next_uleb128(&buffer.bb,
+				if ((err = binary_buffer_next_uleb128(&ctx.bb,
 								      &piece_bit_size)))
 					goto out;
 				/*
@@ -2691,16 +2801,16 @@ reg:
 				piece_bit_offset = 0;
 				break;
 			case DW_OP_bit_piece:
-				if ((err = binary_buffer_next_uleb128(&buffer.bb,
+				if ((err = binary_buffer_next_uleb128(&ctx.bb,
 								      &piece_bit_size)) ||
-				    (err = binary_buffer_next_uleb128(&buffer.bb,
+				    (err = binary_buffer_next_uleb128(&ctx.bb,
 								      &piece_bit_offset)))
 					goto out;
 				if (piece_bit_size > type.bit_size - bit_pos)
 					piece_bit_size = type.bit_size - bit_pos;
 				break;
 			default:
-				err = binary_buffer_error(&buffer.bb,
+				err = binary_buffer_error(&ctx.bb,
 							  "unknown DWARF expression opcode %#" PRIx8 " after simple location description",
 							  opcode);
 				goto out;
@@ -2829,7 +2939,7 @@ reg:
 			goto absent;
 		}
 		bit_pos += piece_bit_size;
-	} while (binary_buffer_has_next(&buffer.bb));
+	} while (binary_buffer_has_next(&ctx.bb));
 
 	if (bit_pos < type.bit_size || (bit_offset < 0 && !value_buf)) {
 absent:
@@ -5715,18 +5825,17 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 	}
 
 	int remaining_ops = MAX_DWARF_EXPR_OPS;
-	struct drgn_dwarf_expression_buffer buffer;
-	drgn_dwarf_expression_buffer_init(&buffer, regs->module, rule->expr,
-					  rule->expr_size);
-	err = drgn_eval_dwarf_expression(prog, &buffer, &stack, &remaining_ops,
-					 NULL, regs);
+	struct drgn_dwarf_expression_context ctx;
+	drgn_dwarf_expression_context_init(&ctx, prog, regs->module, NULL, NULL,
+					   regs, rule->expr, rule->expr_size);
+	err = drgn_eval_dwarf_expression(&ctx, &stack, &remaining_ops);
 	if (err)
 		goto out;
-	if (binary_buffer_has_next(&buffer.bb)) {
+	if (binary_buffer_has_next(&ctx.bb)) {
 		uint8_t opcode;
-		err = binary_buffer_next_u8(&buffer.bb, &opcode);
+		err = binary_buffer_next_u8(&ctx.bb, &opcode);
 		if (!err) {
-			err = binary_buffer_error(&buffer.bb,
+			err = binary_buffer_error(&ctx.bb,
 						  "invalid opcode %#" PRIx8 " for CFI expression",
 						  opcode);
 		}
