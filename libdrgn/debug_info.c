@@ -4605,10 +4605,8 @@ unknown_augmentation:
 						   segment_selector_size);
 		}
 	} else {
-		if (module->platform.flags & DRGN_PLATFORM_IS_64_BIT)
-			cie->address_size = 8;
-		else
-			cie->address_size = 4;
+		cie->address_size =
+			drgn_platform_address_size(&module->platform);
 	}
 	if ((err = binary_buffer_next_uleb128(&buffer.bb,
 					      &cie->code_alignment_factor)) ||
