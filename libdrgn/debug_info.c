@@ -360,16 +360,9 @@ drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
 	struct drgn_dwarf_die_iterator it;
 	bool children;
 	size_t subtree;
-	if (naranges > 0) {
-		Dwarf_Off offset;
-		if (dwarf_getarangeinfo(dwarf_getarange_addr(aranges, pc), NULL,
-					NULL, &offset) < 0) {
-			/* No ranges match the PC. */
-			*dies_ret = NULL;
-			*length_ret = 0;
-			return NULL;
-		}
-
+	Dwarf_Off offset;
+	if (dwarf_getarangeinfo(dwarf_getarange_addr(aranges, pc), NULL, NULL,
+				&offset) >= 0) {
 		drgn_dwarf_die_iterator_init(&it, dwarf);
 		Dwarf_Die *cu_die = dwarf_die_vector_append_entry(&it.dies);
 		if (!cu_die) {
@@ -393,8 +386,8 @@ drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
 		subtree = 1;
 	} else {
 		/*
-		 * .debug_aranges is empty or missing. Fall back to checking
-		 * each CU.
+		 * Range was not found. .debug_aranges could be missing or
+		 * incomplete, so fall back to checking each CU.
 		 */
 		drgn_dwarf_die_iterator_init(&it, dwarf);
 		children = false;
