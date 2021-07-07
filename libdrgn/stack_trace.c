@@ -291,21 +291,38 @@ drgn_stack_frame_source(struct drgn_stack_trace *trace, size_t frame,
 				*column_ret = value;
 		}
 		return filename;
-	} else {
+	} else if (trace->frames[frame].num_scopes > 0) {
 		struct drgn_register_state *regs = trace->frames[frame].regs;
 		Dwfl_Module *dwfl_module =
 			regs->module ? regs->module->dwfl_module : NULL;
 		if (!dwfl_module)
 			return NULL;
+
 		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
 		if (!pc.has_value)
 			return NULL;
-		pc.value -= !regs->interrupted;
-		Dwfl_Line *line = dwfl_module_getsrc(dwfl_module, pc.value);
+		Dwarf_Addr bias;
+		if (!dwfl_module_getdwarf(dwfl_module, &bias))
+			return NULL;
+		pc.value = pc.value - bias - !regs->interrupted;
+
+		Dwarf_Die *scopes = trace->frames[frame].scopes;
+		size_t num_scopes = trace->frames[frame].num_scopes;
+		Dwarf_Die cu_die;
+		if (!dwarf_cu_die(scopes[num_scopes - 1].cu, &cu_die, NULL,
+				  NULL, NULL, NULL, NULL, NULL))
+			return NULL;
+
+		Dwarf_Line *line = dwarf_getsrc_die(&cu_die, pc.value);
 		if (!line)
 			return NULL;
-		return dwfl_lineinfo(line, NULL, line_ret, column_ret, NULL,
-				     NULL);
+		if (line_ret)
+			dwarf_lineno(line, line_ret);
+		if (column_ret)
+			dwarf_linecol(line, column_ret);
+		return dwarf_linesrc(line, NULL, NULL);
+	} else {
+		return NULL;
 	}
 }
 
@@ -359,7 +376,7 @@ drgn_stack_frame_find_object(struct drgn_stack_trace *trace, size_t frame_i,
 	struct drgn_error *err;
 	struct drgn_stack_frame *frame = &trace->frames[frame_i];
 
-	if (frame->num_scopes == 0)
+	if (frame->function_scope >= frame->num_scopes)
 		goto not_found;
 
 	Dwarf_Die die, type_die;
@@ -811,11 +828,25 @@ drgn_stack_trace_add_frames(struct drgn_stack_trace **trace,
 
 	/*
 	 * We didn't find a matching DW_TAG_subprogram. Free any matching
-	 * DW_TAG_inlined_subroutine frames we found and add a scopeless frame.
+	 * DW_TAG_inlined_subroutine frames we found.
 	 */
 	for (size_t i = orig_num_frames; i < (*trace)->num_frames; i++)
 		free((*trace)->frames[i].scopes);
 	(*trace)->num_frames = orig_num_frames;
+	/* If we at least found the unit DIE, keep it. */
+	if (num_scopes > 0) {
+		Dwarf_Die *frame_scopes;
+		if (!(frame_scopes = realloc(scopes, sizeof(scopes[0]))))
+			frame_scopes = scopes;
+		err = drgn_stack_trace_append_frame(trace, trace_capacity, regs,
+						    frame_scopes, 1, 1);
+		if (err) {
+			free(frame_scopes);
+			goto out;
+		}
+		return NULL;
+	}
+	/* Otherwise, add a scopeless frame. */
 	err = drgn_stack_trace_append_frame(trace, trace_capacity, regs, NULL,
 					    0, 0);
 out_scopes:
