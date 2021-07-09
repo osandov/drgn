@@ -375,7 +375,7 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64,
+					   "unknown attribute form %#" PRIx64,
 					   form);
 	}
 }
@@ -405,7 +405,7 @@ static struct drgn_error *dw_at_sibling_to_insn(struct binary_buffer *bb,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_sibling",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_sibling",
 					   form);
 	}
 }
@@ -448,7 +448,7 @@ static struct drgn_error *dw_at_name_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_name",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_name",
 					   form);
 	}
 }
@@ -502,7 +502,7 @@ static struct drgn_error *dw_at_comp_dir_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_comp_dir",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_comp_dir",
 					   form);
 	}
 }
@@ -524,7 +524,7 @@ dw_at_str_offsets_base_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_str_offsets_base",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_str_offsets_base",
 					   form);
 	}
 }
@@ -552,7 +552,7 @@ dw_at_stmt_list_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_stmt_list",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_stmt_list",
 					   form);
 	}
 }
@@ -591,7 +591,7 @@ static struct drgn_error *dw_at_decl_file_to_insn(struct binary_buffer *bb,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_decl_file",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_decl_file",
 					   form);
 	}
 }
@@ -617,7 +617,7 @@ dw_at_declaration_to_insn(struct binary_buffer *bb, uint64_t form,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_declaration",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_declaration",
 					   form);
 	}
 }
@@ -665,7 +665,7 @@ dw_at_specification_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for DW_AT_specification",
+					   "unknown attribute form %#" PRIx64 " for DW_AT_specification",
 					   form);
 	}
 }
@@ -1299,7 +1299,7 @@ block:
 		return binary_buffer_skip_string(bb);
 	default:
 		return binary_buffer_error(bb,
-					   "unknown attribute form %" PRIu64 " for line number program",
+					   "unknown attribute form %#" PRIx64 " for line number program",
 					   form);
 	}
 }
@@ -1334,7 +1334,7 @@ static struct drgn_error *read_lnp_string(struct drgn_debug_info_buffer *buffer,
 		return NULL;
 	default:
 		return binary_buffer_error(&buffer->bb,
-					   "unknown attribute form %" PRIu64 " for DW_LNCT_path",
+					   "unknown attribute form %#" PRIx64 " for DW_LNCT_path",
 					   form);
 	}
 }
@@ -1352,7 +1352,7 @@ read_lnp_directory_index(struct drgn_debug_info_buffer *buffer, uint64_t form,
 		return binary_buffer_next_uleb128(&buffer->bb, ret);
 	default:
 		return binary_buffer_error(&buffer->bb,
-					   "unknown attribute form %" PRIu64 " for DW_LNCT_directory_index",
+					   "unknown attribute form %#" PRIx64 " for DW_LNCT_directory_index",
 					   form);
 	}
 }
