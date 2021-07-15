@@ -8,27 +8,16 @@ from drgn.helpers.linux.cpumask import (
     for_each_possible_cpu,
     for_each_present_cpu,
 )
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.helpers.linux import LinuxHelperTestCase, parse_range_list
 
 CPU_PATH = Path("/sys/devices/system/cpu")
-
-
-def parse_cpulist(cpulist):
-    cpus = set()
-    for cpu_range in cpulist.split(","):
-        first, sep, last = cpu_range.partition("-")
-        if sep:
-            cpus.update(range(int(first), int(last) + 1))
-        else:
-            cpus.add(int(first))
-    return cpus
 
 
 class TestCpuMask(LinuxHelperTestCase):
     def _test_for_each_cpu(self, func, name):
         self.assertEqual(
             list(func(self.prog)),
-            sorted(parse_cpulist((CPU_PATH / name).read_text())),
+            sorted(parse_range_list((CPU_PATH / name).read_text())),
         )
 
     def test_for_each_online_cpu(self):
