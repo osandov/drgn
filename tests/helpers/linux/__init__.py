@@ -93,6 +93,17 @@ def proc_state(pid):
         return re.search(r"State:\s*(\S)", f.read(), re.M).group(1)
 
 
+def parse_range_list(s):
+    values = set()
+    for range_str in s.split(","):
+        first, sep, last = range_str.partition("-")
+        if sep:
+            values.update(range(int(first), int(last) + 1))
+        else:
+            values.add(int(first))
+    return values
+
+
 _c = ctypes.CDLL(None, use_errno=True)
 
 _mount = _c.mount
