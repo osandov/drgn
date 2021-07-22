@@ -122,7 +122,7 @@ void copy_bits(void *dst, unsigned int dst_bit_offset, const void *src,
  * @param[in] bit_offset Offset in bits from the beginning of @p buf to where to
  * write. This is interpreted differently based on @p little_endian.
  * @param[in] uvalue Bits to write, in host order.
- * @param[in] bit_size Number of bits in @p uvalue. This must be grather than
+ * @param[in] bit_size Number of bits in @p uvalue. This must be greater than
  * zero and no more than 64. Note that this is not checked or truncated, so if
  * @p uvalue has more than this many bits, the results will likely be incorrect.
  * @param[in] little_endian Whether the bits should be written out in
@@ -140,7 +140,7 @@ void serialize_bits(void *buf, uint64_t bit_offset, uint64_t uvalue,
  * @param[in] buf Memory buffer to read from.
  * @param[in] bit_offset Offset in bits from the beginning of @p buf to where to
  * read from. This is interpreted differently based on @p little_endian.
- * @param[in] bit_size Number of bits to read. This must be grather than zero
+ * @param[in] bit_size Number of bits to read. This must be greater than zero
  * and no more than 64.
  * @param[in] little_endian Whether the bits should be interpreted in
  * little-endian order.
