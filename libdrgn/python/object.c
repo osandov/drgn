@@ -746,6 +746,55 @@ static DrgnObject *DrgnObject_read(DrgnObject *self)
 	)
 }
 
+static DrgnObject *DrgnObject_from_bytes(PyTypeObject *type, PyObject *args,
+					 PyObject *kwds)
+{
+	static char *keywords[] = {
+		"prog", "type", "bytes", "bit_offset", "bit_field_size", NULL
+	};
+	struct drgn_error *err;
+	Program *prog;
+	PyObject *type_obj = Py_None;
+	Py_buffer bytes;
+	struct index_arg bit_offset = {};
+	struct index_arg bit_field_size = { .allow_none = true, .is_none = true };
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!Oy*|O&O&:from_bytes_",
+					 keywords, &Program_type, &prog,
+					 &type_obj, &bytes, index_converter,
+					 &bit_offset, index_converter,
+					 &bit_field_size))
+		return NULL;
+
+	DrgnObject *res = NULL;
+	struct drgn_qualified_type qualified_type;
+	if (Program_type_arg(prog, type_obj, false, &qualified_type) == -1)
+		goto out;
+
+	if (!bit_field_size.is_none && bit_field_size.uvalue == 0) {
+		PyErr_SetString(PyExc_ValueError,
+				"bit field size cannot be zero");
+		goto out;
+	}
+
+	res = DrgnObject_alloc(prog);
+	if (!res)
+		goto out;
+
+	err = drgn_object_set_from_buffer(&res->obj, qualified_type, bytes.buf,
+					  bytes.len, bit_offset.uvalue,
+					  bit_field_size.uvalue);
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(res);
+		res = NULL;
+		goto out;
+	}
+
+out:
+	PyBuffer_Release(&bytes);
+	return res;
+}
+
 static int append_bit_offset(PyObject *parts, uint8_t bit_offset)
 {
 	if (bit_offset == 0)
@@ -1582,6 +1631,9 @@ static PyMethodDef DrgnObject_methods[] = {
 	 drgn_Object_address_of__DOC},
 	{"read_", (PyCFunction)DrgnObject_read, METH_NOARGS,
 	 drgn_Object_read__DOC},
+	{"from_bytes_", (PyCFunction)DrgnObject_from_bytes,
+	 METH_CLASS | METH_VARARGS | METH_KEYWORDS,
+	 drgn_Object_from_bytes__DOC},
 	{"format_", (PyCFunction)DrgnObject_format,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Object_format__DOC},
 	{"__round__", (PyCFunction)DrgnObject_round,

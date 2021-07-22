@@ -1177,6 +1177,28 @@ class Object:
             ``void``)
         """
         ...
+    @classmethod
+    def from_bytes_(
+        cls,
+        prog: Program,
+        type: Union[str, Type],
+        bytes: bytes,
+        *,
+        bit_offset: IntegerLike = 0,
+        bit_field_size: Optional[IntegerLike] = None,
+    ) -> Object:
+        """
+        Return a value object from its binary representation.
+
+        :param prog: Program to create the object in.
+        :param type: Type of the object.
+        :param bytes: Buffer containing value of the object.
+        :param bit_offset: Offset in bits from the beginning of *bytes* to the
+            beginning of the object.
+        :param bit_field_size: Size in bits of the object if it is a bit field.
+            The default is ``None``, which means the object is not a bit field.
+        """
+        ...
     def format_(
         self,
         *,

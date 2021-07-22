@@ -930,6 +930,134 @@ class TestConversions(MockProgramTestCase):
             Object(self.prog, "int []", address=0),
         )
 
+    def test_int_from_bytes(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                type_ = self.prog.int_type("int", 4, True, byteorder)
+                self.assertIdentical(
+                    Object.from_bytes_(
+                        self.prog, type_, (0x12345678).to_bytes(4, byteorder)
+                    ),
+                    Object(self.prog, type_, 0x12345678),
+                )
+
+    def test_int_from_bytes_bit_offset(self):
+        self.assertIdentical(
+            Object.from_bytes_(self.prog, "int", b"\xe0Y\xd1H\x00", bit_offset=2),
+            Object(self.prog, "int", 0x12345678),
+        )
+
+    def test_int_from_bytes_big_endian_bit_offset(self):
+        self.assertIdentical(
+            Object.from_bytes_(
+                self.prog,
+                self.prog.int_type("int", 4, True, "big"),
+                b"\x04\x8d\x15\x9e\x00",
+                bit_offset=2,
+            ),
+            Object(self.prog, self.prog.int_type("int", 4, True, "big"), 0x12345678),
+        )
+
+    def test_int_from_bytes_bit_field(self):
+        self.assertIdentical(
+            Object.from_bytes_(self.prog, "int", b"\xcc", bit_field_size=8),
+            Object(self.prog, "int", 0xCC, bit_field_size=8),
+        )
+
+    def test_float64_from_bytes(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                type_ = self.prog.float_type("double", 8, byteorder)
+                self.assertIdentical(
+                    Object.from_bytes_(
+                        self.prog,
+                        type_,
+                        struct.pack(
+                            ("<" if byteorder == "little" else ">") + "d", math.e
+                        ),
+                    ),
+                    Object(self.prog, type_, math.e),
+                )
+
+    def test_float32_from_bytes(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                type_ = self.prog.float_type("float", 4, byteorder)
+                self.assertIdentical(
+                    Object.from_bytes_(
+                        self.prog,
+                        type_,
+                        struct.pack(
+                            ("<" if byteorder == "little" else ">") + "f", math.e
+                        ),
+                    ),
+                    Object(self.prog, type_, math.e),
+                )
+
+    def test_struct_from_bytes(self):
+        self.assertIdentical(
+            Object.from_bytes_(
+                self.prog, self.point_type, b"\x01\x00\x00\x00\x02\x00\x00\x00"
+            ),
+            Object(self.prog, self.point_type, {"x": 1, "y": 2}),
+        )
+
+    def test_struct_from_bytes_bit_offset(self):
+        self.assertIdentical(
+            Object.from_bytes_(
+                self.prog,
+                self.point_type,
+                b"\xff\x01\x00\x00\x00\x02\x00\x00\x00",
+                bit_offset=8,
+            ),
+            Object(self.prog, self.point_type, {"x": 1, "y": 2}),
+        )
+
+    def test_struct_from_bytes_invalid_bit_offset(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "non-scalar must be byte-aligned",
+            Object.from_bytes_,
+            self.prog,
+            self.point_type,
+            b"\xff\x01\x00\x00\x00\x02\x00\x00\x00",
+            bit_offset=2,
+        )
+
+    def test_from_bytes_invalid_bit_field_size(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "bit field size cannot be zero",
+            Object.from_bytes_,
+            self.prog,
+            "int",
+            b"",
+            bit_field_size=0,
+        )
+
+    def test_from_bytes_buffer_too_small(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "buffer is too small",
+            Object.from_bytes_,
+            self.prog,
+            "int",
+            bytes(3),
+        )
+
+    def test_from_bytes_incomplete_type(self):
+        self.assertRaisesRegex(
+            TypeError,
+            "cannot create object with void type",
+            Object.from_bytes_,
+            self.prog,
+            "void",
+            b"",
+        )
+
+    def test_from_bytes_bad_type(self):
+        self.assertRaises(TypeError, Object.from_bytes_, self.prog, None, b"")
+
 
 class TestInvalidBitField(MockProgramTestCase):
     def test_integer(self):
