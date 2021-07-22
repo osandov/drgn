@@ -1404,6 +1404,15 @@ void drgn_object_deinit_value(const struct drgn_object *obj,
 			      const union drgn_value *value);
 
 /**
+ * Get the binary representation of the value of a @ref drgn_object.
+ *
+ * @param[out] Buffer to read into. Size must be at least
+ * `drgn_object_size(obj)`.
+ */
+struct drgn_error *drgn_object_read_bytes(const struct drgn_object *obj,
+					  void *buf);
+
+/**
  * Get the value of an object encoded with @ref
  * drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED.
  *

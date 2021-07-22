@@ -609,6 +609,74 @@ drgn_object_read_value(const struct drgn_object *obj, union drgn_value *value,
 	)
 }
 
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_object_read_bytes(const struct drgn_object *obj, void *buf)
+{
+	struct drgn_error *err;
+
+	if (!drgn_object_encoding_is_complete(obj->encoding)) {
+		return drgn_error_incomplete_type("cannot read object with %s type",
+						  obj->type);
+	}
+
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE:
+		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
+			memcpy(buf, drgn_object_buffer(obj),
+			       drgn_object_size(obj));
+		} else {
+			union {
+				uint64_t uvalue;
+				struct {
+#if !HOST_LITTLE_ENDIAN
+					uint32_t pad;
+#endif
+					float fvalue32;
+#if HOST_LITTLE_ENDIAN
+					uint32_t pad;
+#endif
+				};
+			} tmp;
+			((uint8_t *)buf)[drgn_object_size(obj) - 1] = 0;
+			if (obj->encoding == DRGN_OBJECT_ENCODING_FLOAT &&
+			    obj->bit_size == 32) {
+				tmp.fvalue32 = (float)obj->value.fvalue;
+				tmp.pad = 0;
+			} else {
+				tmp.uvalue = obj->value.uvalue;
+			}
+			serialize_bits(buf, 0,
+				       truncate_unsigned(tmp.uvalue, obj->bit_size),
+				       obj->bit_size, obj->little_endian);
+		}
+		return NULL;
+	case DRGN_OBJECT_REFERENCE: {
+		uint8_t bit_offset = obj->bit_offset;
+		uint64_t bit_size = obj->bit_size;
+		uint64_t read_size = drgn_value_size(bit_offset + bit_size);
+		if (bit_offset == 0) {
+			return drgn_program_read_memory(drgn_object_program(obj),
+							buf, obj->address,
+							read_size, false);
+		} else {
+			char tmp[9];
+			assert(read_size <= sizeof(tmp));
+			err = drgn_program_read_memory(drgn_object_program(obj),
+						       tmp, obj->address,
+						       read_size, false);
+			if (err)
+				return err;
+			((uint8_t *)buf)[drgn_value_size(bit_size) - 1] = 0;
+			copy_bits(buf, 0, tmp, bit_offset, obj->bit_size,
+				  obj->little_endian);
+			return NULL;
+		}
+	}
+	case DRGN_OBJECT_ABSENT:
+		return &drgn_error_object_absent;
+	)
+}
+
 static struct drgn_error *
 drgn_object_value_signed(const struct drgn_object *obj, int64_t *ret)
 {

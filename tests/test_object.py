@@ -930,6 +930,105 @@ class TestConversions(MockProgramTestCase):
             Object(self.prog, "int []", address=0),
         )
 
+    def test_signed_int_value_to_bytes(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                self.assertEqual(
+                    Object(
+                        self.prog, self.prog.int_type("int", 4, True, byteorder), -100
+                    ).to_bytes_(),
+                    (-100).to_bytes(4, byteorder, signed=True),
+                )
+                self.assertEqual(
+                    Object(
+                        self.prog,
+                        self.prog.int_type("long", 8, True, byteorder),
+                        -(2 ** 32),
+                    ).to_bytes_(),
+                    (-(2 ** 32)).to_bytes(8, byteorder, signed=True),
+                )
+
+    def test_unsigned_int_value_to_bytes(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                self.assertEqual(
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned int", 4, False, byteorder),
+                        2 ** 31,
+                    ).to_bytes_(),
+                    (2 ** 31).to_bytes(4, byteorder),
+                )
+                self.assertEqual(
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned long", 8, False, byteorder),
+                        2 ** 60,
+                    ).to_bytes_(),
+                    (2 ** 60).to_bytes(8, byteorder),
+                )
+
+    def test_float64_value_to_bytes(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                self.assertEqual(
+                    Object(
+                        self.prog, self.prog.float_type("double", 8, byteorder), math.e
+                    ).to_bytes_(),
+                    struct.pack(("<" if byteorder == "little" else ">") + "d", math.e),
+                )
+
+    def test_float32_value_to_bytes(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                self.assertEqual(
+                    Object(
+                        self.prog, self.prog.float_type("float", 4, byteorder), math.e
+                    ).to_bytes_(),
+                    struct.pack(("<" if byteorder == "little" else ">") + "f", math.e),
+                )
+
+    def test_struct_value_to_bytes(self):
+        self.assertEqual(
+            Object(self.prog, self.point_type, {"x": 1, "y": 2}).to_bytes_(),
+            b"\x01\x00\x00\x00\x02\x00\x00\x00",
+        )
+
+    def test_int_reference_to_bytes(self):
+        self.add_memory_segment(b"\x78\x56\x34\x12", virt_addr=0xFFFF0000)
+        self.assertEqual(
+            Object(self.prog, "int", address=0xFFFF0000).to_bytes_(),
+            b"\x78\x56\x34\x12",
+        )
+
+    def test_int_reference_bit_offset_to_bytes(self):
+        self.add_memory_segment(b"\xe0Y\xd1H\x00", virt_addr=0xFFFF0000)
+        self.assertEqual(
+            Object(self.prog, "int", address=0xFFFF0000, bit_offset=2).to_bytes_(),
+            b"\x78\x56\x34\x12",
+        )
+
+    def test_int_reference_big_endian_bit_offset_to_bytes(self):
+        self.add_memory_segment(b"\x04\x8d\x15\x9e\x00", virt_addr=0xFFFF0000)
+        self.assertEqual(
+            Object(
+                self.prog,
+                self.prog.int_type("int", 4, True, "big"),
+                address=0xFFFF0000,
+                bit_offset=2,
+            ).to_bytes_(),
+            b"\x12\x34\x56\x78",
+        )
+
+    def test_struct_reference_to_bytes(self):
+        self.add_memory_segment(
+            b"\x01\x00\x00\x00\x02\x00\x00\x00", virt_addr=0xFFFF0000
+        )
+        self.assertEqual(
+            Object(self.prog, self.point_type, address=0xFFFF0000).to_bytes_(),
+            b"\x01\x00\x00\x00\x02\x00\x00\x00",
+        )
+
     def test_int_from_bytes(self):
         for byteorder in ("little", "big"):
             with self.subTest(byteorder=byteorder):

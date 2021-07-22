@@ -746,6 +746,21 @@ static DrgnObject *DrgnObject_read(DrgnObject *self)
 	)
 }
 
+static PyObject *DrgnObject_to_bytes(DrgnObject *self)
+{
+	struct drgn_error *err;
+	PyObject *buf = PyBytes_FromStringAndSize(NULL,
+						  drgn_object_size(&self->obj));
+	if (!buf)
+		return NULL;
+	err = drgn_object_read_bytes(&self->obj, PyBytes_AS_STRING(buf));
+	if (err) {
+		Py_DECREF(buf);
+		return set_drgn_error(err);
+	}
+	return buf;
+}
+
 static DrgnObject *DrgnObject_from_bytes(PyTypeObject *type, PyObject *args,
 					 PyObject *kwds)
 {
@@ -1631,6 +1646,8 @@ static PyMethodDef DrgnObject_methods[] = {
 	 drgn_Object_address_of__DOC},
 	{"read_", (PyCFunction)DrgnObject_read, METH_NOARGS,
 	 drgn_Object_read__DOC},
+	{"to_bytes_", (PyCFunction)DrgnObject_to_bytes, METH_NOARGS,
+	 drgn_Object_to_bytes__DOC},
 	{"from_bytes_", (PyCFunction)DrgnObject_from_bytes,
 	 METH_CLASS | METH_VARARGS | METH_KEYWORDS,
 	 drgn_Object_from_bytes__DOC},

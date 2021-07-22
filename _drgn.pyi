@@ -1177,6 +1177,9 @@ class Object:
             ``void``)
         """
         ...
+    def to_bytes_(self) -> bytes:
+        """Return the binary representation of this object's value."""
+        ...
     @classmethod
     def from_bytes_(
         cls,
