@@ -27,11 +27,15 @@ def for_each_cpu(mask: Object) -> Iterator[int]:
 
     :param mask: ``struct cpumask``
     """
+    try:
+        nr_cpu_ids = mask.prog_["nr_cpu_ids"].value_()
+    except KeyError:
+        nr_cpu_ids = 1
     bits = mask.bits
     word_bits = 8 * sizeof(bits.type_.type)
-    for i in range(bits.type_.length):  # type: ignore
+    for i in range((nr_cpu_ids + word_bits - 1) // word_bits):
         word = bits[i].value_()
-        for j in range(word_bits):
+        for j in range(min(word_bits, nr_cpu_ids - word_bits * i)):
             if word & (1 << j):
                 yield (word_bits * i) + j
 
