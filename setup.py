@@ -125,7 +125,18 @@ class sdist(_sdist):
 class test(Command):
     description = "run unit tests after in-place build"
 
-    KERNELS = ["5.13", "5.12", "5.11", "5.10", "5.4", "4.19", "4.14", "4.9", "4.4"]
+    KERNELS = [
+        "5.14",
+        "5.13",
+        "5.12",
+        "5.11",
+        "5.10",
+        "5.4",
+        "4.19",
+        "4.14",
+        "4.9",
+        "4.4",
+    ]
 
     user_options = [
         (
