@@ -106,25 +106,42 @@ running program, run ``sudo drgn -p $PID``. To debug a core dump (either a
 kernel vmcore or a userspace core dump), run ``drgn -c $PATH``. The program
 must have debugging symbols available.
 
-Then, you can access variables in the program with ``prog['name']``, access
-structure members with ``.``, use various predefined helpers, and more:
+Then, you can access variables in the program with ``prog['name']`` and access
+structure members with ``.``:
 
 .. code-block:: pycon
 
     $ sudo drgn
     >>> prog['init_task'].comm
     (char [16])"swapper/0"
-    >>> d_path(fget(find_task(prog, 1), 0).f_path.address_of_())
-    b'/dev/null'
-    >>> max(task.stime for task in for_each_task(prog))
-    (u64)4192109975952
-    >>> sum(disk.gendisk.part0.nr_sects for disk in for_each_disk(prog))
-    (sector_t)999705952
+
+You can use various predefined helpers:
+
+.. code-block:: pycon
+
+    >>> len(list(bpf_prog_for_each(prog)))
+    11
+    >>> task = find_task(prog, 115)
+    >>> cmdline(task)
+    [b'findmnt', b'-p']
+
+You can get stack traces with ``prog.stack_trace()`` and access parameters or
+local variables with ``stack_trace['name']``:
+
+.. code-block:: pycon
+
+    >>> trace = prog.stack_trace(task)
+    >>> trace[5]
+    #5 at 0xffffffff8a5a32d0 (do_sys_poll+0x400/0x578) in do_poll at ./fs/select.c:961:8 (inlined)
+    >>> poll_list = trace[5]['list']
+    >>> file = fget(task, poll_list.entries[0].fd)
+    >>> d_path(file.f_path.address_of_())
+    b'/proc/115/mountinfo'
 
 .. end-quick-start
 
 See the `user guide <https://drgn.readthedocs.io/en/latest/user_guide.html>`_
-for more information.
+for more details and features.
 
 License
 -------
