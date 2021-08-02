@@ -14,6 +14,14 @@ LIBDRGN_PUBLIC void drgn_symbol_destroy(struct drgn_symbol *sym)
 	free(sym);
 }
 
+LIBDRGN_PUBLIC void drgn_symbols_destroy(struct drgn_symbol **syms,
+					 size_t count)
+{
+	for (size_t i = 0; i < count; i++)
+		drgn_symbol_destroy(syms[i]);
+	free(syms);
+}
+
 void drgn_symbol_from_elf(const char *name, uint64_t address,
 			  const GElf_Sym *elf_sym, struct drgn_symbol *ret)
 {

@@ -729,6 +729,57 @@ static PyObject *Program_stack_trace(Program *self, PyObject *args,
 	return ret;
 }
 
+static PyObject *Program_symbols(Program *self, PyObject *args)
+{
+	struct drgn_error *err;
+
+	PyObject *arg = Py_None;
+	if (!PyArg_ParseTuple(args, "|O:symbols", &arg))
+		return NULL;
+
+	struct drgn_symbol **symbols;
+	size_t count;
+	if (arg == Py_None) {
+		err = drgn_program_find_symbols_by_name(&self->prog, NULL,
+							&symbols, &count);
+	} else if (PyUnicode_Check(arg)) {
+		const char *name = PyUnicode_AsUTF8(arg);
+		if (!name)
+			return NULL;
+		err = drgn_program_find_symbols_by_name(&self->prog, name,
+							&symbols, &count);
+	} else {
+		struct index_arg address = {};
+		if (!index_converter(arg, &address))
+			return NULL;
+		err = drgn_program_find_symbols_by_address(&self->prog,
+							   address.uvalue,
+							   &symbols, &count);
+	}
+	if (err)
+		return set_drgn_error(err);
+
+	PyObject *list = PyList_New(count);
+	if (!list) {
+		drgn_symbols_destroy(symbols, count);
+		return NULL;
+	}
+	for (size_t i = 0; i < count; i++) {
+		PyObject *pysym = Symbol_wrap(symbols[i], self);
+		if (!pysym) {
+			/* Free symbols which aren't yet added to list. */
+			drgn_symbols_destroy(symbols, count);
+			/* Free list and all symbols already added. */
+			Py_DECREF(list);
+			return NULL;
+		}
+		symbols[i] = NULL;
+		PyList_SET_ITEM(list, i, pysym);
+	}
+	free(symbols);
+	return list;
+}
+
 static PyObject *Program_symbol(Program *self, PyObject *arg)
 {
 	struct drgn_error *err;
@@ -953,6 +1004,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_variable_DOC},
 	{"stack_trace", (PyCFunction)Program_stack_trace,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_DOC},
+	{"symbols", (PyCFunction)Program_symbols, METH_VARARGS,
+	 drgn_Program_symbols_DOC},
 	{"symbol", (PyCFunction)Program_symbol, METH_O,
 	 drgn_Program_symbol_DOC},
 	{"threads", (PyCFunction)Program_threads, METH_NOARGS,

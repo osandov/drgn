@@ -68,6 +68,13 @@ class TestElfSymbol(TestCase):
             symbol,
         )
 
+    def assert_symbols_equal_unordered(self, drgn_symbols, symbols):
+        self.assertEqual(len(drgn_symbols), len(symbols))
+        drgn_symbols = sorted(drgn_symbols, key=lambda x: (x.address, x.name))
+        symbols = sorted(symbols, key=lambda x: (x.address, x.name))
+        for drgn_symbol, symbol in zip(drgn_symbols, symbols):
+            self.assert_symbol_equal(drgn_symbol, symbol)
+
     def test_by_address(self):
         elf_first = ElfSymbol("first", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL)
         elf_second = ElfSymbol("second", 0xFFFF0008, 0x8, STT.OBJECT, STB.LOCAL)
@@ -83,35 +90,70 @@ class TestElfSymbol(TestCase):
             with self.subTest(modules=len(modules)):
                 prog = elf_symbol_program(*modules)
                 self.assertRaises(LookupError, prog.symbol, 0xFFFEFFFF)
+                self.assertEqual(prog.symbols(0xFFFEFFFF), [])
                 self.assert_symbol_equal(prog.symbol(0xFFFF0000), first)
+                self.assert_symbols_equal_unordered(prog.symbols(0xFFFF0000), [first])
                 self.assert_symbol_equal(prog.symbol(0xFFFF0004), first)
+                self.assert_symbols_equal_unordered(prog.symbols(0xFFFF0004), [first])
                 self.assert_symbol_equal(prog.symbol(0xFFFF0008), second)
+                self.assert_symbols_equal_unordered(prog.symbols(0xFFFF0008), [second])
                 self.assert_symbol_equal(prog.symbol(0xFFFF000C), second)
+                self.assert_symbols_equal_unordered(prog.symbols(0xFFFF000C), [second])
                 self.assertRaises(LookupError, prog.symbol, 0xFFFF0010)
 
     def test_by_address_precedence(self):
         precedence = (STB.GLOBAL, STB.WEAK, STB.LOCAL)
+        drgn_precedence = (
+            SymbolBinding.GLOBAL,
+            SymbolBinding.WEAK,
+            SymbolBinding.LOCAL,
+        )
 
         def assert_find_higher(*modules):
             self.assertEqual(
                 elf_symbol_program(*modules).symbol(0xFFFF0000).name, "foo"
             )
 
+        def assert_finds_both(symbols, *modules):
+            self.assert_symbols_equal_unordered(
+                elf_symbol_program(*modules).symbols(0xFFFF0000),
+                symbols,
+            )
+
         for i in range(len(precedence) - 1):
             higher_binding = precedence[i]
+            higher_binding_drgn = drgn_precedence[i]
             for j in range(i + 1, len(precedence)):
                 lower_binding = precedence[j]
+                lower_binding_drgn = drgn_precedence[j]
                 with self.subTest(higher=higher_binding, lower=lower_binding):
                     higher = ElfSymbol(
                         "foo", 0xFFFF0000, 0x8, STT.OBJECT, higher_binding
                     )
                     lower = ElfSymbol("bar", 0xFFFF0000, 0x8, STT.OBJECT, lower_binding)
+                    symbols = [
+                        Symbol(
+                            "foo",
+                            0xFFFF0000,
+                            0x8,
+                            higher_binding_drgn,
+                            SymbolKind.OBJECT,
+                        ),
+                        Symbol(
+                            "bar",
+                            0xFFFF0000,
+                            0x8,
+                            lower_binding_drgn,
+                            SymbolKind.OBJECT,
+                        ),
+                    ]
                     # Local symbols must be before global symbols.
                     if lower_binding != STB.LOCAL:
                         with self.subTest("higher before lower"):
                             assert_find_higher((higher, lower))
                     with self.subTest("lower before higher"):
                         assert_find_higher((lower, higher))
+                    assert_finds_both(symbols, (lower, higher))
 
     def test_by_name(self):
         elf_first = ElfSymbol("first", 0xFFFF0000, 0x8, STT.OBJECT, STB.GLOBAL)
@@ -133,6 +175,10 @@ class TestElfSymbol(TestCase):
                 self.assert_symbol_equal(prog.symbol("second"), second)
                 self.assertRaises(LookupError, prog.symbol, "third")
 
+                self.assert_symbols_equal_unordered(prog.symbols("first"), [first])
+                self.assert_symbols_equal_unordered(prog.symbols("second"), [second])
+                self.assertEqual(prog.symbols("third"), [])
+
     def test_by_name_precedence(self):
         precedence = (
             (STB.GLOBAL, STB.GNU_UNIQUE),
@@ -141,11 +187,16 @@ class TestElfSymbol(TestCase):
         )
 
         expected = 0xFFFF0008
+        other = expected - 0x8
 
         def assert_find_higher(*modules):
-            self.assertEqual(
-                elf_symbol_program(*modules).symbol("foo").address, expected
-            )
+            prog = elf_symbol_program(*modules)
+            self.assertEqual(prog.symbol("foo").address, expected)
+            # assert symbols() always finds both
+            symbols = sorted(prog.symbols("foo"), key=lambda s: s.address)
+            self.assertEqual(len(symbols), 2)
+            self.assertEqual(symbols[0].address, other)
+            self.assertEqual(symbols[1].address, expected)
 
         for i in range(len(precedence) - 1):
             for higher_binding in precedence[i]:
@@ -156,7 +207,7 @@ class TestElfSymbol(TestCase):
                                 "foo", expected, 0x8, STT.OBJECT, higher_binding
                             )
                             lower = ElfSymbol(
-                                "foo", expected - 0x8, 0x8, STT.OBJECT, lower_binding
+                                "foo", other, 0x8, STT.OBJECT, lower_binding
                             )
                             # Local symbols must be before global symbols.
                             if lower_binding not in precedence[-1]:
@@ -186,6 +237,10 @@ class TestElfSymbol(TestCase):
                         prog.symbol("foo" if by == "name" else 0xFFFF0000).binding,
                         drgn_binding,
                     )
+                    if by == "name":
+                        symbols = prog.symbols("foo")
+                        self.assertEqual(len(symbols), 1)
+                        self.assertEqual(symbols[0].binding, drgn_binding)
 
     def test_kind(self):
         for elf_type, drgn_kind in (
@@ -202,4 +257,32 @@ class TestElfSymbol(TestCase):
                 prog = elf_symbol_program(
                     (ElfSymbol("foo", 0xFFFF0000, 1, elf_type, STB.GLOBAL),)
                 )
-                self.assertEqual(prog.symbol("foo").kind, drgn_kind)
+                symbol = Symbol("foo", 0xFFFF0000, 1, SymbolBinding.GLOBAL, drgn_kind)
+                self.assert_symbol_equal(prog.symbol("foo"), symbol)
+                symbols = prog.symbols("foo")
+                self.assert_symbols_equal_unordered(symbols, [symbol])
+
+    def test_all_symbols(self):
+        elf_syms = (
+            (
+                ElfSymbol("two", 0xFFFF0012, 1, STT.OBJECT, STB.LOCAL),
+                ElfSymbol("three", 0xFFFF0013, 1, STT.OBJECT, STB.LOCAL),
+                ElfSymbol("one", 0xFFFF0011, 1, STT.OBJECT, STB.GLOBAL),
+            ),
+            (
+                ElfSymbol("three", 0xFFFF0023, 1, STT.OBJECT, STB.LOCAL),
+                ElfSymbol("two", 0xFFFF0022, 1, STT.OBJECT, STB.GLOBAL),
+            ),
+            (ElfSymbol("three", 0xFFFF0033, 1, STT.OBJECT, STB.GLOBAL),),
+        )
+        kind = SymbolKind.OBJECT
+        syms = [
+            Symbol("two", 0xFFFF0012, 1, SymbolBinding.LOCAL, kind),
+            Symbol("three", 0xFFFF0013, 1, SymbolBinding.LOCAL, kind),
+            Symbol("one", 0xFFFF0011, 1, SymbolBinding.GLOBAL, kind),
+            Symbol("three", 0xFFFF0023, 1, SymbolBinding.LOCAL, kind),
+            Symbol("two", 0xFFFF0022, 1, SymbolBinding.GLOBAL, kind),
+            Symbol("three", 0xFFFF0033, 1, SymbolBinding.GLOBAL, kind),
+        ]
+        prog = elf_symbol_program(*elf_syms)
+        self.assert_symbols_equal_unordered(prog.symbols(), syms)
