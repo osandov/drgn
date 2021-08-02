@@ -199,19 +199,47 @@ Other Concepts
 In addition to the core concepts above, drgn provides a few additional
 abstractions.
 
+Stack Traces
+^^^^^^^^^^^^
+
+drgn represents stack traces with the :class:`drgn.StackTrace` and
+:class:`drgn.StackFrame` classes. :meth:`drgn.Program.stack_trace()` returns
+the call stack for a thread. The :meth:`[] <drgn.StackFrame.__getitem__>`
+operator looks up an object in the scope of a ``StackFrame``::
+
+    >>> trace = prog.stack_trace(115)
+    >>> trace
+    #0  context_switch (./kernel/sched/core.c:4683:2)
+    #1  __schedule (./kernel/sched/core.c:5940:8)
+    #2  schedule (./kernel/sched/core.c:6019:3)
+    #3  schedule_hrtimeout_range_clock (./kernel/time/hrtimer.c:2148:3)
+    #4  poll_schedule_timeout (./fs/select.c:243:8)
+    #5  do_poll (./fs/select.c:961:8)
+    #6  do_sys_poll (./fs/select.c:1011:12)
+    #7  __do_sys_poll (./fs/select.c:1076:8)
+    #8  __se_sys_poll (./fs/select.c:1064:1)
+    #9  __x64_sys_poll (./fs/select.c:1064:1)
+    #10 do_syscall_x64 (./arch/x86/entry/common.c:50:14)
+    #11 do_syscall_64 (./arch/x86/entry/common.c:80:7)
+    #12 entry_SYSCALL_64+0x7c/0x15b (./arch/x86/entry/entry_64.S:113)
+    #13 0x7f3344072af7
+    >>> trace[5]
+    #5 at 0xffffffff8a5a32d0 (do_sys_poll+0x400/0x578) in do_poll at ./fs/select.c:961:8 (inlined)
+    >>> prog['do_poll']
+    (int (struct poll_list *list, struct poll_wqueues *wait, struct timespec64 *end_time))<absent>
+    >>> trace[5]['list']
+    *(struct poll_list *)0xffffacca402e3b50 = {
+            .next = (struct poll_list *)0x0,
+            .len = (int)1,
+            .entries = (struct pollfd []){},
+    }
+
 Symbols
 ^^^^^^^
 
 The symbol table of a program is a list of identifiers along with their address
 and size. drgn represents symbols with the :class:`drgn.Symbol` class, which is
 returned by :meth:`drgn.Program.symbol()`.
-
-Stack Traces
-^^^^^^^^^^^^
-
-drgn represents stack traces with the :class:`drgn.StackTrace` and
-:class:`drgn.StackFrame` classes. :meth:`drgn.Program.stack_trace()` returns
-the call stack for a thread.
 
 Types
 ^^^^^
