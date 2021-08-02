@@ -818,6 +818,36 @@ struct drgn_error *drgn_program_find_symbol_by_name(struct drgn_program *prog,
 						    const char *name,
 						    struct drgn_symbol **ret);
 
+/**
+ * Get all global and local symbols, optionally with the given name.
+ *
+ * @param[in] prog Program.
+ * @param[in] name Name to match. If @c NULL, returns all symbols.
+ * @param[out] syms_ret Returned array of symbols. On success, this must be
+ * freed with @ref drgn_symbols_destroy().
+ * @param[out] count_ret Returned number of symbols in @p syms_ret.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_find_symbols_by_name(struct drgn_program *prog,
+						     const char *name,
+						     struct drgn_symbol ***syms_ret,
+						     size_t *count_ret);
+
+/**
+ * Get all symbols containing the given address.
+ *
+ * @param[in] prog Program.
+ * @param[in] address Address to search for.
+ * @param[out] syms_ret Returned array of symbols. On success, this must be
+ * freed with @ref drgn_symbols_destroy().
+ * @param[out] count_ret Returned number of symbols in @p syms_ret.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_find_symbols_by_address(struct drgn_program *prog,
+							uint64_t address,
+							struct drgn_symbol ***syms_ret,
+							size_t *count_ret);
+
 /** Element type and size. */
 struct drgn_element_info {
 	/** Type of the element. */
@@ -2599,6 +2629,16 @@ enum drgn_symbol_kind {
 
 /** Destroy a @ref drgn_symbol. */
 void drgn_symbol_destroy(struct drgn_symbol *sym);
+
+/**
+ * Destroy each @ref drgn_symbol in @syms, and free the array.
+ *
+ * This will ignore any @c NULL entry in the array, allowing you to take
+ * ownership of any symbol from the array prior to freeing the rest. For each
+ * symbol you take ownership of, you must free it with @ref
+ * drgn_symbol_destroy().
+ */
+void drgn_symbols_destroy(struct drgn_symbol **syms, size_t count);
 
 /**
  * Get the name of a @ref drgn_symbol.

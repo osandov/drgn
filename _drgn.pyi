@@ -16,6 +16,7 @@ from typing import (
     Dict,
     Iterable,
     Iterator,
+    List,
     Mapping,
     Optional,
     Sequence,
@@ -189,7 +190,6 @@ class Program:
             the given file
         """
         ...
-    # address_or_name is positional-only.
     def symbol(self, address_or_name: Union[IntegerLike, str]) -> Symbol:
         """
         Get a symbol containing the given address, or a symbol with the given
@@ -202,11 +202,31 @@ class Program:
         :attr:`SymbolBinding.WEAK` symbol is found, it is returned. Otherwise,
         any matching symbol (e.g., :attr:`SymbolBinding.LOCAL`) is returned. If
         there are multiple matching symbols with the same binding, one is
-        returned arbitrarily.
+        returned arbitrarily. To retrieve all matching symbols, use
+        :meth:`symbols()`.
 
-        :param address_or_name: Address or name.
+        :param address_or_name: Address or name to search for. This parameter
+            is positional-only.
         :raises LookupError: if no symbol contains the given address or matches
             the given name
+        """
+        ...
+    def symbols(
+        self,
+        address_or_name: Union[None, IntegerLike, str] = None,
+    ) -> List[Symbol]:
+        """
+        Get a list of global and local symbols, optionally matching a name or
+        address.
+
+        If a string argument is given, this returns all symbols matching that
+        name. If an integer-like argument given, this returns a list of all
+        symbols containing that address. If no argument is given, all symbols
+        in the program are returned. In all cases, the symbols are returned in
+        an unspecified order.
+
+        :param address_or_name: Address or name to search for. This parameter
+            is positional-only.
         """
         ...
     def stack_trace(
