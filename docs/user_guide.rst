@@ -27,7 +27,7 @@ A ``Program`` is used to look up type definitions, access variables, and read
 arbitrary memory::
 
     >>> prog.type('unsigned long')
-    int_type(name='unsigned long', size=8, is_signed=False)
+    prog.int_type(name='unsigned long', size=8, is_signed=False)
     >>> prog['jiffies']
     Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
     >>> prog.read(0xffffffffbe411e10, 16)
@@ -218,10 +218,10 @@ Types
 
 drgn automatically obtains type definitions from the program. Types are
 represented by the :class:`drgn.Type` class and created by various factory
-functions like :func:`drgn.int_type()`::
+functions like :meth:`drgn.Program.int_type()`::
 
     >>> prog.type('int')
-    int_type(name='int', size=4, is_signed=True)
+    prog.int_type(name='int', size=4, is_signed=True)
 
 You won't usually need to work with types directly, but see
 :ref:`api-reference-types` if you do.
@@ -289,7 +289,7 @@ print the output of :func:`repr()`. For :class:`drgn.Object` and
     >>> print(repr(prog['jiffies']))
     Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
     >>> print(repr(prog.type('atomic_t')))
-    typedef_type(name='atomic_t', type=struct_type(tag=None, size=4, members=((int_type(name='int', size=4, is_signed=True), 'counter', 0, 0),)))
+    prog.typedef_type(name='atomic_t', type=prog.struct_type(tag=None, size=4, members=(TypeMember(prog.type('int'), name='counter', bit_offset=0),)))
 
 The standard :func:`print()` function uses the output of :func:`str()`. For
 drgn objects and types, this is a representation in programming language

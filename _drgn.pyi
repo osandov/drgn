@@ -235,7 +235,7 @@ class Program:
         Get the type with the given name.
 
         >>> prog.type('long')
-        int_type(name='long', size=8, is_signed=True)
+        prog.int_type(name='long', size=8, is_signed=True)
 
         :param name: The type name.
         :param filename: The source code file that contains the definition. See
@@ -1547,7 +1547,7 @@ class Type:
     :func:`repr()` of a ``Type`` returns a Python representation of the type:
 
     >>> print(repr(prog.type('sector_t')))
-    typedef_type(name='sector_t', type=int_type(name='unsigned long', size=8, is_signed=False))
+    prog.typedef_type(name='sector_t', type=prog.int_type(name='unsigned long', size=8, is_signed=False))
 
     :class:`str() <str>` returns a representation of the type in programming
     language syntax:
