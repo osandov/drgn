@@ -12,7 +12,7 @@ NUMA node masks from :linux:`include/linux/nodemask.h`.
 from typing import Iterator
 
 from drgn import IntegerLike, Object, Program
-from drgn.helpers.linux.cpumask import _for_each_set_bit
+from drgn.helpers.linux.bitops import for_each_set_bit
 
 __all__ = (
     "for_each_node",
@@ -32,7 +32,7 @@ def for_each_node_mask(mask: Object) -> Iterator[int]:
         nr_node_ids = mask.prog_["nr_node_ids"].value_()
     except KeyError:
         nr_node_ids = 1
-    return _for_each_set_bit(mask.bits, nr_node_ids)
+    return for_each_set_bit(mask.bits, nr_node_ids)
 
 
 def for_each_node_state(prog: Program, state: IntegerLike) -> Iterator[int]:
