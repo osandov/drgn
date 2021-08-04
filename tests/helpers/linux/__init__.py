@@ -95,12 +95,14 @@ def proc_state(pid):
 
 def parse_range_list(s):
     values = set()
-    for range_str in s.split(","):
-        first, sep, last = range_str.partition("-")
-        if sep:
-            values.update(range(int(first), int(last) + 1))
-        else:
-            values.add(int(first))
+    s = s.strip()
+    if s:
+        for range_str in s.split(","):
+            first, sep, last = range_str.partition("-")
+            if sep:
+                values.update(range(int(first), int(last) + 1))
+            else:
+                values.add(int(first))
     return values
 
 
