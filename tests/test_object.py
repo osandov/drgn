@@ -11,7 +11,6 @@ from drgn import (
     ObjectAbsentError,
     OutOfBoundsError,
     Qualifiers,
-    Type,
     TypeMember,
     cast,
     reinterpret,

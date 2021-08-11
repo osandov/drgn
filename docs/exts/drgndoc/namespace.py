@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import itertools
-from typing import Generic, Iterator, List, Mapping, Optional, Sequence, TypeVar, Union
+from typing import Generic, Iterator, List, Mapping, Sequence, TypeVar, Union
 
 from drgndoc.parse import (
     Class,
@@ -14,7 +14,6 @@ from drgndoc.parse import (
     Node,
     Variable,
 )
-from drgndoc.util import dot_join
 
 NodeT_co = TypeVar("NodeT_co", bound=Node, covariant=True)
 

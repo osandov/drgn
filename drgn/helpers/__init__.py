@@ -23,7 +23,7 @@ useful for scripts or for implementing other helpers.
 
 import enum
 import typing
-from typing import Container, Iterable, List, Tuple
+from typing import Container, Iterable
 
 from drgn import Type
 

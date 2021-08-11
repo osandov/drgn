@@ -42,7 +42,7 @@ file for the C extension itself (drgndoc.docstrings).
 
 import os.path
 import re
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, cast
 
 import docutils.nodes
 import docutils.parsers.rst.directives

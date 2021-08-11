@@ -11,7 +11,7 @@ implemented.
 """
 
 import operator
-from typing import Any, Iterator, List, Optional, Union, overload
+from typing import Iterator, List, Optional, Union, overload
 
 from _drgn import _linux_helper_read_vm
 from drgn import IntegerLike, Object, Program, cast

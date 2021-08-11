@@ -27,7 +27,7 @@ VMTEST_GITHUB_RELEASE = ("osandov", "drgn", "vmtest-assets")
 def available_kernel_releases(
     github_release: Dict[str, Any], arch: str
 ) -> Dict[str, Dict[str, Any]]:
-    pattern = re.compile(r"kernel-(.*)\." + re.escape(arch) + "\.tar\.zst")
+    pattern = re.compile(r"kernel-(.*)\." + re.escape(arch) + r"\.tar\.zst")
     releases = {}
     for asset in github_release["assets"]:
         match = pattern.fullmatch(asset["name"])

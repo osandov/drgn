@@ -6,7 +6,6 @@
 
 import os
 import sys
-import time
 
 from drgn.helpers.linux.fs import for_each_mount, inode_path
 from drgn.helpers.linux.list import list_for_each_entry

@@ -2,13 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-DESCRIPTION = """
-drgn script to list BPF programs or maps and their properties
-unavailable via kernel API.
-"""
-
 import argparse
-import sys
 
 from drgn.helpers import enum_type_to_class
 from drgn.helpers.linux import bpf_map_for_each, bpf_prog_for_each, hlist_for_each_entry
@@ -116,7 +110,7 @@ def list_bpf_maps(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=DESCRIPTION, formatter_class=argparse.RawTextHelpFormatter
+        description="drgn script to list BPF programs or maps and their properties unavailable via kernel API"
     )
 
     subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")

@@ -6,7 +6,6 @@ import operator
 import os.path
 import re
 import tempfile
-import unittest
 
 import drgn
 from drgn import (
@@ -1025,22 +1024,25 @@ class TestTypes(TestCase):
             ),
         ]
 
-        point_type = lambda prog: prog.struct_type(
-            "point",
-            8,
-            (
-                TypeMember(prog.int_type("int", 4, True), "x"),
-                TypeMember(prog.int_type("int", 4, True), "y", 32),
-            ),
-        )
-        other_point_type = lambda prog: prog.struct_type(
-            "point",
-            8,
-            (
-                TypeMember(prog.int_type("int", 4, True), "a"),
-                TypeMember(prog.int_type("int", 4, True), "b", 32),
-            ),
-        )
+        def point_type(prog):
+            return prog.struct_type(
+                "point",
+                8,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x"),
+                    TypeMember(prog.int_type("int", 4, True), "y", 32),
+                ),
+            )
+
+        def other_point_type(prog):
+            return prog.struct_type(
+                "point",
+                8,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "a"),
+                    TypeMember(prog.int_type("int", 4, True), "b", 32),
+                ),
+            )
 
         prog = dwarf_program(dies)
         for dir in ["", "src", "usr/src", "/usr/src"]:

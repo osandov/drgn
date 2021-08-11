@@ -162,7 +162,7 @@ class LostVMError(Exception):
 
 def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
     match = re.search(
-        "QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
+        r"QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
         subprocess.check_output(
             ["qemu-system-x86_64", "-version"], universal_newlines=True
         ),
@@ -238,7 +238,7 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
                 # fmt: on
             ],
             env=env,
-        ) as qemu:
+        ):
             server_sock.settimeout(5)
             try:
                 sock = server_sock.accept()[0]

@@ -87,7 +87,7 @@ async def fetch_kernel_tags(kernel_dir: Path, kernel_tags: Sequence[str]) -> Non
     mainline_tags = []
     stable_tags = []
     for tag in kernel_tags:
-        if re.fullmatch("v[0-9]+\.[0-9]+\.[0-9]+", tag):
+        if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
             stable_tags.append(tag)
         else:
             mainline_tags.append(tag)

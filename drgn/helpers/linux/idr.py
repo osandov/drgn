@@ -15,7 +15,7 @@ from typing import Iterator, Tuple
 
 from _drgn import _linux_helper_idr_find as idr_find
 from drgn import Object
-from drgn.helpers.linux.radixtree import radix_tree_for_each, radix_tree_lookup
+from drgn.helpers.linux.radixtree import radix_tree_for_each
 
 __all__ = (
     "idr_find",

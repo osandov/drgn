@@ -122,7 +122,7 @@ def gen_python_mapping_file(mapping_path):
         # For some reason, include-what-you-mean wants struct _typeobject, but
         # find-all-symbols only reports PyTypeObject. Add it manually.
         imp.write(
-            f'  {{"symbol": ["_typeobject", "private", "<Python.h>", "public"]}},  # From cpython/object.h\n'
+            '  {{"symbol": ["_typeobject", "private", "<Python.h>", "public"]}},  # From cpython/object.h\n'
         )
 
         imp.write("]\n")

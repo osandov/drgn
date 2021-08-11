@@ -51,9 +51,9 @@ class TestFs(LinuxHelperTestCase):
         with tempfile.TemporaryDirectory(prefix="drgn-tests-") as dir:
             path1 = os.fsencode(os.path.abspath(os.path.join(dir, "a")))
             path2 = os.fsencode(os.path.abspath(os.path.join(dir, "b")))
-            with open(path1, "w") as f:
+            with open(path1, "w"):
                 os.link(path1, path2)
-                with open(path2, "r") as f:
+                with open(path2, "r"):
                     inode = path_lookup(self.prog, path1).dentry.d_inode
                     paths = list(inode_paths(inode))
                     self.assertEqual(len(paths), 2)

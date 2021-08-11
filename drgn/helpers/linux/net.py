@@ -15,7 +15,6 @@ from typing import Iterator, Union
 from drgn import NULL, IntegerLike, Object, Program
 from drgn.helpers.linux.list import hlist_for_each_entry
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
-from drgn.helpers.linux.tcp import sk_tcpstate
 
 __all__ = (
     "netdev_get_by_index",

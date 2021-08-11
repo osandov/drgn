@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # setuptools must be imported before distutils (see pypa/setuptools#2230).
-import setuptools  # isort: skip
+import setuptools  # isort: skip  # noqa: F401
 
 import contextlib
 from distutils import log

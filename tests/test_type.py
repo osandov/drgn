@@ -1,8 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import operator
-
 from drgn import (
     Language,
     Object,
