@@ -9,16 +9,49 @@ The ``drgn.helpers.linux.net`` module provides helpers for working with the
 Linux kernel networking subsystem.
 """
 
-from typing import Iterator
+import operator
+from typing import Iterator, Union
 
-from drgn import Object
+from drgn import NULL, IntegerLike, Object, Program
+from drgn.helpers.linux.list import hlist_for_each_entry
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
 from drgn.helpers.linux.tcp import sk_tcpstate
 
 __all__ = (
+    "netdev_get_by_index",
     "sk_fullsock",
     "sk_nulls_for_each",
 )
+
+
+_NETDEV_HASHBITS = 8
+_NETDEV_HASHENTRIES = 1 << _NETDEV_HASHBITS
+
+
+def netdev_get_by_index(
+    prog_or_net: Union[Program, Object], ifindex: IntegerLike
+) -> Object:
+    """
+    Get the network device with the given interface index number.
+
+    :param prog_or_net: ``struct net *`` containing the device, or
+        :class:`Program` to use the initial network namespace.
+    :param ifindex: Network interface index number.
+    :return: ``struct net_device *`` (``NULL`` if not found)
+    """
+    if isinstance(prog_or_net, Program):
+        prog_or_net = prog_or_net["init_net"]
+    if isinstance(ifindex, Object):
+        ifindex = ifindex.read_()
+
+    head = prog_or_net.dev_index_head[
+        operator.index(ifindex) & (_NETDEV_HASHENTRIES - 1)
+    ]
+    for netdev in hlist_for_each_entry("struct net_device", head, "index_hlist"):
+        if netdev.ifindex == ifindex:
+            return netdev
+
+    return NULL(prog_or_net.prog_, "struct net_device *")
 
 
 def sk_fullsock(sk: Object) -> bool:
