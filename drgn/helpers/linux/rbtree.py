@@ -9,9 +9,9 @@ The ``drgn.helpers.linux.rbtree`` module provides helpers for working with
 red-black trees from :linux:`include/linux/rbtree.h`.
 """
 
-from typing import Callable, Iterator, TypeVar
+from typing import Callable, Iterator, TypeVar, Union
 
-from drgn import NULL, Object, container_of
+from drgn import NULL, Object, Type, container_of
 
 __all__ = (
     "RB_EMPTY_NODE",
@@ -158,7 +158,7 @@ def rbtree_inorder_for_each(root: Object) -> Iterator[Object]:
 
 
 def rbtree_inorder_for_each_entry(
-    type: str, root: Object, member: str
+    type: Union[str, Type], root: Object, member: str
 ) -> Iterator[Object]:
     """
     Iterate over all of the entries in a red-black tree in sorted order.
@@ -176,7 +176,7 @@ KeyType = TypeVar("KeyType")
 
 
 def rb_find(
-    type: str,
+    type: Union[str, Type],
     root: Object,
     member: str,
     key: KeyType,

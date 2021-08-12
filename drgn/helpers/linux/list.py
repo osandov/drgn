@@ -156,7 +156,9 @@ def list_for_each_reverse(head: Object) -> Iterator[Object]:
         pos = pos.prev.read_()
 
 
-def list_for_each_entry(type: str, head: Object, member: str) -> Iterator[Object]:
+def list_for_each_entry(
+    type: Union[str, Type], head: Object, member: str
+) -> Iterator[Object]:
     """
     Iterate over all of the entries in a list.
 
@@ -170,7 +172,7 @@ def list_for_each_entry(type: str, head: Object, member: str) -> Iterator[Object
 
 
 def list_for_each_entry_reverse(
-    type: str, head: Object, member: str
+    type: Union[str, Type], head: Object, member: str
 ) -> Iterator[Object]:
     """
     Iterate over all of the entries in a list in reverse order.
@@ -206,7 +208,9 @@ def hlist_for_each(head: Object) -> Iterator[Object]:
         pos = pos.next.read_()
 
 
-def hlist_for_each_entry(type: str, head: Object, member: str) -> Iterator[Object]:
+def hlist_for_each_entry(
+    type: Union[str, Type], head: Object, member: str
+) -> Iterator[Object]:
     """
     Iterate over all of the entries in a hash list.
 

@@ -11,9 +11,9 @@ hlist_nulls_node``) in :linux:`include/linux/list_nulls.h` where the end of
 list is not a ``NULL`` pointer, but a "nulls" marker.
 """
 
-from typing import Iterator
+from typing import Iterator, Union
 
-from drgn import Object, container_of
+from drgn import Object, Type, container_of
 
 __all__ = (
     "hlist_nulls_empty",
@@ -41,7 +41,7 @@ def hlist_nulls_empty(head: Object) -> bool:
 
 
 def hlist_nulls_for_each_entry(
-    type: str, head: Object, member: str
+    type: Union[str, Type], head: Object, member: str
 ) -> Iterator[Object]:
     """
     Iterate over all the entries in a nulls hash list.
