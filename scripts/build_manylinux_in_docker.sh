@@ -20,11 +20,28 @@ ln -s /usr/share/aclocal/pkg.m4 /usr/local/share/aclocal/
 
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
-elfutils_version=0.183
+elfutils_version=0.185
 elfutils_url=https://sourceware.org/elfutils/ftp/$elfutils_version/elfutils-$elfutils_version.tar.bz2
 mkdir /tmp/elfutils
 cd /tmp/elfutils
 curl -L "$elfutils_url" | tar -xj --strip-components=1
+# Apply "libdwfl: fix potential NULL pointer dereference when reading link map"
+# manually since it isn't in a release yet.
+patch -p1 << "EOF"
+diff --git a/libdwfl/link_map.c b/libdwfl/link_map.c
+index 0d8d1c17..1e7d4502 100644
+--- a/libdwfl/link_map.c
++++ b/libdwfl/link_map.c
+@@ -254,7 +254,7 @@ read_addrs (struct memory_closure *closure,
+   Dwfl *dwfl = closure->dwfl;
+ 
+   /* Read a new buffer if the old one doesn't cover these words.  */
+-  if (buffer == NULL
++  if (*buffer == NULL
+       || vaddr < *read_vaddr
+       || vaddr - (*read_vaddr) + nb > *buffer_available)
+     {
+EOF
 # We don't bother with debuginfod support for a few reasons:
 #
 # 1. It depends on libcurl, which would pull in a bunch of transitive
