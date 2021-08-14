@@ -1862,7 +1862,12 @@ drgn_dwarf_location(struct drgn_debug_info_module *module,
 {
 	struct drgn_error *err;
 	switch (attr->form) {
+	/* DWARF 3 */
+	case DW_FORM_data4:
+	case DW_FORM_data8:
+	/* DWARF 4-5 */
 	case DW_FORM_sec_offset:
+	/* DWARF 5 */
 	case DW_FORM_loclistx: {
 		Dwarf_Die cu_die;
 		Dwarf_Half cu_version;
