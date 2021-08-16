@@ -6,7 +6,12 @@ import socket
 
 from drgn import cast
 from drgn.helpers.linux.fs import fget
-from drgn.helpers.linux.net import netdev_get_by_index, netdev_get_by_name, sk_fullsock
+from drgn.helpers.linux.net import (
+    for_each_net,
+    netdev_get_by_index,
+    netdev_get_by_name,
+    sk_fullsock,
+)
 from drgn.helpers.linux.pid import find_task
 from tests.helpers.linux import LinuxHelperTestCase, create_socket
 
@@ -27,3 +32,6 @@ class TestNet(LinuxHelperTestCase):
         for index, name in socket.if_nameindex():
             netdev = netdev_get_by_name(self.prog, name)
             self.assertEqual(netdev.ifindex, index)
+
+    def test_for_each_net(self):
+        self.assertIn(self.prog["init_net"].address_of_(), for_each_net(self.prog))
