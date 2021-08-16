@@ -3510,6 +3510,98 @@ drgn_dwarf_member_thunk_fn(struct drgn_object *res, void *arg_)
 	return NULL;
 }
 
+static inline bool drgn_dwarf_attribute_is_block(Dwarf_Attribute *attr)
+{
+	switch (attr->form) {
+	case DW_FORM_block1:
+	case DW_FORM_block2:
+	case DW_FORM_block4:
+	case DW_FORM_block:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static inline bool drgn_dwarf_attribute_is_ptr(Dwarf_Attribute *attr)
+{
+	switch (attr->form) {
+	case DW_FORM_sec_offset:
+		return true;
+	case DW_FORM_data4:
+	case DW_FORM_data8: {
+		/*
+		 * dwarf_cu_die() always returns the DIE. We should use
+		 * dwarf_cu_info(), but that requires elfutils >= 0.171.
+		 */
+		Dwarf_Die unused;
+		Dwarf_Half cu_version;
+		dwarf_cu_die(attr->cu, &unused, &cu_version, NULL, NULL, NULL,
+			     NULL, NULL);
+		return cu_version <= 3;
+	}
+	default:
+		return false;
+	}
+}
+
+static struct drgn_error *invalid_data_member_location(struct binary_buffer *bb,
+						       const char *pos,
+						       const char *message)
+{
+	return drgn_error_create(DRGN_ERROR_OTHER,
+				 "DW_TAG_member has invalid DW_AT_data_member_location");
+}
+
+static struct drgn_error *
+drgn_parse_dwarf_data_member_location(Dwarf_Attribute *attr, uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	if (drgn_dwarf_attribute_is_block(attr)) {
+		Dwarf_Block block;
+		if (dwarf_formblock(attr, &block))
+			return drgn_error_libdw();
+		/*
+		 * In DWARF 2, DW_AT_data_member_location is always a location
+		 * description. We can translate a DW_OP_plus_uconst expression
+		 * into a constant offset; other expressions aren't supported
+		 * yet.
+		 */
+		struct binary_buffer bb;
+		/*
+		 * Right now we only parse u8 and ULEB128, so the byte order
+		 * doesn't matter.
+		 */
+		binary_buffer_init(&bb, block.data, block.length,
+				   HOST_LITTLE_ENDIAN,
+				   invalid_data_member_location);
+		uint8_t opcode;
+		err = binary_buffer_next_u8(&bb, &opcode);
+		if (err)
+			return err;
+		if (opcode != DW_OP_plus_uconst) {
+unsupported:
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "DW_TAG_member has unsupported DW_AT_data_member_location");
+		}
+		err = binary_buffer_next_uleb128(&bb, ret);
+		if (err)
+			return err;
+		if (binary_buffer_has_next(&bb))
+			goto unsupported;
+	} else if (drgn_dwarf_attribute_is_ptr(attr)) {
+		goto unsupported;
+	} else {
+
+		Dwarf_Word word;
+		if (dwarf_formudata(attr, &word))
+			return invalid_data_member_location(NULL, NULL, NULL);
+		*ret = word;
+	}
+	return NULL;
+}
+
 static struct drgn_error *
 parse_member_offset(Dwarf_Die *die, union drgn_lazy_object *member_object,
 		    bool little_endian, uint64_t *ret)
@@ -3540,12 +3632,10 @@ parse_member_offset(Dwarf_Die *die, union drgn_lazy_object *member_object,
 	 */
 	attr = dwarf_attr_integrate(die, DW_AT_data_member_location, &attr_mem);
 	if (attr) {
-		Dwarf_Word byte_offset;
-		if (dwarf_formudata(attr, &byte_offset)) {
-			return drgn_error_create(DRGN_ERROR_OTHER,
-						 "DW_TAG_member has invalid DW_AT_data_member_location");
-		}
-		*ret = 8 * byte_offset;
+		err = drgn_parse_dwarf_data_member_location(attr, ret);
+		if (err)
+			return err;
+		*ret *= 8;
 	} else {
 		*ret = 0;
 	}
