@@ -13,15 +13,28 @@ import operator
 from typing import Iterator, Union
 
 from drgn import NULL, IntegerLike, Object, Program
-from drgn.helpers.linux.list import hlist_for_each_entry
+from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
 
 __all__ = (
+    "for_each_net",
     "netdev_get_by_index",
     "netdev_get_by_name",
     "sk_fullsock",
     "sk_nulls_for_each",
 )
+
+
+def for_each_net(prog: Program) -> Iterator[Object]:
+    """
+    Iterate over all network namespaces in the system.
+
+    :return: Iterator of ``struct net *`` objects.
+    """
+    for net in list_for_each_entry(
+        "struct net", prog["net_namespace_list"].address_of_(), "list"
+    ):
+        yield net
 
 
 _NETDEV_HASHBITS = 8
