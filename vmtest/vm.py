@@ -222,10 +222,10 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
                 "-no-reboot",
 
                 "-virtfs",
-                f"local,id=root,path=/,mount_tag=/dev/root,security_model=none,readonly{multidevs}",
+                f"local,id=root,path=/,mount_tag=/dev/root,security_model=none,readonly=on{multidevs}",
 
                 "-virtfs",
-                f"local,path={kernel_dir},mount_tag=modules,security_model=none,readonly",
+                f"local,path={kernel_dir},mount_tag=modules,security_model=none,readonly=on",
 
                 "-device", "virtio-serial",
                 "-chardev", f"socket,id=vmtest,path={socket_path}",
