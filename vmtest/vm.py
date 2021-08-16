@@ -14,6 +14,8 @@ import tempfile
 
 from util import nproc, out_of_date
 
+_9PFS_MSIZE = 1024 * 1024
+
 # Script run as init in the virtual machine. This only depends on busybox. We
 # don't assume that any regular commands are built in (not even echo or test),
 # so we always explicitly run busybox.
@@ -65,7 +67,7 @@ cd /
 
 # Load kernel modules.
 "$BUSYBOX" mkdir -p "/lib/modules/$RELEASE"
-"$BUSYBOX" mount -t 9p -o trans=virtio,cache=loose,ro modules "/lib/modules/$RELEASE"
+"$BUSYBOX" mount -t 9p -o trans=virtio,cache=loose,ro,msize={_9PFS_MSIZE} modules "/lib/modules/$RELEASE"
 "$BUSYBOX" modprobe configs
 
 # Create static device nodes.
@@ -204,7 +206,9 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
         with open(init, "w") as init_file:
             init_file.write(
                 _INIT_TEMPLATE.format(
-                    busybox=shlex.quote(busybox), command=shlex.quote(command)
+                    _9PFS_MSIZE=_9PFS_MSIZE,
+                    busybox=shlex.quote(busybox),
+                    command=shlex.quote(command),
                 )
             )
         os.chmod(init, 0o755)
@@ -234,7 +238,7 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
 
                 "-kernel", str(kernel_dir / "vmlinuz"),
                 "-append",
-                f"rootfstype=9p rootflags=trans=virtio,cache=loose ro console=0,115200 panic=-1 init={init}",
+                f"rootfstype=9p rootflags=trans=virtio,cache=loose,msize={_9PFS_MSIZE} ro console=0,115200 panic=-1 init={init}",
                 # fmt: on
             ],
             env=env,
