@@ -73,6 +73,8 @@ PyObject *PlatformFlags_class;
 PyObject *PrimitiveType_class;
 PyObject *ProgramFlags_class;
 PyObject *Qualifiers_class;
+PyObject *SymbolBinding_class;
+PyObject *SymbolKind_class;
 PyObject *TypeKind_class;
 """
     )
@@ -120,6 +122,22 @@ PyObject *TypeKind_class;
         r"DRGN_QUALIFIER_([a-zA-Z0-9_]+)",
     )
     gen_constant_class(
+        drgn_h,
+        output_file,
+        "SymbolBinding",
+        "Enum",
+        (),
+        "DRGN_SYMBOL_BINDING_([a-z-A-Z0-9_]+)"
+    )
+    gen_constant_class(
+        drgn_h,
+        output_file,
+        "SymbolKind",
+        "Enum",
+        (),
+        "DRGN_SYMBOL_KIND_([a-z-A-Z0-9_]+)"
+    )
+    gen_constant_class(
         drgn_h, output_file, "TypeKind", "Enum", (), r"DRGN_TYPE_([a-zA-Z0-9_]+)"
     )
     output_file.write(
@@ -139,6 +157,8 @@ int add_module_constants(PyObject *m)
 	    add_PrimitiveType(m, enum_module) == -1 ||
 	    add_ProgramFlags(m, enum_module) == -1 ||
 	    add_Qualifiers(m, enum_module) == -1 ||
+	    add_SymbolBinding(m, enum_module) == -1 ||
+	    add_SymbolKind(m, enum_module) == -1 ||
 	    add_TypeKind(m, enum_module) == -1)
 		ret = -1;
 	else
