@@ -3,11 +3,13 @@
 
 import os
 import socket
+import tempfile
 
 from drgn import cast
 from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.net import (
     for_each_net,
+    get_net_ns_by_fd,
     netdev_get_by_index,
     netdev_get_by_name,
     sk_fullsock,
@@ -35,3 +37,30 @@ class TestNet(LinuxHelperTestCase):
 
     def test_for_each_net(self):
         self.assertIn(self.prog["init_net"].address_of_(), for_each_net(self.prog))
+
+    def test_get_net_ns_by_fd(self):
+        pid = os.getpid()
+        task = find_task(self.prog, pid)
+        with open(f"/proc/{pid}/ns/net") as file:
+            net = get_net_ns_by_fd(task, file.fileno())
+            for index, name in socket.if_nameindex():
+                netdev = netdev_get_by_index(net, index)
+                self.assertEqual(netdev.name.string_().decode(), name)
+
+        with tempfile.TemporaryFile("rb") as file:
+            self.assertRaisesRegex(
+                ValueError,
+                "not a namespace inode",
+                get_net_ns_by_fd,
+                task,
+                file.fileno(),
+            )
+
+        with open(f"/proc/{pid}/ns/mnt") as file:
+            self.assertRaisesRegex(
+                ValueError,
+                "not a network namespace inode",
+                get_net_ns_by_fd,
+                task,
+                file.fileno(),
+            )

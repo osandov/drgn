@@ -12,12 +12,15 @@ Linux kernel networking subsystem.
 import operator
 from typing import Iterator, Union
 
-from drgn import NULL, IntegerLike, Object, Program
+from drgn import NULL, IntegerLike, Object, Program, cast, container_of
+from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
 
 __all__ = (
     "for_each_net",
+    "get_net_ns_by_inode",
+    "get_net_ns_by_fd",
     "netdev_get_by_index",
     "netdev_get_by_name",
     "sk_fullsock",
@@ -35,6 +38,42 @@ def for_each_net(prog: Program) -> Iterator[Object]:
         "struct net", prog["net_namespace_list"].address_of_(), "list"
     ):
         yield net
+
+
+_CLONE_NEWNET = 0x40000000
+
+
+def get_net_ns_by_inode(inode: Object) -> Object:
+    """
+    Get a network namespace from a network namespace NSFS inode, e.g.
+    ``/proc/$PID/ns/net`` or ``/var/run/netns/$NAME``.
+
+    :param inode: ``struct inode *``
+    :return: ``struct net *``
+    :raises ValueError: if *inode* is not a network namespace inode
+    """
+    if inode.i_fop != inode.prog_["ns_file_operations"].address_of_():
+        raise ValueError("not a namespace inode")
+
+    ns = cast("struct ns_common *", inode.i_private)
+    if ns.ops.type != _CLONE_NEWNET:
+        raise ValueError("not a network namespace inode")
+
+    return container_of(ns, "struct net", "ns")
+
+
+def get_net_ns_by_fd(task: Object, fd: IntegerLike) -> Object:
+    """
+    Get a network namespace from a task and a file descriptor referring to a
+    network namespace NSFS inode, e.g. ``/proc/$PID/ns/net`` or
+    ``/var/run/netns/$NAME``.
+
+    :param task: ``struct task_struct *``
+    :param fd: File descriptor.
+    :return: ``struct net *``
+    :raises ValueError: If *fd* does not refer to a network namespace inode
+    """
+    return get_net_ns_by_inode(fget(task, fd).f_inode)
 
 
 _NETDEV_HASHBITS = 8
