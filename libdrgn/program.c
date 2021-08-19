@@ -1110,9 +1110,7 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 						&elf_sym, NULL, NULL, NULL);
 	if (!name)
 		return false;
-	ret->name = name;
-	ret->address = address - offset;
-	ret->size = elf_sym.st_size;
+	drgn_symbol_from_elf(name, address - offset, &elf_sym, ret);
 	return true;
 }
 
@@ -1173,9 +1171,8 @@ static int find_symbol_by_name_cb(Dwfl_Module *dwfl_module, void **userdatap,
 
 			sym = malloc(sizeof(*sym));
 			if (sym) {
-				sym->name = name;
-				sym->address = elf_addr;
-				sym->size = elf_sym.st_size;
+				drgn_symbol_from_elf(name, elf_addr, &elf_sym,
+						     sym);
 				*arg->ret = sym;
 			} else {
 				arg->err = &drgn_enomem;
