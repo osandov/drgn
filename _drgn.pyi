@@ -1394,6 +1394,66 @@ class Symbol:
     size: int
     """Size of this symbol in bytes."""
 
+    binding: SymbolBinding
+    """Linkage behavior and visibility of this symbol."""
+
+    kind: SymbolKind
+    """Kind of entity represented by this symbol."""
+
+class SymbolBinding(enum.Enum):
+    """
+    A ``SymbolBinding`` describes the linkage behavior and visibility of a
+    symbol.
+    """
+
+    UNKNOWN = ...
+    """Unknown."""
+
+    LOCAL = ...
+    """Not visible outside of the object file containing its definition."""
+
+    GLOBAL = ...
+    """Globally visible."""
+
+    WEAK = ...
+    """Globally visible but may be overridden by a non-weak global symbol."""
+
+    UNIQUE = ...
+    """
+    Globally visible even if dynamic shared object is loaded locally. See GCC's
+    ``-fno-gnu-unique`` `option
+    <https://gcc.gnu.org/onlinedocs/gcc/Code-Gen-Options.html>`_.
+    """
+
+class SymbolKind(enum.Enum):
+    """
+    A ``SymbolKind`` describes the kind of entity that a symbol represents.
+    """
+
+    UNKNOWN = ...
+    """Unknown or not defined."""
+
+    OBJECT = ...
+    """Data object (e.g., variable or array)."""
+
+    FUNC = ...
+    """Function or other executable code."""
+
+    SECTION = ...
+    """Object file section."""
+
+    FILE = ...
+    """Source file."""
+
+    COMMON = ...
+    """Data object in common block."""
+
+    TLS = ...
+    """Thread-local storage entity."""
+
+    IFUNC = ...
+    """`Indirect function <https://sourceware.org/glibc/wiki/GNU_IFUNC>`_."""
+
 class StackTrace:
     """
     A ``StackTrace`` is a :ref:`sequence <python:typesseq-common>` of

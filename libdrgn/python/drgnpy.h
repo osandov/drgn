@@ -161,6 +161,8 @@ extern PyObject *PlatformFlags_class;
 extern PyObject *PrimitiveType_class;
 extern PyObject *ProgramFlags_class;
 extern PyObject *Qualifiers_class;
+extern PyObject *SymbolBinding_class;
+extern PyObject *SymbolKind_class;
 extern PyObject *TypeKind_class;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;

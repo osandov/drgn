@@ -66,6 +66,8 @@ Symbols
 -------
 
 .. drgndoc:: Symbol
+.. drgndoc:: SymbolBinding
+.. drgndoc:: SymbolKind
 
 Stack Traces
 ------------
