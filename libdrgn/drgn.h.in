@@ -2566,6 +2566,36 @@ struct drgn_error *drgn_format_type(struct drgn_qualified_type qualified_type,
  * @{
  */
 
+/** Symbol linkage behavior and visibility. */
+enum drgn_symbol_binding {
+	DRGN_SYMBOL_BINDING_UNKNOWN,
+	/*
+	 * These values match the ELF STB_* definitions (offset by 1). This is
+	 * an implementation detail; future values may not correspond 1:1 with
+	 * ELF definitions.
+	 */
+	DRGN_SYMBOL_BINDING_LOCAL,
+	DRGN_SYMBOL_BINDING_GLOBAL,
+	DRGN_SYMBOL_BINDING_WEAK,
+	DRGN_SYMBOL_BINDING_UNIQUE = 11, /* STB_GNU_UNIQUE + 1 */
+};
+
+/** Kind of entity represented by a symbol. */
+enum drgn_symbol_kind {
+	/*
+	 * Like enum drgn_symbol_binding, these values match the ELF STT_*
+	 * definitions, but this will not necessarily be true for future values.
+	 */
+	DRGN_SYMBOL_KIND_UNKNOWN,
+	DRGN_SYMBOL_KIND_OBJECT,
+	DRGN_SYMBOL_KIND_FUNC,
+	DRGN_SYMBOL_KIND_SECTION,
+	DRGN_SYMBOL_KIND_FILE,
+	DRGN_SYMBOL_KIND_COMMON,
+	DRGN_SYMBOL_KIND_TLS,
+	DRGN_SYMBOL_KIND_IFUNC = 10, /* STT_GNU_IFUNC */
+};
+
 /** Destroy a @ref drgn_symbol. */
 void drgn_symbol_destroy(struct drgn_symbol *sym);
 
@@ -2582,6 +2612,12 @@ uint64_t drgn_symbol_address(struct drgn_symbol *sym);
 
 /** Get the size in bytes of a @ref drgn_symbol. */
 uint64_t drgn_symbol_size(struct drgn_symbol *sym);
+
+/** Get the binding of a @ref drgn_symbol. */
+enum drgn_symbol_binding drgn_symbol_binding(struct drgn_symbol *sym);
+
+/** Get the kind of a @ref drgn_symbol. */
+enum drgn_symbol_kind drgn_symbol_kind(struct drgn_symbol *sym);
 
 /** Return whether two symbols are identical. */
 bool drgn_symbol_eq(struct drgn_symbol *a, struct drgn_symbol *b);
