@@ -217,7 +217,8 @@ static struct drgn_error *py_type_find_fn(enum drgn_type_kind kind,
 	PyObject *type_obj;
 
 	gstate = PyGILState_Ensure();
-	kind_obj = PyObject_CallFunction(TypeKind_class, "k", kind);
+	kind_obj = PyObject_CallFunction(TypeKind_class, "k",
+					 (unsigned long)kind);
 	if (!kind_obj) {
 		err = drgn_error_from_python();
 		goto out_gstate;

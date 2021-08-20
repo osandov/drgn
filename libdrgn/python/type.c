@@ -60,7 +60,7 @@ static Program *DrgnType_get_prog(DrgnType *self, void *arg)
 static PyObject *DrgnType_get_kind(DrgnType *self)
 {
 	return PyObject_CallFunction(TypeKind_class, "k",
-				     drgn_type_kind(self->type));
+				     (unsigned long)drgn_type_kind(self->type));
 }
 
 static PyObject *DrgnType_get_primitive(DrgnType *self)
@@ -68,7 +68,7 @@ static PyObject *DrgnType_get_primitive(DrgnType *self)
 	if (drgn_type_primitive(self->type) == DRGN_NOT_PRIMITIVE_TYPE)
 		Py_RETURN_NONE;
 	return PyObject_CallFunction(PrimitiveType_class, "k",
-				     drgn_type_primitive(self->type));
+				     (unsigned long)drgn_type_primitive(self->type));
 }
 
 static PyObject *DrgnType_get_qualifiers(DrgnType *self)
