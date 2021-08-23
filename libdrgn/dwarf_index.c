@@ -2500,7 +2500,7 @@ static void drgn_dwarf_index_rollback(struct drgn_dwarf_index *dindex)
 		 * entries must also be new, so there's no need to preserve
 		 * them.
 		 */
-		for (size_t index = 0; index < shard->dies.size; i++) {
+		for (size_t index = 0; index < shard->dies.size; index++) {
 			struct drgn_dwarf_index_die *die =
 				&shard->dies.data[index];
 			if (die->next != UINT32_MAX &&
