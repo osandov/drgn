@@ -242,7 +242,6 @@ struct drgn_dwarf_index_iterator {
 	size_t num_tags;
 	size_t shard;
 	uint32_t index;
-	bool any_name;
 };
 
 /**
@@ -250,7 +249,7 @@ struct drgn_dwarf_index_iterator {
  *
  * @param[out] it DWARF index iterator to initialize.
  * @param[in] ns DWARF index namespace.
- * @param[in] name Name of DIE to search for, or @c NULL for any name.
+ * @param[in] name Name of DIE to search for.
  * @param[in] name_len Length of @c name.
  * @param[in] tags List of DIE tags to search for.
  * @param[in] num_tags Number of tags in @p tags, or zero to search for any tag.

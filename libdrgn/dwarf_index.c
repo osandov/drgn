@@ -2683,31 +2683,16 @@ drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 	if (err)
 		return err;
 	it->ns = ns;
-	if (name) {
-		struct string key = {
-			.str = name,
-			.len = name_len,
-		};
-		struct hash_pair hp;
-		struct drgn_dwarf_index_shard *shard;
-		struct drgn_dwarf_index_die_map_iterator map_it;
-
-		hp = drgn_dwarf_index_die_map_hash(&key);
-		it->shard = hash_pair_to_shard(hp);
-		shard = &ns->shards[it->shard];
-		map_it = drgn_dwarf_index_die_map_search_hashed(&shard->map,
-								&key, hp);
-		it->index = map_it.entry ? map_it.entry->value : UINT32_MAX;
-		it->any_name = false;
-	} else {
-		it->index = 0;
-		for (it->shard = 0; it->shard < ARRAY_SIZE(ns->shards);
-		     it->shard++) {
-			if (ns->shards[it->shard].dies.size)
-				break;
-		}
-		it->any_name = true;
-	}
+	struct string key = {
+		.str = name,
+		.len = name_len,
+	};
+	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
+	it->shard = hash_pair_to_shard(hp);
+	struct drgn_dwarf_index_shard *shard = &ns->shards[it->shard];
+	struct drgn_dwarf_index_die_map_iterator map_it =
+		drgn_dwarf_index_die_map_search_hashed(&shard->map, &key, hp);
+	it->index = map_it.entry ? map_it.entry->value : UINT32_MAX;
 	it->tags = tags;
 	it->num_tags = num_tags;
 	return NULL;
@@ -2733,40 +2718,17 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it)
 {
 	struct drgn_dwarf_index_namespace *ns = it->ns;
 	struct drgn_dwarf_index_die *die;
-	if (it->any_name) {
-		for (;;) {
-			if (it->shard >= ARRAY_SIZE(ns->shards))
-				return NULL;
+	for (;;) {
+		if (it->index == UINT32_MAX)
+			return NULL;
 
-			struct drgn_dwarf_index_shard *shard =
-				&ns->shards[it->shard];
-			die = &shard->dies.data[it->index];
+		struct drgn_dwarf_index_shard *shard = &ns->shards[it->shard];
+		die = &shard->dies.data[it->index];
 
-			if (++it->index >= shard->dies.size) {
-				it->index = 0;
-				while (++it->shard < ARRAY_SIZE(ns->shards)) {
-					if (ns->shards[it->shard].dies.size)
-						break;
-				}
-			}
+		it->index = die->next;
 
-			if (drgn_dwarf_index_iterator_matches_tag(it, die))
-				break;
-		}
-	} else {
-		for (;;) {
-			if (it->index == UINT32_MAX)
-				return NULL;
-
-			struct drgn_dwarf_index_shard *shard =
-				&ns->shards[it->shard];
-			die = &shard->dies.data[it->index];
-
-			it->index = die->next;
-
-			if (drgn_dwarf_index_iterator_matches_tag(it, die))
-				break;
-		}
+		if (drgn_dwarf_index_iterator_matches_tag(it, die))
+			break;
 	}
 	return die;
 }
