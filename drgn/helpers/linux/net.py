@@ -21,6 +21,7 @@ __all__ = (
     "for_each_net",
     "get_net_ns_by_inode",
     "get_net_ns_by_fd",
+    "netdev_for_each_tx_queue",
     "netdev_get_by_index",
     "netdev_get_by_name",
     "sk_fullsock",
@@ -74,6 +75,17 @@ def get_net_ns_by_fd(task: Object, fd: IntegerLike) -> Object:
     :raises ValueError: If *fd* does not refer to a network namespace inode
     """
     return get_net_ns_by_inode(fget(task, fd).f_inode)
+
+
+def netdev_for_each_tx_queue(dev: Object) -> Iterator[Object]:
+    """
+    Iterate over all TX queues for a network device.
+
+    :param dev: ``struct net_device *``
+    :return: Iterator of ``struct netdev_queue *`` objects.
+    """
+    for i in range(dev.num_tx_queues):
+        yield dev._tx + i
 
 
 _NETDEV_HASHBITS = 8
