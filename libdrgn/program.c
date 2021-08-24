@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/statfs.h>
 #include <unistd.h>
 
@@ -33,6 +34,12 @@
 
 DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_prstatus_map, int_key_hash_pair, scalar_key_eq)
+
+static int __drgn_program_segments_deinit(struct drgn_program *prog);
+#define drgn_program_segments_deinit(prog) do {					\
+	if (prog->num_file_segments)						\
+		__drgn_program_segments_deinit(prog);	\
+} while (0)
 
 static Elf_Type note_header_type(GElf_Phdr *phdr)
 {
@@ -86,6 +93,33 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_object_init(&prog->vmemmap, prog);
 }
 
+static int __drgn_program_segments_deinit(struct drgn_program *prog)
+{
+	uint64_t file_size;
+	void *map_address;
+	int32_t pagesize;
+	uint32_t i;
+
+	pagesize = sysconf(_SC_PAGESIZE);;
+	if (pagesize < 0)
+		return -1;
+
+	for (i = 0; i < prog->num_file_segments; i++) {
+		file_size =  prog->file_segments[i].file_size;
+		map_address = prog->file_segments[i].map_address;
+		if (map_address) {
+			uint64_t addr_aligned, offset;
+
+			addr_aligned = ALIGN_DOWN(map_address, pagesize);
+			offset = (uint64_t)map_address - addr_aligned;
+			munmap((void *)addr_aligned, file_size + offset);
+			prog->file_segments[i].map_address = NULL;
+		}
+	}
+
+	return 0;
+}
+
 void drgn_program_deinit(struct drgn_program *prog)
 {
 	if (prog->prstatus_cached) {
@@ -102,6 +136,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	drgn_object_index_deinit(&prog->oindex);
 	drgn_program_deinit_types(prog);
 	drgn_memory_reader_deinit(&prog->reader);
+	drgn_program_segments_deinit(prog);
 
 	free(prog->file_segments);
 
@@ -209,6 +244,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	const char *vmcoreinfo_note = NULL;
 	size_t vmcoreinfo_size = 0;
 	bool have_nt_taskstruct = false, is_proc_kcore;
+	int32_t pagesize = sysconf(_SC_PAGESIZE);;
 
 	err = drgn_program_check_initialized(prog);
 	if (err)
@@ -344,6 +380,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		}
 	}
 
+	prog->num_file_segments = is_64_bit ? num_file_segments : 0;
 	prog->file_segments = malloc_array(num_file_segments,
 					   sizeof(*prog->file_segments));
 	if (!prog->file_segments) {
@@ -367,6 +404,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	/* Second pass: add the segments. */
 	for (i = 0, j = 0; i < phnum && j < num_file_segments; i++) {
 		GElf_Phdr phdr_mem, *phdr;
+		drgn_memory_read_fn read_fn = drgn_read_memory_file;
 
 		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
 		if (!phdr) {
@@ -381,9 +419,27 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->file_segments[j].file_size = phdr->p_filesz;
 		prog->file_segments[j].fd = prog->core_fd;
 		prog->file_segments[j].eio_is_fault = false;
+		prog->file_segments[j].map_address = NULL;
+
+		if (is_64_bit & pagesize > 0) {
+			void *map_address;
+			uint64_t poffset_aligned, offset;
+
+			poffset_aligned = ALIGN_DOWN(phdr->p_offset, pagesize);
+			offset = phdr->p_offset - poffset_aligned;
+			map_address = mmap(NULL, phdr->p_filesz + offset, PROT_READ,
+					   MAP_PRIVATE, prog->core_fd,
+					   poffset_aligned);
+			if (map_address != MAP_FAILED) {
+				map_address = (char *)map_address + offset;
+				prog->file_segments[j].map_address = map_address;
+				read_fn = drgn_read_memory_mmap;
+			}
+		}
+
 		err = drgn_program_add_memory_segment(prog, phdr->p_vaddr,
 						      phdr->p_memsz,
-						      drgn_read_memory_file,
+						      read_fn,
 						      &prog->file_segments[j],
 						      false);
 		if (err)
@@ -393,7 +449,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_paddr,
 							      phdr->p_memsz,
-							      drgn_read_memory_file,
+							      read_fn,
 							      &prog->file_segments[j],
 							      true);
 			if (err)
@@ -482,6 +538,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 out_segments:
 	drgn_memory_reader_deinit(&prog->reader);
 	drgn_memory_reader_init(&prog->reader);
+	drgn_program_segments_deinit(prog);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 out_platform:

@@ -78,6 +78,8 @@ struct drgn_program {
 	struct drgn_memory_reader reader;
 	/* Elf core dump or /proc/pid/mem file segments. */
 	struct drgn_memory_file_segment *file_segments;
+	/* Number of loadable segments */
+	uint32_t num_file_segments;
 	/* Elf core dump. Not valid for live programs or kdump files. */
 	Elf *core;
 	/* File descriptor for ELF core dump, kdump file, or /proc/pid/mem. */
