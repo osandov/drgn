@@ -183,6 +183,9 @@ static void drgn_dwarf_die_iterator_deinit(struct drgn_dwarf_die_iterator *it)
  *
  * This includes the .debug_types section.
  *
+ * @param[in,out] it Iterator containing the returned DIE and its ancestors. The
+ * last entry in `it->dies` is the DIE itself, the entry before that is its
+ * parent, the entry before that is its grandparent, etc.
  * @param[in] children If @c true and the last returned DIE has children, return
  * its first child (this is a pre-order traversal). Otherwise, return the next
  * DIE at the level less than or equal to the last returned DIE, i.e., the last
@@ -190,46 +193,34 @@ static void drgn_dwarf_die_iterator_deinit(struct drgn_dwarf_die_iterator *it)
  * DIE.
  * @param[in] subtree If zero, iterate over all DIEs in all units. If non-zero,
  * stop after returning all DIEs in the subtree rooted at the DIE that was
- * returned in the last call as `(*dies_ret)[subtree - 1]`.
- * @param[out] dies_ret Returned array containing DIE and its ancestors.
- * `(*dies_ret)[*length_ret - 1]` is the DIE itself,
- * `(*dies_ret)[*length_ret - 2]` is its parent, `(*dies_ret)[*length_ret - 3]`
- * is its grandparent, etc., and `(*dies_ret)[0]` is the top-level unit DIE.
- * This is valid until the next call to @ref drgn_dwarf_die_iterator_next() or
- * @ref drgn_dwarf_die_iterator_deinit().
- * @param[out] length_ret Returned length of @p dies_ret.
+ * returned in the last call as entry `subtree - 1` in `it->dies`.
  * @return @c NULL on success, `&drgn_stop` if there are no more DIEs, in which
- * case `*length_ret` equals @p subtree and @p dies_ret refers to the root of
- * the iterated subtree, non-@c NULL on error, in which case this should not be
- * called again.
+ * case the size of `it->dies` equals @p subtree and `it->dies` refers to the
+ * root of the iterated subtree, non-@c NULL on error, in which case this should
+ * not be called again.
  */
 static struct drgn_error *
 drgn_dwarf_die_iterator_next(struct drgn_dwarf_die_iterator *it, bool children,
-			     size_t subtree, Dwarf_Die **dies_ret,
-			     size_t *length_ret)
+			     size_t subtree)
 {
 #define TOP() (&it->dies.data[it->dies.size - 1])
-	struct drgn_error *err = NULL;
 	int r;
 	Dwarf_Die die;
 	assert(subtree <= it->dies.size);
 	if (it->dies.size == 0) {
 		/* This is the first call. Get the first unit DIE. */
-		if (!dwarf_die_vector_append_entry(&it->dies)) {
-			err = &drgn_enomem;
-			goto out;
-		}
+		if (!dwarf_die_vector_append_entry(&it->dies))
+			return &drgn_enomem;
 	} else {
 		if (children) {
 			r = dwarf_child(TOP(), &die);
 			if (r == 0) {
 				/* The previous DIE has a child. Return it. */
 				if (!dwarf_die_vector_append(&it->dies, &die))
-					err = &drgn_enomem;
-				goto out;
+					return &drgn_enomem;
+				return NULL;
 			} else if (r < 0) {
-				err = drgn_error_libdw();
-				goto out;
+				return drgn_error_libdw();
 			}
 			/* The previous DIE has no children. */
 		}
@@ -239,8 +230,7 @@ drgn_dwarf_die_iterator_next(struct drgn_dwarf_die_iterator *it, bool children,
 			 * The previous DIE is the root of the subtree. We're
 			 * done.
 			 */
-			err = &drgn_stop;
-			goto out;
+			return &drgn_stop;
 		}
 
 		if (it->dies.size > 1) {
@@ -248,7 +238,7 @@ drgn_dwarf_die_iterator_next(struct drgn_dwarf_die_iterator *it, bool children,
 			if (r == 0) {
 				/* The previous DIE has a sibling. Return it. */
 				*TOP() = die;
-				goto out;
+				return NULL;
 			} else if (r > 0) {
 				if (!die.addr)
 					goto next_unit;
@@ -272,8 +262,7 @@ drgn_dwarf_die_iterator_next(struct drgn_dwarf_die_iterator *it, bool children,
 						 * We're back to the root of the
 						 * subtree. We're done.
 						 */
-						err = &drgn_stop;
-						goto out;
+						return &drgn_stop;
 					}
 					if (it->dies.size == 1 ||
 					    addr >= it->cu_end)
@@ -286,10 +275,9 @@ drgn_dwarf_die_iterator_next(struct drgn_dwarf_die_iterator *it, bool children,
 					.cu = it->dies.data[0].cu,
 					.addr = addr,
 				};
-				goto out;
+				return NULL;
 			} else {
-				err = drgn_error_libdw();
-				goto out;
+				return drgn_error_libdw();
 			}
 		}
 	}
@@ -311,13 +299,12 @@ next_unit:;
 			r = !dwarf_offdie(it->dwarf, cu_off + cu_header_size,
 					  TOP());
 		}
-		if (r) {
-			err = drgn_error_libdw();
-			goto out;
-		}
+		if (r)
+			return drgn_error_libdw();
 		it->cu_end = ((const char *)TOP()->addr
 			      - dwarf_dieoffset(TOP())
 			      + it->next_cu_off);
+		return NULL;
 	} else if (r > 0) {
 		if (!it->debug_types) {
 			it->next_cu_off = 0;
@@ -325,19 +312,10 @@ next_unit:;
 			goto next_unit;
 		}
 		/* There are no more units. */
-		err = &drgn_stop;
+		return &drgn_stop;
 	} else {
-		err = drgn_error_libdw();
+		return drgn_error_libdw();
 	}
-
-out:
-	/*
-	 * Return these even in the error case to avoid maybe uninitialized
-	 * warnings in the caller.
-	 */
-	*dies_ret = it->dies.data;
-	*length_ret = it->dies.size;
-	return err;
 #undef TOP
 }
 
@@ -400,14 +378,11 @@ drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
 	}
 
 	/* Now find DIEs containing the PC. */
-	Dwarf_Die *dies;
-	size_t length;
-	while (!(err = drgn_dwarf_die_iterator_next(&it, children, subtree,
-						    &dies, &length))) {
-		int r = dwarf_haspc(&dies[length - 1], pc);
+	while (!(err = drgn_dwarf_die_iterator_next(&it, children, subtree))) {
+		int r = dwarf_haspc(&it.dies.data[it.dies.size - 1], pc);
 		if (r > 0) {
 			children = true;
-			subtree = length;
+			subtree = it.dies.size;
 		} else if (r < 0) {
 			err = drgn_error_libdw();
 			goto err;
@@ -416,8 +391,8 @@ drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
 	if (err != &drgn_stop)
 		goto err;
 
-	*dies_ret = dies;
-	*length_ret = length;
+	*dies_ret = it.dies.data;
+	*length_ret = it.dies.size;
 	return NULL;
 
 err:
