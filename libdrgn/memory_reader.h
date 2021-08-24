@@ -134,6 +134,8 @@ struct drgn_memory_file_segment {
 	 * OS error.
 	 */
 	bool eio_is_fault;
+	/** segment mapping address. */
+	void *map_address;
 };
 
 /** @ref drgn_memory_read_fn which reads from a file. */
@@ -141,6 +143,10 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 					 size_t count, uint64_t offset,
 					 void *arg, bool physical);
 
+/** @ref drgn_memory_read_fn which reads from segment mmap. */
+struct drgn_error *drgn_read_memory_mmap(void *buf, uint64_t address,
+					 size_t count, uint64_t offset,
+					 void *arg, bool physical);
 /** @} */
 
 #endif /* DRGN_MEMORY_READER_H */

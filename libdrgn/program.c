@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/statfs.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 #include "array.h"
 #include "debug_info.h"
@@ -86,6 +87,37 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_object_init(&prog->vmemmap, prog);
 }
 
+static int drgn_program_segments_deinit(struct drgn_program *prog)
+{
+	GElf_Phdr phdr_mem, *phdr;
+	size_t phnum, i, j;
+	uint64_t file_size;
+	void *map_address;
+
+	if (elf_getphdrnum(prog->core, &phnum) != 0)
+		return -1;
+
+	for (i = 0, j = 0; i < phnum; i++) {
+		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
+		if (!phdr)
+			return -1;
+
+		if (phdr->p_type != PT_LOAD)
+			continue;
+
+		file_size =  prog->file_segments[j].file_size;
+		map_address = prog->file_segments[j].map_address;
+		if (map_address) {
+			munmap(map_address, file_size);
+			prog->file_segments[j].map_address = NULL;
+		}
+
+		j++;
+	}
+
+	return 0;
+}
+
 void drgn_program_deinit(struct drgn_program *prog)
 {
 	if (prog->prstatus_cached) {
@@ -102,6 +134,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	drgn_object_index_deinit(&prog->oindex);
 	drgn_program_deinit_types(prog);
 	drgn_memory_reader_deinit(&prog->reader);
+	drgn_program_segments_deinit(prog);
 
 	free(prog->file_segments);
 
@@ -367,6 +400,8 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	/* Second pass: add the segments. */
 	for (i = 0, j = 0; i < phnum && j < num_file_segments; i++) {
 		GElf_Phdr phdr_mem, *phdr;
+		drgn_memory_read_fn read_fn = drgn_read_memory_file;
+		void *map_address = NULL;
 
 		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
 		if (!phdr) {
@@ -381,9 +416,18 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->file_segments[j].file_size = phdr->p_filesz;
 		prog->file_segments[j].fd = prog->core_fd;
 		prog->file_segments[j].eio_is_fault = false;
+		prog->file_segments[j].map_address = NULL;
+
+		map_address = mmap(NULL, phdr->p_filesz, PROT_READ,
+				MAP_PRIVATE, prog->core_fd, phdr->p_offset);
+		if (map_address && map_address != MAP_FAILED) {
+			prog->file_segments[j].map_address = map_address;
+			read_fn = drgn_read_memory_mmap;
+		}
+
 		err = drgn_program_add_memory_segment(prog, phdr->p_vaddr,
 						      phdr->p_memsz,
-						      drgn_read_memory_file,
+						      read_fn,
 						      &prog->file_segments[j],
 						      false);
 		if (err)
@@ -393,7 +437,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_paddr,
 							      phdr->p_memsz,
-							      drgn_read_memory_file,
+							      read_fn,
 							      &prog->file_segments[j],
 							      true);
 			if (err)
@@ -482,6 +526,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 out_segments:
 	drgn_memory_reader_deinit(&prog->reader);
 	drgn_memory_reader_init(&prog->reader);
+	drgn_program_segments_deinit(prog);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 out_platform:

@@ -284,3 +284,33 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 	memset(p, 0, count);
 	return NULL;
 }
+
+struct drgn_error *drgn_read_memory_mmap(void *buf, uint64_t address,
+					 size_t count, uint64_t offset,
+					 void *arg, bool physical)
+{
+	struct drgn_memory_file_segment *file_segment = arg;
+	char *p = buf;
+	char *map_address = file_segment->map_address;
+	size_t file_count;
+
+	if (!map_address)
+		return drgn_read_memory_file(buf, address, count,
+					     offset, arg, physical);
+
+	if (offset < file_segment->file_size) {
+		file_count = min((uint64_t)count,
+				 file_segment->file_size - offset);
+		count -= file_count;
+	} else {
+		file_count = 0;
+	}
+
+	if (file_count) {
+		memcpy(p, map_address + offset, file_count);
+		p += file_count;
+	}
+	memset(p, 0, count);
+
+	return NULL;
+}
