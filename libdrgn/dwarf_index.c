@@ -2668,6 +2668,7 @@ static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 		return drgn_error_copy(ns->saved_err);
 	}
 	ns->pending_dies.size = 0;
+	drgn_dwarf_index_pending_die_vector_shrink_to_fit(&ns->pending_dies);
 	return err;
 }
 
