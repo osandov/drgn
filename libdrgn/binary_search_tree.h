@@ -234,41 +234,41 @@ struct binary_tree_search_result {
 /*
  * Binary search tree variants need to define three functions:
  *
- * variant##_tree_insert_fixup(root, node, parent) is called after a node is
- * inserted (as *root, parent->left, or parent->right). It must set the node's
- * parent pointer and rebalance the tree.
+ * drgn_##variant##_tree_insert_fixup(root, node, parent) is called after a node
+ * is inserted (as *root, parent->left, or parent->right). It must set the
+ * node's parent pointer and rebalance the tree.
  *
- * variant##_tree_found(root, node) is called when a duplicate node is found for
- * an insert operation or when a node is found for a search operation (but not
- * for a delete operation). It may rebalance the tree or do nothing.
+ * drgn_##variant##_tree_found(root, node) is called when a duplicate node is
+ * found for an insert operation or when a node is found for a search operation
+ * (but not for a delete operation). It may rebalance the tree or do nothing.
  *
- * variant##_tree_delete(root, node) must delete the node and rebalance the
- * tree.
+ * drgn_##variant##_tree_delete(root, node) must delete the node and rebalance
+ * the tree.
  */
 
-void splay_tree_splay(struct binary_tree_node **root,
-		      struct binary_tree_node *node,
-		      struct binary_tree_node *parent);
+void drgn_splay_tree_splay(struct binary_tree_node **root,
+			   struct binary_tree_node *node,
+			   struct binary_tree_node *parent);
 
-static inline void splay_tree_insert_fixup(struct binary_tree_node **root,
-					   struct binary_tree_node *node,
-					   struct binary_tree_node *parent)
+static inline void drgn_splay_tree_insert_fixup(struct binary_tree_node **root,
+						struct binary_tree_node *node,
+						struct binary_tree_node *parent)
 {
 	if (parent)
-		splay_tree_splay(root, node, parent);
+		drgn_splay_tree_splay(root, node, parent);
 	else
 		node->parent = NULL;
 }
 
-static inline void splay_tree_found(struct binary_tree_node **root,
-				    struct binary_tree_node *node)
+static inline void drgn_splay_tree_found(struct binary_tree_node **root,
+					 struct binary_tree_node *node)
 {
 	if (node->parent)
-		splay_tree_splay(root, node, node->parent);
+		drgn_splay_tree_splay(root, node, node->parent);
 }
 
-void splay_tree_delete(struct binary_tree_node **root,
-		       struct binary_tree_node *node);
+void drgn_splay_tree_delete(struct binary_tree_node **root,
+			    struct binary_tree_node *node);
 
 /**
  * Define a binary search tree type without defining its functions.
@@ -372,14 +372,14 @@ static int tree##_insert(struct tree *tree, tree##_entry_type *entry,		\
 	if (*res.nodep) {							\
 		if (it_ret)							\
 			it_ret->entry = tree##_node_to_entry(*res.nodep);	\
-		variant##_tree_found(&tree->root, *res.nodep);			\
+		drgn_##variant##_tree_found(&tree->root, *res.nodep);		\
 		return 0;							\
 	}									\
 										\
 	node = tree##_entry_to_node(entry);					\
 	node->left = node->right = NULL;					\
 	*res.nodep = node;							\
-	variant##_tree_insert_fixup(&tree->root, node, res.parent);		\
+	drgn_##variant##_tree_insert_fixup(&tree->root, node, res.parent);	\
 	return 1;								\
 }										\
 										\
@@ -392,7 +392,7 @@ static struct tree##_iterator tree##_search(struct tree *tree,			\
 	node = *tree##_search_internal(tree, key).nodep;			\
 	if (!node)								\
 		return (struct tree##_iterator){};				\
-	variant##_tree_found(&tree->root, node);				\
+	drgn_##variant##_tree_found(&tree->root, node);				\
 	return (struct tree##_iterator){ tree##_node_to_entry(node), };		\
 }										\
 										\
@@ -422,7 +422,8 @@ static struct tree##_iterator tree##_search_le(struct tree *tree,		\
 		}								\
 	}									\
 	if (entry)								\
-		variant##_tree_found(&tree->root, tree##_entry_to_node(entry));	\
+		drgn_##variant##_tree_found(&tree->root,			\
+					    tree##_entry_to_node(entry));	\
 	return (struct tree##_iterator){ entry, };				\
 }										\
 										\
@@ -434,7 +435,7 @@ static bool tree##_delete(struct tree *tree, const tree##_key_type *key)	\
 	node = *tree##_search_internal(tree, key).nodep;			\
 	if (!node)								\
 		return false;							\
-	variant##_tree_delete(&tree->root, node);				\
+	drgn_##variant##_tree_delete(&tree->root, node);			\
 	return true;								\
 }										\
 										\
@@ -486,7 +487,7 @@ tree##_delete_iterator(struct tree *tree, struct tree##_iterator it)		\
 										\
 	node = tree##_entry_to_node(it.entry);					\
 	it = tree##_next_impl(it);						\
-	variant##_tree_delete(&tree->root, node);				\
+	drgn_##variant##_tree_delete(&tree->root, node);			\
 	return it;								\
 }										\
 										\
