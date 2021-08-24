@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/*
+/**
  * @file
  *
  * Preprocessor utilities.
@@ -75,29 +75,36 @@
  * Expand and concatenate arguments.
  *
  * This expands each argument and then joins them with the `##` operator.
+ * `PP_CAT` takes two arguments, `PP_CAT3` takes three, `PP_CAT4` takes four,
+ * etc.
  *
  * ```
  * #define a foo
  * #define b bar
- * PP_CAT(a, b, baz) // Expands to foobarbaz
+ * PP_CAT(a, b) // Expands to foobar
  * ```
  *
  * Intermediate results are not expanded:
  * ```
  * #define HELLO oops
- * PP_CAT(HELL, O, WORLD) // Expands to HELLOWORLD, _not_ oopsWORLD
+ * PP_CAT3(HELL, O, WORLD) // Expands to HELLOWORLD, _not_ oopsWORLD
  * ```
  *
  * All possible intermediate results must be valid preprocessing tokens:
  * ```
- * PP_CAT(1e, +, 3) // Undefined because +3 is not a valid preprocessing token
+ * PP_CAT3(1e, +, 3) // Undefined because +3 is not a valid preprocessing token
  * ```
  *
  * @hideinitializer
  */
-#define PP_CAT(...) PP_OVERLOAD(PP_CAT_I, __VA_ARGS__)(__VA_ARGS__)
+#define PP_CAT(_0, _1) PP_CAT_I2(_0, _1)
+#define PP_CAT3(_0, _1, _2) PP_CAT_I3(_0, _1, _2)
+#define PP_CAT4(_0, _1, _2, _3) PP_CAT_I4(_0, _1, _2, _3)
+#define PP_CAT5(_0, _1, _2, _3, _4) PP_CAT_I5(_0, _1, _2, _3, _4)
+#define PP_CAT6(_0, _1, _2, _3, _4, _5) PP_CAT_I6(_0, _1, _2, _3, _4, _5)
+#define PP_CAT7(_0, _1, _2, _3, _4, _5, _6) PP_CAT_I7(_0, _1, _2, _3, _4, _5, _6)
+#define PP_CAT8(_0, _1, _2, _3, _4, _5, _6, _7) PP_CAT_I8(_0, _1, _2, _3, _4, _5, _6, _7)
 /** @cond */
-#define PP_CAT_I1(_0) _0
 #define PP_CAT_I2(_0, _1) _0##_1
 #define PP_CAT_I3(_0, _1, _2) _0##_1##_2
 #define PP_CAT_I4(_0, _1, _2, _3) _0##_1##_2##_3
