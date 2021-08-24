@@ -15,9 +15,9 @@
  * 1: "Self-Adjusting Binary Search Trees" (Sleator & Tarjan, 1985):
  * http://www.cs.cmu.edu/~sleator/papers/self-adjusting.pdf
  */
-void splay_tree_splay(struct binary_tree_node **root,
-		      struct binary_tree_node *node,
-		      struct binary_tree_node *parent)
+void drgn_splay_tree_splay(struct binary_tree_node **root,
+			   struct binary_tree_node *node,
+			   struct binary_tree_node *parent)
 {
 	for (;;) {
 		struct binary_tree_node *grandparent, *great_grandparent;
@@ -146,9 +146,9 @@ void splay_tree_splay(struct binary_tree_node **root,
 	node->parent = NULL;
 }
 
-static inline void transplant(struct binary_tree_node **root,
-			      struct binary_tree_node *old,
-			      struct binary_tree_node *new)
+static inline void drgn_splay_tree_transplant(struct binary_tree_node **root,
+					      struct binary_tree_node *old,
+					      struct binary_tree_node *new)
 {
 	if (!old->parent)
 		*root = new;
@@ -160,13 +160,13 @@ static inline void transplant(struct binary_tree_node **root,
 		new->parent = old->parent;
 }
 
-void splay_tree_delete(struct binary_tree_node **root,
-		       struct binary_tree_node *node)
+void drgn_splay_tree_delete(struct binary_tree_node **root,
+			    struct binary_tree_node *node)
 {
 	if (node->left == NULL) {
-		transplant(root, node, node->right);
+		drgn_splay_tree_transplant(root, node, node->right);
 	} else if (node->right == NULL) {
-		transplant(root, node, node->left);
+		drgn_splay_tree_transplant(root, node, node->left);
 	} else {
 		struct binary_tree_node *successor;
 
@@ -175,14 +175,14 @@ void splay_tree_delete(struct binary_tree_node **root,
 			do {
 				successor = successor->left;
 			} while (successor->left);
-			transplant(root, successor, successor->right);
+			drgn_splay_tree_transplant(root, successor, successor->right);
 			successor->right = node->right;
 			successor->right->parent = successor;
 		}
-		transplant(root, node, successor);
+		drgn_splay_tree_transplant(root, node, successor);
 		successor->left = node->left;
 		successor->left->parent = successor;
 	}
 	if (node->parent && node->parent->parent)
-		splay_tree_splay(root, node->parent, node->parent->parent);
+		drgn_splay_tree_splay(root, node->parent, node->parent->parent);
 }
