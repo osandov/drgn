@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "array.h"
 #include "bitops.h"
 #include "error.h"
 #include "hash_table.h"
@@ -59,7 +60,7 @@ static struct drgn_error *c_append_qualifiers(enum drgn_qualifiers qualifiers,
 	bool first = true;
 	unsigned int i;
 
-	static_assert((1 << ARRAY_SIZE(qualifier_names)) - 1 ==
+	static_assert((1 << array_size(qualifier_names)) - 1 ==
 		      DRGN_ALL_QUALIFIERS, "missing C qualifier name");
 
 	for (i = 0; (1U << i) & DRGN_ALL_QUALIFIERS; i++) {
@@ -2708,15 +2709,13 @@ struct drgn_error *c_integer_literal(struct drgn_object *res, uint64_t uvalue)
 		DRGN_C_TYPE_UNSIGNED_LONG_LONG,
 	};
 	struct drgn_error *err;
-	unsigned int bits;
-	struct drgn_qualified_type qualified_type;
-	size_t i;
 
-	bits = fls(uvalue);
+	unsigned int bits = fls(uvalue);
+	struct drgn_qualified_type qualified_type;
 	qualified_type.qualifiers = 0;
-	for (i = 0; i < ARRAY_SIZE(types); i++) {
+	array_for_each(type, types) {
 		err = drgn_program_find_primitive_type(drgn_object_program(res),
-						       types[i],
+						       *type,
 						       &qualified_type.type);
 		if (err)
 			return err;
@@ -2860,7 +2859,7 @@ static struct drgn_error *c_integer_promotions(struct drgn_program *prog,
 	 * promotes it to the full width, but GCC does not. We implement the GCC
 	 * behavior of preserving the width.
 	 */
-	if (primitive >= ARRAY_SIZE(c_integer_conversion_rank) ||
+	if (primitive >= array_size(c_integer_conversion_rank) ||
 	    type->bit_field_size) {
 		err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_INT,
 						       &int_type);

@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <string.h>
 
+#include "array.h"
 #include "drgn.h"
 #include "error.h"
 #include "linux_kernel.h"
@@ -683,7 +684,7 @@ linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
 
 	/* Find the lowest level with cached entries. */
 	for (level = 0; level < levels; level++) {
-		if (arch->index[level] < ARRAY_SIZE(arch->table[level]))
+		if (arch->index[level] < array_size(arch->table[level]))
 			break;
 	}
 	/* For every level below that, refill the cache/return pages. */

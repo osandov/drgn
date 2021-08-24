@@ -20,6 +20,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "array.h"
 #include "debug_info.h"
 #include "error.h"
 #include "language.h"
@@ -1929,7 +1930,7 @@ drgn_error_debug_info(struct drgn_debug_info_module *module, const char *ptr,
 {
 	uintptr_t p = (uintptr_t)ptr;
 	int end_match = -1;
-	for (int i = 0; i < ARRAY_SIZE(module->scn_data); i++) {
+	for (int i = 0; i < array_size(module->scn_data); i++) {
 		if (!module->scn_data[i])
 			continue;
 		uintptr_t start = (uintptr_t)module->scn_data[i]->d_buf;

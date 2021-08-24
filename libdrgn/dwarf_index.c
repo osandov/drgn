@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "array.h"
 #include "binary_buffer.h"
 #include "debug_info.h"
 #include "drgn.h"
@@ -205,8 +206,7 @@ static void
 drgn_dwarf_index_namespace_init(struct drgn_dwarf_index_namespace *ns,
 				struct drgn_dwarf_index *dindex)
 {
-	for (size_t i = 0; i < ARRAY_SIZE(ns->shards); i++) {
-		struct drgn_dwarf_index_shard *shard = &ns->shards[i];
+	array_for_each(shard, ns->shards) {
 		omp_init_lock(&shard->lock);
 		drgn_dwarf_index_die_map_init(&shard->map);
 		drgn_dwarf_index_die_vector_init(&shard->dies);
@@ -236,8 +236,7 @@ drgn_dwarf_index_namespace_deinit(struct drgn_dwarf_index_namespace *ns)
 {
 	drgn_error_destroy(ns->saved_err);
 	drgn_dwarf_index_pending_die_vector_deinit(&ns->pending_dies);
-	for (size_t i = 0; i < ARRAY_SIZE(ns->shards); i++) {
-		struct drgn_dwarf_index_shard *shard = &ns->shards[i];
+	array_for_each(shard, ns->shards) {
 		for (size_t j = 0; j < shard->dies.size; j++) {
 			struct drgn_dwarf_index_die *die = &shard->dies.data[j];
 			if (die->tag == DW_TAG_namespace) {
@@ -1152,7 +1151,7 @@ static struct path_hash *path_hash_alloc(struct path_hash_cache *cache)
 {
 	struct path_hash_chunk *current_chunk = cache->current_chunk;
 	if (cache->next_object <
-	    &current_chunk->objects[ARRAY_SIZE(current_chunk->objects)])
+	    &current_chunk->objects[array_size(current_chunk->objects)])
 		return cache->next_object++;
 	struct path_hash_chunk *next_chunk = current_chunk->next;
 	if (!next_chunk) {
@@ -1396,7 +1395,7 @@ static struct drgn_error *read_file_name_table(struct path_hash_cache *cache,
 		parent = &empty_path_hash;
 	} else {
 		entry_formats = dwarf4_directory_entry_formats;
-		entry_format_count = ARRAY_SIZE(dwarf4_directory_entry_formats);
+		entry_format_count = array_size(dwarf4_directory_entry_formats);
 		path_hash = hash_path(cache, comp_dir, &empty_path_hash);
 		if (!path_hash ||
 		    !path_hash_vector_append(&cache->directories, &path_hash))
@@ -1463,7 +1462,7 @@ file_name_entries:;
 		}
 	} else {
 		entry_formats = dwarf4_file_name_entry_formats;
-		entry_format_count = ARRAY_SIZE(dwarf4_file_name_entry_formats);
+		entry_format_count = array_size(dwarf4_file_name_entry_formats);
 		uint64_vector_init(&file_name_hashes);
 	}
 
@@ -2472,10 +2471,7 @@ next:
 
 static void drgn_dwarf_index_rollback(struct drgn_dwarf_index *dindex)
 {
-	for (size_t i = 0; i < ARRAY_SIZE(dindex->global.shards); i++) {
-		struct drgn_dwarf_index_shard *shard =
-			&dindex->global.shards[i];
-
+	array_for_each(shard, dindex->global.shards) {
 		/*
 		 * Because we're deleting everything that was added since the
 		 * last update, we can just shrink the dies array to the first
@@ -2557,7 +2553,7 @@ drgn_dwarf_index_update(struct drgn_dwarf_index_update_state *state)
 				.file_name_hashes =
 					(uint64_t *)no_file_name_hashes,
 				.num_file_names =
-					ARRAY_SIZE(no_file_name_hashes),
+					array_size(no_file_name_hashes),
 			};
 		}
 	}

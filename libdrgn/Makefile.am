@@ -25,6 +25,7 @@ noinst_LTLIBRARIES = libdrgnimpl.la
 libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 $(ARCH_INCS) \
 			 arch_register_layout.h \
+			 array.h \
 			 binary_buffer.c \
 			 binary_buffer.h \
 			 binary_search_tree.h \

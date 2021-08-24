@@ -17,6 +17,7 @@
 #include <sys/statfs.h>
 #include <unistd.h>
 
+#include "array.h"
 #include "debug_info.h"
 #include "dwarf_index.h"
 #include "error.h"
@@ -588,7 +589,7 @@ static void drgn_program_set_language_from_main(struct drgn_debug_info *dbinfo)
 	static const uint64_t tags[] = { DW_TAG_subprogram };
 	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dindex.global,
 					     "main", strlen("main"), tags,
-					     ARRAY_SIZE(tags));
+					     array_size(tags));
 	if (err) {
 		drgn_error_destroy(err);
 		return;

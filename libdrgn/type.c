@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "array.h"
 #include "error.h"
 #include "hash_table.h"
 #include "language.h"
@@ -1294,7 +1295,7 @@ struct drgn_error *drgn_error_incomplete_type(const char *format,
 
 void drgn_program_init_types(struct drgn_program *prog)
 {
-	for (size_t i = 0; i < ARRAY_SIZE(prog->void_types); i++) {
+	for (size_t i = 0; i < array_size(prog->void_types); i++) {
 		struct drgn_type *type = &prog->void_types[i];
 		type->_private.kind = DRGN_TYPE_VOID;
 		type->_private.is_complete = false;
@@ -1439,11 +1440,10 @@ default_size_t_or_ptrdiff_t(struct drgn_program *prog,
 	err = drgn_program_address_size(prog, &address_size);
 	if (err)
 		return err;
-	for (size_t i = 0; i < ARRAY_SIZE(integer_types[0]); i++) {
-		enum drgn_primitive_type integer_type =
-			integer_types[type == DRGN_C_TYPE_PTRDIFF_T][i];
+	array_for_each(integer_type,
+		       integer_types[type == DRGN_C_TYPE_PTRDIFF_T]) {
 		struct drgn_qualified_type qualified_type;
-		err = drgn_program_find_primitive_type(prog, integer_type,
+		err = drgn_program_find_primitive_type(prog, *integer_type,
 						       &qualified_type.type);
 		if (err)
 			return err;

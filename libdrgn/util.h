@@ -85,9 +85,6 @@
 
 #define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 
-#define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
-
 #define container_of(ptr, type, member) ({				\
 	void *__mptr = (void *)(ptr);					\
 	BUILD_BUG_ON_MSG(!__same_type(*(ptr), ((type *)0)->member) &&	\
