@@ -56,10 +56,11 @@ class build_ext(_build_ext):
 
     def _run_autoreconf(self):
         if out_of_date(
-            "libdrgn/Makefile.in", "libdrgn/Makefile.am", "libdrgn/configure.ac"
+            "libdrgn/Makefile.in", "libdrgn/Makefile.am", "libdrgn/configure.ac", "libdrgn/velfutils/configure.ac"
         ) or out_of_date("libdrgn/configure", "libdrgn/configure.ac"):
             try:
                 subprocess.check_call(["autoreconf", "-i", "libdrgn"])
+                subprocess.check_call(["autoreconf", "-i", "libdrgn/velfutils"])
             except Exception:
                 with contextlib.suppress(FileNotFoundError):
                     os.remove("libdrgn/configure")

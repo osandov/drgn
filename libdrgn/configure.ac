@@ -75,8 +75,6 @@ headers by setting the PYTHON_CPPFLAGS environment variable.])])
 
 PKG_PROG_PKG_CONFIG
 
-PKG_CHECK_MODULES(elfutils, [libelf >= 0.165 libdw >= 0.165])
-
 AC_ARG_WITH([libkdumpfile],
 	    [AS_HELP_STRING([--with-libkdumpfile],
 			    [build with support for the makedumpfile kernel
@@ -138,5 +136,15 @@ AS_IF([test "x$enable_ubsan" != xno],
 AC_SUBST(SANITIZER_CFLAGS)
 AC_SUBST(SANITIZER_LDFLAGS)
 
-AC_CONFIG_FILES([Makefile])
+AX_SUBDIRS_CONFIGURE([velfutils],
+		     [[--enable-maintainer-mode],
+		      [--disable-nls],
+		      [--without-zstd],
+		      [--disable-programs],
+		      [--disable-shared],
+		      [--disable-debuginfod]],
+		     [CFLAGS=-fPIC -Wno-error], [],
+		     [--disable-static])
+
+AC_CONFIG_FILES([Makefile include/Makefile])
 AC_OUTPUT
