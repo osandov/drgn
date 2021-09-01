@@ -18,10 +18,11 @@ class LinuxHelperTestCase(unittest.TestCase):
     prog = None
     skip_reason = None
 
-    def setUp(self):
-        # We only want to create the Program once, so it's cached as a class
-        # variable. If we can't run these tests for whatever reason, we also
-        # cache that.
+    @classmethod
+    def setUpClass(cls):
+        # We only want to create the Program once for all tests, so it's cached
+        # as a class variable (in the base class). If we can't run these tests
+        # for whatever reason, we also cache that.
         if LinuxHelperTestCase.prog is not None:
             return
         if LinuxHelperTestCase.skip_reason is None:
@@ -37,7 +38,7 @@ class LinuxHelperTestCase(unittest.TestCase):
             elif not force_run and os.geteuid() != 0:
                 LinuxHelperTestCase.skip_reason = (
                     "Linux helper tests must be run as root "
-                    "(run with env DRGN_RUN_LINUX_HELPER_TESTS=1 to force"
+                    "(run with env DRGN_RUN_LINUX_HELPER_TESTS=1 to force)"
                 )
             else:
                 # Some of the tests use the loop module. Open loop-control so
@@ -58,7 +59,7 @@ class LinuxHelperTestCase(unittest.TestCase):
                     if force_run:
                         raise
                     LinuxHelperTestCase.skip_reason = str(e)
-        self.skipTest(LinuxHelperTestCase.skip_reason)
+        raise unittest.SkipTest(LinuxHelperTestCase.skip_reason)
 
 
 def wait_until(fn, *args, **kwds):
