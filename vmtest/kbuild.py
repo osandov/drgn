@@ -23,7 +23,7 @@ from vmtest.asynciosubprocess import (
 
 logger = logging.getLogger(__name__)
 
-KERNEL_LOCALVERSION = "-vmtest4"
+KERNEL_LOCALVERSION = "-vmtest5"
 
 
 def kconfig() -> str:
@@ -85,6 +85,16 @@ CONFIG_IKCONFIG_PROC=y
 
 # For nodemask tests.
 CONFIG_NUMA=y
+
+# For Traffic Control tests.
+CONFIG_NET_SCHED=y
+CONFIG_NET_SCH_PRIO=m
+CONFIG_NET_SCH_SFQ=m
+CONFIG_NET_SCH_TBF=m
+CONFIG_NET_SCH_INGRESS=m
+CONFIG_NET_CLS_ACT=y
+CONFIG_NETDEVICES=y
+CONFIG_DUMMY=m
 """
 
 
