@@ -23,7 +23,7 @@ from vmtest.asynciosubprocess import (
 
 logger = logging.getLogger(__name__)
 
-KERNEL_LOCALVERSION = "-vmtest5"
+KERNEL_LOCALVERSION = "-vmtest6"
 
 
 def kconfig() -> str:
@@ -59,6 +59,8 @@ CONFIG_TMPFS=y
 CONFIG_TMPFS_XATTR=y
 CONFIG_VIRTIO_CONSOLE=y
 CONFIG_VIRTIO_PCI=y
+CONFIG_HW_RANDOM=m
+CONFIG_HW_RANDOM_VIRTIO=m
 
 # drgn needs /proc/kcore for live debugging.
 CONFIG_PROC_KCORE=y
@@ -78,6 +80,9 @@ CONFIG_KEXEC=y
 
 # For block tests.
 CONFIG_BLK_DEV_LOOP=m
+
+# For cgroup tests.
+CONFIG_CGROUPS=y
 
 # For kconfig tests.
 CONFIG_IKCONFIG=m
