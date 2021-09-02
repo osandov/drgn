@@ -31,7 +31,7 @@ class TestFs(LinuxHelperTestCase):
     def test_path_lookup_bind_mount(self):
         with tempfile.NamedTemporaryFile(prefix="drgn-tests-") as f:
             old_mnt = path_lookup(self.prog, os.path.abspath(f.name)).mnt
-            mount(f.name, f.name, "", MS_BIND, "")
+            mount(f.name, f.name, "", MS_BIND)
             try:
                 new_mnt = path_lookup(self.prog, os.path.abspath(f.name)).mnt
                 self.assertNotEqual(old_mnt, new_mnt)

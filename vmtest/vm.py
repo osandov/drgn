@@ -59,6 +59,8 @@ cd /
 "$BUSYBOX" mount -t devtmpfs -o nosuid,noexec dev /dev
 "$BUSYBOX" mount -t proc -o nosuid,nodev,noexec proc /proc
 "$BUSYBOX" mount -t sysfs -o nosuid,nodev,noexec sys /sys
+# cgroup2 was added in Linux v4.5.
+"$BUSYBOX" mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 /sys/fs/cgroup || "$BUSYBOX" true
 # Ideally we'd just be able to create an opaque directory for /tmp on the upper
 # layer. However, before Linux kernel commit 51f7e52dc943 ("ovl: share inode
 # for hard link") (in v4.8), overlayfs doesn't handle hard links correctly,
