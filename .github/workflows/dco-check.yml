@@ -1,0 +1,24 @@
+name: DCO Check
+
+on: pull_request
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout commit logs
+        run: |
+          git init
+          git fetch --filter=blob:none "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_BASE_REF" "$GITHUB_REF"
+      - name: Check for DCO sign-offs
+        run: |
+          no_sign_off="$(git log --no-merges --grep=Signed-off-by --invert-grep "FETCH_HEAD..$GITHUB_SHA")"
+          if [ -z "$no_sign_off" ]; then
+              echo "All commits have a Developer Certificate of Origin sign-off"
+          else
+              echo "The following commits are missing a Developer Certificate of Origin sign-off;"
+              echo "see https://github.com/osandov/drgn/blob/main/CONTRIBUTING.rst#signing-off"
+              echo
+              echo "$no_sign_off"
+              exit 1
+          fi
