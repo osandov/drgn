@@ -809,6 +809,11 @@ drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
 /**
  * Get the symbol corresponding to the given name.
  *
+ * If there is a global symbol which matches this name, then it is returned.
+ * Otherwise, an arbitrary local symbol may be returned if that is found. If
+ * there are no global or local symbols with this name, then the lookup fails
+ * with ::DRGN_ERROR_LOOKUP.
+ *
  * @param[out] ret The returned symbol. It should be freed with @ref
  * drgn_symbol_destroy().
  * @return @c NULL on success, non-@c NULL on error.

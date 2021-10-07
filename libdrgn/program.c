@@ -1143,6 +1143,7 @@ drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
 struct find_symbol_by_name_arg {
 	const char *name;
 	struct drgn_symbol **ret;
+	struct drgn_symbol *local_fallback;
 	struct drgn_error *err;
 	bool bad_symtabs;
 };
@@ -1155,12 +1156,11 @@ static int find_symbol_by_name_cb(Dwfl_Module *dwfl_module, void **userdatap,
 	int symtab_len, i;
 
 	symtab_len = dwfl_module_getsymtab(dwfl_module);
-	i = dwfl_module_getsymtab_first_global(dwfl_module);
-	if (symtab_len == -1 || i == -1) {
+	if (symtab_len == -1) {
 		arg->bad_symtabs = true;
 		return DWARF_CB_OK;
 	}
-	for (; i < symtab_len; i++) {
+	for (i = 0; i < symtab_len; i++) {
 		GElf_Sym elf_sym;
 		GElf_Addr elf_addr;
 		const char *name;
@@ -1170,15 +1170,25 @@ static int find_symbol_by_name_cb(Dwfl_Module *dwfl_module, void **userdatap,
 		if (name && strcmp(arg->name, name) == 0) {
 			struct drgn_symbol *sym;
 
+			if (GELF_ST_BIND(elf_sym.st_info) != STB_GLOBAL &&
+			    arg->local_fallback)
+				/* Non-global symbol, but we already found a fallback.
+				 * Continue searching for a global match. */
+				continue;
+
+			/* Found either a global or local fallback match. */
 			sym = malloc(sizeof(*sym));
-			if (sym) {
-				drgn_symbol_from_elf(name, elf_addr, &elf_sym,
-						     sym);
-				*arg->ret = sym;
-			} else {
+			if (!sym) {
 				arg->err = &drgn_enomem;
+				return DWARF_CB_ABORT;
 			}
-			return DWARF_CB_ABORT;
+			drgn_symbol_from_elf(name, elf_addr, &elf_sym, sym);
+			if (GELF_ST_BIND(elf_sym.st_info) == STB_GLOBAL) {
+				*arg->ret = sym;
+				return DWARF_CB_ABORT;
+			} else {
+				arg->local_fallback = sym;
+			}
 		}
 	}
 	return DWARF_CB_OK;
@@ -1193,10 +1203,17 @@ drgn_program_find_symbol_by_name(struct drgn_program *prog,
 		.ret = ret,
 	};
 
-	if (prog->_dbinfo &&
-	    dwfl_getmodules(prog->_dbinfo->dwfl, find_symbol_by_name_cb,
-			    &arg, 0))
+	if (prog->_dbinfo && dwfl_getmodules(prog->_dbinfo->dwfl,
+					     find_symbol_by_name_cb,
+					     &arg, 0)) {
+		if (arg.local_fallback)
+			drgn_symbol_destroy(arg.local_fallback);
 		return arg.err;
+	}
+	if (arg.local_fallback) {
+		*ret = arg.local_fallback;
+		return NULL;
+	}
 	return drgn_error_format(DRGN_ERROR_LOOKUP,
 				 "could not find symbol with name '%s'%s", name,
 				 arg.bad_symtabs ?
