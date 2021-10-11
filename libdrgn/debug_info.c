@@ -480,6 +480,23 @@ err:
 
 DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)
 
+struct drgn_debug_info_module_key {
+	const void *build_id;
+	size_t build_id_len;
+	uint64_t start, end;
+};
+
+static inline struct drgn_debug_info_module_key
+drgn_debug_info_module_key(struct drgn_debug_info_module * const *entry)
+{
+	return (struct drgn_debug_info_module_key){
+		.build_id = (*entry)->build_id,
+		.build_id_len = (*entry)->build_id_len,
+		.start = (*entry)->start,
+		.end = (*entry)->end,
+	};
+}
+
 static inline struct hash_pair
 drgn_debug_info_module_key_hash_pair(const struct drgn_debug_info_module_key *key)
 {
@@ -497,11 +514,11 @@ drgn_debug_info_module_key_eq(const struct drgn_debug_info_module_key *a,
 		a->start == b->start && a->end == b->end);
 }
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_debug_info_module_table,
+			    drgn_debug_info_module_key,
 			    drgn_debug_info_module_key_hash_pair,
 			    drgn_debug_info_module_key_eq)
 
-DEFINE_HASH_TABLE_FUNCTIONS(c_string_set, c_string_key_hash_pair,
-			    c_string_key_eq)
+DEFINE_HASH_SET_FUNCTIONS(c_string_set, c_string_key_hash_pair, c_string_key_eq)
 
 /**
  * @c Dwfl_Callbacks::find_elf() implementation.
@@ -2566,8 +2583,7 @@ out:
 	return err;
 }
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_type_map, ptr_key_hash_pair,
-			    scalar_key_eq)
+DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_type_map, ptr_key_hash_pair, scalar_key_eq)
 
 /**
  * Return whether a DWARF DIE is little-endian.

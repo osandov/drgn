@@ -123,15 +123,8 @@ struct drgn_dwarf_index_specification {
 	uintptr_t addr;
 };
 
-static inline uintptr_t
-drgn_dwarf_index_specification_to_key(const struct drgn_dwarf_index_specification *entry)
-{
-	return entry->declaration;
-}
-
 DEFINE_HASH_TABLE_TYPE(drgn_dwarf_index_specification_map,
-		       struct drgn_dwarf_index_specification,
-		       drgn_dwarf_index_specification_to_key)
+		       struct drgn_dwarf_index_specification)
 
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu)
 

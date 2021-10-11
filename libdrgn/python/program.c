@@ -7,7 +7,7 @@
 #include "../vector.h"
 #include "../util.h"
 
-DEFINE_HASH_TABLE_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq)
+DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq)
 
 int Program_hold_object(Program *prog, PyObject *obj)
 {

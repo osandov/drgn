@@ -244,25 +244,8 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 					  size_t *length_ret)
 	__attribute__((__nonnull__(2, 3)));
 
-struct drgn_debug_info_module_key {
-	const void *build_id;
-	size_t build_id_len;
-	uint64_t start, end;
-};
-
-static inline struct drgn_debug_info_module_key
-drgn_debug_info_module_key(struct drgn_debug_info_module * const *entry)
-{
-	return (struct drgn_debug_info_module_key){
-		.build_id = (*entry)->build_id,
-		.build_id_len = (*entry)->build_id_len,
-		.start = (*entry)->start,
-		.end = (*entry)->end,
-	};
-}
 DEFINE_HASH_TABLE_TYPE(drgn_debug_info_module_table,
-		       struct drgn_debug_info_module *,
-		       drgn_debug_info_module_key)
+		       struct drgn_debug_info_module *)
 
 DEFINE_HASH_SET_TYPE(c_string_set, const char *)
 

@@ -185,10 +185,17 @@ struct drgn_dwarf_index_pending_die {
 
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_die_vector)
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_die_map, string_hash_pair,
-			    string_eq)
+DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_index_die_map, string_hash_pair, string_eq)
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_die_vector)
+
+static inline uintptr_t
+drgn_dwarf_index_specification_to_key(const struct drgn_dwarf_index_specification *entry)
+{
+	return entry->declaration;
+}
+
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_index_specification_map,
+			    drgn_dwarf_index_specification_to_key,
 			    int_key_hash_pair, scalar_key_eq)
 
 static inline size_t hash_pair_to_shard(struct hash_pair hp)

@@ -170,10 +170,10 @@ static bool drgn_member_key_eq(const struct drgn_member_key *a,
 		(!a->name_len || memcmp(a->name, b->name, a->name_len) == 0));
 }
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_member_map, drgn_member_key_hash_pair,
-			    drgn_member_key_eq)
+DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, drgn_member_key_hash_pair,
+			  drgn_member_key_eq)
 
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_type_set, ptr_key_hash_pair, scalar_key_eq)
+DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, ptr_key_hash_pair, scalar_key_eq)
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_member_object(struct drgn_type_member *member,
@@ -329,8 +329,8 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
  * We don't deduplicate types with members, parameters, template parameters, or
  * enumerators, so the hash and comparison functions ignore those.
  */
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
-			    drgn_type_dedupe_eq)
+DEFINE_HASH_SET_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
+			  drgn_type_dedupe_eq)
 
 DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector)
 

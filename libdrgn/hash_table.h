@@ -375,15 +375,8 @@ static inline unsigned int table##_chunk_occupied(struct table##_chunk *chunk)	\
  *
  * @sa DEFINE_HASH_TABLE()
  */
-#define DEFINE_HASH_TABLE_TYPE(table, entry_type, entry_to_key)			\
+#define DEFINE_HASH_TABLE_TYPE(table, entry_type)				\
 typedef typeof(entry_type) table##_entry_type;					\
-typedef typeof(entry_to_key((table##_entry_type *)0)) table##_key_type;		\
-										\
-static inline table##_key_type							\
-table##_entry_to_key(const table##_entry_type *entry)				\
-{										\
-	return entry_to_key(entry);						\
-}										\
 										\
 enum {										\
 	/*									\
@@ -394,6 +387,79 @@ enum {										\
 	 */									\
 	table##_vector_policy = sizeof(table##_entry_type) >= 24,		\
 };										\
+										\
+struct table {									\
+	struct table##_chunk *chunks;						\
+	struct {								\
+		/*								\
+		 * The vector storage policy stores 32-bit indices, so we only	\
+		 * need 32-bit sizes.						\
+		 */								\
+		uint32_t chunk_mask;						\
+		uint32_t size;							\
+		/* Allocated together with chunks. */				\
+		table##_entry_type *entries;					\
+	} vector[table##_vector_policy];					\
+	struct {								\
+		size_t chunk_mask;						\
+		size_t size;							\
+		uintptr_t first_packed;						\
+	} basic[!table##_vector_policy];					\
+};
+
+/*
+ * Common search function implementation returning an item iterator. This is
+ * shared by key lookups and index lookups.
+ */
+#define HASH_TABLE_SEARCH_IMPL(table, func, key_type, item_to_key, eq_func)	\
+static struct table##_iterator table##_##func(struct table *table,		\
+					      const key_type *key,		\
+					      struct hash_pair hp)		\
+{										\
+	const size_t delta = hash_table_probe_delta(hp);			\
+	size_t index = hp.first;						\
+	for (size_t tries = 0; tries <= table##_chunk_mask(table); tries++) {	\
+		struct table##_chunk *chunk =					\
+			&table->chunks[index & table##_chunk_mask(table)];	\
+		if (sizeof(*chunk) > 64)					\
+			__builtin_prefetch(&chunk->items[8]);			\
+		unsigned int mask = table##_chunk_match(chunk, hp.second), i;	\
+		for_each_bit(i, mask) {						\
+			table##_item_type *item = &chunk->items[i];		\
+			key_type item_key = item_to_key(table, item);		\
+			if (likely(eq_func(key, &item_key))) {			\
+				return (struct table##_iterator){		\
+					.item = item,				\
+					.index = i,				\
+				};						\
+			}							\
+		}								\
+		if (likely(chunk->outbound_overflow_count == 0))		\
+			break;							\
+		index += delta;							\
+	}									\
+	return (struct table##_iterator){};					\
+}
+
+#define HASH_TABLE_SEARCH_BY_INDEX_ITEM_TO_KEY(table, item) (*(item)->index)
+
+/**
+ * Define the functions for a hash table.
+ *
+ * The hash table type must have already been defined with @ref
+ * DEFINE_HASH_TABLE_TYPE().
+ *
+ * Unless the type and function definitions must be in separate places, use @ref
+ * DEFINE_HASH_TABLE() instead.
+ */
+#define DEFINE_HASH_TABLE_FUNCTIONS(table, entry_to_key, hash_func, eq_func)	\
+typedef typeof(entry_to_key((table##_entry_type *)0)) table##_key_type;		\
+										\
+static inline table##_key_type							\
+table##_entry_to_key(const table##_entry_type *entry)				\
+{										\
+	return entry_to_key(entry);						\
+}										\
 										\
 /*										\
  * Item stored in a chunk.							\
@@ -489,73 +555,6 @@ struct table##_iterator {							\
 	};									\
 };										\
 										\
-struct table {									\
-	struct table##_chunk *chunks;						\
-	struct {								\
-		/*								\
-		 * The vector storage policy stores 32-bit indices, so we only	\
-		 * need 32-bit sizes.						\
-		 */								\
-		uint32_t chunk_mask;						\
-		uint32_t size;							\
-		/* Allocated together with chunks. */				\
-		table##_entry_type *entries;					\
-	} vector[table##_vector_policy];					\
-	struct {								\
-		size_t chunk_mask;						\
-		size_t size;							\
-		uintptr_t first_packed;						\
-	} basic[!table##_vector_policy];					\
-};
-
-/*
- * Common search function implementation returning an item iterator. This is
- * shared by key lookups and index lookups.
- */
-#define HASH_TABLE_SEARCH_IMPL(table, func, key_type, item_to_key, eq_func)	\
-static struct table##_iterator table##_##func(struct table *table,		\
-					      const key_type *key,		\
-					      struct hash_pair hp)		\
-{										\
-	const size_t delta = hash_table_probe_delta(hp);			\
-	size_t index = hp.first;						\
-	for (size_t tries = 0; tries <= table##_chunk_mask(table); tries++) {	\
-		struct table##_chunk *chunk =					\
-			&table->chunks[index & table##_chunk_mask(table)];	\
-		if (sizeof(*chunk) > 64)					\
-			__builtin_prefetch(&chunk->items[8]);			\
-		unsigned int mask = table##_chunk_match(chunk, hp.second), i;	\
-		for_each_bit(i, mask) {						\
-			table##_item_type *item = &chunk->items[i];		\
-			key_type item_key = item_to_key(table, item);		\
-			if (likely(eq_func(key, &item_key))) {			\
-				return (struct table##_iterator){		\
-					.item = item,				\
-					.index = i,				\
-				};						\
-			}							\
-		}								\
-		if (likely(chunk->outbound_overflow_count == 0))		\
-			break;							\
-		index += delta;							\
-	}									\
-	return (struct table##_iterator){};					\
-}
-
-#define HASH_TABLE_SEARCH_BY_INDEX_ITEM_TO_KEY(table, item) (*(item)->index)
-
-/**
- * Define the functions for a hash table.
- *
- * The hash table type must have already been defined with @ref
- * DEFINE_HASH_TABLE_TYPE().
- *
- * Unless the type and function definitions must be in separate places, use @ref
- * DEFINE_HASH_TABLE() instead.
- *
- * @sa DEFINE_HASH_TABLE()
- */
-#define DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)			\
 static inline struct hash_pair table##_hash(const table##_key_type *key)	\
 {										\
 	return hash_func(key);							\
@@ -1425,24 +1424,38 @@ static struct table##_iterator table##_next(struct table##_iterator it)		\
  * *</tt> and returns a @c bool.
  */
 #define DEFINE_HASH_TABLE(table, entry_type, entry_to_key, hash_func, eq_func)	\
-DEFINE_HASH_TABLE_TYPE(table, entry_type, entry_to_key)				\
-DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
-
-#define HASH_MAP_ENTRY_TO_KEY(entry) ((entry)->key)
+DEFINE_HASH_TABLE_TYPE(table, entry_type)					\
+DEFINE_HASH_TABLE_FUNCTIONS(table, entry_to_key, hash_func, eq_func)
 
 /**
  * Define a hash map type without defining its functions.
  *
- * The functions are defined with @ref DEFINE_HASH_TABLE_FUNCTIONS().
+ * The functions are defined with @ref DEFINE_HASH_MAP_FUNCTIONS().
  *
  * @sa DEFINE_HASH_MAP(), DEFINE_HASH_TABLE_TYPE()
  */
-#define DEFINE_HASH_MAP_TYPE(table, key_type, value_type)			\
-struct table##_entry {								\
-	typeof(key_type) key;							\
-	typeof(value_type) value;						\
-};										\
-DEFINE_HASH_TABLE_TYPE(table, struct table##_entry, HASH_MAP_ENTRY_TO_KEY)
+#define DEFINE_HASH_MAP_TYPE(table, key_type, value_type)	\
+struct table##_entry {						\
+	typeof(key_type) key;					\
+	typeof(value_type) value;				\
+};								\
+DEFINE_HASH_TABLE_TYPE(table, struct table##_entry)
+
+#define HASH_MAP_ENTRY_TO_KEY(entry) ((entry)->key)
+
+/**
+ * Define the functions for a hash map.
+ *
+ * The hash map type must have already been defined with @ref
+ * DEFINE_HASH_MAP_TYPE().
+ *
+ * Unless the type and function definitions must be in separate places, use @ref
+ * DEFINE_HASH_MAP() instead.
+ *
+ * @sa DEFINE_HASH_TABLE_FUNCTIONS
+ */
+#define DEFINE_HASH_MAP_FUNCTIONS(table, hash_func, eq_func)			\
+DEFINE_HASH_TABLE_FUNCTIONS(table, HASH_MAP_ENTRY_TO_KEY, hash_func, eq_func)
 
 /**
  * Define a hash map interface.
@@ -1466,19 +1479,32 @@ DEFINE_HASH_TABLE_TYPE(table, struct table##_entry, HASH_MAP_ENTRY_TO_KEY)
  */
 #define DEFINE_HASH_MAP(table, key_type, value_type, hash_func, eq_func)	\
 DEFINE_HASH_MAP_TYPE(table, key_type, value_type)				\
-DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
-
-#define HASH_SET_ENTRY_TO_KEY(entry) (*(entry))
+DEFINE_HASH_MAP_FUNCTIONS(table, hash_func, eq_func)
 
 /**
  * Define a hash set type without defining its functions.
  *
- * The functions are defined with @ref DEFINE_HASH_TABLE_FUNCTIONS().
+ * The functions are defined with @ref DEFINE_HASH_SET_FUNCTIONS().
  *
  * @sa DEFINE_HASH_SET(), DEFINE_HASH_TABLE_TYPE()
  */
-#define DEFINE_HASH_SET_TYPE(table, key_type)	\
-	DEFINE_HASH_TABLE_TYPE(table, key_type, HASH_SET_ENTRY_TO_KEY)
+#define DEFINE_HASH_SET_TYPE DEFINE_HASH_TABLE_TYPE
+
+#define HASH_SET_ENTRY_TO_KEY(entry) (*(entry))
+
+/**
+ * Define the functions for a hash set.
+ *
+ * The hash set type must have already been defined with @ref
+ * DEFINE_HASH_SET_TYPE().
+ *
+ * Unless the type and function definitions must be in separate places, use @ref
+ * DEFINE_HASH_SET() instead.
+ *
+ * @sa DEFINE_HASH_TABLE_FUNCTIONS
+ */
+#define DEFINE_HASH_SET_FUNCTIONS(table, hash_func, eq_func)			\
+DEFINE_HASH_TABLE_FUNCTIONS(table, HASH_SET_ENTRY_TO_KEY, hash_func, eq_func)
 
 /**
  * Define a hash set interface.
@@ -1494,7 +1520,7 @@ DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
  */
 #define DEFINE_HASH_SET(table, key_type, hash_func, eq_func)	\
 DEFINE_HASH_SET_TYPE(table, key_type)				\
-DEFINE_HASH_TABLE_FUNCTIONS(table, hash_func, eq_func)
+DEFINE_HASH_SET_FUNCTIONS(table, hash_func, eq_func)
 
 /**
  * Empty hash table initializer.
