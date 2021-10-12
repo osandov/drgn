@@ -109,8 +109,6 @@ struct drgn_dwarf_index_shard {
 	struct drgn_dwarf_index_die_vector dies;
 };
 
-#define DRGN_DWARF_INDEX_SHARD_BITS 8
-
 /* A DIE with a DW_AT_specification attribute. */
 struct drgn_dwarf_index_specification {
 	/*
@@ -138,7 +136,7 @@ struct drgn_dwarf_index_namespace {
 	 *
 	 * This is sharded to reduce lock contention.
 	 */
-	struct drgn_dwarf_index_shard shards[1 << DRGN_DWARF_INDEX_SHARD_BITS];
+	struct drgn_dwarf_index_shard *shards;
 	/** Parent DWARF index. */
 	struct drgn_dwarf_index *dindex;
 	/** DIEs we have not indexed yet. */

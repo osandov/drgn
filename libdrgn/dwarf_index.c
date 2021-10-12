@@ -19,6 +19,9 @@
 #include "platform.h"
 #include "util.h"
 
+static const size_t DRGN_DWARF_INDEX_SHARD_BITS = 8;
+static const size_t DRGN_DWARF_INDEX_NUM_SHARDS = 1 << DRGN_DWARF_INDEX_SHARD_BITS;
+
 struct drgn_dwarf_index_pending_cu {
 	struct drgn_debug_info_module *module;
 	const char *buf;
@@ -206,21 +209,35 @@ static inline size_t hash_pair_to_shard(struct hash_pair hp)
 	 */
 	return ((hp.first >>
 		 (8 * sizeof(size_t) - 8 - DRGN_DWARF_INDEX_SHARD_BITS)) &
-		(((size_t)1 << DRGN_DWARF_INDEX_SHARD_BITS) - 1));
+		(DRGN_DWARF_INDEX_NUM_SHARDS - 1));
 }
 
 static void
 drgn_dwarf_index_namespace_init(struct drgn_dwarf_index_namespace *ns,
 				struct drgn_dwarf_index *dindex)
 {
-	array_for_each(shard, ns->shards) {
+	ns->shards = NULL;
+	ns->dindex = dindex;
+	drgn_dwarf_index_pending_die_vector_init(&ns->pending_dies);
+	ns->saved_err = NULL;
+}
+
+static bool
+drgn_dwarf_index_namespace_shards_init(struct drgn_dwarf_index_namespace *ns)
+{
+	if (ns->shards)
+		return true;
+	ns->shards = malloc_array(DRGN_DWARF_INDEX_NUM_SHARDS,
+				  sizeof(*ns->shards));
+	if (!ns->shards)
+		return false;
+	for (size_t i = 0; i < DRGN_DWARF_INDEX_NUM_SHARDS; i++) {
+		struct drgn_dwarf_index_shard *shard = &ns->shards[i];
 		omp_init_lock(&shard->lock);
 		drgn_dwarf_index_die_map_init(&shard->map);
 		drgn_dwarf_index_die_vector_init(&shard->dies);
 	}
-	ns->dindex = dindex;
-	drgn_dwarf_index_pending_die_vector_init(&ns->pending_dies);
-	ns->saved_err = NULL;
+	return true;
 }
 
 void drgn_dwarf_index_init(struct drgn_dwarf_index *dindex)
@@ -243,17 +260,21 @@ drgn_dwarf_index_namespace_deinit(struct drgn_dwarf_index_namespace *ns)
 {
 	drgn_error_destroy(ns->saved_err);
 	drgn_dwarf_index_pending_die_vector_deinit(&ns->pending_dies);
-	array_for_each(shard, ns->shards) {
-		for (size_t j = 0; j < shard->dies.size; j++) {
-			struct drgn_dwarf_index_die *die = &shard->dies.data[j];
-			if (die->tag == DW_TAG_namespace) {
-				drgn_dwarf_index_namespace_deinit(die->namespace);
-				free(die->namespace);
+	if (ns->shards) {
+		for (size_t i = 0; i < DRGN_DWARF_INDEX_NUM_SHARDS; i++) {
+			struct drgn_dwarf_index_shard *shard = &ns->shards[i];
+			for (size_t j = 0; j < shard->dies.size; j++) {
+				struct drgn_dwarf_index_die *die = &shard->dies.data[j];
+				if (die->tag == DW_TAG_namespace) {
+					drgn_dwarf_index_namespace_deinit(die->namespace);
+					free(die->namespace);
+				}
 			}
+			drgn_dwarf_index_die_vector_deinit(&shard->dies);
+			drgn_dwarf_index_die_map_deinit(&shard->map);
+			omp_destroy_lock(&shard->lock);
 		}
-		drgn_dwarf_index_die_vector_deinit(&shard->dies);
-		drgn_dwarf_index_die_map_deinit(&shard->map);
-		omp_destroy_lock(&shard->lock);
+		free(ns->shards);
 	}
 }
 
@@ -2480,7 +2501,8 @@ next:
 
 static void drgn_dwarf_index_rollback(struct drgn_dwarf_index *dindex)
 {
-	array_for_each(shard, dindex->global.shards) {
+	for (size_t i = 0; i < DRGN_DWARF_INDEX_NUM_SHARDS; i++) {
+		struct drgn_dwarf_index_shard *shard = &dindex->global.shards[i];
 		/*
 		 * Because we're deleting everything that was added since the
 		 * last update, we can just shrink the dies array to the first
@@ -2542,6 +2564,9 @@ struct drgn_error *
 drgn_dwarf_index_update(struct drgn_dwarf_index_update_state *state)
 {
 	struct drgn_dwarf_index *dindex = state->dindex;
+
+	if (!drgn_dwarf_index_namespace_shards_init(&dindex->global))
+		return &drgn_enomem;
 
 	size_t old_cus_size = dindex->cus.size;
 	size_t new_cus_size = old_cus_size;
@@ -2647,6 +2672,9 @@ static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 {
 	if (ns->saved_err)
 		return drgn_error_copy(ns->saved_err);
+
+	if (!drgn_dwarf_index_namespace_shards_init(ns))
+		return &drgn_enomem;
 
 	struct drgn_error *err = NULL;
 	#pragma omp for schedule(dynamic)
