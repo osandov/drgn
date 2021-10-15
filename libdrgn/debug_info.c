@@ -460,9 +460,18 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 	it.cu_end = (const char *)cu_die->addr - cu_die_offset + it.next_cu_off;
 
 	Dwarf_Die *dies;
+	Dwarf_Die sibling;
 	size_t length;
 	while (!(err = drgn_dwarf_die_iterator_next(&it, true, 1, &dies,
 						    &length))) {
+		// Skip past addresses which are lower than target
+		Dwarf_Attribute attr_sibling, *attr;
+		while (((attr = dwarf_attr(&dies[length - 1], DW_AT_sibling, &attr_sibling))) &&
+		       dwarf_formref_die(attr, &sibling) != 0 &&
+		       sibling.addr <= die->addr) {
+			dies[length - 1] = sibling;
+		}
+
 		if (dies[length - 1].addr == die->addr) {
 			*dies_ret = dies;
 			*length_ret = length - 1;
