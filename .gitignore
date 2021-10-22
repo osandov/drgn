@@ -10,4 +10,7 @@
 /drgn.egg-info
 /drgn/internal/version.py
 /htmlcov
+/drgn-*.tar.gz
+/python-drgn-*.src.rpm
+/python-drgn.spec
 __pycache__

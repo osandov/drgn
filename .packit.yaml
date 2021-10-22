@@ -1,0 +1,42 @@
+# See the documentation for more information:
+# https://packit.dev/docs/configuration/
+
+specfile_path: python-drgn.spec
+synced_files:
+    - python-drgn.spec
+    - .packit.yaml
+
+upstream_package_name: drgn
+downstream_package_name: python-drgn
+actions:
+  get-current-version: "python3 setup.py --version"
+  # Fetch the specfile from Rawhide and drop any patches
+  post-upstream-clone: "bash -c \"curl -s https://src.fedoraproject.org/rpms/python-drgn/raw/main/f/python-drgn.spec | sed '/^Patch[0-9]/d' > python-drgn.spec\""
+
+jobs:
+- job: copr_build
+  trigger: commit
+  metadata:
+    targets:
+      - fedora-all-aarch64
+      - fedora-all-armhfp
+      - fedora-all-i386
+      - fedora-all-ppc64le
+      - fedora-all-s390x
+      - fedora-all-x86_64
+      - epel-8-aarch64
+      - epel-8-ppc64le
+      - epel-8-x86_64
+- job: copr_build
+  trigger: pull_request
+  metadata:
+    targets:
+      - fedora-all-aarch64
+      - fedora-all-armhfp
+      - fedora-all-i386
+      - fedora-all-ppc64le
+      - fedora-all-s390x
+      - fedora-all-x86_64
+      - epel-8-aarch64
+      - epel-8-ppc64le
+      - epel-8-x86_64
