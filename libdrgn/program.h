@@ -122,7 +122,7 @@ struct drgn_program {
 	 * Debugging information.
 	 */
 	struct drgn_object_index oindex;
-	struct drgn_debug_info *_dbinfo;
+	struct drgn_debug_info *dbinfo;
 
 	/*
 	 * Program information.

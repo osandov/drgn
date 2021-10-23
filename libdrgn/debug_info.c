@@ -3480,7 +3480,7 @@ drgn_dwarf_member_thunk_fn(struct drgn_object *res, void *arg_)
 	struct drgn_dwarf_member_thunk_arg *arg = arg_;
 	if (res) {
 		struct drgn_qualified_type qualified_type;
-		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->_dbinfo,
+		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->dbinfo,
 						arg->module, &arg->die, NULL,
 						false,
 						arg->can_be_incomplete_array,
@@ -3764,7 +3764,7 @@ drgn_dwarf_template_type_parameter_thunk_fn(struct drgn_object *res, void *arg_)
 	struct drgn_dwarf_die_thunk_arg *arg = arg_;
 	if (res) {
 		struct drgn_qualified_type qualified_type;
-		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->_dbinfo,
+		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->dbinfo,
 						arg->module, &arg->die, NULL,
 						true, true, NULL,
 						&qualified_type);
@@ -3786,7 +3786,7 @@ drgn_dwarf_template_value_parameter_thunk_fn(struct drgn_object *res,
 	struct drgn_error *err;
 	struct drgn_dwarf_die_thunk_arg *arg = arg_;
 	if (res) {
-		err = drgn_object_from_dwarf(drgn_object_program(res)->_dbinfo,
+		err = drgn_object_from_dwarf(drgn_object_program(res)->dbinfo,
 					     arg->module, &arg->die, NULL, NULL,
 					     NULL, res);
 		if (err)
@@ -4328,7 +4328,7 @@ drgn_dwarf_formal_parameter_thunk_fn(struct drgn_object *res, void *arg_)
 	struct drgn_dwarf_die_thunk_arg *arg = arg_;
 	if (res) {
 		struct drgn_qualified_type qualified_type;
-		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->_dbinfo,
+		err = drgn_type_from_dwarf_attr(drgn_object_program(res)->dbinfo,
 						arg->module, &arg->die, NULL,
 						false, true, NULL,
 						&qualified_type);

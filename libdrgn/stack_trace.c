@@ -443,7 +443,7 @@ not_found:;
 	}
 
 	Dwarf_Die function_die = frame->scopes[frame->function_scope];
-	return drgn_object_from_dwarf(trace->prog->_dbinfo, frame->regs->module,
+	return drgn_object_from_dwarf(trace->prog->dbinfo, frame->regs->module,
 				      &die,
 				      dwarf_tag(&die) == DW_TAG_enumerator ?
 				      &type_die : NULL,
