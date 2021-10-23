@@ -550,37 +550,6 @@ out_fd:
 	return err;
 }
 
-struct drgn_error *drgn_program_get_dbinfo(struct drgn_program *prog,
-					   struct drgn_debug_info **ret)
-{
-	struct drgn_error *err;
-
-	if (!prog->_dbinfo) {
-		struct drgn_debug_info *dbinfo;
-		err = drgn_debug_info_create(prog, &dbinfo);
-		if (err)
-			return err;
-		err = drgn_program_add_object_finder(prog,
-						     drgn_debug_info_find_object,
-						     dbinfo);
-		if (err) {
-			drgn_debug_info_destroy(dbinfo);
-			return err;
-		}
-		err = drgn_program_add_type_finder(prog,
-						   drgn_debug_info_find_type,
-						   dbinfo);
-		if (err) {
-			drgn_object_index_remove_finder(&prog->oindex);
-			drgn_debug_info_destroy(dbinfo);
-			return err;
-		}
-		prog->_dbinfo = dbinfo;
-	}
-	*ret = prog->_dbinfo;
-	return NULL;
-}
-
 /* Set the default language from the language of "main". */
 static void drgn_program_set_language_from_main(struct drgn_debug_info *dbinfo)
 {
@@ -645,10 +614,28 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	if (!n && !load_default && !load_main)
 		return NULL;
 
-	struct drgn_debug_info *dbinfo;
-	err = drgn_program_get_dbinfo(prog, &dbinfo);
-	if (err)
-		return err;
+	struct drgn_debug_info *dbinfo = prog->_dbinfo;
+	if (!dbinfo) {
+		err = drgn_debug_info_create(prog, &dbinfo);
+		if (err)
+			return err;
+		err = drgn_program_add_object_finder(prog,
+						     drgn_debug_info_find_object,
+						     dbinfo);
+		if (err) {
+			drgn_debug_info_destroy(dbinfo);
+			return err;
+		}
+		err = drgn_program_add_type_finder(prog,
+						   drgn_debug_info_find_type,
+						   dbinfo);
+		if (err) {
+			drgn_object_index_remove_finder(&prog->oindex);
+			drgn_debug_info_destroy(dbinfo);
+			return err;
+		}
+		prog->_dbinfo = dbinfo;
+	}
 
 	err = drgn_debug_info_load(dbinfo, paths, n, load_default, load_main);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)) {

@@ -257,9 +257,6 @@ drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
 	return NULL;
 }
 
-struct drgn_error *drgn_program_get_dbinfo(struct drgn_program *prog,
-					   struct drgn_debug_info **ret);
-
 /**
  * Find the @c NT_PRSTATUS note for the given CPU.
  *
