@@ -47,15 +47,37 @@ class TestProgram(unittest.TestCase):
         prog.set_pid(os.getpid())
         self.assertEqual(prog.platform, host_platform)
         self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
-        data = b"hello, world!"
-        buf = ctypes.create_string_buffer(data)
-        self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
         self.assertRaisesRegex(
             ValueError,
             "program memory was already initialized",
             prog.set_pid,
             os.getpid(),
         )
+
+    def test_pid_memory(self):
+        data = b"hello, world!"
+        buf = ctypes.create_string_buffer(data)
+        address = ctypes.addressof(buf)
+
+        # QEMU user-mode emulation doesn't seem to emulate /proc/$pid/mem
+        # correctly on a 64-bit host with a 32-bit guest; see
+        # https://gitlab.com/qemu-project/qemu/-/issues/698. Packit uses mock
+        # to cross-compile and test packages, which in turn uses QEMU user-mode
+        # emulation. Skip this test if /proc/$pid/mem doesn't work so that
+        # those builds succeed.
+        try:
+            with open("/proc/self/mem", "rb") as f:
+                f.seek(address)
+                functional_proc_pid_mem = f.read(len(data)) == data
+        except OSError:
+            functional_proc_pid_mem = False
+        if not functional_proc_pid_mem:
+            self.skipTest("/proc/$pid/mem is not functional")
+
+        prog = Program()
+        prog.set_pid(os.getpid())
+
+        self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
 
     def test_lookup_error(self):
         prog = mock_program()
