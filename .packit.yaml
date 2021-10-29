@@ -3,8 +3,8 @@
 
 specfile_path: python-drgn.spec
 synced_files:
-    - python-drgn.spec
-    - .packit.yaml
+  - python-drgn.spec
+  - .packit.yaml
 
 upstream_package_name: drgn
 downstream_package_name: python-drgn
