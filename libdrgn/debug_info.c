@@ -434,13 +434,13 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 	if (!dwarf)
 		return drgn_error_libdw();
 
-	struct drgn_dwarf_die_iterator it;
-	drgn_dwarf_die_iterator_init(&it, dwarf);
-	Dwarf_Die *cu_die = dwarf_die_vector_append_entry(&it.dies);
+	struct dwarf_die_vector dies = VECTOR_INIT;
+	Dwarf_Die *cu_die = dwarf_die_vector_append_entry(&dies);
 	if (!cu_die) {
 		err = &drgn_enomem;
 		goto err;
 	}
+
 	Dwarf_Half cu_version;
 	Dwarf_Off type_offset;
 	if (!dwarf_cu_die(die->cu, cu_die, &cu_version, NULL, NULL, NULL, NULL,
@@ -448,33 +448,127 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 		err = drgn_error_libdw();
 		goto err;
 	}
-	it.debug_types = cu_version == 4 && type_offset != 0;
-	uint64_t type_signature;
 	Dwarf_Off cu_die_offset = dwarf_dieoffset(cu_die);
+	bool debug_types = cu_version == 4 && type_offset != 0;
+	Dwarf_Off next_cu_offset;
+	uint64_t type_signature;
 	if (dwarf_next_unit(dwarf, cu_die_offset - dwarf_cuoffset(cu_die),
-			    &it.next_cu_off, NULL, NULL, NULL, NULL, NULL,
-			    it.debug_types ? &type_signature : NULL, NULL)) {
+			    &next_cu_offset, NULL, NULL, NULL, NULL, NULL,
+			    debug_types ? &type_signature : NULL, NULL)) {
 		err = drgn_error_libdw();
 		goto err;
 	}
-	it.cu_end = (const char *)cu_die->addr - cu_die_offset + it.next_cu_off;
+	const unsigned char *cu_end =
+		(unsigned char *)cu_die->addr - cu_die_offset + next_cu_offset;
 
-	Dwarf_Die *dies;
-	size_t length;
-	while (!(err = drgn_dwarf_die_iterator_next(&it, true, 1, &dies,
-						    &length))) {
-		if (dies[length - 1].addr == die->addr) {
-			*dies_ret = dies;
-			*length_ret = length - 1;
+#define TOP() (&dies.data[dies.size - 1])
+	while ((char *)TOP()->addr <= (char *)die->addr) {
+		if (TOP()->addr == die->addr) {
+			*dies_ret = dies.data;
+			*length_ret = dies.size - 1;
 			return NULL;
 		}
+
+		Dwarf_Attribute attr;
+		if (dwarf_attr(TOP(), DW_AT_sibling, &attr)) {
+			/* The top DIE has a DW_AT_sibling attribute. */
+			Dwarf_Die sibling;
+			if (!dwarf_formref_die(&attr, &sibling)) {
+				err = drgn_error_libdw();
+				goto err;
+			}
+			if (sibling.cu != TOP()->cu ||
+			    (char *)sibling.addr <= (char *)TOP()->addr) {
+				err = drgn_error_create(DRGN_ERROR_OTHER,
+							"invalid DW_AT_sibling");
+				goto err;
+			}
+
+			if ((char *)sibling.addr > (char *)die->addr) {
+				/*
+				 * The top DIE's sibling is after the target
+				 * DIE. Therefore, the target DIE must be a
+				 * descendant of the top DIE.
+				 */
+				Dwarf_Die *child =
+					dwarf_die_vector_append_entry(&dies);
+				if (!child) {
+					err = &drgn_enomem;
+					goto err;
+				}
+				int r = dwarf_child(TOP() - 1, child);
+				if (r < 0) {
+					err = drgn_error_libdw();
+					goto err;
+				} else if (r > 0) {
+					/*
+					 * The top DIE didn't have any children,
+					 * which should be impossible.
+					 */
+					goto not_found;
+				}
+			} else {
+				/*
+				 * The top DIE's sibling is before or equal to
+				 * the target DIE. Therefore, the target DIE
+				 * isn't a descendant of the top DIE. Skip to
+				 * the sibling.
+				 */
+				*TOP() = sibling;
+			}
+		} else {
+			/*
+			 * The top DIE does not have a DW_AT_sibling attribute.
+			 * Instead, we found the end of the top DIE.
+			 */
+			unsigned char *addr = attr.valp;
+			if (!addr || addr >= cu_end)
+				goto not_found;
+
+			/*
+			 * If the top DIE has children, then addr is its first
+			 * child. Otherwise, then addr is its sibling. (Unless
+			 * it is a null terminator.)
+			 */
+			size_t new_size = dies.size;
+			if (dwarf_haschildren(TOP()) > 0)
+				new_size++;
+
+			while (*addr == '\0') {
+				/*
+				 * addr points to the null terminator for the
+				 * list of siblings. Go back up to its parent.
+				 * The next byte is either the parent's sibling
+				 * or another null terminator.
+				 */
+				new_size--;
+				addr++;
+				if (new_size <= 1 || addr >= cu_end)
+					goto not_found;
+			}
+
+			/* addr now points to the next DIE. Go to it. */
+			if (new_size > dies.size) {
+				if (!dwarf_die_vector_append_entry(&dies)) {
+					err = &drgn_enomem;
+					goto err;
+				}
+			} else {
+				dies.size = new_size;
+			}
+			*TOP() = (Dwarf_Die){
+				.cu = dies.data[0].cu,
+				.addr = addr,
+			};
+		}
 	}
-	if (err == &drgn_stop) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
-					"could not find DWARF DIE ancestors");
-	}
+#undef TOP
+
+not_found:
+	err = drgn_error_create(DRGN_ERROR_OTHER,
+				"could not find DWARF DIE ancestors");
 err:
-	drgn_dwarf_die_iterator_deinit(&it);
+	dwarf_die_vector_deinit(&dies);
 	return err;
 }
 
