@@ -37,3 +37,4 @@ Table of Contents
     api_reference
     helpers
     case_studies
+    getting_debugging_symbols

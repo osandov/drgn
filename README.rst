@@ -103,8 +103,10 @@ Quick Start
 
 drgn debugs the running kernel by default; run ``sudo drgn``. To debug a
 running program, run ``sudo drgn -p $PID``. To debug a core dump (either a
-kernel vmcore or a userspace core dump), run ``drgn -c $PATH``. The program
-must have debugging symbols available.
+kernel vmcore or a userspace core dump), run ``drgn -c $PATH``. Make sure to
+`install debugging symbols
+<https://drgn.readthedocs.io/en/latest/getting_debugging_symbols.html>`_ for
+whatever you are debugging.
 
 Then, you can access variables in the program with ``prog['name']`` and access
 structure members with ``.``:
