@@ -43,7 +43,7 @@ library that can be used to build debugging and introspection tools; see the
 official `tools <https://github.com/osandov/drgn/tree/main/tools>`_.
 
 drgn was developed for debugging the Linux kernel (as an alternative to the
-`crash <http://people.redhat.com/anderson/>`_ utility), but it can also debug
+`crash <https://crash-utility.github.io/>`_ utility), but it can also debug
 userspace programs written in C. C++ support is in progress.
 
 .. end-introduction
