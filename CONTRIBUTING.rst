@@ -7,18 +7,25 @@ submit changes for drgn.
 Building
 --------
 
-The easiest way to develop drgn is by building and running it locally. See the
-`installation documentation
-<https://drgn.readthedocs.io/en/latest/installation.html#development>`_.
+The easiest way to develop drgn is by building and running it locally. Please
+build with warnings enabled. Install the dependencies from the `installation
+instructions <README.rst#from-source>`_, then run:
+
+.. code-block:: console
+
+    $ git clone https://github.com/osandov/drgn.git
+    $ cd drgn
+    $ CFLAGS="-Wall -Werror -g -O2" python3 setup.py build_ext -i
+    $ python3 -m drgn --help
 
 Testing
 -------
 
-.. highlight:: console
-
 Tests should be added for all features and bug fixes.
 
-drgn's test suite can be run with::
+drgn's test suite can be run with:
+
+.. code-block:: console
 
     $ python3 setup.py test
 
@@ -27,7 +34,9 @@ add ``-K``. See `vmtest <vmtest/README.rst>`_ for more details.
 
 Tests can also be run manually with `unittest
 <https://docs.python.org/3/library/unittest.html#command-line-interface>`_
-after building locally::
+after building locally:
+
+.. code-block:: console
 
     $ python3 -m unittest discover -v
 
@@ -74,7 +83,9 @@ Python
 Python code in drgn should be compatible with Python 3.6 and newer.
 
 Python code should be formatted with `black <https://github.com/psf/black>`_
-and `isort <https://github.com/timothycrosley/isort>`_::
+and `isort <https://github.com/timothycrosley/isort>`_:
+
+.. code-block:: console
 
     $ isort . && black .
 
