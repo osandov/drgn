@@ -10,10 +10,6 @@ working with particular types of programs. Currently, there are only helpers
 for the Linux kernel. In the future, there may be helpers for, e.g., glibc and
 libstdc++.
 
-Parameter types and return types are :class:`drgn.Object` unless noted
-otherwise. Many helpers include a C function signature indicating the expected
-object types.
-
 Generic Helpers
 ===============
 
