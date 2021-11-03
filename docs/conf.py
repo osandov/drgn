@@ -11,7 +11,6 @@ extensions = [
     "setuptools_config",
     "sphinx.ext.extlinks",
     "sphinx.ext.intersphinx",
-    "sphinx.ext.viewcode",
 ]
 
 drgndoc_paths = ["../drgn", "../_drgn.pyi"]
