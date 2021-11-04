@@ -94,6 +94,15 @@ def proc_state(pid):
         return re.search(r"State:\s*(\S)", f.read(), re.M).group(1)
 
 
+# Return whether a process is blocked and fully scheduled out. The process
+# state is updated while the process is still running, so use this instead of
+# proc_state(pid) != "R" to avoid races. This is not accurate if pid is the
+# calling thread.
+def proc_blocked(pid):
+    with open(f"/proc/{pid}/syscall", "r") as f:
+        return f.read() != "running\n"
+
+
 def parse_range_list(s):
     values = set()
     s = s.strip()

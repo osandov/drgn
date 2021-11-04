@@ -9,7 +9,7 @@ from drgn.helpers.linux.pid import find_task
 from tests.helpers.linux import (
     LinuxHelperTestCase,
     fork_and_pause,
-    proc_state,
+    proc_blocked,
     setenv,
     wait_until,
 )
@@ -18,7 +18,7 @@ from tests.helpers.linux import (
 class TestStackTrace(LinuxHelperTestCase):
     def test_by_task_struct(self):
         pid = fork_and_pause()
-        wait_until(lambda: proc_state(pid) == "S")
+        wait_until(proc_blocked, pid)
         self.assertIn("pause", str(self.prog.stack_trace(find_task(self.prog, pid))))
         os.kill(pid, signal.SIGKILL)
         os.waitpid(pid, 0)
@@ -33,7 +33,7 @@ class TestStackTrace(LinuxHelperTestCase):
                 prog.set_kernel()
                 prog.load_default_debug_info()
             pid = fork_and_pause()
-            wait_until(lambda: proc_state(pid) == "S")
+            wait_until(proc_blocked, pid)
             self.assertIn("pause", str(prog.stack_trace(pid)))
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
@@ -46,7 +46,7 @@ class TestStackTrace(LinuxHelperTestCase):
 
     def test_local_variable(self):
         pid = fork_and_pause()
-        wait_until(lambda: proc_state(pid) == "S")
+        wait_until(proc_blocked, pid)
         for frame in self.prog.stack_trace(pid):
             if frame.name in ("context_switch", "__schedule"):
                 try:
@@ -75,7 +75,7 @@ class TestStackTrace(LinuxHelperTestCase):
         # Smoke test that we get at least one register and that
         # StackFrame.registers() agrees with StackFrame.register().
         pid = fork_and_pause()
-        wait_until(lambda: proc_state(pid) == "S")
+        wait_until(proc_blocked, pid)
         trace = self.prog.stack_trace(pid)
         have_registers = False
         for frame in trace:
