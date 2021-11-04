@@ -110,9 +110,6 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 
 	err = parse_vmcoreinfo(vmcoreinfo, strlen(vmcoreinfo) + 1,
 			       &prog->vmcoreinfo);
-	if (err)
-		goto err;
-
 	/*
 	 * As of libkdumpfile 0.4.1, the string returned by
 	 * kdump_vmcoreinfo_raw() needs to be freed.
@@ -120,6 +117,8 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 #if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 4, 1)
 	free(vmcoreinfo);
 #endif
+	if (err)
+		goto err;
 
 	had_platform = prog->has_platform;
 	if (!had_platform) {
