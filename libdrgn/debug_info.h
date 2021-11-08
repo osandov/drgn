@@ -21,6 +21,7 @@
 #include "drgn.h"
 #include "dwarf_index.h"
 #include "hash_table.h"
+#include "orc_info.h"
 #include "platform.h"
 #include "string_builder.h"
 #include "vector.h"
@@ -34,8 +35,8 @@ struct drgn_register_state;
  *
  * Caching of debugging information.
  *
- * @ref drgn_debug_info caches debugging information (currently only DWARF). It
- * translates the debugging information to types and objects.
+ * @ref drgn_debug_info caches debugging information (currently DWARF and ORC).
+ * It translates the debugging information to types and objects.
  *
  * @{
  */
@@ -80,6 +81,15 @@ enum drgn_debug_info_scn {
 	DRGN_NUM_DEBUG_SCNS,
 };
 
+struct drgn_dwarf_fde {
+	uint64_t initial_location;
+	uint64_t address_range;
+	/* CIE for this FDE as an index into drgn_debug_info_module::cies. */
+	size_t cie;
+	const char *instructions;
+	size_t instructions_size;
+};
+
 /**
  * A module reported to a @ref drgn_debug_info.
  *
@@ -119,38 +129,8 @@ struct drgn_debug_info_module {
 	/** Number of elements in @ref drgn_debug_info_module::fdes. */
 	size_t num_fdes;
 
-	/**
-	 * Base for calculating program counter corresponding to an ORC unwinder
-	 * entry.
-	 *
-	 * This is the address of the `.orc_unwind_ip` ELF section.
-	 *
-	 * @sa drgn_debug_info_module::orc_entries
-	 */
-	uint64_t orc_pc_base;
-	/**
-	 * Offsets for calculating program counter corresponding to an ORC
-	 * unwinder entry.
-	 *
-	 * This is the contents of the `.orc_unwind_ip` ELF section, byte
-	 * swapped to the host's byte order if necessary.
-	 *
-	 * @sa drgn_debug_info_module::orc_entries
-	 */
-	int32_t *orc_pc_offsets;
-	/**
-	 * ORC unwinder entries.
-	 *
-	 * This is the contents of the `.orc_unwind` ELF section, byte swapped
-	 * to the host's byte order if necessary.
-	 *
-	 * Entry `i` specifies how to unwind the stack if
-	 * `orc_pc(i) <= PC < orc_pc(i + 1)`, where
-	 * `orc_pc(i) = orc_pc_base + 4 * i + orc_pc_offsets[i]`.
-	 */
-	struct drgn_orc_entry *orc_entries;
-	/** Number of ORC unwinder entries. */
-	size_t num_orc_entries;
+	/** ORC unwinder information. */
+	struct drgn_orc_module_info orc;
 
 	/** Whether .debug_frame and .eh_frame have been parsed. */
 	bool parsed_frames;
@@ -178,6 +158,10 @@ struct drgn_debug_info_module {
 	 */
 	struct drgn_debug_info_module *next;
 };
+
+struct drgn_error *
+drgn_debug_info_module_cache_section(struct drgn_debug_info_module *module,
+				     enum drgn_debug_info_scn scn);
 
 struct drgn_error *
 drgn_error_debug_info_scn(struct drgn_debug_info_module *module,

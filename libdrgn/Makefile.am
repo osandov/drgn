@@ -61,6 +61,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 object_index.c \
 			 object_index.h \
 			 orc.h \
+			 orc_info.c \
+			 orc_info.h \
 			 path.c \
 			 path.h \
 			 platform.c \
