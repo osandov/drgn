@@ -3,7 +3,6 @@
 
 #include <assert.h>
 #include <byteswap.h>
-#include <dwarf.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
 #include <elfutils/version.h>
@@ -17,9 +16,7 @@
 #include <sys/statfs.h>
 #include <unistd.h>
 
-#include "array.h"
 #include "debug_info.h"
-#include "dwarf_index.h"
 #include "error.h"
 #include "language.h"
 #include "linux_kernel.h"
@@ -551,38 +548,18 @@ out_fd:
 }
 
 /* Set the default language from the language of "main". */
-static void drgn_program_set_language_from_main(struct drgn_debug_info *dbinfo)
+static void drgn_program_set_language_from_main(struct drgn_program *prog)
 {
 	struct drgn_error *err;
-	struct drgn_dwarf_index_iterator it;
-	static const uint64_t tags[] = { DW_TAG_subprogram };
-	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dindex.global,
-					     "main", strlen("main"), tags,
-					     array_size(tags));
-	if (err) {
-		drgn_error_destroy(err);
-		return;
-	}
-	struct drgn_dwarf_index_die *index_die;
-	while ((index_die = drgn_dwarf_index_iterator_next(&it))) {
-		Dwarf_Die die;
-		err = drgn_dwarf_index_get_die(index_die, &die);
-		if (err) {
-			drgn_error_destroy(err);
-			continue;
-		}
 
-		const struct drgn_language *lang;
-		err = drgn_language_from_die(&die, false, &lang);
-		if (err) {
-			drgn_error_destroy(err);
-			continue;
-		}
-		if (lang) {
-			dbinfo->prog->lang = lang;
-			break;
-		}
-	}
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		return;
+	const struct drgn_language *lang;
+	err = drgn_debug_info_main_language(prog->dbinfo, &lang);
+	if (err)
+		drgn_error_destroy(err);
+	if (lang)
+		prog->lang = lang;
 }
 
 static int drgn_set_platform_from_dwarf(Dwfl_Module *module, void **userdatap,
@@ -639,9 +616,8 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 
 	err = drgn_debug_info_load(dbinfo, paths, n, load_default, load_main);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)) {
-		if (!prog->lang &&
-		    !(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
-			drgn_program_set_language_from_main(dbinfo);
+		if (!prog->lang)
+			drgn_program_set_language_from_main(prog);
 		if (!prog->has_platform) {
 			dwfl_getdwarf(dbinfo->dwfl,
 				      drgn_set_platform_from_dwarf, prog, 0);

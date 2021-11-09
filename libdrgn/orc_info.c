@@ -91,11 +91,11 @@ static size_t keep_orc_entry(struct drgn_debug_info_module *module,
 static size_t remove_fdes_from_orc(struct drgn_debug_info_module *module,
 				   size_t *indices, size_t num_entries)
 {
-	if (module->num_fdes == 0)
+	if (module->dwarf.num_fdes == 0)
 		return num_entries;
 
-	struct drgn_dwarf_fde *fde = module->fdes;
-	struct drgn_dwarf_fde *last_fde = &module->fdes[module->num_fdes - 1];
+	struct drgn_dwarf_fde *fde = module->dwarf.fdes;
+	struct drgn_dwarf_fde *last_fde = fde + module->dwarf.num_fdes - 1;
 
 	size_t new_num_entries = 0;
 

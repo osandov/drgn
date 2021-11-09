@@ -1,9 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <dwarf.h>
-
-#include "error.h"
 #include "language.h"
 
 const struct drgn_language drgn_languages[] = {
@@ -62,29 +59,3 @@ const struct drgn_language drgn_languages[] = {
 		.op_not = c_op_not,
 	},
 };
-
-struct drgn_error *drgn_language_from_die(Dwarf_Die *die, bool fall_back,
-					  const struct drgn_language **ret)
-{
-	Dwarf_Die cudie;
-	if (!dwarf_cu_die(die->cu, &cudie, NULL, NULL, NULL, NULL, NULL, NULL))
-		return drgn_error_libdw();
-	switch (dwarf_srclang(&cudie)) {
-	case DW_LANG_C:
-	case DW_LANG_C89:
-	case DW_LANG_C99:
-	case DW_LANG_C11:
-		*ret = &drgn_language_c;
-		break;
-	case DW_LANG_C_plus_plus:
-	case DW_LANG_C_plus_plus_03:
-	case DW_LANG_C_plus_plus_11:
-	case DW_LANG_C_plus_plus_14:
-		*ret = &drgn_language_cpp;
-		break;
-	default:
-		*ret = fall_back ? &drgn_default_language : NULL;
-		break;
-	}
-	return NULL;
-}

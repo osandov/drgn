@@ -37,6 +37,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 debug_info.h \
 			 dwarf_index.c \
 			 dwarf_index.h \
+			 dwarf_info.c \
+			 dwarf_info.h \
 			 error.c \
 			 error.h \
 			 hash_table.c \

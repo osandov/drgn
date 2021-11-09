@@ -13,6 +13,7 @@
 #include "cfi.h"
 #include "debug_info.h"
 #include "drgn.h"
+#include "dwarf_info.h"
 #include "error.h"
 #include "helpers.h"
 #include "minmax.h"

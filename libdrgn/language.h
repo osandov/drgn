@@ -12,8 +12,6 @@
 #ifndef DRGN_LANGUAGE_H
 #define DRGN_LANGUAGE_H
 
-#include <elfutils/libdw.h>
-
 #include "drgn.h"
 
 /**
@@ -202,18 +200,6 @@ drgn_element_format_object_flags(enum drgn_format_object_flags flags)
 	return (drgn_passthrough_format_object_flags(flags) |
 		(flags & DRGN_FORMAT_OBJECT_ELEMENT_TYPE_NAMES) >> 2);
 }
-
-/**
- * Return the @ref drgn_language of the CU of the given DIE.
- *
- * @param[in] fall_back Whether to fall back if the language is not found or
- * unknown. If @c true, @ref drgn_default_language is returned in this case. If
- * @c false, @c NULL is returned.
- * @param[out] ret Returned language.
- * @return @c NULL on success, non-@c NULL on error.
- */
-struct drgn_error *drgn_language_from_die(Dwarf_Die *die, bool fall_back,
-					  const struct drgn_language **ret);
 
 /** @} */
 
