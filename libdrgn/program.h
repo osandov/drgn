@@ -28,7 +28,6 @@
 #include "type.h"
 #include "vector.h"
 
-struct drgn_debug_info;
 struct drgn_symbol;
 
 /**
@@ -66,8 +65,8 @@ struct vmcoreinfo {
 };
 
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *)
-DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct string)
-DEFINE_HASH_MAP_TYPE(drgn_prstatus_map, uint32_t, struct string)
+DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct nstring)
+DEFINE_HASH_MAP_TYPE(drgn_prstatus_map, uint32_t, struct nstring)
 
 struct drgn_program {
 	/** @privatesection */
@@ -268,7 +267,7 @@ drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
  */
 struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 						     uint32_t cpu,
-						     struct string *ret,
+						     struct nstring *ret,
 						     uint32_t *tid_ret);
 
 /**
@@ -281,7 +280,7 @@ struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
  */
 struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
 						     uint32_t tid,
-						     struct string *ret);
+						     struct nstring *ret);
 
 /**
  * Cache the @c NT_PRSTATUS note provided by @p data in @p prog.

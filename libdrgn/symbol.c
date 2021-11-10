@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <stdbool.h>
+#include <elf.h>
 #include <stdlib.h>
 #include <string.h>
 

@@ -1,0 +1,6 @@
+[
+  # include-what-you-use/include-what-you-use#967
+  { include: [ "<stdint.h>", public, "<inttypes.h>", public ] },
+  # include-what-you-use/include-what-you-use#968
+  { include: [ "<bits/struct_stat.h>", private, "<sys/stat.h>", public ] },
+]

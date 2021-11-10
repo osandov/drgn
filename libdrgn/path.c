@@ -6,12 +6,13 @@
 #include <string.h>
 
 #include "path.h"
+#include "util.h"
 
 bool path_iterator_next(struct path_iterator *it, const char **component_ret,
 			size_t *component_len_ret)
 {
 	while (it->num_components) {
-		struct string *cur = &it->components[it->num_components - 1];
+		struct nstring *cur = &it->components[it->num_components - 1];
 		while (cur->len > 0) {
 			if (cur->str[cur->len - 1] == '/') {
 				if (cur->len == 1) {
@@ -95,7 +96,7 @@ bool die_matches_filename(Dwarf_Die *die, const char *filename)
 	if (!filename || !filename[0])
 		return true;
 
-	struct string die_components[2];
+	struct nstring die_components[2];
 	struct path_iterator die_path = {
 		.components = die_components,
 	};
@@ -123,7 +124,7 @@ bool die_matches_filename(Dwarf_Die *die, const char *filename)
 	die_path.num_components++;
 
 	struct path_iterator needle = {
-		.components = (struct string []){
+		.components = (struct nstring []){
 			{ filename, strlen(filename) }
 		},
 		.num_components = 1,
@@ -136,13 +137,13 @@ LIBDRGN_PUBLIC bool drgn_filename_matches(const char *haystack,
 					  const char *needle)
 {
 	struct path_iterator haystack_path = {
-		.components = (struct string []){
+		.components = (struct nstring []){
 			{ haystack, strlen(haystack) }
 		},
 		.num_components = 1,
 	};
 	struct path_iterator needle_path = {
-		.components = (struct string []){
+		.components = (struct nstring []){
 			{ needle, strlen(needle) }
 		},
 		.num_components = 1,

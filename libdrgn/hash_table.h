@@ -27,6 +27,7 @@
 #include "bitops.h"
 #include "cityhash.h"
 #include "minmax.h"
+#include "nstring.h" // IWYU pragma: export
 #include "util.h"
 
 /**
@@ -1750,8 +1751,8 @@ bool c_string_key_eq(const char * const *a, const char * const *b);
 #define c_string_key_eq(a, b) ((bool)(strcmp(*(a), *(b)) == 0))
 #endif
 
-/** Double hash a @ref string. */
-static inline struct hash_pair string_hash_pair(const struct string *key)
+/** Double hash a @ref nstring. */
+static inline struct hash_pair nstring_hash_pair(const struct nstring *key)
 {
 	return hash_pair_from_avalanching_hash(hash_bytes(key->str, key->len));
 }

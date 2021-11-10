@@ -12,6 +12,7 @@
 #ifndef DRGN_STACK_TRACE_H
 #define DRGN_STACK_TRACE_H
 
+#include <elfutils/libdw.h>
 #include <stddef.h>
 
 /**

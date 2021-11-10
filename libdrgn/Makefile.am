@@ -55,6 +55,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 memory_reader.c \
 			 memory_reader.h \
 			 minmax.h \
+			 nstring.h \
 			 object.c \
 			 object.h \
 			 object_index.c \

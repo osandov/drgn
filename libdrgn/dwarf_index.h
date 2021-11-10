@@ -38,9 +38,6 @@ static inline int omp_get_max_threads(void)
 #include "hash_table.h"
 #include "vector.h"
 
-struct drgn_debug_info_module;
-struct drgn_error;
-
 /**
  * @ingroup Internals
  *
@@ -91,7 +88,7 @@ struct drgn_dwarf_index_die {
 	uintptr_t addr;
 };
 
-DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct string, uint32_t)
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct nstring, uint32_t)
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
 
 struct drgn_dwarf_index_shard {

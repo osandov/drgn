@@ -38,7 +38,7 @@
  *
  * @param[in] x Integer.
  */
-#define ctz(x) generic_bitop(x, PP_UNIQUE(_x), __builtin_ctz)
+#define ctz(x) generic_bitop(x, PP_UNIQUE(_x), builtin_bitop_impl, ctz)
 
 /**
  * Find Last Set bit.
@@ -60,7 +60,7 @@
  *
  * @param[in] x Integer.
  */
-#define fls(x) generic_bitop(x, PP_UNIQUE(_x), fls_)
+#define fls(x) generic_bitop(x, PP_UNIQUE(_x), fls_impl,)
 /** @cond */
 /*
  * The straightfoward implementation is bits - clz. However, as noted by the
@@ -71,21 +71,19 @@
  * This doesn't do the normal macro argument safety stuff because it should only
  * be used via generic_bitop() which already does it.
  */
-#define fls_impl(x, type, suffix)	\
-	(x ? 1 + ((8 * sizeof(type) - 1) ^ __builtin_clz##suffix(x)) : 0)
-#define fls_(x) fls_impl(x, unsigned int,)
-#define fls_l(x) fls_impl(x, unsigned long, l)
-#define fls_ll(x) fls_impl(x, unsigned long long, ll)
+#define fls_impl(arg, suffix, x)	\
+	(x ? 1 + ((8 * sizeof(0u##suffix) - 1) ^ __builtin_clz##suffix(x)) : 0)
 
-#define generic_bitop(x, unique_x, op) ({				\
+#define builtin_bitop_impl(arg, suffix, x) __builtin_##arg##suffix(x)
+#define generic_bitop(x, unique_x, impl, impl_arg) ({			\
 	__auto_type unique_x = (x);					\
 	_Static_assert(sizeof(unique_x) <= sizeof(unsigned long long),	\
 		       "type is too large");				\
 	(unsigned int)(sizeof(unique_x) <= sizeof(unsigned int) ?	\
-		       op(unique_x) :					\
+		       impl(impl_arg, , unique_x) :			\
 		       sizeof(unique_x) <= sizeof(unsigned long) ?	\
-		       op##l(unique_x) :				\
-		       op##ll(unique_x));				\
+		       impl(impl_arg, l, unique_x) :			\
+		       impl(impl_arg, ll, unique_x));			\
 })
 /** @endcond */
 

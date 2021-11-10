@@ -12,12 +12,11 @@
 #ifndef DRGN_PATH_H
 #define DRGN_PATH_H
 
+#include <elfutils/libdw.h>
 #include <stdbool.h>
 #include <stddef.h>
 
-#include <elfutils/libdw.h>
-
-#include "util.h"
+#include "nstring.h" // IWYU pragma: export
 
 /**
  * @ingroup Internals
@@ -61,10 +60,10 @@ struct path_iterator {
 	 * Array of input components.
 	 *
 	 * The input components are treated as if they were joined with a "/".
-	 * @ref string::str and @ref string::len should be initialized for each
-	 * component. The latter will be modified as the path is iterated.
+	 * @ref nstring::str and @ref nstring::len should be initialized for
+	 * each component. The latter will be modified as the path is iterated.
 	 */
-	struct string *components;
+	struct nstring *components;
 	/** Number of components in @ref path_iterator::components. */
 	size_t num_components;
 	/**

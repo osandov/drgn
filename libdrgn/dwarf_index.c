@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <assert.h>
+#include <byteswap.h>
 #include <dwarf.h>
 #include <elfutils/libdwfl.h>
 #include <inttypes.h>
@@ -15,7 +16,6 @@
 #include "drgn.h"
 #include "dwarf_index.h"
 #include "error.h"
-#include "path.h"
 #include "platform.h"
 #include "util.h"
 
@@ -188,7 +188,8 @@ struct drgn_dwarf_index_pending_die {
 
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_die_vector)
 
-DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_index_die_map, string_hash_pair, string_eq)
+DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_index_die_map, nstring_hash_pair,
+			  nstring_eq)
 DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_die_vector)
 
 static inline uintptr_t
@@ -2717,7 +2718,7 @@ drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 	if (err)
 		return err;
 	it->ns = ns;
-	struct string key = {
+	struct nstring key = {
 		.str = name,
 		.len = name_len,
 	};

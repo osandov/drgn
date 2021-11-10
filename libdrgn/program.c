@@ -679,7 +679,7 @@ struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 						     size_t size)
 {
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		struct string *entry =
+		struct nstring *entry =
 			drgn_prstatus_vector_append_entry(&prog->prstatus_vector);
 		if (!entry)
 			return &drgn_enomem;
@@ -784,7 +784,7 @@ out:
 
 struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 						     uint32_t cpu,
-						     struct string *ret,
+						     struct nstring *ret,
 						     uint32_t *tid_ret)
 {
 	assert(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL);
@@ -804,7 +804,7 @@ struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 
 struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
 						     uint32_t tid,
-						     struct string *ret)
+						     struct nstring *ret)
 {
 	struct drgn_error *err;
 	struct drgn_prstatus_map_iterator it;

@@ -1686,7 +1686,8 @@ static const char *token_spelling[] = {
 	[C_TOKEN_ENUM] = "enum",
 };
 
-DEFINE_HASH_MAP(c_keyword_map, struct string, int, string_hash_pair, string_eq)
+DEFINE_HASH_MAP(c_keyword_map, struct nstring, int, nstring_hash_pair,
+		nstring_eq)
 
 static struct c_keyword_map c_keywords = HASH_TABLE_INIT;
 
@@ -1750,7 +1751,7 @@ struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
 		break;
 	default:
 		if (isalpha(*p) || *p == '_') {
-			struct string key;
+			struct nstring key;
 			struct c_keyword_map_iterator it;
 
 			do {

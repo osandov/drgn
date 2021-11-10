@@ -14,9 +14,9 @@
 #include "debug_info.h"
 #include "drgn.h"
 #include "error.h"
-#include "hash_table.h"
 #include "helpers.h"
 #include "minmax.h"
+#include "nstring.h"
 #include "platform.h"
 #include "program.h"
 #include "register_state.h"
@@ -525,7 +525,7 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 	struct drgn_error *err;
 	struct drgn_object obj;
 	struct drgn_object tmp;
-	struct string prstatus;
+	struct nstring prstatus;
 
 	drgn_object_init(&obj, prog);
 	drgn_object_init(&tmp, prog);
