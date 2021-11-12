@@ -22,8 +22,8 @@
 
 #include "cfi.h"
 #include "drgn.h"
-#include "dwarf_index.h"
 #include "hash_table.h"
+#include "vector.h"
 
 struct drgn_debug_info;
 struct drgn_debug_info_module;
@@ -59,6 +59,50 @@ struct drgn_dwarf_module_info {
 
 void drgn_dwarf_module_info_deinit(struct drgn_debug_info_module *module);
 
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_die_vector,
+		   struct drgn_dwarf_index_pending_die)
+
+/**
+ * Index of DWARF information for a namespace by entity name.
+ *
+ * This effectively maps a name to a list of DIEs with that name in a namespace.
+ * DIEs with the same name and tag and declared in the same file are
+ * deduplicated.
+ */
+struct drgn_namespace_dwarf_index {
+	/**
+	 * Index shards.
+	 *
+	 * Indexing is parallelized, so this is sharded to reduce lock
+	 * contention.
+	 */
+	struct drgn_dwarf_index_shard *shards;
+	/** Debugging information cache that owns this index. */
+	struct drgn_debug_info *dbinfo;
+	/** DIEs we have not indexed yet. */
+	struct drgn_dwarf_index_pending_die_vector pending_dies;
+	/** Saved error from a previous index. */
+	struct drgn_error *saved_err;
+};
+
+/** DIE with a `DW_AT_specification` attribute. */
+struct drgn_dwarf_specification {
+	/**
+	 * Address of non-defining declaration DIE referenced by
+	 * `DW_AT_specification`.
+	 */
+	uintptr_t declaration;
+	/** Module containing DIE. */
+	struct drgn_debug_info_module *module;
+	/** Address of DIE. */
+	uintptr_t addr;
+};
+
+DEFINE_HASH_TABLE_TYPE(drgn_dwarf_specification_map,
+		       struct drgn_dwarf_specification)
+
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu)
+
 /** Cached type in a @ref drgn_debug_info. */
 struct drgn_dwarf_type {
 	struct drgn_type *type;
@@ -76,8 +120,20 @@ DEFINE_HASH_MAP_TYPE(drgn_dwarf_type_map, const void *, struct drgn_dwarf_type)
 
 /** DWARF debugging information for a program/@ref drgn_debug_info. */
 struct drgn_dwarf_info {
-	/** Index of DWARF debugging information. */
-	struct drgn_dwarf_index index;
+	/** Global namespace index. */
+	struct drgn_namespace_dwarf_index global;
+	/**
+	 * Map from address of DIE referenced by DW_AT_specification to DIE that
+	 * references it. This is used to resolve DIEs with DW_AT_declaration to
+	 * their definition.
+	 *
+	 * This is populated while indexing new DWARF information. Unlike the
+	 * name index, it is not sharded because there typically aren't enough
+	 * of these in a program to cause contention.
+	 */
+	struct drgn_dwarf_specification_map specifications;
+	/** Indexed compilation units. */
+	struct drgn_dwarf_index_cu_vector index_cus;
 
 	/**
 	 * Cache of parsed types.
@@ -100,6 +156,44 @@ struct drgn_dwarf_info {
 
 void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo);
 void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo);
+
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_cu_vector,
+		   struct drgn_dwarf_index_pending_cu)
+
+/**
+ * State tracked while indexing new DWARF information in a @ref drgn_dwarf_info.
+ */
+struct drgn_dwarf_index_state {
+	struct drgn_debug_info *dbinfo;
+	/** Per-thread arrays of CUs to be indexed. */
+	struct drgn_dwarf_index_pending_cu_vector *cus;
+	size_t max_threads;
+};
+
+/**
+ * Initialize state for indexing new DWARF information.
+ *
+ * @return @c true on success, @c false on failure to allocate memory.
+ */
+bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
+				 struct drgn_debug_info *dbinfo);
+
+/** Deinitialize state for indexing new DWARF information. */
+void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state);
+
+/** Read a @ref drgn_debug_info_module to index its DWARF information. */
+struct drgn_error *
+drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
+			     struct drgn_debug_info_module *module);
+
+/**
+ * Index new DWARF information.
+ *
+ * This should be called once all modules have been read with @ref
+ * drgn_dwarf_index_read_module() to finish indexing those modules.
+ */
+struct drgn_error *
+drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state);
 
 /**
  * Find the DWARF DIEs in a @ref drgn_debug_info_module for the scope containing

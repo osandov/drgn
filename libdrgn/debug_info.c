@@ -17,7 +17,6 @@
 #include <unistd.h>
 
 #include "debug_info.h"
-#include "dwarf_index.h"
 #include "error.h"
 #include "linux_kernel.h"
 #include "program.h"
@@ -948,7 +947,7 @@ drgn_debug_info_module_cache_section(struct drgn_debug_info_module *module,
 
 static struct drgn_error *
 drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
-			    struct drgn_dwarf_index_update_state *dindex_state,
+			    struct drgn_dwarf_index_state *index,
 			    struct drgn_debug_info_module *head)
 {
 	struct drgn_error *err;
@@ -967,7 +966,7 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 				continue;
 			}
 			module->state = DRGN_DEBUG_INFO_MODULE_INDEXING;
-			return drgn_dwarf_index_read_module(dindex_state,
+			return drgn_dwarf_index_read_module(index,
 							    module);
 		}
 	}
@@ -1010,9 +1009,8 @@ drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 				  load->new_modules.size))
 		return &drgn_enomem;
 
-	struct drgn_dwarf_index_update_state dindex_state;
-	if (!drgn_dwarf_index_update_state_init(&dindex_state,
-						&dbinfo->dwarf.index))
+	struct drgn_dwarf_index_state index;
+	if (!drgn_dwarf_index_state_init(&index, dbinfo))
 		return &drgn_enomem;
 	struct drgn_error *err = NULL;
 	#pragma omp parallel for schedule(dynamic)
@@ -1020,7 +1018,7 @@ drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 		if (err)
 			continue;
 		struct drgn_error *module_err =
-			drgn_debug_info_read_module(load, &dindex_state,
+			drgn_debug_info_read_module(load, &index,
 						    load->new_modules.data[i]);
 		if (module_err) {
 			#pragma omp critical(drgn_debug_info_update_index_error)
@@ -1031,8 +1029,8 @@ drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 		}
 	}
 	if (!err)
-		err = drgn_dwarf_index_update(&dindex_state);
-	drgn_dwarf_index_update_state_deinit(&dindex_state);
+		err = drgn_dwarf_info_update_index(&index);
+	drgn_dwarf_index_state_deinit(&index);
 	if (!err)
 		drgn_debug_info_free_modules(dbinfo, true, false);
 	return err;
