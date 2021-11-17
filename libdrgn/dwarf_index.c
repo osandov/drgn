@@ -2082,44 +2082,31 @@ static bool append_die_entry(struct drgn_dwarf_index *dindex,
 	return true;
 }
 
-static struct drgn_error *index_die(struct drgn_dwarf_index_namespace *ns,
-				    struct drgn_dwarf_index_cu *cu,
-				    const char *name, uint8_t tag,
-				    uint64_t file_name_hash,
-				    struct drgn_debug_info_module *module,
-				    uintptr_t addr)
+static bool index_die(struct drgn_dwarf_index_namespace *ns,
+		      struct drgn_dwarf_index_cu *cu, const char *name,
+		      uint8_t tag, uint64_t file_name_hash,
+		      struct drgn_debug_info_module *module, uintptr_t addr)
 {
-	struct drgn_error *err;
+	bool success = false;
 	struct drgn_dwarf_index_die_map_entry entry = {
-		.key = {
-			.str = name,
-			.len = strlen(name),
-		},
+		.key = { name, strlen(name) },
 	};
-	struct hash_pair hp;
-	struct drgn_dwarf_index_shard *shard;
-	struct drgn_dwarf_index_die_map_iterator it;
-	size_t index;
-	struct drgn_dwarf_index_die *die;
-
-	hp = drgn_dwarf_index_die_map_hash(&entry.key);
-	shard = &ns->shards[hash_pair_to_shard(hp)];
+	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&entry.key);
+	struct drgn_dwarf_index_shard *shard =
+		&ns->shards[hash_pair_to_shard(hp)];
 	omp_set_lock(&shard->lock);
-	it = drgn_dwarf_index_die_map_search_hashed(&shard->map, &entry.key,
-						    hp);
+	struct drgn_dwarf_index_die_map_iterator it =
+		drgn_dwarf_index_die_map_search_hashed(&shard->map, &entry.key,
+						       hp);
+	struct drgn_dwarf_index_die *die;
 	if (!it.entry) {
 		if (!append_die_entry(ns->dindex, shard, tag, file_name_hash,
-				      module, addr)) {
-			err = &drgn_enomem;
+				      module, addr))
 			goto err;
-		}
 		entry.value = shard->dies.size - 1;
 		if (!drgn_dwarf_index_die_map_insert_searched(&shard->map,
-							      &entry, hp,
-							      NULL)) {
-			err = &drgn_enomem;
+							      &entry, hp, NULL))
 			goto err;
-		}
 		die = &shard->dies.data[shard->dies.size - 1];
 		goto out;
 	}
@@ -2136,29 +2123,25 @@ static struct drgn_error *index_die(struct drgn_dwarf_index_namespace *ns,
 		die = &shard->dies.data[die->next];
 	}
 
-	index = die - shard->dies.data;
+	size_t index = die - shard->dies.data;
 	if (!append_die_entry(ns->dindex, shard, tag, file_name_hash, module,
-			      addr)) {
-		err = &drgn_enomem;
+			      addr))
 		goto err;
-	}
 	die = &shard->dies.data[shard->dies.size - 1];
 	shard->dies.data[index].next = shard->dies.size - 1;
 out:
 	if (tag == DW_TAG_namespace) {
 		struct drgn_dwarf_index_pending_die *pending =
 			drgn_dwarf_index_pending_die_vector_append_entry(&die->namespace->pending_dies);
-		if (!pending) {
-			err = &drgn_enomem;
+		if (!pending)
 			goto err;
-		}
 		pending->cu = cu - ns->dindex->cus.data;
 		pending->addr = addr;
 	}
-	err = NULL;
+	success = true;
 err:
 	omp_unset_lock(&shard->lock);
-	return err;
+	return success;
 }
 
 /* Second pass: index the actual DIEs. */
@@ -2475,9 +2458,9 @@ skip:
 			} else {
 				file_name_hash = 0;
 			}
-			if ((err = index_die(ns, cu, name, tag, file_name_hash,
-					     module, die_addr)))
-				return err;
+			if (!index_die(ns, cu, name, tag, file_name_hash,
+				       module, die_addr))
+				return &drgn_enomem;
 		}
 
 next:
