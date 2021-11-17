@@ -2104,8 +2104,9 @@ static bool index_die(struct drgn_dwarf_index_namespace *ns,
 				      module, addr))
 			goto err;
 		entry.value = shard->dies.size - 1;
-		if (!drgn_dwarf_index_die_map_insert_searched(&shard->map,
-							      &entry, hp, NULL))
+		if (drgn_dwarf_index_die_map_insert_searched(&shard->map,
+							     &entry, hp,
+							     NULL) < 0)
 			goto err;
 		die = &shard->dies.data[shard->dies.size - 1];
 		goto out;
