@@ -4837,7 +4837,7 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 		tags[num_tags++] = DW_TAG_variable;
 
 	struct drgn_dwarf_index_iterator it;
-	err = drgn_dwarf_index_iterator_init(&it, ns, name, strlen(name), tags,
+	err = drgn_dwarf_index_iterator_init(&it, ns, name, name_len, tags,
 					     num_tags);
 	if (err)
 		return err;
