@@ -352,8 +352,8 @@ static struct drgn_error *find_or_create_type(struct drgn_type *key,
 		return &drgn_enomem;
 
 	*type = *key;
-	if (!drgn_dedupe_type_set_insert_searched(&prog->dedupe_types, &type,
-						  hp, NULL)) {
+	if (drgn_dedupe_type_set_insert_searched(&prog->dedupe_types, &type, hp,
+						 NULL) < 0) {
 		free(type);
 		return &drgn_enomem;
 	}
