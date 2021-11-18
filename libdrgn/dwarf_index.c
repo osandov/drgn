@@ -2665,7 +2665,7 @@ static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 		return &drgn_enomem;
 
 	struct drgn_error *err = NULL;
-	#pragma omp for schedule(dynamic)
+	#pragma omp parallel for schedule(dynamic)
 	for (size_t i = 0; i < ns->pending_dies.size; i++) {
 		if (!err) {
 			struct drgn_dwarf_index_pending_die *pending =
