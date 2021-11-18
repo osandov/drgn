@@ -225,10 +225,9 @@ drgn_dwarf_index_update(struct drgn_dwarf_index_update_state *state);
  */
 struct drgn_dwarf_index_iterator {
 	/** @privatesection */
-	struct drgn_dwarf_index_namespace *ns;
 	const uint64_t *tags;
 	size_t num_tags;
-	size_t shard;
+	struct drgn_dwarf_index_shard *shard;
 	uint32_t index;
 };
 

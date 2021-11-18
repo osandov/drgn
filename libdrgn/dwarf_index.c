@@ -2701,16 +2701,12 @@ drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 	struct drgn_error *err = index_namespace(ns);
 	if (err)
 		return err;
-	it->ns = ns;
-	struct nstring key = {
-		.str = name,
-		.len = name_len,
-	};
+	struct nstring key = { name, name_len };
 	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
-	it->shard = hash_pair_to_shard(hp);
-	struct drgn_dwarf_index_shard *shard = &ns->shards[it->shard];
+	it->shard = &ns->shards[hash_pair_to_shard(hp)];
 	struct drgn_dwarf_index_die_map_iterator map_it =
-		drgn_dwarf_index_die_map_search_hashed(&shard->map, &key, hp);
+		drgn_dwarf_index_die_map_search_hashed(&it->shard->map,
+						       &key, hp);
 	it->index = map_it.entry ? map_it.entry->value : UINT32_MAX;
 	it->tags = tags;
 	it->num_tags = num_tags;
@@ -2721,11 +2717,9 @@ static inline bool
 drgn_dwarf_index_iterator_matches_tag(struct drgn_dwarf_index_iterator *it,
 				      struct drgn_dwarf_index_die *die)
 {
-	size_t i;
-
 	if (it->num_tags == 0)
 		return true;
-	for (i = 0; i < it->num_tags; i++) {
+	for (size_t i = 0; i < it->num_tags; i++) {
 		if (die->tag == it->tags[i])
 			return true;
 	}
@@ -2735,21 +2729,14 @@ drgn_dwarf_index_iterator_matches_tag(struct drgn_dwarf_index_iterator *it,
 struct drgn_dwarf_index_die *
 drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it)
 {
-	struct drgn_dwarf_index_namespace *ns = it->ns;
-	struct drgn_dwarf_index_die *die;
-	for (;;) {
-		if (it->index == UINT32_MAX)
-			return NULL;
-
-		struct drgn_dwarf_index_shard *shard = &ns->shards[it->shard];
-		die = &shard->dies.data[it->index];
-
+	while (it->index != UINT32_MAX) {
+		struct drgn_dwarf_index_die *die =
+			&it->shard->dies.data[it->index];
 		it->index = die->next;
-
 		if (drgn_dwarf_index_iterator_matches_tag(it, die))
-			break;
+			return die;
 	}
-	return die;
+	return NULL;
 }
 
 struct drgn_error *drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die,
