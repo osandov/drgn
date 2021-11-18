@@ -2655,6 +2655,9 @@ err:
 
 static struct drgn_error *index_namespace(struct drgn_dwarf_index_namespace *ns)
 {
+	if (ns->pending_dies.size == 0)
+		return NULL;
+
 	if (ns->saved_err)
 		return drgn_error_copy(ns->saved_err);
 
@@ -2701,13 +2704,18 @@ drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 	struct drgn_error *err = index_namespace(ns);
 	if (err)
 		return err;
-	struct nstring key = { name, name_len };
-	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
-	it->shard = &ns->shards[hash_pair_to_shard(hp)];
-	struct drgn_dwarf_index_die_map_iterator map_it =
-		drgn_dwarf_index_die_map_search_hashed(&it->shard->map,
-						       &key, hp);
-	it->index = map_it.entry ? map_it.entry->value : UINT32_MAX;
+	if (ns->shards) {
+		struct nstring key = { name, name_len };
+		struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
+		it->shard = &ns->shards[hash_pair_to_shard(hp)];
+		struct drgn_dwarf_index_die_map_iterator map_it =
+			drgn_dwarf_index_die_map_search_hashed(&it->shard->map,
+							       &key, hp);
+		it->index = map_it.entry ? map_it.entry->value : UINT32_MAX;
+	} else {
+		it->shard = NULL;
+		it->index = UINT32_MAX;
+	}
 	it->tags = tags;
 	it->num_tags = num_tags;
 	return NULL;
