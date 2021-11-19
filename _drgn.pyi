@@ -2219,3 +2219,41 @@ def _linux_helper_kaslr_offset(prog: Program) -> int:
 def _linux_helper_pgtable_l5_enabled(prog: Program) -> bool:
     """Return whether 5-level paging is enabled."""
     ...
+
+def _linux_helper_radix_tree_for_each(root: Object) -> Iterator[Tuple[int, Object]]:
+    """
+    Iterate over all of the entries in a radix tree.
+
+    :param root: ``struct radix_tree_root *``
+    :return: Iterator of (index, ``void *``) tuples.
+    """
+    ...
+
+def _linux_helper_idr_for_each(idr: Object) -> Iterator[Tuple[int, Object]]:
+    """
+    Iterate over all of the entries in an IDR.
+
+    :param idr: ``struct idr *``
+    :return: Iterator of (index, ``void *``) tuples.
+    """
+    ...
+
+def _linux_helper_for_each_pid(prog_or_ns: Union[Program, Object]) -> Iterator[Object]:
+    """
+    Iterate over all PIDs in a namespace.
+
+    :param prog_or_ns: ``struct pid_namespace *`` to iterate over, or
+        :class:`Program` to iterate over initial PID namespace.
+    :return: Iterator of ``struct pid *`` objects.
+    """
+    ...
+
+def _linux_helper_for_each_task(prog_or_ns: Union[Program, Object]) -> Iterator[Object]:
+    """
+    Iterate over all of the tasks visible in a namespace.
+
+    :param prog_or_ns: ``struct pid_namespace *`` to iterate over, or
+        :class:`Program` to iterate over initial PID namespace.
+    :return: Iterator of ``struct task_struct *`` objects.
+    """
+    ...

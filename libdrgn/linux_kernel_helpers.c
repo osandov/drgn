@@ -6,9 +6,12 @@
 #include <inttypes.h>
 
 #include "drgn.h"
+#include "helpers.h"
 #include "minmax.h"
 #include "platform.h"
 #include "program.h"
+
+static const uint64_t RADIX_TREE_ENTRY_MASK = 3;
 
 struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					uint64_t pgtable, uint64_t virt_addr,
@@ -99,12 +102,67 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 	return err;
 }
 
+static struct drgn_error *
+radix_tree_init(struct drgn_program *prog, const struct drgn_object *root,
+		uint64_t *RADIX_TREE_INTERNAL_NODE_ret,
+		uint64_t *RADIX_TREE_MAP_MASK_ret,
+		struct drgn_qualified_type *node_type_ret,
+		struct drgn_object *node_ret)
+{
+	struct drgn_error *err =
+		drgn_object_member_dereference(node_ret, root, "xa_head");
+	/* node = root->xa_head */
+	if (!err) {
+		err = drgn_program_find_type(prog, "struct xa_node *", NULL,
+					     node_type_ret);
+		if (err)
+			return err;
+		*RADIX_TREE_INTERNAL_NODE_ret = 2;
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		drgn_error_destroy(err);
+		/* node = (void *)root.rnode */
+		err = drgn_object_member_dereference(node_ret, root, "rnode");
+		if (err)
+			return err;
+		err = drgn_program_find_type(prog, "void *", NULL,
+					     node_type_ret);
+		if (err)
+			return err;
+		err = drgn_object_cast(node_ret, *node_type_ret, node_ret);
+		if (err)
+			return err;
+		err = drgn_program_find_type(prog, "struct radix_tree_node *",
+					     NULL, node_type_ret);
+		if (err)
+			return err;
+		*RADIX_TREE_INTERNAL_NODE_ret = 1;
+	} else {
+		return err;
+	}
+
+	struct drgn_type_member *member;
+	uint64_t member_bit_offset;
+	err = drgn_type_find_member(drgn_type_type(node_type_ret->type).type,
+				    "slots", &member, &member_bit_offset);
+	if (err)
+		return err;
+	struct drgn_qualified_type member_type;
+	err = drgn_member_type(member, &member_type, NULL);
+	if (err)
+		return err;
+	if (drgn_type_kind(member_type.type) != DRGN_TYPE_ARRAY)
+		return drgn_error_create(
+			DRGN_ERROR_TYPE,
+			"struct radix_tree_node slots member is not an array");
+	*RADIX_TREE_MAP_MASK_ret = drgn_type_length(member_type.type) - 1;
+	return NULL;
+}
+
 struct drgn_error *
 linux_helper_radix_tree_lookup(struct drgn_object *res,
 			       const struct drgn_object *root, uint64_t index)
 {
 	struct drgn_error *err;
-	static const uint64_t RADIX_TREE_ENTRY_MASK = 3;
 	uint64_t RADIX_TREE_INTERNAL_NODE;
 	uint64_t RADIX_TREE_MAP_MASK;
 	struct drgn_object node, tmp;
@@ -112,55 +170,11 @@ linux_helper_radix_tree_lookup(struct drgn_object *res,
 
 	drgn_object_init(&node, drgn_object_program(res));
 	drgn_object_init(&tmp, drgn_object_program(res));
-
-	/* node = root->xa_head */
-	err = drgn_object_member_dereference(&node, root, "xa_head");
-	if (!err) {
-		err = drgn_program_find_type(drgn_object_program(res),
-					     "struct xa_node *", NULL,
-					     &node_type);
-		if (err)
-			goto out;
-		RADIX_TREE_INTERNAL_NODE = 2;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
-		/* node = (void *)root.rnode */
-		err = drgn_object_member_dereference(&node, root, "rnode");
-		if (err)
-			goto out;
-		err = drgn_program_find_type(drgn_object_program(res), "void *",
-					     NULL, &node_type);
-		if (err)
-			goto out;
-		err = drgn_object_cast(&node, node_type, &node);
-		if (err)
-			goto out;
-		err = drgn_program_find_type(drgn_object_program(res),
-					     "struct radix_tree_node *", NULL,
-					     &node_type);
-		if (err)
-			goto out;
-		RADIX_TREE_INTERNAL_NODE = 1;
-	} else {
-		goto out;
-	}
-
-	struct drgn_type_member *member;
-	uint64_t member_bit_offset;
-	err = drgn_type_find_member(drgn_type_type(node_type.type).type,
-				    "slots", &member, &member_bit_offset);
+	err = radix_tree_init(drgn_object_program(root), root,
+				  &RADIX_TREE_INTERNAL_NODE, &RADIX_TREE_MAP_MASK,
+				  &node_type, &node);
 	if (err)
 		goto out;
-	struct drgn_qualified_type member_type;
-	err = drgn_member_type(member, &member_type, NULL);
-	if (err)
-		goto out;
-	if (drgn_type_kind(member_type.type) != DRGN_TYPE_ARRAY) {
-		err = drgn_error_create(DRGN_ERROR_TYPE,
-					"struct radix_tree_node slots member is not an array");
-		goto out;
-	}
-	RADIX_TREE_MAP_MASK = drgn_type_length(member_type.type) - 1;
 
 	for (;;) {
 		uint64_t value;
@@ -243,6 +257,36 @@ out:
 	return err;
 }
 
+static struct drgn_error *pid_hash_init(struct drgn_program *prog,
+					       const struct drgn_object *ns,
+					       struct drgn_qualified_type *upid_type_ret,
+					       uint64_t *pidhash_length_ret, uint64_t *ns_level_ret)
+{
+	struct drgn_error *err;
+	struct drgn_object ns_level, pidhash_shift;
+	drgn_object_init(&ns_level, prog);
+	drgn_object_init(&pidhash_shift, prog);
+	err = drgn_program_find_type(prog, "struct upid", NULL, upid_type_ret);
+	if (err)
+		goto out;
+	err = drgn_program_find_object(prog, "pidhash_shift", NULL, DRGN_FIND_OBJECT_ANY,
+				       &pidhash_shift);
+	if (err)
+		goto out;
+	err = drgn_object_read_unsigned(&pidhash_shift, pidhash_length_ret);
+	if (err)
+		goto out;
+	// *pidhash_length_ret = 1 << pidhash_shift
+	*pidhash_length_ret = *pidhash_length_ret >= 64 ? 0 : UINT64_C(1) << *pidhash_length_ret;
+	err = drgn_object_member_dereference(&ns_level, ns, "level");
+	if (err)
+		goto out;
+	err = drgn_object_read_unsigned(&ns_level, ns_level_ret);
+out:
+	drgn_object_deinit(&ns_level);
+	return err;
+}
+
 /*
  * Before Linux kernel commit 95846ecf9dac ("pid: replace pid bitmap
  * implementation with IDR API") (in v4.15), (struct pid_namespace).idr does not
@@ -257,15 +301,27 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 {
 	struct drgn_error *err;
 
+	struct drgn_object node, tmp;
+	drgn_object_init(&node, drgn_object_program(res));
+	drgn_object_init(&tmp, drgn_object_program(res));
+
+	err = drgn_object_read(&tmp, ns);
+	if (err)
+		goto out;
+	struct drgn_qualified_type upid_type;
+	uint64_t i, ns_level;
+	err = pid_hash_init(drgn_object_program(res), &tmp, &upid_type, &i,
+				   &ns_level);
+	if (err)
+		goto out;
 	struct drgn_qualified_type pidp_type;
-	err = drgn_program_find_type(drgn_object_program(res), "struct pid *",
-				     NULL, &pidp_type);
+	err = drgn_program_find_type(drgn_object_program(res), "struct pid *", NULL,
+					 &pidp_type);
 	if (err)
 		return err;
 
-	struct drgn_qualified_type upid_type;
-	err = drgn_program_find_type(drgn_object_program(res), "struct upid",
-				     NULL, &upid_type);
+	uint64_t ns_addr;
+	err = drgn_object_read_unsigned(&tmp, &ns_addr);
 	if (err)
 		return err;
 
@@ -298,40 +354,6 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 	if (err)
 		return err;
 
-	struct drgn_object node, tmp;
-	drgn_object_init(&node, drgn_object_program(res));
-	drgn_object_init(&tmp, drgn_object_program(res));
-
-	err = drgn_object_read(&tmp, ns);
-	if (err)
-		goto out;
-	uint64_t ns_addr;
-	err = drgn_object_read_unsigned(&tmp, &ns_addr);
-	if (err)
-		goto out;
-	union drgn_value ns_level;
-	err = drgn_object_member_dereference(&tmp, &tmp, "level");
-	if (err)
-		goto out;
-	err = drgn_object_read_integer(&tmp, &ns_level);
-	if (err)
-		goto out;
-
-	/* i = 1 << pidhash_shift */
-	err = drgn_program_find_object(drgn_object_program(res),
-				       "pidhash_shift", NULL,
-				       DRGN_FIND_OBJECT_ANY, &tmp);
-	if (err)
-		goto out;
-	union drgn_value pidhash_shift;
-	err = drgn_object_read_integer(&tmp, &pidhash_shift);
-	if (err)
-		goto out;
-	uint64_t i;
-	if (pidhash_shift.uvalue >= 64)
-		i = 0;
-	else
-		i = UINT64_C(1) << pidhash_shift.uvalue;
 	while (i--) {
 		/* for (node = pid_hash[i].first; node; node = node->next) */
 		err = drgn_object_subscript(&node, pid_hash, i);
@@ -382,7 +404,7 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 				goto next;
 
 			sprintf(member, "numbers[%" PRIu64 "].pid_chain",
-				ns_level.uvalue);
+				ns_level);
 			err = drgn_object_container_of(res, &node,
 						       drgn_type_type(pidp_type.type),
 						       member);
@@ -532,4 +554,382 @@ out:
 	drgn_object_deinit(&pid_type_obj);
 	drgn_object_deinit(&pid_obj);
 	return err;
+}
+
+struct linux_helper_radix_tree_iter_frame {
+	struct drgn_object slots;
+	uint64_t index;
+	uint64_t shift;
+	uint64_t next_slot;
+};
+
+DEFINE_VECTOR_FUNCTIONS(linux_helper_radix_tree_iter_frame_vector)
+
+struct drgn_error *linux_helper_radix_tree_iter_init(struct linux_helper_radix_tree_iter *iter,
+						     const struct drgn_object *root)
+{
+	struct drgn_program *prog = drgn_object_program(root);
+	iter->started = false;
+	drgn_object_init(&iter->root, prog);
+	drgn_object_init(&iter->entry.node, prog);
+	iter->entry.index = 0;
+	iter->prog = prog;
+
+	struct drgn_error *err =
+		radix_tree_init(prog, root, &iter->RADIX_TREE_INTERNAL_NODE,
+				&iter->RADIX_TREE_MAP_MASK, &iter->node_type, &iter->root);
+
+	if (err) {
+		drgn_object_deinit(&iter->root);
+		drgn_object_deinit(&iter->entry.node);
+		return err;
+	}
+
+	linux_helper_radix_tree_iter_frame_vector_init(&iter->frames);
+	return NULL;
+}
+
+void linux_helper_radix_tree_iter_deinit(struct linux_helper_radix_tree_iter *iter)
+{
+	drgn_object_deinit(&iter->root);
+	drgn_object_deinit(&iter->entry.node);
+	while (iter->frames.size) {
+		drgn_object_deinit(
+			&linux_helper_radix_tree_iter_frame_vector_pop(&iter->frames)->slots);
+	}
+	linux_helper_radix_tree_iter_frame_vector_deinit(&iter->frames);
+}
+
+static struct drgn_error *radix_tree_iter_handle_node(struct linux_helper_radix_tree_iter *iter,
+						      struct drgn_object *_node, uint64_t index,
+						      bool *entry_populated_ret)
+{
+	struct drgn_object *node = &iter->entry.node;
+	struct drgn_error *err;
+	uint64_t value;
+
+	err = drgn_object_read(node, _node);
+	if (err)
+		return err;
+	err = drgn_object_read_unsigned(node, &value);
+	if (err)
+		return err;
+	if ((value & RADIX_TREE_ENTRY_MASK) != iter->RADIX_TREE_INTERNAL_NODE) {
+		// Base-case, node is NOT internal
+		if (value) {
+			*entry_populated_ret = true;
+			iter->entry.index = index;
+		}
+		return NULL;
+	}
+
+	*entry_populated_ret = false;
+
+	// We are dealing with an internal node, and must iterate over its slots
+
+	err = drgn_object_set_unsigned(node, iter->node_type,
+				       value & ~iter->RADIX_TREE_INTERNAL_NODE, 0);
+	if (err)
+		return err;
+	struct linux_helper_radix_tree_iter_frame *frame =
+		linux_helper_radix_tree_iter_frame_vector_append_entry(&iter->frames);
+	if (!frame)
+		return &drgn_enomem;
+	frame->index = index;
+	frame->next_slot = 0;
+	drgn_object_init(&frame->slots, iter->prog);
+	// We temporarily use `frame->slots` to hold `shift` in order to avoid
+	// using another `struct drgn_object`.
+	err = drgn_object_member_dereference(&frame->slots, node, "shift");
+	if (err)
+		goto err_frame;
+	err = drgn_object_read_unsigned(&frame->slots, &frame->shift);
+	if (err)
+		goto err_frame;
+	// Now `frame->slots` is actually used for `slots`.
+	err = drgn_object_member_dereference(&frame->slots, node, "slots");
+	if (err)
+		goto err_frame;
+	return NULL;
+
+err_frame:
+	drgn_object_deinit(&frame->slots);
+	linux_helper_radix_tree_iter_frame_vector_pop(&iter->frames);
+	return err;
+}
+
+struct drgn_error *linux_helper_radix_tree_iter_next(struct linux_helper_radix_tree_iter *iter,
+						     struct linux_helper_radix_tree_iter_entry **ret)
+{
+	bool entry_populated = false;
+	struct drgn_error *err = NULL;
+	struct drgn_object node;
+	drgn_object_init(&node, iter->prog);
+	if (!iter->started) {
+		iter->started = true;
+		err = radix_tree_iter_handle_node(iter, &iter->root, 0, &entry_populated);
+	}
+
+	while (!err && !entry_populated && iter->frames.size) {
+		struct linux_helper_radix_tree_iter_frame *frame =
+			&iter->frames.data[iter->frames.size - 1];
+		if (frame->next_slot <= iter->RADIX_TREE_MAP_MASK) {
+			err = drgn_object_subscript(&node, &frame->slots, frame->next_slot);
+			if (!err)
+				err = radix_tree_iter_handle_node(iter, &node,
+								  frame->index + (frame->next_slot++
+										  << frame->shift),
+								  &entry_populated);
+		} else {
+			drgn_object_deinit(&frame->slots);
+			linux_helper_radix_tree_iter_frame_vector_pop(&iter->frames);
+		}
+	}
+	if (!err)
+		*ret = entry_populated ? &iter->entry : NULL;
+	drgn_object_deinit(&node);
+	return err;
+}
+
+struct drgn_error *linux_helper_idr_iter_init(struct linux_helper_idr_iter *iter,
+					      const struct drgn_object *idr)
+{
+	struct drgn_error *err;
+	struct drgn_object idr_rt, idr_base;
+	drgn_object_init(&idr_rt, drgn_object_program(idr));
+	drgn_object_init(&idr_base, drgn_object_program(idr));
+
+	err = drgn_object_member(&idr_base, idr, "idr_base");
+	if (!err) {
+		err = drgn_object_read_unsigned(&idr_base, &iter->base);
+		if (err)
+			goto out;
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		drgn_error_destroy(err);
+		iter->base = 0;
+	} else {
+		goto out;
+	}
+
+	err = drgn_object_member(&idr_rt, idr, "idr_rt");
+	if (err)
+		goto out;
+	err = drgn_object_address_of(&idr_rt, &idr_rt);
+	if (err)
+		goto out;
+	err = linux_helper_radix_tree_iter_init(&iter->iter, &idr_rt);
+out:
+	drgn_object_deinit(&idr_rt);
+	drgn_object_deinit(&idr_base);
+	return err;
+}
+
+void linux_helper_idr_iter_deinit(struct linux_helper_idr_iter *iter)
+{
+	linux_helper_radix_tree_iter_deinit(&iter->iter);
+}
+
+struct drgn_error *linux_helper_idr_iter_next(struct linux_helper_idr_iter *iter,
+					      struct linux_helper_radix_tree_iter_entry **ret)
+{
+	struct drgn_error *err = linux_helper_radix_tree_iter_next(&iter->iter, ret);
+	if (!err && *ret)
+		(*ret)->index += iter->base;
+	return err;
+}
+
+// See `find_pid_in_pid_hash`
+static struct drgn_error *pid_iter_init_pid_hash(struct drgn_program *prog,
+						 const struct drgn_object *ns,
+						 struct linux_helper_pid_iter *iter)
+{
+	struct drgn_error *err;
+	drgn_object_init(&iter->pid_hash, prog);
+	drgn_object_init(&iter->pos, prog);
+	drgn_object_init(&iter->ns, prog);
+	drgn_object_init(&iter->entry, prog);
+	err = drgn_program_find_object(prog, "pid_hash", NULL, DRGN_FIND_OBJECT_VARIABLE,
+				       &iter->pid_hash);
+	if (err)
+		goto out;
+	struct drgn_qualified_type void_star_type;
+	err = drgn_program_find_type(prog, "void *", NULL, &void_star_type);
+	if (err)
+		goto out;
+	err = drgn_object_set_unsigned(&iter->pos, void_star_type, 0, 0);
+	if (err)
+		goto out;
+	err = drgn_object_copy(&iter->ns, ns);
+	if (err)
+		goto out;
+	uint64_t ns_level;
+	err = pid_hash_init(prog, ns, &iter->upid_type, &iter->index, &ns_level);
+	if (err)
+		goto out;
+	snprintf(iter->member_specifier, sizeof(iter->member_specifier), "numbers[%" PRIu64 "]",
+		 ns_level);
+	err = drgn_program_find_type(prog, "struct pid", NULL, &iter->pid_type);
+	if (err)
+		goto out;
+	err = drgn_program_find_type(prog, "struct upid", NULL, &iter->upid_type);
+	if (err)
+		goto out;
+out:
+	if (err) {
+		drgn_object_deinit(&iter->pid_hash);
+		drgn_object_deinit(&iter->pos);
+		drgn_object_deinit(&iter->ns);
+		drgn_object_deinit(&iter->entry);
+	}
+	return err;
+}
+
+struct drgn_error *linux_helper_pid_iter_init(struct linux_helper_pid_iter *iter,
+					      const struct drgn_object *ns)
+{
+	struct drgn_program *prog = drgn_object_program(ns);
+	struct drgn_error *err;
+	struct drgn_object idr;
+	drgn_object_init(&idr, prog);
+
+	err = drgn_object_member_dereference(&idr, ns, "idr");
+	if (!err) {
+		iter->has_idr = true;
+		err = drgn_program_find_type(prog, "struct pid *", NULL, &iter->pid_type);
+		if (!err)
+			err = linux_helper_idr_iter_init(&iter->iter, &idr);
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		iter->has_idr = false;
+		drgn_error_destroy(err);
+		err = pid_iter_init_pid_hash(prog, ns, iter);
+	}
+
+	drgn_object_deinit(&idr);
+	return err;
+}
+
+void linux_helper_pid_iter_deinit(struct linux_helper_pid_iter *iter)
+{
+	if (iter->has_idr) {
+		linux_helper_idr_iter_deinit(&iter->iter);
+	} else {
+		drgn_object_deinit(&iter->pid_hash);
+		drgn_object_deinit(&iter->pos);
+		drgn_object_deinit(&iter->ns);
+		drgn_object_deinit(&iter->entry);
+	}
+}
+
+struct drgn_error *linux_helper_pid_iter_next(struct linux_helper_pid_iter *iter,
+					      struct drgn_object **ret)
+{
+	if (iter->has_idr) {
+		struct linux_helper_radix_tree_iter_entry *entry;
+		struct drgn_error *err = linux_helper_idr_iter_next(&iter->iter, &entry);
+		if (err)
+			return err;
+		if (!entry) {
+			*ret = NULL;
+			return NULL;
+		}
+		err = drgn_object_cast(&entry->node, iter->pid_type, &entry->node);
+		if (!err)
+			*ret = &entry->node;
+		return err;
+	}
+
+	struct drgn_error *err = NULL;
+	struct drgn_object upid, upid_ns;
+	drgn_object_init(&upid, drgn_object_program(&iter->ns));
+	drgn_object_init(&upid_ns, drgn_object_program(&iter->ns));
+
+	for (;;) {
+		for (;;) {
+			bool is_truthy;
+			err = drgn_object_bool(&iter->pos, &is_truthy);
+			if (err)
+				goto out;
+			if (is_truthy)
+				break;
+			if (iter->index == 0) {
+				*ret = NULL;
+				goto out;
+			}
+			err = drgn_object_subscript(&iter->pos, &iter->pid_hash, --iter->index);
+			if (err)
+				goto out;
+			err = drgn_object_member(&iter->pos, &iter->pos, "first");
+			if (err)
+				goto out;
+			err = drgn_object_bool(&iter->pos, &is_truthy);
+			if (err)
+				goto out;
+		}
+		err = drgn_object_container_of(&upid, &iter->pos, iter->upid_type, "pid_chain");
+		if (err)
+			goto out;
+		err = drgn_object_member_dereference(&iter->pos, &iter->pos, "next");
+		if (err)
+			goto out;
+		err = drgn_object_member_dereference(&upid_ns, &upid, "ns");
+		if (err)
+			goto out;
+		int ns_cmp_result;
+		err = drgn_object_cmp(&upid_ns, &iter->ns, &ns_cmp_result);
+		if (err)
+			goto out;
+		if (ns_cmp_result == 0) {
+			err = drgn_object_container_of(&iter->entry, &upid, iter->pid_type,
+						       iter->member_specifier);
+			if (!err)
+				*ret = &iter->entry;
+			goto out;
+		}
+	}
+
+out:
+	drgn_object_deinit(&upid);
+	drgn_object_deinit(&upid_ns);
+	return err;
+}
+
+struct drgn_error *linux_helper_task_iter_init(struct linux_helper_task_iter *iter,
+					       const struct drgn_object *ns)
+{
+	struct drgn_program *prog = drgn_object_program(ns);
+	struct drgn_error *err = linux_helper_pid_iter_init(&iter->iter, ns);
+	if (err)
+		return err;
+	struct drgn_object PIDTYPE_PID;
+	drgn_object_init(&PIDTYPE_PID, prog);
+	err = drgn_program_find_object(prog, "PIDTYPE_PID", NULL, DRGN_FIND_OBJECT_CONSTANT,
+				       &PIDTYPE_PID);
+	if (!err)
+		err = drgn_object_read_unsigned(&PIDTYPE_PID, &iter->PIDTYPE_PID);
+	if (err)
+		linux_helper_pid_iter_deinit(&iter->iter);
+	drgn_object_deinit(&PIDTYPE_PID);
+	return err;
+}
+
+struct drgn_error *linux_helper_task_iter_next(struct linux_helper_task_iter *iter,
+					       struct drgn_object **ret)
+{
+	struct drgn_error *err;
+	bool value_is_truthy;
+	do {
+		err = linux_helper_pid_iter_next(&iter->iter, ret);
+		if (err || !*ret)
+			return err;
+		err = linux_helper_pid_task(*ret, *ret, iter->PIDTYPE_PID);
+		if (err)
+			return err;
+		err = drgn_object_bool(*ret, &value_is_truthy);
+	} while (!err && !value_is_truthy);
+	return err;
+}
+
+void linux_helper_task_iter_deinit(struct linux_helper_task_iter *iter)
+{
+	linux_helper_pid_iter_deinit(&iter->iter);
 }
