@@ -159,7 +159,7 @@ err:
 	return err;
 }
 
-struct drgn_error *drgn_program_cache_prstatus_kdump(struct drgn_program *prog)
+struct drgn_error *drgn_program_cache_kdump_notes(struct drgn_program *prog)
 {
 	struct drgn_error *err;
 	kdump_num_t ncpus, i;
@@ -208,9 +208,9 @@ struct drgn_error *drgn_program_cache_prstatus_kdump(struct drgn_program *prog)
 
 		prstatus_data = kdump_blob_pin(prstatus_attr.val.blob);
 		prstatus_size = kdump_blob_size(prstatus_attr.val.blob);
-		err = drgn_program_cache_prstatus_entry(prog,
-							prstatus_data,
-							prstatus_size);
+		uint32_t _;
+		err = drgn_program_cache_prstatus_entry(prog, prstatus_data,
+							prstatus_size, &_);
 		if (err)
 			return err;
 	}

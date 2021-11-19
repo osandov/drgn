@@ -132,6 +132,7 @@ _drgn_la_SOURCES = python/constants.c \
 		   python/stack_trace.c \
 		   python/symbol.c \
 		   python/test.c \
+		   python/thread.c \
 		   python/type.c \
 		   python/util.c
 

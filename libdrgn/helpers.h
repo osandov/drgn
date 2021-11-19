@@ -69,12 +69,11 @@ void linux_helper_task_iterator_deinit(struct linux_helper_task_iterator *it);
 /**
  * Get the next task from a @ref linux_helper_task_iterator.
  *
- * @param[out] ret Returned `struct task_struct *` object. This points to an
- * object stored in @p it. The caller may modify this, but it will be
- * overwritten the next time this function is called on the same @p it.
+ * @param[out] ret Returned `struct task_struct *` object. This is valid until
+ * the next call to this function on the same @p it or until @p it is destroyed.
  */
 struct drgn_error *
 linux_helper_task_iterator_next(struct linux_helper_task_iterator *it,
-				struct drgn_object **ret);
+				const struct drgn_object **ret);
 
 #endif /* DRGN_HELPERS_H */

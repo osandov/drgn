@@ -253,6 +253,31 @@ class Program:
             the given file
         """
         ...
+    def threads(self) -> Iterator[Thread]:
+        """Get an iterator over all of the threads in the program."""
+        ...
+    def thread(self, tid: IntegerLike) -> Thread:
+        """
+        Get the thread with the given thread ID.
+
+        :param tid: Thread ID (as defined by `gettid(2)
+            <http://man7.org/linux/man-pages/man2/gettid.2.html>`_).
+        :raises LookupError: if no thread has the given thread ID
+        """
+        ...
+    def crashed_thread(self) -> Thread:
+        """
+        Get the thread that caused the program to crash.
+
+        For userspace programs, this is the thread that received the fatal
+        signal (e.g., ``SIGSEGV`` or ``SIGQUIT``).
+
+        For the kernel, this is the thread that panicked (either directly or as
+        a result of an oops, ``BUG_ON()``, etc.).
+
+        :raises ValueError: if the program is live (i.e., not a core dump)
+        """
+        ...
     def read(
         self, address: IntegerLike, size: IntegerLike, physical: bool = False
     ) -> bytes:
@@ -763,6 +788,28 @@ class FindObjectFlags(enum.Flag):
     ""
     ANY = ...
     ""
+
+class Thread:
+    """A thread in a program."""
+
+    tid: int
+    """
+    Thread ID (as defined by `gettid(2)
+    <http://man7.org/linux/man-pages/man2/gettid.2.html>`_).
+    """
+    object: Object
+    """
+    If the program is the Linux kernel, the ``struct task_struct *`` object for
+    this thread. Otherwise, not defined.
+    """
+    def stack_trace(self) -> StackTrace:
+        """
+        Get the stack trace for this thread.
+
+        This is equivalent to ``prog.stack_trace(thread.tid)``. See
+        :meth:`Program.stack_trace()`.
+        """
+        ...
 
 def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """
