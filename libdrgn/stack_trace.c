@@ -523,12 +523,13 @@ type_error:
 static struct drgn_error *
 drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			   const struct drgn_object *thread_obj,
+			   struct nstring *prstatus,
 			   struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
 	struct drgn_object obj;
 	struct drgn_object tmp;
-	struct nstring prstatus;
+	struct nstring _prstatus;
 
 	drgn_object_init(&obj, prog);
 	drgn_object_init(&tmp, prog);
@@ -597,7 +598,10 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			} else {
 				goto out;
 			}
+		} else if (prstatus) {
+			goto prstatus;
 		} else {
+			prstatus = &_prstatus;
 			/*
 			 * For kernel core dumps, we look up the PRSTATUS note
 			 * by CPU rather than by PID. This is because there is
@@ -621,11 +625,11 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			uint32_t prstatus_tid;
 			err = drgn_program_find_prstatus_by_cpu(prog,
 								value.uvalue,
-								&prstatus,
+								prstatus,
 								&prstatus_tid);
 			if (err)
 				goto out;
-			if (prstatus.str) {
+			if (prstatus->str) {
 				/*
 				 * The PRSTATUS note is for the CPU that the
 				 * task is assigned to, but it is not
@@ -663,12 +667,16 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 		err = prog->platform.arch->linux_kernel_get_initial_registers(&obj,
 									      ret);
 	} else {
-		err = drgn_program_find_prstatus_by_tid(prog, tid, &prstatus);
-		if (err)
-			goto out;
-		if (!prstatus.str) {
-			err = drgn_error_create(DRGN_ERROR_LOOKUP, "thread not found");
-			goto out;
+		if (!prstatus) {
+			prstatus = &_prstatus;
+			err = drgn_program_find_prstatus_by_tid(prog, tid, prstatus);
+			if (err)
+				goto out;
+			if (!prstatus->str) {
+				err = drgn_error_create(DRGN_ERROR_LOOKUP,
+							"thread not found");
+				goto out;
+			}
 		}
 prstatus:
 		if (!prog->platform.arch->prstatus_get_initial_registers) {
@@ -678,8 +686,8 @@ prstatus:
 			goto out;
 		}
 		err = prog->platform.arch->prstatus_get_initial_registers(prog,
-									  prstatus.str,
-									  prstatus.len,
+									  prstatus->str,
+									  prstatus->len,
 									  ret);
 	}
 
@@ -1028,6 +1036,7 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 					       uint32_t tid,
 					       const struct drgn_object *obj,
+					       struct nstring *prstatus,
 					       struct drgn_stack_trace **ret)
 {
 	struct drgn_error *err;
@@ -1054,7 +1063,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	struct drgn_cfi_row *row = drgn_empty_cfi_row;
 
 	struct drgn_register_state *regs;
-	err = drgn_get_initial_registers(prog, tid, obj, &regs);
+	err = drgn_get_initial_registers(prog, tid, obj, prstatus, &regs);
 	if (err)
 		goto out;
 
@@ -1092,7 +1101,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_stack_trace(struct drgn_program *prog, uint32_t tid,
 			 struct drgn_stack_trace **ret)
 {
-	return drgn_get_stack_trace(prog, tid, NULL, ret);
+	return drgn_get_stack_trace(prog, tid, NULL, NULL, ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1108,9 +1117,24 @@ drgn_object_stack_trace(const struct drgn_object *obj,
 		if (err)
 			return err;
 		return drgn_get_stack_trace(drgn_object_program(obj),
-					    value.uvalue, NULL, ret);
+					    value.uvalue, NULL, NULL, ret);
 	} else {
 		return drgn_get_stack_trace(drgn_object_program(obj), 0, obj,
-					    ret);
+					    NULL, ret);
+	}
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_thread_stack_trace(struct drgn_thread *thread,
+			struct drgn_stack_trace **ret)
+{
+	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		struct nstring *prstatus =
+		        thread->prstatus.str ? &thread->prstatus : NULL;
+		return drgn_get_stack_trace(thread->prog, thread->tid,
+					    &thread->object, prstatus, ret);
+	} else {
+		return drgn_get_stack_trace(thread->prog, thread->tid, NULL,
+					    &thread->prstatus, ret);
 	}
 }

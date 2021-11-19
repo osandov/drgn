@@ -199,13 +199,29 @@ Other Concepts
 In addition to the core concepts above, drgn provides a few additional
 abstractions.
 
+Threads
+^^^^^^^
+
+The :class:`drgn.Thread` class represents a thread.
+:meth:`drgn.Program.threads()`, :meth:`drgn.Program.thread()`, and
+:meth:`drgn.Program.crashed_thread()` can be used to find threads::
+
+    >>> for thread in prog.threads():
+    ...     print(thread.tid)
+    ...
+    39143
+    39144
+    >>> print(prog.crashed_thread().tid)
+    39144
+
 Stack Traces
 ^^^^^^^^^^^^
 
 drgn represents stack traces with the :class:`drgn.StackTrace` and
-:class:`drgn.StackFrame` classes. :meth:`drgn.Program.stack_trace()` returns
-the call stack for a thread. The :meth:`[] <drgn.StackFrame.__getitem__>`
-operator looks up an object in the scope of a ``StackFrame``::
+:class:`drgn.StackFrame` classes. :meth:`drgn.Thread.stack_trace()` and
+:meth:`drgn.Program.stack_trace()` return the call stack for a thread. The
+:meth:`[] <drgn.StackFrame.__getitem__>` operator looks up an object in the
+scope of a ``StackFrame``::
 
     >>> trace = prog.stack_trace(115)
     >>> trace

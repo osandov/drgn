@@ -5,6 +5,16 @@
 #include "../stack_trace.h"
 #include "../util.h"
 
+PyObject *StackTrace_wrap(struct drgn_stack_trace *trace) {
+	StackTrace *ret =
+		(StackTrace *)StackTrace_type.tp_alloc(&StackTrace_type, 0);
+	if (!ret)
+		return NULL;
+	Py_INCREF(container_of(trace->prog, Program, prog));
+	ret->trace = trace;
+	return (PyObject *)ret;
+}
+
 static void StackTrace_dealloc(StackTrace *self)
 {
 	struct drgn_program *prog = self->trace->prog;

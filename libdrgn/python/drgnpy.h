@@ -99,6 +99,17 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_thread thread;
+} Thread;
+
+typedef struct {
+	PyObject_HEAD
+	Program *prog;
+	struct drgn_thread_iterator *iterator;
+} ThreadIterator;
+
+typedef struct {
+	PyObject_HEAD
 	const struct drgn_register *reg;
 } Register;
 
@@ -175,6 +186,8 @@ extern PyTypeObject Register_type;
 extern PyTypeObject StackFrame_type;
 extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
+extern PyTypeObject Thread_type;
+extern PyTypeObject ThreadIterator_type;
 extern PyTypeObject TypeEnumerator_type;
 extern PyTypeObject TypeMember_type;
 extern PyTypeObject TypeParameter_type;
@@ -228,6 +241,10 @@ Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, Program *prog);
+
+PyObject *Thread_wrap(struct drgn_thread *drgn_thread);
+
+PyObject *StackTrace_wrap(struct drgn_stack_trace *trace);
 
 static inline Program *DrgnType_prog(DrgnType *type)
 {

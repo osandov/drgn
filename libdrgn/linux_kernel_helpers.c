@@ -629,7 +629,7 @@ void linux_helper_task_iterator_deinit(struct linux_helper_task_iterator *it)
 
 struct drgn_error *
 linux_helper_task_iterator_next(struct linux_helper_task_iterator *it,
-				struct drgn_object **ret)
+				const struct drgn_object **ret)
 {
 	if (it->done) {
 		*ret = NULL;

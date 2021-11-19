@@ -420,6 +420,7 @@ const char * const *drgn_register_names(const struct drgn_register *reg,
 /** @} */
 
 struct drgn_object;
+struct drgn_thread;
 
 /**
  * @defgroup Programs Programs
@@ -2750,6 +2751,114 @@ struct drgn_error *drgn_program_stack_trace(struct drgn_program *prog,
  * @sa drgn_program_stack_trace().
  */
 struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
+					   struct drgn_stack_trace **ret);
+
+/** @} */
+
+/**
+ * @defgroup Threads Threads
+ *
+ * Threads in a program.
+ *
+ * @{
+ */
+
+/**
+ * @struct drgn_thread
+ *
+ * A thread in a program.
+ */
+struct drgn_thread;
+
+/**
+ * Create a copy of a @ref drgn_thread.
+ *
+ * @param[in] thread Thread to copy.
+ * @param[out] ret Returned copy. On success, must be destroyed with @ref
+ * drgn_thread_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_dup(const struct drgn_thread *thread,
+				   struct drgn_thread **ret);
+
+/** Free a @ref drgn_thread. */
+void drgn_thread_destroy(struct drgn_thread *thread);
+
+/**
+ * @struct drgn_thread_iterator
+ *
+ * An iterator over all the threads in a program.
+ */
+struct drgn_thread_iterator;
+
+/**
+ * Get an iterator over all of the threads in the program.
+ *
+ * @param[out] ret Returned iterator, which can be advanced with @ref
+ * drgn_thread_iterator_next, and must be destroyed with @ref
+ * drgn_thread_iterator_destroy.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_thread_iterator_create(struct drgn_program *prog,
+			    struct drgn_thread_iterator **ret);
+
+/** Free a @ref drgn_thread_iterator. */
+void drgn_thread_iterator_destroy(struct drgn_thread_iterator *it);
+
+/**
+ * Get the next thread from a @ref drgn_thread_iterator.
+ *
+ * @param[out] ret Borrowed thread handle, or @c NULL if there are no more
+ * threads. This is valid until until the next call to @ref
+ * drgn_thread_iterator_next() with the same @p it, or until @p it is destroyed.
+ * It may be copied with @ref drgn_thread_dup() if it is needed for longer. This
+ * must NOT be destroyed with @ref drgn_thread_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_iterator_next(struct drgn_thread_iterator *it,
+					     struct drgn_thread **ret);
+
+/**
+ * Get the thread with the given thread ID.
+ *
+ * @param[in] tid Thread ID.
+ * @param[out] ret New thread handle. On success, must be destroyed with @ref
+ * drgn_thread_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_find_thread(struct drgn_program *prog,
+					    uint32_t tid,
+					    struct drgn_thread **ret);
+
+/**
+ * Get the thread that caused the program to crash.
+ *
+ * @param[out] ret Borrowed thread handle. This is valid for the lifetime of @p
+ * prog. This must NOT be destroyed with @ref drgn_thread_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_crashed_thread(struct drgn_program *prog,
+					       struct drgn_thread **ret);
+
+/**
+ * Get the object for the given thread. This is currently only defined for the
+ * Linux kernel.
+ *
+ * @param[out] ret Returned object. This must not be modified and is valid for
+ * the lifetime of @p thread. It can be copied with @ref drgn_object_copy() if
+ * it is needed for longer.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_object(struct drgn_thread *thread,
+				      const struct drgn_object **ret);
+
+/**
+ * Get a stack trace for the thread represented by @p thread.
+ *
+ * @sa drgn_program_stack_trace().
+ */
+struct drgn_error *drgn_thread_stack_trace(struct drgn_thread *thread,
 					   struct drgn_stack_trace **ret);
 
 /** @} */

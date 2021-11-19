@@ -64,9 +64,18 @@ struct vmcoreinfo {
 	bool pgtable_l5_enabled;
 };
 
+struct drgn_thread {
+	struct drgn_program *prog;
+	uint32_t tid;
+	struct nstring prstatus;
+	struct drgn_object object;
+};
+
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *)
 DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct nstring)
-DEFINE_HASH_MAP_TYPE(drgn_prstatus_map, uint32_t, struct nstring)
+DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread)
+
+struct drgn_thread_iterator;
 
 struct drgn_program {
 	/** @privatesection */
@@ -133,7 +142,7 @@ struct drgn_program {
 	enum drgn_program_flags flags;
 
 	/*
-	 * Stack traces.
+	 * Threads/stack traces.
 	 */
 	union {
 		/*
@@ -142,10 +151,11 @@ struct drgn_program {
 		 * map.
 		 */
 		struct drgn_prstatus_vector prstatus_vector;
-		/* For userspace programs, PRSTATUS notes indexed by PID. */
-		struct drgn_prstatus_map prstatus_map;
+		/* For userspace programs, threads indexed by PID. */
+		struct drgn_thread_set thread_set;
 	};
-	bool prstatus_cached;
+	struct drgn_thread *crashed_thread;
+	bool core_dump_notes_cached;
 	bool prefer_orc_unwinder;
 
 	/*
@@ -256,6 +266,11 @@ drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
 	return NULL;
 }
 
+struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
+					    struct drgn_thread *ret);
+
+void drgn_thread_deinit(struct drgn_thread *thread);
+
 /**
  * Find the @c NT_PRSTATUS note for the given CPU.
  *
@@ -287,10 +302,12 @@ struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
  *
  * @param[in] data The pointer to the note data.
  * @param[in] size Size of data in note.
+ * @param[out] ret Thread ID from note.
  */
 struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
-                                                     const char *data,
-						     size_t size);
+						     const char *data,
+						     size_t size,
+						     uint32_t *ret);
 
 /*
  * Like @ref drgn_program_find_symbol_by_address(), but @p ret is already

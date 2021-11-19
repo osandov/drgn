@@ -698,14 +698,13 @@ static DrgnObject *Program_variable(Program *self, PyObject *args,
 				   DRGN_FIND_OBJECT_VARIABLE);
 }
 
-static StackTrace *Program_stack_trace(Program *self, PyObject *args,
-				       PyObject *kwds)
+static PyObject *Program_stack_trace(Program *self, PyObject *args,
+				     PyObject *kwds)
 {
 	static char *keywords[] = {"thread", NULL};
 	struct drgn_error *err;
 	PyObject *thread;
 	struct drgn_stack_trace *trace;
-	StackTrace *ret;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:stack_trace", keywords,
 					 &thread))
@@ -724,13 +723,9 @@ static StackTrace *Program_stack_trace(Program *self, PyObject *args,
 	if (err)
 		return set_drgn_error(err);
 
-	ret = (StackTrace *)StackTrace_type.tp_alloc(&StackTrace_type, 0);
-	if (!ret) {
+	PyObject *ret = StackTrace_wrap(trace);
+	if (!ret)
 		drgn_stack_trace_destroy(trace);
-		return NULL;
-	}
-	ret->trace = trace;
-	Py_INCREF(self);
 	return ret;
 }
 
@@ -763,6 +758,59 @@ static PyObject *Program_symbol(Program *self, PyObject *arg)
 		return NULL;
 	}
 	return ret;
+}
+
+static ThreadIterator *Program_threads(Program *self)
+{
+	struct drgn_thread_iterator *it;
+	struct drgn_error *err = drgn_thread_iterator_create(&self->prog, &it);
+	if (err)
+		return set_drgn_error(err);
+	ThreadIterator *ret =
+		(ThreadIterator *)ThreadIterator_type.tp_alloc(&ThreadIterator_type,
+							       0);
+	if (!ret) {
+		drgn_thread_iterator_destroy(it);
+		return NULL;
+	}
+	ret->prog = self;
+	ret->iterator = it;
+	Py_INCREF(self);
+	return ret;
+}
+
+static PyObject *Program_thread(Program *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"tid", NULL};
+	struct drgn_error *err;
+	struct index_arg tid = {};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&:thread", keywords,
+					 index_converter, &tid))
+		return NULL;
+
+	struct drgn_thread *thread;
+	err = drgn_program_find_thread(&self->prog, tid.uvalue, &thread);
+	if (err)
+		return set_drgn_error(err);
+	if (!thread) {
+		return PyErr_Format(PyExc_LookupError,
+				    "thread with ID %llu not found",
+				    tid.uvalue);
+	}
+	PyObject *ret = Thread_wrap(thread);
+	drgn_thread_destroy(thread);
+	return ret;
+}
+
+static PyObject *Program_crashed_thread(Program *self)
+{
+	struct drgn_error *err;
+	struct drgn_thread *thread;
+	err = drgn_program_crashed_thread(&self->prog, &thread);
+	if (err)
+		return set_drgn_error(err);
+	return Thread_wrap(thread);
 }
 
 static DrgnObject *Program_subscript(Program *self, PyObject *key)
@@ -907,6 +955,12 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_DOC},
 	{"symbol", (PyCFunction)Program_symbol, METH_O,
 	 drgn_Program_symbol_DOC},
+	{"threads", (PyCFunction)Program_threads, METH_NOARGS,
+	 drgn_Program_threads_DOC},
+	{"thread", (PyCFunction)Program_thread,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_thread_DOC},
+	{"crashed_thread", (PyCFunction)Program_crashed_thread, METH_NOARGS,
+	 drgn_Program_crashed_thread_DOC},
 	{"void_type", (PyCFunction)Program_void_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_void_type_DOC},
 	{"int_type", (PyCFunction)Program_int_type,
