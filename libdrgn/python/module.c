@@ -141,6 +141,18 @@ static PyMethodDef drgn_methods[] = {
 	{"_linux_helper_pgtable_l5_enabled",
 	 (PyCFunction)drgnpy_linux_helper_pgtable_l5_enabled,
 	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_for_each_task",
+	 (PyCFunction)drgnpy_linux_helper_for_each_task,
+	 METH_VARARGS | METH_KEYWORDS, drgn__linux_helper_for_each_task_DOC},
+	{"_linux_helper_for_each_pid",
+	 (PyCFunction)drgnpy_linux_helper_for_each_pid,
+	 METH_VARARGS | METH_KEYWORDS, drgn__linux_helper_for_each_pid_DOC},
+	{"_linux_helper_idr_for_each",
+	 (PyCFunction)drgnpy_linux_helper_idr_for_each,
+	 METH_VARARGS | METH_KEYWORDS, drgn__linux_helper_idr_for_each_DOC},
+	{"_linux_helper_radix_tree_for_each",
+	 (PyCFunction)drgnpy_linux_helper_radix_tree_for_each,
+	 METH_VARARGS | METH_KEYWORDS, drgn__linux_helper_radix_tree_for_each_DOC},
 	{},
 };
 
@@ -230,6 +242,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &StackTrace_type) ||
 	    add_type(m, &Symbol_type) ||
 	    add_type(m, &DrgnType_type) ||
+	    add_type(m, &GenericIterator_type) ||
 	    add_type(m, &TypeEnumerator_type) ||
 	    add_type(m, &TypeMember_type) ||
 	    add_type(m, &TypeParameter_type) ||

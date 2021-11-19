@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from multiprocessing import Barrier, Process
 import os
 
 from drgn.helpers.linux.pid import find_pid, find_task, for_each_pid, for_each_task
@@ -30,5 +31,23 @@ class TestPid(LinuxHelperTestCase):
         self.assertEqual(task.comm.string_(), comm)
 
     def test_for_each_task(self):
-        pid = os.getpid()
-        self.assertTrue(any(task.pid == pid for task in for_each_task(self.prog)))
+        NUM_PROCS = 12
+        barrier = Barrier(NUM_PROCS + 1)
+
+        def proc_func():
+            barrier.wait()
+
+        try:
+            procs = [Process(target=proc_func) for _ in range(NUM_PROCS)]
+            for proc in procs:
+                proc.start()
+            pids = {task.pid.value_() for task in for_each_task(self.prog)}
+            for proc in procs:
+                self.assertIn(proc.pid, pids)
+            self.assertIn(os.getpid(), pids)
+            barrier.wait()
+        except:
+            barrier.abort()
+            for proc in procs:
+                proc.terminate()
+            raise
