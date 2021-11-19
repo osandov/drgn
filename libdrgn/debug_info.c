@@ -582,27 +582,51 @@ err:
 }
 
 static struct drgn_error *
+userspace_report_elf_file(struct drgn_debug_info_load_state *load,
+			  const char *path)
+{
+	struct drgn_error *err;
+
+	int fd;
+	Elf *elf;
+	err = open_elf_file(path, &fd, &elf);
+	if (err)
+		goto err;
+
+	GElf_Ehdr ehdr_mem, *ehdr;
+	ehdr = gelf_getehdr(elf, &ehdr_mem);
+	if (!ehdr) {
+		err = drgn_error_libelf();
+		goto err_close;
+	}
+	/*
+	 * We haven't implemented a way to get the load address for dynamically
+	 * loaded or relocatable files, so for now we report those as unloaded.
+	 */
+	uint64_t start = 0, end = 0;
+	if (ehdr->e_type == ET_EXEC || ehdr->e_type == ET_CORE) {
+		err = elf_address_range(elf, 0, &start, &end);
+		if (err)
+			goto err_close;
+	}
+
+	return drgn_debug_info_report_elf(load, path, fd, elf, start, end, NULL,
+					  NULL);
+
+err_close:
+	elf_end(elf);
+	close(fd);
+err:
+	return drgn_debug_info_report_error(load, path, NULL, err);
+}
+
+static struct drgn_error *
 userspace_report_debug_info(struct drgn_debug_info_load_state *load)
 {
 	struct drgn_error *err;
 
 	for (size_t i = 0; i < load->num_paths; i++) {
-		int fd;
-		Elf *elf;
-		err = open_elf_file(load->paths[i], &fd, &elf);
-		if (err) {
-			err = drgn_debug_info_report_error(load, load->paths[i],
-							   NULL, err);
-			if (err)
-				return err;
-			continue;
-		}
-		/*
-		 * We haven't implemented a way to get the load address for
-		 * anything reported here, so for now we report it as unloaded.
-		 */
-		err = drgn_debug_info_report_elf(load, load->paths[i], fd, elf,
-						 0, 0, NULL, NULL);
+		err = userspace_report_elf_file(load, load->paths[i]);
 		if (err)
 			return err;
 	}
@@ -1338,10 +1362,9 @@ struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
 				end = segment_end;
 		}
 	}
-	if (start >= end) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "ELF file has no loadable segments");
-	}
+	/* There were no loadable segments. */
+	if (start >= end)
+		start = end = 0;
 	*start_ret = start;
 	*end_ret = end;
 	return NULL;
