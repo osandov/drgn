@@ -52,19 +52,21 @@ def create_elf_file(
         phdr_struct = struct.Struct(endian + "8I")
         e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
 
-    shstrtab = ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=bytearray(1))
-    tmp = [shstrtab]
-    tmp.extend(sections)
-    sections = tmp
-    shnum = 1  # One for the SHT_NULL section.
+    shnum = 0
     phnum = 0
+    shstrtab = bytearray(1)
     for section in sections:
         if section.name is not None:
-            shstrtab.data.extend(section.name.encode())
-            shstrtab.data.append(0)
+            shstrtab.extend(section.name.encode())
+            shstrtab.append(0)
             shnum += 1
         if section.p_type is not None:
             phnum += 1
+    if shnum > 0:
+        shnum += 2  # One for the SHT_NULL section, one for .shstrtab.
+        shstrtab.extend(b".shstrtab\0")
+        sections = list(sections)
+        sections.append(ElfSection(name=".shstrtab", sh_type=SHT.STRTAB, data=shstrtab))
 
     shdr_offset = ehdr_struct.size
     phdr_offset = shdr_offset + shdr_struct.size * shnum
@@ -94,14 +96,14 @@ def create_elf_file(
         1,  # e_version = EV_CURRENT
         0,  # e_entry
         phdr_offset if phnum else 0,  # e_phoff
-        shdr_offset,  # e_shoff
+        shdr_offset if shnum else 0,  # e_shoff
         0,  # e_flags
         ehdr_struct.size,  # e_ehsize
         phdr_struct.size,  # e_phentsize
         phnum,  # e_phnum
-        shdr_struct.size,  # e_shentsize,
-        shnum,  # e_shnum,
-        1,  # e_shstrndx
+        shdr_struct.size,  # e_shentsize
+        shnum,  # e_shnum
+        shnum - 1 if shnum else 0,  # e_shstrndx
     )
 
     shdr_offset += shdr_struct.size
@@ -113,7 +115,7 @@ def create_elf_file(
             shdr_struct.pack_into(
                 buf,
                 shdr_offset,
-                shstrtab.data.index(section.name.encode()),  # sh_name
+                shstrtab.index(section.name.encode()),  # sh_name
                 section.sh_type,  # sh_type
                 0,  # sh_flags
                 section.vaddr,  # sh_addr
