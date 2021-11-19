@@ -93,7 +93,7 @@ def create_elf_file(
         e_machine,
         1,  # e_version = EV_CURRENT
         0,  # e_entry
-        phdr_offset,  # e_phoff
+        phdr_offset if phnum else 0,  # e_phoff
         shdr_offset,  # e_shoff
         0,  # e_flags
         ehdr_struct.size,  # e_ehsize
