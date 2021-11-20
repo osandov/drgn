@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import struct
-from typing import Optional, Sequence
+from typing import List, NamedTuple, Optional, Sequence
 
-from tests.elf import ET, PT, SHT
+from tests.elf import ET, PT, SHN, SHT, STB, STT, STV
 
 
 class ElfSection:
@@ -18,6 +18,9 @@ class ElfSection:
         paddr: int = 0,
         memsz: Optional[int] = None,
         p_align: int = 0,
+        sh_link: int = 0,
+        sh_info: int = 0,
+        sh_entsize: int = 0,
     ):
         self.data = data
         self.name = name
@@ -27,6 +30,9 @@ class ElfSection:
         self.paddr = paddr
         self.memsz = memsz
         self.p_align = p_align
+        self.sh_link = sh_link
+        self.sh_info = sh_info
+        self.sh_entsize = sh_entsize
 
         assert (self.name is not None) or (self.p_type is not None)
         assert (self.name is None) == (self.sh_type is None)
@@ -36,8 +42,84 @@ class ElfSection:
             self.memsz = len(self.data)
 
 
+class ElfSymbol(NamedTuple):
+    name: str
+    value: int
+    size: int
+    type: STT
+    binding: STB
+    shindex: Optional[int] = None
+    visibility: STV = STV.DEFAULT
+
+    def st_info(self) -> int:
+        return (self.binding << 4) + (self.type & 0xF)
+
+
+def _create_symtab(
+    sections: List[ElfSection],
+    symbols: Sequence[ElfSymbol],
+    little_endian: bool,
+    bits: int,
+):
+    assert not any(section.name in (".symtab", ".strtab") for section in sections)
+
+    endian = "<" if little_endian else ">"
+    if bits == 64:
+        symbol_struct = struct.Struct(endian + "IBBHQQ")
+
+        def symbol_fields(sym: ElfSymbol):
+            return (
+                sym.st_info(),
+                sym.visibility,
+                SHN.UNDEF if sym.shindex is None else sym.shindex,
+                sym.value,
+                sym.size,
+            )
+
+    else:
+        symbol_struct = struct.Struct(endian + "IIIBBH")
+
+        def symbol_fields(sym: ElfSymbol):
+            return (
+                sym.value,
+                sym.size,
+                sym.st_info(),
+                sym.visibility,
+                SHN.UNDEF if sym.shindex is None else sym.shindex,
+            )
+
+    symtab_data = bytearray((len(symbols) + 1) * symbol_struct.size)
+    strtab_data = bytearray(1)
+    sh_info = 1
+    for i, sym in enumerate(symbols, 1):
+        symbol_struct.pack_into(
+            symtab_data, i * symbol_struct.size, len(strtab_data), *symbol_fields(sym)
+        )
+        strtab_data.extend(sym.name.encode())
+        strtab_data.append(0)
+        if sym.binding == STB.LOCAL:
+            assert sh_info == i, "local symbol after non-local symbol"
+            sh_info = i + 1
+
+    sections.append(
+        ElfSection(
+            name=".symtab",
+            sh_type=SHT.SYMTAB,
+            data=symtab_data,
+            sh_link=sum((1 for section in sections if section.name is not None), 2),
+            sh_info=sh_info,
+            sh_entsize=symbol_struct.size,
+        )
+    )
+    sections.append(ElfSection(name=".strtab", sh_type=SHT.STRTAB, data=strtab_data))
+
+
 def create_elf_file(
-    type: ET, sections: Sequence[ElfSection], little_endian: bool = True, bits: int = 64
+    type: ET,
+    sections: Sequence[ElfSection],
+    symbols: Sequence[ElfSymbol] = (),
+    little_endian: bool = True,
+    bits: int = 64,
 ):
     endian = "<" if little_endian else ">"
     if bits == 64:
@@ -52,6 +134,9 @@ def create_elf_file(
         phdr_struct = struct.Struct(endian + "8I")
         e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
 
+    sections = list(sections)
+    if symbols:
+        _create_symtab(sections, symbols, little_endian=little_endian, bits=bits)
     shnum = 0
     phnum = 0
     shstrtab = bytearray(1)
@@ -121,10 +206,10 @@ def create_elf_file(
                 section.vaddr,  # sh_addr
                 len(buf),  # sh_offset
                 len(section.data),  # sh_size
-                0,  # sh_link
-                0,  # sh_info
+                section.sh_link,  # sh_link
+                section.sh_info,  # sh_info
                 1 if section.p_type is None else bits // 8,  # sh_addralign
-                0,  # sh_entsize
+                section.sh_entsize,  # sh_entsize
             )
             shdr_offset += shdr_struct.size
         if section.p_type is not None:

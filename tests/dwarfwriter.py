@@ -203,7 +203,7 @@ def _compile_debug_line(unit_dies, little_endian):
 UNIT_HEADER_TYPES = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
 
 
-def compile_dwarf(
+def dwarf_sections(
     dies, little_endian=True, bits=64, *, lang=None, use_dw_form_indirect=False
 ):
     if isinstance(dies, DwarfDie):
@@ -238,7 +238,6 @@ def compile_dwarf(
     )
 
     sections = [
-        ElfSection(p_type=PT.LOAD, vaddr=0xFFFF0000, data=b""),
         ElfSection(
             name=".debug_abbrev",
             sh_type=SHT.PROGBITS,
@@ -256,5 +255,21 @@ def compile_dwarf(
         sections.append(
             ElfSection(name=".debug_types", sh_type=SHT.PROGBITS, data=debug_types)
         )
+    return sections
 
-    return create_elf_file(ET.EXEC, sections, little_endian=little_endian, bits=bits)
+
+def compile_dwarf(
+    dies, little_endian=True, bits=64, *, lang=None, use_dw_form_indirect=False
+):
+    return create_elf_file(
+        ET.EXEC,
+        dwarf_sections(
+            dies,
+            little_endian=little_endian,
+            bits=bits,
+            lang=lang,
+            use_dw_form_indirect=use_dw_form_indirect,
+        ),
+        little_endian=little_endian,
+        bits=bits,
+    )

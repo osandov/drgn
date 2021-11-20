@@ -11,7 +11,11 @@ ENUMS = {
     "elf": (
         "ET",
         "PT",
+        "SHN",
         "SHT",
+        "STB",
+        "STT",
+        "STV",
     ),
     "dwarf": (
         "DW_AT",
