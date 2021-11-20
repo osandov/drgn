@@ -192,10 +192,19 @@ class Program:
     # address_or_name is positional-only.
     def symbol(self, address_or_name: Union[IntegerLike, str]) -> Symbol:
         """
-        Get the symbol containing the given address, or the global symbol with
-        the given name.
+        Get a symbol containing the given address, or a symbol with the given
+        name.
 
-        :param address_or_name: The address or name.
+        Global symbols are preferred over weak symbols, and weak symbols are
+        preferred over other symbols. In other words: if a matching
+        :attr:`SymbolBinding.GLOBAL` or :attr:`SymbolBinding.UNIQUE` symbol is
+        found, it is returned. Otherwise, if a matching
+        :attr:`SymbolBinding.WEAK` symbol is found, it is returned. Otherwise,
+        any matching symbol (e.g., :attr:`SymbolBinding.LOCAL`) is returned. If
+        there are multiple matching symbols with the same binding, one is
+        returned arbitrarily.
+
+        :param address_or_name: Address or name.
         :raises LookupError: if no symbol contains the given address or matches
             the given name
         """

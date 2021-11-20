@@ -1105,8 +1105,9 @@ drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
 
 struct find_symbol_by_name_arg {
 	const char *name;
-	struct drgn_symbol **ret;
-	struct drgn_error *err;
+	GElf_Sym sym;
+	GElf_Addr addr;
+	bool found;
 	bool bad_symtabs;
 };
 
@@ -1115,33 +1116,43 @@ static int find_symbol_by_name_cb(Dwfl_Module *dwfl_module, void **userdatap,
 				  void *cb_arg)
 {
 	struct find_symbol_by_name_arg *arg = cb_arg;
-	int symtab_len, i;
-
-	symtab_len = dwfl_module_getsymtab(dwfl_module);
-	i = dwfl_module_getsymtab_first_global(dwfl_module);
-	if (symtab_len == -1 || i == -1) {
+	int symtab_len = dwfl_module_getsymtab(dwfl_module);
+	if (symtab_len == -1) {
 		arg->bad_symtabs = true;
 		return DWARF_CB_OK;
 	}
-	for (; i < symtab_len; i++) {
-		GElf_Sym elf_sym;
-		GElf_Addr elf_addr;
-		const char *name;
-
-		name = dwfl_module_getsym_info(dwfl_module, i, &elf_sym,
-					       &elf_addr, NULL, NULL, NULL);
+	/*
+	 * Global symbols are after local symbols, so by iterating backwards we
+	 * might find a global symbol faster. Ignore the zeroth null symbol.
+	 */
+	for (int i = symtab_len - 1; i > 0; i--) {
+		GElf_Sym sym;
+		GElf_Addr addr;
+		const char *name = dwfl_module_getsym_info(dwfl_module, i, &sym,
+							   &addr, NULL, NULL,
+							   NULL);
 		if (name && strcmp(arg->name, name) == 0) {
-			struct drgn_symbol *sym;
-
-			sym = malloc(sizeof(*sym));
-			if (sym) {
-				drgn_symbol_from_elf(name, elf_addr, &elf_sym,
-						     sym);
-				*arg->ret = sym;
-			} else {
-				arg->err = &drgn_enomem;
+			/*
+			 * The order of precedence is
+			 * GLOBAL = GNU_UNIQUE > WEAK > LOCAL = everything else
+			 *
+			 * If we found a global or unique symbol, return it
+			 * immediately. If we found a weak symbol, then save it,
+			 * which may overwrite a previously found weak or local
+			 * symbol. Otherwise, save the symbol only if we haven't
+			 * found another symbol.
+			 */
+			if (GELF_ST_BIND(sym.st_info) == STB_GLOBAL ||
+			    GELF_ST_BIND(sym.st_info) == STB_GNU_UNIQUE ||
+			    GELF_ST_BIND(sym.st_info) == STB_WEAK ||
+			    !arg->found) {
+				arg->sym = sym;
+				arg->addr = addr;
+				arg->found = true;
 			}
-			return DWARF_CB_ABORT;
+			if (GELF_ST_BIND(sym.st_info) == STB_GLOBAL ||
+			    GELF_ST_BIND(sym.st_info) == STB_GNU_UNIQUE)
+				return DWARF_CB_ABORT;
 		}
 	}
 	return DWARF_CB_OK;
@@ -1153,13 +1164,19 @@ drgn_program_find_symbol_by_name(struct drgn_program *prog,
 {
 	struct find_symbol_by_name_arg arg = {
 		.name = name,
-		.ret = ret,
 	};
-
-	if (prog->dbinfo &&
-	    dwfl_getmodules(prog->dbinfo->dwfl, find_symbol_by_name_cb, &arg,
-			    0))
-		return arg.err;
+	if (prog->dbinfo) {
+		dwfl_getmodules(prog->dbinfo->dwfl, find_symbol_by_name_cb,
+				&arg, 0);
+		if (arg.found) {
+			struct drgn_symbol *sym = malloc(sizeof(*sym));
+			if (!sym)
+				return &drgn_enomem;
+			drgn_symbol_from_elf(name, arg.addr, &arg.sym, sym);
+			*ret = sym;
+			return NULL;
+		}
+	}
 	return drgn_error_format(DRGN_ERROR_LOOKUP,
 				 "could not find symbol with name '%s'%s", name,
 				 arg.bad_symtabs ?
