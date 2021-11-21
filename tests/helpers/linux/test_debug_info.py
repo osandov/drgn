@@ -10,7 +10,7 @@ from tests.helpers.linux import LinuxHelperTestCase, setenv
 class TestModuleDebugInfo(LinuxHelperTestCase):
     # Arbitrary symbol that we can use to check that the module debug info was
     # loaded.
-    SYMBOL = "loop_register_transfer"
+    SYMBOL = "lo_fops"
 
     def setUp(self):
         super().setUp()
