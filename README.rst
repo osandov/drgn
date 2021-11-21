@@ -202,7 +202,7 @@ License
 
 .. start-license
 
-Copyright (c) Facebook, Inc. and its affiliates.
+Copyright (c) Meta Platforms, Inc. and affiliates.
 
 drgn is licensed under the `GPLv3
 <https://www.gnu.org/licenses/gpl-3.0.en.html>`_ or later.
