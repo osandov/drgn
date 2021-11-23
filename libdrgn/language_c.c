@@ -28,7 +28,7 @@
 static struct drgn_error *
 c_declare_variable(struct drgn_qualified_type qualified_type,
 		   struct string_callback *name, size_t indent,
-		   struct string_builder *sb);
+		   bool define_anonymous_type, struct string_builder *sb);
 
 static struct drgn_error *
 c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
@@ -156,16 +156,20 @@ c_append_tagged_name(struct drgn_qualified_type qualified_type, size_t indent,
 static struct drgn_error *
 c_declare_tagged(struct drgn_qualified_type qualified_type,
 		 struct string_callback *name, size_t indent,
-		 struct string_builder *sb)
+		 bool define_anonymous_type, struct string_builder *sb)
 {
 	struct drgn_error *err;
 
-	if (drgn_type_is_anonymous(qualified_type.type))
+	bool anonymous = drgn_type_is_anonymous(qualified_type.type);
+	if (anonymous && define_anonymous_type)
 		err = c_define_type(qualified_type, indent, sb);
 	else
 		err = c_append_tagged_name(qualified_type, indent, sb);
 	if (err)
 		return err;
+	if (anonymous && !define_anonymous_type &&
+	    !string_builder_append(sb, " <anonymous>"))
+		return &drgn_enomem;
 
 	if (name) {
 		if (!string_builder_appendc(sb, ' '))
@@ -229,7 +233,8 @@ c_declare_pointer(struct drgn_qualified_type qualified_type,
 	struct drgn_qualified_type referenced_type;
 
 	referenced_type = drgn_type_type(qualified_type.type);
-	return c_declare_variable(referenced_type, &pointer_name, indent, sb);
+	return c_declare_variable(referenced_type, &pointer_name, indent, false,
+				  sb);
 }
 
 static struct drgn_error *c_array_name(struct string_callback *name, void *arg,
@@ -267,7 +272,7 @@ c_declare_array(struct drgn_qualified_type qualified_type,
 	struct drgn_qualified_type element_type;
 
 	element_type = drgn_type_type(qualified_type.type);
-	return c_declare_variable(element_type, &array_name, indent, sb);
+	return c_declare_variable(element_type, &array_name, indent, false, sb);
 }
 
 static struct drgn_error *
@@ -289,7 +294,7 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 	num_parameters = drgn_type_num_parameters(qualified_type.type);
 
 	return_type = drgn_type_type(qualified_type.type);
-	err = c_declare_variable(return_type, name, indent, sb);
+	err = c_declare_variable(return_type, name, indent, false, sb);
 	if (err)
 		return err;
 
@@ -314,7 +319,7 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 		}
 		err = c_declare_variable(parameter_type,
 					 parameter_name && parameter_name[0] ?
-					 &name_cb : NULL, 0, sb);
+					 &name_cb : NULL, 0, false, sb);
 		if (err)
 			return err;
 	}
@@ -335,7 +340,7 @@ c_declare_function(struct drgn_qualified_type qualified_type,
 static struct drgn_error *
 c_declare_variable(struct drgn_qualified_type qualified_type,
 		   struct string_callback *name, size_t indent,
-		   struct string_builder *sb)
+		   bool define_anonymous_type, struct string_builder *sb)
 {
 	SWITCH_ENUM(drgn_type_kind(qualified_type.type),
 	case DRGN_TYPE_VOID:
@@ -348,7 +353,8 @@ c_declare_variable(struct drgn_qualified_type qualified_type,
 	case DRGN_TYPE_UNION:
 	case DRGN_TYPE_CLASS:
 	case DRGN_TYPE_ENUM:
-		return c_declare_tagged(qualified_type, name, indent, sb);
+		return c_declare_tagged(qualified_type, name, indent,
+					define_anonymous_type, sb);
 	case DRGN_TYPE_POINTER:
 		return c_declare_pointer(qualified_type, name, indent, sb);
 	case DRGN_TYPE_ARRAY:
@@ -395,7 +401,7 @@ c_define_compound(struct drgn_qualified_type qualified_type, size_t indent,
 		};
 		err = c_declare_variable(member_type,
 					 member_name && member_name[0] ?
-					 &name_cb : NULL, indent + 1, sb);
+					 &name_cb : NULL, indent + 1, true, sb);
 		if (err)
 			return err;
 		if (member_bit_field_size &&
@@ -480,7 +486,7 @@ c_define_typedef(struct drgn_qualified_type qualified_type, size_t indent,
 		return &drgn_enomem;
 
 	aliased_type = drgn_type_type(qualified_type.type);
-	return c_declare_variable(aliased_type, &typedef_name, 0, sb);
+	return c_declare_variable(aliased_type, &typedef_name, 0, true, sb);
 }
 
 static struct drgn_error *
@@ -512,26 +518,10 @@ c_define_type(struct drgn_qualified_type qualified_type, size_t indent,
 }
 
 static struct drgn_error *
-c_anonymous_type_name(struct drgn_qualified_type qualified_type,
-		      struct string_builder *sb)
-{
-	struct drgn_error *err;
-
-	err = c_append_tagged_name(qualified_type, 0, sb);
-	if (err)
-		return err;
-	if (!string_builder_append(sb, " <anonymous>"))
-		return &drgn_enomem;
-	return NULL;
-}
-
-static struct drgn_error *
 c_format_type_name_impl(struct drgn_qualified_type qualified_type,
 			struct string_builder *sb)
 {
-	if (drgn_type_is_anonymous(qualified_type.type)) {
-		return c_anonymous_type_name(qualified_type, sb);
-	} else if (drgn_type_kind(qualified_type.type) == DRGN_TYPE_FUNCTION) {
+	if (drgn_type_kind(qualified_type.type) == DRGN_TYPE_FUNCTION) {
 		struct string_callback name_cb = {
 			.fn = c_variable_name,
 			.arg = (void *)"",
@@ -539,7 +529,7 @@ c_format_type_name_impl(struct drgn_qualified_type qualified_type,
 
 		return c_declare_function(qualified_type, &name_cb, 0, sb);
 	} else {
-		return c_declare_variable(qualified_type, NULL, 0, sb);
+		return c_declare_variable(qualified_type, NULL, 0, false, sb);
 	}
 }
 
