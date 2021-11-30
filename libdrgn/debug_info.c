@@ -865,9 +865,10 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 				goto out;
 		}
 	}
+	err = NULL;
 out:
 	free(sh_addrs);
-	return NULL;
+	return err;
 }
 
 static struct drgn_error *
