@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <byteswap.h>
 #include <elf.h>
 #include <stdlib.h>
 
@@ -150,3 +151,35 @@ drgn_register_names(const struct drgn_register *reg, size_t *num_names_ret)
 	*num_names_ret = reg->num_names;
 	return reg->names;
 }
+
+static struct drgn_error drgn_invalid_relocation_offset = {
+	.code = DRGN_ERROR_OTHER,
+	.message = "invalid relocation offset",
+};
+
+#define DEFINE_DRGN_RELOC_ADD(bits)						\
+struct drgn_error *								\
+drgn_reloc_add##bits(const struct drgn_relocating_section *relocating,		\
+		     uint64_t r_offset, const int64_t *r_addend,		\
+		     uint##bits##_t addend)					\
+{										\
+	uint##bits##_t value;							\
+	if (r_offset > relocating->buf_size ||					\
+	    relocating->buf_size - r_offset < sizeof(value))			\
+		return &drgn_invalid_relocation_offset;				\
+	if (r_addend) {								\
+		value = *r_addend;						\
+	} else {								\
+		memcpy(&value, relocating->buf + r_offset, sizeof(value));	\
+		if (relocating->bswap)						\
+			value = bswap_##bits(value);				\
+	}									\
+	value += addend;							\
+	if (relocating->bswap)							\
+		value = bswap_##bits(value);					\
+	memcpy(relocating->buf + r_offset, &value, sizeof(value));		\
+	return NULL;								\
+}
+DEFINE_DRGN_RELOC_ADD(64)
+DEFINE_DRGN_RELOC_ADD(32)
+#undef DEFINE_DRGN_RELOC_ADD

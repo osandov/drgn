@@ -4,6 +4,7 @@
 #ifndef DRGN_PLATFORM_H
 #define DRGN_PLATFORM_H
 
+#include <inttypes.h>
 #include <gelf.h>
 
 #include "cfi.h"
@@ -33,10 +34,38 @@ struct drgn_relocating_section {
 	bool bswap;
 };
 
+/*
+ * Apply an ELF relocation as:
+ *
+ * - `*dst = addend + *r_addend` if `r_addend` is not `NULL` (for `ElfN_Rela`)
+ * - `*dst += addend` if `r_addend` is `NULL` (for `ElfN_Rel`)
+ *
+ * Where `dst = (uintN_t *)(relocating->buf + r_offset)`.
+ *
+ * This checks bounds and handles unaligned destinations and byte swapping. It
+ * does not check for overflow.
+ */
+struct drgn_error *
+drgn_reloc_add64(const struct drgn_relocating_section *relocating,
+		 uint64_t r_offset, const int64_t *r_addend, uint64_t addend);
+struct drgn_error *
+drgn_reloc_add32(const struct drgn_relocating_section *relocating,
+		 uint64_t r_offset, const int64_t *r_addend, uint32_t addend);
+
+#define DRGN_UNKNOWN_RELOCATION_TYPE(r_type)				\
+	drgn_error_format(DRGN_ERROR_OTHER,				\
+			  "unknown relocation type %" PRIu32 " in %s; "	\
+			  "please report this to %s",			\
+			  (r_type), __func__, PACKAGE_BUGREPORT)
+
+/*
+ * Apply an ELF relocation. If @p r_addend is `NULL`, then this is an `ElfN_Rel`
+ * relocation. Otherwise, this is an `ElfN_Rela` relocation.
+ */
 typedef struct drgn_error *
-apply_elf_rela_fn(const struct drgn_relocating_section *relocating,
-		  uint64_t r_offset, uint32_t r_type, int64_t r_addend,
-		  uint64_t sym_value);
+apply_elf_reloc_fn(const struct drgn_relocating_section *relocating,
+		   uint64_t r_offset, uint32_t r_type, const int64_t *r_addend,
+		   uint64_t sym_value);
 
 /* Page table iterator. */
 struct pgtable_iterator {
@@ -106,7 +135,7 @@ struct drgn_architecture_info {
 							     struct drgn_register_state **);
 	struct drgn_error *(*linux_kernel_get_initial_registers)(const struct drgn_object *,
 								 struct drgn_register_state **);
-	apply_elf_rela_fn *apply_elf_rela;
+	apply_elf_reloc_fn *apply_elf_reloc;
 	struct drgn_error *(*linux_kernel_get_page_offset)(struct drgn_object *);
 	struct drgn_error *(*linux_kernel_get_vmemmap)(struct drgn_object *);
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *,

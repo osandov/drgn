@@ -3,7 +3,6 @@
 
 #include <byteswap.h>
 #include <elf.h>
-#include <inttypes.h>
 #include <string.h>
 
 #include "array.h"
@@ -476,53 +475,26 @@ out:
 }
 
 static struct drgn_error *
-apply_elf_rela_x86_64(const struct drgn_relocating_section *relocating,
-		      uint64_t r_offset, uint32_t r_type, int64_t r_addend,
-		      uint64_t sym_value)
+apply_elf_reloc_x86_64(const struct drgn_relocating_section *relocating,
+		       uint64_t r_offset, uint32_t r_type,
+		       const int64_t *r_addend, uint64_t sym_value)
 {
-	if (r_offset > relocating->buf_size) {
-invalid_offset:
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "invalid ELF relocation offset");
-	}
-	size_t dst_size = relocating->buf_size - r_offset;
-	char *dst = relocating->buf + r_offset;
 	switch (r_type) {
 	case R_X86_64_NONE:
-		break;
-	case R_X86_64_64: {
-		uint64_t value = sym_value + r_addend;
-		if (dst_size < sizeof(value))
-			goto invalid_offset;
-		if (relocating->bswap)
-			value = bswap_64(value);
-		memcpy(dst, &value, sizeof(value));
-		break;
-	}
-	case R_X86_64_PC32: {
-		uint32_t value = sym_value + r_addend - (relocating->addr + r_offset);
-		if (dst_size < sizeof(value))
-			goto invalid_offset;
-		if (relocating->bswap)
-			value = bswap_32(value);
-		memcpy(dst, &value, sizeof(value));
-		break;
-	}
-	case R_X86_64_32: {
-		uint32_t value = sym_value + r_addend;
-		if (dst_size < sizeof(value))
-			goto invalid_offset;
-		if (relocating->bswap)
-			value = bswap_32(value);
-		memcpy(dst, &value, sizeof(value));
-		break;
-	}
+		return NULL;
+	case R_X86_64_64:
+		return drgn_reloc_add64(relocating, r_offset, r_addend,
+					sym_value);
+	case R_X86_64_PC32:
+		return drgn_reloc_add32(relocating, r_offset, r_addend,
+					sym_value
+					- (relocating->addr + r_offset));
+	case R_X86_64_32:
+		return drgn_reloc_add32(relocating, r_offset, r_addend,
+					sym_value);
 	default:
-		return drgn_error_format(DRGN_ERROR_OTHER,
-					 "unimplemented ELF relocation type %" PRIu32,
-					 r_type);
+		return DRGN_UNKNOWN_RELOCATION_TYPE(r_type);
 	}
-	return NULL;
 }
 
 static struct drgn_error *
@@ -758,7 +730,7 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_x86_64,
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_x86_64,
-	.apply_elf_rela = apply_elf_rela_x86_64,
+	.apply_elf_reloc = apply_elf_reloc_x86_64,
 	.linux_kernel_get_page_offset = linux_kernel_get_page_offset_x86_64,
 	.linux_kernel_get_vmemmap = linux_kernel_get_vmemmap_x86_64,
 	.linux_kernel_live_direct_mapping_fallback =
