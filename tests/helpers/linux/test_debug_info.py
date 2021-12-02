@@ -2,15 +2,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import os
+from pathlib import Path
+import unittest
 
 from drgn import Program
 from tests.helpers.linux import LinuxHelperTestCase, setenv
 
+KALLSYMS_PATH = Path("/proc/kallsyms")
 
+
+@unittest.skipUnless(
+    KALLSYMS_PATH.exists(), "kernel does not have kallsyms (CONFIG_KALLSYMS)"
+)
 class TestModuleDebugInfo(LinuxHelperTestCase):
     # Arbitrary symbol that we can use to check that the module debug info was
     # loaded.
-    SYMBOL = "lo_fops"
+    SYMBOL = "lo_open"
 
     def setUp(self):
         super().setUp()
@@ -21,7 +28,7 @@ class TestModuleDebugInfo(LinuxHelperTestCase):
             else:
                 self.skipTest("loop module is built in or not loaded")
 
-        with open("/proc/kallsyms", "r") as f:
+        with KALLSYMS_PATH.open() as f:
             for line in f:
                 tokens = line.split()
                 if tokens[2] == self.SYMBOL:
