@@ -278,6 +278,33 @@ out:
 	return err;
 }
 
+static struct drgn_error *
+apply_elf_reloc_ppc64(const struct drgn_relocating_section *relocating,
+		      uint64_t r_offset, uint32_t r_type,
+		      const int64_t *r_addend, uint64_t sym_value)
+{
+	switch (r_type) {
+	case R_PPC64_NONE:
+		return NULL;
+	case R_PPC64_ADDR32:
+		return drgn_reloc_add32(relocating, r_offset, r_addend,
+					sym_value);
+	case R_PPC64_REL32:
+		return drgn_reloc_add32(relocating, r_offset, r_addend,
+					sym_value
+					- (relocating->addr + r_offset));
+	case R_PPC64_ADDR64:
+		return drgn_reloc_add64(relocating, r_offset, r_addend,
+					sym_value);
+	case R_PPC64_REL64:
+		return drgn_reloc_add64(relocating, r_offset, r_addend,
+					sym_value
+					- (relocating->addr + r_offset));
+	default:
+		return DRGN_UNKNOWN_RELOCATION_TYPE(r_type);
+	}
+}
+
 const struct drgn_architecture_info arch_info_ppc64 = {
 	.name = "ppc64",
 	.arch = DRGN_ARCH_PPC64,
@@ -290,4 +317,5 @@ const struct drgn_architecture_info arch_info_ppc64 = {
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_ppc64,
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_ppc64,
+	.apply_elf_reloc = apply_elf_reloc_ppc64,
 };
