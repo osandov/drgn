@@ -944,6 +944,9 @@ class Architecture(enum.Enum):
     I386 = ...
     """The 32-bit x86 architecture, a.k.a. i386 or IA-32."""
 
+    AARCH64 = ...
+    """The AArch64 architecture, a.k.a. ARM64."""
+
     PPC64 = ...
     """The 64-bit PowerPC architecture."""
 

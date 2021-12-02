@@ -51,6 +51,9 @@ drgn_reloc_add64(const struct drgn_relocating_section *relocating,
 struct drgn_error *
 drgn_reloc_add32(const struct drgn_relocating_section *relocating,
 		 uint64_t r_offset, const int64_t *r_addend, uint32_t addend);
+struct drgn_error *
+drgn_reloc_add16(const struct drgn_relocating_section *relocating,
+		 uint64_t r_offset, const int64_t *r_addend, uint16_t addend);
 
 #define DRGN_UNKNOWN_RELOCATION_TYPE(r_type)				\
 	drgn_error_format(DRGN_ERROR_OTHER,				\
@@ -154,6 +157,7 @@ const struct drgn_register *drgn_register_by_name_unknown(const char *name);
 extern const struct drgn_architecture_info arch_info_unknown;
 extern const struct drgn_architecture_info arch_info_x86_64;
 extern const struct drgn_architecture_info arch_info_i386;
+extern const struct drgn_architecture_info arch_info_aarch64;
 extern const struct drgn_architecture_info arch_info_ppc64;
 
 struct drgn_platform {
