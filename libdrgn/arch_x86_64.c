@@ -489,9 +489,18 @@ apply_elf_reloc_x86_64(const struct drgn_relocating_section *relocating,
 		return drgn_reloc_add32(relocating, r_offset, r_addend,
 					sym_value
 					- (relocating->addr + r_offset));
+	/*
+	 * The only difference between 32 and 32S is how overflow is checked,
+	 * which we don't do.
+	 */
 	case R_X86_64_32:
+	case R_X86_64_32S:
 		return drgn_reloc_add32(relocating, r_offset, r_addend,
 					sym_value);
+	case R_X86_64_PC64:
+		return drgn_reloc_add64(relocating, r_offset, r_addend,
+					sym_value
+					- (relocating->addr + r_offset));
 	default:
 		return DRGN_UNKNOWN_RELOCATION_TYPE(r_type);
 	}
