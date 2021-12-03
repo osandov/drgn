@@ -8,7 +8,7 @@
 #include "platform.h"
 #include "util.h"
 
-static const struct drgn_register *register_by_name_unknown(const char *name)
+const struct drgn_register *drgn_register_by_name_unknown(const char *name)
 {
 	return NULL;
 }
@@ -16,12 +16,14 @@ static const struct drgn_register *register_by_name_unknown(const char *name)
 const struct drgn_architecture_info arch_info_unknown = {
 	.name = "unknown",
 	.arch = DRGN_ARCH_UNKNOWN,
-	.register_by_name = register_by_name_unknown,
+	.register_by_name = drgn_register_by_name_unknown,
 };
 
 LIBDRGN_PUBLIC const struct drgn_platform drgn_host_platform = {
-#ifdef __x86_64__
+#if __x86_64__
 	.arch = &arch_info_x86_64,
+#elif __i386__
+	.arch = &arch_info_i386,
 #elif __powerpc64__
 	.arch = &arch_info_ppc64,
 #else
@@ -44,6 +46,9 @@ drgn_platform_create(enum drgn_architecture arch,
 		break;
 	case DRGN_ARCH_X86_64:
 		arch_info = &arch_info_x86_64;
+		break;
+	case DRGN_ARCH_I386:
+		arch_info = &arch_info_i386;
 		break;
 	case DRGN_ARCH_PPC64:
 		arch_info = &arch_info_ppc64;
@@ -114,6 +119,9 @@ void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret)
 	switch (ehdr->e_machine) {
 	case EM_X86_64:
 		arch = &arch_info_x86_64;
+		break;
+	case EM_386:
+		arch = &arch_info_i386;
 		break;
 	case EM_PPC64:
 		arch = &arch_info_ppc64;

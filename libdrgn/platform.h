@@ -149,8 +149,11 @@ struct drgn_architecture_info {
 	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
 };
 
+const struct drgn_register *drgn_register_by_name_unknown(const char *name);
+
 extern const struct drgn_architecture_info arch_info_unknown;
 extern const struct drgn_architecture_info arch_info_x86_64;
+extern const struct drgn_architecture_info arch_info_i386;
 extern const struct drgn_architecture_info arch_info_ppc64;
 
 struct drgn_platform {

@@ -939,7 +939,10 @@ class Architecture(enum.Enum):
     """An ``Architecture`` represents an instruction set architecture."""
 
     X86_64 = ...
-    """The x86-64 architecture, a.k.a. AMD64."""
+    """The x86-64 architecture, a.k.a. AMD64 or Intel 64."""
+
+    I386 = ...
+    """The 32-bit x86 architecture, a.k.a. i386 or IA-32."""
 
     PPC64 = ...
     """The 64-bit PowerPC architecture."""
