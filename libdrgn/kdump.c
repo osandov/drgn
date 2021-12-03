@@ -35,6 +35,7 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 		arch = &arch_info_arm;
 	else if (strcmp(str, KDUMP_ARCH_PPC64) == 0)
 		arch = &arch_info_ppc64;
+	/* libkdumpfile doesn't support RISC-V */
 	else
 		arch = &arch_info_unknown;
 

@@ -30,6 +30,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 arch_arm.c \
 			 arch_i386.c \
 			 arch_register_layout.h \
+			 arch_riscv.c \
 			 array.h \
 			 binary_buffer.c \
 			 binary_buffer.h \

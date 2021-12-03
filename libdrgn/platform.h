@@ -34,6 +34,8 @@ struct drgn_relocating_section {
 	bool bswap;
 };
 
+extern struct drgn_error drgn_invalid_relocation_offset;
+
 /*
  * Apply an ELF relocation as:
  *
@@ -54,6 +56,9 @@ drgn_reloc_add32(const struct drgn_relocating_section *relocating,
 struct drgn_error *
 drgn_reloc_add16(const struct drgn_relocating_section *relocating,
 		 uint64_t r_offset, const int64_t *r_addend, uint16_t addend);
+struct drgn_error *
+drgn_reloc_add8(const struct drgn_relocating_section *relocating,
+		uint64_t r_offset, const int64_t *r_addend, uint8_t addend);
 
 #define DRGN_UNKNOWN_RELOCATION_TYPE(r_type)				\
 	drgn_error_format(DRGN_ERROR_OTHER,				\
@@ -160,6 +165,8 @@ extern const struct drgn_architecture_info arch_info_i386;
 extern const struct drgn_architecture_info arch_info_aarch64;
 extern const struct drgn_architecture_info arch_info_arm;
 extern const struct drgn_architecture_info arch_info_ppc64;
+extern const struct drgn_architecture_info arch_info_riscv64;
+extern const struct drgn_architecture_info arch_info_riscv32;
 
 struct drgn_platform {
 	const struct drgn_architecture_info *arch;

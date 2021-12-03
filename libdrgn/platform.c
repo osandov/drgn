@@ -30,6 +30,14 @@ LIBDRGN_PUBLIC const struct drgn_platform drgn_host_platform = {
 	.arch = &arch_info_arm,
 #elif __powerpc64__
 	.arch = &arch_info_ppc64,
+#elif __riscv
+#if __riscv_xlen == 64
+	.arch = &arch_info_riscv64,
+#elif __riscv_xlen == 32
+	.arch = &arch_info_riscv32,
+#else
+#error "unknown __riscv_xlen"
+#endif
 #else
 	.arch = &arch_info_unknown,
 #endif
@@ -62,6 +70,12 @@ drgn_platform_create(enum drgn_architecture arch,
 		break;
 	case DRGN_ARCH_PPC64:
 		arch_info = &arch_info_ppc64;
+		break;
+	case DRGN_ARCH_RISCV64:
+		arch_info = &arch_info_riscv64;
+		break;
+	case DRGN_ARCH_RISCV32:
+		arch_info = &arch_info_riscv32;
 		break;
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -142,6 +156,12 @@ void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret)
 	case EM_PPC64:
 		arch = &arch_info_ppc64;
 		break;
+	case EM_RISCV:
+		if (ehdr->e_ident[EI_CLASS] == ELFCLASS64)
+			arch = &arch_info_riscv64;
+		else
+			arch = &arch_info_riscv32;
+		break;
 	default:
 		arch = &arch_info_unknown;
 		break;
@@ -176,7 +196,7 @@ drgn_register_names(const struct drgn_register *reg, size_t *num_names_ret)
 	return reg->names;
 }
 
-static struct drgn_error drgn_invalid_relocation_offset = {
+struct drgn_error drgn_invalid_relocation_offset = {
 	.code = DRGN_ERROR_OTHER,
 	.message = "invalid relocation offset",
 };
@@ -207,4 +227,7 @@ drgn_reloc_add##bits(const struct drgn_relocating_section *relocating,		\
 DEFINE_DRGN_RELOC_ADD(64)
 DEFINE_DRGN_RELOC_ADD(32)
 DEFINE_DRGN_RELOC_ADD(16)
+#define bswap_8(x) (x)
+DEFINE_DRGN_RELOC_ADD(8)
+#undef bswap_8
 #undef DEFINE_DRGN_RELOC_ADD
