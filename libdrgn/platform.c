@@ -26,6 +26,8 @@ LIBDRGN_PUBLIC const struct drgn_platform drgn_host_platform = {
 	.arch = &arch_info_i386,
 #elif __aarch64__
 	.arch = &arch_info_aarch64,
+#elif __arm__
+	.arch = &arch_info_arm,
 #elif __powerpc64__
 	.arch = &arch_info_ppc64,
 #else
@@ -54,6 +56,9 @@ drgn_platform_create(enum drgn_architecture arch,
 		break;
 	case DRGN_ARCH_AARCH64:
 		arch_info = &arch_info_aarch64;
+		break;
+	case DRGN_ARCH_ARM:
+		arch_info = &arch_info_arm;
 		break;
 	case DRGN_ARCH_PPC64:
 		arch_info = &arch_info_ppc64;
@@ -130,6 +135,9 @@ void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret)
 		break;
 	case EM_AARCH64:
 		arch = &arch_info_aarch64;
+		break;
+	case EM_ARM:
+		arch = &arch_info_arm;
 		break;
 	case EM_PPC64:
 		arch = &arch_info_ppc64;

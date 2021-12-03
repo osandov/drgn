@@ -158,6 +158,7 @@ extern const struct drgn_architecture_info arch_info_unknown;
 extern const struct drgn_architecture_info arch_info_x86_64;
 extern const struct drgn_architecture_info arch_info_i386;
 extern const struct drgn_architecture_info arch_info_aarch64;
+extern const struct drgn_architecture_info arch_info_arm;
 extern const struct drgn_architecture_info arch_info_ppc64;
 
 struct drgn_platform {

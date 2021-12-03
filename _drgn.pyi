@@ -947,6 +947,9 @@ class Architecture(enum.Enum):
     AARCH64 = ...
     """The AArch64 architecture, a.k.a. ARM64."""
 
+    ARM = ...
+    """The 32-bit Arm architecture."""
+
     PPC64 = ...
     """The 64-bit PowerPC architecture."""
 
