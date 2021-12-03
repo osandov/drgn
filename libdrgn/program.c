@@ -293,11 +293,13 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 
 				name = (char *)data->d_buf + name_offset;
 				desc = (char *)data->d_buf + desc_offset;
-				if (strncmp(name, "CORE", nhdr.n_namesz) == 0) {
+				if (nhdr.n_namesz == sizeof("CORE") &&
+				    memcmp(name, "CORE", sizeof("CORE")) == 0) {
 					if (nhdr.n_type == NT_TASKSTRUCT)
 						have_nt_taskstruct = true;
-				} else if (strncmp(name, "VMCOREINFO",
-						   nhdr.n_namesz) == 0) {
+				} else if (nhdr.n_namesz == sizeof("VMCOREINFO") &&
+					   memcmp(name, "VMCOREINFO",
+						  sizeof("VMCOREINFO")) == 0) {
 					vmcoreinfo_note = desc;
 					vmcoreinfo_size = nhdr.n_descsz;
 					/*
