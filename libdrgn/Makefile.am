@@ -35,6 +35,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 arch_arm.c \
 			 arch_i386.c \
 			 arch_riscv.c \
+			 arch_s390x.c \
 			 array.h \
 			 binary_buffer.c \
 			 binary_buffer.h \

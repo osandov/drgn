@@ -36,6 +36,10 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 	else if (strcmp(str, KDUMP_ARCH_PPC64) == 0)
 		arch = &arch_info_ppc64;
 	/* libkdumpfile doesn't support RISC-V */
+	else if (strcmp(str, KDUMP_ARCH_S390X) == 0)
+		arch = &arch_info_s390x;
+	else if (strcmp(str, KDUMP_ARCH_S390) == 0)
+		arch = &arch_info_s390;
 	else
 		arch = &arch_info_unknown;
 

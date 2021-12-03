@@ -38,6 +38,11 @@ LIBDRGN_PUBLIC const struct drgn_platform drgn_host_platform = {
 #else
 #error "unknown __riscv_xlen"
 #endif
+#elif __s390x__
+	.arch = &arch_info_s390x,
+// __s390__ is also defined for s390x, so the order is important.
+#elif __s390__
+	.arch = &arch_info_s390,
 #else
 	.arch = &arch_info_unknown,
 #endif
@@ -76,6 +81,12 @@ drgn_platform_create(enum drgn_architecture arch,
 		break;
 	case DRGN_ARCH_RISCV32:
 		arch_info = &arch_info_riscv32;
+		break;
+	case DRGN_ARCH_S390X:
+		arch_info = &arch_info_s390x;
+		break;
+	case DRGN_ARCH_S390:
+		arch_info = &arch_info_s390;
 		break;
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -161,6 +172,12 @@ void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret)
 			arch = &arch_info_riscv64;
 		else
 			arch = &arch_info_riscv32;
+		break;
+	case EM_S390:
+		if (ehdr->e_ident[EI_CLASS] == ELFCLASS64)
+			arch = &arch_info_s390x;
+		else
+			arch = &arch_info_s390;
 		break;
 	default:
 		arch = &arch_info_unknown;

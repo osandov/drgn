@@ -375,6 +375,8 @@ enum drgn_architecture {
 	DRGN_ARCH_PPC64,
 	DRGN_ARCH_RISCV64,
 	DRGN_ARCH_RISCV32,
+	DRGN_ARCH_S390X,
+	DRGN_ARCH_S390,
 };
 
 /** Flags describing a @ref drgn_platform. */
