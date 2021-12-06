@@ -527,9 +527,9 @@ drgn_debug_info_report_elf(struct drgn_debug_info_load_state *load,
 	ssize_t build_id_len = dwelf_elf_gnu_build_id(elf, &build_id);
 	if (build_id_len < 0) {
 		err = drgn_debug_info_report_error(load, path, NULL,
-						   drgn_error_libdwfl());
-		close(fd);
+						   drgn_error_libelf());
 		elf_end(elf);
+		close(fd);
 		return err;
 	} else if (build_id_len == 0) {
 		build_id = NULL;
