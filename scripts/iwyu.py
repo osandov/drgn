@@ -219,8 +219,6 @@ def main():
             + [
                 "-Xiwyu",
                 "--mapping_file=" + os.path.abspath(python_mapping_file),
-                "-Xiwyu",
-                "--mapping_file=" + os.path.abspath("scripts/iwyu.imp"),
                 "-w",  # We don't want warnings from Clang.
             ],
             cwd=command["directory"],
