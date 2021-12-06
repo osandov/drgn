@@ -1328,45 +1328,54 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 	return NULL;
 }
 
+/*
+ * Get the start address from the first loadable segment and the end address
+ * from the last loadable segment.
+ *
+ * The ELF specification states that loadable segments are sorted on p_vaddr.
+ * However, vmlinux on x86-64 has an out of order segment for .data..percpu, and
+ * Arm has a couple for .vector and .stubs. Thankfully, those are placed in the
+ * middle by the vmlinux linker script, so we can still rely on the first and
+ * last loadable segments.
+ */
 struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
 				     uint64_t *start_ret, uint64_t *end_ret)
 {
-	uint64_t start = UINT64_MAX, end = 0;
-	size_t phnum, i;
-
-	/*
-	 * Get the minimum and maximum addresses from the PT_LOAD segments. We
-	 * ignore memory ranges that start beyond UINT64_MAX, and we truncate
-	 * ranges that end beyond UINT64_MAX.
-	 */
+	size_t phnum;
 	if (elf_getphdrnum(elf, &phnum) != 0)
 		return drgn_error_libelf();
-	for (i = 0; i < phnum; i++) {
-		GElf_Phdr phdr_mem, *phdr;
-		uint64_t segment_start, segment_end;
 
+	GElf_Phdr phdr_mem, *phdr;
+	size_t i;
+	for (i = 0; i < phnum; i++) {
 		phdr = gelf_getphdr(elf, i, &phdr_mem);
 		if (!phdr)
 			return drgn_error_libelf();
-		if (phdr->p_type != PT_LOAD || !phdr->p_vaddr)
-			continue;
-		if (__builtin_add_overflow(phdr->p_vaddr, bias,
-					   &segment_start))
-			continue;
-		if (__builtin_add_overflow(segment_start, phdr->p_memsz,
-					   &segment_end))
-			segment_end = UINT64_MAX;
-		if (segment_start < segment_end) {
-			if (segment_start < start)
-				start = segment_start;
-			if (segment_end > end)
-				end = segment_end;
+		if (phdr->p_type == PT_LOAD) {
+			uint64_t align = phdr->p_align ? phdr->p_align : 1;
+			*start_ret = (phdr->p_vaddr & -align) + bias;
+			break;
 		}
 	}
-	/* There were no loadable segments. */
-	if (start >= end)
-		start = end = 0;
-	*start_ret = start;
-	*end_ret = end;
+	if (i >= phnum) {
+		/* There were no loadable segments. */
+		*start_ret = *end_ret = 0;
+		return NULL;
+	}
+
+	for (i = phnum; i-- > 0;) {
+		phdr = gelf_getphdr(elf, i, &phdr_mem);
+		if (!phdr)
+			return drgn_error_libelf();
+		if (phdr->p_type == PT_LOAD) {
+			*end_ret = (phdr->p_vaddr + phdr->p_memsz) + bias;
+			if (*start_ret >= *end_ret)
+				*start_ret = *end_ret = 0;
+			return NULL;
+		}
+	}
+	/* We found a loadable segment earlier, so this shouldn't happen. */
+	assert(!"PT_LOAD segment disappeared");
+	*end_ret = 0;
 	return NULL;
 }
