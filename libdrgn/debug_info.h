@@ -100,7 +100,11 @@ struct drgn_debug_info_module {
 	Dwfl_Module *dwfl_module;
 	struct drgn_platform platform;
 	Elf_Scn *scns[DRGN_NUM_DEBUG_SCNS];
+	Elf_Scn *alt_debug_info;
+	Elf_Scn *alt_debug_str;
 	Elf_Data *scn_data[DRGN_NUM_DEBUG_SCN_DATA];
+	Elf_Data *alt_debug_info_data;
+	Elf_Data *alt_debug_str_data;
 
 	/** DWARF debugging information. */
 	struct drgn_dwarf_module_info dwarf;

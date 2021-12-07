@@ -379,7 +379,7 @@ enum drgn_dwarf_index_abbrev_insn {
 	 * Instructions > 0 and <= INSN_MAX_SKIP indicate a number of bytes to
 	 * be skipped over.
 	 */
-	INSN_MAX_SKIP = 199,
+	INSN_MAX_SKIP = 193,
 
 	/* These instructions indicate an attribute that can be skipped over. */
 	INSN_SKIP_BLOCK,
@@ -403,6 +403,8 @@ enum drgn_dwarf_index_abbrev_insn {
 	INSN_NAME_STRX2,
 	INSN_NAME_STRX3,
 	INSN_NAME_STRX4,
+	INSN_NAME_STRP_ALT4,
+	INSN_NAME_STRP_ALT8,
 	INSN_COMP_DIR_STRP4,
 	INSN_COMP_DIR_STRP8,
 	INSN_COMP_DIR_LINE_STRP4,
@@ -413,6 +415,8 @@ enum drgn_dwarf_index_abbrev_insn {
 	INSN_COMP_DIR_STRX2,
 	INSN_COMP_DIR_STRX3,
 	INSN_COMP_DIR_STRX4,
+	INSN_COMP_DIR_STRP_ALT4,
+	INSN_COMP_DIR_STRP_ALT8,
 	INSN_STR_OFFSETS_BASE4,
 	INSN_STR_OFFSETS_BASE8,
 	INSN_STMT_LIST_LINEPTR4,
@@ -435,6 +439,8 @@ enum drgn_dwarf_index_abbrev_insn {
 	INSN_SPECIFICATION_REF_UDATA,
 	INSN_SPECIFICATION_REF_ADDR4,
 	INSN_SPECIFICATION_REF_ADDR8,
+	INSN_SPECIFICATION_REF_ALT4,
+	INSN_SPECIFICATION_REF_ALT8,
 	INSN_INDIRECT,
 	INSN_SIBLING_INDIRECT,
 	INSN_NAME_INDIRECT,
@@ -674,6 +680,8 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 	case DW_FORM_strp:
 	case DW_FORM_strp_sup:
 	case DW_FORM_line_strp:
+	case DW_FORM_GNU_ref_alt:
+	case DW_FORM_GNU_strp_alt:
 		*insn_ret = cu->is_64_bit ? 8 : 4;
 		return NULL;
 	case DW_FORM_string:
@@ -759,6 +767,16 @@ static struct drgn_error *dw_at_name_to_insn(struct drgn_dwarf_index_cu *cu,
 	case DW_FORM_strx4:
 		*insn_ret = INSN_NAME_STRX4;
 		return NULL;
+	case DW_FORM_GNU_strp_alt:
+		if (!cu->module->alt_debug_str_data) {
+			return binary_buffer_error(bb,
+						   "DW_FORM_GNU_strp_alt without alternate .debug_str section");
+		}
+		if (cu->is_64_bit)
+			*insn_ret = INSN_NAME_STRP_ALT8;
+		else
+			*insn_ret = INSN_NAME_STRP_ALT4;
+		return NULL;
 	case DW_FORM_indirect:
 		*insn_ret = INSN_NAME_INDIRECT;
 		return NULL;
@@ -812,6 +830,16 @@ static struct drgn_error *dw_at_comp_dir_to_insn(struct drgn_dwarf_index_cu *cu,
 		return NULL;
 	case DW_FORM_strx4:
 		*insn_ret = INSN_COMP_DIR_STRX4;
+		return NULL;
+	case DW_FORM_GNU_strp_alt:
+		if (!cu->module->alt_debug_str_data) {
+			return binary_buffer_error(bb,
+						   "DW_FORM_GNU_strp_alt without alternate .debug_str section");
+		}
+		if (cu->is_64_bit)
+			*insn_ret = INSN_COMP_DIR_STRP_ALT8;
+		else
+			*insn_ret = INSN_COMP_DIR_STRP_ALT4;
 		return NULL;
 	case DW_FORM_indirect:
 		*insn_ret = INSN_COMP_DIR_INDIRECT;
@@ -975,6 +1003,16 @@ dw_at_specification_to_insn(struct drgn_dwarf_index_cu *cu,
 							   "unsupported address size %" PRIu8 " for DW_FORM_ref_addr",
 							   cu->address_size);
 		}
+		return NULL;
+	case DW_FORM_GNU_ref_alt:
+		if (!cu->module->alt_debug_info_data) {
+			return binary_buffer_error(bb,
+						   "DW_FORM_GNU_ref_alt without alternate .debug_info section");
+		}
+		if (cu->is_64_bit)
+			*insn_ret = INSN_SPECIFICATION_REF_ALT8;
+		else
+			*insn_ret = INSN_SPECIFICATION_REF_ALT4;
 		return NULL;
 	case DW_FORM_indirect:
 		*insn_ret = INSN_SPECIFICATION_INDIRECT;
@@ -2092,6 +2130,17 @@ comp_dir_strp:
 					return err;
 				comp_dir = &comp_dir_is_strx;
 				break;
+			case INSN_COMP_DIR_STRP_ALT4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				strp_scn = cu->module->alt_debug_str_data;
+				goto comp_dir_strp;
+			case INSN_COMP_DIR_STRP_ALT8:
+				if ((err = binary_buffer_next_u64(&buffer->bb, &tmp)))
+					return err;
+				strp_scn = cu->module->alt_debug_str_data;
+				goto comp_dir_strp;
 			case INSN_STR_OFFSETS_BASE4:
 				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
 									   &tmp)))
@@ -2135,10 +2184,12 @@ str_offsets_base:
 				goto skip;
 			case INSN_NAME_STRP4:
 			case INSN_NAME_STRX4:
+			case INSN_NAME_STRP_ALT4:
 			case INSN_DECL_FILE_DATA4:
 				skip = 4;
 				goto skip;
 			case INSN_NAME_STRP8:
+			case INSN_NAME_STRP_ALT8:
 			case INSN_DECL_FILE_DATA8:
 				skip = 8;
 				goto skip;
@@ -2193,6 +2244,19 @@ specification:
 					return err;
 specification_ref_addr:
 				specification = (uintptr_t)debug_info_buffer + tmp;
+				break;
+			case INSN_SPECIFICATION_REF_ALT4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto specification_ref_alt;
+			case INSN_SPECIFICATION_REF_ALT8:
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+specification_ref_alt:
+				specification = ((uintptr_t)cu->module->alt_debug_info_data->d_buf
+						 + tmp);
 				break;
 			case INSN_INDIRECT:
 			case INSN_SIBLING_INDIRECT:
@@ -2545,14 +2609,32 @@ name_strx:
 					return err;
 				__builtin_prefetch(name);
 				break;
+			case INSN_NAME_STRP_ALT4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto name_alt_strp;
+			case INSN_NAME_STRP_ALT8:
+				if ((err = binary_buffer_next_u64(&buffer->bb, &tmp)))
+					return err;
+name_alt_strp:
+				if (tmp >= cu->module->alt_debug_str_data->d_size) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_name is out of bounds");
+				}
+				name = (const char *)cu->module->alt_debug_str_data->d_buf + tmp;
+				__builtin_prefetch(name);
+				break;
 			case INSN_COMP_DIR_STRP4:
 			case INSN_COMP_DIR_LINE_STRP4:
+			case INSN_COMP_DIR_STRP_ALT4:
 			case INSN_STR_OFFSETS_BASE4:
 			case INSN_STMT_LIST_LINEPTR4:
 				skip = 4;
 				goto skip;
 			case INSN_COMP_DIR_STRP8:
 			case INSN_COMP_DIR_LINE_STRP8:
+			case INSN_COMP_DIR_STRP_ALT8:
 			case INSN_STR_OFFSETS_BASE8:
 			case INSN_STMT_LIST_LINEPTR8:
 				skip = 8;
@@ -2623,6 +2705,7 @@ name_strx:
 				goto skip;
 			case INSN_SPECIFICATION_REF4:
 			case INSN_SPECIFICATION_REF_ADDR4:
+			case INSN_SPECIFICATION_REF_ALT4:
 				specification = true;
 				/* fallthrough */
 			case INSN_COMP_DIR_STRX4:
@@ -2630,6 +2713,7 @@ name_strx:
 				goto skip;
 			case INSN_SPECIFICATION_REF8:
 			case INSN_SPECIFICATION_REF_ADDR8:
+			case INSN_SPECIFICATION_REF_ALT8:
 				specification = true;
 				skip = 8;
 				goto skip;

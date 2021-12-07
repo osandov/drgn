@@ -923,6 +923,40 @@ drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
 			}
 		}
 	}
+
+	Dwarf *altdwarf = dwarf_getalt(dwarf);
+	if (altdwarf) {
+		elf = dwarf_getelf(altdwarf);
+		if (!elf)
+			return drgn_error_libdw();
+		if (elf_getshdrstrndx(elf, &shstrndx))
+			return drgn_error_libelf();
+
+		scn = NULL;
+		while ((scn = elf_nextscn(elf, scn))) {
+			GElf_Shdr shdr_mem;
+			GElf_Shdr *shdr = gelf_getshdr(scn, &shdr_mem);
+			if (!shdr)
+				return drgn_error_libelf();
+
+			if (shdr->sh_type != SHT_PROGBITS)
+				continue;
+			const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+			if (!scnname)
+				return drgn_error_libelf();
+
+			/*
+			 * TODO: save more sections and support imported units.
+			 */
+			if (strcmp(scnname, ".debug_info") == 0 &&
+			    !module->alt_debug_info)
+				module->alt_debug_info = scn;
+			else if (strcmp(scnname, ".debug_str") == 0 &&
+				   !module->alt_debug_str)
+				module->alt_debug_str = scn;
+		}
+	}
+
 	return NULL;
 }
 
@@ -951,6 +985,18 @@ drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
 				return err;
 		}
 	}
+	if (module->alt_debug_info) {
+		err = read_elf_section(module->alt_debug_info,
+				       &module->alt_debug_info_data);
+		if (err)
+			return err;
+	}
+	if (module->alt_debug_str) {
+		err = read_elf_section(module->alt_debug_str,
+				       &module->alt_debug_str_data);
+		if (err)
+			return err;
+	}
 
 	/*
 	 * Truncate any extraneous bytes so that we can assume that a pointer
@@ -958,6 +1004,7 @@ drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
 	 */
 	truncate_null_terminated_section(module->scn_data[DRGN_SCN_DEBUG_STR]);
 	truncate_null_terminated_section(module->scn_data[DRGN_SCN_DEBUG_LINE_STR]);
+	truncate_null_terminated_section(module->alt_debug_str_data);
 	return NULL;
 }
 
