@@ -2445,6 +2445,8 @@ c_parse_abstract_declarator(struct drgn_program *prog,
 			return err;
 
 		err = drgn_lexer_peek(lexer, &token);
+		if (err)
+			return err;
 		if (token.kind == C_TOKEN_LPAREN ||
 		    token.kind == C_TOKEN_LBRACKET) {
 			struct c_declarator *tmp;
