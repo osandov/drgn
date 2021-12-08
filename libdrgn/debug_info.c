@@ -1184,6 +1184,12 @@ struct drgn_error *drgn_debug_info_load(struct drgn_debug_info *dbinfo,
 		goto err;
 
 	/*
+	 * TODO: for core dumps, we need to add memory reader segments for
+	 * read-only segments of the loaded binaries since those aren't saved in
+	 * the core dump.
+	 */
+
+	/*
 	 * If this fails, it's too late to roll back. This can only fail with
 	 * enomem, so it's not a big deal.
 	 */

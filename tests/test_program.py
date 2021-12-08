@@ -806,7 +806,7 @@ class TestCoreDump(TestCase):
         self.assertEqual(prog.read(0xFFFF0000, len(data)), data)
         self.assertEqual(prog.read(0xA0, len(data), physical=True), data)
 
-    def test_zero_fill(self):
+    def test_unsaved(self):
         data = b"hello, world"
         prog = Program()
         with tempfile.NamedTemporaryFile() as f:
@@ -825,4 +825,6 @@ class TestCoreDump(TestCase):
             )
             f.flush()
             prog.set_core_dump(f.name)
-        self.assertEqual(prog.read(0xFFFF0000, len(data) + 4), data + bytes(4))
+        with self.assertRaisesRegex(FaultError, "memory not saved in core dump") as cm:
+            prog.read(0xFFFF0000, len(data) + 4)
+        self.assertEqual(cm.exception.address, 0xFFFF000C)

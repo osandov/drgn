@@ -123,8 +123,9 @@ struct drgn_memory_file_segment {
 	uint64_t file_offset;
 	/**
 	 * Size of the segment in the file. This may be less than the size of
-	 * the segment in memory, in which case the remaining bytes are treated
-	 * as if they contained zeroes.
+	 * the segment in memory, which means that the remaining bytes were in
+	 * the program's memory but were not saved in the core dump. Attempting
+	 * to read these bytes is treated as a fault.
 	 */
 	uint64_t file_size;
 	/** File descriptor. */

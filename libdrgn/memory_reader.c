@@ -249,21 +249,19 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 					 void *arg, bool physical)
 {
 	struct drgn_memory_file_segment *file_segment = arg;
-	char *p = buf;
-	uint64_t file_offset = file_segment->file_offset + offset;
-	size_t file_count;
 
-	if (offset < file_segment->file_size) {
-		file_count = min((uint64_t)count,
-				 file_segment->file_size - offset);
-		count -= file_count;
-	} else {
-		file_count = 0;
+	if (offset > file_segment->file_size ||
+	    count > file_segment->file_size - offset) {
+		if (offset <= file_segment->file_size)
+			address += file_segment->file_size - offset;
+		return drgn_error_create_fault("memory not saved in core dump",
+					       address);
 	}
-	while (file_count) {
-		ssize_t ret;
 
-		ret = pread(file_segment->fd, p, file_count, file_offset);
+	uint64_t file_offset = file_segment->file_offset + offset;
+	char *p = buf;
+	while (count) {
+		ssize_t ret = pread(file_segment->fd, p, count, file_offset);
 		if (ret == -1) {
 			if (errno == EINTR) {
 				continue;
@@ -278,9 +276,9 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 						       address);
 		}
 		p += ret;
-		file_count -= ret;
+		address += ret;
+		count -= ret;
 		file_offset += ret;
 	}
-	memset(p, 0, count);
 	return NULL;
 }

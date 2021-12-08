@@ -350,8 +350,10 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		goto out_platform;
 	}
 
-	if ((is_proc_kcore || vmcoreinfo_note) &&
-	    prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+	bool pgtable_reader =
+		(is_proc_kcore || vmcoreinfo_note) &&
+		prog->platform.arch->linux_kernel_pgtable_iterator_next;
+	if (pgtable_reader) {
 		/*
 		 * Try to read any memory that isn't in the core dump via the
 		 * page table.
@@ -381,6 +383,13 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->file_segments[j].fd = prog->core_fd;
 		prog->file_segments[j].eio_is_fault = false;
 		err = drgn_program_add_memory_segment(prog, phdr->p_vaddr,
+						      /*
+						       * Don't override the page
+						       * table reader for
+						       * unsaved regions.
+						       */
+						      pgtable_reader ?
+						      phdr->p_filesz :
 						      phdr->p_memsz,
 						      drgn_read_memory_file,
 						      &prog->file_segments[j],
@@ -391,6 +400,8 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		    phdr->p_paddr != (is_64_bit ? UINT64_MAX : UINT32_MAX)) {
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_paddr,
+							      pgtable_reader ?
+							      phdr->p_filesz :
 							      phdr->p_memsz,
 							      drgn_read_memory_file,
 							      &prog->file_segments[j],
@@ -436,6 +447,8 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 				phys_addr = phdr->p_vaddr - direct_mapping;
 				err = drgn_program_add_memory_segment(prog,
 								      phys_addr,
+								      pgtable_reader ?
+								      phdr->p_filesz :
 								      phdr->p_memsz,
 								      drgn_read_memory_file,
 								      &prog->file_segments[j],
