@@ -463,6 +463,8 @@ struct drgn_error *linux_helper_pid_task(struct drgn_object *res,
 	task_struct_type = drgn_type_type(task_structp_type.type);
 
 	err = drgn_object_bool(pid, &truthy);
+	if (err)
+		goto out;
 	if (!truthy)
 		goto null;
 
