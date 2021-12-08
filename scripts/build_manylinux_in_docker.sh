@@ -20,28 +20,11 @@ ln -s /usr/share/aclocal/pkg.m4 /usr/local/share/aclocal/
 
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
-elfutils_version=0.185
+elfutils_version=0.186
 elfutils_url=https://sourceware.org/elfutils/ftp/$elfutils_version/elfutils-$elfutils_version.tar.bz2
 mkdir /tmp/elfutils
 cd /tmp/elfutils
 curl -L "$elfutils_url" | tar -xj --strip-components=1
-# Apply "libdwfl: fix potential NULL pointer dereference when reading link map"
-# manually since it isn't in a release yet.
-patch -p1 << "EOF"
-diff --git a/libdwfl/link_map.c b/libdwfl/link_map.c
-index 0d8d1c17..1e7d4502 100644
---- a/libdwfl/link_map.c
-+++ b/libdwfl/link_map.c
-@@ -254,7 +254,7 @@ read_addrs (struct memory_closure *closure,
-   Dwfl *dwfl = closure->dwfl;
- 
-   /* Read a new buffer if the old one doesn't cover these words.  */
--  if (buffer == NULL
-+  if (*buffer == NULL
-       || vaddr < *read_vaddr
-       || vaddr - (*read_vaddr) + nb > *buffer_available)
-     {
-EOF
 # We don't bother with debuginfod support for a few reasons:
 #
 # 1. It depends on libcurl, which would pull in a bunch of transitive
@@ -52,13 +35,28 @@ EOF
 make -j$(($(nproc) + 1))
 make install
 
-libkdumpfile_commit=v0.4.0
-libkdumpfile_url=https://github.com/ptesarik/libkdumpfile/archive/$libkdumpfile_commit/libkdumpfile-$libkdumpfile_commit.tar.gz
+libkdumpfile_version=0.4.1
+libkdumpfile_url=https://github.com/ptesarik/libkdumpfile/releases/download/v$libkdumpfile_version/libkdumpfile-$libkdumpfile_version.tar.gz
 mkdir /tmp/libkdumpfile
 cd /tmp/libkdumpfile
 curl -L "$libkdumpfile_url" | tar -xz --strip-components=1
-autoreconf -fiv
-# z_const was added in zlib 1.2.5.2, but CentOS 6 has 1.2.3.
+# This file is missing an include of limits.h which it accidentally gets from
+# zlib.h via zconf.h, but only since zlib 1.2.7. CentOS 6 has 1.2.3.
+patch -p1 << "EOF"
+diff --git a/src/kdumpfile/util.c b/src/kdumpfile/util.c
+index 4fb2960..14e1ce3 100644
+--- a/src/kdumpfile/util.c
++++ b/src/kdumpfile/util.c
+@@ -38,6 +38,7 @@
+ #include <stdio.h>
+ #include <stdarg.h>
+ #include <errno.h>
++#include <limits.h>
+ 
+ #if USE_ZLIB
+ # include <zlib.h>
+EOF
+# z_const was added in zlib 1.2.5.2.
 CPPFLAGS="-Dz_const=const" ./configure --with-lzo --with-snappy --with-zlib --without-python
 make -j$(($(nproc) + 1))
 make install
