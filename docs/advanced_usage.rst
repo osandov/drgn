@@ -100,6 +100,12 @@ Some of drgn's behavior can be modified through environment variables:
     vice versa. This environment variable is mainly intended for testing and
     may be ignored in the future.
 
+``DRGN_USE_LIBDWFL_REPORT``
+    Whether drgn should use libdwfl to find debugging information for core
+    dumps instead of its own implementation (0 or 1). The default is 0. This
+    environment variable is mainly intended as an escape hatch in case of bugs
+    in drgn's implementation and will be ignored in the future.
+
 ``DRGN_USE_LIBKDUMPFILE_FOR_ELF``
     Whether drgn should use libkdumpfile for ELF vmcores (0 or 1). The default
     is 0. This functionality will be removed in the future.
