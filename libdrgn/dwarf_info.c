@@ -6313,8 +6313,10 @@ drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	while (r == 0) {
 		if (dwarf_tag(&child) == DW_TAG_subrange_type) {
 			dimension = array_dimension_vector_append_entry(&dimensions);
-			if (!dimension)
+			if (!dimension) {
+				err = &drgn_enomem;
 				goto out;
+			}
 			err = subrange_length(&child, dimension);
 			if (err)
 				goto out;
@@ -6328,8 +6330,10 @@ drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	}
 	if (!dimensions.size) {
 		dimension = array_dimension_vector_append_entry(&dimensions);
-		if (!dimension)
+		if (!dimension) {
+			err = &drgn_enomem;
 			goto out;
+		}
 		dimension->is_complete = false;
 	}
 
