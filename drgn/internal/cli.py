@@ -93,7 +93,8 @@ def main() -> None:
         "-q",
         "--quiet",
         action="store_true",
-        help="don't print non-fatal warnings (e.g., about missing debugging information)",
+        help="don't print download progress or non-fatal warnings "
+        "(e.g., about missing debugging information)",
     )
     parser.add_argument(
         "script",
@@ -108,6 +109,7 @@ def main() -> None:
 
     if not args.script:
         print(version, file=sys.stderr, flush=True)
+    if not args.quiet:
         os.environ["DEBUGINFOD_PROGRESS"] = "1"
 
     prog = drgn.Program()
