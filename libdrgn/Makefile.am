@@ -158,7 +158,8 @@ python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
 python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 	$(AM_V_GEN)$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
-EXTRA_DIST = $(ARCH_DEFS) \
+EXTRA_DIST = Doxyfile \
+	     $(ARCH_DEFS) \
 	     build-aux/gen_arch.awk \
 	     build-aux/gen_constants.py \
 	     drgn.h.in
