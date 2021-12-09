@@ -1718,7 +1718,9 @@ drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
 	 * ELF relocations to all sections, not just debug sections.
 	 */
 	Dwarf_Addr bias;
-	Dwarf *dwarf = dwfl_module_getdwarf(module->dwfl_module, &bias);
+	Dwarf *dwarf;
+	#pragma omp critical(drgn_dwfl_module_getdwarf)
+	dwarf = dwfl_module_getdwarf(module->dwfl_module, &bias);
 	if (!dwarf)
 		return drgn_error_libdwfl();
 	Elf *elf = dwarf_getelf(dwarf);
