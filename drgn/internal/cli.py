@@ -106,6 +106,10 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if not args.script:
+        print(version, file=sys.stderr, flush=True)
+        os.environ["DEBUGINFOD_PROGRESS"] = "1"
+
     prog = drgn.Program()
     if args.core is not None:
         prog.set_core_dump(args.core)
@@ -170,13 +174,11 @@ def main() -> None:
 
         sys.displayhook = displayhook
 
-        banner = (
-            version
-            + """
+        banner = """\
 For help, type help(drgn).
 >>> import drgn
->>> from drgn import """
-            + ", ".join(drgn_globals)
+>>> from drgn import """ + ", ".join(
+            drgn_globals
         )
         if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
             banner += "\n>>> from drgn.helpers.linux import *"
