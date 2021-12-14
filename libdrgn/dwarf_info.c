@@ -177,7 +177,7 @@ DEFINE_HASH_MAP(drgn_dwarf_index_die_map, struct nstring, uint32_t,
 		nstring_hash_pair, nstring_eq)
 DEFINE_VECTOR(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
 
-static const size_t DRGN_DWARF_INDEX_SHARD_BITS = 8;
+#define DRGN_DWARF_INDEX_SHARD_BITS 8
 static const size_t DRGN_DWARF_INDEX_NUM_SHARDS = 1 << DRGN_DWARF_INDEX_SHARD_BITS;
 
 /** Shard of a @ref drgn_namespace_dwarf_index. */
