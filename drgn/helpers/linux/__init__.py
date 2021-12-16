@@ -32,8 +32,9 @@ Translates to the following code in Python:
 
 import importlib
 import pkgutil
+from typing import List
 
-__all__ = []
+__all__: List[str] = []
 for _module_info in pkgutil.iter_modules(
     __path__,  # type: ignore[name-defined]  # python/mypy#1422
     prefix=__name__ + ".",

@@ -27,7 +27,7 @@ jobs:
       - name: Generate version.py
         run: python setup.py --version
       - name: Check with mypy
-        run: mypy --strict --no-warn-return-any drgn _drgn.pyi
+        run: mypy --strict --no-warn-return-any --no-warn-unused-ignores drgn _drgn.pyi
       - name: Build and test with ${{ matrix.cc }}
         run: python setup.py test -K
 
