@@ -57,6 +57,8 @@ cd /
 
 # Mount additional filesystems.
 "$BUSYBOX" mount -t devtmpfs -o nosuid,noexec dev /dev
+"$BUSYBOX" mkdir /dev/shm
+"$BUSYBOX" mount -t tmpfs -o nosuid,nodev tmpfs /dev/shm
 "$BUSYBOX" mount -t proc -o nosuid,nodev,noexec proc /proc
 "$BUSYBOX" mount -t sysfs -o nosuid,nodev,noexec sys /sys
 # cgroup2 was added in Linux v4.5.
