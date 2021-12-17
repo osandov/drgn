@@ -10,7 +10,7 @@ from tests.elf import ET, PT, SHN, SHT, STB, STT, STV
 class ElfSection:
     def __init__(
         self,
-        data: bytes,
+        data: bytes = b"",
         name: Optional[str] = None,
         sh_type: Optional[SHT] = None,
         p_type: Optional[PT] = None,
@@ -28,7 +28,7 @@ class ElfSection:
         self.p_type = p_type
         self.vaddr = vaddr
         self.paddr = paddr
-        self.memsz = memsz
+        self.memsz = len(self.data) if memsz is None else memsz
         self.p_align = p_align
         self.sh_link = sh_link
         self.sh_info = sh_info
@@ -36,10 +36,6 @@ class ElfSection:
 
         assert (self.name is not None) or (self.p_type is not None)
         assert (self.name is None) == (self.sh_type is None)
-        if self.p_type is None:
-            assert self.memsz is None
-        elif self.memsz is None:
-            self.memsz = len(self.data)
 
 
 class ElfSymbol(NamedTuple):
@@ -205,7 +201,7 @@ def create_elf_file(
                 0,  # sh_flags
                 section.vaddr,  # sh_addr
                 len(buf),  # sh_offset
-                len(section.data),  # sh_size
+                section.memsz,  # sh_size
                 section.sh_link,  # sh_link
                 section.sh_info,  # sh_info
                 1 if section.p_type is None else bits // 8,  # sh_addralign

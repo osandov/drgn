@@ -21,11 +21,10 @@ def create_elf_symbol_file(symbols):
     sections.append(
         ElfSection(
             name=".foo",
-            sh_type=SHT.PROGBITS,
+            sh_type=SHT.NOBITS,
             p_type=PT.LOAD,
             vaddr=min_address,
             memsz=max_address - min_address,
-            data=bytes(max_address - min_address),
         )
     )
     symbols = [
