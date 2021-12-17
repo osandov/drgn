@@ -169,6 +169,7 @@ def ignore_line(path, state, line):
 
 
 def main():
+    os.environ["CFLAGS"] = "-Wall"
     parser = argparse.ArgumentParser(description="run include-what-you-use on drgn")
     parser.add_argument(
         "source", nargs="*", help="run on given file instead of all source files"
