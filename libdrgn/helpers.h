@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "drgn.h"
+
 struct drgn_object;
 struct drgn_program;
 
@@ -49,5 +51,30 @@ struct drgn_error *linux_helper_pid_task(struct drgn_object *res,
 struct drgn_error *linux_helper_find_task(struct drgn_object *res,
 					  const struct drgn_object *ns,
 					  uint64_t pid);
+
+struct linux_helper_task_iterator {
+	struct drgn_object task;
+	struct drgn_qualified_type task_struct_type;
+	uint64_t init_task_address;
+	uint64_t thread_group_address;
+	bool done;
+};
+
+struct drgn_error *
+linux_helper_task_iterator_init(struct linux_helper_task_iterator *it,
+				struct drgn_program *prog);
+
+void linux_helper_task_iterator_deinit(struct linux_helper_task_iterator *it);
+
+/**
+ * Get the next task from a @ref linux_helper_task_iterator.
+ *
+ * @param[out] ret Returned `struct task_struct *` object. This points to an
+ * object stored in @p it. The caller may modify this, but it will be
+ * overwritten the next time this function is called on the same @p it.
+ */
+struct drgn_error *
+linux_helper_task_iterator_next(struct linux_helper_task_iterator *it,
+				struct drgn_object **ret);
 
 #endif /* DRGN_HELPERS_H */

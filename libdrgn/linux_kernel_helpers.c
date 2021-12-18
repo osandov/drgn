@@ -6,6 +6,7 @@
 #include <inttypes.h>
 
 #include "drgn.h"
+#include "helpers.h"
 #include "minmax.h"
 #include "platform.h"
 #include "program.h"
@@ -593,4 +594,81 @@ out:
 	drgn_object_deinit(&pid_type_obj);
 	drgn_object_deinit(&pid_obj);
 	return err;
+}
+
+struct drgn_error *
+linux_helper_task_iterator_init(struct linux_helper_task_iterator *it,
+				struct drgn_program *prog)
+{
+	struct drgn_error *err;
+	it->done = false;
+	drgn_object_init(&it->task, prog);
+	err = drgn_program_find_object(prog, "init_task", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &it->task);
+	if (err)
+		goto err;
+	it->task_struct_type = drgn_object_qualified_type(&it->task);
+	err = drgn_object_address_of(&it->task, &it->task);
+	if (err)
+		goto err;
+	err = drgn_object_read_unsigned(&it->task, &it->init_task_address);
+	if (err)
+		goto err;
+	it->thread_group_address = it->init_task_address;
+	return NULL;
+
+err:
+	drgn_object_deinit(&it->task);
+	return err;
+}
+
+void linux_helper_task_iterator_deinit(struct linux_helper_task_iterator *it)
+{
+	drgn_object_deinit(&it->task);
+}
+
+struct drgn_error *
+linux_helper_task_iterator_next(struct linux_helper_task_iterator *it,
+				struct drgn_object **ret)
+{
+	if (it->done) {
+		*ret = NULL;
+		return NULL;
+	}
+	struct drgn_error *err;
+	struct drgn_object *task = &it->task;
+	err = drgn_object_member_dereference(task, task, "thread_group");
+	if (err)
+		return err;
+	err = drgn_object_member(task, task, "next");
+	if (err)
+		return err;
+	err = drgn_object_container_of(task, task, it->task_struct_type,
+				       "thread_group");
+	if (err)
+		return err;
+	uint64_t task_address;
+	err = drgn_object_read_unsigned(task, &task_address);
+	if (err)
+		return err;
+	if (task_address == it->thread_group_address) {
+		err = drgn_object_member_dereference(task, task, "tasks");
+		if (err)
+			return err;
+		err = drgn_object_member(task, task, "next");
+		if (err)
+			return err;
+		err = drgn_object_container_of(task, task,
+					       it->task_struct_type, "tasks");
+		if (err)
+			return err;
+		err = drgn_object_read_unsigned(task,
+						&it->thread_group_address);
+		if (err)
+			return err;
+		if (it->thread_group_address == it->init_task_address)
+			it->done = true;
+	}
+	*ret = task;
+	return NULL;
 }
