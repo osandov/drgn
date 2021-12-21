@@ -29,8 +29,8 @@ class TestNet(LinuxHelperTestCase):
             cls.net = get_net_ns_by_fd(cls.task, file.fileno())
 
     def test_sk_fullsock(self):
-        with create_socket() as sock:
-            file = fget(self.task, sock.fileno())
+        with create_socket() as skt:
+            file = fget(self.task, skt.fileno())
             sk = cast("struct socket *", file.private_data).sk.read_()
             self.assertTrue(sk_fullsock(sk))
 
