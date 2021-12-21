@@ -10,6 +10,7 @@ per-CPU allocations from :linux:`include/linux/percpu.h` and per-CPU counters
 from :linux:`include/linux/percpu_counter.h`.
 """
 
+from _drgn import _linux_helper_per_cpu_ptr as per_cpu_ptr
 from drgn import IntegerLike, Object
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 
@@ -35,24 +36,6 @@ def per_cpu(var: Object, cpu: IntegerLike) -> Object:
     :return: ``type`` object.
     """
     return per_cpu_ptr(var.address_of_(), cpu)[0]
-
-
-def per_cpu_ptr(ptr: Object, cpu: IntegerLike) -> Object:
-    """
-    Return the per-CPU pointer for a given CPU.
-
-    >>> prog["init_net"].loopback_dev.pcpu_refcnt
-    (int *)0x2c980
-    >>> per_cpu_ptr(prog["init_net"].loopback_dev.pcpu_refcnt, 7)
-    *(int *)0xffff925e3ddec980 = 4
-
-    :param ptr: Per-CPU pointer, i.e., ``type __percpu *``. For global
-        variables, it's usually easier to use :func:`per_cpu()`.
-    :param cpu: CPU number.
-    :return: ``type *`` object.
-    """
-    offset = ptr.prog_["__per_cpu_offset"][cpu].value_()
-    return Object(ptr.prog_, ptr.type_, value=ptr.value_() + offset)
 
 
 def percpu_counter_sum(fbc: Object) -> int:

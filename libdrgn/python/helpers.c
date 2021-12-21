@@ -38,6 +38,30 @@ PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
 	return buf;
 }
 
+DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
+					    PyObject *kwds)
+{
+	static char *keywords[] = {"ptr", "cpu", NULL};
+	struct drgn_error *err;
+	DrgnObject *ptr;
+	struct index_arg cpu = {};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:per_cpu_ptr",
+					 keywords, &DrgnObject_type, &ptr,
+					 index_converter, &cpu))
+		return NULL;
+
+	DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(ptr));
+	if (!res)
+		return NULL;
+	err = linux_helper_per_cpu_ptr(&res->obj, &ptr->obj, cpu.uvalue);
+	if (err) {
+		Py_DECREF(res);
+		return set_drgn_error(err);
+	}
+	return res;
+}
+
 DrgnObject *drgnpy_linux_helper_radix_tree_lookup(PyObject *self,
 						  PyObject *args,
 						  PyObject *kwds)

@@ -2164,6 +2164,22 @@ def _linux_helper_radix_tree_lookup(root: Object, index: IntegerLike) -> Object:
     """
     ...
 
+def _linux_helper_per_cpu_ptr(ptr: Object, cpu: IntegerLike) -> Object:
+    """
+    Return the per-CPU pointer for a given CPU.
+
+    >>> prog["init_net"].loopback_dev.pcpu_refcnt
+    (int *)0x2c980
+    >>> per_cpu_ptr(prog["init_net"].loopback_dev.pcpu_refcnt, 7)
+    *(int *)0xffff925e3ddec980 = 4
+
+    :param ptr: Per-CPU pointer, i.e., ``type __percpu *``. For global
+        variables, it's usually easier to use :func:`per_cpu()`.
+    :param cpu: CPU number.
+    :return: ``type *`` object.
+    """
+    ...
+
 def _linux_helper_idr_find(idr: Object, id: IntegerLike) -> Object:
     """
     Look up the entry with the given ID in an IDR.
