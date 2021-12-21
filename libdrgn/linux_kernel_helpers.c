@@ -135,6 +135,38 @@ out:
 	return err;
 }
 
+struct drgn_error *linux_helper_idle_thread(struct drgn_object *res,
+					    uint64_t cpu)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_object_program(res);
+
+	struct drgn_object tmp;
+	drgn_object_init(&tmp, prog);
+	err = drgn_program_find_object(prog, "idle_threads", NULL,
+				       DRGN_FIND_OBJECT_ANY, &tmp);
+	if (!err) {
+		err = drgn_object_address_of(&tmp, &tmp);
+		if (err)
+			goto out;
+		err = linux_helper_per_cpu_ptr(&tmp, &tmp, cpu);
+		if (err)
+			goto out;
+		err = drgn_object_dereference(res, &tmp);
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		drgn_error_destroy(err);
+		err = drgn_program_find_object(prog, "init_task", NULL,
+					       DRGN_FIND_OBJECT_ANY, &tmp);
+		if (err)
+			goto out;
+		err = drgn_object_address_of(res, &tmp);
+	}
+
+out:
+	drgn_object_deinit(&tmp);
+	return err;
+}
+
 static struct drgn_error *
 radix_tree_init(struct drgn_program *prog, const struct drgn_object *root,
 		uint64_t *RADIX_TREE_INTERNAL_NODE_ret,

@@ -29,6 +29,9 @@ struct drgn_error *linux_helper_per_cpu_ptr(struct drgn_object *res,
 					    const struct drgn_object *ptr,
 					    uint64_t cpu);
 
+struct drgn_error *linux_helper_idle_thread(struct drgn_object *res,
+					    uint64_t cpu);
+
 struct drgn_error *
 linux_helper_radix_tree_lookup(struct drgn_object *res,
 			       const struct drgn_object *root, uint64_t index);

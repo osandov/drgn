@@ -9,9 +9,13 @@ The ``drgn.helpers.linux.sched`` module provides helpers for working with the
 Linux CPU scheduler.
 """
 
+from _drgn import _linux_helper_idle_thread as idle_thread
 from drgn import Object
 
-__all__ = ("task_state_to_char",)
+__all__ = (
+    "idle_thread",
+    "task_state_to_char",
+)
 
 _TASK_NOLOAD = 0x400
 
