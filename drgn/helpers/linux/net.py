@@ -18,6 +18,8 @@ from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
 
 __all__ = (
+    "SOCK_INODE",
+    "SOCKET_I",
     "for_each_net",
     "get_net_ns_by_inode",
     "get_net_ns_by_fd",
@@ -27,6 +29,34 @@ __all__ = (
     "sk_fullsock",
     "sk_nulls_for_each",
 )
+
+
+_S_IFMT = 0o170000
+_S_IFSOCK = 0o140000
+
+
+def SOCKET_I(inode: Object) -> Object:
+    """
+    Get a socket from an inode referring to the socket.
+
+    :param inode: ``struct inode *``
+    :return: ``struct socket *``
+    :raises ValueError: If *inode* does not refer to a socket
+    """
+    if inode.i_mode & _S_IFMT != _S_IFSOCK:
+        raise ValueError("not a socket inode")
+
+    return container_of(inode, "struct socket_alloc", "vfs_inode").socket.address_of_()
+
+
+def SOCK_INODE(sock: Object) -> Object:
+    """
+    Get the inode of a socket.
+
+    :param sock: ``struct socket *``
+    :return: ``struct inode *``
+    """
+    return container_of(sock, "struct socket_alloc", "socket").vfs_inode.address_of_()
 
 
 def for_each_net(prog: Program) -> Iterator[Object]:
