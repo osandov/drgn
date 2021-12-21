@@ -279,6 +279,11 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
 
 if __name__ == "__main__":
     import argparse
+    import logging
+
+    logging.basicConfig(
+        format="%(asctime)s:%(levelname)s:%(name)s:%(message)s", level=logging.INFO
+    )
 
     parser = argparse.ArgumentParser(
         description="run vmtest virtual machine",
