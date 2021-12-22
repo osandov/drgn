@@ -23,7 +23,7 @@ from vmtest.asynciosubprocess import (
 
 logger = logging.getLogger(__name__)
 
-KERNEL_LOCALVERSION = "-vmtest6"
+KERNEL_LOCALVERSION = "-vmtest7"
 
 
 def kconfig() -> str:
@@ -62,21 +62,24 @@ CONFIG_VIRTIO_PCI=y
 CONFIG_HW_RANDOM=m
 CONFIG_HW_RANDOM_VIRTIO=m
 
-# drgn needs /proc/kcore for live debugging.
-CONFIG_PROC_KCORE=y
-# In some cases, it also needs /proc/kallsyms.
-CONFIG_KALLSYMS=y
-CONFIG_KALLSYMS_ALL=y
-
 # drgn needs debug info.
 CONFIG_DEBUG_KERNEL=y
 CONFIG_DEBUG_INFO=y
 CONFIG_DEBUG_INFO_DWARF4=y
 
-# Before Linux kernel commit 8757dc970f55 ("x86/crash: Define
-# arch_crash_save_vmcoreinfo() if CONFIG_CRASH_CORE=y") (in v5.6), some
-# important information in VMCOREINFO is initialized by the kexec code.
+# For testing live kernel debugging with /proc/kcore.
+CONFIG_PROC_KCORE=y
+# drgn needs /proc/kallsyms in some cases. Some test cases also need it.
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+
+# For testing kernel core dumps with /proc/vmcore.
 CONFIG_KEXEC=y
+CONFIG_CRASH_DUMP=y
+CONFIG_PROC_VMCORE=y
+
+# So that we can trigger a crash with /proc/sysrq-trigger.
+CONFIG_MAGIC_SYSRQ=y
 
 # For block tests.
 CONFIG_BLK_DEV_LOOP=m
