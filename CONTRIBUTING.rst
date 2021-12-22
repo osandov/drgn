@@ -110,6 +110,15 @@ and `isort <https://github.com/timothycrosley/isort>`_:
 Type hints should be provided for all interfaces (including helpers and the C
 extension).
 
+These requirements are checked by automated builds for pull requests. If you'd
+like to have them automatically checked prior to submission, you can install
+`pre-commit <https://pre-commit.com/>`_ hooks which will apply the isort, black,
+and mypy rules prior to committing:
+
+.. code-block:: console
+
+    $ pip install pre-commit && pre-commit install --install-hooks
+
 Submitting PRs
 --------------
 
