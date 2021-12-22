@@ -23,7 +23,7 @@ from vmtest.asynciosubprocess import (
 
 logger = logging.getLogger(__name__)
 
-KERNEL_LOCALVERSION = "-vmtest7"
+KERNEL_LOCALVERSION = "-vmtest8"
 
 
 def kconfig() -> str:
@@ -74,9 +74,13 @@ CONFIG_KALLSYMS=y
 CONFIG_KALLSYMS_ALL=y
 
 # For testing kernel core dumps with /proc/vmcore.
-CONFIG_KEXEC=y
 CONFIG_CRASH_DUMP=y
 CONFIG_PROC_VMCORE=y
+CONFIG_KEXEC=y
+CONFIG_KEXEC_FILE=y
+# Needed for CONFIG_KEXEC_FILE.
+CONFIG_CRYPTO=y
+CONFIG_CRYPTO_SHA256=y
 
 # So that we can trigger a crash with /proc/sysrq-trigger.
 CONFIG_MAGIC_SYSRQ=y
