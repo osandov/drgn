@@ -113,23 +113,28 @@ struct drgn_error *linux_helper_per_cpu_ptr(struct drgn_object *res,
 	drgn_object_init(&tmp, prog);
 	err = drgn_program_find_object(prog, "__per_cpu_offset", NULL,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
-	if (err)
-		goto out;
-	err = drgn_object_subscript(&tmp, &tmp, cpu);
-	if (err)
-		goto out;
-	union drgn_value per_cpu_offset;
-	err = drgn_object_read_integer(&tmp, &per_cpu_offset);
-	if (err)
-		goto out;
+	if (!err) {
+		err = drgn_object_subscript(&tmp, &tmp, cpu);
+		if (err)
+			goto out;
+		union drgn_value per_cpu_offset;
+		err = drgn_object_read_integer(&tmp, &per_cpu_offset);
+		if (err)
+			goto out;
 
-	uint64_t ptr_value;
-	err = drgn_object_read_unsigned(ptr, &ptr_value);
-	if (err)
-		goto out;
+		uint64_t ptr_value;
+		err = drgn_object_read_unsigned(ptr, &ptr_value);
+		if (err)
+			goto out;
 
-	err = drgn_object_set_unsigned(res, drgn_object_qualified_type(ptr),
-				       ptr_value + per_cpu_offset.uvalue, 0);
+		err = drgn_object_set_unsigned(res,
+					       drgn_object_qualified_type(ptr),
+					       ptr_value + per_cpu_offset.uvalue,
+					       0);
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		drgn_error_destroy(err);
+		err = drgn_object_copy(res, ptr);
+	}
 out:
 	drgn_object_deinit(&tmp);
 	return err;

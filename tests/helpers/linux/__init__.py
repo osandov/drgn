@@ -103,6 +103,10 @@ def proc_blocked(pid):
         return f.read() != "running\n"
 
 
+def smp_enabled():
+    return bool(re.search(r"\bSMP\b", os.uname().version))
+
+
 def parse_range_list(s):
     values = set()
     s = s.strip()

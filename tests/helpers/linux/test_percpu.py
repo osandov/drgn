@@ -3,10 +3,18 @@
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.percpu import per_cpu
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.helpers.linux import LinuxHelperTestCase, smp_enabled
 
 
 class TestPerCpu(LinuxHelperTestCase):
     def test_per_cpu(self):
+        smp = smp_enabled()
         for cpu in for_each_possible_cpu(self.prog):
-            self.assertEqual(per_cpu(self.prog["runqueues"], cpu).cpu, cpu)
+            if smp:
+                self.assertEqual(per_cpu(self.prog["runqueues"], cpu).cpu, cpu)
+            else:
+                # struct rq::cpu only exists if CONFIG_SMP=y, so just check
+                # that we get something valid.
+                self.assertEqual(
+                    per_cpu(self.prog["runqueues"], cpu).idle.comm.string_(), b"swapper"
+                )
