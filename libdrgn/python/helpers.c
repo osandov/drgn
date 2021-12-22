@@ -62,23 +62,23 @@ DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 	return res;
 }
 
-DrgnObject *drgnpy_linux_helper_idle_thread(PyObject *self, PyObject *args,
-					    PyObject *kwds)
+DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args,
+					  PyObject *kwds)
 {
 	static char *keywords[] = {"prog", "cpu", NULL};
 	struct drgn_error *err;
 	Program *prog;
 	struct index_arg cpu = {};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:idle_thread",
-					 keywords, &Program_type, &prog,
-					 index_converter, &cpu))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:idle_task", keywords,
+					 &Program_type, &prog, index_converter,
+					 &cpu))
 		return NULL;
 
 	DrgnObject *res = DrgnObject_alloc(prog);
 	if (!res)
 		return NULL;
-	err = linux_helper_idle_thread(&res->obj, cpu.uvalue);
+	err = linux_helper_idle_task(&res->obj, cpu.uvalue);
 	if (err) {
 		Py_DECREF(res);
 		return set_drgn_error(err);

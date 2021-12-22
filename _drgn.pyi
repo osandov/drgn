@@ -2180,11 +2180,11 @@ def _linux_helper_per_cpu_ptr(ptr: Object, cpu: IntegerLike) -> Object:
     """
     ...
 
-def _linux_helper_idle_thread(prog: Program, cpu: IntegerLike) -> Object:
+def _linux_helper_idle_task(prog: Program, cpu: IntegerLike) -> Object:
     """
     Return the idle thread (PID 0, a.k.a swapper) for the given CPU.
 
-    >>> idle_thread(prog, 1).comm
+    >>> idle_task(prog, 1).comm
     (char [16])"swapper/1"
 
     :param cpu: CPU number.

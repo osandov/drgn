@@ -9,11 +9,11 @@ The ``drgn.helpers.linux.sched`` module provides helpers for working with the
 Linux CPU scheduler.
 """
 
-from _drgn import _linux_helper_idle_thread as idle_thread
+from _drgn import _linux_helper_idle_task as idle_task
 from drgn import Object
 
 __all__ = (
-    "idle_thread",
+    "idle_task",
     "task_state_to_char",
 )
 
