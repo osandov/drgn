@@ -127,7 +127,7 @@ PyObject *TypeKind_class;
         "SymbolBinding",
         "Enum",
         (),
-        "DRGN_SYMBOL_BINDING_([a-z-A-Z0-9_]+)"
+        "DRGN_SYMBOL_BINDING_([a-z-A-Z0-9_]+)",
     )
     gen_constant_class(
         drgn_h,
@@ -135,7 +135,7 @@ PyObject *TypeKind_class;
         "SymbolKind",
         "Enum",
         (),
-        "DRGN_SYMBOL_KIND_([a-z-A-Z0-9_]+)"
+        "DRGN_SYMBOL_KIND_([a-z-A-Z0-9_]+)",
     )
     gen_constant_class(
         drgn_h, output_file, "TypeKind", "Enum", (), r"DRGN_TYPE_([a-zA-Z0-9_]+)"
