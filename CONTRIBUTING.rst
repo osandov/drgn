@@ -81,6 +81,7 @@ A few other guidelines/conventions:
 * The matching function to free an allocated structure should be suffixed with
   ``_destroy``, e.g., ``void foo_destroy(struct foo *foo)``. If possible, the
   definition should be placed directly after the definition of ``_create``.
+  ``_destroy`` should usually allow a ``NULL`` argument, just like ``free()``.
 * Functions that return a result in a ``struct drgn_object *`` parameter should
   only modify the object if the function succeeds.
 
