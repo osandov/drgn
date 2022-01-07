@@ -187,9 +187,20 @@ class test(Command):
 
         import vmtest.vm
 
-        command = fr"""cd {shlex.quote(os.getcwd())} &&
-	DRGN_RUN_LINUX_HELPER_TESTS=1 {shlex.quote(sys.executable)} -Bm \
-		unittest discover -t . -s tests/helpers/linux {"-v" if self.verbose else ""}"""
+        command = fr"""
+set -e
+
+cd {shlex.quote(os.getcwd())}
+if "$BUSYBOX" [ -e /proc/vmcore ]; then
+    "$PYTHON" -Bm unittest discover -t . -s tests/linux_kernel/vmcore {"-v" if self.verbose else ""}
+else
+    DRGN_RUN_LINUX_HELPER_TESTS=1 "$PYTHON" -Bm \
+        unittest discover -t . -s tests/helpers/linux {"-v" if self.verbose else ""}
+    "$PYTHON" vmtest/enter_kdump.py
+    # We should crash and not reach this.
+    exit 1
+fi
+"""
         try:
             returncode = vmtest.vm.run_in_vm(
                 command, Path(kernel_dir), Path(self.vmtest_dir)
