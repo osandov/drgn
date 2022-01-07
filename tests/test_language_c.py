@@ -1,9 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
-
 from functools import reduce
 import operator
-import unittest
 
 from drgn import (
     Object,
@@ -15,7 +13,7 @@ from drgn import (
     cast,
     container_of,
 )
-from tests import MockProgramTestCase
+from tests import MockProgramTestCase, TestCase
 from tests.libdrgn import C_TOKEN, Lexer, drgn_lexer_c
 
 
@@ -712,7 +710,7 @@ typedef struct {
         )
 
 
-class TestLexer(unittest.TestCase):
+class TestLexer(TestCase):
     def lex(self, s):
         lexer = Lexer(drgn_lexer_c, s)
         while True:

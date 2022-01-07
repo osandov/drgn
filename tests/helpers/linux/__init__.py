@@ -12,9 +12,10 @@ import time
 import unittest
 
 import drgn
+from tests import TestCase
 
 
-class LinuxHelperTestCase(unittest.TestCase):
+class LinuxHelperTestCase(TestCase):
     prog = None
     skip_reason = None
 

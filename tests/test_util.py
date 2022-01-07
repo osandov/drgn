@@ -1,13 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
-
 from functools import cmp_to_key
-import unittest
 
+from tests import TestCase
 from util import KernelVersion, verrevcmp
 
 
-class TestUtil(unittest.TestCase):
+class TestUtil(TestCase):
     def assertVersionSort(self, sorted_list):
         self.assertEqual(sorted(sorted_list, key=cmp_to_key(verrevcmp)), sorted_list)
 

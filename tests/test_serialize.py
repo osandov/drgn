@@ -1,8 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
-
-import unittest
-
+from tests import TestCase
 from tests.libdrgn import deserialize_bits, serialize_bits
 
 VALUE = 12345678912345678989
@@ -34,7 +32,7 @@ def py_serialize_bits(value, bit_offset, bit_size, little_endian):
     return buf0, buf1
 
 
-class TestSerialize(unittest.TestCase):
+class TestSerialize(TestCase):
     def test_deserialize(self):
         for bit_size in range(1, 65):
             expected = VALUE & ((1 << bit_size) - 1)

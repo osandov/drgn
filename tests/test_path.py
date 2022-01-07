@@ -1,11 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
-
 import itertools
 import os.path
-import unittest
 
 from drgn import filename_matches
+from tests import TestCase
 from tests.libdrgn import PathIterator, path_ends_with
 
 
@@ -34,7 +33,7 @@ def join_combinations(components):
         yield components
 
 
-class TestPathIterator(unittest.TestCase):
+class TestPathIterator(TestCase):
     def assertComponents(self, path_components, expected, combinations=True):
         if combinations:
             cases = join_combinations(path_components)
