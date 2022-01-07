@@ -79,16 +79,18 @@ static void drgn_stack_trace_shrink_to_fit(struct drgn_stack_trace **trace,
 
 LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 {
-	struct drgn_register_state *regs = NULL;
-	for (size_t i = 0; i < trace->num_frames; i++) {
-		if (trace->frames[i].regs != regs) {
-			drgn_register_state_destroy(regs);
-			regs = trace->frames[i].regs;
+	if (trace) {
+		struct drgn_register_state *regs = NULL;
+		for (size_t i = 0; i < trace->num_frames; i++) {
+			if (trace->frames[i].regs != regs) {
+				drgn_register_state_destroy(regs);
+				regs = trace->frames[i].regs;
+			}
+			free(trace->frames[i].scopes);
 		}
-		free(trace->frames[i].scopes);
+		drgn_register_state_destroy(regs);
+		free(trace);
 	}
-	drgn_register_state_destroy(regs);
-	free(trace);
 }
 
 LIBDRGN_PUBLIC size_t
