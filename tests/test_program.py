@@ -1,6 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
-
 import ctypes
 import itertools
 import os
@@ -38,7 +37,7 @@ def zero_memory_read(address, count, offset, physical):
     return bytes(count)
 
 
-class TestProgram(unittest.TestCase):
+class TestProgram(TestCase):
     def test_set_pid(self):
         # Debug the running Python interpreter itself.
         prog = Program()

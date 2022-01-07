@@ -1,13 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
-
 import itertools
-import unittest
 
 from drgn import Architecture, Platform, PlatformFlags
+from tests import TestCase
 
 
-class TestPlatform(unittest.TestCase):
+class TestPlatform(TestCase):
     def test_default_flags(self):
         Platform(Architecture.X86_64)
         self.assertRaises(ValueError, Platform, Architecture.UNKNOWN)

@@ -1,11 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
-
 import tempfile
 from typing import NamedTuple
-import unittest
 
 from drgn import Program, SymbolBinding, SymbolKind
+from tests import TestCase
 from tests.dwarfwriter import dwarf_sections
 from tests.elf import ET, PT, SHT, STB, STT
 from tests.elfwriter import ElfSection, ElfSymbol, create_elf_file
@@ -56,7 +55,7 @@ class Symbol(NamedTuple):
     kind: SymbolKind
 
 
-class TestElfSymbol(unittest.TestCase):
+class TestElfSymbol(TestCase):
     def assert_symbol_equal(self, drgn_symbol, symbol):
         self.assertEqual(
             Symbol(
