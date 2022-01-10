@@ -97,14 +97,6 @@ typedef struct {
 	struct pyobjectp_set objects;
 } Program;
 
-typedef struct _GenericIterator {
-	PyObject_HEAD
-	Program *prog;
-	void *iter;
-	PyObject *(*next)(struct _GenericIterator *);
-	void (*iter_deinit)(void *);
-} GenericIterator;
-
 typedef struct {
 	PyObject_HEAD
 	const struct drgn_register *reg;
@@ -175,7 +167,6 @@ extern PyObject *TypeKind_class;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject FaultError_type;
-extern PyTypeObject GenericIterator_type;
 extern PyTypeObject Language_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Platform_type;
@@ -310,17 +301,5 @@ PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *args,
 					   PyObject *kwds);
 PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *args,
 						 PyObject *kwds);
-GenericIterator *drgnpy_linux_helper_for_each_task(PyObject *self,
-						      PyObject *args,
-						      PyObject *kwds);
-GenericIterator *drgnpy_linux_helper_for_each_pid(PyObject *self,
-						     PyObject *args,
-						     PyObject *kwds);
-GenericIterator *drgnpy_linux_helper_idr_for_each(PyObject *self,
-						     PyObject *args,
-						     PyObject *kwds);
-GenericIterator *drgnpy_linux_helper_radix_tree_for_each(PyObject *self,
-							    PyObject *args,
-							    PyObject *kwds);
 
 #endif /* DRGNPY_H */
