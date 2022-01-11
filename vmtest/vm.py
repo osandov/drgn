@@ -25,6 +25,7 @@ set -eu
 
 export BUSYBOX={busybox}
 export PYTHON={python}
+{kdump_needs_nosmp}
 
 trap '"$BUSYBOX" poweroff -f' EXIT
 
@@ -217,6 +218,7 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
                     busybox=shlex.quote(busybox),
                     python=shlex.quote(sys.executable),
                     command=shlex.quote(command),
+                    kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
                 )
             )
         os.chmod(init, 0o755)
