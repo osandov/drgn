@@ -19,10 +19,13 @@ syscall.restype = ctypes.c_long
 with open("/proc/cmdline", "rb") as f:
     cmdline = f.read().rstrip(b"\n")
     cmdline = re.sub(rb"(^|\s)crashkernel=\S+", b"", cmdline)
-    # `nosmp` is required to avoid QEMU sporadically failing an internal assertion
     # `nokaslr` is required to avoid sporadically failing to reserve space for the
     # capture kernel
-    cmdline += b" nosmp nokaslr"
+    cmdline += b" nokaslr"
+    if os.getenv("KDUMP_NEEDS_NOSMP"):
+        # `nosmp` is required to avoid QEMU sporadically failing an internal
+        # assertion when using emulation.
+        cmdline += b" nosmp"
 
 with open(f"/lib/modules/{os.uname().release}/vmlinuz", "rb") as kernel:
     if syscall(
