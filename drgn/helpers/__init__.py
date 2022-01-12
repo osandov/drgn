@@ -19,9 +19,9 @@ useful for scripts or for implementing other helpers.
 
 import enum
 import typing
-from typing import Container, Iterable
+from typing import Container, Iterable, Tuple
 
-from drgn import Type
+from drgn import IntegerLike, Type
 
 
 def escape_ascii_character(
@@ -113,3 +113,114 @@ def enum_type_to_class(
         if name not in exclude
     ]
     return enum.IntEnum(name, enumerators)  # type: ignore  # python/mypy#4865
+
+
+def decode_flags(
+    value: IntegerLike,
+    flags: Iterable[Tuple[str, int]],
+    bit_numbers: bool = True,
+) -> str:
+    """
+    Get a human-readable representation of a bitmask of flags.
+
+    By default, flags are specified by their bit number:
+
+    >>> decode_flags(2, [("BOLD", 0), ("ITALIC", 1), ("UNDERLINE", 2)])
+    'ITALIC'
+
+    They can also be specified by their value:
+
+    >>> decode_flags(2, [("BOLD", 1), ("ITALIC", 2), ("UNDERLINE", 4)],
+    ...              bit_numbers=False)
+    'ITALIC'
+
+    Multiple flags are combined with "|":
+
+    >>> decode_flags(5, [("BOLD", 0), ("ITALIC", 1), ("UNDERLINE", 2)])
+    'BOLD|UNDERLINE'
+
+    If there are multiple names for the same bit, they are all included:
+
+    >>> decode_flags(2, [("SMALL", 0), ("BIG", 1), ("LARGE", 1)])
+    'BIG|LARGE'
+
+    If there are any unknown bits, their raw value is included:
+
+    >>> decode_flags(27, [("BOLD", 0), ("ITALIC", 1), ("UNDERLINE", 2)])
+    'BOLD|ITALIC|0x18'
+
+    Zero is returned verbatim:
+
+    >>> decode_flags(0, [("BOLD", 0), ("ITALIC", 1), ("UNDERLINE", 2)])
+    '0'
+
+    :param value: Bitmask to decode.
+    :param flags: List of flag names and their bit numbers or values.
+    :param bit_numbers: Whether *flags* specifies the bit numbers (where 0 is
+        the least significant bit) or values of the flags.
+    """
+    value = value.__index__()
+    if value == 0:
+        return "0"
+
+    parts = []
+    mask = 0
+    for name, flag in flags:
+        if bit_numbers:
+            flag = 1 << flag
+        if value & flag:
+            parts.append(name)
+            mask |= flag
+
+    if value & ~mask:
+        parts.append(hex(value & ~mask))
+
+    return "|".join(parts)
+
+
+def decode_enum_type_flags(
+    value: IntegerLike,
+    type: Type,
+    bit_numbers: bool = True,
+) -> str:
+    """
+    Get a human-readable representation of a bitmask of flags where the flags
+    are specified by an enumerated :class:`drgn.Type`.
+
+    This supports enums where the values are bit numbers:
+
+    >>> print(bits_enum)
+    enum style_bits {
+            BOLD = 0,
+            ITALIC = 1,
+            UNDERLINE = 2,
+    }
+    >>> decode_enum_type_flags(5, bits_enum)
+    'BOLD|UNDERLINE'
+
+    Or the values of the flags:
+
+    >>> print(flags_enum)
+    enum style_flags {
+            BOLD = 1,
+            ITALIC = 2,
+            UNDERLINE = 4,
+    }
+    >>> decode_enum_type_flags(5, flags_enum, bit_numbers=False)
+    'BOLD|UNDERLINE'
+
+    See :func:`decode_flags()`.
+
+    :param value: Bitmask to decode.
+    :param type: Enumerated type with bit numbers for enumerators.
+    :param bit_numbers: Whether the enumerator values specify the bit numbers
+         or values of the flags.
+    """
+    enumerators = type.enumerators
+    if enumerators is None:
+        raise TypeError("cannot decode incomplete enumerated type")
+    return decode_flags(
+        value,
+        enumerators,  # type: ignore  # python/mypy#592
+        bit_numbers,
+    )

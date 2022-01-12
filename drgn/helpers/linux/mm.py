@@ -15,11 +15,13 @@ from typing import Iterator, List, Optional, Union, overload
 
 from _drgn import _linux_helper_read_vm
 from drgn import IntegerLike, Object, Program, cast
+from drgn.helpers import decode_enum_type_flags
 
 __all__ = (
     "access_process_vm",
     "access_remote_vm",
     "cmdline",
+    "decode_page_flags",
     "environ",
     "for_each_page",
     "page_to_pfn",
@@ -40,6 +42,22 @@ def for_each_page(prog: Program) -> Iterator[Object]:
     vmemmap = prog["vmemmap"]
     for i in range(prog["max_pfn"].value_()):
         yield vmemmap + i
+
+
+def decode_page_flags(page: Object) -> str:
+    """
+    Get a human-readable representation of the flags set on a page.
+
+    >>> decode_page_flags(page)
+    'PG_uptodate|PG_dirty|PG_lru|PG_reclaim|PG_swapbacked|PG_readahead|PG_savepinned|PG_isolated|PG_reported'
+
+    :param page: ``struct page *``
+    """
+    NR_PAGEFLAGS = page.prog_["__NR_PAGEFLAGS"]
+    PAGEFLAGS_MASK = (1 << NR_PAGEFLAGS.value_()) - 1
+    return decode_enum_type_flags(
+        page.flags.value_() & PAGEFLAGS_MASK, NR_PAGEFLAGS.type_
+    )
 
 
 def page_to_pfn(page: Object) -> Object:

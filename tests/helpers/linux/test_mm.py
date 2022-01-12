@@ -15,6 +15,7 @@ from drgn.helpers.linux.mm import (
     access_process_vm,
     access_remote_vm,
     cmdline,
+    decode_page_flags,
     environ,
     page_to_pfn,
     pfn_to_page,
@@ -31,15 +32,15 @@ class TestMm(LinuxHelperTestCase):
         self.assertEqual(1 << self.prog["PAGE_SHIFT"], mmap.PAGESIZE)
         self.assertEqual(~self.prog["PAGE_MASK"] + 1, mmap.PAGESIZE)
 
-    # Returns an mmap.mmap object for a file mapping, its mapped address, and
-    # the pfns backing it.
+    # Returns an mmap.mmap object for a file mapping in /dev/shm, its mapped
+    # address, and the pfns backing it.
     @contextlib.contextmanager
     def _pages(self):
         if not os.path.exists("/proc/self/pagemap"):
             self.skipTest("kernel does not support pagemap")
 
         pages = 4
-        with tempfile.TemporaryFile() as f:
+        with tempfile.TemporaryFile(dir="/dev/shm") as f:
             f.write(os.urandom(pages * mmap.PAGESIZE))
             f.flush()
             with mmap.mmap(f.fileno(), pages * mmap.PAGESIZE) as map:
@@ -55,6 +56,11 @@ class TestMm(LinuxHelperTestCase):
                         for entry in struct.unpack(f"{pages}Q", pagemap.read(pages * 8))
                     ]
                 yield map, address, pfns
+
+    def test_decode_page_flags(self):
+        with self._pages() as (map, _, pfns):
+            page = pfn_to_page(self.prog, pfns[0])
+            self.assertIn("PG_swapbacked", decode_page_flags(page))
 
     def test_virt_to_from_pfn(self):
         with self._pages() as (map, _, pfns):
