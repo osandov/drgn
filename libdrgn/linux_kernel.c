@@ -925,9 +925,16 @@ static struct drgn_error *identify_kernel_elf(Elf *elf,
 static struct drgn_error *
 get_kernel_module_name_from_modinfo(Elf_Scn *modinfo_scn, const char **ret)
 {
+	GElf_Shdr *modinfo_shdr, modinfo_shdr_mem;
 	struct drgn_error *err;
 	Elf_Data *data;
 	const char *p, *end, *nul;
+
+	modinfo_shdr = gelf_getshdr(modinfo_scn, &modinfo_shdr_mem);
+	if (!modinfo_shdr)
+		return drgn_error_libelf();
+	if (modinfo_shdr->sh_type == SHT_NOBITS)
+		goto out;
 
 	if (modinfo_scn) {
 		err = read_elf_section(modinfo_scn, &data);
@@ -946,6 +953,7 @@ get_kernel_module_name_from_modinfo(Elf_Scn *modinfo_scn, const char **ret)
 			p = nul + 1;
 		}
 	}
+out:
 	*ret = NULL;
 	return NULL;
 }
@@ -959,9 +967,16 @@ static struct drgn_error *
 get_kernel_module_name_from_this_module(Elf_Scn *this_module_scn,
 					size_t name_offset, const char **ret)
 {
+	GElf_Shdr *this_module_shdr, this_module_shdr_mem;
 	struct drgn_error *err;
 	Elf_Data *data;
 	const char *p, *nul;
+
+	this_module_shdr = gelf_getshdr(this_module_scn, &this_module_shdr_mem);
+	if (!this_module_shdr)
+		return drgn_error_libelf();
+	if (this_module_shdr->sh_type == SHT_NOBITS)
+		goto out;
 
 	if (this_module_scn) {
 		err = read_elf_section(this_module_scn, &data);
@@ -976,6 +991,7 @@ get_kernel_module_name_from_this_module(Elf_Scn *this_module_scn,
 			}
 		}
 	}
+out:
 	*ret = NULL;
 	return NULL;
 }

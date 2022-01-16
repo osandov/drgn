@@ -1659,17 +1659,17 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 
 	Elf_Scn *reloc_scn = NULL;
 	while ((reloc_scn = elf_nextscn(elf, reloc_scn))) {
-		GElf_Shdr *shdr, shdr_mem;
-		shdr = gelf_getshdr(reloc_scn, &shdr_mem);
-		if (!shdr) {
+		GElf_Shdr *reloc_shdr, reloc_shdr_mem;
+		reloc_shdr = gelf_getshdr(reloc_scn, &reloc_shdr_mem);
+		if (!reloc_shdr) {
 			err = drgn_error_libelf();
 			goto out;
 		}
 		/* We don't support any architectures that use SHT_REL yet. */
-		if (shdr->sh_type != SHT_RELA)
+		if (reloc_shdr->sh_type != SHT_RELA)
 			continue;
 
-		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		const char *scnname = elf_strptr(elf, shstrndx, reloc_shdr->sh_name);
 		if (!scnname) {
 			err = drgn_error_libelf();
 			goto out;
@@ -1677,13 +1677,22 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 
 		if (strstartswith(scnname, ".rela.debug_") ||
 		    strstartswith(scnname, ".rela.orc_")) {
-			Elf_Scn *scn = elf_getscn(elf, shdr->sh_info);
+			Elf_Scn *scn = elf_getscn(elf, reloc_shdr->sh_info);
 			if (!scn) {
 				err = drgn_error_libelf();
 				goto out;
 			}
 
-			Elf_Scn *symtab_scn = elf_getscn(elf, shdr->sh_link);
+			GElf_Shdr *shdr, shdr_mem;
+			shdr = gelf_getshdr(scn, &shdr_mem);
+			if (!shdr) {
+				err = drgn_error_libelf();
+				goto out;
+			}
+			if (shdr->sh_type == SHT_NOBITS)
+				continue;
+
+			Elf_Scn *symtab_scn = elf_getscn(elf, reloc_shdr->sh_link);
 			if (!symtab_scn) {
 				err = drgn_error_libelf();
 				goto out;
