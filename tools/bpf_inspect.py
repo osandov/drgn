@@ -7,11 +7,17 @@ import argparse
 from drgn import container_of
 from drgn.helpers import enum_type_to_class
 from drgn.helpers.linux import (
+    bpf_btf_for_each,
     bpf_link_for_each,
     bpf_map_for_each,
     bpf_prog_for_each,
     hlist_for_each_entry,
 )
+
+try:
+    BpfLinkType = enum_type_to_class(prog.type("enum bpf_link_type"), "BpfLinkType")
+except LookupError:
+    BpfLinkType = None
 
 BpfMapType = enum_type_to_class(prog.type("enum bpf_map_type"), "BpfMapType")
 BpfProgType = enum_type_to_class(prog.type("enum bpf_prog_type"), "BpfProgType")
@@ -145,9 +151,35 @@ def list_bpf_maps(args):
         print(f"{id_:>6}: {type_:32} {name}")
 
 
+def list_bpf_btf(args):
+    for btf in bpf_btf_for_each(prog):
+        id_ = btf.id.value_()
+        name = btf.name.string_().decode() or "<anon>"
+        kernel = "kernel" if btf.kernel_btf.value_() == 1 else ""
+
+        print(f"{id_:>6}: {kernel:6} {name}")
+
+
+def list_bpf_links(args):
+    if BpfLinkType is None:
+        # BpfLinkType was not initialized properly, likely because the kernel
+        # is too old to support link. So there is no link to list, simply
+        # return.
+        return
+
+    for link in bpf_link_for_each(prog):
+        id_ = link.id.value_()
+        type_ = BpfLinkType(link.type).name
+        prog_id = ""
+        if link.prog:
+            prog_id = link.prog.aux.id.value_()
+
+        print(f"{id_:>6}: {type_:32} {prog_id:>6}")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="drgn script to list BPF programs or maps and their properties unavailable via kernel API"
+        description="drgn script to list BPF objects and their properties unavailable via kernel API"
     )
 
     subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
@@ -158,6 +190,12 @@ def main():
 
     map_parser = subparsers.add_parser("map", aliases=["m"], help="list BPF maps")
     map_parser.set_defaults(func=list_bpf_maps)
+
+    link_parser = subparsers.add_parser("link", aliases=["l"], help="list BPF links")
+    link_parser.set_defaults(func=list_bpf_links)
+
+    btf_parser = subparsers.add_parser("btf", aliases=["b"], help="list BTF objects")
+    btf_parser.set_defaults(func=list_bpf_btf)
 
     args = parser.parse_args()
     args.func(args)
