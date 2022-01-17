@@ -19,11 +19,47 @@ from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import list_for_each_entry
 
 __all__ = (
+    "bpf_btf_for_each",
+    "bpf_link_for_each",
     "bpf_map_for_each",
     "bpf_prog_for_each",
     "cgroup_bpf_prog_for_each",
     "cgroup_bpf_prog_for_each_effective",
 )
+
+
+def bpf_btf_for_each(prog: Program) -> Iterator[Object]:
+    """
+    Iterate over all BTF objects.
+
+    This is only supported since Linux v4.18.
+
+    :return: Iterator of ``struct btf *`` objects.
+    """
+    type = prog.type("struct btf *")
+    # BTF was introduced in Linux kernel commit 69b693f0aefa ("bpf: btf:
+    # Introduce BPF Type Format (BTF)") (in v4.18). btf_idr was added in a
+    # later commit in v4.18, 78958fca7ead ("bpf: btf: Introduce BTF ID").
+    for nr, entry in idr_for_each(prog["btf_idr"]):
+        yield cast(type, entry)
+
+
+def bpf_link_for_each(prog: Program) -> Iterator[Object]:
+    """
+    Iterate over all BPF links.
+
+    This is only supported since Linux v5.8.
+
+    :return: Iterator of ``struct bpf_link *`` objects.
+    """
+    type = prog.type("struct bpf_link *")
+    # link_idr didn't exist before Linux kernel commit a3b80e107894 ("bpf:
+    # Allocate ID for bpf_link") (in v5.8). struct bpf_link didn't exist at all
+    # before Linux kernel commit 70ed506c3bbc ("bpf: Introduce pinnable
+    # bpf_link abstraction") (in v5.7), and we don't support Linux v5.7
+    # anyways.
+    for nr, entry in idr_for_each(prog["link_idr"]):
+        yield cast(type, entry)
 
 
 def bpf_map_for_each(prog: Program) -> Iterator[Object]:
