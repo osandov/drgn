@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import functools
+import os
+import signal
 from typing import Any, NamedTuple, Optional
 import unittest
 
@@ -22,6 +24,19 @@ from drgn import (
 )
 
 DEFAULT_LANGUAGE = Language.C
+
+
+def fork_and_pause(fn=None):
+    pid = os.fork()
+    if pid == 0:
+        if fn:
+            fn()
+        try:
+            while True:
+                signal.pause()
+        finally:
+            os._exit(1)
+    return pid
 
 
 MOCK_32BIT_PLATFORM = Platform(Architecture.UNKNOWN, PlatformFlags.IS_LITTLE_ENDIAN)

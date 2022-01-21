@@ -16,7 +16,8 @@ from drgn.helpers.linux.rbtree import (
     rbtree_inorder_for_each,
     rbtree_inorder_for_each_entry,
 )
-from tests.helpers.linux import LinuxHelperTestCase, fork_and_pause
+from tests import fork_and_pause
+from tests.helpers.linux import LinuxHelperTestCase
 
 
 class TestRbtree(LinuxHelperTestCase):

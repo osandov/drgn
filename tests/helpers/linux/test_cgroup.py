@@ -16,12 +16,12 @@ from drgn.helpers.linux.cgroup import (
     css_for_each_descendant_pre,
 )
 from drgn.helpers.linux.pid import find_task
+from tests import fork_and_pause
 from tests.helpers.linux import (
     MS_NODEV,
     MS_NOEXEC,
     MS_NOSUID,
     LinuxHelperTestCase,
-    fork_and_pause,
     mount,
     umount,
 )

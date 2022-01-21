@@ -6,12 +6,8 @@ import os
 import signal
 
 from drgn.helpers.linux.user import find_user, for_each_user
-from tests.helpers.linux import (
-    LinuxHelperTestCase,
-    fork_and_pause,
-    proc_state,
-    wait_until,
-)
+from tests import fork_and_pause
+from tests.helpers.linux import LinuxHelperTestCase, proc_state, wait_until
 
 
 class TestUser(LinuxHelperTestCase):

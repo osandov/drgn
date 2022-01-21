@@ -77,19 +77,6 @@ def wait_until(fn, *args, **kwds):
         sleep *= 2
 
 
-def fork_and_pause(fn=None):
-    pid = os.fork()
-    if pid == 0:
-        if fn:
-            fn()
-        try:
-            while True:
-                signal.pause()
-        finally:
-            os._exit(1)
-    return pid
-
-
 def proc_state(pid):
     with open(f"/proc/{pid}/status", "r") as f:
         return re.search(r"State:\s*(\S)", f.read(), re.M).group(1)
