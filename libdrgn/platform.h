@@ -82,6 +82,7 @@ struct drgn_architecture_info {
 	enum drgn_platform_flags default_flags;
 	const struct drgn_register *registers;
 	size_t num_registers;
+	size_t user_regs_struct_size;
 	const struct drgn_register *(*register_by_name)(const char *name);
 	const struct drgn_register_layout *register_layout;
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t);
@@ -100,6 +101,9 @@ struct drgn_architecture_info {
 	/* Given pt_regs as a value buffer object. */
 	struct drgn_error *(*pt_regs_get_initial_registers)(const struct drgn_object *,
 							    struct drgn_register_state **);
+	struct drgn_error *(*user_regs_struct_get_initial_registers)(struct drgn_program *,
+								const void *,
+								struct drgn_register_state **);
 	struct drgn_error *(*prstatus_get_initial_registers)(struct drgn_program *,
 							     const void *,
 							     size_t,

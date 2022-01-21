@@ -71,9 +71,15 @@ struct drgn_thread {
 	struct drgn_object object;
 };
 
+struct drgn_thread_status {
+	uint32_t tid;
+	bool is_paused;
+};
+
 DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *)
 DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct nstring)
 DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread)
+DEFINE_HASH_TABLE_TYPE(drgn_thread_status_set, struct drgn_thread_status)
 
 struct drgn_thread_iterator;
 
@@ -151,8 +157,11 @@ struct drgn_program {
 		 * map.
 		 */
 		struct drgn_prstatus_vector prstatus_vector;
-		/* For userspace programs, threads indexed by PID. */
+		/* For userspace core dumps, threads indexed by PID. */
 		struct drgn_thread_set thread_set;
+		/* For live userspace programs, tracks if threads are paused,
+		 * indexed by PID. */
+		struct drgn_thread_status_set thread_status_set;
 	};
 	struct drgn_thread *crashed_thread;
 	bool core_dump_notes_cached;
@@ -265,6 +274,10 @@ drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
 	*ret = drgn_platform_address_mask(&prog->platform);
 	return NULL;
 }
+
+
+struct drgn_error *drgn_thread_is_paused(const struct drgn_thread *thread,
+					 bool *ret);
 
 struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
 					    struct drgn_thread *ret);

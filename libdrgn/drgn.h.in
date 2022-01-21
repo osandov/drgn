@@ -2825,6 +2825,31 @@ struct drgn_error *drgn_thread_dup(const struct drgn_thread *thread,
 void drgn_thread_destroy(struct drgn_thread *thread);
 
 /**
+ * Suspend the execution of a thread.
+ *
+ * This function may only be called when the target program is a live userspace
+ * process. Calling this function more than once on the same @p thread without
+ * first calling @ref drgn_thread_resume on @p thread will result in an error.
+ *
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_pause(struct drgn_thread *thread);
+
+/**
+ * Resume the execution of a paused thread.
+ *
+ * This function may only be called when the target program is a live userspace
+ * process. Calling this function on a given @p thread without having
+ * previously paused that thread (via @ref drgn_thread_pause) will result in an
+ * error. Similarly, calling this function more than once on the same @p thread
+ * without first calling @ref drgn_thread_pause on @p thread will result in an
+ * error.
+ *
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_thread_resume(struct drgn_thread *thread);
+
+/**
  * @struct drgn_thread_iterator
  *
  * An iterator over all the threads in a program.

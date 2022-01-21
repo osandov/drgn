@@ -66,6 +66,22 @@ static PyObject *Thread_stack_trace(Thread *self)
 	return ret;
 }
 
+static PyObject* Thread_pause(Thread *self)
+{
+	struct drgn_error *err = drgn_thread_pause(&self->thread);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject* Thread_resume(Thread *self)
+{
+	struct drgn_error *err = drgn_thread_resume(&self->thread);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyGetSetDef Thread_getset[] = {
 	{"tid", (getter)Thread_get_tid, NULL, drgn_Thread_tid_DOC},
 	{"object", (getter)Thread_get_object, NULL, drgn_Thread_object_DOC},
@@ -75,6 +91,10 @@ static PyGetSetDef Thread_getset[] = {
 static PyMethodDef Thread_methods[] = {
 	{"stack_trace", (PyCFunction)Thread_stack_trace, METH_NOARGS,
 	 drgn_Thread_stack_trace_DOC},
+	{"pause", (PyCFunction)Thread_pause, METH_NOARGS,
+	 drgn_Thread_pause_DOC},
+	{"resume", (PyCFunction)Thread_resume, METH_NOARGS,
+	 drgn_Thread_resume_DOC},
 	{},
 };
 

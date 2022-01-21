@@ -9,6 +9,9 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ptrace.h>
+#include <sys/uio.h>
+#include <sys/user.h>
 
 #include "cfi.h"
 #include "debug_info.h"
@@ -523,7 +526,7 @@ type_error:
 static struct drgn_error *
 drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			   const struct drgn_object *thread_obj,
-			   struct nstring *prstatus,
+			   struct nstring *prstatus, const void *user_regs_struct,
 			   struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
@@ -534,7 +537,13 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 	drgn_object_init(&obj, prog);
 	drgn_object_init(&tmp, prog);
 
-	/* First, try pt_regs. */
+	if (user_regs_struct) {
+		err = prog->platform.arch->user_regs_struct_get_initial_registers(
+			prog, user_regs_struct, ret);
+		goto out;
+	}
+
+	/* Next, try pt_regs. */
 	if (thread_obj) {
 		bool is_pt_regs;
 		err = drgn_get_stack_trace_obj(&obj, thread_obj, &is_pt_regs);
@@ -1037,6 +1046,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 					       uint32_t tid,
 					       const struct drgn_object *obj,
 					       struct nstring *prstatus,
+					       const void *user_regs_struct,
 					       struct drgn_stack_trace **ret)
 {
 	struct drgn_error *err;
@@ -1044,11 +1054,6 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	if (!prog->has_platform) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "cannot unwind stack without platform");
-	}
-	if ((prog->flags & (DRGN_PROGRAM_IS_LINUX_KERNEL |
-			    DRGN_PROGRAM_IS_LIVE)) == DRGN_PROGRAM_IS_LIVE) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "stack unwinding is not yet supported for live processes");
 	}
 
 	size_t trace_capacity = 1;
@@ -1063,7 +1068,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	struct drgn_cfi_row *row = drgn_empty_cfi_row;
 
 	struct drgn_register_state *regs;
-	err = drgn_get_initial_registers(prog, tid, obj, prstatus, &regs);
+	err = drgn_get_initial_registers(prog, tid, obj, prstatus, user_regs_struct, &regs);
 	if (err)
 		goto out;
 
@@ -1074,10 +1079,15 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 		if (err)
 			goto out;
 
-		err = drgn_unwind_with_cfi(prog, &row, regs, &regs);
-		if (err == &drgn_not_found) {
-			err = prog->platform.arch->fallback_unwind(prog, regs,
-								   &regs);
+		if ((prog->flags & (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE)) ==
+		    DRGN_PROGRAM_IS_LIVE) {
+			err = prog->platform.arch->fallback_unwind(prog, regs, &regs);
+		} else {
+			err = drgn_unwind_with_cfi(prog, &row, regs, &regs);
+			if (err == &drgn_not_found) {
+				err = prog->platform.arch->fallback_unwind(prog, regs,
+									   &regs);
+			}
 		}
 		if (err == &drgn_stop)
 			break;
@@ -1101,7 +1111,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_stack_trace(struct drgn_program *prog, uint32_t tid,
 			 struct drgn_stack_trace **ret)
 {
-	return drgn_get_stack_trace(prog, tid, NULL, NULL, ret);
+	return drgn_get_stack_trace(prog, tid, NULL, NULL, NULL, ret);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1117,10 +1127,10 @@ drgn_object_stack_trace(const struct drgn_object *obj,
 		if (err)
 			return err;
 		return drgn_get_stack_trace(drgn_object_program(obj),
-					    value.uvalue, NULL, NULL, ret);
+					    value.uvalue, NULL, NULL, NULL, ret);
 	} else {
 		return drgn_get_stack_trace(drgn_object_program(obj), 0, obj,
-					    NULL, ret);
+					    NULL, NULL, ret);
 	}
 }
 
@@ -1132,9 +1142,28 @@ drgn_thread_stack_trace(struct drgn_thread *thread,
 		struct nstring *prstatus =
 		        thread->prstatus.str ? &thread->prstatus : NULL;
 		return drgn_get_stack_trace(thread->prog, thread->tid,
-					    &thread->object, prstatus, ret);
+					    &thread->object, prstatus, NULL, ret);
+	} else if (thread->prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		bool is_paused;
+		struct drgn_error *err = drgn_thread_is_paused(thread, &is_paused);
+		if (err)
+			return err;
+		if (!is_paused)
+			return drgn_error_create(
+				DRGN_ERROR_INVALID_ARGUMENT,
+				"thread must be paused in order to produce a stack trace");
+		if (thread->prog->platform.arch == &arch_info_unknown)
+			return drgn_error_create(
+				DRGN_ERROR_OTHER,
+				"stack traces of live processes are not yet supported on this architecture");
+		uint8_t registers[thread->prog->platform.arch->user_regs_struct_size];
+		struct iovec vec = {.iov_base = registers, .iov_len = sizeof(registers)};
+		if (ptrace(PTRACE_GETREGSET, thread->tid, NT_PRSTATUS, &vec) == -1)
+			return drgn_error_create_os("ptrace", errno, NULL);
+		return drgn_get_stack_trace(thread->prog, thread->tid, NULL, NULL, &registers,
+						ret);
 	} else {
 		return drgn_get_stack_trace(thread->prog, thread->tid, NULL,
-					    &thread->prstatus, ret);
+					    &thread->prstatus, NULL, ret);
 	}
 }

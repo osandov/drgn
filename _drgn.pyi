@@ -853,6 +853,21 @@ class Thread:
         :meth:`Program.stack_trace()`.
         """
         ...
+    def pause(self) -> None:
+        """
+        Suspend execution of this thread until :meth:`Thread.resume()` is called.
+
+        This function shoulld only be called when debugging a live userspace process.
+        """
+        ...
+    def resume(self) -> None:
+        """
+        Resume execution of this thread. It is an error to call this function
+        without having previously called :meth:`Thread.pause()`.
+
+        This function should only be called when debugging a live userspace process.
+        """
+        ...
 
 def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """

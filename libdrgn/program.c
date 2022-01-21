@@ -3,16 +3,21 @@
 
 #include <assert.h>
 #include <byteswap.h>
+#include <ctype.h>
+#include <dirent.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <gelf.h>
 #include <inttypes.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ptrace.h>
 #include <sys/statfs.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "debug_info.h"
@@ -33,8 +38,18 @@ static inline uint32_t drgn_thread_to_key(const struct drgn_thread *entry)
 	return entry->tid;
 }
 
+static inline uint32_t drgn_thread_status_to_key(const struct drgn_thread_status *entry)
+{
+	return entry->tid;
+}
+
+#define DRGN_PTRACE_OPTIONS (PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD)
+#define STOPPED_BY_PTRACE_INTERRUPT(status) ((WIFSTOPPED(status)) && ((status) >> 16 == PTRACE_EVENT_STOP) && (WSTOPSIG(status) == SIGTRAP))
+
 DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_thread_set, drgn_thread_to_key,
+			    int_key_hash_pair, scalar_key_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_thread_status_set, drgn_thread_status_to_key,
 			    int_key_hash_pair, scalar_key_eq)
 
 struct drgn_thread_iterator {
@@ -42,7 +57,10 @@ struct drgn_thread_iterator {
 	union {
 		struct drgn_thread_set_iterator iterator;
 		struct {
-			struct linux_helper_task_iterator task_iter;
+			union {
+				DIR *tasks_dir;
+				struct linux_helper_task_iterator task_iter;
+			};
 			struct drgn_thread entry;
 		};
 	};
@@ -98,6 +116,10 @@ void drgn_program_deinit(struct drgn_program *prog)
 			drgn_prstatus_vector_deinit(&prog->prstatus_vector);
 		else
 			drgn_thread_set_deinit(&prog->thread_set);
+	}
+	else if ((prog->flags & (DRGN_PROGRAM_IS_LIVE |
+				 DRGN_PROGRAM_IS_LINUX_KERNEL)) == DRGN_PROGRAM_IS_LIVE) {
+		drgn_thread_status_set_deinit(&prog->thread_status_set);
 	}
 	drgn_thread_destroy(prog->crashed_thread);
 	free(prog->pgtable_it);
@@ -522,6 +544,28 @@ drgn_program_set_kernel(struct drgn_program *prog)
 	return drgn_program_set_core_dump(prog, "/proc/kcore");
 }
 
+static const char *proc_path(uint32_t pid, uint32_t tid)
+{
+	#define PROC_PATH_PREFIX "/proc/"
+	#define PROC_PATH_SUFFIX "/task/"
+	assert(pid > 0);
+	assert(tid == -1 || tid > 0);
+	// 10 = maximum length of a 32 bit unsigned int as a string
+	// -1 = each of sizeof({PROC_PATH_PREFIX, PROC_PATH_SUFFIX}) includes
+	// space for the null terminator, so we don't want to double-count.
+	static char path[sizeof(PROC_PATH_PREFIX) + sizeof(PROC_PATH_SUFFIX) + (10 * 2) - 1];
+	if (tid == -1)
+		snprintf(path, sizeof(path),
+			 PROC_PATH_PREFIX "%" PRIu32 PROC_PATH_SUFFIX, pid);
+	else
+		snprintf(path, sizeof(path),
+			 PROC_PATH_PREFIX "%" PRIu32 PROC_PATH_SUFFIX
+					  "%" PRIu32, pid, tid);
+	return path;
+	#undef PROC_PATH_PREFIX
+	#undef PROC_PATH_SUFFIX
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 {
@@ -555,10 +599,42 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		goto out_segments;
 
+	const char *path = proc_path(pid, -1);
+	DIR *tasks = opendir(path);
+	if (!tasks) {
+		err = drgn_error_create_os("opendir", errno, path);
+		goto out_segments;
+	}
+	drgn_thread_status_set_init(&prog->thread_status_set);
+	struct dirent *task;
+	while ((task = readdir(tasks))) {
+		if (isdigit(task->d_name[0])) { // Skip "." and ".."
+			struct drgn_thread_status status = {.is_paused = false,
+							    .tid = atoi(task->d_name)};
+			assert(status.tid > 0);
+			if (ptrace(PTRACE_SEIZE, status.tid, NULL,
+				   DRGN_PTRACE_OPTIONS) == -1) {
+				err = drgn_error_create_os("ptrace", errno,
+							   task->d_name);
+				break;
+			}
+			if (drgn_thread_status_set_insert(&prog->thread_status_set,
+							  &status, NULL) == -1) {
+				err = &drgn_enomem;
+				break;
+			}
+		}
+	}
+	closedir(tasks);
+	if (err)
+		goto out_threads;
+
 	prog->pid = pid;
 	prog->flags |= DRGN_PROGRAM_IS_LIVE;
 	return NULL;
 
+out_threads:
+	drgn_thread_status_set_deinit(&prog->thread_status_set);
 out_segments:
 	drgn_memory_reader_deinit(&prog->reader);
 	drgn_memory_reader_init(&prog->reader);
@@ -722,7 +798,7 @@ LIBDRGN_PUBLIC void drgn_thread_destroy(struct drgn_thread *thread)
 {
 	if (thread) {
 		drgn_thread_deinit(thread);
-		if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		if (thread->prog->flags & (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE))
 			free(thread);
 	}
 }
@@ -870,15 +946,7 @@ LIBDRGN_PUBLIC struct drgn_error *
 drgn_thread_iterator_create(struct drgn_program *prog,
 			    struct drgn_thread_iterator **ret)
 {
-	struct drgn_error *err;
-
-	if ((prog->flags &
-	     (DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE)) ==
-	    DRGN_PROGRAM_IS_LIVE) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "finding threads is not yet supported for live processes");
-	}
-
+	struct drgn_error *err = NULL;
 	*ret = malloc(sizeof(**ret));
 	if (!*ret)
 		return &drgn_enomem;
@@ -889,6 +957,17 @@ drgn_thread_iterator_create(struct drgn_program *prog,
 			goto err;
 		drgn_object_init(&(*ret)->entry.object, prog);
 		(*ret)->entry.prstatus = (struct nstring){};
+	} else if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		(*ret)->entry.prog = prog;
+		(*ret)->entry.prstatus = (struct nstring){.str = NULL, .len = 0};
+		// Unused in this case, so we zero it out just to be safe
+		(*ret)->entry.object = (struct drgn_object){};
+		const char *path = proc_path(prog->pid, -1);
+		(*ret)->tasks_dir = opendir(path);
+		if (!(*ret)->tasks_dir) {
+			err = drgn_error_create_os("opendir", errno, path);
+			goto err;
+		}
 	} else {
 		err = drgn_program_cache_core_dump_notes(prog);
 		if (err)
@@ -909,6 +988,8 @@ drgn_thread_iterator_destroy(struct drgn_thread_iterator *it)
 		if (it->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 			drgn_object_deinit(&it->entry.object);
 			linux_helper_task_iterator_deinit(&it->task_iter);
+		} else if (it->prog->flags & DRGN_PROGRAM_IS_LIVE) {
+			closedir(it->tasks_dir);
 		}
 		free(it);
 	}
@@ -942,6 +1023,28 @@ drgn_thread_iterator_next(struct drgn_thread_iterator *it,
 		if (err)
 			return err;
 		it->entry.tid = tid_value.uvalue;
+		*ret = &it->entry;
+	} else if (it->prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		struct dirent *task;
+		do {
+			task = readdir(it->tasks_dir);
+		} while (task && !isdigit(task->d_name[0])); // Skip "." and ".."
+		if (!task) {
+			*ret = NULL;
+			return NULL;
+		}
+		it->entry.tid = atoi(task->d_name);
+		assert(it->entry.tid > 0);
+		if (!drgn_thread_status_set_search(&it->prog->thread_status_set, &it->entry.tid).entry) {
+			if (ptrace(PTRACE_SEIZE, it->entry.tid, NULL, DRGN_PTRACE_OPTIONS) == -1)
+				return drgn_error_format_os("ptrace", errno, "%d",
+							    it->entry.tid);
+			struct drgn_thread_status status = {.is_paused = false,
+							    .tid = it->entry.tid};
+			if (drgn_thread_status_set_insert(&it->prog->thread_status_set, &status,
+							  NULL) == -1)
+				return &drgn_enomem;
+		}
 		*ret = &it->entry;
 	} else {
 		*ret = it->iterator.entry;
@@ -984,8 +1087,27 @@ kernel_err:
 		drgn_thread_destroy(*ret);
 		return err;
 	} else if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "finding threads is not yet supported for live processes");
+		if (!drgn_thread_status_set_search(&prog->thread_status_set, &tid).entry) {
+			const char *task_path = proc_path(prog->pid, tid);
+			/* This may seem redundant (as the call to `ptrace`
+			 * will fail if the task isn't found), but the point is
+			 * that we want to verify that `tid` specifically is a
+			 * thread within `prog`'s process. */
+			if (access(task_path, F_OK) == -1)
+				return drgn_error_create_os("access", errno, task_path);
+			if (ptrace(PTRACE_SEIZE, tid, NULL, DRGN_PTRACE_OPTIONS) == -1)
+				return drgn_error_format_os("ptrace", errno, "%d", tid);
+			struct drgn_thread_status status = {.is_paused = false, .tid = tid};
+			if (drgn_thread_status_set_insert(&prog->thread_status_set, &status,
+							  NULL) == -1)
+				return &drgn_enomem;
+		}
+		*ret = calloc(1, sizeof(**ret));
+		if (!*ret)
+			return &drgn_enomem;
+		(*ret)->prog = prog;
+		(*ret)->tid = tid;
+		return NULL;
 	} else {
 		err = drgn_program_cache_core_dump_notes(prog);
 		if (err)
@@ -1086,6 +1208,100 @@ drgn_thread_object(struct drgn_thread *thread, const struct drgn_object **ret)
 					 "thread object is currently only defined for the Linux kernel");
 	}
 	*ret = &thread->object;
+	return NULL;
+}
+
+static struct drgn_error *thread_exited_error(uint32_t tid)
+{
+	return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+				 "thread %d has exited", tid);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_thread_pause(struct drgn_thread *thread)
+{
+	if ((thread->prog->flags &
+	     (DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LINUX_KERNEL)) !=
+	      DRGN_PROGRAM_IS_LIVE) {
+		return drgn_error_create(
+			DRGN_ERROR_INVALID_ARGUMENT,
+			"threads can only be paused/resumed when debugging a live userspace process");
+	}
+	struct drgn_thread_status *status =
+		drgn_thread_status_set_search(&thread->prog->thread_status_set,
+					      &thread->tid).entry;
+	if (!status)
+		return thread_exited_error(thread->tid);
+	if (status->is_paused)
+		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					 "thread %d is already paused",
+					 thread->tid);
+	if (ptrace(PTRACE_INTERRUPT, thread->tid, NULL, NULL) == -1) {
+		if (errno == ESRCH) {
+			assert(drgn_thread_status_set_delete(
+				&thread->prog->thread_status_set,
+				&thread->tid));
+			return thread_exited_error(thread->tid);
+		}
+		return drgn_error_format_os("ptrace", errno, "%d", thread->tid);
+	}
+	// This is almost certainly incomplete with regards to all of the different
+	// ptrace-stop types, but it at least works for stops from signals and
+	// stops manually initiated by calling this function.
+	for (int wait_status;;) {
+		if (waitpid(thread->tid, &wait_status, __WALL) == -1)
+			return drgn_error_format_os("waitpid", errno, "%d",
+						    thread->tid);
+		if (WIFEXITED(wait_status) || WIFSIGNALED(wait_status)) {
+			assert(drgn_thread_status_set_delete(
+				&thread->prog->thread_status_set,
+				&thread->tid));
+			return thread_exited_error(thread->tid);
+		}
+		if (STOPPED_BY_PTRACE_INTERRUPT(wait_status)) {
+			status->is_paused = true;
+			return NULL;
+		}
+		if (ptrace(PTRACE_CONT, thread->tid, NULL,
+			   WSTOPSIG(wait_status)) == -1)
+			return drgn_error_format_os("ptrace", errno, "%d",
+						    thread->tid);
+	}
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_thread_resume(struct drgn_thread *thread)
+{
+	if ((thread->prog->flags &
+	     (DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LINUX_KERNEL)) !=
+	    DRGN_PROGRAM_IS_LIVE) {
+		return drgn_error_create(
+			DRGN_ERROR_INVALID_ARGUMENT,
+			"threads can only be paused/resumed when debugging a live userspace process");
+	}
+	struct drgn_thread_status *status =
+		drgn_thread_status_set_search(&thread->prog->thread_status_set,
+					      &thread->tid).entry;
+	if (!status)
+		return thread_exited_error(thread->tid);
+	if (!status->is_paused)
+		return drgn_error_format(
+			DRGN_ERROR_INVALID_ARGUMENT,
+			"thread %d has already been resumed or was never paused",
+			thread->tid);
+	if (ptrace(PTRACE_CONT, thread->tid, NULL, NULL) == -1)
+		return drgn_error_format_os("ptrace", errno, "%d", thread->tid);
+	status->is_paused = false;
+	return NULL;
+}
+
+struct drgn_error *drgn_thread_is_paused(const struct drgn_thread *thread,
+					 bool *ret)
+{
+	struct drgn_thread_status *status =
+		drgn_thread_status_set_search(&thread->prog->thread_status_set,
+					      &thread->tid).entry;
+	if (!status)
+		return thread_exited_error(thread->tid);
+	*ret = status->is_paused;
 	return NULL;
 }
 

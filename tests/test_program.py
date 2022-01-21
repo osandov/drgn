@@ -3,6 +3,7 @@
 import ctypes
 import itertools
 import os
+import signal
 import tempfile
 import unittest.mock
 
@@ -27,6 +28,7 @@ from tests import (
     MockObject,
     MockProgramTestCase,
     TestCase,
+    fork_and_pause,
     mock_program,
 )
 from tests.elf import ET, PT
@@ -43,15 +45,19 @@ class TestProgram(TestCase):
         prog = Program()
         self.assertIsNone(prog.platform)
         self.assertFalse(prog.flags & ProgramFlags.IS_LIVE)
-        prog.set_pid(os.getpid())
-        self.assertEqual(prog.platform, host_platform)
-        self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
-        self.assertRaisesRegex(
-            ValueError,
-            "program memory was already initialized",
-            prog.set_pid,
-            os.getpid(),
-        )
+        pid = fork_and_pause()
+        try:
+            prog.set_pid(pid)
+            self.assertEqual(prog.platform, host_platform)
+            self.assertTrue(prog.flags & ProgramFlags.IS_LIVE)
+            self.assertRaisesRegex(
+                ValueError,
+                "program memory was already initialized",
+                prog.set_pid,
+                pid,
+            )
+        finally:
+            os.kill(pid, signal.SIGINT)
 
     def test_pid_memory(self):
         data = b"hello, world!"
@@ -74,9 +80,13 @@ class TestProgram(TestCase):
             self.skipTest("/proc/$pid/mem is not functional")
 
         prog = Program()
-        prog.set_pid(os.getpid())
+        pid = fork_and_pause()
+        try:
+            prog.set_pid(pid)
 
-        self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
+            self.assertEqual(prog.read(ctypes.addressof(buf), len(data)), data)
+        finally:
+            os.kill(pid, signal.SIGINT)
 
     def test_lookup_error(self):
         prog = mock_program()
