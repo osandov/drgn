@@ -17,6 +17,37 @@ from typing import Any, Dict
 import drgn
 
 
+def _identify_script(path: str) -> str:
+    EI_NIDENT = 16
+    SIZEOF_E_TYPE = 2
+
+    with open(path, "rb") as f:
+        header = f.read(EI_NIDENT + SIZEOF_E_TYPE)
+
+    ELFMAG = b"\177ELF"
+    SELFMAG = 4
+    EI_DATA = 5
+    ELFDATA2LSB = 1
+    ELFDATA2MSB = 2
+    ET_CORE = 4
+
+    if len(header) < EI_NIDENT + SIZEOF_E_TYPE or header[:4] != ELFMAG:
+        return "other"
+
+    if header[EI_DATA] == ELFDATA2LSB:
+        byteorder = "little"
+    elif header[EI_DATA] == ELFDATA2MSB:
+        byteorder = "big"
+    else:
+        return "elf"
+
+    e_type = int.from_bytes(
+        header[EI_NIDENT : EI_NIDENT + SIZEOF_E_TYPE],
+        byteorder,  # type: ignore[arg-type]  # python/mypy#9057
+    )
+    return "core" if e_type == ET_CORE else "elf"
+
+
 def displayhook(value: Any) -> None:
     if value is None:
         return
@@ -107,7 +138,23 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if not args.script:
+    if args.script:
+        # A common mistake users make is running drgn $core_dump, which tries
+        # to run $core_dump as a Python script. Rather than failing later with
+        # some inscrutable syntax or encoding error, try to catch this early
+        # and provide a helpful message.
+        try:
+            script_type = _identify_script(args.script[0])
+        except OSError as e:
+            sys.exit(e)
+        if script_type == "core":
+            sys.exit(
+                f"error: {args.script[0]} is a core dump\n"
+                f'Did you mean "-c {args.script[0]}"?'
+            )
+        elif script_type == "elf":
+            sys.exit(f"error: {args.script[0]} is a binary, not a drgn script")
+    else:
         print(version, file=sys.stderr, flush=True)
     if not args.quiet:
         os.environ["DEBUGINFOD_PROGRESS"] = "1"
