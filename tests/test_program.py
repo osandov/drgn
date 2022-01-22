@@ -397,6 +397,15 @@ class TestTypes(MockProgramTestCase):
         self.prog.add_type_finder(lambda kind, name, filename: None)
         self.assertRaises(LookupError, self.prog.type, "struct foo")
 
+    def test_already_type(self):
+        self.assertIdentical(
+            self.prog.type(self.prog.pointer_type(self.prog.void_type())),
+            self.prog.pointer_type(self.prog.void_type()),
+        )
+
+    def test_invalid_argument_type(self):
+        self.assertRaises(TypeError, self.prog.type, 1)
+
     def test_default_primitive_types(self):
         def spellings(tokens, num_optional=0):
             for i in range(len(tokens) - num_optional, len(tokens) + 1):

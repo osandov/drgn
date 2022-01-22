@@ -259,6 +259,7 @@ class Program:
             ``struct task_struct *`` object.
         """
         ...
+    @overload
     def type(self, name: str, filename: Optional[str] = None) -> Type:
         """
         Get the type with the given name.
@@ -271,6 +272,28 @@ class Program:
             :ref:`api-filenames`.
         :raises LookupError: if no types with the given name are found in
             the given file
+        """
+        ...
+    @overload
+    # type is positional-only.
+    def type(self, type: Type) -> Type:
+        """
+        Return the given type.
+
+        This is mainly useful so that helpers can use ``prog.type()`` to get a
+        :class:`Type` regardless of whether they were given a :class:`str` or a
+        :class:`Type`. For example:
+
+        .. code-block:: python3
+
+            def my_helper(obj: Object, type: Union[str, Type]) -> bool:
+                # type may be str or Type.
+                type = obj.prog_.type(type)
+                # type is now always Type.
+                return sizeof(obj) > sizeof(type)
+
+        :param type: Type.
+        :return: The exact same type.
         """
         ...
     def threads(self) -> Iterator[Thread]:

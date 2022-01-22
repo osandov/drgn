@@ -589,16 +589,32 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 {
 	static char *keywords[] = {"name", "filename", NULL};
 	struct drgn_error *err;
-	const char *name;
+	PyObject *name_or_type;
 	struct path_arg filename = {.allow_none = true};
-	struct drgn_qualified_type qualified_type;
-	bool clear;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "s|O&:type", keywords,
-					 &name, path_converter, &filename))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O&:type", keywords,
+					 &name_or_type, path_converter,
+					 &filename))
 		return NULL;
 
-	clear = set_drgn_in_python();
+	if (PyObject_TypeCheck(name_or_type, &DrgnType_type)) {
+		if (DrgnType_prog((DrgnType *)name_or_type) != self) {
+			PyErr_SetString(PyExc_ValueError,
+					"type is from different program");
+			return NULL;
+		}
+		Py_INCREF(name_or_type);
+		return name_or_type;
+	} else if (!PyUnicode_Check(name_or_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"type() argument 1 must be str or Type");
+		return NULL;
+	}
+
+	const char *name = PyUnicode_AsUTF8(name_or_type);
+	if (!name)
+		return NULL;
+	bool clear = set_drgn_in_python();
+	struct drgn_qualified_type qualified_type;
 	err = drgn_program_find_type(&self->prog, name, filename.path,
 				     &qualified_type);
 	if (clear)
