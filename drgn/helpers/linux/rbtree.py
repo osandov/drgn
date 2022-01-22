@@ -197,6 +197,8 @@ def rb_find(
         the key matches the entry.
     :return: ``type *`` found entry, or ``NULL`` if not found.
     """
+    prog = root.prog_
+    type = prog.type(type)
     node = root.rb_node.read_()
     while node:
         entry = container_of(node, type, member)
@@ -207,4 +209,4 @@ def rb_find(
             node = node.rb_right.read_()
         else:
             return entry
-    return NULL(root.prog_, type)
+    return NULL(prog, prog.pointer_type(type))
