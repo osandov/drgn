@@ -234,9 +234,6 @@ class _AssertIdenticalWrapper:
 
 
 class TestCase(unittest.TestCase):
-    def setUp(self):
-        super().setUp()
-
     def assertIdentical(self, a, b, msg=None):
         return self.assertEqual(
             _AssertIdenticalWrapper(a), _AssertIdenticalWrapper(b), msg
