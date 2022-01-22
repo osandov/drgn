@@ -6,10 +6,9 @@ Using Stack Trace Variables to Find a Kyber Bug
 
 .. highlight:: pycon
 
-Jakub Kicinski reported a crash in the `Kyber I/O scheduler
-<https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/block/kyber-iosched.c>`_
-when he was testing Linux 5.12. He captured a core dump and asked me to debug
-it. This is a quick writeup of that investigation.
+Jakub Kicinski reported a crash in the :linux:`Kyber I/O scheduler
+<block/kyber-iosched.c>` when he was testing Linux 5.12. He captured a core
+dump and asked me to debug it. This is a quick writeup of that investigation.
 
 First, we can get the task that crashed::
 
