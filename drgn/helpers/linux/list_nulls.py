@@ -51,6 +51,7 @@ def hlist_nulls_for_each_entry(
     :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
+    type = head.prog_.type(type)
     pos = head.first
     while not is_a_nulls(pos):
         yield container_of(pos, type, member)

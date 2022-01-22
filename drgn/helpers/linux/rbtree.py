@@ -168,6 +168,7 @@ def rbtree_inorder_for_each_entry(
     :param member: Name of red-black node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
+    type = root.prog_.type(type)
     for node in rbtree_inorder_for_each(root):
         yield container_of(node, type, member)
 

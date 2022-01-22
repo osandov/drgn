@@ -165,6 +165,7 @@ def list_for_each_entry(
     :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
+    type = head.prog_.type(type)
     for pos in list_for_each(head):
         yield container_of(pos, type, member)
 
@@ -180,6 +181,7 @@ def list_for_each_entry_reverse(
     :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
+    type = head.prog_.type(type)
     for pos in list_for_each_reverse(head):
         yield container_of(pos, type, member)
 
@@ -217,5 +219,6 @@ def hlist_for_each_entry(
     :param member: Name of list node member in entry type.
     :return: Iterator of ``type *`` objects.
     """
+    type = head.prog_.type(type)
     for pos in hlist_for_each(head):
         yield container_of(pos, type, member)
