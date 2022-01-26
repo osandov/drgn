@@ -61,6 +61,16 @@ DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_specification_map,
 			    drgn_dwarf_specification_to_key, int_key_hash_pair,
 			    scalar_key_eq)
 
+DEFINE_HASH_SET_FUNCTIONS(uintptr_set, int_key_hash_pair, scalar_key_eq)
+DEFINE_HASH_MAP_FUNCTIONS(drgn_inlined_map, int_key_hash_pair, scalar_key_eq)
+
+static void drgn_inlined_map_deep_deinit(struct drgn_inlined_map *inlined_map) {
+	for (struct drgn_inlined_map_iterator iter = drgn_inlined_map_first(inlined_map);
+		 iter.entry; iter = drgn_inlined_map_next(iter))
+		uintptr_set_deinit(&iter.entry->value);
+	drgn_inlined_map_deinit(inlined_map);
+}
+
 /**
  * Placeholder for drgn_dwarf_index_cu::file_name_hashes if the CU has no
  * filenames.
@@ -237,6 +247,7 @@ void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo)
 	drgn_dwarf_index_cu_vector_init(&dbinfo->dwarf.index_cus);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.types);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.cant_be_incomplete_array_types);
+	drgn_inlined_map_init(&dbinfo->dwarf.inlined_map);
 	dbinfo->dwarf.depth = 0;
 }
 
@@ -257,6 +268,7 @@ void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo)
 	drgn_dwarf_index_cu_vector_deinit(&dbinfo->dwarf.index_cus);
 	drgn_dwarf_specification_map_deinit(&dbinfo->dwarf.specifications);
 	drgn_namespace_dwarf_index_deinit(&dbinfo->dwarf.global);
+	drgn_inlined_map_deep_deinit(&dbinfo->dwarf.inlined_map);
 }
 
 /*
@@ -379,7 +391,7 @@ enum drgn_dwarf_index_abbrev_insn {
 	 * Instructions > 0 and <= INSN_MAX_SKIP indicate a number of bytes to
 	 * be skipped over.
 	 */
-	INSN_MAX_SKIP = 193,
+	INSN_MAX_SKIP = 186,
 
 	/* These instructions indicate an attribute that can be skipped over. */
 	INSN_SKIP_BLOCK,
@@ -450,6 +462,13 @@ enum drgn_dwarf_index_abbrev_insn {
 	INSN_DECL_FILE_INDIRECT,
 	INSN_DECLARATION_INDIRECT,
 	INSN_SPECIFICATION_INDIRECT,
+	INSN_ABSTRACT_ORIGIN_REF1,
+	INSN_ABSTRACT_ORIGIN_REF2,
+	INSN_ABSTRACT_ORIGIN_REF4,
+	INSN_ABSTRACT_ORIGIN_REF8,
+	INSN_ABSTRACT_ORIGIN_REF_UDATA,
+	INSN_ABSTRACT_ORIGIN_REF_ADDR4,
+	INSN_ABSTRACT_ORIGIN_REF_ADDR8,
 
 	NUM_INSNS,
 
@@ -730,6 +749,50 @@ static struct drgn_error *dw_at_sibling_to_insn(struct binary_buffer *bb,
 	default:
 		return binary_buffer_error(bb,
 					   "unknown attribute form %#" PRIx64 " for DW_AT_sibling",
+					   form);
+	}
+}
+
+static struct drgn_error *dw_at_abstract_origin_to_insn(struct drgn_dwarf_index_cu *cu, struct binary_buffer *bb,
+						uint64_t form,
+						uint8_t *insn_ret)
+{
+	switch (form) {
+	case DW_FORM_ref1:
+		*insn_ret = INSN_ABSTRACT_ORIGIN_REF1;
+		return NULL;
+	case DW_FORM_ref2:
+		*insn_ret = INSN_ABSTRACT_ORIGIN_REF2;
+		return NULL;
+	case DW_FORM_ref4:
+		*insn_ret = INSN_ABSTRACT_ORIGIN_REF4;
+		return NULL;
+	case DW_FORM_ref8:
+		*insn_ret = INSN_ABSTRACT_ORIGIN_REF8;
+		return NULL;
+	case DW_FORM_ref_udata:
+		*insn_ret = INSN_ABSTRACT_ORIGIN_REF_UDATA;
+		return NULL;
+	case DW_FORM_ref_addr:
+		if (cu->version >= 3) {
+			if (cu->is_64_bit)
+				*insn_ret = INSN_ABSTRACT_ORIGIN_REF_ADDR8;
+			else
+				*insn_ret = INSN_ABSTRACT_ORIGIN_REF_ADDR4;
+		} else {
+			if (cu->address_size == 8)
+				*insn_ret = INSN_ABSTRACT_ORIGIN_REF_ADDR8;
+			else if (cu->address_size == 4)
+				*insn_ret = INSN_ABSTRACT_ORIGIN_REF_ADDR4;
+			else
+				return binary_buffer_error(bb,
+							   "unsupported address size %" PRIu8 " for DW_FORM_ref_addr",
+							   cu->address_size);
+		}
+		return NULL;
+	default:
+		return binary_buffer_error(bb,
+					   "unknown attribute form %#" PRIx64 " for DW_AT_abstract_origin",
 					   form);
 	}
 }
@@ -1077,6 +1140,7 @@ read_abbrev_decl(struct drgn_debug_info_buffer *buffer,
 	case DW_TAG_enumerator:
 	/* Functions. */
 	case DW_TAG_subprogram:
+	case DW_TAG_inlined_subroutine:
 	/* Namespaces */
 	case DW_TAG_namespace:
 	/* If adding anything here, make sure it fits in INSN_DIE_FLAG_TAG_MASK. */
@@ -1126,20 +1190,30 @@ read_abbrev_decl(struct drgn_debug_info_buffer *buffer,
 			}
 			err = dw_at_stmt_list_to_insn(cu, &buffer->bb, form,
 						      &insn);
-		} else if (name == DW_AT_decl_file && should_index &&
-			   /* Namespaces are merged, so we ignore their file. */
-			   tag != DW_TAG_namespace) {
-			err = dw_at_decl_file_to_insn(&buffer->bb, form, &insn,
-						      &implicit_const);
-		} else if (name == DW_AT_declaration && should_index) {
-			err = dw_at_declaration_to_insn(&buffer->bb, form,
-							&insn, &die_flags);
-		} else if (name == DW_AT_specification && should_index) {
-			err = dw_at_specification_to_insn(cu, &buffer->bb, form,
-							  &insn);
-		} else {
+		} /* Namespaces are merged, so we ignore their file. */
+		else if (should_index && tag != DW_TAG_namespace)
+			switch (name) {
+			case DW_AT_decl_file:
+				err = dw_at_decl_file_to_insn(&buffer->bb, form, &insn,
+								  &implicit_const);
+				break;
+			case DW_AT_declaration:
+				err = dw_at_declaration_to_insn(&buffer->bb, form, &insn,
+								&die_flags);
+				break;
+			case DW_AT_specification:
+				err = dw_at_specification_to_insn(cu, &buffer->bb, form, &insn);
+				break;
+			case DW_AT_abstract_origin:
+				err = dw_at_abstract_origin_to_insn(cu, &buffer->bb, form,
+									&insn);
+				break;
+			default:
+				err = dw_form_to_insn(cu, &buffer->bb, form, &insn);
+				break;
+			}
+		else
 			err = dw_form_to_insn(cu, &buffer->bb, form, &insn);
-		}
 		if (err)
 			return err;
 
@@ -1889,6 +1963,19 @@ err:
 	return err;
 }
 
+
+static struct drgn_error *
+index_inlined_function(struct drgn_inlined_map *inlined_map,
+		       uintptr_t abstract_origin, uintptr_t addr)
+{
+	struct drgn_inlined_map_entry entry = {.key = abstract_origin,
+					       .value = HASH_TABLE_INIT};
+	struct drgn_inlined_map_iterator iter;
+	return drgn_inlined_map_insert(inlined_map, &entry, &iter) < 0 ||
+	       uintptr_set_insert(&iter.entry->value, &addr, NULL) < 0 ?
+			     &drgn_enomem : NULL;
+}
+
 static struct drgn_error *
 index_specification(struct drgn_debug_info *dbinfo, uintptr_t declaration,
 		    struct drgn_debug_info_module *module, uintptr_t addr)
@@ -1955,7 +2042,8 @@ static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
 static struct drgn_error *
 index_cu_first_pass(struct drgn_debug_info *dbinfo,
 		    struct drgn_dwarf_index_cu_buffer *buffer,
-		    struct path_hash_cache *path_hash_cache)
+		    struct path_hash_cache *path_hash_cache,
+			struct drgn_inlined_map *inlined_map)
 {
 	/*
 	 * If DW_AT_comp_dir uses a strx* form, we can't read it right away
@@ -1994,6 +2082,7 @@ index_cu_first_pass(struct drgn_debug_info *dbinfo,
 		const char *stmt_list_ptr = NULL;
 		uint64_t stmt_list;
 		const char *sibling = NULL;
+		const char* abstract_origin = NULL;
 		uint8_t insn;
 		uint8_t extra_die_flags = 0;
 		while ((insn = *insnp++) != INSN_END) {
@@ -2034,6 +2123,50 @@ indirect_insn:;
 			case INSN_NAME_STRING:
 				if ((err = binary_buffer_skip_string(&buffer->bb)))
 					return err;
+				break;
+			// TODO: Abstract this pattern to share code with INSN_SIBLING_REF*
+			case INSN_ABSTRACT_ORIGIN_REF1:
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF2:
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF8:
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF_UDATA:
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &tmp)))
+					return err;
+abstract_origin:
+				if (tmp > cu->len) {
+					return binary_buffer_error(&buffer->bb,
+								   "DW_AT_abstract_origin is out of bounds");
+				}
+				abstract_origin = cu->buf + tmp;
+				break;
+			case INSN_ABSTRACT_ORIGIN_REF_ADDR4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto abstract_origin_ref_addr;
+			case INSN_ABSTRACT_ORIGIN_REF_ADDR8:
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+abstract_origin_ref_addr:
+				abstract_origin = debug_info_buffer + tmp;
 				break;
 			case INSN_SIBLING_REF1:
 				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
@@ -2318,6 +2451,9 @@ skip:
 				return err;
 		}
 
+		if (abstract_origin && (err = index_inlined_function(inlined_map, (uintptr_t)abstract_origin, die_addr)))
+			return err;
+
 		if (insn & INSN_DIE_FLAG_CHILDREN) {
 			if (sibling &&
 			    (insn & INSN_DIE_FLAG_TAG_MASK) != DW_TAG_namespace)
@@ -2454,10 +2590,12 @@ err:
 /* Second pass: index the actual DIEs. */
 static struct drgn_error *
 index_cu_second_pass(struct drgn_namespace_dwarf_index *ns,
-		     struct drgn_dwarf_index_cu_buffer *buffer)
+		     struct drgn_dwarf_index_cu_buffer *buffer,
+		     struct drgn_inlined_map *inlined_map)
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_cu *cu = buffer->cu;
+	const char *debug_info_buffer = cu->module->scn_data[cu->scn]->d_buf;
 	Elf_Data *debug_str = cu->module->scn_data[DRGN_SCN_DEBUG_STR];
 	unsigned int depth = 0;
 	uint8_t depth1_tag = 0;
@@ -2486,6 +2624,7 @@ index_cu_second_pass(struct drgn_namespace_dwarf_index *ns,
 		bool declaration = false;
 		bool specification = false;
 		const char *sibling = NULL;
+		const char* abstract_origin = NULL;
 		uint8_t insn;
 		uint8_t extra_die_flags = 0;
 		while ((insn = *insnp++) != INSN_END) {
@@ -2527,6 +2666,50 @@ indirect_insn:;
 			case INSN_COMP_DIR_STRING:
 				if ((err = binary_buffer_skip_string(&buffer->bb)))
 					return err;
+				break;
+			// TODO: Abstract this pattern to share code with INSN_SIBLING_REF*
+			case INSN_ABSTRACT_ORIGIN_REF1:
+				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
+									  &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF2:
+				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF8:
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+				goto abstract_origin;
+			case INSN_ABSTRACT_ORIGIN_REF_UDATA:
+				if ((err = binary_buffer_next_uleb128(&buffer->bb,
+								      &tmp)))
+					return err;
+abstract_origin:
+			abstract_origin = cu->buf + tmp;
+			if (tmp > cu->len) {
+				return binary_buffer_error(&buffer->bb,
+							   "DW_AT_abstract_origin is out of bounds");
+			}
+			break;
+			case INSN_ABSTRACT_ORIGIN_REF_ADDR4:
+				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
+									   &tmp)))
+					return err;
+				goto abstract_origin_ref_addr;
+			case INSN_ABSTRACT_ORIGIN_REF_ADDR8:
+				if ((err = binary_buffer_next_u64(&buffer->bb,
+								  &tmp)))
+					return err;
+abstract_origin_ref_addr:
+				abstract_origin = debug_info_buffer + tmp;
 				break;
 			case INSN_SIBLING_REF1:
 				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
@@ -2789,6 +2972,8 @@ skip:
 				       module, die_addr))
 				return &drgn_enomem;
 		}
+		if (abstract_origin && (err = index_inlined_function(inlined_map, (uintptr_t)abstract_origin, die_addr)))
+			return err;
 
 next:
 		if (insn & INSN_DIE_FLAG_CHILDREN) {
@@ -2872,6 +3057,47 @@ static void drgn_dwarf_index_rollback(struct drgn_debug_info *dbinfo)
 	}
 }
 
+static void deinit_cus(struct drgn_dwarf_index_cu_vector *cus, size_t old_cus_size) {
+		for (size_t i = old_cus_size; i < cus->size; i++)
+			drgn_dwarf_index_cu_deinit(&cus->data[i]);
+		cus->size = old_cus_size;
+}
+
+// Performs a union of `src` and `dst, adding the contents of `src` to `dst.
+static bool union_sets(struct uintptr_set *restrict dst, struct uintptr_set *restrict src) {
+	for (struct uintptr_set_iterator iter = uintptr_set_first(src);
+	     iter.entry; iter = uintptr_set_next(iter))
+		if (unlikely(uintptr_set_insert(dst, iter.entry, NULL) == -1))
+			return false;
+	return true;
+}
+
+// Performs a deep-union of `src` and `dst`, adding the contents of `src` to `dst`.
+static bool union_maps(struct drgn_inlined_map *restrict dst,
+		       struct drgn_inlined_map *restrict src)
+{
+	struct drgn_inlined_map_iterator dst_iter,
+		src_iter = drgn_inlined_map_first(src);
+	while (src_iter.entry) {
+		struct hash_pair hp = drgn_inlined_map_hash(&src_iter.entry->key);
+		switch (drgn_inlined_map_insert_hashed(dst, src_iter.entry, hp,
+						&dst_iter)) {
+		case -1:
+			return false;
+		case 0:
+			union_sets(&dst_iter.entry->value,
+				   &src_iter.entry->value);
+			src_iter = drgn_inlined_map_next(src_iter);
+			break;
+		case 1:
+			// The entry is moved into dst, so we delete it from src
+			src_iter = drgn_inlined_map_delete_iterator_hashed(src, src_iter, hp);
+			break;
+		}
+	}
+	return true;
+}
+
 struct drgn_error *
 drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 {
@@ -2904,7 +3130,6 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			};
 		}
 	}
-
 	struct drgn_error *err = NULL;
 	#pragma omp parallel
 	{
@@ -2921,6 +3146,7 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			if (!err)
 				err = &drgn_enomem;
 		}
+		struct drgn_inlined_map inlined_map = HASH_TABLE_INIT;
 		#pragma omp for schedule(dynamic)
 		for (size_t i = old_cus_size; i < cus->size; i++) {
 			if (err)
@@ -2931,7 +3157,7 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			struct drgn_error *cu_err = read_cu(&cu_buffer);
 			if (!cu_err)
 				cu_err = index_cu_first_pass(dbinfo, &cu_buffer,
-							     &path_hash_cache);
+							     &path_hash_cache, &inlined_map);
 			if (cu_err) {
 				#pragma omp critical(drgn_dwarf_info_update_index_error)
 				if (err)
@@ -2948,35 +3174,42 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			free(chunk);
 			chunk = next_chunk;
 		}
-	}
-	if (err)
-		goto err;
-
-	#pragma omp parallel for schedule(dynamic)
-	for (size_t i = old_cus_size; i < cus->size; i++) {
-		if (err)
-			continue;
-		struct drgn_dwarf_index_cu *cu = &cus->data[i];
-		struct drgn_dwarf_index_cu_buffer buffer;
-		drgn_dwarf_index_cu_buffer_init(&buffer, cu);
-		buffer.bb.pos += cu_header_size(cu);
-		struct drgn_error *cu_err =
-			index_cu_second_pass(&dbinfo->dwarf.global, &buffer);
-		if (cu_err) {
+		if (err) {
+			#pragma omp single
+			deinit_cus(cus, old_cus_size);
+			drgn_inlined_map_deep_deinit(&inlined_map);
+		} else {
+			#pragma omp for schedule(dynamic)
+			for (size_t i = old_cus_size; i < cus->size; i++) {
+				if (err)
+					continue;
+				struct drgn_dwarf_index_cu *cu = &cus->data[i];
+				struct drgn_dwarf_index_cu_buffer buffer;
+				drgn_dwarf_index_cu_buffer_init(&buffer, cu);
+				buffer.bb.pos += cu_header_size(cu);
+				struct drgn_error *cu_err =
+					index_cu_second_pass(&dbinfo->dwarf.global, &buffer, &inlined_map);
+				if (cu_err) {
+					#pragma omp critical(drgn_dwarf_info_update_index_error)
+					if (err)
+						drgn_error_destroy(cu_err);
+					else
+						err = cu_err;
+				}
+			}
 			#pragma omp critical(drgn_dwarf_info_update_index_error)
-			if (err)
-				drgn_error_destroy(cu_err);
-			else
-				err = cu_err;
+			if (!err && !union_maps(&dbinfo->dwarf.inlined_map, &inlined_map))
+				err = &drgn_enomem;
+			drgn_inlined_map_deep_deinit(&inlined_map);
+			#pragma omp barrier
+			#pragma omp single
+			if (err) {
+				drgn_dwarf_index_rollback(dbinfo);
+				deinit_cus(cus, old_cus_size);
+			}
 		}
 	}
-	if (err) {
-		drgn_dwarf_index_rollback(dbinfo);
-err:
-		for (size_t i = old_cus_size; i < cus->size; i++)
-			drgn_dwarf_index_cu_deinit(&cus->data[i]);
-		cus->size = old_cus_size;
-	}
+
 	return err;
 }
 
@@ -2992,26 +3225,34 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 		return &drgn_enomem;
 
 	struct drgn_error *err = NULL;
-	#pragma omp parallel for schedule(dynamic)
-	for (size_t i = 0; i < ns->pending_dies.size; i++) {
-		if (!err) {
-			struct drgn_dwarf_index_pending_die *pending =
-				&ns->pending_dies.data[i];
-			struct drgn_dwarf_index_cu *cu =
-				&ns->dbinfo->dwarf.index_cus.data[pending->cu];
-			struct drgn_dwarf_index_cu_buffer buffer;
-			drgn_dwarf_index_cu_buffer_init(&buffer, cu);
-			buffer.bb.pos = (char *)pending->addr;
-			struct drgn_error *cu_err =
-				index_cu_second_pass(ns, &buffer);
-			if (cu_err) {
-				#pragma omp critical(drgn_index_namespace_error)
-				if (err)
-					drgn_error_destroy(cu_err);
-				else
-					err = cu_err;
+	#pragma omp parallel
+	{
+		struct drgn_inlined_map inlined_map = HASH_TABLE_INIT;
+		#pragma omp for schedule(dynamic)
+		for (size_t i = 0; i < ns->pending_dies.size; i++) {
+			if (!err) {
+				struct drgn_dwarf_index_pending_die *pending =
+					&ns->pending_dies.data[i];
+				struct drgn_dwarf_index_cu *cu =
+					&ns->dbinfo->dwarf.index_cus.data[pending->cu];
+				struct drgn_dwarf_index_cu_buffer buffer;
+				drgn_dwarf_index_cu_buffer_init(&buffer, cu);
+				buffer.bb.pos = (char *)pending->addr;
+				struct drgn_error *cu_err =
+					index_cu_second_pass(ns, &buffer, &inlined_map);
+				if (cu_err) {
+					#pragma omp critical(drgn_index_namespace_error)
+					if (err)
+						drgn_error_destroy(cu_err);
+					else
+						err = cu_err;
+				}
 			}
 		}
+		#pragma omp critical(drgn_index_namespace_error)
+		if (!err && !union_maps(&ns->dbinfo->dwarf.inlined_map, &inlined_map))
+			err = &drgn_enomem;
+		drgn_inlined_map_deep_deinit(&inlined_map);
 	}
 	if (err) {
 		ns->saved_err = err;

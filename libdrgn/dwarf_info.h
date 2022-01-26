@@ -117,6 +117,8 @@ struct drgn_dwarf_type {
 };
 
 DEFINE_HASH_MAP_TYPE(drgn_dwarf_type_map, const void *, struct drgn_dwarf_type)
+DEFINE_HASH_SET_TYPE(uintptr_set, uintptr_t)
+DEFINE_HASH_MAP_TYPE(drgn_inlined_map, uintptr_t, struct uintptr_set)
 
 /** DWARF debugging information for a program/@ref drgn_debug_info. */
 struct drgn_dwarf_info {
@@ -134,6 +136,12 @@ struct drgn_dwarf_info {
 	struct drgn_dwarf_specification_map specifications;
 	/** Indexed compilation units. */
 	struct drgn_dwarf_index_cu_vector index_cus;
+	/**
+	 * Map from address of DIE referenced by DW_AT_abstract_origin to the list
+	 * of DIEs that reference it. This is used to resolve all of the sites
+	 * where a function has been inlined.
+	 */
+	struct drgn_inlined_map inlined_map;
 
 	/**
 	 * Cache of parsed types.
