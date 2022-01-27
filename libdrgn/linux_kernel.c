@@ -933,6 +933,10 @@ get_kernel_module_name_from_modinfo(Elf_Scn *modinfo_scn, const char **ret)
 		err = read_elf_section(modinfo_scn, &data);
 		if (err)
 			return err;
+		if (!data->d_buf) {
+			/* Section is either SHT_NOBITS or empty. */
+			goto not_found;
+		}
 		p = data->d_buf;
 		end = p + data->d_size;
 		while (p < end) {
@@ -946,6 +950,7 @@ get_kernel_module_name_from_modinfo(Elf_Scn *modinfo_scn, const char **ret)
 			p = nul + 1;
 		}
 	}
+not_found:
 	*ret = NULL;
 	return NULL;
 }
@@ -967,7 +972,7 @@ get_kernel_module_name_from_this_module(Elf_Scn *this_module_scn,
 		err = read_elf_section(this_module_scn, &data);
 		if (err)
 			return err;
-		if (name_offset < data->d_size) {
+		if (data->d_buf && name_offset < data->d_size) {
 			p = data->d_buf + name_offset;
 			nul = memchr(p, 0, data->d_size - name_offset);
 			if (nul && nul != p) {

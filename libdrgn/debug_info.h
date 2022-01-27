@@ -332,6 +332,10 @@ struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
 struct drgn_error *find_elf_file(char **path_ret, int *fd_ret, Elf **elf_ret,
 				 const char * const *path_formats, ...);
 
+/*
+ * NB: if the section is SHT_NOBITS, this returns an Elf_Data with d_buf = NULL
+ * and d_size >= 0.
+ */
 struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
 
 struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
