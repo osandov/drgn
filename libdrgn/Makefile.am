@@ -88,7 +88,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 vector.h
 
 libdrgnimpl_la_CFLAGS = -fvisibility=hidden $(OPENMP_CFLAGS) $(elfutils_CFLAGS)
-libdrgnimpl_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS)
+libdrgnimpl_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS) -lm
 
 if WITH_LIBKDUMPFILE
 libdrgnimpl_la_SOURCES += kdump.c
