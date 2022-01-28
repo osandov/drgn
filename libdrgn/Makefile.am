@@ -6,6 +6,8 @@ ACLOCAL_AMFLAGS = -I m4
 .DELETE_ON_ERROR:
 
 AM_CPPFLAGS = -I $(top_srcdir)/include -D_GNU_SOURCE
+AM_CFLAGS = $(SANITIZER_CFLAGS)
+AM_LDFLAGS= $(SANITIZER_LDFLAGS)
 
 noinst_HEADERS = include/dwarf.h \
 		 include/elf.h \
@@ -87,7 +89,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 vector.c \
 			 vector.h
 
-libdrgnimpl_la_CFLAGS = -fvisibility=hidden $(OPENMP_CFLAGS) $(elfutils_CFLAGS)
+libdrgnimpl_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden $(OPENMP_CFLAGS) \
+			$(elfutils_CFLAGS)
 libdrgnimpl_la_LIBADD = $(OPENMP_LIBS) $(elfutils_LIBS) -lm
 
 if WITH_LIBKDUMPFILE
@@ -109,7 +112,7 @@ drgn.h: drgn.h.in configure.ac
 lib_LTLIBRARIES = libdrgn.la
 
 libdrgn_la_SOURCES =
-libdrgn_la_LDFLAGS = -version-info 0:0:0
+libdrgn_la_LDFLAGS = $(AM_LDFLAGS) -version-info 0:0:0
 libdrgn_la_LIBADD = libdrgnimpl.la
 
 if WITH_PYTHON
@@ -136,11 +139,11 @@ _drgn_la_SOURCES = python/constants.c \
 		   python/type.c \
 		   python/util.c
 
-_drgn_la_CFLAGS = -fvisibility=hidden
+_drgn_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
 _drgn_la_CPPFLAGS = $(AM_CPPFLAGS) $(PYTHON_CPPFLAGS) -iquote $(srcdir)/python \
 		    -iquote python
-_drgn_la_LDFLAGS = -Wl,--exclude-libs,ALL -avoid-version -module -shared \
-		   -rpath $(pkgpyexecdir)
+_drgn_la_LDFLAGS = $(AM_LDFLAGS) -Wl,--exclude-libs,ALL -avoid-version -module \
+		   -shared -rpath $(pkgpyexecdir)
 _drgn_la_LIBADD = libdrgnimpl.la
 
 if WITH_LIBKDUMPFILE
