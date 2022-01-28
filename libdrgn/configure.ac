@@ -92,5 +92,17 @@ AS_CASE(["x$with_libkdumpfile"],
 AM_CONDITIONAL([WITH_LIBKDUMPFILE], [test "x$with_libkdumpfile" = xyes])
 AM_COND_IF([WITH_LIBKDUMPFILE], [AC_DEFINE(WITH_LIBKDUMPFILE)])
 
+AC_ARG_ENABLE([asan],
+	      [AS_HELP_STRING([--enable-asan], [enable AddressSanitizer])],
+	      [], [enable_asan=no])
+
+SANITIZER_CFLAGS=
+SANITIZER_LDFLAGS=
+AS_IF([test "x$enable_asan" != xno],
+      [SANITIZER_CFLAGS="$SANITIZER_CFLAGS -fsanitize=address -fno-omit-frame-pointer"
+       SANITIZER_LDFLAGS="$SANITIZER_LDFLAGS -fsanitize=address"])
+AC_SUBST(SANITIZER_CFLAGS)
+AC_SUBST(SANITIZER_LDFLAGS)
+
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
