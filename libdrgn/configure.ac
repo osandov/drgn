@@ -37,20 +37,17 @@ AS_CASE(["x$enable_openmp"],
 AC_SUBST(OPENMP_CFLAGS)
 AC_SUBST(OPENMP_LIBS)
 
-AC_ARG_WITH([python],
-	    [AS_HELP_STRING([--with-python@<:@=ARG@:>@],
-			    [build Python bindings. ARG may be yes, no, or the
-			     path to the Python interpreter to use. This is
-			     normally only used by setup.py
-			     @<:@default=no@:>@])],
-	    [], [with_python=no])
+dnl We need Python for code generation even if we're not building the bindings.
+AM_PATH_PYTHON([3.6])
 
-AS_IF([test "x$with_python" != xyes && test "x$with_python" != xno],
-      [PYTHON=$with_python])
-AM_CONDITIONAL([WITH_PYTHON], [test "x$with_python" != xno])
-AM_COND_IF([WITH_PYTHON],
-	   [AM_PATH_PYTHON([3.6])
-	    AS_IF([test -z "$PYTHON_CPPFLAGS"],
+AC_ARG_ENABLE([python],
+	      [AS_HELP_STRING([--enable-python],
+			      [build Python bindings @<:@default=no@:>@])],
+	      [], [enable_python=no])
+
+AM_CONDITIONAL([ENABLE_PYTHON], [test "x$enable_python" != xno])
+AM_COND_IF([ENABLE_PYTHON],
+	   [AS_IF([test -z "$PYTHON_CPPFLAGS"],
 		  [prog="import sysconfig
 include = sysconfig.get_path('include')
 platinclude = sysconfig.get_path('platinclude')
