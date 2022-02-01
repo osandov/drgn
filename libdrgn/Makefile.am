@@ -115,7 +115,7 @@ libdrgn_la_SOURCES =
 libdrgn_la_LDFLAGS = $(AM_LDFLAGS) -version-info 0:0:0
 libdrgn_la_LIBADD = libdrgnimpl.la
 
-if WITH_PYTHON
+if ENABLE_PYTHON
 BUILT_SOURCES += python/docstrings.h
 
 noinst_LTLIBRARIES += _drgn.la

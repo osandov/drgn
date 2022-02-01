@@ -64,14 +64,18 @@ class build_ext(_build_ext):
             args = [
                 os.path.relpath("libdrgn/configure", self.build_temp),
                 "--disable-static",
-                "--with-python=" + sys.executable,
+                "--enable-python",
             ]
             try:
                 args.extend(shlex.split(os.environ["CONFIGURE_FLAGS"]))
             except KeyError:
                 pass
             try:
-                subprocess.check_call(args, cwd=self.build_temp)
+                subprocess.check_call(
+                    args,
+                    cwd=self.build_temp,
+                    env={**os.environ, "PYTHON": sys.executable},
+                )
             except Exception:
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(makefile)
