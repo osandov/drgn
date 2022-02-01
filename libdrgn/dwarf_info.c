@@ -66,7 +66,7 @@ DEFINE_HASH_MAP_FUNCTIONS(drgn_inlined_map, int_key_hash_pair, scalar_key_eq)
 
 static void drgn_inlined_map_deep_deinit(struct drgn_inlined_map *inlined_map) {
 	for (struct drgn_inlined_map_iterator iter = drgn_inlined_map_first(inlined_map);
-		 iter.entry; iter = drgn_inlined_map_next(iter))
+	     iter.entry; iter = drgn_inlined_map_next(iter))
 		uintptr_set_deinit(&iter.entry->value);
 	drgn_inlined_map_deinit(inlined_map);
 }
@@ -269,6 +269,142 @@ void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo)
 	drgn_dwarf_specification_map_deinit(&dbinfo->dwarf.specifications);
 	drgn_namespace_dwarf_index_deinit(&dbinfo->dwarf.global);
 	drgn_inlined_map_deep_deinit(&dbinfo->dwarf.inlined_map);
+}
+
+struct drgn_inlined_functions_iterator {
+	bool started;
+	Dwarf *dwarf;
+	union {
+		struct drgn_inlined_map_iterator iter;
+		struct drgn_inlined_map *inlined_map;
+	};
+	struct drgn_inlined_group entry;
+	size_t capacity;
+};
+
+LIBDRGN_PUBLIC
+struct drgn_error *drgn_inlined_functions_iterator_create(
+	struct drgn_program* prog,
+	struct drgn_inlined_functions_iterator **ret)
+{
+	*ret = calloc(1, sizeof(**ret));
+	if (!*ret)
+		return &drgn_enomem;
+	(*ret)->inlined_map = &prog->dbinfo->dwarf.inlined_map;
+	(*ret)->dwarf = prog->dwarf;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC
+void drgn_inlined_functions_iterator_destroy(
+	struct drgn_inlined_functions_iterator *it)
+{
+	if (it) {
+		free(it->entry.inlined_instances);
+		free(it);
+	}
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *
+drgn_inlined_functions_iterator_next(struct drgn_inlined_functions_iterator *it,
+				     struct drgn_inlined_group **ret)
+{
+	if (!it->started) {
+		it->started = true;
+		it->iter = drgn_inlined_map_first(it->inlined_map);
+	} else if (it->iter.entry) {
+		it->iter = drgn_inlined_map_next(it->iter);
+	}
+
+	if (!it->iter.entry) {
+		*ret = NULL;
+		return NULL;
+	}
+
+	uintptr_t die_addr = it->iter.entry->key;
+	Dwarf_Die die;
+	if (!dwarf_die_addr_die(it->dwarf, (void *)die_addr, &die))
+		return drgn_error_libdw();
+	it->entry.die_addr = die_addr;
+	Dwarf_Attribute attr;
+	it->entry.name = dwarf_attr(&die, DW_AT_name, &attr) ? dwarf_formstring(&attr) : NULL;
+	// BEGIN OI-SPECIFIC
+	it->entry.linkage_name = dwarf_attr(&die, DW_AT_linkage_name, &attr) ? dwarf_formstring(&attr) : NULL;
+	// END OI-SPECIFIC
+
+	size_t num_inlined_instances = uintptr_set_size(&it->iter.entry->value);
+	struct drgn_inlined_instance **instances = &it->entry.inlined_instances;
+	if (num_inlined_instances > it->capacity) {
+		// Deliberately not using `realloc` here since we're going to overwrite the contents,
+		// so there's no sense in paying for the (possible) `memcpy` of the existing contents.
+		free(*instances);
+		*instances = malloc(sizeof(**instances) * num_inlined_instances);
+		if (!*instances)
+			return &drgn_enomem;
+		it->capacity = num_inlined_instances;
+	}
+
+	size_t i = 0;
+	for (struct uintptr_set_iterator uintptr_iter =
+	     uintptr_set_first(&it->iter.entry->value);
+	     uintptr_iter.entry;
+	     uintptr_iter = uintptr_set_next(uintptr_iter)) {
+		struct drgn_inlined_instance *instance = &(*instances)[i++];
+		instance->die_addr = *uintptr_iter.entry;
+		if (!dwarf_die_addr_die(it->dwarf, (void *)instance->die_addr, &die))
+			return drgn_error_libdw();
+		if (dwarf_entrypc(&die, &instance->entry_pc) != 0) {
+			Dwarf_Addr base, start, end, entry_pc = UINTPTR_MAX;
+			ptrdiff_t offset = 0;
+			while ((offset = dwarf_ranges(&die, offset, &base, &start, &end)) > 0)
+				entry_pc = min(entry_pc, start);
+			if (offset == -1)
+				return drgn_error_libdw();
+			if (entry_pc == UINTPTR_MAX)
+				return drgn_error_format(DRGN_ERROR_OTHER, "could not find entry PC for DWARF DIE at address %lx", instance->die_addr);
+			instance->entry_pc = entry_pc;
+		}
+	}
+	assert(i == num_inlined_instances);
+	it->entry.num_inlined_instances = num_inlined_instances;
+	*ret = &it->entry;
+	return NULL;
+}
+
+struct drgn_error *
+drgn_inlined_group_dup_internal(const struct drgn_inlined_group *group,
+		       struct drgn_inlined_group *ret)
+{
+	*ret = *group;
+	ret->inlined_instances = memdup(group->inlined_instances, sizeof(*group->inlined_instances) * group->num_inlined_instances);
+	return ret->inlined_instances ? NULL : &drgn_enomem;
+}
+
+LIBDRGN_PUBLIC
+struct drgn_error *
+drgn_inlined_group_dup(const struct drgn_inlined_group *group,
+		       struct drgn_inlined_group **ret)
+{
+	*ret = malloc(sizeof(**ret));
+	if (!*ret)
+		return &drgn_enomem;
+	struct drgn_error *err = drgn_inlined_group_dup_internal(group, *ret);
+	if (err)
+		free(*ret);
+	return err;
+}
+
+void drgn_inlined_group_deinit(struct drgn_inlined_group *group) {
+	free(group->inlined_instances);
+}
+
+LIBDRGN_PUBLIC
+void drgn_inlined_group_destroy(struct drgn_inlined_group *group) {
+	if (group) {
+		drgn_inlined_group_deinit(group);
+		free(group);
+	}
 }
 
 /*

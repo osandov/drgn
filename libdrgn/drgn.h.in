@@ -2796,6 +2796,101 @@ struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 /** @} */
 
 /**
+ * @defgroup Inlined functions
+ *
+ * Information on inlined functions.
+ * @{
+ */
+
+/**
+ * @struct drgn_inlined_instance
+ *
+ * A "concrete instance" where a function has been inlined, corresponding to a
+ * callsite of that function.
+ *
+ * See <a href="https://dwarfstd.org/doc/DWARF5.pdf#page=101">section 3.3.8.2
+ * of the DWARF 5 specification</a> for more information.
+ */
+struct drgn_inlined_instance {
+	uintptr_t die_addr;
+	uintptr_t entry_pc;
+};
+
+/**
+ * @struct drgn_inlined_group
+ *
+ * A particular function along with the collection of all callsites where it
+ * has been inlined, each represented by a @ref drgn_inlined_instance.
+ *
+ * DWARF refers to the DIE referenced by the `die_addr` member here as an
+ * "abstract instance root". See <a
+ * href="https://dwarfstd.org/doc/DWARF5.pdf#page=100">section 3.3.8.1 of the
+ * DWARF 5 specification</a> for more information.
+ */
+struct drgn_inlined_group {
+	uintptr_t die_addr;
+	const char *name;
+	const char *linkage_name; // OI-specific
+	size_t num_inlined_instances;
+	struct drgn_inlined_instance *inlined_instances;
+};
+
+/**
+ * @struct drgn_inlined_functions_iterator
+ *
+ * An iterator over all of the inlined functions found within a program,
+ * grouped by abstract function (see @ref drgn_inlined_group).
+ */
+struct drgn_inlined_functions_iterator;
+
+/**
+ * Get an iterator over all of the inlined functions found within a program.
+ *
+ * @param[out] ret Returned iterator, which can be advanced with @ref
+ * drgn_inlined_functions_iterator_next, and must be destroyed with @ref
+ * drgn_inlined_functions_iterator_destroy.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_inlined_functions_iterator_create(
+	struct drgn_program *prog,
+	struct drgn_inlined_functions_iterator **ret);
+
+/** Free a @ref drgn_inlined_functions_iterator. */
+void drgn_inlined_functions_iterator_destroy(
+	struct drgn_inlined_functions_iterator *it);
+
+/* Get the next group of inlined functions from a @ref drgn_inlined_functions_iterator.
+ *
+ * @param[out] ret Borrowed inlined group handle, or @c NULL if there are no
+ * more groups. This is valid until until the next call to @ref
+ * drgn_inlined_function_iterator_next() with the same @p it, or until @p it is
+ * destroyed. It may be copied with @ref drgn_inlined_group_dup() if it is
+ * needed for longer. The value placed in @p ret must NOT be destroyed with
+ * @ref drgn_inlined_group_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
+*/
+struct drgn_error *
+drgn_inlined_functions_iterator_next(struct drgn_inlined_functions_iterator *it,
+				     struct drgn_inlined_group **ret);
+
+/**
+ * Create a copy of a @ref drgn_inlined_group.
+ *
+ * @param[in] group Inlined function group to copy.
+ * @param[out] ret Returned copy. On success, must be destroyed with @ref
+ * drgn_inlined_group_destroy().
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_inlined_group_dup(const struct drgn_inlined_group *group,
+		       struct drgn_inlined_group **ret);
+
+/** Free a @ref drgn_inlined_group. */
+void drgn_inlined_group_destroy(struct drgn_inlined_group *group);
+
+/** @} */
+
+/**
  * @defgroup Threads Threads
  *
  * Threads in a program.

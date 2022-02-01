@@ -165,6 +165,12 @@ struct drgn_dwarf_info {
 void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo);
 void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo);
 
+struct drgn_error *
+drgn_inlined_group_dup_internal(const struct drgn_inlined_group *group,
+		       struct drgn_inlined_group *ret);
+
+void drgn_inlined_group_deinit(struct drgn_inlined_group *group);
+
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_cu_vector,
 		   struct drgn_dwarf_index_pending_cu)
 
