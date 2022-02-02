@@ -99,7 +99,11 @@ void drgn_program_deinit(struct drgn_program *prog)
 		else
 			drgn_thread_set_deinit(&prog->thread_set);
 	}
-	drgn_thread_destroy(prog->crashed_thread);
+	// When the target is a userspace core dump, `crashed_thread` will have
+	// been included in `prog->thread_set`, and thus freed by the above
+	// call to `drgn_thread_set_deinit`.
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
+		drgn_thread_destroy(prog->crashed_thread);
 	free(prog->pgtable_it);
 
 	drgn_object_deinit(&prog->vmemmap);
