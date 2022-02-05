@@ -166,6 +166,7 @@ EXTRA_DIST = Doxyfile \
 	     $(ARCH_DEFS) \
 	     build-aux/gen_arch.awk \
 	     build-aux/gen_constants.py \
+	     build-aux/gen_strswitch.py \
 	     drgn.h.in
 
 EXTRA_PROGRAMS = examples/load_debug_info
