@@ -769,6 +769,15 @@ class TestLexer(TestCase):
             [(C_TOKEN.IDENTIFIER, value) for value in tokens],
         )
 
+    def test_almost_keywords(self):
+        s = """voi cha shor in lon signe unsigne _Boo floa doubl
+        _Comple cons restric volatil _Atomi struc unio enu"""
+        tokens = s.split()
+        self.assertEqual(
+            [(token.kind, token.value) for token in self.lex(s)],
+            [(C_TOKEN.IDENTIFIER, value) for value in tokens],
+        )
+
     def test_number(self):
         s = "0 1234 0xdeadbeef"
         tokens = s.split()

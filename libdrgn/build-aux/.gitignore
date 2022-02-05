@@ -1,5 +1,6 @@
 *
 !/.gitignore
 !/gen_arch.awk
+!/gen_c_keywords_inc_strswitch.py
 !/gen_constants.py
 !/gen_strswitch.py
