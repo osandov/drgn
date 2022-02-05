@@ -1655,53 +1655,7 @@ enum {
 	C_TOKEN_IDENTIFIER,
 };
 
-static const char *token_spelling[] = {
-	[C_TOKEN_VOID] = "void",
-	[C_TOKEN_CHAR] = "char",
-	[C_TOKEN_SHORT] = "short",
-	[C_TOKEN_INT] = "int",
-	[C_TOKEN_LONG] = "long",
-	[C_TOKEN_SIGNED] = "signed",
-	[C_TOKEN_UNSIGNED] = "unsigned",
-	[C_TOKEN_BOOL] = "_Bool",
-	[C_TOKEN_FLOAT] = "float",
-	[C_TOKEN_DOUBLE] = "double",
-	[C_TOKEN_COMPLEX] = "_Complex",
-	[C_TOKEN_CONST] = "const",
-	[C_TOKEN_RESTRICT] = "restrict",
-	[C_TOKEN_VOLATILE] = "volatile",
-	[C_TOKEN_ATOMIC] = "_Atomic",
-	[C_TOKEN_STRUCT] = "struct",
-	[C_TOKEN_UNION] = "union",
-	[C_TOKEN_ENUM] = "enum",
-};
-
-DEFINE_HASH_MAP(c_keyword_map, struct nstring, int, nstring_hash_pair,
-		nstring_eq)
-
-static struct c_keyword_map c_keywords = HASH_TABLE_INIT;
-
-__attribute__((__constructor__(101)))
-static void c_keywords_init(void)
-{
-	for (int i = MIN_KEYWORD_TOKEN; i <= MAX_KEYWORD_TOKEN; i++) {
-		struct c_keyword_map_entry entry = {
-			.key = {
-				.str = token_spelling[i],
-				.len = strlen(token_spelling[i]),
-			},
-			.value = i,
-		};
-		if (c_keyword_map_insert(&c_keywords, &entry, NULL) != 1)
-			abort();
-	}
-}
-
-__attribute__((__destructor__(101)))
-static void c_keywords_deinit(void)
-{
-	c_keyword_map_deinit(&c_keywords);
-}
+#include "c_keywords.inc"
 
 struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
 				struct drgn_token *token) {
@@ -1741,18 +1695,11 @@ struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
 		break;
 	default:
 		if (isalpha(*p) || *p == '_') {
-			struct nstring key;
-			struct c_keyword_map_iterator it;
-
 			do {
 				p++;
 			} while (isalnum(*p) || *p == '_');
-
-			key.str = token->value;
-			key.len = p - token->value;
-			it = c_keyword_map_search(&c_keywords, &key);
-			token->kind = (it.entry ? it.entry->value :
-				       C_TOKEN_IDENTIFIER);
+			token->kind = identifier_token_kind(token->value,
+							    p - token->value);
 		} else if ('0' <= *p && *p <= '9') {
 			token->kind = C_TOKEN_NUMBER;
 			if (*p++ == '0' && *p == 'x') {
@@ -2138,20 +2085,20 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			if (tag_token != C_TOKEN_EOF) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "cannot combine '%s' with '%s'",
-							 token_spelling[token.kind],
-							 token_spelling[tag_token]);
+							 keyword_spelling[token.kind],
+							 keyword_spelling[tag_token]);
 			}
 			if (identifier) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "cannot combine '%s' with identifier",
-							 token_spelling[token.kind]);
+							 keyword_spelling[token.kind]);
 			}
 			prev_specifier = specifier;
 			specifier = specifier_transition[specifier][token.kind];
 			if (specifier == SPECIFIER_ERROR) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "cannot combine '%s' with '%s'",
-							 token_spelling[token.kind],
+							 keyword_spelling[token.kind],
 							 specifier_spelling[prev_specifier]);
 			}
 		} else if (token.kind == C_TOKEN_IDENTIFIER &&
@@ -2164,12 +2111,12 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			if (identifier) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "cannot combine '%s' with identifier",
-							 token_spelling[token.kind]);
+							 keyword_spelling[token.kind]);
 			}
 			if (specifier != SPECIFIER_NONE) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "cannot combine '%s' with '%s'",
-							 token_spelling[token.kind],
+							 keyword_spelling[token.kind],
 							 specifier_spelling[specifier]);
 			}
 			tag_token = token.kind;
@@ -2179,7 +2126,7 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			if (token.kind != C_TOKEN_IDENTIFIER) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "expected identifier after '%s'",
-							 token_spelling[tag_token]);
+							 keyword_spelling[tag_token]);
 
 			}
 			identifier = token.value;

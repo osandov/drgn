@@ -14,5 +14,6 @@
 /configure~
 /html
 /libtool
+/c_keywords.inc
 /python/constants.c
 /python/docstrings.c

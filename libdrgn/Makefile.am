@@ -20,7 +20,7 @@ ARCH_DEFS = arch_ppc64.defs \
 
 ARCH_INCS = $(ARCH_DEFS:.defs=.inc)
 
-BUILT_SOURCES = drgn.h $(ARCH_INCS)
+BUILT_SOURCES = drgn.h $(ARCH_INCS) c_keywords.inc
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
@@ -32,6 +32,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 binary_buffer.h \
 			 binary_search_tree.h \
 			 bitops.h \
+			 c_keywords.inc \
 			 cfi.c \
 			 cfi.h \
 			 cityhash.h \
@@ -102,6 +103,9 @@ endif
 arch_%.inc: arch_%.defs build-aux/gen_arch.awk
 	$(AM_V_GEN)gawk -f $(word 2, $^) $< > $@
 
+c_keywords.inc: build-aux/gen_c_keywords_inc_strswitch.py build-aux/gen_strswitch.py
+	$(AM_V_GEN)$(PYTHON) $< | $(PYTHON) $(word 2, $^) -o $@ -
+
 drgn.h: drgn.h.in configure.ac
 	$(AM_V_GEN)sed \
 		-e 's/@DRGN_VERSION_MAJOR@/$(word 1,$(subst ., ,@PACKAGE_VERSION@))/g' \
@@ -165,6 +169,7 @@ python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 EXTRA_DIST = Doxyfile \
 	     $(ARCH_DEFS) \
 	     build-aux/gen_arch.awk \
+	     build-aux/gen_c_keywords_inc_strswitch.py \
 	     build-aux/gen_constants.py \
 	     build-aux/gen_strswitch.py \
 	     drgn.h.in
