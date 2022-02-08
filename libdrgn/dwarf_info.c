@@ -5372,7 +5372,13 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	while (r == 0) {
 		switch (dwarf_tag(&child)) {
 		case DW_TAG_member:
-			if (!declaration) {
+			;
+			bool external;
+			if (dwarf_flag(&child, DW_AT_external, &external)) {
+				return drgn_error_format(DRGN_ERROR_OTHER,
+				"DW_TAG_member has invalid DW_AT_external");
+			}
+			if (!declaration && !external) {
 				if (member.addr) {
 					err = parse_member(dbinfo, file,
 							   &member,
