@@ -6071,6 +6071,11 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 		err = drgn_function_type_from_dwarf(dbinfo, file, die, lang,
 						    &ret->type);
 		break;
+	case DW_TAG_unspecified_type:
+		err = drgn_function_type_from_dwarf(dbinfo, file, die, lang,
+						    &ret->type);
+		ret->type = drgn_void_type(dbinfo->prog, lang);
+		break;
 	default:
 		err = drgn_error_format(DRGN_ERROR_OTHER,
 					"unknown DWARF type tag 0x%x",
