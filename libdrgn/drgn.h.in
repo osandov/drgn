@@ -2186,6 +2186,8 @@ struct drgn_type_parameter {
 
 /** Template parameter of a structure, union, class, or function type. */
 struct drgn_type_template_parameter {
+	// TODO this will have to change...
+	uint64_t bit_offset;
 	/**
 	 * Template parameter type or value.
 	 *
@@ -2242,6 +2244,8 @@ struct drgn_type {
 		};
 		struct drgn_type_template_parameter *template_parameters;
 		size_t num_template_parameters;
+		struct drgn_type_template_parameter *parents;
+		size_t num_parents;
 	} _private;
 };
 
@@ -2630,6 +2634,26 @@ static inline size_t drgn_type_num_template_parameters(struct drgn_type *type)
 {
 	assert(drgn_type_has_template_parameters(type));
 	return type->_private.num_template_parameters;
+}
+
+/**
+ * Get the template parameters of a type.
+ */
+static inline struct drgn_type_template_parameter *
+drgn_type_parents(struct drgn_type *type)
+{
+   assert(drgn_type_has_template_parameters(type));
+   return type->_private.parents;
+}
+
+/**
+ * Get the number of template parameters of a type.
+ * If the type is incomplete, this is always zero.
+ */
+static inline size_t drgn_type_num_parents(struct drgn_type *type)
+{
+   assert(drgn_type_has_template_parameters(type));
+   return type->_private.num_parents;
 }
 
 /**

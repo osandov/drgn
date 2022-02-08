@@ -5241,6 +5241,7 @@ maybe_parse_template_parameter(struct drgn_debug_info *dbinfo,
 	drgn_object_thunk_fn *thunk_fn;
 	switch (dwarf_tag(die)) {
 	case DW_TAG_template_type_parameter:
+	case DW_TAG_inheritance:
 		thunk_fn = drgn_dwarf_template_type_parameter_thunk_fn;
 		break;
 	case DW_TAG_template_value_parameter:
@@ -5401,6 +5402,20 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		case DW_TAG_GNU_template_parameter_pack:
 			err = drgn_parse_template_parameter_pack(dbinfo, file, &child,
 								 &builder.template_builder);
+			if (err)
+				goto err;
+			break;
+		case DW_TAG_inheritance:
+			err = maybe_parse_template_parameter(dbinfo, file, &child,
+							     &builder.parents_builder);
+			if (err)
+				goto err;
+			// Parse inheritance offset
+			struct drgn_type_template_parameter *parent =
+				drgn_template_parameters_builder_last(&builder.parents_builder);
+			err = parse_member_offset(&child, &parent->argument,
+						  little_endian,
+						  &parent->bit_offset);
 			if (err)
 				goto err;
 			break;

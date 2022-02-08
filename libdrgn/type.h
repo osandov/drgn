@@ -199,11 +199,15 @@ drgn_template_parameters_builder_add(struct drgn_template_parameters_builder *bu
 				     const union drgn_lazy_object *argument,
 				     const char *name, bool is_default);
 
+struct drgn_type_template_parameter *
+drgn_template_parameters_builder_last(struct drgn_template_parameters_builder *builder);
+
 DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member);
 
 /** Builder for members of a structure, union, or class type. */
 struct drgn_compound_type_builder {
 	struct drgn_template_parameters_builder template_builder;
+	struct drgn_template_parameters_builder parents_builder;
 	enum drgn_type_kind kind;
 	struct drgn_type_member_vector members;
 };
