@@ -243,93 +243,101 @@ out:
 	return err;
 }
 
-struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
-					    const char *filename,
-					    enum drgn_find_object_flags flags,
-					    void *arg, struct drgn_object *ret)
+static struct drgn_error *linux_kernel_get_page_offset(struct drgn_program *prog,
+						       struct drgn_object *ret)
 {
 	struct drgn_error *err;
-	struct drgn_program *prog = arg;
-
-	if (!filename && (flags & DRGN_FIND_OBJECT_CONSTANT)) {
-		struct drgn_qualified_type qualified_type = {};
-
-		if (name_len == strlen("PAGE_OFFSET") &&
-		    memcmp(name, "PAGE_OFFSET", name_len) == 0) {
-			if (prog->page_offset.kind == DRGN_OBJECT_ABSENT) {
-				if (!prog->has_platform ||
-				    !prog->platform.arch->linux_kernel_get_page_offset)
-					return &drgn_not_found;
-				err = prog->platform.arch->linux_kernel_get_page_offset(&prog->page_offset);
-				if (err)
-					return err;
-			}
-			return drgn_object_copy(ret, &prog->page_offset);
-		} else if (name_len == strlen("PAGE_SHIFT") &&
-			   memcmp(name, "PAGE_SHIFT", name_len) == 0) {
-			err = drgn_program_find_primitive_type(prog,
-							       DRGN_C_TYPE_INT,
-							       &qualified_type.type);
-			if (err)
-				return err;
-			return drgn_object_set_signed(ret, qualified_type,
-						      ctz(prog->vmcoreinfo.page_size),
-						      0);
-		} else if (name_len == strlen("PAGE_SIZE") &&
-			   memcmp(name, "PAGE_SIZE", name_len) == 0) {
-			err = drgn_program_find_primitive_type(prog,
-							       DRGN_C_TYPE_UNSIGNED_LONG,
-							       &qualified_type.type);
-			if (err)
-				return err;
-			return drgn_object_set_unsigned(ret, qualified_type,
-							prog->vmcoreinfo.page_size,
-							0);
-		} else if (name_len == strlen("PAGE_MASK") &&
-			   memcmp(name, "PAGE_MASK", name_len) == 0) {
-			err = drgn_program_find_primitive_type(prog,
-							       DRGN_C_TYPE_UNSIGNED_LONG,
-							       &qualified_type.type);
-			if (err)
-				return err;
-			return drgn_object_set_unsigned(ret, qualified_type,
-							~(prog->vmcoreinfo.page_size - 1),
-							0);
-		} else if (name_len == strlen("UTS_RELEASE") &&
-			   memcmp(name, "UTS_RELEASE", name_len) == 0) {
-			size_t len;
-
-			err = drgn_program_find_primitive_type(prog,
-							       DRGN_C_TYPE_CHAR,
-							       &qualified_type.type);
-			if (err)
-				return err;
-			qualified_type.qualifiers = DRGN_QUALIFIER_CONST;
-			len = strlen(prog->vmcoreinfo.osrelease);
-			err = drgn_array_type_create(prog, qualified_type,
-						     len + 1, &drgn_language_c,
-						     &qualified_type.type);
-			if (err)
-				return err;
-			qualified_type.qualifiers = 0;
-			return drgn_object_set_from_buffer(ret, qualified_type,
-							   prog->vmcoreinfo.osrelease,
-							   len + 1, 0, 0);
-		} else if (name_len == strlen("vmemmap") &&
-			   memcmp(name, "vmemmap", name_len) == 0) {
-			if (prog->vmemmap.kind == DRGN_OBJECT_ABSENT) {
-				if (!prog->has_platform ||
-				    !prog->platform.arch->linux_kernel_get_vmemmap)
-					return &drgn_not_found;
-				err = prog->platform.arch->linux_kernel_get_vmemmap(&prog->vmemmap);
-				if (err)
-					return err;
-			}
-			return drgn_object_copy(ret, &prog->vmemmap);
-		}
+	if (prog->page_offset.kind == DRGN_OBJECT_ABSENT) {
+		if (!prog->has_platform ||
+		    !prog->platform.arch->linux_kernel_get_page_offset)
+			return &drgn_not_found;
+		err = prog->platform.arch->linux_kernel_get_page_offset(&prog->page_offset);
+		if (err)
+			return err;
 	}
-	return &drgn_not_found;
+	return drgn_object_copy(ret, &prog->page_offset);
 }
+
+static struct drgn_error *linux_kernel_get_page_shift(struct drgn_program *prog,
+						      struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_INT,
+					       &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = 0;
+	return drgn_object_set_signed(ret, qualified_type,
+				      ctz(prog->vmcoreinfo.page_size), 0);
+}
+
+static struct drgn_error *linux_kernel_get_page_size(struct drgn_program *prog,
+						     struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
+					       &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = 0;
+	return drgn_object_set_unsigned(ret, qualified_type,
+					prog->vmcoreinfo.page_size, 0);
+}
+
+static struct drgn_error *linux_kernel_get_page_mask(struct drgn_program *prog,
+						     struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
+					       &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = 0;
+	return drgn_object_set_unsigned(ret, qualified_type,
+					~(prog->vmcoreinfo.page_size - 1), 0);
+}
+
+static struct drgn_error *
+linux_kernel_get_uts_release(struct drgn_program *prog, struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	err = drgn_program_find_primitive_type(prog,
+					       DRGN_C_TYPE_CHAR,
+					       &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = DRGN_QUALIFIER_CONST;
+	size_t len = strlen(prog->vmcoreinfo.osrelease);
+	err = drgn_array_type_create(prog, qualified_type, len + 1,
+				     &drgn_language_c, &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = 0;
+	return drgn_object_set_from_buffer(ret, qualified_type,
+					   prog->vmcoreinfo.osrelease, len + 1,
+					   0, 0);
+}
+
+static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
+						   struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	if (prog->vmemmap.kind == DRGN_OBJECT_ABSENT) {
+		if (!prog->has_platform ||
+		    !prog->platform.arch->linux_kernel_get_vmemmap)
+			return &drgn_not_found;
+		err = prog->platform.arch->linux_kernel_get_vmemmap(&prog->vmemmap);
+		if (err)
+			return err;
+	}
+	return drgn_object_copy(ret, &prog->vmemmap);
+}
+
+#include "linux_kernel_object_find.inc"
 
 struct kernel_module_iterator {
 	char *name;

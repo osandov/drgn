@@ -15,5 +15,6 @@
 /html
 /libtool
 /c_keywords.inc
+/linux_kernel_object_find.inc
 /python/constants.c
 /python/docstrings.c

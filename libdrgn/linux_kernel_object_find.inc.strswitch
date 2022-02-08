@@ -1,0 +1,24 @@
+struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
+					    const char *filename,
+					    enum drgn_find_object_flags flags,
+					    void *arg, struct drgn_object *ret)
+{
+	struct drgn_program *prog = arg;
+	if (!filename && (flags & DRGN_FIND_OBJECT_CONSTANT)) {
+		@memswitch (name, name_len)@
+		@case "PAGE_OFFSET"@
+			return linux_kernel_get_page_offset(prog, ret);
+		@case "PAGE_SHIFT"@
+			return linux_kernel_get_page_shift(prog, ret);
+		@case "PAGE_SIZE"@
+			return linux_kernel_get_page_size(prog, ret);
+		@case "PAGE_MASK"@
+			return linux_kernel_get_page_mask(prog, ret);
+		@case "UTS_RELEASE"@
+			return linux_kernel_get_uts_release(prog, ret);
+		@case "vmemmap"@
+			return linux_kernel_get_vmemmap(prog, ret);
+		@endswitch@
+	}
+	return &drgn_not_found;
+}

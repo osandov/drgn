@@ -20,7 +20,7 @@ ARCH_DEFS = arch_ppc64.defs \
 
 ARCH_INCS = $(ARCH_DEFS:.defs=.inc)
 
-BUILT_SOURCES = drgn.h $(ARCH_INCS) c_keywords.inc
+BUILT_SOURCES = drgn.h $(ARCH_INCS) c_keywords.inc linux_kernel_object_find.inc
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
@@ -55,6 +55,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 linux_kernel.c \
 			 linux_kernel.h \
 			 linux_kernel_helpers.c \
+			 linux_kernel_object_find.inc \
 			 memory_reader.c \
 			 memory_reader.h \
 			 minmax.h \
@@ -99,6 +100,9 @@ libdrgnimpl_la_SOURCES += kdump.c
 libdrgnimpl_la_CFLAGS += $(libkdumpfile_CFLAGS)
 libdrgnimpl_la_LIBADD += $(libkdumpfile_LIBS)
 endif
+
+%: %.strswitch build-aux/gen_strswitch.py
+	$(AM_V_GEN)$(PYTHON) $(word 2, $^) -o $@ $<
 
 arch_%.inc: arch_%.defs build-aux/gen_arch.awk
 	$(AM_V_GEN)gawk -f $(word 2, $^) $< > $@
@@ -172,7 +176,8 @@ EXTRA_DIST = Doxyfile \
 	     build-aux/gen_c_keywords_inc_strswitch.py \
 	     build-aux/gen_constants.py \
 	     build-aux/gen_strswitch.py \
-	     drgn.h.in
+	     drgn.h.in \
+	     linux_kernel_object_find.inc.strswitch
 
 EXTRA_PROGRAMS = examples/load_debug_info
 
