@@ -24,6 +24,13 @@ class TestVMCore(LinuxVMCoreTestCase):
         crashed_thread_tid = self.prog.crashed_thread().tid
         self.assertEqual(self.prog.thread(crashed_thread_tid).tid, crashed_thread_tid)
 
+    def test_main_thread(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "main thread is not defined for the Linux kernel",
+            self.prog.main_thread,
+        )
+
     def test_crashed_thread(self):
         crashed_thread = self.prog.crashed_thread()
         self.assertGreater(crashed_thread.tid, 0)

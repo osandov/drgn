@@ -308,6 +308,15 @@ class Program:
         :raises LookupError: if no thread has the given thread ID
         """
         ...
+    def main_thread(self) -> Thread:
+        """
+        Get the main thread of the program.
+
+        This is only defined for userspace programs.
+
+        :raises ValueError: if the program is the Linux kernel
+        """
+        ...
     def crashed_thread(self) -> Thread:
         """
         Get the thread that caused the program to crash.

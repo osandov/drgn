@@ -870,6 +870,16 @@ static PyObject *Program_thread(Program *self, PyObject *args, PyObject *kwds)
 	return ret;
 }
 
+static PyObject *Program_main_thread(Program *self)
+{
+	struct drgn_error *err;
+	struct drgn_thread *thread;
+	err = drgn_program_main_thread(&self->prog, &thread);
+	if (err)
+		return set_drgn_error(err);
+	return Thread_wrap(thread);
+}
+
 static PyObject *Program_crashed_thread(Program *self)
 {
 	struct drgn_error *err;
@@ -1028,6 +1038,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_threads_DOC},
 	{"thread", (PyCFunction)Program_thread,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_thread_DOC},
+	{"main_thread", (PyCFunction)Program_main_thread, METH_NOARGS,
+	 drgn_Program_main_thread_DOC},
 	{"crashed_thread", (PyCFunction)Program_crashed_thread, METH_NOARGS,
 	 drgn_Program_crashed_thread_DOC},
 	{"void_type", (PyCFunction)Program_void_type,

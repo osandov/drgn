@@ -37,6 +37,13 @@ class TestThreads(LinuxHelperTestCase):
         self.assertEqual(thread.tid, pid)
         self.assertEqual(thread.object, find_task(self.prog, pid))
 
+    def test_main_thread(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "main thread is not defined for the Linux kernel",
+            self.prog.main_thread,
+        )
+
     def test_crashed_thread(self):
         self.assertRaisesRegex(
             ValueError,
