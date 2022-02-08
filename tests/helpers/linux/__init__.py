@@ -34,32 +34,35 @@ class LinuxHelperTestCase(TestCase):
                 force_run = False
             else:
                 force_run = run_tests
-            if not run_tests:
-                LinuxHelperTestCase.skip_reason = "env DRGN_RUN_LINUX_HELPER_TESTS=0"
-            elif not force_run and os.geteuid() != 0:
-                LinuxHelperTestCase.skip_reason = (
-                    "Linux helper tests must be run as root "
-                    "(run with env DRGN_RUN_LINUX_HELPER_TESTS=1 to force)"
-                )
-            else:
-                # Some of the tests use the loop module. Open loop-control so
-                # that it is loaded.
-                try:
-                    with open("/dev/loop-control", "r"):
-                        pass
-                except FileNotFoundError:
-                    pass
-
+            if run_tests:
                 prog = drgn.Program()
-                prog.set_kernel()
                 try:
-                    prog.load_default_debug_info()
-                    LinuxHelperTestCase.prog = prog
-                    return
-                except drgn.MissingDebugInfoError as e:
+                    prog.set_kernel()
+                except PermissionError:
                     if force_run:
                         raise
-                    LinuxHelperTestCase.skip_reason = str(e)
+                    LinuxHelperTestCase.skip_reason = (
+                        "Linux helper tests must be run as root "
+                        "(run with env DRGN_RUN_LINUX_HELPER_TESTS=1 to force)"
+                    )
+                else:
+                    # Some of the tests use the loop module. Open loop-control
+                    # so that it is loaded.
+                    try:
+                        with open("/dev/loop-control", "r"):
+                            pass
+                    except FileNotFoundError:
+                        pass
+                    try:
+                        prog.load_default_debug_info()
+                        LinuxHelperTestCase.prog = prog
+                        return
+                    except drgn.MissingDebugInfoError as e:
+                        if force_run:
+                            raise
+                        LinuxHelperTestCase.skip_reason = str(e)
+            else:
+                LinuxHelperTestCase.skip_reason = "env DRGN_RUN_LINUX_HELPER_TESTS=0"
         raise unittest.SkipTest(LinuxHelperTestCase.skip_reason)
 
 
