@@ -28,6 +28,7 @@ class TestCoreDump(TestCase):
         2265425,
     )
 
+    MAIN_TID = 2265413
     CRASHED_TID = 2265419
 
     @classmethod
@@ -60,6 +61,9 @@ class TestCoreDump(TestCase):
         for tid in self.TIDS:
             self.assertEqual(self.prog.thread(tid).tid, tid)
         self.assertRaises(LookupError, self.prog.thread, 99)
+
+    def test_main_thread(self):
+        self.assertEqual(self.prog.main_thread().tid, self.MAIN_TID)
 
     def test_crashed_thread(self):
         self.assertEqual(self.prog.crashed_thread().tid, self.CRASHED_TID)

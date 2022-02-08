@@ -678,6 +678,31 @@ static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char
 	return NULL;
 }
 
+static struct drgn_error *get_prpsinfo_pid(struct drgn_program *prog,
+					   const char *data, size_t size,
+					   uint32_t *ret)
+{
+	bool is_64_bit, bswap;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	size_t offset = is_64_bit ? 24 : 12;
+	uint32_t pr_pid;
+	if (size < offset + sizeof(pr_pid)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "NT_PRPSINFO is truncated");
+	}
+	memcpy(&pr_pid, data + offset, sizeof(pr_pid));
+	if (bswap)
+		pr_pid = bswap_32(pr_pid);
+	*ret = pr_pid;
+	return NULL;
+}
+
 struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
 					    struct drgn_thread *ret)
 {
@@ -766,6 +791,8 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 	size_t phnum, i;
 	bool found_prstatus = false;
 	uint32_t first_prstatus_tid;
+	bool found_prpsinfo = false;
+	uint32_t prpsinfo_pid;
 
 	if (prog->core_dump_notes_cached)
 		return NULL;
@@ -823,42 +850,59 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 			const char *name;
 
 			name = (char *)data->d_buf + name_offset;
-			if (strncmp(name, "CORE", nhdr.n_namesz) != 0 ||
-			    nhdr.n_type != NT_PRSTATUS)
+			if (strncmp(name, "CORE", nhdr.n_namesz) != 0)
 				continue;
 
-			uint32_t tid;
-			err = drgn_program_cache_prstatus_entry(prog,
-								(char *)data->d_buf + desc_offset,
-								nhdr.n_descsz,
-								&tid);
-			if (err)
-				goto err;
-			/*
-			 * The first PRSTATUS note is the crashed thread. See
-			 * fs/binfmt_elf.c:fill_note_info in the Linux kernel
-			 * and bfd/elf.c:elfcore_grok_prstatus in BFD.
-			 */
-			if (!found_prstatus) {
-				found_prstatus = true;
-				first_prstatus_tid = tid;
+			if (nhdr.n_type == NT_PRPSINFO) {
+				err = get_prpsinfo_pid(prog,
+						       (char *)data->d_buf + desc_offset,
+						       nhdr.n_descsz,
+						       &prpsinfo_pid);
+				if (err)
+					goto err;
+				found_prpsinfo = true;
+			} else if (nhdr.n_type == NT_PRSTATUS) {
+				uint32_t tid;
+				err = drgn_program_cache_prstatus_entry(prog,
+						(char *)data->d_buf + desc_offset,
+						nhdr.n_descsz,
+						&tid);
+				if (err)
+					goto err;
+				/*
+				 * The first PRSTATUS note is the crashed thread. See
+				 * fs/binfmt_elf.c:fill_note_info in the Linux kernel
+				 * and bfd/elf.c:elfcore_grok_prstatus in BFD.
+				 */
+				if (!found_prstatus) {
+					found_prstatus = true;
+					first_prstatus_tid = tid;
+				}
 			}
 		}
 	}
 
 out:
 	prog->core_dump_notes_cached = true;
-	if (found_prstatus &&
-	    !(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		/*
-		 * Now that thread_set won't be modified, look up the crashed
-		 * thread entry.
-		 */
-		struct drgn_thread_set_iterator it =
-			drgn_thread_set_search(&prog->thread_set,
-					       &first_prstatus_tid);
-		assert(it.entry);
-		prog->crashed_thread = it.entry;
+	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
+		if (found_prpsinfo) {
+			struct drgn_thread_set_iterator it =
+				drgn_thread_set_search(&prog->thread_set,
+						       &prpsinfo_pid);
+			/* If the PID isn't found, then this is NULL. */
+			prog->main_thread = it.entry;
+		}
+		if (found_prstatus) {
+			/*
+			 * Now that thread_set won't be modified, look up the crashed
+			 * thread entry.
+			 */
+			struct drgn_thread_set_iterator it =
+				drgn_thread_set_search(&prog->thread_set,
+						       &first_prstatus_tid);
+			assert(it.entry);
+			prog->crashed_thread = it.entry;
+		}
 	}
 	return NULL;
 
@@ -1054,6 +1098,30 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 		return err;
 	}
 	prog->crashed_thread->prstatus = *prstatus;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "main thread is not defined for the Linux kernel");
+	}
+	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "finding threads is not yet supported for live processes");
+	}
+	err = drgn_program_cache_core_dump_notes(prog);
+	if (err)
+		return err;
+	if (!prog->main_thread) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "main thread not found");
+	}
+	*ret = prog->main_thread;
 	return NULL;
 }
 

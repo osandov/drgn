@@ -203,14 +203,17 @@ Threads
 ^^^^^^^
 
 The :class:`drgn.Thread` class represents a thread.
-:meth:`drgn.Program.threads()`, :meth:`drgn.Program.thread()`, and
-:meth:`drgn.Program.crashed_thread()` can be used to find threads::
+:meth:`drgn.Program.threads()`, :meth:`drgn.Program.thread()`,
+:meth:`drgn.Program.main_thread()`, and :meth:`drgn.Program.crashed_thread()`
+can be used to find threads::
 
     >>> for thread in prog.threads():
     ...     print(thread.tid)
     ...
     39143
     39144
+    >>> print(prog.main_thread().tid)
+    39143
     >>> print(prog.crashed_thread().tid)
     39144
 

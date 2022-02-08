@@ -154,6 +154,7 @@ struct drgn_program {
 		/* For userspace programs, threads indexed by PID. */
 		struct drgn_thread_set thread_set;
 	};
+	struct drgn_thread *main_thread;
 	struct drgn_thread *crashed_thread;
 	bool core_dump_notes_cached;
 	bool prefer_orc_unwinder;
