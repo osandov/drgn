@@ -590,41 +590,15 @@ static void drgn_program_set_language_from_main(struct drgn_program *prog)
 		prog->lang = lang;
 }
 
-// TODO: Delete this, just here temporarily for testing
-void drgn_program_print_inlined_functions(struct drgn_program *prog) {
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		return;
-	assert(prog->dwarf);
-	struct drgn_inlined_functions_iterator* iter;
-	assert(!drgn_inlined_functions_iterator_create(prog, &iter));
-	struct drgn_error *err;
-	struct drgn_inlined_group* group;
-	err = drgn_inlined_functions_iterator_next(iter, &group);
-	while (!err && group) {
-		printf("%s, %s\n", group->name, group->linkage_name);
-		for (size_t i = 0; i < group->num_inlined_instances; i++) {
-			struct drgn_inlined_instance *instance = &group->inlined_instances[i];
-			printf("\tdie_addr: %lx, entry_pc: %lx\n", instance->die_addr, instance->entry_pc);
-		}
-		err = drgn_inlined_functions_iterator_next(iter, &group);
-	}
-	if (err) {
-		drgn_error_fwrite(stderr, err);
-		assert(!err);
-	}
-	drgn_inlined_functions_iterator_destroy(iter);
-}
-
 static int drgn_program_save_dwarf_info(Dwfl_Module *module, void **userdatap,
 					const char *name, Dwarf_Addr base,
 					Dwarf *dwarf, Dwarf_Addr bias,
-					void *arg) {
+					void *arg)
+{
 	struct drgn_program *prog = (struct drgn_program *)arg;
 	prog->dwarf = dwarf;
-	drgn_program_print_inlined_functions(prog);
 	return DWARF_CB_OK;
 }
-
 
 static int drgn_set_platform_from_dwarf(Dwfl_Module *module, void **userdatap,
 					const char *name, Dwarf_Addr base,
