@@ -321,6 +321,15 @@ class Program:
         :raises ValueError: if the program is live (i.e., not a core dump)
         """
         ...
+    def main_thread(self) -> Thread:
+        """
+        Get the main thread of the program.
+
+        Only works for the crash dump of user-space applications.
+
+        :raises ValueError: if the program is the Linux kernel or running user-space application
+        """
+        ...
     def read(
         self, address: IntegerLike, size: IntegerLike, physical: bool = False
     ) -> bytes:

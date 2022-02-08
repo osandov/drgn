@@ -678,6 +678,30 @@ static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char
 	return NULL;
 }
 
+static struct drgn_error *get_prstatus_pgrp(struct drgn_program *prog, const char *data,
+					   size_t size, uint32_t *ret)
+{
+	bool is_64_bit, bswap;
+	struct drgn_error *err = drgn_program_is_64_bit(prog, &is_64_bit);
+	if (err)
+		return err;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	size_t offset = is_64_bit ? 40 : 32;
+	uint32_t pr_pgrp;
+	if (size < offset + sizeof(pr_pgrp)) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "NT_PRSTATUS is truncated");
+	}
+	memcpy(&pr_pgrp, data + offset, sizeof(pr_pgrp));
+	if (bswap)
+		pr_pgrp = bswap_32(pr_pgrp);
+	*ret = pr_pgrp;
+	return NULL;
+}
+
 struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
 					    struct drgn_thread *ret)
 {
@@ -733,7 +757,7 @@ LIBDRGN_PUBLIC void drgn_thread_destroy(struct drgn_thread *thread)
 
 struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 						     const char *data,
-						     size_t size, uint32_t *ret)
+						     size_t size, uint32_t *tid, uint32_t *pgrp)
 {
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		struct nstring *entry =
@@ -751,7 +775,12 @@ struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 							  &thread.tid);
 		if (err)
 			return err;
-		*ret = thread.tid;
+		*tid = thread.tid;
+
+		err = get_prstatus_pgrp(prog, data, size, pgrp);
+		if (err)
+			return err;
+
 		if (drgn_thread_set_insert(&prog->thread_set, &thread,
 					   NULL) == -1)
 			return &drgn_enomem;
@@ -766,6 +795,8 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 	size_t phnum, i;
 	bool found_prstatus = false;
 	uint32_t first_prstatus_tid;
+	bool found_main_thread = false;
+	uint32_t main_thread_tid;
 
 	if (prog->core_dump_notes_cached)
 		return NULL;
@@ -828,10 +859,12 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 				continue;
 
 			uint32_t tid;
+			uint32_t pgrp;
 			err = drgn_program_cache_prstatus_entry(prog,
 								(char *)data->d_buf + desc_offset,
 								nhdr.n_descsz,
-								&tid);
+								&tid,
+								&pgrp);
 			if (err)
 				goto err;
 			/*
@@ -842,6 +875,11 @@ drgn_program_cache_core_dump_notes(struct drgn_program *prog)
 			if (!found_prstatus) {
 				found_prstatus = true;
 				first_prstatus_tid = tid;
+			}
+
+			if (!found_main_thread && tid == pgrp) {
+				found_main_thread = true;
+				main_thread_tid = pgrp;
 			}
 		}
 	}
@@ -859,6 +897,17 @@ out:
 					       &first_prstatus_tid);
 		assert(it.entry);
 		prog->crashed_thread = it.entry;
+	}
+
+	if (found_main_thread) {
+		/*
+		 * Similar to the above, but now caching the main thread
+		 */
+		struct drgn_thread_set_iterator it =
+			drgn_thread_set_search(&prog->thread_set,
+					       &main_thread_tid);
+		assert(it.entry);
+		prog->main_thread = it.entry;
 	}
 	return NULL;
 
@@ -1079,6 +1128,33 @@ drgn_program_crashed_thread(struct drgn_program *prog, struct drgn_thread **ret)
 					 "crashed thread not found");
 	}
 	*ret = prog->crashed_thread;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_main_thread(struct drgn_program *prog, struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+
+	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "main_thread is not supported for live user-space application debugging");
+	}
+	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "main_thread is not supported for kernel debugging");
+	}
+
+	err = drgn_program_cache_core_dump_notes(prog);
+	if (err)
+		return err;
+
+	if (!prog->main_thread) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "main thread not found");
+	}
+
+	*ret = prog->main_thread;
 	return NULL;
 }
 

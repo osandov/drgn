@@ -210,7 +210,7 @@ struct drgn_error *drgn_program_cache_kdump_notes(struct drgn_program *prog)
 		prstatus_size = kdump_blob_size(prstatus_attr.val.blob);
 		uint32_t _;
 		err = drgn_program_cache_prstatus_entry(prog, prstatus_data,
-							prstatus_size, &_);
+							prstatus_size, &_, &_);
 		if (err)
 			return err;
 	}

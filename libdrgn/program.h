@@ -155,6 +155,7 @@ struct drgn_program {
 		struct drgn_thread_set thread_set;
 	};
 	struct drgn_thread *crashed_thread;
+	struct drgn_thread *main_thread;
 	bool core_dump_notes_cached;
 	bool prefer_orc_unwinder;
 
@@ -303,11 +304,13 @@ struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
  * @param[in] data The pointer to the note data.
  * @param[in] size Size of data in note.
  * @param[out] ret Thread ID from note.
+ * @param[out] ret Process Group ID from note.
  */
 struct drgn_error *drgn_program_cache_prstatus_entry(struct drgn_program *prog,
 						     const char *data,
 						     size_t size,
-						     uint32_t *ret);
+						     uint32_t *tid,
+						     uint32_t *pgrp);
 
 /*
  * Like @ref drgn_program_find_symbol_by_address(), but @p ret is already
