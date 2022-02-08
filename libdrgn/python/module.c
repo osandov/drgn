@@ -228,6 +228,9 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &Language_type) || add_languages() ||
 	    add_type(m, &DrgnObject_type) ||
 	    PyType_Ready(&ObjectIterator_type) ||
+	    add_type(m, &InlinedFunctionsIterator_type) ||
+	    add_type(m, &InlinedGroup_type) ||
+	    add_type(m, &InlinedInstance_type) ||
 	    add_type(m, &Platform_type) ||
 	    add_type(m, &Program_type) ||
 	    add_type(m, &Register_type) ||

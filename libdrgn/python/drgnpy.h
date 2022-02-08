@@ -110,6 +110,22 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct drgn_inlined_group group;
+} InlinedGroup;
+
+typedef struct {
+	PyObject_HEAD
+	struct drgn_inlined_instance instance;
+} InlinedInstance;
+
+typedef struct {
+	PyObject_HEAD
+	Program *prog;
+	struct drgn_inlined_functions_iterator *iterator;
+} InlinedFunctionsIterator;
+
+typedef struct {
+	PyObject_HEAD
 	const struct drgn_register *reg;
 } Register;
 
@@ -178,6 +194,9 @@ extern PyObject *TypeKind_class;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject FaultError_type;
+extern PyTypeObject InlinedInstance_type;
+extern PyTypeObject InlinedGroup_type;
+extern PyTypeObject InlinedFunctionsIterator_type;
 extern PyTypeObject Language_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Platform_type;

@@ -880,6 +880,26 @@ static PyObject *Program_crashed_thread(Program *self)
 	return Thread_wrap(thread);
 }
 
+static PyObject *Program_inlined_functions(Program *self)
+{
+	struct drgn_inlined_functions_iterator *iterator;
+	struct drgn_error *err =
+		drgn_inlined_functions_iterator_create(&self->prog, &iterator);
+	if (err)
+		return set_drgn_error(err);
+	InlinedFunctionsIterator *ret =
+		(InlinedFunctionsIterator *)InlinedFunctionsIterator_type
+			.tp_alloc(&InlinedFunctionsIterator_type, 0);
+	if (!ret) {
+		drgn_inlined_functions_iterator_destroy(iterator);
+		return NULL;
+	}
+	Py_INCREF(self);
+	ret->prog = self;
+	ret->iterator = iterator;
+	return (PyObject *)ret;
+}
+
 static DrgnObject *Program_subscript(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
@@ -992,6 +1012,9 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_load_debug_info_DOC},
 	{"load_default_debug_info",
 	 (PyCFunction)Program_load_default_debug_info, METH_NOARGS,
+	 drgn_Program_load_default_debug_info_DOC},
+	{"inlined_functions",
+	 (PyCFunction)Program_inlined_functions, METH_NOARGS,
 	 drgn_Program_load_default_debug_info_DOC},
 	{"__getitem__", (PyCFunction)Program_subscript, METH_O | METH_COEXIST,
 	 drgn_Program___getitem___DOC},

@@ -854,6 +854,18 @@ class Thread:
         """
         ...
 
+# TODO: Add docstrings
+class InlinedInstance:
+    die_addr: int
+    entry_pc: int
+
+# TODO: Add docstrings
+class InlinedGroup:
+    die_addr: int
+    name: str
+    linkage_name: str
+    inlined_instances: List[InlinedInstance]
+
 def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """
     Return whether a filename containing a definition (*haystack*) matches a
