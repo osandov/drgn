@@ -328,9 +328,9 @@ drgn_inlined_functions_iterator_next(struct drgn_inlined_functions_iterator *it,
 		return drgn_error_libdw();
 	it->entry.die_addr = die_addr;
 	Dwarf_Attribute attr;
-	it->entry.name = dwarf_attr(&die, DW_AT_name, &attr) ? dwarf_formstring(&attr) : NULL;
+	it->entry.name = dwarf_attr_integrate(&die, DW_AT_name, &attr) ? dwarf_formstring(&attr) : NULL;
 	// BEGIN OI-SPECIFIC
-	it->entry.linkage_name = dwarf_attr(&die, DW_AT_linkage_name, &attr) ? dwarf_formstring(&attr) : NULL;
+	it->entry.linkage_name = dwarf_attr_integrate(&die, DW_AT_linkage_name, &attr) ? dwarf_formstring(&attr) : NULL;
 	// END OI-SPECIFIC
 
 	size_t num_inlined_instances = uintptr_set_size(&it->iter.entry->value);
