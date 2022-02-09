@@ -91,6 +91,7 @@ PyTypeObject Thread_type = {
 
 static void ThreadIterator_dealloc(ThreadIterator *self)
 {
+	drgn_thread_iterator_destroy(self->iterator);
 	Py_XDECREF(self->prog);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
