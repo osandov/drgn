@@ -2814,6 +2814,7 @@ struct drgn_error *drgn_object_stack_trace(const struct drgn_object *obj,
 struct drgn_inlined_instance {
 	uintptr_t die_addr;
 	uintptr_t entry_pc;
+	uintptr_t high_pc;
 };
 
 /**

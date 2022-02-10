@@ -354,16 +354,18 @@ drgn_inlined_functions_iterator_next(struct drgn_inlined_functions_iterator *it,
 		instance->die_addr = *uintptr_iter.entry;
 		if (!dwarf_die_addr_die(it->dwarf, (void *)instance->die_addr, &die))
 			return drgn_error_libdw();
-		if (dwarf_entrypc(&die, &instance->entry_pc) != 0) {
-			Dwarf_Addr base, start, end, entry_pc = UINTPTR_MAX;
+		if (dwarf_entrypc(&die, &instance->entry_pc) != 0 || dwarf_highpc(&die, &instance->high_pc) != 0) {
+			Dwarf_Addr base, start, end, entry_pc = UINTPTR_MAX, high_pc = 0;
 			ptrdiff_t offset = 0;
-			while ((offset = dwarf_ranges(&die, offset, &base, &start, &end)) > 0)
+			while ((offset = dwarf_ranges(&die, offset, &base, &start, &end)) > 0) {
 				entry_pc = min(entry_pc, start);
+				high_pc = max(high_pc, end);
+			}
 			if (offset == -1)
 				return drgn_error_libdw();
-			if (entry_pc == UINTPTR_MAX)
-				return drgn_error_format(DRGN_ERROR_OTHER, "could not find entry PC for DWARF DIE at address %lx", instance->die_addr);
-			instance->entry_pc = entry_pc;
+			// If either pc is not found, its value will be 0
+			instance->entry_pc = entry_pc == UINTPTR_MAX ? 0 : entry_pc;
+			instance->high_pc = high_pc;
 		}
 	}
 	assert(i == num_inlined_instances);
