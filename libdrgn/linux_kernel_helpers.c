@@ -406,7 +406,6 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 			uint64_t addr, tmp_addr;
 			union drgn_value node_nr;
 			uint64_t node_ns;
-			char member[64];
 
 			err = drgn_object_read(&node, &node);
 			if (err)
@@ -443,8 +442,14 @@ find_pid_in_pid_hash(struct drgn_object *res, const struct drgn_object *ns,
 			if (node_ns != ns_addr)
 				goto next;
 
-			sprintf(member, "numbers[%" PRIu64 "].pid_chain",
-				ns_level.uvalue);
+#define FORMAT "numbers[%" PRIu64 "].pid_chain"
+			char member[sizeof(FORMAT)
+				    - sizeof("%" PRIu64)
+				    + max_decimal_length(uint64_t)
+				    + 1];
+			snprintf(member, sizeof(member), FORMAT,
+				 ns_level.uvalue);
+#undef FORMAT
 			err = drgn_object_container_of(res, &node,
 						       drgn_type_type(pidp_type.type),
 						       member);
@@ -513,7 +518,6 @@ struct drgn_error *linux_helper_pid_task(struct drgn_object *res,
 	struct drgn_qualified_type task_struct_type;
 	bool truthy;
 	struct drgn_object first;
-	char member[64];
 
 	drgn_object_init(&first, drgn_object_program(res));
 
@@ -548,12 +552,21 @@ struct drgn_error *linux_helper_pid_task(struct drgn_object *res,
 		goto null;
 
 	/* container_of(first, struct task_struct, pid_links[pid_type]) */
-	sprintf(member, "pid_links[%" PRIu64 "]", pid_type);
+#define PID_LINKS_FORMAT "pid_links[%" PRIu64 "]"
+#define PIDS_NODE_FORMAT "pids[%" PRIu64 "].node"
+	char member[max_iconst(sizeof(PID_LINKS_FORMAT),
+			       sizeof(PIDS_NODE_FORMAT))
+		    - sizeof("%" PRIu64)
+		    + max_decimal_length(uint64_t)
+		    + 1];
+	snprintf(member, sizeof(member), PID_LINKS_FORMAT, pid_type);
 	err = drgn_object_container_of(res, &first, task_struct_type, member);
 	if (err && err->code == DRGN_ERROR_LOOKUP) {
 		drgn_error_destroy(err);
 		/* container_of(first, struct task_struct, pids[pid_type].node) */
-		sprintf(member, "pids[%" PRIu64 "].node", pid_type);
+		snprintf(member, sizeof(member), PIDS_NODE_FORMAT, pid_type);
+#undef PID_LINKS_FORMAT
+#undef PIDS_NODE_FORMAT
 		err = drgn_object_container_of(res, &first, task_struct_type,
 					       member);
 	}

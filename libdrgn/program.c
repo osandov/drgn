@@ -535,8 +535,10 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		return err;
 
-	char buf[64];
-	sprintf(buf, "/proc/%ld/mem", (long)pid);
+#define FORMAT "/proc/%ld/mem"
+	char buf[sizeof(FORMAT) - sizeof("%ld") + max_decimal_length(long) + 1];
+	snprintf(buf, sizeof(buf), FORMAT, (long)pid);
+#undef FORMAT
 	prog->core_fd = open(buf, O_RDONLY);
 	if (prog->core_fd == -1)
 		return drgn_error_create_os("open", errno, buf);

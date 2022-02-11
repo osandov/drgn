@@ -130,6 +130,43 @@ static inline uint64_t uint_max(int n)
 	return UINT64_MAX >> (64 - 8 * n);
 }
 
+/*
+ * Calculate the number of decimal digits in 2^n.
+ *
+ * The number of decimal digits in a positive integer x is floor(log10(x)) + 1.
+ * By the power rule of logarithms, log10(2^n) = n * log10(2).
+ * Therefore, the number of decimal digits in 2^n is floor(n * log10(2))) + 1.
+ * 643 / 2136 is an approximation of log10(2) which is accurate enough that
+ * floor(n * 643 / 2136) = floor(n * log10(2))) for 1 <= n <= 15436.
+ */
+#define max_decimal_length_impl(n) ((n) * 643 / 2136 + 1)
+
+/**
+ * Get the maximum number of characters required to format an integer type in
+ * base 10. This is an integer constant expression.
+ */
+#define max_decimal_length(type)						\
+	((type)-1 < 0								\
+	/*									\
+	 * Let f(x) = floor(log10(x)) + 1, which is the number of decimal	\
+	 * digits in a positive integer x.					\
+	 *									\
+	 * For an n-bit two's-complement integer, the worst case is the minimum	\
+	 * value, -2^(n - 1), which is f(2^(n - 1)) decimal digits plus the	\
+	 * minus sign.								\
+	 */									\
+	 ? max_decimal_length_impl(sizeof(type) * CHAR_BIT - 1) + 1		\
+	/*									\
+	 * For an n-bit unsigned integer, the worst case is the maximum value,	\
+	 * 2^n - 1. Note that for any positive integer x, 2^x is not a power of	\
+	 * 10, so floor(log10(2^x - 1)) = floor(log10(2^x)). Therefore,		\
+	 *   f(2^x - 1)								\
+	 * = floor(log10(2^x - 1)) + 1						\
+	 * = floor(log10(2^x)) + 1						\
+	 * = f(2^x).								\
+	 */									\
+	 : max_decimal_length_impl(sizeof(type) * CHAR_BIT))
+
 /**
  * Safely add to a pointer which may be `NULL`.
  *

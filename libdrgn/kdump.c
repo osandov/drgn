@@ -181,14 +181,18 @@ struct drgn_error *drgn_program_cache_kdump_notes(struct drgn_program *prog)
 	 */
 	for (i = 0; i < ncpus; i++) {
 		/* Enough for the longest possible PRSTATUS attribute name. */
-		char attr_name[64];
 		kdump_attr_ref_t prstatus_ref;
 		kdump_attr_t prstatus_attr;
 		void *prstatus_data;
 		size_t prstatus_size;
 
-		snprintf(attr_name, sizeof(attr_name),
-			 "cpu.%" PRIuFAST64 ".PRSTATUS", i);
+#define FORMAT "cpu.%" PRIuFAST64 ".PRSTATUS"
+		char attr_name[sizeof(FORMAT)
+			       - sizeof("%" PRIuFAST64)
+			       + max_decimal_length(uint_fast64_t)
+			       + 1];
+		snprintf(attr_name, sizeof(attr_name), FORMAT, i);
+#undef FORMAT
 		ks = kdump_attr_ref(prog->kdump_ctx, attr_name, &prstatus_ref);
 		if (ks != KDUMP_OK) {
 			return drgn_error_format(DRGN_ERROR_OTHER,
