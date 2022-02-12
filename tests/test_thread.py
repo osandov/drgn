@@ -11,6 +11,32 @@ from drgn import Program
 from tests import TestCase
 
 
+class TestLive(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.prog = Program()
+        cls.prog.set_pid(os.getpid())
+
+    def test_threads(self):
+        tids = [thread.tid for thread in self.prog.threads()]
+        self.assertIn(os.getpid(), tids)
+        for tid in tids:
+            self.assertEqual(self.prog.thread(tid).tid, tid)
+
+    def test_thread_not_found(self):
+        self.assertRaises(LookupError, self.prog.thread, 1)
+
+    def test_main_thread(self):
+        self.assertEqual(self.prog.main_thread().tid, os.getpid())
+
+    def test_crashed_thread(self):
+        self.assertRaisesRegex(
+            ValueError,
+            "crashed thread is only defined for core dumps",
+            self.prog.crashed_thread,
+        )
+
+
 class TestCoreDump(TestCase):
     TIDS = (
         2265413,
