@@ -200,14 +200,14 @@ class TestMemory(TestCase):
                 prog = mock_program(
                     segments=[
                         MockMemorySegment(b"cd", 0x0),
-                        MockMemorySegment(b"abyz", 2 ** bits - 2),
+                        MockMemorySegment(b"abyz", 2**bits - 2),
                     ],
                     platform=MOCK_PLATFORM if bits == 64 else MOCK_32BIT_PLATFORM,
                 )
                 for start in range(3):
                     for size in range(4 - start):
                         self.assertEqual(
-                            prog.read((2 ** bits - 2 + start) % 2 ** 64, size),
+                            prog.read((2**bits - 2 + start) % 2**64, size),
                             b"abcd"[start : start + size],
                         )
 

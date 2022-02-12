@@ -192,7 +192,7 @@ class test(Command):
 
         import vmtest.vm
 
-        command = fr"""
+        command = rf"""
 set -e
 
 cd {shlex.quote(os.getcwd())}
@@ -323,7 +323,7 @@ def get_version():
         else:
             # The saved version must start with the public version.
             match = re.search(
-                fr'^__version__ = "{re.escape(public_version)}([^"]*)"$',
+                rf'^__version__ = "{re.escape(public_version)}([^"]*)"$',
                 version_py,
                 re.M,
             )

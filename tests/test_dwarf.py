@@ -4712,14 +4712,14 @@ class TestObjects(TestCase):
     def test_variable_expr_op_addr(self):
         with self.subTest(bits=64):
             self._assert_dwarf_expr_eval(
-                [assembler.U8(DW_OP.addr), assembler.U64(2 ** 64 - 1)],
-                2 ** 64 - 1,
+                [assembler.U8(DW_OP.addr), assembler.U64(2**64 - 1)],
+                2**64 - 1,
                 bits=64,
             )
         with self.subTest(bits=32):
             self._assert_dwarf_expr_eval(
-                [assembler.U8(DW_OP.addr), assembler.U32(2 ** 32 - 1)],
-                2 ** 32 - 1,
+                [assembler.U8(DW_OP.addr), assembler.U32(2**32 - 1)],
+                2**32 - 1,
                 bits=32,
             )
 
@@ -4732,13 +4732,13 @@ class TestObjects(TestCase):
                     type_ = getattr(assembler, f"U{size * 8}")
                     self._assert_dwarf_expr_eval(
                         [assembler.U8(op), type_(2 ** (size * 8) - 1)],
-                        (2 ** (size * 8) - 1) & (2 ** bits - 1),
+                        (2 ** (size * 8) - 1) & (2**bits - 1),
                         bits=bits,
                     )
             with self.subTest(bits=bits, op="constu"):
                 self._assert_dwarf_expr_eval(
                     [assembler.U8(DW_OP.constu), assembler.ULEB128(0x123456789)],
-                    0x123456789 & (2 ** bits - 1),
+                    0x123456789 & (2**bits - 1),
                     bits=bits,
                 )
 
@@ -4746,7 +4746,7 @@ class TestObjects(TestCase):
     def test_variable_expr_op_constu_max(self):
         self._assert_dwarf_expr_eval(
             [assembler.U8(DW_OP.constu), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"],
-            2 ** 64 - 1,
+            2**64 - 1,
         )
 
     def test_variable_expr_op_constu_non_canonical(self):
@@ -4755,7 +4755,7 @@ class TestObjects(TestCase):
                 assembler.U8(DW_OP.constu),
                 b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x81\x00",
             ],
-            2 ** 64 - 1,
+            2**64 - 1,
         )
         self._assert_dwarf_expr_eval(
             [
@@ -4809,13 +4809,13 @@ class TestObjects(TestCase):
                     type_ = getattr(assembler, f"S{size * 8}")
                     self._assert_dwarf_expr_eval(
                         [assembler.U8(op), type_(-1)],
-                        -1 & (2 ** bits - 1),
+                        -1 & (2**bits - 1),
                         bits=bits,
                     )
             with self.subTest(bits=bits, op="consts"):
                 self._assert_dwarf_expr_eval(
                     [assembler.U8(DW_OP.consts), assembler.SLEB128(-0x123456789)],
-                    -0x123456789 & (2 ** bits - 1),
+                    -0x123456789 & (2**bits - 1),
                     bits=bits,
                 )
 
@@ -4824,17 +4824,17 @@ class TestObjects(TestCase):
         # Maximum positive value.
         self._assert_dwarf_expr_eval(
             [assembler.U8(DW_OP.consts), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00"],
-            2 ** 63 - 1,
+            2**63 - 1,
         )
         # Maximum negative value.
         self._assert_dwarf_expr_eval(
             [assembler.U8(DW_OP.consts), b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f"],
-            -1 & (2 ** 64 - 1),
+            -1 & (2**64 - 1),
         )
         # Minimum negative value.
         self._assert_dwarf_expr_eval(
             [assembler.U8(DW_OP.consts), b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f"],
-            -(2 ** 63) & (2 ** 64 - 1),
+            -(2**63) & (2**64 - 1),
         )
 
     def test_variable_expr_op_consts_non_canonical(self):
@@ -4843,35 +4843,35 @@ class TestObjects(TestCase):
                 assembler.U8(DW_OP.consts),
                 b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x80\x00",
             ],
-            2 ** 63 - 1,
+            2**63 - 1,
         )
         self._assert_dwarf_expr_eval(
             [
                 assembler.U8(DW_OP.consts),
                 b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f",
             ],
-            -1 & (2 ** 64 - 1),
+            -1 & (2**64 - 1),
         )
         self._assert_dwarf_expr_eval(
             [
                 assembler.U8(DW_OP.consts),
                 b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f",
             ],
-            -1 & (2 ** 64 - 1),
+            -1 & (2**64 - 1),
         )
         self._assert_dwarf_expr_eval(
             [
                 assembler.U8(DW_OP.consts),
                 b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\xff\x7f",
             ],
-            -(2 ** 63) & (2 ** 64 - 1),
+            -(2**63) & (2**64 - 1),
         )
         self._assert_dwarf_expr_eval(
             [
                 assembler.U8(DW_OP.consts),
                 b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\xff\xff\x7f",
             ],
-            -(2 ** 63) & (2 ** 64 - 1),
+            -(2**63) & (2**64 - 1),
         )
         self._assert_dwarf_expr_eval(
             [
@@ -5197,7 +5197,7 @@ class TestObjects(TestCase):
                         assembler.U8(DW_OP.lit2),
                         assembler.U8(DW_OP.div),
                     ],
-                    -2 & (2 ** bits - 1),
+                    -2 & (2**bits - 1),
                     bits=bits,
                 )
 
@@ -5229,7 +5229,7 @@ class TestObjects(TestCase):
                         assembler.U8(DW_OP.lit5),
                         assembler.U8(DW_OP.minus),
                     ],
-                    -3 & (2 ** bits - 1),
+                    -3 & (2**bits - 1),
                     bits=bits,
                 )
 
@@ -5295,7 +5295,7 @@ class TestObjects(TestCase):
                         assembler.U8(DW_OP.lit2),
                         assembler.U8(DW_OP.mul),
                     ],
-                    ((-5 & (2 ** bits - 1)) * 2) & (2 ** bits - 1),
+                    ((-5 & (2**bits - 1)) * 2) & (2**bits - 1),
                     bits=bits,
                 )
 
@@ -5307,7 +5307,7 @@ class TestObjects(TestCase):
                         assembler.U8(DW_OP.lit7),
                         assembler.U8(DW_OP.neg),
                     ],
-                    -7 & (2 ** bits - 1),
+                    -7 & (2**bits - 1),
                     bits=bits,
                 )
                 self._assert_dwarf_expr_eval(
@@ -5328,7 +5328,7 @@ class TestObjects(TestCase):
                         assembler.U8(DW_OP.lit0),
                         assembler.U8(DW_OP.not_),
                     ],
-                    2 ** bits - 1,
+                    2**bits - 1,
                     bits=bits,
                 )
                 self._assert_dwarf_expr_eval(
@@ -5336,7 +5336,7 @@ class TestObjects(TestCase):
                         assembler.U8(DW_OP.lit31),
                         assembler.U8(DW_OP.not_),
                     ],
-                    ~31 & (2 ** bits - 1),
+                    ~31 & (2**bits - 1),
                     bits=bits,
                 )
 
@@ -5490,7 +5490,7 @@ class TestObjects(TestCase):
                         assembler.U8(DW_OP.lit4),
                         assembler.U8(DW_OP.shra),
                     ],
-                    -3 & (2 ** bits - 1),
+                    -3 & (2**bits - 1),
                     bits=bits,
                 )
                 self._assert_dwarf_expr_eval(
@@ -5511,7 +5511,7 @@ class TestObjects(TestCase):
                         assembler.U8(bits),
                         assembler.U8(DW_OP.shra),
                     ],
-                    -1 & (2 ** bits - 1),
+                    -1 & (2**bits - 1),
                     bits=bits,
                 )
 

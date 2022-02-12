@@ -462,9 +462,9 @@ class TestValue(MockProgramTestCase):
 
         self.assertIdentical(obj.read_(), obj)
 
-        self.assertIdentical(Object(self.prog, "int", value=2 ** 32 - 4), obj)
-        self.assertIdentical(Object(self.prog, "int", value=2 ** 64 - 4), obj)
-        self.assertIdentical(Object(self.prog, "int", value=2 ** 128 - 4), obj)
+        self.assertIdentical(Object(self.prog, "int", value=2**32 - 4), obj)
+        self.assertIdentical(Object(self.prog, "int", value=2**64 - 4), obj)
+        self.assertIdentical(Object(self.prog, "int", value=2**128 - 4), obj)
         self.assertIdentical(Object(self.prog, "int", value=-4.6), obj)
 
         self.assertRaisesRegex(
@@ -495,21 +495,21 @@ class TestValue(MockProgramTestCase):
             )
 
     def test_unsigned(self):
-        obj = Object(self.prog, "unsigned int", value=2 ** 32 - 1)
+        obj = Object(self.prog, "unsigned int", value=2**32 - 1)
         self.assertIs(obj.prog_, self.prog)
         self.assertIdentical(obj.type_, self.prog.type("unsigned int"))
         self.assertFalse(obj.absent_)
         self.assertIsNone(obj.address_)
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
-        self.assertEqual(obj.value_(), 2 ** 32 - 1)
+        self.assertEqual(obj.value_(), 2**32 - 1)
         self.assertEqual(repr(obj), "Object(prog, 'unsigned int', value=4294967295)")
 
         self.assertIdentical(Object(self.prog, "unsigned int", value=-1), obj)
-        self.assertIdentical(Object(self.prog, "unsigned int", value=2 ** 64 - 1), obj)
-        self.assertIdentical(Object(self.prog, "unsigned int", value=2 ** 65 - 1), obj)
+        self.assertIdentical(Object(self.prog, "unsigned int", value=2**64 - 1), obj)
+        self.assertIdentical(Object(self.prog, "unsigned int", value=2**65 - 1), obj)
         self.assertIdentical(
-            Object(self.prog, "unsigned int", value=2 ** 32 - 1 + 0.9), obj
+            Object(self.prog, "unsigned int", value=2**32 - 1 + 0.9), obj
         )
 
         self.assertRaisesRegex(
@@ -942,9 +942,9 @@ class TestConversions(MockProgramTestCase):
                     Object(
                         self.prog,
                         self.prog.int_type("long", 8, True, byteorder),
-                        -(2 ** 32),
+                        -(2**32),
                     ).to_bytes_(),
-                    (-(2 ** 32)).to_bytes(8, byteorder, signed=True),
+                    (-(2**32)).to_bytes(8, byteorder, signed=True),
                 )
 
     def test_unsigned_int_value_to_bytes(self):
@@ -954,17 +954,17 @@ class TestConversions(MockProgramTestCase):
                     Object(
                         self.prog,
                         self.prog.int_type("unsigned int", 4, False, byteorder),
-                        2 ** 31,
+                        2**31,
                     ).to_bytes_(),
-                    (2 ** 31).to_bytes(4, byteorder),
+                    (2**31).to_bytes(4, byteorder),
                 )
                 self.assertEqual(
                     Object(
                         self.prog,
                         self.prog.int_type("unsigned long", 8, False, byteorder),
-                        2 ** 60,
+                        2**60,
                     ).to_bytes_(),
-                    (2 ** 60).to_bytes(8, byteorder),
+                    (2**60).to_bytes(8, byteorder),
                 )
 
     def test_float64_value_to_bytes(self):
@@ -1299,7 +1299,7 @@ class TestGenericOperators(MockProgramTestCase):
         self.assertRaises(TypeError, obj.__getitem__, 0)
 
     def test_cast_primitive_value(self):
-        obj = Object(self.prog, "long", value=2 ** 32 + 1)
+        obj = Object(self.prog, "long", value=2**32 + 1)
         self.assertIdentical(cast("int", obj), Object(self.prog, "int", value=1))
         self.assertIdentical(
             cast("int", obj.read_()), Object(self.prog, "int", value=1)

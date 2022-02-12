@@ -803,30 +803,30 @@ class TestLiteral(MockProgramTestCase):
             Object(self.prog, value=-1), Object(self.prog, "int", value=-1)
         )
         self.assertIdentical(
-            Object(self.prog, value=2 ** 31 - 1),
-            Object(self.prog, "int", value=2 ** 31 - 1),
+            Object(self.prog, value=2**31 - 1),
+            Object(self.prog, "int", value=2**31 - 1),
         )
 
         self.assertIdentical(
-            Object(self.prog, value=2 ** 31), Object(self.prog, "long", value=2 ** 31)
+            Object(self.prog, value=2**31), Object(self.prog, "long", value=2**31)
         )
         # Not int, because this is treated as the negation operator applied to
         # 2**31.
         self.assertIdentical(
-            Object(self.prog, value=-(2 ** 31)),
-            Object(self.prog, "long", value=-(2 ** 31)),
+            Object(self.prog, value=-(2**31)),
+            Object(self.prog, "long", value=-(2**31)),
         )
 
         self.assertIdentical(
-            Object(self.prog, value=2 ** 63),
-            Object(self.prog, "unsigned long long", value=2 ** 63),
+            Object(self.prog, value=2**63),
+            Object(self.prog, "unsigned long long", value=2**63),
         )
         self.assertIdentical(
-            Object(self.prog, value=2 ** 64 - 1),
-            Object(self.prog, "unsigned long long", value=2 ** 64 - 1),
+            Object(self.prog, value=2**64 - 1),
+            Object(self.prog, "unsigned long long", value=2**64 - 1),
         )
         self.assertIdentical(
-            Object(self.prog, value=-(2 ** 64 - 1)),
+            Object(self.prog, value=-(2**64 - 1)),
             Object(self.prog, "unsigned long long", value=1),
         )
 
@@ -1432,10 +1432,10 @@ class TestOperators(MockProgramTestCase):
         self.assertIdentical(self.int(-2) * self.int(-3), self.int(6))
 
         # Integer overflow.
-        self.assertIdentical(self.int(0x8000) * self.int(0x10000), self.int(-(2 ** 31)))
+        self.assertIdentical(self.int(0x8000) * self.int(0x10000), self.int(-(2**31)))
 
         self.assertIdentical(
-            self.unsigned_int(0x8000) * self.int(0x10000), self.unsigned_int(2 ** 31)
+            self.unsigned_int(0x8000) * self.int(0x10000), self.unsigned_int(2**31)
         )
 
         self.assertIdentical(
@@ -1502,19 +1502,19 @@ class TestOperators(MockProgramTestCase):
 
     def test_and(self):
         self._test_arithmetic(operator.and_, 1, 3, 1)
-        self.assertIdentical(self.int(-1) & self.int(2 ** 31), self.int(2 ** 31))
+        self.assertIdentical(self.int(-1) & self.int(2**31), self.int(2**31))
         self._test_pointer_type_errors(operator.and_)
         self._test_floating_type_errors(operator.and_)
 
     def test_xor(self):
         self._test_arithmetic(operator.xor, 1, 3, 2)
-        self.assertIdentical(self.int(-1) ^ self.int(-(2 ** 31)), self.int(2 ** 31 - 1))
+        self.assertIdentical(self.int(-1) ^ self.int(-(2**31)), self.int(2**31 - 1))
         self._test_pointer_type_errors(operator.xor)
         self._test_floating_type_errors(operator.xor)
 
     def test_or(self):
         self._test_arithmetic(operator.or_, 1, 3, 3)
-        self.assertIdentical(self.int(-(2 ** 31)) | self.int(2 ** 31 - 1), self.int(-1))
+        self.assertIdentical(self.int(-(2**31)) | self.int(2**31 - 1), self.int(-1))
         self._test_pointer_type_errors(operator.or_)
         self._test_floating_type_errors(operator.or_)
 
