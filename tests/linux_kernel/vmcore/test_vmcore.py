@@ -24,6 +24,13 @@ class TestVMCore(LinuxVMCoreTestCase):
         crashed_thread_tid = self.prog.crashed_thread().tid
         self.assertEqual(self.prog.thread(crashed_thread_tid).tid, crashed_thread_tid)
 
+    def test_thread_not_found(self):
+        tids = {thread.tid for thread in self.prog.threads()}
+        tid = 1
+        while tid in tids:
+            tid += 1
+        self.assertRaises(LookupError, self.prog.thread, tid)
+
     def test_main_thread(self):
         self.assertRaisesRegex(
             ValueError,

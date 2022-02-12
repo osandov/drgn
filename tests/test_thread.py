@@ -60,6 +60,8 @@ class TestCoreDump(TestCase):
     def test_thread(self):
         for tid in self.TIDS:
             self.assertEqual(self.prog.thread(tid).tid, tid)
+
+    def test_thread_not_found(self):
         self.assertRaises(LookupError, self.prog.thread, 99)
 
     def test_main_thread(self):

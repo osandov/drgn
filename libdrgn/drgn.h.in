@@ -2863,8 +2863,8 @@ struct drgn_error *drgn_thread_iterator_next(struct drgn_thread_iterator *it,
  * Get the thread with the given thread ID.
  *
  * @param[in] tid Thread ID.
- * @param[out] ret New thread handle. On success, must be destroyed with @ref
- * drgn_thread_destroy().
+ * @param[out] ret New thread handle, or @c NULL if not found. On success, must
+ * be destroyed with @ref drgn_thread_destroy().
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_find_thread(struct drgn_program *prog,

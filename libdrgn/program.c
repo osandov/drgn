@@ -1026,6 +1026,14 @@ drgn_program_find_thread(struct drgn_program *prog, uint32_t tid,
 		err = linux_helper_find_task(object, object, tid);
 		if (err)
 			goto kernel_err;
+		bool truthy;
+		err = drgn_object_bool(object, &truthy);
+		if (err)
+			goto kernel_err;
+		if (!truthy) {
+			drgn_thread_destroy(*ret);
+			*ret = NULL;
+		}
 		return NULL;
 
 kernel_err:
