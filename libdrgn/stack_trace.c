@@ -498,7 +498,7 @@ not_found:;
 	return drgn_object_from_dwarf(trace->prog->dbinfo, file, &die,
 				      dwarf_tag(&die) == DW_TAG_enumerator ?
 				      &type_die : NULL,
-				      &function_die, regs, ret);
+				      &function_die, regs, true, ret);
 }
 
 LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
@@ -964,8 +964,7 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 	}
 	case DRGN_CFI_RULE_AT_DWARF_EXPRESSION:
 	case DRGN_CFI_RULE_DWARF_EXPRESSION:
-		err = drgn_eval_cfi_dwarf_expression(prog, file, rule, regs,
-						     buf, size);
+		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT, "stack traces disabled for OI");
 		break;
 	case DRGN_CFI_RULE_CONSTANT:
 		copy_lsbytes(buf, size, little_endian, &rule->constant,

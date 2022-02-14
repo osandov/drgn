@@ -14,6 +14,7 @@
 
 #include <gelf.h>
 #include <inttypes.h>
+#include <sys/user.h>
 
 #include "cfi.h"
 #include "drgn.h"
@@ -380,6 +381,10 @@ struct drgn_architecture_info {
 	 * PC-relative relocations need to be implemented.
 	 */
 	apply_elf_reloc_fn *apply_elf_reloc;
+
+	struct drgn_error *(*user_regs_struct_get_initial_registers)(struct drgn_program *,
+							     const struct user_regs_struct *,
+							     struct drgn_register_state **);
 	/**
 	 * Return the address and size of the direct mapping virtual address
 	 * range.

@@ -339,6 +339,7 @@ drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
 		       struct drgn_elf_file *file, Dwarf_Die *die,
 		       Dwarf_Die *type_die, Dwarf_Die *function_die,
 		       const struct drgn_register_state *regs,
+			   bool must_locate,
 		       struct drgn_object *ret);
 
 struct drgn_error *
@@ -353,7 +354,7 @@ drgn_module_find_eh_cfi(struct drgn_module *module, uint64_t pc,
 
 struct drgn_error *
 drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
-			       struct drgn_elf_file *file,
+			       struct drgn_object_locator *info,
 			       const struct drgn_cfi_rule *rule,
 			       const struct drgn_register_state *regs,
 			       void *buf, size_t size);
