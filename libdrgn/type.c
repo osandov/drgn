@@ -366,7 +366,7 @@ struct drgn_type *drgn_void_type(struct drgn_program *prog,
 {
 	if (!lang)
 		lang = drgn_program_language(prog);
-	return &prog->void_types[lang - drgn_languages];
+	return &prog->void_types[lang->number];
 }
 
 static struct drgn_error *
@@ -1301,7 +1301,7 @@ void drgn_program_init_types(struct drgn_program *prog)
 		type->_private.is_complete = false;
 		type->_private.primitive = DRGN_C_TYPE_VOID;
 		type->_private.program = prog;
-		type->_private.language = &drgn_languages[i];
+		type->_private.language = drgn_languages[i];
 	}
 	drgn_dedupe_type_set_init(&prog->dedupe_types);
 	drgn_typep_vector_init(&prog->created_types);

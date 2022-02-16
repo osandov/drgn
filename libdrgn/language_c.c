@@ -533,8 +533,8 @@ c_format_type_name_impl(struct drgn_qualified_type qualified_type,
 	}
 }
 
-struct drgn_error *c_format_type_name(struct drgn_qualified_type qualified_type,
-				      char **ret)
+static struct drgn_error *
+c_format_type_name(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
 	struct string_builder sb = {};
@@ -549,8 +549,8 @@ struct drgn_error *c_format_type_name(struct drgn_qualified_type qualified_type,
 	return NULL;
 }
 
-struct drgn_error *c_format_type(struct drgn_qualified_type qualified_type,
-				 char **ret)
+static struct drgn_error *
+c_format_type(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
 	struct string_builder sb = {};
@@ -1599,10 +1599,10 @@ c_format_object_impl(const struct drgn_object *obj, size_t indent,
 	)
 }
 
-struct drgn_error *c_format_object(const struct drgn_object *obj,
-				   size_t columns,
-				   enum drgn_format_object_flags flags,
-				   char **ret)
+static struct drgn_error *c_format_object(const struct drgn_object *obj,
+					  size_t columns,
+					  enum drgn_format_object_flags flags,
+					  char **ret)
 {
 	struct drgn_error *err;
 	struct string_builder sb = {};
@@ -2452,9 +2452,9 @@ c_type_from_declarator(struct drgn_program *prog,
 	return err;
 }
 
-struct drgn_error *c_find_type(struct drgn_program *prog, const char *name,
-			       const char *filename,
-			       struct drgn_qualified_type *ret)
+static struct drgn_error *c_find_type(struct drgn_program *prog,
+				      const char *name, const char *filename,
+				      struct drgn_qualified_type *ret)
 {
 	struct drgn_error *err;
 	struct drgn_lexer lexer;
@@ -2508,9 +2508,10 @@ out:
 	return err;
 }
 
-struct drgn_error *c_bit_offset(struct drgn_program *prog,
-				struct drgn_type *type,
-				const char *member_designator, uint64_t *ret)
+static struct drgn_error *c_bit_offset(struct drgn_program *prog,
+				       struct drgn_type *type,
+				       const char *member_designator,
+				       uint64_t *ret)
 {
 	struct drgn_error *err;
 	struct drgn_lexer lexer;
@@ -2640,7 +2641,8 @@ out:
 	return err;
 }
 
-struct drgn_error *c_integer_literal(struct drgn_object *res, uint64_t uvalue)
+static struct drgn_error *c_integer_literal(struct drgn_object *res,
+					    uint64_t uvalue)
 {
 	static const enum drgn_primitive_type types[] = {
 		DRGN_C_TYPE_INT,
@@ -2675,7 +2677,7 @@ struct drgn_error *c_integer_literal(struct drgn_object *res, uint64_t uvalue)
 				 "integer literal is too large");
 }
 
-struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
+static struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
@@ -2689,7 +2691,8 @@ struct drgn_error *c_bool_literal(struct drgn_object *res, bool bvalue)
 	return drgn_object_set_signed(res, qualified_type, bvalue, 0);
 }
 
-struct drgn_error *c_float_literal(struct drgn_object *res, double fvalue)
+static struct drgn_error *c_float_literal(struct drgn_object *res,
+					  double fvalue)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
@@ -3146,9 +3149,9 @@ static struct drgn_error *c_operand_type(const struct drgn_object *obj,
 	return NULL;
 }
 
-struct drgn_error *c_op_cast(struct drgn_object *res,
-			     struct drgn_qualified_type qualified_type,
-			     const struct drgn_object *obj)
+static struct drgn_error *c_op_cast(struct drgn_object *res,
+				    struct drgn_qualified_type qualified_type,
+				    const struct drgn_object *obj)
 {
 	struct drgn_error *err;
 	struct drgn_operand_type type;
@@ -3174,7 +3177,7 @@ static bool c_pointers_similar(const struct drgn_operand_type *lhs_type,
 		drgn_type_kind(rhs_referenced_type) && lhs_size == rhs_size);
 }
 
-struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
+static struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
 {
 	struct drgn_error *err;
 	struct drgn_type *underlying_type;
@@ -3197,8 +3200,8 @@ struct drgn_error *c_op_bool(const struct drgn_object *obj, bool *ret)
 	return NULL;
 }
 
-struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
-			    const struct drgn_object *rhs, int *ret)
+static struct drgn_error *c_op_cmp(const struct drgn_object *lhs,
+				   const struct drgn_object *rhs, int *ret)
 {
 	struct drgn_error *err;
 
@@ -3232,9 +3235,9 @@ type_error:
 	return drgn_error_binary_op("comparison", &lhs_type, &rhs_type);
 }
 
-struct drgn_error *c_op_add(struct drgn_object *res,
-			    const struct drgn_object *lhs,
-			    const struct drgn_object *rhs)
+static struct drgn_error *c_op_add(struct drgn_object *res,
+				   const struct drgn_object *lhs,
+				   const struct drgn_object *rhs)
 {
 	struct drgn_error *err;
 
@@ -3273,9 +3276,9 @@ type_error:
 	return drgn_error_binary_op("binary +", &lhs_type, &rhs_type);
 }
 
-struct drgn_error *c_op_sub(struct drgn_object *res,
-			    const struct drgn_object *lhs,
-			    const struct drgn_object *rhs)
+static struct drgn_error *c_op_sub(struct drgn_object *res,
+				   const struct drgn_object *lhs,
+				   const struct drgn_object *rhs)
 {
 	struct drgn_error *err;
 
@@ -3324,9 +3327,9 @@ type_error:
 }
 
 #define BINARY_OP(op_name, op, check)						\
-struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
-				  const struct drgn_object *lhs,		\
-				  const struct drgn_object *rhs)		\
+static struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
+					 const struct drgn_object *lhs,		\
+					 const struct drgn_object *rhs)		\
 {										\
 	struct drgn_error *err;							\
 										\
@@ -3358,7 +3361,7 @@ BINARY_OP(xor, ^, integer)
 #undef BINARY_OP
 
 #define SHIFT_OP(op_name, op)							\
-struct drgn_error *c_op_##op_name(struct drgn_object *res,			\
+static struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
 					 const struct drgn_object *lhs,		\
 					 const struct drgn_object *rhs)		\
 {										\
@@ -3390,7 +3393,7 @@ SHIFT_OP(rshift, >>)
 #undef SHIFT_OP
 
 #define UNARY_OP(op_name, op, check)					\
-struct drgn_error *c_op_##op_name(struct drgn_object *res,		\
+static struct drgn_error *c_op_##op_name(struct drgn_object *res,	\
 					 const struct drgn_object *obj)	\
 {									\
 	struct drgn_error *err;						\
@@ -3412,3 +3415,61 @@ UNARY_OP(pos, +, arithmetic)
 UNARY_OP(neg, -, arithmetic)
 UNARY_OP(not, ~, integer)
 #undef UNARY_OP
+
+const struct drgn_language drgn_language_c = {
+	.name = "C",
+	.number = DRGN_LANGUAGE_C,
+	.format_type_name = c_format_type_name,
+	.format_type = c_format_type,
+	.format_object = c_format_object,
+	.find_type = c_find_type,
+	.bit_offset = c_bit_offset,
+	.integer_literal = c_integer_literal,
+	.bool_literal = c_bool_literal,
+	.float_literal = c_float_literal,
+	.op_cast = c_op_cast,
+	.op_bool = c_op_bool,
+	.op_cmp = c_op_cmp,
+	.op_add = c_op_add,
+	.op_sub = c_op_sub,
+	.op_mul = c_op_mul,
+	.op_div = c_op_div,
+	.op_mod = c_op_mod,
+	.op_lshift = c_op_lshift,
+	.op_rshift = c_op_rshift,
+	.op_and = c_op_and,
+	.op_or = c_op_or,
+	.op_xor = c_op_xor,
+	.op_pos = c_op_pos,
+	.op_neg = c_op_neg,
+	.op_not = c_op_not,
+};
+
+const struct drgn_language drgn_language_cpp = {
+	.name = "C++",
+	.number = DRGN_LANGUAGE_CPP,
+	.format_type_name = c_format_type_name,
+	.format_type = c_format_type,
+	.format_object = c_format_object,
+	.find_type = c_find_type,
+	.bit_offset = c_bit_offset,
+	.integer_literal = c_integer_literal,
+	.bool_literal = c_bool_literal,
+	.float_literal = c_float_literal,
+	.op_cast = c_op_cast,
+	.op_bool = c_op_bool,
+	.op_cmp = c_op_cmp,
+	.op_add = c_op_add,
+	.op_sub = c_op_sub,
+	.op_mul = c_op_mul,
+	.op_div = c_op_div,
+	.op_mod = c_op_mod,
+	.op_lshift = c_op_lshift,
+	.op_rshift = c_op_rshift,
+	.op_and = c_op_and,
+	.op_or = c_op_or,
+	.op_xor = c_op_xor,
+	.op_pos = c_op_pos,
+	.op_neg = c_op_neg,
+	.op_not = c_op_not,
+};

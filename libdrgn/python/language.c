@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "drgnpy.h"
+#include "../array.h"
 #include "../language.h"
 
 static PyObject *Language_repr(Language *self)
@@ -33,7 +34,7 @@ static PyObject *languages_py[DRGN_NUM_LANGUAGES];
 
 PyObject *Language_wrap(const struct drgn_language *language)
 {
-	PyObject *obj = languages_py[language - drgn_languages];
+	PyObject *obj = languages_py[language->number];
 	Py_INCREF(obj);
 	return obj;
 }
@@ -58,24 +59,23 @@ int language_converter(PyObject *o, void *p)
 
 int add_languages(void)
 {
-	static const char *attr_names[] = {
+	static const char * const attr_names[] = {
 		[DRGN_LANGUAGE_C] = "C",
 		[DRGN_LANGUAGE_CPP] = "CPP",
 	};
-	size_t i;
-
-	for (i = 0; i < DRGN_NUM_LANGUAGES; i++) {
-		Language *language_obj;
-		int ret;
-
-		language_obj = (Language *)Language_type.tp_alloc(&Language_type, 0);
+	static_assert(array_size(attr_names) == DRGN_NUM_LANGUAGES,
+		      "missing language in attr_names");
+	for (size_t i = 0; i < DRGN_NUM_LANGUAGES; i++) {
+		Language *language_obj =
+			(Language *)Language_type.tp_alloc(&Language_type, 0);
 		if (!language_obj)
 			return -1;
 		language_obj->attr_name = attr_names[i];
-		language_obj->language = &drgn_languages[i];
+		language_obj->language = drgn_languages[i];
 		languages_py[i] = (PyObject *)language_obj;
-		ret = PyDict_SetItemString(Language_type.tp_dict, attr_names[i],
-					   (PyObject *)language_obj);
+		int ret = PyDict_SetItemString(Language_type.tp_dict,
+					       attr_names[i],
+					       (PyObject *)language_obj);
 		if (ret)
 			return ret;
 	}
