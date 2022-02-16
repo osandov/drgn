@@ -980,6 +980,9 @@ class Language:
     C: Language
     """The C programming language."""
 
+    CPP: Language
+    """The C++ programming language."""
+
 class Object:
     """
     An ``Object`` represents a symbol or value in a program. An object may
