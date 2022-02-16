@@ -3416,7 +3416,7 @@ UNARY_OP(neg, -, arithmetic)
 UNARY_OP(not, ~, integer)
 #undef UNARY_OP
 
-const struct drgn_language drgn_language_c = {
+LIBDRGN_PUBLIC const struct drgn_language drgn_language_c = {
 	.name = "C",
 	.number = DRGN_LANGUAGE_C,
 	.format_type_name = c_format_type_name,
@@ -3445,7 +3445,7 @@ const struct drgn_language drgn_language_c = {
 	.op_not = c_op_not,
 };
 
-const struct drgn_language drgn_language_cpp = {
+LIBDRGN_PUBLIC const struct drgn_language drgn_language_cpp = {
 	.name = "C++",
 	.number = DRGN_LANGUAGE_CPP,
 	.format_type_name = c_format_type_name,

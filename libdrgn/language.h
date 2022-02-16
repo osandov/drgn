@@ -28,6 +28,7 @@
  * - Add a @ref drgn_language_number for it.
  * - Define a @ref drgn_language for it, and set @ref drgn_language::number to
  *   the corresponding @ref drgn_language_number.
+ * - Add it to drgn.h.
  * - Add it to @ref drgn_languages.
  * - Add it to add_languages() in the Python bindings.
  * - Add it to _drgn.pyi.
@@ -148,9 +149,6 @@ struct drgn_language {
 
 /** Mapping from @ref drgn_language_number to @ref drgn_language. */
 extern const struct drgn_language * const drgn_languages[];
-
-extern const struct drgn_language drgn_language_c;
-extern const struct drgn_language drgn_language_cpp;
 
 /** Language to be used when actual language is unknown. */
 #define drgn_default_language drgn_language_c

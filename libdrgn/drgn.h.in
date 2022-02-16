@@ -252,6 +252,25 @@ void drgn_error_destroy(struct drgn_error *err);
 
 /** @} */
 
+
+/**
+ * @defgroup Languages Languages
+ *
+ * Programming languages.
+ *
+ * @{
+ */
+
+/** C */
+extern const struct drgn_language drgn_language_c;
+/** C++ */
+extern const struct drgn_language drgn_language_cpp;
+
+/** Get the name of a @ref drgn_language. */
+const char *drgn_language_name(const struct drgn_language *lang);
+
+/** @} */
+
 /**
  * @ingroup Types
  *

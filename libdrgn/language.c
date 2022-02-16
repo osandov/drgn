@@ -10,3 +10,8 @@ const struct drgn_language * const drgn_languages[] = {
 };
 static_assert(array_size(drgn_languages) == DRGN_NUM_LANGUAGES,
 	      "missing language in drgn_languages");
+
+LIBDRGN_PUBLIC const char *drgn_language_name(const struct drgn_language *lang)
+{
+	return lang->name;
+}
