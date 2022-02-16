@@ -985,6 +985,16 @@ static PyObject *Program_get_language(Program *self, void *arg)
 	return Language_wrap(drgn_program_language(&self->prog));
 }
 
+static int Program_set_language(Program *self, PyObject *value, void *arg)
+{
+	if (!PyObject_TypeCheck(value, &Language_type)) {
+		PyErr_SetString(PyExc_TypeError, "language must be Language");
+		return -1;
+	}
+	drgn_program_set_language(&self->prog, ((Language *)value)->language);
+	return 0;
+}
+
 static PyMethodDef Program_methods[] = {
 	{"add_memory_segment", (PyCFunction)Program_add_memory_segment,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_memory_segment_DOC},
@@ -1079,7 +1089,7 @@ static PyGetSetDef Program_getset[] = {
 	{"flags", (getter)Program_get_flags, NULL, drgn_Program_flags_DOC},
 	{"platform", (getter)Program_get_platform, NULL,
 	 drgn_Program_platform_DOC},
-	{"language", (getter)Program_get_language, NULL,
+	{"language", (getter)Program_get_language, (setter)Program_set_language,
 	 drgn_Program_language_DOC},
 	{},
 };

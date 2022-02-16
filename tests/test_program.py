@@ -10,6 +10,7 @@ from drgn import (
     Architecture,
     FaultError,
     FindObjectFlags,
+    Language,
     Object,
     Platform,
     PlatformFlags,
@@ -126,7 +127,15 @@ class TestProgram(TestCase):
         Program().load_debug_info([])
 
     def test_language(self):
-        self.assertEqual(Program().language, DEFAULT_LANGUAGE)
+        prog = Program()
+        self.assertEqual(prog.language, DEFAULT_LANGUAGE)
+        prog.language = Language.CPP
+        self.assertEqual(prog.language, Language.CPP)
+        prog.language = Language.C
+        self.assertEqual(prog.language, Language.C)
+        self.assertRaisesRegex(
+            TypeError, "language must be Language", setattr, prog, "language", "CPP"
+        )
 
 
 class TestMemory(TestCase):

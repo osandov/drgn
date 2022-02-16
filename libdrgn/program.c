@@ -76,6 +76,12 @@ drgn_program_language(struct drgn_program *prog)
 	return prog->lang ? prog->lang : &drgn_default_language;
 }
 
+LIBDRGN_PUBLIC void drgn_program_set_language(struct drgn_program *prog,
+					      const struct drgn_language *lang)
+{
+	prog->lang = lang;
+}
+
 void drgn_program_set_platform(struct drgn_program *prog,
 			       const struct drgn_platform *platform)
 {

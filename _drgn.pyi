@@ -87,9 +87,12 @@ class Program:
     This is used for interpreting the type name given to :meth:`type()` and
     when creating an :class:`Object` without an explicit type.
 
-    For the Linux kernel, this is :attr:`Language.C`. For userspace programs,
-    this is determined from the language of ``main`` in the program, falling
+    For the Linux kernel, this defaults to :attr:`Language.C`. For userspace
+    programs, this defaults to the language of ``main`` in the program, falling
     back to :attr:`Language.C`. This heuristic may change in the future.
+
+    This can be explicitly set to a different language (e.g., if the heuristic
+    was incorrect).
     """
     def __getitem__(self, name: str) -> Object:
         """
