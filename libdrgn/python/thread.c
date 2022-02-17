@@ -1,4 +1,9 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "drgnpy.h"
+#include "../program.h"
+#include "../util.h"
 
 static Program *Thread_prog(Thread *self)
 {

@@ -10,6 +10,7 @@
 #include "minmax.h"
 #include "platform.h"
 #include "program.h"
+#include "util.h"
 
 struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					uint64_t pgtable, uint64_t virt_addr,

@@ -13,7 +13,6 @@
 #include "array.h"
 #include "bitops.h"
 #include "error.h"
-#include "hash_table.h"
 #include "language.h" // IWYU pragma: associated
 #include "lexer.h"
 #include "minmax.h"

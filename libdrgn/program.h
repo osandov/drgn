@@ -75,8 +75,6 @@ DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *)
 DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct nstring)
 DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread)
 
-struct drgn_thread_iterator;
-
 struct drgn_program {
 	/** @privatesection */
 

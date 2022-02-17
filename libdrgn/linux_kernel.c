@@ -22,7 +22,6 @@
 #include "error.h"
 #include "hash_table.h"
 #include "helpers.h"
-#include "language.h"
 #include "linux_kernel.h"
 #include "platform.h"
 #include "program.h"

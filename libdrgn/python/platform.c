@@ -21,7 +21,8 @@ PyObject *Platform_wrap(const struct drgn_platform *platform)
 	return (PyObject *)ret;
 }
 
-Platform *Platform_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
+static Platform *Platform_new(PyTypeObject *subtype, PyObject *args,
+			      PyObject *kwds)
 {
 	static char *keywords[] = {"arch", "flags", NULL};
 	struct enum_arg arch = { .type = Architecture_class, };

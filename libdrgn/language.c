@@ -1,8 +1,11 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <assert.h>
+
 #include "array.h"
 #include "language.h"
+#include "util.h"
 
 const struct drgn_language * const drgn_languages[] = {
 	[DRGN_LANGUAGE_C] = &drgn_language_c,

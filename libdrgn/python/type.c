@@ -804,12 +804,12 @@ static PyObject *TypeEnumerator_repr(TypeEnumerator *self)
 				    self->value);
 }
 
-Py_ssize_t TypeEnumerator_length(PyObject *self)
+static Py_ssize_t TypeEnumerator_length(PyObject *self)
 {
 	return 2;
 }
 
-PyObject *TypeEnumerator_item(TypeEnumerator *self, Py_ssize_t i)
+static PyObject *TypeEnumerator_item(TypeEnumerator *self, Py_ssize_t i)
 {
 	switch (i) {
 	case 0:

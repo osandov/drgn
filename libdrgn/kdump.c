@@ -8,6 +8,7 @@
 
 #include "linux_kernel.h"
 #include "program.h" // IWYU pragma: associated
+#include "util.h"
 
 static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 						   struct drgn_platform *ret)

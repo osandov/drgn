@@ -1,3 +1,6 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include <errno.h>
 #include <getopt.h>
 #include <stdio.h>

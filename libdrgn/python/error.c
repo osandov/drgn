@@ -4,7 +4,7 @@
 #include "drgnpy.h"
 #include "../error.h"
 
-int FaultError_init(PyObject *self, PyObject *args, PyObject *kwds)
+static int FaultError_init(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"message", "address", NULL};
 	PyObject *address, *message;

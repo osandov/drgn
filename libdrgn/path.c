@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "drgn.h"
 #include "path.h"
 #include "util.h"
 
