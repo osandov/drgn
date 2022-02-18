@@ -126,8 +126,8 @@ struct drgn_error *drgn_lexer_peek(struct drgn_lexer *lexer,
 				   struct drgn_token *token);
 
 /* Exported only for testing. */
-struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
-				struct drgn_token *token);
+struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
+					    struct drgn_token *token);
 
 /** @} */
 

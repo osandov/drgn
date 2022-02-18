@@ -1400,7 +1400,8 @@ drgn_program_find_type(struct drgn_program *prog, const char *name,
 		       const char *filename, struct drgn_qualified_type *ret)
 {
 	struct drgn_error *err;
-	err = drgn_program_language(prog)->find_type(prog, name, filename, ret);
+	const struct drgn_language *lang = drgn_program_language(prog);
+	err = lang->find_type(lang, prog, name, filename, ret);
 	if (err != &drgn_not_found)
 		return err;
 

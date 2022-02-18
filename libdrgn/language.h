@@ -52,7 +52,8 @@ typedef struct drgn_error *drgn_format_object_fn(const struct drgn_object *,
 						 size_t,
 						 enum drgn_format_object_flags,
 						 char **);
-typedef struct drgn_error *drgn_find_type_fn(struct drgn_program *prog,
+typedef struct drgn_error *drgn_find_type_fn(const struct drgn_language *lang,
+					     struct drgn_program *prog,
 					     const char *name,
 					     const char *filename,
 					     struct drgn_qualified_type *ret);

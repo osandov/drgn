@@ -120,6 +120,13 @@ class _drgn_lexer(ctypes.Structure):
     ]
 
 
+class _drgn_c_family_lexer(ctypes.Structure):
+    _fields_ = [
+        ("lexer", _drgn_lexer),
+        ("cpp", ctypes.c_bool),
+    ]
+
+
 drgn_lexer_func = ctypes.CFUNCTYPE(
     ctypes.POINTER(_drgn_error),
     ctypes.POINTER(_drgn_lexer),
@@ -152,7 +159,7 @@ _drgn_cdll.drgn_test_lexer_peek.argtypes = [
 ]
 
 
-drgn_lexer_c = drgn_lexer_func.in_dll(_drgn_cdll, "drgn_test_lexer_c")
+drgn_c_family_lexer_func = drgn_lexer_func.in_dll(_drgn_cdll, "drgn_test_lexer_c")
 drgn_test_lexer_func = drgn_lexer_func.in_dll(_drgn_cdll, "drgn_test_lexer_func")
 
 
@@ -175,6 +182,7 @@ class C_TOKEN(enum.IntEnum):
     ATOMIC = auto()
     STRUCT = auto()
     UNION = auto()
+    CLASS = auto()
     ENUM = auto()
     LPAREN = auto()
     RPAREN = auto()
@@ -203,10 +211,12 @@ class Token:
 
 
 class Lexer:
-    def __init__(self, func, str):
-        self._lexer = _drgn_lexer()
+    def __init__(self, func, str, cpp=False):
+        self._c_family_lexer = _drgn_c_family_lexer()
+        self._lexer = self._c_family_lexer.lexer
         self._func = func
         self._str = str.encode()
+        self._c_family_lexer.cpp = cpp
         _drgn_cdll.drgn_test_lexer_init(
             ctypes.pointer(self._lexer), self._func, self._str
         )

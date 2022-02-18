@@ -60,7 +60,7 @@ DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_func(struct drgn_lexer *lexer,
 DRGNPY_PUBLIC struct drgn_error *drgn_test_lexer_c(struct drgn_lexer *lexer,
 						   struct drgn_token *token)
 {
-	return drgn_lexer_c(lexer, token);
+	return drgn_c_family_lexer_func(lexer, token);
 }
 
 DRGNPY_PUBLIC bool drgn_test_path_iterator_next(struct path_iterator *it,
