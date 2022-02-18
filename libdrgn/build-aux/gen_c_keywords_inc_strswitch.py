@@ -7,6 +7,7 @@ C_KEYWORDS = (
     "_Bool",
     "_Complex",
     "char",
+    "class",
     "const",
     "double",
     "enum",
@@ -35,12 +36,15 @@ def main() -> None:
         print(f'\t[{token_kind}] = "{keyword}",')
     print("};")
     print()
-    print("static int identifier_token_kind(const char *s, size_t len)")
+    print("static int identifier_token_kind(const char *s, size_t len, bool cpp)")
     print("{")
     print("\t@memswitch (s, len)@")
     for token_kind, keyword in keywords:
         print(f'\t@case "{keyword}"@')
-        print(f"\t\treturn {token_kind};")
+        if keyword == "class":
+            print(f"\t\treturn cpp ? {token_kind} : C_TOKEN_IDENTIFIER;")
+        else:
+            print(f"\t\treturn {token_kind};")
     print("\t@default@")
     print(f"\t\treturn C_TOKEN_IDENTIFIER;")
     print("\t@endswitch@")

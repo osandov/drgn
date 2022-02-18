@@ -1642,6 +1642,7 @@ enum {
 	MAX_QUALIFIER_TOKEN = C_TOKEN_ATOMIC,
 	C_TOKEN_STRUCT,
 	C_TOKEN_UNION,
+	C_TOKEN_CLASS,
 	C_TOKEN_ENUM,
 	MAX_KEYWORD_TOKEN = C_TOKEN_ENUM,
 	C_TOKEN_LPAREN,
@@ -1656,9 +1657,15 @@ enum {
 
 #include "c_keywords.inc"
 
-struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
-				struct drgn_token *token) {
+struct drgn_c_family_lexer {
+	struct drgn_lexer lexer;
+	bool cpp;
+};
+
+struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
+					    struct drgn_token *token) {
 	const char *p = lexer->p;
+	bool cpp = ((struct drgn_c_family_lexer *)lexer)->cpp;
 
 	while (isspace(*p))
 		p++;
@@ -1698,7 +1705,8 @@ struct drgn_error *drgn_lexer_c(struct drgn_lexer *lexer,
 				p++;
 			} while (isalnum(*p) || *p == '_');
 			token->kind = identifier_token_kind(token->value,
-							    p - token->value);
+							    p - token->value,
+							    cpp);
 		} else if ('0' <= *p && *p <= '9') {
 			token->kind = C_TOKEN_NUMBER;
 			if (*p++ == '0' && *p == 'x') {
@@ -2021,16 +2029,18 @@ static const enum drgn_primitive_type specifier_kind[NUM_SPECIFIER_STATES] = {
 enum drgn_primitive_type c_parse_specifier_list(const char *s)
 {
 	struct drgn_error *err;
-	struct drgn_lexer lexer;
+	struct drgn_c_family_lexer c_family_lexer;
+	struct drgn_lexer *lexer = &c_family_lexer.lexer;
 	enum c_type_specifier specifier = SPECIFIER_NONE;
 	enum drgn_primitive_type primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
-	drgn_lexer_init(&lexer, drgn_lexer_c, s);
+	c_family_lexer.cpp = false;
+	drgn_lexer_init(lexer, drgn_c_family_lexer_func, s);
 
 	for (;;) {
 		struct drgn_token token;
 
-		err = drgn_lexer_pop(&lexer, &token);
+		err = drgn_lexer_pop(lexer, &token);
 		if (err) {
 			drgn_error_destroy(err);
 			goto out;
@@ -2049,7 +2059,7 @@ enum drgn_primitive_type c_parse_specifier_list(const char *s)
 
 	primitive = specifier_kind[specifier];
 out:
-	drgn_lexer_deinit(&lexer);
+	drgn_lexer_deinit(lexer);
 	return primitive;
 }
 
@@ -2106,6 +2116,7 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			identifier_len = token.len;
 		} else if (token.kind == C_TOKEN_STRUCT ||
 			   token.kind == C_TOKEN_UNION ||
+			   token.kind == C_TOKEN_CLASS ||
 			   token.kind == C_TOKEN_ENUM) {
 			if (identifier) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
@@ -2145,6 +2156,8 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			kind = DRGN_TYPE_STRUCT;
 		} else if (tag_token == C_TOKEN_UNION) {
 			kind = DRGN_TYPE_UNION;
+		} else if (tag_token == C_TOKEN_CLASS) {
+			kind = DRGN_TYPE_CLASS;
 		} else if (tag_token == C_TOKEN_ENUM) {
 			kind = DRGN_TYPE_ENUM;
 		} else if (identifier) {
@@ -2451,31 +2464,35 @@ c_type_from_declarator(struct drgn_program *prog,
 	return err;
 }
 
-static struct drgn_error *c_find_type(struct drgn_program *prog,
-				      const char *name, const char *filename,
-				      struct drgn_qualified_type *ret)
+static struct drgn_error *c_family_find_type(const struct drgn_language *lang,
+					     struct drgn_program *prog,
+					     const char *name,
+					     const char *filename,
+					     struct drgn_qualified_type *ret)
 {
 	struct drgn_error *err;
-	struct drgn_lexer lexer;
+	struct drgn_c_family_lexer c_family_lexer;
+	struct drgn_lexer *lexer = &c_family_lexer.lexer;
 	struct drgn_token token;
 
-	drgn_lexer_init(&lexer, drgn_lexer_c, name);
+	c_family_lexer.cpp = lang == &drgn_language_cpp;
+	drgn_lexer_init(lexer, drgn_c_family_lexer_func, name);
 
-	err = c_parse_specifier_qualifier_list(prog, &lexer, filename, ret);
+	err = c_parse_specifier_qualifier_list(prog, lexer, filename, ret);
 	if (err)
 		goto out;
 
-	err = drgn_lexer_pop(&lexer, &token);
+	err = drgn_lexer_pop(lexer, &token);
 	if (err)
 		goto out;
 	if (token.kind != C_TOKEN_EOF) {
 		struct c_declarator *outer = NULL, *inner;
 
-		err = drgn_lexer_push(&lexer, &token);
+		err = drgn_lexer_push(lexer, &token);
 		if (err)
 			return err;
 
-		err = c_parse_abstract_declarator(prog, &lexer, &outer, &inner);
+		err = c_parse_abstract_declarator(prog, lexer, &outer, &inner);
 		if (err) {
 			while (outer) {
 				struct c_declarator *next;
@@ -2491,7 +2508,7 @@ static struct drgn_error *c_find_type(struct drgn_program *prog,
 		if (err)
 			goto out;
 
-		err = drgn_lexer_pop(&lexer, &token);
+		err = drgn_lexer_pop(lexer, &token);
 		if (err)
 			goto out;
 		if (token.kind != C_TOKEN_EOF) {
@@ -2503,26 +2520,28 @@ static struct drgn_error *c_find_type(struct drgn_program *prog,
 
 	err = NULL;
 out:
-	drgn_lexer_deinit(&lexer);
+	drgn_lexer_deinit(lexer);
 	return err;
 }
 
-static struct drgn_error *c_bit_offset(struct drgn_program *prog,
-				       struct drgn_type *type,
-				       const char *member_designator,
-				       uint64_t *ret)
+static struct drgn_error *c_family_bit_offset(struct drgn_program *prog,
+					      struct drgn_type *type,
+					      const char *member_designator,
+					      uint64_t *ret)
 {
 	struct drgn_error *err;
-	struct drgn_lexer lexer;
+	struct drgn_c_family_lexer c_family_lexer;
+	struct drgn_lexer *lexer = &c_family_lexer.lexer;
 	int state = INT_MIN;
 	uint64_t bit_offset = 0;
 
-	drgn_lexer_init(&lexer, drgn_lexer_c, member_designator);
+	c_family_lexer.cpp = prog->lang == &drgn_language_cpp;
+	drgn_lexer_init(lexer, drgn_c_family_lexer_func, member_designator);
 
 	for (;;) {
 		struct drgn_token token;
 
-		err = drgn_lexer_pop(&lexer, &token);
+		err = drgn_lexer_pop(lexer, &token);
 		if (err)
 			goto out;
 
@@ -2636,7 +2655,7 @@ static struct drgn_error *c_bit_offset(struct drgn_program *prog,
 	}
 
 out:
-	drgn_lexer_deinit(&lexer);
+	drgn_lexer_deinit(lexer);
 	return err;
 }
 
@@ -3421,8 +3440,8 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_c = {
 	.format_type_name = c_format_type_name,
 	.format_type = c_format_type,
 	.format_object = c_format_object,
-	.find_type = c_find_type,
-	.bit_offset = c_bit_offset,
+	.find_type = c_family_find_type,
+	.bit_offset = c_family_bit_offset,
 	.integer_literal = c_integer_literal,
 	.bool_literal = c_bool_literal,
 	.float_literal = c_float_literal,
@@ -3450,8 +3469,8 @@ LIBDRGN_PUBLIC const struct drgn_language drgn_language_cpp = {
 	.format_type_name = c_format_type_name,
 	.format_type = c_format_type,
 	.format_object = c_format_object,
-	.find_type = c_find_type,
-	.bit_offset = c_bit_offset,
+	.find_type = c_family_find_type,
+	.bit_offset = c_family_bit_offset,
 	.integer_literal = c_integer_literal,
 	.bool_literal = c_bool_literal,
 	.float_literal = c_float_literal,

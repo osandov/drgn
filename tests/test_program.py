@@ -18,6 +18,7 @@ from drgn import (
     ProgramFlags,
     Qualifiers,
     TypeKind,
+    TypeMember,
     host_platform,
 )
 from tests import (
@@ -547,6 +548,33 @@ class TestTypes(MockProgramTestCase):
         self.assertIdentical(self.prog.type("struct point"), self.point_type)
         self.assertIdentical(self.prog.type("union option"), self.option_type)
         self.assertIdentical(self.prog.type("enum color"), self.color_type)
+
+    def test_class_type(self):
+        struct_class = self.prog.struct_type(
+            "class",
+            8,
+            (TypeMember(self.prog.pointer_type(self.prog.void_type()), "ptr"),),
+        )
+        class_point = self.prog.class_type(
+            "Point",
+            8,
+            (
+                TypeMember(self.prog.int_type("int", 4, True), "x", 0),
+                TypeMember(self.prog.int_type("int", 4, True), "y", 32),
+            ),
+        )
+        self.types.append(struct_class)
+        self.types.append(class_point)
+        self.prog.language = Language.C
+        self.assertIdentical(self.prog.type("struct class"), struct_class)
+        self.prog.language = Language.CPP
+        self.assertRaisesRegex(
+            SyntaxError,
+            "expected identifier after 'struct'",
+            self.prog.type,
+            "struct class",
+        )
+        self.assertIdentical(self.prog.type("class Point"), class_point)
 
     def test_typedef(self):
         self.types.append(self.pid_type)

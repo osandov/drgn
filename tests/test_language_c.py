@@ -14,7 +14,7 @@ from drgn import (
     container_of,
 )
 from tests import MockProgramTestCase, TestCase
-from tests.libdrgn import C_TOKEN, Lexer, drgn_lexer_c
+from tests.libdrgn import C_TOKEN, Lexer, drgn_c_family_lexer_func
 
 
 class TestPrettyPrintTypeName(MockProgramTestCase):
@@ -711,8 +711,8 @@ typedef struct {
 
 
 class TestLexer(TestCase):
-    def lex(self, s):
-        lexer = Lexer(drgn_lexer_c, s)
+    def lex(self, s, cpp=False):
+        lexer = Lexer(drgn_c_family_lexer_func, s, cpp)
         while True:
             token = lexer.pop()
             if token.kind == C_TOKEN.EOF:
@@ -720,7 +720,7 @@ class TestLexer(TestCase):
             yield token
 
     def test_empty(self):
-        lexer = Lexer(drgn_lexer_c, "")
+        lexer = Lexer(drgn_c_family_lexer_func, "")
         for i in range(64):
             self.assertEqual(lexer.pop().kind, C_TOKEN.EOF)
 
@@ -738,7 +738,7 @@ class TestLexer(TestCase):
 
     def test_keywords(self):
         s = """void char short int long signed unsigned _Bool float double
-        _Complex const restrict volatile _Atomic struct union enum"""
+        _Complex const restrict volatile _Atomic struct union class enum"""
         tokens = [
             C_TOKEN.VOID,
             C_TOKEN.CHAR,
@@ -757,9 +757,36 @@ class TestLexer(TestCase):
             C_TOKEN.ATOMIC,
             C_TOKEN.STRUCT,
             C_TOKEN.UNION,
+            C_TOKEN.IDENTIFIER,
             C_TOKEN.ENUM,
         ]
         self.assertEqual([token.kind for token in self.lex(s)], tokens)
+
+    def test_cpp_keywords(self):
+        s = """void char short int long signed unsigned _Bool float double
+        _Complex const restrict volatile _Atomic struct union class enum"""
+        tokens = [
+            C_TOKEN.VOID,
+            C_TOKEN.CHAR,
+            C_TOKEN.SHORT,
+            C_TOKEN.INT,
+            C_TOKEN.LONG,
+            C_TOKEN.SIGNED,
+            C_TOKEN.UNSIGNED,
+            C_TOKEN.BOOL,
+            C_TOKEN.FLOAT,
+            C_TOKEN.DOUBLE,
+            C_TOKEN.COMPLEX,
+            C_TOKEN.CONST,
+            C_TOKEN.RESTRICT,
+            C_TOKEN.VOLATILE,
+            C_TOKEN.ATOMIC,
+            C_TOKEN.STRUCT,
+            C_TOKEN.UNION,
+            C_TOKEN.CLASS,
+            C_TOKEN.ENUM,
+        ]
+        self.assertEqual([token.kind for token in self.lex(s, cpp=True)], tokens)
 
     def test_identifiers(self):
         s = "_ x foo _bar baz1"
