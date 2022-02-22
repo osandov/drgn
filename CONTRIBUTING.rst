@@ -101,23 +101,34 @@ Python
 Python code in drgn should be compatible with Python 3.6 and newer.
 
 Python code should be formatted with `black <https://github.com/psf/black>`_
-and `isort <https://github.com/timothycrosley/isort>`_:
-
-.. code-block:: console
-
-    $ isort . && black .
+and `isort <https://github.com/timothycrosley/isort>`_.
 
 Type hints should be provided for all interfaces (including helpers and the C
 extension).
 
-These requirements are checked by automated builds for pull requests. If you'd
-like to have them automatically checked prior to submission, you can install
-`pre-commit <https://pre-commit.com/>`_ hooks which will apply the isort, black,
-and mypy rules prior to committing:
+pre-commit
+^^^^^^^^^^
+
+Some of these guidelines are checked by automated builds for pull requests. If
+you'd like to run the checks locally prior to submission, you can install
+`pre-commit <https://pre-commit.com/>`_:
 
 .. code-block:: console
 
-    $ pip install pre-commit && pre-commit install --install-hooks
+    $ pip install pre-commit
+
+Then, you can either install the checks as Git hooks so that they're run when
+creating a commit:
+
+.. code-block:: console
+
+    $ pre-commit install --install-hooks
+
+Or you can run them manually:
+
+.. code-block:: console
+
+    $ pre-commit run --all-files
 
 Submitting PRs
 --------------
