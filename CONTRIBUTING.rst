@@ -15,7 +15,7 @@ instructions <README.rst#from-source>`_, then run:
 
     $ git clone https://github.com/osandov/drgn.git
     $ cd drgn
-    $ CFLAGS="-Wall -Werror -g -O2" python3 setup.py build_ext -i
+    $ CONFIGURE_FLAGS="--enable-compiler-warnings=error" python3 setup.py build_ext -i
     $ python3 -m drgn --help
 
 Testing

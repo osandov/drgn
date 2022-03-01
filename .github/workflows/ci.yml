@@ -12,7 +12,6 @@ jobs:
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
-      CFLAGS: -Wall -Werror -g -O2
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python ${{ matrix.python-version }}
@@ -29,7 +28,7 @@ jobs:
       - name: Check with mypy
         run: pre-commit run --all-files mypy
       - name: Build and test with ${{ matrix.cc }}
-        run: python setup.py test -K
+        run: CONFIGURE_FLAGS="--enable-compiler-warnings=error" python setup.py test -K
 
   lint:
     runs-on: ubuntu-latest
