@@ -5,7 +5,7 @@ import errno
 import os
 import re
 
-from drgn.helpers.linux.dmesg import PrintkRecord, get_printk_records
+from drgn.helpers.linux.printk import PrintkRecord, get_printk_records
 from tests.helpers.linux import LinuxHelperTestCase
 
 
@@ -15,7 +15,7 @@ def unescape_text(s):
     )
 
 
-def read_kmsg():
+def get_kmsg_records():
     result = []
     with open("/dev/kmsg", "rb") as f:
         fd = f.fileno()
@@ -51,10 +51,10 @@ def read_kmsg():
     return result
 
 
-class TestDmesg(LinuxHelperTestCase):
-    def test_get_dmesg(self):
+class TestPrintk(LinuxHelperTestCase):
+    def test_get_printk_records(self):
         self.assertEqual(
-            read_kmsg(),
+            get_kmsg_records(),
             [
                 # Round timestamp down since /dev/kmsg only has microsecond
                 # granularity.

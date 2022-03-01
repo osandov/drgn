@@ -5,7 +5,7 @@
 Log Buffer
 ----------
 
-The ``drgn.helpers.linux.dmesg`` module provides helpers for reading the Linux
+The ``drgn.helpers.linux.printk`` module provides helpers for reading the Linux
 kernel log buffer.
 """
 
@@ -164,7 +164,7 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
 def get_printk_records(prog: Program) -> List[PrintkRecord]:
     """Get a list of records in the kernel log buffer."""
     # Linux kernel commit 896fbe20b4e2 ("printk: use the lockless ringbuffer")
-    # changed the ring buffer structure completely.
+    # (in v5.10) changed the ring buffer structure completely.
     try:
         prb = prog["prb"]
     except KeyError:
@@ -184,8 +184,8 @@ def get_dmesg(prog: Program) -> bytes:
 
         [   timestamp] message
 
-    Use :func:`get_printk_records()` directly to format the log buffer
-    differently.
+    If you need to format the log buffer differently, use
+    :func:`get_printk_records()` and format it yourself.
     """
     lines = [
         b"[% 5d.%06d] %s"
