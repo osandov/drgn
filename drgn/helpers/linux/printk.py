@@ -93,15 +93,18 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
         )
 
     desc_ring = prb.desc_ring
-    desc_ring_count = 1 << desc_ring.count_bits.value_()
+    descs = desc_ring.descs.read_()
+    infos = desc_ring.infos.read_()
+    desc_ring_mask = (1 << desc_ring.count_bits.value_()) - 1
     text_data_ring = prb.text_data_ring
+    text_data_ring_data = text_data_ring.data.read_()
     text_data_ring_mask = (1 << text_data_ring.size_bits) - 1
 
     result = []
 
     def add_record(current_id: int) -> None:
-        idx = current_id % desc_ring_count
-        desc = desc_ring.descs[idx]
+        idx = current_id & desc_ring_mask
+        desc = descs[idx].read_()
         if not record_committed(current_id, desc.state_var.counter.value_()):
             return
 
@@ -115,7 +118,7 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
         if lpos_begin > lpos_next:
             # Data wrapped.
             lpos_begin -= lpos_begin
-        info = desc_ring.infos[idx]
+        info = infos[idx].read_()
         text_len = info.text_len
         if lpos_next - lpos_begin < text_len:
             # Truncated record.
@@ -133,7 +136,7 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
 
         result.append(
             PrintkRecord(
-                text=prog.read(text_data_ring.data + lpos_begin, text_len),
+                text=prog.read(text_data_ring_data + lpos_begin, text_len),
                 facility=info.facility.value_(),
                 level=info.level.value_(),
                 seq=info.seq.value_(),
@@ -160,14 +163,16 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
     LOG_CONT = prog["LOG_CONT"].value_()
 
     result = []
-    current_idx = prog["log_first_idx"]
-    next_idx = prog["log_next_idx"]
+    log_buf = prog["log_buf"].read_()
+    current_idx = prog["log_first_idx"].read_()
+    next_idx = prog["log_next_idx"].read_()
     seq = prog["log_first_seq"].value_()
     while current_idx != next_idx:
-        log = cast(printk_logp_type, prog["log_buf"] + current_idx)
+        logp = cast(printk_logp_type, log_buf + current_idx)
+        log = logp[0].read_()
         text_len = log.text_len.value_()
         dict_len = log.dict_len.value_()
-        text_dict = prog.read(log + 1, text_len + dict_len)
+        text_dict = prog.read(logp + 1, text_len + dict_len)
 
         if have_caller_id:
             caller_tid, caller_cpu = _caller_id(log.caller_id.value_())
