@@ -13,7 +13,10 @@ from typing import Dict, List, NamedTuple
 
 from drgn import Object, Program, cast, sizeof
 
-__all__ = ("get_printk_records",)
+__all__ = (
+    "get_dmesg",
+    "get_printk_records",
+)
 
 
 class PrintkRecord(NamedTuple):
@@ -168,3 +171,30 @@ def get_printk_records(prog: Program) -> List[PrintkRecord]:
         return _get_printk_records_structured(prog)
     else:
         return _get_printk_records_lockless(prog, prb)
+
+
+def get_dmesg(prog: Program) -> bytes:
+    """
+    Get the contents of the kernel log buffer formatted like
+    :manpage:`dmesg(1)`.
+
+    The format of each line is:
+
+    .. code-block::
+
+        [   timestamp] message
+
+    Use :func:`get_printk_records()` directly to format the log buffer
+    differently.
+    """
+    lines = [
+        b"[% 5d.%06d] %s"
+        % (
+            record.timestamp // 1000000000,
+            record.timestamp % 1000000000 // 1000,
+            record.text,
+        )
+        for record in get_printk_records(prog)
+    ]
+    lines.append(b"")  # So we get a trailing newline.
+    return b"\n".join(lines)
