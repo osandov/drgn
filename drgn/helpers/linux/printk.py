@@ -198,6 +198,10 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
             current_idx += log_len
         else:
             # Zero means the buffer wrapped around.
+            if current_idx < next_idx:
+                # Avoid getting into an infinite loop if the buffer is
+                # corrupted.
+                break
             current_idx -= current_idx
         seq += 1
     return result
