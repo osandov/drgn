@@ -9,7 +9,7 @@ The ``drgn.helpers.linux.printk`` module provides helpers for reading the Linux
 kernel log buffer.
 """
 
-from typing import Dict, List, NamedTuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from drgn import Object, Program, cast, sizeof
 
@@ -32,6 +32,27 @@ class PrintkRecord(NamedTuple):
     """Sequence number."""
     timestamp: int
     """Timestamp in nanoseconds."""
+    caller_tid: Optional[int]
+    """
+    Thread ID of thread that logged this record, if available.
+
+    This is available if the message was logged from task context and if the
+    kernel saves the ``printk()`` caller ID.
+
+    As of Linux 5.10, the kernel always saves the caller ID. From Linux 5.1
+    through 5.9, it is saved only if the kernel was compiled with
+    ``CONFIG_PRINTK_CALLER``. Before that, it is never saved.
+    """
+    caller_cpu: Optional[int]
+    """
+    Processor ID of CPU that logged this record, if available.
+
+    This is available only if the message was logged when not in task context
+    (e.g., in an interrupt handler) and if the kernel saves the ``printk()``
+    caller ID.
+
+    See :attr:`caller_tid` for when the kernel saves the caller ID.
+    """
     continuation: bool
     """Whether this record is a continuation of a previous record."""
     context: Dict[bytes, bytes]
@@ -44,6 +65,13 @@ class PrintkRecord(NamedTuple):
     .. |/dev/kmsg documentation| replace:: ``/dev/kmsg`` documentation
     .. _/dev/kmsg documentation: https://www.kernel.org/doc/Documentation/ABI/testing/dev-kmsg
     """
+
+
+def _caller_id(caller_id: int) -> Tuple[Optional[int], Optional[int]]:
+    if caller_id & 0x80000000:
+        return None, caller_id & ~0x80000000
+    else:
+        return caller_id, None
 
 
 def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecord]:
@@ -93,6 +121,8 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
             # Truncated record.
             text_len = lpos_next - lpos_begin
 
+        caller_tid, caller_cpu = _caller_id(info.caller_id.value_())
+
         context = {}
         subsystem = info.dev_info.subsystem.string_()
         device = info.dev_info.device.string_()
@@ -108,6 +138,8 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
                 level=info.level.value_(),
                 seq=info.seq.value_(),
                 timestamp=info.ts_nsec.value_(),
+                caller_tid=caller_tid,
+                caller_cpu=caller_cpu,
                 continuation=bool(info.flags.value_() & LOG_CONT),
                 context=context,
             )
@@ -124,6 +156,7 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
 
 def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
     printk_logp_type = prog.type("struct printk_log *")
+    have_caller_id = printk_logp_type.type.has_member("caller_id")
     LOG_CONT = prog["LOG_CONT"].value_()
 
     result = []
@@ -135,11 +168,18 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
         text_len = log.text_len.value_()
         dict_len = log.dict_len.value_()
         text_dict = prog.read(log + 1, text_len + dict_len)
+
+        if have_caller_id:
+            caller_tid, caller_cpu = _caller_id(log.caller_id.value_())
+        else:
+            caller_tid = caller_cpu = None
+
         context = {}
         if dict_len:
             for elmt in text_dict[text_len:].split(b"\0"):
                 key, value = elmt.split(b"=", 1)
                 context[key] = value
+
         result.append(
             PrintkRecord(
                 text=text_dict[:text_len],
@@ -147,6 +187,8 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
                 level=log.level.value_(),
                 seq=seq,
                 timestamp=log.ts_nsec.value_(),
+                caller_tid=caller_tid,
+                caller_cpu=caller_cpu,
                 continuation=bool(log.flags.value_() & LOG_CONT),
                 context=context,
             )

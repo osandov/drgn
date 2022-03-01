@@ -44,6 +44,8 @@ def get_kmsg_records():
                     level=syslog & 7,
                     seq=int(fields[1]),
                     timestamp=int(fields[2]) * 1000,
+                    caller_tid=None,
+                    caller_cpu=None,
                     continuation=b"c" in fields[3],
                     context=context,
                 )
@@ -56,9 +58,15 @@ class TestPrintk(LinuxHelperTestCase):
         self.assertEqual(
             get_kmsg_records(),
             [
-                # Round timestamp down since /dev/kmsg only has microsecond
-                # granularity.
-                record._replace(timestamp=record.timestamp // 1000 * 1000)
+                record._replace(
+                    # Round timestamp down since /dev/kmsg only has microsecond
+                    # granularity.
+                    timestamp=record.timestamp // 1000 * 1000,
+                    # Remove caller ID since it's only available from /dev/kmsg
+                    # when the kernel is compiled with CONFIG_PRINTK_CALLER.
+                    caller_tid=None,
+                    caller_cpu=None,
+                )
                 for record in get_printk_records(self.prog)
             ],
         )
