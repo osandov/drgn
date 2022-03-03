@@ -113,7 +113,7 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo dnf install autoconf automake elfutils-devel gawk gcc git libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+      $ sudo dnf install autoconf automake elfutils-devel gcc git libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
   Replace ``dnf`` with ``yum`` for RHEL/CentOS < 8.
 
@@ -121,13 +121,13 @@ First, install dependencies:
 
   .. code-block:: console
 
-      $ sudo apt-get install autoconf automake gawk gcc git liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
+      $ sudo apt-get install autoconf automake gcc git liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
 
 * Arch Linux
 
   .. code-block:: console
 
-      $ sudo pacman -S --needed autoconf automake gawk gcc git libelf libtool make pkgconf python python-pip python-setuptools
+      $ sudo pacman -S --needed autoconf automake gcc git libelf libtool make pkgconf python python-pip python-setuptools
 
 Optionally, install `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_
 if you want support for the `makedumpfile

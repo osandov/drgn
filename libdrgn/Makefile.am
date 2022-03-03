@@ -104,8 +104,8 @@ endif
 %: %.strswitch build-aux/gen_strswitch.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $(word 2, $^) -o $@ $<
 
-arch_%.inc: arch_%.defs build-aux/gen_arch.awk
-	$(AM_V_GEN)gawk -f $(word 2, $^) $< > $@
+arch_%.inc: arch_%.defs build-aux/gen_arch_inc_strswitch.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
+	$(AM_V_GEN)$(PYTHON) $(word 2, $^) < $< | $(PYTHON) $(word 3, $^) -o $@ -
 
 c_keywords.inc: build-aux/gen_c_keywords_inc_strswitch.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $< | $(PYTHON) $(word 2, $^) -o $@ -
@@ -173,7 +173,7 @@ python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 EXTRA_DIST = Doxyfile \
 	     $(ARCH_DEFS) \
 	     build-aux/codegen_utils.py \
-	     build-aux/gen_arch.awk \
+	     build-aux/gen_arch_inc_strswitch.py \
 	     build-aux/gen_c_keywords_inc_strswitch.py \
 	     build-aux/gen_constants.py \
 	     build-aux/gen_strswitch.py \

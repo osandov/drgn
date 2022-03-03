@@ -30,7 +30,6 @@ requires:
 - `autoconf <https://www.gnu.org/software/autoconf/>`_
 - `automake <https://www.gnu.org/software/automake/>`_
 - `libtool <https://www.gnu.org/software/libtool/>`_
-- `GNU Awk <https://www.gnu.org/software/gawk/>`_ 4.0 or newer
 
 .. include:: ../README.rst
     :start-after: start-installation
