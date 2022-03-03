@@ -11,7 +11,8 @@ yum install -y \
 	lzo-devel \
 	snappy-devel \
 	xz-devel \
-	zlib-devel
+	zlib-devel \
+	zstd
 
 # The manylinux image contains an upgraded autotools in /usr/local, but the
 # pkg-config macros are not present for this upgraded package. See
@@ -91,6 +92,7 @@ for pybin in /opt/python/cp*/bin; do
 	if python_supported "$pybin/python"; then
 		"$pybin/pip" install drgn --no-index -f /tmp/manylinux_wheels/
 		"$pybin/drgn" --version
+		"$pybin/python" setup.py test
 	fi
 done
 
