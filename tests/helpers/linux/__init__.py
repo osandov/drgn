@@ -45,6 +45,13 @@ class LinuxHelperTestCase(TestCase):
                         "Linux helper tests must be run as root "
                         "(run with env DRGN_RUN_LINUX_HELPER_TESTS=1 to force)"
                     )
+                except (FileNotFoundError, ValueError):
+                    if force_run:
+                        raise
+                    LinuxHelperTestCase.skip_reason = (
+                        "Linux helper tests require /proc/kcore "
+                        "(run with env DRGN_RUN_LINUX_HELPER_TESTS=1 to force)"
+                    )
                 else:
                     # Some of the tests use the loop module. Open loop-control
                     # so that it is loaded.
