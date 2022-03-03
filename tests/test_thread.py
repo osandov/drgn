@@ -66,9 +66,10 @@ class TestCoreDump(TestCase):
                     [
                         "zstd",
                         "--quiet",
+                        "--force",
                         "--decompress",
                         "--stdout",
-                        "tests/sample.coredump.zst",
+                        os.path.join(os.path.dirname(__file__), "sample.coredump.zst"),
                     ],
                     stdout=core_dump_file,
                 )
