@@ -58,53 +58,13 @@ import re
 import sys
 from typing import Any, Dict, List, NamedTuple, Optional, TextIO, Union
 
-C_ESCAPE_CHAR = []
-for c in range(256):
-    if c == 0:
-        e = r"\0"
-    elif c == 7:
-        e = r"\a"
-    elif c == 8:
-        e = r"\b"
-    elif c == 9:
-        e = r"\t"
-    elif c == 10:
-        e = r"\n"
-    elif c == 11:
-        e = r"\v"
-    elif c == 12:
-        e = r"\f"
-    elif c == 13:
-        e = r"\r"
-    elif c == 34:
-        e = r"\""
-    elif c == 39:
-        e = r"\'"
-    elif c == 92:
-        e = r"\\"
-    elif 32 <= c <= 126:
-        e = chr(c)
-    else:
-        e = f"\\x{c:02x}"
-    C_ESCAPE_CHAR.append(e)
-
-
-def c_char_literal(c: int) -> str:
-    if c == 34:  # ord('"')
-        return "'\"'"
-    else:
-        return "'" + C_ESCAPE_CHAR[c] + "'"
-
-
-def c_string_literal(s: bytes) -> str:
-    result = ['"']
-    for c in s:
-        if c == 39:  # ord("'")
-            result.append("'")
-        else:
-            result.append(C_ESCAPE_CHAR[c])
-    result.append('"')
-    return "".join(result)
+from codegen_utils import (
+    CodeGenError,
+    c_bytes_literal,
+    c_char_ord_literal,
+    c_string_literal,
+    parse_c_string_literal,
+)
 
 
 class StrSwitchOptions(NamedTuple):
@@ -122,16 +82,6 @@ class StrSwitchOptions(NamedTuple):
     memcmp_threshold: int = 2
 
 
-class StrSwitchError(Exception):
-    def __init__(self, message: str, filename: str, lineno: int) -> None:
-        self.message = message
-        self.filename = filename
-        self.lineno = lineno
-
-    def __str__(self) -> str:
-        return f"{self.filename}:{self.lineno}: error: {self.message}"
-
-
 class InputLine(NamedTuple):
     line: str
     filename: str
@@ -142,7 +92,7 @@ class OutputWriter:
     def __init__(self, file: TextIO, filename: str) -> None:
         self.file = file
         self.filename = filename
-        self.filename_literal = c_string_literal(os.fsencode(filename))
+        self.filename_literal = c_string_literal(filename)
         self.lineno = 0
         self.last_filename: Optional[str] = None
         self.last_lineno: Optional[int] = None
@@ -162,9 +112,7 @@ class OutputWriter:
 
     def _write_line_directive(self, filename: str, lineno: int) -> None:
         if filename != self.last_filename:
-            self.file.write(
-                f"#line {lineno} {c_string_literal(os.fsencode(filename))}\n"
-            )
+            self.file.write(f"#line {lineno} {c_string_literal(filename)}\n")
             self.lineno += 1
             self.last_filename = filename
         elif lineno - 1 != self.last_lineno:
@@ -232,9 +180,7 @@ def handle_switch_directive(
 ) -> None:
     match = re.fullmatch(r"((\s*)@\s*" + directive + "\s*\()(.*)\)\s*@\s*", line.line)
     if not match:
-        raise StrSwitchError(
-            f"invalid {directive} directive", line.filename, line.lineno
-        )
+        raise CodeGenError(f"invalid {directive} directive", line.filename, line.lineno)
 
     index = switch_counts.setdefault(directive, 0)
     switch_counts[directive] += 1
@@ -254,23 +200,22 @@ def handle_case_directive(line: InputLine, switches: List[StrSwitch]) -> None:
     error = False
     if match:
         try:
-            # Python string literals are close enough to C string literals.
-            case_value = ast.literal_eval(match.group(1)).encode()
+            case_value = parse_c_string_literal(match.group(1)).encode()
         except Exception:
             error = True
     else:
         error = True
     if error:
-        raise StrSwitchError("invalid case directive", line.filename, line.lineno)
+        raise CodeGenError("invalid case directive", line.filename, line.lineno)
 
     if not switches:
-        raise StrSwitchError("case outside of switch", line.filename, line.lineno)
+        raise CodeGenError("case outside of switch", line.filename, line.lineno)
     switch = switches[-1]
 
     if case_value in switch.cases:
-        raise StrSwitchError("duplicate case value", line.filename, line.lineno)
+        raise CodeGenError("duplicate case value", line.filename, line.lineno)
     if switch.type == "strswitch" and 0 in case_value:
-        raise StrSwitchError(
+        raise CodeGenError(
             "null byte in strswitch case value", line.filename, line.lineno
         )
     case = StrSwitchCase(len(switch.cases))
@@ -281,14 +226,14 @@ def handle_case_directive(line: InputLine, switches: List[StrSwitch]) -> None:
 def handle_default_directive(line: InputLine, switches: List[StrSwitch]) -> None:
     match = re.fullmatch(r"\s*@\s*default\s*@\s*", line.line)
     if not match:
-        raise StrSwitchError("invalid default directive", line.filename, line.lineno)
+        raise CodeGenError("invalid default directive", line.filename, line.lineno)
 
     if not switches:
-        raise StrSwitchError("default outside of switch", line.filename, line.lineno)
+        raise CodeGenError("default outside of switch", line.filename, line.lineno)
     switch = switches[-1]
 
     if switch.has_default():
-        raise StrSwitchError(
+        raise CodeGenError(
             "multiple default directives in one switch", line.filename, line.lineno
         )
     switch.default_body = []
@@ -297,26 +242,26 @@ def handle_default_directive(line: InputLine, switches: List[StrSwitch]) -> None
 
 
 def char_eq(switch: StrSwitch, str_index: int, c: int) -> str:
-    return f"{switch.ident('str')}[{str_index}] == {c_char_literal(c)}"
+    return f"{switch.ident('str')}[{str_index}] == {c_char_ord_literal(c)}"
 
 
 def str_eq(
     options: StrSwitchOptions, switch: StrSwitch, str_index: int, s: bytes
 ) -> str:
     if switch.type == "memswitch" and len(s) >= options.memcmp_threshold:
-        literal = c_string_literal(s)
+        literal = c_bytes_literal(s)
         return f"memcmp(&{switch.ident('str')}[{str_index}], {literal}, sizeof({literal}) - 1) == 0"
     elif (
         switch.type == "strswitch" and s[-1] == 0 and len(s) >= options.strcmp_threshold
     ):
-        literal = c_string_literal(s[:-1])
+        literal = c_bytes_literal(s[:-1])
         return f"strcmp(&{switch.ident('str')}[{str_index}], {literal}) == 0"
     elif (
         switch.type == "strswitch"
         and s[-1] != 0
         and len(s) >= options.strncmp_threshold
     ):
-        literal = c_string_literal(s)
+        literal = c_bytes_literal(s)
         return f"strncmp(&{switch.ident('str')}[{str_index}], {literal}, sizeof({literal}) - 1) == 0"
     else:
         char_eqs = [char_eq(switch, i, c) for i, c in enumerate(s, str_index)]
@@ -578,9 +523,9 @@ def handle_endswitch_directive(
 ) -> None:
     match = re.fullmatch(r"\s*@\s*endswitch\s*@\s*", line.line)
     if not match:
-        raise StrSwitchError(f"invalid endswitch directive", line.line, line.lineno)
+        raise CodeGenError(f"invalid endswitch directive", line.line, line.lineno)
     if not switches:
-        raise StrSwitchError(f"unmatched endswitch", line.filename, line.lineno)
+        raise CodeGenError(f"unmatched endswitch", line.filename, line.lineno)
 
     switch = switches.pop()
     if switches:
@@ -623,7 +568,7 @@ def gen_strswitch(
             output.echo_line(line)
 
     if switches:
-        raise StrSwitchError(
+        raise CodeGenError(
             f"unclosed {switches[-1].type}",
             switches[-1].args.filename,
             switches[-1].args.lineno,
@@ -696,7 +641,7 @@ def main() -> None:
             out_file = open(args.output, "w")
 
         gen_strswitch(in_file, args.input, out_file, args.output, options)
-    except StrSwitchError as e:
+    except CodeGenError as e:
         sys.exit(e)
     finally:
         if args.output != "-" and out_file:
