@@ -664,6 +664,10 @@ struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
 						bool load_default,
 						bool load_main);
 
+/** Load BTF at a specified address. Here to allow Python bindings to use. */
+struct drgn_error *
+drgn_program_load_btf(struct drgn_program *prog, uint64_t addr, uint64_t size);
+
 /**
  * Create a @ref drgn_program from a core dump file.
  *

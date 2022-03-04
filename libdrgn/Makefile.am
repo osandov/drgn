@@ -32,6 +32,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 binary_buffer.h \
 			 binary_search_tree.h \
 			 bitops.h \
+			 btf.h \
+			 btf.c \
 			 c_keywords.inc \
 			 cfi.c \
 			 cfi.h \

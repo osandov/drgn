@@ -18,6 +18,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "btf.h"
 #include "debug_info.h"
 #include "error.h"
 #include "helpers.h"
@@ -674,6 +675,12 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 		}
 	}
 	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_load_btf(struct drgn_program *prog, uint64_t addr, uint64_t size)
+{
+	return drgn_btf_init(prog, addr, size);
 }
 
 static struct drgn_error *get_prstatus_pid(struct drgn_program *prog, const char *data,

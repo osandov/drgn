@@ -745,6 +745,19 @@ static PyObject *Program_stack_trace(Program *self, PyObject *args,
 	return ret;
 }
 
+static PyObject *Program_add_btf_info(Program *self, PyObject *args)
+{
+	struct drgn_error *err;
+	uint64_t addr, size;
+
+	if (!PyArg_ParseTuple(args, "KK:symbols", &addr, &size))
+		return NULL;
+
+	err = drgn_program_load_btf(&self->prog, addr, size);
+	if (err)
+		return set_drgn_error(err);
+	return Py_None;
+}
 static PyObject *Program_symbols(Program *self, PyObject *args)
 {
 	struct drgn_error *err;
@@ -1041,6 +1054,8 @@ static PyMethodDef Program_methods[] = {
 	{"stack_trace", (PyCFunction)Program_stack_trace,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_DOC},
 	{"symbols", (PyCFunction)Program_symbols, METH_VARARGS,
+	 drgn_Program_symbols_DOC},
+	{"add_btf_info", (PyCFunction)Program_add_btf_info, METH_VARARGS,
 	 drgn_Program_symbols_DOC},
 	{"symbol", (PyCFunction)Program_symbol, METH_O,
 	 drgn_Program_symbol_DOC},
