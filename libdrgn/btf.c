@@ -132,12 +132,27 @@ static struct drgn_error *drgn_btf_index(struct drgn_prog_btf *bf)
 	return NULL;
 }
 
-static struct btf_type *drgn_btf_lookup(struct drgn_prog_btf *bf, const char *name,
-					int desired_btf_kind)
+const char *btf_str(struct drgn_prog_btf *bf, uint32_t off)
 {
-	for (size_t i = 1; i < bf->index.size; i++)
-		if (btf_kind(bf->index.data[i]->info) == desired_btf_kind)
+	if (off >= bf->hdr->str_len) {
+		fprintf(stderr, "btf_str: BAD Offset: %d (str_len=%d)\n", off, bf->hdr->str_len);
+		return "(BAD offset)";
+	}
+	return (const char *)&bf->str[off];
+}
+
+static struct btf_type *drgn_btf_lookup(struct drgn_prog_btf *bf, const char *name,
+					size_t name_len, int desired_btf_kind)
+{
+	struct btf_type *tp;
+	for (size_t i = 1; i < bf->index.size; i++) {
+		tp = bf->index.data[i];
+		if (btf_kind(tp->info) == desired_btf_kind &&
+		    tp->name_off &&
+		    strncmp(btf_str(bf, tp->name_off), name, name_len) == 0) {
 			return bf->index.data[i];
+		}
+	}
 	return NULL;
 }
 
@@ -145,20 +160,24 @@ static struct drgn_error *
 drgn_int_type_from_btf(struct drgn_prog_btf *bf, const char *name, size_t name_len,
 		       struct drgn_qualified_type *ret)
 {
-	struct btf_type *tp = drgn_btf_lookup(bf, name, BTF_KIND_INT);
-	uint32_t encoding;
+	struct btf_type *tp = drgn_btf_lookup(bf, name, name_len, BTF_KIND_INT);
+	uint32_t info;
+	bool _signed, is_bool;
+
 	if (!tp) {
 		printf("drgn_int_type_from_btf: not found\n");
 		return &drgn_not_found;
 	}
-	encoding = *(uint32_t *)&tp[1];
-	if (BTF_INT_BITS(encoding) % 8)
-		return drgn_error_create(DRGN_ERROR_OTHER, "int encoding of non-byte size not supported");
-	int bytes = BTF_INT_BITS(encoding) / 8;
-	if (BTF_INT_OFFSET(encoding))
+
+	info = *(uint32_t *)(tp + 1);
+	if (BTF_INT_OFFSET(info))
 		return drgn_error_create(DRGN_ERROR_OTHER, "int encoding at non-zero offset not supported");
-	bool _signed = BTF_INT_SIGNED & encoding;
-	return drgn_int_type_create(bf->prog, name, bytes, _signed, DRGN_LITTLE_ENDIAN, &drgn_language_c, &ret->type);
+	_signed = BTF_INT_SIGNED & BTF_INT_ENCODING(info);
+	is_bool = BTF_INT_BOOL & BTF_INT_ENCODING(info);
+	if (is_bool)
+		return drgn_bool_type_create(bf->prog, name, tp->size, DRGN_PROGRAM_ENDIAN, &drgn_language_c, &ret->type);
+	else
+		return drgn_int_type_create(bf->prog, name, tp->size, _signed, DRGN_PROGRAM_ENDIAN, &drgn_language_c, &ret->type);
 }
 
 static struct drgn_error *
@@ -170,12 +189,11 @@ drgn_type_from_btf(enum drgn_type_kind kind, const char *name,
 	struct drgn_prog_btf *bf = arg;
 
 	printf("drgn_type_from_btf: %d, \"%s\", %p\n", kind, name, ret);
-	fflush(stdout);
 
 	switch (kind) {
 	case DRGN_TYPE_INT:
-		return drgn_int_type_from_btf(bf, name, name_len, ret);
 	case DRGN_TYPE_BOOL:
+		return drgn_int_type_from_btf(bf, name, name_len, ret);
 	case DRGN_TYPE_STRUCT:
 	case DRGN_TYPE_UNION:
 		break;
