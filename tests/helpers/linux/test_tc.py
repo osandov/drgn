@@ -9,7 +9,7 @@ import unittest
 from drgn.helpers.linux.fs import path_lookup
 from drgn.helpers.linux.net import get_net_ns_by_inode, netdev_get_by_name
 from drgn.helpers.linux.tc import qdisc_lookup
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 try:
     from pyroute2 import NetNS
@@ -21,7 +21,7 @@ except ImportError:
 
 
 @unittest.skipUnless(have_pyroute2, "pyroute2 not found")
-class TestTc(LinuxHelperTestCase):
+class TestTc(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

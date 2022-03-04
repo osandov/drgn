@@ -17,7 +17,7 @@ from drgn.helpers.linux.block import (
     part_name,
 )
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 LOOP_SET_FD = 0x4C00
 LOOP_SET_STATUS64 = 0x4C04
@@ -27,7 +27,7 @@ LOOP_CTL_GET_FREE = 0x4C82
 LO_FLAGS_AUTOCLEAR = 4
 
 
-class TestBlock(LinuxHelperTestCase):
+class TestBlock(LinuxKernelTestCase):
     @staticmethod
     def _losetup():
         with tempfile.TemporaryFile() as temp:

@@ -8,10 +8,10 @@ from drgn import cast
 from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.tcp import sk_tcpstate
-from tests.helpers.linux import LinuxHelperTestCase, create_socket
+from tests.linux_kernel import LinuxKernelTestCase, create_socket
 
 
-class TestTcp(LinuxHelperTestCase):
+class TestTcp(LinuxKernelTestCase):
     def test_sk_tcpstate(self):
         with create_socket() as sock:
             task = find_task(self.prog, os.getpid())

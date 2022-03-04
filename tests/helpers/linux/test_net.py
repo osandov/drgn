@@ -21,10 +21,10 @@ from drgn.helpers.linux.net import (
     sk_fullsock,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.helpers.linux import LinuxHelperTestCase, create_socket
+from tests.linux_kernel import LinuxKernelTestCase, create_socket
 
 
-class TestNet(LinuxHelperTestCase):
+class TestNet(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

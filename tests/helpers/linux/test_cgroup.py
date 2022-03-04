@@ -16,18 +16,18 @@ from drgn.helpers.linux.cgroup import (
     css_for_each_descendant_pre,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.helpers.linux import (
+from tests.linux_kernel import (
     MS_NODEV,
     MS_NOEXEC,
     MS_NOSUID,
-    LinuxHelperTestCase,
+    LinuxKernelTestCase,
     fork_and_pause,
     mount,
     umount,
 )
 
 
-class TestCgroup(LinuxHelperTestCase):
+class TestCgroup(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
         # It'd be nice to just use addClassCleanup(), but that was added in

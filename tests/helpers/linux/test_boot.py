@@ -6,10 +6,10 @@ import re
 import unittest
 
 from drgn.helpers.linux.boot import pgtable_l5_enabled
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
-class TestBoot(LinuxHelperTestCase):
+class TestBoot(LinuxKernelTestCase):
     @unittest.skipUnless(platform.machine() == "x86_64", "machine is not x86_64")
     def test_pgtable_l5_enabled(self):
         with open("/proc/cpuinfo", "r") as f:

@@ -6,7 +6,7 @@ import os
 import re
 
 from drgn.helpers.linux.printk import PrintkRecord, get_printk_records
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
 def unescape_text(s):
@@ -53,7 +53,7 @@ def get_kmsg_records():
     return result
 
 
-class TestPrintk(LinuxHelperTestCase):
+class TestPrintk(LinuxKernelTestCase):
     def test_get_printk_records(self):
         self.assertEqual(
             get_kmsg_records(),

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from drgn import SymbolBinding, SymbolKind
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
-class TestSymbol(LinuxHelperTestCase):
+class TestSymbol(LinuxKernelTestCase):
     def test_global_symbol(self):
         symbol = self.prog.symbol("jiffies")
         self.assertEqual(symbol.name, "jiffies")

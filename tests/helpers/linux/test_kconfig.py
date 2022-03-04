@@ -4,10 +4,10 @@
 import os.path
 
 from drgn.helpers.linux.kconfig import get_kconfig
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
-class TestKconfig(LinuxHelperTestCase):
+class TestKconfig(LinuxKernelTestCase):
     def test_get_kconfig(self):
         if not os.path.isfile("/proc/config.gz"):
             self.skipTest("kernel not built with CONFIG_IKCONFIG_PROC")

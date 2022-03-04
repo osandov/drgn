@@ -4,10 +4,10 @@
 import os
 
 import drgn
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
-class TestUts(LinuxHelperTestCase):
+class TestUts(LinuxKernelTestCase):
     def test_uts_release(self):
         self.assertEqual(
             self.prog["UTS_RELEASE"].string_().decode(), os.uname().release

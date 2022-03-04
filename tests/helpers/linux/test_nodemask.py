@@ -5,13 +5,13 @@ from pathlib import Path
 import unittest
 
 from drgn.helpers.linux.nodemask import for_each_node, for_each_online_node, node_state
-from tests.helpers.linux import LinuxHelperTestCase, parse_range_list
+from tests.linux_kernel import LinuxKernelTestCase, parse_range_list
 
 NODE_PATH = Path("/sys/devices/system/node")
 
 
 @unittest.skipUnless(NODE_PATH.exists(), "kernel does not support NUMA")
-class TestNodeMask(LinuxHelperTestCase):
+class TestNodeMask(LinuxKernelTestCase):
     @staticmethod
     def _parse_node_list(name):
         return parse_range_list((NODE_PATH / name).read_text())

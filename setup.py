@@ -199,7 +199,11 @@ cd {shlex.quote(os.getcwd())}
 if "$BUSYBOX" [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm unittest discover -t . -s tests/linux_kernel/vmcore {"-v" if self.verbose else ""}
 else
-    DRGN_RUN_LINUX_HELPER_TESTS=1 "$PYTHON" -Bm \
+    # In Python 3.7 and newer, we can replace these two calls with:
+    # unittest discover -k 'tests.linux_kernel.*' -k 'tests.helpers.linux.*'
+    DRGN_RUN_LINUX_KERNEL_TESTS=1 "$PYTHON" -Bm \
+        unittest discover -t . -s tests/linux_kernel {"-v" if self.verbose else ""}
+    DRGN_RUN_LINUX_KERNEL_TESTS=1 "$PYTHON" -Bm \
         unittest discover -t . -s tests/helpers/linux {"-v" if self.verbose else ""}
     "$PYTHON" vmtest/enter_kdump.py
     # We should crash and not reach this.

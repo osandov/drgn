@@ -18,7 +18,7 @@ from drgn.helpers.linux.list import (
     list_next_entry,
     list_prev_entry,
 )
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
 class ListTestCaseMixin:
@@ -61,7 +61,7 @@ class ListTestCaseMixin:
         )
 
 
-class TestListNotEmpty(LinuxHelperTestCase, ListTestCaseMixin):
+class TestListNotEmpty(LinuxKernelTestCase, ListTestCaseMixin):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -134,7 +134,7 @@ class TestListNotEmpty(LinuxHelperTestCase, ListTestCaseMixin):
 
 
 @unittest.skipIf(Path("/proc/vmcore").exists(), "list is not empty in kdump kernel")
-class TestListEmpty(LinuxHelperTestCase, ListTestCaseMixin):
+class TestListEmpty(LinuxKernelTestCase, ListTestCaseMixin):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

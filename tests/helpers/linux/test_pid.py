@@ -5,10 +5,10 @@ from multiprocessing import Barrier, Process
 import os
 
 from drgn.helpers.linux.pid import find_pid, find_task, for_each_pid, for_each_task
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
-class TestPid(LinuxHelperTestCase):
+class TestPid(LinuxKernelTestCase):
     def test_find_pid(self):
         pid = os.getpid()
         self.assertEqual(find_pid(self.prog, pid).numbers[0].nr, pid)

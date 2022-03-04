@@ -16,10 +16,10 @@ from drgn.helpers.linux.rbtree import (
     rbtree_inorder_for_each,
     rbtree_inorder_for_each_entry,
 )
-from tests.helpers.linux import LinuxHelperTestCase, fork_and_pause
+from tests.linux_kernel import LinuxKernelTestCase, fork_and_pause
 
 
-class TestRbtree(LinuxHelperTestCase):
+class TestRbtree(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
         # It'd be nice to just use addClassCleanup(), but that was added in

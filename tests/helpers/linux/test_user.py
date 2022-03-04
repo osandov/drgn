@@ -6,15 +6,15 @@ import os
 import signal
 
 from drgn.helpers.linux.user import find_user, for_each_user
-from tests.helpers.linux import (
-    LinuxHelperTestCase,
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
     fork_and_pause,
     proc_state,
     wait_until,
 )
 
 
-class TestUser(LinuxHelperTestCase):
+class TestUser(LinuxKernelTestCase):
     # Try a few UIDs in case the the hash function changes in the future.
     UIDS = frozenset({0, 430, 1000, 65537})
 

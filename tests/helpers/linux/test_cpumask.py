@@ -8,12 +8,12 @@ from drgn.helpers.linux.cpumask import (
     for_each_possible_cpu,
     for_each_present_cpu,
 )
-from tests.helpers.linux import LinuxHelperTestCase, parse_range_list
+from tests.linux_kernel import LinuxKernelTestCase, parse_range_list
 
 CPU_PATH = Path("/sys/devices/system/cpu")
 
 
-class TestCpuMask(LinuxHelperTestCase):
+class TestCpuMask(LinuxKernelTestCase):
     def _test_for_each_cpu(self, func, name):
         self.assertEqual(
             list(func(self.prog)),

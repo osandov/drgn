@@ -5,10 +5,10 @@ from multiprocessing import Barrier, Process
 import os
 
 from drgn.helpers.linux.pid import find_task
-from tests.helpers.linux import LinuxHelperTestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 
-class TestThreads(LinuxHelperTestCase):
+class TestThreads(LinuxKernelTestCase):
     def test_threads(self):
         NUM_PROCS = 12
         barrier = Barrier(NUM_PROCS + 1)

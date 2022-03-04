@@ -23,10 +23,10 @@ from drgn.helpers.linux.mm import (
     virt_to_pfn,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.helpers.linux import LinuxHelperTestCase, mlock
+from tests.linux_kernel import LinuxKernelTestCase, mlock
 
 
-class TestMm(LinuxHelperTestCase):
+class TestMm(LinuxKernelTestCase):
     def test_page_constants(self):
         self.assertEqual(self.prog["PAGE_SIZE"], mmap.PAGESIZE)
         self.assertEqual(1 << self.prog["PAGE_SHIFT"], mmap.PAGESIZE)

@@ -17,10 +17,10 @@ from drgn.helpers.linux.fs import (
     path_lookup,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.helpers.linux import MS_BIND, LinuxHelperTestCase, mount, umount
+from tests.linux_kernel import MS_BIND, LinuxKernelTestCase, mount, umount
 
 
-class TestFs(LinuxHelperTestCase):
+class TestFs(LinuxKernelTestCase):
     def test_path_lookup(self):
         with tempfile.NamedTemporaryFile(prefix="drgn-tests-") as f:
             path = path_lookup(self.prog, os.path.abspath(f.name))

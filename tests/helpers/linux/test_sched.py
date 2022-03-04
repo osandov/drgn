@@ -7,8 +7,8 @@ import signal
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
 from drgn.helpers.linux.sched import idle_task, task_state_to_char
-from tests.helpers.linux import (
-    LinuxHelperTestCase,
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
     fork_and_pause,
     proc_state,
     smp_enabled,
@@ -16,7 +16,7 @@ from tests.helpers.linux import (
 )
 
 
-class TestSched(LinuxHelperTestCase):
+class TestSched(LinuxKernelTestCase):
     def test_task_state_to_char(self):
         task = find_task(self.prog, os.getpid())
         self.assertEqual(task_state_to_char(task), "R")

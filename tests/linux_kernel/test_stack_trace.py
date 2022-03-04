@@ -6,8 +6,8 @@ import signal
 
 from drgn import Object, Program, cast
 from drgn.helpers.linux.pid import find_task
-from tests.helpers.linux import (
-    LinuxHelperTestCase,
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
     fork_and_pause,
     proc_blocked,
     setenv,
@@ -15,7 +15,7 @@ from tests.helpers.linux import (
 )
 
 
-class TestStackTrace(LinuxHelperTestCase):
+class TestStackTrace(LinuxKernelTestCase):
     def test_by_task_struct(self):
         pid = fork_and_pause()
         wait_until(proc_blocked, pid)
