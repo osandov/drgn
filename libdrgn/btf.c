@@ -228,6 +228,10 @@ drgn_btf_bit_field_size(struct drgn_prog_btf *bf, uint32_t idx,
 static struct drgn_error *
 drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 		     struct drgn_qualified_type *ret);
+static struct drgn_error *
+drgn_type_from_btf(enum drgn_type_kind kind, const char *name,
+		   size_t name_len, const char *filename,
+		   void *arg, struct drgn_qualified_type *ret);
 
 static struct drgn_error *
 drgn_int_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
@@ -373,6 +377,62 @@ out:
 }
 
 static struct drgn_error *
+drgn_array_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
+			 struct drgn_type **ret)
+{
+	struct btf_array *arr = (struct btf_array *)&tp[1];
+	struct drgn_error *err;
+	struct drgn_qualified_type qt;
+
+	err = drgn_btf_type_create(bf, arr->type, &qt);
+	if (err)
+		return err;
+
+	if (arr->nelems)
+		return drgn_array_type_create(bf->prog, qt, arr->nelems, &drgn_language_c, ret);
+	else
+		return drgn_incomplete_array_type_create(bf->prog, qt, &drgn_language_c, ret);
+}
+
+static struct drgn_error *
+drgn_enum_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
+			struct drgn_type **ret)
+{
+	struct btf_enum *enum_ = (struct btf_enum *)&tp[1];
+	struct drgn_error *err;
+	struct drgn_enum_type_builder builder;
+	const char *name = NULL;
+	struct drgn_qualified_type compatible_type;
+	size_t count = btf_vlen(tp->info);
+
+	if (tp->name_off)
+		name = btf_str(bf, tp->name_off);
+
+	if (!count)
+		/* no enumerators, incomplete type */
+		return drgn_incomplete_enum_type_create(bf->prog, name, &drgn_language_c, ret);
+
+	// TODO: need 4-byte signed integer
+	err = drgn_type_from_btf(DRGN_TYPE_INT, "int", 3, NULL, bf, &compatible_type);
+	if (err)
+		return err;
+
+	drgn_enum_type_builder_init(&builder, bf->prog);
+	for (size_t i = 0; i < count; i++) {
+		const char *mname = btf_str(bf, enum_[i].name_off);
+		err = drgn_enum_type_builder_add_signed(&builder, mname, enum_[i].val);
+		if (err)
+			goto out;
+	}
+	err = drgn_enum_type_create(&builder, name, compatible_type.type, &drgn_language_c, ret);
+	if (!err)
+		return NULL;
+out:
+	drgn_enum_type_builder_deinit(&builder);
+	return err;
+}
+
+static struct drgn_error *
 drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 		     struct drgn_qualified_type *ret)
 {
@@ -409,7 +469,12 @@ drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 	case BTF_KIND_UNION:
 		err = drgn_compound_type_from_btf(bf, tp, &ret->type);
 		break;
-
+	case BTF_KIND_ARRAY:
+		err = drgn_array_type_from_btf(bf, tp, &ret->type);
+		break;
+	case BTF_KIND_ENUM:
+		err = drgn_enum_type_from_btf(bf, tp, &ret->type);
+		break;
 	default:
 		return &drgn_not_found;
 	}
@@ -434,6 +499,10 @@ static int drgn_btf_kind(enum drgn_type_kind kind)
 		return BTF_KIND_UNION;
 	case DRGN_TYPE_POINTER:
 		return BTF_KIND_PTR;
+	case DRGN_TYPE_ARRAY:
+		return BTF_KIND_ARRAY;
+	case DRGN_TYPE_ENUM:
+		return BTF_KIND_ENUM;
 	default:
 		return -1;
 	}
