@@ -186,6 +186,45 @@ out:
 	return qual;
 }
 
+/**
+ * Lookup the bit field size for an integer type, and possibly increment the
+ * offset field. For all other types, leave offset and bit size unmodified.
+ */
+static struct drgn_error *
+drgn_btf_bit_field_size(struct drgn_prog_btf *bf, uint32_t idx,
+			uint64_t *offset_ret, uint64_t *bit_size_ret)
+{
+	uint32_t val;
+	for (;;) {
+		struct btf_type *tp = bf->index.data[idx];
+		switch (btf_kind(tp->info)) {
+		/* Skip qualifiers and typedefs to get to concrete types */
+		case BTF_KIND_CONST:
+		case BTF_KIND_RESTRICT:
+		case BTF_KIND_VOLATILE:
+		case BTF_KIND_TYPEDEF:
+			idx = tp->type;
+			break;
+		case BTF_KIND_INT:
+			val = *(uint32_t *)&tp[1];
+			if (BTF_INT_OFFSET(val)) {
+				*offset_ret += BTF_INT_OFFSET(val);
+			}
+			*bit_size_ret = BTF_INT_BITS(val);
+			return NULL;
+		case BTF_KIND_PTR:
+		case BTF_KIND_ARRAY:
+		case BTF_KIND_FLOAT:
+		case BTF_KIND_STRUCT:
+		case BTF_KIND_UNION:
+		case BTF_KIND_ENUM:
+			return NULL;
+		default:
+			return drgn_error_create(DRGN_ERROR_OTHER, "invalid BTF type, looking for sized");
+		}
+	}
+}
+
 static struct drgn_error *
 drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 		     struct drgn_qualified_type *ret);
@@ -247,21 +286,6 @@ struct drgn_btf_member_thunk_arg {
 	uint64_t bit_field_size;
 };
 
-static uint64_t drgn_btf_lookup_bit_size(struct drgn_prog_btf *bf, uint32_t idx, uint64_t *offset)
-{
-	drgn_btf_resolve_qualifiers(bf, idx, &idx);
-	struct btf_type *tp = bf->index.data[idx];
-	uint32_t val;
-	if (btf_kind(tp->info) != BTF_KIND_INT)
-		return 0;
-
-	// Integers themselves may encode bit size and offset
-	val = *(uint32_t *)&tp[1];
-	if (BTF_INT_OFFSET(val))
-		*offset += BTF_INT_OFFSET(val);
-	return BTF_INT_BITS(val);
-}
-
 static struct drgn_error *
 drgn_btf_member_thunk_fn(struct drgn_object *res, void *arg_)
 {
@@ -270,16 +294,15 @@ drgn_btf_member_thunk_fn(struct drgn_object *res, void *arg_)
 
 	if (res) {
 		struct drgn_qualified_type qualified_type;
-		printf("THUNK: create type %d\n", arg->member->type);
+		printf("THUNK: create type %d (bit_field_size %lu)\n", arg->member->type, arg->bit_field_size);
 		err = drgn_btf_type_create(arg->bf, arg->member->type, &qualified_type);
 		if (err)
 			return err;
-		if (!arg->bit_field_size) {
-			arg->bit_field_size = 8 * drgn_type_size(qualified_type.type);
-		}
 		err = drgn_object_set_absent(res, qualified_type, arg->bit_field_size);
-		if (err)
+		if (err) {
+			printf("Got error!\n");
 			return err;
+		}
 	}
 	free(arg);
 	return NULL;
@@ -309,17 +332,23 @@ drgn_compound_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 			malloc(sizeof(*thunk_arg));
 		uint64_t bit_offset;
 		const char *name = NULL;
-		if (!thunk_arg)
-			return &drgn_enomem;
+		if (!thunk_arg) {
+			err = &drgn_enomem;
+			goto out;
+		}
 		thunk_arg->member = &members[i];
 		thunk_arg->bf = bf;
+		thunk_arg->bit_field_size = 0;
 		if (flag_bitfield_size_in_offset) {
 			bit_offset = BTF_MEMBER_BIT_OFFSET(members[i].offset);
 			thunk_arg->bit_field_size = BTF_MEMBER_BITFIELD_SIZE(members[i].offset);
 		} else {
 			bit_offset = members[i].offset;
-			thunk_arg->bit_field_size = drgn_btf_lookup_bit_size(bf, members[i].type, &bit_offset);
+			err = drgn_btf_bit_field_size(bf, members[i].type, &bit_offset, &thunk_arg->bit_field_size);
+			if (err)
+				goto out;
 		}
+		printf("  bit_offset: %lu bit_field_size %lu\n", bit_offset, thunk_arg->bit_field_size);
 		if (members[i].name_off)
 			name = btf_str(bf, members[i].name_off);
 
@@ -331,11 +360,16 @@ drgn_compound_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 							    name, bit_offset);
 		if (err) {
 			drgn_lazy_object_deinit(&member_object);
-			return err;
+			goto out;
 		}
 		printf(" added struct member %s ofset %lu!\n", name ? name : "(anonymous)", bit_offset);
 	}
-	return drgn_compound_type_create(&builder, tag, tp->size, true, &drgn_language_c, ret);
+	err = drgn_compound_type_create(&builder, tag, tp->size, true, &drgn_language_c, ret);
+	if (!err)
+		return NULL;
+out:
+	drgn_compound_type_builder_deinit(&builder);
+	return err;
 }
 
 static struct drgn_error *
