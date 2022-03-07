@@ -164,7 +164,7 @@ drgn_btf_resolve_qualifiers(struct drgn_prog_btf *bf, uint32_t idx, uint32_t *re
 {
 	enum drgn_qualifiers qual = 0;
 
-	for (;;) {
+	while (idx) {
 		struct btf_type *tp = bf->index.data[idx];
 		switch (btf_kind(tp->info)) {
 		case BTF_KIND_CONST:
@@ -177,11 +177,13 @@ drgn_btf_resolve_qualifiers(struct drgn_prog_btf *bf, uint32_t idx, uint32_t *re
 			qual |= DRGN_QUALIFIER_VOLATILE;
 			break;
 		default:
-			*ret = idx;
-			return qual;
+			goto out;
 		}
 		idx = tp->type;
 	}
+out:
+	*ret = idx;
+	return qual;
 }
 
 static struct drgn_error *
@@ -215,10 +217,7 @@ drgn_pointer_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 	struct drgn_qualified_type pointed;
 	struct drgn_error *err = NULL;
 
-	if (!tp->type)
-		pointed.type = drgn_void_type(bf->prog, &drgn_language_c);
-	else
-		err = drgn_btf_type_create(bf, tp->type, &pointed);
+	err = drgn_btf_type_create(bf, tp->type, &pointed);
 
 	if (err)
 		return err;
@@ -352,6 +351,13 @@ drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 	if (bf->cache[idx]) {
 		ret->qualifiers = qual;
 		ret->type = bf->cache[idx];
+		return NULL;
+	}
+
+	if (idx == 0) {
+		ret->type = drgn_void_type(bf->prog, &drgn_language_c);
+		ret->qualifiers = qual;
+		bf->cache[idx] = ret->type;
 		return NULL;
 	}
 
