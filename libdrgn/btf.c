@@ -18,7 +18,7 @@ struct drgn_prog_btf {
 	size_t len;
 
 	/**
-	 * BTF buffer.
+	 * Points to the beginning of the BTF buffer.
 	 */
 	union {
 		void *ptr;
@@ -45,10 +45,11 @@ struct drgn_prog_btf {
 	 */
 	struct type_vector index;
 
+	/**
+	 * Array which caches the result of drgn_btf_type_create().
+	 */
 	struct drgn_type **cache;
 };
-
-const size_t DRGN_BTF_INDEX_INIT = 4096;
 
 static inline uint32_t btf_kind(uint32_t info)
 {
@@ -124,7 +125,7 @@ static inline bool btf_type_end(struct drgn_prog_btf *bf, struct btf_type *tp)
 }
 
 /**
- * Index the BTF data for quick access.
+ * Index the BTF data for quick access by type ID.
  */
 static struct drgn_error *drgn_btf_index(struct drgn_prog_btf *bf)
 {
@@ -135,14 +136,19 @@ static struct drgn_error *drgn_btf_index(struct drgn_prog_btf *bf)
 	return NULL;
 }
 
+/**
+ * Given an offset, return a string from the BTF string section.
+ */
 const char *btf_str(struct drgn_prog_btf *bf, uint32_t off)
 {
-	if (off >= bf->hdr->str_len) {
-		return "(BAD offset)";
-	}
+	assert(off < bf->hdr->str_len);
 	return (const char *)&bf->str[off];
 }
 
+/**
+ * Perform a linear search of the BTF type section for a type of given name and
+ * kind.
+ */
 static uint32_t drgn_btf_lookup(struct drgn_prog_btf *bf, const char *name,
 				size_t name_len, int desired_btf_kind)
 {
@@ -158,8 +164,16 @@ static uint32_t drgn_btf_lookup(struct drgn_prog_btf *bf, const char *name,
 	return 0; /* void anyway */
 }
 
+/**
+ * Follow the linked list of BTF qualifiers, combining them into a single
+ * drgn_qualifiers, ending at the first non-qualifier type entry.
+ * @param idx Starting index, which may be a qualifier
+ * @param[out] ret Location to store the index of the first non-qualifier
+ * @returns drgn_qualifiers with all relevant bits set
+ */
 static enum drgn_qualifiers
-drgn_btf_resolve_qualifiers(struct drgn_prog_btf *bf, uint32_t idx, uint32_t *ret)
+drgn_btf_resolve_qualifiers(struct drgn_prog_btf *bf, uint32_t idx,
+			    uint32_t *ret)
 {
 	enum drgn_qualifiers qual = 0;
 
@@ -186,8 +200,17 @@ out:
 }
 
 /**
- * Lookup the bit field size for an integer type, and possibly increment the
- * offset field. For all other types, leave offset and bit size unmodified.
+ * Helper for struct layouts. Given a type index, find the concrete type it
+ * corresponds to. If it is an integer type kind, use the encoded bit size and
+ * offest information to augment the values which were passed into this
+ * function. Otherwise, leaves the values unmodified.
+ * @param idx Index of a compound type member
+ * @param[out] offset_ret Caller passes in a pointer to the currently computed
+ *   offset. This may be adjusted by an integer type's BTF_INT_OFFSET value.
+ * @param[out] bit_size_ret Caller passes in a pointer to the bit_size. This is
+ *   normally set to zero. If the member is an integer type kind, then the bit
+ *   size is overwritten by the value contained in BTF_INT_BITS.
+ * @return NULL on success. Could fail if the member's type kind in invalid.
  */
 static struct drgn_error *
 drgn_btf_bit_field_size(struct drgn_prog_btf *bf, uint32_t idx,
@@ -217,9 +240,13 @@ drgn_btf_bit_field_size(struct drgn_prog_btf *bf, uint32_t idx,
 		case BTF_KIND_STRUCT:
 		case BTF_KIND_UNION:
 		case BTF_KIND_ENUM:
+		case BTF_KIND_FUNC_PROTO:
 			return NULL;
 		default:
-			return drgn_error_create(DRGN_ERROR_OTHER, "invalid BTF type, looking for sized");
+			return drgn_error_create(
+				DRGN_ERROR_OTHER,
+				"invalid BTF type, looking for sized"
+			);
 		}
 	}
 }
@@ -243,13 +270,20 @@ drgn_int_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 
 	info = *(uint32_t *)(tp + 1);
 	if (BTF_INT_OFFSET(info))
-		return drgn_error_create(DRGN_ERROR_OTHER, "int encoding at non-zero offset not supported");
+		return drgn_error_create(
+			DRGN_ERROR_OTHER,
+			"int encoding at non-zero offset not supported"
+		);
 	_signed = BTF_INT_SIGNED & BTF_INT_ENCODING(info);
 	is_bool = BTF_INT_BOOL & BTF_INT_ENCODING(info);
 	if (is_bool)
-		return drgn_bool_type_create(bf->prog, name, tp->size, DRGN_PROGRAM_ENDIAN, &drgn_language_c, ret);
+		return drgn_bool_type_create(bf->prog, name, tp->size,
+					     DRGN_PROGRAM_ENDIAN,
+					     &drgn_language_c, ret);
 	else
-		return drgn_int_type_create(bf->prog, name, tp->size, _signed, DRGN_PROGRAM_ENDIAN, &drgn_language_c, ret);
+		return drgn_int_type_create(bf->prog, name, tp->size, _signed,
+					    DRGN_PROGRAM_ENDIAN,
+					    &drgn_language_c, ret);
 }
 
 static struct drgn_error *
@@ -265,7 +299,9 @@ drgn_pointer_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 		return err;
 
 	// TODO can't hardcode 8
-	return drgn_pointer_type_create(bf->prog, pointed, 8, DRGN_PROGRAM_ENDIAN, &drgn_language_c, ret);
+	return drgn_pointer_type_create(bf->prog, pointed, 8,
+					DRGN_PROGRAM_ENDIAN, &drgn_language_c,
+					ret);
 }
 
 static struct drgn_error *
@@ -280,7 +316,8 @@ drgn_typedef_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 	if (err)
 		return err;
 
-	return drgn_typedef_type_create(bf->prog, name, aliased, &drgn_language_c, ret);
+	return drgn_typedef_type_create(bf->prog, name, aliased,
+					&drgn_language_c, ret);
 }
 
 struct drgn_btf_member_thunk_arg {
@@ -297,10 +334,12 @@ drgn_btf_member_thunk_fn(struct drgn_object *res, void *arg_)
 
 	if (res) {
 		struct drgn_qualified_type qualified_type;
-		err = drgn_btf_type_create(arg->bf, arg->member->type, &qualified_type);
+		err = drgn_btf_type_create(arg->bf, arg->member->type,
+					   &qualified_type);
 		if (err)
 			return err;
-		err = drgn_object_set_absent(res, qualified_type, arg->bit_field_size);
+		err = drgn_object_set_absent(res, qualified_type,
+					     arg->bit_field_size);
 		if (err)
 			return err;
 	}
@@ -341,10 +380,13 @@ drgn_compound_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 		thunk_arg->bit_field_size = 0;
 		if (flag_bitfield_size_in_offset) {
 			bit_offset = BTF_MEMBER_BIT_OFFSET(members[i].offset);
-			thunk_arg->bit_field_size = BTF_MEMBER_BITFIELD_SIZE(members[i].offset);
+			thunk_arg->bit_field_size =
+				BTF_MEMBER_BITFIELD_SIZE(members[i].offset);
 		} else {
 			bit_offset = members[i].offset;
-			err = drgn_btf_bit_field_size(bf, members[i].type, &bit_offset, &thunk_arg->bit_field_size);
+			err = drgn_btf_bit_field_size(bf, members[i].type,
+						      &bit_offset,
+						      &thunk_arg->bit_field_size);
 			if (err)
 				goto out;
 		}
@@ -355,14 +397,16 @@ drgn_compound_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 		drgn_lazy_object_init_thunk(&member_object, bf->prog,
 					    drgn_btf_member_thunk_fn, thunk_arg);
 
-		err = drgn_compound_type_builder_add_member(&builder, &member_object,
+		err = drgn_compound_type_builder_add_member(&builder,
+							    &member_object,
 							    name, bit_offset);
 		if (err) {
 			drgn_lazy_object_deinit(&member_object);
 			goto out;
 		}
 	}
-	err = drgn_compound_type_create(&builder, tag, tp->size, true, &drgn_language_c, ret);
+	err = drgn_compound_type_create(&builder, tag, tp->size, true,
+					&drgn_language_c, ret);
 	if (!err)
 		return NULL;
 out:
@@ -383,9 +427,11 @@ drgn_array_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 		return err;
 
 	if (arr->nelems)
-		return drgn_array_type_create(bf->prog, qt, arr->nelems, &drgn_language_c, ret);
+		return drgn_array_type_create(bf->prog, qt, arr->nelems,
+					      &drgn_language_c, ret);
 	else
-		return drgn_incomplete_array_type_create(bf->prog, qt, &drgn_language_c, ret);
+		return drgn_incomplete_array_type_create(bf->prog, qt,
+							 &drgn_language_c, ret);
 }
 
 static struct drgn_error *
@@ -404,21 +450,25 @@ drgn_enum_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 
 	if (!count)
 		/* no enumerators, incomplete type */
-		return drgn_incomplete_enum_type_create(bf->prog, name, &drgn_language_c, ret);
+		return drgn_incomplete_enum_type_create(bf->prog, name,
+							&drgn_language_c, ret);
 
 	// TODO: need 4-byte signed integer
-	err = drgn_type_from_btf(DRGN_TYPE_INT, "int", 3, NULL, bf, &compatible_type);
+	err = drgn_type_from_btf(DRGN_TYPE_INT, "int", 3, NULL, bf,
+				 &compatible_type);
 	if (err)
 		return err;
 
 	drgn_enum_type_builder_init(&builder, bf->prog);
 	for (size_t i = 0; i < count; i++) {
 		const char *mname = btf_str(bf, enum_[i].name_off);
-		err = drgn_enum_type_builder_add_signed(&builder, mname, enum_[i].val);
+		err = drgn_enum_type_builder_add_signed(&builder, mname,
+							enum_[i].val);
 		if (err)
 			goto out;
 	}
-	err = drgn_enum_type_create(&builder, name, compatible_type.type, &drgn_language_c, ret);
+	err = drgn_enum_type_create(&builder, name, compatible_type.type,
+				    &drgn_language_c, ret);
 	if (!err)
 		return NULL;
 out:
@@ -440,7 +490,8 @@ drgn_btf_param_thunk_fn(struct drgn_object *res, void *arg_)
 	if (res) {
 		struct drgn_qualified_type qualified_type;
 
-		err = drgn_btf_type_create(arg->bf, arg->param->type, &qualified_type);
+		err = drgn_btf_type_create(arg->bf, arg->param->type,
+					   &qualified_type);
 		if (err)
 			return err;
 
@@ -473,7 +524,8 @@ drgn_func_proto_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 		union drgn_lazy_object param_object;
 		struct drgn_btf_param_thunk_arg *arg;
 
-		if (i + 1 == num_params && !params[i].name_off && !params[i].type) {
+		if (i + 1 == num_params && !params[i].name_off
+		    && !params[i].type) {
 			is_variadic = true;
 			break;
 		}
@@ -486,14 +538,18 @@ drgn_func_proto_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 		}
 		arg->bf = bf;
 		arg->param = &params[i];
-		drgn_lazy_object_init_thunk(&param_object, bf->prog, drgn_btf_param_thunk_fn, arg);
-		err = drgn_function_type_builder_add_parameter(&builder, &param_object, name);
+		drgn_lazy_object_init_thunk(&param_object, bf->prog,
+					    drgn_btf_param_thunk_fn, arg);
+		err = drgn_function_type_builder_add_parameter(&builder,
+							       &param_object,
+							       name);
 		if (err) {
 			free(arg);
 			goto out;
 		}
 	}
-	err = drgn_function_type_create(&builder, return_type, is_variadic, &drgn_language_c, ret);
+	err = drgn_function_type_create(&builder, return_type, is_variadic,
+					&drgn_language_c, ret);
 	if (!err)
 		return NULL;
 out:
@@ -501,6 +557,21 @@ out:
 	return err;
 }
 
+/**
+ * Create a BTF type given its index within the the type buffer.
+ *
+ * This is the main workhorse function for loading BTF types into drgn. It
+ * assumes you've already looked up the name for a type and resolved it into a
+ * type_id / idx.
+ *
+ * All struct drgn_type created by this function are cached, but qualifiers are
+ * not, since they are trivial to resolve each time.
+ *
+ * @param bf Pointer to BTF registry
+ * @param idx Index of type in the type section
+ * @param[out] ret On success, set to the qualified type
+ * @returns NULL on success, or an error pointer
+ */
 static struct drgn_error *
 drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 		     struct drgn_qualified_type *ret)
@@ -555,6 +626,12 @@ drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 	return err;
 }
 
+/**
+ * Translate drgn's type kind enumeration into a constant used by BTF. For any
+ * value which doesn't have a direct correspondence, return -1.
+ * @param kind drgn type kind
+ * @returns BTF type kind
+ */
 static int drgn_btf_kind(enum drgn_type_kind kind)
 {
 	switch (kind) {
@@ -580,6 +657,23 @@ static int drgn_btf_kind(enum drgn_type_kind kind)
 	}
 }
 
+/**
+ * The drgn type finder for BTF.
+ *
+ * In order to lookup a type by name, we translate the type kind into a BTF type
+ * kind, search for a type entry of the same name and kind, and then use the
+ * general purpose drgn_btf_type_create() function to do the heavy lifting.
+ * Since BTF encodes no information about compilation units or source filenames,
+ * we always ignore @a filename.
+ *
+ * @param kind The drgn type kind to search
+ * @param name Type name to search
+ * @param name_len Length of @a name (not including nul terminator)
+ * @param filename Source filename of type (ignored)
+ * @param arg Pointer to struct drgn_prog_btf of this program.
+ * @param ret Output a qualified type
+ * @returns NULL on success. On error, an appropriate struct drgn_error.
+ */
 static struct drgn_error *
 drgn_type_from_btf(enum drgn_type_kind kind, const char *name,
 		   size_t name_len, const char *filename,
@@ -599,7 +693,12 @@ drgn_type_from_btf(enum drgn_type_kind kind, const char *name,
 	return drgn_btf_type_create(bf, idx, ret);
 }
 
-struct drgn_error *drgn_btf_init(struct drgn_program *prog, uint64_t start, uint64_t bytes)
+/**
+ * Initialize BTF type finders, given the address and length of the BTF section
+ * within the program.
+ */
+struct drgn_error *drgn_btf_init(struct drgn_program *prog, uint64_t start,
+				 uint64_t bytes)
 {
 	struct drgn_prog_btf *pbtf;
 	struct drgn_error *err = NULL;
@@ -625,22 +724,26 @@ struct drgn_error *drgn_btf_init(struct drgn_program *prog, uint64_t start, uint
 		goto out_free;
 	}
 
-	err = drgn_memory_reader_read(&prog->reader, pbtf->ptr, start, bytes, false);
+	err = drgn_memory_reader_read(&prog->reader, pbtf->ptr, start, bytes,
+				      false);
 	if (err)
 		goto out_free;
 
 
 	if (pbtf->hdr->magic != BTF_MAGIC) {
-		err = drgn_error_create(DRGN_ERROR_OTHER, "BTF header magic incorrect");
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"BTF header magic incorrect");
 		goto out_free;
 	}
 	if (pbtf->hdr->hdr_len != sizeof(*pbtf->hdr)) {
-		err = drgn_error_create(DRGN_ERROR_OTHER, "BTF header size mismatch");
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"BTF header size mismatch");
 		goto out_free;
 	}
 	if (pbtf->hdr->str_off + pbtf->hdr->str_len > bytes ||
 	    pbtf->hdr->type_off + pbtf->hdr->type_len > bytes) {
-		err = drgn_error_create(DRGN_ERROR_OTHER, "BTF offsets out of bounds");
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"BTF offsets out of bounds");
 		goto out_free;
 	}
 	pbtf->type = pbtf->ptr + pbtf->hdr->hdr_len + pbtf->hdr->type_off;
