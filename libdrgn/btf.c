@@ -138,7 +138,6 @@ static struct drgn_error *drgn_btf_index(struct drgn_prog_btf *bf)
 const char *btf_str(struct drgn_prog_btf *bf, uint32_t off)
 {
 	if (off >= bf->hdr->str_len) {
-		fprintf(stderr, "btf_str: BAD Offset: %d (str_len=%d)\n", off, bf->hdr->str_len);
 		return "(BAD offset)";
 	}
 	return (const char *)&bf->str[off];
@@ -298,15 +297,12 @@ drgn_btf_member_thunk_fn(struct drgn_object *res, void *arg_)
 
 	if (res) {
 		struct drgn_qualified_type qualified_type;
-		printf("THUNK: create type %d (bit_field_size %lu)\n", arg->member->type, arg->bit_field_size);
 		err = drgn_btf_type_create(arg->bf, arg->member->type, &qualified_type);
 		if (err)
 			return err;
 		err = drgn_object_set_absent(res, qualified_type, arg->bit_field_size);
-		if (err) {
-			printf("Got error!\n");
+		if (err)
 			return err;
-		}
 	}
 	free(arg);
 	return NULL;
@@ -352,7 +348,6 @@ drgn_compound_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 			if (err)
 				goto out;
 		}
-		printf("  bit_offset: %lu bit_field_size %lu\n", bit_offset, thunk_arg->bit_field_size);
 		if (members[i].name_off)
 			name = btf_str(bf, members[i].name_off);
 
@@ -366,7 +361,6 @@ drgn_compound_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
 			drgn_lazy_object_deinit(&member_object);
 			goto out;
 		}
-		printf(" added struct member %s ofset %lu!\n", name ? name : "(anonymous)", bit_offset);
 	}
 	err = drgn_compound_type_create(&builder, tag, tp->size, true, &drgn_language_c, ret);
 	if (!err)
@@ -515,8 +509,6 @@ drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 	enum drgn_qualifiers qual = drgn_btf_resolve_qualifiers(bf, idx, &idx);
 	struct btf_type *tp = bf->index.data[idx];
 
-	printf("drgn_btf_type_create: %d\n", idx);
-
 	if (bf->cache[idx]) {
 		ret->qualifiers = qual;
 		ret->type = bf->cache[idx];
@@ -600,15 +592,11 @@ drgn_type_from_btf(enum drgn_type_kind kind, const char *name,
 	if (btf_kind < 0)
 		return &drgn_not_found;
 
-	printf("drgn_type_from_btf: kind: %d name: %s\n", kind, name);
 	idx = drgn_btf_lookup(bf, name, name_len, btf_kind);
 	if (!idx)
 		return &drgn_not_found;
 
-	struct drgn_error *err = drgn_btf_type_create(bf, idx, ret);
-	if (!err)
-		printf("drgn_type_from_btf: return kind %d\n", ret->type->_private.kind);
-	return err;
+	return drgn_btf_type_create(bf, idx, ret);
 }
 
 struct drgn_error *drgn_btf_init(struct drgn_program *prog, uint64_t start, uint64_t bytes)
