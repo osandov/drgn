@@ -432,6 +432,81 @@ out:
 	return err;
 }
 
+struct drgn_btf_param_thunk_arg {
+	struct btf_param *param;
+	struct drgn_prog_btf *bf;
+};
+
+static struct drgn_error *
+drgn_btf_param_thunk_fn(struct drgn_object *res, void *arg_)
+{
+	struct drgn_btf_param_thunk_arg *arg = arg_;
+	struct drgn_error *err;
+
+	if (res) {
+		struct drgn_qualified_type qualified_type;
+
+		err = drgn_btf_type_create(arg->bf, arg->param->type, &qualified_type);
+		if (err)
+			return err;
+
+		err = drgn_object_set_absent(res, qualified_type, 0);
+		if (err)
+			return err;
+	}
+	free(arg);
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_func_proto_type_from_btf(struct drgn_prog_btf *bf, struct btf_type *tp,
+			      struct drgn_type **ret)
+{
+	struct drgn_error *err = NULL;
+	struct drgn_function_type_builder builder;
+	bool is_variadic = false;
+	struct drgn_qualified_type return_type;
+	size_t num_params = btf_vlen(tp->info);
+	struct btf_param *params = (struct btf_param *)&tp[1];
+
+	err = drgn_btf_type_create(bf, tp->type, &return_type);
+	if (err)
+		return err;
+
+	drgn_function_type_builder_init(&builder, bf->prog);
+	for (size_t i = 0; i < num_params; i++) {
+		const char *name = NULL;
+		union drgn_lazy_object param_object;
+		struct drgn_btf_param_thunk_arg *arg;
+
+		if (i + 1 == num_params && !params[i].name_off && !params[i].type) {
+			is_variadic = true;
+			break;
+		}
+		name = btf_str(bf, params[i].name_off);
+
+		arg = malloc(sizeof(*arg));
+		if (!arg) {
+			err = &drgn_enomem;
+			goto out;
+		}
+		arg->bf = bf;
+		arg->param = &params[i];
+		drgn_lazy_object_init_thunk(&param_object, bf->prog, drgn_btf_param_thunk_fn, arg);
+		err = drgn_function_type_builder_add_parameter(&builder, &param_object, name);
+		if (err) {
+			free(arg);
+			goto out;
+		}
+	}
+	err = drgn_function_type_create(&builder, return_type, is_variadic, &drgn_language_c, ret);
+	if (!err)
+		return NULL;
+out:
+	drgn_function_type_builder_deinit(&builder);
+	return err;
+}
+
 static struct drgn_error *
 drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 		     struct drgn_qualified_type *ret)
@@ -475,6 +550,9 @@ drgn_btf_type_create(struct drgn_prog_btf *bf, uint32_t idx,
 	case BTF_KIND_ENUM:
 		err = drgn_enum_type_from_btf(bf, tp, &ret->type);
 		break;
+	case BTF_KIND_FUNC_PROTO:
+		err = drgn_func_proto_type_from_btf(bf, tp, &ret->type);
+		break;
 	default:
 		return &drgn_not_found;
 	}
@@ -503,6 +581,8 @@ static int drgn_btf_kind(enum drgn_type_kind kind)
 		return BTF_KIND_ARRAY;
 	case DRGN_TYPE_ENUM:
 		return BTF_KIND_ENUM;
+	case DRGN_TYPE_FUNCTION:
+		return BTF_KIND_FUNC;
 	default:
 		return -1;
 	}
