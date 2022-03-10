@@ -2254,6 +2254,8 @@ struct drgn_type {
 		size_t num_template_parameters;
 		struct drgn_type_template_parameter *parents;
 		size_t num_parents;
+		void *die_addr;
+		struct Dwarf_CU *die_cu;
 	} _private;
 };
 
@@ -2319,6 +2321,12 @@ static inline const char *drgn_type_name(struct drgn_type *type)
 	assert(drgn_type_has_name(type));
 	return type->_private.name;
 }
+
+/**
+ * Get the fully qualified name of a type.
+ */
+struct drgn_error *drgn_type_fully_qualified_name(struct drgn_type *type,
+						  char **str_ret, size_t *len_ret);
 
 /**
  * Get whether a kind of type has a size. This is true for integer, boolean,

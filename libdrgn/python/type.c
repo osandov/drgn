@@ -605,6 +605,20 @@ static PyObject *DrgnType_type_name(DrgnType *self)
 	return ret;
 }
 
+static PyObject *DrgnType_fully_qualified_name(DrgnType *self)
+{
+	char *str;
+	size_t len;
+	struct drgn_error *err = drgn_type_fully_qualified_name(
+		DrgnType_unwrap(self).type, &str, &len);
+	if (err)
+		return set_drgn_error(err);
+
+	PyObject *ret = PyUnicode_FromStringAndSize(str, len);
+	free(str);
+	return ret;
+}
+
 static PyObject *DrgnType_is_complete(DrgnType *self)
 {
 	Py_RETURN_BOOL(drgn_type_is_complete(self->type));
@@ -687,6 +701,8 @@ static PyObject *DrgnType_has_member(DrgnType *self, PyObject *args,
 static PyMethodDef DrgnType_methods[] = {
 	{"type_name", (PyCFunction)DrgnType_type_name, METH_NOARGS,
 	 drgn_Type_type_name_DOC},
+	{"fully_qualified_name", (PyCFunction)DrgnType_fully_qualified_name, METH_NOARGS,
+	 drgn_Type_fully_qualified_name_DOC},
 	{"is_complete", (PyCFunction)DrgnType_is_complete, METH_NOARGS,
 	 drgn_Type_is_complete_DOC},
 	{"qualified", (PyCFunction)DrgnType_qualified,

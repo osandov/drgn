@@ -1895,6 +1895,9 @@ class Type:
     def type_name(self) -> str:
         """Get a descriptive full name of this type."""
         ...
+    def fully_qualified_name(self) -> str:
+        """Get the fully qualified name of this type."""
+        ...
     def is_complete(self) -> bool:
         """
         Get whether this type is complete (i.e., the type definition is known).
