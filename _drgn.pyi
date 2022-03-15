@@ -443,6 +443,17 @@ class Program:
             return an :class:`Object`.
         """
         ...
+    def set_argv(self, executable_path: Path, argv: Sequence[str]) -> None:
+        """
+        Set the program to a yet to be created process with the given executable
+        and arguments.
+
+        :param executable_path: Path to the executable file to be used for the
+            new process.
+        :param argv: argv Arguments supplied to the new process
+            (interpreted as by `execvp(3)`).
+        """
+        ...
     def set_core_dump(self, path: Path) -> None:
         """
         Set the program to a core dump.
@@ -513,6 +524,12 @@ class Program:
         the program.
 
         This is equivalent to ``load_debug_info(None, True)``.
+        """
+        ...
+    def run(self) -> None:
+        """
+        Launch a new process using the executable and arguments previously
+        supplied in a call to  :meth:`set_argv`, and begin debugging it.
         """
         ...
     cache: Dict[Any, Any]

@@ -93,6 +93,12 @@ def main() -> None:
         type=int,
         help="debug the running process with the given PID",
     )
+    program_group.add_argument(
+        "-a",
+        "--argv",
+        action="store_true",
+        help="debug a process to be created using the given executable and arguments",
+    )
 
     symbol_group = parser.add_argument_group("debugging symbols")
     symbol_group.add_argument(
@@ -138,7 +144,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.script:
+    if args.script and args.argv is None:
         # A common mistake users make is running drgn $core_dump, which tries
         # to run $core_dump as a Python script. Rather than failing later with
         # some inscrutable syntax or encoding error, try to catch this early
@@ -164,9 +170,14 @@ def main() -> None:
         prog.set_core_dump(args.core)
     elif args.pid is not None:
         prog.set_pid(args.pid or os.getpid())
+    elif args.argv is not None:
+        prog.set_argv(args.script[0], args.script)
     else:
         prog.set_kernel()
-    if args.default_symbols is None:
+    if args.argv is not None:
+        args.default_symbols = {"default": False, "main": False}
+        args.symbols = args.script[0:1]
+    elif args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}
     try:
         prog.load_debug_info(args.symbols, **args.default_symbols)
@@ -175,7 +186,7 @@ def main() -> None:
             print(str(e), file=sys.stderr)
 
     init_globals: Dict[str, Any] = {"prog": prog}
-    if args.script:
+    if args.script and args.argv is None:
         sys.argv = args.script
         runpy.run_path(args.script[0], init_globals=init_globals, run_name="__main__")
     else:

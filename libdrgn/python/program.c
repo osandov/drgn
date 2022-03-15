@@ -386,6 +386,53 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_run(Program *self)
+{
+	struct drgn_error *err = drgn_program_run(&self->prog);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_set_argv(Program *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"executable_path", "argv", NULL};
+	struct drgn_error *err;
+	struct path_arg executable_path = {};
+	PyObject *pyargv;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O:set_argv", keywords,
+					 path_converter, &executable_path,
+					 &pyargv))
+		return NULL;
+
+	if (!PySequence_Check(pyargv)) {
+		path_cleanup(&executable_path);
+		PyErr_SetString(PyExc_TypeError,
+				"expected `argv` to be a sequence");
+		return NULL;
+	}
+	Py_ssize_t argc = PySequence_Length(pyargv);
+	// This is a perfectly reasonable use of a VLA, as we know `argc` won't
+	// be that large, this function won't be called recursively, and it
+	// simplifies cleanup.
+	char *argv[argc + 1];
+	argv[argc] = NULL;
+	for (Py_ssize_t i = 0; i < argc; i++) {
+		PyObject *item = PySequence_GetItem(pyargv, i);
+		if (!item || !PyUnicode_Check(item) ||
+		    !(argv[i] = PyUnicode_AsUTF8(item))) {
+			path_cleanup(&executable_path);
+			return NULL;
+		}
+	}
+	err = drgn_program_set_argv(&self->prog, executable_path.path, argv);
+	path_cleanup(&executable_path);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_set_core_dump(Program *self, PyObject *args,
 				       PyObject *kwds)
 {
@@ -1002,6 +1049,9 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_type_finder_DOC},
 	{"add_object_finder", (PyCFunction)Program_add_object_finder,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_object_finder_DOC},
+	{"run", (PyCFunction)Program_run, METH_NOARGS, drgn_Program_run_DOC},
+	{"set_argv", (PyCFunction)Program_set_argv,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_argv_DOC},
 	{"set_core_dump", (PyCFunction)Program_set_core_dump,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,
