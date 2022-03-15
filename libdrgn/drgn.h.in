@@ -624,6 +624,22 @@ drgn_program_add_object_finder(struct drgn_program *prog,
 			       drgn_object_find_fn fn, void *arg);
 
 /**
+ * Set a @ref drgn_program to use the given executable and arguments.
+ *
+ * To launch a process using the given executable and arguments, call
+ * @ref drgn_program_run.
+ *
+ * @param[in] executable_path Path to the executable file to be used for the
+ * new process.
+ * @param[in] argv Arguments supplied to the new process
+ * (interpreted as by `execvp(3)`).
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_argv(struct drgn_program *prog,
+					 const char *executable_path,
+					 char *const argv[]);
+
+/**
  * Set a @ref drgn_program to a core dump.
  *
  * @sa drgn_program_from_core_dump()
@@ -663,6 +679,34 @@ struct drgn_error *drgn_program_load_debug_info(struct drgn_program *prog,
 						const char **paths, size_t n,
 						bool load_default,
 						bool load_main);
+
+/**
+ * Launch a new process using the executable and arguments previously supplied
+ * in a call to @ref drgn_program_set_argv, and begin debugging it.
+ *
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_run(struct drgn_program *prog);
+
+/**
+ * Create a @ref drgn_program from a given executable and arguments.
+ *
+ * The types present in the program and other information contained within its
+ * debug information can be queried immediately after calling this function.
+ *
+ * Values can be inspected only after launching a process with the given
+ * executable and arguments by calling @ref drgn_program_run.
+ *
+ * @param[in] executable_path Path to the executable file to be used for the
+ * new process.
+ * @param[in] argv Arguments supplied to the new process
+ * (interpreted as by `execvp(3)`).
+ * @param[out] ret Returned program.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_from_argv(const char *executable_path,
+					  char *const argv[],
+					  struct drgn_program **ret);
 
 /**
  * Create a @ref drgn_program from a core dump file.

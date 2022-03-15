@@ -14,8 +14,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ptrace.h>
+#include <sys/stat.h>
 #include <sys/statfs.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "debug_info.h"
@@ -124,6 +127,12 @@ void drgn_program_deinit(struct drgn_program *prog)
 		drgn_thread_destroy(prog->crashed_thread);
 	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
 		drgn_thread_destroy(prog->main_thread);
+	if (prog->argv) {
+		for (int i = 0; prog->argv[i]; i++)
+			free(prog->argv[i]);
+		free((void*) prog->argv);
+	}
+	free((void*) prog->executable_path);
 	free(prog->pgtable_it);
 
 	drgn_object_deinit(&prog->vmemmap);
@@ -223,6 +232,63 @@ static struct drgn_error *has_kdump_signature(const char *path, int fd,
 		n += sret;
 	}
 	*ret = memcmp(signature, KDUMP_SIGNATURE, sizeof(signature)) == 0;
+	return NULL;
+}
+
+DEFINE_VECTOR(string_vector, char *)
+static char *const *argv_dup(char *const argv[])
+{
+	struct string_vector argv_copy = VECTOR_INIT;
+	for (int i = 0; argv[i]; i++) {
+		char **arg = string_vector_append_entry(&argv_copy);
+		if (!arg || !(*arg = strdup(argv[i])))
+			goto err;
+	}
+	if (!string_vector_append(&argv_copy, &(char *){NULL}))
+		goto err;
+
+	return argv_copy.data;
+err:
+	for (int i = 0; i < argv_copy.size; i++)
+		free(argv_copy.data[i]);
+	string_vector_deinit(&argv_copy);
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_argv(struct drgn_program *prog, const char *executable_path,
+		      char *const argv[])
+{
+	struct drgn_error *err;
+
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
+	if (!executable_path)
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "executable_path must not be NULL");
+	if (!argv)
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "argv must not be NULL");
+	if (access(executable_path, X_OK) != 0)
+		return drgn_error_create_os("access", errno, executable_path);
+	struct stat info;
+	if (stat(executable_path, &info) != 0)
+		return drgn_error_create_os("stat", errno, executable_path);
+	if (!S_ISREG(info.st_mode))
+		return drgn_error_create(
+			DRGN_ERROR_INVALID_ARGUMENT,
+			"executable_path must refer to a regular file");
+
+	prog->executable_path = strdup(executable_path);
+	if (!prog->executable_path)
+		return &drgn_enomem;
+	prog->argv = argv_dup(argv);
+	if (!prog->argv) {
+		free((void *)prog->executable_path);
+		return &drgn_enomem;
+	}
 	return NULL;
 }
 
@@ -1355,6 +1421,19 @@ struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
 	return NULL;
 }
 
+struct drgn_error *drgn_program_init_argv(struct drgn_program *prog,
+					  const char *executable_path,
+					  char *const argv[])
+{
+	struct drgn_error *err;
+
+	err = drgn_program_set_argv(prog, executable_path, argv);
+	if (err)
+		return err;
+	return drgn_program_load_debug_info(prog, &executable_path, 1, false,
+					    true);
+}
+
 struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 					       const char *path)
 {
@@ -1399,6 +1478,29 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 		err = NULL;
 	}
 	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_from_argv(const char *executable_path, char *const argv[],
+		       struct drgn_program **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog;
+
+	prog = malloc(sizeof(*prog));
+	if (!prog)
+		return &drgn_enomem;
+
+	drgn_program_init(prog, NULL);
+	err = drgn_program_init_argv(prog, executable_path, argv);
+	if (err) {
+		drgn_program_deinit(prog);
+		free(prog);
+		return err;
+	}
+
+	*ret = prog;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1465,6 +1567,37 @@ drgn_program_from_pid(pid_t pid, struct drgn_program **ret)
 
 	*ret = prog;
 	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_program_run(struct drgn_program *prog)
+{
+	if (!prog->executable_path)
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "no executable was specified to run");
+	pid_t pid = fork();
+	if (pid == -1)
+		return drgn_error_create_os("fork", errno, NULL);
+	if (pid == 0) {
+		if (ptrace(PTRACE_TRACEME, 0, 0, 0) != 0) {
+			perror("ptrace");
+			exit(EXIT_FAILURE);
+		}
+		if (execvp(prog->executable_path, prog->argv) != 0) {
+			perror("execvp");
+			exit(EXIT_FAILURE);
+		}
+	}
+	int status;
+	if (waitpid(pid, &status, __WALL) == -1)
+		return drgn_error_create_os("waitpid", errno, NULL);
+	if (WIFEXITED(status))
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "failed to launch process (likely caused by non-existent executable)");
+	// We immediately detach as we're only using `ptrace` in order to ensure we
+	// call `drgn_program_set_pid` after the child process has called `execvp`.
+	if (ptrace(PTRACE_DETACH, pid, NULL, NULL) != 0)
+		return drgn_error_create_os("ptrace", errno, NULL);
+	return drgn_program_set_pid(prog, pid);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
