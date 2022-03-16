@@ -3,6 +3,7 @@
 import ctypes
 import itertools
 import os
+import subprocess
 import tempfile
 import unittest.mock
 
@@ -873,3 +874,54 @@ class TestCoreDump(TestCase):
         with self.assertRaisesRegex(FaultError, "memory not saved in core dump") as cm:
             prog.read(0xFFFF0000, len(data) + 4)
         self.assertEqual(cm.exception.address, 0xFFFF000C)
+
+
+class TestArgv(TestCase):
+    def test_invalid_executable(self):
+        prog = Program()
+        nonexistent_file = tempfile.mktemp()
+        self.assertRaisesRegex(
+            FileNotFoundError,
+            nonexistent_file,
+            prog.set_argv,
+            nonexistent_file,
+            ["a", "b", "c"],
+        )
+
+    def test_set_argv_and_run(self):
+        with tempfile.NamedTemporaryFile() as executable, tempfile.NamedTemporaryFile() as source:
+            source.write(
+                b"""
+                    #include <unistd.h>
+                    struct point {
+                        int x;
+                        int y;
+                    };
+
+                    struct point global_point;
+
+                    int main() {
+                        struct point local_point;
+                        int exit_code = 0;
+                        for (int i = 0; i < 10; i++) {
+                            exit_code += local_point.x;
+                            exit_code += global_point.y;
+                            sleep(1);
+                        }
+                        return exit_code;
+                    }
+                    """
+            )
+            source.flush()
+            executable.close()
+            subprocess.run(
+                ("cc", "-x", "c", "-g", "-O0", "-o", executable.name, source.name),
+            ).check_returncode()
+            prog = Program()
+            prog.set_argv(executable.name, [executable.name])
+            prog.load_debug_info([executable.name], False, False)
+            # Check that type lookup workds before program is running
+            prog.type("struct point")
+            prog.run()
+            # Check that variable lookup works once program is running
+            prog["global_point"]
