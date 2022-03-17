@@ -1,7 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from drgn.helpers.linux.slab import find_slab_cache, for_each_slab_cache
+from drgn.helpers.linux.kconfig import get_kconfig
+from drgn.helpers.linux.slab import (
+    find_slab_cache,
+    for_each_slab_cache,
+    slab_cache_for_each_allocated_object,
+)
 from tests.linux_kernel import LinuxKernelTestCase
 
 
@@ -28,6 +33,21 @@ def fallback_slab_cache_names(prog):
 
 
 class TestSlab(LinuxKernelTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        try:
+            kconfig = get_kconfig(cls.prog)
+        except LookupError:
+            cls.allocator = None
+        else:
+            for allocator in ("SLUB", "SLAB", "SLOB"):
+                if kconfig.get("CONFIG_" + allocator, "n") != "n":
+                    break
+            else:
+                raise Exception("couldn't find slab allocator config option")
+            cls.allocator = allocator
+
     def test_for_each_slab_cache(self):
         try:
             slab_cache_names = get_proc_slabinfo_names()
@@ -51,3 +71,23 @@ class TestSlab(LinuxKernelTestCase):
         for name in slab_cache_names:
             slab = find_slab_cache(self.prog, name)
             self.assertEqual(name, slab.name.string_())
+
+    def test_get_allocated_slab_objects(self):
+        if self.allocator is None:
+            self.skipTest("couldn't determine slab allocator")
+        elif self.allocator == "SLOB":
+            self.assertRaisesRegex(
+                ValueError,
+                "SLOB is not supported",
+                next,
+                slab_cache_for_each_allocated_object(
+                    find_slab_cache(self.prog, "dentry"), "struct dentry"
+                ),
+            )
+        else:
+            self.assertIn(
+                self.prog["init_fs"].root.dentry,
+                slab_cache_for_each_allocated_object(
+                    find_slab_cache(self.prog, "dentry"), "struct dentry"
+                ),
+            )
