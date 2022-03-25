@@ -1946,6 +1946,9 @@ err:
 
 static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 {
+	if (!ns)
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		                         "attempted to index NULL namespace");
 	size_t num_index_cus =
 		drgn_dwarf_index_cu_vector_size(&ns->dbinfo->dwarf.index_cus);
 	if (ns->cus_indexed >= num_index_cus)
