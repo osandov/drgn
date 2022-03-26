@@ -192,6 +192,11 @@ class test(Command):
 
         import vmtest.vm
 
+        kernel_release = kernel_dir.name
+        if kernel_release.startswith("kernel-"):
+            kernel_release = kernel_release[len("kernel-") :]
+        self.announce(f"running tests in VM on Linux {kernel_release}", log.INFO)
+
         command = rf"""
 set -e
 
@@ -215,10 +220,12 @@ fi
                 command, Path(kernel_dir), Path(self.vmtest_dir)
             )
         except vmtest.vm.LostVMError as e:
-            self.announce(f"error: {e}", log.ERROR)
-            return False
-        self.announce(f"Tests in VM returned {returncode}", log.INFO)
-        return returncode == 0
+            self.announce(f"error on Linux {kernel_release}: {e}", log.ERROR)
+            return kernel_release, False
+        self.announce(
+            f"Tests in VM on Linux {kernel_release} returned {returncode}", log.INFO
+        )
+        return kernel_release, returncode == 0
 
     def run(self):
         from pathlib import Path
@@ -248,13 +255,8 @@ fi
 
             if self.kernels:
                 for kernel in kernel_downloads:
-                    kernel_release = kernel.name
-                    if kernel_release.startswith("kernel-"):
-                        kernel_release = kernel_release[len("kernel-") :]
-                    self.announce(
-                        f"running tests in VM on Linux {kernel_release}", log.INFO
-                    )
-                    if self._run_vm(kernel):
+                    kernel_release, success = self._run_vm(kernel)
+                    if success:
                         passed.append(kernel_release)
                     else:
                         failed.append(kernel_release)
