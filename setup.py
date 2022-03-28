@@ -93,7 +93,7 @@ class build_ext(_build_ext):
                 raise
 
     def _run_make(self, *make_args):
-        args = ["make", "-C", self.build_temp]
+        args = ["make", "-s", "-C", self.build_temp]
         if self.parallel:
             args.append(f"-j{self.parallel}")
         args.extend(make_args)
