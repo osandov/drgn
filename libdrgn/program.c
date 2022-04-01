@@ -1209,10 +1209,28 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 	if (!err) {
 		err = drgn_object_read_integer(&crashing_cpu,
 					       &crashing_cpu_value);
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		/*
+		 * Before Linux kernel commit 5bc329503e81 ("x86/mce: Handle
+		 * broadcasted MCE gracefully with kexec") (in v4.12),
+		 * crashing_cpu is only defined in SMP kernels.
+		 */
+		drgn_error_destroy(err);
+		err = NULL;
+		crashing_cpu_value.uvalue = 0;
 	}
 	drgn_object_deinit(&crashing_cpu);
-	if (err || crashing_cpu_value.uvalue >= prog->prstatus_vector.size)
+	if (err)
 		return err;
+	/*
+	 * Since Linux kernel commit 5bc329503e81 ("x86/mce: Handle broadcasted
+	 * MCE gracefully with kexec") (in v4.12), crashing_cpu is defined in
+	 * !SMP kernels, but it's always -1.
+	 */
+	if (crashing_cpu_value.svalue == -1)
+		crashing_cpu_value.uvalue = 0;
+	if (crashing_cpu_value.uvalue >= prog->prstatus_vector.size)
+		return NULL;
 
 	struct nstring *prstatus =
 		&prog->prstatus_vector.data[crashing_cpu_value.uvalue];
