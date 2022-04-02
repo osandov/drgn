@@ -9,7 +9,16 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import AsyncIterator, Dict, List, NamedTuple, Optional, Sequence, Union
+from typing import (
+    AsyncIterator,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import aiohttp
 import uritemplate
@@ -18,7 +27,7 @@ from util import KernelVersion
 from vmtest.asynciosubprocess import check_call, check_output
 from vmtest.download import VMTEST_GITHUB_RELEASE, available_kernel_releases
 from vmtest.githubapi import AioGitHubApi
-from vmtest.kbuild import KERNEL_LOCALVERSION, KBuild
+from vmtest.kbuild import KERNEL_FLAVORS, KBuild, KernelFlavor
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +75,7 @@ async def get_latest_kernel_tags() -> List[str]:
     return ["v" + str(version) for version in sorted(latest.values(), reverse=True)]
 
 
-def kernel_tag_to_release(tag: str) -> str:
+def kernel_tag_to_release(tag: str, flavor: KernelFlavor) -> str:
     match = re.fullmatch(r"v([0-9]+\.[0-9]+)(\.[0-9]+)?(-rc\d+)?", tag)
     assert match
     return "".join(
@@ -74,7 +83,7 @@ def kernel_tag_to_release(tag: str) -> str:
             match.group(1),
             match.group(2) or ".0",
             match.group(3) or "",
-            KERNEL_LOCALVERSION,
+            flavor.localversion(),
         ]
     )
 
@@ -111,17 +120,25 @@ async def fetch_kernel_tags(kernel_dir: Path, kernel_tags: Sequence[str]) -> Non
 
 
 async def build_kernels(
-    kernel_dir: Path, build_dir: Path, arch: str, kernel_revs: Sequence[str]
+    kernel_dir: Path,
+    build_dir: Path,
+    arch: str,
+    kernel_revs: Sequence[Tuple[str, Sequence[KernelFlavor]]],
 ) -> AsyncIterator[Path]:
     build_dir.mkdir(parents=True, exist_ok=True)
-    for rev in kernel_revs:
-        rev_build_dir = build_dir / ("build-" + rev)
-        logger.info("checking out %s in %s", rev, rev_build_dir)
+    for rev, flavors in kernel_revs:
+        logger.info("checking out %s in %s", rev, kernel_dir)
         await check_call("git", "-C", str(kernel_dir), "checkout", "-q", rev)
-        with open(build_dir / f"build-{rev}.log", "w") as build_log_file:
-            kbuild = KBuild(kernel_dir, rev_build_dir, arch, build_log_file)
-            await kbuild.build()
-            yield await kbuild.package(build_dir)
+        for flavor in flavors:
+            flavor_rev_build_dir = build_dir / f"build-{flavor.name}-{rev}"
+            with open(
+                build_dir / f"build-{flavor.name}-{rev}.log", "w"
+            ) as build_log_file:
+                kbuild = KBuild(
+                    kernel_dir, flavor_rev_build_dir, flavor, arch, build_log_file
+                )
+                await kbuild.build()
+                yield await kbuild.package(build_dir)
 
 
 class AssetUploadWork(NamedTuple):
@@ -227,18 +244,26 @@ async def main() -> None:
             ", ".join(sorted(kernel_releases, key=KernelVersion, reverse=True)),
         )
 
+        to_build = []
         if args.latest_kernels:
             logger.info("latest kernel versions: %s", ", ".join(latest_kernel_tags))
-            kernel_tags = [
-                tag
-                for tag in latest_kernel_tags
-                if kernel_tag_to_release(tag) not in kernel_releases
-            ]
-        else:
-            kernel_tags = []
+            for tag in latest_kernel_tags:
+                flavors = [
+                    flavor
+                    for flavor in KERNEL_FLAVORS
+                    if kernel_tag_to_release(tag, flavor) not in kernel_releases
+                ]
+                if flavors:
+                    to_build.append((tag, flavors))
 
-        if kernel_tags:
-            logger.info("kernel versions to build: %s", ", ".join(kernel_tags))
+        if to_build:
+            logger.info(
+                "kernel versions to build: %s",
+                ", ".join(
+                    f"{tag} ({', '.join([flavor.name for flavor in flavors])})"
+                    for tag, flavors in to_build
+                ),
+            )
 
             if not args.dry_run:
                 upload_queue: "asyncio.Queue[Optional[AssetUploadWork]]" = (
@@ -246,10 +271,10 @@ async def main() -> None:
                 )
                 uploader = asyncio.create_task(asset_uploader(gh, upload_queue))
 
-            await fetch_kernel_tags(args.kernel_directory, kernel_tags)
+            await fetch_kernel_tags(args.kernel_directory, [tag for tag, _ in to_build])
 
             async for kernel_package in build_kernels(
-                args.kernel_directory, args.build_directory, arch, kernel_tags
+                args.kernel_directory, args.build_directory, arch, to_build
             ):
                 if args.dry_run:
                     logger.info("would upload %s", kernel_package)

@@ -10,7 +10,7 @@ import shlex
 import shutil
 import sys
 import tempfile
-from typing import IO, Any, Optional, Tuple, Union
+from typing import IO, Any, NamedTuple, Optional, Tuple, Union
 
 from util import nproc
 from vmtest.asynciosubprocess import (
@@ -23,17 +23,63 @@ from vmtest.asynciosubprocess import (
 
 logger = logging.getLogger(__name__)
 
-KERNEL_LOCALVERSION = "-vmtest8"
+
+class KernelFlavor(NamedTuple):
+    name: str
+    description: str
+    config: str
+
+    def localversion(self) -> str:
+        localversion = "-vmtest9"
+        if self.name != "default":
+            # The default flavor should be the "latest" version, so use ~ for
+            # other flavors, which version sorts before anything.
+            localversion += "~" + self.name
+        return localversion
 
 
-def kconfig() -> str:
-    return rf"""# Minimal Linux kernel configuration for booting into vmtest and running drgn
-# tests.
-
-CONFIG_LOCALVERSION="{KERNEL_LOCALVERSION}"
-
+KERNEL_FLAVORS = [
+    KernelFlavor(
+        name="default",
+        description="Default configuration",
+        config="""
 CONFIG_SMP=y
+CONFIG_SLUB=y
+# For slab tests.
+CONFIG_SLUB_DEBUG=y
+""",
+    ),
+    KernelFlavor(
+        name="alternative",
+        description="SLAB allocator",
+        config="""
+CONFIG_SMP=y
+CONFIG_SLAB=y
+""",
+    ),
+    KernelFlavor(
+        name="tiny",
+        description="!SMP, !PREEMPT, and SLOB allocator",
+        config="""
+CONFIG_SMP=n
+CONFIG_SLOB=y
+# CONFIG_PREEMPT_DYNAMIC is not set
+CONFIG_PREEMPT_NONE=y
+# !PREEMPTION && !SMP will also select TINY_RCU.
+""",
+    ),
+]
+
+
+def kconfig(flavor: KernelFlavor) -> str:
+    return rf"""# Minimal Linux kernel configuration for booting into vmtest and running drgn
+# tests ({flavor.name} flavor).
+
+CONFIG_LOCALVERSION="{flavor.localversion()}"
+CONFIG_EXPERT=y
+{flavor.config}
 CONFIG_MODULES=y
+CONFIG_CC_OPTIMIZE_FOR_SIZE=y
 
 # We run the tests in KVM.
 CONFIG_HYPERVISOR_GUEST=y
@@ -95,6 +141,9 @@ CONFIG_CGROUPS=y
 CONFIG_IKCONFIG=m
 CONFIG_IKCONFIG_PROC=y
 
+# For net tests.
+CONFIG_NAMESPACES=y
+
 # For nodemask tests.
 CONFIG_NUMA=y
 
@@ -115,11 +164,13 @@ class KBuild:
         self,
         kernel_dir: Path,
         build_dir: Path,
+        flavor: KernelFlavor,
         arch: str,
         build_log_file: Union[int, IO[Any], None] = None,
     ) -> None:
         self._build_dir = build_dir
         self._kernel_dir = kernel_dir
+        self._flavor = flavor
         self._arch = arch
         self._build_stdout = build_log_file
         self._build_stderr = (
@@ -192,7 +243,7 @@ class KBuild:
         return self._cached_kernel_release
 
     async def build(self) -> None:
-        logger.info("building kernel in %s", self._build_dir)
+        logger.info("building %s kernel in %s", self._flavor.name, self._build_dir)
         build_log_file_name = getattr(self._build_stdout, "name", None)
         if build_log_file_name is not None:
             logger.info("build logs in %s", build_log_file_name)
@@ -202,7 +253,7 @@ class KBuild:
         config = self._build_dir / ".config"
         tmp_config = self._build_dir / ".config.vmtest.tmp"
 
-        tmp_config.write_text(kconfig())
+        tmp_config.write_text(kconfig(self._flavor))
         await check_call(
             "make",
             *make_args,
@@ -345,17 +396,29 @@ async def main() -> None:
         default=argparse.SUPPRESS,
     )
     parser.add_argument(
+        "-f",
+        "--flavor",
+        choices=[flavor.name for flavor in KERNEL_FLAVORS],
+        help="kernel configuration flavor. "
+        + ". ".join(
+            [f"{flavor.name}: {flavor.description}" for flavor in KERNEL_FLAVORS]
+        ),
+        default=KERNEL_FLAVORS[0].name,
+    )
+    parser.add_argument(
         "--dump-kconfig",
         action="store_true",
         help="dump kernel configuration file to standard output instead of building",
     )
     args = parser.parse_args()
 
+    flavor = [flavor for flavor in KERNEL_FLAVORS if flavor.name == args.flavor][0]
+
     if args.dump_kconfig:
-        sys.stdout.write(kconfig())
+        sys.stdout.write(kconfig(flavor))
         return
 
-    kbuild = KBuild(args.kernel_directory, args.build_directory, "x86_64")
+    kbuild = KBuild(args.kernel_directory, args.build_directory, flavor, "x86_64")
     await kbuild.build()
     if hasattr(args, "package"):
         await kbuild.package(args.package)
