@@ -30,11 +30,10 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest9"
-        if self.name != "default":
-            # The default flavor should be the "latest" version, so use ~ for
-            # other flavors, which version sorts before anything.
-            localversion += "~" + self.name
+        localversion = "-vmtest10"
+        # The default flavor should be the "latest" version.
+        localversion += ".1" if self.name == "default" else ".0"
+        localversion += self.name
         return localversion
 
 
