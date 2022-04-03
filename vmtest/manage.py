@@ -124,6 +124,7 @@ async def build_kernels(
     build_dir: Path,
     arch: str,
     kernel_revs: Sequence[Tuple[str, Sequence[KernelFlavor]]],
+    keep_builds: bool,
 ) -> AsyncIterator[Path]:
     build_dir.mkdir(parents=True, exist_ok=True)
     for rev, flavors in kernel_revs:
@@ -139,6 +140,11 @@ async def build_kernels(
                 )
                 await kbuild.build()
                 yield await kbuild.package(build_dir)
+                if not keep_builds:
+                    logger.info("deleting %s", flavor_rev_build_dir)
+                    # Shell out instead of using, e.g., shutil.rmtree(), to
+                    # avoid blocking the main thread and the GIL.
+                    await check_call("rm", "-rf", str(flavor_rev_build_dir))
 
 
 class AssetUploadWork(NamedTuple):
@@ -210,6 +216,19 @@ async def main() -> None:
         default=".",
     )
     parser.add_argument(
+        "--no-keep-builds",
+        dest="keep_builds",
+        action="store_false",
+        help="delete kernel builds after packaging (default unless dry run)",
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--keep-builds",
+        action="store_true",
+        help="keep kernel builds after packaging (default if dry run)",
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--cache-directory",
         metavar="DIR",
         type=Path,
@@ -217,6 +236,9 @@ async def main() -> None:
         help="directory to cache API calls in",
     )
     args = parser.parse_args()
+
+    if not hasattr(args, "keep_builds"):
+        args.keep_builds = args.dry_run
 
     arch = "x86_64"
 
@@ -274,7 +296,11 @@ async def main() -> None:
             await fetch_kernel_tags(args.kernel_directory, [tag for tag, _ in to_build])
 
             async for kernel_package in build_kernels(
-                args.kernel_directory, args.build_directory, arch, to_build
+                args.kernel_directory,
+                args.build_directory,
+                arch,
+                to_build,
+                args.keep_builds,
             ):
                 if args.dry_run:
                     logger.info("would upload %s", kernel_package)
