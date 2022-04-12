@@ -2256,6 +2256,8 @@ struct drgn_type {
 		size_t num_parents;
 		void *die_addr;
 		struct Dwarf_CU *die_cu;
+		size_t oi_size;
+		const char *oi_name;
 	} _private;
 };
 
