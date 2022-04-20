@@ -17,6 +17,8 @@ jobs:
 - job: copr_build
   trigger: commit
   metadata:
+    owner: "@meta"
+    project: drgn
     targets:
       - fedora-all-aarch64
       - fedora-all-armhfp
@@ -24,6 +26,12 @@ jobs:
       - fedora-all-ppc64le
       - fedora-all-s390x
       - fedora-all-x86_64
+      - fedora-eln-aarch64
+      - fedora-eln-i386
+      # Disabled due to https://bugzilla.redhat.com/show_bug.cgi?id=2077299
+      # - fedora-eln-ppc64le
+      - fedora-eln-s390x
+      - fedora-eln-x86_64
       - epel-8-aarch64
       - epel-8-ppc64le
       - epel-8-s390x
@@ -32,9 +40,12 @@ jobs:
       - epel-9-ppc64le
       - epel-9-s390x
       - epel-9-x86_64
+
 - job: copr_build
   trigger: pull_request
   metadata:
+    owner: "@meta"
+    project: drgn
     targets:
       - fedora-all-aarch64
       - fedora-all-armhfp
@@ -42,6 +53,12 @@ jobs:
       - fedora-all-ppc64le
       - fedora-all-s390x
       - fedora-all-x86_64
+      - fedora-eln-aarch64
+      - fedora-eln-i386
+      # Disabled due to https://bugzilla.redhat.com/show_bug.cgi?id=2077299
+      # - fedora-eln-ppc64le
+      - fedora-eln-s390x
+      - fedora-eln-x86_64
       - epel-8-aarch64
       - epel-8-ppc64le
       - epel-8-s390x
