@@ -28,8 +28,7 @@ jobs:
       - fedora-all-x86_64
       - fedora-eln-aarch64
       - fedora-eln-i386
-      # Disabled due to https://bugzilla.redhat.com/show_bug.cgi?id=2077299
-      # - fedora-eln-ppc64le
+      - fedora-eln-ppc64le
       - fedora-eln-s390x
       - fedora-eln-x86_64
       - epel-8-aarch64
@@ -55,8 +54,7 @@ jobs:
       - fedora-all-x86_64
       - fedora-eln-aarch64
       - fedora-eln-i386
-      # Disabled due to https://bugzilla.redhat.com/show_bug.cgi?id=2077299
-      # - fedora-eln-ppc64le
+      - fedora-eln-ppc64le
       - fedora-eln-s390x
       - fedora-eln-x86_64
       - epel-8-aarch64
