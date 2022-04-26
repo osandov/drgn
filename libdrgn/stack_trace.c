@@ -738,8 +738,8 @@ drgn_stack_trace_add_frames(struct drgn_stack_trace **trace,
 	uint64_t bias;
 	Dwarf_Die *scopes;
 	size_t num_scopes;
-	err = drgn_debug_info_module_find_dwarf_scopes(regs->module, pc, &bias,
-						       &scopes, &num_scopes);
+	err = drgn_module_find_dwarf_scopes(regs->module, pc, &bias, &scopes,
+					    &num_scopes);
 	if (err)
 		goto out;
 	pc -= bias;
@@ -975,10 +975,9 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 	bool interrupted;
 	drgn_register_number ret_addr_regno;
 	/* If we found the module, then we must have the PC. */
-	err = drgn_debug_info_module_find_cfi(prog, regs->module,
-					      regs->_pc - !regs->interrupted,
-					      row, &interrupted,
-					      &ret_addr_regno);
+	err = drgn_module_find_cfi(prog, regs->module,
+				   regs->_pc - !regs->interrupted,
+				   row, &interrupted, &ret_addr_regno);
 	if (err)
 		return err;
 

@@ -41,10 +41,10 @@ static const char * const drgn_debug_scn_names[] = {
 	[DRGN_SCN_GOT] = ".got",
 };
 
-struct drgn_error *
-drgn_error_debug_info_scn(struct drgn_debug_info_module *module,
-			  enum drgn_debug_info_scn scn, const char *ptr,
-			  const char *message)
+struct drgn_error *drgn_error_debug_info_scn(struct drgn_module *module,
+					     enum drgn_debug_info_scn scn,
+					     const char *ptr,
+					     const char *message)
 {
 	const char *name = dwfl_module_info(module->dwfl_module, NULL, NULL,
 					    NULL, NULL, NULL, NULL, NULL);
@@ -64,18 +64,18 @@ struct drgn_error *drgn_debug_info_buffer_error(struct binary_buffer *bb,
 					 message);
 }
 
-DEFINE_VECTOR_FUNCTIONS(drgn_debug_info_module_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_module_vector)
 
-struct drgn_debug_info_module_key {
+struct drgn_module_key {
 	const void *build_id;
 	size_t build_id_len;
 	uint64_t start, end;
 };
 
-static inline struct drgn_debug_info_module_key
-drgn_debug_info_module_key(struct drgn_debug_info_module * const *entry)
+static inline struct drgn_module_key
+drgn_module_key(struct drgn_module * const *entry)
 {
-	return (struct drgn_debug_info_module_key){
+	return (struct drgn_module_key){
 		.build_id = (*entry)->build_id,
 		.build_id_len = (*entry)->build_id_len,
 		.start = (*entry)->start,
@@ -84,25 +84,22 @@ drgn_debug_info_module_key(struct drgn_debug_info_module * const *entry)
 }
 
 static inline struct hash_pair
-drgn_debug_info_module_key_hash_pair(const struct drgn_debug_info_module_key *key)
+drgn_module_key_hash_pair(const struct drgn_module_key *key)
 {
 	size_t hash = hash_bytes(key->build_id, key->build_id_len);
 	hash = hash_combine(hash, key->start);
 	hash = hash_combine(hash, key->end);
 	return hash_pair_from_avalanching_hash(hash);
 }
-static inline bool
-drgn_debug_info_module_key_eq(const struct drgn_debug_info_module_key *a,
-			      const struct drgn_debug_info_module_key *b)
+static inline bool drgn_module_key_eq(const struct drgn_module_key *a,
+				      const struct drgn_module_key *b)
 {
 	return (a->build_id_len == b->build_id_len &&
 		memcmp(a->build_id, b->build_id, a->build_id_len) == 0 &&
 		a->start == b->start && a->end == b->end);
 }
-DEFINE_HASH_TABLE_FUNCTIONS(drgn_debug_info_module_table,
-			    drgn_debug_info_module_key,
-			    drgn_debug_info_module_key_hash_pair,
-			    drgn_debug_info_module_key_eq)
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_module_table, drgn_module_key,
+			    drgn_module_key_hash_pair, drgn_module_key_eq)
 
 DEFINE_HASH_SET_FUNCTIONS(c_string_set, c_string_key_hash_pair, c_string_key_eq)
 
@@ -128,7 +125,7 @@ static int drgn_dwfl_find_elf(Dwfl_Module *dwfl_module, void **userdatap,
 			      const char *name, Dwarf_Addr base,
 			      char **file_name, Elf **elfp)
 {
-	struct drgn_debug_info_module *module = *userdatap;
+	struct drgn_module *module = *userdatap;
 	/*
 	 * libdwfl consumes the returned path, file descriptor, and ELF handle,
 	 * so clear the fields.
@@ -151,7 +148,7 @@ static int drgn_dwfl_linux_proc_find_elf(Dwfl_Module *dwfl_module,
 					 Dwarf_Addr base, char **file_name,
 					 Elf **elfp)
 {
-	struct drgn_debug_info_module *module = *userdatap;
+	struct drgn_module *module = *userdatap;
 	if (module->elf) {
 		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
 					  file_name, elfp);
@@ -169,7 +166,7 @@ static int drgn_dwfl_build_id_find_elf(Dwfl_Module *dwfl_module,
 				       Dwarf_Addr base, char **file_name,
 				       Elf **elfp)
 {
-	struct drgn_debug_info_module *module = *userdatap;
+	struct drgn_module *module = *userdatap;
 	if (module->elf) {
 		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
 					  file_name, elfp);
@@ -213,13 +210,12 @@ static const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks = {
 	.section_address = drgn_dwfl_section_address,
 };
 
-static void
-drgn_debug_info_module_destroy(struct drgn_debug_info_module *module)
+static void drgn_module_destroy(struct drgn_module *module)
 {
 	if (module) {
 		drgn_error_destroy(module->err);
-		drgn_orc_module_info_deinit(module);
-		drgn_dwarf_module_info_deinit(module);
+		drgn_module_orc_info_deinit(module);
+		drgn_module_dwarf_info_deinit(module);
 		elf_end(module->elf);
 		if (module->fd != -1)
 			close(module->fd);
@@ -229,9 +225,8 @@ drgn_debug_info_module_destroy(struct drgn_debug_info_module *module)
 	}
 }
 
-static void
-drgn_debug_info_module_finish_indexing(struct drgn_debug_info *dbinfo,
-				       struct drgn_debug_info_module *module)
+static void drgn_module_finish_indexing(struct drgn_debug_info *dbinfo,
+					struct drgn_module *module)
 {
 	module->state = DRGN_DEBUG_INFO_MODULE_INDEXED;
 	if (module->name) {
@@ -283,13 +278,13 @@ static int drgn_dwfl_module_removed(Dwfl_Module *dwfl_module, void *userdatap,
 	 * but dwfl_report_end() has the wrong signature for the removed
 	 * callback.
 	 */
-	struct drgn_debug_info_module *module = *(void **)userdatap;
+	struct drgn_module *module = *(void **)userdatap;
 	if (arg->finish_indexing && module &&
 	    module->state == DRGN_DEBUG_INFO_MODULE_INDEXING)
-		drgn_debug_info_module_finish_indexing(arg->dbinfo, module);
+		drgn_module_finish_indexing(arg->dbinfo, module);
 	if (arg->free_all || !module ||
 	    module->state != DRGN_DEBUG_INFO_MODULE_INDEXED) {
-		drgn_debug_info_module_destroy(module);
+		drgn_module_destroy(module);
 	} else {
 		/*
 		 * The module was already indexed. Report it again so libdwfl
@@ -306,26 +301,24 @@ static int drgn_dwfl_module_removed(Dwfl_Module *dwfl_module, void *userdatap,
 static void drgn_debug_info_free_modules(struct drgn_debug_info *dbinfo,
 					 bool finish_indexing, bool free_all)
 {
-	for (struct drgn_debug_info_module_table_iterator it =
-	     drgn_debug_info_module_table_first(&dbinfo->modules); it.entry; ) {
-		struct drgn_debug_info_module *module = *it.entry;
-		struct drgn_debug_info_module **nextp = it.entry;
+	for (struct drgn_module_table_iterator it =
+	     drgn_module_table_first(&dbinfo->modules); it.entry; ) {
+		struct drgn_module *module = *it.entry;
+		struct drgn_module **nextp = it.entry;
 		do {
-			struct drgn_debug_info_module *next = module->next;
+			struct drgn_module *next = module->next;
 			if (finish_indexing &&
-			    module->state == DRGN_DEBUG_INFO_MODULE_INDEXING) {
-				drgn_debug_info_module_finish_indexing(dbinfo,
-								       module);
-			}
+			    module->state == DRGN_DEBUG_INFO_MODULE_INDEXING)
+				drgn_module_finish_indexing(dbinfo, module);
 			if (free_all ||
 			    module->state != DRGN_DEBUG_INFO_MODULE_INDEXED) {
 				if (module == *nextp) {
 					if (nextp == it.entry && !next) {
-						it = drgn_debug_info_module_table_delete_iterator(&dbinfo->modules,
-												  it);
+						it = drgn_module_table_delete_iterator(&dbinfo->modules,
+										       it);
 					} else {
 						if (!next)
-							it = drgn_debug_info_module_table_next(it);
+							it = drgn_module_table_next(it);
 						*nextp = next;
 					}
 				}
@@ -334,10 +327,10 @@ static void drgn_debug_info_free_modules(struct drgn_debug_info *dbinfo,
 						 &userdatap, NULL, NULL, NULL,
 						 NULL, NULL, NULL);
 				*userdatap = NULL;
-				drgn_debug_info_module_destroy(module);
+				drgn_module_destroy(module);
 			} else {
 				if (!next)
-					it = drgn_debug_info_module_table_next(it);
+					it = drgn_module_table_next(it);
 				nextp = &module->next;
 			}
 			module = next;
@@ -409,17 +402,17 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 		*new_ret = false;
 
 	struct hash_pair hp;
-	struct drgn_debug_info_module_table_iterator it;
+	struct drgn_module_table_iterator it;
 	if (build_id_len) {
-		struct drgn_debug_info_module_key key = {
+		struct drgn_module_key key = {
 			.build_id = build_id,
 			.build_id_len = build_id_len,
 			.start = start,
 			.end = end,
 		};
-		hp = drgn_debug_info_module_table_hash(&key);
-		it = drgn_debug_info_module_table_search_hashed(&dbinfo->modules,
-								&key, hp);
+		hp = drgn_module_table_hash(&key);
+		it = drgn_module_table_search_hashed(&dbinfo->modules, &key,
+						     hp);
 		if (it.entry &&
 		    (*it.entry)->state == DRGN_DEBUG_INFO_MODULE_INDEXED) {
 			/* We've already indexed this module. */
@@ -457,7 +450,7 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 	if (new_ret)
 		*new_ret = true;
 
-	struct drgn_debug_info_module *module = calloc(1, sizeof(*module));
+	struct drgn_module *module = calloc(1, sizeof(*module));
 	if (!module) {
 		err = &drgn_enomem;
 		goto free;
@@ -482,9 +475,8 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 
 	/* path_key, fd and elf are owned by the module now. */
 
-	if (!drgn_debug_info_module_vector_append(&load->new_modules,
-						  &module)) {
-		drgn_debug_info_module_destroy(module);
+	if (!drgn_module_vector_append(&load->new_modules, &module)) {
+		drgn_module_destroy(module);
 		return &drgn_enomem;
 	}
 	if (build_id_len) {
@@ -496,12 +488,11 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 			 */
 			module->next = (*it.entry)->next;
 			(*it.entry)->next = module;
-		} else if (drgn_debug_info_module_table_insert_searched(&dbinfo->modules,
-									&module,
-									hp,
-									NULL) < 0) {
+		} else if (drgn_module_table_insert_searched(&dbinfo->modules,
+							     &module, hp,
+							     NULL) < 0) {
 			load->new_modules.size--;
-			drgn_debug_info_module_destroy(module);
+			drgn_module_destroy(module);
 			return &drgn_enomem;
 		}
 	}
@@ -1808,7 +1799,7 @@ out:
 }
 
 static struct drgn_error *
-drgn_debug_info_find_sections(struct drgn_debug_info_module *module)
+drgn_debug_info_find_sections(struct drgn_module *module)
 {
 	struct drgn_error *err;
 
@@ -1911,7 +1902,7 @@ static void truncate_null_terminated_section(Elf_Data *data)
 }
 
 static struct drgn_error *
-drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
+drgn_debug_info_precache_sections(struct drgn_module *module)
 {
 	struct drgn_error *err;
 
@@ -1946,9 +1937,8 @@ drgn_debug_info_precache_sections(struct drgn_debug_info_module *module)
 	return NULL;
 }
 
-struct drgn_error *
-drgn_debug_info_module_cache_section(struct drgn_debug_info_module *module,
-				     enum drgn_debug_info_scn scn)
+struct drgn_error *drgn_module_cache_section(struct drgn_module *module,
+					     enum drgn_debug_info_scn scn)
 {
 	if (module->scn_data[scn])
 		return NULL;
@@ -1958,10 +1948,10 @@ drgn_debug_info_module_cache_section(struct drgn_debug_info_module *module,
 static struct drgn_error *
 drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 			    struct drgn_dwarf_index_state *index,
-			    struct drgn_debug_info_module *head)
+			    struct drgn_module *head)
 {
 	struct drgn_error *err;
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	for (module = head; module; module = module->next) {
 		err = drgn_debug_info_find_sections(module);
 		if (err) {
@@ -2134,7 +2124,7 @@ struct drgn_error *drgn_debug_info_load(struct drgn_debug_info *dbinfo,
 	 */
 	err = drgn_debug_info_report_finalize_errors(&load);
 out:
-	drgn_debug_info_module_vector_deinit(&load.new_modules);
+	drgn_module_vector_deinit(&load.new_modules);
 	return err;
 
 err:
@@ -2168,7 +2158,7 @@ struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 		free(dbinfo);
 		return drgn_error_libdwfl();
 	}
-	drgn_debug_info_module_table_init(&dbinfo->modules);
+	drgn_module_table_init(&dbinfo->modules);
 	c_string_set_init(&dbinfo->module_names);
 	drgn_dwarf_info_init(dbinfo);
 	*ret = dbinfo;
@@ -2182,18 +2172,17 @@ void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo)
 	drgn_dwarf_info_deinit(dbinfo);
 	c_string_set_deinit(&dbinfo->module_names);
 	drgn_debug_info_free_modules(dbinfo, false, true);
-	assert(drgn_debug_info_module_table_empty(&dbinfo->modules));
-	drgn_debug_info_module_table_deinit(&dbinfo->modules);
+	assert(drgn_module_table_empty(&dbinfo->modules));
+	drgn_module_table_deinit(&dbinfo->modules);
 	dwfl_end(dbinfo->dwfl);
 	free(dbinfo);
 }
 
 struct drgn_error *
-drgn_debug_info_module_find_cfi(struct drgn_program *prog,
-				struct drgn_debug_info_module *module,
-				uint64_t pc, struct drgn_cfi_row **row_ret,
-				bool *interrupted_ret,
-				drgn_register_number *ret_addr_regno_ret)
+drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
+		     uint64_t pc, struct drgn_cfi_row **row_ret,
+		     bool *interrupted_ret,
+		     drgn_register_number *ret_addr_regno_ret)
 {
 	struct drgn_error *err;
 

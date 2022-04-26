@@ -39,8 +39,8 @@
  * @{
  */
 
-/** State of a @ref drgn_debug_info_module. */
-enum drgn_debug_info_module_state {
+/** State of a @ref drgn_module. */
+enum drgn_module_state {
 	/** Reported but not indexed. */
 	DRGN_DEBUG_INFO_MODULE_NEW,
 	/** Reported and will be indexed on success. */
@@ -86,9 +86,9 @@ enum drgn_debug_info_scn {
  * not loaded).
  *
  * Files are identified by canonical path and, if present, build ID. Each (path,
- * address range) is uniquely represented by a @ref drgn_debug_info_module.
+ * address range) is uniquely represented by a @ref drgn_module.
  */
-struct drgn_debug_info_module {
+struct drgn_module {
 	/** @c NULL if the module does not have a build ID. */
 	const void *build_id;
 	/** Zero if the module does not have a build ID. */
@@ -108,9 +108,9 @@ struct drgn_debug_info_module {
 	Elf_Data *alt_debug_str_data;
 
 	/** DWARF debugging information. */
-	struct drgn_dwarf_module_info dwarf;
+	struct drgn_module_dwarf_info dwarf;
 	/** ORC unwinder information. */
-	struct drgn_orc_module_info orc;
+	struct drgn_module_orc_info orc;
 
 	/** Whether .debug_frame and .eh_frame have been parsed. */
 	bool parsed_frames;
@@ -125,7 +125,7 @@ struct drgn_debug_info_module {
 	char *path;
 	Elf *elf;
 	int fd;
-	enum drgn_debug_info_module_state state;
+	enum drgn_module_state state;
 	/** Error while loading. */
 	struct drgn_error *err;
 	/**
@@ -136,21 +136,20 @@ struct drgn_debug_info_module {
 	 * loading, all files with the same build ID and address range are
 	 * linked in a list. Only one is indexed; the rest are destroyed.
 	 */
-	struct drgn_debug_info_module *next;
+	struct drgn_module *next;
 };
 
-struct drgn_error *
-drgn_debug_info_module_cache_section(struct drgn_debug_info_module *module,
-				     enum drgn_debug_info_scn scn);
+struct drgn_error *drgn_module_cache_section(struct drgn_module *module,
+					     enum drgn_debug_info_scn scn);
 
-struct drgn_error *
-drgn_error_debug_info_scn(struct drgn_debug_info_module *module,
-			  enum drgn_debug_info_scn scn, const char *ptr,
-			  const char *message);
+struct drgn_error *drgn_error_debug_info_scn(struct drgn_module *module,
+					     enum drgn_debug_info_scn scn,
+					     const char *ptr,
+					     const char *message);
 
 struct drgn_debug_info_buffer {
 	struct binary_buffer bb;
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	enum drgn_debug_info_scn scn;
 };
 
@@ -160,7 +159,7 @@ struct drgn_error *drgn_debug_info_buffer_error(struct binary_buffer *bb,
 
 static inline void
 drgn_debug_info_buffer_init(struct drgn_debug_info_buffer *buffer,
-			    struct drgn_debug_info_module *module,
+			    struct drgn_module *module,
 			    enum drgn_debug_info_scn scn)
 {
 	binary_buffer_init(&buffer->bb, module->scn_data[scn]->d_buf,
@@ -171,8 +170,7 @@ drgn_debug_info_buffer_init(struct drgn_debug_info_buffer *buffer,
 	buffer->scn = scn;
 }
 
-DEFINE_HASH_TABLE_TYPE(drgn_debug_info_module_table,
-		       struct drgn_debug_info_module *)
+DEFINE_HASH_TABLE_TYPE(drgn_module_table, struct drgn_module *)
 
 DEFINE_HASH_SET_TYPE(c_string_set, const char *)
 
@@ -184,12 +182,12 @@ struct drgn_debug_info {
 	/** DWARF frontend library handle. */
 	Dwfl *dwfl;
 	/** Modules keyed by build ID and address range. */
-	struct drgn_debug_info_module_table modules;
+	struct drgn_module_table modules;
 	/**
 	 * Names of indexed modules.
 	 *
-	 * The entries in this set are @ref drgn_debug_info_module::name, so
-	 * they should not be freed.
+	 * The entries in this set are @ref drgn_module::name, so they should
+	 * not be freed.
 	 */
 	struct c_string_set module_names;
 	/** DWARF debugging information. */
@@ -203,8 +201,7 @@ struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 /** Destroy a @ref drgn_debug_info. */
 void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo);
 
-DEFINE_VECTOR_TYPE(drgn_debug_info_module_vector,
-		   struct drgn_debug_info_module *)
+DEFINE_VECTOR_TYPE(drgn_module_vector, struct drgn_module *)
 
 /** State tracked while loading debugging information. */
 struct drgn_debug_info_load_state {
@@ -214,7 +211,7 @@ struct drgn_debug_info_load_state {
 	const bool load_default;
 	const bool load_main;
 	/** Newly added modules to be indexed. */
-	struct drgn_debug_info_module_vector new_modules;
+	struct drgn_module_vector new_modules;
 	/** Formatted errors reported by @ref drgn_debug_info_report_error(). */
 	struct string_builder errors;
 	/** Number of errors reported by @ref drgn_debug_info_report_error(). */
@@ -309,8 +306,8 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 			    struct drgn_object *ret);
 
 /**
- * Get the Call Frame Information in a @ref drgn_debug_info_module at a given
- * program counter.
+ * Get the Call Frame Information in a @ref drgn_module at a given program
+ * counter.
  *
  * @param[in] module Module containing @p pc.
  * @param[in] pc Program counter.
@@ -321,11 +318,10 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
  * drgn_not_found if CFI wasn't found.
  */
 struct drgn_error *
-drgn_debug_info_module_find_cfi(struct drgn_program *prog,
-				struct drgn_debug_info_module *module,
-				uint64_t pc, struct drgn_cfi_row **row_ret,
-				bool *interrupted_ret,
-				drgn_register_number *ret_addr_regno_ret);
+drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
+		     uint64_t pc, struct drgn_cfi_row **row_ret,
+		     bool *interrupted_ret,
+		     drgn_register_number *ret_addr_regno_ret);
 
 struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
 

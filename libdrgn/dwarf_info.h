@@ -26,21 +26,21 @@
 #include "vector.h"
 
 struct drgn_debug_info;
-struct drgn_debug_info_module;
+struct drgn_module;
 struct drgn_register_state;
 
 /** DWARF Frame Description Entry. */
 struct drgn_dwarf_fde {
 	uint64_t initial_location;
 	uint64_t address_range;
-	/* CIE for this FDE as an index into drgn_debug_info_module::cies. */
+	/* CIE for this FDE as an index into drgn_module_dwarf_info::cies. */
 	size_t cie;
 	const char *instructions;
 	size_t instructions_size;
 };
 
-/** DWARF debugging information for a @ref drgn_debug_info_module. */
-struct drgn_dwarf_module_info {
+/** DWARF debugging information for a @ref drgn_module. */
+struct drgn_module_dwarf_info {
 	/** Base for `DW_EH_PE_pcrel`. */
 	uint64_t pcrel_base;
 	/** Base for `DW_EH_PE_textrel`. */
@@ -53,11 +53,11 @@ struct drgn_dwarf_module_info {
 	 * Array of DWARF Frame Description Entries sorted by initial_location.
 	 */
 	struct drgn_dwarf_fde *fdes;
-	/** Number of elements in @ref drgn_debug_info_module::fdes. */
+	/** Number of elements in @ref drgn_module_dwarf_info::fdes. */
 	size_t num_fdes;
 };
 
-void drgn_dwarf_module_info_deinit(struct drgn_debug_info_module *module);
+void drgn_module_dwarf_info_deinit(struct drgn_module *module);
 
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_die_vector,
 		   struct drgn_dwarf_index_pending_die)
@@ -93,7 +93,7 @@ struct drgn_dwarf_specification {
 	 */
 	uintptr_t declaration;
 	/** Module containing DIE. */
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	/** Address of DIE. */
 	uintptr_t addr;
 };
@@ -181,10 +181,10 @@ bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
 /** Deinitialize state for indexing new DWARF information. */
 void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state);
 
-/** Read a @ref drgn_debug_info_module to index its DWARF information. */
+/** Read a @ref drgn_module to index its DWARF information. */
 struct drgn_error *
 drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
-			     struct drgn_debug_info_module *module);
+			     struct drgn_module *module);
 
 /**
  * Index new DWARF information.
@@ -196,8 +196,8 @@ struct drgn_error *
 drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state);
 
 /**
- * Find the DWARF DIEs in a @ref drgn_debug_info_module for the scope containing
- * a given program counter.
+ * Find the DWARF DIEs in a @ref drgn_module for the scope containing a given
+ * program counter.
  *
  * @param[in] module Module containing @p pc.
  * @param[in] pc Program counter.
@@ -210,10 +210,9 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state);
  * @param[out] length_ret Returned length of @p dies_ret.
  */
 struct drgn_error *
-drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
-					 uint64_t pc, uint64_t *bias_ret,
-					 Dwarf_Die **dies_ret,
-					 size_t *length_ret)
+drgn_module_find_dwarf_scopes(struct drgn_module *module, uint64_t pc,
+			      uint64_t *bias_ret, Dwarf_Die **dies_ret,
+			      size_t *length_ret)
 	__attribute__((__nonnull__(1, 3, 4, 5)));
 
 /**
@@ -264,15 +263,13 @@ struct drgn_error *drgn_find_in_dwarf_scopes(Dwarf_Die *scopes,
  */
 struct drgn_error *
 drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
-		       struct drgn_debug_info_module *module,
-		       Dwarf_Die *die, Dwarf_Die *type_die,
-		       Dwarf_Die *function_die,
+		       struct drgn_module *module, Dwarf_Die *die,
+		       Dwarf_Die *type_die, Dwarf_Die *function_die,
 		       const struct drgn_register_state *regs,
 		       struct drgn_object *ret);
 
 struct drgn_error *
-drgn_debug_info_find_dwarf_cfi(struct drgn_debug_info_module *module,
-			       uint64_t unbiased_pc,
+drgn_debug_info_find_dwarf_cfi(struct drgn_module *module, uint64_t unbiased_pc,
 			       struct drgn_cfi_row **row_ret,
 			       bool *interrupted_ret,
 			       drgn_register_number *ret_addr_regno_ret);

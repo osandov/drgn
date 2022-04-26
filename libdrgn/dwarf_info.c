@@ -46,7 +46,7 @@ static inline int omp_get_max_threads(void)
 #include "type.h"
 #include "util.h"
 
-void drgn_dwarf_module_info_deinit(struct drgn_debug_info_module *module)
+void drgn_module_dwarf_info_deinit(struct drgn_module *module)
 {
 	free(module->dwarf.fdes);
 	free(module->dwarf.cies);
@@ -70,7 +70,7 @@ static const uint64_t no_file_name_hashes[1] = { 0 };
 /** DWARF compilation unit indexed in a @ref drgn_namespace_dwarf_index. */
 struct drgn_dwarf_index_cu {
 	/** Module containing CU. */
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	/** Address of CU data. */
 	const char *buf;
 	/** Length of CU data. */
@@ -168,7 +168,7 @@ struct drgn_dwarf_index_die {
 		struct drgn_namespace_dwarf_index *namespace;
 	};
 	/** Module containing this DIE. */
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	/** Address of this DIE. */
 	uintptr_t addr;
 };
@@ -290,9 +290,9 @@ static const char *dwarf_tag_str(Dwarf_Die *die, char buf[DW_TAG_BUF_LEN])
 	return dw_tag_str(dwarf_tag(die), buf);
 }
 
-static struct drgn_error *
-drgn_error_debug_info(struct drgn_debug_info_module *module, const char *ptr,
-		      const char *message)
+static struct drgn_error *drgn_error_debug_info(struct drgn_module *module,
+						const char *ptr,
+						const char *message)
 {
 	uintptr_t p = (uintptr_t)ptr;
 	int end_match = -1;
@@ -356,7 +356,7 @@ static inline struct drgn_error *drgn_check_address_size(uint8_t address_size)
  */
 
 struct drgn_dwarf_index_pending_cu {
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	const char *buf;
 	size_t len;
 	bool is_64_bit;
@@ -555,7 +555,7 @@ void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state)
 
 static struct drgn_error *
 drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
-			  struct drgn_debug_info_module *module,
+			  struct drgn_module *module,
 			  enum drgn_debug_info_scn scn)
 {
 	struct drgn_dwarf_index_pending_cu_vector *cus =
@@ -595,7 +595,7 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 
 struct drgn_error *
 drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
-			     struct drgn_debug_info_module *module)
+			     struct drgn_module *module)
 {
 	struct drgn_error *err;
 	err = drgn_dwarf_index_read_cus(state, module, DRGN_SCN_DEBUG_INFO);
@@ -1891,7 +1891,7 @@ err:
 
 static struct drgn_error *
 index_specification(struct drgn_debug_info *dbinfo, uintptr_t declaration,
-		    struct drgn_debug_info_module *module, uintptr_t addr)
+		    struct drgn_module *module, uintptr_t addr)
 {
 	struct drgn_dwarf_specification entry = {
 		.declaration = declaration,
@@ -2343,10 +2343,10 @@ skip:
  * @return @c true if a definition DIE was found, @c false if not (in which case
  * *@p module_ret and *@p addr_ret are not modified).
  */
-static bool
-drgn_dwarf_find_definition(struct drgn_debug_info *dbinfo, uintptr_t die_addr,
-			   struct drgn_debug_info_module **module_ret,
-			   uintptr_t *addr_ret)
+static bool drgn_dwarf_find_definition(struct drgn_debug_info *dbinfo,
+				       uintptr_t die_addr,
+				       struct drgn_module **module_ret,
+				       uintptr_t *addr_ret)
 {
 	struct drgn_dwarf_specification_map_iterator it =
 		drgn_dwarf_specification_map_search(&dbinfo->dwarf.specifications,
@@ -2361,8 +2361,7 @@ drgn_dwarf_find_definition(struct drgn_debug_info *dbinfo, uintptr_t die_addr,
 static bool append_die_entry(struct drgn_debug_info *dbinfo,
 			     struct drgn_dwarf_index_shard *shard, uint8_t tag,
 			     uint64_t file_name_hash,
-			     struct drgn_debug_info_module *module,
-			     uintptr_t addr)
+			     struct drgn_module *module, uintptr_t addr)
 {
 	if (shard->dies.size == UINT32_MAX)
 		return false;
@@ -2391,7 +2390,7 @@ static bool append_die_entry(struct drgn_debug_info *dbinfo,
 static bool index_die(struct drgn_namespace_dwarf_index *ns,
 		      struct drgn_dwarf_index_cu *cu, const char *name,
 		      uint8_t tag, uint64_t file_name_hash,
-		      struct drgn_debug_info_module *module, uintptr_t addr)
+		      struct drgn_module *module, uintptr_t addr)
 {
 	bool success = false;
 	struct drgn_dwarf_index_die_map_entry entry = {
@@ -2754,7 +2753,7 @@ skip:
 		    !specification) {
 			if (insn & INSN_DIE_FLAG_DECLARATION)
 				declaration = true;
-			struct drgn_debug_info_module *module = cu->module;
+			struct drgn_module *module = cu->module;
 			if (tag == DW_TAG_enumerator) {
 				if (depth1_tag != DW_TAG_enumeration_type)
 					goto next;
@@ -3215,7 +3214,7 @@ drgn_debug_info_main_language(struct drgn_debug_info *dbinfo,
 
 DEFINE_VECTOR(dwarf_die_vector, Dwarf_Die)
 
-/** Iterator over DWARF DIEs in a @ref drgn_debug_info_module. */
+/** Iterator over DWARF DIEs in a @ref drgn_module. */
 struct drgn_dwarf_die_iterator {
 	/** Stack of current DIE and its ancestors. */
 	struct dwarf_die_vector dies;
@@ -3386,11 +3385,11 @@ next_unit:;
 #undef TOP
 }
 
-struct drgn_error *
-drgn_debug_info_module_find_dwarf_scopes(struct drgn_debug_info_module *module,
-					 uint64_t pc, uint64_t *bias_ret,
-					 Dwarf_Die **dies_ret,
-					 size_t *length_ret)
+struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
+						 uint64_t pc,
+						 uint64_t *bias_ret,
+						 Dwarf_Die **dies_ret,
+						 size_t *length_ret)
 {
 	struct drgn_error *err;
 
@@ -3618,11 +3617,12 @@ err:
  * Location lists.
  */
 
-static struct drgn_error *
-drgn_dwarf_next_addrx(struct binary_buffer *bb,
-		      struct drgn_debug_info_module *module, Dwarf_Die *cu_die,
-		      uint8_t address_size, const char **addr_base,
-		      uint64_t *ret)
+static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
+						struct drgn_module *module,
+						Dwarf_Die *cu_die,
+						uint8_t address_size,
+						const char **addr_base,
+						uint64_t *ret)
 {
 	struct drgn_error *err;
 
@@ -3640,8 +3640,7 @@ drgn_dwarf_next_addrx(struct binary_buffer *bb,
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "indirect address without .debug_addr section");
 		}
-		err = drgn_debug_info_module_cache_section(module,
-							   DRGN_SCN_DEBUG_ADDR);
+		err = drgn_module_cache_section(module, DRGN_SCN_DEBUG_ADDR);
 		if (err)
 			return err;
 
@@ -3676,10 +3675,11 @@ drgn_dwarf_next_addrx(struct binary_buffer *bb,
 	return NULL;
 }
 
-static struct drgn_error *
-drgn_dwarf_read_loclistx(struct drgn_debug_info_module *module,
-			 Dwarf_Die *cu_die, uint8_t offset_size,
-			 Dwarf_Word index, Dwarf_Word *ret)
+static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_module *module,
+						   Dwarf_Die *cu_die,
+						   uint8_t offset_size,
+						   Dwarf_Word index,
+						   Dwarf_Word *ret)
 {
 	struct drgn_error *err;
 
@@ -3696,8 +3696,7 @@ drgn_dwarf_read_loclistx(struct drgn_debug_info_module *module,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DW_FORM_loclistx without .debug_loclists section");
 	}
-	err = drgn_debug_info_module_cache_section(module,
-						   DRGN_SCN_DEBUG_LOCLISTS);
+	err = drgn_module_cache_section(module, DRGN_SCN_DEBUG_LOCLISTS);
 	if (err)
 		return err;
 	Elf_Data *data = module->scn_data[DRGN_SCN_DEBUG_LOCLISTS];
@@ -3728,11 +3727,13 @@ drgn_dwarf_read_loclistx(struct drgn_debug_info_module *module,
 	return NULL;
 }
 
-static struct drgn_error *
-drgn_dwarf5_location_list(struct drgn_debug_info_module *module,
-			  Dwarf_Word offset, Dwarf_Die *cu_die,
-			  uint8_t address_size, uint64_t pc,
-			  const char **expr_ret, size_t *expr_size_ret)
+static struct drgn_error *drgn_dwarf5_location_list(struct drgn_module *module,
+						    Dwarf_Word offset,
+						    Dwarf_Die *cu_die,
+						    uint8_t address_size,
+						    uint64_t pc,
+						    const char **expr_ret,
+						    size_t *expr_size_ret)
 {
 	struct drgn_error *err;
 
@@ -3740,8 +3741,7 @@ drgn_dwarf5_location_list(struct drgn_debug_info_module *module,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "loclist without .debug_loclists section");
 	}
-	err = drgn_debug_info_module_cache_section(module,
-						   DRGN_SCN_DEBUG_LOCLISTS);
+	err = drgn_module_cache_section(module, DRGN_SCN_DEBUG_LOCLISTS);
 	if (err)
 		return err;
 	struct drgn_debug_info_buffer buffer;
@@ -3866,11 +3866,13 @@ counted_location_description:
 	}
 }
 
-static struct drgn_error *
-drgn_dwarf4_location_list(struct drgn_debug_info_module *module,
-			  Dwarf_Word offset, Dwarf_Die *cu_die,
-			  uint8_t address_size, uint64_t pc,
-			  const char **expr_ret, size_t *expr_size_ret)
+static struct drgn_error *drgn_dwarf4_location_list(struct drgn_module *module,
+						    Dwarf_Word offset,
+						    Dwarf_Die *cu_die,
+						    uint8_t address_size,
+						    uint64_t pc,
+						    const char **expr_ret,
+						    size_t *expr_size_ret)
 {
 	struct drgn_error *err;
 
@@ -3878,7 +3880,7 @@ drgn_dwarf4_location_list(struct drgn_debug_info_module *module,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "loclistptr without .debug_loc section");
 	}
-	err = drgn_debug_info_module_cache_section(module, DRGN_SCN_DEBUG_LOC);
+	err = drgn_module_cache_section(module, DRGN_SCN_DEBUG_LOC);
 	if (err)
 		return err;
 	struct drgn_debug_info_buffer buffer;
@@ -3933,7 +3935,7 @@ drgn_dwarf4_location_list(struct drgn_debug_info_module *module,
 }
 
 static struct drgn_error *
-drgn_dwarf_location(struct drgn_debug_info_module *module,
+drgn_dwarf_location(struct drgn_module *module,
 		    Dwarf_Attribute *attr,
 		    const struct drgn_register_state *regs,
 		    const char **expr_ret, size_t *expr_size_ret)
@@ -4016,7 +4018,7 @@ struct drgn_dwarf_expression_context {
 	struct binary_buffer bb;
 	const char *start;
 	struct drgn_program *prog;
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	uint8_t address_size;
 	Dwarf_Die cu_die;
 	const char *cu_addr_base;
@@ -4036,8 +4038,8 @@ drgn_dwarf_expression_buffer_error(struct binary_buffer *bb, const char *pos,
 static inline struct drgn_error *
 drgn_dwarf_expression_context_init(struct drgn_dwarf_expression_context *ctx,
 				   struct drgn_program *prog,
-				   struct drgn_debug_info_module *module,
-				   Dwarf_CU *cu, Dwarf_Die *function,
+				   struct drgn_module *module, Dwarf_CU *cu,
+				   Dwarf_Die *function,
 				   const struct drgn_register_state *regs,
 				   const char *expr, size_t expr_size)
 {
@@ -4066,9 +4068,8 @@ drgn_dwarf_expression_context_init(struct drgn_dwarf_expression_context *ctx,
 }
 
 static struct drgn_error *
-drgn_dwarf_frame_base(struct drgn_program *prog,
-		      struct drgn_debug_info_module *module, Dwarf_Die *die,
-		      const struct drgn_register_state *regs,
+drgn_dwarf_frame_base(struct drgn_program *prog, struct drgn_module *module,
+		      Dwarf_Die *die, const struct drgn_register_state *regs,
 		      int *remaining_ops, uint64_t *ret);
 
 /*
@@ -4523,9 +4524,8 @@ branch:
 }
 
 static struct drgn_error *
-drgn_dwarf_frame_base(struct drgn_program *prog,
-		      struct drgn_debug_info_module *module, Dwarf_Die *die,
-		      const struct drgn_register_state *regs,
+drgn_dwarf_frame_base(struct drgn_program *prog, struct drgn_module *module,
+		      Dwarf_Die *die, const struct drgn_register_state *regs,
 		      int *remaining_ops, uint64_t *ret)
 {
 	struct drgn_error *err;
@@ -4746,8 +4746,8 @@ static int dwarf_flag_integrate(Dwarf_Die *die, unsigned int name, bool *ret)
  */
 static struct drgn_error *
 drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
-			      struct drgn_debug_info_module *module,
-			      Dwarf_Die *die, bool can_be_incomplete_array,
+			      struct drgn_module *module, Dwarf_Die *die,
+			      bool can_be_incomplete_array,
 			      bool *is_incomplete_array_ret,
 			      struct drgn_qualified_type *ret);
 
@@ -4761,9 +4761,8 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
  * @return @c NULL on success, non-@c NULL on error.
  */
 static inline struct drgn_error *
-drgn_type_from_dwarf(struct drgn_debug_info *dbinfo,
-		     struct drgn_debug_info_module *module, Dwarf_Die *die,
-		     struct drgn_qualified_type *ret)
+drgn_type_from_dwarf(struct drgn_debug_info *dbinfo, struct drgn_module *module,
+		     Dwarf_Die *die, struct drgn_qualified_type *ret)
 {
 	return drgn_type_from_dwarf_internal(dbinfo, module, die, true, NULL,
 					     ret);
@@ -4788,7 +4787,7 @@ drgn_type_from_dwarf(struct drgn_debug_info *dbinfo,
  */
 static struct drgn_error *
 drgn_type_from_dwarf_attr(struct drgn_debug_info *dbinfo,
-			  struct drgn_debug_info_module *module, Dwarf_Die *die,
+			  struct drgn_module *module, Dwarf_Die *die,
 			  const struct drgn_language *lang,
 			  bool can_be_void, bool can_be_incomplete_array,
 			  bool *is_incomplete_array_ret,
@@ -4830,9 +4829,8 @@ drgn_type_from_dwarf_attr(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
-				  struct drgn_debug_info_module *module,
-				  Dwarf_Die *die, const char *name,
-				  struct drgn_object *ret)
+				  struct drgn_module *module, Dwarf_Die *die,
+				  const char *name, struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	struct drgn_qualified_type qualified_type;
@@ -4860,8 +4858,8 @@ drgn_object_from_dwarf_enumerator(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
-				  struct drgn_debug_info_module *module,
-				  Dwarf_Die *die, struct drgn_object *ret)
+				  struct drgn_module *module, Dwarf_Die *die,
+				  struct drgn_object *ret)
 {
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, module, die,
@@ -4947,8 +4945,7 @@ static struct drgn_error *read_bits(struct drgn_program *prog, void *dst,
 
 static struct drgn_error *
 drgn_object_from_dwarf_location(struct drgn_program *prog,
-				struct drgn_debug_info_module *module,
-				Dwarf_Die *die,
+				struct drgn_module *module, Dwarf_Die *die,
 				struct drgn_qualified_type qualified_type,
 				const char *expr, size_t expr_size,
 				Dwarf_Die *function_die,
@@ -5292,9 +5289,8 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 
 struct drgn_error *
 drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
-		       struct drgn_debug_info_module *module,
-		       Dwarf_Die *die, Dwarf_Die *type_die,
-		       Dwarf_Die *function_die,
+		       struct drgn_module *module, Dwarf_Die *die,
+		       Dwarf_Die *type_die, Dwarf_Die *function_die,
 		       const struct drgn_register_state *regs,
 		       struct drgn_object *ret)
 {
@@ -5420,7 +5416,7 @@ struct drgn_error *drgn_find_in_dwarf_scopes(Dwarf_Die *scopes,
 
 static struct drgn_error *
 drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			  struct drgn_debug_info_module *module, Dwarf_Die *die,
+			  struct drgn_module *module, Dwarf_Die *die,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
@@ -5585,7 +5581,7 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
 }
 
 struct drgn_dwarf_member_thunk_arg {
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	Dwarf_Die die;
 	bool can_be_incomplete_array;
 };
@@ -5821,9 +5817,8 @@ parse_member_offset(Dwarf_Die *die, union drgn_lazy_object *member_object,
 }
 
 static struct drgn_error *
-parse_member(struct drgn_debug_info *dbinfo,
-	     struct drgn_debug_info_module *module, Dwarf_Die *die,
-	     bool little_endian, bool can_be_incomplete_array,
+parse_member(struct drgn_debug_info *dbinfo, struct drgn_module *module,
+	     Dwarf_Die *die, bool little_endian, bool can_be_incomplete_array,
 	     struct drgn_compound_type_builder *builder)
 {
 	struct drgn_error *err;
@@ -5870,7 +5865,7 @@ err:
 }
 
 struct drgn_dwarf_die_thunk_arg {
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	Dwarf_Die die;
 };
 
@@ -5915,7 +5910,7 @@ drgn_dwarf_template_value_parameter_thunk_fn(struct drgn_object *res,
 
 static struct drgn_error *
 parse_template_parameter(struct drgn_debug_info *dbinfo,
-			 struct drgn_debug_info_module *module, Dwarf_Die *die,
+			 struct drgn_module *module, Dwarf_Die *die,
 			 drgn_object_thunk_fn *thunk_fn,
 			 struct drgn_template_parameters_builder *builder)
 {
@@ -5962,8 +5957,8 @@ parse_template_parameter(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			      struct drgn_debug_info_module *module,
-			      Dwarf_Die *die, const struct drgn_language *lang,
+			      struct drgn_module *module, Dwarf_Die *die,
+			      const struct drgn_language *lang,
 			      enum drgn_type_kind kind, struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -6146,7 +6141,7 @@ enum_compatible_type_fallback(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			  struct drgn_debug_info_module *module, Dwarf_Die *die,
+			  struct drgn_module *module, Dwarf_Die *die,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret)
 {
@@ -6240,8 +6235,8 @@ err:
 
 static struct drgn_error *
 drgn_typedef_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			     struct drgn_debug_info_module *module,
-			     Dwarf_Die *die, const struct drgn_language *lang,
+			     struct drgn_module *module, Dwarf_Die *die,
+			     const struct drgn_language *lang,
 			     bool can_be_incomplete_array,
 			     bool *is_incomplete_array_ret,
 			     struct drgn_type **ret)
@@ -6267,8 +6262,8 @@ drgn_typedef_type_from_dwarf(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			     struct drgn_debug_info_module *module,
-			     Dwarf_Die *die, const struct drgn_language *lang,
+			     struct drgn_module *module, Dwarf_Die *die,
+			     const struct drgn_language *lang,
 			     struct drgn_type **ret)
 {
 	struct drgn_qualified_type referenced_type;
@@ -6362,8 +6357,8 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 
 static struct drgn_error *
 drgn_array_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			   struct drgn_debug_info_module *module,
-			   Dwarf_Die *die, const struct drgn_language *lang,
+			   struct drgn_module *module, Dwarf_Die *die,
+			   const struct drgn_language *lang,
 			   bool can_be_incomplete_array,
 			   bool *is_incomplete_array_ret,
 			   struct drgn_type **ret)
@@ -6460,7 +6455,7 @@ drgn_dwarf_formal_parameter_thunk_fn(struct drgn_object *res, void *arg_)
 
 static struct drgn_error *
 parse_formal_parameter(struct drgn_debug_info *dbinfo,
-		       struct drgn_debug_info_module *module, Dwarf_Die *die,
+		       struct drgn_module *module, Dwarf_Die *die,
 		       struct drgn_function_type_builder *builder)
 {
 	Dwarf_Attribute attr_mem, *attr;
@@ -6498,8 +6493,8 @@ parse_formal_parameter(struct drgn_debug_info *dbinfo,
 
 static struct drgn_error *
 drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
-			      struct drgn_debug_info_module *module,
-			      Dwarf_Die *die, const struct drgn_language *lang,
+			      struct drgn_module *module, Dwarf_Die *die,
+			      const struct drgn_language *lang,
 			      struct drgn_type **ret)
 {
 	struct drgn_error *err;
@@ -6579,8 +6574,8 @@ err:
 
 static struct drgn_error *
 drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
-			      struct drgn_debug_info_module *module,
-			      Dwarf_Die *die, bool can_be_incomplete_array,
+			      struct drgn_module *module, Dwarf_Die *die,
+			      bool can_be_incomplete_array,
 			      bool *is_incomplete_array_ret,
 			      struct drgn_qualified_type *ret)
 {
@@ -7018,10 +7013,10 @@ unknown_fde_encoding:
 	return NULL;
 }
 
-static struct drgn_error *
-drgn_parse_dwarf_cie(struct drgn_debug_info_module *module,
-		     enum drgn_debug_info_scn scn, size_t cie_pointer,
-		     struct drgn_dwarf_cie *cie)
+static struct drgn_error *drgn_parse_dwarf_cie(struct drgn_module *module,
+					       enum drgn_debug_info_scn scn,
+					       size_t cie_pointer,
+					       struct drgn_dwarf_cie *cie)
 {
 	bool is_eh = scn == DRGN_SCN_EH_FRAME;
 	struct drgn_error *err;
@@ -7196,7 +7191,7 @@ unknown_augmentation:
 }
 
 static struct drgn_error *
-drgn_parse_dwarf_frames(struct drgn_debug_info_module *module,
+drgn_parse_dwarf_frames(struct drgn_module *module,
 			enum drgn_debug_info_scn scn,
 			struct drgn_dwarf_cie_vector *cies,
 			struct drgn_dwarf_fde_vector *fdes)
@@ -7206,7 +7201,7 @@ drgn_parse_dwarf_frames(struct drgn_debug_info_module *module,
 
 	if (!module->scns[scn])
 		return NULL;
-	err = drgn_debug_info_module_cache_section(module, scn);
+	err = drgn_module_cache_section(module, scn);
 	if (err)
 		return err;
 	Elf_Data *data = module->scn_data[scn];
@@ -7347,7 +7342,7 @@ out:
 	return err;
 }
 
-static void drgn_debug_info_cache_sh_addr(struct drgn_debug_info_module *module,
+static void drgn_debug_info_cache_sh_addr(struct drgn_module *module,
 					  enum drgn_debug_info_scn scn,
 					  uint64_t *addr)
 {
@@ -7373,7 +7368,7 @@ static int drgn_dwarf_fde_compar(const void *_a, const void *_b, void *arg)
 }
 
 static struct drgn_error *
-drgn_debug_info_parse_frames(struct drgn_debug_info_module *module)
+drgn_debug_info_parse_frames(struct drgn_module *module)
 {
 	struct drgn_error *err;
 
@@ -7428,9 +7423,9 @@ err:
 	return err;
 }
 
-static struct drgn_error *
-drgn_debug_info_find_fde(struct drgn_debug_info_module *module,
-			 uint64_t unbiased_pc, struct drgn_dwarf_fde **ret)
+static struct drgn_error *drgn_debug_info_find_fde(struct drgn_module *module,
+						   uint64_t unbiased_pc,
+						   struct drgn_dwarf_fde **ret)
 {
 	struct drgn_error *err;
 
@@ -7520,8 +7515,7 @@ drgn_dwarf_cfi_next_block(struct drgn_debug_info_buffer *buffer,
 DEFINE_VECTOR(drgn_cfi_row_vector, struct drgn_cfi_row *)
 
 static struct drgn_error *
-drgn_eval_dwarf_cfi(struct drgn_debug_info_module *module,
-		    struct drgn_dwarf_fde *fde,
+drgn_eval_dwarf_cfi(struct drgn_module *module, struct drgn_dwarf_fde *fde,
 		    const struct drgn_cfi_row *initial_row, uint64_t target,
 		    const char *instructions, size_t instructions_size,
 		    struct drgn_cfi_row **row)
@@ -7853,7 +7847,7 @@ out:
 }
 
 static struct drgn_error *
-drgn_debug_info_find_cfi_in_fde(struct drgn_debug_info_module *module,
+drgn_debug_info_find_cfi_in_fde(struct drgn_module *module,
 				struct drgn_dwarf_fde *fde,
 				uint64_t unbiased_pc, struct drgn_cfi_row **ret)
 {
@@ -7879,8 +7873,7 @@ out:
 }
 
 struct drgn_error *
-drgn_debug_info_find_dwarf_cfi(struct drgn_debug_info_module *module,
-			       uint64_t unbiased_pc,
+drgn_debug_info_find_dwarf_cfi(struct drgn_module *module, uint64_t unbiased_pc,
 			       struct drgn_cfi_row **row_ret,
 			       bool *interrupted_ret,
 			       drgn_register_number *ret_addr_regno_ret)

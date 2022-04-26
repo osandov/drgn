@@ -11,7 +11,7 @@
 #include "orc.h"
 #include "util.h"
 
-void drgn_orc_module_info_deinit(struct drgn_debug_info_module *module)
+void drgn_module_orc_info_deinit(struct drgn_module *module)
 {
 	free(module->orc.entries);
 	free(module->orc.pc_offsets);
@@ -21,8 +21,7 @@ void drgn_orc_module_info_deinit(struct drgn_debug_info_module *module)
  * Get the program counter of an ORC entry directly from the .orc_unwind_ip
  * section.
  */
-static inline uint64_t drgn_raw_orc_pc(struct drgn_debug_info_module *module,
-				       size_t i)
+static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module, size_t i)
 {
 	int32_t offset;
 	memcpy(&offset,
@@ -35,7 +34,7 @@ static inline uint64_t drgn_raw_orc_pc(struct drgn_debug_info_module *module,
 
 static int compare_orc_entries(const void *a, const void *b, void *arg)
 {
-	struct drgn_debug_info_module *module = arg;
+	struct drgn_module *module = arg;
 	size_t index_a = *(size_t *)a;
 	size_t index_b = *(size_t *)b;
 
@@ -63,8 +62,8 @@ static int compare_orc_entries(const void *a, const void *b, void *arg)
 		- drgn_orc_flags_is_terminator(flags_a));
 }
 
-static size_t keep_orc_entry(struct drgn_debug_info_module *module,
-			     size_t *indices, size_t num_entries, size_t i)
+static size_t keep_orc_entry(struct drgn_module *module, size_t *indices,
+			     size_t num_entries, size_t i)
 {
 
 	const struct drgn_orc_entry *entries =
@@ -88,8 +87,8 @@ static size_t keep_orc_entry(struct drgn_debug_info_module *module,
  * waste to store and binary search those entries. This removes ORC entries that
  * are entirely shadowed by DWARF FDEs.
  */
-static size_t remove_fdes_from_orc(struct drgn_debug_info_module *module,
-				   size_t *indices, size_t num_entries)
+static size_t remove_fdes_from_orc(struct drgn_module *module, size_t *indices,
+				   size_t num_entries)
 {
 	if (module->dwarf.num_fdes == 0)
 		return num_entries;
@@ -164,8 +163,7 @@ static size_t remove_fdes_from_orc(struct drgn_debug_info_module *module,
 			      num_entries - 1);
 }
 
-static struct drgn_error *
-drgn_debug_info_parse_orc(struct drgn_debug_info_module *module)
+static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 {
 	struct drgn_error *err;
 
@@ -180,11 +178,10 @@ drgn_debug_info_parse_orc(struct drgn_debug_info_module *module)
 		return drgn_error_libelf();
 	module->orc.pc_base = shdr->sh_addr;
 
-	err = drgn_debug_info_module_cache_section(module,
-						   DRGN_SCN_ORC_UNWIND_IP);
+	err = drgn_module_cache_section(module, DRGN_SCN_ORC_UNWIND_IP);
 	if (err)
 		return err;
-	err = drgn_debug_info_module_cache_section(module, DRGN_SCN_ORC_UNWIND);
+	err = drgn_module_cache_section(module, DRGN_SCN_ORC_UNWIND);
 	if (err)
 		return err;
 	Elf_Data *orc_unwind_ip = module->scn_data[DRGN_SCN_ORC_UNWIND_IP];
@@ -264,15 +261,13 @@ out:
 	return err;
 }
 
-static inline uint64_t drgn_orc_pc(struct drgn_debug_info_module *module,
-				   size_t i)
+static inline uint64_t drgn_orc_pc(struct drgn_module *module, size_t i)
 {
 	return module->orc.pc_base + UINT64_C(4) * i + module->orc.pc_offsets[i];
 }
 
 struct drgn_error *
-drgn_debug_info_find_orc_cfi(struct drgn_debug_info_module *module,
-			     uint64_t unbiased_pc,
+drgn_debug_info_find_orc_cfi(struct drgn_module *module, uint64_t unbiased_pc,
 			     struct drgn_cfi_row **row_ret,
 			     bool *interrupted_ret,
 			     drgn_register_number *ret_addr_regno_ret)

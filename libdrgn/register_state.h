@@ -50,14 +50,14 @@
  */
 struct drgn_register_state {
 	/**
-	 * Cached @ref drgn_debug_info_module that contains the program counter.
+	 * Cached @ref drgn_module that contains the program counter.
 	 *
 	 * This is `NULL` if the program counter is not known, if the containing
 	 * module could not be found, or if the containing module's platform
 	 * does not match the program's platform (in which case we can't use it
 	 * anyways).
 	 */
-	struct drgn_debug_info_module *module;
+	struct drgn_module *module;
 	/** Total size of registers allocated in @ref drgn_register_state::buf. */
 	uint32_t regs_size;
 	/** Number of registers allocated in @ref drgn_register_state::buf. */
