@@ -177,6 +177,9 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 	case DRGN_ERROR_OBJECT_ABSENT:
 		PyErr_SetString(ObjectAbsentError, err->message);
 		break;
+	case DRGN_ERROR_NOT_IMPLEMENTED:
+		PyErr_SetString(PyExc_NotImplementedError, err->message);
+		break;
 	default:
 		PyErr_SetString(PyExc_Exception, err->message);
 		break;
