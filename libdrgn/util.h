@@ -115,7 +115,7 @@ static inline void *malloc64(uint64_t size)
 	return malloc(size);
 }
 
-static inline void *memdup(void *ptr, size_t size)
+static inline void *memdup(const void *ptr, size_t size)
 {
 	void *copy = malloc(size);
 	if (copy)
