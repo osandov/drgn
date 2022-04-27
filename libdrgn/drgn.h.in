@@ -81,6 +81,8 @@ enum drgn_error_code {
 	DRGN_ERROR_OUT_OF_BOUNDS,
 	/** Operation was attempted with absent object. */
 	DRGN_ERROR_OBJECT_ABSENT,
+	/** Functionality is not implemented. */
+	DRGN_ERROR_NOT_IMPLEMENTED,
 	/** Number of defined error codes. */
 	DRGN_NUM_ERROR_CODES,
 } __attribute__((__packed__));
