@@ -73,6 +73,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 hash_table.c \
 			 hash_table.h \
 			 helpers.h \
+			 hexlify.c \
+			 hexlify.h \
 			 io.c \
 			 io.h \
 			 kallsyms.c \
@@ -228,6 +230,7 @@ TESTS = $(check_PROGRAMS)
 check_PROGRAMS = tests/binary_search \
 		 tests/cityhash \
 		 tests/crc32 \
+		 tests/hexlify \
 		 tests/language_c \
 		 tests/lexer \
 		 tests/path \
@@ -256,6 +259,9 @@ tests_cityhash_LDADD = $(test_ldadd)
 tests_crc32_CFLAGS = $(test_cflags)
 tests_crc32_CPPFLAGS = $(test_cppflags)
 tests_crc32_LDADD = $(test_ldadd)
+tests_hexlify_CFLAGS = $(test_cflags)
+tests_hexlify_CPPFLAGS = $(test_cppflags)
+tests_hexlify_LDADD = $(test_ldadd)
 tests_language_c_CFLAGS = $(test_cflags)
 tests_language_c_CPPFLAGS = $(test_cppflags)
 tests_language_c_LDADD = $(test_ldadd)
