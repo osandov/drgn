@@ -1,0 +1,40 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include <stdint.h>
+
+#include "test_util.h"
+#include "../crc32.h"
+
+static uint32_t string_crc32(const char *s)
+{
+	return ~crc32_update(~0, s, strlen(s));
+}
+
+#suite crc32
+
+#tcase crc32
+
+#test empty
+{
+	ck_assert_uint_eq(string_crc32(""), 0);
+}
+
+#test simple
+{
+	// https://reveng.sourceforge.io/crc-catalogue/17plus.htm#crc.cat.crc-32-iso-hdlc
+	ck_assert_uint_eq(string_crc32("123456789"), 0xcbf43926);
+	// http://www.febooti.com/products/filetweak/members/hash-and-crc/test-vectors/
+	ck_assert_uint_eq(string_crc32("The quick brown fox jumps over the lazy dog"),
+			  0x414fa339);
+}
+
+#test update
+{
+	uint32_t crc = ~0;
+	crc = crc32_update(crc, "12", 2);
+	crc = crc32_update(crc, "345", 3);
+	crc = crc32_update(crc, "6789", 4);
+	crc = ~crc;
+	ck_assert_uint_eq(crc, 0xcbf43926);
+}
