@@ -5276,16 +5276,14 @@ drgn_object_from_dwarf_constant(struct drgn_debug_info *dbinfo, Dwarf_Die *die,
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "invalid DW_AT_const_value");
 		}
-		drgn_object_set_signed_internal(ret, &type, svalue);
-		return NULL;
+		return drgn_object_set_signed_internal(ret, &type, svalue);
 	} else if (type.encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
 		Dwarf_Word uvalue;
 		if (dwarf_formudata(attr, &uvalue)) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "invalid DW_AT_const_value");
 		}
-		drgn_object_set_unsigned_internal(ret, &type, uvalue);
-		return NULL;
+		return drgn_object_set_unsigned_internal(ret, &type, uvalue);
 	} else {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "unknown DW_AT_const_value form");
