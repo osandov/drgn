@@ -139,17 +139,19 @@ drgn_object_type(struct drgn_qualified_type qualified_type,
  * Like @ref drgn_object_set_signed() but @ref drgn_object_type() was already
  * called and the type is already known to be a signed integer type.
  */
-void drgn_object_set_signed_internal(struct drgn_object *res,
-				     const struct drgn_object_type *type,
-				     int64_t svalue);
+struct drgn_error *
+drgn_object_set_signed_internal(struct drgn_object *res,
+				const struct drgn_object_type *type,
+				int64_t svalue);
 
 /**
  * Like @ref drgn_object_set_unsigned() but @ref drgn_object_type() was already
  * called and the type is already known to be an unsigned integer type.
  */
-void drgn_object_set_unsigned_internal(struct drgn_object *res,
-				       const struct drgn_object_type *type,
-				       uint64_t uvalue);
+struct drgn_error *
+drgn_object_set_unsigned_internal(struct drgn_object *res,
+				  const struct drgn_object_type *type,
+				  uint64_t uvalue);
 
 /**
  * Like @ref drgn_object_set_from_buffer() but @ref drgn_object_type() was
