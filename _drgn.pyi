@@ -1645,6 +1645,19 @@ class StackFrame:
     """
     Name of the function at this frame, or ``None`` if it could not be
     determined.
+
+    The name cannot be determined if debugging information is not available for
+    the function, e.g., because it is implemented in assembly. It may be
+    desirable to use the symbol name or program counter as a fallback:
+
+    .. code-block:: python3
+
+        name = frame.name
+        if name is None:
+            try:
+                name = frame.symbol().name
+            except LookupError:
+                name = hex(frame.pc)
     """
 
     is_inline: bool
