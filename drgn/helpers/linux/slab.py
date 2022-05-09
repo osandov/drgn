@@ -7,6 +7,12 @@ Slab Allocator
 
 The ``drgn.helpers.linux.slab`` module provides helpers for working with the
 Linux slab allocator.
+
+.. warning::
+
+    Beware of slab merging when using these helpers. See
+    :func:`slab_cache_is_merged()
+    <drgn.helpers.linux.slab.slab_cache_is_merged>`.
 """
 
 from typing import Iterator, Optional, Set, Union
@@ -22,6 +28,45 @@ __all__ = (
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
 )
+
+
+def slab_cache_is_merged(slab_cache: Object) -> bool:
+    """
+    Return whether a slab cache has been merged with any other slab caches.
+
+    Unless configured otherwise, the kernel may merge slab caches of similar
+    sizes together. See the `SLUB users guide
+    <https://docs.kernel.org/vm/slub.html#slab-merging>`_ and
+    ``slab_merge``/``slab_nomerge`` in the `kernel parameters documentation
+    <https://www.kernel.org/doc/Documentation/admin-guide/kernel-parameters.txt>`_.
+
+    This can cause confusion, as only the name of the first cache will be
+    found, and objects of different types will be mixed in the same slab cache.
+
+    For example, suppose that we have two types, ``struct foo`` and ``struct
+    bar``, which have the same size but are otherwise unrelated. If the kernel
+    creates a slab cache named ``foo`` for ``struct foo``, then another slab
+    cache named ``bar`` for ``struct bar``, then slab cache ``foo`` will be
+    reused instead of creating another cache for ``bar``. So the following will
+    fail::
+
+        find_slab_cache(prog, "bar")
+
+    And the following will also return ``struct bar *`` objects errantly casted to
+    ``struct foo *``::
+
+        slab_cache_for_each_allocated_object(
+            find_slab_cache(prog, "foo"), "struct foo"
+        )
+
+    Unfortunately, these issues are difficult to work around generally, so one
+    must be prepared to handle them on a case-by-case basis (e.g., by looking
+    up the slab cache by its variable name and by checking that members of the
+    structure make sense for the expected type).
+
+    :param slab_cache: ``struct kmem_cache *``
+    """
+    return slab_cache.refcount > 1
 
 
 def for_each_slab_cache(prog: Program) -> Iterator[Object]:

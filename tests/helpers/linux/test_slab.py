@@ -1,11 +1,15 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from collections import defaultdict
+from pathlib import Path
+
 from drgn.helpers.linux.kconfig import get_kconfig
 from drgn.helpers.linux.slab import (
     find_slab_cache,
     for_each_slab_cache,
     slab_cache_for_each_allocated_object,
+    slab_cache_is_merged,
 )
 from tests.linux_kernel import LinuxKernelTestCase
 
@@ -47,6 +51,38 @@ class TestSlab(LinuxKernelTestCase):
             else:
                 raise Exception("couldn't find slab allocator config option")
             cls.allocator = allocator
+
+    def _slab_cache_aliases(self):
+        slab_path = Path("/sys/kernel/slab")
+        if not slab_path.exists():
+            self.skipTest(f"{slab_path} does not exist")
+        aliases = defaultdict(list)
+        for child in slab_path.iterdir():
+            if not child.name.startswith(":"):
+                aliases[child.stat().st_ino].append(child.name)
+        return aliases
+
+    def test_slab_cache_is_merged_false(self):
+        for aliases in self._slab_cache_aliases().values():
+            if len(aliases) == 1:
+                break
+        else:
+            self.skipTest("no unmerged slab caches")
+        self.assertFalse(slab_cache_is_merged(find_slab_cache(self.prog, aliases[0])))
+
+    def test_slab_cache_is_merged_true(self):
+        for aliases in self._slab_cache_aliases().values():
+            if len(aliases) > 1:
+                break
+        else:
+            self.skipTest("no merged slab caches")
+        for alias in aliases:
+            slab_cache = find_slab_cache(self.prog, alias)
+            if slab_cache is not None:
+                break
+        else:
+            self.fail("couldn't find slab cache")
+        self.assertTrue(slab_cache_is_merged(slab_cache))
 
     def test_for_each_slab_cache(self):
         try:
