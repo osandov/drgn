@@ -197,8 +197,15 @@ async def main() -> None:
         help="build and upload latest supported kernel releases",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
+        "--no-build",
+        dest="build",
+        action="store_false",
+        help="don't build or upload anything; just log what would be built",
+    )
+    parser.add_argument(
+        "--no-upload",
+        dest="upload",
+        action="store_false",
         help="build but don't upload anything to GitHub",
     )
     parser.add_argument(
@@ -219,13 +226,13 @@ async def main() -> None:
         "--no-keep-builds",
         dest="keep_builds",
         action="store_false",
-        help="delete kernel builds after packaging (default unless dry run)",
+        help="delete kernel builds after packaging (default if uploading)",
         default=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--keep-builds",
         action="store_true",
-        help="keep kernel builds after packaging (default if dry run)",
+        help="keep kernel builds after packaging (default if not uploading)",
         default=argparse.SUPPRESS,
     )
     parser.add_argument(
@@ -237,14 +244,16 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
+    if not args.build:
+        args.upload = False
     if not hasattr(args, "keep_builds"):
-        args.keep_builds = args.dry_run
+        args.keep_builds = not args.upload
 
     arch = "x86_64"
 
     async with aiohttp.ClientSession(trust_env=True) as session:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-        if GITHUB_TOKEN is None and not args.dry_run:
+        if GITHUB_TOKEN is None and args.upload:
             sys.exit("GITHUB_TOKEN environment variable is not set")
         gh = AioGitHubApi(session, GITHUB_TOKEN)
 
@@ -286,39 +295,43 @@ async def main() -> None:
                     for tag, flavors in to_build
                 ),
             )
-
-            if not args.dry_run:
-                upload_queue: "asyncio.Queue[Optional[AssetUploadWork]]" = (
-                    asyncio.Queue()
-                )
-                uploader = asyncio.create_task(asset_uploader(gh, upload_queue))
-
-            await fetch_kernel_tags(args.kernel_directory, [tag for tag, _ in to_build])
-
-            async for kernel_package in build_kernels(
-                args.kernel_directory,
-                args.build_directory,
-                arch,
-                to_build,
-                args.keep_builds,
-            ):
-                if args.dry_run:
-                    logger.info("would upload %s", kernel_package)
-                else:
-                    await upload_queue.put(
-                        AssetUploadWork(
-                            upload_url=github_release["upload_url"],
-                            path=kernel_package,
-                            name=kernel_package.name,
-                            content_type="application/zstd",
-                        )
+            if args.build:
+                if args.upload:
+                    upload_queue: "asyncio.Queue[Optional[AssetUploadWork]]" = (
+                        asyncio.Queue()
                     )
+                    uploader = asyncio.create_task(asset_uploader(gh, upload_queue))
 
-            if not args.dry_run:
-                await upload_queue.put(None)
-                await upload_queue.join()
-                if not await uploader:
-                    sys.exit("some uploads failed")
+                await fetch_kernel_tags(
+                    args.kernel_directory, [tag for tag, _ in to_build]
+                )
+
+                async for kernel_package in build_kernels(
+                    args.kernel_directory,
+                    args.build_directory,
+                    arch,
+                    to_build,
+                    args.keep_builds,
+                ):
+                    if args.upload:
+                        await upload_queue.put(
+                            AssetUploadWork(
+                                upload_url=github_release["upload_url"],
+                                path=kernel_package,
+                                name=kernel_package.name,
+                                content_type="application/zstd",
+                            )
+                        )
+                    else:
+                        logger.info("would upload %s", kernel_package)
+
+                if args.upload:
+                    await upload_queue.put(None)
+                    await upload_queue.join()
+                    if not await uploader:
+                        sys.exit("some uploads failed")
+        else:
+            logger.info("nothing to build")
 
 
 if __name__ == "__main__":
