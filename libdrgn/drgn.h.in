@@ -2674,6 +2674,8 @@ static inline size_t drgn_type_num_parents(struct drgn_type *type)
    return type->_private.num_parents;
 }
 
+struct drgn_error *drgn_type_dwarf_die(struct drgn_type *type, Dwarf_Die *ret);
+
 /**
  * Get the object corresponding to a @ref drgn_type_member.
  *

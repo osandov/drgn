@@ -7869,3 +7869,13 @@ err:
 	free(ancestors);
 	return err;
 }
+
+LIBDRGN_PUBLIC struct drgn_error *drgn_type_dwarf_die(struct drgn_type *type,
+						      Dwarf_Die *ret)
+{
+	*ret = (Dwarf_Die){
+		.addr = type->_private.die_addr,
+		.cu = type->_private.die_cu,
+	};
+	return NULL;
+}
