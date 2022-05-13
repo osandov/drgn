@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest10"
+        localversion = "-vmtest11"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -171,6 +171,7 @@ class KBuild:
         self._kernel_dir = kernel_dir
         self._flavor = flavor
         self._arch = arch
+        self._srcarch = {"x86_64": "x86"}.get(arch, arch)
         self._build_stdout = build_log_file
         self._build_stderr = (
             None if build_log_file is None else asyncio.subprocess.STDOUT
@@ -219,6 +220,7 @@ class KBuild:
                 "KBUILD_ABS_SRCTREE=1",
                 "KBUILD_BUILD_USER=drgn",
                 "KBUILD_BUILD_HOST=drgn",
+                "HOSTCFLAGS=" + cflags,
                 "KAFLAGS=" + cflags,
                 "KCFLAGS=" + cflags,
                 "-j",
@@ -285,6 +287,145 @@ class KBuild:
         )
         logger.info("built kernel %s in %s", kernel_release, self._build_dir)
 
+    def _copy_module_build(self, modules_dir: Path) -> None:
+        logger.info("copying module build files")
+
+        # `make modules_install` creates these as symlinks to the absolute path
+        # of the source directory. Delete them, populate build, and make source
+        # a symlink to build.
+        modules_build_dir = modules_dir / "build"
+        modules_source_dir = modules_dir / "source"
+        modules_build_dir.unlink()
+        modules_build_dir.mkdir()
+        modules_source_dir.unlink()
+        modules_source_dir.symlink_to("build")
+
+        # Files and directories (as glob patterns) required for external module
+        # builds. This list was determined through trial and error.
+        files = (
+            ".config",
+            "Module.symvers",
+            f"arch/{self._srcarch}/Makefile",
+            "scripts/Kbuild.include",
+            "scripts/Makefile*",
+            "scripts/basic/fixdep",
+            "scripts/gcc-goto.sh",
+            "scripts/gcc-version.sh",
+            "scripts/mod/modpost",
+            "scripts/module-common.lds",
+            "scripts/module.lds",
+            "scripts/modules-check.sh",
+            "scripts/pahole-flags.sh",
+            "scripts/pahole-version.sh",
+            "scripts/subarch.include",
+            "tools/objtool/objtool",
+        )
+        directories = (
+            f"arch/{self._srcarch}/include",
+            "include",
+        )
+
+        # Copy from the source and build directories.
+        src_dirs = [self._kernel_dir]
+        if not self._build_dir.samefile(self._kernel_dir):
+            src_dirs.append(self._build_dir)
+        # The top-level Makefile is a special case because we only want the one
+        # from the source directory; the one in the build directory is a stub.
+        shutil.copy2(
+            self._kernel_dir / "Makefile",
+            modules_build_dir / "Makefile",
+            follow_symlinks=False,
+        )
+        for glob in files:
+            for src_dir in src_dirs:
+                for src_path in src_dir.glob(glob):
+                    dst_path = modules_build_dir / src_path.relative_to(src_dir)
+                    dst_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_path, dst_path, follow_symlinks=False)
+        for glob in directories:
+            for src_dir in src_dirs:
+                for src_path in src_dir.glob(glob):
+                    dst_path = modules_build_dir / src_path.relative_to(src_dir)
+                    dst_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(
+                        src_path, dst_path, symlinks=True, dirs_exist_ok=True
+                    )
+
+    async def _test_external_module_build(self, modules_dir: Path) -> None:
+        logger.info("testing external module build")
+
+        with tempfile.TemporaryDirectory(
+            prefix="test_module.", dir=self._build_dir
+        ) as tmp_name:
+            test_module_dir = Path(tmp_name)
+            (test_module_dir / "test.c").write_text(
+                r"""
+#include <linux/module.h>
+
+static int __init test_init(void)
+{
+	return 0;
+}
+
+module_init(test_init);
+
+MODULE_LICENSE("GPL");
+"""
+            )
+            (test_module_dir / "Makefile").write_text("obj-m := test.o\n")
+            # Execute make and look for errors in its output. It's not
+            # enough to check its exit status because some of the build
+            # scripts limp along (possibly incorrectly) even if they're
+            # missing some files.
+            cmd = (
+                "make",
+                "-C",
+                modules_dir / "build",
+                f"M={test_module_dir.resolve()}",
+            )
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout_task = asyncio.create_task(proc.stdout.readline())
+                stderr_task = asyncio.create_task(proc.stderr.readline())
+                error = False
+                while stdout_task is not None or stderr_task is not None:
+                    aws = []
+                    if stdout_task is not None:
+                        aws.append(stdout_task)
+                    if stderr_task is not None:
+                        aws.append(stderr_task)
+                    done, pending = await asyncio.wait(
+                        aws, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for task in done:
+                        line = task.result()
+                        if b"No such file or directory" in line:
+                            error = True
+                        if task is stdout_task:
+                            sys.stdout.buffer.write(line)
+                            sys.stdout.buffer.flush()
+                            stdout_task = (
+                                asyncio.create_task(proc.stdout.readline())
+                                if line
+                                else None
+                            )
+                        else:
+                            sys.stderr.buffer.write(line)
+                            sys.stderr.buffer.flush()
+                            stderr_task = (
+                                asyncio.create_task(proc.stderr.readline())
+                                if line
+                                else None
+                            )
+            finally:
+                returncode = await proc.wait()
+                if returncode != 0:
+                    raise CalledProcessError(returncode, cmd)
+            if error:
+                raise Exception(f"Command {cmd} output contained error")
+
     async def package(self, output_dir: Path) -> Path:
         make_args = await self._prepare_make()
         kernel_release = await self._kernel_release()
@@ -319,9 +460,6 @@ class KBuild:
                 stdout=self._build_stdout,
                 stderr=self._build_stderr,
             )
-            # Don't want these symlinks.
-            (modules_dir / "build").unlink()
-            (modules_dir / "source").unlink()
 
             logger.info("copying vmlinux")
             vmlinux = modules_dir / "vmlinux"
@@ -337,6 +475,9 @@ class KBuild:
             vmlinuz = modules_dir / "vmlinuz"
             shutil.copy(self._build_dir / image_name, vmlinuz)
             vmlinuz.chmod(0o644)
+
+            self._copy_module_build(modules_dir)
+            await self._test_external_module_build(modules_dir)
 
             logger.info("creating tarball")
             tarball.parent.mkdir(parents=True, exist_ok=True)
