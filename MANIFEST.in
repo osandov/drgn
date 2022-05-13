@@ -3,4 +3,4 @@ recursive-include examples *.py
 recursive-include tests *.py *.zst
 recursive-include tools *.py
 recursive-include vmtest *.c *.py *.rst
-include CONTRIBUTING.rst COPYING pytest.ini util.py vmtest/config
+include CONTRIBUTING.rst COPYING pytest.ini util.py
