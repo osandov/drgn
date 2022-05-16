@@ -19,8 +19,10 @@ from typing import Iterator, Optional, Set, Union
 
 from drgn import FaultError, Object, Program, Type, cast
 from drgn.helpers import escape_ascii_string
+from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mm import for_each_page, page_to_virt
+from drgn.helpers.linux.percpu import per_cpu_ptr
 
 __all__ = (
     "find_slab_cache",
@@ -129,7 +131,6 @@ def slab_cache_for_each_allocated_object(
         freelist_type = prog.type("freelist_idx_t *")
         slub = False
     except LookupError:
-        freelist_type = prog.type("void **")
         slub = True
 
     if slub:
@@ -143,23 +144,26 @@ def slab_cache_for_each_allocated_object(
         except AttributeError:
             raise ValueError("SLOB is not supported") from None
 
-        def _slub_freelist(slab: Object, offset: int) -> Set[int]:
+        def _slub_get_freelist(freelist: Object, freelist_set: Set[int]) -> None:
             # In SLUB, the freelist is a linked list with the next pointer
             # located at ptr + slab_cache->offset.
-            freelist_set = set()
-            freelist = slab.freelist.read_()
+            ptr = freelist.value_()
+            while ptr:
+                freelist_set.add(ptr)
+                ptr = prog.read_word(ptr + freelist_offset)
 
-            while freelist:
-                freelist_set.add(freelist.value_())
-                freelist = cast(freelist_type, freelist + offset)[0].read_()
-            return freelist_set
+        cpu_freelists: Set[int] = set()
+        cpu_slab = slab_cache.cpu_slab.read_()
+        for cpu in for_each_online_cpu(prog):
+            _slub_get_freelist(per_cpu_ptr(cpu_slab, cpu).freelist, cpu_freelists)
 
         def _slab_page_objects(page: Object, slab: Object) -> Iterator[Object]:
-            freelist_set = _slub_freelist(slab, freelist_offset)
+            freelist: Set[int] = set()
+            _slub_get_freelist(slab.freelist, freelist)
             addr = page_to_virt(page).value_() + red_left_pad
             end = addr + slab_cache_size * slab.objects
             while addr < end:
-                if addr not in freelist_set:
+                if addr not in freelist and addr not in cpu_freelists:
                     yield Object(prog, pointer_type, value=addr)
                 addr += slab_cache_size
 
@@ -171,20 +175,28 @@ def slab_cache_for_each_allocated_object(
 
         slab_cache_num = slab_cache.num.value_()
 
+        cpu_cache = slab_cache.cpu_cache.read_()
+        cpu_caches_avail: Set[int] = set()
+        for cpu in for_each_online_cpu(prog):
+            ac = per_cpu_ptr(cpu_cache, cpu)
+            for i in range(ac.avail):
+                cpu_caches_avail.add(ac.entry[i].value_())
+
         def _slab_freelist(slab: Object) -> Set[int]:
             # In SLAB, the freelist is an array of free object indices.
             freelist = cast(freelist_type, slab.freelist)
             return {freelist[i].value_() for i in range(slab.active, slab_cache_num)}
 
         def _slab_page_objects(page: Object, slab: Object) -> Iterator[Object]:
-            freelist_set = _slab_freelist(slab)
+            freelist = _slab_freelist(slab)
             s_mem = slab.s_mem.value_()
             for i in range(slab_cache_num):
-                if i in freelist_set:
+                if i in freelist:
                     continue
-                yield Object(
-                    prog, pointer_type, value=s_mem + i * slab_cache_size + obj_offset
-                )
+                addr = s_mem + i * slab_cache_size + obj_offset
+                if addr in cpu_caches_avail:
+                    continue
+                yield Object(prog, pointer_type, value=addr)
 
     # Linux kernel commit d122019bf061cccc4583eb9ad40bf58c2fe517be ("mm: Split
     # slab into its own type") (in v5.17) moved slab information from struct
