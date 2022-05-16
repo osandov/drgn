@@ -12,6 +12,7 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/rbtree.h>
+#include <linux/slab.h>
 
 // list
 
@@ -99,15 +100,75 @@ static void drgn_test_rbtree_init(void)
 	RB_CLEAR_NODE(&drgn_test_empty_rb_node);
 }
 
-static int __init drgn_test_init(void)
+// slab
+
+const int drgn_test_slob = IS_ENABLED(CONFIG_SLOB);
+struct kmem_cache *drgn_test_kmem_cache;
+
+struct drgn_test_slab_object {
+	int padding[11];
+	int value;
+};
+
+struct drgn_test_slab_object *drgn_test_slab_objects[5];
+
+static void drgn_test_slab_exit(void)
 {
-	drgn_test_list_init();
-	drgn_test_rbtree_init();
+	size_t i;
+
+	if (!drgn_test_kmem_cache)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_slab_objects); i++) {
+		if (drgn_test_slab_objects[i]) {
+			kmem_cache_free(drgn_test_kmem_cache,
+					drgn_test_slab_objects[i]);
+		}
+	}
+	kmem_cache_destroy(drgn_test_kmem_cache);
+}
+
+// Dummy constructor so test slab cache won't get merged.
+static void drgn_test_slab_ctor(void *arg)
+{
+}
+
+static int drgn_test_slab_init(void)
+{
+	size_t i;
+
+	drgn_test_kmem_cache =
+		kmem_cache_create("drgn_test",
+				  sizeof(struct drgn_test_slab_object),
+				  __alignof__(struct drgn_test_slab_object), 0,
+				  drgn_test_slab_ctor);
+	if (!drgn_test_kmem_cache)
+		return -ENOMEM;
+	for (i = 0; i < ARRAY_SIZE(drgn_test_slab_objects); i++) {
+		drgn_test_slab_objects[i] =
+			kmem_cache_alloc(drgn_test_kmem_cache, GFP_KERNEL);
+		if (!drgn_test_slab_objects[i])
+			return -ENOMEM;
+		drgn_test_slab_objects[i]->value = i;
+	}
 	return 0;
 }
 
 static void __exit drgn_test_exit(void)
 {
+	drgn_test_slab_exit();
+}
+
+static int __init drgn_test_init(void)
+{
+	int ret;
+
+	drgn_test_list_init();
+	drgn_test_rbtree_init();
+	ret = drgn_test_slab_init();
+	if (ret)
+		drgn_test_exit();
+	return ret;
 }
 
 module_init(drgn_test_init);

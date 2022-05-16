@@ -4,14 +4,13 @@
 from collections import defaultdict
 from pathlib import Path
 
-from drgn.helpers.linux.kconfig import get_kconfig
 from drgn.helpers.linux.slab import (
     find_slab_cache,
     for_each_slab_cache,
     slab_cache_for_each_allocated_object,
     slab_cache_is_merged,
 )
-from tests.linux_kernel import LinuxKernelTestCase
+from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
 def get_proc_slabinfo_names():
@@ -37,21 +36,6 @@ def fallback_slab_cache_names(prog):
 
 
 class TestSlab(LinuxKernelTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        try:
-            kconfig = get_kconfig(cls.prog)
-        except LookupError:
-            cls.allocator = None
-        else:
-            for allocator in ("SLUB", "SLAB", "SLOB"):
-                if kconfig.get("CONFIG_" + allocator, "n") != "n":
-                    break
-            else:
-                raise Exception("couldn't find slab allocator config option")
-            cls.allocator = allocator
-
     def _slab_cache_aliases(self):
         slab_path = Path("/sys/kernel/slab")
         if not slab_path.exists():
@@ -108,22 +92,26 @@ class TestSlab(LinuxKernelTestCase):
             slab = find_slab_cache(self.prog, name)
             self.assertEqual(name, slab.name.string_())
 
-    def test_get_allocated_slab_objects(self):
-        if self.allocator is None:
-            self.skipTest("couldn't determine slab allocator")
-        elif self.allocator == "SLOB":
+    @skip_unless_have_test_kmod
+    def test_slab_cache_for_each_allocated_object(self):
+        cache = self.prog["drgn_test_kmem_cache"]
+        objects = self.prog["drgn_test_slab_objects"]
+        if self.prog["drgn_test_slob"]:
             self.assertRaisesRegex(
                 ValueError,
                 "SLOB is not supported",
                 next,
                 slab_cache_for_each_allocated_object(
-                    find_slab_cache(self.prog, "dentry"), "struct dentry"
+                    cache, "struct drgn_test_slab_object"
                 ),
             )
         else:
-            self.assertIn(
-                self.prog["init_fs"].root.dentry,
-                slab_cache_for_each_allocated_object(
-                    find_slab_cache(self.prog, "dentry"), "struct dentry"
+            self.assertEqual(
+                sorted(
+                    slab_cache_for_each_allocated_object(
+                        cache, "struct drgn_test_slab_object"
+                    ),
+                    key=lambda obj: obj.value.value_(),
                 ),
+                [objects[i] for i in range(5)],
             )
