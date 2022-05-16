@@ -13,10 +13,12 @@ from distutils.errors import DistutilsError
 from distutils.file_util import copy_file
 import os
 import os.path
+from pathlib import Path
 import re
 import shlex
 import subprocess
 import sys
+import tempfile
 
 from setuptools import Command, find_packages, setup
 from setuptools.command.build_ext import build_ext as _build_ext
@@ -188,9 +190,49 @@ class test(Command):
         test = unittest.main(module=None, argv=argv, exit=False)
         return test.result.wasSuccessful()
 
-    def _run_vm(self, kernel_dir):
-        from pathlib import Path
+    def _build_kmod(self, kernel_dir, kmod):
+        kernel_build_dir = kernel_dir / "build"
+        # External modules can't do out-of-tree builds for some reason, so copy
+        # the source files to a temporary directory and build the module there,
+        # then move it to the final location.
+        kmod_source_dir = Path("tests/linux_kernel/kmod")
+        source_files = ("drgn_test.c", "Makefile")
+        if out_of_date(
+            kmod, *[kmod_source_dir / filename for filename in source_files]
+        ):
+            with tempfile.TemporaryDirectory(dir=kmod.parent) as tmp_name:
+                tmp_dir = Path(tmp_name)
+                # Make sure that header files have the same paths as in the
+                # original kernel build.
+                debug_prefix_map = [
+                    f"{kernel_build_dir.resolve()}=.",
+                    f"{tmp_dir.resolve()}=./drgn_test",
+                ]
+                cflags = " ".join(
+                    ["-fdebug-prefix-map=" + map for map in debug_prefix_map]
+                )
+                for filename in source_files:
+                    copy_file(kmod_source_dir / filename, tmp_dir / filename)
+                if (
+                    subprocess.call(
+                        [
+                            "make",
+                            "-C",
+                            kernel_build_dir,
+                            f"M={tmp_dir.resolve()}",
+                            "KAFLAGS=" + cflags,
+                            "KCFLAGS=" + cflags,
+                            "-j",
+                            str(nproc()),
+                        ]
+                    )
+                    != 0
+                ):
+                    return False
+                (tmp_dir / "drgn_test.ko").rename(kmod)
+        return True
 
+    def _run_vm(self, kernel_dir):
         import vmtest.vm
 
         kernel_release = kernel_dir.name
@@ -198,13 +240,19 @@ class test(Command):
             kernel_release = kernel_release[len("kernel-") :]
         self.announce(f"running tests in VM on Linux {kernel_release}", log.INFO)
 
+        kmod = kernel_dir.parent / f"drgn_test-{kernel_release}.ko"
+        if not self._build_kmod(kernel_dir, kmod):
+            return kernel_release, False
+
         command = rf"""
 set -e
 
 cd {shlex.quote(os.getcwd())}
+export DRGN_TEST_KMOD={shlex.quote(str(kmod))}
 if "$BUSYBOX" [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm unittest discover -t . -s tests/linux_kernel/vmcore {"-v" if self.verbose else ""}
 else
+    "$BUSYBOX" insmod "$DRGN_TEST_KMOD"
     # In Python 3.7 and newer, we can replace these two calls with:
     # unittest discover -k 'tests.linux_kernel.*' -k 'tests.helpers.linux.*'
     DRGN_RUN_LINUX_KERNEL_TESTS=1 "$PYTHON" -Bm \
@@ -229,8 +277,6 @@ fi
         return kernel_release, returncode == 0
 
     def run(self):
-        from pathlib import Path
-
         from vmtest.download import download_kernels_in_thread
 
         # Start downloads ASAP so that they're hopefully done by the time we

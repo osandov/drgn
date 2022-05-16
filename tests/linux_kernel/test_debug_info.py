@@ -47,7 +47,7 @@ class TestModuleDebugInfo(LinuxKernelTestCase):
             else:
                 prog = Program()
                 prog.set_kernel()
-                prog.load_default_debug_info()
+                self._load_debug_info(prog)
             self.assertEqual(prog.symbol(self.SYMBOL).address, self.symbol_address)
 
     def test_module_debug_info_use_proc_and_sys(self):

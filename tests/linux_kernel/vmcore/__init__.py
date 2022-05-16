@@ -6,6 +6,7 @@ import unittest
 
 import drgn
 from tests import TestCase
+from tests.linux_kernel import LinuxKernelTestCase
 
 VMCORE_PATH = Path("/proc/vmcore")
 
@@ -21,5 +22,5 @@ class LinuxVMCoreTestCase(TestCase):
         if LinuxVMCoreTestCase.prog is None:
             prog = drgn.Program()
             prog.set_core_dump(VMCORE_PATH)
-            prog.load_default_debug_info()
+            LinuxKernelTestCase._load_debug_info(prog)
             LinuxVMCoreTestCase.prog = prog

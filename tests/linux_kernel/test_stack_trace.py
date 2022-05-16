@@ -31,7 +31,7 @@ class TestStackTrace(LinuxKernelTestCase):
             else:
                 prog = Program()
                 prog.set_kernel()
-                prog.load_default_debug_info()
+                self._load_debug_info(prog)
             pid = fork_and_pause()
             wait_until(proc_blocked, pid)
             self.assertIn("pause", str(prog.stack_trace(pid)))

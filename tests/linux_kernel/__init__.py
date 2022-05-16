@@ -19,6 +19,15 @@ class LinuxKernelTestCase(TestCase):
     prog = None
     skip_reason = None
 
+    @staticmethod
+    def _load_debug_info(prog):
+        paths = []
+        try:
+            paths.append(os.environ["DRGN_TEST_KMOD"])
+        except KeyError:
+            pass
+        prog.load_debug_info(paths, True)
+
     @classmethod
     def setUpClass(cls):
         # We only want to create the Program once for all tests, so it's cached
@@ -61,7 +70,7 @@ class LinuxKernelTestCase(TestCase):
                     except FileNotFoundError:
                         pass
                     try:
-                        prog.load_default_debug_info()
+                        cls._load_debug_info(prog)
                         LinuxKernelTestCase.prog = prog
                         return
                     except drgn.MissingDebugInfoError as e:
@@ -71,6 +80,11 @@ class LinuxKernelTestCase(TestCase):
             else:
                 LinuxKernelTestCase.skip_reason = "env DRGN_RUN_LINUX_KERNEL_TESTS=0"
         raise unittest.SkipTest(LinuxKernelTestCase.skip_reason)
+
+
+skip_unless_have_test_kmod = unittest.skipUnless(
+    "DRGN_TEST_KMOD" in os.environ, "test requires drgn_test Linux kernel module"
+)
 
 
 def wait_until(fn, *args, **kwds):

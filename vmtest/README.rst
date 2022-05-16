@@ -42,8 +42,11 @@ This infrastructure is all generic. The drgn-specific parts are:
    kernel releases are built and uploaded by a `GitHub Actions workflow
    <../.github/workflows/vmtest-build.yml>`_. The packages are downloaded by
    the `vmtest.download <download.py>`_ module.
-2. The test command itself. This is just some ``setup.py`` glue and the proper
-   invocation of the Python `unittest command line interface
+2. A `kernel module <../tests/linux_kernel/kmod>`_ for testing drgn
+   functionality that cannot be tested through userspace APIs.
+3. The test command itself. This is just some ``setup.py`` glue to build the
+   test kernel module and run the VM with the proper invocation of the Python
+   `unittest command line interface
    <https://docs.python.org/3/library/unittest.html#test-discovery>`_.
 
 The ``vmtest.vm`` and ``vmtest.download`` modules also have CLIs for testing
