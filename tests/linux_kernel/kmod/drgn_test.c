@@ -24,6 +24,16 @@ struct drgn_test_list_entry {
 struct drgn_test_list_entry drgn_test_list_entries[3];
 struct drgn_test_list_entry drgn_test_singular_list_entry;
 
+HLIST_HEAD(drgn_test_empty_hlist);
+HLIST_HEAD(drgn_test_full_hlist);
+
+struct drgn_test_hlist_entry {
+	struct hlist_node node;
+	int value;
+};
+
+struct drgn_test_hlist_entry drgn_test_hlist_entries[3];
+
 static void drgn_test_list_init(void)
 {
 	size_t i;
@@ -33,6 +43,11 @@ static void drgn_test_list_init(void)
 			      &drgn_test_full_list);
 	}
 	list_add(&drgn_test_singular_list_entry.node, &drgn_test_singular_list);
+
+	for (i = ARRAY_SIZE(drgn_test_hlist_entries); i-- > 0;) {
+		hlist_add_head(&drgn_test_hlist_entries[i].node,
+			       &drgn_test_full_hlist);
+	}
 }
 
 static int __init drgn_test_init(void)

@@ -6,6 +6,9 @@ import unittest
 
 from drgn import NULL
 from drgn.helpers.linux.list import (
+    hlist_empty,
+    hlist_for_each,
+    hlist_for_each_entry,
     list_empty,
     list_first_entry,
     list_first_entry_or_null,
@@ -155,4 +158,45 @@ class TestList(LinuxKernelTestCase):
                 )
             ),
             [self.singular_entry],
+        )
+
+
+@skip_unless_have_test_kmod
+class TestHlist(LinuxKernelTestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.empty = cls.prog["drgn_test_empty_hlist"].address_of_()
+        cls.full = cls.prog["drgn_test_full_hlist"].address_of_()
+        cls.entries = cls.prog["drgn_test_hlist_entries"]
+        cls.num_entries = 3
+
+    def node(self, n):
+        return self.entries[n].node.address_of_()
+
+    def entry(self, n):
+        return self.entries[n].address_of_()
+
+    def test_hlist_empty(self):
+        self.assertTrue(hlist_empty(self.empty))
+        self.assertFalse(hlist_empty(self.full))
+
+    def test_hlist_for_each(self):
+        self.assertEqual(list(hlist_for_each(self.empty)), [])
+        self.assertEqual(
+            list(hlist_for_each(self.full)),
+            [self.node(i) for i in range(self.num_entries)],
+        )
+
+    def test_hlist_for_each_entry(self):
+        self.assertEqual(
+            list(
+                hlist_for_each_entry("struct drgn_test_hlist_entry", self.empty, "node")
+            ),
+            [],
+        )
+        self.assertEqual(
+            list(
+                hlist_for_each_entry("struct drgn_test_hlist_entry", self.full, "node")
+            ),
+            [self.entry(i) for i in range(self.num_entries)],
         )
