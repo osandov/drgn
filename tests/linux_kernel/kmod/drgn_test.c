@@ -55,6 +55,7 @@ static void drgn_test_list_init(void)
 
 // rbtree
 
+struct rb_root drgn_test_empty_rb_root = RB_ROOT;
 struct rb_root drgn_test_rb_root = RB_ROOT;
 
 struct drgn_test_rb_entry {

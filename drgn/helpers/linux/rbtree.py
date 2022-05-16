@@ -26,6 +26,15 @@ __all__ = (
 )
 
 
+def RB_EMPTY_ROOT(root: Object) -> bool:
+    """
+    Return whether a red-black tree is empty.
+
+    :param node: ``struct rb_root *``
+    """
+    return not root.rb_node
+
+
 def RB_EMPTY_NODE(node: Object) -> bool:
     """
     Return whether a red-black tree node is empty, i.e., not inserted in a

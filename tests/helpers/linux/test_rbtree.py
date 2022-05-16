@@ -8,6 +8,7 @@ import signal
 from drgn import NULL
 from drgn.helpers.linux.rbtree import (
     RB_EMPTY_NODE,
+    RB_EMPTY_ROOT,
     rb_find,
     rb_first,
     rb_last,
@@ -33,6 +34,12 @@ class TestRbtree(LinuxKernelTestCase):
 
     def entry(self, n):
         return self.entries[n].address_of_()
+
+    def test_RB_EMPTY_ROOT(self):
+        self.assertTrue(
+            RB_EMPTY_ROOT(self.prog["drgn_test_empty_rb_root"].address_of_())
+        )
+        self.assertFalse(RB_EMPTY_ROOT(self.root))
 
     def test_RB_EMPTY_NODE(self):
         self.assertTrue(
