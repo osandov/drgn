@@ -148,12 +148,20 @@ class test(Command):
         "4.4",
     ]
 
+    KERNEL_FLAVORS = ["default", "alternative", "tiny"]
+
     user_options = [
         (
             "kernel",
             "K",
-            "run Linux kernel helper tests in a virtual machine on all supported kernels "
+            "run Linux kernel tests in a virtual machine on all supported kernels "
             f"({', '.join(KERNELS)})",
+        ),
+        (
+            "all-kernel-flavors",
+            "F",
+            "when combined with -K, run Linux kernel tests on all supported flavors "
+            f"({', '.join(KERNEL_FLAVORS)}) instead of just the default flavor",
         ),
         (
             "extra-kernels=",
@@ -170,13 +178,17 @@ class test(Command):
 
     def initialize_options(self):
         self.kernel = False
+        self.all_kernel_flavors = False
         self.extra_kernels = ""
         self.vmtest_dir = None
 
     def finalize_options(self):
         self.kernels = [kernel for kernel in self.extra_kernels.split(",") if kernel]
         if self.kernel:
-            self.kernels.extend(kernel + ".*" for kernel in test.KERNELS)
+            flavors = test.KERNEL_FLAVORS if self.all_kernel_flavors else [""]
+            self.kernels.extend(
+                kernel + ".*" + flavor for kernel in test.KERNELS for flavor in flavors
+            )
         if self.vmtest_dir is None:
             build_base = self.get_finalized_command("build").build_base
             self.vmtest_dir = os.path.join(build_base, "vmtest")
