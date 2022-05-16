@@ -5,146 +5,95 @@ import os
 import re
 import signal
 
-from drgn import Object, container_of
-from drgn.helpers.linux.pid import find_task
+from drgn import NULL
 from drgn.helpers.linux.rbtree import (
+    RB_EMPTY_NODE,
     rb_find,
     rb_first,
     rb_last,
     rb_next,
+    rb_parent,
     rb_prev,
     rbtree_inorder_for_each,
     rbtree_inorder_for_each_entry,
 )
-from tests.linux_kernel import LinuxKernelTestCase, fork_and_pause
+from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
+@skip_unless_have_test_kmod
 class TestRbtree(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
-        # It'd be nice to just use addClassCleanup(), but that was added in
-        # Python 3.8.
-        cls.__cleanups = []
-        try:
-            super().setUpClass()
+        cls.root = cls.prog["drgn_test_rb_root"].address_of_()
+        cls.entries = cls.prog["drgn_test_rb_entries"]
+        cls.num_entries = 4
 
-            pid = fork_and_pause()
-            cls.__cleanups.append((os.waitpid, pid, 0))
-            cls.__cleanups.append((os.kill, pid, signal.SIGKILL))
+    def node(self, n):
+        return self.entries[n].node.address_of_()
 
-            cls.keys = []
-            with open(f"/proc/{pid}/maps") as f:
-                for line in f:
-                    if line.endswith("[vsyscall]\n"):
-                        # This isn't included in the VMA tree.
-                        continue
-                    match = re.match(r"([0-9a-f]+)-([0-9a-f]+)", line)
-                    cls.keys.append((int(match.group(1), 16), int(match.group(2), 16)))
+    def entry(self, n):
+        return self.entries[n].address_of_()
 
-            cls.rb_root = find_task(cls.prog, pid).mm.mm_rb.address_of_()
-            cls.ENTRY_TYPE = cls.prog.type("struct vm_area_struct")
-            cls.NODE_MEMBER = "vm_rb"
-        except:
-            for cleanup in reversed(cls.__cleanups):
-                cleanup[0](*cleanup[1:])
-            raise
+    def test_RB_EMPTY_NODE(self):
+        self.assertTrue(
+            RB_EMPTY_NODE(self.prog["drgn_test_empty_rb_node"].address_of_())
+        )
+        self.assertFalse(RB_EMPTY_NODE(self.node(0)))
 
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        for cleanup in reversed(cls.__cleanups):
-            cleanup[0](*cleanup[1:])
-
-    @classmethod
-    def _entry_to_key(cls, entry):
-        return (entry.vm_start.value_(), entry.vm_end.value_())
-
-    @classmethod
-    def _node_to_key(cls, node):
-        entry = container_of(node, cls.ENTRY_TYPE, cls.NODE_MEMBER)
-        return cls._entry_to_key(entry)
-
-    @classmethod
-    def _cmp_key_to_entry(cls, key, entry):
-        entry_key = cls._entry_to_key(entry)
-        if key < entry_key:
-            return -1
-        elif key > entry_key:
-            return 1
-        else:
-            return 0
+    def test_rb_parent(self):
+        if self.root.rb_node.rb_left:
+            self.assertEqual(rb_parent(self.root.rb_node.rb_left), self.root.rb_node)
+        if self.root.rb_node.rb_right:
+            self.assertEqual(rb_parent(self.root.rb_node.rb_right), self.root.rb_node)
 
     def test_rb_first(self):
-        self.assertEqual(
-            self._node_to_key(rb_first(self.rb_root)),
-            self.keys[0],
-        )
+        self.assertEqual(rb_first(self.root), self.node(0))
 
     def test_rb_last(self):
-        self.assertEqual(
-            self._node_to_key(rb_last(self.rb_root)),
-            self.keys[-1],
-        )
-
-    # We don't have a good way to test rb_parent() explicitly, but it's used
-    # internally by rb_next() and rb_prev(), so it still gets some coverage.
+        self.assertEqual(rb_last(self.root), self.node(self.num_entries - 1))
 
     def test_rb_next(self):
-        keys = []
-        node = rb_first(self.rb_root)
-        while node:
-            keys.append(self._node_to_key(node))
-            node = rb_next(node)
-        self.assertEqual(keys, self.keys)
+        for i in range(self.num_entries - 1):
+            self.assertEqual(rb_next(self.node(i)), self.node(i + 1))
+        self.assertEqual(
+            rb_next(self.node(self.num_entries - 1)),
+            NULL(self.prog, "struct rb_node *"),
+        )
 
     def test_rb_prev(self):
-        keys = []
-        node = rb_last(self.rb_root)
-        while node:
-            keys.append(self._node_to_key(node))
-            node = rb_prev(node)
-        self.assertEqual(keys, list(reversed(self.keys)))
+        for i in range(1, self.num_entries):
+            self.assertEqual(rb_prev(self.node(i)), self.node(i - 1))
+        self.assertEqual(rb_prev(self.node(0)), NULL(self.prog, "struct rb_node *"))
 
     def test_rbtree_inorder_for_each(self):
         self.assertEqual(
-            [self._node_to_key(node) for node in rbtree_inorder_for_each(self.rb_root)],
-            self.keys,
+            list(rbtree_inorder_for_each(self.root)),
+            [self.node(i) for i in range(self.num_entries)],
         )
 
     def test_rbtree_inorder_for_each_entry(self):
         self.assertEqual(
-            [
-                self._entry_to_key(entry)
-                for entry in rbtree_inorder_for_each_entry(
-                    self.ENTRY_TYPE, self.rb_root, self.NODE_MEMBER
+            list(
+                rbtree_inorder_for_each_entry(
+                    "struct drgn_test_rb_entry", self.root, "node"
                 )
-            ],
-            self.keys,
+            ),
+            [self.entry(i) for i in range(self.num_entries)],
         )
 
     def test_rb_find(self):
-        for key in self.keys:
-            self.assertEqual(
-                self._entry_to_key(
-                    rb_find(
-                        self.ENTRY_TYPE,
-                        self.rb_root,
-                        self.NODE_MEMBER,
-                        key,
-                        self._cmp_key_to_entry,
-                    )
-                ),
-                key,
-            )
+        def cmp(key, obj):
+            value = obj.value.value_()
+            return key - value
 
-    def test_rb_find_not_found(self):
-        self.assertIdentical(
+        for i in range(self.num_entries):
+            self.assertEqual(
+                rb_find("struct drgn_test_rb_entry", self.root, "node", i, cmp),
+                self.entry(i),
+            )
+        self.assertEqual(
             rb_find(
-                self.ENTRY_TYPE,
-                self.rb_root,
-                self.NODE_MEMBER,
-                None,
-                lambda key, entry: -1,
+                "struct drgn_test_rb_entry", self.root, "node", self.num_entries, cmp
             ),
-            Object(self.prog, self.prog.pointer_type(self.ENTRY_TYPE), 0),
+            NULL(self.prog, "struct drgn_test_rb_entry *"),
         )
