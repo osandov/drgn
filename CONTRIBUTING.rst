@@ -100,8 +100,9 @@ Python
 
 Python code in drgn should be compatible with Python 3.6 and newer.
 
-Python code should be formatted with `black <https://github.com/psf/black>`_
-and `isort <https://github.com/timothycrosley/isort>`_.
+Python code should be formatted with `Black <https://github.com/psf/black>`_
+and `isort <https://github.com/PyCQA/isort>`_ and checked with `flake8
+<https://github.com/PyCQA/flake8>`_.
 
 Type hints should be provided for all interfaces (including helpers and the C
 extension).
