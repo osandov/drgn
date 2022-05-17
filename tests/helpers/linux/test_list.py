@@ -1,10 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from pathlib import Path
-import unittest
+import collections
 
 from drgn import NULL
+from drgn.helpers import ValidationError
 from drgn.helpers.linux.list import (
     hlist_empty,
     hlist_for_each,
@@ -20,6 +20,9 @@ from drgn.helpers.linux.list import (
     list_last_entry,
     list_next_entry,
     list_prev_entry,
+    validate_list,
+    validate_list_for_each,
+    validate_list_for_each_entry,
 )
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
@@ -35,6 +38,7 @@ class TestList(LinuxKernelTestCase):
         cls.singular = cls.prog["drgn_test_singular_list"].address_of_()
         cls.singular_entry = cls.prog["drgn_test_singular_list_entry"].address_of_()
         cls.singular_node = cls.singular_entry.node.address_of_()
+        cls.corrupted = cls.prog["drgn_test_corrupted_list"].address_of_()
 
     def node(self, n):
         return self.entries[n].node.address_of_()
@@ -158,6 +162,42 @@ class TestList(LinuxKernelTestCase):
                 )
             ),
             [self.singular_entry],
+        )
+
+    def test_validate_list(self):
+        for head in (self.empty, self.full, self.singular):
+            validate_list(head)
+        self.assertRaises(ValidationError, validate_list, self.corrupted)
+
+    def test_validate_list_for_each(self):
+        for head in (self.empty, self.full, self.singular):
+            self.assertEqual(
+                list(validate_list_for_each(head)), list(list_for_each(head))
+            )
+        self.assertRaises(
+            ValidationError,
+            collections.deque,
+            validate_list_for_each(self.corrupted),
+            0,
+        )
+
+    def test_validate_list_for_each_entry(self):
+        for head in (self.empty, self.full, self.singular):
+            self.assertEqual(
+                list(
+                    validate_list_for_each_entry(
+                        "struct drgn_test_list_entry", head, "node"
+                    )
+                ),
+                list(list_for_each_entry("struct drgn_test_list_entry", head, "node")),
+            )
+        self.assertRaises(
+            ValidationError,
+            collections.deque,
+            validate_list_for_each_entry(
+                "struct drgn_test_list_entry", self.corrupted, "node"
+            ),
+            0,
         )
 
 

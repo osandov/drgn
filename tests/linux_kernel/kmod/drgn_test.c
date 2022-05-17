@@ -19,6 +19,7 @@
 LIST_HEAD(drgn_test_empty_list);
 LIST_HEAD(drgn_test_full_list);
 LIST_HEAD(drgn_test_singular_list);
+LIST_HEAD(drgn_test_corrupted_list);
 
 struct drgn_test_list_entry {
 	struct list_head node;
@@ -27,6 +28,7 @@ struct drgn_test_list_entry {
 
 struct drgn_test_list_entry drgn_test_list_entries[3];
 struct drgn_test_list_entry drgn_test_singular_list_entry;
+struct drgn_test_list_entry drgn_test_corrupted_list_entries[2];
 
 HLIST_HEAD(drgn_test_empty_hlist);
 HLIST_HEAD(drgn_test_full_hlist);
@@ -37,6 +39,30 @@ struct drgn_test_hlist_entry {
 };
 
 struct drgn_test_hlist_entry drgn_test_hlist_entries[3];
+
+// Emulate a race condition between two threads calling list_add() at the same
+// time.
+static void init_corrupted_list(void)
+{
+	struct list_head *prev = &drgn_test_corrupted_list;
+	struct list_head *next = drgn_test_corrupted_list.next;
+	struct list_head *new1 = &drgn_test_corrupted_list_entries[0].node;
+	struct list_head *new2 = &drgn_test_corrupted_list_entries[1].node;
+
+	// Thread 1 starts list_add().
+	next->prev = new1;
+
+	// Thread 2 races in and does its own list_add().
+	next->prev = new2;
+	new2->next = next;
+	new2->prev = prev;
+	WRITE_ONCE(prev->next, new2);
+
+	// Thread 1 finishes list_add().
+	new1->next = next;
+	new1->prev = prev;
+	WRITE_ONCE(prev->next, new1);
+}
 
 static void drgn_test_list_init(void)
 {
@@ -52,6 +78,8 @@ static void drgn_test_list_init(void)
 		hlist_add_head(&drgn_test_hlist_entries[i].node,
 			       &drgn_test_full_hlist);
 	}
+
+	init_corrupted_list();
 }
 
 // rbtree

@@ -193,6 +193,41 @@ Of course, it would be a waste of time and effort for everyone to have to
 define these helpers for themselves, so drgn includes a collection of helpers
 for many use cases. See :doc:`helpers`.
 
+.. _validators:
+
+Validators
+""""""""""
+
+Validators are a special category of helpers that check the consistency of a
+data structure. In general, helpers assume that the data structures that they
+examine are valid. Validators do not make this assumption and do additional
+(potentially expensive) checks to detect broken invariants, corruption, etc.
+
+Validators raise :class:`drgn.helpers.ValidationError` if the data structure is
+not valid or :class:`drgn.FaultError` if the data structure is invalid in a way
+that causes a bad memory access. They have names prefixed with ``validate_``.
+
+For example, :func:`drgn.helpers.linux.list.validate_list()` checks the
+consistency of a linked list in the Linux kernel (in particular, the
+consistency of the ``next`` and ``prev`` pointers)::
+
+    >>> validate_list(prog["my_list"].address_of_())
+    drgn.helpers.ValidationError: (struct list_head *)0xffffffffc029e460 next 0xffffffffc029e000 has prev 0xffffffffc029e450
+
+:func:`drgn.helpers.linux.list.validate_list_for_each_entry()` does the same
+checks while also returning the entries in the list for further validation:
+
+.. code-block:: python3
+
+   def validate_my_list(prog):
+        for entry in validate_list_for_each_entry(
+            "struct my_entry",
+            prog["my_list"].address_of_(),
+            "list",
+        ):
+            if entry.value < 0:
+                raise ValidationError("list contains negative entry")
+
 Other Concepts
 --------------
 

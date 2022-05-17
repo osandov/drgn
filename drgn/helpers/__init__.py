@@ -24,6 +24,13 @@ from typing import Container, Iterable, Tuple
 from drgn import IntegerLike, Type
 
 
+class ValidationError(Exception):
+    """
+    Error raised by a :ref:`validator <validators>` when an inconsistent or
+    invalid state is detected.
+    """
+
+
 def escape_ascii_character(
     c: int,
     escape_single_quote: bool = False,
