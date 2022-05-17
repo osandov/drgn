@@ -9,9 +9,10 @@ The ``drgn.helpers.linux.rbtree`` module provides helpers for working with
 red-black trees from :linux:`include/linux/rbtree.h`.
 """
 
-from typing import Callable, Iterator, TypeVar, Union
+from typing import Callable, Generator, Iterator, Optional, Tuple, TypeVar, Union
 
 from drgn import NULL, Object, Type, container_of
+from drgn.helpers import ValidationError
 
 __all__ = (
     "RB_EMPTY_ROOT",
@@ -24,6 +25,8 @@ __all__ = (
     "rb_prev",
     "rbtree_inorder_for_each",
     "rbtree_inorder_for_each_entry",
+    "validate_rbtree",
+    "validate_rbtree_inorder_for_each_entry",
 )
 
 
@@ -54,6 +57,12 @@ def rb_parent(node: Object) -> Object:
     :return: ``struct rb_node *``
     """
     return Object(node.prog_, node.type_, value=node.__rb_parent_color.value_() & ~3)
+
+
+# Return parent node and whether the node is black.
+def _rb_parent_color(node: Object) -> Tuple[Object, bool]:
+    value = node.__rb_parent_color.value_()
+    return Object(node.prog_, node.type_, value=value & ~3), (value & 1) != 0
 
 
 def rb_first(root: Object) -> Object:
@@ -221,3 +230,122 @@ def rb_find(
         else:
             return entry
     return NULL(prog, prog.pointer_type(type))
+
+
+def validate_rbtree(
+    type: Union[str, Type],
+    root: Object,
+    member: str,
+    cmp: Callable[[Object, Object], int],
+    allow_equal: bool,
+) -> None:
+    """
+    Validate a red-black tree.
+
+    This checks that:
+
+    1. The tree is a valid binary search tree ordered according to *cmp*.
+    2. If *allow_equal* is ``False``, there are no nodes that compare equal
+       according to *cmp*.
+    3. The ``rb_parent`` pointers are consistent.
+    4. The red-black tree requirements are satisfied: the root node is black,
+       no red node has a red child, and every path from any node to any of its
+       descendant leaf nodes goes through the same number of black nodes.
+    """
+    for _ in validate_rbtree_inorder_for_each_entry(
+        type, root, member, cmp, allow_equal
+    ):
+        pass
+
+
+def validate_rbtree_inorder_for_each_entry(
+    type: Union[str, Type],
+    root: Object,
+    member: str,
+    cmp: Callable[[Object, Object], int],
+    allow_equal: bool,
+) -> Iterator[Object]:
+    prog = root.prog_
+    type = prog.type(type)
+
+    def visit(
+        node: Object,
+        parent_node: Object,
+        parent_entry: Object,
+        parent_is_red: bool,
+        is_left: bool,
+    ) -> Generator[Object, None, int]:
+        if node:
+            node_rb_parent, black = _rb_parent_color(node)
+            if node_rb_parent != parent_node:
+                raise ValidationError(
+                    f"{parent_node.format_(dereference=False, symbolize=False)}"
+                    f" rb_{'left' if is_left else 'right'}"
+                    f" {node.format_(dereference=False, symbolize=False, type_name=False)}"
+                    f" has rb_parent {node_rb_parent.format_(dereference=False, symbolize=False, type_name=False)}"
+                )
+
+            if parent_is_red and not black:
+                raise ValidationError(
+                    f"red node {parent_node.format_(dereference=False, symbolize=False)}"
+                    f" has red child {node.format_(dereference=False, symbolize=False, type_name=False)}"
+                )
+
+            entry = container_of(node, type, member)
+            r = cmp(entry, parent_entry)
+            if r > 0:
+                if is_left:
+                    raise ValidationError(
+                        f"{parent_entry.format_(dereference=False, symbolize=False)}"
+                        f" left child {entry.format_(dereference=False, symbolize=False, type_name=False)}"
+                        " compares greater than it"
+                    )
+            elif r < 0:
+                if not is_left:
+                    raise ValidationError(
+                        f"{parent_entry.format_(dereference=False, symbolize=False)}"
+                        f" right child {entry.format_(dereference=False, symbolize=False, type_name=False)}"
+                        " compares less than it"
+                    )
+            elif not allow_equal:
+                raise ValidationError(
+                    f"{parent_entry.format_(dereference=False, symbolize=False)}"
+                    f" {'left' if is_left else 'right'}"
+                    f" child {entry.format_(dereference=False, symbolize=False, type_name=False)}"
+                    " compares equal to it"
+                )
+
+            return (yield from descend(node, entry, black))
+        else:
+            return 0
+
+    def descend(
+        node: Object, entry: Object, black: bool
+    ) -> Generator[Object, None, int]:
+        left_black_height = yield from visit(
+            node.rb_left.read_(), node, entry, parent_is_red=not black, is_left=True
+        )
+        yield entry
+        right_black_height = yield from visit(
+            node.rb_right.read_(), node, entry, parent_is_red=not black, is_left=False
+        )
+        if left_black_height != right_black_height:
+            raise ValidationError(
+                f"left and right subtrees of {node.format_(dereference=False, symbolize=False)}"
+                f" have unequal black heights ({left_black_height} != {right_black_height})"
+            )
+        return left_black_height + black
+
+    root_node = root.rb_node.read_()
+    if root_node:
+        parent, black = _rb_parent_color(root_node)
+        if parent:
+            raise ValidationError(
+                f"root node {root_node.format_(dereference=False, symbolize=False)}"
+                f" has parent {parent.format_(dereference=False, symbolize=False, type_name=False)}"
+            )
+        if not black:
+            raise ValidationError(
+                f"root node {root_node.format_(dereference=False, symbolize=False)} is red"
+            )
+        yield from descend(root_node, container_of(root_node, type, member), black)

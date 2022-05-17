@@ -12,6 +12,7 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/rbtree.h>
+#include <linux/rbtree_augmented.h>
 #include <linux/slab.h>
 
 // list
@@ -96,6 +97,27 @@ struct drgn_test_rb_entry drgn_test_rb_entries[4];
 
 struct rb_node drgn_test_empty_rb_node;
 
+struct rb_root drgn_test_rbtree_with_equal = RB_ROOT;
+struct drgn_test_rb_entry drgn_test_rb_entries_with_equal[4];
+
+struct rb_root drgn_test_rbtree_out_of_order = RB_ROOT;
+struct drgn_test_rb_entry drgn_test_rb_entries_out_of_order[4];
+
+struct rb_root drgn_test_rbtree_with_bad_root_parent = RB_ROOT;
+struct drgn_test_rb_entry drgn_test_rb_entry_bad_root_parent;
+
+struct rb_root drgn_test_rbtree_with_red_root = RB_ROOT;
+struct drgn_test_rb_entry drgn_test_rb_entry_red_root;
+
+struct rb_root drgn_test_rbtree_with_inconsistent_parents = RB_ROOT;
+struct drgn_test_rb_entry drgn_test_rb_entries_with_inconsistent_parents[2];
+
+struct rb_root drgn_test_rbtree_with_red_violation = RB_ROOT;
+struct drgn_test_rb_entry drgn_test_rb_entries_with_red_violation[3];
+
+struct rb_root drgn_test_rbtree_with_black_violation = RB_ROOT;
+struct drgn_test_rb_entry drgn_test_rb_entries_with_black_violation[2];
+
 static void drgn_test_rbtree_insert(struct rb_root *root,
 				    struct drgn_test_rb_entry *entry)
 {
@@ -118,6 +140,7 @@ static void drgn_test_rbtree_insert(struct rb_root *root,
 
 static void drgn_test_rbtree_init(void)
 {
+	struct rb_node *node;
 	size_t i;
 
 	for (i = 0; i < ARRAY_SIZE(drgn_test_rb_entries); i++) {
@@ -126,6 +149,64 @@ static void drgn_test_rbtree_init(void)
 					&drgn_test_rb_entries[i]);
 	}
 	RB_CLEAR_NODE(&drgn_test_empty_rb_node);
+
+	// Red-black tree with entries that compare equal to each other.
+	for (i = 0; i < ARRAY_SIZE(drgn_test_rb_entries_with_equal); i++) {
+		drgn_test_rb_entries_with_equal[i].value = i / 2;
+		drgn_test_rbtree_insert(&drgn_test_rbtree_with_equal,
+					&drgn_test_rb_entries_with_equal[i]);
+	}
+
+	// Bad red-black tree whose entries are out of order.
+	for (i = 0; i < ARRAY_SIZE(drgn_test_rb_entries_out_of_order); i++) {
+		drgn_test_rb_entries_out_of_order[i].value = i;
+		drgn_test_rbtree_insert(&drgn_test_rbtree_out_of_order,
+					&drgn_test_rb_entries_out_of_order[i]);
+	}
+	drgn_test_rb_entries_out_of_order[0].value = 99;
+
+	// Bad red-black tree with a root node that has a non-NULL parent.
+	drgn_test_rbtree_insert(&drgn_test_rbtree_with_bad_root_parent,
+				&drgn_test_rb_entry_bad_root_parent);
+	rb_set_parent(&drgn_test_rb_entry_bad_root_parent.node,
+		      &drgn_test_empty_rb_node);
+
+	// Bad red-black tree with a red root node.
+	rb_link_node(&drgn_test_rb_entry_red_root.node, NULL,
+		     &drgn_test_rbtree_with_red_root.rb_node);
+
+	// Bad red-black tree with inconsistent rb_parent.
+	for (i = 0; i < ARRAY_SIZE(drgn_test_rb_entries_with_inconsistent_parents); i++) {
+		drgn_test_rb_entries_with_inconsistent_parents[i].value = i;
+		drgn_test_rbtree_insert(&drgn_test_rbtree_with_inconsistent_parents,
+					&drgn_test_rb_entries_with_inconsistent_parents[i]);
+	}
+	node = drgn_test_rbtree_with_inconsistent_parents.rb_node;
+	rb_set_parent(node->rb_left ? node->rb_left : node->rb_right,
+		      &drgn_test_empty_rb_node);
+
+	// Bad red-black tree with red node with red child.
+	for (i = 0; i < ARRAY_SIZE(drgn_test_rb_entries_with_red_violation); i++)
+		drgn_test_rb_entries_with_red_violation[i].value = i;
+	drgn_test_rbtree_insert(&drgn_test_rbtree_with_red_violation,
+				&drgn_test_rb_entries_with_red_violation[0]);
+	rb_link_node(&drgn_test_rb_entries_with_red_violation[1].node,
+		     &drgn_test_rb_entries_with_red_violation[0].node,
+		     &drgn_test_rb_entries_with_red_violation[0].node.rb_right);
+	rb_link_node(&drgn_test_rb_entries_with_red_violation[2].node,
+		     &drgn_test_rb_entries_with_red_violation[1].node,
+		     &drgn_test_rb_entries_with_red_violation[1].node.rb_right);
+
+	// Bad red-black tree with unequal number of black nodes in paths from
+	// root to leaves.
+	for (i = 0; i < ARRAY_SIZE(drgn_test_rb_entries_with_black_violation); i++)
+		drgn_test_rb_entries_with_black_violation[i].value = i;
+	drgn_test_rbtree_insert(&drgn_test_rbtree_with_black_violation,
+				&drgn_test_rb_entries_with_black_violation[0]);
+	rb_link_node(&drgn_test_rb_entries_with_black_violation[1].node,
+		     &drgn_test_rb_entries_with_black_violation[0].node,
+		     &drgn_test_rb_entries_with_black_violation[0].node.rb_right);
+	drgn_test_rb_entries_with_black_violation[1].node.__rb_parent_color |= RB_BLACK;
 }
 
 // slab
