@@ -244,17 +244,14 @@ class test(Command):
                 (tmp_dir / "drgn_test.ko").rename(kmod)
         return True
 
-    def _run_vm(self, kernel_dir):
+    def _run_vm(self, kernel_dir, kernel_release):
         import vmtest.vm
 
-        kernel_release = kernel_dir.name
-        if kernel_release.startswith("kernel-"):
-            kernel_release = kernel_release[len("kernel-") :]
         self.announce(f"running tests in VM on Linux {kernel_release}", log.INFO)
 
         kmod = kernel_dir.parent / f"drgn_test-{kernel_release}.ko"
         if not self._build_kmod(kernel_dir, kmod):
-            return kernel_release, False
+            return False
 
         command = rf"""
 set -e
@@ -278,14 +275,30 @@ fi
             )
         except vmtest.vm.LostVMError as e:
             self.announce(f"error on Linux {kernel_release}: {e}", log.ERROR)
-            return kernel_release, False
+            return False
         self.announce(
             f"Tests in VM on Linux {kernel_release} returned {returncode}", log.INFO
         )
-        return kernel_release, returncode == 0
+        return returncode == 0
 
     def run(self):
         from vmtest.download import download_kernels_in_thread
+
+        if os.getenv("GITHUB_ACTIONS") == "true":
+
+            @contextlib.contextmanager
+            def github_workflow_group(title):
+                print("::group::" + title, flush=True)
+                try:
+                    yield
+                finally:
+                    print("::endgroup::", flush=True)
+
+        else:
+
+            @contextlib.contextmanager
+            def github_workflow_group(title):
+                yield
 
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
@@ -294,27 +307,36 @@ fi
         ) as kernel_downloads:
             if self.kernels:
                 self.announce("downloading kernels in the background", log.INFO)
-            self.run_command("egg_info")
-            self.reinitialize_command("build_ext", inplace=1)
-            self.run_command("build_ext")
+
+            with github_workflow_group("Build extension"):
+                self.run_command("egg_info")
+                self.reinitialize_command("build_ext", inplace=1)
+                self.run_command("build_ext")
 
             passed = []
             failed = []
 
-            if self.kernels:
-                self.announce("running tests locally", log.INFO)
-            if self._run_local():
-                passed.append("local")
-            else:
-                failed.append("local")
+            with github_workflow_group("Run unit tests"):
+                if self.kernels:
+                    self.announce("running tests locally", log.INFO)
+                    if self._run_local():
+                        passed.append("local")
+                    else:
+                        failed.append("local")
 
             if self.kernels:
                 for kernel in kernel_downloads:
-                    kernel_release, success = self._run_vm(kernel)
-                    if success:
-                        passed.append(kernel_release)
-                    else:
-                        failed.append(kernel_release)
+                    kernel_release = kernel.name
+                    if kernel_release.startswith("kernel-"):
+                        kernel_release = kernel_release[len("kernel-") :]
+
+                    with github_workflow_group(
+                        f"Run integration tests on Linux {kernel_release}"
+                    ):
+                        if self._run_vm(kernel, kernel_release):
+                            passed.append(kernel_release)
+                        else:
+                            failed.append(kernel_release)
 
                 if passed:
                     self.announce(f'Passed: {", ".join(passed)}', log.INFO)
