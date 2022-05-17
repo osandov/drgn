@@ -3,7 +3,6 @@
 
 import os
 import socket
-import sys
 import tempfile
 
 from drgn import cast

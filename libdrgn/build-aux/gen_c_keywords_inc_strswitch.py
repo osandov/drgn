@@ -46,7 +46,7 @@ def main() -> None:
         else:
             print(f"\t\treturn {token_kind};")
     print("\t@default@")
-    print(f"\t\treturn C_TOKEN_IDENTIFIER;")
+    print("\t\treturn C_TOKEN_IDENTIFIER;")
     print("\t@endswitch@")
     print("}")
 

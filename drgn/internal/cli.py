@@ -25,7 +25,6 @@ def _identify_script(path: str) -> str:
         header = f.read(EI_NIDENT + SIZEOF_E_TYPE)
 
     ELFMAG = b"\177ELF"
-    SELFMAG = 4
     EI_DATA = 5
     ELFDATA2LSB = 1
     ELFDATA2MSB = 2

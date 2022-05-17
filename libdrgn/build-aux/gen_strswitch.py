@@ -51,9 +51,7 @@ String switches may be nested.
 """
 
 import argparse
-import ast
 import operator
-import os
 import re
 import sys
 from typing import Any, Dict, List, NamedTuple, Optional, TextIO, Union
@@ -178,7 +176,7 @@ def handle_switch_directive(
     switches: List[StrSwitch],
     switch_counts: Dict[str, int],
 ) -> None:
-    match = re.fullmatch(r"((\s*)@\s*" + directive + "\s*\()(.*)\)\s*@\s*", line.line)
+    match = re.fullmatch(r"((\s*)@\s*" + directive + r"\s*\()(.*)\)\s*@\s*", line.line)
     if not match:
         raise CodeGenError(f"invalid {directive} directive", line.filename, line.lineno)
 
@@ -523,9 +521,9 @@ def handle_endswitch_directive(
 ) -> None:
     match = re.fullmatch(r"\s*@\s*endswitch\s*@\s*", line.line)
     if not match:
-        raise CodeGenError(f"invalid endswitch directive", line.line, line.lineno)
+        raise CodeGenError("invalid endswitch directive", line.line, line.lineno)
     if not switches:
-        raise CodeGenError(f"unmatched endswitch", line.filename, line.lineno)
+        raise CodeGenError("unmatched endswitch", line.filename, line.lineno)
 
     switch = switches.pop()
     if switches:

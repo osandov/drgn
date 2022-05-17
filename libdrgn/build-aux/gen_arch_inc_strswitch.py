@@ -166,8 +166,8 @@ def gen_arch_inc_strswitch(in_file: TextIO, in_filename: str, out_file: TextIO) 
         for name in register.names:
             out_file.write(f"\t@case {c_string_literal(name)}@\n")
             out_file.write(f"\t\treturn &registers[{i}];\n")
-    out_file.write(f"\t@default@\n")
-    out_file.write(f"\t\treturn NULL;\n")
+    out_file.write("\t@default@\n")
+    out_file.write("\t\treturn NULL;\n")
     out_file.write("\t@endswitch@\n")
     out_file.write("}\n")
 

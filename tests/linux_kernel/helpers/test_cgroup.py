@@ -85,7 +85,7 @@ class TestCgroup(LinuxKernelTestCase):
             finally:
                 os.kill(pid, signal.SIGKILL)
                 os.waitpid(pid, 0)
-        except:
+        except BaseException:
             for cleanup in reversed(cls.__cleanups):
                 cleanup[0](*cleanup[1:])
             raise

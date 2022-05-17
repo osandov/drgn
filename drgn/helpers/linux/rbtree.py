@@ -9,7 +9,7 @@ The ``drgn.helpers.linux.rbtree`` module provides helpers for working with
 red-black trees from :linux:`include/linux/rbtree.h`.
 """
 
-from typing import Callable, Generator, Iterator, Optional, Tuple, TypeVar, Union
+from typing import Callable, Generator, Iterator, Tuple, TypeVar, Union
 
 from drgn import NULL, Object, Type, container_of
 from drgn.helpers import ValidationError

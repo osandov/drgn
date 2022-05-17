@@ -60,7 +60,7 @@ def _download_kernel(gh: GitHubApi, url: str, dir: Path) -> None:
             raise subprocess.CalledProcessError(zstd_proc.returncode, zstd_proc.args)
         if tar_proc.returncode != 0:
             raise subprocess.CalledProcessError(tar_proc.returncode, tar_proc.args)
-    except:
+    except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
     else:

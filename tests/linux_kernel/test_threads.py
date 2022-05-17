@@ -25,7 +25,7 @@ class TestThreads(LinuxKernelTestCase):
                 self.assertIn(proc.pid, pids)
             self.assertIn(os.getpid(), pids)
             barrier.wait()
-        except:
+        except BaseException:
             barrier.abort()
             for proc in procs:
                 proc.terminate()

@@ -6,7 +6,7 @@ import os.path
 
 from tests.assembler import _append_sleb128, _append_uleb128
 from tests.dwarf import DW_AT, DW_FORM, DW_TAG
-from tests.elf import ET, PT, SHT
+from tests.elf import ET, SHT
 from tests.elfwriter import ElfSection, create_elf_file
 
 DwarfAttrib = namedtuple("DwarfAttrib", ["name", "form", "value"])

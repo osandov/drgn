@@ -76,8 +76,6 @@ from _drgn import (
     TypeMember,
     TypeParameter,
     TypeTemplateParameter,
-    _elfutils_version as _elfutils_version,
-    _with_libkdumpfile as _with_libkdumpfile,
     cast,
     container_of,
     filename_matches,
@@ -89,7 +87,14 @@ from _drgn import (
     reinterpret,
     sizeof,
 )
-from drgn.internal.version import __version__ as __version__
+
+# flake8 doesn't honor import X as X. See PyCQA/pyflakes#474.
+# isort: split
+from _drgn import (  # noqa: F401
+    _elfutils_version as _elfutils_version,
+    _with_libkdumpfile as _with_libkdumpfile,
+)
+from drgn.internal.version import __version__ as __version__  # noqa: F401
 
 __all__ = (
     "Architecture",
