@@ -14,6 +14,7 @@ from typing import Callable, Iterator, TypeVar, Union
 from drgn import NULL, Object, Type, container_of
 
 __all__ = (
+    "RB_EMPTY_ROOT",
     "RB_EMPTY_NODE",
     "rb_find",
     "rb_first",
