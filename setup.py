@@ -319,10 +319,10 @@ fi
             with github_workflow_group("Run unit tests"):
                 if self.kernels:
                     self.announce("running tests locally", log.INFO)
-                    if self._run_local():
-                        passed.append("local")
-                    else:
-                        failed.append("local")
+                if self._run_local():
+                    passed.append("local")
+                else:
+                    failed.append("local")
 
             if self.kernels:
                 for kernel in kernel_downloads:
