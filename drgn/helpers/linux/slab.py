@@ -29,6 +29,7 @@ __all__ = (
     "for_each_slab_cache",
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
+    "slab_cache_is_merged",
 )
 
 
