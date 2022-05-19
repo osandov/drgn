@@ -62,6 +62,17 @@ struct vmcoreinfo {
 	uint64_t swapper_pg_dir;
 	/** Whether 5-level paging was enabled. */
 	bool pgtable_l5_enabled;
+	/**
+	 * Kallsyms related symbols
+	 */
+	uint64_t kallsyms_names;
+	uint64_t kallsyms_token_table;
+	uint64_t kallsyms_token_index;
+	uint64_t kallsyms_num_syms;
+	uint64_t kallsyms_offsets;
+	uint64_t kallsyms_relative_base;
+	uint64_t kallsyms_addresses;
+	uint64_t _stext;
 };
 
 struct drgn_thread {

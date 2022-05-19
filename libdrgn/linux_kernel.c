@@ -78,12 +78,27 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 	ret->page_size = 0;
 	ret->kaslr_offset = 0;
 	ret->pgtable_l5_enabled = false;
+	ret->kallsyms_names = 0;
+	ret->kallsyms_token_table = 0;
+	ret->kallsyms_token_index = 0;
+	ret->kallsyms_num_syms = 0;
+	ret->kallsyms_offsets = 0;
+	ret->kallsyms_relative_base = 0;
+	ret->kallsyms_addresses = 0;
+	ret->_stext = 0;
 	while (line < end) {
 		const char *newline;
 
 		newline = memchr(line, '\n', end - line);
 		if (!newline)
 			break;
+
+#define SYMBOL_MATCH(name)                                                \
+		else if (linematch(&line, "SYMBOL(" #name ")=")) {        \
+			err = line_to_u64(line, newline, 16, &ret->name); \
+			if (err)                                          \
+				return err;                               \
+		}
 
 		if (linematch(&line, "OSRELEASE=")) {
 			if ((size_t)(newline - line) >=
@@ -102,11 +117,6 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 					  &ret->kaslr_offset);
 			if (err)
 				return err;
-		} else if (linematch(&line, "SYMBOL(swapper_pg_dir)=")) {
-			err = line_to_u64(line, newline, 16,
-					  &ret->swapper_pg_dir);
-			if (err)
-				return err;
 		} else if (linematch(&line, "NUMBER(pgtable_l5_enabled)=")) {
 			uint64_t tmp;
 
@@ -115,6 +125,16 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 				return err;
 			ret->pgtable_l5_enabled = tmp;
 		}
+		SYMBOL_MATCH(swapper_pg_dir)
+		SYMBOL_MATCH(kallsyms_names)
+		SYMBOL_MATCH(kallsyms_token_table)
+		SYMBOL_MATCH(kallsyms_token_index)
+		SYMBOL_MATCH(kallsyms_num_syms)
+		SYMBOL_MATCH(kallsyms_offsets)
+		SYMBOL_MATCH(kallsyms_relative_base)
+		SYMBOL_MATCH(kallsyms_addresses)
+		SYMBOL_MATCH(_stext)
+
 		line = newline + 1;
 	}
 	if (!ret->osrelease[0]) {
@@ -129,7 +149,7 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid swapper_pg_dir");
 	}
-	/* KERNELOFFSET and pgtable_l5_enabled are optional. */
+	/* KERNELOFFSET, pgtable_l5_enabled, kallsyms_* are optional. */
 	return NULL;
 }
 
