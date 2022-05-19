@@ -184,7 +184,7 @@ def rbtree_inorder_for_each_entry(
 
     :param type: Entry type.
     :param root: ``struct rb_root *``
-    :param member: Name of red-black node member in entry type.
+    :param member: Name of ``struct rb_node`` member in entry type.
     :return: Iterator of ``type *`` objects.
     """
     type = root.prog_.type(type)
@@ -210,7 +210,7 @@ def rb_find(
 
     :param type: Entry type.
     :param root: ``struct rb_root *``
-    :param member: Name of red-black node member in entry type.
+    :param member: Name of ``struct rb_node`` member in entry type.
     :param key: Key to find.
     :param cmp: Callback taking key and entry that returns < 0 if the key is
         less than the entry, > 0 if the key is greater than the entry, and 0 if
@@ -251,6 +251,16 @@ def validate_rbtree(
     4. The red-black tree requirements are satisfied: the root node is black,
        no red node has a red child, and every path from any node to any of its
        descendant leaf nodes goes through the same number of black nodes.
+
+    :param type: Entry type.
+    :param root: ``struct rb_root *``
+    :param member: Name of ``struct rb_node`` member in entry type.
+    :param cmp: Callback taking two ``type *`` entry objects that returns < 0
+        if the first entry is less than the second entry, > 0 if the first
+        entry is greater than the second entry, and 0 if they are equal.
+    :param allow_equal: Whether the tree may contain entries that compare equal
+        to each other.
+    :raises ValidationError: if the tree is invalid
     """
     for _ in validate_rbtree_inorder_for_each_entry(
         type, root, member, cmp, allow_equal
@@ -265,6 +275,21 @@ def validate_rbtree_inorder_for_each_entry(
     cmp: Callable[[Object, Object], int],
     allow_equal: bool,
 ) -> Iterator[Object]:
+    """
+    Like :func:`rbtree_inorder_for_each_entry()`, but validates the red-black
+    tree like :func:`validate_rbtree()` while iterating.
+
+    :param type: Entry type.
+    :param root: ``struct rb_root *``
+    :param member: Name of ``struct rb_node`` member in entry type.
+    :param cmp: Callback taking two ``type *`` entry objects that returns < 0
+        if the first entry is less than the second entry, > 0 if the first
+        entry is greater than the second entry, and 0 if they are equal.
+    :param allow_equal: Whether the tree may contain entries that compare equal
+        to each other.
+    :raises ValidationError: if the tree is invalid
+    """
+
     prog = root.prog_
     type = prog.type(type)
 
