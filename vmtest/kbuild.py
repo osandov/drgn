@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest11"
+        localversion = "-vmtest12"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -145,6 +145,9 @@ CONFIG_NAMESPACES=y
 
 # For nodemask tests.
 CONFIG_NUMA=y
+
+# For slab allocator tests.
+CONFIG_SLAB_FREELIST_HARDENED=y
 
 # For Traffic Control tests.
 CONFIG_NET_SCHED=y
