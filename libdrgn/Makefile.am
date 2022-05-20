@@ -49,6 +49,10 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
 			 hash_table.c \
 			 hash_table.h \
 			 helpers.h \
+			 kallsyms.c \
+			 kallsyms.h \
+			 kernel_info.c \
+			 kernel_info.h \
 			 language.c \
 			 language.h \
 			 language_c.c \

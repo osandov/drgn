@@ -21,6 +21,7 @@
 #include "debug_info.h"
 #include "error.h"
 #include "helpers.h"
+#include "kernel_info.h"
 #include "language.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
@@ -666,11 +667,20 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 
 	err = drgn_debug_info_load(dbinfo, paths, n, load_default, load_main);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)) {
+		struct drgn_error *saved;
 		if (!prog->lang)
 			drgn_program_set_language_from_main(prog);
 		if (!prog->has_platform) {
 			dwfl_getdwarf(dbinfo->dwfl,
 				      drgn_set_platform_from_dwarf, prog, 0);
+		}
+		saved = err;
+		err = drgn_program_load_kernel_info(prog);
+		if (!err) {
+			drgn_error_destroy(saved);
+		} else {
+			drgn_error_destroy(err);
+			err = saved;
 		}
 	}
 	return err;

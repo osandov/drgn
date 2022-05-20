@@ -29,6 +29,7 @@
 #include "vector.h"
 
 struct drgn_symbol;
+struct kernel_info;
 
 /**
  * @defgroup Internals Internals
@@ -140,6 +141,7 @@ struct drgn_program {
 	 */
 	struct drgn_object_index oindex;
 	struct drgn_debug_info *dbinfo;
+	struct kernel_info *kinfo;
 
 	/*
 	 * Program information.
