@@ -175,9 +175,13 @@ def slab_cache_for_each_allocated_object(
 
         cpu_freelists: Set[int] = set()
         cpu_slab = slab_cache.cpu_slab.read_()
+        # Since Linux kernel commit bb192ed9aa71 ("mm/slub: Convert most struct
+        # page to struct slab by spatch") (in v5.17), the current slab for a
+        # CPU is `struct slab *slab`. Before that, it is `struct page *page`.
+        cpu_slab_attr = "slab" if hasattr(cpu_slab, "slab") else "page"
         for cpu in for_each_online_cpu(prog):
             this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
-            slab = this_cpu_slab.slab.read_()
+            slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
             if slab and slab.slab_cache == slab_cache:
                 _slub_get_freelist(this_cpu_slab.freelist, cpu_freelists)
 
