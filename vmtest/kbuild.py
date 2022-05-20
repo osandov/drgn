@@ -348,7 +348,11 @@ class KBuild:
                     dst_path = modules_build_dir / src_path.relative_to(src_dir)
                     dst_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copytree(
-                        src_path, dst_path, symlinks=True, dirs_exist_ok=True
+                        src_path,
+                        dst_path,
+                        ignore=shutil.ignore_patterns("*.cmd"),
+                        symlinks=True,
+                        dirs_exist_ok=True,
                     )
 
     async def _test_external_module_build(self, modules_dir: Path) -> None:
