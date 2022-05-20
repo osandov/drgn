@@ -17,7 +17,7 @@ Linux slab allocator.
 
 from typing import Iterator, Optional, Set, Union
 
-from drgn import FaultError, Object, Program, Type, cast
+from drgn import FaultError, Object, Program, Type, cast, sizeof
 from drgn.helpers import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
@@ -140,23 +140,46 @@ def slab_cache_for_each_allocated_object(
         except AttributeError:
             red_left_pad = 0
 
+        # In SLUB, the freelist is a linked list with the next pointer located
+        # at ptr + slab_cache->offset.
         try:
             freelist_offset = slab_cache.offset.value_()
         except AttributeError:
             raise ValueError("SLOB is not supported") from None
 
+        # If CONFIG_SLAB_FREELIST_HARDENED is enabled, then the next pointer is
+        # obfuscated using slab_cache->random.
+        try:
+            freelist_random = slab_cache.random.value_()
+        except AttributeError:
+
+            def _freelist_dereference(ptr_addr: int) -> int:
+                return prog.read_word(ptr_addr)
+
+        else:
+            ulong_size = sizeof(prog.type("unsigned long"))
+
+            def _freelist_dereference(ptr_addr: int) -> int:
+                # *ptr_addr ^ slab_cache->random ^ byteswap(ptr_addr)
+                return (
+                    prog.read_word(ptr_addr)
+                    ^ freelist_random
+                    ^ int.from_bytes(ptr_addr.to_bytes(ulong_size, "little"), "big")
+                )
+
         def _slub_get_freelist(freelist: Object, freelist_set: Set[int]) -> None:
-            # In SLUB, the freelist is a linked list with the next pointer
-            # located at ptr + slab_cache->offset.
             ptr = freelist.value_()
             while ptr:
                 freelist_set.add(ptr)
-                ptr = prog.read_word(ptr + freelist_offset)
+                ptr = _freelist_dereference(ptr + freelist_offset)
 
         cpu_freelists: Set[int] = set()
         cpu_slab = slab_cache.cpu_slab.read_()
         for cpu in for_each_online_cpu(prog):
-            _slub_get_freelist(per_cpu_ptr(cpu_slab, cpu).freelist, cpu_freelists)
+            this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
+            slab = this_cpu_slab.slab.read_()
+            if slab and slab.slab_cache == slab_cache:
+                _slub_get_freelist(this_cpu_slab.freelist, cpu_freelists)
 
         def _slab_page_objects(page: Object, slab: Object) -> Iterator[Object]:
             freelist: Set[int] = set()
