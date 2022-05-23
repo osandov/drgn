@@ -1,6 +1,7 @@
 // Copyright (c) 2022 Oracle and/or its affiliates
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ctype.h>
 #include <stddef.h>
 
 #include "kallsyms.h"
@@ -261,6 +262,174 @@ kallsyms_address(struct kallsyms_registry *kr, unsigned int index)
 	return kr->addresses[index];
 }
 
+static void drgn_symbol_from_kallsyms(struct kallsyms_registry *kr, int index,
+				      struct drgn_symbol *ret)
+{
+	char kind = kr->types[index];
+	char kind_lower = tolower(kind);
+	ret->name = kr->symbols[index];
+	ret->address = kallsyms_address(kr, index);
+	if (index < kr->num_syms)
+		ret->size = kallsyms_address(kr, index + 1) - ret->address;
+	else
+		ret->size = 0;
+
+	ret->binding = DRGN_SYMBOL_BINDING_GLOBAL;
+	if (kind == 'u')
+		ret->binding = DRGN_SYMBOL_BINDING_UNIQUE;
+	else if (kind_lower == 'v' || kind_lower == 'w')
+		ret->binding = DRGN_SYMBOL_BINDING_WEAK;
+	else if (isupper(kind))
+		ret->binding = DRGN_SYMBOL_BINDING_GLOBAL;
+	else
+		/* If lowercase, the symbol is usually local, but it's
+		 * not guaranteed. Use unknown for safety here. */
+		ret->binding = DRGN_SYMBOL_BINDING_UNKNOWN;
+
+	switch (kind_lower) {
+	case 'b': /* bss */
+	case 'c': /* uninitialized data */
+	case 'd': /* initialized data */
+	case 'g': /* initialized data (small objects) */
+	case 'r': /* read-only data */
+		ret->kind = DRGN_SYMBOL_KIND_OBJECT;
+		break;
+	case 't': /* text */
+		ret->kind = DRGN_SYMBOL_KIND_FUNC;
+		break;
+	default:
+		ret->kind = DRGN_SYMBOL_KIND_UNKNOWN;
+	}
+}
+
+DEFINE_VECTOR_FUNCTIONS(symbolp_vector);
+
+static int kallsyms_addr_compar(const void *key_void, const void *memb_void)
+{
+	const uint64_t *key = key_void;
+	const uint64_t *memb = memb_void;
+
+	/* We are guaranteed that: (min <= key <= max), so we can fearlessly
+	 * index one beyond memb, so long as we've checked that key > memb.
+	 */
+	if (*key == *memb)
+		return 0;
+	else if (*key < *memb)
+		return -1;
+	else if (*key < memb[1])
+		return 0;
+	else
+		return 1;
+}
+
+struct symbol_result_builder {
+	struct kallsyms_registry *kr;
+	struct symbolp_vector vec;
+	struct drgn_error *err;
+	enum drgn_find_symbol_flags flags;
+	union drgn_find_symbol_result *ret;
+};
+
+static inline void
+symbol_result_builder_init(struct symbol_result_builder *builder,
+			   struct kallsyms_registry *kr,
+			   enum drgn_find_symbol_flags flags,
+			   union drgn_find_symbol_result *ret)
+{
+	builder->kr = kr;
+	builder->err = NULL;
+	builder->flags = flags;
+	builder->ret = ret;
+	if (flags & DRGN_FIND_SYM_ONE) {
+		builder->ret->symbol = NULL;
+	} else {
+		builder->ret->symbol_arr = NULL;
+		builder->ret->count = 0;
+		symbolp_vector_init(&builder->vec);
+	}
+}
+
+static inline bool
+symbol_result_builder_add(struct symbol_result_builder *builder, int index)
+{
+	struct drgn_symbol *symbol = malloc(sizeof(*symbol));
+	if (!symbol) {
+		builder->err = &drgn_enomem;
+		return true;
+	}
+	drgn_symbol_from_kallsyms(builder->kr, index, symbol);
+	if (builder->flags & DRGN_FIND_SYM_ONE) {
+		builder->ret->symbol = symbol;
+		return true;
+	} else if (!symbolp_vector_append(&builder->vec, &symbol)) {
+		drgn_symbol_destroy(symbol);
+		builder->err = &drgn_enomem;
+		return true;
+	}
+	return false;
+}
+
+static inline struct drgn_error *
+symbol_result_builder_destroy(struct symbol_result_builder *builder)
+{
+	if (builder->flags & DRGN_FIND_SYM_ONE) {
+		if (!builder->err) {
+			return NULL;
+		} else {
+			drgn_symbol_destroy(builder->ret->symbol);
+			builder->ret->symbol = NULL;
+			return NULL;
+		}
+	} else {
+		if (!builder->err) {
+			symbolp_vector_shrink_to_fit(&builder->vec);
+			builder->ret->symbol_arr = builder->vec.data;
+			builder->ret->count = builder->vec.size;
+			return NULL;
+		} else {
+			drgn_symbols_destroy(builder->vec.data, builder->vec.size);
+			return builder->err;
+		}
+	}
+}
+
+struct drgn_error *
+drgn_kallsyms_symbol_finder(const char *name, uint64_t address,
+			    enum drgn_find_symbol_flags flags, void *arg,
+			    union drgn_find_symbol_result *ret)
+{
+	struct kallsyms_registry *kr = arg;
+	uint64_t begin = kallsyms_address(kr, 0);
+	uint64_t end = kallsyms_address(kr, kr->num_syms - 1);
+	struct symbol_result_builder builder;
+
+	symbol_result_builder_init(&builder, kr, flags, ret);
+
+	/* We assume the last symbol is "zero length" for simplicity.
+	 * Short-circuit the search when we're searching outside the address
+	 * range.
+	 */
+	if (flags & DRGN_FIND_SYM_ADDR) {
+		uint64_t *res;
+		if (address < begin || address > end)
+			goto out;
+		res = bsearch(&address, kr->addresses, kr->num_syms, sizeof(address),
+			      kallsyms_addr_compar);
+		if (!res)
+			goto out;
+		symbol_result_builder_add(&builder, res - kr->addresses);
+	} else {
+		bool check_name = flags & DRGN_FIND_SYM_NAME;
+		for (int i = 0; i < kr->num_syms; i++)
+			if (!check_name || strcmp(kr->symbols[i], name) == 0)
+				if (symbol_result_builder_add(&builder, i))
+					goto out;
+	}
+
+out:
+	return symbol_result_builder_destroy(&builder);
+}
+
 /** Compute an address via the CONFIG_KALLSYMS_ABSOLUTE_PERCPU method*/
 static uint64_t absolute_percpu(uint64_t base, int32_t val)
 {
@@ -450,6 +619,10 @@ struct drgn_error *drgn_kallsyms_create(struct drgn_program *prog,
 		goto out;
 
 	err = kallsyms_load_addresses(prog, kr, vi);
+	if (err)
+		goto out;
+
+	err = drgn_program_add_symbol_finder(prog, drgn_kallsyms_symbol_finder, kr);
 	if (err)
 		goto out;
 
