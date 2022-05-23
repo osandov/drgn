@@ -630,6 +630,77 @@ struct drgn_error *
 drgn_program_add_object_finder(struct drgn_program *prog,
 			       drgn_object_find_fn fn, void *arg);
 
+/** Flags for @ref drgn_program_find_symbols() */
+enum drgn_find_symbol_flags {
+	/** Find symbols whose name matches the name argument */
+	DRGN_FIND_SYM_NAME = 1 << 0,
+	/** Find symbols whose address matches the addr argument */
+	DRGN_FIND_SYM_ADDR = 1 << 1,
+	/** Find only one symbol */
+	DRGN_FIND_SYM_ONE = 1 << 2,
+};
+
+/** Result type for @ref drgn_program_find_symbols() */
+union drgn_find_symbol_result {
+	/** When @ref DRGN_FIND_SYM_ONE is set, return the symbol here */
+	struct drgn_symbol *symbol;
+	struct {
+		/** When @ref DRGN_FIND_SYM_ONE is unset, store array here */
+		struct drgn_symbol **symbol_arr;
+		/** When @ref DRGN_FIND_SYM_ONE is unset, store array length */
+		size_t count;
+	};
+};
+
+/**
+ * Callback for finding one or more symbols.
+ *
+ * The callback should perform a symbol lookup based on the flags given in @a
+ * flags. When multiple flags are provided, the effect should be treated as a
+ * logical AND. When @ref DRGN_FIND_SYM_ONE is set, a single symbol should be
+ * returned, otherwise, an array should be returned.
+ *
+ * When no symbol is found, the proper pointer in @ref drgn_find_symbol_result
+ * should be set to NULL (and if applicable, count should be set to 0). No error
+ * should be returned in this case.
+ *
+ * @param[in] name Name of the symbol to match
+ * @param[in] addr Address of the symbol to match
+ * @param[in] flags Flags indicating the desired behavior of the search
+ * @param[in] arg Argument passed to @ref drgn_program_add_symbol_finder().
+ * @param[out] ret Returned result
+ */
+typedef struct drgn_error *
+(*drgn_find_symbol_fn)(const char *name, uint64_t addr,
+		       enum drgn_find_symbol_flags flags, void *arg,
+		       union drgn_find_symbol_result *ret);
+
+/**
+ * Register a symbol finding callback.
+ *
+ * Callbacks are called in reverse order that they were originally added. In
+ * case of a search for multiple symbols, then the results of all callbacks are
+ * concatenated. If the search is for a single symbol, then the first callback
+ * which finds a symbol will short-circuit the search.
+ *
+ * @param[in] fn Symbol search function
+ * @param[in] arg Argument to pass to the callback
+ */
+struct drgn_error *
+drgn_program_add_symbol_finder(struct drgn_program *prog,
+			       drgn_find_symbol_fn fn, void *arg);
+
+/**
+ * Unregister a symbol finding callback
+ *
+ * If a symbol finder is found with the given @a fn and @a arg, removes it.
+ * Otherwise, does nothing.
+ *
+ * @param[in] fn Symbol search function
+ * @param[in] arg Callback argument
+ */
+void drgn_program_remove_symbol_finder(struct drgn_program *prog,
+				       drgn_find_symbol_fn fn, void *arg);
 /**
  * Set a @ref drgn_program to a core dump.
  *

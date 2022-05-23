@@ -25,6 +25,7 @@
 #include "memory_reader.h"
 #include "object_index.h"
 #include "platform.h"
+#include "symbol.h"
 #include "type.h"
 #include "vector.h"
 
@@ -142,6 +143,7 @@ struct drgn_program {
 	struct drgn_object_index oindex;
 	struct drgn_debug_info *dbinfo;
 	struct kernel_info *kinfo;
+	struct drgn_symbol_finder *symbol_finders;
 
 	/*
 	 * Program information.

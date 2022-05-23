@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "debug_info.h"
+#include "drgn.h"
 #include "error.h"
 #include "helpers.h"
 #include "kernel_info.h"
@@ -40,6 +41,10 @@ static inline uint32_t drgn_thread_to_key(const struct drgn_thread *entry)
 DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_thread_set, drgn_thread_to_key,
 			    int_key_hash_pair, scalar_key_eq)
+
+static struct drgn_error *
+elf_symbols_search(const char *name, uint64_t addr, enum drgn_find_symbol_flags flags,
+	           void *data, union drgn_find_symbol_result *ret);
 
 struct drgn_thread_iterator {
 	struct drgn_program *prog;
@@ -654,11 +659,21 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 			drgn_debug_info_destroy(dbinfo);
 			return err;
 		}
+		err = drgn_program_add_symbol_finder(prog, elf_symbols_search,
+						     prog);
+		if (err) {
+			drgn_object_index_remove_finder(&prog->oindex);
+			drgn_debug_info_destroy(dbinfo);
+			return err;
+		}
 		err = drgn_program_add_type_finder(prog,
 						   drgn_debug_info_find_type,
 						   dbinfo);
 		if (err) {
 			drgn_object_index_remove_finder(&prog->oindex);
+			drgn_program_remove_symbol_finder(prog,
+							  elf_symbols_search,
+							  prog);
 			drgn_debug_info_destroy(dbinfo);
 			return err;
 		}
@@ -1661,64 +1676,71 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 	return true;
 }
 
-struct drgn_error *drgn_error_symbol_not_found(uint64_t address)
-{
-	return drgn_error_format(DRGN_ERROR_LOOKUP,
-				 "could not find symbol containing 0x%" PRIx64,
-				 address);
-}
+DEFINE_VECTOR_FUNCTIONS(symbolp_vector)
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
-				    struct drgn_symbol **ret)
-{
-	struct drgn_symbol *sym;
-
-	sym = malloc(sizeof(*sym));
-	if (!sym)
-		return &drgn_enomem;
-	if (!drgn_program_find_symbol_by_address_internal(prog, address, NULL,
-							  sym)) {
-		free(sym);
-		return drgn_error_symbol_not_found(address);
-	}
-	*ret = sym;
-	return NULL;
-}
-
-DEFINE_VECTOR(symbolp_vector, struct drgn_symbol *)
-
-enum {
-	SYMBOLS_SEARCH_NAME = (1 << 0),
-	SYMBOLS_SEARCH_ADDRESS = (1 << 1),
-	SYMBOLS_SEARCH_ALL = (1 << 2),
-};
-
-struct symbols_search_arg {
+struct elf_symbols_search_arg {
 	const char *name;
 	uint64_t address;
+	struct drgn_error *err;
 	struct symbolp_vector results;
-	unsigned int flags;
+	struct drgn_symbol *single_result;
+	enum drgn_find_symbol_flags flags;
 };
 
-static bool symbol_match(struct symbols_search_arg *arg, GElf_Addr addr,
+static bool elf_symbol_match(struct elf_symbols_search_arg *arg, GElf_Addr addr,
 			 const GElf_Sym *sym, const char *name)
 {
-	if (arg->flags & SYMBOLS_SEARCH_ALL)
-		return true;
-	if ((arg->flags & SYMBOLS_SEARCH_NAME) && strcmp(name, arg->name) == 0)
-		return true;
-	if ((arg->flags & SYMBOLS_SEARCH_ADDRESS) &&
-	    arg->address >= addr && arg->address < addr + sym->st_size)
-		return true;
-	return false;
+	if ((arg->flags & DRGN_FIND_SYM_NAME) && strcmp(name, arg->name) != 0)
+		return false;
+	if ((arg->flags & DRGN_FIND_SYM_ADDR) &&
+	    (arg->address < addr || arg->address >= addr + sym->st_size))
+		return false;
+	return true;
 }
 
-static int symbols_search_cb(Dwfl_Module *dwfl_module, void **userdatap,
+static bool elf_symbol_store_match(struct elf_symbols_search_arg *arg, struct drgn_symbol *sym)
+{
+
+	if (arg->flags == (DRGN_FIND_SYM_ONE | DRGN_FIND_SYM_NAME)) {
+		/*
+		* The order of precedence is
+		* GLOBAL = UNIQUE > WEAK > LOCAL = everything else
+		*
+		* If we found a global or unique symbol, return it
+		* immediately. If we found a weak symbol, then save it,
+		* which may overwrite a previously found weak or local
+		* symbol. Otherwise, save the symbol only if we haven't
+		* found another symbol.
+		*/
+		if (sym->binding == DRGN_SYMBOL_BINDING_GLOBAL ||
+			sym->binding == DRGN_SYMBOL_BINDING_UNIQUE ||
+			sym->binding == DRGN_SYMBOL_BINDING_WEAK ||
+			!arg->single_result) {
+			drgn_symbol_destroy(arg->single_result);
+			arg->single_result = sym;
+		}
+		if (sym->binding == DRGN_SYMBOL_BINDING_GLOBAL ||
+			sym->binding == DRGN_SYMBOL_BINDING_UNIQUE)
+			return true; /* short-circuit */
+		return false; /* continue */
+	} else if (arg->flags & DRGN_FIND_SYM_ONE) {
+		arg->single_result = sym;
+		return true; /* short circuit */
+	} else {
+		if (!symbolp_vector_append(&arg->results, &sym)) {
+			arg->err = &drgn_enomem;
+			drgn_symbol_destroy(sym);
+			return true; /* abort search */
+		}
+		return false;
+	}
+}
+
+static int elf_symbols_search_cb(Dwfl_Module *dwfl_module, void **userdatap,
 			     const char *module_name, Dwarf_Addr base,
 			     void *cb_arg)
 {
-	struct symbols_search_arg *arg = cb_arg;
+	struct elf_symbols_search_arg *arg = cb_arg;
 
 	int symtab_len = dwfl_module_getsymtab(dwfl_module);
 	if (symtab_len == -1)
@@ -1731,60 +1753,176 @@ static int symbols_search_cb(Dwfl_Module *dwfl_module, void **userdatap,
 		const char *name = dwfl_module_getsym_info(dwfl_module, i,
 							   &elf_sym, &elf_addr,
 							   NULL, NULL, NULL);
-		if (!name || !symbol_match(arg, elf_addr, &elf_sym, name))
+		if (!name || !elf_symbol_match(arg, elf_addr, &elf_sym, name))
 			continue;
 
 		struct drgn_symbol *sym = malloc(sizeof(*sym));
 		if (!sym)
 			return DWARF_CB_ABORT;
 		drgn_symbol_from_elf(name, elf_addr, &elf_sym, sym);
-		if (!symbolp_vector_append(&arg->results, &sym)) {
-			drgn_symbol_destroy(sym);
+		if (elf_symbol_store_match(arg, sym))
 			return DWARF_CB_ABORT;
-		}
 	}
 	return DWARF_CB_OK;
 }
 
 static struct drgn_error *
-symbols_search(struct drgn_program *prog, struct symbols_search_arg *arg,
-	       struct drgn_symbol ***syms_ret, size_t *count_ret)
+elf_symbols_search(const char *name, uint64_t addr, enum drgn_find_symbol_flags flags,
+	           void *data, union drgn_find_symbol_result *ret)
 {
-	struct drgn_error *err;
+	struct drgn_program *prog = data;
+	struct elf_symbols_search_arg arg = {
+		.name = name,
+		.address = addr,
+		.flags = flags,
+		.err = NULL,
+	};
 
-	if (!prog->dbinfo) {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
-					 "could not find matching symbols");
-	}
-
-	symbolp_vector_init(&arg->results);
+	if (flags & DRGN_FIND_SYM_ONE)
+		arg.single_result = NULL;
+	else
+		symbolp_vector_init(&arg.results);
 
 	/*
-	 * When searching for addresses, we can identify the exact module to
-	 * search. Otherwise we need to fall back to an exhaustive search.
+	 * If the search is constrained by address, then we can do it
+	 * more efficiently.
 	 */
-	err = NULL;
-	if (arg->flags & SYMBOLS_SEARCH_ADDRESS) {
+	if (arg.flags & DRGN_FIND_SYM_ADDR) {
 		Dwfl_Module *module = dwfl_addrmodule(prog->dbinfo->dwfl,
-						      arg->address);
-		if (module && symbols_search_cb(module, NULL, NULL, 0, arg))
-			err = &drgn_enomem;
+						      arg.address);
+		if (!module)
+			goto done;
+		/*
+		* If we are searching for only one symbol, then
+		* rely on dwfl_module_addrinfo(), which is again
+		* faster. Otherwise, just search the one module.
+		*/
+		if (flags & DRGN_FIND_SYM_ONE) {
+			GElf_Off offset;
+			GElf_Sym elf_sym;
+			const char *name = dwfl_module_addrinfo(
+				module, addr, &offset,
+				&elf_sym, NULL, NULL, NULL);
+			if (!name)
+				goto done;
+			arg.single_result = malloc(sizeof(*arg.single_result));
+			if (!arg.single_result) {
+				arg.err = &drgn_enomem;
+				goto done;
+			}
+			drgn_symbol_from_elf(
+				name, addr - offset, &elf_sym,
+				arg.single_result);
+		} else {
+			elf_symbols_search_cb(module, NULL, NULL, 0, &arg);
+		}
 	} else {
-		if (dwfl_getmodules(prog->dbinfo->dwfl, symbols_search_cb, arg,
-				    0))
-			err = &drgn_enomem;
+		dwfl_getmodules(prog->dbinfo->dwfl, elf_symbols_search_cb, &arg, 0);
 	}
 
-	if (err) {
-		for (size_t i = 0; i < arg->results.size; i++)
-			drgn_symbol_destroy(arg->results.data[i]);
-		symbolp_vector_deinit(&arg->results);
+done:
+	if (flags & DRGN_FIND_SYM_ONE) {
+		if (arg.err) {
+			drgn_symbol_destroy(arg.single_result);
+			return arg.err;
+		}
+		ret->symbol = arg.single_result;
 	} else {
-		symbolp_vector_shrink_to_fit(&arg->results);
-		*count_ret = arg->results.size;
-		*syms_ret = arg->results.data;
+		if (arg.err) {
+			drgn_symbols_destroy(arg.results.data, arg.results.size);
+			symbolp_vector_deinit(&arg.results);
+			return arg.err;
+		}
+		symbolp_vector_shrink_to_fit(&arg.results);
+		ret->symbol_arr = arg.results.data;
+		ret->count = arg.results.size;
 	}
+	return NULL;
+}
+
+static struct drgn_error *
+drgn_program_symbols_search(struct drgn_program *prog, const char *name,
+			    uint64_t addr, enum drgn_find_symbol_flags flags,
+			    union drgn_find_symbol_result *ret)
+{
+	struct drgn_error *err;
+	struct drgn_symbol **syms = NULL;
+	size_t count = 0;
+	struct drgn_symbol_finder *finder = prog->symbol_finders;
+	while (finder) {
+		union drgn_find_symbol_result result = {0};
+		err = finder->function(name, addr, flags, finder->arg, &result);
+		if (err)
+			goto out;
+		if ((flags & DRGN_FIND_SYM_ONE) && result.symbol) {
+			ret->symbol = result.symbol;
+			return NULL;
+		} else if (!(flags & DRGN_FIND_SYM_ONE) && result.count) {
+			if (!count) {
+				syms = result.symbol_arr;
+				count = result.count;
+			} else {
+				struct drgn_symbol **syms_new = realloc(syms, count + result.count);
+				if (!syms_new) {
+					err = &drgn_enomem;
+					goto out;
+				}
+				memcpy(syms_new + count, result.symbol_arr,
+				       result.count * sizeof(result.symbol_arr[0]));
+				count += result.count;
+				syms = syms_new;
+			}
+		}
+		finder = finder->next;
+	}
+	/* Any successful FIND_SYM_ONE will return above, so we know we are returning
+	 * an array at this point.
+	 */
+	ret->count = count;
+	ret->symbol_arr = syms;
+	return NULL;
+out:
+	drgn_symbols_destroy(syms, count);
+	free(syms);
 	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_add_symbol_finder(struct drgn_program *prog, drgn_find_symbol_fn fn,
+			       void *arg)
+{
+	struct drgn_symbol_finder *finder = malloc(sizeof(*finder));
+	if (!finder)
+		return &drgn_enomem;
+	finder->function = fn;
+	finder->arg = arg;
+	finder->next = prog->symbol_finders;
+	prog->symbol_finders = finder;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC void
+drgn_program_remove_symbol_finder(struct drgn_program *prog,
+				  drgn_find_symbol_fn fn, void *arg)
+{
+	struct drgn_symbol_finder *finder, *prev = NULL;
+	finder = prog->symbol_finders;
+	while (finder) {
+		if (finder->function != fn || finder->arg != arg)
+			continue;
+		if (prev)
+			prev->next = finder->next;
+		else
+			prog->symbol_finders = finder->next;
+		free(finder);
+	}
+}
+
+struct drgn_error *drgn_error_symbol_not_found(uint64_t address)
+{
+	return drgn_error_format(DRGN_ERROR_LOOKUP,
+				 "could not find symbol containing 0x%" PRIx64,
+				 address);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1792,11 +1930,14 @@ drgn_program_find_symbols_by_name(struct drgn_program *prog, const char *name,
 				  struct drgn_symbol ***syms_ret,
 				  size_t *count_ret)
 {
-	struct symbols_search_arg arg = {
-		.name = name,
-		.flags = name ? SYMBOLS_SEARCH_NAME : SYMBOLS_SEARCH_ALL,
-	};
-	return symbols_search(prog, &arg, syms_ret, count_ret);
+	union drgn_find_symbol_result ret;
+	enum drgn_find_symbol_flags flags = name ? DRGN_FIND_SYM_NAME : 0;
+	struct drgn_error *err = drgn_program_symbols_search(prog, name, 0, flags, &ret);
+	if (!err) {
+		*syms_ret = ret.symbol_arr;
+		*count_ret = ret.count;
+	}
+	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1805,91 +1946,45 @@ drgn_program_find_symbols_by_address(struct drgn_program *prog,
 				     struct drgn_symbol ***syms_ret,
 				     size_t *count_ret)
 {
-	struct symbols_search_arg arg = {
-		.address = address,
-		.flags = SYMBOLS_SEARCH_ADDRESS,
-	};
-	return symbols_search(prog, &arg, syms_ret, count_ret);
-}
-
-struct find_symbol_by_name_arg {
-	const char *name;
-	GElf_Sym sym;
-	GElf_Addr addr;
-	bool found;
-	bool bad_symtabs;
-};
-
-static int find_symbol_by_name_cb(Dwfl_Module *dwfl_module, void **userdatap,
-				  const char *module_name, Dwarf_Addr base,
-				  void *cb_arg)
-{
-	struct find_symbol_by_name_arg *arg = cb_arg;
-	int symtab_len = dwfl_module_getsymtab(dwfl_module);
-	if (symtab_len == -1) {
-		arg->bad_symtabs = true;
-		return DWARF_CB_OK;
+	union drgn_find_symbol_result ret;
+	struct drgn_error *err = drgn_program_symbols_search(prog, NULL, address,
+							     DRGN_FIND_SYM_ADDR, &ret);
+	if (!err) {
+		*syms_ret = ret.symbol_arr;
+		*count_ret = ret.count;
 	}
-	/*
-	 * Global symbols are after local symbols, so by iterating backwards we
-	 * might find a global symbol faster. Ignore the zeroth null symbol.
-	 */
-	for (int i = symtab_len - 1; i > 0; i--) {
-		GElf_Sym sym;
-		GElf_Addr addr;
-		const char *name = dwfl_module_getsym_info(dwfl_module, i, &sym,
-							   &addr, NULL, NULL,
-							   NULL);
-		if (name && strcmp(arg->name, name) == 0) {
-			/*
-			 * The order of precedence is
-			 * GLOBAL = GNU_UNIQUE > WEAK > LOCAL = everything else
-			 *
-			 * If we found a global or unique symbol, return it
-			 * immediately. If we found a weak symbol, then save it,
-			 * which may overwrite a previously found weak or local
-			 * symbol. Otherwise, save the symbol only if we haven't
-			 * found another symbol.
-			 */
-			if (GELF_ST_BIND(sym.st_info) == STB_GLOBAL ||
-			    GELF_ST_BIND(sym.st_info) == STB_GNU_UNIQUE ||
-			    GELF_ST_BIND(sym.st_info) == STB_WEAK ||
-			    !arg->found) {
-				arg->sym = sym;
-				arg->addr = addr;
-				arg->found = true;
-			}
-			if (GELF_ST_BIND(sym.st_info) == STB_GLOBAL ||
-			    GELF_ST_BIND(sym.st_info) == STB_GNU_UNIQUE)
-				return DWARF_CB_ABORT;
-		}
-	}
-	return DWARF_CB_OK;
+	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_find_symbol_by_name(struct drgn_program *prog,
 			const char *name, struct drgn_symbol **ret)
 {
-	struct find_symbol_by_name_arg arg = {
-		.name = name,
-	};
-	if (prog->dbinfo) {
-		dwfl_getmodules(prog->dbinfo->dwfl, find_symbol_by_name_cb,
-				&arg, 0);
-		if (arg.found) {
-			struct drgn_symbol *sym = malloc(sizeof(*sym));
-			if (!sym)
-				return &drgn_enomem;
-			drgn_symbol_from_elf(name, arg.addr, &arg.sym, sym);
-			*ret = sym;
-			return NULL;
-		}
+	union drgn_find_symbol_result result;
+	enum drgn_find_symbol_flags flags = DRGN_FIND_SYM_NAME | DRGN_FIND_SYM_ONE;
+	struct drgn_error *err = drgn_program_symbols_search(prog, name, 0, flags, &result);
+	if (!err) {
+		if (!result.symbol)
+			return drgn_error_format(DRGN_ERROR_LOOKUP,
+						 "could not find symbol with name %s", name);
+		*ret = result.symbol;
 	}
-	return drgn_error_format(DRGN_ERROR_LOOKUP,
-				 "could not find symbol with name '%s'%s", name,
-				 arg.bad_symtabs ?
-				 " (could not get some symbol tables)" : "");
+	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
+				    struct drgn_symbol **ret)
+{
+	union drgn_find_symbol_result result;
+	enum drgn_find_symbol_flags flags = DRGN_FIND_SYM_ADDR | DRGN_FIND_SYM_ONE;
+	struct drgn_error *err = drgn_program_symbols_search(prog, NULL, address, flags, &result);
+	if (!err) {
+		if (!result.symbol)
+			return drgn_error_symbol_not_found(address);
+		*ret = result.symbol;
+	}
+	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
