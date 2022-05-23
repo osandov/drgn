@@ -25,6 +25,7 @@
 #include "error.h"
 #include "hash_table.h"
 #include "helpers.h"
+#include "hexlify.h"
 #include "io.h"
 #include "linux_kernel.h"
 #include "platform.h"

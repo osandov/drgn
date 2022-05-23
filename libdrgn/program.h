@@ -151,6 +151,8 @@ struct drgn_program {
 	struct {
 		/** <tt>uname -r</tt> */
 		char osrelease[128];
+		/** Build ID. */
+		char build_id[128];
 		/** PAGE_SIZE of the kernel. */
 		uint64_t page_size;
 		/**
@@ -173,6 +175,8 @@ struct drgn_program {
 		bool pgtable_l5_enabled;
 		/** Whether CRASHTIME was in the VMCOREINFO. */
 		bool have_crashtime;
+		/** Length of build ID. */
+		unsigned int build_id_len;
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
 		int page_shift;
 
