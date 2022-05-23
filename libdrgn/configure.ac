@@ -81,6 +81,29 @@ PKG_PROG_PKG_CONFIG
 
 PKG_CHECK_MODULES(elfutils, [libelf >= 0.165 libdw >= 0.165])
 
+AC_ARG_WITH([debuginfod],
+	    [AS_HELP_STRING([--with-debuginfod],
+			    [build with support for debuginfod
+			     @<:@default=auto@:>@])],
+			     [], [with_debuginfod=auto])
+AS_CASE(["x$with_debuginfod"],
+	[xyes], [PKG_CHECK_MODULES(libdebuginfod, [libdebuginfod])],
+	[xauto], [PKG_CHECK_MODULES(libdebuginfod, [libdebuginfod],
+				    [with_debuginfod=yes],
+				    [with_debuginfod=no])])
+AM_CONDITIONAL([WITH_DEBUGINFOD], [test "x$with_debuginfod" != xno])
+AM_COND_IF([WITH_DEBUGINFOD], [AC_DEFINE(WITH_DEBUGINFOD)])
+
+AC_ARG_ENABLE([dlopen-debuginfod],
+	      [AS_HELP_STRING([--disable-dlopen-debuginfod],
+			      [if building with support for debuginfod, link
+			       against libdebuginfod instead of loading it with
+			       dlopen(3)])],
+	      [], [enable_dlopen_debuginfod=yes])
+AM_CONDITIONAL([ENABLE_DLOPEN_DEBUGINFOD],
+	       [test "x$enable_dlopen_debuginfod" != xno])
+AM_COND_IF([ENABLE_DLOPEN_DEBUGINFOD], [AC_DEFINE(ENABLE_DLOPEN_DEBUGINFOD)])
+
 AC_ARG_WITH([libkdumpfile],
 	    [AS_HELP_STRING([--with-libkdumpfile],
 			    [build with support for the makedumpfile kernel
