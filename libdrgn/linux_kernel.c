@@ -342,12 +342,10 @@ struct kernel_module_iterator {
 	char *name;
 	/* /proc/modules file or NULL. */
 	FILE *modules_file;
+	uint64_t start, end;
 	union {
 		/* If using /proc/modules. */
-		struct {
-			size_t name_capacity;
-			uint64_t start, end;
-		};
+		size_t name_capacity;
 		/* If not using /proc/modules. */
 		struct {
 			struct drgn_qualified_type module_type;
@@ -437,14 +435,14 @@ kernel_module_iterator_next_live(struct kernel_module_iterator *it)
 		}
 	}
 	char *p = strchr(it->name, ' ');
-	size_t size;
 	if (!p ||
-	    sscanf(p + 1, "%zu %*s %*s %*s %" SCNx64, &size, &it->start) != 2) {
+	    sscanf(p + 1, "%" SCNu64 " %*s %*s %*s %" SCNx64, &it->end,
+		   &it->start) != 2) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "could not parse /proc/modules");
 	}
+	it->end += it->start;
 	*p = '\0';
-	it->end = it->start + size;
 	return NULL;
 }
 
@@ -485,11 +483,48 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 	if (err)
 		return err;
 
-	err = drgn_object_member_dereference(&it->tmp1, &it->mod, "name");
+	// Set tmp1 to the module base address and tmp2 to the size.
+	err = drgn_object_member_dereference(&it->tmp1, &it->mod,
+					     "core_layout");
+	if (!err) {
+		// Since Linux kernel commit 7523e4dc5057 ("module: use a
+		// structure to encapsulate layout.") (in v4.5), the base and
+		// size are in the `struct module_layout core_layout` member of
+		// `struct module`.
+		err = drgn_object_member(&it->tmp2, &it->tmp1, "size");
+		if (err)
+			return err;
+		err = drgn_object_member(&it->tmp1, &it->tmp1, "base");
+		if (err)
+			return err;
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		// Before that, they are directly in the `struct module`.
+		drgn_error_destroy(err);
+
+		err = drgn_object_member_dereference(&it->tmp2, &it->mod,
+						     "core_size");
+		if (err)
+			return err;
+		err = drgn_object_member_dereference(&it->tmp1, &it->mod,
+						     "module_core");
+		if (err)
+			return err;
+	} else {
+		return err;
+	}
+	err = drgn_object_read_unsigned(&it->tmp1, &it->start);
+	if (err)
+		return err;
+	err = drgn_object_read_unsigned(&it->tmp2, &it->end);
+	if (err)
+		return err;
+	it->end += it->start;
+
+	err = drgn_object_member_dereference(&it->tmp2, &it->mod, "name");
 	if (err)
 		return err;
 	char *name;
-	err = drgn_object_read_c_string(&it->tmp1, &name);
+	err = drgn_object_read_c_string(&it->tmp2, &name);
 	if (err)
 		return err;
 	free(it->name);
@@ -996,8 +1031,7 @@ DEFINE_HASH_MAP(elf_scn_name_map, const char *, Elf_Scn *,
 		c_string_key_hash_pair, c_string_key_eq)
 
 static struct drgn_error *
-cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
-			     uint64_t *start_ret, uint64_t *end_ret)
+cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf)
 {
 	struct drgn_error *err;
 
@@ -1033,7 +1067,6 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 		}
 	}
 
-	uint64_t start = UINT64_MAX, end = 0;
 	struct kernel_module_section_iterator section_it;
 	err = kernel_module_section_iterator_init(&section_it, kmod_it);
 	if (err)
@@ -1057,34 +1090,11 @@ cache_kernel_module_sections(struct kernel_module_iterator *kmod_it, Elf *elf,
 				err = drgn_error_libelf();
 				break;
 			}
-			/*
-			 * .init sections are freed once the module is
-			 * initialized, but they remain in the section list.
-			 * Ignore them for the purpose of determining the
-			 * module's address range.
-			 */
-			if (!strstartswith(name, ".init")) {
-				uint64_t section_end;
-				if (__builtin_add_overflow(address,
-							   shdr->sh_size,
-							   &section_end))
-					section_end = UINT64_MAX;
-				if (address < section_end) {
-					if (address < start)
-						start = address;
-					if (section_end > end)
-						end = section_end;
-				}
-			}
 		}
 	}
 	if (err && err != &drgn_stop)
 		goto out_section_it;
 	err = NULL;
-	if (start >= end)
-		start = end = 0;
-	*start_ret = start;
-	*end_ret = end;
 out_section_it:
 	kernel_module_section_iterator_deinit(&section_it);
 out_scn_map:
@@ -1135,9 +1145,7 @@ report_loaded_kernel_module(struct drgn_debug_info_load_state *load,
 	struct kernel_module_file *kmod = *it.entry;
 	kernel_module_table_delete_iterator_hashed(kmod_table, it, hp);
 	do {
-		uint64_t start, end;
-		err = cache_kernel_module_sections(kmod_it, kmod->elf, &start,
-						   &end);
+		err = cache_kernel_module_sections(kmod_it, kmod->elf);
 		if (err) {
 			err = drgn_debug_info_report_error(load, kmod->path,
 							   "could not get section addresses",
@@ -1148,8 +1156,9 @@ report_loaded_kernel_module(struct drgn_debug_info_load_state *load,
 		}
 
 		err = drgn_debug_info_report_elf(load, kmod->path, kmod->fd,
-						 kmod->elf, start, end,
-						 kmod->name, NULL);
+						 kmod->elf, kmod_it->start,
+						 kmod_it->end, kmod->name,
+						 NULL);
 		kmod->elf = NULL;
 		kmod->fd = -1;
 		if (err)
@@ -1211,8 +1220,7 @@ report_default_kernel_module(struct drgn_debug_info_load_state *load,
 						    NULL);
 	}
 
-	uint64_t start, end;
-	err = cache_kernel_module_sections(kmod_it, elf, &start, &end);
+	err = cache_kernel_module_sections(kmod_it, elf);
 	if (err) {
 		err = drgn_debug_info_report_error(load, path,
 						   "could not get section addresses",
@@ -1223,8 +1231,8 @@ report_default_kernel_module(struct drgn_debug_info_load_state *load,
 		return err;
 	}
 
-	err = drgn_debug_info_report_elf(load, path, fd, elf, start, end,
-					 kmod_it->name, NULL);
+	err = drgn_debug_info_report_elf(load, path, fd, elf, kmod_it->start,
+					 kmod_it->end, kmod_it->name, NULL);
 	free(path);
 	return err;
 }
