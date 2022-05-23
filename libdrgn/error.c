@@ -235,6 +235,15 @@ LIBDRGN_PUBLIC int drgn_error_fwrite(FILE *file, struct drgn_error *err)
 #undef emit_error_format
 }
 
+LIBDRGN_PUBLIC int drgn_error_dwrite(int fd, struct drgn_error *err)
+{
+#define emit_error_format(format, ...) dprintf(fd, format "\n", __VA_ARGS__)
+#define emit_error_string(s) dprintf(fd, "%s\n", s)
+	return emit_error(err);
+#undef emit_error_string
+#undef emit_error_format
+}
+
 #undef emit_error
 
 LIBDRGN_PUBLIC void drgn_error_destroy(struct drgn_error *err)

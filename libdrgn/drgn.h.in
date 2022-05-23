@@ -239,6 +239,15 @@ struct drgn_error *drgn_error_copy(struct drgn_error *src)
 int drgn_error_fwrite(FILE *file, struct drgn_error *err);
 
 /**
+ * Write a @ref drgn_error followed by a newline to a file descriptor.
+ *
+ * @param[in] fd File descriptor to write to.
+ * @param[in] err Error to write.
+ * @return Non-negative on success, negative on failure.
+ */
+int drgn_error_dwrite(int fd, struct drgn_error *err);
+
+/**
  * Free a @ref drgn_error.
  *
  * This must be called on any error returned from libdrgn unless otherwise
