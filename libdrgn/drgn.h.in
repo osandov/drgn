@@ -230,15 +230,11 @@ struct drgn_error *drgn_error_copy(struct drgn_error *src)
 	__attribute__((__returns_nonnull__));
 
 /**
- * Write a @ref drgn_error to a @c stdio stream.
- *
- * For @ref DRGN_ERROR_OS errors, this concatenates @ref drgn_error::message,
- * @ref drgn_error::path, and @c strerror() of @ref drgn_error::errnum.
- * Otherwise, this just writes @c message.
+ * Write a @ref drgn_error followed by a newline to a @c stdio stream.
  *
  * @param[in] file File to write to (usually @c stderr).
  * @param[in] err Error to write.
- * @return Non-negative on success, @c EOF on failure.
+ * @return Non-negative on success, negative on failure.
  */
 int drgn_error_fwrite(FILE *file, struct drgn_error *err);
 

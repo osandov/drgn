@@ -203,54 +203,39 @@ LIBDRGN_PUBLIC struct drgn_error *drgn_error_copy(struct drgn_error *src)
 	return dst;
 }
 
+#define emit_error(err) (							\
+	err->code == DRGN_ERROR_OS ?						\
+		/* This is easier than dealing with strerror_r(). */		\
+		(errno = err->errnum,						\
+		 err->path ?							\
+		 emit_error_format("%s: %s: %m", err->message, err->path) :	\
+		 emit_error_format("%s: %m", err->message))			\
+	: err->code == DRGN_ERROR_FAULT ?					\
+		emit_error_format("%s: 0x%" PRIx64, err->message, err->address)	\
+	:									\
+		emit_error_string(err->message)					\
+)
+
 bool string_builder_append_error(struct string_builder *sb,
 				 struct drgn_error *err)
 {
-	bool ret;
-
-	if (err->code == DRGN_ERROR_OS) {
-		/* This is easier than dealing with strerror_r(). */
-		errno = err->errnum;
-		if (err->path) {
-			ret = string_builder_appendf(sb, "%s: %s: %m",
-						     err->message, err->path);
-		} else {
-			ret = string_builder_appendf(sb, "%s: %m",
-						     err->message);
-		}
-	} else if (err->code == DRGN_ERROR_FAULT) {
-		ret = string_builder_appendf(sb, "%s: 0x%" PRIx64,
-					     err->message,
-					     err->address);
-	} else {
-		ret = string_builder_append(sb, err->message);
-	}
-	return ret;
+#define emit_error_format(...) string_builder_appendf(sb, __VA_ARGS__)
+#define emit_error_string(s) string_builder_append(sb, s)
+	return emit_error(err);
+#undef emit_error_string
+#undef emit_error_format
 }
 
 LIBDRGN_PUBLIC int drgn_error_fwrite(FILE *file, struct drgn_error *err)
 {
-	struct string_builder sb = {};
-	char *message;
-	int ret;
-
-	if (err->code == DRGN_ERROR_OS) {
-		if (!string_builder_append_error(&sb, err) ||
-		    !string_builder_finalize(&sb, &message)) {
-			free(sb.str);
-			errno = ENOMEM;
-			return EOF;
-		}
-		ret = fputs(message, file);
-		free(message);
-		if (ret == EOF)
-			return EOF;
-	} else {
-		if (fputs(err->message, file) == EOF)
-			return EOF;
-	}
-	return fputc('\n', file);
+#define emit_error_format(format, ...) fprintf(file, format "\n", __VA_ARGS__)
+#define emit_error_string(s) fprintf(file, "%s\n", s)
+	return emit_error(err);
+#undef emit_error_string
+#undef emit_error_format
 }
+
+#undef emit_error
 
 LIBDRGN_PUBLIC void drgn_error_destroy(struct drgn_error *err)
 {
