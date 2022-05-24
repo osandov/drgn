@@ -9,7 +9,32 @@
 #include "memory_reader.h"
 #include "minmax.h"
 
-DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_memory_segment_tree,
+/** Memory segment in a @ref drgn_memory_reader. */
+struct drgn_memory_segment {
+	struct binary_tree_node node;
+	/** Address range of the segment in memory (inclusive). */
+	uint64_t min_address, max_address;
+	/**
+	 * The address of the segment when it was added, before any truncations.
+	 *
+	 * This is always less than or equal to @ref
+	 * drgn_memory_segment::min_address.
+	 */
+	uint64_t orig_min_address;
+	/** Read callback. */
+	drgn_memory_read_fn read_fn;
+	/** Argument to pass to @ref drgn_memory_segment::read_fn. */
+	void *arg;
+};
+
+static inline uint64_t
+drgn_memory_segment_to_key(const struct drgn_memory_segment *entry)
+{
+	return entry->min_address;
+}
+
+DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_memory_segment_tree, node,
+				    drgn_memory_segment_to_key,
 				    binary_search_tree_scalar_cmp, splay)
 
 void drgn_memory_reader_init(struct drgn_memory_reader *reader)

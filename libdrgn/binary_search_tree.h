@@ -280,8 +280,26 @@ void drgn_splay_tree_delete(struct binary_tree_node **root,
  *
  * @sa DEFINE_BINARY_SEARCH_TREE()
  */
-#define DEFINE_BINARY_SEARCH_TREE_TYPE(tree, entry_type, member, entry_to_key)	\
-typedef typeof(entry_type) tree##_entry_type;					\
+#define DEFINE_BINARY_SEARCH_TREE_TYPE(tree, entry_type)	\
+typedef typeof(entry_type) tree##_entry_type;			\
+								\
+struct tree {							\
+	struct binary_tree_node *root;				\
+};
+
+/**
+ * Define the functions for a binary search tree.
+ *
+ * The binary search tree type must have already been defined with @ref
+ * DEFINE_BINARY_SEARCH_TREE_TYPE().
+ *
+ * Unless the type and function definitions must be in separate places, use @ref
+ * DEFINE_BINARY_SEARCH_TREE() instead.
+ *
+ * @sa DEFINE_BINARY_SEARCH_TREE()
+ */
+#define DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(tree, member, entry_to_key,		\
+					    cmp_func, variant)			\
 typedef typeof(entry_to_key((tree##_entry_type *)0)) tree##_key_type;		\
 										\
 static inline struct binary_tree_node *						\
@@ -302,26 +320,10 @@ tree##_entry_to_key(const tree##_entry_type *entry)				\
 	return entry_to_key(entry);						\
 }										\
 										\
-struct tree {									\
-	struct binary_tree_node *root;						\
-};										\
-										\
 struct tree##_iterator {							\
 	tree##_entry_type *entry;						\
-};
-
-/**
- * Define the functions for a binary search tree.
- *
- * The binary search tree type must have already been defined with @ref
- * DEFINE_BINARY_SEARCH_TREE_TYPE().
- *
- * Unless the type and function definitions must be in separate places, use @ref
- * DEFINE_BINARY_SEARCH_TREE() instead.
- *
- * @sa DEFINE_BINARY_SEARCH_TREE()
- */
-#define DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(tree, cmp_func, variant)		\
+};										\
+										\
 __attribute__((__unused__))							\
 static void tree##_init(struct tree *tree)					\
 {										\
@@ -580,8 +582,9 @@ static struct tree##_iterator tree##_next_post_order(struct tree##_iterator it)	
  */
 #define DEFINE_BINARY_SEARCH_TREE(tree, entry_type, member, entry_to_key,	\
 				  cmp_func, variant)				\
-DEFINE_BINARY_SEARCH_TREE_TYPE(tree, entry_type, member, entry_to_key)		\
-DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(tree, cmp_func, variant)
+DEFINE_BINARY_SEARCH_TREE_TYPE(tree, entry_type)				\
+DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(tree, member, entry_to_key, cmp_func,	\
+				    variant)
 
 #ifdef DOXYGEN
 /** Compare two scalar keys. */

@@ -31,33 +31,8 @@
  * @{
  */
 
-/** Memory segment in a @ref drgn_memory_reader. */
-struct drgn_memory_segment {
-	struct binary_tree_node node;
-	/** Address range of the segment in memory (inclusive). */
-	uint64_t min_address, max_address;
-	/**
-	 * The address of the segment when it was added, before any truncations.
-	 *
-	 * This is always less than or equal to @ref
-	 * drgn_memory_segment::min_address.
-	 */
-	uint64_t orig_min_address;
-	/** Read callback. */
-	drgn_memory_read_fn read_fn;
-	/** Argument to pass to @ref drgn_memory_segment::read_fn. */
-	void *arg;
-};
-
-static inline uint64_t
-drgn_memory_segment_to_key(const struct drgn_memory_segment *entry)
-{
-	return entry->min_address;
-}
-
 DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_memory_segment_tree,
-			       struct drgn_memory_segment,
-			       node, drgn_memory_segment_to_key)
+			       struct drgn_memory_segment)
 
 /**
  * Memory reader.
