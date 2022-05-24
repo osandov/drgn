@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <getopt.h>
+#include <locale.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,8 +90,45 @@ noreturn static void usage(bool error)
 	exit(error ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
+static const char *module_kind_str(enum drgn_module_kind kind)
+{
+	switch (kind) {
+	case DRGN_MODULE_MAIN:
+		return "main";
+	case DRGN_MODULE_SHARED_LIBRARY:
+		return "shared library";
+	case DRGN_MODULE_VDSO:
+		return "vdso";
+	case DRGN_MODULE_LINUX_KERNEL_LOADABLE:
+		return "linux kernel loadable";
+	case DRGN_MODULE_EXTRA:
+		return "extra";
+	}
+	return "<unknown>";
+}
+
+static const char *
+drgn_module_file_status_str(enum drgn_module_file_status status)
+{
+	switch (status) {
+	case DRGN_MODULE_FILE_ALREADY_HAD:
+		return "already had";
+	case DRGN_MODULE_FILE_NOT_NEEDED:
+		return "not needed";
+	case DRGN_MODULE_FILE_NOT_WANTED:
+		return "not wanted";
+	case DRGN_MODULE_FILE_FAILED:
+		return "failed";
+	case DRGN_MODULE_FILE_SUCCEEDED:
+		return "succeeded";
+	}
+	return "<unknown>";
+}
+
 int main(int argc, char **argv)
 {
+	setlocale(LC_ALL, "");
+
 	struct option long_options[] = {
 		{"kernel", no_argument, NULL, 'k'},
 		{"core", required_argument, NULL, 'c'},
@@ -146,6 +184,10 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
+	err = drgn_program_set_log_level(prog, 8);
+	if (err)
+		goto out;
+
 	if (core)
 		err = drgn_program_set_core_dump(prog, core);
 	else if (pid)
@@ -162,9 +204,34 @@ int main(int argc, char **argv)
 	struct timespec start, end;
 	if (print_time && clock_gettime(CLOCK_MONOTONIC, &start))
 		abort();
-	err = drgn_program_load_debug_info(prog, (const char **)&argv[optind],
-					   argc - optind, kernel || core || pid,
-					   false);
+	struct drgn_module_iterator *it;
+	err = drgn_loaded_module_iterator_create(prog, &it);
+	if (err)
+		goto out;
+	struct drgn_module *module;
+	while (!(err = drgn_module_iterator_next(it, &module)) &&
+	       module) {
+		const char *build_id = drgn_module_build_id(module, NULL, NULL);
+		if (0) {
+		printf("discovered %s module %s with%s build ID %s\n",
+		       module_kind_str(drgn_module_kind(module)),
+		       drgn_module_name(module), build_id ? "" : "out",
+		       build_id ?: "");
+		}
+		struct drgn_module_try_files_args args = {
+			.want_loaded = true,
+			.want_debug = true,
+		};
+		err = drgn_module_try_default_files(module, &args);
+		if (err)
+			break;
+		if (0) {
+		printf("  loaded: %s\n  debug: %s\n",
+		       drgn_module_file_status_str(args.loaded_status),
+		       drgn_module_file_status_str(args.debug_status));
+		}
+	}
+	drgn_module_iterator_destroy(it);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
 	    && print_time && clock_gettime(CLOCK_MONOTONIC, &end))
 		abort();

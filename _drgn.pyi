@@ -649,6 +649,47 @@ class Program:
         :param pid: Process ID.
         """
         ...
+    def loaded_modules(self) -> Iterator[Module]:
+        """TODO"""
+        ...
+    def main_module(self, name: Path) -> MainModule:
+        """TODO"""
+        ...
+    def shared_library_module(
+        self, name: Path, dynamic_address: IntegerLike
+    ) -> SharedLibraryModule:
+        """TODO"""
+        ...
+    def vdso_module(self, name: Path, dynamic_address: IntegerLike) -> VdsoModule:
+        """TODO"""
+        ...
+    def linux_kernel_loadable_module(
+        self, module_obj: Object
+    ) -> LinuxKernelLoadableModule:
+        """TODO"""
+        ...
+    def extra_module(self, name: Path, id: IntegerLike) -> ExtraModule:
+        """TODO"""
+        ...
+    def find_main_module(self) -> MainModule:
+        """TODO"""
+        ...
+    def find_shared_library_module(
+        self, name: Path, dynamic_address: IntegerLike
+    ) -> SharedLibraryModule:
+        """TODO"""
+        ...
+    def find_vdso_module(self, name: Path, dynamic_address: IntegerLike) -> VdsoModule:
+        """TODO"""
+        ...
+    def find_linux_kernel_loadable_module(
+        self, name: Path, base_address: int
+    ) -> LinuxKernelLoadableModule:
+        """TODO"""
+        ...
+    def find_extra_module(self, name: Path, id: IntegerLike) -> ExtraModule:
+        """TODO"""
+        ...
     def load_debug_info(
         self,
         paths: Optional[Iterable[Path]] = None,
@@ -1047,6 +1088,119 @@ class NoDefaultProgramError(Exception):
     """
 
     ...
+
+class Module:
+    """TODO"""
+
+    prog: Program
+    """TODO"""
+    name: str
+    """TODO"""
+    address_range: Optional[Tuple[int, int]]
+    """TODO"""
+    build_id: Optional[bytes]
+    """TODO"""
+    loaded_file_path: Optional[str]
+    """TODO"""
+    loaded_file_bias: Optional[int]
+    """TODO"""
+    debug_file_path: Optional[str]
+    """TODO"""
+    debug_file_bias: Optional[int]
+    """TODO"""
+    gnu_debugaltlink_file_path: Optional[str]
+    """TODO"""
+
+    def try_default_files(
+        self,
+        *,
+        want_loaded: bool = True,
+        want_debug: bool = True,
+        debug_directories: Optional[Iterable[Path]] = None,
+        need_gnu_debugaltlink_file: Optional[
+            Callable[[Module, str, str, bytes, Dict[str, Any]], None]
+        ] = None,
+    ) -> ModuleTryFilesResult:
+        """TODO"""
+        ...
+    def try_local_files(
+        self,
+        *,
+        want_loaded: bool = True,
+        want_debug: bool = True,
+        debug_directories: Optional[Iterable[Path]] = None,
+        need_gnu_debugaltlink_file: Optional[
+            Callable[[Module, str, str, bytes, Dict[str, Any]], None]
+        ] = None,
+    ) -> ModuleTryFilesResult:
+        """TODO"""
+        ...
+    def try_download_files(
+        self,
+        *,
+        want_loaded: bool = True,
+        want_debug: bool = True,
+        debug_directories: Optional[Iterable[Path]] = None,
+        need_gnu_debugaltlink_file: Optional[
+            Callable[[Module, str, str, bytes, Dict[str, Any]], None]
+        ] = None,
+    ) -> ModuleTryFilesResult:
+        """TODO"""
+        ...
+    def try_file(
+        self,
+        path: Path,
+        fd: int = -1,
+        force: bool = False,
+        *,
+        want_loaded: bool = True,
+        want_debug: bool = True,
+        debug_directories: Optional[Iterable[Path]] = None,
+        need_gnu_debugaltlink_file: Optional[
+            Callable[[Module, str, str, bytes, Dict[str, Any]], None]
+        ] = None,
+    ) -> ModuleTryFilesResult:
+        """TODO"""
+        ...
+
+class MainModule(Module):
+    """TODO"""
+
+class SharedLibraryModule(Module):
+    """TODO"""
+
+    dynamic_address: int
+    """TODO"""
+
+class VdsoModule(Module):
+    """TODO"""
+
+    dynamic_address: int
+    """TODO"""
+
+class LinuxKernelLoadableModule(Module):
+    """TODO"""
+
+    base_address: int
+    """TODO"""
+
+class ExtraModule(Module):
+    """TODO"""
+
+    id: int
+    """TODO"""
+
+class ModuleTryFilesResult:
+    """TODO"""
+
+    loaded_status: ModuleFileStatus
+    """TODO"""
+
+    debug_status: ModuleFileStatus
+    """TODO"""
+
+class ModuleFileStatus:
+    """TODO"""
 
 class Thread:
     """A thread in a program."""

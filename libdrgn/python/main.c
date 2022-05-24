@@ -266,6 +266,14 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (add_module_constants(m) ||
 	    add_type(m, &Language_type) || add_languages() ||
 	    add_type(m, &DrgnObject_type) ||
+	    add_type(m, &Module_type) ||
+	    add_type(m, &MainModule_type) ||
+	    add_type(m, &SharedLibraryModule_type) ||
+	    add_type(m, &VdsoModule_type) ||
+	    add_type(m, &LinuxKernelLoadableModule_type) ||
+	    add_type(m, &ExtraModule_type) ||
+	    PyType_Ready(&ModuleIterator_type) ||
+	    add_type(m, &ModuleTryFilesResult_type) ||
 	    PyType_Ready(&ObjectIterator_type) ||
 	    add_type(m, &Platform_type) ||
 	    add_type(m, &Program_type) ||

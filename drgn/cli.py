@@ -90,19 +90,6 @@ def version_header() -> str:
     return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
 
 
-class _QuietAction(argparse.Action):
-    def __init__(
-        self, option_strings: Any, dest: Any, nargs: Any = 0, **kwds: Any
-    ) -> None:
-        super().__init__(option_strings, dest, nargs=nargs, **kwds)
-
-    def __call__(
-        self, parser: Any, namespace: Any, values: Any, option_string: Any = None
-    ) -> None:
-        setattr(namespace, self.dest, True)
-        namespace.log_level = "none"
-
-
 def _identify_script(path: str) -> str:
     EI_NIDENT = 16
     SIZEOF_E_TYPE = 2
@@ -158,9 +145,8 @@ def _displayhook(value: Any) -> None:
 
 def _main() -> None:
     handler = logging.StreamHandler()
-    handler.setFormatter(
-        _LogFormatter(hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno()))
-    )
+    color = hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno())
+    handler.setFormatter(_LogFormatter(color))
     logging.getLogger().addHandler(handler)
 
     version = version_header()
@@ -232,7 +218,9 @@ def _main() -> None:
     parser.add_argument(
         "-q",
         "--quiet",
-        action=_QuietAction,
+        dest="log_level",
+        action="store_const",
+        const="none",
         help="don't print any logs or download progress",
     )
     parser.add_argument(
@@ -265,8 +253,6 @@ def _main() -> None:
     else:
         print(version, file=sys.stderr, flush=True)
 
-    if not args.quiet:
-        os.environ["DEBUGINFOD_PROGRESS"] = "1"
     if args.log_level == "none":
         logger.setLevel(logging.CRITICAL + 1)
     else:
@@ -313,7 +299,7 @@ def _main() -> None:
     try:
         prog.load_debug_info(args.symbols, **args.default_symbols)
     except drgn.MissingDebugInfoError as e:
-        logger.warning("%s", e)
+        logger.warning("\033[1m%s\033[0m" if color else "%s", e)
 
     if args.script:
         sys.argv = args.script

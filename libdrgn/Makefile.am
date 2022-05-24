@@ -176,6 +176,7 @@ _drgn_la_SOURCES = python/constants.c \
 		   python/helpers.c \
 		   python/language.c \
 		   python/main.c \
+		   python/module.c \
 		   python/object.c \
 		   python/platform.c \
 		   python/program.c \

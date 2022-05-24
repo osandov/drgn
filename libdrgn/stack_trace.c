@@ -3,7 +3,6 @@
 
 #include <assert.h>
 #include <elfutils/libdw.h>
-#include <elfutils/libdwfl.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>

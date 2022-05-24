@@ -191,12 +191,16 @@ labeled_unsigned_int_die = (DwarfLabel("unsigned_int_die"), unsigned_int_die)
 labeled_float_die = (DwarfLabel("float_die"), float_die)
 
 
+def add_extra_dwarf(prog, path):
+    prog.extra_module(path, 0).try_file(path, force=True)
+
+
 def dwarf_program(*args, segments=None, **kwds):
     prog = Program()
     with tempfile.NamedTemporaryFile() as f:
         f.write(compile_dwarf(*args, **kwds))
         f.flush()
-        prog.load_debug_info([f.name])
+        add_extra_dwarf(prog, f.name)
 
     if segments is not None:
         add_mock_memory_segments(prog, segments)
@@ -6805,7 +6809,7 @@ class TestSplitDwarf(TestCase):
                         )
                     )
                 )
-            prog.load_debug_info([f.name])
+            add_extra_dwarf(prog, f.name)
             self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
 
     def test_dwo4_not_found(self):
@@ -6833,7 +6837,12 @@ class TestSplitDwarf(TestCase):
                     )
                 )
             with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
-                prog.load_debug_info([f.name])
+                add_extra_dwarf(prog, f.name)
+                # Force debug info to be indexed.
+                try:
+                    prog["foo"]
+                except KeyError:
+                    pass
             self.assertTrue(
                 any(
                     "split DWARF file split.dwo not found" in output
@@ -6885,7 +6894,12 @@ class TestSplitDwarf(TestCase):
                     )
                 )
             with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
-                prog.load_debug_info([f.name])
+                add_extra_dwarf(prog, f.name)
+                # Force debug info to be indexed.
+                try:
+                    prog["foo"]
+                except KeyError:
+                    pass
             self.assertTrue(
                 any(
                     "split DWARF file split.dwo not found" in output
@@ -6930,7 +6944,7 @@ class TestSplitDwarf(TestCase):
                         version=5,
                     )
                 )
-            prog.load_debug_info([f.name])
+            add_extra_dwarf(prog, f.name)
             self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
 
     def test_dwo5_not_found(self):
@@ -6955,7 +6969,12 @@ class TestSplitDwarf(TestCase):
                     )
                 )
             with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
-                prog.load_debug_info([f.name])
+                add_extra_dwarf(prog, f.name)
+                # Force debug info to be indexed.
+                try:
+                    prog["foo"]
+                except KeyError:
+                    pass
             self.assertTrue(
                 any(
                     "split DWARF file split.dwo not found" in output
@@ -7001,7 +7020,12 @@ class TestSplitDwarf(TestCase):
                     )
                 )
             with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
-                prog.load_debug_info([f.name])
+                add_extra_dwarf(prog, f.name)
+                # Force debug info to be indexed.
+                try:
+                    prog["foo"]
+                except KeyError:
+                    pass
             self.assertTrue(
                 any(
                     "split DWARF file split.dwo not found" in output

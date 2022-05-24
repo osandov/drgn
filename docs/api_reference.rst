@@ -156,6 +156,18 @@ can be used just like types obtained from :meth:`Program.type()`.
 .. drgndoc:: Program.array_type
 .. drgndoc:: Program.function_type
 
+Modules
+-------
+
+.. drgndoc:: Module
+.. drgndoc:: MainModule
+.. drgndoc:: SharedLibraryModule
+.. drgndoc:: VdsoModule
+.. drgndoc:: LinuxKernelLoadableModule
+.. drgndoc:: ExtraModule
+.. drgndoc:: ModuleTryFilesResult
+.. drgndoc:: ModuleFileStatus
+
 Miscellaneous
 -------------
 

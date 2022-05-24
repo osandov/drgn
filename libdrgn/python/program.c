@@ -965,6 +965,238 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
+static ModuleIterator *Program_loaded_modules(Program *self)
+{
+	struct drgn_error *err;
+	ModuleIterator *it = call_tp_alloc(ModuleIterator);
+	if (!it)
+		return NULL;
+	err = drgn_loaded_module_iterator_create(&self->prog, &it->it);
+	if (err) {
+		it->it = NULL;
+		Py_DECREF(it);
+		return set_drgn_error(err);
+	}
+	Py_INCREF(self);
+	return it;
+}
+
+static PyObject *Program_main_module(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", NULL};
+	struct path_arg name = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&:main_module", keywords,
+					 path_converter, &name))
+		return NULL;
+	struct drgn_module *module;
+	err = drgn_module_find_or_create_main(&self->prog, name.path, &module,
+					      NULL);
+	path_cleanup(&name);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_shared_library_module(Program *self, PyObject *args,
+					       PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "dynamic_address", NULL};
+	struct path_arg name = {};
+	struct index_arg dynamic_address = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O&O&:shared_library_module", keywords,
+					 path_converter, &name, index_converter,
+					 &dynamic_address))
+		return NULL;
+
+	struct drgn_module *module;
+	err = drgn_module_find_or_create_shared_library(&self->prog, name.path,
+							dynamic_address.uvalue,
+							&module, NULL);
+	path_cleanup(&name);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_vdso_module(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "dynamic_address", NULL};
+	struct path_arg name = {};
+	struct index_arg dynamic_address = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:vdso_module",
+					 keywords, path_converter, &name,
+					 index_converter, &dynamic_address))
+		return NULL;
+
+	struct drgn_module *module;
+	err = drgn_module_find_or_create_vdso(&self->prog, name.path,
+					      dynamic_address.uvalue, &module,
+					      NULL);
+	path_cleanup(&name);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_linux_kernel_loadable_module(Program *self,
+						      PyObject *args,
+						      PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"module_obj", NULL};
+	DrgnObject *module_obj;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O!:linux_kernel_loadable_module",
+					 keywords, path_converter,
+					 &DrgnObject_type, &module_obj))
+		return NULL;
+
+	if (DrgnObject_prog(module_obj) != self) {
+		PyErr_SetString(PyExc_ValueError,
+				"object is from different program");
+		return NULL;
+	}
+
+	struct drgn_module *module;
+	err = drgn_module_find_or_create_linux_kernel_loadable(&module_obj->obj,
+							       &module, NULL);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_extra_module(Program *self, PyObject *args,
+				      PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"name", "id", NULL};
+	struct path_arg name = {};
+	struct index_arg id = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:extra_module",
+					 keywords, path_converter, &name,
+					 index_converter, &id))
+		return NULL;
+
+	struct drgn_module *module;
+	err = drgn_module_find_or_create_extra(&self->prog, name.path,
+					       id.uvalue, &module, NULL);
+	path_cleanup(&name);
+	if (err) {
+		set_drgn_error(err);
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_find_module(Program *self, const struct drgn_module_key *key)
+{
+	struct drgn_module *module = drgn_module_find(&self->prog, key);
+	if (!module) {
+		PyErr_SetString(PyExc_LookupError, "module not found");
+		return NULL;
+	}
+	return Module_wrap(module);
+}
+
+static PyObject *Program_find_main_module(Program *self)
+{
+	struct drgn_module_key key = { .kind = DRGN_MODULE_MAIN };
+	return Program_find_module(self, &key);
+}
+
+static PyObject *Program_find_shared_library_module(Program *self,
+						    PyObject *args,
+						    PyObject *kwds)
+{
+	static char *keywords[] = {"name", "dynamic_address", NULL};
+	struct path_arg name = {};
+	struct index_arg dynamic_address = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:find_shared_library_module",
+					 keywords, path_converter, &name,
+					 index_converter, &dynamic_address))
+		return NULL;
+
+	struct drgn_module_key key = {
+		.kind = DRGN_MODULE_SHARED_LIBRARY,
+		.shared_library.name = name.path,
+		.shared_library.dynamic_address = dynamic_address.uvalue,
+	};
+	return Program_find_module(self, &key);
+}
+
+static PyObject *Program_find_vdso_module(Program *self, PyObject *args,
+					  PyObject *kwds)
+{
+	static char *keywords[] = {"name", "dynamic_address", NULL};
+	struct path_arg name = {};
+	struct index_arg dynamic_address = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:find_vdso_module",
+					 keywords, path_converter, &name,
+					 index_converter, &dynamic_address))
+		return NULL;
+
+	struct drgn_module_key key = {
+		.kind = DRGN_MODULE_VDSO,
+		.vdso.name = name.path,
+		.vdso.dynamic_address = dynamic_address.uvalue,
+	};
+	return Program_find_module(self, &key);
+}
+
+static PyObject *Program_find_linux_kernel_loadable_module(Program *self,
+							   PyObject *args,
+							   PyObject *kwds)
+{
+	static char *keywords[] = {"name", "base_address", NULL};
+	struct path_arg name = {};
+	struct index_arg base_address = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds,
+					 "O&O&:find_linux_kernel_loadable_module",
+					 keywords, path_converter, &name,
+					 index_converter, &base_address))
+		return NULL;
+
+	struct drgn_module_key key = {
+		.kind = DRGN_MODULE_LINUX_KERNEL_LOADABLE,
+		.linux_kernel_loadable.name = name.path,
+		.linux_kernel_loadable.base_address = base_address.uvalue,
+	};
+	return Program_find_module(self, &key);
+}
+
+static PyObject *Program_find_extra_module(Program *self, PyObject *args,
+					   PyObject *kwds)
+{
+	static char *keywords[] = {"name", "id", NULL};
+	struct path_arg name = {};
+	struct index_arg id = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:find_extra_module",
+					 keywords, path_converter, &name,
+					 index_converter, &id))
+		return NULL;
+
+	struct drgn_module_key key = {
+		.kind = DRGN_MODULE_EXTRA,
+		.extra.name = name.path,
+		.extra.id = id.uvalue,
+	};
+	return Program_find_module(self, &key);
+}
+
 DEFINE_VECTOR(path_arg_vector, struct path_arg);
 
 static PyObject *Program_load_debug_info(Program *self, PyObject *args,
@@ -1594,6 +1826,34 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_set_kernel_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},
+	{"loaded_modules", (PyCFunction)Program_loaded_modules, METH_NOARGS,
+	 drgn_Program_loaded_modules_DOC},
+	{"main_module", (PyCFunction)Program_main_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_main_module_DOC},
+	{"shared_library_module", (PyCFunction)Program_shared_library_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_shared_library_module_DOC},
+	{"vdso_module", (PyCFunction)Program_vdso_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_vdso_module_DOC},
+	{"linux_kernel_loadable_module",
+	 (PyCFunction)Program_linux_kernel_loadable_module,
+	 METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_linux_kernel_loadable_module_DOC},
+	{"extra_module", (PyCFunction)Program_extra_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_extra_module_DOC},
+	{"find_main_module", (PyCFunction)Program_find_main_module, METH_NOARGS,
+	 drgn_Program_find_main_module_DOC},
+	{"find_shared_library_module",
+	 (PyCFunction)Program_find_shared_library_module,
+	 METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_find_shared_library_module_DOC},
+	{"find_vdso_module", (PyCFunction)Program_find_vdso_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_find_vdso_module_DOC},
+	{"find_linux_kernel_loadable_module",
+	 (PyCFunction)Program_find_linux_kernel_loadable_module,
+	 METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_find_linux_kernel_loadable_module_DOC},
+	{"find_extra_module", (PyCFunction)Program_find_extra_module,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_find_extra_module_DOC},
 	{"load_debug_info", (PyCFunction)Program_load_debug_info,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_load_debug_info_DOC},
 	{"load_default_debug_info",

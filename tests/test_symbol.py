@@ -40,7 +40,7 @@ def elf_symbol_program(*modules):
         with tempfile.NamedTemporaryFile() as f:
             f.write(create_elf_symbol_file(symbols))
             f.flush()
-            prog.load_debug_info([f.name])
+            prog.extra_module(f.name, 0).try_file(f.name, force=True)
     return prog
 
 
