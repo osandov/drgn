@@ -5314,6 +5314,83 @@ drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
 					       function_die, regs, ret);
 }
 
+DEFINE_VECTOR(const_char_p_vector, const char *);
+
+static struct drgn_error *add_dwarf_enumerators(Dwarf_Die *enumeration_type,
+						struct const_char_p_vector *vec)
+{
+	Dwarf_Die child;
+	int r = dwarf_child(enumeration_type, &child);
+	while (r == 0) {
+		if (dwarf_tag(&child) == DW_TAG_enumerator) {
+			const char *die_name = dwarf_diename(&child);
+			if (!die_name)
+				continue;
+			if (!const_char_p_vector_append(vec, &die_name))
+				return &drgn_enomem;
+		}
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r < 0)
+		return drgn_error_libdw();
+	return NULL;
+}
+
+struct drgn_error *drgn_dwarf_scopes_names(Dwarf_Die *scopes,
+					   size_t num_scopes,
+					   const char ***names_ret,
+					   size_t *count_ret)
+{
+	struct drgn_error *err;
+	Dwarf_Die die;
+	struct const_char_p_vector vec = VECTOR_INIT;
+	for (size_t scope = 0; scope < num_scopes; scope++) {
+		if (dwarf_child(&scopes[scope], &die) != 0)
+			continue;
+		do {
+			switch (dwarf_tag(&die)) {
+			case DW_TAG_variable:
+			case DW_TAG_formal_parameter:
+			case DW_TAG_subprogram: {
+				const char *die_name = dwarf_diename(&die);
+				if (!die_name)
+					continue;
+				if (!const_char_p_vector_append(&vec,
+								&die_name)) {
+					err = &drgn_enomem;
+					goto err;
+				}
+				break;
+			}
+			case DW_TAG_enumeration_type: {
+				bool enum_class;
+				if (dwarf_flag_integrate(&die, DW_AT_enum_class,
+							 &enum_class)) {
+					err = drgn_error_libdw();
+					goto err;
+				}
+				if (!enum_class) {
+					err = add_dwarf_enumerators(&die, &vec);
+					if (err)
+						goto err;
+				}
+				break;
+			}
+			default:
+				continue;
+			}
+		} while (dwarf_siblingof(&die, &die) == 0);
+	}
+	const_char_p_vector_shrink_to_fit(&vec);
+	*names_ret = vec.data;
+	*count_ret = vec.size;
+	return NULL;
+
+err:
+	const_char_p_vector_deinit(&vec);
+	return err;
+}
+
 static struct drgn_error *find_dwarf_enumerator(Dwarf_Die *enumeration_type,
 						const char *name,
 						Dwarf_Die *ret)

@@ -2790,6 +2790,31 @@ struct drgn_error *drgn_stack_frame_symbol(struct drgn_stack_trace *trace,
 					   struct drgn_symbol **ret);
 
 /**
+ * Get the names of local objects in the scope of this frame.
+ *
+ * The array of names must be freed with @ref drgn_stack_frame_locals_destroy().
+ *
+ * @param[out] names_ret Returned array of names. On success, must be freed with
+ * @ref drgn_stack_frame_locals_destroy().
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ * @return @c NULL on success, non-@c NULL on error
+ */
+struct drgn_error *
+drgn_stack_frame_locals(struct drgn_stack_trace *trace, size_t frame,
+			const char ***names_ret, size_t *count_ret);
+
+/**
+ * Free an array of names returned by @ref drgn_stack_frame_locals().
+ *
+ * The individual names from this array are invalid once this function is
+ * called. Any string which will be used later should be copied.
+ *
+ * @param names Array of names returned by @ref drgn_stack_frame_locals().
+ * @param count Count returned by @ref drgn_stack_frame_locals().
+ */
+void drgn_stack_frame_locals_destroy(const char **names, size_t count);
+
+/**
  * Find an object in the scope of a stack frame.
  *
  * @param[in] name Object name.

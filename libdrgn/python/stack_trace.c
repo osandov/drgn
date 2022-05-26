@@ -113,6 +113,34 @@ static PyObject *StackFrame_str(StackFrame *self)
 	return ret;
 }
 
+static PyObject *StackFrame_locals(StackFrame *self)
+{
+	struct drgn_error *err;
+	const char **names;
+	size_t count;
+	err = drgn_stack_frame_locals(self->trace->trace, self->i, &names,
+				      &count);
+	if (err)
+		return set_drgn_error(err);
+
+	PyObject *list = PyList_New(count);
+	if (!list) {
+		drgn_stack_frame_locals_destroy(names, count);
+		return NULL;
+	}
+	for (size_t i = 0; i < count; i++) {
+		PyObject *string = PyUnicode_FromString(names[i]);
+		if (!string) {
+			drgn_stack_frame_locals_destroy(names, count);
+			Py_DECREF(list);
+			return NULL;
+		}
+		PyList_SET_ITEM(list, i, string);
+	}
+	drgn_stack_frame_locals_destroy(names, count);
+	return list;
+}
+
 static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
 {
 	struct drgn_error *err;
@@ -297,6 +325,8 @@ static PyMethodDef StackFrame_methods[] = {
 	 METH_O | METH_COEXIST, drgn_StackFrame___getitem___DOC},
 	{"__contains__", (PyCFunction)StackFrame_contains,
 	 METH_O | METH_COEXIST, drgn_StackFrame___contains___DOC},
+	{"locals", (PyCFunction)StackFrame_locals,
+	 METH_NOARGS, drgn_StackFrame_locals_DOC},
 	{"source", (PyCFunction)StackFrame_source, METH_NOARGS,
 	 drgn_StackFrame_source_DOC},
 	{"symbol", (PyCFunction)StackFrame_symbol, METH_NOARGS,

@@ -10,6 +10,7 @@
 
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/kthread.h>
 #include <linux/list.h>
 #include <linux/llist.h>
 #include <linux/mm.h>
@@ -385,6 +386,45 @@ static int drgn_test_slab_init(void)
 	return 0;
 }
 
+// kthread for stack trace
+
+static struct task_struct *drgn_kthread;
+
+static int __attribute__((optimize("O0"))) drgn_kthread_fn(void *arg)
+{
+	int a, b, c;
+
+retry:
+	for (a = 0; a < 100; a++) {
+		for (b = 100; b >= 0; b--) {
+			for (c = 0; c < a; c++) {
+				set_current_state(TASK_UNINTERRUPTIBLE);
+				schedule();
+				if (kthread_should_stop())
+					return 0;
+			}
+		}
+	}
+	goto retry;
+}
+
+static void drgn_test_stack_trace_exit(void)
+{
+	if (drgn_kthread) {
+		kthread_stop(drgn_kthread);
+		drgn_kthread = NULL;
+	}
+}
+
+static int drgn_test_stack_trace_init(void)
+{
+	drgn_kthread = kthread_create(drgn_kthread_fn, (void *)0xF0F0F0F0, "drgn_kthread");
+	if (!drgn_kthread)
+		return -1;
+	wake_up_process(drgn_kthread);
+	return 0;
+}
+
 // Dummy function symbol.
 int drgn_test_function(int x)
 {
@@ -396,6 +436,7 @@ static void drgn_test_exit(void)
 	drgn_test_slab_exit();
 	drgn_test_percpu_exit();
 	drgn_test_mm_exit();
+	drgn_test_stack_trace_exit();
 }
 
 static int __init drgn_test_init(void)
@@ -412,6 +453,9 @@ static int __init drgn_test_init(void)
 		goto out;
 	drgn_test_rbtree_init();
 	ret = drgn_test_slab_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_stack_trace_init();
 out:
 	if (ret)
 		drgn_test_exit();
