@@ -232,6 +232,19 @@ struct drgn_error *drgn_find_die_ancestors(Dwarf_Die *die, Dwarf_Die **dies_ret,
 	__attribute__((__nonnull__(2, 3)));
 
 /**
+ * Get an array of names of `DW_TAG_variable` and `DW_TAG_formal_parameter` DIEs
+ * in local scopes.
+ *
+ * @param[out] names_ret Returned array of names. On success, must be freed with
+ * @c free(). The individual strings should not be freed.
+ * @param[out] count_ret Returned number of names in @p names_ret.
+ */
+struct drgn_error *drgn_dwarf_scopes_names(Dwarf_Die *scopes,
+					   size_t num_scopes,
+					   const char ***names_ret,
+					   size_t *count_ret);
+
+/**
  * Find an object DIE in an array of DWARF scopes.
  *
  * @param[in] scopes Array of scopes, from outermost to innermost.

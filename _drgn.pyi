@@ -1704,6 +1704,16 @@ class StackFrame:
         :param name: Object name.
         """
         ...
+    def locals(self) -> List[str]:
+        """
+        Get a list of the names of all local objects (local variables, function
+        parameters, local constants, and nested functions) in the scope of this
+        frame.
+
+        Not all names may have present values, but they can be used with the
+        :meth:`[] <.__getitem__>` operator to check.
+        """
+        ...
     def source(self) -> Tuple[str, int, int]:
         """
         Get the source code location of this frame.

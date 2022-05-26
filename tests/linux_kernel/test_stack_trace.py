@@ -7,7 +7,12 @@ import unittest
 from drgn import Object, Program, cast
 from drgn.helpers.linux.pid import find_task
 from tests import assertReprPrettyEqualsStr
-from tests.linux_kernel import LinuxKernelTestCase, fork_and_sigwait, setenv
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
+    fork_and_sigwait,
+    setenv,
+    skip_unless_have_test_kmod,
+)
 from util import NORMALIZED_MACHINE_NAME
 
 
@@ -94,3 +99,17 @@ class TestStackTrace(LinuxKernelTestCase):
             assertReprPrettyEqualsStr(trace)
             for frame in trace:
                 assertReprPrettyEqualsStr(frame)
+
+    @skip_unless_have_test_kmod
+    def test_stack_locals(self):
+        task = self.prog["drgn_kthread"]
+        stack_trace = self.prog.stack_trace(task)
+        for frame in stack_trace:
+            if frame.symbol().name == "drgn_kthread_fn":
+                self.assertSetEqual(
+                    {"arg", "a", "b", "c"},
+                    set(frame.locals()),
+                )
+                break
+        else:
+            self.fail("Couldn't find drgn_kthread_fn frame")
