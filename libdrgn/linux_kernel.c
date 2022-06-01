@@ -3,12 +3,13 @@
 
 #include <dirent.h>
 #include <elf.h>
-#include <gelf.h>
-#include <libelf.h>
-#include <stdio.h>
+#include <elfutils/libdwelf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <gelf.h>
 #include <inttypes.h>
+#include <libelf.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -343,6 +344,8 @@ struct kernel_module_iterator {
 	/* /proc/modules file or NULL. */
 	FILE *modules_file;
 	uint64_t start, end;
+	void *build_id_buf;
+	size_t build_id_buf_capacity;
 	union {
 		/* If using /proc/modules. */
 		size_t name_capacity;
@@ -366,6 +369,7 @@ static void kernel_module_iterator_deinit(struct kernel_module_iterator *it)
 		drgn_object_deinit(&it->node);
 		drgn_object_deinit(&it->mod);
 	}
+	free(it->build_id_buf);
 	free(it->name);
 }
 
@@ -376,6 +380,8 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 	struct drgn_error *err;
 
 	it->name = NULL;
+	it->build_id_buf = NULL;
+	it->build_id_buf_capacity = 0;
 	if (use_proc_and_sys) {
 		it->modules_file = fopen("/proc/modules", "r");
 		if (!it->modules_file) {
@@ -530,6 +536,233 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 	free(it->name);
 	it->name = name;
 	return NULL;
+}
+
+static size_t parse_gnu_build_id_from_note(const void *note, size_t note_size,
+					   bool bswap, const void **ret)
+{
+	const char *p = note;
+	const char *end = p + note_size;
+	// Elf64_Nhdr is the same as Elf32_Nhdr.
+	Elf32_Nhdr nhdr;
+	while (end - p >= sizeof(nhdr)) {
+#define ALIGN_NOTE() do {						\
+		size_t to_align = (size_t)-(p - (char *)note) % 4;	\
+		if (to_align > end - p)					\
+			break;						\
+		p += to_align;						\
+} while (0)
+
+		memcpy(&nhdr, p, sizeof(nhdr));
+		if (bswap) {
+			nhdr.n_namesz = bswap_32(nhdr.n_namesz);
+			nhdr.n_descsz = bswap_32(nhdr.n_descsz);
+			nhdr.n_type = bswap_32(nhdr.n_type);
+		}
+		p += sizeof(nhdr);
+
+		if (nhdr.n_namesz > end - p)
+			break;
+		const char *name = p;
+		p += nhdr.n_namesz;
+		ALIGN_NOTE();
+
+		if (nhdr.n_namesz == sizeof("GNU") &&
+		    memcmp(name, "GNU", sizeof("GNU")) == 0 &&
+		    nhdr.n_type == NT_GNU_BUILD_ID &&
+		    nhdr.n_descsz > 0) {
+			if (nhdr.n_descsz > end - p)
+				break;
+			*ret = p;
+			return nhdr.n_descsz;
+		}
+
+		p += nhdr.n_descsz;
+		ALIGN_NOTE();
+
+#undef ALIGN_NOTE
+	}
+	*ret = NULL;
+	return 0;
+}
+
+static struct drgn_error *
+kernel_module_iterator_gnu_build_id_live(struct kernel_module_iterator *it,
+					 const void **build_id_ret,
+					 size_t *build_id_len_ret)
+{
+	struct drgn_error *err;
+
+	char *path;
+	if (asprintf(&path, "/sys/module/%s/notes", it->name) == -1)
+		return &drgn_enomem;
+	DIR *dir = opendir(path);
+	if (!dir) {
+		err = drgn_error_create_os("opendir", errno, path);
+		goto out_path;
+	}
+
+	struct dirent *ent;
+	while ((errno = 0, ent = readdir(dir))) {
+		if (ent->d_type == DT_DIR)
+			continue;
+
+		int fd = openat(dirfd(dir), ent->d_name, O_RDONLY);
+		if (fd == -1) {
+			err = drgn_error_format_os("openat", errno, "%s/%s",
+						   path, ent->d_name);
+			goto out;
+		}
+
+		struct stat st;
+		if (fstat(fd, &st) < 0) {
+			err = drgn_error_format_os("fstat", errno, "%s/%s",
+						   path, ent->d_name);
+			close(fd);
+			goto out;
+		}
+
+		if (st.st_size > SIZE_MAX ||
+		    !alloc_or_reuse(&it->build_id_buf,
+				    &it->build_id_buf_capacity, st.st_size)) {
+			err = &drgn_enomem;
+			close(fd);
+			goto out;
+		}
+
+		char *buf = it->build_id_buf;
+		size_t size = 0;
+		while (size < st.st_size) {
+			ssize_t r = read(fd, buf + size, st.st_size - size);
+			if (r < 0) {
+				if (errno == EINTR)
+					continue;
+				err = drgn_error_format_os("read", errno,
+							   "%s/%s", path,
+							   ent->d_name);
+				close(fd);
+				goto out;
+			} else if (r == 0) {
+				break;
+			}
+			size += r;
+		}
+		close(fd);
+
+		*build_id_len_ret = parse_gnu_build_id_from_note(buf, size,
+								 false,
+								 build_id_ret);
+		if (*build_id_len_ret) {
+			err = NULL;
+			goto out;
+		}
+	}
+	if (errno) {
+		err = drgn_error_create_os("readdir", errno, path);
+	} else {
+		*build_id_ret = NULL;
+		*build_id_len_ret = 0;
+		err = NULL;
+	}
+
+out:
+	closedir(dir);
+out_path:
+	free(path);
+	return err;
+}
+
+static struct drgn_error *
+kernel_module_iterator_gnu_build_id(struct kernel_module_iterator *it,
+				    const void **build_id_ret,
+				    size_t *build_id_len_ret)
+{
+	if (it->modules_file) {
+		return kernel_module_iterator_gnu_build_id_live(it,
+								build_id_ret,
+								build_id_len_ret);
+	}
+
+	struct drgn_error *err;
+	struct drgn_program *prog = drgn_object_program(&it->mod);
+	const bool bswap =
+		drgn_type_little_endian(it->mod.type) != HOST_LITTLE_ENDIAN;
+
+	struct drgn_object attrs, attr, tmp;
+	drgn_object_init(&attrs, prog);
+	drgn_object_init(&attr, prog);
+	drgn_object_init(&tmp, prog);
+
+	// n = mod->notes_attrs->notes
+	uint64_t n;
+	err = drgn_object_member_dereference(&attrs, &it->mod, "notes_attrs");
+	if (err)
+		goto out;
+	err = drgn_object_member_dereference(&tmp, &attrs, "notes");
+	if (err)
+		goto out;
+	err = drgn_object_read_unsigned(&tmp, &n);
+	if (err)
+		goto out;
+
+	// attrs = mod->notes_attrs->attrs
+	err = drgn_object_member_dereference(&attrs, &attrs, "attrs");
+	if (err)
+		goto out;
+
+	for (uint64_t i = 0; i < n; i++) {
+		// attr = attrs[i]
+		err = drgn_object_subscript(&attr, &attrs, i);
+		if (err)
+			goto out;
+
+		// address = attr.private
+		err = drgn_object_member(&tmp, &attr, "private");
+		if (err)
+			goto out;
+		uint64_t address;
+		err = drgn_object_read_unsigned(&tmp, &address);
+		if (err)
+			goto out;
+
+		// size = attr.size
+		err = drgn_object_member(&tmp, &attr, "size");
+		if (err)
+			goto out;
+		uint64_t size;
+		err = drgn_object_read_unsigned(&tmp, &size);
+		if (err)
+			goto out;
+
+		if (size > SIZE_MAX ||
+		    !alloc_or_reuse(&it->build_id_buf,
+				    &it->build_id_buf_capacity, size)) {
+			err = &drgn_enomem;
+			goto out;
+		}
+
+		err = drgn_program_read_memory(prog, it->build_id_buf, address,
+					       size, false);
+		if (err)
+			goto out;
+
+		*build_id_len_ret =
+			parse_gnu_build_id_from_note(it->build_id_buf, size,
+						     bswap, build_id_ret);
+		if (*build_id_len_ret) {
+			err = NULL;
+			goto out;
+		}
+	}
+	*build_id_ret = NULL;
+	*build_id_len_ret = 0;
+	err = NULL;
+
+out:
+	drgn_object_deinit(&tmp);
+	drgn_object_deinit(&attr);
+	drgn_object_deinit(&attrs);
+	return err;
 }
 
 struct kernel_module_section_iterator {
@@ -918,26 +1151,21 @@ not_found:
 }
 
 /*
- * Identify an ELF file as a kernel module, vmlinux, or neither. A kernel module
- * should have sections named .gnu.linkonce.this_module and .modinfo; we return
- * those sections and classify the file as a kernel module if either is present.
- *
- * If neither is present, and the file has a section named .init.text, we
- * classify it as vmlinux.
+ * Identify an ELF file as a kernel module, vmlinux, or neither. We classify a
+ * file as a kernel module if it has a section named .gnu.linkonce.this_module.
+ * If it doesn't, but it does have a section named .init.text, we classify it as
+ * vmlinux.
  */
 static struct drgn_error *identify_kernel_elf(Elf *elf,
-					      Elf_Scn **this_module_scn_ret,
-					      Elf_Scn **modinfo_scn_ret,
-					      bool *is_vmlinux_ret)
+					      bool *is_vmlinux_ret,
+					      bool *is_module_ret)
 {
 	size_t shstrndx;
-	Elf_Scn *scn;
-	bool have_init_text = false;
-
 	if (elf_getshdrstrndx(elf, &shstrndx))
 		return drgn_error_libelf();
 
-	scn = *this_module_scn_ret = *modinfo_scn_ret = NULL;
+	Elf_Scn *scn = NULL;
+	bool have_init_text = false;
 	while ((scn = elf_nextscn(elf, scn))) {
 		GElf_Shdr *shdr, shdr_mem;
 		const char *scnname;
@@ -949,81 +1177,16 @@ static struct drgn_error *identify_kernel_elf(Elf *elf,
 		scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
 		if (!scnname)
 			return drgn_error_libelf();
-		if (strcmp(scnname, ".gnu.linkonce.this_module") == 0)
-			*this_module_scn_ret = scn;
-		else if (strcmp(scnname, ".modinfo") == 0)
-			*modinfo_scn_ret = scn;
-		else if (strcmp(scnname, ".init.text") == 0)
+		if (strcmp(scnname, ".gnu.linkonce.this_module") == 0) {
+			*is_vmlinux_ret = false;
+			*is_module_ret = true;
+			return NULL;
+		} else if (strcmp(scnname, ".init.text") == 0) {
 			have_init_text = true;
-	}
-	*is_vmlinux_ret = (!*this_module_scn_ret && !*modinfo_scn_ret &&
-			   have_init_text);
-	return NULL;
-}
-/*
- * Since Linux kernel commit 3e2e857f9c3a ("module: Add module name to modinfo")
- * (in v4.13), we can get the module name from .modinfo.
- */
-static struct drgn_error *
-get_kernel_module_name_from_modinfo(Elf_Scn *modinfo_scn, const char **ret)
-{
-	struct drgn_error *err;
-	Elf_Data *data;
-	const char *p, *end, *nul;
-
-	if (modinfo_scn) {
-		err = read_elf_section(modinfo_scn, &data);
-		if (err)
-			return err;
-		if (!data->d_buf) {
-			/* Section is either SHT_NOBITS or empty. */
-			goto not_found;
-		}
-		p = data->d_buf;
-		end = p + data->d_size;
-		while (p < end) {
-			nul = memchr(p, 0, end - p);
-			if (!nul)
-				break;
-			if (strstartswith(p, "name=")) {
-				*ret = p + 5;
-				return NULL;
-			}
-			p = nul + 1;
 		}
 	}
-not_found:
-	*ret = NULL;
-	return NULL;
-}
-
-/*
- * If the module name isn't in .modinfo, we need to get it from
- * .gnu.linkonce.this_module, which contains a struct module. name_offset is
- * offsetof(struct module, name).
- */
-static struct drgn_error *
-get_kernel_module_name_from_this_module(Elf_Scn *this_module_scn,
-					size_t name_offset, const char **ret)
-{
-	struct drgn_error *err;
-	Elf_Data *data;
-	const char *p, *nul;
-
-	if (this_module_scn) {
-		err = read_elf_section(this_module_scn, &data);
-		if (err)
-			return err;
-		if (data->d_buf && name_offset < data->d_size) {
-			p = data->d_buf + name_offset;
-			nul = memchr(p, 0, data->d_size - name_offset);
-			if (nul && nul != p) {
-				*ret = p;
-				return NULL;
-			}
-		}
-	}
-	*ret = NULL;
+	*is_vmlinux_ret = have_init_text;
+	*is_module_ret = false;
 	return NULL;
 }
 
@@ -1107,26 +1270,27 @@ struct kernel_module_file {
 	int fd;
 	Elf *elf;
 	/*
-	 * Kernel module name. This is owned by the Elf handle. Because we use
-	 * this as the key in the kernel_module_table, the file must always be
-	 * removed from the table before it is reported to the DWARF index
+	 * Kernel module build ID. This is owned by the Elf handle. Because we
+	 * use this as the key in the kernel_module_table, the file must always
+	 * be removed from the table before it is reported to the DWARF index
 	 * (which takes ownership of the Elf handle).
 	 */
-	const char *name;
-	Elf_Scn *this_module_scn;
-	/* Next file with the same name. */
+	const void *gnu_build_id;
+	size_t gnu_build_id_len;
+	/* Next file with the same build ID. */
 	struct kernel_module_file *next;
 };
 
-static const char *
+static struct nstring
 kernel_module_table_key(struct kernel_module_file * const *entry)
 {
-	return (*entry)->name;
+	return (struct nstring){
+		(*entry)->gnu_build_id, (*entry)->gnu_build_id_len
+	};
 }
 
 DEFINE_HASH_TABLE(kernel_module_table, struct kernel_module_file *,
-		  kernel_module_table_key, c_string_key_hash_pair,
-		  c_string_key_eq)
+		  kernel_module_table_key, nstring_hash_pair, nstring_eq)
 
 static struct drgn_error *
 report_loaded_kernel_module(struct drgn_debug_info_load_state *load,
@@ -1135,10 +1299,19 @@ report_loaded_kernel_module(struct drgn_debug_info_load_state *load,
 {
 	struct drgn_error *err;
 
-	const char *name = kmod_it->name;
-	struct hash_pair hp = kernel_module_table_hash(&name);
+	struct nstring key;
+	err = kernel_module_iterator_gnu_build_id(kmod_it,
+						  (const void **)&key.str,
+						  &key.len);
+	if (err || key.len == 0) {
+		return drgn_debug_info_report_error(load, kmod_it->name,
+						    "could not find GNU build ID",
+						    err);
+	}
+
+	struct hash_pair hp = kernel_module_table_hash(&key);
 	struct kernel_module_table_iterator it =
-		kernel_module_table_search_hashed(kmod_table, &name, hp);
+		kernel_module_table_search_hashed(kmod_table, &key, hp);
 	if (!it.entry)
 		return &drgn_not_found;
 
@@ -1157,7 +1330,7 @@ report_loaded_kernel_module(struct drgn_debug_info_load_state *load,
 
 		err = drgn_debug_info_report_elf(load, kmod->path, kmod->fd,
 						 kmod->elf, kmod_it->start,
-						 kmod_it->end, kmod->name,
+						 kmod_it->end, kmod_it->name,
 						 NULL);
 		kmod->elf = NULL;
 		kmod->fd = -1;
@@ -1309,7 +1482,7 @@ kernel_module_iterator_error:
 static struct drgn_error *
 report_kernel_modules(struct drgn_debug_info_load_state *load,
 		      struct kernel_module_file *kmods, size_t num_kmods,
-		      bool need_module_definition, bool vmlinux_is_pending)
+		      bool vmlinux_is_pending)
 {
 	struct drgn_program *prog = load->dbinfo->prog;
 	struct drgn_error *err;
@@ -1330,36 +1503,11 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 	/*
 	 * If we're not using /proc and /sys, then we need to index vmlinux now
 	 * so that we can walk the list of modules in the kernel.
-	 *
-	 * If we need the definition of struct module to get the name of any
-	 * kernel modules, then we also need to index vmlinux now.
 	 */
-	if (vmlinux_is_pending &&
-	    (!use_proc_and_sys || need_module_definition)) {
+	if (vmlinux_is_pending && !use_proc_and_sys) {
 		err = drgn_debug_info_report_flush(load);
 		if (err)
 			return err;
-	}
-
-	size_t module_name_offset = 0;
-	if (need_module_definition) {
-		struct drgn_qualified_type module_type;
-		struct drgn_type_member *name_member;
-		uint64_t name_bit_offset;
-		err = drgn_program_find_type(prog, "struct module", NULL,
-					     &module_type);
-		if (!err) {
-			err = drgn_type_find_member(module_type.type, "name",
-						    &name_member,
-						    &name_bit_offset);
-		}
-		if (err) {
-			return drgn_debug_info_report_error(load,
-							    "kernel modules",
-							    "could not get kernel module names",
-							    err);
-		}
-		module_name_offset = name_bit_offset / 8;
 	}
 
 	struct kernel_module_table kmod_table = HASH_TABLE_INIT;
@@ -1368,32 +1516,22 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 	struct kernel_module_table_iterator it;
 	for (size_t i = 0; i < num_kmods; i++) {
 		struct kernel_module_file *kmod = &kmods[i];
-		if (!kmod->name) {
-			err = get_kernel_module_name_from_this_module(kmod->this_module_scn,
-								      module_name_offset,
-								      &kmod->name);
-			if (err) {
-				err = drgn_debug_info_report_error(load,
-								   kmod->path,
-								   NULL, err);
-				if (err)
-					goto out;
-				continue;
-			}
-			if (!kmod->name) {
-				err = drgn_debug_info_report_error(load,
-								   kmod->path,
-								   "could not find kernel module name",
-								   NULL);
-				if (err)
-					goto out;
-				continue;
-			}
-		}
 
-		struct hash_pair hp = kernel_module_table_hash(&kmod->name);
-		it = kernel_module_table_search_hashed(&kmod_table, &kmod->name,
-						       hp);
+		ssize_t build_id_len =
+			dwelf_elf_gnu_build_id(kmod->elf, &kmod->gnu_build_id);
+		if (build_id_len < 0) {
+			err = drgn_debug_info_report_error(load, kmod->path,
+							   NULL,
+							   drgn_error_libelf());
+			if (err)
+				goto out;
+			continue;
+		}
+		kmod->gnu_build_id_len = build_id_len;
+
+		struct nstring key = kernel_module_table_key(&kmod);
+		struct hash_pair hp = kernel_module_table_hash(&key);
+		it = kernel_module_table_search_hashed(&kmod_table, &key, hp);
 		if (it.entry) {
 			kmod->next = *it.entry;
 			*it.entry = kmod;
@@ -1422,7 +1560,7 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 		do {
 			err = drgn_debug_info_report_elf(load, kmod->path,
 							 kmod->fd, kmod->elf, 0,
-							 0, kmod->name, NULL);
+							 0, kmod->path, NULL);
 			kmod->elf = NULL;
 			kmod->fd = -1;
 			if (err)
@@ -1509,7 +1647,6 @@ linux_kernel_report_debug_info(struct drgn_debug_info_load_state *load)
 	 * else.
 	 */
 	size_t num_kmods = 0;
-	bool need_module_definition = false;
 	bool vmlinux_is_pending = false;
 	for (size_t i = 0; i < load->num_paths; i++) {
 		const char *path = load->paths[i];
@@ -1524,10 +1661,8 @@ linux_kernel_report_debug_info(struct drgn_debug_info_load_state *load)
 			continue;
 		}
 
-		Elf_Scn *this_module_scn, *modinfo_scn;
-		bool is_vmlinux;
-		err = identify_kernel_elf(elf, &this_module_scn, &modinfo_scn,
-					  &is_vmlinux);
+		bool is_vmlinux, is_module;
+		err = identify_kernel_elf(elf, &is_vmlinux, &is_module);
 		if (err) {
 			err = drgn_debug_info_report_error(load, path, NULL,
 							   err);
@@ -1537,24 +1672,11 @@ linux_kernel_report_debug_info(struct drgn_debug_info_load_state *load)
 				goto out;
 			continue;
 		}
-		if (this_module_scn || modinfo_scn) {
+		if (is_module) {
 			struct kernel_module_file *kmod = &kmods[num_kmods++];
 			kmod->path = path;
 			kmod->fd = fd;
 			kmod->elf = elf;
-			err = get_kernel_module_name_from_modinfo(modinfo_scn,
-								  &kmod->name);
-			if (err) {
-				err = drgn_debug_info_report_error(load, path,
-								   NULL, err);
-				if (err)
-					goto out;
-				continue;
-			}
-			if (!kmod->name) {
-				kmod->this_module_scn = this_module_scn;
-				need_module_definition = true;
-			}
 		} else if (is_vmlinux) {
 			uint64_t start, end;
 			err = elf_address_range(elf,
@@ -1593,8 +1715,7 @@ linux_kernel_report_debug_info(struct drgn_debug_info_load_state *load)
 			goto out;
 	}
 
-	err = report_kernel_modules(load, kmods, num_kmods,
-				    need_module_definition, vmlinux_is_pending);
+	err = report_kernel_modules(load, kmods, num_kmods, vmlinux_is_pending);
 out:
 	for (size_t i = 0; i < num_kmods; i++) {
 		elf_end(kmods[i].elf);
