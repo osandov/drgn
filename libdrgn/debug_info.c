@@ -635,9 +635,9 @@ DEFINE_HASH_MAP(drgn_mapped_files, const char *,
 
 struct userspace_core_report_state {
 	struct drgn_mapped_files files;
-	char *phdr_buf;
+	void *phdr_buf;
 	size_t phdr_buf_capacity;
-	char *segment_buf;
+	void *segment_buf;
 	size_t segment_buf_capacity;
 };
 
@@ -876,22 +876,6 @@ not_loaded:
 	*start_ret = start;
 	*end_ret = end;
 	return NULL;
-}
-
-static bool alloc_or_reuse(char **buf, size_t *capacity, uint64_t size)
-{
-	if (size > *capacity) {
-		if (size > SIZE_MAX)
-			return false;
-		free(*buf);
-		*buf = malloc(size);
-		if (!*buf) {
-			*capacity = 0;
-			return false;
-		}
-		*capacity = size;
-	}
-	return true;
 }
 
 /* ehdr_buf must be aligned as Elf64_Ehdr. */
@@ -1161,7 +1145,8 @@ userspace_core_identify_file(struct drgn_program *prog,
 		GElf_Phdr phdr;
 		core_get_phdr(&arg, i, &phdr);
 		if (phdr.p_type == PT_NOTE) {
-			if (!alloc_or_reuse(&core->segment_buf,
+			if (phdr.p_filesz > SIZE_MAX ||
+			    !alloc_or_reuse(&core->segment_buf,
 					    &core->segment_buf_capacity,
 					    phdr.p_filesz))
 				return &drgn_enomem;

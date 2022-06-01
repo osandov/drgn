@@ -123,6 +123,20 @@ static inline void *memdup(const void *ptr, size_t size)
 	return copy;
 }
 
+static inline bool alloc_or_reuse(void **buf, size_t *capacity, size_t size)
+{
+	if (size > *capacity) {
+		free(*buf);
+		*buf = malloc(size);
+		if (!*buf) {
+			*capacity = 0;
+			return false;
+		}
+		*capacity = size;
+	}
+	return true;
+}
+
 /** Return the maximum value of an @p n-byte unsigned integer. */
 static inline uint64_t uint_max(int n)
 {
