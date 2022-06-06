@@ -312,6 +312,7 @@ class KBuild:
             "scripts/Kbuild.include",
             "scripts/Makefile*",
             "scripts/basic/fixdep",
+            "scripts/check-local-export",
             "scripts/gcc-goto.sh",
             "scripts/gcc-version.sh",
             "scripts/mod/modpost",
