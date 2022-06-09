@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 from drgn import Program
-from tests.linux_kernel import LinuxKernelTestCase, setenv
+from tests.linux_kernel import LinuxKernelTestCase, setenv, skip_unless_have_test_kmod
 
 KALLSYMS_PATH = Path("/proc/kallsyms")
 
@@ -14,20 +14,14 @@ KALLSYMS_PATH = Path("/proc/kallsyms")
 @unittest.skipUnless(
     KALLSYMS_PATH.exists(), "kernel does not have kallsyms (CONFIG_KALLSYMS)"
 )
+@skip_unless_have_test_kmod
 class TestModuleDebugInfo(LinuxKernelTestCase):
     # Arbitrary symbol that we can use to check that the module debug info was
     # loaded.
-    SYMBOL = "lo_open"
+    SYMBOL = "drgn_test_empty_list"
 
     def setUp(self):
         super().setUp()
-        with open("/proc/modules", "r") as f:
-            for line in f:
-                if line.startswith("loop "):
-                    break
-            else:
-                self.skipTest("loop module is built in or not loaded")
-
         with KALLSYMS_PATH.open() as f:
             for line in f:
                 tokens = line.split()
