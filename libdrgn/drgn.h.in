@@ -2675,6 +2675,15 @@ void drgn_symbol_destroy(struct drgn_symbol *sym);
  */
 void drgn_symbols_destroy(struct drgn_symbol **syms, size_t count);
 
+/** Get the source code file, line, and column of a @ref drgn_symbol */
+struct drgn_error *drgn_symbol_source(struct drgn_symbol *sym,
+			              struct drgn_program *prog,
+				      unsigned long offset,
+				      size_t size,
+				      char *src_file_ret,
+				      int *line_num_ret,
+				      int *line_col_ret);
+
 /**
  * Get the name of a @ref drgn_symbol.
  *

@@ -171,6 +171,10 @@ drgn_debug_info_buffer_init(struct drgn_debug_info_buffer *buffer,
 	buffer->scn = scn;
 }
 
+struct drgn_debug_info_module *
+drgn_debug_info_module_byaddress(struct drgn_debug_info *dbinfo, uint64_t addr);
+
+
 DEFINE_HASH_TABLE_TYPE(drgn_debug_info_module_table,
 		       struct drgn_debug_info_module *)
 

@@ -1529,6 +1529,14 @@ class Symbol:
     kind: SymbolKind
     """Kind of entity represented by this symbol."""
 
+    def source(self, long) -> Tuple[str, int, int]:
+        """
+        Get the source code location of this function at the given offset.
+
+        :return: Location as a ``(filename, line, column)`` triple.
+        :raises LookupError: if the source code location is not available
+        """
+
 class SymbolBinding(enum.Enum):
     """
     A ``SymbolBinding`` describes the linkage behavior and visibility of a
