@@ -17,28 +17,7 @@
 #include "type.h"
 #include "util.h"
 
-#define DRGN_ARCH_REGISTER_LAYOUT					\
-	/* The psABI calls this the return address (RA) register. */	\
-	DRGN_REGISTER_LAYOUT(rip, 8, 16)				\
-	DRGN_REGISTER_LAYOUT(rsp, 8, 7)					\
-	/* The remaining layout matches struct pt_regs. */		\
-	DRGN_REGISTER_LAYOUT(r15, 8, 15)				\
-	DRGN_REGISTER_LAYOUT(r14, 8, 14)				\
-	DRGN_REGISTER_LAYOUT(r13, 8, 13)				\
-	DRGN_REGISTER_LAYOUT(r12, 8, 12)				\
-	DRGN_REGISTER_LAYOUT(rbp, 8, 6)					\
-	DRGN_REGISTER_LAYOUT(rbx, 8, 3)					\
-	DRGN_REGISTER_LAYOUT(r11, 8, 11)				\
-	DRGN_REGISTER_LAYOUT(r10, 8, 10)				\
-	DRGN_REGISTER_LAYOUT(r9, 8, 9)					\
-	DRGN_REGISTER_LAYOUT(r8, 8, 8)					\
-	DRGN_REGISTER_LAYOUT(rax, 8, 0)					\
-	DRGN_REGISTER_LAYOUT(rcx, 8, 2)					\
-	DRGN_REGISTER_LAYOUT(rdx, 8, 1)					\
-	DRGN_REGISTER_LAYOUT(rsi, 8, 4)					\
-	DRGN_REGISTER_LAYOUT(rdi, 8, 5)
-
-#include "arch_x86_64.inc"
+#include "arch_x86_64_defs.inc"
 
 static const struct drgn_cfi_row default_dwarf_cfi_row_x86_64 = DRGN_CFI_ROW(
 	/*

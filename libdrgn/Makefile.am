@@ -15,21 +15,23 @@ noinst_HEADERS = include/dwarf.h \
 
 include_HEADERS = drgn.h
 
-ARCH_DEFS = arch_ppc64.defs \
-	    arch_x86_64.defs
+ARCH_DEFS_PYS = arch_ppc64_defs.py \
+		arch_x86_64_defs.py
 
-ARCH_INCS = $(ARCH_DEFS:.defs=.inc)
+ARCH_DEFS_INCS = $(ARCH_DEFS_PYS:_defs.py=_defs.inc)
 
-BUILT_SOURCES = drgn.h $(ARCH_INCS) c_keywords.inc linux_kernel_object_find.inc
+BUILT_SOURCES = $(ARCH_DEFS_INCS) \
+		c_keywords.inc \
+		drgn.h \
+		linux_kernel_object_find.inc
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
-libdrgnimpl_la_SOURCES = $(ARCH_DEFS:.defs=.c) \
-			 $(ARCH_INCS) \
+libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
+			 $(ARCH_DEFS_INCS) \
 			 arch_aarch64.c \
 			 arch_arm.c \
 			 arch_i386.c \
-			 arch_register_layout.h \
 			 arch_riscv.c \
 			 array.h \
 			 binary_buffer.c \
@@ -108,8 +110,8 @@ endif
 %: %.strswitch build-aux/gen_strswitch.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $(word 2, $^) -o $@ $<
 
-arch_%.inc: arch_%.defs build-aux/gen_arch_inc_strswitch.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
-	$(AM_V_GEN)$(PYTHON) $(word 2, $^) < $< | $(PYTHON) $(word 3, $^) -o $@ -
+arch_%_defs.inc: arch_%_defs.py build-aux/gen_arch_inc_strswitch.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
+	$(AM_V_GEN)$(PYTHON) $(word 2, $^) $< | $(PYTHON) $(word 3, $^) -o $@ -
 
 c_keywords.inc: build-aux/gen_c_keywords_inc_strswitch.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $< | $(PYTHON) $(word 2, $^) -o $@ -
@@ -174,8 +176,8 @@ python/docstrings.c: ../_drgn.pyi $(drgndoc_docstrings_deps)
 python/docstrings.h: ../_drgn.pyi $(drgndoc_docstrings_deps)
 	$(AM_V_GEN)$(drgndoc_docstrings) -H -m _drgn:drgn $< > $@
 
-EXTRA_DIST = Doxyfile \
-	     $(ARCH_DEFS) \
+EXTRA_DIST = $(ARCH_DEFS_PYS) \
+	     Doxyfile \
 	     build-aux/codegen_utils.py \
 	     build-aux/gen_arch_inc_strswitch.py \
 	     build-aux/gen_c_keywords_inc_strswitch.py \

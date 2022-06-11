@@ -34,10 +34,11 @@
  * This defines @ref drgn_register_state for storing the values of processor
  * registers.
  *
- * Several macros defined here take a register identifier as defined by @ref
- * DRGN_REGISTER_LAYOUT(). These are intended for use in architecture definition
- * files. These macros also have function equivalents (with names ending in
- * `_impl`) that take the register number, offset, and size instead.
+ * Several macros defined here take a register identifier as defined in an
+ * architecture definition file. These are intended for use in the corresponding
+ * architecture support file. These macros also have function equivalents (with
+ * names ending in `_impl`) that take the register number, offset, and size
+ * instead.
  *
  * @{
  */
@@ -86,6 +87,34 @@ struct drgn_register_state {
 	 */
 	unsigned char buf[];
 };
+
+/**
+ * Return the internal register number of a register.
+ *
+ * @param[in] id Register identifier.
+ */
+#define DRGN_REGISTER_NUMBER(id) DRGN_REGISTER_NUMBER__##id
+
+/**
+ * Return the offset of a register in the register buffer.
+ *
+ * @param[in] id Register identifier.
+ */
+#define DRGN_REGISTER_OFFSET(id) offsetof(struct drgn_arch_register_layout, id)
+
+/**
+ * Return the size of a register in bytes.
+ *
+ * @param[in] id Register identifier.
+ */
+#define DRGN_REGISTER_SIZE(id) sizeof(((struct drgn_arch_register_layout *)0)->id)
+
+/**
+ * Return one past the last byte of a register in the register buffer.
+ *
+ * @param[in] id Register identifier.
+ */
+#define DRGN_REGISTER_END(id) (DRGN_REGISTER_OFFSET(id) + DRGN_REGISTER_SIZE(id))
 
 struct drgn_register_state *drgn_register_state_create_impl(uint32_t regs_size,
 							    uint16_t num_regs,

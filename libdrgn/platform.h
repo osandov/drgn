@@ -116,10 +116,21 @@ struct drgn_architecture_info {
 	const char *name;
 	enum drgn_architecture arch;
 	enum drgn_platform_flags default_flags;
+	/* API-visible registers. */
 	const struct drgn_register *registers;
+	/* Number of API-visible registers. */
 	size_t num_registers;
+	/*
+	 * Return the API-visible register with the given name, or @c NULL if it
+	 * is not recognized.
+	 */
 	const struct drgn_register *(*register_by_name)(const char *name);
+	/* Internal register layouts indexed by internal register number. */
 	const struct drgn_register_layout *register_layout;
+	/*
+	 * Return the internal register number for the given DWARF register
+	 * number, or @ref DRGN_REGISTER_NUMBER_UNKNOWN if it is not recognized.
+	 */
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t);
 	/* CFI row containing default rules for DWARF CFI. */
 	const struct drgn_cfi_row *default_dwarf_cfi_row;

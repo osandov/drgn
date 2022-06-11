@@ -3,145 +3,189 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 r"""
-This script reads a drgn architecture definition file ("arch_foo.defs") and
+This script reads a drgn architecture definition file ("arch_foo_defs.py") and
 outputs architecture definition code which must then be processed by
 gen_strswitch.py to produce the final "arch_foo.inc" file.
 
-The definition file comprises a list of register definitions which have the
-following syntax:
+The definition file must define two global variables:
 
-  register-definition ::= (identifier ":")? register-names "\n"
-  identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
-  register-names ::= string-literal ("," string-literal)*
-  string-literal ::= C string literal
+* REGISTERS must be a sequence of DrgnRegister defining the names of all of the
+  registers in the architecture. They should be defined in the architecture's
+  logical order. See DrgnRegister below for more details.
 
-Comments start with "#" outside of a string literal; the rest of the line is
-ignored. Whitespace other than newlines is not significant. Lines consisting of
-only comments and whitespace are ignored.
+* REGISTER_LAYOUT must be a sequence of DrgnRegisterLayout defining how drgn
+  stores the registers in memory. The defined registers are laid out
+  sequentially. To minimize memory usage, registers can be ordered by how
+  commonly they are saved (typically, the program counter/return address
+  register first, then the stack pointer register, then callee-saved registers,
+  and last caller-saved registers). They can also be ordered to match the
+  format in, e.g., NT_PRSTATUS. Every register in REGISTERS must have an entry
+  in REGISTER_LAYOUT. However, the converse does not need to be true. For
+  example, REGISTER_LAYOUT can contain pseudo-registers that are not in
+  REGISTERS and are thus not exposed to the API. See DrgnRegisterLayout below
+  for more details.
 
-A register definition denotes that the given names map to the register with the
-given identifier (defined by DRGN_ARCH_REGISTER_LAYOUT in "arch_foo.c"). If the
-identifier is omitted, then it is assumed to be the same as the first name with
-non-alphanumeric characters replaced by "_" and prepended with "_" if the first
-character is numeric.
+The generated file includes "arch_register_layout.h" and defines several things:
 
-Registers should be defined in the architecture's logical order.
+1. An enum of register numbers used to implement DRGN_REGISTER_NUMBER().
 
-The generated file includes "arch_register_layout.h" and defines three things:
+2. A structure corresponding to the register layout used to implement
+   DRGN_REGISTER_OFFSET(), DRGN_REGISTER_SIZE(), and DRGN_REGISTER_END():
+   struct drgn_arch_register_layout;
 
-1. An array of register definitions:
+3. An array of register layouts indexed by internal register number:
+   static const struct drgn_register_layout register_layout[];
+
+4. An array of register definitions:
    static const struct drgn_register registers[];
 
-2. A name lookup function:
+5. A name lookup function:
    static const struct drgn_register *register_by_name(const char *name);
 
-3. A macro containing initializers for the "register_layout",
+6. A mapping from DWARF register numbers to internal register numbers:
+   static drgn_register_number dwarf_regno_to_internal(uint64_t dwarf_regno);
+
+7. A macro containing initializers for the "register_layout",
    "dwarf_regno_to_internal", "registers", "num_registers", and
    "register_by_name" members of "struct drgn_architecture_info":
    #define DRGN_ARCHITECTURE_REGISTERS ...
 """
 
+import argparse
 import re
+import runpy
 import sys
-from typing import Iterator, List, NamedTuple, Sequence, TextIO
+from typing import Optional, Sequence, TextIO, Union
 
-from codegen_utils import CodeGenError, c_string_literal, parse_c_string_literal
-
-_TOKEN_REGEXES = (
-    ("STRING", r'"(?:[^\"]|\\")*"'),
-    ("IDENTIFIER", r"[a-zA-Z_][a-zA-Z0-9_]*"),
-    ("COMMA", r","),
-    ("COLON", r":"),
-    ("NEWLINE", r"\n"),
-    ("SPACE", r"[ \t]+"),
-    ("COMMENT", r"#.*"),
-    ("UNKNOWN", "."),
-)
-_TOKEN_REGEX = re.compile(
-    "|".join(f"(?P<{name}>{regex})" for name, regex in _TOKEN_REGEXES)
-)
+from codegen_utils import c_string_literal
 
 
-class _Token(NamedTuple):
-    kind: str
-    value: str
-    lineno: int
-    columnno: int
+class ArchDefsError(Exception):
+    pass
 
 
-def _tokenize(file: TextIO) -> Iterator[_Token]:
-    lineno = 1
-    line = ""
-    for lineno, line in enumerate(file, 1):
-        for match in _TOKEN_REGEX.finditer(line):
-            if match.lastgroup != "SPACE" and match.lastgroup != "COMMENT":
-                assert match.lastgroup is not None
-                yield _Token(match.lastgroup, match.group(), lineno, match.start() + 1)
-    yield _Token("EOF", "", lineno, len(line) + 1)
+class DrgnRegister:
+    def __init__(
+        self, names: Union[str, Sequence[str]], *, identifier: Optional[str] = None
+    ) -> None:
+        """
+        Register definition.
 
-
-class Register(NamedTuple):
-    identifier: str
-    names: Sequence[str]
-
-
-def parse_defs(file: TextIO, filename: str) -> List[Register]:
-    def error(message: str) -> None:
-        raise CodeGenError(message, filename, token.lineno, token.columnno)
-
-    registers = []
-    used_names = set()
-    tokens = _tokenize(file)
-    while True:
-        token = next(tokens)
-        if token.kind == "EOF":
-            break
-        if token.kind == "NEWLINE":
-            continue
-
-        if token.kind == "IDENTIFIER":
-            identifier = token.value
-            token = next(tokens)
-            if token.kind != "COLON":
-                error(f"expected COLON, got {token.kind}")
-            token = next(tokens)
-        elif token.kind == "STRING":
-            identifier = None
-        else:
-            error(f"expected IDENTIFIER or STRING, got {token.kind}")
-
-        names = []
-        while True:
-            if token.kind != "STRING":
-                error(f"expected STRING, got {token.kind}")
-            name = parse_c_string_literal(token.value)
-            if name in used_names:
-                error("duplicate register name")
-            used_names.add(name)
-            names.append(name)
-
-            token = next(tokens)
-            if token.kind != "COMMA":
-                break
-            token = next(tokens)
-
-        if token.kind != "NEWLINE":
-            error(f"expected COMMA or NEWLINE, got {token.kind}")
-
+        :param names: Name or names of the register (i.e., name used for this
+            register in assembly language or documentation).
+        :param identifier: Register identifier matching
+            :attr:`DrgnRegisterLayout.identifier`. Defaults to the first
+            register name with non-alphanumeric characters replaced by "_" and
+            prepended with "_" if the first character is numeric.
+        """
+        self.names = (names,) if isinstance(names, str) else names
+        for name in self.names:
+            if not name:
+                raise ArchDefsError(f"invalid register name {name!r}")
         if identifier is None:
-            identifier = re.sub(r"[^a-zA-Z0-9_]", "_", names[0])
+            identifier = re.sub(r"[^a-zA-Z0-9_]", "_", self.names[0])
             if not re.match(r"^[a-zA-Z_]", identifier):
                 identifier = "_" + identifier
-        registers.append(Register(identifier, names))
-    return registers
+        self.identifier = identifier
 
 
-def gen_arch_inc_strswitch(in_file: TextIO, in_filename: str, out_file: TextIO) -> None:
-    registers = parse_defs(in_file, in_filename)
+class DrgnRegisterLayout:
+    def __init__(
+        self, identifier: str, *, size: int, dwarf_number: Optional[int]
+    ) -> None:
+        """
+        Register layout definition.
+
+        :param identifier: C identifier for the register to use in the
+            generated file.
+        :param size: Size used to store the register in bytes.
+        :param dwarf_number: DWARF register number, or ``None`` if the register
+            is not represented in DWARF.
+        """
+        self.identifier = identifier
+        if not re.fullmatch(r"^[a-zA-Z_][a-zA-Z0-9_]*", identifier):
+            raise ArchDefsError(f"invalid register identifier {identifier!r}")
+        self.size = size
+        if size <= 0:
+            raise ArchDefsError(f"invalid register layout size {size}")
+        self.dwarf_number = dwarf_number
+
+
+def validate_register_defs(
+    registers: Sequence[DrgnRegister],
+    register_layout: Sequence[DrgnRegisterLayout],
+) -> None:
+    layout_identifiers = set()
+    for layout in register_layout:
+        if layout.identifier in layout_identifiers:
+            raise ArchDefsError(
+                f"register identifier {layout.identifier!r} is duplicated in REGISTER_LAYOUT"
+            )
+        layout_identifiers.add(layout.identifier)
+
+    names = set()
+    register_identifiers = set()
+    for register in registers:
+        for name in register.names:
+            if name in names:
+                raise ArchDefsError(
+                    f"register name {name!r} is duplicated in REGISTERS"
+                )
+            names.add(name)
+        if register.identifier not in layout_identifiers:
+            raise ArchDefsError(
+                f"register identifier {register.identifier} in REGISTERS is not in REGISTER_LAYOUT"
+            )
+        if register.identifier in register_identifiers:
+            raise ArchDefsError(
+                f"register identifier {register.identifier!r} is duplicated in REGISTERS"
+            )
+        register_identifiers.add(register.identifier)
+
+
+def gen_arch_inc_strswitch(
+    registers: Sequence[DrgnRegister],
+    register_layout: Sequence[DrgnRegisterLayout],
+    out_file: TextIO,
+) -> None:
+    validate_register_defs(registers, register_layout)
 
     out_file.write("/* Generated by libdrgn/build-aux/gen_arch_inc_strswitch.py. */\n")
+
     out_file.write("\n")
-    out_file.write('#include "arch_register_layout.h" // IWYU pragma: export\n')
+    out_file.write("enum {\n")
+    for layout in register_layout:
+        out_file.write(f"\tDRGN_REGISTER_NUMBER__{layout.identifier},\n")
+    out_file.write("};\n")
+
+    out_file.write("\n")
+    out_file.write("struct drgn_arch_register_layout {\n")
+    for layout in register_layout:
+        out_file.write(f"\tchar {layout.identifier}[{layout.size}];\n")
+    out_file.write("};\n")
+
+    out_file.write("\n")
+    out_file.write("static const struct drgn_register_layout register_layout[] = {\n")
+    for layout in register_layout:
+        out_file.write(
+            f"\t{{ offsetof(struct drgn_arch_register_layout, {layout.identifier}), {layout.size} }},\n"
+        )
+    out_file.write("};\n")
+
+    out_file.write("\n")
+    out_file.write(
+        "static drgn_register_number dwarf_regno_to_internal(uint64_t dwarf_regno)\n"
+    )
+    out_file.write("{\n")
+    out_file.write("\tswitch (dwarf_regno) {\n")
+    for layout in register_layout:
+        if layout.dwarf_number is not None:
+            out_file.write(f"\tcase {layout.dwarf_number}:\n")
+            out_file.write(f"\t\treturn DRGN_REGISTER_NUMBER__{layout.identifier};\n")
+    out_file.write("\tdefault:\n")
+    out_file.write("\t\treturn DRGN_REGISTER_NUMBER_UNKNOWN;\n")
+    out_file.write("\t}\n")
+    out_file.write("}\n")
 
     out_file.write("\n")
     out_file.write("static const struct drgn_register registers[] = {\n")
@@ -152,7 +196,7 @@ def gen_arch_inc_strswitch(in_file: TextIO, in_filename: str, out_file: TextIO) 
             out_file.write(f"\t\t\t{c_string_literal(name)},\n")
         out_file.write("\t\t},\n")
         out_file.write(f"\t\t.num_names = {len(register.names)},\n")
-        out_file.write(f"\t\t.regno = DRGN_REGISTER_NUMBER({register.identifier}),\n")
+        out_file.write(f"\t\t.regno = DRGN_REGISTER_NUMBER__{register.identifier},\n")
         out_file.write("\t},\n")
     out_file.write("};\n")
 
@@ -180,8 +224,30 @@ def gen_arch_inc_strswitch(in_file: TextIO, in_filename: str, out_file: TextIO) 
     out_file.write("\t.register_by_name = register_by_name\n")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate arch_foo.inc.strswitch from arch_foo_defs.py"
+    )
+    parser.add_argument("input", metavar="FILE", help="input arch_foo_defs.py file")
+    args = parser.parse_args()
+
     try:
-        gen_arch_inc_strswitch(sys.stdin, "-", sys.stdout)
-    except CodeGenError as e:
+        defs = runpy.run_path(
+            args.input,
+            init_globals={
+                "DrgnRegister": DrgnRegister,
+                "DrgnRegisterLayout": DrgnRegisterLayout,
+            },
+        )
+        try:
+            registers = defs["REGISTERS"]
+            register_layout = defs["REGISTER_LAYOUT"]
+        except KeyError as e:
+            sys.exit(f"{e.args[0]} is not defined")
+        gen_arch_inc_strswitch(registers, register_layout, sys.stdout)
+    except ArchDefsError as e:
         sys.exit(e)
+
+
+if __name__ == "__main__":
+    main()
