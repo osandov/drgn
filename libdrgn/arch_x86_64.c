@@ -154,6 +154,9 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 		SET_AT_CFA_RULE(rdx, 96);
 		SET_AT_CFA_RULE(rsi, 104);
 		SET_AT_CFA_RULE(rdi, 112);
+		SET_AT_CFA_RULE(cs, 136);
+		SET_AT_CFA_RULE(rflags, 144);
+		SET_AT_CFA_RULE(ss, 160);
 		*interrupted_ret = true;
 		break;
 	case DRGN_ORC_TYPE_REGS_PARTIAL:
@@ -280,28 +283,41 @@ fallback_unwind_x86_64(struct drgn_program *prog,
 	return NULL;
 }
 
-/*
- * The in-kernel struct pt_regs, UAPI struct pt_regs, elf_gregset_t, and struct
- * user_regs_struct all have the same layout.
- */
+// elf_gregset_t (in NT_PRSTATUS) and struct user_regs_struct have the same
+// layout. struct pt_regs is a prefix of that layout which elides several
+// segment registers. full_regset tells us which one we were given; true is
+// elf_gregset_t, false is struct pt_regs.
 static struct drgn_error *
 get_initial_registers_from_struct_x86_64(struct drgn_program *prog,
 					 const void *buf, size_t size,
+					 bool full_regset,
 					 struct drgn_register_state **ret)
 {
-	if (size < 160) {
+	if (size < (full_regset ? 216 : 168)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "registers are truncated");
 	}
 
-	struct drgn_register_state *regs =
-		drgn_register_state_create(rdi, true);
+	struct drgn_register_state *regs;
+	if (full_regset)
+		regs = drgn_register_state_create(gs, true);
+	else
+		regs = drgn_register_state_create(ss, true);
 	if (!regs)
 		return &drgn_enomem;
 
 	drgn_register_state_set_from_buffer(regs, rip, (uint64_t *)buf + 16);
 	drgn_register_state_set_from_buffer(regs, rsp, (uint64_t *)buf + 19);
 	drgn_register_state_set_range_from_buffer(regs, r15, rdi, buf);
+	drgn_register_state_set_range_from_buffer(regs, cs, rflags,
+						  (uint64_t *)buf + 17);
+	if (full_regset) {
+		drgn_register_state_set_range_from_buffer(regs, ss, gs,
+							  (uint64_t *)buf + 20);
+	} else {
+		drgn_register_state_set_from_buffer(regs, ss,
+						    (uint64_t *)buf + 20);
+	}
 	drgn_register_state_set_pc_from_register(prog, regs, rip);
 
 	*ret = regs;
@@ -315,7 +331,7 @@ pt_regs_get_initial_registers_x86_64(const struct drgn_object *obj,
 	return get_initial_registers_from_struct_x86_64(drgn_object_program(obj),
 							drgn_object_buffer(obj),
 							drgn_object_size(obj),
-							ret);
+							false, ret);
 }
 
 static struct drgn_error *
@@ -323,13 +339,16 @@ prstatus_get_initial_registers_x86_64(struct drgn_program *prog,
 				      const void *prstatus, size_t size,
 				      struct drgn_register_state **ret)
 {
-	if (size < 112) {
+	// offsetof(struct elf_prstatus, pr_reg)
+	static const size_t pr_reg_offset = 112;
+	if (size < pr_reg_offset) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "NT_PRSTATUS is truncated");
 	}
 	return get_initial_registers_from_struct_x86_64(prog,
-							(char *)prstatus + 112,
-							size - 112, ret);
+							(char *)prstatus + pr_reg_offset,
+							size - pr_reg_offset,
+							true, ret);
 }
 
 static struct drgn_error *
