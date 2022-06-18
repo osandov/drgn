@@ -44,26 +44,6 @@ struct drgn_symbol;
  * @{
  */
 
-/** The important parts of the VMCOREINFO note of a Linux kernel core. */
-struct vmcoreinfo {
-	/** <tt>uname -r</tt> */
-	char osrelease[128];
-	/** PAGE_SIZE of the kernel. */
-	uint64_t page_size;
-	/**
-	 * The offset from the compiled address of the kernel image to its
-	 * actual address in memory.
-	 *
-	 * This is non-zero if kernel address space layout randomization (KASLR)
-	 * is enabled.
-	 */
-	uint64_t kaslr_offset;
-	/** Kernel page table. */
-	uint64_t swapper_pg_dir;
-	/** Whether 5-level paging was enabled. */
-	bool pgtable_l5_enabled;
-};
-
 struct drgn_thread {
 	struct drgn_program *prog;
 	uint32_t tid;
@@ -160,7 +140,25 @@ struct drgn_program {
 	/*
 	 * Linux kernel-specific.
 	 */
-	struct vmcoreinfo vmcoreinfo;
+	/* The important parts of the VMCOREINFO note of a Linux kernel core. */
+	struct {
+		/** <tt>uname -r</tt> */
+		char osrelease[128];
+		/** PAGE_SIZE of the kernel. */
+		uint64_t page_size;
+		/**
+		 * The offset from the compiled address of the kernel image to its
+		 * actual address in memory.
+		 *
+		 * This is non-zero if kernel address space layout randomization (KASLR)
+		 * is enabled.
+		 */
+		uint64_t kaslr_offset;
+		/** Kernel page table. */
+		uint64_t swapper_pg_dir;
+		/** Whether 5-level paging was enabled. */
+		bool pgtable_l5_enabled;
+	} vmcoreinfo;
 	/* Cached PAGE_OFFSET. */
 	struct drgn_object page_offset;
 	/* Cached vmemmap. */

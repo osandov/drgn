@@ -69,16 +69,12 @@ static struct drgn_error *line_to_u64(const char *line, const char *newline,
 	return NULL;
 }
 
-struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
-				    struct vmcoreinfo *ret)
+struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
+						 const char *desc,
+						 size_t descsz)
 {
 	struct drgn_error *err;
 	const char *line = desc, *end = &desc[descsz];
-
-	ret->osrelease[0] = '\0';
-	ret->page_size = 0;
-	ret->kaslr_offset = 0;
-	ret->pgtable_l5_enabled = false;
 	while (line < end) {
 		const char *newline;
 
@@ -88,24 +84,26 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 
 		if (linematch(&line, "OSRELEASE=")) {
 			if ((size_t)(newline - line) >=
-			    sizeof(ret->osrelease)) {
+			    sizeof(prog->vmcoreinfo.osrelease)) {
 				return drgn_error_create(DRGN_ERROR_OTHER,
 							 "OSRELEASE in VMCOREINFO is too long");
 			}
-			memcpy(ret->osrelease, line, newline - line);
-			ret->osrelease[newline - line] = '\0';
+			memcpy(prog->vmcoreinfo.osrelease, line,
+			       newline - line);
+			prog->vmcoreinfo.osrelease[newline - line] = '\0';
 		} else if (linematch(&line, "PAGESIZE=")) {
-			err = line_to_u64(line, newline, 0, &ret->page_size);
+			err = line_to_u64(line, newline, 0,
+					  &prog->vmcoreinfo.page_size);
 			if (err)
 				return err;
 		} else if (linematch(&line, "KERNELOFFSET=")) {
 			err = line_to_u64(line, newline, 16,
-					  &ret->kaslr_offset);
+					  &prog->vmcoreinfo.kaslr_offset);
 			if (err)
 				return err;
 		} else if (linematch(&line, "SYMBOL(swapper_pg_dir)=")) {
 			err = line_to_u64(line, newline, 16,
-					  &ret->swapper_pg_dir);
+					  &prog->vmcoreinfo.swapper_pg_dir);
 			if (err)
 				return err;
 		} else if (linematch(&line, "NUMBER(pgtable_l5_enabled)=")) {
@@ -114,19 +112,19 @@ struct drgn_error *parse_vmcoreinfo(const char *desc, size_t descsz,
 			err = line_to_u64(line, newline, 0, &tmp);
 			if (err)
 				return err;
-			ret->pgtable_l5_enabled = tmp;
+			prog->vmcoreinfo.pgtable_l5_enabled = tmp;
 		}
 		line = newline + 1;
 	}
-	if (!ret->osrelease[0]) {
+	if (!prog->vmcoreinfo.osrelease[0]) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid OSRELEASE");
 	}
-	if (!ret->page_size) {
+	if (!prog->vmcoreinfo.page_size) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid PAGESIZE");
 	}
-	if (!ret->swapper_pg_dir) {
+	if (!prog->vmcoreinfo.swapper_pg_dir) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid swapper_pg_dir");
 	}
@@ -237,7 +235,7 @@ struct drgn_error *read_vmcoreinfo_fallback(struct drgn_program *prog)
 		goto out;
 	}
 
-	err = parse_vmcoreinfo(buf + 24, nhdr->n_descsz, &prog->vmcoreinfo);
+	err = drgn_program_parse_vmcoreinfo(prog, buf + 24, nhdr->n_descsz);
 out:
 	free(buf);
 	return err;

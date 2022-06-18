@@ -117,8 +117,8 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 		goto err;
 	}
 
-	err = parse_vmcoreinfo(vmcoreinfo, strlen(vmcoreinfo) + 1,
-			       &prog->vmcoreinfo);
+	err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo,
+					    strlen(vmcoreinfo) + 1);
 	/*
 	 * As of libkdumpfile 0.4.1, the string returned by
 	 * kdump_vmcoreinfo_raw() needs to be freed.

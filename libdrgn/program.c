@@ -296,7 +296,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		phdr = gelf_getphdr(prog->core, i, &phdr_mem);
 		if (!phdr) {
 			err = drgn_error_libelf();
-			goto out_platform;
+			goto out_notes;
 		}
 
 		if (phdr->p_type == PT_LOAD) {
@@ -314,7 +314,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 						    note_header_type(phdr->p_align));
 			if (!data) {
 				err = drgn_error_libelf();
-				goto out_platform;
+				goto out_notes;
 			}
 
 			offset = 0;
@@ -356,7 +356,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		if (fstatfs(prog->core_fd, &fs) == -1) {
 			err = drgn_error_create_os("fstatfs", errno, path);
 			if (err)
-				goto out_platform;
+				goto out_notes;
 		}
 		is_proc_kcore = fs.f_type == 0x9fa0; /* PROC_SUPER_MAGIC */
 	} else {
@@ -371,7 +371,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		if (env && atoi(env)) {
 			err = drgn_program_set_kdump(prog);
 			if (err)
-				goto out_platform;
+				goto out_notes;
 			return NULL;
 		}
 	}
@@ -380,7 +380,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 					   sizeof(*prog->file_segments));
 	if (!prog->file_segments) {
 		err = &drgn_enomem;
-		goto out_platform;
+		goto out_notes;
 	}
 
 	bool pgtable_reader =
@@ -493,8 +493,8 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		}
 	}
 	if (vmcoreinfo_note) {
-		err = parse_vmcoreinfo(vmcoreinfo_note, vmcoreinfo_size,
-				       &prog->vmcoreinfo);
+		err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo_note,
+						    vmcoreinfo_size);
 		if (err)
 			goto out_segments;
 	}
@@ -529,6 +529,9 @@ out_segments:
 	drgn_memory_reader_init(&prog->reader);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
+out_notes:
+	// Reset anything we parsed from ELF notes.
+	memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
 out_platform:
 	prog->has_platform = had_platform;
 out_elf:
