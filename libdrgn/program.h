@@ -134,6 +134,11 @@ struct drgn_program {
 	};
 	struct drgn_thread *main_thread;
 	struct drgn_thread *crashed_thread;
+	/*
+	 * AArch64 instruction pointer authentication code mask, parsed either
+	 * from NT_ARM_PAC_MASK or VMCOREINFO.
+	 */
+	uint64_t aarch64_insn_pac_mask;
 	bool core_dump_notes_cached;
 	bool prefer_orc_unwinder;
 

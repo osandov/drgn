@@ -232,7 +232,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	struct drgn_error *err;
 	GElf_Ehdr ehdr_mem, *ehdr;
 	bool had_platform;
-	bool is_64_bit, is_kdump;
+	bool is_64_bit, little_endian, is_kdump;
 	size_t phnum, i;
 	size_t num_file_segments, j;
 	bool have_phys_addrs = false;
@@ -279,6 +279,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		drgn_program_set_platform(prog, &platform);
 	}
 	is_64_bit = ehdr->e_ident[EI_CLASS] == ELFCLASS64;
+	little_endian = ehdr->e_ident[EI_DATA] == ELFDATA2LSB;
 
 	if (elf_getphdrnum(prog->core, &phnum) != 0) {
 		err = drgn_error_libelf();
@@ -330,6 +331,19 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 				    memcmp(name, "CORE", sizeof("CORE")) == 0) {
 					if (nhdr.n_type == NT_TASKSTRUCT)
 						have_nt_taskstruct = true;
+				} else if (nhdr.n_namesz == sizeof("LINUX") &&
+					   memcmp(name, "LINUX",
+						  sizeof("LINUX")) == 0) {
+					if (nhdr.n_type == NT_ARM_PAC_MASK &&
+					    nhdr.n_descsz >=
+					    2 * sizeof(uint64_t)) {
+						memcpy(&prog->aarch64_insn_pac_mask,
+						       (uint64_t *)desc + 1,
+						       sizeof(uint64_t));
+						if (little_endian !=
+						    HOST_LITTLE_ENDIAN)
+							bswap_64(prog->aarch64_insn_pac_mask);
+					}
 				} else if (nhdr.n_namesz == sizeof("VMCOREINFO") &&
 					   memcmp(name, "VMCOREINFO",
 						  sizeof("VMCOREINFO")) == 0) {
@@ -531,6 +545,7 @@ out_segments:
 	prog->file_segments = NULL;
 out_notes:
 	// Reset anything we parsed from ELF notes.
+	prog->aarch64_insn_pac_mask = 0;
 	memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
 out_platform:
 	prog->has_platform = had_platform;
