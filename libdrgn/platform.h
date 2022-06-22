@@ -18,7 +18,6 @@ struct drgn_register {
 	const char * const *names;
 	size_t num_names;
 	drgn_register_number regno;
-	uint64_t dwarf_number;
 };
 
 struct drgn_register_layout {
