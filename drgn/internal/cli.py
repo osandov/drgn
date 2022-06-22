@@ -9,6 +9,7 @@ import code
 import importlib
 import os
 import os.path
+import pkgutil
 import runpy
 import shutil
 import sys
@@ -176,7 +177,10 @@ def main() -> None:
     init_globals: Dict[str, Any] = {"prog": prog}
     if args.script:
         sys.argv = args.script
-        runpy.run_path(args.script[0], init_globals=init_globals, run_name="__main__")
+        script = args.script[0]
+        if pkgutil.get_importer(script) is None:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
+        runpy.run_path(script, init_globals=init_globals, run_name="__main__")
     else:
         import atexit
         import readline
