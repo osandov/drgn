@@ -928,6 +928,10 @@ drgn_unwind_one_register(struct drgn_program *prog,
 		err = drgn_eval_cfi_dwarf_expression(prog, rule, regs, buf,
 						     size);
 		break;
+	case DRGN_CFI_RULE_CONSTANT:
+		copy_lsbytes(buf, size, little_endian, &rule->constant,
+			     sizeof(rule->constant), HOST_LITTLE_ENDIAN);
+		return NULL;
 	)
 	/*
 	 * If we couldn't read from memory, leave the register unknown instead

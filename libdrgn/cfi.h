@@ -82,6 +82,8 @@ enum drgn_cfi_rule_kind {
 	DRGN_CFI_RULE_AT_DWARF_EXPRESSION,
 	/** Register value in the caller is given by a DWARF expression. */
 	DRGN_CFI_RULE_DWARF_EXPRESSION,
+	/** Register value in the caller has a constant value. */
+	DRGN_CFI_RULE_CONSTANT,
 } __attribute__((__packed__));
 
 /** Rule for determining a single register value or CFA. */
@@ -100,11 +102,13 @@ struct drgn_cfi_rule {
 		/**
 		 * Offset for @ref DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET, @ref
 		 * DRGN_CFI_RULE_CFA_PLUS_OFFSET, @ref
-		 * DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET, and @ref
-		 * DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET,
-		 * DRGN_CFI_RULE_REGISTER_PLUS_OFFSET, @ref
+		 * DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET, @ref
+		 * DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET, and @ref
+		 * DRGN_CFI_RULE_REGISTER_PLUS_OFFSET.
 		 */
 		int64_t offset;
+		/** Constant for @ref DRGN_CFI_RULE_CONSTANT. */
+		uint64_t constant;
 		/**
 		 * DWARF expression for @ref DRGN_CFI_RULE_AT_DWARF_EXPRESSION
 		 * and @ref DRGN_CFI_RULE_DWARF_EXPRESSION.
