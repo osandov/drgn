@@ -3,6 +3,7 @@
 
 REGISTERS = [
     *[DrgnRegister(f"r{i}") for i in range(32)],
+    DrgnRegister("lr"),
     *[DrgnRegister(f"cr{i}") for i in range(8)],
 ]
 
@@ -15,10 +16,7 @@ REGISTERS = [
 # 1: https://refspecs.linuxfoundation.org/ELF/ppc64/PPC-elf64abi.html
 # 2: https://openpowerfoundation.org/specifications/64bitelfabi/
 REGISTER_LAYOUT = [
-    # The psABI calls register 65 the link register, but it's used as the DWARF
-    # CFI return_address_register, so it usually contains the program counter.
-    # To avoid confusing users, we don't expose it in REGISTERS.
-    DrgnRegisterLayout("ra", size=8, dwarf_number=65),
+    DrgnRegisterLayout("lr", size=8, dwarf_number=65),
     *[DrgnRegisterLayout(f"r{i}", size=8, dwarf_number=i) for i in range(32)],
     *[DrgnRegisterLayout(f"cr{i}", size=8, dwarf_number=68 + i) for i in range(8)],
 ]

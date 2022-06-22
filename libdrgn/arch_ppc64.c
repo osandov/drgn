@@ -14,7 +14,7 @@
 #include "arch_ppc64_defs.inc"
 
 static const struct drgn_cfi_row default_dwarf_cfi_row_ppc64 = DRGN_CFI_ROW(
-	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(ra)),
+	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(lr)),
 	[DRGN_REGISTER_NUMBER(r1)] = { DRGN_CFI_RULE_CFA_PLUS_OFFSET },
 	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r14)),
 	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(r15)),
@@ -46,16 +46,16 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	if (!drgn_register_state_has_register(regs, DRGN_REGISTER_NUMBER(ra)) ||
+	if (!drgn_register_state_has_register(regs, DRGN_REGISTER_NUMBER(lr)) ||
 	    !drgn_register_state_has_register(regs, DRGN_REGISTER_NUMBER(r1)))
 		return &drgn_stop;
 
 	bool little_endian = drgn_platform_is_little_endian(&prog->platform);
 	bool bswap = drgn_platform_bswap(&prog->platform);
-	uint64_t ra;
-	copy_lsbytes(&ra, sizeof(ra), HOST_LITTLE_ENDIAN,
-		     &regs->buf[DRGN_REGISTER_OFFSET(ra)],
-		     DRGN_REGISTER_SIZE(ra), little_endian);
+	uint64_t lr;
+	copy_lsbytes(&lr, sizeof(lr), HOST_LITTLE_ENDIAN,
+		     &regs->buf[DRGN_REGISTER_OFFSET(lr)],
+		     DRGN_REGISTER_SIZE(lr), little_endian);
 	uint64_t r1;
 	copy_lsbytes(&r1, sizeof(r1), HOST_LITTLE_ENDIAN,
 		     &regs->buf[DRGN_REGISTER_OFFSET(r1)],
@@ -79,9 +79,9 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 		drgn_register_state_create(r1, true);
 	if (!unwound)
 		return &drgn_enomem;
-	drgn_register_state_set_from_buffer(unwound, ra, &frame[2]);
+	drgn_register_state_set_from_buffer(unwound, lr, &frame[2]);
 	drgn_register_state_set_from_buffer(unwound, r1, &frame[0]);
-	drgn_register_state_set_pc(prog, unwound, ra);
+	drgn_register_state_set_pc(prog, unwound, lr);
 	*ret = unwound;
 	drgn_register_state_set_cfa(prog, regs, unwound_r1);
 	return NULL;
@@ -119,10 +119,11 @@ get_initial_registers_from_struct_ppc64(struct drgn_program *prog,
 		pc = bswap_64(pc);
 	drgn_register_state_set_pc(prog, regs, pc);
 
-	/* Switched out tasks in the Linux kernel don't save r0-r13 or lr. */
+	// Switched out tasks in the Linux kernel only save r14-r31, nip, and
+	// ccr.
 	if (!linux_kernel_switched_out) {
 		if (!linux_kernel_prstatus) {
-			drgn_register_state_set_from_buffer(regs, ra,
+			drgn_register_state_set_from_buffer(regs, lr,
 							    (uint64_t *)buf + 36);
 		}
 		drgn_register_state_set_range_from_buffer(regs, r0, r13, buf);
@@ -175,6 +176,9 @@ prstatus_get_initial_registers_ppc64(struct drgn_program *prog,
 						       ret);
 }
 
+// The Linux kernel saves the callee-saved registers in a struct pt_regs on the
+// thread's kernel stack. See _switch() in arch/powerpc/kernel/entry_64.S (as of
+// Linux v5.19).
 static struct drgn_error *
 linux_kernel_get_initial_registers_ppc64(const struct drgn_object *task_obj,
 					 struct drgn_register_state **ret)
