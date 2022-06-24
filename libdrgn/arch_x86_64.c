@@ -263,15 +263,12 @@ fallback_unwind_x86_64(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	if (!drgn_register_state_has_register(regs, DRGN_REGISTER_NUMBER(rbp)))
+	struct optional_uint64 rbp =
+		drgn_register_state_get_u64(prog, regs, rbp);
+	if (!rbp.has_value)
 		return &drgn_stop;
-	bool little_endian = drgn_platform_is_little_endian(&prog->platform);
-	uint64_t rbp;
-	copy_lsbytes(&rbp, sizeof(rbp), HOST_LITTLE_ENDIAN,
-		     &regs->buf[DRGN_REGISTER_OFFSET(rbp)],
-		     DRGN_REGISTER_SIZE(rbp), little_endian);
 
-	err = get_registers_from_frame_pointer(prog, rbp, ret);
+	err = get_registers_from_frame_pointer(prog, rbp.value, ret);
 	if (err) {
 		if (err->code == DRGN_ERROR_FAULT) {
 			drgn_error_destroy(err);
@@ -279,7 +276,7 @@ fallback_unwind_x86_64(struct drgn_program *prog,
 		}
 		return err;
 	}
-	drgn_register_state_set_cfa(prog, regs, rbp + 16);
+	drgn_register_state_set_cfa(prog, regs, rbp.value + 16);
 	return NULL;
 }
 

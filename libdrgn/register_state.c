@@ -120,3 +120,20 @@ void drgn_register_state_set_cfa(struct drgn_program *prog,
 	regs->_cfa = cfa & drgn_platform_address_mask(&prog->platform);
 	drgn_register_state_set_known(regs, 1);
 }
+
+struct optional_uint64
+drgn_register_state_get_u64_impl(struct drgn_program *prog,
+				 struct drgn_register_state *regs,
+				 drgn_register_number regno,
+				 size_t reg_offset, size_t reg_size)
+{
+	struct optional_uint64 ret = {
+		.has_value = drgn_register_state_has_register(regs, regno),
+	};
+	if (ret.has_value) {
+		copy_lsbytes(&ret.value, sizeof(ret.value), HOST_LITTLE_ENDIAN,
+			     &regs->buf[reg_offset], reg_size,
+			     drgn_platform_is_little_endian(&prog->platform));
+	}
+	return ret;
+}

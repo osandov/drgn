@@ -232,6 +232,26 @@ void drgn_register_state_set_cfa(struct drgn_program *prog,
 				 struct drgn_register_state *regs,
 				 uint64_t cfa);
 
+struct optional_uint64
+drgn_register_state_get_u64_impl(struct drgn_program *prog,
+				 struct drgn_register_state *regs,
+				 drgn_register_number regno,
+				 size_t reg_offset, size_t reg_size)
+	__attribute__((__pure__));
+
+/**
+ * Get the least significant 64 bits of a register in a @ref
+ * drgn_register_state.
+ *
+ * @param[in] reg Identifier of register to get.
+ */
+#define drgn_register_state_get_u64(prog, regs, reg)			\
+	drgn_register_state_get_u64_impl(prog, regs,			\
+					 DRGN_REGISTER_NUMBER(reg),	\
+					 DRGN_REGISTER_OFFSET(reg),	\
+					 DRGN_REGISTER_SIZE(reg))
+
+
 static inline void
 drgn_register_state_set_from_buffer_impl(struct drgn_register_state *regs,
 					 drgn_register_number regno,

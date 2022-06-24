@@ -46,23 +46,14 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	if (!drgn_register_state_has_register(regs, DRGN_REGISTER_NUMBER(lr)) ||
-	    !drgn_register_state_has_register(regs, DRGN_REGISTER_NUMBER(r1)))
+	struct optional_uint64 lr = drgn_register_state_get_u64(prog, regs, lr);
+	struct optional_uint64 r1 = drgn_register_state_get_u64(prog, regs, r1);
+	if (!lr.has_value || !r1.has_value)
 		return &drgn_stop;
 
-	bool little_endian = drgn_platform_is_little_endian(&prog->platform);
-	bool bswap = drgn_platform_bswap(&prog->platform);
-	uint64_t lr;
-	copy_lsbytes(&lr, sizeof(lr), HOST_LITTLE_ENDIAN,
-		     &regs->buf[DRGN_REGISTER_OFFSET(lr)],
-		     DRGN_REGISTER_SIZE(lr), little_endian);
-	uint64_t r1;
-	copy_lsbytes(&r1, sizeof(r1), HOST_LITTLE_ENDIAN,
-		     &regs->buf[DRGN_REGISTER_OFFSET(r1)],
-		     DRGN_REGISTER_SIZE(r1), little_endian);
-
 	uint64_t frame[3];
-	err = drgn_program_read_memory(prog, &frame, r1, sizeof(frame), false);
+	err = drgn_program_read_memory(prog, &frame, r1.value, sizeof(frame),
+				       false);
 	if (err) {
 		if (err->code == DRGN_ERROR_FAULT) {
 			drgn_error_destroy(err);
@@ -71,8 +62,10 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 		return err;
 	}
 
-	uint64_t unwound_r1 = bswap ? bswap_64(frame[0]) : frame[0];
-	if (unwound_r1 <= r1)
+	uint64_t unwound_r1 =
+		drgn_platform_bswap(&prog->platform) ?
+		bswap_64(frame[0]) : frame[0];
+	if (unwound_r1 <= r1.value)
 		return &drgn_stop;
 
 	struct drgn_register_state *unwound =
@@ -81,7 +74,7 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 		return &drgn_enomem;
 	drgn_register_state_set_from_buffer(unwound, lr, &frame[2]);
 	drgn_register_state_set_from_buffer(unwound, r1, &frame[0]);
-	drgn_register_state_set_pc(prog, unwound, lr);
+	drgn_register_state_set_pc(prog, unwound, lr.value);
 	*ret = unwound;
 	drgn_register_state_set_cfa(prog, regs, unwound_r1);
 	return NULL;
