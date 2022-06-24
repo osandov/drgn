@@ -39,6 +39,9 @@ static const struct drgn_cfi_row default_dwarf_cfi_row_ppc64 = DRGN_CFI_ROW(
 	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(cr4)),
 );
 
+// Unwind using the stack frame back chain. Note that leaf functions may not
+// allocate a stack frame, so this may skip the caller of a leaf function. I
+// don't know of a good way around that.
 static struct drgn_error *
 fallback_unwind_ppc64(struct drgn_program *prog,
 		      struct drgn_register_state *regs,
@@ -46,14 +49,27 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	struct optional_uint64 lr = drgn_register_state_get_u64(prog, regs, lr);
 	struct optional_uint64 r1 = drgn_register_state_get_u64(prog, regs, r1);
-	if (!lr.has_value || !r1.has_value)
+	if (!r1.has_value)
 		return &drgn_stop;
 
-	uint64_t frame[3];
-	err = drgn_program_read_memory(prog, &frame, r1.value, sizeof(frame),
-				       false);
+	// The stack pointer (r1) points to the lowest address of the stack
+	// frame (the stack grows downwards from high addresses to low
+	// addresses), which contains the caller's stack pointer.
+	uint64_t unwound_r1;
+	err = drgn_program_read_u64(prog, r1.value, false, &unwound_r1);
+	uint64_t saved_lr;
+	if (!err) {
+		if (unwound_r1 <= r1.value) {
+			// The unwound stack pointer is either 0, indicating the
+			// first stack frame, or invalid.
+			return &drgn_stop;
+		}
+		// The return address (the saved lr) is stored 16 bytes into the
+		// caller's stack frame.
+		err = drgn_program_read_memory(prog, &saved_lr, unwound_r1 + 16,
+					       sizeof(saved_lr), false);
+	}
 	if (err) {
 		if (err->code == DRGN_ERROR_FAULT) {
 			drgn_error_destroy(err);
@@ -62,19 +78,13 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 		return err;
 	}
 
-	uint64_t unwound_r1 =
-		drgn_platform_bswap(&prog->platform) ?
-		bswap_64(frame[0]) : frame[0];
-	if (unwound_r1 <= r1.value)
-		return &drgn_stop;
-
 	struct drgn_register_state *unwound =
-		drgn_register_state_create(r1, true);
+		drgn_register_state_create(r1, false);
 	if (!unwound)
 		return &drgn_enomem;
-	drgn_register_state_set_from_buffer(unwound, lr, &frame[2]);
-	drgn_register_state_set_from_buffer(unwound, r1, &frame[0]);
-	drgn_register_state_set_pc(prog, unwound, lr.value);
+	drgn_register_state_set_from_buffer(unwound, lr, &saved_lr);
+	drgn_register_state_set_from_u64(prog, unwound, r1, unwound_r1);
+	drgn_register_state_set_pc_from_register(prog, unwound, lr);
 	*ret = unwound;
 	drgn_register_state_set_cfa(prog, regs, unwound_r1);
 	return NULL;
