@@ -248,8 +248,8 @@ get_registers_from_frame_pointer(struct drgn_program *prog,
 	if (!regs)
 		return &drgn_enomem;
 	drgn_register_state_set_from_buffer(regs, rip, &frame[1]);
-	drgn_register_state_set_from_integer(prog, regs, rsp,
-					     frame_pointer + sizeof(frame));
+	drgn_register_state_set_from_u64(prog, regs, rsp,
+					 frame_pointer + sizeof(frame));
 	drgn_register_state_set_from_buffer(regs, rbp, &frame[0]);
 	drgn_register_state_set_pc_from_register(prog, regs, rip);
 	*ret = regs;
@@ -396,8 +396,7 @@ get_initial_registers_inactive_task_frame(struct drgn_object *frame_obj,
 
 #undef COPY_REGISTER
 
-	drgn_register_state_set_from_integer(prog, regs,
-					     rsp, address + frame_size);
+	drgn_register_state_set_from_u64(prog, regs, rsp, address + frame_size);
 	drgn_register_state_set_pc_from_register(prog, regs, rip);
 
 	*ret = regs;

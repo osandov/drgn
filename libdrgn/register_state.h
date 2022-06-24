@@ -289,11 +289,11 @@ drgn_register_state_set_range_from_buffer_impl(struct drgn_register_state *regs,
 						       buf)
 
 static inline void
-drgn_register_state_set_from_integer_impl(struct drgn_program *prog,
-					  struct drgn_register_state *regs,
-					  drgn_register_number regno,
-					  size_t reg_offset, size_t reg_size,
-					  uint64_t value)
+drgn_register_state_set_from_u64_impl(struct drgn_program *prog,
+				      struct drgn_register_state *regs,
+				      drgn_register_number regno,
+				      size_t reg_offset, size_t reg_size,
+				      uint64_t value)
 {
 	copy_lsbytes(&regs->buf[reg_offset], reg_size,
 		     drgn_platform_is_little_endian(&prog->platform), &value,
@@ -311,12 +311,11 @@ drgn_register_state_set_from_integer_impl(struct drgn_program *prog,
  * @param[in] reg Identifier of register to set. Number must be less than @ref
  * drgn_register_state::num_regs.
  */
-#define drgn_register_state_set_from_integer(prog, regs, reg, value)		\
-	drgn_register_state_set_from_integer_impl(prog, regs,			\
-						  DRGN_REGISTER_NUMBER(reg),	\
-						  DRGN_REGISTER_OFFSET(reg),	\
-						  DRGN_REGISTER_SIZE(reg),	\
-						  value)
+#define drgn_register_state_set_from_u64(prog, regs, reg, value)		\
+	drgn_register_state_set_from_u64_impl(prog, regs,			\
+					      DRGN_REGISTER_NUMBER(reg),	\
+					      DRGN_REGISTER_OFFSET(reg),	\
+					      DRGN_REGISTER_SIZE(reg), value)
 
 /** @} */
 

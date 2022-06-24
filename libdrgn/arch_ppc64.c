@@ -215,8 +215,8 @@ linux_kernel_get_initial_registers_ppc64(const struct drgn_object *task_obj,
 	if (err)
 		goto out;
 
-	drgn_register_state_set_from_integer(prog, *ret, r1,
-					     ksp + SWITCH_FRAME_SIZE);
+	drgn_register_state_set_from_u64(prog, *ret, r1,
+					 ksp + SWITCH_FRAME_SIZE);
 
 	err = NULL;
 out:
