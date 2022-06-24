@@ -466,12 +466,9 @@ LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,
 		&prog->platform.arch->register_layout[reg->regno];
 	if (layout->size > sizeof(*ret))
 		return false;
-	*ret = 0;
 	copy_lsbytes(ret, sizeof(*ret), HOST_LITTLE_ENDIAN,
 		     &regs->buf[layout->offset], layout->size,
 		     drgn_platform_is_little_endian(&prog->platform));
-	if (drgn_platform_bswap(&prog->platform))
-		*ret = bswap_64(*ret);
 	return true;
 }
 
