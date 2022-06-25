@@ -15,7 +15,8 @@ noinst_HEADERS = include/dwarf.h \
 
 include_HEADERS = drgn.h
 
-ARCH_DEFS_PYS = arch_ppc64_defs.py \
+ARCH_DEFS_PYS = arch_aarch64_defs.py \
+		arch_ppc64_defs.py \
 		arch_x86_64_defs.py
 
 ARCH_DEFS_INCS = $(ARCH_DEFS_PYS:_defs.py=_defs.inc)
@@ -29,7 +30,6 @@ noinst_LTLIBRARIES = libdrgnimpl.la
 
 libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 $(ARCH_DEFS_INCS) \
-			 arch_aarch64.c \
 			 arch_arm.c \
 			 arch_i386.c \
 			 arch_riscv.c \
