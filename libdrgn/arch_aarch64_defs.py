@@ -10,6 +10,7 @@ REGISTERS = [
 ]
 
 REGISTER_LAYOUT = [
+    DrgnRegisterLayout("ra_sign_state", size=8, dwarf_number=34),
     DrgnRegisterLayout("sp", size=8, dwarf_number=31),
     # Callee-saved registers.
     *[DrgnRegisterLayout(f"x{i}", size=8, dwarf_number=i) for i in range(19, 31)],

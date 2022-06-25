@@ -13,7 +13,14 @@
 
 #include "arch_aarch64_defs.inc"
 
+static_assert(DRGN_AARCH64_RA_SIGN_STATE_REGNO ==
+	      DRGN_REGISTER_NUMBER(ra_sign_state),
+	      "RA_SIGN_STATE register number is out of sync");
+
 static const struct drgn_cfi_row default_dwarf_cfi_row_aarch64 = DRGN_CFI_ROW(
+	[DRGN_REGISTER_NUMBER(ra_sign_state)] = {
+		DRGN_CFI_RULE_CONSTANT, .constant = 0
+	},
 	// The psABI defines the CFA as the value of the stack pointer in the
 	// calling frame.
 	[DRGN_REGISTER_NUMBER(sp)] = { DRGN_CFI_RULE_CFA_PLUS_OFFSET },

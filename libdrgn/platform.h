@@ -25,6 +25,10 @@ struct drgn_register_layout {
 	uint32_t size;
 };
 
+// This is an ugly layering violation needed for DW_CFA_AARCH64_negate_ra_state.
+// We enforce that it stays up to date with a static_assert() in arch_aarch64.c.
+#define DRGN_AARCH64_RA_SIGN_STATE_REGNO 0
+
 /* ELF section to apply relocations to. */
 struct drgn_relocating_section {
 	char *buf;

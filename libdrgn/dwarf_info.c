@@ -7755,6 +7755,22 @@ set_reg:
 			break;
 		case DW_CFA_nop:
 			break;
+		// Note that this is the same opcode as DW_CFA_GNU_window_save,
+		// which is used on Sparc.
+		case DW_CFA_AARCH64_negate_ra_state:
+			if (drgn_platform_arch(&module->platform)
+			    == DRGN_ARCH_AARCH64) {
+				regno = DRGN_AARCH64_RA_SIGN_STATE_REGNO;
+				drgn_cfi_row_get_register(*row, regno, &rule);
+				if (rule.kind != DRGN_CFI_RULE_CONSTANT) {
+					err = binary_buffer_error(&buffer.bb,
+								  "DW_CFA_AARCH64_negate_ra_state mixed with another rule");
+					goto out;
+				}
+				rule.constant ^= 1;
+				goto set_reg;
+			}
+			/* fallthrough */
 		default:
 			err = binary_buffer_error(&buffer.bb,
 						  "unknown DWARF CFI opcode %#" PRIx8,
