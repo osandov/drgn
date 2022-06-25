@@ -40,6 +40,30 @@ static const struct drgn_cfi_row default_dwarf_cfi_row_aarch64 = DRGN_CFI_ROW(
 	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(x30)),
 );
 
+// Mask out the pointer authentication code if the return address is signed.
+static void demangle_return_address_aarch64(struct drgn_program *prog,
+					    struct drgn_register_state *regs,
+					    drgn_register_number regno)
+{
+	struct optional_uint64 ra_sign_state =
+		drgn_register_state_get_u64(prog, regs, ra_sign_state);
+	if (!ra_sign_state.has_value || !(ra_sign_state.value & 1))
+		return;
+	struct optional_uint64 ra =
+		drgn_register_state_get_u64_impl(prog, regs, regno,
+						 register_layout[regno].offset,
+						 register_layout[regno].size);
+	assert(ra.has_value);
+	if (ra.value & (UINT64_C(1) << 55))
+		ra.value |= prog->aarch64_insn_pac_mask;
+	else
+		ra.value &= ~prog->aarch64_insn_pac_mask;
+	drgn_register_state_set_from_u64_impl(prog, regs, regno,
+					      register_layout[regno].offset,
+					      register_layout[regno].size,
+					      ra.value);
+}
+
 // Unwind using the frame pointer. Note that leaf functions may not allocate a
 // stack frame, so this may skip the caller of a leaf function. I don't know of
 // a good way around that.
@@ -85,6 +109,16 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 		return &drgn_enomem;
 	drgn_register_state_set_from_buffer(unwound, x30, &frame[1]);
 	drgn_register_state_set_from_buffer(unwound, x29, &frame[0]);
+	// We don't know whether the return address is signed, so just assume
+	// that it is if pointer authentication is enabled. If we're wrong, the
+	// worst that can happen is that we'll "correct" incorrect sign
+	// extension bits or clear an address tag.
+	if (prog->aarch64_insn_pac_mask) {
+		drgn_register_state_set_from_u64(prog, unwound, ra_sign_state,
+						 1);
+		demangle_return_address_aarch64(prog, unwound,
+						DRGN_REGISTER_NUMBER(x30));
+	}
 	drgn_register_state_set_pc_from_register(prog, unwound, x30);
 	// The location of the frame record within the stack frame is not
 	// specified, so we can't determine the stack pointer.
@@ -240,6 +274,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 	DRGN_ARCHITECTURE_REGISTERS,
 	.default_dwarf_cfi_row = &default_dwarf_cfi_row_aarch64,
 	.fallback_unwind = fallback_unwind_aarch64,
+	.demangle_return_address = demangle_return_address_aarch64,
 	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_aarch64,
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_aarch64,
 	.linux_kernel_get_initial_registers =

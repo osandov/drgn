@@ -1024,6 +1024,11 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 		return &drgn_stop;
 	}
 	if (drgn_register_state_has_register(unwound, ret_addr_regno)) {
+		if (prog->platform.arch->demangle_return_address) {
+			prog->platform.arch->demangle_return_address(prog,
+								     unwound,
+								     ret_addr_regno);
+		}
 		layout = &prog->platform.arch->register_layout[ret_addr_regno];
 		drgn_register_state_set_pc_from_register_impl(prog, unwound,
 							      ret_addr_regno,
