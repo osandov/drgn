@@ -5,6 +5,7 @@ import contextlib
 import ctypes
 import errno
 import os
+import platform
 import re
 import signal
 import socket
@@ -84,6 +85,11 @@ class LinuxKernelTestCase(TestCase):
 
 skip_unless_have_test_kmod = unittest.skipUnless(
     "DRGN_TEST_KMOD" in os.environ, "test requires drgn_test Linux kernel module"
+)
+
+skip_unless_have_full_mm_support = unittest.skipUnless(
+    platform.machine() == "x86_64",
+    f"mm support is not implemented for {platform.machine()}",
 )
 
 

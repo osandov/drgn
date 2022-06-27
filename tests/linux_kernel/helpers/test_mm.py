@@ -23,7 +23,11 @@ from drgn.helpers.linux.mm import (
     virt_to_pfn,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.linux_kernel import LinuxKernelTestCase, mlock
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
+    mlock,
+    skip_unless_have_full_mm_support,
+)
 
 
 class TestMm(LinuxKernelTestCase):
@@ -57,11 +61,13 @@ class TestMm(LinuxKernelTestCase):
                     ]
                 yield map, address, pfns
 
+    @skip_unless_have_full_mm_support
     def test_decode_page_flags(self):
         with self._pages() as (map, _, pfns):
             page = pfn_to_page(self.prog, pfns[0])
             self.assertIn("PG_swapbacked", decode_page_flags(page))
 
+    @skip_unless_have_full_mm_support
     def test_virt_to_from_pfn(self):
         with self._pages() as (map, _, pfns):
             for i, pfn in enumerate(pfns):
@@ -75,6 +81,7 @@ class TestMm(LinuxKernelTestCase):
                 # Test the opposite direction.
                 self.assertEqual(virt_to_pfn(virt), pfn)
 
+    @skip_unless_have_full_mm_support
     def test_pfn_to_from_page(self):
         with self._pages() as (map, _, pfns):
             for i, pfn in enumerate(pfns):
@@ -93,6 +100,7 @@ class TestMm(LinuxKernelTestCase):
                     map[i * mmap.PAGESIZE : (i + 1) * mmap.PAGESIZE],
                 )
 
+    @skip_unless_have_full_mm_support
     def test_access_process_vm(self):
         task = find_task(self.prog, os.getpid())
         data = b"hello, world"
@@ -102,6 +110,7 @@ class TestMm(LinuxKernelTestCase):
         self.assertEqual(access_remote_vm(task.mm, address, len(data)), data)
         self.assertRaises(FaultError, access_process_vm, task, 0, 8)
 
+    @skip_unless_have_full_mm_support
     def test_access_process_vm_big(self):
         task = find_task(self.prog, os.getpid())
         with self._pages() as (map, address, _):
@@ -123,12 +132,14 @@ class TestMm(LinuxKernelTestCase):
             FaultError, access_process_vm, task, address ^ (1 << 63), len(data)
         )
 
+    @skip_unless_have_full_mm_support
     def test_cmdline(self):
         with open("/proc/self/cmdline", "rb") as f:
             proc_cmdline = f.read().split(b"\0")[:-1]
         task = find_task(self.prog, os.getpid())
         self.assertEqual(cmdline(task), proc_cmdline)
 
+    @skip_unless_have_full_mm_support
     def test_environ(self):
         with open("/proc/self/environ", "rb") as f:
             proc_environ = f.read().split(b"\0")[:-1]

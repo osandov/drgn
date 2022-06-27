@@ -10,7 +10,11 @@ from drgn.helpers.linux.slab import (
     slab_cache_for_each_allocated_object,
     slab_cache_is_merged,
 )
-from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
+    skip_unless_have_full_mm_support,
+    skip_unless_have_test_kmod,
+)
 
 
 def get_proc_slabinfo_names():
@@ -92,6 +96,7 @@ class TestSlab(LinuxKernelTestCase):
             slab = find_slab_cache(self.prog, name)
             self.assertEqual(name, slab.name.string_())
 
+    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_slab_cache_for_each_allocated_object(self):
         cache = self.prog["drgn_test_kmem_cache"]
