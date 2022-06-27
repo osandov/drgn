@@ -16,10 +16,16 @@ from tests.linux_kernel import (
 
 
 class TestStackTrace(LinuxKernelTestCase):
+    def _assert_trace_paused(self, trace):
+        for frame in trace:
+            if "pause" in frame.name or "poll" in frame.name:
+                return
+        self.fail(f"pause frame not found in {str(trace)!r}")
+
     def test_by_task_struct(self):
         pid = fork_and_pause()
         wait_until(proc_blocked, pid)
-        self.assertIn("pause", str(self.prog.stack_trace(find_task(self.prog, pid))))
+        self._assert_trace_paused(self.prog.stack_trace(find_task(self.prog, pid)))
         os.kill(pid, signal.SIGKILL)
         os.waitpid(pid, 0)
 
@@ -34,7 +40,7 @@ class TestStackTrace(LinuxKernelTestCase):
                 self._load_debug_info(prog)
             pid = fork_and_pause()
             wait_until(proc_blocked, pid)
-            self.assertIn("pause", str(prog.stack_trace(pid)))
+            self._assert_trace_paused(prog.stack_trace(pid))
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
 
