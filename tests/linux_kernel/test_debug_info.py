@@ -18,7 +18,7 @@ KALLSYMS_PATH = Path("/proc/kallsyms")
 class TestModuleDebugInfo(LinuxKernelTestCase):
     # Arbitrary symbol that we can use to check that the module debug info was
     # loaded.
-    SYMBOL = "drgn_test_empty_list"
+    SYMBOL = "drgn_test_function"
 
     def setUp(self):
         super().setUp()
