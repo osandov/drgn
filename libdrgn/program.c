@@ -236,6 +236,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	size_t phnum, i;
 	size_t num_file_segments, j;
 	bool have_phys_addrs = false;
+	bool have_qemu_note = false;
 	const char *vmcoreinfo_note = NULL;
 	size_t vmcoreinfo_size = 0;
 	bool have_nt_taskstruct = false, is_proc_kcore;
@@ -355,6 +356,10 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 					 * may be valid.
 					 */
 					have_phys_addrs = true;
+				} else if (nhdr.n_namesz == sizeof("QEMU") &&
+					   memcmp(name, "QEMU",
+						  sizeof("QEMU")) == 0) {
+					have_qemu_note = true;
 				}
 			}
 		}
@@ -525,6 +530,15 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->core = NULL;
 	} else if (vmcoreinfo_note) {
 		prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL;
+	} else if (have_qemu_note) {
+		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					"unrecognized QEMU memory dump; "
+					"for Linux guests, run QEMU with '-device vmcoreinfo', "
+					"compile the kernel with CONFIG_CRASH_CORE and CONFIG_FW_CFG, "
+					"and load the qemu_fw_cfg kernel module "
+					"before dumping the guest memory "
+					"(requires Linux >= 4.17 and QEMU >= 2.11)");
+		goto out_segments;
 	}
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		err = drgn_program_add_object_finder(prog,
