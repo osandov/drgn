@@ -2284,6 +2284,7 @@ class OutOfBoundsError(Exception):
 _elfutils_version: str
 _with_libkdumpfile: bool
 
+def _linux_helper_direct_mapping_offset(prog: Program) -> int: ...
 def _linux_helper_read_vm(
     prog: Program, pgtable: Object, address: IntegerLike, size: IntegerLike
 ) -> bytes: ...

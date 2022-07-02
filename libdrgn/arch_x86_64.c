@@ -501,68 +501,6 @@ apply_elf_reloc_x86_64(const struct drgn_relocating_section *relocating,
 }
 
 static struct drgn_error *
-linux_kernel_get_page_offset_x86_64(struct drgn_object *ret)
-{
-	struct drgn_error *err;
-	struct drgn_program *prog = drgn_object_program(ret);
-
-	struct drgn_qualified_type qualified_type;
-	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
-					       &qualified_type.type);
-	if (err)
-		return err;
-	qualified_type.qualifiers = 0;
-
-	/*
-	 * If KASLR is enabled, PAGE_OFFSET is easily available via
-	 * page_offset_base.
-	 */
-	struct drgn_object tmp;
-	drgn_object_init(&tmp, prog);
-	err = drgn_program_find_object(prog, "page_offset_base", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, &tmp);
-	if (!err) {
-		err = drgn_object_cast(ret, qualified_type, &tmp);
-		goto out;
-	}
-	if (err->code == DRGN_ERROR_LOOKUP)
-		drgn_error_destroy(err);
-	else
-		goto out;
-
-	/*
-	 * If not, we determine it based on the kernel page table. Before Linux
-	 * kernel commit d52888aa2753 ("x86/mm: Move LDT remap out of KASLR
-	 * region on 5-level paging") (in v4.20), PAGE_OFFSET was pgd slot 272.
-	 * After that, it is pgd slot 273, and slot 272 is empty (reserved for
-	 * Local Descriptor Table mappings for userspace tasks).
-	 */
-	uint64_t pgd;
-	err = drgn_program_read_u64(prog,
-				    prog->vmcoreinfo.swapper_pg_dir + 272 * 8,
-				    false, &pgd);
-	if (err)
-		goto out;
-	uint64_t value;
-	if (pgd) {
-		if (prog->vmcoreinfo.pgtable_l5_enabled)
-			value = UINT64_C(0xff10000000000000);
-		else
-			value = UINT64_C(0xffff880000000000);
-	} else {
-		if (prog->vmcoreinfo.pgtable_l5_enabled)
-			value = UINT64_C(0xff11000000000000);
-		else
-			value = UINT64_C(0xffff888000000000);
-	}
-	err = drgn_object_set_unsigned(ret, qualified_type, value, 0);
-
-out:
-	drgn_object_deinit(&tmp);
-	return err;
-}
-
-static struct drgn_error *
 linux_kernel_get_vmemmap_x86_64(struct drgn_object *ret)
 {
 
@@ -756,7 +694,6 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_x86_64,
 	.apply_elf_reloc = apply_elf_reloc_x86_64,
-	.linux_kernel_get_page_offset = linux_kernel_get_page_offset_x86_64,
 	.linux_kernel_get_vmemmap = linux_kernel_get_vmemmap_x86_64,
 	.linux_kernel_live_direct_mapping_fallback =
 		linux_kernel_live_direct_mapping_fallback_x86_64,

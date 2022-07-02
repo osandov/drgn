@@ -6,8 +6,6 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 	struct drgn_program *prog = arg;
 	if (!filename && (flags & DRGN_FIND_OBJECT_CONSTANT)) {
 		@memswitch (name, name_len)@
-		@case "PAGE_OFFSET"@
-			return linux_kernel_get_page_offset(prog, ret);
 		@case "PAGE_SHIFT"@
 			return linux_kernel_get_page_shift(prog, ret);
 		@case "PAGE_SIZE"@

@@ -103,7 +103,6 @@ void drgn_program_init(struct drgn_program *prog,
 		drgn_program_set_platform(prog, platform);
 	char *env = getenv("DRGN_PREFER_ORC_UNWINDER");
 	prog->prefer_orc_unwinder = env && atoi(env);
-	drgn_object_init(&prog->page_offset, prog);
 	drgn_object_init(&prog->vmemmap, prog);
 }
 
@@ -128,7 +127,6 @@ void drgn_program_deinit(struct drgn_program *prog)
 		prog->platform.arch->linux_kernel_pgtable_iterator_destroy(prog->pgtable_it);
 
 	drgn_object_deinit(&prog->vmemmap);
-	drgn_object_deinit(&prog->page_offset);
 
 	drgn_object_index_deinit(&prog->oindex);
 	drgn_program_deinit_types(prog);

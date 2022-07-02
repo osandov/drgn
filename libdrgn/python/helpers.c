@@ -5,6 +5,20 @@
 #include "../helpers.h"
 #include "../program.h"
 
+PyObject *drgnpy_linux_helper_direct_mapping_offset(PyObject *self, PyObject *arg)
+{
+	struct drgn_error *err;
+	if (!PyObject_TypeCheck(arg, &Program_type)) {
+		return PyErr_Format(PyExc_TypeError, "expected Program, not %s",
+				    Py_TYPE(arg)->tp_name);
+	}
+	uint64_t ret;
+	err = linux_helper_direct_mapping_offset(&((Program *)arg)->prog, &ret);
+	if (err)
+		return set_drgn_error(err);
+	return PyLong_FromUnsignedLongLong(ret);
+}
+
 PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
 				      PyObject *kwds)
 {

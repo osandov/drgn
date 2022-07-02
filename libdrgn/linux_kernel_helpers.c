@@ -63,6 +63,75 @@ err:
 	return err;
 }
 
+struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
+						      uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	if (prog->direct_mapping_offset_cached) {
+		*ret = prog->direct_mapping_offset;
+		return NULL;
+	}
+
+	// The direct mapping offset can vary depending on architecture, kernel
+	// version, configuration options, and KASLR. Rather than dealing with
+	// all of that, get a virtual address in the direct mapping and
+	// translate it to a physical address via the page table. The difference
+	// is the offset.
+	//
+	// The virtual address we pick doesn't matter as long as:
+	//
+	// 1. It is in the direct mapping on all configurations of all supported
+	//    kernel versions on all architectures.
+	// 2. That is unlikely to change in the future.
+	//
+	// This is our current arbitrary choice.
+	static const char direct_mapping_variable[] = "saved_command_line";
+
+	struct drgn_object tmp;
+	drgn_object_init(&tmp, prog);
+	err = drgn_program_find_object(prog, direct_mapping_variable, NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &tmp);
+	uint64_t virt_addr;
+	if (!err) {
+		err = drgn_object_read_unsigned(&tmp, &virt_addr);
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		// Avoid a confusing error message with our arbitrary variable
+		// name.
+		drgn_error_destroy(err);
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"could not find variable in direct mapping");
+	}
+	drgn_object_deinit(&tmp);
+	if (err)
+		return err;
+
+	err = begin_virtual_address_translation(prog,
+						prog->vmcoreinfo.swapper_pg_dir,
+						virt_addr);
+	if (err)
+		return err;
+	uint64_t start_virt_addr, start_phys_addr;
+	err = prog->platform.arch->linux_kernel_pgtable_iterator_next(prog,
+								      prog->pgtable_it,
+								      &start_virt_addr,
+								      &start_phys_addr);
+	if (err)
+		goto out;
+	if (start_phys_addr == UINT64_MAX) {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"could not determine direct mapping offset");
+		goto out;
+	}
+	prog->direct_mapping_offset = start_virt_addr - start_phys_addr;
+	prog->direct_mapping_offset_cached = true;
+	*ret = prog->direct_mapping_offset;
+	err = NULL;
+out:
+	end_virtual_address_translation(prog);
+	return err;
+}
+
 struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					uint64_t pgtable, uint64_t virt_addr,
 					void *buf, size_t count)

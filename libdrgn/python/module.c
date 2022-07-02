@@ -122,6 +122,8 @@ static PyMethodDef drgn_methods[] = {
 	 METH_NOARGS, drgn_program_from_kernel_DOC},
 	{"program_from_pid", (PyCFunction)program_from_pid,
 	 METH_VARARGS | METH_KEYWORDS, drgn_program_from_pid_DOC},
+	{"_linux_helper_direct_mapping_offset",
+	 (PyCFunction)drgnpy_linux_helper_direct_mapping_offset, METH_O},
 	{"_linux_helper_read_vm", (PyCFunction)drgnpy_linux_helper_read_vm,
 	 METH_VARARGS | METH_KEYWORDS},
 	{"_linux_helper_per_cpu_ptr",

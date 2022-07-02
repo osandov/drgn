@@ -149,21 +149,6 @@ out:
 	return err;
 }
 
-static struct drgn_error *linux_kernel_get_page_offset(struct drgn_program *prog,
-						       struct drgn_object *ret)
-{
-	struct drgn_error *err;
-	if (prog->page_offset.kind == DRGN_OBJECT_ABSENT) {
-		if (!prog->has_platform ||
-		    !prog->platform.arch->linux_kernel_get_page_offset)
-			return &drgn_not_found;
-		err = prog->platform.arch->linux_kernel_get_page_offset(&prog->page_offset);
-		if (err)
-			return err;
-	}
-	return drgn_object_copy(ret, &prog->page_offset);
-}
-
 static struct drgn_error *linux_kernel_get_page_shift(struct drgn_program *prog,
 						      struct drgn_object *ret)
 {

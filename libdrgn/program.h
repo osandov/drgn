@@ -166,8 +166,11 @@ struct drgn_program {
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
 		int page_shift;
 	} vmcoreinfo;
-	/* Cached PAGE_OFFSET. */
-	struct drgn_object page_offset;
+	/*
+	 * Difference between a virtual address in the direct mapping and the
+	 * physical address it maps to.
+	 */
+	uint64_t direct_mapping_offset;
 	/* Cached vmemmap. */
 	struct drgn_object vmemmap;
 	/* Page table iterator. */
@@ -177,6 +180,8 @@ struct drgn_program {
 	 * address translation from recursing.
 	 */
 	bool in_address_translation;
+	/* Whether @ref drgn_program::direct_mapping_offset has been cached. */
+	bool direct_mapping_offset_cached;
 };
 
 /** Initialize a @ref drgn_program. */

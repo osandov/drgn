@@ -13,7 +13,7 @@ implemented.
 import operator
 from typing import Iterator, List, Optional, Union, overload
 
-from _drgn import _linux_helper_read_vm
+from _drgn import _linux_helper_direct_mapping_offset, _linux_helper_read_vm
 from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers import decode_enum_type_flags
 
@@ -299,7 +299,9 @@ def phys_to_virt(  # type: ignore  # Need positional-only arguments.
     else:
         assert isinstance(prog_or_addr, Program)
         prog = prog_or_addr
-    return cast("void *", addr + prog["PAGE_OFFSET"])
+    return Object(
+        prog, "void *", operator.index(addr) + _linux_helper_direct_mapping_offset(prog)
+    )
 
 
 @overload
@@ -396,7 +398,11 @@ def virt_to_phys(  # type: ignore  # Need positional-only arguments.
     else:
         assert isinstance(prog_or_addr, Program)
         prog = prog_or_addr
-    return cast("unsigned long", addr - prog["PAGE_OFFSET"])
+    return Object(
+        prog,
+        "unsigned long",
+        operator.index(addr) - _linux_helper_direct_mapping_offset(prog),
+    )
 
 
 def access_process_vm(task: Object, address: IntegerLike, size: IntegerLike) -> bytes:
