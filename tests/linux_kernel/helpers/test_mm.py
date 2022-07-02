@@ -18,8 +18,10 @@ from drgn.helpers.linux.mm import (
     decode_page_flags,
     environ,
     page_to_pfn,
+    page_to_virt,
     pfn_to_page,
     pfn_to_virt,
+    virt_to_page,
     virt_to_pfn,
 )
 from drgn.helpers.linux.pid import find_task
@@ -27,6 +29,7 @@ from tests.linux_kernel import (
     LinuxKernelTestCase,
     mlock,
     skip_unless_have_full_mm_support,
+    skip_unless_have_test_kmod,
 )
 
 
@@ -68,29 +71,46 @@ class TestMm(LinuxKernelTestCase):
             self.assertIn("PG_swapbacked", decode_page_flags(page))
 
     @skip_unless_have_full_mm_support
-    def test_virt_to_from_pfn(self):
-        with self._pages() as (map, _, pfns):
-            for i, pfn in enumerate(pfns):
-                virt = pfn_to_virt(self.prog, pfn)
-                # Test that we got the correct virtual address by reading from
-                # it and comparing it to the mmap.
-                self.assertEqual(
-                    self.prog.read(virt, mmap.PAGESIZE),
-                    map[i * mmap.PAGESIZE : (i + 1) * mmap.PAGESIZE],
-                )
-                # Test the opposite direction.
-                self.assertEqual(virt_to_pfn(virt), pfn)
+    @skip_unless_have_test_kmod
+    def test_page_to_pfn(self):
+        self.assertEqual(
+            page_to_pfn(self.prog["drgn_test_page"]), self.prog["drgn_test_pfn"]
+        )
 
     @skip_unless_have_full_mm_support
-    def test_pfn_to_from_page(self):
-        with self._pages() as (map, _, pfns):
-            for i, pfn in enumerate(pfns):
-                page = pfn_to_page(self.prog, pfn)
-                # Test that we got the correct page by looking at the index: it
-                # should be page i in the file.
-                self.assertEqual(page.index, i)
-                # Test the opposite direction.
-                self.assertEqual(page_to_pfn(page), pfn)
+    @skip_unless_have_test_kmod
+    def test_page_to_virt(self):
+        self.assertEqual(
+            page_to_virt(self.prog["drgn_test_page"]), self.prog["drgn_test_va"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_pfn_to_page(self):
+        self.assertEqual(
+            pfn_to_page(self.prog["drgn_test_pfn"]), self.prog["drgn_test_page"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_pfn_to_virt(self):
+        self.assertEqual(
+            pfn_to_virt(self.prog["drgn_test_pfn"]), self.prog["drgn_test_va"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_virt_to_page(self):
+        self.assertEqual(
+            virt_to_page(self.prog["drgn_test_va"]), self.prog["drgn_test_page"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_virt_to_pfn(self):
+        self.assertEqual(
+            virt_to_pfn(self.prog["drgn_test_va"]), self.prog["drgn_test_pfn"]
+        )
 
     def test_read_physical(self):
         with self._pages() as (map, _, pfns):

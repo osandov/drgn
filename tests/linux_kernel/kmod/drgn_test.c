@@ -8,8 +8,10 @@
 // This is intended to be used with drgn's vmtest framework, but in theory it
 // can be used with any kernel that has debug info enabled (at your own risk).
 
+#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
+#include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/rbtree.h>
 #include <linux/rbtree_augmented.h>
@@ -81,6 +83,29 @@ static void drgn_test_list_init(void)
 	}
 
 	init_corrupted_list();
+}
+
+// mm
+
+void *drgn_test_va;
+phys_addr_t drgn_test_pa;
+unsigned long drgn_test_pfn;
+struct page *drgn_test_page;
+
+static int drgn_test_mm_init(void)
+{
+	drgn_test_va = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!drgn_test_va)
+		return -ENOMEM;
+	drgn_test_pa = virt_to_phys(drgn_test_va);
+	drgn_test_pfn = PHYS_PFN(drgn_test_pa);
+	drgn_test_page = virt_to_page(drgn_test_va);
+	return 0;
+}
+
+static void drgn_test_mm_exit(void)
+{
+	kfree(drgn_test_va);
 }
 
 // rbtree
@@ -272,6 +297,7 @@ int drgn_test_function(int x)
 static void drgn_test_exit(void)
 {
 	drgn_test_slab_exit();
+	drgn_test_mm_exit();
 }
 
 static int __init drgn_test_init(void)
@@ -279,8 +305,12 @@ static int __init drgn_test_init(void)
 	int ret;
 
 	drgn_test_list_init();
+	ret = drgn_test_mm_init();
+	if (ret)
+		goto out;
 	drgn_test_rbtree_init();
 	ret = drgn_test_slab_init();
+out:
 	if (ret)
 		drgn_test_exit();
 	return ret;
