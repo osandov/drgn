@@ -12,17 +12,23 @@ import unittest
 
 from drgn import FaultError
 from drgn.helpers.linux.mm import (
+    PFN_PHYS,
+    PHYS_PFN,
     access_process_vm,
     access_remote_vm,
     cmdline,
     decode_page_flags,
     environ,
     page_to_pfn,
+    page_to_phys,
     page_to_virt,
     pfn_to_page,
     pfn_to_virt,
+    phys_to_page,
+    phys_to_virt,
     virt_to_page,
     virt_to_pfn,
+    virt_to_phys,
 )
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
@@ -72,9 +78,30 @@ class TestMm(LinuxKernelTestCase):
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
+    def test_PFN_PHYS(self):
+        self.assertEqual(
+            PFN_PHYS(self.prog["drgn_test_pfn"]), self.prog["drgn_test_pa"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_PHYS_PFN(self):
+        self.assertEqual(
+            PHYS_PFN(self.prog["drgn_test_pa"]), self.prog["drgn_test_pfn"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
     def test_page_to_pfn(self):
         self.assertEqual(
             page_to_pfn(self.prog["drgn_test_page"]), self.prog["drgn_test_pfn"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_page_to_phys(self):
+        self.assertEqual(
+            page_to_phys(self.prog["drgn_test_page"]), self.prog["drgn_test_pa"]
         )
 
     @skip_unless_have_full_mm_support
@@ -100,6 +127,20 @@ class TestMm(LinuxKernelTestCase):
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
+    def test_phys_to_page(self):
+        self.assertEqual(
+            phys_to_page(self.prog["drgn_test_pa"]), self.prog["drgn_test_page"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_phys_to_virt(self):
+        self.assertEqual(
+            phys_to_virt(self.prog["drgn_test_pa"]), self.prog["drgn_test_va"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
     def test_virt_to_page(self):
         self.assertEqual(
             virt_to_page(self.prog["drgn_test_va"]), self.prog["drgn_test_page"]
@@ -110,6 +151,13 @@ class TestMm(LinuxKernelTestCase):
     def test_virt_to_pfn(self):
         self.assertEqual(
             virt_to_pfn(self.prog["drgn_test_va"]), self.prog["drgn_test_pfn"]
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_virt_to_phys(self):
+        self.assertEqual(
+            virt_to_phys(self.prog["drgn_test_va"]), self.prog["drgn_test_pa"]
         )
 
     def test_read_physical(self):
