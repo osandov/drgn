@@ -5461,6 +5461,7 @@ drgn_base_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					    byte_order, lang, ret);
 	case DW_ATE_unsigned:
 	case DW_ATE_unsigned_char:
+	case DW_ATE_UTF:
 		return drgn_int_type_create(dbinfo->prog, name, size, false,
 					    byte_order, lang, ret);
 	/* We don't support complex types yet. */

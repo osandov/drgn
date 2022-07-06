@@ -64,6 +64,30 @@ unsigned_char_die = DwarfDie(
         DwarfAttrib(DW_AT.name, DW_FORM.string, "unsigned char"),
     ),
 )
+utf8_char_die = DwarfDie(
+    DW_TAG.base_type,
+    (
+        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
+        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.UTF),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "char8_t"),
+    ),
+)
+utf16_char_die = DwarfDie(
+    DW_TAG.base_type,
+    (
+        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 2),
+        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.UTF),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "char16_t"),
+    ),
+)
+utf32_char_die = DwarfDie(
+    DW_TAG.base_type,
+    (
+        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+        DwarfAttrib(DW_AT.encoding, DW_FORM.data1, DW_ATE.UTF),
+        DwarfAttrib(DW_AT.name, DW_FORM.string, "char32_t"),
+    ),
+)
 short_die = DwarfDie(
     DW_TAG.base_type,
     (
@@ -159,6 +183,9 @@ base_type_dies = (
     char_die,
     signed_char_die,
     unsigned_char_die,
+    utf8_char_die,
+    utf16_char_die,
+    utf32_char_die,
     short_die,
     unsigned_short_die,
     int_die,
@@ -3381,6 +3408,49 @@ class TestTypes(TestCase):
             prog.function_type(
                 prog.int_type("int", 4, True),
                 (TypeParameter(prog.int_type("char", 1, True), "c"),),
+                False,
+            ),
+        )
+
+    def test_utf_chars(self):
+        # char8_t foo(char16_t a, char32_t b)
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                (
+                    DwarfDie(
+                        DW_TAG.subroutine_type,
+                        (DwarfAttrib(DW_AT.type, DW_FORM.ref4, 1),),
+                        (
+                            DwarfDie(
+                                DW_TAG.formal_parameter,
+                                (
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 2),
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "a"),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.formal_parameter,
+                                (
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, 3),
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "b"),
+                                ),
+                            ),
+                        ),
+                    ),
+                    utf8_char_die,
+                    utf16_char_die,
+                    utf32_char_die,
+                )
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.function_type(
+                prog.int_type("char8_t", 1, False),
+                (
+                    TypeParameter(prog.int_type("char16_t", 2, False), "a"),
+                    TypeParameter(prog.int_type("char32_t", 4, False), "b"),
+                ),
                 False,
             ),
         )
