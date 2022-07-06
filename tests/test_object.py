@@ -120,16 +120,20 @@ class TestInit(MockProgramTestCase):
         )
 
     def test_float_size(self):
-        for i in range(10):
-            if i == 4 or i == 8:
-                continue
-            self.assertRaisesRegex(
-                ValueError,
-                "unsupported floating-point bit size",
-                Object,
-                self.prog,
-                self.prog.float_type("FLOAT", i),
-            )
+        self.assertRaisesRegex(
+            ValueError,
+            "unsupported floating-point bit size",
+            Object,
+            self.prog,
+            self.prog.float_type("ZERO", 0),
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "unsupported floating-point bit size",
+            Object,
+            self.prog,
+            self.prog.float_type("BIGGEST", 32 + 1),
+        )
 
 
 class TestReference(MockProgramTestCase):
@@ -494,6 +498,31 @@ class TestReference(MockProgramTestCase):
             repr(obj),
             "Object(prog, 'unsigned __int128', address=0xffff0000, bit_field_size=32)",
         )
+
+    def test_non_standard_float(self):
+        for size in (2, 10, 16, 32):
+            buffer = (1000).to_bytes(size, "little")
+            self.add_memory_segment(buffer, virt_addr=0xFFFF0000)
+            obj = Object(
+                self.prog,
+                self.prog.float_type("CUSTOM_FLOAT", size),
+                address=0xFFFF0000,
+            )
+            self.assertIs(obj.prog_, self.prog)
+            self.assertFalse(obj.absent_)
+            self.assertEqual(obj.address_, 0xFFFF0000)
+            self.assertEqual(obj.bit_offset_, 0)
+            self.assertIsNone(obj.bit_field_size_)
+            self.assertEqual(obj.type_.size, size)
+            self.assertRaisesRegex(
+                NotImplementedError,
+                "float values which are not 32 or 64 bits are not yet supported",
+                obj.value_,
+            )
+            self.assertEqual(obj.to_bytes_(), buffer)
+            self.assertEqual(
+                repr(obj), "Object(prog, 'CUSTOM_FLOAT', address=0xffff0000)"
+            )
 
 
 class TestValue(MockProgramTestCase):
@@ -870,6 +899,26 @@ class TestValue(MockProgramTestCase):
             "Object(prog, 'unsigned __int128', value=1000, bit_field_size=32)",
         )
 
+    def test_non_standard_float(self):
+        for size in (2, 10, 16, 32):
+            type = self.prog.float_type("CUSTOM_FLOAT", size)
+            self.assertRaisesRegex(
+                NotImplementedError,
+                "float values which are not 32 or 64 bits are not yet supported",
+                Object,
+                self.prog,
+                type,
+                0,
+            )
+            self.assertRaisesRegex(
+                NotImplementedError,
+                "float values which are not 32 or 64 bits are not yet supported",
+                Object.from_bytes_,
+                self.prog,
+                type,
+                (0).to_bytes(size, "little"),
+            )
+
 
 class TestAbsent(MockProgramTestCase):
     def test_basic(self):
@@ -954,6 +1003,16 @@ class TestAbsent(MockProgramTestCase):
         self.assertIsNone(obj.bit_offset_)
         self.assertIsNone(obj.bit_field_size_)
         self.assertEqual(repr(obj), "Object(prog, 'BIG')")
+
+    def test_non_standard_float(self):
+        for size in (2, 10, 16, 32):
+            obj = Object(self.prog, self.prog.float_type("CUSTOM_FLOAT", size))
+            self.assertIs(obj.prog_, self.prog)
+            self.assertEqual(obj.type_.size, size)
+            self.assertIsNone(obj.address_)
+            self.assertIsNone(obj.bit_offset_)
+            self.assertIsNone(obj.bit_field_size_)
+            self.assertEqual(repr(obj), "Object(prog, 'CUSTOM_FLOAT')")
 
 
 class TestConversions(MockProgramTestCase):
