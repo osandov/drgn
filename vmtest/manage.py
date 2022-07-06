@@ -139,7 +139,7 @@ async def build_kernels(
                     kernel_dir, flavor_rev_build_dir, flavor, arch, build_log_file
                 )
                 await kbuild.build()
-                yield await kbuild.package(build_dir)
+                yield await kbuild.package("tar.zst", build_dir)
                 if not keep_builds:
                     logger.info("deleting %s", flavor_rev_build_dir)
                     # Shell out instead of using, e.g., shutil.rmtree(), to

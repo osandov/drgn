@@ -70,6 +70,9 @@ CONFIG_PREEMPT_NONE=y
 ]
 
 
+_PACKAGE_FORMATS = ("tar.zst", "directory")
+
+
 def kconfig(flavor: KernelFlavor) -> str:
     return rf"""# Minimal Linux kernel configuration for booting into vmtest and running drgn
 # tests ({flavor.name} flavor).
@@ -434,17 +437,21 @@ MODULE_LICENSE("GPL");
             if error:
                 raise Exception(f"Command {cmd} output contained error")
 
-    async def package(self, output_dir: Path) -> Path:
+    async def package(self, format: str, output_dir: Path) -> Path:
+        if format not in _PACKAGE_FORMATS:
+            raise ValueError("unknown package format")
+
         make_args = await self._prepare_make()
         kernel_release = await self._kernel_release()
 
-        tarball = output_dir / f"kernel-{kernel_release}.{self._arch}.tar.zst"
+        extension = "" if format == "directory" else ("." + format)
+        package = output_dir / f"kernel-{kernel_release}.{self._arch}{extension}"
 
         logger.info(
             "packaging kernel %s from %s to %s",
             kernel_release,
             self._build_dir,
-            tarball,
+            package,
         )
 
         image_name = (
@@ -487,27 +494,35 @@ MODULE_LICENSE("GPL");
             self._copy_module_build(modules_dir)
             await self._test_external_module_build(modules_dir)
 
-            logger.info("creating tarball")
-            tarball.parent.mkdir(parents=True, exist_ok=True)
-            tar_cmd = ("tar", "-C", str(modules_dir), "-c", ".")
-            zstd_cmd = ("zstd", "-T0", "-19", "-q", "-", "-o", str(tarball), "-f")
-            with pipe_context() as (pipe_r, pipe_w):
-                tar_proc, zstd_proc = await asyncio.gather(
-                    asyncio.create_subprocess_exec(*tar_cmd, stdout=pipe_w),
-                    asyncio.create_subprocess_exec(*zstd_cmd, stdin=pipe_r),
+            package.parent.mkdir(parents=True, exist_ok=True)
+            if format == "directory":
+                logger.info("renaming directory")
+                try:
+                    shutil.rmtree(package)
+                except FileNotFoundError:
+                    pass
+                modules_dir.rename(package)
+            else:
+                logger.info("creating tarball")
+                tar_cmd = ("tar", "-C", str(modules_dir), "-c", ".")
+                zstd_cmd = ("zstd", "-T0", "-19", "-q", "-", "-o", str(package), "-f")
+                with pipe_context() as (pipe_r, pipe_w):
+                    tar_proc, zstd_proc = await asyncio.gather(
+                        asyncio.create_subprocess_exec(*tar_cmd, stdout=pipe_w),
+                        asyncio.create_subprocess_exec(*zstd_cmd, stdin=pipe_r),
+                    )
+                tar_returncode, zstd_returncode = await asyncio.gather(
+                    tar_proc.wait(), zstd_proc.wait()
                 )
-            tar_returncode, zstd_returncode = await asyncio.gather(
-                tar_proc.wait(), zstd_proc.wait()
-            )
-            if tar_returncode != 0:
-                raise CalledProcessError(tar_returncode, tar_cmd)
-            if zstd_returncode != 0:
-                raise CalledProcessError(zstd_returncode, zstd_cmd)
+                if tar_returncode != 0:
+                    raise CalledProcessError(tar_returncode, tar_cmd)
+                if zstd_returncode != 0:
+                    raise CalledProcessError(zstd_returncode, zstd_cmd)
 
         logger.info(
-            "packaged kernel %s from %s to %s", kernel_release, self._build_dir, tarball
+            "packaged kernel %s from %s to %s", kernel_release, self._build_dir, package
         )
-        return tarball
+        return package
 
 
 async def main() -> None:
@@ -544,6 +559,12 @@ async def main() -> None:
         default=argparse.SUPPRESS,
     )
     parser.add_argument(
+        "--package-format",
+        choices=_PACKAGE_FORMATS,
+        help='package archive format, or "directory" for an unarchived directory',
+        default=_PACKAGE_FORMATS[0],
+    )
+    parser.add_argument(
         "-f",
         "--flavor",
         choices=[flavor.name for flavor in KERNEL_FLAVORS],
@@ -569,7 +590,7 @@ async def main() -> None:
     kbuild = KBuild(args.kernel_directory, args.build_directory, flavor, "x86_64")
     await kbuild.build()
     if hasattr(args, "package"):
-        await kbuild.package(args.package)
+        await kbuild.package(args.package_format, args.package)
 
 
 if __name__ == "__main__":
