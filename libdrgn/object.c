@@ -110,7 +110,7 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 						 "bit field must be integer");
 		}
 		if (ret->encoding == DRGN_OBJECT_ENCODING_FLOAT &&
-		    ret->bit_size != 32 && ret->bit_size != 64) {
+		    (ret->bit_size < 1 || ret->bit_size > 256)) {
 			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						 "unsupported floating-point bit size (%" PRIu64 ")",
 						 ret->bit_size);
@@ -211,16 +211,24 @@ drgn_object_set_unsigned(struct drgn_object *res,
 	return drgn_object_set_unsigned_internal(res, &type, uvalue);
 }
 
-static void
+static struct drgn_error drgn_float_size_unsupported = {
+	.code = DRGN_ERROR_NOT_IMPLEMENTED,
+	.message = "float values which are not 32 or 64 bits are not yet supported",
+};
+
+static struct drgn_error *
 drgn_object_set_float_internal(struct drgn_object *res,
 			       const struct drgn_object_type *type,
 			       double fvalue)
 {
+	if (type->bit_size != 32 && type->bit_size != 64)
+		return &drgn_float_size_unsupported;
 	drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
 	if (type->bit_size == 32)
 		res->value.fvalue = (float)fvalue;
 	else
 		res->value.fvalue = fvalue;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -236,8 +244,7 @@ drgn_object_set_float(struct drgn_object *res,
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "not a floating-point type");
 	}
-	drgn_object_set_float_internal(res, &type, fvalue);
-	return NULL;
+	return drgn_object_set_float_internal(res, &type, fvalue);
 }
 
 static void drgn_value_deserialize(union drgn_value *value, const void *buf,
@@ -304,7 +311,10 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 		drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
 		res->value = value;
 	} else if (drgn_object_encoding_is_complete(type->encoding)) {
-		if (type->bit_size > 64)
+		if (type->encoding == DRGN_OBJECT_ENCODING_FLOAT) {
+			if (type->bit_size != 32 && type->bit_size != 64)
+				return &drgn_float_size_unsupported;
+		} else if (type->bit_size > 64)
 			return &drgn_integer_too_big;
 		drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
 		drgn_value_deserialize(&res->value, p, bit_offset,
@@ -567,7 +577,10 @@ drgn_object_read_reference(const struct drgn_object *obj,
 		return NULL;
 	} else {
 		uint64_t bit_size = obj->bit_size;
-		if (bit_size > 64)
+		if (obj->encoding == DRGN_OBJECT_ENCODING_FLOAT) {
+			if (bit_size != 32 && bit_size != 64)
+				return &drgn_float_size_unsupported;
+		} else if (bit_size > 64)
 			return &drgn_integer_too_big;
 		uint8_t bit_offset = obj->bit_offset;
 		uint64_t read_size = drgn_value_size(bit_offset + bit_size);
@@ -1611,8 +1624,7 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
 		err = drgn_object_convert_float(obj, &fvalue);
 		if (err)
 			goto err;
-		drgn_object_set_float_internal(res, &type, fvalue);
-		return NULL;
+		return drgn_object_set_float_internal(res, &type, fvalue);
 	}
 	default:
 		if (!drgn_object_encoding_is_complete(type.encoding)) {
@@ -1693,8 +1705,8 @@ type_error:;
 	double lhs_fvalue, rhs_fvalue;						\
 	_err = binary_operands_float((lhs), (rhs), &lhs_fvalue, &rhs_fvalue);	\
 	if (!_err) {								\
-		drgn_object_set_float_internal((res), (type),			\
-					       lhs_fvalue op rhs_fvalue);	\
+		_err = drgn_object_set_float_internal((res), (type),		\
+					              lhs_fvalue op rhs_fvalue);\
 	}									\
 	_err;									\
 })
@@ -1985,9 +1997,8 @@ struct drgn_error *drgn_op_div_impl(struct drgn_object *res,
 			return err;
 		if (!rhs_fvalue)
 			return &drgn_zero_division;
-		drgn_object_set_float_internal(res, &type,
-					       lhs_fvalue / rhs_fvalue);
-		return NULL;
+		return drgn_object_set_float_internal(res, &type,
+					              lhs_fvalue / rhs_fvalue);
 	}
 	default:
 		return drgn_error_create(DRGN_ERROR_TYPE,
@@ -2248,8 +2259,7 @@ drgn_op_##op_name##_impl(struct drgn_object *res,				\
 		err = drgn_object_convert_float(obj, &fvalue);			\
 		if (err)							\
 			return err;						\
-		drgn_object_set_float_internal(res, &type, op fvalue);		\
-		return NULL;							\
+		return drgn_object_set_float_internal(res, &type, op fvalue);	\
 										\
 	}									\
 	default:								\
