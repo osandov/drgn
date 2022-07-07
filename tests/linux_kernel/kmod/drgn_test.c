@@ -269,7 +269,7 @@ int drgn_test_function(int x)
 	return x + 1;
 }
 
-static void __exit drgn_test_exit(void)
+static void drgn_test_exit(void)
 {
 	drgn_test_slab_exit();
 }
