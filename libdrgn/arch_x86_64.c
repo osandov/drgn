@@ -658,7 +658,6 @@ linux_kernel_pgtable_iterator_init_x86_64(struct drgn_program *prog,
 	struct pgtable_iterator_x86_64 *it =
 		container_of(_it, struct pgtable_iterator_x86_64, it);
 	memset(it->index, 0xff, sizeof(it->index));
-	memset(it->table, 0, sizeof(it->table));
 }
 
 static struct drgn_error *
