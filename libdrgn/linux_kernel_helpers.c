@@ -93,10 +93,10 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 			break;
 		}
 
-		uint64_t end_phys_addr =
-			start_phys_addr + (it->virt_addr - start_virt_addr);
+		uint64_t phys_addr =
+			start_phys_addr + (virt_addr - start_virt_addr);
 		size_t n = min(it->virt_addr - virt_addr, (uint64_t)count);
-		if (read_size && end_phys_addr == read_addr + read_size) {
+		if (read_size && phys_addr == read_addr + read_size) {
 			read_size += n;
 		} else {
 			if (read_size) {
@@ -107,7 +107,7 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					break;
 				buf = (char *)buf + read_size;
 			}
-			read_addr = start_phys_addr + (virt_addr - start_virt_addr);
+			read_addr = phys_addr;
 			read_size = n;
 		}
 		virt_addr = it->virt_addr;
