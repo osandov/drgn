@@ -12,61 +12,79 @@
 #include "program.h"
 #include "util.h"
 
+static void end_virtual_address_translation(struct drgn_program *prog)
+{
+	prog->in_address_translation = false;
+}
+
+static struct drgn_error *
+begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
+				  uint64_t virt_addr)
+{
+	struct drgn_error *err;
+
+	if (prog->in_address_translation) {
+		return drgn_error_create_fault("recursive address translation; "
+					       "page table may be missing from core dump",
+					       virt_addr);
+	}
+	prog->in_address_translation = true;
+	if (!prog->pgtable_it) {
+		if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
+			err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						"virtual address translation is only available for the Linux kernel");
+			goto err;
+		}
+		if (!prog->has_platform) {
+			err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						"cannot do virtual address translation without platform");
+			goto err;
+		}
+		if (!prog->platform.arch->linux_kernel_pgtable_iterator_next) {
+			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						"virtual address translation is not implemented for %s architecture",
+						prog->platform.arch->name);
+			goto err;
+		}
+		err = prog->platform.arch->linux_kernel_pgtable_iterator_create(prog,
+										&prog->pgtable_it);
+		if (err) {
+			prog->pgtable_it = NULL;
+			goto err;
+		}
+	}
+	prog->pgtable_it->pgtable = pgtable;
+	prog->pgtable_it->virt_addr = virt_addr;
+	prog->platform.arch->linux_kernel_pgtable_iterator_init(prog, prog->pgtable_it);
+	return NULL;
+
+err:
+	end_virtual_address_translation(prog);
+	return err;
+}
+
 struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 					uint64_t pgtable, uint64_t virt_addr,
 					void *buf, size_t count)
 {
 	struct drgn_error *err;
-	struct pgtable_iterator *it;
-	pgtable_iterator_next_fn *next;
+
+	err = begin_virtual_address_translation(prog, pgtable, virt_addr);
+	if (err)
+		return err;
+	if (!count) {
+		err = NULL;
+		goto out;
+	}
+
+	struct pgtable_iterator *it = prog->pgtable_it;
+	pgtable_iterator_next_fn *next =
+		prog->platform.arch->linux_kernel_pgtable_iterator_next;
 	uint64_t read_addr = 0;
 	size_t read_size = 0;
-
-	if (!(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "virtual address translation is only available for the Linux kernel");
-	}
-	if (!prog->has_platform) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "cannot do virtual address translation without platform");
-	}
-	if (!prog->platform.arch->linux_kernel_pgtable_iterator_next) {
-		return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-					 "virtual address translation is not implemented for %s architecture",
-					 prog->platform.arch->name);
-	}
-
-	if (!count)
-		return NULL;
-
-	if (prog->pgtable_it_in_use) {
-		return drgn_error_create_fault("recursive address translation; "
-					       "page table may be missing from core dump",
-					       virt_addr);
-	}
-
-	if (prog->pgtable_it) {
-		it = prog->pgtable_it;
-	} else {
-		it = malloc(sizeof(*it) +
-			    prog->platform.arch->pgtable_iterator_arch_size);
-		if (!it)
-			return &drgn_enomem;
-		prog->pgtable_it = it;
-		it->prog = prog;
-	}
-	it->pgtable = pgtable;
-	it->virt_addr = virt_addr;
-	prog->pgtable_it_in_use = true;
-	prog->platform.arch->pgtable_iterator_arch_init(it->arch);
-	next = prog->platform.arch->linux_kernel_pgtable_iterator_next;
 	do {
-		uint64_t virt_addr, start_virt_addr, end_virt_addr;
-		uint64_t start_phys_addr, end_phys_addr;
-		size_t n;
-
-		virt_addr = it->virt_addr;
-		err = next(it, &start_virt_addr, &start_phys_addr);
+		uint64_t start_virt_addr, start_phys_addr;
+		err = next(prog, it, &start_virt_addr, &start_phys_addr);
 		if (err)
 			break;
 		if (start_phys_addr == UINT64_MAX) {
@@ -74,9 +92,10 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 						      virt_addr);
 			break;
 		}
-		end_virt_addr = it->virt_addr;
-		end_phys_addr = start_phys_addr + (end_virt_addr - start_virt_addr);
-		n = min(end_virt_addr - virt_addr, (uint64_t)count);
+
+		uint64_t end_phys_addr =
+			start_phys_addr + (it->virt_addr - start_virt_addr);
+		size_t n = min(it->virt_addr - virt_addr, (uint64_t)count);
 		if (read_size && end_phys_addr == read_addr + read_size) {
 			read_size += n;
 		} else {
@@ -91,13 +110,15 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 			read_addr = start_phys_addr + (virt_addr - start_virt_addr);
 			read_size = n;
 		}
+		virt_addr = it->virt_addr;
 		count -= n;
 	} while (count);
 	if (!err) {
 		err = drgn_program_read_memory(prog, buf, read_addr, read_size,
 					       true);
 	}
-	prog->pgtable_it_in_use = false;
+out:
+	end_virtual_address_translation(prog);
 	return err;
 }
 

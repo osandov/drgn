@@ -170,13 +170,13 @@ struct drgn_program {
 	struct drgn_object page_offset;
 	/* Cached vmemmap. */
 	struct drgn_object vmemmap;
-	/* Page table iterator for linux_helper_read_vm(). */
+	/* Page table iterator. */
 	struct pgtable_iterator *pgtable_it;
 	/*
-	 * Whether @ref drgn_program::pgtable_it is currently being used. Used
-	 * to prevent address translation from recursing.
+	 * Whether we are currently in address translation. Used to prevent
+	 * address translation from recursing.
 	 */
-	bool pgtable_it_in_use;
+	bool in_address_translation;
 };
 
 /** Initialize a @ref drgn_program. */

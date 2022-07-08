@@ -124,7 +124,8 @@ void drgn_program_deinit(struct drgn_program *prog)
 		drgn_thread_destroy(prog->crashed_thread);
 	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
 		drgn_thread_destroy(prog->main_thread);
-	free(prog->pgtable_it);
+	if (prog->pgtable_it)
+		prog->platform.arch->linux_kernel_pgtable_iterator_destroy(prog->pgtable_it);
 
 	drgn_object_deinit(&prog->vmemmap);
 	drgn_object_deinit(&prog->page_offset);

@@ -629,19 +629,41 @@ linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
 }
 
 struct pgtable_iterator_x86_64 {
+	struct pgtable_iterator it;
 	uint16_t index[5];
 	uint64_t table[5][512];
 };
 
-static void pgtable_iterator_arch_init_x86_64(void *buf)
+static struct drgn_error *
+linux_kernel_pgtable_iterator_create_x86_64(struct drgn_program *prog,
+					    struct pgtable_iterator **ret)
 {
-	struct pgtable_iterator_x86_64 *arch = buf;
-	memset(arch->index, 0xff, sizeof(arch->index));
-	memset(arch->table, 0, sizeof(arch->table));
+	struct pgtable_iterator_x86_64 *it = malloc(sizeof(*it));
+	if (!it)
+		return &drgn_enomem;
+	*ret = &it->it;
+	return NULL;
+}
+
+
+static void linux_kernel_pgtable_iterator_destroy_x86_64(struct pgtable_iterator *_it)
+{
+	free(container_of(_it, struct pgtable_iterator_x86_64, it));
+}
+
+static void
+linux_kernel_pgtable_iterator_init_x86_64(struct drgn_program *prog,
+					  struct pgtable_iterator *_it)
+{
+	struct pgtable_iterator_x86_64 *it =
+		container_of(_it, struct pgtable_iterator_x86_64, it);
+	memset(it->index, 0xff, sizeof(it->index));
+	memset(it->table, 0, sizeof(it->table));
 }
 
 static struct drgn_error *
-linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
+linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
+					  struct pgtable_iterator *_it,
 					  uint64_t *virt_addr_ret,
 					  uint64_t *phys_addr_ret)
 {
@@ -652,14 +674,15 @@ linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
 	static const uint64_t PSE = 0x80; /* a.k.a. huge page */
 	static const uint64_t ADDRESS_MASK = UINT64_C(0xffffffffff000);
 	struct drgn_error *err;
-	struct drgn_program *prog = it->prog;
-	struct pgtable_iterator_x86_64 *arch = (void *)it->arch;
-	int levels = prog->vmcoreinfo.pgtable_l5_enabled ? 5 : 4, level;
 	bool bswap = drgn_platform_bswap(&prog->platform);
+	struct pgtable_iterator_x86_64 *it =
+		container_of(_it, struct pgtable_iterator_x86_64, it);
+	uint64_t virt_addr = it->it.virt_addr;
+	int levels = prog->vmcoreinfo.pgtable_l5_enabled ? 5 : 4, level;
 
 	/* Find the lowest level with cached entries. */
 	for (level = 0; level < levels; level++) {
-		if (arch->index[level] < array_size(arch->table[level]))
+		if (it->index[level] < array_size(it->table[level]))
 			break;
 	}
 	/* For every level below that, refill the cache/return pages. */
@@ -675,17 +698,17 @@ linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
 			end_non_canonical = (UINT64_MAX <<
 					     (PAGE_SHIFT +
 					      PGTABLE_SHIFT * levels - 1));
-			if (it->virt_addr >= start_non_canonical &&
-			    it->virt_addr < end_non_canonical) {
+			if (virt_addr >= start_non_canonical &&
+			    virt_addr < end_non_canonical) {
 				*virt_addr_ret = start_non_canonical;
 				*phys_addr_ret = UINT64_MAX;
-				it->virt_addr = end_non_canonical;
+				it->it.virt_addr = end_non_canonical;
 				return NULL;
 			}
-			table = it->pgtable;
+			table = it->it.pgtable;
 			table_physical = false;
 		} else {
-			uint64_t entry = arch->table[level][arch->index[level]++];
+			uint64_t entry = it->table[level][it->index[level]++];
 			if (bswap)
 				entry = bswap_64(entry);
 			table = entry & ADDRESS_MASK;
@@ -693,30 +716,30 @@ linux_kernel_pgtable_iterator_next_x86_64(struct pgtable_iterator *it,
 				uint64_t mask = (UINT64_C(1) <<
 						 (PAGE_SHIFT +
 						  PGTABLE_SHIFT * level)) - 1;
-				*virt_addr_ret = it->virt_addr & ~mask;
+				*virt_addr_ret = virt_addr & ~mask;
 				if (entry & PRESENT)
 					*phys_addr_ret = table & ~mask;
 				else
 					*phys_addr_ret = UINT64_MAX;
-				it->virt_addr = (it->virt_addr | mask) + 1;
+				it->it.virt_addr = (virt_addr | mask) + 1;
 				return NULL;
 			}
 			table_physical = true;
 		}
-		index = (it->virt_addr >>
+		index = (virt_addr >>
 			 (PAGE_SHIFT + PGTABLE_SHIFT * (level - 1))) & PGTABLE_MASK;
 		/*
 		 * It's only marginally more expensive to read 4096 bytes than 8
 		 * bytes, so we always read to the end of the table.
 		 */
 		err = drgn_program_read_memory(prog,
-					       &arch->table[level - 1][index],
+					       &it->table[level - 1][index],
 					       table + 8 * index,
-					       sizeof(arch->table[0]) - 8 * index,
+					       sizeof(it->table[0]) - 8 * index,
 					       table_physical);
 		if (err)
 			return err;
-		arch->index[level - 1] = index;
+		it->index[level - 1] = index;
 	}
 }
 
@@ -738,8 +761,12 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.linux_kernel_get_vmemmap = linux_kernel_get_vmemmap_x86_64,
 	.linux_kernel_live_direct_mapping_fallback =
 		linux_kernel_live_direct_mapping_fallback_x86_64,
-	.pgtable_iterator_arch_size = sizeof(struct pgtable_iterator_x86_64),
-	.pgtable_iterator_arch_init = pgtable_iterator_arch_init_x86_64,
+	.linux_kernel_pgtable_iterator_create =
+		linux_kernel_pgtable_iterator_create_x86_64,
+	.linux_kernel_pgtable_iterator_destroy =
+		linux_kernel_pgtable_iterator_destroy_x86_64,
+	.linux_kernel_pgtable_iterator_init =
+		linux_kernel_pgtable_iterator_init_x86_64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_x86_64,
 };
