@@ -78,10 +78,11 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid OSRELEASE");
 	}
-	if (!prog->vmcoreinfo.page_size) {
+	if (!is_power_of_two(prog->vmcoreinfo.page_size)) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid PAGESIZE");
 	}
+	prog->vmcoreinfo.page_shift = ctz(prog->vmcoreinfo.page_size);
 	if (!prog->vmcoreinfo.swapper_pg_dir) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid swapper_pg_dir");

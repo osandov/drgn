@@ -88,6 +88,26 @@
 /** @endcond */
 
 /**
+ * Return whether @p x is a power of two.
+ *
+ * ```
+ * is_power_of_two(0) == 0
+ * is_power_of_two(1) == 1
+ * is_power_of_two(13) == 0
+ * is_power_of_two(32) == 1
+ * ```
+ *
+ * @param[in] x Non-negative integer.
+ */
+#define is_power_of_two(x) is_power_of_two_impl(x, PP_UNIQUE(_x))
+/** @cond */
+#define is_power_of_two_impl(x, unique_x) ({		\
+	__auto_type unique_x = (x);			\
+	unique_x && (unique_x & (unique_x - 1)) == 0;	\
+})
+/** @endcond */
+
+/**
  * Return the smallest power of two greater than or equal to @p x.
  *
  * ```
@@ -96,7 +116,7 @@
  * next_power_of_two(13) == 16
  * ```
  *
- * @param[in] x Integer.
+ * @param[in] x Non-negative integer.
  */
 #define next_power_of_two(x) next_power_of_two_impl(x, PP_UNIQUE(_x))
 /** @cond */

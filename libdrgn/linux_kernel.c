@@ -175,7 +175,7 @@ static struct drgn_error *linux_kernel_get_page_shift(struct drgn_program *prog,
 		return err;
 	qualified_type.qualifiers = 0;
 	return drgn_object_set_signed(ret, qualified_type,
-				      ctz(prog->vmcoreinfo.page_size), 0);
+				      prog->vmcoreinfo.page_shift, 0);
 }
 
 static struct drgn_error *linux_kernel_get_page_size(struct drgn_program *prog,

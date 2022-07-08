@@ -163,6 +163,8 @@ struct drgn_program {
 		uint64_t swapper_pg_dir;
 		/** Whether 5-level paging was enabled. */
 		bool pgtable_l5_enabled;
+		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
+		int page_shift;
 	} vmcoreinfo;
 	/* Cached PAGE_OFFSET. */
 	struct drgn_object page_offset;
