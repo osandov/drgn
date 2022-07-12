@@ -213,15 +213,124 @@ linux_kernel_get_uts_release(struct drgn_program *prog, struct drgn_object *ret)
 					   0, 0);
 }
 
+// The vmemmap address can vary depending on architecture, kernel version,
+// configuration options, and KASLR. However, we can get it generically from the
+// section_mem_map of any valid mem_section.
+static struct drgn_error *
+linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
+{
+	static const uint64_t SECTION_HAS_MEM_MAP = 0x2;
+	static const uint64_t SECTION_MAP_MASK = ~((UINT64_C(1) << 6) - 1);
+	struct drgn_error *err;
+
+	struct drgn_object mem_section, root, section;
+	drgn_object_init(&mem_section, prog);
+	drgn_object_init(&root, prog);
+	drgn_object_init(&section, prog);
+
+	err = drgn_program_find_object(prog, "vmemmap_populate", NULL,
+				       DRGN_FIND_OBJECT_FUNCTION, &mem_section);
+	if (err) {
+		if (err->code == DRGN_ERROR_LOOKUP) {
+			// !CONFIG_SPARSEMEM_VMEMMAP
+			drgn_error_destroy(err);
+			err = &drgn_not_found;
+		}
+		goto out;
+	}
+
+	err = drgn_program_find_object(prog, "mem_section", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &mem_section);
+	if (err)
+		goto out;
+
+	const uint64_t nr_section_roots = prog->vmcoreinfo.mem_section_length;
+	uint64_t sections_per_root;
+	if (drgn_type_kind(mem_section.type) == DRGN_TYPE_ARRAY) {
+		// If !CONFIG_SPARSEMEM_EXTREME, mem_section is
+		// struct mem_section mem_section[NR_SECTION_ROOTS][SECTIONS_PER_ROOT],
+		// and SECTIONS_PER_ROOT is 1.
+		sections_per_root = 1;
+	} else {
+		// If CONFIG_SPARSEMEM_EXTREME, mem_section is
+		// struct mem_section **mem_section, and SECTIONS_PER_ROOT is
+		// PAGE_SIZE / sizeof(struct mem_section).
+		struct drgn_type *mem_section_type = mem_section.type;
+		for (int i = 0; i < 2; i++) {
+			if (drgn_type_kind(mem_section_type) != DRGN_TYPE_POINTER) {
+unrecognized_mem_section_type:
+				err = drgn_type_error("mem_section has unrecognized type '%s'",
+						      mem_section.type);
+				goto out;
+			}
+			mem_section_type = drgn_type_type(mem_section_type).type;
+		}
+		if (drgn_type_kind(mem_section_type) != DRGN_TYPE_STRUCT)
+			goto unrecognized_mem_section_type;
+		uint64_t sizeof_mem_section = drgn_type_size(mem_section_type);
+		if (sizeof_mem_section == 0)
+			goto unrecognized_mem_section_type;
+		sections_per_root =
+			prog->vmcoreinfo.page_size / sizeof_mem_section;
+	}
+
+	// Find a valid section.
+	for (uint64_t i = 0; i < nr_section_roots; i++) {
+		err = drgn_object_subscript(&root, &mem_section, i);
+		if (err)
+			goto out;
+		bool truthy;
+		err = drgn_object_bool(&root, &truthy);
+		if (err)
+			goto out;
+		if (!truthy)
+			continue;
+
+		for (uint64_t j = 0; j < sections_per_root; j++) {
+			err = drgn_object_subscript(&section, &root, j);
+			if (err)
+				goto out;
+			err = drgn_object_member(&section, &section,
+						 "section_mem_map");
+			if (err)
+				goto out;
+			uint64_t section_mem_map;
+			err = drgn_object_read_unsigned(&section,
+							&section_mem_map);
+			if (err)
+				goto out;
+			if (section_mem_map & SECTION_HAS_MEM_MAP) {
+				*ret = section_mem_map & SECTION_MAP_MASK;
+				err = NULL;
+				goto out;
+			}
+		}
+	}
+	err = &drgn_not_found;
+
+out:
+	drgn_object_deinit(&section);
+	drgn_object_deinit(&root);
+	drgn_object_deinit(&mem_section);
+	return err;
+}
+
 static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
 						   struct drgn_object *ret)
 {
 	struct drgn_error *err;
 	if (prog->vmemmap.kind == DRGN_OBJECT_ABSENT) {
-		if (!prog->has_platform ||
-		    !prog->platform.arch->linux_kernel_get_vmemmap)
-			return &drgn_not_found;
-		err = prog->platform.arch->linux_kernel_get_vmemmap(&prog->vmemmap);
+		uint64_t address;
+		err = linux_kernel_get_vmemmap_address(prog, &address);
+		if (err)
+			return err;
+		struct drgn_qualified_type qualified_type;
+		err = drgn_program_find_type(prog, "struct page *", NULL,
+					     &qualified_type);
+		if (err)
+			return err;
+		err = drgn_object_set_unsigned(&prog->vmemmap, qualified_type,
+					       address, 0);
 		if (err)
 			return err;
 	}

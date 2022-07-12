@@ -501,46 +501,6 @@ apply_elf_reloc_x86_64(const struct drgn_relocating_section *relocating,
 }
 
 static struct drgn_error *
-linux_kernel_get_vmemmap_x86_64(struct drgn_object *ret)
-{
-
-	struct drgn_error *err;
-	struct drgn_program *prog = drgn_object_program(ret);
-
-	struct drgn_qualified_type qualified_type;
-	err = drgn_program_find_type(prog, "struct page *", NULL,
-				     &qualified_type);
-	if (err)
-		return err;
-
-	/* If KASLR is enabled, vmemmap is vmemmap_base. */
-	struct drgn_object tmp;
-	drgn_object_init(&tmp, prog);
-	err = drgn_program_find_object(prog, "vmemmap_base", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, &tmp);
-	if (!err) {
-		err = drgn_object_cast(ret, qualified_type, &tmp);
-		goto out;
-	}
-	if (err->code == DRGN_ERROR_LOOKUP)
-		drgn_error_destroy(err);
-	else
-		goto out;
-
-	/* Otherwise, it depends on whether we have 5-level page tables. */
-	uint64_t value;
-	if (prog->vmcoreinfo.pgtable_l5_enabled)
-		value = UINT64_C(0xffd4000000000000);
-	else
-		value = UINT64_C(0xffffea0000000000);
-	err = drgn_object_set_unsigned(ret, qualified_type, value, 0);
-
-out:
-	drgn_object_deinit(&tmp);
-	return err;
-}
-
-static struct drgn_error *
 linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
 						 uint64_t *address_ret,
 						 uint64_t *size_ret)
@@ -694,7 +654,6 @@ const struct drgn_architecture_info arch_info_x86_64 = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_x86_64,
 	.apply_elf_reloc = apply_elf_reloc_x86_64,
-	.linux_kernel_get_vmemmap = linux_kernel_get_vmemmap_x86_64,
 	.linux_kernel_live_direct_mapping_fallback =
 		linux_kernel_live_direct_mapping_fallback_x86_64,
 	.linux_kernel_pgtable_iterator_create =

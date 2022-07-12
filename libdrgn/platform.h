@@ -159,7 +159,6 @@ struct drgn_architecture_info {
 	struct drgn_error *(*linux_kernel_get_initial_registers)(const struct drgn_object *,
 								 struct drgn_register_state **);
 	apply_elf_reloc_fn *apply_elf_reloc;
-	struct drgn_error *(*linux_kernel_get_vmemmap)(struct drgn_object *);
 	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *,
 									uint64_t *,
 									uint64_t *);

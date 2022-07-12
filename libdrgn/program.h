@@ -161,6 +161,8 @@ struct drgn_program {
 		uint64_t kaslr_offset;
 		/** Kernel page table. */
 		uint64_t swapper_pg_dir;
+		/** Length of mem_section array (i.e., NR_SECTION_ROOTS). */
+		uint64_t mem_section_length;
 		/** Whether 5-level paging was enabled. */
 		bool pgtable_l5_enabled;
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
