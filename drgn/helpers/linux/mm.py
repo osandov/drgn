@@ -46,7 +46,7 @@ def for_each_page(prog: Program) -> Iterator[Object]:
     :return: Iterator of ``struct page *`` objects.
     """
     vmemmap = prog["vmemmap"]
-    for i in range(prog["max_pfn"].value_()):
+    for i in range(prog["min_low_pfn"], prog["max_pfn"]):
         yield vmemmap + i
 
 
