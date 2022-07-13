@@ -122,6 +122,18 @@ class TestMm(LinuxKernelTestCase):
                 access_process_vm(task, address + 1, len(map) - 2), map[1:-1]
             )
 
+    @skip_unless_have_full_mm_support
+    def test_access_remote_vm_init_mm(self):
+        data = self.prog["UTS_RELEASE"].string_()
+        self.assertEqual(
+            access_remote_vm(
+                self.prog["init_mm"].address_of_(),
+                self.prog["init_uts_ns"].name.release + 0,
+                len(data),
+            ),
+            data,
+        )
+
     @unittest.skipUnless(platform.machine() == "x86_64", "machine is not x86_64")
     def test_non_canonical_x86_64(self):
         task = find_task(self.prog, os.getpid())
