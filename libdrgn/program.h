@@ -163,7 +163,9 @@ struct drgn_program {
 		uint64_t swapper_pg_dir;
 		/** Length of mem_section array (i.e., NR_SECTION_ROOTS). */
 		uint64_t mem_section_length;
-		/** Whether 5-level paging was enabled. */
+		/** VA_BITS on AArch64. */
+		uint64_t va_bits;
+		/** Whether 5-level paging was enabled on x86-64. */
 		bool pgtable_l5_enabled;
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
 		int page_shift;

@@ -266,6 +266,222 @@ apply_elf_reloc_aarch64(const struct drgn_relocating_section *relocating,
 	}
 }
 
+struct pgtable_iterator_aarch64 {
+	struct pgtable_iterator it;
+	// Inclusive range of valid virtual addresses.
+	uint64_t va_range_min, va_range_max;
+	int levels;
+	uint16_t entries_per_level;
+	uint16_t last_level_num_entries;
+	uint16_t *index;
+	uint64_t *table;
+	uint64_t pa_low_mask;
+	uint64_t pa_high_mask;
+};
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
+					     struct pgtable_iterator **ret)
+{
+	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
+	if (page_shift != 12 && page_shift != 14 && page_shift != 16) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "unknown page size for virtual address translation");
+	}
+	const uint64_t pgtable_shift = page_shift - 3;
+
+	// Since Linux kernel commit b6d00d47e81a ("arm64: mm: Introduce 52-bit
+	// Kernel VAs") (in v5.4), VA_BITS is the maximum virtual address size.
+	// If the kernel is configured with 52-bit virtual addresses but the
+	// hardware does not support it, the kernel falls back to 48-bit virtual
+	// addresses. Note that 64k pages with either 48- or 52-bit virtual
+	// addresses uses a 3-level page table.
+	//
+	// In the 52- to 48-bit fallback case, swapper_pg_dir is still set up
+	// for 52-bit virtual addresses (an offset is applied when loading it
+	// into TTBR1; see Linux kernel commit c812026c54cf ("arm64: mm: Logic
+	// to make offset_ttbr1 conditional") (in v5.4)). So, we can treat
+	// kernel addresses as if they have size VA_BITS for the purposes of
+	// translating using swapper_pg_dir.
+	//
+	// We can also treat user addresses as if they have size VA_BITS. In the
+	// 52- to 48-bit fallback case, the additional user virtual address bits
+	// [51:48] are zero, so the page table is accessed identically.
+	//
+	// Between 67e7fdfcc682 ("arm64: mm: introduce 52-bit userspace
+	// support") (in v5.0) and Linux kernel commit b6d00d47e81a ("arm64: mm:
+	// Introduce 52-bit Kernel VAs") (in v5.4), userspace could have larger
+	// virtual addresses than kernel space, but we don't support any of
+	// those kernels.
+	//
+	// Note that Linux as of v5.19 only supports 52-bit virtual addresses
+	// with 64k pages (Armv8.2 FEAT_LVA). When Linux adds support for 52-bit
+	// virtual addresses with 4k pages (Armv8.2 LPA2), this might need
+	// special handling, since with 4k pages, 48- and 52-bit virtual
+	// addresses require a different number of page table levels (4 vs. 5,
+	// respectively).
+	uint64_t va_bits = prog->vmcoreinfo.va_bits;
+	if (va_bits <= page_shift || va_bits > 52) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "VMCOREINFO does not contain valid VA_BITS");
+	}
+
+	struct pgtable_iterator_aarch64 *it = malloc(sizeof(*it));
+	if (!it)
+		return &drgn_enomem;
+
+	it->levels = ((va_bits - page_shift + pgtable_shift - 1) /
+		      pgtable_shift);
+	it->entries_per_level = 1 << pgtable_shift;
+	it->last_level_num_entries =
+		1 << ((va_bits - page_shift - 1) % pgtable_shift + 1);
+
+	it->index = malloc_array(it->levels, sizeof(it->index[0]));
+	if (!it->index)
+		goto err_it;
+	it->table = malloc_array((size_t)(it->levels - 1) * it->entries_per_level
+				 + it->last_level_num_entries,
+				 sizeof(it->table[0]));
+	if (!it->table)
+		goto err_index;
+
+	// Descriptor bits [47:PAGE_SHIFT] contain physical address bits
+	// [47:PAGE_SHIFT].
+	//
+	// For 52-bit physical addresses, physical address bits [51:48] come
+	// from elsewhere.
+	//
+	// With 64k pages and Armv8.2 FEAT_LPA, descriptor bits [15:12] contain
+	// physical address bits [51:48]. If FEAT_LPA is not enabled, then bits
+	// [15:12] must be 0. So, if we're using 64k pages, we can always get
+	// those bits without doing feature detection.
+	//
+	// With 4k or 16k pages and Armv8.7 FEAT_LPA2, descriptor bits [48:49]
+	// contain physical address bits [48:49] and descriptor bits [9:8]
+	// contain physical address bits [51:50]. However, if FEAT_LPA2 is not
+	// enabled, then descriptor bits [9:8] are used for other purposes.
+	// Linux as of v5.19 does not support FEAT_LPA2. When support is added,
+	// we will need to do feature detection.
+	it->pa_low_mask = (UINT64_C(0x0000ffffffffffff)
+			   & ~(prog->vmcoreinfo.page_size - 1));
+	it->pa_high_mask = page_shift < 16 ? 0x0 : 0xf000;
+
+	*ret = &it->it;
+	return NULL;
+
+err_index:
+	free(it->index);
+err_it:
+	free(it);
+	return &drgn_enomem;
+}
+
+static void linux_kernel_pgtable_iterator_destroy_aarch64(struct pgtable_iterator *_it)
+{
+	struct pgtable_iterator_aarch64 *it =
+		container_of(_it, struct pgtable_iterator_aarch64, it);
+	free(it->table);
+	free(it->index);
+	free(it);
+}
+
+static void linux_kernel_pgtable_iterator_init_aarch64(struct drgn_program *prog,
+						       struct pgtable_iterator *_it)
+{
+	struct pgtable_iterator_aarch64 *it =
+		container_of(_it, struct pgtable_iterator_aarch64, it);
+	if (it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir) {
+		it->va_range_min = UINT64_MAX << prog->vmcoreinfo.va_bits;
+		it->va_range_max = UINT64_MAX;
+	} else {
+		it->va_range_min = 0;
+		it->va_range_max =
+			(UINT64_C(1) << prog->vmcoreinfo.va_bits) - 1;
+	}
+	memset(it->index, 0xff, it->levels * sizeof(it->index[0]));
+}
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
+					   struct pgtable_iterator *_it,
+					   uint64_t *virt_addr_ret,
+					   uint64_t *phys_addr_ret)
+{
+	struct drgn_error *err;
+	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
+	const uint64_t pgtable_shift = page_shift - 3;
+	const bool bswap = drgn_platform_bswap(&prog->platform);
+	struct pgtable_iterator_aarch64 *it =
+		container_of(_it, struct pgtable_iterator_aarch64, it);
+	const uint64_t virt_addr = it->it.virt_addr;
+	int level;
+
+	// Find the lowest level with cached entries.
+	for (level = 0; level < it->levels - 1; level++) {
+		if (it->index[level] < it->entries_per_level)
+			break;
+	}
+	if (level == it->levels - 1 &&
+	    it->index[level] >= it->last_level_num_entries)
+		level++;
+	// For every level below that, refill the cache/return pages.
+	for (;; level--) {
+		uint16_t num_entries;
+		uint64_t table;
+		bool table_physical;
+		if (level == it->levels) {
+			num_entries = it->last_level_num_entries;
+			if (virt_addr < it->va_range_min ||
+			    virt_addr > it->va_range_max) {
+				*virt_addr_ret = it->va_range_min;
+				*phys_addr_ret = UINT64_MAX;
+				it->it.virt_addr = it->va_range_max + 1;
+				return NULL;
+			}
+			table = it->it.pgtable;
+			table_physical = false;
+		} else {
+			num_entries = it->entries_per_level;
+			uint64_t entry = it->table[level * num_entries + it->index[level]++];
+			if (bswap)
+				entry = bswap_64(entry);
+			table = ((entry & it->pa_low_mask) |
+				 (entry & it->pa_high_mask) << 36);
+			// Descriptor bits [1:0] identify the descriptor type:
+			//
+			// 0x0, 0x2: invalid
+			// 0x1: lowest level: reserved, invalid
+			//      higher levels: block
+			// 0x3: lowest level: page
+			//      higher levels: table
+			if ((entry & 0x3) != 0x3 || level == 0) {
+				uint64_t mask = (UINT64_C(1) <<
+						 (page_shift +
+						  pgtable_shift * level)) - 1;
+				*virt_addr_ret = virt_addr & ~mask;
+				if ((entry & 0x3) == (level == 0 ? 0x3 : 0x1))
+					*phys_addr_ret = table & ~mask;
+				else
+					*phys_addr_ret = UINT64_MAX;
+				it->it.virt_addr = (virt_addr | mask) + 1;
+				return NULL;
+			}
+			table_physical = true;
+		}
+		uint16_t index = ((virt_addr >>
+				   (page_shift + pgtable_shift * (level - 1)))
+				  & (num_entries - 1));
+		err = drgn_program_read_memory(prog,
+					       &it->table[(level - 1) * it->entries_per_level + index],
+					       table + 8 * index,
+					       8 * (num_entries - index),
+					       table_physical);
+		if (err)
+			return err;
+		it->index[level - 1] = index;
+	}
+}
+
 const struct drgn_architecture_info arch_info_aarch64 = {
 	.name = "AArch64",
 	.arch = DRGN_ARCH_AARCH64,
@@ -280,4 +496,12 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_aarch64,
 	.apply_elf_reloc = apply_elf_reloc_aarch64,
+	.linux_kernel_pgtable_iterator_create =
+		linux_kernel_pgtable_iterator_create_aarch64,
+	.linux_kernel_pgtable_iterator_destroy =
+		linux_kernel_pgtable_iterator_destroy_aarch64,
+	.linux_kernel_pgtable_iterator_init =
+		linux_kernel_pgtable_iterator_init_aarch64,
+	.linux_kernel_pgtable_iterator_next =
+		linux_kernel_pgtable_iterator_next_aarch64,
 };

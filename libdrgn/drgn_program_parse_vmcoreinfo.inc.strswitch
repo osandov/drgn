@@ -78,6 +78,12 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 			if (err)
 				return err;
 			break;
+		@case "NUMBER(VA_BITS)"@
+			err = parse_vmcoreinfo_u64(value, newline, 0,
+						   &prog->vmcoreinfo.va_bits);
+			if (err)
+				return err;
+			break;
 		@endswitch@
 	}
 	if (!prog->vmcoreinfo.osrelease[0]) {
@@ -93,7 +99,6 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "VMCOREINFO does not contain valid swapper_pg_dir");
 	}
-	// KERNELOFFSET, LENGTH(mem_section), pgtable_l5_enabled, and
-	// KERNELPACMASK are optional.
+	// Everything else is optional.
 	return NULL;
 }
