@@ -1,17 +1,31 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from collections import namedtuple
 import os.path
+from typing import Any, NamedTuple, Optional, Sequence, Union
 
 from tests.assembler import _append_sleb128, _append_uleb128
 from tests.dwarf import DW_AT, DW_FORM, DW_TAG
 from tests.elf import ET, SHT
 from tests.elfwriter import ElfSection, create_elf_file
 
-DwarfAttrib = namedtuple("DwarfAttrib", ["name", "form", "value"])
-DwarfDie = namedtuple("DwarfAttrib", ["tag", "attribs", "children"])
-DwarfDie.__new__.__defaults__ = (None,)
+
+class DwarfAttrib(NamedTuple):
+    name: str
+    form: DW_FORM
+    value: Any
+
+
+class DwarfLabel(NamedTuple):
+    name: str
+
+
+class DwarfDie(NamedTuple):
+    tag: DW_TAG
+    attribs: Sequence[DwarfAttrib]
+    children: Sequence[Union["DwarfDie", DwarfLabel]] = ()
+    type_signature: Optional[int] = None
+    type_offset: Optional[str] = None
 
 
 def _compile_debug_abbrev(unit_dies, use_dw_form_indirect):
@@ -19,6 +33,8 @@ def _compile_debug_abbrev(unit_dies, use_dw_form_indirect):
     code = 1
 
     def aux(die):
+        if isinstance(die, DwarfLabel):
+            return
         nonlocal code
         _append_uleb128(buf, code)
         code += 1
@@ -43,15 +59,23 @@ def _compile_debug_abbrev(unit_dies, use_dw_form_indirect):
 
 def _compile_debug_info(unit_dies, little_endian, bits, use_dw_form_indirect):
     byteorder = "little" if little_endian else "big"
-    die_offsets = []
+    all_labels = set()
+    labels = {}
     relocations = []
     code = 1
     decl_file = 1
 
     def aux(buf, die, depth):
+        if isinstance(die, DwarfLabel):
+            # For now, labels are only supported with a unit, but make sure
+            # they're unique across all units.
+            if die.name in all_labels:
+                raise ValueError(f"duplicate label {die.name!r}")
+            all_labels.add(die.name)
+            labels[die.name] = len(buf)
+            return
+
         nonlocal code, decl_file
-        if depth == 1:
-            die_offsets.append(len(buf))
         _append_uleb128(buf, code)
         code += 1
         for attrib in die.attribs:
@@ -89,7 +113,7 @@ def _compile_debug_info(unit_dies, little_endian, bits, use_dw_form_indirect):
                 relocations.append((len(buf), value))
                 buf.extend(b"\0\0\0\0")
             elif attrib.form == DW_FORM.ref_sig8:
-                buf.extend((value + 1).to_bytes(8, byteorder))
+                buf.extend(value.to_bytes(8, byteorder))
             elif attrib.form == DW_FORM.sec_offset:
                 buf.extend(b"\0\0\0\0")
             elif attrib.form == DW_FORM.flag_present:
@@ -106,10 +130,9 @@ def _compile_debug_info(unit_dies, little_endian, bits, use_dw_form_indirect):
 
     debug_info = bytearray()
     debug_types = bytearray()
-    tu_id = 1
     for die in unit_dies:
+        labels.clear()
         relocations.clear()
-        die_offsets.clear()
         buf = debug_info if die.tag == DW_TAG.compile_unit else debug_types
         orig_len = len(buf)
         buf.extend(b"\0\0\0\0")  # unit_length
@@ -118,19 +141,20 @@ def _compile_debug_info(unit_dies, little_endian, bits, use_dw_form_indirect):
         buf.append(bits // 8)  # address_size
 
         if die.tag == DW_TAG.type_unit:
-            buf.extend(tu_id.to_bytes(8, byteorder))  # type_signature
-            tu_id += 1
-            # For now, we assume that the first child is the type.
-            relocations.append((len(buf), 0))
+            buf.extend(die.type_signature.to_bytes(8, byteorder))
+            relocations.append((len(buf), die.type_offset))
             buf.extend(b"\0\0\0\0")  # type_offset
+        else:
+            assert die.type_signature is None
+            assert die.type_offset is None
 
         aux(buf, die, 0)
 
         unit_length = len(buf) - orig_len - 4
         buf[orig_len : orig_len + 4] = unit_length.to_bytes(4, byteorder)
 
-        for offset, index in relocations:
-            die_offset = die_offsets[index] - orig_len
+        for offset, label in relocations:
+            die_offset = labels[label] - orig_len
             buf[offset : offset + 4] = die_offset.to_bytes(4, byteorder)
     return debug_info, debug_types
 
@@ -151,6 +175,8 @@ def _compile_debug_line(unit_dies, little_endian):
     # Don't need standard_opcode_length
 
     def compile_include_directories(die):
+        if isinstance(die, DwarfLabel):
+            return
         for attrib in die.attribs:
             if attrib.name != DW_AT.decl_file:
                 continue
@@ -170,6 +196,8 @@ def _compile_debug_line(unit_dies, little_endian):
     directory = 1
 
     def compile_file_names(die):
+        if isinstance(die, DwarfLabel):
+            return
         nonlocal decl_file, directory
         for attrib in die.attribs:
             if attrib.name != DW_AT.decl_file:
@@ -200,7 +228,7 @@ def _compile_debug_line(unit_dies, little_endian):
     return buf
 
 
-UNIT_HEADER_TYPES = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
+_UNIT_TAGS = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
 
 
 def dwarf_sections(
@@ -208,13 +236,13 @@ def dwarf_sections(
 ):
     if isinstance(dies, DwarfDie):
         dies = (dies,)
-    assert all(isinstance(die, DwarfDie) for die in dies)
+    assert all(isinstance(die, (DwarfDie, DwarfLabel)) for die in dies)
 
-    if dies and dies[0].tag in UNIT_HEADER_TYPES:
+    if any(isinstance(die, DwarfDie) and die.tag in _UNIT_TAGS for die in dies):
+        assert all(isinstance(die, DwarfLabel) or die.tag in _UNIT_TAGS for die in dies)
         unit_dies = dies
     else:
         unit_dies = (DwarfDie(DW_TAG.compile_unit, (), dies),)
-    assert all(die.tag in UNIT_HEADER_TYPES for die in unit_dies)
 
     unit_attribs = [DwarfAttrib(DW_AT.stmt_list, DW_FORM.sec_offset, 0)]
     if lang is not None:
@@ -224,11 +252,9 @@ def dwarf_sections(
     ]
 
     unit_dies = [
-        DwarfDie(
-            die.tag,
-            list(die.attribs)
-            + (cu_attribs if die.tag == DW_TAG.compile_unit else unit_attribs),
-            die.children,
+        die._replace(
+            attribs=list(die.attribs)
+            + (cu_attribs if die.tag == DW_TAG.compile_unit else unit_attribs)
         )
         for die in unit_dies
     ]
