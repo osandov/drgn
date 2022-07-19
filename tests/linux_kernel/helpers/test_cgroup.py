@@ -9,6 +9,7 @@ import unittest
 
 from drgn import NULL
 from drgn.helpers.linux.cgroup import (
+    cgroup_get_from_path,
     cgroup_name,
     cgroup_parent,
     cgroup_path,
@@ -90,6 +91,19 @@ class TestCgroup(LinuxKernelTestCase):
         self.assertEqual(cgroup_path(self.root_cgroup), b"/")
         self.assertEqual(cgroup_path(self.parent_cgroup), self.parent_cgroup_path)
         self.assertEqual(cgroup_path(self.child_cgroup), self.child_cgroup_path)
+
+    def test_cgroup_get_from_path(self):
+        self.assertEqual(cgroup_get_from_path(self.prog, "/"), self.root_cgroup)
+        self.assertEqual(
+            cgroup_get_from_path(self.prog, self.parent_cgroup_path), self.parent_cgroup
+        )
+        self.assertEqual(
+            cgroup_get_from_path(self.prog, self.child_cgroup_path), self.child_cgroup
+        )
+        self.assertEqual(
+            cgroup_get_from_path(self.prog, self.parent_cgroup_path + b"/foo"),
+            NULL(self.prog, "struct cgroup *"),
+        )
 
     @staticmethod
     def _cgroup_iter_paths(fn, cgroup):

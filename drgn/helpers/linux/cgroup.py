@@ -12,11 +12,12 @@ supported.
 
 from typing import Callable, Iterator
 
-from drgn import NULL, Object, cast, container_of
-from drgn.helpers.linux.kernfs import kernfs_name, kernfs_path
+from drgn import NULL, Object, Path, Program, cast, container_of
+from drgn.helpers.linux.kernfs import kernfs_name, kernfs_path, kernfs_walk
 from drgn.helpers.linux.list import list_for_each_entry
 
 __all__ = (
+    "cgroup_get_from_path",
     "cgroup_name",
     "cgroup_parent",
     "cgroup_path",
@@ -69,6 +70,18 @@ def cgroup_path(cgrp: Object) -> bytes:
     :param cgrp: ``struct cgroup *``
     """
     return kernfs_path(cgrp.kn)
+
+
+def cgroup_get_from_path(prog: Program, path: Path) -> Object:
+    """
+    Look up a cgroup from its default hierarchy path .
+
+    :param path: Path name.
+    """
+    obj = kernfs_walk(prog["cgrp_dfl_root"].cgrp.kn, path)
+    if obj:
+        obj = obj.priv
+    return cast("struct cgroup *", obj)
 
 
 def css_next_child(pos: Object, parent: Object) -> Object:
