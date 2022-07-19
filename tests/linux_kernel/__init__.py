@@ -5,11 +5,13 @@ import contextlib
 import ctypes
 import errno
 import os
+from pathlib import Path
 import platform
 import re
 import signal
 import socket
 import time
+from typing import NamedTuple
 import unittest
 
 import drgn
@@ -213,6 +215,32 @@ def umount(target, flags=0):
     if _umount2(os.fsencode(target), flags) == -1:
         errno = ctypes.get_errno()
         raise OSError(errno, os.strerror(errno), target)
+
+
+_MOUNTS_RE = re.compile(
+    rb"(?P<source>[^ ]+) (?P<mount_point>[^ ]+) (?P<fstype>[^ ]+) "
+    rb"(?P<mount_options>[^ ]+) [0-9]+ [0-9]+"
+)
+
+
+class Mount(NamedTuple):
+    source: str
+    mount_point: Path
+    fstype: str
+    mount_options: str
+
+
+def iter_mounts(pid="self"):
+    with open(f"/proc/{pid}/mounts", "rb") as f:
+        for line in f:
+            match = _MOUNTS_RE.match(line)
+            assert match
+            yield Mount(
+                source=match["source"].decode("unicode-escape"),
+                mount_point=Path(match["mount_point"].decode("unicode-escape")),
+                fstype=match["fstype"].decode("unicode-escape"),
+                mount_options=match["mount_options"].decode("unicode-escape"),
+            )
 
 
 _mlock = _c.mlock
