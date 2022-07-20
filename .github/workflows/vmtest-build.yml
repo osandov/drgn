@@ -15,7 +15,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install libelf-dev
+          sudo apt-get install dwarves libelf-dev
           pip install aiohttp uritemplate
       - name: Build and upload assets
         run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K

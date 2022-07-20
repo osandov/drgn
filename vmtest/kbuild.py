@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest12"
+        localversion = "-vmtest13"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -135,6 +135,14 @@ CONFIG_MAGIC_SYSRQ=y
 
 # For block tests.
 CONFIG_BLK_DEV_LOOP=m
+
+# For BPF tests.
+CONFIG_BPF_SYSCALL=y
+CONFIG_BPF_JIT=y
+CONFIG_BPF_JIT_ALWAYS_ON=y
+CONFIG_CGROUP_BPF=y
+CONFIG_DEBUG_INFO_BTF=y
+CONFIG_DEBUG_INFO_BTF_MODULES=y
 
 # For cgroup tests.
 CONFIG_CGROUPS=y
