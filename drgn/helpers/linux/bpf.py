@@ -34,10 +34,11 @@ def bpf_map_for_each(prog: Program) -> Iterator[Object]:
 
     :return: Iterator of ``struct bpf_map *`` objects.
     """
+    type = prog.type("struct bpf_map *")
     # map_idr didn't exist before Linux kernel commit f3f1c054c288 ("bpf:
     # Introduce bpf_map ID") (in v4.13).
     for nr, entry in idr_for_each(prog["map_idr"]):
-        yield cast("struct bpf_map *", entry)
+        yield cast(type, entry)
 
 
 def bpf_prog_for_each(prog: Program) -> Iterator[Object]:
@@ -48,10 +49,11 @@ def bpf_prog_for_each(prog: Program) -> Iterator[Object]:
 
     :return: Iterator of ``struct bpf_prog *`` objects.
     """
+    type = prog.type("struct bpf_prog *")
     # prog_idr didn't exist before Linux kernel commit dc4bb0e23561 ("bpf:
     # Introduce bpf_prog ID") (in v4.13).
     for nr, entry in idr_for_each(prog["prog_idr"]):
-        yield cast("struct bpf_prog *", entry)
+        yield cast(type, entry)
 
 
 def cgroup_bpf_prog_for_each(
