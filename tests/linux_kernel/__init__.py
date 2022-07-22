@@ -191,19 +191,26 @@ MS_STRICTATIME = 1 << 24
 MS_LAZYTIME = 1 << 25
 
 
+def _check_ctypes_syscall(ret, *args):
+    if ret == -1:
+        errno = ctypes.get_errno()
+        raise OSError(errno, os.strerror(errno), *args)
+    return ret
+
+
 def mount(source, target, fstype, flags=0, data=None):
-    if (
+    _check_ctypes_syscall(
         _mount(
             os.fsencode(source),
             os.fsencode(target),
             fstype.encode(),
             flags,
             None if data is None else data.encode(),
-        )
-        == -1
-    ):
-        errno = ctypes.get_errno()
-        raise OSError(errno, os.strerror(errno), source, None, target)
+        ),
+        source,
+        None,
+        target,
+    )
 
 
 _umount2 = _c.umount2
@@ -212,9 +219,7 @@ _umount2.argtypes = [ctypes.c_char_p, ctypes.c_int]
 
 
 def umount(target, flags=0):
-    if _umount2(os.fsencode(target), flags) == -1:
-        errno = ctypes.get_errno()
-        raise OSError(errno, os.strerror(errno), target)
+    _check_ctypes_syscall(_umount2(os.fsencode(target), flags), target)
 
 
 _MOUNTS_RE = re.compile(
@@ -249,9 +254,7 @@ _mlock.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
 
 
 def mlock(addr, len):
-    if _mlock(addr, len) == -1:
-        errno = ctypes.get_errno()
-        raise OSError(errno, os.strerror(errno))
+    _check_ctypes_syscall(_mlock(addr, len))
 
 
 def create_socket(*args, **kwds):
