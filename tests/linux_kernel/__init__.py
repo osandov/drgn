@@ -257,6 +257,10 @@ def mlock(addr, len):
     _check_ctypes_syscall(_mlock(addr, len))
 
 
+_syscall = _c.syscall
+_syscall.restype = ctypes.c_long
+
+
 def create_socket(*args, **kwds):
     try:
         return socket.socket(*args, **kwds)
