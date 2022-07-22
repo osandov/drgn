@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import contextlib
 import os
 from pathlib import Path
 import signal
@@ -20,6 +21,26 @@ from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import LinuxKernelTestCase, fork_and_pause, iter_mounts
 
 
+@contextlib.contextmanager
+def tmp_cgroups():
+    for mnt in iter_mounts():
+        if mnt.fstype == "cgroup2":
+            break
+    else:
+        raise unittest.SkipTest("cgroup2 not mounted")
+
+    parent = Path(tempfile.mkdtemp(prefix="drgn-tests-", dir=mnt.mount_point))
+    try:
+        child = parent / "child"
+        child.mkdir()
+        try:
+            yield parent, child
+        finally:
+            child.rmdir()
+    finally:
+        parent.rmdir()
+
+
 class TestCgroup(LinuxKernelTestCase):
     @classmethod
     def setUpClass(cls):
@@ -29,31 +50,22 @@ class TestCgroup(LinuxKernelTestCase):
         try:
             super().setUpClass()
 
-            for mnt in iter_mounts():
-                if mnt.fstype == "cgroup2":
-                    cgroup2_mount = mnt.mount_point
-                    break
-            else:
-                raise unittest.SkipTest("cgroup2 not mounted")
+            cm = tmp_cgroups()
+            parent_cgroup_dir, child_cgroup_dir = cm.__enter__()
+            cls.__cleanups.append((cm.__exit__, None, None, None))
+
             cls.root_cgroup = cls.prog["cgrp_dfl_root"].cgrp.address_of_()
 
             pid = fork_and_pause()
             try:
                 task = find_task(cls.prog, pid)
 
-                parent_cgroup_dir = Path(
-                    tempfile.mkdtemp(prefix="drgn-tests-", dir=cgroup2_mount)
-                )
-                cls.__cleanups.append((parent_cgroup_dir.rmdir,))
                 cls.parent_cgroup_name = os.fsencode(parent_cgroup_dir.name)
                 cls.parent_cgroup_path = b"/" + cls.parent_cgroup_name
 
                 (parent_cgroup_dir / "cgroup.procs").write_text(str(pid))
                 cls.parent_cgroup = task.cgroups.dfl_cgrp.read_()
 
-                child_cgroup_dir = parent_cgroup_dir / "child"
-                child_cgroup_dir.mkdir()
-                cls.__cleanups.append((child_cgroup_dir.rmdir,))
                 cls.child_cgroup_name = os.fsencode(child_cgroup_dir.name)
                 cls.child_cgroup_path = (
                     cls.parent_cgroup_path + b"/" + cls.child_cgroup_name
