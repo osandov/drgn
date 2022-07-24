@@ -577,6 +577,19 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	uint64_t virt_addr = it->it.virt_addr;
 	int levels = prog->vmcoreinfo.pgtable_l5_enabled ? 5 : 4, level;
 
+	uint64_t start_non_canonical =
+		(UINT64_C(1) <<
+		 (PAGE_SHIFT + PGTABLE_SHIFT * levels - 1));
+	uint64_t end_non_canonical =
+		(UINT64_MAX <<
+		 (PAGE_SHIFT + PGTABLE_SHIFT * levels - 1));
+	if (virt_addr >= start_non_canonical && virt_addr < end_non_canonical) {
+		*virt_addr_ret = start_non_canonical;
+		*phys_addr_ret = UINT64_MAX;
+		it->it.virt_addr = end_non_canonical;
+		return NULL;
+	}
+
 	/* Find the lowest level with cached entries. */
 	for (level = 0; level < levels; level++) {
 		if (it->index[level] < array_size(it->table[level]))
@@ -588,20 +601,6 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 		bool table_physical;
 		uint16_t index;
 		if (level == levels) {
-			uint64_t start_non_canonical, end_non_canonical;
-			start_non_canonical = (UINT64_C(1) <<
-					       (PAGE_SHIFT +
-						PGTABLE_SHIFT * levels - 1));
-			end_non_canonical = (UINT64_MAX <<
-					     (PAGE_SHIFT +
-					      PGTABLE_SHIFT * levels - 1));
-			if (virt_addr >= start_non_canonical &&
-			    virt_addr < end_non_canonical) {
-				*virt_addr_ret = start_non_canonical;
-				*phys_addr_ret = UINT64_MAX;
-				it->it.virt_addr = end_non_canonical;
-				return NULL;
-			}
 			table = it->it.pgtable;
 			table_physical = false;
 		} else {
