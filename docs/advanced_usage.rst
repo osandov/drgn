@@ -79,8 +79,8 @@ program "memory":
     print(drgn.Object(prog, 'struct btrfs_super_block', address=65536))
 
 :meth:`drgn.Program.add_type_finder()` and
-:meth:`drgn.Program.add_symbol_finder()` are the equivalent methods for
-plugging in types and symbols.
+:meth:`drgn.Program.add_object_finder()` are the equivalent methods for
+plugging in types and objects.
 
 Environment Variables
 ---------------------
