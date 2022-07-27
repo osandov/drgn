@@ -21,7 +21,7 @@ drgndoc_substitutions = [
 extlinks = {
     "linux": (
         "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/%s",
-        "",
+        "%s",
     ),
 }
 
