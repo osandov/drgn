@@ -35,6 +35,8 @@ LIBDRGN_PUBLIC const struct drgn_platform drgn_host_platform = {
 	.arch = &arch_info_riscv64,
 #elif __riscv_xlen == 32
 	.arch = &arch_info_riscv32,
+#elif __s390__
+	.arch = &arch_info_s390,
 #else
 #error "unknown __riscv_xlen"
 #endif
@@ -76,6 +78,9 @@ drgn_platform_create(enum drgn_architecture arch,
 		break;
 	case DRGN_ARCH_RISCV32:
 		arch_info = &arch_info_riscv32;
+		break;
+	case DRGN_ARCH_S390:
+		arch_info = &arch_info_s390;
 		break;
 	default:
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -161,6 +166,9 @@ void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret)
 			arch = &arch_info_riscv64;
 		else
 			arch = &arch_info_riscv32;
+		break;
+	case EM_S390:
+		arch = &arch_info_s390;
 		break;
 	default:
 		arch = &arch_info_unknown;

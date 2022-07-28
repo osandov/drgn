@@ -959,6 +959,9 @@ class Architecture(enum.Enum):
     RISCV32 = ...
     """The 32-bit RISC-V architecture."""
 
+    S390 = ...
+    """The s390 architecture, a.k.a. IBM Z."""
+
     UNKNOWN = ...
     """
     An architecture which is not known to drgn. Certain features are not
