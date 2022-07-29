@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "error.h"
+#include "register_state.h"
 #include "platform.h" // IWYU pragma: associated
 
 /*
  * The ABI specification can be found at:
  * https://github.com/IBM/s390x-abi
  */
+
+#include "arch_s390_defs.inc"
+
+static const struct drgn_cfi_row default_dwarf_cfi_row_s390 = DRGN_CFI_ROW(
+	[DRGN_REGISTER_NUMBER(r15)] = { DRGN_CFI_RULE_CFA_PLUS_OFFSET },
+	);
 
 static struct drgn_error drgn_invalid_rel = {
 	.code = DRGN_ERROR_OTHER,
@@ -108,10 +116,99 @@ apply_elf_reloc_s390(const struct drgn_relocating_section *relocating,
 	return err;
 }
 
+static struct drgn_error *
+fallback_unwind_s390(struct drgn_program *prog,
+		     struct drgn_register_state *regs,
+		     struct drgn_register_state **ret)
+{
+	struct optional_uint64 bc = drgn_register_state_get_u64(prog, regs, bc);
+	struct drgn_qualified_type frame_type;
+	struct drgn_type_member *member;
+	struct drgn_error *err;
+	uint64_t bit_offset, nextbc;
+	uint8_t frame[256];
+
+	if (!bc.has_value)
+		return &drgn_stop;
+
+	err = drgn_program_read_memory(prog, frame, bc.value, sizeof(frame), false);
+	if (err)
+		return err;
+
+	err = drgn_program_find_type(prog, "struct stack_frame", NULL, &frame_type);
+	if (err)
+		return err;
+
+	err = drgn_type_find_member(frame_type.type, "gprs", &member, &bit_offset);
+	if (err)
+		return err;
+
+	drgn_register_state_set_range_from_buffer(*ret, r6, r15, frame + bit_offset / 8);
+	drgn_register_state_set_pc_from_register(prog, *ret, r14);
+	err = drgn_type_find_member(frame_type.type, "back_chain", &member, &bit_offset);
+	if (err)
+		return err;
+
+	nextbc = *(uint64_t *)(frame + bit_offset / 8);
+	if (!nextbc)
+		return &drgn_stop;
+	drgn_register_state_set_from_u64(prog, *ret, bc, nextbc);
+	return NULL;
+}
+
+static struct drgn_error *
+linux_kernel_get_initial_registers_s390(const struct drgn_object *task_obj,
+					   struct drgn_register_state **ret)
+{
+	struct drgn_program *prog = drgn_object_program(task_obj);
+	struct drgn_register_state *regs, *regs2;
+	struct drgn_qualified_type frame_type;
+	struct drgn_object ctx;
+	struct drgn_error *err;
+	uint64_t ksp;
+
+	drgn_object_init(&ctx, prog);
+
+	err = drgn_object_member_dereference(&ctx, task_obj, "thread");
+	if (err)
+		goto out;
+
+	err = drgn_object_member(&ctx, &ctx, "ksp");
+	if (err)
+		goto out;
+
+	err = drgn_object_read_unsigned(&ctx, &ksp);
+	if (err)
+		goto out;
+
+	regs = drgn_register_state_create(pswa, false);
+	if (!regs)
+		return &drgn_enomem;
+
+	drgn_register_state_set_from_u64(prog, regs, bc, ksp);
+
+	regs2 = drgn_register_state_create(pswa, false);
+	err = fallback_unwind_s390(prog, regs, &regs2);
+	if (err) {
+		drgn_register_state_destroy(regs2);
+		goto out;
+	}
+
+	drgn_register_state_destroy(regs);
+	*ret = regs2;
+out:
+	drgn_object_deinit(&ctx);
+	return err;
+}
+
 const struct drgn_architecture_info arch_info_s390 = {
 	.name = "s390",
 	.arch = DRGN_ARCH_S390,
 	.default_flags = DRGN_PLATFORM_IS_64_BIT,
 	.register_by_name = drgn_register_by_name_unknown,
 	.apply_elf_reloc = apply_elf_reloc_s390,
+	DRGN_ARCHITECTURE_REGISTERS,
+	.default_dwarf_cfi_row = &default_dwarf_cfi_row_s390,
+	.fallback_unwind = fallback_unwind_s390,
+	.linux_kernel_get_initial_registers = linux_kernel_get_initial_registers_s390,
 };

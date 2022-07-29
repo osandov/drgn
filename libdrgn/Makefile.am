@@ -17,7 +17,8 @@ include_HEADERS = drgn.h
 
 ARCH_DEFS_PYS = arch_aarch64_defs.py \
 		arch_ppc64_defs.py \
-		arch_x86_64_defs.py
+		arch_x86_64_defs.py \
+		arch_s390_defs.py
 
 ARCH_DEFS_INCS = $(ARCH_DEFS_PYS:_defs.py=_defs.inc)
 
@@ -37,7 +38,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 arch_arm.c \
 			 arch_i386.c \
 			 arch_riscv.c \
-			 arch_s390.c \
 			 array.h \
 			 binary_buffer.c \
 			 binary_buffer.h \
