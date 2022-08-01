@@ -4,8 +4,8 @@ drgn VM Testing
 drgn has a significant amount of code (both core and in helpers) which is
 dependent on the Linux kernel version. This code is tested on multiple Linux
 kernel versions in a virtual machine. These tests can be run on all supported
-kernels with ``python3 setup.py test -K``. This requires QEMU, BusyBox, and
-zstd to be installed.
+kernels with ``python3 setup.py test -K``. This requires QEMU and zstd to be
+installed.
 
 Tests can also be run on specific kernels with ``-k``. This takes a
 comma-separated list of kernels which are wildcard patterns (e.g., ``5.6.*``)
@@ -25,9 +25,8 @@ safety. To support modifications, the guest uses `OverlayFS
 overlay a read-write tmpfs over the VirtFS root. It also mounts the kernel
 modules and vmlinux via VirtFS.
 
-The guest runs a `BusyBox <https://www.busybox.net/>`_ shell script as init
-which sets up the system and filesystem hierarchy, runs a command, and returns
-the exit status via `virtio-serial
+The guest runs an init shell script which sets up the system and filesystem
+hierarchy, runs a command, and returns the exit status via `virtio-serial
 <https://fedoraproject.org/wiki/Features/VirtioSerial>`_.
 
 This infrastructure is all generic. The drgn-specific parts are:

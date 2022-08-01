@@ -258,10 +258,10 @@ class test(Command):
 set -e
 
 export DRGN_TEST_KMOD={shlex.quote(str(kmod))}
-if "$BUSYBOX" [ -e /proc/vmcore ]; then
+if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm unittest discover -t . -s tests/linux_kernel/vmcore {"-v" if self.verbose else ""}
 else
-    "$BUSYBOX" insmod "$DRGN_TEST_KMOD"
+    insmod "$DRGN_TEST_KMOD"
     DRGN_RUN_LINUX_KERNEL_TESTS=1 "$PYTHON" -Bm \
         unittest discover -t . -s tests/linux_kernel {"-v" if self.verbose else ""}
     "$PYTHON" vmtest/enter_kdump.py
