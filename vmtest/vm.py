@@ -112,6 +112,7 @@ if "$BUSYBOX" [ -z "$vport" ]; then
 	exit 1
 fi
 
+cd {cwd}
 set +e
 "$BUSYBOX" sh -c {command}
 rc=$?
@@ -217,6 +218,7 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
                     _9PFS_MSIZE=_9PFS_MSIZE,
                     busybox=shlex.quote(busybox),
                     python=shlex.quote(sys.executable),
+                    cwd=shlex.quote(os.getcwd()),
                     command=shlex.quote(command),
                     kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
                 )

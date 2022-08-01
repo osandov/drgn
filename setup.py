@@ -257,7 +257,6 @@ class test(Command):
         command = rf"""
 set -e
 
-cd {shlex.quote(os.getcwd())}
 export DRGN_TEST_KMOD={shlex.quote(str(kmod))}
 if "$BUSYBOX" [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm unittest discover -t . -s tests/linux_kernel/vmcore {"-v" if self.verbose else ""}
