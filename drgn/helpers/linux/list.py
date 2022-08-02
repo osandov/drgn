@@ -33,6 +33,13 @@ __all__ = (
     "validate_list",
     "validate_list_for_each",
     "validate_list_for_each_entry",
+    "llist_empty",
+    "llist_first_entry",
+    "llist_first_entry_or_null",
+    "llist_for_each",
+    "llist_for_each_entry",
+    "llist_is_singular",
+    "llist_next_entry",
 )
 
 
@@ -276,4 +283,98 @@ def hlist_for_each_entry(
     """
     type = head.prog_.type(type)
     for pos in hlist_for_each(head):
+        yield container_of(pos, type, member)
+
+
+def llist_empty(head: Object) -> bool:
+    """
+    Return whether a llist is empty.
+
+    :param head: ``struct llist_head *``
+    """
+    return head.first.value_() == 0x0
+
+
+def llist_is_singular(head: Object) -> bool:
+    """
+    Return whether an llist has only one element.
+
+    :param head: ``struct llist_head *``
+    """
+    return head.first.value_() != 0x0 and head.first.next.value_() == 0x0
+
+
+def llist_first_entry(head: Object, type: Union[str, Type], member: str) -> Object:
+    """
+    Return the first entry in an llist.
+
+    The list is assumed to be non-empty.
+
+    See also :func:`llist_first_entry_or_null()`.
+
+    :param head: ``struct llist_head *``
+    :param type: Entry type.
+    :param member: Name of llist_node member in entry type.
+    :return: ``type *``
+    """
+    return container_of(head.first, type, member)
+
+
+def llist_first_entry_or_null(
+    head: Object, type: Union[str, Type], member: str
+) -> Object:
+    """
+    Return the first entry in an llist or ``NULL`` if the llist is empty.
+
+    See also :func:`llist_first_entry()`.
+
+    :param head: ``struct llist_head *``
+    :param type: Entry type.
+    :param member: Name of list_node member in entry type.
+    :return: ``type *``
+    """
+    if head.first.value_() == 0x0:
+        return NULL(head.prog_, head.prog_.pointer_type(head.prog_.type(type)))
+    else:
+        return container_of(head.first, type, member)
+
+
+def llist_next_entry(pos: Object, member: str) -> Object:
+    """
+    Return the next entry in an llist.
+
+    :param pos: ``type*``
+    :param member: Name of list_node member in entry type.
+    :return: ``type *``
+    """
+    return container_of(getattr(pos, member).next, pos.type_.type, member)
+
+
+def llist_for_each(head: Object) -> Iterator[Object]:
+    """
+    Iterate over all of the nodes in an llist.
+
+    :param head: ``struct llist_head *``
+    :return: Iterator of ``struct llist_node *`` objects.
+    """
+    head = head.read_()
+    pos = head.first.read_()
+    while pos.value_() != 0x0:
+        yield pos
+        pos = pos.next.read_()
+
+
+def llist_for_each_entry(
+    type: Union[str, Type], head: Object, member: str
+) -> Iterator[Object]:
+    """
+    Iterate over all of the entries in an llist.
+
+    :param type: Entry type.
+    :param head: ``struct llist_head *``
+    :param member: Name of list_node member in entry type.
+    :return: Iterator of ``type *`` objects.
+    """
+    type = head.prog_.type(type)
+    for pos in llist_for_each(head):
         yield container_of(pos, type, member)
