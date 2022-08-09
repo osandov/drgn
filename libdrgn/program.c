@@ -1188,6 +1188,24 @@ drgn_program_find_thread_userspace_live(struct drgn_program *prog, uint32_t tid,
 		(*ret)->prog = prog;
 		(*ret)->tid = tid;
 		(*ret)->prstatus = (struct nstring){};
+
+		const int path_len = strlen(path);
+		const int comm_file_path_len = path_len + 6;
+		char *comm_file_path = malloc(comm_file_path_len);
+
+		if (!comm_file_path)
+			return &drgn_enomem;
+		strncpy(comm_file_path, path, path_len);
+		strncat(comm_file_path, "/comm", 5);
+		strncat(comm_file_path, "\0", 1);
+		
+		FILE *comm_file = fopen(comm_file_path, "r");
+		if (!comm_file)
+			return drgn_error_create_os("access", errno, path);
+		fscanf(comm_file, "%s", (*ret)->name);
+		fclose(comm_file);
+		free(comm_file_path);
+
 		return NULL;
 	} else if (errno == ENOENT) {
 		*ret = NULL;

@@ -46,6 +46,7 @@ struct drgn_symbol;
 
 struct drgn_thread {
 	struct drgn_program *prog;
+	char name[64];
 	uint32_t tid;
 	struct nstring prstatus;
 	struct drgn_object object;
