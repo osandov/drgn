@@ -11,6 +11,7 @@
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
+#include <linux/llist.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/rbtree.h>
@@ -83,6 +84,32 @@ static void drgn_test_list_init(void)
 	}
 
 	init_corrupted_list();
+}
+
+// llist
+
+LLIST_HEAD(drgn_test_empty_llist);
+LLIST_HEAD(drgn_test_full_llist);
+LLIST_HEAD(drgn_test_singular_llist);
+
+struct drgn_test_llist_entry {
+	struct llist_node node;
+	int value;
+};
+
+struct drgn_test_llist_entry drgn_test_llist_entries[3];
+struct drgn_test_llist_entry drgn_test_singular_llist_entry;
+
+static void drgn_test_llist_init(void)
+{
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_llist_entries); i++) {
+		llist_add(&drgn_test_llist_entries[i].node,
+			      &drgn_test_full_llist);
+	}
+
+	llist_add(&drgn_test_singular_llist_entry.node, &drgn_test_singular_llist);
 }
 
 // mm
@@ -305,6 +332,7 @@ static int __init drgn_test_init(void)
 	int ret;
 
 	drgn_test_list_init();
+	drgn_test_llist_init();
 	ret = drgn_test_mm_init();
 	if (ret)
 		goto out;

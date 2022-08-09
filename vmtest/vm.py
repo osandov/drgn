@@ -1,12 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import errno
 import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import socket
 import subprocess
 import sys
@@ -16,109 +14,114 @@ from util import nproc, out_of_date
 
 _9PFS_MSIZE = 1024 * 1024
 
-# Script run as init in the virtual machine. This only depends on busybox. We
-# don't assume that any regular commands are built in (not even echo or test),
-# so we always explicitly run busybox.
-_INIT_TEMPLATE = r"""#!{busybox} sh
+# Script run as init in the virtual machine.
+_INIT_TEMPLATE = r"""#!/bin/sh
+
+# Having /proc from the host visible in the guest can confuse some commands. In
+# particular, if BusyBox is configured with FEATURE_SH_STANDALONE, then busybox
+# sh executes BusyBox applets using /proc/self/exe. So, before doing anything
+# else, mount /proc (using the fully qualified executable path so that BusyBox
+# doesn't use /proc/self/exe).
+/bin/mount -t proc -o nosuid,nodev,noexec proc /proc
 
 set -eu
 
-export BUSYBOX={busybox}
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PYTHON={python}
 {kdump_needs_nosmp}
 
-trap '"$BUSYBOX" poweroff -f' EXIT
+trap 'poweroff -f' EXIT
 
 umask 022
 
 HOSTNAME=vmtest
 VPORT_NAME=com.osandov.vmtest.0
-RELEASE=$("$BUSYBOX" uname -r)
+RELEASE=$(uname -r)
 
 # Set up overlayfs on the temporary directory containing this script.
-mnt=$("$BUSYBOX" dirname "$0")
-"$BUSYBOX" mount -t tmpfs tmpfs "$mnt"
-"$BUSYBOX" mkdir "$mnt/upper" "$mnt/work" "$mnt/merged"
+mnt=$(dirname "$0")
+mount -t tmpfs tmpfs "$mnt"
+mkdir "$mnt/upper" "$mnt/work" "$mnt/merged"
 
-"$BUSYBOX" mkdir "$mnt/upper/dev" "$mnt/upper/etc" "$mnt/upper/mnt"
-"$BUSYBOX" mkdir -m 555 "$mnt/upper/proc" "$mnt/upper/sys"
-"$BUSYBOX" mkdir -m 1777 "$mnt/upper/tmp"
+mkdir "$mnt/upper/dev" "$mnt/upper/etc" "$mnt/upper/mnt"
+mkdir -m 555 "$mnt/upper/proc" "$mnt/upper/sys"
+mkdir -m 1777 "$mnt/upper/tmp"
 
-# Create configuration files.
-"$BUSYBOX" cat << EOF > "$mnt/upper/etc/hosts"
-127.0.0.1 localhost
-::1 localhost
-127.0.1.1 $HOSTNAME.localdomain $HOSTNAME
-EOF
-: > "$mnt/upper/etc/resolv.conf"
+mount -t overlay -o lowerdir=/,upperdir="$mnt/upper",workdir="$mnt/work" overlay "$mnt/merged"
 
-"$BUSYBOX" mount -t overlay -o lowerdir=/,upperdir="$mnt/upper",workdir="$mnt/work" overlay "$mnt/merged"
-"$BUSYBOX" pivot_root "$mnt/merged" "$mnt/merged/mnt"
-cd /
-"$BUSYBOX" umount -l /mnt
-
-# Mount additional filesystems.
-"$BUSYBOX" mount -t devtmpfs -o nosuid,noexec dev /dev
-"$BUSYBOX" mkdir /dev/shm
-"$BUSYBOX" mount -t tmpfs -o nosuid,nodev tmpfs /dev/shm
-"$BUSYBOX" mount -t proc -o nosuid,nodev,noexec proc /proc
-"$BUSYBOX" mount -t sysfs -o nosuid,nodev,noexec sys /sys
+# Mount core filesystems.
+mount -t devtmpfs -o nosuid,noexec dev "$mnt/merged/dev"
+mkdir "$mnt/merged/dev/shm"
+mount -t tmpfs -o nosuid,nodev tmpfs "$mnt/merged/dev/shm"
+mount -t proc -o nosuid,nodev,noexec proc "$mnt/merged/proc"
+mount -t sysfs -o nosuid,nodev,noexec sys "$mnt/merged/sys"
 # cgroup2 was added in Linux v4.5.
-"$BUSYBOX" mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 /sys/fs/cgroup || "$BUSYBOX" true
+mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 "$mnt/merged/sys/fs/cgroup" || true
 # Ideally we'd just be able to create an opaque directory for /tmp on the upper
 # layer. However, before Linux kernel commit 51f7e52dc943 ("ovl: share inode
 # for hard link") (in v4.8), overlayfs doesn't handle hard links correctly,
 # which breaks some tests.
-"$BUSYBOX" mount -t tmpfs -o nosuid,nodev tmpfs /tmp
+mount -t tmpfs -o nosuid,nodev tmpfs "$mnt/merged/tmp"
+
+# Pivot into the new root.
+pivot_root "$mnt/merged" "$mnt/merged/mnt"
+cd /
+umount -l /mnt
 
 # Load kernel modules.
-"$BUSYBOX" mkdir -p "/lib/modules/$RELEASE"
-"$BUSYBOX" mount -t 9p -o trans=virtio,cache=loose,ro,msize={_9PFS_MSIZE} modules "/lib/modules/$RELEASE"
+mkdir -p "/lib/modules/$RELEASE"
+mount -t 9p -o trans=virtio,cache=loose,ro,msize={_9PFS_MSIZE} modules "/lib/modules/$RELEASE"
 for module in configs rng_core virtio_rng; do
-	"$BUSYBOX" modprobe "$module"
+	modprobe "$module"
 done
 
 # Create static device nodes.
-"$BUSYBOX" grep -v '^#' "/lib/modules/$RELEASE/modules.devname" |
+grep -v '^#' "/lib/modules/$RELEASE/modules.devname" |
 while read -r module name node; do
 	name="/dev/$name"
 	dev=${{node#?}}
 	major=${{dev%%:*}}
 	minor=${{dev##*:}}
 	type=${{node%"${{dev}}"}}
-	"$BUSYBOX" mkdir -p "$("$BUSYBOX" dirname "$name")"
-	"$BUSYBOX" mknod "$name" "$type" "$major" "$minor"
+	mkdir -p "$(dirname "$name")"
+	mknod "$name" "$type" "$major" "$minor"
 done
-"$BUSYBOX" ln -s /proc/self/fd /dev/fd
-"$BUSYBOX" ln -s /proc/self/fd/0 /dev/stdin
-"$BUSYBOX" ln -s /proc/self/fd/1 /dev/stdout
-"$BUSYBOX" ln -s /proc/self/fd/2 /dev/stderr
+ln -s /proc/self/fd /dev/fd
+ln -s /proc/self/fd/0 /dev/stdin
+ln -s /proc/self/fd/1 /dev/stdout
+ln -s /proc/self/fd/2 /dev/stderr
 
 # Configure networking.
-"$BUSYBOX" hostname "$HOSTNAME"
-"$BUSYBOX" ip link set lo up
+cat << EOF > /etc/hosts
+127.0.0.1 localhost
+::1 localhost
+127.0.1.1 $HOSTNAME.localdomain $HOSTNAME
+EOF
+: > /etc/resolv.conf
+hostname "$HOSTNAME"
+ip link set lo up
 
 # Find virtio port.
 vport=
 for vport_dir in /sys/class/virtio-ports/*; do
-	if "$BUSYBOX" [ -r "$vport_dir/name" \
-			-a "$("$BUSYBOX" cat "$vport_dir/name")" = "$VPORT_NAME" ]; then
+	if [ -r "$vport_dir/name" -a "$(cat "$vport_dir/name")" = "$VPORT_NAME" ]; then
 		vport="${{vport_dir#/sys/class/virtio-ports/}}"
 		break
 	fi
 done
-if "$BUSYBOX" [ -z "$vport" ]; then
-	"$BUSYBOX" echo "could not find virtio-port \"$VPORT_NAME\""
+if [ -z "$vport" ]; then
+	echo "could not find virtio-port \"$VPORT_NAME\""
 	exit 1
 fi
 
+cd {cwd}
 set +e
-"$BUSYBOX" sh -c {command}
+sh -c {command}
 rc=$?
 set -e
 
-"$BUSYBOX" echo "Exited with status $rc"
-"$BUSYBOX" echo "$rc" > "/dev/$vport"
+echo "Exited with status $rc"
+echo "$rc" > "/dev/$vport"
 """
 
 
@@ -207,16 +210,13 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
         server_sock.bind(str(socket_path))
         server_sock.listen()
 
-        busybox = shutil.which("busybox")
-        if busybox is None:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), "busybox")
         init = (temp_path / "init").resolve()
         with open(init, "w") as init_file:
             init_file.write(
                 _INIT_TEMPLATE.format(
                     _9PFS_MSIZE=_9PFS_MSIZE,
-                    busybox=shlex.quote(busybox),
                     python=shlex.quote(sys.executable),
+                    cwd=shlex.quote(os.getcwd()),
                     command=shlex.quote(command),
                     kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
                 )
@@ -331,7 +331,7 @@ if __name__ == "__main__":
         kernel_dir = next(download_kernels(args.directory, "x86_64", (kernel,)))
 
     try:
-        command = " ".join(args.command) if args.command else '"$BUSYBOX" sh -i'
+        command = " ".join(args.command) if args.command else "sh -i"
         sys.exit(run_in_vm(command, kernel_dir, args.directory))
     except LostVMError as e:
         print("error:", e, file=sys.stderr)
