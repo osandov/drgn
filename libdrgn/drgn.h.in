@@ -2713,6 +2713,9 @@ struct drgn_stack_trace;
 /** Destroy a @ref drgn_stack_trace. */
 void drgn_stack_trace_destroy(struct drgn_stack_trace *trace);
 
+/** Get the @ref drgn_program that a @ref drgn_stack_trace came from. */
+struct drgn_program *drgn_stack_trace_program(struct drgn_stack_trace *trace);
+
 /** Get the number of stack frames in a stack trace. */
 size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace);
 

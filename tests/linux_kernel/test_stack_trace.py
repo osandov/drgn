@@ -91,3 +91,9 @@ class TestStackTrace(LinuxKernelTestCase):
         self.assertTrue(have_registers)
         os.kill(pid, signal.SIGKILL)
         os.waitpid(pid, 0)
+
+    def test_prog(self):
+        self.assertEqual(
+            self.prog.stack_trace(Object(self.prog, "struct pt_regs", value={})).prog,
+            self.prog,
+        )

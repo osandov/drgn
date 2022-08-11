@@ -93,6 +93,12 @@ LIBDRGN_PUBLIC void drgn_stack_trace_destroy(struct drgn_stack_trace *trace)
 	}
 }
 
+LIBDRGN_PUBLIC
+struct drgn_program *drgn_stack_trace_program(struct drgn_stack_trace *trace)
+{
+	return trace->prog;
+}
+
 LIBDRGN_PUBLIC size_t
 drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 {

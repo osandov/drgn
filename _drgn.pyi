@@ -1617,6 +1617,9 @@ class StackTrace:
     traces are displayed with ``str()`` by default.
     """
 
+    prog: Program
+    """Program that this stack trace is from."""
+
     def __getitem__(self, idx: IntegerLike) -> StackFrame: ...
 
 class StackFrame:

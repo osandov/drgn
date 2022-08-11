@@ -23,6 +23,14 @@ static void StackTrace_dealloc(StackTrace *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static Program *StackTrace_get_prog(StackTrace *self, void *arg)
+{
+	Program *prog = container_of(drgn_stack_trace_program(self->trace),
+				     Program, prog);
+	Py_INCREF(prog);
+	return prog;
+}
+
 static PyObject *StackTrace_str(StackTrace *self)
 {
 	struct drgn_error *err;
@@ -65,6 +73,11 @@ static PySequenceMethods StackTrace_as_sequence = {
 	.sq_item = (ssizeargfunc)StackTrace_item,
 };
 
+static PyGetSetDef StackTrace_getset[] = {
+	{"prog", (getter)StackTrace_get_prog, NULL, drgn_StackTrace_prog_DOC},
+	{},
+};
+
 PyTypeObject StackTrace_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "_drgn.StackTrace",
@@ -74,6 +87,7 @@ PyTypeObject StackTrace_type = {
 	.tp_str = (reprfunc)StackTrace_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_StackTrace_DOC,
+	.tp_getset = StackTrace_getset,
 };
 
 static void StackFrame_dealloc(StackFrame *self)
