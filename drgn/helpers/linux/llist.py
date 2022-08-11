@@ -3,7 +3,7 @@
 
 """
 Lockless Lists
-------------
+--------------
 
 The ``drgn.helpers.linux.llist`` module provides helpers for working with the
 lockless, ``NULL``-terminated, singly-linked list implementation in
