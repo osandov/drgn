@@ -121,18 +121,19 @@ struct page *drgn_test_page;
 
 static int drgn_test_mm_init(void)
 {
-	drgn_test_va = kmalloc(PAGE_SIZE, GFP_KERNEL);
-	if (!drgn_test_va)
+	drgn_test_page = alloc_page(GFP_KERNEL);
+	if (!drgn_test_page)
 		return -ENOMEM;
+	drgn_test_va = page_address(drgn_test_page);
 	drgn_test_pa = virt_to_phys(drgn_test_va);
 	drgn_test_pfn = PHYS_PFN(drgn_test_pa);
-	drgn_test_page = virt_to_page(drgn_test_va);
 	return 0;
 }
 
 static void drgn_test_mm_exit(void)
 {
-	kfree(drgn_test_va);
+	if (drgn_test_page)
+		__free_pages(drgn_test_page, 0);
 }
 
 // rbtree
