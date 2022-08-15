@@ -533,7 +533,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					"unrecognized QEMU memory dump; "
 					"for Linux guests, run QEMU with '-device vmcoreinfo', "
-					"compile the kernel with CONFIG_CRASH_CORE and CONFIG_FW_CFG, "
+					"compile the kernel with CONFIG_FW_CFG_SYSFS and CONFIG_KEXEC, "
 					"and load the qemu_fw_cfg kernel module "
 					"before dumping the guest memory "
 					"(requires Linux >= 4.17 and QEMU >= 2.11)");
