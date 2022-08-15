@@ -267,6 +267,8 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds);
 int append_string(PyObject *parts, const char *s);
 int append_format(PyObject *parts, const char *format, ...);
 PyObject *join_strings(PyObject *parts);
+// Implementation of _repr_pretty_() for IPython/Jupyter that just calls str().
+PyObject *repr_pretty_from_str(PyObject *self, PyObject *args, PyObject *kwds);
 
 struct index_arg {
 	bool allow_none;

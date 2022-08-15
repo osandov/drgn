@@ -1660,6 +1660,8 @@ static PyMethodDef DrgnObject_methods[] = {
 	{"__ceil__", (PyCFunction)DrgnObject_ceil, METH_NOARGS},
 	{"__dir__", (PyCFunction)DrgnObject_dir, METH_NOARGS,
 "dir() implementation which includes structure, union, and class members."},
+	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
+	 METH_VARARGS | METH_KEYWORDS},
 	{},
 };
 

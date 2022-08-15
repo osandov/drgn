@@ -68,6 +68,12 @@ static StackFrame *StackTrace_item(StackTrace *self, Py_ssize_t i)
 	return ret;
 }
 
+static PyMethodDef StackTrace_methods[] = {
+	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
+	 METH_VARARGS | METH_KEYWORDS},
+	{},
+};
+
 static PySequenceMethods StackTrace_as_sequence = {
 	.sq_length = (lenfunc)StackTrace_length,
 	.sq_item = (ssizeargfunc)StackTrace_item,
@@ -87,6 +93,7 @@ PyTypeObject StackTrace_type = {
 	.tp_str = (reprfunc)StackTrace_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_StackTrace_DOC,
+	.tp_methods = StackTrace_methods,
 	.tp_getset = StackTrace_getset,
 };
 
@@ -300,6 +307,8 @@ static PyMethodDef StackFrame_methods[] = {
 	 METH_O, drgn_StackFrame_register_DOC},
 	{"registers", (PyCFunction)StackFrame_registers,
 	 METH_NOARGS, drgn_StackFrame_registers_DOC},
+	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
+	 METH_VARARGS | METH_KEYWORDS},
 	{},
 };
 

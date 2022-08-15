@@ -1447,6 +1447,7 @@ class Object:
     def __trunc__(self) -> int: ...
     def __floor__(self) -> int: ...
     def __ceil__(self) -> int: ...
+    def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 def NULL(prog: Program, type: Union[str, Type]) -> Object:
     """
@@ -1621,6 +1622,7 @@ class StackTrace:
     """Program that this stack trace is from."""
 
     def __getitem__(self, idx: IntegerLike) -> StackFrame: ...
+    def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class StackFrame:
     """
@@ -1741,6 +1743,7 @@ class StackFrame:
         dictionary with the register names as keys.
         """
         ...
+    def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class Type:
     """
@@ -1913,6 +1916,7 @@ class Type:
         :raises TypeError: if this type is not a structure, union, or class
             type
         """
+    def _repr_pretty_(self, p: Any, cycle: bool) -> None: ...
 
 class TypeMember:
     """

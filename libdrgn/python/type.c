@@ -751,6 +751,8 @@ static PyMethodDef DrgnType_methods[] = {
 	 drgn_Type_member_DOC},
 	{"has_member", (PyCFunction)DrgnType_has_member,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Type_has_member_DOC},
+	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
+	 METH_VARARGS | METH_KEYWORDS},
 	{},
 };
 
