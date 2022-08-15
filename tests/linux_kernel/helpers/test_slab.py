@@ -4,7 +4,10 @@
 from collections import defaultdict
 from pathlib import Path
 
+from drgn import NULL
+from drgn.helpers.linux.mm import pfn_to_virt
 from drgn.helpers.linux.slab import (
+    find_containing_slab_cache,
     find_slab_cache,
     for_each_slab_cache,
     slab_cache_for_each_allocated_object,
@@ -120,3 +123,49 @@ class TestSlab(LinuxKernelTestCase):
                 ),
                 [objects[i] for i in range(5)],
             )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_find_containing_slab_cache(self):
+        cache = self.prog["drgn_test_kmem_cache"]
+        objects = self.prog["drgn_test_slab_objects"]
+
+        if self.prog["drgn_test_slob"]:
+            for obj in objects:
+                self.assertEqual(
+                    find_containing_slab_cache(self.prog, obj.value_()),
+                    NULL(self.prog, "struct kmem_cache *"),
+                )
+                self.assertEqual(
+                    find_containing_slab_cache(obj),
+                    NULL(self.prog, "struct kmem_cache *"),
+                )
+        else:
+            for obj in objects:
+                self.assertEqual(
+                    find_containing_slab_cache(self.prog, obj.value_()), cache
+                )
+                self.assertEqual(find_containing_slab_cache(obj), cache)
+
+    def test_find_containing_slab_cache_invalid(self):
+        start_addr = pfn_to_virt(self.prog["min_low_pfn"])
+        end_addr = pfn_to_virt(self.prog["max_pfn"]) + self.prog["PAGE_SIZE"]
+
+        self.assertEqual(
+            find_containing_slab_cache(self.prog, start_addr - 1),
+            NULL(self.prog, "struct kmem_cache *"),
+        )
+        self.assertEqual(
+            find_containing_slab_cache(self.prog, end_addr),
+            NULL(self.prog, "struct kmem_cache *"),
+        )
+
+        self.assertEqual(
+            find_containing_slab_cache(self.prog, self.prog.symbol("jiffies").address),
+            NULL(self.prog, "struct kmem_cache *"),
+        )
+
+        self.assertEqual(
+            find_containing_slab_cache(self.prog, self.prog["drgn_test_va"]),
+            NULL(self.prog, "struct kmem_cache *"),
+        )

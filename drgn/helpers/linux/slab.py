@@ -15,22 +15,36 @@ Linux slab allocator.
     <drgn.helpers.linux.slab.slab_cache_is_merged>`.
 """
 
-from typing import Iterator, Optional, Set, Union
+import operator
+from typing import Iterator, Optional, Set, Union, overload
 
-from drgn import FaultError, Object, Program, Type, cast, sizeof
+from drgn import NULL, FaultError, IntegerLike, Object, Program, Type, cast, sizeof
 from drgn.helpers import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
-from drgn.helpers.linux.mm import for_each_page, page_to_virt
+from drgn.helpers.linux.mm import for_each_page, page_to_virt, pfn_to_virt, virt_to_page
 from drgn.helpers.linux.percpu import per_cpu_ptr
 
 __all__ = (
+    "find_containing_slab_cache",
     "find_slab_cache",
     "for_each_slab_cache",
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
     "slab_cache_is_merged",
 )
+
+
+# Get the type containing slab information.
+#
+# Linux kernel commit d122019bf061cccc4583eb9ad40bf58c2fe517be ("mm: Split slab
+# into its own type") (in v5.17) moved slab information from struct page to
+# struct slab. The former can be casted to the latter.
+def _get_slab_type(prog: Program) -> Type:
+    try:
+        return prog.type("struct slab *")
+    except LookupError:
+        return prog.type("struct page *")
 
 
 def slab_cache_is_merged(slab_cache: Object) -> bool:
@@ -226,13 +240,7 @@ def slab_cache_for_each_allocated_object(
                     continue
                 yield Object(prog, pointer_type, value=addr)
 
-    # Linux kernel commit d122019bf061cccc4583eb9ad40bf58c2fe517be ("mm: Split
-    # slab into its own type") (in v5.17) moved slab information from struct
-    # page to struct slab. The former can be casted to the latter.
-    try:
-        slab_type = prog.type("struct slab *")
-    except LookupError:
-        slab_type = prog.type("struct page *")
+    slab_type = _get_slab_type(prog)
 
     PG_slab_mask = 1 << prog.constant("PG_slab")
     for page in for_each_page(prog):
@@ -244,3 +252,70 @@ def slab_cache_for_each_allocated_object(
         slab = cast(slab_type, page)
         if slab.slab_cache == slab_cache:
             yield from _slab_page_objects(page, slab)
+
+
+@overload
+def find_containing_slab_cache(addr: Object) -> Object:
+    """
+    Get the slab cache that an address (given as an :class:`.Object`) was
+    allocated from, if any.
+
+    :param addr: Address to look up.
+    :return: ``struct kmem_cache *`` containing *addr*, or ``NULL`` if *addr*
+        is not from a slab cache.
+    """
+    ...
+
+
+@overload
+def find_containing_slab_cache(prog: Program, addr: IntegerLike) -> Object:
+    """
+    Get the slab cache that an address (given as a :class:`.Program` and an
+    integer) was allocated from, if any.
+
+    Note that SLOB does not store enough information to identify objects in a
+    slab cache, so if the kernel is configured to use SLOB, this will always
+    return ``NULL``.
+
+    :param addr: Address to look up.
+    :return: ``struct kmem_cache *`` containing *addr*, or ``NULL`` if *addr*
+        is not from a slab cache.
+    """
+    ...
+
+
+def find_containing_slab_cache(  # type: ignore  # Need positional-only arguments.
+    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
+) -> Object:
+    if addr is None:
+        assert isinstance(prog_or_addr, Object)
+        prog = prog_or_addr.prog_
+        addr = prog_or_addr
+    else:
+        assert isinstance(prog_or_addr, Program)
+        prog = prog_or_addr
+    addr = operator.index(addr)
+
+    start_addr = pfn_to_virt(prog["min_low_pfn"]).value_()
+    end_addr = (pfn_to_virt(prog["max_pfn"]) + prog["PAGE_SIZE"]).value_()
+    if addr < start_addr or addr >= end_addr:
+        # Not a directly mapped address
+        return NULL(prog, "struct kmem_cache *")
+
+    page = virt_to_page(prog, addr)
+
+    try:
+        PG_slab_mask = 1 << prog.constant("PG_slab")
+    except FaultError:
+        # Page does not exist
+        return NULL(prog, "struct kmem_cache *")
+
+    if not page.flags & PG_slab_mask:
+        # Not a slab page
+        return NULL(prog, "struct kmem_cache *")
+
+    slab = cast(_get_slab_type(prog), page)
+    try:
+        return slab.slab_cache
+    except AttributeError:
+        return NULL(prog, "struct kmem_cache *")
