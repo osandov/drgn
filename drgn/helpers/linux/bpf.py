@@ -16,7 +16,7 @@ from typing import Iterator
 
 from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers.linux.idr import idr_for_each
-from drgn.helpers.linux.list import list_for_each_entry
+from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = (
     "bpf_btf_for_each",
@@ -127,9 +127,15 @@ def cgroup_bpf_prog_for_each(
         if prog:
             yield prog
     else:
-        for pl in list_for_each_entry(
-            "struct bpf_prog_list", progs[bpf_attach_type].address_of_(), "node"
-        ):
+        # Since Linux kernel commit 00442143a2ab ("bpf: convert
+        # cgroup_bpf.progs to hlist") (in v6.0-rc1), the list of programs is an
+        # hlist_head. Before that, it was a list_head.
+        list = progs[bpf_attach_type].address_of_()
+        if hasattr(list, "first"):
+            iterator = hlist_for_each_entry
+        else:
+            iterator = list_for_each_entry
+        for pl in iterator("struct bpf_prog_list", list, "node"):
             yield pl.prog
 
 
