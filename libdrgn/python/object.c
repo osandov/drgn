@@ -1653,6 +1653,8 @@ static PyMethodDef DrgnObject_methods[] = {
 	 drgn_Object_from_bytes__DOC},
 	{"format_", (PyCFunction)DrgnObject_format,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Object_format__DOC},
+	{"_repr_pretty_", (PyCFunction)repr_pretty_from_str,
+	 METH_VARARGS | METH_KEYWORDS, repr_pretty_DOC},
 	{"__round__", (PyCFunction)DrgnObject_round,
 	 METH_VARARGS | METH_KEYWORDS},
 	{"__trunc__", (PyCFunction)DrgnObject_trunc, METH_NOARGS},
