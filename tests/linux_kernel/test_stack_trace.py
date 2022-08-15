@@ -6,6 +6,7 @@ import signal
 
 from drgn import Object, Program, cast
 from drgn.helpers.linux.pid import find_task
+from tests import assertReprPrettyEqualsStr
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_pause,
@@ -97,3 +98,13 @@ class TestStackTrace(LinuxKernelTestCase):
             self.prog.stack_trace(Object(self.prog, "struct pt_regs", value={})).prog,
             self.prog,
         )
+
+    def test_stack__repr_pretty_(self):
+        pid = fork_and_pause()
+        wait_until(proc_blocked, pid)
+        trace = self.prog.stack_trace(pid)
+        assertReprPrettyEqualsStr(trace)
+        for frame in trace:
+            assertReprPrettyEqualsStr(frame)
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
