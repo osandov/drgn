@@ -14,7 +14,12 @@ from drgn import (
     offsetof,
     sizeof,
 )
-from tests import DEFAULT_LANGUAGE, MockProgramTestCase, mock_program
+from tests import (
+    DEFAULT_LANGUAGE,
+    MockProgramTestCase,
+    assertReprPrettyEqualsStr,
+    mock_program,
+)
 
 
 class TestType(MockProgramTestCase):
@@ -972,6 +977,10 @@ class TestType(MockProgramTestCase):
             repr(self.prog.void_type(language=Language.CPP)),
             "prog.void_type(language=Language.CPP)",
         )
+
+    def test__repr_pretty_(self):
+        t = self.prog.void_type()
+        assertReprPrettyEqualsStr(t)
 
     def test_different_programs_compound(self):
         self.assertRaisesRegex(
