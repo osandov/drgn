@@ -81,6 +81,12 @@ drgn can be installed using the package manager on some Linux distributions.
   Install the `drgn <https://aur.archlinux.org/packages/drgn/>`_ package from
   the `AUR <https://wiki.archlinux.org/title/Arch_User_Repository>`_.
 
+* openSUSE
+
+  .. code-block:: console
+
+      $ sudo zypper install python3-drgn
+
 pip
 ^^^
 
@@ -129,11 +135,17 @@ First, install dependencies:
 
       $ sudo pacman -S --needed autoconf automake gcc git libelf libtool make pkgconf python python-pip python-setuptools
 
-Optionally, install `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_
-if you want support for the `makedumpfile
-<https://github.com/makedumpfile/makedumpfile>`_ compressed kernel core dump
-format. ``libkdumpfile`` is currently only packaged on Fedora and EPEL. For
-other distributions, you must install it manually.
+  Optionally, install `libkdumpfile
+  <https://github.com/ptesarik/libkdumpfile>`_ if you want support for the
+  `makedumpfile <https://github.com/makedumpfile/makedumpfile>`_ compressed
+  kernel core dump format. ``libkdumpfile`` is currently only packaged on
+  Fedora and EPEL. For other distributions, you must install it manually.
+
+* openSUSE
+
+  .. code-block:: console
+
+      $ sudo zypper install autoconf automake gcc git libdw-devel libelf-devel libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
 
 Then, run:
 
