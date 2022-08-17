@@ -433,14 +433,13 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->file_segments[j].file_size = phdr->p_filesz;
 		prog->file_segments[j].fd = prog->core_fd;
 		prog->file_segments[j].eio_is_fault = false;
+		/*
+		 * Only zerofill between p_filesz and p_memsz for saved
+		 * kernel cores. makedumpfile excludes zero pages; userland
+		 * and /proc/kcore are not affected.
+		 */
+		prog->file_segments[j].zerofill = vmcoreinfo_note && !is_proc_kcore;
 		err = drgn_program_add_memory_segment(prog, phdr->p_vaddr,
-						      /*
-						       * Don't override the page
-						       * table reader for
-						       * unsaved regions.
-						       */
-						      pgtable_reader ?
-						      phdr->p_filesz :
 						      phdr->p_memsz,
 						      drgn_read_memory_file,
 						      &prog->file_segments[j],
@@ -451,8 +450,6 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		    phdr->p_paddr != (is_64_bit ? UINT64_MAX : UINT32_MAX)) {
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_paddr,
-							      pgtable_reader ?
-							      phdr->p_filesz :
 							      phdr->p_memsz,
 							      drgn_read_memory_file,
 							      &prog->file_segments[j],
@@ -606,6 +603,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	prog->file_segments[0].file_size = UINT64_MAX;
 	prog->file_segments[0].fd = prog->core_fd;
 	prog->file_segments[0].eio_is_fault = true;
+	prog->file_segments[0].zerofill = false;
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_memory_file,
 					      prog->file_segments, false);
