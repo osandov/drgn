@@ -161,8 +161,10 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 
 		exc = PyObject_CallFunction((PyObject *)&FaultError_type, "sK",
 					    err->message, err->address);
-		if (exc)
+		if (exc) {
 			PyErr_SetObject((PyObject *)&FaultError_type, exc);
+			Py_DECREF(exc);
+		}
 		break;
 	}
 	case DRGN_ERROR_TYPE:
