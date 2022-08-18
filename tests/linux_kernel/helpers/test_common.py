@@ -1,10 +1,15 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from drgn.helpers.common import identify_address
+from contextlib import redirect_stdout
+import io
+
+from drgn.helpers.common.memory import identify_address
+from drgn.helpers.common.stack import print_annotated_stack
 from drgn.helpers.linux.mm import pfn_to_virt
 from tests.linux_kernel import (
     LinuxKernelTestCase,
+    fork_and_sigwait,
     skip_unless_have_full_mm_support,
     skip_unless_have_test_kmod,
 )
@@ -50,3 +55,19 @@ class TestIdentifyAddress(LinuxKernelTestCase):
         self.assertIsNone(identify_address(self.prog, start_addr - 1))
         self.assertIsNone(identify_address(self.prog, end_addr))
         self.assertIsNone(identify_address(self.prog, self.prog["drgn_test_va"]))
+
+
+class TestPrintAnnotatedStack(LinuxKernelTestCase):
+    def test_print_annotated_stack(self):
+        with fork_and_sigwait() as pid:
+            trace = self.prog.stack_trace(pid)
+
+            f = io.StringIO()
+            with redirect_stdout(f):
+                print_annotated_stack(trace)
+
+            printed_trace = f.getvalue()
+
+            self.assertIn("slab object: task_struct", printed_trace)
+            self.assertIn("[function symbol: schedule", printed_trace)
+            self.assertIn("schedule at ", printed_trace)
