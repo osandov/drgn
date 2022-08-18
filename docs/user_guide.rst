@@ -396,6 +396,62 @@ explicitly::
             int counter;
     } atomic_t
 
+Jupyter
+^^^^^^^
+
+drgn can also be use in `Jupyter <https://jupyter.org>`_ with the `IPython
+kernel <https://ipython.org>`_, where the former provides the follows features,
+similar to `Interactive Mode`_:
+
+* History
+* Tab completion
+* Pretty printing of objects and types
+* Helpers
+
+  * Saving session ``%save``
+  * Running shell command ``!``
+  * `and more <https://ipython.readthedocs.io/en/stable/interactive/magics.html>`_
+
+It shares much of the same features as `Interactive Mode`_ plus `a few extra
+tricks <https://ipython.readthedocs.io/en/stable/interactive/magics.html>`_,
+albeit much more heavy-weight compaired to the built-in counterpart.
+
+Similarly, ``str()`` is used instead of ``repr()`` to save one from having to
+call ``print()`` for objects and types.::
+
+    $ pip install ipython
+    ...
+
+    $ ipython
+    IPython 8.4.0 -- An enhanced Interactive Python. Type '?' for help.
+    
+    In [1]: import drgn
+    In [2]: prog = drgn.Program()
+    In [3]: !ps aux | grep bash | head -n1  # Run shell command
+    drgn       2022  0.0  0.0  20000 10000 pts/1    Ss   Aug16   0:00 /bin/bash
+    In [4]: prog.set_pid(2022)
+    In [5]: prog.load_default_debug_info()
+    In [6]: %save session.py  # Save the session inside a .py file
+    The following commands were written to file `session.py`:
+    ...
+    In [7]: exit
+    
+    $ ipython
+    IPython 8.4.0 -- An enhanced Interactive Python. Type '?' for help.
+    
+    In [1]: %run -i drgn_session.py  # Re-execute all previous statements
+    In [2]: prog['main']
+    Out[2]: (int (int argc, char **argv, char **env))<absent>
+
+For a fully-fledges Jupyter experience, it is recommended to use `Jupyter
+notebook
+<https://jupyter.org/try-jupyter/retro/notebooks/?path=notebooks/Intro.ipynb>`_,
+which is a web-based interactive programming interface that supports richer
+formats such as `Markdown
+<https://jupyter-notebook.readthedocs.io/en/stable/examples/Notebook/Working%20With%20Markdown%20Cells.html>`_
+and can be `easily shared
+<https://github.blog/2015-05-07-github-jupyter-notebooks-3/>`_.
+
 Next Steps
 ----------
 
