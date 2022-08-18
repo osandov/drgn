@@ -1051,7 +1051,7 @@ read_abbrev_decl(struct drgn_debug_info_buffer *buffer,
 		return &drgn_stop;
 	if (code != decls->size + 1) {
 		return binary_buffer_error(&buffer->bb,
-					   "DWARF abbrevation table is not sequential");
+					   "DWARF abbreviation table is not sequential");
 	}
 
 	uint32_t insn_index = insns->size;
