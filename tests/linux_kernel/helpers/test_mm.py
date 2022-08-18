@@ -14,6 +14,8 @@ from drgn import FaultError
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
     PHYS_PFN,
+    PageSwapBacked,
+    PageWriteback,
     access_process_vm,
     access_remote_vm,
     cmdline,
@@ -69,6 +71,14 @@ class TestMm(LinuxKernelTestCase):
                         for entry in struct.unpack(f"{pages}Q", pagemap.read(pages * 8))
                     ]
                 yield map, address, pfns
+
+    def test_page_flag_getters(self):
+        with self._pages() as (map, _, pfns):
+            page = pfn_to_page(self.prog, pfns[0])
+            # The page flag getters are generated, so just pick a positive case
+            # and a negative case to cover all of them.
+            self.assertTrue(PageSwapBacked(page))
+            self.assertFalse(PageWriteback(page))
 
     @skip_unless_have_full_mm_support
     def test_decode_page_flags(self):
