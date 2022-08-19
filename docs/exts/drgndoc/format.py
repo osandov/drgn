@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import ast
-import re
 from typing import Any, List, Optional, Pattern, Sequence, Tuple, cast
 
 from drgndoc.namespace import BoundNode, Namespace, ResolvedNode
@@ -39,8 +38,9 @@ class _FormatVisitor(NodeVisitor):
         self._context_class = context_class
         self._parts: List[str] = []
 
-    def visit(self, node: ast.AST, rst: bool = True) -> str:
+    def visit(self, node: ast.AST, rst: bool, qualify_typing: bool) -> str:
         self._rst = rst
+        self._qualify_typing = qualify_typing
         super().visit(node)
         ret = "".join(self._parts)
         self._parts.clear()
@@ -93,7 +93,7 @@ class _FormatVisitor(NodeVisitor):
                 break
 
         title = target
-        if title.startswith("typing."):
+        if not self._qualify_typing and title.startswith("typing."):
             title = title[len("typing.") :]
         elif self._context_module and title.startswith(self._context_module + "."):
             title = title[len(self._context_module) + 1 :]
@@ -239,25 +239,9 @@ class Formatter:
             context_class,
         )
         assert node.docstring is not None
-        docstring_lines = node.docstring.splitlines()
-
+        lines = node.docstring.splitlines()
         if rst:
-            lines = []
-            params_need_type = set()
-            params_have_type = set()
-            for line in docstring_lines:
-                lines.append("    " + line)
-                match = re.match(r":(param|type)\s+([a-zA-Z0-9_]+):", line)
-                if match:
-                    if match.group(1) == "param":
-                        params_need_type.add(match.group(2))
-                    else:
-                        params_have_type.add(match.group(2))
-                elif line.startswith(":rtype:"):
-                    want_rtype = False
-            params_need_type -= params_have_type
-        else:
-            lines = docstring_lines
+            lines = ["    " + line for line in lines]
 
         signature = ["("]
         need_comma = False
@@ -274,21 +258,15 @@ class Formatter:
             signature.append(arg.arg)
 
             default_sep = "="
-            if not rst and arg.annotation:
+            if arg.annotation:
                 signature.append(": ")
-                signature.append(visitor.visit(arg.annotation, False))
+                signature.append(visitor.visit(arg.annotation, False, rst))
                 default_sep = " = "
 
             if default:
                 signature.append(default_sep)
-                signature.append(visitor.visit(default, False))
+                signature.append(visitor.visit(default, False, True))
             need_comma = True
-
-            if rst and arg.annotation and arg.arg in params_need_type:
-                if need_blank_line:
-                    lines.append("")
-                    need_blank_line = False
-                lines.append(f"    :type {arg.arg}: {visitor.visit(arg.annotation)}")
 
         posonlyargs = getattr(node.args, "posonlyargs", [])
         num_posargs = len(posonlyargs) + len(node.args.args)
@@ -325,14 +303,8 @@ class Formatter:
         signature.append(")")
 
         if want_rtype and node.returns:
-            if rst:
-                if need_blank_line:
-                    lines.append("")
-                    need_blank_line = False
-                lines.append("    :rtype: " + visitor.visit(node.returns))
-            else:
-                signature.append(" -> ")
-                signature.append(visitor.visit(node.returns, False))
+            signature.append(" -> ")
+            signature.append(visitor.visit(node.returns, False, rst))
 
         return "".join(signature), lines
 
@@ -360,7 +332,7 @@ class Formatter:
                 context_module,
                 context_class,
             )
-            bases = [visitor.visit(base, rst) for base in node.bases]
+            bases = [visitor.visit(base, rst, False) for base in node.bases]
             if lines:
                 lines.append("")
             lines.append(("    " if rst else "") + "Bases: " + ", ".join(bases))
@@ -480,8 +452,6 @@ class Formatter:
         assert node.docstring is not None
         docstring_lines = node.docstring.splitlines()
 
-        have_vartype = any(line.startswith(":vartype:") for line in docstring_lines)
-
         visitor = _FormatVisitor(
             self._namespace,
             self._substitutions,
@@ -493,19 +463,20 @@ class Formatter:
         if rst:
             directive = "py:attribute" if resolved.classes else "py:data"
             lines = [f".. {directive}:: {name}"]
+            if node.annotation:
+                lines.append(
+                    "    :type: " + visitor.visit(node.annotation, False, True)
+                )
             if docstring_lines:
                 lines.append("")
             for line in docstring_lines:
                 lines.append("    " + line)
-            if node.annotation and not have_vartype:
-                lines.append("")
-                lines.append("    :vartype: " + visitor.visit(node.annotation))
             return lines
         else:
-            if node.annotation and not have_vartype:
+            if node.annotation:
                 if docstring_lines:
                     docstring_lines.insert(0, "")
-                docstring_lines.insert(0, visitor.visit(node.annotation, False))
+                docstring_lines.insert(0, visitor.visit(node.annotation, False, False))
             return docstring_lines
 
     def format(
