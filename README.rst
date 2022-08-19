@@ -117,11 +117,21 @@ From Source
 To get the development version of drgn, you will need to build it from source.
 First, install dependencies:
 
-* Fedora/RHEL/CentOS
+* Fedora
+
+  .. code-block:: console
+
+      $ sudo dnf install autoconf automake elfutils-devel gcc git libkdumpfile-devel libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+
+* RHEL/CentOS
 
   .. code-block:: console
 
       $ sudo dnf install autoconf automake elfutils-devel gcc git libtool make pkgconf python3 python3-devel python3-pip python3-setuptools
+
+  Optionally, install ``libkdumpfile-devel`` from EPEL on RHEL/CentOS >= 8 or
+  install `libkdumpfile <https://github.com/ptesarik/libkdumpfile>`_ from
+  source if you want support for the makedumpfile format.
 
   Replace ``dnf`` with ``yum`` for RHEL/CentOS < 8.
 
@@ -131,6 +141,9 @@ First, install dependencies:
 
       $ sudo apt-get install autoconf automake gcc git liblzma-dev libelf-dev libdw-dev libtool make pkgconf python3 python3-dev python3-pip python3-setuptools zlib1g-dev
 
+  Optionally, install libkdumpfile from source if you want support for the
+  makedumpfile format.
+
 * Arch Linux
 
   .. code-block:: console
@@ -138,10 +151,8 @@ First, install dependencies:
       $ sudo pacman -S --needed autoconf automake gcc git libelf libtool make pkgconf python python-pip python-setuptools
 
   Optionally, install `libkdumpfile
-  <https://github.com/ptesarik/libkdumpfile>`_ if you want support for the
-  `makedumpfile <https://github.com/makedumpfile/makedumpfile>`_ compressed
-  kernel core dump format. ``libkdumpfile`` is currently only packaged on
-  Fedora and EPEL. For other distributions, you must install it manually.
+  <https://aur.archlinux.org/packages/libkdumpfile/>`_ from the AUR or from
+  source if you want support for the makedumpfile format.
 
 * openSUSE
 
