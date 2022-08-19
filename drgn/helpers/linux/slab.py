@@ -256,28 +256,23 @@ def slab_cache_for_each_allocated_object(
 
 @overload
 def find_containing_slab_cache(addr: Object) -> Object:
-    """
-    Get the slab cache that an address (given as an :class:`.Object`) was
-    allocated from, if any.
-
-    :param addr: Address to look up.
-    :return: ``struct kmem_cache *`` containing *addr*, or ``NULL`` if *addr*
-        is not from a slab cache.
-    """
+    """"""
     ...
 
 
 @overload
 def find_containing_slab_cache(prog: Program, addr: IntegerLike) -> Object:
     """
-    Get the slab cache that an address (given as a :class:`.Program` and an
-    integer) was allocated from, if any.
+    Get the slab cache that an address was allocated from, if any.
+
+    The address can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
 
     Note that SLOB does not store enough information to identify objects in a
     slab cache, so if the kernel is configured to use SLOB, this will always
     return ``NULL``.
 
-    :param addr: Address to look up.
+    :param addr: ``void *``
     :return: ``struct kmem_cache *`` containing *addr*, or ``NULL`` if *addr*
         is not from a slab cache.
     """

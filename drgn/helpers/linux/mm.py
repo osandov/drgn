@@ -587,23 +587,19 @@ def for_each_page(prog: Program) -> Iterator[Object]:
 
 @overload
 def PFN_PHYS(pfn: Object) -> Object:
-    """
-    Get the physical address of a page frame number (PFN) given as an
-    :class:`.Object`.
-
-    :param pfn: ``unsigned long``
-    :return: ``phys_addr_t``
-    """
+    """"""
     ...
 
 
 @overload
 def PFN_PHYS(prog: Program, pfn: IntegerLike) -> Object:
     """
-    Get the physical address of a page frame number (PFN) given as a
-    :class:`.Program` and an integer.
+    Get the physical address of a page frame number (PFN).
 
-    :param pfn: Page frame number.
+    The PFN can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param pfn: ``unsigned long``
     :return: ``phys_addr_t``
     """
     ...
@@ -624,23 +620,19 @@ def PFN_PHYS(  # type: ignore  # Need positional-only arguments.
 
 @overload
 def PHYS_PFN(addr: Object) -> Object:
-    """
-    Get the page frame number (PFN) of a physical address given as an
-    :class:`.Object`.
-
-    :param addr: ``phys_addr_t``
-    :return: ``unsigned long``
-    """
+    """"""
     ...
 
 
 @overload
 def PHYS_PFN(prog: Program, addr: int) -> Object:
     """
-    Get the page frame number (PFN) of a physical address given as a
-    :class:`.Program` and an integer.
+    Get the page frame number (PFN) of a physical address.
 
-    :param addr: Physical address.
+    The address can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param addr: ``phys_addr_t``
     :return: ``unsigned long``
     """
     ...
@@ -691,22 +683,19 @@ def page_to_virt(page: Object) -> Object:
 
 @overload
 def pfn_to_page(pfn: Object) -> Object:
-    """
-    Get the page with a page frame number (PFN) given as an :class:`.Object`.
-
-    :param pfn: ``unsigned long``
-    :return: ``struct page *``
-    """
+    """"""
     ...
 
 
 @overload
 def pfn_to_page(prog: Program, pfn: IntegerLike) -> Object:
     """
-    Get the page with a page frame number (PFN) given as a :class:`.Program`
-    and an integer.
+    Get the page with a page frame number (PFN).
 
-    :param pfn: Page frame number.
+    The PFN can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param pfn: ``unsigned long``
     :return: ``struct page *``
     """
     ...
@@ -727,23 +716,19 @@ def pfn_to_page(  # type: ignore  # Need positional-only arguments.
 
 @overload
 def pfn_to_virt(pfn: Object) -> Object:
-    """
-    Get the directly mapped virtual address of a page frame number (PFN) given
-    as an :class:`.Object`.
-
-    :param pfn: ``unsigned long``
-    :return: ``void *``
-    """
+    """"""
     ...
 
 
 @overload
 def pfn_to_virt(prog: Program, pfn: IntegerLike) -> Object:
     """
-    Get the directly mapped virtual address of a page frame number (PFN) given
-    as a :class:`.Program` and an integer.
+    Get the directly mapped virtual address of a page frame number (PFN).
 
-    :param pfn: Page frame number.
+    The PFN can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param pfn: ``unsigned long``
     :return: ``void *``
     """
 
@@ -756,23 +741,19 @@ def pfn_to_virt(  # type: ignore  # Need positional-only arguments.
 
 @overload
 def phys_to_page(addr: Object) -> Object:
-    """
-    Get the page containing a directly mapped physical address given as an
-    :class:`.Object`.
-
-    :param addr: ``phys_addr_t``
-    :return: ``struct page *``
-    """
+    """"""
     ...
 
 
 @overload
 def phys_to_page(prog: Program, addr: IntegerLike) -> Object:
     """
-    Get the page containing a directly mapped physical address given as a
-    :class:`.Program` and an integer.
+    Get the page containing a physical address.
 
-    :param addr: Physical address.
+    The address can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param addr: ``phys_addr_t``
     :return: ``struct page *``
     """
     ...
@@ -786,23 +767,19 @@ def phys_to_page(  # type: ignore  # Need positional-only arguments.
 
 @overload
 def phys_to_virt(addr: Object) -> Object:
-    """
-    Get the directly mapped virtual address of a physical address given as an
-    :class:`.Object`.
-
-    :param addr: ``phys_addr_t``
-    :return: ``void *``
-    """
+    """"""
     ...
 
 
 @overload
 def phys_to_virt(prog: Program, addr: IntegerLike) -> Object:
     """
-    Get the directly mapped virtual address of a physical address given as a
-    :class:`.Program` and an integer.
+    Get the directly mapped virtual address of a physical address.
 
-    :param addr: Physical address.
+    The address can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param addr: ``phys_addr_t``
     :return: ``void *``
     """
     ...
@@ -825,23 +802,19 @@ def phys_to_virt(  # type: ignore  # Need positional-only arguments.
 
 @overload
 def virt_to_page(addr: Object) -> Object:
-    """
-    Get the page containing a directly mapped virtual address given as an
-    :class:`.Object`.
-
-    :param addr: ``void *``
-    :return: ``struct page *``
-    """
+    """"""
     ...
 
 
 @overload
 def virt_to_page(prog: Program, addr: IntegerLike) -> Object:
     """
-    Get the page containing a directly mapped virtual address given as a
-    :class:`.Program` and an integer.
+    Get the page containing a directly mapped virtual address.
 
-    :param addr: Virtual address.
+    The address can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param addr: ``void *``
     :return: ``struct page *``
     """
     ...
@@ -855,23 +828,19 @@ def virt_to_page(  # type: ignore  # Need positional-only arguments.
 
 @overload
 def virt_to_pfn(addr: Object) -> Object:
-    """
-    Get the page frame number (PFN) of a directly mapped virtual address given
-    as an :class:`.Object`.
-
-    :param addr: ``void *``
-    :return: ``unsigned long``
-    """
+    """"""
     ...
 
 
 @overload
 def virt_to_pfn(prog: Program, addr: IntegerLike) -> Object:
     """
-    Get the page frame number (PFN) of a directly mapped virtual address given
-    as a :class:`.Program` and an integer.
+    Get the page frame number (PFN) of a directly mapped virtual address.
 
-    :param addr: Virtual address.
+    The address can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param addr: ``void *``
     :return: ``unsigned long``
     """
     ...
@@ -885,23 +854,19 @@ def virt_to_pfn(  # type: ignore  # Need positional-only arguments.
 
 @overload
 def virt_to_phys(addr: Object) -> Object:
-    """
-    Get the physical address of a directly mapped virtual address given as an
-    :class:`.Object`.
-
-    :param addr: ``void *``
-    :return: ``phys_addr_t``
-    """
+    """"""
     ...
 
 
 @overload
 def virt_to_phys(prog: Program, addr: IntegerLike) -> Object:
     """
-    Get the physical address of a directly mapped virtual address given as a
-    :class:`.Program` and an integer.
+    Get the physical address of a directly mapped virtual address.
 
-    :param addr: Virtual address.
+    The address can be given as an :class:`~drgn.Object` or as a
+    :class:`~drgn.Program` and an integer.
+
+    :param addr: ``void *``
     :return: ``phys_addr_t``
     """
     ...
