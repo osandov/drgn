@@ -36,7 +36,7 @@ html_static_path = ["_static"]
 html_theme = "alabaster"
 
 html_theme_options = {
-    "description": "Debugger-as-a-library",
+    "description": "Programmable debugger",
     "logo": "logo.png",
     "logo_name": True,
     "logo_text_align": "center",

@@ -448,7 +448,7 @@ setup(
     python_requires=">=3.6",
     author="Omar Sandoval",
     author_email="osandov@osandov.com",
-    description="Scriptable debugger library",
+    description="Programmable debugger",
     long_description=long_description,
     long_description_content_type="text/x-rst",
     url="https://github.com/osandov/drgn",

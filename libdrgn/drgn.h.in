@@ -25,10 +25,11 @@
 /**
  * @mainpage
  *
- * libdrgn implements the core of <a
- * href="https://github.com/osandov/drgn">drgn</a>, a debugger-as-a-library. It
- * implements the main drgn abstractions: @ref Programs, @ref Types, and @ref
- * Objects. See <a href="modules.html">Modules</a> for detailed documentation.
+ * libdrgn provides the functionality of the <a
+ * href="https://github.com/osandov/drgn">drgn</a> programmable debugger as a
+ * library. It implements the main drgn abstractions: @ref Programs, @ref Types,
+ * and @ref Objects. See <a href="modules.html">Modules</a> for detailed
+ * documentation.
  */
 
 /** Major version of drgn. */

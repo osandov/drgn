@@ -38,9 +38,11 @@ scripting in Python. For example, you can debug the Linux kernel:
 Although other debuggers like `GDB <https://www.gnu.org/software/gdb/>`_ have
 scripting support, drgn aims to make scripting as natural as possible so that
 debugging feels like coding. This makes it well-suited for introspecting the
-complex, inter-connected state in large programs. It is also designed as a
-library that can be used to build debugging and introspection tools; see the
-official `tools <https://github.com/osandov/drgn/tree/main/tools>`_.
+complex, inter-connected state in large programs.
+
+Additionally, drgn is designed as a library that can be used to build debugging
+and introspection tools; see the official `tools
+<https://github.com/osandov/drgn/tree/main/tools>`_.
 
 drgn was developed at `Meta <https://opensource.fb.com/>`_ for debugging the
 Linux kernel (as an alternative to the `crash
