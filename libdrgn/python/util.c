@@ -54,6 +54,29 @@ PyObject *join_strings(PyObject *parts)
 	return ret;
 }
 
+PyObject *repr_pretty_from_str(PyObject *self, PyObject *args,
+			       PyObject *kwds)
+{
+	static char *keywords[] = {"p", "cycle", NULL};
+	PyObject *p, *str_obj, *ret;
+	int cycle;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "Op:_repr_pretty_", keywords,
+					 &p, &cycle))
+		return NULL;
+
+	if (cycle)
+		return PyObject_CallMethod(p, "text", "s", "...");
+
+	str_obj = PyObject_Str(self);
+	if (!str_obj)
+		return NULL;
+
+	ret = PyObject_CallMethod(p, "text", "O", str_obj);
+	Py_DECREF(str_obj);
+	return ret;
+}
+
 int index_converter(PyObject *o, void *p)
 {
 	struct index_arg *arg = p;
