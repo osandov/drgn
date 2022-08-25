@@ -151,7 +151,7 @@ First, install dependencies:
       $ sudo pacman -S --needed autoconf automake gcc git libelf libtool make pkgconf python python-pip python-setuptools
 
   Optionally, install `libkdumpfile
-  <https://aur.archlinux.org/packages/libkdumpfile/>`_ from the AUR or from
+  <https://aur.archlinux.org/packages/libkdumpfile/>`__ from the AUR or from
   source if you want support for the makedumpfile format.
 
 * openSUSE
