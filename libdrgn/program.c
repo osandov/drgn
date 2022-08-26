@@ -434,9 +434,34 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->file_segments[j].fd = prog->core_fd;
 		prog->file_segments[j].eio_is_fault = false;
 		/*
-		 * Only zerofill between p_filesz and p_memsz for saved
-		 * kernel cores. makedumpfile excludes zero pages; userland
-		 * and /proc/kcore are not affected.
+		 * p_filesz < p_memsz is ambiguous for core dumps. The ELF
+		 * specification says that "if the segment's memory size p_memsz
+		 * is larger than the file size p_filesz, the 'extra' bytes are
+		 * defined to hold the value 0 and to follow the segment's
+		 * initialized area."
+		 *
+		 * However, the Linux kernel generates userspace core dumps with
+		 * segments with p_filesz < p_memsz to indicate that the range
+		 * between p_filesz and p_memsz was filtered out (see
+		 * coredump_filter in core(5)). These bytes were not necessarily
+		 * zeroes in the process's memory, which contradicts the ELF
+		 * specification in a way.
+		 *
+		 * As of Linux 5.19, /proc/kcore and /proc/vmcore never have
+		 * segments with p_filesz < p_memsz. However, makedumpfile
+		 * creates segments with p_filesz < p_memsz to indicate ranges
+		 * that were excluded. This is similar to Linux userspace core
+		 * dumps, except that makedumpfile can also exclude ranges that
+		 * were all zeroes.
+		 *
+		 * So, for userspace core dumps, we want to fault for ranges
+		 * between p_filesz and p_memsz to indicate that the memory was
+		 * not saved rather than lying and returning zeroes. For
+		 * /proc/kcore, we don't expect to see p_filesz < p_memsz but we
+		 * fault to be safe. For Linux kernel core dumps, we can't
+		 * distinguish between memory that was excluded because it was
+		 * all zeroes and memory that was excluded by makedumpfile for
+		 * another reason, so we're forced to always return zeroes.
 		 */
 		prog->file_segments[j].zerofill = vmcoreinfo_note && !is_proc_kcore;
 		err = drgn_program_add_memory_segment(prog, phdr->p_vaddr,

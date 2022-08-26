@@ -98,10 +98,7 @@ struct drgn_memory_file_segment {
 	uint64_t file_offset;
 	/**
 	 * Size of the segment in the file. This may be less than the size of
-	 * the segment in memory, which means that the remaining bytes were in
-	 * the program's memory but were not saved in the core dump. Attempting
-	 * to read these bytes will be zero filled or a fault depending on
-	 * zerofill below.
+	 * the segment in memory.
 	 */
 	uint64_t file_size;
 	/** File descriptor. */
@@ -112,8 +109,9 @@ struct drgn_memory_file_segment {
 	 */
 	bool eio_is_fault;
 	/**
-	 * If @c true, attempts to read between file_size and memory_size
-	 * will be zero filled, otherwise it is treated as a memory fault.
+	 * If @c true, reads between @ref file_size and the size of the segment
+	 * in memory will be returned as zeroes. Otherwise, such reads will
+	 * result in a fault.
 	 */
 	bool zerofill;
 };
