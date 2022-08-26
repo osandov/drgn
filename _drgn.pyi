@@ -241,10 +241,9 @@ class Program:
         """
         Get the stack trace for the given thread in the program.
 
-        ``thread`` may be a thread ID (as defined by `gettid(2)
-        <http://man7.org/linux/man-pages/man2/gettid.2.html>`_), in which case
-        this will unwind the stack for the thread with that ID. The ID may be a
-        Python ``int`` or an integer :class:`Object`
+        ``thread`` may be a thread ID (as defined by :manpage:`gettid(2)`), in
+        which case this will unwind the stack for the thread with that ID. The
+        ID may be a Python ``int`` or an integer :class:`Object`
 
         ``thread`` may also be a ``struct pt_regs`` or ``struct pt_regs *``
         object, in which case the initial register values will be fetched from
@@ -306,8 +305,7 @@ class Program:
         """
         Get the thread with the given thread ID.
 
-        :param tid: Thread ID (as defined by `gettid(2)
-            <http://man7.org/linux/man-pages/man2/gettid.2.html>`_).
+        :param tid: Thread ID (as defined by :manpage:`gettid(2)`).
         :raises LookupError: if no thread has the given thread ID
         """
         ...
@@ -848,10 +846,7 @@ class Thread:
     """A thread in a program."""
 
     tid: int
-    """
-    Thread ID (as defined by `gettid(2)
-    <http://man7.org/linux/man-pages/man2/gettid.2.html>`_).
-    """
+    """Thread ID (as defined by :manpage:`gettid(2)`)."""
     object: Object
     """
     If the program is the Linux kernel, the ``struct task_struct *`` object for
