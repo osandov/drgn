@@ -55,6 +55,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 hash_table.c \
 			 hash_table.h \
 			 helpers.h \
+			 io.c \
+			 io.h \
 			 language.c \
 			 language.h \
 			 language_c.c \

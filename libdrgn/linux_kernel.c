@@ -23,6 +23,7 @@
 #include "error.h"
 #include "hash_table.h"
 #include "helpers.h"
+#include "io.h"
 #include "linux_kernel.h"
 #include "platform.h"
 #include "program.h"
@@ -630,28 +631,18 @@ kernel_module_iterator_gnu_build_id_live(struct kernel_module_iterator *it,
 			goto out;
 		}
 
-		char *buf = it->build_id_buf;
-		size_t size = 0;
-		while (size < st.st_size) {
-			ssize_t r = read(fd, buf + size, st.st_size - size);
-			if (r < 0) {
-				if (errno == EINTR)
-					continue;
-				err = drgn_error_format_os("read", errno,
-							   "%s/%s", path,
-							   ent->d_name);
-				close(fd);
-				goto out;
-			} else if (r == 0) {
-				break;
-			}
-			size += r;
+		ssize_t r = read_all(fd, it->build_id_buf, st.st_size);
+		if (r < 0) {
+			err = drgn_error_format_os("read", errno, "%s/%s", path,
+						   ent->d_name);
+			close(fd);
+			goto out;
 		}
 		close(fd);
 
-		*build_id_len_ret = parse_gnu_build_id_from_note(buf, size,
-								 false,
-								 build_id_ret);
+		*build_id_len_ret =
+			parse_gnu_build_id_from_note(it->build_id_buf, r, false,
+						     build_id_ret);
 		if (*build_id_len_ret) {
 			err = NULL;
 			goto out;

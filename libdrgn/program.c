@@ -21,6 +21,7 @@
 #include "debug_info.h"
 #include "error.h"
 #include "helpers.h"
+#include "io.h"
 #include "language.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
@@ -205,23 +206,11 @@ static struct drgn_error *has_kdump_signature(const char *path, int fd,
 					      bool *ret)
 {
 	char signature[KDUMP_SIG_LEN];
-	size_t n = 0;
-
-	while (n < sizeof(signature)) {
-		ssize_t sret;
-
-		sret = pread(fd, signature + n, sizeof(signature) - n, n);
-		if (sret == -1) {
-			if (errno == EINTR)
-				continue;
-			return drgn_error_create_os("pread", errno, path);
-		} else if (sret == 0) {
-			*ret = false;
-			return NULL;
-		}
-		n += sret;
-	}
-	*ret = memcmp(signature, KDUMP_SIGNATURE, sizeof(signature)) == 0;
+	ssize_t r = pread_all(fd, signature, sizeof(signature), 0);
+	if (r < 0)
+		return drgn_error_create_os("pread", errno, path);
+	*ret = (r == sizeof(signature)
+		&& memcmp(signature, KDUMP_SIGNATURE, sizeof(signature)) == 0);
 	return NULL;
 }
 
