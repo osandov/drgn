@@ -1,9 +1,8 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <inttypes.h>
+#include <stdio.h>
 
 #include "drgn.h"
 #include "helpers.h"

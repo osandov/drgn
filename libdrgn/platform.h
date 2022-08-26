@@ -4,8 +4,8 @@
 #ifndef DRGN_PLATFORM_H
 #define DRGN_PLATFORM_H
 
-#include <inttypes.h>
 #include <gelf.h>
+#include <inttypes.h>
 
 #include "cfi.h"
 #include "drgn.h"

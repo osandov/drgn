@@ -1,12 +1,12 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "binary_buffer.h"
-#include "drgn.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "binary_buffer.h"
+#include "drgn.h"
 
 static struct drgn_error *binary_buffer_error_vat(struct binary_buffer *bb,
 						  const char *pos,

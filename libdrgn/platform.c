@@ -4,9 +4,9 @@
 #include <byteswap.h>
 #include <elf.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "platform.h"
-#include "util.h"
 
 const struct drgn_register *drgn_register_by_name_unknown(const char *name)
 {

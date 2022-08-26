@@ -4,8 +4,8 @@
 #include "drgnpy.h"
 #include "../hash_table.h"
 #include "../program.h"
-#include "../vector.h"
 #include "../util.h"
+#include "../vector.h"
 
 DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq)
 

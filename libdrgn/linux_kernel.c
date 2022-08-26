@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <byteswap.h>
 #include <dirent.h>
 #include <elf.h>
 #include <elfutils/libdwelf.h>
@@ -12,12 +13,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "binary_buffer.h"
-#include "bitops.h"
 #include "debug_info.h"
 #include "drgn.h"
 #include "error.h"
@@ -25,7 +25,6 @@
 #include "helpers.h"
 #include "io.h"
 #include "linux_kernel.h"
-#include "platform.h"
 #include "program.h"
 #include "type.h"
 #include "util.h"
@@ -338,7 +337,7 @@ static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
 	return drgn_object_copy(ret, &prog->vmemmap);
 }
 
-#include "linux_kernel_object_find.inc"
+#include "linux_kernel_object_find.inc" // IWYU pragma: keep
 
 struct kernel_module_iterator {
 	char *name;

@@ -3,6 +3,7 @@
 
 #include <byteswap.h>
 #include <elf.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "array.h"
@@ -13,8 +14,6 @@
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
 #include "register_state.h"
-#include "serialize.h"
-#include "type.h"
 #include "util.h"
 
 #include "arch_x86_64_defs.inc"

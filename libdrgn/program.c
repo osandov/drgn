@@ -29,8 +29,8 @@
 #include "object_index.h"
 #include "program.h"
 #include "symbol.h"
-#include "vector.h"
 #include "util.h"
+#include "vector.h"
 
 static inline uint32_t drgn_thread_to_key(const struct drgn_thread *entry)
 {

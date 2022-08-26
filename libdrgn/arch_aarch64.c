@@ -1,9 +1,17 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <assert.h>
+#include <byteswap.h>
+#include <elf.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "error.h"
-#include "register_state.h"
 #include "platform.h" // IWYU pragma: associated
+#include "program.h"
+#include "register_state.h"
+#include "util.h"
 
 /*
  * The ABI specification can be found at:
