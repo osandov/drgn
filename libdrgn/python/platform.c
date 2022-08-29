@@ -7,14 +7,12 @@ PyObject *Platform_wrap(const struct drgn_platform *platform)
 {
 	struct drgn_error *err;
 	struct drgn_platform *tmp;
-	Platform *ret;
-
 	err = drgn_platform_create(drgn_platform_arch(platform),
 				   drgn_platform_flags(platform),
 				   &tmp);
 	if (err)
 		return set_drgn_error(err);
-	ret = (Platform *)Platform_type.tp_alloc(&Platform_type, 0);
+	Platform *ret = call_tp_alloc(Platform);
 	if (!ret)
 		return NULL;
 	ret->platform = tmp;
@@ -91,13 +89,13 @@ static PyObject *Platform_get_registers(Platform *self, void *arg)
 	for (size_t i = 0; i < num_registers; i++) {
 		const struct drgn_register *reg =
 			drgn_platform_register(self->platform, i);
-		PyObject *item = Register_type.tp_alloc(&Register_type, 0);
+		Register *item = call_tp_alloc(Register);
 		if (!item) {
 			Py_DECREF(tuple);
 			return NULL;
 		}
-		((Register *)item)->reg = reg;
-		PyTuple_SET_ITEM(tuple, i, item);
+		item->reg = reg;
+		PyTuple_SET_ITEM(tuple, i, (PyObject *)item);
 	}
 	return tuple;
 }

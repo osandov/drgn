@@ -66,8 +66,7 @@ int add_languages(void)
 	static_assert(array_size(attr_names) == DRGN_NUM_LANGUAGES,
 		      "missing language in attr_names");
 	for (size_t i = 0; i < DRGN_NUM_LANGUAGES; i++) {
-		Language *language_obj =
-			(Language *)Language_type.tp_alloc(&Language_type, 0);
+		Language *language_obj = call_tp_alloc(Language);
 		if (!language_obj)
 			return -1;
 		language_obj->attr_name = attr_names[i];

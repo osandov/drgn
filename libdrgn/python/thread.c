@@ -12,7 +12,7 @@ static Program *Thread_prog(Thread *self)
 
 PyObject *Thread_wrap(struct drgn_thread *thread)
 {
-	Thread *ret = (Thread *)Thread_type.tp_alloc(&Thread_type, 0);
+	Thread *ret = call_tp_alloc(Thread);
 	if (!ret)
 		return NULL;
 	struct drgn_error *err =

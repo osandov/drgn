@@ -1534,10 +1534,8 @@ static DrgnObject *DrgnObject_subscript(DrgnObject *self, PyObject *key)
 
 static ObjectIterator *DrgnObject_iter(DrgnObject *self)
 {
-	struct drgn_type *underlying_type;
-	ObjectIterator *it;
-
-	underlying_type = drgn_underlying_type(self->obj.type);
+	struct drgn_type *underlying_type =
+		drgn_underlying_type(self->obj.type);
 	if (drgn_type_kind(underlying_type) != DRGN_TYPE_ARRAY ||
 	    !drgn_type_is_complete(underlying_type)) {
 		set_error_type_name("'%s' is not iterable",
@@ -1545,8 +1543,7 @@ static ObjectIterator *DrgnObject_iter(DrgnObject *self)
 		return NULL;
 	}
 
-	it = (ObjectIterator *)ObjectIterator_type.tp_alloc(&ObjectIterator_type,
-							    0);
+	ObjectIterator *it = call_tp_alloc(ObjectIterator);
 	if (!it)
 		return NULL;
 	it->obj = self;

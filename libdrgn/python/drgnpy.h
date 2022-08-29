@@ -205,15 +205,15 @@ void *set_drgn_error(struct drgn_error *err);
 void *set_error_type_name(const char *format,
 			  struct drgn_qualified_type qualified_type);
 
+#define call_tp_alloc(type) ((type *)type##_type.tp_alloc(&type##_type, 0))
+
 PyObject *Language_wrap(const struct drgn_language *language);
 int language_converter(PyObject *o, void *p);
 int add_languages(void);
 
 static inline DrgnObject *DrgnObject_alloc(Program *prog)
 {
-	DrgnObject *ret;
-
-	ret = (DrgnObject *)DrgnObject_type.tp_alloc(&DrgnObject_type, 0);
+	DrgnObject *ret = call_tp_alloc(DrgnObject);
 	if (ret) {
 		drgn_object_init(&ret->obj, &prog->prog);
 		Py_INCREF(prog);

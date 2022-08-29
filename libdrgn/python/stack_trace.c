@@ -6,8 +6,7 @@
 #include "../util.h"
 
 PyObject *StackTrace_wrap(struct drgn_stack_trace *trace) {
-	StackTrace *ret =
-		(StackTrace *)StackTrace_type.tp_alloc(&StackTrace_type, 0);
+	StackTrace *ret = call_tp_alloc(StackTrace);
 	if (!ret)
 		return NULL;
 	Py_INCREF(container_of(trace->prog, Program, prog));
@@ -58,8 +57,7 @@ static StackFrame *StackTrace_item(StackTrace *self, Py_ssize_t i)
 				"stack frame index out of range");
 		return NULL;
 	}
-	StackFrame *ret =
-		(StackFrame *)StackFrame_type.tp_alloc(&StackFrame_type, 0);
+	StackFrame *ret = call_tp_alloc(StackFrame);
 	if (!ret)
 		return NULL;
 	ret->i = i;

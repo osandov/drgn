@@ -23,8 +23,7 @@ static const char *drgn_type_kind_str(struct drgn_type *type)
 
 DRGNPY_PUBLIC PyObject *DrgnType_wrap(struct drgn_qualified_type qualified_type)
 {
-	DrgnType *type_obj = (DrgnType *)DrgnType_type.tp_alloc(&DrgnType_type,
-								0);
+	DrgnType *type_obj = call_tp_alloc(DrgnType);
 	if (!type_obj)
 		return NULL;
 	type_obj->type = qualified_type.type;
@@ -182,8 +181,7 @@ static TypeMember *TypeMember_wrap(PyObject *parent,
 				   struct drgn_type_member *member,
 				   uint64_t bit_offset)
 {
-	TypeMember *py_member =
-		(TypeMember *)TypeMember_type.tp_alloc(&TypeMember_type, 0);
+	TypeMember *py_member = call_tp_alloc(TypeMember);
 	if (!py_member)
 		return NULL;
 
@@ -310,10 +308,7 @@ static PyObject *DrgnType_get_parameters(DrgnType *self)
 
 	for (i = 0; i < num_parameters; i++) {
 		struct drgn_type_parameter *parameter = &parameters[i];
-		TypeParameter *item;
-
-		item = (TypeParameter *)TypeParameter_type.tp_alloc(&TypeParameter_type,
-								    0);
+		TypeParameter *item = call_tp_alloc(TypeParameter);
 		if (!item)
 			goto err;
 		PyTuple_SET_ITEM(parameters_obj, i, (PyObject *)item);
@@ -367,9 +362,7 @@ static PyObject *DrgnType_get_template_parameters(DrgnType *self)
 			&template_parameters[i];
 
 		TypeTemplateParameter *item =
-			(TypeTemplateParameter *)
-			TypeTemplateParameter_type.tp_alloc(&TypeTemplateParameter_type,
-							    0);
+			call_tp_alloc(TypeTemplateParameter);
 		if (!item)
 			goto err;
 		PyTuple_SET_ITEM(template_parameters_obj, i, (PyObject *)item);
