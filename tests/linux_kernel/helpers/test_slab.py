@@ -147,6 +147,8 @@ class TestSlab(LinuxKernelTestCase):
                 )
                 self.assertEqual(find_containing_slab_cache(obj), cache)
 
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
     def test_find_containing_slab_cache_invalid(self):
         start_addr = pfn_to_virt(self.prog["min_low_pfn"])
         end_addr = pfn_to_virt(self.prog["max_pfn"]) + self.prog["PAGE_SIZE"]
