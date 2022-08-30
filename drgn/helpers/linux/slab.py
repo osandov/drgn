@@ -300,12 +300,12 @@ def find_containing_slab_cache(  # type: ignore  # Need positional-only argument
     page = virt_to_page(prog, addr)
 
     try:
-        PG_slab_mask = 1 << prog.constant("PG_slab")
+        page_flags = page.flags
     except FaultError:
         # Page does not exist
         return NULL(prog, "struct kmem_cache *")
 
-    if not page.flags & PG_slab_mask:
+    if not page_flags & (1 << prog.constant("PG_slab")):
         # Not a slab page
         return NULL(prog, "struct kmem_cache *")
 
