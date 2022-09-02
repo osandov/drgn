@@ -19,6 +19,7 @@ __all__ = (
     "for_each_tcf_chain",
     "for_each_tcf_proto",
     "get_tcf_chain_by_index",
+    "get_tcf_proto_by_prio",
     "qdisc_lookup",
 )
 
@@ -86,6 +87,25 @@ def get_tcf_chain_by_index(block: Object, index: IntegerLike) -> Object:
             return chain
 
     return NULL(block.prog_, "struct tcf_chain *")
+
+
+def get_tcf_proto_by_prio(chain: Object, prio: IntegerLike) -> Object:
+    """
+    Get the TC filter with the given priority from a chain.
+
+    This is only supported since Linux v4.13.
+
+    :param chain: ``struct tcf_chain *``
+    :param prio: TC filter priority (preference) number
+    :return: ``struct tcf_proto *`` (``NULL`` if not found)
+    """
+    prio = operator.index(prio) << 16
+
+    for proto in for_each_tcf_proto(chain):
+        if proto.prio == prio:
+            return proto
+
+    return NULL(chain.prog_, "struct tcf_proto *")
 
 
 def qdisc_lookup(dev: Object, major: IntegerLike) -> Object:
