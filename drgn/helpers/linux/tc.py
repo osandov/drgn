@@ -17,6 +17,7 @@ from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
 __all__ = (
     "for_each_tcf_chain",
+    "for_each_tcf_proto",
     "get_tcf_chain_by_index",
     "qdisc_lookup",
 )
@@ -44,6 +45,25 @@ def for_each_tcf_chain(block: Object) -> Iterator[Object]:
 
     for chain in list_for_each_entry("struct tcf_chain", chain_list, "list"):
         yield chain
+
+
+def for_each_tcf_proto(chain: Object) -> Iterator[Object]:
+    """
+    Iterate over all TC filters on a chain.
+
+    This is only supported since Linux v4.13.
+
+    :param chain: ``struct tcf_chain *``
+    :return: Iterator of ``struct tcf_proto *`` objects.
+    """
+    # Before Linux kernel commit 2190d1d0944f ("net: sched: introduce helpers
+    # to work with filter chains") (in v4.13), struct tcf_chain::filter_chain
+    # didn't exist.
+    proto = chain.filter_chain
+
+    while proto:
+        yield proto
+        proto = proto.next
 
 
 def get_tcf_chain_by_index(block: Object, index: IntegerLike) -> Object:
