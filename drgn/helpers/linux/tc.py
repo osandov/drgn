@@ -10,11 +10,39 @@ Linux kernel Traffic Control (TC) subsystem.
 """
 
 import operator
+from typing import Iterator
 
 from drgn import NULL, IntegerLike, Object
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
-__all__ = ("qdisc_lookup",)
+__all__ = (
+    "for_each_tcf_chain",
+    "qdisc_lookup",
+)
+
+
+def for_each_tcf_chain(block: Object) -> Iterator[Object]:
+    """
+    Iterate over all TC filter chains on a block.
+
+    This is only supported since Linux v4.13.
+
+    :param block: ``struct tcf_block *``
+    :return: Iterator of ``struct tcf_chain *`` objects.
+    """
+    # Before Linux kernel commit 5bc1701881e3 ("net: sched: introduce
+    # multichain support for filters") (in v4.13), each block contained only
+    # one chain.
+    try:
+        chain_list = block.chain_list.address_of_()
+    except AttributeError:
+        # Before Linux kernel commit 2190d1d0944f ("net: sched: introduce
+        # helpers to work with filter chains") (in v4.13), struct tcf_chain
+        # didn't exist.
+        return block.chain
+
+    for chain in list_for_each_entry("struct tcf_chain", chain_list, "list"):
+        yield chain
 
 
 def qdisc_lookup(dev: Object, major: IntegerLike) -> Object:
