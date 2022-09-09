@@ -102,50 +102,44 @@ class TestSlab(LinuxKernelTestCase):
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_slab_cache_for_each_allocated_object(self):
-        cache = self.prog["drgn_test_kmem_cache"]
-        objects = self.prog["drgn_test_slab_objects"]
-        if self.prog["drgn_test_slob"]:
-            self.assertRaisesRegex(
-                ValueError,
-                "SLOB is not supported",
-                next,
-                slab_cache_for_each_allocated_object(
-                    cache, "struct drgn_test_slab_object"
-                ),
-            )
-        else:
-            self.assertEqual(
-                sorted(
-                    slab_cache_for_each_allocated_object(
-                        cache, "struct drgn_test_slab_object"
-                    ),
-                    key=lambda obj: obj.value.value_(),
-                ),
-                [objects[i] for i in range(5)],
-            )
+        for size in ("small", "big"):
+            with self.subTest(size=size):
+                cache = self.prog[f"drgn_test_{size}_kmem_cache"]
+                objects = self.prog[f"drgn_test_{size}_slab_objects"]
+                if self.prog["drgn_test_slob"]:
+                    self.assertRaisesRegex(
+                        ValueError,
+                        "SLOB is not supported",
+                        next,
+                        slab_cache_for_each_allocated_object(
+                            cache, f"struct drgn_test_{size}_slab_object"
+                        ),
+                    )
+                else:
+                    self.assertEqual(
+                        sorted(
+                            slab_cache_for_each_allocated_object(
+                                cache, f"struct drgn_test_{size}_slab_object"
+                            ),
+                            key=lambda obj: obj.value.value_(),
+                        ),
+                        list(objects),
+                    )
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_find_containing_slab_cache(self):
-        cache = self.prog["drgn_test_kmem_cache"]
-        objects = self.prog["drgn_test_slab_objects"]
-
-        if self.prog["drgn_test_slob"]:
-            for obj in objects:
-                self.assertEqual(
-                    find_containing_slab_cache(self.prog, obj.value_()),
-                    NULL(self.prog, "struct kmem_cache *"),
-                )
-                self.assertEqual(
-                    find_containing_slab_cache(obj),
-                    NULL(self.prog, "struct kmem_cache *"),
-                )
-        else:
-            for obj in objects:
-                self.assertEqual(
-                    find_containing_slab_cache(self.prog, obj.value_()), cache
-                )
-                self.assertEqual(find_containing_slab_cache(obj), cache)
+        for size in ("small", "big"):
+            with self.subTest(size=size):
+                cache = self.prog[f"drgn_test_{size}_kmem_cache"]
+                if self.prog["drgn_test_slob"]:
+                    cache = NULL(self.prog, "struct kmem_cache *")
+                objects = self.prog[f"drgn_test_{size}_slab_objects"]
+                for obj in objects:
+                    self.assertEqual(
+                        find_containing_slab_cache(self.prog, obj.value_()), cache
+                    )
+                    self.assertEqual(find_containing_slab_cache(obj), cache)
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod

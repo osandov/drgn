@@ -22,7 +22,13 @@ from drgn import NULL, FaultError, IntegerLike, Object, Program, Type, cast, siz
 from drgn.helpers import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
-from drgn.helpers.linux.mm import for_each_page, page_to_virt, pfn_to_virt, virt_to_page
+from drgn.helpers.linux.mm import (
+    compound_head,
+    for_each_page,
+    page_to_virt,
+    pfn_to_virt,
+    virt_to_page,
+)
 from drgn.helpers.linux.percpu import per_cpu_ptr
 
 __all__ = (
@@ -300,6 +306,7 @@ def find_containing_slab_cache(  # type: ignore  # Need positional-only argument
     page = virt_to_page(prog, addr)
 
     try:
+        page = compound_head(page)
         page_flags = page.flags
     except FaultError:
         # Page does not exist

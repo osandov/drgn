@@ -271,32 +271,47 @@ static void drgn_test_rbtree_init(void)
 // slab
 
 const int drgn_test_slob = IS_ENABLED(CONFIG_SLOB);
-struct kmem_cache *drgn_test_kmem_cache;
+struct kmem_cache *drgn_test_small_kmem_cache;
+struct kmem_cache *drgn_test_big_kmem_cache;
 
-struct drgn_test_slab_object {
+struct drgn_test_small_slab_object {
 	int padding[11];
 	int value;
 };
 
-struct drgn_test_slab_object *drgn_test_slab_objects[5];
+struct drgn_test_big_slab_object {
+	unsigned long padding[PAGE_SIZE / 3 * 4 / sizeof(unsigned long) - 1];
+	unsigned long value;
+};
+
+struct drgn_test_small_slab_object *drgn_test_small_slab_objects[5];
+struct drgn_test_big_slab_object *drgn_test_big_slab_objects[5];
 
 static void drgn_test_slab_exit(void)
 {
 	size_t i;
 
-	if (!drgn_test_kmem_cache)
-		return;
-
-	for (i = 0; i < ARRAY_SIZE(drgn_test_slab_objects); i++) {
-		if (drgn_test_slab_objects[i]) {
-			kmem_cache_free(drgn_test_kmem_cache,
-					drgn_test_slab_objects[i]);
+	if (drgn_test_big_kmem_cache) {
+		for (i = 0; i < ARRAY_SIZE(drgn_test_big_slab_objects); i++) {
+			if (drgn_test_big_slab_objects[i]) {
+				kmem_cache_free(drgn_test_big_kmem_cache,
+						drgn_test_big_slab_objects[i]);
+			}
 		}
+		kmem_cache_destroy(drgn_test_big_kmem_cache);
 	}
-	kmem_cache_destroy(drgn_test_kmem_cache);
+	if (drgn_test_small_kmem_cache) {
+		for (i = 0; i < ARRAY_SIZE(drgn_test_small_slab_objects); i++) {
+			if (drgn_test_small_slab_objects[i]) {
+				kmem_cache_free(drgn_test_small_kmem_cache,
+						drgn_test_small_slab_objects[i]);
+			}
+		}
+		kmem_cache_destroy(drgn_test_small_kmem_cache);
+	}
 }
 
-// Dummy constructor so test slab cache won't get merged.
+// Dummy constructor so test slab caches won't get merged.
 static void drgn_test_slab_ctor(void *arg)
 {
 }
@@ -305,19 +320,34 @@ static int drgn_test_slab_init(void)
 {
 	size_t i;
 
-	drgn_test_kmem_cache =
-		kmem_cache_create("drgn_test",
-				  sizeof(struct drgn_test_slab_object),
-				  __alignof__(struct drgn_test_slab_object), 0,
-				  drgn_test_slab_ctor);
-	if (!drgn_test_kmem_cache)
+	drgn_test_small_kmem_cache =
+		kmem_cache_create("drgn_test_small",
+				  sizeof(struct drgn_test_small_slab_object),
+				  __alignof__(struct drgn_test_small_slab_object),
+				  0, drgn_test_slab_ctor);
+	if (!drgn_test_small_kmem_cache)
 		return -ENOMEM;
-	for (i = 0; i < ARRAY_SIZE(drgn_test_slab_objects); i++) {
-		drgn_test_slab_objects[i] =
-			kmem_cache_alloc(drgn_test_kmem_cache, GFP_KERNEL);
-		if (!drgn_test_slab_objects[i])
+	for (i = 0; i < ARRAY_SIZE(drgn_test_small_slab_objects); i++) {
+		drgn_test_small_slab_objects[i] =
+			kmem_cache_alloc(drgn_test_small_kmem_cache,
+					 GFP_KERNEL);
+		if (!drgn_test_small_slab_objects[i])
 			return -ENOMEM;
-		drgn_test_slab_objects[i]->value = i;
+		drgn_test_small_slab_objects[i]->value = i;
+	}
+	drgn_test_big_kmem_cache =
+		kmem_cache_create("drgn_test_big",
+				  sizeof(struct drgn_test_big_slab_object),
+				  __alignof__(struct drgn_test_big_slab_object),
+				  0, drgn_test_slab_ctor);
+	if (!drgn_test_big_kmem_cache)
+		return -ENOMEM;
+	for (i = 0; i < ARRAY_SIZE(drgn_test_big_slab_objects); i++) {
+		drgn_test_big_slab_objects[i] =
+			kmem_cache_alloc(drgn_test_big_kmem_cache, GFP_KERNEL);
+		if (!drgn_test_big_slab_objects[i])
+			return -ENOMEM;
+		drgn_test_big_slab_objects[i]->value = i;
 	}
 	return 0;
 }
