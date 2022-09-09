@@ -118,11 +118,15 @@ void *drgn_test_va;
 phys_addr_t drgn_test_pa;
 unsigned long drgn_test_pfn;
 struct page *drgn_test_page;
+struct page *drgn_test_compound_page;
 
 static int drgn_test_mm_init(void)
 {
 	drgn_test_page = alloc_page(GFP_KERNEL);
 	if (!drgn_test_page)
+		return -ENOMEM;
+	drgn_test_compound_page = alloc_pages(GFP_KERNEL | __GFP_COMP, 1);
+	if (!drgn_test_compound_page)
 		return -ENOMEM;
 	drgn_test_va = page_address(drgn_test_page);
 	drgn_test_pa = virt_to_phys(drgn_test_va);
@@ -132,6 +136,8 @@ static int drgn_test_mm_init(void)
 
 static void drgn_test_mm_exit(void)
 {
+	if (drgn_test_compound_page)
+		__free_pages(drgn_test_page, 1);
 	if (drgn_test_page)
 		__free_pages(drgn_test_page, 0);
 }

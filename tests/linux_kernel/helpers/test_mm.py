@@ -14,13 +14,20 @@ from drgn import FaultError
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
     PHYS_PFN,
+    PageCompound,
+    PageHead,
     PageSwapBacked,
+    PageTail,
     PageWriteback,
     access_process_vm,
     access_remote_vm,
     cmdline,
+    compound_head,
+    compound_nr,
+    compound_order,
     decode_page_flags,
     environ,
+    page_size,
     page_to_pfn,
     page_to_phys,
     page_to_virt,
@@ -79,6 +86,55 @@ class TestMm(LinuxKernelTestCase):
             # and a negative case to cover all of them.
             self.assertTrue(PageSwapBacked(page))
             self.assertFalse(PageWriteback(page))
+
+    @skip_unless_have_test_kmod
+    def test_PageCompound(self):
+        self.assertFalse(PageCompound(self.prog["drgn_test_page"]))
+        self.assertTrue(PageCompound(self.prog["drgn_test_compound_page"]))
+        self.assertTrue(PageCompound(self.prog["drgn_test_compound_page"] + 1))
+
+    @skip_unless_have_test_kmod
+    def test_PageHead(self):
+        self.assertFalse(PageHead(self.prog["drgn_test_page"]))
+        self.assertTrue(PageHead(self.prog["drgn_test_compound_page"]))
+        self.assertFalse(PageHead(self.prog["drgn_test_compound_page"] + 1))
+
+    @skip_unless_have_test_kmod
+    def test_PageTail(self):
+        self.assertFalse(PageTail(self.prog["drgn_test_page"]))
+        self.assertFalse(PageTail(self.prog["drgn_test_compound_page"]))
+        self.assertTrue(PageTail(self.prog["drgn_test_compound_page"] + 1))
+
+    @skip_unless_have_test_kmod
+    def test_compound_head(self):
+        self.assertEqual(
+            compound_head(self.prog["drgn_test_page"]), self.prog["drgn_test_page"]
+        )
+        self.assertEqual(
+            compound_head(self.prog["drgn_test_compound_page"]),
+            self.prog["drgn_test_compound_page"],
+        )
+        self.assertEqual(
+            compound_head(self.prog["drgn_test_compound_page"] + 1),
+            self.prog["drgn_test_compound_page"],
+        )
+
+    @skip_unless_have_test_kmod
+    def test_compound_order(self):
+        self.assertEqual(compound_order(self.prog["drgn_test_page"]), 0)
+        self.assertEqual(compound_order(self.prog["drgn_test_compound_page"]), 1)
+
+    @skip_unless_have_test_kmod
+    def test_compound_nr(self):
+        self.assertEqual(compound_nr(self.prog["drgn_test_page"]), 1)
+        self.assertEqual(compound_nr(self.prog["drgn_test_compound_page"]), 2)
+
+    @skip_unless_have_test_kmod
+    def test_page_size(self):
+        self.assertEqual(page_size(self.prog["drgn_test_page"]), self.prog["PAGE_SIZE"])
+        self.assertEqual(
+            page_size(self.prog["drgn_test_compound_page"]), 2 * self.prog["PAGE_SIZE"]
+        )
 
     @skip_unless_have_full_mm_support
     def test_decode_page_flags(self):
