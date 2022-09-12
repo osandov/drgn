@@ -351,8 +351,15 @@ struct kernel_module_iterator {
 		size_t name_capacity;
 		/* If not using /proc/modules. */
 		struct {
+			/* `struct module` type. */
 			struct drgn_qualified_type module_type;
-			struct drgn_object mod, node, tmp1, tmp2, tmp3;
+			/* Current `struct module` (not a pointer). */
+			struct drgn_object mod;
+			/* `struct list_head *` in next module to return. */
+			struct drgn_object node;
+			/* Temporary objects reused for various purposes. */
+			struct drgn_object tmp1, tmp2, tmp3;
+			/* Address of `struct list_head modules`. */
 			uint64_t head;
 		};
 	};
@@ -408,13 +415,16 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 					       &it->node);
 		if (err)
 			goto err;
-		err = drgn_object_address_of(&it->node, &it->node);
+		if (it->node.kind != DRGN_OBJECT_REFERENCE) {
+			err = drgn_error_create(DRGN_ERROR_OTHER,
+						"can't get address of modules list");
+		      goto err;
+		}
+		it->head = it->node.address;
+		err = drgn_object_member(&it->node, &it->node, "next");
 		if (err)
 			goto err;
 		err = drgn_object_read(&it->node, &it->node);
-		if (err)
-			goto err;
-		err = drgn_object_read_unsigned(&it->node, &it->head);
 		if (err)
 			goto err;
 	}
@@ -471,12 +481,6 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 
 	struct drgn_error *err;
 
-	err = drgn_object_member_dereference(&it->node, &it->node, "next");
-	if (err)
-		return err;
-	err = drgn_object_read(&it->node, &it->node);
-	if (err)
-		return err;
 	uint64_t addr;
 	err = drgn_object_read_unsigned(&it->node, &addr);
 	if (err)
@@ -488,10 +492,25 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 				       "list");
 	if (err)
 		return err;
+	err = drgn_object_dereference(&it->mod, &it->mod);
+	if (err)
+		return err;
+	// We need several fields from the `struct module`. Especially for
+	// /proc/kcore, it is faster to read the entire structure (which is <1kB
+	// as of Linux 6.0) from the core dump all at once than it is to read
+	// each field individually.
+	err = drgn_object_read(&it->mod, &it->mod);
+	if (err)
+		return err;
+	err = drgn_object_member(&it->node, &it->mod, "list");
+	if (err)
+		return err;
+	err = drgn_object_member(&it->node, &it->node, "next");
+	if (err)
+		return err;
 
 	// Set tmp1 to the module base address and tmp2 to the size.
-	err = drgn_object_member_dereference(&it->tmp1, &it->mod,
-					     "core_layout");
+	err = drgn_object_member(&it->tmp1, &it->mod, "core_layout");
 	if (!err) {
 		// Since Linux kernel commit 7523e4dc5057 ("module: use a
 		// structure to encapsulate layout.") (in v4.5), the base and
@@ -507,12 +526,10 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 		// Before that, they are directly in the `struct module`.
 		drgn_error_destroy(err);
 
-		err = drgn_object_member_dereference(&it->tmp2, &it->mod,
-						     "core_size");
+		err = drgn_object_member(&it->tmp2, &it->mod, "core_size");
 		if (err)
 			return err;
-		err = drgn_object_member_dereference(&it->tmp1, &it->mod,
-						     "module_core");
+		err = drgn_object_member(&it->tmp1, &it->mod, "module_core");
 		if (err)
 			return err;
 	} else {
@@ -526,7 +543,7 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 		return err;
 	it->end += it->start;
 
-	err = drgn_object_member_dereference(&it->tmp2, &it->mod, "name");
+	err = drgn_object_member(&it->tmp2, &it->mod, "name");
 	if (err)
 		return err;
 	char *name;
@@ -675,8 +692,7 @@ kernel_module_iterator_gnu_build_id(struct kernel_module_iterator *it,
 
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(&it->mod);
-	const bool bswap =
-		drgn_type_little_endian(it->mod.type) != HOST_LITTLE_ENDIAN;
+	const bool bswap = drgn_platform_bswap(&prog->platform);
 
 	struct drgn_object attrs, attr, tmp;
 	drgn_object_init(&attrs, prog);
@@ -685,7 +701,7 @@ kernel_module_iterator_gnu_build_id(struct kernel_module_iterator *it,
 
 	// n = mod->notes_attrs->notes
 	uint64_t n;
-	err = drgn_object_member_dereference(&attrs, &it->mod, "notes_attrs");
+	err = drgn_object_member(&attrs, &it->mod, "notes_attrs");
 	if (err)
 		goto out;
 	err = drgn_object_member_dereference(&tmp, &attrs, "notes");
@@ -790,9 +806,8 @@ kernel_module_section_iterator_init(struct kernel_module_section_iterator *it,
 		it->i = 0;
 		it->name = NULL;
 		/* it->nsections = mod->sect_attrs->nsections */
-		err = drgn_object_member_dereference(&kmod_it->tmp1,
-						     &kmod_it->mod,
-						     "sect_attrs");
+		err = drgn_object_member(&kmod_it->tmp1, &kmod_it->mod,
+					 "sect_attrs");
 		if (err)
 			return err;
 		err = drgn_object_member_dereference(&kmod_it->tmp2,
