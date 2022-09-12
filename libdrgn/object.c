@@ -287,16 +287,16 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 {
 	const char *p = (const char *)buf + (bit_offset / CHAR_BIT);
 	bit_offset %= CHAR_BIT;
+	/*
+	 * buf may point inside of res->value or drgn_object_buffer(res), so we
+	 * copy to a temporary value before freeing or modifying the old value.
+	 */
+	union drgn_value value;
 	if (type->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
 		if (bit_offset != 0) {
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "non-scalar must be byte-aligned");
 		}
-		/*
-		 * buf may point inside of drgn_object_buffer(res), so copy to a
-		 * temporary value before freeing or modifying the latter.
-		 */
-		union drgn_value value;
 		uint64_t size = drgn_value_size(type->bit_size);
 		char *dst;
 		if (size <= sizeof(res->value.ibuf)) {
@@ -308,22 +308,20 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 			value.bufp = dst;
 		}
 		memcpy(dst, p, size);
-		drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
-		res->value = value;
 	} else if (drgn_object_encoding_is_complete(type->encoding)) {
 		if (type->encoding == DRGN_OBJECT_ENCODING_FLOAT) {
 			if (type->bit_size != 32 && type->bit_size != 64)
 				return &drgn_float_size_unsupported;
 		} else if (type->bit_size > 64)
 			return &drgn_integer_too_big;
-		drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
-		drgn_value_deserialize(&res->value, p, bit_offset,
-				       type->encoding, type->bit_size,
-				       type->little_endian);
+		drgn_value_deserialize(&value, p, bit_offset, type->encoding,
+				       type->bit_size, type->little_endian);
 	} else {
 		return drgn_error_incomplete_type("cannot create object with %s type",
 						  type->type);
 	}
+	drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
+	res->value = value;
 	return NULL;
 }
 
