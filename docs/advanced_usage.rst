@@ -92,7 +92,7 @@ Some of drgn's behavior can be modified through environment variables:
     :exc:`drgn.MissingDebugInfoError`. Any additional errors are truncated. The
     default is 5; -1 is unlimited.
 
-``DRGN_PREFER_ORC_UNWINDER```
+``DRGN_PREFER_ORC_UNWINDER``
     Whether to prefer using `ORC
     <https://www.kernel.org/doc/html/latest/x86/orc-unwinder.html>`_ over DWARF
     for stack unwinding (0 or 1). The default is 0. Note that drgn will always
