@@ -721,6 +721,7 @@ out:
 
 struct kernel_module_section_iterator {
 	struct kernel_module_iterator *kmod_it;
+	bool yielded_percpu;
 	/* /sys/module/$module/sections directory or NULL. */
 	DIR *sections_dir;
 	/* If not using /sys/module/$module/sections. */
@@ -736,6 +737,7 @@ kernel_module_section_iterator_init(struct kernel_module_section_iterator *it,
 	struct drgn_error *err;
 
 	it->kmod_it = kmod_it;
+	it->yielded_percpu = false;
 	if (kmod_it->use_sys_module) {
 		char *path;
 		if (asprintf(&path, "/sys/module/%s/sections",
@@ -842,13 +844,42 @@ kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
 				    const char **name_ret,
 				    uint64_t *address_ret)
 {
+	struct drgn_error *err;
+	struct kernel_module_iterator *kmod_it = it->kmod_it;
+
+	// As of Linux 6.0, the .data..percpu section is not included in the
+	// section attributes. (kernel/module/sysfs.c:add_sect_attrs() only
+	// creates attributes for sections with the SHF_ALLOC flag set, but
+	// kernel/module/main.c:layout_and_allocate() clears the SHF_ALLOC flag
+	// for the .data..percpu section.) However, we need this address so that
+	// global per-CPU variables will be relocated correctly. Get it from
+	// `struct module`.
+	if (!it->yielded_percpu) {
+		it->yielded_percpu = true;
+		err = drgn_object_member(&kmod_it->tmp2, &kmod_it->mod,
+					 "percpu");
+		if (!err) {
+			err = drgn_object_read_unsigned(&kmod_it->tmp2, address_ret);
+			if (err)
+				return err;
+			// struct module::percpu is NULL if the module doesn't
+			// have any per-CPU data.
+			if (*address_ret) {
+				*name_ret = ".data..percpu";
+				return NULL;
+			}
+		} else if (err->code == DRGN_ERROR_LOOKUP) {
+			// struct module::percpu doesn't exist if !SMP.
+			drgn_error_destroy(err);
+		} else {
+			return err;
+		}
+	}
+
 	if (it->sections_dir) {
 		return kernel_module_section_iterator_next_live(it, name_ret,
 								address_ret);
 	}
-
-	struct drgn_error *err;
-	struct kernel_module_iterator *kmod_it = it->kmod_it;
 
 	if (it->i >= it->nsections)
 		return &drgn_stop;

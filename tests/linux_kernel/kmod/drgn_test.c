@@ -142,6 +142,39 @@ static void drgn_test_mm_exit(void)
 		__free_pages(drgn_test_page, 0);
 }
 
+
+// percpu
+
+DEFINE_PER_CPU(unsigned int, drgn_test_percpu_static);
+const unsigned int drgn_test_percpu_static_prime = 0xa45dcfc3U;
+unsigned int __percpu *drgn_test_percpu_dynamic;
+const unsigned int drgn_test_percpu_dynamic_prime = 0x6d80a613U;
+
+static int drgn_test_percpu_init(void)
+{
+	int cpu;
+	unsigned int static_prime = drgn_test_percpu_static_prime;
+	unsigned int dynamic_prime = drgn_test_percpu_dynamic_prime;
+
+	drgn_test_percpu_dynamic = alloc_percpu(unsigned int);
+	if (!drgn_test_percpu_dynamic)
+		return -ENOMEM;
+	// Initialize the per-cpu variables to powers of a random prime number
+	// which are extremely unlikely to appear anywhere else.
+	for_each_possible_cpu(cpu) {
+		static_prime *= drgn_test_percpu_static_prime;
+		per_cpu(drgn_test_percpu_static, cpu) = static_prime;
+		dynamic_prime *= drgn_test_percpu_dynamic_prime;
+		*per_cpu_ptr(drgn_test_percpu_dynamic, cpu) = dynamic_prime;
+	}
+	return 0;
+}
+
+static void drgn_test_percpu_exit(void)
+{
+	free_percpu(drgn_test_percpu_dynamic);
+}
+
 // rbtree
 
 struct rb_root drgn_test_empty_rb_root = RB_ROOT;
@@ -361,6 +394,7 @@ int drgn_test_function(int x)
 static void drgn_test_exit(void)
 {
 	drgn_test_slab_exit();
+	drgn_test_percpu_exit();
 	drgn_test_mm_exit();
 }
 
@@ -371,6 +405,9 @@ static int __init drgn_test_init(void)
 	drgn_test_list_init();
 	drgn_test_llist_init();
 	ret = drgn_test_mm_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_percpu_init();
 	if (ret)
 		goto out;
 	drgn_test_rbtree_init();

@@ -2,8 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
-from drgn.helpers.linux.percpu import per_cpu
-from tests.linux_kernel import LinuxKernelTestCase, smp_enabled
+from drgn.helpers.linux.percpu import per_cpu, per_cpu_ptr
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
+    skip_unless_have_test_kmod,
+    smp_enabled,
+)
 
 
 class TestPerCpu(LinuxKernelTestCase):
@@ -18,3 +22,21 @@ class TestPerCpu(LinuxKernelTestCase):
                 self.assertEqual(
                     per_cpu(self.prog["runqueues"], cpu).idle.comm.string_(), b"swapper"
                 )
+
+    @skip_unless_have_test_kmod
+    def test_per_cpu_module_static(self):
+        expected = prime = self.prog["drgn_test_percpu_static_prime"]
+        for cpu in for_each_possible_cpu(self.prog):
+            expected *= prime
+            self.assertEqual(
+                per_cpu(self.prog["drgn_test_percpu_static"], cpu), expected
+            )
+
+    @skip_unless_have_test_kmod
+    def test_per_cpu_module_dynamic(self):
+        expected = prime = self.prog["drgn_test_percpu_dynamic_prime"]
+        for cpu in for_each_possible_cpu(self.prog):
+            expected *= prime
+            self.assertEqual(
+                per_cpu_ptr(self.prog["drgn_test_percpu_dynamic"], cpu)[0], expected
+            )
