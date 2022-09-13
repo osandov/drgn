@@ -9,7 +9,7 @@ import socket
 import struct
 
 from drgn import cast, container_of
-from drgn.helpers import enum_type_to_class
+from drgn.helpers.common.type import enum_type_to_class
 from drgn.helpers.linux import (
     cgroup_path,
     hlist_for_each,

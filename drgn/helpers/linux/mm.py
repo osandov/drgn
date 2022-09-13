@@ -15,7 +15,7 @@ from typing import Iterator, List, Optional, Union, overload
 
 from _drgn import _linux_helper_direct_mapping_offset, _linux_helper_read_vm
 from drgn import IntegerLike, Object, Program, cast
-from drgn.helpers import decode_enum_type_flags
+from drgn.helpers.common.format import decode_enum_type_flags
 
 __all__ = (
     "PFN_PHYS",
