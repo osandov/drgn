@@ -226,12 +226,14 @@ def main() -> None:
 
         sys.displayhook = displayhook
 
-        banner = """\
+        banner = f"""\
 For help, type help(drgn).
 >>> import drgn
->>> from drgn import """ + ", ".join(
-            drgn_globals
-        )
+>>> from drgn import {", ".join(drgn_globals)}
+>>> from drgn.helpers.common import *"""
+        module = importlib.import_module("drgn.helpers.common")
+        for name in module.__dict__["__all__"]:
+            init_globals[name] = getattr(module, name)
         if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
             banner += "\n>>> from drgn.helpers.linux import *"
             module = importlib.import_module("drgn.helpers.linux")
