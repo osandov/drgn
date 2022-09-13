@@ -35,10 +35,7 @@ import pkgutil
 from typing import List
 
 __all__: List[str] = []
-for _module_info in pkgutil.iter_modules(
-    __path__,  # type: ignore[name-defined]  # python/mypy#1422
-    prefix=__name__ + ".",
-):
+for _module_info in pkgutil.iter_modules(__path__, prefix=__name__ + "."):
     _submodule = importlib.import_module(_module_info.name)
     _submodule_all = getattr(_submodule, "__all__", ())
     __all__.extend(_submodule_all)
