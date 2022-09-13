@@ -15,7 +15,7 @@ Before that, they were represented by ``struct hd_struct``.
 from typing import Iterator
 
 from drgn import Object, Program, container_of
-from drgn.helpers import escape_ascii_string
+from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry
 

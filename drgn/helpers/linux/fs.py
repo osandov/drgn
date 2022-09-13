@@ -13,7 +13,7 @@ import os
 from typing import Iterator, Optional, Tuple, Union, overload
 
 from drgn import IntegerLike, Object, Path, Program, container_of, sizeof
-from drgn.helpers import escape_ascii_string
+from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.list import (
     hlist_empty,
     hlist_for_each_entry,

@@ -9,7 +9,7 @@ import os
 import sys
 
 from drgn import cast
-from drgn.helpers import enum_type_to_class
+from drgn.helpers.common.type import enum_type_to_class
 from drgn.helpers.linux import (
     cgroup_bpf_prog_for_each,
     cgroup_path,
