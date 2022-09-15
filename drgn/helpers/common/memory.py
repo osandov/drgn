@@ -5,7 +5,7 @@
 Memory
 ------
 
-The ``drgn.helpers.memory`` module provides helpers for working with memory and addresses.
+The ``drgn.helpers.common.memory`` module provides helpers for working with memory and addresses.
 """
 
 import operator
