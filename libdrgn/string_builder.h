@@ -57,13 +57,12 @@ struct string_builder {
 /**
  * Null-terminate and return a string from a @ref string_builder.
  *
- * On success, the string builder must be reinitialized before being reused.
+ * This appends a null character without incrementing @ref string_builder::len.
  *
- * @param[out] ret Returned string.
- * @return @c true on success, @c false on error (if we couldn't allocate
- * memory).
+ * @return @ref string_builder::str on success, @c NULL on error (if we couldn't
+ * allocate memory).
  */
-bool string_builder_finalize(struct string_builder *sb, char **ret);
+char *string_builder_null_terminate(struct string_builder *sb);
 
 /**
  * Resize the buffer of a @ref string_builder to a given capacity.

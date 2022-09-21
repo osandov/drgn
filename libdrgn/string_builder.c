@@ -8,13 +8,12 @@
 #include "string_builder.h"
 #include "util.h"
 
-bool string_builder_finalize(struct string_builder *sb, char **ret)
+char *string_builder_null_terminate(struct string_builder *sb)
 {
 	if (!string_builder_reserve_for_append(sb, 1))
-		return false;
+		return NULL;
 	sb->str[sb->len] = '\0';
-	*ret = sb->str;
-	return true;
+	return sb->str;
 }
 
 bool string_builder_reserve(struct string_builder *sb, size_t capacity)

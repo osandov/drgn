@@ -160,7 +160,7 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 		    !string_builder_appendc(&str, '\n'))
 			goto enomem;
 	}
-	if (!string_builder_finalize(&str, ret))
+	if (!(*ret = string_builder_null_terminate(&str)))
 		goto enomem;
 	return NULL;
 
@@ -219,7 +219,7 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 	    !string_builder_append(&str, " (inlined)"))
 		goto enomem;
 
-	if (!string_builder_finalize(&str, ret))
+	if (!(*ret = string_builder_null_terminate(&str)))
 		goto enomem;
 	return NULL;
 

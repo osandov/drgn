@@ -542,7 +542,7 @@ c_format_type_name(struct drgn_qualified_type qualified_type, char **ret)
 		free(sb.str);
 		return err;
 	}
-	if (!string_builder_finalize(&sb, ret))
+	if (!(*ret = string_builder_null_terminate(&sb)))
 		return &drgn_enomem;
 	return NULL;
 }
@@ -560,7 +560,7 @@ c_format_type(struct drgn_qualified_type qualified_type, char **ret)
 		free(sb.str);
 		return err;
 	}
-	if (!string_builder_finalize(&sb, ret))
+	if (!(*ret = string_builder_null_terminate(&sb)))
 		return &drgn_enomem;
 	return NULL;
 }
@@ -1609,7 +1609,7 @@ static struct drgn_error *c_format_object(const struct drgn_object *obj,
 		free(sb.str);
 		return err;
 	}
-	if (!string_builder_finalize(&sb, ret))
+	if (!(*ret = string_builder_null_terminate(&sb)))
 		return &drgn_enomem;
 	return NULL;
 }
