@@ -5373,8 +5373,9 @@ struct drgn_error *drgn_find_in_dwarf_scopes(Dwarf_Die *scopes,
 			switch (dwarf_tag(&die)) {
 			case DW_TAG_variable:
 			case DW_TAG_formal_parameter:
-			case DW_TAG_subprogram:
-				if (strcmp(dwarf_diename(&die), name) == 0) {
+			case DW_TAG_subprogram: {
+				const char *die_name = dwarf_diename(&die);
+				if (die_name && strcmp(die_name, name) == 0) {
 					*die_ret = die;
 					bool declaration;
 					if (dwarf_flag(&die, DW_AT_declaration,
@@ -5386,6 +5387,7 @@ struct drgn_error *drgn_find_in_dwarf_scopes(Dwarf_Die *scopes,
 						return NULL;
 				}
 				break;
+			}
 			case DW_TAG_enumeration_type: {
 				bool enum_class;
 				if (dwarf_flag_integrate(&die, DW_AT_enum_class,
