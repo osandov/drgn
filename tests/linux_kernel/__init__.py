@@ -10,7 +10,9 @@ import platform
 import re
 import signal
 import socket
+import sys
 import time
+import traceback
 from typing import NamedTuple
 import unittest
 
@@ -97,47 +99,62 @@ skip_unless_have_full_mm_support = unittest.skipUnless(
 
 _machine = platform.machine()
 if _machine.startswith("aarch64") or _machine.startswith("arm64"):
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif _machine == "alpha":
-    SYS = {"bpf": 515}
+    SYS = {"bpf": 515, "rt_sigtimedwait": 355}
 elif _machine == "arc":
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif _machine.startswith("arm"):
-    SYS = {"bpf": 386}
+    SYS = {"bpf": 386, "rt_sigtimedwait": 177, "rt_sigtimedwait_time64": 421}
 elif _machine == "csky":
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif _machine == "hexagon":
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif re.fullmatch(r"i.86", _machine):
-    SYS = {"bpf": 357}
+    SYS = {"bpf": 357, "rt_sigtimedwait": 177, "rt_sigtimedwait_time64": 421}
 elif _machine == "ia64":
-    SYS = {"bpf": 317}
+    SYS = {"bpf": 317, "rt_sigtimedwait": 159}
 elif _machine.startswith("loongarch"):
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif _machine == "m68k":
-    SYS = {"bpf": 354}
+    SYS = {"bpf": 354, "rt_sigtimedwait": 177, "rt_sigtimedwait_time64": 421}
 elif _machine == "microblaze":
-    SYS = {"bpf": 387}
+    SYS = {"bpf": 387, "rt_sigtimedwait": 177, "rt_sigtimedwait_time64": 421}
 elif _machine == "nios2":
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif _machine == "openrisc":
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif _machine.startswith("parisc"):
-    SYS = {"bpf": 341}
+    if sys.maxsize > 2**32:
+        SYS = {"bpf": 341, "rt_sigtimedwait": 177}
+    else:
+        SYS = {"bpf": 341, "rt_sigtimedwait": 177, "rt_sigtimedwait_time64": 421}
 elif _machine.startswith("ppc"):
-    SYS = {"bpf": 361}
+    if sys.maxsize > 2**32:
+        SYS = {"bpf": 361, "rt_sigtimedwait": 176}
+    else:
+        SYS = {"bpf": 361, "rt_sigtimedwait": 176, "rt_sigtimedwait_time64": 421}
 elif _machine.startswith("riscv"):
-    SYS = {"bpf": 280}
+    SYS = {"bpf": 280, "rt_sigtimedwait": 137, "rt_sigtimedwait_time64": 421}
 elif _machine.startswith("s390"):
-    SYS = {"bpf": 351}
+    if sys.maxsize > 2**32:
+        SYS = {"bpf": 351, "rt_sigtimedwait": 177}
+    else:
+        SYS = {"bpf": 351, "rt_sigtimedwait": 177, "rt_sigtimedwait_time64": 421}
 elif _machine.startswith("sh"):
-    SYS = {"bpf": 375}
+    SYS = {"bpf": 375, "rt_sigtimedwait": 177, "rt_sigtimedwait_time64": 421}
 elif _machine.startswith("sparc"):
-    SYS = {"bpf": 349}
+    if sys.maxsize > 2**32:
+        SYS = {"bpf": 349, "rt_sigtimedwait": 105}
+    else:
+        SYS = {"bpf": 349, "rt_sigtimedwait": 105, "rt_sigtimedwait_time64": 421}
 elif _machine == "x86_64":
-    SYS = {"bpf": 321}
+    if sys.maxsize > 2**32:
+        SYS = {"bpf": 321, "rt_sigtimedwait": 128}
+    else:
+        SYS = {"bpf": 321, "rt_sigtimedwait": 523}
 elif _machine == "xtensa":
-    SYS = {"bpf": 340}
+    SYS = {"bpf": 340, "rt_sigtimedwait": 229, "rt_sigtimedwait_time64": 421}
 else:
     # TODO: the only other architecture supported by Linux as of 6.0 is mips,
     # but I don't know how to distinguish between the o32, n32, and n64 ABIs.
@@ -158,31 +175,51 @@ def wait_until(fn, *args, **kwds):
         sleep *= 2
 
 
-def fork_and_pause(fn=None):
-    pid = os.fork()
-    if pid == 0:
-        if fn:
-            fn()
-        try:
-            while True:
-                signal.pause()
-        finally:
-            os._exit(1)
-    return pid
-
-
 def proc_state(pid):
     with open(f"/proc/{pid}/status", "r") as f:
         return re.search(r"State:\s*(\S)", f.read(), re.M).group(1)
 
 
-# Return whether a process is blocked and fully scheduled out. The process
-# state is updated while the process is still running, so use this instead of
-# proc_state(pid) != "R" to avoid races. This is not accurate if pid is the
-# calling thread.
-def proc_blocked(pid):
+_sigwait_syscall_number_strs = {
+    str(SYS[name])
+    for name in ("rt_sigtimedwait", "rt_sigtimedwait_time64")
+    if name in SYS
+}
+
+
+# Return whether a process is blocked in sigwait().
+def proc_in_sigwait(pid):
+    if proc_state(pid) != "S":
+        return False
     with open(f"/proc/{pid}/syscall", "r") as f:
-        return f.read() != "running\n"
+        return f.read().partition(" ")[0] in _sigwait_syscall_number_strs
+
+
+# Context manager that:
+# 1. Forks a process that blocks in sigwait() forever, optionally calling a
+#    function beforehand.
+# 2. Waits for the process to be in sigwait().
+# 3. Returns the PID from __enter__().
+# 4. Kills the process in __exit__().
+@contextlib.contextmanager
+def fork_and_sigwait(fn=None):
+    pid = os.fork()
+    try:
+        if pid == 0:
+            try:
+                if fn:
+                    fn()
+                while True:
+                    signal.sigwait(())
+            finally:
+                traceback.print_exc()
+                sys.stderr.flush()
+                os._exit(1)
+        wait_until(proc_in_sigwait, pid)
+        yield pid
+    finally:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
 
 
 def smp_enabled():

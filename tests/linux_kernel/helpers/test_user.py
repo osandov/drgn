@@ -1,17 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import contextlib
 import functools
 import os
-import signal
 
 from drgn.helpers.linux.user import find_user, for_each_user
-from tests.linux_kernel import (
-    LinuxKernelTestCase,
-    fork_and_pause,
-    proc_state,
-    wait_until,
-)
+from tests.linux_kernel import LinuxKernelTestCase, fork_and_sigwait
 
 
 class TestUser(LinuxKernelTestCase):
@@ -20,23 +15,13 @@ class TestUser(LinuxKernelTestCase):
 
     def test_find_user(self):
         for uid in self.UIDS:
-            pid = fork_and_pause(functools.partial(os.setuid, uid))
-            try:
-                wait_until(lambda: proc_state(pid) == "S")
+            with fork_and_sigwait(functools.partial(os.setuid, uid)):
                 found_uid = find_user(self.prog, uid).uid.val.value_()
-            finally:
-                os.kill(pid, signal.SIGKILL)
             self.assertEqual(found_uid, uid)
 
     def test_for_each_user(self):
-        pids = []
-        try:
+        with contextlib.ExitStack() as stack:
             for uid in self.UIDS:
-                pid = fork_and_pause(functools.partial(os.setuid, uid))
-                wait_until(lambda: proc_state(pid) == "S")
-                pids.append(pid)
+                stack.enter_context(fork_and_sigwait(functools.partial(os.setuid, uid)))
             found_uids = {user.uid.val.value_() for user in for_each_user(self.prog)}
-        finally:
-            for pid in pids:
-                os.kill(pid, signal.SIGKILL)
         self.assertTrue(self.UIDS.issubset(found_uids))

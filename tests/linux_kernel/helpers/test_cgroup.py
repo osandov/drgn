@@ -4,7 +4,6 @@
 import contextlib
 import os
 from pathlib import Path
-import signal
 import tempfile
 import unittest
 
@@ -18,7 +17,7 @@ from drgn.helpers.linux.cgroup import (
     css_for_each_descendant_pre,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.linux_kernel import LinuxKernelTestCase, fork_and_pause, iter_mounts
+from tests.linux_kernel import LinuxKernelTestCase, fork_and_sigwait, iter_mounts
 
 
 @contextlib.contextmanager
@@ -56,8 +55,7 @@ class TestCgroup(LinuxKernelTestCase):
 
             cls.root_cgroup = cls.prog["cgrp_dfl_root"].cgrp.address_of_()
 
-            pid = fork_and_pause()
-            try:
+            with fork_and_sigwait() as pid:
                 task = find_task(cls.prog, pid)
 
                 cls.parent_cgroup_name = os.fsencode(parent_cgroup_dir.name)
@@ -73,9 +71,6 @@ class TestCgroup(LinuxKernelTestCase):
 
                 (child_cgroup_dir / "cgroup.procs").write_text(str(pid))
                 cls.child_cgroup = task.cgroups.dfl_cgrp.read_()
-            finally:
-                os.kill(pid, signal.SIGKILL)
-                os.waitpid(pid, 0)
         except BaseException:
             for cleanup in reversed(cls.__cleanups):
                 cleanup[0](*cleanup[1:])
