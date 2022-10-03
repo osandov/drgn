@@ -307,6 +307,8 @@ DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 					    PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args,
 					  PyObject *kwds);
+PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
+				       PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_radix_tree_lookup(PyObject *self,
 						  PyObject *args,
 						  PyObject *kwds);

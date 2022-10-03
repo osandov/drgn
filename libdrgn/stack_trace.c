@@ -611,22 +611,12 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			 * the idle task by CPU. Rather than making PID 0 a
 			 * special case, we handle all tasks this way.
 			 */
-			union drgn_value value;
-			err = drgn_object_member_dereference(&tmp, &obj, "cpu");
-			if (!err) {
-				err = drgn_object_read_integer(&tmp, &value);
-				if (err)
-					goto out;
-			} else if (err->code == DRGN_ERROR_LOOKUP) {
-				/* !SMP. Must be CPU 0. */
-				drgn_error_destroy(err);
-				value.uvalue = 0;
-			} else {
+			uint64_t cpu;
+			err = linux_helper_task_cpu(&obj, &cpu);
+			if (err)
 				goto out;
-			}
 			uint32_t prstatus_tid;
-			err = drgn_program_find_prstatus_by_cpu(prog,
-								value.uvalue,
+			err = drgn_program_find_prstatus_by_cpu(prog, cpu,
 								prstatus,
 								&prstatus_tid);
 			if (err)
@@ -653,6 +643,7 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 				err = drgn_object_member_dereference(&tmp, &obj, "pid");
 				if (err)
 					goto out;
+				union drgn_value value;
 				err = drgn_object_read_integer(&tmp, &value);
 				if (err)
 					goto out;

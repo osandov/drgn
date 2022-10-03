@@ -2328,6 +2328,14 @@ def _linux_helper_idle_task(prog: Program, cpu: IntegerLike) -> Object:
     """
     ...
 
+def _linux_helper_task_cpu(task: Object) -> int:
+    """
+    Return the CPU number that the given task last ran on.
+
+    :param task: ``struct task_struct *``
+    """
+    ...
+
 def _linux_helper_idr_find(idr: Object, id: IntegerLike) -> Object:
     """
     Look up the entry with the given ID in an IDR.

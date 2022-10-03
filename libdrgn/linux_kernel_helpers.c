@@ -251,6 +251,66 @@ out:
 	return err;
 }
 
+struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
+					 uint64_t *ret)
+{
+	struct drgn_error *err;
+	struct drgn_object tmp;
+	drgn_object_init(&tmp, drgn_object_program(task));
+
+	// If CONFIG_THREAD_INFO_IN_TASK=y and since Linux kernel commit
+	// bcf9033e5449 ("sched: move CPU field back into thread_info if
+	// THREAD_INFO_IN_TASK=y") (in v5.16), the CPU is task->thread_info.cpu.
+	//
+	// If CONFIG_THREAD_INFO_IN_TASK=y but before that commit, the cpu is
+	// task->cpu.
+	//
+	// If CONFIG_THREAD_INFO_IN_TASK=n or before Linux kernel commit
+	// c65eacbe290b ("sched/core: Allow putting thread_info into
+	// task_struct") (in v4.9), the CPU is
+	// ((struct thread_info *)task->stack)->cpu.
+	//
+	// If none of those exist, then the kernel must be !SMP.
+	err = drgn_object_member_dereference(&tmp, task, "thread_info");
+	if (!err) {
+		err = drgn_object_member(&tmp, &tmp, "cpu");
+		if (err && err->code == DRGN_ERROR_LOOKUP) {
+			drgn_error_destroy(err);
+			err = drgn_object_member_dereference(&tmp, task, "cpu");
+		}
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		// CONFIG_THREAD_INFO_IN_TASK=n
+		drgn_error_destroy(err);
+		err = drgn_object_member_dereference(&tmp, task, "stack");
+		if (err)
+			goto out;
+		struct drgn_qualified_type thread_info_type;
+		err = drgn_program_find_type(drgn_object_program(task),
+					     "struct thread_info *", NULL,
+					     &thread_info_type);
+		if (err)
+			goto out;
+		err = drgn_object_cast(&tmp, thread_info_type, &tmp);
+		if (err)
+			goto out;
+		err = drgn_object_member_dereference(&tmp, &tmp, "cpu");
+	}
+	if (!err) {
+		union drgn_value value;
+		err = drgn_object_read_integer(&tmp, &value);
+		if (!err)
+			*ret = value.uvalue;
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		// CONFIG_SMP=n
+		drgn_error_destroy(err);
+		*ret = 0;
+		err = NULL;
+	}
+out:
+	drgn_object_deinit(&tmp);
+	return err;
+}
+
 struct drgn_error *
 linux_helper_radix_tree_lookup(struct drgn_object *res,
 			       const struct drgn_object *root, uint64_t index)

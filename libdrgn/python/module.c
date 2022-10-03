@@ -131,6 +131,8 @@ static PyMethodDef drgn_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS},
 	{"_linux_helper_idle_task", (PyCFunction)drgnpy_linux_helper_idle_task,
 	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_task_cpu", (PyCFunction)drgnpy_linux_helper_task_cpu,
+	 METH_VARARGS | METH_KEYWORDS},
 	{"_linux_helper_radix_tree_lookup",
 	 (PyCFunction)drgnpy_linux_helper_radix_tree_lookup,
 	 METH_VARARGS | METH_KEYWORDS},
