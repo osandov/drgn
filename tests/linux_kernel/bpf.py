@@ -3,11 +3,9 @@
 
 import array
 import ctypes
-import platform
-import re
 from typing import NamedTuple
 
-from tests.linux_kernel import _check_ctypes_syscall, _syscall
+from tests.linux_kernel import SYS, _check_ctypes_syscall, _syscall
 
 # enum bpf_cmd
 BPF_MAP_CREATE = 0
@@ -247,37 +245,10 @@ class _bpf_attr(ctypes.Union):
     )
 
 
-_machine = platform.machine()
 try:
-    if _machine.startswith("aarch64") or _machine.startswith("arm64"):
-        _SYS_bpf = 280
-    elif _machine.startswith("arm"):
-        _SYS_bpf = 386
-    elif re.fullmatch(r"i.86", _machine):
-        _SYS_bpf = 357
-    elif _machine.startswith("parisc"):
-        _SYS_bpf = 341
-    elif _machine.startswith("ppc"):
-        _SYS_bpf = 361
-    elif _machine.startswith("s390"):
-        _SYS_bpf = 351
-    elif _machine.startswith("sh"):
-        _SYS_bpf = 375
-    elif _machine.startswith("sparc"):
-        _SYS_bpf = 349
-    else:
-        _SYS_bpf = {
-            "alpha": 515,
-            "ia64": 317,
-            "m68k": 354,
-            "microblaze": 387,
-            "x86_64": 321,
-            "xtensa": 340,
-        }[_machine]
+    _SYS_bpf = ctypes.c_long(SYS["bpf"])
 except KeyError:
     _SYS_bpf = None
-else:
-    _SYS_bpf = ctypes.c_long(_SYS_bpf)
 _sizeof_bpf_attr = ctypes.c_uint(ctypes.sizeof(_bpf_attr))
 
 

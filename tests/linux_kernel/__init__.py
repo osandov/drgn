@@ -95,6 +95,55 @@ skip_unless_have_full_mm_support = unittest.skipUnless(
 )
 
 
+_machine = platform.machine()
+if _machine.startswith("aarch64") or _machine.startswith("arm64"):
+    SYS = {"bpf": 280}
+elif _machine == "alpha":
+    SYS = {"bpf": 515}
+elif _machine == "arc":
+    SYS = {"bpf": 280}
+elif _machine.startswith("arm"):
+    SYS = {"bpf": 386}
+elif _machine == "csky":
+    SYS = {"bpf": 280}
+elif _machine == "hexagon":
+    SYS = {"bpf": 280}
+elif re.fullmatch(r"i.86", _machine):
+    SYS = {"bpf": 357}
+elif _machine == "ia64":
+    SYS = {"bpf": 317}
+elif _machine.startswith("loongarch"):
+    SYS = {"bpf": 280}
+elif _machine == "m68k":
+    SYS = {"bpf": 354}
+elif _machine == "microblaze":
+    SYS = {"bpf": 387}
+elif _machine == "nios2":
+    SYS = {"bpf": 280}
+elif _machine == "openrisc":
+    SYS = {"bpf": 280}
+elif _machine.startswith("parisc"):
+    SYS = {"bpf": 341}
+elif _machine.startswith("ppc"):
+    SYS = {"bpf": 361}
+elif _machine.startswith("riscv"):
+    SYS = {"bpf": 280}
+elif _machine.startswith("s390"):
+    SYS = {"bpf": 351}
+elif _machine.startswith("sh"):
+    SYS = {"bpf": 375}
+elif _machine.startswith("sparc"):
+    SYS = {"bpf": 349}
+elif _machine == "x86_64":
+    SYS = {"bpf": 321}
+elif _machine == "xtensa":
+    SYS = {"bpf": 340}
+else:
+    # TODO: the only other architecture supported by Linux as of 6.0 is mips,
+    # but I don't know how to distinguish between the o32, n32, and n64 ABIs.
+    SYS = {}
+
+
 def wait_until(fn, *args, **kwds):
     TIMEOUT = 5
     deadline = time.monotonic() + TIMEOUT
