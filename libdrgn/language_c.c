@@ -536,8 +536,7 @@ static struct drgn_error *
 c_format_type_name(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb = {};
-
+	struct string_builder sb = STRING_BUILDER_INIT;
 	err = c_format_type_name_impl(qualified_type, &sb);
 	if (err) {
 		free(sb.str);
@@ -552,8 +551,7 @@ static struct drgn_error *
 c_format_type(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb = {};
-
+	struct string_builder sb = STRING_BUILDER_INIT;
 	if (drgn_type_is_complete(qualified_type.type))
 		err = c_define_type(qualified_type, 0, &sb);
 	else
@@ -1604,8 +1602,7 @@ static struct drgn_error *c_format_object(const struct drgn_object *obj,
 					  char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb = {};
-
+	struct string_builder sb = STRING_BUILDER_INIT;
 	err = c_format_object_impl(obj, 0, columns, max(columns, (size_t)1),
 				   flags, &sb);
 	if (err) {

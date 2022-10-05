@@ -2095,6 +2095,7 @@ struct drgn_error *drgn_debug_info_load(struct drgn_debug_info *dbinfo,
 		.load_default = load_default,
 		.load_main = load_main,
 		.new_modules = VECTOR_INIT,
+		.errors = STRING_BUILDER_INIT,
 		.max_errors = max_errors ? atoi(max_errors) : 5,
 	};
 	dwfl_report_begin_add(dbinfo->dwfl);

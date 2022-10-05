@@ -42,23 +42,17 @@ struct string_builder {
 	 * Current string buffer.
 	 *
 	 * This may be reallocated when appending. It must be freed with @c
-	 * free() when it will no longer be used. It should be initialized to @c
-	 * NULL.
+	 * free() when it will no longer be used.
 	 */
 	char *str;
-	/**
-	 * Length of @c str.
-	 *
-	 * It should be initialized to zero.
-	 */
+	/** Length of @c str. */
 	size_t len;
-	/**
-	 * Allocated size of @c str.
-	 *
-	 * It should be initialized to zero.
-	 */
+	/** Allocated size of @c str. */
 	size_t capacity;
 };
+
+/** String builder initializer. */
+#define STRING_BUILDER_INIT { 0 }
 
 /**
  * Null-terminate and return a string from a @ref string_builder.

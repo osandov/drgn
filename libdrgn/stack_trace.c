@@ -107,7 +107,7 @@ drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 {
-	struct string_builder str = {};
+	struct string_builder str = STRING_BUILDER_INIT;
 	for (size_t frame = 0; frame < trace->num_frames; frame++) {
 		if (!string_builder_appendf(&str, "#%-2zu ", frame))
 			goto enomem;
@@ -172,7 +172,7 @@ enomem:
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret)
 {
-	struct string_builder str = {};
+	struct string_builder str = STRING_BUILDER_INIT;
 	struct drgn_register_state *regs = trace->frames[frame].regs;
 	if (!string_builder_appendf(&str, "#%zu at ", frame))
 		goto enomem;
