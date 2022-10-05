@@ -36,6 +36,27 @@ static PyObject *Symbol_richcompare(Symbol *self, PyObject *other, int op)
 	Py_RETURN_BOOL(ret);
 }
 
+#define MAXPATHLEN 256
+
+static PyObject *Symbol_source(Symbol *self, PyObject *arg)
+{
+	char source[MAXPATHLEN];
+	Program *prgm = ((Symbol *)self)->prog;
+	struct drgn_program *p = &prgm->prog;
+	int ln_num = 0;
+	int ln_col = 0;
+	unsigned long offset = PyLong_AsLong(arg);
+
+	struct drgn_error *err;
+	err = drgn_symbol_source(((Symbol *)self)->sym, p,
+				 offset, sizeof(source),
+				 source, &ln_num, &ln_col);
+	if (err)
+		return set_drgn_error(err);
+
+	return Py_BuildValue("sii", source, ln_num, ln_col);
+}
+
 static PyObject *Symbol_get_name(Symbol *self, void *arg)
 {
 	return PyUnicode_FromString(drgn_symbol_name(self->sym));
@@ -93,6 +114,12 @@ out_tmp:
 
 }
 
+static PyMethodDef Symbol_methods[] = {
+	{"source", (PyCFunction)Symbol_source, METH_O, 
+	 drgn_Symbol_source_DOC},
+	{},
+};
+
 static PyGetSetDef Symbol_getset[] = {
 	{"name", (getter)Symbol_get_name, NULL, drgn_Symbol_name_DOC},
 	{"address", (getter)Symbol_get_address, NULL, drgn_Symbol_address_DOC},
@@ -111,5 +138,6 @@ PyTypeObject Symbol_type = {
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_doc = drgn_Symbol_DOC,
 	.tp_richcompare = (richcmpfunc)Symbol_richcompare,
+	.tp_methods = Symbol_methods,
 	.tp_getset = Symbol_getset,
 };

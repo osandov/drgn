@@ -303,6 +303,25 @@ static int drgn_dwfl_module_removed(Dwfl_Module *dwfl_module, void *userdatap,
 	return DWARF_CB_OK;
 }
 
+struct drgn_debug_info_module *
+drgn_debug_info_module_byaddress(struct drgn_debug_info *dbinfo, uint64_t addr)
+{
+
+	for (struct drgn_debug_info_module_table_iterator it =
+             drgn_debug_info_module_table_first(&dbinfo->modules); it.entry; ) {
+                struct drgn_debug_info_module *module = *it.entry;
+                do {
+			struct drgn_debug_info_module *next = module->next;
+			if (!next)
+				it = drgn_debug_info_module_table_next(it);
+			if (addr >= module->start && addr <= module->end)
+				return module;
+			module = next;
+                } while (module);
+	}
+	return NULL;
+}
+
 static void drgn_debug_info_free_modules(struct drgn_debug_info *dbinfo,
 					 bool finish_indexing, bool free_all)
 {
