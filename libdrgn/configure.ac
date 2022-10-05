@@ -108,6 +108,7 @@ AS_IF([test "x$enable_compiler_warnings" != xno],
        -Wall dnl
        -Wformat-overflow=2 dnl
        -Wformat-truncation=2 dnl
+       -Wimplicit-fallthrough dnl
        ], [WARN_CFLAGS], [$compiler_flags_test])])
 AS_IF([test "x$enable_compiler_warnings" = xerror],
       [AX_APPEND_FLAG([-Werror], [WARN_CFLAGS])])

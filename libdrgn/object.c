@@ -1098,7 +1098,7 @@ drgn_object_is_zero_impl(const struct drgn_object *obj, bool *ret)
 		default:
 			break;
 		}
-		/* fallthrough */
+		fallthrough;
 	}
 	default:
 		return drgn_error_create(DRGN_ERROR_TYPE,

@@ -23,6 +23,12 @@
 #define LIBDRGN_PUBLIC __attribute__((__visibility__("default")))
 #endif
 
+#if defined(__has_attribute) && __has_attribute(__fallthrough__)
+#define fallthrough __attribute__((__fallthrough__))
+#else
+#define fallthrough do {} while (0)
+#endif
+
 #ifdef NDEBUG
 #define UNREACHABLE() __builtin_unreachable()
 #else

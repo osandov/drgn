@@ -675,7 +675,7 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 			*insn_ret = cu->address_size;
 			return NULL;
 		}
-		/* fallthrough */
+		fallthrough;
 	case DW_FORM_sec_offset:
 	case DW_FORM_strp:
 	case DW_FORM_strp_sup:
@@ -690,7 +690,7 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 	case DW_FORM_implicit_const:
 		if ((err = binary_buffer_skip_leb128(bb)))
 			return err;
-		/* fallthrough */
+		fallthrough;
 	case DW_FORM_flag_present:
 		*insn_ret = 0;
 		return NULL;
@@ -2029,7 +2029,7 @@ indirect_insn:;
 				break;
 			case INSN_COMP_DIR_STRING:
 				comp_dir = buffer->bb.pos;
-				/* fallthrough */
+				fallthrough;
 			case INSN_SKIP_STRING:
 			case INSN_NAME_STRING:
 				if ((err = binary_buffer_skip_string(&buffer->bb)))
@@ -2514,7 +2514,7 @@ indirect_insn:;
 				goto skip;
 			case INSN_SPECIFICATION_REF_UDATA:
 				specification = true;
-				/* fallthrough */
+				fallthrough;
 			case INSN_SKIP_LEB128:
 			case INSN_COMP_DIR_STRX:
 				if ((err = binary_buffer_skip_leb128(&buffer->bb)))
@@ -2522,7 +2522,7 @@ indirect_insn:;
 				break;
 			case INSN_NAME_STRING:
 				name = buffer->bb.pos;
-				/* fallthrough */
+				fallthrough;
 			case INSN_SKIP_STRING:
 			case INSN_COMP_DIR_STRING:
 				if ((err = binary_buffer_skip_string(&buffer->bb)))
@@ -2690,13 +2690,13 @@ name_alt_strp:
 			}
 			case INSN_SPECIFICATION_REF1:
 				specification = true;
-				/* fallthrough */
+				fallthrough;
 			case INSN_COMP_DIR_STRX1:
 				skip = 1;
 				goto skip;
 			case INSN_SPECIFICATION_REF2:
 				specification = true;
-				/* fallthrough */
+				fallthrough;
 			case INSN_COMP_DIR_STRX2:
 				skip = 2;
 				goto skip;
@@ -2707,7 +2707,7 @@ name_alt_strp:
 			case INSN_SPECIFICATION_REF_ADDR4:
 			case INSN_SPECIFICATION_REF_ALT4:
 				specification = true;
-				/* fallthrough */
+				fallthrough;
 			case INSN_COMP_DIR_STRX4:
 				skip = 4;
 				goto skip;
@@ -7835,7 +7835,7 @@ set_reg:
 				rule.constant ^= 1;
 				goto set_reg;
 			}
-			/* fallthrough */
+			fallthrough;
 		default:
 			err = binary_buffer_error(&buffer.bb,
 						  "unknown DWARF CFI opcode %#" PRIx8,
