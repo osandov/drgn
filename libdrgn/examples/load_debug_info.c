@@ -5,6 +5,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdnoreturn.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -25,7 +26,7 @@ static inline struct timespec timespec_sub(struct timespec a, struct timespec b)
 	}
 }
 
-static void usage(bool error)
+noreturn static void usage(bool error)
 {
 	fprintf(error ? stderr : stdout,
 		"usage: load_debug_info [-k|-c CORE|-p PID] [PATH...]\n"
