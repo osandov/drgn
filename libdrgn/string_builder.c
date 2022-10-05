@@ -10,7 +10,7 @@
 
 bool string_builder_finalize(struct string_builder *sb, char **ret)
 {
-	if (!string_builder_reserve(sb, sb->len + 1))
+	if (!string_builder_reserve_for_append(sb, 1))
 		return false;
 	sb->str[sb->len] = '\0';
 	*ret = sb->str;
@@ -19,13 +19,9 @@ bool string_builder_finalize(struct string_builder *sb, char **ret)
 
 bool string_builder_reserve(struct string_builder *sb, size_t capacity)
 {
-	char *tmp;
-
 	if (capacity <= sb->capacity)
 		return true;
-
-	capacity = next_power_of_two(capacity);
-	tmp = realloc(sb->str, capacity);
+	char *tmp = realloc(sb->str, capacity);
 	if (!tmp)
 		return false;
 	sb->str = tmp;
@@ -33,9 +29,21 @@ bool string_builder_reserve(struct string_builder *sb, size_t capacity)
 	return true;
 }
 
+bool string_builder_reserve_for_append(struct string_builder *sb, size_t n)
+{
+	if (n == 0)
+		return true;
+	size_t capacity;
+	if (__builtin_add_overflow(sb->len, n, &capacity))
+		return false;
+	if (capacity < (SIZE_MAX / 2) + 1)
+		capacity = next_power_of_two(capacity);
+	return string_builder_reserve(sb, capacity);
+}
+
 bool string_builder_appendc(struct string_builder *sb, char c)
 {
-	if (!string_builder_reserve(sb, sb->len + 1))
+	if (!string_builder_reserve_for_append(sb, 1))
 		return false;
 	sb->str[sb->len++] = c;
 	return true;
@@ -44,7 +52,7 @@ bool string_builder_appendc(struct string_builder *sb, char c)
 bool string_builder_appendn(struct string_builder *sb, const char *str,
 			    size_t len)
 {
-	if (!string_builder_reserve(sb, sb->len + len))
+	if (!string_builder_reserve_for_append(sb, len))
 		return false;
 	memcpy(&sb->str[sb->len], str, len);
 	sb->len += len;
@@ -73,7 +81,7 @@ again:
 	 * vsnprintf() always null-terminates the string, so we have to allocate
 	 * an extra character.
 	 */
-	if (!string_builder_reserve(sb, sb->len + len + 1))
+	if (!string_builder_reserve_for_append(sb, len + 1))
 		return false;
 	goto again;
 }

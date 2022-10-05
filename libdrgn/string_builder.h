@@ -66,16 +66,31 @@ struct string_builder {
 bool string_builder_finalize(struct string_builder *sb, char **ret);
 
 /**
- * Resize the buffer of a @ref string_builder.
+ * Resize the buffer of a @ref string_builder to a given capacity.
  *
  * On success, the allocated size of the string buffer is at least @p capacity.
  *
  * @param[in] sb String builder.
- * @param[in] capacity New minimum size of the string buffer.
+ * @param[in] capacity New minimum allocated size of the string buffer.
  * @return @c true on success, @c false on error (if we couldn't allocate
  * memory).
  */
 bool string_builder_reserve(struct string_builder *sb, size_t capacity);
+
+/**
+ * Resize the buffer of a @ref string_builder to accomodate appending
+ * characters.
+ *
+ * On success, the allocated size of the string buffer is at least
+ * `sb->len + n`. This will also allocate extra space so that appends have
+ * amortized constant time complexity.
+ *
+ * @param[in] sb String builder.
+ * @param[in] n Minimum number of additional characters to reserve.
+ * @return @c true on success, @c false on error (if we couldn't allocate
+ * memory).
+ */
+bool string_builder_reserve_for_append(struct string_builder *sb, size_t n);
 
 /**
  * Append a character to a @ref string_builder.
