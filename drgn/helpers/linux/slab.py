@@ -16,9 +16,20 @@ Linux slab allocator.
 """
 
 import operator
-from typing import Iterator, Optional, Set, Union, overload
+from os import fsdecode
+from typing import Dict, Iterator, Optional, Set, Union, overload
 
-from drgn import NULL, FaultError, IntegerLike, Object, Program, Type, cast, sizeof
+from drgn import (
+    NULL,
+    FaultError,
+    IntegerLike,
+    Object,
+    Program,
+    Type,
+    cast,
+    container_of,
+    sizeof,
+)
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
@@ -30,11 +41,13 @@ from drgn.helpers.linux.mm import (
     virt_to_page,
 )
 from drgn.helpers.linux.percpu import per_cpu_ptr
+from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
     "find_containing_slab_cache",
     "find_slab_cache",
     "for_each_slab_cache",
+    "get_slab_cache_aliases",
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
     "slab_cache_is_merged",
@@ -90,6 +103,68 @@ def slab_cache_is_merged(slab_cache: Object) -> bool:
     :param slab_cache: ``struct kmem_cache *``
     """
     return slab_cache.refcount > 1
+
+
+def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
+    """
+    Return a dict mapping slab cache name to the cache it was merged with.
+
+    The SLAB and SLUB subsystems can merge caches with similar settings and
+    object sizes, as described in the documentation of
+    :func:`slab_cache_is_merged()`. In some cases, the information about which
+    caches were merged is lost, but in other cases, we can reconstruct the info.
+    This function reconstructs the mapping, but requires that the kernel is
+    configured with ``CONFIG_SLUB`` and ``CONFIG_SYSFS``.
+
+    The returned dict maps from original cache name, to merged cache name. You
+    can use this mapping to discover the correct cache to lookup via
+    :func:`find_slab_cache()`. The dict contains an entry only for caches which
+    were merged into a cache of a different name.
+
+    >>> cache_to_merged = get_slab_cache_aliases(prog)
+    >>> cache_to_merged["dnotify_struct"]
+    'avc_xperms_data'
+    >>> "avc_xperms_data" in cache_to_merged
+    False
+    >>> find_slab_cache(prog, "dnotify_struct") is None
+    True
+    >>> find_slab_cache(prog, "avc_xperms_data") is None
+    False
+
+    :warning: This function will only work on kernels which are built with
+      ``CONFIG_SLUB`` and ``CONFIG_SYSFS`` enabled.
+
+    :param prog: Program to search
+    :returns: Mapping of slab cache name to final merged name
+    :raises LookupError: If the helper fails because the debugged kernel
+      doesn't have the required configuration
+    """
+    try:
+        slab_kset = prog["slab_kset"]
+    except KeyError:
+        raise LookupError(
+            "Couldn't find SLUB sysfs information: get_slab_cache_aliases() "
+            "requires CONFIG_SLUB and CONFIG_SYSFS enabled in the debugged "
+            "kernel."
+        ) from None
+    link_flag = prog.constant("KERNFS_LINK")
+    name_map = {}
+    for child in rbtree_inorder_for_each_entry(
+        "struct kernfs_node",
+        slab_kset.kobj.sd.dir.children.address_of_(),
+        "rb",
+    ):
+        if child.flags & link_flag:
+            cache = container_of(
+                cast("struct kobject *", child.symlink.target_kn.priv),
+                "struct kmem_cache",
+                "kobj",
+            )
+            original_name = fsdecode(child.name.string_())
+            target_name = fsdecode(cache.name.string_())
+            if original_name != target_name:
+                name_map[original_name] = target_name
+    return name_map
 
 
 def for_each_slab_cache(prog: Program) -> Iterator[Object]:
