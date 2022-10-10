@@ -12,8 +12,6 @@ import tempfile
 
 from util import nproc, out_of_date
 
-_9PFS_MSIZE = 1024 * 1024
-
 # Script run as init in the virtual machine.
 _INIT_TEMPLATE = r"""#!/bin/sh
 
@@ -37,39 +35,45 @@ HOSTNAME=vmtest
 VPORT_NAME=com.osandov.vmtest.0
 RELEASE=$(uname -r)
 
-# Set up overlayfs on the temporary directory containing this script.
-mnt=$(dirname "$0")
-mount -t tmpfs tmpfs "$mnt"
-mkdir "$mnt/upper" "$mnt/work" "$mnt/merged"
+# Set up overlayfs.
+if [ ! -w /tmp ]; then
+	mount -t tmpfs tmpfs /tmp
+fi
+mkdir /tmp/upper /tmp/work /tmp/merged
+mkdir /tmp/upper/dev /tmp/upper/etc /tmp/upper/mnt
+mkdir -m 555 /tmp/upper/proc /tmp/upper/sys
+mkdir -m 1777 /tmp/upper/tmp
+if [ -e /tmp/host ]; then
+	mkdir /tmp/host_upper /tmp/host_work /tmp/upper/host
+fi
 
-mkdir "$mnt/upper/dev" "$mnt/upper/etc" "$mnt/upper/mnt"
-mkdir -m 555 "$mnt/upper/proc" "$mnt/upper/sys"
-mkdir -m 1777 "$mnt/upper/tmp"
-
-mount -t overlay -o lowerdir=/,upperdir="$mnt/upper",workdir="$mnt/work" overlay "$mnt/merged"
+mount -t overlay -o lowerdir=/,upperdir=/tmp/upper,workdir=/tmp/work overlay /tmp/merged
+if [ -e /tmp/host ]; then
+	mount -t overlay -o lowerdir=/tmp/host,upperdir=/tmp/host_upper,workdir=/tmp/host_work overlay /tmp/merged/host
+fi
 
 # Mount core filesystems.
-mount -t devtmpfs -o nosuid,noexec dev "$mnt/merged/dev"
-mkdir "$mnt/merged/dev/shm"
-mount -t tmpfs -o nosuid,nodev tmpfs "$mnt/merged/dev/shm"
-mount -t proc -o nosuid,nodev,noexec proc "$mnt/merged/proc"
-mount -t sysfs -o nosuid,nodev,noexec sys "$mnt/merged/sys"
+mount -t devtmpfs -o nosuid,noexec dev /tmp/merged/dev
+mkdir /tmp/merged/dev/shm
+mount -t tmpfs -o nosuid,nodev tmpfs /tmp/merged/dev/shm
+mount -t proc -o nosuid,nodev,noexec proc /tmp/merged/proc
+mount -t sysfs -o nosuid,nodev,noexec sys /tmp/merged/sys
 # cgroup2 was added in Linux v4.5.
-mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 "$mnt/merged/sys/fs/cgroup" || true
+mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 /tmp/merged/sys/fs/cgroup || true
 # Ideally we'd just be able to create an opaque directory for /tmp on the upper
 # layer. However, before Linux kernel commit 51f7e52dc943 ("ovl: share inode
 # for hard link") (in v4.8), overlayfs doesn't handle hard links correctly,
 # which breaks some tests.
-mount -t tmpfs -o nosuid,nodev tmpfs "$mnt/merged/tmp"
+mount -t tmpfs -o nosuid,nodev tmpfs /tmp/merged/tmp
 
 # Pivot into the new root.
-pivot_root "$mnt/merged" "$mnt/merged/mnt"
+pivot_root /tmp/merged /tmp/merged/mnt
 cd /
 umount -l /mnt
 
 # Load kernel modules.
 mkdir -p "/lib/modules/$RELEASE"
-mount -t 9p -o trans=virtio,cache=loose,ro,msize={_9PFS_MSIZE} modules "/lib/modules/$RELEASE"
+mount --bind {kernel_dir} "/lib/modules/$RELEASE"
 for module in configs rng_core virtio_rng; do
 	modprobe "$module"
 done
@@ -172,7 +176,7 @@ class LostVMError(Exception):
     pass
 
 
-def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
+def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -> int:
     match = re.search(
         r"QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
         subprocess.check_output(
@@ -183,8 +187,6 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
         raise Exception("could not determine QEMU version")
     qemu_version = tuple(int(x) for x in match.group(1).split("."))
 
-    # multidevs was added in QEMU 4.2.0.
-    multidevs = ",multidevs=remap" if qemu_version >= (4, 2) else ""
     # QEMU's 9pfs O_NOATIME handling was fixed in 5.1.0. The fix was backported
     # to 5.0.1.
     env = os.environ.copy()
@@ -201,6 +203,12 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
         )
         kvm_args = []
 
+    virtfs_options = "security_model=none,readonly=on"
+    # multidevs was added in QEMU 4.2.0.
+    if qemu_version >= (4, 2):
+        virtfs_options += ",multidevs=remap"
+    _9pfs_mount_options = f"trans=virtio,cache=loose,msize={1024 * 1024}"
+
     with tempfile.TemporaryDirectory(prefix="drgn-vmtest-") as temp_dir, socket.socket(
         socket.AF_UNIX
     ) as server_sock:
@@ -209,17 +217,31 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
         server_sock.bind(str(socket_path))
         server_sock.listen()
 
-        init = (temp_path / "init").resolve()
-        with open(init, "w") as init_file:
+        init_path = temp_path / "init"
+
+        if root_dir == Path("/"):
+            host_virtfs_args = []
+            init = str(init_path.resolve())
+            host_dir_prefix = ""
+        else:
+            host_virtfs_args = [
+                "-virtfs",
+                f"local,path=/,mount_tag=host,{virtfs_options}",
+            ]
+            init = f'/bin/sh -- -c "/bin/mount -t tmpfs tmpfs /tmp && /bin/mkdir /tmp/host && /bin/mount -t 9p -o {_9pfs_mount_options},ro host /tmp/host && . /tmp/host{init_path.resolve()}"'
+            host_dir_prefix = "/host"
+
+        with init_path.open("w") as init_file:
             init_file.write(
                 _INIT_TEMPLATE.format(
-                    _9PFS_MSIZE=_9PFS_MSIZE,
-                    cwd=shlex.quote(os.getcwd()),
+                    cwd=shlex.quote(host_dir_prefix + os.getcwd()),
+                    kernel_dir=shlex.quote(host_dir_prefix + str(kernel_dir.resolve())),
                     command=shlex.quote(command),
                     kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
                 )
             )
-        os.chmod(init, 0o755)
+        init_path.chmod(0o755)
+
         with subprocess.Popen(
             [
                 # fmt: off
@@ -234,10 +256,8 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
                 "-no-reboot",
 
                 "-virtfs",
-                f"local,id=root,path=/,mount_tag=/dev/root,security_model=none,readonly=on{multidevs}",
-
-                "-virtfs",
-                f"local,path={kernel_dir},mount_tag=modules,security_model=none,readonly=on",
+                f"local,id=root,path={root_dir},mount_tag=/dev/root,{virtfs_options}",
+                *host_virtfs_args,
 
                 "-device", "virtio-rng-pci",
 
@@ -248,7 +268,7 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
 
                 "-kernel", str(kernel_dir / "vmlinuz"),
                 "-append",
-                f"rootfstype=9p rootflags=trans=virtio,cache=loose,msize={_9PFS_MSIZE} ro console=0,115200 panic=-1 crashkernel=256M init={init}",
+                f"rootfstype=9p rootflags={_9pfs_mount_options} ro console=0,115200 panic=-1 crashkernel=256M init={init}",
                 # fmt: on
             ],
             env=env,
@@ -313,6 +333,14 @@ if __name__ == "__main__":
         help="kernel to use (default: latest available kernel)",
     )
     parser.add_argument(
+        "-r",
+        "--root-directory",
+        metavar="DIR",
+        default=Path("/"),
+        type=Path,
+        help="directory to use as root directory in VM",
+    )
+    parser.add_argument(
         "command",
         type=str,
         nargs=argparse.REMAINDER,
@@ -330,7 +358,7 @@ if __name__ == "__main__":
 
     try:
         command = " ".join(args.command) if args.command else "sh -i"
-        sys.exit(run_in_vm(command, kernel_dir, args.directory))
+        sys.exit(run_in_vm(command, args.root_directory, kernel_dir, args.directory))
     except LostVMError as e:
         print("error:", e, file=sys.stderr)
         sys.exit(args.lost_status)
