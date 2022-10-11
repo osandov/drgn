@@ -41,6 +41,8 @@ class TestIdentifyAddress(LinuxKernelTestCase):
                             f"slab object: drgn_test_{size}",
                         )
 
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
     def test_identify_unrecognized(self):
         start_addr = (pfn_to_virt(self.prog["min_low_pfn"])).value_()
         end_addr = (pfn_to_virt(self.prog["max_pfn"]) + self.prog["PAGE_SIZE"]).value_()
