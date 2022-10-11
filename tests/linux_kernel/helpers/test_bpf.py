@@ -3,7 +3,6 @@
 
 import errno
 import os
-import platform
 import sys
 import unittest
 
@@ -35,6 +34,7 @@ from tests.linux_kernel.bpf import (
     bpf_prog_load,
 )
 from tests.linux_kernel.helpers.test_cgroup import tmp_cgroups
+from util import NORMALIZED_MACHINE_NAME
 
 
 class TestBpf(LinuxKernelTestCase):
@@ -51,7 +51,7 @@ class TestBpf(LinuxKernelTestCase):
         super().setUpClass()
         if _SYS_bpf is None:
             raise unittest.SkipTest(
-                f"bpf syscall number is not known on {platform.machine()}"
+                f"bpf syscall number is not known on {NORMALIZED_MACHINE_NAME}"
             )
         try:
             os.close(bpf_map_create(BPF_MAP_TYPE_HASH, 8, 8, 8))

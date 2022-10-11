@@ -5,7 +5,6 @@ import contextlib
 import ctypes
 import mmap
 import os
-import platform
 import struct
 import tempfile
 import unittest
@@ -46,6 +45,7 @@ from tests.linux_kernel import (
     skip_unless_have_full_mm_support,
     skip_unless_have_test_kmod,
 )
+from util import NORMALIZED_MACHINE_NAME
 
 
 class TestMm(LinuxKernelTestCase):
@@ -268,7 +268,7 @@ class TestMm(LinuxKernelTestCase):
             data,
         )
 
-    @unittest.skipUnless(platform.machine() == "x86_64", "machine is not x86_64")
+    @unittest.skipUnless(NORMALIZED_MACHINE_NAME == "x86_64", "machine is not x86_64")
     def test_non_canonical_x86_64(self):
         task = find_task(self.prog, os.getpid())
         data = b"hello, world"

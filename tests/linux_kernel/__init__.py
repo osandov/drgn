@@ -6,7 +6,6 @@ import ctypes
 import errno
 import os
 from pathlib import Path
-import platform
 import re
 import signal
 import socket
@@ -18,7 +17,7 @@ import unittest
 
 import drgn
 from tests import TestCase
-from util import SYS
+from util import NORMALIZED_MACHINE_NAME, SYS
 
 
 class LinuxKernelTestCase(TestCase):
@@ -93,8 +92,8 @@ skip_unless_have_test_kmod = unittest.skipUnless(
 )
 
 skip_unless_have_full_mm_support = unittest.skipUnless(
-    platform.machine() == "x86_64",
-    f"mm support is not implemented for {platform.machine()}",
+    NORMALIZED_MACHINE_NAME == "x86_64",
+    f"mm support is not implemented for {NORMALIZED_MACHINE_NAME}",
 )
 
 
