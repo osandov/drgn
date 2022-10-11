@@ -258,6 +258,7 @@ class test(Command):
         command = rf"""
 set -e
 
+export PYTHON={shlex.quote(sys.executable)}
 export DRGN_TEST_KMOD={shlex.quote(str(kmod))}
 if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm unittest discover -t . -s tests/linux_kernel/vmcore {"-v" if self.verbose else ""}

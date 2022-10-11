@@ -27,7 +27,6 @@ _INIT_TEMPLATE = r"""#!/bin/sh
 set -eu
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export PYTHON={python}
 {kdump_needs_nosmp}
 
 trap 'poweroff -f' EXIT
@@ -215,7 +214,6 @@ def run_in_vm(command: str, kernel_dir: Path, build_dir: Path) -> int:
             init_file.write(
                 _INIT_TEMPLATE.format(
                     _9PFS_MSIZE=_9PFS_MSIZE,
-                    python=shlex.quote(sys.executable),
                     cwd=shlex.quote(os.getcwd()),
                     command=shlex.quote(command),
                     kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
