@@ -265,7 +265,7 @@ else
     insmod "$DRGN_TEST_KMOD"
     DRGN_RUN_LINUX_KERNEL_TESTS=1 "$PYTHON" -Bm \
         unittest discover -t . -s tests/linux_kernel {"-v" if self.verbose else ""}
-    "$PYTHON" vmtest/enter_kdump.py
+    "$PYTHON" -Bm vmtest.enter_kdump
     # We should crash and not reach this.
     exit 1
 fi

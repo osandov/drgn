@@ -1,15 +1,18 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# This isn't great: it's specific to x86-64, both by virtue of the syscall
-# number and because kexec_file_load isn't implemented on many architectures,
-# especially on older kernels.
-
 import ctypes
 import os
 import re
+import sys
 
-SYS_kexec_file_load = 320  # On x86-64.
+from util import NORMALIZED_MACHINE_NAME, SYS
+
+# Some architectures don't implement kexec_file_load. Note that even if the
+# number is defined, it may not be implemented.
+if "kexec_file_load" not in SYS:
+    sys.exit(f"kexec_file_load is not defined on {NORMALIZED_MACHINE_NAME}")
+
 KEXEC_FILE_ON_CRASH = 2
 KEXEC_FILE_NO_INITRAMFS = 4
 
@@ -29,7 +32,7 @@ with open("/proc/cmdline", "rb") as f:
 
 with open(f"/lib/modules/{os.uname().release}/vmlinuz", "rb") as kernel:
     if syscall(
-        ctypes.c_long(SYS_kexec_file_load),
+        ctypes.c_long(SYS["kexec_file_load"]),
         ctypes.c_int(kernel.fileno()),
         ctypes.c_int(-1),
         ctypes.c_ulong(len(cmdline) + 1),
