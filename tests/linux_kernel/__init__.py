@@ -92,7 +92,7 @@ skip_unless_have_test_kmod = unittest.skipUnless(
 )
 
 skip_unless_have_full_mm_support = unittest.skipUnless(
-    NORMALIZED_MACHINE_NAME == "x86_64",
+    NORMALIZED_MACHINE_NAME in ("aarch64", "x86_64"),
     f"mm support is not implemented for {NORMALIZED_MACHINE_NAME}",
 )
 
