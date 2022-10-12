@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import os
+import unittest
 
 from drgn import Object, Program, cast
 from drgn.helpers.linux.pid import find_task
 from tests import assertReprPrettyEqualsStr
 from tests.linux_kernel import LinuxKernelTestCase, fork_and_sigwait, setenv
+from util import NORMALIZED_MACHINE_NAME
 
 
 class TestStackTrace(LinuxKernelTestCase):
@@ -37,6 +39,10 @@ class TestStackTrace(LinuxKernelTestCase):
     def test_by_pid_dwarf(self):
         self._test_by_pid(False)
 
+    @unittest.skipUnless(
+        NORMALIZED_MACHINE_NAME == "x86_64",
+        f"{NORMALIZED_MACHINE_NAME} does not use ORC",
+    )
     def test_by_pid_orc(self):
         self._test_by_pid(True)
 
