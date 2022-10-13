@@ -160,12 +160,32 @@ def main() -> None:
         os.environ["DEBUGINFOD_PROGRESS"] = "1"
 
     prog = drgn.Program()
-    if args.core is not None:
-        prog.set_core_dump(args.core)
-    elif args.pid is not None:
-        prog.set_pid(args.pid or os.getpid())
-    else:
-        prog.set_kernel()
+    try:
+        if args.core is not None:
+            prog.set_core_dump(args.core)
+        elif args.pid is not None:
+            prog.set_pid(args.pid or os.getpid())
+        else:
+            prog.set_kernel()
+    except PermissionError as e:
+        print(e, file=sys.stderr)
+        if args.pid is not None:
+            print(
+                "error: attaching to live process requires ptrace attach permissions",
+                file=sys.stderr,
+            )
+        elif args.core is None:
+            print(
+                "error: drgn debugs the live kernel by default, which requires root",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+    except OSError as e:
+        sys.exit(e)
+    except ValueError as e:
+        # E.g., "not an ELF core file"
+        sys.exit(f"error: {e}")
+
     if args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}
     try:
