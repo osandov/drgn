@@ -48,7 +48,7 @@ def get_kconfig(prog: Program) -> Mapping[str, str]:
         except KeyError:
             raise LookupError(
                 "kernel configuration data not found; kernel must be compiled with CONFIG_IKCONFIG"
-            )
+            ) from None
         # The data is delimited by the magic strings "IKCFG_ST" and "IKCFG_ED"
         # plus a NUL byte.
         start = kernel_config_data.address_ + 8  # type: ignore[operator]
