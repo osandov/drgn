@@ -69,8 +69,15 @@ struct drgn_module {
 	char *name;
 
 	Dwfl_Module *dwfl_module;
+	/** File that is loaded into the program. */
+	struct drgn_elf_file *loaded_file;
 	/** File containing debugging information. */
 	struct drgn_elf_file *debug_file;
+	/**
+	 * Difference between addresses in program and addresses in @ref
+	 * drgn_module::loaded_file.
+	 */
+	uint64_t loaded_file_bias;
 	/**
 	 * Difference between addresses in program and addresses in @ref
 	 * drgn_module::debug_file.

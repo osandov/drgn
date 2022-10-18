@@ -179,7 +179,9 @@ static void drgn_module_destroy(struct drgn_module *module)
 		if (module->fd != -1)
 			close(module->fd);
 		free(module->path);
-		drgn_elf_file_destroy(module->debug_file);
+		if (module->debug_file != module->loaded_file)
+			drgn_elf_file_destroy(module->debug_file);
+		drgn_elf_file_destroy(module->loaded_file);
 		free(module->name);
 		free(module);
 	}
@@ -1759,7 +1761,8 @@ out:
 }
 
 static struct drgn_error *
-drgn_module_find_files(struct drgn_module *module)
+drgn_module_find_files(struct drgn_debug_info_load_state *load,
+		       struct drgn_module *module)
 {
 	struct drgn_error *err;
 
@@ -1769,16 +1772,35 @@ drgn_module_find_files(struct drgn_module *module)
 			return err;
 	}
 
+	GElf_Addr loaded_file_bias;
+	Elf *loaded_elf = NULL;
 	Dwarf_Addr debug_file_bias;
 	Dwarf *dwarf;
+	err = NULL;
 	#pragma omp critical(drgn_module_find_files)
-	dwarf = dwfl_module_getdwarf(module->dwfl_module, &debug_file_bias);
-	if (!dwarf)
-		return drgn_error_libdwfl();
+	{
+		// We don't need the loaded file for the Linux kernel, and we
+		// always report the debug file as the main file to libdwfl.
+		if (!(load->dbinfo->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)) {
+			loaded_elf = dwfl_module_getelf(module->dwfl_module,
+							&loaded_file_bias);
+			if (!loaded_elf)
+				err = drgn_error_libdwfl();
+		}
+		if (!err) {
+			dwarf = dwfl_module_getdwarf(module->dwfl_module,
+						     &debug_file_bias);
+			if (!dwarf)
+				err = drgn_error_libdwfl();
+		}
+	}
+	if (err)
+		return err;
 
+	const char *loaded_file_path;
 	const char *debug_file_path;
 	dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, NULL, NULL,
-			 NULL, &debug_file_path);
+			 &loaded_file_path, &debug_file_path);
 
 	module->debug_file_bias = debug_file_bias;
 	err = drgn_elf_file_create(module, debug_file_path, dwarf_getelf(dwarf),
@@ -1835,7 +1857,25 @@ drgn_module_find_files(struct drgn_module *module)
 			}
 		}
 	}
-	return drgn_elf_file_precache_sections(module->debug_file);
+	err = drgn_elf_file_precache_sections(module->debug_file);
+	if (err)
+		return err;
+
+	if (loaded_elf) {
+		module->loaded_file_bias = loaded_file_bias;
+		if (loaded_elf == module->debug_file->elf) {
+			module->loaded_file = module->debug_file;
+		} else {
+			err = drgn_elf_file_create(module, loaded_file_path,
+						   loaded_elf,
+						   &module->loaded_file);
+			if (err) {
+				module->loaded_file = NULL;
+				return err;
+			}
+		}
+	}
+	return NULL;
 }
 
 static struct drgn_error *
@@ -1846,7 +1886,7 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 	struct drgn_error *err;
 	struct drgn_module *module;
 	for (module = head; module; module = module->next) {
-		err = drgn_module_find_files(module);
+		err = drgn_module_find_files(load, module);
 		if (err) {
 			module->err = err;
 			continue;
