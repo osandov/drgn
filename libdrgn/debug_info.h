@@ -71,6 +71,11 @@ struct drgn_module {
 	Dwfl_Module *dwfl_module;
 	/** File containing debugging information. */
 	struct drgn_elf_file *debug_file;
+	/**
+	 * Difference between addresses in program and addresses in @ref
+	 * drgn_module::debug_file.
+	 */
+	uint64_t debug_file_bias;
 
 	/** DWARF debugging information. */
 	struct drgn_module_dwarf_info dwarf;

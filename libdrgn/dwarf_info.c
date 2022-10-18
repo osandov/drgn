@@ -3070,20 +3070,16 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it)
 static struct drgn_error *
 drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die, Dwarf_Die *die_ret)
 {
-	Dwarf_Addr bias;
-	Dwarf *dwarf = dwfl_module_getdwarf(die->file->module->dwfl_module,
-					    &bias);
-	if (!dwarf)
-		return drgn_error_libdwfl();
 	uintptr_t start =
 		(uintptr_t)die->file->scn_data[DRGN_SCN_DEBUG_INFO]->d_buf;
 	size_t size = die->file->scn_data[DRGN_SCN_DEBUG_INFO]->d_size;
 	if (die->addr >= start && die->addr < start + size) {
-		if (!dwarf_offdie(dwarf, die->addr - start, die_ret))
+		if (!dwarf_offdie(die->file->dwarf, die->addr - start, die_ret))
 			return drgn_error_libdw();
 	} else {
 		start = (uintptr_t)die->file->scn_data[DRGN_SCN_DEBUG_TYPES]->d_buf;
-		if (!dwarf_offdie_types(dwarf, die->addr - start, die_ret))
+		if (!dwarf_offdie_types(die->file->dwarf, die->addr - start,
+					die_ret))
 			return drgn_error_libdw();
 	}
 	return NULL;
@@ -3345,12 +3341,15 @@ struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
 {
 	struct drgn_error *err;
 
-	Dwarf_Addr bias;
-	Dwarf *dwarf = dwfl_module_getdwarf(module->dwfl_module, &bias);
-	if (!dwarf)
-		return drgn_error_libdw();
-	*bias_ret = bias;
-	pc -= bias;
+	if (!module->debug_file) {
+		*bias_ret = 0;
+		*dies_ret = NULL;
+		*length_ret = 0;
+		return NULL;
+	}
+	Dwarf *dwarf = module->debug_file->dwarf;
+	*bias_ret = module->debug_file_bias;
+	pc -= module->debug_file_bias;
 
 	/* First, try to get the CU containing the PC. */
 	Dwarf_Aranges *aranges;
@@ -3927,10 +3926,7 @@ drgn_dwarf_location(struct drgn_elf_file *file, Dwarf_Attribute *attr,
 			*expr_size_ret = 0;
 			return NULL;
 		}
-		Dwarf_Addr bias;
-		dwfl_module_info(file->module->dwfl_module, NULL, NULL, NULL,
-				 &bias, NULL, NULL, NULL);
-		pc.value = pc.value - !regs->interrupted - bias;
+		pc.value -= !regs->interrupted + file->module->debug_file_bias;
 
 		if (cu_version >= 5) {
 			return drgn_dwarf5_location_list(file, offset, &cu_die,
@@ -4824,11 +4820,9 @@ drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 	Dwarf_Addr low_pc;
 	if (dwarf_lowpc(die, &low_pc) == -1)
 		return drgn_object_set_absent(ret, qualified_type, 0);
-	Dwarf_Addr bias;
-	dwfl_module_info(file->module->dwfl_module, NULL, NULL, NULL, &bias,
-			 NULL, NULL, NULL);
-	return drgn_object_set_reference(ret, qualified_type, low_pc + bias, 0,
-					 0);
+	return drgn_object_set_reference(ret, qualified_type,
+					 low_pc + file->module->debug_file_bias,
+					 0, 0);
 }
 
 static struct drgn_error *read_bits(struct drgn_program *prog, void *dst,
@@ -6640,23 +6634,19 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 		uintptr_t die_addr;
 		if (drgn_dwarf_find_definition(dbinfo, (uintptr_t)die->addr,
 					       &file, &die_addr)) {
-			Dwarf_Addr bias;
-			Dwarf *dwarf = dwfl_module_getdwarf(file->module->dwfl_module,
-							    &bias);
-			if (!dwarf)
-				return drgn_error_libdwfl();
 			uintptr_t start =
 				(uintptr_t)file->scn_data[DRGN_SCN_DEBUG_INFO]->d_buf;
 			size_t size =
 				file->scn_data[DRGN_SCN_DEBUG_INFO]->d_size;
 			if (die_addr >= start && die_addr < start + size) {
-				if (!dwarf_offdie(dwarf, die_addr - start,
+				if (!dwarf_offdie(file->dwarf, die_addr - start,
 						  &definition_die))
 					return drgn_error_libdw();
 			} else {
 				start = (uintptr_t)file->scn_data[DRGN_SCN_DEBUG_TYPES]->d_buf;
 				/* Assume .debug_types */
-				if (!dwarf_offdie_types(dwarf, die_addr - start,
+				if (!dwarf_offdie_types(file->dwarf,
+							die_addr - start,
 							&definition_die))
 					return drgn_error_libdw();
 			}

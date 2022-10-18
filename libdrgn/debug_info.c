@@ -1780,12 +1780,14 @@ drgn_module_find_files(struct drgn_module *module)
 	dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, NULL, NULL,
 			 NULL, &debug_file_path);
 
+	module->debug_file_bias = debug_file_bias;
 	err = drgn_elf_file_create(module, debug_file_path, dwarf_getelf(dwarf),
 				   &module->debug_file);
 	if (err) {
 		module->debug_file = NULL;
 		return err;
 	}
+	module->debug_file->dwarf = dwarf;
 	if (!module->debug_file->scns[DRGN_SCN_DEBUG_INFO] ||
 	    !module->debug_file->scns[DRGN_SCN_DEBUG_ABBREV]) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
@@ -2074,11 +2076,7 @@ drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
 				  &prog->platform))
 		return &drgn_not_found;
 
-	Dwarf_Addr bias;
-	dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, &bias, NULL,
-			 NULL, NULL);
-	uint64_t unbiased_pc = pc - bias;
-
+	uint64_t unbiased_pc = pc - module->debug_file_bias;
 	if (prog->prefer_orc_unwinder) {
 		err = drgn_debug_info_find_orc_cfi(module, unbiased_pc, row_ret,
 						   interrupted_ret,

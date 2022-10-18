@@ -12,6 +12,7 @@
 #ifndef DRGN_ELF_FILE_H
 #define DRGN_ELF_FILE_H
 
+#include <elfutils/libdw.h>
 #include <libelf.h>
 
 #include "binary_buffer.h"
@@ -80,6 +81,8 @@ struct drgn_elf_file {
 	const char *path;
 	/** libelf handle. */
 	Elf *elf;
+	/** libdw handle if we're using DWARF information from this file. */
+	Dwarf *dwarf;
 	/**
 	 * Platform of this file.
 	 *

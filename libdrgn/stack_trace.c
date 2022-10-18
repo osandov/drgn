@@ -302,18 +302,13 @@ drgn_stack_frame_source(struct drgn_stack_trace *trace, size_t frame,
 		return filename;
 	} else if (trace->frames[frame].num_scopes > 0) {
 		struct drgn_register_state *regs = trace->frames[frame].regs;
-		Dwfl_Module *dwfl_module =
-			regs->module ? regs->module->dwfl_module : NULL;
-		if (!dwfl_module)
+		if (!regs->module)
 			return NULL;
 
 		struct optional_uint64 pc = drgn_register_state_get_pc(regs);
 		if (!pc.has_value)
 			return NULL;
-		Dwarf_Addr bias;
-		if (!dwfl_module_getdwarf(dwfl_module, &bias))
-			return NULL;
-		pc.value = pc.value - bias - !regs->interrupted;
+		pc.value -= !regs->interrupted + regs->module->debug_file_bias;
 
 		Dwarf_Die *scopes = trace->frames[frame].scopes;
 		size_t num_scopes = trace->frames[frame].num_scopes;
