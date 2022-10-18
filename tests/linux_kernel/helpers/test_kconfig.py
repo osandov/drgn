@@ -1,7 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import os.path
+import gzip
+import re
 
 from drgn.helpers.linux.kconfig import get_kconfig
 from tests.linux_kernel import LinuxKernelTestCase
@@ -9,7 +10,13 @@ from tests.linux_kernel import LinuxKernelTestCase
 
 class TestKconfig(LinuxKernelTestCase):
     def test_get_kconfig(self):
-        if not os.path.isfile("/proc/config.gz"):
+        expected = {}
+        try:
+            with gzip.open("/proc/config.gz", "rt") as f:
+                for line in f:
+                    match = re.match(r"(\w+)=(.*)", line)
+                    if match:
+                        expected[match.group(1)] = match.group(2)
+        except FileNotFoundError:
             self.skipTest("kernel not built with CONFIG_IKCONFIG_PROC")
-        m = get_kconfig(self.prog)
-        self.assertIn(m["CONFIG_IKCONFIG"], {"y", "m"})
+        self.assertEqual(get_kconfig(self.prog), expected)
