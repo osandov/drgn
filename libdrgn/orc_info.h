@@ -65,10 +65,9 @@ struct drgn_module_orc_info {
 void drgn_module_orc_info_deinit(struct drgn_module *module);
 
 struct drgn_error *
-drgn_debug_info_find_orc_cfi(struct drgn_module *module, uint64_t unbiased_pc,
-			     struct drgn_cfi_row **row_ret,
-			     bool *interrupted_ret,
-			     drgn_register_number *ret_addr_regno_ret);
+drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
+			 struct drgn_cfi_row **row_ret, bool *interrupted_ret,
+			 drgn_register_number *ret_addr_regno_ret);
 
 /** @} */
 

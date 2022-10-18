@@ -88,15 +88,19 @@ static size_t keep_orc_entry(struct drgn_module *module, size_t *indices,
  * The vast majority of ORC entries are redundant with DWARF CFI, and it's a
  * waste to store and binary search those entries. This removes ORC entries that
  * are entirely shadowed by DWARF FDEs.
+ *
+ * Note that we don't bother checking EH CFI because currently ORC is only used
+ * for the Linux kernel on x86-64, which explicitly disables EH data.
  */
 static size_t remove_fdes_from_orc(struct drgn_module *module, size_t *indices,
 				   size_t num_entries)
 {
-	if (module->dwarf.num_fdes == 0)
+	if (module->dwarf.debug_frame.num_fdes == 0)
 		return num_entries;
 
-	struct drgn_dwarf_fde *fde = module->dwarf.fdes;
-	struct drgn_dwarf_fde *last_fde = fde + module->dwarf.num_fdes - 1;
+	struct drgn_dwarf_fde *fde = module->dwarf.debug_frame.fdes;
+	struct drgn_dwarf_fde *last_fde =
+		fde + module->dwarf.debug_frame.num_fdes - 1;
 
 	size_t new_num_entries = 0;
 
@@ -274,10 +278,9 @@ static inline uint64_t drgn_orc_pc(struct drgn_module *module, size_t i)
 }
 
 struct drgn_error *
-drgn_debug_info_find_orc_cfi(struct drgn_module *module, uint64_t unbiased_pc,
-			     struct drgn_cfi_row **row_ret,
-			     bool *interrupted_ret,
-			     drgn_register_number *ret_addr_regno_ret)
+drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
+			 struct drgn_cfi_row **row_ret, bool *interrupted_ret,
+			 drgn_register_number *ret_addr_regno_ret)
 {
 	struct drgn_error *err;
 
@@ -288,6 +291,7 @@ drgn_debug_info_find_orc_cfi(struct drgn_module *module, uint64_t unbiased_pc,
 		module->parsed_orc = true;
 	}
 
+	uint64_t unbiased_pc = pc - module->debug_file_bias;
 	/*
 	 * We don't know the maximum program counter covered by the ORC data,
 	 * but the last entry seems to always be a terminator, so it doesn't

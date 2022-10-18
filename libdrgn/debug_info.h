@@ -89,8 +89,10 @@ struct drgn_module {
 	/** ORC unwinder information. */
 	struct drgn_module_orc_info orc;
 
-	/** Whether .debug_frame and .eh_frame have been parsed. */
-	bool parsed_frames;
+	/** Whether DWARF CFI from .debug_frame has been parsed. */
+	bool parsed_debug_frame;
+	/** Whether EH CFI from .eh_frame has been parsed. */
+	bool parsed_eh_frame;
 	/** Whether ORC unwinder data has been parsed. */
 	bool parsed_orc;
 
@@ -257,6 +259,7 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
  *
  * @param[in] module Module containing @p pc.
  * @param[in] pc Program counter.
+ * @param[out] file_ret Returned file containing CFI.
  * @param[in,out] row_ret Returned CFI row.
  * @param[out] interrupted_ret Whether the found frame interrupted its caller.
  * @param[out] ret_addr_regno_ret Returned return address register number.
@@ -265,8 +268,8 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
  */
 struct drgn_error *
 drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
-		     uint64_t pc, struct drgn_cfi_row **row_ret,
-		     bool *interrupted_ret,
+		     uint64_t pc, struct drgn_elf_file **file_ret,
+		     struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 		     drgn_register_number *ret_addr_regno_ret);
 
 struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);

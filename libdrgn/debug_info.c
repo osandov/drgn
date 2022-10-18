@@ -2104,38 +2104,68 @@ void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo)
 
 struct drgn_error *
 drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
-		     uint64_t pc, struct drgn_cfi_row **row_ret,
-		     bool *interrupted_ret,
+		     uint64_t pc, struct drgn_elf_file **file_ret,
+		     struct drgn_cfi_row **row_ret, bool *interrupted_ret,
 		     drgn_register_number *ret_addr_regno_ret)
 {
 	struct drgn_error *err;
 
-	// If the module's platform doesn't match the program's, we can't use
-	// its CFI.
-	if (!drgn_platforms_equal(&module->debug_file->platform,
-				  &prog->platform))
-		return &drgn_not_found;
+	// If the file's platform doesn't match the program's, we can't use its
+	// CFI.
+	const bool can_use_loaded_file =
+		(module->loaded_file &&
+		 drgn_platforms_equal(&module->loaded_file->platform,
+				      &prog->platform));
+	const bool can_use_debug_file =
+		(module->debug_file &&
+		 drgn_platforms_equal(&module->debug_file->platform,
+				      &prog->platform));
 
-	uint64_t unbiased_pc = pc - module->debug_file_bias;
 	if (prog->prefer_orc_unwinder) {
-		err = drgn_debug_info_find_orc_cfi(module, unbiased_pc, row_ret,
-						   interrupted_ret,
-						   ret_addr_regno_ret);
-		if (err != &drgn_not_found)
-			return err;
-		return drgn_debug_info_find_dwarf_cfi(module, unbiased_pc,
-						      row_ret, interrupted_ret,
-						      ret_addr_regno_ret);
+		if (can_use_debug_file) {
+			*file_ret = module->debug_file;
+			err = drgn_module_find_orc_cfi(module, pc, row_ret,
+						       interrupted_ret,
+						       ret_addr_regno_ret);
+			if (err != &drgn_not_found)
+				return err;
+			err = drgn_module_find_dwarf_cfi(module, pc, row_ret,
+							 interrupted_ret,
+							 ret_addr_regno_ret);
+			if (err != &drgn_not_found)
+				return err;
+		}
+		if (can_use_loaded_file) {
+			*file_ret = module->loaded_file;
+			return drgn_module_find_eh_cfi(module, pc, row_ret,
+						       interrupted_ret,
+						       ret_addr_regno_ret);
+		}
 	} else {
-		err = drgn_debug_info_find_dwarf_cfi(module, unbiased_pc,
-						     row_ret, interrupted_ret,
-						     ret_addr_regno_ret);
-		if (err != &drgn_not_found)
-			return err;
-		return drgn_debug_info_find_orc_cfi(module, unbiased_pc,
-						    row_ret, interrupted_ret,
-						    ret_addr_regno_ret);
+		if (can_use_debug_file) {
+			*file_ret = module->debug_file;
+			err = drgn_module_find_dwarf_cfi(module, pc, row_ret,
+							 interrupted_ret,
+							 ret_addr_regno_ret);
+			if (err != &drgn_not_found)
+				return err;
+		}
+		if (can_use_loaded_file) {
+			*file_ret = module->loaded_file;
+			err = drgn_module_find_eh_cfi(module, pc, row_ret,
+						      interrupted_ret,
+						      ret_addr_regno_ret);
+			if (err != &drgn_not_found)
+				return err;
+		}
+		if (can_use_debug_file) {
+			*file_ret = module->debug_file;
+			return drgn_module_find_orc_cfi(module, pc, row_ret,
+							interrupted_ret,
+							ret_addr_regno_ret);
+		}
 	}
+	return &drgn_not_found;
 }
 
 #if !_ELFUTILS_PREREQ(0, 175)

@@ -33,28 +33,36 @@ struct drgn_register_state;
 struct drgn_dwarf_fde {
 	uint64_t initial_location;
 	uint64_t address_range;
-	/* CIE for this FDE as an index into drgn_module_dwarf_info::cies. */
+	/* CIE for this FDE as an index into drgn_dwarf_cfi::cies. */
 	size_t cie;
 	const char *instructions;
 	size_t instructions_size;
 };
 
-/** DWARF debugging information for a @ref drgn_module. */
-struct drgn_module_dwarf_info {
-	/** Base for `DW_EH_PE_pcrel`. */
-	uint64_t pcrel_base;
-	/** Base for `DW_EH_PE_textrel`. */
-	uint64_t textrel_base;
-	/** Base for `DW_EH_PE_datarel`. */
-	uint64_t datarel_base;
+/** DWARF Call Frame Information. */
+struct drgn_dwarf_cfi {
 	/** Array of DWARF Common Information Entries. */
 	struct drgn_dwarf_cie *cies;
 	/**
 	 * Array of DWARF Frame Description Entries sorted by initial_location.
 	 */
 	struct drgn_dwarf_fde *fdes;
-	/** Number of elements in @ref drgn_module_dwarf_info::fdes. */
+	/** Number of elements in @ref drgn_dwarf_cfi::fdes. */
 	size_t num_fdes;
+};
+
+/** DWARF debugging information for a @ref drgn_module. */
+struct drgn_module_dwarf_info {
+	/** Call Frame Information from .debug_frame. */
+	struct drgn_dwarf_cfi debug_frame;
+	/** Call Frame Information from .eh_frame. */
+	struct drgn_dwarf_cfi eh_frame;
+	/** Base for `DW_EH_PE_pcrel`. */
+	uint64_t pcrel_base;
+	/** Base for `DW_EH_PE_textrel`. */
+	uint64_t textrel_base;
+	/** Base for `DW_EH_PE_datarel`. */
+	uint64_t datarel_base;
 };
 
 void drgn_module_dwarf_info_deinit(struct drgn_module *module);
@@ -209,10 +217,11 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state);
  * grandparent, etc. Must be freed with @c free().
  * @param[out] length_ret Returned length of @p dies_ret.
  */
-struct drgn_error *
-drgn_module_find_dwarf_scopes(struct drgn_module *module, uint64_t pc,
-			      uint64_t *bias_ret, Dwarf_Die **dies_ret,
-			      size_t *length_ret)
+struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
+						 uint64_t pc,
+						 uint64_t *bias_ret,
+						 Dwarf_Die **dies_ret,
+						 size_t *length_ret)
 	__attribute__((__nonnull__(1, 3, 4, 5)));
 
 /**
@@ -282,13 +291,18 @@ drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
 		       struct drgn_object *ret);
 
 struct drgn_error *
-drgn_debug_info_find_dwarf_cfi(struct drgn_module *module, uint64_t unbiased_pc,
-			       struct drgn_cfi_row **row_ret,
-			       bool *interrupted_ret,
-			       drgn_register_number *ret_addr_regno_ret);
+drgn_module_find_dwarf_cfi(struct drgn_module *module, uint64_t pc,
+			   struct drgn_cfi_row **row_ret, bool *interrupted_ret,
+			   drgn_register_number *ret_addr_regno_ret);
+
+struct drgn_error *
+drgn_module_find_eh_cfi(struct drgn_module *module, uint64_t pc,
+			struct drgn_cfi_row **row_ret, bool *interrupted_ret,
+			drgn_register_number *ret_addr_regno_ret);
 
 struct drgn_error *
 drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
+			       struct drgn_elf_file *file,
 			       const struct drgn_cfi_rule *rule,
 			       const struct drgn_register_state *regs,
 			       void *buf, size_t size);
