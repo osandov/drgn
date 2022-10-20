@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "debug_info.h" // IWYU pragma: associated
+#include "elf_file.h"
 #include "error.h"
 #include "orc.h"
 #include "util.h"
@@ -25,9 +26,9 @@ static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module, size_t i)
 {
 	int32_t offset;
 	memcpy(&offset,
-	       (int32_t *)module->scn_data[DRGN_SCN_ORC_UNWIND_IP]->d_buf + i,
+	       (int32_t *)module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND_IP]->d_buf + i,
 	       sizeof(offset));
-	if (drgn_platform_bswap(&module->platform))
+	if (drgn_elf_file_bswap(module->debug_file))
 		offset = bswap_32(offset);
 	return module->orc.pc_base + UINT64_C(4) * i + offset;
 }
@@ -51,11 +52,11 @@ static int compare_orc_entries(const void *a, const void *b)
 	 * at the end of a compilation unit. Prefer the real entry.
 	 */
 	const struct drgn_orc_entry *entries =
-		module->scn_data[DRGN_SCN_ORC_UNWIND]->d_buf;
+		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND]->d_buf;
 	uint16_t flags_a, flags_b;
 	memcpy(&flags_a, &entries[index_a].flags, sizeof(flags_a));
 	memcpy(&flags_b, &entries[index_b].flags, sizeof(flags_b));
-	if (drgn_platform_bswap(&module->platform)) {
+	if (drgn_elf_file_bswap(module->debug_file)) {
 		flags_a = bswap_16(flags_a);
 		flags_b = bswap_16(flags_b);
 	}
@@ -68,7 +69,7 @@ static size_t keep_orc_entry(struct drgn_module *module, size_t *indices,
 {
 
 	const struct drgn_orc_entry *entries =
-		module->scn_data[DRGN_SCN_ORC_UNWIND]->d_buf;
+		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND]->d_buf;
 	if (num_entries > 0 &&
 	    memcmp(&entries[indices[num_entries - 1]], &entries[indices[i]],
 		   sizeof(entries[0])) == 0) {
@@ -168,25 +169,30 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 {
 	struct drgn_error *err;
 
-	if (!module->platform.arch->orc_to_cfi ||
-	    !module->scns[DRGN_SCN_ORC_UNWIND_IP] ||
-	    !module->scns[DRGN_SCN_ORC_UNWIND])
+	if (!module->debug_file->platform.arch->orc_to_cfi ||
+	    !module->debug_file->scns[DRGN_SCN_ORC_UNWIND_IP] ||
+	    !module->debug_file->scns[DRGN_SCN_ORC_UNWIND])
 		return NULL;
 
 	GElf_Shdr shdr_mem, *shdr;
-	shdr = gelf_getshdr(module->scns[DRGN_SCN_ORC_UNWIND_IP], &shdr_mem);
+	shdr = gelf_getshdr(module->debug_file->scns[DRGN_SCN_ORC_UNWIND_IP],
+			    &shdr_mem);
 	if (!shdr)
 		return drgn_error_libelf();
 	module->orc.pc_base = shdr->sh_addr;
 
-	err = drgn_module_cache_section(module, DRGN_SCN_ORC_UNWIND_IP);
+	err = drgn_elf_file_cache_section(module->debug_file,
+					  DRGN_SCN_ORC_UNWIND_IP);
 	if (err)
 		return err;
-	err = drgn_module_cache_section(module, DRGN_SCN_ORC_UNWIND);
+	err = drgn_elf_file_cache_section(module->debug_file,
+					  DRGN_SCN_ORC_UNWIND);
 	if (err)
 		return err;
-	Elf_Data *orc_unwind_ip = module->scn_data[DRGN_SCN_ORC_UNWIND_IP];
-	Elf_Data *orc_unwind = module->scn_data[DRGN_SCN_ORC_UNWIND];
+	Elf_Data *orc_unwind_ip =
+		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND_IP];
+	Elf_Data *orc_unwind =
+		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND];
 
 	size_t num_entries = orc_unwind_ip->d_size / sizeof(int32_t);
 	if (orc_unwind_ip->d_size % sizeof(int32_t) != 0 ||
@@ -235,7 +241,7 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	}
 	const int32_t *orig_offsets = orc_unwind_ip->d_buf;
 	const struct drgn_orc_entry *orig_entries = orc_unwind->d_buf;
-	bool bswap = drgn_platform_bswap(&module->platform);
+	bool bswap = drgn_elf_file_bswap(module->debug_file);
 	for (size_t i = 0; i < num_entries; i++) {
 		size_t index = indices[i];
 		int32_t offset;
@@ -299,7 +305,8 @@ drgn_debug_info_find_orc_cfi(struct drgn_module *module, uint64_t unbiased_pc,
 			hi = mid;
 		}
 	}
-	return module->platform.arch->orc_to_cfi(&module->orc.entries[found],
-						 row_ret, interrupted_ret,
-						 ret_addr_regno_ret);
+	return module->debug_file->platform.arch->orc_to_cfi(&module->orc.entries[found],
+							     row_ret,
+							     interrupted_ret,
+							     ret_addr_regno_ret);
 }

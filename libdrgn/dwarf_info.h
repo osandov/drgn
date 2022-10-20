@@ -92,8 +92,8 @@ struct drgn_dwarf_specification {
 	 * `DW_AT_specification`.
 	 */
 	uintptr_t declaration;
-	/** Module containing DIE. */
-	struct drgn_module *module;
+	/** File containing DIE. */
+	struct drgn_elf_file *file;
 	/** Address of DIE. */
 	uintptr_t addr;
 };
@@ -276,7 +276,7 @@ struct drgn_error *drgn_find_in_dwarf_scopes(Dwarf_Die *scopes,
  */
 struct drgn_error *
 drgn_object_from_dwarf(struct drgn_debug_info *dbinfo,
-		       struct drgn_module *module, Dwarf_Die *die,
+		       struct drgn_elf_file *file, Dwarf_Die *die,
 		       Dwarf_Die *type_die, Dwarf_Die *function_die,
 		       const struct drgn_register_state *regs,
 		       struct drgn_object *ret);

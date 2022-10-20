@@ -49,36 +49,6 @@ enum drgn_module_state {
 	DRGN_DEBUG_INFO_MODULE_INDEXED,
 } __attribute__((__packed__));
 
-enum drgn_debug_info_scn {
-	/* Sections whose data we should cache when loading the module. */
-	DRGN_SCN_DEBUG_INFO,
-	DRGN_SCN_DEBUG_TYPES,
-	DRGN_SCN_DEBUG_ABBREV,
-	DRGN_SCN_DEBUG_STR,
-	DRGN_SCN_DEBUG_STR_OFFSETS,
-	DRGN_SCN_DEBUG_LINE,
-	DRGN_SCN_DEBUG_LINE_STR,
-
-	DRGN_NUM_DEBUG_SCN_DATA_PRECACHE,
-
-	/* Sections whose data we should cache when it is first used. */
-	DRGN_SCN_DEBUG_ADDR = DRGN_NUM_DEBUG_SCN_DATA_PRECACHE,
-	DRGN_SCN_DEBUG_FRAME,
-	DRGN_SCN_EH_FRAME,
-	DRGN_SCN_ORC_UNWIND_IP,
-	DRGN_SCN_ORC_UNWIND,
-	DRGN_SCN_DEBUG_LOC,
-	DRGN_SCN_DEBUG_LOCLISTS,
-
-	DRGN_NUM_DEBUG_SCN_DATA,
-
-	/* Sections whose data doesn't need to be cached. */
-	DRGN_SCN_TEXT = DRGN_NUM_DEBUG_SCN_DATA,
-	DRGN_SCN_GOT,
-
-	DRGN_NUM_DEBUG_SCNS,
-};
-
 /**
  * A module reported to a @ref drgn_debug_info.
  *
@@ -99,20 +69,8 @@ struct drgn_module {
 	char *name;
 
 	Dwfl_Module *dwfl_module;
-	/*
-	 * This should take precedence over @ref drgn_program::platform when
-	 * parsing this module. Note that there are some cases where it doesn't
-	 * make sense for the program and module platforms to differ (e.g.,
-	 * stack unwinding), in which case the module should be ignored if its
-	 * platform doesn't match the program's.
-	 */
-	struct drgn_platform platform;
-	Elf_Scn *scns[DRGN_NUM_DEBUG_SCNS];
-	Elf_Scn *alt_debug_info;
-	Elf_Scn *alt_debug_str;
-	Elf_Data *scn_data[DRGN_NUM_DEBUG_SCN_DATA];
-	Elf_Data *alt_debug_info_data;
-	Elf_Data *alt_debug_str_data;
+	/** File containing debugging information. */
+	struct drgn_elf_file *debug_file;
 
 	/** DWARF debugging information. */
 	struct drgn_module_dwarf_info dwarf;
@@ -145,37 +103,6 @@ struct drgn_module {
 	 */
 	struct drgn_module *next;
 };
-
-struct drgn_error *drgn_module_cache_section(struct drgn_module *module,
-					     enum drgn_debug_info_scn scn);
-
-struct drgn_error *drgn_error_debug_info_scn(struct drgn_module *module,
-					     enum drgn_debug_info_scn scn,
-					     const char *ptr,
-					     const char *message);
-
-struct drgn_debug_info_buffer {
-	struct binary_buffer bb;
-	struct drgn_module *module;
-	enum drgn_debug_info_scn scn;
-};
-
-struct drgn_error *drgn_debug_info_buffer_error(struct binary_buffer *bb,
-						const char *pos,
-						const char *message);
-
-static inline void
-drgn_debug_info_buffer_init(struct drgn_debug_info_buffer *buffer,
-			    struct drgn_module *module,
-			    enum drgn_debug_info_scn scn)
-{
-	binary_buffer_init(&buffer->bb, module->scn_data[scn]->d_buf,
-			   module->scn_data[scn]->d_size,
-			   drgn_platform_is_little_endian(&module->platform),
-			   drgn_debug_info_buffer_error);
-	buffer->module = module;
-	buffer->scn = scn;
-}
 
 DEFINE_HASH_TABLE_TYPE(drgn_module_table, struct drgn_module *)
 
@@ -334,12 +261,6 @@ struct drgn_error *open_elf_file(const char *path, int *fd_ret, Elf **elf_ret);
 
 struct drgn_error *find_elf_file(char **path_ret, int *fd_ret, Elf **elf_ret,
 				 const char * const *path_formats, ...);
-
-/*
- * NB: if the section is SHT_NOBITS, this returns an Elf_Data with d_buf = NULL
- * and d_size >= 0.
- */
-struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
 
 struct drgn_error *elf_address_range(Elf *elf, uint64_t bias,
 				     uint64_t *start_ret, uint64_t *end_ret);

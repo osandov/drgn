@@ -50,6 +50,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 dwarf_constants.h \
 			 dwarf_info.c \
 			 dwarf_info.h \
+			 elf_file.c \
+			 elf_file.h \
 			 error.c \
 			 error.h \
 			 hash_table.c \

@@ -13,6 +13,7 @@
 #include "drgn.h"
 #include "dwarf_constants.h"
 #include "dwarf_info.h"
+#include "elf_file.h"
 #include "error.h"
 #include "helpers.h"
 #include "minmax.h"
@@ -487,14 +488,14 @@ not_found:;
 		}
 	}
 
-	// It doesn't make sense to use the registers if the module has a
+	// It doesn't make sense to use the registers if the file has a
 	// different platform than the program.
 	const struct drgn_register_state *regs = frame->regs;
-	struct drgn_module *module = regs->module;
-	if (!drgn_platforms_equal(&module->platform, &trace->prog->platform))
+	struct drgn_elf_file *file = regs->module->debug_file;
+	if (!drgn_platforms_equal(&file->platform, &trace->prog->platform))
 		regs = NULL;
 	Dwarf_Die function_die = frame->scopes[frame->function_scope];
-	return drgn_object_from_dwarf(trace->prog->dbinfo, module, &die,
+	return drgn_object_from_dwarf(trace->prog->dbinfo, file, &die,
 				      dwarf_tag(&die) == DW_TAG_enumerator ?
 				      &type_die : NULL,
 				      &function_die, regs, ret);
