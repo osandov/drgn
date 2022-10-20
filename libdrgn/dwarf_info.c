@@ -6341,10 +6341,11 @@ drgn_pointer_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		}
 		size = word;
 	} else {
+		// dwarf_diecu() always returns the DIE. We should use
+		// dwarf_cu_info(), but that requires elfutils >= 0.171.
+		Dwarf_Die unused;
 		uint8_t address_size;
-		err = drgn_program_address_size(dbinfo->prog, &address_size);
-		if (err)
-			return err;
+		dwarf_diecu(die, &unused, &address_size, NULL);
 		size = address_size;
 	}
 
