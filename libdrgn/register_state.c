@@ -93,14 +93,7 @@ void drgn_register_state_set_pc(struct drgn_program *prog,
 			void **userdatap;
 			dwfl_module_info(dwfl_module, &userdatap, NULL, NULL,
 					 NULL, NULL, NULL, NULL);
-			struct drgn_module *module = *userdatap;
-			static const enum drgn_platform_flags check_flags =
-				(DRGN_PLATFORM_IS_64_BIT |
-				 DRGN_PLATFORM_IS_LITTLE_ENDIAN);
-			if (module->platform.arch == prog->platform.arch &&
-			    (module->platform.flags & check_flags) ==
-			    (prog->platform.flags & check_flags))
-				regs->module = module;
+			regs->module = *userdatap;
 		}
 	}
 }

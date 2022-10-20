@@ -487,12 +487,17 @@ not_found:;
 		}
 	}
 
+	// It doesn't make sense to use the registers if the module has a
+	// different platform than the program.
+	const struct drgn_register_state *regs = frame->regs;
+	struct drgn_module *module = regs->module;
+	if (!drgn_platforms_equal(&module->platform, &trace->prog->platform))
+		regs = NULL;
 	Dwarf_Die function_die = frame->scopes[frame->function_scope];
-	return drgn_object_from_dwarf(trace->prog->dbinfo, frame->regs->module,
-				      &die,
+	return drgn_object_from_dwarf(trace->prog->dbinfo, module, &die,
 				      dwarf_tag(&die) == DW_TAG_enumerator ?
 				      &type_die : NULL,
-				      &function_die, frame->regs, ret);
+				      &function_die, regs, ret);
 }
 
 LIBDRGN_PUBLIC bool drgn_stack_frame_register(struct drgn_stack_trace *trace,

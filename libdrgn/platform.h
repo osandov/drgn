@@ -192,6 +192,12 @@ struct drgn_platform {
 	enum drgn_platform_flags flags;
 };
 
+static inline bool drgn_platforms_equal(const struct drgn_platform *a,
+					const struct drgn_platform *b)
+{
+	return a->arch == b->arch && a->flags == b->flags;
+}
+
 static inline bool
 drgn_platform_is_little_endian(const struct drgn_platform *platform)
 {

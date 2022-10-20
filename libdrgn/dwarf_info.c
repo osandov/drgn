@@ -4062,13 +4062,15 @@ drgn_eval_dwarf_expression(struct drgn_dwarf_expression_context *ctx,
 			   int *remaining_ops)
 {
 	struct drgn_error *err;
-	const struct drgn_platform *platform = &ctx->module->platform;
-	bool little_endian = drgn_platform_is_little_endian(platform);
+	bool little_endian =
+		drgn_platform_is_little_endian(&ctx->module->platform);
 	uint8_t address_size = ctx->address_size;
 	uint8_t address_bits = address_size * CHAR_BIT;
 	uint64_t address_mask = uint_max(address_size);
+	const struct drgn_register_layout *register_layout =
+		ctx->module->platform.arch->register_layout;
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t) =
-		platform->arch->dwarf_regno_to_internal;
+		ctx->module->platform.arch->dwarf_regno_to_internal;
 
 #define CHECK(n) do {								\
 	size_t _n = (n);							\
@@ -4215,7 +4217,7 @@ breg:
 			if (!drgn_register_state_has_register(ctx->regs, regno))
 				return &drgn_not_found;
 			const struct drgn_register_layout *layout =
-				&platform->arch->register_layout[regno];
+				&register_layout[regno];
 			copy_lsbytes(&uvalue, sizeof(uvalue),
 				     HOST_LITTLE_ENDIAN,
 				     &ctx->regs->buf[layout->offset],
@@ -4508,6 +4510,8 @@ drgn_dwarf_frame_base(struct drgn_program *prog, struct drgn_module *module,
 {
 	struct drgn_error *err;
 	bool little_endian = drgn_platform_is_little_endian(&module->platform);
+	const struct drgn_register_layout *register_layout =
+		module->platform.arch->register_layout;
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t) =
 		module->platform.arch->dwarf_regno_to_internal;
 
@@ -4560,7 +4564,7 @@ reg:
 					goto out;
 				}
 				const struct drgn_register_layout *layout =
-					&prog->platform.arch->register_layout[regno];
+					&register_layout[regno];
 				/*
 				 * Note that this doesn't mask the address since
 				 * the caller does that.
@@ -4933,6 +4937,8 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 	struct drgn_error *err;
 	bool little_endian = drgn_platform_is_little_endian(&module->platform);
 	uint64_t address_mask = drgn_platform_address_mask(&module->platform);
+	const struct drgn_register_layout *register_layout =
+		module->platform.arch->register_layout;
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t) =
 		module->platform.arch->dwarf_regno_to_internal;
 
@@ -4991,7 +4997,7 @@ reg:
 								      regno))
 					goto absent;
 				const struct drgn_register_layout *layout =
-					&prog->platform.arch->register_layout[regno];
+					&register_layout[regno];
 				src = &regs->buf[layout->offset];
 				src_size = layout->size;
 				break;
@@ -8001,7 +8007,7 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 					       false);
 	} else {
 		copy_lsbytes(buf, size,
-			     drgn_platform_is_little_endian(&prog->platform),
+			     drgn_platform_is_little_endian(&regs->module->platform),
 			     &stack.data[stack.size - 1], sizeof(uint64_t),
 			     HOST_LITTLE_ENDIAN);
 		err = NULL;

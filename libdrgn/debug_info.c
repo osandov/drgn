@@ -2186,6 +2186,11 @@ drgn_module_find_cfi(struct drgn_program *prog, struct drgn_module *module,
 {
 	struct drgn_error *err;
 
+	// If the module's platform doesn't match the program's, we can't use
+	// its CFI.
+	if (!drgn_platforms_equal(&module->platform, &prog->platform))
+		return &drgn_not_found;
+
 	Dwarf_Addr bias;
 	dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, &bias, NULL,
 			 NULL, NULL);

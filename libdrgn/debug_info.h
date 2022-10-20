@@ -99,6 +99,13 @@ struct drgn_module {
 	char *name;
 
 	Dwfl_Module *dwfl_module;
+	/*
+	 * This should take precedence over @ref drgn_program::platform when
+	 * parsing this module. Note that there are some cases where it doesn't
+	 * make sense for the program and module platforms to differ (e.g.,
+	 * stack unwinding), in which case the module should be ignored if its
+	 * platform doesn't match the program's.
+	 */
 	struct drgn_platform platform;
 	Elf_Scn *scns[DRGN_NUM_DEBUG_SCNS];
 	Elf_Scn *alt_debug_info;
