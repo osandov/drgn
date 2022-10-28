@@ -14,8 +14,6 @@
 #include "util.h"
 
 /** @cond */
-#define __must_be_array(a) BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
-
 #define array_for_each_impl(var, arr, unique_end)	\
 	for (typeof((arr)[0]) *var = (arr),		\
 	     *unique_end = var + array_size(arr);	\
@@ -27,7 +25,11 @@
  *
  * @hideinitializer
  */
-#define array_size(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
+#define array_size(arr)						\
+static_assert_expression(					\
+	!types_compatible((arr), &(arr)[0]), "not an array",	\
+	sizeof(arr) / sizeof((arr)[0])				\
+)
 
 /**
  * Iterate over every element in an array.

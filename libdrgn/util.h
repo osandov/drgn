@@ -5,8 +5,6 @@
  * @file
  *
  * Miscellanous utility functions.
- *
- * Several of these are taken from the Linux kernel source.
  */
 
 #ifndef DRGN_UTIL_H
@@ -66,37 +64,24 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#if defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)
-#define __compiletime_error(message) __attribute__((__error__(message)))
-#else
-#define __compiletime_error(message)
-#endif
-#ifdef __OPTIMIZE__
-# define __compiletime_assert(condition, msg, prefix, suffix)		\
-	do {								\
-		extern void prefix ## suffix(void) __compiletime_error(msg); \
-		if (!(condition))					\
-			prefix ## suffix();				\
-	} while (0)
-#else
-# define __compiletime_assert(condition, msg, prefix, suffix) do { } while (0)
-#endif
-#define _compiletime_assert(condition, msg, prefix, suffix) \
-	__compiletime_assert(condition, msg, prefix, suffix)
-#define compiletime_assert(condition, msg) \
-	_compiletime_assert(condition, msg, __compiletime_assert_, __LINE__)
+/** Return whether two types or expressions have compatible types. */
+#define types_compatible(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 
-#define BUILD_BUG_ON_ZERO(e) (sizeof(struct { int:(-!!(e)); }))
-#define BUILD_BUG_ON_MSG(cond, msg) compiletime_assert(!(cond), msg)
+/**
+ * `static_assert(assert_expression, message)` as an expression that evaluates
+ * to `eval_expression`.
+ */
+#define static_assert_expression(assert_expression, message, eval_expression)	\
+	_Generic(sizeof(struct { _Static_assert(assert_expression, message); int _; }),\
+		 default: (eval_expression))
 
-#define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
-
-#define container_of(ptr, type, member) ({				\
-	void *__mptr = (void *)(ptr);					\
-	BUILD_BUG_ON_MSG(!__same_type(*(ptr), ((type *)0)->member) &&	\
-			 !__same_type(*(ptr), void),			\
-			 "pointer type mismatch in container_of()");	\
-	((type *)(__mptr - offsetof(type, member))); })
+#define container_of(ptr, type, member)				\
+static_assert_expression(					\
+	types_compatible(*(ptr), ((type *)0)->member)		\
+	|| types_compatible(*(ptr), void),			\
+	"pointer does not match member type",			\
+	(type *)((char *)(ptr) - offsetof(type, member))	\
+)
 
 static inline bool strstartswith(const char *s, const char *prefix)
 {
