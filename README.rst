@@ -64,6 +64,10 @@ Package Manager
 
 drgn can be installed using the package manager on some Linux distributions.
 
+.. image:: https://repology.org/badge/vertical-allrepos/drgn.svg
+    :target: https://repology.org/project/drgn/versions
+    :alt: Packaging Status
+
 * Fedora >= 32
 
   .. code-block:: console
@@ -83,11 +87,26 @@ drgn can be installed using the package manager on some Linux distributions.
   Install the `drgn <https://aur.archlinux.org/packages/drgn/>`_ package from
   the `AUR <https://wiki.archlinux.org/title/Arch_User_Repository>`_.
 
+* Debian >= 12 (Bookworm)
+
+  .. code-block:: console
+
+    $ sudo apt install python3-drgn
+
 * openSUSE
 
   .. code-block:: console
 
       $ sudo zypper install python3-drgn
+
+* Ubuntu
+
+  Enable the `michel-slm/kernel-utils PPA <https://launchpad.net/~michel-slm/+archive/ubuntu/kernel-utils>`_.
+  Then:
+
+  .. code-block:: console
+
+      $ sudo apt install python3-drgn
 
 pip
 ^^^
