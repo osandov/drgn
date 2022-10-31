@@ -7411,11 +7411,12 @@ static void drgn_debug_info_cache_sh_addr(struct drgn_module *module,
 	}
 }
 
-static int drgn_dwarf_fde_compar(const void *_a, const void *_b, void *arg)
+static _Thread_local struct drgn_dwarf_cie *drgn_dwarf_fde_compar_cies;
+static int drgn_dwarf_fde_compar(const void *_a, const void *_b)
 {
 	const struct drgn_dwarf_fde *a = _a;
 	const struct drgn_dwarf_fde *b = _b;
-	const struct drgn_dwarf_cie *cies = arg;
+	const struct drgn_dwarf_cie *cies = drgn_dwarf_fde_compar_cies;
 	if (a->initial_location < b->initial_location)
 		return -1;
 	else if (a->initial_location > b->initial_location)
@@ -7453,8 +7454,9 @@ drgn_debug_info_parse_frames(struct drgn_module *module)
 	 * Sort FDEs and remove duplicates, preferring .debug_frame over
 	 * .eh_frame.
 	 */
-	qsort_r(fdes.data, fdes.size, sizeof(fdes.data[0]),
-		drgn_dwarf_fde_compar, cies.data);
+	drgn_dwarf_fde_compar_cies = cies.data;
+	qsort(fdes.data, fdes.size, sizeof(fdes.data[0]),
+	      drgn_dwarf_fde_compar);
 	if (fdes.size > 0) {
 		size_t src = 1, dst = 1;
 		for (; src < fdes.size; src++) {
