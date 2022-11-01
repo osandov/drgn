@@ -1,5 +1,5 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 // Linux kernel module for testing drgn helpers and kernel support. For now,
 // this is all in one file for simplicity and to keep the compilation fast
