@@ -9,9 +9,7 @@ AM_CPPFLAGS = -I $(top_srcdir)/include -D_GNU_SOURCE
 AM_CFLAGS = $(WARN_CFLAGS) $(SANITIZER_CFLAGS)
 AM_LDFLAGS= $(SANITIZER_LDFLAGS)
 
-noinst_HEADERS = include/dwarf.h \
-		 include/elf.h \
-		 include/elfutils/known-dwarf.h
+noinst_HEADERS = include/elf.h
 
 include_HEADERS = drgn.h
 
@@ -48,6 +46,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 cityhash.h \
 			 debug_info.c \
 			 debug_info.h \
+			 dwarf_constants.c \
+			 dwarf_constants.h \
 			 dwarf_info.c \
 			 dwarf_info.h \
 			 error.c \

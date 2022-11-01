@@ -3,9 +3,7 @@
 
 #include <assert.h>
 #include <byteswap.h>
-#include <dwarf.h>
 #include <elf.h>
-#include <elfutils/known-dwarf.h>
 #include <elfutils/libdw.h>
 #include <gelf.h>
 #include <inttypes.h>
@@ -34,6 +32,7 @@ static inline int omp_get_max_threads(void)
 
 #include "array.h"
 #include "debug_info.h" // IWYU pragma: associated
+#include "dwarf_constants.h"
 #include "error.h"
 #include "language.h"
 #include "lazy_object.h"
@@ -262,27 +261,6 @@ void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo)
 /*
  * Diagnostics.
  */
-
-#define DW_TAG_STR_UNKNOWN_FORMAT "unknown DWARF tag 0x%02x"
-#define DW_TAG_STR_BUF_LEN (sizeof(DW_TAG_STR_UNKNOWN_FORMAT) - 4 + 2 * sizeof(int))
-
-/**
- * Get the name of a DWARF tag.
- *
- * @return Static string if the tag is known or @p buf if the tag is unknown
- * (populated with a description).
- */
-static const char *dw_tag_str(int tag, char buf[DW_TAG_STR_BUF_LEN])
-{
-	switch (tag) {
-#define DWARF_ONE_KNOWN_DW_TAG(name, value) case value: return "DW_TAG_" #name;
-	DWARF_ALL_KNOWN_DW_TAG
-#undef DWARF_ONE_KNOWN_DW_TAG
-	default:
-		sprintf(buf, DW_TAG_STR_UNKNOWN_FORMAT, tag);
-		return buf;
-	}
-}
 
 /** Like @ref dw_tag_str(), but takes a @c Dwarf_Die. */
 static const char *dwarf_tag_str(Dwarf_Die *die, char buf[DW_TAG_STR_BUF_LEN])

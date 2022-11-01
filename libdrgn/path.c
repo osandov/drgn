@@ -1,11 +1,11 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <dwarf.h>
 #include <stdbool.h>
 #include <string.h>
 
 #include "drgn.h"
+#include "dwarf_constants.h"
 #include "path.h"
 #include "util.h"
 
