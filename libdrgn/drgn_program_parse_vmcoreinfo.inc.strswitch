@@ -1,3 +1,6 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
 static struct drgn_error *parse_vmcoreinfo_u64(const char *value,
 					       const char *newline, int base,
 					       uint64_t *ret)

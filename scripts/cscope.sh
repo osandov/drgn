@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# SPDX-License-Identifier: LGPL-2.1-or-later
 
 : ${PYTHON:=python3}
 cscope_args=(-bq -i-)
