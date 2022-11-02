@@ -1,5 +1,5 @@
 # Copyright (c) ByteDance, Inc. and its affiliates.
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-2.1-or-later
 
 from pathlib import Path
 import unittest

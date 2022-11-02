@@ -1,6 +1,6 @@
 #!/usr/bin/env drgn
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-2.1-or-later
 
 """List all TCP sockets and their cgroup v2 paths"""
 

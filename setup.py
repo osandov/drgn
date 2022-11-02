@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-2.1-or-later
 
 # setuptools must be imported before distutils (see pypa/setuptools#2230).
 import setuptools  # isort: skip  # noqa: F401
@@ -457,12 +457,12 @@ setup(
         "Bug Tracker": "https://github.com/osandov/drgn/issues",
         "Documentation": "https://drgn.readthedocs.io",
     },
-    license="GPL-3.0-or-later",
+    license="LGPL-2.1-or-later",
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Environment :: Console",
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+        "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
         "Operating System :: POSIX :: Linux",
         "Programming Language :: Python :: 3",
         "Topic :: Software Development :: Debuggers",

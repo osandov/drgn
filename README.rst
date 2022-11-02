@@ -249,7 +249,7 @@ License
 
 Copyright (c) Meta Platforms, Inc. and affiliates.
 
-drgn is licensed under the `GPLv3
-<https://www.gnu.org/licenses/gpl-3.0.en.html>`_ or later.
+drgn is licensed under the `LGPLv2.1
+<https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html>`_ or later.
 
 .. end-license
