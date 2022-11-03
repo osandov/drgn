@@ -5320,9 +5320,11 @@ static struct drgn_error *find_dwarf_enumerator(Dwarf_Die *enumeration_type,
 {
 	int r = dwarf_child(enumeration_type, ret);
 	while (r == 0) {
-		if (dwarf_tag(ret) == DW_TAG_enumerator &&
-		    strcmp(dwarf_diename(ret), name) == 0)
-			return NULL;
+		if (dwarf_tag(ret) == DW_TAG_enumerator) {
+			const char *die_name = dwarf_diename(ret);
+			if (die_name && strcmp(die_name, name) == 0)
+				return NULL;
+		}
 		r = dwarf_siblingof(ret, ret);
 	}
 	if (r < 0)
