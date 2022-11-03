@@ -5,4 +5,4 @@ include tests/linux_kernel/kmod/Makefile tests/linux_kernel/kmod/drgn_test.c
 recursive-include tools *.py
 recursive-include vmtest *.c *.py *.rst
 recursive-include LICENSES
-include .flake8 CONTRIBUTING.rst pytest.ini util.py
+include .flake8 CONTRIBUTING.rst COPYING pytest.ini util.py
