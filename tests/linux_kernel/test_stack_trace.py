@@ -17,17 +17,20 @@ from util import NORMALIZED_MACHINE_NAME
 
 
 class TestStackTrace(LinuxKernelTestCase):
-    def _assert_trace_in_sigwait(self, trace):
-        for frame in trace:
-            if frame.name and "sigtimedwait" in frame.name:
-                return
-        self.fail(f"sigwait frame not found in {str(trace)!r}")
+    def _test_drgn_test_kthread_trace(self, trace):
+        for i, frame in enumerate(trace):
+            if frame.name == "drgn_test_kthread_fn3":
+                break
+        else:
+            self.fail("Couldn't find drgn_test_kthread_fn3 frame")
+        self.assertEqual(trace[i + 1].name, "drgn_test_kthread_fn2")
+        self.assertEqual(trace[i + 2].name, "drgn_test_kthread_fn")
 
+    @skip_unless_have_test_kmod
     def test_by_task_struct(self):
-        with fork_and_sigwait() as pid:
-            self._assert_trace_in_sigwait(
-                self.prog.stack_trace(find_task(self.prog, pid))
-            )
+        self._test_drgn_test_kthread_trace(
+            self.prog.stack_trace(self.prog["drgn_test_kthread"])
+        )
 
     def _test_by_pid(self, orc):
         old_orc = int(os.environ.get("DRGN_PREFER_ORC_UNWINDER", "0")) != 0
@@ -38,9 +41,11 @@ class TestStackTrace(LinuxKernelTestCase):
                 prog = Program()
                 prog.set_kernel()
                 self._load_debug_info(prog)
-            with fork_and_sigwait() as pid:
-                self._assert_trace_in_sigwait(prog.stack_trace(pid))
+            self._test_drgn_test_kthread_trace(
+                self.prog.stack_trace(self.prog["drgn_test_kthread"].pid)
+            )
 
+    @skip_unless_have_test_kmod
     def test_by_pid_dwarf(self):
         self._test_by_pid(False)
 
@@ -48,22 +53,31 @@ class TestStackTrace(LinuxKernelTestCase):
         NORMALIZED_MACHINE_NAME == "x86_64",
         f"{NORMALIZED_MACHINE_NAME} does not use ORC",
     )
+    @skip_unless_have_test_kmod
     def test_by_pid_orc(self):
         self._test_by_pid(True)
 
+    @skip_unless_have_test_kmod
     def test_local_variable(self):
-        with fork_and_sigwait() as pid:
-            for frame in self.prog.stack_trace(pid):
-                if frame.name in ("context_switch", "__schedule"):
-                    try:
-                        prev = frame["prev"]
-                    except KeyError:
-                        continue
-                    if not prev.absent_:
-                        self.assertEqual(prev.pid, pid)
-                        break
-            else:
-                self.skipTest("prev not found in context_switch or __schedule")
+        for frame in self.prog.stack_trace(self.prog["drgn_test_kthread"]):
+            if frame.name == "drgn_test_kthread_fn3":
+                break
+        else:
+            self.fail("Couldn't find drgn_test_kthread_fn3 frame")
+        self.assertEqual(frame["a"], 1)
+        self.assertEqual(frame["b"], 2)
+        self.assertEqual(frame["c"], 3)
+
+    @skip_unless_have_test_kmod
+    def test_locals(self):
+        task = self.prog["drgn_test_kthread"]
+        stack_trace = self.prog.stack_trace(task)
+        for frame in stack_trace:
+            if frame.name == "drgn_test_kthread_fn3":
+                self.assertSetEqual(set(frame.locals()), {"a", "b", "c"})
+                break
+        else:
+            self.fail("Couldn't find drgn_test_kthread_fn3 frame")
 
     def test_pt_regs(self):
         # This won't unwind anything useful, but at least make sure it accepts
@@ -99,17 +113,3 @@ class TestStackTrace(LinuxKernelTestCase):
             assertReprPrettyEqualsStr(trace)
             for frame in trace:
                 assertReprPrettyEqualsStr(frame)
-
-    @skip_unless_have_test_kmod
-    def test_stack_locals(self):
-        task = self.prog["drgn_kthread"]
-        stack_trace = self.prog.stack_trace(task)
-        for frame in stack_trace:
-            if frame.symbol().name == "drgn_kthread_fn":
-                self.assertSetEqual(
-                    {"arg", "a", "b", "c"},
-                    set(frame.locals()),
-                )
-                break
-        else:
-            self.fail("Couldn't find drgn_kthread_fn frame")

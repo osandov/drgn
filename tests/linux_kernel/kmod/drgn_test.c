@@ -8,6 +8,7 @@
 // This is intended to be used with drgn's vmtest framework, but in theory it
 // can be used with any kernel that has debug info enabled (at your own risk).
 
+#include <linux/completion.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
@@ -388,41 +389,68 @@ static int drgn_test_slab_init(void)
 
 // kthread for stack trace
 
-static struct task_struct *drgn_kthread;
+static struct task_struct *drgn_test_kthread;
+// Completion indicating that the kthread has set up its stack frames and is
+// ready to be parked.
+static DECLARE_COMPLETION(drgn_test_kthread_ready);
 
-static int __attribute__((optimize("O0"))) drgn_kthread_fn(void *arg)
+ __attribute__((__optimize__("O0")))
+static void drgn_test_kthread_fn3(void)
 {
-	int a, b, c;
+	// Create some local variables for the test cases to use. Use volatile
+	// to make doubly sure that they aren't optimized out.
+	volatile int a, b, c;
+	a = 1;
+	b = 2;
+	c = 3;
 
-retry:
-	for (a = 0; a < 100; a++) {
-		for (b = 100; b >= 0; b--) {
-			for (c = 0; c < a; c++) {
-				set_current_state(TASK_UNINTERRUPTIBLE);
-				schedule();
-				if (kthread_should_stop())
-					return 0;
-			}
+	complete(&drgn_test_kthread_ready);
+	for (;;) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		if (kthread_should_stop()) {
+			__set_current_state(TASK_RUNNING);
+			break;
 		}
+		if (kthread_should_park()) {
+			__set_current_state(TASK_RUNNING);
+			kthread_parkme();
+			continue;
+		}
+		schedule();
+		__set_current_state(TASK_RUNNING);
 	}
-	goto retry;
+}
+
+ __attribute__((__optimize__("O0")))
+static void drgn_test_kthread_fn2(void)
+{
+	drgn_test_kthread_fn3();
+}
+
+ __attribute__((__optimize__("O0")))
+static int drgn_test_kthread_fn(void *arg)
+{
+	drgn_test_kthread_fn2();
+	return 0;
 }
 
 static void drgn_test_stack_trace_exit(void)
 {
-	if (drgn_kthread) {
-		kthread_stop(drgn_kthread);
-		drgn_kthread = NULL;
+	if (drgn_test_kthread) {
+		kthread_stop(drgn_test_kthread);
+		drgn_test_kthread = NULL;
 	}
 }
 
 static int drgn_test_stack_trace_init(void)
 {
-	drgn_kthread = kthread_create(drgn_kthread_fn, (void *)0xF0F0F0F0, "drgn_kthread");
-	if (!drgn_kthread)
+	drgn_test_kthread = kthread_create(drgn_test_kthread_fn, NULL,
+					   "drgn_test_kthread");
+	if (!drgn_test_kthread)
 		return -1;
-	wake_up_process(drgn_kthread);
-	return 0;
+	wake_up_process(drgn_test_kthread);
+	wait_for_completion(&drgn_test_kthread_ready);
+	return kthread_park(drgn_test_kthread);
 }
 
 // Dummy function symbol.
