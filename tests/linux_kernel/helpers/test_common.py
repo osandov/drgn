@@ -38,7 +38,7 @@ class TestIdentifyAddress(LinuxKernelTestCase):
                     for obj in objects:
                         self.assertEqual(
                             identify_address(obj),
-                            f"slab object: drgn_test_{size}",
+                            f"slab object: drgn_test_{size}+0x0",
                         )
 
     @skip_unless_have_full_mm_support

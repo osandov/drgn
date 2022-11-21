@@ -14,7 +14,7 @@ from typing import Optional, Union, overload
 import drgn
 from drgn import IntegerLike, Object, Program, SymbolKind
 from drgn.helpers.common.format import escape_ascii_string
-from drgn.helpers.linux.slab import find_containing_slab_cache
+from drgn.helpers.linux.slab import slab_object_info
 
 __all__ = ("identify_address",)
 
@@ -39,14 +39,18 @@ def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
     For all programs, this will identify addresses as follows:
 
     * Object symbols (e.g., addresses in global variables):
-      ``object symbol: {symbol_name}+{hex_offset}``.
+      ``object symbol: {symbol_name}+{hex_offset}`` (where ``hex_offset`` is
+      the offset from the beginning of the symbol in hexadecimal).
     * Function symbols (i.e., addresses in functions):
       ``function symbol: {symbol_name}+{hex_offset}``.
     * Other symbols: ``symbol: {symbol_name}+{hex_offset}``.
 
     Additionally, for the Linux kernel, this will identify:
 
-    * Slab objects: ``slab object: {slab_cache_name}``.
+    * Allocated slab objects: ``slab object: {slab_cache_name}+{hex_offset}``
+      (where ``hex_offset`` is the offset from the beginning of the object in
+      hexadecimal).
+    * Free slab objects: ``free slab object: {slab_cache_name}+{hex_offset}``.
 
     This may recognize other types of addresses in the future.
 
@@ -73,14 +77,14 @@ def identify_address(  # type: ignore  # Need positional-only arguments.
 
     if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
         # Linux kernel-specific identification:
-        slab_cache = find_containing_slab_cache(prog, addr)
-
-        if slab_cache:
+        slab = slab_object_info(prog, addr)
+        if slab:
             # address is slab allocated
             cache_name = escape_ascii_string(
-                slab_cache.name.string_(), escape_backslash=True
+                slab.slab_cache.name.string_(), escape_backslash=True
             )
-            return f"slab object: {cache_name}"
+            maybe_free = "" if slab.allocated else "free "
+            return f"{maybe_free}slab object: {cache_name}+{hex(addr - slab.address)}"
 
     # Check if address is of a symbol:
     try:
