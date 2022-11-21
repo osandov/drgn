@@ -13,6 +13,7 @@ from drgn.helpers.linux.slab import (
     get_slab_cache_aliases,
     slab_cache_for_each_allocated_object,
     slab_cache_is_merged,
+    slab_object_info,
 )
 from tests.linux_kernel import (
     LinuxKernelTestCase,
@@ -142,14 +143,12 @@ class TestSlab(LinuxKernelTestCase):
                 cache = self.prog[f"drgn_test_{size}_kmem_cache"]
                 objects = self.prog[f"drgn_test_{size}_slab_objects"]
                 if self.prog["drgn_test_slob"]:
-                    self.assertRaisesRegex(
-                        ValueError,
-                        "SLOB is not supported",
-                        next,
-                        slab_cache_for_each_allocated_object(
-                            cache, f"struct drgn_test_{size}_slab_object"
-                        ),
-                    )
+                    with self.assertRaisesRegex(ValueError, "SLOB is not supported"):
+                        next(
+                            slab_cache_for_each_allocated_object(
+                                cache, f"struct drgn_test_{size}_slab_object"
+                            )
+                        )
                 else:
                     self.assertEqual(
                         sorted(
@@ -160,6 +159,26 @@ class TestSlab(LinuxKernelTestCase):
                         ),
                         list(objects),
                     )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_slab_object_info(self):
+        for size in ("small", "big"):
+            with self.subTest(size=size):
+                cache = self.prog[f"drgn_test_{size}_kmem_cache"]
+                objects = self.prog[f"drgn_test_{size}_slab_objects"]
+                if self.prog["drgn_test_slob"]:
+                    self.assertIsNone(slab_object_info(objects[0]))
+                else:
+                    info = slab_object_info(objects[0])
+                    self.assertEqual(info.slab_cache, cache)
+                    self.assertEqual(info.address, objects[0].value_())
+                    self.assertTrue(info.allocated)
+
+                    info = slab_object_info(objects[0].value.address_of_())
+                    self.assertEqual(info.slab_cache, cache)
+                    self.assertEqual(info.address, objects[0].value_())
+                    self.assertTrue(info.allocated)
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
