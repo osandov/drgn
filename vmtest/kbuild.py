@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest13"
+        localversion = "-vmtest14"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -81,6 +81,7 @@ CONFIG_LOCALVERSION="{flavor.localversion()}"
 CONFIG_EXPERT=y
 {flavor.config}
 CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y
 CONFIG_CC_OPTIMIZE_FOR_SIZE=y
 
 # We run the tests in KVM.
