@@ -4,7 +4,9 @@ on: [push, pull_request]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # We're stuck on Ubuntu 20.04 as long as we want to keep testing on Python
+    # 3.6 due to actions/setup-python#544.
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         python-version: ['3.11', '3.10', '3.9', '3.8', '3.7', '3.6']
