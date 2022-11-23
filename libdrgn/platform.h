@@ -122,6 +122,8 @@ struct drgn_architecture_info {
 	const struct drgn_register *registers;
 	/* Number of API-visible registers. */
 	size_t num_registers;
+	/* Internal register number of stack pointer. */
+	drgn_register_number stack_pointer_regno;
 	/*
 	 * Return the API-visible register with the given name, or @c NULL if it
 	 * is not recognized.

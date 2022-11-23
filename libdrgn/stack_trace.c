@@ -350,6 +350,22 @@ LIBDRGN_PUBLIC bool drgn_stack_frame_pc(struct drgn_stack_trace *trace,
 	return pc.has_value;
 }
 
+LIBDRGN_PUBLIC bool drgn_stack_frame_sp(struct drgn_stack_trace *trace,
+					size_t frame, uint64_t *ret)
+{
+	struct drgn_program *prog = trace->prog;
+	drgn_register_number regno = prog->platform.arch->stack_pointer_regno;
+	struct drgn_register_state *regs = trace->frames[frame].regs;
+	if (!drgn_register_state_has_register(regs, regno))
+		return false;
+	const struct drgn_register_layout *layout =
+		&prog->platform.arch->register_layout[regno];
+	copy_lsbytes(ret, sizeof(*ret), HOST_LITTLE_ENDIAN,
+		     &regs->buf[layout->offset], layout->size,
+		     drgn_platform_is_little_endian(&prog->platform));
+	return true;
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_stack_frame_symbol(struct drgn_stack_trace *trace, size_t frame,
 			struct drgn_symbol **ret)

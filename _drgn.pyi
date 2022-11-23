@@ -1685,6 +1685,10 @@ class StackFrame:
 
     pc: int
     """Program counter at this stack frame."""
+
+    sp: int
+    """Stack pointer at this stack frame."""
+
     def __getitem__(self, name: str) -> Object:
         """
         Implement ``self[name]``. Get the object (variable, function parameter,

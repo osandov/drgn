@@ -320,6 +320,18 @@ static PyObject *StackFrame_get_pc(StackFrame *self, void *arg)
 	}
 }
 
+static PyObject *StackFrame_get_sp(StackFrame *self, void *arg)
+{
+	uint64_t sp;
+	if (drgn_stack_frame_sp(self->trace->trace, self->i, &sp)) {
+		return PyLong_FromUnsignedLongLong(sp);
+	} else {
+		PyErr_SetString(PyExc_LookupError,
+				"stack pointer is not known");
+		return NULL;
+	}
+}
+
 static PyMethodDef StackFrame_methods[] = {
 	{"__getitem__", (PyCFunction)StackFrame_subscript,
 	 METH_O | METH_COEXIST, drgn_StackFrame___getitem___DOC},
@@ -347,6 +359,7 @@ static PyGetSetDef StackFrame_getset[] = {
 	{"interrupted", (getter)StackFrame_get_interrupted, NULL,
 	 drgn_StackFrame_interrupted_DOC},
 	{"pc", (getter)StackFrame_get_pc, NULL, drgn_StackFrame_pc_DOC},
+	{"sp", (getter)StackFrame_get_sp, NULL, drgn_StackFrame_sp_DOC},
 	{},
 };
 

@@ -2779,6 +2779,15 @@ bool drgn_stack_frame_pc(struct drgn_stack_trace *trace, size_t frame,
 			 uint64_t *ret);
 
 /**
+ * Get the stack pointer at a stack frame.
+ *
+ * @param[out] ret Returned stack pointer.
+ * @return @c true if the stack pointer is known, @c false if it is not.
+ */
+bool drgn_stack_frame_sp(struct drgn_stack_trace *trace, size_t frame,
+			 uint64_t *ret);
+
+/**
  * Get the function symbol at a stack frame.
  *
  * @param[out] ret Returned symbol. On success, it should be freed with @ref

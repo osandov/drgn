@@ -101,6 +101,13 @@ class TestStackTrace(LinuxKernelTestCase):
                     have_registers = True
             self.assertTrue(have_registers)
 
+    def test_sp(self):
+        # Smoke test that the stack pointer register shows up in
+        # StackFrame.registers().
+        with fork_and_sigwait() as pid:
+            trace = self.prog.stack_trace(pid)
+            self.assertIn(trace[0].sp, trace[0].registers().values())
+
     def test_prog(self):
         self.assertEqual(
             self.prog.stack_trace(Object(self.prog, "struct pt_regs", value={})).prog,

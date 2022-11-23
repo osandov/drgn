@@ -20,3 +20,5 @@ REGISTER_LAYOUT = [
     *[DrgnRegisterLayout(f"r{i}", size=8, dwarf_number=i) for i in range(32)],
     *[DrgnRegisterLayout(f"cr{i}", size=8, dwarf_number=68 + i) for i in range(8)],
 ]
+
+STACK_POINTER_REGISTER = "r1"

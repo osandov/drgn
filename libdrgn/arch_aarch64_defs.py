@@ -20,3 +20,5 @@ REGISTER_LAYOUT = [
     DrgnRegisterLayout("pc", size=8, dwarf_number=32),
     DrgnRegisterLayout("pstate", size=8, dwarf_number=None),
 ]
+
+STACK_POINTER_REGISTER = "sp"

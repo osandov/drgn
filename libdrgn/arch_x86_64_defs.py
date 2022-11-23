@@ -65,3 +65,5 @@ REGISTER_LAYOUT = [
     DrgnRegisterLayout("fs", size=8, dwarf_number=54),
     DrgnRegisterLayout("gs", size=8, dwarf_number=55),
 ]
+
+STACK_POINTER_REGISTER = "rsp"
