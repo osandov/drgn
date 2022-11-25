@@ -2264,6 +2264,7 @@ struct drgn_type {
 		struct Dwarf_CU *die_cu;
 		size_t oi_size;
 		const char *oi_name;
+		uint8_t virtuality;
 	} _private;
 };
 
@@ -2927,6 +2928,31 @@ drgn_format_type_name(struct drgn_qualified_type qualified_type, char **ret);
  */
 struct drgn_error *drgn_format_type(struct drgn_qualified_type qualified_type,
 				    char **ret);
+
+/**
+ * Get whether a kind of type has virtuality. This is true for structure, class
+ * and function types.
+ */
+static inline bool drgn_type_kind_has_virtuality(enum drgn_type_kind kind)
+{
+	return (kind == DRGN_TYPE_STRUCT ||
+		kind == DRGN_TYPE_CLASS ||
+		kind == DRGN_TYPE_FUNCTION);
+}
+/** Get whether a type has virtuality. @sa drgn_type_kind_has_virtuality() */
+static inline bool drgn_type_has_virtuality(struct drgn_type *type)
+{
+	return drgn_type_kind_has_virtuality(drgn_type_kind(type));
+}
+/**
+ * Get the virtuality of a type. @ref drgn_type_has_virtuality() must be true for this
+ * type.
+ */
+static inline size_t drgn_type_virtuality(struct drgn_type *type)
+{
+	assert(drgn_type_has_virtuality(type));
+	return type->_private.virtuality;
+}
 
 /** @} */
 

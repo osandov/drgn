@@ -266,6 +266,7 @@ drgn_compound_type_builder_add_function(struct drgn_compound_type_builder *build
  * @param[in] size Size of the type in bytes. Must be zero if the type is
  * incomplete.
  * @param[in] is_complete Whether the type is complete.
+ * @param[in] virtuality Virtuality of the type.
  * @param[in] lang Language of the type or @c NULL for the default language of
  * @c prog.
  * @param[out] ret Returned type.
@@ -274,7 +275,7 @@ drgn_compound_type_builder_add_function(struct drgn_compound_type_builder *build
 struct drgn_error *
 drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			  const char *tag, uint64_t size, bool is_complete,
-			  const struct drgn_language *lang,
+			  uint8_t virtuality, const struct drgn_language *lang,
 			  struct drgn_type **ret);
 
 DEFINE_VECTOR_TYPE(drgn_type_enumerator_vector, struct drgn_type_enumerator);
@@ -463,6 +464,7 @@ drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *buil
  * parameter must remain valid for the lifetime of @c prog.
  * @param[in] return_type Type returned by the function type.
  * @param[in] is_variadic Whether the function type is variadic.
+ * @param[in] virtuality Virtuality of the function.
  * @param[in] lang Language of the type or @c NULL for the default language of
  * @c prog.
  * @param[out] ret Returned type.
@@ -471,8 +473,8 @@ drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *buil
 struct drgn_error *
 drgn_function_type_create(struct drgn_function_type_builder *builder,
 			  const char *tag, struct drgn_qualified_type return_type,
-			  bool is_variadic, const struct drgn_language *lang,
-			  struct drgn_type **ret);
+			  bool is_variadic, uint8_t virtuality,
+			  const struct drgn_language *lang, struct drgn_type **ret);
 
 /** @} */
 

@@ -5421,6 +5421,18 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		tag = NULL;
 	}
 
+	Dwarf_Word virtuality;
+	if ((attr = dwarf_attr_integrate(die, DW_AT_virtuality, &attr_mem))) {
+		if (dwarf_formudata(attr, &virtuality)) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "%s has invalid DW_AT_virtuality",
+						 dwarf_tag_str(die, tag_buf));
+		}
+
+	} else {
+		virtuality = DW_VIRTUALITY_none;
+	}
+
 	bool declaration;
 	if (dwarf_flag(die, DW_AT_declaration, &declaration)) {
 		return drgn_error_format(DRGN_ERROR_OTHER,
@@ -5530,8 +5542,8 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			goto err;
 	}
 
-	err = drgn_compound_type_create(&builder, tag, size, !declaration, lang,
-					ret);
+	err = drgn_compound_type_create(&builder, tag, size, !declaration,
+					virtuality, lang, ret);
 	if (err)
 		goto err;
 	return NULL;
@@ -5978,6 +5990,18 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		tag = NULL;
 	}
 
+	Dwarf_Word virtuality;
+	if ((attr = dwarf_attr_integrate(die, DW_AT_virtuality, &attr_mem))) {
+		if (dwarf_formudata(attr, &virtuality)) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "%s has invalid DW_AT_virtuality",
+						 dwarf_tag_str(die, tag_buf));
+		}
+
+	} else {
+		virtuality = DW_VIRTUALITY_none;
+	}
+
 	struct drgn_function_type_builder builder;
 	drgn_function_type_builder_init(&builder, dbinfo->prog);
 	bool is_variadic = false;
@@ -6039,7 +6063,7 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		goto err;
 
 	err = drgn_function_type_create(&builder, tag, return_type, is_variadic,
-					lang, ret);
+					virtuality, lang, ret);
 	if (err)
 		goto err;
 	return NULL;
