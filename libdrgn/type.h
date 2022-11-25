@@ -203,6 +203,8 @@ struct drgn_type_template_parameter *
 drgn_template_parameters_builder_last(struct drgn_template_parameters_builder *builder);
 
 DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member);
+DEFINE_VECTOR_TYPE(drgn_type_member_function_vector,
+		   struct drgn_type_member_function);
 
 /** Builder for members of a structure, union, or class type. */
 struct drgn_compound_type_builder {
@@ -210,6 +212,7 @@ struct drgn_compound_type_builder {
 	struct drgn_template_parameters_builder parents_builder;
 	enum drgn_type_kind kind;
 	struct drgn_type_member_vector members;
+	struct drgn_type_member_function_vector functions;
 };
 
 /**
@@ -239,6 +242,15 @@ struct drgn_error *
 drgn_compound_type_builder_add_member(struct drgn_compound_type_builder *builder,
 				      const union drgn_lazy_object *object,
 				      const char *name, uint64_t bit_offset);
+
+/**
+ * Add a @ref drgn_type* to a @ref drgn_compound_type_builder.
+ *
+ * On success, @p builder takes ownership of @p func.
+ */
+struct drgn_error *
+drgn_compound_type_builder_add_function(struct drgn_compound_type_builder *builder,
+					const union drgn_lazy_object *object);
 
 /**
  * Create a structure, union, or class type.
@@ -458,7 +470,7 @@ drgn_function_type_builder_add_parameter(struct drgn_function_type_builder *buil
  */
 struct drgn_error *
 drgn_function_type_create(struct drgn_function_type_builder *builder,
-			  struct drgn_qualified_type return_type,
+			  const char *tag, struct drgn_qualified_type return_type,
 			  bool is_variadic, const struct drgn_language *lang,
 			  struct drgn_type **ret);
 

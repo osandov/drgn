@@ -1,3 +1,4 @@
+// TODO add python API for member functions?
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
@@ -2215,6 +2216,7 @@ DrgnType *Program_function_type(Program *self, PyObject *args, PyObject *kwds)
 
 	struct drgn_qualified_type qualified_type;
 	struct drgn_error *err = drgn_function_type_create(&builder,
+							   "TODO",
 							   DrgnType_unwrap(return_type_obj),
 							   is_variadic,
 							   language,

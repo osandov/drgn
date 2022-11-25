@@ -5355,6 +5355,49 @@ drgn_parse_template_parameter_pack(struct drgn_debug_info *dbinfo,
 }
 
 static struct drgn_error *
+drgn_dwarf_member_function_thunk_fn(struct drgn_object *res, void *arg_)
+{
+	struct drgn_error *err;
+	struct drgn_dwarf_die_thunk_arg *arg = arg_;
+	if (res) {
+		err = drgn_object_from_dwarf_subprogram(drgn_object_program(res)->dbinfo,
+						arg->file, &arg->die,
+						res);
+		if (err)
+			return err;
+	}
+	free(arg);
+	return NULL;
+}
+
+static struct drgn_error *
+parse_member_function(struct drgn_debug_info *dbinfo,
+		      struct drgn_elf_file *file, Dwarf_Die *die,
+		      const struct drgn_language *lang,
+		      struct drgn_compound_type_builder *builder)
+{
+	struct drgn_error *err;
+
+	struct drgn_dwarf_die_thunk_arg *thunk_arg =
+		malloc(sizeof(*thunk_arg));
+	if (!thunk_arg)
+		return &drgn_enomem;
+	thunk_arg->file = file;
+	thunk_arg->die = *die;
+
+	union drgn_lazy_object func_object;
+	drgn_lazy_object_init_thunk(&func_object, dbinfo->prog,
+				    drgn_dwarf_member_function_thunk_fn,
+				    thunk_arg);
+
+	err = drgn_compound_type_builder_add_function(builder, &func_object);
+	if (err)
+		return err;
+
+	return NULL;
+}
+
+static struct drgn_error *
 drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			      struct drgn_elf_file *file, Dwarf_Die *die,
 			      const struct drgn_language *lang,
@@ -5432,6 +5475,11 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 				}
 				member = child;
 			}
+			break;
+		case DW_TAG_subprogram:
+			err = parse_member_function(dbinfo, file, &child, lang, &builder);
+			if (err)
+				goto err;
 			break;
 		case DW_TAG_template_type_parameter:
 		case DW_TAG_template_value_parameter:
@@ -5915,6 +5963,21 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	struct drgn_error *err;
 	char tag_buf[DW_TAG_STR_BUF_LEN];
 
+	Dwarf_Attribute attr_mem;
+	Dwarf_Attribute *attr = dwarf_attr_integrate(die, DW_AT_name,
+						     &attr_mem);
+	const char *tag;
+	if (attr) {
+		tag = dwarf_formstring(attr);
+		if (!tag) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "%s has invalid DW_AT_name",
+						 dwarf_tag_str(die, tag_buf));
+		}
+	} else {
+		tag = NULL;
+	}
+
 	struct drgn_function_type_builder builder;
 	drgn_function_type_builder_init(&builder, dbinfo->prog);
 	bool is_variadic = false;
@@ -5975,7 +6038,7 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 	if (err)
 		goto err;
 
-	err = drgn_function_type_create(&builder, return_type, is_variadic,
+	err = drgn_function_type_create(&builder, tag, return_type, is_variadic,
 					lang, ret);
 	if (err)
 		goto err;
