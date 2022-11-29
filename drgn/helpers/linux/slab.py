@@ -242,6 +242,11 @@ class _SlabCacheHelper:
     ) -> Iterator[Object]:
         raise NotImplementedError()
 
+    def _page_free_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        raise NotImplementedError()
+
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
         pointer_type = self._prog.pointer_type(self._prog.type(type))
         page_type = self._prog.type("struct page *")
@@ -353,6 +358,14 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                 yield Object(self._prog, pointer_type, value=addr)
             addr += self._slab_cache_size
 
+    def _page_free_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        free_objects: Set[int] = set()
+        self._slub_get_freelist(slab.freelist, free_objects)
+        for addr in free_objects:
+            yield Object(self._prog, pointer_type, value=addr)
+
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
         first_addr = page_to_virt(page).value_() + self._red_left_pad
         address = (
@@ -406,6 +419,18 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             addr = s_mem + i * self._slab_cache_size + self._obj_offset
             if addr in self._cpu_caches_avail:
                 continue
+            yield Object(self._prog, pointer_type, value=addr)
+
+    def _page_free_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        freelist = self._slab_freelist(slab)
+        s_mem = slab.s_mem.value_()
+        free_objects: Set[int] = set()
+        for i in freelist:
+            addr = s_mem + i * self._slab_cache_size + self._obj_offset
+            free_objects.add(addr)
+        for addr in free_objects:
             yield Object(self._prog, pointer_type, value=addr)
 
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
