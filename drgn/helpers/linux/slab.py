@@ -51,6 +51,7 @@ __all__ = (
     "get_slab_cache_aliases",
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
+    "slab_cache_for_each_object",
     "slab_cache_is_merged",
     "slab_object_info",
     "slab_cache_for_each_slab",
@@ -258,6 +259,13 @@ class _SlabCacheHelper:
         for slab in slab_cache_for_each_slab(self._slab_cache):
             page = cast(page_type, slab)
             yield from self._page_allocated_objects(page, slab, pointer_type)
+
+    def for_each_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_all_objects(page, slab, pointer_type)
 
     def object_info(
         self, page: Object, slab: Object, addr: int
@@ -513,6 +521,28 @@ def slab_cache_for_each_allocated_object(
     :return: Iterator of ``type *`` objects.
     """
     return _get_slab_cache_helper(slab_cache).for_each_allocated_object(type)
+
+
+def slab_cache_for_each_object(
+    slab_cache: Object, type: Union[str, Type]
+) -> Iterator[Object]:
+    """
+    Iterate over all objects in a given slab cache.
+
+    Only the SLUB and SLAB allocators are supported; SLOB does not store enough
+    information to identify objects in a slab cache.
+
+    >>> dentry_cache = find_slab_cache(prog, "dentry")
+    >>> next(slab_cache_for_each_allocated_object(dentry_cache, "struct dentry"))
+    *(struct dentry *)0xffff905e41404000 = {
+        ...
+    }
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param type: Type of object in the slab cache.
+    :return: Iterator of ``type *`` objects.
+    """
+    return _get_slab_cache_helper(slab_cache).for_each_object(type)
 
 
 def _find_containing_slab(
