@@ -53,6 +53,7 @@ __all__ = (
     "slab_cache_for_each_allocated_object",
     "slab_cache_is_merged",
     "slab_object_info",
+    "slab_cache_for_each_slab",
 )
 
 
@@ -167,6 +168,30 @@ def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
             if original_name != target_name:
                 name_map[original_name] = target_name
     return name_map
+
+
+def slab_cache_for_each_slab(slab_cache: Object) -> Iterator[Object]:
+    """
+    Iterate over all slabs of a given slab cache.
+
+    Only the SLUB and SLAB allocators are supported.
+
+    :param slab_cache: ``struct kmem_cache *``
+    :return: Iterator of ``slab or page`` objects.
+    """
+    prog = slab_cache.prog_
+    slab_type = _get_slab_type(prog)
+
+    PG_slab_mask = 1 << prog.constant("PG_slab")
+    for page in for_each_page(prog):
+        try:
+            if not page.flags & PG_slab_mask:
+                continue
+        except FaultError:
+            continue
+        slab = cast(slab_type, page)
+        if slab.slab_cache == slab_cache:
+            yield slab
 
 
 def for_each_slab_cache(prog: Program) -> Iterator[Object]:
