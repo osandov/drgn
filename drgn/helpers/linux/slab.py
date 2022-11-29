@@ -244,17 +244,10 @@ class _SlabCacheHelper:
 
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
         pointer_type = self._prog.pointer_type(self._prog.type(type))
-        slab_type = _get_slab_type(self._prog)
-        PG_slab_mask = 1 << self._prog.constant("PG_slab")
-        for page in for_each_page(self._prog):
-            try:
-                if not page.flags & PG_slab_mask:
-                    continue
-            except FaultError:
-                continue
-            slab = cast(slab_type, page)
-            if slab.slab_cache == self._slab_cache:
-                yield from self._page_objects(page, slab, pointer_type)
+        page_type = self._prog.type("struct page *")
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_objects(page, slab, pointer_type)
 
     def object_info(
         self, page: Object, slab: Object, addr: int
