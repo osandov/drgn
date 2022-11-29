@@ -237,7 +237,7 @@ class _SlabCacheHelper:
         self._prog = slab_cache.prog_
         self._slab_cache = slab_cache.read_()
 
-    def _page_objects(
+    def _page_allocated_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
         raise NotImplementedError()
@@ -247,7 +247,7 @@ class _SlabCacheHelper:
         page_type = self._prog.type("struct page *")
         for slab in slab_cache_for_each_slab(self._slab_cache):
             page = cast(page_type, slab)
-            yield from self._page_objects(page, slab, pointer_type)
+            yield from self._page_allocated_objects(page, slab, pointer_type)
 
     def object_info(
         self, page: Object, slab: Object, addr: int
@@ -341,7 +341,7 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         self._slub_get_freelist = _slub_get_freelist
         self._cpu_freelists = cpu_freelists
 
-    def _page_objects(
+    def _page_allocated_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
         freelist: Set[int] = set()
@@ -395,7 +395,7 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
         freelist = cast(self._freelist_type, slab.freelist)
         return {freelist[i].value_() for i in range(slab.active, self._slab_cache_num)}
 
-    def _page_objects(
+    def _page_allocated_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
         freelist = self._slab_freelist(slab)
