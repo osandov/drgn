@@ -52,6 +52,7 @@ __all__ = (
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
     "slab_cache_for_each_object",
+    "slab_cache_for_each_free_object",
     "slab_cache_is_merged",
     "slab_object_info",
     "slab_cache_for_each_slab",
@@ -267,6 +268,9 @@ class _SlabCacheHelper:
             page = cast(page_type, slab)
             yield from self._page_all_objects(page, slab, pointer_type)
 
+    def for_each_free_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        raise NotImplementedError()
+
     def object_info(
         self, page: Object, slab: Object, addr: int
     ) -> "Optional[SlabObjectInfo]":
@@ -374,9 +378,9 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
     def _page_free_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
-        free_objects: Set[int] = set()
-        self._slub_get_freelist(slab.freelist, free_objects)
-        for addr in free_objects:
+        freelist: Set[int] = set()
+        self._slub_get_freelist(slab.freelist, freelist)
+        for addr in freelist:
             yield Object(self._prog, pointer_type, value=addr)
 
     def _page_all_objects(
@@ -387,6 +391,19 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         while addr < end:
             yield Object(self._prog, pointer_type, value=addr)
             addr += self._slab_cache_size
+
+    def for_each_free_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+
+        # Return objects on lockless freelist first
+        for addr in self._cpu_freelists:
+            yield Object(self._prog, pointer_type, value=addr)
+
+        # Return objects on each slab's regular freelist
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_free_objects(page, slab, pointer_type)
 
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
         first_addr = page_to_virt(page).value_() + self._red_left_pad
@@ -462,6 +479,19 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
         for i in range(self._slab_cache_num):
             addr = s_mem + i * self._slab_cache_size + self._obj_offset
             yield Object(self._prog, pointer_type, value=addr)
+
+    def for_each_free_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+
+        # Return per-cpu free objects first
+        for addr in self._cpu_caches_avail:
+            yield Object(self._prog, pointer_type, value=addr)
+
+        # Return free objects on each slab
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_free_objects(page, slab, pointer_type)
 
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
         s_mem = slab.s_mem.value_()
@@ -543,6 +573,28 @@ def slab_cache_for_each_object(
     :return: Iterator of ``type *`` objects.
     """
     return _get_slab_cache_helper(slab_cache).for_each_object(type)
+
+
+def slab_cache_for_each_free_object(
+    slab_cache: Object, type: Union[str, Type]
+) -> Iterator[Object]:
+    """
+    Iterate over all free objects in a given slab cache.
+
+    Only the SLUB and SLAB allocators are supported; SLOB does not store enough
+    information to identify objects in a slab cache.
+
+    >>> dentry_cache = find_slab_cache(prog, "dentry")
+    >>> next(slab_cache_for_each_allocated_object(dentry_cache, "struct dentry"))
+    *(struct dentry *)0xffff905e41404000 = {
+        ...
+    }
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param type: Type of object in the slab cache.
+    :return: Iterator of ``type *`` objects.
+    """
+    return _get_slab_cache_helper(slab_cache).for_each_free_object(type)
 
 
 def _find_containing_slab(
