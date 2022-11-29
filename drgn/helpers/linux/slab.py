@@ -30,6 +30,7 @@ from drgn import (
     container_of,
     sizeof,
 )
+from drgn.helpers import ValidationError
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
@@ -56,6 +57,7 @@ __all__ = (
     "slab_cache_is_merged",
     "slab_object_info",
     "slab_cache_for_each_slab",
+    "slab_cache_validate_object_address",
 )
 
 
@@ -296,6 +298,9 @@ class _SlabCacheHelper:
     ) -> "Optional[SlabObjectInfo]":
         raise NotImplementedError()
 
+    def validate_object_address(self, slab: Object, ptr: IntegerLike) -> None:
+        raise NotImplementedError()
+
 
 class _SlabCacheHelperSlub(_SlabCacheHelper):
     SLUB_RED_INACTIVE = b"\xbb"
@@ -446,6 +451,37 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             allocated = address not in freelist
         return SlabObjectInfo(self._slab_cache, slab, address, allocated)
 
+    def validate_object_address(self, slab: Object, ptr: IntegerLike) -> None:
+        prog = self._prog
+        page_type = prog.type("struct page *")
+        page = cast(page_type, slab)
+        base = page_to_virt(page).value_()
+        objects = slab.objects.value_()
+
+        # ptr is object address seen by clients i.e ptr is address
+        # of object's payload area. For upcoming calculations we
+        # need to move to actual start address of object.
+        ptr = ptr - self._red_left_pad
+        if ptr < base:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._red_left_pad)} is not a valid slab address"
+                f" 'because \"address - red_left_pad\" comes before slab's start.'"
+                f" slab start: {hex(base)} red_left_pad: {self._red_left_pad}"
+            )
+        elif ptr >= (base + objects * self._slab_cache_size):
+            raise ValidationError(
+                f" Address: {hex(ptr + self._red_left_pad)} is not a valid slab address"
+                f" because it comes after slab's end: {hex(base + objects * self._slab_cache_size)}"
+            )
+        elif (ptr - base) % self._slab_cache_size:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._red_left_pad)} is not a valid slab address"
+                f' because "address - red_left_pad" is not at valid offset.'
+                f" Slab start: {hex(base)} red_left_pad: {self._red_left_pad} Object size: {self._slab_cache_size}"
+            )
+
+        return
+
 
 class _SlabCacheHelperSlab(_SlabCacheHelper):
     RED_INACTIVE = 0x09F911029D74E35B
@@ -534,6 +570,28 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             allocated=object_address not in self._cpu_caches_avail
             and object_index not in self._slab_freelist(slab),
         )
+
+    def validate_object_address(self, slab: Object, ptr: IntegerLike) -> None:
+        s_mem = slab.s_mem.value_()
+
+        # ptr is object address seen by clients i.e ptr is address
+        # of object's payload area. For upcoming calculations we
+        # need to move to actual start address of object.
+        ptr = ptr - self._obj_offset
+        if ptr < s_mem:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._obj_offset)} is not a valid slab address"
+                f" 'because \"address - obj_offset\" comes before start of slab's object area.'"
+                f" s_mem: {hex(s_mem)} obj_offset: {self._obj_offset}"
+            )
+        elif (ptr - s_mem) % self._slab_cache_size:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._obj_offset)} is not a valid slab address"
+                f" 'because \"address - obj_offset\" is not at valid offset.'"
+                f" s_mem: {hex(s_mem)} Object size: hex{self._slab_cache_size} obj_offset: hex(self._obj_offset)"
+            )
+
+        return
 
 
 class _SlabCacheHelperSlob(_SlabCacheHelper):
@@ -625,6 +683,30 @@ def slab_cache_for_each_free_object(
     :return: Iterator of ``type *`` objects.
     """
     return _get_slab_cache_helper(slab_cache).for_each_free_object(type)
+
+
+def slab_cache_validate_object_address(
+    slab_cache: Object, slab: Object, ptr: IntegerLike
+) -> None:
+    """
+    Check if ``ptr`` is a valid ``object`` address.
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param slab: ``struct slab/page *``
+    :param ptr: ``Address to check``
+    :return: ``True`` if ptr is valid, ``False`` otherwise.
+
+    In this case a valid object address is the address seen by clients
+    (i.e start address of its payload area) not the actual start address
+    of object.
+    This distinction is important because for cases involving
+    debug options the overall start area of object may lie few bytes
+    before the payload area and in those cases if we are checking
+    address of payload area against the start of slab, that address
+    may not be at proper(multiple of size) offset from start of slab.
+    """
+    _get_slab_cache_helper(slab_cache).validate_object_address(slab, ptr)
+    return
 
 
 def _find_containing_slab(
