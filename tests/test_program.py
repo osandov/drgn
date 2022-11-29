@@ -541,6 +541,26 @@ class TestTypes(MockProgramTestCase):
             ValueError, "no suitable integer type for ptrdiff_t", prog.type, "ptrdiff_t"
         )
 
+    def test_not_size_t_or_ptrdiff_t(self):
+        self.types.append(
+            self.prog.typedef_type(
+                "size_tea", self.prog.int_type("unsigned char", 1, False)
+            )
+        )
+        self.types.append(
+            self.prog.typedef_type("ptrdiff_tee", self.prog.int_type("char", 1, True))
+        )
+        self.assertIdentical(
+            self.prog.type("size_tea"),
+            self.prog.typedef_type(
+                "size_tea", self.prog.int_type("unsigned char", 1, False)
+            ),
+        )
+        self.assertIdentical(
+            self.prog.type("ptrdiff_tee"),
+            self.prog.typedef_type("ptrdiff_tee", self.prog.int_type("char", 1, True)),
+        )
+
     def test_tagged_type(self):
         self.types.append(self.point_type)
         self.types.append(self.option_type)

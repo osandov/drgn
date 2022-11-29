@@ -2158,7 +2158,9 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 		} else if (tag_token == C_TOKEN_ENUM) {
 			kind = DRGN_TYPE_ENUM;
 		} else if (identifier) {
-			if (strstartswith(identifier, "size_t")) {
+			if (identifier_len == sizeof("size_t") - 1 &&
+			    memcmp(identifier, "size_t",
+				   sizeof("size_t") - 1) == 0) {
 				err = drgn_program_find_primitive_type(prog,
 								       DRGN_C_TYPE_SIZE_T,
 								       &ret->type);
@@ -2166,7 +2168,9 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 					return err;
 				ret->qualifiers = 0;
 				goto out;
-			} else if (strstartswith(identifier, "ptrdiff_t")) {
+			} else if (identifier_len == sizeof("ptrdiff_t") - 1 &&
+				   memcmp(identifier, "ptrdiff_t",
+					  sizeof("ptrdiff_t") - 1) == 0) {
 				err = drgn_program_find_primitive_type(prog,
 								       DRGN_C_TYPE_PTRDIFF_T,
 								       &ret->type);
