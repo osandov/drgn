@@ -235,9 +235,29 @@ def print_slab_caches(prog: Program) -> None:
 # and its subclasses track all of that complexity so that we can share code
 # between slab helpers.
 class _SlabCacheHelper:
+    POISON_INUSE = b"\x5a"
+    POISON_FREE = b"\x6b"
+    POISON_END = b"\xa5"
+    SLAB_RED_ZONE = 0x00000400
+    SLAB_POISON = 0x00000800
+    SLAB_KMALLOC = 0x00001000
+    SLAB_STORE_USER = 0x00010000
+
     def __init__(self, slab_cache: Object) -> None:
         self._prog = slab_cache.prog_
         self._slab_cache = slab_cache.read_()
+
+    def _debug_redzone(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_RED_ZONE
+
+    def _debug_poison(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_POISON
+
+    def _debug_storeuser(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_STORE_USER
+
+    def _is_kmalloc_slab(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_KMALLOC
 
     def _page_allocated_objects(
         self, page: Object, slab: Object, pointer_type: Type
@@ -278,6 +298,10 @@ class _SlabCacheHelper:
 
 
 class _SlabCacheHelperSlub(_SlabCacheHelper):
+    SLUB_RED_INACTIVE = b"\xbb"
+    SLUB_RED_ACTIVE = b"\xcc"
+    OBJECT_POISON = 0x80000000
+
     def __init__(self, slab_cache: Object) -> None:
         super().__init__(slab_cache)
 
@@ -363,6 +387,9 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         self._slub_get_freelist = _slub_get_freelist
         self._cpu_freelists = cpu_freelists
 
+    def _slub_object_poison(self) -> bool:
+        return self._slab_cache.flags.value_() & self.OBJECT_POISON
+
     def _page_allocated_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
@@ -421,6 +448,9 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
 
 
 class _SlabCacheHelperSlab(_SlabCacheHelper):
+    RED_INACTIVE = 0x09F911029D74E35B
+    RED_ACTIVE = 0xD84156C5635688C0
+
     def __init__(self, slab_cache: Object) -> None:
         super().__init__(slab_cache)
 
