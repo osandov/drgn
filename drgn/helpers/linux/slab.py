@@ -61,6 +61,7 @@ __all__ = (
     "slab_cache_validate_object_address",
     "slab_cache_validate_slab",
     "slab_cache_validate_object",
+    "slab_cache_validate",
 )
 
 
@@ -374,6 +375,9 @@ class _SlabCacheHelper:
         raise NotImplementedError()
 
     def validate_object(self, object_address: int, free: bool) -> None:
+        raise NotImplementedError()
+
+    def validate(self, type: Union[str, Type]) -> None:
         raise NotImplementedError()
 
 
@@ -720,6 +724,97 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             if not _check_object_pad_bytes():
                 raise ValidationError("Padding bytes corrupted")
 
+    def validate(self, type: Union[str, Type]) -> None:
+        self._num_checked_slabs = 0
+        self._num_checked_free_objects = 0
+        self._num_checked_allocated_objects = 0
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+        slab_cache = self._slab_cache
+        prog = self._prog
+        name = escape_ascii_string(slab_cache.name.string_(), escape_backslash=True)
+        print(
+            "Starting consistency check for:",
+            f"{name} ({slab_cache.type_.type_name()})0x{slab_cache.value_():x}",
+        )
+
+        # Check slabs as a whole first
+        print("Start checking individual slabs.")
+        for slab in slab_cache_for_each_slab(slab_cache):
+            self._num_checked_slabs += 1
+            print("Checking slab: ", hex(slab.value_()))
+            try:
+                self.validate_slab(slab)
+            except ValidationError as e:
+                print("slab in wrong state", e)
+        print("Finished checking individual slabs.")
+
+        if not self._num_checked_slabs:
+            print("Found no slabs.")
+            return
+
+        # Check per-cpu lockless freelist.
+        # Here we first check that pointers on freelist are valid pointers (to
+        # catch freelist corruption) and only for valid pointers, we go ahead
+        # and check pointed to object.
+        # Also while checking lockless freelist we go one cpu at a time, so that
+        # we have track of per-cpu active slab needed for checking validity of
+        # pointers on per-cpu lockless freelist
+        print("Start checking free objects.")
+        lockless_freelist: Set[int] = set()
+        cpu_slab = slab_cache.cpu_slab.read_()
+        cpu_slab_attr = "slab" if hasattr(cpu_slab, "slab") else "page"
+        for cpu in for_each_online_cpu(prog):
+            this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
+            slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
+            lockless_freelist.clear()
+            if slab and slab.slab_cache == slab_cache:
+                self._slub_get_freelist(this_cpu_slab.freelist, lockless_freelist)
+                for obj_addr in lockless_freelist:
+                    self._num_checked_free_objects += 1
+                    try:
+                        self.validate_object_address(slab, obj_addr)
+                        try:
+                            self.validate_object(obj_addr, True)
+                        except ValidationError as e:
+                            print(e)
+                    except ValidationError as e:
+                        print(e)
+        # Check regular freelist of each slab
+        for slab in slab_cache_for_each_slab(slab_cache):
+            page = cast(page_type, slab)
+            for obj in self._page_free_objects(page, slab, pointer_type):
+                self._num_checked_free_objects += 1
+                try:
+                    self.validate_object_address(slab, obj.value_())
+                    try:
+                        self.validate_object(obj.value_(), True)
+                    except ValidationError as e:
+                        print(e)
+                except ValidationError as e:
+                    print(e)
+        print("Finished checking free objects.")
+
+        # Check allocated objects
+        print("Start checking allocated objects.")
+        for obj in self.for_each_allocated_object(pointer_type):
+            self._num_checked_allocated_objects += 1
+            try:
+                self.validate_object(obj.value_(), False)
+            except ValidationError as e:
+                print(e)
+        print("Finished checking allocated objects.")
+
+        print(
+            "Finished consistency check for slab-cache:",
+            slab_cache.name.string_().decode(),
+        )
+        print("Number of checked slabs:", self._num_checked_slabs)
+        print(
+            "Number of checked allocated objects:", self._num_checked_allocated_objects
+        )
+        print("Number of checked free objects:", self._num_checked_free_objects)
+
 
 class _SlabCacheHelperSlab(_SlabCacheHelper):
     RED_INACTIVE = 0x09F911029D74E35B
@@ -916,6 +1011,47 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
                         f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} left redzone overwritten"
                     )
 
+    def validate(self, type: Union[str, Type]) -> None:
+        self._num_checked_free_objects = 0
+        self._num_checked_allocated_objects = 0
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        slab_cache = self._slab_cache
+        name = escape_ascii_string(slab_cache.name.string_(), escape_backslash=True)
+        print(
+            "Starting consistency check for:",
+            f"{name} ({slab_cache.type_.type_name()})0x{slab_cache.value_():x}",
+        )
+
+        # Check free objects
+        print("Start checking free objects.")
+        for obj in self.for_each_free_object(pointer_type):
+            self._num_checked_free_objects += 1
+            try:
+                self.validate_object(obj.value_(), True)
+            except ValidationError as e:
+                print(e)
+        print("Finished checking free objects.")
+
+        # Check allocated objects
+        print("Start checking allocated objects.")
+        for obj in self.for_each_allocated_object(pointer_type):
+            self._num_checked_allocated_objects += 1
+            try:
+                self.validate_object(obj.value_(), False)
+            except ValidationError as e:
+                print(e)
+        print("Finished checking allocated objects.")
+
+        print(
+            "Finished consistency check for slab-cache:",
+            slab_cache.name.string_().decode(),
+        )
+        print(
+            "Number of checked allocated objects:", self._num_checked_allocated_objects
+        )
+        print("Number of checked free objects:", self._num_checked_free_objects)
+
+
 class _SlabCacheHelperSlob(_SlabCacheHelper):
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
         raise ValueError("SLOB is not supported")
@@ -1056,6 +1192,32 @@ def slab_cache_validate_object(slab_cache: Object, obj_addr: int, free: bool) ->
               ``False``
     """
     _get_slab_cache_helper(slab_cache).validate_object(obj_addr, free)
+
+
+def slab_cache_validate(slab_cache: Object, type: Union[str, Type]) -> None:
+    """
+    Check consistency of a given slab cache
+       Perform following checks in the same order
+       1. Check sanity of all slabs
+       2. Check per-cpu lockless freelist
+              i. Pointers lying on freelist should be valid object addresses
+                 for this slab-cache
+              ii. Objects pointed by these pointers should be in proper state
+                 i.e Redzone and/or Poison values should be correct (if present)
+       3. Check per-slab regular freelist
+              i. Pointers lying on freelist should be valid object addresses
+                 for this slab-cache
+              ii. Objects pointed by these pointers should be in proper state
+                 i.e Redzone and/or Poison values should be correct (if present)
+       4. Check all allocated objects have correct Redzone and/or Poison values
+          (if present)
+
+    param slab_cache: ``strucy kmem_cache*`` for slab cache to check
+    param type: ``type`` of slab cache objects
+
+    returns: ``True`` if all consistency checks pass, otherwise return ``False``
+    """
+    _get_slab_cache_helper(slab_cache).validate(type)
 
 
 def _find_containing_slab(
