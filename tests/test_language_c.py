@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 from functools import reduce
+from itertools import chain
 import operator
 
 from drgn import (
@@ -787,6 +788,58 @@ class TestLexer(TestCase):
             C_TOKEN.ENUM,
         ]
         self.assertEqual([token.kind for token in self.lex(s, cpp=True)], tokens)
+
+    def test_cpp_identifiers_with_template_parameters(self):
+        token_pairs = (
+            ("vector", "<int>"),
+            ("pair", "<int, double>"),
+            ("unordered_map", "<std::string, std::vector<pair<short, bool>>>"),
+            ("IntLiteral", "<123>"),
+            ("IntLiteralWithSuffix", "<123UL>"),
+            ("FloatLiteral", "<1.987>"),
+            ("FloatLiteralWithExponent", "<1.23423e+1f>"),
+            ("PointerLiteral", "<&asdf>"),
+            ("ParenthesizedPointerLiteral", "<(&asdf)>"),
+            ("CharLiteral", "<'a'>"),
+            ("CharLiteralEdgeCase1", "<'<'>"),
+            ("CharLiteralEdgeCase2", "<'>'>"),
+            ("CharLiteralEdgeCase3", r"<'\''>"),
+        )
+        self.assertEqual(
+            [
+                (token.kind, token.value)
+                for token in self.lex(
+                    " ".join("".join(pair) for pair in token_pairs), cpp=True
+                )
+            ],
+            [
+                (C_TOKEN.TEMPLATE_ARGUMENTS if i % 2 else C_TOKEN.IDENTIFIER, value)
+                for i, value in enumerate(chain.from_iterable(token_pairs))
+            ],
+        )
+
+    def test_cpp_identifiers_with_invalid_template_parameters(self):
+        for s in [
+            "vector<int",
+            "pair<<int, double>",
+            "unordered_map<string, vector<pair<short, bool>>",
+        ]:
+            self.assertRaisesRegex(
+                SyntaxError,
+                "invalid template arguments",
+                list,
+                self.lex(s, cpp=True),
+            )
+        for s in [
+            "vectorint>",
+            "pair<int, double>>",
+        ]:
+            self.assertRaisesRegex(
+                SyntaxError,
+                "invalid character",
+                list,
+                self.lex(s, cpp=True),
+            )
 
     def test_identifiers(self):
         s = "_ x foo _bar baz1"
