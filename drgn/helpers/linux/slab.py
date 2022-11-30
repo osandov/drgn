@@ -38,6 +38,7 @@ from drgn.helpers.linux.mm import (
     PageSlab,
     compound_head,
     for_each_page,
+    page_size,
     page_to_virt,
     pfn_to_virt,
     virt_to_page,
@@ -58,6 +59,7 @@ __all__ = (
     "slab_object_info",
     "slab_cache_for_each_slab",
     "slab_cache_validate_object_address",
+    "slab_cache_validate_slab",
 )
 
 
@@ -301,6 +303,9 @@ class _SlabCacheHelper:
     def validate_object_address(self, slab: Object, ptr: IntegerLike) -> None:
         raise NotImplementedError()
 
+    def validate_slab(self, slab: Object) -> None:
+        raise NotImplementedError()
+
 
 class _SlabCacheHelperSlub(_SlabCacheHelper):
     SLUB_RED_INACTIVE = b"\xbb"
@@ -482,6 +487,66 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
 
         return
 
+    def validate_slab(self, slab: Object) -> None:
+        prog = self._prog
+        page_type = prog.type("struct page *")
+        page = cast(page_type, slab)
+
+        def _check_slab_pad() -> None:
+            val = b"\x00"
+            fault = 0
+            start = page_to_virt(page).value_()
+            length = page_size(page)
+            end = start + length
+            remainder = length % self._slab_cache_size
+            if not remainder:
+                return
+            pad = end - remainder
+            for cnt in range(remainder):
+                val = prog.read(pad + cnt, 1)
+                if val != self.POISON_INUSE:
+                    fault = pad + cnt
+                    break
+
+            if not fault:
+                return
+
+            while end > fault:
+                if prog.read(end - 1, 1) == self.POISON_INUSE:
+                    end -= 1
+                else:
+                    break
+
+            raise ValidationError(
+                f" Slab-cache: {self._slab_cache.name.string_().decode()} page: {page.value_()}"
+                f" Padding overwritten. {hex(fault)} - {hex(end - 1)} @offset= {hex(fault - start)}"
+            )
+
+        PG_slab_mask = 1 << prog.constant("PG_slab")
+        if not page.flags & PG_slab_mask:
+            raise ValidationError("Not a valid slab because PG_slab flag is not set")
+
+        if slab.slab_cache != self._slab_cache:
+            raise ValidationError(
+                "Not a valid slab because it belongs to a different slab cache"
+            )
+
+        maxobjs = page_size(page) / self._slab_cache_size  # max objects per slab
+        inuse = slab.inuse.value_()
+        objects = slab.objects.value_()
+        if objects > maxobjs:
+            raise ValidationError(
+                f" slab: {hex(slab.value_())} objects: hex{objects} > maxobjs (i.e oo): {maxobjs}"
+            )
+
+        if inuse > objects:
+            raise ValidationError(
+                f" slab: {hex(slab.value_())} inuse: {inuse} > objects: {objects}"
+            )
+
+        if self._debug_poison():
+            _check_slab_pad()
+
 
 class _SlabCacheHelperSlab(_SlabCacheHelper):
     RED_INACTIVE = 0x09F911029D74E35B
@@ -592,6 +657,19 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             )
 
         return
+
+    def validate_slab(self, slab: Object) -> None:
+        prog = self._prog
+        page_type = prog.type("struct page *")
+        page = cast(page_type, slab)
+        PG_slab_mask = 1 << prog.constant("PG_slab")
+        if not page.flags & PG_slab_mask:
+            raise ValidationError("Not a valid slab because PG_slab flag is not set")
+
+        if slab.slab_cache != self._slab_cache:
+            raise ValidationError(
+                "Not a valid slab because it belongs to a different slab cache"
+            )
 
 
 class _SlabCacheHelperSlob(_SlabCacheHelper):
@@ -707,6 +785,17 @@ def slab_cache_validate_object_address(
     """
     _get_slab_cache_helper(slab_cache).validate_object_address(slab, ptr)
     return
+
+
+def slab_cache_validate_slab(slab_cache: Object, slab: Object) -> None:
+    """
+    Check a given slab of specified slab cache.
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param slab: ``struct slab/page *``
+    :returns: ``True`` if ``slab`` is valid, ``False`` otherwise
+    """
+    _get_slab_cache_helper(slab_cache).validate_slab(slab)
 
 
 def _find_containing_slab(
