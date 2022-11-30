@@ -192,6 +192,7 @@ class C_TOKEN(enum.IntEnum):
     DOT = auto()
     NUMBER = auto()
     IDENTIFIER = auto()
+    TEMPLATE_ARGUMENTS = auto()
 
 
 class Token:
