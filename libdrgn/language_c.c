@@ -1650,6 +1650,7 @@ enum {
 	C_TOKEN_DOT,
 	C_TOKEN_NUMBER,
 	C_TOKEN_IDENTIFIER,
+	C_TOKEN_TEMPLATE_ARGUMENTS,
 };
 
 #include "c_keywords.inc"
@@ -1696,6 +1697,40 @@ struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 		token->kind = C_TOKEN_DOT;
 		p++;
 		break;
+	case '<':
+		// This is a hack for
+		// cpp_append_template_arguments_to_identifier(). We don't want
+		// to deal with actually parsing template arguments, and we
+		// don't care about "<" otherwise, so this scans a token from
+		// the "<" to its matching ">".
+		if (cpp) {
+			token->kind = C_TOKEN_TEMPLATE_ARGUMENTS;
+			p++;
+			size_t less_thans = 1;
+			bool in_single_quotes = false;
+			do {
+				switch (*p++) {
+				case '<':
+					if (!in_single_quotes)
+						less_thans++;
+					break;
+				case '>':
+					if (!in_single_quotes)
+						less_thans--;
+					break;
+				case '\'':
+					// Handling the edge-case of an escaped single-quote
+					if (!(in_single_quotes && *(p - 2) == '\\'))
+						in_single_quotes = !in_single_quotes;
+					break;
+				case '\0':
+					return drgn_error_create(DRGN_ERROR_SYNTAX,
+								 "invalid template arguments");
+				}
+			} while (less_thans > 0);
+			break;
+		}
+		fallthrough;
 	default:
 		if (isalpha(*p) || *p == '_') {
 			do {
@@ -2060,6 +2095,37 @@ out:
 	return primitive;
 }
 
+// The DWARF index currently includes template arguments in indexed names. So,
+// to be able to find a type with template arguments, we have to look it up with
+// the template arguments included. This looks for a C_TOKEN_TEMPLATE_ARGUMENTS
+// token after the identifier and returns the length from the beginning of the
+// identifier to the end of the template arguments.
+//
+// Note that this requires that the user formats the template arguments exactly
+// as they appear in DWARF (which can vary between compilers). In the future, it
+// might be better to properly parse and either normalize the template arguments
+// or look them up as an AST somehow.
+static struct drgn_error *
+cpp_append_template_arguments_to_identifier(struct drgn_lexer *lexer,
+					    const char *identifier,
+					    size_t *len_ret)
+{
+	struct drgn_error *err;
+
+	// Only for C++.
+	if (!((struct drgn_c_family_lexer *)lexer)->cpp)
+		return NULL;
+
+	struct drgn_token token;
+	err = drgn_lexer_pop(lexer, &token);
+	if (err)
+		return err;
+	if (token.kind != C_TOKEN_TEMPLATE_ARGUMENTS)
+		return drgn_lexer_push(lexer, &token);
+	*len_ret = token.value + token.len - identifier;
+	return NULL;
+}
+
 static struct drgn_error *
 c_parse_specifier_qualifier_list(struct drgn_program *prog,
 				 struct drgn_lexer *lexer, const char *filename,
@@ -2111,6 +2177,11 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			   specifier == SPECIFIER_NONE && !identifier) {
 			identifier = token.value;
 			identifier_len = token.len;
+			err = cpp_append_template_arguments_to_identifier(lexer,
+									  identifier,
+									  &identifier_len);
+			if (err)
+				return err;
 		} else if (token.kind == C_TOKEN_STRUCT ||
 			   token.kind == C_TOKEN_UNION ||
 			   token.kind == C_TOKEN_CLASS ||
@@ -2138,6 +2209,11 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			}
 			identifier = token.value;
 			identifier_len = token.len;
+			err = cpp_append_template_arguments_to_identifier(lexer,
+									  identifier,
+									  &identifier_len);
+			if (err)
+				return err;
 		} else {
 			err = drgn_lexer_push(lexer, &token);
 			if (err)
