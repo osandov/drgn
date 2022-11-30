@@ -60,6 +60,7 @@ __all__ = (
     "slab_cache_for_each_slab",
     "slab_cache_validate_object_address",
     "slab_cache_validate_slab",
+    "slab_cache_validate_object",
 )
 
 
@@ -174,6 +175,72 @@ def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
             if original_name != target_name:
                 name_map[original_name] = target_name
     return name_map
+
+
+def _check_object_bytes(
+    slab_cache: Object,
+    obj_addr: int,
+    what: str,
+    start: int,
+    key: int,
+    size: int,
+) -> bool:
+    """
+    Verify that a specific key is present at all locations of a given area
+    within an object.
+
+    param slab_cache: ``struct kmem_cache*``
+    param obj_addr: Object address
+    param what: Description of what is being searched
+    param start: Start of search area
+    param key: value to look for in search area
+    param size: size of search area
+
+    returns: ``True`` if all bytes in the search area have specified ``key``,
+             otherwise return ``False``
+    """
+    fault = 0
+    val = b"\x00"
+    prog = slab_cache.prog_
+
+    # Find first occurence of invalid value
+    for cnt in range(size):
+        val = prog.read(start + cnt, 1)
+        if val != key.to_bytes(1, "little"):
+            fault = start + cnt
+            break
+    if not fault:
+        return True
+
+    # Find last occurence of invalid value
+    end = start + size
+    while end > fault:
+        if prog.read(end - 1, 1) != key.to_bytes(1, "little"):
+            break
+        end -= 1
+
+    print(
+        "Slab-cache:",
+        slab_cache.name.string_(),
+        "Object:",
+        hex(obj_addr),
+        what,
+        "overwritten",
+    )
+    print(
+        "Info: ",
+        hex(fault),
+        "-",
+        hex(end - 1),
+        " @offset=",
+        fault - obj_addr,
+        "First byte",
+        val.hex(),
+        "instead of",
+        hex(key),
+    )
+
+    return False
 
 
 def slab_cache_for_each_slab(slab_cache: Object) -> Iterator[Object]:
@@ -306,6 +373,9 @@ class _SlabCacheHelper:
     def validate_slab(self, slab: Object) -> None:
         raise NotImplementedError()
 
+    def validate_object(self, object_address: int, free: bool) -> None:
+        raise NotImplementedError()
+
 
 class _SlabCacheHelperSlub(_SlabCacheHelper):
     SLUB_RED_INACTIVE = b"\xbb"
@@ -322,9 +392,13 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         except AttributeError:
             self._red_left_pad = 0
 
+        self._inuse = slab_cache.inuse.value_()
+        self._object_size = slab_cache.object_size.value_()
+
         # In SLUB, the freelist is a linked list with the next pointer located
         # at ptr + slab_cache->offset.
         freelist_offset = slab_cache.offset.value_()
+        self._freelist_offset = freelist_offset
 
         # If CONFIG_SLAB_FREELIST_HARDENED is enabled, then the next pointer is
         # obfuscated using slab_cache->random.
@@ -547,6 +621,105 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         if self._debug_poison():
             _check_slab_pad()
 
+    def validate_object(self, obj_addr: int, free: bool) -> None:
+        prog = self._prog
+        if free:
+            key = int.from_bytes(self.SLUB_RED_INACTIVE, "little")
+        else:
+            key = int.from_bytes(self.SLUB_RED_ACTIVE, "little")
+
+        def _check_object_pad_bytes() -> bool:
+            if self._freelist_offset >= self._inuse:
+                padoff = self._inuse + sizeof(prog.type("void *"))
+            else:
+                padoff = self._inuse
+
+            if self._debug_storeuser():
+                padoff += 2 * sizeof(prog.type("struct track"))
+
+            if self._debug_redzone():
+                size_from_object = self._slab_cache_size - self._red_left_pad
+            else:
+                size_from_object = self._slab_cache_size
+
+            if size_from_object == padoff:
+                return True
+
+            return _check_object_bytes(
+                self._slab_cache,
+                obj_addr,
+                "Object padding",
+                obj_addr + padoff,
+                int.from_bytes(self.POISON_INUSE, "little"),
+                size_from_object - padoff,
+            )
+
+        left_redzone_start = obj_addr - self._red_left_pad
+        endobject = obj_addr + self._object_size
+
+        if self._debug_redzone():
+            # Check left redzone
+            if not _check_object_bytes(
+                self._slab_cache,
+                obj_addr,
+                "Left Redzone",
+                left_redzone_start,
+                key,
+                self._red_left_pad,
+            ):
+                raise ValidationError("Left Redzone corrupted")
+
+            # Check right redzone
+            if not _check_object_bytes(
+                self._slab_cache,
+                obj_addr,
+                "Right Redzone",
+                endobject,
+                key,
+                self._inuse - self._object_size,
+            ):
+                raise ValidationError("Right Redzone corrupted")
+        else:
+            # Check poison value in padding bytes
+            if self._debug_poison() and self._object_size < self._inuse:
+                if not _check_object_bytes(
+                    self._slab_cache,
+                    obj_addr,
+                    "Alignment padding",
+                    endobject,
+                    int.from_bytes(self.POISON_INUSE, "little"),
+                    self._inuse - self._object_size,
+                ):
+                    raise ValidationError("Alignment padding corrupted")
+
+        if self._debug_poison():
+            if (
+                key == int.from_bytes(self.SLUB_RED_INACTIVE, "little")
+                and self._slub_object_poison()
+            ):
+                if not _check_object_bytes(
+                    self._slab_cache,
+                    obj_addr,
+                    "Poison",
+                    obj_addr,
+                    int.from_bytes(self.POISON_FREE, "little"),
+                    self._object_size - 1,
+                ):
+                    raise ValidationError("Poison pattern is not matching POISON_FREE")
+
+                if not _check_object_bytes(
+                    self._slab_cache,
+                    obj_addr,
+                    "Poison",
+                    endobject - 1,
+                    int.from_bytes(self.POISON_END, "little"),
+                    1,
+                ):
+                    raise ValidationError("Poison pattern is not matching POISON_END")
+
+            if not _check_object_pad_bytes():
+                raise ValidationError("Padding bytes corrupted")
+
 
 class _SlabCacheHelperSlab(_SlabCacheHelper):
     RED_INACTIVE = 0x09F911029D74E35B
@@ -564,6 +737,9 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             self._obj_offset = 0
 
         self._slab_cache_num = slab_cache.num.value_()
+        self._slab_cache_object_size = slab_cache.object_size.value_()
+        self._redzone_size = sizeof(self._prog.type("unsigned long long"))
+        self._caller_size = sizeof(self._prog.type("unsigned long long"))
 
         cpu_cache = slab_cache.cpu_cache.read_()
         cpu_caches_avail: Set[int] = set()
@@ -671,6 +847,74 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
                 "Not a valid slab because it belongs to a different slab cache"
             )
 
+    def validate_object(self, obj_addr: int, free: bool) -> None:
+        prog = self._prog
+        slab_cache_size = self._slab_cache_size
+        slab_cache_object_size = self._slab_cache_object_size
+        redzone_size = self._redzone_size
+        caller_size = self._caller_size
+        left_redzone_start = obj_addr - redzone_size
+        obj_offset = self._obj_offset
+        if self._debug_storeuser():
+            right_redzone_start = (
+                obj_addr - obj_offset + slab_cache_size - caller_size - redzone_size
+            )
+        else:
+            right_redzone_start = obj_addr - obj_offset + slab_cache_size - redzone_size
+
+        # Get redzone on both sides of the object
+        redzone1 = int.from_bytes(prog.read(left_redzone_start, redzone_size), "little")
+        redzone2 = int.from_bytes(
+            prog.read(right_redzone_start, redzone_size), "little"
+        )
+
+        if free:
+            # Free objects should have _RED_INACTIVE in redzones on both sides, should have _POISON_FREE in all
+            # bytes of object's payload area except the last byte and should have _POISON_END in the last byte
+            # of object's payload area
+            if self._debug_redzone():
+                # Check redzone on both sides of the object
+                if redzone1 != self.RED_INACTIVE or redzone2 != self.RED_INACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} double free or out of bound access detected"
+                    )
+
+                if self._debug_poison():
+                    if not _check_object_bytes(
+                        self._slab_cache,
+                        obj_addr,
+                        "Poison",
+                        obj_addr,
+                        int.from_bytes(self.POISON_FREE, "little"),
+                        slab_cache_object_size - 1,
+                    ):
+                        raise ValidationError("Poison pattern not matching POISON_FREE")
+
+                    if not _check_object_bytes(
+                        self._slab_cache,
+                        obj_addr,
+                        "Poison",
+                        obj_addr + slab_cache_object_size - 1,
+                        int.from_bytes(self.POISON_END, "little"),
+                        1,
+                    ):
+                        raise ValidationError("Poison pattern not matching POISON_END")
+
+        else:
+            if self._debug_redzone():
+                # Check redzone on both sides of the object
+                if redzone1 == self.RED_INACTIVE and redzone2 == self.RED_INACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} double free detected"
+                    )
+                elif redzone1 == self.RED_ACTIVE and redzone2 == self.RED_INACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} right redzone overwritten"
+                    )
+                elif redzone1 == self.RED_INACTIVE and redzone2 == self.RED_ACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} left redzone overwritten"
+                    )
 
 class _SlabCacheHelperSlob(_SlabCacheHelper):
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
@@ -796,6 +1040,22 @@ def slab_cache_validate_slab(slab_cache: Object, slab: Object) -> None:
     :returns: ``True`` if ``slab`` is valid, ``False`` otherwise
     """
     _get_slab_cache_helper(slab_cache).validate_slab(slab)
+
+
+def slab_cache_validate_object(slab_cache: Object, obj_addr: int, free: bool) -> None:
+    """
+    Check if object at address ``obj_addr`` is in proper state or not.
+    It is assumed that ``obj_addr`` is a valid pointer for this
+    ``slab_cache``
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param obj_addr: ``Address of object``
+    :param free: ``True if we are checking a free object. False otherwise``
+
+    :returns: ``True`` if the object is in proper state, otherwise return
+              ``False``
+    """
+    _get_slab_cache_helper(slab_cache).validate_object(obj_addr, free)
 
 
 def _find_containing_slab(
