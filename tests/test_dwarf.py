@@ -190,6 +190,7 @@ def dwarf_program(*args, segments=None, **kwds):
         f.write(compile_dwarf(*args, **kwds))
         f.flush()
         prog.load_debug_info([f.name])
+
     if segments is not None:
         add_mock_memory_segments(prog, segments)
     return prog
@@ -3810,6 +3811,258 @@ class TestTypes(TestCase):
             ),
         )
         self.assertIdentical(prog.type("struct point"), prog.type("TEST").type)
+
+    def test_namespaces(self):
+        def make_composite_die(tag: DW_TAG, name: str) -> DwarfDie:
+            return DwarfDie(
+                tag,
+                (
+                    DwarfAttrib(DW_AT.name, DW_FORM.string, name),
+                    DwarfAttrib(
+                        DW_AT.byte_size,
+                        DW_FORM.data1,
+                        4 if tag == DW_TAG.union_type else 8,
+                    ),
+                    DwarfAttrib(DW_AT.decl_file, DW_FORM.udata, "foo.c"),
+                ),
+                (
+                    DwarfDie(
+                        DW_TAG.member,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                            DwarfAttrib(
+                                DW_AT.data_member_location,
+                                DW_FORM.data1,
+                                0,
+                            ),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.member,
+                        (
+                            DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                            DwarfAttrib(
+                                DW_AT.data_member_location,
+                                DW_FORM.data1,
+                                0 if tag == DW_TAG.union_type else 4,
+                            ),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, "float_die"),
+                        ),
+                    ),
+                ),
+            )
+
+        dies = (
+            *labeled_int_die,
+            *labeled_float_die,
+            DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, "moho"),),
+                (
+                    DwarfDie(
+                        DW_TAG.namespace,
+                        (DwarfAttrib(DW_AT.name, DW_FORM.string, "eve"),),
+                        (
+                            DwarfDie(
+                                DW_TAG.namespace,
+                                (DwarfAttrib(DW_AT.name, DW_FORM.string, "kerbin"),),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.typedef,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name,
+                                                DW_FORM.string,
+                                                "TEST_TYPEDEF",
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.type, DW_FORM.ref4, "int_die"
+                                            ),
+                                        ),
+                                    ),
+                                    make_composite_die(
+                                        DW_TAG.structure_type, "TEST_STRUCT"
+                                    ),
+                                    make_composite_die(DW_TAG.class_type, "TEST_CLASS"),
+                                    make_composite_die(DW_TAG.union_type, "TEST_UNION"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        prog = dwarf_program(dies, lang=DW_LANG.C_plus_plus)
+        # Language is not set automatically when there is no DIE for `main`
+        prog.language = Language.CPP
+
+        self.assertIdentical(
+            prog.type("moho::eve::kerbin::TEST_TYPEDEF"),
+            prog.typedef_type("TEST_TYPEDEF", prog.int_type("int", 4, True)),
+        )
+        self.assertIdentical(
+            prog.type("struct moho::eve::kerbin::TEST_STRUCT"),
+            prog.struct_type(
+                "TEST_STRUCT",
+                8,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(prog.float_type("float", 4), "y", 32),
+                ),
+            ),
+        )
+        self.assertIdentical(
+            prog.type("class moho::eve::kerbin::TEST_CLASS"),
+            prog.class_type(
+                "TEST_CLASS",
+                8,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(prog.float_type("float", 4), "y", 32),
+                ),
+            ),
+        )
+        self.assertIdentical(
+            prog.type("union moho::eve::kerbin::TEST_UNION"),
+            prog.union_type(
+                "TEST_UNION",
+                4,
+                (
+                    TypeMember(prog.int_type("int", 4, True), "x", 0),
+                    TypeMember(prog.float_type("float", 4), "y", 0),
+                ),
+            ),
+        )
+
+    def test_explicit_global_namespace(self):
+        prog = dwarf_program(
+            (
+                *labeled_int_die,
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(
+                            DW_AT.name,
+                            DW_FORM.string,
+                            "TEST_TYPEDEF_GLOBAL",
+                        ),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                    ),
+                ),
+            ),
+            lang=DW_LANG.C_plus_plus,
+        )
+        # Language is not set automatically when there is no DIE for `main`
+        prog.language = Language.CPP
+
+        self.assertIdentical(
+            prog.type("TEST_TYPEDEF_GLOBAL"), prog.type("::TEST_TYPEDEF_GLOBAL")
+        )
+
+    def test_template_in_namespace(self):
+        dies = (
+            *labeled_int_die,
+            *labeled_unsigned_int_die,
+            DwarfDie(
+                DW_TAG.namespace,
+                (DwarfAttrib(DW_AT.name, DW_FORM.string, "containers"),),
+                (
+                    DwarfLabel("typedef_die"),
+                    DwarfDie(
+                        DW_TAG.typedef,
+                        (
+                            DwarfAttrib(
+                                DW_AT.name,
+                                DW_FORM.string,
+                                "MyTypedef",
+                            ),
+                            DwarfAttrib(DW_AT.type, DW_FORM.ref4, "unsigned_int_die"),
+                        ),
+                    ),
+                    DwarfDie(
+                        DW_TAG.class_type,
+                        (
+                            DwarfAttrib(
+                                DW_AT.name,
+                                DW_FORM.string,
+                                "Pair<int, containers::MyTypedef>",
+                            ),
+                            DwarfAttrib(
+                                DW_AT.byte_size,
+                                DW_FORM.data1,
+                                8,
+                            ),
+                        ),
+                        (
+                            DwarfDie(
+                                DW_TAG.template_type_parameter,
+                                (
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "T"),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.template_type_parameter,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.type, DW_FORM.ref4, "typedef_die"
+                                    ),
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "V"),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.member,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "first"),
+                                    DwarfAttrib(
+                                        DW_AT.data_member_location,
+                                        DW_FORM.data1,
+                                        0,
+                                    ),
+                                    DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                                ),
+                            ),
+                            DwarfDie(
+                                DW_TAG.member,
+                                (
+                                    DwarfAttrib(DW_AT.name, DW_FORM.string, "second"),
+                                    DwarfAttrib(
+                                        DW_AT.data_member_location,
+                                        DW_FORM.data1,
+                                        4,
+                                    ),
+                                    DwarfAttrib(
+                                        DW_AT.type, DW_FORM.ref4, "typedef_die"
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        prog = dwarf_program(dies, lang=DW_LANG.C_plus_plus)
+        # Language is not set automatically when there is no DIE for `main`
+        prog.language = Language.CPP
+
+        self.assertIdentical(
+            prog.type("class containers::Pair<int, containers::MyTypedef>"),
+            prog.class_type(
+                "Pair<int, containers::MyTypedef>",
+                8,
+                members=(
+                    TypeMember(prog.int_type("int", 4, True), "first", 0),
+                    TypeMember(prog.type("containers::MyTypedef"), "second", 32),
+                ),
+                template_parameters=(
+                    TypeTemplateParameter(prog.int_type("int", 4, True), "T"),
+                    TypeTemplateParameter(prog.type("containers::MyTypedef"), "V"),
+                ),
+            ),
+        )
 
 
 class TestObjects(TestCase):

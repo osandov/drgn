@@ -1651,6 +1651,7 @@ enum {
 	C_TOKEN_NUMBER,
 	C_TOKEN_IDENTIFIER,
 	C_TOKEN_TEMPLATE_ARGUMENTS,
+	C_TOKEN_COLON,
 };
 
 #include "c_keywords.inc"
@@ -1697,9 +1698,12 @@ struct drgn_error *drgn_c_family_lexer_func(struct drgn_lexer *lexer,
 		token->kind = C_TOKEN_DOT;
 		p++;
 		break;
+	case ':':
+		token->kind = C_TOKEN_COLON;
+		p++;
+		break;
 	case '<':
-		// This is a hack for
-		// cpp_append_template_arguments_to_identifier(). We don't want
+		// This is a hack for cpp_append_to_identifier(). We don't want
 		// to deal with actually parsing template arguments, and we
 		// don't care about "<" otherwise, so this scans a token from
 		// the "<" to its matching ">".
@@ -2095,6 +2099,7 @@ out:
 	return primitive;
 }
 
+
 // The DWARF index currently includes template arguments in indexed names. So,
 // to be able to find a type with template arguments, we have to look it up with
 // the template arguments included. This looks for a C_TOKEN_TEMPLATE_ARGUMENTS
@@ -2105,10 +2110,8 @@ out:
 // as they appear in DWARF (which can vary between compilers). In the future, it
 // might be better to properly parse and either normalize the template arguments
 // or look them up as an AST somehow.
-static struct drgn_error *
-cpp_append_template_arguments_to_identifier(struct drgn_lexer *lexer,
-					    const char *identifier,
-					    size_t *len_ret)
+static struct drgn_error *cpp_append_to_identifier(
+	struct drgn_lexer *lexer, const char *identifier, size_t *len_ret)
 {
 	struct drgn_error *err;
 
@@ -2117,11 +2120,20 @@ cpp_append_template_arguments_to_identifier(struct drgn_lexer *lexer,
 		return NULL;
 
 	struct drgn_token token;
-	err = drgn_lexer_pop(lexer, &token);
+
+	do {
+		err = drgn_lexer_pop(lexer, &token);
+	} while (!err && (token.kind == C_TOKEN_IDENTIFIER ||
+			  token.kind == C_TOKEN_COLON));
+
 	if (err)
 		return err;
-	if (token.kind != C_TOKEN_TEMPLATE_ARGUMENTS)
-		return drgn_lexer_push(lexer, &token);
+	if (token.kind != C_TOKEN_TEMPLATE_ARGUMENTS) {
+		err = drgn_lexer_push(lexer, &token);
+		if (err)
+			return err;
+	}
+
 	*len_ret = token.value + token.len - identifier;
 	return NULL;
 }
@@ -2173,13 +2185,13 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 							 keyword_spelling[token.kind],
 							 specifier_spelling[prev_specifier]);
 			}
-		} else if (token.kind == C_TOKEN_IDENTIFIER &&
-			   specifier == SPECIFIER_NONE && !identifier) {
+		} else if ((token.kind == C_TOKEN_IDENTIFIER ||
+			    token.kind == C_TOKEN_COLON) &&
+			    specifier == SPECIFIER_NONE && !identifier) {
 			identifier = token.value;
 			identifier_len = token.len;
-			err = cpp_append_template_arguments_to_identifier(lexer,
-									  identifier,
-									  &identifier_len);
+			err = cpp_append_to_identifier(lexer, identifier,
+						       &identifier_len);
 			if (err)
 				return err;
 		} else if (token.kind == C_TOKEN_STRUCT ||
@@ -2201,7 +2213,8 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			err = drgn_lexer_pop(lexer, &token);
 			if (err)
 				return err;
-			if (token.kind != C_TOKEN_IDENTIFIER) {
+			if (!(token.kind == C_TOKEN_IDENTIFIER ||
+			      token.kind == C_TOKEN_COLON)) {
 				return drgn_error_format(DRGN_ERROR_SYNTAX,
 							 "expected identifier after '%s'",
 							 keyword_spelling[tag_token]);
@@ -2209,9 +2222,8 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 			}
 			identifier = token.value;
 			identifier_len = token.len;
-			err = cpp_append_template_arguments_to_identifier(lexer,
-									  identifier,
-									  &identifier_len);
+			err = cpp_append_to_identifier(lexer, identifier,
+						       &identifier_len);
 			if (err)
 				return err;
 		} else {

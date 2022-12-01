@@ -6816,6 +6816,45 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 	return NULL;
 }
 
+static struct drgn_error *
+find_enclosing_namespace(struct drgn_namespace_dwarf_index *global_namespace,
+			 const char **name, size_t *name_len,
+			 struct drgn_namespace_dwarf_index **namespace_ret)
+{
+	*namespace_ret = global_namespace;
+	if (*name_len >= 2 && memcmp(*name, "::", 2) == 0) {
+		/* Explicit global namespace. */
+		*name_len -= 2;
+		*name += 2;
+	}
+
+	const char *template_parameters_start = memchr(*name, '<', *name_len);
+	ptrdiff_t searchable_len =
+		template_parameters_start ?
+				  template_parameters_start - *name:
+				  *name_len;
+	const char *colons;
+	while ((colons = memmem(*name, searchable_len, "::", 2))) {
+		struct drgn_dwarf_index_iterator it;
+		uint64_t ns_tag = DW_TAG_namespace;
+		struct drgn_error *err = drgn_dwarf_index_iterator_init(
+			&it, *namespace_ret, *name, colons - *name, &ns_tag, 1);
+		if (err)
+			return err;
+		struct drgn_dwarf_index_die *index_die =
+			drgn_dwarf_index_iterator_next(&it);
+		if (!index_die)
+			return &drgn_not_found;
+		*namespace_ret = index_die->namespace;
+		size_t chars_consumed = colons + 2 - *name;
+		searchable_len -= chars_consumed;
+		*name_len -= chars_consumed;
+		*name = colons + 2;
+	}
+
+	return NULL;
+}
+
 struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 					     const char *name, size_t name_len,
 					     const char *filename, void *arg,
@@ -6850,8 +6889,13 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 		UNREACHABLE();
 	}
 
+	struct drgn_namespace_dwarf_index *namespace;
+	err = find_enclosing_namespace(&dbinfo->dwarf.global,
+				       &name, &name_len, &namespace);
+	if (err)
+		return err;
 	struct drgn_dwarf_index_iterator it;
-	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dwarf.global, name,
+	err = drgn_dwarf_index_iterator_init(&it, namespace, name,
 					     name_len, &tag, 1);
 	if (err)
 		return err;
@@ -6886,28 +6930,11 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 	struct drgn_error *err;
 	struct drgn_debug_info *dbinfo = arg;
 
-	struct drgn_namespace_dwarf_index *ns = &dbinfo->dwarf.global;
-	if (name_len >= 2 && memcmp(name, "::", 2) == 0) {
-		/* Explicit global namespace. */
-		name_len -= 2;
-		name += 2;
-	}
-	const char *colons;
-	while ((colons = memmem(name, name_len, "::", 2))) {
-		struct drgn_dwarf_index_iterator it;
-		uint64_t ns_tag = DW_TAG_namespace;
-		err = drgn_dwarf_index_iterator_init(&it, ns, name,
-						     colons - name, &ns_tag, 1);
-		if (err)
-			return err;
-		struct drgn_dwarf_index_die *index_die =
-			drgn_dwarf_index_iterator_next(&it);
-		if (!index_die)
-			return &drgn_not_found;
-		ns = index_die->namespace;
-		name_len -= colons + 2 - name;
-		name = colons + 2;
-	}
+	struct drgn_namespace_dwarf_index *ns;
+	err = find_enclosing_namespace(&dbinfo->dwarf.global,
+				       &name, &name_len, &ns);
+	if (err)
+		return err;
 
 	uint64_t tags[3];
 	size_t num_tags = 0;
