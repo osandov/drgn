@@ -315,6 +315,7 @@ static void drgn_test_rbtree_init(void)
 // slab
 
 const int drgn_test_slob = IS_ENABLED(CONFIG_SLOB);
+const int drgn_test_slab = IS_ENABLED(CONFIG_SLAB);
 struct kmem_cache *drgn_test_small_kmem_cache;
 struct kmem_cache *drgn_test_big_kmem_cache;
 
