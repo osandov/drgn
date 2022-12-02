@@ -139,7 +139,7 @@ static int drgn_test_mm_init(void)
 static void drgn_test_mm_exit(void)
 {
 	if (drgn_test_compound_page)
-		__free_pages(drgn_test_page, 1);
+		__free_pages(drgn_test_compound_page, 1);
 	if (drgn_test_page)
 		__free_pages(drgn_test_page, 0);
 }
