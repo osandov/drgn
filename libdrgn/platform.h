@@ -1,6 +1,14 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+/**
+ * @file
+ *
+ * Platform internals
+ *
+ * See @ref PlatformInternals.
+ */
+
 #ifndef DRGN_PLATFORM_H
 #define DRGN_PLATFORM_H
 
@@ -14,12 +22,31 @@
 struct drgn_orc_entry;
 struct drgn_register_state;
 
+/**
+ * @ingroup Internals
+ *
+ * @defgroup PlatformInternals Platforms
+ *
+ * Platform internals.
+ *
+ * drgn's external representation of a platform is @ref drgn_platform.
+ * Internally, architecture-specific handling is mainly in @ref
+ * drgn_architecture_info. See @ref drgn_architecture_info for instructions on
+ * adding support for a new architecture.
+ *
+ * @{
+ */
+
 struct drgn_register {
+	/** Human-readable names of this register. */
 	const char * const *names;
+	/** Number of names in @ref names. */
 	size_t num_names;
+	/** Internal register number. */
 	drgn_register_number regno;
 };
 
+/** Offset and size of a register in @ref drgn_register_state::buf. */
 struct drgn_register_layout {
 	uint32_t offset;
 	uint32_t size;
@@ -29,7 +56,7 @@ struct drgn_register_layout {
 // We enforce that it stays up to date with a static_assert() in arch_aarch64.c.
 #define DRGN_AARCH64_RA_SIGN_STATE_REGNO 0
 
-/* ELF section to apply relocations to. */
+/** ELF section to apply relocations to. */
 struct drgn_relocating_section {
 	char *buf;
 	size_t buf_size;
@@ -39,7 +66,8 @@ struct drgn_relocating_section {
 
 extern struct drgn_error drgn_invalid_relocation_offset;
 
-/*
+#ifdef DOXYGEN
+/**
  * Apply an ELF relocation as:
  *
  * - `*dst = addend + *r_addend` if `r_addend` is not `NULL` (for `ElfN_Rela`)
@@ -49,7 +77,14 @@ extern struct drgn_error drgn_invalid_relocation_offset;
  *
  * This checks bounds and handles unaligned destinations and byte swapping. It
  * does not check for overflow.
+ *
+ * This is defined for N of 8, 16, 32, and 64.
  */
+struct drgn_error *
+drgn_reloc_addN(const struct drgn_relocating_section *relocating,
+		uint64_t r_offset, const int64_t *r_addend, uintN_t addend);
+#endif
+
 struct drgn_error *
 drgn_reloc_add64(const struct drgn_relocating_section *relocating,
 		 uint64_t r_offset, const int64_t *r_addend, uint64_t addend);
@@ -63,13 +98,14 @@ struct drgn_error *
 drgn_reloc_add8(const struct drgn_relocating_section *relocating,
 		uint64_t r_offset, const int64_t *r_addend, uint8_t addend);
 
+/** Create an error for an unknown ELF relocation type. */
 #define DRGN_UNKNOWN_RELOCATION_TYPE(r_type)				\
 	drgn_error_format(DRGN_ERROR_OTHER,				\
 			  "unknown relocation type %" PRIu32 " in %s; "	\
 			  "please report this to %s",			\
 			  (r_type), __func__, PACKAGE_BUGREPORT)
 
-/*
+/**
  * Apply an ELF relocation. If @p r_addend is `NULL`, then this is an `ElfN_Rel`
  * relocation. Otherwise, this is an `ElfN_Rela` relocation.
  */
@@ -78,15 +114,15 @@ apply_elf_reloc_fn(const struct drgn_relocating_section *relocating,
 		   uint64_t r_offset, uint32_t r_type, const int64_t *r_addend,
 		   uint64_t sym_value);
 
-/* Page table iterator. */
+/** Page table iterator. */
 struct pgtable_iterator {
-	/* Address of the top-level page table to iterate. */
+	/** Address of the top-level page table to iterate. */
 	uint64_t pgtable;
-	/* Current virtual address to translate. */
+	/** Current virtual address to translate. */
 	uint64_t virt_addr;
 };
 
-/*
+/**
  * Translate the current virtual address from a page table iterator.
  *
  * Abstractly, a virtual address lies in a range of addresses in the address
@@ -114,30 +150,109 @@ typedef struct drgn_error *
 			   struct pgtable_iterator *it, uint64_t *virt_addr_ret,
 			   uint64_t *phys_addr_ret);
 
+/**
+ * Architecture-specific information and callbacks.
+ *
+ * To add the bare minimum support for recognizing a new architecture:
+ *
+ * - Add a `DRGN_ARCH_FOO` enumerator to @ref drgn_architecture.
+ * - Add the constant to `class Architecture` in `_drgn.pyi`.
+ * - Create a new `libdrgn/arch_foo.c` file and add it to `libdrgn/Makefile.am`.
+ * - Define `struct drgn_architecture_info arch_info_foo` in
+ *   `libdrgn/arch_foo.c` with the following members:
+ *     - @ref name
+ *     - @ref arch
+ *     - @ref default_flags
+ *     - @ref register_by_name
+ * - Add an `extern` declaration of `arch_info_foo` to `libdrgn/platform.h`.
+ * - Handle the architecture in @ref drgn_platform_from_kdump(), @ref
+ *   drgn_host_platform, @ref drgn_platform_create(), and @ref
+ *   drgn_platform_from_elf().
+ *
+ * To support Linux kernel loadable modules:
+ *
+ * - Define @ref apply_elf_reloc.
+ *
+ * To support stack unwinding:
+ *
+ * - Create a new `libdrgn/arch_foo_defs.py` file. See
+ *   `libdrgn/build-aux/gen_arch_inc_strswitch.py`.
+ * - Add `#include "arch_foo_defs.inc"` to `libdrgn/arch_foo.c`.
+ * - Add `DRGN_ARCHITECTURE_REGISTERS` to `arch_info_foo` (and remove @ref
+ *   register_by_name).
+ * - Define the following @ref drgn_architecture_info members:
+ *     - @ref default_dwarf_cfi_row (use @ref DRGN_CFI_ROW)
+ *     - @ref fallback_unwind
+ *     - @ref pt_regs_get_initial_registers
+ *     - @ref prstatus_get_initial_registers
+ *     - @ref linux_kernel_get_initial_registers
+ *     - @ref demangle_cfi_registers (only if needed)
+ *
+ * To support virtual address translation:
+ *
+ * - Define the @ref drgn_architecture_info page table iterator members:
+ *   - @ref linux_kernel_pgtable_iterator_create
+ *   - @ref linux_kernel_pgtable_iterator_destroy
+ *   - @ref linux_kernel_pgtable_iterator_init
+ *   - @ref linux_kernel_pgtable_iterator_next
+ */
 struct drgn_architecture_info {
+	/** Human-readable name of this architecture. */
 	const char *name;
+	/** Architecture identifier. */
 	enum drgn_architecture arch;
+	/**
+	 * Flags to set for the platform if we're not getting them from
+	 * elsewhere (like from an ELF file).
+	 */
 	enum drgn_platform_flags default_flags;
-	/* API-visible registers. */
+	/**
+	 * Registers visible to the public API.
+	 *
+	 * This is set by `DRGN_ARCHITECTURE_REGISTERS`.
+	 */
 	const struct drgn_register *registers;
-	/* Number of API-visible registers. */
+	/**
+	 * Number of registers in @ref registers.
+	 *
+	 * This is set by `DRGN_ARCHITECTURE_REGISTERS`.
+	 */
 	size_t num_registers;
-	/* Internal register number of stack pointer. */
+	/**
+	 * Internal register number of stack pointer.
+	 *
+	 * This is set by `DRGN_ARCHITECTURE_REGISTERS`.
+	 */
 	drgn_register_number stack_pointer_regno;
-	/*
+	/**
 	 * Return the API-visible register with the given name, or @c NULL if it
 	 * is not recognized.
+	 *
+	 * This is set by `DRGN_ARCHITECTURE_REGISTERS`. It cannot be `NULL`.
+	 * Set it to @ref drgn_register_by_name_unknown if not using
+	 * `DRGN_ARCHITECTURE_REGISTERS`.
 	 */
 	const struct drgn_register *(*register_by_name)(const char *name);
-	/* Internal register layouts indexed by internal register number. */
+	/**
+	 * Internal register layouts indexed by internal register number.
+	 *
+	 * This is set by `DRGN_ARCHITECTURE_REGISTERS`.
+	 */
 	const struct drgn_register_layout *register_layout;
-	/*
+	/**
 	 * Return the internal register number for the given DWARF register
 	 * number, or @ref DRGN_REGISTER_NUMBER_UNKNOWN if it is not recognized.
+	 *
+	 * This is set by `DRGN_ARCHITECTURE_REGISTERS`.
 	 */
 	drgn_register_number (*dwarf_regno_to_internal)(uint64_t);
-	/* CFI row containing default rules for DWARF CFI. */
+	/** CFI row containing default rules for DWARF CFI. */
 	const struct drgn_cfi_row *default_dwarf_cfi_row;
+	/**
+	 * Translate an ORC entry to a @ref drgn_cfi_row.
+	 *
+	 * This should be `NULL` if the architecture doesn't use ORC.
+	 */
 	struct drgn_error *(*orc_to_cfi)(const struct drgn_orc_entry *,
 					 struct drgn_cfi_row **, bool *,
 					 drgn_register_number *);
@@ -148,38 +263,105 @@ struct drgn_architecture_info {
 	 */
 	void (*demangle_cfi_registers)(struct drgn_program *,
 				       struct drgn_register_state *);
-	/*
-	 * Try to unwind a stack frame if CFI wasn't found. Returns &drgn_stop
-	 * if we couldn't.
+	/**
+	 * Try to unwind a stack frame if CFI wasn't found. Returns &@ref
+	 * drgn_stop if we couldn't.
+	 *
+	 * This typically uses something like frame pointers. If this has to
+	 * read memory, translate @ref DRGN_ERROR_FAULT errors to &@ref
+	 * drgn_stop.
 	 */
 	struct drgn_error *(*fallback_unwind)(struct drgn_program *,
 					      struct drgn_register_state *,
 					      struct drgn_register_state **);
-	/* Given pt_regs as a value buffer object. */
-	struct drgn_error *(*pt_regs_get_initial_registers)(const struct drgn_object *,
-							    struct drgn_register_state **);
-	struct drgn_error *(*prstatus_get_initial_registers)(struct drgn_program *,
-							     const void *,
-							     size_t,
-							     struct drgn_register_state **);
-	struct drgn_error *(*linux_kernel_get_initial_registers)(const struct drgn_object *,
-								 struct drgn_register_state **);
+	/**
+	 * Create a @ref drgn_register_state from a Linux `struct pt_regs`.
+	 *
+	 * This should check that the object is sufficiently large with @ref
+	 * drgn_object_size(), call @ref drgn_register_state_create() with
+	 * `interrupted = true`, and initialize it from the contents of @ref
+	 * drgn_object_buffer().
+	 *
+	 * @param[in] obj `struct pt_regs` as a value buffer object.
+	 * @param[out] ret Returned registers.
+	 */
+	struct drgn_error *(*pt_regs_get_initial_registers)(const struct drgn_object *obj,
+							    struct drgn_register_state **ret);
+	/**
+	 * Create a @ref drgn_register_state from the contents of an ELF
+	 * `NT_PRSTATUS` note.
+	 *
+	 * This should check that @p size is sufficiently large, call @ref
+	 * drgn_register_state_create() with `interrupted = true`, and
+	 * initialize it from @p prstatus.
+	 *
+	 * Refer to `struct elf_prstatus_common` in the Linux kernel source for
+	 * the format, and in particular, the `elf_gregset_t pr_reg` member.
+	 * `elf_gregset_t` has an architecture-specific layout; on many
+	 * architectures, it is identical to or a prefix of `struct pt_regs`.
+	 * `pr_reg` is typically at offset 112 on 64-bit platforms and 72 on
+	 * 32-bit platforms.
+	 *
+	 * @param[in] prstatus Buffer of `NT_PRSTATUS` contents.
+	 * @param[in] size Size of @p prstatus in bytes.
+	 * @param[out] ret Returned registers.
+	 */
+	struct drgn_error *(*prstatus_get_initial_registers)(struct drgn_program *prog,
+							     const void *prstatus,
+							     size_t size,
+							     struct drgn_register_state **ret);
+	/**
+	 * Create a @ref drgn_register_state from the `struct task_struct` of a
+	 * scheduled-out Linux kernel thread.
+	 *
+	 * This should should call @ref drgn_register_state_create() with
+	 * `interrupted = false` and initialize it from the saved thread
+	 * context.
+	 *
+	 * The context can usually be found in `struct task_struct::thread`
+	 * and/or the thread stack. Refer to this architecture's implementation
+	 * of `switch_to()` in the Linux kernel.
+	 *
+	 * @param[in] task_obj `struct task_struct` object.
+	 * @param[out] ret Returned registers.
+	 */
+	struct drgn_error *(*linux_kernel_get_initial_registers)(const struct drgn_object *task_obj,
+								 struct drgn_register_state **ret);
+	/**
+	 * Apply an ELF relocation.
+	 *
+	 * This should use the pre-defined @ref drgn_reloc_addN() functions
+	 * whenever possible. Note that this is only used to relocate debugging
+	 * information sections, so typically only simple absolute and
+	 * PC-relative relocations need to be implemented.
+	 */
 	apply_elf_reloc_fn *apply_elf_reloc;
-	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *,
-									uint64_t *,
-									uint64_t *);
-	/* Allocate a Linux kernel page table iterator. */
+	/**
+	 * Return the address and size of the direct mapping virtual address
+	 * range.
+	 *
+	 * This is a hack which is only called when debugging a live Linux
+	 * kernel older than v4.11.
+	 */
+	struct drgn_error *(*linux_kernel_live_direct_mapping_fallback)(struct drgn_program *prog,
+									uint64_t *address_ret,
+									uint64_t *size_ret);
+	/** Allocate a Linux kernel page table iterator. */
 	struct drgn_error *(*linux_kernel_pgtable_iterator_create)(struct drgn_program *,
 								   struct pgtable_iterator **);
-	/* Destroy a Linux kernel page table iterator. */
+	/** Free a Linux kernel page table iterator. */
 	void (*linux_kernel_pgtable_iterator_destroy)(struct pgtable_iterator *);
-	/* (Re)initialize a Linux kernel page table iterator. */
+	/** (Re)initialize a Linux kernel page table iterator. */
 	void (*linux_kernel_pgtable_iterator_init)(struct drgn_program *,
 						   struct pgtable_iterator *);
-	/* Iterate a (user or kernel) page table in the Linux kernel. */
+	/** Iterate a (user or kernel) page table in the Linux kernel. */
 	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
 };
 
+/**
+ * Implementation of @ref drgn_architecture_info::register_by_name that always
+ * returns `NULL`.
+ */
 const struct drgn_register *drgn_register_by_name_unknown(const char *name);
 
 extern const struct drgn_architecture_info arch_info_unknown;
@@ -243,5 +425,7 @@ void drgn_platform_from_arch(const struct drgn_architecture_info *arch,
 
 /** Initialize a @ref drgn_platform from an ELF header. */
 void drgn_platform_from_elf(GElf_Ehdr *ehdr, struct drgn_platform *ret);
+
+/** @} */
 
 #endif /* DRGN_PLATFORM_H */
