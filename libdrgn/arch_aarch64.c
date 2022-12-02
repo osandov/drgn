@@ -48,28 +48,23 @@ static const struct drgn_cfi_row default_dwarf_cfi_row_aarch64 = DRGN_CFI_ROW(
 	DRGN_CFI_SAME_VALUE_INIT(DRGN_REGISTER_NUMBER(x30)),
 );
 
-// Mask out the pointer authentication code if the return address is signed.
-static void demangle_return_address_aarch64(struct drgn_program *prog,
-					    struct drgn_register_state *regs,
-					    drgn_register_number regno)
+// Mask out the pointer authentication code from x30/lr.
+static void demangle_cfi_registers_aarch64(struct drgn_program *prog,
+					   struct drgn_register_state *regs)
 {
 	struct optional_uint64 ra_sign_state =
 		drgn_register_state_get_u64(prog, regs, ra_sign_state);
 	if (!ra_sign_state.has_value || !(ra_sign_state.value & 1))
 		return;
 	struct optional_uint64 ra =
-		drgn_register_state_get_u64_impl(prog, regs, regno,
-						 register_layout[regno].offset,
-						 register_layout[regno].size);
-	assert(ra.has_value);
+		drgn_register_state_get_u64(prog, regs, x30);
+	if (!ra.has_value)
+		return;
 	if (ra.value & (UINT64_C(1) << 55))
 		ra.value |= prog->aarch64_insn_pac_mask;
 	else
 		ra.value &= ~prog->aarch64_insn_pac_mask;
-	drgn_register_state_set_from_u64_impl(prog, regs, regno,
-					      register_layout[regno].offset,
-					      register_layout[regno].size,
-					      ra.value);
+	drgn_register_state_set_from_u64(prog, regs, x30, ra.value);
 }
 
 // Unwind using the frame pointer. Note that leaf functions may not allocate a
@@ -124,8 +119,7 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 	if (prog->aarch64_insn_pac_mask) {
 		drgn_register_state_set_from_u64(prog, unwound, ra_sign_state,
 						 1);
-		demangle_return_address_aarch64(prog, unwound,
-						DRGN_REGISTER_NUMBER(x30));
+		demangle_cfi_registers_aarch64(prog, unwound);
 	}
 	drgn_register_state_set_pc_from_register(prog, unwound, x30);
 	// The location of the frame record within the stack frame is not
@@ -497,8 +491,8 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 			  DRGN_PLATFORM_IS_LITTLE_ENDIAN),
 	DRGN_ARCHITECTURE_REGISTERS,
 	.default_dwarf_cfi_row = &default_dwarf_cfi_row_aarch64,
+	.demangle_cfi_registers = demangle_cfi_registers_aarch64,
 	.fallback_unwind = fallback_unwind_aarch64,
-	.demangle_return_address = demangle_return_address_aarch64,
 	.pt_regs_get_initial_registers = pt_regs_get_initial_registers_aarch64,
 	.prstatus_get_initial_registers = prstatus_get_initial_registers_aarch64,
 	.linux_kernel_get_initial_registers =

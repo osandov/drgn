@@ -141,6 +141,13 @@ struct drgn_architecture_info {
 	struct drgn_error *(*orc_to_cfi)(const struct drgn_orc_entry *,
 					 struct drgn_cfi_row **, bool *,
 					 drgn_register_number *);
+	/**
+	 * Replace mangled registers unwound by CFI with their actual values.
+	 *
+	 * This should be `NULL` if not needed.
+	 */
+	void (*demangle_cfi_registers)(struct drgn_program *,
+				       struct drgn_register_state *);
 	/*
 	 * Try to unwind a stack frame if CFI wasn't found. Returns &drgn_stop
 	 * if we couldn't.
@@ -148,9 +155,6 @@ struct drgn_architecture_info {
 	struct drgn_error *(*fallback_unwind)(struct drgn_program *,
 					      struct drgn_register_state *,
 					      struct drgn_register_state **);
-	void (*demangle_return_address)(struct drgn_program *,
-					struct drgn_register_state *,
-					drgn_register_number);
 	/* Given pt_regs as a value buffer object. */
 	struct drgn_error *(*pt_regs_get_initial_registers)(const struct drgn_object *,
 							    struct drgn_register_state **);
