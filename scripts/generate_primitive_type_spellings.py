@@ -24,7 +24,7 @@ SPELLINGS = [
         "DRGN_C_TYPE_UNSIGNED_LONG_LONG",
         ["unsigned long long", "unsigned long long int"],
     ),
-    ("DRGN_C_TYPE_BOOL", ["_Bool"]),
+    ("DRGN_C_TYPE_BOOL", ["_Bool", "bool"]),
     ("DRGN_C_TYPE_FLOAT", ["float"]),
     ("DRGN_C_TYPE_DOUBLE", ["double"]),
     ("DRGN_C_TYPE_LONG_DOUBLE", ["long double"]),

@@ -65,19 +65,23 @@ class TestType(MockProgramTestCase):
         self.assertRaises(ValueError, self.prog.int_type, "int", 4, True, "middle")
 
     def test_bool(self):
-        t = self.prog.bool_type("_Bool", 1)
-        self.assertEqual(t.kind, TypeKind.BOOL)
-        self.assertEqual(t.primitive, PrimitiveType.C_BOOL)
-        self.assertEqual(t.language, DEFAULT_LANGUAGE)
-        self.assertEqual(t.name, "_Bool")
-        self.assertEqual(t.size, 1)
-        self.assertEqual(t.byteorder, "little")
-        self.assertTrue(t.is_complete())
+        for language, name in ((Language.C, "_Bool"), (Language.CPP, "bool")):
+            t = self.prog.bool_type(name, 1, language=language)
+            self.assertEqual(t.kind, TypeKind.BOOL)
+            self.assertEqual(t.primitive, PrimitiveType.C_BOOL)
+            self.assertEqual(t.language, language)
+            self.assertEqual(t.name, name)
+            self.assertEqual(t.size, 1)
+            self.assertEqual(t.byteorder, "little")
+            self.assertTrue(t.is_complete())
 
-        self.assertEqual(repr(t), "prog.bool_type(name='_Bool', size=1)")
-        self.assertEqual(sizeof(t), 1)
+            self.assertEqual(
+                repr(t),
+                f"prog.bool_type(name='{name}', size=1{', language=Language.CPP' if language is Language.CPP else ''})",
+            )
+            self.assertEqual(sizeof(t), 1)
 
-        self.assertRaises(TypeError, self.prog.bool_type, None, 1)
+            self.assertRaises(TypeError, self.prog.bool_type, None, 1)
 
     def test_bool_byteorder(self):
         self.assertIdentical(

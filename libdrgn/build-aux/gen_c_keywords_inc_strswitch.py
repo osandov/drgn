@@ -6,6 +6,7 @@ C_KEYWORDS = (
     "_Atomic",
     "_Bool",
     "_Complex",
+    "bool",
     "char",
     "class",
     "const",
@@ -41,7 +42,7 @@ def main() -> None:
     print("\t@memswitch (s, len)@")
     for token_kind, keyword in keywords:
         print(f'\t@case "{keyword}"@')
-        if keyword == "class":
+        if keyword == "class" or keyword == "bool":
             print(f"\t\treturn cpp ? {token_kind} : C_TOKEN_IDENTIFIER;")
         else:
             print(f"\t\treturn {token_kind};")

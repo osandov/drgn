@@ -2058,7 +2058,8 @@ static const enum drgn_primitive_type specifier_kind[NUM_SPECIFIER_STATES] = {
 	[SPECIFIER_LONG_DOUBLE] = DRGN_C_TYPE_LONG_DOUBLE,
 };
 
-enum drgn_primitive_type c_parse_specifier_list(const char *s)
+enum drgn_primitive_type
+c_family_parse_specifier_list(const struct drgn_language *lang, const char *s)
 {
 	struct drgn_error *err;
 	struct drgn_c_family_lexer c_family_lexer;
@@ -2066,7 +2067,7 @@ enum drgn_primitive_type c_parse_specifier_list(const char *s)
 	enum c_type_specifier specifier = SPECIFIER_NONE;
 	enum drgn_primitive_type primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
-	c_family_lexer.cpp = false;
+	c_family_lexer.cpp = lang == &drgn_language_cpp;
 	drgn_lexer_init(lexer, drgn_c_family_lexer_func, s);
 
 	for (;;) {

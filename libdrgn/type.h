@@ -477,7 +477,8 @@ extern const char * const drgn_type_kind_spelling[];
  * @return The type, or @ref DRGN_NOT_PRIMITIVE_TYPE if @p s is not the name of
  * a primitive C type.
  */
-enum drgn_primitive_type c_parse_specifier_list(const char *s);
+enum drgn_primitive_type
+c_family_parse_specifier_list(const struct drgn_language *lang, const char *s);
 
 /**
  * Get the type of a @ref drgn_type with all typedefs removed.

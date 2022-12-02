@@ -97,7 +97,7 @@ drgn_primitive_type_spellings[DRGN_PRIMITIVE_TYPE_NUM] = {
 		"int unsigned long long", "int long unsigned long",
 		"int long long unsigned", NULL,
 	},
-	[DRGN_C_TYPE_BOOL] = (const char * []){ "_Bool", NULL, },
+	[DRGN_C_TYPE_BOOL] = (const char * []){ "_Bool", "bool", NULL, },
 	[DRGN_C_TYPE_FLOAT] = (const char * []){ "float", NULL, },
 	[DRGN_C_TYPE_DOUBLE] = (const char * []){ "double", NULL, },
 	[DRGN_C_TYPE_LONG_DOUBLE] = (const char * []){
@@ -397,7 +397,8 @@ struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
+	enum drgn_primitive_type primitive =
+		c_family_parse_specifier_list(lang, name);
 	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_INT &&
 	    (primitive == DRGN_C_TYPE_CHAR ||
 	     is_signed == drgn_primitive_type_is_signed(primitive)))
@@ -432,9 +433,11 @@ struct drgn_error *drgn_bool_type_create(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
+	enum drgn_primitive_type primitive =
+		c_family_parse_specifier_list(lang, name);
 	if (primitive == DRGN_C_TYPE_BOOL)
-		name = drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL][0];
+		name = drgn_primitive_type_spellings[DRGN_C_TYPE_BOOL]
+						    [lang == &drgn_language_cpp];
 	else
 		primitive = DRGN_NOT_PRIMITIVE_TYPE;
 
@@ -464,7 +467,8 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
+	enum drgn_primitive_type primitive =
+		c_family_parse_specifier_list(lang, name);
 	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_FLOAT)
 		name = drgn_primitive_type_spellings[primitive][0];
 	else
