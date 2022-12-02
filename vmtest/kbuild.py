@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest14"
+        localversion = "-vmtest15"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -151,6 +151,11 @@ CONFIG_CGROUPS=y
 # For kconfig tests.
 CONFIG_IKCONFIG=m
 CONFIG_IKCONFIG_PROC=y
+
+# For filesystem tests.
+CONFIG_BTRFS_FS=m
+CONFIG_EXT4_FS=m
+CONFIG_XFS_FS=m
 
 # For net tests.
 CONFIG_NAMESPACES=y
