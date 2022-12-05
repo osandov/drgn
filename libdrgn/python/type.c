@@ -731,6 +731,22 @@ static PyObject *DrgnType_has_member(DrgnType *self, PyObject *args,
 	Py_RETURN_BOOL(has_member);
 }
 
+static PyObject *DrgnType_richcompare(DrgnType *self, DrgnType *other, int op)
+{
+	if ((op != Py_EQ && op != Py_NE) ||
+	    !PyObject_TypeCheck((PyObject *)other, &DrgnType_type))
+		Py_RETURN_NOTIMPLEMENTED;
+
+	bool is_equal = self->type == other->type &&
+			self->qualifiers == other->qualifiers;
+	Py_RETURN_BOOL(op == Py_EQ ? is_equal : !is_equal);
+}
+
+static Py_hash_t DrgnType_hash(DrgnType *self)
+{
+	return hash_combine((uintptr_t)self->type, self->qualifiers);
+}
+
 static PyMethodDef DrgnType_methods[] = {
 	{"type_name", (PyCFunction)DrgnType_type_name, METH_NOARGS,
 	 drgn_Type_type_name_DOC},
@@ -762,6 +778,8 @@ PyTypeObject DrgnType_type = {
 	.tp_clear = (inquiry)DrgnType_clear,
 	.tp_methods = DrgnType_methods,
 	.tp_getset = DrgnType_getset,
+	.tp_richcompare = (richcmpfunc)DrgnType_richcompare,
+	.tp_hash = (hashfunc)DrgnType_hash,
 };
 
 static TypeEnumerator *TypeEnumerator_new(PyTypeObject *subtype, PyObject *args,

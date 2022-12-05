@@ -1058,6 +1058,18 @@ class TestType(MockProgramTestCase):
                 (TypeParameter(lambda: mock_program().int_type("int", 4, True)),),
             ).parameters[0].type
 
+    def test_comparison(self):
+        t1 = self.prog.int_type("int", 4, True)
+        t2 = self.prog.int_type("int", 4, True)
+        self.assertIsNot(t1, t2)
+        self.assertEqual(t1, t2)
+        self.assertRaises(TypeError, lambda: t1 < t2)
+        self.assertEqual(hash(t1), hash(t2))
+
+        t3 = self.prog.int_type("long", 8, True)
+        self.assertNotEqual(t1, t3)
+        self.assertNotEqual(hash(t1), hash(t3))
+
 
 class TestTypeEnumerator(MockProgramTestCase):
     def test_init(self):
