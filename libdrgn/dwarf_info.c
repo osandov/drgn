@@ -5940,11 +5940,22 @@ drgn_dwarf_template_value_parameter_thunk_fn(struct drgn_object *res,
 }
 
 static struct drgn_error *
-parse_template_parameter(struct drgn_debug_info *dbinfo,
-			 struct drgn_elf_file *file, Dwarf_Die *die,
-			 drgn_object_thunk_fn *thunk_fn,
-			 struct drgn_template_parameters_builder *builder)
+maybe_parse_template_parameter(struct drgn_debug_info *dbinfo,
+			       struct drgn_elf_file *file, Dwarf_Die *die,
+			       struct drgn_template_parameters_builder *builder)
 {
+	drgn_object_thunk_fn *thunk_fn;
+	switch (dwarf_tag(die)) {
+	case DW_TAG_template_type_parameter:
+		thunk_fn = drgn_dwarf_template_type_parameter_thunk_fn;
+		break;
+	case DW_TAG_template_value_parameter:
+		thunk_fn = drgn_dwarf_template_value_parameter_thunk_fn;
+		break;
+	default:
+		return NULL;
+	}
+
 	char tag_buf[DW_TAG_STR_BUF_LEN];
 
 	Dwarf_Attribute attr_mem, *attr;
@@ -5984,6 +5995,27 @@ parse_template_parameter(struct drgn_debug_info *dbinfo,
 	if (err)
 		drgn_lazy_object_deinit(&argument);
 	return err;
+}
+
+static struct drgn_error *
+drgn_parse_template_parameter_pack(struct drgn_debug_info *dbinfo,
+				   struct drgn_elf_file *file, Dwarf_Die *die,
+				   struct drgn_template_parameters_builder *builder)
+{
+	struct drgn_error *err;
+	Dwarf_Die child;
+	int r = dwarf_child(die, &child);
+	while (r == 0) {
+		err = maybe_parse_template_parameter(dbinfo, file, &child, builder);
+		if (err)
+			return err;
+		r = dwarf_siblingof(&child, &child);
+	}
+	if (r == -1) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "libdw could not parse DIE children");
+	}
+	return NULL;
 }
 
 static struct drgn_error *
@@ -6058,16 +6090,15 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			}
 			break;
 		case DW_TAG_template_type_parameter:
-			err = parse_template_parameter(dbinfo, file, &child,
-						       drgn_dwarf_template_type_parameter_thunk_fn,
-						       &builder.template_builder);
+		case DW_TAG_template_value_parameter:
+			err = maybe_parse_template_parameter(dbinfo, file, &child,
+							     &builder.template_builder);
 			if (err)
 				goto err;
 			break;
-		case DW_TAG_template_value_parameter:
-			err = parse_template_parameter(dbinfo, file, &child,
-						       drgn_dwarf_template_value_parameter_thunk_fn,
-						       &builder.template_builder);
+		case DW_TAG_GNU_template_parameter_pack:
+			err = drgn_parse_template_parameter_pack(dbinfo, file, &child,
+								 &builder.template_builder);
 			if (err)
 				goto err;
 			break;
@@ -6563,16 +6594,15 @@ drgn_function_type_from_dwarf(struct drgn_debug_info *dbinfo,
 			is_variadic = true;
 			break;
 		case DW_TAG_template_type_parameter:
-			err = parse_template_parameter(dbinfo, file, &child,
-						       drgn_dwarf_template_type_parameter_thunk_fn,
-						       &builder.template_builder);
+		case DW_TAG_template_value_parameter:
+			err = maybe_parse_template_parameter(dbinfo, file, &child,
+							     &builder.template_builder);
 			if (err)
 				goto err;
 			break;
-		case DW_TAG_template_value_parameter:
-			err = parse_template_parameter(dbinfo, file, &child,
-						       drgn_dwarf_template_value_parameter_thunk_fn,
-						       &builder.template_builder);
+		case DW_TAG_GNU_template_parameter_pack:
+			err = drgn_parse_template_parameter_pack(dbinfo, file, &child,
+								 &builder.template_builder);
 			if (err)
 				goto err;
 			break;

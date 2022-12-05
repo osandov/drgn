@@ -1680,6 +1680,63 @@ class TestTypes(TestCase):
                 )
             ).type("TEST").type.template_parameters[0].argument
 
+    def test_class_template_parameter_pack(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.class_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "ParamPack<int, 123>"),
+                        DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.GNU_template_parameter_pack,
+                            (DwarfAttrib(DW_AT.name, DW_FORM.string, "Params"),),
+                            (
+                                DwarfDie(
+                                    DW_TAG.template_type_parameter,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "int_die"
+                                        ),
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "T"),
+                                    ),
+                                ),
+                                char_die,  # Unexpected die - should be ignored
+                                DwarfDie(
+                                    DW_TAG.template_value_parameter,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "unsigned_int_die"
+                                        ),
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "N"),
+                                        DwarfAttrib(
+                                            DW_AT.const_value, DW_FORM.data1, 2
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.class_type(
+                "ParamPack<int, 123>",
+                template_parameters=(
+                    TypeTemplateParameter(prog.int_type("int", 4, True), "T"),
+                    TypeTemplateParameter(
+                        Object(prog, prog.int_type("unsigned int", 4, False), 2), "N"
+                    ),
+                ),
+            ),
+        )
+
     def test_lazy_cycle(self):
         prog = dwarf_program(
             wrap_test_type_dies(
@@ -3556,6 +3613,62 @@ class TestTypes(TestCase):
                 is_variadic=True,
                 template_parameters=(
                     TypeTemplateParameter(prog.void_type(), "T"),
+                    TypeTemplateParameter(
+                        Object(prog, prog.int_type("unsigned int", 4, False), 2), "N"
+                    ),
+                ),
+            ),
+        )
+
+    def test_function_template_parameter_pack(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.subroutine_type,
+                    (DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.GNU_template_parameter_pack,
+                            (DwarfAttrib(DW_AT.name, DW_FORM.string, "Params"),),
+                            (
+                                DwarfDie(
+                                    DW_TAG.template_type_parameter,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "int_die"
+                                        ),
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "T"),
+                                    ),
+                                ),
+                                char_die,  # Unexpected die - should be ignored
+                                DwarfDie(
+                                    DW_TAG.template_value_parameter,
+                                    (
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "unsigned_int_die"
+                                        ),
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "N"),
+                                        DwarfAttrib(
+                                            DW_AT.const_value, DW_FORM.data1, 2
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+                *labeled_unsigned_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type,
+            prog.function_type(
+                prog.int_type("int", 4, True),
+                (),
+                is_variadic=False,
+                template_parameters=(
+                    TypeTemplateParameter(prog.int_type("int", 4, True), "T"),
                     TypeTemplateParameter(
                         Object(prog, prog.int_type("unsigned int", 4, False), 2), "N"
                     ),
