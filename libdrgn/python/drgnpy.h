@@ -308,13 +308,12 @@ struct index_arg {
 };
 int index_converter(PyObject *o, void *p);
 
-/* Helpers for path arguments based on posixmodule.c in CPython. */
 struct path_arg {
 	bool allow_none;
 	char *path;
 	Py_ssize_t length;
 	PyObject *object;
-	PyObject *cleanup;
+	PyObject *bytes;
 };
 int path_converter(PyObject *o, void *p);
 void path_cleanup(struct path_arg *path);

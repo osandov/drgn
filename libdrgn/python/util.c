@@ -99,88 +99,33 @@ int index_converter(PyObject *o, void *p)
 
 int path_converter(PyObject *o, void *p)
 {
-	struct path_arg *path = p;
-	int is_bytes, is_unicode;
-	PyObject *bytes = NULL;
-	Py_ssize_t length = 0;
-	char *tmp;
-
 	if (o == NULL) {
 		path_cleanup(p);
 		return 1;
 	}
 
-	path->object = path->cleanup = NULL;
-	Py_INCREF(o);
-
+	struct path_arg *path = p;
 	if (path->allow_none && o == Py_None) {
 		path->path = NULL;
 		path->length = 0;
-		goto out;
-	}
-
-	is_bytes = PyBytes_Check(o);
-	is_unicode = PyUnicode_Check(o);
-
-	if (!is_bytes && !is_unicode) {
-		_Py_IDENTIFIER(__fspath__);
-		PyObject *func;
-
-		func = _PyObject_LookupSpecial(o, &PyId___fspath__);
-		if (func == NULL)
-			goto err_format;
-		Py_DECREF(o);
-		o = PyObject_CallObject(func, NULL);
-		Py_DECREF(func);
-		if (o == NULL)
-			return 0;
-		is_bytes = PyBytes_Check(o);
-		is_unicode = PyUnicode_Check(o);
-	}
-
-	if (is_unicode) {
-		if (!PyUnicode_FSConverter(o, &bytes))
-			goto err;
-	} else if (is_bytes) {
-		bytes = o;
-		Py_INCREF(bytes);
+		path->bytes = NULL;
 	} else {
-err_format:
-		PyErr_Format(PyExc_TypeError,
-			     "expected string, bytes, or os.PathLike, not %s",
-			     Py_TYPE(o)->tp_name);
-		goto err;
+		if (!PyUnicode_FSConverter(o, &path->bytes)) {
+			path->object = path->bytes = NULL;
+			return 0;
+		}
+		path->path = PyBytes_AS_STRING(path->bytes);
+		path->length = PyBytes_GET_SIZE(path->bytes);
 	}
-
-	length = PyBytes_GET_SIZE(bytes);
-	tmp = PyBytes_AS_STRING(bytes);
-	if ((size_t)length != strlen(tmp)) {
-		PyErr_SetString(PyExc_TypeError,
-				"path has embedded nul character");
-		goto err;
-	}
-
-	path->path = tmp;
-	if (bytes == o)
-		Py_DECREF(bytes);
-	else
-		path->cleanup = bytes;
-	path->length = length;
-
-out:
+	Py_INCREF(o);
 	path->object = o;
 	return Py_CLEANUP_SUPPORTED;
-
-err:
-	Py_XDECREF(o);
-	Py_XDECREF(bytes);
-	return 0;
 }
 
 void path_cleanup(struct path_arg *path)
 {
+	Py_CLEAR(path->bytes);
 	Py_CLEAR(path->object);
-	Py_CLEAR(path->cleanup);
 }
 
 int enum_converter(PyObject *o, void *p)
