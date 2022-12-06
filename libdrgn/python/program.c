@@ -596,33 +596,39 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 					 &filename))
 		return NULL;
 
+	PyObject *ret = NULL;
 	if (PyObject_TypeCheck(name_or_type, &DrgnType_type)) {
 		if (DrgnType_prog((DrgnType *)name_or_type) != self) {
 			PyErr_SetString(PyExc_ValueError,
 					"type is from different program");
-			return NULL;
+			goto out;
 		}
 		Py_INCREF(name_or_type);
-		return name_or_type;
+		ret = name_or_type;
+		goto out;
 	} else if (!PyUnicode_Check(name_or_type)) {
 		PyErr_SetString(PyExc_TypeError,
 				"type() argument 1 must be str or Type");
-		return NULL;
+		goto out;
 	}
 
 	const char *name = PyUnicode_AsUTF8(name_or_type);
 	if (!name)
-		return NULL;
+		goto out;
 	bool clear = set_drgn_in_python();
 	struct drgn_qualified_type qualified_type;
 	err = drgn_program_find_type(&self->prog, name, filename.path,
 				     &qualified_type);
 	if (clear)
 		clear_drgn_in_python();
+	if (err) {
+		set_drgn_error(err);
+		goto out;
+	}
+	ret = DrgnType_wrap(qualified_type);
+out:
 	path_cleanup(&filename);
-	if (err)
-		return set_drgn_error(err);
-	return DrgnType_wrap(qualified_type);
+	return ret;
 }
 
 static DrgnObject *Program_find_object(Program *self, const char *name,
@@ -630,23 +636,22 @@ static DrgnObject *Program_find_object(Program *self, const char *name,
 				       enum drgn_find_object_flags flags)
 {
 	struct drgn_error *err;
-	DrgnObject *ret;
-	bool clear;
 
-	ret = DrgnObject_alloc(self);
+	DrgnObject *ret = DrgnObject_alloc(self);
 	if (!ret)
-		return NULL;
-
-	clear = set_drgn_in_python();
+		goto out;
+	bool clear = set_drgn_in_python();
 	err = drgn_program_find_object(&self->prog, name, filename->path, flags,
 				       &ret->obj);
 	if (clear)
 		clear_drgn_in_python();
-	path_cleanup(filename);
 	if (err) {
+		set_drgn_error(err);
 		Py_DECREF(ret);
-		return set_drgn_error(err);
+		ret = NULL;
 	}
+out:
+	path_cleanup(filename);
 	return ret;
 }
 
