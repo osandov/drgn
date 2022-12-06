@@ -16,7 +16,7 @@ PyObject *drgnpy_linux_helper_direct_mapping_offset(PyObject *self, PyObject *ar
 	err = linux_helper_direct_mapping_offset(&((Program *)arg)->prog, &ret);
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUnsignedLongLong(ret);
+	return PyLong_FromUint64(ret);
 }
 
 PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
@@ -114,7 +114,7 @@ PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
 	err = linux_helper_task_cpu(&task->obj, &cpu);
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUnsignedLongLong(cpu);
+	return PyLong_FromUint64(cpu);
 }
 
 DrgnObject *drgnpy_linux_helper_radix_tree_lookup(PyObject *self,
@@ -311,7 +311,7 @@ PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *args,
 
 	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
 		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
-	return PyLong_FromUnsignedLongLong(prog->prog.vmcoreinfo.kaslr_offset);
+	return PyLong_FromUint64(prog->prog.vmcoreinfo.kaslr_offset);
 }
 
 PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *args,

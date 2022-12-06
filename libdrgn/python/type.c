@@ -117,7 +117,7 @@ static PyObject *DrgnType_get_size(DrgnType *self)
 	}
 	if (!drgn_type_is_complete(self->type))
 		Py_RETURN_NONE;
-	return PyLong_FromUnsignedLongLong(drgn_type_size(self->type));
+	return PyLong_FromUint64(drgn_type_size(self->type));
 }
 
 static PyObject *DrgnType_get_length(DrgnType *self)
@@ -128,7 +128,7 @@ static PyObject *DrgnType_get_length(DrgnType *self)
 				    drgn_type_kind_str(self->type));
 	}
 	if (drgn_type_is_complete(self->type))
-		return PyLong_FromUnsignedLongLong(drgn_type_length(self->type));
+		return PyLong_FromUint64(drgn_type_length(self->type));
 	else
 		Py_RETURN_NONE;
 }
@@ -196,7 +196,7 @@ static TypeMember *TypeMember_wrap(PyObject *parent,
 		Py_INCREF(Py_None);
 		py_member->name = Py_None;
 	}
-	py_member->bit_offset = PyLong_FromUnsignedLongLong(bit_offset);
+	py_member->bit_offset = PyLong_FromUint64(bit_offset);
 	if (!py_member->bit_offset)
 		goto err;
 	return py_member;
@@ -1081,17 +1081,15 @@ static void TypeMember_dealloc(TypeMember *self)
 
 static PyObject *TypeMember_get_offset(TypeMember *self, void *arg)
 {
-	unsigned long long bit_offset;
-
-	bit_offset = PyLong_AsUnsignedLongLong(self->bit_offset);
-	if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
+	uint64_t bit_offset = PyLong_AsUint64(self->bit_offset);
+	if (bit_offset == (uint64_t)-1 && PyErr_Occurred())
 		return NULL;
 	if (bit_offset % 8) {
 		PyErr_SetString(PyExc_ValueError,
 				"member is not byte-aligned");
 		return NULL;
 	}
-	return PyLong_FromUnsignedLongLong(bit_offset / 8);
+	return PyLong_FromUint64(bit_offset / 8);
 }
 
 static PyObject *TypeMember_get_bit_field_size(TypeMember *self, void *arg)
@@ -1100,7 +1098,7 @@ static PyObject *TypeMember_get_bit_field_size(TypeMember *self, void *arg)
 	if (!object)
 		return NULL;
 	if (object->obj.is_bit_field)
-		return PyLong_FromUnsignedLongLong(object->obj.bit_size);
+		return PyLong_FromUint64(object->obj.bit_size);
 	else
 		Py_RETURN_NONE;
 }
@@ -1633,9 +1631,8 @@ static int unpack_member(struct drgn_compound_type_builder *builder,
 			return -1;
 	}
 
-	unsigned long long bit_offset =
-		PyLong_AsUnsignedLongLong(member->bit_offset);
-	if (bit_offset == (unsigned long long)-1 && PyErr_Occurred())
+	uint64_t bit_offset = PyLong_AsUint64(member->bit_offset);
+	if (bit_offset == (uint64_t)-1 && PyErr_Occurred())
 		return -1;
 
 	union drgn_lazy_object object;
@@ -1878,14 +1875,13 @@ static int unpack_enumerator(struct drgn_enum_type_builder *builder,
 
 	struct drgn_error *err;
 	if (is_signed) {
-		long long svalue = PyLong_AsLongLong(enumerator->value);
+		int64_t svalue = PyLong_AsInt64(enumerator->value);
 		if (svalue == -1 && PyErr_Occurred())
 			return -1;
 		err = drgn_enum_type_builder_add_signed(builder, name, svalue);
 	} else {
-		unsigned long long uvalue =
-			PyLong_AsUnsignedLongLong(enumerator->value);
-		if (uvalue == (unsigned long long)-1 && PyErr_Occurred())
+		uint64_t uvalue = PyLong_AsUint64(enumerator->value);
+		if (uvalue == (uint64_t)-1 && PyErr_Occurred())
 			return -1;
 		err = drgn_enum_type_builder_add_unsigned(builder, name,
 							  uvalue);

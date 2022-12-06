@@ -41,12 +41,12 @@ static PyObject *Symbol_get_name(Symbol *self, void *arg)
 
 static PyObject *Symbol_get_address(Symbol *self, void *arg)
 {
-	return PyLong_FromUnsignedLongLong(drgn_symbol_address(self->sym));
+	return PyLong_FromUint64(drgn_symbol_address(self->sym));
 }
 
 static PyObject *Symbol_get_size(Symbol *self, void *arg)
 {
-	return PyLong_FromUnsignedLongLong(drgn_symbol_size(self->sym));
+	return PyLong_FromUint64(drgn_symbol_size(self->sym));
 }
 
 static PyObject *Symbol_get_binding(Symbol *self, void *arg)

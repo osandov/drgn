@@ -39,6 +39,33 @@
 
 #define DRGNPY_PUBLIC __attribute__((__visibility__("default")))
 
+// PyLong_From* and PyLong_As* for stdint.h types. These use _Generic for
+// slightly more type safety (e.g., so you can't pass an int64_t to
+// PyLong_FromUint64()).
+#if ULONG_MAX == UINT64_MAX
+#define PyLong_FromUint64(v) _Generic((v), uint64_t: PyLong_FromUnsignedLong)(v)
+#define PyLong_AsUint64(obj) ((uint64_t)PyLong_AsUnsignedLong(obj))
+#define PyLong_AsUint64Mask(obj) ((uint64_t)PyLong_AsUnsignedLongMask(obj))
+#elif ULLONG_MAX == UINT64_MAX
+#define PyLong_FromUint64(v) _Generic((v), uint64_t: PyLong_FromUnsignedLongLong)(v)
+#define PyLong_AsUint64(obj) ((uint64_t)PyLong_AsUnsignedLongLong(obj))
+#define PyLong_AsUint64Mask(obj) ((uint64_t)PyLong_AsUnsignedLongLongMask(obj))
+#endif
+
+#if LONG_MIN == INT64_MIN && LONG_MAX == INT64_MAX
+#define PyLong_FromInt64(v) _Generic((v), int64_t: PyLong_FromLong)(v)
+#define PyLong_AsInt64(obj) ((int64_t)PyLong_AsLong(obj))
+#elif LLONG_MIN == INT64_MIN && LLONG_MAX == INT64_MAX
+#define PyLong_FromInt64(v) _Generic((v), int64_t: PyLong_FromLongLong)(v)
+#define PyLong_AsInt64(obj) ((int64_t)PyLong_AsLongLong(obj))
+#endif
+
+#if ULONG_MAX >= UINT32_MAX
+#define PyLong_FromUint32(v) _Generic((v), uint32_t: PyLong_FromUnsignedLong)(v)
+#define PyLong_FromUint16(v) _Generic((v), uint16_t: PyLong_FromUnsignedLong)(v)
+#define PyLong_FromUint8(v) _Generic((v), uint8_t: PyLong_FromUnsignedLong)(v)
+#endif
+
 #define Py_RETURN_BOOL(cond) do {	\
 	if (cond)			\
 		Py_RETURN_TRUE;		\

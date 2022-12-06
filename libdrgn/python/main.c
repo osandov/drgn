@@ -70,7 +70,6 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 {
 	struct drgn_error *err;
 	uint64_t size;
-
 	if (PyObject_TypeCheck(arg, &DrgnType_type)) {
 		err = drgn_type_sizeof(((DrgnType *)arg)->type, &size);
 	} else if (PyObject_TypeCheck(arg, &DrgnObject_type)) {
@@ -82,7 +81,7 @@ static PyObject *sizeof_(PyObject *self, PyObject *arg)
 	}
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUnsignedLongLong(size);
+	return PyLong_FromUint64(size);
 }
 
 static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
@@ -99,7 +98,7 @@ static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
 	err = drgn_type_offsetof(type->type, member, &offset);
 	if (err)
 		return set_drgn_error(err);
-	return PyLong_FromUnsignedLongLong(offset);
+	return PyLong_FromUint64(offset);
 }
 
 static PyMethodDef drgn_methods[] = {

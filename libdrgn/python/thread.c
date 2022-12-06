@@ -38,7 +38,7 @@ static void Thread_dealloc(Thread *self)
 
 static PyObject *Thread_get_tid(Thread *self)
 {
-	return PyLong_FromUnsignedLong(self->thread.tid);
+	return PyLong_FromUint32(self->thread.tid);
 }
 
 static DrgnObject *Thread_get_object(Thread *self)
