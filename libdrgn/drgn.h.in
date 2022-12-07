@@ -2331,6 +2331,12 @@ struct drgn_error *drgn_type_fully_qualified_name(struct drgn_type *type,
 						  char **str_ret, size_t *len_ret);
 
 /**
+ * Get the DW_AT_linkage_name of a type. This is only valid for function types.
+ */
+struct drgn_error *
+drgn_type_linkage_name(struct drgn_type *type, const char **str_ret);
+
+/**
  * Get whether a kind of type has a size. This is true for integer, boolean,
  * floating-point, structure, union, class, and pointer types.
  */
