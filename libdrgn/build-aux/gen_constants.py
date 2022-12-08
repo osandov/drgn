@@ -59,7 +59,7 @@ static int add_{constant_class.name}(PyObject *m, PyObject *enum_module)
     for i, (name, value) in enumerate(constants):
         output_file.write(
             f"""\
-        item = Py_BuildValue("sk", "{name}", {value});
+	item = Py_BuildValue("sK", "{name}", (unsigned long long){value});
 	if (!item)
 		goto out;
 	PyList_SET_ITEM(tmp, {i}, item);
