@@ -202,6 +202,8 @@ def main() -> None:
             sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
         runpy.run_path(script, init_globals=init_globals, run_name="__main__")
     else:
+        sys.path.insert(0, "")
+
         import atexit
         import readline
 
