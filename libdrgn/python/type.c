@@ -722,41 +722,6 @@ PyTypeObject DrgnType_type = {
 	.tp_getset = DrgnType_getset,
 };
 
-static TypeEnumerator *TypeEnumerator_new(PyTypeObject *subtype, PyObject *args,
-					  PyObject *kwds)
-{
-	static char *keywords[] = {"name", "value", NULL};
-	PyObject *name, *value;
-	TypeEnumerator *enumerator;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!:TypeEnumerator",
-					 keywords, &PyUnicode_Type, &name,
-					 &PyLong_Type, &value))
-		return NULL;
-
-	enumerator = (TypeEnumerator *)subtype->tp_alloc(subtype, 0);
-	if (enumerator) {
-		Py_INCREF(name);
-		enumerator->name = name;
-		Py_INCREF(value);
-		enumerator->value = value;
-	}
-	return enumerator;
-}
-
-static void TypeEnumerator_dealloc(TypeEnumerator *self)
-{
-	Py_XDECREF(self->value);
-	Py_XDECREF(self->name);
-	Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-static PyObject *TypeEnumerator_repr(TypeEnumerator *self)
-{
-	return PyUnicode_FromFormat("TypeEnumerator(%R, %R)", self->name,
-				    self->value);
-}
-
 static Py_ssize_t TypeEnumerator_length(PyObject *self)
 {
 	return 2;
@@ -778,50 +743,13 @@ static PyObject *TypeEnumerator_item(TypeEnumerator *self, Py_ssize_t i)
 	}
 }
 
-static PyObject *TypeEnumerator_richcompare(TypeEnumerator *self,
-					    TypeEnumerator *other,
-					    int op)
-{
-	int ret;
-
-	if ((op != Py_EQ && op != Py_NE) ||
-	    !PyObject_TypeCheck((PyObject *)other, &TypeEnumerator_type))
-		Py_RETURN_NOTIMPLEMENTED;
-
-	ret = PyUnicode_Compare(self->name, other->name);
-	if (ret == -1 && PyErr_Occurred())
-		return NULL;
-	if (ret != 0)
-		Py_RETURN_RICHCOMPARE(ret, 0, op);
-	return PyObject_RichCompare(self->value, other->value, op);
-}
-
 static PySequenceMethods TypeEnumerator_as_sequence = {
 	.sq_length = TypeEnumerator_length,
 	.sq_item = (ssizeargfunc)TypeEnumerator_item,
 };
 
-static PyMemberDef TypeEnumerator_members[] = {
-	{"name", T_OBJECT, offsetof(TypeEnumerator, name), READONLY,
-	 drgn_TypeEnumerator_name_DOC},
-	{"value", T_OBJECT, offsetof(TypeEnumerator, value), READONLY,
-	 drgn_TypeEnumerator_value_DOC},
-	{},
-};
-
-PyTypeObject TypeEnumerator_type = {
-	PyVarObject_HEAD_INIT(NULL, 0)
-	.tp_name = "_drgn.TypeEnumerator",
-	.tp_basicsize = sizeof(TypeEnumerator),
-	.tp_dealloc = (destructor)TypeEnumerator_dealloc,
-	.tp_repr = (reprfunc)TypeEnumerator_repr,
-	.tp_as_sequence = &TypeEnumerator_as_sequence,
-	.tp_flags = Py_TPFLAGS_DEFAULT,
-	.tp_doc = drgn_TypeEnumerator_DOC,
-	.tp_richcompare = (richcmpfunc)TypeEnumerator_richcompare,
-	.tp_members = TypeEnumerator_members,
-	.tp_new = (newfunc)TypeEnumerator_new,
-};
+DEFINE_FROZEN_DATACLASS(TypeEnumerator,
+			.tp_as_sequence = &TypeEnumerator_as_sequence);
 
 static DrgnObject *DrgnType_to_absent_DrgnObject(DrgnType *type)
 {

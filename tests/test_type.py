@@ -645,7 +645,7 @@ class TestType(MockProgramTestCase):
 
         self.assertEqual(
             repr(t),
-            "prog.enum_type(tag='color', type=prog.int_type(name='unsigned int', size=4, is_signed=False), enumerators=(TypeEnumerator('RED', 0), TypeEnumerator('GREEN', 1), TypeEnumerator('BLUE', 2)))",
+            "prog.enum_type(tag='color', type=prog.int_type(name='unsigned int', size=4, is_signed=False), enumerators=(TypeEnumerator(name='RED', value=0), TypeEnumerator(name='GREEN', value=1), TypeEnumerator(name='BLUE', value=2)))",
         )
         self.assertEqual(sizeof(t), 4)
 
@@ -1075,7 +1075,7 @@ class TestTypeEnumerator(MockProgramTestCase):
 
     def test_repr(self):
         e = TypeEnumerator("a", 1)
-        self.assertEqual(repr(e), "TypeEnumerator('a', 1)")
+        self.assertEqual(repr(e), "TypeEnumerator(name='a', value=1)")
 
     def test_sequence(self):
         e = TypeEnumerator("a", 1)
@@ -1088,6 +1088,14 @@ class TestTypeEnumerator(MockProgramTestCase):
         self.assertEqual(TypeEnumerator("a", 1), TypeEnumerator(name="a", value=1))
         self.assertNotEqual(TypeEnumerator("a", 1), TypeEnumerator("a", 2))
         self.assertNotEqual(TypeEnumerator("b", 1), TypeEnumerator("a", 1))
+
+        self.assertTrue(TypeEnumerator("a", 1) == TypeEnumerator(name="a", value=1))
+        self.assertFalse(TypeEnumerator("a", 1) == TypeEnumerator("a", 2))
+        self.assertFalse(TypeEnumerator("b", 1) == TypeEnumerator("a", 1))
+
+        self.assertFalse(TypeEnumerator("a", 1) != TypeEnumerator(name="a", value=1))
+        self.assertTrue(TypeEnumerator("a", 1) != TypeEnumerator("a", 2))
+        self.assertTrue(TypeEnumerator("b", 1) != TypeEnumerator("a", 1))
 
 
 class TestTypeMember(MockProgramTestCase):
