@@ -10,6 +10,7 @@
 #include <Python.h>
 #include "structmember.h"
 
+#include "dataclass.h"
 #include "docstrings.h"
 #include "../cleanup.h"
 #include "../drgn.h"
@@ -184,11 +185,10 @@ typedef struct {
 	struct drgn_symbol *sym;
 } Symbol;
 
-typedef struct {
-	PyObject_HEAD
-	PyObject *name;
-	PyObject *value;
-} TypeEnumerator;
+#define TypeEnumerator_fields(FIELD, ARG, SEP)	\
+	FIELD(ARG, name, &PyUnicode_Type) SEP	\
+	FIELD(ARG, value, &PyLong_Type)
+DEFINE_DATACLASS_TYPE(TypeEnumerator);
 
 typedef struct {
 	PyObject_HEAD
@@ -252,7 +252,6 @@ extern PyTypeObject StackTrace_type;
 extern PyTypeObject Symbol_type;
 extern PyTypeObject Thread_type;
 extern PyTypeObject ThreadIterator_type;
-extern PyTypeObject TypeEnumerator_type;
 extern PyTypeObject TypeKindSet_type;
 extern PyTypeObject TypeKindSetIterator_type;
 extern PyTypeObject TypeMember_type;

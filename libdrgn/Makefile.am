@@ -168,6 +168,7 @@ noinst_LTLIBRARIES += _drgn.la
 endif
 
 _drgn_la_SOURCES = python/constants.c \
+		   python/dataclass.h \
 		   python/docstrings.c \
 		   python/docstrings.h \
 		   python/drgnpy.h \
