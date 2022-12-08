@@ -210,6 +210,28 @@ class _FormatVisitor(NodeVisitor):
             self._parts.append("\\")
         self._parts.append("]")
 
+    def visit_UnaryOp(
+        self, node: ast.UnaryOp, parent: Optional[ast.AST], sibling: Optional[ast.AST]
+    ) -> None:
+        if isinstance(node.op, ast.UAdd):
+            self._parts.append("+")
+        elif isinstance(node.op, ast.USub):
+            self._parts.append("-")
+        elif isinstance(node.op, ast.Not):
+            self._parts.append("not ")
+        elif isinstance(node.op, ast.Invert):
+            self._parts.append("~")
+        else:
+            raise NotImplementedError(
+                f"{node.op.__class__.__name__} formatting is not implemented"
+            )
+        parens = not isinstance(node.operand, (ast.Constant, ast.Name))
+        if parens:
+            self._parts.append("(")
+        self._visit(node.operand, node, None)
+        if parens:
+            self._parts.append(")")
+
 
 class Formatter:
     def __init__(
