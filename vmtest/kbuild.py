@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest15"
+        localversion = "-vmtest16"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -175,6 +175,10 @@ CONFIG_NET_SCH_INGRESS=m
 CONFIG_NET_CLS_ACT=y
 CONFIG_NETDEVICES=y
 CONFIG_DUMMY=m
+
+# To enable CONFIG_XARRAY_MULTI for xarray tests.
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_READ_ONLY_THP_FOR_FS=y
 """
 
 
