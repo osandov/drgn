@@ -34,8 +34,7 @@ logger = logging.getLogger(__name__)
 # [inclusive, exclusive) ranges of kernel versions to ignore when building
 # latest releases of each version.
 IGNORE_KERNEL_RANGES = (
-    (KernelVersion("~"), KernelVersion("4.4")),
-    (KernelVersion("4.5~"), KernelVersion("4.9")),
+    (KernelVersion("~"), KernelVersion("4.9")),
     (KernelVersion("4.10~"), KernelVersion("4.14")),
     (KernelVersion("4.15~"), KernelVersion("4.19")),
     (KernelVersion("4.20~"), KernelVersion("5.4")),

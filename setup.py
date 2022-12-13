@@ -148,7 +148,6 @@ class test(Command):
         "4.19",
         "4.14",
         "4.9",
-        "4.4",
     ]
 
     KERNEL_FLAVORS = ["default", "alternative", "tiny"]
