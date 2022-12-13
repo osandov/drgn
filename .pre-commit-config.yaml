@@ -19,5 +19,5 @@ repos:
     rev: v0.931
     hooks:
     -   id: mypy
-        args: [--strict, --no-warn-return-any, --no-warn-unused-ignores]
+        args: [--show-error-codes, --strict, --no-warn-return-any, --no-warn-unused-ignores]
         files: ^drgn/.*\.py|_drgn.pyi$
