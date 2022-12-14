@@ -39,8 +39,8 @@ struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 					 uint64_t *ret);
 
 struct drgn_error *
-linux_helper_radix_tree_lookup(struct drgn_object *res,
-			       const struct drgn_object *root, uint64_t index);
+linux_helper_xa_load(struct drgn_object *res, const struct drgn_object *xa,
+		     uint64_t index);
 
 struct drgn_error *linux_helper_idr_find(struct drgn_object *res,
 					 const struct drgn_object *idr,

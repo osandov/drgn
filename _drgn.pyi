@@ -2306,16 +2306,7 @@ def _linux_helper_direct_mapping_offset(prog: Program) -> int: ...
 def _linux_helper_read_vm(
     prog: Program, pgtable: Object, address: IntegerLike, size: IntegerLike
 ) -> bytes: ...
-def _linux_helper_radix_tree_lookup(root: Object, index: IntegerLike) -> Object:
-    """
-    Look up the entry at a given index in a radix tree.
-
-    :param root: ``struct radix_tree_root *``
-    :param index: Entry index.
-    :return: ``void *`` found entry, or ``NULL`` if not found.
-    """
-    ...
-
+def _linux_helper_xa_load(xa: Object, index: IntegerLike) -> Object: ...
 def _linux_helper_per_cpu_ptr(ptr: Object, cpu: IntegerLike) -> Object:
     """
     Return the per-CPU pointer for a given CPU.

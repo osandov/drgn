@@ -16,9 +16,17 @@
 #include <linux/llist.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/radix-tree.h>
 #include <linux/rbtree.h>
 #include <linux/rbtree_augmented.h>
 #include <linux/slab.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#define HAVE_XARRAY 1
+#include <linux/xarray.h>
+#else
+#define HAVE_XARRAY 0
+#endif
 
 // list
 
@@ -453,6 +461,169 @@ static int drgn_test_stack_trace_init(void)
 	return kthread_park(drgn_test_kthread);
 }
 
+// radixtree
+
+RADIX_TREE(drgn_test_radix_tree_empty, GFP_KERNEL);
+RADIX_TREE(drgn_test_radix_tree_one, GFP_KERNEL);
+RADIX_TREE(drgn_test_radix_tree_one_at_zero, GFP_KERNEL);
+RADIX_TREE(drgn_test_radix_tree_sparse, GFP_KERNEL);
+#ifdef CONFIG_RADIX_TREE_MULTIORDER
+RADIX_TREE(drgn_test_radix_tree_multi_order, GFP_KERNEL);
+#endif
+
+static int drgn_test_radix_tree_init(void)
+{
+	int ret;
+
+	ret = radix_tree_insert(&drgn_test_radix_tree_one, 666,
+				(void *)0xdeadb00);
+	if (ret)
+		return ret;
+
+	ret = radix_tree_insert(&drgn_test_radix_tree_one_at_zero, 0,
+				(void *)0x1234);
+	if (ret)
+		return ret;
+
+	ret = radix_tree_insert(&drgn_test_radix_tree_sparse, 1,
+				(void *)0x1234);
+	if (ret)
+		return ret;
+
+	ret = radix_tree_insert(&drgn_test_radix_tree_sparse, 0x80808080,
+				(void *)0x5678);
+	if (ret)
+		return ret;
+
+	ret = radix_tree_insert(&drgn_test_radix_tree_sparse, 0xffffffff,
+				(void *)0x9abc);
+	if (ret)
+		return ret;
+
+#ifdef CONFIG_RADIX_TREE_MULTIORDER
+	ret = __radix_tree_insert(&drgn_test_radix_tree_multi_order, 0x80808000,
+				  9, (void *)0x1234);
+	if (ret)
+		return ret;
+#endif
+
+	return 0;
+}
+
+static void drgn_test_radix_tree_destroy(struct radix_tree_root *root)
+{
+	struct radix_tree_iter iter;
+	void __rcu **slot;
+
+	radix_tree_for_each_slot(slot, root, &iter, 0)
+		radix_tree_delete(root, iter.index);
+}
+
+static void drgn_test_radix_tree_exit(void)
+{
+	drgn_test_radix_tree_destroy(&drgn_test_radix_tree_one);
+	drgn_test_radix_tree_destroy(&drgn_test_radix_tree_one_at_zero);
+	drgn_test_radix_tree_destroy(&drgn_test_radix_tree_sparse);
+#ifdef CONFIG_RADIX_TREE_MULTIORDER
+	drgn_test_radix_tree_destroy(&drgn_test_radix_tree_multi_order);
+#endif
+}
+
+// xarray
+const int drgn_test_have_xarray = HAVE_XARRAY;
+#if HAVE_XARRAY
+DEFINE_XARRAY(drgn_test_xarray_empty);
+DEFINE_XARRAY(drgn_test_xarray_one);
+DEFINE_XARRAY(drgn_test_xarray_one_at_zero);
+DEFINE_XARRAY(drgn_test_xarray_sparse);
+DEFINE_XARRAY(drgn_test_xarray_multi_index);
+DEFINE_XARRAY(drgn_test_xarray_zero_entry);
+DEFINE_XARRAY(drgn_test_xarray_zero_entry_at_zero);
+DEFINE_XARRAY(drgn_test_xarray_value);
+void *drgn_test_xa_zero_entry;
+
+static int drgn_test_xa_store_order(struct xarray *xa, unsigned long index,
+				    unsigned order, void *entry, gfp_t gfp)
+{
+	XA_STATE_ORDER(xas, xa, index, order);
+
+	do {
+		xas_lock(&xas);
+		xas_store(&xas, entry);
+		xas_unlock(&xas);
+	} while (xas_nomem(&xas, gfp));
+	return xas_error(&xas);
+}
+#endif
+
+static int drgn_test_xarray_init(void)
+{
+#if HAVE_XARRAY
+	void *entry;
+	int ret;
+
+	drgn_test_xa_zero_entry = XA_ZERO_ENTRY;
+
+	entry = xa_store(&drgn_test_xarray_one, 666, (void *)0xdeadb00,
+			 GFP_KERNEL);
+	if (xa_is_err(entry))
+		return xa_err(entry);
+
+	entry = xa_store(&drgn_test_xarray_one_at_zero, 0, (void *)0x1234,
+			 GFP_KERNEL);
+	if (xa_is_err(entry))
+		return xa_err(entry);
+
+	entry = xa_store(&drgn_test_xarray_sparse, 1, (void *)0x1234,
+			 GFP_KERNEL);
+	if (xa_is_err(entry))
+		return xa_err(entry);
+	entry = xa_store(&drgn_test_xarray_sparse, 0x80808080, (void *)0x5678,
+			 GFP_KERNEL);
+	if (xa_is_err(entry))
+		return xa_err(entry);
+	entry = xa_store(&drgn_test_xarray_sparse, 0xffffffffUL, (void *)0x9abc,
+			 GFP_KERNEL);
+	if (xa_is_err(entry))
+		return xa_err(entry);
+
+	ret = drgn_test_xa_store_order(&drgn_test_xarray_multi_index,
+				       0x80808000, 9, (void *)0x1234,
+				       GFP_KERNEL);
+	if (ret)
+		return ret;
+
+	ret = xa_reserve(&drgn_test_xarray_zero_entry, 666, GFP_KERNEL);
+	if (ret)
+		return ret;
+
+	ret = xa_reserve(&drgn_test_xarray_zero_entry_at_zero, 0, GFP_KERNEL);
+	if (ret)
+		return ret;
+
+	entry = xa_store(&drgn_test_xarray_value, 0, xa_mk_value(1337),
+			 GFP_KERNEL);
+	if (xa_is_err(entry))
+		return xa_err(entry);
+
+#endif
+
+	return 0;
+}
+
+static void drgn_test_xarray_exit(void)
+{
+#if HAVE_XARRAY
+	xa_destroy(&drgn_test_xarray_one);
+	xa_destroy(&drgn_test_xarray_one_at_zero);
+	xa_destroy(&drgn_test_xarray_sparse);
+	xa_destroy(&drgn_test_xarray_multi_index);
+	xa_destroy(&drgn_test_xarray_zero_entry);
+	xa_destroy(&drgn_test_xarray_zero_entry_at_zero);
+	xa_destroy(&drgn_test_xarray_value);
+#endif
+}
+
 // Dummy function symbol.
 int drgn_test_function(int x)
 {
@@ -465,6 +636,8 @@ static void drgn_test_exit(void)
 	drgn_test_percpu_exit();
 	drgn_test_mm_exit();
 	drgn_test_stack_trace_exit();
+	drgn_test_radix_tree_exit();
+	drgn_test_xarray_exit();
 }
 
 static int __init drgn_test_init(void)
@@ -484,6 +657,12 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	ret = drgn_test_stack_trace_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_radix_tree_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_xarray_init();
 out:
 	if (ret)
 		drgn_test_exit();

@@ -117,26 +117,22 @@ PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
 	return PyLong_FromUint64(cpu);
 }
 
-DrgnObject *drgnpy_linux_helper_radix_tree_lookup(PyObject *self,
-						  PyObject *args,
-						  PyObject *kwds)
+DrgnObject *drgnpy_linux_helper_xa_load(PyObject *self, PyObject *args,
+					PyObject *kwds)
 {
-	static char *keywords[] = {"root", "index", NULL};
+	static char *keywords[] = {"xa", "index", NULL};
 	struct drgn_error *err;
-	DrgnObject *root;
+	DrgnObject *xa;
 	struct index_arg index = {};
-	DrgnObject *res;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:radix_tree_lookup",
-					 keywords, &DrgnObject_type, &root,
-					 index_converter, &index))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:xa_load", keywords,
+					 &DrgnObject_type, &xa, index_converter,
+					 &index))
 		return NULL;
 
-	res = DrgnObject_alloc(DrgnObject_prog(root));
+	DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(xa));
 	if (!res)
 		return NULL;
-	err = linux_helper_radix_tree_lookup(&res->obj, &root->obj,
-					     index.uvalue);
+	err = linux_helper_xa_load(&res->obj, &xa->obj, index.uvalue);
 	if (err) {
 		Py_DECREF(res);
 		return set_drgn_error(err);
