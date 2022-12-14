@@ -12,7 +12,7 @@ The ``drgn.helpers.linux.xarray`` module provides helpers for working with the
 .. note::
 
     XArrays were introduced in Linux 4.20 as a replacement for `radix trees`_.
-    To make it easier to work with data structure that were changed from a
+    To make it easier to work with data structures that were changed from a
     radix tree to an XArray (like ``struct address_space::i_pages``), drgn
     treats XArrays and radix trees interchangeably in some cases.
 
