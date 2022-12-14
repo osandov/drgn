@@ -15,6 +15,12 @@ actions:
   # directory until the next release.
   post-upstream-clone: "bash -c \"curl -s https://src.fedoraproject.org/rpms/python-drgn/raw/main/f/python-drgn.spec | sed -e '/^Patch[0-9]/d' -e '/^%autochangelog$/d' -e 's/cp -PR examples /cp -PR contrib /'> python-drgn.spec\""
 
+srpm_build_deps:
+  - bash
+  - curl
+  - python3-setuptools
+  - sed
+
 jobs:
 - job: copr_build
   trigger: commit
