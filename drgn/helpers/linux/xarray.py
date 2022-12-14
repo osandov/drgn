@@ -211,7 +211,7 @@ def xa_to_value(entry: Object) -> Object:
     >>> xa_is_value(entry)
     True
     >>> xa_to_value(entry)
-    100
+    (unsigned long)100
 
     :param entry: ``void *``
     :return: ``unsigned long``
@@ -228,6 +228,7 @@ def xa_is_zero(entry: Object) -> bool:
     :func:`xa_load()` and :func:`xa_for_each()` when ``advanced = True``.
 
     >>> entry = xa_load(xa, 10, advanced=True)
+    >>> entry
     (void *)0x406
     >>> xa_is_zero(entry)
     True
