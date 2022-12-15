@@ -690,13 +690,17 @@ def decode_page_flags(page: Object) -> str:
 
 def for_each_page(prog: Program) -> Iterator[Object]:
     """
-    Iterate over all pages in the system.
+    Iterate over all present/or mapped kernel pages.
 
     :return: Iterator of ``struct page *`` objects.
     """
     vmemmap = prog["vmemmap"]
-    for i in range(prog["min_low_pfn"], prog["max_pfn"]):
-        yield vmemmap + i
+    pfn_mapped = prog["pfn_mapped"]
+    nr_pfn_mapped = prog["nr_pfn_mapped"]
+    for i in range(nr_pfn_mapped.value_()):
+        page = vmemmap + pfn_mapped[i].start.value_()
+        for j in range(pfn_mapped[i].start.value_(), pfn_mapped[i].end.value_() - pfn_mapped[i].start.value_()):
+            yield page + j
 
 
 @overload
