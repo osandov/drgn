@@ -690,7 +690,23 @@ def decode_page_flags(page: Object) -> str:
 
 def for_each_page(prog: Program) -> Iterator[Object]:
     """
-    Iterate over all pages in the system.
+    Iterate over every ``struct page *`` from the minimum to the maximum page.
+
+    .. note::
+
+        This may include offline pages which don't have a valid ``struct
+        page``. Wrap accesses in a ``try`` ... ``except``
+        :class:`drgn.FaultError`:
+
+        >>> for page in for_each_page(prog):
+        ...     try:
+        ...         if PageLRU(page):
+        ...             print(hex(page))
+        ...     except drgn.FaultError:
+        ...         continue
+        0xfffffb4a000c0000
+        0xfffffb4a000c0040
+        ...
 
     :return: Iterator of ``struct page *`` objects.
     """
