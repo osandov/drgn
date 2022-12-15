@@ -708,6 +708,8 @@ def for_each_page(prog: Program) -> Iterator[Object]:
         0xfffffb4a000c0040
         ...
 
+        This may be fixed in the future.
+
     :return: Iterator of ``struct page *`` objects.
     """
     vmemmap = prog["vmemmap"]
