@@ -62,6 +62,9 @@ CONFIG_SLAB=y
         config="""
 CONFIG_SMP=n
 CONFIG_SLOB=y
+# Linux kernel commit 149b6fa228ed ("mm, slob: rename CONFIG_SLOB to
+# CONFIG_SLOB_DEPRECATED") (in v6.2) renamed to option for SLOB.
+CONFIG_SLOB_DEPRECATED=y
 # CONFIG_PREEMPT_DYNAMIC is not set
 CONFIG_PREEMPT_NONE=y
 # !PREEMPTION && !SMP will also select TINY_RCU.
