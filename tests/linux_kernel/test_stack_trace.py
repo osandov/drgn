@@ -4,8 +4,7 @@
 import os
 import unittest
 
-from drgn import Object, Program, cast
-from drgn.helpers.linux.pid import find_task
+from drgn import Object, Program
 from tests import assertReprPrettyEqualsStr
 from tests.linux_kernel import (
     LinuxKernelTestCase,
@@ -58,6 +57,12 @@ class TestStackTrace(LinuxKernelTestCase):
         self._test_by_pid(True)
 
     @skip_unless_have_test_kmod
+    def test_by_pt_regs(self):
+        pt_regs = self.prog["drgn_test_kthread_pt_regs"]
+        self._test_drgn_test_kthread_trace(self.prog.stack_trace(pt_regs))
+        self._test_drgn_test_kthread_trace(self.prog.stack_trace(pt_regs.address_of_()))
+
+    @skip_unless_have_test_kmod
     def test_local_variable(self):
         for frame in self.prog.stack_trace(self.prog["drgn_test_kthread"]):
             if frame.name == "drgn_test_kthread_fn3":
@@ -78,16 +83,6 @@ class TestStackTrace(LinuxKernelTestCase):
                 break
         else:
             self.fail("Couldn't find drgn_test_kthread_fn3 frame")
-
-    def test_pt_regs(self):
-        # This won't unwind anything useful, but at least make sure it accepts
-        # a struct pt_regs.
-        self.prog.stack_trace(Object(self.prog, "struct pt_regs", value={}))
-
-        # Likewise, this is nonsense, but we should also accept a struct
-        # pt_regs *.
-        task = find_task(self.prog, os.getpid())
-        self.prog.stack_trace(cast("struct pt_regs *", task.stack))
 
     def test_registers(self):
         # Smoke test that we get at least one register and that

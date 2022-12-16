@@ -11,6 +11,7 @@
 #include <linux/completion.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/kexec.h>
 #include <linux/kthread.h>
 #include <linux/list.h>
 #include <linux/llist.h>
@@ -401,6 +402,7 @@ static struct task_struct *drgn_test_kthread;
 // Completion indicating that the kthread has set up its stack frames and is
 // ready to be parked.
 static DECLARE_COMPLETION(drgn_test_kthread_ready);
+struct pt_regs drgn_test_kthread_pt_regs;
 
  __attribute__((__optimize__("O0")))
 static void drgn_test_kthread_fn3(void)
@@ -421,6 +423,11 @@ static void drgn_test_kthread_fn3(void)
 		}
 		if (kthread_should_park()) {
 			__set_current_state(TASK_RUNNING);
+
+			// This is an internal function for kexec, but I
+			// couldn't find a better way to get current pt_regs.
+			crash_setup_regs(&drgn_test_kthread_pt_regs, NULL);
+
 			kthread_parkme();
 			continue;
 		}
