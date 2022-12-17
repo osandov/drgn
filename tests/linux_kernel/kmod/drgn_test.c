@@ -403,6 +403,21 @@ static struct task_struct *drgn_test_kthread;
 // ready to be parked.
 static DECLARE_COMPLETION(drgn_test_kthread_ready);
 struct pt_regs drgn_test_kthread_pt_regs;
+#if __s390x__
+// s390x doesn't implement crash_setup_regs().
+static inline void drgn_test_get_pt_regs(struct pt_regs *regs)
+{
+	regs->psw.mask = __extract_psw();
+	regs->psw.addr = _THIS_IP_;
+	asm volatile("stmg 0,15,%0\n" : "=S" (regs->gprs) : : "memory");
+}
+#else
+// crash_setup_regs() is an internal function for kexec, but it does exactly
+// what we need: saves the current registers in a struct pt_regs. If it goes
+// away or doesn't work on other architectures, we might need to do it ourselves
+// like we do for s390x.
+#define drgn_test_get_pt_regs(regs) crash_setup_regs(regs, NULL)
+#endif
 
  __attribute__((__optimize__("O0")))
 static void drgn_test_kthread_fn3(void)
@@ -423,11 +438,7 @@ static void drgn_test_kthread_fn3(void)
 		}
 		if (kthread_should_park()) {
 			__set_current_state(TASK_RUNNING);
-
-			// This is an internal function for kexec, but I
-			// couldn't find a better way to get current pt_regs.
-			crash_setup_regs(&drgn_test_kthread_pt_regs, NULL);
-
+			drgn_test_get_pt_regs(&drgn_test_kthread_pt_regs);
 			kthread_parkme();
 			continue;
 		}
