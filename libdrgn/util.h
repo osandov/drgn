@@ -182,7 +182,10 @@ static inline uint64_t uint_max(int n)
  *
  * A more natural definition would be `i == 0 ? ptr : ptr + i`, but some
  * versions of GCC and Clang generate an unnecessary branch or conditional move
- * (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=97225).
+ * (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=97225). Note that in standard
+ * C, it is undefined behavior to cast to `uintptr_t`, do arithmetic, and cast
+ * back, but GCC allows this as long as the result is within the same object:
+ * https://gcc.gnu.org/onlinedocs/gcc/Arrays-and-pointers-implementation.html.
  */
 #define add_to_possibly_null_pointer(ptr, i)	\
 	((typeof(ptr))((uintptr_t)(ptr) + (i) * sizeof(*(ptr))))
