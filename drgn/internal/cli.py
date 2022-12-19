@@ -188,11 +188,15 @@ def main() -> None:
 
     if args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}
+    missing_debug_info_warning = None
     try:
         prog.load_debug_info(args.symbols, **args.default_symbols)
     except drgn.MissingDebugInfoError as e:
         if not args.quiet:
-            print(str(e), file=sys.stderr)
+            prefix = "warning:"
+            if hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno()):
+                prefix = f"\033[33m{prefix}\033[0m"
+            missing_debug_info_warning = f"{prefix} {e}"
 
     init_globals: Dict[str, Any] = {"prog": prog}
     if args.script:
@@ -200,6 +204,8 @@ def main() -> None:
         script = args.script[0]
         if pkgutil.get_importer(script) is None:
             sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
+        if missing_debug_info_warning is not None:
+            print(missing_debug_info_warning, file=sys.stderr)
         runpy.run_path(script, init_globals=init_globals, run_name="__main__")
     else:
         sys.path.insert(0, "")
@@ -261,4 +267,6 @@ For help, type help(drgn).
             module = importlib.import_module("drgn.helpers.linux")
             for name in module.__dict__["__all__"]:
                 init_globals[name] = getattr(module, name)
+        if missing_debug_info_warning is not None:
+            banner += "\n" + missing_debug_info_warning
         code.interact(banner=banner, exitmsg="", local=init_globals)
