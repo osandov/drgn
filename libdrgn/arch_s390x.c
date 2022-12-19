@@ -237,6 +237,232 @@ out:
 	return err;
 }
 
+struct pgtable_data {
+	uint64_t entries[2048];
+	uint64_t addr;
+	int length;
+	int offset;
+};
+
+struct pgtable_iterator_s390x {
+	struct pgtable_iterator it;
+	struct pgtable_data pagetable[5];
+	int levels;
+};
+
+struct dat_level {
+	int bits;
+	int shift;
+	int entries;
+};
+
+static const struct dat_level dat_levels[] = {
+	{ .bits = 8,  .shift = 12, .entries = 256 },	/* PTE */
+	{ .bits = 11, .shift = 20, .entries = 2048 },	/* STE */
+	{ .bits = 11, .shift = 31, .entries = 2048 },	/* RTTE */
+	{ .bits = 11, .shift = 42, .entries = 2048 },	/* RSTE */
+	{ .bits = 11, .shift = 53, .entries = 2048 },	/* RFTE */
+};
+
+#define REGION_INVALID		0x20
+#define SEGMENT_INVALID		0x20
+#define PAGE_INVALID		0x400
+
+#define REGION_LARGE		0x400
+#define SEGMENT_LARGE		0x400
+#define PAGE_LARGE		0x800
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_create_s390x(struct drgn_program *prog,
+					  struct pgtable_iterator **ret)
+{
+	struct pgtable_iterator_s390x *it = malloc(sizeof(*it));
+	if (!it)
+		return &drgn_enomem;
+
+	*ret = &it->it;
+	return NULL;
+}
+
+static void
+linux_kernel_pgtable_iterator_destroy_s390x(struct pgtable_iterator *_it)
+{
+	free(container_of(_it, struct pgtable_iterator_s390x, it));
+}
+
+static void
+linux_kernel_pgtable_iterator_init_s390x(struct drgn_program *prog,
+					struct pgtable_iterator *_it)
+{
+	struct pgtable_iterator_s390x *it =
+		container_of(_it, struct pgtable_iterator_s390x, it);
+	for (int i = 0; i < 5; i++)
+		it->pagetable[i].addr = UINT64_C(-1);
+	it->levels = 3;
+}
+
+static bool
+entry_is_invalid(uint64_t entry, int level)
+{
+	switch (level) {
+	case 0:
+		return entry & PAGE_INVALID;
+	case 1:
+		return entry & SEGMENT_INVALID;
+	case 2:
+	case 3:
+	case 4:
+		return entry & REGION_INVALID;
+	default:
+		return true;
+	}
+}
+
+static int
+get_mask(struct pgtable_iterator_s390x *it, int level)
+{
+	return (1 << dat_levels[level].bits) - 1;
+}
+
+static int
+get_index(struct pgtable_iterator_s390x *it, int level, uint64_t va)
+{
+	return (va >> dat_levels[level].shift) & get_mask(it, level);
+}
+
+static int
+get_table_length(uint64_t entry, int level)
+{
+	switch(level) {
+	case 2:
+	case 3:
+	case 4:
+		return ((entry & 3) + 1) << 9;
+	default:
+		return 2048;
+	}
+}
+
+static int
+get_table_offset(uint64_t entry, int level)
+{
+	switch(level) {
+	case 2:
+	case 3:
+	case 4:
+		return ((entry >> 6) & 3) << 9;
+	default:
+		return 0;
+	}
+}
+
+static uint64_t
+get_table_address(uint64_t entry, int level, bool *is_large)
+{
+	*is_large = false;
+	switch (level) {
+	case 1: /* STE */
+		if (entry & SEGMENT_LARGE) {
+			*is_large = true;
+			return entry & ~((UINT64_C(1) << 20) - 1);
+		} else {
+			return entry & ~UINT64_C(0x7ff);
+		}
+	case 2: /* RTTE */
+		if (entry & REGION_LARGE) {
+			*is_large = true;
+			return entry & ~((UINT64_C(1) << 31) - 1);
+		} else {
+			return entry & ~UINT64_C(0xfff);
+		}
+	default:
+		return entry & ~UINT64_C(0xfff);
+	}
+}
+
+static uint64_t get_level_mask(int level)
+{
+	return ~((UINT64_C(1) << dat_levels[level].shift) - 1);
+}
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
+					struct pgtable_iterator *_it,
+					uint64_t *virt_addr_ret,
+					uint64_t *phys_addr_ret)
+{
+	struct pgtable_iterator_s390x *it =
+		container_of(_it, struct pgtable_iterator_s390x, it);
+	const uint64_t va = it->it.virt_addr;
+	uint64_t table = _it->pgtable & ~UINT64_C(0xfff);
+	int level, length = 2048, offset = 0;
+	uint64_t entry;
+
+	/*
+	 * Note: we need the ASCE bits to determine the levels of paging in use, but we
+	 * only get the pgd address from drgn. Therefore do the same what the linux kernel
+	 * does: read the first level entry, and deduct the number of levels from the TT bits.
+	 */
+
+	struct drgn_error *err = drgn_program_read_u64(prog, table, true, &entry);
+	if (err)
+		return err;
+
+	level = 2 + ((entry >> 2) & 3);
+
+	while(level-- > 0) {
+		int index = get_index(it, level, va);
+
+		if (index < offset || index - offset > length) {
+			uint64_t mask = get_level_mask(level);
+			*phys_addr_ret = UINT64_MAX;
+			it->it.virt_addr = (va | ~mask) + 1;
+			return NULL;
+		}
+
+		index -= offset;
+		if (it->pagetable[level].addr != table ||
+		    it->pagetable[level].length != length ||
+		    it->pagetable[level].offset != offset) {
+			/*
+			 * It's only marginally more expensive to read 4096 bytes than 8
+			 * bytes, so we always read the full table.
+			 */
+			err = drgn_program_read_memory(prog, it->pagetable[level].entries,
+						       table, length * 8, true);
+			if (err)
+				return err;
+
+			it->pagetable[level].addr = table;
+			it->pagetable[level].length = length;
+			it->pagetable[level].offset = offset;
+		}
+
+		uint64_t entry = it->pagetable[level].entries[index];
+		if (drgn_platform_bswap(&prog->platform))
+			entry = bswap_64(entry);
+
+		length = get_table_length(entry, level);
+		offset = get_table_offset(entry, level);
+		if (entry_is_invalid(entry, level)) {
+			*phys_addr_ret = UINT64_MAX;
+			return NULL;
+		}
+
+		bool is_large;
+		table = get_table_address(entry, level, &is_large);
+
+		if (level == 0 || is_large) {
+			uint64_t mask = get_level_mask(level);
+			*phys_addr_ret = table;
+			*virt_addr_ret = va & mask;
+			it->it.virt_addr = (va | ~mask) + 1;
+			return NULL;
+		}
+	}
+	return &drgn_enomem;
+}
+
 const struct drgn_architecture_info arch_info_s390x = {
 	.name = "s390x",
 	.arch = DRGN_ARCH_S390X,
@@ -249,7 +475,10 @@ const struct drgn_architecture_info arch_info_s390x = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_s390x,
 	.apply_elf_reloc = apply_elf_reloc_s390,
-
+	.linux_kernel_pgtable_iterator_create =  linux_kernel_pgtable_iterator_create_s390x,
+	.linux_kernel_pgtable_iterator_destroy = linux_kernel_pgtable_iterator_destroy_s390x,
+	.linux_kernel_pgtable_iterator_init = linux_kernel_pgtable_iterator_init_s390x,
+	.linux_kernel_pgtable_iterator_next = linux_kernel_pgtable_iterator_next_s390x,
 };
 
 const struct drgn_architecture_info arch_info_s390 = {
