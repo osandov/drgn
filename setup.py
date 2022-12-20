@@ -284,6 +284,8 @@ fi
         return returncode == 0
 
     def run(self):
+        import urllib.error
+
         from vmtest.download import download_kernels_in_thread
 
         if os.getenv("GITHUB_ACTIONS") == "true":
@@ -304,46 +306,53 @@ fi
 
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
-        with download_kernels_in_thread(
-            Path(self.vmtest_dir), "x86_64", self.kernels
-        ) as kernel_downloads:
-            if self.kernels:
-                self.announce("downloading kernels in the background", log.INFO)
-
-            with github_workflow_group("Build extension"):
-                self.run_command("egg_info")
-                self.reinitialize_command("build_ext", inplace=1)
-                self.run_command("build_ext")
-
-            passed = []
-            failed = []
-
-            with github_workflow_group("Run unit tests"):
+        try:
+            with download_kernels_in_thread(
+                Path(self.vmtest_dir), "x86_64", self.kernels
+            ) as kernel_downloads:
                 if self.kernels:
-                    self.announce("running tests locally", log.INFO)
-                if self._run_local():
-                    passed.append("local")
-                else:
-                    failed.append("local")
+                    self.announce("downloading kernels in the background", log.INFO)
 
-            if self.kernels:
-                for kernel in kernel_downloads:
-                    kernel_release = kernel.name
-                    if kernel_release.startswith("kernel-"):
-                        kernel_release = kernel_release[len("kernel-") :]
+                with github_workflow_group("Build extension"):
+                    self.run_command("egg_info")
+                    self.reinitialize_command("build_ext", inplace=1)
+                    self.run_command("build_ext")
 
-                    with github_workflow_group(
-                        f"Run integration tests on Linux {kernel_release}"
-                    ):
-                        if self._run_vm(kernel, kernel_release):
-                            passed.append(kernel_release)
-                        else:
-                            failed.append(kernel_release)
+                passed = []
+                failed = []
 
-                if passed:
-                    self.announce(f'Passed: {", ".join(passed)}', log.INFO)
-                if failed:
-                    self.announce(f'Failed: {", ".join(failed)}', log.ERROR)
+                with github_workflow_group("Run unit tests"):
+                    if self.kernels:
+                        self.announce("running tests locally", log.INFO)
+                    if self._run_local():
+                        passed.append("local")
+                    else:
+                        failed.append("local")
+
+                if self.kernels:
+                    for kernel in kernel_downloads:
+                        kernel_release = kernel.name
+                        if kernel_release.startswith("kernel-"):
+                            kernel_release = kernel_release[len("kernel-") :]
+
+                        with github_workflow_group(
+                            f"Run integration tests on Linux {kernel_release}"
+                        ):
+                            if self._run_vm(kernel, kernel_release):
+                                passed.append(kernel_release)
+                            else:
+                                failed.append(kernel_release)
+
+                    if passed:
+                        self.announce(f'Passed: {", ".join(passed)}', log.INFO)
+                    if failed:
+                        self.announce(f'Failed: {", ".join(failed)}', log.ERROR)
+        except urllib.error.HTTPError as e:
+            if e.code == 403:
+                print(e, file=sys.stderr)
+                print("Headers:", e.headers, file=sys.stderr)
+                print("Body:", e.read().decode(), file=sys.stderr)
+            raise
 
         if failed:
             raise DistutilsError("some tests failed")
