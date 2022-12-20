@@ -403,7 +403,7 @@ static struct task_struct *drgn_test_kthread;
 // ready to be parked.
 static DECLARE_COMPLETION(drgn_test_kthread_ready);
 struct pt_regs drgn_test_kthread_pt_regs;
-#if __s390x__
+#ifdef __s390x__
 // s390x doesn't implement crash_setup_regs().
 static inline void drgn_test_get_pt_regs(struct pt_regs *regs)
 {
