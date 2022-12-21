@@ -14,6 +14,7 @@ jobs:
       fail-fast: false
     env:
       CC: ${{ matrix.cc }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python ${{ matrix.python-version }}
