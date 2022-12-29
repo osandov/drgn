@@ -154,7 +154,12 @@ class AioGitHubApi(_GitHubApiBase):
         data: Any = None,
     ) -> Any:
         return self._session.request(
-            method, url, params=params, headers=headers, data=data
+            method,
+            url,
+            params=params,
+            headers=headers,
+            data=data,
+            raise_for_status=True,
         )
 
     async def _cached_get_json(self, endpoint: str, cache: _CACHE) -> Any:
