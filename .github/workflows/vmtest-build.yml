@@ -10,6 +10,8 @@ jobs:
     # Build on 20.04 so that we don't get host binaries (e.g., objtool) that
     # depend on libraries too new for other distros.
     runs-on: ubuntu-20.04
+    permissions:
+      contents: write
     env:
       GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
     steps:
