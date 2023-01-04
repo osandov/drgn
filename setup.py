@@ -329,19 +329,18 @@ fi
                     else:
                         failed.append("local")
 
-                if self.kernels:
-                    for kernel in kernel_downloads:
-                        kernel_release = kernel.name
-                        if kernel_release.startswith("kernel-"):
-                            kernel_release = kernel_release[len("kernel-") :]
+                for kernel in kernel_downloads:
+                    kernel_release = kernel.name
+                    if kernel_release.startswith("kernel-"):
+                        kernel_release = kernel_release[len("kernel-") :]
 
-                        with github_workflow_group(
-                            f"Run integration tests on Linux {kernel_release}"
-                        ):
-                            if self._run_vm(kernel, kernel_release):
-                                passed.append(kernel_release)
-                            else:
-                                failed.append(kernel_release)
+                    with github_workflow_group(
+                        f"Run integration tests on Linux {kernel_release}"
+                    ):
+                        if self._run_vm(kernel, kernel_release):
+                            passed.append(kernel_release)
+                        else:
+                            failed.append(kernel_release)
 
                     if passed:
                         self.announce(f'Passed: {", ".join(passed)}', log.INFO)
