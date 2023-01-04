@@ -77,14 +77,22 @@ def identify_address(  # type: ignore  # Need positional-only arguments.
 
     if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
         # Linux kernel-specific identification:
-        slab = slab_object_info(prog, addr)
-        if slab:
-            # address is slab allocated
-            cache_name = escape_ascii_string(
-                slab.slab_cache.name.string_(), escape_backslash=True
-            )
-            maybe_free = "" if slab.allocated else "free "
-            return f"{maybe_free}slab object: {cache_name}+{hex(addr - slab.address)}"
+        try:
+            slab = slab_object_info(prog, addr)
+        except NotImplementedError:
+            # Probably because virtual address translation isn't implemented
+            # for this architecture.
+            pass
+        else:
+            if slab:
+                # address is slab allocated
+                cache_name = escape_ascii_string(
+                    slab.slab_cache.name.string_(), escape_backslash=True
+                )
+                maybe_free = "" if slab.allocated else "free "
+                return (
+                    f"{maybe_free}slab object: {cache_name}+{hex(addr - slab.address)}"
+                )
 
     # Check if address is of a symbol:
     try:
