@@ -40,7 +40,7 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 			goto err;
 		}
 		if (!prog->platform.arch->linux_kernel_pgtable_iterator_next) {
-			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+			err = drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
 						"virtual address translation is not implemented for %s architecture",
 						prog->platform.arch->name);
 			goto err;
