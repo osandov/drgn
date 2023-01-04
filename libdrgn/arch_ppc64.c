@@ -187,15 +187,13 @@ linux_kernel_get_initial_registers_ppc64(const struct drgn_object *task_obj,
 					 struct drgn_register_state **ret)
 
 {
-	static const uint64_t STACK_FRAME_OVERHEAD = 112;
-	static const uint64_t SWITCH_FRAME_SIZE = STACK_FRAME_OVERHEAD + 368;
-
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(task_obj);
 
 	struct drgn_object sp_obj;
 	drgn_object_init(&sp_obj, prog);
 
+	// The top of the stack is saved in task->thread.ksp.
 	err = drgn_object_member_dereference(&sp_obj, task_obj, "thread");
 	if (err)
 		goto out;
@@ -206,9 +204,25 @@ linux_kernel_get_initial_registers_ppc64(const struct drgn_object *task_obj,
 	err = drgn_object_read_unsigned(&sp_obj, &ksp);
 	if (err)
 		goto out;
+	// The previous stack pointer is stored at the top of the stack.
+	uint64_t r1;
+	err = drgn_program_read_u64(prog, ksp, false, &r1);
+	if (err)
+		goto out;
+
+	// The struct pt_regs is stored above the previous stack pointer.
+	struct drgn_qualified_type pt_regs_type;
+	err = drgn_program_find_type(prog, "struct pt_regs", NULL,
+				     &pt_regs_type);
+	if (err)
+		goto out;
+	uint64_t sizeof_pt_regs;
+	err = drgn_type_sizeof(pt_regs_type.type, &sizeof_pt_regs);
+	if (err)
+		goto out;
 
 	char buf[312];
-	err = drgn_program_read_memory(prog, buf, ksp + STACK_FRAME_OVERHEAD,
+	err = drgn_program_read_memory(prog, buf, r1 - sizeof_pt_regs,
 				       sizeof(buf), false);
 	if (err)
 		goto out;
@@ -218,8 +232,7 @@ linux_kernel_get_initial_registers_ppc64(const struct drgn_object *task_obj,
 	if (err)
 		goto out;
 
-	drgn_register_state_set_from_u64(prog, *ret, r1,
-					 ksp + SWITCH_FRAME_SIZE);
+	drgn_register_state_set_from_u64(prog, *ret, r1, r1);
 
 	err = NULL;
 out:
