@@ -8,6 +8,7 @@ from drgn.helpers.common.memory import identify_address
 from drgn.helpers.common.stack import print_annotated_stack
 from drgn.helpers.linux.mm import pfn_to_virt
 from tests.linux_kernel import (
+    HAVE_FULL_MM_SUPPORT,
     LinuxKernelTestCase,
     fork_and_sigwait,
     skip_unless_have_full_mm_support,
@@ -68,6 +69,7 @@ class TestPrintAnnotatedStack(LinuxKernelTestCase):
 
             printed_trace = f.getvalue()
 
-            self.assertIn("slab object: task_struct", printed_trace)
+            if HAVE_FULL_MM_SUPPORT and not self.prog["drgn_test_slob"]:
+                self.assertIn("slab object: task_struct", printed_trace)
             self.assertIn("[function symbol: schedule", printed_trace)
             self.assertIn("schedule at ", printed_trace)
