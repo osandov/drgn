@@ -403,21 +403,118 @@ static struct task_struct *drgn_test_kthread;
 // ready to be parked.
 static DECLARE_COMPLETION(drgn_test_kthread_ready);
 struct pt_regs drgn_test_kthread_pt_regs;
-#ifdef __s390x__
-// s390x doesn't implement crash_setup_regs().
 static inline void drgn_test_get_pt_regs(struct pt_regs *regs)
 {
+#if defined(__aarch64__)
+	// Copied from crash_setup_regs() in arch/arm64/include/asm/kexec.h as
+	// of Linux v6.1.
+	u64 tmp1, tmp2;
+
+	__asm__ __volatile__ (
+		"stp	 x0,   x1, [%2, #16 *  0]\n"
+		"stp	 x2,   x3, [%2, #16 *  1]\n"
+		"stp	 x4,   x5, [%2, #16 *  2]\n"
+		"stp	 x6,   x7, [%2, #16 *  3]\n"
+		"stp	 x8,   x9, [%2, #16 *  4]\n"
+		"stp	x10,  x11, [%2, #16 *  5]\n"
+		"stp	x12,  x13, [%2, #16 *  6]\n"
+		"stp	x14,  x15, [%2, #16 *  7]\n"
+		"stp	x16,  x17, [%2, #16 *  8]\n"
+		"stp	x18,  x19, [%2, #16 *  9]\n"
+		"stp	x20,  x21, [%2, #16 * 10]\n"
+		"stp	x22,  x23, [%2, #16 * 11]\n"
+		"stp	x24,  x25, [%2, #16 * 12]\n"
+		"stp	x26,  x27, [%2, #16 * 13]\n"
+		"stp	x28,  x29, [%2, #16 * 14]\n"
+		"mov	 %0,  sp\n"
+		"stp	x30,  %0,  [%2, #16 * 15]\n"
+
+		"/* faked current PSTATE */\n"
+		"mrs	 %0, CurrentEL\n"
+		"mrs	 %1, SPSEL\n"
+		"orr	 %0, %0, %1\n"
+		"mrs	 %1, DAIF\n"
+		"orr	 %0, %0, %1\n"
+		"mrs	 %1, NZCV\n"
+		"orr	 %0, %0, %1\n"
+		/* pc */
+		"adr	 %1, 1f\n"
+	"1:\n"
+		"stp	 %1, %0,   [%2, #16 * 16]\n"
+		: "=&r" (tmp1), "=&r" (tmp2)
+		: "r" (regs)
+		: "memory"
+	);
+#elif defined(__powerpc64__)
+	unsigned long link;
+	unsigned long ccr;
+
+	asm volatile("std 0,%0" : "=m"(regs->gpr[0]));
+	asm volatile("std 1,%0" : "=m"(regs->gpr[1]));
+	asm volatile("std 2,%0" : "=m"(regs->gpr[2]));
+	asm volatile("std 3,%0" : "=m"(regs->gpr[3]));
+	asm volatile("std 4,%0" : "=m"(regs->gpr[4]));
+	asm volatile("std 5,%0" : "=m"(regs->gpr[5]));
+	asm volatile("std 6,%0" : "=m"(regs->gpr[6]));
+	asm volatile("std 7,%0" : "=m"(regs->gpr[7]));
+	asm volatile("std 8,%0" : "=m"(regs->gpr[8]));
+	asm volatile("std 9,%0" : "=m"(regs->gpr[9]));
+	asm volatile("std 10,%0" : "=m"(regs->gpr[10]));
+	asm volatile("std 11,%0" : "=m"(regs->gpr[11]));
+	asm volatile("std 12,%0" : "=m"(regs->gpr[12]));
+	asm volatile("std 13,%0" : "=m"(regs->gpr[13]));
+	asm volatile("std 14,%0" : "=m"(regs->gpr[14]));
+	asm volatile("std 15,%0" : "=m"(regs->gpr[15]));
+	asm volatile("std 16,%0" : "=m"(regs->gpr[16]));
+	asm volatile("std 17,%0" : "=m"(regs->gpr[17]));
+	asm volatile("std 18,%0" : "=m"(regs->gpr[18]));
+	asm volatile("std 19,%0" : "=m"(regs->gpr[19]));
+	asm volatile("std 20,%0" : "=m"(regs->gpr[20]));
+	asm volatile("std 21,%0" : "=m"(regs->gpr[21]));
+	asm volatile("std 22,%0" : "=m"(regs->gpr[22]));
+	asm volatile("std 23,%0" : "=m"(regs->gpr[23]));
+	asm volatile("std 24,%0" : "=m"(regs->gpr[24]));
+	asm volatile("std 25,%0" : "=m"(regs->gpr[25]));
+	asm volatile("std 26,%0" : "=m"(regs->gpr[26]));
+	asm volatile("std 27,%0" : "=m"(regs->gpr[27]));
+	asm volatile("std 28,%0" : "=m"(regs->gpr[28]));
+	asm volatile("std 29,%0" : "=m"(regs->gpr[29]));
+	asm volatile("std 30,%0" : "=m"(regs->gpr[30]));
+	asm volatile("std 31,%0" : "=m"(regs->gpr[31]));
+	asm volatile("mflr %0" : "=r"(link));
+	asm volatile("std %1,%0" : "=m"(regs->link) : "r"(link));
+	asm volatile("mfcr %0" : "=r"(ccr));
+	asm volatile("std %1,%0" : "=m"(regs->ccr) : "r"(ccr));
+	regs->nip = _THIS_IP_;
+#elif defined(__s390x__)
 	regs->psw.mask = __extract_psw();
 	regs->psw.addr = _THIS_IP_;
 	asm volatile("stmg 0,15,%0\n" : "=S" (regs->gprs) : : "memory");
-}
-#else
-// crash_setup_regs() is an internal function for kexec, but it does exactly
-// what we need: saves the current registers in a struct pt_regs. If it goes
-// away or doesn't work on other architectures, we might need to do it ourselves
-// like we do for s390x.
-#define drgn_test_get_pt_regs(regs) crash_setup_regs(regs, NULL)
+#elif defined(__x86_64__)
+	// Copied from crash_setup_regs() in arch/x86/include/asm/kexec.h as of
+	// Linux v6.1.
+	asm volatile("movq %%rbx,%0" : "=m"(regs->bx));
+	asm volatile("movq %%rcx,%0" : "=m"(regs->cx));
+	asm volatile("movq %%rdx,%0" : "=m"(regs->dx));
+	asm volatile("movq %%rsi,%0" : "=m"(regs->si));
+	asm volatile("movq %%rdi,%0" : "=m"(regs->di));
+	asm volatile("movq %%rbp,%0" : "=m"(regs->bp));
+	asm volatile("movq %%rax,%0" : "=m"(regs->ax));
+	asm volatile("movq %%rsp,%0" : "=m"(regs->sp));
+	asm volatile("movq %%r8,%0" : "=m"(regs->r8));
+	asm volatile("movq %%r9,%0" : "=m"(regs->r9));
+	asm volatile("movq %%r10,%0" : "=m"(regs->r10));
+	asm volatile("movq %%r11,%0" : "=m"(regs->r11));
+	asm volatile("movq %%r12,%0" : "=m"(regs->r12));
+	asm volatile("movq %%r13,%0" : "=m"(regs->r13));
+	asm volatile("movq %%r14,%0" : "=m"(regs->r14));
+	asm volatile("movq %%r15,%0" : "=m"(regs->r15));
+	asm volatile("movl %%ss, %%eax;" :"=a"(regs->ss));
+	asm volatile("movl %%cs, %%eax;" :"=a"(regs->cs));
+	asm volatile("pushfq; popq %0" :"=m"(regs->flags));
+	regs->ip = _THIS_IP_;
 #endif
+}
 
  __attribute__((__optimize__("O0")))
 static void drgn_test_kthread_fn3(void)
