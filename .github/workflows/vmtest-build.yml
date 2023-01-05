@@ -15,7 +15,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -25,7 +25,7 @@ jobs:
         run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K
       - name: Upload kernel build logs
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: kernel-build-logs
           path: build/vmtest/kbuild/*.log
