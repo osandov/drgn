@@ -232,16 +232,6 @@ get_registers_from_frame_pointer(struct drgn_program *prog,
 	if (err)
 		return err;
 
-	uint64_t unwound_frame_pointer =
-		drgn_platform_bswap(&prog->platform) ? bswap_64(frame[0]) : frame[0];
-	if (unwound_frame_pointer <= frame_pointer) {
-		/*
-		 * The next frame pointer isn't valid. Maybe frame pointers are
-		 * not enabled or we're in the middle of a prologue or epilogue.
-		 */
-		return &drgn_stop;
-	}
-
 	struct drgn_register_state *regs =
 		drgn_register_state_create(rbp, false);
 	if (!regs)
