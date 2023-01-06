@@ -9,7 +9,7 @@ set -eux
 SDIST=dist/drgn-"$("$PYTHON" setup.py --version)".tar.gz
 
 ${DOCKER=docker} run -it \
-	--env PLAT=manylinux2010_x86_64 \
+	--env PLAT=manylinux2014_x86_64 \
 	--env SDIST="$SDIST" \
 	--env OWNER="$(id -u):$(id -g)" \
 	--volume "$(pwd)":/io:ro \
@@ -18,5 +18,5 @@ ${DOCKER=docker} run -it \
 	--hostname drgn \
 	--rm \
 	--pull always \
-	quay.io/pypa/manylinux2010_x86_64 \
+	quay.io/pypa/manylinux2014_x86_64 \
 	./scripts/build_manylinux_in_docker.sh
