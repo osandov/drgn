@@ -1172,7 +1172,7 @@ c_format_compound_object(const struct drgn_object *obj,
 		} while (new->member < new->end);
 		drgn_object_deinit(&member);
 		if (err)
-			return err;
+			goto out;
 	}
 
 	err = c_format_initializer(drgn_object_program(obj), &iter.iter, indent,
