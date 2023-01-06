@@ -23,7 +23,7 @@ ln -s /usr/share/aclocal/pkg.m4 /usr/local/share/aclocal/
 
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
-elfutils_version=0.187
+elfutils_version=0.188
 elfutils_url=https://sourceware.org/elfutils/ftp/$elfutils_version/elfutils-$elfutils_version.tar.bz2
 mkdir /tmp/elfutils
 cd /tmp/elfutils
