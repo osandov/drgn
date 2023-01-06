@@ -38,7 +38,7 @@ curl -L "$elfutils_url" | tar -xj --strip-components=1
 make -j$(($(nproc) + 1))
 make install
 
-libkdumpfile_version=0.4.1
+libkdumpfile_version=0.5.0
 libkdumpfile_url=https://github.com/ptesarik/libkdumpfile/releases/download/v$libkdumpfile_version/libkdumpfile-$libkdumpfile_version.tar.gz
 mkdir /tmp/libkdumpfile
 cd /tmp/libkdumpfile
@@ -60,7 +60,7 @@ index 4fb2960..14e1ce3 100644
  # include <zlib.h>
 EOF
 # z_const was added in zlib 1.2.5.2.
-CPPFLAGS="-Dz_const=const" ./configure --with-lzo --with-snappy --with-zlib --without-python
+CPPFLAGS="-Dz_const=const" ./configure --with-libzstd --with-lzo --with-snappy --with-zlib --without-python
 make -j$(($(nproc) + 1))
 make install
 
