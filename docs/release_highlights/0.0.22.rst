@@ -1,0 +1,264 @@
+0.0.22 (Released January 5th, 2023)
+===================================
+
+These are some of the highlights of drgn 0.0.22. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.22>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+
+Listing Stack Frame Locals
+--------------------------
+
+:meth:`drgn.StackFrame.locals()` returns the names of all arguments and local
+variables in the scope of a stack frame. This allows you to get a quick idea of
+what's going on in a function without needing to read the source code right
+away.
+
+Let's use the ``__schedule`` stack frame from the following trace as an
+example::
+
+    >>> trace = prog.stack_trace(1)
+    >>> trace
+    #0  context_switch (./kernel/sched/core.c:5209:2)
+    #1  __schedule (./kernel/sched/core.c:6521:8)
+    #2  schedule (./kernel/sched/core.c:6597:3)
+    #3  do_wait (./kernel/exit.c:1562:4)
+    #4  kernel_wait4 (./kernel/exit.c:1706:8)
+    #5  __do_sys_wait4 (./kernel/exit.c:1734:13)
+    #6  do_syscall_x64 (./arch/x86/entry/common.c:50:14)
+    #7  do_syscall_64 (./arch/x86/entry/common.c:80:7)
+    #8  entry_SYSCALL_64+0x9b/0x197 (./arch/x86/entry/entry_64.S:120)
+    #9  0x7f6a34a00057
+    >>> trace[1].locals()
+    ['sched_mode', 'prev', 'next', 'switch_count', 'prev_state', 'rf', 'rq', 'cpu']
+    >>> for name in trace[1].locals():
+    ...     print(name, trace[1][name].format_(dereference=False))
+    ...
+    sched_mode (unsigned int)0
+    prev (struct task_struct *)0xffffa3b601178000
+    next (struct task_struct *)0xffffa3b6026db800
+    switch_count (unsigned long *)0xffffa3b601178528
+    prev_state (unsigned long)<absent>
+    rf (struct rq_flags){
+            .flags = (unsigned long)1,
+            .cookie = (struct pin_cookie){},
+            .clock_update_flags = (unsigned int)4,
+    }
+    rq (struct rq *)0xffffa3b67fda9640
+    cpu (int)<absent>
+
+Compare this to the `kernel source code
+<https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/sched/core.c?h=v6.1#n6402>`_.
+Note that some of the variables have been optimized out by the compiler.
+
+This feature was contributed by Stephen Brennan.
+
+Merged Slab Caches
+------------------
+
+The Linux kernel slab allocator merges "similar" slab caches as an
+optimization, which often causes confusion.
+:func:`~drgn.helpers.linux.slab.slab_cache_is_merged()` (added back in 0.0.20)
+returns whether or not a slab cache has been merged, but not what it was merged
+with. In this release, Stephen Brennan added
+:func:`~drgn.helpers.linux.slab.get_slab_cache_aliases()`, which provides a
+mapping from a slab cache name to the name of the cache it was merged into::
+
+    >>> get_slab_cache_aliases(prog)
+    {'io_kiocb': 'maple_node', 'ip_dst_cache': 'uid_cache', 'aio_kiocb': 'uid_cache', 'ip_fib_alias': 'Acpi-Parse', 'pid_namespace': 'pid', 'iommu_iova': 'vmap_area', 'fasync_cache': 'ftrace_event_field', 'dnotify_mark': 'Acpi-State', 'tcp_bind2_bucket': 'vmap_area', 'nsproxy': 'Acpi-Operand', 'shared_policy_node': 'ftrace_event_field', 'eventpoll_epi': 'pid', 'fib6_nodes': 'vmap_area', 'Acpi-Namespace': 'ftrace_event_field', 'posix_timers_cache': 'maple_node', 'inotify_inode_mark': 'Acpi-State', 'kernfs_iattrs_cache': 'trace_event_file', 'fs_cache': 'vmap_area', 'UDP-Lite': 'UDP', 'anon_vma_chain': 'vmap_area', 'ip6_dst_cache': 'maple_node', 'eventpoll_pwq': 'vmap_area', 'inet_peer_cache': 'uid_cache', 'fsnotify_mark_connector': 'numa_policy', 'ip_fib_trie': 'ftrace_event_field', 'filp': 'maple_node', 'dnotify_struct': 'numa_policy', 'UDPLITEv6': 'UDPv6', 'biovec-16': 'maple_node', 'PING': 'signal_cache', 'ep_head': 'blkdev_ioc', 'tcp_bind_bucket': 'pid', 'Acpi-ParseExt': 'Acpi-State', 'cred_jar': 'pid', 'ovl_aio_req': 'pid', 'pool_workqueue': 'maple_node', 'sigqueue': 'Acpi-State', 'file_lock_ctx': 'Acpi-Parse', 'kernfs_node_cache': 'pid'}
+
+This means that if you're looking for ``io_kiocb`` allocations, you actually
+need to look at the ``maple_node`` slab cache. Conversely, if you're looking at
+the ``maple_node`` slab cache, you need to be aware that it also contains
+allocations from all of the following slab caches::
+
+    >>> [merged for merged, canonical in get_slab_cache_aliases(prog).items() if canonical == "maple_node"]
+    ['io_kiocb', 'posix_timers_cache', 'ip6_dst_cache', 'filp', 'biovec-16', 'pool_workqueue']
+
+Slab Address Information
+------------------------
+
+This release extended :func:`~drgn.helpers.common.memory.identify_address()` to
+show additional information about slab allocations::
+
+    >>> ptr1 = 0xffffa3b601178438
+    >>> ptr2 = 0xffffa3b601176cc0
+    >>> identify_address(prog, ptr1)
+    'slab object: task_struct+0x438'
+    >>> identify_address(prog, ptr2)
+    'free slab object: mm_struct+0x0'
+
+This means that ``ptr1`` is an address 0x438 bytes into an allocated object from
+the ``task_struct`` slab cache, and ``ptr2`` is a free object from the
+``mm_struct`` slab cache.
+
+:func:`~drgn.helpers.linux.slab.slab_object_info()` provides the same
+information programmatically::
+
+    >>> slab_object_info(prog, ptr1)
+    SlabObjectInfo(slab_cache=Object(prog, 'struct kmem_cache *', value=0xffffa3b601045500), slab=Object(prog, 'struct slab *', value=0xffffe80840045e00), address=0xffffa3b601178000, allocated=True)
+    >>> slab_object_info(prog, ptr2)
+    SlabObjectInfo(slab_cache=Object(prog, 'struct kmem_cache *', value=0xffffa3b601045900), slab=Object(prog, 'struct slab *', value=0xffffe80840045c00), address=0xffffa3b601176cc0, allocated=False)
+
+Annotated Stack Memory
+----------------------
+
+:func:`~drgn.helpers.common.stack.print_annotated_stack()` prints a stack trace
+and all of its memory, identifying anything that it can::
+
+    >>> print_annotated_stack(prog.stack_trace(1))
+    STACK POINTER     VALUE
+    [stack frame #0 at 0xffffffffaf8a68e9 (__schedule+0x429/0x488) in context_switch at ./kernel/sched/core.c:5209:2 (inlined)]
+    [stack frame #1 at 0xffffffffaf8a68e9 (__schedule+0x429/0x488) in __schedule at ./kernel/sched/core.c:6521:8]
+    ffffbb1ac0013d28: ffffffffaf4498f5 [function symbol: __flush_tlb_one_user+0x5]
+    ffffbb1ac0013d30: 00000000af449feb
+    ffffbb1ac0013d38: 0000000000000001
+    ffffbb1ac0013d40: 0000000000000004
+    ffffbb1ac0013d48: 25c5ff9539edc200
+    ffffbb1ac0013d50: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013d58: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013d60: ffffbb1ac0013e10
+    ffffbb1ac0013d68: ffffa3b601177ff0 [slab object: mm_struct+0x70]
+    ffffbb1ac0013d70: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013d78: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013d80: ffffffffaf8a69d1 [function symbol: schedule+0x89]
+    [stack frame #2 at 0xffffffffaf8a69d1 (schedule+0x89/0xc7) in schedule at ./kernel/sched/core.c:6597:3]
+    ffffbb1ac0013d88: ffffbb1ac0013de8
+    ffffbb1ac0013d90: 0000000000000000
+    ffffbb1ac0013d98: ffffffffaf4595ee [function symbol: do_wait+0x231]
+    [stack frame #3 at 0xffffffffaf4595ee (do_wait+0x231/0x2e3) in do_wait at ./kernel/exit.c:1562:4]
+    ffffbb1ac0013da0: ffffa3b601178450 [slab object: task_struct+0x450]
+    ffffbb1ac0013da8: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013db0: 0000000000000004
+    ffffbb1ac0013db8: 0000000000000000
+    ffffbb1ac0013dc0: 00007ffe0984a170
+    ffffbb1ac0013dc8: 0000000000000000
+    ffffbb1ac0013dd0: fffffffffffffffd
+    ffffbb1ac0013dd8: 0000000000000004
+    ffffbb1ac0013de0: ffffffffaf45a42f [function symbol: kernel_wait4+0xc2]
+    [stack frame #4 at 0xffffffffaf45a42f (kernel_wait4+0xc2/0x11b) in kernel_wait4 at ./kernel/exit.c:1706:8]
+    ffffbb1ac0013de8: 0000000400000004
+    ffffbb1ac0013df0: 0000000000000000
+    ffffbb1ac0013df8: 0000000000000000
+    ffffbb1ac0013e00: 0000000000000000
+    ffffbb1ac0013e08: 0000000000000000
+    ffffbb1ac0013e10: ffffffff00000000
+    ffffbb1ac0013e18: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013e20: ffffffffaf45890c [function symbol: child_wait_callback+0x0]
+    ffffbb1ac0013e28: ffffa3b601188028 [slab object: signal_cache+0x28]
+    ffffbb1ac0013e30: ffffa3b601188028 [slab object: signal_cache+0x28]
+    ffffbb1ac0013e38: 000055d500000000
+    ffffbb1ac0013e40: 25c5ff9539edc200
+    ffffbb1ac0013e48: 0000000000000000
+    ffffbb1ac0013e50: ffffbb1ac0013f30
+    ffffbb1ac0013e58: ffffbb1ac0013f58
+    ffffbb1ac0013e60: 0000000000000000
+    ffffbb1ac0013e68: 0000000000000000
+    ffffbb1ac0013e70: 0000000000000000
+    ffffbb1ac0013e78: ffffffffaf45a4c0 [function symbol: __do_sys_wait4+0x38]
+    [stack frame #5 at 0xffffffffaf45a4c0 (__do_sys_wait4+0x38/0x8c) in __do_sys_wait4 at ./kernel/exit.c:1734:13]
+    ffffbb1ac0013e80: ffffffffaf8aaa21 [function symbol: _raw_spin_unlock_irq+0x10]
+    ffffbb1ac0013e88: ffffffffaf46460c [function symbol: do_sigaction+0xf8]
+    ffffbb1ac0013e90: ffffa3b601180020 [slab object: sighand_cache+0x20]
+    ffffbb1ac0013e98: ffffa3b6028d02d0 [slab object: vm_area_struct+0x0]
+    ffffbb1ac0013ea0: 25c5ff9539edc200
+    ffffbb1ac0013ea8: 0000000000000002
+    ffffbb1ac0013eb0: 00007ffe09849fb0
+    ffffbb1ac0013eb8: ffffbb1ac0013f58
+    ffffbb1ac0013ec0: 0000000000000000
+    ffffbb1ac0013ec8: 0000000000000000
+    ffffbb1ac0013ed0: 0000000000000046
+    ffffbb1ac0013ed8: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013ee0: ffffa3b601178000 [slab object: task_struct+0x0]
+    ffffbb1ac0013ee8: ffffbb1ac0013f58
+    ffffbb1ac0013ef0: 0000000000000000
+    ffffbb1ac0013ef8: ffffffffaf426def [function symbol: fpregs_assert_state_consistent+0x1b]
+    ffffbb1ac0013f00: 0000000000000000
+    ffffbb1ac0013f08: ffffffffaf4b2f53 [function symbol: exit_to_user_mode_prepare+0xa6]
+    ffffbb1ac0013f10: 0000000000000000
+    ffffbb1ac0013f18: 25c5ff9539edc200
+    ffffbb1ac0013f20: ffffbb1ac0013f58
+    ffffbb1ac0013f28: 0000000000000000
+    ffffbb1ac0013f30: ffffbb1ac0013f48
+    ffffbb1ac0013f38: ffffffffaf8a1573 [function symbol: do_syscall_64+0x70]
+    [stack frame #6 at 0xffffffffaf8a1573 (do_syscall_64+0x70/0x8a) in do_syscall_x64 at ./arch/x86/entry/common.c:50:14 (inlined)]
+    [stack frame #7 at 0xffffffffaf8a1573 (do_syscall_64+0x70/0x8a) in do_syscall_64 at ./arch/x86/entry/common.c:80:7]
+    ffffbb1ac0013f40: 0000000000000000
+    ffffbb1ac0013f48: 0000000000000000
+    ffffbb1ac0013f50: ffffffffafa0009b [symbol: entry_SYSCALL_64+0x9b]
+    [stack frame #8 at 0xffffffffafa0009b (entry_SYSCALL_64+0x9b/0x197) at ./arch/x86/entry/entry_64.S:120]
+    ffffbb1ac0013f58: 0000000000000000
+    [stack frame #9 at 0x7f6a34a00057]
+
+Like :meth:`drgn.StackFrame.locals()`, this provides a nice overview of
+everything happening in a function, which might include useful hints. Keep in
+mind that it may identify "stale" addresses for anything that a function hasn't
+reinitialized yet, and as always, be careful of slab cache merging.
+
+This was inspired by the crash ``bt -FF`` command. It was contributed by Nhat
+Pham.
+
+XArray Helpers
+--------------
+
+XArrays were introduced in Linux 4.20 as a replacement for radix trees. drgn's
+radix tree helpers also support XArrays in some cases, but this is awkward, not
+obvious, and doesn't work for new, XArray-only functionality.
+
+This release added dedicated XArray helpers like
+:func:`~drgn.helpers.linux.xarray.xa_load()` and
+:func:`~drgn.helpers.linux.xarray.xa_for_each()`.
+
+s390x Support
+-------------
+
+Sven Schnelle contributed s390x support for Linux kernel modules and stack
+traces. This is the state of architecture support in this release:
+
+.. list-table:: drgn 0.0.22 Architecture Support
+    :header-rows: 1
+
+    * - Architecture
+      - Linux Kernel Modules
+      - Stack Traces
+      - Virtual Address Translation
+    * - x86-64
+      - ✓
+      - ✓
+      - ✓
+    * - AArch64
+      - ✓
+      - ✓
+      - ✓
+    * - ppc64
+      - ✓
+      - ✓
+      -
+    * - s390x
+      - ✓
+      - ✓
+      -
+    * - i386
+      - ✓
+      -
+      -
+    * - Arm
+      - ✓
+      -
+      -
+    * - RISC-V
+      - ✓
+      -
+      -
+
+Relicensing to LGPL
+-------------------
+
+drgn was originally licensed as GPLv3+. In this release, it was changed to
+LGPLv2.1+. The motivation for this change was to enable the long term vision
+for drgn that more projects can use it as a library providing programmatic
+interfaces for debugger functionality. For example, `Object Introspection
+<https://facebookexperimental.github.io/object-introspection/>`_, a userspace
+memory profiler recently open sourced by Meta, uses drgn to parse debugging
+information.

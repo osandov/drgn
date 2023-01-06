@@ -38,3 +38,4 @@ Table of Contents
     helpers
     case_studies
     getting_debugging_symbols
+    release_highlights
