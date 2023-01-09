@@ -339,7 +339,10 @@ def for_each_file(task: Object) -> Iterator[Tuple[int, Object]]:
     :param task: ``struct task_struct *``
     :return: Iterator of (fd, ``struct file *``) tuples.
     """
-    fdt = task.files.fdt.read_()
+    files = task.files.read_()
+    if not files:
+        return
+    fdt = files.fdt.read_()
     bits_per_long = 8 * sizeof(fdt.open_fds.type_.type)
     for i in range((fdt.max_fds.value_() + bits_per_long - 1) // bits_per_long):
         word = fdt.open_fds[i].value_()
