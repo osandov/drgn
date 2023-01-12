@@ -46,7 +46,9 @@ Custom Programs
 The main components of a :class:`drgn.Program` are the program memory, types,
 and symbols. The CLI and equivalent library interfaces automatically determine
 these. However, it is also possible to create a "blank" ``Program`` and plug in
-the main components.
+the main components. The :func:`drgn.cli.run_interactive()` function allows you
+to run the same drgn CLI once you've created a :class:`drgn.Program`, so it's
+easy to make a custom program which allows interactive debugging.
 
 :meth:`drgn.Program.add_memory_segment()` defines a range of memory and how to
 read that memory. The following example uses a Btrfs filesystem image as the
@@ -57,6 +59,7 @@ program "memory":
     import drgn
     import os
     import sys
+    from drgn.cli import run_interactive
 
 
     def btrfs_debugger(dev):
@@ -77,6 +80,7 @@ program "memory":
 
     prog = btrfs_debugger(sys.argv[1] if len(sys.argv) >= 2 else '/dev/sda')
     print(drgn.Object(prog, 'struct btrfs_super_block', address=65536))
+    run_interactive(prog, banner_func=lambda _: "BTRFS debugger")
 
 :meth:`drgn.Program.add_type_finder()` and
 :meth:`drgn.Program.add_object_finder()` are the equivalent methods for
