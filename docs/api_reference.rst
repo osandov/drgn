@@ -130,3 +130,8 @@ Exceptions
 .. drgndoc:: MissingDebugInfoError
 .. drgndoc:: ObjectAbsentError
 .. drgndoc:: OutOfBoundsError
+
+CLI
+---
+
+.. drgndoc:: cli

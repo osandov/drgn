@@ -351,6 +351,8 @@ It's even possible to run drgn scripts directly with the proper `shebang
     $ sudo ./script2.py
     You have 36 filesystems mounted
 
+.. _interactive-mode:
+
 Interactive Mode
 ^^^^^^^^^^^^^^^^
 

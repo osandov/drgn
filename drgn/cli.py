@@ -1,7 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) 2023, Oracle and/or its affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-"""drgn command line interface"""
+"""Functions for embedding the drgn CLI."""
 
 import argparse
 import builtins
@@ -10,12 +11,30 @@ import importlib
 import os
 import os.path
 import pkgutil
+import readline
 import runpy
 import shutil
 import sys
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 import drgn
+from drgn.internal.rlcompleter import Completer
+
+__all__ = ("run_interactive", "version_header")
+
+
+def version_header() -> str:
+    """
+    Return the version header printed at the beginning of a drgn session.
+
+    The :func:`run_interactive()` function does not include this banner at the
+    beginning of an interactive session. Use this function to retrieve one line
+    of text to add to the beginning of the drgn banner, or print it before
+    calling :func:`run_interactive()`.
+    """
+    python_version = ".".join(str(v) for v in sys.version_info[:3])
+    libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
+    return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
 
 
 def _identify_script(path: str) -> str:
@@ -48,7 +67,7 @@ def _identify_script(path: str) -> str:
     return "core" if e_type == ET_CORE else "elf"
 
 
-def displayhook(value: Any) -> None:
+def _displayhook(value: Any) -> None:
     if value is None:
         return
     setattr(builtins, "_", None)
@@ -71,10 +90,8 @@ def displayhook(value: Any) -> None:
     setattr(builtins, "_", value)
 
 
-def main() -> None:
-    python_version = ".".join(str(v) for v in sys.version_info[:3])
-    libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
-    version = f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
+def _main() -> None:
+    version = version_header()
     parser = argparse.ArgumentParser(prog="drgn", description="Programmable debugger")
 
     program_group = parser.add_argument_group(
@@ -198,7 +215,6 @@ def main() -> None:
                 prefix = f"\033[33m{prefix}\033[0m"
             missing_debug_info_warning = f"{prefix} {e}"
 
-    init_globals: Dict[str, Any] = {"prog": prog}
     if args.script:
         sys.argv = args.script
         script = args.script[0]
@@ -206,53 +222,91 @@ def main() -> None:
             sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
         if missing_debug_info_warning is not None:
             print(missing_debug_info_warning, file=sys.stderr)
-        runpy.run_path(script, init_globals=init_globals, run_name="__main__")
+        runpy.run_path(script, init_globals={"prog": prog}, run_name="__main__")
     else:
+
+        def banner_func(banner: str) -> str:
+            if missing_debug_info_warning is not None:
+                return f"{banner}\n{missing_debug_info_warning}"
+            else:
+                return banner
+
+        run_interactive(prog, banner_func=banner_func, quiet=args.quiet)
+
+
+def run_interactive(
+    prog: drgn.Program,
+    banner_func: Optional[Callable[[str], str]] = None,
+    globals_func: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    quiet: bool = False,
+) -> None:
+    """
+    Run drgn's :ref:`interactive-mode` until the user exits.
+
+    This function allows your application to embed the same REPL that drgn
+    provides when it is run on the command line in interactive mode.
+
+    :param prog: Pre-configured program to run against. Available as a global
+        named ``prog`` in the CLI.
+    :param banner_func: Optional function to modify the printed banner. Called
+        with the default banner, and must return a string to use as the new
+        banner. The default banner does not include the drgn version, which can
+        be retrieved via :func:`version_header()`.
+    :param globals_func: Optional function to modify globals provided to the
+        session. Called with a dictionary of default globals, and must return a
+        dictionary to use instead.
+    :param quiet: Whether to suppress non-fatal warnings.
+
+    .. note::
+
+        This function uses :mod:`readline` and modifies some settings.
+        Unfortunately, it is not possible for it to restore all settings. In
+        particular, it clears the ``readline`` history and resets the TAB
+        keybinding to the default.
+
+        Applications using ``readline`` should save their history and clear any
+        custom settings before calling this function. After calling this
+        function, applications should restore their history and settings before
+        using ``readline``.
+    """
+    init_globals: Dict[str, Any] = {
+        "prog": prog,
+        "drgn": drgn,
+        "__name__": "__main__",
+        "__doc__": None,
+    }
+    drgn_globals = [
+        "NULL",
+        "Object",
+        "cast",
+        "container_of",
+        "execscript",
+        "offsetof",
+        "reinterpret",
+        "sizeof",
+    ]
+    for attr in drgn_globals:
+        init_globals[attr] = getattr(drgn, attr)
+
+    old_path = list(sys.path)
+    old_displayhook = sys.displayhook
+    old_history_length = readline.get_history_length()
+    old_completer = readline.get_completer()
+    try:
         sys.path.insert(0, "")
+        sys.displayhook = _displayhook
 
-        import atexit
-        import readline
-
-        from drgn.internal.rlcompleter import Completer
-
-        init_globals["drgn"] = drgn
-        drgn_globals = [
-            "NULL",
-            "Object",
-            "cast",
-            "container_of",
-            "execscript",
-            "offsetof",
-            "reinterpret",
-            "sizeof",
-        ]
-        for attr in drgn_globals:
-            init_globals[attr] = getattr(drgn, attr)
-        init_globals["__name__"] = "__main__"
-        init_globals["__doc__"] = None
-
+        readline.clear_history()
         histfile = os.path.expanduser("~/.drgn_history")
         try:
             readline.read_history_file(histfile)
         except OSError as e:
-            if not isinstance(e, FileNotFoundError) and not args.quiet:
+            if not isinstance(e, FileNotFoundError) and not quiet:
                 print("could not read history:", str(e), file=sys.stderr)
-
-        def write_history_file() -> None:
-            try:
-                readline.write_history_file(histfile)
-            except OSError as e:
-                if not args.quiet:
-                    print("could not write history:", str(e), file=sys.stderr)
-
-        atexit.register(write_history_file)
 
         readline.set_history_length(1000)
         readline.parse_and_bind("tab: complete")
         readline.set_completer(Completer(init_globals).complete)
-        atexit.register(lambda: readline.set_completer(None))
-
-        sys.displayhook = displayhook
 
         banner = f"""\
 For help, type help(drgn).
@@ -267,6 +321,20 @@ For help, type help(drgn).
             module = importlib.import_module("drgn.helpers.linux")
             for name in module.__dict__["__all__"]:
                 init_globals[name] = getattr(module, name)
-        if missing_debug_info_warning is not None:
-            banner += "\n" + missing_debug_info_warning
+        if banner_func:
+            banner = banner_func(banner)
+        if globals_func:
+            init_globals = globals_func(init_globals)
         code.interact(banner=banner, exitmsg="", local=init_globals)
+    finally:
+        sys.displayhook = old_displayhook
+        sys.path[:] = old_path
+        readline.set_history_length(old_history_length)
+        readline.parse_and_bind("tab: self-insert")
+        readline.set_completer(old_completer)
+        try:
+            readline.write_history_file(histfile)
+        except OSError as e:
+            if not quiet:
+                print("could not write history:", str(e), file=sys.stderr)
+        readline.clear_history()
