@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest16"
+        localversion = "-vmtest17"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -113,6 +113,9 @@ CONFIG_VIRTIO_CONSOLE=y
 CONFIG_VIRTIO_PCI=y
 CONFIG_HW_RANDOM=m
 CONFIG_HW_RANDOM_VIRTIO=m
+
+# Lots of stuff expect Unix sockets.
+CONFIG_UNIX=y
 
 # drgn needs debug info.
 CONFIG_DEBUG_KERNEL=y
