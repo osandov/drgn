@@ -33,6 +33,8 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
+#include <linux/workqueue.h>
+#include <linux/delay.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
 #define HAVE_XARRAY 1
 #include <linux/xarray.h>
@@ -1070,6 +1072,90 @@ static void drgn_test_waitq_exit(void)
 	}
 }
 
+// workqeue
+
+struct workqueue_struct *drgn_test_wq;
+struct work_struct drgn_test_works[5];
+struct work_struct drgn_test_blocker_work;
+unsigned long drgn_test_skip_worker_loop = 1;
+
+static int workqueue_set_test_trigger(const char *val,
+					const struct kernel_param *kp)
+{
+	unsigned long trigger;
+	int ret, i;
+
+	ret = kstrtoul(val, 0, &trigger);
+	if (ret)
+		return ret;
+
+	if (trigger) {
+		ret = queue_work_on(0, drgn_test_wq, &drgn_test_blocker_work);
+
+		for (i = 0; i < 5; i++)
+			ret = queue_work_on(0, drgn_test_wq, &drgn_test_works[i]);
+
+		if (!ret)
+			drgn_test_skip_worker_loop = 0;
+	} else
+		drgn_test_skip_worker_loop = 0;
+
+	return 0;
+}
+
+static const struct kernel_param_ops workqueue_test_ops = {
+	.set	= workqueue_set_test_trigger,
+};
+
+module_param_cb(workqueue_test_trigger, &workqueue_test_ops, &drgn_test_skip_worker_loop,
+		0644);
+
+static void drgn_test_work_func(struct work_struct *data)
+{
+	(void)data;
+	mdelay(5); //just busy loop for 5ms
+	return;
+}
+
+static void drgn_test_blocker_work_func(struct work_struct *data)
+{
+	(void)data;
+
+	/*
+	 * mdelay will keep busy looping so workqueue framework should
+	 * not fork new workers for involved pool.
+	 * module exit resets the loop variable and this in turn will complete
+	 * the function. Subsequent destroy_workqueue from exit will orderly
+	 * cleanup remaining works and destroy the test workqueue
+	 */
+	while(drgn_test_skip_worker_loop) {
+		mdelay(10);
+		cond_resched();
+	}
+}
+
+static int __init drgn_test_workqueue_init(void)
+{
+	int i;
+
+	drgn_test_wq = alloc_workqueue("drgn_test_wq", 0, 0);
+	if (!drgn_test_wq)
+		return -ENOMEM;
+
+	INIT_WORK(&drgn_test_blocker_work, drgn_test_blocker_work_func);
+
+	for (i = 0; i < 5; i++)
+		INIT_WORK(&drgn_test_works[i], drgn_test_work_func);
+
+        return 0;
+}
+
+static void drgn_test_workqueue_exit(void)
+{
+	drgn_test_skip_worker_loop = 0;
+	destroy_workqueue(drgn_test_wq);
+}
+
 // Dummy function symbol.
 int drgn_test_function(int x)
 {
@@ -1088,6 +1174,7 @@ static void drgn_test_exit(void)
 	drgn_test_xarray_exit();
 	drgn_test_waitq_exit();
 	drgn_test_idr_exit();
+	drgn_test_workqueue_exit();
 }
 
 static int __init drgn_test_init(void)
@@ -1126,6 +1213,9 @@ static int __init drgn_test_init(void)
 	if (ret)
 		goto out;
 	ret = drgn_test_idr_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_workqueue_init();
 out:
 	if (ret)
 		drgn_test_exit();
