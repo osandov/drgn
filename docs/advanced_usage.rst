@@ -115,3 +115,65 @@ Some of drgn's behavior can be modified through environment variables:
     kernel modules for the running kernel instead of getting them from the core
     dump (0 or 1). The default is 1. This environment variable is mainly
     intended for testing and may be ignored in the future.
+
+.. _kernel-special-objects:
+
+Linux Kernel Special Objects
+----------------------------
+
+When debugging the Linux kernel, there are some special :class:`drgn.Object`\ s
+accessible with :meth:`drgn.Program.object()` and :meth:`drgn.Program[]
+<drgn.Program.__getitem__>`. Some of these are available even without debugging
+information, thanks to metadata called "vmcoreinfo" which is present in kernel
+core dumps. These special objects include:
+
+``UTS_RELEASE``
+    Object type: ``const char []``
+
+    This corresponds to the ``UTS_RELEASE`` macro in the Linux kernel source
+    code. This is the exact kernel release (i.e., the output of ``uname -r``).
+
+    To use this as a Python string, you must convert it::
+
+        >>> release = prog["UTS_RELEASE"].string_().decode("ascii")
+
+    This is available without debugging information.
+
+``PAGE_SIZE``
+    Object type: ``unsigned long``
+
+``PAGE_SHIFT``
+    Object type: ``unsigned int``
+
+``PAGE_MASK``
+    Object type: ``unsigned long``
+
+    These correspond to the macros of the same name in the Linux kernel source
+    code. The page size is the smallest contiguous unit of physical memory
+    which can be allocated or mapped by the kernel.
+
+    >>> prog['PAGE_SIZE']
+    (unsigned long)4096
+    >>> prog['PAGE_SHIFT']
+    (int)12
+    >>> prog['PAGE_MASK']
+    (unsigned long)18446744073709547520
+    >>> 1 << prog['PAGE_SHIFT'] == prog['PAGE_SIZE']
+    True
+    >>> ~(prog['PAGE_SIZE'] - 1) == prog['PAGE_MASK']
+    True
+
+    These are available without debugging information.
+
+``vmemmap``
+    Object type: ``struct page *``
+
+    This is a pointer to the "virtual memory map", an array of ``struct page``
+    for each physical page of memory. While the purpose and implementation
+    details of this array are beyond the scope of this documentation, it is
+    enough to say that it is represented in the kernel source in an
+    architecture-dependent way, frequently as a macro or constant. The
+    definition provided by drgn ensures that users can access it without
+    resorting to architecture-specific logic.
+
+    This is *not* available without debugging information.

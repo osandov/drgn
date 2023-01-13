@@ -185,6 +185,10 @@ class Program:
         """
         Get the object (variable, constant, or function) with the given name.
 
+        When debugging the Linux kernel, this can look up certain special
+        objects documented in :ref:`kernel-special-objects`, sometimes without
+        any debugging information loaded.
+
         :param name: The object name.
         :param flags: Flags indicating what kind of object to look for.
         :param filename: The source code file that contains the definition. See
