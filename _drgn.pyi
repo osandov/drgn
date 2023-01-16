@@ -2359,16 +2359,7 @@ def _linux_helper_task_cpu(task: Object) -> int:
     """
     ...
 
-def _linux_helper_idr_find(idr: Object, id: IntegerLike) -> Object:
-    """
-    Look up the entry with the given ID in an IDR.
-
-    :param idr: ``struct idr *``
-    :param id: Entry ID.
-    :return: ``void *`` found entry, or ``NULL`` if not found.
-    """
-    ...
-
+def _linux_helper_idr_find(idr: Object, id: IntegerLike) -> Object: ...
 def _linux_helper_find_pid(
     prog_or_ns: Union[Program, Object], pid: IntegerLike
 ) -> Object:
