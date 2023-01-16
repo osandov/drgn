@@ -526,6 +526,11 @@ null:
 #undef is_node
 }
 
+// Note that this only works since Linux kernel commit 0a835c4f090a
+// ("Reimplement IDR and IDA using the radix tree") (in v4.11). We only need
+// this since Linux kernel commit 95846ecf9dac ("pid: replace pid bitmap
+// implementation with IDR API") (in v4.15) (see find_pid_in_pid_hash()), so
+// that's okay.
 struct drgn_error *linux_helper_idr_find(struct drgn_object *res,
 					 const struct drgn_object *idr,
 					 uint64_t id)
