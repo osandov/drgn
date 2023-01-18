@@ -13,6 +13,7 @@ import sys
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Dict,
     Iterable,
     Iterator,
@@ -26,9 +27,14 @@ from typing import (
 )
 
 if sys.version_info < (3, 8):
-    from typing_extensions import Protocol
+    from typing_extensions import Final, Protocol
 else:
-    from typing import Protocol
+    from typing import Final, Protocol
+
+if sys.version_info < (3, 10):
+    from typing_extensions import TypeAlias
+else:
+    from typing import TypeAlias
 
 # This is effectively typing.SupportsIndex without @typing.runtime_checkable
 # (both of which are only available since Python 3.8), with a more
@@ -43,7 +49,7 @@ class IntegerLike(Protocol):
 
     def __index__(self) -> int: ...
 
-Path = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
+Path: TypeAlias = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
 """
 Filesystem path.
 
@@ -849,9 +855,9 @@ class FindObjectFlags(enum.Flag):
 class Thread:
     """A thread in a program."""
 
-    tid: int
+    tid: Final[int]
     """Thread ID (as defined by :manpage:`gettid(2)`)."""
-    object: Object
+    object: Final[Object]
     """
     If the program is the Linux kernel, the ``struct task_struct *`` object for
     this thread. Otherwise, not defined.
@@ -925,13 +931,13 @@ class Platform:
             the architecture are used.
         """
         ...
-    arch: Architecture
+    arch: Final[Architecture]
     """Instruction set architecture of this platform."""
 
-    flags: PlatformFlags
+    flags: Final[PlatformFlags]
     """Flags which apply to this platform."""
 
-    registers: Sequence[Register]
+    registers: Final[Sequence[Register]]
     """Processor registers on this platform."""
 
 class Architecture(enum.Enum):
@@ -983,7 +989,7 @@ class PlatformFlags(enum.Flag):
 class Register:
     """A ``Register`` represents information about a processor register."""
 
-    names: Sequence[str]
+    names: Final[Sequence[str]]
     """Names of this register."""
 
 host_platform: Platform
@@ -997,13 +1003,13 @@ class Language:
     languages.
     """
 
-    name: str
+    name: Final[str]
     """Name of the programming language."""
 
-    C: Language
+    C: ClassVar[Language]
     """The C programming language."""
 
-    CPP: Language
+    CPP: ClassVar[Language]
     """The C++ programming language."""
 
 class Object:
@@ -1155,13 +1161,13 @@ class Object:
     ) -> None:
         """Create an absent object."""
         ...
-    prog_: Program
+    prog_: Final[Program]
     """Program that this object is from."""
 
-    type_: Type
+    type_: Final[Type]
     """Type of this object."""
 
-    absent_: bool
+    absent_: Final[bool]
     """
     Whether this object is absent.
 
@@ -1169,20 +1175,20 @@ class Object:
     an invalid address).
     """
 
-    address_: Optional[int]
+    address_: Final[Optional[int]]
     """
     Address of this object if it is a reference, ``None`` if it is a value or
     absent.
     """
 
-    bit_offset_: Optional[int]
+    bit_offset_: Final[Optional[int]]
     """
     Offset in bits from this object's address to the beginning of the object if
     it is a reference, ``None`` otherwise. This can only be non-zero for
     scalars.
     """
 
-    bit_field_size_: Optional[int]
+    bit_field_size_: Final[Optional[int]]
     """
     Size in bits of this object if it is a bit field, ``None`` if it is not.
     """
@@ -1520,19 +1526,19 @@ class Symbol:
     identifier along with its corresponding address range in the program.
     """
 
-    name: str
+    name: Final[str]
     """Name of this symbol."""
 
-    address: int
+    address: Final[int]
     """Start address of this symbol."""
 
-    size: int
+    size: Final[int]
     """Size of this symbol in bytes."""
 
-    binding: SymbolBinding
+    binding: Final[SymbolBinding]
     """Linkage behavior and visibility of this symbol."""
 
-    kind: SymbolKind
+    kind: Final[SymbolKind]
     """Kind of entity represented by this symbol."""
 
 class SymbolBinding(enum.Enum):
@@ -1623,7 +1629,7 @@ class StackTrace:
     traces are displayed with ``str()`` by default.
     """
 
-    prog: Program
+    prog: Final[Program]
     """Program that this stack trace is from."""
 
     def __getitem__(self, idx: IntegerLike) -> StackFrame: ...
@@ -1653,7 +1659,7 @@ class StackFrame:
     (int)1
     """
 
-    name: Optional[str]
+    name: Final[Optional[str]]
     """
     Name of the function at this frame, or ``None`` if it could not be
     determined.
@@ -1672,7 +1678,7 @@ class StackFrame:
                 name = hex(frame.pc)
     """
 
-    is_inline: bool
+    is_inline: Final[bool]
     """
     Whether this frame is for an inlined call.
 
@@ -1681,7 +1687,7 @@ class StackFrame:
     symbol).
     """
 
-    interrupted: bool
+    interrupted: Final[bool]
     """
     Whether this stack frame was interrupted (for example, by a hardware
     interrupt, signal, trap, etc.).
@@ -1695,10 +1701,10 @@ class StackFrame:
     the instruction after the call instruction.
     """
 
-    pc: int
+    pc: Final[int]
     """Program counter at this stack frame."""
 
-    sp: int
+    sp: Final[int]
     """Stack pointer at this stack frame."""
 
     def __getitem__(self, name: str) -> Object:
@@ -1791,60 +1797,60 @@ class Type:
     :ref:`api-type-constructors`.
     """
 
-    prog: Program
+    prog: Final[Program]
     """Program that this type is from."""
 
-    kind: TypeKind
+    kind: Final[TypeKind]
     """Kind of this type."""
 
-    primitive: Optional[PrimitiveType]
+    primitive: Final[Optional[PrimitiveType]]
     """
     If this is a primitive type (e.g., ``int`` or ``double``), the kind of
     primitive type. Otherwise, ``None``.
     """
 
-    qualifiers: Qualifiers
+    qualifiers: Final[Qualifiers]
     """Bitmask of this type's qualifier."""
 
-    language: Language
+    language: Final[Language]
     """Programming language of this type."""
 
-    name: str
+    name: Final[str]
     """
     Name of this type. This is present for integer, boolean, floating-point,
     and typedef types.
     """
 
-    tag: Optional[str]
+    tag: Final[Optional[str]]
     """
     Tag of this type, or ``None`` if this is an anonymous type. This is present
     for structure, union, class, and enumerated types.
     """
 
-    size: Optional[int]
+    size: Final[Optional[int]]
     """
     Size of this type in bytes, or ``None`` if this is an incomplete type. This
     is present for integer, boolean, floating-point, structure, union, class,
     and pointer types.
     """
 
-    length: Optional[int]
+    length: Final[Optional[int]]
     """
     Number of elements in this type, or ``None`` if this is an incomplete type.
     This is only present for array types.
     """
 
-    is_signed: bool
+    is_signed: Final[bool]
     """Whether this type is signed. This is only present for integer types."""
 
-    byteorder: str
+    byteorder: Final[str]
     """
     Byte order of this type: ``'little'`` if it is little-endian, or ``'big'``
     if it is big-endian. This is present for integer, boolean, floating-point,
     and pointer types.
     """
 
-    type: Type
+    type: Final[Type]
     """
     Type underlying this type, defined as follows:
 
@@ -1858,30 +1864,30 @@ class Type:
     For other types, this attribute is not present.
     """
 
-    members: Optional[Sequence[TypeMember]]
+    members: Final[Optional[Sequence[TypeMember]]]
     """
     List of members of this type, or ``None`` if this is an incomplete type.
     This is present for structure, union, and class types.
     """
 
-    enumerators: Optional[Sequence[TypeEnumerator]]
+    enumerators: Final[Optional[Sequence[TypeEnumerator]]]
     """
     List of enumeration constants of this type, or ``None`` if this is an
     incomplete type. This is only present for enumerated types.
     """
 
-    parameters: Sequence[TypeParameter]
+    parameters: Final[Sequence[TypeParameter]]
     """
     List of parameters of this type. This is only present for function types.
     """
 
-    is_variadic: bool
+    is_variadic: Final[bool]
     """
     Whether this type takes a variable number of arguments. This is only
     present for function types.
     """
 
-    template_parameters: Sequence[TypeTemplateParameter]
+    template_parameters: Final[Sequence[TypeTemplateParameter]]
     """
     List of template parameters of this type. This is present for structure,
     union, class, and function types.
@@ -1965,7 +1971,7 @@ class TypeMember:
         :param bit_offset: :attr:`TypeMember.bit_offset`
         """
         ...
-    object: Object
+    object: Final[Object]
     """
     Member as an :class:`Object`.
 
@@ -1975,26 +1981,26 @@ class TypeMember:
     usually absent.)
     """
 
-    type: Type
+    type: Final[Type]
     """
     Member type.
 
     This is a shortcut for ``TypeMember.object.type``.
     """
 
-    name: Optional[str]
+    name: Final[Optional[str]]
     """Member name, or ``None`` if the member is unnamed."""
 
-    bit_offset: int
+    bit_offset: Final[int]
     """Offset of the member from the beginning of the type in bits."""
 
-    offset: int
+    offset: Final[int]
     """
     Offset of the member from the beginning of the type in bytes. If the offset
     is not byte-aligned, accessing this attribute raises :exc:`ValueError`.
     """
 
-    bit_field_size: Optional[int]
+    bit_field_size: Final[Optional[int]]
     """
     Size in bits of this member if it is a bit field, ``None`` if it is not.
 
@@ -2022,10 +2028,10 @@ class TypeEnumerator:
         :param value: :attr:`TypeEnumerator.value`
         """
         ...
-    name: str
+    name: Final[str]
     "Enumerator name."
 
-    value: int
+    value: Final[int]
     "Enumerator value."
     def __len__(self) -> int: ...
     def __getitem__(self, idx: int) -> Any: ...
@@ -2057,7 +2063,7 @@ class TypeParameter:
         :param name: :attr:`TypeParameter.name`
         """
         ...
-    default_argument: Object
+    default_argument: Final[Object]
     """
     Default argument for parameter.
 
@@ -2071,14 +2077,14 @@ class TypeParameter:
         usually absent.
     """
 
-    type: Type
+    type: Final[Type]
     """
     Parameter type.
 
     This is the same as ``TypeParameter.default_argument.type_``.
     """
 
-    name: Optional[str]
+    name: Final[Optional[str]]
     """Parameter name, or ``None`` if the parameter is unnamed."""
 
 class TypeTemplateParameter:
@@ -2110,7 +2116,7 @@ class TypeTemplateParameter:
         :param is_default: :attr:`TypeTemplateParameter.is_default`
         """
         ...
-    argument: Union[Type, Object]
+    argument: Final[Union[Type, Object]]
     """
     Template argument.
 
@@ -2118,10 +2124,10 @@ class TypeTemplateParameter:
     is a non-type template parameter, then this is an :class:`Object`.
     """
 
-    name: Optional[str]
+    name: Final[Optional[str]]
     """Template parameter name, or ``None`` if the parameter is unnamed."""
 
-    is_default: bool
+    is_default: Final[bool]
     """
     Whether :attr:`argument` is the default for the template parameter.
 
