@@ -19,4 +19,4 @@ ${DOCKER=docker} run -it \
 	--rm \
 	--pull always \
 	quay.io/pypa/manylinux2014_x86_64 \
-	./scripts/build_manylinux_in_docker.sh
+	./scripts/build_manylinux_in_docker.sh "${1:-}"

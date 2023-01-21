@@ -21,6 +21,12 @@ yum install -y \
 # https://github.com/pypa/manylinux/issues/731.
 ln -s /usr/share/aclocal/pkg.m4 /usr/local/share/aclocal/
 
+BUILD_ONLY_PYTHON=""
+if [ -n "${1:-}" ]; then
+	# Translate, e.g. 3.10 -> (3, 10)
+	BUILD_ONLY_PYTHON="$(echo "$1" | perl -pe 's/(\d+)\.(\d+)/(\1, \2)/')"
+fi
+
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
 elfutils_version=0.188
@@ -53,12 +59,18 @@ mkdir /tmp/drgn
 cd /tmp/drgn
 tar -xf "/io/$SDIST" --strip-components=1
 
-python_supported() {
-	"$1" -c 'import sys; sys.exit(sys.version_info < (3, 6))'
+build_for_python() {
+	if [ -n "$BUILD_ONLY_PYTHON" ]; then
+		# Build for selected Python release only
+		"$1" -c "import sys; sys.exit(sys.version_info[:2] != $BUILD_ONLY_PYTHON)"
+	else
+		# Build for all supported Pythons
+		"$1" -c 'import sys; sys.exit(sys.version_info < (3, 6))'
+	fi
 }
 
 for pybin in /opt/python/cp*/bin; do
-	if python_supported "$pybin/python"; then
+	if build_for_python "$pybin/python"; then
 		"$pybin/pip" wheel . --no-deps -w /tmp/wheels/
 	fi
 done
@@ -72,7 +84,7 @@ for wheel in /tmp/wheels/*.whl; do
 done
 
 for pybin in /opt/python/cp*/bin; do
-	if python_supported "$pybin/python"; then
+	if build_for_python "$pybin/python"; then
 		"$pybin/pip" install drgn --no-index -f /tmp/manylinux_wheels/
 		"$pybin/drgn" --version
 		"$pybin/python" setup.py test
