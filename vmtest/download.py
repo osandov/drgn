@@ -53,7 +53,20 @@ def _download_kernel(gh: GitHubApi, url: str, dir: Path) -> None:
             assert zstd_proc.stdin is not None
             try:
                 with gh.download(url) as resp:
-                    shutil.copyfileobj(resp, zstd_proc.stdin)
+                    content_length = int(resp.headers.get("Content-Length", "0"))
+                    read_length = 0
+                    read_fn = resp.read
+                    write_fn = zstd_proc.stdin.write
+                    while True:
+                        buf = read_fn(65536)
+                        if not buf:
+                            break
+                        read_length += len(buf)
+                        write_fn(buf)
+                if read_length < content_length:
+                    raise Exception(
+                        f"downloaded {read_length} bytes; expected {content_length}"
+                    )
             finally:
                 zstd_proc.stdin.close()
         if zstd_proc.returncode != 0:
