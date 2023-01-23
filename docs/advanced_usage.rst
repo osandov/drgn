@@ -63,7 +63,7 @@ program "memory":
         file = open(dev, 'rb')
         size = file.seek(0, 2)
 
-        def read_file(address, count, physical, offset):
+        def read_file(address, count, offset, physical):
             file.seek(offset)
             return file.read(count)
 
