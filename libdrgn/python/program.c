@@ -44,7 +44,9 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 		name = PyUnicode_AsUTF8(type_obj);
 		if (!name)
 			return -1;
+		Py_BEGIN_ALLOW_THREADS
 		err = drgn_program_find_type(&prog->prog, name, NULL, ret);
+		Py_END_ALLOW_THREADS
 		if (err) {
 			set_drgn_error(err);
 			return -1;
@@ -93,7 +95,9 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 	}
 	prog->cache = cache;
 	pyobjectp_set_init(&prog->objects);
+	Py_BEGIN_ALLOW_THREADS
 	drgn_program_init(&prog->prog, platform);
+	Py_END_ALLOW_THREADS
 	return prog;
 }
 
@@ -496,8 +500,10 @@ static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 		for (size_t i = 0; i < path_args.size; i++)
 			paths[i] = path_args.data[i].path;
 	}
+	Py_BEGIN_ALLOW_THREADS
 	err = drgn_program_load_debug_info(&self->prog, paths, path_args.size,
 					   load_default, load_main);
+	Py_END_ALLOW_THREADS
 	free(paths);
 	if (err)
 		set_drgn_error(err);
@@ -515,7 +521,9 @@ static PyObject *Program_load_default_debug_info(Program *self)
 {
 	struct drgn_error *err;
 
+	Py_BEGIN_ALLOW_THREADS
 	err = drgn_program_load_debug_info(&self->prog, NULL, 0, true, true);
+	Py_END_ALLOW_THREADS
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -617,8 +625,10 @@ static PyObject *Program_find_type(Program *self, PyObject *args, PyObject *kwds
 		goto out;
 	bool clear = set_drgn_in_python();
 	struct drgn_qualified_type qualified_type;
+	Py_BEGIN_ALLOW_THREADS
 	err = drgn_program_find_type(&self->prog, name, filename.path,
 				     &qualified_type);
+	Py_END_ALLOW_THREADS
 	if (clear)
 		clear_drgn_in_python();
 	if (err) {
@@ -1140,7 +1150,9 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
+	Py_BEGIN_ALLOW_THREADS
 	err = drgn_program_init_core_dump(&prog->prog, path.path);
+	Py_END_ALLOW_THREADS
 	path_cleanup(&path);
 	if (err) {
 		Py_DECREF(prog);
@@ -1158,7 +1170,9 @@ Program *program_from_kernel(PyObject *self)
 	if (!prog)
 		return NULL;
 
+	Py_BEGIN_ALLOW_THREADS
 	err = drgn_program_init_kernel(&prog->prog);
+	Py_END_ALLOW_THREADS
 	if (err) {
 		Py_DECREF(prog);
 		return set_drgn_error(err);
@@ -1181,7 +1195,9 @@ Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds)
 	if (!prog)
 		return NULL;
 
+	Py_BEGIN_ALLOW_THREADS
 	err = drgn_program_init_pid(&prog->prog, pid);
+	Py_END_ALLOW_THREADS
 	if (err) {
 		Py_DECREF(prog);
 		return set_drgn_error(err);
