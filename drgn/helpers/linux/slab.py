@@ -17,7 +17,7 @@ Linux slab allocator.
 
 import operator
 from os import fsdecode
-from typing import Dict, Iterator, Optional, Set, Tuple, Union, overload
+from typing import Callable, Dict, Iterator, Optional, Set, Tuple, Union, overload
 
 from drgn import (
     NULL,
@@ -257,14 +257,27 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         try:
             freelist_random = slab_cache.random.value_()
         except AttributeError:
-
-            def _freelist_dereference(ptr_addr: int) -> int:
-                return self._prog.read_word(ptr_addr)
-
+            self._freelist_dereference: Callable[[int], int] = self._prog.read_word
         else:
             ulong_size = sizeof(self._prog.type("unsigned long"))
 
-            def _freelist_dereference(ptr_addr: int) -> int:
+            # Since Linux kernel commit 1ad53d9fa3f6 ("slub: improve bit
+            # diffusion for freelist ptr obfuscation") in v5.7, a swab() was
+            # added to the freelist dereferencing calculation. This commit was
+            # backported to all stable branches which have
+            # CONFIG_SLAB_FREELIST_HARDENED, but you can still encounter some
+            # older stable kernels which don't have it. Unfortunately, there's
+            # no easy way to detect whether it is in effect, since the commit
+            # adds no struct field or other detectable difference.
+            #
+            # To handle this, we implement both methods, and we start out with a
+            # "trial" function. On the first time we encounter a non-NULL
+            # freelist, we try using the method with the swab(), and test
+            # whether the resulting pointer may be dereferenced. If it can, we
+            # commit to using that method forever. If it cannot, we switch to
+            # the version without swab() and commit to using that.
+
+            def _freelist_dereference_swab(ptr_addr: int) -> int:
                 # *ptr_addr ^ slab_cache->random ^ byteswap(ptr_addr)
                 return (
                     self._prog.read_word(ptr_addr)
@@ -272,11 +285,28 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                     ^ int.from_bytes(ptr_addr.to_bytes(ulong_size, "little"), "big")
                 )
 
+            def _freelist_dereference_no_swab(ptr_addr: int) -> int:
+                # *ptr_addr ^ slab_cache->random ^ ptr_addr
+                return self._prog.read_word(ptr_addr) ^ freelist_random ^ ptr_addr
+
+            def _try_hardened_freelist_dereference(ptr_addr: int) -> int:
+                result = _freelist_dereference_swab(ptr_addr)
+                if result:
+                    try:
+                        self._prog.read_word(result)
+                        self._freelist_dereference = _freelist_dereference_swab
+                    except FaultError:
+                        result = _freelist_dereference_no_swab(ptr_addr)
+                        self._freelist_dereference = _freelist_dereference_no_swab
+                return result
+
+            self._freelist_dereference = _try_hardened_freelist_dereference
+
         def _slub_get_freelist(freelist: Object, freelist_set: Set[int]) -> None:
             ptr = freelist.value_()
             while ptr:
                 freelist_set.add(ptr)
-                ptr = _freelist_dereference(ptr + freelist_offset)
+                ptr = self._freelist_dereference(ptr + freelist_offset)
 
         cpu_freelists: Set[int] = set()
         cpu_slab = slab_cache.cpu_slab.read_()
