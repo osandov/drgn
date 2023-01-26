@@ -28,5 +28,5 @@ for inode in list_for_each_entry(
 ):
     try:
         print(os.fsdecode(inode_path(inode)))
-    except ValueError:
+    except (TypeError, ValueError):
         continue
