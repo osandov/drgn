@@ -92,10 +92,23 @@ def _print_sk(sk):
 tcp_hashinfo = prog.object("tcp_hashinfo")
 
 # 1. Iterate over all TCP sockets in TCP_LISTEN state.
-for ilb in tcp_hashinfo.listening_hash:
-    for pos in hlist_for_each(ilb.head):
-        sk = container_of(pos, "struct sock", "__sk_common.skc_node")
-        _print_sk(sk)
+
+# Since Linux kernel commit cae3873c5b3a ("net: inet: Retire port only
+# listening_hash") (in v5.19), listening_hash is removed and we need
+# to iterate lhash2 table.
+
+try:
+    for ilb in tcp_hashinfo.listening_hash:
+        for pos in hlist_for_each(ilb.head):
+            sk = container_of(pos, "struct sock", "__sk_common.skc_node")
+            _print_sk(sk)
+except AttributeError:
+    for i in range(tcp_hashinfo.lhash2_mask + 1):
+        head = tcp_hashinfo.lhash2[i].nulls_head
+        if hlist_nulls_empty(head):
+            continue
+        for sk in sk_nulls_for_each(head):
+            _print_sk(sk)
 
 # 2. And all other TCP sockets.
 for i in range(tcp_hashinfo.ehash_mask + 1):
