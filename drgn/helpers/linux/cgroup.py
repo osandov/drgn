@@ -37,7 +37,14 @@ def sock_cgroup_ptr(skcd: Object) -> Object:
     :param skcd: ``struct sock_cgroup_data *``
     :return: ``struct cgroup *``
     """
-    return cast("struct cgroup *", skcd.val)
+
+    # Since Linux kernel commit 8520e224f547 ("bpf, cgroups: Fix
+    # cgroup v2 fallback on v1/v2 mixed mode") (in v5.15), the sock_cgroup_data
+    # contains directly cgroup member (of struct cgroup * type).
+    try:
+        return skcd.cgroup
+    except AttributeError:
+        return cast("struct cgroup *", skcd.val)
 
 
 def cgroup_parent(cgrp: Object) -> Object:
