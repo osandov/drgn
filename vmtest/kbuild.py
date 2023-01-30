@@ -30,7 +30,7 @@ class KernelFlavor(NamedTuple):
     config: str
 
     def localversion(self) -> str:
-        localversion = "-vmtest17"
+        localversion = "-vmtest18"
         # The default flavor should be the "latest" version.
         localversion += ".1" if self.name == "default" else ".0"
         localversion += self.name
@@ -153,6 +153,10 @@ CONFIG_DEBUG_INFO_BTF_MODULES=y
 
 # For cgroup tests.
 CONFIG_CGROUPS=y
+# To select CONFIG_SOCK_CGROUP_DATA. (CONFIG_CGROUP_BPF also selects
+# CONFIG_SOCK_CGROUP_DATA, but that's only present since Linux kernel commit
+# 3007098494be ("cgroup: add support for eBPF programs") (in v4.10)).
+CONFIG_CGROUP_NET_CLASSID=y
 
 # For kconfig tests.
 CONFIG_IKCONFIG=m
