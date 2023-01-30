@@ -152,23 +152,21 @@ struct drgn_dwarf_index_die {
 	uint32_t next;
 	/** DIE tag. */
 	uint8_t tag;
-	union {
-		/**
-		 * Hash of filename containing declaration.
-		 *
-		 * DIEs with the same name but different tags or files are
-		 * considered distinct. We only compare the hash of the file
-		 * name, not the string value, because a 64-bit collision is
-		 * unlikely enough, especially when also considering the name
-		 * and tag.
-		 *
-		 * This is used if `tag != DW_TAG_namespace` (namespaces are
-		 * merged, so they don't need this).
-		 */
-		uint64_t file_name_hash;
-		/** Nested namespace if `tag == DW_TAG_namespace`. */
-		struct drgn_namespace_dwarf_index *namespace;
-	};
+	/**
+	 * Hash of filename containing declaration.
+	 *
+	 * DIEs with the same name but different tags or files are
+	 * considered distinct. We only compare the hash of the file
+	 * name, not the string value, because a 64-bit collision is
+	 * unlikely enough, especially when also considering the name
+	 * and tag.
+	 *
+	 * This is used if `tag != DW_TAG_namespace` (namespaces are
+	 * merged, so they don't need this).
+	 */
+	uint64_t file_name_hash;
+	/** Nested namespace if `tag == {DW_TAG_namespace, DW_TAG_class_type}`. */
+	struct drgn_namespace_dwarf_index *namespace;
 	/** File containing this DIE. */
 	struct drgn_elf_file *file;
 	/** Address of this DIE. */
@@ -219,7 +217,7 @@ drgn_namespace_dwarf_index_deinit(struct drgn_namespace_dwarf_index *dindex)
 			struct drgn_dwarf_index_shard *shard = &dindex->shards[i];
 			for (size_t j = 0; j < shard->dies.size; j++) {
 				struct drgn_dwarf_index_die *die = &shard->dies.data[j];
-				if (die->tag == DW_TAG_namespace) {
+				if (die->tag == DW_TAG_namespace || die->tag == DW_TAG_class_type) {
 					drgn_namespace_dwarf_index_deinit(die->namespace);
 					free(die->namespace);
 				}
@@ -2324,7 +2322,7 @@ static bool append_die_entry(struct drgn_debug_info *dbinfo,
 		return false;
 	die->next = UINT32_MAX;
 	die->tag = tag;
-	if (die->tag == DW_TAG_namespace) {
+	if (die->tag == DW_TAG_namespace || die->tag == DW_TAG_class_type) {
 		die->namespace = malloc(sizeof(*die->namespace));
 		if (!die->namespace) {
 			shard->dies.size--;
@@ -2389,7 +2387,7 @@ static bool index_die(struct drgn_namespace_dwarf_index *ns,
 	die = &shard->dies.data[shard->dies.size - 1];
 	shard->dies.data[index].next = shard->dies.size - 1;
 out:
-	if (tag == DW_TAG_namespace) {
+	if (tag == DW_TAG_namespace || tag == DW_TAG_class_type) {
 		struct drgn_dwarf_index_pending_die *pending =
 			drgn_dwarf_index_pending_die_vector_append_entry(&die->namespace->pending_dies);
 		if (!pending)
@@ -2777,7 +2775,7 @@ static void drgn_dwarf_index_rollback(struct drgn_debug_info *dbinfo)
 			if (die->file->module->state ==
 			    DRGN_DEBUG_INFO_MODULE_INDEXED)
 				break;
-			if (die->tag == DW_TAG_namespace) {
+			if (die->tag == DW_TAG_namespace || die->tag == DW_TAG_class_type) {
 				drgn_namespace_dwarf_index_deinit(die->namespace);
 				free(die->namespace);
 			}
@@ -5522,7 +5520,8 @@ find_namespace_containing_die(struct drgn_debug_info *dbinfo,
 		return err;
 
 	for (size_t i = 0; i < num_ancestors; i++) {
-		if (dwarf_tag(&ancestors[i]) != DW_TAG_namespace)
+		const int tag = dwarf_tag(&ancestors[i]);
+		if (!(tag == DW_TAG_namespace || tag == DW_TAG_class_type))
 			continue;
 		Dwarf_Attribute attr_mem, *attr;
 		if (!(attr = dwarf_attr_integrate(&ancestors[i], DW_AT_name,
@@ -5536,9 +5535,9 @@ find_namespace_containing_die(struct drgn_debug_info *dbinfo,
 		}
 
 		struct drgn_dwarf_index_iterator it;
-		const uint64_t ns_tag = DW_TAG_namespace;
-		err = drgn_dwarf_index_iterator_init(&it, ns, name,
-						     strlen(name), &ns_tag, 1);
+		err = drgn_dwarf_index_iterator_init(
+			&it, ns, name, strlen(name),
+			(uint64_t[2]){DW_TAG_namespace, DW_TAG_class_type}, 2);
 		if (err)
 			goto out;
 
@@ -6836,9 +6835,9 @@ find_enclosing_namespace(struct drgn_namespace_dwarf_index *global_namespace,
 	const char *colons;
 	while ((colons = memmem(*name, searchable_len, "::", 2))) {
 		struct drgn_dwarf_index_iterator it;
-		uint64_t ns_tag = DW_TAG_namespace;
 		struct drgn_error *err = drgn_dwarf_index_iterator_init(
-			&it, *namespace_ret, *name, colons - *name, &ns_tag, 1);
+			&it, *namespace_ret, *name, colons - *name,
+			(uint64_t[2]){DW_TAG_namespace, DW_TAG_class_type}, 2);
 		if (err)
 			return err;
 		struct drgn_dwarf_index_die *index_die =

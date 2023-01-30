@@ -3888,6 +3888,34 @@ class TestTypes(TestCase):
                                     make_composite_die(DW_TAG.union_type, "TEST_UNION"),
                                 ),
                             ),
+                            DwarfDie(
+                                DW_TAG.class_type,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.name, DW_FORM.string, "ClassAsNamespace"
+                                    ),
+                                ),
+                                (
+                                    DwarfDie(
+                                        DW_TAG.typedef,
+                                        (
+                                            DwarfAttrib(
+                                                DW_AT.name,
+                                                DW_FORM.string,
+                                                "TEST_TYPEDEF",
+                                            ),
+                                            DwarfAttrib(
+                                                DW_AT.type, DW_FORM.ref4, "int_die"
+                                            ),
+                                        ),
+                                    ),
+                                    make_composite_die(
+                                        DW_TAG.structure_type, "TEST_STRUCT"
+                                    ),
+                                    make_composite_die(DW_TAG.class_type, "TEST_CLASS"),
+                                    make_composite_die(DW_TAG.union_type, "TEST_UNION"),
+                                ),
+                            ),
                         ),
                     ),
                 ),
@@ -3898,43 +3926,44 @@ class TestTypes(TestCase):
         # Language is not set automatically when there is no DIE for `main`
         prog.language = Language.CPP
 
-        self.assertIdentical(
-            prog.type("moho::eve::kerbin::TEST_TYPEDEF"),
-            prog.typedef_type("TEST_TYPEDEF", prog.int_type("int", 4, True)),
-        )
-        self.assertIdentical(
-            prog.type("struct moho::eve::kerbin::TEST_STRUCT"),
-            prog.struct_type(
-                "TEST_STRUCT",
-                8,
-                (
-                    TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.float_type("float", 4), "y", 32),
+        for namespace in ("kerbin", "ClassAsNamespace"):
+            self.assertIdentical(
+                prog.type(f"moho::eve::{namespace}::TEST_TYPEDEF"),
+                prog.typedef_type("TEST_TYPEDEF", prog.int_type("int", 4, True)),
+            )
+            self.assertIdentical(
+                prog.type(f"struct moho::eve::{namespace}::TEST_STRUCT"),
+                prog.struct_type(
+                    "TEST_STRUCT",
+                    8,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x", 0),
+                        TypeMember(prog.float_type("float", 4), "y", 32),
+                    ),
                 ),
-            ),
-        )
-        self.assertIdentical(
-            prog.type("class moho::eve::kerbin::TEST_CLASS"),
-            prog.class_type(
-                "TEST_CLASS",
-                8,
-                (
-                    TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.float_type("float", 4), "y", 32),
+            )
+            self.assertIdentical(
+                prog.type(f"class moho::eve::{namespace}::TEST_CLASS"),
+                prog.class_type(
+                    "TEST_CLASS",
+                    8,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x", 0),
+                        TypeMember(prog.float_type("float", 4), "y", 32),
+                    ),
                 ),
-            ),
-        )
-        self.assertIdentical(
-            prog.type("union moho::eve::kerbin::TEST_UNION"),
-            prog.union_type(
-                "TEST_UNION",
-                4,
-                (
-                    TypeMember(prog.int_type("int", 4, True), "x", 0),
-                    TypeMember(prog.float_type("float", 4), "y", 0),
+            )
+            self.assertIdentical(
+                prog.type(f"union moho::eve::{namespace}::TEST_UNION"),
+                prog.union_type(
+                    "TEST_UNION",
+                    4,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x", 0),
+                        TypeMember(prog.float_type("float", 4), "y", 0),
+                    ),
                 ),
-            ),
-        )
+            )
 
     def test_explicit_global_namespace(self):
         prog = dwarf_program(
