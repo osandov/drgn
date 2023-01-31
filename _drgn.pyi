@@ -182,6 +182,17 @@ class Program:
             the given file
         """
         ...
+    def function_by_address(self, address: int) -> Tuple[str, Object]:
+        """
+        Get the function located at the given address.
+
+        >>> prog.function_by_address(0xffffffff94392370)
+        Object(prog, 'void (void)', address=0xffffffff94392370)
+
+        :param address: The function's relocated address.
+        :raises LookupError: if no functions with the given address are found.
+        """
+        ...
     def object(
         self,
         name: str,
