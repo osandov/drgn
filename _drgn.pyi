@@ -182,6 +182,9 @@ class Program:
             the given file
         """
         ...
+    def function_by_address(self, address: int) -> Tuple[str, Object]:
+        """TODO"""
+        ...
     def object(
         self,
         name: str,

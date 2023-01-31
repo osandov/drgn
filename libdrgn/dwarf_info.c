@@ -4815,11 +4815,25 @@ drgn_object_from_dwarf_subprogram(struct drgn_debug_info *dbinfo,
 				  struct drgn_object *ret)
 {
 	struct drgn_qualified_type qualified_type;
-	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, file, die,
+	Dwarf_Die *subprogram_die = die, subprogram_die_mem;
+	if (dwarf_tag(die) == DW_TAG_inlined_subroutine) {
+		Dwarf_Attribute attr_mem;
+		subprogram_die = dwarf_formref_die(dwarf_attr(die,
+							      DW_AT_abstract_origin,
+							      &attr_mem),
+						   &subprogram_die_mem);
+		if (!subprogram_die)
+			return &drgn_not_found; // TODO
+	}
+	struct drgn_error *err = drgn_type_from_dwarf(dbinfo, file,
+						      subprogram_die,
 						      &qualified_type);
 	if (err)
 		return err;
 	Dwarf_Addr low_pc;
+	// TODO: inlined subroutines often don't have this. Use entry_pc
+	// instead? We might actually want to use entry_pc as a first choice in
+	// general.
 	if (dwarf_lowpc(die, &low_pc) == -1)
 		return drgn_object_set_absent(ret, qualified_type, 0);
 	return drgn_object_set_reference(ret, qualified_type,
@@ -8013,4 +8027,44 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 out:
 	uint64_vector_deinit(&stack);
 	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_find_function_by_address(struct drgn_program *prog,
+				      uint64_t address, const char **name_ret,
+				      struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	if (!prog->dbinfo)
+		return &drgn_not_found; // TODO
+	Dwfl_Module *dwfl_module = dwfl_addrmodule(prog->dbinfo->dwfl, address);
+	if (!dwfl_module)
+		return &drgn_not_found; // TODO
+	void **userdatap;
+	dwfl_module_info(dwfl_module, &userdatap, NULL, NULL, NULL, NULL, NULL,
+			 NULL);
+	struct drgn_module *module = *userdatap;
+	uint64_t bias;
+	Dwarf_Die *scopes;
+	size_t num_scopes;
+	err = drgn_module_find_dwarf_scopes(module, address, &bias, &scopes,
+					    &num_scopes);
+	if (err)
+		return err;
+	for (size_t i = num_scopes; i-- > 1;) {
+		switch (dwarf_tag(&scopes[i])) {
+		case DW_TAG_subprogram:
+		case DW_TAG_inlined_subroutine:
+			// TODO: needs error checking. Should we strdup() this?
+			*name_ret = dwarf_diename(&scopes[i]);
+			err = drgn_object_from_dwarf_subprogram(prog->dbinfo,
+								module->debug_file,
+								&scopes[i],
+								ret);
+			free(scopes);
+			return err;
+		}
+	}
+	free(scopes);
+	return &drgn_not_found;
 }

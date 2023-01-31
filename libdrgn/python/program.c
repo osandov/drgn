@@ -704,6 +704,36 @@ static DrgnObject *Program_function(Program *self, PyObject *args,
 				   DRGN_FIND_OBJECT_FUNCTION);
 }
 
+static PyObject *Program_function_by_address(Program *self, PyObject *args,
+					     PyObject *kwds)
+{
+	struct drgn_error *err;
+	static char *keywords[] = {"address", NULL};
+	struct index_arg address = {};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&:function_by_address",
+					 keywords, index_converter, &address))
+		return NULL;
+
+	const char *name;
+	DrgnObject *obj = DrgnObject_alloc(self);
+	if (!obj)
+		return NULL;
+	bool clear = set_drgn_in_python();
+	err = drgn_program_find_function_by_address(&self->prog, address.uvalue,
+						    &name, &obj->obj);
+	if (clear)
+		clear_drgn_in_python();
+	if (err) {
+		set_drgn_error(err);
+		Py_DECREF(obj);
+		return NULL;
+	}
+	PyObject *ret = Py_BuildValue("sO", name, obj);
+	Py_DECREF(obj);
+	return ret;
+}
+
 static DrgnObject *Program_variable(Program *self, PyObject *args,
 				    PyObject *kwds)
 {
@@ -1039,6 +1069,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_constant_DOC},
 	{"function", (PyCFunction)Program_function,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_function_DOC},
+	{"function_by_address", (PyCFunction)Program_function_by_address,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_function_by_address_DOC},
 	{"variable", (PyCFunction)Program_variable,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_variable_DOC},
 	{"stack_trace", (PyCFunction)Program_stack_trace,

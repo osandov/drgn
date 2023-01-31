@@ -825,6 +825,11 @@ struct drgn_error *drgn_program_find_object(struct drgn_program *prog,
 					    enum drgn_find_object_flags flags,
 					    struct drgn_object *ret);
 
+struct drgn_error *
+drgn_program_find_function_by_address(struct drgn_program *prog,
+				      uint64_t address, const char **name_ret,
+				      struct drgn_object *ret);
+
 /**
  * @ingroup Symbols
  *
