@@ -9,15 +9,16 @@ The ``drgn.helpers.common.format`` module provides generic helpers for
 formatting different things as text.
 """
 
-from typing import Iterable, Tuple
+from typing import Iterable, SupportsFloat, Tuple
 
 from drgn import IntegerLike, Type
 
 __all__ = (
+    "decode_enum_type_flags",
+    "decode_flags",
     "escape_ascii_character",
     "escape_ascii_string",
-    "decode_flags",
-    "decode_enum_type_flags",
+    "number_in_binary_units",
 )
 
 
@@ -199,3 +200,41 @@ def decode_enum_type_flags(
         enumerators,  # type: ignore  # python/mypy#592
         bit_numbers,
     )
+
+
+def number_in_binary_units(n: SupportsFloat, precision: int = 1) -> str:
+    """
+    Format a number in binary units (i.e., "K" is 1024, "M" is 1024\\ :sup:`2`,
+    etc.).
+
+    >>> binary_units(1280)
+    '1.2K'
+
+    A precision can be specified:
+
+    >>> binary_units(1280, precision=2)
+    '1.25K'
+
+    Exact numbers are printed without a fractional part:
+
+    >>> binary_units(1024 * 1024)
+    '1M'
+
+    Numbers less than 1024 are not scaled:
+
+    >>> binary_units(10)
+    "10"
+
+    :param n: Number to format.
+    :param precision: Number of digits to include in fractional part.
+    """
+    n = float(n)
+    for prefix in ("", "K", "M", "G", "T", "P", "E", "Z"):
+        if abs(n) < 1024:
+            break
+        n /= 1024
+    else:
+        prefix = "Y"
+    if n.is_integer():
+        precision = 0
+    return f"{n:.{precision}f}{prefix}"

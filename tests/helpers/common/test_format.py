@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from drgn import Program, TypeEnumerator
-from drgn.helpers.common.format import decode_enum_type_flags, decode_flags
+from drgn.helpers.common.format import (
+    decode_enum_type_flags,
+    decode_flags,
+    number_in_binary_units,
+)
 from tests import MOCK_PLATFORM, TestCase
 
 
@@ -73,3 +77,50 @@ class TestDecodeFlags(TestCase):
             2,
             Program().enum_type(None),
         )
+
+
+class TestNumberInBinaryUnits(TestCase):
+    def test_zero(self):
+        self.assertEqual(number_in_binary_units(0), "0")
+
+    def test_small(self):
+        self.assertEqual(number_in_binary_units(100), "100")
+        self.assertEqual(number_in_binary_units(1023), "1023")
+
+    def test_small_negative(self):
+        self.assertEqual(number_in_binary_units(-100), "-100")
+        self.assertEqual(number_in_binary_units(-1023), "-1023")
+
+    def test_integer(self):
+        self.assertEqual(number_in_binary_units(1024), "1K")
+        self.assertEqual(number_in_binary_units(1024**2), "1M")
+        self.assertEqual(number_in_binary_units(1024**3), "1G")
+        self.assertEqual(number_in_binary_units(1024**4), "1T")
+        self.assertEqual(number_in_binary_units(1024**5), "1P")
+        self.assertEqual(number_in_binary_units(1024**6), "1E")
+        self.assertEqual(number_in_binary_units(1024**7), "1Z")
+        self.assertEqual(number_in_binary_units(1024**8), "1Y")
+
+    def test_negative_integer(self):
+        self.assertEqual(number_in_binary_units(-1024), "-1K")
+        self.assertEqual(number_in_binary_units(-(1024**2)), "-1M")
+        self.assertEqual(number_in_binary_units(-(1024**3)), "-1G")
+        self.assertEqual(number_in_binary_units(-(1024**4)), "-1T")
+        self.assertEqual(number_in_binary_units(-(1024**5)), "-1P")
+        self.assertEqual(number_in_binary_units(-(1024**6)), "-1E")
+        self.assertEqual(number_in_binary_units(-(1024**7)), "-1Z")
+        self.assertEqual(number_in_binary_units(-(1024**8)), "-1Y")
+
+    def test_almost_integer(self):
+        self.assertEqual(number_in_binary_units(1025), "1.0K")
+        self.assertEqual(number_in_binary_units(1024**4 + 1), "1.0T")
+
+    def test_precision(self):
+        n = 1088
+        self.assertEqual(number_in_binary_units(n, precision=0), "1K")
+        self.assertEqual(number_in_binary_units(n, precision=1), "1.1K")
+        self.assertEqual(number_in_binary_units(n, precision=2), "1.06K")
+
+    def test_huge(self):
+        self.assertEqual(number_in_binary_units(1024**8 * 1.5), "1.5Y")
+        self.assertEqual(number_in_binary_units(1024**10), "1048576Y")
