@@ -288,16 +288,33 @@ def run_interactive(
     for attr in drgn_globals:
         init_globals[attr] = getattr(drgn, attr)
 
+    banner = f"""\
+For help, type help(drgn).
+>>> import drgn
+>>> from drgn import {", ".join(drgn_globals)}
+>>> from drgn.helpers.common import *"""
+
+    module = importlib.import_module("drgn.helpers.common")
+    for name in module.__dict__["__all__"]:
+        init_globals[name] = getattr(module, name)
+    if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
+        banner += "\n>>> from drgn.helpers.linux import *"
+        module = importlib.import_module("drgn.helpers.linux")
+        for name in module.__dict__["__all__"]:
+            init_globals[name] = getattr(module, name)
+
+    if banner_func:
+        banner = banner_func(banner)
+    if globals_func:
+        init_globals = globals_func(init_globals)
+
     old_path = list(sys.path)
     old_displayhook = sys.displayhook
     old_history_length = readline.get_history_length()
     old_completer = readline.get_completer()
+    histfile = os.path.expanduser("~/.drgn_history")
     try:
-        sys.path.insert(0, "")
-        sys.displayhook = _displayhook
-
         readline.clear_history()
-        histfile = os.path.expanduser("~/.drgn_history")
         try:
             readline.read_history_file(histfile)
         except OSError as e:
@@ -308,33 +325,21 @@ def run_interactive(
         readline.parse_and_bind("tab: complete")
         readline.set_completer(Completer(init_globals).complete)
 
-        banner = f"""\
-For help, type help(drgn).
->>> import drgn
->>> from drgn import {", ".join(drgn_globals)}
->>> from drgn.helpers.common import *"""
-        module = importlib.import_module("drgn.helpers.common")
-        for name in module.__dict__["__all__"]:
-            init_globals[name] = getattr(module, name)
-        if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:
-            banner += "\n>>> from drgn.helpers.linux import *"
-            module = importlib.import_module("drgn.helpers.linux")
-            for name in module.__dict__["__all__"]:
-                init_globals[name] = getattr(module, name)
-        if banner_func:
-            banner = banner_func(banner)
-        if globals_func:
-            init_globals = globals_func(init_globals)
-        code.interact(banner=banner, exitmsg="", local=init_globals)
+        sys.path.insert(0, "")
+        sys.displayhook = _displayhook
+
+        try:
+            code.interact(banner=banner, exitmsg="", local=init_globals)
+        finally:
+            try:
+                readline.write_history_file(histfile)
+            except OSError as e:
+                if not quiet:
+                    print("could not write history:", str(e), file=sys.stderr)
     finally:
         sys.displayhook = old_displayhook
         sys.path[:] = old_path
         readline.set_history_length(old_history_length)
         readline.parse_and_bind("tab: self-insert")
         readline.set_completer(old_completer)
-        try:
-            readline.write_history_file(histfile)
-        except OSError as e:
-            if not quiet:
-                print("could not write history:", str(e), file=sys.stderr)
         readline.clear_history()
