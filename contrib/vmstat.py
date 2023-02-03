@@ -2,9 +2,7 @@
 # Copyright (c) SUSE Linux.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-"""Dump /proc/vmstat statistics.
-
-   Skip the last enumerator item as it holds the number of enumrator values."""
+"""Dump /proc/vmstat statistics."""
 
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.percpu import per_cpu
@@ -15,6 +13,9 @@ def print_event_line(event, counter):
 
 
 print(f"{'Event':<36} {'Count':>16}")
+
+# For all of the below, we skip the last enumerator item as it holds the number
+# of enumerators.
 
 # 1) vm_zone_stat statistics are there since v4.8.
 if "vm_zone_stat" in prog:
