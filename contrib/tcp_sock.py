@@ -8,12 +8,12 @@ import ipaddress
 import socket
 import struct
 
-from drgn import cast, container_of
+from drgn import cast
 from drgn.helpers.common.type import enum_type_to_class
 from drgn.helpers.linux import (
     cgroup_path,
-    hlist_for_each,
     hlist_nulls_empty,
+    hlist_nulls_for_each_entry,
     sk_fullsock,
     sk_nulls_for_each,
     sk_tcpstate,
@@ -99,8 +99,9 @@ tcp_hashinfo = prog.object("tcp_hashinfo")
 
 try:
     for ilb in tcp_hashinfo.listening_hash:
-        for pos in hlist_for_each(ilb.head):
-            sk = container_of(pos, "struct sock", "__sk_common.skc_node")
+        for sk in hlist_nulls_for_each_entry(
+            "struct sock", ilb.nulls_head, "__sk_common.skc_node"
+        ):
             _print_sk(sk)
 except AttributeError:
     for i in range(tcp_hashinfo.lhash2_mask + 1):
