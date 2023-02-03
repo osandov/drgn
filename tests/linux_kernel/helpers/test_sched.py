@@ -6,7 +6,7 @@ import signal
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
-from drgn.helpers.linux.sched import idle_task, task_cpu, task_state_to_char
+from drgn.helpers.linux.sched import idle_task, loadavg, task_cpu, task_state_to_char
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_sigwait,
@@ -48,3 +48,8 @@ class TestSched(LinuxKernelTestCase):
                 )
         else:
             self.assertEqual(idle_task(self.prog, 0).comm.string_(), b"swapper")
+
+    def test_loadavg(self):
+        values = loadavg(self.prog)
+        self.assertEqual(len(values), 3)
+        self.assertTrue(all(v >= 0.0 for v in values))
