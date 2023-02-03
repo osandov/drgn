@@ -4,9 +4,11 @@
 
 """An implementation of lsmod(8) using drgn"""
 
+from drgn.helpers.common.format import number_in_binary_units
 from drgn.helpers.linux.list import list_for_each_entry
 
-print("Module                  Size  Used by")
+
+print("Module                      Size  Used by")
 config_module_unload = prog.type("struct module").has_member("refcnt")
 for mod in list_for_each_entry("struct module", prog["modules"].address_of_(), "list"):
     name = mod.name.string_().decode()
@@ -22,4 +24,5 @@ for mod in list_for_each_entry("struct module", prog["modules"].address_of_(), "
     else:
         refcnt = "-"
         used_by = []
-    print(f"{name:19} {size:>8}  {refcnt} {','.join(used_by)}")
+    print(f"{name:23} {number_in_binary_units(size):>8}  {refcnt} "
+          f"{','.join(used_by)}")
