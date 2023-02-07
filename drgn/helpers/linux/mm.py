@@ -40,6 +40,7 @@ __all__ = (
     "pfn_to_virt",
     "phys_to_page",
     "phys_to_virt",
+    "totalram_pages",
     "virt_to_page",
     "virt_to_pfn",
     "virt_to_phys",
@@ -1093,3 +1094,17 @@ def environ(task: Object) -> List[bytes]:
     env_start = mm.env_start.value_()
     env_end = mm.env_end.value_()
     return access_remote_vm(mm, env_start, env_end - env_start).split(b"\0")[:-1]
+
+
+def totalram_pages(prog: Program) -> int:
+    """
+    Return the total number of RAM memory pages.
+    """
+
+    try:
+        # The variable is present since Linux kernel commit ca79b0c211af63fa32
+        # ("mm: convert totalram_pages and totalhigh_pages variables
+        # to atomic") (in v5.0).
+        return prog["_totalram_pages"].counter.value_()
+    except KeyError:
+        return prog["totalram_pages"].value_()
