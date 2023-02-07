@@ -34,6 +34,7 @@ from drgn.helpers.linux.mm import (
     pfn_to_virt,
     phys_to_page,
     phys_to_virt,
+    totalram_pages,
     virt_to_page,
     virt_to_pfn,
     virt_to_phys,
@@ -291,3 +292,14 @@ class TestMm(LinuxKernelTestCase):
             proc_environ = f.read().split(b"\0")[:-1]
         task = find_task(self.prog, os.getpid())
         self.assertEqual(environ(task), proc_environ)
+
+    def test_totalram_pages(self):
+        with open("/proc/meminfo") as f:
+            lines = f.read().splitlines()
+            line = [line for line in lines if line.startswith("MemTotal:")][0]
+            parts = line.split()
+            self.assertEqual(parts[2], "kB")
+
+            proc_totalram = 1024 * int(parts[1])
+            page_size = self.prog["PAGE_SIZE"].value_()
+            self.assertEqual(totalram_pages(self.prog) * page_size, proc_totalram)
