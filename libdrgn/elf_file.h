@@ -16,6 +16,7 @@
 #include <libelf.h>
 
 #include "binary_buffer.h"
+#include "elf_sections.h" // IWYU pragma: export
 #include "platform.h"
 
 struct drgn_module;
@@ -38,40 +39,6 @@ struct drgn_module;
  * `d_size >= 0 && d_buf == NULL`.
  */
 struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
-
-/**
- * Identifiers for important ELF sections so that they can be referenced by
- * index rather than name.
- */
-enum drgn_section_index {
-	DRGN_SCN_DEBUG_INFO,
-	DRGN_SCN_DEBUG_TYPES,
-	DRGN_SCN_DEBUG_ABBREV,
-	DRGN_SCN_DEBUG_STR,
-	DRGN_SCN_DEBUG_STR_OFFSETS,
-	DRGN_SCN_DEBUG_LINE,
-	DRGN_SCN_DEBUG_LINE_STR,
-
-	/** Indices less than this are cached when the module is loaded. */
-	DRGN_SECTION_INDEX_NUM_PRECACHE,
-
-	DRGN_SCN_DEBUG_ADDR = DRGN_SECTION_INDEX_NUM_PRECACHE,
-	DRGN_SCN_DEBUG_FRAME,
-	DRGN_SCN_EH_FRAME,
-	DRGN_SCN_ORC_UNWIND_IP,
-	DRGN_SCN_ORC_UNWIND,
-	DRGN_SCN_DEBUG_LOC,
-	DRGN_SCN_DEBUG_LOCLISTS,
-
-	/** Indices less than this may have their data cached. */
-	DRGN_SECTION_INDEX_NUM_DATA,
-
-	DRGN_SCN_TEXT = DRGN_SECTION_INDEX_NUM_DATA,
-	DRGN_SCN_GOT,
-
-	/** Number of section indices. */
-	DRGN_SECTION_INDEX_NUM,
-};
 
 /** An ELF file used by a @ref drgn_module. */
 struct drgn_elf_file {

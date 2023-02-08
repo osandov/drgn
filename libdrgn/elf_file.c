@@ -23,24 +23,7 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 	return NULL;
 }
 
-static const char * const drgn_section_index_names[] = {
-	[DRGN_SCN_DEBUG_INFO] = ".debug_info",
-	[DRGN_SCN_DEBUG_TYPES] = ".debug_types",
-	[DRGN_SCN_DEBUG_ABBREV] = ".debug_abbrev",
-	[DRGN_SCN_DEBUG_STR] = ".debug_str",
-	[DRGN_SCN_DEBUG_STR_OFFSETS] = ".debug_str_offsets",
-	[DRGN_SCN_DEBUG_LINE] = ".debug_line",
-	[DRGN_SCN_DEBUG_LINE_STR] = ".debug_line_str",
-	[DRGN_SCN_DEBUG_ADDR] = ".debug_addr",
-	[DRGN_SCN_DEBUG_FRAME] = ".debug_frame",
-	[DRGN_SCN_EH_FRAME] = ".eh_frame",
-	[DRGN_SCN_ORC_UNWIND_IP] = ".orc_unwind_ip",
-	[DRGN_SCN_ORC_UNWIND] = ".orc_unwind",
-	[DRGN_SCN_DEBUG_LOC] = ".debug_loc",
-	[DRGN_SCN_DEBUG_LOCLISTS] = ".debug_loclists",
-	[DRGN_SCN_TEXT] = ".text",
-	[DRGN_SCN_GOT] = ".got",
-};
+#include "drgn_section_name_to_index.inc"
 
 struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 					const char *path, Elf *elf,
@@ -78,13 +61,10 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 			err = drgn_error_libelf();
 			goto err;
 		}
-		for (size_t i = 0; i < DRGN_SECTION_INDEX_NUM; i++) {
-			if (!file->scns[i] &&
-			    strcmp(scnname, drgn_section_index_names[i]) == 0) {
-				file->scns[i] = scn;
-				break;
-			}
-		}
+		enum drgn_section_index index =
+			drgn_section_name_to_index(scnname);
+		if (index < DRGN_SECTION_INDEX_NUM && !file->scns[index])
+			file->scns[index] = scn;
 	}
 	*ret = file;
 	return NULL;

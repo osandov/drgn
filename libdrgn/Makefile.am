@@ -26,7 +26,9 @@ STRSWITCH_INCS = drgn_program_parse_vmcoreinfo.inc \
 BUILT_SOURCES = $(ARCH_DEFS_INCS) \
 		$(STRSWITCH_INCS) \
 		c_keywords.inc \
-		drgn.h
+		drgn.h \
+		drgn_section_name_to_index.inc \
+		elf_sections.h
 
 noinst_LTLIBRARIES = libdrgnimpl.la
 
@@ -47,12 +49,14 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 cityhash.h \
 			 debug_info.c \
 			 debug_info.h \
+			 drgn_section_name_to_index.inc \
 			 dwarf_constants.c \
 			 dwarf_constants.h \
 			 dwarf_info.c \
 			 dwarf_info.h \
 			 elf_file.c \
 			 elf_file.h \
+			 elf_sections.h \
 			 error.c \
 			 error.h \
 			 hash_table.c \
@@ -131,6 +135,12 @@ drgn.h: drgn.h.in configure.ac
 		-e 's/@DRGN_VERSION_PATCH@/$(word 3,$(subst ., ,@PACKAGE_VERSION@))/g' \
 		$< > $@
 
+drgn_section_name_to_index.inc: build-aux/gen_elf_sections.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
+	$(AM_V_GEN)$(PYTHON) $< | $(PYTHON) $(word 2, $^) -o $@ -
+
+elf_sections.h: build-aux/gen_elf_sections.py build-aux/codegen_utils.py
+	$(AM_V_GEN)$(PYTHON) $< -H > $@
+
 lib_LTLIBRARIES = libdrgn.la
 
 libdrgn_la_SOURCES =
@@ -191,6 +201,7 @@ EXTRA_DIST = $(ARCH_DEFS_PYS) \
 	     build-aux/gen_arch_inc_strswitch.py \
 	     build-aux/gen_c_keywords_inc_strswitch.py \
 	     build-aux/gen_constants.py \
+	     build-aux/gen_elf_sections.py \
 	     build-aux/gen_strswitch.py \
 	     drgn.h.in
 
