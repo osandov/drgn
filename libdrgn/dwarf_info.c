@@ -618,6 +618,8 @@ static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 	case DW_FORM_addrx:
 	case DW_FORM_loclistx:
 	case DW_FORM_rnglistx:
+	case DW_FORM_GNU_addr_index:
+	case DW_FORM_GNU_str_index:
 		*insn_ret = INSN_SKIP_LEB128;
 		return NULL;
 	case DW_FORM_ref_addr:
@@ -703,6 +705,7 @@ static struct drgn_error *dw_at_name_to_insn(struct drgn_dwarf_index_cu *cu,
 		*insn_ret = INSN_NAME_STRING;
 		return NULL;
 	case DW_FORM_strx:
+	case DW_FORM_GNU_str_index:
 		*insn_ret = INSN_NAME_STRX;
 		return NULL;
 	case DW_FORM_strx1:
@@ -767,6 +770,7 @@ static struct drgn_error *dw_at_comp_dir_to_insn(struct drgn_dwarf_index_cu *cu,
 		*insn_ret = INSN_COMP_DIR_STRING;
 		return NULL;
 	case DW_FORM_strx:
+	case DW_FORM_GNU_str_index:
 		*insn_ret = INSN_COMP_DIR_STRX;
 		return NULL;
 	case DW_FORM_strx1:
@@ -1599,6 +1603,7 @@ block:
 	case DW_FORM_sdata:
 	case DW_FORM_strx:
 	case DW_FORM_udata:
+	case DW_FORM_GNU_str_index:
 		return binary_buffer_skip_leb128(bb);
 	case DW_FORM_string:
 		return binary_buffer_skip_string(bb);
@@ -3581,7 +3586,9 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 
 	if (!*addr_base) {
 		Dwarf_Attribute attr_mem, *attr;
-		if (!(attr = dwarf_attr(cu_die, DW_AT_addr_base, &attr_mem))) {
+		if (!(attr = dwarf_attr(cu_die, DW_AT_addr_base, &attr_mem)) &&
+		    !(attr = dwarf_attr(cu_die, DW_AT_GNU_addr_base,
+					&attr_mem))) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "indirect address without DW_AT_addr_base");
 		}
@@ -4146,6 +4153,8 @@ drgn_eval_dwarf_expression(struct drgn_dwarf_expression_context *ctx,
 			break;
 		case DW_OP_addrx:
 		case DW_OP_constx:
+		case DW_OP_GNU_addr_index:
+		case DW_OP_GNU_const_index:
 			if (!ctx->cu_die.addr) {
 				ctx->bb.pos = ctx->bb.prev;
 				return NULL;
