@@ -350,15 +350,20 @@ if __name__ == "__main__":
 
     kernel = getattr(args, "kernel", "*")
     if kernel.startswith(".") or kernel.startswith("/"):
-        kernel_dir = Path(kernel)
+        kernel_dirs = [Path(kernel)]
     else:
         from vmtest.download import download_kernels
 
-        kernel_dir = next(download_kernels(args.directory, "x86_64", (kernel,)))
+        kernels = kernel.split(",") if "," in kernel else (kernel,)
+        kernel_dirs = list(download_kernels(args.directory, "x86_64", kernels))
 
+    command = " ".join(args.command) if args.command else "sh -i"
     try:
-        command = " ".join(args.command) if args.command else "sh -i"
-        sys.exit(run_in_vm(command, args.root_directory, kernel_dir, args.directory))
+        for i, kernel_dir in enumerate(kernel_dirs):
+            print(f"=== VM #{i + 1} (of {len(kernel_dirs)}): {kernel_dir}")
+            ret = run_in_vm(command, args.root_directory, kernel_dir, args.directory)
+            if ret != 0:
+                sys.exit(ret)
     except LostVMError as e:
         print("error:", e, file=sys.stderr)
         sys.exit(args.lost_status)
