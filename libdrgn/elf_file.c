@@ -10,6 +10,7 @@
 #include "drgn.h"
 #include "elf_file.h"
 #include "error.h"
+#include "minmax.h"
 #include "util.h"
 
 struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
@@ -28,6 +29,13 @@ struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 }
 
 #include "drgn_section_name_to_index.inc"
+
+enum drgn_dwarf_file_type {
+	DRGN_DWARF_FILE_NONE,
+	DRGN_DWARF_FILE_GNU_LTO,
+	DRGN_DWARF_FILE_DWO,
+	DRGN_DWARF_FILE_PLAIN,
+};
 
 struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 					const char *path, Elf *elf,
@@ -49,7 +57,44 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 	file->elf = elf;
 	drgn_platform_from_elf(ehdr, &file->platform);
 
+	// We mimic libdw's logic for choosing debug sections: we either use all
+	// .debug_* or .zdebug_* sections (DRGN_DWARF_FILE_PLAIN), all
+	// .debug_*.dwo or .zdebug_*.dwo sections (DRGN_DWARF_FILE_DWO), or all
+	// .gnu.debuglto_.debug_* sections (DRGN_DWARF_FILE_GNU_LTO), in that
+	// order of preference.
+	enum drgn_dwarf_file_type dwarf_file_type = DRGN_DWARF_FILE_NONE;
 	Elf_Scn *scn = NULL;
+	while ((scn = elf_nextscn(elf, scn))) {
+		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
+		if (!shdr) {
+			err = drgn_error_libelf();
+			goto err;
+		}
+		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		if (!scnname) {
+			err = drgn_error_libelf();
+			goto err;
+		}
+
+		enum drgn_dwarf_file_type dwarf_section_type;
+		if (strcmp(scnname, ".debug_cu_index") == 0 ||
+		    strcmp(scnname, ".debug_tu_index") == 0) {
+			dwarf_section_type = DRGN_DWARF_FILE_DWO;
+		} else if (strstartswith(scnname, ".debug_") ||
+			   strstartswith(scnname, ".zdebug_")) {
+			if (strcmp(scnname + strlen(scnname) - 4, ".dwo") == 0)
+				dwarf_section_type = DRGN_DWARF_FILE_DWO;
+			else
+				dwarf_section_type = DRGN_DWARF_FILE_PLAIN;
+		} else if (strstartswith(scnname, ".gnu.debuglto_.debug")) {
+			dwarf_section_type = DRGN_DWARF_FILE_GNU_LTO;
+		} else {
+			dwarf_section_type = DRGN_DWARF_FILE_NONE;
+		}
+		dwarf_file_type = max(dwarf_file_type, dwarf_section_type);
+	}
+
+	scn = NULL;
 	while ((scn = elf_nextscn(elf, scn))) {
 		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
 		if (!shdr) {
@@ -65,8 +110,35 @@ struct drgn_error *drgn_elf_file_create(struct drgn_module *module,
 			err = drgn_error_libelf();
 			goto err;
 		}
-		enum drgn_section_index index =
-			drgn_section_name_to_index(scnname);
+
+		enum drgn_section_index index;
+		if (strstartswith(scnname, ".debug_") ||
+		    strstartswith(scnname, ".zdebug_")) {
+			const char *subname;
+			if (strstartswith(scnname, ".zdebug_"))
+				subname = scnname + sizeof(".zdebug_") - 1;
+			else
+				subname = scnname + sizeof(".debug_") - 1;
+			size_t len = strlen(subname);
+			if (len >= 4
+			    && strcmp(subname + len - 4, ".dwo") == 0) {
+				if (dwarf_file_type != DRGN_DWARF_FILE_DWO)
+					continue;
+				len -= 4;
+			} else if (dwarf_file_type != DRGN_DWARF_FILE_PLAIN) {
+				continue;
+			}
+			index = drgn_debug_section_name_to_index(subname, len);
+		} else if (strstartswith(scnname, ".gnu.debuglto_.debug_")) {
+			if (dwarf_file_type != DRGN_DWARF_FILE_GNU_LTO)
+				continue;
+			const char *subname =
+				scnname + sizeof(".gnu.debuglto_.debug_") - 1;
+			index = drgn_debug_section_name_to_index(subname,
+								 strlen(subname));
+		} else {
+			index = drgn_non_debug_section_name_to_index(scnname);
+		}
 		if (index < DRGN_SECTION_INDEX_NUM && !file->scns[index])
 			file->scns[index] = scn;
 	}
