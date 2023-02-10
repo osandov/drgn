@@ -31,6 +31,7 @@ class DwarfDie(NamedTuple):
 class DwarfUnit(NamedTuple):
     type: DW_UT
     die: DwarfDie
+    dwo_id: Optional[int] = None
     type_signature: Optional[int] = None
     type_offset: Optional[str] = None
 
@@ -155,6 +156,10 @@ def _compile_debug_info(units, little_endian, bits, version, use_dw_form_indirec
         if version < 5:
             buf.append(bits // 8)  # address_size
 
+        if version >= 5 and unit.type in (DW_UT.skeleton, DW_UT.split_compile):
+            buf.extend(unit.dwo_id.to_bytes(8, byteorder))  # dwo_id
+        else:
+            assert unit.dwo_id is None
         if unit.type in (DW_UT.type, DW_UT.split_type):
             buf.extend(unit.type_signature.to_bytes(8, byteorder))  # type_signature
             relocations.append((len(buf), unit.type_offset))
@@ -302,8 +307,10 @@ def dwarf_sections(
     lang=None,
     use_dw_form_indirect=False,
     compress=None,
+    split=None,
 ):
     assert compress in (None, "zlib-gnu", "zlib-gabi")
+    assert split in (None, "dwo")
 
     if isinstance(units_or_dies, (DwarfDie, DwarfUnit)):
         units_or_dies = (units_or_dies,)
@@ -332,7 +339,12 @@ def dwarf_sections(
         for unit in units
     ]
 
-    debug_line = _compile_debug_line(units, little_endian, bits, version)
+    # TODO: line number information for a split file is in the skeleton file.
+    # We don't have any test cases yet that use line number information from a
+    # split file, but when we do, we'll have to add a way to include the split
+    # file's line number information in the skeleton file.
+    if not split:
+        debug_line = _compile_debug_line(units, little_endian, bits, version)
 
     debug_info, debug_types = _compile_debug_info(
         units, little_endian, bits, version, use_dw_form_indirect
@@ -346,6 +358,8 @@ def dwarf_sections(
             compressed_data.extend(len(data).to_bytes(8, "big"))
             compressed_data.extend(zlib.compress(data))
             data = compressed_data
+        if split:
+            name += ".dwo"
         return ElfSection(
             name=name,
             sh_type=SHT.PROGBITS,
@@ -359,9 +373,10 @@ def dwarf_sections(
             ".debug_abbrev", _compile_debug_abbrev(units, use_dw_form_indirect)
         ),
         debug_section(".debug_info", debug_info),
-        debug_section(".debug_line", debug_line),
         debug_section(".debug_str", b"\0"),
     ]
+    if not split:
+        sections.append(debug_section(".debug_line", debug_line))
     if debug_types:
         sections.append(debug_section(".debug_types", debug_types))
     return sections
@@ -376,6 +391,7 @@ def compile_dwarf(
     lang=None,
     use_dw_form_indirect=False,
     compress=None,
+    split=None,
 ):
     return create_elf_file(
         ET.EXEC,
@@ -387,6 +403,7 @@ def compile_dwarf(
             lang=lang,
             use_dw_form_indirect=use_dw_form_indirect,
             compress=compress,
+            split=split,
         ),
         little_endian=little_endian,
         bits=bits,

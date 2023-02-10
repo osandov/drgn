@@ -483,10 +483,16 @@ not_found:;
 		}
 	}
 
+	const struct drgn_register_state *regs = frame->regs;
+	struct drgn_elf_file *file =
+		drgn_module_find_dwarf_file(regs->module,
+					    dwarf_cu_getdwarf(die.cu));
+	if (!file) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "couldn't find file containing DIE");
+	}
 	// It doesn't make sense to use the registers if the file has a
 	// different platform than the program.
-	const struct drgn_register_state *regs = frame->regs;
-	struct drgn_elf_file *file = regs->module->debug_file;
 	if (!drgn_platforms_equal(&file->platform, &trace->prog->platform))
 		regs = NULL;
 	Dwarf_Die function_die = frame->scopes[frame->function_scope];

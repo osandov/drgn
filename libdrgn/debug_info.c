@@ -25,6 +25,12 @@
 #include "program.h"
 #include "util.h"
 
+static inline Dwarf *drgn_elf_file_dwarf_key(struct drgn_elf_file * const *entry)
+{
+	return (*entry)->dwarf;
+}
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_elf_file_dwarf_table, drgn_elf_file_dwarf_key,
+			    ptr_key_hash_pair, scalar_key_eq)
 DEFINE_VECTOR_FUNCTIONS(drgn_module_vector)
 
 struct drgn_module_key {
@@ -181,6 +187,12 @@ static void drgn_module_destroy(struct drgn_module *module)
 		if (module->fd != -1)
 			close(module->fd);
 		free(module->path);
+		for (struct drgn_elf_file_dwarf_table_iterator it =
+		     drgn_elf_file_dwarf_table_first(&module->split_dwarf_files);
+		     it.entry;
+		     it = drgn_elf_file_dwarf_table_next(it))
+			drgn_elf_file_destroy(*it.entry);
+		drgn_elf_file_dwarf_table_deinit(&module->split_dwarf_files);
 		if (module->debug_file != module->loaded_file)
 			drgn_elf_file_destroy(module->debug_file);
 		drgn_elf_file_destroy(module->loaded_file);
@@ -439,6 +451,7 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 	module->path = path_key;
 	module->fd = fd;
 	module->elf = elf;
+	drgn_elf_file_dwarf_table_init(&module->split_dwarf_files);
 
 	/* path_key, fd and elf are owned by the module now. */
 
@@ -2111,6 +2124,44 @@ void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo)
 	drgn_module_table_deinit(&dbinfo->modules);
 	dwfl_end(dbinfo->dwfl);
 	free(dbinfo);
+}
+
+struct drgn_elf_file *drgn_module_find_dwarf_file(struct drgn_module *module,
+						  Dwarf *dwarf)
+{
+	if (!module->debug_file)
+		return NULL;
+	if (dwarf == module->debug_file->dwarf)
+		return module->debug_file;
+	struct drgn_elf_file_dwarf_table_iterator it =
+		drgn_elf_file_dwarf_table_search(&module->split_dwarf_files,
+						 &dwarf);
+	return it.entry ? *it.entry : NULL;
+}
+
+struct drgn_error *
+drgn_module_create_split_dwarf_file(struct drgn_module *module,
+				    const char *name, Dwarf *dwarf,
+				    struct drgn_elf_file **ret)
+{
+	struct drgn_error *err;
+	err = drgn_elf_file_create(module, name, dwarf_getelf(dwarf), ret);
+	if (err)
+		return err;
+	err = drgn_elf_file_precache_sections(*ret);
+	if (err) {
+		drgn_elf_file_destroy(*ret);
+		return err;
+	}
+	(*ret)->dwarf = dwarf;
+	int r = drgn_elf_file_dwarf_table_insert(&module->split_dwarf_files,
+						 ret, NULL);
+	if (r < 0) {
+		drgn_elf_file_destroy(*ret);
+		return &drgn_enomem;
+	}
+	assert(r > 0);
+	return NULL;
 }
 
 struct drgn_error *

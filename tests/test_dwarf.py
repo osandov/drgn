@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import functools
+import logging
 import operator
 import os.path
 import re
@@ -6619,3 +6620,253 @@ class TestCompressedDebugSections(TestCase):
     def test_zlib_gabi(self):
         prog = dwarf_program(wrap_test_type_dies(int_die), compress="zlib-gabi")
         self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+
+class TestSplitDwarf(TestCase):
+    def test_dwo4(self):
+        prog = Program()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.split_compile,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_id,
+                                        DW_FORM.data8,
+                                        0xDDEEAADDBBEEFFFF,
+                                    ),
+                                ),
+                                wrap_test_type_dies(int_die),
+                            ),
+                        ),
+                        split="dwo",
+                    )
+                )
+            with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.skeleton,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_name, DW_FORM.string, "split.dwo"
+                                    ),
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_id,
+                                        DW_FORM.data8,
+                                        0xDDEEAADDBBEEFFFF,
+                                    ),
+                                ),
+                            ),
+                        )
+                    )
+                )
+            prog.load_debug_info([f.name])
+            self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_dwo4_not_found(self):
+        prog = Program()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.skeleton,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_name, DW_FORM.string, "split.dwo"
+                                    ),
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_id,
+                                        DW_FORM.data8,
+                                        0xDDEEAADDBBEEFFFF,
+                                    ),
+                                ),
+                            ),
+                        )
+                    )
+                )
+            with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
+                prog.load_debug_info([f.name])
+            self.assertTrue(
+                any(
+                    "split DWARF file split.dwo not found" in output
+                    for output in log.output
+                )
+            )
+
+    def test_dwo4_id_mismatch(self):
+        prog = Program()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.split_compile,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_id,
+                                        DW_FORM.data8,
+                                        0xBBBBBBBB00000000,
+                                    ),
+                                ),
+                            ),
+                        ),
+                        split="dwo",
+                    )
+                )
+            with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.skeleton,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_name, DW_FORM.string, "split.dwo"
+                                    ),
+                                    DwarfAttrib(
+                                        DW_AT.GNU_dwo_id,
+                                        DW_FORM.data8,
+                                        0xDDEEAADDBBEEFFFF,
+                                    ),
+                                ),
+                            ),
+                        )
+                    )
+                )
+            with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
+                prog.load_debug_info([f.name])
+            self.assertTrue(
+                any(
+                    "split DWARF file split.dwo not found" in output
+                    for output in log.output
+                )
+            )
+
+    def test_dwo5(self):
+        prog = Program()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.split_compile,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (),
+                                wrap_test_type_dies(int_die),
+                            ),
+                            dwo_id=0xDDEEAADDBBEEFFFF,
+                        ),
+                        version=5,
+                        split="dwo",
+                    )
+                )
+            with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.skeleton,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.dwo_name, DW_FORM.string, "split.dwo"
+                                    ),
+                                ),
+                            ),
+                            dwo_id=0xDDEEAADDBBEEFFFF,
+                        ),
+                        version=5,
+                    )
+                )
+            prog.load_debug_info([f.name])
+            self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_dwo5_not_found(self):
+        prog = Program()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.skeleton,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.dwo_name, DW_FORM.string, "split.dwo"
+                                    ),
+                                ),
+                            ),
+                            dwo_id=0xDDEEAADDBBEEFFFF,
+                        ),
+                        version=5,
+                    )
+                )
+            with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
+                prog.load_debug_info([f.name])
+            self.assertTrue(
+                any(
+                    "split DWARF file split.dwo not found" in output
+                    for output in log.output
+                )
+            )
+
+    def test_dwo5_id_mismatch(self):
+        prog = Program()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with open(os.path.join(temp_dir, "split.dwo"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.split_compile,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (),
+                                wrap_test_type_dies(int_die),
+                            ),
+                            dwo_id=0xBBBBBBBB00000000,
+                        ),
+                        version=5,
+                        split="dwo",
+                    )
+                )
+            with open(os.path.join(temp_dir, "skeleton"), "wb") as f:
+                f.write(
+                    compile_dwarf(
+                        DwarfUnit(
+                            DW_UT.skeleton,
+                            DwarfDie(
+                                DW_TAG.compile_unit,
+                                (
+                                    DwarfAttrib(
+                                        DW_AT.dwo_name, DW_FORM.string, "split.dwo"
+                                    ),
+                                ),
+                            ),
+                            dwo_id=0xDDEEAADDBBEEFFFF,
+                        ),
+                        version=5,
+                    )
+                )
+            with self.assertLogs(logging.getLogger("drgn"), "WARNING") as log:
+                prog.load_debug_info([f.name])
+            self.assertTrue(
+                any(
+                    "split DWARF file split.dwo not found" in output
+                    for output in log.output
+                )
+            )
