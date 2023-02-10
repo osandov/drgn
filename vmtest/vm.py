@@ -176,7 +176,9 @@ class LostVMError(Exception):
     pass
 
 
-def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -> int:
+def run_in_vm(
+    command: str, root_dir: Path, kernel_dir: Path, build_dir: Path, smp: int = nproc()
+) -> int:
     match = re.search(
         r"QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
         subprocess.check_output(
@@ -247,7 +249,7 @@ def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -
                 # fmt: off
                 "qemu-system-x86_64", *kvm_args,
 
-                "-smp", str(nproc()), "-m", "2G",
+                "-smp", str(smp), "-m", "2G",
 
                 "-nodefaults", "-display", "none", "-serial", "mon:stdio",
 

@@ -177,6 +177,7 @@ class test(Command):
             "d",
             "directory for built artifacts and downloaded kernels for virtual machine tests (default: 'build/vmtest')",
         ),
+        ("smp=", "s", "number of CPUs in qemu"),
     ]
 
     def initialize_options(self):
@@ -184,6 +185,7 @@ class test(Command):
         self.all_kernel_flavors = False
         self.extra_kernels = ""
         self.vmtest_dir = None
+        self.smp = None
 
     def finalize_options(self):
         self.kernels = [kernel for kernel in self.extra_kernels.split(",") if kernel]
@@ -195,6 +197,7 @@ class test(Command):
         if self.vmtest_dir is None:
             build_base = self.get_finalized_command("build").build_base
             self.vmtest_dir = os.path.join(build_base, "vmtest")
+        self.smp = int(self.smp) if self.smp else nproc()
 
     def _run_local(self):
         import unittest
@@ -274,7 +277,7 @@ fi
 """
         try:
             returncode = vmtest.vm.run_in_vm(
-                command, Path("/"), Path(kernel_dir), Path(self.vmtest_dir)
+                command, Path("/"), Path(kernel_dir), Path(self.vmtest_dir), self.smp
             )
         except vmtest.vm.LostVMError as e:
             self.announce(f"error on Linux {kernel_release}: {e}", log.ERROR)
