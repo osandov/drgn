@@ -4,7 +4,9 @@
 
 from collections import OrderedDict
 import inspect
-from typing import NamedTuple
+from typing import Mapping, NamedTuple
+
+from util import NORMALIZED_MACHINE_NAME
 
 VMTEST_KERNEL_VERSION = 18
 
@@ -32,8 +34,6 @@ CONFIG_NET_9P_VIRTIO=y
 CONFIG_OVERLAY_FS=y
 CONFIG_PCI=y
 CONFIG_PROC_FS=y
-CONFIG_SERIAL_8250=y
-CONFIG_SERIAL_8250_CONSOLE=y
 CONFIG_SYSFS=y
 CONFIG_TMPFS=y
 CONFIG_TMPFS_XATTR=y
@@ -165,6 +165,39 @@ KERNEL_FLAVORS = OrderedDict(
 )
 
 
+class Architecture(NamedTuple):
+    # Name matching NORMALIZED_MACHINE_NAME.
+    name: str
+    # Value of ARCH variable to build the Linux kernel.
+    kernel_arch: str
+    # Directory under arch/ in the Linux kernel source tree.
+    kernel_srcarch: str
+    # Linux kernel configuration options.
+    kernel_config: str
+    # Flavor-specific Linux kernel configuration options.
+    kernel_flavor_configs: Mapping[str, str]
+
+
+ARCHITECTURES = {
+    arch.name: arch
+    for arch in (
+        Architecture(
+            name="x86_64",
+            kernel_arch="x86_64",
+            kernel_srcarch="x86",
+            kernel_config="""
+                CONFIG_SERIAL_8250=y
+                CONFIG_SERIAL_8250_CONSOLE=y
+            """,
+            kernel_flavor_configs={},
+        ),
+    )
+}
+
+
+HOST_ARCHITECTURE = ARCHITECTURES.get(NORMALIZED_MACHINE_NAME)
+
+
 def kconfig_localversion(flavor: KernelFlavor) -> str:
     localversion = f"-vmtest{VMTEST_KERNEL_VERSION}"
     # The default flavor should be the "latest" version.
@@ -173,10 +206,10 @@ def kconfig_localversion(flavor: KernelFlavor) -> str:
     return localversion
 
 
-def kconfig(flavor: KernelFlavor) -> str:
+def kconfig(arch: Architecture, flavor: KernelFlavor) -> str:
     return f"""\
 # Minimal Linux kernel configuration for booting into vmtest and running drgn
-# tests ({flavor.name} flavor).
+# tests ({arch.name} {flavor.name} flavor).
 
 CONFIG_LOCALVERSION="{kconfig_localversion(flavor)}"
 
@@ -187,4 +220,12 @@ CONFIG_LOCALVERSION="{kconfig_localversion(flavor)}"
 # {flavor.name} flavor options
 
 {inspect.cleandoc(flavor.config)}
+
+# {arch.name} options
+
+{inspect.cleandoc(arch.kernel_config)}
+
+# {arch.name} {flavor.name} flavor options
+
+{inspect.cleandoc(arch.kernel_flavor_configs.get(flavor.name, ""))}
 """

@@ -20,7 +20,13 @@ from vmtest.asynciosubprocess import (
     check_output_shell,
     pipe_context,
 )
-from vmtest.config import KERNEL_FLAVORS, KernelFlavor, kconfig
+from vmtest.config import (
+    ARCHITECTURES,
+    KERNEL_FLAVORS,
+    Architecture,
+    KernelFlavor,
+    kconfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +39,14 @@ class KBuild:
         self,
         kernel_dir: Path,
         build_dir: Path,
+        arch: Architecture,
         flavor: KernelFlavor,
-        arch: str,
         build_log_file: Union[int, IO[Any], None] = None,
     ) -> None:
         self._build_dir = build_dir
         self._kernel_dir = kernel_dir
         self._flavor = flavor
         self._arch = arch
-        self._srcarch = {"x86_64": "x86"}.get(arch, arch)
         self._build_stdout = build_log_file
         self._build_stderr = (
             None if build_log_file is None else asyncio.subprocess.STDOUT
@@ -85,7 +90,7 @@ class KBuild:
             self._cached_make_args = (
                 "-C",
                 str(self._kernel_dir),
-                "ARCH=" + str(self._arch),
+                "ARCH=" + str(self._arch.kernel_arch),
                 "O=" + str(build_dir_real),
                 "KBUILD_ABS_SRCTREE=1",
                 "KBUILD_BUILD_USER=drgn",
@@ -124,7 +129,7 @@ class KBuild:
         config = self._build_dir / ".config"
         tmp_config = self._build_dir / ".config.vmtest.tmp"
 
-        tmp_config.write_text(kconfig(self._flavor))
+        tmp_config.write_text(kconfig(self._arch, self._flavor))
         await check_call(
             "make",
             *make_args,
@@ -175,7 +180,7 @@ class KBuild:
         files = (
             ".config",
             "Module.symvers",
-            f"arch/{self._srcarch}/Makefile",
+            f"arch/{self._arch.kernel_srcarch}/Makefile",
             "scripts/Kbuild.include",
             "scripts/Makefile*",
             "scripts/basic/fixdep",
@@ -192,7 +197,7 @@ class KBuild:
             "tools/objtool/objtool",
         )
         directories = (
-            f"arch/{self._srcarch}/include",
+            f"arch/{self._arch.kernel_srcarch}/include",
             "include",
         )
 
@@ -309,7 +314,7 @@ MODULE_LICENSE("GPL");
         kernel_release = await self._kernel_release()
 
         extension = "" if format == "directory" else ("." + format)
-        package = output_dir / f"kernel-{kernel_release}.{self._arch}{extension}"
+        package = output_dir / f"kernel-{kernel_release}.{self._arch.name}{extension}"
 
         logger.info(
             "packaging kernel %s from %s to %s",
@@ -448,13 +453,14 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
+    arch = ARCHITECTURES["x86_64"]
     flavor = KERNEL_FLAVORS[args.flavor]
 
     if args.dump_kconfig:
-        sys.stdout.write(kconfig(flavor))
+        sys.stdout.write(kconfig(arch, flavor))
         return
 
-    kbuild = KBuild(args.kernel_directory, args.build_directory, flavor, "x86_64")
+    kbuild = KBuild(args.kernel_directory, args.build_directory, arch, flavor)
     await kbuild.build()
     if hasattr(args, "package"):
         await kbuild.package(args.package_format, args.package)
