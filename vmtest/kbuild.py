@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import filecmp
 import logging
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -22,6 +23,7 @@ from vmtest.asynciosubprocess import (
 )
 from vmtest.config import (
     ARCHITECTURES,
+    HOST_ARCHITECTURE,
     KERNEL_FLAVORS,
     Architecture,
     KernelFlavor,
@@ -259,6 +261,7 @@ MODULE_LICENSE("GPL");
             # missing some files.
             cmd = (
                 "make",
+                "ARCH=" + str(self._arch.kernel_arch),
                 "-C",
                 modules_dir / "build",
                 f"M={test_module_dir.resolve()}",
@@ -348,7 +351,7 @@ MODULE_LICENSE("GPL");
             logger.info("copying vmlinux")
             vmlinux = modules_dir / "vmlinux"
             await check_call(
-                "objcopy",
+                os.environ.get("CROSS_COMPILE", "") + "objcopy",
                 "--remove-relocations=*",
                 self._build_dir / "vmlinux",
                 str(vmlinux),
@@ -434,6 +437,14 @@ async def main() -> None:
         default=_PACKAGE_FORMATS[0],
     )
     parser.add_argument(
+        "-a",
+        "--architecture",
+        choices=sorted(ARCHITECTURES),
+        help="architecture to build for",
+        default=None if HOST_ARCHITECTURE is None else HOST_ARCHITECTURE.name,
+        required=HOST_ARCHITECTURE is None,
+    )
+    parser.add_argument(
         "-f",
         "--flavor",
         choices=KERNEL_FLAVORS,
@@ -453,7 +464,7 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    arch = ARCHITECTURES["x86_64"]
+    arch = ARCHITECTURES[args.architecture]
     flavor = KERNEL_FLAVORS[args.flavor]
 
     if args.dump_kconfig:
