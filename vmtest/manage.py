@@ -25,9 +25,10 @@ import uritemplate
 
 from util import KernelVersion
 from vmtest.asynciosubprocess import check_call, check_output
+from vmtest.config import KERNEL_FLAVORS, KernelFlavor, kconfig_localversion
 from vmtest.download import VMTEST_GITHUB_RELEASE, available_kernel_releases
 from vmtest.githubapi import AioGitHubApi
-from vmtest.kbuild import KERNEL_FLAVORS, KBuild, KernelFlavor
+from vmtest.kbuild import KBuild
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ def kernel_tag_to_release(tag: str, flavor: KernelFlavor) -> str:
             match.group(1),
             match.group(2) or ".0",
             match.group(3) or "",
-            flavor.localversion(),
+            kconfig_localversion(flavor),
         ]
     )
 
@@ -280,7 +281,7 @@ async def main() -> None:
             for tag in latest_kernel_tags:
                 flavors = [
                     flavor
-                    for flavor in KERNEL_FLAVORS
+                    for flavor in KERNEL_FLAVORS.values()
                     if kernel_tag_to_release(tag, flavor) not in kernel_releases
                 ]
                 if flavors:
