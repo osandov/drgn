@@ -247,13 +247,13 @@ class test(Command):
                 (tmp_dir / "drgn_test.ko").rename(kmod)
         return True
 
-    def _run_vm(self, kernel_dir, kernel_release):
+    def _run_vm(self, kernel):
         import vmtest.vm
 
-        self.announce(f"running tests in VM on Linux {kernel_release}", log.INFO)
+        self.announce(f"running tests in VM on Linux {kernel.release}", log.INFO)
 
-        kmod = kernel_dir.parent / f"drgn_test-{kernel_release}.ko"
-        if not self._build_kmod(kernel_dir, kmod):
+        kmod = kernel.path.parent / f"drgn_test-{kernel.release}.ko"
+        if not self._build_kmod(kernel.path, kmod):
             return False
 
         command = rf"""
@@ -274,20 +274,21 @@ fi
 """
         try:
             returncode = vmtest.vm.run_in_vm(
-                command, Path("/"), Path(kernel_dir), Path(self.vmtest_dir)
+                command, Path("/"), Path(kernel.path), Path(self.vmtest_dir)
             )
         except vmtest.vm.LostVMError as e:
-            self.announce(f"error on Linux {kernel_release}: {e}", log.ERROR)
+            self.announce(f"error on Linux {kernel.release}: {e}", log.ERROR)
             return False
         self.announce(
-            f"Tests in VM on Linux {kernel_release} returned {returncode}", log.INFO
+            f"Tests in VM on Linux {kernel.release} returned {returncode}", log.INFO
         )
         return returncode == 0
 
     def run(self):
         import urllib.error
 
-        from vmtest.download import download_kernels_in_thread
+        from vmtest.config import ARCHITECTURES
+        from vmtest.download import DownloadKernel, download_kernels_in_thread
 
         if os.getenv("GITHUB_ACTIONS") == "true":
 
@@ -309,7 +310,11 @@ fi
         # need them.
         try:
             with download_kernels_in_thread(
-                Path(self.vmtest_dir), "x86_64", self.kernels
+                Path(self.vmtest_dir),
+                [
+                    DownloadKernel(ARCHITECTURES["x86_64"], pattern)
+                    for pattern in self.kernels
+                ],
             ) as kernel_downloads:
                 if self.kernels:
                     self.announce("downloading kernels in the background", log.INFO)
@@ -331,17 +336,13 @@ fi
                         failed.append("local")
 
                 for kernel in kernel_downloads:
-                    kernel_release = kernel.name
-                    if kernel_release.startswith("kernel-"):
-                        kernel_release = kernel_release[len("kernel-") :]
-
                     with github_workflow_group(
-                        f"Run integration tests on Linux {kernel_release}"
+                        f"Run integration tests on Linux {kernel.release}"
                     ):
-                        if self._run_vm(kernel, kernel_release):
-                            passed.append(kernel_release)
+                        if self._run_vm(kernel):
+                            passed.append(kernel.release)
                         else:
-                            failed.append(kernel_release)
+                            failed.append(kernel.release)
 
                     if passed:
                         self.announce(f'Passed: {", ".join(passed)}', log.INFO)

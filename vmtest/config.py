@@ -4,6 +4,7 @@
 
 from collections import OrderedDict
 import inspect
+from pathlib import Path
 from typing import Mapping, NamedTuple
 
 from util import NORMALIZED_MACHINE_NAME
@@ -196,6 +197,12 @@ ARCHITECTURES = {
 
 
 HOST_ARCHITECTURE = ARCHITECTURES.get(NORMALIZED_MACHINE_NAME)
+
+
+class Kernel(NamedTuple):
+    arch: Architecture
+    release: str
+    path: Path
 
 
 def kconfig_localversion(flavor: KernelFlavor) -> str:

@@ -274,10 +274,10 @@ async def main() -> None:
         else:
             github_release = await github_release_coro
 
-        kernel_releases = available_kernel_releases(github_release, arch.name)
+        kernel_releases = available_kernel_releases(github_release).get(arch.name, {})
         logger.info(
             "available %s kernel releases: %s",
-            arch,
+            arch.name,
             ", ".join(sorted(kernel_releases, key=KernelVersion, reverse=True)),
         )
 
