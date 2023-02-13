@@ -11,6 +11,13 @@ import sys
 import tempfile
 
 from util import nproc, out_of_date
+from vmtest.config import HOST_ARCHITECTURE, Kernel
+from vmtest.download import (
+    DOWNLOAD_KERNEL_ARGPARSE_METAVAR,
+    DownloadKernel,
+    download,
+    download_kernel_argparse_type,
+)
 
 # Script run as init in the virtual machine.
 _INIT_TEMPLATE = r"""#!/bin/sh
@@ -176,12 +183,11 @@ class LostVMError(Exception):
     pass
 
 
-def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -> int:
+def run_in_vm(command: str, kernel: Kernel, root_dir: Path, build_dir: Path) -> int:
+    qemu_exe = "qemu-system-" + kernel.arch.name
     match = re.search(
         r"QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
-        subprocess.check_output(
-            ["qemu-system-x86_64", "-version"], universal_newlines=True
-        ),
+        subprocess.check_output([qemu_exe, "-version"], universal_newlines=True),
     )
     if not match:
         raise Exception("could not determine QEMU version")
@@ -194,14 +200,15 @@ def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -
         onoatimehack_so = _build_onoatimehack(build_dir)
         env["LD_PRELOAD"] = f"{str(onoatimehack_so)}:{env.get('LD_PRELOAD', '')}"
 
-    if os.access("/dev/kvm", os.R_OK | os.W_OK):
-        kvm_args = ["-cpu", "host", "-enable-kvm"]
-    else:
-        print(
-            "warning: /dev/kvm cannot be accessed; falling back to emulation",
-            file=sys.stderr,
-        )
-        kvm_args = []
+    kvm_args = []
+    if HOST_ARCHITECTURE is not None and kernel.arch.name == HOST_ARCHITECTURE.name:
+        if os.access("/dev/kvm", os.R_OK | os.W_OK):
+            kvm_args = ["-cpu", "host", "-enable-kvm"]
+        else:
+            print(
+                "warning: /dev/kvm cannot be accessed; falling back to emulation",
+                file=sys.stderr,
+            )
 
     virtfs_options = "security_model=none,readonly=on"
     # multidevs was added in QEMU 4.2.0.
@@ -235,7 +242,9 @@ def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -
             init_file.write(
                 _INIT_TEMPLATE.format(
                     cwd=shlex.quote(host_dir_prefix + os.getcwd()),
-                    kernel_dir=shlex.quote(host_dir_prefix + str(kernel_dir.resolve())),
+                    kernel_dir=shlex.quote(
+                        host_dir_prefix + str(kernel.path.resolve())
+                    ),
                     command=shlex.quote(command),
                     kdump_needs_nosmp="" if kvm_args else "export KDUMP_NEEDS_NOSMP=1",
                 )
@@ -245,11 +254,11 @@ def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -
         with subprocess.Popen(
             [
                 # fmt: off
-                "qemu-system-x86_64", *kvm_args,
+                qemu_exe, *kvm_args,
 
                 "-smp", str(nproc()), "-m", "2G",
 
-                "-nodefaults", "-display", "none", "-serial", "mon:stdio",
+                "-display", "none", "-serial", "mon:stdio",
 
                 # This along with -append panic=-1 ensures that we exit on a
                 # panic instead of hanging.
@@ -259,16 +268,18 @@ def run_in_vm(command: str, root_dir: Path, kernel_dir: Path, build_dir: Path) -
                 f"local,id=root,path={root_dir},mount_tag=/dev/root,{virtfs_options}",
                 *host_virtfs_args,
 
-                "-device", "virtio-rng-pci",
+                "-device", "virtio-rng",
 
                 "-device", "virtio-serial",
                 "-chardev", f"socket,id=vmtest,path={socket_path}",
                 "-device",
                 "virtserialport,chardev=vmtest,name=com.osandov.vmtest.0",
 
-                "-kernel", str(kernel_dir / "vmlinuz"),
+                *kernel.arch.qemu_options,
+
+                "-kernel", str(kernel.path / "vmlinuz"),
                 "-append",
-                f"rootfstype=9p rootflags={_9pfs_mount_options} ro console=0,115200 panic=-1 crashkernel=256M init={init}",
+                f"rootfstype=9p rootflags={_9pfs_mount_options} ro console={kernel.arch.qemu_console},115200 panic=-1 crashkernel=256M init={init}",
                 # fmt: on
             ],
             env=env,
@@ -329,8 +340,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "-k",
         "--kernel",
+        metavar=DOWNLOAD_KERNEL_ARGPARSE_METAVAR,
+        type=download_kernel_argparse_type,
+        required=HOST_ARCHITECTURE is None,
         default=argparse.SUPPRESS,
-        help="kernel to use (default: latest available kernel)",
+        help="kernel to use"
+        + ("" if HOST_ARCHITECTURE is None else " (default: latest available kernel)"),
     )
     parser.add_argument(
         "-r",
@@ -348,22 +363,21 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    kernel = getattr(args, "kernel", "*")
-    if kernel.startswith(".") or kernel.startswith("/"):
-        kernel_dir = Path(kernel)
-    else:
-        from vmtest.config import ARCHITECTURES, Kernel
-        from vmtest.download import DownloadKernel, download
-
-        downloaded = next(
-            download(args.directory, (DownloadKernel(ARCHITECTURES["x86_64"], kernel),))
+    if not hasattr(args, "kernel"):
+        assert HOST_ARCHITECTURE is not None
+        args.kernel = DownloadKernel(HOST_ARCHITECTURE, "*")
+    if args.kernel.pattern.startswith(".") or args.kernel.pattern.startswith("/"):
+        kernel = Kernel(
+            arch=args.kernel.arch,
+            release="",  # run_in_vm() doesn't care about the release.
+            path=Path(args.kernel.pattern),
         )
-        assert isinstance(downloaded, Kernel)
-        kernel_dir = downloaded.path
+    else:
+        kernel = next(download(args.directory, [args.kernel]))  # type: ignore[assignment]
 
     try:
         command = " ".join(args.command) if args.command else "sh -i"
-        sys.exit(run_in_vm(command, args.root_directory, kernel_dir, args.directory))
+        sys.exit(run_in_vm(command, kernel, args.root_directory, args.directory))
     except LostVMError as e:
         print("error:", e, file=sys.stderr)
         sys.exit(args.lost_status)

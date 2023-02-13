@@ -6,7 +6,7 @@ from collections import OrderedDict
 import inspect
 import os
 from pathlib import Path
-from typing import Dict, Mapping, NamedTuple
+from typing import Dict, Mapping, NamedTuple, Sequence
 
 from util import NORMALIZED_MACHINE_NAME
 
@@ -169,7 +169,8 @@ KERNEL_FLAVORS = OrderedDict(
 
 
 class Architecture(NamedTuple):
-    # Name matching NORMALIZED_MACHINE_NAME.
+    # Architecture name. This matches the names used by
+    # util.NORMALIZED_MACHINE_NAME and qemu-system-$arch_name.
     name: str
     # Value of ARCH variable to build the Linux kernel.
     kernel_arch: str
@@ -182,6 +183,10 @@ class Architecture(NamedTuple):
     # Name of compiler target on
     # https://mirrors.kernel.org/pub/tools/crosstool/.
     kernel_org_compiler_name: str
+    # Options to pass to QEMU.
+    qemu_options: Sequence[str]
+    # Console device when using QEMU.
+    qemu_console: str
 
 
 ARCHITECTURES = {
@@ -197,6 +202,8 @@ ARCHITECTURES = {
             """,
             kernel_flavor_configs={},
             kernel_org_compiler_name="x86_64-linux",
+            qemu_options=("-nodefaults",),
+            qemu_console="ttyS0",
         ),
     )
 }

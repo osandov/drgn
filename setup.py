@@ -274,7 +274,7 @@ fi
 """
         try:
             returncode = vmtest.vm.run_in_vm(
-                command, Path("/"), Path(kernel.path), Path(self.vmtest_dir)
+                command, kernel, Path("/"), Path(self.vmtest_dir)
             )
         except vmtest.vm.LostVMError as e:
             self.announce(f"error on Linux {kernel.release}: {e}", log.ERROR)
