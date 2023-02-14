@@ -211,6 +211,15 @@ async def main() -> None:
         help="build and upload latest supported kernel releases",
     )
     parser.add_argument(
+        "-f",
+        "--flavor",
+        dest="flavors",
+        choices=["all", *KERNEL_FLAVORS],
+        action="append",
+        help="build flavor; may be given multiple times (default: all)",
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--no-build",
         dest="build",
         action="store_false",
@@ -258,6 +267,13 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
+    if not hasattr(args, "flavors") or "all" in args.flavors:
+        args.flavors = list(KERNEL_FLAVORS.values())
+    else:
+        args.flavors = [
+            flavor for flavor in KERNEL_FLAVORS.values() if flavor.name in args.flavors
+        ]
+
     if not args.build:
         args.upload = False
     if not hasattr(args, "keep_builds"):
@@ -295,7 +311,7 @@ async def main() -> None:
             for tag in latest_kernel_tags:
                 flavors = [
                     flavor
-                    for flavor in KERNEL_FLAVORS.values()
+                    for flavor in args.flavors
                     if kernel_tag_to_release(tag, flavor) not in kernel_releases
                 ]
                 if flavors:
