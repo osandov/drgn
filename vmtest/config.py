@@ -193,6 +193,35 @@ ARCHITECTURES = {
     arch.name: arch
     for arch in (
         Architecture(
+            name="aarch64",
+            kernel_arch="arm64",
+            kernel_srcarch="arm64",
+            kernel_config="""
+                CONFIG_PCI_HOST_GENERIC=y
+                CONFIG_RTC_CLASS=y
+                CONFIG_RTC_DRV_PL031=y
+                CONFIG_SERIAL_AMBA_PL011=y
+                CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+            """,
+            kernel_flavor_configs={
+                "default": """
+                    CONFIG_ARM64_4K_PAGES=y
+                    CONFIG_ARM64_VA_BITS_48=y
+                """,
+                "alternative": """
+                    CONFIG_ARM64_64K_PAGES=y
+                    CONFIG_ARM64_VA_BITS_52=y
+                    CONFIG_ARM64_PA_BITS_52=y
+                """,
+                "tiny": """
+                    CONFIG_ARM64_16K_PAGES=y
+                """,
+            },
+            kernel_org_compiler_name="aarch64-linux",
+            qemu_options=("-M", "virt", "-cpu", "cortex-a57"),
+            qemu_console="ttyAMA0",
+        ),
+        Architecture(
             name="x86_64",
             kernel_arch="x86_64",
             kernel_srcarch="x86",
