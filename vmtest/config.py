@@ -216,6 +216,17 @@ class Compiler(NamedTuple):
     bin: Path
     prefix: str
 
+    def env(self) -> Dict[str, str]:
+        path = str(self.bin.resolve())
+        try:
+            path += ":" + os.environ["PATH"]
+        except KeyError:
+            pass
+        return {
+            "PATH": path,
+            "CROSS_COMPILE": self.prefix,
+        }
+
 
 def kconfig_localversion(flavor: KernelFlavor) -> str:
     localversion = f"-vmtest{VMTEST_KERNEL_VERSION}"

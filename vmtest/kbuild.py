@@ -11,7 +11,7 @@ import shlex
 import shutil
 import sys
 import tempfile
-from typing import IO, Any, Optional, Tuple, Union
+from typing import IO, Any, Mapping, Optional, Tuple, Union
 
 from util import nproc
 from vmtest.asynciosubprocess import (
@@ -26,9 +26,11 @@ from vmtest.config import (
     HOST_ARCHITECTURE,
     KERNEL_FLAVORS,
     Architecture,
+    Compiler,
     KernelFlavor,
     kconfig,
 )
+from vmtest.download import COMPILER_URL, DownloadCompiler, download
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +45,14 @@ class KBuild:
         build_dir: Path,
         arch: Architecture,
         flavor: KernelFlavor,
+        env: Optional[Mapping[str, str]] = None,
         build_log_file: Union[int, IO[Any], None] = None,
     ) -> None:
         self._build_dir = build_dir
         self._kernel_dir = kernel_dir
         self._flavor = flavor
         self._arch = arch
+        self._env = env
         self._build_stdout = build_log_file
         self._build_stderr = (
             None if build_log_file is None else asyncio.subprocess.STDOUT
@@ -112,7 +116,11 @@ class KBuild:
             self._cached_kernel_release = (
                 (
                     await check_output(
-                        "make", *self._cached_make_args, "-s", "kernelrelease"
+                        "make",
+                        *self._cached_make_args,
+                        "-s",
+                        "kernelrelease",
+                        env=self._env,
                     )
                 )
                 .decode()
@@ -121,7 +129,12 @@ class KBuild:
         return self._cached_kernel_release
 
     async def build(self) -> None:
-        logger.info("building %s kernel in %s", self._flavor.name, self._build_dir)
+        logger.info(
+            "building %s %s kernel in %s",
+            self._arch.name,
+            self._flavor.name,
+            self._build_dir,
+        )
         build_log_file_name = getattr(self._build_stdout, "name", None)
         if build_log_file_name is not None:
             logger.info("build logs in %s", build_log_file_name)
@@ -139,6 +152,7 @@ class KBuild:
             "olddefconfig",
             stdout=self._build_stdout,
             stderr=self._build_stderr,
+            env=self._env,
         )
         try:
             equal = filecmp.cmp(config, tmp_config)
@@ -161,8 +175,14 @@ class KBuild:
             "all",
             stdout=self._build_stdout,
             stderr=self._build_stderr,
+            env=self._env,
         )
-        logger.info("built kernel %s in %s", kernel_release, self._build_dir)
+        logger.info(
+            "built kernel %s for %s in %s",
+            kernel_release,
+            self._arch.name,
+            self._build_dir,
+        )
 
     def _copy_module_build(self, modules_dir: Path) -> None:
         logger.info("copying module build files")
@@ -267,7 +287,10 @@ MODULE_LICENSE("GPL");
                 f"M={test_module_dir.resolve()}",
             )
             proc = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self._env,
             )
             try:
                 stdout_task = asyncio.create_task(proc.stdout.readline())
@@ -320,14 +343,15 @@ MODULE_LICENSE("GPL");
         package = output_dir / f"kernel-{kernel_release}.{self._arch.name}{extension}"
 
         logger.info(
-            "packaging kernel %s from %s to %s",
+            "packaging kernel %s for %s from %s to %s",
             kernel_release,
+            self._arch.name,
             self._build_dir,
             package,
         )
 
         image_name = (
-            (await check_output("make", *make_args, "-s", "image_name"))
+            (await check_output("make", *make_args, "-s", "image_name", env=self._env))
             .decode()
             .strip()
         )
@@ -346,15 +370,20 @@ MODULE_LICENSE("GPL");
                 "modules_install",
                 stdout=self._build_stdout,
                 stderr=self._build_stderr,
+                env=self._env,
             )
 
             logger.info("copying vmlinux")
             vmlinux = modules_dir / "vmlinux"
             await check_call(
-                os.environ.get("CROSS_COMPILE", "") + "objcopy",
+                (os.environ if self._env is None else self._env).get(
+                    "CROSS_COMPILE", ""
+                )
+                + "objcopy",
                 "--remove-relocations=*",
                 self._build_dir / "vmlinux",
                 str(vmlinux),
+                env=self._env,
             )
             vmlinux.chmod(0o644)
 
@@ -392,7 +421,11 @@ MODULE_LICENSE("GPL");
                     raise CalledProcessError(zstd_returncode, zstd_cmd)
 
         logger.info(
-            "packaged kernel %s from %s to %s", kernel_release, self._build_dir, package
+            "packaged kernel %s for %s from %s to %s",
+            kernel_release,
+            self._arch.name,
+            self._build_dir,
+            package,
         )
         return package
 
@@ -457,6 +490,15 @@ async def main() -> None:
         ),
         default=next(iter(KERNEL_FLAVORS)),
     )
+    default_download_compiler_directory = Path("build/vmtest")
+    parser.add_argument(
+        "--download-compiler",
+        metavar="DIR",
+        nargs="?",
+        default=argparse.SUPPRESS,
+        type=Path,
+        help=f"download a compiler from {COMPILER_URL} to the given directory ({default_download_compiler_directory} by default) and use it to build",
+    )
     parser.add_argument(
         "--dump-kconfig",
         action="store_true",
@@ -471,7 +513,16 @@ async def main() -> None:
         sys.stdout.write(kconfig(arch, flavor))
         return
 
-    kbuild = KBuild(args.kernel_directory, args.build_directory, arch, flavor)
+    if hasattr(args, "download_compiler"):
+        if args.download_compiler is None:
+            args.download_compiler = default_download_compiler_directory
+        downloaded = next(download(args.download_compiler, [DownloadCompiler(arch)]))
+        assert isinstance(downloaded, Compiler)
+        env = {**os.environ, **downloaded.env()}
+    else:
+        env = None
+
+    kbuild = KBuild(args.kernel_directory, args.build_directory, arch, flavor, env)
     await kbuild.build()
     if hasattr(args, "package"):
         await kbuild.package(args.package_format, args.package)

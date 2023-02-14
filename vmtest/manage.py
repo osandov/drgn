@@ -142,7 +142,11 @@ async def build_kernels(
                 build_dir / f"build-{flavor.name}-{rev}.log", "w"
             ) as build_log_file:
                 kbuild = KBuild(
-                    kernel_dir, flavor_rev_build_dir, arch, flavor, build_log_file
+                    kernel_dir,
+                    flavor_rev_build_dir,
+                    arch,
+                    flavor,
+                    build_log_file=build_log_file,
                 )
                 await kbuild.build()
                 yield await kbuild.package("tar.zst", build_dir)
