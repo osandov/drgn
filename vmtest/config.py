@@ -222,6 +222,25 @@ ARCHITECTURES = {
             qemu_console="ttyAMA0",
         ),
         Architecture(
+            name="ppc64",
+            kernel_arch="powerpc",
+            kernel_srcarch="powerpc",
+            kernel_config="""
+                CONFIG_PPC64=y
+                CONFIG_CPU_LITTLE_ENDIAN=y
+                # Debian ppc64el userspace assumes AltiVec and VSX support.
+                CONFIG_ALTIVEC=y
+                CONFIG_VSX=y
+                CONFIG_RTC_CLASS=y
+                CONFIG_RTC_DRV_GENERIC=y
+                CONFIG_HVC_CONSOLE=y
+            """,
+            kernel_flavor_configs={},
+            kernel_org_compiler_name="powerpc64-linux",
+            qemu_options=(),
+            qemu_console="hvc0",
+        ),
+        Architecture(
             name="x86_64",
             kernel_arch="x86_64",
             kernel_srcarch="x86",
