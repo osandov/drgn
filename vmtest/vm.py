@@ -352,14 +352,14 @@ if __name__ == "__main__":
     if kernel.startswith(".") or kernel.startswith("/"):
         kernel_dir = Path(kernel)
     else:
-        from vmtest.config import ARCHITECTURES
-        from vmtest.download import DownloadKernel, download_kernels
+        from vmtest.config import ARCHITECTURES, Kernel
+        from vmtest.download import DownloadKernel, download
 
-        kernel_dir = next(
-            download_kernels(
-                args.directory, (DownloadKernel(ARCHITECTURES["x86_64"], kernel),)
-            )
-        ).path
+        downloaded = next(
+            download(args.directory, (DownloadKernel(ARCHITECTURES["x86_64"], kernel),))
+        )
+        assert isinstance(downloaded, Kernel)
+        kernel_dir = downloaded.path
 
     try:
         command = " ".join(args.command) if args.command else "sh -i"

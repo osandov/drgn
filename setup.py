@@ -288,7 +288,7 @@ fi
         import urllib.error
 
         from vmtest.config import ARCHITECTURES
-        from vmtest.download import DownloadKernel, download_kernels_in_thread
+        from vmtest.download import DownloadKernel, download_in_thread
 
         if os.getenv("GITHUB_ACTIONS") == "true":
 
@@ -309,7 +309,7 @@ fi
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
         try:
-            with download_kernels_in_thread(
+            with download_in_thread(
                 Path(self.vmtest_dir),
                 [
                     DownloadKernel(ARCHITECTURES["x86_64"], pattern)

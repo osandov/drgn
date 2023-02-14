@@ -4,11 +4,13 @@
 
 from collections import OrderedDict
 import inspect
+import os
 from pathlib import Path
-from typing import Mapping, NamedTuple
+from typing import Dict, Mapping, NamedTuple
 
 from util import NORMALIZED_MACHINE_NAME
 
+KERNEL_ORG_COMPILER_VERSION = "12.2.0"
 VMTEST_KERNEL_VERSION = 18
 
 
@@ -177,6 +179,9 @@ class Architecture(NamedTuple):
     kernel_config: str
     # Flavor-specific Linux kernel configuration options.
     kernel_flavor_configs: Mapping[str, str]
+    # Name of compiler target on
+    # https://mirrors.kernel.org/pub/tools/crosstool/.
+    kernel_org_compiler_name: str
 
 
 ARCHITECTURES = {
@@ -191,6 +196,7 @@ ARCHITECTURES = {
                 CONFIG_SERIAL_8250_CONSOLE=y
             """,
             kernel_flavor_configs={},
+            kernel_org_compiler_name="x86_64-linux",
         ),
     )
 }
@@ -203,6 +209,12 @@ class Kernel(NamedTuple):
     arch: Architecture
     release: str
     path: Path
+
+
+class Compiler(NamedTuple):
+    target: Architecture
+    bin: Path
+    prefix: str
 
 
 def kconfig_localversion(flavor: KernelFlavor) -> str:
