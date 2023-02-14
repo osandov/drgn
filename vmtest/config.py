@@ -241,6 +241,16 @@ ARCHITECTURES = {
             qemu_console="hvc0",
         ),
         Architecture(
+            name="s390x",
+            kernel_arch="s390",
+            kernel_srcarch="s390",
+            kernel_config="",
+            kernel_flavor_configs={},
+            kernel_org_compiler_name="s390-linux",
+            qemu_options=(),
+            qemu_console="ttysclp0",
+        ),
+        Architecture(
             name="x86_64",
             kernel_arch="x86_64",
             kernel_srcarch="x86",
