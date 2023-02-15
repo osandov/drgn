@@ -222,6 +222,34 @@ ARCHITECTURES = {
             qemu_console="ttyAMA0",
         ),
         Architecture(
+            name="arm",
+            kernel_arch="arm",
+            kernel_srcarch="arm",
+            kernel_config="""
+                CONFIG_NR_CPUS=8
+                CONFIG_HIGHMEM=y
+                # Debian armhf userspace assumes EABI and VFP.
+                CONFIG_AEABI=y
+                CONFIG_VFP=y
+                CONFIG_ARCH_VIRT=y
+                CONFIG_PCI_HOST_GENERIC=y
+                CONFIG_RTC_CLASS=y
+                CONFIG_RTC_DRV_PL031=y
+                CONFIG_SERIAL_AMBA_PL011=y
+                CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+                # Before Linux kernel commit f05eb1d24eb5 ("ARM:
+                # stackprotector: prefer compiler for TLS based per-task
+                # protector") (in v5.18), this enables the
+                # arm_ssp_per_task_plugin GCC plugin, which fails to build with
+                # the kernel.org cross compiler.
+                CONFIG_STACKPROTECTOR_PER_TASK=n
+            """,
+            kernel_flavor_configs={},
+            kernel_org_compiler_name="arm-linux-gnueabi",
+            qemu_options=("-M", "virt"),
+            qemu_console="ttyAMA0",
+        ),
+        Architecture(
             name="ppc64",
             kernel_arch="powerpc",
             kernel_srcarch="powerpc",
