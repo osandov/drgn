@@ -34,7 +34,7 @@ from vmtest.config import (
 )
 from vmtest.download import VMTEST_GITHUB_RELEASE, available_kernel_releases
 from vmtest.githubapi import AioGitHubApi
-from vmtest.kbuild import KBuild
+from vmtest.kbuild import KBuild, apply_patches
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,11 @@ async def build_kernels(
     build_dir.mkdir(parents=True, exist_ok=True)
     for rev, flavors in kernel_revs:
         logger.info("checking out %s in %s", rev, kernel_dir)
-        await check_call("git", "-C", str(kernel_dir), "checkout", "-q", rev)
+        await check_call(
+            "git", "-C", str(kernel_dir), "checkout", "--force", "--quiet", rev
+        )
+        await check_call("git", "-C", str(kernel_dir), "clean", "-dqf")
+        await apply_patches(kernel_dir)
         for flavor in flavors:
             flavor_rev_build_dir = build_dir / f"build-{flavor.name}-{rev}"
             with open(
