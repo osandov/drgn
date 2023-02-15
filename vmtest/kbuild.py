@@ -29,6 +29,7 @@ from vmtest.config import (
     Compiler,
     KernelFlavor,
     kconfig,
+    kconfig_localversion,
 )
 from vmtest.download import COMPILER_URL, DownloadCompiler, download
 
@@ -97,6 +98,7 @@ class KBuild:
                 "-C",
                 str(self._kernel_dir),
                 "ARCH=" + str(self._arch.kernel_arch),
+                "LOCALVERSION=" + kconfig_localversion(self._flavor),
                 "O=" + str(build_dir_real),
                 "KBUILD_ABS_SRCTREE=1",
                 "KBUILD_BUILD_USER=drgn",

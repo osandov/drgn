@@ -334,7 +334,8 @@ def kconfig(arch: Architecture, flavor: KernelFlavor) -> str:
 # Minimal Linux kernel configuration for booting into vmtest and running drgn
 # tests ({arch.name} {flavor.name} flavor).
 
-CONFIG_LOCALVERSION="{kconfig_localversion(flavor)}"
+CONFIG_LOCALVERSION=""
+CONFIG_LOCALVERSION_AUTO=n
 
 # base options
 
