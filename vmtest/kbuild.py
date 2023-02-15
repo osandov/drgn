@@ -46,7 +46,47 @@ class _Patch(NamedTuple):
     versions: Sequence[Tuple[Optional[KernelVersion], Optional[KernelVersion]]]
 
 
-_PATCHES = ()
+_PATCHES = (
+    _Patch(
+        name="5.15-kbuild-Unify-options-for-BTF-generation-for-vmlinux.patch",
+        versions=((KernelVersion("5.13"), KernelVersion("5.15.66")),),
+    ),
+    _Patch(
+        name="5.12.19-bpf-Generate-BTF_KIND_FLOAT-when-linking-vmlinux.patch",
+        versions=((KernelVersion("5.12.10"), KernelVersion("5.13")),),
+    ),
+    _Patch(
+        name="5.10-bpf-Generate-BTF_KIND_FLOAT-when-linking-vmlinux.patch",
+        versions=((KernelVersion("5.11"), KernelVersion("5.12.10")),),
+    ),
+    _Patch(
+        name="5.10-kbuild-Quote-OBJCOPY-var-to-avoid-a-pahole-call-brea.patch",
+        versions=((KernelVersion("5.11"), KernelVersion("5.12.10")),),
+    ),
+    _Patch(
+        name="5.10-kbuild-skip-per-CPU-BTF-generation-for-pahole-v1.18-.patch",
+        versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
+    ),
+    _Patch(
+        name="5.10-kbuild-Unify-options-for-BTF-generation-for-vmlinux.patch",
+        versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
+    ),
+    _Patch(
+        name="kbuild-Add-skip_encoding_btf_enum64-option-to-pahole.patch",
+        versions=((KernelVersion("5.18"), KernelVersion("5.19.17")),),
+    ),
+    _Patch(
+        name="5.15-kbuild-Add-skip_encoding_btf_enum64-option-to-pahole.patch",
+        versions=(
+            (KernelVersion("5.16"), KernelVersion("5.18")),
+            (KernelVersion("5.13"), KernelVersion("5.15.66")),
+        ),
+    ),
+    _Patch(
+        name="5.10-kbuild-Add-skip_encoding_btf_enum64-option-to-pahole.patch",
+        versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
+    ),
+)
 
 
 async def apply_patches(kernel_dir: Path) -> None:

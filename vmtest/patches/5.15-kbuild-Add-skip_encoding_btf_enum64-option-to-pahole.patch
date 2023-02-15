@@ -1,0 +1,48 @@
+From b775fbf532dc01ae53a6fc56168fd30cb4b0c658 Mon Sep 17 00:00:00 2001
+Message-Id: <b775fbf532dc01ae53a6fc56168fd30cb4b0c658.1676496954.git.osandov@osandov.com>
+From: Martin Rodriguez Reboredo <yakoyoku@gmail.com>
+Date: Sun, 4 Sep 2022 15:19:01 +0200
+Subject: [PATCH] kbuild: Add skip_encoding_btf_enum64 option to pahole
+
+New pahole (version 1.24) generates by default new BTF_KIND_ENUM64 BTF tag,
+which is not supported by stable kernel.
+
+As a result the kernel with CONFIG_DEBUG_INFO_BTF option will fail to
+compile with following error:
+
+  BTFIDS  vmlinux
+FAILED: load BTF from vmlinux: Invalid argument
+
+New pahole provides --skip_encoding_btf_enum64 option to skip BTF_KIND_ENUM64
+generation and produce BTF supported by stable kernel.
+
+Adding this option to scripts/pahole-flags.sh.
+
+This change does not have equivalent commit in linus tree, because linus tree
+has support for BTF_KIND_ENUM64 tag, so it does not need to be disabled.
+
+Signed-off-by: Martin Rodriguez Reboredo <yakoyoku@gmail.com>
+Signed-off-by: Jiri Olsa <jolsa@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+[Omar: fold in "kbuild: fix up permissions on scripts/pahole-flags.sh"]
+Signed-off-by: Omar Sandoval <osandov@osandov.com>
+---
+ scripts/pahole-flags.sh | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/scripts/pahole-flags.sh b/scripts/pahole-flags.sh
+index e6093adf4c06..7acee326aa6c 100755
+--- a/scripts/pahole-flags.sh
++++ b/scripts/pahole-flags.sh
+@@ -17,4 +17,8 @@ if [ "${pahole_ver}" -ge "121" ]; then
+ 	extra_paholeopt="${extra_paholeopt} --btf_gen_floats"
+ fi
+ 
++if [ "${pahole_ver}" -ge "124" ]; then
++	extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_enum64"
++fi
++
+ echo ${extra_paholeopt}
+-- 
+2.30.2
+

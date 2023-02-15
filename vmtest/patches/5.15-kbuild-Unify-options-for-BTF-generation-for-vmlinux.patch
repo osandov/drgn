@@ -1,0 +1,125 @@
+From 0baced0e0938f2895ceba54038eaf15ed91032e7 Mon Sep 17 00:00:00 2001
+Message-Id: <0baced0e0938f2895ceba54038eaf15ed91032e7.1676496740.git.osandov@osandov.com>
+From: Jiri Olsa <jolsa@redhat.com>
+Date: Sun, 4 Sep 2022 15:19:00 +0200
+Subject: [PATCH] kbuild: Unify options for BTF generation for vmlinux and
+ modules
+
+commit e27f05147bff21408c1b8410ad8e90cd286e7952 upstream.
+
+Using new PAHOLE_FLAGS variable to pass extra arguments to
+pahole for both vmlinux and modules BTF data generation.
+
+Adding new scripts/pahole-flags.sh script that detect and
+prints pahole options.
+
+[ fixed issues found by kernel test robot ]
+
+Signed-off-by: Jiri Olsa <jolsa@kernel.org>
+Signed-off-by: Andrii Nakryiko <andrii@kernel.org>
+Acked-by: Andrii Nakryiko <andrii@kernel.org>
+Link: https://lore.kernel.org/bpf/20211029125729.70002-1-jolsa@kernel.org
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+[Omar: fold in "kbuild: fix up permissions on scripts/pahole-flags.sh"]
+Signed-off-by: Omar Sandoval <osandov@osandov.com>
+---
+ Makefile                  |  3 +++
+ scripts/Makefile.modfinal |  2 +-
+ scripts/link-vmlinux.sh   | 11 +----------
+ scripts/pahole-flags.sh   | 20 ++++++++++++++++++++
+ 4 files changed, 25 insertions(+), 11 deletions(-)
+ create mode 100755 scripts/pahole-flags.sh
+
+diff --git a/Makefile b/Makefile
+index 9142dbf41f0d..21316686af35 100644
+--- a/Makefile
++++ b/Makefile
+@@ -480,6 +480,8 @@ LZ4		= lz4c
+ XZ		= xz
+ ZSTD		= zstd
+ 
++PAHOLE_FLAGS	= $(shell PAHOLE=$(PAHOLE) $(srctree)/scripts/pahole-flags.sh)
++
+ CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
+ 		  -Wbitwise -Wno-return-void -Wno-unknown-attribute $(CF)
+ NOSTDINC_FLAGS :=
+@@ -534,6 +536,7 @@ export KBUILD_CFLAGS CFLAGS_KERNEL CFLAGS_MODULE
+ export KBUILD_AFLAGS AFLAGS_KERNEL AFLAGS_MODULE
+ export KBUILD_AFLAGS_MODULE KBUILD_CFLAGS_MODULE KBUILD_LDFLAGS_MODULE
+ export KBUILD_AFLAGS_KERNEL KBUILD_CFLAGS_KERNEL
++export PAHOLE_FLAGS
+ 
+ # Files to ignore in find ... statements
+ 
+diff --git a/scripts/Makefile.modfinal b/scripts/Makefile.modfinal
+index ff805777431c..ce9661d968a3 100644
+--- a/scripts/Makefile.modfinal
++++ b/scripts/Makefile.modfinal
+@@ -40,7 +40,7 @@ quiet_cmd_ld_ko_o = LD [M]  $@
+ quiet_cmd_btf_ko = BTF [M] $@
+       cmd_btf_ko = 							\
+ 	if [ -f vmlinux ]; then						\
+-		LLVM_OBJCOPY="$(OBJCOPY)" $(PAHOLE) -J --btf_base vmlinux $@; \
++		LLVM_OBJCOPY="$(OBJCOPY)" $(PAHOLE) -J $(PAHOLE_FLAGS) --btf_base vmlinux $@; \
+ 	else								\
+ 		printf "Skipping BTF generation for %s due to unavailability of vmlinux\n" $@ 1>&2; \
+ 	fi;
+diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
+index 3819a461465d..57ef6accbb40 100755
+--- a/scripts/link-vmlinux.sh
++++ b/scripts/link-vmlinux.sh
+@@ -211,7 +211,6 @@ vmlinux_link()
+ gen_btf()
+ {
+ 	local pahole_ver
+-	local extra_paholeopt=
+ 
+ 	if ! [ -x "$(command -v ${PAHOLE})" ]; then
+ 		echo >&2 "BTF: ${1}: pahole (${PAHOLE}) is not available"
+@@ -226,16 +225,8 @@ gen_btf()
+ 
+ 	vmlinux_link ${1}
+ 
+-	if [ "${pahole_ver}" -ge "118" ] && [ "${pahole_ver}" -le "121" ]; then
+-		# pahole 1.18 through 1.21 can't handle zero-sized per-CPU vars
+-		extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_vars"
+-	fi
+-	if [ "${pahole_ver}" -ge "121" ]; then
+-		extra_paholeopt="${extra_paholeopt} --btf_gen_floats"
+-	fi
+-
+ 	info "BTF" ${2}
+-	LLVM_OBJCOPY="${OBJCOPY}" ${PAHOLE} -J ${extra_paholeopt} ${1}
++	LLVM_OBJCOPY="${OBJCOPY}" ${PAHOLE} -J ${PAHOLE_FLAGS} ${1}
+ 
+ 	# Create ${2} which contains just .BTF section but no symbols. Add
+ 	# SHF_ALLOC because .BTF will be part of the vmlinux image. --strip-all
+diff --git a/scripts/pahole-flags.sh b/scripts/pahole-flags.sh
+new file mode 100755
+index 000000000000..e6093adf4c06
+--- /dev/null
++++ b/scripts/pahole-flags.sh
+@@ -0,0 +1,20 @@
++#!/bin/sh
++# SPDX-License-Identifier: GPL-2.0
++
++extra_paholeopt=
++
++if ! [ -x "$(command -v ${PAHOLE})" ]; then
++	exit 0
++fi
++
++pahole_ver=$(${PAHOLE} --version | sed -E 's/v([0-9]+)\.([0-9]+)/\1\2/')
++
++if [ "${pahole_ver}" -ge "118" ] && [ "${pahole_ver}" -le "121" ]; then
++	# pahole 1.18 through 1.21 can't handle zero-sized per-CPU vars
++	extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_vars"
++fi
++if [ "${pahole_ver}" -ge "121" ]; then
++	extra_paholeopt="${extra_paholeopt} --btf_gen_floats"
++fi
++
++echo ${extra_paholeopt}
+-- 
+2.30.2
+

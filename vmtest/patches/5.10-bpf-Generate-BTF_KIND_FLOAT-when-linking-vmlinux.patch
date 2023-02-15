@@ -1,0 +1,53 @@
+From bbaea0f1cd33d702d053d5bdaf6d6dec3932894c Mon Sep 17 00:00:00 2001
+Message-Id: <bbaea0f1cd33d702d053d5bdaf6d6dec3932894c.1676499122.git.osandov@osandov.com>
+From: Ilya Leoshkevich <iii@linux.ibm.com>
+Date: Wed, 19 Oct 2022 10:56:00 +0200
+Subject: [PATCH] bpf: Generate BTF_KIND_FLOAT when linking vmlinux
+
+commit db16c1fe92d7ba7d39061faef897842baee2c887  upstream.
+
+[backported for dependency only extra_paholeopt variable setup and
+usage, we don't want floats generated in 5.10]
+
+pahole v1.21 supports the --btf_gen_floats flag, which makes it
+generate the information about the floating-point types [1].
+
+Adjust link-vmlinux.sh to pass this flag to pahole in case it's
+supported, which is determined using a simple version check.
+
+[1] https://lore.kernel.org/dwarves/YHRiXNX1JUF2Az0A@kernel.org/
+
+Signed-off-by: Ilya Leoshkevich <iii@linux.ibm.com>
+Signed-off-by: Andrii Nakryiko <andrii@kernel.org>
+Acked-by: Andrii Nakryiko <andrii@kernel.org>
+Link: https://lore.kernel.org/bpf/20210413190043.21918-1-iii@linux.ibm.com
+Signed-off-by: Jiri Olsa <jolsa@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ scripts/link-vmlinux.sh | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
+index d0b44bee9286..cdfccbfed452 100755
+--- a/scripts/link-vmlinux.sh
++++ b/scripts/link-vmlinux.sh
+@@ -146,6 +146,7 @@ vmlinux_link()
+ gen_btf()
+ {
+ 	local pahole_ver
++	local extra_paholeopt=
+ 
+ 	if ! [ -x "$(command -v ${PAHOLE})" ]; then
+ 		echo >&2 "BTF: ${1}: pahole (${PAHOLE}) is not available"
+@@ -161,7 +162,7 @@ gen_btf()
+ 	vmlinux_link ${1}
+ 
+ 	info "BTF" ${2}
+-	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} -J ${1}
++	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} -J ${extra_paholeopt} ${1}
+ 
+ 	# Create ${2} which contains just .BTF section but no symbols. Add
+ 	# SHF_ALLOC because .BTF will be part of the vmlinux image. --strip-all
+-- 
+2.30.2
+

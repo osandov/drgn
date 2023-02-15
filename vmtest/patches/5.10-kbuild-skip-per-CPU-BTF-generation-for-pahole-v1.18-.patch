@@ -1,0 +1,60 @@
+From f5f413cb3e8af235c5d310bea9942424fb242c2c Mon Sep 17 00:00:00 2001
+Message-Id: <f5f413cb3e8af235c5d310bea9942424fb242c2c.1676498969.git.osandov@osandov.com>
+In-Reply-To: <06481cd9f7f692088bce03244f8cf132018f2fc6.1676498969.git.osandov@osandov.com>
+References: <06481cd9f7f692088bce03244f8cf132018f2fc6.1676498969.git.osandov@osandov.com>
+From: Andrii Nakryiko <andrii@kernel.org>
+Date: Wed, 19 Oct 2022 10:56:02 +0200
+Subject: [PATCH 2/3] kbuild: skip per-CPU BTF generation for pahole
+ v1.18-v1.21
+
+commit a0b8200d06ad6450c179407baa5f0f52f8cfcc97 upstream.
+
+[small context changes due to missing floats support in 5.10]
+
+Commit "mm/page_alloc: convert per-cpu list protection to local_lock" will
+introduce a zero-sized per-CPU variable, which causes pahole to generate
+invalid BTF.  Only pahole versions 1.18 through 1.21 are impacted, as
+before 1.18 pahole doesn't know anything about per-CPU variables, and 1.22
+contains the proper fix for the issue.
+
+Luckily, pahole 1.18 got --skip_encoding_btf_vars option disabling BTF
+generation for per-CPU variables in anticipation of some unanticipated
+problems.  So use this escape hatch to disable per-CPU var BTF info on
+those problematic pahole versions.  Users relying on availability of
+per-CPU var BTFs would need to upgrade to pahole 1.22+, but everyone won't
+notice any regressions.
+
+Link: https://lkml.kernel.org/r/20210530002536.3193829-1-andrii@kernel.org
+Signed-off-by: Andrii Nakryiko <andrii@kernel.org>
+Acked-by: Mel Gorman <mgorman@techsingularity.net>
+Cc: Arnaldo Carvalho de Melo <acme@redhat.com>
+Cc: Hao Luo <haoluo@google.com>
+Cc: Michal Suchanek <msuchanek@suse.de>
+Cc: Jiri Olsa <jolsa@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Jiri Olsa <jolsa@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ scripts/link-vmlinux.sh | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
+index 72bf14df6903..bbb22be4c8f1 100755
+--- a/scripts/link-vmlinux.sh
++++ b/scripts/link-vmlinux.sh
+@@ -161,6 +161,11 @@ gen_btf()
+ 
+ 	vmlinux_link ${1}
+ 
++	if [ "${pahole_ver}" -ge "118" ] && [ "${pahole_ver}" -le "121" ]; then
++		# pahole 1.18 through 1.21 can't handle zero-sized per-CPU vars
++		extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_vars"
++	fi
++
+ 	info "BTF" ${2}
+ 	LLVM_OBJCOPY="${OBJCOPY}" ${PAHOLE} -J ${extra_paholeopt} ${1}
+ 
+-- 
+2.30.2
+
