@@ -22,7 +22,7 @@ jobs:
           sudo apt-get install dwarves libelf-dev
           pip install aiohttp uritemplate
       - name: Build and upload assets
-        run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K
+        run: python3 -m vmtest.manage --kernel-directory build/vmtest/linux.git --build-directory build/vmtest/kbuild -K -a x86_64
       - name: Upload kernel build logs
         if: always()
         uses: actions/upload-artifact@v3
