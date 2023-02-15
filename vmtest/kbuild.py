@@ -11,9 +11,9 @@ import shlex
 import shutil
 import sys
 import tempfile
-from typing import IO, Any, Mapping, Optional, Tuple, Union
+from typing import IO, Any, Mapping, NamedTuple, Optional, Sequence, Tuple, Union
 
-from util import nproc
+from util import KernelVersion, nproc
 from vmtest.asynciosubprocess import (
     CalledProcessError,
     check_call,
@@ -37,6 +37,63 @@ logger = logging.getLogger(__name__)
 
 
 _PACKAGE_FORMATS = ("tar.zst", "directory")
+
+
+class _Patch(NamedTuple):
+    name: str
+    # [inclusive, exclusive) ranges of kernel versions to apply this patch to.
+    # None means any version.
+    versions: Sequence[Tuple[Optional[KernelVersion], Optional[KernelVersion]]]
+
+
+_PATCHES = ()
+
+
+async def apply_patches(kernel_dir: Path) -> None:
+    patch_dir = Path(__file__).parent / "patches"
+    version = KernelVersion(
+        (await check_output("make", "-s", "kernelversion", cwd=kernel_dir))
+        .decode()
+        .strip()
+    )
+    logging.info("applying patches for kernel version %s", version)
+    any_applied = False
+    for patch in _PATCHES:
+        for min_version, max_version in patch.versions:
+            if (min_version is None or min_version <= version) and (
+                max_version is None or version < max_version
+            ):
+                break
+        else:
+            continue
+        logging.info("applying %s", patch.name)
+        any_applied = True
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "apply",
+            str(patch_dir / patch.name),
+            cwd=kernel_dir,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stderr = await proc.stderr.read()
+        if await proc.wait() != 0:
+            try:
+                await check_call(
+                    "git",
+                    "apply",
+                    "--reverse",
+                    "--check",
+                    str(patch_dir / patch.name),
+                    cwd=kernel_dir,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except CalledProcessError:
+                sys.stderr.buffer.write(stderr)
+                sys.stderr.buffer.flush()
+                raise
+            logging.info("already applied")
+    if not any_applied:
+        logging.info("no patches")
 
 
 class KBuild:
@@ -473,6 +530,11 @@ async def main() -> None:
         default=_PACKAGE_FORMATS[0],
     )
     parser.add_argument(
+        "--patch",
+        action="store_true",
+        help="apply patches to kernel source tree",
+    )
+    parser.add_argument(
         "-a",
         "--architecture",
         choices=sorted(ARCHITECTURES),
@@ -524,6 +586,9 @@ async def main() -> None:
         env = {**os.environ, **downloaded.env()}
     else:
         env = None
+
+    if args.patch:
+        await apply_patches(args.kernel_directory)
 
     kbuild = KBuild(args.kernel_directory, args.build_directory, arch, flavor, env)
     await kbuild.build()
