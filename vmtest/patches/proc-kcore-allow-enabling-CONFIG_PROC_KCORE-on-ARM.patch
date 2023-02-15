@@ -1,0 +1,34 @@
+From 67abb14dc0f5d4c9991ef6377a7b1871336cbe43 Mon Sep 17 00:00:00 2001
+Message-Id: <67abb14dc0f5d4c9991ef6377a7b1871336cbe43.1676535977.git.osandov@osandov.com>
+From: Omar Sandoval <osandov@osandov.com>
+Date: Wed, 15 Feb 2023 14:54:17 -0800
+Subject: [PATCH] proc/kcore: allow enabling CONFIG_PROC_KCORE on ARM
+
+CONFIG_PROC_KCORE cannot be enabled on ARM since ancient history (Linux
+2.6.0). See commits 5a8f43aee2ce ("[PATCH] Make /proc/kcore
+configurable") [1] and 72d717bfd9a9 ("[PATCH] Make modules work on ARM")
+[2] from the Linux kernel history tree and the patch submission for the
+latter [3]. However, the reasoning for it being disabled is probably no
+longer relevant.
+
+1: https://git.kernel.org/pub/scm/linux/kernel/git/history/history.git/commit/?id=5a8f43aee2cee75d7607c257369ab9b864795cc4
+2: https://git.kernel.org/pub/scm/linux/kernel/git/history/history.git/commit/?id=72d717bfd9a9e1170be2cf989ed322f85dcfe68f
+3: https://lwn.net/Articles/45316/
+
+Signed-off-by: Omar Sandoval <osandov@osandov.com>
+---
+ fs/proc/Kconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/proc/Kconfig b/fs/proc/Kconfig
+index 32b1116ae137c..12b9348b0143e 100644
+--- a/fs/proc/Kconfig
++++ b/fs/proc/Kconfig
+@@ -32,3 +32,3 @@ config PROC_FS
+ config PROC_KCORE
+-	bool "/proc/kcore support" if !ARM
++	bool "/proc/kcore support"
+ 	depends on PROC_FS && MMU
+-- 
+2.30.2
+

@@ -48,6 +48,10 @@ class _Patch(NamedTuple):
 
 _PATCHES = (
     _Patch(
+        name="proc-kcore-allow-enabling-CONFIG_PROC_KCORE-on-ARM.patch",
+        versions=((None, None),),
+    ),
+    _Patch(
         name="5.15-kbuild-Unify-options-for-BTF-generation-for-vmlinux.patch",
         versions=((KernelVersion("5.13"), KernelVersion("5.15.66")),),
     ),
