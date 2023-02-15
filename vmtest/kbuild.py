@@ -184,18 +184,8 @@ class KBuild:
             self._build_dir,
         )
 
-    def _copy_module_build(self, modules_dir: Path) -> None:
+    def _copy_module_build(self, modules_build_dir: Path) -> None:
         logger.info("copying module build files")
-
-        # `make modules_install` creates these as symlinks to the absolute path
-        # of the source directory. Delete them, populate build, and make source
-        # a symlink to build.
-        modules_build_dir = modules_dir / "build"
-        modules_source_dir = modules_dir / "source"
-        modules_build_dir.unlink()
-        modules_build_dir.mkdir()
-        modules_source_dir.unlink()
-        modules_source_dir.symlink_to("build")
 
         # Files and directories (as glob patterns) required for external module
         # builds. This list was determined through trial and error.
@@ -216,6 +206,7 @@ class KBuild:
             "scripts/pahole-flags.sh",
             "scripts/pahole-version.sh",
             "scripts/subarch.include",
+            "tools/bpf/resolve_btfids/resolve_btfids",
             "tools/objtool/objtool",
         )
         directories = (
@@ -253,7 +244,7 @@ class KBuild:
                         dirs_exist_ok=True,
                     )
 
-    async def _test_external_module_build(self, modules_dir: Path) -> None:
+    async def _test_external_module_build(self, modules_build_dir: Path) -> None:
         logger.info("testing external module build")
 
         with tempfile.TemporaryDirectory(
@@ -283,7 +274,7 @@ MODULE_LICENSE("GPL");
                 "make",
                 "ARCH=" + str(self._arch.kernel_arch),
                 "-C",
-                modules_dir / "build",
+                modules_build_dir,
                 f"M={test_module_dir.resolve()}",
             )
             proc = await asyncio.create_subprocess_exec(
@@ -373,8 +364,18 @@ MODULE_LICENSE("GPL");
                 env=self._env,
             )
 
+            # `make modules_install` creates these as symlinks to the absolute
+            # path of the source directory. Delete them, make build a
+            # directory, and make source a symlink to build.
+            modules_build_dir = modules_dir / "build"
+            modules_source_dir = modules_dir / "source"
+            modules_build_dir.unlink()
+            modules_build_dir.mkdir()
+            modules_source_dir.unlink()
+            modules_source_dir.symlink_to("build")
+
             logger.info("copying vmlinux")
-            vmlinux = modules_dir / "vmlinux"
+            vmlinux = modules_build_dir / "vmlinux"
             await check_call(
                 (os.environ if self._env is None else self._env).get(
                     "CROSS_COMPILE", ""
@@ -392,8 +393,8 @@ MODULE_LICENSE("GPL");
             shutil.copy(self._build_dir / image_name, vmlinuz)
             vmlinuz.chmod(0o644)
 
-            self._copy_module_build(modules_dir)
-            await self._test_external_module_build(modules_dir)
+            self._copy_module_build(modules_build_dir)
+            await self._test_external_module_build(modules_build_dir)
 
             package.parent.mkdir(parents=True, exist_ok=True)
             if format == "directory":
