@@ -296,6 +296,7 @@ class KBuild:
             ".config",
             "Module.symvers",
             f"arch/{self._arch.kernel_srcarch}/Makefile",
+            f"arch/{self._arch.kernel_srcarch}/kernel/module.lds",
             "scripts/Kbuild.include",
             "scripts/Makefile*",
             "scripts/basic/fixdep",
