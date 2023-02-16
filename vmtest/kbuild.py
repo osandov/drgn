@@ -505,7 +505,21 @@ MODULE_LICENSE("GPL");
 
             logger.info("copying vmlinuz")
             vmlinuz = modules_dir / "vmlinuz"
-            shutil.copy(self._build_dir / image_name, vmlinuz)
+            try:
+                shutil.copy(self._build_dir / image_name, vmlinuz)
+            except FileNotFoundError:
+                # Before Linux kernel commits 06995804b576 ("arm64: Use full
+                # path in KBUILD_IMAGE definition") and 152e6744ebfc ("arm: Use
+                # full path in KBUILD_IMAGE definition") (in v4.12), image_name
+                # may be relative to the architecture boot directory.
+                shutil.copy(
+                    self._build_dir
+                    / "arch"
+                    / self._arch.kernel_srcarch
+                    / "boot"
+                    / image_name,
+                    vmlinuz,
+                )
             vmlinuz.chmod(0o644)
 
             self._copy_module_build(modules_build_dir)
