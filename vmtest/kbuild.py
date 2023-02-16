@@ -90,6 +90,10 @@ _PATCHES = (
         name="5.10-kbuild-Add-skip_encoding_btf_enum64-option-to-pahole.patch",
         versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
     ),
+    _Patch(
+        name="s390-mm-make-memory_block_size_bytes-available-for-M.patch",
+        versions=((KernelVersion("4.3"), KernelVersion("4.11")),),
+    ),
 )
 
 

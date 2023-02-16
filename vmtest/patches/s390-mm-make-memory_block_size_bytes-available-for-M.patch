@@ -1,0 +1,56 @@
+From 604ddad038bfa0ae6f447c2ff29fcd430cec8181 Mon Sep 17 00:00:00 2001
+Message-Id: <604ddad038bfa0ae6f447c2ff29fcd430cec8181.1676539827.git.osandov@osandov.com>
+From: Heiko Carstens <heiko.carstens@de.ibm.com>
+Date: Mon, 13 Feb 2017 14:58:36 +0100
+Subject: [PATCH] s390/mm: make memory_block_size_bytes available for
+ !MEMORY_HOTPLUG
+
+Fix this compile error for !MEMORY_HOTPLUG && NUMA:
+arch/s390/built-in.o: In function `emu_setup_size_adjust':
+arch/s390/numa/mode_emu.c:477: undefined reference to `memory_block_size_bytes'
+
+Signed-off-by: Heiko Carstens <heiko.carstens@de.ibm.com>
+Signed-off-by: Martin Schwidefsky <schwidefsky@de.ibm.com>
+---
+ arch/s390/mm/init.c | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/arch/s390/mm/init.c b/arch/s390/mm/init.c
+index ba0c8d18e10d4..ee5066718b212 100644
+--- a/arch/s390/mm/init.c
++++ b/arch/s390/mm/init.c
+@@ -151,6 +151,15 @@ void __init free_initrd_mem(unsigned long start, unsigned long end)
+ }
+ #endif
+ 
++unsigned long memory_block_size_bytes(void)
++{
++	/*
++	 * Make sure the memory block size is always greater
++	 * or equal than the memory increment size.
++	 */
++	return max_t(unsigned long, MIN_MEMORY_BLOCK_SIZE, sclp.rzm);
++}
++
+ #ifdef CONFIG_MEMORY_HOTPLUG
+ int arch_add_memory(int nid, u64 start, u64 size, bool for_device)
+ {
+@@ -194,15 +203,6 @@ int arch_add_memory(int nid, u64 start, u64 size, bool for_device)
+ 	return rc;
+ }
+ 
+-unsigned long memory_block_size_bytes(void)
+-{
+-	/*
+-	 * Make sure the memory block size is always greater
+-	 * or equal than the memory increment size.
+-	 */
+-	return max_t(unsigned long, MIN_MEMORY_BLOCK_SIZE, sclp.rzm);
+-}
+-
+ #ifdef CONFIG_MEMORY_HOTREMOVE
+ int arch_remove_memory(u64 start, u64 size)
+ {
+-- 
+2.30.2
+
