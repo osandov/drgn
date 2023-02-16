@@ -319,6 +319,11 @@ class KBuild:
         # Arm.
         if self._arch.name == "aarch64":
             files.append("arch/arm/include/asm/opcodes.h")
+        # Before Linux kernel commit efe0160cfd40 ("powerpc/64: Linker
+        # on-demand sfpr functions for modules") (in v4.13), this must be
+        # available to link into modules.
+        if self._arch.name == "ppc64":
+            files.append("arch/powerpc/lib/crtsavres.o")
         directories = (
             f"arch/{self._arch.kernel_srcarch}/include",
             "include",
