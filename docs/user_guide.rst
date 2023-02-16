@@ -28,8 +28,8 @@ arbitrary memory::
 
     >>> prog.type('unsigned long')
     prog.int_type(name='unsigned long', size=8, is_signed=False)
-    >>> prog['jiffies']
-    Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
+    >>> prog['jiffies_64']
+    Object(prog, 'u64', address=0xffffffffbe405000)
     >>> prog.read(0xffffffffbe411e10, 16)
     b'swapper/0\x00\x00\x00\x00\x00\x00\x00'
 
@@ -40,7 +40,7 @@ memory from the program's address space. The :meth:`[]
 <drgn.Program.__getitem__>` operator looks up a variable, constant, or
 function::
 
-    >>> prog['jiffies'] == prog.variable('jiffies')
+    >>> prog['jiffies_64'] == prog.variable('jiffies_64')
     True
 
 It is usually more convenient to use the ``[]`` operator rather than the
@@ -105,7 +105,7 @@ evaluated; values simply return the stored value (:meth:`drgn.Object.read_()`
 reads a reference object and returns it as a value object)::
 
     >>> import time
-    >>> jiffies = prog['jiffies']
+    >>> jiffies = prog['jiffies_64']
     >>> jiffies.value_()
     4391639989
     >>> time.sleep(1)
@@ -128,14 +128,14 @@ address as a Python ``int``. This is slightly different from the
 :meth:`drgn.Object.value_()` refers to the value of the pointer (i.e., the
 address it points to)::
 
-    >>> address = prog['jiffies'].address_
+    >>> address = prog['jiffies_64'].address_
     >>> type(address)
     <class 'int'>
     >>> print(hex(address))
     0xffffffffbe405000
-    >>> jiffiesp = prog['jiffies'].address_of_()
+    >>> jiffiesp = prog['jiffies_64'].address_of_()
     >>> jiffiesp
-    Object(prog, 'volatile unsigned long *', value=0xffffffffbe405000)
+    Object(prog, 'u64 *', value=0xffffffffbe405000)
     >>> print(hex(jiffiesp.value_()))
     0xffffffffbe405000
 
@@ -370,8 +370,8 @@ The default behavior of the Python `REPL
 print the output of :func:`repr()`. For :class:`drgn.Object` and
 :class:`drgn.Type`, this is a raw representation::
 
-    >>> print(repr(prog['jiffies']))
-    Object(prog, 'volatile unsigned long', address=0xffffffffbe405000)
+    >>> print(repr(prog['jiffies_64']))
+    Object(prog, 'u64', address=0xffffffffbe405000)
     >>> print(repr(prog.type('atomic_t')))
     prog.typedef_type(name='atomic_t', type=prog.struct_type(tag=None, size=4, members=(TypeMember(prog.type('int'), name='counter', bit_offset=0),)))
 
@@ -379,8 +379,8 @@ The standard :func:`print()` function uses the output of :func:`str()`. For
 drgn objects and types, this is a representation in programming language
 syntax::
 
-    >>> print(prog['jiffies'])
-    (volatile unsigned long)4395387628
+    >>> print(prog['jiffies_64'])
+    (u64)4395387628
     >>> print(prog.type('atomic_t'))
     typedef struct {
             int counter;
@@ -391,8 +391,8 @@ In interactive mode, the drgn CLI automatically uses ``str()`` instead of
 explicitly::
 
     $ sudo drgn
-    >>> prog['jiffies']
-    (volatile unsigned long)4395387628
+    >>> prog['jiffies_64']
+    (u64)4395387628
     >>> prog.type('atomic_t')
     typedef struct {
             int counter;

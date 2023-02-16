@@ -113,8 +113,8 @@ class Program:
         arbitrarily. In this case, the :meth:`variable()`, :meth:`constant()`,
         :meth:`function()`, or :meth:`object()` methods can be used instead.
 
-        >>> prog['jiffies']
-        Object(prog, 'volatile unsigned long', address=0xffffffff94c05000)
+        >>> prog['jiffies_64']
+        Object(prog, 'u64', address=0xffffffff94c05000)
 
         :param name: Object name.
         """
@@ -131,8 +131,8 @@ class Program:
         """
         Get the variable with the given name.
 
-        >>> prog.variable('jiffies')
-        Object(prog, 'volatile unsigned long', address=0xffffffff94c05000)
+        >>> prog.variable('jiffies_64')
+        Object(prog, 'u64', address=0xffffffff94c05000)
 
         This is equivalent to ``prog.object(name, FindObjectFlags.VARIABLE,
         filename)``.
@@ -1026,14 +1026,14 @@ class Object:
 
     :func:`repr()` of an object returns a Python representation of the object:
 
-    >>> print(repr(prog['jiffies']))
-    Object(prog, 'volatile unsigned long', address=0xffffffffbf005000)
+    >>> print(repr(prog['jiffies_64']))
+    Object(prog, 'u64', address=0xffffffffbf005000)
 
     :class:`str() <str>` returns a "pretty" representation of the object in
     programming language syntax:
 
-    >>> print(prog['jiffies'])
-    (volatile unsigned long)4326237045
+    >>> print(prog['jiffies_64'])
+    (u64)4326237045
 
     The output format of ``str()`` can be modified by using the
     :meth:`format_()` method instead:
