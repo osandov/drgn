@@ -292,7 +292,7 @@ class KBuild:
 
         # Files and directories (as glob patterns) required for external module
         # builds. This list was determined through trial and error.
-        files = (
+        files = [
             ".config",
             "Module.symvers",
             f"arch/{self._arch.kernel_srcarch}/Makefile",
@@ -313,7 +313,12 @@ class KBuild:
             "scripts/subarch.include",
             "tools/bpf/resolve_btfids/resolve_btfids",
             "tools/objtool/objtool",
-        )
+        ]
+        # Before Linux kernel commit bca8f17f57bd ("arm64: Get rid of
+        # asm/opcodes.h") (in v4.10), AArch64 includes this file from 32-bit
+        # Arm.
+        if self._arch.name == "aarch64":
+            files.append("arch/arm/include/asm/opcodes.h")
         directories = (
             f"arch/{self._arch.kernel_srcarch}/include",
             "include",
