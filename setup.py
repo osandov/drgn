@@ -18,7 +18,6 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
 
 from setuptools import Command, find_packages, setup
 from setuptools.command.build_ext import build_ext as _build_ext
@@ -205,55 +204,16 @@ class test(Command):
         test = unittest.main(module=None, argv=argv, exit=False)
         return test.result.wasSuccessful()
 
-    def _build_kmod(self, kernel_dir, kmod):
-        kernel_build_dir = kernel_dir / "build"
-        # External modules can't do out-of-tree builds for some reason, so copy
-        # the source files to a temporary directory and build the module there,
-        # then move it to the final location.
-        kmod_source_dir = Path("tests/linux_kernel/kmod")
-        source_files = ("drgn_test.c", "Makefile")
-        if out_of_date(
-            kmod, *[kmod_source_dir / filename for filename in source_files]
-        ):
-            with tempfile.TemporaryDirectory(dir=kmod.parent) as tmp_name:
-                tmp_dir = Path(tmp_name)
-                # Make sure that header files have the same paths as in the
-                # original kernel build.
-                debug_prefix_map = [
-                    f"{kernel_build_dir.resolve()}=.",
-                    f"{tmp_dir.resolve()}=./drgn_test",
-                ]
-                cflags = " ".join(
-                    ["-fdebug-prefix-map=" + map for map in debug_prefix_map]
-                )
-                for filename in source_files:
-                    copy_file(kmod_source_dir / filename, tmp_dir / filename)
-                if (
-                    subprocess.call(
-                        [
-                            "make",
-                            "-C",
-                            kernel_build_dir,
-                            f"M={tmp_dir.resolve()}",
-                            "KAFLAGS=" + cflags,
-                            "KCFLAGS=" + cflags,
-                            "-j",
-                            str(nproc()),
-                        ]
-                    )
-                    != 0
-                ):
-                    return False
-                (tmp_dir / "drgn_test.ko").rename(kmod)
-        return True
-
     def _run_vm(self, kernel):
+        from vmtest.kmod import build_kmod
         import vmtest.vm
 
         self.announce(f"running tests in VM on Linux {kernel.release}", log.INFO)
 
         kmod = kernel.path.parent / f"drgn_test-{kernel.release}.ko"
-        if not self._build_kmod(kernel.path, kmod):
+        try:
+            build_kmod(Path(self.vmtest_dir), kernel)
+        except subprocess.CalledProcessError:
             return False
 
         command = rf"""
@@ -287,8 +247,8 @@ fi
     def run(self):
         import urllib.error
 
-        from vmtest.config import ARCHITECTURES
-        from vmtest.download import DownloadKernel, download_in_thread
+        from vmtest.config import ARCHITECTURES, Kernel
+        from vmtest.download import DownloadCompiler, DownloadKernel, download_in_thread
 
         if os.getenv("GITHUB_ACTIONS") == "true":
 
@@ -309,13 +269,12 @@ fi
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
         try:
-            with download_in_thread(
-                Path(self.vmtest_dir),
-                [
-                    DownloadKernel(ARCHITECTURES["x86_64"], pattern)
-                    for pattern in self.kernels
-                ],
-            ) as kernel_downloads:
+            to_downlad = []
+            if self.kernels:
+                to_downlad.append(DownloadCompiler(ARCHITECTURES["x86_64"]))
+                for pattern in self.kernels:
+                    to_downlad.append(DownloadKernel(ARCHITECTURES["x86_64"], pattern))
+            with download_in_thread(Path(self.vmtest_dir), to_downlad) as downloads:
                 if self.kernels:
                     self.announce("downloading kernels in the background", log.INFO)
 
@@ -335,7 +294,9 @@ fi
                     else:
                         failed.append("local")
 
-                for kernel in kernel_downloads:
+                for kernel in downloads:
+                    if not isinstance(kernel, Kernel):
+                        continue
                     with github_workflow_group(
                         f"Run integration tests on Linux {kernel.release}"
                     ):
