@@ -10,11 +10,13 @@ from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_sigwait,
     setenv,
+    skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
 )
 from util import NORMALIZED_MACHINE_NAME
 
 
+@skip_unless_have_stack_tracing
 class TestStackTrace(LinuxKernelTestCase):
     def _test_drgn_test_kthread_trace(self, trace):
         for i, frame in enumerate(trace):

@@ -98,6 +98,11 @@ skip_unless_have_full_mm_support = unittest.skipUnless(
     f"mm support is not implemented for {NORMALIZED_MACHINE_NAME}",
 )
 
+skip_unless_have_stack_tracing = unittest.skipUnless(
+    NORMALIZED_MACHINE_NAME in {"aarch64", "ppc64", "s390x", "x86_64"},
+    f"stack tracing is not implemented for {NORMALIZED_MACHINE_NAME}",
+)
+
 
 def wait_until(fn, *args, **kwds):
     TIMEOUT = 5
