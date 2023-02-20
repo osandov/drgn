@@ -256,7 +256,8 @@ def run_in_vm(command: str, kernel: Kernel, root_dir: Path, build_dir: Path) -> 
                 # fmt: off
                 qemu_exe, *kvm_args,
 
-                "-smp", str(nproc()), "-m", "2G",
+                # Limit the number of cores to 8, otherwise we can reach an OOM troubles.
+                "-smp", str(min(nproc(), 8)), "-m", "2G",
 
                 "-display", "none", "-serial", "mon:stdio",
 
