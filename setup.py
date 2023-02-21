@@ -339,7 +339,12 @@ def get_version():
 
     # If this is a git repository, use a git-describe(1)-esque local version.
     # Otherwise, get the local version saved in the sdist.
-    if os.path.exists(".git"):
+    if (
+        subprocess.call(
+            ["git", "--git-dir=.git", "rev-parse"], stderr=subprocess.DEVNULL
+        )
+        == 0
+    ):
         # Read the Docs modifies the working tree (namely, docs/conf.py). We
         # don't want the documentation to display a dirty version, so ignore
         # modifications for RTD builds.
