@@ -6405,11 +6405,11 @@ static struct drgn_error *subrange_length(Dwarf_Die *die,
 
 	dimension->is_complete = true;
 	/*
-	 * GCC emits a DW_FORM_sdata DW_AT_upper_bound of -1 for empty array
-	 * variables without an explicit size (e.g., `int arr[] = {};`).
+	 * GCC emits a DW_FORM_sdata or DW_FORM_data8 DW_AT_upper_bound of -1
+	 * for empty array variables without an explicit size
+	 * (e.g., `int arr[] = {};`).
 	 */
-	if (attr->code == DW_AT_upper_bound && attr->form == DW_FORM_sdata &&
-	    word == (Dwarf_Word)-1) {
+	if (attr->code == DW_AT_upper_bound && word == (Dwarf_Word)-1) {
 		dimension->length = 0;
 	} else if (attr->code == DW_AT_upper_bound) {
 		if (word >= UINT64_MAX) {

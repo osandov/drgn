@@ -2581,6 +2581,32 @@ class TestTypes(TestCase):
             prog.type("TEST").type, prog.array_type(prog.int_type("int", 4, True), 0)
         )
 
+    def test_array_zero_length_upper_bound_cpp(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.array_type,
+                    (DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),),
+                    (
+                        DwarfDie(
+                            DW_TAG.subrange_type,
+                            (
+                                DwarfAttrib(
+                                    DW_AT.upper_bound,
+                                    DW_FORM.data8,
+                                    18446744073709551615,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+            )
+        )
+        self.assertIdentical(
+            prog.type("TEST").type, prog.array_type(prog.int_type("int", 4, True), 0)
+        )
+
     def test_incomplete_array_no_subrange(self):
         prog = dwarf_program(
             wrap_test_type_dies(
