@@ -128,9 +128,9 @@ struct pgtable_iterator {
  * Abstractly, a virtual address lies in a range of addresses in the address
  * space. A range may be a mapped page, a page table gap, or a range of invalid
  * addresses (e.g., non-canonical addresses on x86-64). This finds the range
- * containing the current virtual address, returns the first virtual address of
- * that range and the physical address it maps to (if any), and updates the
- * current virtual address to the end of the range.
+ * containing the current virtual address (`it->virt_addr`), returns the first
+ * virtual address of that range and the physical address it maps to (if any),
+ * and updates `it->virt_addr` to the end of the range.
  *
  * This does not merge contiguous ranges. For example, if two adjacent mapped
  * pages have adjacent physical addresses, this returns each page separately.
@@ -195,6 +195,50 @@ typedef struct drgn_error *
  *   - @ref linux_kernel_pgtable_iterator_destroy
  *   - @ref linux_kernel_pgtable_iterator_init
  *   - @ref linux_kernel_pgtable_iterator_next
+ *
+ * This is an example of how the page table iterator members may be used
+ * (ignoring error handling):
+ *
+ * ```
+ * // Create the iterator.
+ * struct pgtable_iterator *it;
+ * arch->linux_kernel_pgtable_iterator_create(prog, &it);
+ *
+ * // Initialize the iterator to translate virtual address 0x80000000 using
+ * // the page table "pgtable".
+ * it->pgtable = pgtable;
+ * it->virt_addr = 0x80000000;
+ * arch->linux_kernel_pgtable_iterator_init(prog, it);
+ * // Iterate up to virtual address 0x90000000.
+ * while (it->virt_addr < 0x90000000) {
+ *         uint64_t virt_addr, phys_addr;
+ *         arch->linux_kernel_pgtable_iterator_next(prog, it, &virt_addr,
+ *                                                  &phys_addr);
+ *         if (phys_addr == UINT64_MAX) {
+ *                 printf("Virtual address range 0x%" PRIx64 "-0x%" PRIx64
+ *                        " is not mapped\n",
+ *                        virt_addr, it->virt_addr);
+ *         } else {
+ *                 printf("Virtual address range 0x%" PRIx64 "-0x%" PRIx64
+ *                        " maps to physical address 0x%" PRIx64 "\n",
+ *                        virt_addr, phys_addr);
+ *         }
+ * }
+ *
+ * // Reuse the iterator to translate a different address using a different page
+ * // table.
+ * it->pgtable = another_pgtable;
+ * it->virt_addr = 0x11110000;
+ * uint64_t virt_addr, phys_addr;
+ * arch->linux_kernel_pgtable_iterator_next(prog, it, &virt_addr, &phys_addr);
+ * if (phys_addr != UINT64_MAX) {
+ *         printf("Virtual address 0x11110000 maps to physical address 0x%" PRIx64 "\n",
+ *                phys_addr + (0x11110000 - virt_addr));
+ * }
+ *
+ * // Free the iterator now that we're done with it.
+ * arch->linux_kernel_pgtable_iterator_destroy(prog, &it);
+ * ```
  */
 struct drgn_architecture_info {
 	/** Human-readable name of this architecture. */
@@ -351,10 +395,32 @@ struct drgn_architecture_info {
 								   struct pgtable_iterator **);
 	/** Free a Linux kernel page table iterator. */
 	void (*linux_kernel_pgtable_iterator_destroy)(struct pgtable_iterator *);
-	/** (Re)initialize a Linux kernel page table iterator. */
+	/**
+	 * (Re)initialize a Linux kernel page table iterator.
+	 *
+	 * This is called each time that the iterator will be used to translate
+	 * a contiguous range of virtual addresses from a single page table. It
+	 * is called with @ref pgtable_iterator::pgtable set to the address of
+	 * the page table to use and @ref pgtable_iterator::virt_addr set to the
+	 * starting virtual address to translate.
+	 */
 	void (*linux_kernel_pgtable_iterator_init)(struct drgn_program *,
 						   struct pgtable_iterator *);
-	/** Iterate a (user or kernel) page table in the Linux kernel. */
+	/**
+	 * Iterate a (user or kernel) page table in the Linux kernel.
+	 *
+	 * This is called after @ref linux_kernel_pgtable_iterator_init() to
+	 * translate the starting address and may be called again without
+	 * reinitializing the iterator to translate subsequent adjacent
+	 * addresses in the same page table.
+	 *
+	 * If the caller needs to translate from a different page table or
+	 * virtual address, it will call @ref
+	 * linux_kernel_pgtable_iterator_init() before calling this function
+	 * again.
+	 *
+	 * @see pgtable_iterator_next_fn
+	 */
 	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
 };
 
