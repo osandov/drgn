@@ -689,6 +689,29 @@ def decode_page_flags(page: Object) -> str:
     )
 
 
+# Get the struct page * for PFN 0.
+def _page0(prog: Program) -> Object:
+    try:
+        return prog.cache["page0"]
+    except KeyError:
+        pass
+    try:
+        # With CONFIG_SPARSEMEM_VMEMMAP=y, page 0 is vmemmap.
+        page0 = prog["vmemmap"]
+    except KeyError:
+        contig_page_data = prog["contig_page_data"]
+        # With CONFIG_FLATMEM=y, page 0 is mem_map - ARCH_PFN_OFFSET, but we
+        # can't determine ARCH_PFN_OFFSET easily. Alternatively,
+        # contig_page_data.node_mem_map is the struct page * for
+        # contig_page_data.node_start_pfn, therefore page 0 is:
+        page0 = contig_page_data.node_mem_map - contig_page_data.node_start_pfn
+    # The struct page array is not contiguous for CONFIG_SPARSEMEM=y with
+    # CONFIG_SPARSEMEM_VMEMMAP=n or CONFIG_DISCONTIGMEM=y, so those are not
+    # supported yet.
+    prog.cache["page0"] = page0
+    return page0
+
+
 def for_each_page(prog: Program) -> Iterator[Object]:
     """
     Iterate over every ``struct page *`` from the minimum to the maximum page.
@@ -713,9 +736,9 @@ def for_each_page(prog: Program) -> Iterator[Object]:
 
     :return: Iterator of ``struct page *`` objects.
     """
-    vmemmap = prog["vmemmap"]
+    page0 = _page0(prog)
     for i in range(prog["min_low_pfn"], prog["max_pfn"]):
-        yield vmemmap + i
+        yield page0 + i
 
 
 @overload
@@ -791,7 +814,7 @@ def page_to_pfn(page: Object) -> Object:
     :param page: ``struct page *``
     :return: ``unsigned long``
     """
-    return cast("unsigned long", page - page.prog_["vmemmap"])
+    return cast("unsigned long", page - _page0(page.prog_))
 
 
 def page_to_phys(page: Object) -> Object:
@@ -844,7 +867,7 @@ def pfn_to_page(  # type: ignore  # Need positional-only arguments.
     else:
         assert isinstance(prog_or_pfn, Program)
         prog = prog_or_pfn
-    return prog["vmemmap"] + pfn
+    return _page0(prog) + pfn
 
 
 @overload
