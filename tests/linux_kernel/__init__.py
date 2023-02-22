@@ -104,6 +104,18 @@ skip_unless_have_stack_tracing = unittest.skipUnless(
 )
 
 
+# PRNG used by the test kernel module.
+def prng32(seed):
+    seed = seed.encode("ascii")
+    assert len(seed) == 4
+    x = int.from_bytes(seed, "big")
+    while True:
+        x ^= (x << 13) & 0xFFFFFFFF
+        x ^= x >> 17
+        x ^= (x << 5) & 0xFFFFFFFF
+        yield x
+
+
 def wait_until(fn, *args, **kwds):
     TIMEOUT = 5
     deadline = time.monotonic() + TIMEOUT

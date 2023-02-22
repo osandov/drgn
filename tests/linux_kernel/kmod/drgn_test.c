@@ -29,6 +29,23 @@
 #define HAVE_XARRAY 0
 #endif
 
+// Convert a 4-character string to a seed for drgn_test_prng32().
+static inline u32 drgn_test_prng32_seed(const char *s)
+{
+	BUG_ON(strlen(s) != 4);
+	return ((u32)s[0] << 24) | ((u32)s[1] << 16) | ((u32)s[2] << 8) | (u32)s[3];
+}
+
+// x must not be 0; the return value is never 0.
+static u32 drgn_test_prng32(u32 x)
+{
+	// Xorshift RNG with a period of 2^32 - 1.
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+	return x;
+}
+
 // list
 
 LIST_HEAD(drgn_test_empty_list);
@@ -156,27 +173,24 @@ static void drgn_test_mm_exit(void)
 
 // percpu
 
-DEFINE_PER_CPU(unsigned int, drgn_test_percpu_static);
-const unsigned int drgn_test_percpu_static_prime = 0xa45dcfc3U;
-unsigned int __percpu *drgn_test_percpu_dynamic;
-const unsigned int drgn_test_percpu_dynamic_prime = 0x6d80a613U;
+DEFINE_PER_CPU(u32, drgn_test_percpu_static);
+u32 __percpu *drgn_test_percpu_dynamic;
 
 static int drgn_test_percpu_init(void)
 {
 	int cpu;
-	unsigned int static_prime = drgn_test_percpu_static_prime;
-	unsigned int dynamic_prime = drgn_test_percpu_dynamic_prime;
+	u32 static_seed = drgn_test_prng32_seed("PCPU");
+	u32 dynamic_seed = drgn_test_prng32_seed("pcpu");
 
-	drgn_test_percpu_dynamic = alloc_percpu(unsigned int);
+	drgn_test_percpu_dynamic = alloc_percpu(u32);
 	if (!drgn_test_percpu_dynamic)
 		return -ENOMEM;
-	// Initialize the per-cpu variables to powers of a random prime number
-	// which are extremely unlikely to appear anywhere else.
+	// Initialize the per-cpu variables with a PRNG sequence.
 	for_each_possible_cpu(cpu) {
-		static_prime *= drgn_test_percpu_static_prime;
-		per_cpu(drgn_test_percpu_static, cpu) = static_prime;
-		dynamic_prime *= drgn_test_percpu_dynamic_prime;
-		*per_cpu_ptr(drgn_test_percpu_dynamic, cpu) = dynamic_prime;
+		static_seed = drgn_test_prng32(static_seed);
+		per_cpu(drgn_test_percpu_static, cpu) = static_seed;
+		dynamic_seed = drgn_test_prng32(dynamic_seed);
+		*per_cpu_ptr(drgn_test_percpu_dynamic, cpu) = dynamic_seed;
 	}
 	return 0;
 }

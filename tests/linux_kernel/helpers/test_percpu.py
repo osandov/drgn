@@ -5,6 +5,7 @@ from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.percpu import per_cpu, per_cpu_ptr
 from tests.linux_kernel import (
     LinuxKernelTestCase,
+    prng32,
     skip_unless_have_test_kmod,
     smp_enabled,
 )
@@ -25,18 +26,14 @@ class TestPerCpu(LinuxKernelTestCase):
 
     @skip_unless_have_test_kmod
     def test_per_cpu_module_static(self):
-        expected = prime = self.prog["drgn_test_percpu_static_prime"]
-        for cpu in for_each_possible_cpu(self.prog):
-            expected *= prime
+        for cpu, expected in zip(for_each_possible_cpu(self.prog), prng32("PCPU")):
             self.assertEqual(
                 per_cpu(self.prog["drgn_test_percpu_static"], cpu), expected
             )
 
     @skip_unless_have_test_kmod
     def test_per_cpu_module_dynamic(self):
-        expected = prime = self.prog["drgn_test_percpu_dynamic_prime"]
-        for cpu in for_each_possible_cpu(self.prog):
-            expected *= prime
+        for cpu, expected in zip(for_each_possible_cpu(self.prog), prng32("pcpu")):
             self.assertEqual(
                 per_cpu_ptr(self.prog["drgn_test_percpu_dynamic"], cpu)[0], expected
             )
