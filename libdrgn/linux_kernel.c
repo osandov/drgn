@@ -213,6 +213,43 @@ linux_kernel_get_uts_release(struct drgn_program *prog, struct drgn_object *ret)
 					   0, 0);
 }
 
+// jiffies is defined as an alias of jiffies_64 via the Linux kernel linker
+// script, so it is not included in debug info.
+static struct drgn_error *linux_kernel_get_jiffies(struct drgn_program *prog,
+						   struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_object jiffies_64;
+	drgn_object_init(&jiffies_64, prog);
+	err = drgn_program_find_object(prog, "jiffies_64", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &jiffies_64);
+	if (err) {
+		if (err->code == DRGN_ERROR_LOOKUP) {
+			drgn_error_destroy(err);
+			err = &drgn_not_found;
+		}
+		goto out;
+	}
+	if (jiffies_64.kind != DRGN_OBJECT_REFERENCE) {
+		err = &drgn_not_found;
+		goto out;
+	}
+	uint64_t address = jiffies_64.address;
+	struct drgn_qualified_type qualified_type;
+	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
+					       &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = DRGN_QUALIFIER_VOLATILE;
+	if (drgn_type_size(qualified_type.type) == 4 &&
+	    !drgn_type_little_endian(qualified_type.type))
+		address += 4;
+	err = drgn_object_set_reference(ret, qualified_type, address, 0, 0);
+out:
+	drgn_object_deinit(&jiffies_64);
+	return err;
+}
+
 // The vmemmap address can vary depending on architecture, kernel version,
 // configuration options, and KASLR. However, we can get it generically from the
 // section_mem_map of any valid mem_section.

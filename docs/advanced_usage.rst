@@ -169,6 +169,16 @@ core dumps. These special objects include:
 
     These are available without debugging information.
 
+``jiffies``
+    Object type: ``volatile unsigned long``
+
+    This is a counter of timer ticks. It is actually an alias of ``jiffies_64``
+    on 64-bit architectures, or the least significant 32 bits of ``jiffies_64``
+    on 32-bit architectures. Since this alias is defined via the linker, drgn
+    handles it specially.
+
+    This is *not* available without debugging information.
+
 ``vmemmap``
     Object type: ``struct page *``
 

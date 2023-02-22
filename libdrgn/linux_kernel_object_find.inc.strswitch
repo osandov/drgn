@@ -7,18 +7,32 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 					    void *arg, struct drgn_object *ret)
 {
 	struct drgn_program *prog = arg;
-	if (!filename && (flags & DRGN_FIND_OBJECT_CONSTANT)) {
+	if (!filename) {
 		@memswitch (name, name_len)@
 		@case "PAGE_SHIFT"@
-			return linux_kernel_get_page_shift(prog, ret);
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_page_shift(prog, ret);
+			break;
 		@case "PAGE_SIZE"@
-			return linux_kernel_get_page_size(prog, ret);
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_page_size(prog, ret);
+			break;
 		@case "PAGE_MASK"@
-			return linux_kernel_get_page_mask(prog, ret);
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_page_mask(prog, ret);
+			break;
 		@case "UTS_RELEASE"@
-			return linux_kernel_get_uts_release(prog, ret);
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_uts_release(prog, ret);
+			break;
+		@case "jiffies"@
+			if (flags & DRGN_FIND_OBJECT_VARIABLE)
+				return linux_kernel_get_jiffies(prog, ret);
+			break;
 		@case "vmemmap"@
-			return linux_kernel_get_vmemmap(prog, ret);
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_vmemmap(prog, ret);
+			break;
 		@endswitch@
 	}
 	return &drgn_not_found;

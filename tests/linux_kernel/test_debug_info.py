@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import unittest
 
-from drgn import Program
+from drgn import Object, Program
 from tests.linux_kernel import LinuxKernelTestCase, setenv, skip_unless_have_test_kmod
 
 KALLSYMS_PATH = Path("/proc/kallsyms")
@@ -47,3 +47,15 @@ class TestModuleDebugInfo(LinuxKernelTestCase):
 
     def test_module_debug_info_use_core_dump(self):
         self._test_module_debug_info(False)
+
+
+class TestLinuxKernelObjectFinder(LinuxKernelTestCase):
+    def test_jiffies(self):
+        self.assertIdentical(
+            self.prog["jiffies"],
+            Object(
+                self.prog,
+                "volatile unsigned long",
+                address=self.prog.symbol("jiffies").address,
+            ),
+        )
