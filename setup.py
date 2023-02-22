@@ -339,7 +339,7 @@ def get_version():
 
     # If this is a git repository, use a git-describe(1)-esque local version.
     # Otherwise, get the local version saved in the sdist.
-    if (
+    if os.path.exists(".git") and (
         subprocess.call(
             ["git", "--git-dir=.git", "rev-parse"], stderr=subprocess.DEVNULL
         )
