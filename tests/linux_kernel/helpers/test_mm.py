@@ -6,6 +6,7 @@ import ctypes
 import mmap
 import os
 import struct
+import sys
 import tempfile
 import unittest
 
@@ -43,6 +44,7 @@ from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     mlock,
+    prng32,
     skip_unless_have_full_mm_support,
     skip_unless_have_test_kmod,
 )
@@ -227,13 +229,16 @@ class TestMm(LinuxKernelTestCase):
             virt_to_phys(self.prog["drgn_test_va"]), self.prog["drgn_test_pa"]
         )
 
+    @skip_unless_have_test_kmod
     def test_read_physical(self):
-        with self._pages() as (map, _, pfns):
-            for i, pfn in enumerate(pfns):
-                self.assertEqual(
-                    self.prog.read(pfn * mmap.PAGESIZE, mmap.PAGESIZE, True),
-                    map[i * mmap.PAGESIZE : (i + 1) * mmap.PAGESIZE],
-                )
+        expected = bytearray()
+        for x in prng32("PAGE"):
+            expected.extend(x.to_bytes(4, sys.byteorder))
+            if len(expected) >= mmap.PAGESIZE:
+                break
+        self.assertEqual(
+            self.prog.read(self.prog["drgn_test_pa"], mmap.PAGESIZE, True), expected
+        )
 
     @skip_unless_have_full_mm_support
     def test_access_process_vm(self):

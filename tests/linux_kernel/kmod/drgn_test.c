@@ -150,6 +150,9 @@ struct page *drgn_test_compound_page;
 
 static int drgn_test_mm_init(void)
 {
+	u32 fill;
+	size_t i;
+
 	drgn_test_page = alloc_page(GFP_KERNEL);
 	if (!drgn_test_page)
 		return -ENOMEM;
@@ -157,6 +160,12 @@ static int drgn_test_mm_init(void)
 	if (!drgn_test_compound_page)
 		return -ENOMEM;
 	drgn_test_va = page_address(drgn_test_page);
+	// Fill the page with a PRNG sequence.
+	fill = drgn_test_prng32_seed("PAGE");
+	for (i = 0; i < PAGE_SIZE / sizeof(fill); i++) {
+		fill = drgn_test_prng32(fill);
+		((u32 *)drgn_test_va)[i] = fill;
+	}
 	drgn_test_pa = virt_to_phys(drgn_test_va);
 	drgn_test_pfn = PHYS_PFN(drgn_test_pa);
 	return 0;
