@@ -454,7 +454,7 @@ def _find_containing_slab(
     prog: Program, addr: int
 ) -> Optional[Tuple[Object, Object, Object]]:
     start_addr = pfn_to_virt(prog["min_low_pfn"]).value_()
-    end_addr = (pfn_to_virt(prog["max_pfn"]) + prog["PAGE_SIZE"]).value_()
+    end_addr = (pfn_to_virt(prog["max_low_pfn"]) + prog["PAGE_SIZE"]).value_()
     if addr < start_addr or addr >= end_addr:
         # Not a directly mapped address
         return None
