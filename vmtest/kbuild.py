@@ -467,7 +467,7 @@ MODULE_LICENSE("GPL");
         )
 
         with tempfile.TemporaryDirectory(
-            prefix="install.", dir=self._build_dir
+            prefix=package.name + ".tmp.", dir=package.parent
         ) as tmp_name:
             install_dir = Path(tmp_name)
             modules_dir = install_dir / "lib" / "modules" / kernel_release
