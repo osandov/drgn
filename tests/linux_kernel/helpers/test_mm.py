@@ -145,28 +145,24 @@ class TestMm(LinuxKernelTestCase):
             page = pfn_to_page(self.prog, pfns[0])
             self.assertIn("PG_swapbacked", decode_page_flags(page))
 
-    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_PFN_PHYS(self):
         self.assertEqual(
             PFN_PHYS(self.prog["drgn_test_pfn"]), self.prog["drgn_test_pa"]
         )
 
-    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_PHYS_PFN(self):
         self.assertEqual(
             PHYS_PFN(self.prog["drgn_test_pa"]), self.prog["drgn_test_pfn"]
         )
 
-    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_page_to_pfn(self):
         self.assertEqual(
             page_to_pfn(self.prog["drgn_test_page"]), self.prog["drgn_test_pfn"]
         )
 
-    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_page_to_phys(self):
         self.assertEqual(
@@ -180,7 +176,6 @@ class TestMm(LinuxKernelTestCase):
             page_to_virt(self.prog["drgn_test_page"]), self.prog["drgn_test_va"]
         )
 
-    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_pfn_to_page(self):
         self.assertEqual(
@@ -194,7 +189,6 @@ class TestMm(LinuxKernelTestCase):
             pfn_to_virt(self.prog["drgn_test_pfn"]), self.prog["drgn_test_va"]
         )
 
-    @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
     def test_phys_to_page(self):
         self.assertEqual(
