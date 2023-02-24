@@ -231,6 +231,7 @@ ARCHITECTURES = {
             kernel_config="""
                 CONFIG_NR_CPUS=8
                 CONFIG_HIGHMEM=y
+                CONFIG_ARM_LPAE=n
                 # Debian armhf userspace assumes EABI and VFP.
                 CONFIG_AEABI=y
                 CONFIG_VFP=y
@@ -247,7 +248,11 @@ ARCHITECTURES = {
                 # the kernel.org cross compiler.
                 CONFIG_STACKPROTECTOR_PER_TASK=n
             """,
-            kernel_flavor_configs={},
+            kernel_flavor_configs={
+                "alternative": """
+                    CONFIG_ARM_LPAE=y
+                """,
+            },
             kernel_org_compiler_name="arm-linux-gnueabi",
             qemu_options=("-M", "virt"),
             qemu_console="ttyAMA0",
