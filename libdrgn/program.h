@@ -66,6 +66,8 @@ struct drgn_program {
 	struct drgn_memory_file_segment *file_segments;
 	/* Elf core dump. Not valid for live programs or kdump files. */
 	Elf *core;
+	/* Path to Elf core file. */
+	const char *core_path;
 	/* File descriptor for ELF core dump, kdump file, or /proc/pid/mem. */
 	int core_fd;
 	/* PID of live userspace program. */

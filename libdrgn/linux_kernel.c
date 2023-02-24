@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "array.h"
 #include "binary_buffer.h"
 #include "debug_info.h"
 #include "drgn.h"
@@ -1600,7 +1601,7 @@ static struct drgn_error *
 report_vmlinux(struct drgn_debug_info_load_state *load,
 	       bool *vmlinux_is_pending)
 {
-	static const char * const vmlinux_paths[] = {
+	static const char * vmlinux_paths[] = {
 		/*
 		 * The files under /usr/lib/debug should always have debug
 		 * information, so check for those first.
@@ -1610,10 +1611,23 @@ report_vmlinux(struct drgn_debug_info_load_state *load,
 		"/boot/vmlinux-%s",
 		"/lib/modules/%s/build/vmlinux",
 		"/lib/modules/%s/vmlinux",
+		NULL, /* Space for an extra argument. */
 		NULL,
 	};
 	struct drgn_program *prog = load->dbinfo->prog;
 	struct drgn_error *err;
+
+	char corefile[PATH_MAX];
+	if (prog->core_path != NULL)
+		if (realpath(prog->core_path, corefile) != NULL) {
+			/* Skip filename from the path.  */
+			*strrchr(corefile, '/') = '\0';
+
+			char *extra = malloc (strlen(corefile) + 16);
+			strcpy(extra, corefile);
+			strcat(extra, "/vmlinux-%s");
+			vmlinux_paths[array_size(vmlinux_paths) - 2] = extra;
+		}
 
 	char *path;
 	int fd;

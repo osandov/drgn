@@ -100,6 +100,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_program_init_types(prog);
 	drgn_object_index_init(&prog->oindex);
 	prog->core_fd = -1;
+	prog->core_path = NULL;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 	char *env = getenv("DRGN_PREFER_ORC_UNWINDER");
@@ -234,6 +235,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		return err;
 
 	prog->core_fd = open(path, O_RDONLY);
+	prog->core_path = path;
 	if (prog->core_fd == -1)
 		return drgn_error_create_os("open", errno, path);
 
@@ -579,6 +581,7 @@ out_elf:
 out_fd:
 	close(prog->core_fd);
 	prog->core_fd = -1;
+	prog->core_path = NULL;
 	return err;
 }
 
@@ -637,6 +640,7 @@ out_fd:
 	prog->has_platform = had_platform;
 	close(prog->core_fd);
 	prog->core_fd = -1;
+	prog->core_path = NULL;
 	return err;
 }
 
