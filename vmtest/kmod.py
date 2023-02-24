@@ -85,7 +85,7 @@ def _main() -> None:
         action="append",
         type=download_kernel_argparse_type,
         default=argparse.SUPPRESS,
-        help="kernel to build for",
+        help="kernel to build for; may be given multiple times",
     )
     parser.add_argument(
         "-d",
