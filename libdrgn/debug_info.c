@@ -364,7 +364,9 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 		*new_ret = false;
 
 	struct hash_pair hp;
-	struct drgn_module_table_iterator it;
+	// Silence -Wmaybe-uninitialized false positive last seen with GCC 12 on
+	// i386 and Arm.
+	struct drgn_module_table_iterator it = {};
 	if (build_id_len) {
 		struct drgn_module_key key = {
 			.build_id = build_id,
