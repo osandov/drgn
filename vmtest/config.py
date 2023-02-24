@@ -275,7 +275,10 @@ ARCHITECTURES = {
             name="s390x",
             kernel_arch="s390",
             kernel_srcarch="s390",
-            kernel_config="",
+            kernel_config="""
+                # Needed for CONFIG_KEXEC_FILE.
+                CONFIG_CRYPTO_SHA256_S390=y
+            """,
             kernel_flavor_configs={},
             kernel_org_compiler_name="s390-linux",
             qemu_options=(),
