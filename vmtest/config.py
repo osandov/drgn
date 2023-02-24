@@ -286,6 +286,8 @@ ARCHITECTURES = {
             kernel_arch="x86_64",
             kernel_srcarch="x86",
             kernel_config="""
+                CONFIG_RTC_CLASS=y
+                CONFIG_RTC_DRV_CMOS=y
                 CONFIG_SERIAL_8250=y
                 CONFIG_SERIAL_8250_CONSOLE=y
             """,
