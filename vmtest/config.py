@@ -11,7 +11,7 @@ from typing import Dict, Mapping, NamedTuple, Sequence
 from util import NORMALIZED_MACHINE_NAME
 
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
-VMTEST_KERNEL_VERSION = 19
+VMTEST_KERNEL_VERSION = 20
 
 
 BASE_KCONFIG = """
@@ -97,6 +97,9 @@ CONFIG_IKCONFIG_PROC=y
 CONFIG_BTRFS_FS=m
 CONFIG_EXT4_FS=m
 CONFIG_XFS_FS=m
+
+# For mm tests.
+CONFIG_HUGETLBFS=y
 
 # For net tests.
 CONFIG_NAMESPACES=y
