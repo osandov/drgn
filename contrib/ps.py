@@ -36,7 +36,7 @@ def get_task_memory_info(task):
 
 totalram = PAGE_SIZE * totalram_pages(prog)
 
-print("PID     PPID    CPU  ST    VMS     RSS  MEM%  COMM")
+print("PID     PPID    CPU  ST    VMS     RSS  MEM% COMM")
 for task in sorted(for_each_task(prog), key=lambda t: t.pid):
     pid = task.pid.value_()
     ppid = task.parent.pid.value_() if task.parent else 0
