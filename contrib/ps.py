@@ -10,7 +10,6 @@ from drgn.helpers.linux.percpu import percpu_counter_sum
 from drgn.helpers.linux.pid import for_each_task
 from drgn.helpers.linux.sched import task_cpu, task_state_to_char
 
-
 PAGE_SIZE = prog["PAGE_SIZE"].value_()
 
 
@@ -54,5 +53,7 @@ for task in sorted(for_each_task(prog), key=lambda t: t.pid):
     cpu = task_cpu(task)
     state = task_state_to_char(task)
 
-    print(f"{pid:<7} {ppid:<7} {cpu:<4} {state} {number_in_binary_units(vms):>7} "
-          f"{number_in_binary_units(rss):>7} {memp:5.1f} {comm}")
+    print(
+        f"{pid:<7} {ppid:<7} {cpu:<4} {state} {number_in_binary_units(vms):>7} "
+        f"{number_in_binary_units(rss):>7} {memp:5.1f} {comm}"
+    )

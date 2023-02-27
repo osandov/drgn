@@ -4,8 +4,7 @@
 
 """Display system information and configuration data."""
 
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from drgn.helpers.common.format import number_in_binary_units
 from drgn.helpers.linux import for_each_online_cpu
@@ -24,7 +23,7 @@ timekeeper = prog["shadow_timekeeper"]
 date = datetime.fromtimestamp(timekeeper.xtime_sec).strftime("%c")
 uptime = timedelta(seconds=timekeeper.ktime_sec.value_())
 load = ", ".join([f"{v:.2f}" for v in loadavg(prog)])
-totalram = (prog['PAGE_SIZE'] * totalram_pages(prog)).value_()
+totalram = (prog["PAGE_SIZE"] * totalram_pages(prog)).value_()
 
 
 print_line("CPUS", len(list(for_each_online_cpu(prog))))

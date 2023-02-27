@@ -22,7 +22,7 @@ if not task:
 try:
     vma = task.mm.mmap
 except AttributeError:
-    sys.exit('maple tree VMA mmap is not supported yet (v6.1+)')
+    sys.exit("maple tree VMA mmap is not supported yet (v6.1+)")
 
 FLAGS = ((0x1, "r"), (0x2, "w"), (0x4, "x"))
 PAGE_SHIFT = prog["PAGE_SHIFT"]
@@ -36,8 +36,7 @@ print("Start        End          Flgs   Offset Dev   Inode            File path"
 while vma:
     flags = "".join([v if f & vma.vm_flags else "-" for f, v in FLAGS])
     flags += "s" if vma.vm_flags & 0x8 else "p"
-    print(f"{vma.vm_start.value_():0x}-{vma.vm_end.value_():0x} {flags} ",
-          end="")
+    print(f"{vma.vm_start.value_():0x}-{vma.vm_end.value_():0x} {flags} ", end="")
 
     vmfile = vma.vm_file
     if vmfile:
