@@ -4,17 +4,14 @@ repos:
     hooks:
     -   id: isort
         name: isort (python)
-        exclude: ^contrib/
 -   repo: https://github.com/psf/black
     rev: 22.12.0
     hooks:
     -   id: black
-        exclude: ^contrib/
 -   repo: https://github.com/pycqa/flake8
     rev: 6.0.0
     hooks:
     -   id: flake8
-        exclude: ^contrib/
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v0.931
     hooks:
