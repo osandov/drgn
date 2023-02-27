@@ -297,7 +297,7 @@ linux_kernel_pgtable_iterator_init_s390x(struct drgn_program *prog,
 	struct pgtable_iterator_s390x *it =
 		container_of(_it, struct pgtable_iterator_s390x, it);
 	for (int i = 0; i < 5; i++)
-		it->pagetable[i].addr = UINT64_C(-1);
+		it->pagetable[i].addr = UINT64_MAX;
 	it->levels = 3;
 }
 
@@ -399,12 +399,13 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 	uint64_t entry;
 
 	/*
-	 * Note: we need the ASCE bits to determine the levels of paging in use, but we
-	 * only get the pgd address from drgn. Therefore do the same what the linux kernel
-	 * does: read the first level entry, and deduct the number of levels from the TT bits.
+	 * Note: we need the ASCE bits to determine the levels of paging in use,
+	 * but we only get the pgd address from drgn. Therefore do the same what
+	 * the linux kernel does: read the first level entry, and deduct the
+	 * number of levels from the TT bits.
 	 */
-
-	struct drgn_error *err = drgn_program_read_u64(prog, table, true, &entry);
+	struct drgn_error *err = drgn_program_read_u64(prog, table, true,
+						       &entry);
 	if (err)
 		return err;
 
@@ -425,10 +426,11 @@ linux_kernel_pgtable_iterator_next_s390x(struct drgn_program *prog,
 		    it->pagetable[level].length != length ||
 		    it->pagetable[level].offset != offset) {
 			/*
-			 * It's only marginally more expensive to read 4096 bytes than 8
-			 * bytes, so we always read the full table.
+			 * It's only marginally more expensive to read 4096
+			 * bytes than 8 bytes, so we always read the full table.
 			 */
-			err = drgn_program_read_memory(prog, it->pagetable[level].entries,
+			err = drgn_program_read_memory(prog,
+						       it->pagetable[level].entries,
 						       table, length * 8, true);
 			if (err)
 				return err;
@@ -475,10 +477,14 @@ const struct drgn_architecture_info arch_info_s390x = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_s390x,
 	.apply_elf_reloc = apply_elf_reloc_s390,
-	.linux_kernel_pgtable_iterator_create =  linux_kernel_pgtable_iterator_create_s390x,
-	.linux_kernel_pgtable_iterator_destroy = linux_kernel_pgtable_iterator_destroy_s390x,
-	.linux_kernel_pgtable_iterator_init = linux_kernel_pgtable_iterator_init_s390x,
-	.linux_kernel_pgtable_iterator_next = linux_kernel_pgtable_iterator_next_s390x,
+	.linux_kernel_pgtable_iterator_create =
+		linux_kernel_pgtable_iterator_create_s390x,
+	.linux_kernel_pgtable_iterator_destroy =
+		linux_kernel_pgtable_iterator_destroy_s390x,
+	.linux_kernel_pgtable_iterator_init =
+		linux_kernel_pgtable_iterator_init_s390x,
+	.linux_kernel_pgtable_iterator_next =
+		linux_kernel_pgtable_iterator_next_s390x,
 };
 
 const struct drgn_architecture_info arch_info_s390 = {
