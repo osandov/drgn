@@ -12,7 +12,7 @@ for mod in list_for_each_entry("struct module", prog["modules"].address_of_(), "
     name = mod.name.string_().decode()
     size = (mod.init_layout.size + mod.core_layout.size).value_()
     if config_module_unload:
-        refcnt = mod.refcnt.counter.value_()
+        refcnt = mod.refcnt.counter.value_() - 1
         used_by = [
             use.source.name.string_().decode()
             for use in list_for_each_entry(
@@ -22,4 +22,8 @@ for mod in list_for_each_entry("struct module", prog["modules"].address_of_(), "
     else:
         refcnt = "-"
         used_by = []
-    print(f"{name:19} {size:>8}  {refcnt} {','.join(used_by)}")
+
+    used = ",".join(used_by)
+    if used:
+        used = " " + used
+    print(f"{name:19} {size:>8}  {refcnt}{used}")
