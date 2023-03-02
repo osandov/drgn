@@ -3,6 +3,7 @@
 
 #include <byteswap.h>
 #include <elf.h>
+#include <endian.h>
 #include <string.h>
 
 #include "drgn.h"
@@ -267,6 +268,183 @@ apply_elf_reloc_ppc64(const struct drgn_relocating_section *relocating,
 	}
 }
 
+struct pt_level {
+	uint16_t bits;
+	uint16_t shift;
+	uint64_t entries;
+};
+
+struct pgtable_iterator_ppc64 {
+	struct pgtable_iterator it;
+	const struct pt_level *pt_levels;
+};
+
+static const struct pt_level pt_levels_radix_4k[] = {
+	{ .bits = 9,  .shift = 12, .entries = 512  }, // PTE
+	{ .bits = 9,  .shift = 21, .entries = 512  }, // PMD
+	{ .bits = 9,  .shift = 30, .entries = 512  }, // PUD
+	{ .bits = 13, .shift = 39, .entries = 8192 }, // PGD
+};
+
+static const struct pt_level pt_levels_radix_64k[] = {
+	{ .bits = 5,  .shift = 16, .entries = 32   }, // PTE
+	{ .bits = 9,  .shift = 21, .entries = 512  }, // PMD
+	{ .bits = 9,  .shift = 30, .entries = 512  }, // PUD
+	{ .bits = 13, .shift = 39, .entries = 8192 }, // PGD
+};
+
+static inline uint64_t
+get_page_mask(struct pgtable_iterator_ppc64 *it, int level)
+{
+	return (((UINT64_C(1) << 53) - 1)
+		& ~((UINT64_C(1) << it->pt_levels[level].shift) - 1));
+}
+
+static uint16_t
+get_index(struct pgtable_iterator_ppc64 *it, uint64_t va, uint16_t level)
+{
+	uint64_t mask = it->pt_levels[level - 1].entries - 1;
+	return (va >> it->pt_levels[level - 1].shift) & mask;
+}
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
+					   struct pgtable_iterator **ret)
+{
+	uint64_t mmu_features;
+	struct drgn_error *err = NULL;
+	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
+	struct drgn_object book3s, cur_cpu_spec, mmu_features_obj;
+
+	struct pgtable_iterator_ppc64 *it = malloc(sizeof(*it));
+	if (!it)
+		return &drgn_enomem;
+
+	drgn_object_init(&book3s, prog);
+	drgn_object_init(&cur_cpu_spec, prog);
+	drgn_object_init(&mmu_features_obj, prog);
+
+	if (page_shift == 16) {
+		it->pt_levels = pt_levels_radix_64k;
+	} else if (page_shift == 12) {
+		it->pt_levels = pt_levels_radix_4k;
+	} else {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"Unknown page size.");
+		goto out;
+	}
+
+	// Only BOOK3S CPU family is supported, not BOOK3E.
+	err = drgn_program_find_object(prog, "interrupt_base_book3e", NULL,
+				       DRGN_FIND_OBJECT_ANY, &book3s);
+	if (!err) {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"virtual address translation is not available for BOOK3E CPU family");
+		goto out;
+	}
+
+	// Identify the MMU type.
+	err = drgn_program_find_object(prog, "cur_cpu_spec", NULL,
+				       DRGN_FIND_OBJECT_ANY, &cur_cpu_spec);
+	if (err)
+		goto out;
+	err = drgn_object_member_dereference(&mmu_features_obj, &cur_cpu_spec,
+					     "mmu_features");
+	if (err)
+		goto out;
+
+	err = drgn_object_read_unsigned(&mmu_features_obj, &mmu_features);
+
+	if (err)
+		goto out;
+
+	if (!(mmu_features & 0x40)) {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"virtual address translation is only supported for Radix MMU");
+		goto out;
+	}
+
+	*ret = &it->it;
+
+out:
+	drgn_object_deinit(&book3s);
+	drgn_object_deinit(&cur_cpu_spec);
+	drgn_object_deinit(&mmu_features_obj);
+	if (err)
+		free(it);
+	return err;
+}
+
+static void
+linux_kernel_pgtable_iterator_destroy_ppc64(struct pgtable_iterator *_it)
+{
+	struct pgtable_iterator_ppc64 *it =
+		container_of(_it, struct pgtable_iterator_ppc64, it);
+	free(it);
+}
+
+static void
+linux_kernel_pgtable_iterator_init_ppc64(struct drgn_program *prog,
+					 struct pgtable_iterator *_it)
+{
+	return;
+}
+
+static struct drgn_error *
+linux_kernel_pgtable_iterator_next_ppc64(struct drgn_program *prog,
+					 struct pgtable_iterator *_it,
+					 uint64_t *virt_addr_ret,
+					 uint64_t *phys_addr_ret)
+{
+	// Page table entry status bits since Linux kernel commits 849f86a630e9
+	// ("powerpc/mm/book3s-64: Move _PAGE_PRESENT to the most significant
+	// bit") and 84c957560a7a ("powerpc/mm/book3s-64: Move _PAGE_PTE to 2nd
+	// most significant bit") (in v4.6).
+	static const uint64_t PAGE_PRESENT = UINT64_C(1) << 63;
+	static const uint64_t PAGE_PTE = UINT64_C(1) << 62;
+	static const uint64_t PT_MASK = UINT64_C(0xc0000000000000ff);
+	static const uint16_t levels = 4;
+	struct drgn_error *err;
+	struct pgtable_iterator_ppc64 *it =
+		container_of(_it, struct pgtable_iterator_ppc64, it);
+	uint64_t virt_addr = it->it.virt_addr;
+
+	uint64_t entry;
+	for (uint16_t level = levels;; level--) {
+		uint64_t table;
+		bool table_physical;
+		if (level == levels) {
+			table = it->it.pgtable;
+			table_physical = false;
+		} else {
+			// PAGE_PTE bit represents huge page.
+			if (!(entry & PAGE_PRESENT) || (entry & PAGE_PTE) || level == 0) {
+				uint64_t mask = (UINT64_C(1) << it->pt_levels[level].shift) - 1;
+				*virt_addr_ret = virt_addr & ~mask;
+				if (entry & PAGE_PRESENT)
+					*phys_addr_ret = entry & get_page_mask(it, level);
+				else
+					*phys_addr_ret = UINT64_MAX;
+
+				it->it.virt_addr = (virt_addr | mask) + 1;
+				return NULL;
+			}
+			table = entry & ~PT_MASK;
+			table_physical = true;
+		}
+
+		uint64_t index = get_index(it, virt_addr, level);
+		err = drgn_program_read_memory(prog, &entry,
+					       table + (8 * index), 8,
+					       table_physical);
+		if (err)
+			return err;
+
+		// Page table entries are always big-endian, even on ppc64le.
+		entry = be64toh(entry);
+	}
+}
+
 const struct drgn_architecture_info arch_info_ppc64 = {
 	.name = "ppc64",
 	.arch = DRGN_ARCH_PPC64,
@@ -280,4 +458,12 @@ const struct drgn_architecture_info arch_info_ppc64 = {
 	.linux_kernel_get_initial_registers =
 		linux_kernel_get_initial_registers_ppc64,
 	.apply_elf_reloc = apply_elf_reloc_ppc64,
+	.linux_kernel_pgtable_iterator_create =
+		linux_kernel_pgtable_iterator_create_ppc64,
+	.linux_kernel_pgtable_iterator_destroy =
+		linux_kernel_pgtable_iterator_destroy_ppc64,
+	.linux_kernel_pgtable_iterator_init =
+		linux_kernel_pgtable_iterator_init_ppc64,
+	.linux_kernel_pgtable_iterator_next =
+		linux_kernel_pgtable_iterator_next_ppc64,
 };
