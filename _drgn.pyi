@@ -421,7 +421,7 @@ class Program:
         """
         ...
     def add_type_finder(
-        self, fn: Callable[[TypeKind, str, Optional[str]], Type]
+        self, fn: Callable[[TypeKind, str, Optional[str]], Optional[Type]]
     ) -> None:
         """
         Register a callback for finding types in the program.
@@ -432,11 +432,13 @@ class Program:
 
         :param fn: Callable taking a :class:`TypeKind`, name, and filename:
             ``(kind, name, filename)``. The filename should be matched with
-            :func:`filename_matches()`. This should return a :class:`Type`.
+            :func:`filename_matches()`. This should return a :class:`Type`
+            or ``None`` if not found.
         """
         ...
     def add_object_finder(
-        self, fn: Callable[[Program, str, FindObjectFlags, Optional[str]], Object]
+        self,
+        fn: Callable[[Program, str, FindObjectFlags, Optional[str]], Optional[Object]],
     ) -> None:
         """
         Register a callback for finding objects in the program.
@@ -448,7 +450,7 @@ class Program:
         :param fn: Callable taking a program, name, :class:`FindObjectFlags`,
             and filename: ``(prog, name, flags, filename)``. The filename
             should be matched with :func:`filename_matches()`. This should
-            return an :class:`Object`.
+            return an :class:`Object` or ``None`` if not found.
         """
         ...
     def set_core_dump(self, path: Union[Path, int]) -> None:
