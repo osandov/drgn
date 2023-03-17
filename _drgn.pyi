@@ -1815,16 +1815,16 @@ class Type:
     language: Final[Language]
     """Programming language of this type."""
 
-    name: Final[str]
+    name: Final[Optional[str]]
     """
-    Name of this type. This is present for integer, boolean, floating-point,
-    and typedef types.
+    Name of this type. This exists for integer, boolean, floating-point,
+    and typedef types, and is ``None`` otherwise.
     """
 
     tag: Final[Optional[str]]
     """
-    Tag of this type, or ``None`` if this is an anonymous type. This is present
-    for structure, union, class, and enumerated types.
+    Tag of this type, or ``None`` if this is an anonymous type. This is also
+    ``None`` for structure, union, class, and enumerated types.
     """
 
     size: Final[Optional[int]]

@@ -83,23 +83,18 @@ static PyObject *DrgnType_get_language(DrgnType *self, void *arg)
 
 static PyObject *DrgnType_get_name(DrgnType *self)
 {
-	if (!drgn_type_has_name(self->type)) {
-		return PyErr_Format(PyExc_AttributeError,
-				    "%s type does not have a name",
-				    drgn_type_kind_str(self->type));
-	}
-	return PyUnicode_FromString(drgn_type_name(self->type));
+	if (!drgn_type_has_name(self->type))
+		Py_RETURN_NONE;
+	else
+		return PyUnicode_FromString(drgn_type_name(self->type));
 }
 
 static PyObject *DrgnType_get_tag(DrgnType *self)
 {
 	const char *tag;
 
-	if (!drgn_type_has_tag(self->type)) {
-		return PyErr_Format(PyExc_AttributeError,
-				    "%s type does not have a tag",
-				    drgn_type_kind_str(self->type));
-	}
+	if (!drgn_type_has_tag(self->type))
+		Py_RETURN_NONE;
 
 	tag = drgn_type_tag(self->type);
 	if (tag)
