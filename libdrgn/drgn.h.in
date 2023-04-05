@@ -2438,14 +2438,15 @@ static inline bool drgn_type_little_endian(struct drgn_type *type)
 
 /**
  * Get whether a kind of type has a tag. This is true for structure, union,
- * class, and enumerated types.
+ * class, enumerated, and function types.
  */
 static inline bool drgn_type_kind_has_tag(enum drgn_type_kind kind)
 {
 	return (kind == DRGN_TYPE_STRUCT ||
 		kind == DRGN_TYPE_UNION ||
 		kind == DRGN_TYPE_CLASS ||
-		kind == DRGN_TYPE_ENUM);
+		kind == DRGN_TYPE_ENUM ||
+		kind == DRGN_TYPE_FUNCTION);
 }
 /** Get whether a type has a tag. @sa drgn_type_kind_has_tag() */
 static inline bool drgn_type_has_tag(struct drgn_type *type)
