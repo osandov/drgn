@@ -202,6 +202,17 @@ def dwarf_program(*args, segments=None, **kwds):
         add_mock_memory_segments(prog, segments)
     return prog
 
+def named_dwarf_program(tempdir, file_name, *args, segments=None, **kwds):
+    prog = Program()
+    with open(tempdir + "/" + file_name, "wb") as f:
+        f.write(compile_dwarf(*args, **kwds))
+        f.flush()
+        prog.load_debug_info([f.name])
+
+    if segments is not None:
+        add_mock_memory_segments(prog, segments)
+    return prog
+
 
 def wrap_test_type_dies(*dies):
     return (
@@ -7007,4 +7018,168 @@ class TestSplitDwarf(TestCase):
                     "split DWARF file split.dwo not found" in output
                     for output in log.output
                 )
+            )
+
+    def test_split_dwarf4(self):
+        skeleton_die = DwarfDie(
+            DW_TAG.compile_unit,
+            (
+                DwarfAttrib(DW_AT.GNU_dwo_name, DW_FORM.string, "split_dwarf.dwo"),
+                DwarfAttrib(DW_AT.GNU_dwo_id, DW_FORM.data8, 0xDEADBEEF),
+            ),
+            (),
+        )
+
+        dwo_die = DwarfDie(
+            DW_TAG.compile_unit,
+            (
+                DwarfAttrib(DW_AT.GNU_dwo_name, DW_FORM.string, "split_dwarf.dwo"),
+                DwarfAttrib(DW_AT.GNU_dwo_id, DW_FORM.data8, 0xDEADBEEF),
+            ),
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                    ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 4
+                                    ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dwo_prog = named_dwarf_program(tmp, "split_dwarf.dwo", dwo_die)
+            prog = named_dwarf_program(tmp, "object.o", skeleton_die)
+
+            self.assertIdentical(
+                prog.type("TEST").type,
+                prog.struct_type(
+                    "point",
+                    8,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x", 0),
+                        TypeMember(prog.int_type("int", 4, True), "y", 32),
+                    ),
+                ),
+            )
+
+    def test_dwp4(self):
+        skeleton_dies = (
+            DwarfDie(
+                DW_TAG.compile_unit,
+                (
+                    DwarfAttrib(DW_AT.GNU_dwo_name, DW_FORM.string, "split_dwarf1.dwo"),
+                    DwarfAttrib(DW_AT.GNU_dwo_id, DW_FORM.data8, 0xDEADBEE1),
+                ),
+                (),
+            ),
+            DwarfDie(
+                DW_TAG.compile_unit,
+                (
+                    DwarfAttrib(DW_AT.GNU_dwo_name, DW_FORM.string, "split_dwarf2.dwo"),
+                    DwarfAttrib(DW_AT.GNU_dwo_id, DW_FORM.data8, 0xDEADBEE2),
+                ),
+                (),
+            ),
+        )
+
+        dwo_die1 = DwarfDie(
+            DW_TAG.compile_unit,
+            (
+                DwarfAttrib(DW_AT.GNU_dwo_name, DW_FORM.string, "split_dwarf1.dwo"),
+                DwarfAttrib(DW_AT.GNU_dwo_id, DW_FORM.data8, 0xDEADBEE1),
+            ),
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.structure_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "point"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "x"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 0
+                                    ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.member,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "y"),
+                                DwarfAttrib(
+                                    DW_AT.data_member_location, DW_FORM.data1, 4
+                                    ),
+                                DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+            ),
+        )
+
+        dwo_die2 = DwarfDie(
+            DW_TAG.compile_unit,
+            (
+                DwarfAttrib(DW_AT.GNU_dwo_name, DW_FORM.string, "split_dwarf2.dwo"),
+                DwarfAttrib(DW_AT.GNU_dwo_id, DW_FORM.data8, 0xDEADBEE2),
+            ),
+            (
+                *labeled_float_die,
+            ),
+        )
+
+        dwp_dies = (
+            dwo_die1,
+            dwo_die2,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dwp_prog = named_dwarf_program(tmp, "exe.dwp", dwp_dies)
+            prog = named_dwarf_program(tmp, "exe", skeleton_dies)
+
+            self.assertIdentical(
+                prog.type("TEST").type,
+                prog.struct_type(
+                    "point",
+                    8,
+                    (
+                        TypeMember(prog.int_type("int", 4, True), "x", 0),
+                        TypeMember(prog.int_type("int", 4, True), "y", 32),
+                    ),
+                ),
+            )
+
+            # TODO this might not be the correct comparison:
+            self.assertIdentical(
+                prog.type("float_die").type,
+                float_die
             )
