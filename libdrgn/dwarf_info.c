@@ -7991,8 +7991,11 @@ drgn_program_find_function_by_address(struct drgn_program *prog,
 		case DW_TAG_inlined_subroutine:
 			// TODO: needs error checking. Should we strdup() this?
 			*name_ret = dwarf_diename(&scopes[i]);
+			Dwarf *dw = dwarf_cu_getdwarf(scopes[i].cu);
+			struct drgn_elf_file *scope_file =
+				drgn_module_find_dwarf_file(module, dw);
 			err = drgn_object_from_dwarf_subprogram(prog->dbinfo,
-								module->debug_file,
+								scope_file,
 								&scopes[i],
 								ret);
 			free(scopes);
