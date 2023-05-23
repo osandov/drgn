@@ -572,6 +572,23 @@ drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
 	return err;
 }
 
+struct drgn_error *
+drgn_dwarf_index_read_file(struct drgn_dwarf_index_state *state,
+			     struct drgn_elf_file *file)
+{
+	struct drgn_error *err = NULL;
+	/* This function is only used for reading dwp files.
+	 * .debug_info already got processed during the `join`,
+	 * so skip the .debug_info section to avoid double-indexing.
+	 */
+	// err = drgn_dwarf_index_read_cus(state, file, DRGN_SCN_DEBUG_INFO);
+	if (!err && file->scn_data[DRGN_SCN_DEBUG_TYPES]) {
+		err = drgn_dwarf_index_read_cus(state, file,
+						DRGN_SCN_DEBUG_TYPES);
+	}
+	return err;
+}
+
 static struct drgn_error *read_strx(struct drgn_dwarf_index_cu_buffer *buffer,
 				    uint64_t strx, const char **ret)
 {

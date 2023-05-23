@@ -1918,7 +1918,18 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 			continue;
 		}
 		module->state = DRGN_DEBUG_INFO_MODULE_INDEXING;
-		return drgn_dwarf_index_read_module(index, module);
+		err = drgn_dwarf_index_read_module(index, module);
+		if (err) return err;
+
+		for (struct drgn_elf_file_dwarf_table_iterator it =
+					drgn_elf_file_dwarf_table_first(&module->split_dwarf_files);
+					it.entry;
+					it = drgn_elf_file_dwarf_table_next(it)) {
+
+			err = drgn_dwarf_index_read_file(index, *it.entry);
+			if (err) return err;
+		}
+		return err;
 	}
 	/*
 	 * We checked all of the files and didn't find debugging information.

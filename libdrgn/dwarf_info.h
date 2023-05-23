@@ -245,6 +245,11 @@ struct drgn_error *
 drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
 			     struct drgn_module *module);
 
+
+struct drgn_error *
+drgn_dwarf_index_read_file(struct drgn_dwarf_index_state *state,
+			     struct drgn_elf_file *file);
+
 /**
  * Index new DWARF information.
  *
