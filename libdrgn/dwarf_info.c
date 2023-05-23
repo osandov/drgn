@@ -8,7 +8,6 @@
 #include <gelf.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,6 +30,7 @@ static inline int omp_get_max_threads(void)
 #endif
 
 #include "array.h"
+#include "binary_buffer.h"
 #include "debug_info.h" // IWYU pragma: associated
 #include "dwarf_constants.h"
 #include "elf_file.h"
@@ -41,6 +41,7 @@ static inline int omp_get_max_threads(void)
 #include "object.h"
 #include "path.h"
 #include "program.h"
+#include "platform.h"
 #include "register_state.h"
 #include "serialize.h"
 #include "type.h"

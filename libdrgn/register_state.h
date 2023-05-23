@@ -13,13 +13,11 @@
 #define DRGN_REGISTER_STATE_H
 
 #include <assert.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "cfi.h"
+#include "drgn.h"
 #include "platform.h"
 #include "program.h"
 #include "serialize.h"

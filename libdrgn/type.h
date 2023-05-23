@@ -18,8 +18,6 @@
 #include "hash_table.h"
 #include "vector.h"
 
-struct drgn_language;
-
 /**
  * @ingroup Internals
  *

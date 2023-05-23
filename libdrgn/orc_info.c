@@ -10,6 +10,7 @@
 #include "elf_file.h"
 #include "error.h"
 #include "orc.h"
+#include "platform.h"
 #include "util.h"
 
 void drgn_module_orc_info_deinit(struct drgn_module *module)

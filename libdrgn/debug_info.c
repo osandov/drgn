@@ -16,10 +16,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "binary_buffer.h"
 #include "debug_info.h"
 #include "elf_file.h"
 #include "error.h"
 #include "linux_kernel.h"
+#include "platform.h"
 #include "program.h"
 #include "util.h"
 

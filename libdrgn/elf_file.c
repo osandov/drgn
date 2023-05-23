@@ -1,12 +1,16 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-#include <elfutils/libdwfl.h>
+#include <elf.h>
+#include <gelf.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "array.h"
-#include "debug_info.h"
+#include "drgn.h"
 #include "elf_file.h"
 #include "error.h"
+#include "util.h"
 
 struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret)
 {

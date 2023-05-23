@@ -14,6 +14,8 @@
 
 #include <elfutils/libdw.h>
 #include <libelf.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #include "binary_buffer.h"
 #include "elf_sections.h" // IWYU pragma: export

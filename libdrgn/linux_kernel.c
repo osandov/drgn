@@ -25,6 +25,7 @@
 #include "helpers.h"
 #include "io.h"
 #include "linux_kernel.h"
+#include "platform.h"
 #include "program.h"
 #include "type.h"
 #include "util.h"

@@ -28,8 +28,6 @@
 #include "type.h"
 #include "vector.h"
 
-struct drgn_symbol;
-
 /**
  * @defgroup Internals Internals
  *

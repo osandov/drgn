@@ -16,15 +16,15 @@
 #include <elfutils/version.h>
 #include <libelf.h>
 
-#include "binary_buffer.h"
 #include "cfi.h"
 #include "drgn.h"
 #include "dwarf_info.h"
 #include "hash_table.h"
 #include "orc_info.h"
-#include "platform.h"
 #include "string_builder.h"
 #include "vector.h"
+
+struct drgn_elf_file;
 
 /**
  * @ingroup Internals

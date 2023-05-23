@@ -1,8 +1,13 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <byteswap.h>
+#include <elf.h>
+#include <stdlib.h>
+
 #include "error.h"
 #include "platform.h" // IWYU pragma: associated
+#include "program.h"
 #include "register_state.h"
 
 // The ABI specification can be found at https://github.com/IBM/s390x-abi.

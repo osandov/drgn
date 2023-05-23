@@ -269,6 +269,8 @@ void drgn_error_destroy(struct drgn_error *err);
  * @{
  */
 
+struct drgn_language; // IWYU pragma: export
+
 /** C */
 extern const struct drgn_language drgn_language_c;
 /** C++ */
@@ -396,14 +398,14 @@ enum drgn_platform_flags {
  *
  * The environment that a program runs on.
  */
-struct drgn_platform;
+struct drgn_platform; // IWYU pragma: export
 
 /**
  * @struct drgn_register
  *
  * A processor register.
  */
-struct drgn_register;
+struct drgn_register; // IWYU pragma: export
 
 /**
  * Create a @ref drgn_platform.
@@ -480,7 +482,7 @@ struct drgn_thread;
  * drgn_program_from_kernel(), or @ref drgn_program_from_pid(). It must be freed
  * with @ref drgn_program_destroy().
  */
-struct drgn_program;
+struct drgn_program; // IWYU pragma: export
 
 /** Flags which apply to a @ref drgn_program. */
 enum drgn_program_flags {
@@ -832,7 +834,7 @@ struct drgn_error *drgn_program_find_object(struct drgn_program *prog,
  *
  * A @ref drgn_symbol represents an entry in a program's symbol table.
  */
-struct drgn_symbol;
+struct drgn_symbol; // IWYU pragma: export
 
 /**
  * Get the symbol containing the given address.
@@ -2711,7 +2713,7 @@ bool drgn_symbol_eq(struct drgn_symbol *a, struct drgn_symbol *b);
  * @{
  */
 
-struct drgn_stack_trace;
+struct drgn_stack_trace; // IWYU pragma: export
 
 /** Destroy a @ref drgn_stack_trace. */
 void drgn_stack_trace_destroy(struct drgn_stack_trace *trace);

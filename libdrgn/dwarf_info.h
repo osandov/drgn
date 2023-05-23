@@ -26,6 +26,7 @@
 #include "vector.h"
 
 struct drgn_debug_info;
+struct drgn_elf_file;
 struct drgn_module;
 struct drgn_register_state;
 
