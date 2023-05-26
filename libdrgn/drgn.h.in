@@ -2961,7 +2961,7 @@ static inline bool drgn_type_has_virtuality(struct drgn_type *type)
  * Get the virtuality of a type. @ref drgn_type_has_virtuality() must be true for this
  * type.
  */
-static inline size_t drgn_type_virtuality(struct drgn_type *type)
+static inline uint8_t drgn_type_virtuality(struct drgn_type *type)
 {
 	assert(drgn_type_has_virtuality(type));
 	return type->_private.virtuality;
