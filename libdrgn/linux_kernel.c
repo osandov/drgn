@@ -496,28 +496,65 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 		return err;
 
 	// Set tmp1 to the module base address and tmp2 to the size.
-	err = drgn_object_member(&it->tmp1, &it->mod, "core_layout");
+	err = drgn_object_member(&it->tmp1, &it->mod, "mem");
 	if (!err) {
+		union drgn_value mod_mem_type;
+
+		// Since Linux kernel commit ac3b43283923 ("module: replace
+		// module_layout with module_memory") (in v6.4), the base and
+		// size are in the `struct module_memory mem[MOD_TEXT]` member
+		// of `struct module`.
+		err = drgn_program_find_object(drgn_object_program(&it->mod),
+					       "MOD_TEXT", NULL,
+					       DRGN_FIND_OBJECT_CONSTANT,
+					       &it->tmp3);
+		if (err)
+			return err;
+		err = drgn_object_read_integer(&it->tmp3, &mod_mem_type);
+		if (err)
+			return err;
+
+		err = drgn_object_subscript(&it->tmp3, &it->tmp1,
+					    mod_mem_type.uvalue);
+		if (err)
+			return err;
+		err = drgn_object_member(&it->tmp2, &it->tmp3, "size");
+		if (err)
+			return err;
+		err = drgn_object_member(&it->tmp1, &it->tmp3, "base");
+		if (err)
+			return err;
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
 		// Since Linux kernel commit 7523e4dc5057 ("module: use a
 		// structure to encapsulate layout.") (in v4.5), the base and
 		// size are in the `struct module_layout core_layout` member of
 		// `struct module`.
-		err = drgn_object_member(&it->tmp2, &it->tmp1, "size");
-		if (err)
-			return err;
-		err = drgn_object_member(&it->tmp1, &it->tmp1, "base");
-		if (err)
-			return err;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		// Before that, they are directly in the `struct module`.
 		drgn_error_destroy(err);
 
-		err = drgn_object_member(&it->tmp2, &it->mod, "core_size");
-		if (err)
+		err = drgn_object_member(&it->tmp1, &it->mod, "core_layout");
+		if (!err) {
+			err = drgn_object_member(&it->tmp2, &it->tmp1, "size");
+			if (err)
+				return err;
+			err = drgn_object_member(&it->tmp1, &it->tmp1, "base");
+			if (err)
+				return err;
+		} else if (err->code == DRGN_ERROR_LOOKUP) {
+			// Before that, they are directly in the `struct
+			// module`.
+			drgn_error_destroy(err);
+
+			err = drgn_object_member(&it->tmp2, &it->mod,
+						 "core_size");
+			if (err)
+				return err;
+			err = drgn_object_member(&it->tmp1, &it->mod,
+						 "module_core");
+			if (err)
+				return err;
+		} else {
 			return err;
-		err = drgn_object_member(&it->tmp1, &it->mod, "module_core");
-		if (err)
-			return err;
+		}
 	} else {
 		return err;
 	}
