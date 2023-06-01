@@ -1,0 +1,12 @@
+name: Main Branch Push CI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+    with:
+      test_all_python_versions: true

@@ -1,0 +1,16 @@
+name: Pull Request CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+    if: ${{ github.event.action != 'labeled' || github.event.label.name == 'test-all-python-versions' }}
+    with:
+      test_all_python_versions: ${{ contains(github.event.pull_request.labels.*.name, 'test-all-python-versions') }}

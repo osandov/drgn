@@ -36,3 +36,8 @@ jobs:
           name: kernel-build-logs
           path: build/vmtest/kbuild/*.log
           if-no-files-found: ignore
+  test:
+    needs: build
+    uses: ./.github/workflows/ci.yml
+    with:
+      test_all_python_versions: true
