@@ -646,9 +646,28 @@ def compound_order(page: Object) -> Object:
     :param page: ``struct page *``
     :return: ``unsigned int``
     """
+    prog = page.prog_
+
     if not PageHead(page):
-        return Object(page.prog_, "unsigned int", 0)
-    return cast("unsigned int", page[1].compound_order)
+        return Object(prog, "unsigned int", 0)
+
+    # Before Linux kernel commit 379708ffde1b ("mm: add the first tail page to
+    # struct folio") (in v6.1), the compound order is in struct page. Since
+    # that commit, it is also in struct folio. Since Linux kernel commit
+    # 1c5509be58f6 ("mm: remove 'First tail page' members from struct page")
+    # (in v6.3), it is _only_ in struct folio.
+    try:
+        from_folio = prog.cache["compound_order_from_folio"]
+    except KeyError:
+        try:
+            from_folio = prog.type("struct folio").has_member("_folio_order")
+        except LookupError:
+            from_folio = False
+        prog.cache["compound_order_from_folio"] = from_folio
+    if from_folio:
+        return cast("unsigned int", cast("struct folio *", page)._folio_order)
+    else:
+        return cast("unsigned int", page[1].compound_order)
 
 
 def compound_nr(page: Object) -> Object:
@@ -658,9 +677,7 @@ def compound_nr(page: Object) -> Object:
     :param page: ``struct page *``
     :return: ``unsigned long``
     """
-    if not PageHead(page):
-        return Object(page.prog_, "unsigned long", 1)
-    return Object(page.prog_, "unsigned long", 1) << page[1].compound_order
+    return Object(page.prog_, "unsigned long", 1) << compound_order(page)
 
 
 def page_size(page: Object) -> Object:
