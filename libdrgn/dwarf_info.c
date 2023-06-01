@@ -7451,6 +7451,7 @@ static struct drgn_error *drgn_location_descriptions_from_attribute(
 			err = &drgn_enomem;
 			break;
 		}
+		memset(location, 0, sizeof(*location));
 		offset = dwarf_getlocations(&attr, offset, &base,
 					    &location->start, &location->end,
 					    &(Dwarf_Op *){0}, &(size_t){0});
