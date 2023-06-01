@@ -50,17 +50,39 @@ def disk_name(disk: Object) -> bytes:
     return disk.disk_name.string_()
 
 
+def _class_to_subsys(class_: Object) -> Object:
+    # Walk the list of registered classes to find the struct subsys_private
+    # matching the given class. Note that before Linux kernel commit
+    # 2df418cf4b72 ("driver core: class: remove subsystem private pointer from
+    # struct class") (in v6.4), struct subsys_private could also be found in
+    # struct class::p, but it's easier to only maintain the newer code path.
+    for sp in list_for_each_entry(
+        "struct subsys_private",
+        class_.prog_["class_kset"].list.address_of_(),
+        "subsys.kobj.entry",
+    ):
+        if sp.member_("class") == class_:
+            return sp
+    else:
+        raise LookupError("block_class subsys_private not found")
+
+
 def _for_each_block_device(prog: Program) -> Iterator[Object]:
     try:
-        class_in_private = prog.cache["knode_class_in_device_private"]
+        devices, class_in_device_private = prog.cache["_for_each_block_device"]
     except KeyError:
+        devices = _class_to_subsys(
+            prog["block_class"].address_of_()
+        ).klist_devices.k_list.address_of_()
         # Linux kernel commit 570d0200123f ("driver core: move
         # device->knode_class to device_private") (in v5.1) moved the list
         # node.
-        class_in_private = prog.type("struct device_private").has_member("knode_class")
-        prog.cache["knode_class_in_device_private"] = class_in_private
-    devices = prog["block_class"].p.klist_devices.k_list.address_of_()
-    if class_in_private:
+        class_in_device_private = prog.type("struct device_private").has_member(
+            "knode_class"
+        )
+        prog.cache["_for_each_block_device"] = devices, class_in_device_private
+
+    if class_in_device_private:
         for device_private in list_for_each_entry(
             "struct device_private", devices, "knode_class.n_node"
         ):
