@@ -358,7 +358,9 @@ static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 	if (prog->vmemmap.kind == DRGN_OBJECT_ABSENT) {
-		uint64_t address;
+		// Silence -Wmaybe-uninitialized false positive last seen with
+		// GCC 13 by initializing to zero.
+		uint64_t address = 0;
 		err = linux_kernel_get_vmemmap_address(prog, &address);
 		if (err)
 			return err;
