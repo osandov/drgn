@@ -11,7 +11,7 @@ from typing import Dict, Mapping, NamedTuple, Sequence
 from util import NORMALIZED_MACHINE_NAME
 
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
-VMTEST_KERNEL_VERSION = 20
+VMTEST_KERNEL_VERSION = 21
 
 
 BASE_KCONFIG = """

@@ -94,6 +94,18 @@ _PATCHES = (
         name="s390-mm-make-memory_block_size_bytes-available-for-M.patch",
         versions=((KernelVersion("4.3"), KernelVersion("4.11")),),
     ),
+    _Patch(
+        name="libsubcmd-Fix-use-after-free-for-realloc-.-0.patch",
+        versions=(
+            (KernelVersion("5.16"), KernelVersion("5.16.11")),
+            (KernelVersion("5.11"), KernelVersion("5.15.25")),
+            (KernelVersion("5.5"), KernelVersion("5.10.102")),
+            (KernelVersion("4.20"), KernelVersion("5.4.181")),
+            (KernelVersion("4.15"), KernelVersion("4.19.231")),
+            (KernelVersion("4.10"), KernelVersion("4.14.268")),
+            (KernelVersion("4.5"), KernelVersion("4.9.303")),
+        ),
+    ),
 )
 
 
