@@ -1,17 +1,9 @@
-From c5006abb80e276896ff7237300a6d447708c7924 Mon Sep 17 00:00:00 2001
-Message-Id: <c5006abb80e276896ff7237300a6d447708c7924.1676498969.git.osandov@osandov.com>
-In-Reply-To: <06481cd9f7f692088bce03244f8cf132018f2fc6.1676498969.git.osandov@osandov.com>
-References: <06481cd9f7f692088bce03244f8cf132018f2fc6.1676498969.git.osandov@osandov.com>
+From a1bc199b0aa9540632057d719b1c22879c1ec10f Mon Sep 17 00:00:00 2001
+Message-Id: <a1bc199b0aa9540632057d719b1c22879c1ec10f.1685663408.git.osandov@osandov.com>
 From: Jiri Olsa <jolsa@redhat.com>
-Date: Wed, 19 Oct 2022 10:56:03 +0200
-Subject: [PATCH 3/3] kbuild: Unify options for BTF generation for vmlinux and
+Date: Fri, 29 Oct 2021 14:57:29 +0200
+Subject: [PATCH] kbuild: Unify options for BTF generation for vmlinux and
  modules
-
-commit 9741e07ece7c247dd65e1aa01e16b683f01c05a8 upstream.
-
-[skipped --btf_gen_floats option in pahole-flags.sh, skipped
-Makefile.modfinal change, because there's no BTF kmod support,
-squashing in 'exit 0' change from merge commit fc02cb2b37fe]
 
 Using new PAHOLE_FLAGS variable to pass extra arguments to
 pahole for both vmlinux and modules BTF data generation.
@@ -25,19 +17,24 @@ Signed-off-by: Jiri Olsa <jolsa@kernel.org>
 Signed-off-by: Andrii Nakryiko <andrii@kernel.org>
 Acked-by: Andrii Nakryiko <andrii@kernel.org>
 Link: https://lore.kernel.org/bpf/20211029125729.70002-1-jolsa@kernel.org
-Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+(cherry picked from commit 9741e07ece7c247dd65e1aa01e16b683f01c05a8)
+[Omar: fix up context for RESOLVE_BTFIDS and --btf_gen_floats, remove
+ --btf_gen_floats from pahole-flags.sh, squash in 'exit 0' change from
+ merge commit fc02cb2b37fe]
+Signed-off-by: Omar Sandoval <osandov@osandov.com>
 ---
- Makefile                |  3 +++
- scripts/link-vmlinux.sh |  8 +-------
- scripts/pahole-flags.sh | 17 +++++++++++++++++
- 3 files changed, 21 insertions(+), 7 deletions(-)
+ Makefile                  |  3 +++
+ scripts/Makefile.modfinal |  2 +-
+ scripts/link-vmlinux.sh   |  8 +-------
+ scripts/pahole-flags.sh   | 17 +++++++++++++++++
+ 4 files changed, 22 insertions(+), 8 deletions(-)
  create mode 100755 scripts/pahole-flags.sh
 
 diff --git a/Makefile b/Makefile
-index 5c7075d3b2f6..0ecf8333cc17 100644
+index ff363cc6b11f..e728e4faa4bc 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -465,6 +465,8 @@ LZ4		= lz4c
+@@ -464,6 +464,8 @@ LZ4		= lz4c
  XZ		= xz
  ZSTD		= zstd
  
@@ -46,7 +43,7 @@ index 5c7075d3b2f6..0ecf8333cc17 100644
  CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
  		  -Wbitwise -Wno-return-void -Wno-unknown-attribute $(CF)
  NOSTDINC_FLAGS :=
-@@ -518,6 +520,7 @@ export KBUILD_CFLAGS CFLAGS_KERNEL CFLAGS_MODULE
+@@ -517,6 +519,7 @@ export KBUILD_CFLAGS CFLAGS_KERNEL CFLAGS_MODULE
  export KBUILD_AFLAGS AFLAGS_KERNEL AFLAGS_MODULE
  export KBUILD_AFLAGS_MODULE KBUILD_CFLAGS_MODULE KBUILD_LDFLAGS_MODULE
  export KBUILD_AFLAGS_KERNEL KBUILD_CFLAGS_KERNEL
@@ -54,11 +51,24 @@ index 5c7075d3b2f6..0ecf8333cc17 100644
  
  # Files to ignore in find ... statements
  
+diff --git a/scripts/Makefile.modfinal b/scripts/Makefile.modfinal
+index aef583f824dc..4212c576e10c 100644
+--- a/scripts/Makefile.modfinal
++++ b/scripts/Makefile.modfinal
+@@ -40,7 +40,7 @@ quiet_cmd_ld_ko_o = LD [M]  $@
+ quiet_cmd_btf_ko = BTF [M] $@
+       cmd_btf_ko = 							\
+ 	if [ -f vmlinux ]; then						\
+-		LLVM_OBJCOPY="$(OBJCOPY)" $(PAHOLE) -J --btf_base vmlinux $@; \
++		LLVM_OBJCOPY="$(OBJCOPY)" $(PAHOLE) -J $(PAHOLE_FLAGS) --btf_base vmlinux $@; \
+ 	else								\
+ 		printf "Skipping BTF generation for %s due to unavailability of vmlinux\n" $@ 1>&2; \
+ 	fi;
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
-index bbb22be4c8f1..acd07a70a2f4 100755
+index 55bcfa85873c..cff7ef9a5773 100755
 --- a/scripts/link-vmlinux.sh
 +++ b/scripts/link-vmlinux.sh
-@@ -146,7 +146,6 @@ vmlinux_link()
+@@ -140,7 +140,6 @@ vmlinux_link()
  gen_btf()
  {
  	local pahole_ver
@@ -66,7 +76,7 @@ index bbb22be4c8f1..acd07a70a2f4 100755
  
  	if ! [ -x "$(command -v ${PAHOLE})" ]; then
  		echo >&2 "BTF: ${1}: pahole (${PAHOLE}) is not available"
-@@ -161,13 +160,8 @@ gen_btf()
+@@ -155,13 +154,8 @@ gen_btf()
  
  	vmlinux_link ${1}
  
@@ -105,5 +115,5 @@ index 000000000000..27445cb72974
 +
 +echo ${extra_paholeopt}
 -- 
-2.30.2
+2.40.1
 

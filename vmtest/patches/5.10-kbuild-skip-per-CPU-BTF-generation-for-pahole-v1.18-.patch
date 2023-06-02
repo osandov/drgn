@@ -1,11 +1,8 @@
 From f5f413cb3e8af235c5d310bea9942424fb242c2c Mon Sep 17 00:00:00 2001
-Message-Id: <f5f413cb3e8af235c5d310bea9942424fb242c2c.1676498969.git.osandov@osandov.com>
-In-Reply-To: <06481cd9f7f692088bce03244f8cf132018f2fc6.1676498969.git.osandov@osandov.com>
-References: <06481cd9f7f692088bce03244f8cf132018f2fc6.1676498969.git.osandov@osandov.com>
+Message-Id: <f5f413cb3e8af235c5d310bea9942424fb242c2c.1685662899.git.osandov@osandov.com>
 From: Andrii Nakryiko <andrii@kernel.org>
 Date: Wed, 19 Oct 2022 10:56:02 +0200
-Subject: [PATCH 2/3] kbuild: skip per-CPU BTF generation for pahole
- v1.18-v1.21
+Subject: [PATCH] kbuild: skip per-CPU BTF generation for pahole v1.18-v1.21
 
 commit a0b8200d06ad6450c179407baa5f0f52f8cfcc97 upstream.
 
@@ -56,5 +53,5 @@ index 72bf14df6903..bbb22be4c8f1 100755
  	LLVM_OBJCOPY="${OBJCOPY}" ${PAHOLE} -J ${extra_paholeopt} ${1}
  
 -- 
-2.30.2
+2.40.1
 

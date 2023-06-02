@@ -56,23 +56,19 @@ _PATCHES = (
         versions=((KernelVersion("5.13"), KernelVersion("5.15.66")),),
     ),
     _Patch(
-        name="5.12.19-bpf-Generate-BTF_KIND_FLOAT-when-linking-vmlinux.patch",
-        versions=((KernelVersion("5.12.10"), KernelVersion("5.13")),),
-    ),
-    _Patch(
-        name="5.10-bpf-Generate-BTF_KIND_FLOAT-when-linking-vmlinux.patch",
+        name="5.12-kbuild-Quote-OBJCOPY-var-to-avoid-a-pahole-call-brea.patch",
         versions=((KernelVersion("5.11"), KernelVersion("5.12.10")),),
     ),
     _Patch(
-        name="5.10-kbuild-Quote-OBJCOPY-var-to-avoid-a-pahole-call-brea.patch",
-        versions=((KernelVersion("5.11"), KernelVersion("5.12.10")),),
+        name="5.11-bpf-Generate-BTF_KIND_FLOAT-when-linking-vmlinux.patch",
+        versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
     ),
     _Patch(
         name="5.10-kbuild-skip-per-CPU-BTF-generation-for-pahole-v1.18-.patch",
         versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
     ),
     _Patch(
-        name="5.10-kbuild-Unify-options-for-BTF-generation-for-vmlinux.patch",
+        name="5.11-kbuild-Unify-options-for-BTF-generation-for-vmlinux.patch",
         versions=((KernelVersion("5.11"), KernelVersion("5.13")),),
     ),
     _Patch(
