@@ -52,6 +52,28 @@ PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
 	return buf;
 }
 
+PyObject *drgnpy_linux_helper_follow_phys(PyObject *self, PyObject *args,
+					  PyObject *kwds)
+{
+	static char *keywords[] = {"prog", "pgtable", "address", NULL};
+	struct drgn_error *err;
+	Program *prog;
+	struct index_arg pgtable = {};
+	struct index_arg address = {};
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&O&:follow_phys",
+					 keywords, &Program_type, &prog,
+					 index_converter, &pgtable,
+					 index_converter, &address))
+		return NULL;
+
+	uint64_t phys;
+	err = linux_helper_follow_phys(&prog->prog, pgtable.uvalue,
+				       address.uvalue, &phys);
+	if (err)
+		return set_drgn_error(err);
+	return PyLong_FromUint64(phys);
+}
+
 DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 					    PyObject *kwds)
 {

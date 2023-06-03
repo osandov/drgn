@@ -190,6 +190,35 @@ out:
 	return err;
 }
 
+struct drgn_error *linux_helper_follow_phys(struct drgn_program *prog,
+					    uint64_t pgtable,
+					    uint64_t virt_addr, uint64_t *ret)
+{
+	struct drgn_error *err;
+
+	err = begin_virtual_address_translation(prog, pgtable, virt_addr);
+	if (err)
+		return err;
+
+	struct pgtable_iterator *it = prog->pgtable_it;
+	pgtable_iterator_next_fn *next =
+		prog->platform.arch->linux_kernel_pgtable_iterator_next;
+	uint64_t start_virt_addr, start_phys_addr;
+	err = next(prog, it, &start_virt_addr, &start_phys_addr);
+	if (err)
+		goto out;
+	if (start_phys_addr == UINT64_MAX) {
+		err = drgn_error_create_fault("address is not mapped",
+					      virt_addr);
+		goto out;
+	}
+	*ret = start_phys_addr + (virt_addr - start_virt_addr);
+	err = NULL;
+out:
+	end_virtual_address_translation(prog);
+	return err;
+}
+
 struct drgn_error *linux_helper_per_cpu_ptr(struct drgn_object *res,
 					    const struct drgn_object *ptr,
 					    uint64_t cpu)

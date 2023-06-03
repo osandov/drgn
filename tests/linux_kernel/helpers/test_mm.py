@@ -27,6 +27,9 @@ from drgn.helpers.linux.mm import (
     compound_order,
     decode_page_flags,
     environ,
+    follow_page,
+    follow_pfn,
+    follow_phys,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -39,6 +42,8 @@ from drgn.helpers.linux.mm import (
     virt_to_page,
     virt_to_pfn,
     virt_to_phys,
+    vmalloc_to_page,
+    vmalloc_to_pfn,
 )
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
@@ -232,6 +237,49 @@ class TestMm(LinuxKernelTestCase):
                 break
         self.assertEqual(
             self.prog.read(self.prog["drgn_test_pa"], mmap.PAGESIZE, True), expected
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_follow_phys(self):
+        self.assertEqual(
+            follow_phys(self.prog["init_mm"].address_of_(), self.prog["drgn_test_va"]),
+            self.prog["drgn_test_pa"],
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_follow_page(self):
+        self.assertEqual(
+            follow_page(self.prog["init_mm"].address_of_(), self.prog["drgn_test_va"]),
+            self.prog["drgn_test_page"],
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_follow_pfn(self):
+        self.assertEqual(
+            follow_pfn(self.prog["init_mm"].address_of_(), self.prog["drgn_test_va"]),
+            self.prog["drgn_test_pfn"],
+        )
+        task = find_task(self.prog, os.getpid())
+        with self._pages() as (map, address, pfns):
+            self.assertEqual(follow_pfn(task.mm, address), pfns[0])
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_vmalloc_to_page(self):
+        self.assertEqual(
+            vmalloc_to_page(self.prog["drgn_test_vmalloc_va"]),
+            self.prog["drgn_test_vmalloc_page"],
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_vmalloc_to_pfn(self):
+        self.assertEqual(
+            vmalloc_to_pfn(self.prog["drgn_test_vmalloc_va"]),
+            self.prog["drgn_test_vmalloc_pfn"],
         )
 
     @skip_unless_have_full_mm_support

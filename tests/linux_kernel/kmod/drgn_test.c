@@ -22,6 +22,7 @@
 #include <linux/rbtree_augmented.h>
 #include <linux/slab.h>
 #include <linux/version.h>
+#include <linux/vmalloc.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
 #define HAVE_XARRAY 1
 #include <linux/xarray.h>
@@ -147,6 +148,9 @@ phys_addr_t drgn_test_pa;
 unsigned long drgn_test_pfn;
 struct page *drgn_test_page;
 struct page *drgn_test_compound_page;
+void *drgn_test_vmalloc_va;
+unsigned long drgn_test_vmalloc_pfn;
+struct page *drgn_test_vmalloc_page;
 
 static int drgn_test_mm_init(void)
 {
@@ -168,11 +172,17 @@ static int drgn_test_mm_init(void)
 	}
 	drgn_test_pa = virt_to_phys(drgn_test_va);
 	drgn_test_pfn = PHYS_PFN(drgn_test_pa);
+	drgn_test_vmalloc_va = vmalloc(PAGE_SIZE);
+	if (!drgn_test_vmalloc_va)
+		return -ENOMEM;
+	drgn_test_vmalloc_pfn = vmalloc_to_pfn(drgn_test_vmalloc_va);
+	drgn_test_vmalloc_page = vmalloc_to_page(drgn_test_vmalloc_va);
 	return 0;
 }
 
 static void drgn_test_mm_exit(void)
 {
+	vfree(drgn_test_vmalloc_va);
 	if (drgn_test_compound_page)
 		__free_pages(drgn_test_compound_page, 1);
 	if (drgn_test_page)
