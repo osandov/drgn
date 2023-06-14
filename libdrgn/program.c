@@ -1232,6 +1232,62 @@ drgn_program_find_thread(struct drgn_program *prog, uint32_t tid,
 		return drgn_program_find_thread_userspace_core(prog, tid, ret);
 }
 
+// Get the CPU that crashed in a Linux kernel core dump.
+static struct drgn_error *
+drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
+{
+	struct drgn_error *err;
+	struct drgn_object cpu;
+	drgn_object_init(&cpu, prog);
+	union drgn_value cpu_value;
+
+	// Since Linux kernel commit 1717f2096b54 ("panic, x86: Fix re-entrance
+	// problem due to panic on NMI") (in v4.5), the crashed CPU is stored in
+	// an atomic_t panic_cpu on all architectures.
+	err = drgn_program_find_object(prog, "panic_cpu", NULL,
+				       DRGN_FIND_OBJECT_VARIABLE, &cpu);
+	if (!err) {
+		err = drgn_object_member(&cpu, &cpu, "counter");
+		if (err)
+			goto out;
+		err = drgn_object_read_integer(&cpu, &cpu_value);
+		if (!err)
+			*ret = cpu_value.uvalue;
+	} else if (err->code == DRGN_ERROR_LOOKUP) {
+		// On x86 and x86-64 only, the crashed CPU is also in an int
+		// crashing_cpu. Use this as a fallback for kernels before
+		// commit 1717f2096b54 ("panic, x86: Fix re-entrance problem due
+		// to panic on NMI") (in v4.5).
+		drgn_error_destroy(err);
+		err = drgn_program_find_object(prog, "crashing_cpu", NULL,
+					       DRGN_FIND_OBJECT_VARIABLE, &cpu);
+		if (!err) {
+			err = drgn_object_read_integer(&cpu, &cpu_value);
+			if (err)
+				goto out;
+			// Since Linux kernel commit 5bc329503e81 ("x86/mce:
+			// Handle broadcasted MCE gracefully with kexec") (in
+			// v4.12), crashing_cpu is defined in !SMP kernels, but
+			// it's always -1.
+			if (cpu_value.svalue == -1)
+				*ret = 0;
+			else
+				*ret = cpu_value.uvalue;
+		} else if (err->code == DRGN_ERROR_LOOKUP) {
+			// Before Linux kernel commit 5bc329503e81 ("x86/mce:
+			// Handle broadcasted MCE gracefully with kexec") (in
+			// v4.12), crashing_cpu is only defined in SMP kernels.
+			drgn_error_destroy(err);
+			err = NULL;
+			*ret = 0;
+		}
+	}
+
+out:
+	drgn_object_deinit(&cpu);
+	return err;
+}
+
 static struct drgn_error *
 drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 {
@@ -1243,40 +1299,14 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 	if (prog->crashed_thread)
 		return NULL;
 
-	struct drgn_object crashing_cpu;
-	union drgn_value crashing_cpu_value;
-	drgn_object_init(&crashing_cpu, prog);
-	err = drgn_program_find_object(prog, "crashing_cpu", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE,
-				       &crashing_cpu);
-	if (!err) {
-		err = drgn_object_read_integer(&crashing_cpu,
-					       &crashing_cpu_value);
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		/*
-		 * Before Linux kernel commit 5bc329503e81 ("x86/mce: Handle
-		 * broadcasted MCE gracefully with kexec") (in v4.12),
-		 * crashing_cpu is only defined in SMP kernels.
-		 */
-		drgn_error_destroy(err);
-		err = NULL;
-		crashing_cpu_value.uvalue = 0;
-	}
-	drgn_object_deinit(&crashing_cpu);
+	uint64_t crashed_cpu;
+	err = drgn_program_kernel_get_crashed_cpu(prog, &crashed_cpu);
 	if (err)
 		return err;
-	/*
-	 * Since Linux kernel commit 5bc329503e81 ("x86/mce: Handle broadcasted
-	 * MCE gracefully with kexec") (in v4.12), crashing_cpu is defined in
-	 * !SMP kernels, but it's always -1.
-	 */
-	if (crashing_cpu_value.svalue == -1)
-		crashing_cpu_value.uvalue = 0;
-	if (crashing_cpu_value.uvalue >= prog->prstatus_vector.size)
-		return NULL;
 
-	struct nstring *prstatus =
-		&prog->prstatus_vector.data[crashing_cpu_value.uvalue];
+	if (crashed_cpu >= prog->prstatus_vector.size)
+		return NULL;
+	struct nstring *prstatus = &prog->prstatus_vector.data[crashed_cpu];
 	uint32_t crashed_thread_tid;
 	err = get_prstatus_pid(prog, prstatus->str, prstatus->len,
 			       &crashed_thread_tid);
@@ -1291,7 +1321,7 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 		prog->crashed_thread->tid = crashed_thread_tid;
 		drgn_object_init(&prog->crashed_thread->object, prog);
 		err = linux_helper_idle_task(&prog->crashed_thread->object,
-					     crashing_cpu_value.uvalue);
+					     crashed_cpu);
 		if (err) {
 			drgn_object_deinit(&prog->crashed_thread->object);
 			free(prog->crashed_thread);
