@@ -76,7 +76,7 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 		break;
 	case ORC_REG_SP_INDIRECT:
 		rule.kind = DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET;
-		rule.regno = DRGN_REGISTER_NUMBER(rbp);
+		rule.regno = DRGN_REGISTER_NUMBER(rsp);
 		rule.offset = orc->sp_offset;
 		break;
 	case ORC_REG_BP_INDIRECT:
