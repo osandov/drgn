@@ -40,4 +40,6 @@ class TestVMCore(LinuxVMCoreTestCase):
 
     def test_crashed_thread(self):
         crashed_thread = self.prog.crashed_thread()
-        self.assertGreater(crashed_thread.tid, 0)
+        # This assumes that we crashed from vmtest.enter_kdump. I don't know
+        # why anyone would run these tests from kdump otherwise.
+        self.assertEqual(crashed_thread.object.comm.string_(), b"selfdestruct")

@@ -42,5 +42,10 @@ with open(f"/lib/modules/{os.uname().release}/vmlinuz", "rb") as kernel:
         errno = ctypes.get_errno()
         raise OSError(errno, os.strerror(errno))
 
+
+with open("/proc/self/comm", "w") as f:
+    f.write("selfdestruct")
+
+
 with open("/proc/sysrq-trigger", "w") as f:
     f.write("c")
