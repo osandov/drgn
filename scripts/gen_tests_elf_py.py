@@ -22,6 +22,7 @@ def main() -> None:
         for name in (
             "ET",
             "PT",
+            "SHF",
             "SHN",
             "SHT",
             "STB",
@@ -32,13 +33,16 @@ def main() -> None:
     for match in re.finditer(
         r"^\s*#\s*define\s+(?P<enum>"
         + "|".join(enums)
-        + r")_(?P<name>\w+)\s+(?P<value>0x[0-9a-fA-F]+|[0-9]+)",
+        + r")_(?P<name>\w+)\s+(?:(?P<value>0x[0-9a-fA-F]+|[0-9]+)|(?:\(\s*1U?\s*<<\s*(?P<bitshift>[0-9]+)\s*\)))",
         contents,
         re.MULTILINE,
     ):
         enum = match.group("enum")
         name = match.group("name")
-        value = int(match.group("value"), 0)
+        if match.group("value"):
+            value = int(match.group("value"), 0)
+        else:
+            value = 1 << int(match.group("bitshift"), 10)
         enums[enum].append((name, value))
 
     f = sys.stdout

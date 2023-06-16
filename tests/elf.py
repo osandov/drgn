@@ -63,6 +63,48 @@ class PT(enum.IntEnum):
             return hex(value)
 
 
+class SHF(enum.IntEnum):
+    WRITE = 0x1
+    ALLOC = 0x2
+    EXECINSTR = 0x4
+    MERGE = 0x10
+    STRINGS = 0x20
+    INFO_LINK = 0x40
+    LINK_ORDER = 0x80
+    OS_NONCONFORMING = 0x100
+    GROUP = 0x200
+    TLS = 0x400
+    COMPRESSED = 0x800
+    MASKOS = 0xFF00000
+    MASKPROC = 0xF0000000
+    GNU_RETAIN = 0x200000
+    ORDERED = 0x40000000
+    EXCLUDE = 0x80000000
+    MIPS_GPREL = 0x10000000
+    MIPS_MERGE = 0x20000000
+    MIPS_ADDR = 0x40000000
+    MIPS_STRINGS = 0x80000000
+    MIPS_NOSTRIP = 0x8000000
+    MIPS_LOCAL = 0x4000000
+    MIPS_NAMES = 0x2000000
+    MIPS_NODUPE = 0x1000000
+    PARISC_SHORT = 0x20000000
+    PARISC_HUGE = 0x40000000
+    PARISC_SBP = 0x80000000
+    ALPHA_GPREL = 0x10000000
+    ARM_ENTRYSECT = 0x10000000
+    ARM_COMDEF = 0x80000000
+    IA_64_SHORT = 0x10000000
+    IA_64_NORECOV = 0x20000000
+
+    @classmethod
+    def str(cls, value: int) -> Text:
+        try:
+            return f"SHF_{cls(value).name}"
+        except ValueError:
+            return hex(value)
+
+
 class SHN(enum.IntEnum):
     UNDEF = 0x0
     LORESERVE = 0xFF00

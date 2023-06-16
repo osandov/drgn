@@ -3,6 +3,7 @@
 
 import os.path
 from typing import Any, NamedTuple, Optional, Sequence, Union
+import zlib
 
 from tests.assembler import _append_sleb128, _append_uleb128
 from tests.dwarf import DW_AT, DW_FORM, DW_TAG
@@ -232,7 +233,13 @@ _UNIT_TAGS = frozenset({DW_TAG.type_unit, DW_TAG.compile_unit})
 
 
 def dwarf_sections(
-    dies, little_endian=True, bits=64, *, lang=None, use_dw_form_indirect=False
+    dies,
+    little_endian=True,
+    bits=64,
+    *,
+    lang=None,
+    use_dw_form_indirect=False,
+    compress=None,
 ):
     if isinstance(dies, DwarfDie):
         dies = (dies,)
@@ -263,29 +270,47 @@ def dwarf_sections(
         unit_dies, little_endian, bits, use_dw_form_indirect
     )
 
+    if compress == "zlib-gnu":
+
+        def debug_section(name, data):
+            assert name.startswith(".debug")
+            compressed_data = bytearray(b"ZLIB")
+            compressed_data.extend(len(data).to_bytes(8, "big"))
+            compressed_data.extend(zlib.compress(data))
+            return ElfSection(
+                name=".z" + name[1:], sh_type=SHT.PROGBITS, data=compressed_data
+            )
+
+    else:
+        assert compress is None or compress == "zlib-gabi", compress
+        compressed = compress is not None
+
+        def debug_section(name, data):
+            return ElfSection(
+                name=name, sh_type=SHT.PROGBITS, data=data, compressed=compressed
+            )
+
     sections = [
-        ElfSection(
-            name=".debug_abbrev",
-            sh_type=SHT.PROGBITS,
-            data=_compile_debug_abbrev(unit_dies, use_dw_form_indirect),
+        debug_section(
+            ".debug_abbrev", _compile_debug_abbrev(unit_dies, use_dw_form_indirect)
         ),
-        ElfSection(name=".debug_info", sh_type=SHT.PROGBITS, data=debug_info),
-        ElfSection(
-            name=".debug_line",
-            sh_type=SHT.PROGBITS,
-            data=_compile_debug_line(unit_dies, little_endian),
-        ),
-        ElfSection(name=".debug_str", sh_type=SHT.PROGBITS, data=b"\0"),
+        debug_section(".debug_info", data=debug_info),
+        debug_section(".debug_line", _compile_debug_line(unit_dies, little_endian)),
+        debug_section(".debug_str", b"\0"),
     ]
     if debug_types:
-        sections.append(
-            ElfSection(name=".debug_types", sh_type=SHT.PROGBITS, data=debug_types)
-        )
+        sections.append(debug_section(".debug_types", debug_types))
     return sections
 
 
 def compile_dwarf(
-    dies, little_endian=True, bits=64, *, lang=None, use_dw_form_indirect=False
+    dies,
+    little_endian=True,
+    bits=64,
+    *,
+    lang=None,
+    use_dw_form_indirect=False,
+    compress=None,
 ):
     return create_elf_file(
         ET.EXEC,
@@ -295,6 +320,7 @@ def compile_dwarf(
             bits=bits,
             lang=lang,
             use_dw_form_indirect=use_dw_form_indirect,
+            compress=compress,
         ),
         little_endian=little_endian,
         bits=bits,

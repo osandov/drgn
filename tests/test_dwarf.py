@@ -6490,3 +6490,13 @@ class TestProgram(TestCase):
             *labeled_int_die,
         )
         self.assertIsNotNone(repr(dwarf_program(dies).type("TEST").type.parameters[0]))
+
+
+class TestCompressedDebugSections(TestCase):
+    def test_zlib_gnu(self):
+        prog = dwarf_program(wrap_test_type_dies(int_die), compress="zlib-gnu")
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))
+
+    def test_zlib_gabi(self):
+        prog = dwarf_program(wrap_test_type_dies(int_die), compress="zlib-gabi")
+        self.assertIdentical(prog.type("TEST").type, prog.int_type("int", 4, True))

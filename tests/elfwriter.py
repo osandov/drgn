@@ -3,8 +3,9 @@
 
 import struct
 from typing import List, NamedTuple, Optional, Sequence
+import zlib
 
-from tests.elf import ET, PT, SHN, SHT, STB, STT, STV
+from tests.elf import ET, PT, SHF, SHN, SHT, STB, STT, STV
 
 
 class ElfSection:
@@ -21,14 +22,16 @@ class ElfSection:
         sh_link: int = 0,
         sh_info: int = 0,
         sh_entsize: int = 0,
+        compressed=False,
     ):
         self.data = data
         self.name = name
         self.sh_type = sh_type
+        self.sh_flags = SHF.COMPRESSED if compressed else 0
         self.p_type = p_type
         self.vaddr = vaddr
         self.paddr = paddr
-        self.memsz = len(self.data) if memsz is None else memsz
+        self.memsz = memsz
         self.p_align = p_align
         self.sh_link = sh_link
         self.sh_info = sh_info
@@ -36,6 +39,7 @@ class ElfSection:
 
         assert (self.name is not None) or (self.p_type is not None)
         assert (self.name is None) == (self.sh_type is None)
+        assert self.p_type is None or not compressed
 
 
 class ElfSymbol(NamedTuple):
@@ -122,12 +126,14 @@ def create_elf_file(
         ehdr_struct = struct.Struct(endian + "16BHHIQQQIHHHHHH")
         shdr_struct = struct.Struct(endian + "IIQQQQIIQQ")
         phdr_struct = struct.Struct(endian + "IIQQQQQQ")
+        chdr_struct = struct.Struct(endian + "IIQQ")
         e_machine = 62 if little_endian else 43  # EM_X86_64 or EM_SPARCV9
     else:
         assert bits == 32
         ehdr_struct = struct.Struct(endian + "16BHHIIIIIHHHHHH")
         shdr_struct = struct.Struct(endian + "10I")
         phdr_struct = struct.Struct(endian + "8I")
+        chdr_struct = struct.Struct(endian + "III")
         e_machine = 3 if little_endian else 8  # EM_386 or EM_MIPS
 
     sections = list(sections)
@@ -189,6 +195,15 @@ def create_elf_file(
 
     shdr_offset += shdr_struct.size
     for section in sections:
+        ch_addralign = 1 if section.p_type is None else bits // 8
+        memsz = len(section.data) if section.memsz is None else section.memsz
+        if section.sh_flags & SHF.COMPRESSED:
+            sh_addralign = bits // 8
+            compressed_data = zlib.compress(section.data)
+            sh_size = chdr_struct.size + len(compressed_data)
+        else:
+            sh_addralign = ch_addralign
+            sh_size = memsz
         if section.p_align:
             padding = section.vaddr % section.p_align - len(buf) % section.p_align
             buf.extend(bytes(padding))
@@ -198,13 +213,13 @@ def create_elf_file(
                 shdr_offset,
                 shstrtab.index(section.name.encode()),  # sh_name
                 section.sh_type,  # sh_type
-                0,  # sh_flags
+                section.sh_flags,  # sh_flags
                 section.vaddr,  # sh_addr
                 len(buf),  # sh_offset
-                section.memsz,  # sh_size
+                sh_size,  # sh_size
                 section.sh_link,  # sh_link
                 section.sh_info,  # sh_info
-                1 if section.p_type is None else bits // 8,  # sh_addralign
+                sh_addralign,  # sh_addralign
                 section.sh_entsize,  # sh_entsize
             )
             shdr_offset += shdr_struct.size
@@ -220,7 +235,7 @@ def create_elf_file(
                     section.vaddr,  # p_vaddr
                     section.paddr,  # p_paddr
                     len(section.data),  # p_filesz
-                    section.memsz,  # p_memsz
+                    memsz,  # p_memsz
                     section.p_align,  # p_align
                 )
             else:
@@ -232,11 +247,32 @@ def create_elf_file(
                     section.vaddr,  # p_vaddr
                     section.paddr,  # p_paddr
                     len(section.data),  # p_filesz
-                    section.memsz,  # p_memsz
+                    memsz,  # p_memsz
                     flags,  # p_flags
                     section.p_align,  # p_align
                 )
             phdr_offset += phdr_struct.size
-        buf.extend(section.data)
+        if section.sh_flags & SHF.COMPRESSED:
+            ELFCOMPRESS_ZLIB = 1
+            if bits == 64:
+                buf.extend(
+                    chdr_struct.pack(
+                        ELFCOMPRESS_ZLIB,  # ch_type
+                        0,  # ch_reserved
+                        memsz,  # ch_size
+                        ch_addralign,  # ch_addralign
+                    )
+                )
+            else:
+                buf.extend(
+                    chdr_struct.pack(
+                        ELFCOMPRESS_ZLIB,  # ch_type
+                        memsz,  # ch_size
+                        ch_addralign,  # ch_addralign
+                    )
+                )
+            buf.extend(compressed_data)
+        else:
+            buf.extend(section.data)
 
     return buf
