@@ -364,6 +364,24 @@ struct drgn_test_big_slab_object {
 struct drgn_test_small_slab_object *drgn_test_small_slab_objects[5];
 struct drgn_test_big_slab_object *drgn_test_big_slab_objects[5];
 
+struct kmem_cache *drgn_test_node_partial_kmem_cache;
+
+struct drgn_test_node_partial_slab_object {
+	unsigned long value;
+};
+
+struct drgn_test_node_partial_slab_object *drgn_test_node_partial_slab_object_p;
+
+struct kmem_cache *drgn_test_cpu_partial_kmem_cache;
+
+struct drgn_test_cpu_partial_slab_object {
+	unsigned long padding[(PAGE_SIZE * 2) / sizeof(unsigned long) - 1
+			- (sizeof(void *) / sizeof(unsigned long))];
+	unsigned long value;
+};
+
+struct drgn_test_cpu_partial_slab_object *drgn_test_cpu_partial_slab_objects[5];
+
 static void drgn_test_slab_exit(void)
 {
 	size_t i;
@@ -386,9 +404,27 @@ static void drgn_test_slab_exit(void)
 		}
 		kmem_cache_destroy(drgn_test_small_kmem_cache);
 	}
+	if (drgn_test_node_partial_kmem_cache) {
+		if (drgn_test_node_partial_slab_object_p)
+			kmem_cache_free(drgn_test_node_partial_kmem_cache,
+					drgn_test_node_partial_slab_object_p);
+		kmem_cache_destroy(drgn_test_node_partial_kmem_cache);
+	}
+	if (drgn_test_cpu_partial_kmem_cache) {
+		for (i = 0; i < ARRAY_SIZE(drgn_test_cpu_partial_slab_objects); i++) {
+			if (drgn_test_cpu_partial_slab_objects[i]) {
+				kmem_cache_free(drgn_test_cpu_partial_kmem_cache,
+						drgn_test_cpu_partial_slab_objects[i]);
+			}
+		}
+		kmem_cache_destroy(drgn_test_cpu_partial_kmem_cache);
+	}
 }
 
 // Dummy constructor so test slab caches won't get merged.
+// Note that the free pointer is outside of the object of a slab with a destructor.
+// As a result, each object costs sizeof(void *) more bytes.
+// See https://github.com/torvalds/linux/blob/v6.4/mm/slub.c#L4393
 static void drgn_test_slab_ctor(void *arg)
 {
 }
@@ -426,6 +462,41 @@ static int drgn_test_slab_init(void)
 			return -ENOMEM;
 		drgn_test_big_slab_objects[i]->value = i;
 	}
+
+	drgn_test_node_partial_kmem_cache =
+		kmem_cache_create(
+			"drgn_test_partial",
+			sizeof(struct drgn_test_node_partial_slab_object),
+			__alignof__(struct drgn_test_node_partial_slab_object),
+			0, drgn_test_slab_ctor);
+	if (!drgn_test_node_partial_kmem_cache)
+		return -ENOMEM;
+	drgn_test_node_partial_slab_object_p = kmem_cache_alloc(
+		drgn_test_node_partial_kmem_cache, GFP_KERNEL);
+	drgn_test_node_partial_slab_object_p->value = 100;
+
+	// Move the object to the per-node partial list
+	kmem_cache_shrink(drgn_test_node_partial_kmem_cache);
+
+	drgn_test_cpu_partial_kmem_cache = kmem_cache_create(
+		"drgn_test_cpu_partial_kmem_cache",
+		sizeof(struct drgn_test_cpu_partial_slab_object),
+		__alignof__(struct drgn_test_cpu_partial_slab_object),
+		0, drgn_test_slab_ctor);
+	if (!drgn_test_cpu_partial_kmem_cache)
+		return -ENOMEM;
+
+	for (i = 0; i < ARRAY_SIZE(drgn_test_cpu_partial_slab_objects); i++) {
+		drgn_test_cpu_partial_slab_objects[i] = kmem_cache_alloc(
+			drgn_test_cpu_partial_kmem_cache, GFP_KERNEL);
+		drgn_test_cpu_partial_slab_objects[i]->value = 100;
+	}
+
+	// Free the first object to make a cpu partial slab
+	kmem_cache_free(drgn_test_cpu_partial_kmem_cache,
+			drgn_test_cpu_partial_slab_objects[0]);
+	drgn_test_cpu_partial_slab_objects[0] = NULL;
+
 	return 0;
 }
 

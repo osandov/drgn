@@ -51,6 +51,7 @@ __all__ = (
     "get_slab_cache_aliases",
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
+    "slab_cache_for_each_partial_slab_object",
     "slab_cache_is_merged",
     "slab_object_info",
 )
@@ -230,6 +231,39 @@ class _SlabCacheHelper:
             slab = cast(slab_type, page)
             if slab.slab_cache == self._slab_cache:
                 yield from self._page_objects(page, slab, pointer_type)
+
+    def for_each_partial_slab_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        cpu_slab = self._slab_cache.cpu_slab.read_()
+
+        # per-cpu partial slabs
+        if hasattr(cpu_slab, "slab"):
+            slab_ctype = "struct slab *"
+        else:
+            slab_ctype = "struct page *"
+
+        for cpu in for_each_online_cpu(self._prog):
+            this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
+            slab = this_cpu_slab.partial
+            if slab != NULL(self._prog, slab_ctype):
+                yield from self._page_objects(
+                    cast("struct page *", slab), slab, pointer_type
+                )
+
+        # per-node partial slabs
+        if hasattr(cpu_slab, "slab"):
+            struct = "struct slab"
+            member = "slab_list"
+        else:
+            struct = "struct page"
+            member = "lru"
+
+        for node in range(self._prog["nr_online_nodes"].value_()):
+            n = self._slab_cache.node[node]
+            for slab in list_for_each_entry(struct, n.partial.address_of_(), member):
+                yield from self._page_objects(
+                    cast("struct page *", slab), slab, pointer_type
+                )
 
     def object_info(
         self, page: Object, slab: Object, addr: int
@@ -448,6 +482,34 @@ def slab_cache_for_each_allocated_object(
     :return: Iterator of ``type *`` objects.
     """
     return _get_slab_cache_helper(slab_cache).for_each_allocated_object(type)
+
+
+def slab_cache_for_each_partial_slab_object(
+    slab_cache: Object, type: Union[str, Type]
+) -> Iterator[Object]:
+    """
+    Iterate over all allocated objects in a given slab cache's
+    per-node partial slabs and per-cpu partial slabs.
+
+    Only the SLUB allocator is supported now.
+
+    >>> dentry_cache = find_slab_cache(prog, "dentry")
+    >>> next(slab_cache_for_each_partial_slab_object(dentry_cache, "struct dentry")).d_name.name
+    (const unsigned char *)0xffff93390051c038 = "cgroup"
+
+    >>> for s in slab_cache_for_each_partial_slab_object(dentry_cache, "struct dentry"):
+    ...     print(s.d_name.name)
+    ...
+    (const unsigned char *)0xffff93390051c038 = "cgroup"
+    (const unsigned char *)0xffff93390051c0f8 = "cmdline"
+    (const unsigned char *)0xffff93390051c1b8 = "8:85355"
+    (const unsigned char *)0xffff93390051c278 = "cmdline"
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param type: Type of object in the slab cache.
+    :return: Iterator of ``type *`` objects.
+    """
+    return _get_slab_cache_helper(slab_cache).for_each_partial_slab_object(type)
 
 
 def _find_containing_slab(

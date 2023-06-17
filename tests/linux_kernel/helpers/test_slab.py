@@ -12,6 +12,7 @@ from drgn.helpers.linux.slab import (
     for_each_slab_cache,
     get_slab_cache_aliases,
     slab_cache_for_each_allocated_object,
+    slab_cache_for_each_partial_slab_object,
     slab_cache_is_merged,
     slab_object_info,
 )
@@ -159,6 +160,34 @@ class TestSlab(LinuxKernelTestCase):
                         ),
                         list(objects),
                     )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_slab_cache_node_partial_object(self):
+        self.assertEqual(
+            sum(
+                o.value
+                for o in slab_cache_for_each_partial_slab_object(
+                    self.prog["drgn_test_node_partial_kmem_cache"],
+                    "struct drgn_test_node_partial_slab_object",
+                )
+            ),
+            100,
+        )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_slab_cache_cpu_partial_object(self):
+        self.assertEqual(
+            sum(
+                o.value
+                for o in slab_cache_for_each_partial_slab_object(
+                    self.prog["drgn_test_cpu_partial_kmem_cache"],
+                    "struct drgn_test_cpu_partial_slab_object",
+                )
+            ),
+            300,
+        )
 
     @skip_unless_have_full_mm_support
     @skip_unless_have_test_kmod
