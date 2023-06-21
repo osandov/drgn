@@ -21,13 +21,12 @@ void drgn_module_orc_info_deinit(struct drgn_module *module)
 }
 
 /*
- * Get the program counter of an ORC entry directly from the .orc_unwind_ip
- * section.
+ * Get the program counter of an ORC entry before pc_offsets is in the native
+ * byte order.
  */
 static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module, size_t i)
 {
-	int32_t offset =
-		((int32_t *)module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND_IP]->d_buf)[i];
+	int32_t offset = module->orc.pc_offsets[i];
 	if (drgn_elf_file_bswap(module->debug_file))
 		offset = bswap_32(offset);
 	return module->orc.pc_base + UINT64_C(4) * i + offset;
@@ -51,10 +50,8 @@ static int compare_orc_entries(const void *a, const void *b)
 	 * If two entries have the same PC, then one is probably a "terminator"
 	 * at the end of a compilation unit. Prefer the real entry.
 	 */
-	const struct drgn_orc_entry *entries =
-		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND]->d_buf;
-	uint16_t flags_a = entries[index_a].flags;
-	uint16_t flags_b = entries[index_b].flags;
+	uint16_t flags_a = module->orc.entries[index_a].flags;
+	uint16_t flags_b = module->orc.entries[index_b].flags;
 	if (drgn_elf_file_bswap(module->debug_file)) {
 		flags_a = bswap_16(flags_a);
 		flags_b = bswap_16(flags_b);
@@ -67,8 +64,7 @@ static size_t keep_orc_entry(struct drgn_module *module, size_t *indices,
 			     size_t num_entries, size_t i)
 {
 
-	const struct drgn_orc_entry *entries =
-		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND]->d_buf;
+	const struct drgn_orc_entry *entries = module->orc.entries;
 	if (num_entries > 0 &&
 	    memcmp(&entries[indices[num_entries - 1]], &entries[indices[i]],
 		   sizeof(entries[0])) == 0) {
@@ -168,56 +164,95 @@ static size_t remove_fdes_from_orc(struct drgn_module *module, size_t *indices,
 			      num_entries - 1);
 }
 
-static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
+static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 {
 	struct drgn_error *err;
+	Elf *elf = module->debug_file->elf;
 
-	if (!module->debug_file->platform.arch->orc_to_cfi ||
-	    !module->debug_file->scns[DRGN_SCN_ORC_UNWIND_IP] ||
-	    !module->debug_file->scns[DRGN_SCN_ORC_UNWIND])
-		return NULL;
-
-	GElf_Shdr shdr_mem, *shdr;
-	shdr = gelf_getshdr(module->debug_file->scns[DRGN_SCN_ORC_UNWIND_IP],
-			    &shdr_mem);
-	if (!shdr)
+	size_t shstrndx;
+	if (elf_getshdrstrndx(elf, &shstrndx))
 		return drgn_error_libelf();
-	module->orc.pc_base = shdr->sh_addr;
 
-	err = drgn_elf_file_cache_section(module->debug_file,
-					  DRGN_SCN_ORC_UNWIND_IP);
+	Elf_Scn *orc_unwind_ip_scn = NULL;
+	Elf_Scn *orc_unwind_scn = NULL;
+
+	Elf_Scn *scn = NULL;
+	while ((scn = elf_nextscn(elf, scn))) {
+		GElf_Shdr shdr_mem, *shdr = gelf_getshdr(scn, &shdr_mem);
+		if (!shdr)
+			return drgn_error_libelf();
+
+		if (shdr->sh_type != SHT_PROGBITS)
+			continue;
+
+		const char *scnname = elf_strptr(elf, shstrndx, shdr->sh_name);
+		if (!scnname)
+			return drgn_error_libelf();
+
+		if (!orc_unwind_ip_scn
+		    && strcmp(scnname, ".orc_unwind_ip") == 0) {
+			orc_unwind_ip_scn = scn;
+			module->orc.pc_base = shdr->sh_addr;
+		} else if (!orc_unwind_scn
+			   && strcmp(scnname, ".orc_unwind") == 0) {
+			orc_unwind_scn = scn;
+		}
+	}
+
+	if (!orc_unwind_ip_scn || !orc_unwind_scn) {
+		module->orc.num_entries = 0;
+		return NULL;
+	}
+
+	Elf_Data *orc_unwind_ip, *orc_unwind;
+	err = read_elf_section(orc_unwind_ip_scn, &orc_unwind_ip);
 	if (err)
 		return err;
-	err = drgn_elf_file_cache_section(module->debug_file,
-					  DRGN_SCN_ORC_UNWIND);
+	err = read_elf_section(orc_unwind_scn, &orc_unwind);
 	if (err)
 		return err;
-	Elf_Data *orc_unwind_ip =
-		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND_IP];
-	Elf_Data *orc_unwind =
-		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND];
 
-	size_t num_entries = orc_unwind_ip->d_size / sizeof(int32_t);
+	module->orc.num_entries = orc_unwind_ip->d_size / sizeof(int32_t);
+
 	if (orc_unwind_ip->d_size % sizeof(int32_t) != 0 ||
 	    orc_unwind->d_size % sizeof(struct drgn_orc_entry) != 0 ||
-	    orc_unwind->d_size / sizeof(struct drgn_orc_entry) != num_entries) {
+	    orc_unwind->d_size / sizeof(struct drgn_orc_entry)
+	    != module->orc.num_entries) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 ".orc_unwind_ip and/or .orc_unwind has invalid size");
 	}
-	if (!num_entries)
-		return NULL;
-	if ((uintptr_t)orc_unwind_ip->d_buf % alignof(int32_t) != 0) {
+	if ((uintptr_t)orc_unwind_ip->d_buf % alignof(int32_t)) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 ".orc_unwind_ip is not sufficiently aligned");
 	}
-	if ((uintptr_t)orc_unwind->d_buf % alignof(struct drgn_orc_entry) != 0) {
+	if ((uintptr_t)orc_unwind->d_buf % alignof(struct drgn_orc_entry)) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 ".orc_unwind is not sufficiently aligned");
 	}
 
+	module->orc.pc_offsets = orc_unwind_ip->d_buf;
+	module->orc.entries = orc_unwind->d_buf;
+
+	return NULL;
+}
+
+static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
+{
+	struct drgn_error *err;
+
+	if (!module->debug_file->platform.arch->orc_to_cfi)
+		return NULL;
+
+	err = drgn_read_orc_sections(module);
+	if (err || !module->orc.num_entries)
+		goto out_clear;
+
+	size_t num_entries = module->orc.num_entries;
 	size_t *indices = malloc_array(num_entries, sizeof(indices[0]));
-	if (!indices)
-		return &drgn_enomem;
+	if (!indices) {
+		err = &drgn_enomem;
+		goto out_clear;
+	}
 	for (size_t i = 0; i < num_entries; i++)
 		indices[i] = i;
 
@@ -250,8 +285,8 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 		err = &drgn_enomem;
 		goto out;
 	}
-	const int32_t *orig_offsets = orc_unwind_ip->d_buf;
-	const struct drgn_orc_entry *orig_entries = orc_unwind->d_buf;
+	const int32_t *orig_offsets = module->orc.pc_offsets;
+	const struct drgn_orc_entry *orig_entries = module->orc.entries;
 	bool bswap = drgn_elf_file_bswap(module->debug_file);
 	for (size_t i = 0; i < num_entries; i++) {
 		size_t index = indices[i];
@@ -274,6 +309,11 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	err = NULL;
 out:
 	free(indices);
+	if (err) {
+out_clear:
+		module->orc.pc_offsets = NULL;
+		module->orc.entries = NULL;
+	}
 	return err;
 }
 

@@ -23,8 +23,6 @@ CACHED_SECTIONS = (
     ".debug_addr",
     ".debug_frame",
     ".eh_frame",
-    ".orc_unwind_ip",
-    ".orc_unwind",
     ".debug_loc",
     ".debug_loclists",
 )
