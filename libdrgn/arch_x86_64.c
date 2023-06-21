@@ -57,13 +57,13 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 	if (!drgn_cfi_row_copy(row_ret, drgn_empty_cfi_row))
 		return &drgn_enomem;
 
+	if (drgn_orc_type(orc) == DRGN_ORC_TYPE_UNDEFINED)
+		return &drgn_not_found;
+	else if (drgn_orc_type(orc) == DRGN_ORC_TYPE_END_OF_STACK)
+		return NULL;
+
 	struct drgn_cfi_rule rule;
 	switch (drgn_orc_sp_reg(orc)) {
-	case ORC_REG_UNDEFINED:
-		if (drgn_orc_is_end(orc))
-			return NULL;
-		else
-			return &drgn_not_found;
 	case ORC_REG_SP:
 		rule.kind = DRGN_CFI_RULE_REGISTER_PLUS_OFFSET;
 		rule.regno = DRGN_REGISTER_NUMBER(rsp);
@@ -126,7 +126,6 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 					       DRGN_REGISTER_NUMBER(rsp),
 					       &rule))
 			return &drgn_enomem;
-		*interrupted_ret = false;
 		break;
 #define SET_AT_CFA_RULE(reg, cfa_offset) do {					\
 	rule.kind = DRGN_CFI_RULE_AT_CFA_PLUS_OFFSET;				\
@@ -156,7 +155,6 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 		SET_AT_CFA_RULE(cs, 136);
 		SET_AT_CFA_RULE(rflags, 144);
 		SET_AT_CFA_RULE(ss, 160);
-		*interrupted_ret = true;
 		break;
 	case DRGN_ORC_TYPE_REGS_PARTIAL:
 		SET_AT_CFA_RULE(rip, 0);
@@ -185,7 +183,6 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 		SET_SAME_VALUE_RULE(rdi);
 		SET_SAME_VALUE_RULE(rdx);
 #undef SET_SAME_VALUE_RULE
-		*interrupted_ret = true;
 		break;
 	default:
 		return drgn_error_format(DRGN_ERROR_OTHER,
@@ -216,6 +213,7 @@ orc_to_cfi_x86_64(const struct drgn_orc_entry *orc,
 	if (!drgn_cfi_row_set_register(row_ret, DRGN_REGISTER_NUMBER(rbp),
 				       &rule))
 		return &drgn_enomem;
+	*interrupted_ret = drgn_orc_signal(orc);
 	*ret_addr_regno_ret = DRGN_REGISTER_NUMBER(rip);
 	return NULL;
 }

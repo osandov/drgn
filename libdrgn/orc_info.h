@@ -51,7 +51,8 @@ struct drgn_module_orc_info {
 	 * ORC unwinder entries.
 	 *
 	 * This is the contents of the `.orc_unwind` ELF section, byte swapped
-	 * to the host's byte order if necessary.
+	 * to the host's byte order and normalized to the latest version of the
+	 * format if necessary.
 	 *
 	 * Entry `i` specifies how to unwind the stack if
 	 * `orc_pc(i) <= PC < orc_pc(i + 1)`, where
@@ -60,6 +61,8 @@ struct drgn_module_orc_info {
 	struct drgn_orc_entry *entries;
 	/** Number of ORC unwinder entries. */
 	unsigned int num_entries;
+	/** Version of the ORC format. See @ref orc.h. */
+	int version;
 };
 
 void drgn_module_orc_info_deinit(struct drgn_module *module);

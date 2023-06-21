@@ -13,6 +13,7 @@
 #include "error.h"
 #include "orc.h"
 #include "platform.h"
+#include "program.h"
 #include "util.h"
 
 void drgn_module_orc_info_deinit(struct drgn_module *module)
@@ -21,10 +22,8 @@ void drgn_module_orc_info_deinit(struct drgn_module *module)
 	free(module->orc.pc_offsets);
 }
 
-/*
- * Get the program counter of an ORC entry before pc_offsets is in the native
- * byte order.
- */
+// Getters for "raw" ORC information, i.e., before it is byte swapped or
+// normalized to the latest version.
 static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module,
 				       unsigned int i)
 {
@@ -32,6 +31,24 @@ static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module,
 	if (drgn_elf_file_bswap(module->debug_file))
 		offset = bswap_32(offset);
 	return module->orc.pc_base + UINT64_C(4) * i + offset;
+}
+
+static bool
+drgn_raw_orc_entry_is_terminator(struct drgn_module *module, unsigned int i)
+{
+	uint16_t flags = module->orc.entries[i].flags;
+	if (drgn_elf_file_bswap(module->debug_file))
+		flags = bswap_16(flags);
+	if (module->orc.version >= 3) {
+		// orc->type == ORC_TYPE_UNDEFINED
+		return (flags & 0x700) == 0;
+	} else if (module->orc.version == 2) {
+		// orc->sp_reg == ORC_REG_UNDEFINED && !orc->end
+		return (flags & 0x80f) == 0;
+	} else {
+		// orc->sp_reg == ORC_REG_UNDEFINED && !orc->end
+		return (flags & 0x40f) == 0;
+	}
 }
 
 static _Thread_local struct drgn_module *compare_orc_entries_module;
@@ -52,14 +69,8 @@ static int compare_orc_entries(const void *a, const void *b)
 	 * If two entries have the same PC, then one is probably a "terminator"
 	 * at the end of a compilation unit. Prefer the real entry.
 	 */
-	uint16_t flags_a = module->orc.entries[index_a].flags;
-	uint16_t flags_b = module->orc.entries[index_b].flags;
-	if (drgn_elf_file_bswap(module->debug_file)) {
-		flags_a = bswap_16(flags_a);
-		flags_b = bswap_16(flags_b);
-	}
-	return (drgn_orc_flags_is_terminator(flags_b)
-		- drgn_orc_flags_is_terminator(flags_a));
+	return (drgn_raw_orc_entry_is_terminator(module, index_b)
+		- drgn_raw_orc_entry_is_terminator(module, index_a));
 }
 
 static unsigned int keep_orc_entry(struct drgn_module *module,
@@ -168,6 +179,25 @@ static unsigned int remove_fdes_from_orc(struct drgn_module *module,
 			      num_entries - 1);
 }
 
+// Currently, we have to check the kernel version to determine the ORC version.
+// This will hopefully be fixed by Linux kernel patch "x86/unwind/orc: add ELF
+// section with ORC version identifier":
+// https://lore.kernel.org/linux-debuggers/aef9c8dc43915b886a8c48509a12ec1b006ca1ca.1686690801.git.osandov@osandov.com/.
+static int orc_version_from_osrelease(struct drgn_program *prog)
+{
+	char *p = (char *)prog->vmcoreinfo.osrelease;
+	long major = strtol(p, &p, 10);
+	long minor = 0;
+	if (*p == '.')
+		minor = strtol(p + 1, NULL, 10);
+	if (major > 6 || (major == 6 && minor >= 4))
+		return 3;
+	else if (major == 6 && minor == 3)
+		return 2;
+	else
+		return 1;
+}
+
 static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 {
 	struct drgn_error *err;
@@ -207,6 +237,8 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		module->orc.num_entries = 0;
 		return NULL;
 	}
+
+	module->orc.version = orc_version_from_osrelease(module->prog);
 
 	Elf_Data *orc_unwind_ip, *orc_unwind;
 	err = read_elf_section(orc_unwind_ip_scn, &orc_unwind_ip);
@@ -296,19 +328,54 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	}
 	const int32_t *orig_offsets = module->orc.pc_offsets;
 	const struct drgn_orc_entry *orig_entries = module->orc.entries;
-	bool bswap = drgn_elf_file_bswap(module->debug_file);
+	const bool bswap = drgn_elf_file_bswap(module->debug_file);
+	const int version = module->orc.version;
 	for (unsigned int i = 0; i < num_entries; i++) {
 		unsigned int index = indices[i];
 		int32_t offset = orig_offsets[index];
-		struct drgn_orc_entry entry = orig_entries[index];
+		entries[i] = orig_entries[index];
 		if (bswap) {
 			offset = bswap_32(offset);
-			entry.sp_offset = bswap_16(entry.sp_offset);
-			entry.bp_offset = bswap_16(entry.bp_offset);
-			entry.flags = bswap_16(entry.flags);
+			entries[i].sp_offset = bswap_16(entries[i].sp_offset);
+			entries[i].bp_offset = bswap_16(entries[i].bp_offset);
+			entries[i].flags = bswap_16(entries[i].flags);
+		}
+		// "Upgrade" the format to version 3. See struct
+		// drgn_orc_type::flags.
+		if (version == 2) {
+			// There are no UNDEFINED or END_OF_STACK types in
+			// versions 1 and 2. Instead, sp_reg ==
+			// ORC_REG_UNDEFINED && !end is equivalent to UNDEFINED,
+			// and sp_reg == ORC_REG_UNDEFINED && end is equivalent
+			// to END_OF_STACK.
+			int type;
+			if ((entries[i].flags & 0x80f) == 0)
+				type = DRGN_ORC_TYPE_UNDEFINED << 8;
+			else if ((entries[i].flags & 0x80f) == 0x800)
+				type = DRGN_ORC_TYPE_END_OF_STACK << 8;
+			else
+				type = (entries[i].flags & 0x300) + 0x200;
+			int signal = (entries[i].flags & 0x400) << 1;
+			entries[i].flags = ((entries[i].flags & 0xff)
+					    | type
+					    | signal);
+		} else if (version == 1) {
+			int type;
+			if ((entries[i].flags & 0x40f) == 0)
+				type = DRGN_ORC_TYPE_UNDEFINED << 8;
+			else if ((entries[i].flags & 0x40f) == 0x400)
+				type = DRGN_ORC_TYPE_END_OF_STACK << 8;
+			else
+				type = (entries[i].flags & 0x300) + 0x200;
+			// There is no signal flag in version 1. Instead,
+			// ORC_TYPE_REGS and ORC_TYPE_REGS_PARTIAL imply the
+			// signal flag, and ORC_TYPE_CALL does not.
+			int signal = (entries[i].flags & 0x300) > 0 ? 0x800 : 0;
+			entries[i].flags = ((entries[i].flags & 0xff)
+					    | type
+					    | signal);
 		}
 		pc_offsets[i] = UINT64_C(4) * index + offset - UINT64_C(4) * i;
-		entries[i] = entry;
 	}
 
 	module->orc.pc_offsets = pc_offsets;
