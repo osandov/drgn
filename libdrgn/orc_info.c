@@ -3,6 +3,7 @@
 
 #include <byteswap.h>
 #include <gelf.h>
+#include <stdalign.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,10 +26,8 @@ void drgn_module_orc_info_deinit(struct drgn_module *module)
  */
 static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module, size_t i)
 {
-	int32_t offset;
-	memcpy(&offset,
-	       (int32_t *)module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND_IP]->d_buf + i,
-	       sizeof(offset));
+	int32_t offset =
+		((int32_t *)module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND_IP]->d_buf)[i];
 	if (drgn_elf_file_bswap(module->debug_file))
 		offset = bswap_32(offset);
 	return module->orc.pc_base + UINT64_C(4) * i + offset;
@@ -54,9 +53,8 @@ static int compare_orc_entries(const void *a, const void *b)
 	 */
 	const struct drgn_orc_entry *entries =
 		module->debug_file->scn_data[DRGN_SCN_ORC_UNWIND]->d_buf;
-	uint16_t flags_a, flags_b;
-	memcpy(&flags_a, &entries[index_a].flags, sizeof(flags_a));
-	memcpy(&flags_b, &entries[index_b].flags, sizeof(flags_b));
+	uint16_t flags_a = entries[index_a].flags;
+	uint16_t flags_b = entries[index_b].flags;
 	if (drgn_elf_file_bswap(module->debug_file)) {
 		flags_a = bswap_16(flags_a);
 		flags_b = bswap_16(flags_b);
@@ -208,6 +206,14 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	}
 	if (!num_entries)
 		return NULL;
+	if ((uintptr_t)orc_unwind_ip->d_buf % alignof(int32_t) != 0) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 ".orc_unwind_ip is not sufficiently aligned");
+	}
+	if ((uintptr_t)orc_unwind->d_buf % alignof(struct drgn_orc_entry) != 0) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 ".orc_unwind is not sufficiently aligned");
+	}
 
 	size_t *indices = malloc_array(num_entries, sizeof(indices[0]));
 	if (!indices)
@@ -249,10 +255,8 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	bool bswap = drgn_elf_file_bswap(module->debug_file);
 	for (size_t i = 0; i < num_entries; i++) {
 		size_t index = indices[i];
-		int32_t offset;
-		memcpy(&offset, &orig_offsets[index], sizeof(offset));
-		struct drgn_orc_entry entry;
-		memcpy(&entry, &orig_entries[index], sizeof(entry));
+		int32_t offset = orig_offsets[index];
+		struct drgn_orc_entry entry = orig_entries[index];
 		if (bswap) {
 			offset = bswap_32(offset);
 			entry.sp_offset = bswap_16(entry.sp_offset);
