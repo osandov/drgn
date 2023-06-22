@@ -131,6 +131,7 @@ class test(Command):
     description = "run unit tests after in-place build"
 
     KERNELS = [
+        "6.4",
         "6.3",
         "6.2",
         "6.1",
