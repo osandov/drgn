@@ -509,21 +509,21 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 		err = drgn_program_find_object(drgn_object_program(&it->mod),
 					       "MOD_TEXT", NULL,
 					       DRGN_FIND_OBJECT_CONSTANT,
-					       &it->tmp3);
+					       &it->tmp2);
 		if (err)
 			return err;
-		err = drgn_object_read_integer(&it->tmp3, &mod_mem_type);
+		err = drgn_object_read_integer(&it->tmp2, &mod_mem_type);
 		if (err)
 			return err;
 
-		err = drgn_object_subscript(&it->tmp3, &it->tmp1,
+		err = drgn_object_subscript(&it->tmp1, &it->tmp1,
 					    mod_mem_type.uvalue);
 		if (err)
 			return err;
-		err = drgn_object_member(&it->tmp2, &it->tmp3, "size");
+		err = drgn_object_member(&it->tmp2, &it->tmp1, "size");
 		if (err)
 			return err;
-		err = drgn_object_member(&it->tmp1, &it->tmp3, "base");
+		err = drgn_object_member(&it->tmp1, &it->tmp1, "base");
 		if (err)
 			return err;
 	} else if (err->code == DRGN_ERROR_LOOKUP) {
