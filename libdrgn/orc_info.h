@@ -59,7 +59,7 @@ struct drgn_module_orc_info {
 	 */
 	struct drgn_orc_entry *entries;
 	/** Number of ORC unwinder entries. */
-	size_t num_entries;
+	unsigned int num_entries;
 };
 
 void drgn_module_orc_info_deinit(struct drgn_module *module);

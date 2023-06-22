@@ -3,6 +3,7 @@
 
 #include <byteswap.h>
 #include <gelf.h>
+#include <limits.h>
 #include <stdalign.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,7 +25,8 @@ void drgn_module_orc_info_deinit(struct drgn_module *module)
  * Get the program counter of an ORC entry before pc_offsets is in the native
  * byte order.
  */
-static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module, size_t i)
+static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module,
+				       unsigned int i)
 {
 	int32_t offset = module->orc.pc_offsets[i];
 	if (drgn_elf_file_bswap(module->debug_file))
@@ -36,8 +38,8 @@ static _Thread_local struct drgn_module *compare_orc_entries_module;
 static int compare_orc_entries(const void *a, const void *b)
 {
 	struct drgn_module *module = compare_orc_entries_module;
-	size_t index_a = *(size_t *)a;
-	size_t index_b = *(size_t *)b;
+	unsigned int index_a = *(unsigned int *)a;
+	unsigned int index_b = *(unsigned int *)b;
 
 	uint64_t pc_a = drgn_raw_orc_pc(module, index_a);
 	uint64_t pc_b = drgn_raw_orc_pc(module, index_b);
@@ -60,8 +62,9 @@ static int compare_orc_entries(const void *a, const void *b)
 		- drgn_orc_flags_is_terminator(flags_a));
 }
 
-static size_t keep_orc_entry(struct drgn_module *module, size_t *indices,
-			     size_t num_entries, size_t i)
+static unsigned int keep_orc_entry(struct drgn_module *module,
+				   unsigned int *indices,
+				   unsigned int num_entries, unsigned int i)
 {
 
 	const struct drgn_orc_entry *entries = module->orc.entries;
@@ -87,8 +90,9 @@ static size_t keep_orc_entry(struct drgn_module *module, size_t *indices,
  * Note that we don't bother checking EH CFI because currently ORC is only used
  * for the Linux kernel on x86-64, which explicitly disables EH data.
  */
-static size_t remove_fdes_from_orc(struct drgn_module *module, size_t *indices,
-				   size_t num_entries)
+static unsigned int remove_fdes_from_orc(struct drgn_module *module,
+					 unsigned int *indices,
+					 unsigned int num_entries)
 {
 	if (module->dwarf.debug_frame.num_fdes == 0)
 		return num_entries;
@@ -97,7 +101,7 @@ static size_t remove_fdes_from_orc(struct drgn_module *module, size_t *indices,
 	struct drgn_dwarf_fde *last_fde =
 		fde + module->dwarf.debug_frame.num_fdes - 1;
 
-	size_t new_num_entries = 0;
+	unsigned int new_num_entries = 0;
 
 	/* Keep any entries that start before the first DWARF FDE. */
 	uint64_t start_pc;
@@ -110,7 +114,7 @@ static size_t remove_fdes_from_orc(struct drgn_module *module, size_t *indices,
 			return num_entries;
 	}
 
-	for (size_t i = new_num_entries; i < num_entries - 1; i++) {
+	for (unsigned int i = new_num_entries; i < num_entries - 1; i++) {
 		uint64_t end_pc = drgn_raw_orc_pc(module, i + 1);
 
 		/*
@@ -212,7 +216,12 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 	if (err)
 		return err;
 
-	module->orc.num_entries = orc_unwind_ip->d_size / sizeof(int32_t);
+	size_t num_entries = orc_unwind_ip->d_size / sizeof(int32_t);
+	if (num_entries > UINT_MAX) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 ".orc_unwind_ip is too large");
+	}
+	module->orc.num_entries = num_entries;
 
 	if (orc_unwind_ip->d_size % sizeof(int32_t) != 0 ||
 	    orc_unwind->d_size % sizeof(struct drgn_orc_entry) != 0 ||
@@ -247,13 +256,13 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	if (err || !module->orc.num_entries)
 		goto out_clear;
 
-	size_t num_entries = module->orc.num_entries;
-	size_t *indices = malloc_array(num_entries, sizeof(indices[0]));
+	unsigned int num_entries = module->orc.num_entries;
+	unsigned int *indices = malloc_array(num_entries, sizeof(indices[0]));
 	if (!indices) {
 		err = &drgn_enomem;
 		goto out_clear;
 	}
-	for (size_t i = 0; i < num_entries; i++)
+	for (unsigned int i = 0; i < num_entries; i++)
 		indices[i] = i;
 
 	compare_orc_entries_module = module;
@@ -263,7 +272,7 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	 * sorting") (in v5.6), this is already sorted for vmlinux, so only sort
 	 * it if necessary.
 	 */
-	for (size_t i = 1; i < num_entries; i++) {
+	for (unsigned int i = 1; i < num_entries; i++) {
 		if (compare_orc_entries(&indices[i - 1], &indices[i]) > 0) {
 			qsort(indices, num_entries, sizeof(indices[0]),
 			      compare_orc_entries);
@@ -288,8 +297,8 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	const int32_t *orig_offsets = module->orc.pc_offsets;
 	const struct drgn_orc_entry *orig_entries = module->orc.entries;
 	bool bswap = drgn_elf_file_bswap(module->debug_file);
-	for (size_t i = 0; i < num_entries; i++) {
-		size_t index = indices[i];
+	for (unsigned int i = 0; i < num_entries; i++) {
+		unsigned int index = indices[i];
 		int32_t offset = orig_offsets[index];
 		struct drgn_orc_entry entry = orig_entries[index];
 		if (bswap) {
@@ -317,7 +326,7 @@ out_clear:
 	return err;
 }
 
-static inline uint64_t drgn_orc_pc(struct drgn_module *module, size_t i)
+static inline uint64_t drgn_orc_pc(struct drgn_module *module, unsigned int i)
 {
 	return module->orc.pc_base + UINT64_C(4) * i + module->orc.pc_offsets[i];
 }
@@ -344,9 +353,9 @@ drgn_module_find_orc_cfi(struct drgn_module *module, uint64_t pc,
 	 */
 	if (!module->orc.num_entries || unbiased_pc < drgn_orc_pc(module, 0))
 		return &drgn_not_found;
-	size_t lo = 0, hi = module->orc.num_entries, found = 0;
+	unsigned int lo = 0, hi = module->orc.num_entries, found = 0;
 	while (lo < hi) {
-		size_t mid = lo + (hi - lo) / 2;
+		unsigned int mid = lo + (hi - lo) / 2;
 		if (drgn_orc_pc(module, mid) <= unbiased_pc) {
 			found = mid;
 			lo = mid + 1;
