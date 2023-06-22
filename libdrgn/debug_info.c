@@ -421,6 +421,7 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 		err = &drgn_enomem;
 		goto free;
 	}
+	module->prog = load->dbinfo->prog;
 	module->state = DRGN_DEBUG_INFO_MODULE_NEW;
 	module->build_id = build_id;
 	module->build_id_len = build_id_len;

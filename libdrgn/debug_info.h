@@ -59,6 +59,8 @@ enum drgn_module_state {
  * address range) is uniquely represented by a @ref drgn_module.
  */
 struct drgn_module {
+	struct drgn_program *prog;
+
 	/** @c NULL if the module does not have a build ID. */
 	const void *build_id;
 	/** Zero if the module does not have a build ID. */
