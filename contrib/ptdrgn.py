@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 # Copyright (c) 2023, Oracle and/or its affiliates.
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
@@ -9,18 +10,19 @@ NOTE: this is definitely a bit of a hack, using implementation details of Drgn
 makes it worth sharing.
 
 Requires: "pip install ptpython" which brings in pygments and prompt_toolkit
-
-Future work:
-- Completion of drgn.Object member names (see ptpython.completer.DictCompleter)
 """
+import functools
 import importlib
 import os
 import shutil
 import sys
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Set
 
+from prompt_toolkit.completion import Completion, Completer
 from prompt_toolkit.formatted_text import PygmentsTokens
+from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text
 from ptpython import embed
+from ptpython.completer import DictionaryCompleter
 from ptpython.repl import run_config
 from pygments.lexers.c_cpp import CLexer
 
@@ -62,6 +64,36 @@ def _maybe_c_format(s):
     return to_format
 
 
+@functools.lru_cache(maxsize=1)
+def _object_fields() -> Set[str]:
+    return set(dir(drgn.Object))
+
+
+class ReorderDrgnObjectCompleter(Completer):
+    """A completer which puts Object member fields above Object defaults"""
+
+    def __init__(self, c: Completer):
+        self.c = c
+
+    def get_completions(self, document, complete_event):
+        completions = list(self.c.get_completions(document, complete_event))
+        if not completions:
+            return completions
+        text = completions[0].text
+        member_fields = []
+        # If the first completion is "absent_", it is *very likely* that we are
+        # now looking at the completion of on Object.  Move the default Object
+        # attributes to the end of the list so that we get the struct attributes
+        if text == "absent_":
+            fields = _object_fields()
+            for i in reversed(range(len(completions))):
+                text = completions[i].text
+                if text not in fields:
+                    member_fields.append(completions[i])
+                    del completions[i]
+            return list(reversed(member_fields)) + completions
+        return completions
+
 
 def configure(repl) -> None:
     """
@@ -88,6 +120,8 @@ def configure(repl) -> None:
 
     repl._format_result_output = _format_result_output
     run_config(repl)
+    repl._completer = ReorderDrgnObjectCompleter(repl._completer)
+    repl.completer = ReorderDrgnObjectCompleter(repl.completer)
 
 
 def run_interactive(
