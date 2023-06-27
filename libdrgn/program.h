@@ -309,6 +309,19 @@ drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
 	return NULL;
 }
 
+static inline struct drgn_error *
+drgn_program_untagged_addr(const struct drgn_program *prog, uint64_t *address)
+{
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program address size is not known");
+	}
+	*address &= drgn_platform_address_mask(&prog->platform);
+	if (prog->platform.arch->untagged_addr)
+		*address = prog->platform.arch->untagged_addr(*address);
+	return NULL;
+}
+
 struct drgn_error *drgn_thread_dup_internal(const struct drgn_thread *thread,
 					    struct drgn_thread *ret);
 
