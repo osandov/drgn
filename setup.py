@@ -26,6 +26,7 @@ from setuptools.command.sdist import sdist as _sdist
 from setuptools.extension import Extension
 
 from util import nproc, out_of_date
+from vmtest.config import KERNEL_FLAVORS, SUPPORTED_KERNEL_VERSIONS
 
 
 class build(_build):
@@ -130,36 +131,12 @@ class sdist(_sdist):
 class test(Command):
     description = "run unit tests after in-place build"
 
-    KERNELS = [
-        "6.4",
-        "6.3",
-        "6.2",
-        "6.1",
-        "6.0",
-        "5.19",
-        "5.18",
-        "5.17",
-        "5.16",
-        "5.15",
-        "5.14",
-        "5.13",
-        "5.12",
-        "5.11",
-        "5.10",
-        "5.4",
-        "4.19",
-        "4.14",
-        "4.9",
-    ]
-
-    KERNEL_FLAVORS = ["default", "alternative", "tiny"]
-
     user_options = [
         (
             "kernel",
             "K",
             "run Linux kernel tests in a virtual machine on all supported kernels "
-            f"({', '.join(KERNELS)})",
+            f"({', '.join(SUPPORTED_KERNEL_VERSIONS)})",
         ),
         (
             "all-kernel-flavors",
@@ -189,9 +166,11 @@ class test(Command):
     def finalize_options(self):
         self.kernels = [kernel for kernel in self.extra_kernels.split(",") if kernel]
         if self.kernel:
-            flavors = test.KERNEL_FLAVORS if self.all_kernel_flavors else [""]
+            flavors = KERNEL_FLAVORS if self.all_kernel_flavors else [""]
             self.kernels.extend(
-                kernel + ".*" + flavor for kernel in test.KERNELS for flavor in flavors
+                kernel + ".*" + flavor
+                for kernel in SUPPORTED_KERNEL_VERSIONS
+                for flavor in flavors
             )
         if self.vmtest_dir is None:
             build_base = self.get_finalized_command("build").build_base

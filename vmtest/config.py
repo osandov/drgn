@@ -10,6 +10,33 @@ from typing import Dict, Mapping, NamedTuple, Sequence
 
 from util import NORMALIZED_MACHINE_NAME
 
+# Kernel versions that we run tests on and therefore support. We always support
+# the current mainline, stable, and longterm versions from kernel.org (although
+# there may be some delay before a new mainline version is fully supported). We
+# keep support for EOL versions until it becomes too difficult to do so.
+# Anything else is not tested and therefore best-effort.
+SUPPORTED_KERNEL_VERSIONS = (
+    "6.4",
+    "6.3",
+    "6.2",
+    "6.1",
+    "6.0",
+    "5.19",
+    "5.18",
+    "5.17",
+    "5.16",
+    "5.15",
+    "5.14",
+    "5.13",
+    "5.12",
+    "5.11",
+    "5.10",
+    "5.4",
+    "4.19",
+    "4.14",
+    "4.9",
+)
+
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
 VMTEST_KERNEL_VERSION = 21
 
