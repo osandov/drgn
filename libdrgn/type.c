@@ -397,6 +397,20 @@ struct drgn_error *drgn_int_type_create(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
+	/*
+	 * TODO: Support integers with width >64 properly. Until then,
+	 * at least allow the user to see the value and print structs
+	 * containing them by pretending that they are arrays.
+	 */
+	if (size > 8) {
+		struct drgn_qualified_type elem_type = {};
+		err = drgn_int_type_create(prog, name, 1, is_signed, byte_order,
+					   lang, &elem_type.type);
+		if (err)
+			return err;
+		return drgn_array_type_create(prog, elem_type, size, lang, ret);
+	}
+
 	enum drgn_primitive_type primitive = c_parse_specifier_list(name);
 	if (drgn_primitive_type_kind[primitive] == DRGN_TYPE_INT &&
 	    (primitive == DRGN_C_TYPE_CHAR ||
