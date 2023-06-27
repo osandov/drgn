@@ -226,8 +226,8 @@ struct drgn_error *linux_helper_read_cstr(struct drgn_program *prog,
 		uint64_t phys_addr =
 			start_phys_addr + (virt_addr - start_virt_addr);
 		size_t n = min(it->virt_addr - virt_addr, (uint64_t)count);
-		err = drgn_memory_reader_read_cstr(&prog->reader, str, done,
-						   phys_addr, n, true);
+		err = drgn_program_read_c_string(prog, phys_addr, true, n, str,
+						 done);
 		if (err)
 			break;
 		if (*done)

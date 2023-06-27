@@ -422,6 +422,12 @@ struct drgn_architecture_info {
 	 * @see pgtable_iterator_next_fn
 	 */
 	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
+	/**
+	 * Return the canonical form of a virtual address, i.e. apply any
+	 * transformations that the CPU applies to the address before page
+	 * table walking.
+	 */
+	uint64_t (*untagged_addr)(uint64_t addr);
 };
 
 /**

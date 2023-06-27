@@ -872,8 +872,9 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 	}
 
 	struct string_builder sb = STRING_BUILDER_INIT;
+	bool done;
 	err = drgn_program_read_c_string(drgn_object_program(obj), address,
-					 false, max_size, &sb);
+					 false, max_size, &sb, &done);
 	if (err)
 		return err;
 

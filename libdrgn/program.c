@@ -1585,8 +1585,10 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
 	if (err)
 		return err;
+	err = drgn_program_untagged_addr(prog, &address);
+	if (err)
+		return err;
 	char *p = buf;
-	address &= address_mask;
 	while (count > 0) {
 		size_t n = min((uint64_t)(count - 1), address_mask - address) + 1;
 		err = drgn_memory_reader_read(&prog->reader, p, address, n,
@@ -1602,20 +1604,23 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
-			   bool physical, size_t max_size, struct string_builder *str)
+			   bool physical, size_t max_size,
+			   struct string_builder *str, bool *done)
 {
 	uint64_t address_mask;
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
 	if (err)
 		return err;
-	bool done;
+	err = drgn_program_untagged_addr(prog, &address);
+	if (err)
+		return err;
 	while (max_size > 0) {
 		size_t n = min((uint64_t)(max_size - 1), address_mask - address) + 1;
-		err = drgn_memory_reader_read_cstr(&prog->reader, str, &done, address, n,
+		err = drgn_memory_reader_read_cstr(&prog->reader, str, done, address, n,
 					      physical);
 		if (err)
 			return err;
-		if (done)
+		if (*done)
 			return NULL;
 		address = 0;
 		max_size -= n;

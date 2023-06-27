@@ -793,7 +793,8 @@ struct drgn_error *drgn_program_read_memory(struct drgn_program *prog,
 struct drgn_error *drgn_program_read_c_string(struct drgn_program *prog,
 					      uint64_t address, bool physical,
 					      size_t max_size,
-					      struct string_builder *str);
+					      struct string_builder *str,
+					      bool *done);
 
 struct drgn_error *drgn_program_read_u8(struct drgn_program *prog,
 					uint64_t address, bool physical,

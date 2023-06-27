@@ -645,8 +645,10 @@ c_format_string(struct drgn_program *prog, uint64_t address, uint64_t length,
 {
 	struct drgn_error *err;
 	struct string_builder tmp = STRING_BUILDER_INIT;
+	bool done;
 
-	err = drgn_program_read_c_string(prog, address, false, length, &tmp);
+	err = drgn_program_read_c_string(prog, address, false, length, &tmp,
+	                                 &done);
 	if (err) {
 		free(tmp.str);
 		return err;
