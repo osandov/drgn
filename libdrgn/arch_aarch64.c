@@ -453,6 +453,12 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 	}
 }
 
+static uint64_t untagged_addr_aarch64(uint64_t addr)
+{
+	/* Apply TBI by sign extending bit 55 into bits 56-63. */
+	return (((int64_t)addr) << 8) >> 8;
+}
+
 const struct drgn_architecture_info arch_info_aarch64 = {
 	.name = "AArch64",
 	.arch = DRGN_ARCH_AARCH64,
@@ -475,4 +481,5 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 		linux_kernel_pgtable_iterator_init_aarch64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_aarch64,
+	.untagged_addr = untagged_addr_aarch64,
 };
