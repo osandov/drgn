@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "array.h"
 #include "error.h"
 #include "platform.h" // IWYU pragma: associated
 #include "program.h"
@@ -269,8 +270,8 @@ struct pgtable_iterator_aarch64 {
 	int levels;
 	uint16_t entries_per_level;
 	uint16_t last_level_num_entries;
-	uint16_t *index;
-	uint64_t *table;
+	uint64_t cached_virt_addr;
+	uint64_t table[5];
 	uint64_t pa_low_mask;
 	uint64_t pa_high_mask;
 };
@@ -328,18 +329,10 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 
 	it->levels = ((va_bits - page_shift + pgtable_shift - 1) /
 		      pgtable_shift);
+	assert(it->levels <= array_size(it->table));
 	it->entries_per_level = 1 << pgtable_shift;
 	it->last_level_num_entries =
 		1 << ((va_bits - page_shift - 1) % pgtable_shift + 1);
-
-	it->index = malloc_array(it->levels, sizeof(it->index[0]));
-	if (!it->index)
-		goto err_it;
-	it->table = malloc_array((size_t)(it->levels - 1) * it->entries_per_level
-				 + it->last_level_num_entries,
-				 sizeof(it->table[0]));
-	if (!it->table)
-		goto err_index;
 
 	// Descriptor bits [47:PAGE_SHIFT] contain physical address bits
 	// [47:PAGE_SHIFT].
@@ -364,20 +357,12 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 
 	*ret = &it->it;
 	return NULL;
-
-err_index:
-	free(it->index);
-err_it:
-	free(it);
-	return &drgn_enomem;
 }
 
 static void linux_kernel_pgtable_iterator_destroy_aarch64(struct pgtable_iterator *_it)
 {
 	struct pgtable_iterator_aarch64 *it =
 		container_of(_it, struct pgtable_iterator_aarch64, it);
-	free(it->table);
-	free(it->index);
 	free(it);
 }
 
@@ -394,7 +379,9 @@ static void linux_kernel_pgtable_iterator_init_aarch64(struct drgn_program *prog
 		it->va_range_max =
 			(UINT64_C(1) << prog->vmcoreinfo.va_bits) - 1;
 	}
-	memset(it->index, 0xff, it->levels * sizeof(it->index[0]));
+
+	it->cached_virt_addr = 0;
+	memset(it->table, 0, sizeof(it->table));
 }
 
 static struct drgn_error *
@@ -410,71 +397,59 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 	struct pgtable_iterator_aarch64 *it =
 		container_of(_it, struct pgtable_iterator_aarch64, it);
 	const uint64_t virt_addr = it->it.virt_addr;
-	int level;
 
-	// Find the lowest level with cached entries.
-	for (level = 0; level < it->levels - 1; level++) {
-		if (it->index[level] < it->entries_per_level)
-			break;
+	if (virt_addr < it->va_range_min || virt_addr > it->va_range_max) {
+		*virt_addr_ret = it->va_range_min;
+		*phys_addr_ret = UINT64_MAX;
+		it->it.virt_addr = it->va_range_max + 1;
+		return NULL;
 	}
-	if (level == it->levels - 1 &&
-	    it->index[level] >= it->last_level_num_entries)
-		level++;
-	// For every level below that, refill the cache/return pages.
-	for (;; level--) {
-		uint16_t num_entries;
-		uint64_t table;
-		bool table_physical;
-		if (level == it->levels) {
-			num_entries = it->last_level_num_entries;
-			if (virt_addr < it->va_range_min ||
-			    virt_addr > it->va_range_max) {
-				*virt_addr_ret = it->va_range_min;
-				*phys_addr_ret = UINT64_MAX;
-				it->it.virt_addr = it->va_range_max + 1;
-				return NULL;
-			}
-			table = it->it.pgtable;
-			table_physical = false;
-		} else {
-			num_entries = it->entries_per_level;
-			uint64_t entry = it->table[level * num_entries + it->index[level]++];
+
+	uint16_t num_entries = it->last_level_num_entries;
+	uint64_t table = it->it.pgtable;
+	bool table_physical = false;
+	for (int level = it->levels;; level--) {
+		uint8_t level_shift = page_shift + pgtable_shift * (level - 1);
+		uint16_t index = (virt_addr >> level_shift) & (num_entries - 1);
+		uint16_t cached_index = (it->cached_virt_addr >> level_shift) &
+					(num_entries - 1);
+		if (index != cached_index)
+			memset(it->table, 0, 8 * level);
+		uint64_t *entry_ptr = &it->table[level - 1];
+		if (!*entry_ptr) {
+			err = drgn_program_read_memory(prog, entry_ptr,
+						       table + 8 * index, 8,
+						       table_physical);
+			if (err)
+				return err;
 			if (bswap)
-				entry = bswap_64(entry);
-			table = ((entry & it->pa_low_mask) |
-				 (entry & it->pa_high_mask) << 36);
-			// Descriptor bits [1:0] identify the descriptor type:
-			//
-			// 0x0, 0x2: invalid
-			// 0x1: lowest level: reserved, invalid
-			//      higher levels: block
-			// 0x3: lowest level: page
-			//      higher levels: table
-			if ((entry & 0x3) != 0x3 || level == 0) {
-				uint64_t mask = (UINT64_C(1) <<
-						 (page_shift +
-						  pgtable_shift * level)) - 1;
-				*virt_addr_ret = virt_addr & ~mask;
-				if ((entry & 0x3) == (level == 0 ? 0x3 : 0x1))
-					*phys_addr_ret = table & ~mask;
-				else
-					*phys_addr_ret = UINT64_MAX;
-				it->it.virt_addr = (virt_addr | mask) + 1;
-				return NULL;
-			}
-			table_physical = true;
+				*entry_ptr = bswap_64(*entry_ptr);
 		}
-		uint16_t index = ((virt_addr >>
-				   (page_shift + pgtable_shift * (level - 1)))
-				  & (num_entries - 1));
-		err = drgn_program_read_memory(prog,
-					       &it->table[(level - 1) * it->entries_per_level + index],
-					       table + 8 * index,
-					       8 * (num_entries - index),
-					       table_physical);
-		if (err)
-			return err;
-		it->index[level - 1] = index;
+		uint64_t entry = *entry_ptr;
+
+		num_entries = it->entries_per_level;
+		table = ((entry & it->pa_low_mask) |
+			 (entry & it->pa_high_mask) << 36);
+
+		// Descriptor bits [1:0] identify the descriptor type:
+		//
+		// 0x0, 0x2: invalid
+		// 0x1: lowest level: reserved, invalid
+		//      higher levels: block
+		// 0x3: lowest level: page
+		//      higher levels: table
+		if ((entry & 0x3) != 0x3 || level == 1) {
+			uint64_t mask = (UINT64_C(1) << level_shift) - 1;
+			*virt_addr_ret = virt_addr & ~mask;
+			if ((entry & 0x3) == (level == 1 ? 0x3 : 0x1))
+				*phys_addr_ret = table & ~mask;
+			else
+				*phys_addr_ret = UINT64_MAX;
+			it->cached_virt_addr = virt_addr;
+			it->it.virt_addr = (virt_addr | mask) + 1;
+			return NULL;
+		}
+		table_physical = true;
 	}
 }
 
