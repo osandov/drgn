@@ -29,7 +29,7 @@ fi
 
 # Install a recent version of elfutils instead of whatever is in the manylinux
 # image.
-elfutils_version=0.188
+elfutils_version=0.189
 elfutils_url=https://sourceware.org/elfutils/ftp/$elfutils_version/elfutils-$elfutils_version.tar.bz2
 mkdir /tmp/elfutils
 cd /tmp/elfutils
