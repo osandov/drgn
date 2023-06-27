@@ -2,12 +2,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-# setuptools must be imported before distutils (see pypa/setuptools#2230).
-import setuptools  # isort: skip  # noqa: F401
-
 import contextlib
-from distutils.command.build import build as _build
-from distutils.errors import DistutilsError
 import logging
 import os
 import os.path
@@ -22,6 +17,19 @@ from setuptools.command.build_ext import build_ext as _build_ext
 from setuptools.command.egg_info import egg_info as _egg_info
 from setuptools.command.sdist import sdist as _sdist
 from setuptools.extension import Extension
+
+# setuptools must be imported before distutils (see pypa/setuptools#2230), so
+# make sure to keep these fallbacks after the other setuptools imports.
+try:
+    # This was added in setuptools 62.4.0 (released June 13th, 2022).
+    from setuptools.command.build import build as _build
+except ImportError:
+    from distutils.command.build import build as _build
+try:
+    # This was added in setuptools 59.0.0 (released November 12th, 2021).
+    from setuptools.errors import BaseError
+except ImportError:
+    from distutils.errors import DistutilsError as BaseError
 
 from util import nproc, out_of_date
 from vmtest.config import KERNEL_FLAVORS, SUPPORTED_KERNEL_VERSIONS
@@ -296,7 +304,7 @@ fi
             raise
 
         if failed:
-            raise DistutilsError("some tests failed")
+            raise BaseError("some tests failed")
         else:
             logger.info("all tests passed")
 
