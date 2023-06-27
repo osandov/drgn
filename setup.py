@@ -6,9 +6,9 @@
 import setuptools  # isort: skip  # noqa: F401
 
 import contextlib
-from distutils import log
 from distutils.command.build import build as _build
 from distutils.errors import DistutilsError
+import logging
 import os
 import os.path
 from pathlib import Path
@@ -25,6 +25,8 @@ from setuptools.extension import Extension
 
 from util import nproc, out_of_date
 from vmtest.config import KERNEL_FLAVORS, SUPPORTED_KERNEL_VERSIONS
+
+logger = logging.getLogger(__name__)
 
 
 class build(_build):
@@ -187,7 +189,7 @@ class test(Command):
         from vmtest.kmod import build_kmod
         import vmtest.vm
 
-        self.announce(f"running tests in VM on Linux {kernel.release}", log.INFO)
+        logger.info("running tests in VM on Linux %s", kernel.release)
 
         kmod = kernel.path.parent / f"drgn_test-{kernel.release}.ko"
         try:
@@ -215,12 +217,10 @@ fi
             returncode = vmtest.vm.run_in_vm(
                 command, kernel, Path("/"), Path(self.vmtest_dir)
             )
-        except vmtest.vm.LostVMError as e:
-            self.announce(f"error on Linux {kernel.release}: {e}", log.ERROR)
+        except vmtest.vm.LostVMError:
+            logger.exception("error on Linux %s", kernel.release)
             return False
-        self.announce(
-            f"Tests in VM on Linux {kernel.release} returned {returncode}", log.INFO
-        )
+        logger.info("Tests in VM on Linux %s returned %d", kernel.release, returncode)
         return returncode == 0
 
     def run(self):
@@ -255,7 +255,7 @@ fi
                     to_downlad.append(DownloadKernel(ARCHITECTURES["x86_64"], pattern))
             with download_in_thread(Path(self.vmtest_dir), to_downlad) as downloads:
                 if self.kernels:
-                    self.announce("downloading kernels in the background", log.INFO)
+                    logger.info("downloading kernels in the background")
 
                 with github_workflow_group("Build extension"):
                     self.run_command("egg_info")
@@ -267,7 +267,7 @@ fi
 
                 with github_workflow_group("Run unit tests"):
                     if self.kernels:
-                        self.announce("running tests locally", log.INFO)
+                        logger.info("running tests locally")
                     if self._run_local():
                         passed.append("local")
                     else:
@@ -285,9 +285,9 @@ fi
                             failed.append(kernel.release)
 
                     if passed:
-                        self.announce(f'Passed: {", ".join(passed)}', log.INFO)
+                        logger.info("Passed: %s", ", ".join(passed))
                     if failed:
-                        self.announce(f'Failed: {", ".join(failed)}', log.ERROR)
+                        logger.error("Failed: %s", ", ".join(failed))
         except urllib.error.HTTPError as e:
             if e.code == 403:
                 print(e, file=sys.stderr)
@@ -298,7 +298,7 @@ fi
         if failed:
             raise DistutilsError("some tests failed")
         else:
-            self.announce("all tests passed", log.INFO)
+            logger.info("all tests passed")
 
 
 def get_version():
@@ -345,7 +345,7 @@ def get_version():
                 )
             )
         except subprocess.CalledProcessError:
-            log.warn("warning: v%s tag not found", public_version)
+            logger.warning("warning: v%s tag not found", public_version)
         else:
             if count == 0:
                 local_version = "+dirty" if dirty else ""
@@ -359,7 +359,7 @@ def get_version():
     else:
         if version_py is None:
             # This isn't a proper sdist (maybe a git archive).
-            log.warn("warning: drgn/internal/version.py not found")
+            logger.warning("warning: drgn/internal/version.py not found")
         else:
             # The saved version must start with the public version.
             match = re.search(
@@ -370,7 +370,7 @@ def get_version():
             if match:
                 local_version = match.group(1)
             else:
-                log.warn("warning: drgn/internal/version.py is invalid")
+                logger.warning("warning: drgn/internal/version.py is invalid")
 
     version = public_version + local_version
     # Update version.py if necessary.
