@@ -8,9 +8,7 @@ import setuptools  # isort: skip  # noqa: F401
 import contextlib
 from distutils import log
 from distutils.command.build import build as _build
-from distutils.dir_util import mkpath
 from distutils.errors import DistutilsError
-from distutils.file_util import copy_file
 import os
 import os.path
 from pathlib import Path
@@ -60,7 +58,7 @@ class build_ext(_build_ext):
                 raise
 
     def _run_configure(self):
-        mkpath(self.build_temp)
+        self.mkpath(self.build_temp)
         makefile = os.path.join(self.build_temp, "Makefile")
         if not os.path.exists(makefile):
             args = [
@@ -99,11 +97,11 @@ class build_ext(_build_ext):
         self.make()
         so = os.path.join(self.build_temp, ".libs/_drgn.so")
         if self.inplace:
-            copy_file(so, self.get_ext_fullpath("_drgn"), update=True)
+            self.copy_file(so, self.get_ext_fullpath("_drgn"))
         old_inplace, self.inplace = self.inplace, 0
         build_path = self.get_ext_fullpath("_drgn")
-        mkpath(os.path.dirname(build_path))
-        copy_file(so, build_path, update=True)
+        self.mkpath(os.path.dirname(build_path))
+        self.copy_file(so, build_path)
         self.inplace = old_inplace
 
 
