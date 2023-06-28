@@ -179,10 +179,35 @@ static unsigned int remove_fdes_from_orc(struct drgn_module *module,
 			      num_entries - 1);
 }
 
-// Currently, we have to check the kernel version to determine the ORC version.
-// This will hopefully be fixed by Linux kernel patch "x86/unwind/orc: add ELF
-// section with ORC version identifier":
-// https://lore.kernel.org/linux-debuggers/aef9c8dc43915b886a8c48509a12ec1b006ca1ca.1686690801.git.osandov@osandov.com/.
+static int orc_version_from_header(Elf_Data *orc_header)
+{
+	if (orc_header->d_size != 20)
+		return -1;
+
+	// Known version identifiers in .orc_header. These can be generated in
+	// the kernel source tree with:
+	// sh ./scripts/orc_hash.sh < arch/x86/include/asm/orc_types.h | sed -e 's/^#define ORC_HASH //' -e 's/,/, /g'
+
+	// Linux kernel commit fb799447ae29 ("x86,objtool: Split
+	// UNWIND_HINT_EMPTY in two") (in v6.4)
+	static const uint8_t orc_hash_6_4[20] = {
+		0xfe, 0x5d, 0x32, 0xbf, 0x58, 0x1b, 0xd6, 0x3b, 0x2c, 0xa9,
+		0xa5, 0xc6, 0x5b, 0xa5, 0xa6, 0x25, 0xea, 0xb3, 0xfe, 0x24,
+	};
+	// Linux kernel commit ffb1b4a41016 ("x86/unwind/orc: Add 'signal' field
+	// to ORC metadata") (in v6.3)
+	static const uint8_t orc_hash_6_3[20] = {
+		0xdb, 0x84, 0xae, 0xd4, 0x10, 0x3b, 0x31, 0xdd, 0x51, 0xe0,
+		0x17, 0xf8, 0xf7, 0x97, 0x83, 0xca, 0x98, 0x5c, 0x2c, 0x51,
+	};
+
+	if (memcmp(orc_header->d_buf, orc_hash_6_4, 20) == 0)
+		return 3;
+	else if (memcmp(orc_header->d_buf, orc_hash_6_3, 20) == 0)
+		return 2;
+	return -1;
+}
+
 static int orc_version_from_osrelease(struct drgn_program *prog)
 {
 	char *p = (char *)prog->vmcoreinfo.osrelease;
@@ -209,6 +234,7 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 
 	Elf_Scn *orc_unwind_ip_scn = NULL;
 	Elf_Scn *orc_unwind_scn = NULL;
+	Elf_Scn *orc_header_scn = NULL;
 
 	Elf_Scn *scn = NULL;
 	while ((scn = elf_nextscn(elf, scn))) {
@@ -230,6 +256,9 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		} else if (!orc_unwind_scn
 			   && strcmp(scnname, ".orc_unwind") == 0) {
 			orc_unwind_scn = scn;
+		} else if (!orc_header_scn
+			   && strcmp(scnname, ".orc_header") == 0) {
+			orc_header_scn = scn;
 		}
 	}
 
@@ -238,7 +267,26 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		return NULL;
 	}
 
-	module->orc.version = orc_version_from_osrelease(module->prog);
+	// Since Linux kernel b9f174c811e3 ("x86/unwind/orc: Add ELF section
+	// with ORC version identifier") (in v6.4), which was also backported to
+	// Linux 6.3.10, vmlinux and kernel modules have a .orc_header ELF
+	// section containing a 20-byte hash identifying the ORC version.
+	//
+	// Because there are 6.3 and 6.4 kernels without .orc_header, we have to
+	// fall back to checking the kernel version.
+	if (orc_header_scn) {
+		Elf_Data *orc_header;
+		err = read_elf_section(orc_header_scn, &orc_header);
+		if (err)
+			return err;
+		module->orc.version = orc_version_from_header(orc_header);
+		if (module->orc.version < 0) {
+			return drgn_error_create(DRGN_ERROR_OTHER,
+						 "unrecognized .orc_header");
+		}
+	} else {
+		module->orc.version = orc_version_from_osrelease(module->prog);
+	}
 
 	Elf_Data *orc_unwind_ip, *orc_unwind;
 	err = read_elf_section(orc_unwind_ip_scn, &orc_unwind_ip);
