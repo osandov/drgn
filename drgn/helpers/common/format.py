@@ -207,23 +207,23 @@ def number_in_binary_units(n: SupportsFloat, precision: int = 1) -> str:
     Format a number in binary units (i.e., "K" is 1024, "M" is 1024\\ :sup:`2`,
     etc.).
 
-    >>> binary_units(1280)
+    >>> number_in_binary_units(1280)
     '1.2K'
 
     A precision can be specified:
 
-    >>> binary_units(1280, precision=2)
+    >>> number_in_binary_units(1280, precision=2)
     '1.25K'
 
     Exact numbers are printed without a fractional part:
 
-    >>> binary_units(1024 * 1024)
+    >>> number_in_binary_units(1024 * 1024)
     '1M'
 
     Numbers less than 1024 are not scaled:
 
-    >>> binary_units(10)
-    "10"
+    >>> number_in_binary_units(10)
+    '10'
 
     :param n: Number to format.
     :param precision: Number of digits to include in fractional part.
