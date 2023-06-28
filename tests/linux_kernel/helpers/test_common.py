@@ -18,17 +18,18 @@ from tests.linux_kernel import (
 
 
 class TestIdentifyAddress(LinuxKernelTestCase):
+    @skip_unless_have_test_kmod
     def test_identify_symbol(self):
-        symbol = self.prog.symbol("__schedule")
+        symbol = self.prog.symbol("drgn_test_function")
 
-        self.assertIn(
+        self.assertEqual(
             identify_address(self.prog, symbol.address),
-            ("symbol: __sched_text_start+0x0", "function symbol: __schedule+0x0"),
+            "function symbol: drgn_test_function+0x0",
         )
 
         self.assertEqual(
             identify_address(self.prog, symbol.address + 1),
-            "function symbol: __schedule+0x1",
+            "function symbol: drgn_test_function+0x1",
         )
 
     @skip_unless_have_full_mm_support
