@@ -190,6 +190,57 @@ out:
 	return err;
 }
 
+struct drgn_error *linux_helper_read_cstr(struct drgn_program *prog,
+					  uint64_t pgtable, uint64_t virt_addr,
+					  struct string_builder *str,
+					  bool *done, size_t count)
+{
+	struct drgn_error *err;
+
+	err = begin_virtual_address_translation(prog, pgtable, virt_addr);
+	if (err)
+		return err;
+	if (!count) {
+		*done = false;
+		err = NULL;
+		goto out;
+	}
+
+	struct pgtable_iterator *it = prog->pgtable_it;
+	pgtable_iterator_next_fn *next =
+		prog->platform.arch->linux_kernel_pgtable_iterator_next;
+	uint64_t read_addr = 0;
+	size_t read_size = 0;
+	virt_addr = it->virt_addr;
+	do {
+		uint64_t start_virt_addr, start_phys_addr;
+		err = next(prog, it, &start_virt_addr, &start_phys_addr);
+		if (err)
+			break;
+		if (start_phys_addr == UINT64_MAX) {
+			err = drgn_error_create_fault("address is not mapped",
+						      virt_addr);
+			break;
+		}
+
+		uint64_t phys_addr =
+			start_phys_addr + (virt_addr - start_virt_addr);
+		size_t n = min(it->virt_addr - virt_addr, (uint64_t)count);
+		err = drgn_memory_reader_read_cstr(&prog->reader, str, done,
+						   phys_addr, n, true);
+		if (err)
+			break;
+		if (*done)
+			goto out;
+		virt_addr = it->virt_addr;
+		count -= n;
+	} while (count);
+
+out:
+	end_virtual_address_translation(prog);
+	return err;
+}
+
 struct drgn_error *linux_helper_follow_phys(struct drgn_program *prog,
 					    uint64_t pgtable,
 					    uint64_t virt_addr, uint64_t *ret)
