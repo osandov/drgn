@@ -32,14 +32,29 @@
 
 #include "drgn_program_parse_vmcoreinfo.inc"
 
-struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
-					   size_t count, uint64_t offset,
-					   void *arg, bool physical)
+static struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
+						  size_t count, uint64_t offset,
+						  void *arg, bool physical)
 {
 	struct drgn_program *prog = arg;
 	return linux_helper_read_vm(prog, prog->vmcoreinfo.swapper_pg_dir,
 				    address, buf, count);
 }
+
+struct drgn_error *read_cstr_via_pgtable(struct string_builder *str, bool *done,
+					 uint64_t address, size_t limit,
+					 uint64_t offset, void *arg,
+					 bool physical)
+{
+	struct drgn_program *prog = arg;
+	return linux_helper_read_cstr(prog, prog->vmcoreinfo.swapper_pg_dir,
+				      address, str, done, limit);
+}
+
+const struct drgn_memory_ops segment_pgtable_ops = {
+	.read_fn = read_memory_via_pgtable,
+	.read_cstr_fn = read_cstr_via_pgtable,
+};
 
 struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 					     unsigned long *ret)

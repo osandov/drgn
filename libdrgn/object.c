@@ -14,6 +14,7 @@
 #include "object.h"
 #include "program.h"
 #include "serialize.h"
+#include "string_builder.h"
 #include "type.h"
 #include "util.h"
 
@@ -870,8 +871,14 @@ drgn_object_read_c_string(const struct drgn_object *obj, char **ret)
 				       obj->type);
 	}
 
-	return drgn_program_read_c_string(drgn_object_program(obj), address,
-					  false, max_size, ret);
+	struct string_builder sb = STRING_BUILDER_INIT;
+	err = drgn_program_read_c_string(drgn_object_program(obj), address,
+					 false, max_size, &sb);
+	if (err)
+		return err;
+
+	*ret = string_builder_null_terminate(&sb);
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *

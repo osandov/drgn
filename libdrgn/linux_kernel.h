@@ -8,9 +8,7 @@
 
 struct drgn_debug_info_load_state;
 
-struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
-					   size_t count, uint64_t offset,
-					   void *arg, bool physical);
+extern const struct drgn_memory_ops segment_pgtable_ops;
 
 struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 						 const char *desc,
