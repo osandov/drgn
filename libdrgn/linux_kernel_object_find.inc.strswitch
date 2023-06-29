@@ -25,6 +25,10 @@ struct drgn_error *linux_kernel_object_find(const char *name, size_t name_len,
 			if (flags & DRGN_FIND_OBJECT_CONSTANT)
 				return linux_kernel_get_uts_release(prog, ret);
 			break;
+		@case "VMCOREINFO"@
+			if (flags & DRGN_FIND_OBJECT_CONSTANT)
+				return linux_kernel_get_vmcoreinfo(prog, ret);
+			break;
 		@case "jiffies"@
 			if (flags & DRGN_FIND_OBJECT_VARIABLE)
 				return linux_kernel_get_jiffies(prog, ret);

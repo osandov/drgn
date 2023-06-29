@@ -167,6 +167,9 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 err_platform:
 	prog->has_platform = had_platform;
 err:
+	// Reset anything we parsed from vmcoreinfo
+	free(prog->vmcoreinfo.raw);
+	memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
 	kdump_free(ctx);
 	return err;
 }
