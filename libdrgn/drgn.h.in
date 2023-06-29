@@ -507,6 +507,8 @@ enum drgn_program_flags {
 	DRGN_PROGRAM_IS_LINUX_KERNEL = (1 << 0),
 	/** The program is currently running. */
 	DRGN_PROGRAM_IS_LIVE = (1 << 1),
+	/** The program is running on the local machine. */
+	DRGN_PROGRAM_IS_LOCAL = (1 << 2),
 };
 
 /**

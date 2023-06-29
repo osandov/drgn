@@ -837,6 +837,11 @@ class ProgramFlags(enum.Flag):
     kernel or a running process).
     """
 
+    IS_LOCAL = ...
+    """
+    The program is running on the local machine.
+    """
+
 class FindObjectFlags(enum.Flag):
     """
     ``FindObjectFlags`` are flags for :meth:`Program.object()`. These can be

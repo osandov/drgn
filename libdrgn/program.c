@@ -550,7 +550,8 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 				goto out_segments;
 		}
 		prog->flags |= (DRGN_PROGRAM_IS_LINUX_KERNEL |
-				DRGN_PROGRAM_IS_LIVE);
+				DRGN_PROGRAM_IS_LIVE |
+		                DRGN_PROGRAM_IS_LOCAL);
 		elf_end(prog->core);
 		prog->core = NULL;
 	} else if (vmcoreinfo_note) {
@@ -674,7 +675,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 		goto out_segments;
 
 	prog->pid = pid;
-	prog->flags |= DRGN_PROGRAM_IS_LIVE;
+	prog->flags |= DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL;
 	return NULL;
 
 out_segments:
