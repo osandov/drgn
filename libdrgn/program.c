@@ -1289,6 +1289,45 @@ out:
 }
 
 static struct drgn_error *
+drgn_program_find_thread_kernel_cpu_curr(struct drgn_program *prog,
+					 uint64_t cpu,
+					 struct drgn_thread **ret)
+{
+	struct drgn_error *err;
+	struct drgn_thread *thread = malloc(sizeof(*thread));
+	if (!thread)
+		return &drgn_enomem;
+	thread->prog = prog;
+
+	struct drgn_object tmp;
+	drgn_object_init(&tmp, prog);
+	drgn_object_init(&thread->object, prog);
+
+	err = linux_helper_cpu_curr(&thread->object, cpu);
+	if (err)
+		goto out;
+
+	err = drgn_object_member_dereference(&tmp, &thread->object, "pid");
+	if (err)
+		goto out;
+	union drgn_value tid;
+	err = drgn_object_read_integer(&tmp, &tid);
+	if (err)
+		goto out;
+	thread->tid = tid.uvalue;
+
+	*ret = thread;
+
+out:
+	if (err) {
+		drgn_object_deinit(&thread->object);
+		free(thread);
+	}
+	drgn_object_deinit(&tmp);
+	return err;
+}
+
+static struct drgn_error *
 drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 {
 	struct drgn_error *err;
@@ -1306,35 +1345,15 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 
 	if (crashed_cpu >= prog->prstatus_vector.size)
 		return NULL;
-	struct nstring *prstatus = &prog->prstatus_vector.data[crashed_cpu];
-	uint32_t crashed_thread_tid;
-	err = get_prstatus_pid(prog, prstatus->str, prstatus->len,
-			       &crashed_thread_tid);
-	if (err)
-		return err;
 
-	if (crashed_thread_tid == 0) {
-		prog->crashed_thread = malloc(sizeof(*prog->crashed_thread));
-		if (!prog->crashed_thread)
-			return &drgn_enomem;
-		prog->crashed_thread->prog = prog;
-		prog->crashed_thread->tid = crashed_thread_tid;
-		drgn_object_init(&prog->crashed_thread->object, prog);
-		err = linux_helper_idle_task(&prog->crashed_thread->object,
-					     crashed_cpu);
-		if (err) {
-			drgn_object_deinit(&prog->crashed_thread->object);
-			free(prog->crashed_thread);
-		}
-	} else {
-		err = drgn_program_find_thread(prog, crashed_thread_tid,
-					       &prog->crashed_thread);
-	}
+	err = drgn_program_find_thread_kernel_cpu_curr(prog, crashed_cpu,
+						       &prog->crashed_thread);
 	if (err) {
 		prog->crashed_thread = NULL;
 		return err;
 	}
-	prog->crashed_thread->prstatus = *prstatus;
+	prog->crashed_thread->prstatus =
+		prog->prstatus_vector.data[crashed_cpu];
 	return NULL;
 }
 
