@@ -257,7 +257,8 @@ out:
 	return err;
 }
 
-struct drgn_error *linux_helper_idle_task(struct drgn_object *res, uint64_t cpu)
+static struct drgn_error *cpu_rq_member(struct drgn_object *res, uint64_t cpu,
+					const char *member_name)
 {
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(res);
@@ -274,10 +275,23 @@ struct drgn_error *linux_helper_idle_task(struct drgn_object *res, uint64_t cpu)
 	err = linux_helper_per_cpu_ptr(&tmp, &tmp, cpu);
 	if (err)
 		goto out;
-	err = drgn_object_member_dereference(res, &tmp, "idle");
+	err = drgn_object_member_dereference(&tmp, &tmp, member_name);
+	if (err)
+		goto out;
+	err = drgn_object_read(res, &tmp);
 out:
 	drgn_object_deinit(&tmp);
 	return err;
+}
+
+struct drgn_error *linux_helper_cpu_curr(struct drgn_object *res, uint64_t cpu)
+{
+	return cpu_rq_member(res, cpu, "curr");
+}
+
+struct drgn_error *linux_helper_idle_task(struct drgn_object *res, uint64_t cpu)
+{
+	return cpu_rq_member(res, cpu, "idle");
 }
 
 struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,

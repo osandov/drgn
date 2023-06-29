@@ -6,7 +6,13 @@ import signal
 
 from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.pid import find_task
-from drgn.helpers.linux.sched import idle_task, loadavg, task_cpu, task_state_to_char
+from drgn.helpers.linux.sched import (
+    cpu_curr,
+    idle_task,
+    loadavg,
+    task_cpu,
+    task_state_to_char,
+)
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_sigwait,
@@ -39,6 +45,16 @@ class TestSched(LinuxKernelTestCase):
             os.kill(pid, signal.SIGKILL)
             wait_until(lambda: proc_state(pid) == "Z")
             self.assertEqual(task_state_to_char(task), "Z")
+
+    def test_cpu_curr(self):
+        task = find_task(self.prog, os.getpid())
+        cpu = os.cpu_count() - 1
+        old_affinity = os.sched_getaffinity(0)
+        os.sched_setaffinity(0, (cpu,))
+        try:
+            self.assertEqual(cpu_curr(self.prog, cpu), task)
+        finally:
+            os.sched_setaffinity(0, old_affinity)
 
     def test_idle_task(self):
         if smp_enabled():

@@ -131,6 +131,8 @@ static PyMethodDef drgn_methods[] = {
 	{"_linux_helper_per_cpu_ptr",
 	 (PyCFunction)drgnpy_linux_helper_per_cpu_ptr,
 	 METH_VARARGS | METH_KEYWORDS},
+	{"_linux_helper_cpu_curr", (PyCFunction)drgnpy_linux_helper_cpu_curr,
+	 METH_VARARGS | METH_KEYWORDS},
 	{"_linux_helper_idle_task", (PyCFunction)drgnpy_linux_helper_idle_task,
 	 METH_VARARGS | METH_KEYWORDS},
 	{"_linux_helper_task_cpu", (PyCFunction)drgnpy_linux_helper_task_cpu,

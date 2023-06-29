@@ -2342,6 +2342,18 @@ def _linux_helper_per_cpu_ptr(ptr: Object, cpu: IntegerLike) -> Object:
     """
     ...
 
+def _linux_helper_cpu_curr(prog: Program, cpu: IntegerLike) -> Object:
+    """
+    Return the task running on the given CPU.
+
+    >>> cpu_curr(prog, 7).comm
+    (char [16])"python3"
+
+    :param cpu: CPU number.
+    :return: ``struct task_struct *``
+    """
+    ...
+
 def _linux_helper_idle_task(prog: Program, cpu: IntegerLike) -> Object:
     """
     Return the idle thread (PID 0, a.k.a swapper) for the given CPU.

@@ -12,12 +12,14 @@ Linux CPU scheduler.
 from typing import Tuple
 
 from _drgn import (
+    _linux_helper_cpu_curr as cpu_curr,
     _linux_helper_idle_task as idle_task,
     _linux_helper_task_cpu as task_cpu,
 )
 from drgn import Object, Program
 
 __all__ = (
+    "cpu_curr",
     "idle_task",
     "loadavg",
     "task_cpu",

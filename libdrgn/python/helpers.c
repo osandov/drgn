@@ -98,6 +98,30 @@ DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 	return res;
 }
 
+DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args,
+					 PyObject *kwds)
+{
+	static char *keywords[] = {"prog", "cpu", NULL};
+	struct drgn_error *err;
+	Program *prog;
+	struct index_arg cpu = {};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:cpu_curr", keywords,
+					 &Program_type, &prog, index_converter,
+					 &cpu))
+		return NULL;
+
+	DrgnObject *res = DrgnObject_alloc(prog);
+	if (!res)
+		return NULL;
+	err = linux_helper_cpu_curr(&res->obj, cpu.uvalue);
+	if (err) {
+		Py_DECREF(res);
+		return set_drgn_error(err);
+	}
+	return res;
+}
+
 DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args,
 					  PyObject *kwds)
 {
