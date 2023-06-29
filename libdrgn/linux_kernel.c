@@ -248,6 +248,26 @@ out:
 	return err;
 }
 
+static struct drgn_error *
+linux_kernel_get_vmcoreinfo(struct drgn_program *prog, struct drgn_object *ret)
+{
+	struct drgn_error *err;
+	struct drgn_qualified_type qualified_type;
+	err = drgn_program_find_primitive_type(prog,
+					       DRGN_C_TYPE_CHAR,
+					       &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = DRGN_QUALIFIER_CONST;
+	err = drgn_array_type_create(prog, qualified_type, prog->vmcoreinfo.raw_size,
+				     &drgn_language_c, &qualified_type.type);
+	if (err)
+		return err;
+	qualified_type.qualifiers = 0;
+	return drgn_object_set_from_buffer(ret, qualified_type, prog->vmcoreinfo.raw,
+					   prog->vmcoreinfo.raw_size, 0, 0);
+}
+
 // The vmemmap address can vary depending on architecture, kernel version,
 // configuration options, and KASLR. However, we can get it generically from the
 // section_mem_map of any valid mem_section.

@@ -168,6 +168,10 @@ struct drgn_program {
 		bool pgtable_l5_enabled;
 		/** PAGE_SHIFT of the kernel (derived from PAGE_SIZE). */
 		int page_shift;
+
+		/** The original vmcoreinfo data, to expose as an object */
+		char *raw;
+		size_t raw_size;
 	} vmcoreinfo;
 	/*
 	 * Difference between a virtual address in the direct mapping and the

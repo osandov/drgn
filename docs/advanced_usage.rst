@@ -191,3 +191,22 @@ core dumps. These special objects include:
     resorting to architecture-specific logic.
 
     This is *not* available without debugging information.
+
+``VMCOREINFO``
+    Object type: ``const char []``
+
+    This is the data contained in the vmcoreinfo note, which is present either
+    as an ELF note in ``/proc/kcore`` or ELF vmcores, or as a special data
+    section in kdump-formatted vmcores. The vmcoreinfo note contains critical
+    data necessary for interpreting the kernel image, such as KASLR offsets and
+    data structure locations.
+
+    In the Linux kernel, this data is normally stored in a variable called
+    ``vmcoreinfo_data``. However, drgn reads this information from ELF note or
+    from the diskdump header. It is possible (in rare cases, usually with
+    vmcores created by hypervisors) for a vmcore to contain vmcoreinfo which
+    differs from the data in ``vmcoreinfo_data``, so it is important to
+    distinguish the contents. For that reason, we use the name ``VMCOREINFO`` to
+    distinguish it from the kernel variable ``vmcoreinfo_data``.
+
+    This is available without debugging information.

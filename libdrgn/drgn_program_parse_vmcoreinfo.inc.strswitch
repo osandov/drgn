@@ -23,6 +23,11 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 						 size_t descsz)
 {
 	struct drgn_error *err;
+
+	prog->vmcoreinfo.raw_size = descsz;
+	prog->vmcoreinfo.raw = memdup(desc, descsz);
+	if (!prog->vmcoreinfo.raw)
+		return &drgn_enomem;
 	for (const char *line = desc, *end = &desc[descsz], *newline;
 	     (newline = memchr(line, '\n', end - line));
 	     line = newline + 1) {

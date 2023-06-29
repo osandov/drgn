@@ -137,6 +137,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	drgn_memory_reader_deinit(&prog->reader);
 
 	free(prog->file_segments);
+	free(prog->vmcoreinfo.raw);
 
 #ifdef WITH_LIBKDUMPFILE
 	if (prog->kdump_ctx)
@@ -581,6 +582,7 @@ out_segments:
 out_notes:
 	// Reset anything we parsed from ELF notes.
 	prog->aarch64_insn_pac_mask = 0;
+	free(prog->vmcoreinfo.raw);
 	memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
 out_platform:
 	prog->has_platform = had_platform;
