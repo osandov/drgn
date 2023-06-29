@@ -1572,7 +1572,7 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 	 * can be disabled via an environment variable for testing.
 	 */
 	bool use_sys_module = false;
-	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+	if (prog->flags & DRGN_PROGRAM_IS_LOCAL) {
 		char *env = getenv("DRGN_USE_SYS_MODULE");
 		use_sys_module = !env || atoi(env);
 	}
