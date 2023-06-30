@@ -9,6 +9,7 @@ from drgn.helpers.linux.list import (
     hlist_empty,
     hlist_for_each,
     hlist_for_each_entry,
+    list_count_nodes,
     list_empty,
     list_first_entry,
     list_first_entry_or_null,
@@ -55,6 +56,11 @@ class TestList(LinuxKernelTestCase):
         self.assertFalse(list_is_singular(self.empty))
         self.assertFalse(list_is_singular(self.full))
         self.assertTrue(list_is_singular(self.singular))
+
+    def test_list_count_nodes(self):
+        self.assertEqual(list_count_nodes(self.empty), 0)
+        self.assertEqual(list_count_nodes(self.full), self.num_entries)
+        self.assertEqual(list_count_nodes(self.singular), 1)
 
     def test_list_first_entry(self):
         self.assertEqual(

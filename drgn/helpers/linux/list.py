@@ -19,6 +19,7 @@ __all__ = (
     "hlist_empty",
     "hlist_for_each",
     "hlist_for_each_entry",
+    "list_count_nodes",
     "list_empty",
     "list_first_entry",
     "list_first_entry_or_null",
@@ -55,6 +56,15 @@ def list_is_singular(head: Object) -> bool:
     head = head.read_()
     next = head.next
     return next != head and next == head.prev
+
+
+def list_count_nodes(head: Object) -> int:
+    """
+    Return the number of nodes in a list.
+
+    :param head: ``struct list_head *``
+    """
+    return sum(1 for _ in list_for_each(head))
 
 
 def list_first_entry(head: Object, type: Union[str, Type], member: str) -> Object:
