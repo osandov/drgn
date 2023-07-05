@@ -15,11 +15,11 @@ from drgn import Object, Program
 from drgn.helpers.linux.bitops import for_each_set_bit
 
 __all__ = (
+    "cpumask_to_cpulist",
     "for_each_cpu",
     "for_each_online_cpu",
     "for_each_possible_cpu",
     "for_each_present_cpu",
-    "cpumask_to_cpulist",
 )
 
 
@@ -72,13 +72,11 @@ def cpumask_to_cpulist(mask: Object) -> str:
 
     :param mask: ``struct cpumask *``
     :return: String in the `CPU list format
-    <https://man7.org/linux/man-pages/man7/cpuset.7.html#:~:text=List%20format>`
+        <https://man7.org/linux/man-pages/man7/cpuset.7.html#FORMATS>`_.
     """
-    cpulist = [cpu for cpu in for_each_cpu(mask)]
-
     start = end = -2
     parts = []
-    for cpu in cpulist:
+    for cpu in for_each_cpu(mask):
         if cpu == end + 1:
             end = cpu
         else:
