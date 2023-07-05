@@ -19,6 +19,7 @@ __all__ = (
     "for_each_online_cpu",
     "for_each_possible_cpu",
     "for_each_present_cpu",
+    "cpumask_to_cpulist",
 )
 
 
@@ -60,3 +61,30 @@ def for_each_possible_cpu(prog: Program) -> Iterator[int]:
 def for_each_present_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all present CPUs."""
     return _for_each_cpu_mask(prog, "__cpu_present_mask")
+
+
+def cpumask_to_cpulist(mask: Object) -> str:
+    """
+    Return a CPU mask as a CPU list string.
+
+    >>> cpumask_to_cpulist(mask)
+    0-3,8-11
+
+    :param mask: ``struct cpumask *``
+    :return: String in the `CPU list format
+    <https://man7.org/linux/man-pages/man7/cpuset.7.html#:~:text=List%20format>`
+    """
+    cpulist = [cpu for cpu in for_each_cpu(mask)]
+
+    start = end = -2
+    parts = []
+    for cpu in cpulist:
+        if cpu == end + 1:
+            end = cpu
+        else:
+            if start >= 0:
+                parts.append(str(start) if start == end else f"{start}-{end}")
+            start = end = cpu
+    if start >= 0:
+        parts.append(str(start) if start == end else f"{start}-{end}")
+    return ",".join(parts)
