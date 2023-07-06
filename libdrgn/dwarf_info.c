@@ -3200,10 +3200,17 @@ DEFINE_VECTOR(dwarf_die_vector, Dwarf_Die)
 struct drgn_dwarf_die_iterator {
 	/** Stack of current DIE and its ancestors. */
 	struct dwarf_die_vector dies;
+	/**
+	 * Dwarf handle that we're iterating over. For split DWARF, this is the
+	 * main file.
+	 */
 	Dwarf *dwarf;
-	/** End of current CU (for bounds checking). */
+	/**
+	 * End of current CU (for bounds checking). For split DWARF, this is in
+	 * the split file.
+	 */
 	const char *cu_end;
-	/** Offset of next CU. */
+	/** Offset of next CU. For split DWARF, this is in the main file. */
 	Dwarf_Off next_cu_off;
 	/** Whether current CU is from .debug_types. */
 	bool debug_types;
@@ -3347,11 +3354,35 @@ next_unit:;
 			r = !dwarf_offdie(it->dwarf, offset, TOP());
 		if (r)
 			return drgn_error_libdw();
+		Dwarf_Off cu_end_off = it->next_cu_off;
+#if _ELFUTILS_PREREQ(0, 171)
+		// If the unit is a skeleton, replace it with the split unit.
+		Dwarf_Die subdie;
+		uint8_t unit_type;
+		if (dwarf_cu_info(TOP()->cu, NULL, &unit_type, NULL, &subdie,
+				  NULL, NULL, NULL))
+			return drgn_error_libdw();
+		if (unit_type == DW_UT_skeleton && subdie.cu) {
+			offset = dwarf_dieoffset(&subdie);
+			if (dwarf_next_unit(dwarf_cu_getdwarf(subdie.cu),
+					    offset - dwarf_cuoffset(&subdie),
+					    &cu_end_off, NULL, NULL, NULL, NULL,
+					    NULL, NULL, NULL))
+				return drgn_error_libdw();
+			*TOP() = subdie;
+		}
+#endif
 		it->cu_end = ((const char *)TOP()->addr
 			      - offset
-			      + it->next_cu_off);
+			      + cu_end_off);
 		return NULL;
 	} else if (r > 0) {
+		// Note that in split DWARF, there are no skeleton units for
+		// type units, and the main file doesn't have a .debug_types
+		// section. Instead, the split files contain a .debug_types.dwo
+		// section per type unit. elfutils as of 0.189 doesn't support
+		// multiple sections with the same name, so we don't support
+		// type units with split DWARF.
 		if (!it->debug_types) {
 			it->next_cu_off = 0;
 			it->debug_types = true;
@@ -3404,6 +3435,21 @@ struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
 			err = drgn_error_libdw();
 			goto err;
 		}
+#if _ELFUTILS_PREREQ(0, 171)
+		// If the unit is a skeleton, replace it with the split unit.
+		Dwarf_Die subdie;
+		uint8_t unit_type;
+		if (dwarf_cu_info(cu_die->cu, NULL, &unit_type, NULL, &subdie,
+				  NULL, NULL, NULL)) {
+			err = drgn_error_libdw();
+			goto err;
+		}
+		if (unit_type == DW_UT_skeleton && subdie.cu) {
+			dwarf = dwarf_cu_getdwarf(subdie.cu);
+			offset = dwarf_dieoffset(&subdie);
+			*cu_die = subdie;
+		}
+#endif
 		if (dwarf_next_unit(dwarf, offset - dwarf_cuoffset(cu_die),
 				    &it.next_cu_off, NULL, NULL, NULL, NULL,
 				    NULL, NULL, NULL)) {
