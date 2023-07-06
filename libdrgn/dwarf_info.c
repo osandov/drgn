@@ -3314,17 +3314,15 @@ next_unit:;
 			    it->debug_types ? &type_signature : NULL, NULL);
 	if (r == 0) {
 		/* Got the next unit. Return the unit DIE. */
-		if (it->debug_types) {
-			r = !dwarf_offdie_types(it->dwarf,
-						cu_off + cu_header_size, TOP());
-		} else {
-			r = !dwarf_offdie(it->dwarf, cu_off + cu_header_size,
-					  TOP());
-		}
+		Dwarf_Off offset = cu_off + cu_header_size;
+		if (it->debug_types)
+			r = !dwarf_offdie_types(it->dwarf, offset, TOP());
+		else
+			r = !dwarf_offdie(it->dwarf, offset, TOP());
 		if (r)
 			return drgn_error_libdw();
 		it->cu_end = ((const char *)TOP()->addr
-			      - dwarf_dieoffset(TOP())
+			      - offset
 			      + it->next_cu_off);
 		return NULL;
 	} else if (r > 0) {
@@ -3387,7 +3385,7 @@ struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
 			goto err;
 		}
 		it.cu_end = ((const char *)cu_die->addr
-			     - dwarf_dieoffset(cu_die)
+			     - offset
 			     + it.next_cu_off);
 		subtree = 1;
 	} else {
