@@ -199,9 +199,8 @@ class test(Command):
 
         logger.info("running tests in VM on Linux %s", kernel.release)
 
-        kmod = kernel.path.parent / f"drgn_test-{kernel.release}.ko"
         try:
-            build_kmod(Path(self.vmtest_dir), kernel)
+            kmod = build_kmod(Path(self.vmtest_dir), kernel)
         except subprocess.CalledProcessError:
             return False
 
