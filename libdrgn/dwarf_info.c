@@ -3366,7 +3366,6 @@ struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
 		return drgn_error_libdw();
 
 	struct drgn_dwarf_die_iterator it;
-	bool children;
 	size_t subtree;
 	Dwarf_Off offset;
 	if (dwarf_getarangeinfo(dwarf_getarange_addr(aranges, pc), NULL, NULL,
@@ -3390,7 +3389,6 @@ struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
 		it.cu_end = ((const char *)cu_die->addr
 			     - dwarf_dieoffset(cu_die)
 			     + it.next_cu_off);
-		children = true;
 		subtree = 1;
 	} else {
 		/*
@@ -3398,15 +3396,23 @@ struct drgn_error *drgn_module_find_dwarf_scopes(struct drgn_module *module,
 		 * incomplete, so fall back to checking each CU.
 		 */
 		drgn_dwarf_die_iterator_init(&it, dwarf);
-		children = false;
 		subtree = 0;
 	}
 
-	/* Now find DIEs containing the PC. */
-	while (!(err = drgn_dwarf_die_iterator_next(&it, children, subtree))) {
+	/*
+	 * Now find the most specific DIE containing the PC. Entry subtree - 1
+	 * in it.dies is the most specific DIE we have found so far. We iterate
+	 * over all of its children until we find a more specific DIE, then we
+	 * descend into that one.
+	 *
+	 * We only want to descend into children DIEs when the last DIE
+	 * contained the PC, which is when it.dies.size == subtree.
+	 */
+	while (!(err = drgn_dwarf_die_iterator_next(&it,
+						    it.dies.size == subtree,
+						    subtree))) {
 		int r = dwarf_haspc(&it.dies.data[it.dies.size - 1], pc);
 		if (r > 0) {
-			children = true;
 			subtree = it.dies.size;
 		} else if (r < 0) {
 			err = drgn_error_libdw();
