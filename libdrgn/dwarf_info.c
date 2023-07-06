@@ -3661,11 +3661,14 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 {
 	struct drgn_error *err;
 
+	// addr_base is a cache of the address table base for the compilation
+	// unit.
 	if (!*addr_base) {
 		Dwarf_Attribute attr_mem, *attr;
-		if (!(attr = dwarf_attr(cu_die, DW_AT_addr_base, &attr_mem)) &&
-		    !(attr = dwarf_attr(cu_die, DW_AT_GNU_addr_base,
-					&attr_mem))) {
+		if (!(attr = dwarf_attr_integrate(cu_die, DW_AT_addr_base,
+						  &attr_mem)) &&
+		    !(attr = dwarf_attr_integrate(cu_die, DW_AT_GNU_addr_base,
+						  &attr_mem))) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "indirect address without DW_AT_addr_base");
 		}
@@ -3681,18 +3684,27 @@ static struct drgn_error *drgn_dwarf_next_addrx(struct binary_buffer *bb,
 		if (err)
 			return err;
 
-		if (base > file->scn_data[DRGN_SCN_DEBUG_ADDR]->d_size ||
-		    base == 0) {
+		if (base > file->scn_data[DRGN_SCN_DEBUG_ADDR]->d_size) {
 			return drgn_error_create(DRGN_ERROR_OTHER,
 						 "DW_AT_addr_base is out of bounds");
 		}
 
 		*addr_base = (char *)file->scn_data[DRGN_SCN_DEBUG_ADDR]->d_buf + base;
-		uint8_t segment_selector_size = ((uint8_t *)*addr_base)[-1];
-		if (segment_selector_size != 0) {
-			return drgn_error_format(DRGN_ERROR_OTHER,
-						 "unsupported segment selector size %" PRIu8,
-						 segment_selector_size);
+		// In DWARF 5, there is a header immediately before addr_base,
+		// which ends with a segment selector size. We don't support a
+		// segment selector yet. In GNU Debug Fission, .debug_addr
+		// doesn't contain any headers or segment selectors.
+		if (attr->code != DW_AT_GNU_addr_base) {
+			if (base == 0) {
+				return drgn_error_create(DRGN_ERROR_OTHER,
+							 "DW_AT_addr_base is out of bounds");
+			}
+			uint8_t segment_selector_size = ((uint8_t *)*addr_base)[-1];
+			if (segment_selector_size != 0) {
+				return drgn_error_format(DRGN_ERROR_OTHER,
+							 "unsupported segment selector size %" PRIu8,
+							 segment_selector_size);
+			}
 		}
 	}
 
