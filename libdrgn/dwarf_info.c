@@ -4450,6 +4450,16 @@ branch:
 		/* Special operations. */
 		case DW_OP_nop:
 			break;
+		case DW_OP_entry_value:
+		case DW_OP_GNU_entry_value:
+			// TODO: DW_OP_(GNU_)entry_value followed by
+			// DW_OP_reg<n> means the value of the register when the
+			// current subprogram was entered. We could recover this
+			// by finding the DW_TAG_(GNU_)call_site for the return
+			// address and using the DW_AT_(GNU_)call_value of a
+			// DW_TAG_(GNU_)call_parameter with a DW_AT_location
+			// matching that register.
+			return &drgn_not_found;
 		/* Location description operations. */
 		case DW_OP_reg0 ... DW_OP_reg31:
 		case DW_OP_regx:
@@ -4465,7 +4475,6 @@ branch:
 		 *
 		 * - DW_OP_push_object_address
 		 * - DW_OP_form_tls_address
-		 * - DW_OP_entry_value
 		 *   DW_OP_implicit_pointer
 		 * - Procedure calls: DW_OP_call2, DW_OP_call4, DW_OP_call_ref.
 		 * - Typed operations: DW_OP_const_type, DW_OP_regval_type,
