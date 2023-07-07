@@ -3674,14 +3674,21 @@ static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_elf_file *file,
 {
 	struct drgn_error *err;
 
+	assert(offset_size == 4 || offset_size == 8);
+
 	Dwarf_Attribute attr_mem, *attr;
-	if (!(attr = dwarf_attr(cu_die, DW_AT_loclists_base, &attr_mem))) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 "DW_FORM_loclistx without DW_AT_loclists_base");
-	}
 	Dwarf_Word base;
-	if (dwarf_formudata(attr, &base))
-		return drgn_error_libdw();
+	if ((attr = dwarf_attr(cu_die, DW_AT_loclists_base, &attr_mem))) {
+		if (dwarf_formudata(attr, &base))
+			return drgn_error_libdw();
+	} else {
+		// The DWARF 5 specification doesn't say what it means if there
+		// is no DW_AT_loclists_base. In practice, it seems like split
+		// units don't have DW_AT_loclist_base, and the base is intended
+		// to be the first entry in .debug_loclists immediately after
+		// the first header.
+		base = offset_size == 8 ? 20 : 12;
+	}
 
 	if (!file->scns[DRGN_SCN_DEBUG_LOCLISTS]) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
@@ -3696,7 +3703,6 @@ static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_elf_file *file,
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DW_AT_loclists_base is out of bounds");
 	}
-	assert(offset_size == 4 || offset_size == 8);
 	if (index >= (data->d_size - base) / offset_size) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "DW_FORM_loclistx is out of bounds");
