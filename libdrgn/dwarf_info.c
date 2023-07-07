@@ -8026,8 +8026,7 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 					       stack.data[stack.size - 1], size,
 					       false);
 	} else {
-		copy_lsbytes(buf, size,
-			     drgn_elf_file_is_little_endian(regs->module->debug_file),
+		copy_lsbytes(buf, size, drgn_elf_file_is_little_endian(file),
 			     &stack.data[stack.size - 1], sizeof(uint64_t),
 			     HOST_LITTLE_ENDIAN);
 		err = NULL;
