@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 from util import nproc, out_of_date
-from vmtest.config import Kernel
+from vmtest.config import Kernel, local_kernel
 from vmtest.download import downloaded_compiler
 
 logger = logging.getLogger(__name__)
@@ -115,14 +115,7 @@ def _main() -> None:
 
         for kernel in args.kernels:
             if kernel.pattern.startswith(".") or kernel.pattern.startswith("/"):
-                kernel_dir = Path(kernel.pattern)
-                downloaded = Kernel(
-                    arch=kernel.arch,
-                    release=(kernel_dir / "build/include/config/kernel.release")
-                    .read_text()
-                    .strip(),
-                    path=kernel_dir,
-                )
+                downloaded = local_kernel(kernel.arch, Path(kernel.pattern))
             else:
                 downloaded = next(download_it)  # type: ignore[assignment]
             print(build_kmod(args.directory, downloaded))

@@ -344,6 +344,14 @@ class Kernel(NamedTuple):
     path: Path
 
 
+def local_kernel(arch: Architecture, path: Path) -> Kernel:
+    return Kernel(
+        arch=arch,
+        release=(path / "build/include/config/kernel.release").read_text().strip(),
+        path=path,
+    )
+
+
 class Compiler(NamedTuple):
     target: Architecture
     bin: Path

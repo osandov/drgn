@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 from util import nproc, out_of_date
-from vmtest.config import HOST_ARCHITECTURE, Kernel
+from vmtest.config import HOST_ARCHITECTURE, Kernel, local_kernel
 from vmtest.download import (
     DOWNLOAD_KERNEL_ARGPARSE_METAVAR,
     DownloadKernel,
@@ -368,11 +368,7 @@ if __name__ == "__main__":
         assert HOST_ARCHITECTURE is not None
         args.kernel = DownloadKernel(HOST_ARCHITECTURE, "*")
     if args.kernel.pattern.startswith(".") or args.kernel.pattern.startswith("/"):
-        kernel = Kernel(
-            arch=args.kernel.arch,
-            release="",  # run_in_vm() doesn't care about the release.
-            path=Path(args.kernel.pattern),
-        )
+        kernel = local_kernel(args.kernel.arch, Path(args.kernel.pattern))
     else:
         kernel = next(download(args.directory, [args.kernel]))  # type: ignore[assignment]
 

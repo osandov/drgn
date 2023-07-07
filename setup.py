@@ -233,7 +233,7 @@ fi
     def run(self):
         import urllib.error
 
-        from vmtest.config import ARCHITECTURES, Kernel
+        from vmtest.config import ARCHITECTURES, Kernel, local_kernel
         from vmtest.download import DownloadCompiler, DownloadKernel, download_in_thread
 
         if os.getenv("GITHUB_ACTIONS") == "true":
@@ -255,13 +255,18 @@ fi
         # Start downloads ASAP so that they're hopefully done by the time we
         # need them.
         try:
-            to_downlad = []
+            to_download = []
             if self.kernels:
-                to_downlad.append(DownloadCompiler(ARCHITECTURES["x86_64"]))
+                to_download.append(DownloadCompiler(ARCHITECTURES["x86_64"]))
                 for pattern in self.kernels:
-                    to_downlad.append(DownloadKernel(ARCHITECTURES["x86_64"], pattern))
-            with download_in_thread(Path(self.vmtest_dir), to_downlad) as downloads:
-                if self.kernels:
+                    if not pattern.startswith(".") and not pattern.startswith("/"):
+                        to_download.append(
+                            DownloadKernel(ARCHITECTURES["x86_64"], pattern)
+                        )
+            with download_in_thread(Path(self.vmtest_dir), to_download) as downloads:
+                downloads_it = iter(downloads)
+
+                if to_download:
                     logger.info("downloading kernels in the background")
 
                 with github_workflow_group("Build extension"):
@@ -280,9 +285,14 @@ fi
                     else:
                         failed.append("local")
 
-                for kernel in downloads:
-                    if not isinstance(kernel, Kernel):
-                        continue
+                for pattern in self.kernels:
+                    if pattern.startswith(".") or pattern.startswith("/"):
+                        kernel = local_kernel(ARCHITECTURES["x86_64"], Path(pattern))
+                    else:
+                        while True:
+                            kernel = next(downloads_it)
+                            if isinstance(kernel, Kernel):
+                                break
                     with github_workflow_group(
                         f"Run integration tests on Linux {kernel.release}"
                     ):
