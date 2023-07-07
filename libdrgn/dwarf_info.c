@@ -3922,6 +3922,114 @@ counted_location_description:
 	}
 }
 
+static struct drgn_error *
+drgn_dwarf4_split_location_list(struct drgn_elf_file *file, Dwarf_Word offset,
+				Dwarf_Die *cu_die, uint8_t address_size,
+				uint64_t pc, const char **expr_ret,
+				size_t *expr_size_ret)
+{
+	struct drgn_error *err;
+
+	if (!file->scns[DRGN_SCN_DEBUG_LOC]) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "loclistptr without .debug_loc section");
+	}
+	err = drgn_elf_file_cache_section(file, DRGN_SCN_DEBUG_LOC);
+	if (err)
+		return err;
+	struct drgn_elf_file_section_buffer buffer;
+	drgn_elf_file_section_buffer_init_index(&buffer, file,
+						DRGN_SCN_DEBUG_LOC);
+	if (offset > buffer.bb.end - buffer.bb.pos) {
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "loclistptr is out of bounds");
+	}
+	buffer.bb.pos += offset;
+
+	const char *addr_base = NULL;
+	uint64_t base;
+	bool base_valid = false;
+	*expr_ret = NULL;
+	*expr_size_ret = 0;
+	for (;;) {
+		uint8_t kind;
+		if ((err = binary_buffer_next_u8(&buffer.bb, &kind)))
+			return err;
+		uint64_t start, length;
+		switch (kind) {
+		// The GNU Debug Fission design document
+		// (https://gcc.gnu.org/wiki/DebugFission) uses slightly
+		// different names for entry kinds than DWARF 5, but they're the
+		// same as the DWARF 5 versions except as noted below.
+		case DW_LLE_end_of_list: // DW_LLE_end_of_list_entry
+			return NULL;
+		case DW_LLE_base_addressx: // DW_LLE_base_address_selection_entry
+			if ((err = drgn_dwarf_next_addrx(&buffer.bb, file,
+							 cu_die, address_size,
+							 &addr_base, &base)))
+				return err;
+			base_valid = true;
+			break;
+		case DW_LLE_startx_endx: // DW_LLE_start_end_entry
+			if ((err = drgn_dwarf_next_addrx(&buffer.bb, file,
+							 cu_die, address_size,
+							 &addr_base, &start)) ||
+			    (err = drgn_dwarf_next_addrx(&buffer.bb, file,
+							 cu_die, address_size,
+							 &addr_base, &length)))
+				return err;
+			length -= start;
+counted_location_description:;
+			// Note: this is ULEB128 in DWARF 5.
+			uint16_t expr_size;
+			if ((err = binary_buffer_next_u16(&buffer.bb,
+							  &expr_size)))
+				return err;
+			if (expr_size > buffer.bb.end - buffer.bb.pos) {
+				return binary_buffer_error(&buffer.bb,
+							   "location description size is out of bounds");
+			}
+			if (pc >= start && pc - start < length) {
+				*expr_ret = buffer.bb.pos;
+				*expr_size_ret = expr_size;
+				return NULL;
+			}
+			buffer.bb.pos += expr_size;
+			break;
+		case DW_LLE_startx_length: // DW_LLE_start_length_entry
+			if ((err = drgn_dwarf_next_addrx(&buffer.bb, file,
+							 cu_die, address_size,
+							 &addr_base, &start)) ||
+			    // Note: this is ULEB128 in DWARF 5.
+			    (err = binary_buffer_next_u32_into_u64(&buffer.bb,
+								   &length)))
+				return err;
+			goto counted_location_description;
+		case DW_LLE_offset_pair: // DW_LLE_offset_pair_entry
+			// Note: these are ULEB128 in DWARF 5.
+			if ((err = binary_buffer_next_u32_into_u64(&buffer.bb,
+								   &start)) ||
+			    (err = binary_buffer_next_u32_into_u64(&buffer.bb,
+								   &length)))
+				return err;
+			length -= start;
+			if (!base_valid) {
+				Dwarf_Addr low_pc;
+				if (dwarf_lowpc(cu_die, &low_pc))
+					return drgn_error_libdw();
+				base = low_pc;
+				base_valid = true;
+			}
+			start += base;
+			goto counted_location_description;
+		default:
+			return binary_buffer_error(&buffer.bb,
+						   "unknown location list entry kind %#" PRIx8,
+						   kind);
+		}
+	}
+}
+
 static struct drgn_error *drgn_dwarf4_location_list(struct drgn_elf_file *file,
 						    Dwarf_Word offset,
 						    Dwarf_Die *cu_die,
@@ -4005,13 +4113,21 @@ drgn_dwarf_location(struct drgn_elf_file *file, Dwarf_Attribute *attr,
 	case DW_FORM_sec_offset:
 	/* DWARF 5 */
 	case DW_FORM_loclistx: {
-		Dwarf_Die cu_die;
 		Dwarf_Half cu_version;
+		uint8_t unit_type;
+		Dwarf_Die cu_die;
 		uint8_t address_size;
 		uint8_t offset_size;
+#if _ELFUTILS_PREREQ(0, 171)
+		if (dwarf_cu_info(attr->cu, &cu_version, &unit_type, &cu_die,
+				   NULL, NULL, &address_size, &offset_size))
+			return drgn_error_libdw();
+#else
+		unit_type = DW_UT_compile;
 		if (!dwarf_cu_die(attr->cu, &cu_die, &cu_version, NULL,
 				  &address_size, &offset_size, NULL, NULL))
 			return drgn_error_libdw();
+#endif
 		if ((err = drgn_check_address_size(address_size)))
 			return err;
 
@@ -4037,6 +4153,14 @@ drgn_dwarf_location(struct drgn_elf_file *file, Dwarf_Attribute *attr,
 							 address_size, pc.value,
 							 expr_ret,
 							 expr_size_ret);
+		} else if (unit_type == DW_UT_split_compile
+			   || unit_type == DW_UT_split_type) {
+			return drgn_dwarf4_split_location_list(file, offset,
+							       &cu_die,
+							       address_size,
+							       pc.value,
+							       expr_ret,
+							       expr_size_ret);
 		} else {
 			return drgn_dwarf4_location_list(file, offset, &cu_die,
 							 address_size, pc.value,
