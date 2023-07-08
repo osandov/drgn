@@ -380,7 +380,8 @@ static void linux_kernel_pgtable_iterator_init_aarch64(struct drgn_program *prog
 {
 	struct pgtable_iterator_aarch64 *it =
 		container_of(_it, struct pgtable_iterator_aarch64, it);
-	if (it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir) {
+	if (it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir &&
+	    it->it.pgtable_phys == prog->vmcoreinfo.swapper_pg_dir_phys) {
 		it->va_range_min = UINT64_MAX << prog->vmcoreinfo.va_bits;
 		it->va_range_max = UINT64_MAX;
 	} else {
@@ -408,7 +409,7 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 	int level;
 	uint16_t num_entries = it->last_level_num_entries;
 	uint64_t table = it->it.pgtable;
-	bool table_physical = false;
+	bool table_physical = it->it.pgtable_phys;
 
 	if (virt_addr < it->va_range_min ||
 	    virt_addr > it->va_range_max) {
@@ -466,6 +467,141 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 	}
 }
 
+static struct drgn_error *
+linux_kernel_init_vmcoreinfo_from_phys_aarch64(struct drgn_program *prog,
+					       Elf *vmlinux, GElf_Ehdr *ehdr,
+					       uint64_t text_pa)
+{
+	struct drgn_error *err = NULL;
+	Elf_Data *symtab = NULL;
+	Elf_Data *head_text = NULL;
+	size_t shstrndx;
+	uint64_t strtab;
+	uint64_t numsyms;
+
+	uint64_t swapper_pg_dir_rva = 0;
+	uint64_t text_rva = 0;
+	uint64_t image_flags;
+	uint64_t kimage_vaddr_rva = 0;
+	uint64_t kimage_vaddr;
+	uint64_t vabits_actual_rva = 0;
+	uint64_t vabits_actual;
+
+	bool bswap;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	if (elf_getshdrstrndx(vmlinux, &shstrndx))
+		return drgn_error_libelf();
+
+	for (int i = 0; i != ehdr->e_shnum; ++i) {
+		Elf_Scn *section = elf_getscn(vmlinux, i);
+		GElf_Shdr shdr_mem, *shdr;
+
+		if (!section)
+			continue;
+
+		shdr = gelf_getshdr(section, &shdr_mem);
+		if (!shdr)
+			continue;
+
+		if (shdr->sh_type == SHT_SYMTAB) {
+			symtab = elf_getdata(section, NULL);
+			strtab = shdr->sh_link;
+			numsyms = shdr->sh_size / shdr->sh_entsize;
+			continue;
+		}
+
+		const char *name = elf_strptr(vmlinux, shstrndx, shdr->sh_name);
+		if (strcmp(name, ".head.text") == 0) {
+			head_text = elf_getdata(section, NULL);
+		}
+	}
+
+	if (!symtab || !head_text)
+		return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "could not find required section");
+
+	for (int i = 1; i != numsyms; ++i) {
+		GElf_Sym sym_mem, *sym;
+		const char *name;
+
+		sym = gelf_getsym(symtab, i, &sym_mem);
+		if (!sym)
+			continue;
+
+		name = elf_strptr(vmlinux, strtab, sym->st_name);
+
+		if (strcmp(name, "swapper_pg_dir") == 0)
+			swapper_pg_dir_rva = sym->st_value;
+		if (strcmp(name, "_text") == 0)
+			text_rva = sym->st_value;
+		if (strcmp(name, "kimage_vaddr") == 0)
+			kimage_vaddr_rva = sym->st_value;
+		if (strcmp(name, "vabits_actual") == 0)
+			vabits_actual_rva = sym->st_value;
+	}
+
+	if (!swapper_pg_dir_rva || !text_rva || !kimage_vaddr_rva)
+		return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "could not find required symbol");
+
+
+	/* Read the flags field, from which we infer the page size. */
+	image_flags = *(uint64_t *)(((char *)head_text->d_buf) + 24);
+	if (!HOST_LITTLE_ENDIAN)
+		image_flags = bswap_64(image_flags);
+	if ((image_flags & 6) == 0)
+		return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "unknown page size");
+	prog->vmcoreinfo.page_shift = (image_flags & 6) + 10;
+	prog->vmcoreinfo.page_size = 1 << prog->vmcoreinfo.page_shift;
+
+	if (vabits_actual_rva) {
+		err = drgn_program_read_memory(
+			prog, &prog->vmcoreinfo.va_bits,
+			text_pa + (vabits_actual_rva - text_rva), 8, true);
+		if (err)
+			return err;
+		if (bswap)
+			prog->vmcoreinfo.va_bits = bswap_64(prog->vmcoreinfo.va_bits);
+	} else {
+		/*
+		 * Assumes that kernel RVAs start in the middle of the kernel
+		 * address space.
+		 */
+		for (int bit = 63; bit != 0; --bit) {
+			if (!(text_rva & (1ULL << bit))) {
+				prog->vmcoreinfo.va_bits = bit + 2;
+				break;
+			}
+		}
+		if (!prog->vmcoreinfo.va_bits) {
+			return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+						 "could not infer VA_BITS");
+		}
+	}
+	/*
+	 * This is correct for newer kernels which set TCR_EL1.TBID1, but it
+	 * doesn't hurt to mask the top byte in older kernels as well.
+	 */
+	prog->aarch64_insn_pac_mask = ~((1ULL << prog->vmcoreinfo.va_bits) - 1);
+
+	err = drgn_program_read_memory(prog, &kimage_vaddr,
+				       text_pa + (kimage_vaddr_rva - text_rva),
+				       8, true);
+	if (err)
+		return err;
+	if (bswap)
+		kimage_vaddr = bswap_64(kimage_vaddr);
+	prog->vmcoreinfo.kaslr_offset = kimage_vaddr - text_rva;
+	prog->vmcoreinfo.swapper_pg_dir =
+		swapper_pg_dir_rva + text_pa - text_rva;
+	prog->vmcoreinfo.swapper_pg_dir_phys = true;
+	return NULL;
+}
+
 static uint64_t untagged_addr_aarch64(uint64_t addr)
 {
 	/* Apply TBI by sign extending bit 55 into bits 56-63. */
@@ -494,5 +630,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 		linux_kernel_pgtable_iterator_init_aarch64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_aarch64,
+	.linux_kernel_init_vmcoreinfo_from_phys =
+		linux_kernel_init_vmcoreinfo_from_phys_aarch64,
 	.untagged_addr = untagged_addr_aarch64,
 };

@@ -68,6 +68,8 @@ struct drgn_program {
 	int core_fd;
 	/* PID of live userspace program. */
 	pid_t pid;
+	const char *openocd_tap;
+	int openocd_fd;
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif
@@ -159,7 +161,12 @@ struct drgn_program {
 		uint64_t kaslr_offset;
 		/** Kernel page table. */
 		uint64_t swapper_pg_dir;
-		/** Length of mem_section array (i.e., NR_SECTION_ROOTS). */
+		/** Whether swapper_pg_dir is a physical addres. */
+		bool swapper_pg_dir_phys;
+		/**
+		 * Length of mem_section array (i.e., NR_SECTION_ROOTS),
+		 * or 0 if unknown.
+		 */
 		uint64_t mem_section_length;
 		/** VA_BITS on AArch64. */
 		uint64_t va_bits;

@@ -418,6 +418,33 @@ static PyObject *Program_set_kernel(Program *self)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_set_openocd(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	static char *keywords[] = {
+		"vmlinux", "host", "port", "tap", "mmu", "paddr", NULL,
+	};
+	const char *vmlinux;
+	const char *host;
+	const char *port;
+	const char *tap;
+	int mmu;
+	unsigned long long paddr = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "ssssp|K:set_openocd",
+					 keywords, &vmlinux, &host, &port, &tap,
+					 &mmu, &paddr))
+		return NULL;
+
+	struct drgn_error *err;
+
+	err = drgn_program_set_openocd(&self->prog, vmlinux, host, port, tap,
+				       mmu, paddr);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
 static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"pid", NULL};
@@ -1012,6 +1039,8 @@ static PyMethodDef Program_methods[] = {
 	{"set_core_dump", (PyCFunction)Program_set_core_dump,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,
+	 drgn_Program_set_kernel_DOC},
+	{"set_openocd", (PyCFunction)Program_set_openocd, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_kernel_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},

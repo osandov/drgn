@@ -101,6 +101,9 @@ def _main() -> None:
         "-k", "--kernel", action="store_true", help="debug the running kernel (default)"
     )
     program_group.add_argument(
+        "--openocd", metavar="PATH", type=str, help="debug the given kernel on a remote target using OpenOCD"
+    )
+    program_group.add_argument(
         "-c", "--core", metavar="PATH", type=str, help="debug the given core dump"
     )
     program_group.add_argument(
@@ -135,6 +138,23 @@ def _main() -> None:
         action="store_const",
         const={},
         help="don't load any debugging symbols that were not explicitly added with -s",
+    )
+
+    openocd_group = parser.add_argument_group(title="OpenOCD options")
+    openocd_group.add_argument(
+        "--openocd-host", metavar="HOST", type=str, default="localhost", help="hostname of OpenOCD server"
+    )
+    openocd_group.add_argument(
+        "--openocd-port", metavar="PORT", type=str, default="6666", help="TCL port number of OpenOCD server"
+    )
+    openocd_group.add_argument(
+        "--openocd-addr", metavar="ADDR", type=lambda x: int(x,0), help="debug kernel at given physical address"
+    )
+    openocd_group.add_argument(
+        "--openocd-nommu", action="store_true", help="debug a program that does not use the MMU"
+    )
+    openocd_group.add_argument(
+        "--openocd-tap", metavar="TAP", type=str, help="debug kernel using given TAP"
     )
 
     parser.add_argument(
@@ -182,6 +202,16 @@ def _main() -> None:
             prog.set_core_dump(args.core)
         elif args.pid is not None:
             prog.set_pid(args.pid or os.getpid())
+        elif args.openocd:
+            if args.openocd_tap is None:
+              print("error: --openocd-tap required when using OpenOCD", file=sys.stderr)
+              sys.exit(1)
+            if args.openocd_addr is None and args.openocd_nommu is None:
+              print("error: --openocd-addr or --openocd-nommu required when using OpenOCD", file=sys.stderr)
+              sys.exit(1)
+            prog.set_openocd(vmlinux=args.openocd, host=args.openocd_host,
+                             port=args.openocd_port, tap=args.openocd_tap,
+                             mmu=not args.openocd_nommu, paddr=args.openocd_addr or 0)
         else:
             prog.set_kernel()
     except PermissionError as e:

@@ -38,6 +38,7 @@ static struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
 {
 	struct drgn_program *prog = arg;
 	return linux_helper_read_vm(prog, prog->vmcoreinfo.swapper_pg_dir,
+				    prog->vmcoreinfo.swapper_pg_dir_phys,
 				    address, buf, count);
 }
 
@@ -48,6 +49,7 @@ static struct drgn_error *read_cstr_via_pgtable(struct string_builder *str,
 {
 	struct drgn_program *prog = arg;
 	return linux_helper_read_cstr(prog, prog->vmcoreinfo.swapper_pg_dir,
+				      prog->vmcoreinfo.swapper_pg_dir_phys,
 				      address, str, done, limit);
 }
 
@@ -328,7 +330,7 @@ unrecognized_mem_section_type:
 	}
 
 	// Find a valid section.
-	for (uint64_t i = 0; i < nr_section_roots; i++) {
+	for (uint64_t i = 0; !nr_section_roots || i < nr_section_roots; i++) {
 		err = drgn_object_subscript(&root, &mem_section, i);
 		if (err)
 			goto out;

@@ -25,16 +25,18 @@ struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
 						      uint64_t *ret);
 
 struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
-					uint64_t pgtable, uint64_t virt_addr,
-					void *buf, size_t count);
+					uint64_t pgtable, bool pgtable_phys,
+					uint64_t virt_addr, void *buf,
+					size_t count);
 
 struct drgn_error *linux_helper_read_cstr(struct drgn_program *prog,
-					  uint64_t pgtable, uint64_t virt_addr,
+					  uint64_t pgtable, bool pgtable_phys,
+					  uint64_t virt_addr,
 					  struct string_builder *str,
 					  bool *done, size_t count);
 
 struct drgn_error *linux_helper_follow_phys(struct drgn_program *prog,
-					    uint64_t pgtable,
+					    uint64_t pgtable, bool pgtable_phys,
 					    uint64_t virt_addr, uint64_t *ret);
 
 struct drgn_error *linux_helper_per_cpu_ptr(struct drgn_object *res,

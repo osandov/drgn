@@ -685,6 +685,26 @@ struct drgn_error *drgn_program_set_core_dump(struct drgn_program *prog,
 struct drgn_error *drgn_program_set_kernel(struct drgn_program *prog);
 
 /**
+ * Set a @ref drgn_program to a running operating system kernel on a remote
+ * target accessible via OpenOCD.
+ *
+ * @param[in] vmlinux The path to the kernel vmlinux binary.
+ * @param[in] tap The name of the Test Access Port (TAP) providing access to
+ * the physical memory where the kernel is running.
+ * @param[in] mmu Whether this program uses the MMU. True for the Linux
+ * kernel, but may be set to false to debug an MMU-less program such as a
+ * bootloader or microcontroller firmware.
+ * @param[in] text_pa The kernel load address in physical memory. Only used
+ * if @p mmu is true.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_set_openocd(struct drgn_program *prog,
+					    const char *vmlinux,
+					    const char *host, const char *port,
+					    const char *tap, bool mmu,
+					    uint64_t text_pa);
+
+/**
  * Set a @ref drgn_program to a running process.
  *
  * @sa drgn_program_from_pid()
