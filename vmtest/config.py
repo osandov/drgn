@@ -16,6 +16,7 @@ from util import NORMALIZED_MACHINE_NAME
 # keep support for EOL versions until it becomes too difficult to do so.
 # Anything else is not tested and therefore best-effort.
 SUPPORTED_KERNEL_VERSIONS = (
+    "6.5",
     "6.4",
     "6.3",
     "6.2",
