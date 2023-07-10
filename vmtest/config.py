@@ -282,7 +282,7 @@ ARCHITECTURES = {
                 """,
             },
             kernel_org_compiler_name="arm-linux-gnueabi",
-            qemu_options=("-M", "virt"),
+            qemu_options=("-M", "virt,highmem=off"),
             qemu_console="ttyAMA0",
         ),
         Architecture(
