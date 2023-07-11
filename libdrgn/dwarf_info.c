@@ -501,42 +501,35 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 	struct drgn_dwarf_index_cu_vector *cus =
 		&state->cus[omp_get_thread_num()];
 
-	struct drgn_error *err;
-	struct drgn_elf_file_section_buffer buffer;
-	drgn_elf_file_section_buffer_init_index(&buffer, file, scn);
-	while (binary_buffer_has_next(&buffer.bb)) {
-		const char *buf = buffer.bb.pos;
-		uint32_t unit_length32;
-		if ((err = binary_buffer_next_u32(&buffer.bb, &unit_length32)))
-			return err;
-		bool is_64_bit = unit_length32 == UINT32_C(0xffffffff);
-		if (is_64_bit) {
-			uint64_t unit_length64;
-			if ((err = binary_buffer_next_u64(&buffer.bb,
-							  &unit_length64)) ||
-			    (err = binary_buffer_skip(&buffer.bb,
-						      unit_length64)))
-				return err;
-		} else {
-			if ((err = binary_buffer_skip(&buffer.bb,
-						      unit_length32)))
-				return err;
-		}
-
+	Dwarf_Off off = 0;
+	Dwarf_Off next_off;
+	uint8_t offset_size;
+	uint64_t v4_type_signature;
+	uint64_t *v4_type_signaturep =
+		scn == DRGN_SCN_DEBUG_TYPES ? &v4_type_signature : NULL;
+	const char *buf = file->scn_data[scn]->d_buf;
+	int ret;
+	while ((ret = dwarf_next_unit(file->dwarf, off, &next_off, NULL, NULL,
+				      NULL, NULL, &offset_size,
+				      v4_type_signaturep, NULL)) == 0) {
 		struct drgn_dwarf_index_cu *cu =
 			drgn_dwarf_index_cu_vector_append_entry(cus);
 		if (!cu)
 			return &drgn_enomem;
 		*cu = (struct drgn_dwarf_index_cu){
 			.file = file,
-			.buf = buf,
-			.len = buffer.bb.pos - buf,
-			.is_64_bit = is_64_bit,
+			.buf = buf + off,
+			.len = (next_off == (Dwarf_Off)-1
+				 ? file->scn_data[scn]->d_size : next_off)
+			       - off,
+			.is_64_bit = offset_size == 8,
 			.scn = scn,
-			.file_name_hashes = (uint64_t *)no_file_name_hashes,
-			.num_file_names = array_size(no_file_name_hashes),
 		};
+
+		off = next_off;
 	}
+	if (ret < 0)
+		return drgn_error_libdw();
 	return NULL;
 }
 
