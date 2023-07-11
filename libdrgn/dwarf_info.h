@@ -166,16 +166,13 @@ struct drgn_dwarf_info {
 void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo);
 void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo);
 
-DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_cu_vector,
-		   struct drgn_dwarf_index_pending_cu)
-
 /**
  * State tracked while indexing new DWARF information in a @ref drgn_dwarf_info.
  */
 struct drgn_dwarf_index_state {
 	struct drgn_debug_info *dbinfo;
 	/** Per-thread arrays of CUs to be indexed. */
-	struct drgn_dwarf_index_pending_cu_vector *cus;
+	struct drgn_dwarf_index_cu_vector *cus;
 	size_t max_threads;
 };
 

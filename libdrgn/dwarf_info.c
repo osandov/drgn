@@ -303,16 +303,6 @@ static inline struct drgn_error *drgn_check_address_size(uint8_t address_size)
  * Other namespaces are indexed when they are first accessed.
  */
 
-struct drgn_dwarf_index_pending_cu {
-	struct drgn_elf_file *file;
-	const char *buf;
-	size_t len;
-	bool is_64_bit;
-	enum drgn_section_index scn;
-};
-
-DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_cu_vector)
-
 /**
  * DWARF abbreviation table instructions.
  *
@@ -492,14 +482,14 @@ bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
 	if (!state->cus)
 		return false;
 	for (size_t i = 0; i < state->max_threads; i++)
-		drgn_dwarf_index_pending_cu_vector_init(&state->cus[i]);
+		drgn_dwarf_index_cu_vector_init(&state->cus[i]);
 	return true;
 }
 
 void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state)
 {
 	for (size_t i = 0; i < state->max_threads; i++)
-		drgn_dwarf_index_pending_cu_vector_deinit(&state->cus[i]);
+		drgn_dwarf_index_cu_vector_deinit(&state->cus[i]);
 	free(state->cus);
 }
 
@@ -508,24 +498,19 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 			  struct drgn_elf_file *file,
 			  enum drgn_section_index scn)
 {
-	struct drgn_dwarf_index_pending_cu_vector *cus =
+	struct drgn_dwarf_index_cu_vector *cus =
 		&state->cus[omp_get_thread_num()];
 
 	struct drgn_error *err;
 	struct drgn_elf_file_section_buffer buffer;
 	drgn_elf_file_section_buffer_init_index(&buffer, file, scn);
 	while (binary_buffer_has_next(&buffer.bb)) {
-		struct drgn_dwarf_index_pending_cu *cu =
-			drgn_dwarf_index_pending_cu_vector_append_entry(cus);
-		if (!cu)
-			return &drgn_enomem;
-		cu->file = file;
-		cu->buf = buffer.bb.pos;
+		const char *buf = buffer.bb.pos;
 		uint32_t unit_length32;
 		if ((err = binary_buffer_next_u32(&buffer.bb, &unit_length32)))
 			return err;
-		cu->is_64_bit = unit_length32 == UINT32_C(0xffffffff);
-		if (cu->is_64_bit) {
+		bool is_64_bit = unit_length32 == UINT32_C(0xffffffff);
+		if (is_64_bit) {
 			uint64_t unit_length64;
 			if ((err = binary_buffer_next_u64(&buffer.bb,
 							  &unit_length64)) ||
@@ -537,8 +522,20 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 						      unit_length32)))
 				return err;
 		}
-		cu->len = buffer.bb.pos - cu->buf;
-		cu->scn = scn;
+
+		struct drgn_dwarf_index_cu *cu =
+			drgn_dwarf_index_cu_vector_append_entry(cus);
+		if (!cu)
+			return &drgn_enomem;
+		*cu = (struct drgn_dwarf_index_cu){
+			.file = file,
+			.buf = buf,
+			.len = buffer.bb.pos - buf,
+			.is_64_bit = is_64_bit,
+			.scn = scn,
+			.file_name_hashes = (uint64_t *)no_file_name_hashes,
+			.num_file_names = array_size(no_file_name_hashes),
+		};
 	}
 	return NULL;
 }
@@ -2871,21 +2868,9 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 	if (!drgn_dwarf_index_cu_vector_reserve(cus, new_cus_size))
 		return &drgn_enomem;
 	for (size_t i = 0; i < state->max_threads; i++) {
-		for (size_t j = 0; j < state->cus[i].size; j++) {
-			struct drgn_dwarf_index_pending_cu *pending_cu =
-				&state->cus[i].data[j];
-			cus->data[cus->size++] = (struct drgn_dwarf_index_cu){
-				.file = pending_cu->file,
-				.buf = pending_cu->buf,
-				.len = pending_cu->len,
-				.is_64_bit = pending_cu->is_64_bit,
-				.scn = pending_cu->scn,
-				.file_name_hashes =
-					(uint64_t *)no_file_name_hashes,
-				.num_file_names =
-					array_size(no_file_name_hashes),
-			};
-		}
+		memcpy(&cus->data[cus->size], state->cus[i].data,
+		       state->cus[i].size * sizeof(cus->data[0]));
+		cus->size += state->cus[i].size;
 	}
 
 	struct drgn_error *err = NULL;
