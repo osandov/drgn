@@ -42,6 +42,13 @@ struct drgn_module;
  */
 struct drgn_error *read_elf_section(Elf_Scn *scn, Elf_Data **ret);
 
+static inline bool elf_data_contains_ptr(Elf_Data *data, const void *ptr)
+{
+	uintptr_t bufi = (uintptr_t)data->d_buf;
+	uintptr_t ptri = (uintptr_t)ptr;
+	return ptri >= bufi && ptri - bufi < data->d_size;
+}
+
 /** An ELF file used by a @ref drgn_module. */
 struct drgn_elf_file {
 	/** Module using this file. */
@@ -115,7 +122,14 @@ drgn_elf_file_address_mask(const struct drgn_elf_file *file)
 struct drgn_error *
 drgn_elf_file_section_error(struct drgn_elf_file *file, Elf_Scn *scn,
 			    Elf_Data *data, const char *ptr,
-			    const char *message);
+			    const char *message)
+	__attribute__((__returns_nonnull__));
+
+struct drgn_error *
+drgn_elf_file_section_errorf(struct drgn_elf_file *file, Elf_Scn *scn,
+			     Elf_Data *data, const char *ptr,
+			     const char *format, ...)
+	__attribute__((__returns_nonnull__, __format__(__printf__, 5, 6)));
 
 struct drgn_elf_file_section_buffer {
 	struct binary_buffer bb;

@@ -3,6 +3,7 @@
 
 #include <elf.h>
 #include <gelf.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -246,6 +247,24 @@ drgn_elf_file_section_error(struct drgn_elf_file *file, Elf_Scn *scn,
 		return drgn_error_format(DRGN_ERROR_OTHER, "%s: %s", file->path,
 					 message);
 	}
+}
+
+struct drgn_error *
+drgn_elf_file_section_errorf(struct drgn_elf_file *file, Elf_Scn *scn,
+			     Elf_Data *data, const char *ptr,
+			     const char *format, ...)
+{
+	va_list ap;
+	va_start(ap, format);
+	char *message;
+	int ret = vasprintf(&message, format, ap);
+	va_end(ap);
+	if (ret < 0)
+		return &drgn_enomem;
+	struct drgn_error *err = drgn_elf_file_section_error(file, scn, data,
+							     ptr, message);
+	free(message);
+	return err;
 }
 
 struct drgn_error *drgn_elf_file_section_buffer_error(struct binary_buffer *bb,
