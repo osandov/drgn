@@ -554,6 +554,604 @@ drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
 	return err;
 }
 
+static struct drgn_error *read_strx(struct drgn_dwarf_index_cu_buffer *buffer,
+				    uint64_t strx, const char **ret)
+{
+	if (!buffer->cu->str_offsets) {
+		return binary_buffer_error(&buffer->bb,
+					   "string index without .debug_str_offsets section");
+	}
+	Elf_Data *debug_str_offsets =
+		buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
+	size_t offset_size = buffer->cu->is_64_bit ? 8 : 4;
+	if (((char *)debug_str_offsets->d_buf + debug_str_offsets->d_size
+	     - buffer->cu->str_offsets)
+	    / offset_size <= strx) {
+		return binary_buffer_error(&buffer->bb,
+					   "string index out of bounds");
+	}
+	uint64_t strp;
+	if (buffer->cu->is_64_bit) {
+		memcpy(&strp, (uint64_t *)buffer->cu->str_offsets + strx,
+		       sizeof(strp));
+		if (buffer->bb.bswap)
+			strp = bswap_64(strp);
+	} else {
+		uint32_t strp32;
+		memcpy(&strp32, (uint32_t *)buffer->cu->str_offsets + strx,
+		       sizeof(strp32));
+		if (buffer->bb.bswap)
+			strp32 = bswap_32(strp32);
+		strp = strp32;
+	}
+	if (strp >= buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR]->d_size) {
+		return binary_buffer_error(&buffer->bb,
+					   "indirect string is out of bounds");
+	}
+	*ret = ((char *)buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR]->d_buf
+		+ strp);
+	return NULL;
+}
+
+static struct drgn_error *
+read_lnp_header(struct drgn_elf_file_section_buffer *buffer,
+		bool *is_64_bit_ret, int *version_ret)
+{
+	struct drgn_error *err;
+	uint32_t tmp;
+	if ((err = binary_buffer_next_u32(&buffer->bb, &tmp)))
+		return err;
+	bool is_64_bit = tmp == UINT32_C(0xffffffff);
+	if (is_64_bit &&
+	    (err = binary_buffer_skip(&buffer->bb, sizeof(uint64_t))))
+		return err;
+	*is_64_bit_ret = is_64_bit;
+
+	uint16_t version;
+	if ((err = binary_buffer_next_u16(&buffer->bb, &version)))
+		return err;
+	if (version < 2 || version > 5) {
+		return binary_buffer_error(&buffer->bb,
+					   "unknown DWARF LNP version %" PRIu16,
+					   version);
+	}
+	*version_ret = version;
+
+	uint8_t opcode_base;
+	if ((err = binary_buffer_skip(&buffer->bb,
+				      /* address_size + segment_selector_size */
+				      + (version >= 5 ? 2 : 0)
+				      + (is_64_bit ? 8 : 4) /* header_length */
+				      + 1 /* minimum_instruction_length */
+				      + (version >= 4) /* maximum_operations_per_instruction */
+				      + 1 /* default_is_stmt */
+				      + 1 /* line_base */
+				      + 1 /* line_range */)) ||
+	    (err = binary_buffer_next_u8(&buffer->bb, &opcode_base)) ||
+	    (err = binary_buffer_skip(&buffer->bb, opcode_base - 1)))
+		return err;
+
+	return NULL;
+}
+
+/**
+ * Cached hash of file path.
+ *
+ * File names in the DWARF line number program header consist of three parts:
+ * the compilation directory path, the directory path, and the file name.
+ * Multiple file names may be relative to the same directory, and relative
+ * directory paths are all relative to the compilation directory.
+ *
+ * We'd like to hash DWARF file names to a unique hash so that we can
+ * deduplicate definitions without comparing full paths.
+ *
+ * The naive way to hash a DWARF file name entry would be to join and normalize
+ * the compilation directory path, directory path, and file name, and hash that.
+ * But this would involve a lot of redundant computations since most paths will
+ * have common prefixes. Instead, we cache the hashes of each directory path and
+ * update the hash for relative paths.
+ *
+ * It is not sufficient to cache the final hash for each directory because ".."
+ * components may require us to use the hash of a parent directory. So, we also
+ * cache the hash of every parent directory in a linked list.
+ *
+ * We use the FNV-1a hash function. Although FNV-1a is
+ * [known](https://github.com/rurban/smhasher/blob/master/doc/FNV1a.txt) to have
+ * some hash quality problems, it is sufficient for producing unique 64-bit
+ * hashes of file names. It has a couple of advantages over "better" hash
+ * functions:
+ *
+ * 1. Its only internal state is the 64-bit hash value, which keeps this
+ *    structure small.
+ * 2. It operates byte-by-byte, which works well for incrementally hashing lots
+ *    of short path components.
+ */
+struct path_hash {
+	/** Hash of this path. */
+	uint64_t hash;
+	/**
+	 * Tagged pointer comprising `struct path_hash *` of parent directory
+	 * and flag in lowest-order bit specifying whether this path ends in a
+	 * ".." component.
+	 */
+	uintptr_t parent_and_is_dot_dot;
+};
+
+#define FNV_OFFSET_BASIS_64 UINT64_C(0xcbf29ce484222325)
+#define FNV_PRIME_64 UINT64_C(0x00000100000001b3)
+
+static inline void path_hash_update(struct path_hash *path_hash,
+				    const void *src, size_t len)
+{
+	const uint8_t *s = src, *end = s + len;
+	uint64_t hash = path_hash->hash;
+	while (s < end) {
+		hash ^= *(s++);
+		hash *= FNV_PRIME_64;
+	}
+	path_hash->hash = hash;
+}
+
+/** Path hash of "" (empty string). */
+static const struct path_hash empty_path_hash = { FNV_OFFSET_BASIS_64 };
+/** Path hash of "/". */
+static const struct path_hash absolute_path_hash = {
+	(FNV_OFFSET_BASIS_64 ^ '/') * FNV_PRIME_64,
+};
+
+static inline const struct path_hash *
+path_hash_parent(const struct path_hash *path_hash)
+{
+	return (struct path_hash *)(path_hash->parent_and_is_dot_dot
+				    & ~(uintptr_t)1);
+}
+
+static inline bool path_hash_is_dot_dot(const struct path_hash *path_hash)
+{
+	return path_hash->parent_and_is_dot_dot & 1;
+}
+
+/** Chunk of allocated @ref path_hash objects. See @ref path_hash_cache. */
+struct path_hash_chunk {
+	struct path_hash objects[(4096 - sizeof(struct path_hash_chunk *))
+				 / sizeof(struct path_hash)];
+	struct path_hash_chunk *next;
+};
+
+DEFINE_VECTOR(path_hash_vector, const struct path_hash *)
+
+struct lnp_entry_format {
+	uint64_t content_type;
+	uint64_t form;
+};
+
+static const struct lnp_entry_format dwarf4_directory_entry_formats[] = {
+	{ DW_LNCT_path, DW_FORM_string },
+};
+static const struct lnp_entry_format dwarf4_file_name_entry_formats[] = {
+	{ DW_LNCT_path, DW_FORM_string },
+	{ DW_LNCT_directory_index, DW_FORM_udata },
+	{ DW_LNCT_timestamp, DW_FORM_udata },
+	{ DW_LNCT_size, DW_FORM_udata },
+};
+
+/**
+ * Cache of hashed file paths.
+ *
+ * This uses a bump allocator for @ref path_hash objects. @ref path_hash objects
+ * are allocated sequentially out of a @ref path_hash_chunk; when a chunk is
+ * exhausted, a new @ref path_hash_chunk is allocated from the heap. The
+ * allocated chunks are kept and reused for each DWARF line number program; they
+ * are freed at the end of the first indexing pass.
+ *
+ * This also caches the allocations for directory hashes and line number program
+ * header entry formats.
+ */
+struct path_hash_cache {
+	/** Next @ref path_hash object to be allocated. */
+	struct path_hash *next_object;
+	/** @ref path_hash_chunk currently being allocated from. */
+	struct path_hash_chunk *current_chunk;
+	/** First allocated @ref path_hash_chunk. */
+	struct path_hash_chunk *first_chunk;
+	/** Hashed directory paths. */
+	struct path_hash_vector directories;
+	/** Line number program header entry formats. */
+	struct lnp_entry_format *entry_formats;
+	/** Allocated size of @ref path_hash_cache::entry_formats. */
+	size_t entry_formats_capacity;
+};
+
+static struct path_hash *path_hash_alloc(struct path_hash_cache *cache)
+{
+	struct path_hash_chunk *current_chunk = cache->current_chunk;
+	if (cache->next_object <
+	    &current_chunk->objects[array_size(current_chunk->objects)])
+		return cache->next_object++;
+	struct path_hash_chunk *next_chunk = current_chunk->next;
+	if (!next_chunk) {
+		next_chunk = malloc(sizeof(*next_chunk));
+		if (!next_chunk)
+			return NULL;
+		next_chunk->next = NULL;
+		current_chunk->next = next_chunk;
+	}
+	cache->current_chunk = next_chunk;
+	cache->next_object = &next_chunk->objects[1];
+	return next_chunk->objects;
+}
+
+static inline bool is_dot_dot(const char *component, size_t component_len)
+{
+	return component_len == 2 && component[0] == '.' && component[1] == '.';
+}
+
+static const struct path_hash *hash_path(struct path_hash_cache *cache,
+					 const char *path,
+					 const struct path_hash *path_hash)
+{
+	const char *p = path;
+	if (*p == '/') {
+		path_hash = &absolute_path_hash;
+		p++;
+	}
+	while (*p != '\0') {
+		const char *component = p;
+		p = strchrnul(p, '/');
+		size_t component_len = p - component;
+		if (*p == '/')
+			p++;
+		if (component_len == 0 ||
+		    (component_len == 1 && component[0] == '.')) {
+		} else if (!is_dot_dot(component, component_len) ||
+			   path_hash == &empty_path_hash ||
+			   path_hash_is_dot_dot(path_hash)) {
+			struct path_hash *new_path_hash = path_hash_alloc(cache);
+			if (!new_path_hash)
+				return NULL;
+			new_path_hash->hash = path_hash->hash;
+			if (path_hash->parent_and_is_dot_dot != 0)
+				path_hash_update(new_path_hash, "/", 1);
+			path_hash_update(new_path_hash, component,
+					 component_len);
+			new_path_hash->parent_and_is_dot_dot =
+				((uintptr_t)path_hash |
+				 is_dot_dot(component, component_len));
+			path_hash = new_path_hash;
+		} else if (path_hash != &absolute_path_hash) {
+			path_hash = path_hash_parent(path_hash);
+		}
+	}
+	return path_hash;
+}
+
+static struct drgn_error *
+read_lnp_entry_formats(struct drgn_elf_file_section_buffer *buffer,
+		       struct path_hash_cache *cache, int *count_ret)
+{
+	struct drgn_error *err;
+	uint8_t count;
+	if ((err = binary_buffer_next_u8(&buffer->bb, &count)))
+		return err;
+	if (count > cache->entry_formats_capacity) {
+		free(cache->entry_formats);
+		cache->entry_formats = malloc_array(count,
+						    sizeof(cache->entry_formats[0]));
+		if (!cache->entry_formats) {
+			cache->entry_formats_capacity = 0;
+			return &drgn_enomem;
+		}
+		cache->entry_formats_capacity = count;
+	}
+	bool have_path = false;
+	for (int i = 0; i < count; i++) {
+		if ((err = binary_buffer_next_uleb128(&buffer->bb,
+						      &cache->entry_formats[i].content_type)))
+			return err;
+		if (cache->entry_formats[i].content_type == DW_LNCT_path)
+			have_path = true;
+		if ((err = binary_buffer_next_uleb128(&buffer->bb,
+						      &cache->entry_formats[i].form)))
+			return err;
+	}
+	if (!have_path) {
+		return binary_buffer_error(&buffer->bb,
+					   "DWARF line number program header entry does not include DW_LNCT_path");
+	}
+	*count_ret = count;
+	return NULL;
+}
+
+static struct drgn_error *skip_lnp_form(struct binary_buffer *bb,
+					bool is_64_bit, uint64_t form)
+{
+	struct drgn_error *err;
+	uint64_t skip;
+	switch (form) {
+	case DW_FORM_block:
+		if ((err = binary_buffer_next_uleb128(bb, &skip)))
+			return err;
+block:
+		return binary_buffer_skip(bb, skip);
+	case DW_FORM_block1:
+		if ((err = binary_buffer_next_u8_into_u64(bb, &skip)))
+			return err;
+		goto block;
+	case DW_FORM_block2:
+		if ((err = binary_buffer_next_u16_into_u64(bb, &skip)))
+			return err;
+		goto block;
+	case DW_FORM_block4:
+		if ((err = binary_buffer_next_u32_into_u64(bb, &skip)))
+			return err;
+		goto block;
+	case DW_FORM_data1:
+	case DW_FORM_flag:
+	case DW_FORM_strx1:
+		return binary_buffer_skip(bb, 1);
+	case DW_FORM_data2:
+	case DW_FORM_strx2:
+		return binary_buffer_skip(bb, 2);
+	case DW_FORM_strx3:
+		return binary_buffer_skip(bb, 3);
+	case DW_FORM_data4:
+	case DW_FORM_strx4:
+		return binary_buffer_skip(bb, 4);
+	case DW_FORM_data8:
+		return binary_buffer_skip(bb, 8);
+	case DW_FORM_data16:
+		return binary_buffer_skip(bb, 16);
+	case DW_FORM_line_strp:
+	case DW_FORM_sec_offset:
+	case DW_FORM_strp:
+		return binary_buffer_skip(bb, is_64_bit ? 8 : 4);
+	case DW_FORM_sdata:
+	case DW_FORM_strx:
+	case DW_FORM_udata:
+	case DW_FORM_GNU_str_index:
+		return binary_buffer_skip_leb128(bb);
+	case DW_FORM_string:
+		return binary_buffer_skip_string(bb);
+	default:
+		return binary_buffer_error(bb,
+					   "unknown attribute form %#" PRIx64 " for line number program",
+					   form);
+	}
+}
+
+static struct drgn_error *
+read_lnp_string(struct drgn_elf_file_section_buffer *buffer, bool is_64_bit,
+		uint64_t form, const char **ret)
+{
+	struct drgn_error *err;
+	uint64_t strp;
+	Elf_Data *data;
+	switch (form) {
+	case DW_FORM_string:
+		*ret = buffer->bb.pos;
+		return binary_buffer_skip_string(&buffer->bb);
+	case DW_FORM_line_strp:
+	case DW_FORM_strp:
+		if (is_64_bit)
+			err = binary_buffer_next_u64(&buffer->bb, &strp);
+		else
+			err = binary_buffer_next_u32_into_u64(&buffer->bb, &strp);
+		if (err)
+			return err;
+		data = buffer->file->scn_data[
+			form == DW_FORM_line_strp ?
+			DRGN_SCN_DEBUG_LINE_STR : DRGN_SCN_DEBUG_STR];
+		if (!data || strp >= data->d_size) {
+			return binary_buffer_error(&buffer->bb,
+						   "DW_LNCT_path is out of bounds");
+		}
+		*ret = (const char *)data->d_buf + strp;
+		return NULL;
+	default:
+		return binary_buffer_error(&buffer->bb,
+					   "unknown attribute form %#" PRIx64 " for DW_LNCT_path",
+					   form);
+	}
+}
+
+static struct drgn_error *
+read_lnp_directory_index(struct drgn_elf_file_section_buffer *buffer,
+			 uint64_t form, uint64_t *ret)
+{
+	switch (form) {
+	case DW_FORM_data1:
+		return binary_buffer_next_u8_into_u64(&buffer->bb, ret);
+	case DW_FORM_data2:
+		return binary_buffer_next_u16_into_u64(&buffer->bb, ret);
+	case DW_FORM_udata:
+		return binary_buffer_next_uleb128(&buffer->bb, ret);
+	default:
+		return binary_buffer_error(&buffer->bb,
+					   "unknown attribute form %#" PRIx64 " for DW_LNCT_directory_index",
+					   form);
+	}
+}
+
+static struct drgn_error *read_file_name_table(struct path_hash_cache *cache,
+					       struct drgn_dwarf_index_cu *cu,
+					       const char *comp_dir,
+					       size_t stmt_list)
+{
+	struct drgn_error *err;
+
+	struct drgn_elf_file_section_buffer buffer;
+	drgn_elf_file_section_buffer_init_index(&buffer, cu->file,
+						DRGN_SCN_DEBUG_LINE);
+	/* Checked in index_cu_first_pass(). */
+	buffer.bb.pos += stmt_list;
+
+	bool is_64_bit;
+	int version;
+	if ((err = read_lnp_header(&buffer, &is_64_bit, &version)))
+		return err;
+
+	cache->current_chunk = cache->first_chunk;
+	cache->next_object = cache->first_chunk->objects;
+	cache->directories.size = 0;
+
+	const struct lnp_entry_format *entry_formats;
+	int entry_format_count;
+	uint64_t entry_count = 0; /* For -Wmaybe-uninitialized. */
+	const struct path_hash *path_hash, *parent;
+	if (version >= 5) {
+		if ((err = read_lnp_entry_formats(&buffer, cache,
+						  &entry_format_count)))
+			return err;
+		entry_formats = cache->entry_formats;
+		if ((err = binary_buffer_next_uleb128(&buffer.bb,
+						      &entry_count)))
+			return err;
+		if (entry_count > SIZE_MAX ||
+		    !path_hash_vector_reserve(&cache->directories, entry_count))
+			return err;
+		parent = &empty_path_hash;
+	} else {
+		entry_formats = dwarf4_directory_entry_formats;
+		entry_format_count = array_size(dwarf4_directory_entry_formats);
+		path_hash = hash_path(cache, comp_dir, &empty_path_hash);
+		if (!path_hash ||
+		    !path_hash_vector_append(&cache->directories, &path_hash))
+			return &drgn_enomem;
+		parent = path_hash;
+	}
+
+	while (version < 5 || entry_count-- > 0) {
+		const char *path;
+		for (int j = 0; j < entry_format_count; j++) {
+			if (entry_formats[j].content_type == DW_LNCT_path) {
+				err = read_lnp_string(&buffer, is_64_bit,
+						      entry_formats[j].form,
+						      &path);
+				if (version < 5 && path[0] == '\0')
+					goto file_name_entries;
+			} else {
+				err = skip_lnp_form(&buffer.bb, is_64_bit,
+						    entry_formats[j].form);
+			}
+			if (err)
+				return err;
+		}
+		path_hash = hash_path(cache, path, parent);
+		if (!path_hash ||
+		    !path_hash_vector_append(&cache->directories, &path_hash))
+			return &drgn_enomem;
+		parent = cache->directories.data[0];
+	}
+
+file_name_entries:;
+	/*
+	 * File name 0 needs special treatment. In DWARF 2-4, file name entries
+	 * are numbered starting at 1, and a DW_AT_decl_file of 0 indicates that
+	 * no file was specified. In DWARF 5, file name entries are numbered
+	 * starting at 0, and entry 0 is the current compilation file name. The
+	 * DWARF 5 specification still states that a DW_AT_decl_file of 0
+	 * indicates that no file was specified, but some producers (including
+	 * Clang) and consumers (including elfutils and GDB) treat a
+	 * DW_AT_decl_file of 0 as specifying the current compilation file name,
+	 * so we do the same.
+	 *
+	 * So, for DWARF 5, we hash entry 0 as usual, and for DWARF 4, we insert
+	 * a placeholder for entry 0. If there are no file names at all, we keep
+	 * the no_file_name_hashes placeholder.
+	 */
+	struct uint64_vector file_name_hashes;
+	if (version >= 5) {
+		if ((err = read_lnp_entry_formats(&buffer, cache,
+						  &entry_format_count)))
+			return err;
+		entry_formats = cache->entry_formats;
+		if ((err = binary_buffer_next_uleb128(&buffer.bb,
+						      &entry_count)))
+			return err;
+		if (entry_count == 0)
+			return NULL;
+		if (entry_count > SIZE_MAX)
+			return &drgn_enomem;
+		uint64_vector_init(&file_name_hashes);
+		if (!uint64_vector_reserve(&file_name_hashes, entry_count)) {
+			err = &drgn_enomem;
+			goto err;
+		}
+	} else {
+		entry_formats = dwarf4_file_name_entry_formats;
+		entry_format_count = array_size(dwarf4_file_name_entry_formats);
+		uint64_vector_init(&file_name_hashes);
+	}
+
+	while (version < 5 || entry_count-- > 0) {
+		const char *path;
+		uint64_t directory_index = 0;
+		for (int j = 0; j < entry_format_count; j++) {
+			if (entry_formats[j].content_type == DW_LNCT_path) {
+				err = read_lnp_string(&buffer, is_64_bit,
+						      entry_formats[j].form,
+						      &path);
+				if (!err && version < 5) {
+					if (path[0] == '\0') {
+						if (file_name_hashes.size == 0) {
+							uint64_vector_deinit(&file_name_hashes);
+							return NULL;
+						}
+						goto done;
+					} else if (file_name_hashes.size == 0) {
+						uint64_t zero = 0;
+						if (!uint64_vector_append(&file_name_hashes,
+									  &zero)) {
+							err = &drgn_enomem;
+							goto err;
+						}
+					}
+				}
+			} else if (entry_formats[j].content_type ==
+				   DW_LNCT_directory_index) {
+				err = read_lnp_directory_index(&buffer,
+							       entry_formats[j].form,
+							       &directory_index);
+			} else {
+				err = skip_lnp_form(&buffer.bb, is_64_bit,
+						    entry_formats[j].form);
+			}
+			if (err)
+				goto err;
+		}
+
+		if (directory_index >= cache->directories.size) {
+			err = binary_buffer_error(&buffer.bb,
+						  "directory index %" PRIu64 " is invalid",
+						  directory_index);
+			goto err;
+		}
+		struct path_hash *prev_object = cache->next_object;
+		struct path_hash_chunk *prev_chunk = cache->current_chunk;
+		path_hash = hash_path(cache, path,
+				      cache->directories.data[directory_index]);
+		if (!path_hash ||
+		    !uint64_vector_append(&file_name_hashes, &path_hash->hash)) {
+			err = &drgn_enomem;
+			goto err;
+		}
+
+		/* "Free" the objects allocated for this file name. */
+		cache->next_object = prev_object;
+		cache->current_chunk = prev_chunk;
+	}
+
+done:
+	uint64_vector_shrink_to_fit(&file_name_hashes);
+	cu->file_name_hashes = file_name_hashes.data;
+	cu->num_file_names = file_name_hashes.size;
+	return NULL;
+
+err:
+	uint64_vector_deinit(&file_name_hashes);
+	return err;
+}
+
 static struct drgn_error *dw_form_to_insn(struct drgn_dwarf_index_cu *cu,
 					  struct binary_buffer *bb,
 					  uint64_t form, uint8_t *insn_ret)
@@ -1270,604 +1868,6 @@ static struct drgn_error *read_cu(struct drgn_dwarf_index_cu_buffer *buffer)
 		}
 	}
 	return NULL;
-}
-
-static struct drgn_error *read_strx(struct drgn_dwarf_index_cu_buffer *buffer,
-				    uint64_t strx, const char **ret)
-{
-	if (!buffer->cu->str_offsets) {
-		return binary_buffer_error(&buffer->bb,
-					   "string index without .debug_str_offsets section");
-	}
-	Elf_Data *debug_str_offsets =
-		buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
-	size_t offset_size = buffer->cu->is_64_bit ? 8 : 4;
-	if (((char *)debug_str_offsets->d_buf + debug_str_offsets->d_size
-	     - buffer->cu->str_offsets)
-	    / offset_size <= strx) {
-		return binary_buffer_error(&buffer->bb,
-					   "string index out of bounds");
-	}
-	uint64_t strp;
-	if (buffer->cu->is_64_bit) {
-		memcpy(&strp, (uint64_t *)buffer->cu->str_offsets + strx,
-		       sizeof(strp));
-		if (buffer->bb.bswap)
-			strp = bswap_64(strp);
-	} else {
-		uint32_t strp32;
-		memcpy(&strp32, (uint32_t *)buffer->cu->str_offsets + strx,
-		       sizeof(strp32));
-		if (buffer->bb.bswap)
-			strp32 = bswap_32(strp32);
-		strp = strp32;
-	}
-	if (strp >= buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR]->d_size) {
-		return binary_buffer_error(&buffer->bb,
-					   "indirect string is out of bounds");
-	}
-	*ret = ((char *)buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR]->d_buf
-		+ strp);
-	return NULL;
-}
-
-static struct drgn_error *
-read_lnp_header(struct drgn_elf_file_section_buffer *buffer,
-		bool *is_64_bit_ret, int *version_ret)
-{
-	struct drgn_error *err;
-	uint32_t tmp;
-	if ((err = binary_buffer_next_u32(&buffer->bb, &tmp)))
-		return err;
-	bool is_64_bit = tmp == UINT32_C(0xffffffff);
-	if (is_64_bit &&
-	    (err = binary_buffer_skip(&buffer->bb, sizeof(uint64_t))))
-		return err;
-	*is_64_bit_ret = is_64_bit;
-
-	uint16_t version;
-	if ((err = binary_buffer_next_u16(&buffer->bb, &version)))
-		return err;
-	if (version < 2 || version > 5) {
-		return binary_buffer_error(&buffer->bb,
-					   "unknown DWARF LNP version %" PRIu16,
-					   version);
-	}
-	*version_ret = version;
-
-	uint8_t opcode_base;
-	if ((err = binary_buffer_skip(&buffer->bb,
-				      /* address_size + segment_selector_size */
-				      + (version >= 5 ? 2 : 0)
-				      + (is_64_bit ? 8 : 4) /* header_length */
-				      + 1 /* minimum_instruction_length */
-				      + (version >= 4) /* maximum_operations_per_instruction */
-				      + 1 /* default_is_stmt */
-				      + 1 /* line_base */
-				      + 1 /* line_range */)) ||
-	    (err = binary_buffer_next_u8(&buffer->bb, &opcode_base)) ||
-	    (err = binary_buffer_skip(&buffer->bb, opcode_base - 1)))
-		return err;
-
-	return NULL;
-}
-
-/**
- * Cached hash of file path.
- *
- * File names in the DWARF line number program header consist of three parts:
- * the compilation directory path, the directory path, and the file name.
- * Multiple file names may be relative to the same directory, and relative
- * directory paths are all relative to the compilation directory.
- *
- * We'd like to hash DWARF file names to a unique hash so that we can
- * deduplicate definitions without comparing full paths.
- *
- * The naive way to hash a DWARF file name entry would be to join and normalize
- * the compilation directory path, directory path, and file name, and hash that.
- * But this would involve a lot of redundant computations since most paths will
- * have common prefixes. Instead, we cache the hashes of each directory path and
- * update the hash for relative paths.
- *
- * It is not sufficient to cache the final hash for each directory because ".."
- * components may require us to use the hash of a parent directory. So, we also
- * cache the hash of every parent directory in a linked list.
- *
- * We use the FNV-1a hash function. Although FNV-1a is
- * [known](https://github.com/rurban/smhasher/blob/master/doc/FNV1a.txt) to have
- * some hash quality problems, it is sufficient for producing unique 64-bit
- * hashes of file names. It has a couple of advantages over "better" hash
- * functions:
- *
- * 1. Its only internal state is the 64-bit hash value, which keeps this
- *    structure small.
- * 2. It operates byte-by-byte, which works well for incrementally hashing lots
- *    of short path components.
- */
-struct path_hash {
-	/** Hash of this path. */
-	uint64_t hash;
-	/**
-	 * Tagged pointer comprising `struct path_hash *` of parent directory
-	 * and flag in lowest-order bit specifying whether this path ends in a
-	 * ".." component.
-	 */
-	uintptr_t parent_and_is_dot_dot;
-};
-
-#define FNV_OFFSET_BASIS_64 UINT64_C(0xcbf29ce484222325)
-#define FNV_PRIME_64 UINT64_C(0x00000100000001b3)
-
-static inline void path_hash_update(struct path_hash *path_hash,
-				    const void *src, size_t len)
-{
-	const uint8_t *s = src, *end = s + len;
-	uint64_t hash = path_hash->hash;
-	while (s < end) {
-		hash ^= *(s++);
-		hash *= FNV_PRIME_64;
-	}
-	path_hash->hash = hash;
-}
-
-/** Path hash of "" (empty string). */
-static const struct path_hash empty_path_hash = { FNV_OFFSET_BASIS_64 };
-/** Path hash of "/". */
-static const struct path_hash absolute_path_hash = {
-	(FNV_OFFSET_BASIS_64 ^ '/') * FNV_PRIME_64,
-};
-
-static inline const struct path_hash *
-path_hash_parent(const struct path_hash *path_hash)
-{
-	return (struct path_hash *)(path_hash->parent_and_is_dot_dot
-				    & ~(uintptr_t)1);
-}
-
-static inline bool path_hash_is_dot_dot(const struct path_hash *path_hash)
-{
-	return path_hash->parent_and_is_dot_dot & 1;
-}
-
-/** Chunk of allocated @ref path_hash objects. See @ref path_hash_cache. */
-struct path_hash_chunk {
-	struct path_hash objects[(4096 - sizeof(struct path_hash_chunk *))
-				 / sizeof(struct path_hash)];
-	struct path_hash_chunk *next;
-};
-
-DEFINE_VECTOR(path_hash_vector, const struct path_hash *)
-
-struct lnp_entry_format {
-	uint64_t content_type;
-	uint64_t form;
-};
-
-static const struct lnp_entry_format dwarf4_directory_entry_formats[] = {
-	{ DW_LNCT_path, DW_FORM_string },
-};
-static const struct lnp_entry_format dwarf4_file_name_entry_formats[] = {
-	{ DW_LNCT_path, DW_FORM_string },
-	{ DW_LNCT_directory_index, DW_FORM_udata },
-	{ DW_LNCT_timestamp, DW_FORM_udata },
-	{ DW_LNCT_size, DW_FORM_udata },
-};
-
-/**
- * Cache of hashed file paths.
- *
- * This uses a bump allocator for @ref path_hash objects. @ref path_hash objects
- * are allocated sequentially out of a @ref path_hash_chunk; when a chunk is
- * exhausted, a new @ref path_hash_chunk is allocated from the heap. The
- * allocated chunks are kept and reused for each DWARF line number program; they
- * are freed at the end of the first indexing pass.
- *
- * This also caches the allocations for directory hashes and line number program
- * header entry formats.
- */
-struct path_hash_cache {
-	/** Next @ref path_hash object to be allocated. */
-	struct path_hash *next_object;
-	/** @ref path_hash_chunk currently being allocated from. */
-	struct path_hash_chunk *current_chunk;
-	/** First allocated @ref path_hash_chunk. */
-	struct path_hash_chunk *first_chunk;
-	/** Hashed directory paths. */
-	struct path_hash_vector directories;
-	/** Line number program header entry formats. */
-	struct lnp_entry_format *entry_formats;
-	/** Allocated size of @ref path_hash_cache::entry_formats. */
-	size_t entry_formats_capacity;
-};
-
-static struct path_hash *path_hash_alloc(struct path_hash_cache *cache)
-{
-	struct path_hash_chunk *current_chunk = cache->current_chunk;
-	if (cache->next_object <
-	    &current_chunk->objects[array_size(current_chunk->objects)])
-		return cache->next_object++;
-	struct path_hash_chunk *next_chunk = current_chunk->next;
-	if (!next_chunk) {
-		next_chunk = malloc(sizeof(*next_chunk));
-		if (!next_chunk)
-			return NULL;
-		next_chunk->next = NULL;
-		current_chunk->next = next_chunk;
-	}
-	cache->current_chunk = next_chunk;
-	cache->next_object = &next_chunk->objects[1];
-	return next_chunk->objects;
-}
-
-static inline bool is_dot_dot(const char *component, size_t component_len)
-{
-	return component_len == 2 && component[0] == '.' && component[1] == '.';
-}
-
-static const struct path_hash *hash_path(struct path_hash_cache *cache,
-					 const char *path,
-					 const struct path_hash *path_hash)
-{
-	const char *p = path;
-	if (*p == '/') {
-		path_hash = &absolute_path_hash;
-		p++;
-	}
-	while (*p != '\0') {
-		const char *component = p;
-		p = strchrnul(p, '/');
-		size_t component_len = p - component;
-		if (*p == '/')
-			p++;
-		if (component_len == 0 ||
-		    (component_len == 1 && component[0] == '.')) {
-		} else if (!is_dot_dot(component, component_len) ||
-			   path_hash == &empty_path_hash ||
-			   path_hash_is_dot_dot(path_hash)) {
-			struct path_hash *new_path_hash = path_hash_alloc(cache);
-			if (!new_path_hash)
-				return NULL;
-			new_path_hash->hash = path_hash->hash;
-			if (path_hash->parent_and_is_dot_dot != 0)
-				path_hash_update(new_path_hash, "/", 1);
-			path_hash_update(new_path_hash, component,
-					 component_len);
-			new_path_hash->parent_and_is_dot_dot =
-				((uintptr_t)path_hash |
-				 is_dot_dot(component, component_len));
-			path_hash = new_path_hash;
-		} else if (path_hash != &absolute_path_hash) {
-			path_hash = path_hash_parent(path_hash);
-		}
-	}
-	return path_hash;
-}
-
-static struct drgn_error *
-read_lnp_entry_formats(struct drgn_elf_file_section_buffer *buffer,
-		       struct path_hash_cache *cache, int *count_ret)
-{
-	struct drgn_error *err;
-	uint8_t count;
-	if ((err = binary_buffer_next_u8(&buffer->bb, &count)))
-		return err;
-	if (count > cache->entry_formats_capacity) {
-		free(cache->entry_formats);
-		cache->entry_formats = malloc_array(count,
-						    sizeof(cache->entry_formats[0]));
-		if (!cache->entry_formats) {
-			cache->entry_formats_capacity = 0;
-			return &drgn_enomem;
-		}
-		cache->entry_formats_capacity = count;
-	}
-	bool have_path = false;
-	for (int i = 0; i < count; i++) {
-		if ((err = binary_buffer_next_uleb128(&buffer->bb,
-						      &cache->entry_formats[i].content_type)))
-			return err;
-		if (cache->entry_formats[i].content_type == DW_LNCT_path)
-			have_path = true;
-		if ((err = binary_buffer_next_uleb128(&buffer->bb,
-						      &cache->entry_formats[i].form)))
-			return err;
-	}
-	if (!have_path) {
-		return binary_buffer_error(&buffer->bb,
-					   "DWARF line number program header entry does not include DW_LNCT_path");
-	}
-	*count_ret = count;
-	return NULL;
-}
-
-static struct drgn_error *skip_lnp_form(struct binary_buffer *bb,
-					bool is_64_bit, uint64_t form)
-{
-	struct drgn_error *err;
-	uint64_t skip;
-	switch (form) {
-	case DW_FORM_block:
-		if ((err = binary_buffer_next_uleb128(bb, &skip)))
-			return err;
-block:
-		return binary_buffer_skip(bb, skip);
-	case DW_FORM_block1:
-		if ((err = binary_buffer_next_u8_into_u64(bb, &skip)))
-			return err;
-		goto block;
-	case DW_FORM_block2:
-		if ((err = binary_buffer_next_u16_into_u64(bb, &skip)))
-			return err;
-		goto block;
-	case DW_FORM_block4:
-		if ((err = binary_buffer_next_u32_into_u64(bb, &skip)))
-			return err;
-		goto block;
-	case DW_FORM_data1:
-	case DW_FORM_flag:
-	case DW_FORM_strx1:
-		return binary_buffer_skip(bb, 1);
-	case DW_FORM_data2:
-	case DW_FORM_strx2:
-		return binary_buffer_skip(bb, 2);
-	case DW_FORM_strx3:
-		return binary_buffer_skip(bb, 3);
-	case DW_FORM_data4:
-	case DW_FORM_strx4:
-		return binary_buffer_skip(bb, 4);
-	case DW_FORM_data8:
-		return binary_buffer_skip(bb, 8);
-	case DW_FORM_data16:
-		return binary_buffer_skip(bb, 16);
-	case DW_FORM_line_strp:
-	case DW_FORM_sec_offset:
-	case DW_FORM_strp:
-		return binary_buffer_skip(bb, is_64_bit ? 8 : 4);
-	case DW_FORM_sdata:
-	case DW_FORM_strx:
-	case DW_FORM_udata:
-	case DW_FORM_GNU_str_index:
-		return binary_buffer_skip_leb128(bb);
-	case DW_FORM_string:
-		return binary_buffer_skip_string(bb);
-	default:
-		return binary_buffer_error(bb,
-					   "unknown attribute form %#" PRIx64 " for line number program",
-					   form);
-	}
-}
-
-static struct drgn_error *
-read_lnp_string(struct drgn_elf_file_section_buffer *buffer, bool is_64_bit,
-		uint64_t form, const char **ret)
-{
-	struct drgn_error *err;
-	uint64_t strp;
-	Elf_Data *data;
-	switch (form) {
-	case DW_FORM_string:
-		*ret = buffer->bb.pos;
-		return binary_buffer_skip_string(&buffer->bb);
-	case DW_FORM_line_strp:
-	case DW_FORM_strp:
-		if (is_64_bit)
-			err = binary_buffer_next_u64(&buffer->bb, &strp);
-		else
-			err = binary_buffer_next_u32_into_u64(&buffer->bb, &strp);
-		if (err)
-			return err;
-		data = buffer->file->scn_data[
-			form == DW_FORM_line_strp ?
-			DRGN_SCN_DEBUG_LINE_STR : DRGN_SCN_DEBUG_STR];
-		if (!data || strp >= data->d_size) {
-			return binary_buffer_error(&buffer->bb,
-						   "DW_LNCT_path is out of bounds");
-		}
-		*ret = (const char *)data->d_buf + strp;
-		return NULL;
-	default:
-		return binary_buffer_error(&buffer->bb,
-					   "unknown attribute form %#" PRIx64 " for DW_LNCT_path",
-					   form);
-	}
-}
-
-static struct drgn_error *
-read_lnp_directory_index(struct drgn_elf_file_section_buffer *buffer,
-			 uint64_t form, uint64_t *ret)
-{
-	switch (form) {
-	case DW_FORM_data1:
-		return binary_buffer_next_u8_into_u64(&buffer->bb, ret);
-	case DW_FORM_data2:
-		return binary_buffer_next_u16_into_u64(&buffer->bb, ret);
-	case DW_FORM_udata:
-		return binary_buffer_next_uleb128(&buffer->bb, ret);
-	default:
-		return binary_buffer_error(&buffer->bb,
-					   "unknown attribute form %#" PRIx64 " for DW_LNCT_directory_index",
-					   form);
-	}
-}
-
-static struct drgn_error *read_file_name_table(struct path_hash_cache *cache,
-					       struct drgn_dwarf_index_cu *cu,
-					       const char *comp_dir,
-					       size_t stmt_list)
-{
-	struct drgn_error *err;
-
-	struct drgn_elf_file_section_buffer buffer;
-	drgn_elf_file_section_buffer_init_index(&buffer, cu->file,
-						DRGN_SCN_DEBUG_LINE);
-	/* Checked in index_cu_first_pass(). */
-	buffer.bb.pos += stmt_list;
-
-	bool is_64_bit;
-	int version;
-	if ((err = read_lnp_header(&buffer, &is_64_bit, &version)))
-		return err;
-
-	cache->current_chunk = cache->first_chunk;
-	cache->next_object = cache->first_chunk->objects;
-	cache->directories.size = 0;
-
-	const struct lnp_entry_format *entry_formats;
-	int entry_format_count;
-	uint64_t entry_count = 0; /* For -Wmaybe-uninitialized. */
-	const struct path_hash *path_hash, *parent;
-	if (version >= 5) {
-		if ((err = read_lnp_entry_formats(&buffer, cache,
-						  &entry_format_count)))
-			return err;
-		entry_formats = cache->entry_formats;
-		if ((err = binary_buffer_next_uleb128(&buffer.bb,
-						      &entry_count)))
-			return err;
-		if (entry_count > SIZE_MAX ||
-		    !path_hash_vector_reserve(&cache->directories, entry_count))
-			return err;
-		parent = &empty_path_hash;
-	} else {
-		entry_formats = dwarf4_directory_entry_formats;
-		entry_format_count = array_size(dwarf4_directory_entry_formats);
-		path_hash = hash_path(cache, comp_dir, &empty_path_hash);
-		if (!path_hash ||
-		    !path_hash_vector_append(&cache->directories, &path_hash))
-			return &drgn_enomem;
-		parent = path_hash;
-	}
-
-	while (version < 5 || entry_count-- > 0) {
-		const char *path;
-		for (int j = 0; j < entry_format_count; j++) {
-			if (entry_formats[j].content_type == DW_LNCT_path) {
-				err = read_lnp_string(&buffer, is_64_bit,
-						      entry_formats[j].form,
-						      &path);
-				if (version < 5 && path[0] == '\0')
-					goto file_name_entries;
-			} else {
-				err = skip_lnp_form(&buffer.bb, is_64_bit,
-						    entry_formats[j].form);
-			}
-			if (err)
-				return err;
-		}
-		path_hash = hash_path(cache, path, parent);
-		if (!path_hash ||
-		    !path_hash_vector_append(&cache->directories, &path_hash))
-			return &drgn_enomem;
-		parent = cache->directories.data[0];
-	}
-
-file_name_entries:;
-	/*
-	 * File name 0 needs special treatment. In DWARF 2-4, file name entries
-	 * are numbered starting at 1, and a DW_AT_decl_file of 0 indicates that
-	 * no file was specified. In DWARF 5, file name entries are numbered
-	 * starting at 0, and entry 0 is the current compilation file name. The
-	 * DWARF 5 specification still states that a DW_AT_decl_file of 0
-	 * indicates that no file was specified, but some producers (including
-	 * Clang) and consumers (including elfutils and GDB) treat a
-	 * DW_AT_decl_file of 0 as specifying the current compilation file name,
-	 * so we do the same.
-	 *
-	 * So, for DWARF 5, we hash entry 0 as usual, and for DWARF 4, we insert
-	 * a placeholder for entry 0. If there are no file names at all, we keep
-	 * the no_file_name_hashes placeholder.
-	 */
-	struct uint64_vector file_name_hashes;
-	if (version >= 5) {
-		if ((err = read_lnp_entry_formats(&buffer, cache,
-						  &entry_format_count)))
-			return err;
-		entry_formats = cache->entry_formats;
-		if ((err = binary_buffer_next_uleb128(&buffer.bb,
-						      &entry_count)))
-			return err;
-		if (entry_count == 0)
-			return NULL;
-		if (entry_count > SIZE_MAX)
-			return &drgn_enomem;
-		uint64_vector_init(&file_name_hashes);
-		if (!uint64_vector_reserve(&file_name_hashes, entry_count)) {
-			err = &drgn_enomem;
-			goto err;
-		}
-	} else {
-		entry_formats = dwarf4_file_name_entry_formats;
-		entry_format_count = array_size(dwarf4_file_name_entry_formats);
-		uint64_vector_init(&file_name_hashes);
-	}
-
-	while (version < 5 || entry_count-- > 0) {
-		const char *path;
-		uint64_t directory_index = 0;
-		for (int j = 0; j < entry_format_count; j++) {
-			if (entry_formats[j].content_type == DW_LNCT_path) {
-				err = read_lnp_string(&buffer, is_64_bit,
-						      entry_formats[j].form,
-						      &path);
-				if (!err && version < 5) {
-					if (path[0] == '\0') {
-						if (file_name_hashes.size == 0) {
-							uint64_vector_deinit(&file_name_hashes);
-							return NULL;
-						}
-						goto done;
-					} else if (file_name_hashes.size == 0) {
-						uint64_t zero = 0;
-						if (!uint64_vector_append(&file_name_hashes,
-									  &zero)) {
-							err = &drgn_enomem;
-							goto err;
-						}
-					}
-				}
-			} else if (entry_formats[j].content_type ==
-				   DW_LNCT_directory_index) {
-				err = read_lnp_directory_index(&buffer,
-							       entry_formats[j].form,
-							       &directory_index);
-			} else {
-				err = skip_lnp_form(&buffer.bb, is_64_bit,
-						    entry_formats[j].form);
-			}
-			if (err)
-				goto err;
-		}
-
-		if (directory_index >= cache->directories.size) {
-			err = binary_buffer_error(&buffer.bb,
-						  "directory index %" PRIu64 " is invalid",
-						  directory_index);
-			goto err;
-		}
-		struct path_hash *prev_object = cache->next_object;
-		struct path_hash_chunk *prev_chunk = cache->current_chunk;
-		path_hash = hash_path(cache, path,
-				      cache->directories.data[directory_index]);
-		if (!path_hash ||
-		    !uint64_vector_append(&file_name_hashes, &path_hash->hash)) {
-			err = &drgn_enomem;
-			goto err;
-		}
-
-		/* "Free" the objects allocated for this file name. */
-		cache->next_object = prev_object;
-		cache->current_chunk = prev_chunk;
-	}
-
-done:
-	uint64_vector_shrink_to_fit(&file_name_hashes);
-	cu->file_name_hashes = file_name_hashes.data;
-	cu->num_file_names = file_name_hashes.size;
-	return NULL;
-
-err:
-	uint64_vector_deinit(&file_name_hashes);
-	return err;
 }
 
 static struct drgn_error *
