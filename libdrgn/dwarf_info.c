@@ -1247,7 +1247,32 @@ static struct drgn_error *read_cu(struct drgn_dwarf_index_cu_buffer *buffer)
 				      cu_header_extra_size(buffer->cu))))
 		return err;
 
-	return read_abbrev_table(buffer->cu, debug_abbrev_offset);
+	err = read_abbrev_table(buffer->cu, debug_abbrev_offset);
+	if (err)
+		return err;
+
+	Elf_Data *debug_str_offsets =
+		buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
+	if (debug_str_offsets) {
+		size_t str_offsets_base;
+		if (buffer->cu->version >= 5) {
+			// The default str_offsets_base is the first entry in
+			// .debug_str_offsets after the first header. (This
+			// isn't explicit in the DWARF 5 specification, but it
+			// seems to be the consensus.)
+			str_offsets_base = buffer->cu->is_64_bit ? 16 : 8;
+		} else {
+			// GNU Debug Fission doesn't have
+			// DW_AT_str_offsets_base; the base is always 0.
+			str_offsets_base = 0;
+		}
+		if (str_offsets_base <= debug_str_offsets->d_size) {
+			buffer->cu->str_offsets =
+				(char *)debug_str_offsets->d_buf
+				+ str_offsets_base;
+		}
+	}
+	return NULL;
 }
 
 static struct drgn_error *read_strx(struct drgn_dwarf_index_cu_buffer *buffer,
@@ -1255,7 +1280,7 @@ static struct drgn_error *read_strx(struct drgn_dwarf_index_cu_buffer *buffer,
 {
 	if (!buffer->cu->str_offsets) {
 		return binary_buffer_error(&buffer->bb,
-					   "string index without DW_AT_str_offsets_base");
+					   "string index without .debug_str_offsets section");
 	}
 	Elf_Data *debug_str_offsets =
 		buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
