@@ -2,12 +2,177 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "drgnpy.h"
+#include "../error.h"
 #include "../hash_table.h"
+#include "../log.h"
 #include "../program.h"
+#include "../string_builder.h"
 #include "../util.h"
 #include "../vector.h"
 
 DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq)
+
+static PyObject *percent_s;
+static PyObject *logger;
+static PyObject *logger_log;
+
+static void drgnpy_log_fn(struct drgn_program *prog, void *arg,
+			  enum drgn_log_level level, const char *format,
+			  va_list ap, struct drgn_error *err)
+{
+	struct string_builder sb = STRING_BUILDER_INIT;
+	if (!string_builder_vappendf(&sb, format, ap))
+		goto out;
+	if (err && !string_builder_append_error(&sb, err))
+		goto out;
+
+	PyGILState_STATE gstate = PyGILState_Ensure();
+	PyObject *ret = PyObject_CallFunction(logger_log, "iOs#",
+					      (level + 1) * 10, percent_s,
+					      sb.str ? sb.str : "",
+					      (Py_ssize_t)sb.len);
+	if (ret)
+		Py_DECREF(ret);
+	else
+		PyErr_WriteUnraisable(logger_log);
+	PyGILState_Release(gstate);
+
+out:
+	free(sb.str);
+}
+
+static int get_log_level(void)
+{
+	// We don't use getEffectiveLevel() because that doesn't take
+	// logging.disable() into account.
+	int level;
+	for (level = 0; level < DRGN_LOG_NONE; level++) {
+		PyObject *enabled = PyObject_CallMethod(logger, "isEnabledFor",
+							"i", (level + 1) * 10);
+		if (!enabled)
+			return -1;
+		int ret = PyObject_IsTrue(enabled);
+		Py_DECREF(enabled);
+		if (ret < 0)
+			return -1;
+		if (ret)
+			break;
+	}
+	return level;
+}
+
+// This is slightly heinous. We need to sync the Python log level with the
+// libdrgn log level, but the Python log level can change at any time, and there
+// is no API to be notified of this. So, we monkey patch logger._cache.clear()
+// to update the log level on every live program. This only works since CPython
+// commit 78c18a9b9a14 ("bpo-30962: Added caching to Logger.isEnabledFor()
+// (GH-2752)") (in v3.7), though. Before that, the best we can do is sync the
+// level at the time that the program is created.
+#if PY_VERSION_HEX >= 0x030700a1
+static int cached_log_level;
+static struct pyobjectp_set programs = HASH_TABLE_INIT;
+
+static int cache_log_level(void)
+{
+	int level = get_log_level();
+	if (level < 0)
+		return level;
+	cached_log_level = level;
+	return 0;
+}
+
+static PyObject *LoggerCacheWrapper_clear(PyObject *self)
+{
+	PyDict_Clear(self);
+	if (cache_log_level())
+		return NULL;
+	for (struct pyobjectp_set_iterator it = pyobjectp_set_first(&programs);
+	     it.entry; it = pyobjectp_set_next(it)) {
+		Program *prog = (Program *)*it.entry;
+		drgn_program_set_log_level(&prog->prog, cached_log_level);
+	}
+	Py_RETURN_NONE;
+}
+
+static PyMethodDef LoggerCacheWrapper_methods[] = {
+	{"clear", (PyCFunction)LoggerCacheWrapper_clear, METH_NOARGS},
+	{},
+};
+
+static PyTypeObject LoggerCacheWrapper_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn._LoggerCacheWrapper",
+	.tp_methods = LoggerCacheWrapper_methods,
+};
+
+static int init_logger_cache_wrapper(void)
+{
+	LoggerCacheWrapper_type.tp_base = &PyDict_Type;
+	if (PyType_Ready(&LoggerCacheWrapper_type))
+		return -1;
+	PyObject *cache_wrapper =
+		PyObject_CallFunction((PyObject *)&LoggerCacheWrapper_type,
+				      NULL);
+	if (!cache_wrapper)
+		return -1;
+	int r = PyObject_SetAttrString(logger, "_cache", cache_wrapper);
+	Py_DECREF(cache_wrapper);
+	if (r)
+		return r;
+
+	return cache_log_level();
+}
+
+static int Program_init_logging(Program *prog)
+{
+	PyObject *obj = (PyObject *)prog;
+	if (pyobjectp_set_insert(&programs, &obj, NULL) < 0)
+		return -1;
+	drgn_program_set_log_callback(&prog->prog, drgnpy_log_fn, NULL);
+	drgn_program_set_log_level(&prog->prog, cached_log_level);
+	return 0;
+}
+
+static void Program_deinit_logging(Program *prog)
+{
+	PyObject *obj = (PyObject *)prog;
+	pyobjectp_set_delete(&programs, &obj);
+}
+#else
+static int init_logger_cache_wrapper(void) { return 0; }
+
+static int Program_init_logging(Program *prog)
+{
+	int level = get_log_level();
+	if (level < 0)
+		return level;
+	drgn_program_set_log_callback(&prog->prog, drgnpy_log_fn, NULL);
+	drgn_program_set_log_level(&prog->prog, level);
+	return 0;
+}
+
+static void Program_deinit_logging(Program *prog) {}
+#endif
+
+int init_logging(void)
+{
+	percent_s = PyUnicode_InternFromString("%s");
+	if (!percent_s)
+		return -1;
+
+	PyObject *logging = PyImport_ImportModule("logging");
+	if (!logging)
+		return -1;
+	logger = PyObject_CallMethod(logging, "getLogger", "s", "drgn");
+	Py_DECREF(logging);
+	if (!logger)
+		return -1;
+	logger_log = PyObject_GetAttrString(logger, "log");
+	if (!logger_log)
+		return -1;
+
+	return init_logger_cache_wrapper();
+}
 
 int Program_hold_object(Program *prog, PyObject *obj)
 {
@@ -106,11 +271,16 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 	drgn_program_init(&prog->prog, platform);
 	drgn_program_set_blocking_callback(&prog->prog, drgnpy_begin_blocking,
 					   drgnpy_end_blocking, NULL);
+	if (Program_init_logging(prog)) {
+		Py_DECREF(prog);
+		return NULL;
+	}
 	return prog;
 }
 
 static void Program_dealloc(Program *self)
 {
+	Program_deinit_logging(self);
 	drgn_program_deinit(&self->prog);
 	for (struct pyobjectp_set_iterator it =
 	     pyobjectp_set_first(&self->objects); it.entry;
@@ -905,6 +1075,17 @@ static PyObject *Program_crashed_thread(Program *self)
 	return Thread_wrap(thread);
 }
 
+// Used for testing.
+static PyObject *Program__log(Program *self, PyObject *args, PyObject *kwds)
+{
+	int level;
+	const char *str;
+	if (!PyArg_ParseTuple(args, "is", &level, &str))
+		return NULL;
+	drgn_log(level, &self->prog, "%s", str);
+	Py_RETURN_NONE;
+}
+
 static DrgnObject *Program_subscript(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
@@ -1091,6 +1272,7 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_array_type_DOC},
 	{"function_type", (PyCFunction)Program_function_type,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_function_type_DOC},
+	{"_log", (PyCFunction)Program__log, METH_VARARGS},
 	{},
 };
 

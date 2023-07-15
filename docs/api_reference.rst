@@ -136,6 +136,12 @@ CLI
 
 .. drgndoc:: cli
 
+Logging
+-------
+
+drgn logs using the standard :mod:`logging` module to a logger named
+``"drgn"``.
+
 Thread Safety
 -------------
 

@@ -224,6 +224,7 @@ extern PyObject *ObjectAbsentError;
 extern PyObject *OutOfBoundsError;
 
 int add_module_constants(PyObject *m);
+int init_logging(void);
 
 bool set_drgn_in_python(void);
 void clear_drgn_in_python(void);
