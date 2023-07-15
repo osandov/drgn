@@ -8,6 +8,7 @@ import argparse
 import builtins
 import code
 import importlib
+import logging
 import os
 import os.path
 import pkgutil
@@ -22,6 +23,57 @@ from drgn.internal.rlcompleter import Completer
 
 __all__ = ("run_interactive", "version_header")
 
+logger = logging.getLogger("drgn")
+
+
+class _LogFormatter(logging.Formatter):
+    _LEVELS = (
+        (logging.DEBUG, "debug", "36"),
+        (logging.INFO, "info", "32"),
+        (logging.WARNING, "warning", "33"),
+        (logging.ERROR, "error", "31"),
+        (logging.CRITICAL, "critical", "31;1"),
+    )
+
+    def __init__(self, color: bool) -> None:
+        if color:
+            level_prefixes = {
+                level: f"\033[{level_color}m{level_name}:\033[0m"
+                for level, level_name, level_color in self._LEVELS
+            }
+        else:
+            level_prefixes = {
+                level: f"{level_name}:" for level, level_name, _ in self._LEVELS
+            }
+        default_prefix = "%(levelname)s:"
+
+        self._drgn_formatters = {
+            level: logging.Formatter(f"{prefix} %(message)s")
+            for level, prefix in level_prefixes.items()
+        }
+        self._default_drgn_formatter = logging.Formatter(
+            f"{default_prefix} %(message)s"
+        )
+
+        self._other_formatters = {
+            level: logging.Formatter(f"{prefix}%(name)s: %(message)s")
+            for level, prefix in level_prefixes.items()
+        }
+        self._default_other_formatter = logging.Formatter(
+            f"{default_prefix}%(name)s: %(message)s"
+        )
+
+    def format(self, record: logging.LogRecord) -> str:
+        if record.name == "drgn":
+            formatter = self._drgn_formatters.get(
+                record.levelno, self._default_drgn_formatter
+            )
+        else:
+            formatter = self._other_formatters.get(
+                record.levelno, self._default_other_formatter
+            )
+        return formatter.format(record)
+
 
 def version_header() -> str:
     """
@@ -35,6 +87,19 @@ def version_header() -> str:
     python_version = ".".join(str(v) for v in sys.version_info[:3])
     libkdumpfile = f'with{"" if drgn._with_libkdumpfile else "out"} libkdumpfile'
     return f"drgn {drgn.__version__} (using Python {python_version}, elfutils {drgn._elfutils_version}, {libkdumpfile})"
+
+
+class _QuietAction(argparse.Action):
+    def __init__(
+        self, option_strings: Any, dest: Any, nargs: Any = 0, **kwds: Any
+    ) -> None:
+        super().__init__(option_strings, dest, nargs=nargs, **kwds)
+
+    def __call__(
+        self, parser: Any, namespace: Any, values: Any, option_string: Any = None
+    ) -> None:
+        setattr(namespace, self.dest, True)
+        namespace.log_level = "none"
 
 
 def _identify_script(path: str) -> str:
@@ -91,6 +156,12 @@ def _displayhook(value: Any) -> None:
 
 
 def _main() -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        _LogFormatter(hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno()))
+    )
+    logging.getLogger().addHandler(handler)
+
     version = version_header()
     parser = argparse.ArgumentParser(prog="drgn", description="Programmable debugger")
 
@@ -138,11 +209,16 @@ def _main() -> None:
     )
 
     parser.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error", "critical", "none"],
+        default="warning",
+        help="log messages of at least the given level to standard error (default: warning)",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
-        action="store_true",
-        help="don't print download progress or non-fatal warnings "
-        "(e.g., about missing debugging information)",
+        action=_QuietAction,
+        help="don't print any logs or download progress",
     )
     parser.add_argument(
         "script",
@@ -173,8 +249,13 @@ def _main() -> None:
             sys.exit(f"error: {args.script[0]} is a binary, not a drgn script")
     else:
         print(version, file=sys.stderr, flush=True)
+
     if not args.quiet:
         os.environ["DEBUGINFOD_PROGRESS"] = "1"
+    if args.log_level == "none":
+        logger.setLevel(logging.CRITICAL + 1)
+    else:
+        logger.setLevel(args.log_level.upper())
 
     prog = drgn.Program()
     try:
@@ -205,33 +286,19 @@ def _main() -> None:
 
     if args.default_symbols is None:
         args.default_symbols = {"default": True, "main": True}
-    missing_debug_info_warning = None
     try:
         prog.load_debug_info(args.symbols, **args.default_symbols)
     except drgn.MissingDebugInfoError as e:
-        if not args.quiet:
-            prefix = "warning:"
-            if hasattr(sys.stderr, "fileno") and os.isatty(sys.stderr.fileno()):
-                prefix = f"\033[33m{prefix}\033[0m"
-            missing_debug_info_warning = f"{prefix} {e}"
+        logger.warning("%s", e)
 
     if args.script:
         sys.argv = args.script
         script = args.script[0]
         if pkgutil.get_importer(script) is None:
             sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
-        if missing_debug_info_warning is not None:
-            print(missing_debug_info_warning, file=sys.stderr)
         runpy.run_path(script, init_globals={"prog": prog}, run_name="__main__")
     else:
-
-        def banner_func(banner: str) -> str:
-            if missing_debug_info_warning is not None:
-                return f"{banner}\n{missing_debug_info_warning}"
-            else:
-                return banner
-
-        run_interactive(prog, banner_func=banner_func, quiet=args.quiet)
+        run_interactive(prog)
 
 
 def run_interactive(
@@ -255,7 +322,7 @@ def run_interactive(
     :param globals_func: Optional function to modify globals provided to the
         session. Called with a dictionary of default globals, and must return a
         dictionary to use instead.
-    :param quiet: Whether to suppress non-fatal warnings.
+    :param quiet: Ignored. Will be removed in the future.
 
     .. note::
 
@@ -318,8 +385,8 @@ For help, type help(drgn).
         try:
             readline.read_history_file(histfile)
         except OSError as e:
-            if not isinstance(e, FileNotFoundError) and not quiet:
-                print("could not read history:", str(e), file=sys.stderr)
+            if not isinstance(e, FileNotFoundError):
+                logger.warning("could not read history: %s", e)
 
         readline.set_history_length(1000)
         readline.parse_and_bind("tab: complete")
@@ -334,8 +401,7 @@ For help, type help(drgn).
             try:
                 readline.write_history_file(histfile)
             except OSError as e:
-                if not quiet:
-                    print("could not write history:", str(e), file=sys.stderr)
+                logger.warning("could not write history: %s", e)
     finally:
         sys.displayhook = old_displayhook
         sys.path[:] = old_path
