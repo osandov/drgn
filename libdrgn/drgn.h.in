@@ -18,6 +18,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
@@ -236,6 +237,15 @@ struct drgn_error *drgn_error_format_fault(uint64_t address,
  */
 struct drgn_error *drgn_error_copy(struct drgn_error *src)
 	__attribute__((__returns_nonnull__));
+
+/**
+ * Return a string representation of a @ref drgn_error.
+ *
+ * @param[in] err Error to write.
+ * @return Returned string, or @c NULL if memory could not be allocated. On
+ * success, must be freed with @c free().
+ */
+char *drgn_error_string(struct drgn_error *err);
 
 /**
  * Write a @ref drgn_error followed by a newline to a @c stdio stream.
@@ -919,6 +929,91 @@ struct drgn_element_info {
 struct drgn_error *drgn_program_element_info(struct drgn_program *prog,
 					     struct drgn_type *type,
 					     struct drgn_element_info *ret);
+
+/** @} */
+
+/**
+ * @defgroup Logging Logging
+ *
+ * Logging configuration.
+ *
+ * drgn can log to a file (@ref drgn_program_set_log_file()) or an arbitrary
+ * callback (@ref drgn_program_set_log_callback()). Messages can be filtered
+ * based on the log level (@ref drgn_program_set_log_level()).
+ *
+ * By default, the log file is set to `stderr` and the log level is @ref
+ * DRGN_LOG_NONE, so logging is disabled.
+ *
+ * @{
+ */
+
+/** Log levels. */
+enum drgn_log_level {
+	DRGN_LOG_DEBUG = 0,
+	DRGN_LOG_INFO = 1,
+	DRGN_LOG_WARNING = 2,
+	DRGN_LOG_ERROR = 3,
+	DRGN_LOG_CRITICAL = 4,
+};
+/** Don't log anything. */
+#define DRGN_LOG_NONE (DRGN_LOG_CRITICAL + 1)
+
+/**
+ * Set the minimum log level.
+ *
+ * Messages below this level will not be logged.
+ *
+ * @param[in] level Minimum @ref drgn_log_level to log, or @ref DRGN_LOG_NONE to
+ * disable logging.
+ */
+void drgn_program_set_log_level(struct drgn_program *prog, int level);
+
+/**
+ * Get the minimum log level.
+ *
+ * @return Minimum @ref drgn_log_level being logged, or @ref DRGN_LOG_NONE if
+ * logging is disabled.
+ */
+int drgn_program_get_log_level(struct drgn_program *prog);
+
+/** Write logs to the given file. */
+void drgn_program_set_log_file(struct drgn_program *prog, FILE *file);
+
+/**
+ * Log callback.
+ *
+ * @param[in] prog Program message was logged to.
+ * @param[in] arg `callback_arg` passed to @ref drgn_program_set_log_callback().
+ * @param[in] level Message level.
+ * @param[in] format printf-style format of message.
+ * @param[in] ap Arguments for @p format.
+ * @param[in] err Error to append after formatted message if non-@c NULL. This
+ * can be formatted with @ref drgn_error_string(), @ref drgn_error_fwrite(), or
+ * @ref drgn_error_dwrite().
+ */
+typedef void drgn_log_fn(struct drgn_program *prog, void *arg,
+			 enum drgn_log_level level, const char *format,
+			 va_list ap, struct drgn_error *err);
+
+/**
+ * Set a callback to log to.
+ *
+ * @param[in] callback Callback to call for each log message. This is only
+ * called if the message's level is at least the current log level.
+ * @param[in] callback_arg Argument to pass to callback.
+ */
+void drgn_program_set_log_callback(struct drgn_program *prog,
+				   drgn_log_fn *callback, void *callback_arg);
+
+/**
+ * Get the current log callback.
+ *
+ * @param[out] callback_ret Returned callback.
+ * @param[out] callback_arg_ret Returned callback argument.
+ */
+void drgn_program_get_log_callback(struct drgn_program *prog,
+				   drgn_log_fn **callback_ret,
+				   void **callback_arg_ret);
 
 /** @} */
 

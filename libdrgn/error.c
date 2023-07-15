@@ -225,6 +225,16 @@ bool string_builder_append_error(struct string_builder *sb,
 #undef emit_error_format
 }
 
+LIBDRGN_PUBLIC char *drgn_error_string(struct drgn_error *err)
+{
+	char *tmp;
+#define emit_error_format(...) (asprintf(&tmp, __VA_ARGS__) < 0 ? NULL : tmp)
+#define emit_error_string(s) strdup(s)
+	return emit_error(err);
+#undef emit_error_string
+#undef emit_error_format
+}
+
 LIBDRGN_PUBLIC int drgn_error_fwrite(FILE *file, struct drgn_error *err)
 {
 #define emit_error_format(format, ...) fprintf(file, format "\n", __VA_ARGS__)

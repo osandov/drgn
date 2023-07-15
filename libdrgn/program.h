@@ -187,6 +187,13 @@ struct drgn_program {
 	bool direct_mapping_offset_cached;
 
 	/*
+	 * Logging.
+	 */
+	drgn_log_fn *log_fn;
+	void *log_arg;
+	enum drgn_log_level log_level;
+
+	/*
 	 * Blocking callbacks.
 	 */
 	drgn_program_begin_blocking_fn *begin_blocking_fn;
