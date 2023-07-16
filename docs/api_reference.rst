@@ -135,3 +135,10 @@ CLI
 ---
 
 .. drgndoc:: cli
+
+Thread Safety
+-------------
+
+Only one thread at a time should access the same :class:`Program` (including
+:class:`Object`, :class:`Type`, :class:`StackTrace`, etc. from that program).
+It is safe to use different :class:`Program`\ s from concurrent threads.

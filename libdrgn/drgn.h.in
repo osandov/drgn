@@ -25,11 +25,18 @@
 /**
  * @mainpage
  *
- * libdrgn provides the functionality of the <a
- * href="https://github.com/osandov/drgn">drgn</a> programmable debugger as a
- * library. It implements the main drgn abstractions: @ref Programs, @ref Types,
- * and @ref Objects. See <a href="modules.html">Modules</a> for detailed
+ * libdrgn provides the functionality of the
+ * [drgn](https://github.com/osandov/drgn) programmable debugger as a library.
+ * It implements the main drgn abstractions: @ref Programs, @ref Types, @ref
+ * Objects, and @ref StackTraces. See [Modules](modules.html) for detailed
  * documentation.
+ *
+ * @subsection ThreadSafety Thread Safety
+ *
+ * Only one thread at a time should access the same @ref drgn_program (including
+ * @ref drgn_object, @ref drgn_type, @ref drgn_stack_trace, etc. from that
+ * program). It is safe to use different @ref drgn_program%s from concurrent
+ * threads.
  */
 
 /** Major version of drgn. */
