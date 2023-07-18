@@ -684,6 +684,7 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 	if (!n && !load_default && !load_main)
 		return NULL;
 
+	drgn_blocking_guard(prog);
 	struct drgn_debug_info *dbinfo = prog->dbinfo;
 	if (!dbinfo) {
 		err = drgn_debug_info_create(prog, &dbinfo);

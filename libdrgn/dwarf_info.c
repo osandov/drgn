@@ -2946,6 +2946,7 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 	if (ns->saved_err)
 		return drgn_error_copy(ns->saved_err);
 
+	drgn_blocking_guard(ns->dbinfo->prog);
 	if (!drgn_namespace_dwarf_index_alloc_shards(ns))
 		return &drgn_enomem;
 
