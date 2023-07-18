@@ -62,6 +62,16 @@ int Program_type_arg(Program *prog, PyObject *type_obj, bool can_be_none,
 	return 0;
 }
 
+static void *drgnpy_begin_blocking(struct drgn_program *prog, void *arg)
+{
+	return PyEval_SaveThread();
+}
+
+static void drgnpy_end_blocking(struct drgn_program *prog, void *arg, void *state)
+{
+	PyEval_RestoreThread(state);
+}
+
 static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 			    PyObject *kwds)
 {
@@ -94,6 +104,8 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 	prog->cache = cache;
 	pyobjectp_set_init(&prog->objects);
 	drgn_program_init(&prog->prog, platform);
+	drgn_program_set_blocking_callback(&prog->prog, drgnpy_begin_blocking,
+					   drgnpy_end_blocking, NULL);
 	return prog;
 }
 
