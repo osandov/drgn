@@ -1806,6 +1806,12 @@ drgn_module_find_files(struct drgn_debug_info_load_state *load,
 	const char *debug_file_path;
 	dwfl_module_info(module->dwfl_module, NULL, NULL, NULL, NULL, NULL,
 			 &loaded_file_path, &debug_file_path);
+	// If the loaded file also has debugging information, debug_file_path is
+	// NULL. (debug_file_path is also NULL if libdwfl got the debug file
+	// from debuginfod, so this isn't 100% correct, but it'll at least
+	// identify the module.)
+	if (!debug_file_path)
+		debug_file_path = loaded_file_path;
 
 	module->debug_file_bias = debug_file_bias;
 	err = drgn_elf_file_create(module, debug_file_path, dwarf_getelf(dwarf),
