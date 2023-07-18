@@ -1164,7 +1164,7 @@ static size_t cu_header_extra_size(struct drgn_dwarf_index_cu *cu)
 	case DW_UT_skeleton:
 	case DW_UT_split_compile:
 		/* dwo_id */
-		return 8;
+		return cu->version >= 5 ? 8 : 0;
 	case DW_UT_type:
 	case DW_UT_split_type:
 		/* type_signature and type_offset */
