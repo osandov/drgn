@@ -923,6 +923,70 @@ struct drgn_error *drgn_program_element_info(struct drgn_program *prog,
 /** @} */
 
 /**
+ * @defgroup Embedding Embedding
+ *
+ * Embedding drgn in another runtime.
+ *
+ * @{
+ */
+
+/**
+ * Callback before a blocking operation.
+ *
+ * @param[in] arg @c callback_arg passed to @ref
+ * drgn_program_set_blocking_callback().
+ * @return Opaque pointer to pass to @ref drgn_program_end_blocking_fn().
+ */
+typedef void *drgn_program_begin_blocking_fn(struct drgn_program *prog,
+					     void *arg);
+
+/**
+ * Callback after a blocking operation.
+ *
+ * @param[in] arg @c callback_arg passed to @ref
+ * drgn_program_set_blocking_callback().
+ * @param[in] state Return value of @ref drgn_program_begin_blocking_fn().
+ */
+typedef void drgn_program_end_blocking_fn(struct drgn_program *prog,
+					  void *arg, void *state);
+
+/**
+ * Set callbacks around blocking operations.
+ *
+ * These callbacks will be called around blocking I/O operations and
+ * long-running computations. They are intended for things like releasing the
+ * [global interpreter
+ * lock](https://docs.python.org/3/glossary.html#term-global-interpreter-lock).
+ *
+ * @param[in] begin_callback Callback called before a blocking operation. Can be
+ * @c NULL to unset.
+ * @param[in] end_callback Callback called after a blocking operation. Can be @c
+ * NULL to unset.
+ * @param[in] callback_arg Argument passed to @p begin_callback and @p
+ * end_callback.
+ */
+void
+drgn_program_set_blocking_callback(struct drgn_program *prog,
+				   drgn_program_begin_blocking_fn *begin_callback,
+				   drgn_program_end_blocking_fn *end_callback,
+				   void *callback_arg);
+
+/**
+ * Get callbacks set by @ref drgn_program_set_blocking_callback().
+ *
+ * @param[out] begin_callback_ret Returned @c begin_callback.
+ * @param[out] end_callback_ret Returned @c end_callback.
+ * @param[out] callback_arg_ret Returned @c callback_arg.
+ */
+void
+drgn_program_get_blocking_callback(struct drgn_program *prog,
+				   drgn_program_begin_blocking_fn **begin_callback_ret,
+				   drgn_program_end_blocking_fn **end_callback_ret,
+				   void **callback_arg_ret);
+
+/** @} */
+
+/**
  * @defgroup Objects Objects
  *
  * Objects in a program.
