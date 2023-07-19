@@ -36,6 +36,7 @@ Table of Contents
     advanced_usage
     api_reference
     helpers
+    support_matrix
     case_studies
     getting_debugging_symbols
     release_highlights

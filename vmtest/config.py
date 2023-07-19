@@ -10,11 +10,8 @@ from typing import Dict, Mapping, NamedTuple, Sequence
 
 from util import NORMALIZED_MACHINE_NAME
 
-# Kernel versions that we run tests on and therefore support. We always support
-# the current mainline, stable, and longterm versions from kernel.org (although
-# there may be some delay before a new mainline version is fully supported). We
-# keep support for EOL versions until it becomes too difficult to do so.
-# Anything else is not tested and therefore best-effort.
+# Kernel versions that we run tests on and therefore support. Keep this in sync
+# with docs/support_matrix.rst.
 SUPPORTED_KERNEL_VERSIONS = (
     "6.5",
     "6.4",
