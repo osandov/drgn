@@ -115,7 +115,7 @@ async def fetch_kernel_tags(kernel_dir: Path, kernel_tags: Sequence[str]) -> Non
         else:
             mainline_tags.append(tag)
 
-    for (name, url, tags) in (
+    for name, url, tags in (
         ("mainline", LINUX_GIT_URL, mainline_tags),
         ("stable", STABLE_LINUX_GIT_URL, stable_tags),
     ):
