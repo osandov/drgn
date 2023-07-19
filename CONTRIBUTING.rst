@@ -49,7 +49,6 @@ Coding Guidelines
 * Core functionality should be implemented in ``libdrgn`` and exposed to Python
   via the `C extension <libdrgn/python>`_. Only the CLI and helpers should be
   in pure Python.
-* Linux kernel helpers should work on all supported kernels if possible.
 
 C
 ^
@@ -106,6 +105,61 @@ and `isort <https://github.com/PyCQA/isort>`_ and checked with `flake8
 
 Type hints should be provided for all interfaces (including helpers and the C
 extension).
+
+Linux Kernel Helpers
+^^^^^^^^^^^^^^^^^^^^
+
+Linux kernel helpers should work on all `supported kernels
+<https://drgn.readthedocs.io/en/latest/support_matrix.html#linux-kernel-versions>`_
+if possible. This may require handling changes between kernel releases.
+
+* Do NOT check the kernel version number to do this; Linux distributions often
+  backport changes without updating the version number. Instead, use the
+  presence or absence of variables, types, structure members, etc.
+* Optimize for the latest kernel release, and follow "easier to ask for
+  forgiveness than permission" (`EAFP
+  <https://docs.python.org/3/glossary.html#term-EAFP>`_). For example, assume
+  that a structure member from the latest release exists and catch the
+  exception if it doesn't.
+* Reference the diverging commit and version number in the format ``Linux
+  kernel commit $abbreviated_commit_hash "$commit_subject" (in
+  v$kernel_version)``.
+
+  For example:
+
+  .. code-block:: python3
+
+      # Since Linux kernel commit 2f064a59a11f ("sched: Change
+      # task_struct::state") (in v5.14), the task state is named "__state".
+      # Before that, it is named "state".
+      try:
+          return task.__state
+      except AttributeError:
+          return task.state
+
+  NOT:
+
+  .. code-block:: python3
+
+      # BAD
+      if hasattr(task, "state"):
+          return task.state
+      else:
+          return task.__state
+
+* Document the expected C types of arguments and return values. For example:
+
+  .. code-block:: python3
+
+      def cgroup_parent(cgrp: Object) -> Object:
+          """
+          Return the parent cgroup of the given cgroup if it exists, ``NULL``
+          otherwise.
+
+          :param cgrp: ``struct cgroup *``
+          :return: ``struct cgroup *``
+          """
+          ...
 
 pre-commit
 ^^^^^^^^^^
