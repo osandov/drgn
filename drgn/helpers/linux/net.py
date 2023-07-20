@@ -29,6 +29,7 @@ __all__ = (
     "netdev_priv",
     "sk_fullsock",
     "sk_nulls_for_each",
+    "skb_shinfo",
 )
 
 
@@ -240,3 +241,22 @@ def sk_nulls_for_each(head: Object) -> Iterator[Object]:
         "struct sock", head, "__sk_common.skc_nulls_node"
     ):
         yield sk
+
+
+def skb_shinfo(skb: Object) -> Object:
+    """
+    Get the shared info for a socket buffer.
+
+    :param skb: ``struct sk_buff *``
+    :return: ``struct skb_shared_info *``
+    """
+    prog = skb.prog_
+    try:
+        NET_SKBUFF_DATA_USES_OFFSET = prog.cache["NET_SKBUFF_DATA_USES_OFFSET"]
+    except KeyError:
+        NET_SKBUFF_DATA_USES_OFFSET = sizeof(prog.type("long")) > 4
+        prog.cache["NET_SKBUFF_DATA_USES_OFFSET"] = NET_SKBUFF_DATA_USES_OFFSET
+    if NET_SKBUFF_DATA_USES_OFFSET:
+        return cast("struct skb_shared_info *", skb.head + skb.end)
+    else:
+        return cast("struct skb_shared_info *", skb.end)

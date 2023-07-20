@@ -21,6 +21,7 @@
 #include <linux/radix-tree.h>
 #include <linux/rbtree.h>
 #include <linux/rbtree_augmented.h>
+#include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/version.h>
 #include <linux/vmalloc.h>
@@ -194,6 +195,8 @@ static void drgn_test_mm_exit(void)
 
 struct net_device *drgn_test_netdev;
 void *drgn_test_netdev_priv;
+struct sk_buff *drgn_test_skb;
+struct skb_shared_info *drgn_test_skb_shinfo;
 
 static int drgn_test_net_init(void)
 {
@@ -203,11 +206,16 @@ static int drgn_test_net_init(void)
 	// The loopback device doesn't actually have private data, but we just
 	// need to compare the pointer.
 	drgn_test_netdev_priv = netdev_priv(drgn_test_netdev);
+	drgn_test_skb = alloc_skb(64, GFP_KERNEL);
+	if (!drgn_test_skb)
+		return -ENOMEM;
+	drgn_test_skb_shinfo = skb_shinfo(drgn_test_skb);
 	return 0;
 }
 
 static void drgn_test_net_exit(void)
 {
+	kfree_skb(drgn_test_skb);
 	dev_put(drgn_test_netdev);
 }
 

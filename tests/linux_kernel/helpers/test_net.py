@@ -19,6 +19,7 @@ from drgn.helpers.linux.net import (
     netdev_get_by_name,
     netdev_priv,
     sk_fullsock,
+    skb_shinfo,
 )
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
@@ -114,3 +115,9 @@ class TestNet(LinuxKernelTestCase):
             sock = SOCKET_I(fget(self.task, skt.fileno()).f_inode)
             inode = SOCK_INODE(sock)
             self.assertEqual(inode.i_mode & _S_IFMT, _S_IFSOCK)
+
+    @skip_unless_have_test_kmod
+    def test_skb_shinfo(self):
+        self.assertEqual(
+            skb_shinfo(self.prog["drgn_test_skb"]), self.prog["drgn_test_skb_shinfo"]
+        )
