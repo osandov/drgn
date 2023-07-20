@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "cfi.h"
+#include "cleanup.h"
 #include "debug_info.h"
 #include "drgn.h"
 #include "dwarf_constants.h"
@@ -377,15 +378,13 @@ drgn_stack_frame_symbol(struct drgn_stack_trace *trace, size_t frame,
 		regs->module ? regs->module->dwfl_module : NULL;
 	if (!dwfl_module)
 		return drgn_error_symbol_not_found(pc.value);
-	struct drgn_symbol *sym = malloc(sizeof(*sym));
+	_cleanup_free_ struct drgn_symbol *sym = malloc(sizeof(*sym));
 	if (!sym)
 		return &drgn_enomem;
 	if (!drgn_program_find_symbol_by_address_internal(trace->prog, pc.value,
-							  dwfl_module, sym)) {
-		free(sym);
+							  dwfl_module, sym))
 		return drgn_error_symbol_not_found(pc.value);
-	}
-	*ret = sym;
+	*ret = no_cleanup_ptr(sym);
 	return NULL;
 }
 

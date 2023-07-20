@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "array.h"
+#include "cleanup.h"
 #include "error.h"
 #include "hash_table.h"
 #include "language.h"
@@ -347,17 +348,15 @@ static struct drgn_error *find_or_create_type(struct drgn_type *key,
 		return NULL;
 	}
 
-	struct drgn_type *type = malloc(sizeof(*type));
+	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
 	if (!type)
 		return &drgn_enomem;
 
 	*type = *key;
 	if (drgn_dedupe_type_set_insert_searched(&prog->dedupe_types, &type, hp,
-						 NULL) < 0) {
-		free(type);
+						 NULL) < 0)
 		return &drgn_enomem;
-	}
-	*ret = type;
+	*ret = no_cleanup_ptr(type);
 	return NULL;
 }
 
@@ -608,13 +607,9 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 		return err;
 	}
 
-	struct drgn_type *type = malloc(sizeof(*type));
-	if (!type)
+	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
+	if (!type || !drgn_typep_vector_append(&prog->created_types, &type))
 		return &drgn_enomem;
-	if (!drgn_typep_vector_append(&prog->created_types, &type)) {
-		free(type);
-		return &drgn_enomem;
-	}
 
 	drgn_type_member_vector_shrink_to_fit(&builder->members);
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
@@ -632,7 +627,7 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 		builder->template_builder.parameters.size;
 	type->_private.program = prog;
 	type->_private.language = lang ? lang : drgn_program_language(prog);
-	*ret = type;
+	*ret = no_cleanup_ptr(type);
 	return NULL;
 }
 
@@ -712,13 +707,10 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 		return err;
 	}
 
-	struct drgn_type *type = malloc(sizeof(*type));
-	if (!type)
+	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
+	if (!type ||
+	    !drgn_typep_vector_append(&builder->prog->created_types, &type))
 		return &drgn_enomem;
-	if (!drgn_typep_vector_append(&builder->prog->created_types, &type)) {
-		free(type);
-		return &drgn_enomem;
-	}
 
 	drgn_type_enumerator_vector_shrink_to_fit(&builder->enumerators);
 
@@ -733,7 +725,7 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 	type->_private.program = builder->prog;
 	type->_private.language =
 		lang ? lang : drgn_program_language(builder->prog);
-	*ret = type;
+	*ret = no_cleanup_ptr(type);
 	return NULL;
 }
 
@@ -945,13 +937,9 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 		return err;
 	}
 
-	struct drgn_type *type = malloc(sizeof(*type));
-	if (!type)
+	_cleanup_free_ struct drgn_type *type = malloc(sizeof(*type));
+	if (!type ||!drgn_typep_vector_append(&prog->created_types, &type))
 		return &drgn_enomem;
-	if (!drgn_typep_vector_append(&prog->created_types, &type)) {
-		free(type);
-		return &drgn_enomem;
-	}
 
 	drgn_type_parameter_vector_shrink_to_fit(&builder->parameters);
 	drgn_type_template_parameter_vector_shrink_to_fit(&builder->template_builder.parameters);
@@ -970,7 +958,7 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 		builder->template_builder.parameters.size;
 	type->_private.program = prog;
 	type->_private.language = lang ? lang : drgn_program_language(prog);
-	*ret = type;
+	*ret = no_cleanup_ptr(type);
 	return NULL;
 }
 
