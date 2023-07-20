@@ -17,10 +17,15 @@ from drgn.helpers.linux.net import (
     netdev_for_each_tx_queue,
     netdev_get_by_index,
     netdev_get_by_name,
+    netdev_priv,
     sk_fullsock,
 )
 from drgn.helpers.linux.pid import find_task
-from tests.linux_kernel import LinuxKernelTestCase, create_socket
+from tests.linux_kernel import (
+    LinuxKernelTestCase,
+    create_socket,
+    skip_unless_have_test_kmod,
+)
 
 
 class TestNet(LinuxKernelTestCase):
@@ -47,6 +52,19 @@ class TestNet(LinuxKernelTestCase):
         for index, name in socket.if_nameindex():
             netdev = netdev_get_by_name(self.net, name)
             self.assertEqual(netdev.ifindex, index)
+
+    @skip_unless_have_test_kmod
+    def test_netdev_get_by_name_init_net(self):
+        self.assertEqual(
+            netdev_get_by_name(self.prog, "lo"), self.prog["drgn_test_netdev"]
+        )
+
+    @skip_unless_have_test_kmod
+    def test_netdev_priv(self):
+        self.assertEqual(
+            netdev_priv(self.prog["drgn_test_netdev"]),
+            self.prog["drgn_test_netdev_priv"],
+        )
 
     def test_for_each_net(self):
         self.assertIn(self.prog["init_net"].address_of_(), for_each_net(self.prog))

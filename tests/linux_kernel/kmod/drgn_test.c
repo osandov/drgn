@@ -17,6 +17,7 @@
 #include <linux/llist.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/netdevice.h>
 #include <linux/radix-tree.h>
 #include <linux/rbtree.h>
 #include <linux/rbtree_augmented.h>
@@ -189,6 +190,26 @@ static void drgn_test_mm_exit(void)
 		__free_pages(drgn_test_page, 0);
 }
 
+// net
+
+struct net_device *drgn_test_netdev;
+void *drgn_test_netdev_priv;
+
+static int drgn_test_net_init(void)
+{
+	drgn_test_netdev = dev_get_by_name(&init_net, "lo");
+	if (!drgn_test_netdev)
+		return -ENODEV;
+	// The loopback device doesn't actually have private data, but we just
+	// need to compare the pointer.
+	drgn_test_netdev_priv = netdev_priv(drgn_test_netdev);
+	return 0;
+}
+
+static void drgn_test_net_exit(void)
+{
+	dev_put(drgn_test_netdev);
+}
 
 // percpu
 
@@ -829,6 +850,7 @@ static void drgn_test_exit(void)
 	drgn_test_slab_exit();
 	drgn_test_percpu_exit();
 	drgn_test_mm_exit();
+	drgn_test_net_exit();
 	drgn_test_stack_trace_exit();
 	drgn_test_radix_tree_exit();
 	drgn_test_xarray_exit();
@@ -842,6 +864,9 @@ static int __init drgn_test_init(void)
 	drgn_test_list_init();
 	drgn_test_llist_init();
 	ret = drgn_test_mm_init();
+	if (ret)
+		goto out;
+	ret = drgn_test_net_init();
 	if (ret)
 		goto out;
 	ret = drgn_test_percpu_init();
