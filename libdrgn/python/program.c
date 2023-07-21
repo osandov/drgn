@@ -354,6 +354,10 @@ out:
 	return err;
 }
 
+static const struct drgn_memory_ops segment_py_ops = {
+	.read_fn = py_memory_read_fn,
+};
+
 static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 					    PyObject *kwds)
 {
@@ -381,7 +385,7 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 	if (Program_hold_object(self, read_fn) == -1)
 		return NULL;
 	err = drgn_program_add_memory_segment(&self->prog, address.uvalue,
-					      size.uvalue, py_memory_read_fn,
+					      size.uvalue, &segment_py_ops,
 					      read_fn, physical);
 	if (err)
 		return set_drgn_error(err);

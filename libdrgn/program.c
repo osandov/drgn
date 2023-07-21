@@ -170,10 +170,9 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 	}
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
-				uint64_t size, drgn_memory_read_fn read_fn,
-				void *arg, bool physical)
+LIBDRGN_PUBLIC struct drgn_error *drgn_program_add_memory_segment(
+	struct drgn_program *prog, uint64_t address, uint64_t size,
+	const struct drgn_memory_ops *ops, void *arg, bool physical)
 {
 	uint64_t address_mask;
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
@@ -183,7 +182,7 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 		return NULL;
 	uint64_t max_address = address + min(size - 1, address_mask - address);
 	return drgn_memory_reader_add_segment(&prog->reader, address,
-					      max_address, read_fn, arg,
+					      max_address, ops, arg,
 					      physical);
 }
 
@@ -401,7 +400,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		 * page table.
 		 */
 		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
-						      read_memory_via_pgtable,
+						      &segment_pgtable_ops,
 						      prog, false);
 		if (err)
 			goto out_segments;
@@ -457,7 +456,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->file_segments[j].zerofill = vmcoreinfo_note && !is_proc_kcore;
 		err = drgn_program_add_memory_segment(prog, phdr->p_vaddr,
 						      phdr->p_memsz,
-						      drgn_read_memory_file,
+						      &segment_file_ops,
 						      &prog->file_segments[j],
 						      false);
 		if (err)
@@ -467,7 +466,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_paddr,
 							      phdr->p_memsz,
-							      drgn_read_memory_file,
+							      &segment_file_ops,
 							      &prog->file_segments[j],
 							      true);
 			if (err)
@@ -514,7 +513,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 								      pgtable_reader ?
 								      phdr->p_filesz :
 								      phdr->p_memsz,
-								      drgn_read_memory_file,
+								      &segment_file_ops,
 								      &prog->file_segments[j],
 								      true);
 				if (err)
@@ -621,7 +620,7 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	prog->file_segments[0].eio_is_fault = true;
 	prog->file_segments[0].zerofill = false;
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
-					      drgn_read_memory_file,
+					      &segment_file_ops,
 					      prog->file_segments, false);
 	if (err)
 		goto out_segments;
@@ -1603,41 +1602,26 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	return NULL;
 }
 
-DEFINE_VECTOR(char_vector, char)
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
-			   bool physical, size_t max_size, char **ret)
+			   bool physical, size_t max_size, struct string_builder *str)
 {
 	uint64_t address_mask;
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
 	if (err)
 		return err;
-	struct char_vector str = VECTOR_INIT;
-	for (;;) {
-		address &= address_mask;
-		char *c = char_vector_append_entry(&str);
-		if (!c) {
-			char_vector_deinit(&str);
-			return &drgn_enomem;
-		}
-		if (str.size <= max_size) {
-			err = drgn_memory_reader_read(&prog->reader, c, address,
-						      1, physical);
-			if (err) {
-				char_vector_deinit(&str);
-				return err;
-			}
-			if (!*c)
-				break;
-		} else {
-			*c = '\0';
-			break;
-		}
-		address++;
+	bool done;
+	while (max_size > 0) {
+		size_t n = min((uint64_t)(max_size - 1), address_mask - address) + 1;
+		err = drgn_memory_reader_read_cstr(&prog->reader, str, &done, address, n,
+					      physical);
+		if (err)
+			return err;
+		if (done)
+			return NULL;
+		address = 0;
+		max_size -= n;
 	}
-	char_vector_shrink_to_fit(&str);
-	*ret = str.data;
 	return NULL;
 }
 

@@ -547,6 +547,30 @@ typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
 						  size_t count, uint64_t offset,
 						  void *arg, bool physical);
 
+struct string_builder;
+
+/**
+ * Callback implementing a memory read of a C string.
+ *
+ * @param[out] str String builder to read into.
+ * @param[out] done Whether we were able to read the whole string.
+ * @param[in] address Address which we are reading from.
+ * @param[in] limit Maximum number of bytes to read.
+ * @param[in] offset Offset in bytes of @p address from the beginning of the
+ * segment.
+ * @param[in] arg Argument passed to @ref drgn_program_add_memory_segment().
+ * @param[in] physical Whether @c address is physical.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+typedef struct drgn_error *(*drgn_memory_read_cstr_fn)(
+	struct string_builder *str, bool *done, uint64_t address, size_t limit,
+	uint64_t offset, void *arg, bool physical);
+
+struct drgn_memory_ops {
+	drgn_memory_read_fn read_fn;
+	drgn_memory_read_cstr_fn read_cstr_fn;
+};
+
 /**
  * Register a segment of memory in a @ref drgn_program.
  *
@@ -556,14 +580,14 @@ typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
  *
  * @param[in] address Address of the segment.
  * @param[in] size Size of the segment in bytes.
- * @param[in] read_fn Callback to read from segment.
+ * @param[in] ops Memory operations for this segment.
  * @param[in] arg Argument to pass to @p read_fn.
  * @param[in] physical Whether to add a physical memory segment.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
-				uint64_t size, drgn_memory_read_fn read_fn,
+				uint64_t size, const struct drgn_memory_ops *ops,
 				void *arg, bool physical);
 
 /**
@@ -777,13 +801,14 @@ struct drgn_error *drgn_program_read_memory(struct drgn_program *prog,
  * drgn_program_read_memory().
  * @param[in] max_size Stop after this many bytes are read, not including the
  * null byte. A null byte is appended to @p ret in this case.
- * @param[out] ret Returned string. On success, it must be freed with @c free().
+ * @param[out] str String builder for the returned string. Owned by the caller.
  * On error, its contents are undefined.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_read_c_string(struct drgn_program *prog,
 					      uint64_t address, bool physical,
-					      size_t max_size, char **ret);
+					      size_t max_size,
+					      struct string_builder *str);
 
 struct drgn_error *drgn_program_read_u8(struct drgn_program *prog,
 					uint64_t address, bool physical,
