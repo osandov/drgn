@@ -158,7 +158,14 @@ def _get_printk_records_lockless(prog: Program, prb: Object) -> List[PrintkRecor
 
 
 def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
-    printk_logp_type = prog.type("struct printk_log *")
+    try:
+        printk_logp_type = prog.type("struct printk_log *")
+    except LookupError:
+        # Before Linux kernel commit 62e32ac3505a ("printk: rename struct log
+        # to struct printk_log") (in v3.11), records were "struct log" instead
+        # of "struct printk_log". RHEL 7 kernel still uses old naming.
+        printk_logp_type = prog.type("struct log *")
+
     have_caller_id = printk_logp_type.type.has_member("caller_id")
     LOG_CONT = prog["LOG_CONT"].value_()
 
