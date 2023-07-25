@@ -588,9 +588,25 @@ def PageCompound(page: Object) -> bool:
     :param page: ``struct page *``
     """
     page = page.read_()
-    return bool(
-        (page.flags & (1 << page.prog_["PG_head"])) or (page.compound_head.read_() & 1)
-    )
+    # Since Linux kernel commit 1d798ca3f164 ("mm: make compound_head()
+    # robust") (in v4.4), PG_head is always defined, and a tail page has the
+    # least significant bit of compound_head set. Before that, there is no
+    # compound_head (and no fake head pages). Instead, if
+    # CONFIG_PAGEFLAGS_EXTENDED=y, then PG_head and PG_tail are defined.
+    # Otherwise, there is only PG_compound, and PG_reclaim is set for tail
+    # pages and clear for head pages.
+    try:
+        PG_head = page.prog_["PG_head"]
+    except KeyError:
+        return bool(page.flags & (1 << page.prog_["PG_compound"]))
+    else:
+        flags = page.flags.read_()
+        if flags & (1 << PG_head):
+            return True
+        try:
+            return bool(page.compound_head.read_() & 1)
+        except AttributeError:
+            return bool(flags & (1 << page.prog_["PG_tail"]))
 
 
 # HugeTLB Vmemmap Optimization (HVO) creates "fake" head pages that are
@@ -609,9 +625,22 @@ def PageHead(page: Object) -> bool:
     :param page: ``struct page *``
     """
     page = page.read_()
-    return bool(
-        page.flags & (1 << page.prog_["PG_head"]) and not _page_is_fake_head(page)
-    )
+    # See PageCompound() re: Linux kernel commit 1d798ca3f164 ("mm: make
+    # compound_head() robust") (in v4.4).
+    try:
+        PG_head = page.prog_["PG_head"]
+    except KeyError:
+        PG_compound = page.prog_["PG_compound"]
+        PG_head_mask = 1 << PG_compound
+        PG_head_tail_mask = PG_head_mask | (1 << page.prog_["PG_reclaim"])
+        return (page.flags & PG_head_tail_mask) == PG_head_mask
+    else:
+        if not (page.flags & (1 << PG_head)):
+            return False
+        try:
+            return not _page_is_fake_head(page)
+        except AttributeError:
+            return True
 
 
 def PageTail(page: Object) -> bool:
@@ -621,8 +650,21 @@ def PageTail(page: Object) -> bool:
     :param page: ``struct page *``
     """
     page = page.read_()
-    if page.compound_head.value_() & 1:
-        return True
+    # See PageCompound() re: Linux kernel commit 1d798ca3f164 ("mm: make
+    # compound_head() robust") (in v4.4).
+    try:
+        if page.compound_head.value_() & 1:
+            return True
+    except AttributeError:
+        try:
+            PG_tail = page.prog_["PG_tail"]
+        except KeyError:
+            PG_head_tail_mask = (1 << page.prog_["PG_compound"]) | (
+                1 << page.prog_["PG_reclaim"]
+            )
+            return (page.flags & PG_head_tail_mask) == PG_head_tail_mask
+        else:
+            return bool(page.flags & (1 << PG_tail))
     if page.flags & (1 << page.prog_["PG_head"]):
         return _page_is_fake_head(page)
     return False
@@ -639,7 +681,13 @@ def compound_head(page: Object) -> Object:
     :return: ``struct page *``
     """
     page = page.read_()
-    head = page.compound_head.read_()
+    try:
+        head = page.compound_head.read_()
+    except AttributeError:
+        # Before Linux kernel commit 1d798ca3f164 ("mm: make compound_head()
+        # robust") (in v4.4), the head page is in page->first_page, and there
+        # are no fake head pages.
+        return page.first_page.read_() if PageTail(page) else page
     if head & 1:
         return cast(page.type_, head - 1)
     # Handle fake head pages (see _page_is_fake_head()).
