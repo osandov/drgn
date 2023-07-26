@@ -59,6 +59,7 @@ struct drgn_error *drgn_program_parse_vmcoreinfo(struct drgn_program *prog,
 						   &prog->vmcoreinfo.swapper_pg_dir);
 			if (err)
 				return err;
+			prog->vmcoreinfo.swapper_pg_dir_phys = false;
 			break;
 		@case "LENGTH(mem_section)"@
 			err = parse_vmcoreinfo_u64(value, newline, 0,

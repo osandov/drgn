@@ -32,14 +32,31 @@
 
 #include "drgn_program_parse_vmcoreinfo.inc"
 
-struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
-					   size_t count, uint64_t offset,
-					   void *arg, bool physical)
+static struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
+						  size_t count, uint64_t offset,
+						  void *arg, bool physical)
 {
 	struct drgn_program *prog = arg;
 	return linux_helper_read_vm(prog, prog->vmcoreinfo.swapper_pg_dir,
+				    prog->vmcoreinfo.swapper_pg_dir_phys,
 				    address, buf, count);
 }
+
+static struct drgn_error *read_cstr_via_pgtable(struct string_builder *str,
+						bool *done, uint64_t address,
+						size_t limit, uint64_t offset,
+						void *arg, bool physical)
+{
+	struct drgn_program *prog = arg;
+	return linux_helper_read_cstr(prog, prog->vmcoreinfo.swapper_pg_dir,
+				      prog->vmcoreinfo.swapper_pg_dir_phys,
+				      address, str, done, limit);
+}
+
+const struct drgn_memory_ops segment_pgtable_ops = {
+	.read_fn = read_memory_via_pgtable,
+	.read_cstr_fn = read_cstr_via_pgtable,
+};
 
 struct drgn_error *proc_kallsyms_symbol_addr(const char *name,
 					     unsigned long *ret)
@@ -313,7 +330,7 @@ unrecognized_mem_section_type:
 	}
 
 	// Find a valid section.
-	for (uint64_t i = 0; i < nr_section_roots; i++) {
+	for (uint64_t i = 0; !nr_section_roots || i < nr_section_roots; i++) {
 		err = drgn_object_subscript(&root, &mem_section, i);
 		if (err)
 			goto out;
@@ -1557,7 +1574,7 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 	 * can be disabled via an environment variable for testing.
 	 */
 	bool use_sys_module = false;
-	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+	if (prog->flags & DRGN_PROGRAM_IS_LOCAL) {
 		char *env = getenv("DRGN_USE_SYS_MODULE");
 		use_sys_module = !env || atoi(env);
 	}

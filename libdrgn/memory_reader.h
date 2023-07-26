@@ -74,7 +74,7 @@ bool drgn_memory_reader_empty(struct drgn_memory_reader *reader);
 struct drgn_error *
 drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			       uint64_t min_address, uint64_t max_address,
-			       drgn_memory_read_fn read_fn, void *arg,
+			       const struct drgn_memory_ops *ops, void *arg,
 			       bool physical);
 
 /**
@@ -91,6 +91,11 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 					   void *buf, uint64_t address,
 					   size_t count, bool physical);
+
+struct drgn_error *
+drgn_memory_reader_read_cstr(struct drgn_memory_reader *reader,
+			     struct string_builder *buf, bool *done,
+			     uint64_t address, size_t count, bool physical);
 
 /** Argument for @ref drgn_read_memory_file(). */
 struct drgn_memory_file_segment {
@@ -116,10 +121,7 @@ struct drgn_memory_file_segment {
 	bool zerofill;
 };
 
-/** @ref drgn_memory_read_fn which reads from a file. */
-struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
-					 size_t count, uint64_t offset,
-					 void *arg, bool physical);
+extern const struct drgn_memory_ops segment_file_ops;
 
 /** @} */
 

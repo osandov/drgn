@@ -9,6 +9,7 @@
 
 #include "memory_reader.h"
 #include "minmax.h"
+#include "string_builder.h"
 
 /** Memory segment in a @ref drgn_memory_reader. */
 struct drgn_memory_segment {
@@ -22,8 +23,7 @@ struct drgn_memory_segment {
 	 * drgn_memory_segment::min_address.
 	 */
 	uint64_t orig_min_address;
-	/** Read callback. */
-	drgn_memory_read_fn read_fn;
+	const struct drgn_memory_ops *ops;
 	/** Argument to pass to @ref drgn_memory_segment::read_fn. */
 	void *arg;
 };
@@ -72,7 +72,7 @@ bool drgn_memory_reader_empty(struct drgn_memory_reader *reader)
 struct drgn_error *
 drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			       uint64_t min_address, uint64_t max_address,
-			       drgn_memory_read_fn read_fn, void *arg,
+			       const struct drgn_memory_ops *ops, void *arg,
 			       bool physical)
 {
 	assert(min_address <= max_address);
@@ -128,7 +128,7 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			tail->min_address = max_address + 1;
 			tail->max_address = it.entry->max_address;
 			tail->orig_min_address = it.entry->orig_min_address;
-			tail->read_fn = it.entry->read_fn;
+			tail->ops = it.entry->ops;
 			tail->arg = it.entry->arg;
 
 			drgn_memory_segment_tree_insert(tree, tail, NULL);
@@ -227,7 +227,7 @@ insert:
 		truncate_tail->max_address = min_address - 1;
 	segment->min_address = segment->orig_min_address = min_address;
 	segment->max_address = max_address;
-	segment->read_fn = read_fn;
+	segment->ops = ops;
 	segment->arg = arg;
 	/* If the segment is stolen, then it's already in the tree. */
 	if (!stolen)
@@ -257,9 +257,9 @@ struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 
 		size_t n = min((uint64_t)(count - 1),
 			       segment->max_address - address) + 1;
-		err = segment->read_fn(p, address, n,
-				       address - segment->orig_min_address,
-				       segment->arg, physical);
+		err = segment->ops->read_fn(p, address, n,
+					    address - segment->orig_min_address,
+					    segment->arg, physical);
 		if (err)
 			return err;
 		p += n;
@@ -269,9 +269,65 @@ struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 	return NULL;
 }
 
-struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
-					 size_t count, uint64_t offset,
-					 void *arg, bool physical)
+struct drgn_error *
+drgn_memory_reader_read_cstr(struct drgn_memory_reader *reader,
+			     struct string_builder *buf, bool *done,
+			     uint64_t address, size_t count, bool physical)
+{
+	assert(count == 0 || count - 1 <= UINT64_MAX - address);
+
+	struct drgn_error *err;
+	struct drgn_memory_segment_tree *tree = (physical ?
+						 &reader->physical_segments :
+						 &reader->virtual_segments);
+	while (count > 0) {
+		struct drgn_memory_segment *segment =
+			drgn_memory_segment_tree_search_le(tree,
+							   &address).entry;
+		if (!segment || segment->max_address < address) {
+			return drgn_error_create_fault("could not find memory segment",
+						       address);
+		}
+
+		if (segment->ops->read_cstr_fn) {
+			size_t n = min((uint64_t)(count - 1),
+				       segment->max_address - address) + 1;
+			err = segment->ops->read_cstr_fn(
+				buf, done, address, n,
+				address - segment->orig_min_address,
+				segment->arg, physical);
+			if (err)
+				return err;
+			if (*done)
+				return NULL;
+			address += n;
+			count -= n;
+		} else {
+			while (count > 0 && address <= segment->max_address) {
+				char c;
+				err = segment->ops->read_fn(
+					&c, address, 1,
+					address - segment->orig_min_address,
+					segment->arg, physical);
+				if (err)
+					return err;
+				if (!c) {
+					*done = true;
+					return NULL;
+				}
+				string_builder_appendc(buf, c);
+				address++;
+				count--;
+			}
+		}
+	}
+	*done = false;
+	return NULL;
+}
+
+static struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
+						size_t count, uint64_t offset,
+						void *arg, bool physical)
 {
 	struct drgn_memory_file_segment *file_segment = arg;
 	size_t file_count;
@@ -312,3 +368,7 @@ struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
 	memset(p, '\0', zero_count);
 	return NULL;
 }
+
+const struct drgn_memory_ops segment_file_ops = {
+	.read_fn = drgn_read_memory_file,
+};

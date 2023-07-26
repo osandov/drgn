@@ -275,8 +275,8 @@ struct pgtable_iterator_aarch64 {
 	int levels;
 	uint16_t entries_per_level;
 	uint16_t last_level_num_entries;
-	uint16_t *index;
-	uint64_t *table;
+	uint64_t cached_virt_addr;
+	uint64_t table[5];
 	uint64_t pa_low_mask;
 	uint64_t pa_high_mask;
 };
@@ -334,18 +334,10 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 
 	it->levels = ((va_bits - page_shift + pgtable_shift - 1) /
 		      pgtable_shift);
+	assert(it->levels <= sizeof(it->table) / sizeof(it->table[0]));
 	it->entries_per_level = 1 << pgtable_shift;
 	it->last_level_num_entries =
 		1 << ((va_bits - page_shift - 1) % pgtable_shift + 1);
-
-	it->index = malloc_array(it->levels, sizeof(it->index[0]));
-	if (!it->index)
-		goto err_it;
-	it->table = malloc_array((size_t)(it->levels - 1) * it->entries_per_level
-				 + it->last_level_num_entries,
-				 sizeof(it->table[0]));
-	if (!it->table)
-		goto err_index;
 
 	// Descriptor bits [47:PAGE_SHIFT] contain physical address bits
 	// [47:PAGE_SHIFT].
@@ -371,8 +363,6 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 	*ret = &it->it;
 	return NULL;
 
-err_index:
-	free(it->index);
 err_it:
 	free(it);
 	return &drgn_enomem;
@@ -382,8 +372,6 @@ static void linux_kernel_pgtable_iterator_destroy_aarch64(struct pgtable_iterato
 {
 	struct pgtable_iterator_aarch64 *it =
 		container_of(_it, struct pgtable_iterator_aarch64, it);
-	free(it->table);
-	free(it->index);
 	free(it);
 }
 
@@ -392,7 +380,8 @@ static void linux_kernel_pgtable_iterator_init_aarch64(struct drgn_program *prog
 {
 	struct pgtable_iterator_aarch64 *it =
 		container_of(_it, struct pgtable_iterator_aarch64, it);
-	if (it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir) {
+	if (it->it.pgtable == prog->vmcoreinfo.swapper_pg_dir &&
+	    it->it.pgtable_phys == prog->vmcoreinfo.swapper_pg_dir_phys) {
 		it->va_range_min = UINT64_MAX << prog->vmcoreinfo.va_bits;
 		it->va_range_max = UINT64_MAX;
 	} else {
@@ -400,7 +389,9 @@ static void linux_kernel_pgtable_iterator_init_aarch64(struct drgn_program *prog
 		it->va_range_max =
 			(UINT64_C(1) << prog->vmcoreinfo.va_bits) - 1;
 	}
-	memset(it->index, 0xff, it->levels * sizeof(it->index[0]));
+
+	it->cached_virt_addr = 0;
+	memset(it->table, 0, sizeof(it->table));
 }
 
 static struct drgn_error *
@@ -409,7 +400,6 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 					   uint64_t *virt_addr_ret,
 					   uint64_t *phys_addr_ret)
 {
-	struct drgn_error *err;
 	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
 	const uint64_t pgtable_shift = page_shift - 3;
 	const bool bswap = drgn_platform_bswap(&prog->platform);
@@ -417,71 +407,205 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 		container_of(_it, struct pgtable_iterator_aarch64, it);
 	const uint64_t virt_addr = it->it.virt_addr;
 	int level;
+	uint16_t num_entries = it->last_level_num_entries;
+	uint64_t table = it->it.pgtable;
+	bool table_physical = it->it.pgtable_phys;
 
-	// Find the lowest level with cached entries.
-	for (level = 0; level < it->levels - 1; level++) {
-		if (it->index[level] < it->entries_per_level)
-			break;
+	if (virt_addr < it->va_range_min ||
+	    virt_addr > it->va_range_max) {
+		*virt_addr_ret = it->va_range_min;
+		*phys_addr_ret = UINT64_MAX;
+		it->it.virt_addr = it->va_range_max + 1;
+		return NULL;
 	}
-	if (level == it->levels - 1 &&
-	    it->index[level] >= it->last_level_num_entries)
-		level++;
-	// For every level below that, refill the cache/return pages.
-	for (;; level--) {
-		uint16_t num_entries;
-		uint64_t table;
-		bool table_physical;
-		if (level == it->levels) {
-			num_entries = it->last_level_num_entries;
-			if (virt_addr < it->va_range_min ||
-			    virt_addr > it->va_range_max) {
-				*virt_addr_ret = it->va_range_min;
-				*phys_addr_ret = UINT64_MAX;
-				it->it.virt_addr = it->va_range_max + 1;
-				return NULL;
+
+	for (level = it->levels;; level--) {
+		uint8_t level_shift = page_shift + pgtable_shift * (level - 1);
+		uint16_t index = (virt_addr >> level_shift) & (num_entries - 1);
+		uint16_t cached_index = (it->cached_virt_addr >> level_shift) &
+					(num_entries - 1);
+		if (index != cached_index)
+			memset(it->table, 0, 8 * level);
+		uint64_t *entry_ptr = &it->table[level - 1];
+		if (!*entry_ptr) {
+			struct drgn_error *err = drgn_program_read_memory(
+			    prog, entry_ptr, table + 8 * index, 8,
+			    table_physical);
+			if (err) {
+				it->cached_virt_addr = 0;
+				memset(it->table, 0, sizeof(it->table));
+				return err;
 			}
-			table = it->it.pgtable;
-			table_physical = false;
-		} else {
-			num_entries = it->entries_per_level;
-			uint64_t entry = it->table[level * num_entries + it->index[level]++];
 			if (bswap)
-				entry = bswap_64(entry);
-			table = ((entry & it->pa_low_mask) |
-				 (entry & it->pa_high_mask) << 36);
-			// Descriptor bits [1:0] identify the descriptor type:
-			//
-			// 0x0, 0x2: invalid
-			// 0x1: lowest level: reserved, invalid
-			//      higher levels: block
-			// 0x3: lowest level: page
-			//      higher levels: table
-			if ((entry & 0x3) != 0x3 || level == 0) {
-				uint64_t mask = (UINT64_C(1) <<
-						 (page_shift +
-						  pgtable_shift * level)) - 1;
-				*virt_addr_ret = virt_addr & ~mask;
-				if ((entry & 0x3) == (level == 0 ? 0x3 : 0x1))
-					*phys_addr_ret = table & ~mask;
-				else
-					*phys_addr_ret = UINT64_MAX;
-				it->it.virt_addr = (virt_addr | mask) + 1;
-				return NULL;
-			}
-			table_physical = true;
+				*entry_ptr = bswap_64(*entry_ptr);
 		}
-		uint16_t index = ((virt_addr >>
-				   (page_shift + pgtable_shift * (level - 1)))
-				  & (num_entries - 1));
-		err = drgn_program_read_memory(prog,
-					       &it->table[(level - 1) * it->entries_per_level + index],
-					       table + 8 * index,
-					       8 * (num_entries - index),
-					       table_physical);
+		uint64_t entry = *entry_ptr;
+
+		num_entries = it->entries_per_level;
+		table = ((entry & it->pa_low_mask) |
+			 (entry & it->pa_high_mask) << 36);
+
+		// Descriptor bits [1:0] identify the descriptor type:
+		//
+		// 0x0, 0x2: invalid
+		// 0x1: lowest level: reserved, invalid
+		//      higher levels: block
+		// 0x3: lowest level: page
+		//      higher levels: table
+		if ((entry & 0x3) != 0x3 || level == 1) {
+			uint64_t mask = (UINT64_C(1) << level_shift) - 1;
+			*virt_addr_ret = virt_addr & ~mask;
+			if ((entry & 0x3) == (level == 1 ? 0x3 : 0x1))
+				*phys_addr_ret = table & ~mask;
+			else
+				*phys_addr_ret = UINT64_MAX;
+			it->cached_virt_addr = virt_addr;
+			it->it.virt_addr = (virt_addr | mask) + 1;
+			return NULL;
+		}
+		table_physical = true;
+	}
+}
+
+static struct drgn_error *
+linux_kernel_init_vmcoreinfo_from_phys_aarch64(struct drgn_program *prog,
+					       Elf *vmlinux, GElf_Ehdr *ehdr,
+					       uint64_t text_pa)
+{
+	struct drgn_error *err = NULL;
+	Elf_Data *symtab = NULL;
+	Elf_Data *head_text = NULL;
+	size_t shstrndx;
+	uint64_t strtab;
+	uint64_t numsyms;
+
+	uint64_t swapper_pg_dir_rva = 0;
+	uint64_t text_rva = 0;
+	uint64_t image_flags;
+	uint64_t kimage_vaddr_rva = 0;
+	uint64_t kimage_vaddr;
+	uint64_t vabits_actual_rva = 0;
+	uint64_t vabits_actual;
+
+	bool bswap;
+	err = drgn_program_bswap(prog, &bswap);
+	if (err)
+		return err;
+
+	if (elf_getshdrstrndx(vmlinux, &shstrndx))
+		return drgn_error_libelf();
+
+	for (int i = 0; i != ehdr->e_shnum; ++i) {
+		Elf_Scn *section = elf_getscn(vmlinux, i);
+		GElf_Shdr shdr_mem, *shdr;
+
+		if (!section)
+			continue;
+
+		shdr = gelf_getshdr(section, &shdr_mem);
+		if (!shdr)
+			continue;
+
+		if (shdr->sh_type == SHT_SYMTAB) {
+			symtab = elf_getdata(section, NULL);
+			strtab = shdr->sh_link;
+			numsyms = shdr->sh_size / shdr->sh_entsize;
+			continue;
+		}
+
+		const char *name = elf_strptr(vmlinux, shstrndx, shdr->sh_name);
+		if (strcmp(name, ".head.text") == 0) {
+			head_text = elf_getdata(section, NULL);
+		}
+	}
+
+	if (!symtab || !head_text)
+		return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "could not find required section");
+
+	for (int i = 1; i != numsyms; ++i) {
+		GElf_Sym sym_mem, *sym;
+		const char *name;
+
+		sym = gelf_getsym(symtab, i, &sym_mem);
+		if (!sym)
+			continue;
+
+		name = elf_strptr(vmlinux, strtab, sym->st_name);
+
+		if (strcmp(name, "swapper_pg_dir") == 0)
+			swapper_pg_dir_rva = sym->st_value;
+		if (strcmp(name, "_text") == 0)
+			text_rva = sym->st_value;
+		if (strcmp(name, "kimage_vaddr") == 0)
+			kimage_vaddr_rva = sym->st_value;
+		if (strcmp(name, "vabits_actual") == 0)
+			vabits_actual_rva = sym->st_value;
+	}
+
+	if (!swapper_pg_dir_rva || !text_rva || !kimage_vaddr_rva)
+		return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "could not find required symbol");
+
+
+	/* Read the flags field, from which we infer the page size. */
+	image_flags = *(uint64_t *)(((char *)head_text->d_buf) + 24);
+	if (!HOST_LITTLE_ENDIAN)
+		image_flags = bswap_64(image_flags);
+	if ((image_flags & 6) == 0)
+		return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+					 "unknown page size");
+	prog->vmcoreinfo.page_shift = (image_flags & 6) + 10;
+	prog->vmcoreinfo.page_size = 1 << prog->vmcoreinfo.page_shift;
+
+	if (vabits_actual_rva) {
+		err = drgn_program_read_memory(
+			prog, &prog->vmcoreinfo.va_bits,
+			text_pa + (vabits_actual_rva - text_rva), 8, true);
 		if (err)
 			return err;
-		it->index[level - 1] = index;
+		if (bswap)
+			prog->vmcoreinfo.va_bits = bswap_64(prog->vmcoreinfo.va_bits);
+	} else {
+		/*
+		 * Assumes that kernel RVAs start in the middle of the kernel
+		 * address space.
+		 */
+		for (int bit = 63; bit != 0; --bit) {
+			if (!(text_rva & (1ULL << bit))) {
+				prog->vmcoreinfo.va_bits = bit + 2;
+				break;
+			}
+		}
+		if (!prog->vmcoreinfo.va_bits) {
+			return drgn_error_format(DRGN_ERROR_MISSING_DEBUG_INFO,
+						 "could not infer VA_BITS");
+		}
 	}
+	/*
+	 * This is correct for newer kernels which set TCR_EL1.TBID1, but it
+	 * doesn't hurt to mask the top byte in older kernels as well.
+	 */
+	prog->aarch64_insn_pac_mask = ~((1ULL << prog->vmcoreinfo.va_bits) - 1);
+
+	err = drgn_program_read_memory(prog, &kimage_vaddr,
+				       text_pa + (kimage_vaddr_rva - text_rva),
+				       8, true);
+	if (err)
+		return err;
+	if (bswap)
+		kimage_vaddr = bswap_64(kimage_vaddr);
+	prog->vmcoreinfo.kaslr_offset = kimage_vaddr - text_rva;
+	prog->vmcoreinfo.swapper_pg_dir =
+		swapper_pg_dir_rva + text_pa - text_rva;
+	prog->vmcoreinfo.swapper_pg_dir_phys = true;
+	return NULL;
+}
+
+static uint64_t untagged_addr_aarch64(uint64_t addr)
+{
+	/* Apply TBI by sign extending bit 55 into bits 56-63. */
+	return (((int64_t)addr) << 8) >> 8;
 }
 
 const struct drgn_architecture_info arch_info_aarch64 = {
@@ -506,4 +630,7 @@ const struct drgn_architecture_info arch_info_aarch64 = {
 		linux_kernel_pgtable_iterator_init_aarch64,
 	.linux_kernel_pgtable_iterator_next =
 		linux_kernel_pgtable_iterator_next_aarch64,
+	.linux_kernel_init_vmcoreinfo_from_phys =
+		linux_kernel_init_vmcoreinfo_from_phys_aarch64,
+	.untagged_addr = untagged_addr_aarch64,
 };

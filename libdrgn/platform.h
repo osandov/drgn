@@ -118,6 +118,8 @@ apply_elf_reloc_fn(const struct drgn_relocating_section *relocating,
 struct pgtable_iterator {
 	/** Address of the top-level page table to iterate. */
 	uint64_t pgtable;
+	/** Whether pgtable is a physical address. */
+	bool pgtable_phys;
 	/** Current virtual address to translate. */
 	uint64_t virt_addr;
 };
@@ -422,6 +424,21 @@ struct drgn_architecture_info {
 	 * @see pgtable_iterator_next_fn
 	 */
 	pgtable_iterator_next_fn *linux_kernel_pgtable_iterator_next;
+	/**
+	 * Initialize vmcoreinfo for @p prog using the given vmlinux binary and
+	 * by reading from @p prog's physical memory, for which segments have
+	 * already been set up. @p text_pa is the physical address where the
+	 * kernel was loaded.
+	 */
+	struct drgn_error *(*linux_kernel_init_vmcoreinfo_from_phys)(
+		struct drgn_program *prog, Elf *vmlinux, GElf_Ehdr *ehdr,
+		uint64_t text_pa);
+	/**
+	 * Return the canonical form of a virtual address, i.e. apply any
+	 * transformations that the CPU applies to the address before page
+	 * table walking.
+	 */
+	uint64_t (*untagged_addr)(uint64_t addr);
 };
 
 /**

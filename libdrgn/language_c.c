@@ -644,24 +644,28 @@ c_format_string(struct drgn_program *prog, uint64_t address, uint64_t length,
 		struct string_builder *sb)
 {
 	struct drgn_error *err;
+	struct string_builder tmp = STRING_BUILDER_INIT;
+	bool done;
 
-	if (!string_builder_appendc(sb, '"'))
-		return &drgn_enomem;
-	while (length) {
-		unsigned char c;
-		err = drgn_program_read_memory(prog, &c, address++, 1, false);
-		if (err)
-			return err;
-
-		if (c == '\0') {
-			break;
-		} else {
-			err = c_format_character(c, false, true, sb);
-			if (err)
-				return err;
-		}
-		length--;
+	err = drgn_program_read_c_string(prog, address, false, length, &tmp,
+	                                 &done);
+	if (err) {
+		free(tmp.str);
+		return err;
 	}
+
+	if (!string_builder_appendc(sb, '"')) {
+		free(tmp.str);
+		return &drgn_enomem;
+	}
+	for (size_t i = 0; i != tmp.len; ++i) {
+		err = c_format_character(tmp.str[i], false, true, sb);
+		if (err) {
+			free(tmp.str);
+			return err;
+		}
+	}
+	free(tmp.str);
 	if (!string_builder_appendc(sb, '"'))
 		return &drgn_enomem;
 	return NULL;

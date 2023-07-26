@@ -398,6 +398,43 @@ explicitly::
             int counter;
     } atomic_t
 
+Remote Debugging
+^^^^^^^^^^^^^^^^
+
+drgn supports remote kernel debugging using `OpenOCD
+<https://www.openocd.org/>`_ as an interface to a JTAG/SWD debug adapter
+connected to a remote target. To use the remote debugging feature,
+you must have the following information about your target.
+
+* A suitable OpenOCD configuration file for your target.
+* The name of the Test Access Point (TAP) which may be used to access the
+  physical memory where the kernel is running. The TAP name will 
+  be specified in the OpenOCD configuration file.
+* The load address of the kernel in the target's physical memory.
+
+You must also have debugging symbols for the kernel running on your target
+(i.e. the ``vmlinux`` file).
+
+To begin the debugging session, ensure that your target is running the
+kernel and that OpenOCD is running and connected to your target. Then
+issue the following command, making the necessary substitutions::
+
+    $ drgn --openocd /path/to/vmlinux --openocd-tap $TAP_NAME --openocd-addr $LOAD_ADDR
+
+Debug information for the specified kernel will be loaded automatically,
+but there is currently no support for automatically loading debug
+information for loaded kernel modules. Debug information for modules
+must be loaded manually using :meth:`drgn.Program.load_debug_info()`.
+
+drgn may also be used to debug microcontroller firmware and other
+bare-metal MMU-less programs. To do this, you must have debugging
+symbols for your firmware. To begin debugging, ensure that your target
+is running the firmware and that OpenOCD is running and connected to
+your target. Then issue the following command, making the necessary
+substitutions::
+
+    $ drgn --openocd /path/to/firmware.elf --openocd-tap $TAP_NAME --openocd-nommu
+
 Next Steps
 ----------
 

@@ -43,8 +43,9 @@ PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
 	buf = PyBytes_FromStringAndSize(NULL, size);
 	if (!buf)
 		return NULL;
-	err = linux_helper_read_vm(&prog->prog, pgtable.uvalue, address.uvalue,
-				   PyBytes_AS_STRING(buf), size);
+	err = linux_helper_read_vm(&prog->prog, pgtable.uvalue, false,
+				   address.uvalue, PyBytes_AS_STRING(buf),
+				   size);
 	if (err) {
 		Py_DECREF(buf);
 		return set_drgn_error(err);
@@ -67,7 +68,7 @@ PyObject *drgnpy_linux_helper_follow_phys(PyObject *self, PyObject *args,
 		return NULL;
 
 	uint64_t phys;
-	err = linux_helper_follow_phys(&prog->prog, pgtable.uvalue,
+	err = linux_helper_follow_phys(&prog->prog, pgtable.uvalue, false,
 				       address.uvalue, &phys);
 	if (err)
 		return set_drgn_error(err);

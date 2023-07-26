@@ -11,6 +11,9 @@
 #include <gelf.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,6 +103,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_program_init_types(prog);
 	drgn_object_index_init(&prog->oindex);
 	prog->core_fd = -1;
+	prog->openocd_fd = -1;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
 	char *env = getenv("DRGN_PREFER_ORC_UNWINDER");
@@ -144,6 +148,8 @@ void drgn_program_deinit(struct drgn_program *prog)
 	elf_end(prog->core);
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
+	if (prog->openocd_fd != -1)
+		close(prog->openocd_fd);
 
 	drgn_debug_info_destroy(prog->dbinfo);
 }
@@ -170,10 +176,9 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 	}
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
-				uint64_t size, drgn_memory_read_fn read_fn,
-				void *arg, bool physical)
+LIBDRGN_PUBLIC struct drgn_error *drgn_program_add_memory_segment(
+	struct drgn_program *prog, uint64_t address, uint64_t size,
+	const struct drgn_memory_ops *ops, void *arg, bool physical)
 {
 	uint64_t address_mask;
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
@@ -183,7 +188,7 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 		return NULL;
 	uint64_t max_address = address + min(size - 1, address_mask - address);
 	return drgn_memory_reader_add_segment(&prog->reader, address,
-					      max_address, read_fn, arg,
+					      max_address, ops, arg,
 					      physical);
 }
 
@@ -214,6 +219,298 @@ static struct drgn_error *has_kdump_signature(const char *path, int fd,
 	*ret = (r == sizeof(signature)
 		&& memcmp(signature, KDUMP_SIGNATURE, sizeof(signature)) == 0);
 	return NULL;
+}
+
+static struct drgn_error *send_openocd_command(struct drgn_program *prog,
+					       char *out, size_t len,
+					       const char *fmt, ...)
+{
+	size_t read_len = 0;
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (vdprintf(prog->openocd_fd, fmt, ap) < 0)
+		return drgn_error_create_os("vdprintf", errno, NULL);
+	va_end(ap);
+
+	while (read_len == 0 || (out[read_len - 1] != 0x1a && read_len < len)) {
+		int retval = read(prog->openocd_fd, out + read_len, len - read_len);
+		if (retval == -1) {
+  			if (errno == EINTR)
+    				continue;
+			return drgn_error_create_os("read", errno, NULL);
+		}
+		if (retval == 0) break;
+		read_len += retval;
+	}
+
+	if (read_len == 0 || out[read_len - 1] != 0x1a)
+		return drgn_error_create(DRGN_ERROR_OS, "read EOF");
+	out[read_len - 1] = 0;
+	return NULL;
+}
+
+static struct drgn_error *openocd_read_memory(struct drgn_program *prog,
+					      uint64_t address, size_t size,
+					      size_t count, char *result)
+{
+	size_t out_len = 32 * count + 32;
+	char *out = malloc(out_len);
+	char *next;
+	int retries = 64;
+	const char *read_memory_failure_msg =
+	    "read_memory: failed to read memory";
+
+	do {
+		struct drgn_error *err = send_openocd_command(
+			prog, out, out_len, "%s read_memory 0x%lx %lu %lu\x1a",
+			prog->openocd_tap, (unsigned long)address,
+			(unsigned long)size, (unsigned long)count);
+
+		if (err) {
+			free(out);
+			return err;
+		}
+
+		// Some debug adapters fail to retry commands as required
+		// by the spec (see [1]). This can cause our read_memory
+		// command to fail intermittently. If that happens, retry
+		// the command ourselves.
+		//
+		// [1] https://developer.arm.com/documentation/ihi0031/a/The-Serial-Wire-Debug-Port--SW-DP-/Protocol-description/The-WAIT-response
+	} while (retries-- && strncmp(out, read_memory_failure_msg,
+				      strlen(read_memory_failure_msg)) == 0);
+
+	errno = 0;
+	next = out;
+	for (size_t i = 0; i != count; ++i) {
+		unsigned long long val = strtoull(next, &next, 0);
+
+		if (errno)
+			return drgn_error_format(DRGN_ERROR_FAULT,
+						 "unexpected output: %s", out);
+
+		// For the time being, assume the TAP is little endian. OpenOCD
+		// does not provide this information in a way that is easy
+		// to parse. For the ARM MEM-AP at least, the endianness
+		// is independent of the CPU endianness, but is generally
+		// little-endian. Big-endian MEM-AP was obsoleted and removed
+		// from the documentation in ADIv5.2.
+		for (size_t j = 0; j != size / 8; ++j)
+			*result++ = val >> (8 * j);
+	}
+
+	free(out);
+	return NULL;
+}
+
+static struct drgn_error *read_memory_via_openocd(void *buf, uint64_t address,
+						  size_t count, uint64_t offset,
+						  void *arg, bool physical)
+{
+	struct drgn_error *err;
+	char *bufc = buf;
+	uint64_t tmp;
+	struct drgn_program *prog = arg;
+
+	if ((address & 1) && count >= 1) {
+		err = openocd_read_memory(prog, address, 8, 1, bufc);
+		if (err) return err;
+
+		address += 1;
+		bufc += 1;
+		count -= 1;
+	}
+
+	if ((address & 2) && count >= 2) {
+		err = openocd_read_memory(prog, address, 16, 1, bufc);
+		if (err) return err;
+
+		address += 2;
+		bufc += 2;
+		count -= 2;
+	}
+
+	if (count >= 4) {
+		err = openocd_read_memory(prog, address, 32, count / 4, bufc);
+		if (err) return err;
+
+		address += (count / 4) * 4;
+		bufc += (count / 4) * 4;
+	}
+
+	if (count & 2) {
+		err = openocd_read_memory(prog, address, 16, 1, bufc);
+		if (err) return err;
+
+		address += 2;
+		bufc += 2;
+	}
+
+	if (count & 1) {
+		err = openocd_read_memory(prog, address, 8, 1, bufc);
+		if (err) return err;
+
+		address += 1;
+		bufc += 1;
+	}
+
+	return NULL;
+}
+
+static struct drgn_error *read_cstr_via_openocd(struct string_builder *str,
+						bool *done, uint64_t address,
+						size_t limit, uint64_t offset,
+						void *arg, bool physical)
+{
+	struct drgn_error *err;
+	char buf[4];
+	struct drgn_program *prog = arg;
+
+	while (limit) {
+		err = openocd_read_memory(prog, address & ~3ULL, 32, 1, buf);
+		if (err)
+			return err;
+
+		for (int i = address & 3; i != 4; ++i) {
+			if (limit == 0) {
+				*done = false;
+				return NULL;
+			}
+			if (buf[i] == 0) {
+				*done = true;
+				return NULL;
+			}
+			string_builder_appendc(str, buf[i]);
+			++address;
+			--limit;
+		}
+	}
+
+	*done = false;
+	return NULL;
+}
+
+const struct drgn_memory_ops segment_openocd_ops = {
+	.read_fn = read_memory_via_openocd,
+	.read_cstr_fn = read_cstr_via_openocd,
+};
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_openocd(struct drgn_program *prog, const char *vmlinux,
+			 const char *host, const char *port, const char *tap,
+			 bool mmu, uint64_t text_pa)
+{
+	struct drgn_error *err;
+	struct sockaddr sa;
+	struct addrinfo hint = {};
+	struct addrinfo *ai, *cur;
+	GElf_Ehdr ehdr_mem, *ehdr;
+	struct drgn_platform platform;
+	bool had_platform;
+	Elf *vmlinux_elf;
+
+	prog->openocd_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (prog->openocd_fd < 0)
+		return drgn_error_create_os("socket", errno, NULL);
+
+	hint.ai_socktype = SOCK_STREAM;
+	hint.ai_protocol = IPPROTO_TCP;
+	if (getaddrinfo(host, port, &hint, &ai) != 0)
+		return drgn_error_create_os("getaddrinfo", errno, NULL);
+
+	cur = ai;
+	while (1) {
+		if (connect(prog->openocd_fd, cur->ai_addr,
+			    sizeof(*cur->ai_addr)) == 0)
+			break;
+		cur = cur->ai_next;
+		if (!cur) {
+			freeaddrinfo(ai);
+			return drgn_error_create_os("connect", errno, NULL);
+		}
+	}
+	freeaddrinfo(ai);
+
+	int fd = open(vmlinux, O_RDONLY);
+	if (fd == -1)
+		return drgn_error_create_os("open", errno, vmlinux);
+
+	elf_version(EV_CURRENT);
+	vmlinux_elf = elf_begin(fd, ELF_C_READ, NULL);
+	if (!vmlinux_elf) {
+		err = drgn_error_libelf();
+		goto out_fd;
+	}
+
+	ehdr = gelf_getehdr(vmlinux_elf, &ehdr_mem);
+	if (!ehdr || (ehdr->e_type != ET_DYN && ehdr->e_type != ET_EXEC)) {
+		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					"not an ELF executable");
+		goto out_elf;
+	}
+
+	had_platform = prog->has_platform;
+	if (!had_platform) {
+		struct drgn_platform platform;
+		drgn_platform_from_elf(ehdr, &platform);
+		drgn_program_set_platform(prog, &platform);
+	}
+	prog->openocd_tap = tap;
+
+	/*
+	 * We claim that MMU-less programs are the Linux kernel, which is a
+	 * lie, but a lesser lie than claiming that we're a userspace process,
+	 * which doesn't work at all.
+	 *
+	 * TODO: Consider adding another flag for this.
+	 */
+	prog->flags |= DRGN_PROGRAM_IS_LINUX_KERNEL | DRGN_PROGRAM_IS_LIVE;
+
+	err = drgn_program_add_memory_segment(
+		prog, 0, UINT64_MAX, &segment_openocd_ops, prog, true);
+	if (err)
+		goto out_elf;
+
+	if (mmu) {
+		if (!prog->platform.arch
+			     ->linux_kernel_init_vmcoreinfo_from_phys) {
+			err = drgn_error_format(
+				DRGN_ERROR_NOT_IMPLEMENTED,
+				"OpenOCD not supported on this architecture");
+			goto out_elf;
+		}
+
+		err = prog->platform.arch
+			      ->linux_kernel_init_vmcoreinfo_from_phys(
+				      prog, vmlinux_elf, ehdr, text_pa);
+		if (err)
+			goto out_elf;
+
+		err = drgn_program_add_memory_segment(
+			prog, 0, UINT64_MAX, &segment_pgtable_ops, prog, false);
+		if (err)
+			goto out_elf;
+
+		err = drgn_program_add_object_finder(prog,
+						     linux_kernel_object_find,
+						     prog);
+		if (err)
+			goto out_elf;
+	} else {
+		err = drgn_program_add_memory_segment(
+			prog, 0, UINT64_MAX, &segment_openocd_ops, prog, false);
+		if (err)
+			goto out_elf;
+	}
+
+	drgn_program_load_debug_info(prog, &vmlinux, 1, true, true);
+
+out_elf:
+	elf_end(vmlinux_elf);
+out_fd:
+	close(fd);
+	return err;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -401,7 +698,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		 * page table.
 		 */
 		err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
-						      read_memory_via_pgtable,
+						      &segment_pgtable_ops,
 						      prog, false);
 		if (err)
 			goto out_segments;
@@ -457,7 +754,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 		prog->file_segments[j].zerofill = vmcoreinfo_note && !is_proc_kcore;
 		err = drgn_program_add_memory_segment(prog, phdr->p_vaddr,
 						      phdr->p_memsz,
-						      drgn_read_memory_file,
+						      &segment_file_ops,
 						      &prog->file_segments[j],
 						      false);
 		if (err)
@@ -467,7 +764,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 			err = drgn_program_add_memory_segment(prog,
 							      phdr->p_paddr,
 							      phdr->p_memsz,
-							      drgn_read_memory_file,
+							      &segment_file_ops,
 							      &prog->file_segments[j],
 							      true);
 			if (err)
@@ -514,7 +811,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 								      pgtable_reader ?
 								      phdr->p_filesz :
 								      phdr->p_memsz,
-								      drgn_read_memory_file,
+								      &segment_file_ops,
 								      &prog->file_segments[j],
 								      true);
 				if (err)
@@ -537,7 +834,8 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 				goto out_segments;
 		}
 		prog->flags |= (DRGN_PROGRAM_IS_LINUX_KERNEL |
-				DRGN_PROGRAM_IS_LIVE);
+				DRGN_PROGRAM_IS_LIVE |
+		                DRGN_PROGRAM_IS_LOCAL);
 		elf_end(prog->core);
 		prog->core = NULL;
 	} else if (vmcoreinfo_note) {
@@ -621,13 +919,13 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	prog->file_segments[0].eio_is_fault = true;
 	prog->file_segments[0].zerofill = false;
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
-					      drgn_read_memory_file,
+					      &segment_file_ops,
 					      prog->file_segments, false);
 	if (err)
 		goto out_segments;
 
 	prog->pid = pid;
-	prog->flags |= DRGN_PROGRAM_IS_LIVE;
+	prog->flags |= DRGN_PROGRAM_IS_LIVE | DRGN_PROGRAM_IS_LOCAL;
 	return NULL;
 
 out_segments:
@@ -1588,8 +1886,10 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
 	if (err)
 		return err;
+	err = drgn_program_untagged_addr(prog, &address);
+	if (err)
+		return err;
 	char *p = buf;
-	address &= address_mask;
 	while (count > 0) {
 		size_t n = min((uint64_t)(count - 1), address_mask - address) + 1;
 		err = drgn_memory_reader_read(&prog->reader, p, address, n,
@@ -1603,41 +1903,29 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	return NULL;
 }
 
-DEFINE_VECTOR(char_vector, char)
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
-			   bool physical, size_t max_size, char **ret)
+			   bool physical, size_t max_size,
+			   struct string_builder *str, bool *done)
 {
 	uint64_t address_mask;
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
 	if (err)
 		return err;
-	struct char_vector str = VECTOR_INIT;
-	for (;;) {
-		address &= address_mask;
-		char *c = char_vector_append_entry(&str);
-		if (!c) {
-			char_vector_deinit(&str);
-			return &drgn_enomem;
-		}
-		if (str.size <= max_size) {
-			err = drgn_memory_reader_read(&prog->reader, c, address,
-						      1, physical);
-			if (err) {
-				char_vector_deinit(&str);
-				return err;
-			}
-			if (!*c)
-				break;
-		} else {
-			*c = '\0';
-			break;
-		}
-		address++;
+	err = drgn_program_untagged_addr(prog, &address);
+	if (err)
+		return err;
+	while (max_size > 0) {
+		size_t n = min((uint64_t)(max_size - 1), address_mask - address) + 1;
+		err = drgn_memory_reader_read_cstr(&prog->reader, str, done, address, n,
+					      physical);
+		if (err)
+			return err;
+		if (*done)
+			return NULL;
+		address = 0;
+		max_size -= n;
 	}
-	char_vector_shrink_to_fit(&str);
-	*ret = str.data;
 	return NULL;
 }
 

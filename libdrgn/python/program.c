@@ -354,6 +354,10 @@ out:
 	return err;
 }
 
+static const struct drgn_memory_ops segment_py_ops = {
+	.read_fn = py_memory_read_fn,
+};
+
 static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 					    PyObject *kwds)
 {
@@ -381,7 +385,7 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 	if (Program_hold_object(self, read_fn) == -1)
 		return NULL;
 	err = drgn_program_add_memory_segment(&self->prog, address.uvalue,
-					      size.uvalue, py_memory_read_fn,
+					      size.uvalue, &segment_py_ops,
 					      read_fn, physical);
 	if (err)
 		return set_drgn_error(err);
@@ -591,6 +595,33 @@ static PyObject *Program_set_kernel(Program *self)
 	struct drgn_error *err;
 
 	err = drgn_program_set_kernel(&self->prog);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_set_openocd(Program *self, PyObject *args,
+				     PyObject *kwds)
+{
+	static char *keywords[] = {
+		"vmlinux", "host", "port", "tap", "mmu", "paddr", NULL,
+	};
+	const char *vmlinux;
+	const char *host;
+	const char *port;
+	const char *tap;
+	int mmu;
+	unsigned long long paddr = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "ssssp|K:set_openocd",
+					 keywords, &vmlinux, &host, &port, &tap,
+					 &mmu, &paddr))
+		return NULL;
+
+	struct drgn_error *err;
+
+	err = drgn_program_set_openocd(&self->prog, vmlinux, host, port, tap,
+				       mmu, paddr);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -1201,6 +1232,8 @@ static PyMethodDef Program_methods[] = {
 	{"set_core_dump", (PyCFunction)Program_set_core_dump,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,
+	 drgn_Program_set_kernel_DOC},
+	{"set_openocd", (PyCFunction)Program_set_openocd, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_kernel_DOC},
 	{"set_pid", (PyCFunction)Program_set_pid, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_set_pid_DOC},

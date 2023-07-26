@@ -69,6 +69,8 @@ struct drgn_program {
 	int core_fd;
 	/* PID of live userspace program. */
 	pid_t pid;
+	const char *openocd_tap;
+	int openocd_fd;
 #ifdef WITH_LIBKDUMPFILE
 	kdump_ctx_t *kdump_ctx;
 #endif
@@ -160,7 +162,12 @@ struct drgn_program {
 		uint64_t kaslr_offset;
 		/** Kernel page table. */
 		uint64_t swapper_pg_dir;
-		/** Length of mem_section array (i.e., NR_SECTION_ROOTS). */
+		/** Whether swapper_pg_dir is a physical addres. */
+		bool swapper_pg_dir_phys;
+		/**
+		 * Length of mem_section array (i.e., NR_SECTION_ROOTS),
+		 * or 0 if unknown.
+		 */
 		uint64_t mem_section_length;
 		/** VA_BITS on AArch64. */
 		uint64_t va_bits;
@@ -289,6 +296,19 @@ drgn_program_address_mask(const struct drgn_program *prog, uint64_t *ret)
 					 "program address size is not known");
 	}
 	*ret = drgn_platform_address_mask(&prog->platform);
+	return NULL;
+}
+
+static inline struct drgn_error *
+drgn_program_untagged_addr(const struct drgn_program *prog, uint64_t *address)
+{
+	if (!prog->has_platform) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "program address size is not known");
+	}
+	*address &= drgn_platform_address_mask(&prog->platform);
+	if (prog->platform.arch->untagged_addr)
+		*address = prog->platform.arch->untagged_addr(*address);
 	return NULL;
 }
 
