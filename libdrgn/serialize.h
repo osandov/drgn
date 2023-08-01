@@ -40,6 +40,16 @@ static inline uint64_t truncate_unsigned(uint64_t uvalue, uint64_t bit_size)
 	return uvalue << (64 - bit_size) >> (64 - bit_size);
 }
 
+static inline int8_t truncate_signed8(int8_t svalue, int bit_size)
+{
+	return (int8_t)((uint8_t)svalue << (8 - bit_size)) >> (8 - bit_size);
+}
+
+static inline uint8_t truncate_unsigned8(uint8_t uvalue, int bit_size)
+{
+	return (uint8_t)(uvalue << (8 - bit_size)) >> (8 - bit_size);
+}
+
 /**
  * Copy the @p src_size least-significant bytes from @p src to the @p dst_size
  * least-significant bytes of @p dst.

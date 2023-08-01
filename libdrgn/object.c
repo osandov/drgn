@@ -683,14 +683,23 @@ drgn_object_read_bytes(const struct drgn_object *obj, void *buf)
 		}
 		return NULL;
 	case DRGN_OBJECT_REFERENCE: {
-		uint8_t bit_offset = obj->bit_offset;
-		uint64_t bit_size = obj->bit_size;
-		uint64_t read_size = drgn_value_size(bit_offset + bit_size);
-		if (bit_offset == 0) {
-			return drgn_program_read_memory(drgn_object_program(obj),
-							buf, obj->address,
-							read_size, false);
+		uint64_t size = drgn_object_size(obj);
+		if (obj->bit_offset == 0) {
+			err = drgn_program_read_memory(drgn_object_program(obj),
+						       buf, obj->address, size,
+						       false);
+			if (err)
+				return err;
+			if (obj->bit_size % 8 != 0) {
+				uint8_t *p = (uint8_t *)buf + size - 1;
+				if (obj->little_endian)
+					*p = truncate_unsigned8(*p, obj->bit_size % 8);
+				else
+					*p &= 0xff00U >> (obj->bit_size % 8);
+			}
 		} else {
+			uint64_t read_size =
+				drgn_value_size(obj->bit_offset + obj->bit_size);
 			char tmp[9];
 			assert(read_size <= sizeof(tmp));
 			err = drgn_program_read_memory(drgn_object_program(obj),
@@ -698,11 +707,11 @@ drgn_object_read_bytes(const struct drgn_object *obj, void *buf)
 						       read_size, false);
 			if (err)
 				return err;
-			((uint8_t *)buf)[drgn_value_size(bit_size) - 1] = 0;
-			copy_bits(buf, 0, tmp, bit_offset, obj->bit_size,
+			((uint8_t *)buf)[size - 1] = 0;
+			copy_bits(buf, 0, tmp, obj->bit_offset, obj->bit_size,
 				  obj->little_endian);
-			return NULL;
 		}
+		return NULL;
 	}
 	case DRGN_OBJECT_ABSENT:
 		return &drgn_error_object_absent;

@@ -141,6 +141,72 @@ class TestInit(MockProgramTestCase):
         )
 
 
+def _int_bits_cases(prog):
+    for signed in (True, False):
+        for byteorder in ("little", "big"):
+            for bit_size in range(1, 65):
+                if bit_size <= 8:
+                    size = 1
+                else:
+                    size = 1 << ((bit_size - 1).bit_length() - 3)
+                type = prog.int_type(
+                    "" if signed else "u" + f"int{size}", size, signed, byteorder
+                )
+                if signed:
+                    values = (
+                        0xF8935CF44C45202748DE66B49BA0CBAC % (1 << (bit_size - 1)),
+                        ~0xF8935CF44C45202748DE66B49BA0CBAC % (1 << (bit_size - 1)),
+                        -0xC256D5AAFFDC3179A6AC84E7154A215D % -(1 << (bit_size - 1)),
+                        ~-0xC256D5AAFFDC3179A6AC84E7154A215D % -(1 << (bit_size - 1)),
+                    )
+                else:
+                    values = (
+                        0xF8935CF44C45202748DE66B49BA0CBAC % (1 << bit_size),
+                        ~0xF8935CF44C45202748DE66B49BA0CBAC % (1 << bit_size),
+                    )
+                for value in values:
+                    # value_bytes is the value converted to bytes.
+                    if byteorder == "little":
+                        value_bytes = (value & ((1 << bit_size) - 1)).to_bytes(
+                            (bit_size + 7) // 8, byteorder
+                        )
+                    else:
+                        value_bytes = (value << (-bit_size % 8)).to_bytes(
+                            (bit_size + 7) // 8, byteorder, signed=signed
+                        )
+                    for bit_offset in range(8):
+                        # source_bytes is a buffer containing the value at the
+                        # given bit offset, with extra bits that should be
+                        # ignored.
+                        if byteorder == "little":
+                            source_bytes = bytearray(
+                                (value << bit_offset).to_bytes(
+                                    (bit_offset + bit_size + 7) // 8,
+                                    byteorder,
+                                    signed=signed,
+                                )
+                            )
+                            source_bytes[0] |= (1 << bit_offset) - 1
+                            if (bit_offset + bit_size) % 8 != 0:
+                                source_bytes[-1] ^= (
+                                    0xFF << ((bit_offset + bit_size) % 8)
+                                ) & 0xFF
+                        else:
+                            source_bytes = bytearray(
+                                (value << (-(bit_offset + bit_size) % 8)).to_bytes(
+                                    (bit_offset + bit_size + 7) // 8,
+                                    byteorder,
+                                    signed=signed,
+                                )
+                            )
+                            source_bytes[0] ^= (0xFF00 >> bit_offset) & 0xFF
+                            if (bit_offset + bit_size) % 8 != 0:
+                                source_bytes[-1] |= (
+                                    1 << (-(bit_offset + bit_size) % 8)
+                                ) - 1
+                        yield signed, byteorder, bit_size, type, bit_offset, value, value_bytes, source_bytes
+
+
 class TestReference(MockProgramTestCase):
     def test_basic(self):
         self.add_memory_segment((1000).to_bytes(4, "little"), virt_addr=0xFFFF0000)
@@ -197,28 +263,36 @@ class TestReference(MockProgramTestCase):
             bit_offset=7,
         )
 
-    def test_read_unsigned(self):
-        value = 12345678912345678989
-        for bit_size in range(1, 65):
-            for bit_offset in range(8):
-                size = (bit_size + bit_offset + 7) // 8
-                size_mask = (1 << (8 * size)) - 1
-                for byteorder in ["little", "big"]:
-                    if byteorder == "little":
-                        tmp = value << bit_offset
-                    else:
-                        tmp = value << (8 - bit_size - bit_offset) % 8
-                    tmp &= size_mask
-                    buf = tmp.to_bytes(size, byteorder)
-                    prog = mock_program(segments=[MockMemorySegment(buf, 0)])
-                    obj = Object(
-                        prog,
-                        prog.int_type("unsigned long long", 8, False, byteorder),
-                        address=0,
-                        bit_field_size=bit_size,
-                        bit_offset=bit_offset,
-                    )
-                    self.assertEqual(obj.value_(), value & ((1 << bit_size) - 1))
+    def test_int_bits(self):
+        buffer = bytearray(9)
+        self.add_memory_segment(buffer, virt_addr=0xFFFF0000)
+        for (
+            signed,
+            byteorder,
+            bit_size,
+            type,
+            bit_offset,
+            value,
+            value_bytes,
+            source_bytes,
+        ) in _int_bits_cases(self.prog):
+            with self.subTest(
+                signed=signed,
+                byteorder=byteorder,
+                bit_size=bit_size,
+                bit_offset=bit_offset,
+                value=value,
+            ):
+                buffer[: len(source_bytes)] = source_bytes
+                obj = Object(
+                    self.prog,
+                    type,
+                    address=0xFFFF0000,
+                    bit_offset=bit_offset,
+                    bit_field_size=bit_size,
+                )
+                self.assertEqual(obj.value_(), value)
+                self.assertEqual(obj.to_bytes_(), value_bytes)
 
     def test_read_float(self):
         pi32 = struct.unpack("f", struct.pack("f", math.pi))[0]
@@ -627,6 +701,38 @@ class TestValue(MockProgramTestCase):
                 ).value_(),
                 value & ((1 << bit_size) - 1),
             )
+
+    def test_int_bits(self):
+        for (
+            signed,
+            byteorder,
+            bit_size,
+            type,
+            bit_offset,
+            value,
+            value_bytes,
+            source_bytes,
+        ) in _int_bits_cases(self.prog):
+            with self.subTest(
+                signed=signed,
+                byteorder=byteorder,
+                bit_size=bit_size,
+                bit_offset=bit_offset,
+                value=value,
+            ):
+                obj = Object(self.prog, type, value, bit_field_size=bit_size)
+                self.assertEqual(obj.value_(), value)
+                self.assertEqual(obj.to_bytes_(), value_bytes)
+                self.assertIdentical(
+                    Object.from_bytes_(
+                        self.prog,
+                        obj.type_,
+                        source_bytes,
+                        bit_offset=bit_offset,
+                        bit_field_size=bit_size,
+                    ),
+                    obj,
+                )
 
     def test_float(self):
         obj = Object(self.prog, "double", value=3.14)
