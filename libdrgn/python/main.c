@@ -188,34 +188,29 @@ static int add_type_aliases(PyObject *m)
 	       return -1;
        }
 
-       PyObject *os_module = PyImport_ImportModule("os");
+       _cleanup_pydecref_ PyObject *os_module = PyImport_ImportModule("os");
        if (!os_module)
 	       return -1;
-       PyObject *os_PathLike = PyObject_GetAttrString(os_module, "PathLike");
-       Py_DECREF(os_module);
+       _cleanup_pydecref_ PyObject *os_PathLike =
+	       PyObject_GetAttrString(os_module, "PathLike");
        if (!os_PathLike)
 	       return -1;
-       PyObject *item = Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
-				      os_PathLike);
-       Py_DECREF(os_PathLike);
+       _cleanup_pydecref_ PyObject *item =
+	       Py_BuildValue("OOO", &PyUnicode_Type, &PyBytes_Type,
+			     os_PathLike);
        if (!item)
 	       return -1;
 
-       PyObject *typing_module = PyImport_ImportModule("typing");
-       if (!typing_module) {
-	       Py_DECREF(item);
+       _cleanup_pydecref_ PyObject *typing_module =
+	       PyImport_ImportModule("typing");
+       if (!typing_module)
 	       return -1;
-       }
-       PyObject *typing_Union = PyObject_GetAttrString(typing_module, "Union");
-       Py_DECREF(typing_module);
-       if (!typing_Union) {
-	       Py_DECREF(item);
+       _cleanup_pydecref_ PyObject *typing_Union =
+	       PyObject_GetAttrString(typing_module, "Union");
+       if (!typing_Union)
 	       return -1;
-       }
 
        PyObject *Path = PyObject_GetItem(typing_Union, item);
-       Py_DECREF(typing_Union);
-       Py_DECREF(item);
        if (!Path)
 	       return -1;
        if (PyModule_AddObject(m, "Path", Path) == -1) {

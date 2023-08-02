@@ -11,6 +11,7 @@
 #include "structmember.h"
 
 #include "docstrings.h"
+#include "../cleanup.h"
 #include "../drgn.h"
 // IWYU pragma: end_exports
 
@@ -72,6 +73,14 @@
 	else				\
 		Py_RETURN_FALSE;	\
 } while (0)
+
+static inline void pydecrefp(void *p)
+{
+	Py_XDECREF(*(PyObject **)p);
+}
+
+/** Call @c Py_XDECREF() when the variable goes out of scope. */
+#define _cleanup_pydecref_ _cleanup_(pydecrefp)
 
 typedef struct {
 	PyObject_HEAD

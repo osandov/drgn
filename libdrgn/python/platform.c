@@ -83,39 +83,30 @@ static PyObject *Platform_get_flags(Platform *self, void *arg)
 static PyObject *Platform_get_registers(Platform *self, void *arg)
 {
 	size_t num_registers = drgn_platform_num_registers(self->platform);
-	PyObject *tuple = PyTuple_New(num_registers);
+	_cleanup_pydecref_ PyObject *tuple = PyTuple_New(num_registers);
 	if (!tuple)
 		return NULL;
 	for (size_t i = 0; i < num_registers; i++) {
 		const struct drgn_register *reg =
 			drgn_platform_register(self->platform, i);
 		Register *item = call_tp_alloc(Register);
-		if (!item) {
-			Py_DECREF(tuple);
+		if (!item)
 			return NULL;
-		}
 		item->reg = reg;
 		PyTuple_SET_ITEM(tuple, i, (PyObject *)item);
 	}
-	return tuple;
+	return_ptr(tuple);
 }
 
 static PyObject *Platform_repr(Platform *self)
 {
-	PyObject *arch_obj, *flags_obj, *ret;
-
-	arch_obj = Platform_get_arch(self, NULL);
+	_cleanup_pydecref_ PyObject *arch_obj = Platform_get_arch(self, NULL);
 	if (!arch_obj)
 		return NULL;
-	flags_obj = Platform_get_flags(self, NULL);
-	if (!flags_obj) {
-		Py_DECREF(arch_obj);
+	_cleanup_pydecref_ PyObject *flags_obj = Platform_get_flags(self, NULL);
+	if (!flags_obj)
 		return NULL;
-	}
-	ret = PyUnicode_FromFormat("Platform(%R, %R)", arch_obj, flags_obj);
-	Py_XDECREF(flags_obj);
-	Py_XDECREF(arch_obj);
-	return ret;
+	return PyUnicode_FromFormat("Platform(%R, %R)", arch_obj, flags_obj);
 }
 
 static PyGetSetDef Platform_getset[] = {
@@ -154,26 +145,22 @@ static PyObject *Register_get_names(Register *self, void *arg)
 {
 	size_t num_names;
 	const char * const *names = drgn_register_names(self->reg, &num_names);
-	PyObject *ret = PyTuple_New(num_names);
+	_cleanup_pydecref_ PyObject *ret = PyTuple_New(num_names);
 	for (size_t i = 0; i < num_names; i++) {
 		PyObject *item = PyUnicode_FromString(names[i]);
-		if (!item) {
-			Py_DECREF(ret);
+		if (!item)
 			return NULL;
-		}
 		PyTuple_SET_ITEM(ret, i, item);
 	}
-	return ret;
+	return_ptr(ret);
 }
 
 static PyObject *Register_repr(Register *self)
 {
-	PyObject *names_obj = Register_get_names(self, NULL);
+	_cleanup_pydecref_ PyObject *names_obj = Register_get_names(self, NULL);
 	if (!names_obj)
 		return NULL;
-	PyObject *ret = PyUnicode_FromFormat("Register(%R)", names_obj);
-	Py_DECREF(names_obj);
-	return ret;
+	return PyUnicode_FromFormat("Register(%R)", names_obj);
 }
 
 static PyGetSetDef Register_getset[] = {

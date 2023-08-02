@@ -12,18 +12,17 @@ static Program *Thread_prog(Thread *self)
 
 PyObject *Thread_wrap(struct drgn_thread *thread)
 {
-	Thread *ret = call_tp_alloc(Thread);
+	_cleanup_pydecref_ Thread *ret = call_tp_alloc(Thread);
 	if (!ret)
 		return NULL;
 	struct drgn_error *err =
 		drgn_thread_dup_internal(thread, &ret->thread);
 	if (err) {
 		ret->thread.prog = NULL;
-		Py_DECREF(ret);
 		return set_drgn_error(err);
 	}
 	Py_INCREF(container_of(thread->prog, Program, prog));
-	return (PyObject *)ret;
+	return (PyObject *)no_cleanup_ptr(ret);
 }
 
 static void Thread_dealloc(Thread *self)
@@ -47,15 +46,14 @@ static DrgnObject *Thread_get_object(Thread *self)
 	struct drgn_error *err = drgn_thread_object(&self->thread, &object);
 	if (err)
 		return set_drgn_error(err);
-	DrgnObject *ret = DrgnObject_alloc(Thread_prog(self));
+	_cleanup_pydecref_ DrgnObject *ret =
+		DrgnObject_alloc(Thread_prog(self));
 	if (!ret)
 		return NULL;
 	err = drgn_object_copy(&ret->obj, object);
-	if (err) {
-		Py_DECREF(ret);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return ret;
+	return_ptr(ret);
 }
 
 static PyObject *Thread_stack_trace(Thread *self)

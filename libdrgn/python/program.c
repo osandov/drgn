@@ -47,12 +47,12 @@ static int get_log_level(void)
 	// logging.disable() into account.
 	int level;
 	for (level = 0; level < DRGN_LOG_NONE; level++) {
-		PyObject *enabled = PyObject_CallMethod(logger, "isEnabledFor",
-							"i", (level + 1) * 10);
+		_cleanup_pydecref_ PyObject *enabled =
+			PyObject_CallMethod(logger, "isEnabledFor", "i",
+					    (level + 1) * 10);
 		if (!enabled)
 			return -1;
 		int ret = PyObject_IsTrue(enabled);
-		Py_DECREF(enabled);
 		if (ret < 0)
 			return -1;
 		if (ret)
@@ -110,15 +110,13 @@ static int init_logger_cache_wrapper(void)
 	LoggerCacheWrapper_type.tp_base = &PyDict_Type;
 	if (PyType_Ready(&LoggerCacheWrapper_type))
 		return -1;
-	PyObject *cache_wrapper =
+	_cleanup_pydecref_ PyObject *cache_wrapper =
 		PyObject_CallFunction((PyObject *)&LoggerCacheWrapper_type,
 				      NULL);
 	if (!cache_wrapper)
 		return -1;
-	int r = PyObject_SetAttrString(logger, "_cache", cache_wrapper);
-	Py_DECREF(cache_wrapper);
-	if (r)
-		return r;
+	if (PyObject_SetAttrString(logger, "_cache", cache_wrapper))
+		return -1;
 
 	return cache_log_level();
 }
@@ -160,11 +158,10 @@ int init_logging(void)
 	if (!percent_s)
 		return -1;
 
-	PyObject *logging = PyImport_ImportModule("logging");
+	_cleanup_pydecref_ PyObject *logging = PyImport_ImportModule("logging");
 	if (!logging)
 		return -1;
 	logger = PyObject_CallMethod(logging, "getLogger", "s", "drgn");
-	Py_DECREF(logging);
 	if (!logger)
 		return -1;
 	logger_log = PyObject_GetAttrString(logger, "log");
@@ -257,25 +254,21 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 		return NULL;
 	}
 
-	PyObject *cache = PyDict_New();
+	_cleanup_pydecref_ PyObject *cache = PyDict_New();
 	if (!cache)
 		return NULL;
 
-	Program *prog = call_tp_alloc(Program);
-	if (!prog) {
-		Py_DECREF(cache);
+	_cleanup_pydecref_ Program *prog = call_tp_alloc(Program);
+	if (!prog)
 		return NULL;
-	}
-	prog->cache = cache;
+	prog->cache = no_cleanup_ptr(cache);
 	pyobjectp_set_init(&prog->objects);
 	drgn_program_init(&prog->prog, platform);
 	drgn_program_set_blocking_callback(&prog->prog, drgnpy_begin_blocking,
 					   drgnpy_end_blocking, NULL);
-	if (Program_init_logging(prog)) {
-		Py_DECREF(prog);
+	if (Program_init_logging(prog))
 		return NULL;
-	}
-	return prog;
+	return_ptr(prog);
 }
 
 static void Program_dealloc(Program *self)
@@ -456,11 +449,10 @@ out_gstate:
 static PyObject *Program_add_type_finder(Program *self, PyObject *args,
 					 PyObject *kwds)
 {
-	static char *keywords[] = {"fn", NULL};
 	struct drgn_error *err;
-	PyObject *fn, *arg;
-	int ret;
 
+	static char *keywords[] = {"fn", NULL};
+	PyObject *fn;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_type_finder",
 					 keywords, &fn))
 	    return NULL;
@@ -470,12 +462,10 @@ static PyObject *Program_add_type_finder(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	arg = Py_BuildValue("OO", self, fn);
+	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);
 	if (!arg)
 		return NULL;
-	ret = Program_hold_object(self, arg);
-	Py_DECREF(arg);
-	if (ret == -1)
+	if (Program_hold_object(self, arg))
 		return NULL;
 
 	err = drgn_program_add_type_finder(&self->prog, py_type_find_fn, arg);
@@ -539,11 +529,10 @@ out_gstate:
 static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 					   PyObject *kwds)
 {
-	static char *keywords[] = {"fn", NULL};
 	struct drgn_error *err;
-	PyObject *fn, *arg;
-	int ret;
 
+	static char *keywords[] = {"fn", NULL};
+	PyObject *fn;
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_object_finder",
 					 keywords, &fn))
 	    return NULL;
@@ -553,12 +542,10 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	arg = Py_BuildValue("OO", self, fn);
+	_cleanup_pydecref_ PyObject *arg = Py_BuildValue("OO", self, fn);
 	if (!arg)
 		return NULL;
-	ret = Program_hold_object(self, arg);
-	Py_DECREF(arg);
-	if (ret == -1)
+	if (Program_hold_object(self, arg))
 		return NULL;
 
 	err = drgn_program_add_object_finder(&self->prog, py_object_find_fn,
@@ -630,43 +617,35 @@ static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 	struct path_arg_vector path_args = VECTOR_INIT;
 	const char **paths = NULL;
 	if (paths_obj != Py_None) {
-		Py_ssize_t length_hint;
-		PyObject *it, *item;
-
-		it = PyObject_GetIter(paths_obj);
+		_cleanup_pydecref_ PyObject *it = PyObject_GetIter(paths_obj);
 		if (!it)
 			goto out;
 
-		length_hint = PyObject_LengthHint(paths_obj, 1);
-		if (length_hint == -1) {
-			Py_DECREF(it);
+		Py_ssize_t length_hint = PyObject_LengthHint(paths_obj, 1);
+		if (length_hint == -1)
 			goto out;
-		}
 		if (!path_arg_vector_reserve(&path_args, length_hint)) {
 			PyErr_NoMemory();
-			Py_DECREF(it);
 			goto out;
 		}
 
-		while ((item = PyIter_Next(it))) {
-			struct path_arg *path_arg;
-			int ret;
+		for (;;) {
+			_cleanup_pydecref_ PyObject *item = PyIter_Next(it);
+			if (!item)
+				break;
 
-			path_arg = path_arg_vector_append_entry(&path_args);
+			struct path_arg *path_arg =
+				path_arg_vector_append_entry(&path_args);
 			if (!path_arg) {
 				PyErr_NoMemory();
-				Py_DECREF(item);
 				break;
 			}
 			memset(path_arg, 0, sizeof(*path_arg));
-			ret = path_converter(item, path_arg);
-			Py_DECREF(item);
-			if (!ret) {
+			if (!path_converter(item, path_arg)) {
 				path_args.size--;
 				break;
 			}
 		}
-		Py_DECREF(it);
 		if (PyErr_Occurred())
 			goto out;
 
@@ -710,9 +689,7 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 	struct index_arg address = {};
 	Py_ssize_t size;
 	int physical = 0;
-	PyObject *buf;
 	bool clear;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&n|p:read", keywords,
 					 index_converter, &address, &size,
 					 &physical))
@@ -722,7 +699,8 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 		PyErr_SetString(PyExc_ValueError, "negative size");
 		return NULL;
 	}
-	buf = PyBytes_FromStringAndSize(NULL, size);
+	_cleanup_pydecref_ PyObject *buf =
+		PyBytes_FromStringAndSize(NULL, size);
 	if (!buf)
 		return NULL;
 	clear = set_drgn_in_python();
@@ -730,11 +708,9 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 				       address.uvalue, size, physical);
 	if (clear)
 		clear_drgn_in_python();
-	if (err) {
-		Py_DECREF(buf);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return buf;
+	return_ptr(buf);
 }
 
 #define METHOD_READ(x, type)							\
@@ -962,7 +938,7 @@ static PyObject *Program_symbols(Program *self, PyObject *args)
 	if (err)
 		return set_drgn_error(err);
 
-	PyObject *list = PyList_New(count);
+	_cleanup_pydecref_ PyObject *list = PyList_New(count);
 	if (!list) {
 		drgn_symbols_destroy(symbols, count);
 		return NULL;
@@ -972,15 +948,13 @@ static PyObject *Program_symbols(Program *self, PyObject *args)
 		if (!pysym) {
 			/* Free symbols which aren't yet added to list. */
 			drgn_symbols_destroy(symbols, count);
-			/* Free list and all symbols already added. */
-			Py_DECREF(list);
 			return NULL;
 		}
 		symbols[i] = NULL;
 		PyList_SET_ITEM(list, i, pysym);
 	}
 	free(symbols);
-	return list;
+	return_ptr(list);
 }
 
 static PyObject *Program_symbol(Program *self, PyObject *arg)
@@ -1089,24 +1063,21 @@ static PyObject *Program__log(Program *self, PyObject *args, PyObject *kwds)
 static DrgnObject *Program_subscript(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
-	const char *name;
-	DrgnObject *ret;
-	bool clear;
 
 	if (!PyUnicode_Check(key)) {
 		PyErr_SetObject(PyExc_KeyError, key);
 		return NULL;
 	}
 
-	name = PyUnicode_AsUTF8(key);
+	const char *name = PyUnicode_AsUTF8(key);
 	if (!name)
 		return NULL;
 
-	ret = DrgnObject_alloc(self);
+	_cleanup_pydecref_ DrgnObject *ret = DrgnObject_alloc(self);
 	if (!ret)
 		return NULL;
 
-	clear = set_drgn_in_python();
+	bool clear = set_drgn_in_python();
 	err = drgn_program_find_object(&self->prog, name, NULL,
 				       DRGN_FIND_OBJECT_ANY, &ret->obj);
 	if (clear)
@@ -1118,10 +1089,9 @@ static DrgnObject *Program_subscript(Program *self, PyObject *key)
 		} else {
 			set_drgn_error(err);
 		}
-		Py_DECREF(ret);
 		return NULL;
 	}
-	return ret;
+	return_ptr(ret);
 }
 
 static int Program_contains(Program *self, PyObject *key)
@@ -1321,14 +1291,13 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)
 	static char *keywords[] = {"path", NULL};
 	struct drgn_error *err;
 	struct path_arg path = {};
-	Program *prog;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,
 					 "O&:program_from_core_dump", keywords,
 					 path_converter, &path))
 		return NULL;
 
-	prog = (Program *)PyObject_CallObject((PyObject *)&Program_type, NULL);
+	_cleanup_pydecref_ Program *prog =
+		(Program *)PyObject_CallObject((PyObject *)&Program_type, NULL);
 	if (!prog) {
 		path_cleanup(&path);
 		return NULL;
@@ -1336,49 +1305,39 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)
 
 	err = drgn_program_init_core_dump(&prog->prog, path.path);
 	path_cleanup(&path);
-	if (err) {
-		Py_DECREF(prog);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return prog;
+	return_ptr(prog);
 }
 
 Program *program_from_kernel(PyObject *self)
 {
 	struct drgn_error *err;
-	Program *prog;
-
-	prog = (Program *)PyObject_CallObject((PyObject *)&Program_type, NULL);
+	_cleanup_pydecref_ Program *prog =
+		(Program *)PyObject_CallObject((PyObject *)&Program_type, NULL);
 	if (!prog)
 		return NULL;
-
 	err = drgn_program_init_kernel(&prog->prog);
-	if (err) {
-		Py_DECREF(prog);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return prog;
+	return_ptr(prog);
 }
 
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds)
 {
-	static char *keywords[] = {"pid", NULL};
 	struct drgn_error *err;
+	static char *keywords[] = {"pid", NULL};
 	int pid;
-	Program *prog;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "i:program_from_pid",
 					 keywords, &pid))
 		return NULL;
 
-	prog = (Program *)PyObject_CallObject((PyObject *)&Program_type, NULL);
+	_cleanup_pydecref_ Program *prog =
+		(Program *)PyObject_CallObject((PyObject *)&Program_type, NULL);
 	if (!prog)
 		return NULL;
-
 	err = drgn_program_init_pid(&prog->prog, pid);
-	if (err) {
-		Py_DECREF(prog);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return prog;
+	return_ptr(prog);
 }

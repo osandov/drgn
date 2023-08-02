@@ -21,34 +21,26 @@ static int FaultError_init(PyObject *self, PyObject *args, PyObject *kwds)
 
 static PyObject *FaultError_str(PyObject *self)
 {
-	PyObject *message, *address, *args, *fmt, *ret = NULL;
-
-	message = PyObject_GetAttrString(self, "message");
+	_cleanup_pydecref_ PyObject *message =
+		PyObject_GetAttrString(self, "message");
 	if (!message)
 		return NULL;
 
-	address = PyObject_GetAttrString(self, "address");
+	_cleanup_pydecref_ PyObject *address =
+		PyObject_GetAttrString(self, "address");
 	if (!address)
-		goto out_message;
+		return NULL;
 
-	args = Py_BuildValue("OO", message, address);
+	_cleanup_pydecref_ PyObject *args =
+		Py_BuildValue("OO", message, address);
 	if (!args)
-		goto out_address;
+		return NULL;
 
-	fmt = PyUnicode_FromString("%s: %#x");
+	_cleanup_pydecref_ PyObject *fmt = PyUnicode_FromString("%s: %#x");
 	if (!fmt)
-		goto out_args;
+		return NULL;
 
-	ret = PyUnicode_Format(fmt, args);
-
-	Py_DECREF(fmt);
-out_args:
-	Py_DECREF(args);
-out_address:
-	Py_DECREF(address);
-out_message:
-	Py_DECREF(message);
-	return ret;
+	return PyUnicode_Format(fmt, args);
 }
 
 PyTypeObject FaultError_type = {
@@ -157,14 +149,11 @@ DRGNPY_PUBLIC void *set_drgn_error(struct drgn_error *err)
 		PyErr_SetString(PyExc_LookupError, err->message);
 		break;
 	case DRGN_ERROR_FAULT: {
-		PyObject *exc;
-
-		exc = PyObject_CallFunction((PyObject *)&FaultError_type, "sK",
-					    err->message, err->address);
-		if (exc) {
+		_cleanup_pydecref_ PyObject *exc =
+			PyObject_CallFunction((PyObject *)&FaultError_type,
+					      "sK", err->message, err->address);
+		if (exc)
 			PyErr_SetObject((PyObject *)&FaultError_type, exc);
-			Py_DECREF(exc);
-		}
 		break;
 	}
 	case DRGN_ERROR_TYPE:

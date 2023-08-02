@@ -7,30 +7,18 @@
 
 int append_string(PyObject *parts, const char *s)
 {
-	PyObject *str;
-	int ret;
-
-	str = PyUnicode_FromString(s);
+	_cleanup_pydecref_ PyObject *str = PyUnicode_FromString(s);
 	if (!str)
 		return -1;
-
-	ret = PyList_Append(parts, str);
-	Py_DECREF(str);
-	return ret;
+	return PyList_Append(parts, str);
 }
 
 static int append_formatv(PyObject *parts, const char *format, va_list ap)
 {
-	PyObject *str;
-	int ret;
-
-	str = PyUnicode_FromFormatV(format, ap);
+	_cleanup_pydecref_ PyObject *str = PyUnicode_FromFormatV(format, ap);
 	if (!str)
 		return -1;
-
-	ret = PyList_Append(parts, str);
-	Py_DECREF(str);
-	return ret;
+	return PyList_Append(parts, str);
 }
 
 int append_format(PyObject *parts, const char *format, ...)
@@ -46,12 +34,10 @@ int append_format(PyObject *parts, const char *format, ...)
 
 PyObject *join_strings(PyObject *parts)
 {
-	PyObject *sep = PyUnicode_New(0, 0);
+	_cleanup_pydecref_ PyObject *sep = PyUnicode_New(0, 0);
 	if (!sep)
 		return NULL;
-	PyObject *ret = PyUnicode_Join(sep, parts);
-	Py_DECREF(sep);
-	return ret;
+	return PyUnicode_Join(sep, parts);
 }
 
 PyObject *repr_pretty_from_str(PyObject *self, PyObject *args, PyObject *kwds)
@@ -66,33 +52,28 @@ PyObject *repr_pretty_from_str(PyObject *self, PyObject *args, PyObject *kwds)
 	if (cycle)
 		return PyObject_CallMethod(p, "text", "s", "...");
 
-	PyObject *str_obj = PyObject_Str(self);
+	_cleanup_pydecref_ PyObject *str_obj = PyObject_Str(self);
 	if (!str_obj)
 		return NULL;
-	PyObject *ret = PyObject_CallMethod(p, "text", "O", str_obj);
-	Py_DECREF(str_obj);
-	return ret;
+	return PyObject_CallMethod(p, "text", "O", str_obj);
 }
 
 int index_converter(PyObject *o, void *p)
 {
 	struct index_arg *arg = p;
-	PyObject *index_obj;
 
 	arg->is_none = o == Py_None;
 	if (arg->allow_none && arg->is_none)
 		return 1;
 
-	index_obj = PyNumber_Index(o);
+	_cleanup_pydecref_ PyObject *index_obj = PyNumber_Index(o);
 	if (!index_obj)
 		return 0;
 	if (arg->is_signed) {
 		arg->svalue = PyLong_AsLongLong(index_obj);
-		Py_DECREF(index_obj);
 		return (arg->svalue != -1LL || !PyErr_Occurred());
 	} else {
 		arg->uvalue = PyLong_AsUnsignedLongLong(index_obj);
-		Py_DECREF(index_obj);
 		return (arg->uvalue != -1ULL || !PyErr_Occurred());
 	}
 }
@@ -144,12 +125,10 @@ int enum_converter(PyObject *o, void *p)
 		return 0;
 	}
 
-	o = PyObject_GetAttrString(o, "value");
-	if (!o)
+	_cleanup_pydecref_ PyObject *value = PyObject_GetAttrString(o, "value");
+	if (!value)
 		return 0;
-
-	arg->value = PyLong_AsUnsignedLong(o);
-	Py_DECREF(o);
+	arg->value = PyLong_AsUnsignedLong(value);
 	if (arg->value == -1 && PyErr_Occurred())
 		return 0;
 	return 1;

@@ -63,32 +63,22 @@ static PyObject *Symbol_get_kind(Symbol *self, void *arg)
 
 static PyObject *Symbol_repr(Symbol *self)
 {
-	PyObject *ret = NULL;
-	PyObject *tmp = PyUnicode_FromString(drgn_symbol_name(self->sym));
-	if (!tmp)
+	_cleanup_pydecref_ PyObject *name =
+		PyUnicode_FromString(drgn_symbol_name(self->sym));
+	if (!name)
 		return NULL;
-
-	PyObject *binding = Symbol_get_binding(self, NULL);
+	_cleanup_pydecref_ PyObject *binding = Symbol_get_binding(self, NULL);
 	if (!binding)
-		goto out_tmp;
-
-	PyObject *kind = Symbol_get_kind(self, NULL);
+		return NULL;
+	_cleanup_pydecref_ PyObject *kind = Symbol_get_kind(self, NULL);
 	if (!kind)
-		goto out_binding;
+		return NULL;
 
 	char address[19], size[19];
 	sprintf(address, "0x%" PRIx64, drgn_symbol_address(self->sym));
 	sprintf(size, "0x%" PRIx64, drgn_symbol_size(self->sym));
-	ret = PyUnicode_FromFormat("Symbol(name=%R, address=%s, size=%s, binding=%R, kind=%R)",
-				   tmp, address, size, binding, kind);
-
-	Py_DECREF(kind);
-out_binding:
-	Py_DECREF(binding);
-out_tmp:
-	Py_DECREF(tmp);
-	return ret;
-
+	return PyUnicode_FromFormat("Symbol(name=%R, address=%s, size=%s, binding=%R, kind=%R)",
+				    name, address, size, binding, kind);
 }
 
 static PyGetSetDef Symbol_getset[] = {

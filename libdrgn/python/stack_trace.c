@@ -123,7 +123,7 @@ static PyObject *StackFrame_locals(StackFrame *self)
 	if (err)
 		return set_drgn_error(err);
 
-	PyObject *list = PyList_New(count);
+	_cleanup_pydecref_ PyObject *list = PyList_New(count);
 	if (!list) {
 		drgn_stack_frame_locals_destroy(names, count);
 		return NULL;
@@ -132,13 +132,12 @@ static PyObject *StackFrame_locals(StackFrame *self)
 		PyObject *string = PyUnicode_FromString(names[i]);
 		if (!string) {
 			drgn_stack_frame_locals_destroy(names, count);
-			Py_DECREF(list);
 			return NULL;
 		}
 		PyList_SET_ITEM(list, i, string);
 	}
 	drgn_stack_frame_locals_destroy(names, count);
-	return list;
+	return_ptr(list);
 }
 
 static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
@@ -152,7 +151,7 @@ static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
 	const char *name = PyUnicode_AsUTF8(key);
 	if (!name)
 		return NULL;
-	DrgnObject *ret = DrgnObject_alloc(prog);
+	_cleanup_pydecref_ DrgnObject *ret = DrgnObject_alloc(prog);
 	if (!ret)
 		return NULL;
 	bool clear = set_drgn_in_python();
@@ -167,10 +166,9 @@ static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
 		} else {
 			set_drgn_error(err);
 		}
-		Py_DECREF(ret);
 		return NULL;
 	}
-	return ret;
+	return_ptr(ret);
 }
 
 static int StackFrame_contains(StackFrame *self, PyObject *key)
@@ -253,7 +251,7 @@ static PyObject *StackFrame_register(StackFrame *self, PyObject *arg)
 
 static PyObject *StackFrame_registers(StackFrame *self)
 {
-	PyObject *dict = PyDict_New();
+	_cleanup_pydecref_ PyObject *dict = PyDict_New();
 	if (!dict)
 		return NULL;
 	const struct drgn_platform *platform =
@@ -266,26 +264,19 @@ static PyObject *StackFrame_registers(StackFrame *self)
 		if (!drgn_stack_frame_register(self->trace->trace, self->i, reg,
 					       &value))
 			continue;
-		PyObject *value_obj = PyLong_FromUint64(value);
-		if (!value_obj) {
-			Py_DECREF(dict);
+		_cleanup_pydecref_ PyObject *value_obj =
+			PyLong_FromUint64(value);
+		if (!value_obj)
 			return NULL;
-		}
 		size_t num_names;
 		const char * const *names = drgn_register_names(reg,
 								&num_names);
 		for (size_t j = 0; j < num_names; j++) {
-			int ret = PyDict_SetItemString(dict, names[j],
-						       value_obj);
-			if (ret == -1) {
-				Py_DECREF(value_obj);
-				Py_DECREF(dict);
+			if (PyDict_SetItemString(dict, names[j], value_obj))
 				return NULL;
-			}
 		}
-		Py_DECREF(value_obj);
 	}
-	return dict;
+	return_ptr(dict);
 }
 
 static PyObject *StackFrame_get_name(StackFrame *self, void *arg)

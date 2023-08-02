@@ -28,8 +28,6 @@ PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
 	struct index_arg pgtable = {};
 	struct index_arg address = {};
 	Py_ssize_t size;
-	PyObject *buf;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&O&n:read_vm",
 					 keywords, &Program_type, &prog,
 					 index_converter, &pgtable,
@@ -40,16 +38,14 @@ PyObject *drgnpy_linux_helper_read_vm(PyObject *self, PyObject *args,
 		PyErr_SetString(PyExc_ValueError, "negative size");
 		return NULL;
 	}
-	buf = PyBytes_FromStringAndSize(NULL, size);
+	_cleanup_pydecref_ PyObject *buf = PyBytes_FromStringAndSize(NULL, size);
 	if (!buf)
 		return NULL;
 	err = linux_helper_read_vm(&prog->prog, pgtable.uvalue, address.uvalue,
 				   PyBytes_AS_STRING(buf), size);
-	if (err) {
-		Py_DECREF(buf);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return buf;
+	return_ptr(buf);
 }
 
 PyObject *drgnpy_linux_helper_follow_phys(PyObject *self, PyObject *args,
@@ -81,21 +77,18 @@ DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 	struct drgn_error *err;
 	DrgnObject *ptr;
 	struct index_arg cpu = {};
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:per_cpu_ptr",
 					 keywords, &DrgnObject_type, &ptr,
 					 index_converter, &cpu))
 		return NULL;
 
-	DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(ptr));
+	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(ptr));
 	if (!res)
 		return NULL;
 	err = linux_helper_per_cpu_ptr(&res->obj, &ptr->obj, cpu.uvalue);
-	if (err) {
-		Py_DECREF(res);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return res;
+	return_ptr(res);
 }
 
 DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args,
@@ -105,21 +98,18 @@ DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args,
 	struct drgn_error *err;
 	Program *prog;
 	struct index_arg cpu = {};
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:cpu_curr", keywords,
 					 &Program_type, &prog, index_converter,
 					 &cpu))
 		return NULL;
 
-	DrgnObject *res = DrgnObject_alloc(prog);
+	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(prog);
 	if (!res)
 		return NULL;
 	err = linux_helper_cpu_curr(&res->obj, cpu.uvalue);
-	if (err) {
-		Py_DECREF(res);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return res;
+	return_ptr(res);
 }
 
 DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args,
@@ -129,21 +119,18 @@ DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args,
 	struct drgn_error *err;
 	Program *prog;
 	struct index_arg cpu = {};
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:idle_task", keywords,
 					 &Program_type, &prog, index_converter,
 					 &cpu))
 		return NULL;
 
-	DrgnObject *res = DrgnObject_alloc(prog);
+	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(prog);
 	if (!res)
 		return NULL;
 	err = linux_helper_idle_task(&res->obj, cpu.uvalue);
-	if (err) {
-		Py_DECREF(res);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return res;
+	return_ptr(res);
 }
 
 PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
@@ -175,15 +162,13 @@ DrgnObject *drgnpy_linux_helper_xa_load(PyObject *self, PyObject *args,
 					 &index))
 		return NULL;
 
-	DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(xa));
+	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(xa));
 	if (!res)
 		return NULL;
 	err = linux_helper_xa_load(&res->obj, &xa->obj, index.uvalue);
-	if (err) {
-		Py_DECREF(res);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return res;
+	return_ptr(res);
 }
 
 DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,
@@ -193,22 +178,19 @@ DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,
 	struct drgn_error *err;
 	DrgnObject *idr;
 	struct index_arg id = {};
-	DrgnObject *res;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:idr_find", keywords,
 					 &DrgnObject_type, &idr,
 					 index_converter, &id))
 		return NULL;
 
-	res = DrgnObject_alloc(DrgnObject_prog(idr));
+	_cleanup_pydecref_ DrgnObject *res =
+		DrgnObject_alloc(DrgnObject_prog(idr));
 	if (!res)
 		return NULL;
 	err = linux_helper_idr_find(&res->obj, &idr->obj, id.uvalue);
-	if (err) {
-		Py_DECREF(res);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return res;
+	return_ptr(res);
 }
 
 struct prog_or_ns_arg {
@@ -295,22 +277,18 @@ DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
 	struct drgn_error *err;
 	DrgnObject *pid;
 	struct index_arg pid_type = {};
-	DrgnObject *res;
-
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:pid_task", keywords,
 					 &DrgnObject_type, &pid,
 					 index_converter, &pid_type))
 		return NULL;
 
-	res = DrgnObject_alloc(DrgnObject_prog(pid));
+	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(DrgnObject_prog(pid));
 	if (!res)
 		return NULL;
 	err = linux_helper_pid_task(&res->obj, &pid->obj, pid_type.uvalue);
-	if (err) {
-		Py_DECREF(res);
+	if (err)
 		return set_drgn_error(err);
-	}
-	return res;
+	return_ptr(res);
 }
 
 DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args,
