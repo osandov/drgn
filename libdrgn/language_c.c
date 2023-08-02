@@ -690,30 +690,70 @@ c_format_int_object(const struct drgn_object *obj,
 		return NULL;
 	}
 
+	union drgn_value value_mem;
+	const union drgn_value *value;
+	err = drgn_object_read_value(obj, &value_mem, &value);
+	if (err)
+		return err;
 	switch (obj->encoding) {
-	case DRGN_OBJECT_ENCODING_SIGNED: {
-		int64_t svalue;
-
-		err = drgn_object_read_signed(obj, &svalue);
-		if (err)
-			return err;
-		if (!string_builder_appendf(sb, "%" PRId64, svalue))
-			return &drgn_enomem;
-		return NULL;
-	}
-	case DRGN_OBJECT_ENCODING_UNSIGNED: {
-		uint64_t uvalue;
-
-		err = drgn_object_read_unsigned(obj, &uvalue);
-		if (err)
-			return err;
-		if (!string_builder_appendf(sb, "%" PRIu64, uvalue))
-			return &drgn_enomem;
-		return NULL;
+	case DRGN_OBJECT_ENCODING_SIGNED:
+		if (!string_builder_appendf(sb, "%" PRId64, value->svalue)) {
+			err = &drgn_enomem;
+			goto out;
+		}
+		break;
+	case DRGN_OBJECT_ENCODING_UNSIGNED:
+		if (!string_builder_appendf(sb, "%" PRIu64, value->uvalue)) {
+			err = &drgn_enomem;
+			goto out;
+		}
+		break;
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG: {
+		if (!string_builder_append(sb, "0x")) {
+			err = &drgn_enomem;
+			goto out;
+		}
+		const uint8_t *buf = (uint8_t *)value->bufp;
+		size_t bytes = drgn_object_size(obj);
+		if (obj->little_endian) {
+			size_t i = bytes - 1;
+			while (i > 0 && buf[i] == 0)
+				i--;
+			if (!string_builder_appendf(sb, "%" PRIx8, buf[i])) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			while (i-- > 0) {
+				if (!string_builder_appendf(sb, "%02" PRIx8, buf[i])) {
+					err = &drgn_enomem;
+					goto out;
+				}
+			}
+		} else {
+			size_t i = 0;
+			while (i < bytes - 1 && buf[i] == 0)
+				i++;
+			if (!string_builder_appendf(sb, "%" PRIx8, buf[i])) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			while (++i < bytes) {
+				if (!string_builder_appendf(sb, "%02" PRIx8, buf[i])) {
+					err = &drgn_enomem;
+					goto out;
+				}
+			}
+		}
+		break;
 	}
 	default:
 		UNREACHABLE();
 	}
+	err = NULL;
+out:
+	drgn_object_deinit_value(obj, value);
+	return err;
 }
 
 static struct drgn_error *

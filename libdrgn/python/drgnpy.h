@@ -16,6 +16,7 @@
 // IWYU pragma: end_exports
 
 #include "../hash_table.h"
+#include "../hash_table.h"
 #include "../program.h"
 
 /* These were added in Python 3.7. */

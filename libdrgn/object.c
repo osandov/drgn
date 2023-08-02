@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cleanup.h"
 #include "drgn.h"
 #include "error.h"
 #include "language.h"
@@ -32,8 +33,10 @@ LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 static void drgn_value_deinit(const struct drgn_object *obj,
 			      const union drgn_value *value)
 {
-	if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER &&
-	    !drgn_object_is_inline(obj))
+	if ((obj->encoding == DRGN_OBJECT_ENCODING_BUFFER
+	     && !drgn_object_is_inline(obj))
+	    || obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+	    || obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG)
 		free(value->bufp);
 }
 
@@ -74,8 +77,8 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 	ret->underlying_type = underlying_type;
 	ret->qualifiers = qualifiers;
 
-	ret->encoding = drgn_type_object_encoding(type);
-	if (drgn_object_encoding_is_complete(ret->encoding)) {
+	if (drgn_type_is_complete(underlying_type)
+	    && drgn_type_kind(underlying_type) != DRGN_TYPE_FUNCTION) {
 		err = drgn_type_bit_size(type, &ret->bit_size);
 		if (err)
 			return err;
@@ -83,9 +86,17 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 		ret->bit_size = 0;
 	}
 
-	ret->is_bit_field = bit_field_size != 0;
-	if (ret->encoding == DRGN_OBJECT_ENCODING_SIGNED ||
-	    ret->encoding == DRGN_OBJECT_ENCODING_UNSIGNED) {
+	struct drgn_type *compatible_type = underlying_type;
+	SWITCH_ENUM(drgn_type_kind(compatible_type),
+	case DRGN_TYPE_ENUM:
+		if (!drgn_type_is_complete(compatible_type)) {
+			ret->encoding = DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER;
+			break;
+		}
+		compatible_type = drgn_type_type(compatible_type).type;
+		fallthrough;
+	case DRGN_TYPE_INT:
+	case DRGN_TYPE_BOOL: {
 		if (bit_field_size != 0) {
 			if (bit_field_size > ret->bit_size) {
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
@@ -104,28 +115,57 @@ drgn_object_type_impl(struct drgn_type *type, struct drgn_type *underlying_type,
 						 "unsupported integer bit size (%" PRIu64 ")",
 						 ret->bit_size);
 		}
-	} else {
-		if (bit_field_size != 0) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "bit field must be integer");
-		}
-		if (ret->encoding == DRGN_OBJECT_ENCODING_FLOAT &&
-		    (ret->bit_size < 1 || ret->bit_size > 256)) {
+		bool is_signed =
+			drgn_type_kind(compatible_type) == DRGN_TYPE_INT
+			&& drgn_type_is_signed(compatible_type);
+		if (ret->bit_size <= 64 && is_signed)
+			ret->encoding = DRGN_OBJECT_ENCODING_SIGNED;
+		else if (ret->bit_size <= 64)
+			ret->encoding = DRGN_OBJECT_ENCODING_UNSIGNED;
+		else if (is_signed)
+			ret->encoding = DRGN_OBJECT_ENCODING_SIGNED_BIG;
+		else
+			ret->encoding = DRGN_OBJECT_ENCODING_UNSIGNED_BIG;
+		break;
+	}
+	case DRGN_TYPE_POINTER:
+		ret->encoding = DRGN_OBJECT_ENCODING_UNSIGNED;
+		break;
+	case DRGN_TYPE_FLOAT:
+		if (ret->bit_size < 1 || ret->bit_size > 256) {
 			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
 						 "unsupported floating-point bit size (%" PRIu64 ")",
 						 ret->bit_size);
 		}
-	}
+		ret->encoding = DRGN_OBJECT_ENCODING_FLOAT;
+		break;
+	case DRGN_TYPE_STRUCT:
+	case DRGN_TYPE_UNION:
+	case DRGN_TYPE_CLASS:
+	case DRGN_TYPE_ARRAY:
+		if (drgn_type_is_complete(compatible_type))
+			ret->encoding = DRGN_OBJECT_ENCODING_BUFFER;
+		else
+			ret->encoding = DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER;
+		break;
+	case DRGN_TYPE_VOID:
+	case DRGN_TYPE_FUNCTION:
+		ret->encoding = DRGN_OBJECT_ENCODING_NONE;
+		break;
+	// This is already the underlying type, so it can't be a typedef.
+	case DRGN_TYPE_TYPEDEF:
+	)
 
-	if (drgn_type_has_little_endian(underlying_type)) {
-		ret->little_endian = drgn_type_little_endian(underlying_type);
-	} else if (drgn_type_kind(underlying_type) == DRGN_TYPE_ENUM &&
-		   drgn_type_is_complete(underlying_type)) {
-		ret->little_endian =
-			drgn_type_little_endian(drgn_type_type(underlying_type).type);
-	} else {
-		ret->little_endian = false;
+	if (bit_field_size != 0
+	    && drgn_type_kind(compatible_type) != DRGN_TYPE_INT
+	    && drgn_type_kind(compatible_type) != DRGN_TYPE_BOOL) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "bit field must be integer");
 	}
+	ret->is_bit_field = bit_field_size != 0;
+
+	ret->little_endian = (drgn_type_has_little_endian(compatible_type)
+			      && drgn_type_little_endian(compatible_type));
 	return NULL;
 }
 
@@ -143,23 +183,37 @@ static struct drgn_error *
 drgn_object_type_operand(const struct drgn_operand_type *op_type,
 			 struct drgn_object_type *ret)
 {
-	return drgn_object_type_impl(op_type->type, op_type->underlying_type,
-				     op_type->qualifiers,
-				     op_type->bit_field_size, ret);
+	struct drgn_error *err;
+	err = drgn_object_type_impl(op_type->type, op_type->underlying_type,
+				    op_type->qualifiers,
+				    op_type->bit_field_size, ret);
+	if (err)
+		return err;
+	if (ret->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+	    || ret->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
+		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "operations on integer values larger than 64 bits are not yet supported");
+	}
+	return NULL;
 }
-
-static struct drgn_error drgn_integer_too_big = {
-	.code = DRGN_ERROR_NOT_IMPLEMENTED,
-	.message = "integer values larger than 64 bits are not yet supported",
-};
 
 struct drgn_error *
 drgn_object_set_signed_internal(struct drgn_object *res,
 				const struct drgn_object_type *type,
 				int64_t svalue)
 {
-	if (type->bit_size > 64)
-		return &drgn_integer_too_big;
+	if (type->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG) {
+		uint64_t size = drgn_value_size(type->bit_size);
+		void *buf = malloc64(size);
+		if (!buf)
+			return &drgn_enomem;
+		copy_lsbytes_fill(buf, size, type->little_endian, &svalue,
+				  sizeof(svalue), HOST_LITTLE_ENDIAN,
+				  svalue < 0 ? -1 : 0);
+		drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
+		res->value.bufp = buf;
+		return NULL;
+	}
 	drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
 	res->value.svalue = truncate_signed(svalue, type->bit_size);
 	return NULL;
@@ -175,7 +229,8 @@ drgn_object_set_signed(struct drgn_object *res,
 	err = drgn_object_type(qualified_type, bit_field_size, &type);
 	if (err)
 		return err;
-	if (type.encoding != DRGN_OBJECT_ENCODING_SIGNED) {
+	if (type.encoding != DRGN_OBJECT_ENCODING_SIGNED
+	    && type.encoding != DRGN_OBJECT_ENCODING_SIGNED_BIG) {
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "not a signed integer type");
 	}
@@ -187,8 +242,17 @@ drgn_object_set_unsigned_internal(struct drgn_object *res,
 				  const struct drgn_object_type *type,
 				  uint64_t uvalue)
 {
-	if (type->bit_size > 64)
-		return &drgn_integer_too_big;
+	if (type->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
+		uint64_t size = drgn_value_size(type->bit_size);
+		void *buf = malloc64(size);
+		if (!buf)
+			return &drgn_enomem;
+		copy_lsbytes(buf, size, type->little_endian, &uvalue,
+			     sizeof(uvalue), HOST_LITTLE_ENDIAN);
+		drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
+		res->value.bufp = buf;
+		return NULL;
+	}
 	drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
 	res->value.uvalue = truncate_unsigned(uvalue, type->bit_size);
 	return NULL;
@@ -204,7 +268,8 @@ drgn_object_set_unsigned(struct drgn_object *res,
 	err = drgn_object_type(qualified_type, bit_field_size, &type);
 	if (err)
 		return err;
-	if (type.encoding != DRGN_OBJECT_ENCODING_UNSIGNED) {
+	if (type.encoding != DRGN_OBJECT_ENCODING_UNSIGNED
+	    && type.encoding != DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "not an unsigned integer type");
 	}
@@ -216,7 +281,7 @@ static struct drgn_error drgn_float_size_unsupported = {
 	.message = "float values which are not 32 or 64 bits are not yet supported",
 };
 
-static struct drgn_error *
+struct drgn_error *
 drgn_object_set_float_internal(struct drgn_object *res,
 			       const struct drgn_object_type *type,
 			       double fvalue)
@@ -292,13 +357,16 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 	 * copy to a temporary value before freeing or modifying the old value.
 	 */
 	union drgn_value value;
-	if (type->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-		if (bit_offset != 0) {
+	if (type->encoding == DRGN_OBJECT_ENCODING_BUFFER
+	    || type->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+	    || type->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
+		if (type->encoding == DRGN_OBJECT_ENCODING_BUFFER
+		    && bit_offset != 0) {
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "non-scalar must be byte-aligned");
 		}
 		uint64_t size = drgn_value_size(type->bit_size);
-		char *dst;
+		void *dst;
 		if (size <= sizeof(res->value.ibuf)) {
 			dst = value.ibuf;
 		} else {
@@ -307,13 +375,27 @@ drgn_object_set_from_buffer_internal(struct drgn_object *res,
 				return &drgn_enomem;
 			value.bufp = dst;
 		}
-		memcpy(dst, p, size);
+		int dst_bit_offset = 0;
+		if (type->encoding != DRGN_OBJECT_ENCODING_BUFFER
+		    && !type->little_endian)
+			dst_bit_offset = -type->bit_size % 8;
+		((uint8_t *)dst)[0] = 0;
+		((uint8_t *)dst)[size - 1] = 0;
+		copy_bits(dst, dst_bit_offset, p, bit_offset, type->bit_size,
+			  type->little_endian);
+		if (type->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+		    && type->bit_size % 8 != 0) {
+			int8_t *p;
+			if (type->little_endian)
+				p = (int8_t *)dst + size - 1;
+			else
+				p = (int8_t *)dst;
+			*p = truncate_signed8(*p, type->bit_size % 8);
+		}
 	} else if (drgn_object_encoding_is_complete(type->encoding)) {
-		if (type->encoding == DRGN_OBJECT_ENCODING_FLOAT) {
-			if (type->bit_size != 32 && type->bit_size != 64)
-				return &drgn_float_size_unsupported;
-		} else if (type->bit_size > 64)
-			return &drgn_integer_too_big;
+		if (type->encoding == DRGN_OBJECT_ENCODING_FLOAT
+		    && type->bit_size != 32 && type->bit_size != 64)
+			return &drgn_float_size_unsupported;
 		drgn_value_deserialize(&value, p, bit_offset, type->encoding,
 				       type->bit_size, type->little_endian);
 	} else {
@@ -360,13 +442,21 @@ drgn_object_set_reference_internal(struct drgn_object *res,
 	address += bit_offset / 8;
 	address &= address_mask;
 	bit_offset %= 8;
-	if (type->encoding != DRGN_OBJECT_ENCODING_SIGNED &&
-	    type->encoding != DRGN_OBJECT_ENCODING_UNSIGNED &&
-	    type->encoding != DRGN_OBJECT_ENCODING_FLOAT &&
-	    type->encoding != DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER &&
-	    bit_offset != 0) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "non-scalar must be byte-aligned");
+	if (bit_offset != 0) {
+		SWITCH_ENUM(type->encoding,
+		case DRGN_OBJECT_ENCODING_SIGNED:
+		case DRGN_OBJECT_ENCODING_UNSIGNED:
+		case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+		case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		case DRGN_OBJECT_ENCODING_FLOAT:
+		case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
+			break;
+		case DRGN_OBJECT_ENCODING_NONE:
+		case DRGN_OBJECT_ENCODING_BUFFER:
+		case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
+			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+						 "non-scalar must be byte-aligned");
+		)
 	}
 	if (type->bit_size > UINT64_MAX - bit_offset) {
 		return drgn_error_format(DRGN_ERROR_OVERFLOW,
@@ -421,7 +511,9 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 
 	SWITCH_ENUM(obj->kind,
 	case DRGN_OBJECT_VALUE:
-		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
+		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER
+		    || obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+		    || obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
 			size_t size = drgn_object_size(obj);
 			char *dst;
 			const char *src;
@@ -552,34 +644,87 @@ drgn_object_read_reference(const struct drgn_object *obj,
 						  obj->type);
 	}
 
-	if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-		assert(obj->bit_offset == 0);
+	if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER
+	    || obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+	    || obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
+		int dst_bit_offset = 0;
+		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER
+		    && !obj->little_endian)
+			dst_bit_offset = -obj->bit_size % 8;
+
 		uint64_t size = drgn_object_size(obj);
-		char *dst;
-		if (size <= sizeof(value->ibuf)) {
-			dst = value->ibuf;
+		void *dst;
+		if (obj->bit_offset == 0 && dst_bit_offset == 0) {
+			if (size <= sizeof(value->ibuf)) {
+				dst = value->ibuf;
+			} else {
+				dst = malloc64(size);
+				if (!dst)
+					return &drgn_enomem;
+			}
+			err = drgn_program_read_memory(drgn_object_program(obj),
+						       dst, obj->address, size,
+						       false);
+			if (err) {
+				if (dst != value->ibuf)
+					free(dst);
+				return err;
+			}
+			if (obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG
+			    && obj->bit_size % 8 != 0) {
+				// dst_bit_offset == 0 && obj->bit_size % 8 != 0
+				// implies obj->little_endian.
+				uint8_t *p = (uint8_t *)dst + size - 1;
+				*p = truncate_unsigned8(*p, obj->bit_size % 8);
+			}
 		} else {
-			dst = malloc64(size);
-			if (!dst)
+			// bit_offset + bit_size is guaranteed not to overflow
+			// because bit_offset can only be non-zero for
+			// SIGNED_BIG and UNSIGNED_BIG, which we limit to a
+			// reasonable bit_size.
+			uint64_t read_size =
+				drgn_value_size(obj->bit_offset + obj->bit_size);
+
+			// We could probably read directly into dst and move the
+			// bits in place if we really wanted to, but this is
+			// easier.
+			_cleanup_free_ void *tmp = malloc64(read_size);
+			if (!tmp)
 				return &drgn_enomem;
+			err = drgn_program_read_memory(drgn_object_program(obj),
+						       tmp, obj->address,
+						       read_size, false);
+			if (err)
+				return err;
+			if (size <= sizeof(value->ibuf)) {
+				dst = value->ibuf;
+			} else {
+				dst = malloc64(size);
+				if (!dst)
+					return &drgn_enomem;
+			}
+			((uint8_t *)dst)[0] = 0;
+			((uint8_t *)dst)[size - 1] = 0;
+			copy_bits(dst, dst_bit_offset, tmp, obj->bit_offset,
+				  obj->bit_size, obj->little_endian);
 		}
-		err = drgn_program_read_memory(drgn_object_program(obj), dst,
-					       obj->address, size, false);
-		if (err) {
-			if (dst != value->ibuf)
-				free(dst);
-			return err;
+		if (obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+		    && obj->bit_size % 8 != 0) {
+			int8_t *p;
+			if (obj->little_endian)
+				p = (int8_t *)dst + size - 1;
+			else
+				p = (int8_t *)dst;
+			*p = truncate_signed8(*p, obj->bit_size % 8);
 		}
 		if (size > sizeof(value->ibuf))
 			value->bufp = dst;
 		return NULL;
 	} else {
 		uint64_t bit_size = obj->bit_size;
-		if (obj->encoding == DRGN_OBJECT_ENCODING_FLOAT) {
-			if (bit_size != 32 && bit_size != 64)
-				return &drgn_float_size_unsupported;
-		} else if (bit_size > 64)
-			return &drgn_integer_too_big;
+		if (obj->encoding == DRGN_OBJECT_ENCODING_FLOAT
+		    && bit_size != 32 && bit_size != 64)
+			return &drgn_float_size_unsupported;
 		uint8_t bit_offset = obj->bit_offset;
 		uint64_t read_size = drgn_value_size(bit_offset + bit_size);
 		char buf[9];
@@ -653,9 +798,22 @@ drgn_object_read_bytes(const struct drgn_object *obj, void *buf)
 
 	SWITCH_ENUM(obj->kind,
 	case DRGN_OBJECT_VALUE:
-		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
-			memcpy(buf, drgn_object_buffer(obj),
-			       drgn_object_size(obj));
+		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER
+		    || obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+		    || obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
+			if (obj->bit_size % 8 == 0) {
+				memcpy(buf, drgn_object_buffer(obj),
+				       drgn_object_size(obj));
+			} else {
+				int bit_offset = 0;
+				if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER
+				    && !obj->little_endian)
+					bit_offset = -obj->bit_size % 8;
+				((uint8_t *)buf)[drgn_object_size(obj) - 1] = 0;
+				copy_bits(buf, 0, drgn_object_buffer(obj),
+					  bit_offset, obj->bit_size,
+					  obj->little_endian);
+			}
 		} else {
 			union {
 				uint64_t uvalue;
@@ -700,8 +858,18 @@ drgn_object_read_bytes(const struct drgn_object *obj, void *buf)
 		} else {
 			uint64_t read_size =
 				drgn_value_size(obj->bit_offset + obj->bit_size);
-			char tmp[9];
-			assert(read_size <= sizeof(tmp));
+
+			void *tmp;
+			char tmp_small[9];
+			_cleanup_free_ void *tmp_large = NULL;
+			if (read_size > sizeof(tmp_small)) {
+				tmp_large = malloc64(read_size);
+				if (!tmp_large)
+					return &drgn_enomem;
+				tmp = tmp_large;
+			} else {
+				tmp = tmp_small;
+			}
 			err = drgn_program_read_memory(drgn_object_program(obj),
 						       tmp, obj->address,
 						       read_size, false);
@@ -769,10 +937,17 @@ drgn_object_value_float(const struct drgn_object *obj, double *ret)
 	return err;
 }
 
+static struct drgn_error drgn_integer_too_big = {
+	.code = DRGN_ERROR_OVERFLOW,
+	.message = "integer type is too big",
+};
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_read_signed(const struct drgn_object *obj, int64_t *ret)
 {
-	if (obj->encoding != DRGN_OBJECT_ENCODING_SIGNED) {
+	if (obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG) {
+		return &drgn_integer_too_big;
+	} else if (obj->encoding != DRGN_OBJECT_ENCODING_SIGNED) {
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "not a signed integer");
 	}
@@ -782,7 +957,9 @@ drgn_object_read_signed(const struct drgn_object *obj, int64_t *ret)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_read_unsigned(const struct drgn_object *obj, uint64_t *ret)
 {
-	if (obj->encoding != DRGN_OBJECT_ENCODING_UNSIGNED) {
+	if (obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG) {
+		return &drgn_integer_too_big;
+	} else if (obj->encoding != DRGN_OBJECT_ENCODING_UNSIGNED) {
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "not an unsigned integer");
 	}
@@ -796,11 +973,12 @@ drgn_object_read_integer(const struct drgn_object *obj, union drgn_value *ret)
 	union drgn_value value_mem;
 	const union drgn_value *value;
 
-	if (obj->encoding != DRGN_OBJECT_ENCODING_SIGNED &&
-	    obj->encoding != DRGN_OBJECT_ENCODING_UNSIGNED) {
-		return drgn_error_create(DRGN_ERROR_TYPE,
-					 "not an integer");
-	}
+	if (obj->encoding == DRGN_OBJECT_ENCODING_SIGNED_BIG
+	    || obj->encoding == DRGN_OBJECT_ENCODING_UNSIGNED_BIG)
+		return &drgn_integer_too_big;
+	else if (obj->encoding != DRGN_OBJECT_ENCODING_SIGNED
+		 && obj->encoding != DRGN_OBJECT_ENCODING_UNSIGNED)
+		return drgn_error_create(DRGN_ERROR_TYPE, "not an integer");
 	err = drgn_object_read_value(obj, &value_mem, &value);
 	if (err)
 		return err;
@@ -915,6 +1093,9 @@ drgn_object_convert_signed(const struct drgn_object *obj, uint64_t bit_size,
 	case DRGN_OBJECT_ENCODING_FLOAT:
 		*ret = truncate_signed(value->fvalue, bit_size);
 		break;
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return &drgn_integer_too_big;
 	default:
 		err = drgn_error_create(DRGN_ERROR_TYPE,
 					"object cannot be converted to integer");
@@ -943,6 +1124,9 @@ drgn_object_convert_unsigned(const struct drgn_object *obj, uint64_t bit_size,
 	case DRGN_OBJECT_ENCODING_FLOAT:
 		*ret = truncate_unsigned(value->fvalue, bit_size);
 		break;
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return &drgn_integer_too_big;
 	default:
 		err = drgn_error_create(DRGN_ERROR_TYPE,
 					"object cannot be converted to integer");
@@ -972,6 +1156,9 @@ drgn_object_convert_float(const struct drgn_object *obj, double *fvalue)
 	case DRGN_OBJECT_ENCODING_FLOAT:
 		*fvalue = value->fvalue;
 		break;
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return &drgn_integer_too_big;
 	default:
 		err = drgn_error_create(DRGN_ERROR_TYPE,
 					"object cannot be converted to floating-point");
@@ -1078,6 +1265,23 @@ drgn_object_is_zero_impl(const struct drgn_object *obj, bool *ret)
 			return err;
 		if (uvalue)
 			*ret = false;
+		return NULL;
+	}
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG: {
+		union drgn_value value_mem;
+		const union drgn_value *value;
+		err = drgn_object_read_value(obj, &value_mem, &value);
+		if (err)
+			return err;
+		size_t size = drgn_object_size(obj);
+		for (size_t i = 0; i < size; i++) {
+			if (value->bufp[i] != 0) {
+				*ret = false;
+				break;
+			}
+		}
+		drgn_object_deinit_value(obj, value);
 		return NULL;
 	}
 	case DRGN_OBJECT_ENCODING_FLOAT: {
@@ -1552,6 +1756,9 @@ static struct drgn_error *pointer_operand(const struct drgn_object *ptr,
 	switch (ptr->encoding) {
 	case DRGN_OBJECT_ENCODING_UNSIGNED:
 		return drgn_object_value_unsigned(ptr, ret);
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return &drgn_integer_too_big;
 	case DRGN_OBJECT_ENCODING_BUFFER:
 	case DRGN_OBJECT_ENCODING_NONE:
 	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
@@ -1860,6 +2067,9 @@ drgn_op_add_to_pointer(struct drgn_object *res,
 		if (err)
 			return err;
 		break;
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return &drgn_integer_too_big;
 	default:
 		return drgn_error_create(DRGN_ERROR_TYPE,
 					 "invalid addend type for pointer arithmetic");

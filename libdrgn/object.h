@@ -154,6 +154,15 @@ drgn_object_set_unsigned_internal(struct drgn_object *res,
 				  uint64_t uvalue);
 
 /**
+ * Like @ref drgn_object_set_float() but @ref drgn_object_type() was already
+ * called and the type is already known to be a floating-point type.
+ */
+struct drgn_error *
+drgn_object_set_float_internal(struct drgn_object *res,
+			       const struct drgn_object_type *type,
+			       double fvalue);
+
+/**
  * Like @ref drgn_object_set_from_buffer() but @ref drgn_object_type() was
  * already called and the bounds of the buffer have already been checked.
  */

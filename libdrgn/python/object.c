@@ -5,6 +5,7 @@
 #include <math.h>
 
 #include "drgnpy.h"
+#include "../cleanup.h"
 #include "../error.h"
 #include "../object.h"
 #include "../serialize.h"
@@ -48,6 +49,43 @@ static int DrgnObject_literal(struct drgn_object *res, PyObject *literal)
 		return -1;
 	}
 	return 0;
+}
+
+static void *
+py_long_to_bytes_for_object_type(PyObject *value_obj,
+				 const struct drgn_object_type *type)
+{
+	if (!PyNumber_Check(value_obj)) {
+		return set_error_type_name("'%s' value must be number",
+					   drgn_object_type_qualified(type));
+	}
+	_cleanup_pydecref_ PyObject *long_obj = PyNumber_Long(value_obj);
+	if (!long_obj)
+		return NULL;
+	uint64_t size = drgn_value_size(type->bit_size);
+	_cleanup_free_ void *buf = malloc64(size);
+	if (!buf) {
+		PyErr_NoMemory();
+		return NULL;
+	}
+	// _PyLong_AsByteArray() still returns the least significant bytes on
+	// OverflowError unless the object is negative and is_signed is false.
+	// So, we always pass is_signed as true.
+	int r = _PyLong_AsByteArray((PyLongObject *)long_obj, buf, size,
+				    type->little_endian, true);
+	if (r) {
+		PyObject *exc_type, *exc_value, *exc_traceback;
+		PyErr_Fetch(&exc_type, &exc_value, &exc_traceback);
+		if (PyErr_GivenExceptionMatches(exc_type, PyExc_OverflowError)) {
+			Py_XDECREF(exc_traceback);
+			Py_XDECREF(exc_value);
+			Py_DECREF(exc_type);
+		} else {
+			PyErr_Restore(exc_type, exc_value, exc_traceback);
+			return NULL;
+		}
+	}
+	return_ptr(buf);
 }
 
 static int serialize_py_object(struct drgn_program *prog, char *buf,
@@ -220,6 +258,19 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 			       type->little_endian);
 		return 0;
 	}
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG: {
+		_cleanup_free_ void *tmp =
+			py_long_to_bytes_for_object_type(value_obj, type);
+		if (!tmp)
+			return -1;
+		int src_bit_offset = 0;
+		if (!type->little_endian)
+			src_bit_offset = -type->bit_size % 8;
+		copy_bits(buf + bit_offset / 8, bit_offset % 8, tmp,
+			  src_bit_offset, type->bit_size, type->little_endian);
+		return 0;
+	}
 	case DRGN_OBJECT_ENCODING_FLOAT: {
 		if (!PyNumber_Check(value_obj)) {
 			set_error_type_name("'%s' value must be number",
@@ -270,19 +321,10 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 }
 
 static int buffer_object_from_value(struct drgn_object *res,
-				    struct drgn_qualified_type qualified_type,
+				    const struct drgn_object_type *type,
 				    PyObject *value_obj)
 {
-	struct drgn_error *err;
-
-	struct drgn_object_type type;
-	err = drgn_object_type(qualified_type, 0, &type);
-	if (err) {
-		set_drgn_error(err);
-		return -1;
-	}
-
-	uint64_t size = drgn_value_size(type.bit_size);
+	uint64_t size = drgn_value_size(type->bit_size);
 	if (size > SIZE_MAX) {
 		PyErr_NoMemory();
 		return -1;
@@ -301,14 +343,14 @@ static int buffer_object_from_value(struct drgn_object *res,
 	}
 	memset(buf, 0, size);
 
-	if (serialize_py_object(drgn_object_program(res), buf, type.bit_size, 0,
-				value_obj, &type) == -1) {
+	if (serialize_py_object(drgn_object_program(res), buf, type->bit_size,
+				0, value_obj, type) == -1) {
 		if (buf != value.ibuf)
 			free(buf);
 		return -1;
 	}
 
-	drgn_object_reinit(res, &type, DRGN_OBJECT_VALUE);
+	drgn_object_reinit(res, type, DRGN_OBJECT_VALUE);
 	res->value = value;
 	return 0;
 }
@@ -392,25 +434,15 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 			return NULL;
 		}
 
-		enum drgn_object_encoding encoding =
-			drgn_type_object_encoding(qualified_type.type);
-		if (!drgn_object_encoding_is_complete(encoding)) {
-			err = drgn_error_incomplete_type("cannot create value with %s type",
-							 qualified_type.type);
+		struct drgn_object_type object_type;
+		err = drgn_object_type(qualified_type, bit_field_size.uvalue,
+				       &object_type);
+		if (err)
 			return set_drgn_error(err);
 
-		}
-		if (!bit_field_size.is_none &&
-		    encoding != DRGN_OBJECT_ENCODING_SIGNED &&
-		    encoding != DRGN_OBJECT_ENCODING_UNSIGNED) {
-			PyErr_SetString(PyExc_ValueError,
-					"bit field must be integer");
-			return NULL;
-		}
-
-		switch (encoding) {
+		SWITCH_ENUM(object_type.encoding,
 		case DRGN_OBJECT_ENCODING_BUFFER:
-			if (buffer_object_from_value(&obj->obj, qualified_type,
+			if (buffer_object_from_value(&obj->obj, &object_type,
 						     value_obj) == -1)
 				return NULL;
 			err = NULL;
@@ -433,17 +465,31 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 			};
 			if (tmp.uvalue == (uint64_t)-1 && PyErr_Occurred())
 				return NULL;
-			if (encoding == DRGN_OBJECT_ENCODING_SIGNED) {
-				err = drgn_object_set_signed(&obj->obj,
-							     qualified_type,
-							     tmp.svalue,
-							     bit_field_size.uvalue);
+			if (object_type.encoding == DRGN_OBJECT_ENCODING_SIGNED) {
+				err = drgn_object_set_signed_internal(&obj->obj,
+								      &object_type,
+								      tmp.svalue);
 			} else {
-				err = drgn_object_set_unsigned(&obj->obj,
-							       qualified_type,
-							       tmp.uvalue,
-							       bit_field_size.uvalue);
+				err = drgn_object_set_unsigned_internal(&obj->obj,
+									&object_type,
+									tmp.uvalue);
 			}
+			break;
+		}
+		case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+		case DRGN_OBJECT_ENCODING_UNSIGNED_BIG: {
+			_cleanup_free_ void *tmp =
+				py_long_to_bytes_for_object_type(value_obj,
+								 &object_type);
+			if (!tmp)
+				return NULL;
+			uint64_t src_bit_offset = 0;
+			if (!object_type.little_endian)
+				src_bit_offset = -object_type.bit_size % 8;
+			err = drgn_object_set_from_buffer_internal(&obj->obj,
+								   &object_type,
+								   tmp,
+								   src_bit_offset);
 			break;
 		}
 		case DRGN_OBJECT_ENCODING_FLOAT: {
@@ -454,13 +500,18 @@ static DrgnObject *DrgnObject_new(PyTypeObject *subtype, PyObject *args,
 			double fvalue = PyFloat_AsDouble(value_obj);
 			if (fvalue == -1.0 && PyErr_Occurred())
 				return NULL;
-			err = drgn_object_set_float(&obj->obj, qualified_type,
-						    fvalue);
+			err = drgn_object_set_float_internal(&obj->obj,
+							     &object_type,
+							     fvalue);
 			break;
 		}
-		default:
-			UNREACHABLE();
-		}
+		case DRGN_OBJECT_ENCODING_NONE:
+		case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
+		case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
+			err = drgn_error_incomplete_type("cannot create value with %s type",
+							 qualified_type.type);
+			break;
+		)
 	} else {
 		if (!qualified_type.type) {
 			PyErr_SetString(PyExc_ValueError,
@@ -636,6 +687,19 @@ static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
 			Py_RETURN_BOOL(uvalue);
 		else
 			return PyLong_FromUint64(uvalue);
+	}
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG: {
+		union drgn_value value_mem;
+		const union drgn_value *value;
+		err = drgn_object_read_value(obj, &value_mem, &value);
+		if (err)
+			return set_drgn_error(err);
+		return _PyLong_FromByteArray((void *)value->bufp,
+					     drgn_object_size(obj),
+					     obj->little_endian,
+					     obj->encoding
+					     == DRGN_OBJECT_ENCODING_SIGNED_BIG);
 	}
 	case DRGN_OBJECT_ENCODING_FLOAT: {
 		double fvalue;
@@ -1104,100 +1168,79 @@ static int DrgnObject_bool(DrgnObject *self)
 static PyObject *DrgnObject_int(DrgnObject *self)
 {
 	struct drgn_error *err;
-	union drgn_value value_mem;
-	const union drgn_value *value;
-	PyObject *ret;
-
-	if (!drgn_type_is_scalar(self->obj.type)) {
+	SWITCH_ENUM(self->obj.encoding,
+	case DRGN_OBJECT_ENCODING_SIGNED:
+	case DRGN_OBJECT_ENCODING_UNSIGNED:
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return DrgnObject_value(self);
+	case DRGN_OBJECT_ENCODING_FLOAT: {
+		double fvalue;
+		err = drgn_object_read_float(&self->obj, &fvalue);
+		if (err)
+			return set_drgn_error(err);
+		return PyLong_FromDouble(fvalue);
+	}
+	case DRGN_OBJECT_ENCODING_BUFFER:
+	case DRGN_OBJECT_ENCODING_NONE:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
 		return set_error_type_name("cannot convert '%s' to int",
 					   drgn_object_qualified_type(&self->obj));
-	}
-
-	err = drgn_object_read_value(&self->obj, &value_mem, &value);
-	if (err)
-		return set_drgn_error(err);
-
-	switch (self->obj.encoding) {
-	case DRGN_OBJECT_ENCODING_SIGNED:
-		ret = PyLong_FromInt64(value->svalue);
-		break;
-	case DRGN_OBJECT_ENCODING_UNSIGNED:
-		ret = PyLong_FromUint64(value->uvalue);
-		break;
-	case DRGN_OBJECT_ENCODING_FLOAT:
-		ret = PyLong_FromDouble(value->fvalue);
-		break;
-	default:
-		UNREACHABLE();
-	}
-	drgn_object_deinit_value(&self->obj, value);
-	return ret;
+	)
 }
 
 static PyObject *DrgnObject_float(DrgnObject *self)
 {
 	struct drgn_error *err;
-	union drgn_value value_mem;
-	const union drgn_value *value;
-	PyObject *ret;
-
-	if (!drgn_type_is_arithmetic(self->obj.type)) {
+	SWITCH_ENUM(self->obj.encoding,
+	case DRGN_OBJECT_ENCODING_FLOAT: {
+		double fvalue;
+		err = drgn_object_read_float(&self->obj, &fvalue);
+		if (err)
+			return set_drgn_error(err);
+		return PyFloat_FromDouble(fvalue);
+	}
+	case DRGN_OBJECT_ENCODING_SIGNED:
+	case DRGN_OBJECT_ENCODING_UNSIGNED:
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG: {
+		if (drgn_type_kind(drgn_underlying_type(self->obj.type))
+		    != DRGN_TYPE_POINTER) {
+			_cleanup_pydecref_ PyObject *value =
+				DrgnObject_value(self);
+			if (!value)
+				return NULL;
+			return PyObject_CallFunctionObjArgs((PyObject *)&PyFloat_Type,
+							    value, NULL);
+		}
+		fallthrough;
+	}
+	case DRGN_OBJECT_ENCODING_BUFFER:
+	case DRGN_OBJECT_ENCODING_NONE:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
 		return set_error_type_name("cannot convert '%s' to float",
 					   drgn_object_qualified_type(&self->obj));
-	}
-
-	err = drgn_object_read_value(&self->obj, &value_mem, &value);
-	if (err)
-		return set_drgn_error(err);
-
-	switch (self->obj.encoding) {
-	case DRGN_OBJECT_ENCODING_SIGNED:
-		ret = PyFloat_FromDouble(value->svalue);
-		break;
-	case DRGN_OBJECT_ENCODING_UNSIGNED:
-		ret = PyFloat_FromDouble(value->uvalue);
-		break;
-	case DRGN_OBJECT_ENCODING_FLOAT:
-		ret = PyFloat_FromDouble(value->fvalue);
-		break;
-	default:
-		UNREACHABLE();
-	}
-	drgn_object_deinit_value(&self->obj, value);
-	return ret;
+	)
 }
 
 static PyObject *DrgnObject_index(DrgnObject *self)
 {
-	struct drgn_error *err;
-	struct drgn_type *underlying_type;
-	union drgn_value value_mem;
-	const union drgn_value *value;
-	PyObject *ret;
-
-	underlying_type = drgn_underlying_type(self->obj.type);
-	if (!drgn_type_is_integer(underlying_type) &&
-	    drgn_type_kind(underlying_type) != DRGN_TYPE_POINTER) {
+	SWITCH_ENUM(self->obj.encoding,
+	case DRGN_OBJECT_ENCODING_SIGNED:
+	case DRGN_OBJECT_ENCODING_UNSIGNED:
+	case DRGN_OBJECT_ENCODING_SIGNED_BIG:
+	case DRGN_OBJECT_ENCODING_UNSIGNED_BIG:
+		return DrgnObject_value(self);
+	case DRGN_OBJECT_ENCODING_FLOAT:
+	case DRGN_OBJECT_ENCODING_BUFFER:
+	case DRGN_OBJECT_ENCODING_NONE:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER:
+	case DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER:
 		return set_error_type_name("'%s' object cannot be interpreted as an integer",
 					   drgn_object_qualified_type(&self->obj));
-	}
-
-	err = drgn_object_read_value(&self->obj, &value_mem, &value);
-	if (err)
-		return set_drgn_error(err);
-
-	switch (self->obj.encoding) {
-	case DRGN_OBJECT_ENCODING_SIGNED:
-		ret = PyLong_FromInt64(value->svalue);
-		break;
-	case DRGN_OBJECT_ENCODING_UNSIGNED:
-		ret = PyLong_FromUint64(value->uvalue);
-		break;
-	default:
-		UNREACHABLE();
-	}
-	drgn_object_deinit_value(&self->obj, value);
-	return ret;
+	)
 }
 
 static PyObject *DrgnObject_round(DrgnObject *self, PyObject *args,
@@ -1237,33 +1280,19 @@ static PyObject *DrgnObject_round(DrgnObject *self, PyObject *args,
 #define DrgnObject_round_method(func)					\
 static PyObject *DrgnObject_##func(DrgnObject *self)			\
 {									\
-	struct drgn_error *err;						\
-	union drgn_value value_mem;					\
-	const union drgn_value *value;					\
-	PyObject *ret;							\
-									\
 	if (!drgn_type_is_arithmetic(self->obj.type)) {			\
 		return set_error_type_name("cannot round '%s'",		\
 					   drgn_object_qualified_type(&self->obj));\
 	}								\
-									\
-	err = drgn_object_read_value(&self->obj, &value_mem, &value);	\
+	if (self->obj.encoding != DRGN_OBJECT_ENCODING_FLOAT)		\
+		return DrgnObject_value(self);				\
+	union drgn_value value_mem;					\
+	const union drgn_value *value;					\
+	struct drgn_error *err =					\
+		drgn_object_read_value(&self->obj, &value_mem, &value);	\
 	if (err)							\
 		return set_drgn_error(err);				\
-									\
-	switch (self->obj.encoding) {					\
-	case DRGN_OBJECT_ENCODING_SIGNED:				\
-		ret = PyLong_FromInt64(value->svalue);			\
-		break;							\
-	case DRGN_OBJECT_ENCODING_UNSIGNED:				\
-		ret = PyLong_FromUint64(value->uvalue);			\
-		break;							\
-	case DRGN_OBJECT_ENCODING_FLOAT:				\
-		ret = PyLong_FromDouble(func(value->fvalue));		\
-		break;							\
-	default:							\
-		UNREACHABLE();						\
-	}								\
+	PyObject *ret = PyLong_FromDouble(func(value->fvalue));		\
 	drgn_object_deinit_value(&self->obj, value);			\
 	return ret;							\
 }

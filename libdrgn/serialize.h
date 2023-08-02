@@ -55,11 +55,12 @@ static inline uint8_t truncate_unsigned8(uint8_t uvalue, int bit_size)
  * least-significant bytes of @p dst.
  *
  * If `src_size > dst_size`, the extra bytes are discarded. If `src_size <
- * dst_size`, the extra bytes are zero-filled.
+ * dst_size`, the extra bytes are filled with @p fill.
  */
-static inline void copy_lsbytes(void *dst, size_t dst_size,
-				bool dst_little_endian, const void *src,
-				size_t src_size, bool src_little_endian)
+static inline void copy_lsbytes_fill(void *dst, size_t dst_size,
+				     bool dst_little_endian, const void *src,
+				     size_t src_size, bool src_little_endian,
+				     int fill)
 {
 	char *d = dst;
 	const char *s = src;
@@ -71,9 +72,9 @@ static inline void copy_lsbytes(void *dst, size_t dst_size,
 			for (size_t i = 0; i < size; i++)
 				d[i] = s[src_size - 1 - i];
 		}
-		memset(d + size, 0, dst_size - size);
+		memset(d + size, fill, dst_size - size);
 	} else {
-		memset(d, 0, dst_size - size);
+		memset(d, fill, dst_size - size);
 		if (src_little_endian) {
 			for (size_t i = dst_size - size; i < dst_size; i++)
 				d[i] = s[dst_size - 1 - i];
@@ -81,6 +82,21 @@ static inline void copy_lsbytes(void *dst, size_t dst_size,
 			memcpy(d + dst_size - size, s + src_size - size, size);
 		}
 	}
+}
+
+/**
+ * Copy the @p src_size least-significant bytes from @p src to the @p dst_size
+ * least-significant bytes of @p dst.
+ *
+ * If `src_size > dst_size`, the extra bytes are discarded. If `src_size <
+ * dst_size`, the extra bytes are zero-filled.
+ */
+static inline void copy_lsbytes(void *dst, size_t dst_size,
+				bool dst_little_endian, const void *src,
+				size_t src_size, bool src_little_endian)
+{
+	return copy_lsbytes_fill(dst, dst_size, dst_little_endian, src,
+				 src_size, src_little_endian, 0);
 }
 
 /**

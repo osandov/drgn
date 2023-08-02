@@ -1138,24 +1138,37 @@ enum drgn_object_encoding {
 	 * Memory buffer.
 	 *
 	 * This is used for objects with a structure, union, class, or array
-	 * type. The value is a buffer of the contents of that object's memory
-	 * in the program.
+	 * type.
 	 */
 	DRGN_OBJECT_ENCODING_BUFFER,
 	/**
 	 * Signed integer.
 	 *
 	 * This is used for objects with a signed integer or signed enumerated
-	 * type.
+	 * type no larger than 64 bits.
 	 */
 	DRGN_OBJECT_ENCODING_SIGNED,
 	/**
 	 * Unsigned integer.
 	 *
 	 * This is used for objects with a unsigned integer, boolean, or pointer
-	 * type.
+	 * type no larger than 64 bits.
 	 */
 	DRGN_OBJECT_ENCODING_UNSIGNED,
+	/**
+	 * Big signed integer.
+	 *
+	 * This is used for objects with a signed integer or signed enumerated
+	 * type larger than 64 bits.
+	 */
+	DRGN_OBJECT_ENCODING_SIGNED_BIG,
+	/**
+	 * Big unsigned integer.
+	 *
+	 * This is used for objects with a unsigned integer, boolean, or pointer
+	 * type larger than 64 bits.
+	 */
+	DRGN_OBJECT_ENCODING_UNSIGNED_BIG,
 	/**
 	 * Floating-point value.
 	 *
@@ -1198,23 +1211,30 @@ drgn_object_encoding_is_complete(enum drgn_object_encoding encoding)
 /** Value of a @ref drgn_object. */
 union drgn_value {
 	/**
-	 * Pointer to an external buffer for a @ref
-	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_BUFFER value.
+	 * Pointer to an external buffer for a @ref DRGN_OBJECT_ENCODING_BUFFER,
+	 * @ref DRGN_OBJECT_ENCODING_SIGNED_BIG, or @ref
+	 * DRGN_OBJECT_ENCODING_UNSIGNED_BIG value.
+	 *
+	 * For @ref DRGN_OBJECT_ENCODING_BUFFER, this contains the object's
+	 * representation in the memory of the program.
+	 *
+	 * For @ref DRGN_OBJECT_ENCODING_SIGNED_BIG and @ref
+	 * DRGN_OBJECT_ENCODING_UNSIGNED_BIG, the representation of the value is
+	 * an implementation detail which may change.
 	 */
 	char *bufp;
 	/**
-	 * Inline buffer for a @ref
-	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_BUFFER value.
+	 * Inline buffer for a @ref DRGN_OBJECT_ENCODING_BUFFER value.
 	 *
 	 * Tiny buffers (see @ref drgn_value_is_inline()) are stored inline here
 	 * instead of in a separate allocation.
 	 */
 	char ibuf[8];
-	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED value. */
+	/** @ref DRGN_OBJECT_ENCODING_SIGNED value. */
 	int64_t svalue;
-	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_UNSIGNED value. */
+	/** @ref DRGN_OBJECT_ENCODING_UNSIGNED value. */
 	uint64_t uvalue;
-	/** @ref drgn_object_encoding::DRGN_OBJECT_ENCODING_FLOAT value. */
+	/** @ref DRGN_OBJECT_ENCODING_FLOAT value. */
 	double fvalue;
 };
 
@@ -1277,11 +1297,11 @@ struct drgn_object {
 	/**
 	 * Whether this object is little-endian.
 	 *
-	 * Valid only for scalars (i.e., @ref
-	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_SIGNED, @ref
-	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_UNSIGNED, @ref
-	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_FLOAT, or @ref
-	 * drgn_object_encoding::DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER).
+	 * Valid only for scalars (i.e., @ref DRGN_OBJECT_ENCODING_SIGNED, @ref
+	 * DRGN_OBJECT_ENCODING_UNSIGNED, @ref DRGN_OBJECT_ENCODING_SIGNED_BIG,
+	 * @ref DRGN_OBJECT_ENCODING_UNSIGNED_BIG, @ref
+	 * DRGN_OBJECT_ENCODING_FLOAT, or @ref
+	 * DRGN_OBJECT_ENCODING_INCOMPLETE_INTEGER).
 	 */
 	bool little_endian;
 	/**
