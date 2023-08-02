@@ -2705,9 +2705,11 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 	if (!drgn_dwarf_index_cu_vector_reserve(cus, new_cus_size))
 		return &drgn_enomem;
 	for (size_t i = 0; i < state->max_threads; i++) {
-		memcpy(&cus->data[cus->size], state->cus[i].data,
-		       state->cus[i].size * sizeof(cus->data[0]));
-		cus->size += state->cus[i].size;
+		if (state->cus[i].size) {
+			memcpy(&cus->data[cus->size], state->cus[i].data,
+			       state->cus[i].size * sizeof(cus->data[0]));
+			cus->size += state->cus[i].size;
+		}
 	}
 
 	// NB: we must call drgn_dwarf_index_cu_clear_pending() on the newly
