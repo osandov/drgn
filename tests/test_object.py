@@ -918,6 +918,28 @@ class TestValue(MockProgramTestCase):
         self.assertIdentical(obj.x, Object(self.prog, "int", value=100))
         self.assertIdentical(obj.y, Object(self.prog, "int", value=-5))
 
+    def test_compound_float(self):
+        for byteorder in ("little", "big"):
+            for type in (
+                self.prog.float_type("double", 8, byteorder),
+                self.prog.float_type("float", 4, byteorder),
+            ):
+                with self.subTest(byteorder=byteorder, type=type.name):
+                    obj = Object(
+                        self.prog,
+                        self.prog.struct_type(
+                            None,
+                            type.size * 2,
+                            (
+                                TypeMember(type, "a"),
+                                TypeMember(type, "b", type.size * 8),
+                            ),
+                        ),
+                        value={"a": 1234, "b": -3.125},
+                    )
+                    self.assertEqual(obj.a.value_(), 1234.0)
+                    self.assertEqual(obj.b.value_(), -3.125)
+
     def test_pointer(self):
         obj = Object(self.prog, "int *", value=0xFFFF0000)
         self.assertFalse(obj.absent_)

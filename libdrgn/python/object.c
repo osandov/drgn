@@ -243,7 +243,12 @@ static int serialize_py_object(struct drgn_program *prog, char *buf,
 		union {
 			uint64_t uvalue;
 			double fvalue64;
-			float fvalue32;
+			struct {
+#if !HOST_LITTLE_ENDIAN
+				float pad;
+#endif
+				float fvalue32;
+			};
 		} tmp;
 		if (type->bit_size == 64)
 			tmp.fvalue64 = fvalue;
