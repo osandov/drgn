@@ -4,7 +4,7 @@
 #include "drgn.h"
 #include "lexer.h"
 
-DEFINE_VECTOR_FUNCTIONS(drgn_token_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_token_vector);
 
 void drgn_lexer_init(struct drgn_lexer *lexer, drgn_lexer_func func,
 		     const char *str)

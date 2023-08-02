@@ -58,7 +58,7 @@ struct drgn_type_finder {
 	struct drgn_type_finder *next;
 };
 
-DEFINE_HASH_SET_TYPE(drgn_dedupe_type_set, struct drgn_type *)
+DEFINE_HASH_SET_TYPE(drgn_dedupe_type_set, struct drgn_type *);
 
 /** <tt>(type, member name)</tt> pair. */
 struct drgn_member_key {
@@ -87,8 +87,8 @@ struct drgn_member_value {
  */
 #else
 DEFINE_HASH_MAP_TYPE(drgn_member_map, struct drgn_member_key,
-		      struct drgn_member_value)
-DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *)
+		      struct drgn_member_value);
+DEFINE_HASH_SET_TYPE(drgn_type_set, struct drgn_type *);
 #endif
 
 /**
@@ -177,7 +177,7 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 					  struct drgn_type **ret);
 
 DEFINE_VECTOR_TYPE(drgn_type_template_parameter_vector,
-		   struct drgn_type_template_parameter)
+		   struct drgn_type_template_parameter);
 
 /**
  * Common builder shared between compound and function types for template
@@ -199,7 +199,7 @@ drgn_template_parameters_builder_add(struct drgn_template_parameters_builder *bu
 				     const union drgn_lazy_object *argument,
 				     const char *name, bool is_default);
 
-DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member)
+DEFINE_VECTOR_TYPE(drgn_type_member_vector, struct drgn_type_member);
 
 /** Builder for members of a structure, union, or class type. */
 struct drgn_compound_type_builder {
@@ -261,7 +261,7 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 			  const struct drgn_language *lang,
 			  struct drgn_type **ret);
 
-DEFINE_VECTOR_TYPE(drgn_type_enumerator_vector, struct drgn_type_enumerator)
+DEFINE_VECTOR_TYPE(drgn_type_enumerator_vector, struct drgn_type_enumerator);
 
 /** Builder for enumerators of an enumerated type. */
 struct drgn_enum_type_builder {
@@ -407,7 +407,7 @@ drgn_incomplete_array_type_create(struct drgn_program *prog,
 				  const struct drgn_language *lang,
 				  struct drgn_type **ret);
 
-DEFINE_VECTOR_TYPE(drgn_type_parameter_vector, struct drgn_type_parameter)
+DEFINE_VECTOR_TYPE(drgn_type_parameter_vector, struct drgn_type_parameter);
 
 /** Builder for parameters of a function type. */
 struct drgn_function_type_builder {

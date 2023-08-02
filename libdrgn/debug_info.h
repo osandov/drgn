@@ -49,7 +49,7 @@ enum drgn_module_state {
 	DRGN_DEBUG_INFO_MODULE_INDEXED,
 } __attribute__((__packed__));
 
-DEFINE_HASH_TABLE_TYPE(drgn_elf_file_dwarf_table, struct drgn_elf_file *)
+DEFINE_HASH_TABLE_TYPE(drgn_elf_file_dwarf_table, struct drgn_elf_file *);
 
 /**
  * A module reported to a @ref drgn_debug_info.
@@ -124,9 +124,9 @@ struct drgn_module {
 	struct drgn_module *next;
 };
 
-DEFINE_HASH_TABLE_TYPE(drgn_module_table, struct drgn_module *)
+DEFINE_HASH_TABLE_TYPE(drgn_module_table, struct drgn_module *);
 
-DEFINE_HASH_SET_TYPE(c_string_set, const char *)
+DEFINE_HASH_SET_TYPE(c_string_set, const char *);
 
 /** Cache of debugging information. */
 struct drgn_debug_info {
@@ -155,7 +155,7 @@ struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 /** Destroy a @ref drgn_debug_info. */
 void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo);
 
-DEFINE_VECTOR_TYPE(drgn_module_vector, struct drgn_module *)
+DEFINE_VECTOR_TYPE(drgn_module_vector, struct drgn_module *);
 
 /** State tracked while loading debugging information. */
 struct drgn_debug_info_load_state {

@@ -36,7 +36,7 @@ drgn_memory_segment_to_key(const struct drgn_memory_segment *entry)
 
 DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_memory_segment_tree, node,
 				    drgn_memory_segment_to_key,
-				    binary_search_tree_scalar_cmp, splay)
+				    binary_search_tree_scalar_cmp, splay);
 
 void drgn_memory_reader_init(struct drgn_memory_reader *reader)
 {

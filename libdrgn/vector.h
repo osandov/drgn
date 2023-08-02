@@ -150,7 +150,8 @@ struct vector {					\
 	vector##_entry_type *data;		\
 	size_t size;				\
 	size_t capacity;			\
-};
+};						\
+struct DEFINE_VECTOR_needs_semicolon
 
 /**
  * Define the functions for a vector.
@@ -217,7 +218,8 @@ __attribute__((__unused__))							\
 static vector##_entry_type *vector##_pop(struct vector *vector)			\
 {										\
 	return &vector->data[--vector->size];					\
-}
+}										\
+struct DEFINE_VECTOR_needs_semicolon
 
 /**
  * Define a vector interface.
@@ -229,7 +231,7 @@ static vector##_entry_type *vector##_pop(struct vector *vector)			\
  * @param[in] entry_type Type of entries in the vector.
  */
 #define DEFINE_VECTOR(vector, entry_type)	\
-DEFINE_VECTOR_TYPE(vector, entry_type)		\
+DEFINE_VECTOR_TYPE(vector, entry_type);		\
 DEFINE_VECTOR_FUNCTIONS(vector)
 
 /**

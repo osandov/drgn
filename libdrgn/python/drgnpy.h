@@ -121,7 +121,7 @@ typedef struct {
 	struct drgn_platform *platform;
 } Platform;
 
-DEFINE_HASH_SET_TYPE(pyobjectp_set, PyObject *)
+DEFINE_HASH_SET_TYPE(pyobjectp_set, PyObject *);
 
 typedef struct {
 	PyObject_HEAD

@@ -50,9 +50,9 @@ struct drgn_thread {
 	struct drgn_object object;
 };
 
-DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *)
-DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct nstring)
-DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread)
+DEFINE_VECTOR_TYPE(drgn_typep_vector, struct drgn_type *);
+DEFINE_VECTOR_TYPE(drgn_prstatus_vector, struct nstring);
+DEFINE_HASH_TABLE_TYPE(drgn_thread_set, struct drgn_thread);
 
 struct drgn_program {
 	/** @privatesection */

@@ -285,7 +285,8 @@ typedef typeof(entry_type) tree##_entry_type;			\
 								\
 struct tree {							\
 	struct binary_tree_node *root;				\
-};
+};								\
+struct DEFINE_BINARY_SEARCH_TREE_needs_semicolon
 
 /**
  * Define the functions for a binary search tree.
@@ -559,7 +560,8 @@ static struct tree##_iterator tree##_next_post_order(struct tree##_iterator it)	
 			tree##_node_to_entry(node->parent),			\
 		};								\
 	}									\
-}
+}										\
+struct DEFINE_BINARY_SEARCH_TREE_needs_semicolon
 
 /**
  * Define a binary search tree interface.
@@ -582,7 +584,7 @@ static struct tree##_iterator tree##_next_post_order(struct tree##_iterator it)	
  */
 #define DEFINE_BINARY_SEARCH_TREE(tree, entry_type, member, entry_to_key,	\
 				  cmp_func, variant)				\
-DEFINE_BINARY_SEARCH_TREE_TYPE(tree, entry_type)				\
+DEFINE_BINARY_SEARCH_TREE_TYPE(tree, entry_type);				\
 DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(tree, member, entry_to_key, cmp_func,	\
 				    variant)
 

@@ -1016,7 +1016,7 @@ struct compound_initializer_state {
 	uint64_t bit_offset;
 };
 
-DEFINE_VECTOR(compound_initializer_stack, struct compound_initializer_state)
+DEFINE_VECTOR(compound_initializer_stack, struct compound_initializer_state);
 
 struct compound_initializer_iter {
 	struct initializer_iter iter;

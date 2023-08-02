@@ -57,7 +57,7 @@ struct drgn_token {
 	size_t len;
 };
 
-DEFINE_VECTOR_TYPE(drgn_token_vector, struct drgn_token)
+DEFINE_VECTOR_TYPE(drgn_token_vector, struct drgn_token);
 
 /**
  * Lexer instance.

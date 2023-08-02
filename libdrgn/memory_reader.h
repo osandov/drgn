@@ -32,7 +32,7 @@
  */
 
 DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_memory_segment_tree,
-			       struct drgn_memory_segment)
+			       struct drgn_memory_segment);
 
 /**
  * Memory reader.

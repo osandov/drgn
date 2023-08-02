@@ -37,9 +37,9 @@ static inline uint32_t drgn_thread_to_key(const struct drgn_thread *entry)
 	return entry->tid;
 }
 
-DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_prstatus_vector);
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_thread_set, drgn_thread_to_key,
-			    int_key_hash_pair, scalar_key_eq)
+			    int_key_hash_pair, scalar_key_eq);
 
 struct drgn_thread_iterator {
 	struct drgn_program *prog;
@@ -1603,7 +1603,7 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	return NULL;
 }
 
-DEFINE_VECTOR(char_vector, char)
+DEFINE_VECTOR(char_vector, char);
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
@@ -1771,7 +1771,7 @@ drgn_program_find_symbol_by_address(struct drgn_program *prog, uint64_t address,
 	return NULL;
 }
 
-DEFINE_VECTOR(symbolp_vector, struct drgn_symbol *)
+DEFINE_VECTOR(symbolp_vector, struct drgn_symbol *);
 
 enum {
 	SYMBOLS_SEARCH_NAME = (1 << 0),

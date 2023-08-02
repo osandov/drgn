@@ -63,7 +63,7 @@ drgn_dwarf_specification_to_key(const struct drgn_dwarf_specification *entry)
 }
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_dwarf_specification_map,
 			    drgn_dwarf_specification_to_key, int_key_hash_pair,
-			    scalar_key_eq)
+			    scalar_key_eq);
 
 /**
  * Placeholder for drgn_dwarf_index_cu::file_name_hashes if the CU has no
@@ -150,9 +150,10 @@ struct drgn_dwarf_index_cu {
 	const char *str_offsets;
 };
 
-DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_cu_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_cu_vector);
 
-DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_type_map, ptr_key_hash_pair, scalar_key_eq)
+DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_type_map, ptr_key_hash_pair,
+			  scalar_key_eq);
 
 /** DIE which needs to be indexed. */
 struct drgn_dwarf_index_pending_die {
@@ -164,7 +165,7 @@ struct drgn_dwarf_index_pending_die {
 	uintptr_t addr;
 };
 
-DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_die_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_die_vector);
 
 /** DIE indexed in a @ref drgn_namespace_dwarf_index. */
 struct drgn_dwarf_index_die {
@@ -200,8 +201,8 @@ struct drgn_dwarf_index_die {
 };
 
 DEFINE_HASH_MAP(drgn_dwarf_index_die_map, struct nstring, uint32_t,
-		nstring_hash_pair, nstring_eq)
-DEFINE_VECTOR(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die)
+		nstring_hash_pair, nstring_eq);
+DEFINE_VECTOR(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die);
 
 #define DRGN_DWARF_INDEX_SHARD_BITS 8
 static const size_t DRGN_DWARF_INDEX_NUM_SHARDS = 1 << DRGN_DWARF_INDEX_SHARD_BITS;
@@ -427,9 +428,9 @@ enum drgn_dwarf_index_abbrev_insn {
 static_assert(NUM_INSNS - 1 == UINT8_MAX,
 	      "maximum DWARF index instruction is invalid");
 
-DEFINE_VECTOR(uint8_vector, uint8_t)
-DEFINE_VECTOR(uint32_vector, uint32_t)
-DEFINE_VECTOR(uint64_vector, uint64_t)
+DEFINE_VECTOR(uint8_vector, uint8_t);
+DEFINE_VECTOR(uint32_vector, uint32_t);
+DEFINE_VECTOR(uint64_vector, uint64_t);
 
 struct drgn_dwarf_index_cu_buffer {
 	struct binary_buffer bb;
@@ -926,7 +927,7 @@ struct path_hash_chunk {
 	struct path_hash_chunk *next;
 };
 
-DEFINE_VECTOR(path_hash_vector, const struct path_hash *)
+DEFINE_VECTOR(path_hash_vector, const struct path_hash *);
 
 struct lnp_entry_format {
 	uint64_t content_type;
@@ -3025,7 +3026,7 @@ drgn_debug_info_main_language(struct drgn_debug_info *dbinfo,
  * DIE iteration.
  */
 
-DEFINE_VECTOR(dwarf_die_vector, Dwarf_Die)
+DEFINE_VECTOR(dwarf_die_vector, Dwarf_Die);
 
 /** Iterator over DWARF DIEs in a @ref drgn_module. */
 struct drgn_dwarf_die_iterator {
@@ -6442,7 +6443,7 @@ struct array_dimension {
 	bool is_complete;
 };
 
-DEFINE_VECTOR(array_dimension_vector, struct array_dimension)
+DEFINE_VECTOR(array_dimension_vector, struct array_dimension);
 
 static struct drgn_error *subrange_length(Dwarf_Die *die,
 					  struct array_dimension *dimension)
@@ -7063,10 +7064,10 @@ struct drgn_dwarf_cie {
 	size_t initial_instructions_size;
 };
 
-DEFINE_VECTOR(drgn_dwarf_fde_vector, struct drgn_dwarf_fde)
-DEFINE_VECTOR(drgn_dwarf_cie_vector, struct drgn_dwarf_cie)
+DEFINE_VECTOR(drgn_dwarf_fde_vector, struct drgn_dwarf_fde);
+DEFINE_VECTOR(drgn_dwarf_cie_vector, struct drgn_dwarf_cie);
 DEFINE_HASH_MAP(drgn_dwarf_cie_map, size_t, size_t, int_key_hash_pair,
-		scalar_key_eq)
+		scalar_key_eq);
 
 static struct drgn_error *
 drgn_dwarf_cfi_next_encoded(struct drgn_elf_file_section_buffer *buffer,
@@ -7616,7 +7617,7 @@ drgn_dwarf_cfi_next_block(struct drgn_elf_file_section_buffer *buffer,
 	return NULL;
 }
 
-DEFINE_VECTOR(drgn_cfi_row_vector, struct drgn_cfi_row *)
+DEFINE_VECTOR(drgn_cfi_row_vector, struct drgn_cfi_row *);
 
 static struct drgn_error *
 drgn_eval_dwarf_cfi(struct drgn_elf_file *file, enum drgn_section_index scn,

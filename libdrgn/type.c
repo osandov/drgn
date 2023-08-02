@@ -172,9 +172,9 @@ static bool drgn_member_key_eq(const struct drgn_member_key *a,
 }
 
 DEFINE_HASH_MAP_FUNCTIONS(drgn_member_map, drgn_member_key_hash_pair,
-			  drgn_member_key_eq)
+			  drgn_member_key_eq);
 
-DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, ptr_key_hash_pair, scalar_key_eq)
+DEFINE_HASH_SET_FUNCTIONS(drgn_type_set, ptr_key_hash_pair, scalar_key_eq);
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_member_object(struct drgn_type_member *member,
@@ -331,9 +331,9 @@ static bool drgn_type_dedupe_eq(struct drgn_type * const *entry_a,
  * enumerators, so the hash and comparison functions ignore those.
  */
 DEFINE_HASH_SET_FUNCTIONS(drgn_dedupe_type_set, drgn_type_dedupe_hash_pair,
-			  drgn_type_dedupe_eq)
+			  drgn_type_dedupe_eq);
 
-DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_typep_vector);
 
 static struct drgn_error *find_or_create_type(struct drgn_type *key,
 					      struct drgn_type **ret)
@@ -487,7 +487,7 @@ struct drgn_error *drgn_float_type_create(struct drgn_program *prog,
 	return find_or_create_type(&key, ret);
 }
 
-DEFINE_VECTOR_FUNCTIONS(drgn_type_template_parameter_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_type_template_parameter_vector);
 
 static void
 drgn_template_parameters_builder_init(struct drgn_template_parameters_builder *builder,
@@ -524,7 +524,7 @@ drgn_template_parameters_builder_add(struct drgn_template_parameters_builder *bu
 	return NULL;
 }
 
-DEFINE_VECTOR_FUNCTIONS(drgn_type_member_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_type_member_vector);
 
 void drgn_compound_type_builder_init(struct drgn_compound_type_builder *builder,
 				     struct drgn_program *prog,
@@ -631,7 +631,7 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	return NULL;
 }
 
-DEFINE_VECTOR_FUNCTIONS(drgn_type_enumerator_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_type_enumerator_vector);
 
 void drgn_enum_type_builder_init(struct drgn_enum_type_builder *builder,
 				 struct drgn_program *prog)
@@ -865,7 +865,7 @@ drgn_incomplete_array_type_create(struct drgn_program *prog,
 	return find_or_create_type(&key, ret);
 }
 
-DEFINE_VECTOR_FUNCTIONS(drgn_type_parameter_vector)
+DEFINE_VECTOR_FUNCTIONS(drgn_type_parameter_vector);
 
 void drgn_function_type_builder_init(struct drgn_function_type_builder *builder,
 				     struct drgn_program *prog)

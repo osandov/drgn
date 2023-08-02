@@ -10,7 +10,7 @@
 #include "../util.h"
 #include "../vector.h"
 
-DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq)
+DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq);
 
 static PyObject *percent_s;
 static PyObject *logger;
@@ -599,7 +599,7 @@ static PyObject *Program_set_pid(Program *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
-DEFINE_VECTOR(path_arg_vector, struct path_arg)
+DEFINE_VECTOR(path_arg_vector, struct path_arg);
 
 static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 					 PyObject *kwds)

@@ -69,7 +69,7 @@ struct drgn_module_dwarf_info {
 void drgn_module_dwarf_info_deinit(struct drgn_module *module);
 
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_die_vector,
-		   struct drgn_dwarf_index_pending_die)
+		   struct drgn_dwarf_index_pending_die);
 
 /**
  * Index of DWARF information for a namespace by entity name.
@@ -108,9 +108,9 @@ struct drgn_dwarf_specification {
 };
 
 DEFINE_HASH_TABLE_TYPE(drgn_dwarf_specification_map,
-		       struct drgn_dwarf_specification)
+		       struct drgn_dwarf_specification);
 
-DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu)
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu);
 
 /** Cached type in a @ref drgn_debug_info. */
 struct drgn_dwarf_type {
@@ -125,7 +125,7 @@ struct drgn_dwarf_type {
 	bool is_incomplete_array;
 };
 
-DEFINE_HASH_MAP_TYPE(drgn_dwarf_type_map, const void *, struct drgn_dwarf_type)
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_type_map, const void *, struct drgn_dwarf_type);
 
 /** DWARF debugging information for a program/@ref drgn_debug_info. */
 struct drgn_dwarf_info {

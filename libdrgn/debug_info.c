@@ -30,8 +30,8 @@ static inline Dwarf *drgn_elf_file_dwarf_key(struct drgn_elf_file * const *entry
 	return (*entry)->dwarf;
 }
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_elf_file_dwarf_table, drgn_elf_file_dwarf_key,
-			    ptr_key_hash_pair, scalar_key_eq)
-DEFINE_VECTOR_FUNCTIONS(drgn_module_vector)
+			    ptr_key_hash_pair, scalar_key_eq);
+DEFINE_VECTOR_FUNCTIONS(drgn_module_vector);
 
 struct drgn_module_key {
 	const void *build_id;
@@ -66,9 +66,10 @@ static inline bool drgn_module_key_eq(const struct drgn_module_key *a,
 		a->start == b->start && a->end == b->end);
 }
 DEFINE_HASH_TABLE_FUNCTIONS(drgn_module_table, drgn_module_key,
-			    drgn_module_key_hash_pair, drgn_module_key_eq)
+			    drgn_module_key_hash_pair, drgn_module_key_eq);
 
-DEFINE_HASH_SET_FUNCTIONS(c_string_set, c_string_key_hash_pair, c_string_key_eq)
+DEFINE_HASH_SET_FUNCTIONS(c_string_set, c_string_key_hash_pair,
+			  c_string_key_eq);
 
 /**
  * @c Dwfl_Callbacks::find_elf() implementation.
@@ -598,11 +599,11 @@ struct drgn_mapped_file_segment {
 	uint64_t file_offset;
 };
 
-DEFINE_VECTOR(drgn_mapped_file_segment_vector, struct drgn_mapped_file_segment)
+DEFINE_VECTOR(drgn_mapped_file_segment_vector, struct drgn_mapped_file_segment);
 
 DEFINE_HASH_MAP(drgn_mapped_files, const char *,
 		struct drgn_mapped_file_segment_vector, c_string_key_hash_pair,
-		c_string_key_eq)
+		c_string_key_eq);
 
 struct userspace_core_report_state {
 	struct drgn_mapped_files files;
