@@ -159,20 +159,24 @@ int main(int argc, char **argv)
 	err = drgn_program_load_debug_info(prog, (const char **)&argv[optind],
 					   argc - optind, kernel || core || pid,
 					   false);
-	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO) && print_time) {
-		if (clock_gettime(CLOCK_MONOTONIC, &end))
-			abort();
-		struct timespec diff = timespec_sub(end, start);
-		printf("%lld.%09ld\n", (long long)diff.tv_sec, diff.tv_nsec);
-	}
+	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)
+	    && print_time && clock_gettime(CLOCK_MONOTONIC, &end))
+		abort();
 	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
 		drgn_error_fwrite(stderr, err);
 		drgn_error_destroy(err);
+	} else if (err) {
+		goto out;
 	}
 
 	err = run_command("post", post_exec);
 	if (err)
 		goto out;
+
+	if (print_time) {
+		struct timespec diff = timespec_sub(end, start);
+		printf("%lld.%09ld\n", (long long)diff.tv_sec, diff.tv_nsec);
+	}
 
 out:;
 	int status = err ? EXIT_FAILURE : EXIT_SUCCESS;
