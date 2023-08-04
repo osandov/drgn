@@ -16,14 +16,19 @@
 
 extern char **environ;
 
-static struct drgn_error *run_command(const char *which, const char *command)
+static struct drgn_error *run_command(const char *which, const char *command,
+				      struct drgn_program *prog)
 {
 	if (!command)
 		return NULL;
 
 	char pid_arg[max_decimal_length(long)];
 	sprintf(pid_arg, "%ld", (long)getpid());
-	const char * const argv[] = {"sh", "-c", command, "sh", pid_arg, NULL};
+	char prog_arg[2 * sizeof(prog) + 3];
+	sprintf(prog_arg, "%p", prog);
+	const char * const argv[] = {
+		"sh", "-c", command, "sh", pid_arg, prog_arg, NULL
+	};
 
 	pid_t pid;
 	int errnum =
@@ -75,10 +80,11 @@ noreturn static void usage(bool error)
 		"  -c PATH, --core PATH    debug the given core dump\n"
 		"  -p PID, --pid PID       debug the running process with the given PID\n"
 		"  -T, --time              print how long loading debug info took in seconds\n"
-		"  --pre-exec CMD          before loading debug info, execute shell command with\n"
-		"                          PID of this process as argument\n"
-		"  --post-exec CMD         after loading debug info, execute shell command with\n"
-		"                          PID of this process as argument\n"
+		"  --pre-exec CMD          before loading debug info, execute the given shell\n"
+		"                          command with the PID of this process and the address\n"
+		"                          of the struct drgn_program in hexadecimal as arguments\n"
+		"  --post-exec CMD         after loading debug info, execute the given shell\n"
+		"                          command with the same arguments as --pre-exec\n"
 		"  -h, --help              display this help message and exit\n");
 	exit(error ? EXIT_FAILURE : EXIT_SUCCESS);
 }
@@ -149,7 +155,7 @@ int main(int argc, char **argv)
 	if (err)
 		goto out;
 
-	err = run_command("pre", pre_exec);
+	err = run_command("pre", pre_exec, prog);
 	if (err)
 		goto out;
 
@@ -169,7 +175,7 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	err = run_command("post", post_exec);
+	err = run_command("post", post_exec, prog);
 	if (err)
 		goto out;
 
