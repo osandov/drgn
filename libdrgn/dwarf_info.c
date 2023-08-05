@@ -5557,12 +5557,6 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
 		drgn_dwarf_index_iterator_next(&it);
 	if (!index_die)
 		return &drgn_not_found;
-	/*
-	 * Look for another matching DIE. If there is one, then we can't be sure
-	 * which type this is, so leave it incomplete rather than guessing.
-	 */
-	if (drgn_dwarf_index_iterator_next(&it))
-		return &drgn_not_found;
 
 	Dwarf_Die die;
 	err = drgn_dwarf_index_get_die(index_die, &die);
