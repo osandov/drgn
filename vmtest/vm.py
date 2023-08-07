@@ -126,6 +126,7 @@ fi
 
 cd {cwd}
 set +e
+export DRGN_TYPE_CHECK=verbose
 sh -c {command}
 rc=$?
 set -e
