@@ -16,6 +16,7 @@ from typing import Iterator
 
 from drgn import Object, Program, container_of
 from drgn.helpers.common.format import escape_ascii_string
+from drgn.helpers.common.type import drgn_type_check
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry
 
@@ -31,6 +32,7 @@ __all__ = (
 )
 
 
+@drgn_type_check
 def disk_devt(disk: Object) -> Object:
     """
     Get a disk's device number.
@@ -41,6 +43,7 @@ def disk_devt(disk: Object) -> Object:
     return Object(disk.prog_, "dev_t", MKDEV(disk.major, disk.first_minor))
 
 
+@drgn_type_check
 def disk_name(disk: Object) -> bytes:
     """
     Get the name of a disk (e.g., ``sda``).
