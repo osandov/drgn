@@ -59,6 +59,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 elf_sections.h \
 			 error.c \
 			 error.h \
+			 generics.h \
 			 hash_table.c \
 			 hash_table.h \
 			 helpers.h \
