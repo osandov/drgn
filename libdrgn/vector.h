@@ -16,8 +16,10 @@
 #include <stdlib.h> // IWYU pragma: keep
 #include <string.h> // IWYU pragma: keep
 
+#include "generics.h"
 #include "minmax.h"
 #include "util.h"
+#include "pp.h"
 
 /**
  * @ingroup Internals
@@ -141,6 +143,9 @@ void vector_shrink_to_fit(struct vector *vector);
  * This returns the internal array of entries. The vector can no longer be used
  * except to be passed to @ref vector_deinit(), which will do nothing.
  *
+ * This is undefined if the vector type was defined with a non-zero @c
+ * inline_size.
+ *
  * This can be used to build an array when the size isn't known ahead of time
  * but won't change after the array is built. For example:
  *
@@ -251,22 +256,63 @@ entry_type *vector_pop(struct vector *vector);
 #endif
 
 /**
+ * Inline as many entries as possible without making the vector type larger than
+ * if @c inline_size was 0.
+ *
+ * This can be passed as the @c inline_size argument to @ref DEFINE_VECTOR().
+ */
+#define vector_inline_minimal -1
+
+/**
  * Define a vector type without defining its functions.
  *
  * This is useful when the vector type must be defined in one place (e.g., a
  * header) but the interface is defined elsewhere (e.g., a source file) with
  * @ref DEFINE_VECTOR_FUNCTIONS(). Otherwise, just use @ref DEFINE_VECTOR().
  *
- * @sa DEFINE_VECTOR()
+ * This takes the same arguments as @ref DEFINE_VECTOR().
  */
-#define DEFINE_VECTOR_TYPE(vector, entry_type)	\
-typedef typeof(entry_type) vector##_entry_type;	\
-						\
-struct vector {					\
-	vector##_entry_type *_data;		\
-	size_t _size;				\
-	size_t _capacity;			\
-};						\
+#define DEFINE_VECTOR_TYPE(...)	\
+	PP_OVERLOAD(DEFINE_VECTOR_TYPE_I, __VA_ARGS__)(__VA_ARGS__)
+#define DEFINE_VECTOR_TYPE_I2(vector, entry_type)	\
+	DEFINE_VECTOR_TYPE_I3(vector, entry_type, 0)
+#define DEFINE_VECTOR_TYPE_I3(vector, entry_type, inline_size)			\
+typedef typeof(entry_type) vector##_entry_type;					\
+										\
+enum { vector##_inline_size_arg = (inline_size) };				\
+/*										\
+ * If the vector was defined with a zero inline size, then we don't want to	\
+ * require the complete definition of the entry type, so we do this to stub it	\
+ * out.										\
+ */										\
+typedef_if(vector##_inline_entry_type, vector##_inline_size_arg == 0, void *,	\
+	   vector##_entry_type);						\
+enum {										\
+	vector##_inline_size =							\
+		vector##_inline_size_arg == vector_inline_minimal		\
+		? sizeof(void *) / sizeof(vector##_inline_entry_type)		\
+		: vector##_inline_size_arg,					\
+	/* Used to avoid a zero-length array. */				\
+	vector##_inline_size_non_zero =						\
+		vector##_inline_size == 0 ? 1 : vector##_inline_size,		\
+};										\
+										\
+struct vector {									\
+	union {									\
+		vector##_entry_type *_data;					\
+		/*								\
+		 * If the vector has no inline entries, then we want this to	\
+		 * degrade to (entry_type *) instead of (entry_type [0]) so that\
+		 * the vector is not over-aligned to alignof(entry_type) and to	\
+		 * avoid zero-length arrays.					\
+		 */								\
+		type_if(vector##_inline_size == 0, vector##_entry_type *,	\
+			vector##_inline_entry_type [vector##_inline_size_non_zero])\
+		_idata;								\
+	};									\
+	size_t _size;								\
+	size_t _capacity;							\
+};										\
 struct DEFINE_VECTOR_needs_semicolon
 
 /**
@@ -284,14 +330,21 @@ struct DEFINE_VECTOR_needs_semicolon
 __attribute__((__unused__))							\
 static void vector##_init(struct vector *vector)				\
 {										\
-	vector->_data = NULL;							\
+	if (vector##_inline_size == 0)						\
+		vector->_data = NULL;						\
 	vector->_size = vector->_capacity = 0;					\
+}										\
+										\
+static bool vector##_is_inline(const struct vector *vector)			\
+{										\
+	return vector##_inline_size > 0	&& vector->_capacity == 0;		\
 }										\
 										\
 __attribute__((__unused__))							\
 static void vector##_deinit(struct vector *vector)				\
 {										\
-	free(vector->_data);							\
+	if (!vector##_is_inline(vector))					\
+		free(vector->_data);						\
 }										\
 										\
 __attribute__((__unused__))							\
@@ -311,15 +364,26 @@ static const size_t vector##_max_size =						\
 										\
 static size_t vector##_capacity(const struct vector *vector)			\
 {										\
+	if (vector##_is_inline(vector))						\
+		return vector##_inline_size;					\
 	return vector->_capacity;						\
 }										\
 										\
 static bool vector##_reallocate(struct vector *vector, size_t capacity)		\
 {										\
-	void *new_data = realloc(vector->_data,					\
-				 capacity * sizeof(vector##_entry_type));	\
-	if (!new_data)								\
-		return false;							\
+	void *new_data;								\
+	if (vector##_is_inline(vector)) {					\
+		new_data = malloc(capacity * sizeof(vector##_entry_type));	\
+		if (!new_data)							\
+			return false;						\
+		memcpy(new_data, vector->_idata,				\
+		       vector##_size(vector) * sizeof(vector##_entry_type));	\
+	} else {								\
+		new_data = realloc(vector->_data,				\
+				   capacity * sizeof(vector##_entry_type));	\
+		if (!new_data)							\
+			return false;						\
+	}									\
 	vector->_data = new_data;						\
 	vector->_capacity = capacity;						\
 	return true;								\
@@ -375,8 +439,14 @@ static void vector##_shrink_to_fit(struct vector *vector)			\
 	size_t size = vector##_size(vector);					\
 	if (vector->_capacity <= size)						\
 		return;								\
-	if (size > 0) {								\
+	if (size > vector##_inline_size) {					\
 		vector##_reallocate(vector, size);				\
+	} else if (vector##_inline_size > 0) {					\
+		void *old_data = vector->_data;					\
+		memcpy(vector->_idata, old_data,				\
+		       size * sizeof(vector##_entry_type));			\
+		free(old_data);							\
+		vector->_capacity = 0;						\
 	} else {								\
 		free(vector->_data);						\
 		vector->_data = NULL;						\
@@ -384,8 +454,20 @@ static void vector##_shrink_to_fit(struct vector *vector)			\
 	}									\
 }										\
 										\
+/*										\
+ * If the vector was defined with a non-zero inline size, make vector_steal()	\
+ * fail at compile time by having it take a dummy type incompatible with struct	\
+ * vector (but close enough to the real thing so the function body compiles).	\
+ */										\
+struct vector##_steal_is_undefined_for_non_zero_inline_size {			\
+	void *_data;								\
+	size_t _size;								\
+};										\
 __attribute__((__unused__))							\
-static void vector##_steal(struct vector *vector,				\
+static void vector##_steal(type_if(vector##_inline_size_arg == 0,		\
+				   struct vector,				\
+				   struct vector##_steal_is_undefined_for_non_zero_inline_size)\
+			   *vector,						\
 			   vector##_entry_type **entries_ret, size_t *size_ret)	\
 {										\
 	*entries_ret = vector->_data;						\
@@ -396,6 +478,8 @@ static void vector##_steal(struct vector *vector,				\
 										\
 static vector##_entry_type *vector##_begin(struct vector *vector)		\
 {										\
+	if (vector##_is_inline(vector))						\
+		return vector->_idata;						\
 	return vector->_data;							\
 }										\
 										\
@@ -465,14 +549,24 @@ struct DEFINE_VECTOR_needs_semicolon
 /**
  * Define a vector interface.
  *
- * This macro defines a vector type along with its functions.
+ * This macro defines a vector type along with its functions. It accepts a
+ * variable number of arguments:
+ *
+ * ```
+ * DEFINE_VECTOR(vector, entry_type);
+ * DEFINE_VECTOR(vector, entry_type, inline_size);
+ * ```
  *
  * @param[in] vector Name of the type to define. This is prefixed to all of the
  * types and functions defined for that type.
  * @param[in] entry_type Type of entries in the vector.
+ * @param[in] inline_size Number of entries to store directly in the vector type
+ * instead of as a separate allocation, or @ref vector_inline_minimal. The
+ * default is 0. If this is not 0, then the complete definition of @p entry_type
+ * must be available.
  */
-#define DEFINE_VECTOR(vector, entry_type)	\
-DEFINE_VECTOR_TYPE(vector, entry_type);		\
+#define DEFINE_VECTOR(vector, ...)		\
+DEFINE_VECTOR_TYPE(vector, __VA_ARGS__);	\
 DEFINE_VECTOR_FUNCTIONS(vector)
 
 /**
@@ -482,7 +576,7 @@ DEFINE_VECTOR_FUNCTIONS(vector)
  *
  * @sa vector_init()
  */
-#define VECTOR_INIT { NULL }
+#define VECTOR_INIT { { 0 } }
 
 /**
  * Iterate over every entry in a @ref vector.
