@@ -61,7 +61,7 @@ void vector_init(struct vector *vector);
 void vector_deinit(struct vector *vector);
 
 /** Return the number of entries in a @ref vector. */
-size_t vector_size(const struct vector *vector);
+size_type vector_size(const struct vector *vector);
 
 /** Return whether a @ref vector is empty. */
 bool vector_empty(const struct vector *vector);
@@ -71,7 +71,7 @@ bool vector_empty(const struct vector *vector);
  *
  * Attempts to increase the size or capacity beyond this will fail.
  */
-const size_t vector_max_size;
+const size_type vector_max_size;
 
 /**
  * Update the number of entries in a @ref vector.
@@ -94,7 +94,7 @@ bool vector_resize(struct vector *vector, size_t size);
 void vector_clear(struct vector *vector);
 
 /** Return the number of allocated entries in a @ref vector. */
-size_t vector_capacity(const struct vector *vector);
+size_type vector_capacity(const struct vector *vector);
 
 /**
  * Increase the capacity of a @ref vector.
@@ -173,7 +173,7 @@ void vector_shrink_to_fit(struct vector *vector);
  * @param[out] size_ret Returned number of entries in array. May be @c NULL.
  */
 void vector_steal(struct vector *vector, entry_type **entries_ret,
-		  size_t *size_ret);
+		  size_type *size_ret);
 
 /**
  * Return the array of entries in a @ref vector.
@@ -276,8 +276,15 @@ entry_type *vector_pop(struct vector *vector);
 	PP_OVERLOAD(DEFINE_VECTOR_TYPE_I, __VA_ARGS__)(__VA_ARGS__)
 #define DEFINE_VECTOR_TYPE_I2(vector, entry_type)	\
 	DEFINE_VECTOR_TYPE_I3(vector, entry_type, 0)
-#define DEFINE_VECTOR_TYPE_I3(vector, entry_type, inline_size)			\
+#define DEFINE_VECTOR_TYPE_I3(vector, entry_type, inline_size)	\
+	DEFINE_VECTOR_TYPE_I4(vector, entry_type, inline_size, size_t)
+#define DEFINE_VECTOR_TYPE_I4(vector, entry_type, inline_size, size_type)	\
 typedef typeof(entry_type) vector##_entry_type;					\
+										\
+typedef typeof(size_type) vector##_size_type;					\
+_Static_assert((vector##_size_type)-1 > 0, "size_type must be unsigned");	\
+_Static_assert((vector##_size_type)-1 <= SIZE_MAX,				\
+	       "size_type must not be larger than size_t");			\
 										\
 enum { vector##_inline_size_arg = (inline_size) };				\
 /*										\
@@ -310,8 +317,8 @@ struct vector {									\
 			vector##_inline_entry_type [vector##_inline_size_non_zero])\
 		_idata;								\
 	};									\
-	size_t _size;								\
-	size_t _capacity;							\
+	vector##_size_type _size;						\
+	vector##_size_type _capacity;						\
 };										\
 struct DEFINE_VECTOR_needs_semicolon
 
@@ -348,7 +355,7 @@ static void vector##_deinit(struct vector *vector)				\
 }										\
 										\
 __attribute__((__unused__))							\
-static size_t vector##_size(const struct vector *vector)			\
+static vector##_size_type vector##_size(const struct vector *vector)		\
 {										\
 	return vector->_size;							\
 }										\
@@ -359,10 +366,11 @@ static bool vector##_empty(const struct vector *vector)				\
 	return vector->_size == 0;						\
 }										\
 										\
-static const size_t vector##_max_size =						\
-	PTRDIFF_MAX / sizeof(vector##_entry_type);				\
+static const vector##_size_type vector##_max_size =				\
+	min_iconst(PTRDIFF_MAX, (vector##_size_type)-1)				\
+	/ sizeof(vector##_entry_type);						\
 										\
-static size_t vector##_capacity(const struct vector *vector)			\
+static vector##_size_type vector##_capacity(const struct vector *vector)	\
 {										\
 	if (vector##_is_inline(vector))						\
 		return vector##_inline_size;					\
@@ -391,12 +399,15 @@ static bool vector##_reallocate(struct vector *vector, size_t capacity)		\
 										\
 static bool vector##_reserve_for_extend(struct vector *vector, size_t n)	\
 {										\
-	size_t size = vector##_size(vector);					\
-	if (n <= vector##_capacity(vector) - size)				\
+	vector##_size_type size = vector##_size(vector);			\
+	/*									\
+	 * Cast to size_t to avoid -Wsign-error if size_type is promoted to int.\
+	 */									\
+	if (n <= (size_t)(vector##_capacity(vector) - size))			\
 		return true;							\
-	if (n > vector##_max_size - size)					\
+	if (n > (size_t)(vector##_max_size - size))				\
 		return false;							\
-	size_t new_capacity = size + max(size, n);				\
+	vector##_size_type new_capacity = size + (n > size ? n : size);		\
 	if (new_capacity < size || new_capacity > vector##_max_size)		\
 		new_capacity = vector##_max_size;				\
 	return vector##_reallocate(vector, new_capacity);			\
@@ -436,7 +447,7 @@ static bool vector##_reserve_for_append(struct vector *vector)			\
 __attribute__((__unused__))							\
 static void vector##_shrink_to_fit(struct vector *vector)			\
 {										\
-	size_t size = vector##_size(vector);					\
+	vector##_size_type size = vector##_size(vector);			\
 	if (vector->_capacity <= size)						\
 		return;								\
 	if (size > vector##_inline_size) {					\
@@ -461,14 +472,15 @@ static void vector##_shrink_to_fit(struct vector *vector)			\
  */										\
 struct vector##_steal_is_undefined_for_non_zero_inline_size {			\
 	void *_data;								\
-	size_t _size;								\
+	vector##_size_type _size;						\
 };										\
 __attribute__((__unused__))							\
 static void vector##_steal(type_if(vector##_inline_size_arg == 0,		\
 				   struct vector,				\
 				   struct vector##_steal_is_undefined_for_non_zero_inline_size)\
 			   *vector,						\
-			   vector##_entry_type **entries_ret, size_t *size_ret)	\
+			   vector##_entry_type **entries_ret,			\
+			   vector##_size_type *size_ret)			\
 {										\
 	*entries_ret = vector->_data;						\
 	if (size_ret)								\
@@ -555,6 +567,7 @@ struct DEFINE_VECTOR_needs_semicolon
  * ```
  * DEFINE_VECTOR(vector, entry_type);
  * DEFINE_VECTOR(vector, entry_type, inline_size);
+ * DEFINE_VECTOR(vector, entry_type, inline_size, size_type);
  * ```
  *
  * @param[in] vector Name of the type to define. This is prefixed to all of the
@@ -564,6 +577,8 @@ struct DEFINE_VECTOR_needs_semicolon
  * instead of as a separate allocation, or @ref vector_inline_minimal. The
  * default is 0. If this is not 0, then the complete definition of @p entry_type
  * must be available.
+ * @param[in] size_type Unsigned integer type to use to store size and capacity.
+ * The default is `size_t`.
  */
 #define DEFINE_VECTOR(vector, ...)		\
 DEFINE_VECTOR_TYPE(vector, __VA_ARGS__);	\
