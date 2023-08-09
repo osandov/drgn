@@ -108,7 +108,6 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 type.c \
 			 type.h \
 			 util.h \
-			 vector.c \
 			 vector.h
 
 libdrgnimpl_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden $(OPENMP_CFLAGS) \

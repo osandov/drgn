@@ -18,6 +18,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "cleanup.h"
 #include "debug_info.h"
 #include "error.h"
 #include "helpers.h"
@@ -1356,7 +1357,7 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 	if (err)
 		return err;
 
-	if (crashed_cpu >= prog->prstatus_vector.size)
+	if (crashed_cpu >= drgn_prstatus_vector_size(&prog->prstatus_vector))
 		return NULL;
 
 	err = drgn_program_find_thread_kernel_cpu_curr(prog, crashed_cpu,
@@ -1366,7 +1367,7 @@ drgn_program_kernel_core_dump_cache_crashed_thread(struct drgn_program *prog)
 		return err;
 	}
 	prog->crashed_thread->prstatus =
-		prog->prstatus_vector.data[crashed_cpu];
+		*drgn_prstatus_vector_at(&prog->prstatus_vector, crashed_cpu);
 	return NULL;
 }
 
@@ -1447,8 +1448,8 @@ struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 	if (err)
 		return err;
 
-	if (cpu < prog->prstatus_vector.size) {
-		*ret = prog->prstatus_vector.data[cpu];
+	if (cpu < drgn_prstatus_vector_size(&prog->prstatus_vector)) {
+		*ret = *drgn_prstatus_vector_at(&prog->prstatus_vector, cpu);
 		return get_prstatus_pid(prog, ret->str, ret->len, tid_ret);
 	} else {
 		ret->str = NULL;
@@ -1623,21 +1624,17 @@ drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
 	if (err)
 		return err;
-	struct char_vector str = VECTOR_INIT;
+	_cleanup_(char_vector_deinit) struct char_vector str = VECTOR_INIT;
 	for (;;) {
 		address &= address_mask;
 		char *c = char_vector_append_entry(&str);
-		if (!c) {
-			char_vector_deinit(&str);
+		if (!c)
 			return &drgn_enomem;
-		}
-		if (str.size <= max_size) {
+		if (char_vector_size(&str) <= max_size) {
 			err = drgn_memory_reader_read(&prog->reader, c, address,
 						      1, physical);
-			if (err) {
-				char_vector_deinit(&str);
+			if (err)
 				return err;
-			}
 			if (!*c)
 				break;
 		} else {
@@ -1647,7 +1644,7 @@ drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 		address++;
 	}
 	char_vector_shrink_to_fit(&str);
-	*ret = str.data;
+	char_vector_steal(&str, ret, NULL);
 	return NULL;
 }
 
@@ -1871,13 +1868,12 @@ symbols_search(struct drgn_program *prog, struct symbols_search_arg *arg,
 	}
 
 	if (err) {
-		for (size_t i = 0; i < arg->results.size; i++)
-			drgn_symbol_destroy(arg->results.data[i]);
+		vector_for_each(symbolp_vector, symbolp, &arg->results)
+			drgn_symbol_destroy(*symbolp);
 		symbolp_vector_deinit(&arg->results);
 	} else {
 		symbolp_vector_shrink_to_fit(&arg->results);
-		*count_ret = arg->results.size;
-		*syms_ret = arg->results.data;
+		symbolp_vector_steal(&arg->results, syms_ret, count_ret);
 	}
 	return err;
 }

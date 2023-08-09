@@ -16,6 +16,9 @@
 #include <stdlib.h> // IWYU pragma: keep
 #include <string.h> // IWYU pragma: keep
 
+#include "minmax.h"
+#include "util.h"
+
 /**
  * @ingroup Internals
  *
@@ -23,7 +26,7 @@
  *
  * Dynamic arrays (a.k.a.\ vectors).
  *
- * This is a basic implementation of generic, strongly-typed vectors.
+ * This is an implementation of generic, strongly-typed vectors.
  *
  * A vector is defined with @ref DEFINE_VECTOR(). Each generated vector
  * interface is prefixed with a given name; the interface documented here uses
@@ -34,31 +37,14 @@
 
 #ifdef DOXYGEN
 /**
+ * @struct vector
+ *
  * Vector instance.
  *
  * There are no requirements on how this is allocated; it may be global, on the
  * stack, allocated by @c malloc(), embedded in another structure, etc.
  */
-struct vector {
-	/**
-	 * The underlying array of entries.
-	 *
-	 * This may be accessed directly. It may be reallocated as noted.
-	 *
-	 * A common pattern is using a @c vector to build an array and then
-	 * returning the raw array. To do so, don't call @ref vector_deinit(),
-	 * then return @c data and free it with `free()`.
-	 */
-	entry_type *data;
-	/** The number of entries in a @ref vector. */
-	size_t size;
-	/**
-	 * The number of allocated elements in @ref vector::data.
-	 *
-	 * This should not be modified.
-	 */
-	size_t capacity;
-};
+struct vector;
 
 /**
  * Initialize a @ref vector.
@@ -69,39 +55,167 @@ struct vector {
  */
 void vector_init(struct vector *vector);
 
-/**
- * Free memory allocated by a @ref vector.
- *
- * This frees @ref vector::data.
- */
+/** Free memory allocated by a @ref vector. */
 void vector_deinit(struct vector *vector);
+
+/** Return the number of entries in a @ref vector. */
+size_t vector_size(const struct vector *vector);
+
+/** Return whether a @ref vector is empty. */
+bool vector_empty(const struct vector *vector);
+
+/**
+ * Maximum possible number of entries in a @ref vector.
+ *
+ * Attempts to increase the size or capacity beyond this will fail.
+ */
+const size_t vector_max_size;
+
+/**
+ * Update the number of entries in a @ref vector.
+ *
+ * If @p size is greater than the current capacity, this increases the capacity
+ * to at least @p size and reallocates the entries.
+ *
+ * If @p size is greater than the current size, the entries between the old size
+ * and the new size are uninitialized.
+ *
+ * @return @c true on success, @c false on failure.
+ */
+bool vector_resize(struct vector *vector, size_t size);
+
+/**
+ * Set the size of a @ref vector to zero.
+ *
+ * This does not change the capacity or free the entries.
+ */
+void vector_clear(struct vector *vector);
+
+/** Return the number of allocated entries in a @ref vector. */
+size_t vector_capacity(const struct vector *vector);
 
 /**
  * Increase the capacity of a @ref vector.
  *
- * If @p capacity is greater than the current capacity of the @ref vector, this
- * reallocates @ref vector::data and increases @ref vector::capacity to at least
- * @p capacity. Otherwise, it does nothing.
+ * If @p capacity is greater than the current capacity, this increases the
+ * capacity to at least @p capacity and reallocates the entries. Otherwise, it
+ * does nothing.
  *
  * @return @c true on success, @c false on failure.
  */
 bool vector_reserve(struct vector *vector, size_t capacity);
 
 /**
+ * Increase the capacity of a @ref vector to accomodate at least one append.
+ *
+ * If the current capacity is equal to the current size, this increases the
+ * capacity by at least one and reallocates the entries. Otherwise, it does
+ * nothing.
+ *
+ * @return @c true on success, @c false on failure.
+ */
+bool vector_reserve_for_append(struct vector *vector);
+
+/**
+ * Increase the capacity of a @ref vector to accomodate at least @p n appends.
+ *
+ * If the current capacity minus the current size is not at least @p n, this
+ * increases the capacity by at least @p n and reallocates the entries.
+ * Otherwise, it does nothing.
+ *
+ * @return @c true on success, @c false on failure.
+ */
+bool vector_reserve_for_extend(struct vector *vector, size_t n);
+
+/**
  * Free unused memory in a @ref vector.
  *
- * This may reallocate @ref vector::data and set @ref vector::capacity to @ref
- * vector::size. It may also do nothing.
+ * This may reduce the capacity and reallocate the entries. It may also do
+ * nothing.
  */
 void vector_shrink_to_fit(struct vector *vector);
 
 /**
+ * Steal the array of entries from a @ref vector.
+ *
+ * This returns the internal array of entries. The vector can no longer be used
+ * except to be passed to @ref vector_deinit(), which will do nothing.
+ *
+ * This can be used to build an array when the size isn't known ahead of time
+ * but won't change after the array is built. For example:
+ *
+ * ```
+ * DEFINE_VECTOR(int_vector, int);
+ *
+ * bool primes_less_than(int n, int **array_ret, size_t *size_ret)
+ * {
+ *
+ *         _cleanup_(int_vector_deinit) struct int_vector vector = VECTOR_INIT;
+ *         for (int i = 2; i < n; i++) {
+ *                 if (is_prime(i) && !int_vector_push(&vector, &i))
+ *                         return false;
+ *         }
+ *         int_vector_shrink_to_fit(&vector);
+ *         int_vector_steal(&vector, array_ret, size_ret);
+ *         return true;
+ * }
+ * ```
+ *
+ * As demonstrated here, it may be desirable to call @ref vector_shrink_to_fit()
+ * first.
+ *
+ * @param[out] entries_ret Returned array. This must be freed with @c free().
+ * @param[out] size_ret Returned number of entries in array. May be @c NULL.
+ */
+void vector_steal(struct vector *vector, entry_type **entries_ret,
+		  size_t *size_ret);
+
+/**
+ * Return the array of entries in a @ref vector.
+ *
+ * The vector may be empty, in which case this is equal to `vector_end(vector)`.
+ */
+entry_type *vector_begin(struct vector *vector);
+
+/**
+ * Return one past the last entry in a @ref vector.
+ *
+ * The vector may be empty, in which case this is equal to
+ * `vector_begin(vector)`.
+ */
+entry_type *vector_end(struct vector *vector);
+
+/**
+ * Return the first entry in a @ref vector.
+ *
+ * This is equivalent to `vector_at(vector, 0)`. The vector must not be empty
+ * (in contrast to @ref vector_begin()).
+ */
+entry_type *vector_first(struct vector *vector);
+
+/**
+ * Return the last entry in a @ref vector.
+ *
+ * This is equivalent to `vector_at(vector, vector_size(vector) - 1)`. The
+ * vector must not be empty.
+ */
+entry_type *vector_last(struct vector *vector);
+
+/**
+ * Return the entry at the given index in a @ref vector.
+ *
+ * @param[in] i Entry index. Must be less than the size of the vector.
+ */
+entry_type *vector_at(struct vector *vector, size_t i);
+
+/**
  * Append to a @ref vector.
  *
- * This increases @ref vector::size by one. It may reallocate @ref vector::data
- * and change @ref vector::capacity.
+ * This increases vector's size by one. If the current capacity is equal to the
+ * current size, this increases the capacity by at least one and reallocates the
+ * entries.
  *
- * @return @c true on success, @c false on failure to allocate memory.
+ * @return @c true on success, @c false on failure.
  */
 bool vector_append(struct vector *vector, const entry_type *entry);
 
@@ -111,28 +225,30 @@ bool vector_append(struct vector *vector, const entry_type *entry);
  * Like @ref vector_append(), but return a pointer to the new (uninitialized)
  * entry.
  *
- * @return The new entry on success, @c NULL on failure to allocate memory.
+ * @return The new entry on success, @c NULL on failure.
  */
 entry_type *vector_append_entry(struct vector *vector);
 
 /**
+ * Append all of the entries from one vector to another.
+ *
+ * @param[in] dst Vector to append to.
+ * @param[in] src Source vector. This is not modified.
+ * @return @c true on success, @c false on failure.
+ */
+bool vector_extend(struct vector *dst, const struct vector *src);
+
+/**
  * Remove and return the last entry in a @ref vector.
  *
- * The vector is assumed to be non-empty. This descreases @ref vector::size by
- * one. It does not reallocate @ref vector::data.
+ * The vector must not be empty. This decreases the size by one. It does not
+ * change the capacity or reallocate the entries.
  *
  * @return A pointer to the removed entry, which remains valid until another
- * entry is inserted in its place or @ref vector::data is reallocated.
+ * entry is inserted in its place or the entries are reallocated.
  */
 entry_type *vector_pop(struct vector *vector);
 #endif
-
-bool vector_do_reserve(size_t new_capacity, size_t entry_size, void **data,
-		       size_t *capacity);
-void vector_do_shrink_to_fit(size_t size, size_t entry_size, void **data,
-			     size_t *capacity);
-bool vector_reserve_for_append(size_t size, size_t entry_size, void **data,
-			       size_t *capacity);
 
 /**
  * Define a vector type without defining its functions.
@@ -147,9 +263,9 @@ bool vector_reserve_for_append(size_t size, size_t entry_size, void **data,
 typedef typeof(entry_type) vector##_entry_type;	\
 						\
 struct vector {					\
-	vector##_entry_type *data;		\
-	size_t size;				\
-	size_t capacity;			\
+	vector##_entry_type *_data;		\
+	size_t _size;				\
+	size_t _capacity;			\
 };						\
 struct DEFINE_VECTOR_needs_semicolon
 
@@ -168,46 +284,158 @@ struct DEFINE_VECTOR_needs_semicolon
 __attribute__((__unused__))							\
 static void vector##_init(struct vector *vector)				\
 {										\
-	vector->data = NULL;							\
-	vector->size = vector->capacity = 0;					\
+	vector->_data = NULL;							\
+	vector->_size = vector->_capacity = 0;					\
 }										\
 										\
 __attribute__((__unused__))							\
 static void vector##_deinit(struct vector *vector)				\
 {										\
-	free(vector->data);							\
+	free(vector->_data);							\
+}										\
+										\
+__attribute__((__unused__))							\
+static size_t vector##_size(const struct vector *vector)			\
+{										\
+	return vector->_size;							\
+}										\
+										\
+__attribute__((__unused__))							\
+static bool vector##_empty(const struct vector *vector)				\
+{										\
+	return vector->_size == 0;						\
+}										\
+										\
+static const size_t vector##_max_size =						\
+	PTRDIFF_MAX / sizeof(vector##_entry_type);				\
+										\
+static size_t vector##_capacity(const struct vector *vector)			\
+{										\
+	return vector->_capacity;						\
+}										\
+										\
+static bool vector##_reallocate(struct vector *vector, size_t capacity)		\
+{										\
+	void *new_data = realloc(vector->_data,					\
+				 capacity * sizeof(vector##_entry_type));	\
+	if (!new_data)								\
+		return false;							\
+	vector->_data = new_data;						\
+	vector->_capacity = capacity;						\
+	return true;								\
+}										\
+										\
+static bool vector##_reserve_for_extend(struct vector *vector, size_t n)	\
+{										\
+	size_t size = vector##_size(vector);					\
+	if (n <= vector##_capacity(vector) - size)				\
+		return true;							\
+	if (n > vector##_max_size - size)					\
+		return false;							\
+	size_t new_capacity = size + max(size, n);				\
+	if (new_capacity < size || new_capacity > vector##_max_size)		\
+		new_capacity = vector##_max_size;				\
+	return vector##_reallocate(vector, new_capacity);			\
+}										\
+										\
+__attribute__((__unused__))							\
+static bool vector##_resize(struct vector *vector, size_t size)			\
+{										\
+	if (vector->_size < size						\
+	    && !vector##_reserve_for_extend(vector, size - vector->_size))	\
+		return false;							\
+	vector->_size = size;							\
+	return true;								\
+}										\
+										\
+__attribute__((__unused__))							\
+static void vector##_clear(struct vector *vector)				\
+{										\
+	vector->_size = 0;							\
 }										\
 										\
 __attribute__((__unused__))							\
 static bool vector##_reserve(struct vector *vector, size_t capacity)		\
 {										\
-	return vector_do_reserve(capacity, sizeof(*vector->data),		\
-				 (void **)&vector->data, &vector->capacity);	\
+	if (capacity <= vector##_capacity(vector))				\
+		return true;							\
+	if (capacity > vector##_max_size)					\
+		return false;							\
+	return vector##_reallocate(vector, capacity);				\
+}										\
+										\
+static bool vector##_reserve_for_append(struct vector *vector)			\
+{										\
+	return vector##_reserve_for_extend(vector, 1);				\
 }										\
 										\
 __attribute__((__unused__))							\
 static void vector##_shrink_to_fit(struct vector *vector)			\
 {										\
-	vector_do_shrink_to_fit(vector->size, sizeof(*vector->data),		\
-				(void **)&vector->data, &vector->capacity);	\
+	size_t size = vector##_size(vector);					\
+	if (vector->_capacity <= size)						\
+		return;								\
+	if (size > 0) {								\
+		vector##_reallocate(vector, size);				\
+	} else {								\
+		free(vector->_data);						\
+		vector->_data = NULL;						\
+		vector->_capacity = 0;						\
+	}									\
+}										\
+										\
+__attribute__((__unused__))							\
+static void vector##_steal(struct vector *vector,				\
+			   vector##_entry_type **entries_ret, size_t *size_ret)	\
+{										\
+	*entries_ret = vector->_data;						\
+	if (size_ret)								\
+		*size_ret = vector->_size;					\
+	vector->_data = NULL;							\
+}										\
+										\
+static vector##_entry_type *vector##_begin(struct vector *vector)		\
+{										\
+	return vector->_data;							\
+}										\
+										\
+__attribute__((__unused__))							\
+static vector##_entry_type *vector##_end(struct vector *vector)			\
+{										\
+	return add_to_possibly_null_pointer(vector##_begin(vector),		\
+					    vector##_size(vector));		\
+}										\
+										\
+__attribute__((__unused__))							\
+static vector##_entry_type *vector##_first(struct vector *vector)		\
+{										\
+	return vector##_begin(vector);						\
+}										\
+										\
+__attribute__((__unused__))							\
+static vector##_entry_type *vector##_last(struct vector *vector)		\
+{										\
+	return vector##_begin(vector) + vector##_size(vector) - 1;		\
+}										\
+										\
+__attribute__((__unused__))							\
+static vector##_entry_type *vector##_at(struct vector *vector, size_t i)	\
+{										\
+	return vector##_begin(vector) + i;					\
 }										\
 										\
 static vector##_entry_type *vector##_append_entry(struct vector *vector)	\
 {										\
-	if (!vector_reserve_for_append(vector->size, sizeof(*vector->data),	\
-				       (void **)&vector->data,			\
-				       &vector->capacity))			\
+	if (!vector##_reserve_for_append(vector))				\
 		return NULL;							\
-	return &vector->data[vector->size++];					\
+	return vector##_begin(vector) + vector->_size++;			\
 }										\
 										\
 __attribute__((__unused__))							\
 static bool vector##_append(struct vector *vector,				\
 			    const vector##_entry_type *entry)			\
 {										\
-	vector##_entry_type *new_entry;						\
-										\
-	new_entry = vector##_append_entry(vector);				\
+	vector##_entry_type *new_entry = vector##_append_entry(vector);		\
 	if (!new_entry)								\
 		return false;							\
 	memcpy(new_entry, entry, sizeof(*entry));				\
@@ -215,9 +443,22 @@ static bool vector##_append(struct vector *vector,				\
 }										\
 										\
 __attribute__((__unused__))							\
+static bool vector##_extend(struct vector *dst, const struct vector *src)	\
+{										\
+	if (src->_size == 0)							\
+		return true;							\
+	if (!vector##_reserve_for_extend(dst, src->_size))			\
+		return false;							\
+	memcpy(vector##_end(dst), vector##_begin((struct vector *)src),		\
+	       src->_size * sizeof(vector##_entry_type));			\
+	dst->_size += src->_size;						\
+	return true;								\
+}										\
+										\
+__attribute__((__unused__))							\
 static vector##_entry_type *vector##_pop(struct vector *vector)			\
 {										\
-	return &vector->data[--vector->size];					\
+	return vector##_begin(vector) + --vector->_size;			\
 }										\
 struct DEFINE_VECTOR_needs_semicolon
 
@@ -242,6 +483,31 @@ DEFINE_VECTOR_FUNCTIONS(vector)
  * @sa vector_init()
  */
 #define VECTOR_INIT { NULL }
+
+/**
+ * Iterate over every entry in a @ref vector.
+ *
+ * This is roughly equivalent to
+ *
+ * ```
+ *  for (entry_type *it = vector_begin(vector), *end = vector_end(vector);
+ *       it != end; it++)
+ * ```
+ *
+ * Except that @p vector is only evaluated once.
+ *
+ * @param[in] vector_type Name of vector type.
+ * @param[out] it Name of iteration variable.
+ * @param[in] vector Vector to iterate over.
+ */
+#define vector_for_each(vector_type, it, vector)			\
+	for (vector_type##_entry_type *it,				\
+	     *it##__end = ({						\
+			struct vector_type *it##__vector = (vector);	\
+			it = vector_type##_begin(it##__vector);		\
+			vector_type##_end(it##__vector);		\
+	     });							\
+	     it != it##__end; it++)
 
 /** @} */
 

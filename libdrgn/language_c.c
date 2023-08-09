@@ -1035,13 +1035,13 @@ compound_initializer_iter_next(struct initializer_iter *iter_,
 		container_of(iter_, struct compound_initializer_iter, iter);
 
 	for (;;) {
-		if (!iter->stack.size)
+		if (compound_initializer_stack_empty(&iter->stack))
 			return &drgn_stop;
 
 		struct compound_initializer_state *top =
-			&iter->stack.data[iter->stack.size - 1];
+			compound_initializer_stack_last(&iter->stack);
 		if (top->member == top->end) {
-			iter->stack.size--;
+			compound_initializer_stack_pop(&iter->stack);
 			continue;
 		}
 
@@ -1101,11 +1101,9 @@ static void compound_initializer_iter_reset(struct initializer_iter *iter_)
 {
 	struct compound_initializer_iter *iter =
 		container_of(iter_, struct compound_initializer_iter, iter);
-	struct drgn_type *underlying_type =
-		drgn_underlying_type(iter->obj->type);
-
-	iter->stack.size = 1;
-	iter->stack.data[0].member = drgn_type_members(underlying_type);
+	compound_initializer_stack_resize(&iter->stack, 1);
+	compound_initializer_stack_first(&iter->stack)->member =
+		drgn_type_members(drgn_underlying_type(iter->obj->type));
 }
 
 static struct drgn_error *
@@ -1115,7 +1113,7 @@ compound_initializer_append_designation(struct initializer_iter *iter_,
 	struct compound_initializer_iter *iter =
 		container_of(iter_, struct compound_initializer_iter, iter);
 	struct compound_initializer_state *top =
-		&iter->stack.data[iter->stack.size - 1];
+		compound_initializer_stack_last(&iter->stack);
 	const char *name = top->member[-1].name;
 
 	if (name && !string_builder_appendf(sb, ".%s = ", name))

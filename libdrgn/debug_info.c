@@ -472,7 +472,7 @@ drgn_debug_info_report_module(struct drgn_debug_info_load_state *load,
 		} else if (drgn_module_table_insert_searched(&dbinfo->modules,
 							     &module, hp,
 							     NULL) < 0) {
-			load->new_modules.size--;
+			drgn_module_vector_pop(&load->new_modules);
 			drgn_module_destroy(module);
 			return &drgn_enomem;
 		}
@@ -724,10 +724,10 @@ userspace_core_get_mapped_files(struct drgn_debug_info_load_state *load,
 		 * mappings with different memory protections even though the
 		 * protection is not included in NT_FILE. Merge them if we can.
 		 */
-		if (it.entry->value.size > 0 &&
-		    drgn_mapped_file_segments_contiguous(&it.entry->value.data[it.entry->value.size - 1],
-							 &segment))
-			it.entry->value.data[it.entry->value.size - 1].end = segment.end;
+		if (!drgn_mapped_file_segment_vector_empty(&it.entry->value)
+		    && drgn_mapped_file_segments_contiguous(drgn_mapped_file_segment_vector_last(&it.entry->value),
+							    &segment))
+			drgn_mapped_file_segment_vector_last(&it.entry->value)->end = segment.end;
 		else if (!drgn_mapped_file_segment_vector_append(&it.entry->value,
 								 &segment))
 			return &drgn_enomem;
@@ -1316,8 +1316,8 @@ userspace_core_report_mapped_files(struct drgn_debug_info_load_state *load,
 	     it.entry; it = drgn_mapped_files_next(it)) {
 		err = userspace_core_maybe_report_file(load, core,
 						       it.entry->key,
-						       it.entry->value.data,
-						       it.entry->value.size);
+						       drgn_mapped_file_segment_vector_begin(&it.entry->value),
+						       drgn_mapped_file_segment_vector_size(&it.entry->value));
 		if (err)
 			return err;
 	}
@@ -1950,12 +1950,12 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 static struct drgn_error *
 drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 {
-	if (!load->new_modules.size)
+	if (drgn_module_vector_empty(&load->new_modules))
 		return NULL;
 	struct drgn_debug_info *dbinfo = load->dbinfo;
 	if (!c_string_set_reserve(&dbinfo->module_names,
-				  c_string_set_size(&dbinfo->module_names) +
-				  load->new_modules.size))
+				  c_string_set_size(&dbinfo->module_names)
+				  + drgn_module_vector_size(&load->new_modules)))
 		return &drgn_enomem;
 
 	struct drgn_dwarf_index_state index;
@@ -1963,12 +1963,13 @@ drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 		return &drgn_enomem;
 	struct drgn_error *err = NULL;
 	#pragma omp parallel for schedule(dynamic)
-	for (size_t i = 0; i < load->new_modules.size; i++) {
+	for (size_t i = 0; i < drgn_module_vector_size(&load->new_modules); i++) {
 		if (err)
 			continue;
+		struct drgn_module *module =
+			*drgn_module_vector_at(&load->new_modules, i);
 		struct drgn_error *module_err =
-			drgn_debug_info_read_module(load, &index,
-						    load->new_modules.data[i]);
+			drgn_debug_info_read_module(load, &index, module);
 		if (module_err) {
 			#pragma omp critical(drgn_debug_info_update_index_error)
 			if (err)
@@ -1994,7 +1995,7 @@ drgn_debug_info_report_flush(struct drgn_debug_info_load_state *load)
 	dwfl_report_begin_add(dbinfo->dwfl);
 	if (err)
 		return err;
-	load->new_modules.size = 0;
+	drgn_module_vector_clear(&load->new_modules);
 	return NULL;
 }
 

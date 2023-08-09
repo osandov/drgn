@@ -500,8 +500,9 @@ drgn_template_parameters_builder_init(struct drgn_template_parameters_builder *b
 static void
 drgn_template_parameters_builder_deinit(struct drgn_template_parameters_builder *builder)
 {
-	for (size_t i = 0; i < builder->parameters.size; i++)
-		drgn_lazy_object_deinit(&builder->parameters.data[i].argument);
+	vector_for_each(drgn_type_template_parameter_vector, parameter,
+			&builder->parameters)
+		drgn_lazy_object_deinit(&parameter->argument);
 	drgn_type_template_parameter_vector_deinit(&builder->parameters);
 }
 
@@ -541,8 +542,8 @@ void drgn_compound_type_builder_init(struct drgn_compound_type_builder *builder,
 void
 drgn_compound_type_builder_deinit(struct drgn_compound_type_builder *builder)
 {
-	for (size_t i = 0; i < builder->members.size; i++)
-		drgn_lazy_object_deinit(&builder->members.data[i].object);
+	vector_for_each(drgn_type_member_vector, member, &builder->members)
+		drgn_lazy_object_deinit(&member->object);
 	drgn_type_member_vector_deinit(&builder->members);
 	drgn_template_parameters_builder_deinit(&builder->template_builder);
 }
@@ -577,7 +578,7 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	struct drgn_program *prog = builder->template_builder.prog;
 
 	if (!is_complete) {
-		if (builder->members.size) {
+		if (!drgn_type_member_vector_empty(&builder->members)) {
 			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 						 "incomplete type must not have members");
 		}
@@ -587,8 +588,8 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 		}
 	}
 
-	if (!builder->members.size &&
-	    !builder->template_builder.parameters.size) {
+	if (drgn_type_member_vector_empty(&builder->members)
+	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
 		struct drgn_type key = {
 			{
 				.kind = builder->kind,
@@ -619,12 +620,12 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.tag = tag;
 	type->_private.size = size;
-	type->_private.members = builder->members.data;
-	type->_private.num_members = builder->members.size;
-	type->_private.template_parameters =
-		builder->template_builder.parameters.data;
-	type->_private.num_template_parameters =
-		builder->template_builder.parameters.size;
+	drgn_type_member_vector_steal(&builder->members,
+				      &type->_private.members,
+				      &type->_private.num_members);
+	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
+						  &type->_private.template_parameters,
+						  &type->_private.num_template_parameters);
 	type->_private.program = prog;
 	type->_private.language = lang ? lang : drgn_program_language(prog);
 	*ret = no_cleanup_ptr(type);
@@ -688,7 +689,7 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 					 "compatible type of enum type must be integer type");
 	}
 
-	if (!builder->enumerators.size) {
+	if (drgn_type_enumerator_vector_empty(&builder->enumerators)) {
 		struct drgn_type key = {
 			{
 				.kind = DRGN_TYPE_ENUM,
@@ -720,8 +721,9 @@ struct drgn_error *drgn_enum_type_create(struct drgn_enum_type_builder *builder,
 	type->_private.tag = tag;
 	type->_private.type = compatible_type;
 	type->_private.qualifiers = 0;
-	type->_private.enumerators = builder->enumerators.data;
-	type->_private.num_enumerators = builder->enumerators.size;
+	drgn_type_enumerator_vector_steal(&builder->enumerators,
+					  &type->_private.enumerators,
+					  &type->_private.num_enumerators);
 	type->_private.program = builder->prog;
 	type->_private.language =
 		lang ? lang : drgn_program_language(builder->prog);
@@ -877,8 +879,9 @@ void drgn_function_type_builder_init(struct drgn_function_type_builder *builder,
 void
 drgn_function_type_builder_deinit(struct drgn_function_type_builder *builder)
 {
-	for (size_t i = 0; i < builder->parameters.size; i++)
-		drgn_lazy_object_deinit(&builder->parameters.data[i].default_argument);
+	vector_for_each(drgn_type_parameter_vector, parameter,
+			&builder->parameters)
+		drgn_lazy_object_deinit(&parameter->default_argument);
 	drgn_type_parameter_vector_deinit(&builder->parameters);
 	drgn_template_parameters_builder_deinit(&builder->template_builder);
 }
@@ -916,8 +919,8 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 					 "type is from different program");
 	}
 
-	if (!builder->parameters.size &&
-	    !builder->template_builder.parameters.size) {
+	if (drgn_type_parameter_vector_empty(&builder->parameters)
+	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)) {
 		struct drgn_type key = {
 			{
 				.kind = DRGN_TYPE_FUNCTION,
@@ -949,13 +952,13 @@ drgn_function_type_create(struct drgn_function_type_builder *builder,
 	type->_private.primitive = DRGN_NOT_PRIMITIVE_TYPE;
 	type->_private.type = return_type.type;
 	type->_private.qualifiers = return_type.qualifiers;
-	type->_private.parameters = builder->parameters.data;
-	type->_private.num_parameters = builder->parameters.size;
+	drgn_type_parameter_vector_steal(&builder->parameters,
+					 &type->_private.parameters,
+					 &type->_private.num_parameters);
 	type->_private.is_variadic = is_variadic;
-	type->_private.template_parameters =
-		builder->template_builder.parameters.data;
-	type->_private.num_template_parameters =
-		builder->template_builder.parameters.size;
+	drgn_type_template_parameter_vector_steal(&builder->template_builder.parameters,
+						  &type->_private.template_parameters,
+						  &type->_private.num_template_parameters);
 	type->_private.program = prog;
 	type->_private.language = lang ? lang : drgn_program_language(prog);
 	*ret = no_cleanup_ptr(type);
@@ -1031,12 +1034,12 @@ drgn_type_with_byte_order_impl(struct drgn_type **type,
 		size_t num_enumerators =
 			drgn_type_num_enumerators(*type);
 		if (num_enumerators) {
-			if (!drgn_type_enumerator_vector_reserve(&builder.enumerators,
-								 num_enumerators)) {
+			if (!drgn_type_enumerator_vector_resize(&builder.enumerators,
+								num_enumerators)) {
 				drgn_enum_type_builder_deinit(&builder);
 				return &drgn_enomem;
 			}
-			memcpy(&builder.enumerators.data,
+			memcpy(drgn_type_enumerator_vector_begin(&builder.enumerators),
 			       drgn_type_enumerators(*type),
 			       num_enumerators * sizeof(struct drgn_type_enumerator));
 		}
@@ -1271,8 +1274,8 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 	drgn_member_map_deinit(&prog->members);
 	drgn_type_set_deinit(&prog->members_cached);
 
-	for (size_t i = 0; i < prog->created_types.size; i++) {
-		struct drgn_type *type = prog->created_types.data[i];
+	vector_for_each(drgn_typep_vector, typep, &prog->created_types) {
+		struct drgn_type *type = *typep;
 		if (drgn_type_has_members(type)) {
 			struct drgn_type_member *members =
 				drgn_type_members(type);

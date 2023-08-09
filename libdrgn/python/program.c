@@ -642,30 +642,32 @@ static PyObject *Program_load_debug_info(Program *self, PyObject *args,
 			}
 			memset(path_arg, 0, sizeof(*path_arg));
 			if (!path_converter(item, path_arg)) {
-				path_args.size--;
+				path_arg_vector_pop(&path_args);
 				break;
 			}
 		}
 		if (PyErr_Occurred())
 			goto out;
 
-		paths = malloc_array(path_args.size, sizeof(*paths));
+		paths = malloc_array(path_arg_vector_size(&path_args),
+				     sizeof(*paths));
 		if (!paths) {
 			PyErr_NoMemory();
 			goto out;
 		}
-		for (size_t i = 0; i < path_args.size; i++)
-			paths[i] = path_args.data[i].path;
+		for (size_t i = 0; i < path_arg_vector_size(&path_args); i++)
+			paths[i] = path_arg_vector_at(&path_args, i)->path;
 	}
-	err = drgn_program_load_debug_info(&self->prog, paths, path_args.size,
+	err = drgn_program_load_debug_info(&self->prog, paths,
+					   path_arg_vector_size(&path_args),
 					   load_default, load_main);
 	free(paths);
 	if (err)
 		set_drgn_error(err);
 
 out:
-	for (size_t i = 0; i < path_args.size; i++)
-		path_cleanup(&path_args.data[i]);
+	vector_for_each(path_arg_vector, path_arg, &path_args)
+		path_cleanup(path_arg);
 	path_arg_vector_deinit(&path_args);
 	if (PyErr_Occurred())
 		return NULL;

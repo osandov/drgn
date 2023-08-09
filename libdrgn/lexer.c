@@ -22,11 +22,11 @@ void drgn_lexer_deinit(struct drgn_lexer *lexer)
 struct drgn_error *drgn_lexer_pop(struct drgn_lexer *lexer,
 				  struct drgn_token *token)
 {
-	if (lexer->stack.size) {
+	if (drgn_token_vector_empty(&lexer->stack)) {
+		return lexer->func(lexer, token);
+	} else {
 		*token = *drgn_token_vector_pop(&lexer->stack);
 		return NULL;
-	} else {
-		return lexer->func(lexer, token);
 	}
 }
 
