@@ -2893,6 +2893,37 @@ drgn_dwarf_index_get_die(struct drgn_dwarf_index_die *die, Dwarf_Die *die_ret)
 	return NULL;
 }
 
+static struct drgn_error *
+drgn_namespace_find_child(struct drgn_namespace_dwarf_index *ns,
+			  const char *name, size_t name_len,
+			  struct drgn_namespace_dwarf_index **ret)
+{
+	struct drgn_error *err = index_namespace(ns);
+	if (err)
+		return err;
+
+	struct nstring key = { name, name_len };
+	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
+	struct drgn_dwarf_index_shard *shard =
+		&ns->shards[hash_pair_to_shard(hp)];
+	struct drgn_dwarf_index_die_map_iterator map_it =
+		drgn_dwarf_index_die_map_search_hashed(&shard->map, &key, hp);
+	if (!map_it.entry)
+		return &drgn_not_found;
+
+	uint32_t index = map_it.entry->value;
+	do {
+		struct drgn_dwarf_index_die *die =
+			drgn_dwarf_index_die_vector_at(&shard->dies, index);
+		if (die->tag == DW_TAG_namespace) {
+			*ret = die->namespace;
+			return NULL;
+		}
+		index = die->next;
+	} while (index != UINT32_MAX);
+	return &drgn_not_found;
+}
+
 /*
  * Language support.
  */
@@ -5501,20 +5532,9 @@ find_namespace_containing_die(struct drgn_debug_info *dbinfo,
 			goto out;
 		}
 
-		struct drgn_dwarf_index_iterator it;
-		const uint64_t ns_tag = DW_TAG_namespace;
-		err = drgn_dwarf_index_iterator_init(&it, ns, name,
-						     strlen(name), &ns_tag, 1);
+		err = drgn_namespace_find_child(ns, name, strlen(name), &ns);
 		if (err)
 			goto out;
-
-		struct drgn_dwarf_index_die *index_die =
-			drgn_dwarf_index_iterator_next(&it);
-		if (!index_die) {
-			err = &drgn_not_found;
-			goto out;
-		}
-		ns = index_die->namespace;
 	}
 	*ret = ns;
 out:
@@ -6777,6 +6797,8 @@ find_enclosing_namespace(struct drgn_namespace_dwarf_index *global_namespace,
 			 const char **name, size_t *name_len,
 			 struct drgn_namespace_dwarf_index **namespace_ret)
 {
+	struct drgn_error *err;
+
 	*namespace_ret = global_namespace;
 	if (*name_len >= 2 && memcmp(*name, "::", 2) == 0) {
 		/* Explicit global namespace. */
@@ -6791,17 +6813,11 @@ find_enclosing_namespace(struct drgn_namespace_dwarf_index *global_namespace,
 				  *name_len;
 	const char *colons;
 	while ((colons = memmem(*name, searchable_len, "::", 2))) {
-		struct drgn_dwarf_index_iterator it;
-		uint64_t ns_tag = DW_TAG_namespace;
-		struct drgn_error *err = drgn_dwarf_index_iterator_init(
-			&it, *namespace_ret, *name, colons - *name, &ns_tag, 1);
+		err = drgn_namespace_find_child(*namespace_ret, *name,
+						colons - *name, namespace_ret);
 		if (err)
 			return err;
-		struct drgn_dwarf_index_die *index_die =
-			drgn_dwarf_index_iterator_next(&it);
-		if (!index_die)
-			return &drgn_not_found;
-		*namespace_ret = index_die->namespace;
+
 		size_t chars_consumed = colons + 2 - *name;
 		searchable_len -= chars_consumed;
 		*name_len -= chars_consumed;
