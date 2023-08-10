@@ -153,7 +153,7 @@ drgn_namespace_dwarf_index_init(struct drgn_namespace_dwarf_index *dindex,
 	array_for_each(tag_map, dindex->map)
 		drgn_dwarf_index_die_map_init(tag_map);
 	dindex->cus_indexed = 0;
-	dindex->dies_indexed = 0;
+	memset(dindex->dies_indexed, 0, sizeof(dindex->dies_indexed));
 	dindex->saved_err = NULL;
 }
 
@@ -1647,11 +1647,21 @@ skip:
 				 * that.
 				 */
 				die_addr = depth1_addr;
-			} else if (declaration
-				   && !drgn_dwarf_find_definition(dbinfo,
-								  die_addr,
-								  &die_addr)) {
-				goto next;
+			} else if (declaration) {
+				// Declaration class, struct, and union DIEs
+				// with children are treated like namespaces.
+				if ((insn & INSN_DIE_FLAG_CHILDREN)
+				    && (tag == DRGN_DWARF_INDEX_class_type
+					|| tag == DRGN_DWARF_INDEX_structure_type
+					|| tag == DRGN_DWARF_INDEX_union_type)
+				    && !index_die(map, base_types, name,
+						  DRGN_DWARF_INDEX_namespace,
+						  die_addr))
+					return &drgn_enomem;
+				if (!drgn_dwarf_find_definition(dbinfo,
+								die_addr,
+								&die_addr))
+					goto next;
 			}
 
 			if (!index_die(map, base_types, name, tag, die_addr))
@@ -1963,12 +1973,27 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 
 	drgn_blocking_guard(ns->dbinfo->prog);
 
+	struct drgn_dwarf_index_die_vector
+		*die_vectors_to_index[DRGN_DWARF_INDEX_NUM_NAMESPACE_TAGS];
+	int tags_to_index[DRGN_DWARF_INDEX_NUM_NAMESPACE_TAGS];
+	int num_tags_to_index = 0;
 	struct nstring key = { ns->name, ns->name_len };
-	auto it = drgn_dwarf_index_die_map_search(&ns->parent->map[DRGN_DWARF_INDEX_namespace],
-						  &key);
-	struct drgn_dwarf_index_die_vector *dies = &it.entry->value;
+	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
+	for (int i = 0; i < DRGN_DWARF_INDEX_NUM_NAMESPACE_TAGS; i++) {
+		auto it = drgn_dwarf_index_die_map_search_hashed(&ns->parent->map[i],
+								 &key, hp);
+		if (!it.entry)
+			continue;
+		struct drgn_dwarf_index_die_vector *dies = &it.entry->value;
+		if (ns->dies_indexed[i]
+		    >= drgn_dwarf_index_die_vector_size(dies))
+			continue;
 
-	if (ns->dies_indexed >= drgn_dwarf_index_die_vector_size(dies)) {
+		die_vectors_to_index[num_tags_to_index] = dies;
+		tags_to_index[num_tags_to_index] = i;
+		num_tags_to_index++;
+	}
+	if (num_tags_to_index == 0) {
 		ns->cus_indexed = num_index_cus;
 		return NULL;
 	}
@@ -1997,26 +2022,31 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 			map = maps[thread_num - 1];
 		}
 
-		#pragma omp for schedule(dynamic)
-		for (uint32_t i = ns->dies_indexed;
-		     i < drgn_dwarf_index_die_vector_size(dies); i++) {
-			if (err)
-				continue;
-			uintptr_t die_addr =
-				*drgn_dwarf_index_die_vector_at(dies, i);
-			struct drgn_dwarf_index_cu *cu =
-				drgn_dwarf_index_find_cu(ns->dbinfo, die_addr);
-			struct drgn_dwarf_index_cu_buffer buffer;
-			drgn_dwarf_index_cu_buffer_init(&buffer, cu);
-			buffer.bb.pos = (void *)die_addr;
-			thread_err = index_cu_second_pass(ns->dbinfo, map, NULL,
-							  &buffer);
-			if (thread_err) {
-				#pragma omp critical(drgn_index_namespace_error)
+		for (int i = 0; i < num_tags_to_index; i++) {
+			struct drgn_dwarf_index_die_vector *dies =
+				die_vectors_to_index[i];
+			#pragma omp for schedule(dynamic) nowait
+			for (uint32_t j = ns->dies_indexed[tags_to_index[i]];
+			     j < drgn_dwarf_index_die_vector_size(dies); j++) {
 				if (err)
-					drgn_error_destroy(thread_err);
-				else
-					err = thread_err;
+					continue;
+				uintptr_t die_addr =
+					*drgn_dwarf_index_die_vector_at(dies, j);
+				struct drgn_dwarf_index_cu *cu =
+					drgn_dwarf_index_find_cu(ns->dbinfo, die_addr);
+				struct drgn_dwarf_index_cu_buffer buffer;
+				drgn_dwarf_index_cu_buffer_init(&buffer, cu);
+				buffer.bb.pos = (void *)die_addr;
+				thread_err = index_cu_second_pass(ns->dbinfo,
+								  map, NULL,
+								  &buffer);
+				if (thread_err) {
+					#pragma omp critical(drgn_index_namespace_error)
+					if (err)
+						drgn_error_destroy(thread_err);
+					else
+						err = thread_err;
+				}
 			}
 		}
 		#pragma omp barrier
@@ -2045,7 +2075,10 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 		return drgn_error_copy(ns->saved_err);
 	}
 	ns->cus_indexed = num_index_cus;
-	ns->dies_indexed = drgn_dwarf_index_die_vector_size(dies);
+	for (int i = 0; i < num_tags_to_index; i++) {
+		ns->dies_indexed[tags_to_index[i]] =
+			drgn_dwarf_index_die_vector_size(die_vectors_to_index[i]);
+	}
 	return NULL;
 }
 
@@ -2101,8 +2134,8 @@ drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 /**
  * Get the next matching DIE from a DWARF index iterator.
  *
- * Note that this returns the parent `DW_TAG_enumeration_type` for indexed
- * `DW_TAG_enumerator` DIEs.
+ * Note the quirks in @ref drgn_namespace_dwarf_index::map about
+ * `DW_TAG_enumerator` and `DW_TAG_namespace`.
  *
  * @param[in] it DWARF index iterator.
  * @param[out] die_ret Returned DIE.
@@ -2180,27 +2213,33 @@ drgn_namespace_find_child(struct drgn_namespace_dwarf_index *ns,
 		return NULL;
 	}
 
-	auto die_it =
-		drgn_dwarf_index_die_map_search_hashed(&ns->map[DRGN_DWARF_INDEX_namespace],
-						       &key, hp);
-	if (!die_it.entry)
-		return &drgn_not_found;
-
-	struct drgn_namespace_dwarf_index *new_ns = malloc(sizeof(*new_ns));
-	if (!new_ns)
-		return &drgn_enomem;
-	// Use the name from the DIE map, which has the same lifetime as the
-	// namespace table.
-	drgn_namespace_dwarf_index_init(new_ns, die_it.entry->key.str,
-					die_it.entry->key.len, ns);
-	if (drgn_namespace_table_insert_searched(&ns->children, &new_ns, hp,
-						 NULL) < 0) {
-		drgn_namespace_dwarf_index_deinit(new_ns);
-		free(new_ns);
-		return &drgn_enomem;
+	for (int i = 0; i < DRGN_DWARF_INDEX_NUM_NAMESPACE_TAGS; i++) {
+		auto die_it =
+			drgn_dwarf_index_die_map_search_hashed(&ns->map[i],
+							       &key, hp);
+		if (die_it.entry) {
+			struct drgn_namespace_dwarf_index *new_ns =
+				malloc(sizeof(*new_ns));
+			if (!new_ns)
+				return &drgn_enomem;
+			// Use the name from the DIE map, which has the same
+			// lifetime as the namespace table.
+			drgn_namespace_dwarf_index_init(new_ns,
+							die_it.entry->key.str,
+							die_it.entry->key.len,
+							ns);
+			if (drgn_namespace_table_insert_searched(&ns->children,
+								 &new_ns, hp,
+								 NULL) < 0) {
+				drgn_namespace_dwarf_index_deinit(new_ns);
+				free(new_ns);
+				return &drgn_enomem;
+			}
+			*ret = new_ns;
+			return NULL;
+		}
 	}
-	*ret = new_ns;
-	return NULL;
+	return &drgn_not_found;
 }
 
 /*

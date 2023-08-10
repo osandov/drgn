@@ -6418,6 +6418,43 @@ class TestScopes(TestCase):
             Object(prog, prog.int_type("int", 4, True), 47),
         )
 
+    def test_nested_classes(self):
+        for kind, tag in (
+            ("class", DW_TAG.class_type),
+            ("struct", DW_TAG.structure_type),
+            ("union", DW_TAG.union_type),
+        ):
+            with self.subTest(kind=kind):
+                prog = dwarf_program(
+                    (
+                        DwarfDie(
+                            tag,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Foo"),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                            ),
+                            (
+                                DwarfDie(
+                                    tag,
+                                    (
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Bar"),
+                                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.subprogram,
+                            (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                        ),
+                    ),
+                    lang=DW_LANG.C_plus_plus,
+                )
+                self.assertIdentical(
+                    prog.type(kind + " Foo::Bar"),
+                    getattr(prog, kind + "_type")("Bar", 0, ()),
+                )
+
 
 class TestProgram(TestCase):
     def test_language(self):

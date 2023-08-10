@@ -76,17 +76,25 @@ DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct nstring,
 DEFINE_HASH_TABLE_TYPE(drgn_namespace_table,
 		       struct drgn_namespace_dwarf_index *);
 
+/* DWARF tags that act as namespaces. */
+#define DRGN_DWARF_INDEX_NAMESPACE_TAGS	\
+	X(structure_type)		\
+	X(class_type)			\
+	X(union_type)			\
+	X(namespace)
+
 /* DWARF tags that we index. */
-#define DRGN_DWARF_INDEX_TAGS	\
-	X(structure_type)	\
-	X(class_type)		\
-	X(union_type)		\
-	X(namespace)		\
-	X(enumeration_type)	\
-	X(typedef)		\
-	X(enumerator)		\
-	X(subprogram)		\
-	X(variable)		\
+#define DRGN_DWARF_INDEX_TAGS							\
+	/*									\
+	 * These must be first for a few places where we only care about	\
+	 * namespace-like tags (e.g., drgn_namespace_dwarf_index::dies_indexed).\
+	 */									\
+	DRGN_DWARF_INDEX_NAMESPACE_TAGS						\
+	X(enumeration_type)							\
+	X(typedef)								\
+	X(enumerator)								\
+	X(subprogram)								\
+	X(variable)								\
 	X(base_type)
 
 enum drgn_dwarf_index_tag {
@@ -96,13 +104,17 @@ enum drgn_dwarf_index_tag {
 };
 
 #define X(_) + 1
+enum { DRGN_DWARF_INDEX_NUM_NAMESPACE_TAGS = DRGN_DWARF_INDEX_NAMESPACE_TAGS };
 enum { DRGN_DWARF_INDEX_NUM_TAGS = DRGN_DWARF_INDEX_TAGS };
 #undef X
 _Static_assert(DRGN_DWARF_INDEX_base_type == DRGN_DWARF_INDEX_NUM_TAGS - 1,
 	       "base_type must be last");
 enum { DRGN_DWARF_INDEX_MAP_SIZE = DRGN_DWARF_INDEX_NUM_TAGS - 1 };
 
-/** DWARF information for a namespace. */
+/**
+ * DWARF information for a namespace or nested definitions in a class, struct,
+ * or union.
+ */
 struct drgn_namespace_dwarf_index {
 	/** Debugging information cache that owns this index. */
 	struct drgn_debug_info *dbinfo;
@@ -123,6 +135,13 @@ struct drgn_namespace_dwarf_index {
 	 * - `base_type` DIEs are in @ref drgn_dwarf_info::base_types, not here.
 	 * - `enumerator` entries store the addresses of the parent
 	 *   `enumeration_type` DIEs instead.
+	 * - `namespace` entries also include the addresses of `class_type`,
+	 *   `structure_type`, and `union_type` DIEs that have children and
+	 *   `DW_AT_declaration`. This is because class, struct, and union
+	 *   declaration DIEs can contain nested definitions, so we want to
+	 *   index the children of those declarations, but we don't want to
+	 *   encounter the declarations when looking for the actual type.
+	 * - Otherwise, this does not include DIEs with `DW_AT_declaration`.
 	 */
 	struct drgn_dwarf_index_die_map map[DRGN_DWARF_INDEX_MAP_SIZE];
 	/**
@@ -131,10 +150,10 @@ struct drgn_namespace_dwarf_index {
 	 */
 	size_t cus_indexed;
 	/**
-	 * Number of `DW_TAG_namespace` DIEs in the parent's index that were
-	 * indexed the last time that this namespace was indexed.
+	 * Number of DIEs for each namespace-like tag in the parent's index that
+	 * were indexed the last time that this namespace was indexed.
 	 */
-	uint32_t dies_indexed;
+	uint32_t dies_indexed[DRGN_DWARF_INDEX_NUM_NAMESPACE_TAGS];
 	/** Saved error from a previous index. */
 	struct drgn_error *saved_err;
 };
