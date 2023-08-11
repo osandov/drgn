@@ -122,10 +122,6 @@ struct drgn_dwarf_info {
 	 * of a DIE with a DW_AT_specification attribute that references it.
 	 * This is used to resolve DIEs with DW_AT_declaration to their
 	 * definition.
-	 *
-	 * This is populated while indexing new DWARF information. Unlike the
-	 * name index, it is not sharded because there typically aren't enough
-	 * of these in a program to cause contention.
 	 */
 	struct drgn_dwarf_specification_map specifications;
 	/** Indexed compilation units. */

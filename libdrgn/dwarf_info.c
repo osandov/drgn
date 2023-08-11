@@ -1870,25 +1870,19 @@ static struct drgn_error *read_cu(struct drgn_dwarf_index_cu *cu,
 	return read_abbrev_table(cu, abbrev);
 }
 
-static struct drgn_error *
-index_specification(struct drgn_debug_info *dbinfo, uintptr_t declaration,
-		    uintptr_t addr)
+static bool
+index_specification(struct drgn_dwarf_specification_map *specifications,
+		    uintptr_t declaration, uintptr_t addr)
 {
 	struct drgn_dwarf_specification_map_entry entry = {
 		.key = declaration,
 		.value = addr,
 	};
 	struct hash_pair hp = drgn_dwarf_specification_map_hash(&declaration);
-	int ret;
-	#pragma omp critical(drgn_index_specification)
-	ret = drgn_dwarf_specification_map_insert_hashed(&dbinfo->dwarf.specifications,
-							 &entry, hp,
-							 NULL);
-	/*
-	 * There may be duplicates if multiple DIEs reference one declaration,
-	 * but we ignore them.
-	 */
-	return ret < 0 ? &drgn_enomem : NULL;
+	// There may be duplicates if multiple DIEs reference one declaration,
+	// but we ignore them.
+	return drgn_dwarf_specification_map_insert_hashed(specifications, &entry,
+							 hp, NULL) >= 0;
 }
 
 static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
@@ -1927,7 +1921,7 @@ static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
  * namespaces.
  */
 static struct drgn_error *
-index_cu_first_pass(struct drgn_debug_info *dbinfo,
+index_cu_first_pass(struct drgn_dwarf_specification_map *specifications,
 		    struct drgn_dwarf_index_cu_buffer *buffer)
 {
 	struct drgn_error *err;
@@ -2140,8 +2134,7 @@ skip:
 		}
 		insn = *insnp | extra_die_flags;
 
-		if (depth == 0) {
-		} else if (specification) {
+		if (depth > 0 && specification) {
 			if (insn & INSN_DIE_FLAG_DECLARATION)
 				declaration = true;
 			/*
@@ -2150,10 +2143,10 @@ skip:
 			 * declarations. We may need to handle
 			 * DW_AT_specification "chains" in the future.
 			 */
-			if (!declaration &&
-			    (err = index_specification(dbinfo, specification,
-						       die_addr)))
-				return err;
+			if (!declaration
+			    && !index_specification(specifications,
+						    specification, die_addr))
+				return &drgn_enomem;
 		}
 
 		if (insn & INSN_DIE_FLAG_CHILDREN) {
@@ -2178,7 +2171,7 @@ skip:
  * @param[in] die_addr The address of the declaration DIE.
  * @param[out] ret Returned address of the definition DIE.
  * @return @c true if a definition DIE was found, @c false if not (in which case
- * *@p file_ret and *@p addr_ret are not modified).
+ * `*ret` is not modified).
  */
 static bool drgn_dwarf_find_definition(struct drgn_debug_info *dbinfo,
 				       uintptr_t die_addr, uintptr_t *ret)
@@ -2567,10 +2560,10 @@ skip:
 				 * that.
 				 */
 				die_addr = depth1_addr;
-			} else if (declaration &&
-				   !drgn_dwarf_find_definition(ns->dbinfo,
-							       die_addr,
-							       &die_addr)) {
+			} else if (declaration
+				   && !drgn_dwarf_find_definition(ns->dbinfo,
+								  die_addr,
+								  &die_addr)) {
 				goto next;
 			}
 
@@ -2638,6 +2631,28 @@ drgn_dwarf_index_find_cu(struct drgn_debug_info *dbinfo, uintptr_t die_addr)
 	return &cus[lo - 1];
 }
 
+// If there wasn't already an error, merge src into dst, and return an error if
+// that fails. If there was already an error, return the original error. Free
+// src whether or not there was an error.
+static struct drgn_error *
+drgn_dwarf_specification_map_merge(struct drgn_dwarf_specification_map *dst,
+				   struct drgn_dwarf_specification_map *src,
+				   struct drgn_error *err)
+{
+	if (!err) {
+		for (auto it = drgn_dwarf_specification_map_first(src);
+		     it.entry; it = drgn_dwarf_specification_map_next(it)) {
+			if (drgn_dwarf_specification_map_insert(dst, it.entry,
+								NULL) < 0) {
+				err = &drgn_enomem;
+				break;
+			}
+		}
+	}
+	drgn_dwarf_specification_map_deinit(src);
+	return err;
+}
+
 struct drgn_error *
 drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 {
@@ -2646,6 +2661,15 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 
 	if (dbinfo->dwarf.global.saved_err)
 		return drgn_error_copy(dbinfo->dwarf.global.saved_err);
+
+	// Per-thread array of maps to populate. Thread 0 uses the maps in the
+	// dbinfo directly. These are merged into the dbinfo and freed.
+	_cleanup_free_ struct drgn_dwarf_specification_map *maps = NULL;
+	if (state->max_threads > 1) {
+		maps = malloc_array(state->max_threads - 1, sizeof(maps[0]));
+		if (!maps)
+			return &drgn_enomem;
+	}
 
 	if (!drgn_namespace_dwarf_index_alloc_shards(&dbinfo->dwarf.global))
 		return &drgn_enomem;
@@ -2665,6 +2689,15 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 	struct drgn_error *err = NULL;
 	#pragma omp parallel
 	{
+		struct drgn_dwarf_specification_map *specifications;
+		int thread_num = omp_get_thread_num();
+		if (thread_num == 0) {
+			specifications = &dbinfo->dwarf.specifications;
+		} else {
+			specifications = &maps[thread_num - 1];
+			drgn_dwarf_specification_map_init(specifications);
+		}
+
 		struct path_hash_cache path_hash_cache;
 		path_hash_vector_init(&path_hash_cache.directories);
 		path_hash_cache.entry_formats = NULL;
@@ -2693,7 +2726,8 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 				struct drgn_dwarf_index_cu_buffer buffer;
 				drgn_dwarf_index_cu_buffer_init(&buffer, cu);
 				buffer.bb.pos += cu_header_size(cu);
-				cu_err = index_cu_first_pass(dbinfo, &buffer);
+				cu_err = index_cu_first_pass(specifications,
+							     &buffer);
 			}
 			if (cu_err) {
 				#pragma omp critical(drgn_dwarf_info_update_index_error)
@@ -2711,6 +2745,10 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			free(chunk);
 			chunk = next_chunk;
 		}
+	}
+	for (int i = 0; i < state->max_threads - 1; i++) {
+		err = drgn_dwarf_specification_map_merge(&dbinfo->dwarf.specifications,
+							 &maps[i], err);
 	}
 	if (err)
 		goto err;
