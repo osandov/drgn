@@ -659,8 +659,10 @@ static void drgn_program_set_language_from_main(struct drgn_program *prog)
 		return;
 	const struct drgn_language *lang;
 	err = drgn_debug_info_main_language(prog->dbinfo, &lang);
-	if (err)
+	if (err) {
 		drgn_error_destroy(err);
+		return;
+	}
 	if (lang)
 		prog->lang = lang;
 }
