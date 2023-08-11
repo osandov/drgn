@@ -94,21 +94,7 @@ struct drgn_namespace_dwarf_index {
 	struct drgn_error *saved_err;
 };
 
-/** DIE with a `DW_AT_specification` attribute. */
-struct drgn_dwarf_specification {
-	/**
-	 * Address of non-defining declaration DIE referenced by
-	 * `DW_AT_specification`.
-	 */
-	uintptr_t declaration;
-	/** File containing DIE. */
-	struct drgn_elf_file *file;
-	/** Address of DIE. */
-	uintptr_t addr;
-};
-
-DEFINE_HASH_TABLE_TYPE(drgn_dwarf_specification_map,
-		       struct drgn_dwarf_specification);
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_specification_map, uintptr_t, uintptr_t);
 
 DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu);
 
@@ -132,9 +118,10 @@ struct drgn_dwarf_info {
 	/** Global namespace index. */
 	struct drgn_namespace_dwarf_index global;
 	/**
-	 * Map from address of DIE referenced by DW_AT_specification to DIE that
-	 * references it. This is used to resolve DIEs with DW_AT_declaration to
-	 * their definition.
+	 * Map from the address of a (usually non-defining) DIE to the address
+	 * of a DIE with a DW_AT_specification attribute that references it.
+	 * This is used to resolve DIEs with DW_AT_declaration to their
+	 * definition.
 	 *
 	 * This is populated while indexing new DWARF information. Unlike the
 	 * name index, it is not sharded because there typically aren't enough
