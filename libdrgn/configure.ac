@@ -17,6 +17,8 @@ LT_INIT
 
 AC_SYS_LARGEFILE
 
+MY_C_AUTO
+
 AC_ARG_ENABLE([openmp],
 	      [AS_HELP_STRING([--enable-openmp@<:@=ARG@:>@],
 			      [use OpenMP. ARG may be yes, no, or the name of
