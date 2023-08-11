@@ -1978,11 +1978,11 @@ drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 				err = module_err;
 		}
 	}
-	if (!err)
-		err = drgn_dwarf_info_update_index(&index);
-	drgn_dwarf_index_state_deinit(&index);
-	if (!err)
+	if (!err) {
 		drgn_debug_info_free_modules(dbinfo, true, false);
+		err = drgn_dwarf_info_update_index(&index);
+	}
+	drgn_dwarf_index_state_deinit(&index);
 	return err;
 }
 
@@ -2068,10 +2068,6 @@ struct drgn_error *drgn_debug_info_load(struct drgn_debug_info *dbinfo,
 	 * the core dump.
 	 */
 
-	/*
-	 * If this fails, it's too late to roll back. This can only fail with
-	 * enomem, so it's not a big deal.
-	 */
 	err = drgn_debug_info_report_finalize_errors(&load);
 out:
 	drgn_module_vector_deinit(&load.new_modules);

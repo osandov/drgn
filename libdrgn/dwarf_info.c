@@ -2626,73 +2626,14 @@ next:
 	return NULL;
 }
 
-static void drgn_dwarf_index_rollback(struct drgn_debug_info *dbinfo)
-{
-	for (size_t i = 0; i < DRGN_DWARF_INDEX_NUM_SHARDS; i++) {
-		struct drgn_dwarf_index_shard *shard =
-			&dbinfo->dwarf.global.shards[i];
-		/*
-		 * Because we're deleting everything that was added since the
-		 * last update, we can just shrink the dies array to the first
-		 * entry that was added for this update.
-		 */
-		while (!drgn_dwarf_index_die_vector_empty(&shard->dies)) {
-			struct drgn_dwarf_index_die *die =
-				drgn_dwarf_index_die_vector_pop(&shard->dies);
-			if (die->file->module->state ==
-			    DRGN_DEBUG_INFO_MODULE_INDEXED)
-				break;
-			if (die->tag == DW_TAG_namespace) {
-				drgn_namespace_dwarf_index_deinit(die->namespace);
-				free(die->namespace);
-			}
-		}
-
-		/*
-		 * The new entries may be chained off of existing entries;
-		 * unchain them. Note that any entries chained off of the new
-		 * entries must also be new, so there's no need to preserve
-		 * them.
-		 */
-		vector_for_each(drgn_dwarf_index_die_vector, die, &shard->dies) {
-			if (die->next != UINT32_MAX
-			    && die->next
-			    >= drgn_dwarf_index_die_vector_size(&shard->dies))
-				die->next = UINT32_MAX;
-		}
-
-		/* Finally, delete the new entries in the map. */
-		for (struct drgn_dwarf_index_die_map_iterator it =
-		     drgn_dwarf_index_die_map_first(&shard->map);
-		     it.entry; ) {
-			if (it.entry->value
-			    >= drgn_dwarf_index_die_vector_size(&shard->dies)) {
-				it = drgn_dwarf_index_die_map_delete_iterator(&shard->map,
-									      it);
-			} else {
-				it = drgn_dwarf_index_die_map_next(it);
-			}
-		}
-	}
-
-	for (struct drgn_dwarf_specification_map_iterator it =
-	     drgn_dwarf_specification_map_first(&dbinfo->dwarf.specifications);
-	     it.entry; ) {
-		if (it.entry->file->module->state ==
-		    DRGN_DEBUG_INFO_MODULE_INDEXED) {
-			it = drgn_dwarf_specification_map_next(it);
-		} else {
-			it = drgn_dwarf_specification_map_delete_iterator(&dbinfo->dwarf.specifications,
-									  it);
-		}
-	}
-}
-
 struct drgn_error *
 drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 {
 	struct drgn_debug_info *dbinfo = state->dbinfo;
 	struct drgn_dwarf_index_cu_vector *cus = &dbinfo->dwarf.index_cus;
+
+	if (dbinfo->dwarf.global.saved_err)
+		return drgn_error_copy(dbinfo->dwarf.global.saved_err);
 
 	if (!drgn_namespace_dwarf_index_alloc_shards(&dbinfo->dwarf.global))
 		return &drgn_enomem;
@@ -2783,14 +2724,13 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 		}
 	}
 	if (err) {
-		drgn_dwarf_index_rollback(dbinfo);
 err:
-		for (size_t i = old_cus_size;
-		     i < drgn_dwarf_index_cu_vector_size(cus); i++)
-			drgn_dwarf_index_cu_deinit(drgn_dwarf_index_cu_vector_at(cus, i));
-		drgn_dwarf_index_cu_vector_resize(cus, old_cus_size);
+		// Temporary hack so that index_namespace() checks saved_err.
+		dbinfo->dwarf.global.pending_dies._size = 1;
+		dbinfo->dwarf.global.saved_err = err;
+		return drgn_error_copy(err);
 	}
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
