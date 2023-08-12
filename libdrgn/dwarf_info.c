@@ -14,11 +14,6 @@
 #ifdef _OPENMP
 #include <omp.h>
 #else
-typedef struct {} omp_lock_t;
-#define omp_init_lock(lock) do {} while (0)
-#define omp_destroy_lock(lock) do {} while (0)
-#define omp_set_lock(lock) do {} while (0)
-#define omp_unset_lock(lock) do {} while (0)
 static inline int omp_get_thread_num(void)
 {
 	return 0;
@@ -57,14 +52,24 @@ void drgn_module_dwarf_info_deinit(struct drgn_module *module)
 	free(module->dwarf.debug_frame.cies);
 }
 
+DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_die_vector);
+
+DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_index_die_map, nstring_hash_pair,
+			  nstring_eq);
+
+static inline struct nstring
+drgn_namespace_key(struct drgn_namespace_dwarf_index * const *entry)
+{
+	return (struct nstring){ (*entry)->name, (*entry)->name_len };
+}
+DEFINE_HASH_TABLE_FUNCTIONS(drgn_namespace_table, drgn_namespace_key,
+			    nstring_hash_pair, nstring_eq);
+
+DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_base_type_map, nstring_hash_pair,
+			  nstring_eq);
+
 DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_specification_map, int_key_hash_pair,
 			  scalar_key_eq);
-
-/**
- * Placeholder for drgn_dwarf_index_cu::file_name_hashes if the CU has no
- * filenames.
- */
-static const uint64_t no_file_name_hashes[1] = { 0 };
 
 /** DWARF compilation unit indexed in a @ref drgn_namespace_dwarf_index. */
 struct drgn_dwarf_index_cu {
@@ -87,57 +92,40 @@ struct drgn_dwarf_index_cu {
 	 * DRGN_SCN_DEBUG_TYPES).
 	 */
 	enum drgn_section_index scn;
+	/**
+	 * Mapping from DWARF abbreviation code to instructions for that
+	 * abbreviation.
+	 *
+	 * This is indexed on the DWARF abbreviation code minus one. I.e.,
+	 * `abbrev_insns[abbrev_decls[abbrev_code - 1]]` is the first
+	 * instruction for that abbreviation code.
+	 *
+	 * Technically, abbreviation codes don't have to be sequential. In
+	 * practice, GCC and Clang seem to always generate sequential codes
+	 * starting at one, so we can get away with a flat array.
+	 */
+	uint32_t *abbrev_decls;
 	union {
-		/** Information needed before indexing the CU. */
-		struct {
-			/** Pointer in .debug_abbrev for this CU. */
-			const char *abbrev;
-			/**
-			 * Pointer in .debug_line for the DW_AT_stmt_list for
-			 * this CU, or NULL if not found.
-			 */
-			const char *stmt_list;
-			/** DW_AT_comp_dir for this CU, or "" if not found. */
-			const char *comp_dir;
-		} pending;
-		struct {
-			/**
-			 * Mapping from DWARF abbreviation code to instructions
-			 * for that abbreviation.
-			 *
-			 * This is indexed on the DWARF abbreviation code minus
-			 * one. I.e.,
-			 * `abbrev_insns[abbrev_decls[abbrev_code - 1]]` is the
-			 * first instruction for that abbreviation code.
-			 *
-			 * Technically, abbreviation codes don't have to be
-			 * sequential. In practice, GCC and Clang seem to always
-			 * generate sequential codes starting at one, so we can
-			 * get away with a flat array.
-			 */
-			uint32_t *abbrev_decls;
-			/** Number of abbreviation codes. */
-			size_t num_abbrev_decls;
-			/**
-			 * Buffer of @ref drgn_dwarf_index_abbrev_insn
-			 * instructions for all abbreviation codes.
-			 *
-			 * These are all stored in one array for cache locality.
-			 */
-			uint8_t *abbrev_insns;
-			/**
-			 * Hashes of file names from line number program header
-			 * for this CU, indexed by the line number program file
-			 * numbers.
-			 */
-			uint64_t *file_name_hashes;
-			/**
-			 * Number of file names in the line number program
-			 * header.
-			 */
-			size_t num_file_names;
-		};
+		/** Number of abbreviation codes. */
+		size_t num_abbrev_decls;
+		/**
+		 * Pointer in .debug_abbrev for this CU.
+		 *
+		 * This is only used before indexing, then it is replaced by @c
+		 * abbrev_decls, @c num_abbrev_decls, and @c abbrev_insns. It is
+		 * a union with @c num_abbrev_decls rather than one of the other
+		 * two fields because that way we don't need to worry about
+		 * accidentally freeing it.
+		 */
+		const char *pending_abbrev;
 	};
+	/**
+	 * Buffer of @ref drgn_dwarf_index_abbrev_insn instructions for all
+	 * abbreviation codes.
+	 *
+	 * These are all stored in one array for cache locality.
+	 */
+	uint8_t *abbrev_insns;
 	/**
 	 * Pointer in `.debug_str_offsets` section to string offset entries for
 	 * this CU.
@@ -152,80 +140,20 @@ DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_cu_vector);
 DEFINE_HASH_MAP_FUNCTIONS(drgn_dwarf_type_map, ptr_key_hash_pair,
 			  scalar_key_eq);
 
-/** DIE which needs to be indexed. */
-struct drgn_dwarf_index_pending_die {
-	/**
-	 * CU containing DIE (as an index into @ref drgn_dwarf_info::index_cus).
-	 */
-	size_t cu;
-	/** Address of DIE */
-	uintptr_t addr;
-};
-
-DEFINE_VECTOR_FUNCTIONS(drgn_dwarf_index_pending_die_vector);
-
-/** DIE indexed in a @ref drgn_namespace_dwarf_index. */
-struct drgn_dwarf_index_die {
-	/**
-	 * The next DIE with the same name (as an index into @ref
-	 * drgn_dwarf_index_shard::dies), or `UINT32_MAX` if this is the last
-	 * DIE.
-	 */
-	uint32_t next;
-	/** DIE tag. */
-	uint8_t tag;
-	union {
-		/**
-		 * Hash of filename containing declaration.
-		 *
-		 * DIEs with the same name but different tags or files are
-		 * considered distinct. We only compare the hash of the file
-		 * name, not the string value, because a 64-bit collision is
-		 * unlikely enough, especially when also considering the name
-		 * and tag.
-		 *
-		 * This is used if `tag != DW_TAG_namespace` (namespaces are
-		 * merged, so they don't need this).
-		 */
-		uint64_t file_name_hash;
-		/** Nested namespace if `tag == DW_TAG_namespace`. */
-		struct drgn_namespace_dwarf_index *namespace;
-	};
-	/** Address of this DIE. */
-	uintptr_t addr;
-};
-
-DEFINE_HASH_MAP(drgn_dwarf_index_die_map, struct nstring, uint32_t,
-		nstring_hash_pair, nstring_eq);
-DEFINE_VECTOR(drgn_dwarf_index_die_vector, struct drgn_dwarf_index_die);
-
-#define DRGN_DWARF_INDEX_SHARD_BITS 8
-static const size_t DRGN_DWARF_INDEX_NUM_SHARDS = 1 << DRGN_DWARF_INDEX_SHARD_BITS;
-
-/** Shard of a @ref drgn_namespace_dwarf_index. */
-struct drgn_dwarf_index_shard {
-	/** Mutex for this shard. */
-	omp_lock_t lock;
-	/**
-	 * Map from name to list of DIEs with that name (as the index in @ref
-	 * drgn_dwarf_index_shard::dies of the first DIE with that name).
-	 */
-	struct drgn_dwarf_index_die_map map;
-	/**
-	 * Entries in @ref drgn_dwarf_index_shard::map.
-	 *
-	 * These are stored in one array for cache locality.
-	 */
-	struct drgn_dwarf_index_die_vector dies;
-};
-
 static void
 drgn_namespace_dwarf_index_init(struct drgn_namespace_dwarf_index *dindex,
-				struct drgn_debug_info *dbinfo)
+				const char *name, size_t name_len,
+				struct drgn_namespace_dwarf_index *parent)
 {
-	dindex->shards = NULL;
-	dindex->dbinfo = dbinfo;
-	drgn_dwarf_index_pending_die_vector_init(&dindex->pending_dies);
+	dindex->dbinfo = parent->dbinfo;
+	dindex->name = name;
+	dindex->name_len = name_len;
+	dindex->parent = parent;
+	drgn_namespace_table_init(&dindex->children);
+	array_for_each(tag_map, dindex->map)
+		drgn_dwarf_index_die_map_init(tag_map);
+	dindex->cus_indexed = 0;
+	dindex->dies_indexed = 0;
 	dindex->saved_err = NULL;
 }
 
@@ -233,28 +161,27 @@ static void
 drgn_namespace_dwarf_index_deinit(struct drgn_namespace_dwarf_index *dindex)
 {
 	drgn_error_destroy(dindex->saved_err);
-	drgn_dwarf_index_pending_die_vector_deinit(&dindex->pending_dies);
-	if (dindex->shards) {
-		for (size_t i = 0; i < DRGN_DWARF_INDEX_NUM_SHARDS; i++) {
-			struct drgn_dwarf_index_shard *shard = &dindex->shards[i];
-			vector_for_each(drgn_dwarf_index_die_vector, die,
-					&shard->dies) {
-				if (die->tag == DW_TAG_namespace) {
-					drgn_namespace_dwarf_index_deinit(die->namespace);
-					free(die->namespace);
-				}
-			}
-			drgn_dwarf_index_die_vector_deinit(&shard->dies);
-			drgn_dwarf_index_die_map_deinit(&shard->map);
-			omp_destroy_lock(&shard->lock);
-		}
-		free(dindex->shards);
+	array_for_each(tag_map, dindex->map) {
+		for (auto it = drgn_dwarf_index_die_map_first(tag_map); it.entry;
+		     it = drgn_dwarf_index_die_map_next(it))
+			drgn_dwarf_index_die_vector_deinit(&it.entry->value);
+		drgn_dwarf_index_die_map_deinit(tag_map);
 	}
+	for (auto it = drgn_namespace_table_first(&dindex->children); it.entry;
+	     it = drgn_namespace_table_next(it)) {
+		drgn_namespace_dwarf_index_deinit(*it.entry);
+		free(*it.entry);
+	}
+	drgn_namespace_table_deinit(&dindex->children);
 }
 
 void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo)
 {
-	drgn_namespace_dwarf_index_init(&dbinfo->dwarf.global, dbinfo);
+	dbinfo->dwarf.global.dbinfo = dbinfo;
+	drgn_namespace_dwarf_index_init(&dbinfo->dwarf.global, "", 0,
+					&dbinfo->dwarf.global);
+	dbinfo->dwarf.global.parent = NULL;
+	drgn_dwarf_base_type_map_init(&dbinfo->dwarf.base_types);
 	drgn_dwarf_specification_map_init(&dbinfo->dwarf.specifications);
 	drgn_dwarf_index_cu_vector_init(&dbinfo->dwarf.index_cus);
 	drgn_dwarf_type_map_init(&dbinfo->dwarf.types);
@@ -264,20 +191,8 @@ void drgn_dwarf_info_init(struct drgn_debug_info *dbinfo)
 
 static void drgn_dwarf_index_cu_deinit(struct drgn_dwarf_index_cu *cu)
 {
-	if (cu->file_name_hashes != no_file_name_hashes)
-		free(cu->file_name_hashes);
 	free(cu->abbrev_insns);
 	free(cu->abbrev_decls);
-}
-
-// cu->pending is a union with some allocated pointers. We need to clear those
-// pointers before we try to call drgn_dwarf_index_cu_deinit() or else we'll try
-// to free garbage.
-static void drgn_dwarf_index_cu_clear_pending(struct drgn_dwarf_index_cu *cu)
-{
-	cu->file_name_hashes = NULL;
-	cu->abbrev_insns = NULL;
-	cu->abbrev_decls = NULL;
 }
 
 void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo)
@@ -289,6 +204,7 @@ void drgn_dwarf_info_deinit(struct drgn_debug_info *dbinfo)
 		drgn_dwarf_index_cu_deinit(cu);
 	drgn_dwarf_index_cu_vector_deinit(&dbinfo->dwarf.index_cus);
 	drgn_dwarf_specification_map_deinit(&dbinfo->dwarf.specifications);
+	drgn_dwarf_base_type_map_deinit(&dbinfo->dwarf.base_types);
 	drgn_namespace_dwarf_index_deinit(&dbinfo->dwarf.global);
 }
 
@@ -347,7 +263,7 @@ enum drgn_dwarf_index_abbrev_insn {
 	 * Instructions > 0 and <= INSN_MAX_SKIP indicate a number of bytes to
 	 * be skipped over.
 	 */
-	INSN_MAX_SKIP = 212,
+	INSN_MAX_SKIP = 219,
 
 	/* These instructions indicate an attribute that can be skipped over. */
 	INSN_SKIP_BLOCK,
@@ -373,16 +289,6 @@ enum drgn_dwarf_index_abbrev_insn {
 	INSN_NAME_STRX4,
 	INSN_NAME_STRP_ALT4,
 	INSN_NAME_STRP_ALT8,
-	INSN_DECL_FILE_DATA1,
-	INSN_DECL_FILE_DATA2,
-	INSN_DECL_FILE_DATA4,
-	INSN_DECL_FILE_DATA8,
-	INSN_DECL_FILE_UDATA,
-	/*
-	 * This instruction is the only one with an operand: the ULEB128
-	 * implicit constant.
-	 */
-	INSN_DECL_FILE_IMPLICIT,
 	INSN_DECLARATION_FLAG,
 	INSN_SPECIFICATION_REF1,
 	INSN_SPECIFICATION_REF2,
@@ -396,7 +302,6 @@ enum drgn_dwarf_index_abbrev_insn {
 	INSN_INDIRECT,
 	INSN_SIBLING_INDIRECT,
 	INSN_NAME_INDIRECT,
-	INSN_DECL_FILE_INDIRECT,
 	INSN_DECLARATION_INDIRECT,
 	INSN_SPECIFICATION_INDIRECT,
 
@@ -410,8 +315,7 @@ enum drgn_dwarf_index_abbrev_insn {
 
 	/*
 	 * The byte after INSN_END contains the DIE flags, which are a bitmask
-	 * of flags combined with the DWARF tag (which is zero if the DIE does
-	 * not need to be indexed).
+	 * of flags combined with the drgn_dwarf_index_tag.
 	 */
 	INSN_DIE_FLAG_TAG_MASK = 0x3f,
 	/* DIE is a declaration. */
@@ -419,6 +323,11 @@ enum drgn_dwarf_index_abbrev_insn {
 	/* DIE has children. */
 	INSN_DIE_FLAG_CHILDREN = 0x80,
 };
+
+// We use INSN_DIE_FLAG_TAG_MASK as a sentinel when the DIE shouldn't be
+// indexed, so this is < and not <=.
+static_assert((int)DRGN_DWARF_INDEX_NUM_TAGS < (int)INSN_DIE_FLAG_TAG_MASK,
+	      "too many instruction DIE tags");
 
 /* Instructions are 8 bits. */
 static_assert(NUM_INSNS - 1 == UINT8_MAX,
@@ -455,35 +364,6 @@ drgn_dwarf_index_cu_buffer_init(struct drgn_dwarf_index_cu_buffer *buffer,
 	buffer->cu = cu;
 }
 
-static inline size_t hash_pair_to_shard(struct hash_pair hp)
-{
-	/*
-	 * The 8 most significant bits of the hash are used as the F14 tag, so
-	 * we don't want to use those for sharding.
-	 */
-	return ((hp.first >>
-		 (8 * sizeof(size_t) - 8 - DRGN_DWARF_INDEX_SHARD_BITS)) &
-		(DRGN_DWARF_INDEX_NUM_SHARDS - 1));
-}
-
-static bool
-drgn_namespace_dwarf_index_alloc_shards(struct drgn_namespace_dwarf_index *dindex)
-{
-	if (dindex->shards)
-		return true;
-	dindex->shards = malloc_array(DRGN_DWARF_INDEX_NUM_SHARDS,
-				      sizeof(*dindex->shards));
-	if (!dindex->shards)
-		return false;
-	for (size_t i = 0; i < DRGN_DWARF_INDEX_NUM_SHARDS; i++) {
-		struct drgn_dwarf_index_shard *shard = &dindex->shards[i];
-		omp_init_lock(&shard->lock);
-		drgn_dwarf_index_die_map_init(&shard->map);
-		drgn_dwarf_index_die_vector_init(&shard->dies);
-	}
-	return true;
-}
-
 bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
 				 struct drgn_debug_info *dbinfo)
 {
@@ -502,103 +382,6 @@ void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state)
 	for (int i = 0; i < state->max_threads; i++)
 		drgn_dwarf_index_cu_vector_deinit(&state->cus[i]);
 	free(state->cus);
-}
-
-static struct drgn_error *
-drgn_dwarf_index_cu_set_pending(struct drgn_dwarf_index_cu *cu,
-				Dwarf_Die *skeldie, Dwarf_Die *cudie,
-				Dwarf_Off abbrev_offset)
-{
-	Elf_Data *debug_abbrev = cu->file->scn_data[DRGN_SCN_DEBUG_ABBREV];
-	if (abbrev_offset > debug_abbrev->d_size) {
-		return drgn_elf_file_section_error(cu->file,
-						   cu->file->scns[cu->scn],
-						   cu->file->scn_data[cu->scn],
-						   cu->buf,
-						   "debug_abbrev_offset is out of bounds");
-	}
-	cu->pending.abbrev = (char *)debug_abbrev->d_buf + abbrev_offset;
-
-	Dwarf_Attribute attr_mem, *attr;
-
-	// For split DWARF, DW_AT_stmt_list, DW_AT_comp_dir, and .debug_line are
-	// in the skeleton file.
-	if ((attr = dwarf_attr(skeldie, DW_AT_stmt_list, &attr_mem))) {
-		struct drgn_elf_file *skelfile = cu->file->module->debug_file;
-		Elf_Data *debug_line = skelfile->scn_data[DRGN_SCN_DEBUG_LINE];
-		if (!debug_line) {
-			return drgn_elf_file_section_error(skelfile,
-							   skelfile->scns[cu->scn],
-							   skelfile->scn_data[cu->scn],
-							   (char *)attr->valp,
-							   "DW_AT_stmt_list without .debug_line section");
-		}
-
-		Dwarf_Word stmt_list;
-		if (dwarf_formudata(attr, &stmt_list))
-			return drgn_error_libdw();
-
-		if (stmt_list > debug_line->d_size) {
-			return drgn_elf_file_section_error(skelfile,
-							   skelfile->scns[cu->scn],
-							   skelfile->scn_data[cu->scn],
-							   (char *)attr->valp,
-							   "DW_AT_stmt_list is out of bounds");
-		}
-
-		cu->pending.stmt_list = (char *)debug_line->d_buf + stmt_list;
-
-		if ((attr = dwarf_attr(skeldie, DW_AT_comp_dir, &attr_mem))) {
-			cu->pending.comp_dir = dwarf_formstring(attr);
-			if (!cu->pending.comp_dir)
-				return drgn_error_libdw();
-		} else {
-			cu->pending.comp_dir = "";
-		}
-	}
-
-	Elf_Data *str_offsets = cu->file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
-	if (str_offsets) {
-		Dwarf_Word str_offsets_base;
-		if (cu->version >= 5) {
-			Dwarf_Attribute attr_mem, *attr;
-			if ((attr = dwarf_attr(cudie, DW_AT_str_offsets_base,
-					       &attr_mem))) {
-				if (dwarf_formudata(attr, &str_offsets_base))
-					return drgn_error_libdw();
-				if (str_offsets_base > str_offsets->d_size) {
-					return drgn_elf_file_section_error(cu->file,
-									   cu->file->scns[cu->scn],
-									   cu->file->scn_data[cu->scn],
-									   (char *)attr->valp,
-									   "DW_AT_str_offsets_base is out of bounds");
-				}
-			} else {
-				// The default str_offsets_base is the first
-				// entry in .debug_str_offsets after the first
-				// header. (This isn't explicit in the DWARF 5
-				// specification, but it seems to be the
-				// consensus.)
-				str_offsets_base = cu->is_64_bit ? 16 : 8;
-				if (str_offsets_base > str_offsets->d_size) {
-					return drgn_elf_file_section_error(cu->file,
-									   cu->file->scns[DRGN_SCN_DEBUG_STR_OFFSETS],
-									   str_offsets,
-									   (char *)str_offsets->d_buf
-									   + str_offsets->d_size,
-									   ".debug_str_offsets is too small");
-				}
-			}
-		} else {
-			// GNU Debug Fission doesn't have
-			// DW_AT_str_offsets_base; the base is always 0.
-			str_offsets_base = 0;
-		}
-
-		cu->str_offsets = (char *)str_offsets->d_buf + str_offsets_base;
-	}
-
-	return NULL;
 }
 
 static const char *drgn_dwarf_dwo_name(Dwarf_Die *die)
@@ -726,6 +509,68 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 							    address_size);
 		}
 
+		Elf_Data *debug_abbrev =
+			cu_file->scn_data[DRGN_SCN_DEBUG_ABBREV];
+		if (abbrev_offset > debug_abbrev->d_size) {
+			return drgn_elf_file_section_error(cu_file,
+							   cu_file->scns[scn],
+							   cu_file->scn_data[scn],
+							   cu_buf,
+							   "debug_abbrev_offset is out of bounds");
+		}
+		const char *pending_abbrev =
+			(char *)debug_abbrev->d_buf + abbrev_offset;
+
+		Elf_Data *debug_str_offsets =
+			cu_file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
+		const char *str_offsets = NULL;
+		if (debug_str_offsets) {
+			Dwarf_Word str_offsets_base;
+			if (version >= 5) {
+				Dwarf_Attribute attr_mem, *attr;
+				if ((attr = dwarf_attr(&cudie,
+						       DW_AT_str_offsets_base,
+						       &attr_mem))) {
+					if (dwarf_formudata(attr,
+							    &str_offsets_base))
+						return drgn_error_libdw();
+					if (str_offsets_base
+					    > debug_str_offsets->d_size) {
+						return drgn_elf_file_section_error(cu_file,
+										   cu_file->scns[scn],
+										   cu_file->scn_data[scn],
+										   (char *)attr->valp,
+										   "DW_AT_str_offsets_base is out of bounds");
+					}
+				} else {
+					// The default str_offsets_base is the
+					// first entry in .debug_str_offsets
+					// after the first header. (This isn't
+					// explicit in the DWARF 5
+					// specification, but it seems to be the
+					// consensus.)
+					str_offsets_base = 2 * offset_size;
+					if (str_offsets_base
+					    > debug_str_offsets->d_size) {
+						return drgn_elf_file_section_error(cu_file,
+										   cu_file->scns[DRGN_SCN_DEBUG_STR_OFFSETS],
+										   debug_str_offsets,
+										   (char *)debug_str_offsets->d_buf
+										   + debug_str_offsets->d_size,
+										   ".debug_str_offsets is too small");
+					}
+				}
+			} else {
+				// GNU Debug Fission doesn't have
+				// DW_AT_str_offsets_base; the base is always 0.
+				str_offsets_base = 0;
+			}
+
+			str_offsets =
+				(char *)debug_str_offsets->d_buf
+				+ str_offsets_base;
+		}
+
 		struct drgn_dwarf_index_cu *cu =
 			drgn_dwarf_index_cu_vector_append_entry(cus);
 		if (!cu)
@@ -739,13 +584,10 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 			.address_size = address_size,
 			.is_64_bit = offset_size == 8,
 			.scn = scn,
+			.pending_abbrev = pending_abbrev,
+			.str_offsets = str_offsets,
 			.libdw_cu = cudie.cu,
 		};
-
-		err = drgn_dwarf_index_cu_set_pending(cu, &skeldie, &cudie,
-						      abbrev_offset);
-		if (err)
-			return err;
 
 		off = next_off;
 	}
@@ -804,560 +646,6 @@ static struct drgn_error *read_strx(struct drgn_dwarf_index_cu_buffer *buffer,
 	}
 	*ret = ((char *)buffer->cu->file->scn_data[DRGN_SCN_DEBUG_STR]->d_buf
 		+ strp);
-	return NULL;
-}
-
-static struct drgn_error *
-read_lnp_header(struct drgn_elf_file_section_buffer *buffer,
-		bool *is_64_bit_ret, int *version_ret)
-{
-	struct drgn_error *err;
-	uint32_t tmp;
-	if ((err = binary_buffer_next_u32(&buffer->bb, &tmp)))
-		return err;
-	bool is_64_bit = tmp == UINT32_C(0xffffffff);
-	if (is_64_bit &&
-	    (err = binary_buffer_skip(&buffer->bb, sizeof(uint64_t))))
-		return err;
-	*is_64_bit_ret = is_64_bit;
-
-	uint16_t version;
-	if ((err = binary_buffer_next_u16(&buffer->bb, &version)))
-		return err;
-	if (version < 2 || version > 5) {
-		return binary_buffer_error(&buffer->bb,
-					   "unknown DWARF LNP version %" PRIu16,
-					   version);
-	}
-	*version_ret = version;
-
-	uint8_t opcode_base;
-	if ((err = binary_buffer_skip(&buffer->bb,
-				      /* address_size + segment_selector_size */
-				      + (version >= 5 ? 2 : 0)
-				      + (is_64_bit ? 8 : 4) /* header_length */
-				      + 1 /* minimum_instruction_length */
-				      + (version >= 4) /* maximum_operations_per_instruction */
-				      + 1 /* default_is_stmt */
-				      + 1 /* line_base */
-				      + 1 /* line_range */)) ||
-	    (err = binary_buffer_next_u8(&buffer->bb, &opcode_base)) ||
-	    (err = binary_buffer_skip(&buffer->bb, opcode_base - 1)))
-		return err;
-
-	return NULL;
-}
-
-/**
- * Cached hash of file path.
- *
- * File names in the DWARF line number program header consist of three parts:
- * the compilation directory path, the directory path, and the file name.
- * Multiple file names may be relative to the same directory, and relative
- * directory paths are all relative to the compilation directory.
- *
- * We'd like to hash DWARF file names to a unique hash so that we can
- * deduplicate definitions without comparing full paths.
- *
- * The naive way to hash a DWARF file name entry would be to join and normalize
- * the compilation directory path, directory path, and file name, and hash that.
- * But this would involve a lot of redundant computations since most paths will
- * have common prefixes. Instead, we cache the hashes of each directory path and
- * update the hash for relative paths.
- *
- * It is not sufficient to cache the final hash for each directory because ".."
- * components may require us to use the hash of a parent directory. So, we also
- * cache the hash of every parent directory in a linked list.
- *
- * We use the FNV-1a hash function. Although FNV-1a is
- * [known](https://github.com/rurban/smhasher/blob/master/doc/FNV1a.txt) to have
- * some hash quality problems, it is sufficient for producing unique 64-bit
- * hashes of file names. It has a couple of advantages over "better" hash
- * functions:
- *
- * 1. Its only internal state is the 64-bit hash value, which keeps this
- *    structure small.
- * 2. It operates byte-by-byte, which works well for incrementally hashing lots
- *    of short path components.
- */
-struct path_hash {
-	/** Hash of this path. */
-	uint64_t hash;
-	/**
-	 * Tagged pointer comprising `struct path_hash *` of parent directory
-	 * and flag in lowest-order bit specifying whether this path ends in a
-	 * ".." component.
-	 */
-	uintptr_t parent_and_is_dot_dot;
-};
-
-#define FNV_OFFSET_BASIS_64 UINT64_C(0xcbf29ce484222325)
-#define FNV_PRIME_64 UINT64_C(0x00000100000001b3)
-
-static inline void path_hash_update(struct path_hash *path_hash,
-				    const void *src, size_t len)
-{
-	const uint8_t *s = src, *end = s + len;
-	uint64_t hash = path_hash->hash;
-	while (s < end) {
-		hash ^= *(s++);
-		hash *= FNV_PRIME_64;
-	}
-	path_hash->hash = hash;
-}
-
-/** Path hash of "" (empty string). */
-static const struct path_hash empty_path_hash = { FNV_OFFSET_BASIS_64 };
-/** Path hash of "/". */
-static const struct path_hash absolute_path_hash = {
-	(FNV_OFFSET_BASIS_64 ^ '/') * FNV_PRIME_64,
-};
-
-static inline const struct path_hash *
-path_hash_parent(const struct path_hash *path_hash)
-{
-	return (struct path_hash *)(path_hash->parent_and_is_dot_dot
-				    & ~(uintptr_t)1);
-}
-
-static inline bool path_hash_is_dot_dot(const struct path_hash *path_hash)
-{
-	return path_hash->parent_and_is_dot_dot & 1;
-}
-
-/** Chunk of allocated @ref path_hash objects. See @ref path_hash_cache. */
-struct path_hash_chunk {
-	struct path_hash objects[(4096 - sizeof(struct path_hash_chunk *))
-				 / sizeof(struct path_hash)];
-	struct path_hash_chunk *next;
-};
-
-DEFINE_VECTOR(path_hash_vector, const struct path_hash *);
-
-struct lnp_entry_format {
-	uint64_t content_type;
-	uint64_t form;
-};
-
-static const struct lnp_entry_format dwarf4_directory_entry_formats[] = {
-	{ DW_LNCT_path, DW_FORM_string },
-};
-static const struct lnp_entry_format dwarf4_file_name_entry_formats[] = {
-	{ DW_LNCT_path, DW_FORM_string },
-	{ DW_LNCT_directory_index, DW_FORM_udata },
-	{ DW_LNCT_timestamp, DW_FORM_udata },
-	{ DW_LNCT_size, DW_FORM_udata },
-};
-
-/**
- * Cache of hashed file paths.
- *
- * This uses a bump allocator for @ref path_hash objects. @ref path_hash objects
- * are allocated sequentially out of a @ref path_hash_chunk; when a chunk is
- * exhausted, a new @ref path_hash_chunk is allocated from the heap. The
- * allocated chunks are kept and reused for each DWARF line number program; they
- * are freed at the end of the first indexing pass.
- *
- * This also caches the allocations for directory hashes and line number program
- * header entry formats.
- */
-struct path_hash_cache {
-	/** Next @ref path_hash object to be allocated. */
-	struct path_hash *next_object;
-	/** @ref path_hash_chunk currently being allocated from. */
-	struct path_hash_chunk *current_chunk;
-	/** First allocated @ref path_hash_chunk. */
-	struct path_hash_chunk *first_chunk;
-	/** Hashed directory paths. */
-	struct path_hash_vector directories;
-	/** Line number program header entry formats. */
-	struct lnp_entry_format *entry_formats;
-	/** Allocated size of @ref path_hash_cache::entry_formats. */
-	size_t entry_formats_capacity;
-};
-
-static struct path_hash *path_hash_alloc(struct path_hash_cache *cache)
-{
-	struct path_hash_chunk *current_chunk = cache->current_chunk;
-	if (cache->next_object <
-	    &current_chunk->objects[array_size(current_chunk->objects)])
-		return cache->next_object++;
-	struct path_hash_chunk *next_chunk = current_chunk->next;
-	if (!next_chunk) {
-		next_chunk = malloc(sizeof(*next_chunk));
-		if (!next_chunk)
-			return NULL;
-		next_chunk->next = NULL;
-		current_chunk->next = next_chunk;
-	}
-	cache->current_chunk = next_chunk;
-	cache->next_object = &next_chunk->objects[1];
-	return next_chunk->objects;
-}
-
-static inline bool is_dot_dot(const char *component, size_t component_len)
-{
-	return component_len == 2 && component[0] == '.' && component[1] == '.';
-}
-
-static const struct path_hash *hash_path(struct path_hash_cache *cache,
-					 const char *path,
-					 const struct path_hash *path_hash)
-{
-	const char *p = path;
-	if (*p == '/') {
-		path_hash = &absolute_path_hash;
-		p++;
-	}
-	while (*p != '\0') {
-		const char *component = p;
-		p = strchrnul(p, '/');
-		size_t component_len = p - component;
-		if (*p == '/')
-			p++;
-		if (component_len == 0 ||
-		    (component_len == 1 && component[0] == '.')) {
-		} else if (!is_dot_dot(component, component_len) ||
-			   path_hash == &empty_path_hash ||
-			   path_hash_is_dot_dot(path_hash)) {
-			struct path_hash *new_path_hash = path_hash_alloc(cache);
-			if (!new_path_hash)
-				return NULL;
-			new_path_hash->hash = path_hash->hash;
-			if (path_hash->parent_and_is_dot_dot != 0)
-				path_hash_update(new_path_hash, "/", 1);
-			path_hash_update(new_path_hash, component,
-					 component_len);
-			new_path_hash->parent_and_is_dot_dot =
-				((uintptr_t)path_hash |
-				 is_dot_dot(component, component_len));
-			path_hash = new_path_hash;
-		} else if (path_hash != &absolute_path_hash) {
-			path_hash = path_hash_parent(path_hash);
-		}
-	}
-	return path_hash;
-}
-
-static struct drgn_error *
-read_lnp_entry_formats(struct drgn_elf_file_section_buffer *buffer,
-		       struct path_hash_cache *cache, int *count_ret)
-{
-	struct drgn_error *err;
-	uint8_t count;
-	if ((err = binary_buffer_next_u8(&buffer->bb, &count)))
-		return err;
-	if (count > cache->entry_formats_capacity) {
-		free(cache->entry_formats);
-		cache->entry_formats = malloc_array(count,
-						    sizeof(cache->entry_formats[0]));
-		if (!cache->entry_formats) {
-			cache->entry_formats_capacity = 0;
-			return &drgn_enomem;
-		}
-		cache->entry_formats_capacity = count;
-	}
-	bool have_path = false;
-	for (int i = 0; i < count; i++) {
-		if ((err = binary_buffer_next_uleb128(&buffer->bb,
-						      &cache->entry_formats[i].content_type)))
-			return err;
-		if (cache->entry_formats[i].content_type == DW_LNCT_path)
-			have_path = true;
-		if ((err = binary_buffer_next_uleb128(&buffer->bb,
-						      &cache->entry_formats[i].form)))
-			return err;
-	}
-	if (!have_path) {
-		return binary_buffer_error(&buffer->bb,
-					   "DWARF line number program header entry does not include DW_LNCT_path");
-	}
-	*count_ret = count;
-	return NULL;
-}
-
-static struct drgn_error *skip_lnp_form(struct binary_buffer *bb,
-					bool is_64_bit, uint64_t form)
-{
-	struct drgn_error *err;
-	uint64_t skip;
-	switch (form) {
-	case DW_FORM_block:
-		if ((err = binary_buffer_next_uleb128(bb, &skip)))
-			return err;
-block:
-		return binary_buffer_skip(bb, skip);
-	case DW_FORM_block1:
-		if ((err = binary_buffer_next_u8_into_u64(bb, &skip)))
-			return err;
-		goto block;
-	case DW_FORM_block2:
-		if ((err = binary_buffer_next_u16_into_u64(bb, &skip)))
-			return err;
-		goto block;
-	case DW_FORM_block4:
-		if ((err = binary_buffer_next_u32_into_u64(bb, &skip)))
-			return err;
-		goto block;
-	case DW_FORM_data1:
-	case DW_FORM_flag:
-	case DW_FORM_strx1:
-		return binary_buffer_skip(bb, 1);
-	case DW_FORM_data2:
-	case DW_FORM_strx2:
-		return binary_buffer_skip(bb, 2);
-	case DW_FORM_strx3:
-		return binary_buffer_skip(bb, 3);
-	case DW_FORM_data4:
-	case DW_FORM_strx4:
-		return binary_buffer_skip(bb, 4);
-	case DW_FORM_data8:
-		return binary_buffer_skip(bb, 8);
-	case DW_FORM_data16:
-		return binary_buffer_skip(bb, 16);
-	case DW_FORM_line_strp:
-	case DW_FORM_sec_offset:
-	case DW_FORM_strp:
-		return binary_buffer_skip(bb, is_64_bit ? 8 : 4);
-	case DW_FORM_sdata:
-	case DW_FORM_strx:
-	case DW_FORM_udata:
-	case DW_FORM_GNU_str_index:
-		return binary_buffer_skip_leb128(bb);
-	case DW_FORM_string:
-		return binary_buffer_skip_string(bb);
-	default:
-		return binary_buffer_error(bb,
-					   "unknown attribute form %#" PRIx64 " for line number program",
-					   form);
-	}
-}
-
-static struct drgn_error *
-read_lnp_string(struct drgn_elf_file_section_buffer *buffer, bool is_64_bit,
-		uint64_t form, const char **ret)
-{
-	struct drgn_error *err;
-	uint64_t strp;
-	Elf_Data *data;
-	switch (form) {
-	case DW_FORM_string:
-		*ret = buffer->bb.pos;
-		return binary_buffer_skip_string(&buffer->bb);
-	case DW_FORM_line_strp:
-	case DW_FORM_strp:
-		if (is_64_bit)
-			err = binary_buffer_next_u64(&buffer->bb, &strp);
-		else
-			err = binary_buffer_next_u32_into_u64(&buffer->bb, &strp);
-		if (err)
-			return err;
-		data = buffer->file->scn_data[
-			form == DW_FORM_line_strp ?
-			DRGN_SCN_DEBUG_LINE_STR : DRGN_SCN_DEBUG_STR];
-		if (!data || strp >= data->d_size) {
-			return binary_buffer_error(&buffer->bb,
-						   "DW_LNCT_path is out of bounds");
-		}
-		*ret = (const char *)data->d_buf + strp;
-		return NULL;
-	default:
-		return binary_buffer_error(&buffer->bb,
-					   "unknown attribute form %#" PRIx64 " for DW_LNCT_path",
-					   form);
-	}
-}
-
-static struct drgn_error *
-read_lnp_directory_index(struct drgn_elf_file_section_buffer *buffer,
-			 uint64_t form, uint64_t *ret)
-{
-	switch (form) {
-	case DW_FORM_data1:
-		return binary_buffer_next_u8_into_u64(&buffer->bb, ret);
-	case DW_FORM_data2:
-		return binary_buffer_next_u16_into_u64(&buffer->bb, ret);
-	case DW_FORM_udata:
-		return binary_buffer_next_uleb128(&buffer->bb, ret);
-	default:
-		return binary_buffer_error(&buffer->bb,
-					   "unknown attribute form %#" PRIx64 " for DW_LNCT_directory_index",
-					   form);
-	}
-}
-
-static struct drgn_error *read_file_name_table(struct path_hash_cache *cache,
-					       struct drgn_dwarf_index_cu *cu,
-					       const char *stmt_list,
-					       const char *comp_dir)
-{
-	struct drgn_error *err;
-
-	cu->file_name_hashes = (uint64_t *)no_file_name_hashes;
-	cu->num_file_names = array_size(no_file_name_hashes);
-
-	if (!stmt_list)
-		return NULL;
-
-	struct drgn_elf_file_section_buffer buffer;
-	// For split DWARF, .debug_line is in the skeleton file.
-	drgn_elf_file_section_buffer_init_index(&buffer,
-						cu->file->module->debug_file,
-						DRGN_SCN_DEBUG_LINE);
-	buffer.bb.pos = stmt_list;
-
-	bool is_64_bit;
-	int version;
-	if ((err = read_lnp_header(&buffer, &is_64_bit, &version)))
-		return err;
-
-	cache->current_chunk = cache->first_chunk;
-	cache->next_object = cache->first_chunk->objects;
-	path_hash_vector_clear(&cache->directories);
-
-	const struct lnp_entry_format *entry_formats;
-	int entry_format_count;
-	uint64_t entry_count = 0; /* For -Wmaybe-uninitialized. */
-	const struct path_hash *path_hash, *parent;
-	if (version >= 5) {
-		if ((err = read_lnp_entry_formats(&buffer, cache,
-						  &entry_format_count)))
-			return err;
-		entry_formats = cache->entry_formats;
-		if ((err = binary_buffer_next_uleb128(&buffer.bb,
-						      &entry_count)))
-			return err;
-		if (entry_count > SIZE_MAX ||
-		    !path_hash_vector_reserve(&cache->directories, entry_count))
-			return err;
-		parent = &empty_path_hash;
-	} else {
-		entry_formats = dwarf4_directory_entry_formats;
-		entry_format_count = array_size(dwarf4_directory_entry_formats);
-		path_hash = hash_path(cache, comp_dir, &empty_path_hash);
-		if (!path_hash ||
-		    !path_hash_vector_append(&cache->directories, &path_hash))
-			return &drgn_enomem;
-		parent = path_hash;
-	}
-
-	while (version < 5 || entry_count-- > 0) {
-		const char *path;
-		for (int j = 0; j < entry_format_count; j++) {
-			if (entry_formats[j].content_type == DW_LNCT_path) {
-				err = read_lnp_string(&buffer, is_64_bit,
-						      entry_formats[j].form,
-						      &path);
-				if (version < 5 && path[0] == '\0')
-					goto file_name_entries;
-			} else {
-				err = skip_lnp_form(&buffer.bb, is_64_bit,
-						    entry_formats[j].form);
-			}
-			if (err)
-				return err;
-		}
-		path_hash = hash_path(cache, path, parent);
-		if (!path_hash ||
-		    !path_hash_vector_append(&cache->directories, &path_hash))
-			return &drgn_enomem;
-		parent = *path_hash_vector_first(&cache->directories);
-	}
-
-file_name_entries:;
-	/*
-	 * File name 0 needs special treatment. In DWARF 2-4, file name entries
-	 * are numbered starting at 1, and a DW_AT_decl_file of 0 indicates that
-	 * no file was specified. In DWARF 5, file name entries are numbered
-	 * starting at 0, and entry 0 is the current compilation file name. The
-	 * DWARF 5 specification still states that a DW_AT_decl_file of 0
-	 * indicates that no file was specified, but some producers (including
-	 * Clang) and consumers (including elfutils and GDB) treat a
-	 * DW_AT_decl_file of 0 as specifying the current compilation file name,
-	 * so we do the same.
-	 *
-	 * So, for DWARF 5, we hash entry 0 as usual, and for DWARF 4, we insert
-	 * a placeholder for entry 0. If there are no file names at all, we keep
-	 * the no_file_name_hashes placeholder.
-	 */
-	_cleanup_(uint64_vector_deinit)
-		struct uint64_vector file_name_hashes = VECTOR_INIT;
-	if (version >= 5) {
-		if ((err = read_lnp_entry_formats(&buffer, cache,
-						  &entry_format_count)))
-			return err;
-		entry_formats = cache->entry_formats;
-		if ((err = binary_buffer_next_uleb128(&buffer.bb,
-						      &entry_count)))
-			return err;
-		if (entry_count == 0)
-			return NULL;
-		if (entry_count > SIZE_MAX)
-			return &drgn_enomem;
-		if (!uint64_vector_reserve(&file_name_hashes, entry_count))
-			return &drgn_enomem;
-	} else {
-		entry_formats = dwarf4_file_name_entry_formats;
-		entry_format_count = array_size(dwarf4_file_name_entry_formats);
-	}
-
-	while (version < 5 || entry_count-- > 0) {
-		const char *path;
-		uint64_t directory_index = 0;
-		for (int j = 0; j < entry_format_count; j++) {
-			if (entry_formats[j].content_type == DW_LNCT_path) {
-				err = read_lnp_string(&buffer, is_64_bit,
-						      entry_formats[j].form,
-						      &path);
-				if (!err && version < 5) {
-					if (path[0] == '\0') {
-						if (uint64_vector_empty(&file_name_hashes))
-							return NULL;
-						goto done;
-					} else if (uint64_vector_empty(&file_name_hashes)) {
-						uint64_t zero = 0;
-						if (!uint64_vector_append(&file_name_hashes,
-									  &zero))
-							return &drgn_enomem;
-					}
-				}
-			} else if (entry_formats[j].content_type ==
-				   DW_LNCT_directory_index) {
-				err = read_lnp_directory_index(&buffer,
-							       entry_formats[j].form,
-							       &directory_index);
-			} else {
-				err = skip_lnp_form(&buffer.bb, is_64_bit,
-						    entry_formats[j].form);
-			}
-			if (err)
-				return err;
-		}
-
-		if (directory_index
-		    >= path_hash_vector_size(&cache->directories)) {
-			return binary_buffer_error(&buffer.bb,
-						   "directory index %" PRIu64 " is invalid",
-						   directory_index);
-		}
-		struct path_hash *prev_object = cache->next_object;
-		struct path_hash_chunk *prev_chunk = cache->current_chunk;
-		path_hash = hash_path(cache, path,
-				      *path_hash_vector_at(&cache->directories,
-							   directory_index));
-		if (!path_hash ||
-		    !uint64_vector_append(&file_name_hashes, &path_hash->hash))
-			return &drgn_enomem;
-
-		/* "Free" the objects allocated for this file name. */
-		cache->next_object = prev_object;
-		cache->current_chunk = prev_chunk;
-	}
-
-done:
-	uint64_vector_shrink_to_fit(&file_name_hashes);
-	uint64_vector_steal(&file_name_hashes, &cu->file_name_hashes,
-			    &cu->num_file_names);
 	return NULL;
 }
 
@@ -1545,45 +833,6 @@ static struct drgn_error *dw_at_name_to_insn(struct drgn_dwarf_index_cu *cu,
 	}
 }
 
-static struct drgn_error *dw_at_decl_file_to_insn(struct binary_buffer *bb,
-						  uint64_t form,
-						  uint8_t *insn_ret,
-						  uint64_t *implicit_const_ret)
-{
-	switch (form) {
-	case DW_FORM_data1:
-		*insn_ret = INSN_DECL_FILE_DATA1;
-		return NULL;
-	case DW_FORM_data2:
-		*insn_ret = INSN_DECL_FILE_DATA2;
-		return NULL;
-	case DW_FORM_data4:
-		*insn_ret = INSN_DECL_FILE_DATA4;
-		return NULL;
-	case DW_FORM_data8:
-		*insn_ret = INSN_DECL_FILE_DATA8;
-		return NULL;
-		/*
-		 * decl_file must be positive, so if the compiler uses
-		 * DW_FORM_sdata for some reason, just treat it as udata.
-		 */
-	case DW_FORM_sdata:
-	case DW_FORM_udata:
-		*insn_ret = INSN_DECL_FILE_UDATA;
-		return NULL;
-	case DW_FORM_implicit_const:
-		*insn_ret = INSN_DECL_FILE_IMPLICIT;
-		return binary_buffer_next_uleb128(bb, implicit_const_ret);
-	case DW_FORM_indirect:
-		*insn_ret = INSN_DECL_FILE_INDIRECT;
-		return NULL;
-	default:
-		return binary_buffer_error(bb,
-					   "unknown attribute form %#" PRIx64 " for DW_AT_decl_file",
-					   form);
-	}
-}
-
 static struct drgn_error *
 dw_at_declaration_to_insn(struct binary_buffer *bb, uint64_t form,
 			  uint8_t *insn_ret, uint8_t *die_flags)
@@ -1668,19 +917,6 @@ dw_at_specification_to_insn(struct drgn_dwarf_index_cu *cu,
 	}
 }
 
-static bool append_uleb128(struct uint8_vector *insns, uint64_t value)
-{
-	do {
-		uint8_t byte = value & 0x7f;
-		value >>= 7;
-		if (value != 0)
-			byte |= 0x80;
-		if (!uint8_vector_append(insns, &byte))
-			return false;
-	} while (value != 0);
-	return true;
-}
-
 static struct drgn_error *
 read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 		 struct drgn_dwarf_index_cu *cu, struct uint32_vector *decls,
@@ -1706,31 +942,17 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 	if ((err = binary_buffer_next_uleb128(&buffer->bb, &tag)))
 		return err;
 
-	bool should_index;
+	uint8_t die_flags;
+	bool should_index = true;
 	switch (tag) {
-	/* Types. */
-	case DW_TAG_base_type:
-	case DW_TAG_class_type:
-	case DW_TAG_enumeration_type:
-	case DW_TAG_structure_type:
-	case DW_TAG_typedef:
-	case DW_TAG_union_type:
-	/* Variables. */
-	case DW_TAG_variable:
-	/* Constants. */
-	case DW_TAG_enumerator:
-	/* Functions. */
-	case DW_TAG_subprogram:
-	/* Namespaces */
-	case DW_TAG_namespace:
-	/* If adding anything here, make sure it fits in INSN_DIE_FLAG_TAG_MASK. */
-		should_index = true;
-		break;
+#define X(name) case DW_TAG_##name: die_flags = DRGN_DWARF_INDEX_##name; break;
+	DRGN_DWARF_INDEX_TAGS
+#undef X
 	default:
+		die_flags = INSN_DIE_FLAG_TAG_MASK;
 		should_index = false;
 		break;
 	}
-	uint8_t die_flags = should_index ? tag : 0;
 
 	uint8_t children;
 	if ((err = binary_buffer_next_u8(&buffer->bb, &children)))
@@ -1741,7 +963,6 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 	uint8_t insn, last_insn = UINT8_MAX;
 	for (;;) {
 		uint64_t name, form;
-		uint64_t implicit_const;
 		if ((err = binary_buffer_next_uleb128(&buffer->bb, &name)))
 			return err;
 		if ((err = binary_buffer_next_uleb128(&buffer->bb, &form)))
@@ -1753,11 +974,6 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 			err = dw_at_sibling_to_insn(&buffer->bb, form, &insn);
 		} else if (name == DW_AT_name && should_index) {
 			err = dw_at_name_to_insn(cu, &buffer->bb, form, &insn);
-		} else if (name == DW_AT_decl_file && should_index &&
-			   /* Namespaces are merged, so we ignore their file. */
-			   tag != DW_TAG_namespace) {
-			err = dw_at_decl_file_to_insn(&buffer->bb, form, &insn,
-						      &implicit_const);
 		} else if (name == DW_AT_declaration && should_index) {
 			err = dw_at_declaration_to_insn(&buffer->bb, form,
 							&insn, &die_flags);
@@ -1784,10 +1000,6 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 
 			if (!uint8_vector_append(insns, &insn))
 				return &drgn_enomem;
-
-			if (insn == INSN_DECL_FILE_IMPLICIT &&
-			    !append_uleb128(insns, implicit_const))
-				return &drgn_enomem;
 		}
 	}
 	insn = INSN_END;
@@ -1797,13 +1009,12 @@ read_abbrev_decl(struct drgn_elf_file_section_buffer *buffer,
 	return NULL;
 }
 
-static struct drgn_error *read_abbrev_table(struct drgn_dwarf_index_cu *cu,
-					    const char *abbrev)
+static struct drgn_error *read_cu(struct drgn_dwarf_index_cu *cu)
 {
 	struct drgn_elf_file_section_buffer buffer;
 	drgn_elf_file_section_buffer_init_index(&buffer, cu->file,
 						DRGN_SCN_DEBUG_ABBREV);
-	buffer.bb.pos = abbrev;
+	buffer.bb.pos = cu->pending_abbrev;
 	struct uint32_vector decls = VECTOR_INIT;
 	struct uint8_vector insns = VECTOR_INIT;
 	for (;;) {
@@ -1853,23 +1064,6 @@ static size_t cu_header_size(struct drgn_dwarf_index_cu *cu)
 	return size;
 }
 
-static struct drgn_error *read_cu(struct drgn_dwarf_index_cu *cu,
-				  struct path_hash_cache *path_hash_cache)
-{
-	struct drgn_error *err;
-
-	const char *abbrev = cu->pending.abbrev;
-	const char *stmt_list = cu->pending.stmt_list;
-	const char *comp_dir = cu->pending.comp_dir;
-	drgn_dwarf_index_cu_clear_pending(cu);
-
-	err = read_file_name_table(path_hash_cache, cu, stmt_list, comp_dir);
-	if (err)
-		return err;
-
-	return read_abbrev_table(cu, abbrev);
-}
-
 static bool
 index_specification(struct drgn_dwarf_specification_map *specifications,
 		    uintptr_t declaration, uintptr_t addr)
@@ -1905,8 +1099,6 @@ static struct drgn_error *read_indirect_insn(struct drgn_dwarf_index_cu *cu,
 		return dw_at_sibling_to_insn(bb, form, insn_ret);
 	case INSN_NAME_INDIRECT:
 		return dw_at_name_to_insn(cu, bb, form, insn_ret);
-	case INSN_DECL_FILE_INDIRECT:
-		return dw_at_decl_file_to_insn(bb, form, insn_ret, NULL);
 	case INSN_DECLARATION_INDIRECT:
 		return dw_at_declaration_to_insn(bb, form, insn_ret, die_flags);
 	case INSN_SPECIFICATION_INDIRECT:
@@ -1977,7 +1169,6 @@ indirect_insn:;
 				goto skip;
 			case INSN_SKIP_LEB128:
 			case INSN_NAME_STRX:
-			case INSN_DECL_FILE_UDATA:
 				if ((err = binary_buffer_skip_leb128(&buffer->bb)))
 					return err;
 				break;
@@ -2023,11 +1214,9 @@ sibling:
 				}
 				break;
 			case INSN_NAME_STRX1:
-			case INSN_DECL_FILE_DATA1:
 				skip = 1;
 				goto skip;
 			case INSN_NAME_STRX2:
-			case INSN_DECL_FILE_DATA2:
 				skip = 2;
 				goto skip;
 			case INSN_NAME_STRX3:
@@ -2036,18 +1225,12 @@ sibling:
 			case INSN_NAME_STRP4:
 			case INSN_NAME_STRX4:
 			case INSN_NAME_STRP_ALT4:
-			case INSN_DECL_FILE_DATA4:
 				skip = 4;
 				goto skip;
 			case INSN_NAME_STRP8:
 			case INSN_NAME_STRP_ALT8:
-			case INSN_DECL_FILE_DATA8:
 				skip = 8;
 				goto skip;
-			case INSN_DECL_FILE_IMPLICIT:
-				while (*insnp++ & 0x80)
-					;
-				break;
 			case INSN_DECLARATION_FLAG: {
 				uint8_t flag;
 				if ((err = binary_buffer_next_u8(&buffer->bb,
@@ -2112,7 +1295,6 @@ specification_ref_alt:
 			case INSN_INDIRECT:
 			case INSN_SIBLING_INDIRECT:
 			case INSN_NAME_INDIRECT:
-			case INSN_DECL_FILE_INDIRECT:
 			case INSN_DECLARATION_INDIRECT:
 			case INSN_SPECIFICATION_INDIRECT:
 				if ((err = read_indirect_insn(cu, &buffer->bb,
@@ -2150,8 +1332,9 @@ skip:
 		}
 
 		if (insn & INSN_DIE_FLAG_CHILDREN) {
-			if (sibling &&
-			    (insn & INSN_DIE_FLAG_TAG_MASK) != DW_TAG_namespace)
+			if (sibling
+			    && ((insn & INSN_DIE_FLAG_TAG_MASK)
+				!= DRGN_DWARF_INDEX_namespace))
 				buffer->bb.pos = sibling;
 			else
 				depth++;
@@ -2185,99 +1368,46 @@ static bool drgn_dwarf_find_definition(struct drgn_debug_info *dbinfo,
 	return true;
 }
 
-static bool append_die_entry(struct drgn_debug_info *dbinfo,
-			     struct drgn_dwarf_index_shard *shard, uint8_t tag,
-			     uint64_t file_name_hash, uintptr_t addr)
+static bool
+index_die(struct drgn_dwarf_index_die_map map[static DRGN_DWARF_INDEX_MAP_SIZE],
+	  struct drgn_dwarf_base_type_map *base_types, const char *name,
+	  int tag, uintptr_t addr)
 {
-	if (drgn_dwarf_index_die_vector_size(&shard->dies) == UINT32_MAX)
-		return false;
-	struct drgn_dwarf_index_die *die =
-		drgn_dwarf_index_die_vector_append_entry(&shard->dies);
-	if (!die)
-		return false;
-	die->next = UINT32_MAX;
-	die->tag = tag;
-	if (die->tag == DW_TAG_namespace) {
-		die->namespace = malloc(sizeof(*die->namespace));
-		if (!die->namespace) {
-			drgn_dwarf_index_die_vector_pop(&shard->dies);
+	size_t name_len = strlen(name);
+	if (tag != DRGN_DWARF_INDEX_base_type) {
+		struct drgn_dwarf_index_die_map_entry entry = {
+			.key = { name, name_len },
+			.value = VECTOR_INIT,
+		};
+		struct hash_pair hp = drgn_dwarf_index_die_map_hash(&entry.key);
+		auto it = drgn_dwarf_index_die_map_search_hashed(&map[tag],
+								 &entry.key,
+								 hp);
+		if (!it.entry
+		    && drgn_dwarf_index_die_map_insert_searched(&map[tag],
+								&entry, hp,
+								&it) < 0)
 			return false;
-		}
-		drgn_namespace_dwarf_index_init(die->namespace, dbinfo);
-	} else {
-		die->file_name_hash = file_name_hash;
+		return drgn_dwarf_index_die_vector_append(&it.entry->value,
+							  &addr);
+	} else if (base_types) {
+		struct drgn_dwarf_base_type_map_entry entry = {
+			.key = { name, name_len },
+			.value = addr,
+		};
+		struct hash_pair hp = drgn_dwarf_base_type_map_hash(&entry.key);
+		return drgn_dwarf_base_type_map_insert_hashed(base_types,
+							      &entry, hp,
+							      NULL) >= 0;
 	}
-	die->addr = addr;
-
 	return true;
-}
-
-static bool index_die(struct drgn_namespace_dwarf_index *ns,
-		      struct drgn_dwarf_index_cu *cu, const char *name,
-		      uint8_t tag, uint64_t file_name_hash, uintptr_t addr)
-{
-	bool success = false;
-	struct drgn_dwarf_index_die_map_entry entry = {
-		.key = { name, strlen(name) },
-	};
-	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&entry.key);
-	struct drgn_dwarf_index_shard *shard =
-		&ns->shards[hash_pair_to_shard(hp)];
-	omp_set_lock(&shard->lock);
-	struct drgn_dwarf_index_die_map_iterator it =
-		drgn_dwarf_index_die_map_search_hashed(&shard->map, &entry.key,
-						       hp);
-	struct drgn_dwarf_index_die *die;
-	if (!it.entry) {
-		if (!append_die_entry(ns->dbinfo, shard, tag, file_name_hash,
-				      addr))
-			goto err;
-		entry.value = drgn_dwarf_index_die_vector_size(&shard->dies) - 1;
-		if (drgn_dwarf_index_die_map_insert_searched(&shard->map,
-							     &entry, hp,
-							     NULL) < 0)
-			goto err;
-		die = drgn_dwarf_index_die_vector_last(&shard->dies);
-		goto out;
-	}
-
-	die = drgn_dwarf_index_die_vector_at(&shard->dies, it.entry->value);
-	for (;;) {
-		const uint64_t die_file_name_hash =
-			die->tag == DW_TAG_namespace ? 0 : die->file_name_hash;
-		if (die->tag == tag && die_file_name_hash == file_name_hash)
-			goto out;
-
-		if (die->next == UINT32_MAX)
-			break;
-		die = drgn_dwarf_index_die_vector_at(&shard->dies, die->next);
-	}
-
-	size_t index = die - drgn_dwarf_index_die_vector_begin(&shard->dies);
-	if (!append_die_entry(ns->dbinfo, shard, tag, file_name_hash, addr))
-		goto err;
-	die = drgn_dwarf_index_die_vector_last(&shard->dies);
-	drgn_dwarf_index_die_vector_at(&shard->dies, index)->next =
-		drgn_dwarf_index_die_vector_size(&shard->dies) - 1;
-out:
-	if (tag == DW_TAG_namespace) {
-		struct drgn_dwarf_index_pending_die *pending =
-			drgn_dwarf_index_pending_die_vector_append_entry(&die->namespace->pending_dies);
-		if (!pending)
-			goto err;
-		pending->cu =
-			cu - drgn_dwarf_index_cu_vector_begin(&ns->dbinfo->dwarf.index_cus);
-		pending->addr = addr;
-	}
-	success = true;
-err:
-	omp_unset_lock(&shard->lock);
-	return success;
 }
 
 /* Second pass: index the actual DIEs. */
 static struct drgn_error *
-index_cu_second_pass(struct drgn_namespace_dwarf_index *ns,
+index_cu_second_pass(struct drgn_debug_info *dbinfo,
+		     struct drgn_dwarf_index_die_map map[static DRGN_DWARF_INDEX_MAP_SIZE],
+		     struct drgn_dwarf_base_type_map *base_types,
 		     struct drgn_dwarf_index_cu_buffer *buffer)
 {
 	struct drgn_error *err;
@@ -2305,8 +1435,6 @@ index_cu_second_pass(struct drgn_namespace_dwarf_index *ns,
 
 		uint8_t *insnp = &cu->abbrev_insns[cu->abbrev_decls[code - 1]];
 		const char *name = NULL;
-		const char *decl_file_ptr = NULL;
-		uint64_t decl_file = 0; /* For -Wmaybe-uninitialized. */
 		bool declaration = false;
 		bool specification = false;
 		const char *sibling = NULL;
@@ -2447,46 +1575,6 @@ name_alt_strp:
 				name = (const char *)cu->file->alt_debug_str_data->d_buf + tmp;
 				__builtin_prefetch(name);
 				break;
-			case INSN_DECL_FILE_DATA1:
-				decl_file_ptr = buffer->bb.pos;
-				if ((err = binary_buffer_next_u8_into_u64(&buffer->bb,
-									  &decl_file)))
-					return err;
-				break;
-			case INSN_DECL_FILE_DATA2:
-				decl_file_ptr = buffer->bb.pos;
-				if ((err = binary_buffer_next_u16_into_u64(&buffer->bb,
-									   &decl_file)))
-					return err;
-				break;
-			case INSN_DECL_FILE_DATA4:
-				decl_file_ptr = buffer->bb.pos;
-				if ((err = binary_buffer_next_u32_into_u64(&buffer->bb,
-									   &decl_file)))
-					return err;
-				break;
-			case INSN_DECL_FILE_DATA8:
-				decl_file_ptr = buffer->bb.pos;
-				if ((err = binary_buffer_next_u64(&buffer->bb,
-								  &decl_file)))
-					return err;
-				break;
-			case INSN_DECL_FILE_UDATA:
-				decl_file_ptr = buffer->bb.pos;
-				if ((err = binary_buffer_next_uleb128(&buffer->bb,
-								      &decl_file)))
-					return err;
-				break;
-			case INSN_DECL_FILE_IMPLICIT:
-				decl_file_ptr = buffer->bb.pos;
-				decl_file = 0;
-				for (int shift = 0; ; shift += 7) {
-					uint8_t byte = *insnp++;
-					decl_file |= (uint64_t)(byte & 0x7f) << shift;
-					if (!(byte & 0x80))
-						break;
-				}
-				break;
 			case INSN_DECLARATION_FLAG: {
 				uint8_t flag;
 				if ((err = binary_buffer_next_u8(&buffer->bb,
@@ -2519,7 +1607,6 @@ name_alt_strp:
 			case INSN_INDIRECT:
 			case INSN_SIBLING_INDIRECT:
 			case INSN_NAME_INDIRECT:
-			case INSN_DECL_FILE_INDIRECT:
 			case INSN_DECLARATION_INDIRECT:
 			case INSN_SPECIFICATION_INDIRECT:
 				if ((err = read_indirect_insn(cu, &buffer->bb,
@@ -2546,12 +1633,12 @@ skip:
 			depth1_tag = tag;
 			depth1_addr = die_addr;
 		}
-		if (depth == (tag == DW_TAG_enumerator ? 2 : 1) && name &&
-		    !specification) {
+		if (depth == (tag == DRGN_DWARF_INDEX_enumerator ? 2 : 1)
+		    && name && !specification) {
 			if (insn & INSN_DIE_FLAG_DECLARATION)
 				declaration = true;
-			if (tag == DW_TAG_enumerator) {
-				if (depth1_tag != DW_TAG_enumeration_type)
+			if (tag == DRGN_DWARF_INDEX_enumerator) {
+				if (depth1_tag != DRGN_DWARF_INDEX_enumeration_type)
 					goto next;
 				/*
 				 * NB: the enumerator name points to the
@@ -2561,26 +1648,13 @@ skip:
 				 */
 				die_addr = depth1_addr;
 			} else if (declaration
-				   && !drgn_dwarf_find_definition(ns->dbinfo,
+				   && !drgn_dwarf_find_definition(dbinfo,
 								  die_addr,
 								  &die_addr)) {
 				goto next;
 			}
 
-			uint64_t file_name_hash;
-			if (decl_file_ptr) {
-				if (decl_file >= cu->num_file_names) {
-					return binary_buffer_error_at(&buffer->bb,
-								      decl_file_ptr,
-								      "invalid DW_AT_decl_file %" PRIu64,
-								      decl_file);
-				}
-				file_name_hash = cu->file_name_hashes[decl_file];
-			} else {
-				file_name_hash = 0;
-			}
-			if (!index_die(ns, cu, name, tag, file_name_hash,
-				       die_addr))
+			if (!index_die(map, base_types, name, tag, die_addr))
 				return &drgn_enomem;
 		}
 
@@ -2592,8 +1666,8 @@ next:
 			 * over the children of the top-level DIE even if it has
 			 * a sibling pointer.
 			 */
-			if (sibling && tag != DW_TAG_enumeration_type &&
-			    depth > 0)
+			if (sibling && tag != DRGN_DWARF_INDEX_enumeration_type
+			    && depth > 0)
 				buffer->bb.pos = sibling;
 			else
 				depth++;
@@ -2653,6 +1727,65 @@ drgn_dwarf_specification_map_merge(struct drgn_dwarf_specification_map *dst,
 	return err;
 }
 
+static struct drgn_error *
+drgn_dwarf_index_die_map_merge(struct drgn_dwarf_index_die_map *dst,
+			       struct drgn_dwarf_index_die_map *src,
+			       struct drgn_error *err)
+{
+	auto src_it = drgn_dwarf_index_die_map_first(src);
+	for (; !err && src_it.entry;
+	     src_it = drgn_dwarf_index_die_map_next(src_it)) {
+		struct drgn_dwarf_index_die_vector *src_vector =
+			&src_it.entry->value;
+
+		struct hash_pair hp =
+			drgn_dwarf_index_die_map_hash(&src_it.entry->key);
+		auto dst_it = drgn_dwarf_index_die_map_search_hashed(dst,
+								     &src_it.entry->key,
+								     hp);
+		// If dst already has the key, extend its vector with
+		// src_vector, and free src_vector. Otherwise, move src_vector
+		// into dst.
+		if (dst_it.entry) {
+			if (!drgn_dwarf_index_die_vector_extend(&dst_it.entry->value,
+								src_vector))
+				err = &drgn_enomem;
+		} else if (drgn_dwarf_index_die_map_insert_searched(dst,
+								    src_it.entry,
+								    hp,
+								    NULL) < 0) {
+			err = &drgn_enomem;
+		} else {
+			// We stole src_vector; don't free it.
+			continue;
+		}
+		drgn_dwarf_index_die_vector_deinit(src_vector);
+	}
+	for (; src_it.entry; src_it = drgn_dwarf_index_die_map_next(src_it))
+		drgn_dwarf_index_die_vector_deinit(&src_it.entry->value);
+	drgn_dwarf_index_die_map_deinit(src);
+	return err;
+}
+
+static struct drgn_error *
+drgn_dwarf_base_type_map_merge(struct drgn_dwarf_base_type_map *dst,
+			       struct drgn_dwarf_base_type_map *src,
+			       struct drgn_error *err)
+{
+	if (!err) {
+		for (auto it = drgn_dwarf_base_type_map_first(src); it.entry;
+		     it = drgn_dwarf_base_type_map_next(it)) {
+			if (drgn_dwarf_base_type_map_insert(dst, it.entry, NULL)
+			    < 0) {
+				err = &drgn_enomem;
+				break;
+			}
+		}
+	}
+	drgn_dwarf_base_type_map_deinit(src);
+	return err;
+}
+
 struct drgn_error *
 drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 {
@@ -2664,27 +1797,28 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 
 	// Per-thread array of maps to populate. Thread 0 uses the maps in the
 	// dbinfo directly. These are merged into the dbinfo and freed.
-	_cleanup_free_ struct drgn_dwarf_specification_map *maps = NULL;
+	_cleanup_free_ union {
+		// For first pass.
+		struct drgn_dwarf_specification_map specifications;
+		// For second pass.
+		struct {
+			struct drgn_dwarf_index_die_map map[DRGN_DWARF_INDEX_MAP_SIZE];
+			struct drgn_dwarf_base_type_map base_types;
+		};
+	} *maps = NULL;
 	if (state->max_threads > 1) {
 		maps = malloc_array(state->max_threads - 1, sizeof(maps[0]));
 		if (!maps)
 			return &drgn_enomem;
 	}
 
-	if (!drgn_namespace_dwarf_index_alloc_shards(&dbinfo->dwarf.global))
-		return &drgn_enomem;
-
-	size_t old_cus_size = drgn_dwarf_index_cu_vector_size(cus);
-	size_t new_cus_size = old_cus_size;
+	size_t new_cus_size = drgn_dwarf_index_cu_vector_size(cus);
 	for (int i = 0; i < state->max_threads; i++)
 		new_cus_size += drgn_dwarf_index_cu_vector_size(&state->cus[i]);
 	if (!drgn_dwarf_index_cu_vector_reserve(cus, new_cus_size))
 		return &drgn_enomem;
 	for (int i = 0; i < state->max_threads; i++)
 		drgn_dwarf_index_cu_vector_extend(cus, &state->cus[i]);
-
-	// NB: we must call drgn_dwarf_index_cu_clear_pending() on the newly
-	// added CUs before drgn_dwarf_index_cu_deinit() can be called on them.
 
 	struct drgn_error *err = NULL;
 	#pragma omp parallel
@@ -2694,34 +1828,18 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 		if (thread_num == 0) {
 			specifications = &dbinfo->dwarf.specifications;
 		} else {
-			specifications = &maps[thread_num - 1];
+			specifications = &maps[thread_num - 1].specifications;
 			drgn_dwarf_specification_map_init(specifications);
 		}
 
-		struct path_hash_cache path_hash_cache;
-		path_hash_vector_init(&path_hash_cache.directories);
-		path_hash_cache.entry_formats = NULL;
-		path_hash_cache.entry_formats_capacity = 0;
-		path_hash_cache.first_chunk =
-			malloc(sizeof(struct path_hash_chunk));
-		if (path_hash_cache.first_chunk) {
-			path_hash_cache.first_chunk->next = NULL;
-		} else {
-			#pragma omp critical(drgn_dwarf_info_update_index_error)
-			if (!err)
-				err = &drgn_enomem;
-		}
 		#pragma omp for schedule(dynamic)
-		for (size_t i = old_cus_size;
+		for (size_t i = dbinfo->dwarf.global.cus_indexed;
 		     i < drgn_dwarf_index_cu_vector_size(cus); i++) {
 			struct drgn_dwarf_index_cu *cu =
 				drgn_dwarf_index_cu_vector_at(cus, i);
-			if (err) {
-				drgn_dwarf_index_cu_clear_pending(cu);
+			if (err)
 				continue;
-			}
-			struct drgn_error *cu_err =
-				read_cu(cu, &path_hash_cache);
+			struct drgn_error *cu_err = read_cu(cu);
 			if (!cu_err) {
 				struct drgn_dwarf_index_cu_buffer buffer;
 				drgn_dwarf_index_cu_buffer_init(&buffer, cu);
@@ -2737,99 +1855,198 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 					err = cu_err;
 			}
 		}
-		free(path_hash_cache.entry_formats);
-		path_hash_vector_deinit(&path_hash_cache.directories);
-		struct path_hash_chunk *chunk = path_hash_cache.first_chunk;
-		while (chunk) {
-			struct path_hash_chunk *next_chunk = chunk->next;
-			free(chunk);
-			chunk = next_chunk;
-		}
 	}
 	for (int i = 0; i < state->max_threads - 1; i++) {
 		err = drgn_dwarf_specification_map_merge(&dbinfo->dwarf.specifications,
-							 &maps[i], err);
+							 &maps[i].specifications,
+							 err);
 	}
 	if (err)
 		goto err;
 
-	#pragma omp parallel for schedule(dynamic)
-	for (size_t i = old_cus_size; i < drgn_dwarf_index_cu_vector_size(cus);
-	     i++) {
-		if (err)
-			continue;
-		struct drgn_dwarf_index_cu *cu =
-			drgn_dwarf_index_cu_vector_at(cus, i);
-		struct drgn_dwarf_index_cu_buffer buffer;
-		drgn_dwarf_index_cu_buffer_init(&buffer, cu);
-		buffer.bb.pos += cu_header_size(cu);
-		struct drgn_error *cu_err =
-			index_cu_second_pass(&dbinfo->dwarf.global, &buffer);
-		if (cu_err) {
+	#pragma omp parallel
+	{
+		struct drgn_error *thread_err;
+
+		struct drgn_dwarf_index_die_map *map;
+		struct drgn_dwarf_base_type_map *base_types;
+		int thread_num = omp_get_thread_num();
+		if (thread_num == 0) {
+			map = dbinfo->dwarf.global.map;
+			base_types = &dbinfo->dwarf.base_types;
+		} else {
+			array_for_each(tag_map, maps[thread_num - 1].map)
+				drgn_dwarf_index_die_map_init(tag_map);
+			map = maps[thread_num - 1].map;
+			base_types = &maps[thread_num - 1].base_types;
+			drgn_dwarf_base_type_map_init(base_types);
+		}
+
+		#pragma omp for schedule(dynamic)
+		for (size_t i = dbinfo->dwarf.global.cus_indexed;
+		     i < drgn_dwarf_index_cu_vector_size(cus); i++) {
+			if (err)
+				continue;
+			struct drgn_dwarf_index_cu *cu =
+				drgn_dwarf_index_cu_vector_at(cus, i);
+			struct drgn_dwarf_index_cu_buffer buffer;
+			drgn_dwarf_index_cu_buffer_init(&buffer, cu);
+			buffer.bb.pos += cu_header_size(cu);
+			thread_err = index_cu_second_pass(dbinfo, map,
+							  base_types, &buffer);
+			if (thread_err) {
+				#pragma omp critical(drgn_dwarf_info_update_index_error)
+				if (err)
+					drgn_error_destroy(thread_err);
+				else
+					err = thread_err;
+			}
+		}
+
+		thread_err = err;
+
+		#pragma omp for schedule(dynamic) nowait
+		for (size_t i = 0; i <= array_size(dbinfo->dwarf.global.map); i++) {
+			if (i < array_size(dbinfo->dwarf.global.map)) {
+				for (int j = 0; j < state->max_threads - 1; j++) {
+					thread_err =
+						drgn_dwarf_index_die_map_merge(&dbinfo->dwarf.global.map[i],
+									       &maps[j].map[i],
+									       thread_err);
+				}
+			} else {
+				for (int j = 0; j < state->max_threads - 1; j++) {
+					thread_err =
+						drgn_dwarf_base_type_map_merge(&dbinfo->dwarf.base_types,
+									       &maps[j].base_types,
+									       thread_err);
+				}
+			}
+		}
+		if (thread_err) {
 			#pragma omp critical(drgn_dwarf_info_update_index_error)
 			if (err)
-				drgn_error_destroy(cu_err);
+				drgn_error_destroy(thread_err);
 			else
-				err = cu_err;
+				err = thread_err;
 		}
 	}
+
 	if (err) {
 err:
-		// Temporary hack so that index_namespace() checks saved_err.
-		dbinfo->dwarf.global.pending_dies._size = 1;
 		dbinfo->dwarf.global.saved_err = err;
 		return drgn_error_copy(err);
 	}
 	qsort(drgn_dwarf_index_cu_vector_begin(cus),
 	      drgn_dwarf_index_cu_vector_size(cus),
 	      sizeof(struct drgn_dwarf_index_cu), drgn_dwarf_index_cu_cmp);
+	dbinfo->dwarf.global.cus_indexed =
+		drgn_dwarf_index_cu_vector_size(cus);
 	return NULL;
 }
 
 static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 {
-	if (drgn_dwarf_index_pending_die_vector_empty(&ns->pending_dies))
+	size_t num_index_cus =
+		drgn_dwarf_index_cu_vector_size(&ns->dbinfo->dwarf.index_cus);
+	if (ns->cus_indexed >= num_index_cus)
 		return NULL;
 
 	if (ns->saved_err)
 		return drgn_error_copy(ns->saved_err);
 
-	drgn_blocking_guard(ns->dbinfo->prog);
-	if (!drgn_namespace_dwarf_index_alloc_shards(ns))
-		return &drgn_enomem;
+	// The parent namespace must be indexed first so that the DIEs for this
+	// namespace are populated.
+	struct drgn_error *err = index_namespace(ns->parent);
+	if (err)
+		return err;
 
-	struct drgn_error *err = NULL;
-	#pragma omp parallel for schedule(dynamic)
-	for (size_t i = 0;
-	     i < drgn_dwarf_index_pending_die_vector_size(&ns->pending_dies);
-	     i++) {
-		if (!err) {
-			struct drgn_dwarf_index_pending_die *pending =
-				drgn_dwarf_index_pending_die_vector_at(&ns->pending_dies, i);
+	drgn_blocking_guard(ns->dbinfo->prog);
+
+	struct nstring key = { ns->name, ns->name_len };
+	auto it = drgn_dwarf_index_die_map_search(&ns->parent->map[DRGN_DWARF_INDEX_namespace],
+						  &key);
+	struct drgn_dwarf_index_die_vector *dies = &it.entry->value;
+
+	if (ns->dies_indexed >= drgn_dwarf_index_die_vector_size(dies)) {
+		ns->cus_indexed = num_index_cus;
+		return NULL;
+	}
+
+	int max_threads = omp_get_max_threads();
+	_cleanup_free_ struct drgn_dwarf_index_die_map
+		(*maps)[DRGN_DWARF_INDEX_MAP_SIZE] = NULL;
+	if (max_threads > 1) {
+		maps = malloc_array(max_threads - 1, sizeof(maps[0]));
+		if (!maps)
+			return &drgn_enomem;
+	}
+
+	err = NULL;
+	#pragma omp parallel
+	{
+		struct drgn_error *thread_err;
+
+		struct drgn_dwarf_index_die_map *map;
+		int thread_num = omp_get_thread_num();
+		if (thread_num == 0) {
+			map = ns->map;
+		} else {
+			array_for_each(tag_map, maps[thread_num - 1])
+				drgn_dwarf_index_die_map_init(tag_map);
+			map = maps[thread_num - 1];
+		}
+
+		#pragma omp for schedule(dynamic)
+		for (uint32_t i = ns->dies_indexed;
+		     i < drgn_dwarf_index_die_vector_size(dies); i++) {
+			if (err)
+				continue;
+			uintptr_t die_addr =
+				*drgn_dwarf_index_die_vector_at(dies, i);
 			struct drgn_dwarf_index_cu *cu =
-				drgn_dwarf_index_cu_vector_at(&ns->dbinfo->dwarf.index_cus,
-							      pending->cu);
+				drgn_dwarf_index_find_cu(ns->dbinfo, die_addr);
 			struct drgn_dwarf_index_cu_buffer buffer;
 			drgn_dwarf_index_cu_buffer_init(&buffer, cu);
-			buffer.bb.pos = (char *)pending->addr;
-			struct drgn_error *cu_err =
-				index_cu_second_pass(ns, &buffer);
-			if (cu_err) {
+			buffer.bb.pos = (void *)die_addr;
+			thread_err = index_cu_second_pass(ns->dbinfo, map, NULL,
+							  &buffer);
+			if (thread_err) {
 				#pragma omp critical(drgn_index_namespace_error)
 				if (err)
-					drgn_error_destroy(cu_err);
+					drgn_error_destroy(thread_err);
 				else
-					err = cu_err;
+					err = thread_err;
 			}
+		}
+		#pragma omp barrier
+
+		thread_err = err;
+
+		#pragma omp for schedule(dynamic) nowait
+		for (size_t i = 0; i < array_size(ns->map); i++) {
+			for (int j = 0; j < max_threads - 1; j++) {
+				thread_err =
+					drgn_dwarf_index_die_map_merge(&ns->map[i],
+								       &maps[j][i],
+								       thread_err);
+			}
+		}
+		if (thread_err) {
+			#pragma omp critical(drgn_index_namespace_error)
+			if (err)
+				drgn_error_destroy(thread_err);
+			else
+				err = thread_err;
 		}
 	}
 	if (err) {
 		ns->saved_err = err;
 		return drgn_error_copy(ns->saved_err);
 	}
-	drgn_dwarf_index_pending_die_vector_deinit(&ns->pending_dies);
-	drgn_dwarf_index_pending_die_vector_init(&ns->pending_dies);
-	return err;
+	ns->cus_indexed = num_index_cus;
+	ns->dies_indexed = drgn_dwarf_index_die_vector_size(dies);
+	return NULL;
 }
 
 /**
@@ -2839,10 +2056,12 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
  * advanced with @ref drgn_dwarf_index_iterator_next().
  */
 struct drgn_dwarf_index_iterator {
-	struct drgn_debug_info *dbinfo;
-	const uint64_t *tags;
+	struct drgn_namespace_dwarf_index *ns;
+	const char *name;
+	size_t name_len;
+	const enum drgn_dwarf_index_tag *tags;
 	size_t num_tags;
-	struct drgn_dwarf_index_shard *shard;
+	struct drgn_dwarf_index_die_vector *dies;
 	uint32_t index;
 };
 
@@ -2861,40 +2080,22 @@ static struct drgn_error *
 drgn_dwarf_index_iterator_init(struct drgn_dwarf_index_iterator *it,
 			       struct drgn_namespace_dwarf_index *ns,
 			       const char *name, size_t name_len,
-			       const uint64_t *tags, size_t num_tags)
+			       const enum drgn_dwarf_index_tag *tags,
+			       size_t num_tags)
 {
 	struct drgn_error *err = index_namespace(ns);
 	if (err)
 		return err;
-	it->dbinfo = ns->dbinfo;
-	if (ns->shards) {
-		struct nstring key = { name, name_len };
-		struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
-		it->shard = &ns->shards[hash_pair_to_shard(hp)];
-		struct drgn_dwarf_index_die_map_iterator map_it =
-			drgn_dwarf_index_die_map_search_hashed(&it->shard->map,
-							       &key, hp);
-		it->index = map_it.entry ? map_it.entry->value : UINT32_MAX;
-	} else {
-		it->shard = NULL;
-		it->index = UINT32_MAX;
-	}
+	it->ns = ns;
+	it->name = name;
+	it->name_len = name_len;
 	it->tags = tags;
 	it->num_tags = num_tags;
+	// Sentinel to simplify first iteration.
+	static const struct drgn_dwarf_index_die_vector empty_dies = VECTOR_INIT;
+	it->dies = (struct drgn_dwarf_index_die_vector *)&empty_dies;
+	it->index = 0;
 	return NULL;
-}
-
-static inline bool
-drgn_dwarf_index_iterator_matches_tag(struct drgn_dwarf_index_iterator *it,
-				      struct drgn_dwarf_index_die *die)
-{
-	if (it->num_tags == 0)
-		return true;
-	for (size_t i = 0; i < it->num_tags; i++) {
-		if (die->tag == it->tags[i])
-			return true;
-	}
-	return false;
 }
 
 /**
@@ -2913,24 +2114,53 @@ drgn_dwarf_index_iterator_next(struct drgn_dwarf_index_iterator *it,
 			       Dwarf_Die *die_ret,
 			       struct drgn_elf_file **file_ret)
 {
-	while (it->index != UINT32_MAX) {
-		struct drgn_dwarf_index_die *die =
-			drgn_dwarf_index_die_vector_at(&it->shard->dies,
-						       it->index);
-		it->index = die->next;
-		if (drgn_dwarf_index_iterator_matches_tag(it, die)) {
-			struct drgn_dwarf_index_cu *cu =
-				drgn_dwarf_index_find_cu(it->dbinfo, die->addr);
-			*die_ret = (Dwarf_Die){
-				.addr = (void *)die->addr,
-				.cu = cu->libdw_cu,
-			};
-			if (file_ret)
-				*file_ret = cu->file;
-			return true;
+	uintptr_t die_addr;
+	if (it->index < drgn_dwarf_index_die_vector_size(it->dies)) {
+		die_addr = *drgn_dwarf_index_die_vector_at(it->dies,
+							   it->index++);
+	} else {
+		for (;;) {
+			if (it->num_tags == 0)
+				return false;
+
+			int tag = *it->tags++;
+			it->num_tags--;
+			if (tag == DRGN_DWARF_INDEX_base_type) {
+				// Only look up base types in the global
+				// namespace.
+				if (it->ns->parent)
+					continue;
+				struct nstring key = { it->name, it->name_len };
+				auto map_it = drgn_dwarf_base_type_map_search(&it->ns->dbinfo->dwarf.base_types,
+									      &key);
+				if (map_it.entry) {
+					die_addr = map_it.entry->value;
+					break;
+				}
+			} else {
+				struct nstring key = { it->name, it->name_len };
+				auto map_it =
+					drgn_dwarf_index_die_map_search(&it->ns->map[tag],
+									&key);
+				if (map_it.entry) {
+					die_addr = *drgn_dwarf_index_die_vector_first(&map_it.entry->value);
+					it->dies = &map_it.entry->value;
+					it->index = 1;
+					break;
+				}
+			}
 		}
 	}
-	return false;
+
+	struct drgn_dwarf_index_cu *cu =
+		drgn_dwarf_index_find_cu(it->ns->dbinfo, die_addr);
+	*die_ret = (Dwarf_Die){
+		.addr = (void *)die_addr,
+		.cu = cu->libdw_cu,
+	};
+	if (file_ret)
+		*file_ret = cu->file;
+	return true;
 }
 
 static struct drgn_error *
@@ -2943,25 +2173,34 @@ drgn_namespace_find_child(struct drgn_namespace_dwarf_index *ns,
 		return err;
 
 	struct nstring key = { name, name_len };
-	struct hash_pair hp = drgn_dwarf_index_die_map_hash(&key);
-	struct drgn_dwarf_index_shard *shard =
-		&ns->shards[hash_pair_to_shard(hp)];
-	struct drgn_dwarf_index_die_map_iterator map_it =
-		drgn_dwarf_index_die_map_search_hashed(&shard->map, &key, hp);
-	if (!map_it.entry)
+	struct hash_pair hp = nstring_hash_pair(&key);
+	auto it = drgn_namespace_table_search_hashed(&ns->children, &key, hp);
+	if (it.entry) {
+		*ret = *it.entry;
+		return NULL;
+	}
+
+	auto die_it =
+		drgn_dwarf_index_die_map_search_hashed(&ns->map[DRGN_DWARF_INDEX_namespace],
+						       &key, hp);
+	if (!die_it.entry)
 		return &drgn_not_found;
 
-	uint32_t index = map_it.entry->value;
-	do {
-		struct drgn_dwarf_index_die *die =
-			drgn_dwarf_index_die_vector_at(&shard->dies, index);
-		if (die->tag == DW_TAG_namespace) {
-			*ret = die->namespace;
-			return NULL;
-		}
-		index = die->next;
-	} while (index != UINT32_MAX);
-	return &drgn_not_found;
+	struct drgn_namespace_dwarf_index *new_ns = malloc(sizeof(*new_ns));
+	if (!new_ns)
+		return &drgn_enomem;
+	// Use the name from the DIE map, which has the same lifetime as the
+	// namespace table.
+	drgn_namespace_dwarf_index_init(new_ns, die_it.entry->key.str,
+					die_it.entry->key.len, ns);
+	if (drgn_namespace_table_insert_searched(&ns->children, &new_ns, hp,
+						 NULL) < 0) {
+		drgn_namespace_dwarf_index_deinit(new_ns);
+		free(new_ns);
+		return &drgn_enomem;
+	}
+	*ret = new_ns;
+	return NULL;
 }
 
 /*
@@ -3009,7 +2248,7 @@ drgn_debug_info_main_language(struct drgn_debug_info *dbinfo,
 {
 	struct drgn_error *err;
 	struct drgn_dwarf_index_iterator it;
-	const uint64_t tag = DW_TAG_subprogram;
+	const enum drgn_dwarf_index_tag tag = DRGN_DWARF_INDEX_subprogram;
 	err = drgn_dwarf_index_iterator_init(&it, &dbinfo->dwarf.global, "main",
 					     strlen("main"), &tag, 1);
 	if (err)
@@ -5583,7 +4822,7 @@ out:
  * returns an error.
  */
 static struct drgn_error *
-drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
+drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, int tag,
 			      const char *name, Dwarf_Die *incomplete_die,
 			      const struct drgn_language *lang,
 			      struct drgn_type **ret)
@@ -5595,9 +4834,17 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, uint64_t tag,
 	if (err)
 		return err;
 
+	enum drgn_dwarf_index_tag dwarf_index_tag;
+	switch (tag) {
+#define X(name) case DW_TAG_##name: dwarf_index_tag = DRGN_DWARF_INDEX_##name; break;
+	DRGN_DWARF_INDEX_TAGS
+#undef X
+	default:
+		return NULL;
+	}
 	struct drgn_dwarf_index_iterator it;
-	err = drgn_dwarf_index_iterator_init(&it, ns, name, strlen(name), &tag,
-					     1);
+	err = drgn_dwarf_index_iterator_init(&it, ns, name, strlen(name),
+					     &dwarf_index_tag, 1);
 	if (err)
 		return err;
 
@@ -6676,6 +5923,7 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 				.addr = (void *)die_addr,
 				.cu = cu->libdw_cu,
 			};
+			die = &definition_die;
 			file = cu->file;
 		}
 	}
@@ -6853,27 +6101,27 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 	struct drgn_error *err;
 	struct drgn_debug_info *dbinfo = arg;
 
-	uint64_t tag;
+	enum drgn_dwarf_index_tag tag;
 	switch (kind) {
 	case DRGN_TYPE_INT:
 	case DRGN_TYPE_BOOL:
 	case DRGN_TYPE_FLOAT:
-		tag = DW_TAG_base_type;
+		tag = DRGN_DWARF_INDEX_base_type;
 		break;
 	case DRGN_TYPE_STRUCT:
-		tag = DW_TAG_structure_type;
+		tag = DRGN_DWARF_INDEX_structure_type;
 		break;
 	case DRGN_TYPE_UNION:
-		tag = DW_TAG_union_type;
+		tag = DRGN_DWARF_INDEX_union_type;
 		break;
 	case DRGN_TYPE_CLASS:
-		tag = DW_TAG_class_type;
+		tag = DRGN_DWARF_INDEX_class_type;
 		break;
 	case DRGN_TYPE_ENUM:
-		tag = DW_TAG_enumeration_type;
+		tag = DRGN_DWARF_INDEX_enumeration_type;
 		break;
 	case DRGN_TYPE_TYPEDEF:
-		tag = DW_TAG_typedef;
+		tag = DRGN_DWARF_INDEX_typedef;
 		break;
 	default:
 		UNREACHABLE();
@@ -6897,8 +6145,8 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 			if (err)
 				return err;
 			/*
-			 * For DW_TAG_base_type, we need to check that the type
-			 * we found was the right kind.
+			 * For base_type, we need to check that the type we
+			 * found was the right kind.
 			 */
 			if (drgn_type_kind(ret->type) == kind)
 				return NULL;
@@ -6922,14 +6170,14 @@ drgn_debug_info_find_object(const char *name, size_t name_len,
 	if (err)
 		return err;
 
-	uint64_t tags[3];
+	enum drgn_dwarf_index_tag tags[3];
 	size_t num_tags = 0;
 	if (flags & DRGN_FIND_OBJECT_CONSTANT)
-		tags[num_tags++] = DW_TAG_enumerator;
+		tags[num_tags++] = DRGN_DWARF_INDEX_enumerator;
 	if (flags & DRGN_FIND_OBJECT_FUNCTION)
-		tags[num_tags++] = DW_TAG_subprogram;
+		tags[num_tags++] = DRGN_DWARF_INDEX_subprogram;
 	if (flags & DRGN_FIND_OBJECT_VARIABLE)
-		tags[num_tags++] = DW_TAG_variable;
+		tags[num_tags++] = DRGN_DWARF_INDEX_variable;
 
 	struct drgn_dwarf_index_iterator it;
 	err = drgn_dwarf_index_iterator_init(&it, ns, name, name_len, tags,

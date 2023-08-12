@@ -68,35 +68,76 @@ struct drgn_module_dwarf_info {
 
 void drgn_module_dwarf_info_deinit(struct drgn_module *module);
 
-DEFINE_VECTOR_TYPE(drgn_dwarf_index_pending_die_vector,
-		   struct drgn_dwarf_index_pending_die);
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_die_vector, uintptr_t,
+		   vector_inline_minimal, uint32_t);
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_index_die_map, struct nstring,
+		     struct drgn_dwarf_index_die_vector);
 
-/**
- * Index of DWARF information for a namespace by entity name.
- *
- * This effectively maps a name to a list of DIEs with that name in a namespace.
- * DIEs with the same name and tag and declared in the same file are
- * deduplicated.
- */
+DEFINE_HASH_TABLE_TYPE(drgn_namespace_table,
+		       struct drgn_namespace_dwarf_index *);
+
+/* DWARF tags that we index. */
+#define DRGN_DWARF_INDEX_TAGS	\
+	X(structure_type)	\
+	X(class_type)		\
+	X(union_type)		\
+	X(namespace)		\
+	X(enumeration_type)	\
+	X(typedef)		\
+	X(enumerator)		\
+	X(subprogram)		\
+	X(variable)		\
+	X(base_type)
+
+enum drgn_dwarf_index_tag {
+#define X(name) DRGN_DWARF_INDEX_##name,
+	DRGN_DWARF_INDEX_TAGS
+#undef X
+};
+
+#define X(_) + 1
+enum { DRGN_DWARF_INDEX_NUM_TAGS = DRGN_DWARF_INDEX_TAGS };
+#undef X
+_Static_assert(DRGN_DWARF_INDEX_base_type == DRGN_DWARF_INDEX_NUM_TAGS - 1,
+	       "base_type must be last");
+enum { DRGN_DWARF_INDEX_MAP_SIZE = DRGN_DWARF_INDEX_NUM_TAGS - 1 };
+
+/** DWARF information for a namespace. */
 struct drgn_namespace_dwarf_index {
-	/**
-	 * Index shards.
-	 *
-	 * Indexing is parallelized, so this is sharded to reduce lock
-	 * contention.
-	 */
-	struct drgn_dwarf_index_shard *shards;
 	/** Debugging information cache that owns this index. */
 	struct drgn_debug_info *dbinfo;
-	/** DIEs we have not indexed yet. */
-	struct drgn_dwarf_index_pending_die_vector pending_dies;
+	/** (Null-terminated) name of this namespace. */
+	const char *name;
+	/** Length of @ref name. */
+	size_t name_len;
+	/** Parent namespace, or @c NULL if it is the global namespace. */
+	struct drgn_namespace_dwarf_index *parent;
+	/** Children namespaces indexed by name. */
+	struct drgn_namespace_table children;
+	/**
+	 * Mapping for each @ref drgn_dwarf_index_tag from name to a list of
+	 * matching DIE addresses.
+	 *
+	 * This has a few quirks:
+	 *
+	 * - `base_type` DIEs are in @ref drgn_dwarf_info::base_types, not here.
+	 * - `enumerator` entries store the addresses of the parent
+	 *   `enumeration_type` DIEs instead.
+	 */
+	struct drgn_dwarf_index_die_map map[DRGN_DWARF_INDEX_MAP_SIZE];
+	/**
+	 * Number of CUs that were indexed the last time that this namespace was
+	 * indexed.
+	 */
+	size_t cus_indexed;
+	/**
+	 * Number of `DW_TAG_namespace` DIEs in the parent's index that were
+	 * indexed the last time that this namespace was indexed.
+	 */
+	uint32_t dies_indexed;
 	/** Saved error from a previous index. */
 	struct drgn_error *saved_err;
 };
-
-DEFINE_HASH_MAP_TYPE(drgn_dwarf_specification_map, uintptr_t, uintptr_t);
-
-DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu);
 
 /** Cached type in a @ref drgn_debug_info. */
 struct drgn_dwarf_type {
@@ -111,12 +152,23 @@ struct drgn_dwarf_type {
 	bool is_incomplete_array;
 };
 
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_base_type_map, struct nstring, uintptr_t);
+DEFINE_HASH_MAP_TYPE(drgn_dwarf_specification_map, uintptr_t, uintptr_t);
+DEFINE_VECTOR_TYPE(drgn_dwarf_index_cu_vector, struct drgn_dwarf_index_cu);
 DEFINE_HASH_MAP_TYPE(drgn_dwarf_type_map, const void *, struct drgn_dwarf_type);
 
 /** DWARF debugging information for a program/@ref drgn_debug_info. */
 struct drgn_dwarf_info {
 	/** Global namespace index. */
 	struct drgn_namespace_dwarf_index global;
+	/**
+	 * Mapping from name to `DW_TAG_base_type` DIE address with that name.
+	 *
+	 * Unlike user-defined types and variables, there can only be one base
+	 * type with a given name in the entire program, so we don't store them
+	 * in a @ref drgn_dwarf_index_die_map.
+	 */
+	struct drgn_dwarf_base_type_map base_types;
 	/**
 	 * Map from the address of a (usually non-defining) DIE to the address
 	 * of a DIE with a DW_AT_specification attribute that references it.
