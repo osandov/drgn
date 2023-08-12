@@ -4830,16 +4830,21 @@ find_namespace_containing_die(struct drgn_debug_info *dbinfo,
 		return err;
 
 	for (size_t i = 0; i < num_ancestors; i++) {
-		if (dwarf_tag(&ancestors[i]) != DW_TAG_namespace)
+		switch (dwarf_tag(&ancestors[i])) {
+#define X(name) case DW_TAG_##name: break;
+		DRGN_DWARF_INDEX_NAMESPACE_TAGS
+#undef X
+		default:
 			continue;
+		}
+
 		Dwarf_Attribute attr_mem, *attr;
 		if (!(attr = dwarf_attr_integrate(&ancestors[i], DW_AT_name,
 						  &attr_mem)))
 			continue;
 		const char *name = dwarf_formstring(attr);
 		if (!name) {
-			err = drgn_error_create(DRGN_ERROR_OTHER,
-						"DW_TAG_namespace has invalid DW_AT_name");
+			err = drgn_error_libdw();
 			goto out;
 		}
 

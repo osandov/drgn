@@ -1013,6 +1013,120 @@ class TestTypes(TestCase):
                     ),
                 )
 
+    def test_incomplete_to_complete_nested(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "incomplete_class_die"),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.class_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Foo"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                    ),
+                    (
+                        DwarfLabel("incomplete_class_die"),
+                        DwarfDie(
+                            DW_TAG.class_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Bar"),
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.class_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Bar"),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.class_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Bar"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                ),
+            ),
+            lang=DW_LANG.C_plus_plus,
+        )
+        self.assertIdentical(
+            prog.type("TEST").type.type,
+            prog.class_type("Bar", 0, ()),
+        )
+
+    def test_incomplete_to_complete_nested_specification(self):
+        prog = dwarf_program(
+            wrap_test_type_dies(
+                DwarfDie(
+                    DW_TAG.pointer_type,
+                    (
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 8),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "incomplete_class_die"),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.class_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Foo"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                    ),
+                    (
+                        DwarfLabel("incomplete_class_die"),
+                        DwarfDie(
+                            DW_TAG.class_type,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Bar"),
+                                DwarfAttrib(
+                                    DW_AT.declaration, DW_FORM.flag_present, True
+                                ),
+                            ),
+                        ),
+                        DwarfDie(
+                            DW_TAG.class_type,
+                            (
+                                DwarfAttrib(
+                                    DW_AT.specification,
+                                    DW_FORM.ref4,
+                                    "incomplete_class_die",
+                                ),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 0),
+                            ),
+                        ),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.class_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Bar"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 1),
+                    ),
+                ),
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                ),
+            ),
+            lang=DW_LANG.C_plus_plus,
+        )
+        self.assertIdentical(
+            prog.type("TEST").type.type,
+            prog.class_type("Bar", 0, ()),
+        )
+
     def test_filename(self):
         dies = (
             DwarfDie(
