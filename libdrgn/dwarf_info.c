@@ -565,10 +565,18 @@ drgn_dwarf_index_cu_set_pending(struct drgn_dwarf_index_cu *cu,
 	if (str_offsets) {
 		Dwarf_Word str_offsets_base;
 		if (cu->version >= 5) {
+			Dwarf_Attribute attr_mem, *attr;
 			if ((attr = dwarf_attr(cudie, DW_AT_str_offsets_base,
 					       &attr_mem))) {
 				if (dwarf_formudata(attr, &str_offsets_base))
 					return drgn_error_libdw();
+				if (str_offsets_base > str_offsets->d_size) {
+					return drgn_elf_file_section_error(cu->file,
+									   cu->file->scns[cu->scn],
+									   cu->file->scn_data[cu->scn],
+									   (char *)attr->valp,
+									   "DW_AT_str_offsets_base is out of bounds");
+				}
 			} else {
 				// The default str_offsets_base is the first
 				// entry in .debug_str_offsets after the first
@@ -576,19 +584,19 @@ drgn_dwarf_index_cu_set_pending(struct drgn_dwarf_index_cu *cu,
 				// specification, but it seems to be the
 				// consensus.)
 				str_offsets_base = cu->is_64_bit ? 16 : 8;
+				if (str_offsets_base > str_offsets->d_size) {
+					return drgn_elf_file_section_error(cu->file,
+									   cu->file->scns[DRGN_SCN_DEBUG_STR_OFFSETS],
+									   str_offsets,
+									   (char *)str_offsets->d_buf
+									   + str_offsets->d_size,
+									   ".debug_str_offsets is too small");
+				}
 			}
 		} else {
 			// GNU Debug Fission doesn't have
 			// DW_AT_str_offsets_base; the base is always 0.
 			str_offsets_base = 0;
-		}
-
-		if (str_offsets_base > str_offsets->d_size) {
-			return drgn_elf_file_section_error(cu->file,
-							   cu->file->scns[cu->scn],
-							   cu->file->scn_data[cu->scn],
-							   (char *)attr->valp,
-							   "DW_AT_str_offsets_base is out of bounds");
 		}
 
 		cu->str_offsets = (char *)str_offsets->d_buf + str_offsets_base;
