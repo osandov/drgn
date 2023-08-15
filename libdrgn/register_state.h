@@ -130,6 +130,14 @@ struct drgn_register_state *drgn_register_state_create_impl(uint32_t regs_size,
 					DRGN_REGISTER_NUMBER(last_reg) + 1,	\
 					interrupted)
 
+/**
+ * Create a copy of a @ref drgn_register_state.
+ *
+ * @return New register state on success, @c NULL on failure to allocate memory.
+ */
+struct drgn_register_state *
+drgn_register_state_dup(const struct drgn_register_state *regs);
+
 /** Free a @ref drgn_register_state. */
 static inline void
 drgn_register_state_destroy(struct drgn_register_state *regs)

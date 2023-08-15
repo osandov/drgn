@@ -12,11 +12,16 @@
 	&_state->buf[_state->regs_size];		\
 })
 
+static inline uint32_t drgn_register_state_bitset_size(uint16_t num_regs)
+{
+	return ((uint32_t)num_regs + CHAR_BIT + 1) / CHAR_BIT;
+}
+
 struct drgn_register_state *drgn_register_state_create_impl(uint32_t regs_size,
 							    uint16_t num_regs,
 							    bool interrupted)
 {
-	uint32_t bitset_size = ((uint32_t)num_regs + CHAR_BIT + 1) / CHAR_BIT;
+	uint32_t bitset_size = drgn_register_state_bitset_size(num_regs);
 	size_t size;
 	struct drgn_register_state *regs;
 	if (__builtin_add_overflow(regs_size, bitset_size, &size) ||
@@ -29,6 +34,21 @@ struct drgn_register_state *drgn_register_state_create_impl(uint32_t regs_size,
 	regs->interrupted = interrupted;
 	memset(drgn_register_state_known_bitset(regs), 0, bitset_size);
 	return regs;
+}
+
+struct drgn_register_state *
+drgn_register_state_dup(const struct drgn_register_state *regs)
+{
+	size_t size;
+	struct drgn_register_state *ret;
+	if (__builtin_add_overflow(regs->regs_size,
+				   drgn_register_state_bitset_size(regs->num_regs),
+				   &size) ||
+	    __builtin_add_overflow(size, sizeof(*ret), &size) ||
+	    !(ret = malloc(size)))
+		return NULL;
+	memcpy(ret, regs, size);
+	return ret;
 }
 
 static bool
