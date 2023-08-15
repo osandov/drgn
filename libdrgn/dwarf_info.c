@@ -498,14 +498,14 @@ bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
 	state->cus = malloc_array(state->max_threads, sizeof(*state->cus));
 	if (!state->cus)
 		return false;
-	for (size_t i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < state->max_threads; i++)
 		drgn_dwarf_index_cu_vector_init(&state->cus[i]);
 	return true;
 }
 
 void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state)
 {
-	for (size_t i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < state->max_threads; i++)
 		drgn_dwarf_index_cu_vector_deinit(&state->cus[i]);
 	free(state->cus);
 }
@@ -2699,11 +2699,11 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 
 	size_t old_cus_size = drgn_dwarf_index_cu_vector_size(cus);
 	size_t new_cus_size = old_cus_size;
-	for (size_t i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < state->max_threads; i++)
 		new_cus_size += drgn_dwarf_index_cu_vector_size(&state->cus[i]);
 	if (!drgn_dwarf_index_cu_vector_reserve(cus, new_cus_size))
 		return &drgn_enomem;
-	for (size_t i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < state->max_threads; i++)
 		drgn_dwarf_index_cu_vector_extend(cus, &state->cus[i]);
 
 	// NB: we must call drgn_dwarf_index_cu_clear_pending() on the newly
