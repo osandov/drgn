@@ -243,12 +243,57 @@ get_registers_from_frame_pointer(struct drgn_program *prog,
 	return NULL;
 }
 
+// Unwind from a call instruction, assuming that nothing else has been changed
+// since.
+static struct drgn_error *unwind_call(struct drgn_program *prog,
+				      struct drgn_register_state *regs,
+				      struct drgn_register_state **ret)
+{
+	struct drgn_error *err;
+
+	struct optional_uint64 rsp =
+		drgn_register_state_get_u64(prog, regs, rsp);
+	if (!rsp.has_value)
+		return &drgn_stop;
+
+	// Read the return address from the top of the stack.
+	uint64_t ret_addr;
+	err = drgn_program_read_u64(prog, rsp.value, false, &ret_addr);
+	if (err) {
+		if (err->code == DRGN_ERROR_FAULT) {
+			drgn_error_destroy(err);
+			err = &drgn_stop;
+		}
+		return err;
+	}
+
+	// Most of the registers are unchanged.
+	struct drgn_register_state *tmp = drgn_register_state_dup(regs);
+	if (!tmp)
+		return &drgn_enomem;
+
+	// The PC and rip are the return address we just read.
+	drgn_register_state_set_pc(prog, tmp, ret_addr);
+	drgn_register_state_set_from_u64(prog, tmp, rip, ret_addr);
+	// rsp is after the saved return address.
+	drgn_register_state_set_from_u64(prog, tmp, rsp, rsp.value + 8);
+	*ret = tmp;
+	return NULL;
+}
+
 static struct drgn_error *
 fallback_unwind_x86_64(struct drgn_program *prog,
 		       struct drgn_register_state *regs,
 		       struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
+
+	// If the program counter is 0, it's likely that a NULL function pointer
+	// was called. Assume that the only thing we need to unwind is a single
+	// call instruction.
+	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
+	if (pc.has_value && pc.value == 0)
+		return unwind_call(prog, regs, ret);
 
 	struct optional_uint64 rbp =
 		drgn_register_state_get_u64(prog, regs, rbp);
