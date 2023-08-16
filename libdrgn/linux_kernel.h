@@ -32,6 +32,9 @@ linux_kernel_report_debug_info(struct drgn_debug_info_load_state *load);
 #define KDUMP_SIGNATURE "KDUMP   "
 #define KDUMP_SIG_LEN (sizeof(KDUMP_SIGNATURE) - 1)
 
+#define FLATTENED_SIGNATURE "makedumpfile"
+#define FLATTENED_SIG_LEN (sizeof(FLATTENED_SIGNATURE) - 1)
+
 #ifdef WITH_LIBKDUMPFILE
 struct drgn_error *drgn_program_cache_kdump_notes(struct drgn_program *prog);
 struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog);

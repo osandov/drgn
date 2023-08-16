@@ -207,12 +207,20 @@ drgn_program_check_initialized(struct drgn_program *prog)
 static struct drgn_error *has_kdump_signature(const char *path, int fd,
 					      bool *ret)
 {
-	char signature[KDUMP_SIG_LEN];
+	char signature[max_iconst(KDUMP_SIG_LEN, FLATTENED_SIG_LEN)];
 	ssize_t r = pread_all(fd, signature, sizeof(signature), 0);
 	if (r < 0)
 		return drgn_error_create_os("pread", errno, path);
-	*ret = (r == sizeof(signature)
-		&& memcmp(signature, KDUMP_SIGNATURE, sizeof(signature)) == 0);
+	if (r >= FLATTENED_SIG_LEN
+	    && memcmp(signature, FLATTENED_SIGNATURE, FLATTENED_SIG_LEN) == 0) {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "the given file is in the makedumpfile flattened "
+					 "format, which drgn does not support; use "
+					 "'makedumpfile -R newfile <oldfile' to reassemble "
+					 "the file into a format drgn can read");
+	}
+	*ret = (r >= KDUMP_SIG_LEN
+	        && memcmp(signature, KDUMP_SIGNATURE, KDUMP_SIG_LEN) == 0);
 	return NULL;
 }
 
