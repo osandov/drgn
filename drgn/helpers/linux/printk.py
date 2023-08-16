@@ -170,7 +170,11 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
     LOG_CONT = prog["LOG_CONT"].value_()
 
     result = []
-    log_buf = prog["log_buf"].read_()
+    # Between Linux kernel commits cbd357008604 ("bpf: verifier (add ability to
+    # receive verification log)") (in v3.18) and e7bf8249e8f1 ("bpf:
+    # encapsulate verifier log state into a structure") (in v4.15),
+    # kernel/bpf/verifier.c also contains a variable named log_buf.
+    log_buf = prog.object("log_buf", filename="printk.c").read_()
     current_idx = prog["log_first_idx"].read_()
     next_idx = prog["log_next_idx"].read_()
     seq = prog["log_first_seq"].value_()
