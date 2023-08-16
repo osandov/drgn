@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Optional
 
 import drgn
 from drgn.internal.rlcompleter import Completer
+from drgn.internal.sudohelper import open_via_sudo
 
 __all__ = ("run_interactive", "version_header")
 
@@ -264,7 +265,10 @@ def _main() -> None:
         elif args.pid is not None:
             prog.set_pid(args.pid or os.getpid())
         else:
-            prog.set_kernel()
+            try:
+                prog.set_kernel()
+            except PermissionError:
+                prog.set_core_dump(open_via_sudo("/proc/kcore", os.O_RDONLY))
     except PermissionError as e:
         print(e, file=sys.stderr)
         if args.pid is not None:
