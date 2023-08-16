@@ -227,6 +227,13 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 					       const char *path);
 
 /**
+ * Implement @ref drgn_program_from_core_dump_fd() on an initialized @ref
+ * drgn_program.
+ */
+struct drgn_error *drgn_program_init_core_dump_fd(struct drgn_program *prog,
+						  int fd);
+
+/**
  * Implement @ref drgn_program_from_kernel() on an initialized @ref
  * drgn_program.
  */

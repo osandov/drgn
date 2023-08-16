@@ -451,7 +451,7 @@ class Program:
             return an :class:`Object`.
         """
         ...
-    def set_core_dump(self, path: Path) -> None:
+    def set_core_dump(self, path: Union[Path, int]) -> None:
         """
         Set the program to a core dump.
 
@@ -459,7 +459,7 @@ class Program:
         mapped executable and libraries. It does not load any debugging
         symbols; see :meth:`load_default_debug_info()`.
 
-        :param path: Core dump file path.
+        :param path: Core dump file path or open file descriptor.
         """
         ...
     def set_kernel(self) -> None:
@@ -888,12 +888,12 @@ def filename_matches(haystack: Optional[str], needle: Optional[str]) -> bool:
     """
     ...
 
-def program_from_core_dump(path: Path) -> Program:
+def program_from_core_dump(path: Union[Path, int]) -> Program:
     """
     Create a :class:`Program` from a core dump file. The type of program (e.g.,
     userspace or kernel) is determined automatically.
 
-    :param path: Core dump file path.
+    :param path: Core dump file path or open file descriptor.
     """
     ...
 

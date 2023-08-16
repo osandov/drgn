@@ -515,13 +515,16 @@ static PyObject *Program_set_core_dump(Program *self, PyObject *args,
 {
 	static char *keywords[] = {"path", NULL};
 	struct drgn_error *err;
-	struct path_arg path = {};
+	struct path_arg path = { .allow_fd = true };
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&:set_core_dump",
 					 keywords, path_converter, &path))
 		return NULL;
 
-	err = drgn_program_set_core_dump(&self->prog, path.path);
+	if (path.fd >= 0)
+		err = drgn_program_set_core_dump_fd(&self->prog, path.fd);
+	else
+		err = drgn_program_set_core_dump(&self->prog, path.path);
 	path_cleanup(&path);
 	if (err)
 		return set_drgn_error(err);
@@ -1247,7 +1250,7 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	static char *keywords[] = {"path", NULL};
 	struct drgn_error *err;
-	struct path_arg path = {};
+	struct path_arg path = { .allow_fd = true };
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,
 					 "O&:program_from_core_dump", keywords,
 					 path_converter, &path))
@@ -1260,7 +1263,10 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	err = drgn_program_init_core_dump(&prog->prog, path.path);
+	if (path.fd >= 0)
+		err = drgn_program_init_core_dump_fd(&prog->prog, path.fd);
+	else
+		err = drgn_program_init_core_dump(&prog->prog, path.path);
 	path_cleanup(&path);
 	if (err)
 		return set_drgn_error(err);
