@@ -86,7 +86,29 @@ int path_converter(PyObject *o, void *p)
 	}
 
 	struct path_arg *path = p;
-	if (path->allow_none && o == Py_None) {
+	path->fd = -1;
+	path->path = NULL;
+	path->length = 0;
+	path->bytes = NULL;
+	if (path->allow_fd && PyIndex_Check(o)) {
+		_cleanup_pydecref_ PyObject *fd_obj = PyNumber_Index(o);
+		if (!fd_obj)
+			return 0;
+		int overflow;
+		long fd = PyLong_AsLongAndOverflow(fd_obj, &overflow);
+		if (fd == -1 && PyErr_Occurred())
+			return 0;
+		if (overflow > 0 || fd > INT_MAX) {
+			PyErr_SetString(PyExc_OverflowError,
+					"fd is greater than maximum");
+			return 0;
+		}
+		if (fd < 0) {
+			PyErr_SetString(PyExc_ValueError, "fd is negative");
+			return 0;
+		}
+		path->fd = fd;
+	} else if (path->allow_none && o == Py_None) {
 		path->path = NULL;
 		path->length = 0;
 		path->bytes = NULL;

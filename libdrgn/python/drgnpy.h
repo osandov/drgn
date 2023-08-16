@@ -330,7 +330,9 @@ struct index_arg {
 int index_converter(PyObject *o, void *p);
 
 struct path_arg {
+	bool allow_fd;
 	bool allow_none;
+	int fd;
 	char *path;
 	Py_ssize_t length;
 	PyObject *object;

@@ -226,8 +226,8 @@ static struct drgn_error *has_kdump_signature(const char *path, int fd,
 	return NULL;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
+struct drgn_error *
+drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd, const char *path)
 {
 	struct drgn_error *err;
 	GElf_Ehdr ehdr_mem, *ehdr;
@@ -241,14 +241,7 @@ drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
 	size_t vmcoreinfo_size = 0;
 	bool have_nt_taskstruct = false, is_proc_kcore;
 
-	err = drgn_program_check_initialized(prog);
-	if (err)
-		return err;
-
-	prog->core_fd = open(path, O_RDONLY);
-	if (prog->core_fd == -1)
-		return drgn_error_create_os("open", errno, path);
-
+	prog->core_fd = fd;
 	err = has_kdump_signature(path, prog->core_fd, &is_kdump);
 	if (err)
 		goto out_fd;
@@ -593,6 +586,39 @@ out_fd:
 	close(prog->core_fd);
 	prog->core_fd = -1;
 	return err;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_core_dump_fd(struct drgn_program *prog, int fd)
+{
+	struct drgn_error *err;
+
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
+	#define FORMAT "/proc/self/fd/%d"
+	char path[sizeof(FORMAT) - sizeof("%d") + max_decimal_length(int) + 1];
+	snprintf(path, sizeof(path), FORMAT, fd);
+	#undef FORMAT
+
+	return drgn_program_set_core_dump_fd_internal(prog, fd, path);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_set_core_dump(struct drgn_program *prog, const char *path)
+{
+	struct drgn_error *err;
+
+	err = drgn_program_check_initialized(prog);
+	if (err)
+		return err;
+
+	int fd = open(path, O_RDONLY);
+	if (fd == -1)
+		return drgn_error_create_os("open", errno, path);
+
+	return drgn_program_set_core_dump_fd_internal(prog, fd, path);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1497,6 +1523,21 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	return err;
 }
 
+struct drgn_error *drgn_program_init_core_dump_fd(struct drgn_program *prog, int fd)
+{
+	struct drgn_error *err;
+
+	err = drgn_program_set_core_dump_fd(prog, fd);
+	if (err)
+		return err;
+	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
+	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
+		drgn_error_destroy(err);
+		err = NULL;
+	}
+	return err;
+}
+
 struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
 {
 	struct drgn_error *err;
@@ -1539,6 +1580,28 @@ drgn_program_from_core_dump(const char *path, struct drgn_program **ret)
 
 	drgn_program_init(prog, NULL);
 	err = drgn_program_init_core_dump(prog, path);
+	if (err) {
+		drgn_program_deinit(prog);
+		free(prog);
+		return err;
+	}
+
+	*ret = prog;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_from_core_dump_fd(int fd, struct drgn_program **ret)
+{
+	struct drgn_error *err;
+	struct drgn_program *prog;
+
+	prog = malloc(sizeof(*prog));
+	if (!prog)
+		return &drgn_enomem;
+
+	drgn_program_init(prog, NULL);
+	err = drgn_program_init_core_dump_fd(prog, fd);
 	if (err) {
 		drgn_program_deinit(prog);
 		free(prog);
