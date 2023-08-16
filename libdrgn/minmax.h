@@ -39,13 +39,13 @@
 /** @endcond */
 
 /**
- * Get the minimum of two integer constant expressions with compatible types,
- * resulting in an integer constant expression.
+ * Get the minimum of two integer constant expressions, resulting in an integer
+ * constant expression.
  */
 #define min_iconst(x, y) cmp_iconst_impl(x, y, <)
 /**
- * Get the maximum of two integer constant expressions with compatible types,
- * resulting in an integer constant expression.
+ * Get the maximum of two integer constant expressions, resulting in an integer
+ * constant expression.
  */
 #define max_iconst(x, y) cmp_iconst_impl(x, y, >)
 /** @cond */
@@ -54,14 +54,9 @@
 	 * Enforce that the arguments are integer constant expressions. The	\
 	 * size of a non-VLA array must be an integer constant expression, and	\
 	 * a compound literal cannot be a VLA. Evaluates to non-zero to fall	\
-	 * through to the next check.						\
+	 * through to the comparison.						\
 	 */									\
 	(sizeof((char [(x) * 0 + (y) * 0 + 1]){0}) &&				\
-	/*									\
-	 * Generate a warning if x and y do not have compatible types.		\
-	 * Evaluates to non-zero to fall through to the comparison.		\
-	 */									\
-	 sizeof((typeof(x) *)1 == (typeof(y) *)1) &&				\
 	 (x) op (y) ? (x) : (y))
 /** @endcond */
 
