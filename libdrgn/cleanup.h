@@ -10,6 +10,7 @@
 #ifndef DRGN_CLEANUP_H
 #define DRGN_CLEANUP_H
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #define _cleanup_(x) __attribute__((__cleanup__(x)))
@@ -19,6 +20,14 @@
 static inline void freep(void *p)
 {
 	free(*(void **)p);
+}
+
+/** Call @c fclose() when the variable goes out of scope. */
+#define _cleanup_fclose_ _cleanup_(fclosep)
+static inline void fclosep(FILE **fp)
+{
+	if (*fp)
+		fclose(*fp);
 }
 
 /**
