@@ -412,6 +412,7 @@ struct kernel_module_iterator {
 	/* Address of `struct list_head modules`. */
 	uint64_t head;
 	bool use_sys_module;
+	bool use_sys_module_sections;
 };
 
 static void kernel_module_iterator_deinit(struct kernel_module_iterator *it)
@@ -435,6 +436,7 @@ kernel_module_iterator_init(struct kernel_module_iterator *it,
 	it->build_id_buf = NULL;
 	it->build_id_buf_capacity = 0;
 	it->use_sys_module = use_sys_module;
+	it->use_sys_module_sections = use_sys_module;
 	err = drgn_program_find_type(prog, "struct module", NULL,
 				     &it->module_type);
 	if (err)
@@ -825,14 +827,37 @@ struct kernel_module_section_iterator {
 };
 
 static struct drgn_error *
-kernel_module_section_iterator_init(struct kernel_module_section_iterator *it,
-				    struct kernel_module_iterator *kmod_it)
+kernel_module_section_iterator_init_no_sys_module(struct kernel_module_section_iterator *it,
+						  struct kernel_module_iterator *kmod_it)
 {
 	struct drgn_error *err;
 
+	it->sections_dir = NULL;
+	it->i = 0;
+	it->name = NULL;
+	/* it->nsections = mod->sect_attrs->nsections */
+	err = drgn_object_member(&kmod_it->tmp1, &kmod_it->mod, "sect_attrs");
+	if (err)
+		return err;
+	err = drgn_object_member_dereference(&kmod_it->tmp2, &kmod_it->tmp1,
+					     "nsections");
+	if (err)
+		return err;
+	err = drgn_object_read_unsigned(&kmod_it->tmp2, &it->nsections);
+	if (err)
+		return err;
+	/* kmod_it->tmp1 = mod->sect_attrs->attrs */
+	return drgn_object_member_dereference(&kmod_it->tmp1, &kmod_it->tmp1,
+					      "attrs");
+}
+
+static struct drgn_error *
+kernel_module_section_iterator_init(struct kernel_module_section_iterator *it,
+				    struct kernel_module_iterator *kmod_it)
+{
 	it->kmod_it = kmod_it;
 	it->yielded_percpu = false;
-	if (kmod_it->use_sys_module) {
+	if (kmod_it->use_sys_module_sections) {
 		char *path;
 		if (asprintf(&path, "/sys/module/%s/sections",
 			     kmod_it->name) == -1)
@@ -846,26 +871,7 @@ kernel_module_section_iterator_init(struct kernel_module_section_iterator *it,
 		}
 		return NULL;
 	} else {
-		it->sections_dir = NULL;
-		it->i = 0;
-		it->name = NULL;
-		/* it->nsections = mod->sect_attrs->nsections */
-		err = drgn_object_member(&kmod_it->tmp1, &kmod_it->mod,
-					 "sect_attrs");
-		if (err)
-			return err;
-		err = drgn_object_member_dereference(&kmod_it->tmp2,
-						     &kmod_it->tmp1,
-						     "nsections");
-		if (err)
-			return err;
-		err = drgn_object_read_unsigned(&kmod_it->tmp2,
-						&it->nsections);
-		if (err)
-			return err;
-		/* kmod_it->tmp1 = mod->sect_attrs->attrs */
-		return drgn_object_member_dereference(&kmod_it->tmp1,
-						      &kmod_it->tmp1, "attrs");
+		return kernel_module_section_iterator_init_no_sys_module(it, kmod_it);
 	}
 }
 
@@ -971,8 +977,18 @@ kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
 	}
 
 	if (it->sections_dir) {
-		return kernel_module_section_iterator_next_live(it, name_ret,
-								address_ret);
+		err = kernel_module_section_iterator_next_live(it, name_ret,
+							       address_ret);
+		if (err && err->code == DRGN_ERROR_OS && err->errnum == EACCES) {
+			closedir(it->sections_dir);
+			drgn_error_destroy(err);
+			it->kmod_it->use_sys_module_sections = false;
+			err = kernel_module_section_iterator_init_no_sys_module(it, it->kmod_it);
+			if (err)
+				return err;
+		} else {
+			return err;
+		}
 	}
 
 	if (it->i >= it->nsections)
@@ -1571,7 +1587,9 @@ report_kernel_modules(struct drgn_debug_info_load_state *load,
 	 * If we're debugging the running kernel, we can use
 	 * /sys/module/$module/notes and /sys/module/$module/sections instead of
 	 * getting the equivalent information from the core dump. This fast path
-	 * can be disabled via an environment variable for testing.
+	 * can be disabled via an environment variable for testing. It may also
+	 * be disabled if we encounter permission issues using
+	 * /sys/module/$module/sections.
 	 */
 	bool use_sys_module = false;
 	if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
