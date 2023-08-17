@@ -11,19 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef _OPENMP
-#include <omp.h>
-#else
-static inline int omp_get_thread_num(void)
-{
-	return 0;
-}
-static inline int omp_get_max_threads(void)
-{
-	return 1;
-}
-#endif
-
 #include "array.h"
 #include "binary_buffer.h"
 #include "cleanup.h"
@@ -36,6 +23,7 @@ static inline int omp_get_max_threads(void)
 #include "log.h"
 #include "minmax.h"
 #include "object.h"
+#include "openmp.h"
 #include "path.h"
 #include "program.h"
 #include "platform.h"
@@ -368,18 +356,17 @@ bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
 				 struct drgn_debug_info *dbinfo)
 {
 	state->dbinfo = dbinfo;
-	state->max_threads = omp_get_max_threads();
-	state->cus = malloc_array(state->max_threads, sizeof(*state->cus));
+	state->cus = malloc_array(drgn_num_threads, sizeof(*state->cus));
 	if (!state->cus)
 		return false;
-	for (int i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < drgn_num_threads; i++)
 		drgn_dwarf_index_cu_vector_init(&state->cus[i]);
 	return true;
 }
 
 void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state)
 {
-	for (int i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < drgn_num_threads; i++)
 		drgn_dwarf_index_cu_vector_deinit(&state->cus[i]);
 	free(state->cus);
 }
@@ -1816,22 +1803,22 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			struct drgn_dwarf_base_type_map base_types;
 		};
 	} *maps = NULL;
-	if (state->max_threads > 1) {
-		maps = malloc_array(state->max_threads - 1, sizeof(maps[0]));
+	if (drgn_num_threads > 1) {
+		maps = malloc_array(drgn_num_threads - 1, sizeof(maps[0]));
 		if (!maps)
 			return &drgn_enomem;
 	}
 
 	size_t new_cus_size = drgn_dwarf_index_cu_vector_size(cus);
-	for (int i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < drgn_num_threads; i++)
 		new_cus_size += drgn_dwarf_index_cu_vector_size(&state->cus[i]);
 	if (!drgn_dwarf_index_cu_vector_reserve(cus, new_cus_size))
 		return &drgn_enomem;
-	for (int i = 0; i < state->max_threads; i++)
+	for (int i = 0; i < drgn_num_threads; i++)
 		drgn_dwarf_index_cu_vector_extend(cus, &state->cus[i]);
 
 	struct drgn_error *err = NULL;
-	#pragma omp parallel
+	#pragma omp parallel num_threads(drgn_num_threads)
 	{
 		struct drgn_dwarf_specification_map *specifications;
 		int thread_num = omp_get_thread_num();
@@ -1866,7 +1853,7 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			}
 		}
 	}
-	for (int i = 0; i < state->max_threads - 1; i++) {
+	for (int i = 0; i < drgn_num_threads - 1; i++) {
 		err = drgn_dwarf_specification_map_merge(&dbinfo->dwarf.specifications,
 							 &maps[i].specifications,
 							 err);
@@ -1874,7 +1861,7 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 	if (err)
 		goto err;
 
-	#pragma omp parallel
+	#pragma omp parallel num_threads(drgn_num_threads)
 	{
 		struct drgn_error *thread_err;
 
@@ -1918,14 +1905,14 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 		#pragma omp for schedule(dynamic) nowait
 		for (size_t i = 0; i <= array_size(dbinfo->dwarf.global.map); i++) {
 			if (i < array_size(dbinfo->dwarf.global.map)) {
-				for (int j = 0; j < state->max_threads - 1; j++) {
+				for (int j = 0; j < drgn_num_threads - 1; j++) {
 					thread_err =
 						drgn_dwarf_index_die_map_merge(&dbinfo->dwarf.global.map[i],
 									       &maps[j].map[i],
 									       thread_err);
 				}
 			} else {
-				for (int j = 0; j < state->max_threads - 1; j++) {
+				for (int j = 0; j < drgn_num_threads - 1; j++) {
 					thread_err =
 						drgn_dwarf_base_type_map_merge(&dbinfo->dwarf.base_types,
 									       &maps[j].base_types,
@@ -1998,17 +1985,16 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 		return NULL;
 	}
 
-	int max_threads = omp_get_max_threads();
 	_cleanup_free_ struct drgn_dwarf_index_die_map
 		(*maps)[DRGN_DWARF_INDEX_MAP_SIZE] = NULL;
-	if (max_threads > 1) {
-		maps = malloc_array(max_threads - 1, sizeof(maps[0]));
+	if (drgn_num_threads > 1) {
+		maps = malloc_array(drgn_num_threads - 1, sizeof(maps[0]));
 		if (!maps)
 			return &drgn_enomem;
 	}
 
 	err = NULL;
-	#pragma omp parallel
+	#pragma omp parallel num_threads(drgn_num_threads)
 	{
 		struct drgn_error *thread_err;
 
@@ -2055,7 +2041,7 @@ static struct drgn_error *index_namespace(struct drgn_namespace_dwarf_index *ns)
 
 		#pragma omp for schedule(dynamic) nowait
 		for (size_t i = 0; i < array_size(ns->map); i++) {
-			for (int j = 0; j < max_threads - 1; j++) {
+			for (int j = 0; j < drgn_num_threads - 1; j++) {
 				thread_err =
 					drgn_dwarf_index_die_map_merge(&ns->map[i],
 								       &maps[j][i],

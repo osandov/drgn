@@ -21,6 +21,7 @@
 #include "elf_file.h"
 #include "error.h"
 #include "linux_kernel.h"
+#include "openmp.h"
 #include "platform.h"
 #include "program.h"
 #include "util.h"
@@ -1962,7 +1963,7 @@ drgn_debug_info_update_index(struct drgn_debug_info_load_state *load)
 	if (!drgn_dwarf_index_state_init(&index, dbinfo))
 		return &drgn_enomem;
 	struct drgn_error *err = NULL;
-	#pragma omp parallel for schedule(dynamic)
+	#pragma omp parallel for schedule(dynamic) num_threads(drgn_num_threads)
 	for (size_t i = 0; i < drgn_module_vector_size(&load->new_modules); i++) {
 		if (err)
 			continue;

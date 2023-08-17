@@ -227,7 +227,6 @@ struct drgn_dwarf_index_state {
 	struct drgn_debug_info *dbinfo;
 	/** Per-thread arrays of CUs to be indexed. */
 	struct drgn_dwarf_index_cu_vector *cus;
-	int max_threads;
 };
 
 /**

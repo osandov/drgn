@@ -85,6 +85,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 object.h \
 			 object_index.c \
 			 object_index.h \
+			 openmp.c \
+			 openmp.h \
 			 orc.h \
 			 orc_info.c \
 			 orc_info.h \
