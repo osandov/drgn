@@ -7087,8 +7087,7 @@ set_reg:
 				goto out;
 			}
 			drgn_cfi_row_destroy(*row);
-			drgn_cfi_row_vector_pop(&state_stack);
-			*row = *drgn_cfi_row_vector_last(&state_stack);
+			*row = *drgn_cfi_row_vector_pop(&state_stack);
 			break;
 		case DW_CFA_nop:
 			break;
