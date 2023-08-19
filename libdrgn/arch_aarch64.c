@@ -90,10 +90,8 @@ fallback_unwind_aarch64(struct drgn_program *prog,
 	err = drgn_program_read_memory(prog, frame, fp.value, sizeof(frame),
 				       false);
 	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
 			err = &drgn_stop;
-		}
 		return err;
 	}
 

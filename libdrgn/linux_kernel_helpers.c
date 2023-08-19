@@ -94,10 +94,9 @@ struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
 	uint64_t virt_addr;
 	if (!err) {
 		err = drgn_object_read_unsigned(&tmp, &virt_addr);
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		// Avoid a confusing error message with our arbitrary variable
 		// name.
-		drgn_error_destroy(err);
 		err = drgn_error_create(DRGN_ERROR_OTHER,
 					"could not find variable in direct mapping");
 	}
@@ -248,8 +247,7 @@ struct drgn_error *linux_helper_per_cpu_ptr(struct drgn_object *res,
 					       drgn_object_qualified_type(ptr),
 					       ptr_value + per_cpu_offset.uvalue,
 					       0);
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		err = drgn_object_copy(res, ptr);
 	}
 out:
@@ -317,13 +315,10 @@ struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 	err = drgn_object_member_dereference(&tmp, task, "thread_info");
 	if (!err) {
 		err = drgn_object_member(&tmp, &tmp, "cpu");
-		if (err && err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			err = drgn_object_member_dereference(&tmp, task, "cpu");
-		}
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		// CONFIG_THREAD_INFO_IN_TASK=n
-		drgn_error_destroy(err);
 		err = drgn_object_member_dereference(&tmp, task, "stack");
 		if (err)
 			goto out;
@@ -343,9 +338,8 @@ struct drgn_error *linux_helper_task_cpu(const struct drgn_object *task,
 		err = drgn_object_read_integer(&tmp, &value);
 		if (!err)
 			*ret = value.uvalue;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		// CONFIG_SMP=n
-		drgn_error_destroy(err);
 		*ret = 0;
 		err = NULL;
 	}
@@ -384,8 +378,7 @@ linux_helper_xa_load(struct drgn_object *res,
 			goto out;
 		internal_flag = 2;
 		node_min = 4097;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		// entry = (void *)xa->rnode
 		err = drgn_object_member_dereference(&entry, xa, "rnode");
 		if (err)
@@ -592,10 +585,7 @@ struct drgn_error *linux_helper_idr_find(struct drgn_object *res,
 		if (err)
 			goto out;
 		id -= idr_base.uvalue;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		/* idr_base was added in v4.16. */
-		drgn_error_destroy(err);
-	} else {
+	} else if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		goto out;
 	}
 
@@ -802,8 +792,7 @@ struct drgn_error *linux_helper_find_pid(struct drgn_object *res,
 		if (err)
 			goto out;
 		err = drgn_object_cast(res, qualified_type, &tmp);
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		err = drgn_program_find_object(drgn_object_program(res),
 					       "pid_hash", NULL,
 					       DRGN_FIND_OBJECT_ANY, &tmp);
@@ -868,8 +857,7 @@ struct drgn_error *linux_helper_pid_task(struct drgn_object *res,
 		    + 1];
 	snprintf(member, sizeof(member), PID_LINKS_FORMAT, pid_type);
 	err = drgn_object_container_of(res, &first, task_struct_type, member);
-	if (err && err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		/* container_of(first, struct task_struct, pids[pid_type].node) */
 		snprintf(member, sizeof(member), PIDS_NODE_FORMAT, pid_type);
 #undef PID_LINKS_FORMAT

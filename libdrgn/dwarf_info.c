@@ -4235,7 +4235,7 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 	do {
 		uint64_vector_clear(&stack);
 		err = drgn_eval_dwarf_expression(&ctx, &stack, &remaining_ops);
-		if (err == &drgn_not_found)
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			goto absent;
 		else if (err)
 			goto out;

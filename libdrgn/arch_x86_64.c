@@ -302,10 +302,8 @@ fallback_unwind_x86_64(struct drgn_program *prog,
 
 	err = get_registers_from_frame_pointer(prog, rbp.value, ret);
 	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
 			err = &drgn_stop;
-		}
 		return err;
 	}
 	drgn_register_state_set_cfa(prog, regs, rbp.value + 16);
@@ -472,8 +470,7 @@ linux_kernel_get_initial_registers_x86_64(const struct drgn_object *task_obj,
 		if (err)
 			goto out;
 		err = get_initial_registers_inactive_task_frame(&sp_obj, ret);
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		err = drgn_program_find_type(prog, "void **", NULL,
 					     &frame_type);
 		if (err)
@@ -546,7 +543,7 @@ linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
 	if (!err) {
 		return drgn_program_read_word(prog, page_offset_base_address,
 					      false, address_ret);
-	} else if (err == &drgn_not_found) {
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		/*
 		 * This is only called for pre-4.11 kernels, so we can assume
 		 * the old location.

@@ -633,16 +633,14 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 								"cannot unwind stack of running task");
 					goto out;
 				}
-			} else if (err->code == DRGN_ERROR_LOOKUP) {
-				/*
-				 * The running kernel is !SMP. Assume that the
-				 * task isn't running (which can only be wrong
-				 * for this thread itself).
-				 */
-				drgn_error_destroy(err);
-			} else {
+			} else if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 				goto out;
 			}
+			/*
+			 * The running kernel is !SMP. Assume that the task
+			 * isn't running (which can only be wrong for this
+			 * thread itself).
+			 */
 		} else if (prstatus) {
 			goto prstatus;
 		} else {
@@ -976,10 +974,8 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 	 * If we couldn't read from memory, leave the register unknown instead
 	 * of failing hard.
 	 */
-	if (err && err->code == DRGN_ERROR_FAULT) {
-		drgn_error_destroy(err);
+	if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
 		err = &drgn_not_found;
-	}
 	return err;
 }
 
@@ -1001,8 +997,8 @@ static struct drgn_error *drgn_unwind_cfa(struct drgn_program *prog,
 			     address_size,
 			     drgn_platform_is_little_endian(&prog->platform));
 		drgn_register_state_set_cfa(prog, regs, cfa);
-	} else if (err == &drgn_not_found) {
-		err = NULL;
+	} else {
+		drgn_error_catch(&err, DRGN_ERROR_LOOKUP);
 	}
 	return err;
 }
@@ -1119,7 +1115,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 			goto out;
 
 		err = drgn_unwind_with_cfi(prog, &row, regs, &regs);
-		if (err == &drgn_not_found) {
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			err = prog->platform.arch->fallback_unwind(prog, regs,
 								   &regs);
 		}

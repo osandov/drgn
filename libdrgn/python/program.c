@@ -1040,12 +1040,10 @@ static DrgnObject *Program_subscript(Program *self, PyObject *key)
 	if (clear)
 		clear_drgn_in_python();
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			PyErr_SetObject(PyExc_KeyError, key);
-		} else {
+		else
 			set_drgn_error(err);
-		}
 		return NULL;
 	}
 	return_ptr(ret);
@@ -1075,8 +1073,7 @@ static int Program_contains(Program *self, PyObject *key)
 		clear_drgn_in_python();
 	drgn_object_deinit(&tmp);
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			return 0;
 		} else {
 			set_drgn_error(err);

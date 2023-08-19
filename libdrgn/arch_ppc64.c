@@ -71,10 +71,8 @@ fallback_unwind_ppc64(struct drgn_program *prog,
 					       sizeof(saved_lr), false);
 	}
 	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
 			err = &drgn_stop;
-		}
 		return err;
 	}
 

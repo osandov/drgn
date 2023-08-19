@@ -222,10 +222,8 @@ static struct drgn_error *linux_kernel_get_jiffies(struct drgn_program *prog,
 	err = drgn_program_find_object(prog, "jiffies_64", NULL,
 				       DRGN_FIND_OBJECT_VARIABLE, &jiffies_64);
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			err = &drgn_not_found;
-		}
 		goto out;
 	}
 	if (jiffies_64.kind != DRGN_OBJECT_REFERENCE) {
@@ -286,11 +284,9 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 	err = drgn_program_find_object(prog, "vmemmap_populate", NULL,
 				       DRGN_FIND_OBJECT_FUNCTION, &mem_section);
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			// !CONFIG_SPARSEMEM_VMEMMAP
-			drgn_error_destroy(err);
 			err = &drgn_not_found;
-		}
 		goto out;
 	}
 
@@ -543,13 +539,11 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 		err = drgn_object_member(&it->tmp1, &it->tmp1, "base");
 		if (err)
 			return err;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		// Since Linux kernel commit 7523e4dc5057 ("module: use a
 		// structure to encapsulate layout.") (in v4.5), the base and
 		// size are in the `struct module_layout core_layout` member of
 		// `struct module`.
-		drgn_error_destroy(err);
-
 		err = drgn_object_member(&it->tmp1, &it->mod, "core_layout");
 		if (!err) {
 			err = drgn_object_member(&it->tmp2, &it->tmp1, "size");
@@ -558,11 +552,9 @@ kernel_module_iterator_next(struct kernel_module_iterator *it)
 			err = drgn_object_member(&it->tmp1, &it->tmp1, "base");
 			if (err)
 				return err;
-		} else if (err->code == DRGN_ERROR_LOOKUP) {
+		} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			// Before that, they are directly in the `struct
 			// module`.
-			drgn_error_destroy(err);
-
 			err = drgn_object_member(&it->tmp2, &it->mod,
 						 "core_size");
 			if (err)
@@ -962,9 +954,8 @@ kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
 				*name_ret = ".data..percpu";
 				return NULL;
 			}
-		} else if (err->code == DRGN_ERROR_LOOKUP) {
+		} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			// struct module::percpu doesn't exist if !SMP.
-			drgn_error_destroy(err);
 		} else {
 			return err;
 		}
@@ -999,9 +990,8 @@ kernel_module_section_iterator_next(struct kernel_module_section_iterator *it,
 		if (err)
 			return err;
 	} else {
-		if (err->code != DRGN_ERROR_LOOKUP)
+		if (!drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			return err;
-		drgn_error_destroy(err);
 	}
 	err = drgn_object_member(&kmod_it->tmp3, &kmod_it->tmp2, "name");
 	if (err)

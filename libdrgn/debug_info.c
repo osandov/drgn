@@ -1039,10 +1039,7 @@ userspace_core_identify_file(struct drgn_program *prog,
 	err = drgn_program_read_memory(prog, &ehdr_buf, ehdr_segment->start,
 				       sizeof(ehdr_buf), false);
 	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
-			err = NULL;
-		}
+		drgn_error_catch(&err, DRGN_ERROR_FAULT);
 		return err;
 	}
 	if (memcmp(&ehdr_buf, ELFMAG, SELFMAG) != 0) {
@@ -1082,10 +1079,7 @@ userspace_core_identify_file(struct drgn_program *prog,
 				       ehdr_segment->start + ehdr.e_phoff,
 				       ehdr.e_phnum * ehdr.e_phentsize, false);
 	if (err) {
-		if (err->code == DRGN_ERROR_FAULT) {
-			drgn_error_destroy(err);
-			err = NULL;
-		}
+		drgn_error_catch(&err, DRGN_ERROR_FAULT);
 		return err;
 	}
 	arg.phdr_buf = core->phdr_buf;
@@ -1127,12 +1121,10 @@ userspace_core_identify_file(struct drgn_program *prog,
 						       phdr.p_vaddr + bias,
 						       phdr.p_filesz, false);
 			if (err) {
-				if (err->code == DRGN_ERROR_FAULT) {
-					drgn_error_destroy(err);
+				if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
 					continue;
-				} else {
+				else
 					return err;
-				}
 			}
 			ret->build_id = read_build_id(core->segment_buf,
 						      phdr.p_filesz,

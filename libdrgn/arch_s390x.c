@@ -146,10 +146,8 @@ fallback_unwind_s390x(struct drgn_program *prog,
 	return NULL;
 
 err:
-	if (err->code == DRGN_ERROR_FAULT) {
-		drgn_error_destroy(err);
+	if (drgn_error_catch(&err, DRGN_ERROR_FAULT))
 		return &drgn_stop;
-	}
 	return err;
 }
 

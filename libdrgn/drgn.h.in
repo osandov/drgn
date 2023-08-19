@@ -275,6 +275,24 @@ int drgn_error_dwrite(int fd, struct drgn_error *err);
  */
 void drgn_error_destroy(struct drgn_error *err);
 
+/**
+ * Catch a @ref drgn_error of a particular kind
+ *
+ * If @a errp points to a non-@c NULL error whose code matches @a code, then the
+ * pointed error will be freed and the pointer replaced by @c NULL, and the
+ * function will return @c true. Otherwise, the function returns @c false.
+ */
+static inline bool drgn_error_catch(struct drgn_error **errp,
+				    enum drgn_error_code code)
+{
+	if (*errp && (*errp)->code == code) {
+		drgn_error_destroy(*errp);
+		*errp = NULL;
+		return true;
+	}
+	return false;
+}
+
 /** @} */
 
 

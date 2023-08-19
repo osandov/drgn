@@ -1849,10 +1849,8 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
 	}
 
 err:
-	if (err->code == DRGN_ERROR_TYPE) {
-		drgn_error_destroy(err);
+	if (drgn_error_catch(&err, DRGN_ERROR_TYPE))
 		goto type_error;
-	}
 	return err;
 
 type_error:;

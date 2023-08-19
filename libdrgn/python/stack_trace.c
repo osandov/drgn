@@ -160,12 +160,10 @@ static DrgnObject *StackFrame_subscript(StackFrame *self, PyObject *key)
 	if (clear)
 		clear_drgn_in_python();
 	if (err) {
-		if (err->code == DRGN_ERROR_LOOKUP) {
-			drgn_error_destroy(err);
+		if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 			PyErr_SetObject(PyExc_KeyError, key);
-		} else {
+		else
 			set_drgn_error(err);
-		}
 		return NULL;
 	}
 	return_ptr(ret);
@@ -186,14 +184,12 @@ static int StackFrame_contains(StackFrame *self, PyObject *key)
 	err = drgn_stack_frame_find_object(self->trace->trace, self->i, name,
 					   &tmp);
 	drgn_object_deinit(&tmp);
-	if (!err) {
+	if (!err)
 		return 1;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
-		drgn_error_destroy(err);
+	else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP))
 		return 0;
-	} else {
+	else
 		return -1;
-	}
 }
 
 static PyObject *StackFrame_source(StackFrame *self)

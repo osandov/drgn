@@ -1269,12 +1269,11 @@ drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
 		err = drgn_object_read_integer(&cpu, &cpu_value);
 		if (!err)
 			*ret = cpu_value.uvalue;
-	} else if (err->code == DRGN_ERROR_LOOKUP) {
+	} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 		// On x86 and x86-64 only, the crashed CPU is also in an int
 		// crashing_cpu. Use this as a fallback for kernels before
 		// commit 1717f2096b54 ("panic, x86: Fix re-entrance problem due
 		// to panic on NMI") (in v4.5).
-		drgn_error_destroy(err);
 		err = drgn_program_find_object(prog, "crashing_cpu", NULL,
 					       DRGN_FIND_OBJECT_VARIABLE, &cpu);
 		if (!err) {
@@ -1289,12 +1288,10 @@ drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
 				*ret = 0;
 			else
 				*ret = cpu_value.uvalue;
-		} else if (err->code == DRGN_ERROR_LOOKUP) {
+		} else if (drgn_error_catch(&err, DRGN_ERROR_LOOKUP)) {
 			// Before Linux kernel commit 5bc329503e81 ("x86/mce:
 			// Handle broadcasted MCE gracefully with kexec") (in
 			// v4.12), crashing_cpu is only defined in SMP kernels.
-			drgn_error_destroy(err);
-			err = NULL;
 			*ret = 0;
 		}
 	}
@@ -1490,10 +1487,7 @@ struct drgn_error *drgn_program_init_core_dump(struct drgn_program *prog,
 	if (err)
 		return err;
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-		drgn_error_destroy(err);
-		err = NULL;
-	}
+	drgn_error_catch(&err, DRGN_ERROR_MISSING_DEBUG_INFO);
 	return err;
 }
 
@@ -1505,10 +1499,7 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog)
 	if (err)
 		return err;
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-		drgn_error_destroy(err);
-		err = NULL;
-	}
+	drgn_error_catch(&err, DRGN_ERROR_MISSING_DEBUG_INFO);
 	return err;
 }
 
@@ -1520,10 +1511,7 @@ struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid)
 	if (err)
 		return err;
 	err = drgn_program_load_debug_info(prog, NULL, 0, true, true);
-	if (err && err->code == DRGN_ERROR_MISSING_DEBUG_INFO) {
-		drgn_error_destroy(err);
-		err = NULL;
-	}
+	drgn_error_catch(&err, DRGN_ERROR_MISSING_DEBUG_INFO);
 	return err;
 }
 

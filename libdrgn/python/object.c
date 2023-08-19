@@ -1404,7 +1404,7 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 	}
 	if (err) {
 		Py_CLEAR(res);
-		if (err->code == DRGN_ERROR_TYPE) {
+		if (drgn_error_catch(&err, DRGN_ERROR_TYPE)) {
 			/*
 			 * If the object doesn't have a compound type, raise a
 			 * generic AttributeError (or restore the original one
@@ -1417,7 +1417,6 @@ static PyObject *DrgnObject_getattro(DrgnObject *self, PyObject *attr_name)
 #else
 			PyErr_Restore(exc_type, exc_value, exc_traceback);
 #endif
-			drgn_error_destroy(err);
 			return NULL;
 		} else if (err->code == DRGN_ERROR_LOOKUP) {
 			PyErr_SetString(PyExc_AttributeError, err->message);
