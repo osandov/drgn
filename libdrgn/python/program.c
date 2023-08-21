@@ -311,39 +311,30 @@ static struct drgn_error *py_memory_read_fn(void *buf, uint64_t address,
 					    void *arg, bool physical)
 {
 	struct drgn_error *err;
-	PyGILState_STATE gstate;
-	PyObject *ret;
-	Py_buffer view;
 
-	gstate = PyGILState_Ensure();
-	ret = PyObject_CallFunction(arg, "KKKO", (unsigned long long)address,
-				    (unsigned long long)count,
-				    (unsigned long long)offset,
-				    physical ? Py_True : Py_False);
-	if (!ret) {
-		err = drgn_error_from_python();
-		goto out;
-	}
-	if (PyObject_GetBuffer(ret, &view, PyBUF_SIMPLE) == -1) {
-		err = drgn_error_from_python();
-		goto out_ret;
-	}
+	PyGILState_guard();
+
+	_cleanup_pydecref_ PyObject *ret =
+		PyObject_CallFunction(arg, "KKKO", (unsigned long long)address,
+				      (unsigned long long)count,
+				      (unsigned long long)offset,
+				      physical ? Py_True : Py_False);
+	if (!ret)
+		return drgn_error_from_python();
+	Py_buffer view;
+	if (PyObject_GetBuffer(ret, &view, PyBUF_SIMPLE) == -1)
+		return drgn_error_from_python();
 	if (view.len != count) {
 		PyErr_Format(PyExc_ValueError,
 			     "memory read callback returned buffer of length %zd (expected %zu)",
 			     view.len, count);
 		err = drgn_error_from_python();
-		goto out_view;
+		goto out;
 	}
 	memcpy(buf, view.buf, count);
-
 	err = NULL;
-out_view:
-	PyBuffer_Release(&view);
-out_ret:
-	Py_DECREF(ret);
 out:
-	PyGILState_Release(gstate);
+	PyBuffer_Release(&view);
 	return err;
 }
 
@@ -386,38 +377,28 @@ static struct drgn_error *py_type_find_fn(enum drgn_type_kind kind,
 					  const char *filename, void *arg,
 					  struct drgn_qualified_type *ret)
 {
-	struct drgn_error *err;
-	PyGILState_STATE gstate;
-	PyObject *kind_obj, *name_obj;
-	PyObject *type_obj;
+	PyGILState_guard();
 
-	gstate = PyGILState_Ensure();
-	kind_obj = PyObject_CallFunction(TypeKind_class, "k",
-					 (unsigned long)kind);
-	if (!kind_obj) {
-		err = drgn_error_from_python();
-		goto out_gstate;
-	}
-	name_obj = PyUnicode_FromStringAndSize(name, name_len);
-	if (!name_obj) {
-		err = drgn_error_from_python();
-		goto out_kind_obj;
-	}
-	type_obj = PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOs",
-					 kind_obj, name_obj, filename);
-	if (!type_obj) {
-		err = drgn_error_from_python();
-		goto out_name_obj;
-	}
-	if (type_obj == Py_None) {
-		err = &drgn_not_found;
-		goto out_type_obj;
-	}
+	_cleanup_pydecref_ PyObject *
+		kind_obj = PyObject_CallFunction(TypeKind_class, "k",
+						 (unsigned long)kind);
+	if (!kind_obj)
+		return drgn_error_from_python();
+	_cleanup_pydecref_ PyObject *name_obj =
+		PyUnicode_FromStringAndSize(name, name_len);
+	if (!name_obj)
+		return drgn_error_from_python();
+	_cleanup_pydecref_ PyObject *type_obj =
+		PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOs", kind_obj,
+				      name_obj, filename);
+	if (!type_obj)
+		return drgn_error_from_python();
+	if (type_obj == Py_None)
+		return &drgn_not_found;
 	if (!PyObject_TypeCheck(type_obj, &DrgnType_type)) {
 		PyErr_SetString(PyExc_TypeError,
 				"type find callback must return Type or None");
-		err = drgn_error_from_python();
-		goto out_type_obj;
+		return drgn_error_from_python();
 	}
 	/*
 	 * This check is also done in libdrgn, but we need it here because if
@@ -428,22 +409,12 @@ static struct drgn_error *py_type_find_fn(enum drgn_type_kind kind,
 	    (Program *)PyTuple_GET_ITEM(arg, 0)) {
 		PyErr_SetString(PyExc_ValueError,
 				"type find callback returned type from wrong program");
-		err = drgn_error_from_python();
-		goto out_type_obj;
+		return drgn_error_from_python();
 	}
 
 	ret->type = ((DrgnType *)type_obj)->type;
 	ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
-	err = NULL;
-out_type_obj:
-	Py_DECREF(type_obj);
-out_name_obj:
-	Py_DECREF(name_obj);
-out_kind_obj:
-	Py_DECREF(kind_obj);
-out_gstate:
-	PyGILState_Release(gstate);
-	return err;
+	return NULL;
 }
 
 static PyObject *Program_add_type_finder(Program *self, PyObject *args,
@@ -479,51 +450,31 @@ static struct drgn_error *py_object_find_fn(const char *name, size_t name_len,
 					    enum drgn_find_object_flags flags,
 					    void *arg, struct drgn_object *ret)
 {
-	struct drgn_error *err;
-	PyGILState_STATE gstate;
-	PyObject *name_obj, *flags_obj;
-	PyObject *obj;
+	PyGILState_guard();
 
-	gstate = PyGILState_Ensure();
-	name_obj = PyUnicode_FromStringAndSize(name, name_len);
-	if (!name_obj) {
-		err = drgn_error_from_python();
-		goto out_gstate;
-	}
-	flags_obj = PyObject_CallFunction(FindObjectFlags_class, "i",
-					  (int)flags);
-	if (!flags_obj) {
-		err = drgn_error_from_python();
-		goto out_name_obj;
-	}
-	obj = PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOOs",
-				    PyTuple_GET_ITEM(arg, 0), name_obj,
-				    flags_obj, filename);
-	if (!obj) {
-		err = drgn_error_from_python();
-		goto out_flags_obj;
-	}
-	if (obj == Py_None) {
-		err = &drgn_not_found;
-		goto out_obj;
-	}
+	_cleanup_pydecref_ PyObject *name_obj =
+		PyUnicode_FromStringAndSize(name, name_len);
+	if (!name_obj)
+		return drgn_error_from_python();
+	_cleanup_pydecref_ PyObject *flags_obj =
+		PyObject_CallFunction(FindObjectFlags_class, "i", (int)flags);
+	if (!flags_obj)
+		return drgn_error_from_python();
+	_cleanup_pydecref_ PyObject *obj =
+		PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOOs",
+				      PyTuple_GET_ITEM(arg, 0), name_obj,
+				      flags_obj, filename);
+	if (!obj)
+		return drgn_error_from_python();
+	if (obj == Py_None)
+		return &drgn_not_found;
 	if (!PyObject_TypeCheck(obj, &DrgnObject_type)) {
 		PyErr_SetString(PyExc_TypeError,
 				"object find callback must return Object or None");
-		err = drgn_error_from_python();
-		goto out_obj;
+		return drgn_error_from_python();
 	}
 
-	err = drgn_object_copy(ret, &((DrgnObject *)obj)->obj);
-out_obj:
-	Py_DECREF(obj);
-out_flags_obj:
-	Py_DECREF(flags_obj);
-out_name_obj:
-	Py_DECREF(name_obj);
-out_gstate:
-	PyGILState_Release(gstate);
-	return err;
+	return drgn_object_copy(ret, &((DrgnObject *)obj)->obj);
 }
 
 static PyObject *Program_add_object_finder(Program *self, PyObject *args,

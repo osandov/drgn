@@ -1511,15 +1511,12 @@ static struct drgn_error *py_lazy_object_thunk_fn(struct drgn_object *res,
 {
 	if (!res)
 		return NULL; /* Nothing to free. */
-	PyGILState_STATE gstate = PyGILState_Ensure();
+	PyGILState_guard();
 	DrgnObject *obj = LazyObject_get_borrowed(arg);
-	struct drgn_error *err;
 	if (obj)
-		err = drgn_object_copy(res, &obj->obj);
+		return drgn_object_copy(res, &obj->obj);
 	else
-		err = drgn_error_from_python();
-	PyGILState_Release(gstate);
-	return err;
+		return drgn_error_from_python();
 }
 
 static int lazy_object_from_py(union drgn_lazy_object *lazy_obj,

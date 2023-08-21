@@ -17,6 +17,7 @@
 
 #include "../hash_table.h"
 #include "../hash_table.h"
+#include "../pp.h"
 #include "../program.h"
 
 /* These were added in Python 3.7. */
@@ -78,6 +79,15 @@
 static inline void pydecrefp(void *p)
 {
 	Py_XDECREF(*(PyObject **)p);
+}
+
+/** Scope guard that wraps PyGILState_Ensure() and PyGILState_Release(). */
+#define PyGILState_guard()						\
+	__attribute__((__cleanup__(PyGILState_Releasep), __unused__))	\
+	PyGILState_STATE PP_UNIQUE(gstate) = PyGILState_Ensure()
+static inline void PyGILState_Releasep(PyGILState_STATE *gstatep)
+{
+	PyGILState_Release(*gstatep);
 }
 
 /** Call @c Py_XDECREF() when the variable goes out of scope. */
