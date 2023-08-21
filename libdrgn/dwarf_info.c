@@ -6123,39 +6123,30 @@ find_enclosing_namespace(struct drgn_namespace_dwarf_index *global_namespace,
 	return NULL;
 }
 
-struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
-					     const char *name, size_t name_len,
+struct drgn_error *drgn_debug_info_find_type(uint64_t kinds, const char *name,
+					     size_t name_len,
 					     const char *filename, void *arg,
 					     struct drgn_qualified_type *ret)
 {
 	struct drgn_error *err;
 	struct drgn_debug_info *dbinfo = arg;
 
-	enum drgn_dwarf_index_tag tag;
-	switch (kind) {
-	case DRGN_TYPE_INT:
-	case DRGN_TYPE_BOOL:
-	case DRGN_TYPE_FLOAT:
-		tag = DRGN_DWARF_INDEX_base_type;
-		break;
-	case DRGN_TYPE_STRUCT:
-		tag = DRGN_DWARF_INDEX_structure_type;
-		break;
-	case DRGN_TYPE_UNION:
-		tag = DRGN_DWARF_INDEX_union_type;
-		break;
-	case DRGN_TYPE_CLASS:
-		tag = DRGN_DWARF_INDEX_class_type;
-		break;
-	case DRGN_TYPE_ENUM:
-		tag = DRGN_DWARF_INDEX_enumeration_type;
-		break;
-	case DRGN_TYPE_TYPEDEF:
-		tag = DRGN_DWARF_INDEX_typedef;
-		break;
-	default:
-		UNREACHABLE();
-	}
+	enum drgn_dwarf_index_tag tags[6];
+	size_t num_tags = 0;
+	if (kinds & ((1 << DRGN_TYPE_INT)
+		     | (1 << DRGN_TYPE_BOOL)
+		     | (1 << DRGN_TYPE_FLOAT)))
+		tags[num_tags++] = DRGN_DWARF_INDEX_base_type;
+	if (kinds & (1 << DRGN_TYPE_STRUCT))
+		tags[num_tags++] = DRGN_DWARF_INDEX_structure_type;
+	if (kinds & (1 << DRGN_TYPE_UNION))
+		tags[num_tags++] = DRGN_DWARF_INDEX_union_type;
+	if (kinds & (1 << DRGN_TYPE_CLASS))
+		tags[num_tags++] = DRGN_DWARF_INDEX_class_type;
+	if (kinds & (1 << DRGN_TYPE_ENUM))
+		tags[num_tags++] = DRGN_DWARF_INDEX_enumeration_type;
+	if (kinds & (1 << DRGN_TYPE_TYPEDEF))
+		tags[num_tags++] = DRGN_DWARF_INDEX_typedef;
 
 	struct drgn_namespace_dwarf_index *namespace;
 	err = find_enclosing_namespace(&dbinfo->dwarf.global,
@@ -6163,8 +6154,8 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 	if (err)
 		return err;
 	struct drgn_dwarf_index_iterator it;
-	err = drgn_dwarf_index_iterator_init(&it, namespace, name,
-					     name_len, &tag, 1);
+	err = drgn_dwarf_index_iterator_init(&it, namespace, name, name_len,
+					     tags, num_tags);
 	if (err)
 		return err;
 	Dwarf_Die die;
@@ -6178,7 +6169,7 @@ struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
 			 * For base_type, we need to check that the type we
 			 * found was the right kind.
 			 */
-			if (drgn_type_kind(ret->type) == kind)
+			if (kinds & (UINT64_C(1) << drgn_type_kind(ret->type)))
 				return NULL;
 		}
 	}

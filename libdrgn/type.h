@@ -579,11 +579,11 @@ void drgn_program_deinit_types(struct drgn_program *prog);
  * @return @c NULL on success, &@ref drgn_not_found if the type wasn't found,
  * non-@c NULL on other error.
  */
-struct drgn_error *
-drgn_program_find_type_impl(struct drgn_program *prog,
-			    enum drgn_type_kind kind, const char *name,
-			    size_t name_len, const char *filename,
-			    struct drgn_qualified_type *ret);
+struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,
+					       uint64_t kinds, const char *name,
+					       size_t name_len,
+					       const char *filename,
+					       struct drgn_qualified_type *ret);
 
 /** Find a primitive type in a @ref drgn_program. */
 struct drgn_error *

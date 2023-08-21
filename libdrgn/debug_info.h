@@ -247,8 +247,8 @@ drgn_debug_info_main_language(struct drgn_debug_info *dbinfo,
 			      const struct drgn_language **ret);
 
 /** @ref drgn_type_find_fn() that uses debugging information. */
-struct drgn_error *drgn_debug_info_find_type(enum drgn_type_kind kind,
-					     const char *name, size_t name_len,
+struct drgn_error *drgn_debug_info_find_type(uint64_t kinds, const char *name,
+					     size_t name_len,
 					     const char *filename, void *arg,
 					     struct drgn_qualified_type *ret);
 

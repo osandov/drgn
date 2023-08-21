@@ -581,7 +581,9 @@ bool drgn_filename_matches(const char *haystack, const char *needle);
 /**
  * Callback for finding a type.
  *
- * @param[in] kind Kind of type.
+ * @param[in] kinds Kinds of types to find, as a bitmask of bits shifted by @ref
+ * drgn_type_kind. E.g., `(1 << DRGN_TYPE_STRUCT) | (1 << DRGN_TYPE_CLASS)`
+ * means to find a structure or class type.
  * @param[in] name Name of type (or tag, for structs, unions, and enums). This
  * is @em not null-terminated.
  * @param[in] name_len Length of @p name.
@@ -594,8 +596,8 @@ bool drgn_filename_matches(const char *haystack, const char *needle);
  * considered fatal.
  */
 typedef struct drgn_error *
-(*drgn_type_find_fn)(enum drgn_type_kind kind, const char *name,
-		     size_t name_len, const char *filename, void *arg,
+(*drgn_type_find_fn)(uint64_t kinds, const char *name, size_t name_len,
+		     const char *filename, void *arg,
 		     struct drgn_qualified_type *ret);
 
 /**

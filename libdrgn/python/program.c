@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "drgnpy.h"
+#include "../bitops.h"
 #include "../error.h"
 #include "../hash_table.h"
 #include "../log.h"
@@ -372,49 +373,52 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 	Py_RETURN_NONE;
 }
 
-static struct drgn_error *py_type_find_fn(enum drgn_type_kind kind,
-					  const char *name, size_t name_len,
-					  const char *filename, void *arg,
+static struct drgn_error *py_type_find_fn(uint64_t kinds, const char *name,
+					  size_t name_len, const char *filename,
+					  void *arg,
 					  struct drgn_qualified_type *ret)
 {
 	PyGILState_guard();
 
-	_cleanup_pydecref_ PyObject *
-		kind_obj = PyObject_CallFunction(TypeKind_class, "k",
-						 (unsigned long)kind);
-	if (!kind_obj)
-		return drgn_error_from_python();
 	_cleanup_pydecref_ PyObject *name_obj =
 		PyUnicode_FromStringAndSize(name, name_len);
 	if (!name_obj)
 		return drgn_error_from_python();
-	_cleanup_pydecref_ PyObject *type_obj =
-		PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOs", kind_obj,
-				      name_obj, filename);
-	if (!type_obj)
-		return drgn_error_from_python();
-	if (type_obj == Py_None)
-		return &drgn_not_found;
-	if (!PyObject_TypeCheck(type_obj, &DrgnType_type)) {
-		PyErr_SetString(PyExc_TypeError,
-				"type find callback must return Type or None");
-		return drgn_error_from_python();
-	}
-	/*
-	 * This check is also done in libdrgn, but we need it here because if
-	 * the type isn't from this program, then there's no guarantee that it
-	 * will remain valid after we decrement its reference count.
-	 */
-	if (DrgnType_prog((DrgnType *)type_obj) !=
-	    (Program *)PyTuple_GET_ITEM(arg, 0)) {
-		PyErr_SetString(PyExc_ValueError,
-				"type find callback returned type from wrong program");
-		return drgn_error_from_python();
-	}
 
-	ret->type = ((DrgnType *)type_obj)->type;
-	ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
-	return NULL;
+	int kind;
+	for_each_bit(kind, kinds) {
+		_cleanup_pydecref_ PyObject *
+			kind_obj = PyObject_CallFunction(TypeKind_class, "i",
+							 kind);
+		if (!kind_obj)
+			return drgn_error_from_python();
+		_cleanup_pydecref_ PyObject *type_obj =
+			PyObject_CallFunction(PyTuple_GET_ITEM(arg, 1), "OOs",
+					      kind_obj, name_obj, filename);
+		if (!type_obj)
+			return drgn_error_from_python();
+		if (type_obj == Py_None)
+			continue;
+		if (!PyObject_TypeCheck(type_obj, &DrgnType_type)) {
+			PyErr_SetString(PyExc_TypeError,
+					"type find callback must return Type or None");
+			return drgn_error_from_python();
+		}
+		// This check is also done in libdrgn, but we need it here
+		// because if the type isn't from this program, then there's no
+		// guarantee that it will remain valid after we decrement its
+		// reference count.
+		if (DrgnType_prog((DrgnType *)type_obj)
+		    != (Program *)PyTuple_GET_ITEM(arg, 0)) {
+			PyErr_SetString(PyExc_ValueError,
+					"type find callback returned type from wrong program");
+			return drgn_error_from_python();
+		}
+		ret->type = ((DrgnType *)type_obj)->type;
+		ret->qualifiers = ((DrgnType *)type_obj)->qualifiers;
+		return NULL;
+	}
+	return &drgn_not_found;
 }
 
 static PyObject *Program_add_type_finder(Program *self, PyObject *args,

@@ -1326,23 +1326,23 @@ drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
 	return NULL;
 }
 
-struct drgn_error *
-drgn_program_find_type_impl(struct drgn_program *prog,
-			    enum drgn_type_kind kind, const char *name,
-			    size_t name_len, const char *filename,
-			    struct drgn_qualified_type *ret)
+struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,
+					       uint64_t kinds, const char *name,
+					       size_t name_len,
+					       const char *filename,
+					       struct drgn_qualified_type *ret)
 {
 	struct drgn_type_finder *finder = prog->type_finders;
 	while (finder) {
 		struct drgn_error *err =
-			finder->fn(kind, name, name_len, filename, finder->arg,
+			finder->fn(kinds, name, name_len, filename, finder->arg,
 				   ret);
 		if (!err) {
 			if (drgn_type_program(ret->type) != prog) {
 				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 							 "type find callback returned type from wrong program");
 			}
-			if (drgn_type_kind(ret->type) != kind) {
+			if (!(kinds & (UINT64_C(1) << drgn_type_kind(ret->type)))) {
 				return drgn_error_create(DRGN_ERROR_TYPE,
 							 "type find callback returned wrong kind of type");
 			}
@@ -1445,7 +1445,8 @@ drgn_program_find_primitive_type(struct drgn_program *prog,
 
 	spellings = drgn_primitive_type_spellings[type];
 	for (i = 0; spellings[i]; i++) {
-		err = drgn_program_find_type_impl(prog, kind, spellings[i],
+		err = drgn_program_find_type_impl(prog, UINT64_C(1) << kind,
+						  spellings[i],
 						  strlen(spellings[i]), NULL,
 						  &qualified_type);
 		if (!err && drgn_type_primitive(qualified_type.type) == type) {
