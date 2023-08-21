@@ -4,7 +4,6 @@
 #include <byteswap.h>
 #include <gelf.h>
 #include <limits.h>
-#include <stdalign.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,12 +21,13 @@ void drgn_module_orc_info_deinit(struct drgn_module *module)
 	free(module->orc.pc_offsets);
 }
 
-// Getters for "raw" ORC information, i.e., before it is byte swapped or
-// normalized to the latest version.
+// Getters for "raw" ORC information, i.e., before it is aligned, byte swapped,
+// and normalized to the latest version.
 static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module,
 				       unsigned int i)
 {
-	int32_t offset = module->orc.pc_offsets[i];
+	int32_t offset;
+	memcpy(&offset, &module->orc.pc_offsets[i], sizeof(offset));
 	if (drgn_elf_file_bswap(module->debug_file))
 		offset = bswap_32(offset);
 	return module->orc.pc_base + UINT64_C(4) * i + offset;
@@ -36,7 +36,8 @@ static inline uint64_t drgn_raw_orc_pc(struct drgn_module *module,
 static bool
 drgn_raw_orc_entry_is_terminator(struct drgn_module *module, unsigned int i)
 {
-	uint16_t flags = module->orc.entries[i].flags;
+	uint16_t flags;
+	memcpy(&flags, &module->orc.entries[i].flags, sizeof(flags));
 	if (drgn_elf_file_bswap(module->debug_file))
 		flags = bswap_16(flags);
 	if (module->orc.version >= 3) {
@@ -310,14 +311,6 @@ static struct drgn_error *drgn_read_orc_sections(struct drgn_module *module)
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 ".orc_unwind_ip and/or .orc_unwind has invalid size");
 	}
-	if ((uintptr_t)orc_unwind_ip->d_buf % alignof(int32_t)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 ".orc_unwind_ip is not sufficiently aligned");
-	}
-	if ((uintptr_t)orc_unwind->d_buf % alignof(struct drgn_orc_entry)) {
-		return drgn_error_create(DRGN_ERROR_OTHER,
-					 ".orc_unwind is not sufficiently aligned");
-	}
 
 	module->orc.pc_offsets = orc_unwind_ip->d_buf;
 	module->orc.entries = orc_unwind->d_buf;
@@ -380,8 +373,9 @@ static struct drgn_error *drgn_debug_info_parse_orc(struct drgn_module *module)
 	const int version = module->orc.version;
 	for (unsigned int i = 0; i < num_entries; i++) {
 		unsigned int index = indices[i];
-		int32_t offset = orig_offsets[index];
-		entries[i] = orig_entries[index];
+		int32_t offset;
+		memcpy(&offset, &orig_offsets[index], sizeof(offset));
+		memcpy(&entries[i], &orig_entries[index], sizeof(entries[i]));
 		if (bswap) {
 			offset = bswap_32(offset);
 			entries[i].sp_offset = bswap_16(entries[i].sp_offset);
