@@ -2303,6 +2303,12 @@ c_parse_specifier_qualifier_list(struct drgn_program *prog,
 					return err;
 				ret->qualifiers = 0;
 				goto out;
+			} else if (((struct drgn_c_family_lexer *)lexer)->cpp) {
+				kinds = ((1 << DRGN_TYPE_STRUCT)
+					 | (1 << DRGN_TYPE_UNION)
+					 | (1 << DRGN_TYPE_CLASS)
+					 | (1 << DRGN_TYPE_ENUM)
+					 | (1 << DRGN_TYPE_TYPEDEF));
 			} else {
 				kinds = 1 << DRGN_TYPE_TYPEDEF;
 			}

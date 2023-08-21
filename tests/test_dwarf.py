@@ -4224,6 +4224,93 @@ class TestTypes(TestCase):
             ),
         )
 
+    def test_cpp_compound_type_specifiers(self):
+        for keyword, tag in (
+            ("struct", DW_TAG.structure_type),
+            ("union", DW_TAG.union_type),
+            ("class", DW_TAG.class_type),
+        ):
+            with self.subTest(keyword=keyword):
+                prog = dwarf_program(
+                    (
+                        DwarfDie(
+                            tag,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "Foo"),
+                                DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                            ),
+                            (
+                                DwarfDie(
+                                    DW_TAG.member,
+                                    (
+                                        DwarfAttrib(DW_AT.name, DW_FORM.string, "bar"),
+                                        DwarfAttrib(
+                                            DW_AT.data_member_location, DW_FORM.data1, 0
+                                        ),
+                                        DwarfAttrib(
+                                            DW_AT.type, DW_FORM.ref4, "int_die"
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        *labeled_int_die,
+                    ),
+                )
+                self.assertRaises(LookupError, prog.type, "Foo")
+                prog.language = Language.CPP
+                self.assertIdentical(prog.type("Foo"), prog.type(keyword + " Foo"))
+
+    def test_cpp_enum_specifier(self):
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.enumeration_type,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Foo"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                        DwarfAttrib(DW_AT.byte_size, DW_FORM.data1, 4),
+                    ),
+                    (
+                        DwarfDie(
+                            DW_TAG.enumerator,
+                            (
+                                DwarfAttrib(DW_AT.name, DW_FORM.string, "BAR"),
+                                DwarfAttrib(DW_AT.const_value, DW_FORM.data2, 1337),
+                            ),
+                        ),
+                    ),
+                ),
+                *labeled_int_die,
+            ),
+        )
+        self.assertRaises(LookupError, prog.type, "Foo")
+        prog.language = Language.CPP
+        self.assertIdentical(prog.type("Foo"), prog.type("enum Foo"))
+
+    def test_cpp_typedef(self):
+        prog = dwarf_program(
+            (
+                DwarfDie(
+                    DW_TAG.typedef,
+                    (
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "INT"),
+                        DwarfAttrib(DW_AT.type, DW_FORM.ref4, "int_die"),
+                    ),
+                ),
+                *labeled_int_die,
+                DwarfDie(
+                    DW_TAG.subprogram,
+                    (DwarfAttrib(DW_AT.name, DW_FORM.string, "main"),),
+                ),
+            ),
+            lang=DW_LANG.C_plus_plus,
+        )
+        self.assertIdentical(
+            prog.type("INT"),
+            prog.typedef_type("INT", prog.int_type("int", 4, True)),
+        )
+
 
 class TestObjects(TestCase):
     def test_constant_signed_enum(self):
