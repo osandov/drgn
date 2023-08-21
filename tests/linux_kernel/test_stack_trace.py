@@ -43,7 +43,7 @@ class TestStackTrace(LinuxKernelTestCase):
                 prog.set_kernel()
                 self._load_debug_info(prog)
             self._test_drgn_test_kthread_trace(
-                self.prog.stack_trace(self.prog["drgn_test_kthread"].pid)
+                prog.stack_trace(prog["drgn_test_kthread"].pid)
             )
 
     @skip_unless_have_test_kmod
