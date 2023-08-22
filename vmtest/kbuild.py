@@ -112,7 +112,7 @@ async def apply_patches(kernel_dir: Path) -> None:
         .decode()
         .strip()
     )
-    logging.info("applying patches for kernel version %s", version)
+    logger.info("applying patches for kernel version %s", version)
     any_applied = False
     for patch in _PATCHES:
         for min_version, max_version in patch.versions:
@@ -122,7 +122,7 @@ async def apply_patches(kernel_dir: Path) -> None:
                 break
         else:
             continue
-        logging.info("applying %s", patch.name)
+        logger.info("applying %s", patch.name)
         any_applied = True
         proc = await asyncio.create_subprocess_exec(
             "git",
@@ -147,9 +147,9 @@ async def apply_patches(kernel_dir: Path) -> None:
                 sys.stderr.buffer.write(stderr)
                 sys.stderr.buffer.flush()
                 raise
-            logging.info("already applied")
+            logger.info("already applied")
     if not any_applied:
-        logging.info("no patches")
+        logger.info("no patches")
 
 
 class KBuild:

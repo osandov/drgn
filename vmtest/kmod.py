@@ -23,7 +23,7 @@ def build_kmod(download_dir: Path, kernel: Kernel) -> Path:
     kmod_source_dir = Path("tests/linux_kernel/kmod")
     source_files = ("drgn_test.c", "Makefile")
     if out_of_date(kmod, *[kmod_source_dir / filename for filename in source_files]):
-        logging.info("building %s", kmod)
+        logger.info("building %s", kmod)
 
         compiler = downloaded_compiler(download_dir, kernel.arch)
         kernel_build_dir = kernel.path / "build"
@@ -55,7 +55,7 @@ def build_kmod(download_dir: Path, kernel: Kernel) -> Path:
             )
             (tmp_dir / "drgn_test.ko").rename(kmod)
     else:
-        logging.info("%s is up to date", kmod)
+        logger.info("%s is up to date", kmod)
     return kmod
 
 

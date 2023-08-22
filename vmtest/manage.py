@@ -360,7 +360,7 @@ async def main() -> None:
         if to_build:
             logger.info("kernel versions to build:")
             for tag, tag_arches_to_build in to_build:
-                logging.info(
+                logger.info(
                     "  %s (%s)",
                     tag,
                     ", ".join(
