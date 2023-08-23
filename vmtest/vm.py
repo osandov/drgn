@@ -34,7 +34,11 @@ set -eu
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 {kdump_needs_nosmp}
 
-trap 'poweroff -f' EXIT
+# On exit, power off. We don't use the poweroff command because very minimal
+# installations don't have it (e.g., the debootstrap minbase variant). The
+# magic SysRq returns immediately without waiting for the poweroff, so we sleep
+# for a while and panic if it takes longer than that.
+trap 'echo o > /proc/sysrq-trigger && sleep 60' exit
 
 umask 022
 
