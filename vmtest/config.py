@@ -204,6 +204,8 @@ class Architecture(NamedTuple):
     kernel_arch: str
     # Directory under arch/ in the Linux kernel source tree.
     kernel_srcarch: str
+    # Name of the architecture in Debian.
+    debian_arch: str
     # Linux kernel configuration options.
     kernel_config: str
     # Flavor-specific Linux kernel configuration options.
@@ -224,6 +226,7 @@ ARCHITECTURES = {
             name="aarch64",
             kernel_arch="arm64",
             kernel_srcarch="arm64",
+            debian_arch="arm64",
             kernel_config="""
                 CONFIG_PCI_HOST_GENERIC=y
                 CONFIG_RTC_CLASS=y
@@ -253,6 +256,7 @@ ARCHITECTURES = {
             name="arm",
             kernel_arch="arm",
             kernel_srcarch="arm",
+            debian_arch="armhf",
             kernel_config="""
                 CONFIG_NR_CPUS=8
                 CONFIG_HIGHMEM=y
@@ -286,6 +290,7 @@ ARCHITECTURES = {
             name="ppc64",
             kernel_arch="powerpc",
             kernel_srcarch="powerpc",
+            debian_arch="ppc64el",
             kernel_config="""
                 CONFIG_PPC64=y
                 CONFIG_CPU_LITTLE_ENDIAN=y
@@ -308,6 +313,7 @@ ARCHITECTURES = {
             name="s390x",
             kernel_arch="s390",
             kernel_srcarch="s390",
+            debian_arch="s390x",
             kernel_config="""
                 # Needed for CONFIG_KEXEC_FILE.
                 CONFIG_CRYPTO_SHA256_S390=y
@@ -321,6 +327,7 @@ ARCHITECTURES = {
             name="x86_64",
             kernel_arch="x86_64",
             kernel_srcarch="x86",
+            debian_arch="amd64",
             kernel_config="""
                 CONFIG_RTC_CLASS=y
                 CONFIG_RTC_DRV_CMOS=y
