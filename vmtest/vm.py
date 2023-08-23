@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+from typing import Optional
 
 from util import nproc, out_of_date
 from vmtest.config import HOST_ARCHITECTURE, Kernel, local_kernel
@@ -187,7 +188,15 @@ class LostVMError(Exception):
     pass
 
 
-def run_in_vm(command: str, kernel: Kernel, root_dir: Path, build_dir: Path) -> int:
+def run_in_vm(
+    command: str, kernel: Kernel, root_dir: Optional[Path], build_dir: Path
+) -> int:
+    if root_dir is None:
+        if kernel.arch is HOST_ARCHITECTURE:
+            root_dir = Path("/")
+        else:
+            root_dir = build_dir / kernel.arch.name / "rootfs"
+
     qemu_exe = "qemu-system-" + kernel.arch.name
     match = re.search(
         r"QEMU emulator version ([0-9]+(?:\.[0-9]+)*)",
@@ -230,11 +239,21 @@ def run_in_vm(command: str, kernel: Kernel, root_dir: Path, build_dir: Path) -> 
 
         init_path = temp_path / "init"
 
+        unshare_args = []
         if root_dir == Path("/"):
             host_virtfs_args = []
             init = str(init_path.resolve())
             host_dir_prefix = ""
         else:
+            # Try to detect if the rootfs was created without privileges (e.g.,
+            # by vmtest.rootfsbuild) and remap the UIDs/GIDs if so.
+            if (root_dir / "bin" / "mount").stat().st_uid != 0:
+                unshare_args = [
+                    "unshare",
+                    "--map-root-user",
+                    "--map-users=auto",
+                    "--map-groups=auto",
+                ]
             host_virtfs_args = [
                 "-virtfs",
                 f"local,path=/,mount_tag=host,{virtfs_options}",
@@ -258,6 +277,8 @@ def run_in_vm(command: str, kernel: Kernel, root_dir: Path, build_dir: Path) -> 
         with subprocess.Popen(
             [
                 # fmt: off
+                *unshare_args,
+
                 qemu_exe, *kvm_args,
 
                 # Limit the number of cores to 8, otherwise we can reach an OOM troubles.
@@ -333,7 +354,7 @@ if __name__ == "__main__":
         metavar="DIR",
         type=Path,
         default="build/vmtest",
-        help="directory for build artifacts and downloaded kernels",
+        help="directory for vmtest artifacts",
     )
     parser.add_argument(
         "--lost-status",
@@ -356,9 +377,9 @@ if __name__ == "__main__":
         "-r",
         "--root-directory",
         metavar="DIR",
-        default=Path("/"),
+        default=argparse.SUPPRESS,
         type=Path,
-        help="directory to use as root directory in VM",
+        help="directory to use as root directory in VM (default: / for the host architecture, $directory/$arch/rootfs otherwise)",
     )
     parser.add_argument(
         "command",
@@ -375,6 +396,8 @@ if __name__ == "__main__":
         kernel = local_kernel(args.kernel.arch, Path(args.kernel.pattern))
     else:
         kernel = next(download(args.directory, [args.kernel]))  # type: ignore[assignment]
+    if not hasattr(args, "root_directory"):
+        args.root_directory = None
 
     try:
         command = " ".join(args.command) if args.command else "sh -i"
