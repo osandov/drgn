@@ -47,6 +47,7 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 cfi.c \
 			 cfi.h \
 			 cityhash.h \
+			 cleanup.h \
 			 debug_info.c \
 			 debug_info.h \
 			 drgn_section_name_to_index.inc \
