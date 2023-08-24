@@ -3,19 +3,21 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import argparse
-from pathlib import Path
+import subprocess
 import re
 import sys
 
 
 def main() -> None:
     argparse.ArgumentParser(
-        description="Generate tests/elf.py from libdrgn/include/elf.h"
+        description="Generate tests/elf.py from elf.h"
     ).parse_args()
 
-    contents = Path("libdrgn/include/elf.h").read_text()
-    contents = re.sub(r"/\*.*?\*/", "", contents, flags=re.DOTALL)
-    contents = re.sub(r"\\\n", "", contents)
+    contents = subprocess.check_output(
+        ["gcc", "-dD", "-E", "-"],
+        input="#include <elf.h>\n",
+        universal_newlines=True,
+    )
 
     enums = {
         name: []

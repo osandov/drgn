@@ -152,7 +152,8 @@ class SHT(enum.IntEnum):
     PREINIT_ARRAY = 0x10
     GROUP = 0x11
     SYMTAB_SHNDX = 0x12
-    NUM = 0x13
+    RELR = 0x13
+    NUM = 0x14
     LOOS = 0x60000000
     GNU_ATTRIBUTES = 0x6FFFFFF5
     GNU_HASH = 0x6FFFFFF6
