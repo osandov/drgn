@@ -3,15 +3,13 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import argparse
-import subprocess
 import re
+import subprocess
 import sys
 
 
 def main() -> None:
-    argparse.ArgumentParser(
-        description="Generate tests/elf.py from elf.h"
-    ).parse_args()
+    argparse.ArgumentParser(description="Generate tests/elf.py from elf.h").parse_args()
 
     contents = subprocess.check_output(
         ["gcc", "-dD", "-E", "-"],
