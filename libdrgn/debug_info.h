@@ -135,6 +135,7 @@ struct drgn_debug_info {
 
 	/** DWARF frontend library handle. */
 	Dwfl *dwfl;
+	uint64_t next_et_rel_addr;
 	/** Modules keyed by build ID and address range. */
 	struct drgn_module_table modules;
 	/**

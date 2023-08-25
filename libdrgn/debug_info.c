@@ -1377,6 +1377,32 @@ userspace_report_elf_file(struct drgn_debug_info_load_state *load,
 		err = elf_address_range(elf, 0, &start, &end);
 		if (err)
 			goto err_close;
+	} else if (ehdr->e_type == ET_REL) {
+		uint64_t *next_addr = &load->dbinfo->next_et_rel_addr;
+		Elf_Scn *scn = NULL;
+		while ((scn = elf_nextscn(elf, scn))) {
+			GElf_Shdr *shdr, shdr_mem;
+			shdr = gelf_getshdr(scn, &shdr_mem);
+			if (!shdr)
+				return drgn_error_libelf();
+			if (!(shdr->sh_flags & SHF_ALLOC))
+				continue;
+			// Round up to next multiple of shdr->sh_addralign.
+			if (shdr->sh_addralign > 1) {
+				*next_addr = (((*next_addr + shdr->sh_addralign - 1)
+					       / shdr->sh_addralign)
+					      * shdr->sh_addralign);
+			}
+			if (start == 0)
+				start = *next_addr;
+			shdr->sh_addr = *next_addr;
+			if (!gelf_update_shdr(scn, shdr)) {
+				err = drgn_error_libelf();
+				goto err_close;
+			}
+			*next_addr += shdr->sh_size;
+			end = *next_addr;
+		}
 	}
 
 	return drgn_debug_info_report_elf(load, path, fd, elf, start, end, NULL,
@@ -2105,6 +2131,8 @@ struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 		free(dbinfo);
 		return drgn_error_libdwfl();
 	}
+	// Arbitrary non-zero starting address.
+	dbinfo->next_et_rel_addr = UINT64_C(1) << 20;
 	drgn_module_table_init(&dbinfo->modules);
 	c_string_set_init(&dbinfo->module_names);
 	drgn_dwarf_info_init(dbinfo);
