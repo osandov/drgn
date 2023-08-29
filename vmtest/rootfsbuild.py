@@ -163,19 +163,18 @@ if __name__ == "__main__":
         help="make the rootfs a Btrfs subvolume and create a read-only snapshot",
     )
     parser.add_argument(
-        "architectures",
-        choices=["foreign", "all", *sorted(ARCHITECTURES)],
-        nargs="*",
-        # It would make more sense for this to be ["foreign"], but argparse
-        # checks that the default itself is in choices, not each item. We fix
-        # it up to a list below.
-        default="foreign",
-        help='architecture to build for, or "foreign" for all architectures other than the host architecture; may be given multiple times',
+        "-a",
+        "--architecture",
+        dest="architectures",
+        action="append",
+        choices=["all", "foreign", *sorted(ARCHITECTURES)],
+        default=argparse.SUPPRESS,
+        help='architecture to build for, or "foreign" for all architectures other than the host architecture; may be given multiple times (default: foreign)',
     )
     args = parser.parse_args()
 
-    if isinstance(args.architectures, str):
-        args.architectures = [args.architectures]
+    if not hasattr(args, "architectures"):
+        args.architectures = ["foreign"]
     architectures = []
     for name in args.architectures:
         if name == "foreign":
