@@ -4864,17 +4864,26 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, int tag,
 	if (err)
 		return err;
 
-	enum drgn_dwarf_index_tag dwarf_index_tag;
+	enum drgn_dwarf_index_tag dwarf_index_tags[2];
+	size_t num_dwarf_index_tags = 1;
 	switch (tag) {
-#define X(name) case DW_TAG_##name: dwarf_index_tag = DRGN_DWARF_INDEX_##name; break;
+#define X(name) case DW_TAG_##name: dwarf_index_tags[0] = DRGN_DWARF_INDEX_##name; break;
 	DRGN_DWARF_INDEX_TAGS
 #undef X
 	default:
 		return NULL;
 	}
+	if (dwarf_index_tags[0] == DRGN_DWARF_INDEX_structure_type) {
+		dwarf_index_tags[1] = DRGN_DWARF_INDEX_class_type;
+		num_dwarf_index_tags = 2;
+	} else if (dwarf_index_tags[0] == DRGN_DWARF_INDEX_class_type) {
+		dwarf_index_tags[1] = DRGN_DWARF_INDEX_structure_type;
+		num_dwarf_index_tags = 2;
+	}
 	struct drgn_dwarf_index_iterator it;
 	err = drgn_dwarf_index_iterator_init(&it, ns, name, strlen(name),
-					     &dwarf_index_tag, 1);
+					     dwarf_index_tags,
+					     num_dwarf_index_tags);
 	if (err)
 		return err;
 
