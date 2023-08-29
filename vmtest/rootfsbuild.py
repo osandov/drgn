@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description="build root filesystems for vmtest. "
-        "This requires debootstrap(8) and unprivileged user namespaces.",
+        "This requires debootstrap(8), qemu-user-static, and unprivileged user namespaces.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
