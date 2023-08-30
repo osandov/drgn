@@ -500,6 +500,11 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 
 		Elf_Data *debug_abbrev =
 			cu_file->scn_data[DRGN_SCN_DEBUG_ABBREV];
+		Dwarf_Off abbrev_contrib_offset;
+		if (dwarf_cu_abbrev_contrib_offset(cudie.cu,
+						   &abbrev_contrib_offset))
+			return drgn_error_libdw();
+		abbrev_offset += abbrev_contrib_offset;
 		if (abbrev_offset > debug_abbrev->d_size) {
 			return drgn_elf_file_section_error(cu_file,
 							   cu_file->scns[scn],
@@ -514,50 +519,18 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 			cu_file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
 		const char *str_offsets = NULL;
 		if (debug_str_offsets) {
-			Dwarf_Word str_offsets_base;
-			if (version >= 5) {
-				Dwarf_Attribute attr_mem, *attr;
-				if ((attr = dwarf_attr(&cudie,
-						       DW_AT_str_offsets_base,
-						       &attr_mem))) {
-					if (dwarf_formudata(attr,
-							    &str_offsets_base))
-						return drgn_error_libdw();
-					if (str_offsets_base
-					    > debug_str_offsets->d_size) {
-						return drgn_elf_file_section_error(cu_file,
-										   cu_file->scns[scn],
-										   cu_file->scn_data[scn],
-										   (char *)attr->valp,
-										   "DW_AT_str_offsets_base is out of bounds");
-					}
-				} else {
-					// The default str_offsets_base is the
-					// first entry in .debug_str_offsets
-					// after the first header. (This isn't
-					// explicit in the DWARF 5
-					// specification, but it seems to be the
-					// consensus.)
-					str_offsets_base = 2 * offset_size;
-					if (str_offsets_base
-					    > debug_str_offsets->d_size) {
-						return drgn_elf_file_section_error(cu_file,
-										   cu_file->scns[DRGN_SCN_DEBUG_STR_OFFSETS],
-										   debug_str_offsets,
-										   (char *)debug_str_offsets->d_buf
-										   + debug_str_offsets->d_size,
-										   ".debug_str_offsets is too small");
-					}
-				}
-			} else {
-				// GNU Debug Fission doesn't have
-				// DW_AT_str_offsets_base; the base is always 0.
-				str_offsets_base = 0;
+			Dwarf_Off str_off;
+			if (dwarf_cu_str_off(cudie.cu, &str_off))
+				return drgn_error_libdw();
+			if (str_off > debug_str_offsets->d_size) {
+				return drgn_elf_file_section_error(cu_file,
+								   cu_file->scns[scn],
+								   cu_file->scn_data[scn],
+								   cu_buf,
+								   "str_off is out of bounds");
 			}
-
 			str_offsets =
-				(char *)debug_str_offsets->d_buf
-				+ str_offsets_base;
+				(char *)debug_str_offsets->d_buf + str_off;
 		}
 
 		struct drgn_dwarf_index_cu *cu =
@@ -2813,19 +2786,9 @@ static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_elf_file *file,
 
 	assert(offset_size == 4 || offset_size == 8);
 
-	Dwarf_Attribute attr_mem, *attr;
-	Dwarf_Word base;
-	if ((attr = dwarf_attr(cu_die, DW_AT_loclists_base, &attr_mem))) {
-		if (dwarf_formudata(attr, &base))
-			return drgn_error_libdw();
-	} else {
-		// The DWARF 5 specification doesn't say what it means if there
-		// is no DW_AT_loclists_base. In practice, it seems like split
-		// units don't have DW_AT_loclist_base, and the base is intended
-		// to be the first entry in .debug_loclists immediately after
-		// the first header.
-		base = offset_size == 8 ? 20 : 12;
-	}
+	Dwarf_Off base;
+	if (dwarf_cu_locs_base(cu_die->cu, &base))
+		return drgn_error_libdw();
 
 	if (!file->scns[DRGN_SCN_DEBUG_LOCLISTS]) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
@@ -3016,6 +2979,10 @@ drgn_dwarf4_split_location_list(struct drgn_elf_file *file, Dwarf_Word offset,
 	err = drgn_elf_file_cache_section(file, DRGN_SCN_DEBUG_LOC);
 	if (err)
 		return err;
+	Dwarf_Off locs_base = 0;
+	if (dwarf_cu_locs_base(cu_die->cu, &locs_base))
+		return drgn_error_libdw();
+	offset += locs_base;
 	struct drgn_elf_file_section_buffer buffer;
 	drgn_elf_file_section_buffer_init_index(&buffer, file,
 						DRGN_SCN_DEBUG_LOC);
