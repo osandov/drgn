@@ -833,6 +833,13 @@ struct drgn_error *drgn_program_find_type(struct drgn_program *prog,
 					  const char *filename,
 					  struct drgn_qualified_type *ret);
 
+static inline struct drgn_error *
+drgn_program_find_type_by_pure_name(struct drgn_program *prog, const char *name,
+				    struct drgn_qualified_type *ret)
+{
+	return drgn_program_find_type(prog, name, NULL, ret);
+}
+
 /**
  * Find an object in a program by name.
  *
