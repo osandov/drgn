@@ -241,6 +241,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &Thread_type) ||
 	    add_type(m, &ThreadIterator_type) ||
 	    add_type(m, &TypeEnumerator_type) ||
+	    add_type(m, &TypeIterator_type) ||
 	    add_type(m, &TypeMember_type) ||
 	    add_type(m, &TypeParameter_type) ||
 	    add_type(m, &TypeTemplateParameter_type) ||

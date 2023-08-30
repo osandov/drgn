@@ -3180,6 +3180,26 @@ struct drgn_error *drgn_object_locate(const struct drgn_object_locator *locator,
 
 /** @} */
 
+struct drgn_type_iterator;
+
+struct drgn_error *drgn_type_iterator_create(struct drgn_program *prog,
+					     struct drgn_type_iterator **ret);
+
+void drgn_type_iterator_destroy(struct drgn_type_iterator *iter);
+
+struct drgn_error *drgn_type_iterator_next(struct drgn_type_iterator *iter,
+					   struct drgn_qualified_type **ret);
+
+struct drgn_func_iterator;
+
+struct drgn_error *drgn_func_iterator_create(struct drgn_program *prog,
+					     struct drgn_func_iterator **ret);
+
+void drgn_func_iterator_destroy(struct drgn_func_iterator *iter);
+
+struct drgn_error *drgn_func_iterator_next(struct drgn_func_iterator *iter,
+					   struct drgn_qualified_type **ret);
+
 /**
  * @defgroup Threads Threads
  *

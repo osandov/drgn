@@ -2235,3 +2235,26 @@ err_builder:
 
 	return_ptr(type_obj);
 }
+
+static void TypeIterator_dealloc(TypeIterator *self) {
+	drgn_type_iterator_destroy(self->iterator);
+	Py_XDECREF(self->prog);
+}
+
+static PyObject *TypeIterator_next(TypeIterator *self) {
+	struct drgn_qualified_type *type;
+	struct drgn_error *err = drgn_type_iterator_next(self->iterator, &type);
+	if (err)
+		return set_drgn_error(err);
+	return type ? DrgnType_wrap(*type) : NULL;
+}
+
+PyTypeObject TypeIterator_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	.tp_name = "_drgn._TypeIterator",
+	.tp_basicsize = sizeof(TypeIterator),
+	.tp_dealloc = (destructor)TypeIterator_dealloc,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_iter = PyObject_SelfIter,
+	.tp_iternext = (iternextfunc)TypeIterator_next,
+};

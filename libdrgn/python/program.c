@@ -1017,6 +1017,25 @@ static PyObject *Program__log(Program *self, PyObject *args, PyObject *kwds)
 	Py_RETURN_NONE;
 }
 
+static PyObject *Program_types(Program *self)
+{
+	struct drgn_type_iterator *iterator;
+	struct drgn_error *err;
+	err = drgn_type_iterator_create(&self->prog, &iterator);
+	if (err)
+		return set_drgn_error(err);
+	TypeIterator *ret = (TypeIterator *)TypeIterator_type.tp_alloc(
+		&TypeIterator_type, 0);
+	if (!ret) {
+		drgn_type_iterator_destroy(iterator);
+		return NULL;
+	}
+	Py_INCREF(self);
+	ret->prog = self;
+	ret->iterator = iterator;
+	return (PyObject *)ret;
+}
+
 static DrgnObject *Program_subscript(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
@@ -1171,6 +1190,8 @@ static PyMethodDef Program_methods[] = {
 	 drgn_Program_threads_DOC},
 	{"thread", (PyCFunction)Program_thread,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_thread_DOC},
+	{"types", (PyCFunction)Program_types,
+	 METH_NOARGS, ""},
 	{"main_thread", (PyCFunction)Program_main_thread, METH_NOARGS,
 	 drgn_Program_main_thread_DOC},
 	{"crashed_thread", (PyCFunction)Program_crashed_thread, METH_NOARGS,
