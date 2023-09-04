@@ -35,6 +35,7 @@ __all__ = (
     "skb_is_nonlinear",
     "skb_tailroom",
     "skb_availroom",
+    "skb_dump",
 )
 
 
@@ -267,51 +268,86 @@ def skb_shinfo(skb: Object) -> Object:
         return cast("struct skb_shared_info *", skb.end)
 
 
-def skb_headlen(skb: Object) -> int:
-    prog = skb.prog_
+def skb_headlen(skb: Object) -> Object:
     return skb.len - skb.data_len
 
 
-def skb_headroom(skb: Object) -> int:
-    prog = skb.prog_
+def skb_headroom(skb: Object) -> Object:
     return skb.data - skb.head
 
 
-def skb_is_nonlinear(skb: Object) -> int:
-    prog = skb.prog_
+def skb_is_nonlinear(skb: Object) -> Object:
     return skb.data_len
 
 
-def skb_tailroom(skb: Object) -> int:
-    prog = skb.prog_
+def skb_tailroom(skb: Object) -> IntegerLike:
     if skb_is_nonlinear(skb):
         return 0
     return skb.end - skb.tail
 
 
-def skb_availroom(skb: Object) -> int:
-    prog = skb.prog_
+def skb_availroom(skb: Object) -> IntegerLike:
     if skb_is_nonlinear(skb):
         return 0
 
     return skb.end - skb.tail - skb.reserved_tailroom
 
 
-def skb_network_header_len(skb: Object) -> int:
-    prog = skb.prog_
-    return skb.transport_header - skb.network_header;
+def skb_network_header_len(skb: Object) -> Object:
+    return skb.transport_header - skb.network_header
 
 
-def skb_mac_header_len(skb: Object) -> int:
-    prog = skb.prog_
-    return skb.network_header - skb.mac_header;
+def skb_mac_header_len(skb: Object) -> Object:
+    return skb.network_header - skb.mac_header
 
 
-def skb_mac_header_was_set(skb: Object) -> int:
-    prog = skb.prog_
-    return skb.mac_header != 65535;
+def skb_mac_header_was_set(skb: Object) -> bool:
+    return skb.mac_header != 65535
 
 
-def skb_transport_header_was_set(skb: Object) -> int:
-    prog = skb.prog_
-    return skb.transport_header != 65535;
+def skb_transport_header_was_set(skb: Object) -> bool:
+    return skb.transport_header != 65535
+
+
+def skb_dump(skb: Object) -> None:
+    headroom = skb_headroom(skb)
+    tailroom = skb_tailroom(skb)
+    sh = skb_shinfo(skb)
+
+    has_mac = skb_mac_header_was_set(skb)
+    has_trans = skb_transport_header_was_set(skb)
+
+    print(
+        "skb len=%u headroom=%u headlen=%u tailroom=%u\n"
+        "mac=(%d,%d) net=(%d,%d) trans=%d\n"
+        "shinfo(txflags=%u nr_frags=%u gso(size=%hu type=%u segs=%hu))\n"
+        "csum(0x%x ip_summed=%u complete_sw=%u valid=%u level=%u)\n"
+        "hash(0x%x sw=%u l4=%u) proto=0x%04x pkttype=%u iif=%d\n"
+        % (
+            int(skb.len),
+            int(headroom),
+            int(skb_headlen(skb)),
+            int(tailroom),
+            int(skb.mac_header) if has_mac else -1,
+            int(skb_mac_header_len(skb)) if has_mac else -1,
+            int(skb.network_header),
+            int(skb_network_header_len(skb)) if has_trans else -1,
+            int(skb.transport_header) if has_trans else -1,
+            int(sh.tx_flags),
+            int(sh.nr_frags),
+            int(sh.gso_size),
+            int(sh.gso_type),
+            int(sh.gso_segs),
+            int(skb.csum),
+            int(skb.ip_summed),
+            int(skb.csum_complete_sw),
+            int(skb.csum_valid),
+            int(skb.csum_level),
+            int(skb.hash),
+            int(skb.sw_hash),
+            int(skb.l4_hash),
+            int(skb.protocol),
+            int(skb.pkt_type),
+            int(skb.skb_iif),
+        )
+    )
