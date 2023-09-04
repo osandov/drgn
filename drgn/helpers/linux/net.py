@@ -30,6 +30,11 @@ __all__ = (
     "sk_fullsock",
     "sk_nulls_for_each",
     "skb_shinfo",
+    "skb_headlen",
+    "skb_headroom",
+    "skb_is_nonlinear",
+    "skb_tailroom",
+    "skb_availroom",
 )
 
 
@@ -260,3 +265,53 @@ def skb_shinfo(skb: Object) -> Object:
         return cast("struct skb_shared_info *", skb.head + skb.end)
     else:
         return cast("struct skb_shared_info *", skb.end)
+
+
+def skb_headlen(skb: Object) -> int:
+    prog = skb.prog_
+    return skb.len - skb.data_len
+
+
+def skb_headroom(skb: Object) -> int:
+    prog = skb.prog_
+    return skb.data - skb.head
+
+
+def skb_is_nonlinear(skb: Object) -> int:
+    prog = skb.prog_
+    return skb.data_len
+
+
+def skb_tailroom(skb: Object) -> int:
+    prog = skb.prog_
+    if skb_is_nonlinear(skb):
+        return 0
+    return skb.end - skb.tail
+
+
+def skb_availroom(skb: Object) -> int:
+    prog = skb.prog_
+    if skb_is_nonlinear(skb):
+        return 0
+
+    return skb.end - skb.tail - skb.reserved_tailroom
+
+
+def skb_network_header_len(skb: Object) -> int:
+    prog = skb.prog_
+    return skb.transport_header - skb.network_header;
+
+
+def skb_mac_header_len(skb: Object) -> int:
+    prog = skb.prog_
+    return skb.network_header - skb.mac_header;
+
+
+def skb_mac_header_was_set(skb: Object) -> int:
+    prog = skb.prog_
+    return skb.mac_header != 65535;
+
+
+def skb_transport_header_was_set(skb: Object) -> int:
+    prog = skb.prog_
+    return skb.transport_header != 65535;
