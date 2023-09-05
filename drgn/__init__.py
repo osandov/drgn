@@ -142,7 +142,7 @@ __all__ = (
 
 
 if sys.version_info >= (3, 8):
-    _open_code = io.open_code
+    _open_code = io.open_code  # novermin
 else:
     from typing import BinaryIO
 

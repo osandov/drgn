@@ -1,23 +1,44 @@
+exclude: ^contrib/
 repos:
 -   repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
     -   id: isort
         name: isort (python)
-        exclude: ^contrib/
 -   repo: https://github.com/psf/black
     rev: 23.7.0
     hooks:
     -   id: black
-        exclude: ^contrib/
 -   repo: https://github.com/pycqa/flake8
     rev: 6.0.0
     hooks:
     -   id: flake8
-        exclude: ^contrib/
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v0.931
     hooks:
     -   id: mypy
         args: [--show-error-codes, --strict, --no-warn-return-any, --no-warn-unused-ignores]
         files: ^drgn/.*\.py|_drgn.pyi$
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+    -   id: trailing-whitespace
+        exclude_types: [diff]
+    -   id: end-of-file-fixer
+        exclude_types: [diff]
+    -   id: check-yaml
+    -   id: check-added-large-files
+    -   id: debug-statements
+    -   id: check-merge-conflict
+-   repo: https://github.com/netromdk/vermin
+    rev: v1.5.2
+    hooks:
+    -   id: vermin
+        # The vmtest package in general should adhere to the same version
+        # requirements as drgn, with the following exceptions: The manage &
+        # kbuild scripts are used by Github Actions and need not be broadly
+        # compatible. The rootfsbuild script is used to create test environments
+        # for other architectures, and is sufficiently advanced that it isn't
+        # expected to be run by most users or even most developers.
+        exclude: "^vmtest/(manage|kbuild|rootfsbuild).py$"
+        args: ['-t=3.6-', '--violations', '--eval-annotations']
