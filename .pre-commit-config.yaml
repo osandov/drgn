@@ -37,8 +37,6 @@ repos:
         # The vmtest package in general should adhere to the same version
         # requirements as drgn, with the following exceptions: The manage &
         # kbuild scripts are used by Github Actions and need not be broadly
-        # compatible. The rootfsbuild script is used to create test environments
-        # for other architectures, and is sufficiently advanced that it isn't
-        # expected to be run by most users or even most developers.
-        exclude: "^vmtest/(manage|kbuild|rootfsbuild).py$"
+        # compatible.
+        exclude: "^vmtest/(manage|kbuild).py$"
         args: ['-t=3.6-', '--violations', '--eval-annotations']

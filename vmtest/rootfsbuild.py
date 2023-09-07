@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
     if sys.version_info < (3, 8):
         from typing_extensions import Literal
     else:
-        from typing import Literal
+        from typing import Literal  # novermin
 
 from vmtest.config import ARCHITECTURES, HOST_ARCHITECTURE, Architecture
 
