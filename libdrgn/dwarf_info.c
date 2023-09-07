@@ -1792,6 +1792,12 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 	if (dbinfo->dwarf.global.saved_err)
 		return drgn_error_copy(dbinfo->dwarf.global.saved_err);
 
+	size_t new_cus_size = drgn_dwarf_index_cu_vector_size(cus);
+	for (int i = 0; i < drgn_num_threads; i++)
+		new_cus_size += drgn_dwarf_index_cu_vector_size(&state->cus[i]);
+	if (new_cus_size == drgn_dwarf_index_cu_vector_size(cus))
+		return NULL;
+
 	// Per-thread array of maps to populate. Thread 0 uses the maps in the
 	// dbinfo directly. These are merged into the dbinfo and freed.
 	_cleanup_free_ union {
@@ -1809,9 +1815,6 @@ drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state)
 			return &drgn_enomem;
 	}
 
-	size_t new_cus_size = drgn_dwarf_index_cu_vector_size(cus);
-	for (int i = 0; i < drgn_num_threads; i++)
-		new_cus_size += drgn_dwarf_index_cu_vector_size(&state->cus[i]);
 	if (!drgn_dwarf_index_cu_vector_reserve(cus, new_cus_size))
 		return &drgn_enomem;
 	for (int i = 0; i < drgn_num_threads; i++)
