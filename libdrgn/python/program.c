@@ -10,6 +10,7 @@
 #include "../string_builder.h"
 #include "../util.h"
 #include "../vector.h"
+#include "../linux_kernel.h"
 
 DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq);
 
@@ -238,10 +239,13 @@ static void drgnpy_end_blocking(struct drgn_program *prog, void *arg, void *stat
 static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 			    PyObject *kwds)
 {
-	static char *keywords[] = { "platform", NULL };
+	static char *keywords[] = { "platform", "vmcoreinfo", NULL };
 	PyObject *platform_obj = NULL;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:Program", keywords,
-					 &platform_obj))
+	const char *vmcoreinfo = NULL;
+	Py_ssize_t vmcoreinfo_size;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O$z#:Program", keywords,
+					 &platform_obj, &vmcoreinfo,
+					 &vmcoreinfo_size))
 		return NULL;
 
 	struct drgn_platform *platform;
@@ -267,6 +271,12 @@ static Program *Program_new(PyTypeObject *subtype, PyObject *args,
 	drgn_program_init(&prog->prog, platform);
 	drgn_program_set_blocking_callback(&prog->prog, drgnpy_begin_blocking,
 					   drgnpy_end_blocking, NULL);
+	if (vmcoreinfo) {
+		struct drgn_error *err = drgn_program_parse_vmcoreinfo(
+			&prog->prog, vmcoreinfo, vmcoreinfo_size);
+		if (err)
+			return set_drgn_error(err);
+	}
 	if (Program_init_logging(prog))
 		return NULL;
 	return_ptr(prog);

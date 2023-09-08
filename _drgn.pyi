@@ -67,7 +67,12 @@ class Program:
     :meth:`[] <.__getitem__>` operator.
     """
 
-    def __init__(self, platform: Optional[Platform] = None) -> None:
+    def __init__(
+        self,
+        platform: Optional[Platform] = None,
+        *,
+        vmcoreinfo: Union[bytes, str, None] = None,
+    ) -> None:
         """
         Create a ``Program`` with no target program. It is usually more
         convenient to use one of the :ref:`api-program-constructors`.
@@ -75,6 +80,9 @@ class Program:
         :param platform: The platform of the program, or ``None`` if it should
             be determined automatically when a core dump or symbol file is
             added.
+        :param vmcoreinfo: Optionally provide the ``VMCOREINFO`` note data for
+            Linux kernel core dumps, which will override any detected data. When
+            not provided or ``None``, automatically detect the info.
         """
         ...
     flags: ProgramFlags
