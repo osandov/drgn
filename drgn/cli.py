@@ -209,6 +209,20 @@ def _main() -> None:
         help="don't load any debugging symbols that were not explicitly added with -s",
     )
 
+    advanced_group = parser.add_argument_group("advanced")
+    advanced_group.add_argument(
+        "--architecture",
+        metavar="ARCH",
+        choices=[a.name for a in drgn.Architecture]
+        + [a.name.lower() for a in drgn.Architecture],
+        help="set the program architecture, in case it can't be auto-detected",
+    )
+    advanced_group.add_argument(
+        "--vmcoreinfo",
+        type=str,
+        metavar="PATH",
+        help="path to vmcoreinfo file (overrides any already present in the file)",
+    )
     parser.add_argument(
         "--log-level",
         choices=["debug", "info", "warning", "error", "critical", "none"],
@@ -258,7 +272,16 @@ def _main() -> None:
     else:
         logger.setLevel(args.log_level.upper())
 
-    prog = drgn.Program()
+    platform = None
+    if args.architecture:
+        platform = drgn.Platform(drgn.Architecture[args.architecture.upper()])
+
+    vmcoreinfo = None
+    if args.vmcoreinfo is not None:
+        with open(args.vmcoreinfo, "rb") as f:
+            vmcoreinfo = f.read()
+
+    prog = drgn.Program(platform=platform, vmcoreinfo=vmcoreinfo)
     try:
         if args.core is not None:
             prog.set_core_dump(args.core)
