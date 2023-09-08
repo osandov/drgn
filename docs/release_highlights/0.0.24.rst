@@ -1,0 +1,115 @@
+0.0.24 (Released September 8th, 2023)
+=====================================
+
+These are some of the highlights of drgn 0.0.24. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.24>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+
+Linked List Length Helper
+-------------------------
+
+This release added :func:`~drgn.helpers.linux.list.list_count_nodes()`, which
+returns the length of a Linux kernel linked list::
+
+    >>> list_count_nodes(prog["workqueues"].address_of_())
+    29
+
+Networking Helpers
+------------------
+
+This release added a couple of Linux kernel networking helpers requested by
+Jakub Kicinski.
+
+:func:`~drgn.helpers.linux.net.netdev_priv()` returns the private data of a
+network device::
+
+    >>> dev = netdev_get_by_name(prog, "wlp0s20f3")
+    >>> netdev_priv(dev)
+    (void *)0xffff9419c9dec9c0
+    >>> netdev_priv(dev, "struct ieee80211_sub_if_data")
+    *(struct ieee80211_sub_if_data *)0xffff9419c9dec9c0 = {
+        ...
+    }
+
+:func:`~drgn.helpers.linux.net.skb_shinfo()` returns the shared info for a
+socket buffer.
+
+C++ Lookups
+-----------
+
+This release added support for a few C++ features.
+
+Simple Type Specifiers
+^^^^^^^^^^^^^^^^^^^^^^
+
+Unlike C, C++ allows referring to ``class``, ``struct``, ``union``, and
+``enum`` types without their respective keywords. For example:
+
+.. code-block:: c++
+
+    class Foo { ... };
+    Foo foo; // Equivalent to class Foo foo;
+
+Previously, drgn always required the keyword, so ``prog.type("class Foo")``
+would succeed but ``prog.type("Foo")`` would fail with a :class:`LookupError`.
+This requirement was surprising to C++ developers, so it was removed. For C++
+programs, ``prog.type("Foo")`` will now find a ``class``, ``struct``,
+``union``, or ``enum`` type named ``Foo`` (for C programs, the keyword is still
+required).
+
+Nested Classes
+^^^^^^^^^^^^^^
+
+Again unlike C, C++ allows ``class``, ``struct``, and ``union`` types to be
+defined inside of other ``class``, ``struct``, and ``union`` types. For example:
+
+.. code-block:: c++
+
+    class Foo {
+    public:
+      class Bar { ... };
+      ...
+    };
+    Foo::Bar bar;
+
+drgn can now find such types with ``prog.type("Foo::Bar")``.
+
+Member Functions
+^^^^^^^^^^^^^^^^
+
+C++ supports member functions (a.k.a. methods). For example:
+
+.. code-block:: c++
+
+    class Foo {
+      int method() { ... }
+    };
+
+drgn can now find member functions with :meth:`drgn.Program.function()`,
+:meth:`drgn.Program.object()`, or :meth:`drgn.Program[]
+<drgn.Program.__getitem__>` (e.g., ``prog.function("Foo::method")`` or
+``prog["Foo::method"]``).
+
+Split DWARF
+-----------
+
+drgn now supports split DWARF object (.dwo) files. This is enabled by the
+``-gsplit-dwarf`` option in GCC and Clang or for the Linux kernel with
+``CONFIG_DEBUG_INFO_SPLIT=y``.
+
+Split DWARF package (.dwp) file support is still in progress.
+
+Performance Improvements
+------------------------
+
+Thierry Treyer found a bug that made us search through much more debugging
+information than necessary when getting a stack trace. Fixing this made stack
+traces almost twice as fast.
+
+The C++ lookup and split DWARF support mentioned above require processing more
+information in drgn's debugging information indexing step, which it does on
+startup and whenever debugging information is manually loaded. This could've
+been a performance regression, but instead, indexing was reworked from the
+ground up in a way that's usually *faster* despite the added features.
