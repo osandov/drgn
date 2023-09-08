@@ -86,6 +86,7 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	kdump_ctx_t *ctx;
 	kdump_status ks;
 	bool had_platform;
+	bool had_vmcoreinfo = prog->vmcoreinfo.raw;
 
 	ctx = kdump_new();
 	if (!ctx) {
@@ -113,30 +114,32 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 		goto err;
 	}
 
+	if (!prog->vmcoreinfo.raw) {
 #if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 4, 1)
-	char *vmcoreinfo;
+		char *vmcoreinfo;
 #else
-	const char *vmcoreinfo;
+		const char *vmcoreinfo;
 #endif
-	ks = kdump_vmcoreinfo_raw(ctx, &vmcoreinfo);
-	if (ks != KDUMP_OK) {
-		err = drgn_error_format(DRGN_ERROR_OTHER,
-					"kdump_vmcoreinfo_raw: %s",
-					kdump_get_err(ctx));
-		goto err;
-	}
+		ks = kdump_vmcoreinfo_raw(ctx, &vmcoreinfo);
+		if (ks != KDUMP_OK) {
+			err = drgn_error_format(DRGN_ERROR_OTHER,
+						"kdump_vmcoreinfo_raw: %s",
+						kdump_get_err(ctx));
+			goto err;
+		}
 
-	err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo,
-					    strlen(vmcoreinfo) + 1);
-	/*
-	 * As of libkdumpfile 0.4.1, the string returned by
-	 * kdump_vmcoreinfo_raw() needs to be freed.
-	 */
+		err = drgn_program_parse_vmcoreinfo(prog, vmcoreinfo,
+						strlen(vmcoreinfo) + 1);
+		/*
+		* As of libkdumpfile 0.4.1, the string returned by
+		* kdump_vmcoreinfo_raw() needs to be freed.
+		*/
 #if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 4, 1)
-	free(vmcoreinfo);
+		free(vmcoreinfo);
 #endif
-	if (err)
-		goto err;
+		if (err)
+			goto err;
+	}
 
 	had_platform = prog->has_platform;
 	if (!had_platform) {
@@ -173,8 +176,10 @@ err_platform:
 	prog->has_platform = had_platform;
 err:
 	// Reset anything we parsed from vmcoreinfo
-	free(prog->vmcoreinfo.raw);
-	memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
+	if (!had_vmcoreinfo) {
+		free(prog->vmcoreinfo.raw);
+		memset(&prog->vmcoreinfo, 0, sizeof(prog->vmcoreinfo));
+	}
 	kdump_free(ctx);
 	return err;
 }
