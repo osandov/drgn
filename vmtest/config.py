@@ -176,6 +176,10 @@ KERNEL_FLAVORS = OrderedDict(
             config="""
                 CONFIG_SMP=y
                 CONFIG_SLAB=y
+                # Linux kernel commit eb07c4f39c3e ("mm/slab: rename
+                # CONFIG_SLAB to CONFIG_SLAB_DEPRECATED") (in v6.5) renamed the
+                # option for SLAB.
+                CONFIG_SLAB_DEPRECATED=y
             """,
         ),
         KernelFlavor(
