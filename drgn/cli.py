@@ -263,25 +263,22 @@ def _main() -> None:
         if args.core is not None:
             prog.set_core_dump(args.core)
         elif args.pid is not None:
-            prog.set_pid(args.pid or os.getpid())
+            try:
+                prog.set_pid(args.pid or os.getpid())
+            except PermissionError as e:
+                sys.exit(
+                    f"{e}\nerror: attaching to live process requires ptrace attach permissions"
+                )
         else:
             try:
                 prog.set_kernel()
-            except PermissionError:
-                prog.set_core_dump(open_via_sudo("/proc/kcore", os.O_RDONLY))
-    except PermissionError as e:
-        print(e, file=sys.stderr)
-        if args.pid is not None:
-            print(
-                "error: attaching to live process requires ptrace attach permissions",
-                file=sys.stderr,
-            )
-        elif args.core is None:
-            print(
-                "error: drgn debugs the live kernel by default, which requires root",
-                file=sys.stderr,
-            )
-        sys.exit(1)
+            except PermissionError as e:
+                if shutil.which("sudo") is None:
+                    sys.exit(
+                        f"{e}\ndrgn debugs the live kernel by default, which requires root"
+                    )
+                else:
+                    prog.set_core_dump(open_via_sudo("/proc/kcore", os.O_RDONLY))
     except OSError as e:
         sys.exit(e)
     except ValueError as e:
