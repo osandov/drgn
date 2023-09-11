@@ -491,15 +491,19 @@ MODULE_LICENSE("GPL");
                 env=self._env,
             )
 
-            # `make modules_install` creates these as symlinks to the absolute
-            # path of the source directory. Delete them, make build a
-            # directory, and make source a symlink to build.
+            # `make modules_install` creates build as a symlink to the absolute
+            # path of the build directory. Delete it and make it an empty
+            # directory for us to populate.
             modules_build_dir = modules_dir / "build"
-            modules_source_dir = modules_dir / "source"
             modules_build_dir.unlink()
             modules_build_dir.mkdir()
-            modules_source_dir.unlink()
-            modules_source_dir.symlink_to("build")
+            # Before Linux kernel commit d8131c2965d5 ("kbuild: remove
+            # $(MODLIB)/source symlink") (in v6.6), source is a symlink to the
+            # absolute path of the source directory. It's not needed.
+            try:
+                (modules_dir / "source").unlink()
+            except FileNotFoundError:
+                pass
 
             logger.info("copying vmlinux")
             vmlinux = modules_build_dir / "vmlinux"
