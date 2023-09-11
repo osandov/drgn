@@ -660,20 +660,32 @@ def compound_order(page: Object) -> Object:
     if not PageHead(page):
         return Object(prog, "unsigned int", 0)
 
-    # Before Linux kernel commit 379708ffde1b ("mm: add the first tail page to
-    # struct folio") (in v6.1), the compound order is in struct page. Since
-    # that commit, it is also in struct folio. Since Linux kernel commit
-    # 1c5509be58f6 ("mm: remove 'First tail page' members from struct page")
-    # (in v6.3), it is _only_ in struct folio.
+    # Since Linux kernel commit ebc1baf5c9b4 ("mm: free up a word in the first
+    # tail page") (in v6.6), the compound order is in the low byte of struct
+    # folio::_flags_1 (from_folio = 2). Between that and Linux kernel commit
+    # Linux kernel commit 379708ffde1b ("mm: add the first tail page to struct
+    # folio") (in v6.1), the compound order is in struct folio::_folio_order
+    # (from_folio = 1). Before Linux kernel commit 1c5509be58f6 ("mm: remove
+    # 'First tail page' members from struct page") (in v6.3), the compound
+    # order is in struct page::compound_order of the first tail page
+    # (from_folio = 0).
     try:
         from_folio = prog.cache["compound_order_from_folio"]
     except KeyError:
+        from_folio = 0
         try:
-            from_folio = prog.type("struct folio").has_member("_folio_order")
+            struct_folio = prog.type("struct folio")
         except LookupError:
-            from_folio = False
+            pass
+        else:
+            if struct_folio.has_member("_folio_order"):
+                from_folio = 1
+            elif struct_folio.has_member("_flags_1"):
+                from_folio = 2
         prog.cache["compound_order_from_folio"] = from_folio
-    if from_folio:
+    if from_folio == 2:
+        return cast("unsigned int", cast("struct folio *", page)._flags_1 & 0xFF)
+    elif from_folio == 1:
         return cast("unsigned int", cast("struct folio *", page)._folio_order)
     else:
         return cast("unsigned int", page[1].compound_order)
