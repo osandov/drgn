@@ -168,11 +168,12 @@ KERNEL_FLAVORS = OrderedDict(
                 CONFIG_SLUB=y
                 # For slab tests.
                 CONFIG_SLUB_DEBUG=y
+                CONFIG_RANDOMIZE_BASE=y
             """,
         ),
         KernelFlavor(
             name="alternative",
-            description="SLAB allocator",
+            description="SLAB allocator, no KASLR",
             config="""
                 CONFIG_SMP=y
                 CONFIG_SLAB=y
@@ -180,11 +181,12 @@ KERNEL_FLAVORS = OrderedDict(
                 # CONFIG_SLAB to CONFIG_SLAB_DEPRECATED") (in v6.5) renamed the
                 # option for SLAB.
                 CONFIG_SLAB_DEPRECATED=y
+                CONFIG_RANDOMIZE_BASE=n
             """,
         ),
         KernelFlavor(
             name="tiny",
-            description="!SMP, !PREEMPT, and SLUB_TINY or SLOB allocator",
+            description="no SMP, no PREEMPT, no KASLR, and SLUB_TINY or SLOB allocator",
             config="""
                 CONFIG_SMP=n
                 CONFIG_SLOB=y
@@ -199,6 +201,7 @@ KERNEL_FLAVORS = OrderedDict(
                 # CONFIG_PREEMPT_DYNAMIC is not set
                 CONFIG_PREEMPT_NONE=y
                 # !PREEMPTION && !SMP will also select TINY_RCU.
+                CONFIG_RANDOMIZE_BASE=n
             """,
         ),
     )
