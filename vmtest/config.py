@@ -36,7 +36,7 @@ SUPPORTED_KERNEL_VERSIONS = (
 )
 
 KERNEL_ORG_COMPILER_VERSION = "12.2.0"
-VMTEST_KERNEL_VERSION = 21
+VMTEST_KERNEL_VERSION = 22
 
 
 BASE_KCONFIG = """
@@ -180,13 +180,18 @@ KERNEL_FLAVORS = OrderedDict(
         ),
         KernelFlavor(
             name="tiny",
-            description="!SMP, !PREEMPT, and SLOB allocator",
+            description="!SMP, !PREEMPT, and SLUB_TINY or SLOB allocator",
             config="""
                 CONFIG_SMP=n
                 CONFIG_SLOB=y
                 # Linux kernel commit 149b6fa228ed ("mm, slob: rename CONFIG_SLOB to
                 # CONFIG_SLOB_DEPRECATED") (in v6.2) renamed the option for SLOB.
                 CONFIG_SLOB_DEPRECATED=y
+                # Linux kernel commit c9929f0e344a ("mm/slob: remove
+                # CONFIG_SLOB") (in v6.4) removed SLOB. Use SLUB_TINY instead,
+                # which was introduced in Linux kernel commit e240e53ae0ab
+                # ("mm, slub: add CONFIG_SLUB_TINY") (in v6.2).
+                CONFIG_SLUB_TINY=y
                 # CONFIG_PREEMPT_DYNAMIC is not set
                 CONFIG_PREEMPT_NONE=y
                 # !PREEMPTION && !SMP will also select TINY_RCU.
