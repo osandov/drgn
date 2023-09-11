@@ -27,6 +27,8 @@ def open_via_sudo(
             subprocess.check_call(
                 [
                     "sudo",
+                    "-p",
+                    f"[sudo] password for %p to open {path}: ",
                     sys.executable,
                     "-B",
                     __file__,
