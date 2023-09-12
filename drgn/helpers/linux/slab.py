@@ -309,16 +309,22 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
                 ptr = self._freelist_dereference(ptr + freelist_offset)
 
         cpu_freelists: Set[int] = set()
-        cpu_slab = slab_cache.cpu_slab.read_()
-        # Since Linux kernel commit bb192ed9aa71 ("mm/slub: Convert most struct
-        # page to struct slab by spatch") (in v5.17), the current slab for a
-        # CPU is `struct slab *slab`. Before that, it is `struct page *page`.
-        cpu_slab_attr = "slab" if hasattr(cpu_slab, "slab") else "page"
-        for cpu in for_each_online_cpu(self._prog):
-            this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
-            slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
-            if slab and slab.slab_cache == slab_cache:
-                _slub_get_freelist(this_cpu_slab.freelist, cpu_freelists)
+        try:
+            # cpu_slab doesn't exist for CONFIG_SLUB_TINY.
+            cpu_slab = slab_cache.cpu_slab.read_()
+        except AttributeError:
+            pass
+        else:
+            # Since Linux kernel commit bb192ed9aa71 ("mm/slub: Convert most
+            # struct page to struct slab by spatch") (in v5.17), the current
+            # slab for a CPU is `struct slab *slab`. Before that, it is `struct
+            # page *page`.
+            cpu_slab_attr = "slab" if hasattr(cpu_slab, "slab") else "page"
+            for cpu in for_each_online_cpu(self._prog):
+                this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
+                slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
+                if slab and slab.slab_cache == slab_cache:
+                    _slub_get_freelist(this_cpu_slab.freelist, cpu_freelists)
 
         self._slub_get_freelist = _slub_get_freelist
         self._cpu_freelists = cpu_freelists
