@@ -451,8 +451,6 @@ static inline struct tree##_iterator						\
 tree##_next_impl(struct tree##_iterator it)					\
 {										\
 	struct binary_tree_node *node = tree##_entry_to_node(it.entry);		\
-	long i;									\
-										\
 	if (node->right) {							\
 		node = node->right;						\
 		/*								\
@@ -461,7 +459,7 @@ tree##_next_impl(struct tree##_iterator it)					\
 		 * (otherwise the counter would overflow, which is undefined	\
 		 * behavior).							\
 		 */								\
-		for (i = 0;; i++) {						\
+		for (long i = 1; i != 0; i++) {					\
 			if (!node->left)					\
 				break;						\
 			node = node->left;					\
@@ -469,7 +467,7 @@ tree##_next_impl(struct tree##_iterator it)					\
 		return (struct tree##_iterator){ tree##_node_to_entry(node), };	\
 	}									\
 										\
-	for (i = 0;; i++) {							\
+	for (long i = 1; i != 0; i++) {						\
 		if (!node->parent || node != node->parent->right)		\
 			break;							\
 		node = node->parent;						\
