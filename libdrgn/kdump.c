@@ -63,6 +63,40 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 	return NULL;
 }
 
+static struct drgn_error *drgn_platform_to_kdump(kdump_ctx_t *ctx,
+						 const struct drgn_platform *platform)
+{
+	kdump_status ks;
+	char *arch_str = NULL;
+
+	if (platform->arch == &arch_info_x86_64)
+		arch_str = KDUMP_ARCH_X86_64;
+	else if (platform->arch == &arch_info_i386)
+		arch_str = KDUMP_ARCH_IA32;
+	else if (platform->arch == &arch_info_aarch64)
+		arch_str = KDUMP_ARCH_AARCH64;
+	else if (platform->arch == &arch_info_arm)
+		arch_str = KDUMP_ARCH_ARM;
+	else if (platform->arch == &arch_info_ppc64)
+		arch_str = KDUMP_ARCH_PPC64;
+	/* libkdumpfile doesn't support RISC-V */
+	else if (platform->arch == &arch_info_s390x)
+		arch_str = KDUMP_ARCH_S390X;
+	else if (platform->arch == &arch_info_s390)
+		arch_str = KDUMP_ARCH_S390;
+
+	if (arch_str) {
+		ks = kdump_set_string_attr(ctx, KDUMP_ATTR_ARCH_NAME, arch_str);
+		if (ks != KDUMP_OK) {
+			return drgn_error_format(DRGN_ERROR_OTHER,
+						 "kdump_set_string_attr(\"%s\"): %s",
+						 arch_str, kdump_get_err(ctx));
+		}
+	}
+
+	return NULL;
+}
+
 static struct drgn_error *drgn_read_kdump(void *buf, uint64_t address,
 					  size_t count, uint64_t offset,
 					  void *arg, bool physical)
@@ -94,6 +128,38 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 					 "kdump_new() failed");
 	}
 
+	/*
+	 * We need to be careful to set libkdumpfile attributes in the correct
+	 * order, in order to achive the desired result in the rare cases when
+	 * the program has the architecture and/or vmcoreinfo already set. In
+	 * these cases, frequently, the information is not available to
+	 * libkdumpfile, and so the user is providing it instead. We should set:
+	 *
+	 * - Architecture before file descriptor. This is because when
+	 *   libkdumpfile reads the vmcore, it immediately parses the notes in
+	 *   the header. If it doesn't know the current architecture, it will
+	 *   skip the architecture-specific notes, such as the PRSTATUS. This
+	 *   manifests to users as a missing "cpu.number" attribute, and thus a
+	 *   failure to get accurate stack traces for on-CPU tasks.
+	 * - Vmcoreinfo after architecture. This is because when libkdumpfile
+	 *   gets a new vmcoreinfo note set, it marks the address translation
+	 *   metadata as dirty and resets its address translation info using the
+	 *   new data. If no architecture is set, it skips this setup since it
+	 *   won't know how to do so. This manifests for users as FaultError
+	 *   when they access almost any memory address.
+	 *
+	 * For the common case, where we are just setting the FD and OS type,
+	 * and then letting libkdumpfile give us the vmcoreinfo and platform
+	 * info, the only ordering constraint is the obvious one: we need to set
+	 * the FD before getting data from libkdumpfile.
+	 */
+
+	if (prog->has_platform) {
+		err = drgn_platform_to_kdump(ctx, drgn_program_platform(prog));
+		if (err)
+			goto err;
+	}
+
 	ks = kdump_set_number_attr(ctx, KDUMP_ATTR_FILE_FD, prog->core_fd);
 	if (ks == KDUMP_ERR_NOTIMPL) {
 		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
@@ -114,7 +180,29 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 		goto err;
 	}
 
-	if (!prog->vmcoreinfo.raw) {
+	if (prog->vmcoreinfo.raw) {
+		char *vmcoreinfo = memdup(prog->vmcoreinfo.raw, prog->vmcoreinfo.raw_size);
+		if (!vmcoreinfo) {
+			err = &drgn_enomem;
+			goto err;
+		}
+		kdump_blob_t *blob = kdump_blob_new(vmcoreinfo, prog->vmcoreinfo.raw_size);
+		if (!blob) {
+			free(vmcoreinfo);
+			err = &drgn_enomem;
+			goto err;
+		}
+		kdump_attr_t attr;
+		attr.type = KDUMP_BLOB;
+		attr.val.blob = blob;
+		ks = kdump_set_attr(ctx, "linux.vmcoreinfo.raw", &attr);
+		if (ks != KDUMP_OK) {
+			err = drgn_error_format(DRGN_ERROR_OTHER,
+						"kdump_set_attr(linux.vmcoreinfo.raw): %s",
+						kdump_get_err(ctx));
+			goto err;
+		}
+	} else {
 #if KDUMPFILE_VERSION >= KDUMPFILE_MKVER(0, 4, 1)
 		char *vmcoreinfo;
 #else
