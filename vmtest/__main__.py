@@ -97,10 +97,8 @@ def _kdump_works(kernel: Kernel) -> bool:
         # bytes...".
         return False
     elif kernel.arch.name == "ppc64":
-        # Without virtual address translation, we can't debug vmcores.
-        return False
         # Before 6.1, sysrq-c hangs.
-        # return KernelVersion(kernel.release) >= KernelVersion("6.1")
+        return KernelVersion(kernel.release) >= KernelVersion("6.1")
     elif kernel.arch.name == "s390x":
         # Before 5.15, sysrq-c hangs.
         return KernelVersion(kernel.release) >= KernelVersion("5.15")
