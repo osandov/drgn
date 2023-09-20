@@ -29,7 +29,7 @@ of this support is:
     * - ppc64
       - ✓
       - ✓
-      -
+      - ✓
     * - i386
       - ✓
       -
