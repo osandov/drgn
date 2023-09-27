@@ -32,6 +32,18 @@
 #include "type.h"
 #include "util.h"
 
+#if !_ELFUTILS_PREREQ(0, 191)
+static inline int dwarf_cu_dwp_section_info(Dwarf_CU *cu, unsigned int section,
+					    Dwarf_Off *offsetp,
+					    Dwarf_Off *sizep)
+{
+	*offsetp = 0;
+	if (sizep)
+		*sizep = 0;
+	return 0;
+}
+#endif
+
 void drgn_module_dwarf_info_deinit(struct drgn_module *module)
 {
 	free(module->dwarf.eh_frame.fdes);
@@ -456,6 +468,12 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 						 dwo_name ? dwo_name : "");
 			}
 			continue;
+		} else {
+			Dwarf_Off dwp_offset;
+			if (dwarf_cu_dwp_section_info(cudie.cu, DW_SECT_ABBREV,
+						      &dwp_offset, NULL))
+				return drgn_error_libdw();
+			abbrev_offset += dwp_offset;
 		}
 #else
 		unit_type = (scn == DRGN_SCN_DEBUG_TYPES
@@ -524,6 +542,12 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 				// DW_AT_str_offsets_base; the base is always 0.
 				str_offsets_base = 0;
 			}
+			Dwarf_Off dwp_offset;
+			if (dwarf_cu_dwp_section_info(cudie.cu,
+						      DW_SECT_STR_OFFSETS,
+						      &dwp_offset, NULL))
+				return drgn_error_libdw();
+			str_offsets_base += dwp_offset;
 			if (str_offsets_base > debug_str_offsets->d_size) {
 				return drgn_elf_file_section_error(file,
 								   file->scns[scn],
@@ -2799,6 +2823,11 @@ static struct drgn_error *drgn_dwarf_read_loclistx(struct drgn_elf_file *file,
 		// the first header.
 		base = offset_size == 8 ? 20 : 12;
 	}
+	Dwarf_Off dwp_offset;
+	if (dwarf_cu_dwp_section_info(cu_die->cu, DW_SECT_LOCLISTS, &dwp_offset,
+				      NULL))
+		return drgn_error_libdw();
+	base += dwp_offset;
 
 	if (!file->scns[DRGN_SCN_DEBUG_LOCLISTS]) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
@@ -2989,6 +3018,11 @@ drgn_dwarf4_split_location_list(struct drgn_elf_file *file, Dwarf_Word offset,
 	err = drgn_elf_file_cache_section(file, DRGN_SCN_DEBUG_LOC);
 	if (err)
 		return err;
+	Dwarf_Off dwp_offset;
+	if (dwarf_cu_dwp_section_info(cu_die->cu, DW_SECT_LOCLISTS, &dwp_offset,
+				      NULL))
+		return drgn_error_libdw();
+	offset += dwp_offset;
 	struct drgn_elf_file_section_buffer buffer;
 	drgn_elf_file_section_buffer_init_index(&buffer, file,
 						DRGN_SCN_DEBUG_LOC);
