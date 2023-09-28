@@ -1057,26 +1057,22 @@ static DrgnObject *Program_subscript(Program *self, PyObject *key)
 static int Program_contains(Program *self, PyObject *key)
 {
 	struct drgn_error *err;
-	const char *name;
-	struct drgn_object tmp;
-	bool clear;
 
 	if (!PyUnicode_Check(key)) {
 		PyErr_SetObject(PyExc_KeyError, key);
 		return 0;
 	}
 
-	name = PyUnicode_AsUTF8(key);
+	const char *name = PyUnicode_AsUTF8(key);
 	if (!name)
 		return -1;
 
-	drgn_object_init(&tmp, &self->prog);
-	clear = set_drgn_in_python();
+	DRGN_OBJECT(tmp, &self->prog);
+	bool clear = set_drgn_in_python();
 	err = drgn_program_find_object(&self->prog, name, NULL,
 				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (clear)
 		clear_drgn_in_python();
-	drgn_object_deinit(&tmp);
 	if (err) {
 		if (err->code == DRGN_ERROR_LOOKUP) {
 			drgn_error_destroy(err);

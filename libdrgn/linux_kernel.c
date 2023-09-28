@@ -217,8 +217,7 @@ static struct drgn_error *linux_kernel_get_jiffies(struct drgn_program *prog,
 						   struct drgn_object *ret)
 {
 	struct drgn_error *err;
-	struct drgn_object jiffies_64;
-	drgn_object_init(&jiffies_64, prog);
+	DRGN_OBJECT(jiffies_64, prog);
 	err = drgn_program_find_object(prog, "jiffies_64", NULL,
 				       DRGN_FIND_OBJECT_VARIABLE, &jiffies_64);
 	if (err) {
@@ -226,12 +225,10 @@ static struct drgn_error *linux_kernel_get_jiffies(struct drgn_program *prog,
 			drgn_error_destroy(err);
 			err = &drgn_not_found;
 		}
-		goto out;
+		return err;
 	}
-	if (jiffies_64.kind != DRGN_OBJECT_REFERENCE) {
-		err = &drgn_not_found;
-		goto out;
-	}
+	if (jiffies_64.kind != DRGN_OBJECT_REFERENCE)
+		return &drgn_not_found;
 	uint64_t address = jiffies_64.address;
 	struct drgn_qualified_type qualified_type;
 	err = drgn_program_find_primitive_type(prog, DRGN_C_TYPE_UNSIGNED_LONG,
@@ -242,10 +239,7 @@ static struct drgn_error *linux_kernel_get_jiffies(struct drgn_program *prog,
 	if (drgn_type_size(qualified_type.type) == 4 &&
 	    !drgn_type_little_endian(qualified_type.type))
 		address += 4;
-	err = drgn_object_set_reference(ret, qualified_type, address, 0, 0);
-out:
-	drgn_object_deinit(&jiffies_64);
-	return err;
+	return drgn_object_set_reference(ret, qualified_type, address, 0, 0);
 }
 
 static struct drgn_error *
@@ -278,10 +272,9 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 	static const uint64_t SECTION_MAP_MASK = ~((UINT64_C(1) << 6) - 1);
 	struct drgn_error *err;
 
-	struct drgn_object mem_section, root, section;
-	drgn_object_init(&mem_section, prog);
-	drgn_object_init(&root, prog);
-	drgn_object_init(&section, prog);
+	DRGN_OBJECT(mem_section, prog);
+	DRGN_OBJECT(root, prog);
+	DRGN_OBJECT(section, prog);
 
 	err = drgn_program_find_object(prog, "vmemmap_populate", NULL,
 				       DRGN_FIND_OBJECT_FUNCTION, &mem_section);
@@ -291,13 +284,13 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 			drgn_error_destroy(err);
 			err = &drgn_not_found;
 		}
-		goto out;
+		return err;
 	}
 
 	err = drgn_program_find_object(prog, "mem_section", NULL,
 				       DRGN_FIND_OBJECT_VARIABLE, &mem_section);
 	if (err)
-		goto out;
+		return err;
 
 	const uint64_t nr_section_roots = prog->vmcoreinfo.mem_section_length;
 	uint64_t sections_per_root;
@@ -314,9 +307,8 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 		for (int i = 0; i < 2; i++) {
 			if (drgn_type_kind(mem_section_type) != DRGN_TYPE_POINTER) {
 unrecognized_mem_section_type:
-				err = drgn_type_error("mem_section has unrecognized type '%s'",
-						      mem_section.type);
-				goto out;
+				return drgn_type_error("mem_section has unrecognized type '%s'",
+						       mem_section.type);
 			}
 			mem_section_type = drgn_type_type(mem_section_type).type;
 		}
@@ -333,41 +325,34 @@ unrecognized_mem_section_type:
 	for (uint64_t i = 0; i < nr_section_roots; i++) {
 		err = drgn_object_subscript(&root, &mem_section, i);
 		if (err)
-			goto out;
+			return err;
 		bool truthy;
 		err = drgn_object_bool(&root, &truthy);
 		if (err)
-			goto out;
+			return err;
 		if (!truthy)
 			continue;
 
 		for (uint64_t j = 0; j < sections_per_root; j++) {
 			err = drgn_object_subscript(&section, &root, j);
 			if (err)
-				goto out;
+				return err;
 			err = drgn_object_member(&section, &section,
 						 "section_mem_map");
 			if (err)
-				goto out;
+				return err;
 			uint64_t section_mem_map;
 			err = drgn_object_read_unsigned(&section,
 							&section_mem_map);
 			if (err)
-				goto out;
+				return err;
 			if (section_mem_map & SECTION_HAS_MEM_MAP) {
 				*ret = section_mem_map & SECTION_MAP_MASK;
-				err = NULL;
-				goto out;
+				return NULL;
 			}
 		}
 	}
-	err = &drgn_not_found;
-
-out:
-	drgn_object_deinit(&section);
-	drgn_object_deinit(&root);
-	drgn_object_deinit(&mem_section);
-	return err;
+	return &drgn_not_found;
 }
 
 static struct drgn_error *linux_kernel_get_vmemmap(struct drgn_program *prog,
@@ -738,81 +723,70 @@ kernel_module_iterator_gnu_build_id(struct kernel_module_iterator *it,
 	struct drgn_program *prog = drgn_object_program(&it->mod);
 	const bool bswap = drgn_platform_bswap(&prog->platform);
 
-	struct drgn_object attrs, attr, tmp;
-	drgn_object_init(&attrs, prog);
-	drgn_object_init(&attr, prog);
-	drgn_object_init(&tmp, prog);
+	DRGN_OBJECT(attrs, prog);
+	DRGN_OBJECT(attr, prog);
+	DRGN_OBJECT(tmp, prog);
 
 	// n = mod->notes_attrs->notes
 	uint64_t n;
 	err = drgn_object_member(&attrs, &it->mod, "notes_attrs");
 	if (err)
-		goto out;
+		return err;
 	err = drgn_object_member_dereference(&tmp, &attrs, "notes");
 	if (err)
-		goto out;
+		return err;
 	err = drgn_object_read_unsigned(&tmp, &n);
 	if (err)
-		goto out;
+		return err;
 
 	// attrs = mod->notes_attrs->attrs
 	err = drgn_object_member_dereference(&attrs, &attrs, "attrs");
 	if (err)
-		goto out;
+		return err;
 
 	for (uint64_t i = 0; i < n; i++) {
 		// attr = attrs[i]
 		err = drgn_object_subscript(&attr, &attrs, i);
 		if (err)
-			goto out;
+			return err;
 
 		// address = attr.private
 		err = drgn_object_member(&tmp, &attr, "private");
 		if (err)
-			goto out;
+			return err;
 		uint64_t address;
 		err = drgn_object_read_unsigned(&tmp, &address);
 		if (err)
-			goto out;
+			return err;
 
 		// size = attr.size
 		err = drgn_object_member(&tmp, &attr, "size");
 		if (err)
-			goto out;
+			return err;
 		uint64_t size;
 		err = drgn_object_read_unsigned(&tmp, &size);
 		if (err)
-			goto out;
+			return err;
 
 		if (size > SIZE_MAX ||
 		    !alloc_or_reuse(&it->build_id_buf,
-				    &it->build_id_buf_capacity, size)) {
-			err = &drgn_enomem;
-			goto out;
-		}
+				    &it->build_id_buf_capacity, size))
+			return &drgn_enomem;
 
 		err = drgn_program_read_memory(prog, it->build_id_buf, address,
 					       size, false);
 		if (err)
-			goto out;
+			return err;
 
 		*build_id_len_ret =
 			parse_gnu_build_id_from_note(it->build_id_buf, size,
 						     bswap, build_id_ret);
-		if (*build_id_len_ret) {
-			err = NULL;
-			goto out;
-		}
+		if (*build_id_len_ret)
+			return NULL;
 	}
 	*build_id_ret = NULL;
 	*build_id_len_ret = 0;
-	err = NULL;
-
-out:
-	drgn_object_deinit(&tmp);
-	drgn_object_deinit(&attr);
-	drgn_object_deinit(&attrs);
-	return err;
+	return NULL;
 }
 
 struct kernel_module_section_iterator {

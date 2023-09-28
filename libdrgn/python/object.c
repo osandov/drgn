@@ -544,10 +544,6 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 					   struct drgn_type *underlying_type)
 {
 	struct drgn_error *err;
-	PyObject *dict;
-	struct drgn_object member;
-	struct drgn_type_member *members;
-	size_t num_members, i;
 
 	if (!drgn_type_is_complete(underlying_type)) {
 		PyErr_Format(PyExc_TypeError,
@@ -556,106 +552,79 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 		return NULL;
 	}
 
-	dict = PyDict_New();
+	_cleanup_pydecref_ PyObject *dict = PyDict_New();
 	if (!dict)
 		return NULL;
 
-	drgn_object_init(&member, drgn_object_program(obj));
-	members = drgn_type_members(underlying_type);
-	num_members = drgn_type_num_members(underlying_type);
-	for (i = 0; i < num_members; i++) {
+	DRGN_OBJECT(member, drgn_object_program(obj));
+	struct drgn_type_member *members = drgn_type_members(underlying_type);
+	size_t num_members = drgn_type_num_members(underlying_type);
+	for (size_t i = 0; i < num_members; i++) {
 		struct drgn_qualified_type member_type;
 		uint64_t member_bit_field_size;
 		err = drgn_member_type(&members[i], &member_type,
 				       &member_bit_field_size);
-		if (err) {
-			set_drgn_error(err);
-			Py_CLEAR(dict);
-			goto out;
-		}
+		if (err)
+			return set_drgn_error(err);
 
 		err = drgn_object_slice(&member, obj, member_type,
 					members[i].bit_offset,
 					member_bit_field_size);
-		if (err) {
-			set_drgn_error(err);
-			Py_CLEAR(dict);
-			goto out;
-		}
+		if (err)
+			return set_drgn_error(err);
 
 		_cleanup_pydecref_ PyObject *member_value =
 			DrgnObject_value_impl(&member);
-		if (!member_value) {
-			Py_CLEAR(dict);
-			goto out;
-		}
+		if (!member_value)
+			return NULL;
 
-		int ret;
 		if (members[i].name) {
-			ret = PyDict_SetItemString(dict, members[i].name,
-						   member_value);
+			if (PyDict_SetItemString(dict, members[i].name,
+						 member_value))
+				return NULL;
 		} else {
-			ret = PyDict_Update(dict, member_value);
-		}
-		if (ret) {
-			Py_CLEAR(dict);
-			goto out;
+			if (PyDict_Update(dict, member_value))
+				return NULL;
 		}
 	}
-
-out:
-	drgn_object_deinit(&member);
-	return dict;
+	return no_cleanup_ptr(dict);
 }
 
 static PyObject *DrgnObject_array_value(struct drgn_object *obj,
 					struct drgn_type *underlying_type)
 {
 	struct drgn_error *err;
-	struct drgn_qualified_type element_type;
-	uint64_t element_bit_size, length, i;
-	PyObject *list;
-	struct drgn_object element;
 
-	element_type = drgn_type_type(underlying_type);
+	struct drgn_qualified_type element_type =
+		drgn_type_type(underlying_type);
+	uint64_t element_bit_size;
 	err = drgn_type_bit_size(element_type.type, &element_bit_size);
 	if (err)
 		return set_drgn_error(err);
 
-	length = drgn_type_length(underlying_type);
+	uint64_t length = drgn_type_length(underlying_type);
 	if (length > PY_SSIZE_T_MAX) {
 		PyErr_NoMemory();
 		return NULL;
 	}
 
-	list = PyList_New(length);
+	_cleanup_pydecref_ PyObject *list = PyList_New(length);
 	if (!list)
 		return NULL;
 
-	drgn_object_init(&element, drgn_object_program(obj));
-	for (i = 0; i < length; i++) {
-		PyObject *element_value;
-
+	DRGN_OBJECT(element, drgn_object_program(obj));
+	for (uint64_t i = 0; i < length; i++) {
 		err = drgn_object_slice(&element, obj, element_type,
 					i * element_bit_size, 0);
-		if (err) {
-			set_drgn_error(err);
-			Py_CLEAR(list);
-			goto out;
-		}
+		if (err)
+			return set_drgn_error(err);
 
-		element_value = DrgnObject_value_impl(&element);
-		if (!element_value) {
-			Py_CLEAR(list);
-			goto out;
-		}
-
+		PyObject *element_value = DrgnObject_value_impl(&element);
+		if (!element_value)
+			return NULL;
 		PyList_SET_ITEM(list, i, element_value);
 	}
-
-out:
-	drgn_object_deinit(&element);
-	return list;
+	return no_cleanup_ptr(list);
 }
 
 static PyObject *DrgnObject_value_impl(struct drgn_object *obj)

@@ -6,6 +6,7 @@
 #include <endian.h>
 #include <string.h>
 
+#include "cleanup.h"
 #include "drgn.h"
 #include "error.h"
 #include "platform.h" // IWYU pragma: associated
@@ -191,54 +192,49 @@ linux_kernel_get_initial_registers_ppc64(const struct drgn_object *task_obj,
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(task_obj);
 
-	struct drgn_object sp_obj;
-	drgn_object_init(&sp_obj, prog);
+	DRGN_OBJECT(sp_obj, prog);
 
 	// The top of the stack is saved in task->thread.ksp.
 	err = drgn_object_member_dereference(&sp_obj, task_obj, "thread");
 	if (err)
-		goto out;
+		return err;
 	err = drgn_object_member(&sp_obj, &sp_obj, "ksp");
 	if (err)
-		goto out;
+		return err;
 	uint64_t ksp;
 	err = drgn_object_read_unsigned(&sp_obj, &ksp);
 	if (err)
-		goto out;
+		return err;
 	// The previous stack pointer is stored at the top of the stack.
 	uint64_t r1;
 	err = drgn_program_read_u64(prog, ksp, false, &r1);
 	if (err)
-		goto out;
+		return err;
 
 	// The struct pt_regs is stored above the previous stack pointer.
 	struct drgn_qualified_type pt_regs_type;
 	err = drgn_program_find_type(prog, "struct pt_regs", NULL,
 				     &pt_regs_type);
 	if (err)
-		goto out;
+		return err;
 	uint64_t sizeof_pt_regs;
 	err = drgn_type_sizeof(pt_regs_type.type, &sizeof_pt_regs);
 	if (err)
-		goto out;
+		return err;
 
 	char buf[312];
 	err = drgn_program_read_memory(prog, buf, r1 - sizeof_pt_regs,
 				       sizeof(buf), false);
 	if (err)
-		goto out;
+		return err;
 
 	err = get_initial_registers_from_struct_ppc64(prog, buf, sizeof(buf),
 						      false, true, ret);
 	if (err)
-		goto out;
+		return err;
 
 	drgn_register_state_set_from_u64(prog, *ret, r1, r1);
-
-	err = NULL;
-out:
-	drgn_object_deinit(&sp_obj);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -311,71 +307,53 @@ static struct drgn_error *
 linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
 					   struct pgtable_iterator **ret)
 {
-	uint64_t mmu_features;
 	struct drgn_error *err = NULL;
 	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
-	struct drgn_object book3s, cur_cpu_spec, mmu_features_obj;
 
-	struct pgtable_iterator_ppc64 *it = malloc(sizeof(*it));
+	_cleanup_free_ struct pgtable_iterator_ppc64 *it = malloc(sizeof(*it));
 	if (!it)
 		return &drgn_enomem;
 
-	drgn_object_init(&book3s, prog);
-	drgn_object_init(&cur_cpu_spec, prog);
-	drgn_object_init(&mmu_features_obj, prog);
-
-	if (page_shift == 16) {
+	if (page_shift == 16)
 		it->pt_levels = pt_levels_radix_64k;
-	} else if (page_shift == 12) {
+	else if (page_shift == 12)
 		it->pt_levels = pt_levels_radix_4k;
-	} else {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
-					"Unknown page size.");
-		goto out;
-	}
+	else
+		return drgn_error_create(DRGN_ERROR_OTHER, "unknown page size");
+
+	DRGN_OBJECT(tmp, prog);
 
 	// Only BOOK3S CPU family is supported, not BOOK3E.
 	err = drgn_program_find_object(prog, "interrupt_base_book3e", NULL,
-				       DRGN_FIND_OBJECT_ANY, &book3s);
+				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (!err) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
-					"virtual address translation is not available for BOOK3E CPU family");
-		goto out;
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "virtual address translation is not available for BOOK3E CPU family");
 	}
 	if (err->code != DRGN_ERROR_LOOKUP)
-		goto out;
+		return err;
 	drgn_error_destroy(err);
 
 	// Identify the MMU type.
 	err = drgn_program_find_object(prog, "cur_cpu_spec", NULL,
-				       DRGN_FIND_OBJECT_ANY, &cur_cpu_spec);
+				       DRGN_FIND_OBJECT_ANY, &tmp);
 	if (err)
-		goto out;
-	err = drgn_object_member_dereference(&mmu_features_obj, &cur_cpu_spec,
-					     "mmu_features");
+		return err;
+	err = drgn_object_member_dereference(&tmp, &tmp, "mmu_features");
 	if (err)
-		goto out;
-
-	err = drgn_object_read_unsigned(&mmu_features_obj, &mmu_features);
+		return err;
+	uint64_t mmu_features;
+	err = drgn_object_read_unsigned(&tmp, &mmu_features);
 
 	if (err)
-		goto out;
-
+		return err;
 	if (!(mmu_features & 0x40)) {
-		err = drgn_error_create(DRGN_ERROR_OTHER,
-					"virtual address translation is only supported for Radix MMU");
-		goto out;
+		return drgn_error_create(DRGN_ERROR_OTHER,
+					 "virtual address translation is only supported for Radix MMU");
 	}
 
-	*ret = &it->it;
-
-out:
-	drgn_object_deinit(&book3s);
-	drgn_object_deinit(&cur_cpu_spec);
-	drgn_object_deinit(&mmu_features_obj);
-	if (err)
-		free(it);
-	return err;
+	*ret = &no_cleanup_ptr(it)->it;
+	return NULL;
 }
 
 static void

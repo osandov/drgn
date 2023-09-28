@@ -205,19 +205,18 @@ linux_kernel_get_initial_registers_s390x(const struct drgn_object *task_obj,
 	struct drgn_program *prog = drgn_object_program(task_obj);
 	struct drgn_error *err;
 
-	struct drgn_object ctx;
-	drgn_object_init(&ctx, prog);
+	DRGN_OBJECT(ctx, prog);
 
 	err = drgn_object_member_dereference(&ctx, task_obj, "thread");
 	if (err)
-		goto out;
+		return err;
 	err = drgn_object_member(&ctx, &ctx, "ksp");
 	if (err)
-		goto out;
+		return err;
 	uint64_t ksp;
 	err = drgn_object_read_unsigned(&ctx, &ksp);
 	if (err)
-		goto out;
+		return err;
 
 	// r6-r15
 	uint64_t buf[10];
@@ -225,21 +224,16 @@ linux_kernel_get_initial_registers_s390x(const struct drgn_object *task_obj,
 	err = drgn_program_read_memory(prog, buf, ksp + stack_frame_gprs_offset,
 				       sizeof(buf), false);
 	if (err)
-		goto out;
+		return err;
 
 	struct drgn_register_state *regs =
 		drgn_register_state_create(r15, false);
-	if (!regs) {
-		err = &drgn_enomem;
-		goto out;
-	}
+	if (!regs)
+		return &drgn_enomem;
 	drgn_register_state_set_range_from_buffer(regs, r6, r15, buf);
 	drgn_register_state_set_pc_from_register(prog, regs, r14);
 	*ret = regs;
-	err = NULL;
-out:
-	drgn_object_deinit(&ctx);
-	return err;
+	return NULL;
 }
 
 struct pgtable_data {

@@ -181,11 +181,9 @@ static int StackFrame_contains(StackFrame *self, PyObject *key)
 	const char *name = PyUnicode_AsUTF8(key);
 	if (!name)
 		return -1;
-	struct drgn_object tmp;
-	drgn_object_init(&tmp, self->trace->trace->prog);
+	DRGN_OBJECT(tmp, self->trace->trace->prog);
 	err = drgn_stack_frame_find_object(self->trace->trace, self->i, name,
 					   &tmp);
-	drgn_object_deinit(&tmp);
 	if (!err) {
 		return 1;
 	} else if (err->code == DRGN_ERROR_LOOKUP) {

@@ -1114,13 +1114,11 @@ drgn_thread_iterator_next_linux_kernel(struct drgn_thread_iterator *it,
 	err = drgn_object_copy(&it->entry.object, task);
 	if (err)
 		return err;
-	struct drgn_object tid;
 	union drgn_value tid_value;
-	drgn_object_init(&tid, drgn_object_program(task));
+	DRGN_OBJECT(tid, drgn_object_program(task));
 	err = drgn_object_member_dereference(&tid, task, "pid");
 	if (!err)
 		err = drgn_object_read_integer(&tid, &tid_value);
-	drgn_object_deinit(&tid);
 	if (err)
 		return err;
 	it->entry.tid = tid_value.uvalue;
@@ -1279,8 +1277,7 @@ static struct drgn_error *
 drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
 {
 	struct drgn_error *err;
-	struct drgn_object cpu;
-	drgn_object_init(&cpu, prog);
+	DRGN_OBJECT(cpu, prog);
 	union drgn_value cpu_value;
 
 	// Since Linux kernel commit 1717f2096b54 ("panic, x86: Fix re-entrance
@@ -1291,7 +1288,7 @@ drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
 	if (!err) {
 		err = drgn_object_member(&cpu, &cpu, "counter");
 		if (err)
-			goto out;
+			return err;
 		err = drgn_object_read_integer(&cpu, &cpu_value);
 		if (!err)
 			*ret = cpu_value.uvalue;
@@ -1306,7 +1303,7 @@ drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
 		if (!err) {
 			err = drgn_object_read_integer(&cpu, &cpu_value);
 			if (err)
-				goto out;
+				return err;
 			// Since Linux kernel commit 5bc329503e81 ("x86/mce:
 			// Handle broadcasted MCE gracefully with kexec") (in
 			// v4.12), crashing_cpu is defined in !SMP kernels, but
@@ -1324,9 +1321,6 @@ drgn_program_kernel_get_crashed_cpu(struct drgn_program *prog, uint64_t *ret)
 			*ret = 0;
 		}
 	}
-
-out:
-	drgn_object_deinit(&cpu);
 	return err;
 }
 
@@ -1341,8 +1335,7 @@ drgn_program_find_thread_kernel_cpu_curr(struct drgn_program *prog,
 		return &drgn_enomem;
 	thread->prog = prog;
 
-	struct drgn_object tmp;
-	drgn_object_init(&tmp, prog);
+	DRGN_OBJECT(tmp, prog);
 	drgn_object_init(&thread->object, prog);
 
 	err = linux_helper_cpu_curr(&thread->object, cpu);
@@ -1365,7 +1358,6 @@ out:
 		drgn_object_deinit(&thread->object);
 		free(thread);
 	}
-	drgn_object_deinit(&tmp);
 	return err;
 }
 

@@ -572,51 +572,47 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			   struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
-	struct drgn_object obj;
-	struct drgn_object tmp;
 	struct nstring _prstatus;
 
-	drgn_object_init(&obj, prog);
-	drgn_object_init(&tmp, prog);
+	DRGN_OBJECT(obj, prog);
+	DRGN_OBJECT(tmp, prog);
 
 	/* First, try pt_regs. */
 	if (thread_obj) {
 		bool is_pt_regs;
 		err = drgn_get_stack_trace_obj(&obj, thread_obj, &is_pt_regs);
 		if (err)
-			goto out;
+			return err;
 
 		if (is_pt_regs) {
 			assert(obj.encoding == DRGN_OBJECT_ENCODING_BUFFER);
 			assert(obj.kind == DRGN_OBJECT_VALUE);
 			if (!prog->platform.arch->pt_regs_get_initial_registers) {
-				err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-							"pt_regs stack unwinding is not supported for %s architecture",
-							prog->platform.arch->name);
-				goto out;
+				return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+							 "pt_regs stack unwinding is not supported for %s architecture",
+							 prog->platform.arch->name);
 			}
-			err = prog->platform.arch->pt_regs_get_initial_registers(&obj,
-										 ret);
-			goto out;
+			return prog->platform.arch->pt_regs_get_initial_registers(&obj,
+										  ret);
 		}
 	} else if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
 		err = drgn_program_find_object(prog, "init_pid_ns", NULL,
 					       DRGN_FIND_OBJECT_ANY, &tmp);
 		if (err)
-			goto out;
+			return err;
 		err = drgn_object_address_of(&tmp, &tmp);
 		if (err)
-			goto out;
+			return err;
 		err = linux_helper_find_task(&obj, &tmp, tid);
 		if (err)
-			goto out;
+			return err;
 		bool found;
 		err = drgn_object_bool(&obj, &found);
 		if (err)
-			goto out;
+			return err;
 		if (!found) {
-			err = drgn_error_create(DRGN_ERROR_LOOKUP, "task not found");
-			goto out;
+			return drgn_error_create(DRGN_ERROR_LOOKUP,
+						 "task not found");
 		}
 	}
 
@@ -627,11 +623,10 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 				bool on_cpu;
 				err = drgn_object_bool(&tmp, &on_cpu);
 				if (err)
-					goto out;
+					return err;
 				if (on_cpu) {
-					err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-								"cannot unwind stack of running task");
-					goto out;
+					return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+								 "cannot unwind stack of running task");
 				}
 			} else if (err->code == DRGN_ERROR_LOOKUP) {
 				/*
@@ -641,7 +636,7 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 				 */
 				drgn_error_destroy(err);
 			} else {
-				goto out;
+				return err;
 			}
 		} else if (prstatus) {
 			goto prstatus;
@@ -657,13 +652,13 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			uint64_t cpu;
 			err = linux_helper_task_cpu(&obj, &cpu);
 			if (err)
-				goto out;
+				return err;
 			uint32_t prstatus_tid;
 			err = drgn_program_find_prstatus_by_cpu(prog, cpu,
 								prstatus,
 								&prstatus_tid);
 			if (err)
-				goto out;
+				return err;
 			if (prstatus->str) {
 				/*
 				 * The PRSTATUS note is for the CPU that the
@@ -685,20 +680,19 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 				 */
 				err = drgn_object_member_dereference(&tmp, &obj, "pid");
 				if (err)
-					goto out;
+					return err;
 				union drgn_value value;
 				err = drgn_object_read_integer(&tmp, &value);
 				if (err)
-					goto out;
+					return err;
 				if (prstatus_tid == value.uvalue)
 					goto prstatus;
 			}
 		}
 		if (!prog->platform.arch->linux_kernel_get_initial_registers) {
-			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-						"Linux kernel stack unwinding is not supported for %s architecture",
-						prog->platform.arch->name);
-			goto out;
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "Linux kernel stack unwinding is not supported for %s architecture",
+						 prog->platform.arch->name);
 		}
 		err = prog->platform.arch->linux_kernel_get_initial_registers(&obj,
 									      ret);
@@ -707,29 +701,23 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			prstatus = &_prstatus;
 			err = drgn_program_find_prstatus_by_tid(prog, tid, prstatus);
 			if (err)
-				goto out;
+				return err;
 			if (!prstatus->str) {
-				err = drgn_error_create(DRGN_ERROR_LOOKUP,
-							"thread not found");
-				goto out;
+				return drgn_error_create(DRGN_ERROR_LOOKUP,
+							 "thread not found");
 			}
 		}
 prstatus:
 		if (!prog->platform.arch->prstatus_get_initial_registers) {
-			err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
-						"core dump stack unwinding is not supported for %s architecture",
-						prog->platform.arch->name);
-			goto out;
+			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+						 "core dump stack unwinding is not supported for %s architecture",
+						 prog->platform.arch->name);
 		}
 		err = prog->platform.arch->prstatus_get_initial_registers(prog,
 									  prstatus->str,
 									  prstatus->len,
 									  ret);
 	}
-
-out:
-	drgn_object_deinit(&tmp);
-	drgn_object_deinit(&obj);
 	return err;
 }
 

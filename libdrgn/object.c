@@ -18,16 +18,23 @@
 #include "type.h"
 #include "util.h"
 
+#define DRGN_OBJECT_INITIALIZER(prog)			\
+	(struct drgn_object){				\
+		.type = drgn_void_type(prog, NULL),	\
+		.encoding = DRGN_OBJECT_ENCODING_NONE,	\
+		.kind = DRGN_OBJECT_ABSENT,		\
+	}
+
+LIBDRGN_PUBLIC
+struct drgn_object drgn_object_initializer(struct drgn_program *prog)
+{
+	return DRGN_OBJECT_INITIALIZER(prog);
+}
+
 LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 				     struct drgn_program *prog)
 {
-	obj->type = drgn_void_type(prog, NULL);
-	obj->bit_size = 0;
-	obj->qualifiers = 0;
-	obj->encoding = DRGN_OBJECT_ENCODING_NONE;
-	obj->kind = DRGN_OBJECT_ABSENT;
-	obj->is_bit_field = false;
-	obj->little_endian = false;
+	*obj = DRGN_OBJECT_INITIALIZER(prog);
 }
 
 static void drgn_value_deinit(const struct drgn_object *obj,
@@ -1176,11 +1183,10 @@ drgn_compound_object_is_zero(const struct drgn_object *obj,
 			     struct drgn_type *underlying_type, bool *ret)
 {
 	struct drgn_error *err;
-	struct drgn_object member;
 	struct drgn_type_member *members;
 	size_t num_members, i;
 
-	drgn_object_init(&member, drgn_object_program(obj));
+	DRGN_OBJECT(member, drgn_object_program(obj));
 	members = drgn_type_members(underlying_type);
 	num_members = drgn_type_num_members(underlying_type);
 	for (i = 0; i < num_members; i++) {
@@ -1189,23 +1195,19 @@ drgn_compound_object_is_zero(const struct drgn_object *obj,
 		err = drgn_member_type(&members[i], &member_type,
 				       &member_bit_field_size);
 		if (err)
-			goto out;
+			return err;
 
 		err = drgn_object_slice(&member, obj, member_type,
 					members[i].bit_offset,
 					member_bit_field_size);
 		if (err)
-			goto out;
+			return err;
 
 		err = drgn_object_is_zero_impl(&member, ret);
 		if (err || !*ret)
-			goto out;
+			return err;
 	}
-
-	err = NULL;
-out:
-	drgn_object_deinit(&member);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *
@@ -1215,30 +1217,25 @@ drgn_array_object_is_zero(const struct drgn_object *obj,
 	struct drgn_error *err;
 	struct drgn_qualified_type element_type;
 	uint64_t element_bit_size, length, i;
-	struct drgn_object element;
 
 	element_type = drgn_type_type(underlying_type);
 	err = drgn_type_bit_size(element_type.type, &element_bit_size);
 	if (err)
 		return err;
 
-	drgn_object_init(&element, drgn_object_program(obj));
+	DRGN_OBJECT(element, drgn_object_program(obj));
 	length = drgn_type_length(underlying_type);
 	for (i = 0; i < length; i++) {
 		err = drgn_object_slice(&element, obj, element_type,
 					i * element_bit_size, 0);
 		if (err)
-			goto out;
+			return err;
 
 		err = drgn_object_is_zero_impl(&element, ret);
 		if (err || !*ret)
-			goto out;
+			return err;
 	}
-
-	err = NULL;
-out:
-	drgn_object_deinit(&element);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *

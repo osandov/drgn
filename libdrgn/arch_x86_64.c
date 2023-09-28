@@ -443,15 +443,14 @@ linux_kernel_get_initial_registers_x86_64(const struct drgn_object *task_obj,
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(task_obj);
 
-	struct drgn_object sp_obj;
-	drgn_object_init(&sp_obj, prog);
+	DRGN_OBJECT(sp_obj, prog);
 
 	err = drgn_object_member_dereference(&sp_obj, task_obj, "thread");
 	if (err)
-		goto out;
+		return err;
 	err = drgn_object_member(&sp_obj, &sp_obj, "sp");
 	if (err)
-		goto out;
+		return err;
 
 	/*
 	 * Since Linux kernel commit 0100301bfdf5 ("sched/x86: Rewrite the
@@ -467,23 +466,23 @@ linux_kernel_get_initial_registers_x86_64(const struct drgn_object *task_obj,
 	if (!err) {
 		err = drgn_object_cast(&sp_obj, frame_type, &sp_obj);
 		if (err)
-			goto out;
+			return err;
 		err = drgn_object_dereference(&sp_obj, &sp_obj);
 		if (err)
-			goto out;
+			return err;
 		err = get_initial_registers_inactive_task_frame(&sp_obj, ret);
 	} else if (err->code == DRGN_ERROR_LOOKUP) {
 		drgn_error_destroy(err);
 		err = drgn_program_find_type(prog, "void **", NULL,
 					     &frame_type);
 		if (err)
-			goto out;
+			return err;
 		err = drgn_object_cast(&sp_obj, frame_type, &sp_obj);
 		if (err)
-			goto out;
+			return err;
 		err = drgn_object_dereference(&sp_obj, &sp_obj);
 		if (err)
-			goto out;
+			return err;
 		uint64_t frame_pointer;
 		err = drgn_object_read_unsigned(&sp_obj, &frame_pointer);
 		if (err)
@@ -495,8 +494,6 @@ linux_kernel_get_initial_registers_x86_64(const struct drgn_object *task_obj,
 						"invalid frame pointer");
 		}
 	}
-out:
-	drgn_object_deinit(&sp_obj);
 	return err;
 }
 

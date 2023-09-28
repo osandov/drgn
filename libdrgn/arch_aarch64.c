@@ -195,43 +195,37 @@ linux_kernel_get_initial_registers_aarch64(const struct drgn_object *task_obj,
 	struct drgn_error *err;
 	struct drgn_program *prog = drgn_object_program(task_obj);
 
-	struct drgn_object cpu_context_obj;
-	drgn_object_init(&cpu_context_obj, prog);
+	DRGN_OBJECT(cpu_context_obj, prog);
 
 	err = drgn_object_member_dereference(&cpu_context_obj, task_obj,
 					     "thread");
 	if (err)
-		goto out;
+		return err;
 	err = drgn_object_member(&cpu_context_obj, &cpu_context_obj,
 				 "cpu_context");
 	if (err)
-		goto out;
+		return err;
 	if (cpu_context_obj.encoding != DRGN_OBJECT_ENCODING_BUFFER ||
 	    drgn_object_size(&cpu_context_obj) < 104) {
-		err = drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					"cpu_context is truncated");
-		goto out;
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "cpu_context is truncated");
 	}
 	err = drgn_object_read(&cpu_context_obj, &cpu_context_obj);
 	if (err)
-		goto out;
+		return err;
 
 	const void *buf = drgn_object_buffer(&cpu_context_obj);
 	struct drgn_register_state *regs =
 		drgn_register_state_create(x30, false);
-	if (!regs) {
-		err = &drgn_enomem;
-		goto out;
-	}
+	if (!regs)
+		return &drgn_enomem;
 
 	drgn_register_state_set_from_buffer(regs, x30, (uint64_t *)buf + 12);
 	drgn_register_state_set_from_buffer(regs, sp, (uint64_t *)buf + 11);
 	drgn_register_state_set_range_from_buffer(regs, x19, x29, buf);
 	drgn_register_state_set_pc_from_register(prog, regs, x30);
 	*ret = regs;
-out:
-	drgn_object_deinit(&cpu_context_obj);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *
