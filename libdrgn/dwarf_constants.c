@@ -6,16 +6,13 @@
 
 #include "dwarf_constants.h"
 
-#define X(name, value) case name: return #name;
+#define X(name, _) if (value == name) return #name;
 
 const char *dw_tag_str(int value, char buf[static DW_TAG_STR_BUF_LEN])
 {
-	switch (value) {
 	DW_TAG_DEFINITIONS
-	default:
-		snprintf(buf, DW_TAG_STR_BUF_LEN, DW_TAG_STR_UNKNOWN_FORMAT, value);
-		return buf;
-	}
+	snprintf(buf, DW_TAG_STR_BUF_LEN, DW_TAG_STR_UNKNOWN_FORMAT, value);
+	return buf;
 }
 
 #undef X

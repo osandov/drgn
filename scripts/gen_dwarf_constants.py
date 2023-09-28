@@ -202,7 +202,7 @@ def gen_dwarf_constants_c(
 
 #include "dwarf_constants.h"
 
-#define X(name, value) case name: return #name;
+#define X(name, _) if (value == name) return #name;
 """
     )
     for constant_type in dwarf_constants:
@@ -211,12 +211,9 @@ def gen_dwarf_constants_c(
                 f"""
 const char *{constant_type.name.lower()}_str(int value, char buf[static {constant_type.name}_STR_BUF_LEN])
 {{
-	switch (value) {{
 	{constant_type.name}_DEFINITIONS
-	default:
-		snprintf(buf, {constant_type.name}_STR_BUF_LEN, {constant_type.name}_STR_UNKNOWN_FORMAT, value);
-		return buf;
-	}}
+	snprintf(buf, {constant_type.name}_STR_BUF_LEN, {constant_type.name}_STR_UNKNOWN_FORMAT, value);
+	return buf;
 }}
 """
             )
