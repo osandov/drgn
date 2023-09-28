@@ -3774,9 +3774,14 @@ branch:
 		 *   DW_OP_xderef_size, DW_OP_xderef_type.
 		 */
 		default:
+		{
+			char op_buf[DW_OP_STR_BUF_LEN];
 			return binary_buffer_error(&ctx->bb,
-						   "unknown DWARF expression opcode %#" PRIx8,
-						   opcode);
+						   "unknown DWARF expression opcode %s; "
+						   "please report this to %s",
+						   dw_op_str(opcode, op_buf),
+						   PACKAGE_BUGREPORT);
+		}
 		}
 	}
 

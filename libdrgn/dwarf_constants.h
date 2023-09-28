@@ -963,6 +963,15 @@ enum { DW_MACRO_DEFINITIONS };
 	X(DW_OP_PGI_omp_thread_num, 0xf8) \
 	X(DW_OP_hi_user, 0xff)
 enum { DW_OP_DEFINITIONS };
+#define DW_OP_STR_UNKNOWN_FORMAT "DW_OP_<0x%x>"
+#define DW_OP_STR_BUF_LEN (sizeof(DW_OP_STR_UNKNOWN_FORMAT) - 2 + 2 * sizeof(int))
+/**
+ * Get the name of a `DW_OP` value.
+ *
+ * @return Static string if the value is known or @p buf if the value is
+ * unknown.
+ */
+const char *dw_op_str(int value, char buf[static DW_OP_STR_BUF_LEN]);
 
 #define DW_ORD_DEFINITIONS \
 	X(DW_ORD_row_major, 0x0) \

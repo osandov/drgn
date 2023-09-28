@@ -121,7 +121,7 @@ def parse_dwarf_constants(f: TextIO) -> Sequence[DwarfConstantType]:
     return result
 
 
-_DWARF_CONSTANTS_WANT_STR = {"DW_TAG"}
+_DWARF_CONSTANTS_WANT_STR = {"DW_OP", "DW_TAG"}
 
 
 def gen_dwarf_constants_h(

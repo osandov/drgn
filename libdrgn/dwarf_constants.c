@@ -8,6 +8,13 @@
 
 #define X(name, _) if (value == name) return #name;
 
+const char *dw_op_str(int value, char buf[static DW_OP_STR_BUF_LEN])
+{
+	DW_OP_DEFINITIONS
+	snprintf(buf, DW_OP_STR_BUF_LEN, DW_OP_STR_UNKNOWN_FORMAT, value);
+	return buf;
+}
+
 const char *dw_tag_str(int value, char buf[static DW_TAG_STR_BUF_LEN])
 {
 	DW_TAG_DEFINITIONS
