@@ -249,7 +249,6 @@ enum { DW_ADDR_DEFINITIONS };
 	X(DW_AT_GNU_discriminator, 0x2136) \
 	X(DW_AT_GNU_locviews, 0x2137) \
 	X(DW_AT_GNU_entry_view, 0x2138) \
-	X(DW_AT_GNU_bias, 0x2305) \
 	X(DW_AT_SUN_template, 0x2201) \
 	X(DW_AT_VMS_rtnbeg_pd_address, 0x2201) \
 	X(DW_AT_SUN_alignment, 0x2202) \
@@ -302,6 +301,7 @@ enum { DW_ADDR_DEFINITIONS };
 	X(DW_AT_GNAT_descriptive_type, 0x2302) \
 	X(DW_AT_GNU_numerator, 0x2303) \
 	X(DW_AT_GNU_denominator, 0x2304) \
+	X(DW_AT_GNU_bias, 0x2305) \
 	X(DW_AT_go_kind, 0x2900) \
 	X(DW_AT_go_key, 0x2901) \
 	X(DW_AT_go_elem, 0x2902) \
@@ -643,10 +643,23 @@ enum { DW_INL_DEFINITIONS };
 	X(DW_LANG_Fortran08, 0x23) \
 	X(DW_LANG_RenderScript, 0x24) \
 	X(DW_LANG_BLISS, 0x25) \
+	X(DW_LANG_Kotlin, 0x26) \
+	X(DW_LANG_Zig, 0x27) \
+	X(DW_LANG_Crystal, 0x28) \
+	X(DW_LANG_C_plus_plus_17, 0x2a) \
+	X(DW_LANG_C_plus_plus_20, 0x2b) \
+	X(DW_LANG_C17, 0x2c) \
+	X(DW_LANG_Fortran18, 0x2d) \
+	X(DW_LANG_Ada2005, 0x2e) \
+	X(DW_LANG_Ada2012, 0x2f) \
+	X(DW_LANG_HIP, 0x30) \
+	X(DW_LANG_Assembly, 0x31) \
+	X(DW_LANG_C_sharp, 0x32) \
+	X(DW_LANG_Mojo, 0x33) \
 	X(DW_LANG_lo_user, 0x8000) \
 	X(DW_LANG_Mips_Assembler, 0x8001) \
 	X(DW_LANG_Upc, 0x8765) \
-	X(DW_LANG_GOOGLE_RenderScript, 0x8001) \
+	X(DW_LANG_GOOGLE_RenderScript, 0x8e57) \
 	X(DW_LANG_ALTIUM_Assembler, 0x9101) \
 	X(DW_LANG_BORLAND_Delphi, 0xb000) \
 	X(DW_LANG_SUN_Assembler, 0x9001) \
