@@ -342,6 +342,9 @@ linux_kernel_pgtable_iterator_create_ppc64(struct drgn_program * prog,
 					"virtual address translation is not available for BOOK3E CPU family");
 		goto out;
 	}
+	if (err->code != DRGN_ERROR_LOOKUP)
+		goto out;
+	drgn_error_destroy(err);
 
 	// Identify the MMU type.
 	err = drgn_program_find_object(prog, "cur_cpu_spec", NULL,
