@@ -13,38 +13,33 @@ void drgn_object_index_init(struct drgn_object_index *oindex)
 
 void drgn_object_index_deinit(struct drgn_object_index *oindex)
 {
-	struct drgn_object_finder *finder;
-
-	finder = oindex->finders;
+	struct drgn_object_finder *finder = oindex->finders;
 	while (finder) {
 		struct drgn_object_finder *next = finder->next;
-
-		free(finder);
+		if (finder->free)
+			free(finder);
 		finder = next;
 	}
 }
 
 struct drgn_error *
 drgn_object_index_add_finder(struct drgn_object_index *oindex,
+			     struct drgn_object_finder *finder,
 			     drgn_object_find_fn fn, void *arg)
 {
-	struct drgn_object_finder *finder;
-
-	finder = malloc(sizeof(*finder));
-	if (!finder)
-		return &drgn_enomem;
+	if (finder) {
+		finder->free = false;
+	} else {
+		finder = malloc(sizeof(*finder));
+		if (!finder)
+			return &drgn_enomem;
+		finder->free = true;
+	}
 	finder->fn = fn;
 	finder->arg = arg;
 	finder->next = oindex->finders;
 	oindex->finders = finder;
 	return NULL;
-}
-
-void drgn_object_index_remove_finder(struct drgn_object_index *oindex)
-{
-	struct drgn_object_finder *finder = oindex->finders->next;
-	free(oindex->finders);
-	oindex->finders = finder;
 }
 
 struct drgn_error *drgn_object_index_find(struct drgn_object_index *oindex,

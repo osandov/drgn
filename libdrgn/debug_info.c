@@ -2105,6 +2105,11 @@ struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 		free(dbinfo);
 		return drgn_error_libdwfl();
 	}
+	drgn_program_add_type_finder_impl(prog, &dbinfo->type_finder,
+					  drgn_debug_info_find_type, dbinfo);
+	drgn_program_add_object_finder_impl(prog, &dbinfo->object_finder,
+					    drgn_debug_info_find_object,
+					    dbinfo);
 	drgn_module_table_init(&dbinfo->modules);
 	c_string_set_init(&dbinfo->module_names);
 	drgn_dwarf_info_init(dbinfo);

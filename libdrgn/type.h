@@ -56,7 +56,14 @@ struct drgn_type_finder {
 	void *arg;
 	/** Next callback to try. */
 	struct drgn_type_finder *next;
+	/** Whether this structure needs to be freed. */
+	bool free;
 };
+
+struct drgn_error *
+drgn_program_add_type_finder_impl(struct drgn_program *prog,
+				  struct drgn_type_finder *finder,
+				  drgn_type_find_fn fn, void *arg);
 
 DEFINE_HASH_SET_TYPE(drgn_dedupe_type_set, struct drgn_type *);
 

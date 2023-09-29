@@ -20,8 +20,10 @@
 #include "drgn.h"
 #include "dwarf_info.h"
 #include "hash_table.h"
+#include "object_index.h"
 #include "orc_info.h"
 #include "string_builder.h"
+#include "type.h"
 #include "vector.h"
 
 struct drgn_elf_file;
@@ -132,6 +134,9 @@ DEFINE_HASH_SET_TYPE(c_string_set, const char *);
 struct drgn_debug_info {
 	/** Program owning this cache. */
 	struct drgn_program *prog;
+
+	struct drgn_type_finder type_finder;
+	struct drgn_object_finder object_finder;
 
 	/** DWARF frontend library handle. */
 	Dwfl *dwfl;

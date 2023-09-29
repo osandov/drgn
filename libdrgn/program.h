@@ -244,6 +244,11 @@ struct drgn_error *drgn_program_init_kernel(struct drgn_program *prog);
  */
 struct drgn_error *drgn_program_init_pid(struct drgn_program *prog, pid_t pid);
 
+struct drgn_error *
+drgn_program_add_object_finder_impl(struct drgn_program *prog,
+				    struct drgn_object_finder *finder,
+				    drgn_object_find_fn fn, void *arg);
+
 static inline struct drgn_error *
 drgn_program_is_little_endian(struct drgn_program *prog, bool *ret)
 {

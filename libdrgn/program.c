@@ -189,11 +189,19 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 					      physical);
 }
 
+struct drgn_error *
+drgn_program_add_object_finder_impl(struct drgn_program *prog,
+				    struct drgn_object_finder *finder,
+				    drgn_object_find_fn fn, void *arg)
+{
+	return drgn_object_index_add_finder(&prog->oindex, finder, fn, arg);
+}
+
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_object_finder(struct drgn_program *prog,
 			       drgn_object_find_fn fn, void *arg)
 {
-	return drgn_object_index_add_finder(&prog->oindex, fn, arg);
+	return drgn_program_add_object_finder_impl(prog, NULL, fn, arg);
 }
 
 static struct drgn_error *
@@ -731,21 +739,6 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 		err = drgn_debug_info_create(prog, &dbinfo);
 		if (err)
 			return err;
-		err = drgn_program_add_object_finder(prog,
-						     drgn_debug_info_find_object,
-						     dbinfo);
-		if (err) {
-			drgn_debug_info_destroy(dbinfo);
-			return err;
-		}
-		err = drgn_program_add_type_finder(prog,
-						   drgn_debug_info_find_type,
-						   dbinfo);
-		if (err) {
-			drgn_object_index_remove_finder(&prog->oindex);
-			drgn_debug_info_destroy(dbinfo);
-			return err;
-		}
 		prog->dbinfo = dbinfo;
 	}
 

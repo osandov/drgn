@@ -1307,23 +1307,37 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 	struct drgn_type_finder *finder = prog->type_finders;
 	while (finder) {
 		struct drgn_type_finder *next = finder->next;
-		free(finder);
+		if (finder->free)
+			free(finder);
 		finder = next;
 	}
+}
+
+struct drgn_error *
+drgn_program_add_type_finder_impl(struct drgn_program *prog,
+				  struct drgn_type_finder *finder,
+				  drgn_type_find_fn fn, void *arg)
+{
+	if (finder) {
+		finder->free = false;
+	} else {
+		finder = malloc(sizeof(*finder));
+		if (!finder)
+			return &drgn_enomem;
+		finder->free = true;
+	}
+	finder->fn = fn;
+	finder->arg = arg;
+	finder->next = prog->type_finders;
+	prog->type_finders = finder;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_type_finder(struct drgn_program *prog, drgn_type_find_fn fn,
 			     void *arg)
 {
-	struct drgn_type_finder *finder = malloc(sizeof(*finder));
-	if (!finder)
-		return &drgn_enomem;
-	finder->fn = fn;
-	finder->arg = arg;
-	finder->next = prog->type_finders;
-	prog->type_finders = finder;
-	return NULL;
+	return drgn_program_add_type_finder_impl(prog, NULL, fn, arg);
 }
 
 struct drgn_error *drgn_program_find_type_impl(struct drgn_program *prog,

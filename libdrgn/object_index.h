@@ -35,6 +35,8 @@ struct drgn_object_finder {
 	void *arg;
 	/** Next callback to try. */
 	struct drgn_object_finder *next;
+	/** Whether this structure needs to be freed. */
+	bool free;
 };
 
 /**
@@ -56,13 +58,10 @@ void drgn_object_index_init(struct drgn_object_index *oindex);
 /** Deinitialize a @ref drgn_object_index. */
 void drgn_object_index_deinit(struct drgn_object_index *oindex);
 
-/** @sa drgn_program_add_object_finder() */
 struct drgn_error *
 drgn_object_index_add_finder(struct drgn_object_index *oindex,
+			     struct drgn_object_finder *finder,
 			     drgn_object_find_fn fn, void *arg);
-
-/** Remove the most recently added object finding callback. */
-void drgn_object_index_remove_finder(struct drgn_object_index *oindex);
 
 /**
  * Find an object in a @ref drgn_object_index.
