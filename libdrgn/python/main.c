@@ -220,6 +220,7 @@ static int add_type_aliases(PyObject *m)
        return 0;
 }
 
+PyMODINIT_FUNC PyInit__drgn(void); // Silence -Wmissing-prototypes.
 DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 {
 	PyObject *m = PyModule_Create(&drgnmodule);
