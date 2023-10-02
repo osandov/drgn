@@ -19,6 +19,7 @@
 #include <libkdumpfile/kdumpfile.h>
 #endif
 
+#include "debug_info.h"
 #include "drgn.h"
 #include "hash_table.h"
 #include "language.h"
@@ -107,7 +108,7 @@ struct drgn_program {
 	 * Debugging information.
 	 */
 	struct drgn_object_index oindex;
-	struct drgn_debug_info *dbinfo;
+	struct drgn_debug_info dbinfo;
 
 	/*
 	 * Program information.

@@ -495,7 +495,7 @@ not_found:;
 	if (!drgn_platforms_equal(&file->platform, &trace->prog->platform))
 		regs = NULL;
 	Dwarf_Die function_die = frame->scopes[frame->function_scope];
-	return drgn_object_from_dwarf(trace->prog->dbinfo, file, &die,
+	return drgn_object_from_dwarf(&trace->prog->dbinfo, file, &die,
 				      dwarf_tag(&die) == DW_TAG_enumerator ?
 				      &type_die : NULL,
 				      &function_die, regs, ret);

@@ -105,15 +105,13 @@ void drgn_register_state_set_pc(struct drgn_program *prog,
 	pc &= drgn_platform_address_mask(&prog->platform);
 	regs->_pc = pc;
 	drgn_register_state_set_known(regs, 0);
-	if (prog->dbinfo) {
-		Dwfl_Module *dwfl_module = dwfl_addrmodule(prog->dbinfo->dwfl,
-							   pc - !regs->interrupted);
-		if (dwfl_module) {
-			void **userdatap;
-			dwfl_module_info(dwfl_module, &userdatap, NULL, NULL,
-					 NULL, NULL, NULL, NULL);
-			regs->module = *userdatap;
-		}
+	Dwfl_Module *dwfl_module = dwfl_addrmodule(prog->dbinfo.dwfl,
+						   pc - !regs->interrupted);
+	if (dwfl_module) {
+		void **userdatap;
+		dwfl_module_info(dwfl_module, &userdatap, NULL, NULL,
+				 NULL, NULL, NULL, NULL);
+		regs->module = *userdatap;
 	}
 }
 

@@ -153,12 +153,12 @@ struct drgn_debug_info {
 	struct drgn_dwarf_info dwarf;
 };
 
-/** Create a @ref drgn_debug_info. */
-struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
-					  struct drgn_debug_info **ret);
+/** Initialize a @ref drgn_debug_info. */
+void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
+			  struct drgn_program *prog);
 
-/** Destroy a @ref drgn_debug_info. */
-void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo);
+/** Deinitialize a @ref drgn_debug_info. */
+void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo);
 
 DEFINE_VECTOR_TYPE(drgn_module_vector, struct drgn_module *);
 

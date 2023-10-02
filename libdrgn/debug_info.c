@@ -2086,12 +2086,9 @@ bool drgn_debug_info_is_indexed(struct drgn_debug_info *dbinfo,
 	return c_string_set_search(&dbinfo->module_names, &name).entry != NULL;
 }
 
-struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
-					  struct drgn_debug_info **ret)
+void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
+			  struct drgn_program *prog)
 {
-	struct drgn_debug_info *dbinfo = malloc(sizeof(*dbinfo));
-	if (!dbinfo)
-		return &drgn_enomem;
 	dbinfo->prog = prog;
 	const Dwfl_Callbacks *dwfl_callbacks;
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
@@ -2101,10 +2098,10 @@ struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 	else
 		dwfl_callbacks = &drgn_userspace_core_dump_dwfl_callbacks;
 	dbinfo->dwfl = dwfl_begin(dwfl_callbacks);
-	if (!dbinfo->dwfl) {
-		free(dbinfo);
-		return drgn_error_libdwfl();
-	}
+	// This is temporary until we stop using libdwfl, and is extremely
+	// unlikely to fail anwyays, so don't bother propagating an error up.
+	if (!dbinfo->dwfl)
+		abort();
 	drgn_program_add_type_finder_impl(prog, &dbinfo->type_finder,
 					  drgn_debug_info_find_type, dbinfo);
 	drgn_program_add_object_finder_impl(prog, &dbinfo->object_finder,
@@ -2113,21 +2110,16 @@ struct drgn_error *drgn_debug_info_create(struct drgn_program *prog,
 	drgn_module_table_init(&dbinfo->modules);
 	c_string_set_init(&dbinfo->module_names);
 	drgn_dwarf_info_init(dbinfo);
-	*ret = dbinfo;
-	return NULL;
 }
 
-void drgn_debug_info_destroy(struct drgn_debug_info *dbinfo)
+void drgn_debug_info_deinit(struct drgn_debug_info *dbinfo)
 {
-	if (!dbinfo)
-		return;
 	drgn_dwarf_info_deinit(dbinfo);
 	c_string_set_deinit(&dbinfo->module_names);
 	drgn_debug_info_free_modules(dbinfo, false, true);
 	assert(drgn_module_table_empty(&dbinfo->modules));
 	drgn_module_table_deinit(&dbinfo->modules);
 	dwfl_end(dbinfo->dwfl);
-	free(dbinfo);
 }
 
 struct drgn_elf_file *drgn_module_find_dwarf_file(struct drgn_module *module,

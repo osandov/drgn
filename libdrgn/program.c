@@ -100,6 +100,7 @@ void drgn_program_init(struct drgn_program *prog,
 	drgn_memory_reader_init(&prog->reader);
 	drgn_program_init_types(prog);
 	drgn_object_index_init(&prog->oindex);
+	drgn_debug_info_init(&prog->dbinfo, prog);
 	prog->core_fd = -1;
 	if (platform)
 		drgn_program_set_platform(prog, platform);
@@ -147,7 +148,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 	if (prog->core_fd != -1)
 		close(prog->core_fd);
 
-	drgn_debug_info_destroy(prog->dbinfo);
+	drgn_debug_info_deinit(&prog->dbinfo);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -695,7 +696,7 @@ static void drgn_program_set_language_from_main(struct drgn_program *prog)
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
 		return;
 	const struct drgn_language *lang;
-	err = drgn_debug_info_main_language(prog->dbinfo, &lang);
+	err = drgn_debug_info_main_language(&prog->dbinfo, &lang);
 	if (err) {
 		drgn_error_destroy(err);
 		return;
@@ -734,20 +735,12 @@ drgn_program_load_debug_info(struct drgn_program *prog, const char **paths,
 		return NULL;
 
 	drgn_blocking_guard(prog);
-	struct drgn_debug_info *dbinfo = prog->dbinfo;
-	if (!dbinfo) {
-		err = drgn_debug_info_create(prog, &dbinfo);
-		if (err)
-			return err;
-		prog->dbinfo = dbinfo;
-	}
-
-	err = drgn_debug_info_load(dbinfo, paths, n, load_default, load_main);
+	err = drgn_debug_info_load(&prog->dbinfo, paths, n, load_default, load_main);
 	if ((!err || err->code == DRGN_ERROR_MISSING_DEBUG_INFO)) {
 		if (!prog->lang)
 			drgn_program_set_language_from_main(prog);
 		if (!prog->has_platform) {
-			dwfl_getdwarf(dbinfo->dwfl,
+			dwfl_getdwarf(prog->dbinfo.dwfl,
 				      drgn_set_platform_from_dwarf, prog, 0);
 		}
 	}
@@ -1784,13 +1777,9 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 						  struct drgn_symbol *ret)
 {
 	if (!module) {
-		if (prog->dbinfo) {
-			module = dwfl_addrmodule(prog->dbinfo->dwfl, address);
-			if (!module)
-				return false;
-		} else {
+		module = dwfl_addrmodule(prog->dbinfo.dwfl, address);
+		if (!module)
 			return false;
-		}
 	}
 
 	GElf_Off offset;
@@ -1894,11 +1883,6 @@ symbols_search(struct drgn_program *prog, struct symbols_search_arg *arg,
 {
 	struct drgn_error *err;
 
-	if (!prog->dbinfo) {
-		return drgn_error_create(DRGN_ERROR_MISSING_DEBUG_INFO,
-					 "could not find matching symbols");
-	}
-
 	symbolp_vector_init(&arg->results);
 
 	/*
@@ -1907,12 +1891,12 @@ symbols_search(struct drgn_program *prog, struct symbols_search_arg *arg,
 	 */
 	err = NULL;
 	if (arg->flags & SYMBOLS_SEARCH_ADDRESS) {
-		Dwfl_Module *module = dwfl_addrmodule(prog->dbinfo->dwfl,
+		Dwfl_Module *module = dwfl_addrmodule(prog->dbinfo.dwfl,
 						      arg->address);
 		if (module && symbols_search_cb(module, NULL, NULL, 0, arg))
 			err = &drgn_enomem;
 	} else {
-		if (dwfl_getmodules(prog->dbinfo->dwfl, symbols_search_cb, arg,
+		if (dwfl_getmodules(prog->dbinfo.dwfl, symbols_search_cb, arg,
 				    0))
 			err = &drgn_enomem;
 	}
@@ -2015,17 +1999,14 @@ drgn_program_find_symbol_by_name(struct drgn_program *prog,
 	struct find_symbol_by_name_arg arg = {
 		.name = name,
 	};
-	if (prog->dbinfo) {
-		dwfl_getmodules(prog->dbinfo->dwfl, find_symbol_by_name_cb,
-				&arg, 0);
-		if (arg.found) {
-			struct drgn_symbol *sym = malloc(sizeof(*sym));
-			if (!sym)
-				return &drgn_enomem;
-			drgn_symbol_from_elf(name, arg.addr, &arg.sym, sym);
-			*ret = sym;
-			return NULL;
-		}
+	dwfl_getmodules(prog->dbinfo.dwfl, find_symbol_by_name_cb, &arg, 0);
+	if (arg.found) {
+		struct drgn_symbol *sym = malloc(sizeof(*sym));
+		if (!sym)
+			return &drgn_enomem;
+		drgn_symbol_from_elf(name, arg.addr, &arg.sym, sym);
+		*ret = sym;
+		return NULL;
 	}
 	return drgn_error_format(DRGN_ERROR_LOOKUP,
 				 "could not find symbol with name '%s'%s", name,
