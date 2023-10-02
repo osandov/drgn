@@ -235,8 +235,9 @@ static struct drgn_error *has_kdump_signature(const char *path, int fd,
 	return NULL;
 }
 
-struct drgn_error *
-drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd, const char *path)
+static struct drgn_error *
+drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
+				       const char *path)
 {
 	struct drgn_error *err;
 	GElf_Ehdr ehdr_mem, *ehdr;
