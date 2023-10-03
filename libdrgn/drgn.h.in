@@ -801,7 +801,7 @@ struct drgn_error *drgn_program_read_memory(struct drgn_program *prog,
  * @param[in] max_size Stop after this many bytes are read, not including the
  * null byte. A null byte is appended to @p ret in this case.
  * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
+ * On error, it is not modified.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_program_read_c_string(struct drgn_program *prog,
@@ -1782,7 +1782,7 @@ struct drgn_error *drgn_object_read_float(const struct drgn_object *obj,
  *
  * @param[in] obj Object to read.
  * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
+ * On error, it is not modified.
  */
 struct drgn_error *drgn_object_read_c_string(const struct drgn_object *obj,
 					     char **ret);

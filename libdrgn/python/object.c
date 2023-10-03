@@ -704,16 +704,11 @@ static PyObject *DrgnObject_value(DrgnObject *self)
 static PyObject *DrgnObject_string(DrgnObject *self)
 {
 	struct drgn_error *err;
-	char *str;
-	PyObject *ret;
-
+	_cleanup_free_ char *str = NULL;
 	err = drgn_object_read_c_string(&self->obj, &str);
 	if (err)
 		return set_drgn_error(err);
-
-	ret = PyBytes_FromString(str);
-	free(str);
-	return ret;
+	return PyBytes_FromString(str);
 }
 
 static DrgnObject *DrgnObject_address_of(DrgnObject *self)
