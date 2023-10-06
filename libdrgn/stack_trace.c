@@ -933,7 +933,6 @@ drgn_unwind_one_register(struct drgn_program *prog, struct drgn_elf_file *file,
 			     little_endian);
 		if (rule->kind == DRGN_CFI_RULE_AT_REGISTER_PLUS_OFFSET)
 			address += rule->offset;
-		address &= drgn_platform_address_mask(&prog->platform);
 		err = drgn_program_read_memory(prog, buf, address, size, false);
 		if (!err && rule->kind == DRGN_CFI_RULE_AT_REGISTER_ADD_OFFSET) {
 			drgn_add_to_register(buf, size, buf, size, rule->offset,
