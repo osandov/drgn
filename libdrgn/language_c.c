@@ -536,14 +536,13 @@ static struct drgn_error *
 c_format_type_name(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb = STRING_BUILDER_INIT;
+	STRING_BUILDER(sb);
 	err = c_format_type_name_impl(qualified_type, &sb);
-	if (err) {
-		free(sb.str);
+	if (err)
 		return err;
-	}
-	if (!(*ret = string_builder_null_terminate(&sb)))
+	if (!string_builder_null_terminate(&sb))
 		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
 	return NULL;
 }
 
@@ -551,17 +550,16 @@ static struct drgn_error *
 c_format_type(struct drgn_qualified_type qualified_type, char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb = STRING_BUILDER_INIT;
+	STRING_BUILDER(sb);
 	if (drgn_type_is_complete(qualified_type.type))
 		err = c_define_type(qualified_type, 0, &sb);
 	else
 		err = c_format_type_name_impl(qualified_type, &sb);
-	if (err) {
-		free(sb.str);
+	if (err)
 		return err;
-	}
-	if (!(*ret = string_builder_null_terminate(&sb)))
+	if (!string_builder_null_terminate(&sb))
 		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
 	return NULL;
 }
 
@@ -1604,15 +1602,14 @@ static struct drgn_error *c_format_object(const struct drgn_object *obj,
 					  char **ret)
 {
 	struct drgn_error *err;
-	struct string_builder sb = STRING_BUILDER_INIT;
+	STRING_BUILDER(sb);
 	err = c_format_object_impl(obj, 0, columns, max(columns, (size_t)1),
 				   flags, &sb);
-	if (err) {
-		free(sb.str);
+	if (err)
 		return err;
-	}
-	if (!(*ret = string_builder_null_terminate(&sb)))
+	if (!string_builder_null_terminate(&sb))
 		return &drgn_enomem;
+	*ret = string_builder_steal(&sb);
 	return NULL;
 }
 

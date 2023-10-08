@@ -9,12 +9,12 @@
 #include "string_builder.h"
 #include "util.h"
 
-char *string_builder_null_terminate(struct string_builder *sb)
+bool string_builder_null_terminate(struct string_builder *sb)
 {
 	if (!string_builder_reserve_for_append(sb, 1))
-		return NULL;
+		return false;
 	sb->str[sb->len] = '\0';
-	return sb->str;
+	return true;
 }
 
 bool string_builder_reserve(struct string_builder *sb, size_t capacity)

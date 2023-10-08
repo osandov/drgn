@@ -37,7 +37,7 @@ struct string_builder;
 /**
  * Create a @ref drgn_error with a message from a @ref string_builder.
  *
- * This finalizes the string builder.
+ * This deinitializes the string builder.
  */
 struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
 						  struct string_builder *sb);

@@ -161,12 +161,11 @@ drgn_error_format_fault(uint64_t address, const char *format, ...)
 struct drgn_error *drgn_error_from_string_builder(enum drgn_error_code code,
 						  struct string_builder *sb)
 {
-	char *message = string_builder_null_terminate(sb);
-	if (!message) {
-		free(sb->str);
+	if (!string_builder_null_terminate(sb)) {
+		string_builder_deinit(sb);
 		return &drgn_enomem;
 	}
-	return drgn_error_create_nodup(code, message);
+	return drgn_error_create_nodup(code, sb->str);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *drgn_error_copy(struct drgn_error *src)

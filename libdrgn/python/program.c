@@ -21,13 +21,13 @@ static void drgnpy_log_fn(struct drgn_program *prog, void *arg,
 			  enum drgn_log_level level, const char *format,
 			  va_list ap, struct drgn_error *err)
 {
-	struct string_builder sb = STRING_BUILDER_INIT;
+	STRING_BUILDER(sb);
 	if (!string_builder_vappendf(&sb, format, ap))
-		goto out;
+		return;
 	if (err && !string_builder_append_error(&sb, err))
-		goto out;
+		return;
 
-	PyGILState_STATE gstate = PyGILState_Ensure();
+	PyGILState_guard();
 	PyObject *ret = PyObject_CallFunction(logger_log, "iOs#",
 					      (level + 1) * 10, percent_s,
 					      sb.str ? sb.str : "",
@@ -36,10 +36,6 @@ static void drgnpy_log_fn(struct drgn_program *prog, void *arg,
 		Py_DECREF(ret);
 	else
 		PyErr_WriteUnraisable(logger_log);
-	PyGILState_Release(gstate);
-
-out:
-	free(sb.str);
 }
 
 static int get_log_level(void)

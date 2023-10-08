@@ -109,17 +109,17 @@ drgn_stack_trace_num_frames(struct drgn_stack_trace *trace)
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 {
-	struct string_builder str = STRING_BUILDER_INIT;
+	STRING_BUILDER(str);
 	for (size_t frame = 0; frame < trace->num_frames; frame++) {
 		if (!string_builder_appendf(&str, "#%-2zu ", frame))
-			goto enomem;
+			return &drgn_enomem;
 
 		struct drgn_register_state *regs = trace->frames[frame].regs;
 		struct optional_uint64 pc;
 		const char *name = drgn_stack_frame_name(trace, frame);
 		if (name) {
 			if (!string_builder_append(&str, name))
-				goto enomem;
+				return &drgn_enomem;
 		} else if ((pc = drgn_register_state_get_pc(regs)).has_value) {
 			Dwfl_Module *dwfl_module =
 				regs->module ? regs->module->dwfl_module : NULL;
@@ -134,15 +134,15 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 							    sym.name,
 							    pc.value - sym.address,
 							    sym.size))
-					goto enomem;
+					return &drgn_enomem;
 			} else {
 				if (!string_builder_appendf(&str, "0x%" PRIx64,
 							    pc.value))
-					goto enomem;
+					return &drgn_enomem;
 			}
 		} else {
 			if (!string_builder_append(&str, "???"))
-				goto enomem;
+				return &drgn_enomem;
 		}
 
 		int line, column;
@@ -151,38 +151,35 @@ drgn_format_stack_trace(struct drgn_stack_trace *trace, char **ret)
 		if (filename && column) {
 			if (!string_builder_appendf(&str, " (%s:%d:%d)",
 						    filename, line, column))
-				goto enomem;
+				return &drgn_enomem;
 		} else if (filename) {
 			if (!string_builder_appendf(&str, " (%s:%d)", filename,
 						    line))
-				goto enomem;
+				return &drgn_enomem;
 		}
 
 		if (frame != trace->num_frames - 1 &&
 		    !string_builder_appendc(&str, '\n'))
-			goto enomem;
+			return &drgn_enomem;
 	}
-	if (!(*ret = string_builder_null_terminate(&str)))
-		goto enomem;
+	if (!string_builder_null_terminate(&str))
+		return &drgn_enomem;
+	*ret = string_builder_steal(&str);
 	return NULL;
-
-enomem:
-	free(str.str);
-	return &drgn_enomem;
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret)
 {
-	struct string_builder str = STRING_BUILDER_INIT;
+	STRING_BUILDER(str);
 	struct drgn_register_state *regs = trace->frames[frame].regs;
 	if (!string_builder_appendf(&str, "#%zu at ", frame))
-		goto enomem;
+		return &drgn_enomem;
 
 	struct optional_uint64 pc = drgn_register_state_get_pc(regs);
 	if (pc.has_value) {
 		if (!string_builder_appendf(&str, "%#" PRIx64, pc.value))
-			goto enomem;
+			return &drgn_enomem;
 
 		Dwfl_Module *dwfl_module =
 			regs->module ? regs->module->dwfl_module : NULL;
@@ -195,15 +192,15 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 		    !string_builder_appendf(&str, " (%s+0x%" PRIx64 "/0x%" PRIx64 ")",
 					    sym.name, pc.value - sym.address,
 					    sym.size))
-				goto enomem;
+			return &drgn_enomem;
 	} else {
 		if (!string_builder_append(&str, "???"))
-			goto enomem;
+			return &drgn_enomem;
 	}
 
 	const char *name = drgn_stack_frame_name(trace, frame);
 	if (name && !string_builder_appendf(&str, " in %s", name))
-		goto enomem;
+		return &drgn_enomem;
 
 	int line, column;
 	const char *filename = drgn_stack_frame_source(trace, frame, &line,
@@ -211,23 +208,20 @@ drgn_format_stack_frame(struct drgn_stack_trace *trace, size_t frame, char **ret
 	if (filename && column) {
 		if (!string_builder_appendf(&str, " at %s:%d:%d", filename,
 					    line, column))
-			goto enomem;
+			return &drgn_enomem;
 	} else if (filename) {
 		if (!string_builder_appendf(&str, " at %s:%d", filename, line))
-			goto enomem;
+			return &drgn_enomem;
 	}
 
 	if (drgn_stack_frame_is_inline(trace, frame) &&
 	    !string_builder_append(&str, " (inlined)"))
-		goto enomem;
+		return &drgn_enomem;
 
-	if (!(*ret = string_builder_null_terminate(&str)))
-		goto enomem;
+	if (!string_builder_null_terminate(&str))
+		return &drgn_enomem;
+	*ret = string_builder_steal(&str);
 	return NULL;
-
-enomem:
-	free(str.str);
-	return &drgn_enomem;
 }
 
 LIBDRGN_PUBLIC const char *drgn_stack_frame_name(struct drgn_stack_trace *trace,

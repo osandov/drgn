@@ -2007,7 +2007,7 @@ drgn_debug_info_report_finalize_errors(struct drgn_debug_info_load_state *load)
 	    (!string_builder_line_break(&load->errors) ||
 	     !string_builder_appendf(&load->errors, "... %u more",
 				     load->num_errors - load->max_errors))) {
-		free(load->errors.str);
+		string_builder_deinit(&load->errors);
 		return &drgn_enomem;
 	}
 	if (load->num_errors) {
@@ -2076,7 +2076,7 @@ out:
 
 err:
 	drgn_debug_info_free_modules(dbinfo, false, false);
-	free(load.errors.str);
+	string_builder_deinit(&load.errors);
 	goto out;
 }
 
