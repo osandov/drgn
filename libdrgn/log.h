@@ -67,7 +67,7 @@ void drgn_log(enum drgn_log_level level, struct drgn_program *prog,
 /**
  * Log a printf-style message followed by a @ref drgn_error at the given level.
  */
-__attribute__((__format__(__printf__, 4, 5)))
+__attribute__((__format__(__printf__, 4, 5), __nonnull__(2, 4)))
 void drgn_error_log(enum drgn_log_level level, struct drgn_program *prog,
 		    struct drgn_error *err, const char *format, ...);
 /** Log a critical message followed by a @ref drgn_error. */
