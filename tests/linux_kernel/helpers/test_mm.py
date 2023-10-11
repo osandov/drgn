@@ -295,14 +295,21 @@ class TestMm(LinuxKernelTestCase):
     @skip_unless_have_full_mm_support
     def test_access_process_vm_big(self):
         task = find_task(self.prog, os.getpid())
-        with self._pages() as (map, address, _):
-            self.assertEqual(access_process_vm(task, address, len(map)), map[:])
-            self.assertEqual(
-                access_process_vm(task, address + 1, len(map) - 1), map[1:]
-            )
-            self.assertEqual(
-                access_process_vm(task, address + 1, len(map) - 2), map[1:-1]
-            )
+        # 32M = 2**(log2(16K) + log2(16K / 8)), so 32MB + 1 is enough so that
+        # even with 16KB pages on a 64-bit architecture, we're guaranteed to
+        # read across two second-level page table entries. (The same for 64KB
+        # pages is 512MB + 1, which is too big to test reliably in vmtest.)
+        max_size = 32 * 1024 * 1024 + 1
+        expected = os.getrandom(max_size)
+        while len(expected) < max_size:
+            expected += os.getrandom(max_size - len(expected))
+        address = ctypes.memmove(expected, expected, 0)
+        expected = memoryview(expected)
+        for size in (1, 65537, max_size):
+            with self.subTest(size=size):
+                self.assertEqual(
+                    access_process_vm(task, address, size), expected[:size]
+                )
 
     @skip_unless_have_full_mm_support
     def test_access_remote_vm_init_mm(self):

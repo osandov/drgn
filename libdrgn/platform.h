@@ -120,6 +120,15 @@ struct pgtable_iterator {
 	uint64_t pgtable;
 	/** Current virtual address to translate. */
 	uint64_t virt_addr;
+	/**
+	 * Last virtual address expected to be translated (inclusive).
+	 *
+	 * This is a hint; it may be less than or greater than the actual last
+	 * address that is translated. Page table iterator implementations
+	 * should optimize for the case that it is correct (e.g., by reading
+	 * ahead additional page table entries).
+	 */
+	uint64_t last_virt_addr_hint;
 };
 
 /**

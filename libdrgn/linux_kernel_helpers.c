@@ -18,7 +18,7 @@ static void end_virtual_address_translation(struct drgn_program *prog)
 
 static struct drgn_error *
 begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
-				  uint64_t virt_addr)
+				  uint64_t virt_addr, uint64_t count_hint)
 {
 	struct drgn_error *err;
 
@@ -54,6 +54,7 @@ begin_virtual_address_translation(struct drgn_program *prog, uint64_t pgtable,
 	}
 	prog->pgtable_it->pgtable = pgtable;
 	prog->pgtable_it->virt_addr = virt_addr;
+	prog->pgtable_it->last_virt_addr_hint = virt_addr + count_hint - 1;
 	prog->platform.arch->linux_kernel_pgtable_iterator_init(prog, prog->pgtable_it);
 	return NULL;
 
@@ -107,7 +108,7 @@ struct drgn_error *linux_helper_direct_mapping_offset(struct drgn_program *prog,
 
 	err = begin_virtual_address_translation(prog,
 						prog->vmcoreinfo.swapper_pg_dir,
-						virt_addr);
+						virt_addr, 1);
 	if (err)
 		return err;
 	uint64_t start_virt_addr, start_phys_addr;
@@ -137,7 +138,8 @@ struct drgn_error *linux_helper_read_vm(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	err = begin_virtual_address_translation(prog, pgtable, virt_addr);
+	err = begin_virtual_address_translation(prog, pgtable, virt_addr,
+						count);
 	if (err)
 		return err;
 	if (!count) {
@@ -196,7 +198,7 @@ struct drgn_error *linux_helper_follow_phys(struct drgn_program *prog,
 {
 	struct drgn_error *err;
 
-	err = begin_virtual_address_translation(prog, pgtable, virt_addr);
+	err = begin_virtual_address_translation(prog, pgtable, virt_addr, 1);
 	if (err)
 		return err;
 
