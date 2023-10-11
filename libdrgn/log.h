@@ -71,9 +71,9 @@ __attribute__((__format__(__printf__, 4, 5), __nonnull__(2, 4)))
 void drgn_error_log(enum drgn_log_level level, struct drgn_program *prog,
 		    struct drgn_error *err, const char *format, ...);
 /** Log a critical message followed by a @ref drgn_error. */
-#define drgn_error_log_critical(...) drgn_error_log(DRGN_LOG_CRIT, __VA_ARGS__)
+#define drgn_error_log_critical(...) drgn_error_log(DRGN_LOG_CRITICAL, __VA_ARGS__)
 /** Log an error message followed by a @ref drgn_error. */
-#define drgn_error_log_error(...) drgn_error_log(DRGN_LOG_ERR, __VA_ARGS__)
+#define drgn_error_log_error(...) drgn_error_log(DRGN_LOG_ERROR, __VA_ARGS__)
 /** Log a warning message followed by a @ref drgn_error. */
 #define drgn_error_log_warning(...) drgn_error_log(DRGN_LOG_WARNING, __VA_ARGS__)
 /** Log an informational message followed by a @ref drgn_error. */
