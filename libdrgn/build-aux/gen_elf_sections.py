@@ -15,8 +15,6 @@ DWARF_INDEX_SECTIONS = (
     ".debug_abbrev",
     ".debug_str",
     ".debug_str_offsets",
-    ".debug_line",
-    ".debug_line_str",
 )
 
 CACHED_SECTIONS = (

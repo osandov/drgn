@@ -186,7 +186,6 @@ struct drgn_error *drgn_elf_file_precache_sections(struct drgn_elf_file *file)
 	 * within .debug_{,line_}str is always null-terminated.
 	 */
 	truncate_null_terminated_section(file->scn_data[DRGN_SCN_DEBUG_STR]);
-	truncate_null_terminated_section(file->scn_data[DRGN_SCN_DEBUG_LINE_STR]);
 	truncate_null_terminated_section(file->alt_debug_str_data);
 	return NULL;
 }
