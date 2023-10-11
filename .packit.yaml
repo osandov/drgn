@@ -26,8 +26,6 @@ jobs:
   project: drgn
   targets:
     - fedora-all-aarch64
-    # Disabled due to https://bugzilla.redhat.com/show_bug.cgi?id=2152259.
-    # - fedora-all-armhfp
     - fedora-all-i386
     - fedora-all-ppc64le
     - fedora-all-s390x
@@ -52,7 +50,6 @@ jobs:
   project: drgn
   targets:
     - fedora-all-aarch64
-    # - fedora-all-armhfp
     - fedora-all-i386
     - fedora-all-ppc64le
     - fedora-all-s390x
