@@ -5,11 +5,10 @@ import os
 import unittest
 
 from drgn import Object, Program
-from tests import assertReprPrettyEqualsStr
+from tests import assertReprPrettyEqualsStr, modifyenv
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     fork_and_sigwait,
-    setenv,
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
 )
@@ -35,7 +34,7 @@ class TestStackTrace(LinuxKernelTestCase):
 
     def _test_by_pid(self, orc):
         old_orc = int(os.environ.get("DRGN_PREFER_ORC_UNWINDER", "0")) != 0
-        with setenv("DRGN_PREFER_ORC_UNWINDER", "1" if orc else "0"):
+        with modifyenv({"DRGN_PREFER_ORC_UNWINDER": "1" if orc else "0"}):
             if orc == old_orc:
                 prog = self.prog
             else:

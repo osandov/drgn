@@ -315,19 +315,3 @@ def create_socket(*args, **kwds):
             raise unittest.SkipTest("kernel does not support TCP")
         else:
             raise
-
-
-@contextlib.contextmanager
-def setenv(key, value):
-    old_value = os.environ.get(key)
-    try:
-        if value is not None:
-            os.environ[key] = value
-        elif old_value is not None:
-            del os.environ[key]
-        yield
-    finally:
-        if old_value is None:
-            del os.environ[key]
-        else:
-            os.environ[key] = old_value

@@ -1,8 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import contextlib
 import functools
-from typing import Any, NamedTuple, Optional
+import os
+from typing import Any, Mapping, NamedTuple, Optional
 import unittest
 from unittest.mock import Mock
 
@@ -332,3 +334,24 @@ class MockProgramTestCase(TestCase):
             self.prog.add_memory_segment(
                 phys_addr, len(buf), functools.partial(mock_memory_read, buf), True
             )
+
+
+@contextlib.contextmanager
+def modifyenv(vars: Mapping[str, Optional[str]]):
+    to_restore = []
+    for key, value in vars.items():
+        old_value = os.environ.get(key)
+        if value != old_value:
+            if value is None:
+                del os.environ[key]
+            else:
+                os.environ[key] = value
+            to_restore.append((key, old_value))
+    try:
+        yield
+    finally:
+        for key, old_value in to_restore:
+            if old_value is None:
+                del os.environ[key]
+            else:
+                os.environ[key] = old_value

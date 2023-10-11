@@ -6,7 +6,8 @@ from pathlib import Path
 import unittest
 
 from drgn import Object, Program
-from tests.linux_kernel import LinuxKernelTestCase, setenv, skip_unless_have_test_kmod
+from tests import modifyenv
+from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 KALLSYMS_PATH = Path("/proc/kallsyms")
 
@@ -33,7 +34,7 @@ class TestModuleDebugInfo(LinuxKernelTestCase):
 
     def _test_module_debug_info(self, use_sys_module):
         old_use_sys_module = int(os.environ.get("DRGN_USE_SYS_MODULE", "1")) != 0
-        with setenv("DRGN_USE_SYS_MODULE", "1" if use_sys_module else "0"):
+        with modifyenv({"DRGN_USE_SYS_MODULE": "1" if use_sys_module else "0"}):
             if old_use_sys_module == use_sys_module:
                 prog = self.prog
             else:
