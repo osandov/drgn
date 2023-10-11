@@ -63,7 +63,7 @@ class PT(enum.IntEnum):
             return hex(value)
 
 
-class SHF(enum.IntEnum):
+class SHF(enum.IntFlag):
     WRITE = 0x1
     ALLOC = 0x2
     EXECINSTR = 0x4

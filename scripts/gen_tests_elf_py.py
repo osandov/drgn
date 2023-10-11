@@ -58,7 +58,8 @@ from typing import Text
     )
     for type_name, constants in enums.items():
         assert constants
-        f.write(f"\n\nclass {type_name}(enum.IntEnum):\n")
+        enum_class = "IntFlag" if type_name == "SHF" else "IntEnum"
+        f.write(f"\n\nclass {type_name}(enum.{enum_class}):\n")
         for name, value in constants:
             f.write(f"    {name} = 0x{value:X}\n")
         f.write(
