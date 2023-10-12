@@ -760,6 +760,10 @@ struct drgn_error *drgn_program_from_pid(pid_t pid, struct drgn_program **ret);
 /** Get the set of @ref drgn_program_flags applying to a @ref drgn_program. */
 enum drgn_program_flags drgn_program_flags(struct drgn_program *prog);
 
+/** Set the set of @ref drgn_program_flags applying to a @ref drgn_program. */
+void drgn_program_set_flags(struct drgn_program *prog,
+			    enum drgn_program_flags flags);
+
 /**
  * Get the platform of a @ref drgn_program.
  *

@@ -1087,6 +1087,29 @@ static PyObject *Program_get_flags(Program *self, void *arg)
 				     (unsigned long)self->prog.flags);
 }
 
+static int Program_set_flags(Program *self, PyObject *value, void *arg)
+{
+	PyObject *value_attr;
+	unsigned long flags;
+
+	if (!PyObject_IsInstance(value, ProgramFlags_class)) {
+		PyErr_SetString(PyExc_TypeError, "flags must be ProgramFlags");
+		return -1;
+	}
+
+	value_attr = PyObject_GetAttrString(value, "value");
+	if (!value_attr)
+		return -1;
+
+	flags = PyLong_AsUint64Mask(value_attr);
+
+	drgn_program_set_flags(&self->prog, flags);
+
+	Py_DECREF(value_attr);
+
+	return 0;
+}
+
 static PyObject *Program_get_platform(Program *self, void *arg)
 {
 	const struct drgn_platform *platform;
@@ -1205,7 +1228,7 @@ static PyMemberDef Program_members[] = {
 };
 
 static PyGetSetDef Program_getset[] = {
-	{"flags", (getter)Program_get_flags, NULL, drgn_Program_flags_DOC},
+	{"flags", (getter)Program_get_flags, (setter)Program_set_flags, drgn_Program_flags_DOC},
 	{"platform", (getter)Program_get_platform, NULL,
 	 drgn_Program_platform_DOC},
 	{"language", (getter)Program_get_language, (setter)Program_set_language,

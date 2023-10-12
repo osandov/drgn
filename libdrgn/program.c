@@ -66,6 +66,12 @@ drgn_program_flags(struct drgn_program *prog)
 	return prog->flags;
 }
 
+LIBDRGN_PUBLIC void drgn_program_set_flags(struct drgn_program *prog,
+					   enum drgn_program_flags flags)
+{
+	prog->flags = flags;
+}
+
 LIBDRGN_PUBLIC const struct drgn_platform *
 drgn_program_platform(struct drgn_program *prog)
 {
