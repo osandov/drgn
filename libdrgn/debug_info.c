@@ -1695,9 +1695,6 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 			err = drgn_error_libelf();
 			goto out;
 		}
-		/* We don't support any architectures that use SHT_REL yet. */
-		if (reloc_shdr->sh_type != SHT_RELA)
-			continue;
 
 		int r = should_apply_relocation_section(elf, shstrndx,
 							reloc_shdr);
