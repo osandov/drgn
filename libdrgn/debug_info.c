@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "binary_buffer.h"
+#include "cleanup.h"
 #include "debug_info.h"
 #include "elf_file.h"
 #include "error.h"
@@ -1666,7 +1667,8 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 	size_t shdrnum;
 	if (elf_getshdrnum(elf, &shdrnum))
 		return drgn_error_libelf();
-	uint64_t *sh_addrs = calloc(shdrnum, sizeof(sh_addrs[0]));
+	_cleanup_free_ uint64_t *sh_addrs =
+		calloc(shdrnum, sizeof(sh_addrs[0]));
 	if (!sh_addrs && shdrnum > 0)
 		return &drgn_enomem;
 
@@ -1674,71 +1676,54 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 	while ((scn = elf_nextscn(elf, scn))) {
 		GElf_Shdr *shdr, shdr_mem;
 		shdr = gelf_getshdr(scn, &shdr_mem);
-		if (!shdr) {
-			err = drgn_error_libelf();
-			goto out;
-		}
+		if (!shdr)
+			return drgn_error_libelf();
 		sh_addrs[elf_ndxscn(scn)] = shdr->sh_addr;
 	}
 
 	size_t shstrndx;
-	if (elf_getshdrstrndx(elf, &shstrndx)) {
-		err = drgn_error_libelf();
-		goto out;
-	}
+	if (elf_getshdrstrndx(elf, &shstrndx))
+		return drgn_error_libelf();
 
 	Elf_Scn *reloc_scn = NULL;
 	while ((reloc_scn = elf_nextscn(elf, reloc_scn))) {
 		GElf_Shdr *reloc_shdr, reloc_shdr_mem;
 		reloc_shdr = gelf_getshdr(reloc_scn, &reloc_shdr_mem);
-		if (!reloc_shdr) {
-			err = drgn_error_libelf();
-			goto out;
-		}
+		if (!reloc_shdr)
+			return drgn_error_libelf();
 
 		int r = should_apply_relocation_section(elf, shstrndx,
 							reloc_shdr);
-		if (r < 0) {
-			err = drgn_error_libelf();
-			goto out;
-		}
+		if (r < 0)
+			return drgn_error_libelf();
 		if (r) {
 			Elf_Scn *scn = elf_getscn(elf, reloc_shdr->sh_info);
-			if (!scn) {
-				err = drgn_error_libelf();
-				goto out;
-			}
+			if (!scn)
+				return drgn_error_libelf();
 			GElf_Shdr *shdr, shdr_mem;
 			shdr = gelf_getshdr(scn, &shdr_mem);
-			if (!shdr) {
-				err = drgn_error_libelf();
-				goto out;
-			}
+			if (!shdr)
+				return drgn_error_libelf();
 			if (shdr->sh_type == SHT_NOBITS)
 				continue;
 
 			Elf_Scn *symtab_scn = elf_getscn(elf,
 							 reloc_shdr->sh_link);
-			if (!symtab_scn) {
-				err = drgn_error_libelf();
-				goto out;
-			}
+			if (!symtab_scn)
+				return drgn_error_libelf();
 			shdr = gelf_getshdr(symtab_scn, &shdr_mem);
-			if (!shdr) {
-				err = drgn_error_libelf();
-				goto out;
-			}
+			if (!shdr)
+				return drgn_error_libelf();
 			if (shdr->sh_type == SHT_NOBITS) {
-				err = drgn_error_create(DRGN_ERROR_OTHER,
-							"relocation symbol table has no data");
-				goto out;
+				return drgn_error_create(DRGN_ERROR_OTHER,
+							 "relocation symbol table has no data");
 			}
 
 			Elf_Data *data, *reloc_data, *symtab_data;
 			if ((err = read_elf_section(scn, &data)) ||
 			    (err = read_elf_section(reloc_scn, &reloc_data)) ||
 			    (err = read_elf_section(symtab_scn, &symtab_data)))
-				goto out;
+				return err;
 
 			struct drgn_relocating_section relocating = {
 				.buf = data->d_buf,
@@ -1757,24 +1742,19 @@ static struct drgn_error *relocate_elf_file(Elf *elf)
 						     shdrnum, &platform);
 			}
 			if (err)
-				goto out;
+				return err;
 
 			/*
 			 * Mark the relocation section as empty so that libdwfl
 			 * doesn't try to apply it again.
 			 */
 			reloc_shdr->sh_size = 0;
-			if (!gelf_update_shdr(reloc_scn, reloc_shdr)) {
-				err = drgn_error_libelf();
-				goto out;
-			}
+			if (!gelf_update_shdr(reloc_scn, reloc_shdr))
+				return drgn_error_libelf();
 			reloc_data->d_size = 0;
 		}
 	}
-	err = NULL;
-out:
-	free(sh_addrs);
-	return err;
+	return NULL;
 }
 
 static struct drgn_error *
