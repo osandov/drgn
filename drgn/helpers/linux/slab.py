@@ -30,6 +30,7 @@ from drgn import (
     container_of,
     sizeof,
 )
+from drgn.helpers import ValidationError
 from drgn.helpers.common.format import escape_ascii_string
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
@@ -37,6 +38,7 @@ from drgn.helpers.linux.mm import (
     PageSlab,
     compound_head,
     for_each_page,
+    page_size,
     page_to_virt,
     pfn_to_virt,
     virt_to_page,
@@ -51,8 +53,15 @@ __all__ = (
     "get_slab_cache_aliases",
     "print_slab_caches",
     "slab_cache_for_each_allocated_object",
+    "slab_cache_for_each_object",
+    "slab_cache_for_each_free_object",
     "slab_cache_is_merged",
     "slab_object_info",
+    "slab_cache_for_each_slab",
+    "slab_cache_validate_object_address",
+    "slab_cache_validate_slab",
+    "slab_cache_validate_object",
+    "slab_cache_validate",
 )
 
 
@@ -169,6 +178,96 @@ def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
     return name_map
 
 
+def _check_object_bytes(
+    slab_cache: Object,
+    obj_addr: int,
+    what: str,
+    start: int,
+    key: int,
+    size: int,
+) -> bool:
+    """
+    Verify that a specific key is present at all locations of a given area
+    within an object.
+
+    param slab_cache: ``struct kmem_cache*``
+    param obj_addr: Object address
+    param what: Description of what is being searched
+    param start: Start of search area
+    param key: value to look for in search area
+    param size: size of search area
+
+    returns: ``True`` if all bytes in the search area have specified ``key``,
+             otherwise return ``False``
+    """
+    fault = 0
+    val = b"\x00"
+    prog = slab_cache.prog_
+
+    # Find first occurence of invalid value
+    for cnt in range(size):
+        val = prog.read(start + cnt, 1)
+        if val != key.to_bytes(1, "little"):
+            fault = start + cnt
+            break
+    if not fault:
+        return True
+
+    # Find last occurence of invalid value
+    end = start + size
+    while end > fault:
+        if prog.read(end - 1, 1) != key.to_bytes(1, "little"):
+            break
+        end -= 1
+
+    print(
+        "Slab-cache:",
+        slab_cache.name.string_(),
+        "Object:",
+        hex(obj_addr),
+        what,
+        "overwritten",
+    )
+    print(
+        "Info: ",
+        hex(fault),
+        "-",
+        hex(end - 1),
+        " @offset=",
+        fault - obj_addr,
+        "First byte",
+        val.hex(),
+        "instead of",
+        hex(key),
+    )
+
+    return False
+
+
+def slab_cache_for_each_slab(slab_cache: Object) -> Iterator[Object]:
+    """
+    Iterate over all slabs of a given slab cache.
+
+    Only the SLUB and SLAB allocators are supported.
+
+    :param slab_cache: ``struct kmem_cache *``
+    :return: Iterator of ``slab or page`` objects.
+    """
+    prog = slab_cache.prog_
+    slab_type = _get_slab_type(prog)
+
+    PG_slab_mask = 1 << prog.constant("PG_slab")
+    for page in for_each_page(prog):
+        try:
+            if not page.flags & PG_slab_mask:
+                continue
+        except FaultError:
+            continue
+        slab = cast(slab_type, page)
+        if slab.slab_cache == slab_cache:
+            yield slab
+
+
 def for_each_slab_cache(prog: Program) -> Iterator[Object]:
     """
     Iterate over all slab caches.
@@ -208,36 +307,85 @@ def print_slab_caches(prog: Program) -> None:
 # and its subclasses track all of that complexity so that we can share code
 # between slab helpers.
 class _SlabCacheHelper:
+    POISON_INUSE = b"\x5a"
+    POISON_FREE = b"\x6b"
+    POISON_END = b"\xa5"
+    SLAB_RED_ZONE = 0x00000400
+    SLAB_POISON = 0x00000800
+    SLAB_KMALLOC = 0x00001000
+    SLAB_STORE_USER = 0x00010000
+
     def __init__(self, slab_cache: Object) -> None:
         self._prog = slab_cache.prog_
         self._slab_cache = slab_cache.read_()
 
-    def _page_objects(
+    def _debug_redzone(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_RED_ZONE
+
+    def _debug_poison(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_POISON
+
+    def _debug_storeuser(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_STORE_USER
+
+    def _is_kmalloc_slab(self) -> bool:
+        return self._slab_cache.flags.value_() & self.SLAB_KMALLOC
+
+    def _page_allocated_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        raise NotImplementedError()
+
+    def _page_free_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        raise NotImplementedError()
+
+    def _page_all_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
         raise NotImplementedError()
 
     def for_each_allocated_object(self, type: Union[str, Type]) -> Iterator[Object]:
         pointer_type = self._prog.pointer_type(self._prog.type(type))
-        slab_type = _get_slab_type(self._prog)
-        PG_slab_mask = 1 << self._prog.constant("PG_slab")
-        for page in for_each_page(self._prog):
-            try:
-                if not page.flags & PG_slab_mask:
-                    continue
-            except FaultError:
-                continue
-            slab = cast(slab_type, page)
-            if slab.slab_cache == self._slab_cache:
-                yield from self._page_objects(page, slab, pointer_type)
+        page_type = self._prog.type("struct page *")
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_allocated_objects(page, slab, pointer_type)
+
+    def for_each_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_all_objects(page, slab, pointer_type)
+
+    def for_each_free_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        raise NotImplementedError()
 
     def object_info(
         self, page: Object, slab: Object, addr: int
     ) -> "Optional[SlabObjectInfo]":
         raise NotImplementedError()
 
+    def validate_object_address(self, slab: Object, ptr: IntegerLike) -> None:
+        raise NotImplementedError()
+
+    def validate_slab(self, slab: Object) -> None:
+        raise NotImplementedError()
+
+    def validate_object(self, object_address: int, free: bool) -> None:
+        raise NotImplementedError()
+
+    def validate(self, type: Union[str, Type]) -> None:
+        raise NotImplementedError()
+
 
 class _SlabCacheHelperSlub(_SlabCacheHelper):
+    SLUB_RED_INACTIVE = b"\xbb"
+    SLUB_RED_ACTIVE = b"\xcc"
+    OBJECT_POISON = 0x80000000
+
     def __init__(self, slab_cache: Object) -> None:
         super().__init__(slab_cache)
 
@@ -248,9 +396,13 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         except AttributeError:
             self._red_left_pad = 0
 
+        self._inuse = slab_cache.inuse.value_()
+        self._object_size = slab_cache.object_size.value_()
+
         # In SLUB, the freelist is a linked list with the next pointer located
         # at ptr + slab_cache->offset.
         freelist_offset = slab_cache.offset.value_()
+        self._freelist_offset = freelist_offset
 
         # If CONFIG_SLAB_FREELIST_HARDENED is enabled, then the next pointer is
         # obfuscated using slab_cache->random.
@@ -329,7 +481,10 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
         self._slub_get_freelist = _slub_get_freelist
         self._cpu_freelists = cpu_freelists
 
-    def _page_objects(
+    def _slub_object_poison(self) -> bool:
+        return self._slab_cache.flags.value_() & self.OBJECT_POISON
+
+    def _page_allocated_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
         freelist: Set[int] = set()
@@ -340,6 +495,36 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             if addr not in freelist and addr not in self._cpu_freelists:
                 yield Object(self._prog, pointer_type, value=addr)
             addr += self._slab_cache_size
+
+    def _page_free_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        freelist: Set[int] = set()
+        self._slub_get_freelist(slab.freelist, freelist)
+        for addr in freelist:
+            yield Object(self._prog, pointer_type, value=addr)
+
+    def _page_all_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        addr = page_to_virt(page).value_() + self._red_left_pad
+        end = addr + self._slab_cache_size * slab.objects
+        while addr < end:
+            yield Object(self._prog, pointer_type, value=addr)
+            addr += self._slab_cache_size
+
+    def for_each_free_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+
+        # Return objects on lockless freelist first
+        for addr in self._cpu_freelists:
+            yield Object(self._prog, pointer_type, value=addr)
+
+        # Return objects on each slab's regular freelist
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_free_objects(page, slab, pointer_type)
 
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
         first_addr = page_to_virt(page).value_() + self._red_left_pad
@@ -355,8 +540,292 @@ class _SlabCacheHelperSlub(_SlabCacheHelper):
             allocated = address not in freelist
         return SlabObjectInfo(self._slab_cache, slab, address, allocated)
 
+    def validate_object_address(self, slab: Object, ptr: IntegerLike) -> None:
+        prog = self._prog
+        page_type = prog.type("struct page *")
+        page = cast(page_type, slab)
+        base = page_to_virt(page).value_()
+        objects = slab.objects.value_()
+
+        # ptr is object address seen by clients i.e ptr is address
+        # of object's payload area. For upcoming calculations we
+        # need to move to actual start address of object.
+        ptr = ptr - self._red_left_pad
+        if ptr < base:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._red_left_pad)} is not a valid slab address"
+                f" 'because \"address - red_left_pad\" comes before slab's start.'"
+                f" slab start: {hex(base)} red_left_pad: {self._red_left_pad}"
+            )
+        elif ptr >= (base + objects * self._slab_cache_size):
+            raise ValidationError(
+                f" Address: {hex(ptr + self._red_left_pad)} is not a valid slab address"
+                f" because it comes after slab's end: {hex(base + objects * self._slab_cache_size)}"
+            )
+        elif (ptr - base) % self._slab_cache_size:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._red_left_pad)} is not a valid slab address"
+                f' because "address - red_left_pad" is not at valid offset.'
+                f" Slab start: {hex(base)} red_left_pad: {self._red_left_pad} Object size: {self._slab_cache_size}"
+            )
+
+        return
+
+    def validate_slab(self, slab: Object) -> None:
+        prog = self._prog
+        page_type = prog.type("struct page *")
+        page = cast(page_type, slab)
+
+        def _check_slab_pad() -> None:
+            val = b"\x00"
+            fault = 0
+            start = page_to_virt(page).value_()
+            length = page_size(page)
+            end = start + length
+            remainder = length % self._slab_cache_size
+            if not remainder:
+                return
+            pad = end - remainder
+            for cnt in range(remainder):
+                val = prog.read(pad + cnt, 1)
+                if val != self.POISON_INUSE:
+                    fault = pad + cnt
+                    break
+
+            if not fault:
+                return
+
+            while end > fault:
+                if prog.read(end - 1, 1) == self.POISON_INUSE:
+                    end -= 1
+                else:
+                    break
+
+            raise ValidationError(
+                f" Slab-cache: {self._slab_cache.name.string_().decode()} page: {page.value_()}"
+                f" Padding overwritten. {hex(fault)} - {hex(end - 1)} @offset= {hex(fault - start)}"
+            )
+
+        PG_slab_mask = 1 << prog.constant("PG_slab")
+        if not page.flags & PG_slab_mask:
+            raise ValidationError("Not a valid slab because PG_slab flag is not set")
+
+        if slab.slab_cache != self._slab_cache:
+            raise ValidationError(
+                "Not a valid slab because it belongs to a different slab cache"
+            )
+
+        maxobjs = page_size(page) / self._slab_cache_size  # max objects per slab
+        inuse = slab.inuse.value_()
+        objects = slab.objects.value_()
+        if objects > maxobjs:
+            raise ValidationError(
+                f" slab: {hex(slab.value_())} objects: hex{objects} > maxobjs (i.e oo): {maxobjs}"
+            )
+
+        if inuse > objects:
+            raise ValidationError(
+                f" slab: {hex(slab.value_())} inuse: {inuse} > objects: {objects}"
+            )
+
+        if self._debug_poison():
+            _check_slab_pad()
+
+    def validate_object(self, obj_addr: int, free: bool) -> None:
+        prog = self._prog
+        if free:
+            key = int.from_bytes(self.SLUB_RED_INACTIVE, "little")
+        else:
+            key = int.from_bytes(self.SLUB_RED_ACTIVE, "little")
+
+        def _check_object_pad_bytes() -> bool:
+            if self._freelist_offset >= self._inuse:
+                padoff = self._inuse + sizeof(prog.type("void *"))
+            else:
+                padoff = self._inuse
+
+            if self._debug_storeuser():
+                padoff += 2 * sizeof(prog.type("struct track"))
+
+            if self._debug_redzone():
+                size_from_object = self._slab_cache_size - self._red_left_pad
+            else:
+                size_from_object = self._slab_cache_size
+
+            if size_from_object == padoff:
+                return True
+
+            return _check_object_bytes(
+                self._slab_cache,
+                obj_addr,
+                "Object padding",
+                obj_addr + padoff,
+                int.from_bytes(self.POISON_INUSE, "little"),
+                size_from_object - padoff,
+            )
+
+        left_redzone_start = obj_addr - self._red_left_pad
+        endobject = obj_addr + self._object_size
+
+        if self._debug_redzone():
+            # Check left redzone
+            if not _check_object_bytes(
+                self._slab_cache,
+                obj_addr,
+                "Left Redzone",
+                left_redzone_start,
+                key,
+                self._red_left_pad,
+            ):
+                raise ValidationError("Left Redzone corrupted")
+
+            # Check right redzone
+            if not _check_object_bytes(
+                self._slab_cache,
+                obj_addr,
+                "Right Redzone",
+                endobject,
+                key,
+                self._inuse - self._object_size,
+            ):
+                raise ValidationError("Right Redzone corrupted")
+        else:
+            # Check poison value in padding bytes
+            if self._debug_poison() and self._object_size < self._inuse:
+                if not _check_object_bytes(
+                    self._slab_cache,
+                    obj_addr,
+                    "Alignment padding",
+                    endobject,
+                    int.from_bytes(self.POISON_INUSE, "little"),
+                    self._inuse - self._object_size,
+                ):
+                    raise ValidationError("Alignment padding corrupted")
+
+        if self._debug_poison():
+            if (
+                key == int.from_bytes(self.SLUB_RED_INACTIVE, "little")
+                and self._slub_object_poison()
+            ):
+                if not _check_object_bytes(
+                    self._slab_cache,
+                    obj_addr,
+                    "Poison",
+                    obj_addr,
+                    int.from_bytes(self.POISON_FREE, "little"),
+                    self._object_size - 1,
+                ):
+                    raise ValidationError("Poison pattern is not matching POISON_FREE")
+
+                if not _check_object_bytes(
+                    self._slab_cache,
+                    obj_addr,
+                    "Poison",
+                    endobject - 1,
+                    int.from_bytes(self.POISON_END, "little"),
+                    1,
+                ):
+                    raise ValidationError("Poison pattern is not matching POISON_END")
+
+            if not _check_object_pad_bytes():
+                raise ValidationError("Padding bytes corrupted")
+
+    def validate(self, type: Union[str, Type]) -> None:
+        self._num_checked_slabs = 0
+        self._num_checked_free_objects = 0
+        self._num_checked_allocated_objects = 0
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+        slab_cache = self._slab_cache
+        prog = self._prog
+        name = escape_ascii_string(slab_cache.name.string_(), escape_backslash=True)
+        print(
+            "Starting consistency check for:",
+            f"{name} ({slab_cache.type_.type_name()})0x{slab_cache.value_():x}",
+        )
+
+        # Check slabs as a whole first
+        print("Start checking individual slabs.")
+        for slab in slab_cache_for_each_slab(slab_cache):
+            self._num_checked_slabs += 1
+            print("Checking slab: ", hex(slab.value_()))
+            try:
+                self.validate_slab(slab)
+            except ValidationError as e:
+                print("slab in wrong state", e)
+        print("Finished checking individual slabs.")
+
+        if not self._num_checked_slabs:
+            print("Found no slabs.")
+            return
+
+        # Check per-cpu lockless freelist.
+        # Here we first check that pointers on freelist are valid pointers (to
+        # catch freelist corruption) and only for valid pointers, we go ahead
+        # and check pointed to object.
+        # Also while checking lockless freelist we go one cpu at a time, so that
+        # we have track of per-cpu active slab needed for checking validity of
+        # pointers on per-cpu lockless freelist
+        print("Start checking free objects.")
+        lockless_freelist: Set[int] = set()
+        cpu_slab = slab_cache.cpu_slab.read_()
+        cpu_slab_attr = "slab" if hasattr(cpu_slab, "slab") else "page"
+        for cpu in for_each_online_cpu(prog):
+            this_cpu_slab = per_cpu_ptr(cpu_slab, cpu)
+            slab = getattr(this_cpu_slab, cpu_slab_attr).read_()
+            lockless_freelist.clear()
+            if slab and slab.slab_cache == slab_cache:
+                self._slub_get_freelist(this_cpu_slab.freelist, lockless_freelist)
+                for obj_addr in lockless_freelist:
+                    self._num_checked_free_objects += 1
+                    try:
+                        self.validate_object_address(slab, obj_addr)
+                        try:
+                            self.validate_object(obj_addr, True)
+                        except ValidationError as e:
+                            print(e)
+                    except ValidationError as e:
+                        print(e)
+        # Check regular freelist of each slab
+        for slab in slab_cache_for_each_slab(slab_cache):
+            page = cast(page_type, slab)
+            for obj in self._page_free_objects(page, slab, pointer_type):
+                self._num_checked_free_objects += 1
+                try:
+                    self.validate_object_address(slab, obj.value_())
+                    try:
+                        self.validate_object(obj.value_(), True)
+                    except ValidationError as e:
+                        print(e)
+                except ValidationError as e:
+                    print(e)
+        print("Finished checking free objects.")
+
+        # Check allocated objects
+        print("Start checking allocated objects.")
+        for obj in self.for_each_allocated_object(pointer_type):
+            self._num_checked_allocated_objects += 1
+            try:
+                self.validate_object(obj.value_(), False)
+            except ValidationError as e:
+                print(e)
+        print("Finished checking allocated objects.")
+
+        print(
+            "Finished consistency check for slab-cache:",
+            slab_cache.name.string_().decode(),
+        )
+        print("Number of checked slabs:", self._num_checked_slabs)
+        print(
+            "Number of checked allocated objects:", self._num_checked_allocated_objects
+        )
+        print("Number of checked free objects:", self._num_checked_free_objects)
+
 
 class _SlabCacheHelperSlab(_SlabCacheHelper):
+    RED_INACTIVE = 0x09F911029D74E35B
+    RED_ACTIVE = 0xD84156C5635688C0
+
     def __init__(self, slab_cache: Object) -> None:
         super().__init__(slab_cache)
 
@@ -369,6 +838,9 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             self._obj_offset = 0
 
         self._slab_cache_num = slab_cache.num.value_()
+        self._slab_cache_object_size = slab_cache.object_size.value_()
+        self._redzone_size = sizeof(self._prog.type("unsigned long long"))
+        self._caller_size = sizeof(self._prog.type("unsigned long long"))
 
         cpu_cache = slab_cache.cpu_cache.read_()
         cpu_caches_avail: Set[int] = set()
@@ -383,7 +855,7 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
         freelist = cast(self._freelist_type, slab.freelist)
         return {freelist[i].value_() for i in range(slab.active, self._slab_cache_num)}
 
-    def _page_objects(
+    def _page_allocated_objects(
         self, page: Object, slab: Object, pointer_type: Type
     ) -> Iterator[Object]:
         freelist = self._slab_freelist(slab)
@@ -396,6 +868,39 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
                 continue
             yield Object(self._prog, pointer_type, value=addr)
 
+    def _page_free_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        freelist = self._slab_freelist(slab)
+        s_mem = slab.s_mem.value_()
+        free_objects: Set[int] = set()
+        for i in freelist:
+            addr = s_mem + i * self._slab_cache_size + self._obj_offset
+            free_objects.add(addr)
+        for addr in free_objects:
+            yield Object(self._prog, pointer_type, value=addr)
+
+    def _page_all_objects(
+        self, page: Object, slab: Object, pointer_type: Type
+    ) -> Iterator[Object]:
+        s_mem = slab.s_mem.value_()
+        for i in range(self._slab_cache_num):
+            addr = s_mem + i * self._slab_cache_size + self._obj_offset
+            yield Object(self._prog, pointer_type, value=addr)
+
+    def for_each_free_object(self, type: Union[str, Type]) -> Iterator[Object]:
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        page_type = self._prog.type("struct page *")
+
+        # Return per-cpu free objects first
+        for addr in self._cpu_caches_avail:
+            yield Object(self._prog, pointer_type, value=addr)
+
+        # Return free objects on each slab
+        for slab in slab_cache_for_each_slab(self._slab_cache):
+            page = cast(page_type, slab)
+            yield from self._page_free_objects(page, slab, pointer_type)
+
     def object_info(self, page: Object, slab: Object, addr: int) -> "SlabObjectInfo":
         s_mem = slab.s_mem.value_()
         object_index = (addr - s_mem) // self._slab_cache_size
@@ -407,6 +912,150 @@ class _SlabCacheHelperSlab(_SlabCacheHelper):
             allocated=object_address not in self._cpu_caches_avail
             and object_index not in self._slab_freelist(slab),
         )
+
+    def validate_object_address(self, slab: Object, ptr: IntegerLike) -> None:
+        s_mem = slab.s_mem.value_()
+
+        # ptr is object address seen by clients i.e ptr is address
+        # of object's payload area. For upcoming calculations we
+        # need to move to actual start address of object.
+        ptr = ptr - self._obj_offset
+        if ptr < s_mem:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._obj_offset)} is not a valid slab address"
+                f" 'because \"address - obj_offset\" comes before start of slab's object area.'"
+                f" s_mem: {hex(s_mem)} obj_offset: {self._obj_offset}"
+            )
+        elif (ptr - s_mem) % self._slab_cache_size:
+            raise ValidationError(
+                f" Address: {hex(ptr + self._obj_offset)} is not a valid slab address"
+                f" 'because \"address - obj_offset\" is not at valid offset.'"
+                f" s_mem: {hex(s_mem)} Object size: hex{self._slab_cache_size} obj_offset: hex(self._obj_offset)"
+            )
+
+        return
+
+    def validate_slab(self, slab: Object) -> None:
+        prog = self._prog
+        page_type = prog.type("struct page *")
+        page = cast(page_type, slab)
+        PG_slab_mask = 1 << prog.constant("PG_slab")
+        if not page.flags & PG_slab_mask:
+            raise ValidationError("Not a valid slab because PG_slab flag is not set")
+
+        if slab.slab_cache != self._slab_cache:
+            raise ValidationError(
+                "Not a valid slab because it belongs to a different slab cache"
+            )
+
+    def validate_object(self, obj_addr: int, free: bool) -> None:
+        prog = self._prog
+        slab_cache_size = self._slab_cache_size
+        slab_cache_object_size = self._slab_cache_object_size
+        redzone_size = self._redzone_size
+        caller_size = self._caller_size
+        left_redzone_start = obj_addr - redzone_size
+        obj_offset = self._obj_offset
+        if self._debug_storeuser():
+            right_redzone_start = (
+                obj_addr - obj_offset + slab_cache_size - caller_size - redzone_size
+            )
+        else:
+            right_redzone_start = obj_addr - obj_offset + slab_cache_size - redzone_size
+
+        # Get redzone on both sides of the object
+        redzone1 = int.from_bytes(prog.read(left_redzone_start, redzone_size), "little")
+        redzone2 = int.from_bytes(
+            prog.read(right_redzone_start, redzone_size), "little"
+        )
+
+        if free:
+            # Free objects should have _RED_INACTIVE in redzones on both sides, should have _POISON_FREE in all
+            # bytes of object's payload area except the last byte and should have _POISON_END in the last byte
+            # of object's payload area
+            if self._debug_redzone():
+                # Check redzone on both sides of the object
+                if redzone1 != self.RED_INACTIVE or redzone2 != self.RED_INACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} double free or out of bound access detected"
+                    )
+
+                if self._debug_poison():
+                    if not _check_object_bytes(
+                        self._slab_cache,
+                        obj_addr,
+                        "Poison",
+                        obj_addr,
+                        int.from_bytes(self.POISON_FREE, "little"),
+                        slab_cache_object_size - 1,
+                    ):
+                        raise ValidationError("Poison pattern not matching POISON_FREE")
+
+                    if not _check_object_bytes(
+                        self._slab_cache,
+                        obj_addr,
+                        "Poison",
+                        obj_addr + slab_cache_object_size - 1,
+                        int.from_bytes(self.POISON_END, "little"),
+                        1,
+                    ):
+                        raise ValidationError("Poison pattern not matching POISON_END")
+
+        else:
+            if self._debug_redzone():
+                # Check redzone on both sides of the object
+                if redzone1 == self.RED_INACTIVE and redzone2 == self.RED_INACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} double free detected"
+                    )
+                elif redzone1 == self.RED_ACTIVE and redzone2 == self.RED_INACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} right redzone overwritten"
+                    )
+                elif redzone1 == self.RED_INACTIVE and redzone2 == self.RED_ACTIVE:
+                    raise ValidationError(
+                        f" Slab cache: {self._slab_cache.value_()} object: {hex(obj_addr)} left redzone overwritten"
+                    )
+
+    def validate(self, type: Union[str, Type]) -> None:
+        self._num_checked_free_objects = 0
+        self._num_checked_allocated_objects = 0
+        pointer_type = self._prog.pointer_type(self._prog.type(type))
+        slab_cache = self._slab_cache
+        name = escape_ascii_string(slab_cache.name.string_(), escape_backslash=True)
+        print(
+            "Starting consistency check for:",
+            f"{name} ({slab_cache.type_.type_name()})0x{slab_cache.value_():x}",
+        )
+
+        # Check free objects
+        print("Start checking free objects.")
+        for obj in self.for_each_free_object(pointer_type):
+            self._num_checked_free_objects += 1
+            try:
+                self.validate_object(obj.value_(), True)
+            except ValidationError as e:
+                print(e)
+        print("Finished checking free objects.")
+
+        # Check allocated objects
+        print("Start checking allocated objects.")
+        for obj in self.for_each_allocated_object(pointer_type):
+            self._num_checked_allocated_objects += 1
+            try:
+                self.validate_object(obj.value_(), False)
+            except ValidationError as e:
+                print(e)
+        print("Finished checking allocated objects.")
+
+        print(
+            "Finished consistency check for slab-cache:",
+            slab_cache.name.string_().decode(),
+        )
+        print(
+            "Number of checked allocated objects:", self._num_checked_allocated_objects
+        )
+        print("Number of checked free objects:", self._num_checked_free_objects)
 
 
 class _SlabCacheHelperSlob(_SlabCacheHelper):
@@ -454,6 +1103,127 @@ def slab_cache_for_each_allocated_object(
     :return: Iterator of ``type *`` objects.
     """
     return _get_slab_cache_helper(slab_cache).for_each_allocated_object(type)
+
+
+def slab_cache_for_each_object(
+    slab_cache: Object, type: Union[str, Type]
+) -> Iterator[Object]:
+    """
+    Iterate over all objects in a given slab cache.
+
+    Only the SLUB and SLAB allocators are supported; SLOB does not store enough
+    information to identify objects in a slab cache.
+
+    >>> dentry_cache = find_slab_cache(prog, "dentry")
+    >>> next(slab_cache_for_each_allocated_object(dentry_cache, "struct dentry"))
+    *(struct dentry *)0xffff905e41404000 = {
+        ...
+    }
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param type: Type of object in the slab cache.
+    :return: Iterator of ``type *`` objects.
+    """
+    return _get_slab_cache_helper(slab_cache).for_each_object(type)
+
+
+def slab_cache_for_each_free_object(
+    slab_cache: Object, type: Union[str, Type]
+) -> Iterator[Object]:
+    """
+    Iterate over all free objects in a given slab cache.
+
+    Only the SLUB and SLAB allocators are supported; SLOB does not store enough
+    information to identify objects in a slab cache.
+
+    >>> dentry_cache = find_slab_cache(prog, "dentry")
+    >>> next(slab_cache_for_each_allocated_object(dentry_cache, "struct dentry"))
+    *(struct dentry *)0xffff905e41404000 = {
+        ...
+    }
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param type: Type of object in the slab cache.
+    :return: Iterator of ``type *`` objects.
+    """
+    return _get_slab_cache_helper(slab_cache).for_each_free_object(type)
+
+
+def slab_cache_validate_object_address(
+    slab_cache: Object, slab: Object, ptr: IntegerLike
+) -> None:
+    """
+    Check if ``ptr`` is a valid ``object`` address.
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param slab: ``struct slab/page *``
+    :param ptr: ``Address to check``
+    :return: ``True`` if ptr is valid, ``False`` otherwise.
+
+    In this case a valid object address is the address seen by clients
+    (i.e start address of its payload area) not the actual start address
+    of object.
+    This distinction is important because for cases involving
+    debug options the overall start area of object may lie few bytes
+    before the payload area and in those cases if we are checking
+    address of payload area against the start of slab, that address
+    may not be at proper(multiple of size) offset from start of slab.
+    """
+    _get_slab_cache_helper(slab_cache).validate_object_address(slab, ptr)
+    return
+
+
+def slab_cache_validate_slab(slab_cache: Object, slab: Object) -> None:
+    """
+    Check a given slab of specified slab cache.
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param slab: ``struct slab/page *``
+    :returns: ``True`` if ``slab`` is valid, ``False`` otherwise
+    """
+    _get_slab_cache_helper(slab_cache).validate_slab(slab)
+
+
+def slab_cache_validate_object(slab_cache: Object, obj_addr: int, free: bool) -> None:
+    """
+    Check if object at address ``obj_addr`` is in proper state or not.
+    It is assumed that ``obj_addr`` is a valid pointer for this
+    ``slab_cache``
+
+    :param slab_cache: ``struct kmem_cache *``
+    :param obj_addr: ``Address of object``
+    :param free: ``True if we are checking a free object. False otherwise``
+
+    :returns: ``True`` if the object is in proper state, otherwise return
+              ``False``
+    """
+    _get_slab_cache_helper(slab_cache).validate_object(obj_addr, free)
+
+
+def slab_cache_validate(slab_cache: Object, type: Union[str, Type]) -> None:
+    """
+    Check consistency of a given slab cache
+       Perform following checks in the same order
+       1. Check sanity of all slabs
+       2. Check per-cpu lockless freelist
+              i. Pointers lying on freelist should be valid object addresses
+                 for this slab-cache
+              ii. Objects pointed by these pointers should be in proper state
+                 i.e Redzone and/or Poison values should be correct (if present)
+       3. Check per-slab regular freelist
+              i. Pointers lying on freelist should be valid object addresses
+                 for this slab-cache
+              ii. Objects pointed by these pointers should be in proper state
+                 i.e Redzone and/or Poison values should be correct (if present)
+       4. Check all allocated objects have correct Redzone and/or Poison values
+          (if present)
+
+    param slab_cache: ``strucy kmem_cache*`` for slab cache to check
+    param type: ``type`` of slab cache objects
+
+    returns: ``True`` if all consistency checks pass, otherwise return ``False``
+    """
+    _get_slab_cache_helper(slab_cache).validate(type)
 
 
 def _find_containing_slab(

@@ -12,6 +12,9 @@ from drgn.helpers.linux.slab import (
     for_each_slab_cache,
     get_slab_cache_aliases,
     slab_cache_for_each_allocated_object,
+    slab_cache_for_each_free_object,
+    slab_cache_for_each_object,
+    slab_cache_for_each_slab,
     slab_cache_is_merged,
     slab_object_info,
 )
@@ -219,3 +222,70 @@ class TestSlab(LinuxKernelTestCase):
             find_containing_slab_cache(self.prog, self.prog["drgn_test_va"]),
             NULL(self.prog, "struct kmem_cache *"),
         )
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_slab_cache_for_each_object(self):
+        for size in ("small", "big"):
+            with self.subTest(size=size):
+                cache = self.prog[f"drgn_test_{size}_kmem_cache"]
+                slab_count = 0
+                slab_objects = 0
+                found_objects = 0
+
+                if self.prog["drgn_test_slob"]:
+                    with self.assertRaisesRegex(ValueError, "SLOB is not supported"):
+                        next(
+                            slab_cache_for_each_allocated_object(
+                                cache, f"struct drgn_test_{size}_slab_object"
+                            )
+                        )
+                elif self.prog["drgn_test_slab"]:
+                    for slab in slab_cache_for_each_slab(cache):
+                        slab_count += 1
+                    slab_objects = slab_count * cache.num.value_()
+                else:
+                    for slab in slab_cache_for_each_slab(cache):
+                        slab_objects += slab.objects.value_()
+
+                for obj in slab_cache_for_each_object(
+                    cache, f"struct drgn_test_{size}_slab_object"
+                ):
+                    found_objects += 1
+                    info = slab_object_info(obj)
+                    self.assertEqual(info.slab_cache, cache)
+                    self.assertEqual(info.address, obj.value_())
+
+                    info = slab_object_info(obj.value.address_of_())
+                    self.assertEqual(info.slab_cache, cache)
+                    self.assertEqual(info.address, obj.value_())
+
+                self.assertEqual(slab_objects, found_objects)
+
+    @skip_unless_have_full_mm_support
+    @skip_unless_have_test_kmod
+    def test_slab_cache_for_each_free_object(self):
+        for size in ("small", "big"):
+            with self.subTest(size=size):
+                cache = self.prog[f"drgn_test_{size}_kmem_cache"]
+
+                if self.prog["drgn_test_slob"]:
+                    with self.assertRaisesRegex(ValueError, "SLOB is not supported"):
+                        next(
+                            slab_cache_for_each_allocated_object(
+                                cache, f"struct drgn_test_{size}_slab_object"
+                            )
+                        )
+                else:
+                    for obj in slab_cache_for_each_free_object(
+                        cache, f"struct drgn_test_{size}_slab_object"
+                    ):
+                        info = slab_object_info(obj)
+                        self.assertEqual(info.slab_cache, cache)
+                        self.assertEqual(info.address, obj.value_())
+                        self.assertFalse(info.allocated)
+
+                        info = slab_object_info(obj.value.address_of_())
+                        self.assertEqual(info.slab_cache, cache)
+                        self.assertEqual(info.address, obj.value_())
+                        self.assertFalse(info.allocated)
