@@ -7,6 +7,7 @@
 import argparse
 import builtins
 import code
+import dis
 import importlib
 import logging
 import os
@@ -16,6 +17,7 @@ import readline
 import runpy
 import shutil
 import sys
+import types
 from typing import Any, Callable, Dict, Optional
 
 import drgn
@@ -25,6 +27,60 @@ from drgn.internal.sudohelper import open_via_sudo
 __all__ = ("run_interactive", "version_header")
 
 logger = logging.getLogger("drgn")
+
+
+def fill_global_ns(co_obj, obj_provider, global_ns, lvl=0):
+    '''Fill a global namespace for a co_obj.
+
+    It determines the names that should be in the global namespace by
+    inspecting the bytecodes of the code object. It then looks up
+    objects through the object provider and adds them to the global
+    namespace if a name is missing.
+
+    To support nested functions, it also looks into code objects
+    that are constants of the code object and recursively calls
+    itself to fill the global namespace for those code objects.
+
+    '''
+    for i, const in enumerate(co_obj.co_consts):
+        if type(const) is not types.CodeType:
+            continue
+        fill_global_ns(const, obj_provider, global_ns, lvl + 1)
+    for bc in dis.Bytecode(co_obj):
+        if bc.opname == 'LOAD_GLOBAL' or (lvl == 0 and bc.opname == 'LOAD_NAME' and bc.argval in co_obj.co_names):
+            name = bc.argval
+            if name in global_ns:
+                continue
+            if ('__builtins__' in global_ns) and (name in global_ns['__builtins__']):
+                continue
+            obj = obj_provider(name)
+            if obj is None:
+                continue
+            global_ns[name] = obj
+
+
+class AutoFindConsole(code.InteractiveConsole):
+    def __init__(self, locals=None, filename="<console>", **kwargs):
+        code.InteractiveConsole.__init__(self, locals, filename, **kwargs)
+
+    def obj_provider(self, name):
+        prog = self.locals['prog']
+        try:
+            return prog[name]
+        except KeyError:
+            pass
+        try:
+            return prog.type(name)
+        except LookupError:
+            pass
+        except SyntaxError:
+            pass
+        return None
+
+    def runcode(self, codeobj):
+        global_ns = self.locals
+        fill_global_ns(codeobj, self.obj_provider, global_ns)
+        return code.InteractiveInterpreter.runcode(self, codeobj)
 
 
 class _LogFormatter(logging.Formatter):
@@ -230,6 +286,13 @@ def _main() -> None:
     )
     parser.add_argument("--version", action="version", version=version)
 
+    parser.add_argument(
+        "--auto-find",
+        dest="auto_find",
+        action="store_true",
+        help="find symbols automatically without goingt through prog",
+    )
+
     args = parser.parse_args()
 
     if args.script:
@@ -299,7 +362,7 @@ def _main() -> None:
             sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
         runpy.run_path(script, init_globals={"prog": prog}, run_name="__main__")
     else:
-        run_interactive(prog)
+        run_interactive(prog, auto_find=args.auto_find)
 
 
 def run_interactive(
@@ -307,6 +370,7 @@ def run_interactive(
     banner_func: Optional[Callable[[str], str]] = None,
     globals_func: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     quiet: bool = False,
+    auto_find: bool = False,
 ) -> None:
     """
     Run drgn's :ref:`interactive-mode` until the user exits.
@@ -397,7 +461,11 @@ For help, type help(drgn).
         sys.displayhook = _displayhook
 
         try:
-            code.interact(banner=banner, exitmsg="", local=init_globals)
+            if not auto_find:
+                code.interact(banner=banner, exitmsg="", local=init_globals)
+            else:
+                console = AutoFindConsole(locals=init_globals)
+                console.interact(banner=banner, exitmsg="")
         finally:
             try:
                 readline.write_history_file(histfile)
