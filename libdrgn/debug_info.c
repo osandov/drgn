@@ -336,10 +336,12 @@ drgn_debug_info_report_error(struct drgn_debug_info_load_state *load,
 	}
 	if (load->num_errors == 0 &&
 	    !string_builder_append(&load->errors,
-				   "could not get debugging information for:"))
+				   "missing some debugging symbols (see https://drgn.readthedocs.io/en/latest/getting_debugging_symbols.html):"))
 		goto err;
 	if (load->num_errors < load->max_errors) {
 		if (!string_builder_line_break(&load->errors))
+			goto err;
+		if (!string_builder_append(&load->errors, "  "))
 			goto err;
 		if (name && !string_builder_append(&load->errors, name))
 			goto err;
