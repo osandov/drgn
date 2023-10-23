@@ -74,6 +74,16 @@ compared::
     >>> prog['init_task'].nsproxy.mnt_ns.pending_mounts > 0
     False
 
+Python doesn't have all of the operators that C or C++ do, so some
+substitutions are necessary:
+
+* Instead of ``*ptr``, dereference a pointer with :meth:`ptr[0]
+  <drgn.Object.__getitem__>`.
+* Instead of ``ptr->member``, access a member through a pointer with
+  :meth:`ptr.member <drgn.Object.__getattribute__>`.
+* Instead of ``&var``, get the address of a variable with
+  :meth:`var.address_of_() <drgn.Object.address_of_>`.
+
 A common use case is converting a ``drgn.Object`` to a Python value so it can
 be used by a standard Python library. There are a few ways to do this:
 

@@ -1203,6 +1203,9 @@ class Object:
         """
         Implement ``self.name``.
 
+        This corresponds to both the member access (``.``) and member access
+        through pointer (``->``) operators in C.
+
         If *name* is an attribute of the :class:`Object` class, then this
         returns that attribute. Otherwise, it is equivalent to
         :meth:`member_()`.
@@ -1217,8 +1220,16 @@ class Object:
         """
         Implement ``self[idx]``. Get the array element at the given index.
 
-        >>> print(prog['init_task'].comm[0])
-        (char)115
+        >>> print(prog['init_task'].comm[1])
+        (char)119
+
+        ``[0]`` is also the equivalent of the pointer dereference (``*``)
+        operator in C:
+
+        >>> ptr_to_ptr
+        *(void **)0xffff9b86801e2968 = 0xffff9b86801e2460
+        >>> print(ptr_to_ptr[0])
+        (void *)0xffff9b86801e2460
 
         This is only valid for pointers and arrays.
 
@@ -1280,11 +1291,13 @@ class Object:
         """
         Get a member of this object.
 
-        This is valid for structures, unions, and pointers to either.
+        This is valid for structures, unions, classes, and pointers to any of
+        those. If the object is a pointer, it is automatically dereferenced
+        first.
 
-        Normally the dot operator (``.``) can be used to accomplish the same
-        thing, but this method can be used if there is a name conflict with an
-        Object member or method.
+        Normally the dot operator (:meth:`. <__getattribute__>`) can be used to
+        accomplish the same thing, but this method can be used if there is a
+        name conflict with an ``Object`` member or method.
 
         :param name: Name of the member.
         :raises TypeError: if this object is not a structure, union, class, or
