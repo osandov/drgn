@@ -76,6 +76,9 @@ DEFINE_HASH_SET_FUNCTIONS(c_string_set, c_string_key_hash_pair,
 /**
  * @c Dwfl_Callbacks::find_elf() implementation.
  *
+ * If the ELF file was reported directly, this returns it. Otherwise, it falls
+ * back to an appropriate callback.
+ *
  * Ideally we'd use @c dwfl_report_elf() instead, but that doesn't take an @c
  * Elf handle, which we need for a couple of reasons:
  *
@@ -96,53 +99,27 @@ static int drgn_dwfl_find_elf(Dwfl_Module *dwfl_module, void **userdatap,
 			      char **file_name, Elf **elfp)
 {
 	struct drgn_module *module = *userdatap;
-	/*
-	 * libdwfl consumes the returned path, file descriptor, and ELF handle,
-	 * so clear the fields.
-	 */
-	*file_name = module->path;
-	int fd = module->fd;
-	*elfp = module->elf;
-	module->path = NULL;
-	module->fd = -1;
-	module->elf = NULL;
-	return fd;
-}
-
-/*
- * Uses drgn_dwfl_find_elf() if the ELF file was reported directly and falls
- * back to dwfl_linux_proc_find_elf() otherwise.
- */
-static int drgn_dwfl_linux_proc_find_elf(Dwfl_Module *dwfl_module,
-					 void **userdatap, const char *name,
-					 Dwarf_Addr base, char **file_name,
-					 Elf **elfp)
-{
-	struct drgn_module *module = *userdatap;
 	if (module->elf) {
-		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
-					  file_name, elfp);
+		*file_name = module->path;
+		int fd = module->fd;
+		*elfp = module->elf;
+		// libdwfl consumes the returned path, file descriptor, and ELF
+		// handle, so clear the fields.
+		module->path = NULL;
+		module->fd = -1;
+		module->elf = NULL;
+		return fd;
 	}
-	return dwfl_linux_proc_find_elf(dwfl_module, userdatap, name, base,
-					file_name, elfp);
-}
-
-/*
- * Uses drgn_dwfl_find_elf() if the ELF file was reported directly and falls
- * back to dwfl_build_id_find_elf() otherwise.
- */
-static int drgn_dwfl_build_id_find_elf(Dwfl_Module *dwfl_module,
-				       void **userdatap, const char *name,
-				       Dwarf_Addr base, char **file_name,
-				       Elf **elfp)
-{
-	struct drgn_module *module = *userdatap;
-	if (module->elf) {
-		return drgn_dwfl_find_elf(dwfl_module, userdatap, name, base,
-					  file_name, elfp);
+	if (module->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
+		*elfp = NULL;
+		return -1;
+	} else if (module->prog->flags & DRGN_PROGRAM_IS_LIVE) {
+		return dwfl_linux_proc_find_elf(dwfl_module, userdatap, name,
+						base, file_name, elfp);
+	} else {
+		return dwfl_build_id_find_elf(dwfl_module, userdatap, name,
+					      base, file_name, elfp);
 	}
-	return dwfl_build_id_find_elf(dwfl_module, userdatap, name, base,
-				      file_name, elfp);
 }
 
 /**
@@ -164,18 +141,6 @@ static int drgn_dwfl_section_address(Dwfl_Module *module, void **userdatap,
 
 static const Dwfl_Callbacks drgn_dwfl_callbacks = {
 	.find_elf = drgn_dwfl_find_elf,
-	.find_debuginfo = dwfl_standard_find_debuginfo,
-	.section_address = drgn_dwfl_section_address,
-};
-
-static const Dwfl_Callbacks drgn_linux_proc_dwfl_callbacks = {
-	.find_elf = drgn_dwfl_linux_proc_find_elf,
-	.find_debuginfo = dwfl_standard_find_debuginfo,
-	.section_address = drgn_dwfl_section_address,
-};
-
-static const Dwfl_Callbacks drgn_userspace_core_dump_dwfl_callbacks = {
-	.find_elf = drgn_dwfl_build_id_find_elf,
 	.find_debuginfo = dwfl_standard_find_debuginfo,
 	.section_address = drgn_dwfl_section_address,
 };
@@ -2069,14 +2034,7 @@ void drgn_debug_info_init(struct drgn_debug_info *dbinfo,
 			  struct drgn_program *prog)
 {
 	dbinfo->prog = prog;
-	const Dwfl_Callbacks *dwfl_callbacks;
-	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL)
-		dwfl_callbacks = &drgn_dwfl_callbacks;
-	else if (prog->flags & DRGN_PROGRAM_IS_LIVE)
-		dwfl_callbacks = &drgn_linux_proc_dwfl_callbacks;
-	else
-		dwfl_callbacks = &drgn_userspace_core_dump_dwfl_callbacks;
-	dbinfo->dwfl = dwfl_begin(dwfl_callbacks);
+	dbinfo->dwfl = dwfl_begin(&drgn_dwfl_callbacks);
 	// This is temporary until we stop using libdwfl, and is extremely
 	// unlikely to fail anwyays, so don't bother propagating an error up.
 	if (!dbinfo->dwfl)
