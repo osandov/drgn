@@ -30,12 +30,12 @@ jobs:
     - fedora-all-ppc64le
     - fedora-all-s390x
     - fedora-all-x86_64
-    # Disabled due to fedora-eln/eln#165.
-    # - fedora-eln-aarch64
-    # - fedora-eln-i386
-    # - fedora-eln-ppc64le
+    - fedora-eln-aarch64
+    - fedora-eln-i386
+    - fedora-eln-ppc64le
+    # Disabled due to fedora-eln/eln#170.
     # - fedora-eln-s390x
-    # - fedora-eln-x86_64
+    - fedora-eln-x86_64
     - epel-8-aarch64
     - epel-8-ppc64le
     - epel-8-s390x
@@ -55,12 +55,12 @@ jobs:
     - fedora-all-ppc64le
     - fedora-all-s390x
     - fedora-all-x86_64
-    # Disabled due to fedora-eln/eln#165.
-    # - fedora-eln-aarch64
-    # - fedora-eln-i386
-    # - fedora-eln-ppc64le
+    - fedora-eln-aarch64
+    - fedora-eln-i386
+    - fedora-eln-ppc64le
+    # Disabled due to fedora-eln/eln#170.
     # - fedora-eln-s390x
-    # - fedora-eln-x86_64
+    - fedora-eln-x86_64
     - epel-8-aarch64
     - epel-8-ppc64le
     - epel-8-s390x
