@@ -91,6 +91,8 @@ skip_unless_have_test_kmod = unittest.skipUnless(
     "DRGN_TEST_KMOD" in os.environ, "test requires drgn_test Linux kernel module"
 )
 
+# Please keep this in sync with docs/support_matrix.rst and the module
+# docstring in drgn/helpers/linux/mm.py.
 HAVE_FULL_MM_SUPPORT = NORMALIZED_MACHINE_NAME in (
     "aarch64",
     "ppc64",

@@ -6,8 +6,8 @@ Memory Management
 -----------------
 
 The ``drgn.helpers.linux.mm`` module provides helpers for working with the
-Linux memory management (MM) subsystem. Only AArch64, s390x, and x86-64 are
-currently supported.
+Linux memory management (MM) subsystem. Only AArch64, ppc64, s390x, and x86-64
+are currently supported.
 """
 
 import operator
