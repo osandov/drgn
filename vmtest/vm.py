@@ -400,7 +400,11 @@ if __name__ == "__main__":
         args.root_directory = None
 
     try:
-        command = " ".join(args.command) if args.command else "sh -i"
+        command = (
+            " ".join([shlex.quote(arg) for arg in args.command])
+            if args.command
+            else "sh -i"
+        )
         sys.exit(run_in_vm(command, kernel, args.root_directory, args.directory))
     except LostVMError as e:
         print("error:", e, file=sys.stderr)
