@@ -15,6 +15,9 @@ from drgn import Object, Program
 from drgn.helpers.linux.bitops import for_each_set_bit
 
 __all__ = (
+    "cpu_online_mask",
+    "cpu_possible_mask",
+    "cpu_present_mask",
     "cpumask_to_cpulist",
     "for_each_cpu",
     "for_each_online_cpu",
@@ -23,11 +26,50 @@ __all__ = (
 )
 
 
+# Before Linux kernel commit c4c54dd1caf1 ("kernel/cpu.c: change type of
+# cpu_possible_bits and friends") (in v4.5), the CPU masks are struct cpumask
+# *cpu_foo_mask instead of struct cpumask __cpu_foo_mask.
+def cpu_online_mask(prog: Program) -> Object:
+    """
+    Return the mask of online CPUs.
+
+    :return: ``struct cpumask *``
+    """
+    try:
+        return prog["__cpu_online_mask"].address_of_()
+    except KeyError:
+        return prog["cpu_online_mask"]
+
+
+def cpu_possible_mask(prog: Program) -> Object:
+    """
+    Return the mask of possible CPUs.
+
+    :return: ``struct cpumask *``
+    """
+    try:
+        return prog["__cpu_possible_mask"].address_of_()
+    except KeyError:
+        return prog["cpu_possible_mask"]
+
+
+def cpu_present_mask(prog: Program) -> Object:
+    """
+    Return the mask of present CPUs.
+
+    :return: ``struct cpumask *``
+    """
+    try:
+        return prog["__cpu_present_mask"].address_of_()
+    except KeyError:
+        return prog["cpu_present_mask"]
+
+
 def for_each_cpu(mask: Object) -> Iterator[int]:
     """
     Iterate over all of the CPUs in the given mask.
 
-    :param mask: ``struct cpumask``
+    :param mask: ``struct cpumask *``
     """
     try:
         nr_cpu_ids = mask.prog_["nr_cpu_ids"].value_()
@@ -36,31 +78,19 @@ def for_each_cpu(mask: Object) -> Iterator[int]:
     return for_each_set_bit(mask.bits, nr_cpu_ids)
 
 
-def _for_each_cpu_mask(prog: Program, name: str) -> Iterator[int]:
-    try:
-        mask = prog[name]
-    except KeyError:
-        # Before Linux kernel commit c4c54dd1caf1 ("kernel/cpu.c: change type
-        # of cpu_possible_bits and friends") (in v4.5), the CPU masks are
-        # struct cpumask *cpu_foo_mask instead of
-        # struct cpumask __cpu_foo_mask.
-        mask = prog[name[2:]][0]
-    return for_each_cpu(mask)
-
-
 def for_each_online_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all online CPUs."""
-    return _for_each_cpu_mask(prog, "__cpu_online_mask")
+    return for_each_cpu(cpu_online_mask(prog))
 
 
 def for_each_possible_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all possible CPUs."""
-    return _for_each_cpu_mask(prog, "__cpu_possible_mask")
+    return for_each_cpu(cpu_possible_mask(prog))
 
 
 def for_each_present_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all present CPUs."""
-    return _for_each_cpu_mask(prog, "__cpu_present_mask")
+    return for_each_cpu(cpu_present_mask(prog))
 
 
 def cpumask_to_cpulist(mask: Object) -> str:
