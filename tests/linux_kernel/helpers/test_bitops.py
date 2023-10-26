@@ -1,13 +1,13 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from drgn import Object
+from drgn import Object, PlatformFlags
 from drgn.helpers.linux.bitops import for_each_clear_bit, for_each_set_bit, test_bit
 from tests import MockProgramTestCase
 
 
 class TestBitOps(MockProgramTestCase):
-    BITMAP = [0xB351BC986648A680, 0x80DDB6615A80BC63]
+    BITMAP = bytes.fromhex("80A6486698BC51B363BC805A61B6DD80")
     # fmt: off
     SET_BITS = [
         7, 9, 10, 13, 15, 19, 22, 25, 26, 29, 30, 35, 36, 39, 42, 43, 44, 45,
@@ -22,27 +22,42 @@ class TestBitOps(MockProgramTestCase):
         98, 99, 100, 103, 104, 107, 110, 113, 117, 120, 121, 122, 123, 124,
         125, 126,
     ]
+    TYPES = [
+        "unsigned long [2]",
+        "unsigned int [4]",
+        "unsigned short [8]",
+        "unsigned char [16]",
+    ]
     # fmt: on
 
+    def valid_integer_types(self):
+        if self.prog.platform.flags & PlatformFlags.IS_LITTLE_ENDIAN:
+            return self.TYPES
+        else:
+            return self.TYPES[:1]
+
     def test_for_each_set_bit(self):
-        bitmap = Object(self.prog, "unsigned long [2]", self.BITMAP)
-        self.assertEqual(list(for_each_set_bit(bitmap, 128)), self.SET_BITS)
-        self.assertEqual(
-            list(for_each_set_bit(bitmap, 101)),
-            [bit for bit in self.SET_BITS if bit < 101],
-        )
+        for type_ in self.valid_integer_types():
+            bitmap = Object.from_bytes_(self.prog, type_, self.BITMAP)
+            self.assertEqual(list(for_each_set_bit(bitmap, 128)), self.SET_BITS)
+            self.assertEqual(
+                list(for_each_set_bit(bitmap, 101)),
+                [bit for bit in self.SET_BITS if bit < 101],
+            )
 
     def test_for_each_clear_bit(self):
-        bitmap = Object(self.prog, "unsigned long [2]", self.BITMAP)
-        self.assertEqual(list(for_each_clear_bit(bitmap, 128)), self.CLEAR_BITS)
-        self.assertEqual(
-            list(for_each_clear_bit(bitmap, 100)),
-            [bit for bit in self.CLEAR_BITS if bit < 100],
-        )
+        for type_ in self.valid_integer_types():
+            bitmap = Object.from_bytes_(self.prog, type_, self.BITMAP)
+            self.assertEqual(list(for_each_clear_bit(bitmap, 128)), self.CLEAR_BITS)
+            self.assertEqual(
+                list(for_each_clear_bit(bitmap, 100)),
+                [bit for bit in self.CLEAR_BITS if bit < 100],
+            )
 
     def test_test_bit(self):
-        bitmap = Object(self.prog, "unsigned long [2]", self.BITMAP)
-        for bit in self.SET_BITS:
-            self.assertTrue(test_bit(bit, bitmap))
-        for bit in self.CLEAR_BITS:
-            self.assertFalse(test_bit(bit, bitmap))
+        for type_ in self.valid_integer_types():
+            bitmap = Object.from_bytes_(self.prog, type_, self.BITMAP)
+            for bit in self.SET_BITS:
+                self.assertTrue(test_bit(bit, bitmap))
+            for bit in self.CLEAR_BITS:
+                self.assertFalse(test_bit(bit, bitmap))
