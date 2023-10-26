@@ -14,9 +14,9 @@ true. For broadest compatibility, it is best to ensure the underlying type is
 ``unsigned long``.
 """
 
-from typing import Iterator
+from typing import Iterator, Optional
 
-from drgn import IntegerLike, Object, sizeof
+from drgn import IntegerLike, Object, TypeKind, sizeof
 
 __all__ = (
     "for_each_clear_bit",
@@ -25,14 +25,23 @@ __all__ = (
 )
 
 
-def for_each_set_bit(bitmap: Object, size: IntegerLike) -> Iterator[int]:
+def for_each_set_bit(
+    bitmap: Object, size: Optional[IntegerLike] = None
+) -> Iterator[int]:
     """
     Iterate over all set (one) bits in a bitmap.
 
     :param bitmap: pointer to, or array of, ``unsigned long``
-    :param size: Size of *bitmap* in bits.
+    :param size: Size of *bitmap* in bits. When *bitmap* is a sized array type
+        (EG: ``unsigned long[2]``), this value will default to the size of the
+        array in bits.
     """
-    size = int(size)
+    if size is not None:
+        size = int(size)
+    elif bitmap.type_.kind == TypeKind.ARRAY and bitmap.type_.length is not None:
+        size = 8 * sizeof(bitmap)
+    else:
+        raise ValueError("bitmap is not a complete array type, and size is not given")
     word_bits = 8 * sizeof(bitmap.type_.type)
     for i in range((size + word_bits - 1) // word_bits):
         word = bitmap[i].value_()
@@ -41,14 +50,23 @@ def for_each_set_bit(bitmap: Object, size: IntegerLike) -> Iterator[int]:
                 yield (word_bits * i) + j
 
 
-def for_each_clear_bit(bitmap: Object, size: IntegerLike) -> Iterator[int]:
+def for_each_clear_bit(
+    bitmap: Object, size: Optional[IntegerLike] = None
+) -> Iterator[int]:
     """
     Iterate over all clear (zero) bits in a bitmap.
 
     :param bitmap: pointer to, or array of, ``unsigned long``
-    :param size: Size of *bitmap* in bits.
+    :param size: Size of *bitmap* in bits. When *bitmap* is a sized array type
+        (EG: ``unsigned long[2]``), this value will default to the size of the
+        array in bits.
     """
-    size = int(size)
+    if size is not None:
+        size = int(size)
+    elif bitmap.type_.kind == TypeKind.ARRAY and bitmap.type_.length is not None:
+        size = 8 * sizeof(bitmap)
+    else:
+        raise ValueError("bitmap is not a complete array type, and size is not given")
     word_bits = 8 * sizeof(bitmap.type_.type)
     for i in range((size + word_bits - 1) // word_bits):
         word = bitmap[i].value_()

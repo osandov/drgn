@@ -40,6 +40,7 @@ class TestBitOps(MockProgramTestCase):
         for type_ in self.valid_integer_types():
             bitmap = Object.from_bytes_(self.prog, type_, self.BITMAP)
             self.assertEqual(list(for_each_set_bit(bitmap, 128)), self.SET_BITS)
+            self.assertEqual(list(for_each_set_bit(bitmap)), self.SET_BITS)
             self.assertEqual(
                 list(for_each_set_bit(bitmap, 101)),
                 [bit for bit in self.SET_BITS if bit < 101],
@@ -49,6 +50,7 @@ class TestBitOps(MockProgramTestCase):
         for type_ in self.valid_integer_types():
             bitmap = Object.from_bytes_(self.prog, type_, self.BITMAP)
             self.assertEqual(list(for_each_clear_bit(bitmap, 128)), self.CLEAR_BITS)
+            self.assertEqual(list(for_each_clear_bit(bitmap)), self.CLEAR_BITS)
             self.assertEqual(
                 list(for_each_clear_bit(bitmap, 100)),
                 [bit for bit in self.CLEAR_BITS if bit < 100],
