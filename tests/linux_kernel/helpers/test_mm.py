@@ -30,6 +30,7 @@ from drgn.helpers.linux.mm import (
     follow_page,
     follow_pfn,
     follow_phys,
+    for_each_vma,
     page_size,
     page_to_pfn,
     page_to_phys,
@@ -48,6 +49,8 @@ from drgn.helpers.linux.mm import (
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     LinuxKernelTestCase,
+    fork_and_sigwait,
+    iter_maps,
     mlock,
     prng32,
     skip_unless_have_full_mm_support,
@@ -346,6 +349,22 @@ class TestMm(LinuxKernelTestCase):
             proc_environ = f.read().split(b"\0")[:-1]
         task = find_task(self.prog, os.getpid())
         self.assertEqual(environ(task), proc_environ)
+
+    def test_for_each_vma(self):
+        with fork_and_sigwait() as pid:
+            self.assertEqual(
+                [
+                    (vma.vm_start, vma.vm_end)
+                    for vma in for_each_vma(find_task(self.prog, pid).mm)
+                ],
+                [
+                    (map.start, map.end)
+                    for map in iter_maps(pid)
+                    # Gate VMAs are not included in for_each_vma(). Arm has one
+                    # called "vectors", and x86 has one called "vsyscall".
+                    if map.path not in ("[vectors]", "[vsyscall]")
+                ],
+            )
 
     def test_totalram_pages(self):
         with open("/proc/meminfo") as f:

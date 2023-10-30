@@ -20,6 +20,7 @@ from _drgn import (
 )
 from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers.common.format import decode_enum_type_flags
+from drgn.helpers.linux.mapletree import mt_for_each
 
 __all__ = (
     "PFN_PHYS",
@@ -39,6 +40,7 @@ __all__ = (
     "follow_pfn",
     "follow_phys",
     "for_each_page",
+    "for_each_vma",
     "page_size",
     "page_to_pfn",
     "page_to_phys",
@@ -1310,6 +1312,40 @@ def environ(task: Object) -> List[bytes]:
     env_start = mm.env_start.value_()
     env_end = mm.env_end.value_()
     return access_remote_vm(mm, env_start, env_end - env_start).split(b"\0")[:-1]
+
+
+def for_each_vma(mm: Object) -> Iterator[Object]:
+    """
+    Iterate over every virtual memory area (VMA) in a virtual address space.
+
+    >>> for vma in for_each_vma(task.mm):
+    ...     print(vma)
+    ...
+    *(struct vm_area_struct *)0xffff97ad82bfc930 = {
+        ...
+    }
+    *(struct vm_area_struct *)0xffff97ad82bfc0a8 = {
+        ...
+    }
+    ...
+
+    :param mm: ``struct mm_struct *``
+    :return: Iterator of ``struct vm_area_struct *`` objects.
+    """
+    try:
+        # Since Linux kernel commit 763ecb035029 ("mm: remove the vma linked
+        # list") (in v6.1), VMAs are stored in a maple tree.
+        mt = mm.mm_mt.address_of_()
+    except AttributeError:
+        # Before that, they are in a linked list.
+        vma = mm.mmap
+        while vma:
+            yield vma
+            vma = vma.vm_next
+    else:
+        type = mm.prog_.type("struct vm_area_struct *")
+        for _, _, entry in mt_for_each(mt):
+            yield cast(type, entry)
 
 
 def totalram_pages(prog: Program) -> int:

@@ -301,6 +301,45 @@ _mlock.restype = ctypes.c_int
 _mlock.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
 
 
+_MAPS_RE = re.compile(
+    rb"(?P<start>[0-9a-f]+)-(?P<end>[0-9a-f]+) (?P<flags>\S+) (?P<offset>[0-9a-f]+) (?P<dev_major>[0-9a-f]+):(?P<dev_minor>[0-9a-f]+) (?P<ino>[0-9]+)\s*(?P<path>.*)"
+)
+
+
+class VmMap(NamedTuple):
+    start: int
+    end: int
+    read: bool
+    write: bool
+    execute: bool
+    shared: bool
+    offset: int
+    dev: int
+    ino: int
+    path: str
+
+
+def iter_maps(pid="self"):
+    with open(f"/proc/{pid}/maps", "rb") as f:
+        for line in f:
+            match = _MAPS_RE.match(line)
+            flags = match["flags"]
+            yield VmMap(
+                start=int(match["start"], 16),
+                end=int(match["end"], 16),
+                read=b"r" in flags,
+                write=b"w" in flags,
+                execute=b"x" in flags,
+                shared=b"s" in flags,
+                offset=int(match["offset"], 16),
+                dev=os.makedev(
+                    int(match["dev_major"], 16), int(match["dev_minor"], 16)
+                ),
+                ino=int(match["ino"]),
+                path=os.fsdecode(match["path"]),
+            )
+
+
 def mlock(addr, len):
     _check_ctypes_syscall(_mlock(addr, len))
 
