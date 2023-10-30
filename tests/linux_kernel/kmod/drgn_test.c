@@ -8,6 +8,8 @@
 // This is intended to be used with drgn's vmtest framework, but in theory it
 // can be used with any kernel that has debug info enabled (at your own risk).
 
+#include <linux/version.h>
+
 #include <linux/completion.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -15,6 +17,12 @@
 #include <linux/kthread.h>
 #include <linux/list.h>
 #include <linux/llist.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+#define HAVE_MAPLE_TREE 1
+#include <linux/maple_tree.h>
+#else
+#define HAVE_MAPLE_TREE 0
+#endif
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
@@ -23,7 +31,6 @@
 #include <linux/rbtree_augmented.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
-#include <linux/version.h>
 #include <linux/vmalloc.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
 #define HAVE_XARRAY 1
@@ -142,6 +149,187 @@ static void drgn_test_llist_init(void)
 
 	llist_add(&drgn_test_singular_llist_entry.node, &drgn_test_singular_llist);
 }
+
+// mapletree
+
+const int drgn_test_have_maple_tree = HAVE_MAPLE_TREE;
+#if HAVE_MAPLE_TREE
+const int drgn_test_maple_range64_slots = MAPLE_RANGE64_SLOTS;
+const int drgn_test_maple_arange64_slots = MAPLE_ARANGE64_SLOTS;
+
+#define DRGN_TEST_MAPLE_TREES		\
+	X(empty)			\
+	X(one)				\
+	X(one_range)			\
+	X(one_at_zero)			\
+	X(one_range_at_zero)		\
+	X(zero_entry)			\
+	X(zero_entry_at_zero)		\
+	X(dense)			\
+	X(dense_ranges)			\
+	X(sparse)			\
+	X(sparse_ranges)		\
+	X(three_levels_dense_1)		\
+	X(three_levels_dense_2)		\
+	X(three_levels_ranges_1)	\
+	X(three_levels_ranges_2)
+
+#define X(name)							\
+	DEFINE_MTREE(drgn_test_maple_tree_##name);		\
+	struct maple_tree drgn_test_maple_tree_arange_##name =	\
+	MTREE_INIT(drgn_test_maple_tree_arange_##name,		\
+		   MT_FLAGS_ALLOC_RANGE);
+DRGN_TEST_MAPLE_TREES
+#undef X
+
+static int drgn_test_maple_tree_init(void)
+{
+	int ret;
+	unsigned int arange, i;
+	#define X(name) struct maple_tree *name = &drgn_test_maple_tree_##name;
+	DRGN_TEST_MAPLE_TREES
+	#undef X
+
+	for (arange = 0; arange < 2; arange++) {
+		int node_slots = arange ? MAPLE_ARANGE64_SLOTS : MAPLE_RANGE64_SLOTS;
+
+		ret = mtree_insert(one, 666, (void *)0xdeadb00, GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		ret = mtree_insert_range(one_range, 616, 666,
+					 (void *)0xdeadb000, GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		ret = mtree_insert(one_at_zero, 0, (void *)0x1234, GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		ret = mtree_insert_range(one_range_at_zero, 0, 0x1337,
+					 (void *)0x5678, GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		ret = mtree_insert(zero_entry, 666, XA_ZERO_ENTRY, GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		ret = mtree_insert(zero_entry_at_zero, 0, XA_ZERO_ENTRY,
+				   GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		for (i = 0; i < 5; i++) {
+			ret = mtree_insert(dense, i,
+					   (void *)(uintptr_t)(0xb0ba000 | i),
+					   GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+
+		for (i = 0; i < 5; i++) {
+			ret = mtree_insert_range(dense_ranges, i * i,
+						 (i + 1) * (i + 1) - 1,
+						 (void *)(uintptr_t)(0xb0ba000 | i),
+						 GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+
+		for (i = 0; i < 5; i++) {
+			ret = mtree_insert(sparse, (i + 1) * (i + 1),
+					   (void *)(uintptr_t)(0xb0ba000 | i),
+					   GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+
+		for (i = 0; i < 5; i++) {
+			ret = mtree_insert_range(sparse_ranges,
+						 (2 * i + 1) * (2 * i + 1),
+						 (2 * i + 2) * (2 * i + 2),
+						 (void *)(uintptr_t)(0xb0ba000 | i),
+						 GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+
+		// In theory, a leaf can reference up to MAPLE_RANGE64_SLOTS
+		// entries, and a level 1 node can reference up to node_slots *
+		// MAPLE_RANGE64_SLOTS entries. In practice, as of Linux 6.6,
+		// the maple tree code only fully packs nodes with a maximum of
+		// ULONG_MAX. We create and test trees with both the observed
+		// and theoretical limits.
+		for (i = 0;
+		     i < 2 * (node_slots - 1) * (MAPLE_RANGE64_SLOTS - 1) + (MAPLE_RANGE64_SLOTS - 1);
+		     i++) {
+			ret = mtree_insert(three_levels_dense_1, i,
+					   (void *)(uintptr_t)(0xb0ba000 | i),
+					   GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+
+		for (i = 0; i < 2 * node_slots * MAPLE_RANGE64_SLOTS; i++) {
+			ret = mtree_insert(three_levels_dense_2, i,
+					   (void *)(uintptr_t)(0xb0ba000 | i),
+					   GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+
+		for (i = 0;
+		     i < 2 * (node_slots - 1) * (MAPLE_RANGE64_SLOTS - 1) + (MAPLE_RANGE64_SLOTS - 1);
+		     i++) {
+			ret = mtree_insert_range(three_levels_ranges_1, 2 * i,
+						 2 * i + 1,
+						 (void *)(uintptr_t)(0xb0ba000 | i),
+						 GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+		ret = mtree_insert_range(three_levels_ranges_1, 2 * i,
+					 ULONG_MAX,
+					 (void *)(uintptr_t)(0xb0ba000 | i),
+					 GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		for (i = 0; i < 2 * node_slots * MAPLE_RANGE64_SLOTS; i++) {
+			ret = mtree_insert_range(three_levels_ranges_2, 2 * i,
+						 2 * i + 1,
+						 (void *)(uintptr_t)(0xb0ba000 | i),
+						 GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+		ret = mtree_insert_range(three_levels_ranges_2, 2 * i,
+					 ULONG_MAX,
+					 (void *)(uintptr_t)(0xb0ba000 | i),
+					 GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		#define X(name) name = &drgn_test_maple_tree_arange_##name;
+		DRGN_TEST_MAPLE_TREES
+		#undef X
+	}
+	return 0;
+}
+
+static void drgn_test_maple_tree_exit(void)
+{
+	#define X(name)							\
+		mtree_destroy(&drgn_test_maple_tree_##name);		\
+		mtree_destroy(&drgn_test_maple_tree_arange_##name);
+	DRGN_TEST_MAPLE_TREES
+	#undef X
+}
+#else
+static int drgn_test_maple_tree_init(void) { return 0; }
+static void drgn_test_maple_tree_exit(void) {}
+#endif
 
 // mm
 
@@ -857,6 +1045,7 @@ static void drgn_test_exit(void)
 {
 	drgn_test_slab_exit();
 	drgn_test_percpu_exit();
+	drgn_test_maple_tree_exit();
 	drgn_test_mm_exit();
 	drgn_test_net_exit();
 	drgn_test_stack_trace_exit();
@@ -871,6 +1060,9 @@ static int __init drgn_test_init(void)
 
 	drgn_test_list_init();
 	drgn_test_llist_init();
+	ret = drgn_test_maple_tree_init();
+	if (ret)
+		goto out;
 	ret = drgn_test_mm_init();
 	if (ret)
 		goto out;

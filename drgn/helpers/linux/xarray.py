@@ -46,6 +46,10 @@ __all__ = (
 _XA_ZERO_ENTRY = 1030  # xa_mk_internal(257)
 
 
+def _xa_is_node(entry_value: int) -> bool:
+    return (entry_value & 3) == 2 and entry_value > 4096
+
+
 def xa_load(xa: Object, index: IntegerLike, *, advanced: bool = False) -> Object:
     """
     Look up the entry at a given index in an XArray.
@@ -142,12 +146,12 @@ def xa_for_each(xa: Object, *, advanced: bool = False) -> Iterator[Tuple[int, Ob
 
         # Return > 0 if xa_is_node(), < 0 if xa_is_sibling(), and 0 otherwise.
         def is_internal(slots: Optional[Object], entry_value: int) -> int:
-            if (entry_value & 3) == 2:
-                if entry_value > 4096:
-                    return 1
-                elif entry_value < 256:
-                    return -1
-            return 0
+            if _xa_is_node(entry_value):
+                return 1
+            elif (entry_value & 3) == 2 and entry_value < 256:
+                return -1
+            else:
+                return 0
 
         # xa_to_node()
         def to_node(entry_value: int) -> Object:
