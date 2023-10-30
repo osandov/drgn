@@ -582,7 +582,7 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			assert(obj.encoding == DRGN_OBJECT_ENCODING_BUFFER);
 			assert(obj.kind == DRGN_OBJECT_VALUE);
 			if (!prog->platform.arch->pt_regs_get_initial_registers) {
-				return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+				return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
 							 "pt_regs stack unwinding is not supported for %s architecture",
 							 prog->platform.arch->name);
 			}
@@ -684,7 +684,7 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			}
 		}
 		if (!prog->platform.arch->linux_kernel_get_initial_registers) {
-			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+			return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
 						 "Linux kernel stack unwinding is not supported for %s architecture",
 						 prog->platform.arch->name);
 		}
@@ -703,7 +703,7 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 		}
 prstatus:
 		if (!prog->platform.arch->prstatus_get_initial_registers) {
-			return drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+			return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
 						 "core dump stack unwinding is not supported for %s architecture",
 						 prog->platform.arch->name);
 		}
@@ -1072,7 +1072,7 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	}
 	if ((prog->flags & (DRGN_PROGRAM_IS_LINUX_KERNEL |
 			    DRGN_PROGRAM_IS_LIVE)) == DRGN_PROGRAM_IS_LIVE) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+		return drgn_error_create(DRGN_ERROR_NOT_IMPLEMENTED,
 					 "stack unwinding is not yet supported for live processes");
 	}
 
