@@ -560,13 +560,27 @@ type_error:
 }
 
 static struct drgn_error *
+drgn_get_initial_registers_from_prstatus(struct drgn_program *prog,
+					 const struct nstring *prstatus,
+					 struct drgn_register_state **ret)
+{
+	if (!prog->platform.arch->prstatus_get_initial_registers) {
+		return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
+					 "core dump stack unwinding is not supported for %s architecture",
+					 prog->platform.arch->name);
+	}
+	return prog->platform.arch->prstatus_get_initial_registers(prog,
+								   prstatus->str,
+								   prstatus->len,
+								   ret);
+}
+
+static struct drgn_error *
 drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			   const struct drgn_object *thread_obj,
-			   struct nstring *prstatus,
 			   struct drgn_register_state **ret)
 {
 	struct drgn_error *err;
-	struct nstring _prstatus;
 
 	DRGN_OBJECT(obj, prog);
 	DRGN_OBJECT(tmp, prog);
@@ -632,10 +646,8 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 			} else {
 				return err;
 			}
-		} else if (prstatus) {
-			goto prstatus;
 		} else {
-			prstatus = &_prstatus;
+			struct nstring prstatus;
 			/*
 			 * For kernel core dumps, we look up the PRSTATUS note
 			 * by CPU rather than by PID. This is because there is
@@ -649,11 +661,11 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 				return err;
 			uint32_t prstatus_tid;
 			err = drgn_program_find_prstatus_by_cpu(prog, cpu,
-								prstatus,
+								&prstatus,
 								&prstatus_tid);
 			if (err)
 				return err;
-			if (prstatus->str) {
+			if (prstatus.str) {
 				/*
 				 * The PRSTATUS note is for the CPU that the
 				 * task is assigned to, but it is not
@@ -679,8 +691,11 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 				err = drgn_object_read_integer(&tmp, &value);
 				if (err)
 					return err;
-				if (prstatus_tid == value.uvalue)
-					goto prstatus;
+				if (prstatus_tid == value.uvalue) {
+					return drgn_get_initial_registers_from_prstatus(prog,
+											&prstatus,
+											ret);
+				}
 			}
 		}
 		if (!prog->platform.arch->linux_kernel_get_initial_registers) {
@@ -688,31 +703,20 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 						 "Linux kernel stack unwinding is not supported for %s architecture",
 						 prog->platform.arch->name);
 		}
-		err = prog->platform.arch->linux_kernel_get_initial_registers(&obj,
-									      ret);
+		return prog->platform.arch->linux_kernel_get_initial_registers(&obj,
+									       ret);
 	} else {
-		if (!prstatus) {
-			prstatus = &_prstatus;
-			err = drgn_program_find_prstatus_by_tid(prog, tid, prstatus);
-			if (err)
-				return err;
-			if (!prstatus->str) {
-				return drgn_error_create(DRGN_ERROR_LOOKUP,
-							 "thread not found");
-			}
+		struct nstring prstatus;
+		err = drgn_program_find_prstatus_by_tid(prog, tid, &prstatus);
+		if (err)
+			return err;
+		if (!prstatus.str) {
+			return drgn_error_create(DRGN_ERROR_LOOKUP,
+						 "thread not found");
 		}
-prstatus:
-		if (!prog->platform.arch->prstatus_get_initial_registers) {
-			return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,
-						 "core dump stack unwinding is not supported for %s architecture",
-						 prog->platform.arch->name);
-		}
-		err = prog->platform.arch->prstatus_get_initial_registers(prog,
-									  prstatus->str,
-									  prstatus->len,
-									  ret);
+		return drgn_get_initial_registers_from_prstatus(prog, &prstatus,
+								ret);
 	}
-	return err;
 }
 
 static void drgn_add_to_register(void *dst, size_t dst_size, const void *src,
@@ -1061,7 +1065,7 @@ drgn_unwind_with_cfi(struct drgn_program *prog, struct drgn_cfi_row **row,
 static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 					       uint32_t tid,
 					       const struct drgn_object *obj,
-					       struct nstring *prstatus,
+					       const struct nstring *prstatus,
 					       struct drgn_stack_trace **ret)
 {
 	struct drgn_error *err;
@@ -1088,7 +1092,12 @@ static struct drgn_error *drgn_get_stack_trace(struct drgn_program *prog,
 	struct drgn_cfi_row *row = drgn_empty_cfi_row;
 
 	struct drgn_register_state *regs;
-	err = drgn_get_initial_registers(prog, tid, obj, prstatus, &regs);
+	if (prstatus) {
+		err = drgn_get_initial_registers_from_prstatus(prog, prstatus,
+							       &regs);
+	} else {
+		err = drgn_get_initial_registers(prog, tid, obj, &regs);
+	}
 	if (err)
 		goto out;
 
@@ -1154,7 +1163,7 @@ drgn_thread_stack_trace(struct drgn_thread *thread,
 			struct drgn_stack_trace **ret)
 {
 	if (thread->prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		struct nstring *prstatus =
+		const struct nstring *prstatus =
 		        thread->prstatus.str ? &thread->prstatus : NULL;
 		return drgn_get_stack_trace(thread->prog, thread->tid,
 					    &thread->object, prstatus, ret);
