@@ -625,78 +625,70 @@ drgn_get_initial_registers(struct drgn_program *prog, uint32_t tid,
 	}
 
 	if (prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL) {
-		if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
-			err = drgn_object_member_dereference(&tmp, &obj, "on_cpu");
-			if (!err) {
-				bool on_cpu;
-				err = drgn_object_bool(&tmp, &on_cpu);
-				if (err)
-					return err;
-				if (on_cpu) {
-					return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-								 "cannot unwind stack of running task");
-				}
-			} else if (err->code == DRGN_ERROR_LOOKUP) {
-				/*
-				 * The running kernel is !SMP. Assume that the
-				 * task isn't running (which can only be wrong
-				 * for this thread itself).
-				 */
-				drgn_error_destroy(err);
-			} else {
+		bool on_cpu;
+		err = drgn_object_member_dereference(&tmp, &obj, "on_cpu");
+		if (!err) {
+			err = drgn_object_bool(&tmp, &on_cpu);
+			if (err)
 				return err;
-			}
+		} else if (err->code == DRGN_ERROR_LOOKUP) {
+			// The kernel must be !SMP. We have to check cpu_curr(0)
+			// instead.
+			drgn_error_destroy(err);
+			err = linux_helper_cpu_curr(&tmp, 0);
+			if (err)
+				return err;
+			int cmp;
+			err = drgn_object_cmp(&tmp, &obj, &cmp);
+			if (err)
+				return err;
+			on_cpu = cmp == 0;
 		} else {
-			struct nstring prstatus;
-			/*
-			 * For kernel core dumps, we look up the PRSTATUS note
-			 * by CPU rather than by PID. This is because there is
-			 * an idle task with PID 0 for each CPU, so we must find
-			 * the idle task by CPU. Rather than making PID 0 a
-			 * special case, we handle all tasks this way.
-			 */
+			return err;
+		}
+		if (on_cpu) {
+			if (prog->flags & DRGN_PROGRAM_IS_LIVE) {
+				return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+							 "cannot unwind stack of running task");
+			}
+			// The PID field in PRSTATUS is unreliable for the
+			// kernel for multiple reasons:
+			//
+			// 1. Each CPU has its own idle task, all with PID 0.
+			// 2. Kdump on s390x populates the PID field with the
+			//    CPU number + 1.
+			// 3. QEMU's dump-guest-memory command does the same.
+			//
+			// So, for the kernel, we index the PRSTATUS notes by
+			// CPU number instead.
+			//
+			// Note that all of this is inherently racy: cpu_curr()
+			// [1], current [2], registers [3], and the stack
+			// pointer [4] are all updated at different times. This
+			// might result in confusing stack traces during a
+			// context switch, but there's not much we can do about
+			// that.
+			//
+			// 1: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/sched/core.c?h=v6.6#n6672
+			// 2: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/kernel/process_64.c?h=v6.6#n623
+			// 3: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/entry/entry_64.S?h=v6.6#n267
+			// 4: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/entry/entry_64.S?h=v6.6#n249
 			uint64_t cpu;
 			err = linux_helper_task_cpu(&obj, &cpu);
 			if (err)
 				return err;
-			uint32_t prstatus_tid;
+			struct nstring prstatus;
 			err = drgn_program_find_prstatus_by_cpu(prog, cpu,
-								&prstatus,
-								&prstatus_tid);
+								&prstatus);
 			if (err)
 				return err;
-			if (prstatus.str) {
-				/*
-				 * The PRSTATUS note is for the CPU that the
-				 * task is assigned to, but it is not
-				 * necessarily for this task. Only use it if the
-				 * PID matches.
-				 *
-				 * Note that this isn't perfect: the PID is
-				 * populated by the kernel from "current" (the
-				 * current task) via a non-maskable interrupt
-				 * (NMI). During a context switch, the stack
-				 * pointer and current are not updated
-				 * atomically, so if the NMI arrives in the
-				 * middle of a context switch, the stack pointer
-				 * may not actually be that of current.
-				 * Therefore, the stack pointer in PRSTATUS may
-				 * not actually be for the PID in PRSTATUS.
-				 * Unfortunately, we can't easily fix this.
-				 */
-				err = drgn_object_member_dereference(&tmp, &obj, "pid");
-				if (err)
-					return err;
-				union drgn_value value;
-				err = drgn_object_read_integer(&tmp, &value);
-				if (err)
-					return err;
-				if (prstatus_tid == value.uvalue) {
-					return drgn_get_initial_registers_from_prstatus(prog,
-											&prstatus,
-											ret);
-				}
+			if (!prstatus.str) {
+				return drgn_error_format(DRGN_ERROR_LOOKUP,
+							 "CPU status not found; task_struct or core dump may be corrupted");
 			}
+			return drgn_get_initial_registers_from_prstatus(prog,
+									&prstatus,
+									ret);
 		}
 		if (!prog->platform.arch->linux_kernel_get_initial_registers) {
 			return drgn_error_format(DRGN_ERROR_NOT_IMPLEMENTED,

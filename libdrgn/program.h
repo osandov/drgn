@@ -321,12 +321,10 @@ void drgn_thread_deinit(struct drgn_thread *thread);
  *
  * @param[out] ret Returned note data. If not found, <tt>ret->str</tt> is set to
  * @c NULL and <tt>ret->len</tt> is set to zero.
- * @param[out] tid_ret Returned thread ID of note.
  */
 struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 						     uint32_t cpu,
-						     struct nstring *ret,
-						     uint32_t *tid_ret);
+						     struct nstring *ret);
 
 /**
  * Find the @c NT_PRSTATUS note for the given thread ID.

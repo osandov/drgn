@@ -1448,8 +1448,7 @@ drgn_thread_object(struct drgn_thread *thread, const struct drgn_object **ret)
 
 struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 						     uint32_t cpu,
-						     struct nstring *ret,
-						     uint32_t *tid_ret)
+						     struct nstring *ret)
 {
 	assert(prog->flags & DRGN_PROGRAM_IS_LINUX_KERNEL);
 	struct drgn_error *err = drgn_program_cache_core_dump_notes(prog);
@@ -1458,12 +1457,11 @@ struct drgn_error *drgn_program_find_prstatus_by_cpu(struct drgn_program *prog,
 
 	if (cpu < drgn_prstatus_vector_size(&prog->prstatus_vector)) {
 		*ret = *drgn_prstatus_vector_at(&prog->prstatus_vector, cpu);
-		return get_prstatus_pid(prog, ret->str, ret->len, tid_ret);
 	} else {
 		ret->str = NULL;
 		ret->len = 0;
-		return NULL;
 	}
+	return NULL;
 }
 
 struct drgn_error *drgn_program_find_prstatus_by_tid(struct drgn_program *prog,
