@@ -227,6 +227,15 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	if (!m)
 		return NULL;
 
+	#define add_new_exception(m, name) ({					\
+		name = PyErr_NewExceptionWithDoc("_drgn." #name,		\
+						 drgn_##name##_DOC, NULL,	\
+						 NULL);				\
+		if (name && PyModule_AddObject(m, #name, name))			\
+			Py_CLEAR(name);						\
+		!name;								\
+	})
+
 	if (add_module_constants(m) ||
 	    add_type_aliases(m) ||
 	    add_type(m, &Language_type) || add_languages() ||
@@ -245,45 +254,15 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &TypeMember_type) ||
 	    add_type(m, &TypeParameter_type) ||
 	    add_type(m, &TypeTemplateParameter_type) ||
+	    add_new_exception(m, MissingDebugInfoError) ||
+	    add_new_exception(m, ObjectAbsentError) ||
+	    add_new_exception(m, OutOfBoundsError) ||
 	    init_logging())
 		goto err;
 
 	FaultError_type.tp_base = (PyTypeObject *)PyExc_Exception;
 	if (add_type(m, &FaultError_type))
 		goto err;
-
-	MissingDebugInfoError =
-		PyErr_NewExceptionWithDoc("_drgn.MissingDebugInfoError",
-					  drgn_MissingDebugInfoError_DOC, NULL,
-					  NULL);
-	if (!MissingDebugInfoError)
-		goto err;
-	if (PyModule_AddObject(m, "MissingDebugInfoError",
-			       MissingDebugInfoError)) {
-		Py_DECREF(MissingDebugInfoError);
-		goto err;
-	}
-
-	ObjectAbsentError =
-		PyErr_NewExceptionWithDoc("_drgn.ObjectAbsentError",
-					  drgn_ObjectAbsentError_DOC,
-					  NULL, NULL);
-	if (!ObjectAbsentError)
-		goto err;
-	if (PyModule_AddObject(m, "ObjectAbsentError", ObjectAbsentError)) {
-		Py_DECREF(ObjectAbsentError);
-		goto err;
-	}
-
-	OutOfBoundsError = PyErr_NewExceptionWithDoc("_drgn.OutOfBoundsError",
-						     drgn_OutOfBoundsError_DOC,
-						     NULL, NULL);
-	if (!OutOfBoundsError)
-		goto err;
-	if (PyModule_AddObject(m, "OutOfBoundsError", OutOfBoundsError)) {
-		Py_DECREF(OutOfBoundsError);
-		goto err;
-	}
 
 	PyObject *host_platform_obj = Platform_wrap(&drgn_host_platform);
 	if (!host_platform_obj)
