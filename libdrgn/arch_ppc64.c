@@ -111,15 +111,39 @@ get_initial_registers_from_struct_ppc64(struct drgn_program *prog,
 	if (!regs)
 		return &drgn_enomem;
 
-	/*
-	 * In most cases, nip (word 32) contains the program counter. But, the
-	 * NT_PRSTATUS note in Linux kernel vmcores is odd, and the saved stack
-	 * pointer (r1) is for the program counter in the link register (word
-	 * 36).
-	 */
+	// In most cases, nip (word 32) contains the program counter. But, the
+	// NT_PRSTATUS note in Linux kernel vmcores before Linux kernel commit
+	// b684c09f09e7 ("powerpc: update ppc_save_regs to save current r1 in
+	// pt_regs") (in v6.5) is odd, and the saved stack pointer (r1) is for
+	// the program counter in the link register (word 36). The fix was also
+	// backported to several stable branches. Unfortunately, there's no good
+	// way to detect it other than the kernel version.
+	bool r1_is_for_lr = linux_kernel_prstatus;
+	if (linux_kernel_prstatus) {
+		char *p = (char *)prog->vmcoreinfo.osrelease;
+		long major = strtol(p, &p, 10), minor = 0, patch = 0;
+		if (*p == '.') {
+			minor = strtol(p + 1, &p, 10);
+			if (*p == '.')
+				patch = strtol(p + 1, NULL, 10);
+		}
+		if (major > 6 || (major == 6 && minor >= 5))
+			r1_is_for_lr = false;
+		// Commit cc46085350ccae5f3a2a55a48ab93ebf328d5e24 in v6.4.4.
+		if (major == 6 && minor == 4 && patch >= 4)
+			r1_is_for_lr = false;
+		// Commit ca9465056e1a40ec0b729c115871b1b17755b631 in v6.3.13.
+		if (major == 6 && minor == 3 && patch >= 13)
+			r1_is_for_lr = false;
+		// Commit 865d128cab0ded06c41b06cfdc191ef3d121a95f in v6.1.39.
+		if (major == 6 && minor == 1 && patch >= 39)
+			r1_is_for_lr = false;
+		// Commit 3786416e1fa2ec491b25a0bae6deec163a8795d1 in v5.15.121.
+		if (major == 5 && minor == 15 && patch >= 121)
+			r1_is_for_lr = false;
+	}
 	uint64_t pc;
-	memcpy(&pc, (uint64_t *)buf + (linux_kernel_prstatus ? 36 : 32),
-	       sizeof(pc));
+	memcpy(&pc, (uint64_t *)buf + (r1_is_for_lr ? 36 : 32), sizeof(pc));
 	if (bswap)
 		pc = bswap_64(pc);
 	drgn_register_state_set_pc(prog, regs, pc);
