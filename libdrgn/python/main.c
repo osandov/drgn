@@ -27,8 +27,36 @@ static int add_type(PyObject *module, PyTypeObject *type)
 }
 
 PyObject *MissingDebugInfoError;
+static PyObject *NoDefaultProgramError;
 PyObject *ObjectAbsentError;
 PyObject *OutOfBoundsError;
+
+static _Thread_local PyObject *default_prog;
+
+static PyObject *get_default_prog(PyObject *self, PyObject *_)
+{
+	if (!default_prog) {
+		PyErr_SetString(NoDefaultProgramError, "no default program");
+		return NULL;
+	}
+	Py_INCREF(default_prog);
+	return default_prog;
+}
+
+static PyObject *set_default_prog(PyObject *self, PyObject *arg)
+{
+	if (arg == Py_None) {
+		Py_CLEAR(default_prog);
+	} else if (PyObject_TypeCheck(arg, &Program_type)) {
+		Py_INCREF(arg);
+		Py_XSETREF(default_prog, arg);
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+				"prog must be Program or None");
+		return NULL;
+	}
+	Py_RETURN_NONE;
+}
 
 static PyObject *filename_matches(PyObject *self, PyObject *args,
 				  PyObject *kwds)
@@ -102,6 +130,10 @@ static PyObject *offsetof_(PyObject *self, PyObject *args, PyObject *kwds)
 }
 
 static PyMethodDef drgn_methods[] = {
+	{"get_default_prog", get_default_prog, METH_NOARGS,
+	 drgn_get_default_prog_DOC},
+	{"set_default_prog", set_default_prog, METH_O,
+	 drgn_set_default_prog_DOC},
 	{"filename_matches", (PyCFunction)filename_matches,
 	 METH_VARARGS | METH_KEYWORDS, drgn_filename_matches_DOC},
 	{"NULL", (PyCFunction)DrgnObject_NULL, METH_VARARGS | METH_KEYWORDS,
@@ -251,6 +283,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	    add_type(m, &TypeParameter_type) ||
 	    add_type(m, &TypeTemplateParameter_type) ||
 	    add_new_exception(m, MissingDebugInfoError) ||
+	    add_new_exception(m, NoDefaultProgramError) ||
 	    add_new_exception(m, ObjectAbsentError) ||
 	    add_new_exception(m, OutOfBoundsError) ||
 	    add_type_aliases(m) ||

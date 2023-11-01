@@ -859,6 +859,30 @@ class FindObjectFlags(enum.Flag):
     ANY = ...
     ""
 
+def get_default_prog() -> Program:
+    """
+    Get the default program for the current thread.
+
+    :raises NoDefaultProgramError: if the default program is not set
+    """
+    ...
+
+# prog is positional-only.
+def set_default_prog(prog: Optional[Program]) -> None:
+    """
+    Set the default program for the current thread.
+
+    :param prog: Program to set as the default, or ``None`` to unset it.
+    """
+    ...
+
+class NoDefaultProgramError(Exception):
+    """
+    Error raised when trying to use the default program when it is not set.
+    """
+
+    ...
+
 class Thread:
     """A thread in a program."""
 
