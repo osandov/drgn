@@ -297,6 +297,7 @@ def _main() -> None:
         script = args.script[0]
         if pkgutil.get_importer(script) is None:
             sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
+        drgn.set_default_prog(prog)
         runpy.run_path(script, init_globals={"prog": prog}, run_name="__main__")
     else:
         run_interactive(prog)
@@ -380,6 +381,10 @@ For help, type help(drgn).
     old_displayhook = sys.displayhook
     old_history_length = readline.get_history_length()
     old_completer = readline.get_completer()
+    try:
+        old_default_prog = drgn.get_default_prog()
+    except drgn.NoDefaultProgramError:
+        old_default_prog = None
     histfile = os.path.expanduser("~/.drgn_history")
     try:
         readline.clear_history()
@@ -396,6 +401,8 @@ For help, type help(drgn).
         sys.path.insert(0, "")
         sys.displayhook = _displayhook
 
+        drgn.set_default_prog(prog)
+
         try:
             code.interact(banner=banner, exitmsg="", local=init_globals)
         finally:
@@ -404,6 +411,7 @@ For help, type help(drgn).
             except OSError as e:
                 logger.warning("could not write history: %s", e)
     finally:
+        drgn.set_default_prog(old_default_prog)
         sys.displayhook = old_displayhook
         sys.path[:] = old_path
         readline.set_history_length(old_history_length)

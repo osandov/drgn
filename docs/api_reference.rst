@@ -41,6 +41,39 @@ case a ``Program`` must be created manually.
 .. drgndoc:: program_from_kernel
 .. drgndoc:: program_from_pid
 
+Default Program
+^^^^^^^^^^^^^^^
+
+Most functions that take a :class:`Program` can be called without the *prog*
+argument. In that case, the *default program argument* is used, which is
+determined by the rules below.
+
+.. note::
+
+    In the drgn CLI, you probably don't need to care about these details.
+    Simply omit *prog*:
+
+    .. code-block:: python3
+
+        # Equivalent in the CLI.
+        find_task(pid)
+        find_task(prog, pid)
+        find_task(prog["init_pid_ns"].address_of_(), pid)
+
+1. If *prog* is given explicitly, either as a positional or keyword argument,
+   then it is used.
+2. Otherwise, if the first argument is an :class:`Object`, then
+   :attr:`Object.prog_` is used.
+3. Otherwise, the *default program* is used.
+
+The default program is set automatically in the CLI. Library users can get and
+set it manually. The default program is a per-thread setting. See `Thread
+Safety`_.
+
+.. drgndoc:: get_default_prog
+.. drgndoc:: set_default_prog
+.. drgndoc:: NoDefaultProgramError
+
 Platforms
 ^^^^^^^^^
 

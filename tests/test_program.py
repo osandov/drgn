@@ -3,6 +3,7 @@
 import ctypes
 import itertools
 import os
+import sys
 import tempfile
 import unittest.mock
 
@@ -11,6 +12,7 @@ from drgn import (
     FaultError,
     FindObjectFlags,
     Language,
+    NoDefaultProgramError,
     Object,
     Platform,
     PlatformFlags,
@@ -19,7 +21,9 @@ from drgn import (
     Qualifiers,
     TypeKind,
     TypeMember,
+    get_default_prog,
     host_platform,
+    set_default_prog,
 )
 from tests import (
     DEFAULT_LANGUAGE,
@@ -40,6 +44,26 @@ def zero_memory_read(address, count, offset, physical):
 
 
 class TestProgram(TestCase):
+    def test_default_program(self):
+        self.assertRaises(NoDefaultProgramError, get_default_prog)
+        prog = Program()
+        prog2 = Program()
+        try:
+            set_default_prog(prog)
+            self.assertIs(get_default_prog(), prog)
+            set_default_prog(prog2)
+            self.assertIs(get_default_prog(), prog2)
+        finally:
+            set_default_prog(None)
+        self.assertRaises(NoDefaultProgramError, get_default_prog)
+
+    def test_default_program_reference_counting(self):
+        try:
+            set_default_prog(Program())
+            self.assertGreater(sys.getrefcount(get_default_prog()), 1)
+        finally:
+            set_default_prog(None)
+
     def test_set_pid(self):
         # Debug the running Python interpreter itself.
         prog = Program()
