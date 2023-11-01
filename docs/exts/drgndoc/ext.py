@@ -40,9 +40,10 @@ This also provides a script that can generate docstring definitions from a stub
 file for the C extension itself (drgndoc.docstrings).
 """
 
+import ast
 import os.path
 import re
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional, cast
 
 import docutils.nodes
 import docutils.parsers.rst.directives
@@ -63,6 +64,7 @@ from drgndoc.parse import (
     ImportFrom,
     Module,
     Node,
+    Variable,
     parse_paths,
 )
 from drgndoc.util import dot_join
@@ -88,6 +90,40 @@ def drgndoc_init(app: sphinx.application.Sphinx) -> None:
             for pattern, repl in app.config.drgndoc_substitutions
         ],
     )
+
+
+# Sphinx looks up type annotations as py:class references. This doesn't work
+# for type aliases, which are py:data. See
+# https://github.com/sphinx-doc/sphinx/issues/10785. This hack intercepts
+# missing py:class references, and if they resolve to a variable annotated as
+# TypeAlias, retries them as py:data.
+def missing_reference(
+    app: sphinx.application.Sphinx,
+    env: DrgnDocBuildEnvironment,
+    node: sphinx.addnodes.pending_xref,
+    contnode: docutils.nodes.Element,
+) -> Optional[docutils.nodes.Element]:
+    if node.get("refdomain") == "py":
+        reftarget = node.get("reftarget")
+        if reftarget and node.get("reftype") == "class":
+            resolved = env.drgndoc_namespace.resolve_global_name(reftarget)
+            if (
+                isinstance(resolved, ResolvedNode)
+                and isinstance(resolved.node, Variable)
+                and isinstance(resolved.node.annotation, ast.Name)
+                and resolved.node.annotation.id == "TypeAlias"
+            ):
+                node.attributes["reftype"] = "data"
+                return env.domains["py"].resolve_xref(
+                    env,
+                    node.get("refdoc"),
+                    app.builder,
+                    "data",
+                    reftarget,
+                    node,
+                    contnode,
+                )
+    return None
 
 
 class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
@@ -248,6 +284,7 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
 
 def setup(app: sphinx.application.Sphinx) -> Dict[str, Any]:
     app.connect("builder-inited", drgndoc_init)
+    app.connect("missing-reference", missing_reference)
     # List of modules or packages.
     app.add_config_value("drgndoc_paths", [], "env")
     # List of (regex pattern, substitution) to apply to resolved names.
