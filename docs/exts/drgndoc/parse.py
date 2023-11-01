@@ -35,9 +35,7 @@ class _PreTransformer(ast.NodeTransformer):
 
     def _visit_annotation(self, node: Optional[ast.expr]) -> Optional[ast.expr]:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            node = self.visit(
-                cast(ast.Expression, ast.parse(node.value, "<string>", "eval")).body
-            )
+            node = self.visit(ast.parse(node.value, "<string>", "eval").body)
         return node
 
     def visit_arg(self, node: ast.arg) -> ast.arg:

@@ -79,16 +79,13 @@ class DrgnDocBuildEnvironment(sphinx.environment.BuildEnvironment):
 def drgndoc_init(app: sphinx.application.Sphinx) -> None:
     env = cast(DrgnDocBuildEnvironment, app.env)
 
-    paths = [
-        os.path.join(app.confdir, path)
-        for path in app.config.drgndoc_paths  # type: ignore
-    ]
+    paths = [os.path.join(app.confdir, path) for path in app.config.drgndoc_paths]
     env.drgndoc_namespace = Namespace(parse_paths(paths, logger.warning))
     env.drgndoc_formatter = Formatter(
         env.drgndoc_namespace,
         [
             (re.compile(pattern), repl)
-            for pattern, repl in app.config.drgndoc_substitutions  # type: ignore
+            for pattern, repl in app.config.drgndoc_substitutions
         ],
     )
 

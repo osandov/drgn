@@ -38,7 +38,9 @@ class _FormatVisitor(NodeVisitor):
         self._context_class = context_class
         self._parts: List[str] = []
 
-    def visit(self, node: ast.AST, rst: bool, qualify_typing: bool) -> str:
+    def visit(  # type: ignore[override]  # This is intentionally incompatible with the supertype.
+        self, node: ast.AST, rst: bool, qualify_typing: bool
+    ) -> str:
         self._rst = rst
         self._qualify_typing = qualify_typing
         super().visit(node)
