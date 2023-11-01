@@ -545,11 +545,7 @@ linux_kernel_live_direct_mapping_fallback_x86_64(struct drgn_program *prog,
 
 struct pgtable_iterator_x86_64 {
 	struct pgtable_iterator it;
-	// Index of next page table entry to use in a level.
 	uint16_t index[5];
-	// Index of end of cached entries in a level (i.e., the first index
-	// greater than index[level] that isn't cached).
-	uint16_t cached_index[5];
 	uint64_t table[5][512];
 };
 
@@ -575,8 +571,7 @@ linux_kernel_pgtable_iterator_init_x86_64(struct drgn_program *prog,
 {
 	struct pgtable_iterator_x86_64 *it =
 		container_of(_it, struct pgtable_iterator_x86_64, it);
-	memset(it->index, 0, sizeof(it->index));
-	memset(it->cached_index, 0, sizeof(it->cached_index));
+	memset(it->index, 0xff, sizeof(it->index));
 }
 
 static struct drgn_error *
@@ -614,7 +609,7 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 	// Find the lowest level with cached entries.
 	int level;
 	for (level = 0; level < levels; level++) {
-		if (it->index[level] < it->cached_index[level])
+		if (it->index[level] < array_size(it->table[level]))
 			break;
 	}
 	// For every level below that, refill the cache/return pages.
@@ -643,26 +638,19 @@ linux_kernel_pgtable_iterator_next_x86_64(struct drgn_program *prog,
 			}
 			table_physical = true;
 		}
-		uint64_t index = (virt_addr >>
-				  (PAGE_SHIFT + PGTABLE_SHIFT * (level - 1)));
-		size_t num_to_cache = 1;
-		if (it->it.last_virt_addr_hint > virt_addr) {
-			uint64_t last_index = (it->it.last_virt_addr_hint >>
-					       (PAGE_SHIFT + PGTABLE_SHIFT * (level - 1)));
-			num_to_cache = min(last_index - index + 1,
-					   array_size(it->table[level - 1])
-					   - (index & PGTABLE_MASK));
-		}
-		index &= PGTABLE_MASK;
+		uint16_t index = ((virt_addr >>
+				  (PAGE_SHIFT + PGTABLE_SHIFT * (level - 1)))
+				  & PGTABLE_MASK);
+		// It's only marginally more expensive to read 4096 bytes than 8
+		// bytes, so we always read to the end of the table.
 		err = drgn_program_read_memory(prog,
 					       &it->table[level - 1][index],
 					       table + 8 * index,
-					       num_to_cache * 8,
+					       sizeof(it->table[0]) - 8 * index,
 					       table_physical);
 		if (err)
 			return err;
 		it->index[level - 1] = index;
-		it->cached_index[level - 1] = index + num_to_cache;
 	}
 }
 
