@@ -62,17 +62,30 @@
  */
 #define fls(x) generic_bitop(x, PP_UNIQUE(_x), fls_impl,)
 /** @cond */
-/*
- * The straightfoward implementation is bits - clz. However, as noted by the
- * folly implementation: "If X is a power of two, X - Y = 1 + ((X - 1) ^ Y).
- * Doing this transformation allows GCC to remove its own xor that it adds to
- * implement clz using bsr."
+// This doesn't do the normal macro argument safety stuff because it should only
+// be used via generic_bitop(), which already does it.
+#define fls_impl(arg, suffix, x) (x ? ilog2_impl(, suffix, x) + 1 : 0)
+
+/**
+ * Integer base 2 logarithm.
  *
- * This doesn't do the normal macro argument safety stuff because it should only
- * be used via generic_bitop() which already does it.
+ * Return floor(log2(x)). This is also the zero-based index of the most
+ * significant 1-bit of @p x. This is undefined if `x <= 0`.
+ *
+ * ```
+ * ilog2(1) == ilog2(0b1) = 0
+ * ilog2(2) == ilog2(0b10) = 1
+ * ilog2(3) == ilog2(0b11) = 1
+ * ilog2(13) == ilog2(0b1101) = 3
+ * ```
  */
-#define fls_impl(arg, suffix, x)	\
-	(x ? 1 + ((8 * sizeof(0u##suffix) - 1) ^ __builtin_clz##suffix(x)) : 0)
+#define ilog2(x) generic_bitop(x, PP_UNIQUE(_x), ilog2_impl,)
+// The straightfoward implementation is bits - clz - 1, but we can use a trick
+// from folly::findLastSet: "If X is a power of two, X - Y = 1 + ((X - 1) ^ Y).
+// Doing this transformation allows GCC to remove its own xor that it adds to
+// implement clz using bsr."
+#define ilog2_impl(arg, suffix, x)	\
+	((8 * sizeof(0u##suffix) - 1) ^ __builtin_clz##suffix(x))
 
 #define builtin_bitop_impl(arg, suffix, x) __builtin_##arg##suffix(x)
 #define generic_bitop(x, unique_x, impl, impl_arg) ({			\
