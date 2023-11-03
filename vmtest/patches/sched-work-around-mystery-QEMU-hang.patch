@@ -1,0 +1,45 @@
+From 55628334c7c73c8b948d7d97be0e79b61b28cd11 Mon Sep 17 00:00:00 2001
+Message-ID: <55628334c7c73c8b948d7d97be0e79b61b28cd11.1699049719.git.osandov@fb.com>
+From: Omar Sandoval <osandov@fb.com>
+Date: Fri, 3 Nov 2023 14:50:46 -0700
+Subject: [PATCH] sched: work around mystery QEMU hang
+
+Before commit 2558aacff858 ("sched/hotplug: Ensure only per-cpu kthreads
+run during hotplug") (in v5.11), GCC inlined the call to
+raw_spin_unlock_irq() after __balance_callbacks() in __schedule(). That
+change incidentally turned it into an uninlined function call. For some
+reason, this causes the kernel to hang while calibrating loops_per_jiffy
+for secondary CPUs, but only under QEMU full system emulation, not KVM.
+
+Commit 5cb9eaa3d274 ("sched: Wrap rq::lock access") (in v5.14) added
+some wrappers that essentially turned the call to raw_spin_unlock_irq()
+into a (still not inlined by GCC) call to raw_spin_unlock() followed by
+local_irq_enable(). This mysteriously gets rid of the hang.
+
+This feels like a QEMU bug, but since it only affects EOL kernels, let's
+just work around it.
+
+See osandov/drgn#365.
+
+Signed-off-by: Omar Sandoval <osandov@fb.com>
+---
+ kernel/sched/core.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 4ca80df205ce..4901f47e84d8 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -5150,7 +5150,8 @@ static void __sched notrace __schedule(bool preempt)
+ 
+ 		rq_unpin_lock(rq, &rf);
+ 		__balance_callbacks(rq);
+-		raw_spin_unlock_irq(&rq->lock);
++		raw_spin_unlock(&rq->lock);
++		local_irq_enable();
+ 	}
+ }
+ 
+-- 
+2.41.0
+

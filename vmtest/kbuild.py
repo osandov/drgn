@@ -102,6 +102,10 @@ _PATCHES = (
             (KernelVersion("4.5"), KernelVersion("4.9.303")),
         ),
     ),
+    _Patch(
+        name="sched-work-around-mystery-QEMU-hang.patch",
+        versions=((KernelVersion("5.11"), KernelVersion("5.14")),),
+    ),
 )
 
 
