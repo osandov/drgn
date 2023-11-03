@@ -266,11 +266,12 @@ struct pgtable_iterator_aarch64 {
 	struct pgtable_iterator it;
 	// Inclusive range of valid virtual addresses.
 	uint64_t va_range_min, va_range_max;
-	int levels;
+	int max_level;
+	int last_level_shift;
 	uint16_t entries_per_level;
 	uint16_t last_level_num_entries;
 	uint64_t cached_virt_addr;
-	uint64_t table[5];
+	uint64_t table[4];
 	uint64_t pa_low_mask;
 	uint64_t pa_high_mask;
 };
@@ -279,12 +280,12 @@ static struct drgn_error *
 linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 					     struct pgtable_iterator **ret)
 {
-	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
+	const int page_shift = prog->vmcoreinfo.page_shift;
 	if (page_shift != 12 && page_shift != 14 && page_shift != 16) {
 		return drgn_error_create(DRGN_ERROR_OTHER,
 					 "unknown page size for virtual address translation");
 	}
-	const uint64_t pgtable_shift = page_shift - 3;
+	const int pgtable_shift = page_shift - 3;
 
 	// Since Linux kernel commit b6d00d47e81a ("arm64: mm: Introduce 52-bit
 	// Kernel VAs") (in v5.4), VA_BITS is the maximum virtual address size.
@@ -326,9 +327,9 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 	if (!it)
 		return &drgn_enomem;
 
-	it->levels = ((va_bits - page_shift + pgtable_shift - 1) /
-		      pgtable_shift);
-	assert(it->levels <= sizeof(it->table) / sizeof(it->table[0]));
+	it->max_level = ((va_bits - page_shift + pgtable_shift - 1) /
+			 pgtable_shift) - 1;
+	it->last_level_shift = page_shift + pgtable_shift * it->max_level;
 	it->entries_per_level = 1 << pgtable_shift;
 	it->last_level_num_entries =
 		1 << ((va_bits - page_shift - 1) % pgtable_shift + 1);
@@ -356,10 +357,6 @@ linux_kernel_pgtable_iterator_create_aarch64(struct drgn_program *prog,
 
 	*ret = &it->it;
 	return NULL;
-
-err_it:
-	free(it);
-	return &drgn_enomem;
 }
 
 static void linux_kernel_pgtable_iterator_destroy_aarch64(struct pgtable_iterator *_it)
@@ -383,8 +380,7 @@ static void linux_kernel_pgtable_iterator_init_aarch64(struct drgn_program *prog
 			(UINT64_C(1) << prog->vmcoreinfo.va_bits) - 1;
 	}
 
-	it->cached_virt_addr = 0;
-	memset(it->table, 0, sizeof(it->table));
+	it->cached_virt_addr = UINT64_C(0x8000000000000000);
 }
 
 static struct drgn_error *
@@ -393,16 +389,12 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 					   uint64_t *virt_addr_ret,
 					   uint64_t *phys_addr_ret)
 {
-	const uint64_t page_shift = prog->vmcoreinfo.page_shift;
-	const uint64_t pgtable_shift = page_shift - 3;
-	const bool bswap = drgn_platform_bswap(&prog->platform);
+	struct drgn_error *err;
+	const int page_shift = prog->vmcoreinfo.page_shift;
+	const int pgtable_shift = page_shift - 3;
 	struct pgtable_iterator_aarch64 *it =
 		container_of(_it, struct pgtable_iterator_aarch64, it);
 	const uint64_t virt_addr = it->it.virt_addr;
-	int level;
-	uint16_t num_entries = it->last_level_num_entries;
-	uint64_t table = it->it.pgtable;
-	bool table_physical = false;
 
 	if (virt_addr < it->va_range_min ||
 	    virt_addr > it->va_range_max) {
@@ -412,32 +404,32 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 		return NULL;
 	}
 
-	for (level = it->levels;; level--) {
-		uint8_t level_shift = page_shift + pgtable_shift * (level - 1);
-		uint16_t index = (virt_addr >> level_shift) & (num_entries - 1);
-		uint16_t cached_index = (it->cached_virt_addr >> level_shift) &
-					(num_entries - 1);
-		if (index != cached_index)
-			memset(it->table, 0, 8 * level);
-		uint64_t *entry_ptr = &it->table[level - 1];
-		if (!*entry_ptr) {
-			struct drgn_error *err = drgn_program_read_memory(
-			    prog, entry_ptr, table + 8 * index, 8,
-			    table_physical);
-			if (err) {
-				it->cached_virt_addr = 0;
-				memset(it->table, 0, sizeof(it->table));
-				return err;
-			}
-			if (bswap)
-				*entry_ptr = bswap_64(*entry_ptr);
-		}
-		uint64_t entry = *entry_ptr;
-
+	int level;
+	uint64_t table;
+	bool table_physical;
+	uint16_t num_entries;
+	int bit = ilog2(virt_addr ^ it->cached_virt_addr);
+	if (bit >= it->last_level_shift) {
+		level = it->max_level;
+		table = it->it.pgtable;
+		table_physical = false;
+		num_entries = it->last_level_num_entries;
+	} else {
+		level = (bit - page_shift) / pgtable_shift;
+		table = it->table[level];
+		table_physical = true;
 		num_entries = it->entries_per_level;
+	}
+	for (;;) {
+		int level_shift = page_shift + pgtable_shift * level;
+		uint16_t index = (virt_addr >> level_shift) & (num_entries - 1);
+		uint64_t entry;
+		err = drgn_program_read_u64(prog, table + 8 * index,
+					    table_physical, &entry);
+		if (err)
+			return err;
 		table = ((entry & it->pa_low_mask) |
 			 (entry & it->pa_high_mask) << 36);
-
 		// Descriptor bits [1:0] identify the descriptor type:
 		//
 		// 0x0, 0x2: invalid
@@ -445,10 +437,10 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 		//      higher levels: block
 		// 0x3: lowest level: page
 		//      higher levels: table
-		if ((entry & 0x3) != 0x3 || level == 1) {
+		if ((entry & 0x3) != 0x3 || level == 0) {
 			uint64_t mask = (UINT64_C(1) << level_shift) - 1;
 			*virt_addr_ret = virt_addr & ~mask;
-			if ((entry & 0x3) == (level == 1 ? 0x3 : 0x1))
+			if ((entry & 0x3) == (level == 0 ? 0x3 : 0x1))
 				*phys_addr_ret = table & ~mask;
 			else
 				*phys_addr_ret = UINT64_MAX;
@@ -456,7 +448,10 @@ linux_kernel_pgtable_iterator_next_aarch64(struct drgn_program *prog,
 			it->it.virt_addr = (virt_addr | mask) + 1;
 			return NULL;
 		}
+		it->table[level - 1] = table;
 		table_physical = true;
+		num_entries = it->entries_per_level;
+		level--;
 	}
 }
 
