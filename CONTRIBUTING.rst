@@ -43,6 +43,30 @@ after building locally:
 To run Linux kernel helper tests on the running kernel, this must be run as
 root, and debug information for the running kernel must be available.
 
+pre-commit
+----------
+
+Several linters and checks are run on every pull request. If you'd like to run
+them locally prior to submission, you can install `pre-commit
+<https://pre-commit.com/>`_:
+
+.. code-block:: console
+
+    $ pip install pre-commit
+
+Then, you can either install the checks as Git hooks so that they're run when
+creating a commit:
+
+.. code-block:: console
+
+    $ pre-commit install --install-hooks
+
+Or you can run them manually:
+
+.. code-block:: console
+
+    $ pre-commit run --all-files
+
 Coding Guidelines
 -----------------
 
@@ -53,9 +77,65 @@ Coding Guidelines
 C
 ^
 
-C code in drgn mostly follows the `Linux kernel coding style
-<https://www.kernel.org/doc/html/latest/process/coding-style.html>`_ except
-that drgn requires C11 or newer, so declarations may be mixed with code.
+drgn is written in C11. C code in drgn mostly follows the `Linux kernel coding
+style <https://www.kernel.org/doc/html/latest/process/coding-style.html>`_ with
+some slightly more modern preferences:
+
+* Variables should be declared as close as possible to where they are used (as
+  opposed to the C89 style of declaring everything at the top of a function).
+  * As an exception, if a function has a local ``struct drgn_error *err``, it
+    should usually be declared at the top of the function. (This is because
+    must functions have such a variable, and it adds noise to have it in the
+    middle of the function.)
+* Scope guards and the `cleanup attribute
+  <https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html#index-cleanup-variable-attribute>`_
+  should be used liberally.
+* ``//``-style comments are preferred over ``/* */``.
+  * As an exception, Doxygen comments should use ``/** */``.
+
+  For example:
+
+  .. code-block:: c
+
+      /** Good example. */
+      struct drgn_error *my_func(struct drgn_program *prog, size_t n)
+      {
+              struct drgn_error *err;
+
+              _cleanup_free_ void *buf = malloc(n);
+              if (!buf)
+                      return &drgn_enomem;
+              // 0xffff0000 is a nice address.
+              err = drgn_program_read_memory(prog, buf, 0xffff0000, n, false);
+              if (err)
+                      return err;
+              ...
+              return NULL;
+      }
+
+  NOT:
+
+  .. code-block:: c
+
+      /* BAD example. */
+      struct drgn_error *my_func(struct drgn_program *prog, size_t n)
+      {
+              struct drgn_error *err;
+              void *buf;
+
+              buf = malloc(n);
+              if (!buf) {
+                      return &drgn_enomem;
+              }
+              /* 0xffff0000 is a nice address. */
+              err = drgn_program_read_memory(prog, buf, 0xffff0000, n, false);
+              if (err) goto out;
+              ...
+              err = NULL;
+      goto out:
+              free(buf);
+              return err;
+      }
 
 A few other guidelines/conventions:
 
@@ -99,12 +179,11 @@ Python
 
 Python code in drgn should be compatible with Python 3.6 and newer.
 
-Python code should be formatted with `Black <https://github.com/psf/black>`_
-and `isort <https://github.com/PyCQA/isort>`_ and checked with `flake8
-<https://github.com/PyCQA/flake8>`_.
+Python code is formatted with `Black <https://github.com/psf/black>`_ and
+`isort <https://github.com/PyCQA/isort>`_.
 
-Type hints should be provided for all interfaces (including helpers and the C
-extension).
+Type hints are required everywhere (including helpers and the C extension),
+except in tests.
 
 Linux Kernel Helpers
 ^^^^^^^^^^^^^^^^^^^^
@@ -160,30 +239,6 @@ if possible. This may require handling changes between kernel releases.
           :return: ``struct cgroup *``
           """
           ...
-
-pre-commit
-^^^^^^^^^^
-
-Some of these guidelines are checked by automated builds for pull requests. If
-you'd like to run the checks locally prior to submission, you can install
-`pre-commit <https://pre-commit.com/>`_:
-
-.. code-block:: console
-
-    $ pip install pre-commit
-
-Then, you can either install the checks as Git hooks so that they're run when
-creating a commit:
-
-.. code-block:: console
-
-    $ pre-commit install --install-hooks
-
-Or you can run them manually:
-
-.. code-block:: console
-
-    $ pre-commit run --all-files
 
 Submitting PRs
 --------------
