@@ -118,8 +118,7 @@ some slightly more modern preferences:
   .. code-block:: c
 
       /* BAD example. */
-      struct drgn_error *my_func(struct drgn_program *prog, size_t n)
-      {
+      struct drgn_error *my_func(struct drgn_program *prog, size_t n) {
               struct drgn_error *err;
               void *buf;
 
@@ -132,7 +131,7 @@ some slightly more modern preferences:
               if (err) goto out;
               ...
               err = NULL;
-      goto out:
+      out:
               free(buf);
               return err;
       }
