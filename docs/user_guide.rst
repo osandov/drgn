@@ -80,7 +80,7 @@ substitutions are necessary:
 * Instead of ``*ptr``, dereference a pointer with :meth:`ptr[0]
   <drgn.Object.__getitem__>`.
 * Instead of ``ptr->member``, access a member through a pointer with
-  :meth:`ptr.member <drgn.Object.__getattribute__>`.
+  :meth:`ptr.member <drgn.Object.__getattr__>`.
 * Instead of ``&var``, get the address of a variable with
   :meth:`var.address_of_() <drgn.Object.address_of_>`.
 

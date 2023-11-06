@@ -1067,8 +1067,8 @@ class Object:
     * Relational operators: ``==``, ``!=``, ``<``, ``>``, ``<=``, ``>=``
     * Subscripting: :meth:`[] <__getitem__>` (Python does not have a unary
       ``*`` operator, so pointers are dereferenced with ``ptr[0]``)
-    * Member access: :meth:`. <__getattribute__>` (Python does not have a
-      ``->`` operator, so ``.`` is also used to access members of pointers to
+    * Member access: :meth:`. <__getattr__>` (Python does not have a ``->``
+      operator, so ``.`` is also used to access members of pointers to
       structures)
     * The address-of operator: :meth:`drgn.Object.address_of_()` (this is a
       method because Python does not have a ``&`` operator)
@@ -1199,15 +1199,15 @@ class Object:
     """
     Size in bits of this object if it is a bit field, ``None`` if it is not.
     """
-    def __getattribute__(self, name: str) -> Object:
+    def __getattr__(self, name: str) -> Object:
         """
         Implement ``self.name``.
 
         This corresponds to both the member access (``.``) and member access
         through pointer (``->``) operators in C.
 
-        If *name* is an attribute of the :class:`Object` class, then this
-        returns that attribute. Otherwise, it is equivalent to
+        Note that if *name* is an attribute or method of the :class:`Object`
+        class, then that takes precedence. Otherwise, this is equivalent to
         :meth:`member_()`.
 
         >>> print(prog['init_task'].pid)
@@ -1295,9 +1295,9 @@ class Object:
         those. If the object is a pointer, it is automatically dereferenced
         first.
 
-        Normally the dot operator (:meth:`. <__getattribute__>`) can be used to
+        Normally the dot operator (:meth:`. <__getattr__>`) can be used to
         accomplish the same thing, but this method can be used if there is a
-        name conflict with an ``Object`` member or method.
+        name conflict with an ``Object`` attribute or method.
 
         :param name: Name of the member.
         :raises TypeError: if this object is not a structure, union, class, or
