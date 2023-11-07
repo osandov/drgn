@@ -521,14 +521,6 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 					if (dwarf_formudata(attr,
 							    &str_offsets_base))
 						return drgn_error_libdw();
-					if (str_offsets_base
-					    > debug_str_offsets->d_size) {
-						return drgn_elf_file_section_error(cu_file,
-										   cu_file->scns[scn],
-										   cu_file->scn_data[scn],
-										   (char *)attr->valp,
-										   "DW_AT_str_offsets_base is out of bounds");
-					}
 				} else {
 					// The default str_offsets_base is the
 					// first entry in .debug_str_offsets
@@ -537,22 +529,19 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 					// specification, but it seems to be the
 					// consensus.)
 					str_offsets_base = 2 * offset_size;
-					if (str_offsets_base
-					    > debug_str_offsets->d_size) {
-						return drgn_elf_file_section_error(cu_file,
-										   cu_file->scns[DRGN_SCN_DEBUG_STR_OFFSETS],
-										   debug_str_offsets,
-										   (char *)debug_str_offsets->d_buf
-										   + debug_str_offsets->d_size,
-										   ".debug_str_offsets is too small");
-					}
 				}
 			} else {
 				// GNU Debug Fission doesn't have
 				// DW_AT_str_offsets_base; the base is always 0.
 				str_offsets_base = 0;
 			}
-
+			if (str_offsets_base > debug_str_offsets->d_size) {
+				return drgn_elf_file_section_error(cu_file,
+								   cu_file->scns[scn],
+								   cu_file->scn_data[scn],
+								   cudie.addr,
+								   ".debug_str_offsets base is out of bounds");
+			}
 			str_offsets =
 				(char *)debug_str_offsets->d_buf
 				+ str_offsets_base;
