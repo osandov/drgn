@@ -375,6 +375,7 @@ adds a few nice features, including:
 * Tab completion
 * Automatic import of relevant helpers
 * Pretty printing of objects and types
+* Helper commands
 
 The default behavior of the Python `REPL
 <https://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop>`_ is to
@@ -408,6 +409,30 @@ explicitly::
     typedef struct {
             int counter;
     } atomic_t
+
+Interactive Commands
+^^^^^^^^^^^^^^^^^^^^
+
+When running in interactive mode, the drgn CLI accepts an extensible set of
+commands. Any input which starts with a ``.`` will be interpreted as a command,
+rather than as Python code. For example, you can use the ``.x`` command to
+execute a script, similar to the :func:`execscript()` function::
+
+    $ cat myscript.py
+    import sys
+    print("Executing myscript.py with arguments: " + str(sys.argv[1:]))
+    $ sudo drgn
+    >>> .x myscript.py argument
+    Executing myscript.py with arguments ['argument']
+    >>> execscript("myscript.py", "argument")
+    Executing myscript.py with arguments ['argument']
+
+Not only are the interactive commands less verbose than their equivalent Python
+code, but they are also user-extensible. You can define a
+:class:`Command <drgn.cli.Command>` function and either register it with the
+:func:`@command <drgn.cli.command>` decorator, or provide it to
+:func:`run_interactive <drgn.cli.run_interactive>` using the argument
+``commands_func``.
 
 Next Steps
 ----------
