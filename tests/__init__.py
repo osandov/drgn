@@ -271,9 +271,9 @@ def identical(a, b):
     return _identical(a, b)
 
 
-# Wrapper class that defines == using identical(). This lets us use unittest's
-# nice formatting of assert{,Not}Equal() failures.
-class _AssertIdenticalWrapper:
+# Wrapper class that defines == using identical(). This is useful for
+# unittest.mock.Mock.assert_called_with().
+class IdenticalMatcher:
     def __init__(self, obj):
         self._obj = obj
 
@@ -284,21 +284,17 @@ class _AssertIdenticalWrapper:
         return repr(self._obj)
 
     def __eq__(self, other):
-        if not isinstance(other, _AssertIdenticalWrapper):
-            return NotImplemented
-        return identical(self._obj, other._obj)
+        if isinstance(other, IdenticalMatcher):
+            other = other._obj
+        return identical(self._obj, other)
 
 
 class TestCase(unittest.TestCase):
     def assertIdentical(self, a, b, msg=None):
-        return self.assertEqual(
-            _AssertIdenticalWrapper(a), _AssertIdenticalWrapper(b), msg
-        )
+        return self.assertEqual(IdenticalMatcher(a), IdenticalMatcher(b), msg)
 
     def assertNotIdentical(self, a, b, msg=None):
-        return self.assertNotEqual(
-            _AssertIdenticalWrapper(a), _AssertIdenticalWrapper(b), msg
-        )
+        return self.assertNotEqual(IdenticalMatcher(a), IdenticalMatcher(b), msg)
 
     def bool(self, value):
         return Object(self.prog, "_Bool", value=value)
