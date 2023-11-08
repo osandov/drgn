@@ -16,6 +16,8 @@ import readline
 import runpy
 import shutil
 import sys
+import textwrap
+import traceback
 from typing import Any, Callable, Dict, Optional
 
 import drgn
@@ -25,6 +27,52 @@ from drgn.internal.sudohelper import open_via_sudo
 __all__ = ("run_interactive", "version_header")
 
 logger = logging.getLogger("drgn")
+
+Command = Callable[[drgn.Program, str, Dict[str, Any]], Any]
+
+_COMMANDS: Dict[str, Command] = {}
+
+
+def command(name: str) -> Callable[[Command], Command]:
+    """
+    A decorator for registering a command function
+
+    Example usage:
+
+    >>> @drgn.cli.command("hello")
+    ... def hello(prog, line, locals_):
+    ...     print("hello world")
+
+    The decorator will be added to Drgn's default command set. Please keep in
+    mind that the decorator is evaluated when your module is imported. If you'd
+    like to extend drgn's default set of commands, then you should ensure your
+    module is imported before the CLI starts.
+    """
+
+    def decorator(cmd: Command) -> Command:
+        _COMMANDS[name] = cmd
+        return cmd
+
+    return decorator
+
+
+def all_commands() -> Dict[str, Command]:
+    """
+    Returns all registered drgn CLI commands
+    """
+    return _COMMANDS.copy()
+
+
+def help_command(commands: Dict[str, Command]) -> Command:
+    def help(prog: drgn.Program, line: str, locals_: Dict[str, Any]) -> None:
+        try:
+            width = os.get_terminal_size().columns
+        except OSError:
+            width = 80
+        print("Drgn CLI commands:\n")
+        print(textwrap.fill(" ".join(commands.keys()), width=width))
+
+    return help
 
 
 class _LogFormatter(logging.Formatter):
@@ -154,6 +202,32 @@ def _displayhook(value: Any) -> None:
             sys.stdout.write(text)
     sys.stdout.write("\n")
     setattr(builtins, "_", value)
+
+
+class _InteractiveConsoleWithCommand(code.InteractiveConsole):
+    def __init__(self, commands: Dict[str, Command], *args: Any, **kwargs: Any):
+        self.__in_multi_line = False
+        self.__commands = commands
+        super().__init__(*args, **kwargs)
+
+    def __run_command(self, line: str) -> None:
+        cmd_name = line.split(maxsplit=1)[0][1:]
+        if cmd_name not in self.__commands:
+            print(f"{cmd_name}: drgn command not found")
+            return
+        cmd = self.__commands[cmd_name]
+        prog = self.locals["prog"]
+        try:
+            setattr(builtins, "_", cmd(prog, line, self.locals))  # type: ignore
+        except Exception:
+            traceback.print_exception(*sys.exc_info())
+
+    def push(self, line: str) -> bool:
+        if not self.__in_multi_line and line and line.lstrip()[0] == ".":
+            self.__run_command(line)
+            return False
+        self.__in_multi_line = super().push(line)
+        return self.__in_multi_line
 
 
 def _main() -> None:
@@ -307,6 +381,7 @@ def run_interactive(
     prog: drgn.Program,
     banner_func: Optional[Callable[[str], str]] = None,
     globals_func: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    commands_func: Optional[Callable[[Dict[str, Command]], Dict[str, Command]]] = None,
     quiet: bool = False,
 ) -> None:
     """
@@ -324,6 +399,9 @@ def run_interactive(
     :param globals_func: Optional function to modify globals provided to the
         session. Called with a dictionary of default globals, and must return a
         dictionary to use instead.
+    :param commands_func: Optional function to modify the command list which is
+        used for the session. Called with a dictionary of commands, and must
+        return a dictionary to use instead.
     :param quiet: Ignored. Will be removed in the future.
 
     .. note::
@@ -378,6 +456,11 @@ For help, type help(drgn).
     if globals_func:
         init_globals = globals_func(init_globals)
 
+    commands = all_commands()
+    if commands_func:
+        commands = commands_func(commands)
+    commands["help"] = help_command(commands)
+
     old_path = list(sys.path)
     old_displayhook = sys.displayhook
     old_history_length = readline.get_history_length()
@@ -405,7 +488,9 @@ For help, type help(drgn).
         drgn.set_default_prog(prog)
 
         try:
-            code.interact(banner=banner, exitmsg="", local=init_globals)
+            console = _InteractiveConsoleWithCommand(commands=commands)
+            console.locals = init_globals
+            console.interact(banner=banner, exitmsg="")
         finally:
             try:
                 readline.write_history_file(histfile)
