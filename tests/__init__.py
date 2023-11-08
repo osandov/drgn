@@ -121,17 +121,42 @@ def assertReprPrettyEqualsStr(obj):
     pretty_printer_mock.text.assert_called_with("...")
 
 
+_IDENTICAL_EQ_TYPES = (
+    type(None),
+    Language,
+    Program,
+    TypeEnumerator,
+    TypeKind,
+    bool,
+    float,
+    int,
+    str,
+)
+_IDENTICAL_MAPPING_TYPES = (dict,)
+_IDENTICAL_SEQUENCE_TYPES = (list, tuple)
+_IDENTICAL_SUPPORTED_TYPES = (
+    _IDENTICAL_EQ_TYPES
+    + _IDENTICAL_MAPPING_TYPES
+    + _IDENTICAL_SEQUENCE_TYPES
+    + (Object, Type, TypeMember, TypeParameter, TypeTemplateParameter)
+)
+
+
 def identical(a, b):
     """
     Return whether two objects are "identical".
 
-    drgn.Object, drgn.Type, drgn.TypeMember, or drgn.TypeParameter objects are
-    identical iff they have they have the same type and identical attributes.
-    Note that for drgn.Object, this is different from the objects comparing
-    equal: their type, address, value, etc. must be identical.
+    drgn.Object, drgn.Type, drgn.TypeMember, drgn.TypeParameter, and
+    drgn.TypeTemplateParameter objects are identical iff they have they have
+    the same type and identical attributes. Note that for drgn.Object, this is
+    different from the objects comparing equal: their type, address, value,
+    etc. must be identical.
 
-    Two sequences are identical iff they have the same type, length, and all of
-    their items are identical.
+    Two mappings or sequences are identical iff they have the same type,
+    length, and all of their items are identical.
+
+    Types in _IDENTICAL_EQ_TYPES are identical iff they have the same type and
+    they compare equal.
     """
     compared_types = set()
 
@@ -141,13 +166,28 @@ def identical(a, b):
                 return False
         return True
 
+    def _identical_mapping(a, b):
+        return len(a) == len(b) and all(
+            _identical(key_a, key_b) and _identical(value_a, value_b)
+            for (key_a, value_a), (key_b, value_b) in zip(a.items(), b.items())
+        )
+
     def _identical_sequence(a, b):
         return len(a) == len(b) and all(
             _identical(elem_a, elem_b) for elem_a, elem_b in zip(a, b)
         )
 
     def _identical(a, b):
-        if isinstance(a, Object) and isinstance(b, Object):
+        if (
+            type(a) not in _IDENTICAL_SUPPORTED_TYPES
+            or type(b) not in _IDENTICAL_SUPPORTED_TYPES
+        ):
+            raise NotImplementedError(f"can't compare {type(a)} to {type(b)}")
+        if type(a) != type(b):  # noqa: E721
+            return False
+
+        t = type(a)
+        if t == Object:
             if not _identical_attrs(
                 a,
                 b,
@@ -175,7 +215,7 @@ def identical(a, b):
                 return exc_a or _identical(value_a, value_b)
             else:
                 return True
-        elif isinstance(a, Type) and isinstance(b, Type):
+        elif t == Type:
             if a.qualifiers != b.qualifiers:
                 return False
             if a._ptr == b._ptr:
@@ -213,20 +253,20 @@ def identical(a, b):
                     if hasattr(a, name) or hasattr(b, name)
                 ],
             )
-        elif isinstance(a, TypeMember) and isinstance(b, TypeMember):
+        elif t == TypeMember:
             return _identical_attrs(a, b, ("object", "name", "bit_offset"))
-        elif isinstance(a, TypeParameter) and isinstance(b, TypeParameter):
+        elif t == TypeParameter:
             return _identical_attrs(a, b, ("default_argument", "name"))
-        elif isinstance(a, TypeTemplateParameter) and isinstance(
-            b, TypeTemplateParameter
-        ):
+        elif t == TypeTemplateParameter:
             return _identical_attrs(a, b, ("argument", "name", "is_default"))
-        elif (isinstance(a, tuple) and isinstance(b, tuple)) or (
-            isinstance(a, list) and isinstance(b, list)
-        ):
+        elif t in _IDENTICAL_EQ_TYPES:
+            return a == b
+        elif t in _IDENTICAL_MAPPING_TYPES:
+            return _identical_mapping(a, b)
+        elif t in _IDENTICAL_SEQUENCE_TYPES:
             return _identical_sequence(a, b)
         else:
-            return a == b
+            assert False
 
     return _identical(a, b)
 

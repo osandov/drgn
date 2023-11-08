@@ -591,8 +591,9 @@ class TestReference(MockProgramTestCase):
         self.assertEqual(obj.address_, 0xFFFF0000)
         self.assertEqual(obj.bit_offset_, 0)
         self.assertEqual(obj.bit_field_size_, 32)
+        self.assertEqual(obj.value_(), 1000)
         self.assertIdentical(
-            obj.value_(),
+            obj.read_(),
             Object(
                 self.prog,
                 self.prog.int_type("unsigned __int128", 16, False),
