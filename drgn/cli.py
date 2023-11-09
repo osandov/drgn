@@ -29,6 +29,36 @@ __all__ = ("run_interactive", "version_header")
 logger = logging.getLogger("drgn")
 
 Command = Callable[[drgn.Program, str, Dict[str, Any]], Any]
+"""
+A command which can be executed in the drgn CLI
+
+The drgn CLI allows for shell-like commands to be executed. Any input to the CLI
+which begins with a ``.`` is interpreted as a command rather than a Python
+statement. Commands are simply callables which take three arguments:
+
+- a :class:`drgn.Program`
+- a ``str`` which contains the command line, and
+- a dictionary of local variables in the CLI (``Dict[str, Any]``)
+
+For example, the following is a command function::
+
+    def hello_world(prog, cmdline, locals_):
+        print("hello world!")
+        print(f"your command: {cmdline}")
+        print(f"kernel command line: {prog['saved_command_line']}")
+        locals_["secret"] = 42
+
+The command, if registered with the drgn CLI, might be used like so:
+
+    >>> .hello
+    hello world!
+    your command: .hello
+    kernel command line: (char *)0xffff9ea9cf7c3600 = "quiet splash"
+
+User-defined commands may be provided to :func:`run_interactive()` via the
+``commands_func`` argument. Commands can also be registered so that they are
+included in drgn's default command set using the :func:`command` decorator.
+"""
 
 _COMMANDS: Dict[str, Command] = {}
 
