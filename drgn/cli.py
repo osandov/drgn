@@ -89,6 +89,8 @@ def all_commands() -> Dict[str, Command]:
     """
     Returns all registered drgn CLI commands
     """
+    import drgn.helpers.common.commands  # noqa
+
     return _COMMANDS.copy()
 
 
