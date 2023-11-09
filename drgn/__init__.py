@@ -44,7 +44,7 @@ import io
 import pkgutil
 import sys
 import types
-from typing import Union
+from typing import Any, Dict, Optional, Union
 
 from _drgn import (
     NULL,
@@ -207,7 +207,7 @@ _special_globals = frozenset(
 )
 
 
-def execscript(path: str, *args: str) -> None:
+def execscript(path: str, *args: str, globals: Optional[Dict[str, Any]] = None) -> None:
     """
     Execute a script.
 
@@ -249,6 +249,7 @@ def execscript(path: str, *args: str) -> None:
     :param path: File path of the script.
     :param args: Zero or more additional arguments to pass to the script. This
         is a :ref:`variable argument list <python:tut-arbitraryargs>`.
+    :param globals: If provided, globals to use instead of the caller's.
     """
     # This is based on runpy.run_path(), which we can't use because we want to
     # update globals even if the script throws an exception.
@@ -273,7 +274,10 @@ def execscript(path: str, *args: str) -> None:
         module.__file__ = path
         module.__cached__ = None  # type: ignore[attr-defined]
 
-        caller_globals = sys._getframe(1).f_globals
+        if globals is not None:
+            caller_globals = globals
+        else:
+            caller_globals = sys._getframe(1).f_globals
         caller_special_globals = {
             name: caller_globals[name]
             for name in _special_globals
