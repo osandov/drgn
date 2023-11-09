@@ -15,7 +15,7 @@ import runpy
 import shutil
 import sys
 import textwrap
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
 
 import drgn
 from drgn import Program
@@ -88,8 +88,52 @@ def command(name: str) -> Callable[[Command], Command]:
 def all_commands() -> Dict[str, Command]:
     """
     Returns all registered drgn CLI commands
+
+    By default, only the commands which are built-in to drgn, or registered via
+    :func:`command`, are returned. Since decorators are evaluated at module load
+    time, any command defined in a module which is not imported prior to the
+    drgn CLI being run, will not be loaded.
+
+    However, drgn can allow user command modules to be loaded and registered by
+    using the ``drgn.command.v1`` `entry point
+    <https://setuptools.pypa.io/en/latest/pkg_resources.html#entry-points>`_.
+    Third-party packages can define a module as an entry point which should be
+    imported, typically in the setup.py::
+
+        setup(
+            ...,
+            entry_points={
+                "drgn.command.v1": {
+                    "my_module = fully_qualified.module_path",
+                },
+            }
+        )
+
+    In the above example, a function defined within the module
+    ``fully_qualified.module_path`` and registered with :func:`command`, would
+    always be included in the drgn CLI and this functon if the relevant package
+    is installed.
     """
     import drgn.helpers.common.commands  # noqa
+
+    # The importlib.metadata API is included in Python 3.8+. Normally, one might
+    # simply try to import it, catching the ImportError and falling back to the
+    # older API. However, the API was _transitional_ in 3.8 and 3.9, and it is
+    # different enough to break callers compared to the non-transitional API. So
+    # here we are, using sys.version_info like heathens.
+    if sys.version_info >= (3, 10):
+        from importlib.metadata import entry_points  # novermin
+    else:
+        import pkg_resources
+
+        def entry_points(group: str) -> Iterable[pkg_resources.EntryPoint]:
+            return pkg_resources.iter_entry_points(group)
+
+    # Drgn command "entry points" are simply modules. The act of loading /
+    # importing them will result in their @command decorators being executed,
+    # and _COMMANDS will be updated properly.
+    for entry_point in entry_points(group="drgn.command.v1"):  # type: ignore
+        entry_point.load()  # type: ignore
 
     return _COMMANDS.copy()
 
