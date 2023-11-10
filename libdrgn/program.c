@@ -215,11 +215,11 @@ drgn_program_check_initialized(struct drgn_program *prog)
 	return NULL;
 }
 
-static struct drgn_error *has_kdump_signature(const char *path, int fd,
-					      bool *ret)
+static struct drgn_error *
+has_kdump_signature(struct drgn_program *prog, const char *path, bool *ret)
 {
 	char signature[max_iconst(KDUMP_SIG_LEN, FLATTENED_SIG_LEN)];
-	ssize_t r = pread_all(fd, signature, sizeof(signature), 0);
+	ssize_t r = pread_all(prog->core_fd, signature, sizeof(signature), 0);
 	if (r < 0)
 		return drgn_error_create_os("pread", errno, path);
 	if (r >= FLATTENED_SIG_LEN
@@ -252,7 +252,7 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 	bool have_nt_taskstruct = false, is_proc_kcore;
 
 	prog->core_fd = fd;
-	err = has_kdump_signature(path, prog->core_fd, &is_kdump);
+	err = has_kdump_signature(prog, path, &is_kdump);
 	if (err)
 		goto out_fd;
 	if (is_kdump) {
