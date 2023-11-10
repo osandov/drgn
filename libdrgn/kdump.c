@@ -94,6 +94,11 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	}
 
 	ks = kdump_set_number_attr(ctx, KDUMP_ATTR_FILE_FD, prog->core_fd);
+	if (ks == KDUMP_ERR_NOTIMPL) {
+		err = drgn_error_format(DRGN_ERROR_INVALID_ARGUMENT,
+					"%s", kdump_get_err(ctx));
+		goto err;
+	}
 	if (ks != KDUMP_OK) {
 		err = drgn_error_format(DRGN_ERROR_OTHER,
 					"kdump_set_number_attr(KDUMP_ATTR_FILE_FD): %s",
