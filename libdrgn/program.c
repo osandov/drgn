@@ -24,6 +24,7 @@
 #include "helpers.h"
 #include "io.h"
 #include "language.h"
+#include "log.h"
 #include "linux_kernel.h"
 #include "memory_reader.h"
 #include "minmax.h"
@@ -222,16 +223,17 @@ has_kdump_signature(struct drgn_program *prog, const char *path, bool *ret)
 	ssize_t r = pread_all(prog->core_fd, signature, sizeof(signature), 0);
 	if (r < 0)
 		return drgn_error_create_os("pread", errno, path);
+	*ret = false;
 	if (r >= FLATTENED_SIG_LEN
 	    && memcmp(signature, FLATTENED_SIGNATURE, FLATTENED_SIG_LEN) == 0) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "the given file is in the makedumpfile flattened "
-					 "format, which drgn does not support; use "
-					 "'makedumpfile -R newfile <oldfile' to reassemble "
-					 "the file into a format drgn can read");
-	}
-	*ret = (r >= KDUMP_SIG_LEN
-	        && memcmp(signature, KDUMP_SIGNATURE, KDUMP_SIG_LEN) == 0);
+		drgn_log_warning(prog,
+				 "the given file is in the makedumpfile flattened "
+				 "format; if open fails or is too slow, reassemble "
+				 "it with 'makedumpfile -R newfile <oldfile'");
+		*ret = true;
+	} else if (r >= KDUMP_SIG_LEN
+		   && memcmp(signature, KDUMP_SIGNATURE, KDUMP_SIG_LEN) == 0)
+		*ret = true;
 	return NULL;
 }
 
