@@ -29,7 +29,7 @@ def MAJOR(dev: IntegerLike) -> int:
     """
     Return the major ID of a kernel ``dev_t``.
 
-    :param dev: ``dev_t`` object or :class:``int``.
+    :param dev: ``dev_t`` object or :class:`int`.
     """
     return operator.index(dev) >> _MINORBITS
 
@@ -38,7 +38,7 @@ def MINOR(dev: IntegerLike) -> int:
     """
     Return the minor ID of a kernel ``dev_t``.
 
-    :param dev: ``dev_t`` object or :class:``int``.
+    :param dev: ``dev_t`` object or :class:`int`.
     """
     return operator.index(dev) & _MINORMASK
 
