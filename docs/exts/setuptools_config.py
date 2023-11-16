@@ -1,6 +1,6 @@
 # Copyright Jason R. Coombs
 # SPDX-License-Identifier: MIT
-# From https://pypi.org/project/jaraco.packaging/.
+# Based on https://pypi.org/project/jaraco.packaging/.
 
 from __future__ import unicode_literals
 
@@ -14,13 +14,13 @@ if "check_output" not in dir(subprocess):
 
 def setup(app):
     app.add_config_value("package_url", "", "")
-    app.connect("builder-inited", load_config_from_setup)
+    app.connect("config-inited", load_config_from_setup)
     app.connect("html-page-context", add_package_url)
 
 
-def load_config_from_setup(app):
+def load_config_from_setup(app, config):
     """
-    Replace values in app.config from package metadata
+    Replace values in config from package metadata
     """
     # for now, assume project root is one level up
     root = os.path.join(app.confdir, "..")
@@ -30,10 +30,10 @@ def load_config_from_setup(app):
     output = subprocess.check_output(dist_info_cmd, cwd=root, universal_newlines=True)
     outputs = output.strip().split("\n")
     project, version, url, author = outputs
-    app.config.project = project
-    app.config.version = app.config.release = version
-    app.config.package_url = url
-    app.config.author = app.config.copyright = author
+    config.project = project
+    config.version = config.release = version
+    config.package_url = url
+    config.author = config.copyright = author
 
 
 def add_package_url(app, pagename, templatename, context, doctree):
