@@ -5,6 +5,7 @@ import ast
 import inspect
 import operator
 import os.path
+import re
 import stat
 from typing import (
     Any,
@@ -193,6 +194,48 @@ def _docstring_from_node(node: Optional[ast.AST]) -> Optional[str]:
     return inspect.cleandoc(text)
 
 
+def _transform_function(node: Function) -> Function:
+    signature = node.signatures[-1]
+
+    if (
+        signature.has_decorator("takes_program_or_default")
+        and signature.docstring is not None
+    ):
+        match = re.search(
+            r"^(\s*):(?:param|return|raises)", signature.docstring, flags=re.M
+        )
+        if match:
+            prefix = match.group(1)
+            pos = match.start()
+        else:
+            prefix = "\n\n"
+            pos = len(signature.docstring)
+        signature.docstring = "".join(
+            (
+                signature.docstring[:pos],
+                prefix,
+                ":param prog: Program, which :ref:`may be omitted to use the default program argument <default-program>`.",
+                signature.docstring[pos:],
+            )
+        )
+
+    if signature.has_decorator("takes_object_or_program_or_default"):
+        del signature.args.args[0]
+        signature.args.args[0].annotation = ast.Subscript(
+            value=ast.Name(id="Union", ctx=ast.Load()),
+            slice=ast.Tuple(
+                elts=[
+                    ast.Name(id="Object", ctx=ast.Load()),
+                    ast.Name(id="Program", ctx=ast.Load()),
+                ],
+                ctx=ast.Load(),
+            ),
+            ctx=ast.Load(),
+        )
+
+    return node
+
+
 class _ModuleVisitor(NodeVisitor):
     def visit(self, node: ast.AST) -> Tuple[Optional[str], Dict[str, NonModuleNode]]:
         self._attrs: Dict[str, NonModuleNode] = {}
@@ -240,7 +283,7 @@ class _ModuleVisitor(NodeVisitor):
             signatures.append(signature)
         else:
             signatures = [signature]
-        self._attrs[node.name] = Function(async_, signatures)
+        self._attrs[node.name] = _transform_function(Function(async_, signatures))
         # NB: we intentionally don't visit the function body.
 
     visit_FunctionDef = _visit_function
