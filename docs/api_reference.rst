@@ -41,6 +41,8 @@ case a ``Program`` must be created manually.
 .. drgndoc:: program_from_kernel
 .. drgndoc:: program_from_pid
 
+.. _default-program:
+
 Default Program
 ^^^^^^^^^^^^^^^
 
@@ -73,6 +75,9 @@ Safety`_.
 .. drgndoc:: get_default_prog
 .. drgndoc:: set_default_prog
 .. drgndoc:: NoDefaultProgramError
+
+For helpers, it is recommended to use the decorators from the
+:mod:`drgn.helpers.common.prog` module instead.
 
 Platforms
 ^^^^^^^^^
