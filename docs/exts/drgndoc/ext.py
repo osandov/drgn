@@ -249,11 +249,22 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
             # Not documented. Ignore it.
             return
 
+        try:
+            old_py_module = self.env.ref_context["py:module"]
+            have_old_py_module = True
+        except KeyError:
+            have_old_py_module = False
+
         sourcename = node.path or ""
         if sourcename:
             self.env.note_dependency(sourcename)
         contents = docutils.statemachine.StringList(
-            node.docstring.splitlines(), sourcename
+            [
+                ".. py:module:: " + dot_join(top_name, attr_name),
+                "",
+                *node.docstring.splitlines(),
+            ],
+            sourcename,
         )
 
         sphinx.util.nodes.nested_parse_with_titles(self.state, contents, docnode)
@@ -266,12 +277,6 @@ class DrgnDocDirective(sphinx.util.docutils.SphinxDirective):
                 section = child
                 break
 
-        try:
-            old_py_module = self.env.ref_context["py:module"]
-            have_old_py_module = True
-        except KeyError:
-            have_old_py_module = False
-        self.env.ref_context["py:module"] = dot_join(top_name, attr_name)
         for attr in resolved.attrs():
             self._run(
                 top_name, dot_join(attr_name, attr.name), attr.name, attr, section
