@@ -356,25 +356,19 @@ PyObject *drgnpy_linux_helper_follow_phys(PyObject *self, PyObject *args,
 					  PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 					    PyObject *kwds);
-DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args,
-					 PyObject *kwds);
-DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args,
-					  PyObject *kwds);
+DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args);
+DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args);
 PyObject *drgnpy_linux_helper_task_cpu(PyObject *self, PyObject *args,
 				       PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_xa_load(PyObject *self, PyObject *args,
 					PyObject *kwds);
 DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,
 					 PyObject *kwds);
-DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args,
-					 PyObject *kwds);
+DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args);
 DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
 					 PyObject *kwds);
-DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args,
-					  PyObject *kwds);
-PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *args,
-					   PyObject *kwds);
-PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *args,
-						 PyObject *kwds);
+DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args);
+PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *arg);
+PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *arg);
 
 #endif /* DRGNPY_H */

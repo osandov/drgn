@@ -17,7 +17,7 @@ Linux slab allocator.
 
 import operator
 from os import fsdecode
-from typing import Callable, Dict, Iterator, Optional, Set, Tuple, Union, overload
+from typing import Callable, Dict, Iterator, Optional, Set, Tuple, Union
 
 from drgn import (
     NULL,
@@ -31,6 +31,7 @@ from drgn import (
     sizeof,
 )
 from drgn.helpers.common.format import escape_ascii_string
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.cpumask import for_each_online_cpu
 from drgn.helpers.linux.list import list_for_each_entry
 from drgn.helpers.linux.mm import (
@@ -107,6 +108,7 @@ def slab_cache_is_merged(slab_cache: Object) -> bool:
     return slab_cache.refcount > 1
 
 
+@takes_program_or_default
 def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
     """
     Return a dict mapping slab cache name to the cache it was merged with.
@@ -136,7 +138,6 @@ def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
     :warning: This function will only work on kernels which are built with
       ``CONFIG_SLUB`` and ``CONFIG_SYSFS`` enabled.
 
-    :param prog: Program to search
     :returns: Mapping of slab cache name to final merged name
     :raises LookupError: If the helper fails because the debugged kernel
       doesn't have the required configuration
@@ -169,6 +170,7 @@ def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
     return name_map
 
 
+@takes_program_or_default
 def for_each_slab_cache(prog: Program) -> Iterator[Object]:
     """
     Iterate over all slab caches.
@@ -180,6 +182,7 @@ def for_each_slab_cache(prog: Program) -> Iterator[Object]:
     )
 
 
+@takes_program_or_default
 def find_slab_cache(prog: Program, name: Union[str, bytes]) -> Optional[Object]:
     """
     Return the slab cache with the given name.
@@ -195,6 +198,7 @@ def find_slab_cache(prog: Program, name: Union[str, bytes]) -> Optional[Object]:
     return None
 
 
+@takes_program_or_default
 def print_slab_caches(prog: Program) -> None:
     """Print the name and ``struct kmem_cache *`` value of all slab caches."""
     for s in for_each_slab_cache(prog):
@@ -483,13 +487,7 @@ def _find_containing_slab(
         return None
 
 
-@overload
-def slab_object_info(addr: Object) -> Optional["SlabObjectInfo"]:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def slab_object_info(prog: Program, addr: IntegerLike) -> "Optional[SlabObjectInfo]":
     """
     Get information about an address if it is in a slab object.
@@ -508,9 +506,6 @@ def slab_object_info(prog: Program, addr: IntegerLike) -> "Optional[SlabObjectIn
     >>> offsetof(prog.type("struct task_struct"), "comm")
     1496
 
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
-
     Note that SLOB does not store enough information to identify slab objects,
     so if the kernel is configured to use SLOB, this will always return
     ``None``.
@@ -519,19 +514,6 @@ def slab_object_info(prog: Program, addr: IntegerLike) -> "Optional[SlabObjectIn
     :return: :class:`SlabObjectInfo` if *addr* is in a slab object, or ``None``
         if not.
     """
-    ...
-
-
-def slab_object_info(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Optional["SlabObjectInfo"]:
-    if addr is None:
-        assert isinstance(prog_or_addr, Object)
-        prog = prog_or_addr.prog_
-        addr = prog_or_addr
-    else:
-        assert isinstance(prog_or_addr, Program)
-        prog = prog_or_addr
     addr = operator.index(addr)
     result = _find_containing_slab(prog, addr)
     if result is None:
@@ -572,19 +554,10 @@ class SlabObjectInfo:
         return f"SlabObjectInfo(slab_cache={self.slab_cache!r}, slab={self.slab!r}, address={hex(self.address)}, allocated={self.allocated})"
 
 
-@overload
-def find_containing_slab_cache(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def find_containing_slab_cache(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the slab cache that an address was allocated from, if any.
-
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
 
     Note that SLOB does not store enough information to identify objects in a
     slab cache, so if the kernel is configured to use SLOB, this will always
@@ -594,21 +567,7 @@ def find_containing_slab_cache(prog: Program, addr: IntegerLike) -> Object:
     :return: ``struct kmem_cache *`` containing *addr*, or ``NULL`` if *addr*
         is not from a slab cache.
     """
-    ...
-
-
-def find_containing_slab_cache(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    if addr is None:
-        assert isinstance(prog_or_addr, Object)
-        prog = prog_or_addr.prog_
-        addr = prog_or_addr
-    else:
-        assert isinstance(prog_or_addr, Program)
-        prog = prog_or_addr
-    addr = operator.index(addr)
-    result = _find_containing_slab(prog, addr)
+    result = _find_containing_slab(prog, operator.index(addr))
     if result is None:
         return NULL(prog, "struct kmem_cache *")
     return result[0].read_()

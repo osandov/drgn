@@ -9,14 +9,15 @@ The ``drgn.helpers.linux.pid`` module provides helpers for looking up process
 IDs and processes.
 """
 
-from typing import Iterator, Union
+from typing import Iterator, Optional
 
 from _drgn import (
-    _linux_helper_find_pid as find_pid,
-    _linux_helper_find_task as find_task,
+    _linux_helper_find_pid,
+    _linux_helper_find_task,
     _linux_helper_pid_task as pid_task,
 )
-from drgn import Object, Program, cast, container_of
+from drgn import IntegerLike, Object, Program, cast, container_of
+from drgn.helpers.common.prog import takes_object_or_program_or_default
 from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry
 
@@ -29,20 +30,33 @@ __all__ = (
 )
 
 
-def for_each_pid(prog_or_ns: Union[Program, Object]) -> Iterator[Object]:
+@takes_object_or_program_or_default
+def find_pid(prog: Program, ns: Optional[Object], pid: IntegerLike) -> Object:
+    """
+    Return the ``struct pid *`` for the given PID number.
+
+    :param ns: ``struct pid_namespace *``. Defaults to the initial PID
+        namespace if given a :class:`~drgn.Program` or :ref:`omitted
+        <default-program>`.
+    :return: ``struct pid *``
+    """
+    if ns is None:
+        ns = prog["init_pid_ns"].address_of_()
+    return _linux_helper_find_pid(ns, pid)
+
+
+@takes_object_or_program_or_default
+def for_each_pid(prog: Program, ns: Optional[Object]) -> Iterator[Object]:
     """
     Iterate over all PIDs in a namespace.
 
-    :param prog_or_ns: ``struct pid_namespace *`` to iterate over, or
-        :class:`Program` to iterate over initial PID namespace.
+    :param ns: ``struct pid_namespace *``. Defaults to the initial PID
+        namespace if given a :class:`~drgn.Program` or :ref:`omitted
+        <default-program>`.
     :return: Iterator of ``struct pid *`` objects.
     """
-    if isinstance(prog_or_ns, Program):
-        prog = prog_or_ns
-        ns = prog_or_ns["init_pid_ns"].address_of_()
-    else:
-        prog = prog_or_ns.prog_
-        ns = prog_or_ns
+    if ns is None:
+        ns = prog["init_pid_ns"].address_of_()
     if hasattr(ns, "idr"):
         for nr, entry in idr_for_each(ns.idr):
             yield cast("struct pid *", entry)
@@ -56,20 +70,35 @@ def for_each_pid(prog_or_ns: Union[Program, Object]) -> Iterator[Object]:
                     yield container_of(upid, "struct pid", f"numbers[{int(ns.level)}]")
 
 
-def for_each_task(prog_or_ns: Union[Program, Object]) -> Iterator[Object]:
+@takes_object_or_program_or_default
+def find_task(prog: Program, ns: Optional[Object], pid: IntegerLike) -> Object:
+    """
+    Return the task with the given PID.
+
+    :param ns: ``struct pid_namespace *``. Defaults to the initial PID
+        namespace if given a :class:`~drgn.Program` or :ref:`omitted
+        <default-program>`.
+    :return: ``struct task_struct *``
+    """
+    if ns is None:
+        ns = prog["init_pid_ns"].address_of_()
+    return _linux_helper_find_task(ns, pid)
+
+
+@takes_object_or_program_or_default
+def for_each_task(prog: Program, ns: Optional[Object]) -> Iterator[Object]:
     """
     Iterate over all of the tasks visible in a namespace.
 
-    :param prog_or_ns: ``struct pid_namespace *`` to iterate over, or
-        :class:`Program` to iterate over initial PID namespace.
+    :param ns: ``struct pid_namespace *``. Defaults to the initial PID
+        namespace if given a :class:`~drgn.Program` or :ref:`omitted
+        <default-program>`.
     :return: Iterator of ``struct task_struct *`` objects.
     """
-    if isinstance(prog_or_ns, Program):
-        prog = prog_or_ns
-    else:
-        prog = prog_or_ns.prog_
     PIDTYPE_PID = prog["PIDTYPE_PID"].value_()
-    for pid in for_each_pid(prog_or_ns):
+    for pid in for_each_pid(
+        prog if ns is None else ns  # type: ignore  # python/mypy#12056
+    ):
         task = pid_task(pid, PIDTYPE_PID)
         if task:
             yield task

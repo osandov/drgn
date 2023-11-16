@@ -9,11 +9,12 @@ The ``drgn.helpers.common.memory`` module provides helpers for working with memo
 """
 
 import operator
-from typing import Optional, Union, overload
+from typing import Optional
 
 import drgn
-from drgn import IntegerLike, Object, Program, SymbolKind
+from drgn import IntegerLike, Program, SymbolKind
 from drgn.helpers.common.format import escape_ascii_string
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.slab import slab_object_info
 
 __all__ = ("identify_address",)
@@ -25,13 +26,7 @@ _SYMBOL_KIND_STR = {
 }
 
 
-@overload
-def identify_address(addr: Object) -> Optional[str]:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
     """
     Try to identify what an address refers to.
@@ -54,25 +49,9 @@ def identify_address(prog: Program, addr: IntegerLike) -> Optional[str]:
 
     This may recognize other types of addresses in the future.
 
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
-
     :param addr: ``void *``
     :return: Identity as string, or ``None`` if the address is unrecognized.
     """
-    ...
-
-
-def identify_address(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Optional[str]:
-    if addr is None:
-        assert isinstance(prog_or_addr, Object)
-        prog = prog_or_addr.prog_
-        addr = prog_or_addr
-    else:
-        assert isinstance(prog_or_addr, Program)
-        prog = prog_or_addr
     addr = operator.index(addr)
 
     if prog.flags & drgn.ProgramFlags.IS_LINUX_KERNEL:

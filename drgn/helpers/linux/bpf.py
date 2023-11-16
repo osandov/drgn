@@ -15,6 +15,7 @@ import itertools
 from typing import Iterator
 
 from drgn import IntegerLike, Object, Program, cast
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.idr import idr_for_each
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 
@@ -28,6 +29,7 @@ __all__ = (
 )
 
 
+@takes_program_or_default
 def bpf_btf_for_each(prog: Program) -> Iterator[Object]:
     """
     Iterate over all BTF objects.
@@ -44,6 +46,7 @@ def bpf_btf_for_each(prog: Program) -> Iterator[Object]:
         yield cast(type, entry)
 
 
+@takes_program_or_default
 def bpf_link_for_each(prog: Program) -> Iterator[Object]:
     """
     Iterate over all BPF links.
@@ -62,6 +65,7 @@ def bpf_link_for_each(prog: Program) -> Iterator[Object]:
         yield cast(type, entry)
 
 
+@takes_program_or_default
 def bpf_map_for_each(prog: Program) -> Iterator[Object]:
     """
     Iterate over all BPF maps.
@@ -77,6 +81,7 @@ def bpf_map_for_each(prog: Program) -> Iterator[Object]:
         yield cast(type, entry)
 
 
+@takes_program_or_default
 def bpf_prog_for_each(prog: Program) -> Iterator[Object]:
     """
     Iterate over all BPF programs.

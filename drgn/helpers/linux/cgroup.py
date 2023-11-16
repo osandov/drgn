@@ -13,6 +13,7 @@ supported.
 from typing import Callable, Iterator
 
 from drgn import NULL, Object, Path, Program, cast, container_of
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.kernfs import kernfs_name, kernfs_path, kernfs_walk
 from drgn.helpers.linux.list import list_for_each_entry
 
@@ -79,6 +80,7 @@ def cgroup_path(cgrp: Object) -> bytes:
     return kernfs_path(cgrp.kn)
 
 
+@takes_program_or_default
 def cgroup_get_from_path(prog: Program, path: Path) -> Object:
     """
     Look up a cgroup from its default hierarchy path .
