@@ -2,20 +2,16 @@
 # SPDX-License-Identifier: MIT
 # Based on https://pypi.org/project/jaraco.packaging/.
 
-from __future__ import unicode_literals
-
 import os
 import subprocess
 import sys
-
-if "check_output" not in dir(subprocess):
-    import subprocess32 as subprocess
 
 
 def setup(app):
     app.add_config_value("package_url", "", "")
     app.connect("config-inited", load_config_from_setup)
     app.connect("html-page-context", add_package_url)
+    return {"parallel_read_safe": "True"}
 
 
 def load_config_from_setup(app, config):
