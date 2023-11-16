@@ -11,7 +11,7 @@ are currently supported.
 """
 
 import operator
-from typing import Iterator, List, Optional, Union, overload
+from typing import Iterator, List, Optional
 
 from _drgn import (
     _linux_helper_direct_mapping_offset,
@@ -20,6 +20,7 @@ from _drgn import (
 )
 from drgn import IntegerLike, Object, Program, cast
 from drgn.helpers.common.format import decode_enum_type_flags
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.mapletree import mt_for_each
 
 __all__ = (
@@ -800,6 +801,7 @@ def _page0(prog: Program) -> Object:
     return page0
 
 
+@takes_program_or_default
 def for_each_page(prog: Program) -> Iterator[Object]:
     """
     Iterate over every ``struct page *`` from the minimum to the maximum page.
@@ -829,70 +831,26 @@ def for_each_page(prog: Program) -> Iterator[Object]:
         yield page0 + i
 
 
-@overload
-def PFN_PHYS(pfn: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def PFN_PHYS(prog: Program, pfn: IntegerLike) -> Object:
     """
     Get the physical address of a page frame number (PFN).
 
-    The PFN can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
-
     :param pfn: ``unsigned long``
     :return: ``phys_addr_t``
     """
-    ...
+    return Object(prog, "phys_addr_t", pfn) << prog["PAGE_SHIFT"]
 
 
-def PFN_PHYS(  # type: ignore  # Need positional-only arguments.
-    prog_or_pfn: Union[Program, Object], pfn: Optional[IntegerLike] = None
-) -> Object:
-    if pfn is None:
-        assert isinstance(prog_or_pfn, Object)
-        prog = prog_or_pfn.prog_
-        pfn = prog_or_pfn
-    else:
-        assert isinstance(prog_or_pfn, Program)
-        prog = prog_or_pfn
-    return Object(prog, "phys_addr_t", operator.index(pfn)) << prog["PAGE_SHIFT"]
-
-
-@overload
-def PHYS_PFN(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
-def PHYS_PFN(prog: Program, addr: int) -> Object:
+@takes_program_or_default
+def PHYS_PFN(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page frame number (PFN) of a physical address.
-
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
 
     :param addr: ``phys_addr_t``
     :return: ``unsigned long``
     """
-    ...
-
-
-def PHYS_PFN(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    if addr is None:
-        assert isinstance(prog_or_addr, Object)
-        prog = prog_or_addr.prog_
-        addr = prog_or_addr
-    else:
-        assert isinstance(prog_or_addr, Program)
-        prog = prog_or_addr
-    return Object(prog, "unsigned long", operator.index(addr)) >> prog["PAGE_SHIFT"]
+    return Object(prog, "unsigned long", addr) >> prog["PAGE_SHIFT"]
 
 
 def page_to_pfn(page: Object) -> Object:
@@ -925,138 +883,56 @@ def page_to_virt(page: Object) -> Object:
     return pfn_to_virt(page_to_pfn(page))
 
 
-@overload
-def pfn_to_page(pfn: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def pfn_to_page(prog: Program, pfn: IntegerLike) -> Object:
     """
     Get the page with a page frame number (PFN).
 
-    The PFN can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
-
     :param pfn: ``unsigned long``
     :return: ``struct page *``
     """
-    ...
-
-
-def pfn_to_page(  # type: ignore  # Need positional-only arguments.
-    prog_or_pfn: Union[Program, Object], pfn: Optional[IntegerLike] = None
-) -> Object:
-    if pfn is None:
-        assert isinstance(prog_or_pfn, Object)
-        prog = prog_or_pfn.prog_
-        pfn = prog_or_pfn
-    else:
-        assert isinstance(prog_or_pfn, Program)
-        prog = prog_or_pfn
     return _page0(prog) + pfn
 
 
-@overload
-def pfn_to_virt(pfn: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def pfn_to_virt(prog: Program, pfn: IntegerLike) -> Object:
     """
     Get the directly mapped virtual address of a page frame number (PFN).
 
-    The PFN can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
-
     :param pfn: ``unsigned long``
     :return: ``void *``
     """
+    return phys_to_virt(PFN_PHYS(prog, pfn))
 
 
-def pfn_to_virt(  # type: ignore  # Need positional-only arguments.
-    prog_or_pfn: Union[Program, Object], pfn: Optional[IntegerLike] = None
-) -> Object:
-    return phys_to_virt(PFN_PHYS(prog_or_pfn, pfn))  # type: ignore
-
-
-@overload
-def phys_to_page(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def phys_to_page(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page containing a physical address.
 
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
-
     :param addr: ``phys_addr_t``
     :return: ``struct page *``
     """
-    ...
+    return pfn_to_page(PHYS_PFN(prog, addr))
 
 
-def phys_to_page(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    return pfn_to_page(PHYS_PFN(prog_or_addr, addr))  # type: ignore
-
-
-@overload
-def phys_to_virt(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def phys_to_virt(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the directly mapped virtual address of a physical address.
 
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
-
     :param addr: ``phys_addr_t``
     :return: ``void *``
     """
-    ...
-
-
-def phys_to_virt(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-):
-    if addr is None:
-        assert isinstance(prog_or_addr, Object)
-        prog = prog_or_addr.prog_
-        addr = prog_or_addr
-    else:
-        assert isinstance(prog_or_addr, Program)
-        prog = prog_or_addr
     return Object(
         prog, "void *", operator.index(addr) + _linux_helper_direct_mapping_offset(prog)
     )
 
 
-@overload
-def virt_to_page(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def virt_to_page(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page containing a directly mapped virtual address.
-
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
 
     .. _mm-helpers-direct-map:
 
@@ -1083,28 +959,13 @@ def virt_to_page(prog: Program, addr: IntegerLike) -> Object:
     :param addr: ``void *``
     :return: ``struct page *``
     """
-    ...
+    return pfn_to_page(virt_to_pfn(prog, addr))
 
 
-def virt_to_page(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    return pfn_to_page(virt_to_pfn(prog_or_addr, addr))  # type: ignore[arg-type]
-
-
-@overload
-def virt_to_pfn(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def virt_to_pfn(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page frame number (PFN) of a directly mapped virtual address.
-
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
 
     .. note::
 
@@ -1117,28 +978,13 @@ def virt_to_pfn(prog: Program, addr: IntegerLike) -> Object:
     :param addr: ``void *``
     :return: ``unsigned long``
     """
-    ...
+    return PHYS_PFN(virt_to_phys(prog, addr))
 
 
-def virt_to_pfn(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    return PHYS_PFN(virt_to_phys(prog_or_addr, addr))  # type: ignore
-
-
-@overload
-def virt_to_phys(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def virt_to_phys(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the physical address of a directly mapped virtual address.
-
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
 
     .. note::
 
@@ -1149,19 +995,6 @@ def virt_to_phys(prog: Program, addr: IntegerLike) -> Object:
     :param addr: ``void *``
     :return: ``phys_addr_t``
     """
-    ...
-
-
-def virt_to_phys(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    if addr is None:
-        assert isinstance(prog_or_addr, Object)
-        prog = prog_or_addr.prog_
-        addr = prog_or_addr
-    else:
-        assert isinstance(prog_or_addr, Program)
-        prog = prog_or_addr
     return Object(
         prog,
         "unsigned long",
@@ -1219,19 +1052,10 @@ def follow_phys(mm: Object, addr: IntegerLike) -> Object:
     return Object(prog, "phys_addr_t", _linux_helper_follow_phys(prog, mm.pgd, addr))
 
 
-@overload
-def vmalloc_to_page(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def vmalloc_to_page(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page containing a vmalloc or vmap address.
-
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
 
     >>> task = find_task(prog, 113)
     >>> vmalloc_to_page(task.stack)
@@ -1242,35 +1066,13 @@ def vmalloc_to_page(prog: Program, addr: IntegerLike) -> Object:
     :param addr: ``void *``
     :return: ``struct page *``
     """
-    ...
-
-
-def vmalloc_to_page(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    if addr is None:
-        assert isinstance(prog_or_addr, Object)
-        prog = prog_or_addr.prog_
-        addr = prog_or_addr
-    else:
-        assert isinstance(prog_or_addr, Program)
-        prog = prog_or_addr
     return follow_page(prog["init_mm"].address_of_(), addr)
 
 
-@overload
-def vmalloc_to_pfn(addr: Object) -> Object:
-    """"""
-    ...
-
-
-@overload
+@takes_program_or_default
 def vmalloc_to_pfn(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page frame number (PFN) containing a vmalloc or vmap address.
-
-    The address can be given as an :class:`~drgn.Object` or as a
-    :class:`~drgn.Program` and an integer.
 
     >>> task = find_task(prog, 113)
     >>> vmalloc_to_pfn(task.stack)
@@ -1279,13 +1081,7 @@ def vmalloc_to_pfn(prog: Program, addr: IntegerLike) -> Object:
     :param addr: ``void *``
     :return: ``unsigned long``
     """
-    ...
-
-
-def vmalloc_to_pfn(  # type: ignore  # Need positional-only arguments.
-    prog_or_addr: Union[Program, Object], addr: Optional[IntegerLike] = None
-) -> Object:
-    return page_to_pfn(vmalloc_to_page(prog_or_addr, addr))  # type: ignore
+    return page_to_pfn(vmalloc_to_page(prog, addr))
 
 
 def access_process_vm(task: Object, address: IntegerLike, size: IntegerLike) -> bytes:
@@ -1400,11 +1196,9 @@ def for_each_vma(mm: Object) -> Iterator[Object]:
             yield cast(type, entry)
 
 
+@takes_program_or_default
 def totalram_pages(prog: Program) -> int:
-    """
-    Return the total number of RAM memory pages.
-    """
-
+    """Return the total number of RAM pages."""
     try:
         # The variable is present since Linux kernel commit ca79b0c211af63fa32
         # ("mm: convert totalram_pages and totalhigh_pages variables

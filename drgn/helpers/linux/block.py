@@ -16,6 +16,7 @@ from typing import Iterator
 
 from drgn import Object, Program, container_of
 from drgn.helpers.common.format import escape_ascii_string
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.device import MAJOR, MINOR, MKDEV
 from drgn.helpers.linux.list import list_for_each_entry
 
@@ -91,6 +92,7 @@ def _for_each_block_device(prog: Program) -> Iterator[Object]:
         yield from list_for_each_entry("struct device", devices, "knode_class.n_node")
 
 
+@takes_program_or_default
 def for_each_disk(prog: Program) -> Iterator[Object]:
     """
     Iterate over all disks in the system.
@@ -118,6 +120,7 @@ def for_each_disk(prog: Program) -> Iterator[Object]:
             yield container_of(part, "struct gendisk", "part0")
 
 
+@takes_program_or_default
 def print_disks(prog: Program) -> None:
     """Print all of the disks in the system."""
     for disk in for_each_disk(prog):
@@ -155,6 +158,7 @@ def part_name(part: Object) -> bytes:
     return bd_device.kobj.name.string_()
 
 
+@takes_program_or_default
 def for_each_partition(prog: Program) -> Iterator[Object]:
     """
     Iterate over all partitions in the system.
@@ -174,6 +178,7 @@ def for_each_partition(prog: Program) -> Iterator[Object]:
         yield container_of(device, "struct hd_struct", "__dev")
 
 
+@takes_program_or_default
 def print_partitions(prog: Program) -> None:
     """Print all of the partitions in the system."""
     for part in for_each_partition(prog):

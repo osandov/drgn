@@ -12,6 +12,7 @@ masks from :linux:`include/linux/cpumask.h`.
 from typing import Iterator
 
 from drgn import Object, Program
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.bitops import for_each_set_bit
 
 __all__ = (
@@ -29,6 +30,7 @@ __all__ = (
 # Before Linux kernel commit c4c54dd1caf1 ("kernel/cpu.c: change type of
 # cpu_possible_bits and friends") (in v4.5), the CPU masks are struct cpumask
 # *cpu_foo_mask instead of struct cpumask __cpu_foo_mask.
+@takes_program_or_default
 def cpu_online_mask(prog: Program) -> Object:
     """
     Return the mask of online CPUs.
@@ -41,6 +43,7 @@ def cpu_online_mask(prog: Program) -> Object:
         return prog["cpu_online_mask"]
 
 
+@takes_program_or_default
 def cpu_possible_mask(prog: Program) -> Object:
     """
     Return the mask of possible CPUs.
@@ -53,6 +56,7 @@ def cpu_possible_mask(prog: Program) -> Object:
         return prog["cpu_possible_mask"]
 
 
+@takes_program_or_default
 def cpu_present_mask(prog: Program) -> Object:
     """
     Return the mask of present CPUs.
@@ -78,16 +82,19 @@ def for_each_cpu(mask: Object) -> Iterator[int]:
     return for_each_set_bit(mask.bits, nr_cpu_ids)
 
 
+@takes_program_or_default
 def for_each_online_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all online CPUs."""
     return for_each_cpu(cpu_online_mask(prog))
 
 
+@takes_program_or_default
 def for_each_possible_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all possible CPUs."""
     return for_each_cpu(cpu_possible_mask(prog))
 
 
+@takes_program_or_default
 def for_each_present_cpu(prog: Program) -> Iterator[int]:
     """Iterate over all present CPUs."""
     return for_each_cpu(cpu_present_mask(prog))

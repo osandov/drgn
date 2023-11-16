@@ -13,6 +13,7 @@ import operator
 from typing import Iterator, Union
 
 from drgn import NULL, IntegerLike, Object, Program
+from drgn.helpers.common.prog import takes_program_or_default
 from drgn.helpers.linux.list import hlist_for_each_entry
 
 __all__ = (
@@ -27,6 +28,7 @@ def _kuid_val(uid: Union[Object, IntegerLike]) -> int:
     return operator.index(uid)
 
 
+@takes_program_or_default
 def find_user(prog: Program, uid: Union[Object, IntegerLike]) -> Object:
     """
     Return the user structure with the given UID.
@@ -57,6 +59,7 @@ def find_user(prog: Program, uid: Union[Object, IntegerLike]) -> Object:
     return NULL(prog, "struct user_struct *")
 
 
+@takes_program_or_default
 def for_each_user(prog: Program) -> Iterator[Object]:
     """
     Iterate over all users in the system.

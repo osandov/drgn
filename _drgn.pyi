@@ -2386,30 +2386,8 @@ def _linux_helper_per_cpu_ptr(ptr: Object, cpu: IntegerLike) -> Object:
     """
     ...
 
-def _linux_helper_cpu_curr(prog: Program, cpu: IntegerLike) -> Object:
-    """
-    Return the task running on the given CPU.
-
-    >>> cpu_curr(prog, 7).comm
-    (char [16])"python3"
-
-    :param cpu: CPU number.
-    :return: ``struct task_struct *``
-    """
-    ...
-
-def _linux_helper_idle_task(prog: Program, cpu: IntegerLike) -> Object:
-    """
-    Return the idle thread (PID 0, a.k.a swapper) for the given CPU.
-
-    >>> idle_task(prog, 1).comm
-    (char [16])"swapper/1"
-
-    :param cpu: CPU number.
-    :return: ``struct task_struct *``
-    """
-    ...
-
+def _linux_helper_cpu_curr(__prog: Program, __cpu: IntegerLike) -> Object: ...
+def _linux_helper_idle_task(__prog: Program, __cpu: IntegerLike) -> Object: ...
 def _linux_helper_task_cpu(task: Object) -> int:
     """
     Return the CPU number that the given task last ran on.
@@ -2419,18 +2397,7 @@ def _linux_helper_task_cpu(task: Object) -> int:
     ...
 
 def _linux_helper_idr_find(idr: Object, id: IntegerLike) -> Object: ...
-def _linux_helper_find_pid(
-    prog_or_ns: Union[Program, Object], pid: IntegerLike
-) -> Object:
-    """
-    Return the ``struct pid *`` for the given PID number.
-
-    :param prog_or_ns: ``struct pid_namespace *`` object, or :class:`Program`
-        to use initial PID namespace.
-    :return: ``struct pid *``
-    """
-    ...
-
+def _linux_helper_find_pid(__ns: Object, __pid: IntegerLike) -> Object: ...
 def _linux_helper_pid_task(pid: Object, pid_type: IntegerLike) -> Object:
     """
     Return the ``struct task_struct *`` containing the given ``struct pid *``
@@ -2442,25 +2409,6 @@ def _linux_helper_pid_task(pid: Object, pid_type: IntegerLike) -> Object:
     """
     ...
 
-def _linux_helper_find_task(
-    prog_or_ns: Union[Program, Object], pid: IntegerLike
-) -> Object:
-    """
-    Return the task with the given PID.
-
-    :param prog_or_ns: ``struct pid_namespace *`` object, or :class:`Program`
-        to use initial PID namespace.
-    :return: ``struct task_struct *``
-    """
-    ...
-
-def _linux_helper_kaslr_offset(prog: Program) -> int:
-    """
-    Get the kernel address space layout randomization offset (zero if it is
-    disabled).
-    """
-    ...
-
-def _linux_helper_pgtable_l5_enabled(prog: Program) -> bool:
-    """Return whether 5-level paging is enabled."""
-    ...
+def _linux_helper_find_task(__ns: Object, __pid: IntegerLike) -> Object: ...
+def _linux_helper_kaslr_offset(__prog: Program) -> int: ...
+def _linux_helper_pgtable_l5_enabled(__prog: Program) -> bool: ...

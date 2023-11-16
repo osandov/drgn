@@ -12,6 +12,7 @@ kernel log buffer.
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from drgn import Object, Program, cast, sizeof
+from drgn.helpers.common.prog import takes_program_or_default
 
 __all__ = (
     "get_dmesg",
@@ -223,6 +224,7 @@ def _get_printk_records_structured(prog: Program) -> List[PrintkRecord]:
     return result
 
 
+@takes_program_or_default
 def get_printk_records(prog: Program) -> List[PrintkRecord]:
     """Get a list of records in the kernel log buffer."""
     # Linux kernel commit 896fbe20b4e2 ("printk: use the lockless ringbuffer")
@@ -235,6 +237,7 @@ def get_printk_records(prog: Program) -> List[PrintkRecord]:
         return _get_printk_records_lockless(prog, prb)
 
 
+@takes_program_or_default
 def get_dmesg(prog: Program) -> bytes:
     """
     Get the contents of the kernel log buffer formatted like

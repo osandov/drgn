@@ -10,9 +10,13 @@ Linux kernel networking subsystem.
 """
 
 import operator
-from typing import Iterator, Union
+from typing import Iterator, Optional, Union
 
 from drgn import NULL, IntegerLike, Object, Program, Type, cast, container_of, sizeof
+from drgn.helpers.common.prog import (
+    takes_object_or_program_or_default,
+    takes_program_or_default,
+)
 from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.list_nulls import hlist_nulls_for_each_entry
@@ -61,6 +65,7 @@ def SOCK_INODE(sock: Object) -> Object:
     return container_of(sock, "struct socket_alloc", "socket").vfs_inode.address_of_()
 
 
+@takes_program_or_default
 def for_each_net(prog: Program) -> Iterator[Object]:
     """
     Iterate over all network namespaces in the system.
@@ -123,45 +128,44 @@ _NETDEV_HASHBITS = 8
 _NETDEV_HASHENTRIES = 1 << _NETDEV_HASHBITS
 
 
+@takes_object_or_program_or_default
 def netdev_get_by_index(
-    prog_or_net: Union[Program, Object], ifindex: IntegerLike
+    prog: Program, net: Optional[Object], ifindex: IntegerLike
 ) -> Object:
     """
     Get the network device with the given interface index number.
 
-    :param prog_or_net: ``struct net *`` containing the device, or
-        :class:`Program` to use the initial network namespace.
+    :param net: ``struct net *``. Defaults to the initial network namespace if
+        given a :class:`~drgn.Program` or :ref:`omitted <default-program>`.
     :param ifindex: Network interface index number.
     :return: ``struct net_device *`` (``NULL`` if not found)
     """
-    if isinstance(prog_or_net, Program):
-        prog_or_net = prog_or_net["init_net"]
-    if isinstance(ifindex, Object):
-        ifindex = ifindex.read_()
+    if net is None:
+        net = prog["init_net"]
+    ifindex = operator.index(ifindex)
 
-    head = prog_or_net.dev_index_head[
-        operator.index(ifindex) & (_NETDEV_HASHENTRIES - 1)
-    ]
+    head = net.dev_index_head[ifindex & (_NETDEV_HASHENTRIES - 1)]
     for netdev in hlist_for_each_entry("struct net_device", head, "index_hlist"):
-        if netdev.ifindex == ifindex:
+        if netdev.ifindex.value_() == ifindex:
             return netdev
 
-    return NULL(prog_or_net.prog_, "struct net_device *")
+    return NULL(prog, "struct net_device *")
 
 
+@takes_object_or_program_or_default
 def netdev_get_by_name(
-    prog_or_net: Union[Program, Object], name: Union[str, bytes]
+    prog: Program, net: Optional[Object], name: Union[str, bytes]
 ) -> Object:
     """
     Get the network device with the given interface name.
 
-    :param prog_or_net: ``struct net *`` containing the device, or
-        :class:`Program` to use the initial network namespace.
+    :param net: ``struct net *``. Defaults to the initial network namespace if
+        given a :class:`~drgn.Program` or :ref:`omitted <default-program>`.
     :param name: Network interface name.
     :return: ``struct net_device *`` (``NULL`` if not found)
     """
-    if isinstance(prog_or_net, Program):
-        prog_or_net = prog_or_net["init_net"]
+    if net is None:
+        net = prog["init_net"]
     if isinstance(name, str):
         name = name.encode()
 
@@ -170,16 +174,16 @@ def netdev_get_by_name(
     # struct netdev_name_node entries. Before that, it contained the struct
     # net_device directly.
     try:
-        entry_type = prog_or_net.prog_.type("struct netdev_name_node")
+        entry_type = prog.type("struct netdev_name_node")
         member = "hlist"
         entry_is_name_node = True
     except LookupError:
-        entry_type = prog_or_net.prog_.type("struct net_device")
+        entry_type = prog.type("struct net_device")
         member = "name_hlist"
         entry_is_name_node = False
 
     for i in range(_NETDEV_HASHENTRIES):
-        head = prog_or_net.dev_name_head[i]
+        head = net.dev_name_head[i]
         for entry in hlist_for_each_entry(entry_type, head, member):
             if entry.name.string_() == name:
                 if entry_is_name_node:
@@ -187,7 +191,7 @@ def netdev_get_by_name(
                 else:
                     return entry
 
-    return NULL(prog_or_net.prog_, "struct net_device *")
+    return NULL(prog, "struct net_device *")
 
 
 def netdev_priv(dev: Object, type: Union[str, Type] = "void") -> Object:

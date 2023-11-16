@@ -14,6 +14,7 @@ from typing import Iterator, Optional, Tuple, Union, overload
 
 from drgn import IntegerLike, Object, Path, Program, container_of, sizeof
 from drgn.helpers.common.format import escape_ascii_string
+from drgn.helpers.common.prog import takes_object_or_program_or_default
 from drgn.helpers.linux.list import (
     hlist_empty,
     hlist_for_each_entry,
@@ -71,14 +72,20 @@ def _follow_dotdot(
     return _follow_mount(mnt, dentry)
 
 
+@takes_object_or_program_or_default
 def path_lookup(
-    prog_or_root: Union[Program, Object], path: Path, allow_negative: bool = False
+    prog: Program,
+    root: Optional[Object],
+    path: Path,
+    *,
+    allow_negative: bool = False,
 ) -> Object:
     """
     Look up the given path name.
 
-    :param prog_or_root: ``struct path *`` object to use as root directory, or
-        :class:`Program` to use the initial root filesystem.
+    :param root: ``struct path *`` to use as the root directory. Defaults to
+        the initial root filesystem if given a :class:`~drgn.Program` or
+        :ref:`omitted <default-program>`.
     :param path: Path to lookup.
     :param allow_negative: Whether to allow returning a negative dentry (i.e.,
         a dentry for a non-existent path).
@@ -99,10 +106,10 @@ def path_lookup(
             .dentry = (struct dentry *)0xffff8b702ac2c480,
     }
     """
-    if isinstance(prog_or_root, Program):
-        prog_or_root = prog_or_root["init_task"].fs.root
-    mnt = root_mnt = container_of(prog_or_root.mnt.read_(), "struct mount", "mnt")
-    dentry = root_dentry = prog_or_root.dentry.read_()
+    if root is None:
+        root = prog["init_task"].fs.root
+    mnt = root_mnt = container_of(root.mnt.read_(), "struct mount", "mnt")
+    dentry = root_dentry = root.dentry.read_()
     components = os.fsencode(path).split(b"/")
     for i, component in enumerate(components):
         if component == b"" or component == b".":
@@ -124,7 +131,7 @@ def path_lookup(
         failed_path = os.fsdecode(b"/".join(components))
         raise Exception(f"{failed_path!r} dentry is negative")
     return Object(
-        mnt.prog_,
+        prog,
         "struct path",
         value={"mnt": mnt.mnt.address_of_(), "dentry": dentry},
     )
@@ -266,8 +273,11 @@ def mount_fstype(mnt: Object) -> bytes:
     return fstype
 
 
+@takes_object_or_program_or_default
 def for_each_mount(
-    prog_or_ns: Union[Program, Object],
+    prog: Program,
+    ns: Optional[Object],
+    *,
     src: Optional[Path] = None,
     dst: Optional[Path] = None,
     fstype: Optional[Union[str, bytes]] = None,
@@ -275,17 +285,16 @@ def for_each_mount(
     """
     Iterate over all of the mounts in a given namespace.
 
-    :param prog_or_ns: ``struct mnt_namespace *`` to iterate over, or
-        :class:`Program` to iterate over initial mount namespace.
+    :param ns: ``struct mnt_namespace *``. Defaults to the initial mount
+        namespace if given a :class:`~drgn.Program` or :ref:`omitted
+        <default-program>`.
     :param src: Only include mounts with this source device name.
     :param dst: Only include mounts with this destination path.
     :param fstype: Only include mounts with this filesystem type.
     :return: Iterator of ``struct mount *`` objects.
     """
-    if isinstance(prog_or_ns, Program):
-        ns = prog_or_ns["init_task"].nsproxy.mnt_ns
-    else:
-        ns = prog_or_ns
+    if ns is None:
+        ns = prog["init_task"].nsproxy.mnt_ns
     if src is not None:
         src = os.fsencode(src)
     if dst is not None:
@@ -301,8 +310,11 @@ def for_each_mount(
             yield mnt
 
 
+@takes_object_or_program_or_default
 def print_mounts(
-    prog_or_ns: Union[Program, Object],
+    prog: Program,
+    ns: Optional[Object],
+    *,
     src: Optional[Path] = None,
     dst: Optional[Path] = None,
     fstype: Optional[Union[str, bytes]] = None,
@@ -312,7 +324,12 @@ def print_mounts(
     :func:`for_each_mount()`. The output format is similar to ``/proc/mounts``
     but prints the value of each ``struct mount *``.
     """
-    for mnt in for_each_mount(prog_or_ns, src, dst, fstype):
+    for mnt in for_each_mount(
+        prog if ns is None else ns,  # type: ignore  # python/mypy#12056
+        src=src,
+        dst=dst,
+        fstype=fstype,
+    ):
         mnt_src = escape_ascii_string(mount_src(mnt), escape_backslash=True)
         mnt_dst = escape_ascii_string(mount_dst(mnt), escape_backslash=True)
         mnt_fstype = escape_ascii_string(mount_fstype(mnt), escape_backslash=True)

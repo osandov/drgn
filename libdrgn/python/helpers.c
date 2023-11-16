@@ -91,16 +91,13 @@ DrgnObject *drgnpy_linux_helper_per_cpu_ptr(PyObject *self, PyObject *args,
 	return_ptr(res);
 }
 
-DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args,
-					 PyObject *kwds)
+DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args)
 {
-	static char *keywords[] = {"prog", "cpu", NULL};
 	struct drgn_error *err;
 	Program *prog;
 	struct index_arg cpu = {};
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:cpu_curr", keywords,
-					 &Program_type, &prog, index_converter,
-					 &cpu))
+	if (!PyArg_ParseTuple(args, "O!O&:cpu_curr", &Program_type, &prog,
+			      index_converter, &cpu))
 		return NULL;
 
 	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(prog);
@@ -112,16 +109,13 @@ DrgnObject *drgnpy_linux_helper_cpu_curr(PyObject *self, PyObject *args,
 	return_ptr(res);
 }
 
-DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args,
-					  PyObject *kwds)
+DrgnObject *drgnpy_linux_helper_idle_task(PyObject *self, PyObject *args)
 {
-	static char *keywords[] = {"prog", "cpu", NULL};
 	struct drgn_error *err;
 	Program *prog;
 	struct index_arg cpu = {};
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&:idle_task", keywords,
-					 &Program_type, &prog, index_converter,
-					 &cpu))
+	if (!PyArg_ParseTuple(args, "O!O&:idle_task", &Program_type, &prog,
+			      index_converter, &cpu))
 		return NULL;
 
 	_cleanup_pydecref_ DrgnObject *res = DrgnObject_alloc(prog);
@@ -193,81 +187,23 @@ DrgnObject *drgnpy_linux_helper_idr_find(PyObject *self, PyObject *args,
 	return_ptr(res);
 }
 
-struct prog_or_ns_arg {
-	Program *prog;
-	struct drgn_object *ns;
-	struct drgn_object tmp;
-};
-
-static void prog_or_ns_cleanup(struct prog_or_ns_arg *arg)
+DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args)
 {
-	if (arg->ns == &arg->tmp)
-		drgn_object_deinit(arg->ns);
-}
-
-static int prog_or_pid_ns_converter(PyObject *o, void *p)
-{
-	struct prog_or_ns_arg *arg = p;
-
-	if (!o) {
-		prog_or_ns_cleanup(arg);
-		return 1;
-	}
-
-	if (PyObject_TypeCheck(o, &Program_type)) {
-		struct drgn_error *err;
-
-		arg->prog = (Program *)o;
-		arg->ns = &arg->tmp;
-		drgn_object_init(arg->ns, &arg->prog->prog);
-		err = drgn_program_find_object(&arg->prog->prog, "init_pid_ns",
-					       NULL, DRGN_FIND_OBJECT_ANY,
-					       arg->ns);
-		if (!err)
-			err = drgn_object_address_of(arg->ns, arg->ns);
-		if (err) {
-			drgn_object_deinit(arg->ns);
-			set_drgn_error(err);
-			return 0;
-		}
-	} else if (PyObject_TypeCheck(o, &DrgnObject_type)) {
-		arg->prog = DrgnObject_prog((DrgnObject *)o);
-		arg->ns = &((DrgnObject *)o)->obj;
-	} else {
-		PyErr_Format(PyExc_TypeError,
-			     "expected Program or Object, not %s",
-			     Py_TYPE(o)->tp_name);
-		return 0;
-	}
-	return Py_CLEANUP_SUPPORTED;
-}
-
-DrgnObject *drgnpy_linux_helper_find_pid(PyObject *self, PyObject *args,
-					  PyObject *kwds)
-{
-	static char *keywords[] = {"prog_or_ns", "pid", NULL};
 	struct drgn_error *err;
-	struct prog_or_ns_arg prog_or_ns;
+	DrgnObject *ns;
 	struct index_arg pid = {};
-	DrgnObject *res;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:find_pid", keywords,
-					 &prog_or_pid_ns_converter, &prog_or_ns,
-					 index_converter, &pid))
+	if (!PyArg_ParseTuple(args, "O!O&:find_pid", &DrgnObject_type, &ns,
+			      index_converter, &pid))
 		return NULL;
 
-	res = DrgnObject_alloc(prog_or_ns.prog);
+	_cleanup_pydecref_ DrgnObject *res =
+		DrgnObject_alloc(DrgnObject_prog(ns));
 	if (!res)
-		goto out;
-	err = linux_helper_find_pid(&res->obj, prog_or_ns.ns, pid.uvalue);
-	if (err) {
-		Py_DECREF(res);
-		set_drgn_error(err);
-		res = NULL;
-	}
-out:
-	prog_or_ns_cleanup(&prog_or_ns);
-	return res;
+		return NULL;
+	err = linux_helper_find_pid(&res->obj, &ns->obj, pid.uvalue);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(res);
 }
 
 DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
@@ -291,59 +227,46 @@ DrgnObject *drgnpy_linux_helper_pid_task(PyObject *self, PyObject *args,
 	return_ptr(res);
 }
 
-DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args,
-					  PyObject *kwds)
+DrgnObject *drgnpy_linux_helper_find_task(PyObject *self, PyObject *args)
 {
-	static char *keywords[] = {"ns", "pid", NULL};
 	struct drgn_error *err;
-	struct prog_or_ns_arg prog_or_ns;
+	DrgnObject *ns;
 	struct index_arg pid = {};
-	DrgnObject *res;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O&:find_task", keywords,
-					 &prog_or_pid_ns_converter, &prog_or_ns,
-					 index_converter, &pid))
+	if (!PyArg_ParseTuple(args, "O!O&:find_task", &DrgnObject_type, &ns,
+			      index_converter, &pid))
 		return NULL;
 
-	res = DrgnObject_alloc(prog_or_ns.prog);
+	_cleanup_pydecref_ DrgnObject *res =
+		DrgnObject_alloc(DrgnObject_prog(ns));
 	if (!res)
-		goto out;
-	err = linux_helper_find_task(&res->obj, prog_or_ns.ns, pid.uvalue);
-	if (err) {
-		Py_DECREF(res);
-		set_drgn_error(err);
-		res = NULL;
-	}
-out:
-	prog_or_ns_cleanup(&prog_or_ns);
-	return res;
+		return NULL;
+	err = linux_helper_find_task(&res->obj, &ns->obj, pid.uvalue);
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(res);
 }
 
-PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *args,
-					   PyObject *kwds)
+PyObject *drgnpy_linux_helper_kaslr_offset(PyObject *self, PyObject *arg)
 
 {
-	static char *keywords[] = {"prog", NULL};
-	Program *prog;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:kaslr_offset",
-					 keywords, &Program_type, &prog))
-		return NULL;
-
+	if (!PyObject_TypeCheck(arg, &Program_type)) {
+		return PyErr_Format(PyExc_TypeError, "expected Program, not %s",
+				    Py_TYPE(arg)->tp_name);
+	}
+	Program *prog = (Program *)arg;
 	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
 		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
 	return PyLong_FromUint64(prog->prog.vmcoreinfo.kaslr_offset);
 }
 
-PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *args,
-						 PyObject *kwds)
+PyObject *drgnpy_linux_helper_pgtable_l5_enabled(PyObject *self, PyObject *arg)
 
 {
-	static char *keywords[] = {"prog", NULL};
-	Program *prog;
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!:pgtable_l5_enabled",
-					 keywords, &Program_type, &prog))
-		return NULL;
-
+	if (!PyObject_TypeCheck(arg, &Program_type)) {
+		return PyErr_Format(PyExc_TypeError, "expected Program, not %s",
+				    Py_TYPE(arg)->tp_name);
+	}
+	Program *prog = (Program *)arg;
 	if (!(prog->prog.flags & DRGN_PROGRAM_IS_LINUX_KERNEL))
 		return PyErr_Format(PyExc_ValueError, "not Linux kernel");
 	Py_RETURN_BOOL(prog->prog.vmcoreinfo.pgtable_l5_enabled);

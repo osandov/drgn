@@ -12,11 +12,12 @@ Linux CPU scheduler.
 from typing import Tuple
 
 from _drgn import (
-    _linux_helper_cpu_curr as cpu_curr,
-    _linux_helper_idle_task as idle_task,
+    _linux_helper_cpu_curr,
+    _linux_helper_idle_task,
     _linux_helper_task_cpu as task_cpu,
 )
-from drgn import Object, Program
+from drgn import IntegerLike, Object, Program
+from drgn.helpers.common.prog import takes_program_or_default
 
 __all__ = (
     "cpu_curr",
@@ -27,6 +28,34 @@ __all__ = (
 )
 
 _TASK_NOLOAD = 0x400
+
+
+@takes_program_or_default
+def cpu_curr(prog: Program, cpu: IntegerLike) -> Object:
+    """
+    Return the task running on the given CPU.
+
+    >>> cpu_curr(prog, 7).comm
+    (char [16])"python3"
+
+    :param cpu: CPU number.
+    :return: ``struct task_struct *``
+    """
+    return _linux_helper_cpu_curr(prog, cpu)
+
+
+@takes_program_or_default
+def idle_task(prog: Program, cpu: IntegerLike) -> Object:
+    """
+    Return the idle thread (PID 0, a.k.a swapper) for the given CPU.
+
+    >>> idle_task(prog, 1).comm
+    (char [16])"swapper/1"
+
+    :param cpu: CPU number.
+    :return: ``struct task_struct *``
+    """
+    return _linux_helper_idle_task(prog, cpu)
 
 
 def task_state_to_char(task: Object) -> str:
@@ -90,6 +119,7 @@ def task_state_to_char(task: Object) -> str:
         return char
 
 
+@takes_program_or_default
 def loadavg(prog: Program) -> Tuple[float, float, float]:
     """
     Return system load averaged over 1, 5 and 15 minutes as
