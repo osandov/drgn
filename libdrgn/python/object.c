@@ -587,7 +587,7 @@ static PyObject *DrgnObject_compound_value(struct drgn_object *obj,
 				return NULL;
 		}
 	}
-	return no_cleanup_ptr(dict);
+	return_ptr(dict);
 }
 
 static PyObject *DrgnObject_array_value(struct drgn_object *obj,
@@ -624,7 +624,7 @@ static PyObject *DrgnObject_array_value(struct drgn_object *obj,
 			return NULL;
 		PyList_SET_ITEM(list, i, element_value);
 	}
-	return no_cleanup_ptr(list);
+	return_ptr(list);
 }
 
 static PyObject *DrgnObject_value_impl(struct drgn_object *obj)
