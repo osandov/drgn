@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "drgn.h"
+#include "error.h"
 #include "helpers.h"
 #include "minmax.h"
 #include "platform.h"
@@ -877,79 +878,126 @@ struct drgn_error *linux_helper_find_task(struct drgn_object *res,
 	return linux_helper_pid_task(res, &pid_obj, pid_type.uvalue);
 }
 
+static inline struct drgn_error *
+linux_helper_task_iterator_set_thread_node(struct linux_helper_task_iterator *it)
+{
+	struct drgn_error *err;
+	err = drgn_object_container_of(&it->thread_node, &it->tasks_node,
+				       it->task_struct_type, "tasks");
+	if (err)
+		return err;
+	err = drgn_object_member_dereference(&it->thread_node, &it->thread_node,
+					     "signal");
+	if (err)
+		return err;
+	err = drgn_object_member_dereference(&it->thread_node, &it->thread_node,
+					     "thread_head");
+	if (err)
+		return err;
+	err = drgn_object_address_of(&it->thread_node, &it->thread_node);
+	if (err)
+		return err;
+	return drgn_object_read_unsigned(&it->thread_node, &it->thread_head);
+}
+
 struct drgn_error *
 linux_helper_task_iterator_init(struct linux_helper_task_iterator *it,
 				struct drgn_program *prog)
 {
 	struct drgn_error *err;
-	it->done = false;
-	drgn_object_init(&it->task, prog);
+	drgn_object_init(&it->tasks_node, prog);
+	drgn_object_init(&it->thread_node, prog);
+
 	err = drgn_program_find_object(prog, "init_task", NULL,
-				       DRGN_FIND_OBJECT_VARIABLE, &it->task);
+				       DRGN_FIND_OBJECT_VARIABLE,
+				       &it->tasks_node);
 	if (err)
 		goto err;
-	it->task_struct_type = drgn_object_qualified_type(&it->task);
-	err = drgn_object_address_of(&it->task, &it->task);
+	it->task_struct_type = drgn_object_qualified_type(&it->tasks_node);
+	err = drgn_object_member(&it->tasks_node, &it->tasks_node, "tasks");
 	if (err)
 		goto err;
-	err = drgn_object_read_unsigned(&it->task, &it->init_task_address);
+	if (it->tasks_node.kind != DRGN_OBJECT_REFERENCE) {
+		err = drgn_error_create(DRGN_ERROR_OTHER,
+					"can't get address of tasks list");
+		goto err;
+	}
+	it->tasks_head = it->tasks_node.address;
+	err = drgn_object_member(&it->tasks_node, &it->tasks_node, "next");
 	if (err)
 		goto err;
-	it->thread_group_address = it->init_task_address;
+	err = drgn_object_read(&it->tasks_node, &it->tasks_node);
+	if (err)
+		goto err;
+	uint64_t tasks_node_value;
+	err = drgn_object_read_unsigned(&it->tasks_node, &tasks_node_value);
+	if (err)
+		goto err;
+	if (tasks_node_value == it->tasks_head) {
+		it->done = true;
+	} else {
+		it->done = false;
+		err = linux_helper_task_iterator_set_thread_node(it);
+		if (err)
+			goto err;
+	}
 	return NULL;
 
 err:
-	drgn_object_deinit(&it->task);
+	linux_helper_task_iterator_deinit(it);
 	return err;
 }
 
 void linux_helper_task_iterator_deinit(struct linux_helper_task_iterator *it)
 {
-	drgn_object_deinit(&it->task);
+	drgn_object_deinit(&it->thread_node);
+	drgn_object_deinit(&it->tasks_node);
 }
 
 struct drgn_error *
 linux_helper_task_iterator_next(struct linux_helper_task_iterator *it,
-				const struct drgn_object **ret)
+				struct drgn_object *ret)
 {
-	if (it->done) {
-		*ret = NULL;
-		return NULL;
-	}
 	struct drgn_error *err;
-	struct drgn_object *task = &it->task;
-	err = drgn_object_member_dereference(task, task, "thread_group");
-	if (err)
-		return err;
-	err = drgn_object_member(task, task, "next");
-	if (err)
-		return err;
-	err = drgn_object_container_of(task, task, it->task_struct_type,
-				       "thread_group");
-	if (err)
-		return err;
-	uint64_t task_address;
-	err = drgn_object_read_unsigned(task, &task_address);
-	if (err)
-		return err;
-	if (task_address == it->thread_group_address) {
-		err = drgn_object_member_dereference(task, task, "tasks");
+
+	if (it->done)
+		return &drgn_stop;
+
+	for (;;) {
+		err = drgn_object_member_dereference(&it->thread_node,
+						     &it->thread_node, "next");
 		if (err)
 			return err;
-		err = drgn_object_member(task, task, "next");
+		err = drgn_object_read(&it->thread_node, &it->thread_node);
 		if (err)
 			return err;
-		err = drgn_object_container_of(task, task,
-					       it->task_struct_type, "tasks");
+		uint64_t thread_node_value;
+		err = drgn_object_read_unsigned(&it->thread_node, &thread_node_value);
 		if (err)
 			return err;
-		err = drgn_object_read_unsigned(task,
-						&it->thread_group_address);
+		if (thread_node_value != it->thread_head)
+			break;
+
+		err = drgn_object_member_dereference(&it->tasks_node,
+						     &it->tasks_node, "next");
 		if (err)
 			return err;
-		if (it->thread_group_address == it->init_task_address)
+		err = drgn_object_read(&it->tasks_node, &it->tasks_node);
+		if (err)
+			return err;
+		uint64_t tasks_node_value;
+		err = drgn_object_read_unsigned(&it->tasks_node,
+						&tasks_node_value);
+		if (err)
+			return err;
+		if (tasks_node_value == it->tasks_head) {
 			it->done = true;
+			return &drgn_stop;
+		}
+		err = linux_helper_task_iterator_set_thread_node(it);
+		if (err)
+			return err;
 	}
-	*ret = task;
-	return NULL;
+	return drgn_object_container_of(ret, &it->thread_node,
+					it->task_struct_type, "thread_node");
 }

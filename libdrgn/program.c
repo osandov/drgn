@@ -1090,21 +1090,18 @@ drgn_thread_iterator_next_linux_kernel(struct drgn_thread_iterator *it,
 				       struct drgn_thread **ret)
 {
 	struct drgn_error *err;
-	const struct drgn_object *task;
-	err = linux_helper_task_iterator_next(&it->task_iter, &task);
-	if (err)
-		return err;
-	if (!task) {
+	err = linux_helper_task_iterator_next(&it->task_iter,
+					      &it->entry.object);
+	if (err == &drgn_stop) {
 		*ret = NULL;
 		return NULL;
-	}
-	it->entry.prog = drgn_object_program(task);
-	err = drgn_object_copy(&it->entry.object, task);
-	if (err)
+	} else if (err) {
 		return err;
+	}
+	it->entry.prog = drgn_object_program(&it->entry.object);
 	union drgn_value tid_value;
-	DRGN_OBJECT(tid, drgn_object_program(task));
-	err = drgn_object_member_dereference(&tid, task, "pid");
+	DRGN_OBJECT(tid, drgn_object_program(&it->entry.object));
+	err = drgn_object_member_dereference(&tid, &it->entry.object, "pid");
 	if (!err)
 		err = drgn_object_read_integer(&tid, &tid_value);
 	if (err)

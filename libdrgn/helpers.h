@@ -65,10 +65,11 @@ struct drgn_error *linux_helper_find_task(struct drgn_object *res,
 					  uint64_t pid);
 
 struct linux_helper_task_iterator {
-	struct drgn_object task;
+	struct drgn_object tasks_node;
+	struct drgn_object thread_node;
+	uint64_t tasks_head;
+	uint64_t thread_head;
 	struct drgn_qualified_type task_struct_type;
-	uint64_t init_task_address;
-	uint64_t thread_group_address;
 	bool done;
 };
 
@@ -78,14 +79,9 @@ linux_helper_task_iterator_init(struct linux_helper_task_iterator *it,
 
 void linux_helper_task_iterator_deinit(struct linux_helper_task_iterator *it);
 
-/**
- * Get the next task from a @ref linux_helper_task_iterator.
- *
- * @param[out] ret Returned `struct task_struct *` object. This is valid until
- * the next call to this function on the same @p it or until @p it is destroyed.
- */
+/** Get the next task from a @ref linux_helper_task_iterator. */
 struct drgn_error *
 linux_helper_task_iterator_next(struct linux_helper_task_iterator *it,
-				const struct drgn_object **ret);
+				struct drgn_object *ret);
 
 #endif /* DRGN_HELPERS_H */
