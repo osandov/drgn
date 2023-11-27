@@ -45,14 +45,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
+      - name: Check Python version for pre-commit
+        # Only run pre-commit / mypy on upstream supported Python versions
+        run: |
+          if [[ "${{ matrix.python-version }}" =~ ^3\.([89]|[0-9][0-9])$ ]]; then
+              echo USE_PRE_COMMIT=1 >> $GITHUB_ENV
+          fi
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install dwarves libelf-dev libdw-dev qemu-kvm zstd ${{ matrix.cc == 'clang' && 'libomp-$(clang --version | sed -rn "s/.*clang version ([0-9]+).*/\\1/p")-dev' || '' }}
-          pip install pyroute2 pre-commit
+          pip install pyroute2 ${USE_PRE_COMMIT/1/pre-commit}
       - name: Generate version.py
         run: python setup.py --version
       - name: Check with mypy
+        if: ${{ env.USE_PRE_COMMIT == '1' }}
         run: pre-commit run --all-files mypy
       - name: Build and test with ${{ matrix.cc }}
         run: CONFIGURE_FLAGS="--enable-compiler-warnings=error" python setup.py test -K
