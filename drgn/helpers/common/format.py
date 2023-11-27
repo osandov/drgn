@@ -232,7 +232,7 @@ def number_in_binary_units(n: SupportsFloat, precision: int = 1) -> str:
     for prefix in ("", "K", "M", "G", "T", "P", "E", "Z"):
         if abs(n) < 1024:
             break
-        n /= 1024
+        n /= 1024.0
     else:
         prefix = "Y"
     if n.is_integer():
