@@ -240,7 +240,7 @@ def _main() -> None:
         try:
             script_type = _identify_script(args.script[0])
         except OSError as e:
-            sys.exit(e)
+            sys.exit(str(e))
         if script_type == "core":
             sys.exit(
                 f"error: {args.script[0]} is a core dump\n"
@@ -280,7 +280,7 @@ def _main() -> None:
                 else:
                     prog.set_core_dump(open_via_sudo("/proc/kcore", os.O_RDONLY))
     except OSError as e:
-        sys.exit(e)
+        sys.exit(str(e))
     except ValueError as e:
         # E.g., "not an ELF core file"
         sys.exit(f"error: {e}")
