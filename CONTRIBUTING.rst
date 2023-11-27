@@ -18,6 +18,13 @@ instructions <README.rst#from-source>`_, then run:
     $ CONFIGURE_FLAGS="--enable-compiler-warnings=error" python3 setup.py build_ext -i
     $ python3 -m drgn --help
 
+Drgn can build, run, and pass its test suite on Python 3.6 or later. However,
+many of the tools used as part of the development workflow do not support Python
+versions once they have reached their end-of-life. Thus, your main drgn
+development environment should use a Python version which is actively supported
+upstream. In particular, the drgn development workflow no longer supported on
+Python 3.6.
+
 Testing
 -------
 
@@ -66,6 +73,9 @@ Or you can run them manually:
 .. code-block:: console
 
     $ pre-commit run --all-files
+
+Please remember that these pre-commit hooks do not support Python 3.6; they
+require a Python major version which is actively supported upstream.
 
 Coding Guidelines
 -----------------
