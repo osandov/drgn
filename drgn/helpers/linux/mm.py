@@ -1320,9 +1320,9 @@ def access_remote_vm(mm: Object, address: IntegerLike, size: IntegerLike) -> byt
     return _linux_helper_read_vm(mm.prog_, mm.pgd, address, size)
 
 
-def cmdline(task: Object) -> List[bytes]:
+def cmdline(task: Object) -> Optional[List[bytes]]:
     """
-    Get the list of command line arguments of a task.
+    Get the list of command line arguments of a task, or ``None`` for kernel tasks.
 
     >>> cmdline(find_task(prog, 1495216))
     [b'vim', b'drgn/helpers/linux/mm.py']
@@ -1335,14 +1335,16 @@ def cmdline(task: Object) -> List[bytes]:
     :param task: ``struct task_struct *``
     """
     mm = task.mm.read_()
+    if not mm:
+        return None
     arg_start = mm.arg_start.value_()
     arg_end = mm.arg_end.value_()
     return access_remote_vm(mm, arg_start, arg_end - arg_start).split(b"\0")[:-1]
 
 
-def environ(task: Object) -> List[bytes]:
+def environ(task: Object) -> Optional[List[bytes]]:
     """
-    Get the list of environment variables of a task.
+    Get the list of environment variables of a task, or ``None`` for kernel tasks.
 
     >>> environ(find_task(prog, 1497797))
     [b'HOME=/root', b'PATH=/usr/local/sbin:/usr/local/bin:/usr/bin', b'LOGNAME=root']
@@ -1357,6 +1359,8 @@ def environ(task: Object) -> List[bytes]:
     :param task: ``struct task_struct *``
     """
     mm = task.mm.read_()
+    if not mm:
+        return None
     env_start = mm.env_start.value_()
     env_end = mm.env_end.value_()
     return access_remote_vm(mm, env_start, env_end - env_start).split(b"\0")[:-1]
