@@ -198,7 +198,7 @@ def netdev_priv(dev: Object, type: Union[str, Type] = "void") -> Object:
     """
     Return the private data of a network device.
 
-    >>> dev = netdev_get_by_name(prog, "wlp0s20f3")
+    >>> dev = netdev_get_by_name("wlp0s20f3")
     >>> netdev_priv(dev)
     (void *)0xffff9419c9dec9c0
     >>> netdev_priv(dev, "struct ieee80211_sub_if_data")

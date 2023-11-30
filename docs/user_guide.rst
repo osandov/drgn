@@ -272,7 +272,7 @@ return the call stack for a thread. The :meth:`[]
 <drgn.StackFrame.__getitem__>` operator looks up an object in the scope of a
 ``StackFrame``::
 
-    >>> trace = prog.stack_trace(115)
+    >>> trace = stack_trace(115)
     >>> trace
     #0  context_switch (./kernel/sched/core.c:4683:2)
     #1  __schedule (./kernel/sched/core.c:5940:8)
@@ -346,7 +346,7 @@ along with any arguments:
     from drgn.helpers.linux import find_task
 
     pid = int(sys.argv[1])
-    uid = find_task(prog, pid).cred.uid.val.value_()
+    uid = find_task(pid).cred.uid.val.value_()
     print(f'PID {pid} is being run by UID {uid}')
     $ sudo drgn script.py 601
     PID 601 is being run by UID 1000

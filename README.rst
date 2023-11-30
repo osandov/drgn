@@ -218,18 +218,18 @@ You can use various predefined helpers:
 
 .. code-block:: pycon
 
-    >>> len(list(bpf_prog_for_each(prog)))
+    >>> len(list(bpf_prog_for_each()))
     11
-    >>> task = find_task(prog, 115)
+    >>> task = find_task(115)
     >>> cmdline(task)
     [b'findmnt', b'-p']
 
-You can get stack traces with ``prog.stack_trace()`` and access parameters or
-local variables with ``stack_trace['name']``:
+You can get stack traces with ``stack_trace()`` and access parameters or local
+variables with ``trace['name']``:
 
 .. code-block:: pycon
 
-    >>> trace = prog.stack_trace(task)
+    >>> trace = stack_trace(task)
     >>> trace[5]
     #5 at 0xffffffff8a5a32d0 (do_sys_poll+0x400/0x578) in do_poll at ./fs/select.c:961:8 (inlined)
     >>> poll_list = trace[5]['list']

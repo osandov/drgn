@@ -96,11 +96,11 @@ def path_lookup(
         On a live system, you can make the kernel cache the path by accessing
         it (e.g., with :func:`open()` or :func:`os.stat()`):
 
-    >>> path_lookup(prog, '/usr/include/stdlib.h')
+    >>> path_lookup('/usr/include/stdlib.h')
     ...
     Exception: could not find '/usr/include/stdlib.h' in dcache
     >>> open('/usr/include/stdlib.h').close()
-    >>> path_lookup(prog, '/usr/include/stdlib.h')
+    >>> path_lookup('/usr/include/stdlib.h')
     (struct path){
             .mnt = (struct vfsmount *)0xffff8b70413cdca0,
             .dentry = (struct dentry *)0xffff8b702ac2c480,
