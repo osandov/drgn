@@ -343,12 +343,18 @@ class TestMm(LinuxKernelTestCase):
         task = find_task(self.prog, os.getpid())
         self.assertEqual(cmdline(task), proc_cmdline)
 
+    def test_cmdline_kernel_thread(self):
+        self.assertIsNone(cmdline(find_task(self.prog, 2)))
+
     @skip_unless_have_full_mm_support
     def test_environ(self):
         with open("/proc/self/environ", "rb") as f:
             proc_environ = f.read().split(b"\0")[:-1]
         task = find_task(self.prog, os.getpid())
         self.assertEqual(environ(task), proc_environ)
+
+    def test_environ_kernel_thread(self):
+        self.assertIsNone(environ(find_task(self.prog, 2)))
 
     def test_for_each_vma(self):
         with fork_and_sigwait() as pid:
