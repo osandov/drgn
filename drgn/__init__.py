@@ -144,6 +144,7 @@ __all__ = (
     "reinterpret",
     "set_default_prog",
     "sizeof",
+    "stack_trace",
 )
 
 
@@ -260,3 +261,13 @@ def execscript(path: str, *args: str) -> None:
             sys.modules["__main__"] = saved_module[0]
         else:
             del sys.modules["__main__"]
+
+
+def stack_trace(thread: Object) -> StackTrace:
+    """
+    Get the stack trace for the given thread in the :ref:`default-program`.
+
+    This is equivalent to ``get_default_prog().stack_trace(thread)``. See
+    :meth:`drgn.Program.stack_trace()` for more details.
+    """
+    return get_default_prog().stack_trace(thread)

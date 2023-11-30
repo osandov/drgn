@@ -266,10 +266,11 @@ Stack Traces
 ^^^^^^^^^^^^
 
 drgn represents stack traces with the :class:`drgn.StackTrace` and
-:class:`drgn.StackFrame` classes. :meth:`drgn.Thread.stack_trace()` and
-:meth:`drgn.Program.stack_trace()` return the call stack for a thread. The
-:meth:`[] <drgn.StackFrame.__getitem__>` operator looks up an object in the
-scope of a ``StackFrame``::
+:class:`drgn.StackFrame` classes. :func:`drgn.stack_trace()`,
+:meth:`drgn.Program.stack_trace()`, and :meth:`drgn.Thread.stack_trace()`
+return the call stack for a thread. The :meth:`[]
+<drgn.StackFrame.__getitem__>` operator looks up an object in the scope of a
+``StackFrame``::
 
     >>> trace = prog.stack_trace(115)
     >>> trace
