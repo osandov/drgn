@@ -812,7 +812,7 @@ def for_each_page(prog: Program) -> Iterator[Object]:
         page``. Wrap accesses in a ``try`` ... ``except``
         :class:`drgn.FaultError`:
 
-        >>> for page in for_each_page(prog):
+        >>> for page in for_each_page():
         ...     try:
         ...         if PageLRU(page):
         ...             print(hex(page))
@@ -1006,7 +1006,7 @@ def follow_page(mm: Object, addr: IntegerLike) -> Object:
     """
     Get the page that a virtual address maps to in a virtual address space.
 
-    >>> task = find_task(prog, 113)
+    >>> task = find_task(113)
     >>> follow_page(task.mm, 0x7fffbbb6d4d0)
     *(struct page *)0xffffbe4bc0337b80 = {
         ...
@@ -1024,7 +1024,7 @@ def follow_pfn(mm: Object, addr: IntegerLike) -> Object:
     Get the page frame number (PFN) that a virtual address maps to in a virtual
     address space.
 
-    >>> task = find_task(prog, 113)
+    >>> task = find_task(113)
     >>> follow_pfn(task.mm, 0x7fffbbb6d4d0)
     (unsigned long)52718
 
@@ -1040,7 +1040,7 @@ def follow_phys(mm: Object, addr: IntegerLike) -> Object:
     Get the physical address that a virtual address maps to in a virtual
     address space.
 
-    >>> task = find_task(prog, 113)
+    >>> task = find_task(113)
     >>> follow_phys(task.mm, 0x7fffbbb6d4d0)
     (phys_addr_t)215934160
 
@@ -1057,7 +1057,7 @@ def vmalloc_to_page(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page containing a vmalloc or vmap address.
 
-    >>> task = find_task(prog, 113)
+    >>> task = find_task(113)
     >>> vmalloc_to_page(task.stack)
     *(struct page *)0xffffbe4bc00a2200 = {
         ...
@@ -1074,7 +1074,7 @@ def vmalloc_to_pfn(prog: Program, addr: IntegerLike) -> Object:
     """
     Get the page frame number (PFN) containing a vmalloc or vmap address.
 
-    >>> task = find_task(prog, 113)
+    >>> task = find_task(113)
     >>> vmalloc_to_pfn(task.stack)
     (unsigned long)10376
 
@@ -1088,7 +1088,7 @@ def access_process_vm(task: Object, address: IntegerLike, size: IntegerLike) -> 
     """
     Read memory from a task's virtual address space.
 
-    >>> task = find_task(prog, 1490152)
+    >>> task = find_task(1490152)
     >>> access_process_vm(task, 0x7f8a62b56da0, 12)
     b'hello, world'
 
@@ -1105,7 +1105,7 @@ def access_remote_vm(mm: Object, address: IntegerLike, size: IntegerLike) -> byt
     :func:`access_process_vm()`, but it takes a ``struct mm_struct *`` instead
     of a ``struct task_struct *``.
 
-    >>> task = find_task(prog, 1490152)
+    >>> task = find_task(1490152)
     >>> access_remote_vm(task.mm, 0x7f8a62b56da0, 12)
     b'hello, world'
 
@@ -1120,7 +1120,7 @@ def cmdline(task: Object) -> Optional[List[bytes]]:
     """
     Get the list of command line arguments of a task, or ``None`` for kernel tasks.
 
-    >>> cmdline(find_task(prog, 1495216))
+    >>> cmdline(find_task(1495216))
     [b'vim', b'drgn/helpers/linux/mm.py']
 
     .. code-block:: console
@@ -1142,7 +1142,7 @@ def environ(task: Object) -> Optional[List[bytes]]:
     """
     Get the list of environment variables of a task, or ``None`` for kernel tasks.
 
-    >>> environ(find_task(prog, 1497797))
+    >>> environ(find_task(1497797))
     [b'HOME=/root', b'PATH=/usr/local/sbin:/usr/local/bin:/usr/bin', b'LOGNAME=root']
 
     .. code-block:: console

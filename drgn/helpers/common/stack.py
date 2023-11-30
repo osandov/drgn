@@ -23,7 +23,7 @@ def print_annotated_stack(trace: StackTrace) -> None:
     Currently, this will identify any addresses on the stack with
     :func:`~drgn.helpers.common.memory.identify_address()`.
 
-    >>> print_annotated_stack(prog.stack_trace(1))
+    >>> print_annotated_stack(stack_trace(1))
     STACK POINTER     VALUE
     [stack frame #0 at 0xffffffff8dc93c41 (__schedule+0x429/0x488) in context_switch at ./kernel/sched/core.c:5209:2 (inlined)]
     [stack frame #1 at 0xffffffff8dc93c41 (__schedule+0x429/0x488) in __schedule at ./kernel/sched/core.c:6521:8]

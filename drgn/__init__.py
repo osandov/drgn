@@ -198,7 +198,7 @@ def execscript(path: str, *args: str) -> None:
                 return None
 
         tasks = [
-            task for task in for_each_task(prog)
+            task for task in for_each_task()
             if task_exe_path(task) == sys.argv[1]
         ]
 
@@ -207,7 +207,7 @@ def execscript(path: str, *args: str) -> None:
     >>> execscript('exe.py', '/usr/bin/bash')
     >>> tasks[0].pid
     (pid_t)358442
-    >>> task_exe_path(find_task(prog, 357954))
+    >>> task_exe_path(find_task(357954))
     '/usr/bin/vim'
 
     :param path: File path of the script.
@@ -268,6 +268,6 @@ def stack_trace(thread: Object) -> StackTrace:
     Get the stack trace for the given thread in the :ref:`default-program`.
 
     This is equivalent to ``get_default_prog().stack_trace(thread)``. See
-    :meth:`drgn.Program.stack_trace()` for more details.
+    :meth:`Program.stack_trace()` for more details.
     """
     return get_default_prog().stack_trace(thread)

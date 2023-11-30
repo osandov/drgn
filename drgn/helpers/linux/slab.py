@@ -89,14 +89,12 @@ def slab_cache_is_merged(slab_cache: Object) -> bool:
     reused instead of creating another cache for ``bar``. So the following will
     fail::
 
-        find_slab_cache(prog, "bar")
+        find_slab_cache("bar")
 
     And the following will also return ``struct bar *`` objects errantly casted to
     ``struct foo *``::
 
-        slab_cache_for_each_allocated_object(
-            find_slab_cache(prog, "foo"), "struct foo"
-        )
+        slab_cache_for_each_allocated_object(find_slab_cache("foo"), "struct foo")
 
     Unfortunately, these issues are difficult to work around generally, so one
     must be prepared to handle them on a case-by-case basis (e.g., by looking
@@ -125,14 +123,14 @@ def get_slab_cache_aliases(prog: Program) -> Dict[str, str]:
     :func:`find_slab_cache()`. The dict contains an entry only for caches which
     were merged into a cache of a different name.
 
-    >>> cache_to_merged = get_slab_cache_aliases(prog)
+    >>> cache_to_merged = get_slab_cache_aliases()
     >>> cache_to_merged["dnotify_struct"]
     'avc_xperms_data'
     >>> "avc_xperms_data" in cache_to_merged
     False
-    >>> find_slab_cache(prog, "dnotify_struct") is None
+    >>> find_slab_cache("dnotify_struct") is None
     True
-    >>> find_slab_cache(prog, "avc_xperms_data") is None
+    >>> find_slab_cache("avc_xperms_data") is None
     False
 
     :warning: This function will only work on kernels which are built with
@@ -447,7 +445,7 @@ def slab_cache_for_each_allocated_object(
     Only the SLUB and SLAB allocators are supported; SLOB does not store enough
     information to identify objects in a slab cache.
 
-    >>> dentry_cache = find_slab_cache(prog, "dentry")
+    >>> dentry_cache = find_slab_cache("dentry")
     >>> next(slab_cache_for_each_allocated_object(dentry_cache, "struct dentry"))
     *(struct dentry *)0xffff905e41404000 = {
         ...
@@ -492,7 +490,7 @@ def slab_object_info(prog: Program, addr: IntegerLike) -> "Optional[SlabObjectIn
     """
     Get information about an address if it is in a slab object.
 
-    >>> ptr = find_task(prog, 1).comm.address_of_()
+    >>> ptr = find_task(1).comm.address_of_()
     >>> info = slab_object_info(ptr)
     >>> info
     SlabObjectInfo(slab_cache=Object(prog, 'struct kmem_cache *', address=0xffffdb93c0045e18), slab=Object(prog, 'struct slab *', value=0xffffdb93c0045e00), address=0xffffa2bf81178000, allocated=True)
