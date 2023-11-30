@@ -42,8 +42,7 @@ def for_each_node_state(prog: Program, state: IntegerLike) -> Iterator[int]:
 
     :param state: ``enum node_states`` (e.g., ``N_NORMAL_MEMORY``)
     """
-    mask = prog["node_states"][state]
-    return for_each_node_mask(mask)
+    return for_each_node_mask(prog["node_states"][state])
 
 
 def for_each_node(prog: Program) -> Iterator[int]:
