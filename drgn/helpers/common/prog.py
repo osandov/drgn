@@ -20,18 +20,15 @@ __all__ = (
     "takes_program_or_default",
 )
 
-# This would require Python 3.10, but we don't need any of it at runtime.
+# We don't need any of this at runtime.
 if typing.TYPE_CHECKING:
-    from typing import (  # novermin
-        Any,
-        Callable,
-        Concatenate,
-        Optional,
-        ParamSpec,
-        Protocol,
-        TypeVar,
-        overload,
-    )
+    import sys
+    from typing import Any, Optional, Protocol, TypeVar, overload  # novermin
+
+    if sys.version_info < (3, 10):
+        from typing_extensions import Callable, Concatenate, ParamSpec
+    else:
+        from typing import Callable, Concatenate, ParamSpec  # novermin
 
     P = ParamSpec("P")
     R = TypeVar("R")
