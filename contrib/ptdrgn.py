@@ -159,6 +159,7 @@ def run_interactive(
         "offsetof",
         "reinterpret",
         "sizeof",
+        "stack_trace",
     ]
     for attr in drgn_globals:
         init_globals[attr] = getattr(drgn, attr)

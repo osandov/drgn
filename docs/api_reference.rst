@@ -112,8 +112,10 @@ Symbols
 Stack Traces
 ------------
 
-Stack traces are retrieved with :meth:`Program.stack_trace()`.
+Stack traces are retrieved with :func:`stack_trace()`,
+:meth:`Program.stack_trace()`, or :meth:`Thread.stack_trace()`.
 
+.. drgndoc:: stack_trace
 .. drgndoc:: StackTrace
 .. drgndoc:: StackFrame
 
