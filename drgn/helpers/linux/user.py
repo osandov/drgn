@@ -64,7 +64,6 @@ def for_each_user(prog: Program) -> Iterator[Object]:
     :return: Iterator of ``struct user_struct *`` objects.
     """
     for hash_entry in prog["uidhash_table"]:
-        for user in hlist_for_each_entry(
+        yield from hlist_for_each_entry(
             "struct user_struct", hash_entry, "uidhash_node"
-        ):
-            yield user
+        )

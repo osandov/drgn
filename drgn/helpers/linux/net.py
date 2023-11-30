@@ -67,10 +67,9 @@ def for_each_net(prog: Program) -> Iterator[Object]:
 
     :return: Iterator of ``struct net *`` objects.
     """
-    for net in list_for_each_entry(
+    return list_for_each_entry(
         "struct net", prog["net_namespace_list"].address_of_(), "list"
-    ):
-        yield net
+    )
 
 
 _CLONE_NEWNET = 0x40000000
@@ -237,10 +236,7 @@ def sk_nulls_for_each(head: Object) -> Iterator[Object]:
     :param head: ``struct hlist_nulls_head *``
     :return: Iterator of ``struct sock *`` objects.
     """
-    for sk in hlist_nulls_for_each_entry(
-        "struct sock", head, "__sk_common.skc_nulls_node"
-    ):
-        yield sk
+    return hlist_nulls_for_each_entry("struct sock", head, "__sk_common.skc_nulls_node")
 
 
 def skb_shinfo(skb: Object) -> Object:
