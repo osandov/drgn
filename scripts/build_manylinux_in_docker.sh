@@ -44,7 +44,7 @@ curl -L "$elfutils_url" | tar -xj --strip-components=1
 make -j$(($(nproc) + 1))
 make install
 
-libkdumpfile_version=0.5.2
+libkdumpfile_version=0.5.4
 libkdumpfile_url=https://github.com/ptesarik/libkdumpfile/releases/download/v$libkdumpfile_version/libkdumpfile-$libkdumpfile_version.tar.gz
 mkdir /tmp/libkdumpfile
 cd /tmp/libkdumpfile
