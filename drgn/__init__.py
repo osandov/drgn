@@ -44,6 +44,7 @@ import io
 import pkgutil
 import sys
 import types
+from typing import Union
 
 from _drgn import (
     NULL,
@@ -263,11 +264,17 @@ def execscript(path: str, *args: str) -> None:
             del sys.modules["__main__"]
 
 
-def stack_trace(thread: Object) -> StackTrace:
+def stack_trace(thread: Union[Object, IntegerLike]) -> StackTrace:
     """
-    Get the stack trace for the given thread in the :ref:`default-program`.
+    Get the stack trace for the given thread using the :ref:`default program
+    argument <default-program>`.
 
-    This is equivalent to ``get_default_prog().stack_trace(thread)``. See
-    :meth:`Program.stack_trace()` for more details.
+    See :meth:`Program.stack_trace()` for more details.
+
+    :param thread: Thread ID, ``struct pt_regs`` object, or
+        ``struct task_struct *`` object.
     """
-    return get_default_prog().stack_trace(thread)
+    if isinstance(thread, Object):
+        return thread.prog_.stack_trace(thread)
+    else:
+        return get_default_prog().stack_trace(thread)
