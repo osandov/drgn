@@ -73,6 +73,12 @@ def waitqueue_for_each_task(wq: Object) -> Iterator[Object]:
     """
     Iterate over all tasks waiting on a wait queue.
 
+    .. warning::
+
+        This comes from ``wait_queue_entry_t::private``, which usually stores a
+        task. However, some wait queue entries store a different pointer type,
+        in which case this will return garbage.
+
     :param wq: ``wait_queue_head_t *``
     :return: Iterator of ``struct task_struct *`` objects.
     """
