@@ -1,0 +1,198 @@
+0.0.25 (Released December 1st, 2023)
+====================================
+
+These are some of the highlights of drgn 0.0.25. See the `GitHub release
+<https://github.com/osandov/drgn/releases/tag/v0.0.25>`_ for the full release
+notes, including more improvements and bug fixes.
+
+.. highlight:: pycon
+
+Omitting the ``prog`` Argument
+------------------------------
+
+As a usability improvement, ``prog`` can now be omitted from most function
+calls. For example, instead of :func:`find_task(prog, 1234)
+<drgn.helpers.linux.pid.find_task>`, you can now simply write
+:func:`find_task(1234) <drgn.helpers.linux.pid.find_task>`. Additionally,
+instead of :meth:`prog.stack_trace(1234) <drgn.Program.stack_trace>`, you can
+now write :func:`stack_trace(1234) <drgn.stack_trace>`. (The old way will
+continue to be supported.)
+
+Most CLI users don't need to worry about how this works, but library users may
+want to understand the :ref:`default-program`.
+
+It's tricky balancing interactive convenience and sensible APIs for scripting,
+but we think this is a nice improvement overall!
+
+Running Without ``root``
+------------------------
+
+drgn debugs the live Linux kernel via ``/proc/kcore``, which can only be
+accessed by the ``root`` user (or a user with the ``CAP_SYS_RAWIO`` capability,
+to be precise). However, it's not necessary (or ideal) for the rest of drgn to
+run as ``root``.
+
+Now when drgn is run against the live kernel as an unprivileged user, it will
+attempt to open ``/proc/kcore`` via :manpage:`sudo(8)`. The rest of drgn will
+then run without extra privileges.
+
+In other words, in order to debug the live kernel, all you need to do is
+:doc:`install debugging symbols </getting_debugging_symbols>` and run:
+
+.. code-block:: console
+
+   $ drgn
+
+This feature was contributed by Stephen Brennan.
+
+Maple Tree Helpers
+------------------
+
+`Maple trees <https://lwn.net/Articles/845507/>`_ were introduced in Linux 6.1,
+initially to store virtual memory areas (VMAs). This release adds a couple of
+helpers for working with them.
+
+:func:`~drgn.helpers.linux.mapletree.mtree_load()` looks up an entry in a maple tree::
+
+    >>> mtree_load(task.mm.mm_mt.address_of_(), 0x55d65cfaa000)
+    (void *)0xffff97ad82bfc930
+
+:func:`~drgn.helpers.linux.mapletree.mt_for_each()` iterates over a maple tree::
+
+    >>> for first_index, last_index, entry in mt_for_each(task.mm.mm_mt.address_of_()):
+    ...     print(hex(first_index), hex(last_index), entry)
+    ...
+    0x55d65cfaa000 0x55d65cfaafff (void *)0xffff97ad82bfc930
+    0x55d65cfab000 0x55d65cfabfff (void *)0xffff97ad82bfc0a8
+    0x55d65cfac000 0x55d65cfacfff (void *)0xffff97ad82bfc000
+    0x55d65cfad000 0x55d65cfadfff (void *)0xffff97ad82bfcb28
+    ...
+
+VMA Helpers
+-----------
+
+This release also adds higher-level helpers specifically for VMAs.
+
+:func:`~drgn.helpers.linux.mm.vma_find()` looks up a VMA by address::
+
+    >>> vma_find(task.mm, 0x55d65cfaa000)
+    *(struct vm_area_struct *)0xffff97ad82bfc930 = {
+        ...
+    }
+    >>> vma_find(task.mm, 0x55d65cfa9fff)
+    (struct vm_area_struct *)0
+
+:func:`~drgn.helpers.linux.mm.for_each_vma()` iterates over every VMA in an
+address space::
+
+    >>> for vma in for_each_vma(task.mm):
+    ...     print(vma)
+    ...
+    *(struct vm_area_struct *)0xffff97ad82bfc930 = {
+        ...
+    }
+    *(struct vm_area_struct *)0xffff97ad82bfc0a8 = {
+        ...
+    }
+    ...
+
+These helpers also handle older kernels without maple trees.
+
+Wait Queue Helpers
+------------------
+
+Wait queues are a fundamental data structure and synchronization mechanism in
+the Linux kernel. Imran Khan contributed a few helpers for working with them.
+
+:func:`~drgn.helpers.linux.wait.waitqueue_active()` returns whether a wait
+queue has any waiters::
+
+    >>> wq
+    *(wait_queue_head_t *)0xffff8da80d618e18 = {
+            .lock = (spinlock_t){
+                    .rlock = (struct raw_spinlock){
+                            .raw_lock = (arch_spinlock_t){
+                                    .val = (atomic_t){
+                                            .counter = (int)0,
+                                    },
+                                    .locked = (u8)0,
+                                    .pending = (u8)0,
+                                    .locked_pending = (u16)0,
+                                    .tail = (u16)0,
+                            },
+                    },
+            },
+            .head = (struct list_head){
+                    .next = (struct list_head *)0xffffae44e3007ce8,
+                    .prev = (struct list_head *)0xffffae44e3007ce8,
+            },
+    }
+    >>> waitqueue_active(wq)
+    True
+
+:func:`~drgn.helpers.linux.wait.waitqueue_for_each_entry()` iterates over each
+entry in a wait queue::
+
+    >>> for entry in waitqueue_for_each_entry(wq):
+    ...     print(entry)
+    ...
+    *(wait_queue_entry_t *)0xffffae44e3007cd0 = {
+            .flags = (unsigned int)0,
+            .private = (void *)0xffff8da7863ec000,
+            .func = (wait_queue_func_t)woken_wake_function+0x0 = 0xffffffffa8181010,
+            .entry = (struct list_head){
+                    .next = (struct list_head *)0xffff8da80d618e20,
+                    .prev = (struct list_head *)0xffff8da80d618e20,
+            },
+    }
+
+:func:`~drgn.helpers.linux.wait.waitqueue_for_each_task()` iterates over each
+task waiting on a wait queue (although note that this does not work for some
+special wait queues that don't store tasks)::
+
+    >>> for task in waitqueue_for_each_task(wq):
+    ...     print(task.pid, task.comm)
+    ...
+    (pid_t)294708 (char [16])"zsh"
+
+ppc64 Radix MMU Support
+-----------------------
+
+Sourabh Jain contributed ppc64 radix MMU virtual address translation support.
+This is the state of architecture support in this release:
+
+.. list-table:: drgn 0.0.25 Architecture Support
+    :header-rows: 1
+
+    * - Architecture
+      - Linux Kernel Modules
+      - Stack Traces
+      - Virtual Address Translation
+    * - x86-64
+      - ✓
+      - ✓
+      - ✓
+    * - AArch64
+      - ✓
+      - ✓
+      - ✓
+    * - s390x
+      - ✓
+      - ✓
+      - ✓
+    * - ppc64
+      - ✓
+      - ✓
+      - ✓
+    * - i386
+      - ✓
+      -
+      -
+    * - Arm
+      - ✓
+      -
+      -
+    * - RISC-V
+      - ✓
+      -
+      -
