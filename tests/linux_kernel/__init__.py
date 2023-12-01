@@ -318,6 +318,10 @@ class VmMap(NamedTuple):
     ino: int
     path: str
 
+    def is_gate(self) -> bool:
+        # Arm has a gate VMA named "vectors", and x86 has one named "vsyscall".
+        return self.path in ("[vectors]", "[vsyscall]")
+
 
 def iter_maps(pid="self"):
     with open(f"/proc/{pid}/maps", "rb") as f:

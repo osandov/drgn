@@ -10,7 +10,7 @@ import sys
 import tempfile
 import unittest
 
-from drgn import FaultError
+from drgn import NULL, FaultError
 from drgn.helpers.linux.mm import (
     PFN_PHYS,
     PHYS_PFN,
@@ -43,6 +43,7 @@ from drgn.helpers.linux.mm import (
     virt_to_page,
     virt_to_pfn,
     virt_to_phys,
+    vma_find,
     vmalloc_to_page,
     vmalloc_to_pfn,
 )
@@ -356,6 +357,40 @@ class TestMm(LinuxKernelTestCase):
     def test_environ_kernel_thread(self):
         self.assertIsNone(environ(find_task(self.prog, 2)))
 
+    def test_vma_find(self):
+        with fork_and_sigwait() as pid:
+            mm = find_task(self.prog, pid).mm
+
+            prev_end = 0
+            for map in iter_maps(pid):
+                # Gate VMAs are not included in vma_find().
+                if map.is_gate():
+                    continue
+
+                if map.start != prev_end:
+                    self.assertIdentical(
+                        vma_find(mm, prev_end),
+                        NULL(self.prog, "struct vm_area_struct *"),
+                    )
+                    self.assertIdentical(
+                        vma_find(mm, map.start - 1),
+                        NULL(self.prog, "struct vm_area_struct *"),
+                    )
+                vma = vma_find(mm, map.start)
+                self.assertEqual((map.start, map.end), (vma.vm_start, vma.vm_end))
+
+                vma = vma_find(mm, (map.start + map.end) // 2)
+                self.assertEqual((map.start, map.end), (vma.vm_start, vma.vm_end))
+
+                vma = vma_find(mm, map.end - 1)
+                self.assertEqual((map.start, map.end), (vma.vm_start, vma.vm_end))
+
+                prev_end = map.end
+
+            self.assertIdentical(
+                vma_find(mm, prev_end), NULL(self.prog, "struct vm_area_struct *")
+            )
+
     def test_for_each_vma(self):
         with fork_and_sigwait() as pid:
             self.assertEqual(
@@ -366,9 +401,8 @@ class TestMm(LinuxKernelTestCase):
                 [
                     (map.start, map.end)
                     for map in iter_maps(pid)
-                    # Gate VMAs are not included in for_each_vma(). Arm has one
-                    # called "vectors", and x86 has one called "vsyscall".
-                    if map.path not in ("[vectors]", "[vsyscall]")
+                    # Gate VMAs are not included in for_each_vma().
+                    if not map.is_gate()
                 ],
             )
 
