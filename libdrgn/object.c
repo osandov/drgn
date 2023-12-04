@@ -1790,16 +1790,9 @@ struct drgn_error *drgn_op_cast(struct drgn_object *res,
 	bool is_pointer = (drgn_type_kind(obj_type->underlying_type) ==
 			   DRGN_TYPE_POINTER);
 	switch (type.encoding) {
-	case DRGN_OBJECT_ENCODING_BUFFER: {
-		char *type_name;
-		err = drgn_format_type_name(qualified_type, &type_name);
-		if (err)
-			return err;
-		err = drgn_error_format(DRGN_ERROR_TYPE, "cannot cast to '%s'",
-					type_name);
-		free(type_name);
-		return err;
-	}
+	case DRGN_OBJECT_ENCODING_BUFFER:
+		return drgn_qualified_type_error("cannot cast to '%s'",
+						 qualified_type);
 	case DRGN_OBJECT_ENCODING_SIGNED: {
 		union {
 			int64_t svalue;
