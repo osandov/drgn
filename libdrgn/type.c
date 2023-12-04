@@ -1215,14 +1215,11 @@ drgn_qualified_type_error(const char *format,
 			  struct drgn_qualified_type qualified_type)
 {
 	struct drgn_error *err;
-	char *name;
-
+	_cleanup_free_ char *name = NULL;
 	err = drgn_format_type_name(qualified_type, &name);
 	if (err)
 		return err;
-	err = drgn_error_format(DRGN_ERROR_TYPE, format, name);
-	free(name);
-	return err;
+	return drgn_error_format(DRGN_ERROR_TYPE, format, name);
 }
 
 struct drgn_error *drgn_error_incomplete_type(const char *format,
@@ -1701,18 +1698,16 @@ drgn_type_find_member_len(struct drgn_type *type, const char *member_name,
 		return err;
 	if (!member) {
 		struct drgn_qualified_type qualified_type = { type };
-		char *type_name;
+		_cleanup_free_ char *type_name = NULL;
 		err = drgn_format_type_name(qualified_type, &type_name);
 		if (err)
 			return err;
-		err = drgn_error_format(DRGN_ERROR_LOOKUP,
-					"'%s' has no member '%.*s'",
-					type_name,
-					member_name_len > INT_MAX ?
-					INT_MAX : (int)member_name_len,
-					member_name);
-		free(type_name);
-		return err;
+		return drgn_error_format(DRGN_ERROR_LOOKUP,
+					 "'%s' has no member '%.*s'",
+					 type_name,
+					 member_name_len > INT_MAX ?
+					 INT_MAX : (int)member_name_len,
+					 member_name);
 	}
 	*member_ret = member->member;
 	*bit_offset_ret = member->bit_offset;

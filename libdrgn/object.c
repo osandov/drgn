@@ -1430,22 +1430,17 @@ struct drgn_error *drgn_error_binary_op(const char *op_name,
 		.type = rhs_type->type,
 		.qualifiers = rhs_type->qualifiers,
 	};
-	char *lhs_type_name, *rhs_type_name;
-
+	_cleanup_free_ char *lhs_type_name = NULL;
 	err = drgn_format_type_name(lhs_qualified_type, &lhs_type_name);
 	if (err)
 		return err;
+	_cleanup_free_ char *rhs_type_name = NULL;
 	err = drgn_format_type_name(rhs_qualified_type, &rhs_type_name);
-	if (err) {
-		free(lhs_type_name);
+	if (err)
 		return err;
-	}
-	err = drgn_error_format(DRGN_ERROR_TYPE,
-				"invalid operands to %s ('%s' and '%s')",
-				op_name, lhs_type_name, rhs_type_name);
-	free(rhs_type_name);
-	free(lhs_type_name);
-	return err;
+	return drgn_error_format(DRGN_ERROR_TYPE,
+				 "invalid operands to %s ('%s' and '%s')",
+				 op_name, lhs_type_name, rhs_type_name);
 
 }
 
@@ -1457,16 +1452,13 @@ struct drgn_error *drgn_error_unary_op(const char *op_name,
 		.type = type->type,
 		.qualifiers = type->qualifiers,
 	};
-	char *type_name;
-
+	_cleanup_free_ char *type_name = NULL;
 	err = drgn_format_type_name(qualified_type, &type_name);
 	if (err)
 		return err;
-	err = drgn_error_format(DRGN_ERROR_TYPE,
-				"invalid operand to %s ('%s')",
-				op_name, type_name);
-	free(type_name);
-	return err;
+	return drgn_error_format(DRGN_ERROR_TYPE,
+				 "invalid operand to %s ('%s')", op_name,
+				 type_name);
 }
 
 #define BINARY_OP(op_name)							\
@@ -1850,21 +1842,16 @@ type_error:;
 		.type = obj_type->type,
 		.qualifiers = obj_type->qualifiers,
 	};
-	char *to_type_name, *from_type_name;
-
+	_cleanup_free_ char *to_type_name = NULL;
 	err = drgn_format_type_name(qualified_type, &to_type_name);
 	if (err)
 		return err;
+	_cleanup_free_ char *from_type_name = NULL;
 	err = drgn_format_type_name(from_qualified_type, &from_type_name);
-	if (err) {
-		free(from_type_name);
+	if (err)
 		return err;
-	}
-	err = drgn_error_format(DRGN_ERROR_TYPE, "cannot convert '%s' to '%s'",
-				from_type_name, to_type_name);
-	free(from_type_name);
-	free(to_type_name);
-	return err;
+	return drgn_error_format(DRGN_ERROR_TYPE, "cannot convert '%s' to '%s'",
+				 from_type_name, to_type_name);
 }
 
 /*

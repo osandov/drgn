@@ -582,27 +582,21 @@ static PyObject *DrgnType_repr(DrgnType *self)
 
 static PyObject *DrgnType_str(DrgnType *self)
 {
-	char *str;
+	_cleanup_free_ char *str = NULL;
 	struct drgn_error *err = drgn_format_type(DrgnType_unwrap(self), &str);
 	if (err)
 		return set_drgn_error(err);
-
-	PyObject *ret = PyUnicode_FromString(str);
-	free(str);
-	return ret;
+	return PyUnicode_FromString(str);
 }
 
 static PyObject *DrgnType_type_name(DrgnType *self)
 {
-	char *str;
+	_cleanup_free_ char *str = NULL;
 	struct drgn_error *err = drgn_format_type_name(DrgnType_unwrap(self),
 						       &str);
 	if (err)
 		return set_drgn_error(err);
-
-	PyObject *ret = PyUnicode_FromString(str);
-	free(str);
-	return ret;
+	return PyUnicode_FromString(str);
 }
 
 static PyObject *DrgnType_is_complete(DrgnType *self)
@@ -926,7 +920,7 @@ static int append_lazy_object_repr(PyObject *parts, LazyObject *self)
 		return -1;
 	if (object->obj.kind == DRGN_OBJECT_ABSENT &&
 	    !object->obj.is_bit_field) {
-		char *type_name;
+		_cleanup_free_ char *type_name = NULL;
 		err = drgn_format_type_name(drgn_object_qualified_type(&object->obj),
 					    &type_name);
 		if (err) {
@@ -934,7 +928,6 @@ static int append_lazy_object_repr(PyObject *parts, LazyObject *self)
 			return -1;
 		}
 		_cleanup_pydecref_ PyObject *tmp = PyUnicode_FromString(type_name);
-		free(type_name);
 		if (!tmp)
 			return -1;
 		return append_format(parts, "prog.type(%R)", tmp);

@@ -1827,7 +1827,7 @@ enum drgn_format_object_flags {
  * can be reasonably wrapped.
  * param[in] flags Flags to change output.
  * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
+ * On error, it is not modified.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_format_object(const struct drgn_object *obj,
@@ -2839,7 +2839,7 @@ static inline struct drgn_error *drgn_type_has_member(struct drgn_type *type,
  *
  * @param[in] qualified_type Type to format.
  * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
+ * On error, it is not modified.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
@@ -2852,7 +2852,7 @@ drgn_format_type_name(struct drgn_qualified_type qualified_type, char **ret);
  *
  * @param[in] qualified_type Type to format.
  * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
+ * On error, it is not modified.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_format_type(struct drgn_qualified_type qualified_type,
@@ -2961,7 +2961,7 @@ size_t drgn_stack_trace_num_frames(struct drgn_stack_trace *trace);
  * Format a stack trace as a string.
  *
  * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
+ * On error, it is not modified.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_format_stack_trace(struct drgn_stack_trace *trace,
@@ -2974,7 +2974,7 @@ bool drgn_stack_frame_interrupted(struct drgn_stack_trace *trace, size_t frame);
  * Format a stack frame as a string.
  *
  * @param[out] ret Returned string. On success, it must be freed with @c free().
- * On error, its contents are undefined.
+ * On error, it is not modified.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *drgn_format_stack_frame(struct drgn_stack_trace *trace,

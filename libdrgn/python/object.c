@@ -822,13 +822,12 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 	if (!parts)
 		return NULL;
 
-	char *type_name;
+	_cleanup_free_ char *type_name = NULL;
 	err = drgn_format_type_name(drgn_object_qualified_type(&self->obj),
 				    &type_name);
 	if (err)
 		return set_drgn_error(err);
 	_cleanup_pydecref_ PyObject *tmp = PyUnicode_FromString(type_name);
-	free(type_name);
 	if (!tmp)
 		return NULL;
 
@@ -880,17 +879,12 @@ static PyObject *DrgnObject_repr(DrgnObject *self)
 static PyObject *DrgnObject_str(DrgnObject *self)
 {
 	struct drgn_error *err;
-	char *str;
-	PyObject *ret;
-
+	_cleanup_free_ char *str = NULL;
 	err = drgn_format_object(&self->obj, SIZE_MAX,
 				 DRGN_FORMAT_OBJECT_PRETTY, &str);
 	if (err)
 		return set_drgn_error(err);
-
-	ret = PyUnicode_FromString(str);
-	free(str);
-	return ret;
+	return PyUnicode_FromString(str);
 }
 
 struct format_object_flag_arg {
@@ -948,8 +942,6 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 	struct format_object_flag_arg name##_arg = { &flags, value };
 	FLAGS
 #undef X
-	char *str;
-	PyObject *ret;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$"
 #define X(name, value) "O&"
@@ -972,13 +964,11 @@ static PyObject *DrgnObject_format(DrgnObject *self, PyObject *args,
 			return NULL;
 	}
 
+	_cleanup_free_ char *str = NULL;
 	err = drgn_format_object(&self->obj, columns, flags, &str);
 	if (err)
 		return set_drgn_error(err);
-
-	ret = PyUnicode_FromString(str);
-	free(str);
-	return ret;
+	return PyUnicode_FromString(str);
 
 #undef FLAGS
 }

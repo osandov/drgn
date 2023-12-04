@@ -33,16 +33,11 @@ static Program *StackTrace_get_prog(StackTrace *self, void *arg)
 static PyObject *StackTrace_str(StackTrace *self)
 {
 	struct drgn_error *err;
-	PyObject *ret;
-	char *str;
-
+	_cleanup_free_ char *str = NULL;
 	err = drgn_format_stack_trace(self->trace, &str);
 	if (err)
 		return set_drgn_error(err);
-
-	ret = PyUnicode_FromString(str);
-	free(str);
-	return ret;
+	return PyUnicode_FromString(str);
 }
 
 static Py_ssize_t StackTrace_length(StackTrace *self)
@@ -104,13 +99,11 @@ static void StackFrame_dealloc(StackFrame *self)
 static PyObject *StackFrame_str(StackFrame *self)
 {
 	struct drgn_error *err;
-	char *str;
+	_cleanup_free_ char *str = NULL;
 	err = drgn_format_stack_frame(self->trace->trace, self->i, &str);
 	if (err)
 		return set_drgn_error(err);
-	PyObject *ret = PyUnicode_FromString(str);
-	free(str);
-	return ret;
+	return PyUnicode_FromString(str);
 }
 
 static PyObject *StackFrame_locals(StackFrame *self)
