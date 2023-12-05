@@ -240,16 +240,16 @@ bool drgn_dwarf_index_state_init(struct drgn_dwarf_index_state *state,
 /** Deinitialize state for indexing new DWARF information. */
 void drgn_dwarf_index_state_deinit(struct drgn_dwarf_index_state *state);
 
-/** Read a @ref drgn_module to index its DWARF information. */
+/** Read a @ref drgn_elf_file to index its DWARF information. */
 struct drgn_error *
-drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
-			     struct drgn_module *module);
+drgn_dwarf_index_read_file(struct drgn_dwarf_index_state *state,
+			   struct drgn_elf_file *file);
 
 /**
  * Index new DWARF information.
  *
- * This should be called once all modules have been read with @ref
- * drgn_dwarf_index_read_module() to finish indexing those modules.
+ * This should be called once all files have been read with @ref
+ * drgn_dwarf_index_read_file() to finish indexing those files.
  */
 struct drgn_error *
 drgn_dwarf_info_update_index(struct drgn_dwarf_index_state *state);

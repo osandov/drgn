@@ -1862,7 +1862,7 @@ drgn_debug_info_read_module(struct drgn_debug_info_load_state *load,
 			continue;
 		}
 		module->state = DRGN_DEBUG_INFO_MODULE_INDEXING;
-		return drgn_dwarf_index_read_module(index, module);
+		return drgn_dwarf_index_read_file(index, module->debug_file);
 	}
 	/*
 	 * We checked all of the files and didn't find debugging information.

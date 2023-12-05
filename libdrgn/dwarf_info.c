@@ -389,8 +389,7 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 	struct drgn_dwarf_index_cu_vector *cus =
 		&state->cus[omp_get_thread_num()];
 
-	Dwarf_Off off = 0;
-	Dwarf_Off next_off;
+	Dwarf_Off off, next_off;
 	size_t header_size;
 	Dwarf_Half version;
 	Dwarf_Off abbrev_offset;
@@ -400,108 +399,98 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 	uint64_t *v4_type_signaturep =
 		scn == DRGN_SCN_DEBUG_TYPES ? &v4_type_signature : NULL;
 	int ret;
-	while ((ret = dwarf_next_unit(file->dwarf, off, &next_off, &header_size,
-				      &version, &abbrev_offset, &address_size,
-				      &offset_size, v4_type_signaturep,
-				      NULL)) == 0) {
-		Dwarf_Die skeldie, cudie;
+	for (off = 0;
+	     (ret = dwarf_next_unit(file->dwarf, off, &next_off, &header_size,
+				    &version, &abbrev_offset, &address_size,
+				    &offset_size, v4_type_signaturep,
+				    NULL)) == 0;
+	     off = next_off) {
+		Dwarf_Die cudie;
 		if (scn == DRGN_SCN_DEBUG_TYPES) {
 			if (!dwarf_offdie_types(file->dwarf, off + header_size,
-						&skeldie))
+						&cudie))
 				return drgn_error_libdw();
 		} else {
 			if (!dwarf_offdie(file->dwarf, off + header_size,
-					  &skeldie))
+					  &cudie))
 				return drgn_error_libdw();
 		}
-		struct drgn_elf_file *cu_file = file;
-		Dwarf_Off cu_start_off = off, cu_end_off = next_off;
 		uint8_t unit_type;
 #if _ELFUTILS_PREREQ(0, 171)
-		if (dwarf_cu_info(skeldie.cu, NULL, &unit_type, &skeldie,
-				  &cudie, NULL, NULL, NULL))
+		Dwarf_Die subdie;
+		if (dwarf_cu_info(cudie.cu, NULL, &unit_type, &cudie, &subdie,
+				  NULL, NULL, NULL))
 			return drgn_error_libdw();
 
-		if (unit_type == DW_UT_skeleton && cudie.cu) {
-			Dwarf *split_dwarf = dwarf_cu_getdwarf(cudie.cu);
-			cu_file = drgn_module_find_dwarf_file(file->module,
-							      split_dwarf);
-			if (!cu_file) {
+		if (unit_type == DW_UT_skeleton && subdie.cu) {
+			Dwarf *split_dwarf = dwarf_cu_getdwarf(subdie.cu);
+			struct drgn_elf_file *split_file =
+				drgn_module_find_dwarf_file(file->module,
+							    split_dwarf);
+			if (!split_file) {
 				const char *dwo_name =
-					drgn_dwarf_dwo_name(&skeldie);
+					drgn_dwarf_dwo_name(&cudie);
 				if (!dwo_name)
 					dwo_name = "";
 				err = drgn_module_create_split_dwarf_file(file->module,
 									  dwo_name,
 									  split_dwarf,
-									  &cu_file);
+									  &split_file);
+				if (err)
+					return err;
+				err = drgn_dwarf_index_read_file(state,
+								 split_file);
 				if (err)
 					return err;
 			}
-
-			cu_start_off = (dwarf_dieoffset(&cudie)
-					- dwarf_cuoffset(&cudie));
-			if (dwarf_next_unit(split_dwarf, cu_start_off,
-					    &cu_end_off, NULL, &version,
-					    &abbrev_offset, &address_size,
-					    &offset_size, v4_type_signaturep,
-					    NULL)
-			    || dwarf_cu_info(cudie.cu, NULL, &unit_type, NULL,
-					     NULL, NULL, NULL, NULL))
-				return drgn_error_libdw();
-		} else {
-			if (unit_type == DW_UT_skeleton
-			    && drgn_log_is_enabled(state->dbinfo->prog,
-						   DRGN_LOG_WARNING)) {
+			continue;
+		} else if (unit_type == DW_UT_skeleton) {
+			if (drgn_log_is_enabled(state->dbinfo->prog,
+						DRGN_LOG_WARNING)) {
 				const char *dwo_name =
-					drgn_dwarf_dwo_name(&skeldie);
+					drgn_dwarf_dwo_name(&cudie);
 				drgn_log_warning(state->dbinfo->prog,
 						 "%s: split DWARF file%s%s not found",
 						 file->path ?: "",
 						 dwo_name ? " " : "",
 						 dwo_name ? dwo_name : "");
 			}
-			cudie = skeldie;
+			continue;
 		}
 #else
 		unit_type = (scn == DRGN_SCN_DEBUG_TYPES
 			     ? DW_UT_type : DW_UT_compile);
-		cudie = skeldie;
 #endif
 
-		if (!elf_data_contains_ptr(cu_file->scn_data[scn],
+		if (!elf_data_contains_ptr(file->scn_data[scn],
 					   cudie.addr)) {
-			return drgn_elf_file_section_error(cu_file, NULL, NULL,
+			return drgn_elf_file_section_error(file, NULL, NULL,
 							   cudie.addr,
 							   "unit DIE from unexpected section");
 		}
-		if (cu_end_off > cu_file->scn_data[scn]->d_size)
-			cu_end_off = cu_file->scn_data[scn]->d_size;
-		const char *cu_buf =
-			(char *)cu_file->scn_data[scn]->d_buf + cu_start_off;
+		const char *cu_buf = (char *)file->scn_data[scn]->d_buf + off;
 		if (version < 2 || version > 5) {
-			return drgn_elf_file_section_errorf(cu_file,
-							    cu_file->scns[scn],
-							    cu_file->scn_data[scn],
+			return drgn_elf_file_section_errorf(file,
+							    file->scns[scn],
+							    file->scn_data[scn],
 							    cu_buf,
 							    "unknown DWARF unit version %" PRIu16,
 							    version);
 		}
 		if (address_size > 8) {
-			return drgn_elf_file_section_errorf(cu_file,
-							    cu_file->scns[scn],
-							    cu_file->scn_data[scn],
+			return drgn_elf_file_section_errorf(file,
+							    file->scns[scn],
+							    file->scn_data[scn],
 							    cu_buf,
 							    "unsupported DWARF unit address size %" PRIu8,
 							    address_size);
 		}
 
-		Elf_Data *debug_abbrev =
-			cu_file->scn_data[DRGN_SCN_DEBUG_ABBREV];
+		Elf_Data *debug_abbrev = file->scn_data[DRGN_SCN_DEBUG_ABBREV];
 		if (abbrev_offset > debug_abbrev->d_size) {
-			return drgn_elf_file_section_error(cu_file,
-							   cu_file->scns[scn],
-							   cu_file->scn_data[scn],
+			return drgn_elf_file_section_error(file,
+							   file->scns[scn],
+							   file->scn_data[scn],
 							   cu_buf,
 							   "debug_abbrev_offset is out of bounds");
 		}
@@ -509,7 +498,7 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 			(char *)debug_abbrev->d_buf + abbrev_offset;
 
 		Elf_Data *debug_str_offsets =
-			cu_file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
+			file->scn_data[DRGN_SCN_DEBUG_STR_OFFSETS];
 		const char *str_offsets = NULL;
 		if (debug_str_offsets) {
 			Dwarf_Word str_offsets_base;
@@ -536,9 +525,9 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 				str_offsets_base = 0;
 			}
 			if (str_offsets_base > debug_str_offsets->d_size) {
-				return drgn_elf_file_section_error(cu_file,
-								   cu_file->scns[scn],
-								   cu_file->scn_data[scn],
+				return drgn_elf_file_section_error(file,
+								   file->scns[scn],
+								   file->scn_data[scn],
 								   cudie.addr,
 								   ".debug_str_offsets base is out of bounds");
 			}
@@ -552,9 +541,9 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 		if (!cu)
 			return &drgn_enomem;
 		*cu = (struct drgn_dwarf_index_cu){
-			.file = cu_file,
+			.file = file,
 			.buf = cu_buf,
-			.len = cu_end_off - cu_start_off,
+			.len = min(next_off, (Dwarf_Off)file->scn_data[scn]->d_size) - off,
 			.version = version,
 			.unit_type = unit_type,
 			.address_size = address_size,
@@ -564,8 +553,6 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 			.str_offsets = str_offsets,
 			.libdw_cu = cudie.cu,
 		};
-
-		off = next_off;
 	}
 	if (ret < 0)
 		return drgn_error_libdw();
@@ -573,11 +560,10 @@ drgn_dwarf_index_read_cus(struct drgn_dwarf_index_state *state,
 }
 
 struct drgn_error *
-drgn_dwarf_index_read_module(struct drgn_dwarf_index_state *state,
-			     struct drgn_module *module)
+drgn_dwarf_index_read_file(struct drgn_dwarf_index_state *state,
+			   struct drgn_elf_file *file)
 {
 	struct drgn_error *err;
-	struct drgn_elf_file *file = module->debug_file;
 	err = drgn_dwarf_index_read_cus(state, file, DRGN_SCN_DEBUG_INFO);
 	if (!err && file->scn_data[DRGN_SCN_DEBUG_TYPES]) {
 		err = drgn_dwarf_index_read_cus(state, file,
