@@ -1131,6 +1131,37 @@ drgn_program_stack_trace(struct drgn_program *prog, uint32_t tid,
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_stack_trace_from_pcs(struct drgn_program *prog, const uint64_t *pcs,
+				  size_t pcs_size, struct drgn_stack_trace **ret)
+{
+	struct drgn_stack_trace *trace = malloc_flexible_array(
+		struct drgn_stack_trace, frames, pcs_size);
+	struct drgn_error *err;
+	size_t trace_capacity = pcs_size;
+
+	if (!trace)
+		return &drgn_enomem;
+
+	trace->prog = prog;
+	trace->num_frames = 0;
+	for (size_t i = 0; i != pcs_size; ++i) {
+		struct drgn_register_state *regs =
+			drgn_register_state_create_impl(0, 0, false);
+		drgn_register_state_set_pc(prog, regs, pcs[i]);
+
+		err = drgn_stack_trace_add_frames(&trace, &trace_capacity, regs);
+		if (err) {
+			drgn_stack_trace_destroy(trace);
+			return err;
+		}
+	}
+
+	drgn_stack_trace_shrink_to_fit(&trace, trace_capacity);
+	*ret = trace;
+	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_stack_trace(const struct drgn_object *obj,
 			struct drgn_stack_trace **ret)
 {
