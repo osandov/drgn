@@ -133,13 +133,6 @@ arch_%_defs.inc: arch_%_defs.py build-aux/gen_arch_inc_strswitch.py build-aux/ge
 c_keywords.inc: build-aux/gen_c_keywords_inc_strswitch.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $< | $(PYTHON) $(word 2, $^) -o $@ -
 
-drgn.h: drgn.h.in configure.ac
-	$(AM_V_GEN)sed \
-		-e 's/@DRGN_VERSION_MAJOR@/$(word 1,$(subst ., ,@PACKAGE_VERSION@))/g' \
-		-e 's/@DRGN_VERSION_MINOR@/$(word 2,$(subst ., ,@PACKAGE_VERSION@))/g' \
-		-e 's/@DRGN_VERSION_PATCH@/$(word 3,$(subst ., ,@PACKAGE_VERSION@))/g' \
-		$< > $@
-
 drgn_section_name_to_index.inc: build-aux/gen_elf_sections.py build-aux/gen_strswitch.py build-aux/codegen_utils.py
 	$(AM_V_GEN)$(PYTHON) $< | $(PYTHON) $(word 2, $^) -o $@ -
 
@@ -207,8 +200,7 @@ EXTRA_DIST = $(ARCH_DEFS_PYS) \
 	     build-aux/gen_c_keywords_inc_strswitch.py \
 	     build-aux/gen_constants.py \
 	     build-aux/gen_elf_sections.py \
-	     build-aux/gen_strswitch.py \
-	     drgn.h.in
+	     build-aux/gen_strswitch.py
 
 EXTRA_PROGRAMS = examples/load_debug_info
 
