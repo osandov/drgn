@@ -864,6 +864,43 @@ static PyObject *Program_stack_trace(Program *self, PyObject *args,
 	return ret;
 }
 
+static PyObject *Program_stack_trace_from_pcs(Program *self, PyObject *args,
+					      PyObject *kwds)
+{
+	static char *keywords[] = {"pcs", NULL};
+	struct drgn_error *err;
+	PyObject *pypcs;
+	struct drgn_stack_trace *trace;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:stack_trace_from_pcs",
+					 keywords, &pypcs))
+		return NULL;
+
+	_cleanup_pydecref_ PyObject *pypcseq = PySequence_Fast(
+		pypcs, "stack_trace_from_pcs() argument 1 must be a list");
+	if (!pypcseq)
+		return NULL;
+
+	size_t size = PySequence_Fast_GET_SIZE(pypcseq);
+	_cleanup_free_ uint64_t *pcs = malloc_array(size, sizeof(uint64_t));
+	for (uint64_t i = 0; i != size; ++i) {
+		struct index_arg pc = {};
+
+		if (!index_converter(PySequence_Fast_GET_ITEM(pypcseq, i), &pc))
+			return NULL;
+		pcs[i] = pc.uvalue;
+	}
+
+	err = drgn_program_stack_trace_from_pcs(&self->prog, pcs, size, &trace);
+	if (err)
+		return set_drgn_error(err);
+
+	PyObject *ret = StackTrace_wrap(trace);
+	if (!ret)
+		drgn_stack_trace_destroy(trace);
+	return ret;
+}
+
 static PyObject *Program_symbols(Program *self, PyObject *args)
 {
 	struct drgn_error *err;
@@ -1158,6 +1195,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_variable_DOC},
 	{"stack_trace", (PyCFunction)Program_stack_trace,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_DOC},
+	{"stack_trace_from_pcs", (PyCFunction)Program_stack_trace_from_pcs,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_stack_trace_from_pcs_DOC},
 	{"symbols", (PyCFunction)Program_symbols, METH_VARARGS,
 	 drgn_Program_symbols_DOC},
 	{"symbol", (PyCFunction)Program_symbol, METH_O,

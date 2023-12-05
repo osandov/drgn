@@ -3095,6 +3095,19 @@ struct drgn_error *drgn_program_stack_trace(struct drgn_program *prog,
 					    struct drgn_stack_trace **ret);
 
 /**
+ * Get a stack trace with the supplied list of program counters.
+ *
+ * @param[out] ret Returned stack trace. On success, it should be freed with
+ * @ref drgn_stack_trace_destroy(). On error, its contents are undefined.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *
+drgn_program_stack_trace_from_pcs(struct drgn_program *prog,
+				  const uint64_t *pcs,
+				  size_t pcs_size,
+				  struct drgn_stack_trace **ret);
+
+/**
  * Get a stack trace for the thread represented by @p obj.
  *
  * @sa drgn_program_stack_trace().

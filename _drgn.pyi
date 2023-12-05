@@ -271,6 +271,13 @@ class Program:
             ``struct task_struct *`` object.
         """
         ...
+    def stack_trace_from_pcs(self, pcs: Sequence[IntegerLike]) -> StackTrace:
+        """
+        Get a stack trace with the supplied list of program counters.
+
+        :param pcs: List of program counters.
+        """
+        ...
     @overload
     def type(self, name: str, filename: Optional[str] = None) -> Type:
         """
