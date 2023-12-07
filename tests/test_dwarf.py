@@ -1698,7 +1698,7 @@ class TestTypes(TestCase):
                 DwarfDie(
                     DW_TAG.class_type,
                     (
-                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Array"),
+                        DwarfAttrib(DW_AT.name, DW_FORM.string, "Array<int, 2>"),
                         DwarfAttrib(DW_AT.declaration, DW_FORM.flag_present, True),
                     ),
                     (
@@ -1728,7 +1728,7 @@ class TestTypes(TestCase):
         self.assertIdentical(
             prog.type("TEST").type,
             prog.class_type(
-                "Array",
+                "Array<int, 2>",
                 template_parameters=(
                     TypeTemplateParameter(prog.int_type("int", 4, True), "T"),
                     TypeTemplateParameter(
