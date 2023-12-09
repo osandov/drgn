@@ -8023,3 +8023,79 @@ drgn_program_find_function_by_address(struct drgn_program *prog,
 	free(scopes);
 	return &drgn_not_found;
 }
+
+struct drgn_error *
+drgn_dwarf_append_fully_qualified_name(struct drgn_type *type,
+				       struct string_builder *sb)
+{
+	struct drgn_error *err;
+
+	Dwarf_Die die = {
+		.addr = type->_private.die_addr,
+		.cu = type->_private.die_cu,
+	};
+
+	Dwarf_Die *ancestors;
+	size_t num_ancestors;
+	if ((err = drgn_find_die_ancestors(&die, &ancestors, &num_ancestors)))
+		return err;
+
+	bool first = true;
+	struct drgn_elf_file *file = NULL;
+	for (size_t i = 0; i <= num_ancestors; i++) {
+		Dwarf_Die *ancestor = &ancestors[i];
+		switch (dwarf_tag(ancestor)) {
+		case DW_TAG_namespace: {
+			const char *name = dwarf_diename(ancestor);
+			if (!name)
+				continue;
+			if (first) {
+				first = false;
+			} else if (!string_builder_append(sb, "::")) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			if (!string_builder_append(sb, name)) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			break;
+		}
+		case DW_TAG_structure_type:
+		case DW_TAG_union_type:
+		case DW_TAG_class_type: {
+			if (!dwarf_diename(ancestor))
+				continue;
+			struct drgn_debug_info *dbinfo =
+				drgn_type_program(type)->dbinfo;
+			if (!file) {
+				file = drgn_dwarf_index_find_cu(dbinfo,
+								(uintptr_t)die.addr)->file;
+			}
+			struct drgn_qualified_type parent_qualified_type;
+			err = drgn_type_from_dwarf(dbinfo, file, ancestor,
+						   &parent_qualified_type);
+			if (err)
+				goto out;
+			if (first) {
+				first = false;
+			} else if (!string_builder_append(sb, "::")) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			if (!string_builder_append(sb,
+						   drgn_type_tag(parent_qualified_type.type))) {
+				err = &drgn_enomem;
+				goto out;
+			}
+			break;
+		}
+		default:
+			continue;
+		}
+	}
+	err = NULL;
+out:
+	free(ancestors);
+	return err;
+}

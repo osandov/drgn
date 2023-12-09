@@ -364,6 +364,11 @@ drgn_eval_cfi_dwarf_expression(struct drgn_program *prog,
 			       const struct drgn_register_state *regs,
 			       void *buf, size_t size);
 
+struct string_builder;
+struct drgn_error *
+drgn_dwarf_append_fully_qualified_name(struct drgn_type *type,
+				       struct string_builder *sb);
+
 /** @} */
 
 #endif /* DRGN_DEBUG_INFO_DWARF_H */
