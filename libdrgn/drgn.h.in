@@ -1392,6 +1392,28 @@ void drgn_object_init(struct drgn_object *obj, struct drgn_program *prog);
  */
 void drgn_object_deinit(struct drgn_object *obj);
 
+/**
+ * Define and initialize a @ref drgn_object named @p obj that is automatically
+ * deinitialized when it goes out of scope.
+ *
+ * This is equivalent to
+ *
+ * ```
+ * struct drgn_object obj;
+ * drgn_object_init(&obj, prog);
+ * ...
+ * drgn_object_deinit(&obj);
+ * ```
+ *
+ * @param[in] obj Name of object.
+ * @param[in] prog Program containing the object.
+ */
+#define DRGN_OBJECT(obj, prog)					\
+	struct drgn_object obj					\
+	__attribute__((__cleanup__(drgn_object_deinit))) =	\
+	drgn_object_initializer(prog)
+struct drgn_object drgn_object_initializer(struct drgn_program *prog);
+
 /** Get the program that a @ref drgn_object is from. */
 static inline struct drgn_program *
 drgn_object_program(const struct drgn_object *obj)

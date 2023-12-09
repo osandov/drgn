@@ -18,16 +18,23 @@
 #include "type.h"
 #include "util.h"
 
+#define DRGN_OBJECT_INITIALIZER(prog)			\
+	(struct drgn_object){				\
+		.type = drgn_void_type(prog, NULL),	\
+		.encoding = DRGN_OBJECT_ENCODING_NONE,	\
+		.kind = DRGN_OBJECT_ABSENT,		\
+	}
+
+LIBDRGN_PUBLIC
+struct drgn_object drgn_object_initializer(struct drgn_program *prog)
+{
+	return DRGN_OBJECT_INITIALIZER(prog);
+}
+
 LIBDRGN_PUBLIC void drgn_object_init(struct drgn_object *obj,
 				     struct drgn_program *prog)
 {
-	obj->type = drgn_void_type(prog, NULL);
-	obj->bit_size = 0;
-	obj->qualifiers = 0;
-	obj->encoding = DRGN_OBJECT_ENCODING_NONE;
-	obj->kind = DRGN_OBJECT_ABSENT;
-	obj->is_bit_field = false;
-	obj->little_endian = false;
+	*obj = DRGN_OBJECT_INITIALIZER(prog);
 }
 
 static void drgn_value_deinit(const struct drgn_object *obj,
