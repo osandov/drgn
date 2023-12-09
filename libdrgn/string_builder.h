@@ -54,6 +54,35 @@ struct string_builder {
 /** String builder initializer. */
 #define STRING_BUILDER_INIT { 0 }
 
+/** Free memory allocated by a @ref string_builder. */
+static inline void string_builder_deinit(struct string_builder *sb)
+{
+	free(sb->str);
+}
+
+/**
+ * Define and initialize a @ref string_builder named @p sb that is automatically
+ * deinitialized when it goes out of scope.
+ */
+#define STRING_BUILDER(sb)					\
+	__attribute__((__cleanup__(string_builder_deinit)))	\
+	struct string_builder sb = STRING_BUILDER_INIT
+
+/**
+ * Steal the string buffer from a @ref string_builder.
+ *
+ * The string builder can no longer be used except to be passed to @ref
+ * string_builder_deinit(), which will do nothing.
+ *
+ * @return String buffer. This must be freed with @c free().
+ */
+static inline char *string_builder_steal(struct string_builder *sb)
+{
+	char *str = sb->str;
+	sb->str = NULL;
+	return str;
+}
+
 /**
  * Null-terminate and return a string from a @ref string_builder.
  *
