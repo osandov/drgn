@@ -11,6 +11,7 @@ from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 
 def dump_orphan_subvolumes(fs_info: Object) -> None:
+    prog = fs_info.prog_
     BTRFS_ROOT_ORPHAN_ITEM_INSERTED = prog["BTRFS_ROOT_ORPHAN_ITEM_INSERTED"]
     for objectid, entry in radix_tree_for_each(fs_info.fs_roots_radix):
         root = cast("struct btrfs_root *", entry)
