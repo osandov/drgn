@@ -20,8 +20,11 @@ def dump_orphan_subvolumes(fs_info: Object) -> None:
             for inode in rbtree_inorder_for_each_entry(
                 "struct btrfs_inode", root.inode_tree.address_of_(), "rb_node"
             ):
-                path = inode_path(inode.vfs_inode.address_of_()).decode()
-                print(f"    {path}")
+                path = inode_path(inode.vfs_inode.address_of_())
+                if path is None:
+                    print(f"    inode {inode.vfs_inode.i_ino.value_()} with no cached names")
+                else:
+                    print(f"    {path.decode()}")
 
 
 if __name__ == "__main__":
