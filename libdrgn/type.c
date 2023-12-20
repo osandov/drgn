@@ -643,7 +643,8 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 		}
 	}
 
-	if (drgn_type_member_vector_empty(&builder->members)
+	if (is_complete
+	    && drgn_type_member_vector_empty(&builder->members)
 	    && drgn_type_member_function_vector_empty(&builder->functions)
 	    && drgn_type_template_parameter_vector_empty(&builder->template_builder.parameters)
 	    && drgn_type_template_parameter_vector_empty(&builder->parents_builder.parameters)) {
@@ -693,6 +694,18 @@ drgn_compound_type_create(struct drgn_compound_type_builder *builder,
 	drgn_type_template_parameter_vector_steal(&builder->parents_builder.parameters,
 						  &type->_private.parents,
 						  &type->_private.num_parents);
+	if (!is_complete) {
+		// TODO: virtuality?
+		type->_private.is_complete = -1;
+		type->_private.size = -1;
+		type->_private.num_members = -1;
+		if (type->_private.num_functions == 0)
+			type->_private.num_functions = -1;
+		if (type->_private.num_template_parameters == 0)
+			type->_private.num_template_parameters = -1;
+		if (type->_private.num_parents == 0)
+			type->_private.num_parents = -1;
+	}
 	type->_private.program = prog;
 	type->_private.language = lang ? lang : drgn_program_language(prog);
 	*ret = no_cleanup_ptr(type);
@@ -1347,7 +1360,8 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 
 	vector_for_each(drgn_typep_vector, typep, &prog->created_types) {
 		struct drgn_type *type = *typep;
-		if (drgn_type_has_members(type)) {
+		if (drgn_type_has_members(type)
+		    && type->_private.num_members != -1) {
 			struct drgn_type_member *members =
 				drgn_type_members(type);
 			size_t num_members = drgn_type_num_members(type);

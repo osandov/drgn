@@ -4883,100 +4883,6 @@ out:
 	return err;
 }
 
-static struct drgn_error *
-drgn_dwarf_name_with_template_parameters_impl(struct drgn_debug_info *dbinfo,
-					      struct drgn_elf_file *file,
-					      Dwarf_Die *die,
-					      struct string_builder *sb,
-					      const char *orig_name,
-					      bool *any)
-{
-	struct drgn_error *err;
-	Dwarf_Die child;
-	int r = dwarf_child(die, &child);
-	while (r == 0) {
-		_cleanup_free_ char *formatted = NULL;
-		switch (dwarf_tag(&child)) {
-		case DW_TAG_template_type_parameter: {
-			struct drgn_qualified_type qualified_type;
-			err = drgn_type_from_dwarf_attr(dbinfo, file, &child,
-							NULL, true, true, NULL,
-							&qualified_type);
-			if (err)
-				return err;
-			err = drgn_format_type_name(qualified_type, &formatted);
-			if (err)
-				return err;
-			break;
-		}
-		case DW_TAG_template_value_parameter: {
-			DRGN_OBJECT(obj, dbinfo->prog);
-			err = drgn_object_from_dwarf(dbinfo, file, &child, NULL,
-						     NULL, NULL, false, &obj);
-			if (err)
-				return err;
-			err = drgn_format_object(&obj, -1, 0, &formatted);
-			if (err)
-				return err;
-			break;
-		}
-		case DW_TAG_GNU_template_parameter_pack:
-			err = drgn_dwarf_name_with_template_parameters_impl(dbinfo,
-									    file,
-									    &child,
-									    sb,
-									    orig_name,
-									    any);
-			if (err)
-				return err;
-			break;
-		}
-		if (formatted) {
-			if (*any) {
-				if (!string_builder_append(sb, ", "))
-					return &drgn_enomem;
-			} else {
-				*any = true;
-				if (!string_builder_append(sb, orig_name)
-				    || !string_builder_appendc(sb, '<'))
-					return &drgn_enomem;
-			}
-			if (!string_builder_append(sb, formatted))
-				return &drgn_enomem;
-		}
-		r = dwarf_siblingof(&child, &child);
-	}
-	if (r < 0)
-		return drgn_error_libdw();
-	return NULL;
-}
-
-static struct drgn_error *
-drgn_dwarf_name_with_template_parameters(struct drgn_debug_info *dbinfo,
-					 struct drgn_elf_file *file,
-					 Dwarf_Die *die,
-					 struct string_builder *sb,
-					 const char **name)
-{
-	struct drgn_error *err;
-
-	bool any = false;
-	err = drgn_dwarf_name_with_template_parameters_impl(dbinfo, file, die,
-							    sb, *name, &any);
-	if (err)
-		return err;
-	if (any) {
-		if (sb->str[sb->len - 1] == '>'
-		    && !string_builder_appendc(sb, ' '))
-			return &drgn_enomem;
-		if (!string_builder_appendc(sb, '>')
-		    || !string_builder_null_terminate(sb))
-			return &drgn_enomem;
-		*name = sb->str;
-	}
-	return NULL;
-}
-
 /*
  * DW_TAG_structure_type, DW_TAG_union_type, DW_TAG_class_type, and
  * DW_TAG_enumeration_type can be incomplete (i.e., have a DW_AT_declaration of
@@ -4985,9 +4891,7 @@ drgn_dwarf_name_with_template_parameters(struct drgn_debug_info *dbinfo,
  * returns an error.
  */
 static struct drgn_error *
-drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo,
-			      struct drgn_elf_file *incomplete_file,
-			      int tag,
+drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo, int tag,
 			      const char *name, Dwarf_Die *incomplete_die,
 			      const struct drgn_language *lang,
 			      struct drgn_type **ret)
@@ -5015,8 +4919,11 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo,
 		dwarf_index_tags[1] = DRGN_DWARF_INDEX_structure_type;
 		num_dwarf_index_tags = 2;
 	}
+	const char *diename = dwarf_diename(incomplete_die);
+	if (!diename)
+		return drgn_error_libdw();
 	struct drgn_dwarf_index_iterator it;
-	err = drgn_dwarf_index_iterator_init(&it, ns, name, strlen(name),
+	err = drgn_dwarf_index_iterator_init(&it, ns, diename, strlen(diename),
 					     dwarf_index_tags,
 					     num_dwarf_index_tags);
 	if (err)
@@ -5033,7 +4940,6 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo,
 		return &drgn_not_found;
 
 	struct drgn_qualified_type qualified_type;
-	STRING_BUILDER(name_sb);
 	for (;;) {
 		err = drgn_type_from_dwarf(dbinfo, file, &die, &qualified_type);
 		if (err)
@@ -5043,24 +4949,200 @@ drgn_debug_info_find_complete(struct drgn_debug_info *dbinfo,
 		    || strcmp(drgn_type_tag(qualified_type.type), name) == 0)
 			break;
 
-		if (name_sb.len == 0) {
-			err = drgn_dwarf_name_with_template_parameters(dbinfo,
-								       incomplete_file,
-								       incomplete_die,
-								       &name_sb,
-								       &name);
-			if (err)
-				return err;
-			if (strcmp(drgn_type_tag(qualified_type.type), name) == 0)
-				break;
-		}
-
 		if (!drgn_dwarf_index_iterator_next(&it, &die, &file))
 			return &drgn_not_found;
 	}
 
 	*ret = qualified_type.type;
 	return NULL;
+}
+
+static struct drgn_error *drgn_lazy_object_proxy_thunk(struct drgn_object *res,
+						       void *arg)
+{
+	if (!res)
+		return NULL;
+	struct drgn_error *err;
+	union drgn_lazy_object *target = arg;
+	err = drgn_lazy_object_evaluate(target);
+	if (err)
+		return err;
+	return drgn_object_copy(res, &target->obj);
+}
+
+static bool drgn_type_copy_members(struct drgn_type *dst,
+				   struct drgn_type *src)
+{
+	size_t num_members = drgn_type_num_members(src);
+	if (num_members == 0) {
+		dst->_private.num_members = num_members;
+		return true;
+	}
+
+	struct drgn_type_member *src_members = drgn_type_members(src);
+	struct drgn_type_member *members =
+		malloc_array(num_members, sizeof(members[0]));
+	if (!members)
+		return false;
+	for (size_t i = 0; i < num_members; i++) {
+		drgn_lazy_object_init_thunk(&members[i].object,
+					    drgn_type_program(dst),
+					    drgn_lazy_object_proxy_thunk,
+					    &src_members[i].object);
+		members[i].name = src_members[i].name;
+		members[i].bit_offset = src_members[i].bit_offset;
+	}
+	dst->_private.members = members;
+	dst->_private.num_members = num_members;
+	return true;
+}
+
+static bool drgn_type_copy_functions(struct drgn_type *dst,
+				     struct drgn_type *src)
+{
+	size_t num_functions = drgn_type_num_functions(src);
+	if (num_functions == 0) {
+		dst->_private.num_functions = num_functions;
+		return true;
+	}
+
+	struct drgn_type_member_function *src_functions =
+		drgn_type_functions(src);
+	struct drgn_type_member_function *functions =
+		malloc_array(num_functions, sizeof(functions[0]));
+	if (!functions)
+		return false;
+	for (size_t i = 0; i < num_functions; i++) {
+		drgn_lazy_object_init_thunk(&functions[i].func,
+					    drgn_type_program(dst),
+					    drgn_lazy_object_proxy_thunk,
+					    &src_functions[i].func);
+	}
+	dst->_private.functions = functions;
+	dst->_private.num_functions = num_functions;
+	return true;
+}
+
+static void
+drgn_type_copy_template_parameters_impl(struct drgn_program *prog,
+					struct drgn_type_template_parameter *dst,
+					struct drgn_type_template_parameter *src,
+					size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		dst[i].bit_offset = src[i].bit_offset;
+		drgn_lazy_object_init_thunk(&dst[i].argument, prog,
+					    drgn_lazy_object_proxy_thunk,
+					    &src[i].argument);
+		dst[i].name = src[i].name;
+		dst[i].is_default = src[i].is_default;
+	}
+}
+
+static bool drgn_type_copy_template_parameters(struct drgn_type *dst,
+					       struct drgn_type *src)
+{
+	size_t num_template_parameters = drgn_type_num_template_parameters(src);
+	if (num_template_parameters == 0) {
+		dst->_private.num_template_parameters = num_template_parameters;
+		return true;
+	}
+
+	struct drgn_type_template_parameter *template_parameters =
+		malloc_array(num_template_parameters,
+			     sizeof(template_parameters[0]));
+	if (!template_parameters)
+		return false;
+	drgn_type_copy_template_parameters_impl(drgn_type_program(dst),
+						template_parameters,
+						drgn_type_template_parameters(src),
+						num_template_parameters);
+	dst->_private.template_parameters = template_parameters;
+	dst->_private.num_template_parameters = num_template_parameters;
+	return true;
+}
+
+static bool drgn_type_copy_parents(struct drgn_type *dst, struct drgn_type *src)
+{
+	size_t num_parents = drgn_type_num_parents(src);
+	if (num_parents == 0) {
+		dst->_private.num_parents = num_parents;
+		return true;
+	}
+
+	struct drgn_type_template_parameter *parents =
+		malloc_array(num_parents, sizeof(parents[0]));
+	if (!parents)
+		return false;
+	drgn_type_copy_template_parameters_impl(drgn_type_program(dst), parents,
+						drgn_type_parents(src),
+						num_parents);
+	dst->_private.parents = parents;
+	dst->_private.num_parents = num_parents;
+	return true;
+}
+
+LIBDRGN_PUBLIC
+void _drgn_type_resolve_complete(struct drgn_type *type)
+{
+	struct drgn_error *err;
+
+	if (!type->_private.die_addr) {
+		err = NULL;
+		goto fail;
+	}
+
+	Dwarf_Die die = {
+		.addr = type->_private.die_addr,
+		.cu = type->_private.die_cu,
+	};
+
+	struct drgn_type *complete_type;
+	err = drgn_debug_info_find_complete(drgn_type_program(type)->dbinfo,
+					    dwarf_tag(&die),
+					    drgn_type_tag(type), &die,
+					    drgn_type_language(type),
+					    &complete_type);
+	if (err)
+		goto fail;
+	// This shouldn't happen, but just in case...
+	if (complete_type->_private.is_complete <= 0)
+		goto fail;
+
+	type->_private.is_complete = true;
+	if (drgn_type_has_size(type))
+		type->_private.size = drgn_type_size(complete_type);
+	if (drgn_type_has_members(type) && type->_private.num_members == -1
+	    && !drgn_type_copy_members(type, complete_type))
+		goto fail;
+	if (drgn_type_has_functions(type) && type->_private.num_functions == -1
+	    && !drgn_type_copy_functions(type, complete_type))
+		goto fail;
+	if (drgn_type_has_template_parameters(type)
+	    && type->_private.num_template_parameters == -1
+	    && !drgn_type_copy_template_parameters(type, complete_type))
+		goto fail;
+	if (drgn_type_has_template_parameters(type)
+	    && type->_private.num_parents == -1
+	    && !drgn_type_copy_parents(type, complete_type))
+		goto fail;
+	return;
+
+fail:
+	drgn_error_destroy(err);
+	type->_private.is_complete = false;
+	if (drgn_type_has_size(type))
+		type->_private.size = 0;
+	if (drgn_type_has_members(type) && type->_private.num_members == -1)
+		type->_private.num_members = 0;
+	if (drgn_type_has_functions(type) && type->_private.num_functions == -1)
+		type->_private.num_functions = 0;
+	if (drgn_type_has_template_parameters(type)
+	    && type->_private.num_template_parameters == -1)
+		type->_private.num_template_parameters = 0;
+	if (drgn_type_has_template_parameters(type)
+	    && type->_private.num_parents == -1)
+		type->_private.num_parents = 0;
 }
 
 struct drgn_dwarf_member_thunk_arg {
@@ -5453,18 +5535,29 @@ drgn_dwarf_template_name_builder_add_template_parameter(struct drgn_dwarf_templa
 			return &drgn_enomem;
 	}
 
-	err = drgn_lazy_object_evaluate(argument);
-	if (err)
-		return err;
 	_cleanup_free_ char *formatted = NULL;
-	if (argument->obj.kind == DRGN_OBJECT_ABSENT) {
-		struct drgn_qualified_type qualified_type =
-			drgn_object_qualified_type(&argument->obj);
-		err = drgn_format_type_name(qualified_type, &formatted);
+	if (argument->thunk.fn == drgn_dwarf_template_value_parameter_thunk_fn) {
+		err = drgn_lazy_object_evaluate(argument);
+		if (err)
+			return err;
+		err = drgn_format_object(&argument->obj, -1, 0, &formatted);
 		if (err)
 			return err;
 	} else {
-		err = drgn_format_object(&argument->obj, -1, 0, &formatted);
+		// We want to avoid resolving the complete type here.
+		// drgn_lazy_object_evaluate() would create an absent object,
+		// which still tries to resolve the complete type. Do it
+		// manually (yuck).
+		struct drgn_dwarf_die_thunk_arg *thunk_arg =
+			argument->thunk.arg;
+		struct drgn_qualified_type qualified_type;
+		err = drgn_type_from_dwarf_attr(argument->thunk.prog->dbinfo,
+						thunk_arg->file,
+						&thunk_arg->die, NULL, true,
+						true, NULL, &qualified_type);
+		if (err)
+			return err;
+		err = drgn_format_type_name(qualified_type, &formatted);
 		if (err)
 			return err;
 	}
@@ -5650,13 +5743,6 @@ drgn_compound_type_from_dwarf(struct drgn_debug_info *dbinfo,
 		return drgn_error_format(DRGN_ERROR_OTHER,
 					 "%s has invalid DW_AT_declaration",
 					 dwarf_tag_str(die, tag_buf));
-	}
-	if (declaration && tag) {
-		err = drgn_debug_info_find_complete(dbinfo, file,
-						    dwarf_tag(die), tag, die,
-						    lang, ret);
-		if (err != &drgn_not_found)
-			return err;
 	}
 
 	struct drgn_compound_type_builder builder;
@@ -5872,7 +5958,7 @@ drgn_enum_type_from_dwarf(struct drgn_debug_info *dbinfo,
 					 "DW_TAG_enumeration_type has invalid DW_AT_declaration");
 	}
 	if (declaration && tag) {
-		err = drgn_debug_info_find_complete(dbinfo, file,
+		err = drgn_debug_info_find_complete(dbinfo,
 						    DW_TAG_enumeration_type,
 						    tag, die, lang, ret);
 		if (err != &drgn_not_found)

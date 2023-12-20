@@ -2256,7 +2256,7 @@ struct drgn_type {
 	/** @privatesection */
 	struct {
 		enum drgn_type_kind kind;
-		bool is_complete;
+		int8_t is_complete;
 		enum drgn_primitive_type primitive;
 		/* These are the qualifiers for the wrapped type, not this type. */
 		enum drgn_qualifiers qualifiers;
@@ -2315,6 +2315,8 @@ drgn_type_primitive(struct drgn_type *type)
 	return type->_private.primitive;
 }
 
+void _drgn_type_resolve_complete(struct drgn_type *type);
+
 /**
  * Get whether a type is complete (i.e., the type definition is known).
  *
@@ -2324,6 +2326,8 @@ drgn_type_primitive(struct drgn_type *type)
  */
 static inline bool drgn_type_is_complete(struct drgn_type *type)
 {
+	if (type->_private.is_complete < 0)
+		_drgn_type_resolve_complete(type);
 	return type->_private.is_complete;
 }
 
@@ -2506,6 +2510,8 @@ static inline bool drgn_type_has_members(struct drgn_type *type)
 static inline struct drgn_type_member *drgn_type_members(struct drgn_type *type)
 {
 	assert(drgn_type_has_members(type));
+	if (type->_private.num_members == -1)
+		_drgn_type_resolve_complete(type);
 	return type->_private.members;
 }
 /**
@@ -2515,6 +2521,8 @@ static inline struct drgn_type_member *drgn_type_members(struct drgn_type *type)
 static inline size_t drgn_type_num_members(struct drgn_type *type)
 {
 	assert(drgn_type_has_members(type));
+	if (type->_private.num_members == -1)
+		_drgn_type_resolve_complete(type);
 	return type->_private.num_members;
 }
 
@@ -2540,6 +2548,8 @@ static inline bool drgn_type_has_functions(struct drgn_type *type)
 static inline struct drgn_type_member_function *drgn_type_functions(struct drgn_type *type)
 {
 	assert(drgn_type_has_functions(type));
+	if (type->_private.num_functions == -1)
+		_drgn_type_resolve_complete(type);
 	return type->_private.functions;
 }
 /**
@@ -2549,6 +2559,8 @@ static inline struct drgn_type_member_function *drgn_type_functions(struct drgn_
 static inline size_t drgn_type_num_functions(struct drgn_type *type)
 {
 	assert(drgn_type_has_functions(type));
+	if (type->_private.num_functions == -1)
+		_drgn_type_resolve_complete(type);
 	return type->_private.num_functions;
 }
 
@@ -2723,6 +2735,8 @@ static inline struct drgn_type_template_parameter *
 drgn_type_template_parameters(struct drgn_type *type)
 {
 	assert(drgn_type_has_template_parameters(type));
+	if (type->_private.num_template_parameters == -1)
+		_drgn_type_resolve_complete(type);
 	return type->_private.template_parameters;
 }
 
@@ -2733,6 +2747,8 @@ drgn_type_template_parameters(struct drgn_type *type)
 static inline size_t drgn_type_num_template_parameters(struct drgn_type *type)
 {
 	assert(drgn_type_has_template_parameters(type));
+	if (type->_private.num_template_parameters == -1)
+		_drgn_type_resolve_complete(type);
 	return type->_private.num_template_parameters;
 }
 
@@ -2743,6 +2759,8 @@ static inline struct drgn_type_template_parameter *
 drgn_type_parents(struct drgn_type *type)
 {
    assert(drgn_type_has_template_parameters(type));
+	if (type->_private.num_parents == -1)
+		_drgn_type_resolve_complete(type);
    return type->_private.parents;
 }
 
@@ -2753,6 +2771,8 @@ drgn_type_parents(struct drgn_type *type)
 static inline size_t drgn_type_num_parents(struct drgn_type *type)
 {
    assert(drgn_type_has_template_parameters(type));
+	if (type->_private.num_parents == -1)
+		_drgn_type_resolve_complete(type);
    return type->_private.num_parents;
 }
 
