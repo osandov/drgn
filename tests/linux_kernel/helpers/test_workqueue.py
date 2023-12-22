@@ -19,6 +19,7 @@ from drgn.helpers.linux.workqueue import (
     for_each_workqueue,
     get_work_pool,
     get_work_pwq,
+    workqueue_get_pwq,
 )
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
@@ -114,11 +115,12 @@ class TestWorkqueue(LinuxKernelTestCase):
         # Since "drgn_test_wq" is a bound workqueue, list pwqs
         # should contain only per-cpu pwqs i.e cpu_pwqs
         pwqs = [pwq.value_() for pwq in for_each_pwq(self.test_wq)]
-        cpu_pwqs = [
-            per_cpu_ptr(self.test_wq.cpu_pwqs, cpu).value_()
+        cpu_pwqs_attr = "cpu_pwqs" if hasattr(self.test_wq, "cpu_pwqs") else "cpu_pwq"
+        cpu_pwqs_list = [
+            per_cpu_ptr(getattr(self.test_wq, cpu_pwqs_attr), cpu).value_()
             for cpu in for_each_online_cpu(self.prog)
         ]
-        self.assertEqual(pwqs.sort(), cpu_pwqs.sort())
+        self.assertEqual(pwqs.sort(), cpu_pwqs_list.sort())
 
     @skip_unless_have_test_kmod
     def test_for_each_pending_work(self):
@@ -142,7 +144,7 @@ class TestWorkqueue(LinuxKernelTestCase):
 
     @skip_unless_have_test_kmod
     def test_for_each_pending_work_of_pwq(self):
-        cpu_pwqs_0 = per_cpu_ptr(self.test_wq.cpu_pwqs, 0)
+        cpu_pwqs_0 = workqueue_get_pwq(self.test_wq, 0)
         all_works_of_pwq = [
             work.value_() for work in for_each_pending_work_of_pwq(cpu_pwqs_0)
         ]
@@ -150,8 +152,9 @@ class TestWorkqueue(LinuxKernelTestCase):
 
     @skip_unless_have_test_kmod
     def test_get_work_pwq(self):
-        cpu_pwqs_0 = per_cpu_ptr(self.test_wq.cpu_pwqs, 0)
-        cpu_pwqs_1 = per_cpu_ptr(self.test_wq.cpu_pwqs, 1)
+        cpu_pwqs_0 = workqueue_get_pwq(self.test_wq, 0)
+        cpu_pwqs_1 = workqueue_get_pwq(self.test_wq, 1)
+
         pwq = get_work_pwq(self.test_work_0)
         self.assertEqual(pwq, cpu_pwqs_0)
         self.assertNotEqual(pwq, cpu_pwqs_1)
