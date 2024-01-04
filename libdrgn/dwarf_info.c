@@ -4238,7 +4238,9 @@ drgn_object_from_dwarf_location(struct drgn_program *prog,
 			goto out;
 
 		const void *src = NULL;
-		size_t src_size;
+		// Silence -Wmaybe-uninitialized false positive last seen with
+		// GCC 13.
+		size_t src_size = 0;
 
 		if (binary_buffer_has_next(&ctx.bb)) {
 			uint8_t opcode;
