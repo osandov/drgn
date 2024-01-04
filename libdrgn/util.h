@@ -68,6 +68,9 @@
 /** Return whether two types or expressions have compatible types. */
 #define types_compatible(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 
+/** Return whether an expression is an array. */
+#define is_array(x) (!types_compatible(x, &(x)[0]))
+
 /**
  * `static_assert(assert_expression, message)` as an expression that evaluates
  * to `eval_expression`.

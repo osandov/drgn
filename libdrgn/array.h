@@ -25,11 +25,10 @@
  *
  * @hideinitializer
  */
-#define array_size(arr)						\
-static_assert_expression(					\
-	!types_compatible((arr), &(arr)[0]), "not an array",	\
-	sizeof(arr) / sizeof((arr)[0])				\
-)
+#define array_size(arr)							\
+	static_assert_expression(is_array(arr),				\
+				 "not an array",			\
+				 sizeof(arr) / sizeof((arr)[0]))
 
 /**
  * Iterate over every element in an array.
