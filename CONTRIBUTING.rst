@@ -93,14 +93,17 @@ some slightly more modern preferences:
 
 * Variables should be declared as close as possible to where they are used (as
   opposed to the C89 style of declaring everything at the top of a function).
+
   * As an exception, if a function has a local ``struct drgn_error *err``, it
     should usually be declared at the top of the function. (This is because
     must functions have such a variable, and it adds noise to have it in the
     middle of the function.)
+
 * Scope guards and the `cleanup attribute
   <https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html#index-cleanup-variable-attribute>`_
   should be used liberally.
 * ``//``-style comments are preferred over ``/* */``.
+
   * As an exception, Doxygen comments should use ``/** */``.
 
   For example:
