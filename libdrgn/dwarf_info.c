@@ -6551,8 +6551,10 @@ drgn_type_from_dwarf_internal(struct drgn_debug_info *dbinfo,
 	dbinfo->dwarf.depth--;
 	if (err)
 		return err;
-	ret->type->_private.die_addr = die->addr;
-	ret->type->_private.die_cu = die->cu;
+	if (ret->qualifiers == 0) {
+		ret->type->_private.die_addr = die->addr;
+		ret->type->_private.die_cu = die->cu;
+	}
 
 	entry.value.type = ret->type;
 	entry.value.qualifiers = ret->qualifiers;
