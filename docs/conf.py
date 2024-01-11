@@ -8,6 +8,7 @@ master_doc = "index"
 
 extensions = [
     "drgndoc.ext",
+    "linuxsrc",
     "setuptools_config",
     "sphinx.ext.extlinks",
     "sphinx.ext.intersphinx",
@@ -21,10 +22,6 @@ drgndoc_substitutions = [
 extlinks = {
     "contrib": (
         "https://github.com/osandov/drgn/blob/main/contrib/%s",
-        "%s",
-    ),
-    "linux": (
-        "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/%s",
         "%s",
     ),
 }
