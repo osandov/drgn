@@ -31,10 +31,10 @@ as inline text instead of inline code.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Tuple
 
 from docutils import nodes
-from docutils.nodes import Element, Node, system_message
+from docutils.nodes import Node, system_message
 import sphinx.application
 import sphinx.util.docutils
 
