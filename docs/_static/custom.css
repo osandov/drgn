@@ -6,3 +6,14 @@ div.admonition p.admonition-title {
     font-size: 17px;
     font-weight: bold;
 }
+
+@media screen and (min-width: 875px) {
+    div.document {
+        width: 100%;
+    }
+}
+@media screen and (min-width: 1095px) {
+    div.document {
+        width: 1095px;
+    }
+}
