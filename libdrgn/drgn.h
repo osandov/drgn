@@ -1610,11 +1610,11 @@ struct drgn_error *drgn_object_copy(struct drgn_object *res,
 				    const struct drgn_object *obj);
 
 /**
- * Get a @ref drgn_object from a slice of a @ref DRGN_OBJECT_ENCODING_BUFFER
- * object.
+ * Get a @ref drgn_object from a "slice" of an object.
  *
- * This is a low-level interface used to implement @ref drgn_object_subscript()
- * and @ref drgn_object_member(). Those functions are usually more convenient.
+ * This is a low-level interface used to implement @ref drgn_object_subscript(),
+ * @ref drgn_object_member(), and @ref drgn_object_reinterpret(). Those
+ * functions are usually more convenient.
  *
  * If multiple elements of an array are accessed (e.g., when iterating through
  * it), it can be more efficient to call @ref drgn_program_element_info() once
@@ -1872,14 +1872,13 @@ struct drgn_error *drgn_object_cast(struct drgn_object *res,
 				    const struct drgn_object *obj);
 
 /**
- * Set a @ref drgn_object to the value of an object reinterpreted as another
- * type.
+ * Set a @ref drgn_object to the representation of an object reinterpreted as
+ * another type.
  *
  * This reinterprets the raw memory of the object, so an object can be
- * reinterpreted as any other type. However, value objects with a scalar type
- * cannot be reinterpreted, as their memory layout is not known.
+ * reinterpreted as any other type.
  *
- * If @c obj is a value, then @c res is set to a value; if @c obj was a
+ * If @c obj is a value, then @c res is set to a value; if @c obj is a
  * reference, then @c res is set to a reference.
  *
  * @sa drgn_object_cast()

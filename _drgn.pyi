@@ -1524,24 +1524,28 @@ def cast(type: Union[str, Type], obj: Object) -> Object:
     only be casted to the same type. This always results in a value object. See
     also :func:`drgn.reinterpret()`.
 
-    :param type: The type to cast to.
-    :param obj: The object to cast.
+    >>> cast("unsigned int", Object(prog, "float", 2.0))
+    (unsigned int)2
+
+    :param type: Type to cast to.
+    :param obj: Object to cast.
     """
     ...
 
 def reinterpret(type: Union[str, Type], obj: Object) -> Object:
     """
-    Get a copy of the given object reinterpreted as another type and/or byte
-    order.
+    Get the representation of an object reinterpreted as another type.
 
     This reinterprets the raw memory of the object, so an object can be
-    reinterpreted as any other type. However, value objects with a scalar type
-    cannot be reinterpreted, as their memory layout in the program is not
-    known. Reinterpreting a reference results in a reference, and
-    reinterpreting a value results in a value. See also :func:`drgn.cast()`.
+    reinterpreted as any other type. Reinterpreting a reference results in a
+    reference, and reinterpreting a value results in a value. See also
+    :func:`drgn.cast()`.
 
-    :param type: The type to reinterpret as.
-    :param obj: The object to reinterpret.
+    >>> reinterpret("unsigned int", Object(prog, "float", 2.0))
+    (unsigned int)1073741824
+
+    :param type: Type to reinterpret as.
+    :param obj: Object to reinterpret.
     """
     ...
 

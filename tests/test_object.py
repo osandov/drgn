@@ -1817,6 +1817,185 @@ class TestGenericOperators(MockProgramTestCase):
             ),
         )
 
+    def test_reinterpret_primitive_value_to_same_size_primitive(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                self.assertIdentical(
+                    reinterpret(
+                        self.prog.int_type("long long", 8, True, byteorder),
+                        Object(
+                            self.prog,
+                            self.prog.int_type(
+                                "unsigned long long", 8, False, byteorder
+                            ),
+                            0xFFFFFFFFFFFFFFF3,
+                        ),
+                    ),
+                    Object(
+                        self.prog,
+                        self.prog.int_type("long long", 8, True, byteorder),
+                        -13,
+                    ),
+                )
+
+    def test_reinterpret_primitive_value_to_smaller_primitive(self):
+        with self.subTest(byteorder="little"):
+            self.assertIdentical(
+                reinterpret(
+                    self.prog.int_type("int", 4, True),
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned long long", 8, False),
+                        0x000027100000029A,
+                    ),
+                ),
+                Object(self.prog, self.prog.int_type("int", 4, True), 666),
+            )
+        with self.subTest(byteorder="big"):
+            self.assertIdentical(
+                reinterpret(
+                    self.prog.int_type("int", 4, True, "big"),
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned long long", 8, False, "big"),
+                        0x000027100000029A,
+                    ),
+                ),
+                Object(self.prog, self.prog.int_type("int", 4, True, "big"), 10000),
+            )
+
+    def test_reinterpret_primitive_value_to_same_size_compound(self):
+        with self.subTest(byteorder="little"):
+            self.assertIdentical(
+                reinterpret(
+                    self.point_type,
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned long long", 8, False),
+                        0x000027100000029A,
+                    ),
+                ),
+                Object(self.prog, self.point_type, {"x": 666, "y": 10000}),
+            )
+        with self.subTest(byteorder="big"):
+            point_type = self.prog.struct_type(
+                "point",
+                8,
+                (
+                    TypeMember(self.prog.int_type("int", 4, True, "big"), "x", 0),
+                    TypeMember(self.prog.int_type("int", 4, True, "big"), "y", 32),
+                ),
+            )
+            self.assertIdentical(
+                reinterpret(
+                    point_type,
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned long long", 8, False, "big"),
+                        0x000027100000029A,
+                    ),
+                ),
+                Object(self.prog, point_type, {"x": 10000, "y": 666}),
+            )
+
+    def test_reinterpret_primitive_value_to_smaller_compound(self):
+        with self.subTest(byteorder="little"):
+            small_point_type = self.prog.struct_type(
+                "small_point",
+                4,
+                (
+                    TypeMember(self.prog.int_type("short", 2, True), "x", 0),
+                    TypeMember(self.prog.int_type("short", 2, True), "y", 16),
+                ),
+            )
+            self.assertIdentical(
+                reinterpret(
+                    small_point_type,
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned long long", 8, False),
+                        0x123456782710029A,
+                    ),
+                ),
+                Object(self.prog, small_point_type, {"x": 666, "y": 10000}),
+            )
+        with self.subTest(byteorder="big"):
+            small_point_type = self.prog.struct_type(
+                "small_point",
+                4,
+                (
+                    TypeMember(self.prog.int_type("short", 2, True, "big"), "x", 0),
+                    TypeMember(self.prog.int_type("short", 2, True, "big"), "y", 16),
+                ),
+            )
+            self.assertIdentical(
+                reinterpret(
+                    small_point_type,
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned long long", 8, False, "big"),
+                        0x123456782710029A,
+                    ),
+                ),
+                Object(self.prog, small_point_type, {"x": 0x1234, "y": 0x5678}),
+            )
+
+    def test_reinterpret_bit_field_value_to_same_size_primitive(self):
+        for byteorder in ("little", "big"):
+            with self.subTest(byteorder=byteorder):
+                self.assertIdentical(
+                    reinterpret(
+                        self.prog.int_type("uint24", 3, False, byteorder),
+                        Object(
+                            self.prog,
+                            self.prog.int_type("unsigned int", 4, False, byteorder),
+                            0xABCDEF,
+                            bit_field_size=24,
+                        ),
+                    ),
+                    Object(
+                        self.prog,
+                        self.prog.int_type("uint24", 3, False, byteorder),
+                        0xABCDEF,
+                    ),
+                )
+
+    def test_reinterpret_bit_field_value_to_smaller_primitive(self):
+        with self.subTest(byteorder="little"):
+            self.assertIdentical(
+                reinterpret(
+                    self.prog.int_type("unsigned short", 2, False),
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned int", 4, False),
+                        0xABCDEF,
+                        bit_field_size=24,
+                    ),
+                ),
+                Object(
+                    self.prog,
+                    self.prog.int_type("unsigned short", 2, False),
+                    0xCDEF,
+                ),
+            )
+        with self.subTest(byteorder="big"):
+            self.assertIdentical(
+                reinterpret(
+                    self.prog.int_type("unsigned short", 2, False, "big"),
+                    Object(
+                        self.prog,
+                        self.prog.int_type("unsigned int", 4, False, "big"),
+                        0xABCDEF,
+                        bit_field_size=24,
+                    ),
+                ),
+                Object(
+                    self.prog,
+                    self.prog.int_type("unsigned short", 2, False, "big"),
+                    0xABCD,
+                ),
+            )
+
     def test_member(self):
         reference = Object(self.prog, self.point_type, address=0xFFFF0000)
         unnamed_reference = Object(

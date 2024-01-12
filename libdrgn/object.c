@@ -558,45 +558,6 @@ drgn_object_copy(struct drgn_object *res, const struct drgn_object *obj)
 	return NULL;
 }
 
-static struct drgn_error *
-drgn_object_slice_internal(struct drgn_object *res,
-			   const struct drgn_object *obj,
-			   const struct drgn_object_type *type,
-			   uint64_t bit_offset)
-{
-	SWITCH_ENUM(obj->kind,
-	case DRGN_OBJECT_VALUE: {
-		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER) {
-			return drgn_error_create(DRGN_ERROR_TYPE,
-						 "not a buffer object");
-		}
-
-		uint64_t bit_end;
-		if (__builtin_add_overflow(bit_offset, type->bit_size,
-					   &bit_end) ||
-		    bit_end > obj->bit_size) {
-			return drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,
-						 "out of bounds of value");
-		}
-		return drgn_object_set_from_buffer_internal(res, type,
-							    drgn_object_buffer(obj),
-							    bit_offset);
-	}
-	case DRGN_OBJECT_REFERENCE:
-		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER &&
-		    obj->encoding != DRGN_OBJECT_ENCODING_INCOMPLETE_BUFFER) {
-			return drgn_error_create(DRGN_ERROR_TYPE,
-						 "not a buffer object");
-		}
-
-		return drgn_object_set_reference_internal(res, type,
-							  obj->address,
-							  bit_offset);
-	case DRGN_OBJECT_ABSENT:
-		return &drgn_error_object_absent;
-	)
-}
-
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_object_slice(struct drgn_object *res, const struct drgn_object *obj,
 		  struct drgn_qualified_type qualified_type,
@@ -611,7 +572,47 @@ drgn_object_slice(struct drgn_object *res, const struct drgn_object *obj,
 	err = drgn_object_type(qualified_type, bit_field_size, &type);
 	if (err)
 		return err;
-	return drgn_object_slice_internal(res, obj, &type, bit_offset);
+
+	SWITCH_ENUM(obj->kind,
+	case DRGN_OBJECT_VALUE: {
+		uint64_t bit_end;
+		if (__builtin_add_overflow(bit_offset, type.bit_size, &bit_end)
+		    || bit_end > obj->bit_size) {
+			return drgn_error_create(DRGN_ERROR_OUT_OF_BOUNDS,
+						 "out of bounds of value");
+		}
+		char small_buf[8];
+		const void *buf;
+		_cleanup_free_ char *free_buf = NULL;
+		if (obj->encoding == DRGN_OBJECT_ENCODING_BUFFER) {
+			buf = drgn_object_buffer(obj);
+		} else {
+			size_t size = drgn_object_size(obj);
+			if (size <= sizeof(small_buf)) {
+				buf = small_buf;
+			} else {
+				buf = free_buf = malloc(size);
+				if (!buf)
+					return &drgn_enomem;
+			}
+			err = drgn_object_read_bytes(obj, (void *)buf);
+			if (err)
+				return err;
+		}
+		return drgn_object_set_from_buffer_internal(res, &type, buf,
+							    bit_offset);
+	}
+	case DRGN_OBJECT_REFERENCE:
+		// obj->bit_offset + bit_offset can overflow, so apply the
+		// byte-aligned part of bit_offset now.
+		return drgn_object_set_reference_internal(res, &type,
+							  obj->address
+							  + (bit_offset / 8),
+							  obj->bit_offset
+							  + (bit_offset % 8));
+	case DRGN_OBJECT_ABSENT:
+		return &drgn_error_object_absent;
+	)
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
@@ -1341,36 +1342,7 @@ drgn_object_reinterpret(struct drgn_object *res,
 			struct drgn_qualified_type qualified_type,
 			const struct drgn_object *obj)
 {
-	struct drgn_error *err;
-
-	if (drgn_object_program(res) != drgn_object_program(obj)) {
-		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-					 "objects are from different programs");
-	}
-
-	struct drgn_object_type type;
-	err = drgn_object_type(qualified_type, 0, &type);
-	if (err)
-		return err;
-
-	SWITCH_ENUM(obj->kind,
-	case DRGN_OBJECT_VALUE:
-		if (obj->encoding != DRGN_OBJECT_ENCODING_BUFFER) {
-			return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
-						 "cannot reinterpret primitive value");
-		}
-		err = drgn_object_slice_internal(res, obj, &type, 0);
-		if (err)
-			return err;
-		return NULL;
-	case DRGN_OBJECT_REFERENCE:
-		drgn_object_reinit(res, &type, DRGN_OBJECT_REFERENCE);
-		res->address = obj->address;
-		res->bit_offset = obj->bit_offset;
-		return NULL;
-	case DRGN_OBJECT_ABSENT:
-		return &drgn_error_object_absent;
-	)
+	return drgn_object_slice(res, obj, qualified_type, 0, 0);
 }
 
 LIBDRGN_PUBLIC struct drgn_error *
