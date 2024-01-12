@@ -41,9 +41,6 @@ html_theme_options = {
     "logo": "logo.png",
     "logo_name": True,
     "logo_text_align": "center",
-    # Make the page body wider.
-    "page_width": "50%",
-    "body_max_width": "auto",
     "github_user": "osandov",
     "github_repo": "drgn",
     "github_button": True,
