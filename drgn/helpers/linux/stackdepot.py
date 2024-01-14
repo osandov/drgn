@@ -6,7 +6,8 @@ Stack Depot
 -----------
 
 The ``drgn.helpers.linux.stackdepot`` module provides helpers for working with
-the stack depot implementation used by KASAN and other kernel debugging tools.
+the stack trace storage from :linux:`include/linux/stackdepot.h` used by KASAN
+and other kernel debugging tools.
 """
 
 from typing import Optional
@@ -36,9 +37,9 @@ def stack_depot_fetch(handle: Object) -> Optional[StackTrace]:
     if not pool:
         return None
 
-    # This has remained the same since the stack depot was introduced in
-    # commit cd11016e5f52 ("mm, kasan: stackdepot implementation. Enable
-    # stackdepot for SLAB"), when it was known as STACK_ALLOC_ALIGN.
+    # This has remained the same since the stack depot was introduced in Linux
+    # kernel commit cd11016e5f52 ("mm, kasan: stackdepot implementation. Enable
+    # stackdepot for SLAB") (in v4.6), when it was known as STACK_ALLOC_ALIGN.
     DEPOT_STACK_ALIGN = 4
 
     record = cast(
