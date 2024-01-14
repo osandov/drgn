@@ -4,7 +4,7 @@
 import os
 import unittest
 
-from drgn import Object, Program
+from drgn import Object, Program, reinterpret
 from tests import assertReprPrettyEqualsStr, modifyenv
 from tests.linux_kernel import (
     LinuxKernelTestCase,
@@ -62,6 +62,23 @@ class TestStackTrace(LinuxKernelTestCase):
         pt_regs = self.prog["drgn_test_kthread_pt_regs"]
         self._test_drgn_test_kthread_trace(self.prog.stack_trace(pt_regs))
         self._test_drgn_test_kthread_trace(self.prog.stack_trace(pt_regs.address_of_()))
+
+    @skip_unless_have_test_kmod
+    def test_stack_trace_from_pcs(self):
+        if not self.prog["drgn_test_have_stacktrace"]:
+            self.skipTest("kernel was not built with CONFIG_STACKTRACE")
+        entries = self.prog["drgn_test_stack_entries"]
+        self._test_drgn_test_kthread_trace(
+            self.prog.stack_trace_from_pcs(
+                reinterpret(
+                    self.prog.array_type(
+                        entries.type_.type,
+                        self.prog["drgn_test_num_stack_entries"].value_(),
+                    ),
+                    entries,
+                ).value_()
+            )
+        )
 
     @skip_unless_have_test_kmod
     def test_local_variable(self):

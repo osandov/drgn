@@ -31,6 +31,7 @@
 #include <linux/rbtree_augmented.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
+#include <linux/stacktrace.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
@@ -650,6 +651,29 @@ static int drgn_test_slab_init(void)
 // kthread for stack trace
 
 static struct task_struct *drgn_test_kthread;
+
+const int drgn_test_have_stacktrace = IS_ENABLED(CONFIG_STACKTRACE);
+#ifdef CONFIG_STACKTRACE
+unsigned long drgn_test_stack_entries[16];
+unsigned int drgn_test_num_stack_entries;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0)
+// Wrapper providing the newer interface and working around the caller of
+// save_stack_trace() not being included in the returned trace.
+static noinline unsigned int
+stack_trace_save(unsigned long *store, unsigned int size, unsigned int skipnr)
+{
+	struct stack_trace trace = {
+		.entries = store,
+		.max_entries = size,
+		.skip = skipnr,
+	};
+	save_stack_trace(&trace);
+	return trace.nr_entries;
+}
+#endif
+#endif
+
 // Completion indicating that the kthread has set up its stack frames and is
 // ready to be parked.
 static DECLARE_COMPLETION(drgn_test_kthread_ready);
@@ -776,6 +800,12 @@ static void drgn_test_kthread_fn3(void)
 	a = 1;
 	b = 2;
 	c = 3;
+
+#ifdef CONFIG_STACKTRACE
+	drgn_test_num_stack_entries = stack_trace_save(drgn_test_stack_entries,
+						       ARRAY_SIZE(drgn_test_stack_entries),
+						       0);
+#endif
 
 	complete(&drgn_test_kthread_ready);
 	for (;;) {
