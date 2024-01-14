@@ -32,6 +32,9 @@
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/stacktrace.h>
+#ifdef CONFIG_STACKDEPOT
+#include <linux/stackdepot.h>
+#endif
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
@@ -674,6 +677,11 @@ stack_trace_save(unsigned long *store, unsigned int size, unsigned int skipnr)
 #endif
 #endif
 
+const int drgn_test_have_stackdepot = IS_ENABLED(CONFIG_STACKDEPOT);
+#ifdef CONFIG_STACKDEPOT
+depot_stack_handle_t drgn_test_stack_handle;
+#endif
+
 // Completion indicating that the kthread has set up its stack frames and is
 // ready to be parked.
 static DECLARE_COMPLETION(drgn_test_kthread_ready);
@@ -805,6 +813,12 @@ static void drgn_test_kthread_fn3(void)
 	drgn_test_num_stack_entries = stack_trace_save(drgn_test_stack_entries,
 						       ARRAY_SIZE(drgn_test_stack_entries),
 						       0);
+#endif
+#ifdef CONFIG_STACKDEPOT
+	stack_depot_init();
+	drgn_test_stack_handle = stack_depot_save(drgn_test_stack_entries,
+						  drgn_test_num_stack_entries,
+						  GFP_KERNEL);
 #endif
 
 	complete(&drgn_test_kthread_ready);
