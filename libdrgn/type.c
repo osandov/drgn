@@ -1291,6 +1291,15 @@ void drgn_program_deinit_types(struct drgn_program *prog)
 				drgn_lazy_object_deinit(&parameters[j].default_argument);
 			free(parameters);
 		}
+		if (drgn_type_has_template_parameters(type)) {
+			struct drgn_type_template_parameter *template_parameters =
+				drgn_type_template_parameters(type);
+			size_t num_template_parameters =
+				drgn_type_num_template_parameters(type);
+			for (size_t j = 0; j < num_template_parameters; j++)
+				drgn_lazy_object_deinit(&template_parameters[j].argument);
+			free(template_parameters);
+		}
 		free(type);
 	}
 	drgn_typep_vector_deinit(&prog->created_types);
