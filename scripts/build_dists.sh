@@ -8,10 +8,18 @@ set -eux
 "$PYTHON" setup.py sdist
 SDIST=dist/drgn-"$("$PYTHON" setup.py --version)".tar.gz
 
-${DOCKER=docker} run -it \
+if [ "${DOCKER+set}" = set ]; then
+	PODMAN="$DOCKER"
+	PODMAN_OPTS="--env OWNER=$(id -u):$(id -g)"
+else
+	PODMAN=podman
+	PODMAN_OPTS="--security-opt label=disable"
+fi
+
+$PODMAN run -it \
 	--env PLAT=manylinux2014_x86_64 \
 	--env SDIST="$SDIST" \
-	--env OWNER="$(id -u):$(id -g)" \
+	$PODMAN_OPTS \
 	--volume "$(pwd)":/io:ro \
 	--volume "$(pwd)/dist":/io/dist \
 	--workdir /io \

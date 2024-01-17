@@ -91,5 +91,7 @@ for pybin in /opt/python/cp*/bin; do
 	fi
 done
 
-chown "$OWNER" /tmp/manylinux_wheels/*
+if [ "${OWNER+set}" = set ]; then
+	chown "$OWNER" /tmp/manylinux_wheels/*
+fi
 mv /tmp/manylinux_wheels/* /io/dist/
