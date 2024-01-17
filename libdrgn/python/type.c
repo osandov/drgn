@@ -387,10 +387,21 @@ DrgnType_ATTR(parameters);
 DrgnType_ATTR(is_variadic);
 DrgnType_ATTR(template_parameters);
 
+static int DrgnType_cache_attr(DrgnType *self, struct DrgnType_Attr *attr,
+			       PyObject *value)
+{
+	PyObject *key = _PyUnicode_FromId(&attr->id);
+	if (!key)
+		return -1;
+	return PyDict_SetItem(self->attr_cache, key, value);
+}
+
 static PyObject *DrgnType_getter(DrgnType *self, struct DrgnType_Attr *attr)
 {
-	PyObject *value = _PyDict_GetItemIdWithError(self->attr_cache,
-						     &attr->id);
+	PyObject *key = _PyUnicode_FromId(&attr->id);
+	if (!key)
+		return NULL;
+	PyObject *value = PyDict_GetItemWithError(self->attr_cache, key);
 	if (value) {
 		Py_INCREF(value);
 		return value;
@@ -402,7 +413,7 @@ static PyObject *DrgnType_getter(DrgnType *self, struct DrgnType_Attr *attr)
 	if (!value)
 		return NULL;
 
-	if (_PyDict_SetItemId(self->attr_cache, &attr->id, value) == -1) {
+	if (PyDict_SetItem(self->attr_cache, key, value) == -1) {
 		Py_DECREF(value);
 		return NULL;
 	}
@@ -1380,9 +1391,8 @@ DrgnType *Program_int_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	if (drgn_type_name(qualified_type.type) == name &&
-	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
-			      name_obj) == -1)
+	if (drgn_type_name(qualified_type.type) == name
+	    && DrgnType_cache_attr(type_obj, &DrgnType_attr_name, name_obj))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -1435,9 +1445,8 @@ DrgnType *Program_bool_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	if (drgn_type_name(qualified_type.type) == name &&
-	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
-			      name_obj) == -1)
+	if (drgn_type_name(qualified_type.type) == name
+	    && DrgnType_cache_attr(type_obj, &DrgnType_attr_name, name_obj))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -1491,9 +1500,8 @@ DrgnType *Program_float_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	if (drgn_type_name(qualified_type.type) == name &&
-	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
-			      name_obj) == -1)
+	if (drgn_type_name(qualified_type.type) == name
+	    && DrgnType_cache_attr(type_obj, &DrgnType_attr_name, name_obj))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -1739,16 +1747,15 @@ err_builder:
 	if (!type_obj)
 		return NULL;
 
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_tag.id,
-			      tag_obj) == -1 ||
-	    (can_cache_members &&
-	     _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_members.id,
-			       cached_members ?
-			       cached_members : Py_None) == -1) ||
-	    (can_cache_template_parameters &&
-	     _PyDict_SetItemId(type_obj->attr_cache,
-			       &DrgnType_attr_template_parameters.id,
-			       cached_template_parameters) == -1))
+	if (DrgnType_cache_attr(type_obj, &DrgnType_attr_tag, tag_obj)
+	    || (can_cache_members
+		&& DrgnType_cache_attr(type_obj, &DrgnType_attr_members,
+				       cached_members
+				       ? cached_members : Py_None))
+	    || (can_cache_template_parameters
+		&& DrgnType_cache_attr(type_obj,
+				       &DrgnType_attr_template_parameters,
+				       cached_template_parameters)))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -1927,14 +1934,12 @@ err_builder:
 	if (!type_obj)
 		return NULL;
 
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_tag.id,
-			      tag_obj) == -1 ||
-	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
-			      compatible_type_obj) == -1 ||
-	    _PyDict_SetItemId(type_obj->attr_cache,
-			      &DrgnType_attr_enumerators.id,
-			      cached_enumerators ?
-			      cached_enumerators : Py_None) == -1)
+	if (DrgnType_cache_attr(type_obj, &DrgnType_attr_tag, tag_obj)
+	    || DrgnType_cache_attr(type_obj, &DrgnType_attr_type,
+				   compatible_type_obj)
+	    || DrgnType_cache_attr(type_obj, &DrgnType_attr_enumerators,
+				   cached_enumerators
+				   ? cached_enumerators : Py_None))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -1981,10 +1986,9 @@ DrgnType *Program_typedef_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
-			      (PyObject *)aliased_type_obj) == -1 ||
-	    _PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_name.id,
-			      name_obj) == -1)
+	if (DrgnType_cache_attr(type_obj, &DrgnType_attr_type,
+				(PyObject *)aliased_type_obj)
+	    || DrgnType_cache_attr(type_obj, &DrgnType_attr_name, name_obj))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -2036,8 +2040,8 @@ DrgnType *Program_pointer_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
-			      (PyObject *)referenced_type_obj) == -1)
+	if (DrgnType_cache_attr(type_obj, &DrgnType_attr_type,
+				(PyObject *)referenced_type_obj))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -2081,8 +2085,8 @@ DrgnType *Program_array_type(Program *self, PyObject *args, PyObject *kwds)
 	if (!type_obj)
 		return NULL;
 
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
-			      (PyObject *)element_type_obj) == -1)
+	if (DrgnType_cache_attr(type_obj, &DrgnType_attr_type,
+				(PyObject *)element_type_obj))
 		return NULL;
 
 	return_ptr(type_obj);
@@ -2214,16 +2218,15 @@ err_builder:
 	if (!type_obj)
 		return NULL;
 
-	if (_PyDict_SetItemId(type_obj->attr_cache, &DrgnType_attr_type.id,
-			      (PyObject *)return_type_obj) == -1 ||
-	    (can_cache_parameters &&
-	     _PyDict_SetItemId(type_obj->attr_cache,
-			       &DrgnType_attr_parameters.id,
-			       cached_parameters) == -1) ||
-	    (can_cache_template_parameters &&
-	     _PyDict_SetItemId(type_obj->attr_cache,
-			       &DrgnType_attr_template_parameters.id,
-			       cached_template_parameters) == -1))
+	if (DrgnType_cache_attr(type_obj, &DrgnType_attr_type,
+			      (PyObject *)return_type_obj)
+	    || (can_cache_parameters
+		&& DrgnType_cache_attr(type_obj, &DrgnType_attr_parameters,
+				       cached_parameters))
+	    || (can_cache_template_parameters
+		&& DrgnType_cache_attr(type_obj,
+				       &DrgnType_attr_template_parameters,
+				       cached_template_parameters)))
 		return NULL;
 
 	return_ptr(type_obj);
