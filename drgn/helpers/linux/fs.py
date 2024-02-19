@@ -21,6 +21,7 @@ from drgn.helpers.linux.list import (
     list_for_each_entry,
     list_for_each_entry_reverse,
 )
+from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 __all__ = (
     "path_lookup",
@@ -310,7 +311,13 @@ def for_each_mount(
         dst = os.fsencode(dst)
     if fstype:
         fstype = os.fsencode(fstype)
-    for mnt in list_for_each_entry("struct mount", ns.list.address_of_(), "mnt_list"):
+    try:
+        mounts = list_for_each_entry("struct mount", ns.list.address_of_(), "mnt_list")
+    except AttributeError:
+        mounts = rbtree_inorder_for_each_entry(
+            "struct mount", ns.mounts.address_of_(), "mnt_node"
+        )
+    for mnt in mounts:
         if (
             (src is None or mount_src(mnt) == src)
             and (dst is None or mount_dst(mnt) == dst)
