@@ -117,9 +117,18 @@ def path_lookup(
         elif component == b"..":
             mnt, dentry = _follow_dotdot(mnt, dentry, root_mnt, root_dentry)
         else:
-            for child in list_for_each_entry(
-                "struct dentry", dentry.d_subdirs.address_of_(), "d_child"
-            ):
+            # Since Linux kernel commit da549bdd15c2 ("dentry: switch the lists
+            # of children to hlist") (in v6.8), the children are in an hlist.
+            # Before that, they're in a list with different field names.
+            try:
+                children = hlist_for_each_entry(
+                    "struct dentry", dentry.d_children.address_of_(), "d_sib"
+                )
+            except AttributeError:
+                children = list_for_each_entry(
+                    "struct dentry", dentry.d_subdirs.address_of_(), "d_child"
+                )
+            for child in children:
                 if child.d_name.name.string_() == component:
                     dentry = child
                     break
