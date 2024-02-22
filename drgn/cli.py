@@ -345,6 +345,7 @@ def run_interactive(
         "__doc__": None,
     }
     drgn_globals = [
+        "FaultError",
         "NULL",
         "Object",
         "cast",
