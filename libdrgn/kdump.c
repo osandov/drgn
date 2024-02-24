@@ -154,8 +154,8 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_kdump, ctx, true);
 	if (err) {
-		drgn_memory_reader_deinit(&prog->reader);
-		drgn_memory_reader_init(&prog->reader);
+		drgn_memory_interface_deinit(&prog->memory);
+		drgn_memory_interface_init(&prog->memory);
 		goto err_platform;
 	}
 

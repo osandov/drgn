@@ -9,8 +9,8 @@
  * See @ref MemoryReader.
  */
 
-#ifndef DRGN_MEMORY_READER_H
-#define DRGN_MEMORY_READER_H
+#ifndef DRGN_MEMORY_INTERFACE_H
+#define DRGN_MEMORY_INTERFACE_H
 
 #include "binary_search_tree.h"
 #include "drgn.h"
@@ -18,14 +18,14 @@
 /**
  * @ingroup Internals
  *
- * @defgroup MemoryReader Memory reader
+ * @defgroup MemoryReader Memory interface
  *
- * Memory reading interface.
+ * Memory reading and writing interface.
  *
- * @ref drgn_memory_reader provides a common interface for registering regions
- * of memory in a program and reading from memory.
+ * @ref drgn_memory_interface provides a common interface for registering regions
+ * of memory in a program, reading from and writing to memory.
  *
- * @ref drgn_memory_reader does not have a notion of the maximum address or
+ * @ref drgn_memory_interface does not have a notion of the maximum address or
  * address overflow/wrap-around. Those must be handled at a higher layer.
  *
  * @{
@@ -35,12 +35,12 @@ DEFINE_BINARY_SEARCH_TREE_TYPE(drgn_memory_segment_tree,
 			       struct drgn_memory_segment);
 
 /**
- * Memory reader.
+ * Memory interface.
  *
- * A memory reader maps the segments of memory in an address space to callbacks
- * which can be used to read memory from those segments.
+ * A memory interface maps the segments of memory in an address space to callbacks
+ * which can be used to read and write memory from those segments.
  */
-struct drgn_memory_reader {
+struct drgn_memory_interface {
 	/** Virtual memory segments. */
 	struct drgn_memory_segment_tree virtual_segments;
 	/** Physical memory segments. */
@@ -48,22 +48,22 @@ struct drgn_memory_reader {
 };
 
 /**
- * Initialize a @ref drgn_memory_reader.
+ * Initialize a @ref drgn_memory_interface.
  *
- * The reader is initialized with no segments.
+ * The memory interface is initialized with no segments.
  */
-void drgn_memory_reader_init(struct drgn_memory_reader *reader);
+void drgn_memory_interface_init(struct drgn_memory_interface *memory);
 
-/** Deinitialize a @ref drgn_memory_reader. */
-void drgn_memory_reader_deinit(struct drgn_memory_reader *reader);
+/** Deinitialize a @ref drgn_memory_interface. */
+void drgn_memory_interface_deinit(struct drgn_memory_interface *memory);
 
-/** Return whether a @ref drgn_memory_reader has no segments. */
-bool drgn_memory_reader_empty(struct drgn_memory_reader *reader);
+/** Return whether a @ref drgn_memory_interface has no segments. */
+bool drgn_memory_interface_empty(struct drgn_memory_interface *memory);
 
 /**
- * Add a segment to a @ref drgn_memory_reader.
+ * Add a segment to a @ref drgn_memory_interface.
  *
- * @param[in] reader Memory reader.
+ * @param[in] memory Memory interface.
  * @param[in] min_address Start address (inclusive).
  * @param[in] max_address End address (inclusive). Must be `>= min_address`.
  * @param[in] read_fn Callback to read from segment.
@@ -72,15 +72,15 @@ bool drgn_memory_reader_empty(struct drgn_memory_reader *reader);
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
-drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
-			       uint64_t min_address, uint64_t max_address,
-			       drgn_memory_read_fn read_fn, void *arg,
-			       bool physical);
+drgn_memory_interface_add_segment(struct drgn_memory_interface *memory,
+				  uint64_t min_address, uint64_t max_address,
+				  drgn_memory_read_fn read_fn, void *arg,
+				  bool physical);
 
 /**
- * Read from a @ref drgn_memory_reader.
+ * Read from a @ref drgn_memory_interface.
  *
- * @param[in] reader Memory reader.
+ * @param[in] memory Memory interface.
  * @param[out] buf Buffer to read into.
  * @param[in] address Starting address in memory to read.
  * @param[in] count Number of bytes to read. `address + count - 1` must be
@@ -88,9 +88,9 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
  * @param[in] physical Whether @c address is physical.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
-					   void *buf, uint64_t address,
-					   size_t count, bool physical);
+struct drgn_error *drgn_memory_interface_read(struct drgn_memory_interface *memory,
+					      void *buf, uint64_t address,
+					      size_t count, bool physical);
 
 /** Argument for @ref drgn_read_memory_file(). */
 struct drgn_memory_file_segment {
