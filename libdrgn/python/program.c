@@ -303,10 +303,15 @@ static int Program_clear(Program *self)
 	return 0;
 }
 
-static struct drgn_error *py_memory_read_fn(void *buf, uint64_t address,
-					    size_t count, uint64_t offset,
-					    void *arg, bool physical)
+static struct drgn_error *py_memory_read_fn(bool is_write, void *buf,
+					    uint64_t address, size_t count,
+					    uint64_t offset, void *arg,
+					    bool physical)
 {
+	if(is_write)
+		return drgn_error_create_fault("cannot write to memory",
+					       address);
+
 	struct drgn_error *err;
 
 	PyGILState_guard();

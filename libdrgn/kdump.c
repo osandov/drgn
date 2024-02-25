@@ -63,10 +63,14 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 	return NULL;
 }
 
-static struct drgn_error *drgn_read_kdump(void *buf, uint64_t address,
-					  size_t count, uint64_t offset,
-					  void *arg, bool physical)
+static struct drgn_error *drgn_read_kdump(bool is_write, void *buf,
+					  uint64_t address, size_t count,
+					  uint64_t offset, void *arg,
+					  bool physical)
 {
+	if(is_write)
+		return drgn_error_create_fault("cannot write to kdump memory",
+					       address);
 	kdump_ctx_t *ctx = arg;
 	kdump_status ks;
 

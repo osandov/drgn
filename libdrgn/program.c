@@ -176,7 +176,7 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
-				uint64_t size, drgn_memory_read_fn read_fn,
+				uint64_t size, drgn_memory_rw_fn rw_fn,
 				void *arg, bool physical)
 {
 	uint64_t address_mask;
@@ -187,8 +187,8 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 		return NULL;
 	uint64_t max_address = address + min(size - 1, address_mask - address);
 	return drgn_memory_interface_add_segment(&prog->memory, address,
-					      max_address, read_fn, arg,
-					      physical);
+						 max_address, rw_fn, arg,
+						 physical);
 }
 
 struct drgn_error *
@@ -1647,8 +1647,8 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	char *p = buf;
 	while (count > 0) {
 		size_t n = min((uint64_t)(count - 1), address_mask - address) + 1;
-		err = drgn_memory_interface_read(&prog->memory, p, address, n,
-					      physical);
+		err = drgn_memory_interface_rw(&prog->memory, false, p, address,
+					       n, physical);
 		if (err)
 			return err;
 		p += n;
@@ -1673,8 +1673,8 @@ drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 		if (!c)
 			return &drgn_enomem;
 		if (char_vector_size(&str) <= max_size) {
-			err = drgn_memory_interface_read(&prog->memory, c, address,
-						      1, physical);
+			err = drgn_memory_interface_rw(&prog->memory, false, c,
+						       address, 1, physical);
 			if (err)
 				return err;
 			if (!*c)

@@ -66,31 +66,33 @@ bool drgn_memory_interface_empty(struct drgn_memory_interface *memory);
  * @param[in] memory Memory interface.
  * @param[in] min_address Start address (inclusive).
  * @param[in] max_address End address (inclusive). Must be `>= min_address`.
- * @param[in] read_fn Callback to read from segment.
- * @param[in] arg Argument to pass to @p read_fn.
+ * @param[in] rw_fn Callback to read from/write to segment.
+ * @param[in] arg Argument to pass to @p rw_fn.
  * @param[in] physical Whether to add a physical memory segment.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_memory_interface_add_segment(struct drgn_memory_interface *memory,
 				  uint64_t min_address, uint64_t max_address,
-				  drgn_memory_read_fn read_fn, void *arg,
+				  drgn_memory_rw_fn rw_fn, void *arg,
 				  bool physical);
 
 /**
  * Read from a @ref drgn_memory_interface.
  *
  * @param[in] memory Memory interface.
- * @param[out] buf Buffer to read into.
- * @param[in] address Starting address in memory to read.
- * @param[in] count Number of bytes to read. `address + count - 1` must be
- * `<= UINT64_MAX`
+ * @param[in] is_write Whether the operation is a write.
+ * @param[inout] buf Buffer to read into or write from.
+ * @param[in] address Starting address in memory to read or write.
+ * @param[in] count Number of bytes to read or write. `address + count - 1` must
+ * be `<= UINT64_MAX`
  * @param[in] physical Whether @c address is physical.
  * @return @c NULL on success, non-@c NULL on error.
  */
-struct drgn_error *drgn_memory_interface_read(struct drgn_memory_interface *memory,
-					      void *buf, uint64_t address,
-					      size_t count, bool physical);
+struct drgn_error *drgn_memory_interface_rw(struct drgn_memory_interface *memory,
+					    bool is_write, void *buf,
+					    uint64_t address, size_t count,
+					    bool physical);
 
 /** Argument for @ref drgn_read_memory_file(). */
 struct drgn_memory_file_segment {
@@ -116,10 +118,11 @@ struct drgn_memory_file_segment {
 	bool zerofill;
 };
 
-/** @ref drgn_memory_read_fn which reads from a file. */
-struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
-					 size_t count, uint64_t offset,
-					 void *arg, bool physical);
+/** @ref drgn_memory_rw_fn which reads from a file. */
+struct drgn_error *drgn_read_memory_file(bool is_write, void *buf,
+					 uint64_t address, size_t count,
+					 uint64_t offset, void *arg,
+					 bool physical);
 
 /** @} */
 

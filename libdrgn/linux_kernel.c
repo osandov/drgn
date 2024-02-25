@@ -33,10 +33,14 @@
 
 #include "drgn_program_parse_vmcoreinfo.inc"
 
-struct drgn_error *read_memory_via_pgtable(void *buf, uint64_t address,
-					   size_t count, uint64_t offset,
-					   void *arg, bool physical)
+struct drgn_error *read_memory_via_pgtable(bool is_write, void *buf,
+					   uint64_t address, size_t count,
+					   uint64_t offset, void *arg,
+					   bool physical)
 {
+	if(is_write)
+		return drgn_error_create_fault("cannot write to memory",
+					       address);
 	struct drgn_program *prog = arg;
 	return linux_helper_read_vm(prog, prog->vmcoreinfo.swapper_pg_dir,
 				    address, buf, count);
