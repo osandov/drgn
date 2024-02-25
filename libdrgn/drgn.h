@@ -794,6 +794,21 @@ struct drgn_error *drgn_program_read_memory(struct drgn_program *prog,
 					    size_t count, bool physical);
 
 /**
+ * Write to a program's memory.
+ *
+ * @param[in] prog Program to write to.
+ * @param[in] buf Buffer to write.
+ * @param[in] address Starting address in memory to write.
+ * @param[in] count Number of bytes to write.
+ * @param[in] physical Whether @c address is physical. A program may support
+ * only virtual or physical addresses or both.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_write_memory(struct drgn_program *prog,
+					     void *buf, uint64_t address,
+					     size_t count, bool physical);
+
+/**
  * Read a C string from a program's memory.
  *
  * This reads up to and including the terminating null byte.

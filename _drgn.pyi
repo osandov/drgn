@@ -402,12 +402,33 @@ class Program:
         :raises FaultError: if the address is invalid; see :meth:`read()`
         """
         ...
+    def write(
+        self, address: IntegerLike, data: bytes, physical: bool = False
+    ) -> bytes:
+        """
+        Writes *data* starting at *address* in the program memory. The
+        address may be virtual (the default) or physical if the program
+        supports it.
+
+        >>> prog.write(0xffffffffbe012b40, b'swapper/0\x00\x00\x00\x00\x00\x00\x00')
+
+        :param address: The starting address.
+        :param data: The bytes to write.
+        :param physical: Whether *address* is a physical memory address. If
+            ``False``, then it is a virtual memory address. Physical memory can
+            usually only be read when the program is an operating system
+            kernel.
+        :raises FaultError: if the address range is invalid or the type of
+            address (physical or virtual) is not supported by the program
+        """
+        ...
     def add_memory_segment(
         self,
         address: IntegerLike,
         size: IntegerLike,
         read_fn: Callable[[int, int, int, bool], bytes],
         physical: bool = False,
+        write_fn: Optional[Callable[[int, bytes, int, bool], None]] = None,
     ) -> None:
         """
         Define a region of memory in the program.
@@ -425,6 +446,10 @@ class Program:
             the address is physical: ``(address, count, offset, physical)``. It
             should return the requested number of bytes as :class:`bytes` or
             another :ref:`buffer <python:binaryseq>` type.
+        :param write_fn: Callable to call to write memory to the segment. It is
+            passed the address being written to, the bytes to write,
+            the offset in bytes from the beginning of the segment, and whether
+            the address is physical: ``(address, data, offset, physical)``.
         """
         ...
     def add_type_finder(

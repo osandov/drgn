@@ -258,7 +258,7 @@ struct drgn_error *drgn_memory_interface_rw(struct drgn_memory_interface *memory
 
 		size_t n = min((uint64_t)(count - 1),
 			       segment->max_address - address) + 1;
-		err = segment->rw_fn(false, p, address, n,
+		err = segment->rw_fn(is_write, p, address, n,
 				     address - segment->orig_min_address,
 				     segment->arg, physical);
 		if (err)

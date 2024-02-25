@@ -1633,9 +1633,9 @@ drgn_program_from_pid(pid_t pid, struct drgn_program **ret)
 	return NULL;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
-			 size_t count, bool physical)
+static struct drgn_error *
+drgn_program_rw_memory(struct drgn_program *prog, bool is_write, void *buf,
+		       uint64_t address, size_t count, bool physical)
 {
 	uint64_t address_mask;
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
@@ -1647,8 +1647,8 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	char *p = buf;
 	while (count > 0) {
 		size_t n = min((uint64_t)(count - 1), address_mask - address) + 1;
-		err = drgn_memory_interface_rw(&prog->memory, false, p, address,
-					       n, physical);
+		err = drgn_memory_interface_rw(&prog->memory, is_write, p,
+					       address, n, physical);
 		if (err)
 			return err;
 		p += n;
@@ -1656,6 +1656,20 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 		count -= n;
 	}
 	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
+			 size_t count, bool physical)
+{
+	return drgn_program_rw_memory(prog, false, buf, address, count, physical);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_write_memory(struct drgn_program *prog, void *buf, uint64_t address,
+			  size_t count, bool physical)
+{
+	return drgn_program_rw_memory(prog, true, buf, address, count, physical);
 }
 
 DEFINE_VECTOR(char_vector, char);
