@@ -19,7 +19,6 @@ from drgn.helpers.linux.list import (
     hlist_empty,
     hlist_for_each_entry,
     list_for_each_entry,
-    list_for_each_entry_reverse,
 )
 from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
@@ -45,11 +44,11 @@ def _follow_mount(mnt: Object, dentry: Object) -> Tuple[Object, Object]:
     # hasn't changed since v2.6.38, so let's hardcode it for now.
     DCACHE_MOUNTED = 0x10000
     while dentry.d_flags & DCACHE_MOUNTED:
-        for mounted in list_for_each_entry_reverse(
-            "struct mount", mnt.mnt_ns.list.address_of_(), "mnt_list"
+        for mounted in list_for_each_entry(
+            "struct mount", mnt.mnt_mounts.address_of_(), "mnt_child"
         ):
-            if mounted.mnt_parent == mnt and mounted.mnt_mountpoint == dentry:
-                mnt = mounted.read_()
+            if mounted.mnt_mountpoint == dentry:
+                mnt = mounted
                 dentry = mounted.mnt.mnt_root.read_()
                 break
         else:
