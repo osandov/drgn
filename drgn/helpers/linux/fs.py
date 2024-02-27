@@ -311,6 +311,11 @@ def for_each_mount(
         dst = os.fsencode(dst)
     if fstype:
         fstype = os.fsencode(fstype)
+    # Since Linux kernel commit 2eea9ce4310d ("mounts: keep list of mounts in
+    # an rbtree") (in v6.8), the mounts in a namespace are in a red-black tree.
+    # Before that, they're in a list.
+    # The old case is first here because before that commit, struct mount also
+    # had a different member named "mounts".
     try:
         mounts = list_for_each_entry("struct mount", ns.list.address_of_(), "mnt_list")
     except AttributeError:
