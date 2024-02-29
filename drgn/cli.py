@@ -16,7 +16,9 @@ import readline
 import runpy
 import shutil
 import sys
-from typing import Any, Callable, Dict, Optional
+import textwrap
+import traceback
+from typing import Any, Callable, Dict, Iterable, Optional
 
 import drgn
 from drgn.internal.rlcompleter import Completer
@@ -25,6 +27,128 @@ from drgn.internal.sudohelper import open_via_sudo
 __all__ = ("run_interactive", "version_header")
 
 logger = logging.getLogger("drgn")
+
+Command = Callable[[drgn.Program, str, Dict[str, Any]], Any]
+"""
+A command which can be executed in the drgn CLI
+
+The drgn CLI allows for shell-like commands to be executed. Any input to the CLI
+which begins with a ``.`` is interpreted as a command rather than a Python
+statement. Commands are simply callables which take three arguments:
+
+- a :class:`drgn.Program`
+- a ``str`` which contains the command line, and
+- a dictionary of local variables in the CLI (``Dict[str, Any]``)
+
+For example, the following is a command function::
+
+    def hello_world(prog, cmdline, locals_):
+        print("hello world!")
+        print(f"your command: {cmdline}")
+        print(f"kernel command line: {prog['saved_command_line']}")
+        locals_["secret"] = 42
+
+The command, if registered with the drgn CLI, might be used like so:
+
+    >>> .hello
+    hello world!
+    your command: .hello
+    kernel command line: (char *)0xffff9ea9cf7c3600 = "quiet splash"
+
+User-defined commands may be provided to :func:`run_interactive()` via the
+``commands_func`` argument. Commands can also be registered so that they are
+included in drgn's default command set using the :func:`command` decorator.
+"""
+
+_COMMANDS: Dict[str, Command] = {}
+
+
+def command(name: str) -> Callable[[Command], Command]:
+    """
+    A decorator for registering a command function
+
+    Example usage:
+
+    >>> @drgn.cli.command("hello")
+    ... def hello(prog, line, locals_):
+    ...     print("hello world")
+
+    The decorator will be added to Drgn's default command set. Please keep in
+    mind that the decorator is evaluated when your module is imported. If you'd
+    like to extend drgn's default set of commands, then you should ensure your
+    module is imported before the CLI starts.
+    """
+
+    def decorator(cmd: Command) -> Command:
+        _COMMANDS[name] = cmd
+        return cmd
+
+    return decorator
+
+
+def all_commands() -> Dict[str, Command]:
+    """
+    Returns all registered drgn CLI commands
+
+    By default, only the commands which are built-in to drgn, or registered via
+    :func:`command`, are returned. Since decorators are evaluated at module load
+    time, any command defined in a module which is not imported prior to the
+    drgn CLI being run, will not be loaded.
+
+    However, drgn can allow user command modules to be loaded and registered by
+    using the ``drgn.command.v1`` `entry point
+    <https://setuptools.pypa.io/en/latest/pkg_resources.html#entry-points>`_.
+    Third-party packages can define a module as an entry point which should be
+    imported, typically in the setup.py::
+
+        setup(
+            ...,
+            entry_points={
+                "drgn.command.v1": {
+                    "my_module = fully_qualified.module_path",
+                },
+            }
+        )
+
+    In the above example, a function defined within the module
+    ``fully_qualified.module_path`` and registered with :func:`command`, would
+    always be included in the drgn CLI and this functon if the relevant package
+    is installed.
+    """
+    import drgn.helpers.common.commands  # noqa
+
+    # The importlib.metadata API is included in Python 3.8+. Normally, one might
+    # simply try to import it, catching the ImportError and falling back to the
+    # older API. However, the API was _transitional_ in 3.8 and 3.9, and it is
+    # different enough to break callers compared to the non-transitional API. So
+    # here we are, using sys.version_info like heathens.
+    if sys.version_info >= (3, 10):
+        from importlib.metadata import entry_points  # novermin
+    else:
+        import pkg_resources
+
+        def entry_points(group: str) -> Iterable[pkg_resources.EntryPoint]:
+            return pkg_resources.iter_entry_points(group)
+
+    # Drgn command "entry points" are simply modules. The act of loading /
+    # importing them will result in their @command decorators being executed,
+    # and _COMMANDS will be updated properly.
+    for entry_point in entry_points(group="drgn.command.v1"):  # type: ignore
+        entry_point.load()  # type: ignore
+
+    return _COMMANDS.copy()
+
+
+def help_command(commands: Dict[str, Command]) -> Command:
+    def help(prog: drgn.Program, line: str, locals_: Dict[str, Any]) -> None:
+        try:
+            width = os.get_terminal_size().columns
+        except OSError:
+            width = 80
+        print("Drgn CLI commands:\n")
+        print(textwrap.fill(" ".join(commands.keys()), width=width))
+
+    return help
 
 
 class _LogFormatter(logging.Formatter):
@@ -154,6 +278,32 @@ def _displayhook(value: Any) -> None:
             sys.stdout.write(text)
     sys.stdout.write("\n")
     setattr(builtins, "_", value)
+
+
+class _InteractiveConsoleWithCommand(code.InteractiveConsole):
+    def __init__(self, commands: Dict[str, Command], *args: Any, **kwargs: Any):
+        self.__in_multi_line = False
+        self.__commands = commands
+        super().__init__(*args, **kwargs)
+
+    def __run_command(self, line: str) -> None:
+        cmd_name = line.split(maxsplit=1)[0][1:]
+        if cmd_name not in self.__commands:
+            print(f"{cmd_name}: drgn command not found")
+            return
+        cmd = self.__commands[cmd_name]
+        prog = self.locals["prog"]
+        try:
+            setattr(builtins, "_", cmd(prog, line, self.locals))  # type: ignore
+        except Exception:
+            traceback.print_exception(*sys.exc_info())
+
+    def push(self, line: str) -> bool:
+        if not self.__in_multi_line and line and line.lstrip()[0] == ".":
+            self.__run_command(line)
+            return False
+        self.__in_multi_line = super().push(line)
+        return self.__in_multi_line
 
 
 def _main() -> None:
@@ -307,6 +457,7 @@ def run_interactive(
     prog: drgn.Program,
     banner_func: Optional[Callable[[str], str]] = None,
     globals_func: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    commands_func: Optional[Callable[[Dict[str, Command]], Dict[str, Command]]] = None,
     quiet: bool = False,
 ) -> None:
     """
@@ -324,6 +475,9 @@ def run_interactive(
     :param globals_func: Optional function to modify globals provided to the
         session. Called with a dictionary of default globals, and must return a
         dictionary to use instead.
+    :param commands_func: Optional function to modify the command list which is
+        used for the session. Called with a dictionary of commands, and must
+        return a dictionary to use instead.
     :param quiet: Ignored. Will be removed in the future.
 
     .. note::
@@ -379,6 +533,11 @@ For help, type help(drgn).
     if globals_func:
         init_globals = globals_func(init_globals)
 
+    commands = all_commands()
+    if commands_func:
+        commands = commands_func(commands)
+    commands["help"] = help_command(commands)
+
     old_path = list(sys.path)
     old_displayhook = sys.displayhook
     old_history_length = readline.get_history_length()
@@ -406,7 +565,9 @@ For help, type help(drgn).
         drgn.set_default_prog(prog)
 
         try:
-            code.interact(banner=banner, exitmsg="", local=init_globals)
+            console = _InteractiveConsoleWithCommand(commands=commands)
+            console.locals = init_globals
+            console.interact(banner=banner, exitmsg="")
         finally:
             try:
                 readline.write_history_file(histfile)

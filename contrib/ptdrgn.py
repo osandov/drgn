@@ -11,6 +11,7 @@ makes it worth sharing.
 
 Requires: "pip install ptpython" which brings in pygments and prompt_toolkit
 """
+import builtins
 import functools
 import importlib
 import os
@@ -18,16 +19,20 @@ import shutil
 import sys
 from typing import Any, Callable, Dict, Optional, Set
 
+import ptpython.repl
 from prompt_toolkit.completion import Completion, Completer
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import PygmentsTokens
 from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text
 from ptpython import embed
 from ptpython.completer import DictionaryCompleter
-from ptpython.repl import run_config
+from ptpython.repl import PythonRepl, run_config
+from ptpython.validator import PythonValidator
 from pygments.lexers.c_cpp import CLexer
 
 import drgn
 import drgn.cli
+from drgn.cli import all_commands, Command, help_command
 
 
 class DummyForRepr:
@@ -124,10 +129,40 @@ def configure(repl) -> None:
     repl.completer = ReorderDrgnObjectCompleter(repl.completer)
 
 
+class DrgnPythonValidator(PythonValidator):
+
+    def validate(self, document: Document) -> None:
+        if document.text.lstrip().startswith("."):
+            return
+        return super().validate(document)
+
+
+class DrgnPythonRepl(PythonRepl):
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs, _validator=DrgnPythonValidator())
+
+    def __run_command(self, line: str) -> object:
+        cmd_name = line.split(maxsplit=1)[0][1:]
+        if cmd_name not in self._commands:
+            print(f"{cmd_name}: drgn command not found")
+            return None
+        cmd = self._commands[cmd_name]
+        locals = self.get_locals()
+        prog = locals["prog"]
+        setattr(builtins, "_", cmd(prog, line, locals))
+
+    def eval(self, line: str) -> object:
+        if line.lstrip().startswith('.'):
+            return self.__run_command(line)
+        return super().eval(line)
+
+
 def run_interactive(
     prog: drgn.Program,
     banner_func: Optional[Callable[[str], str]] = None,
     globals_func: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    commands_func: Optional[Callable[[Dict[str, Command]], Dict[str, Command]]] = None,
     quiet: bool = False,
 ) -> None:
     """
@@ -184,6 +219,12 @@ For help, type help(drgn).
     if globals_func:
         init_globals = globals_func(init_globals)
 
+    commands = all_commands()
+    if commands_func:
+        commands = commands_func(commands)
+    commands["help"] = help_command(commands)
+    DrgnPythonRepl._commands = commands
+
     old_path = list(sys.path)
     try:
         old_default_prog = drgn.get_default_prog()
@@ -212,6 +253,7 @@ For help, type help(drgn).
 
 
 if __name__ == "__main__":
+    ptpython.repl.PythonRepl = DrgnPythonRepl
     # Muck around with the internals of drgn: swap out run_interactive() with our
     # ptpython version, and then call main as if nothing happened.
     drgn.cli.run_interactive = run_interactive
