@@ -74,7 +74,7 @@ CONFIG_VIRTIO_PCI=y
 CONFIG_HW_RANDOM=m
 CONFIG_HW_RANDOM_VIRTIO=m
 
-# Lots of stuff expect Unix sockets.
+# Lots of things expect Unix sockets.
 CONFIG_UNIX=y
 
 # drgn needs debug info.
