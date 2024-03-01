@@ -2,6 +2,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+# type: ignore
+
 import argparse
 
 from drgn.helpers.common.type import enum_type_to_class
