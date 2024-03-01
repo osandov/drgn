@@ -274,6 +274,10 @@ def run_in_vm(
             )
         init_path.chmod(0o755)
 
+        disk_path = temp_path / "disk"
+        with disk_path.open("wb") as f:
+            os.ftruncate(f.fileno(), 1024 * 1024 * 1024)
+
         with subprocess.Popen(
             [
                 # fmt: off
@@ -300,6 +304,8 @@ def run_in_vm(
                 "-chardev", f"socket,id=vmtest,path={socket_path}",
                 "-device",
                 "virtserialport,chardev=vmtest,name=com.osandov.vmtest.0",
+
+                "-drive", f"file={disk_path},if=virtio,media=disk,format=raw",
 
                 *kernel.arch.qemu_options,
 
