@@ -164,13 +164,13 @@ def proc_in_sigwait(pid):
 # 3. Returns the PID from __enter__().
 # 4. Kills the process in __exit__().
 @contextlib.contextmanager
-def fork_and_sigwait(fn=None):
+def fork_and_sigwait(fn=None, *args, **kwds):
     pid = os.fork()
     try:
         if pid == 0:
             try:
                 if fn:
-                    fn()
+                    fn(*args, **kwds)
                 while True:
                     signal.sigwait(())
             finally:
