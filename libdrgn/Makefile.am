@@ -78,8 +78,8 @@ libdrgnimpl_la_SOURCES = $(ARCH_DEFS_PYS:_defs.py=.c) \
 			 linux_kernel_helpers.c \
 			 log.c \
 			 log.h \
-			 memory_reader.c \
-			 memory_reader.h \
+			 memory_interface.c \
+			 memory_interface.h \
 			 minmax.h \
 			 nstring.h \
 			 object.c \

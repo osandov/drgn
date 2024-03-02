@@ -7,10 +7,10 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "memory_reader.h"
+#include "memory_interface.h"
 #include "minmax.h"
 
-/** Memory segment in a @ref drgn_memory_reader. */
+/** Memory segment in a @ref drgn_memory_interface. */
 struct drgn_memory_segment {
 	struct binary_tree_node node;
 	/** Address range of the segment in memory (inclusive). */
@@ -22,9 +22,9 @@ struct drgn_memory_segment {
 	 * drgn_memory_segment::min_address.
 	 */
 	uint64_t orig_min_address;
-	/** Read callback. */
-	drgn_memory_read_fn read_fn;
-	/** Argument to pass to @ref drgn_memory_segment::read_fn. */
+	/** Read/write callback. */
+	drgn_memory_rw_fn rw_fn;
+	/** Argument to pass to @ref drgn_memory_segment::rw_fn. */
 	void *arg;
 };
 
@@ -38,10 +38,10 @@ DEFINE_BINARY_SEARCH_TREE_FUNCTIONS(drgn_memory_segment_tree, node,
 				    drgn_memory_segment_to_key,
 				    binary_search_tree_scalar_cmp, splay);
 
-void drgn_memory_reader_init(struct drgn_memory_reader *reader)
+void drgn_memory_interface_init(struct drgn_memory_interface *memory)
 {
-	drgn_memory_segment_tree_init(&reader->virtual_segments);
-	drgn_memory_segment_tree_init(&reader->physical_segments);
+	drgn_memory_segment_tree_init(&memory->virtual_segments);
+	drgn_memory_segment_tree_init(&memory->physical_segments);
 }
 
 static void free_memory_segment_tree(struct drgn_memory_segment_tree *tree)
@@ -57,29 +57,29 @@ static void free_memory_segment_tree(struct drgn_memory_segment_tree *tree)
 	}
 }
 
-void drgn_memory_reader_deinit(struct drgn_memory_reader *reader)
+void drgn_memory_interface_deinit(struct drgn_memory_interface *memory)
 {
-	free_memory_segment_tree(&reader->physical_segments);
-	free_memory_segment_tree(&reader->virtual_segments);
+	free_memory_segment_tree(&memory->physical_segments);
+	free_memory_segment_tree(&memory->virtual_segments);
 }
 
-bool drgn_memory_reader_empty(struct drgn_memory_reader *reader)
+bool drgn_memory_interface_empty(struct drgn_memory_interface *memory)
 {
-	return (drgn_memory_segment_tree_empty(&reader->virtual_segments) &&
-		drgn_memory_segment_tree_empty(&reader->physical_segments));
+	return (drgn_memory_segment_tree_empty(&memory->virtual_segments) &&
+		drgn_memory_segment_tree_empty(&memory->physical_segments));
 }
 
 struct drgn_error *
-drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
-			       uint64_t min_address, uint64_t max_address,
-			       drgn_memory_read_fn read_fn, void *arg,
-			       bool physical)
+drgn_memory_interface_add_segment(struct drgn_memory_interface *memory,
+				  uint64_t min_address, uint64_t max_address,
+				  drgn_memory_rw_fn rw_fn, void *arg,
+				  bool physical)
 {
 	assert(min_address <= max_address);
 
 	struct drgn_memory_segment_tree *tree = (physical ?
-						 &reader->physical_segments :
-						 &reader->virtual_segments);
+						 &memory->physical_segments :
+						 &memory->virtual_segments);
 
 	/*
 	 * This is split into two steps: the first step handles an overlapping
@@ -128,7 +128,7 @@ drgn_memory_reader_add_segment(struct drgn_memory_reader *reader,
 			tail->min_address = max_address + 1;
 			tail->max_address = it.entry->max_address;
 			tail->orig_min_address = it.entry->orig_min_address;
-			tail->read_fn = it.entry->read_fn;
+			tail->rw_fn = it.entry->rw_fn;
 			tail->arg = it.entry->arg;
 
 			drgn_memory_segment_tree_insert(tree, tail, NULL);
@@ -227,7 +227,7 @@ insert:
 		truncate_tail->max_address = min_address - 1;
 	segment->min_address = segment->orig_min_address = min_address;
 	segment->max_address = max_address;
-	segment->read_fn = read_fn;
+	segment->rw_fn = rw_fn;
 	segment->arg = arg;
 	/* If the segment is stolen, then it's already in the tree. */
 	if (!stolen)
@@ -235,16 +235,17 @@ insert:
 	return NULL;
 }
 
-struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
-					   void *buf, uint64_t address,
-					   size_t count, bool physical)
+struct drgn_error *drgn_memory_interface_rw(struct drgn_memory_interface *memory,
+					    bool is_write, void *buf,
+					    uint64_t address, size_t count,
+					    bool physical)
 {
 	assert(count == 0 || count - 1 <= UINT64_MAX - address);
 
 	struct drgn_error *err;
 	struct drgn_memory_segment_tree *tree = (physical ?
-						 &reader->physical_segments :
-						 &reader->virtual_segments);
+						 &memory->physical_segments :
+						 &memory->virtual_segments);
 	char *p = buf;
 	while (count > 0) {
 		struct drgn_memory_segment *segment =
@@ -257,9 +258,9 @@ struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 
 		size_t n = min((uint64_t)(count - 1),
 			       segment->max_address - address) + 1;
-		err = segment->read_fn(p, address, n,
-				       address - segment->orig_min_address,
-				       segment->arg, physical);
+		err = segment->rw_fn(is_write, p, address, n,
+				     address - segment->orig_min_address,
+				     segment->arg, physical);
 		if (err)
 			return err;
 		p += n;
@@ -269,10 +270,15 @@ struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 	return NULL;
 }
 
-struct drgn_error *drgn_read_memory_file(void *buf, uint64_t address,
-					 size_t count, uint64_t offset,
-					 void *arg, bool physical)
+struct drgn_error *drgn_read_memory_file(bool is_write, void *buf,
+					 uint64_t address, size_t count,
+					 uint64_t offset, void *arg,
+					 bool physical)
 {
+	if(is_write)
+		return drgn_error_create_fault("cannot write to memory",
+					       address);
+
 	struct drgn_memory_file_segment *file_segment = arg;
 	size_t file_count;
 	if (offset < file_segment->file_size) {

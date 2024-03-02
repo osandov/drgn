@@ -534,20 +534,22 @@ struct drgn_error *drgn_program_create(const struct drgn_platform *platform,
 void drgn_program_destroy(struct drgn_program *prog);
 
 /**
- * Callback implementing a memory read.
+ * Callback implementing a memory read and write.
  *
- * @param[out] buf Buffer to read into.
- * @param[in] address Address which we are reading from.
- * @param[in] count Number of bytes to read.
+ * @param[in] is_wirte Whether the operation is a write.
+ * @param[inout] buf Buffer to read into or write to.
+ * @param[in] address Address which we are reading from or writing to.
+ * @param[in] count Number of bytes to read or write.
  * @param[in] offset Offset in bytes of @p address from the beginning of the
  * segment.
  * @param[in] arg Argument passed to @ref drgn_program_add_memory_segment().
  * @param[in] physical Whether @c address is physical.
  * @return @c NULL on success, non-@c NULL on error.
  */
-typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
-						  size_t count, uint64_t offset,
-						  void *arg, bool physical);
+typedef struct drgn_error *(*drgn_memory_rw_fn)(bool is_write, void *buf,
+						uint64_t address, size_t count,
+						uint64_t offset, void *arg,
+						bool physical);
 
 /**
  * Register a segment of memory in a @ref drgn_program.
@@ -558,14 +560,14 @@ typedef struct drgn_error *(*drgn_memory_read_fn)(void *buf, uint64_t address,
  *
  * @param[in] address Address of the segment.
  * @param[in] size Size of the segment in bytes.
- * @param[in] read_fn Callback to read from segment.
- * @param[in] arg Argument to pass to @p read_fn.
+ * @param[in] rw_fn Callback to read from/write to segment.
+ * @param[in] arg Argument to pass to @p rw_fn.
  * @param[in] physical Whether to add a physical memory segment.
  * @return @c NULL on success, non-@c NULL on error.
  */
 struct drgn_error *
 drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
-				uint64_t size, drgn_memory_read_fn read_fn,
+				uint64_t size, drgn_memory_rw_fn rw_fn,
 				void *arg, bool physical);
 
 /**
@@ -790,6 +792,21 @@ void drgn_program_set_language(struct drgn_program *prog,
 struct drgn_error *drgn_program_read_memory(struct drgn_program *prog,
 					    void *buf, uint64_t address,
 					    size_t count, bool physical);
+
+/**
+ * Write to a program's memory.
+ *
+ * @param[in] prog Program to write to.
+ * @param[in] buf Buffer to write.
+ * @param[in] address Starting address in memory to write.
+ * @param[in] count Number of bytes to write.
+ * @param[in] physical Whether @c address is physical. A program may support
+ * only virtual or physical addresses or both.
+ * @return @c NULL on success, non-@c NULL on error.
+ */
+struct drgn_error *drgn_program_write_memory(struct drgn_program *prog,
+					     void *buf, uint64_t address,
+					     size_t count, bool physical);
 
 /**
  * Read a C string from a program's memory.

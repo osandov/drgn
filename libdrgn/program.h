@@ -23,7 +23,7 @@
 #include "drgn.h"
 #include "hash_table.h"
 #include "language.h"
-#include "memory_reader.h"
+#include "memory_interface.h"
 #include "object_index.h"
 #include "platform.h"
 #include "pp.h"
@@ -61,7 +61,7 @@ struct drgn_program {
 	/*
 	 * Memory/core dump.
 	 */
-	struct drgn_memory_reader reader;
+	struct drgn_memory_interface memory;
 	/* Elf core dump or /proc/pid/mem file segments. */
 	struct drgn_memory_file_segment *file_segments;
 	/* Elf core dump. Not valid for live programs or kdump files. */

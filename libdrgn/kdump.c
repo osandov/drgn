@@ -63,10 +63,14 @@ static struct drgn_error *drgn_platform_from_kdump(kdump_ctx_t *ctx,
 	return NULL;
 }
 
-static struct drgn_error *drgn_read_kdump(void *buf, uint64_t address,
-					  size_t count, uint64_t offset,
-					  void *arg, bool physical)
+static struct drgn_error *drgn_read_kdump(bool is_write, void *buf,
+					  uint64_t address, size_t count,
+					  uint64_t offset, void *arg,
+					  bool physical)
 {
+	if(is_write)
+		return drgn_error_create_fault("cannot write to kdump memory",
+					       address);
 	kdump_ctx_t *ctx = arg;
 	kdump_status ks;
 
@@ -154,8 +158,8 @@ struct drgn_error *drgn_program_set_kdump(struct drgn_program *prog)
 	err = drgn_program_add_memory_segment(prog, 0, UINT64_MAX,
 					      drgn_read_kdump, ctx, true);
 	if (err) {
-		drgn_memory_reader_deinit(&prog->reader);
-		drgn_memory_reader_init(&prog->reader);
+		drgn_memory_interface_deinit(&prog->memory);
+		drgn_memory_interface_init(&prog->memory);
 		goto err_platform;
 	}
 

@@ -305,14 +305,15 @@ static int Program_clear(Program *self)
 
 static struct drgn_error *py_memory_read_fn(void *buf, uint64_t address,
 					    size_t count, uint64_t offset,
-					    void *arg, bool physical)
+					    PyObject *read_fn, bool physical)
 {
 	struct drgn_error *err;
 
 	PyGILState_guard();
 
 	_cleanup_pydecref_ PyObject *ret =
-		PyObject_CallFunction(arg, "KKKO", (unsigned long long)address,
+		PyObject_CallFunction(read_fn, "KKKO",
+				      (unsigned long long)address,
 				      (unsigned long long)count,
 				      (unsigned long long)offset,
 				      physical ? Py_True : Py_False);
@@ -335,23 +336,62 @@ out:
 	return err;
 }
 
+static struct drgn_error *py_memory_write_fn(void *buf, uint64_t address,
+					     size_t count, uint64_t offset,
+					     PyObject *write_fn, bool physical)
+{
+	if (write_fn == Py_None)
+		return drgn_error_create_fault("cannot write to memory",
+					       address);
+
+	PyGILState_guard();
+
+	_cleanup_pydecref_ PyObject *ret =
+		PyObject_CallFunction(write_fn, "Ky#KO",
+				      (unsigned long long)address,
+				      (char *)buf,
+				      (Py_ssize_t)count,
+				      (unsigned long long)offset,
+				      physical ? Py_True : Py_False);
+	if (!ret)
+		return drgn_error_from_python();
+	return NULL;
+}
+
+static struct drgn_error *py_memory_rw_fn(bool is_write, void *buf,
+					  uint64_t address, size_t count,
+					  uint64_t offset, void *arg,
+					  bool physical)
+{
+	if (is_write) {
+		PyObject *write_fn = PyTuple_GetItem(arg, 1);
+		return py_memory_write_fn(buf, address, count, offset, write_fn,
+					 physical);
+	} else {
+		PyObject *read_fn = PyTuple_GetItem(arg, 0);
+		return py_memory_read_fn(buf, address, count, offset, read_fn,
+					 physical);
+	}
+}
+
 static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 					    PyObject *kwds)
 {
 	static char *keywords[] = {
-		"address", "size", "read_fn", "physical", NULL,
+		"address", "size", "read_fn", "physical", "write_fn", NULL,
 	};
 	struct drgn_error *err;
 	struct index_arg address = {};
 	struct index_arg size = {};
 	PyObject *read_fn;
 	int physical = 0;
+	PyObject *write_fn = Py_None;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-					 "O&O&O|p:add_memory_segment", keywords,
+					 "O&O&O|pO:add_memory_segment", keywords,
 					 index_converter, &address,
 					 index_converter, &size, &read_fn,
-					 &physical))
+					 &physical, &write_fn))
 	    return NULL;
 
 	if (!PyCallable_Check(read_fn)) {
@@ -359,11 +399,24 @@ static PyObject *Program_add_memory_segment(Program *self, PyObject *args,
 		return NULL;
 	}
 
-	if (Program_hold_object(self, read_fn) == -1)
+	if (write_fn != Py_None && !PyCallable_Check(write_fn)) {
+		PyErr_SetString(PyExc_TypeError, "write_fn must be callable");
+		return NULL;
+	}
+
+	Py_INCREF(read_fn);
+	Py_INCREF(write_fn);
+	PyObject *fns = Py_BuildValue("(OO)", read_fn, write_fn);
+	if (fns == NULL) {
+		PyErr_SetString(PyExc_TypeError, "cannot create function tuple");
+		return NULL;
+	}
+
+	if (Program_hold_object(self, fns) == -1)
 		return NULL;
 	err = drgn_program_add_memory_segment(&self->prog, address.uvalue,
-					      size.uvalue, py_memory_read_fn,
-					      read_fn, physical);
+					      size.uvalue, py_memory_rw_fn,
+					      fns, physical);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -662,6 +715,30 @@ static PyObject *Program_read(Program *self, PyObject *args, PyObject *kwds)
 	clear = set_drgn_in_python();
 	err = drgn_program_read_memory(&self->prog, PyBytes_AS_STRING(buf),
 				       address.uvalue, size, physical);
+	if (clear)
+		clear_drgn_in_python();
+	if (err)
+		return set_drgn_error(err);
+	return_ptr(buf);
+}
+
+static PyObject *Program_write(Program *self, PyObject *args, PyObject *kwds)
+{
+	static char *keywords[] = {"address", "data", "physical", NULL};
+	struct drgn_error *err;
+	struct index_arg address = {};
+	Py_ssize_t size;
+	const char *buf;
+	int physical = 0;
+	bool clear;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&y#|p:write", keywords,
+					 index_converter, &address, &buf, &size,
+					 &physical))
+	    return NULL;
+
+	clear = set_drgn_in_python();
+	err = drgn_program_write_memory(&self->prog, buf,
+				        address.uvalue, size, physical);
 	if (clear)
 		clear_drgn_in_python();
 	if (err)
@@ -1183,6 +1260,8 @@ static PyMethodDef Program_methods[] = {
 	METHOD_DEF_READ(u64),
 	METHOD_DEF_READ(word),
 #undef METHOD_READ_U
+	{"write", (PyCFunction)Program_write, METH_VARARGS | METH_KEYWORDS,
+	 drgn_Program_write_DOC},
 	{"type", (PyCFunction)Program_find_type, METH_VARARGS | METH_KEYWORDS,
 	 drgn_Program_type_DOC},
 	{"object", (PyCFunction)Program_object, METH_VARARGS | METH_KEYWORDS,

@@ -37,26 +37,36 @@ class MockMemorySegment(NamedTuple):
     buf: bytes
     virt_addr: Optional[int] = None
     phys_addr: Optional[int] = None
+    writable: Optional[bool] = False
 
 
 def mock_memory_read(data, address, count, offset, physical):
-    return data[offset : offset + count]
+    return bytes(data[offset : offset + count])
+
+
+def mock_memory_write(data, address, chunk, offset, physical):
+    data[offset : offset + len(chunk)] = chunk
 
 
 def add_mock_memory_segments(prog, segments):
     for segment in segments:
+        buf = bytearray(segment.buf)
+        write_fn = functools.partial(mock_memory_write, buf) if segment.writable else None
+
         if segment.virt_addr is not None:
             prog.add_memory_segment(
                 segment.virt_addr,
                 len(segment.buf),
-                functools.partial(mock_memory_read, segment.buf),
+                functools.partial(mock_memory_read, buf),
+                write_fn=write_fn,
             )
         if segment.phys_addr is not None:
             prog.add_memory_segment(
                 segment.phys_addr,
                 len(segment.buf),
-                functools.partial(mock_memory_read, segment.buf),
+                functools.partial(mock_memory_read, buf),
                 True,
+                write_fn=write_fn,
             )
 
 

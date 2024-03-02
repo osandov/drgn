@@ -26,7 +26,7 @@
 #include "language.h"
 #include "log.h"
 #include "linux_kernel.h"
-#include "memory_reader.h"
+#include "memory_interface.h"
 #include "minmax.h"
 #include "object_index.h"
 #include "program.h"
@@ -98,7 +98,7 @@ void drgn_program_init(struct drgn_program *prog,
 		       const struct drgn_platform *platform)
 {
 	memset(prog, 0, sizeof(*prog));
-	drgn_memory_reader_init(&prog->reader);
+	drgn_memory_interface_init(&prog->memory);
 	drgn_program_init_types(prog);
 	drgn_object_index_init(&prog->oindex);
 	drgn_debug_info_init(&prog->dbinfo, prog);
@@ -136,7 +136,7 @@ void drgn_program_deinit(struct drgn_program *prog)
 
 	drgn_object_index_deinit(&prog->oindex);
 	drgn_program_deinit_types(prog);
-	drgn_memory_reader_deinit(&prog->reader);
+	drgn_memory_interface_deinit(&prog->memory);
 
 	free(prog->file_segments);
 	free(prog->vmcoreinfo.raw);
@@ -176,7 +176,7 @@ LIBDRGN_PUBLIC void drgn_program_destroy(struct drgn_program *prog)
 
 LIBDRGN_PUBLIC struct drgn_error *
 drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
-				uint64_t size, drgn_memory_read_fn read_fn,
+				uint64_t size, drgn_memory_rw_fn rw_fn,
 				void *arg, bool physical)
 {
 	uint64_t address_mask;
@@ -186,9 +186,9 @@ drgn_program_add_memory_segment(struct drgn_program *prog, uint64_t address,
 	if (size == 0 || address > address_mask)
 		return NULL;
 	uint64_t max_address = address + min(size - 1, address_mask - address);
-	return drgn_memory_reader_add_segment(&prog->reader, address,
-					      max_address, read_fn, arg,
-					      physical);
+	return drgn_memory_interface_add_segment(&prog->memory, address,
+						 max_address, rw_fn, arg,
+						 physical);
 }
 
 struct drgn_error *
@@ -209,7 +209,7 @@ drgn_program_add_object_finder(struct drgn_program *prog,
 static struct drgn_error *
 drgn_program_check_initialized(struct drgn_program *prog)
 {
-	if (prog->core_fd != -1 || !drgn_memory_reader_empty(&prog->reader)) {
+	if (prog->core_fd != -1 || !drgn_memory_interface_empty(&prog->memory)) {
 		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
 					 "program memory was already initialized");
 	}
@@ -581,8 +581,8 @@ drgn_program_set_core_dump_fd_internal(struct drgn_program *prog, int fd,
 	return NULL;
 
 out_segments:
-	drgn_memory_reader_deinit(&prog->reader);
-	drgn_memory_reader_init(&prog->reader);
+	drgn_memory_interface_deinit(&prog->memory);
+	drgn_memory_interface_init(&prog->memory);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 out_notes:
@@ -681,8 +681,8 @@ drgn_program_set_pid(struct drgn_program *prog, pid_t pid)
 	return NULL;
 
 out_segments:
-	drgn_memory_reader_deinit(&prog->reader);
-	drgn_memory_reader_init(&prog->reader);
+	drgn_memory_interface_deinit(&prog->memory);
+	drgn_memory_interface_init(&prog->memory);
 	free(prog->file_segments);
 	prog->file_segments = NULL;
 out_fd:
@@ -1633,9 +1633,9 @@ drgn_program_from_pid(pid_t pid, struct drgn_program **ret)
 	return NULL;
 }
 
-LIBDRGN_PUBLIC struct drgn_error *
-drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
-			 size_t count, bool physical)
+static struct drgn_error *
+drgn_program_rw_memory(struct drgn_program *prog, bool is_write, void *buf,
+		       uint64_t address, size_t count, bool physical)
 {
 	uint64_t address_mask;
 	struct drgn_error *err = drgn_program_address_mask(prog, &address_mask);
@@ -1647,8 +1647,8 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 	char *p = buf;
 	while (count > 0) {
 		size_t n = min((uint64_t)(count - 1), address_mask - address) + 1;
-		err = drgn_memory_reader_read(&prog->reader, p, address, n,
-					      physical);
+		err = drgn_memory_interface_rw(&prog->memory, is_write, p,
+					       address, n, physical);
 		if (err)
 			return err;
 		p += n;
@@ -1656,6 +1656,20 @@ drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
 		count -= n;
 	}
 	return NULL;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_read_memory(struct drgn_program *prog, void *buf, uint64_t address,
+			 size_t count, bool physical)
+{
+	return drgn_program_rw_memory(prog, false, buf, address, count, physical);
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_program_write_memory(struct drgn_program *prog, void *buf, uint64_t address,
+			  size_t count, bool physical)
+{
+	return drgn_program_rw_memory(prog, true, buf, address, count, physical);
 }
 
 DEFINE_VECTOR(char_vector, char);
@@ -1673,8 +1687,8 @@ drgn_program_read_c_string(struct drgn_program *prog, uint64_t address,
 		if (!c)
 			return &drgn_enomem;
 		if (char_vector_size(&str) <= max_size) {
-			err = drgn_memory_reader_read(&prog->reader, c, address,
-						      1, physical);
+			err = drgn_memory_interface_rw(&prog->memory, false, c,
+						       address, 1, physical);
 			if (err)
 				return err;
 			if (!*c)

@@ -170,6 +170,12 @@ class TestMemory(TestCase):
         self.assertEqual(prog.read(0xFFFF0000, len(data)), data)
         self.assertEqual(prog.read(0xA0, len(data), True), data)
 
+    def test_simple_write(self):
+        data = b"I hate trains"
+        prog = mock_program(segments=[MockMemorySegment(data, 0xFFFF0000, 0xA0, writable=True)])
+        prog.write(0xFFFF0002, b'like')
+        self.assertEqual(prog.read(0xFFFF0000, len(data)), b"I like trains")
+
     def test_read_unsigned(self):
         data = b"\x01\x02\x03\x04\x05\x06\x07\x08"
         for word_size in [8, 4]:
