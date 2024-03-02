@@ -282,8 +282,8 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 	DRGN_OBJECT(root, prog);
 	DRGN_OBJECT(section, prog);
 
-	err = drgn_program_find_object(prog, "vmemmap_populate", NULL,
-				       DRGN_FIND_OBJECT_FUNCTION, &mem_section);
+	_cleanup_symbol_ struct drgn_symbol *sym = NULL;
+	err = drgn_program_find_symbol_by_name(prog, "vmemmap_populate", &sym);
 	if (err) {
 		if (err->code == DRGN_ERROR_LOOKUP) {
 			// !CONFIG_SPARSEMEM_VMEMMAP
@@ -292,6 +292,8 @@ linux_kernel_get_vmemmap_address(struct drgn_program *prog, uint64_t *ret)
 		}
 		return err;
 	}
+	if (sym->kind != DRGN_SYMBOL_KIND_FUNC)
+		return &drgn_not_found;
 
 	err = drgn_program_find_object(prog, "mem_section", NULL,
 				       DRGN_FIND_OBJECT_VARIABLE, &mem_section);
