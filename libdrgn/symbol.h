@@ -61,4 +61,7 @@ drgn_symbol_result_builder_single(struct drgn_symbol_result_builder *builder);
 void drgn_symbol_result_builder_array(struct drgn_symbol_result_builder *builder,
 				      struct drgn_symbol ***syms_ret, size_t *count_ret);
 
+struct drgn_error *
+drgn_symbol_copy(struct drgn_symbol *dst, struct drgn_symbol *src);
+
 #endif /* DRGN_SYMBOL_H */
