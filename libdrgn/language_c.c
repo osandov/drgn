@@ -1261,9 +1261,8 @@ c_format_pointer_object(const struct drgn_object *obj,
 	bool c_string =
 		((flags & DRGN_FORMAT_OBJECT_STRING) &&
 		 is_character_type(drgn_type_type(underlying_type).type));
-	bool have_symbol;
 	uint64_t uvalue;
-	struct drgn_symbol sym;
+	_cleanup_symbol_ struct drgn_symbol *sym = NULL;
 	size_t start, type_start, type_end, value_start, value_end;
 
 	start = sb->len;
@@ -1287,18 +1286,17 @@ c_format_pointer_object(const struct drgn_object *obj,
 	if (err)
 		return err;
 
-	have_symbol = ((flags & DRGN_FORMAT_OBJECT_SYMBOLIZE) &&
-		       drgn_program_find_symbol_by_address_internal(drgn_object_program(obj),
-								    uvalue,
-								    NULL,
-								    &sym));
-	if (have_symbol && dereference && !c_string &&
+	if ((flags & DRGN_FORMAT_OBJECT_SYMBOLIZE) &&
+	    (err = drgn_program_find_symbol_by_address_internal(drgn_object_program(obj),
+								uvalue, &sym)))
+		return err;
+	if (sym && dereference && !c_string &&
 	    !string_builder_appendc(sb, '('))
 		return &drgn_enomem;
 	value_start = sb->len;
-	if (have_symbol &&
-	     !string_builder_appendf(sb, "%s+0x%" PRIx64 " = ", sym.name,
-				     uvalue - sym.address))
+	if (sym &&
+	     !string_builder_appendf(sb, "%s+0x%" PRIx64 " = ", sym->name,
+				     uvalue - sym->address))
 		return &drgn_enomem;
 
 	if (!string_builder_appendf(sb, "0x%" PRIx64, uvalue))
@@ -1307,7 +1305,7 @@ c_format_pointer_object(const struct drgn_object *obj,
 		return NULL;
 	value_end = sb->len;
 
-	if ((have_symbol && dereference && !c_string &&
+	if ((sym && dereference && !c_string &&
 	     !string_builder_appendc(sb, ')')) ||
 	    !string_builder_append(sb, " = "))
 		return &drgn_enomem;
