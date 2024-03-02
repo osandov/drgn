@@ -986,23 +986,7 @@ static PyObject *Program_symbols(Program *self, PyObject *args)
 	if (err)
 		return set_drgn_error(err);
 
-	_cleanup_pydecref_ PyObject *list = PyList_New(count);
-	if (!list) {
-		drgn_symbols_destroy(symbols, count);
-		return NULL;
-	}
-	for (size_t i = 0; i < count; i++) {
-		PyObject *pysym = Symbol_wrap(symbols[i], (PyObject *)self);
-		if (!pysym) {
-			/* Free symbols which aren't yet added to list. */
-			drgn_symbols_destroy(symbols, count);
-			return NULL;
-		}
-		symbols[i] = NULL;
-		PyList_SET_ITEM(list, i, pysym);
-	}
-	free(symbols);
-	return_ptr(list);
+	return Symbol_list_wrap(symbols, count, self);
 }
 
 static PyObject *Program_symbol(Program *self, PyObject *arg)
