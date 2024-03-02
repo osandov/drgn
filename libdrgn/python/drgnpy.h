@@ -304,6 +304,8 @@ Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
 
 PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj);
+PyObject *Symbol_list_wrap(struct drgn_symbol **symbols, size_t count,
+			   PyObject *name_obj);
 
 PyObject *Thread_wrap(struct drgn_thread *drgn_thread);
 
