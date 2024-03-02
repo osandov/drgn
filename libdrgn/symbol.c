@@ -73,3 +73,61 @@ LIBDRGN_PUBLIC bool drgn_symbol_eq(struct drgn_symbol *a, struct drgn_symbol *b)
 		a->size == b->size && a->binding == b->binding &&
 		a->kind == b->kind);
 }
+
+DEFINE_VECTOR_FUNCTIONS(symbolp_vector);
+
+LIBDRGN_PUBLIC bool
+drgn_symbol_result_builder_add(struct drgn_symbol_result_builder *builder,
+			       struct drgn_symbol *symbol)
+{
+	if (builder->one) {
+		if (builder->single)
+			drgn_symbol_destroy(builder->single);
+		builder->single = symbol;
+	} else if (!symbolp_vector_append(&builder->vector, &symbol)) {
+		return false;
+	}
+	return true;
+}
+
+LIBDRGN_PUBLIC size_t
+drgn_symbol_result_builder_count(const struct drgn_symbol_result_builder *builder)
+{
+	if (builder->one)
+		return builder->single ? 1 : 0;
+	else
+		return symbolp_vector_size(&builder->vector);
+}
+
+void drgn_symbol_result_builder_init(struct drgn_symbol_result_builder *builder,
+				     bool one)
+{
+	memset(builder, 0, sizeof(*builder));
+	builder->one = one;
+	if (!one)
+		symbolp_vector_init(&builder->vector);
+}
+
+void drgn_symbol_result_builder_abort(struct drgn_symbol_result_builder *builder)
+{
+	if (builder->one) {
+		drgn_symbol_destroy(builder->single);
+	} else {
+		vector_for_each(symbolp_vector, symbolp, &builder->vector)
+			drgn_symbol_destroy(*symbolp);
+		symbolp_vector_deinit(&builder->vector);
+	}
+}
+
+struct drgn_symbol *
+drgn_symbol_result_builder_single(struct drgn_symbol_result_builder *builder)
+{
+	return builder->single;
+}
+
+void drgn_symbol_result_builder_array(struct drgn_symbol_result_builder *builder,
+				      struct drgn_symbol ***syms_ret, size_t *count_ret)
+{
+	symbolp_vector_shrink_to_fit(&builder->vector);
+	symbolp_vector_steal(&builder->vector, syms_ret, count_ret);
+}
