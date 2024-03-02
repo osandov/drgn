@@ -2881,7 +2881,7 @@ enum drgn_symbol_binding {
 	DRGN_SYMBOL_BINDING_GLOBAL,
 	DRGN_SYMBOL_BINDING_WEAK,
 	DRGN_SYMBOL_BINDING_UNIQUE = 11, /* STB_GNU_UNIQUE + 1 */
-};
+} __attribute__((__packed__));
 
 /** Kind of entity represented by a symbol. */
 enum drgn_symbol_kind {
@@ -2897,7 +2897,7 @@ enum drgn_symbol_kind {
 	DRGN_SYMBOL_KIND_COMMON,
 	DRGN_SYMBOL_KIND_TLS,
 	DRGN_SYMBOL_KIND_IFUNC = 10, /* STT_GNU_IFUNC */
-};
+} __attribute__((__packed__));
 
 /** Destroy a @ref drgn_symbol. */
 void drgn_symbol_destroy(struct drgn_symbol *sym);
