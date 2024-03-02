@@ -209,7 +209,7 @@ static PyObject *StackFrame_symbol(StackFrame *self)
 	err = drgn_stack_frame_symbol(self->trace->trace, self->i, &sym);
 	if (err)
 		return set_drgn_error(err);
-	PyObject *ret = Symbol_wrap(sym, prog);
+	PyObject *ret = Symbol_wrap(sym, (PyObject *)prog);
 	if (!ret) {
 		drgn_symbol_destroy(sym);
 		return NULL;

@@ -173,7 +173,7 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
-	Program *prog;
+	PyObject *name_obj; /* object owning the reference to the symbol name */
 	struct drgn_symbol *sym;
 } Symbol;
 
@@ -288,7 +288,7 @@ Program *program_from_core_dump(PyObject *self, PyObject *args, PyObject *kwds);
 Program *program_from_kernel(PyObject *self);
 Program *program_from_pid(PyObject *self, PyObject *args, PyObject *kwds);
 
-PyObject *Symbol_wrap(struct drgn_symbol *sym, Program *prog);
+PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj);
 
 PyObject *Thread_wrap(struct drgn_thread *drgn_thread);
 
