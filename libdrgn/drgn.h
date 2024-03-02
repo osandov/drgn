@@ -2966,6 +2966,44 @@ enum drgn_symbol_kind {
 	DRGN_SYMBOL_KIND_IFUNC = 10, /* STT_GNU_IFUNC */
 } __attribute__((__packed__));
 
+/** Describes the lifetime of an object provided to drgn */
+enum drgn_lifetime {
+	/**
+	 * DRGN_LIFETIME_STATIC: the object is guaranteed to outlive the
+	 * drgn_program itself. drgn will not free or copy the object.
+	 */
+	DRGN_LIFETIME_STATIC,
+	/**
+	 * DRGN_LIFETIME_EXTERNAL: the object is externally managed. It will
+	 * live as long as the object it is associated with, but may be freed
+	 * after. drgn will never free the object. If drgn must copy a data
+	 * structure, the object will be duplicated, and drgn will own the new
+	 * object.
+	 */
+	DRGN_LIFETIME_EXTERNAL,
+	/**
+	 * DRGN_LIFETIME_OWNED: the object lifetime is managed by drgn. It
+	 * should be freed when the containing object is freed. If the
+	 * containing object is copied, it must also be copied.
+	 */
+	DRGN_LIFETIME_OWNED,
+} __attribute__((__packed__));
+
+/**
+ * Create a new @ref drgn_symbol with the given values
+ *
+ * All parameters should be self-explanatory, except for @a name_lifetime.
+ * Clients can use this to describe how drgn should treat the string @a name.
+ * Strings with lifetime @c STATIC will never be copied or freed. Strings with
+ * lifetime @c OWNED will always be copied or and freed with the symbol. Strings
+ * with lifetime EXTERNAL will not be freed, but if the Symbol is copied, they
+ * will be copied.
+ */
+struct drgn_error *
+drgn_symbol_create(const char *name, uint64_t address, uint64_t size,
+		   enum drgn_symbol_binding binding, enum drgn_symbol_kind kind,
+		   enum drgn_lifetime name_lifetime, struct drgn_symbol **ret);
+
 /** Destroy a @ref drgn_symbol. */
 void drgn_symbol_destroy(struct drgn_symbol *sym);
 

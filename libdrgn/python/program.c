@@ -937,7 +937,7 @@ static PyObject *Program_symbols(Program *self, PyObject *args)
 		return NULL;
 	}
 	for (size_t i = 0; i < count; i++) {
-		PyObject *pysym = Symbol_wrap(symbols[i], self);
+		PyObject *pysym = Symbol_wrap(symbols[i], (PyObject *)self);
 		if (!pysym) {
 			/* Free symbols which aren't yet added to list. */
 			drgn_symbols_destroy(symbols, count);
@@ -973,7 +973,7 @@ static PyObject *Program_symbol(Program *self, PyObject *arg)
 	}
 	if (err)
 		return set_drgn_error(err);
-	ret = Symbol_wrap(sym, self);
+	ret = Symbol_wrap(sym, (PyObject *)self);
 	if (!ret) {
 		drgn_symbol_destroy(sym);
 		return NULL;

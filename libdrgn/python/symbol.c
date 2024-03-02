@@ -3,23 +3,62 @@
 
 #include <inttypes.h>
 
+#include "drgn.h"
 #include "drgnpy.h"
+#include "symbol.h"
 
-PyObject *Symbol_wrap(struct drgn_symbol *sym, Program *prog)
+PyObject *Symbol_wrap(struct drgn_symbol *sym, PyObject *name_obj)
 {
 	Symbol *ret = call_tp_alloc(Symbol);
 	if (ret) {
 		ret->sym = sym;
-		ret->prog = prog;
-		Py_INCREF(prog);
+		ret->name_obj = name_obj;
+		Py_XINCREF(name_obj);
 	}
 	return (PyObject *)ret;
+}
+
+static PyObject *Symbol_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
+{
+	struct drgn_symbol *sym;
+	static char *keywords[] = {"name", "address", "size", "binding", "kind", NULL};
+	PyObject *name_obj;
+	struct index_arg address = {}, size = {};
+	struct enum_arg binding = {
+		.type = SymbolBinding_class,
+	};
+	struct enum_arg kind = {
+		.type = SymbolKind_class,
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&O&O&O&:Symbol", keywords,
+					 &PyUnicode_Type, &name_obj,
+					 index_converter, &address,
+					 index_converter, &size,
+					 enum_converter, &binding,
+					 enum_converter, &kind))
+		return NULL;
+
+	const char *name = PyUnicode_AsUTF8(name_obj);
+	if (!name)
+		return NULL;
+
+	struct drgn_error *err = drgn_symbol_create(
+		name, address.uvalue,size.uvalue, binding.value, kind.value,
+		DRGN_LIFETIME_EXTERNAL, &sym);
+	if (err)
+		return set_drgn_error(err);
+
+	PyObject *ret = Symbol_wrap(sym, name_obj);
+	if (!ret)
+		drgn_symbol_destroy(sym);
+	return ret;
 }
 
 static void Symbol_dealloc(Symbol *self)
 {
 	drgn_symbol_destroy(self->sym);
-	Py_XDECREF(self->prog);
+	Py_XDECREF(self->name_obj);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -100,4 +139,5 @@ PyTypeObject Symbol_type = {
 	.tp_doc = drgn_Symbol_DOC,
 	.tp_richcompare = (richcmpfunc)Symbol_richcompare,
 	.tp_getset = Symbol_getset,
+	.tp_new = Symbol_new,
 };

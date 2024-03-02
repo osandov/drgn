@@ -11,6 +11,11 @@
 
 LIBDRGN_PUBLIC void drgn_symbol_destroy(struct drgn_symbol *sym)
 {
+	if (sym && sym->name_lifetime == DRGN_LIFETIME_OWNED)
+		/* Cast here is necessary - we want symbol users to
+		 * never modify sym->name, but when we own the name,
+		 * we must modify it by freeing it. */
+		free((char *)sym->name);
 	free(sym);
 }
 
@@ -26,6 +31,7 @@ void drgn_symbol_from_elf(const char *name, uint64_t address,
 			  const GElf_Sym *elf_sym, struct drgn_symbol *ret)
 {
 	ret->name = name;
+	ret->name_lifetime = DRGN_LIFETIME_STATIC;
 	ret->address = address;
 	ret->size = elf_sym->st_size;
 	int binding = GELF_ST_BIND(elf_sym->st_info);
@@ -38,6 +44,24 @@ void drgn_symbol_from_elf(const char *name, uint64_t address,
 		ret->kind = type;
 	else
 		ret->kind = DRGN_SYMBOL_KIND_UNKNOWN;
+}
+
+LIBDRGN_PUBLIC struct drgn_error *
+drgn_symbol_create(const char *name, uint64_t address, uint64_t size,
+		   enum drgn_symbol_binding binding, enum drgn_symbol_kind kind,
+		   enum drgn_lifetime name_lifetime, struct drgn_symbol **ret)
+{
+	struct drgn_symbol *sym = malloc(sizeof(*sym));
+	if (!sym)
+		return &drgn_enomem;
+	sym->name = name;
+	sym->address = address;
+	sym->size = size;
+	sym->binding = binding;
+	sym->kind = kind;
+	sym->name_lifetime = name_lifetime;
+	*ret = sym;
+	return NULL;
 }
 
 LIBDRGN_PUBLIC const char *drgn_symbol_name(struct drgn_symbol *sym)

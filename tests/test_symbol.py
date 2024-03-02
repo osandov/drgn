@@ -1,9 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 import tempfile
-from typing import NamedTuple
 
-from drgn import Program, SymbolBinding, SymbolKind
+from drgn import Program, Symbol, SymbolBinding, SymbolKind
 from tests import TestCase
 from tests.dwarfwriter import dwarf_sections
 from tests.elf import ET, PT, SHT, STB, STT
@@ -45,35 +44,13 @@ def elf_symbol_program(*modules):
     return prog
 
 
-# We don't want to support creating drgn.Symbol instances yet, so use this dumb
-# class for testing.
-class Symbol(NamedTuple):
-    name: str
-    address: int
-    size: int
-    binding: SymbolBinding
-    kind: SymbolKind
-
-
 class TestElfSymbol(TestCase):
-    def assert_symbol_equal(self, drgn_symbol, symbol):
-        self.assertEqual(
-            Symbol(
-                drgn_symbol.name,
-                drgn_symbol.address,
-                drgn_symbol.size,
-                drgn_symbol.binding,
-                drgn_symbol.kind,
-            ),
-            symbol,
-        )
-
     def assert_symbols_equal_unordered(self, drgn_symbols, symbols):
         self.assertEqual(len(drgn_symbols), len(symbols))
         drgn_symbols = sorted(drgn_symbols, key=lambda x: (x.address, x.name))
         symbols = sorted(symbols, key=lambda x: (x.address, x.name))
         for drgn_symbol, symbol in zip(drgn_symbols, symbols):
-            self.assert_symbol_equal(drgn_symbol, symbol)
+            self.assertEqual(drgn_symbol, symbol)
 
     def test_by_address(self):
         elf_first = ElfSymbol("first", 0xFFFF0000, 0x8, STT.OBJECT, STB.LOCAL)
@@ -91,13 +68,13 @@ class TestElfSymbol(TestCase):
                 prog = elf_symbol_program(*modules)
                 self.assertRaises(LookupError, prog.symbol, 0xFFFEFFFF)
                 self.assertEqual(prog.symbols(0xFFFEFFFF), [])
-                self.assert_symbol_equal(prog.symbol(0xFFFF0000), first)
+                self.assertEqual(prog.symbol(0xFFFF0000), first)
                 self.assert_symbols_equal_unordered(prog.symbols(0xFFFF0000), [first])
-                self.assert_symbol_equal(prog.symbol(0xFFFF0004), first)
+                self.assertEqual(prog.symbol(0xFFFF0004), first)
                 self.assert_symbols_equal_unordered(prog.symbols(0xFFFF0004), [first])
-                self.assert_symbol_equal(prog.symbol(0xFFFF0008), second)
+                self.assertEqual(prog.symbol(0xFFFF0008), second)
                 self.assert_symbols_equal_unordered(prog.symbols(0xFFFF0008), [second])
-                self.assert_symbol_equal(prog.symbol(0xFFFF000C), second)
+                self.assertEqual(prog.symbol(0xFFFF000C), second)
                 self.assert_symbols_equal_unordered(prog.symbols(0xFFFF000C), [second])
                 self.assertRaises(LookupError, prog.symbol, 0xFFFF0010)
 
@@ -171,8 +148,8 @@ class TestElfSymbol(TestCase):
         for modules in same_module, different_modules:
             with self.subTest(modules=len(modules)):
                 prog = elf_symbol_program(*modules)
-                self.assert_symbol_equal(prog.symbol("first"), first)
-                self.assert_symbol_equal(prog.symbol("second"), second)
+                self.assertEqual(prog.symbol("first"), first)
+                self.assertEqual(prog.symbol("second"), second)
                 self.assertRaises(LookupError, prog.symbol, "third")
 
                 self.assert_symbols_equal_unordered(prog.symbols("first"), [first])
@@ -258,7 +235,7 @@ class TestElfSymbol(TestCase):
                     (ElfSymbol("foo", 0xFFFF0000, 1, elf_type, STB.GLOBAL),)
                 )
                 symbol = Symbol("foo", 0xFFFF0000, 1, SymbolBinding.GLOBAL, drgn_kind)
-                self.assert_symbol_equal(prog.symbol("foo"), symbol)
+                self.assertEqual(prog.symbol("foo"), symbol)
                 symbols = prog.symbols("foo")
                 self.assert_symbols_equal_unordered(symbols, [symbol])
 
