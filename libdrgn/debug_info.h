@@ -23,6 +23,7 @@
 #include "object_index.h"
 #include "orc_info.h"
 #include "string_builder.h"
+#include "symbol.h"
 #include "type.h"
 #include "vector.h"
 
@@ -137,6 +138,7 @@ struct drgn_debug_info {
 
 	struct drgn_type_finder type_finder;
 	struct drgn_object_finder object_finder;
+	struct drgn_symbol_finder symbol_finder;
 
 	/** DWARF frontend library handle. */
 	Dwfl *dwfl;

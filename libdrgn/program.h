@@ -27,6 +27,7 @@
 #include "object_index.h"
 #include "platform.h"
 #include "pp.h"
+#include "symbol.h"
 #include "type.h"
 #include "vector.h"
 
@@ -109,6 +110,7 @@ struct drgn_program {
 	 */
 	struct drgn_object_index oindex;
 	struct drgn_debug_info dbinfo;
+	struct drgn_symbol_finder *symbol_finders;
 
 	/*
 	 * Program information.
@@ -377,6 +379,17 @@ bool drgn_program_find_symbol_by_address_internal(struct drgn_program *prog,
 						  Dwfl_Module *module,
 						  struct drgn_symbol *ret);
 
+/*
+ * Implementation of the Symbol finder API, based on ELF symbols
+ */
+struct drgn_error *
+elf_symbols_search(const char *name, uint64_t addr, enum drgn_find_symbol_flags flags,
+		   void *data, struct drgn_symbol_result_builder *builder);
+
+struct drgn_error *
+drgn_program_add_symbol_finder_impl(struct drgn_program *prog,
+				    struct drgn_symbol_finder *finder,
+				    drgn_symbol_find_fn fn, void *arg);
 /**
  * Call before a blocking (I/O or long-running) operation.
  *
