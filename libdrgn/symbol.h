@@ -6,6 +6,7 @@
 
 #include <gelf.h>
 
+#include "cleanup.h"
 #include "drgn.h"
 #include "vector.h"
 
@@ -33,6 +34,12 @@ struct drgn_symbol_result_builder {
 		struct drgn_symbol *single;
 	};
 };
+
+#define _cleanup_symbol_ _cleanup_(drgn_symbol_cleanup)
+static inline void drgn_symbol_cleanup(struct drgn_symbol **p)
+{
+	drgn_symbol_destroy(*p);
+}
 
 /** Initialize a @ref drgn_symbol from an ELF symbol. */
 void drgn_symbol_from_elf(const char *name, uint64_t address,
