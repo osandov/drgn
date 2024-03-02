@@ -264,6 +264,7 @@ DRGNPY_PUBLIC PyMODINIT_FUNC PyInit__drgn(void)
 	})
 
 	if (add_module_constants(m) ||
+	    add_type(m, &KallsymsFinder_type) ||
 	    add_type(m, &Language_type) || add_languages() ||
 	    add_type(m, &DrgnObject_type) ||
 	    PyType_Ready(&ObjectIterator_type) ||

@@ -10,6 +10,7 @@
 #include "../string_builder.h"
 #include "../util.h"
 #include "../vector.h"
+#include "kallsyms.h"
 
 DEFINE_HASH_SET_FUNCTIONS(pyobjectp_set, ptr_key_hash_pair, scalar_key_eq);
 
@@ -591,8 +592,15 @@ static PyObject *Program_add_symbol_finder(Program *self, PyObject *args,
 	if (ret == -1)
 		return NULL;
 
-	err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
-					     fn);
+	/* Fast path for the builtin kallsyms finder, avoidng Python object
+	 * allocation overhead */
+	if (PyObject_TypeCheck(fn, &KallsymsFinder_type))
+		err = drgn_program_add_symbol_finder(&self->prog,
+						     drgn_kallsyms_symbol_finder,
+						     ((KallsymsFinder *)fn)->finder);
+	else
+		err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
+						fn);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;

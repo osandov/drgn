@@ -111,6 +111,11 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	struct kallsyms_finder *finder;
+} KallsymsFinder;
+
+typedef struct {
+	PyObject_HEAD
 	/*
 	 * "Python-friendly" name used for the object, which may differ from the
 	 * language name if the language name is not a valid identifier (e.g.,
@@ -225,6 +230,7 @@ extern PyObject *TypeKind_class;
 extern PyTypeObject DrgnObject_type;
 extern PyTypeObject DrgnType_type;
 extern PyTypeObject FaultError_type;
+extern PyTypeObject KallsymsFinder_type;
 extern PyTypeObject Language_type;
 extern PyTypeObject ObjectIterator_type;
 extern PyTypeObject Platform_type;
