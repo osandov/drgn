@@ -477,6 +477,70 @@ static struct drgn_error *py_object_find_fn(const char *name, size_t name_len,
 	return drgn_object_copy(ret, &((DrgnObject *)obj)->obj);
 }
 
+static struct drgn_error *py_symbol_find_fn(const char *name, uint64_t addr,
+					    enum drgn_find_symbol_flags flags,
+					    void *data, struct drgn_symbol_result_builder *builder)
+{
+	PyGILState_guard();
+
+	_cleanup_pydecref_ PyObject *name_obj = NULL;
+	if (flags & DRGN_FIND_SYMBOL_NAME) {
+		name_obj = PyUnicode_FromString(name);
+		if (!name_obj)
+			return drgn_error_from_python();
+	} else {
+		name_obj = Py_None;
+		Py_INCREF(name_obj);
+	}
+
+	_cleanup_pydecref_ PyObject *address_obj = NULL;
+	if (flags & DRGN_FIND_SYMBOL_ADDR) {
+		address_obj = PyLong_FromUnsignedLong(addr);
+		if (!address_obj)
+			return drgn_error_from_python();
+	} else {
+		address_obj = Py_None;
+		Py_INCREF(address_obj);
+	}
+
+	_cleanup_pydecref_ PyObject *one_obj = PyBool_FromLong(flags & DRGN_FIND_SYMBOL_ONE);
+
+	_cleanup_pydecref_ PyObject *tmp = PyObject_CallFunction(data, "OOO", name_obj,
+								 address_obj, one_obj);
+	if (!tmp)
+		return drgn_error_from_python();
+
+	_cleanup_pydecref_ PyObject *obj =
+		PySequence_Fast(tmp, "symbol finder must return a sequence");
+	if (!obj)
+		return drgn_error_from_python();
+
+	size_t len = PySequence_Fast_GET_SIZE(obj);
+	if (len > 1 && (flags & DRGN_FIND_SYMBOL_ONE))  {
+		return drgn_error_create(DRGN_ERROR_INVALID_ARGUMENT,
+					 "symbol finder returned multiple elements, but one was requested");
+	}
+
+	for (size_t i = 0; i < len; i++) {
+		PyObject *item = PySequence_Fast_GET_ITEM(obj, i);
+		if (!PyObject_TypeCheck(item, &Symbol_type))
+			return drgn_error_create(DRGN_ERROR_TYPE,
+						 "symbol finder results must be of type Symbol");
+		_cleanup_free_ struct drgn_symbol *sym = malloc(sizeof(*sym));
+		if (!sym)
+			return &drgn_enomem;
+		struct drgn_error *err = drgn_symbol_copy(sym, ((Symbol *)item)->sym);
+		if (err)
+			return err;
+
+		if (!drgn_symbol_result_builder_add(builder, sym))
+			return &drgn_enomem;
+		sym = NULL; // owned by the builder now
+	}
+
+	return NULL;
+}
+
 static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 					   PyObject *kwds)
 {
@@ -501,6 +565,34 @@ static PyObject *Program_add_object_finder(Program *self, PyObject *args,
 
 	err = drgn_program_add_object_finder(&self->prog, py_object_find_fn,
 					     arg);
+	if (err)
+		return set_drgn_error(err);
+	Py_RETURN_NONE;
+}
+
+static PyObject *Program_add_symbol_finder(Program *self, PyObject *args,
+					   PyObject *kwds)
+{
+	static char *keywords[] = {"fn", NULL};
+	struct drgn_error *err;
+	PyObject *fn;
+	int ret;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O:add_symbol_finder",
+					 keywords, &fn))
+	    return NULL;
+
+	if (!PyCallable_Check(fn)) {
+		PyErr_SetString(PyExc_TypeError, "fn must be callable");
+		return NULL;
+	}
+
+	ret = Program_hold_object(self, fn);
+	if (ret == -1)
+		return NULL;
+
+	err = drgn_program_add_symbol_finder(&self->prog, py_symbol_find_fn,
+					     fn);
 	if (err)
 		return set_drgn_error(err);
 	Py_RETURN_NONE;
@@ -1157,6 +1249,8 @@ static PyMethodDef Program_methods[] = {
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_type_finder_DOC},
 	{"add_object_finder", (PyCFunction)Program_add_object_finder,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_object_finder_DOC},
+	{"add_symbol_finder", (PyCFunction)Program_add_symbol_finder,
+	 METH_VARARGS | METH_KEYWORDS, drgn_Program_add_symbol_finder_DOC},
 	{"set_core_dump", (PyCFunction)Program_set_core_dump,
 	 METH_VARARGS | METH_KEYWORDS, drgn_Program_set_core_dump_DOC},
 	{"set_kernel", (PyCFunction)Program_set_kernel, METH_NOARGS,

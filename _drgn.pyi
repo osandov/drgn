@@ -460,6 +460,33 @@ class Program:
             return an :class:`Object` or ``None`` if not found.
         """
         ...
+    def add_symbol_finder(
+        self, fn: Callable[[Optional[str], Optional[int], bool], Sequence[Symbol]]
+    ) -> None:
+        """
+        Register a callback for finding symbols in the program.
+
+        The callback should take three arguments: a search name, a search
+        address, and a boolean flag 'one' indicating whether to return only
+        the single best match. When the 'one' flag is True, the callback should
+        return a list containing at most one :class:`Symbol`. When the flag is
+        False, the callback should return a list of all matching
+        :class:`Symbol`\\ s. Both the name and address arguments are optional.
+        If both are provided, then the result(s) should match both. If neither
+        are provided, the finder should return all available symbols. If no
+        result is found, the return should be an empty list.
+
+        Callbacks are called in reverse order of the order they were added
+        (i.e,, the most recently added callback is called first). When the
+        'one' flag is set, the search will short-circuit after the first
+        finder which returns a result, and subsequent finders will not be
+        called. Otherwise, all callbacks will be called, and all results will be
+        returned.
+
+        :param fn: Callable taking name, address, and 'one' flag, and
+            returning a sequence of :class:`Symbol`\\ s.
+        """
+        ...
     def set_core_dump(self, path: Union[Path, int]) -> None:
         """
         Set the program to a core dump.
