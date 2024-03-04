@@ -68,6 +68,12 @@ py_long_to_bytes_for_object_type(PyObject *value_obj,
 		PyErr_NoMemory();
 		return NULL;
 	}
+#if PY_VERSION_HEX >= 0x030d00a4
+	Py_ssize_t r = PyLong_AsNativeBytes(long_obj, buf, size,
+					    type->little_endian);
+	if (r < 0)
+		return NULL;
+#else
 	// _PyLong_AsByteArray() still returns the least significant bytes on
 	// OverflowError unless the object is negative and is_signed is false.
 	// So, we always pass is_signed as true.
@@ -85,6 +91,7 @@ py_long_to_bytes_for_object_type(PyObject *value_obj,
 			return NULL;
 		}
 	}
+#endif
 	return_ptr(buf);
 }
 
