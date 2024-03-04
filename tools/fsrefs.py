@@ -6,7 +6,7 @@ import sys
 import typing
 from typing import Any, Callable, Optional, Sequence, Union
 
-from drgn import FaultError, Object, Program
+from drgn import FaultError, Object, Program, cast
 from drgn.helpers.linux.fs import (
     d_path,
     fget,
@@ -15,6 +15,7 @@ from drgn.helpers.linux.fs import (
     inode_path,
     mount_dst,
 )
+from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.mm import for_each_vma
 from drgn.helpers.linux.pid import find_task, for_each_task
 
@@ -209,6 +210,46 @@ def visit_tasks(
                                         )
 
 
+def visit_binfmt_misc(prog: Program, visitor: "Visitor") -> None:
+    try:
+        Node = prog.type("Node", filename="binfmt_misc.c")
+    except LookupError:
+        # If the Node type doesn't exist, then CONFIG_BINFMT_MISC=n or the
+        # binfmt_misc module isn't loaded.
+        return
+    with warn_on_fault("iterating binfmt_misc instances"):
+        for sb in hlist_for_each_entry(
+            "struct super_block", prog["bm_fs_type"].fs_supers, "s_instances"
+        ):
+            # Since Linux kernel commit 21ca59b365c0 ("binfmt_misc: enable
+            # sandboxed mounts") (in v6.7), each user namespace can have its
+            # own binfmt_misc instance. Before that, there is one global
+            # instance.
+            user_ns = cast("struct user_namespace *", sb.s_fs_info)
+            try:
+                binfmt_misc = user_ns.binfmt_misc
+            except AttributeError:
+                entries = prog.object("entries", filename="binfmt_misc.c")
+                have_user_ns = False
+            else:
+                entries = binfmt_misc.entries
+                have_user_ns = True
+
+            for node in list_for_each_entry(Node, entries.address_of_(), "list"):
+                with ignore_fault:
+                    match = visitor.visit_file(node.interp_file)
+                    if match:
+                        if have_user_ns and user_ns.level:
+                            user_ns_note = (
+                                f" (user namespace {user_ns.ns.inum.value_()})"
+                            )
+                        else:
+                            user_ns_note = ""
+                        print(
+                            f"binfmt_misc{user_ns_note} {os.fsdecode(node.name.string_())} {node.format_(**format_args)} {match}"
+                        )
+
+
 def hexint(x: str) -> int:
     return int(x, 16)
 
@@ -250,6 +291,7 @@ def main(prog: Program, argv: Sequence[str]) -> None:
     )
 
     CHECKS = [
+        "binfmt_misc",
         "mounts",
         "tasks",
     ]
@@ -311,6 +353,9 @@ def main(prog: Program, argv: Sequence[str]) -> None:
             check_mounts="mounts" in enabled_checks,
             check_tasks="tasks" in enabled_checks,
         )
+
+    if "binfmt_misc" in enabled_checks:
+        visit_binfmt_misc(prog, visitor)
 
 
 if __name__ == "__main__":

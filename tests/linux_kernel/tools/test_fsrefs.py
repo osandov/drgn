@@ -3,6 +3,7 @@
 
 import contextlib
 import ctypes
+import errno
 import io
 import mmap
 import os
@@ -15,8 +16,14 @@ from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     CLONE_NEWNS,
+    CLONE_NEWUSER,
+    MS_NODEV,
+    MS_NOEXEC,
+    MS_NOSUID,
     LinuxKernelTestCase,
+    fork_and_call,
     fork_and_sigwait,
+    iter_mounts,
     mount,
     umount,
     unshare,
@@ -196,3 +203,80 @@ class TestFsRefs(LinuxKernelTestCase):
                         hex(fget(find_task(self.prog, os.getpid()), fd1).f_inode.i_sb),
                     ),
                 )
+
+    def test_binfmt_misc(self):
+        for mnt in iter_mounts():
+            if mnt.fstype == "binfmt_misc":
+                break
+        else:
+            self.skipTest("binfmt_misc not mounted")
+
+        path = self._tmp / "file"
+        path.touch()
+        path.chmod(0o700)
+        try:
+            id = os.urandom(20)
+            name = f"drgntest_{id.hex()}"
+            encoded_id = "".join([f"\\x{byte:02x}" for byte in id])
+            (mnt.mount_point / "register").write_text(
+                f":{name}:M::{encoded_id}::{path}:F"
+            )
+
+            self.assertIn(
+                f"binfmt_misc {name} ",
+                self.run_and_capture("--check", "binfmt_misc", "--inode", str(path)),
+            )
+        finally:
+            try:
+                with open(mnt.mount_point / name, "r+") as f:
+                    f.write("-1")
+            except FileNotFoundError:
+                pass
+
+    def test_binfmt_misc_in_user_ns(self):
+        id = os.urandom(20)
+        name = f"drgntest_{id.hex()}"
+
+        def setup_binfmt_misc_in_userns(path):
+            try:
+                unshare(CLONE_NEWUSER | CLONE_NEWNS)
+            except OSError as e:
+                if e.errno == errno.EINVAL:
+                    return "kernel does not support user namespaces"
+                else:
+                    raise
+            Path("/proc/self/uid_map").write_text("0 0 1")
+            Path("/proc/self/setgroups").write_text("deny")
+            Path("/proc/self/gid_map").write_text("0 0 1")
+
+            mount_point = path.parent / "binfmt_misc"
+            mount_point.mkdir()
+            try:
+                mount(
+                    "binfmt_misc",
+                    mount_point,
+                    "binfmt_misc",
+                    MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                )
+            except OSError as e:
+                if e.errno == errno.ENODEV:
+                    return "kernel does not support binfmt_misc"
+                elif e.errno == errno.EPERM:
+                    return "kernel does not support sandboxed binfmt_misc mounts"
+                else:
+                    raise
+
+            path.touch()
+            path.chmod(0o700)
+            encoded_id = "".join([f"\\x{byte:02x}" for byte in id])
+            (mount_point / "register").write_text(f":{name}:M::{encoded_id}::{path}:F")
+
+        path = self._tmp / "file"
+        with fork_and_call(setup_binfmt_misc_in_userns, path) as (pid, skip):
+            if skip:
+                self.skipTest(skip)
+            ino = Path(f"/proc/{pid}/ns/user").stat().st_ino
+            self.assertIn(
+                f"binfmt_misc (user namespace {ino}) {name} ",
+                self.run_and_capture("--check", "binfmt_misc", "--inode", str(path)),
+            )

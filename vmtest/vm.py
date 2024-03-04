@@ -106,6 +106,9 @@ ln -s /proc/self/fd/0 /dev/stdin
 ln -s /proc/self/fd/1 /dev/stdout
 ln -s /proc/self/fd/2 /dev/stderr
 
+# Mount additional filesystems.
+mount -t binfmt_misc -o nosuid,nodev,noexec binfmt_misc /proc/sys/fs/binfmt_misc
+
 # Configure networking.
 cat << EOF > /etc/hosts
 127.0.0.1 localhost
