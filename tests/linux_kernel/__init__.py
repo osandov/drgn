@@ -6,6 +6,7 @@ import ctypes
 import errno
 import os
 from pathlib import Path
+import pickle
 import re
 import signal
 import socket
@@ -182,6 +183,39 @@ def fork_and_sigwait(fn=None, *args, **kwds):
     finally:
         os.kill(pid, signal.SIGKILL)
         os.waitpid(pid, 0)
+
+
+# Context manager that:
+# 1. Forks a process that calls a function, which sends the (pickled) return
+#    value over a pipe to the calling process and then blocks in sigwait()
+#    forever.
+# 2. Reads the return value from the pipe.
+# 3. Returns the PID and return value from __enter__().
+# 4. Kills the process in __exit__().
+@contextlib.contextmanager
+def fork_and_call(fn, *args, **kwds):
+    r, w = os.pipe()
+    with open(r, "rb") as pipe_r, open(w, "wb") as pipe_w:
+        pid = os.fork()
+        try:
+            if pid == 0:
+                try:
+                    pipe_r.close()
+                    ret = fn(*args, **kwds)
+                    pickle.dump(ret, pipe_w)
+                    pipe_w.close()
+                    while True:
+                        signal.sigwait(())
+                finally:
+                    traceback.print_exc()
+                    sys.stderr.flush()
+                    os._exit(1)
+            pipe_w.close()
+            ret = pickle.load(pipe_r)
+            yield pid, ret
+        finally:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
 
 
 def smp_enabled():
