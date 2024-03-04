@@ -15,6 +15,7 @@ from drgn.helpers.linux.fs import (
     inode_path,
     mount_dst,
 )
+from drgn.helpers.linux.idr import idr_for_each_entry
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.mm import for_each_vma
 from drgn.helpers.linux.pid import find_task, for_each_task
@@ -250,6 +251,25 @@ def visit_binfmt_misc(prog: Program, visitor: "Visitor") -> None:
                         )
 
 
+def visit_loop_devices(prog: Program, visitor: "Visitor") -> None:
+    try:
+        loop_index_idr = prog["loop_index_idr"]
+    except KeyError:
+        # If loop_index_idr doesn't exist, then CONFIG_BLK_DEV_LOOP=n or the
+        # loop module isn't loaded.
+        return
+    with warn_on_fault("iterating loop devices"):
+        for i, lo in idr_for_each_entry(
+            loop_index_idr.address_of_(), "struct loop_device"
+        ):
+            with ignore_fault:
+                file = lo.lo_backing_file.read_()
+                if file:
+                    match = visitor.visit_file(file)
+                    if match:
+                        print(f"loop device {i} {lo.format_(**format_args)} {match}")
+
+
 def hexint(x: str) -> int:
     return int(x, 16)
 
@@ -292,6 +312,7 @@ def main(prog: Program, argv: Sequence[str]) -> None:
 
     CHECKS = [
         "binfmt_misc",
+        "loop",
         "mounts",
         "tasks",
     ]
@@ -356,6 +377,9 @@ def main(prog: Program, argv: Sequence[str]) -> None:
 
     if "binfmt_misc" in enabled_checks:
         visit_binfmt_misc(prog, visitor)
+
+    if "loop" in enabled_checks:
+        visit_loop_devices(prog, visitor)
 
 
 if __name__ == "__main__":

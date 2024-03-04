@@ -24,6 +24,7 @@ from tests.linux_kernel import (
     fork_and_call,
     fork_and_sigwait,
     iter_mounts,
+    losetup,
     mount,
     umount,
     unshare,
@@ -280,3 +281,15 @@ class TestFsRefs(LinuxKernelTestCase):
                 f"binfmt_misc (user namespace {ino}) {name} ",
                 self.run_and_capture("--check", "binfmt_misc", "--inode", str(path)),
             )
+
+    def test_loop_device(self):
+        path = self._tmp / "file"
+        with open(path, "wb") as f:
+            os.ftruncate(f.fileno(), 1024 * 1024)
+            with losetup(f.fileno()) as loop_file:
+                f.close()
+                number = int(loop_file.name.replace("/dev/loop", ""))
+                self.assertIn(
+                    f"loop device {number} ",
+                    self.run_and_capture("--check", "loop", "--inode", str(path)),
+                )

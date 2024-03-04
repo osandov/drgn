@@ -4,6 +4,7 @@
 import contextlib
 import ctypes
 import errno
+from fcntl import ioctl
 import os
 from pathlib import Path
 import pickle
@@ -419,6 +420,57 @@ _unshare.restype = ctypes.c_int
 
 def unshare(flags):
     _check_ctypes_syscall(_unshare(flags))
+
+
+_LOOP_SET_FD = 0x4C00
+_LOOP_SET_STATUS64 = 0x4C04
+_LOOP_GET_STATUS64 = 0x4C05
+_LOOP_CONFIGURE = 0x4C0A
+_LOOP_CTL_GET_FREE = 0x4C82
+
+_LO_FLAGS_AUTOCLEAR = 4
+
+
+def losetup(fd):
+    have_loop_configure = True
+    with open("/dev/loop-control", "r") as loop_control:
+        while True:
+            index = ioctl(loop_control.fileno(), _LOOP_CTL_GET_FREE)
+            loop = open(f"/dev/loop{index}", "rb")
+            close_loop = True
+            try:
+                # Since Linux kernel commit 3448914e8cc5 ("loop: Add
+                # LOOP_CONFIGURE ioctl") (in v5.8), we can set the file
+                # descriptor and the autoclear flag atomically with the
+                # LOOP_CONFIGURE ioctl. Before that, we have to use
+                # LOOP_SET_FD, then LOOP_GET_STATUS64 and LOOP_SET_STATUS64.
+                config = bytearray(304)  # sizeof(struct loop_config)
+                config[:4] = fd.to_bytes(4, sys.byteorder)
+                config[60:64] = _LO_FLAGS_AUTOCLEAR.to_bytes(4, sys.byteorder)
+                try:
+                    if have_loop_configure:
+                        ioctl(loop.fileno(), _LOOP_CONFIGURE, config)
+                    else:
+                        ioctl(loop.fileno(), _LOOP_SET_FD, fd)
+                except OSError as e:
+                    if e.errno == errno.EBUSY:
+                        continue
+                    elif have_loop_configure and e.errno == errno.EINVAL:
+                        have_loop_configure = False
+                        continue
+                    raise
+                if not have_loop_configure:
+                    info = bytearray(232)  # sizeof(struct loop_info64)
+                    ioctl(loop.fileno(), _LOOP_GET_STATUS64, info)
+                    lo_flags = int.from_bytes(info[52:56], sys.byteorder)
+                    lo_flags |= _LO_FLAGS_AUTOCLEAR
+                    info[52:56] = lo_flags.to_bytes(4, sys.byteorder)
+                    ioctl(loop.fileno(), _LOOP_SET_STATUS64, info, False)
+                close_loop = False
+                return loop
+            finally:
+                if close_loop:
+                    loop.close()
 
 
 _syscall = _c.syscall
