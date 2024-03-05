@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import sys
 import typing
 from typing import Any, Callable, Optional, Sequence, Union
 
@@ -178,7 +179,5 @@ def main(prog: Program, argv: Sequence[str]) -> None:
 
 
 if __name__ == "__main__":
-    import sys
-
     prog: Program
     main(prog, sys.argv[1:])
