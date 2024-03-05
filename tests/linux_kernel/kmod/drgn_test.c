@@ -26,6 +26,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
+#include <linux/plist.h>
 #include <linux/radix-tree.h>
 #include <linux/rbtree.h>
 #include <linux/rbtree_augmented.h>
@@ -153,6 +154,65 @@ static void drgn_test_llist_init(void)
 	}
 
 	llist_add(&drgn_test_singular_llist_entry.node, &drgn_test_singular_llist);
+}
+
+// plist
+
+PLIST_HEAD(drgn_test_empty_plist);
+PLIST_HEAD(drgn_test_full_plist);
+struct plist_node drgn_test_empty_plist_node =
+	PLIST_NODE_INIT(drgn_test_empty_plist_node, 50);
+
+struct drgn_test_plist_entry {
+	struct plist_node node;
+	char c;
+};
+
+struct drgn_test_plist_entry drgn_test_plist_entries[3];
+
+// Copy of plist_add() (minus debugging code) since it's not exported.
+static void drgn_plist_add(struct plist_node *node, struct plist_head *head)
+{
+	struct plist_node *first, *iter, *prev = NULL;
+	struct list_head *node_next = &head->node_list;
+
+	WARN_ON(!plist_node_empty(node));
+	WARN_ON(!list_empty(&node->prio_list));
+
+	if (plist_head_empty(head))
+		goto ins_node;
+
+	first = iter = plist_first(head);
+
+	do {
+		if (node->prio < iter->prio) {
+			node_next = &iter->node_list;
+			break;
+		}
+
+		prev = iter;
+		iter = list_entry(iter->prio_list.next,
+				struct plist_node, prio_list);
+	} while (iter != first);
+
+	if (!prev || prev->prio != node->prio)
+		list_add_tail(&node->prio_list, &iter->prio_list);
+ins_node:
+	list_add_tail(&node->node_list, node_next);
+}
+
+static void drgn_test_plist_init(void)
+{
+	plist_node_init(&drgn_test_plist_entries[0].node, 10);
+	drgn_test_plist_entries[0].c = 'H';
+	plist_node_init(&drgn_test_plist_entries[1].node, 20);
+	drgn_test_plist_entries[1].c = 'I';
+	plist_node_init(&drgn_test_plist_entries[2].node, 30);
+	drgn_test_plist_entries[2].c = '!';
+
+	drgn_plist_add(&drgn_test_plist_entries[1].node, &drgn_test_full_plist);
+	drgn_plist_add(&drgn_test_plist_entries[0].node, &drgn_test_full_plist);
+	drgn_plist_add(&drgn_test_plist_entries[2].node, &drgn_test_full_plist);
 }
 
 // mapletree
@@ -1140,6 +1200,7 @@ static int __init drgn_test_init(void)
 
 	drgn_test_list_init();
 	drgn_test_llist_init();
+	drgn_test_plist_init();
 	ret = drgn_test_maple_tree_init();
 	if (ret)
 		goto out;
