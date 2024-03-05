@@ -19,6 +19,7 @@ from drgn.helpers.linux.idr import idr_for_each_entry
 from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
 from drgn.helpers.linux.mm import for_each_vma
 from drgn.helpers.linux.pid import find_task, for_each_task
+from drgn.helpers.linux.plist import plist_for_each_entry
 
 
 class warn_on_fault:
@@ -270,6 +271,22 @@ def visit_loop_devices(prog: Program, visitor: "Visitor") -> None:
                         print(f"loop device {i} {lo.format_(**format_args)} {match}")
 
 
+def visit_swap_files(prog: Program, visitor: "Visitor") -> None:
+    try:
+        swap_active_head = prog["swap_active_head"]
+    except KeyError:
+        # If swap_active_head doesn't exist, then CONFIG_SWAP=n.
+        return
+    with warn_on_fault("iterating swap files"):
+        for swap_info in plist_for_each_entry(
+            "struct swap_info_struct", swap_active_head.address_of_(), "list"
+        ):
+            with ignore_fault:
+                match = visitor.visit_file(swap_info.swap_file)
+                if match:
+                    print(f"swap file {swap_info.format_(**format_args)} {match}")
+
+
 def hexint(x: str) -> int:
     return int(x, 16)
 
@@ -314,6 +331,7 @@ def main(prog: Program, argv: Sequence[str]) -> None:
         "binfmt_misc",
         "loop",
         "mounts",
+        "swap",
         "tasks",
     ]
     check_group = parser.add_argument_group(
@@ -380,6 +398,9 @@ def main(prog: Program, argv: Sequence[str]) -> None:
 
     if "loop" in enabled_checks:
         visit_loop_devices(prog, visitor)
+
+    if "swap" in enabled_checks:
+        visit_swap_files(prog, visitor)
 
 
 if __name__ == "__main__":

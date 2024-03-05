@@ -9,6 +9,7 @@ import mmap
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -25,7 +26,11 @@ from tests.linux_kernel import (
     fork_and_sigwait,
     iter_mounts,
     losetup,
+    mkswap,
     mount,
+    skip_unless_have_test_disk,
+    swapoff,
+    swapon,
     umount,
     unshare,
 )
@@ -293,3 +298,22 @@ class TestFsRefs(LinuxKernelTestCase):
                     f"loop device {number} ",
                     self.run_and_capture("--check", "loop", "--inode", str(path)),
                 )
+
+    @skip_unless_have_test_disk
+    def test_swap_file(self):
+        disk = os.environ["DRGN_TEST_DISK"]
+        subprocess.check_call(["mke2fs", "-qF", disk])
+
+        with contextlib.ExitStack() as exit_stack:
+            mount(disk, self._tmp, "ext2")
+            exit_stack.callback(umount, self._tmp)
+
+            path = self._tmp / "swap_file"
+            mkswap(path, 1024 * 1024)
+            swapon(path)
+            exit_stack.callback(swapoff, path)
+
+            self.assertIn(
+                "swap file (struct swap_info_struct *)",
+                self.run_and_capture("--check", "swap", "--inode", str(path)),
+            )

@@ -33,6 +33,7 @@ _INIT_TEMPLATE = r"""#!/bin/sh
 set -eu
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export DRGN_TEST_DISK=/dev/vda
 {kdump_needs_nosmp}
 
 # On exit, power off. We don't use the poweroff command because very minimal

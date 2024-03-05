@@ -5,6 +5,7 @@ import contextlib
 import ctypes
 import errno
 from fcntl import ioctl
+import mmap
 import os
 from pathlib import Path
 import pickle
@@ -91,6 +92,11 @@ class LinuxKernelTestCase(TestCase):
 
 skip_unless_have_test_kmod = unittest.skipUnless(
     "DRGN_TEST_KMOD" in os.environ, "test requires drgn_test Linux kernel module"
+)
+
+skip_unless_have_test_disk = unittest.skipUnless(
+    "DRGN_TEST_DISK" in os.environ,
+    "test requires disk to overwrite; set DRGN_TEST_DISK environment variable (e.g., DRGN_TEST_DISK=/dev/vda)",
 )
 
 # Please keep this in sync with docs/support_matrix.rst and the module
@@ -471,6 +477,38 @@ def losetup(fd):
             finally:
                 if close_loop:
                     loop.close()
+
+
+_swapon = _c.swapon
+_swapon.argtypes = [ctypes.c_char_p, ctypes.c_int]
+_swapon.restype = ctypes.c_int
+
+_swapoff = _c.swapoff
+_swapoff.argtypes = [ctypes.c_char_p]
+_swapoff.restype = ctypes.c_int
+
+
+def swapon(path, flags=0):
+    _check_ctypes_syscall(_swapon(os.fsencode(path), flags), path)
+
+
+def swapoff(path):
+    _check_ctypes_syscall(_swapoff(os.fsencode(path)), path)
+
+
+def mkswap(path, size):
+    header = bytearray(mmap.PAGESIZE)
+    header[1024:1028] = (1).to_bytes(4, sys.byteorder)  # version
+    header[1028:1032] = (size // mmap.PAGESIZE - 1).to_bytes(
+        4, sys.byteorder
+    )  # last_page
+    header[1036:1052] = os.urandom(16)  # sws_uuid
+    magic = b"SWAPSPACE2"
+    header[-len(magic) :] = magic
+
+    with open(path, "wb") as f:
+        os.posix_fallocate(f.fileno(), 0, size)
+        f.write(header)
 
 
 _syscall = _c.syscall
