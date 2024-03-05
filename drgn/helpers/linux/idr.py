@@ -11,15 +11,16 @@ an ID to a pointer.
 """
 
 import operator
-from typing import Iterator, Tuple
+from typing import Iterator, Tuple, Union
 
 from _drgn import _linux_helper_idr_find
-from drgn import NULL, IntegerLike, Object, cast, sizeof
+from drgn import NULL, IntegerLike, Object, Type, cast, sizeof
 from drgn.helpers.linux.radixtree import radix_tree_for_each
 
 __all__ = (
     "idr_find",
     "idr_for_each",
+    "idr_for_each_entry",
 )
 
 _IDR_BITS = 8
@@ -66,7 +67,7 @@ def idr_find(idr: Object, id: IntegerLike) -> Object:
 
 def idr_for_each(idr: Object) -> Iterator[Tuple[int, Object]]:
     """
-    Iterate over all of the entries in an IDR.
+    Iterate over all of the pointers in an IDR.
 
     :param idr: ``struct idr *``
     :return: Iterator of (index, ``void *``) tuples.
@@ -97,3 +98,19 @@ def idr_for_each(idr: Object) -> Iterator[Tuple[int, Object]]:
             base = 0
         for index, entry in radix_tree_for_each(idr_rt.address_of_()):
             yield index + base, entry
+
+
+def idr_for_each_entry(
+    idr: Object, type: Union[str, Type]
+) -> Iterator[Tuple[int, Object]]:
+    """
+    Iterate over all of the entries with the given type in an IDR.
+
+    :param idr: ``struct idr *``
+    :param type: Entry type.
+    :return: Iterator of (index, ``type *``) tuples.
+    """
+    prog = idr.prog_
+    type = prog.pointer_type(prog.type(type))
+    for index, entry in idr_for_each(idr):
+        yield index, cast(type, entry)

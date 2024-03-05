@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from drgn import NULL, Object
-from drgn.helpers.linux.idr import idr_find, idr_for_each
+from drgn.helpers.linux.idr import idr_find, idr_for_each, idr_for_each_entry
 from tests.linux_kernel import LinuxKernelTestCase, skip_unless_have_test_kmod
 
 
@@ -67,5 +67,16 @@ class TestIDR(LinuxKernelTestCase):
                 (1, Object(self.prog, "void *", 0x1234)),
                 (0x80, Object(self.prog, "void *", 0x5678)),
                 (0xEE, Object(self.prog, "void *", 0x9ABC)),
+            ],
+        )
+
+    def test_idr_for_each_entry(self):
+        root = self.prog["drgn_test_idr_sparse"].address_of_()
+        self.assertIdentical(
+            list(idr_for_each_entry(root, "int")),
+            [
+                (1, Object(self.prog, "int *", 0x1234)),
+                (0x80, Object(self.prog, "int *", 0x5678)),
+                (0xEE, Object(self.prog, "int *", 0x9ABC)),
             ],
         )
