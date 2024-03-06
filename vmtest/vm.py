@@ -131,7 +131,7 @@ fi
 
 cd {cwd}
 set +e
-sh -c {command}
+setsid -c sh -c {command}
 rc=$?
 set -e
 
