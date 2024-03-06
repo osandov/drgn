@@ -511,6 +511,92 @@ def mkswap(path, size):
         f.write(header)
 
 
+class _perf_event_attr_sample_period_or_freq(ctypes.Union):
+    _fields_ = (
+        ("sample_period", ctypes.c_uint64),
+        ("sample_freq", ctypes.c_uint64),
+    )
+
+
+class _perf_event_attr_wakeup_events_or_watermark(ctypes.Union):
+    _fields_ = (
+        ("wakeup_events", ctypes.c_uint32),
+        ("wakeup_watermark", ctypes.c_uint32),
+    )
+
+
+class _perf_event_attr_config1(ctypes.Union):
+    _fields_ = (
+        ("bp_addr", ctypes.c_uint64),
+        ("kprobe_func", ctypes.c_uint64),
+        ("uprobe_path", ctypes.c_uint64),
+        ("config1", ctypes.c_uint64),
+    )
+
+
+class _perf_event_attr_config2(ctypes.Union):
+    _fields_ = (
+        ("bp_len", ctypes.c_uint64),
+        ("kprobe_addr", ctypes.c_uint64),
+        ("probe_offset", ctypes.c_uint64),
+        ("config2", ctypes.c_uint64),
+    )
+
+
+class perf_event_attr(ctypes.Structure):
+    _fields_ = (
+        ("type", ctypes.c_uint32),
+        ("size", ctypes.c_uint32),
+        ("config", ctypes.c_uint64),
+        ("_sample_period_or_freq", _perf_event_attr_sample_period_or_freq),
+        ("sample_type", ctypes.c_uint64),
+        ("read_format", ctypes.c_uint64),
+        ("_bitfields1", ctypes.c_uint64),
+        ("_wakeup_events_or_watermark", _perf_event_attr_wakeup_events_or_watermark),
+        ("bp_type", ctypes.c_uint32),
+        ("_config1", _perf_event_attr_config1),
+        ("_config2", _perf_event_attr_config2),
+        ("branch_sample_type", ctypes.c_uint64),
+        ("sample_regs_user", ctypes.c_uint64),
+        ("sample_stack_user", ctypes.c_uint32),
+        ("clockid", ctypes.c_int32),
+        ("sample_regs_intr", ctypes.c_uint64),
+        ("aux_watermark", ctypes.c_uint32),
+        ("sample_max_stack", ctypes.c_uint16),
+        ("__reserved2", ctypes.c_uint16),
+        ("aux_sample_size", ctypes.c_uint32),
+        ("__reserved3", ctypes.c_uint32),
+        ("sig_data", ctypes.c_uint64),
+        ("config3", ctypes.c_uint64),
+    )
+    _anonymous_ = (
+        "_sample_period_or_freq",
+        "_wakeup_events_or_watermark",
+        "_config1",
+        "_config2",
+    )
+
+
+PERF_FLAG_FD_NO_GROUP = 1 << 0
+PERF_FLAG_FD_OUTPUT = 1 << 1
+PERF_FLAG_PID_CGROUP = 1 << 2
+PERF_FLAG_FD_CLOEXEC = 1 << 3
+
+
+def perf_event_open(attr, pid, cpu, group_fd=-1, flags=PERF_FLAG_FD_CLOEXEC):
+    attr.size = ctypes.sizeof(perf_event_attr)
+    return _check_ctypes_syscall(
+        _syscall(
+            SYS["perf_event_open"],
+            ctypes.byref(attr),
+            ctypes.c_int(pid),
+            ctypes.c_int(cpu),
+            ctypes.c_int(group_fd),
+            ctypes.c_ulong(flags),
+        )
+    )
+
+
 _syscall = _c.syscall
 _syscall.restype = ctypes.c_long
 

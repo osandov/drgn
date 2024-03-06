@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import array
 import contextlib
 import ctypes
 import errno
@@ -9,9 +10,11 @@ import mmap
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 import tempfile
+import unittest
 
 from drgn.helpers.linux.fs import fget
 from drgn.helpers.linux.pid import find_task
@@ -28,6 +31,8 @@ from tests.linux_kernel import (
     losetup,
     mkswap,
     mount,
+    perf_event_attr,
+    perf_event_open,
     skip_unless_have_test_disk,
     swapoff,
     swapon,
@@ -35,6 +40,8 @@ from tests.linux_kernel import (
     unshare,
 )
 from tools.fsrefs import main
+
+UPROBE_TYPE_PATH = Path("/sys/bus/event_source/devices/uprobe/type")
 
 
 class TestFsRefs(LinuxKernelTestCase):
@@ -248,7 +255,7 @@ class TestFsRefs(LinuxKernelTestCase):
                 unshare(CLONE_NEWUSER | CLONE_NEWNS)
             except OSError as e:
                 if e.errno == errno.EINVAL:
-                    return "kernel does not support user namespaces"
+                    return "kernel does not support user namespaces (CONFIG_USER_NS)"
                 else:
                     raise
             Path("/proc/self/uid_map").write_text("0 0 1")
@@ -266,7 +273,7 @@ class TestFsRefs(LinuxKernelTestCase):
                 )
             except OSError as e:
                 if e.errno == errno.ENODEV:
-                    return "kernel does not support binfmt_misc"
+                    return "kernel does not support binfmt_misc (CONFIG_BINFMT_MISC)"
                 elif e.errno == errno.EPERM:
                     return "kernel does not support sandboxed binfmt_misc mounts"
                 else:
@@ -317,3 +324,103 @@ class TestFsRefs(LinuxKernelTestCase):
                 "swap file (struct swap_info_struct *)",
                 self.run_and_capture("--check", "swap", "--inode", str(path)),
             )
+
+    def test_uprobe_event(self):
+        for mnt in iter_mounts():
+            if mnt.fstype == "tracefs":
+                break
+        else:
+            self.skipTest("tracefs not mounted")
+        uprobe_events = mnt.mount_point / "uprobe_events"
+        if not uprobe_events.exists():
+            self.skipTest(
+                "kernel does not support uprobe events (CONFIG_UPROBE_EVENTS)"
+            )
+
+        def uprobe_events_append(s):
+            # open(..., "a") tries lseek(..., SEEK_END), which fails with
+            # EINVAL.
+            with open(os.open(uprobe_events, os.O_WRONLY | os.O_APPEND), "w") as f:
+                f.write(s)
+
+        path = self._tmp / "file"
+        path.touch()
+
+        probe_name = f"drgntest_{os.urandom(20).hex()}"
+        retprobe_name = f"drgntest_{os.urandom(20).hex()}"
+        with contextlib.ExitStack() as exit_stack:
+            uprobe_events_append(f"p:{probe_name} {path}:0\n")
+            exit_stack.callback(uprobe_events_append, f"-:{probe_name}\n")
+            uprobe_events_append(f"r:{retprobe_name} {path}:0\n")
+            exit_stack.callback(uprobe_events_append, f"-:{retprobe_name}\n")
+
+            instance = Path(tempfile.mkdtemp(dir=mnt.mount_point / "instances"))
+            exit_stack.callback(instance.rmdir)
+
+            (instance / "events/uprobes" / probe_name / "enable").write_text("1")
+            (instance / "events/uprobes" / retprobe_name / "enable").write_text("1")
+
+            output = self.run_and_capture("--check", "uprobes", "--inode", str(path))
+            self.assertIn(f"uprobe event p:uprobes/{probe_name} ", output)
+            self.assertIn(f"uprobe event r:uprobes/{retprobe_name} ", output)
+
+    @unittest.skipUnless(
+        UPROBE_TYPE_PATH.exists(), "kernel does not support perf_uprobe"
+    )
+    def test_perf_uprobe(self):
+        path = self._tmp / "file"
+        path.touch()
+
+        attr = perf_event_attr()
+        attr.type = int(UPROBE_TYPE_PATH.read_text())
+        ctypes_path = ctypes.c_char_p(os.fsencode(path))
+        attr.uprobe_path = ctypes.cast(ctypes_path, ctypes.c_void_p).value
+        fd = perf_event_open(attr, -1, min(os.sched_getaffinity(0)))
+        try:
+            self.assertIn(
+                f"perf uprobe (owned by pid {os.getpid()}",
+                self.run_and_capture("--check", "uprobes", "--inode", str(path)),
+            )
+        finally:
+            os.close(fd)
+
+    @unittest.skipUnless(
+        UPROBE_TYPE_PATH.exists(), "kernel does not support perf_uprobe"
+    )
+    def test_perf_uprobe_no_owner(self):
+        path = self._tmp / "file"
+        path.touch()
+
+        sock1, sock2 = socket.socketpair()
+        try:
+            # Create a perf event in a process, send it over a Unix socket to
+            # keep it alive, then die.
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    attr = perf_event_attr()
+                    attr.type = int(UPROBE_TYPE_PATH.read_text())
+                    ctypes_path = ctypes.c_char_p(os.fsencode(path))
+                    attr.uprobe_path = ctypes.cast(ctypes_path, ctypes.c_void_p).value
+                    fd = perf_event_open(attr, -1, min(os.sched_getaffinity(0)))
+                    sock2.sendmsg(
+                        [b"\0"],
+                        [
+                            (
+                                socket.SOL_SOCKET,
+                                socket.SCM_RIGHTS,
+                                array.array("i", [fd]),
+                            )
+                        ],
+                    )
+                finally:
+                    os._exit(0)
+
+            os.waitpid(pid, 0)
+            self.assertIn(
+                "perf uprobe (no owner)",
+                self.run_and_capture("--check", "uprobes", "--inode", str(path)),
+            )
+        finally:
+            sock1.close()
+            sock2.close()

@@ -6,7 +6,8 @@ import sys
 import typing
 from typing import Any, Callable, Optional, Sequence, Union
 
-from drgn import FaultError, Object, Program, cast
+from drgn import FaultError, Object, Program, cast, container_of
+from drgn.helpers.linux.cpumask import for_each_possible_cpu
 from drgn.helpers.linux.fs import (
     d_path,
     fget,
@@ -16,10 +17,16 @@ from drgn.helpers.linux.fs import (
     mount_dst,
 )
 from drgn.helpers.linux.idr import idr_for_each_entry
-from drgn.helpers.linux.list import hlist_for_each_entry, list_for_each_entry
+from drgn.helpers.linux.list import (
+    hlist_for_each_entry,
+    list_empty,
+    list_for_each_entry,
+)
 from drgn.helpers.linux.mm import for_each_vma
+from drgn.helpers.linux.percpu import per_cpu_ptr
 from drgn.helpers.linux.pid import find_task, for_each_task
 from drgn.helpers.linux.plist import plist_for_each_entry
+from drgn.helpers.linux.rbtree import rbtree_inorder_for_each_entry
 
 
 class warn_on_fault:
@@ -287,6 +294,133 @@ def visit_swap_files(prog: Program, visitor: "Visitor") -> None:
                     print(f"swap file {swap_info.format_(**format_args)} {match}")
 
 
+# call was moved from struct trace_probe to struct trace_event Linux kernel
+# commit 60d53e2c3b75 ("tracing/probe: Split trace_event related data from
+# trace_probe") (in v5.4).
+def _trace_probe_call(tp: Object) -> Object:
+    try:
+        event = tp.event
+    except AttributeError:
+        return tp.call
+    return event.call
+
+
+def trace_probe_group_name(tp: Object) -> str:
+    return os.fsdecode(_trace_probe_call(tp).member_("class").system.string_())
+
+
+def trace_probe_name(tp: Object) -> str:
+    prog = tp.prog_
+    call = _trace_probe_call(tp).read_()
+
+    # TRACE_EVENT_FL_CUSTOM was added in Linux kernel commit 3a73333fb370
+    # ("tracing: Add TRACE_CUSTOM_EVENT() macro") (in v5.18).
+    try:
+        TRACE_EVENT_FL_CUSTOM = prog["TRACE_EVENT_FL_CUSTOM"]
+    except KeyError:
+        pass
+    else:
+        if call.flags & TRACE_EVENT_FL_CUSTOM:
+            return os.fsdecode(call.name.string_())
+
+    if call.flags & prog["TRACE_EVENT_FL_TRACEPOINT"]:
+        tracepoint = call.tp.read_()
+        return os.fsdecode(tracepoint.name.string_()) if tracepoint else ""
+    else:
+        return os.fsdecode(call.name.string_())
+
+
+def visit_uprobes(prog: Program, visitor: "Visitor") -> None:
+    try:
+        uprobes_tree = prog["uprobes_tree"]
+    except KeyError:
+        # If uprobes_tree doesn't exist, then CONFIG_UPROBES=n.
+        return
+    try:
+        uprobe_dispatcher = prog["uprobe_dispatcher"]
+    except KeyError:
+        # uprobe_dispatcher only exists if CONFIG_UPROBE_EVENTS=y, which is
+        # theoretically separate from CONFIG_UPROBES, although as of Linux 6.8
+        # they will always be the same.
+        uprobe_dispatcher = None
+    with warn_on_fault("iterating uprobes"):
+        for uprobe in rbtree_inorder_for_each_entry(
+            "struct uprobe", uprobes_tree.address_of_(), "rb_node"
+        ):
+            try:
+                match = visitor.visit_inode(uprobe.inode)
+            except FaultError:
+                continue
+            if not match:
+                continue
+            found_consumer = False
+            with warn_on_fault("iterating uprobe consumers"):
+                consumer = uprobe.consumers.read_()
+                while consumer:
+                    handler = consumer.handler.read_()
+                    if handler == uprobe_dispatcher:
+                        tu = container_of(consumer, "struct trace_uprobe", "consumer")
+                        # uprobe events created through tracefs are in a list
+                        # anchored on devent.list since Linux kernel commit
+                        # 0597c49c69d5 ("tracing/uprobes: Use dyn_event
+                        # framework for uprobe events") (in v5.0) and list
+                        # before that.
+                        try:
+                            event_list = tu.devent.list
+                        except AttributeError:
+                            event_list = tu.list
+                        if list_empty(event_list.address_of_()):
+                            found_perf_event = False
+                            with ignore_fault:
+                                call = _trace_probe_call(tu.tp)
+                                # uprobes created with perf_event_open have a
+                                # struct perf_event in call.perf_events, which
+                                # only exists if CONFIG_PERF_EVENTS=y.
+                                try:
+                                    perf_events = call.perf_events
+                                except AttributeError:
+                                    pass
+                                else:
+                                    for cpu in for_each_possible_cpu(prog):
+                                        for perf_event in hlist_for_each_entry(
+                                            "struct perf_event",
+                                            per_cpu_ptr(perf_events, cpu),
+                                            "hlist_entry",
+                                        ):
+                                            owner = perf_event.owner.read_()
+                                            if owner:
+                                                owner_pid = owner.pid.value_()
+                                                owner_comm = os.fsdecode(
+                                                    owner.comm.string_()
+                                                )
+                                                print(
+                                                    f"perf uprobe (owned by pid {owner_pid} ({owner_comm})) {perf_event.format_(**format_args)} {match}"
+                                                )
+                                            else:
+                                                print(
+                                                    f"perf uprobe (no owner) {perf_event.format_(**format_args)} {match}"
+                                                )
+                                            found_perf_event = True
+                            if not found_perf_event:
+                                print(
+                                    f"unknown trace uprobe {tu.format_(**format_args)} {match}"
+                                )
+                        else:
+                            c = "r" if tu.consumer.ret_handler else "p"
+                            group_name = trace_probe_group_name(tu.tp)
+                            event_name = trace_probe_name(tu.tp)
+                            print(
+                                f"uprobe event {c}:{group_name}/{event_name} {tu.format_(**format_args)} {match}"
+                            )
+                    else:
+                        print(
+                            f"unknown uprobe consumer {consumer.format_(**format_args)}"
+                        )
+                    consumer = consumer.next.read_()
+            if not found_consumer:
+                print(f"unknown uprobe {uprobe.format_(**format_args)} {match}")
+
+
 def hexint(x: str) -> int:
     return int(x, 16)
 
@@ -333,6 +467,7 @@ def main(prog: Program, argv: Sequence[str]) -> None:
         "mounts",
         "swap",
         "tasks",
+        "uprobes",
     ]
     check_group = parser.add_argument_group(
         title="check selection"
@@ -401,6 +536,9 @@ def main(prog: Program, argv: Sequence[str]) -> None:
 
     if "swap" in enabled_checks:
         visit_swap_files(prog, visitor)
+
+    if "uprobes" in enabled_checks:
+        visit_uprobes(prog, visitor)
 
 
 if __name__ == "__main__":
