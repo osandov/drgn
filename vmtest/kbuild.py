@@ -106,6 +106,22 @@ _PATCHES = (
         name="sched-work-around-mystery-QEMU-hang.patch",
         versions=((KernelVersion("5.11"), KernelVersion("5.14")),),
     ),
+    _Patch(
+        name="5.4-arm64-build-Remove-.eh_frame-sections-due-to-unwind-.patch",
+        versions=((KernelVersion("5.4"), KernelVersion("5.5")),),
+    ),
+    _Patch(
+        name="4.19-arm64-build-Remove-.eh_frame-sections-due-to-unwind-.patch",
+        versions=((KernelVersion("4.19.15"), KernelVersion("4.20")),),
+    ),
+    _Patch(
+        name="4.14-arm64-build-Remove-.eh_frame-sections-due-to-unwind-.patch",
+        versions=((KernelVersion("4.14.93"), KernelVersion("4.15")),),
+    ),
+    _Patch(
+        name="4.9-arm64-build-Remove-.eh_frame-sections-due-to-unwind-.patch",
+        versions=((KernelVersion("4.9"), KernelVersion("4.10")),),
+    ),
 )
 
 
