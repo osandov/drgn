@@ -203,7 +203,12 @@ class TestMemory(TestCase):
             FaultError, "could not find memory segment", prog.read, 0xDEADBEEF, 4
         )
         self.assertRaisesRegex(
-            FaultError, "could not find memory segment", prog.read, 0xFFFF0000, 4, True
+            FaultError,
+            "could not find physical memory segment",
+            prog.read,
+            0xFFFF0000,
+            4,
+            True,
         )
 
     def test_segment_overflow(self):

@@ -251,8 +251,9 @@ struct drgn_error *drgn_memory_reader_read(struct drgn_memory_reader *reader,
 			drgn_memory_segment_tree_search_le(tree,
 							   &address).entry;
 		if (!segment || segment->max_address < address) {
-			return drgn_error_create_fault("could not find memory segment",
-						       address);
+			return drgn_error_format_fault(address,
+						       "could not find %smemory segment",
+						       physical ? "physical " : "");
 		}
 
 		size_t n = min((uint64_t)(count - 1),
