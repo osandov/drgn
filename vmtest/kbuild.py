@@ -346,11 +346,21 @@ class KBuild:
             "tools/bpf/resolve_btfids/resolve_btfids",
             "tools/objtool/objtool",
         ]
-        # Before Linux kernel commit bca8f17f57bd ("arm64: Get rid of
-        # asm/opcodes.h") (in v4.10), AArch64 includes this file from 32-bit
-        # Arm.
         if self._arch.name == "aarch64":
-            files.append("arch/arm/include/asm/opcodes.h")
+            # Before Linux kernel commits bca8f17f57bd ("arm64: Get rid of
+            # asm/opcodes.h") and 2fbadc3002c5 ("arm/arm64: xen: Move shared
+            # architecture headers to include/xen/arm" (both in v4.10), AArch64
+            # included these files from 32-bit Arm.
+            files.extend(
+                (
+                    "arch/arm/include/asm/opcodes.h",
+                    "arch/arm/include/asm/xen/hypercall.h",
+                    "arch/arm/include/asm/xen/hypervisor.h",
+                    "arch/arm/include/asm/xen/interface.h",
+                    "arch/arm/include/asm/xen/page-coherent.h",
+                    "arch/arm/include/asm/xen/page.h",
+                )
+            )
         # Before Linux kernel commit efe0160cfd40 ("powerpc/64: Linker
         # on-demand sfpr functions for modules") (in v4.13), this must be
         # available to link into modules.
