@@ -3,12 +3,18 @@
 
 import gzip
 import re
+import unittest
 
 from drgn.helpers.linux.kconfig import get_kconfig
 from tests.linux_kernel import LinuxKernelTestCase
+from util import NORMALIZED_MACHINE_NAME
 
 
 class TestKconfig(LinuxKernelTestCase):
+    @unittest.skipIf(
+        NORMALIZED_MACHINE_NAME == "arm",
+        "get_kconfig() is broken on Arm due to elfutils bug",
+    )
     def test_get_kconfig(self):
         expected = {}
         try:
