@@ -15,6 +15,7 @@ from vmtest.config import (
     HOST_ARCHITECTURE,
     KERNEL_FLAVORS,
     SUPPORTED_KERNEL_VERSIONS,
+    Architecture,
     Kernel,
 )
 from vmtest.download import (
@@ -89,6 +90,20 @@ class _ProgressPrinter:
 
         print(file=self._file)
         print(header, file=self._file, flush=True)
+
+
+def _kernel_version_is_supported(version: str, arch: Architecture) -> bool:
+    # /proc/kcore is broken on AArch64 and Arm on older versions.
+    if arch.name in ("aarch64", "arm") and KernelVersion(version) <= KernelVersion(
+        "4.19"
+    ):
+        return False
+    # Before 4.11, we need an implementation of the
+    # linux_kernel_live_direct_mapping_fallback architecture callback in
+    # libdrgn, which we only have for x86_64.
+    if KernelVersion(version) <= KernelVersion("4.11") and arch.name != "x86_64":
+        return False
+    return True
 
 
 def _kdump_works(kernel: Kernel) -> bool:
@@ -168,6 +183,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    if not hasattr(args, "kernels") and not args.local:
+        parser.error("at least one of -k/--kernel or -l/--local is required")
+
     architecture_names: List[str] = []
     if hasattr(args, "architectures"):
         for name in args.architectures:
@@ -190,37 +208,39 @@ if __name__ == "__main__":
         assert HOST_ARCHITECTURE is not None
         architectures = [HOST_ARCHITECTURE]
 
+    seen_arches = set()
+    seen_kernels = set()
+    to_download: List[Download] = []
+    kernels = []
+
+    def add_kernel(arch: Architecture, pattern: str) -> None:
+        key = (arch.name, pattern)
+        if key not in seen_kernels:
+            seen_kernels.add(key)
+            if arch.name not in seen_arches:
+                seen_arches.add(arch.name)
+                to_download.append(DownloadCompiler(arch))
+            kernels.append(DownloadKernel(arch, pattern))
+
     if hasattr(args, "kernels"):
-        kernels = []
         for pattern in args.kernels:
             if pattern == "all":
-                kernels.extend(
-                    [
-                        version + ".*" + flavor
-                        for version in SUPPORTED_KERNEL_VERSIONS
-                        for flavor in KERNEL_FLAVORS
-                    ]
-                )
+                for version in SUPPORTED_KERNEL_VERSIONS:
+                    for arch in architectures:
+                        if _kernel_version_is_supported(version, arch):
+                            for flavor in KERNEL_FLAVORS.values():
+                                add_kernel(arch, version + ".*" + flavor.name)
             elif pattern in KERNEL_FLAVORS:
-                kernels.extend(
-                    [version + ".*" + pattern for version in SUPPORTED_KERNEL_VERSIONS]
-                )
+                flavor = KERNEL_FLAVORS[pattern]
+                for version in SUPPORTED_KERNEL_VERSIONS:
+                    for arch in architectures:
+                        if _kernel_version_is_supported(version, arch):
+                            add_kernel(arch, version + ".*" + flavor.name)
             else:
-                kernels.append(pattern)
-        args.kernels = OrderedDict.fromkeys(kernels)
-    else:
-        args.kernels = []
+                for arch in architectures:
+                    add_kernel(arch, pattern)
 
-    if not args.kernels and not args.local:
-        parser.error("at least one of -k/--kernel or -l/--local is required")
-
-    if args.kernels:
-        to_download: List[Download] = [DownloadCompiler(arch) for arch in architectures]
-        for pattern in args.kernels:
-            for arch in architectures:
-                to_download.append(DownloadKernel(arch, pattern))
-    else:
-        to_download = []
+    to_download.extend(kernels)
 
     progress = _ProgressPrinter(sys.stderr)
 
