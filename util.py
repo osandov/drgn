@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import platform
 import re
-import sys
 from typing import Union
 
 
@@ -135,172 +134,34 @@ elif re.match(r"sh[0-9]", NORMALIZED_MACHINE_NAME):
 elif NORMALIZED_MACHINE_NAME == "sun4u":
     NORMALIZED_MACHINE_NAME = "sparc64"
 
-if NORMALIZED_MACHINE_NAME == "x86_64":
-    if sys.maxsize > 2**32:
-        SYS = {
-            "bpf": 321,
-            "kexec_file_load": 320,
-            "perf_event_open": 298,
-            "rt_sigtimedwait": 128,
-        }
-    else:  # x32
-        SYS = {
-            "bpf": 321,
-            "kexec_file_load": 320,
-            "perf_event_open": 298,
-            "rt_sigtimedwait": 523,
-        }
-else:
-    SYS = {
-        "aarch64": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "alpha": {"bpf": 515, "perf_event_open": 493, "rt_sigtimedwait": 355},
-        "arc": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "arm": {
-            "bpf": 386,
-            "kexec_file_load": 401,
-            "perf_event_open": 364,
-            "rt_sigtimedwait": 177,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "csky": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "hexagon": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "i386": {
-            "bpf": 357,
-            "perf_event_open": 336,
-            "rt_sigtimedwait": 177,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "loongarch": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "loongarch64": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "m68k": {
-            "bpf": 354,
-            "perf_event_open": 332,
-            "rt_sigtimedwait": 177,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "microblaze": {
-            "bpf": 387,
-            "perf_event_open": 366,
-            "rt_sigtimedwait": 177,
-            "rt_sigtimedwait_time64": 421,
-        },
-        # TODO: mips is missing here because I don't know how to distinguish
-        # between the o32 and n32 ABIs.
-        "mips64": {"bpf": 315, "perf_event_open": 292, "rt_sigtimedwait": 126},
-        "nios2": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "openrisc": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "parisc": {
-            "bpf": 341,
-            "kexec_file_load": 355,
-            "perf_event_open": 318,
-            "rt_sigtimedwait": 177,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "parisc64": {
-            "bpf": 341,
-            "kexec_file_load": 355,
-            "perf_event_open": 318,
-            "rt_sigtimedwait": 177,
-        },
-        "ppc": {
-            "bpf": 361,
-            "perf_event_open": 319,
-            "rt_sigtimedwait": 176,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "ppc64": {"bpf": 361, "perf_event_open": 319, "rt_sigtimedwait": 176},
-        "riscv32": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "riscv64": {
-            "bpf": 280,
-            "kexec_file_load": 294,
-            "perf_event_open": 241,
-            "rt_sigtimedwait": 137,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "s390": {
-            "bpf": 351,
-            "kexec_file_load": 381,
-            "perf_event_open": 331,
-            "rt_sigtimedwait": 177,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "s390x": {
-            "bpf": 351,
-            "kexec_file_load": 381,
-            "perf_event_open": 331,
-            "rt_sigtimedwait": 177,
-        },
-        "sh": {
-            "bpf": 375,
-            "perf_event_open": 336,
-            "rt_sigtimedwait": 177,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "sparc": {
-            "bpf": 349,
-            "perf_event_open": 327,
-            "rt_sigtimedwait": 105,
-            "rt_sigtimedwait_time64": 421,
-        },
-        "sparc64": {"bpf": 349, "perf_event_open": 327, "rt_sigtimedwait": 105},
-        "xtensa": {
-            "bpf": 340,
-            "perf_event_open": 327,
-            "rt_sigtimedwait": 229,
-            "rt_sigtimedwait_time64": 421,
-        },
-    }.get(NORMALIZED_MACHINE_NAME, {})
+SYS = {
+    "aarch64": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "alpha": {"bpf": 515, "perf_event_open": 493},
+    "arc": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "arm": {"bpf": 386, "kexec_file_load": 401, "perf_event_open": 364},
+    "csky": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "hexagon": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "i386": {"bpf": 357, "perf_event_open": 336},
+    "loongarch": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "loongarch64": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "m68k": {"bpf": 354, "perf_event_open": 332},
+    "microblaze": {"bpf": 387, "perf_event_open": 366},
+    # TODO: mips is missing here because I don't know how to distinguish
+    # between the o32 and n32 ABIs.
+    "mips64": {"bpf": 315, "perf_event_open": 292},
+    "nios2": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "openrisc": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "parisc": {"bpf": 341, "kexec_file_load": 355, "perf_event_open": 318},
+    "parisc64": {"bpf": 341, "kexec_file_load": 355, "perf_event_open": 318},
+    "ppc": {"bpf": 361, "perf_event_open": 319},
+    "ppc64": {"bpf": 361, "perf_event_open": 319},
+    "riscv32": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "riscv64": {"bpf": 280, "kexec_file_load": 294, "perf_event_open": 241},
+    "s390": {"bpf": 351, "kexec_file_load": 381, "perf_event_open": 331},
+    "s390x": {"bpf": 351, "kexec_file_load": 381, "perf_event_open": 331},
+    "sh": {"bpf": 375, "perf_event_open": 336},
+    "sparc": {"bpf": 349, "perf_event_open": 327},
+    "sparc64": {"bpf": 349, "perf_event_open": 327},
+    "x86_64": {"bpf": 321, "kexec_file_load": 320, "perf_event_open": 298},
+    "xtensa": {"bpf": 340, "perf_event_open": 327},
+}.get(NORMALIZED_MACHINE_NAME, {})

@@ -25,8 +25,7 @@ from tests.linux_kernel import (
     MS_NOEXEC,
     MS_NOSUID,
     LinuxKernelTestCase,
-    fork_and_call,
-    fork_and_sigwait,
+    fork_and_stop,
     iter_mounts,
     losetup,
     mkswap,
@@ -118,7 +117,7 @@ class TestFsRefs(LinuxKernelTestCase):
             os.chdir(path)
 
         path = self._tmp / "dir"
-        with fork_and_sigwait(mkdir_and_chdir, path, 0o600) as pid:
+        with fork_and_stop(mkdir_and_chdir, path, 0o600) as (pid, _):
             self.assertRegex(
                 self.run_and_capture("--check", "tasks", "--inode", str(path)),
                 rf"pid {pid} \(.*\) cwd ",
@@ -130,7 +129,7 @@ class TestFsRefs(LinuxKernelTestCase):
             os.chroot(path)
 
         path = self._tmp / "dir"
-        with fork_and_sigwait(mkdir_and_chroot, path, 0o600) as pid:
+        with fork_and_stop(mkdir_and_chroot, path, 0o600) as (pid, _):
             self.assertRegex(
                 self.run_and_capture("--check", "tasks", "--inode", str(path)),
                 rf"pid {pid} \(.*\) root ",
@@ -175,7 +174,7 @@ class TestFsRefs(LinuxKernelTestCase):
             mount("tmpfs", self._tmp, "tmpfs")
             exit_stack.callback(umount, self._tmp)
 
-            pid = exit_stack.enter_context(fork_and_sigwait(unshare, CLONE_NEWNS))
+            pid, _ = exit_stack.enter_context(fork_and_stop(unshare, CLONE_NEWNS))
 
             path1 = self._tmp / "file1"
             fd1 = os.open(path1, os.O_CREAT | os.O_WRONLY, 0o600)
@@ -285,7 +284,7 @@ class TestFsRefs(LinuxKernelTestCase):
             (mount_point / "register").write_text(f":{name}:M::{encoded_id}::{path}:F")
 
         path = self._tmp / "file"
-        with fork_and_call(setup_binfmt_misc_in_userns, path) as (pid, skip):
+        with fork_and_stop(setup_binfmt_misc_in_userns, path) as (pid, skip):
             if skip:
                 self.skipTest(skip)
             ino = Path(f"/proc/{pid}/ns/user").stat().st_ino

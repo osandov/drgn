@@ -22,7 +22,7 @@ from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     LinuxKernelTestCase,
     create_socket,
-    fork_and_sigwait,
+    fork_and_stop,
     iter_mounts,
 )
 
@@ -62,7 +62,7 @@ class TestCgroup(LinuxKernelTestCase):
 
             cls.root_cgroup = cls.prog["cgrp_dfl_root"].cgrp.address_of_()
 
-            with fork_and_sigwait() as pid:
+            with fork_and_stop() as pid:
                 task = find_task(cls.prog, pid)
 
                 cls.parent_cgroup_name = os.fsencode(parent_cgroup_dir.name)

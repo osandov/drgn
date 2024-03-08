@@ -10,7 +10,7 @@ from drgn.helpers.linux.mm import pfn_to_virt
 from tests.linux_kernel import (
     HAVE_FULL_MM_SUPPORT,
     LinuxKernelTestCase,
-    fork_and_sigwait,
+    fork_and_stop,
     skip_unless_have_full_mm_support,
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
@@ -67,7 +67,7 @@ class TestPrintAnnotatedStack(LinuxKernelTestCase):
     @skip_unless_have_stack_tracing
     @skip_unless_have_test_kmod
     def test_print_annotated_stack(self):
-        with fork_and_sigwait() as pid:
+        with fork_and_stop() as pid:
             trace = self.prog.stack_trace(pid)
 
             f = io.StringIO()

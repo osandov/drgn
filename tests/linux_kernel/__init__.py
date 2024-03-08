@@ -150,76 +150,45 @@ def proc_state(pid):
         return re.search(r"State:\s*(\S)", f.read(), re.M).group(1)
 
 
-_sigwait_syscall_number_strs = {
-    str(SYS[name])
-    for name in ("rt_sigtimedwait", "rt_sigtimedwait_time64")
-    if name in SYS
-}
-
-
-# Return whether a process is blocked in sigwait().
-def proc_in_sigwait(pid):
-    if proc_state(pid) != "S":
-        return False
-    with open(f"/proc/{pid}/syscall", "r") as f:
-        return f.read().partition(" ")[0] in _sigwait_syscall_number_strs
-
-
 # Context manager that:
-# 1. Forks a process that blocks in sigwait() forever, optionally calling a
-#    function beforehand.
-# 2. Waits for the process to be in sigwait().
-# 3. Returns the PID from __enter__().
-# 4. Kills the process in __exit__().
+# 1. Forks a process which optionally calls a function and then stops with
+#    SIGSTOP.
+# 2. Waits for the child process to stop.
+# 3. Returns the PID of the child process, and return value of the function if
+#    provided, from __enter__().
+# 4. Kills the child process in __exit__().
 @contextlib.contextmanager
-def fork_and_sigwait(fn=None, *args, **kwds):
-    pid = os.fork()
-    try:
-        if pid == 0:
-            try:
-                if fn:
-                    fn(*args, **kwds)
-                while True:
-                    signal.sigwait(())
-            finally:
-                traceback.print_exc()
-                sys.stderr.flush()
-                os._exit(1)
-        wait_until(proc_in_sigwait, pid)
-        yield pid
-    finally:
-        os.kill(pid, signal.SIGKILL)
-        os.waitpid(pid, 0)
-
-
-# Context manager that:
-# 1. Forks a process that calls a function, which sends the (pickled) return
-#    value over a pipe to the calling process and then blocks in sigwait()
-#    forever.
-# 2. Reads the return value from the pipe.
-# 3. Returns the PID and return value from __enter__().
-# 4. Kills the process in __exit__().
-@contextlib.contextmanager
-def fork_and_call(fn, *args, **kwds):
-    r, w = os.pipe()
-    with open(r, "rb") as pipe_r, open(w, "wb") as pipe_w:
+def fork_and_stop(fn=None, *args, **kwds):
+    with contextlib.ExitStack() as exit_stack:
+        if fn:
+            r, w = os.pipe()
+            pipe_r = exit_stack.enter_context(open(r, "rb"))
+            pipe_w = exit_stack.enter_context(open(w, "wb"))
         pid = os.fork()
         try:
             if pid == 0:
                 try:
-                    pipe_r.close()
-                    ret = fn(*args, **kwds)
-                    pickle.dump(ret, pipe_w)
-                    pipe_w.close()
+                    if fn:
+                        pipe_r.close()
+                        ret = fn(*args, **kwds)
+                        pickle.dump(ret, pipe_w)
+                        pipe_w.close()
                     while True:
-                        signal.sigwait(())
+                        os.kill(os.getpid(), signal.SIGSTOP)
                 finally:
                     traceback.print_exc()
                     sys.stderr.flush()
                     os._exit(1)
-            pipe_w.close()
-            ret = pickle.load(pipe_r)
-            yield pid, ret
+            if fn:
+                pipe_w.close()
+                ret = pickle.load(pipe_r)
+            _, status = os.waitpid(pid, os.WUNTRACED)
+            if not os.WIFSTOPPED(status):
+                raise Exception("child process exited")
+            if fn:
+                yield pid, ret
+            else:
+                yield pid
         finally:
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)

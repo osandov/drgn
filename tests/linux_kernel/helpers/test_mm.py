@@ -50,7 +50,7 @@ from drgn.helpers.linux.mm import (
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel import (
     LinuxKernelTestCase,
-    fork_and_sigwait,
+    fork_and_stop,
     iter_maps,
     mlock,
     prng32,
@@ -358,7 +358,7 @@ class TestMm(LinuxKernelTestCase):
         self.assertIsNone(environ(find_task(self.prog, 2)))
 
     def test_vma_find(self):
-        with fork_and_sigwait() as pid:
+        with fork_and_stop() as pid:
             mm = find_task(self.prog, pid).mm
 
             prev_end = 0
@@ -392,7 +392,7 @@ class TestMm(LinuxKernelTestCase):
             )
 
     def test_for_each_vma(self):
-        with fork_and_sigwait() as pid:
+        with fork_and_stop() as pid:
             self.assertEqual(
                 [
                     (vma.vm_start, vma.vm_end)

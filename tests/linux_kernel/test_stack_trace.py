@@ -8,7 +8,7 @@ from drgn import Object, Program, reinterpret
 from tests import assertReprPrettyEqualsStr, modifyenv
 from tests.linux_kernel import (
     LinuxKernelTestCase,
-    fork_and_sigwait,
+    fork_and_stop,
     skip_unless_have_stack_tracing,
     skip_unless_have_test_kmod,
 )
@@ -107,7 +107,7 @@ class TestStackTrace(LinuxKernelStackTraceTestCase):
     def test_registers(self):
         # Smoke test that we get at least one register and that
         # StackFrame.registers() agrees with StackFrame.register().
-        with fork_and_sigwait() as pid:
+        with fork_and_stop() as pid:
             trace = self.prog.stack_trace(pid)
             have_registers = False
             for frame in trace:
@@ -119,7 +119,7 @@ class TestStackTrace(LinuxKernelStackTraceTestCase):
     def test_sp(self):
         # Smoke test that the stack pointer register shows up in
         # StackFrame.registers().
-        with fork_and_sigwait() as pid:
+        with fork_and_stop() as pid:
             trace = self.prog.stack_trace(pid)
             self.assertIn(trace[0].sp, trace[0].registers().values())
 
@@ -130,7 +130,7 @@ class TestStackTrace(LinuxKernelStackTraceTestCase):
         )
 
     def test_stack__repr_pretty_(self):
-        with fork_and_sigwait() as pid:
+        with fork_and_stop() as pid:
             trace = self.prog.stack_trace(pid)
             assertReprPrettyEqualsStr(trace)
             for frame in trace:
