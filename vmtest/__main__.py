@@ -297,6 +297,13 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
             if not isinstance(kernel, Kernel):
                 continue
             kmod = build_kmod(args.directory, kernel)
+
+            # Skip excessively slow tests when emulating.
+            if kernel.arch is HOST_ARCHITECTURE:
+                tests_expression = ""
+            else:
+                tests_expression = "-k 'not test_slab_cache_for_each_allocated_object'"
+
             if _kdump_works(kernel):
                 kdump_command = """\
     "$PYTHON" -Bm vmtest.enter_kdump
@@ -305,6 +312,7 @@ chroot "$1" sh -c 'cd /mnt && pytest -v --ignore=tests/linux_kernel'
 """
             else:
                 kdump_command = ""
+
             test_command = rf"""
 set -e
 
@@ -315,7 +323,7 @@ if [ -e /proc/vmcore ]; then
     "$PYTHON" -Bm pytest -v tests/linux_kernel/vmcore
 else
     insmod "$DRGN_TEST_KMOD"
-    "$PYTHON" -Bm pytest -v tests/linux_kernel --ignore=tests/linux_kernel/vmcore
+    "$PYTHON" -Bm pytest -v tests/linux_kernel --ignore=tests/linux_kernel/vmcore {tests_expression}
 {kdump_command}
 fi
 """
