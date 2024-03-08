@@ -4,9 +4,18 @@
 from drgn import ProgramFlags
 from drgn.helpers.linux.pid import find_task
 from tests.linux_kernel.vmcore import LinuxVMCoreTestCase
+from util import NORMALIZED_MACHINE_NAME
 
 
 class TestVMCore(LinuxVMCoreTestCase):
+    # When CPU 0 panics on s390x, the kernel switches to a different stack that
+    # we don't know how to unwind through. This is a bug. For now,
+    # vmtest.enter_kdump tries to avoid this so we can get some test coverage,
+    # and we skip the tests otherwise.
+    def _skip_if_cpu0_on_s390x(self):
+        if NORMALIZED_MACHINE_NAME == "s390x" and self.prog["panic_cpu"].counter == 0:
+            self.skipTest("drgn can't unwind s390x panic stack on CPU 0")
+
     def test_program_flags(self):
         self.assertFalse(self.prog.flags & ProgramFlags.IS_LIVE)
         self.assertTrue(self.prog.flags & ProgramFlags.IS_LINUX_KERNEL)
@@ -45,14 +54,17 @@ class TestVMCore(LinuxVMCoreTestCase):
         self.assertEqual(crashed_thread.object.comm.string_(), b"selfdestruct")
 
     def test_crashed_thread_stack_trace(self):
+        self._skip_if_cpu0_on_s390x()
         self.assertIn("sysrq", str(self.prog.crashed_thread().stack_trace()))
 
     def test_crashed_thread_stack_trace_by_tid(self):
+        self._skip_if_cpu0_on_s390x()
         self.assertIn(
             "sysrq", str(self.prog.stack_trace(self.prog.crashed_thread().tid))
         )
 
     def test_crashed_thread_stack_trace_by_task_struct(self):
+        self._skip_if_cpu0_on_s390x()
         self.assertIn(
             "sysrq", str(self.prog.stack_trace(self.prog.crashed_thread().object))
         )
