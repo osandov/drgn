@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -285,7 +286,9 @@ def run_in_vm(
         with disk_path.open("wb") as f:
             os.ftruncate(f.fileno(), 1024 * 1024 * 1024)
 
-        with subprocess.Popen(
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+
+        proc = subprocess.Popen(
             [
                 # fmt: off
                 *unshare_args,
@@ -322,7 +325,8 @@ def run_in_vm(
                 # fmt: on
             ],
             env=env,
-        ):
+        )
+        try:
             server_sock.settimeout(5)
             try:
                 sock = server_sock.accept()[0]
@@ -342,6 +346,11 @@ def run_in_vm(
                     status_buf.extend(buf)
             finally:
                 sock.close()
+        except BaseException:
+            proc.terminate()
+            raise
+        finally:
+            proc.wait()
         if not status_buf:
             raise LostVMError("VM did not return status")
         if status_buf[-1] != ord("\n") or not status_buf[:-1].isdigit():
