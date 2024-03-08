@@ -12,7 +12,7 @@ KEXEC_FILE_ON_CRASH = 2
 KEXEC_FILE_NO_INITRAMFS = 4
 
 
-def main():
+def main() -> None:
     with open("/proc/cmdline", "rb") as f:
         cmdline = f.read().rstrip(b"\n")
         cmdline = re.sub(rb"(^|\s)crashkernel=\S+", b"", cmdline)

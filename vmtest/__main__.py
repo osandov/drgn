@@ -7,6 +7,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+from typing import Dict, List, TextIO
 
 from util import KernelVersion
 from vmtest.config import (
@@ -16,7 +17,12 @@ from vmtest.config import (
     SUPPORTED_KERNEL_VERSIONS,
     Kernel,
 )
-from vmtest.download import DownloadCompiler, DownloadKernel, download_in_thread
+from vmtest.download import (
+    Download,
+    DownloadCompiler,
+    DownloadKernel,
+    download_in_thread,
+)
 from vmtest.kmod import build_kmod
 from vmtest.rootfsbuild import build_drgn_in_rootfs
 from vmtest.vm import LostVMError, run_in_vm
@@ -25,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class _ProgressPrinter:
-    def __init__(self, file):
+    def __init__(self, file: TextIO) -> None:
         self._file = file
         if hasattr(file, "fileno"):
             try:
@@ -35,8 +41,8 @@ class _ProgressPrinter:
                 columns = 80
                 self._color = False
         self._header = "#" * columns
-        self._passed = {}
-        self._failed = {}
+        self._passed: Dict[str, List[str]] = {}
+        self._failed: Dict[str, List[str]] = {}
 
     def _green(self, s: str) -> str:
         if self._color:
@@ -50,7 +56,7 @@ class _ProgressPrinter:
         else:
             return s
 
-    def update(self, category: str, name: str, passed: bool):
+    def update(self, category: str, name: str, passed: bool) -> None:
         d = self._passed if passed else self._failed
         d.setdefault(category, []).append(name)
 
@@ -162,7 +168,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    architecture_names = []
+    architecture_names: List[str] = []
     if hasattr(args, "architectures"):
         for name in args.architectures:
             if name == "all":
@@ -181,6 +187,7 @@ if __name__ == "__main__":
             ARCHITECTURES[name] for name in OrderedDict.fromkeys(architecture_names)
         ]
     else:
+        assert HOST_ARCHITECTURE is not None
         architectures = [HOST_ARCHITECTURE]
 
     if hasattr(args, "kernels"):
@@ -208,7 +215,7 @@ if __name__ == "__main__":
         parser.error("at least one of -k/--kernel or -l/--local is required")
 
     if args.kernels:
-        to_download = [DownloadCompiler(arch) for arch in architectures]
+        to_download: List[Download] = [DownloadCompiler(arch) for arch in architectures]
         for pattern in args.kernels:
             for arch in architectures:
                 to_download.append(DownloadKernel(arch, pattern))
