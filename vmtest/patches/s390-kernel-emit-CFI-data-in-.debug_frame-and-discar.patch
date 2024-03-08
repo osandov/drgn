@@ -1,0 +1,229 @@
+From bc3703f21cec8a2ac6a64f6fb3686fbcb1ba1513 Mon Sep 17 00:00:00 2001
+Message-ID: <bc3703f21cec8a2ac6a64f6fb3686fbcb1ba1513.1709927555.git.osandov@osandov.com>
+From: Hendrik Brueckner <brueckner@linux.vnet.ibm.com>
+Date: Mon, 20 Nov 2017 11:41:07 +0100
+Subject: [PATCH] s390/kernel: emit CFI data in .debug_frame and discard
+ .eh_frame sections
+
+Using perf probe and libdw on kernel modules failed to find CFI
+data for symbols.  The CFI data is stored in the .eh_frame section.
+The elfutils libdw is not able to extract the CFI data correctly,
+because the .eh_frame section requires "non-simple" relocations
+for kernel modules.
+
+The suggestion is to avoid these "non-simple" relocations by emitting
+the CFI data in the .debug_frame section.  Let gcc emit respective
+directives by specifying the -fno-asynchronous-unwind-tables option.
+
+Using the .debug_frame section for CFI data, the .eh_frame section
+becomes unused and, thus, discard it for kernel and modules builds
+
+The vDSO requires the .eh_frame section and, hence, emit the CFI data
+in both, the .eh_frame and .debug_frame sections.
+
+See also discussion on elfutils/libdw bugzilla:
+https://sourceware.org/bugzilla/show_bug.cgi?id=22452
+
+Suggested-by: Mark Wielaard <mark@klomp.org>
+Signed-off-by: Hendrik Brueckner <brueckner@linux.vnet.ibm.com>
+Reviewed-by: Heiko Carstens <heiko.carstens@de.ibm.com>
+Signed-off-by: Martin Schwidefsky <schwidefsky@de.ibm.com>
+---
+ arch/s390/Makefile                      |  1 +
+ arch/s390/include/asm/dwarf.h           | 25 +++++++++++++++++++++++++
+ arch/s390/kernel/vdso32/Makefile        |  3 +++
+ arch/s390/kernel/vdso32/clock_getres.S  |  1 +
+ arch/s390/kernel/vdso32/clock_gettime.S |  1 +
+ arch/s390/kernel/vdso32/getcpu.S        |  1 +
+ arch/s390/kernel/vdso32/gettimeofday.S  |  1 +
+ arch/s390/kernel/vdso64/Makefile        |  3 +++
+ arch/s390/kernel/vdso64/clock_getres.S  |  1 +
+ arch/s390/kernel/vdso64/clock_gettime.S |  1 +
+ arch/s390/kernel/vdso64/getcpu.S        |  1 +
+ arch/s390/kernel/vdso64/gettimeofday.S  |  1 +
+ arch/s390/kernel/vmlinux.lds.S          |  3 +++
+ 13 files changed, 43 insertions(+)
+ create mode 100644 arch/s390/include/asm/dwarf.h
+
+diff --git a/arch/s390/Makefile b/arch/s390/Makefile
+index de54cfc6109d..494bb9ad5edf 100644
+--- a/arch/s390/Makefile
++++ b/arch/s390/Makefile
+@@ -90,6 +90,7 @@ endif
+ 
+ KBUILD_CFLAGS	+= -mbackchain -msoft-float $(cflags-y)
+ KBUILD_CFLAGS	+= -pipe -fno-strength-reduce -Wno-sign-compare
++KBUILD_CFLAGS	+= -fno-asynchronous-unwind-tables
+ KBUILD_AFLAGS	+= $(aflags-y)
+ 
+ OBJCOPYFLAGS	:= -O binary
+diff --git a/arch/s390/include/asm/dwarf.h b/arch/s390/include/asm/dwarf.h
+new file mode 100644
+index 000000000000..dffdb81e534f
+--- /dev/null
++++ b/arch/s390/include/asm/dwarf.h
+@@ -0,0 +1,25 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _ASM_S390_DWARF_H
++#define _ASM_S390_DWARF_H
++
++#ifdef __ASSEMBLY__
++
++#ifndef BUILD_VDSO
++	/*
++	 * Emit CFI data in .debug_frame sections and not in .eh_frame
++	 * sections.  The .eh_frame CFI is used for runtime unwind
++	 * information that is not being used.  Hence, vmlinux.lds.S
++	 * can discard the .eh_frame sections.
++	 */
++	.cfi_sections .debug_frame
++#else
++	/*
++	 * For vDSO, emit CFI data in both, .eh_frame and .debug_frame
++	 * sections.
++	 */
++	.cfi_sections .eh_frame, .debug_frame
++#endif
++
++#endif	/* __ASSEMBLY__ */
++
++#endif	/* _ASM_S390_DWARF_H */
+diff --git a/arch/s390/kernel/vdso32/Makefile b/arch/s390/kernel/vdso32/Makefile
+index 308564b9bf68..c5c856f320bc 100644
+--- a/arch/s390/kernel/vdso32/Makefile
++++ b/arch/s390/kernel/vdso32/Makefile
+@@ -10,6 +10,9 @@ obj-vdso32 = gettimeofday.o clock_getres.o clock_gettime.o note.o getcpu.o
+ targets := $(obj-vdso32) vdso32.so vdso32.so.dbg
+ obj-vdso32 := $(addprefix $(obj)/, $(obj-vdso32))
+ 
++KBUILD_AFLAGS += -DBUILD_VDSO
++KBUILD_CFLAGS += -DBUILD_VDSO
++
+ KBUILD_AFLAGS_31 := $(filter-out -m64,$(KBUILD_AFLAGS))
+ KBUILD_AFLAGS_31 += -m31 -s
+ 
+diff --git a/arch/s390/kernel/vdso32/clock_getres.S b/arch/s390/kernel/vdso32/clock_getres.S
+index f61df5253c23..6aeddf8e4bc7 100644
+--- a/arch/s390/kernel/vdso32/clock_getres.S
++++ b/arch/s390/kernel/vdso32/clock_getres.S
+@@ -9,6 +9,7 @@
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/unistd.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vdso32/clock_gettime.S b/arch/s390/kernel/vdso32/clock_gettime.S
+index 2d6ec3abe095..d0ac32c413e2 100644
+--- a/arch/s390/kernel/vdso32/clock_gettime.S
++++ b/arch/s390/kernel/vdso32/clock_gettime.S
+@@ -9,6 +9,7 @@
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/unistd.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vdso32/getcpu.S b/arch/s390/kernel/vdso32/getcpu.S
+index 5477a2c112fb..539d92a2c61b 100644
+--- a/arch/s390/kernel/vdso32/getcpu.S
++++ b/arch/s390/kernel/vdso32/getcpu.S
+@@ -8,6 +8,7 @@
+  */
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vdso32/gettimeofday.S b/arch/s390/kernel/vdso32/gettimeofday.S
+index aa8bf13a2edb..435f819c3e65 100644
+--- a/arch/s390/kernel/vdso32/gettimeofday.S
++++ b/arch/s390/kernel/vdso32/gettimeofday.S
+@@ -9,6 +9,7 @@
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/unistd.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vdso64/Makefile b/arch/s390/kernel/vdso64/Makefile
+index f81ae7998883..15b1ceafc4c1 100644
+--- a/arch/s390/kernel/vdso64/Makefile
++++ b/arch/s390/kernel/vdso64/Makefile
+@@ -10,6 +10,9 @@ obj-vdso64 = gettimeofday.o clock_getres.o clock_gettime.o note.o getcpu.o
+ targets := $(obj-vdso64) vdso64.so vdso64.so.dbg
+ obj-vdso64 := $(addprefix $(obj)/, $(obj-vdso64))
+ 
++KBUILD_AFLAGS += -DBUILD_VDSO
++KBUILD_CFLAGS += -DBUILD_VDSO
++
+ KBUILD_AFLAGS_64 := $(filter-out -m64,$(KBUILD_AFLAGS))
+ KBUILD_AFLAGS_64 += -m64 -s
+ 
+diff --git a/arch/s390/kernel/vdso64/clock_getres.S b/arch/s390/kernel/vdso64/clock_getres.S
+index faf5213b15df..5b0d9c380de2 100644
+--- a/arch/s390/kernel/vdso64/clock_getres.S
++++ b/arch/s390/kernel/vdso64/clock_getres.S
+@@ -9,6 +9,7 @@
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/unistd.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vdso64/clock_gettime.S b/arch/s390/kernel/vdso64/clock_gettime.S
+index 6046b3bfca46..deccd793b279 100644
+--- a/arch/s390/kernel/vdso64/clock_gettime.S
++++ b/arch/s390/kernel/vdso64/clock_gettime.S
+@@ -9,6 +9,7 @@
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/unistd.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vdso64/getcpu.S b/arch/s390/kernel/vdso64/getcpu.S
+index e9c34364d97b..022acdecd5b9 100644
+--- a/arch/s390/kernel/vdso64/getcpu.S
++++ b/arch/s390/kernel/vdso64/getcpu.S
+@@ -8,6 +8,7 @@
+  */
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vdso64/gettimeofday.S b/arch/s390/kernel/vdso64/gettimeofday.S
+index cc9dbc27da6f..964afb1de06d 100644
+--- a/arch/s390/kernel/vdso64/gettimeofday.S
++++ b/arch/s390/kernel/vdso64/gettimeofday.S
+@@ -9,6 +9,7 @@
+ #include <asm/vdso.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/unistd.h>
++#include <asm/dwarf.h>
+ 
+ 	.text
+ 	.align 4
+diff --git a/arch/s390/kernel/vmlinux.lds.S b/arch/s390/kernel/vmlinux.lds.S
+index a049ff005f03..608cf2987d19 100644
+--- a/arch/s390/kernel/vmlinux.lds.S
++++ b/arch/s390/kernel/vmlinux.lds.S
+@@ -141,4 +141,7 @@ SECTIONS
+ 
+ 	/* Sections to be discarded */
+ 	DISCARDS
++	/DISCARD/ : {
++		*(.eh_frame)
++	}
+ }
+-- 
+2.44.0
+

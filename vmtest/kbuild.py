@@ -126,6 +126,10 @@ _PATCHES = (
         name="powerpc-pseries-Fix-hcall-tracepoints-with-JUMP_LABE.patch",
         versions=((KernelVersion("6.2"), KernelVersion("6.4")),),
     ),
+    _Patch(
+        name="s390-kernel-emit-CFI-data-in-.debug_frame-and-discar.patch",
+        versions=((None, KernelVersion("4.15")),),
+    ),
 )
 
 
