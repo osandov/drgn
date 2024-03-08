@@ -1,0 +1,33 @@
+From 750bd41aeaeb1f0e0128aa4f8fcd6dd759713641 Mon Sep 17 00:00:00 2001
+Message-ID: <750bd41aeaeb1f0e0128aa4f8fcd6dd759713641.1709892187.git.osandov@osandov.com>
+From: Nicholas Piggin <npiggin@gmail.com>
+Date: Tue, 9 May 2023 19:15:59 +1000
+Subject: [PATCH] powerpc/pseries: Fix hcall tracepoints with JUMP_LABEL=n
+
+With JUMP_LABEL=n, hcall_tracepoint_refcount's address is being tested
+instead of its value. This results in the tracing slowpath always being
+taken unnecessarily.
+
+Fixes: 9a10ccb29c0a2 ("powerpc/pseries: move hcall_tracepoint_refcount out of .toc")
+Signed-off-by: Nicholas Piggin <npiggin@gmail.com>
+Signed-off-by: Michael Ellerman <mpe@ellerman.id.au>
+Link: https://msgid.link/20230509091600.70994-1-npiggin@gmail.com
+---
+ arch/powerpc/platforms/pseries/hvCall.S | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/powerpc/platforms/pseries/hvCall.S b/arch/powerpc/platforms/pseries/hvCall.S
+index 35254ac7af5e..ca0674b0b683 100644
+--- a/arch/powerpc/platforms/pseries/hvCall.S
++++ b/arch/powerpc/platforms/pseries/hvCall.S
+@@ -91,6 +91,7 @@ BEGIN_FTR_SECTION;						\
+ 	b	1f;						\
+ END_FTR_SECTION(0, 1);						\
+ 	LOAD_REG_ADDR(r12, hcall_tracepoint_refcount) ;		\
++	ld	r12,0(r12);					\
+ 	std	r12,32(r1);					\
+ 	cmpdi	r12,0;						\
+ 	bne-	LABEL;						\
+-- 
+2.44.0
+

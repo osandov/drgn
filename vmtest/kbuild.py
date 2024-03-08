@@ -122,6 +122,10 @@ _PATCHES = (
         name="4.9-arm64-build-Remove-.eh_frame-sections-due-to-unwind-.patch",
         versions=((KernelVersion("4.9"), KernelVersion("4.10")),),
     ),
+    _Patch(
+        name="powerpc-pseries-Fix-hcall-tracepoints-with-JUMP_LABE.patch",
+        versions=((KernelVersion("6.2"), KernelVersion("6.4")),),
+    ),
 )
 
 
