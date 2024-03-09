@@ -64,10 +64,24 @@ def print_annotated_stack(trace: StackTrace) -> None:
 
     start = 0
     while start < len(trace):
-        # Find the bounds of this stack trace up to the next interrupted frame,
-        # which is often on a separate stack.
+        # Find the bounds of this stack. Our heuristics for the end of the
+        # stack are:
+        #
+        # 1. An interrupted frame.
+        # 2. A frame with a stack pointer less than the previous frame's stack
+        #    pointer (since the stack grows down in all of the architectures we
+        #    support).
+        # 3. A frame with a stack pointer much greater than the previous
+        #    frame's stack pointer. Our arbitrary threshold is 128 MB. (Linux
+        #    kernel stacks are at most 16 KB as of Linux 6.8, and userspace
+        #    stacks are limited to 8 MB by default, so this threshold could be
+        #    adjusted if needed.)
         end = start + 1
-        while end < len(trace) and not trace[end].interrupted:
+        while (
+            end < len(trace)
+            and not trace[end].interrupted
+            and 0 <= trace[end].sp - trace[end - 1].sp <= 128 * 1024 * 1024
+        ):
             end += 1
 
         # Gather the frames for this stack.
