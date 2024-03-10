@@ -87,3 +87,43 @@ def mutex_for_each_waiter_task(lock: Object) -> Iterator[Object]:
     """
     for waiter in mutex_for_each_waiter(lock):
         yield waiter.task
+
+
+######################################
+# semaphore
+######################################
+
+
+def semaphore_is_locked(lock: Object) -> bool:
+    """
+    Check if a given semaphore is locked or not.
+
+    :param lock: ``struct semaphore *``
+    :return: True if semphore is locked (i.e count <= 0), False otherwise.
+    """
+
+    return lock.count.value_() <= 0
+
+
+def semaphore_for_each_waiter(lock: Object) -> Iterator[Object]:
+    """
+    Iterate over all semaphore_waiter objects for a semaphore.
+
+    :param lock: ``struct semaphore *``
+    :return: Iterator of ``struct semaphore_waiter *`` objects.
+    """
+    for waiter in list_for_each_entry(
+        "struct semaphore_waiter", lock.wait_list.address_of_(), "list"
+    ):
+        yield waiter
+
+
+def semaphore_for_each_waiter_task(lock: Object) -> Iterator[Object]:
+    """
+    Iterate over all tasks blocked on a semaphore.
+
+    :param lock: ``struct semaphore *``
+    :return: Iterator of ``struct task_struct *`` objects.
+    """
+    for waiter in semaphore_for_each_waiter(lock):
+        yield waiter.task
