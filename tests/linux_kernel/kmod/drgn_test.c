@@ -1174,6 +1174,55 @@ static void drgn_test_waitq_exit(void)
 	}
 }
 
+// mutex
+static DECLARE_COMPLETION(drgn_test_mutex_release_owner);
+static struct task_struct *drgn_test_mutex_owner_kthread;
+static struct task_struct *drgn_test_mutex_waiter_kthread;
+static struct mutex drgn_test_locked_mutex;
+static struct mutex drgn_test_unlocked_mutex;
+
+static int drgn_test_mutex_owner_kthread_fn(void *arg)
+{
+	mutex_lock(&drgn_test_locked_mutex);
+	wait_for_completion(&drgn_test_mutex_release_owner);
+	mutex_unlock(&drgn_test_locked_mutex);
+	return 0;
+}
+
+static int drgn_test_mutex_waiter_kthread_fn(void *arg)
+{
+	mutex_lock(&drgn_test_locked_mutex);
+	mutex_unlock(&drgn_test_locked_mutex);
+	return 0;
+}
+static int drgn_test_mutex_init(void)
+{
+	mutex_init(&drgn_test_locked_mutex);
+	mutex_init(&drgn_test_unlocked_mutex);
+
+	drgn_test_mutex_owner_kthread = kthread_create(drgn_test_mutex_owner_kthread_fn,
+						 NULL,
+						 "drgn_test_mutex_owner_kthread");
+
+	drgn_test_mutex_waiter_kthread = kthread_create(drgn_test_mutex_waiter_kthread_fn,
+						 NULL,
+						 "drgn_test_mutex_waiter_kthread");
+
+	if (!drgn_test_mutex_owner_kthread || !drgn_test_mutex_waiter_kthread)
+		return -1;
+
+	wake_up_process(drgn_test_mutex_owner_kthread);
+	mdelay(500); //make sure owner gets chance to grab the mutex
+	wake_up_process(drgn_test_mutex_waiter_kthread);
+	return 0;
+}
+
+static void drgn_test_mutex_exit(void)
+{
+	if (drgn_test_mutex_owner_kthread)
+		complete(&drgn_test_mutex_release_owner);
+}
+
 // Dummy function symbol.
 int drgn_test_function(int x)
 {
@@ -1191,6 +1240,7 @@ static void drgn_test_exit(void)
 	drgn_test_radix_tree_exit();
 	drgn_test_xarray_exit();
 	drgn_test_waitq_exit();
+	drgn_test_mutex_exit();
 	drgn_test_idr_exit();
 }
 
@@ -1230,6 +1280,11 @@ static int __init drgn_test_init(void)
 	ret = drgn_test_waitq_init();
 	if (ret)
 		goto out;
+
+	ret = drgn_test_mutex_init();
+	if (ret)
+		goto out;
+
 	ret = drgn_test_idr_init();
 out:
 	if (ret)
